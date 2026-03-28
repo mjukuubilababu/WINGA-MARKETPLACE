@@ -13,6 +13,7 @@ test-results/
 playwright-report/
 e2e.log
 tests/e2e/.seed-sessions.json
+dist/
 .env.production
 .env
 .env.local

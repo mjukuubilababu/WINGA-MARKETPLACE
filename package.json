@@ -2,6 +2,7 @@
   "name": "winga-app",
   "private": true,
   "scripts": {
+    "build:vercel": "node scripts/build-vercel-static.js",
     "test": "npm run test:frontend && npm run test:integration && npm run test:e2e",
     "test:frontend": "node tests/frontend-core.test.js",
     "test:integration": "node --test tests/integration-api.test.js",
