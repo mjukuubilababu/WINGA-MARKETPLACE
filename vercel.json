@@ -1,7 +1,11 @@
 {
-  "buildCommand": "npm run build:vercel",
-  "outputDirectory": "dist",
   "cleanUrls": false,
+  "rewrites": [
+    {
+      "source": "/",
+      "destination": "/winga.html"
+    }
+  ],
   "headers": [
     {
       "source": "/(.*).html",
@@ -51,7 +55,7 @@
   "redirects": [
     {
       "source": "/winga",
-      "destination": "/",
+      "destination": "/winga.html",
       "permanent": false
     }
   ]

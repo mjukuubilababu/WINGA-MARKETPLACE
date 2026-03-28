@@ -1,0 +1,12 @@
+backend/
+tests/
+test-results/
+node_modules/
+dist/
+.env
+.env.local
+.env.production
+backend/.env
+backend/.env.local
+backend/.env.production
+e2e.log
