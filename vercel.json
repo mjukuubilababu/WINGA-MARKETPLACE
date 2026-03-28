@@ -1,11 +1,5 @@
 {
   "cleanUrls": false,
-  "rewrites": [
-    {
-      "source": "/",
-      "destination": "/winga.html"
-    }
-  ],
   "headers": [
     {
       "source": "/(.*).html",
@@ -55,7 +49,7 @@
   "redirects": [
     {
       "source": "/winga",
-      "destination": "/winga.html",
+      "destination": "/",
       "permanent": false
     }
   ]
