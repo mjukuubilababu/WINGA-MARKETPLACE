@@ -1,0 +1,13 @@
+{
+  "name": "winga-app",
+  "private": true,
+  "scripts": {
+    "test": "npm run test:frontend && npm run test:integration && npm run test:e2e",
+    "test:frontend": "node tests/frontend-core.test.js",
+    "test:integration": "node --test tests/integration-api.test.js",
+    "test:e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.58.2"
+  }
+}

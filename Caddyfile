@@ -1,0 +1,19 @@
+{
+  email {$ACME_EMAIL}
+}
+
+{$WINGA_DOMAIN} {
+  encode zstd gzip
+
+  @api path /api/* /uploads/*
+  reverse_proxy @api backend:3000
+
+  root * /srv
+  file_server
+
+  header {
+    X-Content-Type-Options "nosniff"
+    X-Frame-Options "SAMEORIGIN"
+    Referrer-Policy "strict-origin-when-cross-origin"
+  }
+}

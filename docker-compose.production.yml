@@ -1,0 +1,61 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:18
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: winga_app
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  backend:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    depends_on:
+      - postgres
+    env_file:
+      - ./backend/.env.production
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/winga_app
+      DATABASE_SSL: "false"
+      ALLOWED_ORIGINS: https://${WINGA_DOMAIN}
+      TRUST_PROXY_HEADERS: ${TRUST_PROXY_HEADERS}
+      ADMIN_SEED_PASSWORD: ${ADMIN_SEED_PASSWORD}
+      MODERATOR_SEED_PASSWORD: ${MODERATOR_SEED_PASSWORD}
+      PAYMENT_WEBHOOK_SECRET: ${PAYMENT_WEBHOOK_SECRET}
+    volumes:
+      - ./backend/uploads:/app/uploads
+      - ./backend/data:/app/data
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      WINGA_DOMAIN: ${WINGA_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./winga.html:/srv/winga.html:ro
+      - ./style.css:/srv/style.css:ro
+      - ./app.js:/srv/app.js:ro
+      - ./data-service.js:/srv/data-service.js:ro
+      - ./mock-data.js:/srv/mock-data.js:ro
+      - ./winga-config.js:/srv/winga-config.js:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:

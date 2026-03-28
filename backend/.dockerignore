@@ -1,0 +1,5 @@
+node_modules
+data
+postgres-backups
+postgres-config.local.bat
+*.log
