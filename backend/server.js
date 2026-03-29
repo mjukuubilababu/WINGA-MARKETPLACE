@@ -179,6 +179,20 @@ function validateRuntimeConfiguration() {
 
 const runtimeConfiguration = validateRuntimeConfiguration();
 if (runtimeConfiguration.errors.length) {
+  console.error("[WING] runtime configuration errors", runtimeConfiguration.errors);
+  console.error("[WING] runtime configuration summary", {
+    environment: NODE_ENV,
+    storageMode: runtimeConfiguration.storageMode,
+    hasDatabaseUrl: Boolean(DATABASE_URL),
+    databaseSsl: DATABASE_SSL,
+    allowedOriginsCount: CONFIGURED_ALLOWED_ORIGINS.length,
+    hasAdminSeedPassword: Boolean(ADMIN_SEED_PASSWORD),
+    hasModeratorSeedPassword: Boolean(MODERATOR_SEED_PASSWORD),
+    hasPaymentWebhookSecret: Boolean(PAYMENT_WEBHOOK_SECRET),
+    allowUnverifiedManualPayments: ALLOW_UNVERIFIED_MANUAL_PAYMENTS,
+    allowLocalDataStoreInProduction: ALLOW_LOCAL_DATA_STORE_IN_PRODUCTION,
+    allowDefaultOriginFallback: ALLOW_DEFAULT_ORIGIN_FALLBACK
+  });
   throw new Error(`Runtime configuration invalid:\n- ${runtimeConfiguration.errors.join("\n- ")}`);
 }
 
