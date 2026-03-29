@@ -283,7 +283,7 @@ function getBackupStatus() {
 }
 
 function safeConsole(method, message, details) {
-  if (NODE_ENV === "production") {
+  if (NODE_ENV === "production" && method !== "error" && method !== "warn") {
     return;
   }
 
@@ -4601,7 +4601,10 @@ http.createServer(async (req, res) => {
     await initializeStoreAtBoot();
     console.log(`WINGA backend running on http://localhost:${PORT}${postgresStore ? " (PostgreSQL mode)" : " (File mode)"}`);
   } catch (error) {
-    safeConsole("error", "Failed to initialize WINGA backend", error.message);
+    console.error("[WINGA] failed to initialize backend", {
+      message: error?.message || String(error),
+      stack: error?.stack || ""
+    });
     process.exit(1);
   }
 });
