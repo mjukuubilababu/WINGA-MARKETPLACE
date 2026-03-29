@@ -2,7 +2,7 @@ const fs = require("fs");
 const path = require("path");
 
 const rootDir = path.resolve(__dirname, "..");
-const distDir = path.join(rootDir, "dist");
+const outputDir = path.join(rootDir, "public");
 const requiredRootFiles = [
   "winga.html",
   "style.css",
@@ -47,7 +47,7 @@ function ensureCleanDir(targetDir) {
 
 function copyFileIntoDist(sourceRelativePath, targetRelativePath) {
   const sourcePath = path.join(rootDir, sourceRelativePath);
-  const targetPath = path.join(distDir, targetRelativePath);
+  const targetPath = path.join(outputDir, targetRelativePath);
   fs.mkdirSync(path.dirname(targetPath), { recursive: true });
   fs.copyFileSync(sourcePath, targetPath);
 }
@@ -79,14 +79,14 @@ function verifyDistContents() {
   ];
 
   expectedFiles.forEach((relativePath) => {
-    const absolutePath = path.join(distDir, relativePath);
+    const absolutePath = path.join(outputDir, relativePath);
     if (!fs.existsSync(absolutePath)) {
       throw new Error(`Vercel build output is missing required artifact: ${relativePath}`);
     }
   });
 
   forbiddenDistEntries.forEach((relativePath) => {
-    const absolutePath = path.join(distDir, relativePath);
+    const absolutePath = path.join(outputDir, relativePath);
     if (fs.existsSync(absolutePath)) {
       throw new Error(`Vercel build output contains forbidden entry: ${relativePath}`);
     }
@@ -96,13 +96,13 @@ function verifyDistContents() {
 requiredRootFiles.forEach(assertPathExists);
 assertPathExists("src");
 
-ensureCleanDir(distDir);
+ensureCleanDir(outputDir);
 
 fileCopies.forEach(([sourceRelativePath, targetRelativePath]) => {
   copyFileIntoDist(sourceRelativePath, targetRelativePath);
 });
 
-copyDirectoryRecursive(path.join(rootDir, "src"), path.join(distDir, "src"));
+copyDirectoryRecursive(path.join(rootDir, "src"), path.join(outputDir, "src"));
 verifyDistContents();
 
-console.log("Built Vercel static frontend into dist/");
+console.log("Built Vercel static frontend into public/");

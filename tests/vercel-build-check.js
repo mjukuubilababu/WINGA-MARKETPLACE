@@ -2,7 +2,7 @@ const fs = require("fs");
 const path = require("path");
 
 const rootDir = path.resolve(__dirname, "..");
-const distDir = path.join(rootDir, "dist");
+const outputDir = path.join(rootDir, "public");
 
 function assert(condition, message) {
   if (!condition) {
@@ -23,7 +23,7 @@ const requiredFiles = [
 ];
 
 requiredFiles.forEach((relativePath) => {
-  assert(fs.existsSync(path.join(distDir, relativePath)), `${relativePath} should exist`);
+  assert(fs.existsSync(path.join(outputDir, relativePath)), `${relativePath} should exist`);
 });
 
 [
@@ -33,7 +33,7 @@ requiredFiles.forEach((relativePath) => {
   ".env",
   ".env.production"
 ].forEach((relativePath) => {
-  assert(!fs.existsSync(path.join(distDir, relativePath)), `${relativePath} should not be deployed to dist`);
+  assert(!fs.existsSync(path.join(outputDir, relativePath)), `${relativePath} should not be deployed to public`);
 });
 
 console.log("Vercel build output check passed.");
