@@ -2253,6 +2253,44 @@
     return createLocalAdapter();
   }
 
+  function wait(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  function isRetryableBootError(error) {
+    const message = String(error?.message || "").toLowerCase();
+    return Boolean(
+      error?.name === "TypeError"
+      || message.includes("fetch")
+      || message.includes("network")
+      || message.includes("request took too long")
+      || message.includes("failed to fetch")
+      || message.includes("attempting to fetch resource")
+    );
+  }
+
+  async function withRetry(task, options = {}) {
+    const {
+      retries = 0,
+      delayMs = 800,
+      shouldRetry = () => false
+    } = options;
+
+    let lastError = null;
+    for (let attempt = 0; attempt <= retries; attempt += 1) {
+      try {
+        return await task(attempt);
+      } catch (error) {
+        lastError = error;
+        if (attempt >= retries || !shouldRetry(error, attempt)) {
+          throw error;
+        }
+        await wait(delayMs * (attempt + 1));
+      }
+    }
+    throw lastError;
+  }
+
   const state = {
     users: [],
     products: [],
@@ -2318,7 +2356,14 @@
       ensureAdapter();
 
       try {
-        await loadInitialState(state.adapter);
+        await withRetry(
+          () => loadInitialState(state.adapter),
+          {
+            retries: state.activeProvider === "api" ? 2 : 0,
+            delayMs: 1200,
+            shouldRetry: (error) => state.activeProvider === "api" && isRetryableBootError(error)
+          }
+        );
         if (state.activeProvider === "api") {
           clearLegacyLocalFallbackArtifacts();
         }
