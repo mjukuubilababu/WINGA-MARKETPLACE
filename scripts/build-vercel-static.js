@@ -3,6 +3,7 @@ const path = require("path");
 
 const rootDir = path.resolve(__dirname, "..");
 const outputDir = path.join(rootDir, "public");
+const assetVersion = process.env.WINGA_ASSET_VERSION || new Date().toISOString().replace(/[-:.TZ]/g, "").slice(0, 14);
 const requiredRootFiles = [
   "index.html",
   "winga.html",
@@ -84,6 +85,16 @@ function copyFileIntoDist(sourceRelativePath, targetRelativePath) {
   fs.copyFileSync(sourcePath, targetPath);
 }
 
+function applyAssetVersionToHtml(relativePath) {
+  const targetPath = path.join(outputDir, relativePath);
+  const source = fs.readFileSync(targetPath, "utf8");
+  const next = source.replace(
+    /(href|src)="((?:style\.css|winga-config\.js|mock-data\.js|data-service\.js|app-core\.js|winga-modules\.js|app\.js|src\/[^"]+\.js))(?:\?[^"]*)?"/g,
+    (_, attribute, assetPath) => `${attribute}="${assetPath}?v=${assetVersion}"`
+  );
+  fs.writeFileSync(targetPath, next, "utf8");
+}
+
 function copyDirectoryRecursive(sourcePath, targetPath) {
   fs.mkdirSync(targetPath, { recursive: true });
   for (const entry of fs.readdirSync(sourcePath, { withFileTypes: true })) {
@@ -144,8 +155,11 @@ fileCopies.forEach(([sourceRelativePath, targetRelativePath]) => {
   copyFileIntoDist(sourceRelativePath, targetRelativePath);
 });
 
+applyAssetVersionToHtml("index.html");
+applyAssetVersionToHtml("winga.html");
+
 copyDirectoryRecursive(path.join(rootDir, "src"), path.join(outputDir, "src"));
 fs.writeFileSync(path.join(outputDir, "winga-modules.js"), buildFrontendModuleBundle(), "utf8");
 verifyDistContents();
 
-console.log("Built Vercel static frontend into public/");
+console.log(`Built Vercel static frontend into public/ (asset version ${assetVersion})`);

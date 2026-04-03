@@ -75,11 +75,13 @@
       const layout = deps.createElement("div", { className: "product-detail-layout" });
       const media = deps.createElement("div", { className: "product-detail-media" });
       const mainImageElement = deps.createElement("img", {
-        className: "product-detail-image",
+        className: "product-detail-image zoomable-image",
         attributes: {
           src: safeMainImage,
           alt: safeProductName,
           loading: "lazy",
+          "data-zoom-src": safeMainImage,
+          "data-zoom-alt": safeProductName,
           "data-image-action-product": product.id,
           "data-image-action-src": safeMainImage,
           "data-image-action-surface": "detail"
@@ -175,10 +177,13 @@
             attributes: { "data-open-product": item.id }
           });
           const itemImage = deps.createElement("img", {
+            className: "zoomable-image",
             attributes: {
               src: deps.sanitizeImageSource(item.image || "", deps.getImageFallbackDataUri("W")),
               alt: deps.escapeHtml(item.name || ""),
-              loading: "lazy"
+              loading: "lazy",
+              "data-zoom-src": deps.sanitizeImageSource(item.image || "", deps.getImageFallbackDataUri("W")),
+              "data-zoom-alt": deps.escapeHtml(item.name || "")
             }
           });
           itemImage.onerror = function handleSellerItemImageError() {

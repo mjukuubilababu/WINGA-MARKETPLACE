@@ -24,12 +24,14 @@
       const avatar = deps.createElement("div", { className: "profile-identity-avatar" });
       if (profileImage) {
         avatar.appendChild(deps.createElement("img", {
-          className: "profile-identity-image",
+          className: "profile-identity-image zoomable-image",
           attributes: {
             src: deps.sanitizeImageSource(profileImage, ""),
             alt: `${displayName} profile photo`,
             loading: "lazy",
-            decoding: "async"
+            decoding: "async",
+            "data-zoom-src": deps.sanitizeImageSource(profileImage, ""),
+            "data-zoom-alt": `${displayName} profile photo`
           }
         }));
       } else {

@@ -43,7 +43,8 @@
             fallbackSrc: deps.getImageFallbackDataUri("W"),
             attributes: {
               "data-gallery-target": product.id,
-              "data-image": image
+              "data-image": image,
+              "data-disable-image-zoom": "true"
             }
           }));
         });

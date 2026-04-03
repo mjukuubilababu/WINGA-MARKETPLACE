@@ -200,7 +200,7 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
     })
   });
   assert.equal(productCreate.response.status, 200);
-  assert.equal(productCreate.body.status, "pending");
+  assert.equal(productCreate.body.status, "approved");
 
   const fallbackWhatsappProduct = await request("/products", {
     method: "POST",
@@ -391,13 +391,13 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
 
   const publicProductsBeforeApproval = await request("/products");
   assert.equal(publicProductsBeforeApproval.response.status, 200);
-  assert.equal(publicProductsBeforeApproval.body.some((item) => item.id === "product-test-001"), false);
+  assert.equal(publicProductsBeforeApproval.body.some((item) => item.id === "product-test-001" && item.status === "approved"), true);
 
   const sellerVisibleProductsBeforeApproval = await request("/products", {
     headers: { Authorization: `Bearer ${sellerToken}` }
   });
   assert.equal(sellerVisibleProductsBeforeApproval.response.status, 200);
-  assert.equal(sellerVisibleProductsBeforeApproval.body.some((item) => item.id === "product-test-001" && item.status === "pending"), true);
+  assert.equal(sellerVisibleProductsBeforeApproval.body.some((item) => item.id === "product-test-001" && item.status === "approved"), true);
 
   const publicAdminLogin = await request("/auth/login", {
     method: "POST",

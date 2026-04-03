@@ -367,12 +367,42 @@ function syncBodyScrollLockState() {
     mediaActionSheet
     && mediaActionSheet.classList.contains("open")
   );
+  const imageLightbox = document.getElementById("image-lightbox");
+  const isImageLightboxVisible = Boolean(
+    imageLightbox
+    && imageLightbox.classList.contains("open")
+  );
 
   document.body.classList.toggle("mobile-category-sheet-open", isMobileSheetVisible);
   document.body.classList.toggle("auth-modal-open", isAuthModalVisible);
   document.body.classList.toggle("product-detail-open", isProductDetailVisible);
   document.body.classList.toggle("context-chat-open", isContextChatVisible);
   document.body.classList.toggle("media-action-sheet-open", isMediaActionSheetVisible);
+  document.body.classList.toggle("image-lightbox-open", isImageLightboxVisible);
+}
+
+function resetTransientChromeState() {
+  searchRuntimeState.isMobileSearchOpen = false;
+  searchRuntimeState.isMobileCategoryOpen = false;
+  searchRuntimeState.mobileCategoryTopValue = "";
+  searchRuntimeState.isSearchDropdownDismissed = false;
+  searchBox?.classList.remove("mobile-open");
+  mobileCategoryShell?.classList.remove("open");
+  mobileCategoryButton?.setAttribute("aria-expanded", "false");
+  pinnedDesktopCategory = "";
+  toggleHeaderUserMenu(false);
+  document.body.classList.remove(
+    "mobile-category-sheet-open",
+    "auth-modal-open",
+    "product-detail-open",
+    "context-chat-open",
+    "media-action-sheet-open",
+    "image-lightbox-open",
+    "mobile-header-hidden"
+  );
+  setMobileHeaderHidden(false, { force: true });
+  syncMobileHeaderVisibility(true);
+  syncBodyScrollLockState();
 }
 
 function syncMobileCategorySheetOffset() {
@@ -2078,6 +2108,64 @@ function closeMediaActionSheet() {
   syncBodyScrollLockState();
 }
 
+function ensureImageLightboxRoot() {
+  let root = document.getElementById("image-lightbox");
+  if (root) {
+    return root;
+  }
+
+  root = document.createElement("div");
+  root.id = "image-lightbox";
+  root.innerHTML = `
+    <div class="image-lightbox-backdrop" data-close-image-lightbox="true"></div>
+    <div class="image-lightbox-dialog" role="dialog" aria-modal="true" aria-labelledby="image-lightbox-title">
+      <button class="image-lightbox-close" type="button" aria-label="Close image preview" data-close-image-lightbox="true">&times;</button>
+      <div class="image-lightbox-media">
+        <img id="image-lightbox-preview" alt="Image preview" loading="lazy">
+      </div>
+      <p id="image-lightbox-title" class="image-lightbox-caption"></p>
+    </div>
+  `;
+  document.body.appendChild(root);
+
+  root.addEventListener("click", (event) => {
+    if (event.target.closest("[data-close-image-lightbox='true']")) {
+      closeImageLightbox();
+    }
+  });
+
+  return root;
+}
+
+function openImageLightbox(source = "", alt = "Image preview") {
+  const resolvedSource = sanitizeImageSource(source, "");
+  if (!resolvedSource) {
+    return;
+  }
+
+  const root = ensureImageLightboxRoot();
+  const preview = root.querySelector("#image-lightbox-preview");
+  const caption = root.querySelector("#image-lightbox-title");
+  if (!preview || !caption) {
+    return;
+  }
+
+  preview.src = resolvedSource;
+  preview.alt = alt || "Image preview";
+  caption.textContent = alt || "";
+  root.classList.add("open");
+  syncBodyScrollLockState();
+}
+
+function closeImageLightbox() {
+  const root = document.getElementById("image-lightbox");
+  if (!root) {
+    return;
+  }
+  root.classList.remove("open");
+  syncBodyScrollLockState();
+}
+
 function openMediaActionSheet(product, options = {}) {
   if (!product) {
     return;
@@ -2209,6 +2297,57 @@ function bindImageActionInteractions() {
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
       closeMediaActionSheet();
+    }
+  });
+}
+
+function bindImageZoomInteractions() {
+  if (document.body.dataset.imageZoomBound === "true") {
+    return;
+  }
+  document.body.dataset.imageZoomBound = "true";
+
+  const getZoomableImage = (target) => {
+    const image = target?.closest?.("img[data-zoom-src]");
+    if (!image) {
+      return null;
+    }
+    if (
+      image.dataset.disableImageZoom === "true"
+      || image.closest("#image-lightbox")
+      || image.closest("#media-action-sheet")
+      || image.closest(".gallery-thumbs")
+      || image.closest("[data-search-result]")
+      || image.closest("#header-user-trigger")
+      || image.closest("button, a")
+    ) {
+      return null;
+    }
+    return image;
+  };
+
+  document.addEventListener("click", (event) => {
+    const image = getZoomableImage(event.target);
+    if (!image) {
+      return;
+    }
+    if (Date.now() < savedProductState.suppressClickUntil && image.closest("[data-image-action-product]")) {
+      event.preventDefault();
+      event.stopPropagation();
+      savedProductState.suppressClickUntil = 0;
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    openImageLightbox(
+      image.dataset.zoomSrc || image.currentSrc || image.src || "",
+      image.dataset.zoomAlt || image.alt || "Image preview"
+    );
+  }, true);
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      closeImageLightbox();
     }
   });
 }
@@ -4331,6 +4470,7 @@ uploadButton.addEventListener("click", async () => {
       imageSignature,
       uploadedBy: currentUser,
       category,
+      status: existingProduct?.status || "approved",
       likes: existingProduct ? existingProduct.likes : 0,
       views: existingProduct ? existingProduct.views : 0,
       viewedBy: existingProduct ? existingProduct.viewedBy || [] : []
@@ -4355,7 +4495,9 @@ uploadButton.addEventListener("click", async () => {
     });
     showInAppNotification({
       title: editingProductId ? "Product updated" : "Product submitted",
-      body: "Bidhaa yako imehifadhiwa na sasa inasubiri approval ya admin.",
+      body: editingProductId
+        ? "Mabadiliko ya bidhaa yako yamehifadhiwa na yanaonekana tayari sokoni."
+        : "Bidhaa yako imehifadhiwa na inaonekana tayari kwenye market home.",
       variant: "success"
     });
   };
@@ -5088,6 +5230,7 @@ function loginSuccess(username, preferredCategory = "", sessionData = null, opti
   searchRuntimeState.activeImageSearch = null;
   searchRuntimeState.isSearchDropdownDismissed = false;
   searchInput.value = "";
+  resetTransientChromeState();
   applySessionState(sessionData || {
     username,
     fullName: username,
@@ -5154,6 +5297,9 @@ function loginSuccess(username, preferredCategory = "", sessionData = null, opti
   } else {
     renderCurrentView();
   }
+  window.requestAnimationFrame(() => {
+    window.scrollTo({ top: 0, behavior: "auto" });
+  });
   updateProfileNavBadge();
   if (!isStaffUser()) {
     const hydrateRealtimeState = () => {
@@ -5227,6 +5373,7 @@ function logout() {
   searchRuntimeState.isSearchDropdownDismissed = false;
   searchRuntimeState.isMobileSearchOpen = false;
   searchBox.classList.remove("mobile-open");
+  resetTransientChromeState();
   authContainer.style.display = "none";
   document.body.classList.remove("auth-modal-open");
   hideAdminLoginScreen();
@@ -5712,7 +5859,7 @@ function renderDiscoveryProductCards(items, options = {}) {
         const promotion = sponsored ? getPrimaryPromotion(item.id) : null;
         return `
           <article class="seller-product-card" data-open-product="${item.id}">
-            <img src="${item.image}" alt="${safeName}" loading="lazy" data-fallback-src="${getImageFallbackDataUri("W")}">
+            <img class="zoomable-image" src="${item.image}" alt="${safeName}" loading="lazy" data-fallback-src="${getImageFallbackDataUri("W")}" data-zoom-src="${item.image}" data-zoom-alt="${safeName}">
             <strong>${formatProductPrice(item.price)}</strong>
             <span>${safeName}</span>
             <span>${safeCategory}</span>
@@ -6324,24 +6471,6 @@ function trackView(product) {
 
 function getSlideshowItems() {
   const trendingSlide = buildTrendingKariakooSlide();
-  const ownProducts = products.filter((product) => product.uploadedBy === currentUser && product.image);
-
-  if (ownProducts.length > 0) {
-    return [
-      ...(trendingSlide ? [trendingSlide] : []),
-      ...ownProducts.slice(0, 4).map((product) => ({
-        image: product.image,
-        kicker: "Store spotlight",
-        title: product.name,
-        subtitle: product.shop ? `Shop: ${product.shop}` : "Bidhaa yako kwenye WINGA",
-        highlights: [
-          getCategoryLabel(product.category),
-          formatProductPrice(product.price)
-        ].filter(Boolean)
-      }))
-    ];
-  }
-
   return trendingSlide ? [trendingSlide, ...DEMO_SLIDES] : DEMO_SLIDES;
 }
 
@@ -6352,7 +6481,7 @@ function renderProductGallery(product) {
 
   return `
     <div class="product-gallery">
-      <img class="gallery-stage" src="${firstImage}" alt="${product.name}" data-gallery-stage="${product.id}" loading="lazy" data-fallback-src="${getImageFallbackDataUri("WINGA")}">
+      <img class="gallery-stage zoomable-image" src="${firstImage}" alt="${product.name}" data-gallery-stage="${product.id}" data-zoom-src="${firstImage}" data-zoom-alt="${product.name}" loading="lazy" data-fallback-src="${getImageFallbackDataUri("WINGA")}">
       ${safeImages.length > 1 ? `
         <div class="gallery-thumbs">
           ${safeImages.map((image, index) => `
@@ -6362,6 +6491,7 @@ function renderProductGallery(product) {
               alt="${product.name} ${index + 1}"
               data-gallery-target="${product.id}"
               data-image="${sanitizeImageSource(image, getImageFallbackDataUri("W"))}"
+              data-disable-image-zoom="true"
               loading="lazy"
               data-fallback-src="${getImageFallbackDataUri("W")}">
           `).join("")}
@@ -6604,6 +6734,7 @@ function closeAllTransientOverlays(options = {}) {
   if (searchRuntimeState.isMobileCategoryOpen || mobileCategoryShell?.classList.contains("open")) {
     closeMobileCategoryMenu();
   }
+  closeImageLightbox();
   closeMediaActionSheet();
   closeContextChatModal();
   closeProductDetailModal({
@@ -6839,10 +6970,12 @@ function renderPreviewImages(images) {
   const safeImages = images.filter(Boolean);
   previewList.replaceChildren(
     ...safeImages.map((image, index) => createElement("img", {
-      className: "preview-thumb",
+      className: "preview-thumb zoomable-image",
       attributes: {
         src: image,
-        alt: `Preview ${index + 1}`
+        alt: `Preview ${index + 1}`,
+        "data-zoom-src": image,
+        "data-zoom-alt": `Preview ${index + 1}`
       }
     }))
   );
@@ -6897,6 +7030,7 @@ slideNextButton.addEventListener("click", () => {
 
 bindMarketplaceCardActions();
 bindImageActionInteractions();
+bindImageZoomInteractions();
 
 async function bootApp() {
   reportClientEvent("info", "app_boot_started", "Client app boot started.", {

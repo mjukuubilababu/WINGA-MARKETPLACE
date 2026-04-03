@@ -89,13 +89,20 @@
     attributes = {}
   } = {}) {
     const resolvedSrc = sanitizeImageSource(src, fallbackSrc);
+    const shouldDisableZoom = Boolean(attributes["data-disable-image-zoom"]);
     const image = createElement("img", {
-      className,
+      className: `${className}${shouldDisableZoom ? "" : `${className ? " " : ""}zoomable-image`}`,
       attributes: {
         src: resolvedSrc,
         alt,
         loading: "lazy",
         decoding: "async",
+        ...(shouldDisableZoom
+          ? { "data-disable-image-zoom": "true" }
+          : {
+              "data-zoom-src": resolvedSrc,
+              "data-zoom-alt": alt || "Image preview"
+            }),
         ...attributes
       }
     });

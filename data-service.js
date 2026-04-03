@@ -471,7 +471,7 @@
         const owner = users.find((item) => item.username === session?.username);
         const whatsapp = getPreferredWhatsappNumber(owner || session || {});
         const products = await this.loadProducts();
-        const nextProducts = [{ ...product, whatsapp }, ...products];
+        const nextProducts = [{ ...product, whatsapp, status: product?.status || "approved" }, ...products];
         await this.saveProducts(nextProducts);
         return nextProducts[0];
       },

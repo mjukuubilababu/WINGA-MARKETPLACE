@@ -4771,7 +4771,7 @@ http.createServer(async (req, res) => {
       const normalizedProduct = normalizeProductRecord(normalizeProductImages({
         ...candidatePayload,
         shop: typeof candidatePayload.shop === "string" && candidatePayload.shop.trim() ? candidatePayload.shop.trim() : sellerUser.username,
-        status: "pending",
+        status: "approved",
         moderationNote: "",
         moderatedAt: "",
         moderatedBy: "",
