@@ -106,6 +106,13 @@
 
     function scheduleMobileHeaderScrollSync() {
       const uiState = deps.getUiRuntimeState();
+      if (window.innerWidth > 720) {
+        if (uiState.mobileHeaderScrollFrame) {
+          cancelAnimationFrame(uiState.mobileHeaderScrollFrame);
+          uiState.mobileHeaderScrollFrame = 0;
+        }
+        return;
+      }
       if (uiState.mobileHeaderScrollFrame) {
         return;
       }

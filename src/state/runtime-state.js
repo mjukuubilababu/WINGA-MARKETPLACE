@@ -16,6 +16,7 @@
         isSearchDropdownDismissed: false,
         isMobileSearchOpen: false,
         isMobileCategoryOpen: false,
+        mobileCategoryTopValue: "",
         renderDebounceTimer: 0
       },
       profile: {

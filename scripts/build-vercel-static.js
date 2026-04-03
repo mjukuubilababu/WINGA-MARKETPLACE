@@ -4,6 +4,7 @@ const path = require("path");
 const rootDir = path.resolve(__dirname, "..");
 const outputDir = path.join(rootDir, "public");
 const requiredRootFiles = [
+  "index.html",
   "winga.html",
   "style.css",
   "app.js",
@@ -14,7 +15,7 @@ const requiredRootFiles = [
 ];
 
 const fileCopies = [
-  ["winga.html", "index.html"],
+  ["index.html", "index.html"],
   ["winga.html", "winga.html"],
   ["style.css", "style.css"],
   ["app.js", "app.js"],
@@ -22,6 +23,37 @@ const fileCopies = [
   ["data-service.js", "data-service.js"],
   ["mock-data.js", "mock-data.js"],
   ["winga-config.js", "winga-config.js"]
+];
+
+const bundledModuleSources = [
+  "src/core/module-registry.js",
+  "src/config/categories.js",
+  "src/config/chat.js",
+  "src/config/promotions.js",
+  "src/state/ui-state.js",
+  "src/state/runtime-state.js",
+  "src/auth/permissions.js",
+  "src/monitoring/observability.js",
+  "src/components/dom-helpers.js",
+  "src/components/ui-helpers.js",
+  "src/promotions/helpers.js",
+  "src/hero/ui.js",
+  "src/categories/ui.js",
+  "src/navigation/controller.js",
+  "src/navigation/chrome.js",
+  "src/marketplace/discovery.js",
+  "src/marketplace/ui.js",
+  "src/reviews/reviews.js",
+  "src/requests/request-box.js",
+  "src/products/actions.js",
+  "src/chat/ui.js",
+  "src/chat/controller.js",
+  "src/admin/ui.js",
+  "src/admin/controller.js",
+  "src/profile/ui.js",
+  "src/profile/controller.js",
+  "src/product-detail/ui.js",
+  "src/product-detail/controller.js"
 ];
 
 const forbiddenDistEntries = [
@@ -65,6 +97,15 @@ function copyDirectoryRecursive(sourcePath, targetPath) {
   }
 }
 
+function buildFrontendModuleBundle() {
+  const sections = bundledModuleSources.map((relativePath) => {
+    const sourcePath = path.join(rootDir, relativePath);
+    const source = fs.readFileSync(sourcePath, "utf8");
+    return `// ${relativePath}\n${source}`;
+  });
+  return `${sections.join("\n\n")}\n`;
+}
+
 function verifyDistContents() {
   const expectedFiles = [
     "index.html",
@@ -75,6 +116,7 @@ function verifyDistContents() {
     "data-service.js",
     "mock-data.js",
     "winga-config.js",
+    "winga-modules.js",
     path.join("src", "core", "module-registry.js")
   ];
 
@@ -103,6 +145,7 @@ fileCopies.forEach(([sourceRelativePath, targetRelativePath]) => {
 });
 
 copyDirectoryRecursive(path.join(rootDir, "src"), path.join(outputDir, "src"));
+fs.writeFileSync(path.join(outputDir, "winga-modules.js"), buildFrontendModuleBundle(), "utf8");
 verifyDistContents();
 
 console.log("Built Vercel static frontend into public/");

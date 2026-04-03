@@ -31,6 +31,117 @@ test("filterProducts keeps only approved items and matches keyword/category", ()
   assert.equal(result[0].id, "1");
 });
 
+test("filterProducts matches broad suruali intent across related subtypes", () => {
+  const products = [
+    {
+      id: "cloth-trouser",
+      name: "Office trouser",
+      shop: "Moshi Menswear",
+      category: "wanaume-suruali-kitambaa",
+      status: "approved",
+      availability: "available",
+      _searchText: createProductSearchText({ name: "Office trouser", shop: "Moshi Menswear", category: "wanaume-suruali-kitambaa" })
+    },
+    {
+      id: "jeans",
+      name: "Blue denim",
+      shop: "Moshi Menswear",
+      category: "wanaume-jeans",
+      status: "approved",
+      availability: "available",
+      _searchText: createProductSearchText({ name: "Blue denim", shop: "Moshi Menswear", category: "wanaume-jeans" })
+    },
+    {
+      id: "shirt",
+      name: "Formal shirt",
+      shop: "Moshi Menswear",
+      category: "wanaume-mashati",
+      status: "approved",
+      availability: "available",
+      _searchText: createProductSearchText({ name: "Formal shirt", shop: "Moshi Menswear", category: "wanaume-mashati" })
+    }
+  ];
+
+  const result = filterProducts({
+    products,
+    keyword: "suruali",
+    selectedCategory: "all"
+  });
+
+  assert.deepEqual(result.map((item) => item.id), ["cloth-trouser", "jeans"]);
+});
+
+test("filterProducts respects expanded top categories like electronics", () => {
+  const products = [
+    {
+      id: "phone",
+      name: "Tecno Spark",
+      shop: "Amani Tech",
+      category: "electronics-simu",
+      status: "approved",
+      availability: "available",
+      _searchText: createProductSearchText({ name: "Tecno Spark", shop: "Amani Tech", category: "electronics-simu" })
+    },
+    {
+      id: "pot",
+      name: "Sufuria",
+      shop: "Mama Pishi",
+      category: "vyombo-sufuria",
+      status: "approved",
+      availability: "available",
+      _searchText: createProductSearchText({ name: "Sufuria", shop: "Mama Pishi", category: "vyombo-sufuria" })
+    }
+  ];
+
+  const result = filterProducts({
+    products,
+    keyword: "",
+    selectedCategory: "electronics"
+  });
+
+  assert.equal(result.length, 1);
+  assert.equal(result[0].id, "phone");
+});
+
+test("filterProducts respects new lifestyle categories like sherehe and casual", () => {
+  const products = [
+    {
+      id: "party",
+      name: "Dress ya party",
+      shop: "Amani Boutique",
+      category: "sherehe-mavazi",
+      status: "approved",
+      availability: "available",
+      _searchText: createProductSearchText({ name: "Dress ya party", shop: "Amani Boutique", category: "sherehe-mavazi" })
+    },
+    {
+      id: "casual",
+      name: "Weekend set",
+      shop: "Amani Boutique",
+      category: "casual-kila-siku",
+      status: "approved",
+      availability: "available",
+      _searchText: createProductSearchText({ name: "Weekend set", shop: "Amani Boutique", category: "casual-kila-siku" })
+    }
+  ];
+
+  const shereheResult = filterProducts({
+    products,
+    keyword: "party",
+    selectedCategory: "sherehe"
+  });
+  const casualResult = filterProducts({
+    products,
+    keyword: "casual",
+    selectedCategory: "casual"
+  });
+
+  assert.equal(shereheResult.length, 1);
+  assert.equal(shereheResult[0].id, "party");
+  assert.equal(casualResult.length, 1);
+  assert.equal(casualResult[0].id, "casual");
+});
+
 test("filterProducts ranks image matches by similarity", () => {
   const products = [
     { id: "1", name: "One", shop: "Shop", category: "viatu", status: "approved", availability: "available", imageSignature: "1111", _searchText: "one shop" },

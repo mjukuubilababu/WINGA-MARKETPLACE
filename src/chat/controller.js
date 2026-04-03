@@ -1,5 +1,30 @@
 (() => {
   function createChatControllerModule(deps) {
+    async function sharePhoneWithActiveChat() {
+      const activeChatContext = deps.getActiveChatContext();
+      if (!activeChatContext?.withUser) {
+        return;
+      }
+
+      await deps.dataLayer.sendMessage({
+        receiverId: activeChatContext.withUser,
+        productId: activeChatContext.productId || "",
+        productName: activeChatContext.productName || "",
+        message: "Nimekushirikisha namba yangu kwa mawasiliano ya moja kwa moja.",
+        messageType: "contact_share"
+      });
+      await Promise.all([
+        deps.refreshUsersState?.(),
+        deps.refreshMessagesState(),
+        deps.refreshNotificationsState()
+      ]);
+      deps.showInAppNotification?.({
+        title: "Phone shared",
+        body: "Muuzaji huyu sasa ataweza kuona namba yako ndani ya mazungumzo haya.",
+        variant: "success"
+      });
+    }
+
     function closeContextChatModal() {
       const modal = document.getElementById("context-chat-modal");
       if (!modal) {
@@ -7,6 +32,7 @@
       }
       modal.style.display = "none";
       document.body.classList.remove("context-chat-open");
+      deps.syncBodyScrollLockState?.();
       deps.setIsContextOpen(false);
       deps.setOpenChatMessageMenuId("");
       deps.setOpenEmojiScope("");
@@ -73,6 +99,22 @@
       modal.querySelector("[data-clear-chat-reply]")?.addEventListener("click", () => {
         deps.setActiveChatReplyMessageId("");
         replaceContextChatModal();
+      });
+
+      modal.querySelector("[data-share-my-phone]")?.addEventListener("click", async () => {
+        try {
+          await sharePhoneWithActiveChat();
+          replaceContextChatModal();
+        } catch (error) {
+          deps.captureError?.("context_phone_share_failed", error, {
+            receiverId: deps.getActiveChatContext?.()?.withUser || ""
+          });
+          deps.showInAppNotification?.({
+            title: "Sharing failed",
+            body: error.message || "Imeshindikana kushare namba yako kwa sasa.",
+            variant: "error"
+          });
+        }
       });
 
       modal.querySelectorAll("[data-message-menu-toggle]").forEach((button) => {
@@ -262,6 +304,7 @@
       bindContextChatModalActions();
       modal.style.display = "grid";
       document.body.classList.add("context-chat-open");
+      deps.syncBodyScrollLockState?.();
       deps.setIsContextOpen(true);
       deps.startMessagePolling?.();
 
@@ -333,7 +376,12 @@
       deps.setOpenChatMessageMenuId("");
 
       const matchingSummary = deps.getConversationSummaries().find((summary) => summary.productId === productId);
-      deps.setCurrentViewState("profile");
+      deps.setCurrentViewState("profile", {
+        syncHistory: "push",
+        historyState: {
+          pendingProfileSection: "profile-messages-panel"
+        }
+      });
       if (matchingSummary) {
         deps.setActiveChatContext({
           withUser: matchingSummary.withUser,
@@ -355,8 +403,50 @@
     }
 
     function bindMessageActions(scope = deps.getProfileDiv?.()) {
-      scope?.querySelectorAll("[data-order-action]").forEach((button) => {
-        button.addEventListener("click", async () => {
+      if (!scope) {
+        return;
+      }
+
+      const bindClickOnce = (selector, bindingKey, handler) => {
+        scope.querySelectorAll(selector).forEach((element) => {
+          const datasetKey = `wingaBound${bindingKey}`;
+          if (element.dataset[datasetKey] === "true") {
+            return;
+          }
+          element.dataset[datasetKey] = "true";
+          element.addEventListener("click", (event) => {
+            handler(element, event);
+          });
+        });
+      };
+
+      const bindInputOnce = (selector, bindingKey, handler) => {
+        const element = scope.querySelector(selector);
+        if (!element) {
+          return;
+        }
+        const datasetKey = `wingaBound${bindingKey}`;
+        if (element.dataset[datasetKey] === "true") {
+          return;
+        }
+        element.dataset[datasetKey] = "true";
+        element.addEventListener("input", handler);
+      };
+
+      const bindSubmitOnce = (selector, bindingKey, handler) => {
+        const element = scope.querySelector(selector);
+        if (!element) {
+          return;
+        }
+        const datasetKey = `wingaBound${bindingKey}`;
+        if (element.dataset[datasetKey] === "true") {
+          return;
+        }
+        element.dataset[datasetKey] = "true";
+        element.addEventListener("submit", handler);
+      };
+
+      bindClickOnce("[data-order-action]", "OrderAction", async (button) => {
           const orderId = button.dataset.orderId;
           const status = button.dataset.orderAction;
           if (status === "cancelled" && deps.confirmAction && !deps.confirmAction("Una uhakika unataka kufuta order hii?")) {
@@ -386,10 +476,8 @@
             });
           }
         });
-      });
 
-      scope?.querySelectorAll("[data-product-soldout]").forEach((button) => {
-        button.addEventListener("click", async () => {
+      bindClickOnce("[data-product-soldout]", "ProductSoldOut", async (button) => {
           const productId = button.dataset.productSoldout;
           if (deps.confirmAction && !deps.confirmAction("Una uhakika bidhaa hii imeisha na unataka kuiweka sold out?")) {
             return;
@@ -417,10 +505,8 @@
             });
           }
         });
-      });
 
-      scope?.querySelectorAll("[data-conversation-user]").forEach((button) => {
-        button.addEventListener("click", async () => {
+      bindClickOnce("[data-conversation-user]", "ConversationUser", async (button) => {
           deps.setActiveChatContext({
             withUser: button.dataset.conversationUser,
             productId: button.dataset.conversationProduct || "",
@@ -435,9 +521,8 @@
           deps.replaceMessagesPanel(scope);
           document.getElementById("profile-notifications-panel")?.replaceWith(deps.createNotificationsContainerFromState());
         });
-      });
 
-      scope?.querySelector("[data-refresh-messages]")?.addEventListener("click", async () => {
+      bindClickOnce("[data-refresh-messages]", "RefreshMessages", async () => {
         try {
           await Promise.all([deps.refreshMessagesState(), deps.refreshNotificationsState()]);
           deps.replaceMessagesPanel(scope);
@@ -454,8 +539,24 @@
         }
       });
 
-      scope?.querySelectorAll("[data-notification-id]").forEach((button) => {
-        button.addEventListener("click", async () => {
+      bindClickOnce("[data-share-my-phone]", "ShareMyPhone", async () => {
+        try {
+          await sharePhoneWithActiveChat();
+          deps.replaceMessagesPanel(scope);
+          document.getElementById("profile-notifications-panel")?.replaceWith(deps.createNotificationsContainerFromState());
+        } catch (error) {
+          deps.captureError?.("profile_phone_share_failed", error, {
+            receiverId: deps.getActiveChatContext?.()?.withUser || ""
+          });
+          deps.showInAppNotification?.({
+            title: "Sharing failed",
+            body: error.message || "Imeshindikana kushare namba yako kwa sasa.",
+            variant: "error"
+          });
+        }
+      });
+
+      bindClickOnce("[data-notification-id]", "NotificationRead", async (button) => {
           try {
             await deps.dataLayer.markNotificationRead(button.dataset.notificationId);
             await deps.refreshNotificationsState();
@@ -472,9 +573,8 @@
             });
           }
         });
-      });
 
-      scope?.querySelector("#message-compose-form")?.addEventListener("submit", async (event) => {
+      bindSubmitOnce("#message-compose-form", "MessageComposeForm", async (event) => {
         event.preventDefault();
         const messageInput = document.getElementById("message-compose-input");
         const message = messageInput?.value.trim() || "";
@@ -510,24 +610,20 @@
         }
       });
 
-      scope?.querySelector("#message-compose-input")?.addEventListener("input", (event) => {
+      bindInputOnce("#message-compose-input", "MessageComposeInput", (event) => {
         deps.setCurrentMessageDraft(event.target.value || "");
       });
 
-      scope?.querySelectorAll("[data-emoji-toggle]").forEach((button) => {
-        button.addEventListener("click", () => {
+      bindClickOnce("[data-emoji-toggle]", "EmojiToggle", (button) => {
           const scopeId = button.dataset.emojiToggle || "";
           deps.setOpenEmojiScope(deps.getOpenEmojiScope() === scopeId ? "" : scopeId);
           deps.replaceMessagesPanel(scope);
-        });
       });
 
-      scope?.querySelectorAll("[data-insert-emoji]").forEach((button) => {
-        button.addEventListener("click", () => {
+      bindClickOnce("[data-insert-emoji]", "InsertEmoji", (button) => {
           deps.setCurrentMessageDraft(`${deps.getCurrentMessageDraft() || ""}${button.dataset.insertEmoji || ""}`);
           deps.setOpenEmojiScope("");
           deps.replaceMessagesPanel(scope);
-        });
       });
     }
 

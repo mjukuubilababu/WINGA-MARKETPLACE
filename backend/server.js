@@ -42,25 +42,53 @@ const MODERATOR_SEED = {
   role: "moderator"
 };
 const DEFAULT_CATEGORIES = [
-  { value: "wanawake", label: "Wanawake" },
+  { value: "wanawake", label: "WANAWAKE" },
   { value: "wanawake-magauni", label: "Magauni" },
   { value: "wanawake-sketi", label: "Sketi" },
-  { value: "wanawake-blauzi", label: "Blauzi" },
+  { value: "wanawake-blouse", label: "Blouse" },
   { value: "wanawake-suruali", label: "Suruali" },
   { value: "wanawake-seti", label: "Seti" },
   { value: "wanawake-underwear", label: "Underwear" },
-  { value: "wanaume", label: "Wanaume" },
+  { value: "wanawake-vitenge", label: "Vitenge" },
+  { value: "wanawake-bazin", label: "Bazin" },
+  { value: "wanawake-bazee", label: "Bazee" },
+  { value: "wanawake-lace", label: "Lace" },
+  { value: "wanawake-kanga", label: "Kanga" },
+  { value: "wanawake-vikoi", label: "Vikoi" },
+  { value: "wanawake-mitandio", label: "Mitandio" },
+  { value: "wanawake-vijora", label: "Vijora" },
+  { value: "wanawake-madera", label: "Madera" },
+  { value: "wanawake-baibui", label: "Baibui" },
+  { value: "wanawake-hijabu", label: "Hijabu" },
+  { value: "wanawake-abaya", label: "Abaya" },
+  { value: "wanawake-shungi", label: "Shungi" },
+  { value: "wanawake-crop-top", label: "Crop top" },
+  { value: "wanaume", label: "WANAUME" },
   { value: "wanaume-mashati", label: "Mashati" },
   { value: "wanaume-t-shirt", label: "T-shirt" },
-  { value: "wanaume-suruali", label: "Suruali" },
+  { value: "wanaume-sweater", label: "Sweater" },
+  { value: "wanaume-koti", label: "Koti" },
+  { value: "wanaume-jacket", label: "Jacket" },
+  { value: "wanaume-tracksuit", label: "Tracksuit" },
+  { value: "wanaume-suruali-kitambaa", label: "Suruali-kitambaa" },
   { value: "wanaume-jeans", label: "Jeans" },
   { value: "wanaume-suti", label: "Suti" },
-  { value: "watoto", label: "Watoto" },
+  { value: "wanaume-boxer", label: "Boxer" },
+  { value: "wanaume-crocs", label: "Crocs" },
+  { value: "sherehe", label: "SHEREHE" },
+  { value: "sherehe-mavazi", label: "Mavazi ya sherehe" },
+  { value: "sherehe-viatu", label: "Viatu vya sherehe" },
+  { value: "sherehe-accessories", label: "Accessories za sherehe" },
+  { value: "casual", label: "CASUAL" },
+  { value: "casual-mavazi", label: "Mavazi ya casual" },
+  { value: "casual-viatu", label: "Viatu vya casual" },
+  { value: "casual-kila-siku", label: "Seti za kila siku" },
+  { value: "watoto", label: "WATOTO" },
   { value: "watoto-wavulana", label: "Wavulana" },
   { value: "watoto-wasichana", label: "Wasichana" },
   { value: "watoto-viatu-vya-watoto", label: "Viatu vya watoto" },
   { value: "watoto-seti-za-watoto", label: "Seti za watoto" },
-  { value: "viatu", label: "Viatu" },
+  { value: "viatu", label: "VIATU" },
   { value: "viatu-sneakers", label: "Sneakers" },
   { value: "viatu-sandals", label: "Sandals" },
   { value: "viatu-high-heels", label: "High heels" },
@@ -69,12 +97,19 @@ const DEFAULT_CATEGORIES = [
   { value: "viatu-raba-kali", label: "Raba kali" },
   { value: "viatu-miguu-mikali", label: "Miguu mikali" },
   { value: "viatu-official", label: "Official" },
-  { value: "vyombo", label: "Vyombo" },
+  { value: "vyombo", label: "VYOMBO" },
   { value: "vyombo-sufuria", label: "Sufuria" },
   { value: "vyombo-sahani", label: "Sahani" },
   { value: "vyombo-vikombe", label: "Vikombe" },
   { value: "vyombo-seti", label: "Seti za vyombo" },
-  { value: "accessories", label: "Accessories" },
+  { value: "electronics", label: "ELECTRONICS" },
+  { value: "electronics-simu", label: "Simu" },
+  { value: "electronics-desktop", label: "Desktop" },
+  { value: "electronics-radio", label: "Radio" },
+  { value: "electronics-tv", label: "Tv" },
+  { value: "electronics-laptop", label: "Laptop" },
+  { value: "vitu-used", label: "VITU USED" },
+  { value: "accessories", label: "ACCESSORIES" },
   { value: "accessories-mabegi", label: "Mabegi" },
   { value: "accessories-mikanda", label: "Mikanda" },
   { value: "accessories-kofia", label: "Kofia" },
@@ -87,7 +122,7 @@ const ALLOWED_PAYMENT_STATUSES = ["pending", "paid", "failed", "cancelled"];
 const ALLOWED_USER_STATUSES = ["active", "suspended", "banned", "flagged", "deactivated"];
 const ALLOWED_REPORT_STATUSES = ["open", "reviewed", "resolved"];
 const ALLOWED_REPORT_TARGETS = ["user", "product"];
-const ALLOWED_NOTIFICATION_TYPES = ["message"];
+const ALLOWED_NOTIFICATION_TYPES = ["message", "request", "order"];
 const ALLOWED_PROMOTION_TYPES = ["boost", "featured", "category_boost", "pin_top"];
 const ALLOWED_PROMOTION_STATUSES = ["pending", "active", "expired", "disabled"];
 const ALLOWED_IDENTITY_DOCUMENT_TYPES = ["NIDA", "VOTER_ID"];
@@ -99,8 +134,10 @@ const PROMOTION_CONFIG = {
   pin_top: { amount: 12000, durationDays: 2, label: "Pin To Top" }
 };
 const MAX_IMAGE_COUNT = 5;
-const MAX_DATA_URL_LENGTH = 4 * 1024 * 1024;
-const MAX_REQUEST_BODY_BYTES = 18 * 1024 * 1024;
+const MAX_IMAGE_SIZE_MB = 25;
+const MAX_IMAGE_BINARY_BYTES = MAX_IMAGE_SIZE_MB * 1024 * 1024;
+const MAX_DATA_URL_LENGTH = Math.ceil(MAX_IMAGE_BINARY_BYTES * 1.37) + 256;
+const MAX_REQUEST_BODY_BYTES = (MAX_DATA_URL_LENGTH * MAX_IMAGE_COUNT) + (2 * 1024 * 1024);
 const MAX_BACKUP_FILES = 5;
 const RATE_LIMIT_WINDOW_MS = 60 * 1000;
 const BUYER_CANCEL_WINDOW_MS = 48 * 60 * 60 * 1000;
@@ -158,6 +195,12 @@ function validateRuntimeConfiguration() {
     if (DATABASE_URL && !DATABASE_SSL) {
       warnings.push("DATABASE_SSL is disabled while DATABASE_URL is configured in production.");
     }
+    if (!ADMIN_SEED_PASSWORD) {
+      warnings.push("ADMIN_SEED_PASSWORD is not configured in production. Default staff credentials remain active until this is set.");
+    }
+    if (!MODERATOR_SEED_PASSWORD) {
+      warnings.push("MODERATOR_SEED_PASSWORD is not configured in production. Default moderator credentials remain active until this is set.");
+    }
     if (!PAYMENT_WEBHOOK_SECRET && !ALLOW_UNVERIFIED_MANUAL_PAYMENTS) {
       errors.push("PAYMENT_WEBHOOK_SECRET is required in production unless ALLOW_UNVERIFIED_MANUAL_PAYMENTS=true is explicitly allowed.");
     }
@@ -197,16 +240,6 @@ if (runtimeConfiguration.errors.length) {
 }
 
 function getSeedUsersForEnvironment() {
-  if (NODE_ENV === "production") {
-    const seedUsers = [];
-    if (ADMIN_SEED_PASSWORD) {
-      seedUsers.push(ADMIN_SEED);
-    }
-    if (MODERATOR_SEED_PASSWORD) {
-      seedUsers.push(MODERATOR_SEED);
-    }
-    return seedUsers;
-  }
   return [ADMIN_SEED, MODERATOR_SEED];
 }
 
@@ -338,11 +371,27 @@ function slugifyCategoryLabel(label) {
     .slice(0, 40);
 }
 
+function normalizeCategoryLabelText(label) {
+  return String(label || "").trim().replace(/\s+/g, " ");
+}
+
+function formatTopCategoryLabel(label) {
+  return normalizeCategoryLabelText(label).toUpperCase();
+}
+
+function formatSubcategoryLabel(label) {
+  const normalized = normalizeCategoryLabelText(label).toLowerCase();
+  return normalized ? `${normalized.charAt(0).toUpperCase()}${normalized.slice(1)}` : "";
+}
+
 function normalizeCategoryEntry(entry) {
   const rawLabel = typeof entry?.label === "string" ? entry.label.trim() : "";
   const rawValue = typeof entry?.value === "string" ? entry.value.trim() : "";
   const value = slugifyCategoryLabel(rawValue || rawLabel);
-  const label = rawLabel || value.replace(/-/g, " ").replace(/\b\w/g, (character) => character.toUpperCase());
+  const fallbackLabel = value.replace(/-/g, " ");
+  const label = value.includes("-")
+    ? formatSubcategoryLabel(rawLabel || fallbackLabel)
+    : formatTopCategoryLabel(rawLabel || fallbackLabel);
 
   if (!value || !label) {
     return null;
@@ -610,26 +659,109 @@ function buildSecurityHeaders(statusCode, extraHeaders = {}, req = null) {
   return headers;
 }
 
-function sanitizeUser(user) {
+function normalizeSharedPhoneViewerIds(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return Array.from(new Set(
+    value
+      .map((item) => normalizeIdentifier(item, 40))
+      .filter(Boolean)
+  )).slice(0, 60);
+}
+
+function getSharedPhoneViewerIds(user) {
+  return normalizeSharedPhoneViewerIds(user?.sharedPhoneViewerIds);
+}
+
+function hasBuyerSellerRelationship(store, buyerUsername, sellerUsername) {
+  const safeBuyerUsername = normalizeIdentifier(buyerUsername, 40);
+  const safeSellerUsername = normalizeIdentifier(sellerUsername, 40);
+  if (!safeBuyerUsername || !safeSellerUsername) {
+    return false;
+  }
+
+  const hasOrderRelationship = (store.orders || []).some((order) => {
+    const normalizedOrder = normalizeOrderRecord(order);
+    return normalizedOrder.buyerUsername === safeBuyerUsername
+      && normalizedOrder.sellerUsername === safeSellerUsername;
+  });
+  if (hasOrderRelationship) {
+    return true;
+  }
+
+  return (store.messages || []).some((message) => {
+    const normalizedMessage = normalizeMessageRecord(message);
+    const participants = new Set([normalizedMessage.senderId, normalizedMessage.receiverId].filter(Boolean));
+    return participants.has(safeBuyerUsername) && participants.has(safeSellerUsername);
+  });
+}
+
+function canViewerSeeUserPhone(user, viewer = null) {
+  if (!user) {
+    return false;
+  }
+  if (!viewer) {
+    return false;
+  }
+  if (isStaffRole(viewer.role) || viewer.username === user.username) {
+    return true;
+  }
+  if (user.role !== "buyer" || viewer.role !== "seller") {
+    return false;
+  }
+  return getSharedPhoneViewerIds(user).includes(viewer.username);
+}
+
+function shouldExposeBuyerRecordToSeller(user, viewer, store) {
+  return Boolean(
+    user
+    && viewer
+    && user.role === "buyer"
+    && viewer.role === "seller"
+    && !isRestrictedUserStatus(user.status)
+    && hasBuyerSellerRelationship(store, user.username, viewer.username)
+  );
+}
+
+function sanitizeUser(user, options = {}) {
+  const viewer = options.viewer || null;
+  const store = options.store || null;
+  const phoneVisible = canViewerSeeUserPhone(user, viewer);
+  const phoneVisibility = viewer && viewer.username === user.username
+    ? "self"
+    : user.role === "buyer"
+      ? (phoneVisible ? "shared" : "private")
+      : "public";
   return {
     username: user.username,
     fullName: user.fullName || user.username,
     primaryCategory: user.primaryCategory || "",
     role: user.role || "seller",
     status: user.status || "active",
-    whatsappNumber: String(user.whatsappNumber || user.phoneNumber || "").replace(/\D/g, "").slice(0, 20),
+    whatsappNumber: phoneVisible || user.role !== "buyer"
+      ? String(user.whatsappNumber || user.phoneNumber || "").replace(/\D/g, "").slice(0, 20)
+      : "",
     whatsappVerificationStatus: user.whatsappVerificationStatus || "verified",
     whatsappVerifiedAt: user.whatsappVerifiedAt || "",
     verifiedSeller: Boolean(user.verifiedSeller),
     verificationStatus: user.verificationStatus || (user.verifiedSeller ? "verified" : "pending"),
     profileImage: user.profileImage || "",
-    createdAt: user.createdAt || ""
+    createdAt: user.createdAt || "",
+    phoneVisibility,
+    canReceivePhoneShare: Boolean(
+      viewer
+      && viewer.username !== user.username
+      && viewer.role === "buyer"
+      && user.role === "seller"
+      && !isRestrictedUserStatus(user.status)
+    )
   };
 }
 
 function buildSelfSessionPayload(user, token = null) {
   return {
-    ...sanitizeUser(user),
+    ...sanitizeUser(user, { viewer: user }),
     phoneNumber: String(user.phoneNumber || "").replace(/\D/g, "").slice(0, 20),
     pendingWhatsappNumber: String(user.pendingWhatsappNumber || "").replace(/\D/g, "").slice(0, 20),
     pendingWhatsappExpiresAt: user.pendingWhatsappExpiresAt || "",
@@ -650,7 +782,6 @@ function sanitizeModeratorUser(user) {
     verificationStatus: user.verificationStatus || (user.verifiedSeller ? "verified" : "pending"),
     verificationSubmittedAt: user.verificationSubmittedAt || "",
     identityDocumentType: user.identityDocumentType || "",
-    hasPassportPhoto: Boolean(user.passportPhoto),
     hasIdentityDocument: Boolean(user.identityDocumentImage),
     moderatedAt: user.moderatedAt || "",
     moderatedBy: user.moderatedBy || "",
@@ -672,9 +803,8 @@ function sanitizeAdminUser(user) {
     verificationStatus: user.verificationStatus || (user.verifiedSeller ? "verified" : "pending"),
     verificationSubmittedAt: user.verificationSubmittedAt || "",
     identityDocumentType: user.identityDocumentType || "",
-    hasPassportPhoto: Boolean(user.passportPhoto),
+    identityDocumentNumberMasked: maskSensitiveValue(user.identityDocumentNumber || user.nationalId || ""),
     hasIdentityDocumentImage: Boolean(user.identityDocumentImage),
-    passportPhoto: user.passportPhoto || "",
     identityDocumentImage: user.identityDocumentImage || "",
     profileImage: user.profileImage || "",
     moderationReason: user.moderationReason || "",
@@ -704,6 +834,11 @@ function sanitizeVisibleProduct(product, viewer = null, storeRef = null) {
     safeProduct.moderationNote = "";
     safeProduct.moderatedAt = "";
     safeProduct.moderatedBy = "";
+    safeProduct.originalProductId = "";
+    safeProduct.originalSellerId = "";
+    safeProduct.resellerId = "";
+    safeProduct.resalePrice = null;
+    safeProduct.resoldStatus = "original";
   }
   return safeProduct;
 }
@@ -724,9 +859,12 @@ function buildVisibleUsers(store, viewer = null) {
       if (viewer && user.username === viewer.username) {
         return true;
       }
-      return user.role === "seller" && !isRestrictedUserStatus(user.status);
+      if (user.role === "seller" && !isRestrictedUserStatus(user.status)) {
+        return true;
+      }
+      return shouldExposeBuyerRecordToSeller(user, viewer, store);
     })
-    .map(sanitizeUser);
+    .map((user) => sanitizeUser(user, { viewer, store }));
 }
 
 function clearPendingWhatsappState(user, overrides = {}) {
@@ -822,14 +960,15 @@ function normalizeUserRecord(user) {
     pendingWhatsappRequestedAt: user.pendingWhatsappRequestedAt || "",
     pendingWhatsappExpiresAt: user.pendingWhatsappExpiresAt || "",
     nationalId: sanitizePlainText(user.nationalId, 40).toUpperCase(),
+    identityDocumentNumber: sanitizePlainText(user.identityDocumentNumber || user.nationalId, 40).toUpperCase(),
     primaryCategory: sanitizePlainText(user.primaryCategory, 60).toLowerCase(),
     role: isValidRole(user.role) ? user.role : (username === "admin" ? "admin" : "seller"),
     status: isValidUserStatus(user.status) ? user.status : "active",
     moderationReason: sanitizePlainText(user.moderationReason, 120),
     moderationNote: sanitizePlainText(user.moderationNote, 300),
+    sharedPhoneViewerIds: normalizeSharedPhoneViewerIds(user.sharedPhoneViewerIds),
     verifiedSeller: Boolean(user.verifiedSeller),
     profileImage: isValidPrivateImageValue(user.profileImage || "") ? user.profileImage : "",
-    passportPhoto: isValidPrivateImageValue(user.passportPhoto || "") ? user.passportPhoto : "",
     identityDocumentType: ALLOWED_IDENTITY_DOCUMENT_TYPES.includes(user.identityDocumentType) ? user.identityDocumentType : "",
     identityDocumentImage: isValidPrivateImageValue(user.identityDocumentImage || "") ? user.identityDocumentImage : "",
     verificationStatus: ALLOWED_VERIFICATION_STATUSES.includes(user.verificationStatus)
@@ -850,6 +989,13 @@ function normalizeProductRecord(product) {
     || Object.prototype.hasOwnProperty.call(product, "moderatedAt")
     || Object.prototype.hasOwnProperty.call(product, "moderatedBy");
   const inferredStatus = "approved";
+  const originalProductId = sanitizePlainText(product.originalProductId, 80);
+  const originalSellerId = normalizeIdentifier(product.originalSellerId, 40);
+  const resellerId = normalizeIdentifier(product.resellerId, 40);
+  const normalizedResalePrice = normalizeOptionalPrice(product.resalePrice);
+  const derivedResoldStatus = product.resoldStatus === "reposted" || originalProductId || originalSellerId || resellerId
+    ? "reposted"
+    : "original";
   return {
     ...product,
     name: sanitizePlainText(product.name, 120),
@@ -863,6 +1009,11 @@ function normalizeProductRecord(product) {
     moderationNote: sanitizePlainText(product.moderationNote, 240),
     moderatedAt: product.moderatedAt || "",
     moderatedBy: normalizeIdentifier(product.moderatedBy, 40),
+    originalProductId,
+    originalSellerId,
+    resellerId,
+    resalePrice: derivedResoldStatus === "reposted" ? (normalizedResalePrice ?? normalizeOptionalPrice(product.price)) : null,
+    resoldStatus: derivedResoldStatus,
     createdAt: product.createdAt || now,
     updatedAt: product.updatedAt || now
   };
@@ -931,7 +1082,7 @@ function normalizeMessageRecord(message) {
         .filter((item) => item.productId && item.productName)
         .slice(0, 10)
     : [];
-  const messageType = ["text", "product_reference", "product_inquiry"].includes(message.messageType)
+  const messageType = ["text", "product_reference", "product_inquiry", "contact_share"].includes(message.messageType)
     ? message.messageType
     : (productItems.length > 1 ? "product_inquiry" : productItems.length === 1 ? "product_reference" : "text");
   return {
@@ -957,10 +1108,15 @@ function normalizeMessageRecord(message) {
 
 function normalizeNotificationRecord(notification) {
   const now = new Date().toISOString();
+  const type = ALLOWED_NOTIFICATION_TYPES.includes(notification.type) ? notification.type : "message";
+  const variant = ["success", "warning", "error", "info"].includes(notification.variant)
+    ? notification.variant
+    : (type === "order" || type === "request" ? "success" : "info");
   return {
     id: sanitizePlainText(notification.id, 80) || `note-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`,
     userId: normalizeIdentifier(notification.userId || notification.username, 40),
-    type: ALLOWED_NOTIFICATION_TYPES.includes(notification.type) ? notification.type : "message",
+    type,
+    variant,
     messageId: sanitizePlainText(notification.messageId, 80),
     conversationId: sanitizePlainText(notification.conversationId, 160),
     title: sanitizePlainText(notification.title, 120),
@@ -969,6 +1125,44 @@ function normalizeNotificationRecord(notification) {
     isRead: typeof notification.isRead === "boolean" ? notification.isRead : Boolean(notification.readAt),
     createdAt: notification.createdAt || now
   };
+}
+
+function buildOrderNotification({ recipientId, actorUsername, order, stage }) {
+  const safeRecipientId = normalizeIdentifier(recipientId, 40);
+  const safeActor = normalizeIdentifier(actorUsername, 40);
+  const safeOrder = normalizeOrderRecord(order || {});
+  const productLabel = sanitizePlainText(safeOrder.productName || "your product", 80);
+
+  let title = "Order update";
+  let body = `${productLabel} has a new update.`;
+
+  if (stage === "created") {
+    title = `${safeActor || "Mnunuzi"} ameweka order`;
+    body = `Kuna order mpya ya ${productLabel}. Fungua order uone maelezo ya mnunuzi.`;
+  } else if (stage === "paid") {
+    title = `Malipo ya ${productLabel} yamethibitishwa`;
+    body = "Order iko tayari kwa uthibitisho wa muuzaji na maandalizi ya kuendelea.";
+  } else if (stage === "confirmed") {
+    title = `Muuzaji amethibitisha ${productLabel}`;
+    body = "Kuna update mpya kwenye order yako. Angalia status ya delivery au maelekezo ya muuzaji.";
+  } else if (stage === "delivered") {
+    title = `Order ya ${productLabel} imekamilika`;
+    body = `${safeActor || "Mnunuzi"} amethibitisha kupokea bidhaa hii.`;
+  } else if (stage === "cancelled") {
+    title = `Order ya ${productLabel} imefutwa`;
+    body = `${safeActor || "Mnunuzi"} ameghairi order hii.`;
+  }
+
+  return normalizeNotificationRecord({
+    userId: safeRecipientId,
+    type: "order",
+    conversationId: safeOrder.id,
+    title,
+    body,
+    variant: stage === "cancelled" ? "warning" : "success",
+    isRead: false,
+    createdAt: new Date().toISOString()
+  });
 }
 
 function normalizePromotionRecord(promotion) {
@@ -1421,6 +1615,34 @@ async function initializeStoreAtBoot() {
   return migratedStore;
 }
 
+function getNormalizedSignupIdentity(payload = {}) {
+  return {
+    idType: sanitizePlainText(payload.id_type || payload.identityDocumentType, 30).toUpperCase(),
+    idNumber: sanitizePlainText(payload.id_number || payload.identityDocumentNumber || payload.nationalId, 40).toUpperCase(),
+    idImage: payload.id_image || payload.identityDocumentImage || ""
+  };
+}
+
+function stripSignupCategoryFields(payload = {}) {
+  if (!payload || typeof payload !== "object") {
+    return payload;
+  }
+
+  const {
+    primaryCategory,
+    category,
+    subcategory,
+    categoryId,
+    subcategoryId,
+    ...rest
+  } = payload;
+
+  return {
+    ...rest,
+    primaryCategory: ""
+  };
+}
+
 function validateSignupPayload(payload) {
   if (!payload || !isValidRole(payload.role || "seller")) {
     return "Account type si sahihi.";
@@ -1440,23 +1662,27 @@ function validateSignupPayload(payload) {
     }
     return "";
   }
+  const { idType, idNumber, idImage } = getNormalizedSignupIdentity(payload);
   if (!isSafeIdentifier(payload.username, 3, 40)) {
     return "Username si sahihi.";
   }
   if (["admin", "moderator", "support", "system"].includes(normalizeIdentifier(payload.username, 40))) {
     return "Username hiyo hairuhusiwi.";
   }
-  if (!isValidCategory(payload.primaryCategory)) {
-    return "Category si sahihi.";
+  if (!ALLOWED_IDENTITY_DOCUMENT_TYPES.includes(idType)) {
+    return "Please select your ID type";
   }
-  if (!ALLOWED_IDENTITY_DOCUMENT_TYPES.includes(payload.identityDocumentType)) {
-    return "Chagua identity document sahihi ya seller.";
+  if (!isValidNationalId(idNumber || "")) {
+    return "Please enter your ID number";
   }
-  if (!isValidPrivateImageValue(payload.passportPhoto || "")) {
-    return "Passport photo ya seller si sahihi.";
+  if (payload.nationalId && idNumber && String(idNumber) !== String(payload.nationalId || "").toUpperCase()) {
+    return "The card number and the number you entered do not match. Please enter the same number shown on the card.";
   }
-  if (!isValidPrivateImageValue(payload.identityDocumentImage || "")) {
-    return "Identity document image ya seller si sahihi.";
+  if (!idImage) {
+    return "Please upload your ID image";
+  }
+  if (!isValidPrivateImageValue(idImage || "")) {
+    return "ID image is invalid.";
   }
   return "";
 }
@@ -1511,7 +1737,8 @@ function validateMessagePayload(payload) {
   }
   const hasTextMessage = isNonEmptyString(payload.message, 1, 1000);
   const productItems = Array.isArray(payload.productItems) ? payload.productItems : [];
-  if (!hasTextMessage && productItems.length === 0) {
+  const isContactShare = payload.messageType === "contact_share";
+  if (!hasTextMessage && productItems.length === 0 && !isContactShare) {
     return "Ujumbe au bidhaa ya kuulizia inahitajika.";
   }
   if (payload.productId && !isNonEmptyString(payload.productId, 3, 80)) {
@@ -1526,7 +1753,7 @@ function validateMessagePayload(payload) {
   if (productItems.length > 10) {
     return "Chagua bidhaa zisizozidi 10 kwa inquiry moja.";
   }
-  if (productItems.some((item) => !item || !isNonEmptyString(item.id, 3, 80) || !isNonEmptyString(item.name, 2, 120))) {
+  if (productItems.some((item) => !item || !isNonEmptyString(item.productId, 3, 80) || !isNonEmptyString(item.productName, 2, 120))) {
     return "Moja ya bidhaa za inquiry si sahihi.";
   }
   return "";
@@ -1715,24 +1942,60 @@ function validateProductPayload(payload) {
   if (payload.imageSignature && !/^[01]{64}$/.test(payload.imageSignature)) {
     return "Image signature si sahihi.";
   }
+  if (payload.originalProductId && !isNonEmptyString(payload.originalProductId, 8, 80)) {
+    return "Original product si sahihi.";
+  }
+  if (payload.originalSellerId && !isSafeIdentifier(payload.originalSellerId, 3, 40)) {
+    return "Original seller si sahihi.";
+  }
+  if (payload.resellerId && !isSafeIdentifier(payload.resellerId, 3, 40)) {
+    return "Reseller si sahihi.";
+  }
+  if (payload.resoldStatus && !["original", "reposted"].includes(payload.resoldStatus)) {
+    return "Resold status si sahihi.";
+  }
+  if (payload.resoldStatus === "reposted" || payload.originalProductId || payload.originalSellerId || payload.resellerId) {
+    if (!isNonEmptyString(payload.originalProductId, 8, 80)) {
+      return "Original product si sahihi.";
+    }
+    if (!isSafeIdentifier(payload.originalSellerId, 3, 40)) {
+      return "Original seller si sahihi.";
+    }
+    if (!isSafeIdentifier(payload.resellerId || payload.uploadedBy, 3, 40)) {
+      return "Reseller si sahihi.";
+    }
+    const resalePrice = normalizeOptionalPrice(payload.resalePrice ?? payload.price);
+    if (resalePrice === null || resalePrice < 500 || resalePrice > 1000000000) {
+      return "Resale price si sahihi.";
+    }
+  }
   return "";
 }
 
 function buildOrdersSummary(store, username) {
   const payments = (store.payments || []).map(normalizePaymentRecord);
   const orders = (store.orders || []).map(normalizeOrderRecord);
+  const viewer = getUserByUsername(store, username);
   const hydrateOrder = (order) => {
     const payment = payments.find((item) => item.orderId === order.id);
     if (!payment) {
       return order;
     }
 
+    const buyer = getUserByUsername(store, order.buyerUsername);
+    const payerPhoneVisible = order.buyerUsername === username
+      || isStaffRole(viewer?.role || "")
+      || canViewerSeeUserPhone(buyer, viewer);
+
     return {
       ...order,
       paymentStatus: payment.paymentStatus,
       transactionId: payment.transactionReference || order.transactionId,
       paymentDate: payment.createdAt,
-      payerDetails: payment.payerDetails || {}
+      payerDetails: {
+        ...(payment.payerDetails || {}),
+        phoneNumber: payerPhoneVisible ? String(payment?.payerDetails?.phoneNumber || "").replace(/\D/g, "").slice(0, 20) : ""
+      }
     };
   };
   return {
@@ -2555,7 +2818,8 @@ http.createServer(async (req, res) => {
         ? `buyer-${Date.now()}-${crypto.randomBytes(3).toString("hex")}`
         : rawPayload.username;
       const payload = normalizeUserRecord({
-        ...rawPayload,
+        ...stripSignupCategoryFields(rawPayload),
+        primaryCategory: "",
         role: normalizedRole,
         username: buyerUsername,
         fullName: rawPayload.fullName || rawPayload.username || ""
@@ -2610,7 +2874,14 @@ http.createServer(async (req, res) => {
         return;
       }
 
-      if (users.find((item) => String(item.nationalId || "").toUpperCase() === payload.nationalId)) {
+      const sellerIdentity = normalizedRole === "seller"
+        ? getNormalizedSignupIdentity(payload)
+        : { idType: "", idNumber: sanitizePlainText(payload.nationalId, 40).toUpperCase(), idImage: "" };
+      const normalizedNationalId = normalizedRole === "seller"
+        ? sellerIdentity.idNumber
+        : sanitizePlainText(payload.nationalId, 40).toUpperCase();
+
+      if (users.find((item) => String(item.nationalId || item.identityDocumentNumber || "").toUpperCase() === normalizedNationalId)) {
         await appendAuditLog({
           time: new Date().toISOString(),
           ip: clientIp,
@@ -2620,21 +2891,23 @@ http.createServer(async (req, res) => {
           username: payload.username,
           reason: "duplicate_national_id"
         });
-        sendJson(res, 409, { error: "Namba hiyo ya kitambulisho tayari imesajiliwa." });
+        sendJson(res, 409, { error: "This identity number is already registered. Please contact the moderator." });
         return;
       }
 
       const createdUser = {
         ...payload,
         role: normalizedRole,
+        primaryCategory: "",
+        nationalId: normalizedNationalId,
         status: "active",
         moderationReason: "",
         moderationNote: "",
         verifiedSeller: false,
         profileImage: payload.profileImage || "",
-        passportPhoto: normalizedRole === "seller" ? payload.passportPhoto || "" : "",
-        identityDocumentType: normalizedRole === "seller" ? payload.identityDocumentType || "" : "",
-        identityDocumentImage: normalizedRole === "seller" ? payload.identityDocumentImage || "" : "",
+        identityDocumentType: normalizedRole === "seller" ? sellerIdentity.idType : "",
+        identityDocumentNumber: normalizedRole === "seller" ? sellerIdentity.idNumber : "",
+        identityDocumentImage: normalizedRole === "seller" ? sellerIdentity.idImage : "",
         verificationStatus: normalizedRole === "seller" ? "pending" : "",
         verificationSubmittedAt: normalizedRole === "seller" ? new Date().toISOString() : "",
         moderatedAt: "",
@@ -2645,12 +2918,9 @@ http.createServer(async (req, res) => {
       };
       const session = createSession(createdUser);
       users.push(createdUser);
-      const categories = normalizedRole === "seller"
-        ? mergeCategories(store.categories || [], [{ value: payload.primaryCategory, label: payload.primaryCategory }])
-        : mergeCategories(store.categories || []);
       await writeStore({
         ...store,
-        categories,
+        categories: mergeCategories(store.categories || []),
         users,
         sessions: [...store.sessions, session]
       });
@@ -3271,6 +3541,19 @@ http.createServer(async (req, res) => {
           return;
         }
 
+        if (normalizedPayload.messageType === "contact_share") {
+          const isBuyerSharingToSeller = sender.role === "buyer" && receiver.role === "seller";
+          if (!isBuyerSharingToSeller) {
+            sendJson(res, 403, { error: "Phone sharing inaruhusiwa kutoka kwa buyer kwenda kwa seller tu." });
+            return;
+          }
+          if (!hasBuyerSellerRelationship(store, sender.username, receiver.username)) {
+            sendJson(res, 403, { error: "Shiriki namba baada ya kuanza mazungumzo au order na seller huyu." });
+            return;
+          }
+          normalizedPayload.message = normalizedPayload.message || "Nimekushirikisha namba yangu kwa mawasiliano ya moja kwa moja.";
+        }
+
         if (normalizedPayload.productId) {
           const relatedProduct = getProductById(store, normalizedPayload.productId);
           if (!relatedProduct) {
@@ -3316,20 +3599,48 @@ http.createServer(async (req, res) => {
           isRead: false,
           readAt: ""
         });
+        const notificationType = nextMessage.messageType === "product_inquiry" ? "request" : "message";
+        const requestSummary = nextMessage.productItems.length > 1
+          ? `${nextMessage.productItems.length} bidhaa`
+          : sanitizePlainText(nextMessage.productName || "bidhaa", 80);
+        const messageSnippet = sanitizePlainText(nextMessage.message, 140);
+        const senderDisplayName = sanitizePlainText(sender.fullName || sender.username, 80) || sender.username;
         const notification = normalizeNotificationRecord({
           userId: normalizedPayload.receiverId,
-          type: "message",
+          type: notificationType,
           messageId: nextMessage.id,
           conversationId: nextMessage.conversationId,
-          title: `New message from ${sender.username}`,
-          body: nextMessage.productName ? `${nextMessage.productName}: ${nextMessage.message}` : nextMessage.message,
+          title: nextMessage.messageType === "contact_share"
+            ? `${senderDisplayName} ameshare namba yake`
+            : notificationType === "request"
+              ? `${senderDisplayName} ameomba maelezo kuhusu ${requestSummary}`
+              : `${senderDisplayName} ame reply kuhusu ${sanitizePlainText(nextMessage.productName || "bidhaa yako", 80)}`,
+          body: nextMessage.messageType === "contact_share"
+            ? "Sasa unaweza kumuona na kuwasiliana naye moja kwa moja ukiihitaji."
+            : notificationType === "request"
+              ? (messageSnippet || "Fungua mazungumzo uone bidhaa alizochagua na maelezo yake.")
+              : (messageSnippet || "Fungua mazungumzo uone ujumbe mpya."),
+          variant: notificationType === "request" ? "success" : "info",
           isRead: false,
           createdAt: now
         });
 
         const messages = [...((store.messages || []).map(normalizeMessageRecord)), nextMessage];
         const notifications = [notification, ...((store.notifications || []).map(normalizeNotificationRecord))];
-        store = { ...store, messages, notifications };
+        let users = (store.users || []).map(normalizeUserRecord);
+        if (nextMessage.messageType === "contact_share") {
+          users = users.map((user) => {
+            if (user.username !== sender.username) {
+              return user;
+            }
+            return normalizeUserRecord({
+              ...user,
+              sharedPhoneViewerIds: [...getSharedPhoneViewerIds(user), receiver.username],
+              updatedAt: now
+            });
+          });
+        }
+        store = { ...store, users, messages, notifications };
         await writeStore(store);
         await appendAuditLog({
           time: now,
@@ -3344,6 +3655,10 @@ http.createServer(async (req, res) => {
         emitLiveEvent(sender.username, "message", { message: nextMessage });
         emitLiveEvent(normalizedPayload.receiverId, "message", { message: nextMessage });
         emitLiveEvent(normalizedPayload.receiverId, "notification", { notification });
+        if (nextMessage.messageType === "contact_share") {
+          emitLiveEvent(sender.username, "users", { reason: "contact_share", username: sender.username });
+          emitLiveEvent(normalizedPayload.receiverId, "users", { reason: "contact_share", username: sender.username });
+        }
         sendJson(res, 200, nextMessage);
         return;
       }
@@ -3745,8 +4060,8 @@ http.createServer(async (req, res) => {
 
       const payload = await collectBody(req);
       const normalizedUsername = normalizeIdentifier(payload?.username, 40);
-      if (!payload || !isSafeIdentifier(normalizedUsername, 3, 40) || !isValidCategory(payload.primaryCategory)) {
-        sendJson(res, 400, { error: "Taarifa za category si sahihi." });
+      if (!payload || !isSafeIdentifier(normalizedUsername, 3, 40)) {
+        sendJson(res, 400, { error: "Taarifa za user si sahihi." });
         return;
       }
 
@@ -3755,16 +4070,36 @@ http.createServer(async (req, res) => {
         return;
       }
 
+      const normalizedCategory = normalizeCategoryEntry({
+        value: payload.primaryCategory,
+        label: payload.primaryCategory
+      })?.value || "";
+      if (!normalizedCategory && payload.primaryCategory) {
+        await appendAuditLog({
+          time: new Date().toISOString(),
+          level: "warn",
+          event: "primary_category_update_ignored",
+          actor: normalizedUsername,
+          category: "user_profile",
+          detail: "Ignored invalid primary category update payload.",
+          metadata: {
+            requestedCategory: String(payload.primaryCategory || "")
+          }
+        });
+      }
+
       const users = (store.users || []).map((item) =>
-        item.username === normalizedUsername ? { ...item, primaryCategory: payload.primaryCategory } : item
+        item.username === normalizedUsername ? { ...item, primaryCategory: normalizedCategory } : item
       );
 
       const sessions = (store.sessions || []).map((item) =>
-        item.username === normalizedUsername ? { ...item, primaryCategory: payload.primaryCategory } : item
+        item.username === normalizedUsername ? { ...item, primaryCategory: normalizedCategory } : item
       );
       await writeStore({
         ...store,
-        categories: mergeCategories(store.categories || [], [{ value: payload.primaryCategory, label: payload.primaryCategory }]),
+        categories: normalizedCategory
+          ? mergeCategories(store.categories || [], [{ value: normalizedCategory, label: normalizedCategory }])
+          : mergeCategories(store.categories || []),
         users,
         sessions
       });
@@ -4154,7 +4489,15 @@ http.createServer(async (req, res) => {
 
       const orders = [order, ...(store.orders || [])];
       const payments = [payment, ...((store.payments || []).map(normalizePaymentRecord))];
-      await writeStore({ ...store, orders, payments });
+      const sellerNotification = buildOrderNotification({
+        recipientId: product.uploadedBy,
+        actorUsername: session.username,
+        order,
+        stage: "created"
+      });
+      const notifications = [sellerNotification, ...((store.notifications || []).map(normalizeNotificationRecord))];
+      store = { ...store, orders, payments, notifications };
+      await writeStore(store);
       await appendAuditLog({
         time: new Date().toISOString(),
         ip: clientIp,
@@ -4168,6 +4511,7 @@ http.createServer(async (req, res) => {
         paymentId: payment.id,
         paymentStatus: payment.paymentStatus
       });
+      emitLiveEvent(product.uploadedBy, "notification", { notification: sellerNotification });
       sendJson(res, 200, {
         ...order,
         paymentId: payment.id,
@@ -4317,7 +4661,18 @@ http.createServer(async (req, res) => {
         order.id === orderId ? updatedOrder : order
       );
 
-      await writeStore({ ...store, orders });
+      const notificationRecipient = session.username === existingOrder.sellerUsername
+        ? existingOrder.buyerUsername
+        : existingOrder.sellerUsername;
+      const orderNotification = buildOrderNotification({
+        recipientId: notificationRecipient,
+        actorUsername: session.username,
+        order: updatedOrder,
+        stage: nextStatus
+      });
+      const notifications = [orderNotification, ...((store.notifications || []).map(normalizeNotificationRecord))];
+      store = { ...store, orders, notifications };
+      await writeStore(store);
       await appendAuditLog({
         time: new Date().toISOString(),
         ip: clientIp,
@@ -4328,6 +4683,7 @@ http.createServer(async (req, res) => {
         orderId,
         status: nextStatus
       });
+      emitLiveEvent(notificationRecipient, "notification", { notification: orderNotification });
       sendJson(res, 200, updatedOrder);
       return;
     }
@@ -4396,13 +4752,34 @@ http.createServer(async (req, res) => {
         return;
       }
 
+      if (candidatePayload.originalProductId || candidatePayload.resoldStatus === "reposted") {
+        const sourceProduct = (store.products || []).find((item) => item.id === candidatePayload.originalProductId);
+        if (!sourceProduct) {
+          sendJson(res, 400, { error: "Bidhaa ya source ya repost haijapatikana." });
+          return;
+        }
+        if (sourceProduct.uploadedBy === sellerUser.username) {
+          sendJson(res, 400, { error: "Huwezi kurepost bidhaa yako mwenyewe kama repost mpya." });
+          return;
+        }
+        if (candidatePayload.originalSellerId && sourceProduct.uploadedBy !== candidatePayload.originalSellerId) {
+          sendJson(res, 400, { error: "Original seller wa repost si sahihi." });
+          return;
+        }
+      }
+
       const normalizedProduct = normalizeProductRecord(normalizeProductImages({
         ...candidatePayload,
         shop: typeof candidatePayload.shop === "string" && candidatePayload.shop.trim() ? candidatePayload.shop.trim() : sellerUser.username,
         status: "pending",
         moderationNote: "",
         moderatedAt: "",
-        moderatedBy: ""
+        moderatedBy: "",
+        originalProductId: candidatePayload.originalProductId || "",
+        originalSellerId: candidatePayload.originalSellerId || "",
+        resellerId: candidatePayload.resellerId || "",
+        resalePrice: candidatePayload.resalePrice ?? candidatePayload.price,
+        resoldStatus: candidatePayload.resoldStatus || ""
       }));
       const products = [normalizedProduct, ...(store.products || [])];
       await writeStore({
@@ -4502,7 +4879,12 @@ http.createServer(async (req, res) => {
         shop: typeof payload.shop === "string" && payload.shop.trim() ? payload.shop.trim() : existingProduct.shop || sellerUser.username,
         whatsapp: String(sellerUser.whatsappNumber || sellerUser.phoneNumber || "").replace(/\D/g, "").slice(0, 20),
         id: existingProduct.id,
-        uploadedBy: existingProduct.uploadedBy
+        uploadedBy: existingProduct.uploadedBy,
+        originalProductId: existingProduct.originalProductId || payload.originalProductId || "",
+        originalSellerId: existingProduct.originalSellerId || payload.originalSellerId || "",
+        resellerId: existingProduct.resellerId || payload.resellerId || "",
+        resalePrice: existingProduct.resalePrice ?? payload.resalePrice ?? payload.price,
+        resoldStatus: existingProduct.resoldStatus || payload.resoldStatus || ""
       };
       const productError = validateProductPayload(candidateProduct);
       if (productError) {

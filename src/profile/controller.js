@@ -169,7 +169,7 @@
           if (statusNode) {
             statusNode.innerText = "Tunapakia profile photo...";
           }
-          const profileImage = await deps.readFileAsDataUrl(file);
+          const profileImage = await deps.readFileAsDataUrl(file, { purpose: "profile" });
           const updatedUser = await deps.dataLayer.updateUserProfile({ profileImage });
           if (!updatedUser?.username) {
             throw new Error("Akaunti yako haikupatikana tena. Ingia upya kabla ya kujaribu tena.");
@@ -177,6 +177,15 @@
           deps.mergeSessionState({ ...updatedUser, profileImage: updatedUser.profileImage || profileImage });
           deps.saveSessionUser();
           deps.renderHeaderUserMenu();
+          if (statusNode) {
+            statusNode.innerText = "Profile photo imehifadhiwa.";
+          }
+          deps.showInAppNotification?.({
+            title: "Profile photo updated",
+            body: "Picha yako mpya imehifadhiwa.",
+            variant: "success",
+            durationMs: 3200
+          });
           renderProfile();
         } catch (error) {
           deps.captureError?.("profile_photo_update_failed", error, {
@@ -222,28 +231,30 @@
       const purchaseCount = Array.isArray(currentOrders?.purchases) ? currentOrders.purchases.length : 0;
       const unreadConversations = currentMessages.filter((message) => message.receiverId === currentUser && !message.isRead).length;
 
-      deps.dataLayer.loadAnalytics()
-        .then((analytics) => {
-          if (!isRenderActive(sequence)) {
-            return;
-          }
-          deps.renderAnalyticsPanel(analytics, "Performance Yako", "Muhtasari wa catalog yako");
-        })
-        .catch((error) => {
-          if (!isRenderActive(sequence)) {
-            return;
-          }
-          deps.captureError?.("profile_analytics_load_failed", error, {
-            user: currentUser
+      if (deps.canUseSellerFeatures()) {
+        deps.dataLayer.loadAnalytics()
+          .then((analytics) => {
+            if (!isRenderActive(sequence)) {
+              return;
+            }
+            deps.renderAnalyticsPanel(analytics, "Performance Yako", "Muhtasari wa catalog yako");
+          })
+          .catch((error) => {
+            if (!isRenderActive(sequence)) {
+              return;
+            }
+            deps.captureError?.("profile_analytics_load_failed", error, {
+              user: currentUser
+            });
+            deps.renderAnalyticsPanel(null, "Performance Yako", "Muhtasari wa catalog yako");
+            deps.showInAppNotification?.({
+              title: "Analytics unavailable",
+              body: "Performance yako haijapatikana kwa sasa. Tunaonyesha fallback salama.",
+              variant: "warning",
+              durationMs: 4200
+            });
           });
-          deps.renderAnalyticsPanel(null, "Performance Yako", "Muhtasari wa catalog yako");
-          deps.showInAppNotification?.({
-            title: "Analytics unavailable",
-            body: "Performance yako haijapatikana kwa sasa. Tunaonyesha fallback salama.",
-            variant: "warning",
-            durationMs: 4200
-          });
-        });
+      }
 
       deps.dataLayer.loadMyOrders()
         .then((orders) => {
@@ -330,35 +341,47 @@
           });
         });
 
-      profileDiv.replaceChildren(deps.createProfileShellElement({
-        displayName: deps.getCurrentDisplayName(),
-        accountMeta: `${isBuyerOnly ? "Akaunti yako ya mteja" : deps.canUseSellerFeatures() ? "Akaunti ya muuzaji yenye access ya mteja" : "Simamia akaunti yako"}${userProfile?.status && userProfile.status !== "active" ? ` | ${userProfile.status}` : ""}`,
-        stats: [
-          { value: deps.canUseSellerFeatures() ? userProducts.length : purchaseCount, label: deps.canUseSellerFeatures() ? "Bidhaa" : "Orders" },
-          { value: hasBuyerAccess ? deps.getTotalUnreadMessages() : totalLikes, label: hasBuyerAccess ? "Unread" : "Likes" },
-          { value: hasBuyerAccess ? unreadConversations : totalViews, label: hasBuyerAccess ? "Messages" : "Views" }
-        ],
-        identityMarkup: deps.createProfileIdentitySectionElement(userProfile, {
+      try {
+        profileDiv.replaceChildren(deps.createProfileShellElement({
           displayName: deps.getCurrentDisplayName(),
-          profileImage: deps.getCurrentProfileImage(),
-          userInitials: deps.getUserInitials(deps.getCurrentDisplayName()),
-          roleLabel: userProfile?.role ? deps.getRoleLabel(userProfile.role) : "User",
-          whatsappNumber: userProfile?.whatsappNumber || userProfile?.phoneNumber || "",
-          whatsappVerificationStatus: userProfile?.whatsappVerificationStatus || "verified",
-          pendingWhatsappNumber: userProfile?.pendingWhatsappNumber || ""
-        }),
-        promotionsMarkup: deps.createPromotionOverviewSectionElement({
-          canUseSellerFeatures: deps.canUseSellerFeatures(),
-          activePromotionsCount: deps.getActivePromotions().filter((promotion) => promotion.sellerUsername === currentUser).length,
-          promotionOptions: deps.getPromotionOptions()
-        }),
-        requestsMarkup: deps.renderRequestBoxSection(),
-        ordersMarkup: deps.createOrdersSectionElement(deps.getCurrentOrders()),
-        notificationsMarkup: deps.renderNotificationsSection(),
-        messagesMarkup: deps.renderMessagesSection(),
-        hasBuyerAccess,
-        requestCount: deps.getRequestBoxItemCount()
-      }));
+          accountMeta: `${isBuyerOnly ? "Akaunti yako ya mteja" : deps.canUseSellerFeatures() ? "Akaunti ya muuzaji yenye access ya mteja" : "Simamia akaunti yako"}${userProfile?.status && userProfile.status !== "active" ? ` | ${userProfile.status}` : ""}`,
+          stats: [
+            { value: deps.canUseSellerFeatures() ? userProducts.length : purchaseCount, label: deps.canUseSellerFeatures() ? "Bidhaa" : "Orders" },
+            { value: hasBuyerAccess ? deps.getTotalUnreadMessages() : totalLikes, label: hasBuyerAccess ? "Unread" : "Likes" },
+            { value: hasBuyerAccess ? unreadConversations : totalViews, label: hasBuyerAccess ? "Messages" : "Views" }
+          ],
+          identityMarkup: deps.createProfileIdentitySectionElement(userProfile, {
+            displayName: deps.getCurrentDisplayName(),
+            profileImage: deps.getCurrentProfileImage(),
+            userInitials: deps.getUserInitials(deps.getCurrentDisplayName()),
+            roleLabel: userProfile?.role ? deps.getRoleLabel(userProfile.role) : "User",
+            whatsappNumber: userProfile?.whatsappNumber || userProfile?.phoneNumber || "",
+            whatsappVerificationStatus: userProfile?.whatsappVerificationStatus || "verified",
+            pendingWhatsappNumber: userProfile?.pendingWhatsappNumber || ""
+          }),
+          promotionsMarkup: deps.createPromotionOverviewSectionElement({
+            canUseSellerFeatures: deps.canUseSellerFeatures(),
+            activePromotionsCount: deps.getActivePromotions().filter((promotion) => promotion.sellerUsername === currentUser).length,
+            promotionOptions: deps.getPromotionOptions()
+          }),
+          requestsMarkup: deps.renderRequestBoxSection(),
+          ordersMarkup: deps.createOrdersSectionElement(deps.getCurrentOrders()),
+          notificationsMarkup: deps.renderNotificationsSection(),
+          messagesMarkup: deps.renderMessagesSection(),
+          hasBuyerAccess,
+          requestCount: deps.getRequestBoxItemCount()
+        }));
+      } catch (error) {
+        deps.captureError?.("profile_shell_render_failed", error, {
+          user: currentUser
+        });
+        const fallback = deps.createEmptyState
+          ? deps.createEmptyState("Profile ilipata hitilafu ya muda. Refresh ukurasa au jaribu tena.")
+          : document.createTextNode("Profile ilipata hitilafu ya muda.");
+        profileDiv.replaceChildren(fallback);
+        profileDiv.style.display = "block";
+        return;
+      }
 
       deps.flushPendingProfileSection();
       const container = document.getElementById("user-products-container");

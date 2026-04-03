@@ -27,7 +27,9 @@
           className: "profile-identity-image",
           attributes: {
             src: deps.sanitizeImageSource(profileImage, ""),
-            alt: displayName
+            alt: `${displayName} profile photo`,
+            loading: "lazy",
+            decoding: "async"
           }
         }));
       } else {
@@ -155,7 +157,7 @@
           attributes: {
             id: "profile-photo-input",
             type: "file",
-            accept: "image/jpeg,image/png,image/webp,image/gif",
+            accept: "image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif",
             style: "display:none;"
           }
         }),

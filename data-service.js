@@ -30,6 +30,22 @@
     }
   }
 
+  function setStorageOrThrow(key, value, label = "data za Winga") {
+    try {
+      localStorage.setItem(key, value);
+      return true;
+    } catch (error) {
+      const quotaExceeded = error?.name === "QuotaExceededError"
+        || error?.code === 22
+        || error?.code === 1014
+        || /quota|storage|space/i.test(String(error?.message || ""));
+      if (quotaExceeded) {
+        throw new Error(`${label} zimezidi nafasi ya browser/simu. Punguza idadi au ukubwa wa picha kisha ujaribu tena.`);
+      }
+      throw new Error(`Imeshindikana kuhifadhi ${label} kwenye browser hii. Jaribu tena au fungua app upya.`);
+    }
+  }
+
   function safeStorageRemove(key) {
     try {
       localStorage.removeItem(key);
@@ -64,6 +80,20 @@
 
   function writeStoredSession(session) {
     safeStorageSet(SESSION_KEY, JSON.stringify(session));
+  }
+
+  function clearLegacyLocalFallbackArtifacts() {
+    [
+      USERS_KEY,
+      PRODUCTS_KEY,
+      CATEGORIES_KEY,
+      MESSAGES_KEY,
+      REVIEWS_KEY,
+      MOCK_SEEDED_KEY,
+      MOCK_SEED_VERSION_KEY
+    ].forEach((key) => {
+      safeStorageRemove(key);
+    });
   }
 
   function normalizePhoneNumber(value) {
@@ -173,13 +203,43 @@
     return normalizePhoneNumber(user.whatsappNumber || user.phoneNumber || "");
   }
 
+  function stripSignupCategoryFields(payload = {}) {
+    if (!payload || typeof payload !== "object") {
+      return payload;
+    }
+
+    const {
+      primaryCategory,
+      category,
+      subcategory,
+      categoryId,
+      subcategoryId,
+      ...rest
+    } = payload;
+
+    return {
+      ...rest,
+      primaryCategory: ""
+    };
+  }
+
+  function normalizePrimaryCategoryValue(value) {
+    const normalized = String(value || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 40);
+    return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(normalized) ? normalized : "";
+  }
+
   function createLocalAdapter() {
     return {
       async loadUsers() {
         return readStoredJson(USERS_KEY, []);
       },
       async saveUsers(users) {
-        safeStorageSet(USERS_KEY, JSON.stringify(users));
+        setStorageOrThrow(USERS_KEY, JSON.stringify(users), "data za akaunti na picha ya profile");
       },
       async loadProducts() {
         return readStoredJson(PRODUCTS_KEY, []);
@@ -213,16 +273,16 @@
           };
         },
         async saveCategories(categories) {
-          safeStorageSet(CATEGORIES_KEY, JSON.stringify(categories));
+          setStorageOrThrow(CATEGORIES_KEY, JSON.stringify(categories), "categories za Winga");
         },
         async saveMessages(messages) {
-          safeStorageSet(MESSAGES_KEY, JSON.stringify(messages));
+          setStorageOrThrow(MESSAGES_KEY, JSON.stringify(messages), "messages zako");
         },
         async saveReviews(reviews) {
-          safeStorageSet(REVIEWS_KEY, JSON.stringify(reviews));
+          setStorageOrThrow(REVIEWS_KEY, JSON.stringify(reviews), "reviews zako");
         },
         async saveProducts(products) {
-          safeStorageSet(PRODUCTS_KEY, JSON.stringify(products));
+          setStorageOrThrow(PRODUCTS_KEY, JSON.stringify(products), "data za bidhaa na picha zake");
         },
       loadSession() {
         return readStoredSession();
@@ -241,38 +301,40 @@
         return this.loadSession();
       },
       async signup(payload) {
+        const safePayload = stripSignupCategoryFields(payload);
         const users = await this.loadUsers();
-        if (payload.role !== "buyer" && users.find((item) => item.username === payload.username)) {
+        if (safePayload.role !== "buyer" && users.find((item) => item.username === safePayload.username)) {
           throw new Error("Username hiyo tayari imetumika.");
         }
 
-        const duplicatePhone = users.find((item) => item.phoneNumber === payload.phoneNumber);
+        const duplicatePhone = users.find((item) => item.phoneNumber === safePayload.phoneNumber);
         if (duplicatePhone) {
           throw new Error("Namba hiyo ya simu tayari imesajiliwa.");
         }
 
-        const duplicateNationalId = users.find((item) => item.nationalId === payload.nationalId);
+        const duplicateNationalId = users.find((item) => item.nationalId === safePayload.nationalId);
         if (duplicateNationalId) {
           throw new Error("Namba hiyo ya kitambulisho tayari imesajiliwa.");
         }
 
-        if (payload.role === "buyer" && users.find((item) => String(item.fullName || "").toLowerCase() === String(payload.fullName || "").toLowerCase())) {
+        if (safePayload.role === "buyer" && users.find((item) => String(item.fullName || "").toLowerCase() === String(safePayload.fullName || "").toLowerCase())) {
           throw new Error("Jina hilo tayari limetumika.");
         }
 
         const nextUser = {
-          ...payload,
-          username: payload.role === "buyer" ? `buyer-${Date.now()}` : payload.username,
-          fullName: payload.fullName || payload.username,
-          role: payload.role || "seller",
-          nationalId: normalizeNationalId(payload.nationalId),
-          phoneNumber: normalizePhoneNumber(payload.phoneNumber),
-          whatsappNumber: normalizePhoneNumber(payload.phoneNumber),
+          ...safePayload,
+          username: safePayload.role === "buyer" ? `buyer-${Date.now()}` : safePayload.username,
+          fullName: safePayload.fullName || safePayload.username,
+          role: safePayload.role || "seller",
+          primaryCategory: "",
+          nationalId: normalizeNationalId(safePayload.nationalId),
+          phoneNumber: normalizePhoneNumber(safePayload.phoneNumber),
+          whatsappNumber: normalizePhoneNumber(safePayload.phoneNumber),
           whatsappVerificationStatus: "verified",
           whatsappVerifiedAt: new Date().toISOString(),
-          password: await hashLocalPassword(payload.password),
+          password: await hashLocalPassword(safePayload.password),
           status: "active",
-          createdAt: payload.createdAt || new Date().toISOString(),
+          createdAt: safePayload.createdAt || new Date().toISOString(),
           updatedAt: new Date().toISOString()
         };
 
@@ -281,7 +343,7 @@
         return {
           username: nextUser.username,
           fullName: nextUser.fullName,
-          primaryCategory: nextUser.primaryCategory || "",
+          primaryCategory: "",
           role: nextUser.role,
           phoneNumber: nextUser.phoneNumber,
           whatsappNumber: nextUser.whatsappNumber,
@@ -388,9 +450,10 @@
         };
       },
       async updateUserPrimaryCategory(username, primaryCategory) {
+        const normalizedCategory = normalizePrimaryCategoryValue(primaryCategory);
         const users = await this.loadUsers();
         const nextUsers = users.map((item) =>
-          item.username === username ? { ...item, primaryCategory } : item
+          item.username === username ? { ...item, primaryCategory: normalizedCategory } : item
         );
         await this.saveUsers(nextUsers);
       },
@@ -941,14 +1004,34 @@
   async function fetchJson(url, options) {
     const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
     const timeoutId = controller ? setTimeout(() => controller.abort(), 12000) : null;
-    const response = await fetch(url, {
-      ...(options || {}),
-      signal: controller ? controller.signal : undefined
-    }).finally(() => {
+    let response;
+    try {
+      response = await fetch(url, {
+        ...(options || {}),
+        signal: controller ? controller.signal : undefined
+      });
+    } catch (error) {
       if (timeoutId) {
         clearTimeout(timeoutId);
       }
-    });
+      if (error?.name === "AbortError") {
+        const endpoint = String(url || "");
+        if (endpoint.includes("/auth/signup")) {
+          throw new Error("Seller signup took too long. Check your connection and try again.");
+        }
+        if (endpoint.includes("/auth/admin-login")) {
+          throw new Error("Admin login took too long. Check your connection and try again.");
+        }
+        if (endpoint.includes("/auth/login")) {
+          throw new Error("Login took too long. Check your connection and try again.");
+        }
+        throw new Error("Request took too long. Check your connection and try again.");
+      }
+      throw error;
+    }
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
     if (!response.ok) {
       let errorMessage = `Request failed: ${response.status}`;
       try {
@@ -1115,7 +1198,7 @@
         return fetchJson(`${baseUrl}/auth/signup`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload)
+          body: JSON.stringify(stripSignupCategoryFields(payload))
         });
       },
       async login(payload) {
@@ -1163,13 +1246,17 @@
         });
       },
       async updateUserPrimaryCategory(username, primaryCategory) {
+        const normalizedCategory = normalizePrimaryCategoryValue(primaryCategory);
+        if (!normalizedCategory) {
+          return { ok: true, ignored: true };
+        }
         await fetchJson(`${baseUrl}/users/primary-category`, {
           method: "PATCH",
           headers: {
             "Content-Type": "application/json",
             ...createAuthHeaders()
           },
-          body: JSON.stringify({ username, primaryCategory })
+          body: JSON.stringify({ username, primaryCategory: normalizedCategory })
         });
       },
       async addCategory(category) {
@@ -1339,6 +1426,9 @@
           });
           source.addEventListener("conversation_read", (event) => {
             handlers.onConversationRead?.(parseEvent(event));
+          });
+          source.addEventListener("users", (event) => {
+            handlers.onUsers?.(parseEvent(event));
           });
           source.onerror = () => {
             handlers.onError?.();
@@ -1664,39 +1754,41 @@
         return this.loadSession();
       },
       async signup(payload) {
+        const safePayload = stripSignupCategoryFields(payload);
         const users = await this.loadUsers();
-        const duplicateUsername = payload.role !== "buyer" && users.find((item) => item.username === payload.username);
+        const duplicateUsername = safePayload.role !== "buyer" && users.find((item) => item.username === safePayload.username);
         if (duplicateUsername) {
           throw new Error("Username hiyo tayari imetumika.");
         }
 
-        const duplicatePhone = users.find((item) => item.phoneNumber === payload.phoneNumber);
+        const duplicatePhone = users.find((item) => item.phoneNumber === safePayload.phoneNumber);
         if (duplicatePhone) {
           throw new Error("Namba hiyo ya simu tayari imesajiliwa.");
         }
 
-        const duplicateNationalId = users.find((item) => item.nationalId === payload.nationalId);
+        const duplicateNationalId = users.find((item) => item.nationalId === safePayload.nationalId);
         if (duplicateNationalId) {
           throw new Error("Namba hiyo ya kitambulisho tayari imesajiliwa.");
         }
 
-        if (payload.role === "buyer" && users.find((item) => normalizeIdentifier(item.fullName) === normalizeIdentifier(payload.fullName))) {
+        if (safePayload.role === "buyer" && users.find((item) => normalizeIdentifier(item.fullName) === normalizeIdentifier(safePayload.fullName))) {
           throw new Error("Jina hilo tayari limetumika.");
         }
 
         const nextUser = {
-          ...payload,
-          username: payload.role === "buyer" ? `buyer-${Date.now()}` : payload.username,
-          fullName: payload.fullName || payload.username,
-          role: payload.role || "seller",
-          nationalId: normalizeNationalId(payload.nationalId),
-          phoneNumber: normalizePhoneNumber(payload.phoneNumber),
-          whatsappNumber: normalizePhoneNumber(payload.phoneNumber),
+          ...safePayload,
+          username: safePayload.role === "buyer" ? `buyer-${Date.now()}` : safePayload.username,
+          fullName: safePayload.fullName || safePayload.username,
+          role: safePayload.role || "seller",
+          primaryCategory: "",
+          nationalId: normalizeNationalId(safePayload.nationalId),
+          phoneNumber: normalizePhoneNumber(safePayload.phoneNumber),
+          whatsappNumber: normalizePhoneNumber(safePayload.phoneNumber),
           whatsappVerificationStatus: "verified",
           whatsappVerifiedAt: new Date().toISOString(),
-          password: await hashLocalPassword(payload.password),
+          password: await hashLocalPassword(safePayload.password),
           status: "active",
-          createdAt: payload.createdAt || new Date().toISOString(),
+          createdAt: safePayload.createdAt || new Date().toISOString(),
           updatedAt: new Date().toISOString()
         };
 
@@ -1705,7 +1797,7 @@
         return {
           username: nextUser.username,
           fullName: nextUser.fullName,
-          primaryCategory: nextUser.primaryCategory,
+          primaryCategory: "",
           role: nextUser.role,
           phoneNumber: nextUser.phoneNumber,
           whatsappNumber: nextUser.whatsappNumber,
@@ -1812,9 +1904,10 @@
         };
       },
       async updateUserPrimaryCategory(username, primaryCategory) {
+        const normalizedCategory = normalizePrimaryCategoryValue(primaryCategory);
         const users = await this.loadUsers();
         const nextUsers = users.map((item) =>
-          item.username === username ? { ...item, primaryCategory } : item
+          item.username === username ? { ...item, primaryCategory: normalizedCategory } : item
         );
         await this.saveUsers(nextUsers);
       },
@@ -2220,6 +2313,9 @@
 
       try {
         await loadInitialState(state.adapter);
+        if (state.activeProvider === "api") {
+          clearLegacyLocalFallbackArtifacts();
+        }
         state.initialized = true;
       } catch (error) {
         const fallbackProvider = config.fallbackProvider || "local";
@@ -2245,21 +2341,30 @@
       return clone(state.users);
     },
     async saveUsers(users) {
-      state.users = clone(users);
-      await state.adapter.saveUsers(state.users);
+      const nextUsers = clone(users);
+      await state.adapter.saveUsers(nextUsers);
+      state.users = nextUsers;
     },
     getProducts() {
       return clone(state.products);
     },
+    getActiveProvider() {
+      ensureAdapter();
+      return state.activeProvider || "";
+    },
     getCategories() {
       return clone(state.categories);
     },
+    cleanupLocalFallbackArtifacts() {
+      clearLegacyLocalFallbackArtifacts();
+    },
     async saveProducts(products) {
-      state.products = clone(products);
-      await state.adapter.saveProducts(state.products);
+      const nextProducts = clone(products);
+      await state.adapter.saveProducts(nextProducts);
+      state.products = nextProducts;
     },
     async signup(payload) {
-      const result = await state.adapter.signup(payload);
+      const result = await state.adapter.signup(stripSignupCategoryFields(payload));
       state.users = await state.adapter.loadUsers();
       return result;
     },
@@ -2277,6 +2382,10 @@
       state.users = await state.adapter.loadUsers();
       return result;
     },
+    async refreshUsers() {
+      state.users = await state.adapter.loadUsers();
+      return clone(state.users);
+    },
     async requestWhatsappChange(payload) {
       const result = await (state.adapter.requestWhatsappChange ? state.adapter.requestWhatsappChange(payload) : null);
       state.users = await state.adapter.loadUsers();
@@ -2292,7 +2401,12 @@
     },
     async updateUserPrimaryCategory(username, primaryCategory) {
       assertSellerAccess();
-      await state.adapter.updateUserPrimaryCategory(username, primaryCategory);
+      const normalizedCategory = normalizePrimaryCategoryValue(primaryCategory);
+      if (!normalizedCategory) {
+        state.users = await state.adapter.loadUsers();
+        return;
+      }
+      await state.adapter.updateUserPrimaryCategory(username, normalizedCategory);
       state.users = await state.adapter.loadUsers();
     },
     async addCategory(category) {

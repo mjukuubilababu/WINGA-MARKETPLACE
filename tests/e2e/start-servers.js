@@ -106,21 +106,41 @@ async function seedMarketplace() {
   ];
 
   for (const account of accounts) {
+    let sessionPayload = null;
     const signup = await apiRequest("/auth/signup", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         ...account,
         role: account.role,
-        passportPhoto: account.role === "seller" ? tinyImage : undefined,
-        identityDocumentType: account.role === "seller" ? "NIDA" : undefined,
-        identityDocumentImage: account.role === "seller" ? tinyImage : undefined
+        id_type: account.role === "seller" ? "NIDA" : undefined,
+        id_number: account.role === "seller" ? account.nationalId : undefined,
+        id_image: account.role === "seller" ? tinyImage : undefined
       })
     });
-    if (signup.response.status !== 200) {
-      throw new Error(`Failed to seed ${account.username}: ${signup.body?.error || signup.response.status}`);
+
+    if (signup.response.status === 200) {
+      sessionPayload = signup.body;
+    } else {
+      const identifier = account.role === "buyer"
+        ? (account.fullName || account.phoneNumber)
+        : account.username;
+      const login = await apiRequest("/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username: identifier,
+          identifier,
+          password: account.password
+        })
+      });
+
+      if (login.response.status !== 200) {
+        throw new Error(`Failed to seed ${account.username}: ${signup.body?.error || signup.response.status}`);
+      }
+      sessionPayload = login.body;
     }
-    seededSessions[account.username] = signup.body;
+    seededSessions[account.username] = sessionPayload;
   }
 
   const sellerLogin = await apiRequest("/auth/login", {

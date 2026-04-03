@@ -79,7 +79,10 @@
         attributes: {
           src: safeMainImage,
           alt: safeProductName,
-          loading: "lazy"
+          loading: "lazy",
+          "data-image-action-product": product.id,
+          "data-image-action-src": safeMainImage,
+          "data-image-action-surface": "detail"
         }
       });
       mainImageElement.onerror = function handleDetailImageError() {
@@ -126,6 +129,13 @@
             ? { type: "button", "data-open-own-messages": product.id }
             : { type: "button", "data-chat-product": product.id }
         }));
+        if (deps.canRepostProduct?.(product)) {
+          actions.appendChild(deps.createElement("button", {
+            className: "action-btn action-btn-secondary",
+            textContent: "Repost",
+            attributes: { type: "button", "data-detail-repost": product.id }
+          }));
+        }
       } else {
         actions.append(
           deps.createElement("button", {

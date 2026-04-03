@@ -7,13 +7,63 @@
       isSending: false
     };
 
+    function getRequestBoxSnapshot() {
+      return {
+        items: normalizeRequestBoxItems(state.items),
+        sellerNotes: state.sellerNotes
+      };
+    }
+
+    function readRequestBoxSnapshotFromStorage(storage) {
+      if (!storage) {
+        return null;
+      }
+      try {
+        return JSON.parse(storage.getItem(deps.getRequestBoxStorageKey()) || "null");
+      } catch (error) {
+        return null;
+      }
+    }
+
+    function writeRequestBoxSnapshotToStorage(storage, snapshot) {
+      if (!storage) {
+        return false;
+      }
+      storage.setItem(deps.getRequestBoxStorageKey(), JSON.stringify(snapshot));
+      return true;
+    }
+
+    function normalizeRequestItemSnapshot(snapshot = {}, legacyItem = {}) {
+      const sellerId = String(snapshot?.sellerId || legacyItem?.sellerId || legacyItem?.uploadedBy || "").trim();
+      return {
+        productName: String(snapshot?.productName || legacyItem?.productName || legacyItem?.name || "").trim(),
+        productImage: String(snapshot?.productImage || legacyItem?.productImage || legacyItem?.image || "").trim(),
+        price: snapshot?.price ?? legacyItem?.price ?? null,
+        category: String(snapshot?.category || legacyItem?.category || "").trim(),
+        sellerId,
+        sellerName: String(snapshot?.sellerName || legacyItem?.sellerName || legacyItem?.shop || sellerId || "").trim()
+      };
+    }
+
+    function createRequestItemSnapshot(product) {
+      return normalizeRequestItemSnapshot({
+        productName: product?.name || "",
+        productImage: product?.image || "",
+        price: product?.price ?? null,
+        category: product?.category || "",
+        sellerId: product?.uploadedBy || "",
+        sellerName: deps.getMarketplaceUser?.(product?.uploadedBy || "")?.fullName || product?.shop || product?.uploadedBy || ""
+      });
+    }
+
     function normalizeRequestBoxItems(items = []) {
       const seen = new Set();
       return (Array.isArray(items) ? items : [])
         .map((item) => ({
           productId: String(item?.productId || "").trim(),
           quantity: Math.min(99, Math.max(1, Number(item?.quantity || 1) || 1)),
-          addedAt: item?.addedAt || new Date().toISOString()
+          addedAt: item?.addedAt || new Date().toISOString(),
+          snapshot: normalizeRequestItemSnapshot(item?.snapshot || {}, item)
         }))
         .filter((item) => item.productId && !seen.has(item.productId) && seen.add(item.productId));
     }
@@ -32,7 +82,9 @@
       }
 
       try {
-        const raw = JSON.parse(localStorage.getItem(deps.getRequestBoxStorageKey()) || "{}");
+        const raw = readRequestBoxSnapshotFromStorage(localStorage)
+          || readRequestBoxSnapshotFromStorage(sessionStorage)
+          || {};
         state.items = normalizeRequestBoxItems(raw?.items || []);
         state.sellerNotes = raw?.sellerNotes && typeof raw.sellerNotes === "object" ? raw.sellerNotes : {};
         state.lastSentSummary = null;
@@ -54,15 +106,37 @@
         return;
       }
 
+      const snapshot = getRequestBoxSnapshot();
       try {
-        localStorage.setItem(deps.getRequestBoxStorageKey(), JSON.stringify({
-          items: normalizeRequestBoxItems(state.items),
-          sellerNotes: state.sellerNotes
-        }));
+        writeRequestBoxSnapshotToStorage(localStorage, snapshot);
+        try {
+          sessionStorage.removeItem(deps.getRequestBoxStorageKey());
+        } catch (storageError) {
+          // Ignore non-critical session fallback cleanup failures.
+        }
       } catch (error) {
-        deps.captureError?.("request_box_save_failed", error, {
-          user: deps.getCurrentUser()
-        });
+        try {
+          deps.cleanupLocalFallbackArtifacts?.();
+          writeRequestBoxSnapshotToStorage(localStorage, snapshot);
+          try {
+            sessionStorage.removeItem(deps.getRequestBoxStorageKey());
+          } catch (storageError) {
+            // Ignore non-critical session fallback cleanup failures.
+          }
+          return;
+        } catch (retryError) {
+          try {
+            writeRequestBoxSnapshotToStorage(sessionStorage, snapshot);
+          } catch (sessionError) {
+            deps.captureError?.("request_box_save_failed", sessionError, {
+              user: deps.getCurrentUser()
+            });
+            return;
+          }
+          deps.captureError?.("request_box_save_fell_back_to_session_storage", retryError, {
+            user: deps.getCurrentUser()
+          });
+        }
       }
     }
 
@@ -72,13 +146,32 @@
         return Array.from(itemMap.values())
           .map((item) => {
             const product = deps.getProductById(item.productId);
-            if (!product || !product.uploadedBy || product.uploadedBy === deps.getCurrentUser()) {
+            if (product && product.uploadedBy && product.uploadedBy !== deps.getCurrentUser()) {
+              return {
+                ...item,
+                snapshot: createRequestItemSnapshot(product),
+                product,
+                sellerId: product.uploadedBy
+              };
+            }
+            if (!item.snapshot?.sellerId || item.snapshot.sellerId === deps.getCurrentUser()) {
               return null;
             }
             return {
               ...item,
-              product,
-              sellerId: product.uploadedBy
+              product: {
+                id: item.productId,
+                name: item.snapshot.productName || "Selected product",
+                image: item.snapshot.productImage || deps.getImageFallbackDataUri("W"),
+                price: item.snapshot.price ?? null,
+                category: item.snapshot.category || "",
+                uploadedBy: item.snapshot.sellerId,
+                shop: item.snapshot.sellerName || item.snapshot.sellerId,
+                status: "unknown",
+                availability: "unknown"
+              },
+              sellerId: item.snapshot.sellerId,
+              isSnapshotFallback: true
             };
           })
           .filter(Boolean);
@@ -87,9 +180,36 @@
         .filter((product) => itemMap.has(product.id) && product.uploadedBy && product.uploadedBy !== deps.getCurrentUser())
         .map((product) => ({
           ...itemMap.get(product.id),
+          snapshot: createRequestItemSnapshot(product),
           product,
           sellerId: product.uploadedBy
-        }));
+        }))
+        .concat(
+          Array.from(itemMap.values())
+            .filter((item) => !deps.getProducts().some((product) => product.id === item.productId))
+            .map((item) => {
+              if (!item.snapshot?.sellerId || item.snapshot.sellerId === deps.getCurrentUser()) {
+                return null;
+              }
+              return {
+                ...item,
+                product: {
+                  id: item.productId,
+                  name: item.snapshot.productName || "Selected product",
+                  image: item.snapshot.productImage || deps.getImageFallbackDataUri("W"),
+                  price: item.snapshot.price ?? null,
+                  category: item.snapshot.category || "",
+                  uploadedBy: item.snapshot.sellerId,
+                  shop: item.snapshot.sellerName || item.snapshot.sellerId,
+                  status: "unknown",
+                  availability: "unknown"
+                },
+                sellerId: item.snapshot.sellerId,
+                isSnapshotFallback: true
+              };
+            })
+            .filter(Boolean)
+        );
     }
 
     function getRequestBoxGroups() {
@@ -186,7 +306,8 @@
           {
             productId: product.id,
             quantity: 1,
-            addedAt: new Date().toISOString()
+            addedAt: new Date().toISOString(),
+            snapshot: createRequestItemSnapshot(product)
           },
           ...normalizeRequestBoxItems(state.items)
         ].slice(0, 40);
@@ -206,13 +327,13 @@
     }
 
     function removeProductFromRequestBox(productId, options = {}) {
+      const requestItem = normalizeRequestBoxItems(state.items).find((item) => item.productId === productId);
       const product = deps.getProductById ? deps.getProductById(productId) : deps.getProducts().find((item) => item.id === productId);
       state.items = normalizeRequestBoxItems(state.items).filter((item) => item.productId !== productId);
       state.lastSentSummary = null;
       refreshRequestBoxUI(options);
-      if (product) {
-        showRequestBoxToast(`${product.name} removed from your requests.`, "info");
-      }
+      const productName = product?.name || requestItem?.snapshot?.productName || "Selected product";
+      showRequestBoxToast(`${productName} removed from your requests.`, "info");
     }
 
     function clearRequestBox(options = {}) {

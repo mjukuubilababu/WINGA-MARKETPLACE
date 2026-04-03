@@ -104,6 +104,7 @@
       }
       modal.style.display = "none";
       document.body.classList.remove("product-detail-open");
+      deps.syncBodyScrollLockState?.();
       deps.resetProductDiscoveryTrail();
       deps.resetReviewDraft();
       if (!skipContextRestore) {
@@ -121,6 +122,7 @@
         detailDepth: 0,
         productTrail: []
       };
+      deps.syncAppShellHistoryState?.({ force: true });
     }
 
     function bindProductDetailActions(modal, product) {
@@ -134,6 +136,10 @@
 
       modal.querySelectorAll("[data-detail-buy]").forEach((button) => {
         button.addEventListener("click", () => deps.beginPurchaseFlow(product));
+      });
+
+      modal.querySelectorAll("[data-detail-repost]").forEach((button) => {
+        button.addEventListener("click", () => deps.repostProductAsSeller(product));
       });
 
       modal.querySelectorAll("[data-chat-product]").forEach((button) => {
@@ -251,6 +257,7 @@
       const isAlreadyOpen = document.body.classList.contains("product-detail-open") && modal.style.display !== "none";
       const previousActiveProductId = detailNavState.activeProductId;
       if (!isAlreadyOpen) {
+        deps.syncAppShellHistoryState?.({ force: true });
         detailNavState = {
           rootScrollY: window.scrollY || window.pageYOffset || 0,
           rootProductId: sourceProductId || productId,
@@ -316,6 +323,7 @@
 
       modal.style.display = "grid";
       document.body.classList.add("product-detail-open");
+      deps.syncBodyScrollLockState?.();
       modal.scrollTop = restoreDetailScrollTop || 0;
       if (
         !fromHistoryNavigation

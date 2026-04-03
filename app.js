@@ -2,6 +2,7 @@ const USERS_KEY = "winga-users";
 const PRODUCTS_KEY = "winga-products";
 const SESSION_KEY = "winga-current-user";
 const APP_VIEW_KEY = "winga-app-view";
+const SELLER_HISTORY_KEY_PREFIX = "winga-seller-history";
 const REQUEST_BOX_KEY_PREFIX = "winga-request-box";
 const { CHAT_EMOJI_CHOICES } = window.WingaModules.config.chat;
 const {
@@ -10,9 +11,20 @@ const {
   DEFAULT_PRODUCT_CATEGORIES,
   LEGACY_CATEGORY_MAPPINGS
 } = window.WingaModules.config.categories;
+const FLEXIBLE_SUBCATEGORY_TOP_VALUES = new Set(["vitu-used"]);
 const MAX_UPLOAD_IMAGES = 5;
-const MAX_IMAGE_SIZE_BYTES = 3 * 1024 * 1024;
-const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+const MAX_IMAGE_SIZE_MB = 25;
+const MAX_IMAGE_SIZE_BYTES = MAX_IMAGE_SIZE_MB * 1024 * 1024;
+const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif", "image/heic", "image/heif"];
+const ALLOWED_IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp", ".gif", ".heic", ".heif"];
+const PROFILE_IMAGE_TARGET_BYTES = 420 * 1024;
+const PRODUCT_IMAGE_TARGET_BYTES = 850 * 1024;
+const DOCUMENT_IMAGE_TARGET_BYTES = 1100 * 1024;
+const LOCAL_PROFILE_IMAGE_TARGET_BYTES = 220 * 1024;
+const LOCAL_PRODUCT_IMAGE_TARGET_BYTES = 380 * 1024;
+const LOCAL_DOCUMENT_IMAGE_TARGET_BYTES = 560 * 1024;
+const FAST_SIGNUP_DOCUMENT_TARGET_BYTES = 4 * 1024 * 1024;
+const SIGNUP_DOCUMENT_PREP_TIMEOUT_MS = 15000;
 const IMAGE_HASH_SIZE = 8;
 const BUYER_CANCEL_WINDOW_MS = 48 * 60 * 60 * 1000;
 const AppCore = window.WingaCore || {};
@@ -108,6 +120,10 @@ function getRestorableCategory(categoryValue) {
     : "all";
 }
 
+function supportsFlexibleSubcategory(topValue) {
+  return FLEXIBLE_SUBCATEGORY_TOP_VALUES.has(String(topValue || "").trim().toLowerCase());
+}
+
 function saveAppViewState() {
   if (!currentUser) {
     return;
@@ -138,14 +154,111 @@ function clearAppViewState() {
   }
 }
 
+function getSellerHistoryStorageKey(username = currentUser) {
+  return `${SELLER_HISTORY_KEY_PREFIX}:${username || "guest"}`;
+}
+
+function loadBuyerSellerAffinityState(username = currentUser) {
+  if (!username) {
+    return {};
+  }
+  try {
+    const rawValue = window.localStorage.getItem(getSellerHistoryStorageKey(username));
+    const parsed = rawValue ? JSON.parse(rawValue) : {};
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return {};
+    }
+    return Object.fromEntries(
+      Object.entries(parsed)
+        .map(([sellerId, entry]) => {
+          const normalizedSellerId = String(sellerId || "").trim();
+          const safeScore = Number(entry?.score || 0);
+          if (!normalizedSellerId || !Number.isFinite(safeScore) || safeScore <= 0) {
+            return null;
+          }
+          return [normalizedSellerId, {
+            score: Math.min(420, safeScore),
+            updatedAt: entry?.updatedAt || ""
+          }];
+        })
+        .filter(Boolean)
+    );
+  } catch (error) {
+    return {};
+  }
+}
+
+function saveBuyerSellerAffinityState() {
+  if (!currentUser) {
+    return;
+  }
+  try {
+    window.localStorage.setItem(
+      getSellerHistoryStorageKey(currentUser),
+      JSON.stringify(buyerSellerAffinity)
+    );
+  } catch (error) {
+    reportClientEvent("warn", "seller_affinity_persist_failed", "Unable to persist seller affinity history.", {
+      category: "runtime",
+      user: currentUser
+    });
+  }
+}
+
+function hydrateBuyerSellerAffinityState(username = currentUser) {
+  buyerSellerAffinity = loadBuyerSellerAffinityState(username);
+}
+
+function noteSellerInterest(sellerId, weight = 1) {
+  const normalizedSellerId = String(sellerId || "").trim();
+  const safeWeight = Number(weight);
+  if (!currentUser || !normalizedSellerId || !Number.isFinite(safeWeight) || safeWeight <= 0 || normalizedSellerId === currentUser) {
+    return;
+  }
+  const nextEntry = buyerSellerAffinity[normalizedSellerId] || { score: 0, updatedAt: "" };
+  buyerSellerAffinity = {
+    ...buyerSellerAffinity,
+    [normalizedSellerId]: {
+      score: Math.min(420, Math.max(0, nextEntry.score) + safeWeight),
+      updatedAt: new Date().toISOString()
+    }
+  };
+  saveBuyerSellerAffinityState();
+}
+
+function getBuyerSellerAffinityEntries() {
+  return Object.entries(buyerSellerAffinity).map(([sellerId, entry]) => ({
+    sellerId,
+    score: Number(entry?.score || 0),
+    updatedAt: entry?.updatedAt || ""
+  })).filter((entry) => entry.sellerId && entry.score > 0);
+}
+
 function setCurrentViewState(nextView, options = {}) {
-  const { syncNav = true, persist = true } = options;
+  const {
+    syncNav = true,
+    persist = true,
+    syncHistory = true,
+    historyState = {}
+  } = options;
   currentView = nextView;
   if (syncNav) {
     setActiveNav(currentView);
   }
   if (persist) {
     saveAppViewState();
+  }
+  if (syncHistory) {
+    syncAppShellHistoryState({
+      mode: typeof syncHistory === "string" ? syncHistory : "replace",
+      overrides: {
+        view: nextView,
+        pendingProfileSection: nextView === "profile"
+          ? (historyState.pendingProfileSection || profileRuntimeState.pendingSection || "")
+          : "",
+        ...historyState
+      }
+    });
   }
 }
 
@@ -162,6 +275,15 @@ function setCategorySelectionState(categoryValue, options = {}) {
   expandedBrowseCategory = nextExpanded || "";
   if (options.persist !== false) {
     saveAppViewState();
+  }
+  if (options.syncHistory !== false) {
+    syncAppShellHistoryState({
+      mode: typeof options.syncHistory === "string" ? options.syncHistory : "replace",
+      overrides: {
+        selectedCategory: nextCategory,
+        pendingProfileSection: currentView === "profile" ? (profileRuntimeState.pendingSection || "") : ""
+      }
+    });
   }
 }
 
@@ -183,20 +305,84 @@ function getRequestBoxStorageKey(username = currentUser) {
 
 function closeMobileCategoryMenu() {
   searchRuntimeState.isMobileCategoryOpen = false;
+  searchRuntimeState.mobileCategoryTopValue = "";
   mobileCategoryShell?.classList.remove("open");
   mobileCategoryButton?.setAttribute("aria-expanded", "false");
+  document.body.classList.remove("mobile-category-sheet-open");
   syncMobileHeaderVisibility(true);
+  syncBodyScrollLockState();
+}
+
+function closePinnedDesktopCategoryMenu(options = {}) {
+  const { rerender = true } = options;
+  if (!pinnedDesktopCategory) {
+    return;
+  }
+  pinnedDesktopCategory = "";
+  if (rerender) {
+    renderFilterCategories();
+  }
 }
 
 function toggleMobileCategoryMenu(forceState) {
-  searchRuntimeState.isMobileCategoryOpen = typeof forceState === "boolean" ? forceState : !searchRuntimeState.isMobileCategoryOpen;
+  const nextOpenState = typeof forceState === "boolean" ? forceState : !searchRuntimeState.isMobileCategoryOpen;
+  searchRuntimeState.isMobileCategoryOpen = nextOpenState;
   if (searchRuntimeState.isMobileCategoryOpen) {
-    expandedBrowseCategory = "";
+    searchRuntimeState.isMobileSearchOpen = false;
+    searchBox.classList.remove("mobile-open");
+    searchRuntimeState.mobileCategoryTopValue = "";
     renderFilterCategories();
   }
   mobileCategoryShell?.classList.toggle("open", searchRuntimeState.isMobileCategoryOpen);
   mobileCategoryButton?.setAttribute("aria-expanded", String(searchRuntimeState.isMobileCategoryOpen));
   syncMobileHeaderVisibility(true);
+  syncMobileCategorySheetOffset();
+  syncBodyScrollLockState();
+}
+
+function syncBodyScrollLockState() {
+  const isMobileSheetVisible = Boolean(
+    window.innerWidth <= 720
+    && searchRuntimeState.isMobileCategoryOpen
+    && mobileCategoryShell
+    && mobileCategoryShell.style.display !== "none"
+    && mobileCategoryShell.classList.contains("open")
+  );
+  const isAuthModalVisible = Boolean(
+    authContainer
+    && authContainer.style.display !== "none"
+  );
+  const productDetailModal = document.getElementById("product-detail-modal");
+  const isProductDetailVisible = Boolean(
+    productDetailModal
+    && productDetailModal.style.display !== "none"
+  );
+  const contextChatModal = document.getElementById("context-chat-modal");
+  const isContextChatVisible = Boolean(
+    contextChatModal
+    && contextChatModal.style.display !== "none"
+  );
+  const mediaActionSheet = document.getElementById("media-action-sheet");
+  const isMediaActionSheetVisible = Boolean(
+    mediaActionSheet
+    && mediaActionSheet.classList.contains("open")
+  );
+
+  document.body.classList.toggle("mobile-category-sheet-open", isMobileSheetVisible);
+  document.body.classList.toggle("auth-modal-open", isAuthModalVisible);
+  document.body.classList.toggle("product-detail-open", isProductDetailVisible);
+  document.body.classList.toggle("context-chat-open", isContextChatVisible);
+  document.body.classList.toggle("media-action-sheet-open", isMediaActionSheetVisible);
+}
+
+function syncMobileCategorySheetOffset() {
+  if (window.innerWidth > 720) {
+    document.documentElement.style.removeProperty("--mobile-category-sheet-top");
+    return;
+  }
+  const topBarRect = topBar?.getBoundingClientRect();
+  const topOffset = Math.max(64, Math.ceil((topBarRect?.bottom || 0)) + 6);
+  document.documentElement.style.setProperty("--mobile-category-sheet-top", `${topOffset}px`);
 }
 
 function scheduleRenderCurrentView() {
@@ -230,11 +416,27 @@ function detectCategory(name) {
   const nameLower = name.toLowerCase();
   if (nameLower.includes("gauni")) return "wanawake-magauni";
   if (nameLower.includes("sketi")) return "wanawake-sketi";
-  if (nameLower.includes("blauzi")) return "wanawake-blauzi";
+  if (nameLower.includes("blouse") || nameLower.includes("blauzi")) return "wanawake-blouse";
+  if (nameLower.includes("crop top")) return "wanawake-crop-top";
+  if (nameLower.includes("vitenge") || nameLower.includes("kitenge")) return "wanawake-vitenge";
+  if (nameLower.includes("abaya")) return "wanawake-abaya";
+  if (nameLower.includes("hijabu") || nameLower.includes("hijab")) return "wanawake-hijabu";
+  if (nameLower.includes("baibui")) return "wanawake-baibui";
+  if (nameLower.includes("shungi")) return "wanawake-shungi";
+  if (nameLower.includes("sherehe") || nameLower.includes("party") || nameLower.includes("occasion")) return "sherehe-mavazi";
+  if (nameLower.includes("casual") || nameLower.includes("everyday") || nameLower.includes("daily")) return "casual-mavazi";
   if (nameLower.includes("suti")) return "wanaume-suti";
   if (nameLower.includes("jeans")) return "wanaume-jeans";
+  if (nameLower.includes("boxer")) return "wanaume-boxer";
+  if (nameLower.includes("sweater")) return "wanaume-sweater";
+  if (nameLower.includes("tracksuit") || nameLower.includes("track suit")) return "wanaume-tracksuit";
+  if (nameLower.includes("jacket")) return "wanaume-jacket";
+  if (nameLower.includes("koti")) return "wanaume-koti";
+  if (nameLower.includes("crocs")) return "wanaume-crocs";
+  if (nameLower.includes("suruali kitambaa")) return "wanaume-suruali-kitambaa";
   if (nameLower.includes("shati")) return "wanaume-mashati";
   if (nameLower.includes("t-shirt")) return "wanaume-t-shirt";
+  if (nameLower.includes("suruali")) return "wanaume-suruali-kitambaa";
   if (nameLower.includes("sneaker")) return "viatu-sneakers";
   if (nameLower.includes("sandal")) return "viatu-sandals";
   if (nameLower.includes("heel")) return "viatu-high-heels";
@@ -306,6 +508,45 @@ function getUsersByPhoneNumber(phoneNumber) {
   return getUsers().filter((item) => normalizePhoneNumber(item.phoneNumber || "") === normalizedPhone);
 }
 
+function getUsersByIdentityNumber(identityNumber) {
+  const normalizedIdentity = normalizeNationalId(identityNumber);
+  return getUsers().filter((item) => normalizeNationalId(item.nationalId || item.identityDocumentNumber || "") === normalizedIdentity);
+}
+
+function updateSellerIdentityDocumentPreview(file = null) {
+  if (!sellerIdentityDocumentPreview || !sellerIdentityDocumentPreviewWrap) {
+    return;
+  }
+  const previousPreviewUrl = sellerIdentityDocumentPreview.dataset.previewUrl || "";
+  if (previousPreviewUrl) {
+    URL.revokeObjectURL(previousPreviewUrl);
+    delete sellerIdentityDocumentPreview.dataset.previewUrl;
+  }
+
+  if (!file) {
+    sellerIdentityDocumentPreview.removeAttribute("src");
+    sellerIdentityDocumentPreviewWrap.style.display = "none";
+    return;
+  }
+
+  const previewUrl = URL.createObjectURL(file);
+  sellerIdentityDocumentPreview.src = previewUrl;
+  sellerIdentityDocumentPreview.dataset.previewUrl = previewUrl;
+  sellerIdentityDocumentPreviewWrap.style.display = "block";
+}
+
+function validateSellerIdentityImageFile(file) {
+  if (!file) {
+    throw new Error("Please upload your ID image");
+  }
+  if (!isAllowedImageFile(file)) {
+    throw new Error("Invalid file type");
+  }
+  if (file.size > MAX_IMAGE_SIZE_BYTES) {
+    throw new Error(`ID image must be ${MAX_IMAGE_SIZE_MB}MB or below.`);
+  }
+}
+
 function getCurrentWhatsappNumber() {
   const marketplaceUser = getMarketplaceUser(currentUser);
   return normalizeWhatsapp(
@@ -330,22 +571,24 @@ function getProductWhatsappNumber(product) {
 function validateAuthSignupInput() {
   const identityValue = usernameInput.value.trim();
   const phoneNumber = normalizePhoneNumber(phoneNumberInput.value);
-  const nationalId = normalizeNationalId(nationalIdInput.value);
+  const buyerNationalId = normalizeNationalId(nationalIdInput.value);
+  const sellerIdentityNumber = normalizeNationalId(sellerIdentityDocumentNumberInput?.value || "");
   const password = passwordInput.value.trim();
   const confirmPassword = confirmPasswordInput.value.trim();
   const passwordMinLength = getAuthPasswordMinLength();
+  const normalizedIdentityNumber = selectedAuthRole === "seller" ? sellerIdentityNumber : buyerNationalId;
 
-  if (!identityValue || !phoneNumber || !nationalId || !password || !confirmPassword) {
+  if (!identityValue || !phoneNumber || !normalizedIdentityNumber || !password || !confirmPassword) {
     return selectedAuthRole === "buyer"
       ? "Jaza full name, namba ya simu, NIDA, password, na confirm password."
-      : "Jaza username, namba ya simu, NIDA, password, na confirm password.";
+      : "Jaza username, namba ya simu, ID type, ID number, ID image, password, na confirm password.";
   }
 
   if (!isValidPhoneNumber(phoneNumber)) {
     return "Weka namba ya simu ya WhatsApp sahihi yenye tarakimu 10 hadi 15.";
   }
 
-  if (!isValidNationalId(nationalId)) {
+  if (!isValidNationalId(normalizedIdentityNumber)) {
     return "Weka NIDA sahihi yenye herufi au namba 8 hadi 20.";
   }
 
@@ -366,22 +609,25 @@ function validateAuthSignupInput() {
     return "Namba hiyo ya simu tayari imesajiliwa.";
   }
 
+  if (getUsersByIdentityNumber(normalizedIdentityNumber).length > 0) {
+    return "This identity number is already registered. Please contact the moderator.";
+  }
+
   if (selectedAuthRole === "seller") {
     if (!sellerIdentityDocumentTypeInput?.value) {
-      return "Chagua aina ya identity document ya muuzaji.";
+      return "Please select your ID type";
     }
-    if (!sellerPassportPhotoInput?.files?.[0]) {
-      return "Upload passport photo ya muuzaji.";
+    if (!sellerIdentityNumber) {
+      return "Please enter your ID number";
     }
     if (!sellerIdentityDocumentImageInput?.files?.[0]) {
-      return "Upload picha ya identity document ya muuzaji.";
+      return "Please upload your ID image";
     }
 
     try {
-      validateSingleImageFile(sellerPassportPhotoInput.files[0], "Passport photo");
-      validateSingleImageFile(sellerIdentityDocumentImageInput.files[0], "Identity document");
+      validateSellerIdentityImageFile(sellerIdentityDocumentImageInput.files[0]);
     } catch (error) {
-      return error.message || "Picha za verification za muuzaji si sahihi.";
+      return error.message || "Please upload a valid ID image";
     }
   }
 
@@ -392,18 +638,31 @@ function isValidProductCategory(category) {
   return availableCategories.some((item) => item.value === category);
 }
 
+function isAllowedImageFile(file) {
+  const fileType = String(file?.type || "").toLowerCase();
+  if (ALLOWED_IMAGE_TYPES.includes(fileType)) {
+    return true;
+  }
+  const fileName = String(file?.name || "").toLowerCase();
+  return ALLOWED_IMAGE_EXTENSIONS.some((extension) => fileName.endsWith(extension));
+}
+
+function isHeicLikeFile(file) {
+  return /image\/hei(c|f)/i.test(file?.type || "") || /\.(heic|heif)$/i.test(file?.name || "");
+}
+
 function validateImageFiles(files) {
   if (files.length > MAX_UPLOAD_IMAGES) {
     throw new Error(`Chagua picha zisizozidi ${MAX_UPLOAD_IMAGES}.`);
   }
 
   files.forEach((file) => {
-    if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
-      throw new Error("Tumia picha za JPG, PNG, WEBP au GIF tu.");
+    if (!isAllowedImageFile(file)) {
+      throw new Error("Tumia picha za JPG, PNG, WEBP, GIF au HEIC/HEIF.");
     }
 
     if (file.size > MAX_IMAGE_SIZE_BYTES) {
-      throw new Error("Kila picha inapaswa kuwa chini ya 3MB.");
+      throw new Error(`Kila picha inapaswa kuwa ${MAX_IMAGE_SIZE_MB}MB au chini.`);
     }
   });
 }
@@ -415,16 +674,350 @@ function validateSingleImageFile(file, label = "Picha") {
   validateImageFiles([file]);
 }
 
-function readFileAsDataUrl(file) {
+function arrayBufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer || 0);
+  const chunkSize = 0x8000;
+  let binary = "";
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
+  }
+  return window.btoa(binary);
+}
+
+function readRawFileAsDataUrlWithReader(file) {
   return new Promise((resolve, reject) => {
-    if (!file) {
-      reject(new Error("Hakuna picha iliyochaguliwa."));
+    const reader = new FileReader();
+    const fail = () => reject(new Error("Imeshindikana kusoma picha uliyochagua."));
+    reader.onloadend = () => {
+      if (reader.error) {
+        fail();
+        return;
+      }
+      const result = typeof reader.result === "string" ? reader.result : "";
+      if (!result) {
+        fail();
+        return;
+      }
+      resolve(result);
+    };
+    reader.onerror = fail;
+    reader.onabort = fail;
+    reader.readAsDataURL(file);
+  });
+}
+
+async function readRawFileAsDataUrl(file) {
+  if (!file) {
+    throw new Error("Hakuna picha iliyochaguliwa.");
+  }
+  if (typeof file.arrayBuffer === "function" && typeof window.btoa === "function") {
+    try {
+      const buffer = await file.arrayBuffer();
+      const mimeType = String(file.type || "application/octet-stream").trim() || "application/octet-stream";
+      return `data:${mimeType};base64,${arrayBufferToBase64(buffer)}`;
+    } catch (error) {
+      // Fall back to FileReader for browsers that reject arrayBuffer unexpectedly.
+    }
+  }
+  return readRawFileAsDataUrlWithReader(file);
+}
+
+function estimateDataUrlBytes(dataUrl) {
+  const payload = String(dataUrl || "").split(",")[1] || "";
+  const padding = payload.endsWith("==") ? 2 : payload.endsWith("=") ? 1 : 0;
+  return Math.max(0, Math.floor((payload.length * 3) / 4) - padding);
+}
+
+function loadImageElementFromFile(file) {
+  return new Promise((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve(image);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error("Imeshindikana kufungua picha uliyochagua."));
+    };
+    image.src = objectUrl;
+  });
+}
+
+function waitForImageElementReady(image) {
+  return new Promise((resolve, reject) => {
+    if (!image) {
+      reject(new Error("Imeshindikana kufungua picha uliyochagua."));
       return;
     }
-    const reader = new FileReader();
-    reader.onload = (event) => resolve(event.target?.result || "");
-    reader.onerror = () => reject(new Error("Imeshindikana kusoma picha uliyochagua."));
-    reader.readAsDataURL(file);
+    if ((image.complete && (image.naturalWidth || image.width))) {
+      resolve(image);
+      return;
+    }
+    const handleLoad = () => resolve(image);
+    const handleError = () => reject(new Error("Imeshindikana kufungua picha uliyochagua."));
+    image.addEventListener("load", handleLoad, { once: true });
+    image.addEventListener("error", handleError, { once: true });
+  });
+}
+
+function getActiveDataProvider() {
+  return String(
+    window.WingaDataLayer?.getActiveProvider?.()
+    || window.WINGA_CONFIG?.provider
+    || "local"
+  ).trim().toLowerCase();
+}
+
+function createImageReadOptions(options = {}) {
+  const purpose = options.purpose || "generic";
+  const fastMode = Boolean(options.fastMode);
+  const provider = getActiveDataProvider();
+  const useLocalBudget = provider === "local" || provider === "mock";
+  if (purpose === "profile") {
+    return {
+      maxDimension: 720,
+      targetBytes: useLocalBudget ? LOCAL_PROFILE_IMAGE_TARGET_BYTES : PROFILE_IMAGE_TARGET_BYTES,
+      initialQuality: 0.84,
+      minimumQuality: 0.56,
+      qualityStep: 0.08,
+      maxIterations: 12
+    };
+  }
+  if (purpose === "document") {
+    return {
+      maxDimension: fastMode ? 1400 : 1600,
+      targetBytes: useLocalBudget
+        ? LOCAL_DOCUMENT_IMAGE_TARGET_BYTES
+        : (fastMode ? FAST_SIGNUP_DOCUMENT_TARGET_BYTES : DOCUMENT_IMAGE_TARGET_BYTES),
+      initialQuality: fastMode ? 0.82 : 0.86,
+      minimumQuality: fastMode ? 0.7 : 0.6,
+      qualityStep: fastMode ? 0.12 : 0.06,
+      maxIterations: fastMode ? 4 : 10
+    };
+  }
+  return {
+    maxDimension: 1440,
+    targetBytes: useLocalBudget ? LOCAL_PRODUCT_IMAGE_TARGET_BYTES : PRODUCT_IMAGE_TARGET_BYTES,
+    initialQuality: 0.84,
+    minimumQuality: 0.56,
+    qualityStep: 0.08,
+    maxIterations: 12
+  };
+}
+
+function optimizeLoadedImageAsDataUrl(image, options = {}, file = null) {
+  const settings = createImageReadOptions(options);
+  const longestSide = Math.max(image.naturalWidth || image.width || 1, image.naturalHeight || image.height || 1);
+  const initialScale = Math.min(1, settings.maxDimension / Math.max(longestSide, 1));
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d", { alpha: true });
+  if (!context) {
+    throw new Error("Browser hii imeshindwa kuandaa picha kwa upload.");
+  }
+  let width = Math.max(1, Math.round((image.naturalWidth || image.width || 1) * initialScale));
+  let height = Math.max(1, Math.round((image.naturalHeight || image.height || 1) * initialScale));
+  let quality = settings.initialQuality;
+  let bestResult = "";
+  let iterations = 0;
+
+  const outputType = isHeicLikeFile(file) ? "image/jpeg" : "image/webp";
+
+  const renderCandidate = () => {
+    canvas.width = width;
+    canvas.height = height;
+    context.clearRect(0, 0, width, height);
+    context.drawImage(image, 0, 0, width, height);
+    const candidate = canvas.toDataURL(outputType, quality);
+    if (outputType === "image/webp" && !candidate.startsWith("data:image/webp")) {
+      return canvas.toDataURL("image/jpeg", quality);
+    }
+    return candidate;
+  };
+
+  bestResult = renderCandidate();
+  while (
+    estimateDataUrlBytes(bestResult) > settings.targetBytes
+    && (quality > settings.minimumQuality || Math.max(width, height) > 320)
+    && iterations < Math.max(1, Number(settings.maxIterations || 10))
+  ) {
+    iterations += 1;
+    if (quality > settings.minimumQuality) {
+      quality = Math.max(settings.minimumQuality, Number((quality - settings.qualityStep).toFixed(2)));
+    } else {
+      width = Math.max(1, Math.round(width * 0.88));
+      height = Math.max(1, Math.round(height * 0.88));
+    }
+    bestResult = renderCandidate();
+  }
+
+  return bestResult;
+}
+
+async function optimizeImageFileAsDataUrl(file, options = {}) {
+  if (!file) {
+    throw new Error("Hakuna picha iliyochaguliwa.");
+  }
+  if (file.type === "image/gif") {
+    return readRawFileAsDataUrl(file);
+  }
+
+  const settings = createImageReadOptions(options);
+  if (file.size <= settings.targetBytes && !isHeicLikeFile(file)) {
+    return readRawFileAsDataUrl(file);
+  }
+
+  const image = await loadImageElementFromFile(file);
+  return optimizeLoadedImageAsDataUrl(image, options, file);
+}
+
+function withOperationTimeout(promise, timeoutMs, message) {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    return promise;
+  }
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      window.setTimeout(() => reject(new Error(message)), timeoutMs);
+    })
+  ]);
+}
+
+function waitForNextPaint() {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => resolve());
+  });
+}
+
+function readSellerSignupIdentityImage(file) {
+  if (!file) {
+    throw new Error("Please upload your ID image");
+  }
+  validateSingleImageFile(file, "ID image");
+  const provider = getActiveDataProvider();
+  const shouldUseFastRawRead = !isHeicLikeFile(file)
+    && provider !== "local"
+    && provider !== "mock"
+    && file.size <= FAST_SIGNUP_DOCUMENT_TARGET_BYTES;
+  const readOperation = shouldUseFastRawRead
+    ? readRawFileAsDataUrl(file)
+    : readFileAsDataUrl(file, { purpose: "document", fastMode: true });
+  return withOperationTimeout(
+    readOperation,
+    SIGNUP_DOCUMENT_PREP_TIMEOUT_MS,
+    "Preparing your ID image took too long. Please try a smaller JPG or PNG."
+  );
+}
+
+function getFileSignature(file) {
+  if (!file) {
+    return "";
+  }
+  return [
+    file.name || "",
+    file.size || 0,
+    file.lastModified || 0,
+    file.type || ""
+  ].join(":");
+}
+
+function clearPreparedSellerIdentityImage() {
+  sellerIdentityPreparedSignature = "";
+  sellerIdentityPreparedDataUrl = "";
+  sellerIdentityPreparedPromise = null;
+}
+
+function getImmediateSellerIdentityPreviewDataUrl(file) {
+  const previewImage = sellerIdentityDocumentPreview;
+  const isPreviewReady = Boolean(
+    previewImage?.src
+    && previewImage.complete
+    && (previewImage.naturalWidth || previewImage.width)
+  );
+  if (!isPreviewReady) {
+    return "";
+  }
+  try {
+    return optimizeLoadedImageAsDataUrl(previewImage, { purpose: "document", fastMode: true }, file);
+  } catch (error) {
+    return "";
+  }
+}
+
+async function readPreparedSellerIdentityImageFromPreview(file) {
+  const immediatePreviewResult = getImmediateSellerIdentityPreviewDataUrl(file);
+  if (immediatePreviewResult) {
+    return immediatePreviewResult;
+  }
+  if (!sellerIdentityDocumentPreview?.src) {
+    return readSellerSignupIdentityImage(file);
+  }
+  const previewImage = await waitForImageElementReady(sellerIdentityDocumentPreview);
+  return optimizeLoadedImageAsDataUrl(previewImage, { purpose: "document", fastMode: true }, file);
+}
+
+function primeSellerSignupIdentityImage(file) {
+  if (!file) {
+    clearPreparedSellerIdentityImage();
+    return Promise.resolve("");
+  }
+  const signature = getFileSignature(file);
+  sellerIdentityPreparedSignature = signature;
+  sellerIdentityPreparedDataUrl = "";
+  const prepPromise = readPreparedSellerIdentityImageFromPreview(file)
+    .then((dataUrl) => {
+      if (sellerIdentityPreparedSignature === signature) {
+        sellerIdentityPreparedDataUrl = dataUrl;
+      }
+      return dataUrl;
+    })
+    .catch((error) => {
+      if (sellerIdentityPreparedSignature === signature) {
+        sellerIdentityPreparedDataUrl = "";
+      }
+      throw error;
+    })
+    .finally(() => {
+      if (sellerIdentityPreparedSignature === signature) {
+        sellerIdentityPreparedPromise = null;
+      }
+    });
+  sellerIdentityPreparedPromise = prepPromise;
+  return prepPromise;
+}
+
+function resolveSellerSignupIdentityImage(file) {
+  if (!file) {
+    throw new Error("Please upload your ID image");
+  }
+  const immediatePreviewResult = getImmediateSellerIdentityPreviewDataUrl(file);
+  if (immediatePreviewResult) {
+    return Promise.resolve(immediatePreviewResult);
+  }
+  const signature = getFileSignature(file);
+  if (signature && signature === sellerIdentityPreparedSignature && sellerIdentityPreparedDataUrl) {
+    return Promise.resolve(sellerIdentityPreparedDataUrl);
+  }
+  if (signature && signature === sellerIdentityPreparedSignature && sellerIdentityPreparedPromise) {
+    return withOperationTimeout(
+      Promise.resolve(sellerIdentityPreparedPromise),
+      SIGNUP_DOCUMENT_PREP_TIMEOUT_MS,
+      "Preparing your ID image took too long. Please try a smaller JPG or PNG."
+    );
+  }
+  return readPreparedSellerIdentityImageFromPreview(file);
+}
+
+function readFileAsDataUrl(file, options = {}) {
+  return optimizeImageFileAsDataUrl(file, options).catch((error) => {
+    if (isHeicLikeFile(file)) {
+      throw new Error("Picha ya HEIC/HEIF haikuweza kubadilishwa kwenye format inayotumika hapa. Jaribu JPG au PNG.");
+    }
+    const provider = getActiveDataProvider();
+    if (provider === "local" || provider === "mock") {
+      throw error;
+    }
+    return readRawFileAsDataUrl(file);
   });
 }
 
@@ -511,10 +1104,25 @@ function getImageFallbackDataUri(label = "WINGA") {
 }
 
 function getCategoryLabel(category) {
-  const match = availableCategories.find((item) => item.value === category)
-    || availableTopCategories.find((item) => item.value === category)
-    || LEGACY_CATEGORY_MAPPINGS[category];
-  return match ? match.label : humanizeCategoryValue(category) || "Other";
+  const subcategoryMatch = availableCategories.find((item) => item.value === category);
+  if (subcategoryMatch) {
+    return formatSubcategoryLabel(subcategoryMatch.label);
+  }
+
+  const topCategoryMatch = availableTopCategories.find((item) => item.value === category);
+  if (topCategoryMatch) {
+    return formatTopCategoryLabel(topCategoryMatch.label);
+  }
+
+  const legacyMatch = LEGACY_CATEGORY_MAPPINGS[category];
+  if (legacyMatch) {
+    const isTopCategory = legacyMatch.value === legacyMatch.topValue && legacyMatch.value === category;
+    return isTopCategory
+      ? formatTopCategoryLabel(legacyMatch.label)
+      : formatSubcategoryLabel(legacyMatch.label);
+  }
+
+  return formatSubcategoryLabel(humanizeCategoryValue(category)) || "Other";
 }
 
 function getStatusLabel(status) {
@@ -634,6 +1242,7 @@ function openAuthModal(mode = "login", options = {}) {
   }
   authContainer.style.display = "block";
   document.body.classList.add("auth-modal-open");
+  syncBodyScrollLockState();
 }
 
 function closeAuthModal() {
@@ -643,6 +1252,7 @@ function closeAuthModal() {
   authContainer.style.display = "none";
   document.body.classList.remove("auth-modal-open");
   hideAuthGatePrompt();
+  syncBodyScrollLockState();
 }
 
 function promptGuestAuth(options = {}) {
@@ -657,26 +1267,78 @@ function promptGuestAuth(options = {}) {
 
 function refreshPublicEntryChrome() {
   const isGuest = !isAuthenticatedUser();
+  const isSessionRestoreUi = isSessionRestorePending && isGuest;
   if (publicHeaderActions) {
-    publicHeaderActions.style.display = isGuest ? "flex" : "none";
+    publicHeaderActions.style.display = isGuest && !isSessionRestoreUi ? "flex" : "none";
   }
   if (headerUserMenu) {
-    headerUserMenu.style.display = isGuest ? "none" : "flex";
+    headerUserMenu.style.display = isGuest || isSessionRestoreUi ? "none" : "flex";
   }
   if (publicFooter) {
-    publicFooter.style.display = isGuest ? "block" : "none";
+    publicFooter.style.display = isGuest && !isSessionRestoreUi ? "block" : "none";
   }
   if (headerSearchArea) {
-    headerSearchArea.style.display = isGuest ? "none" : "flex";
+    headerSearchArea.style.display = isGuest || isSessionRestoreUi ? "none" : "flex";
   }
   if (topBarSubtitle) {
-    topBarSubtitle.innerText = isGuest
+    topBarSubtitle.innerText = isSessionRestoreUi
+      ? "Restoring your WINGA session..."
+      : isGuest
       ? "Discover products first. Sign in only when you want to buy, chat, or sell."
       : "";
-    topBarSubtitle.style.display = isGuest ? "" : "none";
+    topBarSubtitle.style.display = isGuest || isSessionRestoreUi ? "" : "none";
   }
   updateMarketplaceActionChrome();
   renderHeaderUserMenu();
+}
+
+function buildAppShellHistoryState(overrides = {}) {
+  const baseState = window.history.state && typeof window.history.state === "object"
+    ? window.history.state
+    : {};
+  return {
+    ...baseState,
+    wingaAppShell: true,
+    wingaProductDetail: false,
+    productId: "",
+    sourceProductId: "",
+    detailDepth: 0,
+    view: currentView || "home",
+    selectedCategory: getRestorableCategory(selectedCategory),
+    username: currentUser || "",
+    role: currentSession?.role || "",
+    pendingProfileSection: currentView === "profile" ? (profileRuntimeState.pendingSection || "") : "",
+    ...overrides
+  };
+}
+
+function syncAppShellHistoryState(options = {}) {
+  const { force = false, mode = "replace", overrides = {} } = options;
+  if (!window.history?.replaceState || document.body.classList.contains("product-detail-open")) {
+    return;
+  }
+
+  const nextState = buildAppShellHistoryState(overrides);
+  const currentState = window.history.state && typeof window.history.state === "object"
+    ? window.history.state
+    : null;
+  const stateAlreadySynced = !force
+    && currentState?.wingaAppShell
+    && currentState.view === nextState.view
+    && currentState.selectedCategory === nextState.selectedCategory
+    && currentState.username === nextState.username
+    && currentState.role === nextState.role
+    && String(currentState.pendingProfileSection || "") === String(nextState.pendingProfileSection || "");
+  if (stateAlreadySynced) {
+    return;
+  }
+
+  const url = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  if (mode === "push" && window.history?.pushState) {
+    window.history.pushState(nextState, "", url);
+    return;
+  }
+  window.history.replaceState(nextState, "", url);
 }
 
 function shouldShowBottomNav() {
@@ -886,13 +1548,20 @@ function renderHeaderUserMenu() {
 function openProfileSection(sectionId = "") {
   if (isStaffUser()) {
     toggleHeaderUserMenu(false);
-    setCurrentViewState("admin");
+    setCurrentViewState("admin", {
+      syncHistory: "push"
+    });
     renderCurrentView();
     return;
   }
   profileRuntimeState.pendingSection = sectionId;
   toggleHeaderUserMenu(false);
-  setCurrentViewState("profile");
+  setCurrentViewState("profile", {
+    syncHistory: "push",
+    historyState: {
+      pendingProfileSection: sectionId || ""
+    }
+  });
   renderCurrentView();
 }
 
@@ -941,6 +1610,10 @@ function noteProductInterest(productId) {
   }
   lastViewedProductId = productId;
   recentlyViewedProductIds = [productId, ...recentlyViewedProductIds.filter((item) => item !== productId)].slice(0, 12);
+  const relatedProduct = getProductById(productId);
+  if (relatedProduct?.uploadedBy) {
+    noteSellerInterest(relatedProduct.uploadedBy, 16);
+  }
 }
 
 function noteProductDiscovery(productId) {
@@ -978,6 +1651,10 @@ function noteMessageInterest(productId) {
     return;
   }
   recentMessagedProductIds = rememberBehaviorValue(recentMessagedProductIds, productId, 10);
+  const relatedProduct = getProductById(productId);
+  if (relatedProduct?.uploadedBy) {
+    noteSellerInterest(relatedProduct.uploadedBy, 34);
+  }
 }
 
 const {
@@ -1026,6 +1703,7 @@ const {
   captureError: (...args) => captureClientError(...args),
   promptGuestAuth,
   openProfileSection,
+  cleanupLocalFallbackArtifacts: () => window.WingaDataLayer.cleanupLocalFallbackArtifacts?.(),
   sendMessage: (payload) => window.WingaDataLayer.sendMessage(payload),
   refreshMessagesState,
   refreshNotificationsState,
@@ -1058,15 +1736,78 @@ function getMessagePartner(message) {
   return message.senderId === currentUser ? message.receiverId : message.senderId;
 }
 
+async function refreshUsersState() {
+  try {
+    return await window.WingaDataLayer.refreshUsers();
+  } catch (error) {
+    captureClientError("users_refresh_failed", error, {
+      user: currentUser
+    });
+    throw error;
+  }
+}
+
+function getChatPartnerUser(context) {
+  if (!context?.withUser || context.withUser === currentUser) {
+    return null;
+  }
+  return getMarketplaceUser(context.withUser);
+}
+
+function getChatContactState(context) {
+  if (!context) {
+    return {
+      whatsapp: "",
+      phoneVisible: false,
+      canSharePhone: false,
+      note: ""
+    };
+  }
+
+  const relatedProduct = context.productId ? getProductById(context.productId) : null;
+  const partner = getChatPartnerUser(context);
+  const partnerRole = String(partner?.role || (relatedProduct?.uploadedBy === context.withUser ? "seller" : "")).toLowerCase();
+  const productOwnedByPartner = Boolean(relatedProduct && relatedProduct.uploadedBy === context.withUser);
+  const whatsapp = normalizeWhatsapp(
+    (productOwnedByPartner ? relatedProduct?.whatsapp : "")
+    || partner?.whatsappNumber
+    || ""
+  );
+  const phoneVisibility = String(partner?.phoneVisibility || "");
+  const canSharePhone = Boolean(
+    currentUser
+    && canUseBuyerFeatures()
+    && String(currentSession?.role || "").toLowerCase() === "buyer"
+    && context.withUser !== currentUser
+    && partnerRole === "seller"
+    && !whatsapp
+  );
+
+  let note = "";
+  if (whatsapp && phoneVisibility === "shared") {
+    note = "Buyer ameshare namba yake kwenye chat hii. Tumia kwa mawasiliano ya moja kwa moja ukiihitaji.";
+  } else if (canSharePhone) {
+    note = "Mawasiliano yanabaki ndani ya app mpaka ushike namba yako na muuzaji huyu kwa hiari.";
+  } else if (!whatsapp && String(currentSession?.role || "").toLowerCase() === "seller" && partnerRole === "buyer") {
+    note = "Buyer hajashare namba yake bado. Endelea na mawasiliano ndani ya app.";
+  }
+
+  return {
+    whatsapp,
+    phoneVisible: Boolean(whatsapp),
+    canSharePhone,
+    note
+  };
+}
+
 function getChatWhatsappNumber(context) {
   if (!context) {
     return "";
   }
-  const relatedProduct = context.productId ? getProductById(context.productId) : null;
-  const fallbackPhone = context.withUser === currentUser
-    ? getCurrentWhatsappNumber()
-    : normalizeWhatsapp(getMarketplaceUser(context.withUser)?.whatsappNumber || getMarketplaceUser(context.withUser)?.phoneNumber || "");
-  return normalizeWhatsapp(relatedProduct?.whatsapp || fallbackPhone);
+  if (context.withUser === currentUser) {
+    return getCurrentWhatsappNumber();
+  }
+  return getChatContactState(context).whatsapp;
 }
 
 function buildWhatsappHref(phoneNumber, productName = "") {
@@ -1170,7 +1911,7 @@ function updateProfileNavBadge() {
     return;
   }
 
-  const totalUnread = getTotalUnreadMessages();
+  const totalUnread = getTotalUnreadMessages() + getUnreadNotifications().length;
   const label = profileNav.querySelector("span:last-child");
   if (label) {
     label.replaceChildren();
@@ -1196,16 +1937,313 @@ function ensureNotificationToastRoot() {
   return root;
 }
 
+function getSavedProductsStorageKey() {
+  return `winga-saved-products:${currentUser || "guest"}`;
+}
+
+function ensureSavedProductIdsLoaded() {
+  const nextKey = getSavedProductsStorageKey();
+  if (savedProductState.storageKey === nextKey) {
+    return savedProductState.ids;
+  }
+
+  savedProductState.storageKey = nextKey;
+  try {
+    const rawValue = window.localStorage.getItem(nextKey);
+    const parsed = rawValue ? JSON.parse(rawValue) : [];
+    savedProductState.ids = new Set(Array.isArray(parsed) ? parsed.filter(Boolean) : []);
+  } catch (error) {
+    savedProductState.ids = new Set();
+    captureClientError("saved_products_restore_failed", error, {
+      category: "storage",
+      alertSeverity: "low"
+    });
+  }
+  return savedProductState.ids;
+}
+
+function persistSavedProductIds() {
+  savedProductState.storageKey = getSavedProductsStorageKey();
+  window.localStorage.setItem(savedProductState.storageKey, JSON.stringify(Array.from(savedProductState.ids)));
+}
+
+function isProductSaved(productId) {
+  return ensureSavedProductIdsLoaded().has(String(productId || ""));
+}
+
+function toggleSavedProduct(productId) {
+  const safeProductId = String(productId || "").trim();
+  if (!safeProductId) {
+    return false;
+  }
+
+  const savedIds = ensureSavedProductIdsLoaded();
+  if (savedIds.has(safeProductId)) {
+    savedIds.delete(safeProductId);
+    persistSavedProductIds();
+    return false;
+  }
+
+  savedIds.add(safeProductId);
+  persistSavedProductIds();
+  return true;
+}
+
+function ensureMediaActionSheetRoot() {
+  let root = document.getElementById("media-action-sheet");
+  if (root) {
+    return root;
+  }
+
+  root = document.createElement("div");
+  root.id = "media-action-sheet";
+  root.innerHTML = `
+    <div class="media-action-backdrop" data-close-media-sheet="true"></div>
+    <div class="media-action-dialog panel" role="dialog" aria-modal="true" aria-labelledby="media-action-title">
+      <button class="media-action-close" type="button" aria-label="Close image actions" data-close-media-sheet="true">&times;</button>
+      <div class="media-action-content"></div>
+    </div>
+  `;
+  document.body.appendChild(root);
+
+  root.addEventListener("click", (event) => {
+    if (event.target.closest("[data-close-media-sheet='true']")) {
+      closeMediaActionSheet();
+      return;
+    }
+
+    const actionButton = event.target.closest("[data-media-action]");
+    if (!actionButton) {
+      return;
+    }
+
+    const product = getProductById(savedProductState.activeSheetProductId);
+    if (!product) {
+      closeMediaActionSheet();
+      return;
+    }
+
+    const action = actionButton.dataset.mediaAction;
+    if (action === "save") {
+      const nowSaved = toggleSavedProduct(product.id);
+      showInAppNotification({
+        type: "info",
+        title: nowSaved ? "Imehifadhiwa kwenye Favorites" : "Imeondolewa kwenye Favorites",
+        body: nowSaved
+          ? `${product.name} sasa ipo tayari kwenye saved picks zako.`
+          : `${product.name} imeondolewa kwenye saved picks zako.`,
+        variant: "success",
+        durationMs: 2800,
+        haptic: nowSaved
+      });
+      closeMediaActionSheet();
+      return;
+    }
+
+    if (action === "share") {
+      closeMediaActionSheet();
+      handleShareProduct(product).catch((error) => {
+        captureClientError("media_sheet_share_failed", error, {
+          productId: product.id
+        });
+      });
+      return;
+    }
+
+    if (action === "download") {
+      closeMediaActionSheet();
+      triggerProductDownload({
+        ...product,
+        image: savedProductState.activeSheetSource || product.image
+      });
+      return;
+    }
+
+    if (action === "open") {
+      closeMediaActionSheet();
+      openProductDetailModal(product.id);
+    }
+  });
+
+  return root;
+}
+
+function closeMediaActionSheet() {
+  const root = document.getElementById("media-action-sheet");
+  if (!root) {
+    return;
+  }
+  root.classList.remove("open");
+  document.body.classList.remove("media-action-sheet-open");
+  syncBodyScrollLockState();
+}
+
+function openMediaActionSheet(product, options = {}) {
+  if (!product) {
+    return;
+  }
+
+  const root = ensureMediaActionSheetRoot();
+  const content = root.querySelector(".media-action-content");
+  if (!content) {
+    return;
+  }
+
+  const sourceImage = sanitizeImageSource(options.image || product.image, getImageFallbackDataUri("WINGA"));
+  const saved = isProductSaved(product.id);
+  savedProductState.activeSheetProductId = product.id;
+  savedProductState.activeSheetSource = sourceImage;
+
+  const preview = createElement("div", { className: "media-action-preview" });
+  preview.appendChild(createElement("img", {
+    attributes: {
+      src: sourceImage,
+      alt: product.name || "Product preview",
+      loading: "lazy"
+    }
+  }));
+
+  const copy = createElement("div", { className: "media-action-copy" });
+  copy.append(
+    createElement("p", { className: "media-action-kicker eyebrow", textContent: "Quick actions" }),
+    createElement("h3", { textContent: product.name || "Product", attributes: { id: "media-action-title" } }),
+    createElement("p", {
+      className: "media-action-subtitle",
+      textContent: `${formatProductPrice(product.price)}${product.shop ? ` • ${product.shop}` : ""}`
+    })
+  );
+
+  const actions = createElement("div", { className: "media-action-buttons" });
+  [
+    { action: "save", label: saved ? "Remove saved" : "Save" },
+    { action: "share", label: "Share" },
+    { action: "download", label: "Download" },
+    { action: "open", label: "Open product" }
+  ].forEach((item) => {
+    actions.appendChild(createElement("button", {
+      className: `media-action-btn${item.action === "save" && saved ? " is-active" : ""}`,
+      textContent: item.label,
+      attributes: {
+        type: "button",
+        "data-media-action": item.action
+      }
+    }));
+  });
+
+  content.replaceChildren(preview, copy, actions);
+  root.classList.add("open");
+  document.body.classList.add("media-action-sheet-open");
+  syncBodyScrollLockState();
+}
+
+function bindImageActionInteractions() {
+  if (document.body.dataset.imageActionsBound === "true") {
+    return;
+  }
+  document.body.dataset.imageActionsBound = "true";
+
+  const clearLongPressTimer = () => {
+    if (savedProductState.longPressTimer) {
+      window.clearTimeout(savedProductState.longPressTimer);
+      savedProductState.longPressTimer = 0;
+    }
+  };
+
+  const getProductFromImageTarget = (target) => {
+    const trigger = target?.closest?.("[data-image-action-product]");
+    if (!trigger) {
+      return null;
+    }
+
+    const product = getProductById(trigger.dataset.imageActionProduct);
+    if (!product) {
+      return null;
+    }
+
+    return {
+      product,
+      image: trigger.dataset.imageActionSrc || product.image || "",
+      trigger
+    };
+  };
+
+  document.addEventListener("pointerdown", (event) => {
+    const info = getProductFromImageTarget(event.target);
+    if (!info || (event.pointerType === "mouse" && event.button !== 0)) {
+      return;
+    }
+    if (event.pointerType === "mouse") {
+      return;
+    }
+
+    clearLongPressTimer();
+    savedProductState.longPressTimer = window.setTimeout(() => {
+      savedProductState.suppressClickUntil = Date.now() + 720;
+      openMediaActionSheet(info.product, { image: info.image });
+      clearLongPressTimer();
+    }, 420);
+  }, { passive: true });
+
+  ["pointerup", "pointercancel", "scroll"].forEach((eventName) => {
+    document.addEventListener(eventName, clearLongPressTimer, { passive: true, capture: true });
+  });
+
+  document.addEventListener("contextmenu", (event) => {
+    const info = getProductFromImageTarget(event.target);
+    if (!info) {
+      return;
+    }
+    event.preventDefault();
+    savedProductState.suppressClickUntil = Date.now() + 720;
+    openMediaActionSheet(info.product, { image: info.image });
+  });
+
+  document.addEventListener("click", (event) => {
+    if (Date.now() < savedProductState.suppressClickUntil && event.target.closest("[data-image-action-product]")) {
+      event.preventDefault();
+      event.stopPropagation();
+      savedProductState.suppressClickUntil = 0;
+    }
+  }, true);
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      closeMediaActionSheet();
+    }
+  });
+}
+
 function showInAppNotification(notification) {
   if (!notification || !notification.title) {
     return;
   }
 
+  const notificationKey = [
+    notification.id || "",
+    notification.type || "",
+    notification.title || "",
+    notification.body || ""
+  ].join("|");
+  const now = Date.now();
+  const recentUntil = notificationFeedbackState.recentKeys.get(notificationKey) || 0;
+  if (recentUntil > now) {
+    return;
+  }
+  notificationFeedbackState.recentKeys.set(notificationKey, now + 5000);
+  if (notificationFeedbackState.recentKeys.size > 40) {
+    for (const [key, expiresAt] of notificationFeedbackState.recentKeys.entries()) {
+      if (expiresAt <= now) {
+        notificationFeedbackState.recentKeys.delete(key);
+      }
+    }
+  }
+
   const root = ensureNotificationToastRoot();
   const toast = document.createElement("div");
+  const inferredVariant = notification.type === "order" ? "success" : "info";
   const variant = ["success", "warning", "error", "info"].includes(notification.variant)
     ? notification.variant
-    : "info";
+    : inferredVariant;
   const dismissAfterMs = notification.persistent
     ? 0
     : Math.max(2200, Number(notification.durationMs || (variant === "error" ? 5200 : 3200)));
@@ -1225,10 +2263,27 @@ function showInAppNotification(notification) {
     }, dismissAfterMs);
   }
 
+  const shouldVibrate = notification.haptic !== false
+    && ["message", "order", "request"].includes(String(notification.type || "").toLowerCase());
+  if (shouldVibrate && typeof navigator !== "undefined" && typeof navigator.vibrate === "function") {
+    const vibrationGapMs = 1800;
+    if (now - notificationFeedbackState.lastVibrationAt >= vibrationGapMs) {
+      navigator.vibrate(
+        notification.type === "order"
+          ? [34, 56, 34, 56, 34]
+          : notification.type === "request"
+            ? [28, 46, 28]
+            : [18, 28, 18]
+      );
+      notificationFeedbackState.lastVibrationAt = now;
+    }
+  }
+
   if ("Notification" in window && document.visibilityState === "hidden") {
     if (Notification.permission === "granted") {
       new Notification(notification.title, { body: notification.body || "" });
-    } else if (Notification.permission === "default") {
+    } else if (Notification.permission === "default" && !notificationFeedbackState.browserPermissionRequested) {
+      notificationFeedbackState.browserPermissionRequested = true;
       Notification.requestPermission().catch(() => {});
     }
   }
@@ -1245,6 +2300,9 @@ function showFatalStartupState(error) {
   const provider = window.WINGA_CONFIG?.provider || "unknown";
   const message = error?.message || "Angalia config ya storage provider.";
 
+  closeAllTransientOverlays({
+    closeAuthModalIfGuest: false
+  });
   document.body.classList.remove("auth-modal-open", "product-detail-open", "context-chat-open");
   authContainer.style.display = "none";
   hideAdminLoginScreen();
@@ -1256,6 +2314,7 @@ function showFatalStartupState(error) {
   profileDiv = null;
   appContainer.style.display = "block";
   appContainer.replaceChildren();
+  syncBodyScrollLockState();
 
   const panel = createElement("section", { className: "fatal-startup-card panel" });
   const copy = createElement("div", { className: "fatal-startup-copy" });
@@ -1294,10 +2353,15 @@ function showFatalStartupState(error) {
 }
 
 function showSessionRestoringState(message = "") {
+  isSessionRestorePending = true;
+  closeAllTransientOverlays({
+    closeAuthModalIfGuest: false
+  });
   authContainer.style.display = "none";
   document.body.classList.remove("auth-modal-open");
   hideAdminLoginScreen();
   appContainer.style.display = "block";
+  syncBodyScrollLockState();
   refreshPublicEntryChrome();
   uploadForm.style.display = "none";
   adminPanel.style.display = "none";
@@ -1317,15 +2381,20 @@ function showSessionRestoringState(message = "") {
 }
 
 function showLoggedOutState(options = {}) {
+  isSessionRestorePending = false;
   const {
     audience = "public",
     message = ""
   } = options;
 
+  closeAllTransientOverlays({
+    closeAuthModalIfGuest: false
+  });
   hideAdminLoginScreen();
   authContainer.style.display = "none";
   document.body.classList.remove("auth-modal-open");
   appContainer.style.display = "block";
+  syncBodyScrollLockState();
   refreshPublicEntryChrome();
   authSignupStep = 1;
   selectedAuthRole = "seller";
@@ -1343,6 +2412,7 @@ function showLoggedOutState(options = {}) {
   authContainer.style.display = "block";
   document.body.classList.add("auth-modal-open");
   appContainer.style.display = "none";
+  syncBodyScrollLockState();
   if (message) {
     showInAppNotification({
       title: "Login needed",
@@ -1352,7 +2422,11 @@ function showLoggedOutState(options = {}) {
   }
 }
 
-function setAuthInteractionPending(kind, pending) {
+function setAuthInteractionPending(kind, pending, options = {}) {
+  const {
+    buttonText = "",
+    noteText = ""
+  } = options;
   const isPending = Boolean(pending);
   if (kind === "admin") {
     if (adminLoginIdentifierInput) adminLoginIdentifierInput.disabled = isPending;
@@ -1374,6 +2448,8 @@ function setAuthInteractionPending(kind, pending) {
     passwordInput,
     confirmPasswordInput,
     sellerIdentityDocumentTypeInput,
+    sellerIdentityDocumentNumberInput,
+    sellerIdentityDocumentImageInput,
     authButton,
     authNextButton,
     authBackButton
@@ -1384,9 +2460,38 @@ function setAuthInteractionPending(kind, pending) {
   });
   if (authButton) {
     authButton.innerText = isPending
-      ? (isLogin ? "Inaingia..." : "Inatengeneza akaunti...")
+      ? (buttonText || (isLogin ? "Inaingia..." : "Inatengeneza akaunti..."))
       : (isLogin ? "Ingia" : "Tengeneza Akaunti");
   }
+  if (authCategoryNote && !isLogin && isPending) {
+    authCategoryNote.innerText = noteText || (
+      selectedAuthRole === "seller"
+        ? "Tunatayarisha ID image yako na kutuma maombi ya seller signup. Hii inapaswa kukamilika haraka."
+        : "Tunatengeneza akaunti yako. Tafadhali subiri kidogo."
+    );
+  }
+  if (!isPending) {
+    syncAuthMode();
+  }
+}
+
+function releasePublicAuthPendingState() {
+  publicAuthRequestPending = false;
+  setAuthInteractionPending("public", false);
+}
+
+function switchToLoginMode(prefillIdentifier = "") {
+  isLogin = true;
+  authSignupStep = 1;
+  formTitle.innerText = "Login";
+  authButton.innerText = "Login";
+  toggleLink.innerText = "Tengeneza akaunti";
+  if (prefillIdentifier) {
+    usernameInput.value = prefillIdentifier;
+  }
+  passwordInput.value = "";
+  confirmPasswordInput.value = "";
+  syncAuthMode();
 }
 
 async function refreshNotificationsState() {
@@ -1469,17 +2574,36 @@ function connectRealtimeChannel() {
       }
     },
     onNotification: async (payload) => {
+      const notification = payload?.notification || null;
       await refreshNotificationsState();
-      if (payload?.notification) {
-        showInAppNotification(payload.notification);
+      if (notification?.type === "order") {
+        await refreshOrdersState();
+      }
+      if (notification) {
+        showInAppNotification({
+          ...notification,
+          haptic: document.visibilityState === "visible"
+        });
       }
       if (currentView === "profile" && profileDiv) {
+        if (notification?.type === "order") {
+          document.getElementById("profile-orders-panel")?.replaceWith(createOrdersContainerFromState());
+        }
         document.getElementById("profile-notifications-panel")?.replaceWith(createNotificationsContainerFromState());
         bindMessageActions(profileDiv);
       }
     },
     onMessageRead: async () => {
       await refreshMessagesState();
+      if (currentView === "profile" && profileDiv) {
+        replaceMessagesPanel(profileDiv);
+      }
+      if (chatUiState.isContextOpen) {
+        replaceContextChatModal();
+      }
+    },
+    onUsers: async () => {
+      await refreshUsersState();
       if (currentView === "profile" && profileDiv) {
         replaceMessagesPanel(profileDiv);
       }
@@ -1757,6 +2881,7 @@ const {
   getActiveConversationMessages,
   getActiveChatContext: () => chatUiState.activeContext,
   getCurrentMessageDraft: () => chatUiState.currentDraft,
+  getChatContactState,
   getChatWhatsappNumber,
   getChatContextKey,
   buildWhatsappHref,
@@ -1843,11 +2968,13 @@ const {
   noteMessageInterest,
   normalizeWhatsapp,
   renderCurrentView,
+  syncBodyScrollLockState,
   startMessagePolling,
   stopMessagePolling,
   markActiveConversationRead,
   replaceMessagesPanel,
   createNotificationsContainerFromState,
+  refreshUsersState,
   refreshMessagesState,
   refreshNotificationsState,
   getCurrentUser: () => currentUser
@@ -2024,6 +3151,7 @@ const {
   renderRequestBoxButton,
   renderWhatsappChatLink,
   getCurrentUser: () => currentUser,
+  canRepostProduct: (product) => canRepostProductAsSeller(product),
   renderProductActionGroup,
   renderMarketplaceTrustBadges,
   renderDiscoveryProductCards
@@ -2052,9 +3180,12 @@ const {
   openProductChat,
   openOwnProductMessages,
   beginPurchaseFlow,
+  repostProductAsSeller,
   toggleProductInRequestBox,
   showInAppNotification,
   resetHomeBrowseState,
+  syncBodyScrollLockState,
+  syncAppShellHistoryState,
   setCurrentViewState,
   renderCurrentView,
   getProductDetailReviewDraft,
@@ -2186,6 +3317,7 @@ const { renderFilterCategories } = window.WingaModules.categories.createCategori
   getAvailableTopCategories: () => availableTopCategories,
   getSelectedCategory: () => selectedCategory,
   getExpandedBrowseCategory: () => expandedBrowseCategory,
+  getPinnedDesktopCategory: () => pinnedDesktopCategory,
   isTopCategoryValue,
   inferTopCategoryValue,
   getCategoryPreviewProduct,
@@ -2193,9 +3325,27 @@ const { renderFilterCategories } = window.WingaModules.categories.createCategori
   getCategoryLabel,
   getCategoriesTarget: () => categories,
   getMobileCategoryMenu: () => mobileCategoryMenu,
+  getMobileCategoryTopValue: () => searchRuntimeState.mobileCategoryTopValue || "",
   closeMobileCategoryMenu,
-  onCategorySelect: ({ nextCategory, isMobileScope, mobileExpandedTopCategory }) => {
+  onMobileCategoryDrill: (topCategory) => {
+    searchRuntimeState.mobileCategoryTopValue = topCategory || "";
+    renderFilterCategories();
+  },
+  onMobileCategoryBack: () => {
+    searchRuntimeState.mobileCategoryTopValue = "";
+    renderFilterCategories();
+  },
+  onDesktopCategoryClick: ({ nextCategory, isSamePinnedCategory }) => {
+    pinnedDesktopCategory = isSamePinnedCategory ? "" : nextCategory;
+    setCategorySelectionState(nextCategory, {
+      expandedBrowseCategory: nextCategory === "all" ? "" : inferTopCategoryValue(nextCategory)
+    });
+    renderFilterCategories();
+    renderCurrentView();
+  },
+  onCategorySelect: ({ nextCategory, isMobileScope }) => {
     if (!isMobileScope) {
+      pinnedDesktopCategory = "";
       setCategorySelectionState(nextCategory, {
         expandedBrowseCategory: nextCategory === "all" ? "" : inferTopCategoryValue(nextCategory)
       });
@@ -2204,25 +3354,24 @@ const { renderFilterCategories } = window.WingaModules.categories.createCategori
       return;
     }
 
-    const isSameExpandedCategory = nextCategory !== "all" && mobileExpandedTopCategory === nextCategory;
     if (nextCategory === "all") {
       setCategorySelectionState("all", {
         expandedBrowseCategory: ""
       });
       closeMobileCategoryMenu();
-    } else if (isSameExpandedCategory) {
-      setCategorySelectionState(nextCategory, {
-        expandedBrowseCategory: ""
-      });
     } else {
       setCategorySelectionState(nextCategory, {
-        expandedBrowseCategory: nextCategory
+        expandedBrowseCategory: inferTopCategoryValue(nextCategory)
       });
+      closeMobileCategoryMenu();
     }
     renderFilterCategories();
     renderCurrentView();
   },
   onSubcategorySelect: ({ nextCategory, parentCategory, isMobileScope }) => {
+    if (!isMobileScope) {
+      pinnedDesktopCategory = "";
+    }
     setCategorySelectionState(nextCategory, {
       expandedBrowseCategory: parentCategory || inferTopCategoryValue(nextCategory)
     });
@@ -2294,8 +3443,12 @@ function isRestorableView(view, session) {
   if (session?.role === "admin" || session?.role === "moderator") {
     return view === "home" || view === "admin";
   }
-  if (view === "home" || view === "profile") {
+  if (view === "home") {
     return true;
+  }
+
+  if (view === "profile") {
+    return session?.role !== "buyer";
   }
 
   if (view === "upload") {
@@ -2312,18 +3465,21 @@ function isRestorableView(view, session) {
 const DEMO_SLIDES = [
   {
     image: "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1600 700'><defs><linearGradient id='g1' x1='0' x2='1' y1='0' y2='1'><stop stop-color='%23c65a1e'/><stop offset='1' stop-color='%237a3110'/></linearGradient></defs><rect width='1600' height='700' fill='url(%23g1)'/><circle cx='1320' cy='140' r='180' fill='rgba(255,255,255,0.16)'/><circle cx='240' cy='620' r='220' fill='rgba(255,255,255,0.08)'/><text x='100' y='230' fill='white' font-size='84' font-family='Segoe UI, Arial'>WINGA Demo</text><text x='100' y='330' fill='white' font-size='46' font-family='Segoe UI, Arial'>Upload bidhaa. Pata wateja. Chat WhatsApp.</text></svg>",
-    title: "WINGA Demo Showcase",
-    subtitle: "Hizi ni picha za demo mpaka uanze ku-upload picha zako mwenyewe."
+    kicker: "Winga signature",
+    title: "Bidhaa zinazoongea vizuri bila kelele",
+    subtitle: "Muonekano safi, mazungumzo ya haraka, na marketplace yenye ladha ya Kariakoo."
   },
   {
     image: "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1600 700'><defs><linearGradient id='g2' x1='0' x2='1' y1='0' y2='1'><stop stop-color='%231f1a17'/><stop offset='1' stop-color='%23c65a1e'/></linearGradient></defs><rect width='1600' height='700' fill='url(%23g2)'/><rect x='130' y='120' width='260' height='340' rx='26' fill='rgba(255,255,255,0.16)'/><rect x='430' y='160' width='290' height='290' rx='26' fill='rgba(255,255,255,0.14)'/><rect x='770' y='100' width='300' height='380' rx='26' fill='rgba(255,255,255,0.18)'/><rect x='1110' y='150' width='240' height='300' rx='26' fill='rgba(255,255,255,0.14)'/><text x='120' y='585' fill='white' font-size='78' font-family='Segoe UI, Arial'>Catalog yako inaweza kuonekana hivi</text></svg>",
-    title: "Catalog yenye muonekano mzuri",
-    subtitle: "Search, categories na slideshow vitasaidia bidhaa zako kuonekana vizuri zaidi."
+    kicker: "Discovery",
+    title: "Utafutaji unaohisi wa kweli",
+    subtitle: "Search, categories na discovery sasa vinaelekea zaidi kwenye intent ya watu halisi sokoni."
   },
   {
     image: "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1600 700'><defs><linearGradient id='g3' x1='0' x2='1' y1='0' y2='1'><stop stop-color='%23f2c29b'/><stop offset='1' stop-color='%23c65a1e'/></linearGradient></defs><rect width='1600' height='700' fill='url(%23g3)'/><rect x='180' y='120' width='1240' height='430' rx='34' fill='rgba(255,255,255,0.18)'/><text x='250' y='270' fill='white' font-size='88' font-family='Segoe UI, Arial'>Ongeza picha zako mwenyewe</text><text x='250' y='370' fill='white' font-size='48' font-family='Segoe UI, Arial'>Ukisha-upload bidhaa, slideshow itaanza kutumia picha zako moja kwa moja.</text></svg>",
-    title: "Slideshow ya picha zako",
-    subtitle: "Picha zako zitaanza kuonekana hapa moja kwa moja baada ya upload."
+    kicker: "Seller spotlight",
+    title: "Picha zako zinaingia mbele kwa utulivu",
+    subtitle: "Ukisha-upload bidhaa, hero inaanza kukuonyesha kwa mwonekano wa premium na wa haraka."
   }
 ];
 
@@ -2351,7 +3507,8 @@ function normalizeProduct(product) {
     _searchText: AppCore.createProductSearchText
       ? AppCore.createProductSearchText({
         name: product.name || "",
-        shop: product.shop || ""
+        shop: product.shop || "",
+        category: product.category || detectCategory(product.name || "")
       })
       : normalizeSearchValue(`${product.name || ""} ${product.shop || ""}`)
   };
@@ -2398,14 +3555,17 @@ let selectedCategory = "all";
 let expandedBrowseCategory = "";
 let currentView = "home";
 let publicAuthRequestPending = false;
+let publicAuthTransitionPending = false;
 let adminAuthRequestPending = false;
+let sellerIdentityPreparedSignature = "";
+let sellerIdentityPreparedDataUrl = "";
+let sellerIdentityPreparedPromise = null;
 let isHandlingSessionInvalidation = false;
 let editingProductId = null;
-let selectedAuthCategory = "";
-let selectedAuthSubcategory = "";
 let authSignupStep = 1;
 let currentSession = null;
 let pendingGuestIntent = null;
+let isSessionRestorePending = false;
 const ADMIN_LOGIN_HASH = "#/admin-login";
 
 const authContainer = document.getElementById("auth-container");
@@ -2428,21 +3588,17 @@ const phoneNumberInput = document.getElementById("phone-number");
 const nationalIdInput = document.getElementById("national-id");
 const sellerIdentityDocumentTypeInput = document.getElementById("seller-identity-document-type");
 const sellerVerificationUploads = document.getElementById("seller-verification-uploads");
-const sellerPassportPhotoInput = document.getElementById("seller-passport-photo");
+const sellerIdentityDocumentNumberInput = document.getElementById("seller-identity-document-number");
 const sellerIdentityDocumentImageInput = document.getElementById("seller-identity-document-image");
-const sellerPassportPhotoName = document.getElementById("seller-passport-photo-name");
 const sellerIdentityDocumentImageName = document.getElementById("seller-identity-document-image-name");
+const sellerIdentityDocumentPreviewWrap = document.getElementById("seller-identity-document-preview-wrap");
+const sellerIdentityDocumentPreview = document.getElementById("seller-identity-document-preview");
 const passwordInput = document.getElementById("password");
 const confirmPasswordInput = document.getElementById("confirm-password");
 const confirmPasswordWrap = document.getElementById("confirm-password-wrap");
 const passwordToggleButton = document.getElementById("password-toggle");
 const authCategoryNote = document.getElementById("auth-category-note");
-const authCategoriesContainer = document.getElementById("auth-categories");
-const authSubcategoryBlock = document.getElementById("auth-subcategory-block");
-const authSubcategoriesContainer = document.getElementById("auth-subcategories");
-const authCustomCategoryWrap = document.getElementById("auth-custom-category-wrap");
-const authCustomCategoryInput = document.getElementById("auth-custom-category-input");
-const authCustomCategoryAddButton = document.getElementById("auth-custom-category-add");
+const staffAccessButton = document.getElementById("staff-access-button");
 const adminLoginContainer = document.getElementById("admin-login-container");
 const adminLoginTitle = document.getElementById("admin-login-title");
 const adminLoginCopy = document.getElementById("admin-login-copy");
@@ -2529,6 +3685,19 @@ let currentMessages = [];
 let currentNotifications = [];
 let currentPromotions = [];
 let realtimeChannel = null;
+const notificationFeedbackState = {
+  recentKeys: new Map(),
+  lastVibrationAt: 0,
+  browserPermissionRequested: false
+};
+const savedProductState = {
+  storageKey: "",
+  ids: new Set(),
+  longPressTimer: 0,
+  suppressClickUntil: 0,
+  activeSheetProductId: "",
+  activeSheetSource: ""
+};
 const chatUiState = createChatUiState();
 const productDetailUiState = createProductDetailUiState();
 let currentReviews = [];
@@ -2536,6 +3705,8 @@ let reviewSummaries = {};
 let lastViewedProductId = "";
 let recentlyViewedProductIds = [];
 let productDiscoveryTrail = [];
+let pinnedDesktopCategory = "";
+let buyerSellerAffinity = {};
 let recentCategorySelections = [];
 let recentSearchTerms = [];
 let recentMessagedProductIds = [];
@@ -2582,7 +3753,10 @@ function setAdminLoginRouteActive(active, options = {}) {
   const nextHash = active ? ADMIN_LOGIN_HASH : "";
   if (replace) {
     const url = `${window.location.pathname}${window.location.search}${nextHash}`;
-    window.history.replaceState(null, "", url);
+    const currentState = window.history.state && typeof window.history.state === "object"
+      ? window.history.state
+      : null;
+    window.history.replaceState(currentState, "", url);
     return;
   }
   window.location.hash = nextHash;
@@ -2603,6 +3777,7 @@ function showAdminLoginScreen(options = {}) {
   if (document.title !== "WINGA Admin Login") {
     document.title = "WINGA Admin Login";
   }
+  syncBodyScrollLockState();
   requestAnimationFrame(() => {
     adminLoginIdentifierInput?.focus();
   });
@@ -2615,29 +3790,38 @@ function hideAdminLoginScreen() {
   if (document.title !== "Chap kwa haraka") {
     document.title = "Chap kwa haraka";
   }
+  syncBodyScrollLockState();
 }
 
 function syncAuthMode() {
   const isSecuritySignup = !isLogin;
   const isSellerSignup = isSecuritySignup && selectedAuthRole === "seller";
   const isBuyerSignup = isSecuritySignup && selectedAuthRole === "buyer";
-  const isCategoryStep = isSellerSignup && authSignupStep === 2;
-  authDetailsStep.style.display = isCategoryStep ? "none" : "block";
-  authCategoryStep.style.display = isCategoryStep ? "block" : "none";
+  authDetailsStep.style.display = "block";
+  if (authCategoryStep) {
+    authCategoryStep.style.display = "none";
+  }
   authRoleSelector.style.display = isSecuritySignup ? "grid" : "none";
   phoneNumberInput.style.display = isSecuritySignup ? "block" : "none";
-  nationalIdInput.style.display = isSecuritySignup ? "block" : "none";
-  sellerIdentityDocumentTypeInput.style.display = isSellerSignup && authSignupStep === 1 ? "block" : "none";
-  sellerVerificationUploads.style.display = isSellerSignup && authSignupStep === 1 ? "grid" : "none";
+  nationalIdInput.style.display = isBuyerSignup ? "block" : "none";
+  sellerIdentityDocumentTypeInput.style.display = isSellerSignup ? "block" : "none";
+  sellerVerificationUploads.style.display = isSellerSignup ? "grid" : "none";
+  if (sellerIdentityDocumentNumberInput) {
+    sellerIdentityDocumentNumberInput.style.display = isSellerSignup ? "block" : "none";
+    sellerIdentityDocumentNumberInput.required = isSellerSignup;
+  }
   confirmPasswordWrap.style.display = isSecuritySignup ? "flex" : "none";
   phoneNumberInput.required = isSecuritySignup;
-  nationalIdInput.required = isSecuritySignup;
+  nationalIdInput.required = isBuyerSignup;
   sellerIdentityDocumentTypeInput.required = isSellerSignup;
   confirmPasswordInput.required = isSecuritySignup;
-  authNextButton.style.display = isSellerSignup && authSignupStep === 1 ? "block" : "none";
-  authBackButton.style.display = isSecuritySignup && authSignupStep === 2 ? "block" : "none";
-  authButton.style.display = isSellerSignup && authSignupStep === 1 ? "none" : "block";
-  authCustomCategoryWrap.style.display = "none";
+  if (authNextButton) {
+    authNextButton.style.display = "none";
+  }
+  if (authBackButton) {
+    authBackButton.style.display = "none";
+  }
+  authButton.style.display = "block";
   usernameInput.placeholder = isLogin
     ? "Username, full name, or phone number"
     : isBuyerSignup
@@ -2645,13 +3829,17 @@ function syncAuthMode() {
       : "Username";
   authButton.innerText = isLogin ? "Login" : "Sign Up";
 
-  authCategoryNote.innerText = isLogin
-    ? "Login tumia username, full name, au namba ya simu pamoja na password. Session itaendelea mpaka ulogout."
-    : isCategoryStep
-      ? "Hatua ya mwisho, chagua category kuu kisha subcategory ya biashara yako."
+  if (authCategoryNote) {
+    authCategoryNote.innerText = isLogin
+      ? "Login tumia username, full name, au namba ya simu pamoja na password. Session itaendelea mpaka ulogout."
       : isBuyerSignup
         ? "Jaza taarifa za mteja kisha akaunti itafunguliwa na kukuingiza moja kwa moja kwenye app."
-        : "Jaza taarifa zako kwanza, kisha bonyeza Next uchague category ya biashara yako kama muuzaji.";
+        : "Kwa muuzaji: chagua ID type, andika ID number, upload picha moja ya ID, kisha maliza signup. Category utaichagua wakati wa kupost bidhaa.";
+  }
+
+  if (!isSellerSignup) {
+    clearPreparedSellerIdentityImage();
+  }
 
   authRoleSelector?.querySelectorAll("[data-auth-role]").forEach((button) => {
     button.classList.toggle("active", button.dataset.authRole === selectedAuthRole);
@@ -2659,11 +3847,14 @@ function syncAuthMode() {
 
   if (!isSecuritySignup) {
     confirmPasswordInput.value = "";
+    nationalIdInput.value = "";
     sellerIdentityDocumentTypeInput.value = "";
-    if (sellerPassportPhotoInput) sellerPassportPhotoInput.value = "";
+    if (sellerIdentityDocumentNumberInput) sellerIdentityDocumentNumberInput.value = "";
     if (sellerIdentityDocumentImageInput) sellerIdentityDocumentImageInput.value = "";
-    if (sellerPassportPhotoName) sellerPassportPhotoName.innerText = "";
     if (sellerIdentityDocumentImageName) sellerIdentityDocumentImageName.innerText = "";
+    if (sellerIdentityDocumentPreview) {
+      updateSellerIdentityDocumentPreview(null);
+    }
   }
 
   [passwordInput, confirmPasswordInput].forEach((input) => {
@@ -2686,6 +3877,13 @@ toggleLink.addEventListener("click", () => {
   authButton.innerText = isLogin ? "Login" : "Sign Up";
   toggleLink.innerText = isLogin ? "Tengeneza akaunti" : "Tayari una akaunti? Ingia";
   syncAuthMode();
+});
+
+staffAccessButton?.addEventListener("click", () => {
+  setAdminLoginRouteActive(true);
+  showAdminLoginScreen({
+    message: "Tumia admin au moderator account kuingia kwenye staff access."
+  });
 });
 
 authRoleSelector?.querySelectorAll("[data-auth-role]").forEach((button) => {
@@ -2721,61 +3919,43 @@ nationalIdInput.addEventListener("blur", () => {
   nationalIdInput.value = normalizeNationalId(nationalIdInput.value);
 });
 
-sellerPassportPhotoInput?.addEventListener("change", () => {
-  const file = sellerPassportPhotoInput.files?.[0];
-  try {
-    if (file) {
-      validateSingleImageFile(file, "Passport photo");
-    }
-    if (sellerPassportPhotoName) {
-      sellerPassportPhotoName.innerText = file ? file.name : "";
-    }
-  } catch (error) {
-    sellerPassportPhotoInput.value = "";
-    if (sellerPassportPhotoName) {
-      sellerPassportPhotoName.innerText = "";
-    }
-    alert(error.message || "Passport photo si sahihi.");
-  }
+sellerIdentityDocumentNumberInput?.addEventListener("blur", () => {
+  sellerIdentityDocumentNumberInput.value = normalizeNationalId(sellerIdentityDocumentNumberInput.value);
 });
 
 sellerIdentityDocumentImageInput?.addEventListener("change", () => {
   const file = sellerIdentityDocumentImageInput.files?.[0];
   try {
+    clearPreparedSellerIdentityImage();
     if (file) {
-      validateSingleImageFile(file, "Identity document");
+      validateSellerIdentityImageFile(file);
     }
     if (sellerIdentityDocumentImageName) {
       sellerIdentityDocumentImageName.innerText = file ? file.name : "";
     }
+    updateSellerIdentityDocumentPreview(file || null);
+    if (file) {
+      primeSellerSignupIdentityImage(file).catch((error) => {
+        captureClientError("seller_identity_image_prime_failed", error, {
+          fileName: file.name || "",
+          size: file.size || 0
+        });
+      });
+    }
   } catch (error) {
     sellerIdentityDocumentImageInput.value = "";
+    clearPreparedSellerIdentityImage();
     if (sellerIdentityDocumentImageName) {
       sellerIdentityDocumentImageName.innerText = "";
     }
-    alert(error.message || "Identity document image si sahihi.");
+    updateSellerIdentityDocumentPreview(null);
+    alert(error.message || "Please upload a valid ID image");
   }
 });
 
-authNextButton.addEventListener("click", () => {
-  if (selectedAuthRole !== "seller") {
-    return;
-  }
+authNextButton?.addEventListener("click", () => {});
 
-  const signupValidationError = validateAuthSignupInput();
-  if (signupValidationError) {
-    alert(signupValidationError);
-    return;
-  }
-
-  authSignupStep = 2;
-  syncAuthMode();
-});
-
-authBackButton.addEventListener("click", () => {
-  authSignupStep = 1;
-  syncAuthMode();
-});
+authBackButton?.addEventListener("click", () => {});
 
 adminLoginBackButton?.addEventListener("click", () => {
   setAdminLoginRouteActive(false);
@@ -2865,25 +4045,59 @@ searchImageButton.addEventListener("click", () => {
   searchImageFileInput.click();
 });
 
-authCustomCategoryAddButton.addEventListener("click", async () => {
-  authCustomCategoryWrap.style.display = "none";
+uploadCustomCategoryAddButton.addEventListener("click", async () => {
+  if (!supportsFlexibleSubcategory(productCategoryTopInput.value)) {
+    uploadCustomCategoryWrap.style.display = "none";
+    return;
+  }
+
+  try {
+    const createdCategory = await createCustomCategory(uploadCustomCategoryInput.value, {
+      topValue: productCategoryTopInput.value
+    });
+    renderUploadCategoryOptions();
+    productCategoryInput.value = createdCategory.value;
+    uploadCustomCategoryInput.value = createdCategory.label;
+    showInAppNotification({
+      title: "Subcategory ready",
+      body: `${createdCategory.label} imeongezwa kwenye Vitu Used.`,
+      variant: "success"
+    });
+  } catch (error) {
+    showInAppNotification({
+      title: "Subcategory failed",
+      body: error.message || "Imeshindikana kuongeza subcategory ya Vitu Used.",
+      variant: "error"
+    });
+  }
 });
 
-uploadCustomCategoryAddButton.addEventListener("click", async () => {
-  uploadCustomCategoryWrap.style.display = "none";
+uploadCustomCategoryInput.addEventListener("input", () => {
+  if (supportsFlexibleSubcategory(productCategoryTopInput.value)) {
+    productCategoryInput.value = "";
+  }
 });
 
 productCategoryTopInput.addEventListener("change", () => {
   productCategoryInput.value = "";
+  uploadCustomCategoryInput.value = "";
   renderUploadCategoryOptions();
 });
 
 productCategoryInput.addEventListener("change", () => {
-  uploadCustomCategoryWrap.style.display = "none";
+  if (supportsFlexibleSubcategory(productCategoryTopInput.value) && productCategoryInput.value) {
+    uploadCustomCategoryInput.value = getCategoryLabel(productCategoryInput.value);
+    uploadCustomCategoryWrap.style.display = "grid";
+    return;
+  }
+  if (!supportsFlexibleSubcategory(productCategoryTopInput.value)) {
+    uploadCustomCategoryWrap.style.display = "none";
+  }
+  uploadCustomCategoryInput.value = "";
 });
 
 authButton.addEventListener("click", async () => {
-  if (publicAuthRequestPending) {
+  if (publicAuthRequestPending || publicAuthTransitionPending) {
     return;
   }
   const username = usernameInput.value.trim();
@@ -2893,8 +4107,7 @@ authButton.addEventListener("click", async () => {
   setAuthInteractionPending("public", true);
   if (isLogin) {
     if (!username || !password) {
-      publicAuthRequestPending = false;
-      setAuthInteractionPending("public", false);
+      releasePublicAuthPendingState();
       alert("Jaza identifier na password.");
       return;
     }
@@ -2914,8 +4127,7 @@ authButton.addEventListener("click", async () => {
         showAdminLoginScreen({
           message: "Admin au moderator wanapaswa kuingia kupitia route hii ya staff access."
         });
-        publicAuthRequestPending = false;
-        setAuthInteractionPending("public", false);
+        releasePublicAuthPendingState();
         return;
       }
       clearAppViewState();
@@ -2932,49 +4144,48 @@ authButton.addEventListener("click", async () => {
           body: errorMessage,
           variant: "warning"
         });
-        publicAuthRequestPending = false;
-        setAuthInteractionPending("public", false);
+        releasePublicAuthPendingState();
         return;
       }
       alert(errorMessage);
     } finally {
-      publicAuthRequestPending = false;
-      setAuthInteractionPending("public", false);
+      releasePublicAuthPendingState();
     }
     return;
   }
 
-  const signupValidationError = validateAuthSignupInput();
+  let signupValidationError = "";
+  try {
+    signupValidationError = validateAuthSignupInput();
+  } catch (error) {
+    releasePublicAuthPendingState();
+    captureClientError("signup_validation_crashed", error, {
+      role: selectedAuthRole
+    });
+    showInAppNotification({
+      title: "Sign up failed",
+      body: "Kulitokea tatizo wakati wa kuhakiki taarifa zako. Tafadhali jaribu tena.",
+      variant: "error"
+    });
+    return;
+  }
   if (signupValidationError) {
-    publicAuthRequestPending = false;
-    setAuthInteractionPending("public", false);
+    releasePublicAuthPendingState();
     alert(signupValidationError);
     return;
   }
 
   const phoneNumber = normalizePhoneNumber(phoneNumberInput.value);
-  const nationalId = normalizeNationalId(nationalIdInput.value);
-
-  if (selectedAuthRole === "seller" && !selectedAuthCategory) {
-    publicAuthRequestPending = false;
-    setAuthInteractionPending("public", false);
-    alert("Chagua category kuu ya biashara yako kwanza.");
-    return;
-  }
-
-  if (selectedAuthRole === "seller" && DEFAULT_TOP_CATEGORIES.some((category) => category.value === selectedAuthCategory) && !selectedAuthSubcategory) {
-    publicAuthRequestPending = false;
-    setAuthInteractionPending("public", false);
-    alert("Chagua subcategory ya biashara yako kwanza.");
-    return;
-  }
+  const sellerIdentityNumber = normalizeNationalId(sellerIdentityDocumentNumberInput?.value || "");
+  const buyerNationalId = normalizeNationalId(nationalIdInput.value);
+  const nationalId = selectedAuthRole === "seller" ? sellerIdentityNumber : buyerNationalId;
 
   try {
-    const sellerPassportPhoto = selectedAuthRole === "seller"
-      ? await readFileAsDataUrl(sellerPassportPhotoInput?.files?.[0])
-      : "";
     const sellerIdentityDocumentImage = selectedAuthRole === "seller"
-      ? await readFileAsDataUrl(sellerIdentityDocumentImageInput?.files?.[0])
+      ? await resolveSellerSignupIdentityImage(sellerIdentityDocumentImageInput?.files?.[0])
+      : "";
+    const sellerIdentityDocumentNumber = selectedAuthRole === "seller"
+      ? normalizeNationalId(sellerIdentityDocumentNumberInput?.value || "")
       : "";
     const user = await window.WingaDataLayer.signup({
       username: selectedAuthRole === "seller" ? username : "",
@@ -2982,32 +4193,64 @@ authButton.addEventListener("click", async () => {
       password,
       phoneNumber,
       nationalId,
-      primaryCategory: selectedAuthRole === "seller" ? (selectedAuthSubcategory || selectedAuthCategory) : "",
       role: selectedAuthRole,
       profileImage: "",
-      passportPhoto: selectedAuthRole === "seller" ? sellerPassportPhoto : "",
+      id_type: selectedAuthRole === "seller" ? sellerIdentityDocumentTypeInput.value : "",
+      id_number: selectedAuthRole === "seller" ? sellerIdentityDocumentNumber : "",
+      id_image: selectedAuthRole === "seller" ? sellerIdentityDocumentImage : "",
       identityDocumentType: selectedAuthRole === "seller" ? sellerIdentityDocumentTypeInput.value : "",
+      identityDocumentNumber: selectedAuthRole === "seller" ? sellerIdentityDocumentNumber : "",
       identityDocumentImage: selectedAuthRole === "seller" ? sellerIdentityDocumentImage : "",
       verificationStatus: selectedAuthRole === "seller" ? "pending" : "",
       verificationSubmittedAt: selectedAuthRole === "seller" ? new Date().toISOString() : ""
     });
-    showInAppNotification({
-      title: "Welcome to Winga",
-      body: "Akaunti imeundwa. Unaingia moja kwa moja.",
-      variant: "success"
+    releasePublicAuthPendingState();
+    publicAuthTransitionPending = true;
+    setAuthInteractionPending("public", true, {
+      buttonText: "Inaingia...",
+      noteText: "Akaunti imeundwa. Tunaingia sasa..."
     });
-    authSignupStep = 1;
-    clearAppViewState();
-    loginSuccess(user.username, user.primaryCategory, user, { restoreView: false });
+    await waitForNextPaint();
+    try {
+      showInAppNotification({
+        title: "Welcome to Winga",
+        body: "Akaunti imeundwa. Unaingia moja kwa moja.",
+        variant: "success"
+      });
+      authSignupStep = 1;
+      clearAppViewState();
+      loginSuccess(user.username, "", {
+        ...user,
+        primaryCategory: ""
+      }, {
+        restoreView: false,
+        deferRender: true
+      });
+    } catch (transitionError) {
+      captureClientError("signup_completion_transition_failed", transitionError, {
+        username: user?.username || "",
+        role: selectedAuthRole
+      });
+      publicAuthTransitionPending = false;
+      releasePublicAuthPendingState();
+      switchToLoginMode(user?.username || phoneNumber);
+      showInAppNotification({
+        title: "Account created",
+        body: "Akaunti imetengenezwa lakini haikuingia moja kwa moja. Login sasa kuendelea.",
+        variant: "warning"
+      });
+      return;
+    }
   } catch (error) {
+    publicAuthTransitionPending = false;
     showInAppNotification({
       title: "Sign up failed",
       body: error.message || "Imeshindikana kusajili akaunti.",
       variant: "error"
     });
   } finally {
-    publicAuthRequestPending = false;
-    setAuthInteractionPending("public", false);
+    publicAuthTransitionPending = false;
+    releasePublicAuthPendingState();
   }
 });
 
@@ -3140,11 +4383,13 @@ uploadButton.addEventListener("click", async () => {
 
 cancelEditButton.addEventListener("click", () => {
   clearUploadForm();
-  setCurrentViewState("profile");
+  setCurrentViewState("profile", {
+    syncHistory: "replace"
+  });
   renderCurrentView();
 });
 
-productImageFileInput.addEventListener("change", () => {
+productImageFileInput.addEventListener("change", async () => {
   const files = Array.from(productImageFileInput.files || []);
   if (files.length === 0) {
     previewList.replaceChildren();
@@ -3154,9 +4399,13 @@ productImageFileInput.addEventListener("change", () => {
 
   try {
     validateImageFiles(files);
-    renderPreviewFiles(files);
+    await renderPreviewFiles(files);
   } catch (error) {
-    alert(error.message || "Picha ulizochagua si sahihi.");
+    showInAppNotification({
+      title: "Image selection failed",
+      body: error.message || "Picha ulizochagua si sahihi.",
+      variant: "error"
+    });
     productImageFileInput.value = "";
     previewList.replaceChildren();
     previewList.style.display = "none";
@@ -3252,9 +4501,23 @@ mobileCategoryButton?.addEventListener("click", (event) => {
   toggleMobileCategoryMenu();
 });
 
+document.addEventListener("pointerdown", (event) => {
+  if (!searchRuntimeState.isMobileCategoryOpen) {
+    return;
+  }
+  if (mobileCategoryShell?.contains(event.target)) {
+    return;
+  }
+  closeMobileCategoryMenu();
+}, true);
+
 document.addEventListener("click", (event) => {
   if (!mobileCategoryShell?.contains(event.target)) {
     closeMobileCategoryMenu();
+  }
+
+  if (window.innerWidth > 720 && pinnedDesktopCategory && !categories?.contains(event.target)) {
+    closePinnedDesktopCategoryMenu();
   }
 
   if (!headerUserMenu?.contains(event.target)) {
@@ -3273,6 +4536,8 @@ function handleWindowResize() {
     closeMobileCategoryMenu();
     searchRuntimeState.isMobileSearchOpen = false;
     searchBox.classList.remove("mobile-open");
+  } else {
+    closePinnedDesktopCategoryMenu({ rerender: false });
   }
   scheduleChromeOffsetSync();
 }
@@ -3326,7 +4591,9 @@ postProductFab?.addEventListener("click", () => {
   if (!editingProductId) {
     clearUploadForm();
   }
-  setCurrentViewState("upload");
+  setCurrentViewState("upload", {
+    syncHistory: "push"
+  });
   renderCurrentView();
   window.scrollTo({ top: 0, behavior: "smooth" });
 });
@@ -3338,16 +4605,21 @@ viewHomeBackButton?.addEventListener("click", () => {
   });
   toggleHeaderUserMenu(false);
   resetHomeBrowseState();
-  setCurrentViewState("home");
+  setCurrentViewState("home", {
+    syncHistory: "push"
+  });
   renderCurrentView();
   window.scrollTo({ top: 0, behavior: "smooth" });
 });
 
 window.addEventListener("scroll", () => {
-  scheduleMobileHeaderScrollSync();
+  if (window.innerWidth <= 720) {
+    scheduleMobileHeaderScrollSync();
+  }
 }, { passive: true });
 
 window.addEventListener("resize", () => {
+  syncMobileCategorySheetOffset();
   syncMobileHeaderVisibility(true);
 });
 
@@ -3367,7 +4639,7 @@ function inferUserCategory(username) {
 function getUserPrimaryCategory(username) {
   const users = getUsers();
   const user = users.find((item) => item.username === username);
-  return user?.primaryCategory || inferUserCategory(username);
+  return user?.primaryCategory || "";
 }
 
 function applySelectedCategory(category) {
@@ -3418,12 +4690,7 @@ function isTopCategoryValue(categoryValue) {
 }
 
 function resetAuthCategorySelection() {
-  selectedAuthCategory = "";
-  selectedAuthSubcategory = "";
-  authCustomCategoryInput.value = "";
-  authCustomCategoryWrap.style.display = "none";
-  authSubcategoryBlock && (authSubcategoryBlock.style.display = "none");
-  renderAuthCategoryButtons();
+  authSignupStep = 1;
 }
 
 function loadImageFromSource(source) {
@@ -3504,6 +4771,19 @@ function humanizeCategoryValue(value) {
     .trim();
 }
 
+function normalizeCategoryLabelText(label) {
+  return String(label || "").trim().replace(/\s+/g, " ");
+}
+
+function formatTopCategoryLabel(label) {
+  return normalizeCategoryLabelText(label).toUpperCase();
+}
+
+function formatSubcategoryLabel(label) {
+  const normalized = normalizeCategoryLabelText(label).toLowerCase();
+  return normalized ? `${normalized.charAt(0).toUpperCase()}${normalized.slice(1)}` : "";
+}
+
 function getDefaultTopCategory(value) {
   return DEFAULT_TOP_CATEGORIES.find((item) => item.value === value) || null;
 }
@@ -3543,7 +4823,8 @@ function normalizeCategoryEntry(entry) {
   const value = defaultProductCategory?.value || normalizedValue;
   const topValue = inferTopCategoryValue(entry.topValue || value);
   const topCategory = getDefaultTopCategory(topValue);
-  const label = rawLabel || defaultProductCategory?.label || humanizeCategoryValue(value);
+  const label = formatSubcategoryLabel(rawLabel || defaultProductCategory?.label || humanizeCategoryValue(value));
+  const topLabel = formatTopCategoryLabel(defaultProductCategory?.topLabel || topCategory?.label || humanizeCategoryValue(topValue));
 
   if (!value || !label) {
     return null;
@@ -3553,7 +4834,7 @@ function normalizeCategoryEntry(entry) {
     value,
     label,
     topValue: defaultProductCategory?.topValue || topValue,
-    topLabel: defaultProductCategory?.topLabel || topCategory?.label || ""
+    topLabel
   };
 }
 
@@ -3567,7 +4848,7 @@ function normalizeTopCategoryEntry(entry) {
   const topCategory = getDefaultTopCategory(topValue);
   return {
     value: topValue,
-    label: normalized.topLabel || topCategory?.label || normalized.label
+    label: formatTopCategoryLabel(normalized.topLabel || topCategory?.label || normalized.label)
   };
 }
 
@@ -3603,6 +4884,26 @@ function getSubcategoriesForTopCategory(topValue) {
   );
 }
 
+function getSelectableSubcategoriesForTopCategory(topValue) {
+  const safeTopValue = String(topValue || "").trim();
+  const defaultSubcategories = DEFAULT_PRODUCT_CATEGORIES.filter((category) => category.topValue === safeTopValue);
+  if (!supportsFlexibleSubcategory(safeTopValue)) {
+    return defaultSubcategories;
+  }
+
+  const categoryMap = new Map();
+  [...defaultSubcategories, ...getSubcategoriesForTopCategory(safeTopValue)]
+    .map(normalizeCategoryEntry)
+    .filter(Boolean)
+    .forEach((category) => {
+      if (category.value === safeTopValue || category.topValue !== safeTopValue || categoryMap.has(category.value)) {
+        return;
+      }
+      categoryMap.set(category.value, category);
+    });
+  return Array.from(categoryMap.values());
+}
+
 function getCategoryPreviewProduct(topValue) {
   if (!topValue) {
     return null;
@@ -3617,67 +4918,10 @@ function getCategoryPreviewProduct(topValue) {
 
 function inferCategoriesFromData() {
   return [
+    ...window.WingaDataLayer.getCategories().map((category) => normalizeCategoryEntry(category)),
     ...products.map((product) => ({ value: product.category, label: product.category })),
-    ...getUsers().map((user) => ({ value: user.primaryCategory, label: user.primaryCategory })),
-    ...window.WingaDataLayer.getCategories().map((category) => normalizeCategoryEntry(category))
+    ...getUsers().map((user) => ({ value: user.primaryCategory, label: user.primaryCategory }))
   ].filter(Boolean);
-}
-
-function renderAuthCategoryButtons() {
-  authCategoriesContainer.replaceChildren(
-    ...availableTopCategories.map((category) => {
-      const button = createElement("button", {
-        className: `auth-cat-btn ${selectedAuthCategory === category.value ? "active" : ""}`.trim(),
-        textContent: category.label,
-        attributes: {
-          type: "button",
-          "data-cat": category.value
-        }
-      });
-      button.addEventListener("click", () => {
-        selectedAuthCategory = category.value;
-        selectedAuthSubcategory = "";
-        renderAuthCategoryButtons();
-      });
-      return button;
-    })
-  );
-
-  renderAuthSubcategoryButtons();
-}
-
-function renderAuthSubcategoryButtons() {
-  if (!authSubcategoryBlock || !authSubcategoriesContainer) {
-    return;
-  }
-
-  const shouldShow = DEFAULT_TOP_CATEGORIES.some((category) => category.value === selectedAuthCategory);
-  authSubcategoryBlock.style.display = shouldShow ? "block" : "none";
-
-  if (!shouldShow) {
-    authSubcategoriesContainer.replaceChildren();
-    return;
-  }
-
-  const subcategories = getSubcategoriesForTopCategory(selectedAuthCategory);
-  authSubcategoriesContainer.replaceChildren(
-    ...subcategories.map((category) => {
-      const button = createElement("button", {
-        className: `auth-cat-btn ${selectedAuthSubcategory === category.value ? "active" : ""}`.trim(),
-        textContent: category.label,
-        attributes: {
-          type: "button",
-          "data-subcat": category.value
-        }
-      });
-      button.addEventListener("click", () => {
-        selectedAuthSubcategory = category.value;
-        renderAuthSubcategoryButtons();
-      });
-      return button;
-    })
-  );
-
 }
 
 function renderUploadCategoryOptions() {
@@ -3698,7 +4942,7 @@ function renderUploadCategoryOptions() {
     ? selectedTopValue
     : "";
 
-  const subcategories = DEFAULT_PRODUCT_CATEGORIES.filter((category) => category.topValue === productCategoryTopInput.value);
+  const subcategories = getSelectableSubcategoriesForTopCategory(productCategoryTopInput.value);
   const hasCurrentLegacyValue = currentValue && !subcategories.some((category) => category.value === currentValue);
   productCategoryInput.replaceChildren(
     createElement("option", { textContent: "Chagua subcategory ya bidhaa", attributes: { value: "" } }),
@@ -3717,11 +4961,18 @@ function renderUploadCategoryOptions() {
     ? currentValue
     : (hasCurrentLegacyValue ? currentValue : "");
   productCategoryInput.style.display = "";
-  uploadCustomCategoryWrap.style.display = "none";
+  uploadCustomCategoryWrap.style.display = supportsFlexibleSubcategory(productCategoryTopInput.value) ? "grid" : "none";
+  uploadCustomCategoryInput.placeholder = supportsFlexibleSubcategory(productCategoryTopInput.value)
+    ? "Mfano: Simu, Nguo, Kiatu"
+    : "Andika subcategory mpya";
+  if (supportsFlexibleSubcategory(productCategoryTopInput.value) && productCategoryInput.value) {
+    uploadCustomCategoryInput.value = getCategoryLabel(productCategoryInput.value);
+  } else if (!supportsFlexibleSubcategory(productCategoryTopInput.value)) {
+    uploadCustomCategoryInput.value = "";
+  }
 }
 
 function refreshCategoryUI() {
-  renderAuthCategoryButtons();
   renderFilterCategories();
   renderUploadCategoryOptions();
 }
@@ -3731,6 +4982,12 @@ async function createCustomCategory(label, options = {}) {
   const selectedTopValue = DEFAULT_TOP_CATEGORIES.some((category) => category.value === options.topValue)
     ? options.topValue
     : "";
+  if (!selectedTopValue || !supportsFlexibleSubcategory(selectedTopValue)) {
+    throw new Error("Category hii inatumia subcategories zilizowekwa tayari.");
+  }
+  if (safeLabel.length < 2 || safeLabel.length > 40) {
+    throw new Error("Subcategory inapaswa kuwa kati ya herufi 2 hadi 40.");
+  }
   const customSlug = slugifyCategoryLabel(safeLabel);
   const maxCustomSlugLength = selectedTopValue
     ? Math.max(1, 40 - selectedTopValue.length - 1)
@@ -3738,6 +4995,12 @@ async function createCustomCategory(label, options = {}) {
   const safeValue = selectedTopValue
     ? `${selectedTopValue}-${customSlug.slice(0, maxCustomSlugLength)}`
     : customSlug;
+  const existingCategory = getSelectableSubcategoriesForTopCategory(selectedTopValue).find((category) =>
+    category.value === safeValue || slugifyCategoryLabel(category.label) === customSlug
+  );
+  if (existingCategory) {
+    return existingCategory;
+  }
   const normalized = normalizeCategoryEntry({ value: safeValue, label: safeLabel, topValue: selectedTopValue });
   if (!normalized || normalized.value === "other" || normalized.label.length < 2) {
     throw new Error("Andika category mpya iliyo sahihi.");
@@ -3813,7 +5076,13 @@ async function hydrateMissingImageSignatures(productList = products) {
 }
 
 function loginSuccess(username, preferredCategory = "", sessionData = null, options = {}) {
-  const { restoreView = false, skipWelcome = false, forceView = "" } = options;
+  const {
+    restoreView = false,
+    skipWelcome = false,
+    forceView = "",
+    deferRender = false
+  } = options;
+  isSessionRestorePending = false;
   searchRuntimeState.isMobileSearchOpen = false;
   searchBox.classList.remove("mobile-open");
   searchRuntimeState.activeImageSearch = null;
@@ -3831,6 +5100,7 @@ function loginSuccess(username, preferredCategory = "", sessionData = null, opti
   currentPromotions = [];
   currentReviews = [];
   reviewSummaries = {};
+  profileRuntimeState.pendingSection = "";
   chatUiState.activeContext = null;
   if (isStaffRole(sessionData?.role || currentSession?.role || "")) {
     clearRequestBoxSessionState();
@@ -3852,7 +5122,9 @@ function loginSuccess(username, preferredCategory = "", sessionData = null, opti
     || preferredCategory
     || getUserPrimaryCategory(username)
     || "";
-  const storedViewState = restoreView ? getStoredAppView() : null;
+  hydrateBuyerSellerAffinityState(username);
+  const shouldRestoreBuyerView = !isBuyerUser();
+  const storedViewState = restoreView && shouldRestoreBuyerView ? getStoredAppView() : null;
   const nextView = forceView && isRestorableView(forceView, currentSession)
     ? forceView
     : storedViewState?.username === username && isRestorableView(storedViewState.view, currentSession)
@@ -3874,29 +5146,47 @@ function loginSuccess(username, preferredCategory = "", sessionData = null, opti
   refreshPublicEntryChrome();
   clearUploadForm();
   productShopInput.value = username;
-  setCurrentViewState(nextView);
-  renderCurrentView();
+  setCurrentViewState(nextView, {
+    syncHistory: "replace"
+  });
+  if (deferRender) {
+    scheduleRenderCurrentView();
+  } else {
+    renderCurrentView();
+  }
   updateProfileNavBadge();
   if (!isStaffUser()) {
-    connectRealtimeChannel();
-    refreshPromotionsState().then(() => {
-      if (currentView !== "profile") {
-        renderCurrentView();
-      }
-    });
-    refreshOrdersState().then(() => {
-      if (currentView !== "profile") {
-        renderCurrentView();
-      }
-    });
+    const hydrateRealtimeState = () => {
+      connectRealtimeChannel();
+      refreshPromotionsState().then(() => {
+        if (currentView !== "profile") {
+          renderCurrentView();
+        }
+      });
+      refreshOrdersState().then(() => {
+        if (currentView !== "profile") {
+          renderCurrentView();
+        }
+      });
+    };
+    if (deferRender) {
+      window.setTimeout(hydrateRealtimeState, 0);
+    } else {
+      hydrateRealtimeState();
+    }
   }
   resumePendingGuestIntent();
   if (!skipWelcome && !isStaffUser()) {
-    showWelcomePopup();
+    if (deferRender) {
+      window.setTimeout(showWelcomePopup, 80);
+    } else {
+      showWelcomePopup();
+    }
   }
 }
 
 function logout() {
+  isSessionRestorePending = false;
   const wasStaffSession = isStaffUser();
   const shouldReturnToAdminLogin = wasStaffSession || isAdminLoginRoute();
   const logoutToken = String(currentSession?.token || getSessionUser()?.token || "").trim();
@@ -3909,6 +5199,9 @@ function logout() {
     });
   }
   toggleHeaderUserMenu(false);
+  closeAllTransientOverlays({
+    closeAuthModalIfGuest: false
+  });
   clearSessionUser();
   clearAppViewState();
   applySessionState(null);
@@ -3917,6 +5210,7 @@ function logout() {
   currentMessages = [];
   currentNotifications = [];
   currentPromotions = [];
+  buyerSellerAffinity = {};
   currentReviews = [];
   reviewSummaries = {};
   chatUiState.activeContext = null;
@@ -3957,7 +5251,9 @@ function logout() {
     showAdminLoginScreen();
     return;
   }
-  setCurrentViewState("home");
+  setCurrentViewState("home", {
+    syncHistory: "replace"
+  });
   renderCurrentView();
   updateProfileNavBadge();
 }
@@ -3977,6 +5273,54 @@ window.addEventListener("winga:session-invalidated", (event) => {
   window.setTimeout(() => {
     isHandlingSessionInvalidation = false;
   }, 0);
+});
+
+window.addEventListener("popstate", (event) => {
+  const state = event?.state;
+  if (!state || state.wingaProductDetail || !state.wingaAppShell) {
+    return;
+  }
+
+  const stateUsername = String(state.username || "").trim();
+  if (stateUsername && stateUsername !== currentUser) {
+    return;
+  }
+
+  const targetView = isRestorableView(state.view, currentSession)
+    ? state.view
+    : (isStaffUser() ? "admin" : "home");
+  const nextCategory = targetView === "home" && isAuthenticatedUser()
+    ? getRestorableCategory(state.selectedCategory)
+    : "all";
+  const nextPendingProfileSection = targetView === "profile"
+    ? String(state.pendingProfileSection || "")
+    : "";
+  let shouldRender = false;
+
+  if (selectedCategory !== nextCategory) {
+    setCategorySelectionState(nextCategory, { persist: false, syncHistory: false });
+    shouldRender = true;
+  }
+
+  if (currentView !== targetView) {
+    setCurrentViewState(targetView, {
+      persist: false,
+      syncHistory: false,
+      historyState: {
+        pendingProfileSection: nextPendingProfileSection
+      }
+    });
+    shouldRender = true;
+  }
+
+  if (profileRuntimeState.pendingSection !== nextPendingProfileSection) {
+    profileRuntimeState.pendingSection = nextPendingProfileSection;
+    shouldRender = true;
+  }
+
+  if (shouldRender && appContainer?.style.display !== "none") {
+    renderCurrentView();
+  }
 });
 
 function syncHeroPanelPosition(isProfile, isUpload) {
@@ -4349,6 +5693,7 @@ const {
   getRecentCategorySelections: () => recentCategorySelections,
   getRecentSearchTerms: () => recentSearchTerms,
   getRecentMessagedProductIds: () => recentMessagedProductIds,
+  getBuyerSellerAffinityEntries,
   getCurrentSession: () => currentSession,
   normalizeOptionalPrice
 });
@@ -4451,6 +5796,22 @@ function getTrendingProducts(limit = 8) {
   return ranked.length ? ranked : limitProductsPerSeller(withSignal ? source.slice() : source.slice().sort(() => Math.random() - 0.5), limit, 2);
 }
 
+function buildTrendingKariakooSlide() {
+  const trending = getTrendingProducts(4).filter((product) => product?.image);
+  if (!trending.length) {
+    return null;
+  }
+
+  const lead = trending[0];
+  return {
+    image: lead.image,
+    kicker: "Trending Kariakoo",
+    title: "Bidhaa zinazovuma Kariakoo leo",
+    subtitle: "Picks zenye movement kubwa zaidi kwenye views, requests na mazungumzo ya sasa.",
+    highlights: trending.slice(0, 4).map((item) => `${item.name} · ${formatProductPrice(item.price)}`)
+  };
+}
+
 function renderPromotionBadges(product) {
   const promotion = getPrimaryPromotion(product.id);
   if (!promotion) {
@@ -4468,6 +5829,9 @@ function renderPromoteButton(product) {
 
 function bindShowcaseCardClicks(scope) {
   scope.querySelectorAll(".showcase-card").forEach((card) => {
+    if (card.dataset.showcaseClickBound === "true") {
+      return;
+    }
     card.addEventListener("click", (event) => {
       if (event.target.closest(".product-actions")) {
         return;
@@ -4480,6 +5844,7 @@ function bindShowcaseCardClicks(scope) {
       noteProductInterest(targetProduct.id);
       openProductDetailModal(targetProduct.id);
     });
+    card.dataset.showcaseClickBound = "true";
   });
 }
 
@@ -4544,6 +5909,114 @@ function renderMarketShowcase() {
   showcaseTrack.replaceChildren();
 }
 
+function enhanceShowcaseTracks(scope = document) {
+  scope.querySelectorAll(".showcase-track").forEach((track) => {
+    if (track.dataset.wingaTrackEnhanced === "true") {
+      return;
+    }
+    track.dataset.wingaTrackEnhanced = "true";
+
+    let pointerId = null;
+    let pointerStartX = 0;
+    let pointerStartY = 0;
+    let pointerStartScrollLeft = 0;
+    let isDragging = false;
+    let suppressClickUntil = 0;
+
+    const clearDragState = () => {
+      pointerId = null;
+      isDragging = false;
+      track.classList.remove("is-dragging");
+    };
+
+    const isInteractiveTarget = (target) => target instanceof Element
+      && Boolean(target.closest("button, a, input, select, textarea, label, [data-product-action], .product-actions"));
+
+    track.addEventListener("wheel", (event) => {
+      if (track.scrollWidth <= track.clientWidth || typeof WheelEvent === "undefined") {
+        return;
+      }
+      if (event.shiftKey || Math.abs(event.deltaY) <= Math.abs(event.deltaX)) {
+        return;
+      }
+      const isFinePointer = window.matchMedia?.("(pointer: fine)")?.matches ?? false;
+      const isLikelyMouseWheel = event.deltaMode === WheelEvent.DOM_DELTA_LINE || Math.abs(event.deltaY) >= 28;
+      if (!isFinePointer || !isLikelyMouseWheel) {
+        return;
+      }
+      const nextScrollLeft = track.scrollLeft + event.deltaY;
+      const clampedScrollLeft = Math.max(0, Math.min(nextScrollLeft, track.scrollWidth - track.clientWidth));
+      if (Math.abs(clampedScrollLeft - track.scrollLeft) < 1) {
+        return;
+      }
+      event.preventDefault();
+      track.scrollLeft = clampedScrollLeft;
+    }, { passive: false });
+
+    track.addEventListener("click", (event) => {
+      if (suppressClickUntil && Date.now() < suppressClickUntil) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    }, true);
+
+    if (typeof PointerEvent === "undefined") {
+      return;
+    }
+
+    track.addEventListener("pointerdown", (event) => {
+      if (event.pointerType !== "mouse" || event.button !== 0 || isInteractiveTarget(event.target)) {
+        return;
+      }
+      pointerId = event.pointerId;
+      pointerStartX = event.clientX;
+      pointerStartY = event.clientY;
+      pointerStartScrollLeft = track.scrollLeft;
+      isDragging = false;
+      track.setPointerCapture?.(event.pointerId);
+    });
+
+    track.addEventListener("pointermove", (event) => {
+      if (pointerId !== event.pointerId) {
+        return;
+      }
+      const deltaX = event.clientX - pointerStartX;
+      const deltaY = event.clientY - pointerStartY;
+      if (!isDragging) {
+        if (Math.abs(deltaX) < 8 || Math.abs(deltaX) <= Math.abs(deltaY)) {
+          return;
+        }
+        isDragging = true;
+        track.classList.add("is-dragging");
+      }
+      event.preventDefault();
+      track.scrollLeft = pointerStartScrollLeft - (deltaX * 1.08);
+    });
+
+    track.addEventListener("pointerup", (event) => {
+      if (pointerId !== event.pointerId) {
+        return;
+      }
+      if (isDragging) {
+        suppressClickUntil = Date.now() + 220;
+      }
+      track.releasePointerCapture?.(event.pointerId);
+      clearDragState();
+    });
+
+    track.addEventListener("pointercancel", (event) => {
+      if (pointerId !== event.pointerId) {
+        return;
+      }
+      clearDragState();
+    });
+
+    track.addEventListener("lostpointercapture", () => {
+      clearDragState();
+    });
+  });
+}
+
 function renderCurrentView() {
   const startedAt = getPerfNow();
   if (searchRuntimeState.renderDebounceTimer) {
@@ -4554,6 +6027,10 @@ function renderCurrentView() {
   try {
     if (!canAccessView(currentView)) {
       setCurrentViewState("home");
+    }
+
+    if (currentView !== "home") {
+      pinnedDesktopCategory = "";
     }
 
     if (currentView !== "profile") {
@@ -4578,6 +6055,7 @@ function renderCurrentView() {
     if (mobileCategoryShell) {
       mobileCategoryShell.style.display = isProfile || isUpload || isAdminView || isGuest ? "none" : "";
     }
+    syncMobileCategorySheetOffset();
     searchBox.classList.toggle("mobile-open", searchRuntimeState.isMobileSearchOpen);
     renderImageSearchPreview();
     appContainer.classList.toggle("search-priority-mode", searchPriorityMode);
@@ -4590,8 +6068,9 @@ function renderCurrentView() {
     productsContainer.style.display = isProfile || isAdminView ? "none" : "grid";
     emptyState.style.display = !isProfile && !isAdminView && filteredProducts.length === 0 ? "block" : "none";
     uploadForm.style.display = isUpload || editingProductId ? "block" : "none";
-    analyticsPanel.style.display = isProfile || isAdminView ? "block" : "none";
+    analyticsPanel.style.display = isAdminView || (isProfile && canUseSellerFeatures()) ? "block" : "none";
     adminPanel.style.display = isAdminView ? "block" : "none";
+    syncBodyScrollLockState();
 
     if (profileDiv) {
       profileDiv.style.display = isProfile ? "block" : "none";
@@ -4612,6 +6091,7 @@ function renderCurrentView() {
     updateResultsMeta(filteredProducts.length);
     renderMarketShowcase();
     renderProducts(filteredProducts);
+    enhanceShowcaseTracks(productsContainer);
     renderSearchDropdown(filteredProducts, { isProfile, isUpload, isAdminView });
 
     if (isUpload && !editingProductId) {
@@ -4661,7 +6141,9 @@ function startEditProduct(productId) {
   renderPreviewImages(product.images || [product.image]);
   productImageFileInput.value = "";
 
-  setCurrentViewState("upload");
+  setCurrentViewState("upload", {
+    syncHistory: "push"
+  });
   renderCurrentView();
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
@@ -4809,9 +6291,11 @@ function showWelcomePopup() {
   popup.id = "welcome-popup";
   const popupShell = createElement("div", { className: "welcome-shell" });
   popupShell.append(
+    createElement("p", { className: "welcome-kicker eyebrow", textContent: "Karibu tena" }),
     createElement("p", { className: "welcome-user", textContent: currentUser }),
-    createElement("h2", { textContent: "KARIBU WINGA" }),
-    createElement("p", { className: "welcome-tagline", textContent: "Chap kwa haraka" })
+    createElement("h2", { textContent: "WINGA" }),
+    createElement("p", { className: "welcome-tagline", textContent: "Bidhaa halisi. Maongezi ya haraka. Muonekano wa uhakika." }),
+    createElement("p", { className: "welcome-note", textContent: "Karibu sokoni kwa utulivu na pace ya Kariakoo." })
   );
   popup.appendChild(popupShell);
   document.body.appendChild(popup);
@@ -4820,7 +6304,7 @@ function showWelcomePopup() {
   setTimeout(() => {
     popup.classList.remove("show");
     setTimeout(() => popup.remove(), 500);
-  }, 7000);
+  }, 4200);
 }
 
 function trackView(product) {
@@ -4839,17 +6323,26 @@ function trackView(product) {
 }
 
 function getSlideshowItems() {
+  const trendingSlide = buildTrendingKariakooSlide();
   const ownProducts = products.filter((product) => product.uploadedBy === currentUser && product.image);
 
   if (ownProducts.length > 0) {
-    return ownProducts.map((product) => ({
-      image: product.image,
-      title: product.name,
-      subtitle: product.shop ? `Shop: ${product.shop}` : "Bidhaa yako kwenye WINGA"
-    }));
+    return [
+      ...(trendingSlide ? [trendingSlide] : []),
+      ...ownProducts.slice(0, 4).map((product) => ({
+        image: product.image,
+        kicker: "Store spotlight",
+        title: product.name,
+        subtitle: product.shop ? `Shop: ${product.shop}` : "Bidhaa yako kwenye WINGA",
+        highlights: [
+          getCategoryLabel(product.category),
+          formatProductPrice(product.price)
+        ].filter(Boolean)
+      }))
+    ];
   }
 
-  return DEMO_SLIDES;
+  return trendingSlide ? [trendingSlide, ...DEMO_SLIDES] : DEMO_SLIDES;
 }
 
 function renderProductGallery(product) {
@@ -4966,12 +6459,162 @@ function beginPurchaseFlow(product) {
   });
 }
 
+function canRepostProductAsSeller(product) {
+  return Boolean(
+    product
+    && isAuthenticatedUser()
+    && !isStaffUser()
+    && canUseSellerFeatures()
+    && product.status === "approved"
+    && product.uploadedBy
+    && product.uploadedBy !== currentUser
+  );
+}
+
+function getPreferredSellerShopName() {
+  const ownLatestProduct = products.find((item) => item.uploadedBy === currentUser && typeof item.shop === "string" && item.shop.trim());
+  return String(
+    ownLatestProduct?.shop
+    || currentSession?.shop
+    || getCurrentDisplayName()
+    || currentUser
+    || "My Shop"
+  ).trim();
+}
+
+async function repostProductAsSeller(sourceProduct) {
+  if (!canRepostProductAsSeller(sourceProduct)) {
+    showInAppNotification({
+      title: "Repost unavailable",
+      body: "Bidhaa hii haiwezi kurepostiwa kwa akaunti yako sasa hivi.",
+      variant: "warning"
+    });
+    return;
+  }
+
+  const nextPriceInput = prompt([
+    "Weka bei mpya ya listing hii.",
+    `Bidhaa: ${sourceProduct.name}`,
+    `Bei ya sasa: ${formatProductPrice(sourceProduct.price)}`,
+    "",
+    "Utaongeza listing mpya kwenye page yako."
+  ].join("\n"), hasProductPrice(sourceProduct.price) ? String(sourceProduct.price) : "");
+
+  if (nextPriceInput == null) {
+    return;
+  }
+
+  const normalizedPrice = Number(String(nextPriceInput || "").replace(/,/g, "").trim());
+  if (!Number.isFinite(normalizedPrice) || normalizedPrice < 500 || normalizedPrice > 1000000000) {
+    showInAppNotification({
+      title: "Bei si sahihi",
+      body: "Weka bei sahihi kuanzia TSh 500 au zaidi.",
+      variant: "warning"
+    });
+    return;
+  }
+
+  const sourceImages = Array.isArray(sourceProduct.images) && sourceProduct.images.length > 0
+    ? sourceProduct.images.filter(Boolean)
+    : [sourceProduct.image].filter(Boolean);
+  if (!sourceImages.length) {
+    showInAppNotification({
+      title: "Repost failed",
+      body: "Bidhaa hii haina picha salama za kuunda repost mpya.",
+      variant: "error"
+    });
+    return;
+  }
+
+  const imageSignature = sourceImages[0]
+    ? await createImageSignatureFromSource(sourceImages[0]).catch(() => sourceProduct.imageSignature || "")
+    : (sourceProduct.imageSignature || "");
+
+  const repostPayload = {
+    id: createId(),
+    name: sourceProduct.name,
+    price: normalizedPrice,
+    shop: getPreferredSellerShopName(),
+    whatsapp: getCurrentWhatsappNumber(),
+    image: sourceImages[0] || "",
+    images: sourceImages,
+    imageSignature,
+    uploadedBy: currentUser,
+    category: sourceProduct.category,
+    likes: 0,
+    views: 0,
+    viewedBy: [],
+    originalProductId: sourceProduct.originalProductId || sourceProduct.id,
+    originalSellerId: sourceProduct.originalSellerId || sourceProduct.uploadedBy,
+    resellerId: currentUser,
+    resalePrice: normalizedPrice,
+    resoldStatus: "reposted"
+  };
+
+  try {
+    await window.WingaDataLayer.createProduct(repostPayload);
+    refreshProductsFromStore();
+    const primaryCategory = inferTopCategoryValue(repostPayload.category) || repostPayload.category;
+    await window.WingaDataLayer.updateUserPrimaryCategory(currentUser, primaryCategory);
+    closeProductDetailModal();
+    setCurrentViewState("profile", {
+      syncHistory: "replace",
+      historyState: {
+        pendingProfileSection: ""
+      }
+    });
+    renderCurrentView();
+    reportClientEvent("info", "product_reposted", "Seller reposted another seller product.", {
+      sourceProductId: sourceProduct.id,
+      repostProductId: repostPayload.id,
+      originalSellerId: repostPayload.originalSellerId
+    });
+    showInAppNotification({
+      title: "Product reposted",
+      body: `"${sourceProduct.name}" imeongezwa kwenye listings zako kwa bei mpya.`,
+      variant: "success"
+    });
+  } catch (error) {
+    captureClientError("product_repost_failed", error, {
+      sourceProductId: sourceProduct.id
+    });
+    showInAppNotification({
+      title: "Repost failed",
+      body: error.message || "Imeshindikana kuunda repost ya bidhaa hii.",
+      variant: "error"
+    });
+  }
+}
+
 function getSellerOtherProducts(product, limit = 6) {
   return getSellerOtherProductsFromController(product, limit);
 }
 
-function closeProductDetailModal() {
-  return closeProductDetailModalFromController();
+function closeProductDetailModal(options = {}) {
+  return closeProductDetailModalFromController(options);
+}
+
+function closeAllTransientOverlays(options = {}) {
+  const {
+    closeAuthModalIfGuest = true,
+    skipProductHistoryBack = true,
+    skipProductContextRestore = true
+  } = options;
+
+  if (searchRuntimeState.isMobileCategoryOpen || mobileCategoryShell?.classList.contains("open")) {
+    closeMobileCategoryMenu();
+  }
+  closeMediaActionSheet();
+  closeContextChatModal();
+  closeProductDetailModal({
+    skipHistoryBack: skipProductHistoryBack,
+    skipContextRestore: skipProductContextRestore
+  });
+  if (closeAuthModalIfGuest && !isAuthenticatedUser()) {
+    closeAuthModal();
+  } else {
+    syncBodyScrollLockState();
+  }
 }
 
 function openProductDetailModal(productId, options = {}) {
@@ -5109,6 +6752,7 @@ function bindGalleryThumbs(scope) {
       }
 
       stage.src = thumb.dataset.image;
+      stage.dataset.imageActionSrc = thumb.dataset.image;
       scope.querySelectorAll(`[data-gallery-target="${targetId}"]`).forEach((item) => {
         item.classList.remove("active");
       });
@@ -5206,19 +6850,19 @@ function renderPreviewImages(images) {
 }
 
 function renderPreviewFiles(files) {
-  readFilesAsDataUrls(files).then((images) => {
-    renderPreviewImages(images);
-  });
+  return readFilesAsDataUrls(files)
+    .then((images) => {
+      renderPreviewImages(images);
+    })
+    .catch((error) => {
+      previewList.replaceChildren();
+      previewList.style.display = "none";
+      throw error;
+    });
 }
 
 function readFilesAsDataUrls(files) {
-  return Promise.all(files.map((file) => {
-    return new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onload = (event) => resolve(event.target.result);
-      reader.readAsDataURL(file);
-    });
-  }));
+  return Promise.all(files.map((file) => readFileAsDataUrl(file, { purpose: "product" })));
 }
 
 function startSlideshow() {
@@ -5252,6 +6896,7 @@ slideNextButton.addEventListener("click", () => {
 });
 
 bindMarketplaceCardActions();
+bindImageActionInteractions();
 
 async function bootApp() {
   reportClientEvent("info", "app_boot_started", "Client app boot started.", {
@@ -5264,6 +6909,7 @@ async function bootApp() {
   const shouldRestoreSession = Boolean(cachedSession?.username);
 
   if (shouldRestoreSession) {
+    applySessionState(cachedSession);
     showSessionRestoringState(
       isStaffRole(cachedSession.role)
         ? "Tunathibitisha staff session yako kabla ya kufungua admin surface."

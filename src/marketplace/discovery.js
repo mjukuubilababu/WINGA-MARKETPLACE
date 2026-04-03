@@ -18,6 +18,7 @@
       getRecentCategorySelections,
       getRecentSearchTerms,
       getRecentMessagedProductIds,
+      getBuyerSellerAffinityEntries,
       getCurrentSession,
       normalizeOptionalPrice
     } = deps;
@@ -170,6 +171,7 @@
       const recentCategorySelections = typeof getRecentCategorySelections === "function" ? getRecentCategorySelections() : [];
       const recentSearchTerms = typeof getRecentSearchTerms === "function" ? getRecentSearchTerms() : [];
       const recentMessagedProductIds = typeof getRecentMessagedProductIds === "function" ? getRecentMessagedProductIds() : [];
+      const buyerSellerAffinityEntries = typeof getBuyerSellerAffinityEntries === "function" ? getBuyerSellerAffinityEntries() : [];
       let hasMeaningfulHistory = false;
 
       if (currentUser && buyerCapable) {
@@ -263,6 +265,19 @@
         addScore(productScores, product.id, 48 * freshness);
         addScore(categoryScores, product.category, 20 * freshness);
         addScore(topCategoryScores, inferTopCategoryValue(product.category), 12 * freshness);
+      });
+
+      buyerSellerAffinityEntries.forEach((entry) => {
+        const sellerId = String(entry?.sellerId || "");
+        if (!sellerId) {
+          return;
+        }
+        const affinityScore = Math.max(0, Number(entry?.score || 0));
+        if (!affinityScore) {
+          return;
+        }
+        addScore(sellerScores, sellerId, affinityScore + getRecencyBoost(entry?.updatedAt, 56, 35));
+        hasMeaningfulHistory = true;
       });
 
       recentCategorySelections.forEach((category, index) => {
@@ -369,13 +384,21 @@
           ...context,
           preferredCategories
         }, history);
+        const priorityBoost = sponsoredScore > 0
+          ? 2600 + Math.min(900, sponsoredScore * 0.45)
+          : relationshipScore >= 110
+            ? 420
+            : relationshipScore >= 70
+              ? 180
+              : 0;
         return {
           product,
           sellerId: product?.uploadedBy || "",
           sponsoredScore,
           relationshipScore,
           organicScore,
-          totalScore: sponsoredScore + relationshipScore + organicScore,
+          totalScore: sponsoredScore + relationshipScore + organicScore + priorityBoost,
+          priorityBoost,
           isSponsored: sponsoredScore > 0
         };
       }).sort((first, second) => {
@@ -384,6 +407,9 @@
         }
         if (second.sponsoredScore !== first.sponsoredScore) {
           return second.sponsoredScore - first.sponsoredScore;
+        }
+        if (second.relationshipScore !== first.relationshipScore) {
+          return second.relationshipScore - first.relationshipScore;
         }
         return second.organicScore - first.organicScore;
       });

@@ -9,6 +9,7 @@
   <script defer src="mock-data.js"></script>
   <script defer src="data-service.js"></script>
   <script defer src="app-core.js"></script>
+  <script defer src="winga-modules.js"></script>
   <script defer src="src/core/module-registry.js"></script>
   <script defer src="src/config/categories.js"></script>
   <script defer src="src/config/chat.js"></script>
@@ -70,16 +71,17 @@
       <select id="seller-identity-document-type" style="display:none;">
         <option value="">Chagua identity document</option>
         <option value="NIDA">National ID (NIDA)</option>
-        <option value="VOTER_ID">Voter ID</option>
+        <option value="VOTER_ID">Voters ID</option>
       </select>
       <div id="seller-verification-uploads" style="display:none;">
-        <p class="auth-note">Kwa muuzaji, passport photo na picha ya ID ni lazima kwa review ya verification.</p>
-        <label for="seller-passport-photo" class="upload-btn auth-upload-btn">Upload Passport Photo</label>
-        <input type="file" id="seller-passport-photo" accept="image/jpeg,image/png,image/webp,image/gif" style="display:none;">
-        <div id="seller-passport-photo-name" class="auth-file-name"></div>
-        <label for="seller-identity-document-image" class="upload-btn auth-upload-btn">Upload Identity Document</label>
-        <input type="file" id="seller-identity-document-image" accept="image/jpeg,image/png,image/webp,image/gif" style="display:none;">
+        <p class="auth-note">Chagua ID type, andika ID number, kisha upload picha moja ya ID yako.</p>
+        <input type="text" id="seller-identity-document-number" placeholder="Enter ID number" style="display:none;">
+        <label for="seller-identity-document-image" class="upload-btn auth-upload-btn">Upload ID image</label>
+        <input type="file" id="seller-identity-document-image" accept="image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif" style="display:none;">
         <div id="seller-identity-document-image-name" class="auth-file-name"></div>
+        <div id="seller-identity-document-preview-wrap" class="auth-upload-preview" style="display:none;">
+          <img id="seller-identity-document-preview" alt="Identity document preview">
+        </div>
       </div>
       <div class="password-field">
         <input type="password" id="password" placeholder="Password" required>
@@ -89,21 +91,6 @@
       </div>
       <button class="password-toggle password-toggle-standalone" id="password-toggle" type="button">Show Passwords</button>
     </div>
-    <div class="auth-category-block" id="auth-category-step" style="display:none;">
-      <p class="auth-label">Chagua category ya biashara yako</p>
-      <div id="auth-categories" class="auth-category-grid"></div>
-      <div id="auth-subcategory-block" style="display:none;">
-        <p class="auth-label">Chagua subcategory</p>
-        <div id="auth-subcategories" class="auth-category-grid"></div>
-      </div>
-      <div id="auth-custom-category-wrap" class="custom-category-wrap" style="display:none;">
-        <input type="text" id="auth-custom-category-input" placeholder="Andika category mpya">
-        <button id="auth-custom-category-add" type="button">Ongeza Category</button>
-      </div>
-      <p class="auth-note" id="auth-category-note">Login unaweza kuchagua category unayotaka kuanza nayo. Sign up utachagua category kuu ya biashara yako.</p>
-    </div>
-    <button id="auth-next-button" type="button" style="display:none;">Next</button>
-    <button id="auth-back-button" type="button" style="display:none;">Back</button>
     <button id="auth-button" type="button">Login</button>
     <span class="toggle-link" id="toggle-link">Tengeneza akaunti</span>
   </div>
@@ -138,11 +125,11 @@
         <button class="public-header-btn" id="header-login-button" type="button">Login</button>
         <button class="public-header-btn public-header-btn-primary" id="header-signup-button" type="button">Sign Up</button>
       </div>
-      <div id="header-search-area">
+      <div id="header-search-area" role="search" aria-label="Marketplace search">
         <div id="search-box" class="panel">
           <div id="search-main-row">
-            <input type="text" id="search-input" placeholder="Search bidhaa au duka">
-            <input type="file" id="search-image-file" accept="image/*">
+            <input type="text" id="search-input" placeholder="Search bidhaa au duka" aria-label="Search bidhaa au duka">
+            <input type="file" id="search-image-file" accept="image/*,.heic,.heif">
             <button id="search-image-button" type="button" aria-label="Search kwa picha">&#128247;</button>
             <button id="search-toggle-button" type="button" aria-label="Fungua search">&#128269;</button>
           </div>

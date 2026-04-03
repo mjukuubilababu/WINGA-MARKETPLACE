@@ -47,13 +47,28 @@
     isActive = false,
     isOpen = false,
     isSubcategory = false,
-    parentValue = ""
+    parentValue = "",
+    showChevron = false
   } = {}) {
     const button = createElement("button", {
       className: `cat-btn${isSubcategory ? " subcat-btn" : ""}${isActive ? " active" : ""}${isOpen ? " open" : ""}`,
-      textContent: label,
       attributes: { type: "button" }
     });
+    if (showChevron) {
+      button.append(
+        createElement("span", {
+          className: "cat-btn-label",
+          textContent: label
+        }),
+        createElement("span", {
+          className: "cat-btn-chevron",
+          textContent: "\u203A",
+          attributes: { "aria-hidden": "true" }
+        })
+      );
+    } else {
+      button.textContent = label;
+    }
     if (isSubcategory) {
       button.dataset.subcat = value;
       if (parentValue) {
@@ -61,6 +76,7 @@
       }
     } else {
       button.dataset.cat = value;
+      button.setAttribute("aria-expanded", String(Boolean(isOpen)));
     }
     return button;
   }

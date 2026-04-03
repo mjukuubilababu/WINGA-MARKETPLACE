@@ -115,7 +115,8 @@
       const activeMessages = deps.getActiveConversationMessages();
       const activeChatContext = deps.getActiveChatContext();
       const currentMessageDraft = deps.getCurrentMessageDraft();
-      const activeWhatsApp = deps.getChatWhatsappNumber(activeChatContext);
+      const contactState = deps.getChatContactState(activeChatContext);
+      const activeWhatsApp = contactState.whatsapp;
       const lastActiveLabel = activeMessages[activeMessages.length - 1]?.timestamp
         ? `Last active ${new Date(activeMessages[activeMessages.length - 1].timestamp).toLocaleString("sw-TZ")}`
         : "Ready to continue the conversation";
@@ -149,9 +150,11 @@
                   </div>
                   <div class="messages-thread-actions">
                     <button class="action-btn edit-btn" type="button" data-refresh-messages="true">Refresh</button>
+                    ${contactState.canSharePhone ? `<button class="action-btn action-btn-secondary" type="button" data-share-my-phone="true">Share my phone</button>` : ""}
                     ${activeWhatsApp ? `<a class="button" href="${deps.buildWhatsappHref(activeWhatsApp, activeChatContext.productName)}" target="_blank" rel="noopener noreferrer">Chat on WhatsApp</a>` : ""}
                   </div>
                 </div>
+                ${contactState.note ? `<p class="thread-contact-note">${deps.escapeHtml(contactState.note)}</p>` : ""}
                 <div class="messages-thread-body">
                   ${renderConversationMessagesMarkup(activeMessages)}
                 </div>
@@ -224,7 +227,8 @@
       const product = deps.getActiveChatProduct();
       const seller = product ? deps.getMarketplaceUser(product.uploadedBy) : null;
       const activeMessages = deps.getActiveConversationMessages();
-      const activeWhatsApp = deps.getChatWhatsappNumber(activeChatContext);
+      const contactState = deps.getChatContactState(activeChatContext);
+      const activeWhatsApp = contactState.whatsapp;
       const productName = activeChatContext?.productName || product?.name || "General inquiry";
       const sellerName = seller?.fullName || product?.shop || activeChatContext?.withUser || "Muuzaji";
       const productImage = deps.sanitizeImageSource(product?.image || "", deps.getImageFallbackDataUri("W"));
@@ -266,8 +270,10 @@
             ${renderConversationMessagesMarkup(activeMessages, { enableActions: true })}
           </div>
           <div class="context-chat-actions">
+            ${contactState.canSharePhone ? `<button class="action-btn action-btn-secondary" type="button" data-share-my-phone="true">Share my phone</button>` : ""}
             ${activeWhatsApp ? `<a class="button whatsapp-chat-btn" href="${deps.buildWhatsappHref(activeWhatsApp, productName)}" target="_blank" rel="noopener noreferrer">WhatsApp</a>` : ""}
           </div>
+          ${contactState.note ? `<p class="thread-contact-note context-chat-note">${deps.escapeHtml(contactState.note)}</p>` : ""}
           ${selectedProducts.length ? `
             <div class="context-chat-selection-bar">
               <strong>${selectedProducts.length} item${selectedProducts.length > 1 ? "s" : ""} selected</strong>

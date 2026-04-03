@@ -49,7 +49,7 @@
         }
         if (action === "admin" && deps.isStaffUser()) {
           deps.toggleHeaderUserMenu(false);
-          deps.setCurrentViewState("admin");
+          deps.setCurrentViewState("admin", { syncHistory: "push" });
           deps.renderCurrentView();
           return;
         }
@@ -100,7 +100,7 @@
       Array.from(deps.getPublicLinkButtons?.() || []).forEach((link) => {
         link.addEventListener("click", (event) => {
           event.preventDefault();
-          deps.setCurrentViewState("home");
+          deps.setCurrentViewState("home", { syncHistory: "push" });
           deps.renderCurrentView();
           window.scrollTo({ top: 0, behavior: "smooth" });
         });
@@ -113,12 +113,12 @@
           const targetView = item.dataset.view;
           if (!deps.canAccessView(targetView)) {
             alert(deps.getAccessDeniedMessage(targetView));
-            deps.setCurrentViewState("home");
+            deps.setCurrentViewState("home", { syncHistory: "push" });
             deps.renderCurrentView();
             return;
           }
 
-          deps.setCurrentViewState(targetView);
+          deps.setCurrentViewState(targetView, { syncHistory: "push" });
           deps.closeMobileSearch();
           deps.renderCurrentView();
         });

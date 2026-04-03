@@ -7,18 +7,105 @@
     root.WingaCore = api;
   }
 })(typeof globalThis !== "undefined" ? globalThis : this, function () {
-  const TOP_CATEGORY_VALUES = ["wanawake", "wanaume", "watoto", "viatu", "accessories"];
+  const TOP_CATEGORY_VALUES = ["wanawake", "wanaume", "sherehe", "casual", "watoto", "viatu", "vyombo", "electronics", "vitu-used", "accessories"];
+  const CATEGORY_INTENT_GROUPS = [
+    {
+      terms: ["suruali", "trouser", "trousers", "pant", "pants"],
+      categories: ["wanawake-suruali", "wanaume-suruali-kitambaa", "wanaume-jeans", "wanaume-suruali"]
+    },
+    {
+      terms: ["blouse", "blauzi"],
+      categories: ["wanawake-blouse", "wanawake-blauzi"]
+    },
+    {
+      terms: ["koti", "jacket", "coat"],
+      categories: ["wanaume-koti", "wanaume-jacket"]
+    },
+    {
+      terms: ["simu", "phone", "smartphone"],
+      categories: ["electronics-simu"]
+    },
+    {
+      terms: ["tv", "television"],
+      categories: ["electronics-tv"]
+    },
+    {
+      terms: ["desktop", "computer", "pc"],
+      categories: ["electronics-desktop"]
+    },
+    {
+      terms: ["laptop", "computer"],
+      categories: ["electronics-laptop"]
+    },
+    {
+      terms: ["vitenge", "kitenge"],
+      categories: ["wanawake-vitenge"]
+    },
+    {
+      terms: ["sherehe", "party", "occasion", "event"],
+      categories: ["sherehe-mavazi", "sherehe-viatu", "sherehe-accessories"]
+    },
+    {
+      terms: ["casual", "everyday", "daily", "weekend"],
+      categories: ["casual-mavazi", "casual-viatu", "casual-kila-siku"]
+    }
+  ];
 
   function normalizeSearchValue(value) {
     return String(value || "")
       .toLowerCase()
       .normalize("NFD")
       .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]+/g, " ")
+      .replace(/\s+/g, " ")
       .trim();
   }
 
+  function buildNormalizedTokenSet(...values) {
+    const tokenSet = new Set();
+    values.flat().forEach((entry) => {
+      const normalized = normalizeSearchValue(entry).replace(/[^a-z0-9]+/g, " ").trim();
+      if (!normalized) {
+        return;
+      }
+      tokenSet.add(normalized);
+      normalized.split(/\s+/).filter(Boolean).forEach((token) => tokenSet.add(token));
+    });
+    return tokenSet;
+  }
+
+  function getCategorySearchTerms(category) {
+    const safeCategory = normalizeSearchValue(category).replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+    if (!safeCategory) {
+      return [];
+    }
+
+    const phrase = safeCategory.replace(/-/g, " ").trim();
+    const parts = phrase.split(/\s+/).filter(Boolean);
+    const tokenSet = buildNormalizedTokenSet(phrase, parts);
+
+    if (parts.length > 1 && TOP_CATEGORY_VALUES.includes(parts[0])) {
+      tokenSet.add(parts.slice(1).join(" "));
+    }
+
+    CATEGORY_INTENT_GROUPS.forEach((group) => {
+      if (group.categories.includes(safeCategory)) {
+        group.terms.forEach((term) => {
+          buildNormalizedTokenSet(term).forEach((token) => tokenSet.add(token));
+        });
+      }
+    });
+
+    return Array.from(tokenSet);
+  }
+
   function createProductSearchText(product) {
-    return normalizeSearchValue(`${product?.name || ""} ${product?.shop || ""}`);
+    const tokenSet = buildNormalizedTokenSet(
+      product?.name || "",
+      product?.shop || "",
+      getCategorySearchTerms(product?.category || "")
+    );
+    return Array.from(tokenSet).join(" ");
   }
 
   function inferTopCategoryValue(category) {

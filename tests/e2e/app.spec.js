@@ -58,6 +58,93 @@ test("app load renders marketplace feed, hero, images, and category navigation",
   await expect(page.locator("[data-recommendation-type]").first()).toBeVisible();
 });
 
+test("mobile category trigger opens sheet, drills into subcategories, and closes cleanly", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234", {
+    viewport: { width: 390, height: 844 },
+    isMobile: true
+  });
+
+  await page.goto("/");
+  const trigger = page.locator("#mobile-category-button");
+  await expect(trigger).toBeVisible();
+  await trigger.click();
+
+  const menu = page.locator("#mobile-category-menu");
+  await expect(menu).toBeVisible();
+  await expect(menu.locator(".mobile-category-sheet")).toBeVisible();
+  const menuBox = await menu.boundingBox();
+  expect(menuBox).not.toBeNull();
+  expect(Math.round(menuBox.width)).toBeGreaterThanOrEqual(388);
+  expect(Math.round(menuBox.height)).toBeGreaterThan(640);
+  await expect(menu.locator(".mobile-main-category-row .mobile-category-row-chevron").first()).toBeVisible();
+
+  const firstDrillCategory = menu.locator(".mobile-main-category-row").nth(1);
+  await firstDrillCategory.click();
+  await expect(menu.locator("[data-mobile-category-depth='subcategories']")).toBeVisible();
+  await expect(menu.locator(".mobile-subcategory-list .mobile-subcategory-row").first()).toBeVisible();
+  await expect(menu.locator(".mobile-subcategory-list .mobile-category-row-chevron")).toHaveCount(0);
+  const subScreenBox = await menu.locator(".mobile-category-screen-sub").boundingBox();
+  expect(subScreenBox).not.toBeNull();
+  expect(Math.round(subScreenBox.width)).toBeGreaterThanOrEqual(388);
+
+  await menu.locator("[data-mobile-category-back='true']").dispatchEvent("click");
+  await expect(menu.locator("[data-mobile-category-depth='categories']")).toBeVisible();
+
+  await page.mouse.click(12, 12);
+  await expect(menu).not.toBeVisible();
+
+  await context.close();
+});
+
+test("seller signup completes immediately after account creation without hanging in the auth UI", async ({ page }) => {
+  await applyApiConfigOverride(page);
+  await page.goto("/");
+
+  const uniqueSuffix = `${Date.now()}`.slice(-8);
+  const username = `seller_${uniqueSuffix}`;
+  const phoneNumber = `2557${uniqueSuffix}`;
+  const idNumber = `1990${uniqueSuffix}55`;
+  let signupRequests = 0;
+
+  page.on("request", (request) => {
+    if (request.url().includes("/auth/signup") && request.method() === "POST") {
+      signupRequests += 1;
+    }
+  });
+
+  await page.locator("#header-signup-button").click();
+  await expect(page.locator("#auth-container")).toBeVisible();
+  await expect(page.locator("#auth-role-selector")).toBeVisible();
+  await page.locator("#auth-role-seller").click();
+  await expect(page.locator("#seller-identity-document-type")).toBeVisible();
+
+  await page.locator("#username").fill(username);
+  await page.locator("#phone-number").fill(phoneNumber);
+  await page.locator("#seller-identity-document-type").selectOption("NIDA");
+  await page.locator("#seller-identity-document-number").fill(idNumber);
+  await page.locator("#seller-identity-document-image").setInputFiles({
+    name: "seller-id.png",
+    mimeType: "image/png",
+    buffer: tinyPngBuffer
+  });
+  await page.locator("#password").fill("Pass1234");
+  await page.locator("#confirm-password").fill("Pass1234");
+
+  const signupResponsePromise = page.waitForResponse((response) =>
+    response.url().includes("/auth/signup") && response.request().method() === "POST"
+  );
+
+  await page.locator("#auth-button").click();
+  const signupResponse = await signupResponsePromise;
+  expect(signupResponse.ok()).toBeTruthy();
+
+  await expect(page.locator("#auth-container")).toBeHidden({ timeout: 15000 });
+  await expect(page.locator("#header-user-trigger")).toBeVisible({ timeout: 15000 });
+  await expect(page.locator("#search-box")).toBeVisible();
+  await expect(page.locator("#auth-button")).not.toContainText("Inatengeneza akaunti...");
+  expect(signupRequests).toBe(1);
+});
+
 test("logged in seller-buyer can open detail, add to requests, and open chat", async ({ browser }) => {
   const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234");
   await page.goto("/");
@@ -279,6 +366,34 @@ test("session restore keeps seller-as-buyer browsing and product-detail continua
   await expect(page.locator("#product-detail-title")).not.toHaveText(originalTitle || "");
   await page.locator("#product-detail-modal .product-detail-back").click();
   await expect(page.locator("#product-detail-title")).toHaveText(originalTitle || "");
+
+  await context.close();
+});
+
+test("refresh while authenticated keeps in-app header and does not show public auth buttons", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234");
+  await page.goto("/");
+
+  await page.reload();
+  await expect(page.locator("#header-user-trigger")).toBeVisible();
+  await expect(page.locator("#header-login-button")).toBeHidden();
+  await expect(page.locator("#header-signup-button")).toBeHidden();
+  await expect(page.locator("#search-box")).toBeVisible();
+
+  await context.close();
+});
+
+test("browser back from the first product detail returns to the in-app feed without leaving the app shell", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234");
+  await page.goto("/");
+
+  await page.locator("#products-container .product-card").first().click();
+  await expect(page.locator("#product-detail-modal")).toBeVisible();
+
+  await page.goBack();
+  await expect(page.locator("#product-detail-modal")).not.toBeVisible();
+  await expect(page.locator("#header-user-trigger")).toBeVisible();
+  await expect(page.locator("#products-container .product-card").first()).toBeVisible();
 
   await context.close();
 });

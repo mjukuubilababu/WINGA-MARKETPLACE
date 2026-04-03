@@ -7,6 +7,14 @@
       createStatusPill
     } = deps;
 
+    function schedulePassiveTask(callback) {
+      if (typeof window !== "undefined" && typeof window.requestIdleCallback === "function") {
+        window.requestIdleCallback(() => callback(), { timeout: 1200 });
+        return;
+      }
+      window.setTimeout(callback, 180);
+    }
+
     function createProductGalleryElement(product) {
       const images = Array.isArray(product.images) && product.images.length > 0 ? product.images : [product.image];
       const safeImages = images.filter(Boolean);
@@ -18,7 +26,10 @@
         className: "gallery-stage",
         fallbackSrc: deps.getImageFallbackDataUri("WINGA"),
         attributes: {
-          "data-gallery-stage": product.id
+          "data-gallery-stage": product.id,
+          "data-image-action-product": product.id,
+          "data-image-action-src": firstImage,
+          "data-image-action-surface": "feed"
         }
       }));
 
@@ -99,11 +110,17 @@
         className: "product-card showcase-card",
         attributes: { "data-showcase-id": product.id }
       });
+      card.dataset.showcaseId = product.id;
       const media = createElement("div", { className: "showcase-media" });
       media.appendChild(createResponsiveImage({
         src: product.image || "",
         alt: product.name || "",
-        fallbackSrc: deps.getImageFallbackDataUri("WINGA")
+        fallbackSrc: deps.getImageFallbackDataUri("WINGA"),
+        attributes: {
+          "data-image-action-product": product.id,
+          "data-image-action-src": product.image || "",
+          "data-image-action-surface": "showcase"
+        }
       }));
       const body = createElement("div", { className: "product-content product-content-simple showcase-body" });
       const head = createElement("div", { className: "product-card-head" });
@@ -135,6 +152,14 @@
         )
       );
       card.append(media, body);
+      card.addEventListener("click", (event) => {
+        if (event.target.closest(".product-actions")) {
+          return;
+        }
+        deps.noteProductInterest(product.id);
+        deps.openProductDetailModal(product.id);
+      });
+      card.dataset.showcaseClickBound = "true";
       return card;
     }
 
@@ -256,13 +281,15 @@
       }
 
       if (viewedProductIds.length > 0) {
-        Promise.all(viewedProductIds.map((productId) => deps.trackProductView(productId)))
-          .then(() => {
-            deps.refreshProductsFromStore();
-          })
-          .catch(() => {
-            // Ignore passive tracking failures.
-          });
+        schedulePassiveTask(() => {
+          Promise.all(viewedProductIds.map((productId) => deps.trackProductView(productId)))
+            .then(() => {
+              deps.refreshProductsFromStore();
+            })
+            .catch(() => {
+              // Ignore passive tracking failures.
+            });
+        });
       }
     }
 

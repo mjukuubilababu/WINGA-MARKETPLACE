@@ -28,11 +28,25 @@
         });
         const shell = createElement("div", { className: "slide-shell" });
         const copy = createElement("div", { className: "slide-copy" });
+        const highlightStack = Array.isArray(item.highlights) && item.highlights.length
+          ? createElement("div", { className: "slide-highlights" })
+          : null;
+        if (highlightStack) {
+          item.highlights.slice(0, 4).forEach((highlight) => {
+            highlightStack.appendChild(createElement("span", {
+              className: "slide-highlight-chip",
+              textContent: highlight
+            }));
+          });
+        }
         copy.append(
-          createElement("p", { className: "slide-kicker eyebrow", textContent: "Marketplace highlight" }),
+          createElement("p", { className: "slide-kicker eyebrow", textContent: item.kicker || "Marketplace highlight" }),
           createElement("h2", { textContent: item.title || "" }),
           createElement("p", { textContent: item.subtitle || "" })
         );
+        if (highlightStack) {
+          copy.appendChild(highlightStack);
+        }
 
         const media = createElement("div", { className: "slide-media" });
         if (item.image) {

@@ -53,8 +53,8 @@ function createPostgresStore({ databaseUrl, ssl = false }) {
         moderation_note TEXT NOT NULL DEFAULT '',
         verified_seller BOOLEAN NOT NULL DEFAULT FALSE,
         profile_image TEXT NOT NULL DEFAULT '',
-        passport_photo TEXT NOT NULL DEFAULT '',
         identity_document_type TEXT NOT NULL DEFAULT '',
+        identity_document_number TEXT NOT NULL DEFAULT '',
         identity_document_image TEXT NOT NULL DEFAULT '',
         verification_status TEXT NOT NULL DEFAULT '',
         verification_submitted_at TIMESTAMPTZ NULL,
@@ -81,6 +81,11 @@ function createPostgresStore({ databaseUrl, ssl = false }) {
         moderation_note TEXT NOT NULL DEFAULT '',
         moderated_at TIMESTAMPTZ NULL,
         moderated_by TEXT NOT NULL DEFAULT '',
+        original_product_id TEXT NOT NULL DEFAULT '',
+        original_seller_id TEXT NOT NULL DEFAULT '',
+        reseller_id TEXT NOT NULL DEFAULT '',
+        resale_price NUMERIC(14, 2),
+        resold_status TEXT NOT NULL DEFAULT 'original',
         created_at TIMESTAMPTZ NOT NULL,
         updated_at TIMESTAMPTZ NOT NULL,
         likes INTEGER NOT NULL DEFAULT 0,
@@ -106,6 +111,26 @@ function createPostgresStore({ databaseUrl, ssl = false }) {
     await query(`
       ALTER TABLE products
       ALTER COLUMN price DROP NOT NULL;
+    `);
+    await query(`
+      ALTER TABLE products
+      ADD COLUMN IF NOT EXISTS original_product_id TEXT NOT NULL DEFAULT '';
+    `);
+    await query(`
+      ALTER TABLE products
+      ADD COLUMN IF NOT EXISTS original_seller_id TEXT NOT NULL DEFAULT '';
+    `);
+    await query(`
+      ALTER TABLE products
+      ADD COLUMN IF NOT EXISTS reseller_id TEXT NOT NULL DEFAULT '';
+    `);
+    await query(`
+      ALTER TABLE products
+      ADD COLUMN IF NOT EXISTS resale_price NUMERIC(14, 2);
+    `);
+    await query(`
+      ALTER TABLE products
+      ADD COLUMN IF NOT EXISTS resold_status TEXT NOT NULL DEFAULT 'original';
     `);
 
     await query(`
@@ -327,11 +352,11 @@ function createPostgresStore({ databaseUrl, ssl = false }) {
     `);
     await query(`
       ALTER TABLE users
-      ADD COLUMN IF NOT EXISTS passport_photo TEXT NOT NULL DEFAULT '';
+      ADD COLUMN IF NOT EXISTS identity_document_type TEXT NOT NULL DEFAULT '';
     `);
     await query(`
       ALTER TABLE users
-      ADD COLUMN IF NOT EXISTS identity_document_type TEXT NOT NULL DEFAULT '';
+      ADD COLUMN IF NOT EXISTS identity_document_number TEXT NOT NULL DEFAULT '';
     `);
     await query(`
       ALTER TABLE users
@@ -449,8 +474,8 @@ function createPostgresStore({ databaseUrl, ssl = false }) {
         await client.query(
           `INSERT INTO users (
             username, full_name, password, phone_number, national_id, primary_category, role, status,
-            moderation_reason, moderation_note, verified_seller, profile_image, passport_photo, identity_document_type,
-            identity_document_image, verification_status, verification_submitted_at, moderated_at, moderated_by, updated_at, created_at
+            moderation_reason, moderation_note, verified_seller, profile_image, identity_document_type,
+            identity_document_number, identity_document_image, verification_status, verification_submitted_at, moderated_at, moderated_by, updated_at, created_at
           ) VALUES ($1, $2, $3, $4, $5, $6, $7,
             $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)`,
           [
@@ -466,8 +491,8 @@ function createPostgresStore({ databaseUrl, ssl = false }) {
             user.moderationNote || "",
             Boolean(user.verifiedSeller),
             user.profileImage || "",
-            user.passportPhoto || "",
             user.identityDocumentType || "",
+            user.identityDocumentNumber || user.nationalId || "",
             user.identityDocumentImage || "",
             user.verificationStatus || "",
             user.verificationSubmittedAt || null,
@@ -483,12 +508,14 @@ function createPostgresStore({ databaseUrl, ssl = false }) {
         await client.query(
           `INSERT INTO products (
             id, name, price, shop, whatsapp, image, images, uploaded_by, category,
-            status, availability, moderation_note, moderated_at, moderated_by, created_at, updated_at,
+            status, availability, moderation_note, moderated_at, moderated_by, original_product_id, original_seller_id,
+            reseller_id, resale_price, resold_status, created_at, updated_at,
             likes, views, viewed_by
           ) VALUES (
             $1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9,
             $10, $11, $12, $13, $14, $15, $16,
-            $17, $18, $19::jsonb
+            $17, $18, $19, $20, $21,
+            $22, $23, $24::jsonb
           )`,
           [
             product.id,
@@ -505,6 +532,11 @@ function createPostgresStore({ databaseUrl, ssl = false }) {
             product.moderationNote || "",
             product.moderatedAt || null,
             product.moderatedBy || "",
+            product.originalProductId || "",
+            product.originalSellerId || "",
+            product.resellerId || "",
+            product.resalePrice ?? null,
+            product.resoldStatus || "original",
             product.createdAt || new Date().toISOString(),
             product.updatedAt || new Date().toISOString(),
             Number(product.likes || 0),
@@ -772,8 +804,8 @@ function createPostgresStore({ databaseUrl, ssl = false }) {
           moderation_note AS "moderationNote",
           verified_seller AS "verifiedSeller",
           profile_image AS "profileImage",
-          passport_photo AS "passportPhoto",
           identity_document_type AS "identityDocumentType",
+          identity_document_number AS "identityDocumentNumber",
           identity_document_image AS "identityDocumentImage",
           verification_status AS "verificationStatus",
           verification_submitted_at AS "verificationSubmittedAt",
@@ -800,6 +832,11 @@ function createPostgresStore({ databaseUrl, ssl = false }) {
           moderation_note AS "moderationNote",
           moderated_at AS "moderatedAt",
           moderated_by AS "moderatedBy",
+          original_product_id AS "originalProductId",
+          original_seller_id AS "originalSellerId",
+          reseller_id AS "resellerId",
+          resale_price::float8 AS "resalePrice",
+          resold_status AS "resoldStatus",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
           likes,

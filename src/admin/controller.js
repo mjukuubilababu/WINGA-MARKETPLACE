@@ -97,7 +97,6 @@
     function createVerificationPreview(user) {
       const preview = deps.createElement("div", { className: "admin-verification-preview" });
       const images = [
-        { src: user.passportPhoto, alt: `${user.username} passport photo` },
         { src: user.identityDocumentImage, alt: `${user.username} identity document` }
       ].filter((item) => item.src);
       if (!images.length) {

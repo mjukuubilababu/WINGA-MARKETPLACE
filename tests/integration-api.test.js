@@ -82,17 +82,69 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
       phoneNumber: "255700111111",
       nationalId: "SELLER001",
       role: "seller",
-      primaryCategory: "viatu",
-      passportPhoto: tinyImage,
-      identityDocumentType: "NIDA",
-      identityDocumentImage: tinyImage
+      primaryCategory: "totally-invalid category value",
+      category: "bad-category",
+      subcategory: "bad-subcategory",
+      categoryId: "bad-category-id",
+      subcategoryId: "bad-subcategory-id",
+      id_type: "NIDA",
+      id_number: "SELLER001",
+      id_image: tinyImage
     })
   });
   assert.equal(sellerSignup.response.status, 200);
   assert.equal(sellerSignup.body.username, "seller_one");
   assert.equal(sellerSignup.body.verificationStatus, "pending");
   assert.equal(sellerSignup.body.phoneNumber, "255700111111");
+  assert.equal(sellerSignup.body.primaryCategory, "");
   const sellerToken = sellerSignup.body.token;
+
+  const legacyPrimaryCategoryUpdate = await request("/users/primary-category", {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${sellerToken}`
+    },
+    body: JSON.stringify({
+      username: "seller_one",
+      primaryCategory: "Totally Invalid Category Label !!!"
+    })
+  });
+  assert.equal(legacyPrimaryCategoryUpdate.response.status, 200);
+
+  const duplicateIdentitySignup = await request("/auth/signup", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      username: "seller_duplicate_identity",
+      password: "Pass1234",
+      phoneNumber: "255700111119",
+      nationalId: "SELLER001",
+      role: "seller",
+      id_type: "NIDA",
+      id_number: "SELLER001",
+      id_image: tinyImage
+    })
+  });
+  assert.equal(duplicateIdentitySignup.response.status, 409);
+  assert.equal(duplicateIdentitySignup.body.error, "This identity number is already registered. Please contact the moderator.");
+
+  const mismatchIdentitySignup = await request("/auth/signup", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      username: "seller_mismatch_identity",
+      password: "Pass1234",
+      phoneNumber: "255700111118",
+      nationalId: "SELLER009",
+      role: "seller",
+      id_type: "NIDA",
+      id_number: "SELLER010",
+      id_image: tinyImage
+    })
+  });
+  assert.equal(mismatchIdentitySignup.response.status, 400);
+  assert.equal(mismatchIdentitySignup.body.error, "The card number and the number you entered do not match. Please enter the same number shown on the card.");
 
   const buyerSignup = await request("/auth/signup", {
     method: "POST",
@@ -110,6 +162,23 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   assert.equal(buyerSignup.body.phoneNumber, "255700222222");
   const buyerToken = buyerSignup.body.token;
   const buyerUsername = buyerSignup.body.username;
+
+  const sellerTwoSignup = await request("/auth/signup", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      username: "seller_two",
+      password: "Pass1234",
+      phoneNumber: "255700111112",
+      nationalId: "SELLER002",
+      role: "seller",
+      id_type: "VOTER_ID",
+      id_number: "SELLER002",
+      id_image: tinyImage
+    })
+  });
+  assert.equal(sellerTwoSignup.response.status, 200);
+  const sellerTwoToken = sellerTwoSignup.body.token;
 
   const productCreate = await request("/products", {
     method: "POST",
@@ -260,6 +329,41 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   assert.equal(productAfterWhatsappVerify.response.status, 200);
   assert.equal(productAfterWhatsappVerify.body.whatsapp, "255700333333");
 
+  const usedSubcategoryCreate = await request("/categories", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${sellerToken}`
+    },
+    body: JSON.stringify({
+      value: "vitu-used-simu",
+      label: "Simu"
+    })
+  });
+  assert.equal(usedSubcategoryCreate.response.status, 200);
+  assert.equal(usedSubcategoryCreate.body.value, "vitu-used-simu");
+
+  const usedCategoryProduct = await request("/products", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${sellerToken}`
+    },
+    body: JSON.stringify({
+      id: "product-test-used-001",
+      name: "Simu Used Safe",
+      price: 175000,
+      shop: "Seller One Shop",
+      uploadedBy: "seller_one",
+      category: "vitu-used-simu",
+      images: [tinyImage],
+      image: tinyImage,
+      imageSignature: "0101010101010101010101010101010101010101010101010101010101010101"
+    })
+  });
+  assert.equal(usedCategoryProduct.response.status, 200);
+  assert.equal(usedCategoryProduct.body.category, "vitu-used-simu");
+
   const productUpdateAfterWhatsappVerify = await request("/products/product-test-004", {
     method: "PATCH",
     headers: {
@@ -392,6 +496,67 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   assert.equal(moderate.response.status, 200);
   assert.equal(moderate.body.status, "approved");
 
+  const repostProduct = await request("/products", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${sellerTwoToken}`
+    },
+    body: JSON.stringify({
+      id: "product-test-001-repost",
+      name: "Kiatu Safe",
+      price: 31000,
+      shop: "Seller Two Shop",
+      uploadedBy: "seller_two",
+      category: "viatu",
+      images: [tinyImage],
+      image: tinyImage,
+      imageSignature: "0101010101010101010101010101010101010101010101010101010101010101",
+      originalProductId: "product-test-001",
+      originalSellerId: "seller_one",
+      resellerId: "seller_two",
+      resalePrice: 31000,
+      resoldStatus: "reposted"
+    })
+  });
+  assert.equal(repostProduct.response.status, 200);
+  assert.equal(repostProduct.body.originalProductId, "product-test-001");
+  assert.equal(repostProduct.body.originalSellerId, "seller_one");
+  assert.equal(repostProduct.body.resellerId, "seller_two");
+  assert.equal(repostProduct.body.resalePrice, 31000);
+  assert.equal(repostProduct.body.resoldStatus, "reposted");
+
+  const moderateRepost = await request("/admin/products/product-test-001-repost/moderate", {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminToken}`
+    },
+    body: JSON.stringify({
+      status: "approved",
+      moderationNote: "repost ready"
+    })
+  });
+  assert.equal(moderateRepost.response.status, 200);
+  assert.equal(moderateRepost.body.status, "approved");
+
+  const buyerVisibleProducts = await request("/products", {
+    headers: { Authorization: `Bearer ${buyerToken}` }
+  });
+  assert.equal(buyerVisibleProducts.response.status, 200);
+  assert.equal(
+    buyerVisibleProducts.body.some((item) =>
+      item.id === "product-test-001-repost"
+      && item.uploadedBy === "seller_two"
+      && item.originalProductId === ""
+      && item.originalSellerId === ""
+      && item.resellerId === ""
+      && item.resalePrice === null
+      && item.resoldStatus === "original"
+    ),
+    true
+  );
+
   const moderateNegotiableProduct = await request("/admin/products/product-test-optional-price/moderate", {
     method: "PATCH",
     headers: {
@@ -461,6 +626,7 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   });
   assert.equal(sessionCheck.response.status, 200);
   assert.equal(sessionCheck.body.username, buyerUsername);
+  assert.equal(sessionCheck.body.whatsappNumber, "255700222222");
 
   const sellerProfilePhoto = await request("/users/me/profile", {
     method: "PATCH",
@@ -485,6 +651,26 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   assert.equal(orderCreate.body.status, "placed");
   assert.equal(orderCreate.body.paymentStatus, "pending");
   const orderId = orderCreate.body.id;
+  const sellerVisibleUsersBeforeShare = await request("/users", {
+    headers: { Authorization: `Bearer ${sellerToken}` }
+  });
+  assert.equal(sellerVisibleUsersBeforeShare.response.status, 200);
+  const buyerRecordBeforeShare = sellerVisibleUsersBeforeShare.body.find((item) => item.username === buyerUsername);
+  assert.equal(Boolean(buyerRecordBeforeShare), true);
+  assert.equal(buyerRecordBeforeShare.phoneVisibility, "private");
+  assert.equal(buyerRecordBeforeShare.whatsappNumber, "");
+  const sellerNotificationsAfterOrder = await request("/notifications", {
+    headers: { Authorization: `Bearer ${sellerToken}` }
+  });
+  assert.equal(sellerNotificationsAfterOrder.response.status, 200);
+  assert.equal(
+    sellerNotificationsAfterOrder.body.some((notification) =>
+      notification.type === "order"
+      && notification.title.includes("ameweka order")
+      && notification.body.includes("Kiatu Safe")
+    ),
+    true
+  );
 
   const negotiableOrderAttempt = await request("/orders", {
     method: "POST",
@@ -529,6 +715,14 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   });
   assert.equal(paymentWebhook.response.status, 202);
   assert.equal(paymentWebhook.body.paymentStatus, "paid");
+  const sellerOrdersBeforePhoneShare = await request("/orders/mine", {
+    headers: { Authorization: `Bearer ${sellerToken}` }
+  });
+  assert.equal(sellerOrdersBeforePhoneShare.response.status, 200);
+  assert.equal(
+    sellerOrdersBeforePhoneShare.body.sales.find((item) => item.id === orderId)?.payerDetails?.phoneNumber || "",
+    ""
+  );
 
   const adminPayments = await request("/admin/payments", {
     headers: { Authorization: `Bearer ${adminToken}` }
@@ -546,6 +740,49 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   });
   assert.equal(sellerConfirm.response.status, 200);
   assert.equal(sellerConfirm.body.status, "confirmed");
+  const buyerSharePhone = await request("/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${buyerToken}`
+    },
+    body: JSON.stringify({
+      receiverId: "seller_one",
+      productId: "product-test-001",
+      productName: "Kiatu Safe",
+      messageType: "contact_share"
+    })
+  });
+  assert.equal(buyerSharePhone.response.status, 200);
+  assert.equal(buyerSharePhone.body.messageType, "contact_share");
+  const sellerVisibleUsersAfterShare = await request("/users", {
+    headers: { Authorization: `Bearer ${sellerToken}` }
+  });
+  assert.equal(sellerVisibleUsersAfterShare.response.status, 200);
+  const buyerRecordAfterShare = sellerVisibleUsersAfterShare.body.find((item) => item.username === buyerUsername);
+  assert.equal(Boolean(buyerRecordAfterShare), true);
+  assert.equal(buyerRecordAfterShare.phoneVisibility, "shared");
+  assert.equal(buyerRecordAfterShare.whatsappNumber, "255700222222");
+  const sellerOrdersAfterPhoneShare = await request("/orders/mine", {
+    headers: { Authorization: `Bearer ${sellerToken}` }
+  });
+  assert.equal(sellerOrdersAfterPhoneShare.response.status, 200);
+  assert.equal(
+    sellerOrdersAfterPhoneShare.body.sales.find((item) => item.id === orderId)?.payerDetails?.phoneNumber || "",
+    "255700222222"
+  );
+  const buyerNotificationsAfterConfirm = await request("/notifications", {
+    headers: { Authorization: `Bearer ${buyerToken}` }
+  });
+  assert.equal(buyerNotificationsAfterConfirm.response.status, 200);
+  assert.equal(
+    buyerNotificationsAfterConfirm.body.some((notification) =>
+      notification.type === "order"
+      && notification.title.includes("Kiatu Safe")
+      && notification.title.includes("amethibitisha")
+    ),
+    true
+  );
 
   const buyerReceive = await request(`/orders/${orderId}/status`, {
     method: "PATCH",
@@ -557,6 +794,18 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   });
   assert.equal(buyerReceive.response.status, 200);
   assert.equal(buyerReceive.body.status, "delivered");
+  const sellerNotificationsAfterDelivered = await request("/notifications", {
+    headers: { Authorization: `Bearer ${sellerToken}` }
+  });
+  assert.equal(sellerNotificationsAfterDelivered.response.status, 200);
+  assert.equal(
+    sellerNotificationsAfterDelivered.body.some((notification) =>
+      notification.type === "order"
+      && notification.title.includes("Kiatu Safe")
+      && notification.title.includes("imekamilika")
+    ),
+    true
+  );
 
   const createReview = await request("/reviews", {
     method: "POST",
@@ -603,7 +852,7 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
     headers: { Authorization: `Bearer ${adminToken}` }
   });
   assert.equal(adminUsers.response.status, 200);
-  assert.equal(adminUsers.body.some((user) => user.username === "seller_one" && user.phoneNumber === "255700111111" && user.verificationStatus === "pending" && user.hasPassportPhoto === true), true);
+  assert.equal(adminUsers.body.some((user) => user.username === "seller_one" && user.phoneNumber === "255700111111" && user.verificationStatus === "pending" && user.hasIdentityDocumentImage === true), true);
 
   const reportCreate = await request("/reports", {
     method: "POST",
@@ -740,4 +989,64 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   }
   assert.ok(lastAdminLoginAttempt);
   assert.equal(lastAdminLoginAttempt.response.status, 429);
+});
+
+test("production boot still seeds staff accounts when seed env passwords are blank", async () => {
+  const productionTempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "winga-api-prod-test-"));
+  const productionPort = 44000 + Math.floor(Math.random() * 1000);
+  const productionBaseUrl = `http://127.0.0.1:${productionPort}/api`;
+  const productionRequest = async (pathname, options = {}) => {
+    const response = await fetch(`${productionBaseUrl}${pathname}`, options);
+    const body = response.status === 204 ? null : await response.json();
+    return { response, body };
+  };
+
+  const productionServerProcess = spawn(process.execPath, ["server.js"], {
+    cwd: path.join(process.cwd(), "backend"),
+    env: {
+      ...process.env,
+      PORT: String(productionPort),
+      NODE_ENV: "production",
+      WINGA_DATA_DIR: path.join(productionTempRoot, "data"),
+      WINGA_UPLOADS_DIR: path.join(productionTempRoot, "uploads"),
+      DATABASE_URL: "",
+      ADMIN_SEED_PASSWORD: "",
+      MODERATOR_SEED_PASSWORD: "",
+      ALLOW_LOCAL_DATA_STORE_IN_PRODUCTION: "true",
+      ALLOW_DEFAULT_ORIGIN_FALLBACK: "true",
+      ALLOW_UNVERIFIED_MANUAL_PAYMENTS: "true"
+    },
+    stdio: "ignore"
+  });
+
+  try {
+    await waitForServer(`${productionBaseUrl}/health`);
+
+    const adminLogin = await productionRequest("/auth/admin-login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        username: "admin",
+        password: "Admin1234"
+      })
+    });
+    assert.equal(adminLogin.response.status, 200);
+    assert.equal(adminLogin.body.role, "admin");
+
+    const moderatorLogin = await productionRequest("/auth/admin-login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        username: "moderator",
+        password: "Moderator1234"
+      })
+    });
+    assert.equal(moderatorLogin.response.status, 200);
+    assert.equal(moderatorLogin.body.role, "moderator");
+  } finally {
+    if (!productionServerProcess.killed) {
+      productionServerProcess.kill();
+    }
+    fs.rmSync(productionTempRoot, { recursive: true, force: true });
+  }
 });
