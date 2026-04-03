@@ -2140,6 +2140,8 @@ function ensureImageLightboxRoot() {
     <div class="image-lightbox-backdrop" data-close-image-lightbox="true"></div>
     <div class="image-lightbox-dialog" role="dialog" aria-modal="true" aria-labelledby="image-lightbox-title">
       <button class="image-lightbox-close" type="button" aria-label="Close image preview" data-close-image-lightbox="true">&times;</button>
+      <button class="image-lightbox-nav image-lightbox-prev" type="button" aria-label="Previous image" data-image-lightbox-nav="-1">&#10094;</button>
+      <button class="image-lightbox-nav image-lightbox-next" type="button" aria-label="Next image" data-image-lightbox-nav="1">&#10095;</button>
       <div class="image-lightbox-media">
         <img id="image-lightbox-preview" alt="Image preview" loading="lazy">
       </div>
@@ -2151,30 +2153,72 @@ function ensureImageLightboxRoot() {
   root.addEventListener("click", (event) => {
     if (event.target.closest("[data-close-image-lightbox='true']")) {
       closeImageLightbox();
+      return;
+    }
+    const navButton = event.target.closest("[data-image-lightbox-nav]");
+    if (navButton) {
+      stepImageLightbox(Number(navButton.dataset.imageLightboxNav || 0));
     }
   });
 
   return root;
 }
 
-function openImageLightbox(source = "", alt = "Image preview") {
-  const resolvedSource = sanitizeImageSource(source, "");
-  if (!resolvedSource) {
-    return;
-  }
-
+function syncImageLightboxView() {
   const root = ensureImageLightboxRoot();
   const preview = root.querySelector("#image-lightbox-preview");
   const caption = root.querySelector("#image-lightbox-title");
-  if (!preview || !caption) {
+  const prevButton = root.querySelector(".image-lightbox-prev");
+  const nextButton = root.querySelector(".image-lightbox-next");
+  if (!preview || !caption || !prevButton || !nextButton) {
     return;
   }
 
-  preview.src = resolvedSource;
-  preview.alt = alt || "Image preview";
-  caption.textContent = alt || "";
+  const images = Array.isArray(imageLightboxState.images) ? imageLightboxState.images : [];
+  const safeIndex = Math.max(0, Math.min(Number(imageLightboxState.index || 0), Math.max(0, images.length - 1)));
+  imageLightboxState.index = safeIndex;
+  const activeImage = sanitizeImageSource(images[safeIndex] || "", "");
+  if (!activeImage) {
+    closeImageLightbox();
+    return;
+  }
+
+  preview.src = activeImage;
+  preview.alt = imageLightboxState.alt || "Image preview";
+  preview.dataset.zoomSrc = activeImage;
+  caption.textContent = images.length > 1
+    ? `${imageLightboxState.alt || ""} (${safeIndex + 1}/${images.length})`.trim()
+    : (imageLightboxState.alt || "");
+  prevButton.style.display = images.length > 1 ? "grid" : "none";
+  nextButton.style.display = images.length > 1 ? "grid" : "none";
+}
+
+function openImageLightbox(source = "", alt = "Image preview", images = []) {
+  const resolvedImages = Array.isArray(images) && images.length
+    ? images.map((item) => sanitizeImageSource(item, "")).filter(Boolean)
+    : [sanitizeImageSource(source, "")].filter(Boolean);
+  if (!resolvedImages.length) {
+    return;
+  }
+
+  const resolvedSource = sanitizeImageSource(source, resolvedImages[0] || "");
+  imageLightboxState.images = resolvedImages;
+  imageLightboxState.index = Math.max(0, resolvedImages.findIndex((item) => item === resolvedSource));
+  imageLightboxState.alt = alt || "Image preview";
+
+  const root = ensureImageLightboxRoot();
+  syncImageLightboxView();
   root.classList.add("open");
   syncBodyScrollLockState();
+}
+
+function stepImageLightbox(direction = 0) {
+  const images = Array.isArray(imageLightboxState.images) ? imageLightboxState.images : [];
+  if (images.length <= 1 || !Number.isFinite(direction) || direction === 0) {
+    return;
+  }
+  imageLightboxState.index = (imageLightboxState.index + direction + images.length) % images.length;
+  syncImageLightboxView();
 }
 
 function closeImageLightbox() {
@@ -2183,6 +2227,9 @@ function closeImageLightbox() {
     return;
   }
   root.classList.remove("open");
+  imageLightboxState.images = [];
+  imageLightboxState.index = 0;
+  imageLightboxState.alt = "";
   syncBodyScrollLockState();
 }
 
@@ -2337,6 +2384,7 @@ function bindImageZoomInteractions() {
       || image.closest("#image-lightbox")
       || image.closest("#media-action-sheet")
       || image.closest(".gallery-thumbs")
+      || image.closest("[data-product-card], [data-showcase-id], .seller-product-card[data-open-product]")
       || image.closest("[data-search-result]")
       || image.closest("#header-user-trigger")
       || image.closest("button, a")
@@ -2359,15 +2407,30 @@ function bindImageZoomInteractions() {
     }
     event.preventDefault();
     event.stopPropagation();
+    const product = image.dataset.imageActionProduct
+      ? getProductById(image.dataset.imageActionProduct)
+      : null;
+    const productImages = Array.isArray(product?.images) && product.images.length > 0
+      ? product.images.filter(Boolean)
+      : (product?.image ? [product.image] : []);
     openImageLightbox(
       image.dataset.zoomSrc || image.currentSrc || image.src || "",
-      image.dataset.zoomAlt || image.alt || "Image preview"
+      image.dataset.zoomAlt || image.alt || "Image preview",
+      productImages
     );
   }, true);
 
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
       closeImageLightbox();
+      return;
+    }
+    if (event.key === "ArrowLeft") {
+      stepImageLightbox(-1);
+      return;
+    }
+    if (event.key === "ArrowRight") {
+      stepImageLightbox(1);
     }
   });
 }
@@ -3862,6 +3925,11 @@ const savedProductState = {
   activeSheetProductId: "",
   activeSheetSource: ""
 };
+const imageLightboxState = {
+  images: [],
+  index: 0,
+  alt: ""
+};
 const chatUiState = createChatUiState();
 const productDetailUiState = createProductDetailUiState();
 let currentReviews = [];
@@ -5274,6 +5342,18 @@ function loginSuccess(username, preferredCategory = "", sessionData = null, opti
   searchRuntimeState.activeImageSearch = null;
   searchRuntimeState.isSearchDropdownDismissed = false;
   searchInput.value = "";
+  if (filterPriceMinInput) {
+    filterPriceMinInput.value = "";
+  }
+  if (filterPriceMaxInput) {
+    filterPriceMaxInput.value = "";
+  }
+  if (filterLocationInput) {
+    filterLocationInput.value = "";
+  }
+  if (sortSelect) {
+    sortSelect.value = "default";
+  }
   resetTransientChromeState();
   applySessionState(sessionData || {
     username,
@@ -5325,10 +5405,15 @@ function loginSuccess(username, preferredCategory = "", sessionData = null, opti
   appContainer.style.display = "block";
   adminNavItem.style.display = isStaffUser() ? "inline-flex" : "none";
   setAdminNavLabel(adminNavItem, getAdminNavLabel());
+  const storedCategory = !isStaffUser() && storedViewState?.username === username && storedViewState?.selectedCategory
+    ? getRestorableCategory(storedViewState.selectedCategory)
+    : "all";
+  const nextSelectedCategory = storedCategory !== "all"
+    && !products.some((product) => isMarketplaceBrowseCandidate(product) && productMatchesSelectedCategory(product, storedCategory))
+      ? "all"
+      : storedCategory;
   applySelectedCategory(
-    !isStaffUser() && storedViewState?.username === username && storedViewState?.selectedCategory
-      ? getRestorableCategory(storedViewState.selectedCategory)
-      : "all"
+    nextSelectedCategory
   );
   refreshPublicEntryChrome();
   clearUploadForm();
@@ -6575,7 +6660,7 @@ function renderProductGallery(product) {
 
   return `
     <div class="product-gallery">
-      <img class="gallery-stage zoomable-image" src="${firstImage}" alt="${product.name}" data-gallery-stage="${product.id}" data-zoom-src="${firstImage}" data-zoom-alt="${product.name}" loading="lazy" data-fallback-src="${getImageFallbackDataUri("WINGA")}">
+      <img class="gallery-stage zoomable-image" src="${firstImage}" alt="${product.name}" data-gallery-stage="${product.id}" data-zoom-src="${firstImage}" data-zoom-alt="${product.name}" data-image-action-product="${product.id}" data-image-action-src="${firstImage}" data-image-action-surface="feed" loading="lazy" data-fallback-src="${getImageFallbackDataUri("WINGA")}">
       ${safeImages.length > 1 ? `
         <div class="gallery-thumbs">
           ${safeImages.map((image, index) => `
@@ -6977,6 +7062,7 @@ function bindGalleryThumbs(scope) {
       }
 
       stage.src = thumb.dataset.image;
+      stage.dataset.zoomSrc = thumb.dataset.image;
       stage.dataset.imageActionSrc = thumb.dataset.image;
       scope.querySelectorAll(`[data-gallery-target="${targetId}"]`).forEach((item) => {
         item.classList.remove("active");
@@ -7146,6 +7232,7 @@ async function bootApp() {
   }
 
   await window.WingaDataLayer.init();
+  const rememberedSessionPromise = window.WingaDataLayer.restoreSession();
 
   refreshProductsFromStore();
   if (products.length === 0) {
@@ -7178,7 +7265,7 @@ async function bootApp() {
   });
 
   if (cachedSession?.username) {
-    const rememberedSession = await window.WingaDataLayer.restoreSession();
+    const rememberedSession = await rememberedSessionPromise;
     if (rememberedSession?.username) {
       if (isAdminLoginRoute() && !isStaffRole(rememberedSession.role)) {
         setAdminLoginRouteActive(false, { replace: true });
@@ -7222,7 +7309,7 @@ async function bootApp() {
     });
     return;
   } else {
-    const rememberedSession = await window.WingaDataLayer.restoreSession();
+    const rememberedSession = await rememberedSessionPromise;
     if (rememberedSession?.username) {
       if (isAdminLoginRoute() && !isStaffRole(rememberedSession.role)) {
         setAdminLoginRouteActive(false, { replace: true });

@@ -3930,6 +3930,31 @@ body.media-action-sheet-open{
   z-index:2;
 }
 
+.image-lightbox-nav{
+  position:absolute;
+  top:50%;
+  transform:translateY(-50%);
+  width:44px;
+  height:44px;
+  border:none;
+  border-radius:999px;
+  background:rgba(255,255,255,0.16);
+  color:#fff;
+  font-size:1.45rem;
+  display:grid;
+  place-items:center;
+  cursor:pointer;
+  z-index:2;
+}
+
+.image-lightbox-prev{
+  left:10px;
+}
+
+.image-lightbox-next{
+  right:10px;
+}
+
 .image-lightbox-media{
   display:grid;
   place-items:center;
@@ -4570,13 +4595,18 @@ button:hover,
   #products-container .product-card,
   #products-container .product-card *,
   #market-showcase .showcase-card,
-  #market-showcase .showcase-card *,
-  .showcase-inline .showcase-card,
-  .showcase-inline .showcase-card *{
+  .showcase-inline .showcase-card{
     touch-action:pan-y;
   }
 
   .showcase-track{
+    touch-action:pan-x pan-y;
+  }
+
+  #market-showcase .showcase-track .showcase-card,
+  #market-showcase .showcase-track .showcase-card *,
+  .showcase-inline .showcase-track .showcase-card,
+  .showcase-inline .showcase-track .showcase-card *{
     touch-action:pan-x pan-y;
   }
 
@@ -4704,19 +4734,19 @@ button:hover,
     pointer-events:none;
   }
 
-  #top-bar > *,
+  #top-bar > *{
+    pointer-events:none;
+  }
+
   #top-bar #header-search-area,
   #top-bar #search-box,
   #top-bar #search-main-row,
   #top-bar #search-input,
   #top-bar #search-toggle-button,
   #top-bar #search-image-button,
-  #top-bar #mobile-category-shell,
   #top-bar #mobile-category-button,
-  #top-bar #header-user-menu,
   #top-bar #header-user-trigger,
   #top-bar #header-user-dropdown,
-  #top-bar #public-header-actions,
   #top-bar .public-header-btn{
     pointer-events:auto;
   }

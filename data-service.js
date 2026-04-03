@@ -1003,7 +1003,8 @@
 
   async function fetchJson(url, options) {
     const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
-    const timeoutId = controller ? setTimeout(() => controller.abort(), 12000) : null;
+    const timeoutMs = Number(window.WINGA_CONFIG?.requestTimeoutMs || 25000);
+    const timeoutId = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
     let response;
     try {
       response = await fetch(url, {
@@ -2300,9 +2301,14 @@
   }
 
   async function loadInitialState(adapter) {
-    state.users = await adapter.loadUsers();
-    state.products = await adapter.loadProducts();
-    state.categories = adapter.loadCategories ? await adapter.loadCategories() : [];
+    const [users, products, categories] = await Promise.all([
+      adapter.loadUsers(),
+      adapter.loadProducts(),
+      adapter.loadCategories ? adapter.loadCategories() : Promise.resolve([])
+    ]);
+    state.users = users;
+    state.products = products;
+    state.categories = categories;
   }
 
   window.WingaDataLayer = {
@@ -2318,7 +2324,9 @@
         }
         state.initialized = true;
       } catch (error) {
-        const fallbackProvider = config.fallbackProvider || "local";
+        const fallbackProvider = typeof config.fallbackProvider === "string"
+          ? config.fallbackProvider.trim()
+          : (config.fallbackProvider || "local");
         const canFallback = fallbackProvider && fallbackProvider !== state.activeProvider;
         if (!canFallback) {
           throw error;
