@@ -6167,15 +6167,20 @@ function enhanceShowcaseTracks(scope = document) {
       if (track.scrollWidth <= track.clientWidth || typeof WheelEvent === "undefined") {
         return;
       }
-      if (event.shiftKey || Math.abs(event.deltaY) <= Math.abs(event.deltaX)) {
-        return;
-      }
       const isFinePointer = window.matchMedia?.("(pointer: fine)")?.matches ?? false;
-      const isLikelyMouseWheel = event.deltaMode === WheelEvent.DOM_DELTA_LINE || Math.abs(event.deltaY) >= 28;
-      if (!isFinePointer || !isLikelyMouseWheel) {
+      if (!isFinePointer) {
         return;
       }
-      const nextScrollLeft = track.scrollLeft + event.deltaY;
+      if (!event.shiftKey) {
+        return;
+      }
+      const dominantDelta = Math.abs(event.deltaX) > Math.abs(event.deltaY)
+        ? event.deltaX
+        : event.deltaY;
+      if (!Number.isFinite(dominantDelta) || Math.abs(dominantDelta) < 1) {
+        return;
+      }
+      const nextScrollLeft = track.scrollLeft + dominantDelta;
       const clampedScrollLeft = Math.max(0, Math.min(nextScrollLeft, track.scrollWidth - track.clientWidth));
       if (Math.abs(clampedScrollLeft - track.scrollLeft) < 1) {
         return;

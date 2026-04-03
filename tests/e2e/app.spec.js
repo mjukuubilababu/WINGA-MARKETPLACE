@@ -535,6 +535,25 @@ test("desktop header remains stable and does not enter the mobile auto-hide stat
   await context.close();
 });
 
+test("vertical page scroll still works while the pointer is over showcase rows", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234", {
+    viewport: { width: 1280, height: 900 }
+  });
+  await page.goto("/");
+
+  const showcaseTrack = page.locator("#market-showcase .showcase-track");
+  await expect(showcaseTrack).toBeVisible();
+  const box = await showcaseTrack.boundingBox();
+  expect(box).not.toBeNull();
+  await page.mouse.move((box?.x || 0) + 40, (box?.y || 0) + 40);
+
+  const initialY = await page.evaluate(() => window.scrollY);
+  await page.mouse.wheel(0, 900);
+  await expect.poll(async () => page.evaluate(() => window.scrollY)).toBeGreaterThan(initialY);
+
+  await context.close();
+});
+
 test("recommendation cards also support add-to-requests for seller-buyer sessions", async ({ browser }) => {
   const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234");
   await page.goto("/");
