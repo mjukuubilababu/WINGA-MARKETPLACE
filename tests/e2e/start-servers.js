@@ -148,23 +148,32 @@ async function seedMarketplace() {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ username: "market_seller", password: "Pass1234" })
   });
+  const buyerSellerLogin = await apiRequest("/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username: "buyer_seller", password: "Pass1234" })
+  });
   const adminLogin = await apiRequest("/auth/admin-login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ username: "admin", password: "Admin1234" })
   });
 
-  if (sellerLogin.response.status !== 200 || adminLogin.response.status !== 200) {
+  if (sellerLogin.response.status !== 200 || buyerSellerLogin.response.status !== 200 || adminLogin.response.status !== 200) {
     throw new Error("Failed to login seed accounts.");
   }
+  seededSessions.buyer_seller = buyerSellerLogin.body;
+  seededSessions.market_seller = sellerLogin.body;
   seededSessions.admin = adminLogin.body;
 
   const catalog = [
-    { id: "e2e-prod-1", name: "Sneaker Classic", price: 32000, category: "viatu-sneakers" },
-    { id: "e2e-prod-2", name: "Dress Elegant", price: 54000, category: "wanawake-magauni" },
-    { id: "e2e-prod-3", name: "Shirt Premium", price: 27000, category: "wanaume-mashati" },
-    { id: "e2e-prod-pending", name: "Pending Showcase Bag", price: 46000, category: "accessories-mabegi", approve: false },
-    { id: "e2e-prod-pending-2", name: "Pending Office Shoes", price: 51000, category: "viatu-boots", approve: false }
+    { id: "e2e-prod-1", name: "Sneaker Classic", price: 32000, category: "viatu-sneakers", seller: "market_seller", token: sellerLogin.body.token, phone: "255700111222", shop: "Market Seller Shop" },
+    { id: "e2e-prod-2", name: "Dress Elegant", price: 54000, category: "wanawake-magauni", seller: "market_seller", token: sellerLogin.body.token, phone: "255700111222", shop: "Market Seller Shop" },
+    { id: "e2e-prod-3", name: "Shirt Premium", price: 27000, category: "wanaume-mashati", seller: "market_seller", token: sellerLogin.body.token, phone: "255700111222", shop: "Market Seller Shop" },
+    { id: "e2e-prod-4", name: "Bag Travel Pro", price: 61000, category: "accessories-mabegi", seller: "buyer_seller", token: buyerSellerLogin.body.token, phone: "255700111221", shop: "Buyer Seller Shop" },
+    { id: "e2e-prod-5", name: "Phone Smart X", price: 420000, category: "electronics-simu", seller: "buyer_seller", token: buyerSellerLogin.body.token, phone: "255700111221", shop: "Buyer Seller Shop" },
+    { id: "e2e-prod-pending", name: "Pending Showcase Bag", price: 46000, category: "accessories-mabegi", seller: "market_seller", token: sellerLogin.body.token, phone: "255700111222", shop: "Market Seller Shop", approve: false },
+    { id: "e2e-prod-pending-2", name: "Pending Office Shoes", price: 51000, category: "viatu-boots", seller: "market_seller", token: sellerLogin.body.token, phone: "255700111222", shop: "Market Seller Shop", approve: false }
   ];
 
   for (const item of catalog) {
@@ -172,15 +181,15 @@ async function seedMarketplace() {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${sellerLogin.body.token}`
+        Authorization: `Bearer ${item.token}`
       },
       body: JSON.stringify({
         id: item.id,
         name: item.name,
         price: item.price,
-        shop: "Market Seller Shop",
-        whatsapp: "255700111222",
-        uploadedBy: "market_seller",
+        shop: item.shop,
+        whatsapp: item.phone,
+        uploadedBy: item.seller,
         category: item.category,
         images: [tinyImage],
         image: tinyImage,
@@ -205,6 +214,21 @@ async function seedMarketplace() {
       });
       if (moderated.response.status !== 200) {
         throw new Error(`Failed to approve product ${item.id}: ${moderated.body?.error || moderated.response.status}`);
+      }
+    } else {
+      const moderated = await apiRequest(`/admin/products/${item.id}/moderate`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${adminLogin.body.token}`
+        },
+        body: JSON.stringify({
+          status: "pending",
+          moderationNote: "pending for review"
+        })
+      });
+      if (moderated.response.status !== 200) {
+        throw new Error(`Failed to keep product ${item.id} pending: ${moderated.body?.error || moderated.response.status}`);
       }
     }
   }

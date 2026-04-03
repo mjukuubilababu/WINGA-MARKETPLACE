@@ -71,17 +71,21 @@
         setMobileHeaderHidden(false, { force });
         uiState.mobileHeaderLastScrollY = Math.max(window.scrollY || 0, 0);
         uiState.mobileHeaderLastToggleY = uiState.mobileHeaderLastScrollY;
+        uiState.mobileHeaderPendingDirection = 0;
+        uiState.mobileHeaderObservedScrollY = uiState.mobileHeaderLastScrollY;
         return;
       }
 
       const currentScrollY = Math.max(window.scrollY || 0, 0);
       const previousScrollY = uiState.mobileHeaderLastScrollY || 0;
       const delta = currentScrollY - previousScrollY;
+      const pendingDirection = Number(uiState.mobileHeaderPendingDirection || 0);
       const nearTopThreshold = 72;
       const hideThreshold = 64;
       const movementThreshold = 8;
 
       uiState.mobileHeaderLastScrollY = currentScrollY;
+      uiState.mobileHeaderPendingDirection = 0;
 
       if (currentScrollY <= nearTopThreshold) {
         uiState.mobileHeaderLastToggleY = currentScrollY;
@@ -89,7 +93,7 @@
         return;
       }
 
-      if (uiState.mobileHeaderHidden && delta < 0) {
+      if (uiState.mobileHeaderHidden && (pendingDirection < 0 || delta < 0)) {
         uiState.mobileHeaderLastToggleY = currentScrollY;
         setMobileHeaderHidden(false);
         return;
@@ -99,7 +103,7 @@
         return;
       }
 
-      if (delta > 0 && !uiState.mobileHeaderHidden) {
+      if ((pendingDirection > 0 || delta > 0) && !uiState.mobileHeaderHidden) {
         if (currentScrollY - (uiState.mobileHeaderLastToggleY || 0) >= hideThreshold) {
           uiState.mobileHeaderLastToggleY = currentScrollY;
           setMobileHeaderHidden(true);
@@ -116,6 +120,16 @@
         }
         return;
       }
+      const currentScrollY = Math.max(window.scrollY || 0, 0);
+      const previousObservedScrollY = Number.isFinite(uiState.mobileHeaderObservedScrollY)
+        ? uiState.mobileHeaderObservedScrollY
+        : currentScrollY;
+      if (currentScrollY > previousObservedScrollY + 1) {
+        uiState.mobileHeaderPendingDirection = 1;
+      } else if (currentScrollY < previousObservedScrollY - 1) {
+        uiState.mobileHeaderPendingDirection = -1;
+      }
+      uiState.mobileHeaderObservedScrollY = currentScrollY;
       if (uiState.mobileHeaderScrollFrame) {
         return;
       }

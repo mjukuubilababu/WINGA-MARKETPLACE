@@ -589,6 +589,46 @@ test("recommendation cards also support add-to-requests for seller-buyer session
   await context.close();
 });
 
+test("buyer-side card buttons on the home feed still work for request and message flows", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234");
+  await page.goto("/");
+  await expect(page.locator("#products-container .product-card").first()).toBeVisible({ timeout: 30000 });
+
+  const feedRequestButton = page.locator("#products-container [data-request-product]").first();
+  await expect(feedRequestButton).toBeVisible();
+  await feedRequestButton.click();
+  await expect(feedRequestButton).toContainText("Added");
+
+  const feedChatButton = page.locator("#products-container [data-chat-product]").first();
+  await expect(feedChatButton).toBeVisible();
+  await feedChatButton.click();
+  await expect(page.locator("#context-chat-modal")).toBeVisible();
+  await page.locator("#context-chat-modal .context-chat-close").click();
+  await expect(page.locator("#context-chat-modal")).not.toBeVisible();
+
+  await context.close();
+});
+
+test("product detail keeps same-seller continuation and broader discovery surfaces available", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234");
+  await page.goto("/");
+  await expect(page.locator("#products-container .product-card").first()).toBeVisible({ timeout: 30000 });
+
+  await page.locator("#products-container .product-card").first().click();
+  await expect(page.locator("#product-detail-modal")).toBeVisible();
+  const continuationSections = page.locator("#product-detail-modal .product-detail-seller-products");
+  await expect(continuationSections.first()).toBeVisible();
+  await expect(page.locator("#product-detail-modal .seller-product-card").first()).toBeVisible();
+  await expect(page.locator("#product-detail-modal")).toContainText("Related Products");
+  await expect(continuationSections).toHaveCount(2);
+
+  await page.locator("#product-detail-modal .seller-product-card").first().click();
+  await expect(page.locator("#product-detail-modal [data-product-detail-home]")).toBeVisible();
+  await expect(page.locator("#product-detail-modal .seller-product-card").first()).toBeVisible();
+
+  await context.close();
+});
+
 test("admin login route opens the admin surface without exposing admin in normal auth", async ({ page }) => {
   await applyApiConfigOverride(page);
   await page.goto("/#/admin-login");

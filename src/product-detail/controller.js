@@ -65,6 +65,20 @@
       return lightPixels / Math.max(signature.length, 1) >= 0.52 ? "dark" : "light";
     }
 
+    function appendContinuationSection(sections, shownProductIds, config) {
+      const items = (Array.isArray(config?.items) ? config.items : []).filter((item) => item && !shownProductIds.has(item.id));
+      if (!items.length) {
+        return;
+      }
+      items.forEach((item) => shownProductIds.add(item.id));
+      sections.push({
+        eyebrow: config.eyebrow || "",
+        title: config.title || "",
+        sponsored: Boolean(config.sponsored),
+        items
+      });
+    }
+
     function finalizeHomeNavigation() {
       closeProductDetailModal({
         skipHistoryBack: true,
@@ -234,6 +248,25 @@
           });
         });
       });
+
+      const mainImage = modal.querySelector(".product-detail-image");
+      modal.querySelectorAll("[data-detail-image]").forEach((thumb) => {
+        thumb.addEventListener("click", () => {
+          if (!mainImage) {
+            return;
+          }
+          const nextImage = thumb.dataset.detailImage || "";
+          if (!nextImage) {
+            return;
+          }
+          mainImage.src = nextImage;
+          mainImage.dataset.zoomSrc = nextImage;
+          mainImage.dataset.imageActionSrc = nextImage;
+          modal.querySelectorAll("[data-detail-image]").forEach((item) => {
+            item.classList.toggle("active", item === thumb);
+          });
+        });
+      });
     }
 
     function openProductDetailModal(productId, options = {}) {
@@ -294,14 +327,40 @@
       const seller = deps.getMarketplaceUser(product.uploadedBy);
       const otherProducts = getSellerOtherProducts(product);
       const shownProductIds = new Set([product.id, ...otherProducts.map((item) => item.id)]);
-      const relatedProducts = deps.getDiscoveryRelatedProducts(product, {
-        limit: 8,
-        excludeIds: shownProductIds
+      const continuationSections = [];
+      appendContinuationSection(continuationSections, shownProductIds, {
+        eyebrow: "Related Products",
+        title: "Keep exploring similar products",
+        items: deps.getDiscoveryRelatedProducts(product, {
+          limit: 8,
+          excludeIds: shownProductIds
+        })
       });
-      relatedProducts.forEach((item) => shownProductIds.add(item.id));
-      const sponsoredProducts = deps.getDiscoverySponsoredProducts(product, {
-        limit: 4,
-        excludeIds: shownProductIds
+      appendContinuationSection(continuationSections, shownProductIds, {
+        eyebrow: "Most Searched",
+        title: "Popular products buyers search for most",
+        items: deps.getMostSearchedProducts(product, {
+          limit: 8,
+          excludeIds: shownProductIds
+        })
+      });
+      appendContinuationSection(continuationSections, shownProductIds, {
+        eyebrow: "New Products",
+        title: "Fresh listings from active sellers",
+        items: deps.getNewestProducts({
+          limit: 8,
+          excludeIds: shownProductIds,
+          seedProduct: product
+        })
+      });
+      appendContinuationSection(continuationSections, shownProductIds, {
+        eyebrow: "Sponsored Picks",
+        title: "Promoted products you may also like",
+        sponsored: true,
+        items: deps.getDiscoverySponsoredProducts(product, {
+          limit: 4,
+          excludeIds: shownProductIds
+        })
       });
       const images = Array.isArray(product.images) && product.images.length ? product.images : [product.image].filter(Boolean);
       const mainImage = images[0] || deps.getImageFallbackDataUri("WINGA");
@@ -310,8 +369,7 @@
         product,
         seller,
         otherProducts,
-        relatedProducts,
-        sponsoredProducts,
+        continuationSections,
         mainImage,
         showFloatingHomeAction: detailNavState.detailDepth > 1,
         floatingHomeVariant: getFloatingHomeVariant(product),

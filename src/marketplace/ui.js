@@ -19,7 +19,9 @@
       const images = Array.isArray(product.images) && product.images.length > 0 ? product.images : [product.image];
       const safeImages = images.filter(Boolean);
       const firstImage = safeImages[0] || deps.getImageFallbackDataUri("WINGA");
-      const gallery = createElement("div", { className: "product-gallery" });
+      const gallery = createElement("div", {
+        className: `product-gallery media-gallery${safeImages.length > 1 ? " has-media-stack" : ""}`
+      });
       gallery.appendChild(createResponsiveImage({
         src: firstImage,
         alt: product.name || "Product image",

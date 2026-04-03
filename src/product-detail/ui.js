@@ -54,8 +54,7 @@
         product,
         seller,
         otherProducts,
-        relatedProducts,
-        sponsoredProducts,
+        continuationSections,
         mainImage,
         showFloatingHomeAction,
         floatingHomeVariant,
@@ -70,10 +69,15 @@
       const safeSellerName = deps.escapeHtml(seller?.fullName || product.shop || product.uploadedBy || "");
 
       const safeMainImage = deps.sanitizeImageSource(mainImage, deps.getImageFallbackDataUri("WINGA"));
+      const detailImages = Array.isArray(product.images) && product.images.length
+        ? product.images.map((item) => deps.sanitizeImageSource(item || "", deps.getImageFallbackDataUri("W"))).filter(Boolean)
+        : [safeMainImage].filter(Boolean);
 
       const wrapper = deps.createElement("div");
       const layout = deps.createElement("div", { className: "product-detail-layout" });
-      const media = deps.createElement("div", { className: "product-detail-media" });
+      const media = deps.createElement("div", {
+        className: `product-detail-media${detailImages.length > 1 ? " has-media-stack" : ""}`
+      });
       const mainImageElement = deps.createElement("img", {
         className: "product-detail-image zoomable-image",
         attributes: {
@@ -92,6 +96,23 @@
         this.src = deps.getImageFallbackDataUri("WINGA");
       };
       media.appendChild(mainImageElement);
+      if (detailImages.length > 1) {
+        const thumbGrid = deps.createElement("div", { className: "product-detail-thumb-grid" });
+        detailImages.forEach((image, index) => {
+          thumbGrid.appendChild(deps.createElement("img", {
+            className: `product-detail-thumb${image === safeMainImage ? " active" : ""}`,
+            attributes: {
+              src: image,
+              alt: `${safeProductName} ${index + 1}`,
+              loading: "lazy",
+              "data-detail-image": image,
+              "data-detail-image-index": String(index),
+              "data-disable-image-zoom": "true"
+            }
+          }));
+        });
+        media.appendChild(thumbGrid);
+      }
 
       const copy = deps.createElement("div", { className: "product-detail-copy" });
       copy.append(
@@ -213,19 +234,20 @@
         wrapper.appendChild(section);
       }
 
-      if (relatedProducts.length) {
+      (Array.isArray(continuationSections) ? continuationSections : []).forEach((sectionConfig) => {
+        const items = Array.isArray(sectionConfig?.items) ? sectionConfig.items : [];
+        if (!items.length) {
+          return;
+        }
         const section = deps.createElement("section", { className: "product-detail-seller-products" });
-        section.appendChild(createDetailSectionHeading("Related Products", "Keep exploring similar products"));
-        section.appendChild(deps.createFragmentFromMarkup(deps.renderDiscoveryProductCards(relatedProducts)));
+        section.appendChild(createDetailSectionHeading(sectionConfig.eyebrow || sectionConfig.title || "", sectionConfig.title || ""));
+        section.appendChild(
+          deps.createFragmentFromMarkup(
+            deps.renderDiscoveryProductCards(items, { sponsored: Boolean(sectionConfig.sponsored) })
+          )
+        );
         wrapper.appendChild(section);
-      }
-
-      if (sponsoredProducts.length) {
-        const section = deps.createElement("section", { className: "product-detail-seller-products" });
-        section.appendChild(createDetailSectionHeading("Sponsored Picks", "Promoted products you may also like"));
-        section.appendChild(deps.createFragmentFromMarkup(deps.renderDiscoveryProductCards(sponsoredProducts, { sponsored: true })));
-        wrapper.appendChild(section);
-      }
+      });
 
       if (showFloatingHomeAction) {
         wrapper.appendChild(deps.createElement("button", {

@@ -3394,6 +3394,8 @@ const {
   getMarketplaceUser,
   getDiscoveryRelatedProducts: (...args) => getDiscoveryRelatedProducts(...args),
   getDiscoverySponsoredProducts: (...args) => getDiscoverySponsoredProducts(...args),
+  getMostSearchedProducts: (...args) => getMostSearchedProducts(...args),
+  getNewestProducts: (...args) => getNewestProducts(...args),
   getImageFallbackDataUri,
   noteProductInterest,
   noteProductDiscovery,
@@ -6099,14 +6101,62 @@ function getYouMayLikeProducts(seedProduct, limit = 6) {
   });
 }
 
-function getTrendingProducts(limit = 8) {
-  const source = products.filter((product) => product.status === "approved" && product.availability !== "sold_out");
+function getMostSearchedProducts(seedProduct, options = {}) {
+  const { limit = 8, excludeIds = new Set() } = options;
+  const pool = products.filter((product) =>
+    product.status === "approved"
+    && product.availability !== "sold_out"
+    && isMarketplaceBrowseCandidate(product)
+    && product.id !== seedProduct?.id
+    && !excludeIds.has(product.id)
+  );
+  const ranked = rankProductsForSurface(pool, {
+    surface: "trending",
+    limit,
+    excludeIds,
+    seedProduct,
+    searchTerms: recentSearchTerms.slice(0, 4)
+  });
+  return ranked.length
+    ? ranked
+    : getTrendingProducts(limit, excludeIds);
+}
+
+function getTrendingProducts(limit = 8, excludeIds = new Set()) {
+  const source = products.filter((product) =>
+    product.status === "approved"
+    && product.availability !== "sold_out"
+    && !excludeIds.has(product.id)
+  );
   const withSignal = source.some((product) => Number(product.views || 0) > 0 || Number(product.likes || 0) > 0);
   const ranked = rankProductsForSurface(source, {
     surface: "trending",
-    limit
+    limit,
+    excludeIds
   });
   return ranked.length ? ranked : limitProductsPerSeller(withSignal ? source.slice() : source.slice().sort(() => Math.random() - 0.5), limit, 2);
+}
+
+function getNewestProducts(options = {}) {
+  const { limit = 8, excludeIds = new Set(), seedProduct = null } = options;
+  const seedTopCategory = inferTopCategoryValue(seedProduct?.category || "");
+  const rankedNewest = products
+    .filter((product) =>
+      product.status === "approved"
+      && product.availability !== "sold_out"
+      && isMarketplaceBrowseCandidate(product)
+      && !excludeIds.has(product.id)
+      && product.id !== seedProduct?.id
+    )
+    .sort((first, second) => {
+      const secondMatchesSeed = seedTopCategory && inferTopCategoryValue(second.category || "") === seedTopCategory ? 1 : 0;
+      const firstMatchesSeed = seedTopCategory && inferTopCategoryValue(first.category || "") === seedTopCategory ? 1 : 0;
+      if (secondMatchesSeed !== firstMatchesSeed) {
+        return secondMatchesSeed - firstMatchesSeed;
+      }
+      return new Date(second.createdAt || 0).getTime() - new Date(first.createdAt || 0).getTime();
+    });
+  return limitProductsPerSeller(rankedNewest, limit, 2);
 }
 
 function buildTrendingKariakooSlide() {
@@ -6659,7 +6709,7 @@ function renderProductGallery(product) {
   const firstImage = sanitizeImageSource(safeImages[0] || "", getImageFallbackDataUri("WINGA"));
 
   return `
-    <div class="product-gallery">
+    <div class="product-gallery media-gallery${safeImages.length > 1 ? " has-media-stack" : ""}">
       <img class="gallery-stage zoomable-image" src="${firstImage}" alt="${product.name}" data-gallery-stage="${product.id}" data-zoom-src="${firstImage}" data-zoom-alt="${product.name}" data-image-action-product="${product.id}" data-image-action-src="${firstImage}" data-image-action-surface="feed" loading="lazy" data-fallback-src="${getImageFallbackDataUri("WINGA")}">
       ${safeImages.length > 1 ? `
         <div class="gallery-thumbs">
