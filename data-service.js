@@ -2339,14 +2339,27 @@
   }
 
   async function loadInitialState(adapter) {
-    const [users, products, categories] = await Promise.all([
+    const products = await adapter.loadProducts();
+    state.products = Array.isArray(products) ? products : [];
+
+    const [usersResult, categoriesResult] = await Promise.allSettled([
       adapter.loadUsers(),
-      adapter.loadProducts(),
       adapter.loadCategories ? adapter.loadCategories() : Promise.resolve([])
     ]);
-    state.users = users;
-    state.products = products;
-    state.categories = categories;
+
+    if (usersResult.status === "rejected") {
+      console.warn("[WINGA] Optional startup load failed for users.", usersResult.reason);
+    }
+    if (categoriesResult.status === "rejected") {
+      console.warn("[WINGA] Optional startup load failed for categories.", categoriesResult.reason);
+    }
+
+    state.users = usersResult.status === "fulfilled" && Array.isArray(usersResult.value)
+      ? usersResult.value
+      : [];
+    state.categories = categoriesResult.status === "fulfilled" && Array.isArray(categoriesResult.value)
+      ? categoriesResult.value
+      : [];
   }
 
   window.WingaDataLayer = {
