@@ -4740,18 +4740,6 @@ http.createServer(async (req, res) => {
         sendJson(res, 403, { error: "Huruhusiwi kuunda bidhaa kwa user mwingine." });
         return;
       }
-      const normalizedName = sanitizePlainText(candidatePayload.name, 120).toLowerCase();
-      const duplicateListing = (store.products || []).some((item) =>
-        item.uploadedBy === sellerUser.username
-        && item.status !== "rejected"
-        && sanitizePlainText(item.name, 120).toLowerCase() === normalizedName
-        && normalizeOptionalPrice(item.price) === normalizeOptionalPrice(candidatePayload.price)
-      );
-      if (duplicateListing) {
-        sendJson(res, 409, { error: "Bidhaa kama hii tayari ipo kwenye listings zako." });
-        return;
-      }
-
       if (candidatePayload.originalProductId || candidatePayload.resoldStatus === "reposted") {
         const sourceProduct = (store.products || []).find((item) => item.id === candidatePayload.originalProductId);
         if (!sourceProduct) {

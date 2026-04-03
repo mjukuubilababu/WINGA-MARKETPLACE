@@ -202,6 +202,50 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   assert.equal(productCreate.response.status, 200);
   assert.equal(productCreate.body.status, "approved");
 
+  const sameSellerDuplicatePost = await request("/products", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${sellerToken}`
+    },
+    body: JSON.stringify({
+      id: "product-test-001-duplicate",
+      name: "Kiatu Safe",
+      price: 25000,
+      shop: "Seller One Shop",
+      whatsapp: "255700111111",
+      uploadedBy: "seller_one",
+      category: "viatu",
+      images: [tinyImage],
+      image: tinyImage,
+      imageSignature: "0101010101010101010101010101010101010101010101010101010101010101"
+    })
+  });
+  assert.equal(sameSellerDuplicatePost.response.status, 200);
+  assert.equal(sameSellerDuplicatePost.body.uploadedBy, "seller_one");
+
+  const differentSellerSamePost = await request("/products", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${sellerTwoToken}`
+    },
+    body: JSON.stringify({
+      id: "product-test-001-other-seller",
+      name: "Kiatu Safe",
+      price: 25000,
+      shop: "Seller Two Shop",
+      whatsapp: "255700111112",
+      uploadedBy: "seller_two",
+      category: "viatu",
+      images: [tinyImage],
+      image: tinyImage,
+      imageSignature: "0101010101010101010101010101010101010101010101010101010101010101"
+    })
+  });
+  assert.equal(differentSellerSamePost.response.status, 200);
+  assert.equal(differentSellerSamePost.body.uploadedBy, "seller_two");
+
   const fallbackWhatsappProduct = await request("/products", {
     method: "POST",
     headers: {

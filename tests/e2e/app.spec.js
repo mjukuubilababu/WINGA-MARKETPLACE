@@ -96,6 +96,33 @@ test("mobile category trigger opens sheet, drills into subcategories, and closes
   await context.close();
 });
 
+test("closed mobile category sheet does not sit on top of the logged-in home feed", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234", {
+    viewport: { width: 390, height: 844 },
+    isMobile: true
+  });
+
+  await page.goto("/");
+  await expect(page.locator("#mobile-category-shell")).not.toHaveClass(/open/);
+  await page.evaluate(() => window.scrollTo(0, 900));
+
+  const hit = await page.evaluate(() => {
+    const node = document.elementFromPoint(36, 620);
+    return {
+      tag: node?.tagName || "",
+      id: node?.id || "",
+      className: node?.className || "",
+      insideMobileCategoryMenu: Boolean(node?.closest?.("#mobile-category-menu")),
+      insideProductCard: Boolean(node?.closest?.(".product-card"))
+    };
+  });
+
+  expect(hit.insideMobileCategoryMenu).toBeFalsy();
+  expect(hit.insideProductCard).toBeTruthy();
+
+  await context.close();
+});
+
 test("seller signup completes immediately after account creation without hanging in the auth UI", async ({ page }) => {
   await applyApiConfigOverride(page);
   await page.goto("/");
