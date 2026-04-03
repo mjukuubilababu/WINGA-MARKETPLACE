@@ -112,6 +112,16 @@
         this.src = fallbackSrc;
       };
     }
+    image.addEventListener("load", function handleResponsiveImageLoad() {
+      const naturalWidth = Number(this.naturalWidth || 0);
+      const naturalHeight = Number(this.naturalHeight || 0);
+      if (!naturalWidth || !naturalHeight) {
+        return;
+      }
+      const portraitLike = naturalHeight > naturalWidth * 1.08;
+      this.classList.toggle("image-is-portrait", portraitLike);
+      this.classList.toggle("image-is-landscape", !portraitLike);
+    });
     return image;
   }
 

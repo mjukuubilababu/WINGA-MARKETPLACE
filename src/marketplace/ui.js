@@ -236,6 +236,7 @@
       const showcaseRepeatInterval = shouldInjectInlineShowcases ? productsPerRow * 5 : Number.POSITIVE_INFINITY;
       let nextShowcaseInsertAt = firstShowcaseAfter;
       let showcaseIndex = 0;
+      let insertedInlineShowcase = false;
       const usedShowcaseProductIds = new Set();
       const maxDeferredShowcases = shouldInjectInlineShowcases
         ? Math.min(3, Math.max(0, Math.floor((Math.max(0, list.length - firstShowcaseAfter)) / Math.max(1, showcaseRepeatInterval))))
@@ -264,14 +265,30 @@
               descriptor.items.forEach((item) => usedShowcaseProductIds.add(item.id));
               fragment.appendChild(showcaseElement);
               showcaseIndex += 1;
+              insertedInlineShowcase = true;
             }
           } else if (showcaseIndex - 1 < maxDeferredShowcases) {
             fragment.appendChild(createDynamicShowcasePlaceholderElement(showcaseIndex));
             showcaseIndex += 1;
+            insertedInlineShowcase = true;
           }
           nextShowcaseInsertAt += showcaseRepeatInterval;
         }
       });
+
+      if (shouldInjectInlineShowcases && !insertedInlineShowcase && list.length >= Math.max(4, productsPerRow * 2 || 4)) {
+        const descriptor = deps.getBehaviorShowcaseDescriptor(0, usedShowcaseProductIds);
+        const showcaseElement = createShowcaseSectionElement(
+          descriptor.items,
+          1,
+          descriptor.heading,
+          descriptor.title,
+          descriptor.subtitle
+        );
+        if (showcaseElement) {
+          fragment.appendChild(showcaseElement);
+        }
+      }
 
       if (currentView === "home" && list.length > 0) {
         const seedProduct = deps.getRecommendationSeed(list);

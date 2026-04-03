@@ -564,6 +564,15 @@ test("marketplace cards keep verified copy out of compact card surfaces", async 
   await context.close();
 });
 
+test("signed-in home keeps lower rows visible below the hero", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234");
+  await page.goto("/");
+
+  await expect(page.locator(".showcase-inline, [data-recommendation-type]").first()).toBeVisible();
+
+  await context.close();
+});
+
 test("recommendation cards also support add-to-requests for seller-buyer sessions", async ({ browser }) => {
   const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234");
   await page.goto("/");

@@ -1346,6 +1346,15 @@ img[data-zoom-src]{
   z-index:2;
 }
 
+.gallery-stage.image-is-portrait,
+.showcase-media img.image-is-portrait,
+.seller-product-card img.image-is-portrait{
+  object-fit:contain;
+  object-position:center top;
+  background:linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  padding:8px;
+}
+
 .showcase-badge{
   align-self:flex-start;
   padding:5px 9px;
@@ -4536,6 +4545,53 @@ button:hover,
 }
 
 @media (max-width:720px){
+  #hero-panel,
+  #hero-slideshow,
+  .slide,
+  .slide-shell,
+  .slide-copy,
+  .slide-media,
+  .slide img,
+  .slide video,
+  .slide-placeholder,
+  #products-container,
+  .product-card,
+  .product-gallery,
+  .gallery-stage,
+  .product-content,
+  .product-content-simple,
+  .showcase-card,
+  .showcase-media,
+  .showcase-media img,
+  .showcase-body{
+    touch-action:pan-y;
+  }
+
+  #products-container .product-card,
+  #products-container .product-card *,
+  #market-showcase .showcase-card,
+  #market-showcase .showcase-card *,
+  .showcase-inline .showcase-card,
+  .showcase-inline .showcase-card *{
+    touch-action:pan-y;
+  }
+
+  .showcase-track{
+    touch-action:pan-x pan-y;
+  }
+
+  .gallery-thumbs,
+  .gallery-thumb{
+    touch-action:pan-x;
+  }
+
+  .product-actions,
+  .product-actions *,
+  .action-btn,
+  .button{
+    touch-action:manipulation;
+  }
+
   .product-actions-simple{
     grid-template-columns:1fr;
   }
