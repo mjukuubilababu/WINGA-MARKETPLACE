@@ -318,6 +318,24 @@ test("seller-capable home feed hides the normal footer nav and shows the floatin
   await context.close();
 });
 
+test("logged in sellers can scroll below the hero and still see marketplace rows", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234", {
+    viewport: { width: 390, height: 844 },
+    isMobile: true
+  });
+  await page.goto("/");
+
+  await expect(page.locator("#hero-panel")).toBeVisible();
+  await expect(page.locator("#market-showcase .showcase-card").first()).toBeVisible();
+  await expect(page.locator("#products-container .product-card").first()).toBeVisible();
+
+  const initialY = await page.evaluate(() => window.scrollY);
+  await page.evaluate(() => window.scrollTo(0, 900));
+  await expect.poll(async () => page.evaluate(() => window.scrollY)).toBeGreaterThan(initialY);
+
+  await context.close();
+});
+
 test("seller can post without price and sees negotiation fallback in product management", async ({ browser }) => {
   const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234");
   await page.goto("/");

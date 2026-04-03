@@ -183,6 +183,17 @@
       return section;
     }
 
+    function renderShowcaseTrack(track, items) {
+      if (!track) {
+        return;
+      }
+      const fragment = document.createDocumentFragment();
+      (Array.isArray(items) ? items : []).forEach((product) => {
+        fragment.appendChild(createShowcaseProductCardElement(product));
+      });
+      track.replaceChildren(fragment);
+    }
+
     function createDynamicShowcasePlaceholderElement(index) {
       const section = createElement("section", {
         className: "showcase-inline panel showcase-inline-pending",
@@ -298,7 +309,8 @@
       renderProducts,
       createProductGalleryElement,
       createDynamicShowcasePlaceholderElement,
-      createShowcaseSectionElement
+      createShowcaseSectionElement,
+      renderShowcaseTrack
     };
   }
 

@@ -11,6 +11,10 @@
     } = deps;
 
     function renderBuyButton(product) {
+      const currentUser = getCurrentUser();
+      if (product?.uploadedBy === currentUser) {
+        return "";
+      }
       const canOpenDetail = product?.status === "approved";
       if (!canOpenDetail) {
         return `<button class="action-btn buy-btn is-disabled" type="button" disabled aria-disabled="true">Nunua</button>`;
@@ -94,11 +98,11 @@
 
     function renderMessageSellerButton(product) {
       const currentUser = getCurrentUser();
+      if (product.uploadedBy === currentUser) {
+        return "";
+      }
       if (product.status !== "approved") {
         return `<button class="action-btn chat-btn is-disabled" type="button" disabled aria-disabled="true">Message</button>`;
-      }
-      if (product.uploadedBy === currentUser) {
-        return `<button class="action-btn chat-btn" type="button" data-open-own-messages="${product.id}">Message</button>`;
       }
       if (currentUser && typeof canUseBuyerFeatures === "function" && !canUseBuyerFeatures()) {
         return `<button class="action-btn chat-btn is-disabled" type="button" disabled aria-disabled="true">Admin only</button>`;
@@ -138,16 +142,20 @@
 
     function renderProductActionGroup(product, options = {}) {
       const { requestLabel = "Add to My Requests", extraClass = "" } = options;
+      const buyButton = renderBuyButton(product);
+      const messageButton = renderMessageSellerButton(product);
       const requestButton = renderRequestBoxButton(product, requestLabel);
+      if (!buyButton && !messageButton && !requestButton) {
+        return "";
+      }
       const groupClass = extraClass ? `product-actions product-actions-simple ${extraClass}` : "product-actions product-actions-simple";
+      const primaryActions = [buyButton, messageButton].filter(Boolean).join("");
+      const secondaryActions = requestButton ? `<div class="product-actions-secondary">${requestButton}</div>` : "";
 
       return `
         <div class="${groupClass}">
-          <div class="product-actions-primary">
-            ${renderBuyButton(product)}
-            ${renderMessageSellerButton(product)}
-          </div>
-          <div class="product-actions-secondary">${requestButton}</div>
+          ${primaryActions ? `<div class="product-actions-primary">${primaryActions}</div>` : ""}
+          ${secondaryActions}
         </div>
       `;
     }

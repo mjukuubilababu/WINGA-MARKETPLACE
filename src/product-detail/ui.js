@@ -118,7 +118,8 @@
       copy.appendChild(reviewStack);
 
       const actions = deps.createElement("div", { className: "product-detail-actions" });
-      if (product.status === "approved") {
+      const isOwnProduct = product.uploadedBy === deps.getCurrentUser();
+      if (product.status === "approved" && !isOwnProduct) {
         actions.appendChild(deps.createElement("button", {
           className: "action-btn buy-btn",
           textContent: "Nunua",
@@ -138,7 +139,7 @@
             attributes: { type: "button", "data-detail-repost": product.id }
           }));
         }
-      } else {
+      } else if (!isOwnProduct) {
         actions.append(
           deps.createElement("button", {
             className: "action-btn buy-btn is-disabled",
@@ -152,10 +153,14 @@
           })
         );
       }
-      [deps.renderRequestBoxButton(product), deps.renderWhatsappChatLink(product, "WhatsApp")]
-        .filter(Boolean)
-        .forEach((markup) => actions.appendChild(deps.createFragmentFromMarkup(markup)));
-      copy.appendChild(actions);
+      if (!isOwnProduct) {
+        [deps.renderRequestBoxButton(product), deps.renderWhatsappChatLink(product, "WhatsApp")]
+          .filter(Boolean)
+          .forEach((markup) => actions.appendChild(deps.createFragmentFromMarkup(markup)));
+      }
+      if (actions.childNodes.length > 0) {
+        copy.appendChild(actions);
+      }
 
       const reviewsPanel = deps.createElement("section", { className: "product-detail-reviews-panel" });
       reviewsPanel.appendChild(createDetailSectionHeading("Ratings & Reviews", "Trust from real buyers"));

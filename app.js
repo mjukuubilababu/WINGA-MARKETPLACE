@@ -329,6 +329,7 @@ function toggleMobileCategoryMenu(forceState) {
   searchRuntimeState.isMobileCategoryOpen = nextOpenState;
   if (searchRuntimeState.isMobileCategoryOpen) {
     searchRuntimeState.isMobileSearchOpen = false;
+    searchRuntimeState.isInputFocused = false;
     searchBox.classList.remove("mobile-open");
     searchRuntimeState.mobileCategoryTopValue = "";
     renderFilterCategories();
@@ -383,6 +384,7 @@ function syncBodyScrollLockState() {
 
 function resetTransientChromeState() {
   searchRuntimeState.isMobileSearchOpen = false;
+  searchRuntimeState.isInputFocused = false;
   searchRuntimeState.isMobileCategoryOpen = false;
   searchRuntimeState.mobileCategoryTopValue = "";
   searchRuntimeState.isSearchDropdownDismissed = false;
@@ -402,6 +404,7 @@ function resetTransientChromeState() {
   );
   setMobileHeaderHidden(false, { force: true });
   syncMobileHeaderVisibility(true);
+  syncSearchChromeState();
   syncBodyScrollLockState();
 }
 
@@ -436,6 +439,20 @@ function scheduleSearchDrivenRender(delayMs = 120) {
     searchRuntimeState.renderDebounceTimer = 0;
     scheduleRenderCurrentView();
   }, Math.max(0, Number(delayMs || 0)));
+}
+
+function syncSearchChromeState() {
+  if (!topBar) {
+    return;
+  }
+  const hasSearchValue = Boolean(searchInput?.value?.trim());
+  const isSearchEngaged = Boolean(
+    searchRuntimeState.isInputFocused
+    || hasSearchValue
+    || searchRuntimeState.activeImageSearch?.signature
+    || searchRuntimeState.isMobileSearchOpen
+  );
+  topBar.classList.toggle("search-engaged", isSearchEngaged);
 }
 
 function createId() {
@@ -1850,6 +1867,9 @@ function buildWhatsappHref(phoneNumber, productName = "") {
 }
 
 function renderWhatsappChatLink(product, label = "Chat on WhatsApp") {
+  if (product?.uploadedBy && product.uploadedBy === currentUser) {
+    return "";
+  }
   const whatsappNumber = getProductWhatsappNumber(product);
   if (!whatsappNumber) {
     return "";
@@ -3525,7 +3545,8 @@ const { renderFilterCategories } = window.WingaModules.categories.createCategori
 const {
   renderProducts,
   createShowcaseSectionElement,
-  createDynamicShowcasePlaceholderElement
+  createDynamicShowcasePlaceholderElement,
+  renderShowcaseTrack
 } = window.WingaModules.marketplace.createMarketplaceUiModule({
   createElement,
   createElementFromMarkup,
@@ -3647,6 +3668,7 @@ function normalizeProduct(product) {
       ? AppCore.createProductSearchText({
         name: product.name || "",
         shop: product.shop || "",
+        uploadedBy: product.uploadedBy || "",
         category: product.category || detectCategory(product.name || "")
       })
       : normalizeSearchValue(`${product.name || ""} ${product.shop || ""}`)
@@ -4567,6 +4589,8 @@ searchToggleButton.addEventListener("click", () => {
   if (window.innerWidth <= 720) {
     searchRuntimeState.isMobileSearchOpen = !searchRuntimeState.isMobileSearchOpen;
     searchBox.classList.toggle("mobile-open", searchRuntimeState.isMobileSearchOpen);
+    searchRuntimeState.isInputFocused = searchRuntimeState.isMobileSearchOpen;
+    syncSearchChromeState();
     syncMobileHeaderVisibility(true);
   }
   setCurrentViewState("home");
@@ -4586,6 +4610,8 @@ searchInput.addEventListener("input", () => {
     return;
   }
   searchRuntimeState.isSearchDropdownDismissed = false;
+  searchRuntimeState.isInputFocused = true;
+  syncSearchChromeState();
   noteSearchInterest(searchInput.value);
   scheduleSearchDrivenRender(120);
 });
@@ -4602,7 +4628,21 @@ searchInput.addEventListener("focus", () => {
     return;
   }
   searchRuntimeState.isSearchDropdownDismissed = false;
+  searchRuntimeState.isInputFocused = true;
+  syncSearchChromeState();
   scheduleSearchDrivenRender(0);
+});
+
+searchInput.addEventListener("blur", () => {
+  window.setTimeout(() => {
+    searchRuntimeState.isInputFocused = false;
+    if (!searchInput.value.trim() && !searchRuntimeState.activeImageSearch?.signature) {
+      searchRuntimeState.isMobileSearchOpen = false;
+      searchBox.classList.remove("mobile-open");
+    }
+    syncSearchChromeState();
+    scheduleSearchDrivenRender(0);
+  }, 120);
 });
 
 [filterPriceMinInput, filterPriceMaxInput, filterLocationInput, sortSelect].filter(Boolean).forEach((field) => {
@@ -5226,6 +5266,7 @@ function loginSuccess(username, preferredCategory = "", sessionData = null, opti
   } = options;
   isSessionRestorePending = false;
   searchRuntimeState.isMobileSearchOpen = false;
+  searchRuntimeState.isInputFocused = false;
   searchBox.classList.remove("mobile-open");
   searchRuntimeState.activeImageSearch = null;
   searchRuntimeState.isSearchDropdownDismissed = false;
@@ -5501,7 +5542,37 @@ function hasPrioritySearchResults(resultCount) {
 }
 
 function getSearchDropdownProducts(filteredProducts) {
-  return (filteredProducts || []).slice(0, 8);
+  const immediateItems = Array.isArray(filteredProducts) ? filteredProducts.slice(0, 8) : [];
+  if (immediateItems.length > 0) {
+    return immediateItems;
+  }
+
+  const keyword = searchInput.value.trim();
+  if (!keyword) {
+    return immediateItems;
+  }
+
+  const globalMatches = AppCore.filterProducts
+    ? AppCore.filterProducts({
+      products,
+      keyword,
+      selectedCategory: "all",
+      imageSignature: "",
+      similarityThreshold: 0.72,
+      similarityFn: getImageSimilarityScore
+    })
+    : products.filter((product) => {
+      const normalizedKeyword = normalizeSearchValue(keyword);
+      if (!normalizedKeyword || product?.status !== "approved") {
+        return false;
+      }
+      const haystack = AppCore.createProductSearchText
+        ? AppCore.createProductSearchText(product)
+        : normalizeSearchValue(`${product?.name || ""} ${product?.shop || ""} ${product?.uploadedBy || ""}`);
+      return haystack.includes(normalizedKeyword);
+    });
+
+  return globalMatches.slice(0, 8);
 }
 
 function scrollToProductCard(productId) {
@@ -5524,7 +5595,12 @@ function renderSearchDropdown(filteredProducts, options = {}) {
 
   const { isProfile = false, isUpload = false, isAdminView = false } = options;
   const hasSearchIntent = Boolean(searchInput.value.trim() || searchRuntimeState.activeImageSearch?.signature);
-  const shouldShow = hasSearchIntent && !searchRuntimeState.isSearchDropdownDismissed && !isProfile && !isUpload && !isAdminView;
+  const shouldShow = hasSearchIntent
+    && !searchRuntimeState.isSearchDropdownDismissed
+    && !searchRuntimeState.isMobileCategoryOpen
+    && !isProfile
+    && !isUpload
+    && !isAdminView;
 
   if (!shouldShow) {
     searchDropdown.replaceChildren();
@@ -5582,8 +5658,10 @@ function renderSearchDropdown(filteredProducts, options = {}) {
     button.addEventListener("click", () => {
       const productId = button.dataset.searchResult;
       searchRuntimeState.isSearchDropdownDismissed = true;
+      searchRuntimeState.isInputFocused = false;
       searchDropdown.classList.remove("open");
-      scrollToProductCard(productId);
+      syncSearchChromeState();
+      openProductDetailModal(productId);
     });
   });
 }
@@ -6052,8 +6130,14 @@ function renderMarketShowcase() {
   if (!marketShowcase || !showcaseTrack) {
     return;
   }
-  marketShowcase.style.display = "none";
-  showcaseTrack.replaceChildren();
+  const showcaseItems = getShowcaseProducts();
+  if (!showcaseItems.length) {
+    marketShowcase.style.display = "none";
+    showcaseTrack.replaceChildren();
+    return;
+  }
+  renderShowcaseTrack(showcaseTrack, showcaseItems);
+  marketShowcase.style.display = "block";
 }
 
 function enhanceShowcaseTracks(scope = document) {
@@ -6204,6 +6288,7 @@ function renderCurrentView() {
     }
     syncMobileCategorySheetOffset();
     searchBox.classList.toggle("mobile-open", searchRuntimeState.isMobileSearchOpen);
+    syncSearchChromeState();
     renderImageSearchPreview();
     appContainer.classList.toggle("search-priority-mode", searchPriorityMode);
     productsSummary?.classList.toggle("search-priority-summary", searchPriorityMode);
@@ -6238,6 +6323,7 @@ function renderCurrentView() {
     updateResultsMeta(filteredProducts.length);
     renderMarketShowcase();
     renderProducts(filteredProducts);
+    enhanceShowcaseTracks(marketShowcase);
     enhanceShowcaseTracks(productsContainer);
     renderSearchDropdown(filteredProducts, { isProfile, isUpload, isAdminView });
 

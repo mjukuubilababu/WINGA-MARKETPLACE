@@ -14,6 +14,7 @@
       search: {
         activeImageSearch: null,
         isSearchDropdownDismissed: false,
+        isInputFocused: false,
         isMobileSearchOpen: false,
         isMobileCategoryOpen: false,
         mobileCategoryTopValue: "",

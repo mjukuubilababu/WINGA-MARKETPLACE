@@ -4,6 +4,9 @@
       if (!deps.isAuthenticatedUser()) {
         return false;
       }
+      if (deps.canUseSellerFeatures() && !deps.isStaffUser()) {
+        return false;
+      }
       if (deps.isBuyerUser() && !deps.canUseSellerFeatures()) {
         return false;
       }
@@ -136,6 +139,10 @@
       }
       if (viewHomeBackButton) {
         viewHomeBackButton.style.display = shouldShowViewHomeBack() ? "inline-flex" : "none";
+        const shouldUseFloatingStyle = deps.canUseSellerFeatures()
+          && !deps.isStaffUser()
+          && (deps.getCurrentView() === "profile" || deps.getCurrentView() === "upload");
+        viewHomeBackButton.classList.toggle("seller-home-fab", shouldUseFloatingStyle);
       }
       syncMobileHeaderVisibility(true);
     }

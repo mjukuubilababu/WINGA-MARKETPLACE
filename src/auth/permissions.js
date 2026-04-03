@@ -28,7 +28,7 @@
     }
 
     function shouldHideOwnProductsInMarketplace() {
-      return isAuthenticatedUser() && canUseSellerFeatures() && getCurrentView() === "home";
+      return false;
     }
 
     function isMarketplaceBrowseCandidate(product, options = {}) {

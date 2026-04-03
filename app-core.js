@@ -103,6 +103,9 @@
     const tokenSet = buildNormalizedTokenSet(
       product?.name || "",
       product?.shop || "",
+      product?.uploadedBy || "",
+      product?.sellerName || "",
+      product?.fullName || "",
       getCategorySearchTerms(product?.category || "")
     );
     return Array.from(tokenSet).join(" ");

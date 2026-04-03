@@ -142,6 +142,57 @@ test("filterProducts respects new lifestyle categories like sherehe and casual",
   assert.equal(casualResult[0].id, "casual");
 });
 
+test("filterProducts matches shop and seller search terms", () => {
+  const products = [
+    {
+      id: "shop-1",
+      name: "Gauni la harusi",
+      shop: "Asha Boutique",
+      uploadedBy: "asha_seller",
+      category: "wanawake-gauni",
+      status: "approved",
+      availability: "available",
+      _searchText: createProductSearchText({
+        name: "Gauni la harusi",
+        shop: "Asha Boutique",
+        uploadedBy: "asha_seller",
+        category: "wanawake-gauni"
+      })
+    },
+    {
+      id: "shop-2",
+      name: "Kiatu cha ngozi",
+      shop: "Musa Footwear",
+      uploadedBy: "musa_store",
+      category: "viatu",
+      status: "approved",
+      availability: "available",
+      _searchText: createProductSearchText({
+        name: "Kiatu cha ngozi",
+        shop: "Musa Footwear",
+        uploadedBy: "musa_store",
+        category: "viatu"
+      })
+    }
+  ];
+
+  const shopResult = filterProducts({
+    products,
+    keyword: "Asha Boutique",
+    selectedCategory: "all"
+  });
+  const sellerResult = filterProducts({
+    products,
+    keyword: "musa_store",
+    selectedCategory: "all"
+  });
+
+  assert.equal(shopResult.length, 1);
+  assert.equal(shopResult[0].id, "shop-1");
+  assert.equal(sellerResult.length, 1);
+  assert.equal(sellerResult[0].id, "shop-2");
+});
+
 test("filterProducts ranks image matches by similarity", () => {
   const products = [
     { id: "1", name: "One", shop: "Shop", category: "viatu", status: "approved", availability: "available", imageSignature: "1111", _searchText: "one shop" },
