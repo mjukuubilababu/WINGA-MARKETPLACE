@@ -554,6 +554,16 @@ test("vertical page scroll still works while the pointer is over showcase rows",
   await context.close();
 });
 
+test("marketplace cards keep verified copy out of compact card surfaces", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234");
+  await page.goto("/");
+
+  await expect(page.locator("#market-showcase")).not.toContainText("Muuzaji Aliyethibitishwa");
+  await expect(page.locator("#products-container")).not.toContainText("Muuzaji Aliyethibitishwa");
+
+  await context.close();
+});
+
 test("recommendation cards also support add-to-requests for seller-buyer sessions", async ({ browser }) => {
   const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234");
   await page.goto("/");

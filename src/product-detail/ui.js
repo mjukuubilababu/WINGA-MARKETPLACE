@@ -200,7 +200,7 @@
             deps.createElement("strong", { textContent: deps.formatProductPrice(item.price) }),
             deps.createElement("span", { textContent: item.name || "" })
           );
-          const itemTrustBadges = deps.renderMarketplaceTrustBadges?.(item);
+          const itemTrustBadges = deps.renderMarketplaceTrustBadges?.(item, { hideVerifiedBadge: true });
           if (itemTrustBadges) {
             card.appendChild(deps.createFragmentFromMarkup(itemTrustBadges));
           }

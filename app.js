@@ -2973,14 +2973,17 @@ function openOwnProductMessages(productId) {
   return openOwnProductMessagesFromController(productId);
 }
 
-function renderMarketplaceTrustBadges(product) {
+function renderMarketplaceTrustBadges(product, options = {}) {
+  const {
+    hideVerifiedBadge = false
+  } = options;
   const owner = getMarketplaceUser(product.uploadedBy);
   if (!owner) {
     return "";
   }
 
   const badges = [];
-  if (owner.verifiedSeller) {
+  if (owner.verifiedSeller && !hideVerifiedBadge) {
     badges.push(`<span class="status-pill approved">Muuzaji Aliyethibitishwa</span>`);
   }
   if (owner.status === "flagged") {
@@ -5941,7 +5944,7 @@ function renderDiscoveryProductCards(items, options = {}) {
             <strong>${formatProductPrice(item.price)}</strong>
             <span>${safeName}</span>
             <span>${safeCategory}</span>
-            ${renderMarketplaceTrustBadges(item)}
+            ${renderMarketplaceTrustBadges(item, { hideVerifiedBadge: true })}
             ${promotion ? `<p class="product-meta trust-badges"><span class="status-pill approved sponsored-pill">${escapeHtml(getPromotionLabel(promotion.type))}</span></p>` : ""}
             ${renderProductActionGroup(item, { requestLabel: "Add to My Requests", extraClass: "seller-product-actions" })}
           </article>

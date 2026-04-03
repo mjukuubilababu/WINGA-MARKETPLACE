@@ -88,7 +88,7 @@
         className: "product-category-line",
         textContent: deps.getCategoryLabel(product.category)
       }));
-      const trustBadges = deps.renderMarketplaceTrustBadges?.(product);
+      const trustBadges = deps.renderMarketplaceTrustBadges?.(product, { hideVerifiedBadge: true });
       if (trustBadges) {
         content.appendChild(createFragmentFromMarkup(trustBadges));
       }
@@ -143,7 +143,7 @@
           textContent: deps.getCategoryLabel(product.category)
         })
       );
-      const trustBadges = deps.renderMarketplaceTrustBadges?.(product);
+      const trustBadges = deps.renderMarketplaceTrustBadges?.(product, { hideVerifiedBadge: true });
       if (trustBadges) {
         body.appendChild(createFragmentFromMarkup(trustBadges));
       }
