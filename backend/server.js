@@ -817,6 +817,14 @@ function sanitizeAdminUser(user) {
 
 function sanitizeVisibleProduct(product, viewer = null, storeRef = null) {
   const normalizedProduct = normalizeProductRecord(product);
+  const imageArchives = Array.isArray(normalizedProduct.imageArchives) ? normalizedProduct.imageArchives : [];
+  const deliveredImages = (Array.isArray(normalizedProduct.images) ? normalizedProduct.images : [])
+    .map((image, index) => resolveProductImageForDelivery(image, imageArchives[index] || ""))
+    .filter(Boolean);
+  const deliveredPrimaryImage = resolveProductImageForDelivery(
+    normalizedProduct.image || deliveredImages[0] || "",
+    imageArchives[0] || ""
+  );
   const isStaffViewer = Boolean(viewer && isStaffRole(viewer.role));
   const isOwner = Boolean(viewer && normalizedProduct.uploadedBy === viewer.username);
   const canSeeModerationData = isStaffViewer || isOwner;
@@ -828,6 +836,8 @@ function sanitizeVisibleProduct(product, viewer = null, storeRef = null) {
 
   const safeProduct = {
     ...normalizedProduct,
+    image: deliveredPrimaryImage || deliveredImages[0] || "",
+    images: deliveredImages.length ? deliveredImages : [deliveredPrimaryImage].filter(Boolean),
     whatsapp: normalizedProduct.whatsapp || String(owner?.whatsappNumber || owner?.phoneNumber || "").replace(/\D/g, "").slice(0, 20)
   };
   if (!canSeeModerationData) {
@@ -840,6 +850,7 @@ function sanitizeVisibleProduct(product, viewer = null, storeRef = null) {
     safeProduct.resalePrice = null;
     safeProduct.resoldStatus = "original";
   }
+  delete safeProduct.imageArchives;
   return safeProduct;
 }
 
@@ -1358,6 +1369,18 @@ function getMimeExtension(mimeType) {
   return knownExtensions[mimeType] || "";
 }
 
+function getMimeTypeFromExtension(extension) {
+  const normalized = String(extension || "").toLowerCase();
+  const knownTypes = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+    ".gif": "image/gif"
+  };
+  return knownTypes[normalized] || "";
+}
+
 function normalizeStoredImageReference(value) {
   if (typeof value !== "string" || !value) {
     return value;
@@ -1401,12 +1424,56 @@ function saveDataUrlImage(value) {
   return `/uploads/${fileName}`;
 }
 
+function buildPersistentImageArchive(value) {
+  if (isValidPrivateImageValue(value)) {
+    return value;
+  }
+
+  const normalizedValue = normalizeStoredImageReference(value);
+  const filePath = getLocalUploadFilePath(normalizedValue);
+  if (!filePath || !fs.existsSync(filePath)) {
+    return "";
+  }
+
+  const mimeType = getMimeTypeFromExtension(path.extname(filePath));
+  if (!mimeType) {
+    return "";
+  }
+
+  const buffer = fs.readFileSync(filePath);
+  return `data:${mimeType};base64,${buffer.toString("base64")}`;
+}
+
+function resolveProductImageForDelivery(value, archiveValue) {
+  const normalizedValue = normalizeStoredImageReference(value);
+  if (typeof normalizedValue === "string" && normalizedValue.startsWith("/uploads/")) {
+    const filePath = getLocalUploadFilePath(normalizedValue);
+    if (!filePath || !fs.existsSync(filePath)) {
+      return isValidPrivateImageValue(archiveValue) ? archiveValue : normalizedValue;
+    }
+  }
+  return normalizedValue;
+}
+
 function normalizeProductImages(product) {
-  const images = Array.isArray(product.images) ? product.images.map(saveDataUrlImage) : [];
+  const sourceImages = Array.isArray(product.images) ? product.images : [];
+  const existingArchives = Array.isArray(product.imageArchives)
+    ? product.imageArchives.map((value) => (isValidPrivateImageValue(value) ? value : ""))
+    : [];
+  const images = sourceImages.map(saveDataUrlImage);
+  const imageArchives = images.map((image, index) => {
+    const sourceImage = sourceImages[index] || "";
+    const existingArchive = existingArchives[index] || "";
+    const preferredArchiveSource = isValidPrivateImageValue(sourceImage)
+      ? sourceImage
+      : (existingArchive || sourceImage || image);
+    return buildPersistentImageArchive(preferredArchiveSource);
+  });
   return {
     ...product,
     images,
-    image: images[0] || normalizeStoredImageReference(product.image) || ""
+    image: images[0] || normalizeStoredImageReference(product.image) || "",
+    imageArchives
   };
 }
 
@@ -1473,8 +1540,10 @@ function migrateLegacyStore(store) {
   const migratedProducts = rawProducts.map((product) => {
     const originalImages = Array.isArray(product.images) ? product.images : [];
     const originalImage = product.image || "";
+    const originalArchives = Array.isArray(product.imageArchives) ? product.imageArchives : [];
     const normalizedProduct = normalizeProductRecord(normalizeProductImages(product));
     const imagesChanged = JSON.stringify(normalizedProduct.images) !== JSON.stringify(originalImages);
+    const archivesChanged = JSON.stringify(normalizedProduct.imageArchives || []) !== JSON.stringify(originalArchives);
     const imageChanged = normalizedProduct.image !== originalImage
       || normalizedProduct.status !== product.status
       || normalizedProduct.moderationNote !== (product.moderationNote || "")
@@ -1482,7 +1551,7 @@ function migrateLegacyStore(store) {
       || normalizedProduct.moderatedAt !== (product.moderatedAt || "")
       || normalizedProduct.moderatedBy !== (product.moderatedBy || "");
 
-    if (imagesChanged || imageChanged) {
+    if (imagesChanged || archivesChanged || imageChanged) {
       didChange = true;
     }
 
@@ -2637,7 +2706,7 @@ http.createServer(async (req, res) => {
     if (req.method === "GET" && url.pathname === "/api/bootstrap") {
       sendJson(res, 200, {
         categories: store.categories || [],
-        products: (store.products || []).filter((product) => product.status === "approved")
+        products: buildVisibleProducts(store, null)
       });
       return;
     }

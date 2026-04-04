@@ -202,6 +202,27 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   });
   assert.equal(productCreate.response.status, 200);
   assert.equal(productCreate.body.status, "approved");
+  assert.match(productCreate.body.image, /^\/uploads\//);
+
+  const uploadedProductImagePath = path.join(tempRoot, "uploads", path.basename(productCreate.body.image));
+  fs.rmSync(uploadedProductImagePath, { force: true });
+
+  const visibleProductsAfterUploadLoss = await request("/products", {
+    headers: {
+      Authorization: `Bearer ${buyerToken}`
+    }
+  });
+  assert.equal(visibleProductsAfterUploadLoss.response.status, 200);
+  const recoveredProduct = visibleProductsAfterUploadLoss.body.find((product) => product.id === "product-test-001");
+  assert.ok(recoveredProduct, "Recovered product should still be visible after upload file loss.");
+  assert.match(recoveredProduct.image, /^data:image\//);
+  assert.match(recoveredProduct.images[0], /^data:image\//);
+
+  const bootstrapAfterUploadLoss = await request("/bootstrap");
+  assert.equal(bootstrapAfterUploadLoss.response.status, 200);
+  const bootstrapRecoveredProduct = bootstrapAfterUploadLoss.body.products.find((product) => product.id === "product-test-001");
+  assert.ok(bootstrapRecoveredProduct, "Bootstrap should still include recovered product imagery.");
+  assert.match(bootstrapRecoveredProduct.image, /^data:image\//);
 
   const sameSellerDuplicatePost = await request("/products", {
     method: "POST",
