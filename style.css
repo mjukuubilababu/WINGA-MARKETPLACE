@@ -2524,6 +2524,60 @@ img[data-zoom-src]{
   flex-wrap:wrap;
 }
 
+.seller-trust-panel{
+  display:grid;
+  gap:10px;
+  margin-top:6px;
+  padding:14px 16px;
+  border:1px solid rgba(210, 162, 122, 0.22);
+  border-radius:18px;
+  background:linear-gradient(180deg, #fffdfb 0%, #fff7f0 100%);
+}
+
+.seller-trust-heading{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:10px;
+}
+
+.seller-trust-heading strong{
+  display:block;
+  color:var(--accent-deep);
+}
+
+.seller-trust-badges{
+  gap:7px;
+}
+
+.seller-trust-copy{
+  margin:0;
+}
+
+.seller-trust-actions{
+  display:flex;
+  flex-wrap:wrap;
+  gap:12px;
+}
+
+.trust-link-btn{
+  padding:0;
+  border:none;
+  background:transparent;
+  color:var(--accent);
+  font-size:0.84rem;
+  font-weight:800;
+  letter-spacing:0.01em;
+  cursor:pointer;
+}
+
+.trust-link-btn:hover,
+.trust-link-btn:focus-visible{
+  color:var(--accent-deep);
+  text-decoration:underline;
+  outline:none;
+}
+
 .product-summary-row{
   display:flex;
   flex-wrap:wrap;
@@ -3077,6 +3131,23 @@ body.product-detail-open{
   display:grid;
   gap:8px;
   padding-top:8px;
+}
+
+.profile-trust-block{
+  margin:4px 0 0;
+  padding:14px;
+  border:1px solid rgba(210, 162, 122, 0.22);
+  border-radius:16px;
+  background:#fff9f3;
+}
+
+.profile-trust-block strong{
+  display:block;
+  color:var(--accent-deep);
+}
+
+.profile-trust-facts{
+  margin-top:10px;
 }
 
 .admin-verification-preview{
@@ -4712,6 +4783,82 @@ body.product-detail-open #view-home-back{
   display:flex;
   gap:10px;
   flex-wrap:wrap;
+}
+
+#trust-report-modal{
+  position:fixed;
+  inset:0;
+  z-index:1520;
+}
+
+.trust-report-backdrop{
+  position:absolute;
+  inset:0;
+  background:rgba(15, 23, 42, 0.44);
+  backdrop-filter:blur(4px);
+}
+
+.trust-report-dialog{
+  position:relative;
+  z-index:1;
+  width:min(520px, calc(100vw - 24px));
+  margin:min(8vh, 56px) auto 0;
+  padding:22px 20px 18px;
+}
+
+.trust-report-close{
+  position:absolute;
+  top:12px;
+  right:12px;
+  width:36px;
+  height:36px;
+  border:none;
+  border-radius:999px;
+  background:#fff3ea;
+  color:var(--accent-deep);
+  font-size:1.35rem;
+  cursor:pointer;
+}
+
+.trust-report-shell{
+  display:grid;
+  gap:14px;
+}
+
+.trust-report-reasons{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+}
+
+.trust-report-reason-chip{
+  min-height:38px;
+  padding:0 14px;
+  border:1px solid rgba(210, 162, 122, 0.28);
+  border-radius:999px;
+  background:#fff;
+  color:var(--secondary);
+  font-size:0.84rem;
+  font-weight:700;
+  cursor:pointer;
+}
+
+.trust-report-reason-chip.active{
+  border-color:rgba(255, 106, 0, 0.42);
+  background:#fff1e5;
+  color:var(--accent-deep);
+}
+
+.trust-report-textarea{
+  width:100%;
+  min-height:110px;
+  resize:vertical;
+}
+
+.trust-report-actions{
+  display:flex;
+  flex-wrap:wrap;
+  gap:10px;
 }
 
 #profile-logout-button{

@@ -232,6 +232,38 @@
         })
       );
       whatsappWrap.appendChild(whatsappForm);
+
+      if (userProfile?.role === "seller") {
+        const trustBlock = deps.createElement("div", { className: "profile-trust-block" });
+        trustBlock.append(
+          deps.createElement("strong", { textContent: "Trust profile" }),
+          deps.createElement("p", {
+            className: "auth-note",
+            textContent: "Signals buyers see before they decide to message or buy."
+          })
+        );
+
+        const trustFacts = deps.createElement("div", { className: "trust-badges profile-trust-facts" });
+        if (userProfile?.verifiedSeller) {
+          trustFacts.appendChild(deps.createStatusPill("Verified seller", "approved"));
+        }
+        if ((context.whatsappVerificationStatus || "verified") === "verified" && (context.whatsappNumber || userProfile?.phoneNumber)) {
+          trustFacts.appendChild(deps.createStatusPill("WhatsApp verified", "approved"));
+        }
+        const joinedLabel = deps.formatMemberSinceLabel?.(userProfile?.createdAt || userProfile?.verificationSubmittedAt || "");
+        if (joinedLabel) {
+          trustFacts.appendChild(deps.createStatusPill(joinedLabel));
+        }
+        const sellerSummary = deps.getSellerReviewSummary?.(userProfile?.username || "");
+        if (Number(sellerSummary?.totalReviews || 0) > 0) {
+          trustFacts.appendChild(deps.createStatusPill(`${sellerSummary.averageRating.toFixed(1)} seller rating`));
+        }
+        if (trustFacts.childNodes.length) {
+          trustBlock.appendChild(trustFacts);
+        }
+        copy.appendChild(trustBlock);
+      }
+
       copy.append(
         whatsappWrap,
         deps.createElement("label", {

@@ -195,6 +195,11 @@
         copy.appendChild(deps.createFragmentFromMarkup(trustBadges));
       }
 
+      const sellerTrustPanel = deps.renderSellerTrustPanel?.(product);
+      if (sellerTrustPanel) {
+        copy.appendChild(deps.createFragmentFromMarkup(sellerTrustPanel));
+      }
+
       const reviewStack = deps.createElement("div", { className: "product-detail-review-stack" });
       [productReviewSummaryMarkup, sellerReviewSummaryMarkup].filter(Boolean).forEach((markup) => {
         reviewStack.appendChild(deps.createFragmentFromMarkup(markup));

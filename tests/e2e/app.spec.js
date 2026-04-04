@@ -993,6 +993,49 @@ test("buyer-side action buttons still work inside deeper product continuation ca
   await context.close();
 });
 
+test("seller profile and product detail show clean trust indicators", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234");
+  await page.goto("/");
+
+  await page.locator("#header-user-trigger").click();
+  await page.locator("[data-header-menu-action='profile']").click();
+  const trustBlock = page.locator("#profile-identity-card .profile-trust-block");
+  await expect(trustBlock).toBeVisible();
+  await expect(trustBlock).toContainText("Trust profile");
+  await expect(trustBlock).toContainText(/Member since|Verified seller|WhatsApp verified/);
+
+  await page.locator("#view-home-back").click();
+  await expect(page.locator("#products-container .product-card").first()).toBeVisible();
+  await page.locator("#products-container .product-card").first().click();
+  const detailTrustPanel = page.locator("#product-detail-modal .seller-trust-panel");
+  await expect(detailTrustPanel).toBeVisible();
+  await expect(detailTrustPanel).toContainText("Trust & Safety");
+  await expect(detailTrustPanel).toContainText(/Member since|seller rating|Verified Seller/);
+
+  await context.close();
+});
+
+test("buyer can report a product from the trust panel without breaking browsing flow", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234");
+  await page.goto("/");
+  await expect(page.locator("#products-container .product-card").first()).toBeVisible({ timeout: 30000 });
+
+  await page.locator("#products-container .product-card").first().click();
+  await expect(page.locator("#product-detail-modal")).toBeVisible();
+
+  await page.locator("#product-detail-modal [data-report-product]").first().click();
+  const modal = page.locator("#trust-report-modal");
+  await expect(modal).toBeVisible();
+  await modal.locator("[data-trust-report-reason='wrong_photos']").click();
+  await modal.locator("#trust-report-description").fill("Photos and details do not match what a buyer would expect.");
+  await modal.locator("[data-submit-trust-report='true']").click();
+
+  await expect(page.locator("#notification-toast-root")).toContainText("Report submitted");
+  await expect(page.locator("#product-detail-modal")).toBeVisible();
+
+  await context.close();
+});
+
 test("product detail keeps same-seller continuation and broader discovery surfaces available", async ({ browser }) => {
   const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234");
   await page.goto("/");

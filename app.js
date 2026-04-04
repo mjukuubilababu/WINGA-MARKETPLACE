@@ -3265,6 +3265,346 @@ function renderMarketplaceTrustBadges(product, options = {}) {
   return `<p class="product-meta trust-badges">${badges.join(" ")}</p>`;
 }
 
+function formatMemberSinceLabel(value) {
+  if (!value) {
+    return "";
+  }
+  const timestamp = new Date(value).getTime();
+  if (!Number.isFinite(timestamp) || timestamp <= 0) {
+    return "";
+  }
+  return `Member since ${new Date(timestamp).toLocaleDateString("en-GB", {
+    month: "short",
+    year: "numeric"
+  })}`;
+}
+
+function getSellerTrustSnapshot(username) {
+  const seller = getMarketplaceUser(username);
+  if (!seller) {
+    return null;
+  }
+  const reviewSummary = getSellerReviewSummary(username) || {};
+  return {
+    seller,
+    joinedLabel: formatMemberSinceLabel(seller.createdAt || seller.verificationSubmittedAt || ""),
+    ratingLabel: Number(reviewSummary.totalReviews || 0) > 0
+      ? `${reviewSummary.averageRating.toFixed(1)} seller rating`
+      : "",
+    reviewCountLabel: Number(reviewSummary.totalReviews || 0) > 0
+      ? `${reviewSummary.totalReviews} review${reviewSummary.totalReviews === 1 ? "" : "s"}`
+      : "",
+    verificationLabel: seller.verifiedSeller ? "Verified seller" : getVerificationStatusLabel(seller.verificationStatus || "pending"),
+    whatsappLabel: seller.whatsappVerificationStatus === "verified" && normalizeWhatsapp(seller.whatsappNumber || seller.phoneNumber || "")
+      ? "WhatsApp verified"
+      : ""
+  };
+}
+
+function renderSellerTrustPanel(product) {
+  const trust = getSellerTrustSnapshot(product?.uploadedBy);
+  if (!trust) {
+    return "";
+  }
+  const sellerName = escapeHtml(getUserDisplayName(product.uploadedBy, {
+    fallback: product?.shop || product?.uploadedBy || "Seller"
+  }));
+  const trustBadges = [];
+  if (trust.seller.verifiedSeller) {
+    trustBadges.push(`<span class="status-pill approved">Verified Seller</span>`);
+  }
+  if (trust.whatsappLabel) {
+    trustBadges.push(`<span class="status-pill approved">${escapeHtml(trust.whatsappLabel)}</span>`);
+  }
+  if (trust.ratingLabel) {
+    trustBadges.push(`<span class="status-pill">${escapeHtml(trust.ratingLabel)}</span>`);
+  }
+  if (trust.seller.status === "flagged") {
+    trustBadges.push(`<span class="status-pill pending">Under review</span>`);
+  }
+
+  const factLines = [trust.joinedLabel, trust.reviewCountLabel].filter(Boolean);
+  const showReportActions = Boolean(product?.id && product?.uploadedBy && product.uploadedBy !== currentUser);
+
+  return `
+    <section class="seller-trust-panel">
+      <div class="seller-trust-heading">
+        <div>
+          <p class="eyebrow">Trust & Safety</p>
+          <strong>${sellerName}</strong>
+        </div>
+      </div>
+      ${trustBadges.length ? `<div class="trust-badges seller-trust-badges">${trustBadges.join("")}</div>` : ""}
+      ${factLines.length ? `<p class="product-meta seller-trust-copy">${escapeHtml(factLines.join(" | "))}</p>` : ""}
+      ${showReportActions ? `
+        <div class="seller-trust-actions">
+          <button class="trust-link-btn" type="button" data-report-product="${product.id}">Report product</button>
+          <button class="trust-link-btn" type="button" data-report-seller="${product.uploadedBy}" data-report-product-context="${product.id}">Report seller</button>
+        </div>
+      ` : ""}
+    </section>
+  `;
+}
+
+const TRUST_REPORT_REASON_OPTIONS = [
+  { id: "fake_item", label: "Fake or misleading item" },
+  { id: "unsafe", label: "Unsafe or suspicious" },
+  { id: "wrong_photos", label: "Wrong photos or details" },
+  { id: "abuse", label: "Abuse or harassment" },
+  { id: "other", label: "Other concern" }
+];
+
+let trustReportState = {
+  targetType: "product",
+  targetUserId: "",
+  targetProductId: "",
+  reason: "fake_item",
+  title: "",
+  subtitle: "",
+  loading: false
+};
+
+function ensureTrustReportModal() {
+  let root = document.getElementById("trust-report-modal");
+  if (root) {
+    return root;
+  }
+  root = createElement("div", {
+    attributes: {
+      id: "trust-report-modal",
+      hidden: "true"
+    }
+  });
+  root.innerHTML = `
+    <div class="trust-report-backdrop" data-close-trust-report="true"></div>
+    <div class="trust-report-dialog panel" role="dialog" aria-modal="true" aria-labelledby="trust-report-title">
+      <button class="trust-report-close" type="button" aria-label="Close report flow" data-close-trust-report="true">&times;</button>
+      <div class="trust-report-body" data-trust-report-body="true"></div>
+    </div>
+  `;
+  root.addEventListener("click", (event) => {
+    if (event.target.closest("[data-close-trust-report='true']")) {
+      closeTrustReportModal();
+      return;
+    }
+    const reasonButton = event.target.closest("[data-trust-report-reason]");
+    if (reasonButton) {
+      trustReportState.reason = reasonButton.dataset.trustReportReason || "other";
+      renderTrustReportModal();
+      return;
+    }
+    if (event.target.closest("[data-submit-trust-report='true']")) {
+      submitTrustReport().catch((error) => {
+        captureClientError("trust_report_submit_failed", error, {
+          targetType: trustReportState.targetType,
+          targetUserId: trustReportState.targetUserId,
+          targetProductId: trustReportState.targetProductId
+        });
+        showInAppNotification({
+          title: "Report failed",
+          body: error.message || "Imeshindikana kutuma report yako kwa sasa.",
+          variant: "error"
+        });
+        trustReportState.loading = false;
+        renderTrustReportModal();
+      });
+    }
+  });
+  root.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      closeTrustReportModal();
+    }
+  });
+  document.body.appendChild(root);
+  return root;
+}
+
+function closeTrustReportModal() {
+  const root = document.getElementById("trust-report-modal");
+  if (!root) {
+    return;
+  }
+  root.hidden = true;
+  root.classList.remove("open");
+  trustReportState = {
+    targetType: "product",
+    targetUserId: "",
+    targetProductId: "",
+    reason: "fake_item",
+    title: "",
+    subtitle: "",
+    loading: false
+  };
+  root.querySelector("[data-trust-report-body='true']")?.replaceChildren();
+}
+
+function renderTrustReportModal() {
+  const root = ensureTrustReportModal();
+  const body = root.querySelector("[data-trust-report-body='true']");
+  if (!body) {
+    return;
+  }
+  const wrapper = createElement("div", { className: "trust-report-shell" });
+  wrapper.append(
+    createElement("p", { className: "eyebrow", textContent: "Trust & Safety" }),
+    createElement("h3", {
+      textContent: trustReportState.title || "Report this listing",
+      attributes: { id: "trust-report-title" }
+    }),
+    createElement("p", {
+      className: "product-meta",
+      textContent: trustReportState.subtitle || "Help Winga review suspicious marketplace behavior."
+    })
+  );
+
+  const reasons = createElement("div", { className: "trust-report-reasons" });
+  TRUST_REPORT_REASON_OPTIONS.forEach((option) => {
+    reasons.appendChild(createElement("button", {
+      className: `trust-report-reason-chip${trustReportState.reason === option.id ? " active" : ""}`,
+      textContent: option.label,
+      attributes: {
+        type: "button",
+        "data-trust-report-reason": option.id
+      }
+    }));
+  });
+
+  const description = createElement("textarea", {
+    className: "trust-report-textarea",
+    attributes: {
+      id: "trust-report-description",
+      rows: "4",
+      maxlength: "500",
+      placeholder: "Share short details to help review this safely."
+    }
+  });
+
+  const footer = createElement("div", { className: "trust-report-actions" });
+  const submitButton = createElement("button", {
+    className: "action-btn buy-btn",
+    textContent: trustReportState.loading ? "Submitting..." : "Submit report",
+    attributes: {
+      type: "button",
+      "data-submit-trust-report": "true"
+    }
+  });
+  if (trustReportState.loading) {
+    submitButton.disabled = true;
+    description.disabled = true;
+  }
+  footer.append(
+    submitButton,
+    createElement("button", {
+      className: "action-btn action-btn-secondary",
+      textContent: "Cancel",
+      attributes: {
+        type: "button",
+        "data-close-trust-report": "true"
+      }
+    })
+  );
+
+  wrapper.append(reasons, description, footer);
+  body.replaceChildren(wrapper);
+  root.hidden = false;
+  root.classList.add("open");
+  description.focus();
+}
+
+async function submitTrustReport() {
+  const descriptionNode = document.getElementById("trust-report-description");
+  const description = String(descriptionNode?.value || "").trim();
+  const chosenReason = TRUST_REPORT_REASON_OPTIONS.find((option) => option.id === trustReportState.reason);
+  trustReportState.loading = true;
+  renderTrustReportModal();
+  await window.WingaDataLayer.createReport({
+    targetType: trustReportState.targetType,
+    targetUserId: trustReportState.targetType === "user" ? trustReportState.targetUserId : "",
+    targetProductId: trustReportState.targetType === "product" ? trustReportState.targetProductId : "",
+    reason: chosenReason?.label || "Other concern",
+    description: description || "User submitted a trust and safety report."
+  });
+  showInAppNotification({
+    title: "Report submitted",
+    body: "Asante. Winga team ita-review report hii kwa usalama.",
+    variant: "success"
+  });
+  closeTrustReportModal();
+}
+
+function openTrustReportModal(config = {}) {
+  if (!isAuthenticatedUser()) {
+    promptGuestAuth({
+      preferredMode: "signup",
+      role: "buyer",
+      title: "Sign in to report safely",
+      message: "Open an account first so Winga can track and review safety reports properly."
+    });
+    return;
+  }
+  if (!canUseBuyerFeatures()) {
+    showInAppNotification({
+      title: "Buyer access needed",
+      body: "Reporting is available on buyer-enabled accounts only.",
+      variant: "warning"
+    });
+    return;
+  }
+  trustReportState = {
+    targetType: config.targetType === "user" ? "user" : "product",
+    targetUserId: config.targetUserId || "",
+    targetProductId: config.targetProductId || "",
+    reason: "fake_item",
+    title: config.title || "Report this listing",
+    subtitle: config.subtitle || "Tell Winga what looks unsafe or misleading.",
+    loading: false
+  };
+  renderTrustReportModal();
+}
+
+function bindTrustReportEntryActions() {
+  if (document.body?.dataset.trustReportBound === "true") {
+    return;
+  }
+  document.body.dataset.trustReportBound = "true";
+  document.addEventListener("click", (event) => {
+    const productButton = event.target.closest("[data-report-product]");
+    if (productButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      const product = getProductById(productButton.dataset.reportProduct || "");
+      if (!product) {
+        return;
+      }
+      openTrustReportModal({
+        targetType: "product",
+        targetProductId: product.id,
+        title: "Report this product",
+        subtitle: `Help Winga review ${getUserDisplayName(product.uploadedBy, { fallback: product.shop || product.uploadedBy || "this seller" })}'s listing safely.`
+      });
+      return;
+    }
+
+    const sellerButton = event.target.closest("[data-report-seller]");
+    if (sellerButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      const username = sellerButton.dataset.reportSeller || "";
+      const productContext = sellerButton.dataset.reportProductContext || "";
+      if (!username) {
+        return;
+      }
+      openTrustReportModal({
+        targetType: "user",
+        targetUserId: username,
+        targetProductId: productContext,
+        title: "Report this seller",
+        subtitle: `Winga will review the seller account for fraud, abuse, or misleading behavior.`
+      });
+    }
+  }, true);
+}
+
 const {
   renderStars,
   getProductReviewSummary,
@@ -3474,7 +3814,9 @@ const {
   renderPromoteButton,
   renderSellerSoldOutButton,
   renderWhatsappChatLink,
-  renderProductOverflowMenu
+  renderProductOverflowMenu,
+  getSellerReviewSummary,
+  formatMemberSinceLabel
 });
 
 const {
@@ -3589,6 +3931,7 @@ const {
   canRepostProduct: (product) => canRepostProductAsSeller(product),
   renderProductActionGroup,
   renderMarketplaceTrustBadges,
+  renderSellerTrustPanel,
   renderDiscoveryProductCards
 });
 
@@ -8219,6 +8562,7 @@ slideNextButton.addEventListener("click", () => {
 });
 
 bindMarketplaceCardActions();
+bindTrustReportEntryActions();
 bindImageActionInteractions();
 bindImageZoomInteractions();
 
