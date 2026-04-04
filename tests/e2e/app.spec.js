@@ -391,7 +391,11 @@ test("seller can post without price and sees negotiation fallback in product man
   await page.locator("#header-user-trigger").click();
   await page.locator("[data-header-menu-action='profile']").click();
   await expect(page.locator("#user-products-container")).toContainText("Bidhaa ya maelewano");
-  await expect(page.locator("#user-products-container")).toContainText("Bei kwa maelewano");
+  await expect(page.locator("#user-products-container .profile-product-card").first()).toBeVisible();
+  await expect(page.locator("#user-products-container .profile-product-stage").first()).toBeVisible();
+  await page.locator("#user-products-container .profile-product-card", { hasText: "Bidhaa ya maelewano" }).first().click();
+  await expect(page.locator("#product-detail-modal")).toBeVisible();
+  await expect(page.locator("#product-detail-title")).toContainText("Bidhaa ya maelewano");
 
   await context.close();
 });
@@ -657,6 +661,23 @@ test("product detail keeps same-seller continuation and broader discovery surfac
   await context.close();
 });
 
+test("home feed multi-image posts show a compact preview grid with +more and open the full gallery", async ({ page }) => {
+  await applyApiConfigOverride(page);
+  await page.goto("/");
+
+  const multiImageCard = page.locator("#products-container .product-card", { hasText: "Sneaker Classic" }).first();
+  await expect(multiImageCard).toBeVisible();
+  await expect(multiImageCard.locator(".feed-gallery-tile")).toHaveCount(3);
+  await expect(multiImageCard.locator(".feed-gallery-more-badge")).toHaveText("+2");
+
+  await multiImageCard.locator(".feed-gallery-tile").nth(2).click();
+  await expect(page.locator("#image-lightbox")).toHaveClass(/open/);
+  await expect(page.locator("#image-lightbox-title")).toContainText("(3/5)");
+  await expect(page.locator("[data-image-lightbox-actions]")).toBeVisible();
+  await page.locator(".image-lightbox-close").click();
+  await expect(page.locator("#image-lightbox")).not.toHaveClass(/open/);
+});
+
 test("admin login route opens the admin surface without exposing admin in normal auth", async ({ page }) => {
   await applyApiConfigOverride(page);
   await page.goto("/#/admin-login");
@@ -721,6 +742,28 @@ test("admin can approve pending products and the admin session survives refresh"
   await expect(page.locator("[data-admin-product-card='e2e-prod-pending']")).toHaveCount(0);
 });
 
+test("admin can open a reasoned fraud review from a user card", async ({ page }) => {
+  await applyApiConfigOverride(page);
+  await page.goto("/#/admin-login");
+
+  await page.fill("#admin-login-identifier", "admin");
+  await page.fill("#admin-login-password", "Admin1234");
+  await page.click("#admin-login-button");
+
+  const userCard = page.locator("[data-admin-investigate-username='buyer_seller']").first();
+  await expect(userCard).toBeVisible();
+  await userCard.click();
+
+  const modal = page.locator("#admin-investigation-modal");
+  await expect(modal).toBeVisible();
+  await modal.locator("[data-admin-investigation-reason='true']").fill("Fraud review for suspicious account behavior.");
+  await modal.locator("[data-admin-investigation-submit='buyer_seller']").click();
+
+  await expect(modal).toContainText("Message Evidence Access");
+  await expect(modal).toContainText("Direct private messages");
+  await expect(modal).toContainText("Login & Account Activity");
+});
+
 test("stale admin session is blocked during moderation actions and the UI stays stable", async ({ page }) => {
   await applyApiConfigOverride(page);
   await page.goto("/#/admin-login");
@@ -760,6 +803,7 @@ test("moderator can use the admin route but cannot see admin-only controls", asy
   await expect(page.locator("[data-admin-promotion-disable]")).toHaveCount(0);
   await expect(page.locator("[data-admin-user-action='suspend']")).toHaveCount(0);
   await expect(page.locator("[data-admin-user-action='ban']")).toHaveCount(0);
+  await expect(page.locator("[data-admin-investigate-username]")).toHaveCount(0);
   await expect(page.locator("#view-home-back")).toBeVisible();
   await page.locator("#view-home-back").click();
   await expect(page.locator("#admin-panel")).not.toBeVisible();

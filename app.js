@@ -2254,6 +2254,12 @@ function ensureImageLightboxRoot() {
         <img id="image-lightbox-preview" alt="Image preview" loading="lazy">
       </div>
       <p id="image-lightbox-title" class="image-lightbox-caption"></p>
+      <div class="image-lightbox-actions" data-image-lightbox-actions hidden>
+        <button class="image-lightbox-action" type="button" data-image-lightbox-action="save">Save</button>
+        <button class="image-lightbox-action" type="button" data-image-lightbox-action="share">Share</button>
+        <button class="image-lightbox-action" type="button" data-image-lightbox-action="download">Download</button>
+        <button class="image-lightbox-action image-lightbox-action-primary" type="button" data-image-lightbox-action="open">Open product</button>
+      </div>
     </div>
   `;
   document.body.appendChild(root);
@@ -2266,6 +2272,60 @@ function ensureImageLightboxRoot() {
     const navButton = event.target.closest("[data-image-lightbox-nav]");
     if (navButton) {
       stepImageLightbox(Number(navButton.dataset.imageLightboxNav || 0));
+      return;
+    }
+
+    const actionButton = event.target.closest("[data-image-lightbox-action]");
+    if (!actionButton) {
+      return;
+    }
+
+    const product = imageLightboxState.productId
+      ? getProductById(imageLightboxState.productId)
+      : null;
+    if (!product) {
+      return;
+    }
+
+    const action = actionButton.dataset.imageLightboxAction;
+    const activeSource = imageLightboxState.source || sanitizeImageSource(product.image || "", "");
+    if (action === "save") {
+      const nowSaved = toggleSavedProduct(product.id);
+      actionButton.textContent = nowSaved ? "Saved" : "Save";
+      actionButton.classList.toggle("is-active", nowSaved);
+      showInAppNotification({
+        type: "info",
+        title: nowSaved ? "Imehifadhiwa kwenye Favorites" : "Imeondolewa kwenye Favorites",
+        body: nowSaved
+          ? `${product.name} sasa ipo tayari kwenye saved picks zako.`
+          : `${product.name} imeondolewa kwenye saved picks zako.`,
+        variant: "success",
+        durationMs: 2400,
+        haptic: nowSaved
+      });
+      return;
+    }
+
+    if (action === "share") {
+      handleShareProduct(product).catch((error) => {
+        captureClientError("lightbox_share_failed", error, {
+          productId: product.id
+        });
+      });
+      return;
+    }
+
+    if (action === "download") {
+      triggerProductDownload({
+        ...product,
+        image: activeSource || product.image
+      });
+      return;
+    }
+
+    if (action === "open") {
+      closeImageLightbox();
+      openProductDetailModal(product.id);
     }
   });
 
@@ -2278,7 +2338,8 @@ function syncImageLightboxView() {
   const caption = root.querySelector("#image-lightbox-title");
   const prevButton = root.querySelector(".image-lightbox-prev");
   const nextButton = root.querySelector(".image-lightbox-next");
-  if (!preview || !caption || !prevButton || !nextButton) {
+  const actions = root.querySelector("[data-image-lightbox-actions]");
+  if (!preview || !caption || !prevButton || !nextButton || !actions) {
     return;
   }
 
@@ -2294,14 +2355,30 @@ function syncImageLightboxView() {
   preview.src = activeImage;
   preview.alt = imageLightboxState.alt || "Image preview";
   preview.dataset.zoomSrc = activeImage;
+  imageLightboxState.source = activeImage;
   caption.textContent = images.length > 1
     ? `${imageLightboxState.alt || ""} (${safeIndex + 1}/${images.length})`.trim()
     : (imageLightboxState.alt || "");
   prevButton.style.display = images.length > 1 ? "grid" : "none";
   nextButton.style.display = images.length > 1 ? "grid" : "none";
+
+  const product = imageLightboxState.productId
+    ? getProductById(imageLightboxState.productId)
+    : null;
+  actions.hidden = !product;
+  if (!product) {
+    return;
+  }
+
+  const saveButton = actions.querySelector("[data-image-lightbox-action='save']");
+  if (saveButton) {
+    const saved = isProductSaved(product.id);
+    saveButton.textContent = saved ? "Saved" : "Save";
+    saveButton.classList.toggle("is-active", saved);
+  }
 }
 
-function openImageLightbox(source = "", alt = "Image preview", images = []) {
+function openImageLightbox(source = "", alt = "Image preview", images = [], context = {}) {
   const resolvedImages = Array.isArray(images) && images.length
     ? images.map((item) => sanitizeImageSource(item, "")).filter(Boolean)
     : [sanitizeImageSource(source, "")].filter(Boolean);
@@ -2311,8 +2388,14 @@ function openImageLightbox(source = "", alt = "Image preview", images = []) {
 
   const resolvedSource = sanitizeImageSource(source, resolvedImages[0] || "");
   imageLightboxState.images = resolvedImages;
-  imageLightboxState.index = Math.max(0, resolvedImages.findIndex((item) => item === resolvedSource));
+  const preferredIndex = Number.isFinite(Number(context.startIndex))
+    ? Math.max(0, Math.min(Number(context.startIndex), Math.max(0, resolvedImages.length - 1)))
+    : resolvedImages.findIndex((item) => item === resolvedSource);
+  imageLightboxState.index = Math.max(0, preferredIndex);
   imageLightboxState.alt = alt || "Image preview";
+  imageLightboxState.productId = context.productId || "";
+  imageLightboxState.source = resolvedSource;
+  imageLightboxState.surface = context.surface || "";
 
   const root = ensureImageLightboxRoot();
   syncImageLightboxView();
@@ -2338,6 +2421,9 @@ function closeImageLightbox() {
   imageLightboxState.images = [];
   imageLightboxState.index = 0;
   imageLightboxState.alt = "";
+  imageLightboxState.productId = "";
+  imageLightboxState.source = "";
+  imageLightboxState.surface = "";
   syncBodyScrollLockState();
 }
 
@@ -2524,7 +2610,11 @@ function bindImageZoomInteractions() {
     openImageLightbox(
       image.dataset.zoomSrc || image.currentSrc || image.src || "",
       image.dataset.zoomAlt || image.alt || "Image preview",
-      productImages
+      productImages,
+      {
+        productId: product?.id || image.dataset.imageActionProduct || "",
+        surface: image.dataset.imageActionSurface || ""
+      }
     );
   }, true);
 
@@ -3364,10 +3454,12 @@ const {
   createSectionHeading,
   createFragmentFromMarkup,
   createElementFromMarkup,
+  createResponsiveImage,
   createStatusPill,
   createStatBox,
   escapeHtml,
   sanitizeImageSource,
+  getImageFallbackDataUri,
   renderProductGallery,
   formatNumber,
   formatProductPrice,
@@ -3402,6 +3494,8 @@ const {
   bindMessageActions,
   bindGalleryThumbs,
   bindProductMenus,
+  noteProductInterest,
+  openProductDetailModal,
   startEditProduct,
   deleteProduct,
   logout,
@@ -3746,6 +3840,7 @@ const {
   renderMarketplaceTrustBadges,
   renderProductActionGroup,
   noteProductInterest,
+  openImageLightbox,
   openProductDetailModal,
   getBehaviorShowcaseDescriptor,
   getRecommendationSeed,
@@ -4041,7 +4136,10 @@ const savedProductState = {
 const imageLightboxState = {
   images: [],
   index: 0,
-  alt: ""
+  alt: "",
+  productId: "",
+  source: "",
+  surface: ""
 };
 const chatUiState = createChatUiState();
 const productDetailUiState = createProductDetailUiState();
@@ -4545,9 +4643,7 @@ authButton.addEventListener("click", async () => {
       id_image: selectedAuthRole === "seller" ? sellerIdentityDocumentImage : "",
       identityDocumentType: selectedAuthRole === "seller" ? sellerIdentityDocumentTypeInput.value : "",
       identityDocumentNumber: selectedAuthRole === "seller" ? sellerIdentityDocumentNumber : "",
-      identityDocumentImage: selectedAuthRole === "seller" ? sellerIdentityDocumentImage : "",
-      verificationStatus: selectedAuthRole === "seller" ? "pending" : "",
-      verificationSubmittedAt: selectedAuthRole === "seller" ? new Date().toISOString() : ""
+      identityDocumentImage: selectedAuthRole === "seller" ? sellerIdentityDocumentImage : ""
     });
     releasePublicAuthPendingState();
     publicAuthTransitionPending = true;

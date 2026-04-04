@@ -219,7 +219,13 @@
       const currentSession = deps.getCurrentSession();
       const currentOrders = deps.getCurrentOrders();
       const currentMessages = deps.getCurrentMessages();
-      const userProducts = products.filter((product) => product.uploadedBy === currentUser);
+      const userProducts = products
+        .filter((product) => product.uploadedBy === currentUser)
+        .sort((first, second) => {
+          const secondTime = new Date(second.createdAt || second.updatedAt || second.timestamp || 0).getTime();
+          const firstTime = new Date(first.createdAt || first.updatedAt || first.timestamp || 0).getTime();
+          return secondTime - firstTime;
+        });
       const totalLikes = userProducts.reduce((sum, product) => sum + (product.likes || 0), 0);
       const totalViews = userProducts.reduce((sum, product) => sum + (product.views || 0), 0);
       const userProfile = {
@@ -392,7 +398,7 @@
           isBuyerOnly
             ? "Akaunti ya buyer iko tayari. Endelea kuvinjari bidhaa, kutafuta bidhaa, ku-chat na sellers, kufanya malipo, kuweka orders, ku-review, na kureport listings zisizo salama."
             : deps.canUseSellerFeatures()
-              ? "Unaweza kuuza na pia kutumia buyer features kama requests, orders, na chats na sellers wengine. Ukihitaji kuongeza bidhaa, nenda Upload."
+              ? "No posts yet. Ukihitaji kuongeza bidhaa, nenda Upload uanze kujenga profile grid yako."
               : "Hujapost bidhaa bado. Nenda Upload uanze kuweka catalog yako."
         );
         profileDiv.querySelector("#profile-logout-button")?.addEventListener("click", deps.logout);
@@ -422,6 +428,20 @@
 
       container.querySelectorAll(".edit-btn").forEach((button) => {
         button.addEventListener("click", () => deps.startEditProduct(button.dataset.id));
+      });
+
+      container.querySelectorAll("[data-profile-product-card]").forEach((card) => {
+        card.addEventListener("click", (event) => {
+          if (event.target.closest("button, a, .product-menu")) {
+            return;
+          }
+          const productId = card.dataset.profileProductCard;
+          if (!productId) {
+            return;
+          }
+          deps.noteProductInterest?.(productId);
+          deps.openProductDetailModal?.(productId);
+        });
       });
 
       container.querySelectorAll("[data-promote-product]").forEach((button) => {
@@ -494,7 +514,6 @@
         button.addEventListener("click", () => deps.deleteProduct(button.dataset.id));
       });
 
-      deps.bindGalleryThumbs(container);
       deps.bindProductMenus(container);
       profileDiv.querySelector("#profile-logout-button")?.addEventListener("click", deps.logout);
       bindProfileIdentityActions();

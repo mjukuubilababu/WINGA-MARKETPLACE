@@ -11,6 +11,90 @@
       target.appendChild(value);
     }
 
+    function getProductImages(product) {
+      const source = Array.isArray(product?.images) && product.images.length > 0
+        ? product.images
+        : [product?.image];
+      return source
+        .map((image) => deps.sanitizeImageSource(image, deps.getImageFallbackDataUri?.("WINGA") || ""))
+        .filter(Boolean);
+    }
+
+    function hasProductVideo(product) {
+      return Boolean(
+        product?.video
+        || product?.videoUrl
+        || (Array.isArray(product?.videos) && product.videos.some(Boolean))
+        || /video/i.test(String(product?.mediaType || ""))
+      );
+    }
+
+    function createProfileProductMenuElement(product) {
+      const menu = deps.createElement("div", {
+        className: "product-menu profile-product-menu",
+        attributes: { "data-product-menu": product.id }
+      });
+      menu.appendChild(deps.createElement("button", {
+        className: "product-menu-toggle profile-product-menu-toggle",
+        textContent: "⋯",
+        attributes: {
+          type: "button",
+          "aria-label": "Manage post",
+          "data-menu-toggle": product.id
+        }
+      }));
+
+      const popup = deps.createElement("div", {
+        className: "product-menu-popup profile-product-menu-popup",
+        attributes: { "data-menu-popup": product.id }
+      });
+
+      popup.append(
+        deps.createElement("button", {
+          className: "product-menu-item edit-btn",
+          textContent: "Edit",
+          attributes: { type: "button", "data-id": product.id }
+        }),
+        deps.createElement("button", {
+          className: "product-menu-item delete-btn",
+          textContent: "Delete",
+          attributes: { type: "button", "data-id": product.id }
+        })
+      );
+
+      if (product.status === "approved") {
+        popup.appendChild(deps.createElement("button", {
+          className: "product-menu-item",
+          textContent: "Promote",
+          attributes: { type: "button", "data-promote-product": product.id }
+        }));
+      }
+
+      if (product.status === "approved" && product.availability !== "sold_out") {
+        popup.appendChild(deps.createElement("button", {
+          className: "product-menu-item",
+          textContent: "Sold out",
+          attributes: { type: "button", "data-product-soldout": product.id }
+        }));
+      }
+
+      popup.append(
+        deps.createElement("button", {
+          className: "product-menu-item",
+          textContent: "Share",
+          attributes: { type: "button", "data-menu-action": "share", "data-id": product.id }
+        }),
+        deps.createElement("button", {
+          className: "product-menu-item",
+          textContent: "Download",
+          attributes: { type: "button", "data-menu-action": "download", "data-id": product.id }
+        })
+      );
+
+      menu.appendChild(popup);
+      return menu;
+    }
+
     function createProfileIdentitySectionElement(userProfile, context = {}) {
       const displayName = context.displayName || "User";
       const profileImage = context.profileImage || "";
@@ -333,6 +417,7 @@
       });
 
       fragment.appendChild(deps.createElement("div", {
+        className: "profile-product-grid",
         attributes: { id: "user-products-container" }
       }));
 
@@ -371,76 +456,83 @@
     }
 
     function createProfileProductCardElement(product) {
-      const article = deps.createElement("article", { className: "product-card" });
-      article.appendChild(deps.createElementFromMarkup(deps.renderProductGallery(product)));
+      const images = getProductImages(product);
+      const firstImage = images[0] || deps.getImageFallbackDataUri?.("WINGA") || "";
+      const article = deps.createElement("article", {
+        className: "product-card profile-product-card",
+        attributes: {
+          "data-profile-product-card": product.id
+        }
+      });
+      article.dataset.profileProductCard = product.id;
 
-      const content = deps.createElement("div", { className: "product-content" });
-      content.append(
-        deps.createElement("h3", { textContent: product.name || "" }),
-        deps.createElement("p", {
-          className: "product-meta",
-          textContent: `Bei: ${deps.formatProductPrice(product.price)}`
-        })
-      );
+      const media = deps.createElement("div", { className: "profile-product-media" });
+      const image = deps.createResponsiveImage
+        ? deps.createResponsiveImage({
+            src: firstImage,
+            alt: product?.name || "Product image",
+            className: "profile-product-stage",
+            fallbackSrc: deps.getImageFallbackDataUri?.("WINGA") || "",
+            attributes: {
+              "data-disable-image-zoom": "true"
+            }
+          })
+        : deps.createElement("img", {
+            className: "profile-product-stage",
+            attributes: {
+              src: firstImage,
+              alt: product?.name || "Product image",
+              loading: "lazy",
+              decoding: "async"
+            }
+          });
+      media.appendChild(image);
 
-      const statusLine = deps.createElement("p", { className: "product-meta" });
-      statusLine.appendChild(deps.createElement("span", {
-        className: `status-pill ${product.status}`,
-        textContent: deps.getStatusLabel(product.status)
-      }));
-      content.appendChild(statusLine);
+      const badges = deps.createElement("div", { className: "profile-product-badges" });
+      if (hasProductVideo(product)) {
+        badges.appendChild(deps.createElement("span", {
+          className: "profile-product-badge profile-product-badge-video",
+          textContent: "▶"
+        }));
+      }
+      if (images.length > 1) {
+        badges.appendChild(deps.createElement("span", {
+          className: "profile-product-badge profile-product-badge-count",
+          textContent: `+${Math.max(1, images.length - 1)}`
+        }));
+      }
+      if (badges.childNodes.length) {
+        media.appendChild(badges);
+      }
 
-      if (product.availability === "sold_out") {
-        const soldLine = deps.createElement("p", { className: "product-meta" });
-        soldLine.appendChild(deps.createElement("span", {
-          className: "status-pill sold_out",
+      media.appendChild(createProfileProductMenuElement(product));
+
+      if (product.status && product.status !== "approved") {
+        media.appendChild(deps.createElement("span", {
+          className: "profile-product-status-pill",
+          textContent: deps.getStatusLabel(product.status)
+        }));
+      } else if (product.availability === "sold_out") {
+        media.appendChild(deps.createElement("span", {
+          className: "profile-product-status-pill sold-out",
           textContent: deps.getStatusLabel("sold_out")
         }));
-        content.appendChild(soldLine);
       }
 
-      const promotionBadges = deps.renderPromotionBadges(product);
-      if (promotionBadges) {
-        content.appendChild(deps.createFragmentFromMarkup(promotionBadges));
-      }
-
-      content.appendChild(deps.createElement("p", {
-        className: "product-meta",
-        textContent: `Likes: ${product.likes} | Views: ${product.views}`
-      }));
-
-      if (product.moderationNote) {
-        content.appendChild(deps.createElement("p", {
-          className: "product-meta",
-          textContent: `Note: ${product.moderationNote}`
-        }));
-      }
-
-      const actions = deps.createElement("div", { className: "product-actions" });
-      actions.append(
-        deps.createElement("button", {
-          className: "action-btn edit-btn",
-          textContent: "Edit",
-          attributes: { type: "button", "data-id": product.id }
+      const meta = deps.createElement("div", { className: "profile-product-meta" });
+      meta.append(
+        deps.createElement("strong", {
+          className: "profile-product-title",
+          textContent: product.name || ""
         }),
-        deps.createElement("button", {
-          className: "action-btn delete-btn",
-          textContent: "Delete",
-          attributes: { type: "button", "data-id": product.id }
+        deps.createElement("span", {
+          className: "profile-product-price",
+          textContent: deps.formatProductPrice(product.price)
         })
       );
+      media.appendChild(meta);
 
-      [
-        deps.renderPromoteButton(product),
-        deps.renderSellerSoldOutButton(product),
-        deps.renderWhatsappChatLink(product, "Chat on WhatsApp"),
-        deps.renderProductOverflowMenu(product)
-      ].filter(Boolean).forEach((markup) => {
-        actions.appendChild(deps.createFragmentFromMarkup(markup));
-      });
-
-      content.appendChild(actions);
-      article.appendChild(content);
+      article.appendChild(media);
       return article;
     }
 

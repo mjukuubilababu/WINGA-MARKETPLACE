@@ -167,7 +167,7 @@ async function seedMarketplace() {
   seededSessions.admin = adminLogin.body;
 
   const catalog = [
-    { id: "e2e-prod-1", name: "Sneaker Classic", price: 32000, category: "viatu-sneakers", seller: "market_seller", token: sellerLogin.body.token, phone: "255700111222", shop: "Market Seller Shop" },
+    { id: "e2e-prod-1", name: "Sneaker Classic", price: 32000, category: "viatu-sneakers", seller: "market_seller", token: sellerLogin.body.token, phone: "255700111222", shop: "Market Seller Shop", images: [tinyImage, tinyImage, tinyImage, tinyImage, tinyImage] },
     { id: "e2e-prod-2", name: "Dress Elegant", price: 54000, category: "wanawake-magauni", seller: "market_seller", token: sellerLogin.body.token, phone: "255700111222", shop: "Market Seller Shop" },
     { id: "e2e-prod-3", name: "Shirt Premium", price: 27000, category: "wanaume-mashati", seller: "market_seller", token: sellerLogin.body.token, phone: "255700111222", shop: "Market Seller Shop" },
     { id: "e2e-prod-4", name: "Bag Travel Pro", price: 61000, category: "accessories-mabegi", seller: "buyer_seller", token: buyerSellerLogin.body.token, phone: "255700111221", shop: "Buyer Seller Shop" },
@@ -191,7 +191,7 @@ async function seedMarketplace() {
         whatsapp: item.phone,
         uploadedBy: item.seller,
         category: item.category,
-        images: [tinyImage],
+        images: Array.isArray(item.images) && item.images.length ? item.images : [tinyImage],
         image: tinyImage,
         imageSignature: "0101010101010101010101010101010101010101010101010101010101010101"
       })

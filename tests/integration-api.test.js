@@ -94,7 +94,8 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   });
   assert.equal(sellerSignup.response.status, 200);
   assert.equal(sellerSignup.body.username, "seller_one");
-  assert.equal(sellerSignup.body.verificationStatus, "pending");
+  assert.equal(sellerSignup.body.verificationStatus, "verified");
+  assert.equal(sellerSignup.body.verifiedSeller, true);
   assert.equal(sellerSignup.body.phoneNumber, "255700111111");
   assert.equal(sellerSignup.body.primaryCategory, "");
   const sellerToken = sellerSignup.body.token;
@@ -896,7 +897,56 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
     headers: { Authorization: `Bearer ${adminToken}` }
   });
   assert.equal(adminUsers.response.status, 200);
-  assert.equal(adminUsers.body.some((user) => user.username === "seller_one" && user.phoneNumber === "255700111111" && user.verificationStatus === "pending" && user.hasIdentityDocumentImage === true), true);
+  assert.equal(adminUsers.body.some((user) =>
+    user.username === "seller_one"
+    && user.phoneNumber === "255700111111"
+    && user.verificationStatus === "verified"
+    && user.hasIdentityDocumentImage === true
+    && typeof user.activeSessionCount === "number"
+    && typeof user.openReportsCount === "number"
+  ), true);
+
+  const adminInvestigation = await request("/admin/users/seller_one/investigation", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminToken}`
+    },
+    body: JSON.stringify({
+      reason: "Fraud review after suspicious listing and account audit."
+    })
+  });
+  assert.equal(adminInvestigation.response.status, 200);
+  assert.equal(adminInvestigation.body.profile.username, "seller_one");
+  assert.equal(adminInvestigation.body.identityVerificationStatus, "verified");
+  assert.equal(adminInvestigation.body.fraudReview.directMessagesExposed, false);
+  assert.equal(adminInvestigation.body.fraudReview.requestedReason, "Fraud review after suspicious listing and account audit.");
+
+  const moderatorInvestigationAttempt = await request("/admin/users/seller_one/investigation", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${moderatorToken}`
+    },
+    body: JSON.stringify({
+      reason: "Moderator should not access fraud review."
+    })
+  });
+  assert.equal(moderatorInvestigationAttempt.response.status, 403);
+
+  const auditLogPath = path.join(tempRoot, "data", "audit.log");
+  const auditEntries = fs.readFileSync(auditLogPath, "utf8")
+    .trim()
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map((line) => JSON.parse(line));
+  assert.equal(auditEntries.some((entry) =>
+    entry.event === "user_investigation_viewed"
+    && entry.adminUsername === "admin"
+    && entry.targetUserId === "seller_one"
+    && entry.reason === "Fraud review after suspicious listing and account audit."
+    && entry.actionType === "fraud_review"
+  ), true);
 
   const reportCreate = await request("/reports", {
     method: "POST",

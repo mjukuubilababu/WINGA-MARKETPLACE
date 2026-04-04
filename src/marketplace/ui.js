@@ -20,38 +20,61 @@
       const safeImages = images.filter(Boolean);
       const firstImage = safeImages[0] || deps.getImageFallbackDataUri("WINGA");
       const gallery = createElement("div", {
-        className: `product-gallery media-gallery${safeImages.length > 1 ? " has-media-stack" : ""}`
+        className: `product-gallery media-gallery feed-gallery-preview feed-gallery-count-${Math.min(Math.max(safeImages.length, 1), 4)}`
       });
-      gallery.appendChild(createResponsiveImage({
-        src: firstImage,
-        alt: product.name || "Product image",
-        className: "gallery-stage",
-        fallbackSrc: deps.getImageFallbackDataUri("WINGA"),
-        attributes: {
-          "data-gallery-stage": product.id,
-          "data-image-action-product": product.id,
-          "data-image-action-src": firstImage,
-          "data-image-action-surface": "feed"
-        }
-      }));
+      const previewImages = safeImages.length > 3 ? safeImages.slice(0, 3) : safeImages;
+      const extraImageCount = Math.max(0, safeImages.length - previewImages.length);
 
-      if (safeImages.length > 1) {
-        const thumbs = createElement("div", { className: "gallery-thumbs" });
-        safeImages.forEach((image, index) => {
-          thumbs.appendChild(createResponsiveImage({
-            src: image,
-            alt: `${product.name || "Product"} ${index + 1}`,
-            className: `gallery-thumb${index === 0 ? " active" : ""}`,
-            fallbackSrc: deps.getImageFallbackDataUri("W"),
-            attributes: {
-              "data-gallery-target": product.id,
-              "data-image": image,
-              "data-disable-image-zoom": "true"
-            }
-          }));
+      previewImages.forEach((image, index) => {
+        const tile = createElement("button", {
+          className: `feed-gallery-tile feed-gallery-tile-${index + 1}${extraImageCount > 0 && index === previewImages.length - 1 ? " has-more-overlay" : ""}`,
+          attributes: {
+            type: "button",
+            "data-feed-gallery-image": image,
+            "data-feed-gallery-index": index,
+            "data-feed-gallery-product": product.id,
+            "aria-label": `${product.name || "Product"} image ${index + 1} of ${safeImages.length}`
+          }
         });
-        gallery.appendChild(thumbs);
-      }
+        tile.appendChild(createResponsiveImage({
+          src: image,
+          alt: `${product.name || "Product"} ${index + 1}`,
+          className: "feed-gallery-image",
+          fallbackSrc: deps.getImageFallbackDataUri("WINGA"),
+          attributes: {
+            "data-image-action-product": product.id,
+            "data-image-action-src": image,
+            "data-image-action-surface": "feed",
+            "data-disable-image-zoom": "true"
+          }
+        }));
+        if (extraImageCount > 0 && index === previewImages.length - 1) {
+          tile.appendChild(createElement("span", {
+            className: "feed-gallery-more-badge",
+            textContent: `+${extraImageCount}`
+          }));
+        }
+        gallery.appendChild(tile);
+      });
+
+      gallery.addEventListener("click", (event) => {
+        const tile = event.target.closest("[data-feed-gallery-image]");
+        if (!tile || !tile.classList.contains("has-more-overlay")) {
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        deps.openImageLightbox(
+          tile.dataset.feedGalleryImage || firstImage,
+          product.name || "Product image",
+          safeImages,
+          {
+            productId: product.id,
+            surface: "feed",
+            startIndex: Number(tile.dataset.feedGalleryIndex || 0)
+          }
+        );
+      });
 
       return gallery;
     }
@@ -98,7 +121,7 @@
       card.appendChild(content);
 
       card.addEventListener("click", (event) => {
-        if (event.target.closest(".product-actions") || event.target.closest(".gallery-thumbs")) {
+        if (event.target.closest(".product-actions")) {
           return;
         }
         deps.noteProductInterest(product.id);

@@ -1,6 +1,15 @@
 (() => {
   function createAdminControllerModule(deps) {
     let renderSequence = 0;
+    let latestUsers = [];
+    let investigationState = {
+      username: "",
+      user: null,
+      reason: "",
+      loading: false,
+      detail: null,
+      error: ""
+    };
 
     function mapStatusClass(status = "") {
       const normalized = String(status || "").toLowerCase();
@@ -172,6 +181,280 @@
       return true;
     }
 
+    function formatAuditTime(value) {
+      if (!value) {
+        return "-";
+      }
+      const parsed = new Date(value);
+      if (Number.isNaN(parsed.getTime())) {
+        return String(value);
+      }
+      try {
+        return new Intl.DateTimeFormat("en-GB", {
+          dateStyle: "medium",
+          timeStyle: "short"
+        }).format(parsed);
+      } catch (error) {
+        return parsed.toISOString();
+      }
+    }
+
+    function ensureInvestigationModal() {
+      let root = document.getElementById("admin-investigation-modal");
+      if (root) {
+        return root;
+      }
+
+      root = deps.createElement("div", {
+        attributes: {
+          id: "admin-investigation-modal",
+          hidden: "true"
+        }
+      });
+      root.innerHTML = `
+        <div class="admin-investigation-backdrop" data-close-admin-investigation="true"></div>
+        <div class="admin-investigation-dialog panel" role="dialog" aria-modal="true" aria-labelledby="admin-investigation-title">
+          <button class="admin-investigation-close" type="button" aria-label="Close fraud review" data-close-admin-investigation="true">&times;</button>
+          <div class="admin-investigation-body" data-admin-investigation-body="true"></div>
+        </div>
+      `;
+
+      root.addEventListener("click", (event) => {
+        const submitButton = event.target.closest("[data-admin-investigation-submit]");
+        if (submitButton) {
+          handleInvestigationSubmit(submitButton).catch((error) => {
+            investigationState = {
+              ...investigationState,
+              loading: false,
+              error: error.message || "Fraud review haikufunguka."
+            };
+            renderInvestigationModal();
+          });
+          return;
+        }
+        if (event.target.closest("[data-close-admin-investigation='true']")) {
+          closeInvestigationModal();
+        }
+      });
+      root.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+          closeInvestigationModal();
+        }
+      });
+
+      document.body.appendChild(root);
+      return root;
+    }
+
+    function closeInvestigationModal() {
+      const root = document.getElementById("admin-investigation-modal");
+      if (!root) {
+        return;
+      }
+      root.hidden = true;
+      root.classList.remove("open");
+      investigationState = {
+        username: "",
+        user: null,
+        reason: "",
+        loading: false,
+        detail: null,
+        error: ""
+      };
+      root.querySelector("[data-admin-investigation-body='true']")?.replaceChildren();
+    }
+
+    function createInvestigationMetric(label, value) {
+      const card = deps.createElement("div", { className: "analytics-card admin-investigation-metric" });
+      card.append(
+        deps.createElement("span", { textContent: label }),
+        deps.createElement("strong", { textContent: String(value ?? 0) })
+      );
+      return card;
+    }
+
+    function createInvestigationTimeline(title, items, formatter, emptyCopy) {
+      const section = deps.createElement("section", { className: "admin-investigation-section" });
+      section.appendChild(deps.createElement("h4", {
+        className: "admin-investigation-section-title",
+        textContent: title
+      }));
+      const list = deps.createElement("div", { className: "analytics-list" });
+      if (!items.length) {
+        list.appendChild(deps.createEmptyState(emptyCopy));
+      } else {
+        items.forEach((item) => {
+          list.appendChild(deps.createElement("div", {
+            className: "analytics-list-item",
+            textContent: formatter(item)
+          }));
+        });
+      }
+      section.appendChild(list);
+      return section;
+    }
+
+    function renderInvestigationModal() {
+      const root = ensureInvestigationModal();
+      const body = root.querySelector("[data-admin-investigation-body='true']");
+      if (!body || !investigationState.user) {
+        return;
+      }
+
+      const user = investigationState.user;
+      const summaryCards = deps.createElement("div", { className: "analytics-grid admin-investigation-metrics" });
+      const detail = investigationState.detail;
+      const summary = detail?.accountActivitySummary || {};
+      summaryCards.append(
+        createInvestigationMetric("Products", summary.productCount || user.productCount || 0),
+        createInvestigationMetric("Open reports", summary.openReportsCount || user.openReportsCount || 0),
+        createInvestigationMetric("Active sessions", summary.activeSessionCount || user.activeSessionCount || 0),
+        createInvestigationMetric("Filed reports", summary.reportsFiledCount || user.reportsFiledCount || 0)
+      );
+
+      const header = deps.createElement("div", { className: "admin-investigation-header" });
+      const copy = deps.createElement("div");
+      copy.append(
+        deps.createElement("p", { className: "eyebrow", textContent: "Fraud Review" }),
+        deps.createElement("h3", {
+          attributes: { id: "admin-investigation-title" },
+          textContent: user.fullName || user.username
+        }),
+        deps.createElement("p", {
+          className: "meta-copy",
+          textContent: `@${user.username} | ${deps.getRoleLabel?.(user.role) || user.role}`
+        })
+      );
+      const statusGroup = deps.createElement("div", { className: "trust-badges" });
+      statusGroup.appendChild(deps.createStatusPill(user.status || "active", mapStatusClass(user.status)));
+      statusGroup.appendChild(deps.createStatusPill(
+        (detail?.identityVerificationStatus || user.verificationStatus || (user.verifiedSeller ? "verified" : "not_verified")).replaceAll("_", " "),
+        mapStatusClass(detail?.identityVerificationStatus || user.verificationStatus || "")
+      ));
+      if ((detail?.suspiciousActivityIndicators || []).length || Number(user.suspiciousSignalCount || 0) > 0) {
+        statusGroup.appendChild(deps.createStatusPill("Suspicious Activity", "pending"));
+      }
+      if ((summary.openReportsCount || user.openReportsCount || 0) > 0) {
+        statusGroup.appendChild(deps.createStatusPill("Reported", "rejected"));
+      }
+      header.append(copy, statusGroup);
+
+      const reasonField = deps.createElement("textarea", {
+        attributes: {
+          "data-admin-investigation-reason": "true",
+          placeholder: "Eleza sababu ya kufungua fraud review hii"
+        }
+      });
+      reasonField.value = investigationState.reason || "";
+
+      const reasonActions = deps.createElement("div", { className: "moderation-actions" });
+      const loadButton = createActionButton(
+        investigationState.loading ? "Inafungua..." : "Open Fraud Review",
+        { adminInvestigationSubmit: user.username },
+        "button"
+      );
+      if (investigationState.loading) {
+        loadButton.setAttribute("disabled", "true");
+        reasonField.setAttribute("disabled", "true");
+      }
+      reasonActions.append(
+        loadButton,
+        createActionButton("Close", {
+          closeAdminInvestigation: "true"
+        }, "button button-secondary")
+      );
+
+      const reasonPanel = deps.createElement("section", { className: "admin-investigation-section" });
+      reasonPanel.append(
+        deps.createElement("p", {
+          className: "meta-copy",
+          textContent: "Enter a reason before loading sensitive fraud-review details. Every access is audited."
+        }),
+        reasonField,
+        reasonActions
+      );
+
+      const nodes = [header, summaryCards, reasonPanel];
+      if (investigationState.error) {
+        nodes.push(deps.createElement("p", {
+          className: "empty-copy admin-investigation-error",
+          textContent: investigationState.error
+        }));
+      }
+
+      if (detail) {
+        const policy = deps.createElement("div", { className: "admin-investigation-policy panel" });
+        policy.append(
+          deps.createElement("strong", { textContent: "Message Evidence Access" }),
+          deps.createElement("p", {
+            className: "product-meta",
+            textContent: detail.fraudReview?.policy || "Direct private messages are restricted."
+          }),
+          createMetaCopy(`Reported conversation evidence: ${detail.fraudReview?.reportedConversationEvidenceCount ?? 0}`)
+        );
+        nodes.push(policy);
+
+        if (Array.isArray(detail.suspiciousActivityIndicators) && detail.suspiciousActivityIndicators.length) {
+          const indicators = deps.createElement("div", { className: "admin-investigation-indicators" });
+          detail.suspiciousActivityIndicators.forEach((indicator) => {
+            const pill = deps.createElement("article", { className: "moderation-card admin-investigation-indicator" });
+            pill.append(
+              deps.createStatusPill(indicator.label || "Fraud Review", mapStatusClass(indicator.severity || "pending")),
+              createMetaCopy(indicator.detail || "")
+            );
+            indicators.appendChild(pill);
+          });
+          nodes.push(createSection("Suspicious Activity", "Signals zinazohitaji fraud review ya karibu.", indicators));
+        }
+
+        nodes.push(createInvestigationTimeline(
+          "Login & Account Activity",
+          detail.loginActivity || [],
+          (item) => `${formatAuditTime(item.time)} | ${item.event || "-"} | ${item.reason || item.statusCode || "-"}`,
+          "Hakuna login history ya karibu."
+        ));
+        nodes.push(createInvestigationTimeline(
+          "Recent Audit Trail",
+          detail.recentActivity || [],
+          (item) => `${formatAuditTime(item.time)} | ${item.event || "-"} | ${item.reason || item.path || "-"}`,
+          "Hakuna audit trail ya karibu."
+        ));
+        nodes.push(createInvestigationTimeline(
+          "Reports & Complaints",
+          detail.reports || [],
+          (item) => `${formatAuditTime(item.createdAt)} | ${item.reason || "-"} | ${item.status || "open"} | ${item.targetProductId || item.targetType || "-"}`,
+          "Hakuna reports zinazohusiana na user huyu."
+        ));
+        nodes.push(createInvestigationTimeline(
+          "Active Sessions",
+          detail.activeSessions || [],
+          (item) => `${formatAuditTime(item.createdAt)} | expires ${formatAuditTime(item.expiresAt)} | token ••••${item.tokenLast4 || ""}`,
+          "Hakuna active sessions kwa sasa."
+        ));
+      }
+
+      body.replaceChildren(...nodes);
+      root.hidden = false;
+      root.classList.add("open");
+      root.querySelector("[data-admin-investigation-reason='true']")?.focus();
+    }
+
+    function openInvestigationModal(username) {
+      const user = latestUsers.find((item) => item.username === username);
+      if (!deps.isAdminUser?.() || !user) {
+        return;
+      }
+      investigationState = {
+        username,
+        user,
+        reason: "",
+        loading: false,
+        detail: null,
+        error: ""
+      };
+      renderInvestigationModal();
+    }
+
     function createUserCard(user) {
       const card = deps.createElement("article", {
         className: "admin-user-card",
@@ -179,6 +462,13 @@
           "data-admin-user-card": user.username
         }
       });
+      if (deps.isAdminUser?.()) {
+        card.classList.add("admin-user-card-clickable");
+        card.dataset.adminInvestigateUsername = user.username;
+        card.setAttribute("tabindex", "0");
+        card.setAttribute("role", "button");
+        card.setAttribute("aria-label", `Open fraud review for ${user.fullName || user.username}`);
+      }
       const headerRow = deps.createElement("div", { className: "admin-user-row" });
       const verificationPreview = createVerificationPreview(user);
       const left = deps.createElement("div");
@@ -190,6 +480,9 @@
       statusGroup.appendChild(deps.createStatusPill(user.status || "active", mapStatusClass(user.status)));
       if (user.role === "seller") {
         statusGroup.appendChild(deps.createStatusPill(user.verificationStatus || "pending", mapStatusClass(user.verificationStatus)));
+      }
+      if (Number(user.suspiciousSignalCount || 0) > 0) {
+        statusGroup.appendChild(deps.createStatusPill("Suspicious Activity", "pending"));
       }
       headerRow.append(left, statusGroup);
 
@@ -241,6 +534,8 @@
         createMetaCopy(`Phone: ${user.phoneNumber || "-"}`),
         createMetaCopy(`Category: ${deps.getCategoryLabel?.(user.primaryCategory) || user.primaryCategory || "-"}`),
         createMetaCopy(`ID: ${user.nationalIdMasked || "-"}`),
+        createMetaCopy(`Products: ${user.productCount || 0} | Open reports: ${user.openReportsCount || 0} | Active sessions: ${user.activeSessionCount || 0}`),
+        ...(deps.isAdminUser?.() ? [createMetaCopy("Click card to open fraud review. Access is audited.")] : []),
         ...(user.moderatedBy ? [createMetaCopy(`Moderated by ${user.moderatedBy}`)] : []),
         ...(verificationPreview ? [verificationPreview] : []),
         moderationNote
@@ -581,7 +876,63 @@
       renderAdminView();
     }
 
+    async function handleInvestigationSubmit(button) {
+      const username = button.dataset.adminInvestigationSubmit || investigationState.username || "";
+      const root = document.getElementById("admin-investigation-modal");
+      const reason = root?.querySelector("[data-admin-investigation-reason='true']")?.value.trim() || "";
+      if (!username) {
+        return;
+      }
+      investigationState = {
+        ...investigationState,
+        username,
+        reason,
+        loading: true,
+        error: ""
+      };
+      renderInvestigationModal();
+      try {
+        const detail = await deps.dataLayer.loadAdminUserInvestigation(username, { reason });
+        investigationState = {
+          ...investigationState,
+          loading: false,
+          detail,
+          user: {
+            ...investigationState.user,
+            ...(detail?.profile || {})
+          },
+          error: ""
+        };
+        deps.reportEvent?.("info", "admin_user_investigation_opened", "Admin opened a fraud review investigation.", {
+          username
+        });
+      } catch (error) {
+        investigationState = {
+          ...investigationState,
+          loading: false,
+          error: error.message || "Imeshindikana kufungua fraud review."
+        };
+      }
+      renderInvestigationModal();
+    }
+
     function bindAdminActions(panel) {
+      panel.querySelectorAll("[data-admin-investigate-username]").forEach((card) => {
+        const openCard = (event) => {
+          if (event.target.closest("button, textarea, input, select, a, label")) {
+            return;
+          }
+          openInvestigationModal(card.dataset.adminInvestigateUsername || "");
+        };
+        card.addEventListener("click", openCard);
+        card.addEventListener("keydown", (event) => {
+          if ((event.key === "Enter" || event.key === " ") && !event.target.closest("textarea, input, select")) {
+            event.preventDefault();
+            openInvestigationModal(card.dataset.adminInvestigateUsername || "");
+          }
+        });
+      });
+
       panel.querySelectorAll("[data-admin-user-action]").forEach((button) => {
         button.addEventListener("click", async () => {
           const scope = button.closest("[data-admin-user-card]");
@@ -674,6 +1025,7 @@
           renderAdminView();
         });
       });
+
     }
 
     function getSettledValue(result, fallback) {
@@ -685,6 +1037,7 @@
       if (!panel) {
         return;
       }
+      closeInvestigationModal();
 
       const sequence = ++renderSequence;
       panel.replaceChildren(
@@ -741,8 +1094,8 @@
         ? "Admin anaona muhtasari wa marketplace nzima."
         : "Moderator anaona muhtasari wa moderation.");
 
-      const state = {
-        users: Array.isArray(users) ? users : [],
+        const state = {
+          users: Array.isArray(users) ? users : [],
         pendingProducts: Array.isArray(pendingProducts) ? pendingProducts : [],
         openReports: Array.isArray(openReports) ? openReports : [],
         promotions: Array.isArray(promotions) ? promotions : [],
@@ -761,10 +1114,11 @@
           payments: failedLoads.includes("payments"),
           moderationActions: failedLoads.includes("moderationActions"),
           opsSummary: failedLoads.includes("opsSummary")
-        }
-      };
+          }
+        };
+        latestUsers = state.users;
 
-      const body = createAdminBody(state);
+        const body = createAdminBody(state);
       panel.replaceChildren(body);
       bindAdminActions(panel);
     }

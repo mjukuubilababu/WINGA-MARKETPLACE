@@ -334,6 +334,9 @@
           whatsappVerifiedAt: new Date().toISOString(),
           password: await hashLocalPassword(safePayload.password),
           status: "active",
+          verifiedSeller: safePayload.role === "seller",
+          verificationStatus: safePayload.role === "seller" ? "verified" : "",
+          verificationSubmittedAt: safePayload.role === "seller" ? new Date().toISOString() : "",
           createdAt: safePayload.createdAt || new Date().toISOString(),
           updatedAt: new Date().toISOString()
         };
@@ -351,6 +354,7 @@
           whatsappVerifiedAt: nextUser.whatsappVerifiedAt,
           profileImage: nextUser.profileImage || "",
           verificationStatus: nextUser.verificationStatus || "",
+          verifiedSeller: Boolean(nextUser.verifiedSeller),
           token: null
         };
       },
@@ -728,6 +732,9 @@
       async reviewReport() {
         throw new Error("Report review inapatikana kwenye API mode tu.");
       },
+      async loadAdminUserInvestigation() {
+        throw new Error("Fraud review inapatikana kwenye API mode tu.");
+      },
       async moderateUser() {
         throw new Error("User moderation inapatikana kwenye API mode tu.");
       },
@@ -982,6 +989,9 @@
       },
       async reviewReport(reportId, payload) {
         return local.reviewReport(reportId, payload);
+      },
+      async loadAdminUserInvestigation(username, payload) {
+        return local.loadAdminUserInvestigation(username, payload);
       },
       async moderateUser(username, payload) {
         return local.moderateUser(username, payload);
@@ -1571,6 +1581,16 @@
           body: JSON.stringify(payload)
         });
       },
+      async loadAdminUserInvestigation(username, payload) {
+        return fetchJson(`${baseUrl}/admin/users/${encodeURIComponent(username)}/investigation`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...createAuthHeaders()
+          },
+          body: JSON.stringify(payload || {})
+        });
+      },
       async moderateUser(username, payload) {
         return fetchJson(`${baseUrl}/admin/users/${encodeURIComponent(username)}/moderation`, {
           method: "PATCH",
@@ -1789,6 +1809,9 @@
           whatsappVerifiedAt: new Date().toISOString(),
           password: await hashLocalPassword(safePayload.password),
           status: "active",
+          verifiedSeller: safePayload.role === "seller",
+          verificationStatus: safePayload.role === "seller" ? "verified" : "",
+          verificationSubmittedAt: safePayload.role === "seller" ? new Date().toISOString() : "",
           createdAt: safePayload.createdAt || new Date().toISOString(),
           updatedAt: new Date().toISOString()
         };
@@ -1806,6 +1829,7 @@
           whatsappVerifiedAt: nextUser.whatsappVerifiedAt,
           profileImage: nextUser.profileImage || "",
           verificationStatus: nextUser.verificationStatus || "",
+          verifiedSeller: Boolean(nextUser.verifiedSeller),
           token: null
         };
       },
@@ -2204,6 +2228,9 @@
       async reviewReport() {
         throw new Error("Report review inapatikana kwenye API mode tu.");
       },
+      async loadAdminUserInvestigation() {
+        throw new Error("Fraud review inapatikana kwenye API mode tu.");
+      },
       async moderateUser() {
         throw new Error("User moderation inapatikana kwenye API mode tu.");
       },
@@ -2598,6 +2625,10 @@
     async reviewReport(reportId, payload) {
       assertModerationAccess();
       return state.adapter.reviewReport ? state.adapter.reviewReport(reportId, payload) : null;
+    },
+    async loadAdminUserInvestigation(username, payload) {
+      assertAdminAccess();
+      return state.adapter.loadAdminUserInvestigation ? state.adapter.loadAdminUserInvestigation(username, payload) : null;
     },
     async moderateUser(username, payload) {
       assertModerationAccess();

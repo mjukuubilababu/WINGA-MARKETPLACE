@@ -1708,6 +1708,189 @@ function validateUserModerationPayload(payload) {
   return "";
 }
 
+function validateInvestigationRequestPayload(payload) {
+  if (!payload || !isNonEmptyString(payload.reason, 6, 240)) {
+    return "Weka sababu ya fraud review kabla ya kufungua investigation.";
+  }
+  return "";
+}
+
+function buildAdminUserSummary(store, user) {
+  const normalizedUser = normalizeUserRecord(user || {});
+  const username = normalizedUser.username;
+  const userProducts = (store.products || [])
+    .map(normalizeProductRecord)
+    .filter((product) => product.uploadedBy === username);
+  const productIds = new Set(userProducts.map((product) => product.id));
+  const reports = (store.reports || []).map(normalizeReportRecord);
+  const userReports = reports.filter((report) =>
+    report.targetUserId === username
+    || productIds.has(report.targetProductId)
+  );
+  const activeSessionCount = (store.sessions || []).filter((session) =>
+    normalizeIdentifier(session.username, 40) === username
+    && Number(session.expiresAt || 0) >= Date.now()
+  ).length;
+  const openReportsCount = userReports.filter((report) => report.status === "open").length;
+  const reportsFiledCount = reports.filter((report) => report.reporterUserId === username).length;
+  const suspiciousSignalCount = [
+    openReportsCount > 0,
+    activeSessionCount > 2,
+    normalizedUser.status === "flagged",
+    normalizedUser.verificationStatus === "rejected"
+  ].filter(Boolean).length;
+
+  return {
+    productCount: userProducts.length,
+    activeSessionCount,
+    openReportsCount,
+    reportsFiledCount,
+    suspiciousSignalCount
+  };
+}
+
+async function buildAdminUserInvestigation(store, user, options = {}) {
+  const normalizedUser = normalizeUserRecord(user || {});
+  const username = normalizedUser.username;
+  const reason = sanitizePlainText(options.reason, 240);
+  const allProducts = (store.products || []).map(normalizeProductRecord);
+  const userProducts = allProducts.filter((product) => product.uploadedBy === username);
+  const productIds = new Set(userProducts.map((product) => product.id));
+  const reports = (store.reports || []).map(normalizeReportRecord);
+  const relatedReports = reports.filter((report) =>
+    report.targetUserId === username
+    || productIds.has(report.targetProductId)
+    || report.reporterUserId === username
+  );
+  const orders = (store.orders || []).map(normalizeOrderRecord);
+  const userOrdersAsBuyer = orders.filter((order) => order.buyerUsername === username);
+  const userOrdersAsSeller = orders.filter((order) => order.sellerUsername === username);
+  const messages = (store.messages || []).map(normalizeMessageRecord);
+  const relatedMessages = messages.filter((message) =>
+    message.senderId === username
+    || message.receiverId === username
+  );
+  const activeSessions = (store.sessions || [])
+    .filter((session) =>
+      normalizeIdentifier(session.username, 40) === username
+      && Number(session.expiresAt || 0) >= Date.now()
+    )
+    .map((session) => ({
+      tokenLast4: String(session.token || "").slice(-4),
+      createdAt: session.createdAt || "",
+      expiresAt: session.expiresAt || 0
+    }));
+  const recentAuditEntries = (await readRecentAuditEntries(240)).filter((entry) => {
+    const entryUsername = normalizeIdentifier(entry?.username, 40);
+    const entryTargetUser = normalizeIdentifier(entry?.targetUserId, 40);
+    const entryTargetProduct = sanitizePlainText(entry?.targetProductId, 80);
+    return entryUsername === username
+      || entryTargetUser === username
+      || productIds.has(entryTargetProduct);
+  });
+  const loginHistory = recentAuditEntries
+    .filter((entry) => {
+      const event = String(entry?.event || "");
+      return event.includes("login") || event.includes("signup");
+    })
+    .slice(0, 12)
+    .map((entry) => ({
+      time: entry.time || "",
+      event: entry.event || "",
+      statusCode: entry.statusCode || 0,
+      reason: entry.reason || ""
+    }));
+  const failedLogins24h = recentAuditEntries.filter((entry) => {
+    const event = String(entry?.event || "");
+    const time = entry?.time ? new Date(entry.time).getTime() : 0;
+    return time
+      && (Date.now() - time) <= 24 * 60 * 60 * 1000
+      && (event === "login_failed" || event === "login_blocked");
+  }).length;
+  const reportedConversationEvidenceCount = relatedReports.filter((report) =>
+    /message|chat|conversation|abuse|fraud/i.test(`${report.reason || ""} ${report.description || ""}`)
+  ).length;
+  const suspiciousActivityIndicators = [];
+  if (normalizedUser.status === "flagged") {
+    suspiciousActivityIndicators.push({
+      label: "Suspicious Activity",
+      severity: "high",
+      detail: "Akaunti hii imewekwa flagged kwenye moderation."
+    });
+  }
+  if (failedLogins24h >= 3) {
+    suspiciousActivityIndicators.push({
+      label: "Repeated login failures",
+      severity: "medium",
+      detail: `${failedLogins24h} failed login attempts in the last 24 hours.`
+    });
+  }
+  if (activeSessions.length > 2) {
+    suspiciousActivityIndicators.push({
+      label: "Multiple active sessions",
+      severity: "medium",
+      detail: `${activeSessions.length} active sessions are still open.`
+    });
+  }
+  if (relatedReports.some((report) => report.status === "open")) {
+    suspiciousActivityIndicators.push({
+      label: "Reported",
+      severity: "medium",
+      detail: `${relatedReports.filter((report) => report.status === "open").length} open reports need review.`
+    });
+  }
+  if (normalizedUser.verificationStatus === "rejected") {
+    suspiciousActivityIndicators.push({
+      label: "Identity verification issue",
+      severity: "high",
+      detail: "Identity verification was rejected earlier."
+    });
+  }
+
+  return {
+    profile: sanitizeAdminUser(normalizedUser),
+    identityVerificationStatus: normalizedUser.verificationStatus || (normalizedUser.verifiedSeller ? "verified" : "not_verified"),
+    fraudReview: {
+      requestedReason: reason,
+      directMessageAccess: "restricted",
+      directMessagesExposed: false,
+      reportedConversationEvidenceCount,
+      policy: "Direct private messages are not shown here by default. Use reports and audit history for fraud review."
+    },
+    accountActivitySummary: {
+      productCount: userProducts.length,
+      approvedProductCount: userProducts.filter((product) => product.status === "approved").length,
+      pendingProductCount: userProducts.filter((product) => product.status === "pending").length,
+      rejectedProductCount: userProducts.filter((product) => product.status === "rejected").length,
+      ordersAsBuyerCount: userOrdersAsBuyer.length,
+      ordersAsSellerCount: userOrdersAsSeller.length,
+      openReportsCount: relatedReports.filter((report) => report.status === "open").length,
+      reportsFiledCount: relatedReports.filter((report) => report.reporterUserId === username).length,
+      activeSessionCount: activeSessions.length,
+      messageTouchpointsCount: relatedMessages.length
+    },
+    loginActivity: loginHistory,
+    activeSessions,
+    recentActivity: recentAuditEntries.slice(0, 16).map((entry) => ({
+      time: entry.time || "",
+      event: entry.event || "",
+      reason: entry.reason || "",
+      path: entry.path || ""
+    })),
+    reports: relatedReports.slice(0, 12).map((report) => ({
+      id: report.id,
+      targetType: report.targetType,
+      targetProductId: report.targetProductId || "",
+      reporterUserId: report.reporterUserId || "",
+      reason: report.reason || "",
+      description: report.description || "",
+      status: report.status || "open",
+      createdAt: report.createdAt || ""
+    })),
+    suspiciousActivityIndicators
+  };
+}
+
 function canPostProducts(role) {
   return role === "seller" || role === "admin" || role === "moderator";
 }
@@ -2541,7 +2724,14 @@ http.createServer(async (req, res) => {
         return;
       }
 
-      sendJson(res, 200, (store.users || []).map(isAdminSession(session) ? sanitizeAdminUser : sanitizeModeratorUser));
+      sendJson(
+        res,
+        200,
+        (store.users || []).map((user) => ({
+          ...(isAdminSession(session) ? sanitizeAdminUser(user) : sanitizeModeratorUser(user)),
+          ...buildAdminUserSummary(store, user)
+        }))
+      );
       return;
     }
 
@@ -2657,6 +2847,56 @@ http.createServer(async (req, res) => {
       const users = await collectBody(req);
       await writeStore({ ...store, users: Array.isArray(users) ? users.map(normalizeUserRecord) : [] });
       sendJson(res, 200, { ok: true });
+      return;
+    }
+
+    if (req.method === "POST" && /^\/api\/admin\/users\/[^/]+\/investigation$/.test(url.pathname)) {
+      const token = readAuthToken(req);
+      const session = findSession(store, token);
+      if (!session || !isAdminSession(session)) {
+        await denyJson(res, session ? 403 : 401, session
+          ? "Fraud review inaruhusiwa kwa admin mkuu tu."
+          : "Session imeisha au si sahihi.", {
+          ip: clientIp,
+          method: req.method,
+          path: url.pathname,
+          event: "user_investigation_denied",
+          username: session?.username || "",
+          reason: !session ? "missing_or_invalid_session" : "insufficient_role"
+        });
+        return;
+      }
+
+      const targetUsername = normalizeIdentifier(decodeURIComponent(url.pathname.split("/")[4] || ""), 40);
+      const payload = await collectBody(req);
+      const validationError = validateInvestigationRequestPayload(payload);
+      if (validationError) {
+        sendJson(res, 400, { error: validationError });
+        return;
+      }
+
+      const targetUser = getUserByUsername(store, targetUsername);
+      if (!targetUser) {
+        sendJson(res, 404, { error: "User hakupatikana." });
+        return;
+      }
+
+      const now = new Date().toISOString();
+      const reason = sanitizePlainText(payload.reason, 240);
+      const investigation = await buildAdminUserInvestigation(store, targetUser, { reason });
+      await appendAuditLog({
+        time: now,
+        ip: clientIp,
+        method: req.method,
+        path: url.pathname,
+        event: "user_investigation_viewed",
+        adminUsername: session.username,
+        username: session.username,
+        targetUserId: targetUsername,
+        reason,
+        actionType: "fraud_review"
+      });
+      sendJson(res, 200, investigation);
       return;
     }
 
@@ -2903,12 +3143,12 @@ http.createServer(async (req, res) => {
         status: "active",
         moderationReason: "",
         moderationNote: "",
-        verifiedSeller: false,
+        verifiedSeller: normalizedRole === "seller",
         profileImage: payload.profileImage || "",
         identityDocumentType: normalizedRole === "seller" ? sellerIdentity.idType : "",
         identityDocumentNumber: normalizedRole === "seller" ? sellerIdentity.idNumber : "",
         identityDocumentImage: normalizedRole === "seller" ? sellerIdentity.idImage : "",
-        verificationStatus: normalizedRole === "seller" ? "pending" : "",
+        verificationStatus: normalizedRole === "seller" ? "verified" : "",
         verificationSubmittedAt: normalizedRole === "seller" ? new Date().toISOString() : "",
         moderatedAt: "",
         moderatedBy: "",
