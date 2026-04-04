@@ -251,17 +251,17 @@
 
       if (params.enableContinuousDiscovery) {
         const anchor = deps.createElement("section", {
-          className: "continuous-discovery-anchor panel",
+          className: "continuous-discovery-anchor",
           attributes: {
             "data-product-detail-continuous-anchor": "true"
           }
         });
         anchor.append(
-          deps.createElement("p", { className: "eyebrow", textContent: "Continuous Discovery" }),
-          deps.createElement("strong", { textContent: "Loading more products while you browse" }),
+          deps.createElement("p", { className: "eyebrow", textContent: "Winga is loading more" }),
+          deps.createElement("strong", { textContent: "More products are lining up below" }),
           deps.createElement("p", {
             className: "product-meta",
-            textContent: "You will keep seeing more from this seller first, then wider marketplace picks."
+            textContent: "You keep getting more from this seller first, then wider marketplace picks follow."
           })
         );
         wrapper.appendChild(anchor);

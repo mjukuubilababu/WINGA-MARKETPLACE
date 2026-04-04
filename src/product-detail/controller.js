@@ -218,7 +218,8 @@
         detailContinuousRuntime.loading = false;
         return;
       }
-      anchor.before(section);
+      anchor.after(section);
+      section.after(anchor);
       bindInlineProductActions(section, product);
       deps.bindProductMenus?.(section);
       const appendedIds = descriptor.items.map((item) => item.id);
@@ -255,7 +256,7 @@
         });
       }, {
         root: modal,
-        rootMargin: "420px 0px"
+        rootMargin: "1100px 0px 900px 0px"
       });
       detailContinuousRuntime.observer.observe(anchor);
     }

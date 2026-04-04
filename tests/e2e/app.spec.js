@@ -346,6 +346,15 @@ test("seller-capable home feed hides the normal footer nav and shows the floatin
   await context.close();
 });
 
+test("seller home still shows products from other sellers in the marketplace feed", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "market_seller", "Pass1234");
+  await page.goto("/");
+
+  await expect(page.locator("#products-container .product-card", { hasText: "Bag Travel Pro" }).first()).toBeVisible();
+
+  await context.close();
+});
+
 test("logged in sellers can scroll below the hero and still see marketplace rows", async ({ browser }) => {
   const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234", {
     viewport: { width: 390, height: 844 },

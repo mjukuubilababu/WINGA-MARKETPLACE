@@ -6393,19 +6393,35 @@ function rememberContinuousDiscoveryIds(currentIds = [], nextIds = [], limit = 4
   return [...currentIds, ...nextIds.filter(Boolean)].slice(-limit);
 }
 
+function prioritizeSellerMarketplaceMix(list) {
+  if (!isSellerUser() || currentView !== "home" || !Array.isArray(list) || list.length < 2) {
+    return list;
+  }
+  const ownProducts = [];
+  const otherSellerProducts = [];
+  list.forEach((product) => {
+    if (product?.uploadedBy === currentUser) {
+      ownProducts.push(product);
+      return;
+    }
+    otherSellerProducts.push(product);
+  });
+  return otherSellerProducts.length ? [...otherSellerProducts, ...ownProducts] : list;
+}
+
 function createContinuousDiscoveryAnchorElement() {
   const anchor = createElement("section", {
-    className: "continuous-discovery-anchor panel",
+    className: "continuous-discovery-anchor",
     attributes: {
       "data-continuous-discovery-anchor": "home"
     }
   });
   anchor.append(
-    createElement("p", { className: "eyebrow", textContent: "Continuous Discovery" }),
-    createElement("strong", { textContent: "Loading more products as you browse" }),
+    createElement("p", { className: "eyebrow", textContent: "Winga is loading more" }),
+    createElement("strong", { textContent: "More products are already lining up" }),
     createElement("p", {
       className: "product-meta",
-      textContent: "New listings come first. If there is nothing new, Winga brings back older products you have not seen in a while."
+      textContent: "New arrivals come first, then more stylish marketplace picks follow behind them."
     })
   );
   return anchor;
@@ -6553,9 +6569,9 @@ function getContinuousDiscoveryDescriptor(options = {}) {
   if (staleViewedItems.length) {
     return {
       kind: "stale-viewed",
-      eyebrow: "Continue Browsing",
-      title: "Products you saw long ago",
-      subtitle: "Nothing newer right now, so Winga brings back older discoveries you may want to revisit.",
+      eyebrow: "Vaa Pendeza",
+      title: "Mitupio na classic za kurudi kwenye rada yako",
+      subtitle: "Picks zenye style nzuri zinazostahili kuangaliwa tena huku ukisubiri arrivals mpya.",
       items: staleViewedItems
     };
   }
@@ -6617,7 +6633,8 @@ function hydrateContinuousDiscoveryAnchor(anchor) {
     return;
   }
 
-  anchor.before(section);
+  anchor.after(section);
+  section.after(anchor);
   bindImageFallbacks(section);
   bindProductMenus(section);
   const appendedIds = descriptor.items.map((item) => item.id);
@@ -6658,7 +6675,7 @@ function setupContinuousDiscoveryLoading(scope, options = {}) {
       hydrateContinuousDiscoveryAnchor(anchor);
     });
   }, {
-    rootMargin: "480px 0px"
+    rootMargin: "1400px 0px 1200px 0px"
   });
   homeContinuousDiscoveryRuntime.observer.observe(anchor);
 }
@@ -7129,15 +7146,15 @@ function getFilteredProducts() {
   const filtered = applyProductFilters(baseList.filter((product) => isMarketplaceBrowseCandidate(product)));
   const sortMode = sortSelect?.value || "default";
   if (sortMode !== "default" || !filtered.length) {
-    return filtered;
+    return prioritizeSellerMarketplaceMix(filtered);
   }
 
-  return rankProductsForSurface(filtered, {
+  return prioritizeSellerMarketplaceMix(rankProductsForSurface(filtered, {
     surface: currentView === "home" ? "home" : "default",
     limit: filtered.length,
     selectedCategory,
     searchTerms: searchInput.value ? [searchInput.value] : []
-  });
+  }));
 }
 
 function updateResultsMeta(listLength) {

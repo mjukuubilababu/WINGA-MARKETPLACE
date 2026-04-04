@@ -3270,10 +3270,15 @@ body.product-detail-open{
 .continuous-discovery-anchor{
   grid-column:1 / -1;
   display:grid;
-  gap:6px;
+  gap:4px;
   place-items:center;
   text-align:center;
-  padding:18px 14px;
+  min-height:28px;
+  padding:8px 14px 2px;
+  opacity:0.88;
+  background:transparent;
+  border:none;
+  box-shadow:none;
 }
 
 .like-btn{
