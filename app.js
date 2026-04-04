@@ -1754,6 +1754,7 @@ function noteProductInterest(productId) {
   if (!productId) {
     return;
   }
+  productSeenTimestamps[productId] = Date.now();
   lastViewedProductId = productId;
   recentlyViewedProductIds = [productId, ...recentlyViewedProductIds.filter((item) => item !== productId)].slice(0, 12);
   const relatedProduct = getProductById(productId);
@@ -1766,6 +1767,7 @@ function noteProductDiscovery(productId) {
   if (!productId) {
     return;
   }
+  productSeenTimestamps[productId] = Date.now();
   productDiscoveryTrail = [productId, ...productDiscoveryTrail.filter((item) => item !== productId)].slice(0, 18);
 }
 
@@ -3592,6 +3594,9 @@ const {
   closeProductDetailModal: closeProductDetailModalFromController,
   openProductDetailModal: openProductDetailModalFromController
 } = window.WingaModules.productDetail.createProductDetailControllerModule({
+  createElement,
+  createSectionHeading,
+  createFragmentFromMarkup,
   ensureProductDetailModal,
   createProductDetailContentElement,
   getProducts: () => products,
@@ -3601,9 +3606,12 @@ const {
   getDiscoverySponsoredProducts: (...args) => getDiscoverySponsoredProducts(...args),
   getMostSearchedProducts: (...args) => getMostSearchedProducts(...args),
   getNewestProducts: (...args) => getNewestProducts(...args),
+  getContinuousDiscoveryDescriptor,
+  renderDiscoveryProductCards,
   getImageFallbackDataUri,
   noteProductInterest,
   noteProductDiscovery,
+  bindProductMenus,
   scrollToProductCard,
   renderProductReviewSummary,
   renderSellerReviewSummary,
@@ -3839,6 +3847,7 @@ const {
   getCategoryLabel,
   renderMarketplaceTrustBadges,
   renderProductActionGroup,
+  renderProductOverflowMenu,
   noteProductInterest,
   openImageLightbox,
   openProductDetailModal,
@@ -3849,6 +3858,8 @@ const {
   getTrendingProducts,
   bindShowcaseCardClicks,
   setupDynamicShowcaseLoading,
+  createContinuousDiscoveryAnchorElement,
+  setupContinuousDiscoveryLoading,
   trackProductView: (productId) => window.WingaDataLayer.trackProductView(productId),
   refreshProductsFromStore
 });
@@ -4148,11 +4159,20 @@ let reviewSummaries = {};
 let lastViewedProductId = "";
 let recentlyViewedProductIds = [];
 let productDiscoveryTrail = [];
+let productSeenTimestamps = {};
 let pinnedDesktopCategory = "";
 let buyerSellerAffinity = {};
 let recentCategorySelections = [];
 let recentSearchTerms = [];
 let recentMessagedProductIds = [];
+let homeContinuousDiscoveryRuntime = {
+  observer: null,
+  batchIndex: 0,
+  recentIds: [],
+  usedIds: new Set(),
+  loading: false,
+  seedProductId: ""
+};
 const observability = createObservabilityModule({
   emitClientEvent: (payload) => window.WingaDataLayer?.logClientEvent?.(payload),
   consoleObject: console,
@@ -6234,7 +6254,10 @@ function renderDiscoveryProductCards(items, options = {}) {
         const promotion = sponsored ? getPrimaryPromotion(item.id) : null;
         return `
           <article class="seller-product-card" data-open-product="${item.id}">
-            <img class="zoomable-image" src="${item.image}" alt="${safeName}" loading="lazy" data-fallback-src="${getImageFallbackDataUri("W")}" data-zoom-src="${item.image}" data-zoom-alt="${safeName}">
+            <div class="seller-product-card-media">
+              <img class="zoomable-image" src="${item.image}" alt="${safeName}" loading="lazy" data-fallback-src="${getImageFallbackDataUri("W")}" data-zoom-src="${item.image}" data-zoom-alt="${safeName}">
+              ${renderProductOverflowMenu(item, { overlay: true })}
+            </div>
             <strong>${formatProductPrice(item.price)}</strong>
             <span>${safeName}</span>
             <span>${safeCategory}</span>
@@ -6364,6 +6387,280 @@ function getNewestProducts(options = {}) {
       return new Date(second.createdAt || 0).getTime() - new Date(first.createdAt || 0).getTime();
     });
   return limitProductsPerSeller(rankedNewest, limit, 2);
+}
+
+function rememberContinuousDiscoveryIds(currentIds = [], nextIds = [], limit = 40) {
+  return [...currentIds, ...nextIds.filter(Boolean)].slice(-limit);
+}
+
+function createContinuousDiscoveryAnchorElement() {
+  const anchor = createElement("section", {
+    className: "continuous-discovery-anchor panel",
+    attributes: {
+      "data-continuous-discovery-anchor": "home"
+    }
+  });
+  anchor.append(
+    createElement("p", { className: "eyebrow", textContent: "Continuous Discovery" }),
+    createElement("strong", { textContent: "Loading more products as you browse" }),
+    createElement("p", {
+      className: "product-meta",
+      textContent: "New listings come first. If there is nothing new, Winga brings back older products you have not seen in a while."
+    })
+  );
+  return anchor;
+}
+
+function createContinuousDiscoverySectionElement(descriptor, index, anchorKind = "home") {
+  if (!descriptor || !Array.isArray(descriptor.items) || !descriptor.items.length) {
+    return null;
+  }
+  const section = createElement("section", {
+    className: "showcase-inline panel recommendation-strip continuous-discovery-section",
+    attributes: {
+      "data-continuous-discovery-section": `${anchorKind}-${index}`,
+      "data-continuous-discovery-kind": descriptor.kind || "continuation"
+    }
+  });
+  section.appendChild(createSectionHeading({
+    eyebrow: descriptor.eyebrow || "Keep Exploring",
+    title: descriptor.title || "More products for you",
+    meta: descriptor.subtitle || "Discovery keeps moving while you browse"
+  }));
+  section.appendChild(createFragmentFromMarkup(
+    renderDiscoveryProductCards(descriptor.items, { sponsored: Boolean(descriptor.sponsored) })
+  ));
+  return section;
+}
+
+function getStaleViewedProducts(options = {}) {
+  const {
+    limit = 8,
+    recentIds = [],
+    usedIds = new Set(),
+    seedProduct = null
+  } = options;
+  const recentIdSet = new Set(recentIds);
+  const usedIdSet = new Set(Array.from(usedIds || []).filter(Boolean));
+  const seedTopCategory = inferTopCategoryValue(seedProduct?.category || "");
+  const candidates = products
+    .filter((product) =>
+      product.status === "approved"
+      && product.availability !== "sold_out"
+      && isMarketplaceBrowseCandidate(product)
+      && product.id !== seedProduct?.id
+      && !recentIdSet.has(product.id)
+      && (productSeenTimestamps[product.id] || usedIdSet.has(product.id))
+    )
+    .sort((first, second) => {
+      const secondMatchesSeed = seedTopCategory && inferTopCategoryValue(second.category || "") === seedTopCategory ? 1 : 0;
+      const firstMatchesSeed = seedTopCategory && inferTopCategoryValue(first.category || "") === seedTopCategory ? 1 : 0;
+      if (secondMatchesSeed !== firstMatchesSeed) {
+        return secondMatchesSeed - firstMatchesSeed;
+      }
+      const firstSeenAt = Number(productSeenTimestamps[first.id] || 0);
+      const secondSeenAt = Number(productSeenTimestamps[second.id] || 0);
+      if (firstSeenAt !== secondSeenAt) {
+        return firstSeenAt - secondSeenAt;
+      }
+      return new Date(second.createdAt || 0).getTime() - new Date(first.createdAt || 0).getTime();
+    });
+
+  return limitProductsPerSeller(candidates, limit, 2);
+}
+
+function getContinuousDiscoveryDescriptor(options = {}) {
+  const {
+    seedProduct = null,
+    usedIds = new Set(),
+    recentIds = [],
+    batchIndex = 0
+  } = options;
+  const preferredSeed = seedProduct || getRecommendationSeed(getFilteredProducts());
+  const hardExcludeIds = new Set(Array.from(usedIds || []).filter(Boolean));
+  const softExcludeIds = new Set([
+    ...Array.from(hardExcludeIds),
+    ...Array.from(recentIds || []).filter(Boolean)
+  ]);
+  const minimumBatchSize = 3;
+
+  const freshNewItems = getNewestProducts({
+    limit: 10,
+    excludeIds: softExcludeIds,
+    seedProduct: preferredSeed
+  }).filter((product) => !productSeenTimestamps[product.id]);
+  if (freshNewItems.length >= minimumBatchSize || (freshNewItems.length > 0 && batchIndex === 0)) {
+    return {
+      kind: "fresh",
+      eyebrow: "New Products",
+      title: "Fresh listings from active sellers",
+      subtitle: "Winga keeps putting new stock in front of you first.",
+      items: freshNewItems.slice(0, 8)
+    };
+  }
+
+  const relatedItems = preferredSeed
+    ? getDiscoveryRelatedProducts(preferredSeed, {
+      limit: 8,
+      excludeIds: softExcludeIds
+    })
+    : [];
+  if (relatedItems.length >= minimumBatchSize) {
+    return {
+      kind: "related",
+      eyebrow: "Related Products",
+      title: preferredSeed ? `Still more around ${getCategoryLabel(preferredSeed.category)}` : "Still more to explore",
+      subtitle: "Products close to the one you just explored.",
+      items: relatedItems
+    };
+  }
+
+  const mostSearchedItems = getMostSearchedProducts(preferredSeed, {
+    limit: 8,
+    excludeIds: softExcludeIds
+  });
+  if (mostSearchedItems.length >= minimumBatchSize) {
+    return {
+      kind: "most-searched",
+      eyebrow: "Most Searched",
+      title: "Popular products buyers search for most",
+      subtitle: "High-intent products moving through the marketplace right now.",
+      items: mostSearchedItems
+    };
+  }
+
+  const sponsoredItems = getDiscoverySponsoredProducts(preferredSeed, {
+    limit: 4,
+    excludeIds: softExcludeIds
+  });
+  if (sponsoredItems.length >= 2) {
+    return {
+      kind: "sponsored",
+      eyebrow: "Sponsored Picks",
+      title: "Promoted products worth a look",
+      subtitle: "Commercially boosted items selected without breaking discovery flow.",
+      sponsored: true,
+      items: sponsoredItems
+    };
+  }
+
+  const staleViewedItems = getStaleViewedProducts({
+    limit: 8,
+    recentIds,
+    usedIds,
+    seedProduct: preferredSeed
+  });
+  if (staleViewedItems.length) {
+    return {
+      kind: "stale-viewed",
+      eyebrow: "Continue Browsing",
+      title: "Products you saw long ago",
+      subtitle: "Nothing newer right now, so Winga brings back older discoveries you may want to revisit.",
+      items: staleViewedItems
+    };
+  }
+
+  const fallbackItems = getTrendingProducts(8, new Set(Array.from(recentIds || []).filter(Boolean)));
+  if (fallbackItems.length) {
+    return {
+      kind: "trending-fallback",
+      eyebrow: "Marketplace Picks",
+      title: "More products from the market",
+      subtitle: "Winga keeps discovery alive even when fresh stock is limited.",
+      items: fallbackItems
+    };
+  }
+
+  return null;
+}
+
+function disconnectContinuousDiscoveryObserver() {
+  if (homeContinuousDiscoveryRuntime.observer) {
+    homeContinuousDiscoveryRuntime.observer.disconnect();
+  }
+  homeContinuousDiscoveryRuntime = {
+    observer: null,
+    batchIndex: 0,
+    recentIds: [],
+    usedIds: new Set(),
+    loading: false,
+    seedProductId: ""
+  };
+}
+
+function hydrateContinuousDiscoveryAnchor(anchor) {
+  if (!anchor || homeContinuousDiscoveryRuntime.loading) {
+    return;
+  }
+  homeContinuousDiscoveryRuntime.loading = true;
+
+  const seedProduct = getProductById(homeContinuousDiscoveryRuntime.seedProductId) || getRecommendationSeed(getFilteredProducts());
+  const descriptor = getContinuousDiscoveryDescriptor({
+    seedProduct,
+    usedIds: homeContinuousDiscoveryRuntime.usedIds,
+    recentIds: homeContinuousDiscoveryRuntime.recentIds,
+    batchIndex: homeContinuousDiscoveryRuntime.batchIndex
+  });
+
+  if (!descriptor) {
+    homeContinuousDiscoveryRuntime.loading = false;
+    return;
+  }
+
+  const section = createContinuousDiscoverySectionElement(
+    descriptor,
+    homeContinuousDiscoveryRuntime.batchIndex + 1,
+    "home"
+  );
+  if (!section) {
+    homeContinuousDiscoveryRuntime.loading = false;
+    return;
+  }
+
+  anchor.before(section);
+  bindImageFallbacks(section);
+  bindProductMenus(section);
+  const appendedIds = descriptor.items.map((item) => item.id);
+  appendedIds.forEach((productId) => homeContinuousDiscoveryRuntime.usedIds.add(productId));
+  homeContinuousDiscoveryRuntime.recentIds = rememberContinuousDiscoveryIds(
+    homeContinuousDiscoveryRuntime.recentIds,
+    appendedIds
+  );
+  homeContinuousDiscoveryRuntime.batchIndex += 1;
+  homeContinuousDiscoveryRuntime.loading = false;
+}
+
+function setupContinuousDiscoveryLoading(scope, options = {}) {
+  disconnectContinuousDiscoveryObserver();
+
+  const anchor = scope?.querySelector?.("[data-continuous-discovery-anchor='home']");
+  if (!anchor || currentView !== "home") {
+    return;
+  }
+
+  const usedIds = new Set(Array.from(options.usedProductIds || []).filter(Boolean));
+  homeContinuousDiscoveryRuntime.usedIds = usedIds;
+  homeContinuousDiscoveryRuntime.recentIds = [];
+  homeContinuousDiscoveryRuntime.seedProductId = options.seedProduct?.id || "";
+
+  if (typeof IntersectionObserver === "undefined") {
+    for (let cycle = 0; cycle < 3; cycle += 1) {
+      hydrateContinuousDiscoveryAnchor(anchor);
+    }
+    return;
+  }
+
+  homeContinuousDiscoveryRuntime.observer = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      if (!entry.isIntersecting) {
+        return;
+      }
+      hydrateContinuousDiscoveryAnchor(anchor);
+    });
+  }, {
+    rootMargin: "480px 0px"
+  });
+  homeContinuousDiscoveryRuntime.observer.observe(anchor);
 }
 
 function buildTrendingKariakooSlide() {
@@ -6609,6 +6906,9 @@ function renderCurrentView() {
     if (!canAccessView(currentView)) {
       setCurrentViewState("home");
     }
+    if (currentView !== "home") {
+      disconnectContinuousDiscoveryObserver();
+    }
 
     if (currentView !== "home") {
       pinnedDesktopCategory = "";
@@ -6675,6 +6975,8 @@ function renderCurrentView() {
     renderProducts(filteredProducts);
     enhanceShowcaseTracks(marketShowcase);
     enhanceShowcaseTracks(productsContainer);
+    bindProductMenus(marketShowcase);
+    bindProductMenus(productsContainer);
     renderSearchDropdown(filteredProducts, { isProfile, isUpload, isAdminView });
 
     if (isUpload && !editingProductId) {
@@ -7399,6 +7701,11 @@ function bindProductMenus(scope) {
 
       if (button.dataset.menuAction === "download") {
         triggerProductDownload(product);
+        return;
+      }
+
+      if (button.dataset.menuAction === "delete") {
+        deleteProduct(product.id);
       }
     });
   });

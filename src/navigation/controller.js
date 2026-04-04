@@ -143,6 +143,13 @@
           return;
         }
 
+        const productCard = event.target.closest(".seller-product-card[data-open-product]");
+        if (productCard && !event.target.closest(".product-actions, .product-menu, button, a")) {
+          event.preventDefault();
+          deps.openProductDetailModal(productCard.dataset.openProduct);
+          return;
+        }
+
         const ownMessagesButton = event.target.closest("[data-open-own-messages]");
         if (ownMessagesButton) {
           event.preventDefault();

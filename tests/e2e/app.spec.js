@@ -605,6 +605,48 @@ test("signed-in home keeps lower rows visible below the hero", async ({ browser 
   await context.close();
 });
 
+test("home feed keeps loading continuous discovery sections before users hit a hard end", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234");
+  await page.goto("/");
+
+  await expect(page.locator("[data-continuous-discovery-anchor='home']")).toBeVisible();
+  const initialCount = await page.locator("[data-continuous-discovery-section]").count();
+
+  await page.locator("[data-continuous-discovery-anchor='home']").scrollIntoViewIfNeeded();
+  await expect.poll(async () => page.locator("[data-continuous-discovery-section]").count()).toBeGreaterThan(initialCount);
+
+  await context.close();
+});
+
+test("seller-owned marketplace cards expose the three-dots delete menu on home", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "market_seller", "Pass1234");
+  await page.goto("/");
+
+  const ownCardMenu = page.locator("[data-product-card='e2e-prod-1'] [data-menu-toggle='e2e-prod-1']").first();
+  await expect(ownCardMenu).toBeVisible();
+  await ownCardMenu.click();
+  await expect(page.locator("[data-product-card='e2e-prod-1'] [data-menu-popup='e2e-prod-1']").first()).toContainText("Delete");
+
+  await context.close();
+});
+
+test("seller can delete an owned marketplace card from home via the three-dots menu", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "market_seller", "Pass1234");
+  await page.goto("/");
+
+  page.once("dialog", (dialog) => dialog.accept());
+
+  const card = page.locator("[data-product-card='e2e-prod-delete']").first();
+  await expect(card).toBeVisible();
+  await card.locator("[data-menu-toggle='e2e-prod-delete']").click();
+  await card.locator("[data-menu-action='delete'][data-id='e2e-prod-delete']").evaluate((button) => {
+    button.click();
+  });
+  await expect(card).toHaveCount(0);
+
+  await context.close();
+});
+
 test("recommendation cards also support add-to-requests for seller-buyer sessions", async ({ browser }) => {
   const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234");
   await page.goto("/");
@@ -657,6 +699,22 @@ test("product detail keeps same-seller continuation and broader discovery surfac
   await page.locator("#product-detail-modal .seller-product-card").first().click();
   await expect(page.locator("#product-detail-modal [data-product-detail-home]")).toBeVisible();
   await expect(page.locator("#product-detail-modal .seller-product-card").first()).toBeVisible();
+
+  await context.close();
+});
+
+test("product detail keeps loading deeper discovery sections while users browse inside it", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234");
+  await page.goto("/");
+  await expect(page.locator("#products-container .product-card").first()).toBeVisible({ timeout: 30000 });
+
+  await page.locator("#products-container .product-card").first().click();
+  await expect(page.locator("#product-detail-modal")).toBeVisible();
+  await expect(page.locator("[data-product-detail-continuous-anchor='true']")).toBeVisible();
+
+  const initialSections = await page.locator("#product-detail-modal .product-detail-seller-products").count();
+  await page.locator("[data-product-detail-continuous-anchor='true']").scrollIntoViewIfNeeded();
+  await expect.poll(async () => page.locator("#product-detail-modal .product-detail-seller-products").count()).toBeGreaterThan(initialSections);
 
   await context.close();
 });

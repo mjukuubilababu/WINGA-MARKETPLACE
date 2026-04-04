@@ -93,7 +93,13 @@
         }
       });
       card.dataset.productCard = product.id;
-      card.appendChild(createProductGalleryElement(product));
+      const media = createElement("div", { className: "product-card-media" });
+      media.appendChild(createProductGalleryElement(product));
+      const overflowMenuMarkup = deps.renderProductOverflowMenu?.(product, { overlay: true });
+      if (overflowMenuMarkup) {
+        media.appendChild(createFragmentFromMarkup(overflowMenuMarkup));
+      }
+      card.appendChild(media);
 
       const content = createElement("div", { className: "product-content product-content-simple" });
       const head = createElement("div", { className: "product-card-head" });
@@ -121,7 +127,7 @@
       card.appendChild(content);
 
       card.addEventListener("click", (event) => {
-        if (event.target.closest(".product-actions")) {
+        if (event.target.closest(".product-actions, .product-menu")) {
           return;
         }
         deps.noteProductInterest(product.id);
@@ -148,6 +154,10 @@
           "data-image-action-surface": "showcase"
         }
       }));
+      const overflowMenuMarkup = deps.renderProductOverflowMenu?.(product, { overlay: true });
+      if (overflowMenuMarkup) {
+        media.appendChild(createFragmentFromMarkup(overflowMenuMarkup));
+      }
       const body = createElement("div", { className: "product-content product-content-simple showcase-body" });
       const head = createElement("div", { className: "product-card-head" });
       head.appendChild(createElement("strong", {
@@ -179,7 +189,7 @@
       );
       card.append(media, body);
       card.addEventListener("click", (event) => {
-        if (event.target.closest(".product-actions")) {
+        if (event.target.closest(".product-actions, .product-menu")) {
           return;
         }
         deps.noteProductInterest(product.id);
@@ -325,6 +335,9 @@
           createRecommendationSectionElement("You May Like", "Based on what you are viewing", youMayLike, "you-may-like"),
           createRecommendationSectionElement("Trending", "Most viewed and most interacted", trending, "trending")
         ].filter(Boolean).forEach((section) => fragment.appendChild(section));
+        if (deps.createContinuousDiscoveryAnchorElement) {
+          fragment.appendChild(deps.createContinuousDiscoveryAnchorElement());
+        }
       }
 
       productsContainer.replaceChildren(fragment);
@@ -332,6 +345,19 @@
       if (shouldInjectInlineShowcases) {
         deps.bindShowcaseCardClicks(productsContainer);
         deps.setupDynamicShowcaseLoading(productsContainer, usedShowcaseProductIds);
+      }
+      if (currentView === "home" && list.length > 0 && deps.setupContinuousDiscoveryLoading) {
+        const usedProductIds = new Set(list.map((product) => product.id));
+        Array.from(productsContainer.querySelectorAll("[data-showcase-id], [data-open-product]")).forEach((element) => {
+          const productId = element.dataset.showcaseId || element.dataset.openProduct || "";
+          if (productId) {
+            usedProductIds.add(productId);
+          }
+        });
+        deps.setupContinuousDiscoveryLoading(productsContainer, {
+          seedProduct: deps.getRecommendationSeed(list),
+          usedProductIds
+        });
       }
 
       if (viewedProductIds.length > 0) {

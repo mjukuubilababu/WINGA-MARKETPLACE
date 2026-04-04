@@ -84,13 +84,20 @@
       return "Fuatilia status ya order hapa hadi ikamilike.";
     }
 
-    function renderProductOverflowMenu(product) {
+    function renderProductOverflowMenu(product, options = {}) {
+      const { overlay = false } = options;
+      const currentUser = getCurrentUser();
+      const isOwner = Boolean(currentUser && product?.uploadedBy === currentUser);
+      if (!isOwner) {
+        return "";
+      }
       return `
-        <div class="product-menu" data-product-menu="${product.id}">
+        <div class="product-menu${overlay ? " product-menu-overlay" : ""}" data-product-menu="${product.id}">
           <button class="product-menu-toggle" type="button" aria-label="Fungua menu" data-menu-toggle="${product.id}">&#8942;</button>
           <div class="product-menu-popup" data-menu-popup="${product.id}">
             <button class="product-menu-item" type="button" data-menu-action="share" data-id="${product.id}">Share</button>
             <button class="product-menu-item" type="button" data-menu-action="download" data-id="${product.id}">Download</button>
+            <button class="product-menu-item product-menu-item-danger" type="button" data-menu-action="delete" data-id="${product.id}">Delete</button>
           </div>
         </div>
       `;

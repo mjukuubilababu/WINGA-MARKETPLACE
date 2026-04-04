@@ -249,6 +249,24 @@
         wrapper.appendChild(section);
       });
 
+      if (params.enableContinuousDiscovery) {
+        const anchor = deps.createElement("section", {
+          className: "continuous-discovery-anchor panel",
+          attributes: {
+            "data-product-detail-continuous-anchor": "true"
+          }
+        });
+        anchor.append(
+          deps.createElement("p", { className: "eyebrow", textContent: "Continuous Discovery" }),
+          deps.createElement("strong", { textContent: "Loading more products while you browse" }),
+          deps.createElement("p", {
+            className: "product-meta",
+            textContent: "You will keep seeing more from this seller first, then wider marketplace picks."
+          })
+        );
+        wrapper.appendChild(anchor);
+      }
+
       if (showFloatingHomeAction) {
         wrapper.appendChild(deps.createElement("button", {
           className: `product-detail-home-fab product-detail-home-fab-${floatingHomeVariant === "light" ? "light" : "dark"}`,

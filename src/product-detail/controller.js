@@ -10,6 +10,14 @@
 
     let isSyncingHistoryState = false;
     let pendingHomeNavigation = false;
+    let detailContinuousRuntime = {
+      observer: null,
+      batchIndex: 0,
+      recentIds: [],
+      usedIds: new Set(),
+      seedProductId: "",
+      loading: false
+    };
 
     function isDetailHistoryState(state) {
       return Boolean(state?.wingaProductDetail && state?.productId);
@@ -56,6 +64,19 @@
       ).slice(0, limit);
     }
 
+    function getRemainingSellerProducts(product, excludeIds = new Set(), limit = 8) {
+      if (!product?.uploadedBy) {
+        return [];
+      }
+      return deps.getProducts().filter((item) =>
+        item.id !== product.id
+        && item.uploadedBy === product.uploadedBy
+        && item.status === "approved"
+        && item.availability !== "sold_out"
+        && !excludeIds.has(item.id)
+      ).slice(0, limit);
+    }
+
     function getFloatingHomeVariant(product) {
       const signature = typeof product?.imageSignature === "string" ? product.imageSignature.trim() : "";
       if (!signature) {
@@ -77,6 +98,166 @@
         sponsored: Boolean(config.sponsored),
         items
       });
+    }
+
+    function rememberRecentIds(currentIds = [], nextIds = [], limit = 40) {
+      return [...currentIds, ...nextIds.filter(Boolean)].slice(-limit);
+    }
+
+    function disconnectDetailContinuousObserver() {
+      if (detailContinuousRuntime.observer) {
+        detailContinuousRuntime.observer.disconnect();
+      }
+      detailContinuousRuntime = {
+        observer: null,
+        batchIndex: 0,
+        recentIds: [],
+        usedIds: new Set(),
+        seedProductId: "",
+        loading: false
+      };
+    }
+
+    function createDetailContinuationSectionElement(descriptor, index) {
+      if (!descriptor || !Array.isArray(descriptor.items) || !descriptor.items.length) {
+        return null;
+      }
+      const section = deps.createElement("section", { className: "product-detail-seller-products" });
+      section.appendChild(deps.createSectionHeading({
+        eyebrow: descriptor.eyebrow || "Keep Exploring",
+        title: descriptor.title || `More products ${index}`,
+        meta: descriptor.subtitle || "Discovery continues while you browse."
+      }));
+      section.appendChild(
+        deps.createFragmentFromMarkup(
+          deps.renderDiscoveryProductCards(descriptor.items, { sponsored: Boolean(descriptor.sponsored) })
+        )
+      );
+      return section;
+    }
+
+    function bindInlineProductActions(scope, product) {
+      scope.querySelectorAll("[data-chat-product]").forEach((button) => {
+        if (button.dataset.detailBound === "true") {
+          return;
+        }
+        button.dataset.detailBound = "true";
+        button.addEventListener("click", () => {
+          const targetProduct = (deps.getProductById ? deps.getProductById(button.dataset.chatProduct) : null) || product;
+          deps.openProductChat(targetProduct);
+        });
+      });
+
+      scope.querySelectorAll("[data-request-product]").forEach((button) => {
+        if (button.dataset.detailBound === "true") {
+          return;
+        }
+        button.dataset.detailBound = "true";
+        button.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          const targetProduct = (deps.getProductById ? deps.getProductById(button.dataset.requestProduct) : deps.getProducts().find((item) => item.id === button.dataset.requestProduct)) || product;
+          deps.toggleProductInRequestBox(targetProduct, { reopenProductId: product.id });
+        });
+      });
+
+      scope.querySelectorAll("[data-open-own-messages]").forEach((button) => {
+        if (button.dataset.detailBound === "true") {
+          return;
+        }
+        button.dataset.detailBound = "true";
+        button.addEventListener("click", () => {
+          closeProductDetailModal();
+          deps.openOwnProductMessages(button.dataset.openOwnMessages);
+        });
+      });
+
+      scope.querySelectorAll("[data-open-product]").forEach((card) => {
+        if (card.dataset.detailBound === "true") {
+          return;
+        }
+        card.dataset.detailBound = "true";
+        card.addEventListener("click", (event) => {
+          if (event.target.closest("[data-request-product], [data-chat-product], [data-open-own-messages], .product-menu")) {
+            return;
+          }
+          openProductDetailModal(card.dataset.openProduct, {
+            sourceProductId: product.id
+          });
+        });
+      });
+    }
+
+    function hydrateDetailContinuousAnchor(modal, anchor, product) {
+      if (!anchor || detailContinuousRuntime.loading) {
+        return;
+      }
+      detailContinuousRuntime.loading = true;
+      const seedProduct = (deps.getProductById ? deps.getProductById(detailContinuousRuntime.seedProductId) : null) || product;
+      const sellerFirstItems = getRemainingSellerProducts(seedProduct, detailContinuousRuntime.usedIds, 8);
+      const descriptor = sellerFirstItems.length
+        ? {
+          kind: "same-seller",
+          eyebrow: "More From This Seller",
+          title: "Keep browsing this seller first",
+          subtitle: "Winga continues with more items from the same seller before widening discovery.",
+          items: sellerFirstItems
+        }
+        : deps.getContinuousDiscoveryDescriptor?.({
+          seedProduct,
+          usedIds: detailContinuousRuntime.usedIds,
+          recentIds: detailContinuousRuntime.recentIds,
+          batchIndex: detailContinuousRuntime.batchIndex
+        });
+      if (!descriptor) {
+        detailContinuousRuntime.loading = false;
+        return;
+      }
+      const section = createDetailContinuationSectionElement(descriptor, detailContinuousRuntime.batchIndex + 1);
+      if (!section) {
+        detailContinuousRuntime.loading = false;
+        return;
+      }
+      anchor.before(section);
+      bindInlineProductActions(section, product);
+      deps.bindProductMenus?.(section);
+      const appendedIds = descriptor.items.map((item) => item.id);
+      appendedIds.forEach((productId) => detailContinuousRuntime.usedIds.add(productId));
+      detailContinuousRuntime.recentIds = rememberRecentIds(detailContinuousRuntime.recentIds, appendedIds);
+      detailContinuousRuntime.batchIndex += 1;
+      detailContinuousRuntime.loading = false;
+    }
+
+    function setupDetailContinuousDiscovery(modal, product, usedIds = new Set()) {
+      disconnectDetailContinuousObserver();
+      const anchor = modal.querySelector("[data-product-detail-continuous-anchor='true']");
+      if (!anchor) {
+        return;
+      }
+
+      detailContinuousRuntime.usedIds = new Set(Array.from(usedIds || []).filter(Boolean));
+      detailContinuousRuntime.recentIds = [];
+      detailContinuousRuntime.seedProductId = product.id;
+
+      if (typeof IntersectionObserver === "undefined") {
+        for (let cycle = 0; cycle < 3; cycle += 1) {
+          hydrateDetailContinuousAnchor(modal, anchor, product);
+        }
+        return;
+      }
+
+      detailContinuousRuntime.observer = new IntersectionObserver((entries) => {
+        entries.forEach((entry) => {
+          if (!entry.isIntersecting) {
+            return;
+          }
+          hydrateDetailContinuousAnchor(modal, anchor, product);
+        });
+      }, {
+        root: modal,
+        rootMargin: "420px 0px"
+      });
+      detailContinuousRuntime.observer.observe(anchor);
     }
 
     function finalizeHomeNavigation() {
@@ -118,6 +299,7 @@
       }
       modal.style.display = "none";
       document.body.classList.remove("product-detail-open");
+      disconnectDetailContinuousObserver();
       deps.syncBodyScrollLockState?.();
       deps.resetProductDiscoveryTrail();
       deps.resetReviewDraft();
@@ -155,19 +337,7 @@
       modal.querySelectorAll("[data-detail-repost]").forEach((button) => {
         button.addEventListener("click", () => deps.repostProductAsSeller(product));
       });
-
-      modal.querySelectorAll("[data-chat-product]").forEach((button) => {
-        button.addEventListener("click", () => deps.openProductChat(product));
-      });
-
-      modal.querySelectorAll("[data-request-product]").forEach((button) => {
-        button.addEventListener("click", (event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          const targetProduct = (deps.getProductById ? deps.getProductById(button.dataset.requestProduct) : deps.getProducts().find((item) => item.id === button.dataset.requestProduct)) || product;
-          deps.toggleProductInRequestBox(targetProduct, { reopenProductId: product.id });
-        });
-      });
+      bindInlineProductActions(modal, product);
 
       modal.querySelectorAll("[data-review-rating]").forEach((button) => {
         button.addEventListener("click", () => {
@@ -229,24 +399,6 @@
             variant: "error"
           });
         }
-      });
-
-      modal.querySelectorAll("[data-open-own-messages]").forEach((button) => {
-        button.addEventListener("click", () => {
-          closeProductDetailModal();
-          deps.openOwnProductMessages(button.dataset.openOwnMessages);
-        });
-      });
-
-      modal.querySelectorAll("[data-open-product]").forEach((card) => {
-        card.addEventListener("click", (event) => {
-          if (event.target.closest("[data-request-product]")) {
-            return;
-          }
-          openProductDetailModal(card.dataset.openProduct, {
-            sourceProductId: product.id
-          });
-        });
       });
 
       const mainImage = modal.querySelector(".product-detail-image");
@@ -370,6 +522,7 @@
         seller,
         otherProducts,
         continuationSections,
+        enableContinuousDiscovery: true,
         mainImage,
         showFloatingHomeAction: detailNavState.detailDepth > 1,
         floatingHomeVariant: getFloatingHomeVariant(product),
@@ -395,6 +548,8 @@
         syncHistoryForDetail(product.id, sourceProductId);
       }
       bindProductDetailActions(modal, product);
+      deps.bindProductMenus?.(modal);
+      setupDetailContinuousDiscovery(modal, product, shownProductIds);
     }
 
     window.addEventListener("popstate", (event) => {
