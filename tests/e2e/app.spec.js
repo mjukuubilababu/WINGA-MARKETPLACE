@@ -820,6 +820,28 @@ test("mobile deeper showcase rows respond to touch-style horizontal drags", asyn
   await context.close();
 });
 
+test("seller sees buyer action buttons on other sellers products but not on their own products", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "market_seller", "Pass1234");
+  await page.goto("/");
+
+  const ownCard = page.locator("#products-container .product-card").filter({ hasText: "Shirt Premium" }).first();
+  const otherCard = page.locator("#products-container .product-card").filter({ hasText: "Phone Smart X" }).first();
+
+  await expect(ownCard).toBeVisible();
+  await expect(otherCard).toBeVisible();
+
+  await expect(ownCard).not.toContainText("Nunua");
+  await expect(ownCard).not.toContainText("Message");
+  await expect(ownCard).not.toContainText("Add to My Requests");
+  await expect(ownCard).not.toContainText("Your Product");
+
+  await expect(otherCard).toContainText("Nunua");
+  await expect(otherCard).toContainText("Message");
+  await expect(otherCard).toContainText("Add to My Requests");
+
+  await context.close();
+});
+
 test("marketplace cards keep verified copy out of compact card surfaces", async ({ browser }) => {
   const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234");
   await page.goto("/");

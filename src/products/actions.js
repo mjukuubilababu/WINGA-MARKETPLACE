@@ -138,7 +138,7 @@
         return `<button class="action-btn action-btn-secondary request-btn is-disabled" type="button" disabled aria-disabled="true">Unavailable</button>`;
       }
       if (product.uploadedBy === currentUser) {
-        return `<button class="action-btn action-btn-secondary request-btn is-disabled" type="button" disabled aria-disabled="true">Your Product</button>`;
+        return "";
       }
       if (currentUser && typeof canUseBuyerFeatures === "function" && !canUseBuyerFeatures()) {
         return `<button class="action-btn action-btn-secondary request-btn is-disabled" type="button" disabled aria-disabled="true">Admin only</button>`;
