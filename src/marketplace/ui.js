@@ -43,6 +43,7 @@
           className: "feed-gallery-image",
           fallbackSrc: deps.getImageFallbackDataUri("WINGA"),
           attributes: {
+            "data-marketplace-scroll-image": "true",
             "data-image-action-product": product.id,
             "data-image-action-src": image,
             "data-image-action-surface": "feed",
@@ -153,6 +154,7 @@
         alt: product.name || "",
         fallbackSrc: deps.getImageFallbackDataUri("WINGA"),
         attributes: {
+          "data-marketplace-scroll-image": "true",
           "data-image-action-product": product.id,
           "data-image-action-src": primaryImage,
           "data-image-action-surface": "showcase"

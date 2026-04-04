@@ -3976,6 +3976,9 @@ const brokenMarketplaceImagesByProduct = new Map();
 let brokenMarketplaceImageRefreshTimer = 0;
 const MAX_ACTIVE_HOME_CONTINUOUS_SECTIONS = 4;
 const MAX_HOME_CONTINUOUS_USED_IDS = 120;
+const MARKETPLACE_SCROLL_IMAGE_PLACEHOLDER = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
+const MARKETPLACE_SCROLL_IMAGE_RELEASE_MARGIN = 1600;
+let marketplaceScrollImageObserver = null;
 
 function getProductImageCandidates(product) {
   const sourceImages = Array.isArray(product?.images) && product.images.length > 0
@@ -6352,7 +6355,7 @@ function renderDiscoveryProductCards(items, options = {}) {
         return `
           <article class="seller-product-card" data-open-product="${item.id}">
             <div class="seller-product-card-media">
-              <img class="zoomable-image" src="${primaryImage}" alt="${safeName}" loading="lazy" data-fallback-src="${getImageFallbackDataUri("W")}" data-zoom-src="${primaryImage}" data-zoom-alt="${safeName}" data-image-action-product="${item.id}" data-image-action-src="${primaryImage}" data-image-action-surface="discovery">
+              <img class="zoomable-image" src="${primaryImage}" alt="${safeName}" loading="lazy" data-marketplace-scroll-image="true" data-fallback-src="${getImageFallbackDataUri("W")}" data-zoom-src="${primaryImage}" data-zoom-alt="${safeName}" data-image-action-product="${item.id}" data-image-action-src="${primaryImage}" data-image-action-surface="discovery">
             </div>
             ${renderProductOverflowMenu(item, { overlay: true })}
             <strong>${formatProductPrice(item.price)}</strong>
@@ -6960,6 +6963,7 @@ function hydrateDynamicShowcaseSection(placeholder, sectionIndex, usedIds) {
   placeholder.replaceWith(nextSection);
   enhanceShowcaseTracks(nextSection);
   bindShowcaseCardClicks(nextSection);
+  bindImageFallbacks(nextSection);
   bindProductMenus(nextSection);
 }
 
@@ -7304,6 +7308,8 @@ function renderCurrentView() {
     renderProducts(filteredProducts);
     enhanceShowcaseTracks(marketShowcase);
     enhanceShowcaseTracks(productsContainer);
+    bindImageFallbacks(marketShowcase);
+    bindImageFallbacks(productsContainer);
     bindProductMenus(marketShowcase);
     bindProductMenus(productsContainer);
     renderSearchDropdown(filteredProducts, { isProfile, isUpload, isAdminView });
@@ -7978,6 +7984,87 @@ function bindImageFallbacks(scope = document) {
       image.src = image.dataset.fallbackSrc;
       image.removeAttribute("data-fallback-src");
     }, { once: true });
+  });
+  bindMarketplaceScrollImages(scope);
+}
+
+function activateMarketplaceScrollImage(image) {
+  if (!(image instanceof HTMLImageElement)) {
+    return;
+  }
+  const realSrc = image.dataset.marketplaceRealSrc || image.dataset.imageActionSrc || image.dataset.zoomSrc || "";
+  if (!realSrc) {
+    return;
+  }
+  if (image.getAttribute("src") !== realSrc) {
+    image.setAttribute("src", realSrc);
+  }
+  image.dataset.marketplaceImageState = "active";
+}
+
+function releaseMarketplaceScrollImage(image) {
+  if (!(image instanceof HTMLImageElement)) {
+    return;
+  }
+  const currentSrc = image.getAttribute("src") || "";
+  if (currentSrc && currentSrc !== MARKETPLACE_SCROLL_IMAGE_PLACEHOLDER && currentSrc !== image.dataset.fallbackSrc) {
+    image.dataset.marketplaceRealSrc = currentSrc;
+  }
+  if ((image.dataset.marketplaceRealSrc || "") === "") {
+    return;
+  }
+  image.setAttribute("src", MARKETPLACE_SCROLL_IMAGE_PLACEHOLDER);
+  image.dataset.marketplaceImageState = "released";
+}
+
+function ensureMarketplaceScrollImageObserver() {
+  if (marketplaceScrollImageObserver || typeof IntersectionObserver === "undefined") {
+    return marketplaceScrollImageObserver;
+  }
+  marketplaceScrollImageObserver = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      const image = entry.target;
+      if (!(image instanceof HTMLImageElement)) {
+        return;
+      }
+      if (entry.isIntersecting) {
+        activateMarketplaceScrollImage(image);
+        return;
+      }
+      const top = Number(entry.boundingClientRect?.top || 0);
+      const bottom = Number(entry.boundingClientRect?.bottom || 0);
+      const viewportHeight = window.innerHeight || document.documentElement?.clientHeight || 0;
+      const isFarAway = bottom < -MARKETPLACE_SCROLL_IMAGE_RELEASE_MARGIN
+        || top > viewportHeight + MARKETPLACE_SCROLL_IMAGE_RELEASE_MARGIN;
+      if (isFarAway) {
+        releaseMarketplaceScrollImage(image);
+      }
+    });
+  }, {
+    rootMargin: "1200px 0px 1200px 0px",
+    threshold: 0.01
+  });
+  return marketplaceScrollImageObserver;
+}
+
+function bindMarketplaceScrollImages(scope = document) {
+  const observer = ensureMarketplaceScrollImageObserver();
+  scope.querySelectorAll("img[data-marketplace-scroll-image='true']").forEach((image) => {
+    if (image.dataset.marketplaceScrollBound === "true") {
+      return;
+    }
+    image.dataset.marketplaceScrollBound = "true";
+    image.dataset.marketplaceRealSrc = image.getAttribute("src") || image.dataset.imageActionSrc || "";
+    const rect = image.getBoundingClientRect();
+    const viewportHeight = window.innerHeight || document.documentElement?.clientHeight || 0;
+    const isFarAway = rect.bottom < -MARKETPLACE_SCROLL_IMAGE_RELEASE_MARGIN
+      || rect.top > viewportHeight + MARKETPLACE_SCROLL_IMAGE_RELEASE_MARGIN;
+    if (isFarAway) {
+      releaseMarketplaceScrollImage(image);
+    } else {
+      activateMarketplaceScrollImage(image);
+    }
+    observer?.observe(image);
   });
 }
 

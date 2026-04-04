@@ -65,6 +65,7 @@
           src: itemImageSrc || deps.getImageFallbackDataUri("W"),
           alt: deps.escapeHtml(item.name || ""),
           loading: "lazy",
+          "data-marketplace-scroll-image": "true",
           "data-zoom-src": itemImageSrc || deps.getImageFallbackDataUri("W"),
           "data-zoom-alt": deps.escapeHtml(item.name || ""),
           "data-image-action-product": item.id,
