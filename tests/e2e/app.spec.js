@@ -586,6 +586,36 @@ test("vertical page scroll still works while the pointer is over showcase rows",
   await context.close();
 });
 
+test("showcase rows still move horizontally when users drag across product cards", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234", {
+    viewport: { width: 1280, height: 900 }
+  });
+
+  await page.goto("/");
+  const track = page.locator(".showcase-track").first();
+  await expect(track).toBeVisible();
+
+  const initialScrollLeft = await track.evaluate((element) => element.scrollLeft);
+  const box = await track.boundingBox();
+  expect(box).not.toBeNull();
+
+  const startX = box.x + (box.width * 0.82);
+  const endX = box.x + (box.width * 0.22);
+  const pointerY = box.y + Math.min(80, box.height / 2);
+
+  await page.mouse.move(startX, pointerY);
+  await page.mouse.down();
+  await page.mouse.move(endX, pointerY + 2, { steps: 12 });
+  await page.mouse.up();
+
+  const finalScrollLeft = await track.evaluate((element) => element.scrollLeft);
+  const movedBy = finalScrollLeft - initialScrollLeft;
+
+  expect(movedBy).toBeGreaterThan(24);
+
+  await context.close();
+});
+
 test("marketplace cards keep verified copy out of compact card surfaces", async ({ browser }) => {
   const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234");
   await page.goto("/");

@@ -6790,15 +6790,22 @@ function enhanceShowcaseTracks(scope = document) {
     track.dataset.wingaTrackEnhanced = "true";
 
     let pointerId = null;
+    let activePointerType = "";
     let pointerStartX = 0;
     let pointerStartY = 0;
     let pointerStartScrollLeft = 0;
     let isDragging = false;
+    let hasPointerCapture = false;
     let suppressClickUntil = 0;
 
     const clearDragState = () => {
+      if (hasPointerCapture && pointerId != null) {
+        track.releasePointerCapture?.(pointerId);
+      }
       pointerId = null;
+      activePointerType = "";
       isDragging = false;
+      hasPointerCapture = false;
       track.classList.remove("is-dragging");
     };
 
@@ -6843,15 +6850,22 @@ function enhanceShowcaseTracks(scope = document) {
     }
 
     track.addEventListener("pointerdown", (event) => {
-      if (event.pointerType !== "mouse" || event.button !== 0 || isInteractiveTarget(event.target)) {
+      if (track.scrollWidth <= track.clientWidth + 4 || isInteractiveTarget(event.target)) {
+        return;
+      }
+      if (event.pointerType === "mouse" && event.button !== 0) {
         return;
       }
       pointerId = event.pointerId;
+      activePointerType = event.pointerType || "mouse";
       pointerStartX = event.clientX;
       pointerStartY = event.clientY;
       pointerStartScrollLeft = track.scrollLeft;
       isDragging = false;
-      track.setPointerCapture?.(event.pointerId);
+      if (activePointerType === "mouse") {
+        track.setPointerCapture?.(event.pointerId);
+        hasPointerCapture = true;
+      }
     });
 
     track.addEventListener("pointermove", (event) => {
@@ -6860,14 +6874,23 @@ function enhanceShowcaseTracks(scope = document) {
       }
       const deltaX = event.clientX - pointerStartX;
       const deltaY = event.clientY - pointerStartY;
+      const isTouchLikePointer = activePointerType === "touch" || activePointerType === "pen";
       if (!isDragging) {
-        if (Math.abs(deltaX) < 8 || Math.abs(deltaX) <= Math.abs(deltaY)) {
+        const horizontalThreshold = isTouchLikePointer ? 12 : 8;
+        const directionalBias = isTouchLikePointer ? 6 : 0;
+        if (Math.abs(deltaX) < horizontalThreshold || Math.abs(deltaX) <= Math.abs(deltaY) + directionalBias) {
           return;
         }
         isDragging = true;
         track.classList.add("is-dragging");
+        if (!hasPointerCapture) {
+          track.setPointerCapture?.(event.pointerId);
+          hasPointerCapture = true;
+        }
       }
-      event.preventDefault();
+      if (event.cancelable) {
+        event.preventDefault();
+      }
       track.scrollLeft = pointerStartScrollLeft - (deltaX * 1.08);
     });
 
@@ -6878,7 +6901,6 @@ function enhanceShowcaseTracks(scope = document) {
       if (isDragging) {
         suppressClickUntil = Date.now() + 220;
       }
-      track.releasePointerCapture?.(event.pointerId);
       clearDragState();
     });
 
