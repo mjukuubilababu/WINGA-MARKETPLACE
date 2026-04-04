@@ -2959,6 +2959,7 @@ body.product-detail-open{
   border-radius:16px;
   background:#fff;
   cursor:pointer;
+  position:relative;
 }
 
 .seller-product-card-media{
@@ -3211,7 +3212,7 @@ body.product-detail-open{
   top:10px;
   right:10px;
   margin-left:0;
-  z-index:5;
+  z-index:12;
 }
 
 .product-menu-toggle{
@@ -3244,6 +3245,11 @@ body.product-detail-open{
   flex-direction:column;
   gap:4px;
   z-index:30;
+}
+
+.product-menu-overlay .product-menu-popup{
+  top:calc(100% + 8px);
+  bottom:auto;
 }
 
 .product-menu.open .product-menu-popup{

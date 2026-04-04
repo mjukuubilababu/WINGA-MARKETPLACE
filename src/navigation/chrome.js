@@ -62,7 +62,6 @@
       uiState.mobileHeaderHidden = nextHidden;
       document.body.classList.toggle("mobile-header-hidden", nextHidden);
       deps.getTopBar()?.setAttribute("data-mobile-header-state", nextHidden ? "hidden" : "visible");
-      scheduleChromeOffsetSync();
     }
 
     function syncMobileHeaderVisibility(force = false) {

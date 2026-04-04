@@ -3858,6 +3858,7 @@ const {
   getTrendingProducts,
   bindShowcaseCardClicks,
   setupDynamicShowcaseLoading,
+  canUseContinuousDiscovery: () => Boolean(currentUser),
   createContinuousDiscoveryAnchorElement,
   setupContinuousDiscoveryLoading,
   trackProductView: (productId) => window.WingaDataLayer.trackProductView(productId),
@@ -6256,8 +6257,8 @@ function renderDiscoveryProductCards(items, options = {}) {
           <article class="seller-product-card" data-open-product="${item.id}">
             <div class="seller-product-card-media">
               <img class="zoomable-image" src="${item.image}" alt="${safeName}" loading="lazy" data-fallback-src="${getImageFallbackDataUri("W")}" data-zoom-src="${item.image}" data-zoom-alt="${safeName}">
-              ${renderProductOverflowMenu(item, { overlay: true })}
             </div>
+            ${renderProductOverflowMenu(item, { overlay: true })}
             <strong>${formatProductPrice(item.price)}</strong>
             <span>${safeName}</span>
             <span>${safeCategory}</span>
@@ -6594,14 +6595,34 @@ function disconnectContinuousDiscoveryObserver() {
   if (homeContinuousDiscoveryRuntime.observer) {
     homeContinuousDiscoveryRuntime.observer.disconnect();
   }
+  if (homeContinuousDiscoveryRuntime.reobserveTimer) {
+    window.clearTimeout(homeContinuousDiscoveryRuntime.reobserveTimer);
+  }
   homeContinuousDiscoveryRuntime = {
     observer: null,
     batchIndex: 0,
     recentIds: [],
     usedIds: new Set(),
     loading: false,
-    seedProductId: ""
+    seedProductId: "",
+    reobserveTimer: 0
   };
+}
+
+function scheduleContinuousDiscoveryReobserve(anchor) {
+  if (!anchor || !anchor.isConnected || !homeContinuousDiscoveryRuntime.observer || currentView !== "home") {
+    return;
+  }
+  if (homeContinuousDiscoveryRuntime.reobserveTimer) {
+    window.clearTimeout(homeContinuousDiscoveryRuntime.reobserveTimer);
+  }
+  homeContinuousDiscoveryRuntime.reobserveTimer = window.setTimeout(() => {
+    homeContinuousDiscoveryRuntime.reobserveTimer = 0;
+    if (!anchor.isConnected || !homeContinuousDiscoveryRuntime.observer || currentView !== "home") {
+      return;
+    }
+    homeContinuousDiscoveryRuntime.observer.observe(anchor);
+  }, 180);
 }
 
 function hydrateContinuousDiscoveryAnchor(anchor) {
@@ -6609,6 +6630,7 @@ function hydrateContinuousDiscoveryAnchor(anchor) {
     return;
   }
   homeContinuousDiscoveryRuntime.loading = true;
+  homeContinuousDiscoveryRuntime.observer?.unobserve(anchor);
 
   const seedProduct = getProductById(homeContinuousDiscoveryRuntime.seedProductId) || getRecommendationSeed(getFilteredProducts());
   const descriptor = getContinuousDiscoveryDescriptor({
@@ -6620,6 +6642,7 @@ function hydrateContinuousDiscoveryAnchor(anchor) {
 
   if (!descriptor) {
     homeContinuousDiscoveryRuntime.loading = false;
+    scheduleContinuousDiscoveryReobserve(anchor);
     return;
   }
 
@@ -6630,6 +6653,7 @@ function hydrateContinuousDiscoveryAnchor(anchor) {
   );
   if (!section) {
     homeContinuousDiscoveryRuntime.loading = false;
+    scheduleContinuousDiscoveryReobserve(anchor);
     return;
   }
 
@@ -6645,13 +6669,14 @@ function hydrateContinuousDiscoveryAnchor(anchor) {
   );
   homeContinuousDiscoveryRuntime.batchIndex += 1;
   homeContinuousDiscoveryRuntime.loading = false;
+  scheduleContinuousDiscoveryReobserve(anchor);
 }
 
 function setupContinuousDiscoveryLoading(scope, options = {}) {
   disconnectContinuousDiscoveryObserver();
 
   const anchor = scope?.querySelector?.("[data-continuous-discovery-anchor='home']");
-  if (!anchor || currentView !== "home") {
+  if (!anchor || currentView !== "home" || !currentUser) {
     return;
   }
 
@@ -6669,13 +6694,13 @@ function setupContinuousDiscoveryLoading(scope, options = {}) {
 
   homeContinuousDiscoveryRuntime.observer = new IntersectionObserver((entries) => {
     entries.forEach((entry) => {
-      if (!entry.isIntersecting) {
+      if (!entry.isIntersecting || homeContinuousDiscoveryRuntime.loading) {
         return;
       }
       hydrateContinuousDiscoveryAnchor(anchor);
     });
   }, {
-    rootMargin: "1400px 0px 1200px 0px"
+    rootMargin: "900px 0px 720px 0px"
   });
   homeContinuousDiscoveryRuntime.observer.observe(anchor);
 }
@@ -6753,7 +6778,9 @@ function hydrateDynamicShowcaseSection(placeholder, sectionIndex, usedIds) {
 
   descriptor.items.forEach((item) => usedIds.add(item.id));
   placeholder.replaceWith(nextSection);
+  enhanceShowcaseTracks(nextSection);
   bindShowcaseCardClicks(nextSection);
+  bindProductMenus(nextSection);
 }
 
 function setupDynamicShowcaseLoading(scope, usedIds = new Set()) {

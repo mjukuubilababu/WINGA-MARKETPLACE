@@ -95,11 +95,11 @@
       card.dataset.productCard = product.id;
       const media = createElement("div", { className: "product-card-media" });
       media.appendChild(createProductGalleryElement(product));
+      card.appendChild(media);
       const overflowMenuMarkup = deps.renderProductOverflowMenu?.(product, { overlay: true });
       if (overflowMenuMarkup) {
-        media.appendChild(createFragmentFromMarkup(overflowMenuMarkup));
+        card.appendChild(createFragmentFromMarkup(overflowMenuMarkup));
       }
-      card.appendChild(media);
 
       const content = createElement("div", { className: "product-content product-content-simple" });
       const head = createElement("div", { className: "product-card-head" });
@@ -154,11 +154,11 @@
           "data-image-action-surface": "showcase"
         }
       }));
+      const body = createElement("div", { className: "product-content product-content-simple showcase-body" });
       const overflowMenuMarkup = deps.renderProductOverflowMenu?.(product, { overlay: true });
       if (overflowMenuMarkup) {
-        media.appendChild(createFragmentFromMarkup(overflowMenuMarkup));
+        card.appendChild(createFragmentFromMarkup(overflowMenuMarkup));
       }
-      const body = createElement("div", { className: "product-content product-content-simple showcase-body" });
       const head = createElement("div", { className: "product-card-head" });
       head.appendChild(createElement("strong", {
         className: "product-price product-price-main showcase-price",
@@ -325,7 +325,7 @@
         }
       }
 
-      if (currentView === "home" && list.length > 0) {
+      if (currentView === "home" && list.length > 0 && deps.canUseContinuousDiscovery?.()) {
         const seedProduct = deps.getRecommendationSeed(list);
         const related = deps.getRelatedProducts(seedProduct, 6);
         const youMayLike = deps.getYouMayLikeProducts(seedProduct, 6);
@@ -346,7 +346,7 @@
         deps.bindShowcaseCardClicks(productsContainer);
         deps.setupDynamicShowcaseLoading(productsContainer, usedShowcaseProductIds);
       }
-      if (currentView === "home" && list.length > 0 && deps.setupContinuousDiscoveryLoading) {
+      if (currentView === "home" && list.length > 0 && deps.canUseContinuousDiscovery?.() && deps.setupContinuousDiscoveryLoading) {
         const usedProductIds = new Set(list.map((product) => product.id));
         Array.from(productsContainer.querySelectorAll("[data-showcase-id], [data-open-product]")).forEach((element) => {
           const productId = element.dataset.showcaseId || element.dataset.openProduct || "";

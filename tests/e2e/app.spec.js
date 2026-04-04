@@ -55,7 +55,8 @@ test("app load renders marketplace feed, hero, images, and category navigation",
   const categoryButton = page.locator("#categories .cat-btn").nth(1);
   await categoryButton.click();
   await expect(page.locator("#results-count")).toContainText("results");
-  await expect(page.locator("[data-recommendation-type]").first()).toBeVisible();
+  await expect(page.locator("#products-container .product-card").first()).toBeVisible();
+  await expect(page.locator("[data-continuous-discovery-anchor='home']")).toHaveCount(0);
 });
 
 test("mobile category trigger opens sheet, drills into subcategories, and closes cleanly", async ({ browser }) => {
@@ -563,6 +564,29 @@ test("mobile header hides on downward scroll, reappears on upward scroll, and st
   await context.close();
 });
 
+test("mobile header auto-hide does not reflow the feed container while users scroll", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234", {
+    viewport: { width: 390, height: 844 }
+  });
+  await page.goto("/");
+  await expect(page.locator("#products-container .product-card").first()).toBeVisible();
+
+  const initialPaddingTop = await page.locator("#app-container").evaluate((element) => window.getComputedStyle(element).paddingTop);
+
+  await page.evaluate(() => window.scrollTo(0, 900));
+  await expect.poll(async () => page.evaluate(() => document.body.classList.contains("mobile-header-hidden"))).toBe(true);
+  const hiddenPaddingTop = await page.locator("#app-container").evaluate((element) => window.getComputedStyle(element).paddingTop);
+
+  await page.evaluate(() => window.scrollTo(0, 32));
+  await expect.poll(async () => page.evaluate(() => document.body.classList.contains("mobile-header-hidden"))).toBe(false);
+  const restoredPaddingTop = await page.locator("#app-container").evaluate((element) => window.getComputedStyle(element).paddingTop);
+
+  expect(hiddenPaddingTop).toBe(initialPaddingTop);
+  expect(restoredPaddingTop).toBe(initialPaddingTop);
+
+  await context.close();
+});
+
 test("desktop header remains stable and does not enter the mobile auto-hide state", async ({ browser }) => {
   const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234", {
     viewport: { width: 1280, height: 900 }
@@ -601,7 +625,7 @@ test("showcase rows still move horizontally when users drag across product cards
   });
 
   await page.goto("/");
-  const track = page.locator(".showcase-track").first();
+  const track = page.locator("#market-showcase .showcase-track");
   await expect(track).toBeVisible();
 
   const initialScrollLeft = await track.evaluate((element) => element.scrollLeft);
@@ -621,6 +645,35 @@ test("showcase rows still move horizontally when users drag across product cards
   const movedBy = finalScrollLeft - initialScrollLeft;
 
   expect(movedBy).toBeGreaterThan(24);
+
+  await context.close();
+});
+
+test("deeper showcase rows keep the same horizontal swipe behavior", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234", {
+    viewport: { width: 1280, height: 900 }
+  });
+
+  await page.goto("/");
+  await expect(page.locator(".showcase-inline .showcase-track").first()).toBeVisible();
+  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+  const track = page.locator(".showcase-inline .showcase-track").last();
+  await expect(track).toBeVisible();
+
+  const initialScrollLeft = await track.evaluate((element) => element.scrollLeft);
+  const box = await track.boundingBox();
+  expect(box).not.toBeNull();
+
+  const startX = box.x + (box.width * 0.8);
+  const endX = box.x + (box.width * 0.24);
+  const pointerY = box.y + Math.min(80, box.height / 2);
+
+  await page.mouse.move(startX, pointerY);
+  await page.mouse.down();
+  await page.mouse.move(endX, pointerY + 2, { steps: 12 });
+  await page.mouse.up();
+
+  await expect.poll(async () => track.evaluate((element) => element.scrollLeft)).toBeGreaterThan(initialScrollLeft);
 
   await context.close();
 });
@@ -653,8 +706,22 @@ test("home feed keeps loading continuous discovery sections before users hit a h
 
   await page.locator("[data-continuous-discovery-anchor='home']").scrollIntoViewIfNeeded();
   await expect.poll(async () => page.locator("[data-continuous-discovery-section]").count()).toBeGreaterThan(initialCount);
+  await page.waitForTimeout(500);
+  await expect.poll(async () => page.locator("[data-continuous-discovery-section]").count()).toBeLessThanOrEqual(initialCount + 2);
 
   await context.close();
+});
+
+test("guest home keeps the classic feed without logged-in continuous discovery loading", async ({ page }) => {
+  await applyApiConfigOverride(page);
+  await page.goto("/");
+
+  await expect(page.locator("#products-container .product-card").first()).toBeVisible();
+  await expect(page.locator("[data-continuous-discovery-anchor='home']")).toHaveCount(0);
+
+  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+  await page.waitForTimeout(400);
+  await expect(page.locator("[data-continuous-discovery-section]")).toHaveCount(0);
 });
 
 test("seller-owned marketplace cards expose the three-dots delete menu on home", async ({ browser }) => {
@@ -665,6 +732,11 @@ test("seller-owned marketplace cards expose the three-dots delete menu on home",
   await expect(ownCardMenu).toBeVisible();
   await ownCardMenu.click();
   await expect(page.locator("[data-product-card='e2e-prod-1'] [data-menu-popup='e2e-prod-1']").first()).toContainText("Delete");
+  const popupBox = await page.locator("[data-product-card='e2e-prod-1'] [data-menu-popup='e2e-prod-1']").first().boundingBox();
+  const toggleBox = await ownCardMenu.boundingBox();
+  expect(popupBox).not.toBeNull();
+  expect(toggleBox).not.toBeNull();
+  expect(popupBox.y).toBeGreaterThan(toggleBox.y);
 
   await context.close();
 });
@@ -718,6 +790,38 @@ test("buyer-side card buttons on the home feed still work for request and messag
   await expect(page.locator("#context-chat-modal")).toBeVisible();
   await page.locator("#context-chat-modal .context-chat-close").click();
   await expect(page.locator("#context-chat-modal")).not.toBeVisible();
+
+  await context.close();
+});
+
+test("buyer-side action buttons still work inside deeper product continuation cards", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234");
+  await page.goto("/");
+  await expect(page.locator("#products-container .product-card").first()).toBeVisible({ timeout: 30000 });
+
+  await page.locator("#products-container .product-card").first().click();
+  await expect(page.locator("#product-detail-modal")).toBeVisible();
+
+  const continuationCard = page.locator("#product-detail-modal .seller-product-card").first();
+  await expect(continuationCard).toBeVisible();
+
+  const requestButton = continuationCard.locator("[data-request-product]").first();
+  await expect(requestButton).toBeVisible();
+  await requestButton.click();
+  await expect(requestButton).toContainText("Added");
+
+  const chatButton = continuationCard.locator("[data-chat-product]").first();
+  await expect(chatButton).toBeVisible();
+  await chatButton.click();
+  await expect(page.locator("#context-chat-modal")).toBeVisible();
+  await page.locator("#context-chat-modal .context-chat-close").click();
+  await expect(page.locator("#context-chat-modal")).not.toBeVisible();
+
+  const originalTitle = await page.locator("#product-detail-title").textContent();
+  const buyButton = continuationCard.locator("button[data-open-product]").first();
+  await expect(buyButton).toBeVisible();
+  await buyButton.click();
+  await expect(page.locator("#product-detail-title")).not.toHaveText(originalTitle || "");
 
   await context.close();
 });

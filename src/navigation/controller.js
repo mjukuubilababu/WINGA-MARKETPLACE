@@ -126,27 +126,17 @@
     }
 
     function bindMarketplaceCardActions() {
-      deps.getProductsContainer?.()?.addEventListener("click", (event) => {
+      if (typeof document === "undefined" || document.body?.dataset.marketplaceActionsBound === "true") {
+        return;
+      }
+      document.body.dataset.marketplaceActionsBound = "true";
+
+      document.addEventListener("click", (event) => {
         const requestButton = event.target.closest("[data-request-product]");
         if (requestButton) {
           event.preventDefault();
           event.stopPropagation();
           deps.toggleProductInRequestBoxById(requestButton.dataset.requestProduct);
-          return;
-        }
-
-        const buyButton = event.target.closest("[data-open-product]");
-        if (buyButton) {
-          event.preventDefault();
-          event.stopPropagation();
-          deps.openProductDetailModal(buyButton.dataset.openProduct);
-          return;
-        }
-
-        const productCard = event.target.closest(".seller-product-card[data-open-product]");
-        if (productCard && !event.target.closest(".product-actions, .product-menu, button, a")) {
-          event.preventDefault();
-          deps.openProductDetailModal(productCard.dataset.openProduct);
           return;
         }
 
@@ -159,14 +149,20 @@
         }
 
         const chatButton = event.target.closest("[data-chat-product]");
-        if (!chatButton) {
+        if (chatButton) {
+          event.preventDefault();
+          event.stopPropagation();
+          deps.openProductChatFromCard(chatButton.dataset.chatProduct);
           return;
         }
 
-        event.preventDefault();
-        event.stopPropagation();
-        deps.openProductChatFromCard(chatButton.dataset.chatProduct);
-      });
+        const buyButton = event.target.closest("button[data-open-product], .action-btn[data-open-product]");
+        if (buyButton) {
+          event.preventDefault();
+          event.stopPropagation();
+          deps.openProductDetailModal(buyButton.dataset.openProduct);
+        }
+      }, true);
     }
 
     return {

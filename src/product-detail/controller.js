@@ -108,14 +108,34 @@
       if (detailContinuousRuntime.observer) {
         detailContinuousRuntime.observer.disconnect();
       }
+      if (detailContinuousRuntime.reobserveTimer) {
+        window.clearTimeout(detailContinuousRuntime.reobserveTimer);
+      }
       detailContinuousRuntime = {
         observer: null,
         batchIndex: 0,
         recentIds: [],
         usedIds: new Set(),
         seedProductId: "",
-        loading: false
+        loading: false,
+        reobserveTimer: 0
       };
+    }
+
+    function scheduleDetailContinuousReobserve(anchor, modal) {
+      if (!anchor || !anchor.isConnected || !modal?.isConnected || !detailContinuousRuntime.observer) {
+        return;
+      }
+      if (detailContinuousRuntime.reobserveTimer) {
+        window.clearTimeout(detailContinuousRuntime.reobserveTimer);
+      }
+      detailContinuousRuntime.reobserveTimer = window.setTimeout(() => {
+        detailContinuousRuntime.reobserveTimer = 0;
+        if (!anchor.isConnected || !modal?.isConnected || !detailContinuousRuntime.observer) {
+          return;
+        }
+        detailContinuousRuntime.observer.observe(anchor);
+      }, 180);
     }
 
     function createDetailContinuationSectionElement(descriptor, index) {
@@ -137,41 +157,6 @@
     }
 
     function bindInlineProductActions(scope, product) {
-      scope.querySelectorAll("[data-chat-product]").forEach((button) => {
-        if (button.dataset.detailBound === "true") {
-          return;
-        }
-        button.dataset.detailBound = "true";
-        button.addEventListener("click", () => {
-          const targetProduct = (deps.getProductById ? deps.getProductById(button.dataset.chatProduct) : null) || product;
-          deps.openProductChat(targetProduct);
-        });
-      });
-
-      scope.querySelectorAll("[data-request-product]").forEach((button) => {
-        if (button.dataset.detailBound === "true") {
-          return;
-        }
-        button.dataset.detailBound = "true";
-        button.addEventListener("click", (event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          const targetProduct = (deps.getProductById ? deps.getProductById(button.dataset.requestProduct) : deps.getProducts().find((item) => item.id === button.dataset.requestProduct)) || product;
-          deps.toggleProductInRequestBox(targetProduct, { reopenProductId: product.id });
-        });
-      });
-
-      scope.querySelectorAll("[data-open-own-messages]").forEach((button) => {
-        if (button.dataset.detailBound === "true") {
-          return;
-        }
-        button.dataset.detailBound = "true";
-        button.addEventListener("click", () => {
-          closeProductDetailModal();
-          deps.openOwnProductMessages(button.dataset.openOwnMessages);
-        });
-      });
-
       scope.querySelectorAll("[data-open-product]").forEach((card) => {
         if (card.dataset.detailBound === "true") {
           return;
@@ -193,6 +178,7 @@
         return;
       }
       detailContinuousRuntime.loading = true;
+      detailContinuousRuntime.observer?.unobserve(anchor);
       const seedProduct = (deps.getProductById ? deps.getProductById(detailContinuousRuntime.seedProductId) : null) || product;
       const sellerFirstItems = getRemainingSellerProducts(seedProduct, detailContinuousRuntime.usedIds, 8);
       const descriptor = sellerFirstItems.length
@@ -211,11 +197,13 @@
         });
       if (!descriptor) {
         detailContinuousRuntime.loading = false;
+        scheduleDetailContinuousReobserve(anchor, modal);
         return;
       }
       const section = createDetailContinuationSectionElement(descriptor, detailContinuousRuntime.batchIndex + 1);
       if (!section) {
         detailContinuousRuntime.loading = false;
+        scheduleDetailContinuousReobserve(anchor, modal);
         return;
       }
       anchor.after(section);
@@ -227,6 +215,7 @@
       detailContinuousRuntime.recentIds = rememberRecentIds(detailContinuousRuntime.recentIds, appendedIds);
       detailContinuousRuntime.batchIndex += 1;
       detailContinuousRuntime.loading = false;
+      scheduleDetailContinuousReobserve(anchor, modal);
     }
 
     function setupDetailContinuousDiscovery(modal, product, usedIds = new Set()) {
@@ -249,14 +238,14 @@
 
       detailContinuousRuntime.observer = new IntersectionObserver((entries) => {
         entries.forEach((entry) => {
-          if (!entry.isIntersecting) {
+          if (!entry.isIntersecting || detailContinuousRuntime.loading) {
             return;
           }
           hydrateDetailContinuousAnchor(modal, anchor, product);
         });
       }, {
         root: modal,
-        rootMargin: "1100px 0px 900px 0px"
+        rootMargin: "760px 0px 620px 0px"
       });
       detailContinuousRuntime.observer.observe(anchor);
     }
