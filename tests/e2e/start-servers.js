@@ -173,6 +173,7 @@ async function seedMarketplace() {
     { id: "e2e-prod-3", name: "Shirt Premium", price: 27000, category: "wanaume-mashati", seller: "market_seller", token: sellerLogin.body.token, phone: "255700111222", shop: "Market Seller Shop" },
     { id: "e2e-prod-4", name: "Bag Travel Pro", price: 61000, category: "accessories-mabegi", seller: "buyer_seller", token: buyerSellerLogin.body.token, phone: "255700111221", shop: "Buyer Seller Shop" },
     { id: "e2e-prod-5", name: "Phone Smart X", price: 420000, category: "electronics-simu", seller: "buyer_seller", token: buyerSellerLogin.body.token, phone: "255700111221", shop: "Buyer Seller Shop" },
+    { id: "e2e-prod-broken", name: "Broken Feed Listing", price: 39000, category: "wanaume-tshirts", seller: "market_seller", token: sellerLogin.body.token, phone: "255700111222", shop: "Market Seller Shop", images: ["/uploads/does-not-exist-e2e.png"], image: "/uploads/does-not-exist-e2e.png" },
     { id: "e2e-prod-pending", name: "Pending Showcase Bag", price: 46000, category: "accessories-mabegi", seller: "market_seller", token: sellerLogin.body.token, phone: "255700111222", shop: "Market Seller Shop", approve: false },
     { id: "e2e-prod-pending-2", name: "Pending Office Shoes", price: 51000, category: "viatu-boots", seller: "market_seller", token: sellerLogin.body.token, phone: "255700111222", shop: "Market Seller Shop", approve: false }
   ];
@@ -193,7 +194,7 @@ async function seedMarketplace() {
         uploadedBy: item.seller,
         category: item.category,
         images: Array.isArray(item.images) && item.images.length ? item.images : [tinyImage],
-        image: tinyImage,
+        image: item.image || tinyImage,
         imageSignature: "0101010101010101010101010101010101010101010101010101010101010101"
       })
     });

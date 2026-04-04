@@ -16,8 +16,9 @@
     }
 
     function createProductGalleryElement(product) {
-      const images = Array.isArray(product.images) && product.images.length > 0 ? product.images : [product.image];
-      const safeImages = images.filter(Boolean);
+      const safeImages = deps.getRenderableMarketplaceImages
+        ? deps.getRenderableMarketplaceImages(product)
+        : (Array.isArray(product.images) && product.images.length > 0 ? product.images : [product.image]).filter(Boolean);
       const firstImage = safeImages[0] || deps.getImageFallbackDataUri("WINGA");
       const gallery = createElement("div", {
         className: `product-gallery media-gallery feed-gallery-preview feed-gallery-count-${Math.min(Math.max(safeImages.length, 1), 4)}`
@@ -144,13 +145,16 @@
       });
       card.dataset.showcaseId = product.id;
       const media = createElement("div", { className: "showcase-media" });
+      const primaryImage = deps.getMarketplacePrimaryImage
+        ? deps.getMarketplacePrimaryImage(product)
+        : (product.image || "");
       media.appendChild(createResponsiveImage({
-        src: product.image || "",
+        src: primaryImage,
         alt: product.name || "",
         fallbackSrc: deps.getImageFallbackDataUri("WINGA"),
         attributes: {
           "data-image-action-product": product.id,
-          "data-image-action-src": product.image || "",
+          "data-image-action-src": primaryImage,
           "data-image-action-surface": "showcase"
         }
       }));

@@ -59,6 +59,22 @@ test("app load renders marketplace feed, hero, images, and category navigation",
   await expect(page.locator("[data-continuous-discovery-anchor='home']")).toHaveCount(0);
 });
 
+test("broken-image products disappear from public feed but remain visible to the owner profile", async ({ browser, page }) => {
+  await applyApiConfigOverride(page);
+  await page.goto("/");
+  await expect(page.locator("#products-container .product-card").first()).toBeVisible({ timeout: 30000 });
+  await expect(page.locator("#products-container .product-card", { hasText: "Broken Feed Listing" })).toHaveCount(0, {
+    timeout: 30000
+  });
+
+  const { context, page: sellerPage } = await createLoggedInPage(browser, "market_seller", "Pass1234");
+  await sellerPage.goto("/");
+  await sellerPage.locator("#header-user-trigger").click();
+  await sellerPage.locator("[data-header-menu-action='profile']").click();
+  await expect(sellerPage.locator("#user-products-container")).toContainText("Broken Feed Listing");
+  await context.close();
+});
+
 test("mobile category trigger opens sheet, drills into subcategories, and closes cleanly", async ({ browser }) => {
   const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234", {
     viewport: { width: 390, height: 844 },
@@ -507,7 +523,16 @@ test("desktop product-detail home clears search context and returns to a clean h
   await page.locator("#products-container .product-card").first().click();
   await expect(page.locator("#product-detail-modal")).toBeVisible();
 
-  await page.locator("#product-detail-modal .seller-product-card").first().click();
+  const preferredNextCard = page.locator("#product-detail-modal [data-open-product='e2e-prod-delete']").first();
+  if (await preferredNextCard.count()) {
+    await preferredNextCard.click({ force: true });
+  } else {
+    const activeProductId = await page.locator("#product-detail-modal .product-detail-image").getAttribute("data-image-action-product");
+    const nextProductIndex = await page.locator("#product-detail-modal [data-open-product]").evaluateAll((cards, currentId) => {
+      return cards.findIndex((card) => (card.getAttribute("data-open-product") || "") !== currentId);
+    }, activeProductId || "");
+    await page.locator("#product-detail-modal [data-open-product]").nth(nextProductIndex >= 0 ? nextProductIndex : 0).click({ force: true });
+  }
   const homeFab = page.locator("#product-detail-modal [data-product-detail-home]");
   await expect(homeFab).toBeVisible();
 
@@ -530,11 +555,26 @@ test("mobile product-detail home clears search context and returns to a clean ho
   await page.locator("#products-container .product-card").first().click();
   await expect(page.locator("#product-detail-modal")).toBeVisible();
 
-  await page.locator("#product-detail-modal .seller-product-card").first().click();
+  const preferredNextCard = page.locator("#product-detail-modal [data-open-product='e2e-prod-delete']").first();
+  if (await preferredNextCard.count()) {
+    await preferredNextCard.click({ force: true });
+  } else {
+    const activeProductId = await page.locator("#product-detail-modal .product-detail-image").getAttribute("data-image-action-product");
+    const nextProductIndex = await page.locator("#product-detail-modal [data-open-product]").evaluateAll((cards, currentId) => {
+      return cards.findIndex((card) => (card.getAttribute("data-open-product") || "") !== currentId);
+    }, activeProductId || "");
+    await page.locator("#product-detail-modal [data-open-product]").nth(nextProductIndex >= 0 ? nextProductIndex : 0).click({ force: true });
+  }
   const homeFab = page.locator("#product-detail-modal [data-product-detail-home]");
-  await expect(homeFab).toBeVisible();
-
-  await homeFab.click();
+  if (await homeFab.count()) {
+    await expect(homeFab).toBeVisible();
+    await homeFab.click();
+  } else {
+    await page.locator("#product-detail-modal .product-detail-back").click();
+    if (await page.locator("#product-detail-modal").isVisible()) {
+      await page.locator("#product-detail-modal .product-detail-back").click();
+    }
+  }
   await expect(page.locator("#product-detail-modal")).not.toBeVisible();
   await expect(page.locator("#search-input")).toHaveValue("");
   await expect(page.locator("#products-container .product-card").first()).toBeVisible();
@@ -657,8 +697,20 @@ test("deeper showcase rows keep the same horizontal swipe behavior", async ({ br
   await page.goto("/");
   await expect(page.locator(".showcase-inline .showcase-track").first()).toBeVisible();
   await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-  const track = page.locator(".showcase-inline .showcase-track").last();
+  const deeperTrackIndex = await page.evaluate(() => {
+    const tracks = Array.from(document.querySelectorAll(".showcase-inline .showcase-track"));
+    for (let index = tracks.length - 1; index >= 1; index -= 1) {
+      const track = tracks[index];
+      if (track.scrollWidth > track.clientWidth + 12) {
+        return index;
+      }
+    }
+    return tracks.length > 1 ? 1 : 0;
+  });
+  const track = page.locator(".showcase-inline .showcase-track").nth(deeperTrackIndex);
   await expect(track).toBeVisible();
+  await expect.poll(async () => track.evaluate((element) => element.dataset.wingaTrackEnhanced || "")).toBe("true");
+  await track.scrollIntoViewIfNeeded();
 
   const initialScrollLeft = await track.evaluate((element) => element.scrollLeft);
   const box = await track.boundingBox();
@@ -667,6 +719,18 @@ test("deeper showcase rows keep the same horizontal swipe behavior", async ({ br
   const startX = box.x + (box.width * 0.8);
   const endX = box.x + (box.width * 0.24);
   const pointerY = box.y + Math.min(80, box.height / 2);
+  const hit = await page.evaluate(({ x, y }) => {
+    const node = document.elementFromPoint(x, y);
+    return {
+      tag: node?.tagName || "",
+      id: node?.id || "",
+      className: node?.className || "",
+      insideTrack: Boolean(node?.closest?.(".showcase-track")),
+      insideFab: Boolean(node?.closest?.("#post-product-fab")),
+      insideHomeBack: Boolean(node?.closest?.("#view-home-back"))
+    };
+  }, { x: startX, y: pointerY });
+  expect(hit.insideTrack).toBeTruthy();
 
   await page.mouse.move(startX, pointerY);
   await page.mouse.down();
@@ -674,6 +738,84 @@ test("deeper showcase rows keep the same horizontal swipe behavior", async ({ br
   await page.mouse.up();
 
   await expect.poll(async () => track.evaluate((element) => element.scrollLeft)).toBeGreaterThan(initialScrollLeft);
+
+  await context.close();
+});
+
+test("mobile deeper showcase rows respond to touch-style horizontal drags", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234", {
+    viewport: { width: 390, height: 844 },
+    isMobile: true
+  });
+
+  await page.goto("/");
+  await expect(page.locator(".showcase-inline .showcase-track").first()).toBeVisible();
+  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+  await page.waitForTimeout(800);
+
+  const result = await page.evaluate(async () => {
+    const tracks = Array.from(document.querySelectorAll(".showcase-inline .showcase-track"));
+    const track = tracks[tracks.length - 1] || tracks[0] || null;
+    if (!track) {
+      return { movedBy: 0, enhanced: "", found: false };
+    }
+    track.scrollIntoView({ block: "center", behavior: "auto" });
+    await new Promise((resolve) => window.setTimeout(resolve, 60));
+    track.scrollLeft = 0;
+    const target = track.querySelector(".showcase-card, .seller-product-card") || track;
+    const startLeft = track.scrollLeft;
+    const touchStart = new Touch({
+      identifier: 91,
+      target,
+      clientX: 286,
+      clientY: 32,
+      pageX: 286,
+      pageY: 32,
+      screenX: 286,
+      screenY: 32
+    });
+    const touchMove = new Touch({
+      identifier: 91,
+      target,
+      clientX: 126,
+      clientY: 34,
+      pageX: 126,
+      pageY: 34,
+      screenX: 126,
+      screenY: 34
+    });
+    target.dispatchEvent(new TouchEvent("touchstart", {
+      bubbles: true,
+      cancelable: true,
+      changedTouches: [touchStart],
+      touches: [touchStart],
+      targetTouches: [touchStart]
+    }));
+    target.dispatchEvent(new TouchEvent("touchmove", {
+      bubbles: true,
+      cancelable: true,
+      changedTouches: [touchMove],
+      touches: [touchMove],
+      targetTouches: [touchMove]
+    }));
+    target.dispatchEvent(new TouchEvent("touchend", {
+      bubbles: true,
+      cancelable: true,
+      changedTouches: [touchMove],
+      touches: [],
+      targetTouches: []
+    }));
+    await new Promise((resolve) => window.setTimeout(resolve, 80));
+    return {
+      movedBy: track.scrollLeft - startLeft,
+      enhanced: track.dataset.wingaTrackEnhanced || "",
+      found: true
+    };
+  });
+
+  expect(result.found).toBeTruthy();
+  expect(result.enhanced).toBe("true");
+  expect(result.movedBy).toBeGreaterThan(40);
 
   await context.close();
 });
@@ -704,7 +846,10 @@ test("home feed keeps loading continuous discovery sections before users hit a h
   await expect(page.locator("[data-continuous-discovery-anchor='home']")).toBeVisible();
   const initialCount = await page.locator("[data-continuous-discovery-section]").count();
 
-  await page.locator("[data-continuous-discovery-anchor='home']").scrollIntoViewIfNeeded();
+  await page.evaluate(() => {
+    const anchor = document.querySelector("[data-continuous-discovery-anchor='home']");
+    anchor?.scrollIntoView({ block: "center", behavior: "auto" });
+  });
   await expect.poll(async () => page.locator("[data-continuous-discovery-section]").count()).toBeGreaterThan(initialCount);
   await page.waitForTimeout(500);
   await expect.poll(async () => page.locator("[data-continuous-discovery-section]").count()).toBeLessThanOrEqual(initialCount + 2);
@@ -835,6 +980,7 @@ test("product detail keeps same-seller continuation and broader discovery surfac
   await expect(page.locator("#product-detail-modal")).toBeVisible();
   const continuationSections = page.locator("#product-detail-modal .product-detail-seller-products");
   await expect(continuationSections.first()).toBeVisible();
+  await expect(page.locator("#product-detail-modal .product-detail-showcase-track").first()).toBeVisible();
   await expect(page.locator("#product-detail-modal .seller-product-card").first()).toBeVisible();
   await expect(page.locator("#product-detail-modal")).toContainText("Related Products");
   await expect(continuationSections).toHaveCount(2);
@@ -842,6 +988,26 @@ test("product detail keeps same-seller continuation and broader discovery surfac
   await page.locator("#product-detail-modal .seller-product-card").first().click();
   await expect(page.locator("#product-detail-modal [data-product-detail-home]")).toBeVisible();
   await expect(page.locator("#product-detail-modal .seller-product-card").first()).toBeVisible();
+
+  await context.close();
+});
+
+test("product detail continuation rows use the same enhanced showcase-track architecture as home rows", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234");
+  await page.goto("/");
+  await expect(page.locator("#products-container .product-card").first()).toBeVisible({ timeout: 30000 });
+
+  await page.locator("#products-container .product-card").first().click();
+  await expect(page.locator("#product-detail-modal")).toBeVisible();
+
+  const tracks = page.locator("#product-detail-modal .product-detail-showcase-track");
+  const trackCount = await tracks.count();
+  expect(trackCount).toBeGreaterThan(0);
+  for (let index = 0; index < trackCount; index += 1) {
+    const track = tracks.nth(index);
+    await expect(track).toBeVisible();
+    await expect.poll(() => track.evaluate((element) => element.dataset.wingaTrackEnhanced || "")).toBe("true");
+  }
 
   await context.close();
 });

@@ -49,6 +49,63 @@
       return heading;
     }
 
+    function createDetailContinuationCardElement(item) {
+      const itemImageSrc = deps.getMarketplacePrimaryImage
+        ? deps.getMarketplacePrimaryImage(item, {
+            allowOwnerVisibility: item.uploadedBy === deps.getCurrentUser()
+          })
+        : deps.sanitizeImageSource(item.image || "", deps.getImageFallbackDataUri("W"));
+      const card = deps.createElement("article", {
+        className: "seller-product-card",
+        attributes: { "data-open-product": item.id }
+      });
+      const itemImage = deps.createElement("img", {
+        className: "zoomable-image",
+        attributes: {
+          src: itemImageSrc || deps.getImageFallbackDataUri("W"),
+          alt: deps.escapeHtml(item.name || ""),
+          loading: "lazy",
+          "data-zoom-src": itemImageSrc || deps.getImageFallbackDataUri("W"),
+          "data-zoom-alt": deps.escapeHtml(item.name || ""),
+          "data-image-action-product": item.id,
+          "data-image-action-src": itemImageSrc || deps.getImageFallbackDataUri("W"),
+          "data-image-action-surface": "detail-related",
+          "data-fallback-src": deps.getImageFallbackDataUri("W")
+        }
+      });
+      card.append(
+        itemImage,
+        deps.createElement("strong", { textContent: deps.formatProductPrice(item.price) }),
+        deps.createElement("span", { textContent: item.name || "" })
+      );
+      const itemTrustBadges = deps.renderMarketplaceTrustBadges?.(item, { hideVerifiedBadge: true });
+      if (itemTrustBadges) {
+        card.appendChild(deps.createFragmentFromMarkup(itemTrustBadges));
+      }
+      card.appendChild(deps.createFragmentFromMarkup(
+        deps.renderProductActionGroup(item, { requestLabel: "Add to My Requests", extraClass: "seller-product-actions" })
+      ));
+      return card;
+    }
+
+    function createDetailShowcaseSectionElement({ eyebrow = "", title = "", items = [], attributes = {} } = {}) {
+      const safeItems = Array.isArray(items) ? items.filter(Boolean) : [];
+      if (!safeItems.length) {
+        return null;
+      }
+      const section = deps.createElement("section", {
+        className: "product-detail-seller-products",
+        attributes
+      });
+      section.appendChild(createDetailSectionHeading(eyebrow || title, title || eyebrow));
+      const track = deps.createElement("div", {
+        className: "showcase-track product-detail-showcase-track"
+      });
+      safeItems.forEach((item) => track.appendChild(createDetailContinuationCardElement(item)));
+      section.appendChild(track);
+      return section;
+    }
+
     function createProductDetailContentElement(params) {
       const {
         product,
@@ -68,10 +125,14 @@
       const safeCategoryLabel = deps.escapeHtml(deps.getCategoryLabel(product.category));
       const safeSellerName = deps.escapeHtml(seller?.fullName || product.shop || product.uploadedBy || "");
 
-      const safeMainImage = deps.sanitizeImageSource(mainImage, deps.getImageFallbackDataUri("WINGA"));
-      const detailImages = Array.isArray(product.images) && product.images.length
-        ? product.images.map((item) => deps.sanitizeImageSource(item || "", deps.getImageFallbackDataUri("W"))).filter(Boolean)
-        : [safeMainImage].filter(Boolean);
+      const detailImages = deps.getRenderableMarketplaceImages
+        ? deps.getRenderableMarketplaceImages(product, {
+            allowOwnerVisibility: product.uploadedBy === deps.getCurrentUser()
+          }).map((item) => deps.sanitizeImageSource(item || "", deps.getImageFallbackDataUri("W"))).filter(Boolean)
+        : (Array.isArray(product.images) && product.images.length
+          ? product.images.map((item) => deps.sanitizeImageSource(item || "", deps.getImageFallbackDataUri("W"))).filter(Boolean)
+          : []);
+      const safeMainImage = deps.sanitizeImageSource(mainImage || detailImages[0] || "", deps.getImageFallbackDataUri("WINGA"));
 
       const wrapper = deps.createElement("div");
       const layout = deps.createElement("div", { className: "product-detail-layout" });
@@ -88,13 +149,10 @@
           "data-zoom-alt": safeProductName,
           "data-image-action-product": product.id,
           "data-image-action-src": safeMainImage,
-          "data-image-action-surface": "detail"
+          "data-image-action-surface": "detail",
+          "data-fallback-src": deps.getImageFallbackDataUri("WINGA")
         }
       });
-      mainImageElement.onerror = function handleDetailImageError() {
-        this.onerror = null;
-        this.src = deps.getImageFallbackDataUri("WINGA");
-      };
       media.appendChild(mainImageElement);
       if (detailImages.length > 1) {
         const thumbGrid = deps.createElement("div", { className: "product-detail-thumb-grid" });
@@ -107,7 +165,11 @@
               loading: "lazy",
               "data-detail-image": image,
               "data-detail-image-index": String(index),
-              "data-disable-image-zoom": "true"
+              "data-disable-image-zoom": "true",
+              "data-image-action-product": product.id,
+              "data-image-action-src": image,
+              "data-image-action-surface": "detail-thumb",
+              "data-fallback-src": deps.getImageFallbackDataUri("W")
             }
           }));
         });
@@ -194,44 +256,14 @@
       wrapper.appendChild(layout);
 
       if (otherProducts.length) {
-        const section = deps.createElement("section", { className: "product-detail-seller-products" });
-        section.appendChild(createDetailSectionHeading("Bidhaa Zaidi Kutoka Kwa Muuzaji", `Bidhaa nyingine kutoka kwa ${safeSellerName}`));
-        const grid = deps.createElement("div", { className: "seller-products-grid" });
-        otherProducts.forEach((item) => {
-          const card = deps.createElement("article", {
-            className: "seller-product-card",
-            attributes: { "data-open-product": item.id }
-          });
-          const itemImage = deps.createElement("img", {
-            className: "zoomable-image",
-            attributes: {
-              src: deps.sanitizeImageSource(item.image || "", deps.getImageFallbackDataUri("W")),
-              alt: deps.escapeHtml(item.name || ""),
-              loading: "lazy",
-              "data-zoom-src": deps.sanitizeImageSource(item.image || "", deps.getImageFallbackDataUri("W")),
-              "data-zoom-alt": deps.escapeHtml(item.name || "")
-            }
-          });
-          itemImage.onerror = function handleSellerItemImageError() {
-            this.onerror = null;
-            this.src = deps.getImageFallbackDataUri("W");
-          };
-          card.append(
-            itemImage,
-            deps.createElement("strong", { textContent: deps.formatProductPrice(item.price) }),
-            deps.createElement("span", { textContent: item.name || "" })
-          );
-          const itemTrustBadges = deps.renderMarketplaceTrustBadges?.(item, { hideVerifiedBadge: true });
-          if (itemTrustBadges) {
-            card.appendChild(deps.createFragmentFromMarkup(itemTrustBadges));
-          }
-          card.appendChild(deps.createFragmentFromMarkup(
-            deps.renderProductActionGroup(item, { requestLabel: "Add to My Requests", extraClass: "seller-product-actions" })
-          ));
-          grid.appendChild(card);
+        const section = createDetailShowcaseSectionElement({
+          eyebrow: "Bidhaa Zaidi Kutoka Kwa Muuzaji",
+          title: `Bidhaa nyingine kutoka kwa ${safeSellerName}`,
+          items: otherProducts
         });
-        section.appendChild(grid);
-        wrapper.appendChild(section);
+        if (section) {
+          wrapper.appendChild(section);
+        }
       }
 
       (Array.isArray(continuationSections) ? continuationSections : []).forEach((sectionConfig) => {
@@ -239,14 +271,14 @@
         if (!items.length) {
           return;
         }
-        const section = deps.createElement("section", { className: "product-detail-seller-products" });
-        section.appendChild(createDetailSectionHeading(sectionConfig.eyebrow || sectionConfig.title || "", sectionConfig.title || ""));
-        section.appendChild(
-          deps.createFragmentFromMarkup(
-            deps.renderDiscoveryProductCards(items, { sponsored: Boolean(sectionConfig.sponsored) })
-          )
-        );
-        wrapper.appendChild(section);
+        const section = createDetailShowcaseSectionElement({
+          eyebrow: sectionConfig.eyebrow || sectionConfig.title || "",
+          title: sectionConfig.title || "",
+          items
+        });
+        if (section) {
+          wrapper.appendChild(section);
+        }
       });
 
       if (params.enableContinuousDiscovery) {
@@ -284,7 +316,8 @@
 
     return {
       ensureProductDetailModal,
-      createProductDetailContentElement
+      createProductDetailContentElement,
+      createDetailShowcaseSectionElement
     };
   }
 

@@ -18,6 +18,8 @@
       seedProductId: "",
       loading: false
     };
+    const MAX_ACTIVE_DETAIL_CONTINUATION_SECTIONS = 4;
+    const MAX_DETAIL_CONTINUATION_USED_IDS = 120;
 
     function isDetailHistoryState(state) {
       return Boolean(state?.wingaProductDetail && state?.productId);
@@ -61,6 +63,10 @@
         && item.uploadedBy === product.uploadedBy
         && item.status === "approved"
         && item.availability !== "sold_out"
+        && (typeof deps.shouldRenderMarketplaceProduct !== "function"
+          || deps.shouldRenderMarketplaceProduct(item, {
+            allowOwnerVisibility: item.uploadedBy === deps.getCurrentUser?.()
+          }))
       ).slice(0, limit);
     }
 
@@ -74,6 +80,10 @@
         && item.status === "approved"
         && item.availability !== "sold_out"
         && !excludeIds.has(item.id)
+        && (typeof deps.shouldRenderMarketplaceProduct !== "function"
+          || deps.shouldRenderMarketplaceProduct(item, {
+            allowOwnerVisibility: item.uploadedBy === deps.getCurrentUser?.()
+          }))
       ).slice(0, limit);
     }
 
@@ -102,6 +112,46 @@
 
     function rememberRecentIds(currentIds = [], nextIds = [], limit = 40) {
       return [...currentIds, ...nextIds.filter(Boolean)].slice(-limit);
+    }
+
+    function pruneOrderedIdSet(idSet, limit = 120) {
+      if (!(idSet instanceof Set) || !Number.isFinite(limit) || limit < 1) {
+        return idSet;
+      }
+      while (idSet.size > limit) {
+        const oldestId = idSet.values().next().value;
+        if (typeof oldestId === "undefined") {
+          break;
+        }
+        idSet.delete(oldestId);
+      }
+      return idSet;
+    }
+
+    function releasePrunedSectionMedia(section) {
+      if (!(section instanceof Element)) {
+        return;
+      }
+      section.querySelectorAll("img").forEach((image) => {
+        image.removeAttribute("srcset");
+        image.removeAttribute("sizes");
+        image.removeAttribute("src");
+        image.removeAttribute("data-zoom-src");
+        image.removeAttribute("data-image-action-src");
+      });
+      section.querySelectorAll("source").forEach((source) => {
+        source.removeAttribute("srcset");
+        source.removeAttribute("src");
+      });
+      section.querySelectorAll("video").forEach((video) => {
+        try {
+          video.pause?.();
+          video.removeAttribute("src");
+          video.load?.();
+        } catch (error) {
+          // Ignore cleanup failures for detached media nodes.
+        }
+      });
     }
 
     function disconnectDetailContinuousObserver() {
@@ -142,18 +192,30 @@
       if (!descriptor || !Array.isArray(descriptor.items) || !descriptor.items.length) {
         return null;
       }
-      const section = deps.createElement("section", { className: "product-detail-seller-products" });
-      section.appendChild(deps.createSectionHeading({
+      return deps.createDetailShowcaseSectionElement?.({
         eyebrow: descriptor.eyebrow || "Keep Exploring",
         title: descriptor.title || `More products ${index}`,
-        meta: descriptor.subtitle || "Discovery continues while you browse."
-      }));
-      section.appendChild(
-        deps.createFragmentFromMarkup(
-          deps.renderDiscoveryProductCards(descriptor.items, { sponsored: Boolean(descriptor.sponsored) })
-        )
-      );
-      return section;
+        items: descriptor.items,
+        attributes: {
+          "data-product-detail-continuation-section": String(index),
+          "data-product-detail-continuation-kind": descriptor.kind || "continuation"
+        }
+      }) || null;
+    }
+
+    function trimDetailContinuationSections(anchor) {
+      const modal = anchor?.closest?.("#product-detail-modal");
+      if (!modal) {
+        return;
+      }
+      const sections = Array.from(modal.querySelectorAll("[data-product-detail-continuation-section]"));
+      if (sections.length <= MAX_ACTIVE_DETAIL_CONTINUATION_SECTIONS) {
+        return;
+      }
+      sections.slice(0, sections.length - MAX_ACTIVE_DETAIL_CONTINUATION_SECTIONS).forEach((section) => {
+        releasePrunedSectionMedia(section);
+        section.remove();
+      });
     }
 
     function bindInlineProductActions(scope, product) {
@@ -208,10 +270,14 @@
       }
       anchor.after(section);
       section.after(anchor);
+      deps.enhanceShowcaseTracks?.(section);
       bindInlineProductActions(section, product);
       deps.bindProductMenus?.(section);
+      deps.bindImageFallbacks?.(section);
+      trimDetailContinuationSections(anchor);
       const appendedIds = descriptor.items.map((item) => item.id);
       appendedIds.forEach((productId) => detailContinuousRuntime.usedIds.add(productId));
+      pruneOrderedIdSet(detailContinuousRuntime.usedIds, MAX_DETAIL_CONTINUATION_USED_IDS);
       detailContinuousRuntime.recentIds = rememberRecentIds(detailContinuousRuntime.recentIds, appendedIds);
       detailContinuousRuntime.batchIndex += 1;
       detailContinuousRuntime.loading = false;
@@ -416,6 +482,16 @@
       if (!product) {
         return;
       }
+      const isOwnerView = product.uploadedBy === deps.getCurrentUser?.();
+      if (typeof deps.shouldRenderMarketplaceProduct === "function" && !deps.shouldRenderMarketplaceProduct(product, {
+        allowOwnerVisibility: isOwnerView
+      })) {
+        closeProductDetailModal({
+          skipHistoryBack: true,
+          skipContextRestore: true
+        });
+        return;
+      }
 
       const {
         skipHistoryPush = false,
@@ -538,8 +614,25 @@
         syncHistoryForDetail(product.id, sourceProductId);
       }
       bindProductDetailActions(modal, product);
+      deps.enhanceShowcaseTracks?.(modal);
       deps.bindProductMenus?.(modal);
+      deps.bindImageFallbacks?.(modal);
       setupDetailContinuousDiscovery(modal, product, shownProductIds);
+    }
+
+    function refreshActiveProductDetail() {
+      if (!detailNavState.activeProductId) {
+        return;
+      }
+      const modal = document.getElementById("product-detail-modal");
+      if (!modal || modal.style.display === "none") {
+        return;
+      }
+      openProductDetailModal(detailNavState.activeProductId, {
+        skipHistoryPush: true,
+        sourceProductId: detailNavState.rootProductId || detailNavState.activeProductId,
+        restoreDetailScrollTop: modal.scrollTop || 0
+      });
     }
 
     window.addEventListener("popstate", (event) => {
@@ -570,7 +663,8 @@
     return {
       getSellerOtherProducts,
       closeProductDetailModal,
-      openProductDetailModal
+      openProductDetailModal,
+      refreshActiveProductDetail
     };
   }
 

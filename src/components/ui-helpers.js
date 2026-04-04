@@ -108,6 +108,13 @@
     });
     if (fallbackSrc) {
       image.onerror = function handleImageError() {
+        window.dispatchEvent(new window.CustomEvent("winga:image-error", {
+          detail: {
+            productId: attributes["data-image-action-product"] || "",
+            imageSource: this.currentSrc || this.getAttribute("src") || resolvedSrc,
+            surface: attributes["data-image-action-surface"] || ""
+          }
+        }));
         this.onerror = null;
         this.src = fallbackSrc;
       };

@@ -3570,7 +3570,8 @@ const {
 
 const {
   ensureProductDetailModal,
-  createProductDetailContentElement
+  createProductDetailContentElement,
+  createDetailShowcaseSectionElement
 } = window.WingaModules.productDetail.createProductDetailUiModule({
   createElement,
   createFragmentFromMarkup,
@@ -3580,6 +3581,8 @@ const {
   formatNumber,
   formatProductPrice,
   getImageFallbackDataUri,
+  getRenderableMarketplaceImages,
+  getMarketplacePrimaryImage,
   renderRequestBoxButton,
   renderWhatsappChatLink,
   getCurrentUser: () => currentUser,
@@ -3592,13 +3595,15 @@ const {
 const {
   getSellerOtherProducts: getSellerOtherProductsFromController,
   closeProductDetailModal: closeProductDetailModalFromController,
-  openProductDetailModal: openProductDetailModalFromController
+  openProductDetailModal: openProductDetailModalFromController,
+  refreshActiveProductDetail
 } = window.WingaModules.productDetail.createProductDetailControllerModule({
   createElement,
   createSectionHeading,
   createFragmentFromMarkup,
   ensureProductDetailModal,
   createProductDetailContentElement,
+  createDetailShowcaseSectionElement,
   getProducts: () => products,
   getProductById,
   getMarketplaceUser,
@@ -3607,16 +3612,20 @@ const {
   getMostSearchedProducts: (...args) => getMostSearchedProducts(...args),
   getNewestProducts: (...args) => getNewestProducts(...args),
   getContinuousDiscoveryDescriptor,
+  shouldRenderMarketplaceProduct,
   renderDiscoveryProductCards,
   getImageFallbackDataUri,
   noteProductInterest,
   noteProductDiscovery,
+  enhanceShowcaseTracks,
   bindProductMenus,
+  bindImageFallbacks,
   scrollToProductCard,
   renderProductReviewSummary,
   renderSellerReviewSummary,
   renderProductReviewForm,
   renderProductReviewsList,
+  getCurrentUser: () => currentUser,
   openProductChat,
   openOwnProductMessages,
   beginPurchaseFlow,
@@ -3845,6 +3854,8 @@ const {
   formatProductPrice,
   getStatusLabel,
   getCategoryLabel,
+  getRenderableMarketplaceImages,
+  getMarketplacePrimaryImage,
   renderMarketplaceTrustBadges,
   renderProductActionGroup,
   renderProductOverflowMenu,
@@ -3960,6 +3971,89 @@ function normalizeProduct(product) {
       : normalizeSearchValue(`${product.name || ""} ${product.shop || ""}`)
   };
 }
+
+const brokenMarketplaceImagesByProduct = new Map();
+let brokenMarketplaceImageRefreshTimer = 0;
+const MAX_ACTIVE_HOME_CONTINUOUS_SECTIONS = 4;
+const MAX_HOME_CONTINUOUS_USED_IDS = 120;
+
+function getProductImageCandidates(product) {
+  const sourceImages = Array.isArray(product?.images) && product.images.length > 0
+    ? product.images
+    : [product?.image];
+  return sourceImages
+    .map((image) => sanitizeImageSource(image, ""))
+    .filter(Boolean);
+}
+
+function getBrokenMarketplaceImageSet(productId) {
+  return brokenMarketplaceImagesByProduct.get(String(productId || "")) || new Set();
+}
+
+function getRenderableMarketplaceImages(product, options = {}) {
+  const { allowOwnerVisibility = false } = options;
+  const candidates = getProductImageCandidates(product);
+  if (!candidates.length) {
+    return [];
+  }
+  if (allowOwnerVisibility && product?.uploadedBy === currentUser) {
+    return candidates;
+  }
+  const brokenSources = getBrokenMarketplaceImageSet(product?.id);
+  return candidates.filter((image) => !brokenSources.has(image));
+}
+
+function hasRenderableMarketplaceImage(product, options = {}) {
+  return getRenderableMarketplaceImages(product, options).length > 0;
+}
+
+function getMarketplacePrimaryImage(product, options = {}) {
+  return getRenderableMarketplaceImages(product, options)[0] || "";
+}
+
+function shouldRenderMarketplaceProduct(product, options = {}) {
+  if (!isMarketplaceBrowseCandidate(product)) {
+    return false;
+  }
+  return hasRenderableMarketplaceImage(product, options);
+}
+
+function scheduleBrokenMarketplaceImageRefresh() {
+  if (brokenMarketplaceImageRefreshTimer) {
+    return;
+  }
+  brokenMarketplaceImageRefreshTimer = window.setTimeout(() => {
+    brokenMarketplaceImageRefreshTimer = 0;
+    if (typeof refreshActiveProductDetail === "function" && document.body.classList.contains("product-detail-open")) {
+      refreshActiveProductDetail();
+    }
+    renderCurrentView();
+  }, 90);
+}
+
+function noteBrokenMarketplaceImage(productId, imageSource = "") {
+  const normalizedProductId = String(productId || "").trim();
+  const normalizedSource = sanitizeImageSource(imageSource, "");
+  if (!normalizedProductId || !normalizedSource) {
+    return;
+  }
+  const nextSet = new Set(getBrokenMarketplaceImageSet(normalizedProductId));
+  if (nextSet.has(normalizedSource)) {
+    return;
+  }
+  nextSet.add(normalizedSource);
+  brokenMarketplaceImagesByProduct.set(normalizedProductId, nextSet);
+  scheduleBrokenMarketplaceImageRefresh();
+}
+
+window.addEventListener("winga:image-error", (event) => {
+  const productId = event?.detail?.productId || "";
+  const imageSource = event?.detail?.imageSource || "";
+  if (!productId || !imageSource) {
+    return;
+  }
+  noteBrokenMarketplaceImage(productId, imageSource);
+});
 
 const DEFAULT_PRODUCTS = [
   {
@@ -6064,9 +6158,9 @@ function applyProductFilters(list) {
 
 function getShowcaseProducts() {
   return AppCore.getShowcaseProducts
-    ? AppCore.getShowcaseProducts(products.filter((product) => isMarketplaceBrowseCandidate(product)), 12)
+    ? AppCore.getShowcaseProducts(products.filter((product) => shouldRenderMarketplaceProduct(product)), 12)
     : products
-      .filter((product) => product.status === "approved" && product.availability !== "sold_out" && product.image && isMarketplaceBrowseCandidate(product))
+      .filter((product) => product.status === "approved" && product.availability !== "sold_out" && hasRenderableMarketplaceImage(product) && shouldRenderMarketplaceProduct(product))
       .sort((first, second) => {
         const firstScore = (first.likes || 0) * 4 + (first.views || 0);
         const secondScore = (second.likes || 0) * 4 + (second.views || 0);
@@ -6090,7 +6184,7 @@ function getProductsPerRow() {
 
 function getDiverseShowcaseProducts(limit = 12, rotation = 0) {
   const sourceProducts = products
-    .filter((product) => product.status === "approved" && product.availability !== "sold_out" && product.image && isMarketplaceBrowseCandidate(product))
+    .filter((product) => product.status === "approved" && product.availability !== "sold_out" && hasRenderableMarketplaceImage(product) && shouldRenderMarketplaceProduct(product))
     .sort((first, second) => {
       const firstScore = (first.likes || 0) * 4 + (first.views || 0);
       const secondScore = (second.likes || 0) * 4 + (second.views || 0);
@@ -6165,8 +6259,8 @@ function getBehaviorShowcaseDescriptor(sectionIndex = 0, excludeIds = new Set())
     .filter((product) =>
       product.status === "approved"
       && product.availability !== "sold_out"
-      && product.image
-      && isMarketplaceBrowseCandidate(product)
+      && hasRenderableMarketplaceImage(product)
+      && shouldRenderMarketplaceProduct(product)
       && !excludeIds.has(product.id)
     );
   const items = rankProductsForSurface(baseProducts, {
@@ -6243,20 +6337,22 @@ const {
 
 function renderDiscoveryProductCards(items, options = {}) {
   const { sponsored = false } = options;
-  if (!items.length) {
+  const renderableItems = (Array.isArray(items) ? items : []).filter((item) => getMarketplacePrimaryImage(item));
+  if (!renderableItems.length) {
     return "";
   }
 
   return `
     <div class="seller-products-grid">
-      ${items.map((item) => {
+      ${renderableItems.map((item) => {
         const safeName = escapeHtml(item.name || "");
         const safeCategory = escapeHtml(getCategoryLabel(item.category));
         const promotion = sponsored ? getPrimaryPromotion(item.id) : null;
+        const primaryImage = getMarketplacePrimaryImage(item);
         return `
           <article class="seller-product-card" data-open-product="${item.id}">
             <div class="seller-product-card-media">
-              <img class="zoomable-image" src="${item.image}" alt="${safeName}" loading="lazy" data-fallback-src="${getImageFallbackDataUri("W")}" data-zoom-src="${item.image}" data-zoom-alt="${safeName}">
+              <img class="zoomable-image" src="${primaryImage}" alt="${safeName}" loading="lazy" data-fallback-src="${getImageFallbackDataUri("W")}" data-zoom-src="${primaryImage}" data-zoom-alt="${safeName}" data-image-action-product="${item.id}" data-image-action-src="${primaryImage}" data-image-action-surface="discovery">
             </div>
             ${renderProductOverflowMenu(item, { overlay: true })}
             <strong>${formatProductPrice(item.price)}</strong>
@@ -6321,6 +6417,8 @@ function getYouMayLikeProducts(seedProduct, limit = 6) {
     .filter((product) =>
       product.status === "approved"
       && product.availability !== "sold_out"
+      && hasRenderableMarketplaceImage(product)
+      && shouldRenderMarketplaceProduct(product)
       && product.id !== seedProduct?.id
       && !relatedIds.has(product.id)
     );
@@ -6333,11 +6431,11 @@ function getYouMayLikeProducts(seedProduct, limit = 6) {
 }
 
 function getMostSearchedProducts(seedProduct, options = {}) {
-  const { limit = 8, excludeIds = new Set() } = options;
-  const pool = products.filter((product) =>
+  const { limit = 8, excludeIds = new Set(), sourceProducts = null } = options;
+  const pool = (Array.isArray(sourceProducts) ? sourceProducts : products).filter((product) =>
     product.status === "approved"
     && product.availability !== "sold_out"
-    && isMarketplaceBrowseCandidate(product)
+    && shouldRenderMarketplaceProduct(product)
     && product.id !== seedProduct?.id
     && !excludeIds.has(product.id)
   );
@@ -6350,13 +6448,15 @@ function getMostSearchedProducts(seedProduct, options = {}) {
   });
   return ranked.length
     ? ranked
-    : getTrendingProducts(limit, excludeIds);
+    : getTrendingProducts(limit, excludeIds, sourceProducts);
 }
 
-function getTrendingProducts(limit = 8, excludeIds = new Set()) {
-  const source = products.filter((product) =>
+function getTrendingProducts(limit = 8, excludeIds = new Set(), sourceProducts = null) {
+  const source = (Array.isArray(sourceProducts) ? sourceProducts : products).filter((product) =>
     product.status === "approved"
     && product.availability !== "sold_out"
+    && hasRenderableMarketplaceImage(product)
+    && shouldRenderMarketplaceProduct(product)
     && !excludeIds.has(product.id)
   );
   const withSignal = source.some((product) => Number(product.views || 0) > 0 || Number(product.likes || 0) > 0);
@@ -6369,13 +6469,13 @@ function getTrendingProducts(limit = 8, excludeIds = new Set()) {
 }
 
 function getNewestProducts(options = {}) {
-  const { limit = 8, excludeIds = new Set(), seedProduct = null } = options;
+  const { limit = 8, excludeIds = new Set(), seedProduct = null, sourceProducts = null } = options;
   const seedTopCategory = inferTopCategoryValue(seedProduct?.category || "");
-  const rankedNewest = products
+  const rankedNewest = (Array.isArray(sourceProducts) ? sourceProducts : products)
     .filter((product) =>
       product.status === "approved"
       && product.availability !== "sold_out"
-      && isMarketplaceBrowseCandidate(product)
+      && shouldRenderMarketplaceProduct(product)
       && !excludeIds.has(product.id)
       && product.id !== seedProduct?.id
     )
@@ -6392,6 +6492,57 @@ function getNewestProducts(options = {}) {
 
 function rememberContinuousDiscoveryIds(currentIds = [], nextIds = [], limit = 40) {
   return [...currentIds, ...nextIds.filter(Boolean)].slice(-limit);
+}
+
+function pruneOrderedIdSet(idSet, limit = 120) {
+  if (!(idSet instanceof Set) || !Number.isFinite(limit) || limit < 1) {
+    return idSet;
+  }
+  while (idSet.size > limit) {
+    const oldestId = idSet.values().next().value;
+    if (typeof oldestId === "undefined") {
+      break;
+    }
+    idSet.delete(oldestId);
+  }
+  return idSet;
+}
+
+function getRenderableMarketplacePool(options = {}) {
+  const { excludeIds = new Set(), seedProduct = null } = options;
+  return products.filter((product) =>
+    product.status === "approved"
+    && product.availability !== "sold_out"
+    && shouldRenderMarketplaceProduct(product)
+    && product.id !== seedProduct?.id
+    && !excludeIds.has(product.id)
+  );
+}
+
+function releasePrunedSectionMedia(section) {
+  if (!(section instanceof Element)) {
+    return;
+  }
+  section.querySelectorAll("img").forEach((image) => {
+    image.removeAttribute("srcset");
+    image.removeAttribute("sizes");
+    image.removeAttribute("src");
+    image.removeAttribute("data-zoom-src");
+    image.removeAttribute("data-image-action-src");
+  });
+  section.querySelectorAll("source").forEach((source) => {
+    source.removeAttribute("srcset");
+    source.removeAttribute("src");
+  });
+  section.querySelectorAll("video").forEach((video) => {
+    try {
+      video.pause?.();
+      video.removeAttribute("src");
+      video.load?.();
+    } catch (error) {
+      // Ignore release failures for detached media nodes.
+    }
+  });
 }
 
 function prioritizeSellerMarketplaceMix(list) {
@@ -6432,21 +6583,19 @@ function createContinuousDiscoverySectionElement(descriptor, index, anchorKind =
   if (!descriptor || !Array.isArray(descriptor.items) || !descriptor.items.length) {
     return null;
   }
-  const section = createElement("section", {
-    className: "showcase-inline panel recommendation-strip continuous-discovery-section",
-    attributes: {
-      "data-continuous-discovery-section": `${anchorKind}-${index}`,
-      "data-continuous-discovery-kind": descriptor.kind || "continuation"
-    }
-  });
-  section.appendChild(createSectionHeading({
-    eyebrow: descriptor.eyebrow || "Keep Exploring",
-    title: descriptor.title || "More products for you",
-    meta: descriptor.subtitle || "Discovery keeps moving while you browse"
-  }));
-  section.appendChild(createFragmentFromMarkup(
-    renderDiscoveryProductCards(descriptor.items, { sponsored: Boolean(descriptor.sponsored) })
-  ));
+  const section = createShowcaseSectionElement(
+    descriptor.items,
+    index,
+    descriptor.eyebrow || "Keep Exploring",
+    descriptor.title || "More products for you",
+    descriptor.subtitle || "Discovery keeps moving while you browse"
+  );
+  if (!section) {
+    return null;
+  }
+  section.classList.add("recommendation-strip", "continuous-discovery-section");
+  section.setAttribute("data-continuous-discovery-section", `${anchorKind}-${index}`);
+  section.setAttribute("data-continuous-discovery-kind", descriptor.kind || "continuation");
   return section;
 }
 
@@ -6455,16 +6604,17 @@ function getStaleViewedProducts(options = {}) {
     limit = 8,
     recentIds = [],
     usedIds = new Set(),
-    seedProduct = null
+    seedProduct = null,
+    sourceProducts = null
   } = options;
   const recentIdSet = new Set(recentIds);
   const usedIdSet = new Set(Array.from(usedIds || []).filter(Boolean));
   const seedTopCategory = inferTopCategoryValue(seedProduct?.category || "");
-  const candidates = products
+  const candidates = (Array.isArray(sourceProducts) ? sourceProducts : products)
     .filter((product) =>
       product.status === "approved"
       && product.availability !== "sold_out"
-      && isMarketplaceBrowseCandidate(product)
+      && shouldRenderMarketplaceProduct(product)
       && product.id !== seedProduct?.id
       && !recentIdSet.has(product.id)
       && (productSeenTimestamps[product.id] || usedIdSet.has(product.id))
@@ -6499,12 +6649,17 @@ function getContinuousDiscoveryDescriptor(options = {}) {
     ...Array.from(hardExcludeIds),
     ...Array.from(recentIds || []).filter(Boolean)
   ]);
+  const renderableProducts = getRenderableMarketplacePool({
+    seedProduct: preferredSeed
+  });
+  const hardEligibleProducts = renderableProducts.filter((product) => !hardExcludeIds.has(product.id));
   const minimumBatchSize = 3;
 
   const freshNewItems = getNewestProducts({
     limit: 10,
     excludeIds: softExcludeIds,
-    seedProduct: preferredSeed
+    seedProduct: preferredSeed,
+    sourceProducts: hardEligibleProducts
   }).filter((product) => !productSeenTimestamps[product.id]);
   if (freshNewItems.length >= minimumBatchSize || (freshNewItems.length > 0 && batchIndex === 0)) {
     return {
@@ -6534,7 +6689,8 @@ function getContinuousDiscoveryDescriptor(options = {}) {
 
   const mostSearchedItems = getMostSearchedProducts(preferredSeed, {
     limit: 8,
-    excludeIds: softExcludeIds
+    excludeIds: softExcludeIds,
+    sourceProducts: hardEligibleProducts
   });
   if (mostSearchedItems.length >= minimumBatchSize) {
     return {
@@ -6565,7 +6721,8 @@ function getContinuousDiscoveryDescriptor(options = {}) {
     limit: 8,
     recentIds,
     usedIds,
-    seedProduct: preferredSeed
+    seedProduct: preferredSeed,
+    sourceProducts: renderableProducts
   });
   if (staleViewedItems.length) {
     return {
@@ -6577,7 +6734,11 @@ function getContinuousDiscoveryDescriptor(options = {}) {
     };
   }
 
-  const fallbackItems = getTrendingProducts(8, new Set(Array.from(recentIds || []).filter(Boolean)));
+  const fallbackItems = getTrendingProducts(
+    8,
+    new Set(Array.from(recentIds || []).filter(Boolean)),
+    renderableProducts
+  );
   if (fallbackItems.length) {
     return {
       kind: "trending-fallback",
@@ -6625,6 +6786,21 @@ function scheduleContinuousDiscoveryReobserve(anchor) {
   }, 180);
 }
 
+function trimHomeContinuousDiscoverySections(anchor) {
+  const container = anchor?.closest?.("#products-container");
+  if (!container) {
+    return;
+  }
+  const sections = Array.from(container.querySelectorAll("[data-continuous-discovery-section]"));
+  if (sections.length <= MAX_ACTIVE_HOME_CONTINUOUS_SECTIONS) {
+    return;
+  }
+  sections.slice(0, sections.length - MAX_ACTIVE_HOME_CONTINUOUS_SECTIONS).forEach((section) => {
+    releasePrunedSectionMedia(section);
+    section.remove();
+  });
+}
+
 function hydrateContinuousDiscoveryAnchor(anchor) {
   if (!anchor || homeContinuousDiscoveryRuntime.loading) {
     return;
@@ -6659,10 +6835,14 @@ function hydrateContinuousDiscoveryAnchor(anchor) {
 
   anchor.after(section);
   section.after(anchor);
+  enhanceShowcaseTracks(section);
+  bindShowcaseCardClicks(section);
   bindImageFallbacks(section);
   bindProductMenus(section);
+  trimHomeContinuousDiscoverySections(anchor);
   const appendedIds = descriptor.items.map((item) => item.id);
   appendedIds.forEach((productId) => homeContinuousDiscoveryRuntime.usedIds.add(productId));
+  pruneOrderedIdSet(homeContinuousDiscoveryRuntime.usedIds, MAX_HOME_CONTINUOUS_USED_IDS);
   homeContinuousDiscoveryRuntime.recentIds = rememberContinuousDiscoveryIds(
     homeContinuousDiscoveryRuntime.recentIds,
     appendedIds
@@ -6706,14 +6886,14 @@ function setupContinuousDiscoveryLoading(scope, options = {}) {
 }
 
 function buildTrendingKariakooSlide() {
-  const trending = getTrendingProducts(4).filter((product) => product?.image);
+  const trending = getTrendingProducts(4).filter((product) => getMarketplacePrimaryImage(product));
   if (!trending.length) {
     return null;
   }
 
   const lead = trending[0];
   return {
-    image: lead.image,
+    image: getMarketplacePrimaryImage(lead, { allowOwnerVisibility: true }),
     kicker: "Trending Kariakoo",
     title: "Bidhaa zinazovuma Kariakoo leo",
     subtitle: "Picks zenye movement kubwa zaidi kwenye views, requests na mazungumzo ya sasa.",
@@ -6838,6 +7018,10 @@ function enhanceShowcaseTracks(scope = document) {
     let pointerStartX = 0;
     let pointerStartY = 0;
     let pointerStartScrollLeft = 0;
+    let activeTouchId = null;
+    let touchStartX = 0;
+    let touchStartY = 0;
+    let touchStartScrollLeft = 0;
     let isDragging = false;
     let hasPointerCapture = false;
     let suppressClickUntil = 0;
@@ -6853,8 +7037,28 @@ function enhanceShowcaseTracks(scope = document) {
       track.classList.remove("is-dragging");
     };
 
+    const clearTouchState = () => {
+      activeTouchId = null;
+      touchStartX = 0;
+      touchStartY = 0;
+      touchStartScrollLeft = 0;
+      if (isDragging) {
+        suppressClickUntil = Date.now() + 220;
+      }
+      isDragging = false;
+      track.classList.remove("is-dragging");
+    };
+
+    const beginHorizontalDrag = () => {
+      if (isDragging) {
+        return;
+      }
+      isDragging = true;
+      track.classList.add("is-dragging");
+    };
+
     const isInteractiveTarget = (target) => target instanceof Element
-      && Boolean(target.closest("button, a, input, select, textarea, label, [data-product-action], .product-actions"));
+      && Boolean(target.closest("button, a, input, select, textarea, label, [data-product-action]"));
 
     track.addEventListener("wheel", (event) => {
       if (track.scrollWidth <= track.clientWidth || typeof WheelEvent === "undefined") {
@@ -6888,6 +7092,66 @@ function enhanceShowcaseTracks(scope = document) {
         event.stopPropagation();
       }
     }, true);
+
+    track.addEventListener("touchstart", (event) => {
+      if (track.scrollWidth <= track.clientWidth + 4) {
+        return;
+      }
+      const touch = event.changedTouches?.[0];
+      if (!touch || isInteractiveTarget(event.target)) {
+        return;
+      }
+      activeTouchId = touch.identifier;
+      touchStartX = touch.clientX;
+      touchStartY = touch.clientY;
+      touchStartScrollLeft = track.scrollLeft;
+      isDragging = false;
+      track.classList.remove("is-dragging");
+    }, { passive: true });
+
+    track.addEventListener("touchmove", (event) => {
+      if (activeTouchId === null) {
+        return;
+      }
+      const touch = Array.from(event.changedTouches || []).find((item) => item.identifier === activeTouchId);
+      if (!touch) {
+        return;
+      }
+      const deltaX = touch.clientX - touchStartX;
+      const deltaY = touch.clientY - touchStartY;
+      if (!isDragging) {
+        if (Math.abs(deltaX) < 12) {
+          return;
+        }
+        if (Math.abs(deltaX) <= Math.abs(deltaY) + 6) {
+          clearTouchState();
+          return;
+        }
+        beginHorizontalDrag();
+      }
+      if (event.cancelable) {
+        event.preventDefault();
+      }
+      track.scrollLeft = touchStartScrollLeft - (deltaX * 1.08);
+    }, { passive: false });
+
+    track.addEventListener("touchend", (event) => {
+      if (activeTouchId === null) {
+        return;
+      }
+      const touch = Array.from(event.changedTouches || []).find((item) => item.identifier === activeTouchId);
+      if (!touch) {
+        return;
+      }
+      clearTouchState();
+    }, { passive: true });
+
+    track.addEventListener("touchcancel", () => {
+      if (activeTouchId === null) {
+        return;
+      }
+      clearTouchState();
+    }, { passive: true });
 
     if (typeof PointerEvent === "undefined") {
       return;
@@ -6925,8 +7189,7 @@ function enhanceShowcaseTracks(scope = document) {
         if (Math.abs(deltaX) < horizontalThreshold || Math.abs(deltaX) <= Math.abs(deltaY) + directionalBias) {
           return;
         }
-        isDragging = true;
-        track.classList.add("is-dragging");
+        beginHorizontalDrag();
         if (!hasPointerCapture) {
           track.setPointerCapture?.(event.pointerId);
           hasPointerCapture = true;
@@ -7170,7 +7433,7 @@ function getFilteredProducts() {
       return isVisibleStatus && matchesKeyword && matchesCategory;
     });
 
-  const filtered = applyProductFilters(baseList.filter((product) => isMarketplaceBrowseCandidate(product)));
+  const filtered = applyProductFilters(baseList.filter((product) => shouldRenderMarketplaceProduct(product)));
   const sortMode = sortSelect?.value || "default";
   if (sortMode !== "default" || !filtered.length) {
     return prioritizeSellerMarketplaceMix(filtered);
@@ -7280,8 +7543,7 @@ function getSlideshowItems() {
 }
 
 function renderProductGallery(product) {
-  const images = Array.isArray(product.images) && product.images.length > 0 ? product.images : [product.image];
-  const safeImages = images.filter(Boolean);
+  const safeImages = getRenderableMarketplaceImages(product);
   const firstImage = sanitizeImageSource(safeImages[0] || "", getImageFallbackDataUri("WINGA"));
 
   return `
@@ -7707,6 +7969,11 @@ function bindImageFallbacks(scope = document) {
     image.addEventListener("error", () => {
       if (!image.dataset.fallbackSrc) {
         return;
+      }
+      const productId = image.dataset.imageActionProduct || "";
+      const imageSource = image.currentSrc || image.getAttribute("src") || image.dataset.imageActionSrc || "";
+      if (productId && imageSource) {
+        noteBrokenMarketplaceImage(productId, imageSource);
       }
       image.src = image.dataset.fallbackSrc;
       image.removeAttribute("data-fallback-src");
