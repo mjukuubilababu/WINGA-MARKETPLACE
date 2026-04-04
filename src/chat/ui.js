@@ -134,7 +134,7 @@
             <div class="messages-list">
               ${summaries.length ? summaries.map((summary) => `
                 <button class="message-thread-item ${activeChatContext && summary.key === deps.getChatContextKey(activeChatContext) ? "active" : ""}" type="button" data-conversation-user="${summary.withUser}" data-conversation-product="${summary.productId}" data-conversation-name="${deps.escapeHtml(summary.productName)}">
-                  <strong>${deps.escapeHtml(summary.withUser)}${summary.unreadCount ? ` <span class="thread-badge">${summary.unreadCount}</span>` : ""}</strong>
+                  <strong>${deps.escapeHtml(summary.displayName || deps.getUserDisplayName(summary.withUser))}${summary.unreadCount ? ` <span class="thread-badge">${summary.unreadCount}</span>` : ""}</strong>
                   <span>${deps.escapeHtml(summary.productName || "General inquiry")}</span>
                   <small>${deps.escapeHtml(summary.latestMessage || "Hakuna ujumbe bado.")}</small>
                 </button>
@@ -144,7 +144,7 @@
               ${activeChatContext ? `
                 <div class="messages-thread-head">
                   <div>
-                    <strong>${deps.escapeHtml(activeChatContext.withUser)}</strong>
+                    <strong>${deps.escapeHtml(activeChatContext.displayName || deps.getUserDisplayName(activeChatContext.withUser))}</strong>
                     <p>${deps.escapeHtml(activeChatContext.productName || "General inquiry")}</p>
                     <small class="thread-presence">${lastActiveLabel}</small>
                   </div>
@@ -230,7 +230,12 @@
       const contactState = deps.getChatContactState(activeChatContext);
       const activeWhatsApp = contactState.whatsapp;
       const productName = activeChatContext?.productName || product?.name || "General inquiry";
-      const sellerName = seller?.fullName || product?.shop || activeChatContext?.withUser || "Muuzaji";
+      const sellerName = activeChatContext?.displayName
+        || deps.getUserDisplayName(activeChatContext?.withUser, {
+          fallback: seller?.fullName || product?.shop || activeChatContext?.withUser || "",
+          shop: product?.shop || "",
+          role: seller?.role || ""
+        });
       const productImage = deps.sanitizeImageSource(product?.image || "", deps.getImageFallbackDataUri("W"));
       const sellerProducts = deps.getSellerProductsForActiveChat(8).map((item) => ({
         productId: item.id,

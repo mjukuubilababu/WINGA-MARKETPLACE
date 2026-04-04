@@ -1637,6 +1637,105 @@ function getMarketplaceUser(username) {
   return getUsers().find((user) => user.username === username) || null;
 }
 
+function normalizeDisplayName(value) {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function looksLikePhoneIdentity(value) {
+  const normalized = normalizeDisplayName(value);
+  if (!normalized) {
+    return false;
+  }
+  if (!/^[+\d\s().-]+$/.test(normalized)) {
+    return false;
+  }
+  const digits = normalized.replace(/\D/g, "");
+  return digits.length >= 9;
+}
+
+function looksLikeTechnicalIdentity(value) {
+  const normalized = normalizeDisplayName(value).toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+  return /^buyer-\d{6,}$/.test(normalized)
+    || /^user-\d{6,}$/.test(normalized)
+    || /^guest-\d{6,}$/.test(normalized);
+}
+
+function isPresentableDisplayName(value) {
+  const normalized = normalizeDisplayName(value);
+  if (!normalized) {
+    return false;
+  }
+  if (looksLikePhoneIdentity(normalized) || looksLikeTechnicalIdentity(normalized)) {
+    return false;
+  }
+  return true;
+}
+
+function getUserShopLabel(username) {
+  if (!username) {
+    return "";
+  }
+  const ownLatestProduct = products.find((item) =>
+    item.uploadedBy === username
+    && typeof item.shop === "string"
+    && item.shop.trim()
+  );
+  return normalizeDisplayName(ownLatestProduct?.shop || "");
+}
+
+function getUserDisplayName(username, options = {}) {
+  const {
+    fallback = "",
+    shop = "",
+    role = ""
+  } = options;
+  const marketplaceUser = username ? getMarketplaceUser(username) : null;
+  const sessionMatchesCurrentUser = username && username === currentUser ? currentSession : null;
+  const normalizedUsername = normalizeDisplayName(username);
+  const preferredHumanNames = [
+    sessionMatchesCurrentUser?.fullName,
+    marketplaceUser?.fullName
+  ]
+    .map(normalizeDisplayName)
+    .filter((item) => item && item !== normalizedUsername);
+  const strongFallbacks = [
+    shop,
+    getUserShopLabel(username),
+    fallback
+  ].map(normalizeDisplayName);
+  const candidateNames = [
+    ...preferredHumanNames,
+    ...strongFallbacks,
+    sessionMatchesCurrentUser?.username,
+    marketplaceUser?.username,
+    username
+  ].map(normalizeDisplayName);
+
+  const presentable = candidateNames.find(isPresentableDisplayName);
+  if (presentable) {
+    return presentable;
+  }
+
+  const normalizedRole = String(role || sessionMatchesCurrentUser?.role || marketplaceUser?.role || "").toLowerCase();
+  if (normalizedRole === "buyer") {
+    return "Mteja wa Winga";
+  }
+  if (normalizedRole === "seller") {
+    return "Muuzaji wa Winga";
+  }
+  return "Mtumiaji wa Winga";
+}
+
+function getCurrentUserDisplayName() {
+  return getUserDisplayName(currentUser, {
+    fallback: currentSession?.fullName || currentUser || "",
+    role: currentSession?.role || ""
+  });
+}
+
 const {
   getPromotionPriority,
   getActivePromotions,
@@ -1762,6 +1861,9 @@ const {
   openRequestMessagesContext: async (context) => {
     chatUiState.activeContext = {
       withUser: context.withUser,
+      displayName: getUserDisplayName(context.withUser, {
+        fallback: context.sellerName || context.withUser || ""
+      }),
       productId: "",
       productName: context.productName || ""
     };
@@ -1910,9 +2012,14 @@ function getConversationSummaries() {
     const productId = message.productId || "";
     const key = getChatContextKey({ withUser, productId });
     const existing = summaryMap.get(key);
+    const partner = getMarketplaceUser(withUser);
     const summary = {
       key,
       withUser,
+      displayName: getUserDisplayName(withUser, {
+        fallback: existing?.displayName || "",
+        role: partner?.role || ""
+      }),
       productId,
       productName: message.productName || existing?.productName || "",
       latestMessage: message.message,
@@ -1935,6 +2042,7 @@ function getConversationSummaries() {
     summaries.unshift({
       key: getChatContextKey(chatUiState.activeContext),
       withUser: chatUiState.activeContext.withUser,
+      displayName: chatUiState.activeContext.displayName || getUserDisplayName(chatUiState.activeContext.withUser),
       productId: chatUiState.activeContext.productId || "",
       productName: chatUiState.activeContext.productName || "",
       latestMessage: "",
@@ -2927,6 +3035,7 @@ function syncActiveChatContext() {
   chatUiState.activeContext = summaries[0]
     ? {
       withUser: summaries[0].withUser,
+      displayName: summaries[0].displayName || getUserDisplayName(summaries[0].withUser),
       productId: summaries[0].productId,
       productName: summaries[0].productName,
       whatsapp: summaries[0].whatsapp
@@ -3127,7 +3236,8 @@ const {
   getCategoryLabel,
   getMessageProductItems,
   getReplyPreviewMessage,
-  getCurrentUser: () => currentUser
+  getCurrentUser: () => currentUser,
+  getUserDisplayName
 });
 
 const {
@@ -3146,6 +3256,7 @@ const {
   showInAppNotification,
   reportEvent: (...args) => reportClientEvent(...args),
   captureError: (...args) => captureClientError(...args),
+  getUserDisplayName,
   setActiveChatContext: (context) => {
     chatUiState.activeContext = context;
   },
@@ -6666,9 +6777,10 @@ function showWelcomePopup() {
   const popup = document.createElement("div");
   popup.id = "welcome-popup";
   const popupShell = createElement("div", { className: "welcome-shell" });
+  const welcomeName = getCurrentUserDisplayName();
   popupShell.append(
     createElement("p", { className: "welcome-kicker eyebrow", textContent: "Karibu tena" }),
-    createElement("p", { className: "welcome-user", textContent: currentUser }),
+    createElement("p", { className: "welcome-user", textContent: welcomeName }),
     createElement("h2", { textContent: "WINGA" }),
     createElement("p", { className: "welcome-tagline", textContent: "Bidhaa halisi. Maongezi ya haraka. Muonekano wa uhakika." }),
     createElement("p", { className: "welcome-note", textContent: "Karibu sokoni kwa utulivu na pace ya Kariakoo." })

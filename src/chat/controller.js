@@ -349,6 +349,10 @@
       deps.setOpenEmojiScope("");
       deps.setActiveChatContext({
         withUser: product.uploadedBy,
+        displayName: deps.getUserDisplayName(product.uploadedBy, {
+          fallback: product.shop || product.uploadedBy || "",
+          shop: product.shop || ""
+        }),
         productId: product.id,
         productName: product.name,
         whatsapp: deps.normalizeWhatsapp(product.whatsapp || "")
@@ -385,6 +389,7 @@
       if (matchingSummary) {
         deps.setActiveChatContext({
           withUser: matchingSummary.withUser,
+          displayName: matchingSummary.displayName || deps.getUserDisplayName(matchingSummary.withUser),
           productId: matchingSummary.productId || "",
           productName: matchingSummary.productName || "",
           whatsapp: matchingSummary.whatsapp || ""

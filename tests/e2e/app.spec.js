@@ -180,11 +180,12 @@ test("logged in seller-buyer can open detail, add to requests, and open chat", a
   await requestButton.click();
   await expect(requestButton).toContainText("Added");
 
-  await page.locator("#products-container .product-card").first().click();
+  await page.locator("#products-container .product-card", { hasText: "Sneaker Classic" }).first().click();
   await expect(page.locator("#product-detail-modal")).toBeVisible();
 
   await page.locator("#product-detail-modal [data-chat-product]").first().click();
   await expect(page.locator("#context-chat-modal")).toBeVisible();
+  await expect(page.locator("#context-chat-title")).toContainText("Market Seller Shop");
 
   const compose = page.locator("#context-chat-compose-input");
   await compose.fill("Habari, bidhaa hii bado ipo?");
