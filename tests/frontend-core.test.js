@@ -5,6 +5,7 @@ const {
   getShowcaseProducts,
   canRenderBuyButton,
   getOrderActionState,
+  getOrderLifecycleMeta,
   resolveBootView
 } = require("../app-core.js");
 
@@ -270,6 +271,14 @@ test("getOrderActionState enforces seller confirm, buyer receipt, and 48h cancel
     canConfirmReceived: true,
     canCancel: false
   });
+});
+
+test("getOrderLifecycleMeta maps order states to a clear buyer-seller journey", () => {
+  assert.equal(getOrderLifecycleMeta({ status: "placed", paymentStatus: "pending" }).id, "request_sent");
+  assert.equal(getOrderLifecycleMeta({ status: "paid", paymentStatus: "paid" }).id, "seller_reviewing");
+  assert.equal(getOrderLifecycleMeta({ status: "confirmed", paymentStatus: "paid" }).id, "agreed");
+  assert.equal(getOrderLifecycleMeta({ status: "delivered", paymentStatus: "paid" }).id, "completed");
+  assert.equal(getOrderLifecycleMeta({ status: "cancelled", paymentStatus: "pending" }).id, "cancelled");
 });
 
 test("resolveBootView returns home for valid session and login otherwise", () => {

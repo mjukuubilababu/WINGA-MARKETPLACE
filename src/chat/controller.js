@@ -462,10 +462,10 @@
             deps.showInAppNotification?.({
               title: "Order updated",
               body: status === "cancelled"
-                ? "Order imefutwa."
+                ? "Request/order imecanceliwa."
                 : status === "confirmed"
-                  ? "Order imethibitishwa."
-                  : "Order imewekwa delivered.",
+                  ? "Seller amejibu na kuthibitisha order."
+                  : "Order imewekwa completed.",
               variant: "success"
             });
             deps.renderProfile();

@@ -195,6 +195,60 @@ function getOrderActionState(order, currentUser, now = Date.now(), buyerCancelWi
   };
 }
 
+  function getOrderLifecycleMeta(order) {
+    if (!order) {
+      return {
+        id: "unknown",
+        label: "Status pending",
+        detail: "Winga itaonyesha hatua ya order hapa.",
+        tone: ""
+      };
+    }
+
+    if (order.status === "cancelled" || order.paymentStatus === "failed" || order.paymentStatus === "cancelled") {
+      return {
+        id: "cancelled",
+        label: "Cancelled",
+        detail: "Request au order hii imefungwa na haitasonga mbele tena.",
+        tone: "rejected"
+      };
+    }
+
+    if (order.status === "delivered") {
+      return {
+        id: "completed",
+        label: "Completed",
+        detail: "Buyer amethibitisha kupokea mzigo, hivyo order imekamilika.",
+        tone: "approved"
+      };
+    }
+
+    if (order.status === "confirmed") {
+      return {
+        id: "agreed",
+        label: "Agreed / confirmed",
+        detail: "Seller amejibu na kuthibitisha order. Buyer sasa anasubiri kupokea mzigo na kukamilisha.",
+        tone: "approved"
+      };
+    }
+
+    if (order.status === "paid" || order.paymentStatus === "paid") {
+      return {
+        id: "seller_reviewing",
+        label: "Seller reviewing",
+        detail: "Malipo yamethibitishwa. Seller anatakiwa kujibu na kuthibitisha hatua inayofuata.",
+        tone: "pending"
+      };
+    }
+
+    return {
+      id: "request_sent",
+      label: "Request sent",
+      detail: "Buyer ametuma request/order na reference ya malipo. Winga inasubiri verification kabla seller hajajibu.",
+      tone: "pending"
+    };
+  }
+
   function resolveBootView(hasValidSession) {
     return hasValidSession ? "home" : "login";
   }
@@ -206,6 +260,7 @@ function getOrderActionState(order, currentUser, now = Date.now(), buyerCancelWi
     getShowcaseProducts,
     canRenderBuyButton,
     getOrderActionState,
+    getOrderLifecycleMeta,
     resolveBootView
   };
 });

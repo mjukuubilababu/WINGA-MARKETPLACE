@@ -1198,6 +1198,17 @@ function getPaymentStatusLabel(status) {
   return "Pending";
 }
 
+function getOrderLifecycleMeta(order) {
+  return AppCore.getOrderLifecycleMeta
+    ? AppCore.getOrderLifecycleMeta(order)
+    : {
+      id: "request_sent",
+      label: "Request sent",
+      detail: "Winga itaonyesha hatua ya request hapa.",
+      tone: "pending"
+    };
+}
+
 function isModeratorUser() {
   return currentSession?.role === "moderator";
 }
@@ -3807,6 +3818,7 @@ const {
   formatProductPrice,
   getStatusLabel,
   getPaymentStatusLabel,
+  getOrderLifecycleMeta,
   getOrderProgressLabel,
   getVerificationStatusLabel,
   getOrderActionButtons,
@@ -7999,8 +8011,8 @@ function beginPurchaseFlow(product) {
       productId: product.id
     });
     showInAppNotification({
-      title: "Payment submitted",
-      body: "Transaction reference imepokelewa. Order yako sasa iko Pending Verification hadi malipo yathibitishwe.",
+      title: "Request sent",
+      body: "Transaction reference imepokelewa. Winga sasa inasubiri verification ya malipo kabla seller hajajibu na kuthibitisha order.",
       variant: "success"
     });
     if (currentView === "profile") {

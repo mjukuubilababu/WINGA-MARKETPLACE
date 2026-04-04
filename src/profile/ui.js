@@ -293,9 +293,12 @@
 
     function createOrderLineElement(order) {
       const line = deps.createElement("div", { className: "order-line" });
+      const lifecycle = typeof deps.getOrderLifecycleMeta === "function"
+        ? deps.getOrderLifecycleMeta(order)
+        : { label: deps.getStatusLabel(order.status), detail: "", tone: "" };
       const statusRow = deps.createElement("div", { className: "trust-badges" });
       statusRow.append(
-        deps.createStatusPill(deps.getStatusLabel(order.status), order.status === "delivered" ? "approved" : order.status === "cancelled" ? "rejected" : order.status === "confirmed" ? "pending" : ""),
+        deps.createStatusPill(lifecycle.label || deps.getStatusLabel(order.status), lifecycle.tone || (order.status === "delivered" ? "approved" : order.status === "cancelled" ? "rejected" : order.status === "confirmed" ? "pending" : "")),
         deps.createStatusPill(`Payment: ${deps.getPaymentStatusLabel(order.paymentStatus)}`, order.paymentStatus === "paid" ? "approved" : order.paymentStatus === "failed" ? "rejected" : "")
       );
       line.append(
@@ -305,6 +308,12 @@
         }),
         statusRow
       );
+      if (lifecycle.detail) {
+        line.appendChild(deps.createElement("small", {
+          className: "meta-copy order-lifecycle-copy",
+          textContent: lifecycle.detail
+        }));
+      }
       if (order.paymentDate) {
         line.appendChild(deps.createElement("small", {
           textContent: `${order.paymentStatus === "paid" ? "Paid at" : "Submitted at"}: ${new Date(order.paymentDate).toLocaleString("sw-TZ")}`

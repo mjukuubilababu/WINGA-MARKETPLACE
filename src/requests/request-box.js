@@ -491,13 +491,13 @@
       if (state.lastSentSummary) {
         const success = deps.createElement("div", { className: "request-box-success" });
         success.append(
-          deps.createElement("strong", { textContent: "Requests sent successfully." }),
+          deps.createElement("strong", { textContent: "Request sent." }),
           deps.createElement("span", {
-            textContent: `${state.lastSentSummary.itemsCount} item${state.lastSentSummary.itemsCount === 1 ? "" : "s"} sent to ${state.lastSentSummary.sellersCount} seller${state.lastSentSummary.sellersCount === 1 ? "" : "s"}.`
+            textContent: `${state.lastSentSummary.itemsCount} item${state.lastSentSummary.itemsCount === 1 ? "" : "s"} zimeenda kwa ${state.lastSentSummary.sellersCount} seller${state.lastSentSummary.sellersCount === 1 ? "" : "s"}. Sasa endelea na chat au subiri majibu yao.`
           }),
           deps.createElement("button", {
             className: "action-btn buy-btn",
-            textContent: "Go to My Requests",
+            textContent: "Open request chats",
             attributes: {
               type: "button",
               "data-open-request-messages": "true"

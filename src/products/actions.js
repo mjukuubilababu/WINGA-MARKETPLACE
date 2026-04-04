@@ -45,15 +45,15 @@
       const actions = [];
 
       if (state.canConfirm) {
-        actions.push(`<button class="action-btn buy-btn" type="button" data-order-action="confirmed" data-order-id="${order.id}">Confirm Order</button>`);
+        actions.push(`<button class="action-btn buy-btn" type="button" data-order-action="confirmed" data-order-id="${order.id}">Respond & Confirm</button>`);
       }
 
       if (state.canConfirmReceived) {
-        actions.push(`<button class="action-btn buy-btn" type="button" data-order-action="delivered" data-order-id="${order.id}">Confirm Received</button>`);
+        actions.push(`<button class="action-btn buy-btn" type="button" data-order-action="delivered" data-order-id="${order.id}">Mark Completed</button>`);
       }
 
       if (state.canCancel) {
-        actions.push(`<button class="action-btn delete-btn" type="button" data-order-action="cancelled" data-order-id="${order.id}">Cancel</button>`);
+        actions.push(`<button class="action-btn delete-btn" type="button" data-order-action="cancelled" data-order-id="${order.id}">Cancel Request</button>`);
       }
 
       return actions.join("");
@@ -64,22 +64,22 @@
         return "";
       }
       if (order.status === "placed" && order.paymentStatus === "pending") {
-        return "Payment reference imepokelewa. Order inasubiri payment verification kabla seller hajathibitisha.";
+        return "Request sent. Payment reference imepokelewa na Winga inasubiri verification kabla seller hajajibu.";
       }
       if (order.status === "paid") {
-        return "Payment imethibitishwa. Muuzaji sasa anatakiwa kuthibitisha order na kuandaa kukutumia.";
+        return "Payment verified. Seller sasa anatakiwa kujibu na kuthibitisha order hii.";
       }
       if (order.status === "placed") {
-        return "Order imewekwa. Inasubiri hatua inayofuata ya verification au uthibitisho.";
+        return "Request sent. Order inasubiri hatua inayofuata ya verification au majibu ya seller.";
       }
       if (order.status === "confirmed") {
-        return "Muuzaji amethibitisha order. Mteja anatakiwa kuthibitisha kupokea mzigo ukifika.";
+        return "Seller responded and confirmed the order. Buyer anasubiri kupokea mzigo na kumark completed.";
       }
       if (order.status === "delivered") {
-        return "Order imekamilika. Mteja anaweza kuacha review ya bidhaa na huduma ya muuzaji.";
+        return "Order completed. Buyer anaweza sasa kuacha review ya bidhaa na huduma ya seller.";
       }
       if (order.status === "cancelled") {
-        return "Order hii imefutwa. Hakuna hatua nyingine itakayofuata.";
+        return "Order hii imecanceliwa. Hakuna hatua nyingine itakayofuata.";
       }
       return "Fuatilia status ya order hapa hadi ikamilike.";
     }
