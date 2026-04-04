@@ -132,6 +132,7 @@
       if (!(section instanceof Element)) {
         return;
       }
+      deps.unbindMarketplaceScrollImages?.(section);
       section.querySelectorAll("img").forEach((image) => {
         image.removeAttribute("srcset");
         image.removeAttribute("sizes");

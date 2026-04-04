@@ -3620,6 +3620,7 @@ const {
   enhanceShowcaseTracks,
   bindProductMenus,
   bindImageFallbacks,
+  unbindMarketplaceScrollImages,
   scrollToProductCard,
   renderProductReviewSummary,
   renderSellerReviewSummary,
@@ -3977,8 +3978,16 @@ let brokenMarketplaceImageRefreshTimer = 0;
 const MAX_ACTIVE_HOME_CONTINUOUS_SECTIONS = 4;
 const MAX_HOME_CONTINUOUS_USED_IDS = 120;
 const MARKETPLACE_SCROLL_IMAGE_PLACEHOLDER = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
-const MARKETPLACE_SCROLL_IMAGE_RELEASE_MARGIN = 1600;
 let marketplaceScrollImageObserver = null;
+
+function getMarketplaceScrollImageReleaseMargin() {
+  return window.innerWidth <= 720 ? 960 : 1600;
+}
+
+function getMarketplaceScrollImageRootMargin() {
+  const margin = window.innerWidth <= 720 ? 820 : 1200;
+  return `${margin}px 0px ${margin}px 0px`;
+}
 
 function getProductImageCandidates(product) {
   const sourceImages = Array.isArray(product?.images) && product.images.length > 0
@@ -6355,7 +6364,7 @@ function renderDiscoveryProductCards(items, options = {}) {
         return `
           <article class="seller-product-card" data-open-product="${item.id}">
             <div class="seller-product-card-media">
-              <img class="zoomable-image" src="${primaryImage}" alt="${safeName}" loading="lazy" data-marketplace-scroll-image="true" data-fallback-src="${getImageFallbackDataUri("W")}" data-zoom-src="${primaryImage}" data-zoom-alt="${safeName}" data-image-action-product="${item.id}" data-image-action-src="${primaryImage}" data-image-action-surface="discovery">
+              <img class="zoomable-image" src="${primaryImage}" alt="${safeName}" loading="lazy" decoding="async" data-marketplace-scroll-image="true" data-fallback-src="${getImageFallbackDataUri("W")}" data-zoom-src="${primaryImage}" data-zoom-alt="${safeName}" data-image-action-product="${item.id}" data-image-action-src="${primaryImage}" data-image-action-surface="discovery">
             </div>
             ${renderProductOverflowMenu(item, { overlay: true })}
             <strong>${formatProductPrice(item.price)}</strong>
@@ -6527,6 +6536,7 @@ function releasePrunedSectionMedia(section) {
     return;
   }
   section.querySelectorAll("img").forEach((image) => {
+    marketplaceScrollImageObserver?.unobserve?.(image);
     image.removeAttribute("srcset");
     image.removeAttribute("sizes");
     image.removeAttribute("src");
@@ -7163,6 +7173,9 @@ function enhanceShowcaseTracks(scope = document) {
 
     track.addEventListener("pointerdown", (event) => {
       if (track.scrollWidth <= track.clientWidth + 4 || isInteractiveTarget(event.target)) {
+        return;
+      }
+      if (event.pointerType === "touch") {
         return;
       }
       if (event.pointerType === "mouse" && event.button !== 0) {
@@ -7988,6 +8001,16 @@ function bindImageFallbacks(scope = document) {
   bindMarketplaceScrollImages(scope);
 }
 
+function unbindMarketplaceScrollImages(scope = document) {
+  if (!scope?.querySelectorAll) {
+    return;
+  }
+  scope.querySelectorAll("img[data-marketplace-scroll-image='true']").forEach((image) => {
+    marketplaceScrollImageObserver?.unobserve?.(image);
+    delete image.dataset.marketplaceScrollBound;
+  });
+}
+
 function activateMarketplaceScrollImage(image) {
   if (!(image instanceof HTMLImageElement)) {
     return;
@@ -8034,14 +8057,15 @@ function ensureMarketplaceScrollImageObserver() {
       const top = Number(entry.boundingClientRect?.top || 0);
       const bottom = Number(entry.boundingClientRect?.bottom || 0);
       const viewportHeight = window.innerHeight || document.documentElement?.clientHeight || 0;
-      const isFarAway = bottom < -MARKETPLACE_SCROLL_IMAGE_RELEASE_MARGIN
-        || top > viewportHeight + MARKETPLACE_SCROLL_IMAGE_RELEASE_MARGIN;
+      const releaseMargin = getMarketplaceScrollImageReleaseMargin();
+      const isFarAway = bottom < -releaseMargin
+        || top > viewportHeight + releaseMargin;
       if (isFarAway) {
         releaseMarketplaceScrollImage(image);
       }
     });
   }, {
-    rootMargin: "1200px 0px 1200px 0px",
+    rootMargin: getMarketplaceScrollImageRootMargin(),
     threshold: 0.01
   });
   return marketplaceScrollImageObserver;
@@ -8057,8 +8081,9 @@ function bindMarketplaceScrollImages(scope = document) {
     image.dataset.marketplaceRealSrc = image.getAttribute("src") || image.dataset.imageActionSrc || "";
     const rect = image.getBoundingClientRect();
     const viewportHeight = window.innerHeight || document.documentElement?.clientHeight || 0;
-    const isFarAway = rect.bottom < -MARKETPLACE_SCROLL_IMAGE_RELEASE_MARGIN
-      || rect.top > viewportHeight + MARKETPLACE_SCROLL_IMAGE_RELEASE_MARGIN;
+    const releaseMargin = getMarketplaceScrollImageReleaseMargin();
+    const isFarAway = rect.bottom < -releaseMargin
+      || rect.top > viewportHeight + releaseMargin;
     if (isFarAway) {
       releaseMarketplaceScrollImage(image);
     } else {
