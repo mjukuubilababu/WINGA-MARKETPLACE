@@ -388,6 +388,39 @@
         }
         return buildSessionPayload(user);
       },
+      async recoverPassword(payload) {
+        const users = await this.loadUsers();
+        const identifier = normalizeIdentifier(payload?.identifier || payload?.username);
+        const identifierPhone = normalizePhoneNumber(payload?.identifier || payload?.username || "");
+        const phone = normalizePhoneNumber(payload?.phoneNumber || "");
+        const nationalId = normalizeNationalId(payload?.nationalId || "");
+        const nextPassword = String(payload?.newPassword || payload?.password || "");
+        const userIndex = users.findIndex((item) =>
+          normalizeIdentifier(item.username) === identifier
+          || normalizeIdentifier(item.fullName) === identifier
+          || normalizePhoneNumber(item.phoneNumber) === identifierPhone
+        );
+        const user = userIndex >= 0 ? users[userIndex] : null;
+        const phoneMatches = user && (
+          normalizePhoneNumber(user.phoneNumber) === phone
+          || normalizePhoneNumber(user.whatsappNumber) === phone
+        );
+        const idMatches = user && normalizeNationalId(user.nationalId || user.identityDocumentNumber) === nationalId;
+        if (!user || isStaffRole(user.role) || !phoneMatches || !idMatches) {
+          throw new Error("Taarifa za kurejesha password hazijalingana na akaunti hii.");
+        }
+        if (nextPassword.length < 6) {
+          throw new Error("Password mpya inapaswa kuwa na angalau herufi 6.");
+        }
+        users[userIndex] = {
+          ...user,
+          password: await hashLocalPassword(nextPassword),
+          updatedAt: new Date().toISOString()
+        };
+        await this.saveUsers(users);
+        this.clearSession();
+        return { ok: true };
+      },
       async adminLogin(payload) {
         const users = await this.loadUsers();
         const identifier = normalizeIdentifier(payload.identifier || payload.username);
@@ -1219,6 +1252,13 @@
           body: JSON.stringify(payload)
         });
       },
+      async recoverPassword(payload) {
+        return fetchJson(`${baseUrl}/auth/recover-password`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+      },
       async adminLogin(payload) {
         return fetchJson(`${baseUrl}/auth/admin-login`, {
           method: "POST",
@@ -1863,6 +1903,39 @@
         }
         return buildSessionPayload(user);
       },
+      async recoverPassword(payload) {
+        const users = await this.loadUsers();
+        const identifier = normalizeIdentifier(payload?.identifier || payload?.username);
+        const identifierPhone = normalizePhoneNumber(payload?.identifier || payload?.username || "");
+        const phone = normalizePhoneNumber(payload?.phoneNumber || "");
+        const nationalId = normalizeNationalId(payload?.nationalId || "");
+        const nextPassword = String(payload?.newPassword || payload?.password || "");
+        const userIndex = users.findIndex((item) =>
+          normalizeIdentifier(item.username) === identifier
+          || normalizeIdentifier(item.fullName) === identifier
+          || normalizePhoneNumber(item.phoneNumber) === identifierPhone
+        );
+        const user = userIndex >= 0 ? users[userIndex] : null;
+        const phoneMatches = user && (
+          normalizePhoneNumber(user.phoneNumber) === phone
+          || normalizePhoneNumber(user.whatsappNumber) === phone
+        );
+        const idMatches = user && normalizeNationalId(user.nationalId || user.identityDocumentNumber) === nationalId;
+        if (!user || isStaffRole(user.role) || !phoneMatches || !idMatches) {
+          throw new Error("Taarifa za kurejesha password hazijalingana na akaunti hii.");
+        }
+        if (nextPassword.length < 6) {
+          throw new Error("Password mpya inapaswa kuwa na angalau herufi 6.");
+        }
+        users[userIndex] = {
+          ...user,
+          password: await hashLocalPassword(nextPassword),
+          updatedAt: new Date().toISOString()
+        };
+        await this.saveUsers(users);
+        this.clearSession();
+        return { ok: true };
+      },
       async adminLogin(payload) {
         const users = await this.loadUsers();
         const identifier = normalizeIdentifier(payload.identifier || payload.username);
@@ -2463,6 +2536,9 @@
     },
     async login(payload) {
       return state.adapter.login(payload);
+    },
+    async recoverPassword(payload) {
+      return state.adapter.recoverPassword(payload);
     },
     async adminLogin(payload) {
       return state.adapter.adminLogin ? state.adapter.adminLogin(payload) : state.adapter.login(payload);

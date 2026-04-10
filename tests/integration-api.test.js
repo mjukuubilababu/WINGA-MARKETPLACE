@@ -161,8 +161,54 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   });
   assert.equal(buyerSignup.response.status, 200);
   assert.equal(buyerSignup.body.phoneNumber, "255700222222");
-  const buyerToken = buyerSignup.body.token;
+  let buyerToken = buyerSignup.body.token;
   const buyerUsername = buyerSignup.body.username;
+
+  const passwordRecoveryMismatch = await request("/auth/recover-password", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      identifier: "Buyer One",
+      phoneNumber: "255700222222",
+      nationalId: "BUYER404",
+      newPassword: "Recovered1234"
+    })
+  });
+  assert.equal(passwordRecoveryMismatch.response.status, 403);
+
+  const passwordRecovery = await request("/auth/recover-password", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      identifier: "Buyer One",
+      phoneNumber: "255700222222",
+      nationalId: "BUYER001",
+      newPassword: "Recovered1234"
+    })
+  });
+  assert.equal(passwordRecovery.response.status, 200);
+  assert.equal(passwordRecovery.body.ok, true);
+
+  const oldBuyerLogin = await request("/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      identifier: "Buyer One",
+      password: "Pass1234"
+    })
+  });
+  assert.equal(oldBuyerLogin.response.status, 401);
+
+  const recoveredBuyerLogin = await request("/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      identifier: "Buyer One",
+      password: "Recovered1234"
+    })
+  });
+  assert.equal(recoveredBuyerLogin.response.status, 200);
+  buyerToken = recoveredBuyerLogin.body.token;
 
   const sellerTwoSignup = await request("/auth/signup", {
     method: "POST",

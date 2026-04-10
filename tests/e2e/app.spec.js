@@ -276,6 +276,41 @@ test("logged in seller-buyer can open detail, add to requests, and open chat", a
   await context.close();
 });
 
+test("mobile profile messages use a clear conversation list and detail flow", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234", {
+    viewport: { width: 390, height: 844 },
+    isMobile: true,
+    hasTouch: true
+  });
+  await page.goto("/");
+
+  await page.locator("#products-container .product-card", { hasText: "Sneaker Classic" }).first().click();
+  await expect(page.locator("#product-detail-modal")).toBeVisible();
+  await page.locator("#product-detail-modal [data-chat-product]").first().click();
+  await expect(page.locator("#context-chat-modal")).toBeVisible();
+  await page.locator("#context-chat-compose-input").fill("Naweza kuona chat kwa profile?");
+  await page.locator("#context-chat-compose-form button[type='submit']").click();
+  await expect(page.locator("#context-chat-modal .message-bubble").last()).toContainText("Naweza kuona chat kwa profile?");
+  await page.locator("#context-chat-modal .context-chat-close").click();
+  await page.locator("#product-detail-modal .product-detail-back").click();
+
+  await page.locator("#header-user-trigger").click();
+  await page.locator("[data-header-menu-action='profile']").click();
+  await expect(page.locator("#profile-messages-panel")).toBeVisible();
+
+  const firstConversation = page.locator("#profile-messages-panel .message-thread-item").first();
+  await expect(firstConversation).toBeVisible();
+  await firstConversation.click();
+
+  await expect(page.locator("#profile-messages-panel .message-list-back")).toBeVisible();
+  await expect(page.locator("#profile-messages-panel .messages-thread-card")).toContainText("Naweza kuona chat kwa profile?");
+
+  await page.locator("#profile-messages-panel .message-list-back").click();
+  await expect(page.locator("#profile-messages-panel .message-thread-item").first()).toBeVisible();
+
+  await context.close();
+});
+
 test("request toggle stays consistent across reload for seller-buyer sessions", async ({ browser }) => {
   const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234");
   await page.goto("/");
@@ -757,13 +792,13 @@ test("deeper showcase rows keep the same horizontal swipe behavior", async ({ br
     }
     return tracks.length > 1 ? 1 : 0;
   });
-  const track = page.locator(".showcase-inline .showcase-track").nth(deeperTrackIndex);
-  await expect(track).toBeVisible();
-  await expect.poll(async () => track.evaluate((element) => element.dataset.wingaTrackEnhanced || "")).toBe("true");
-  await track.scrollIntoViewIfNeeded();
+  const getTrack = () => page.locator(".showcase-inline .showcase-track").nth(deeperTrackIndex);
+  await expect(getTrack()).toBeVisible();
+  await expect.poll(async () => getTrack().evaluate((element) => element.dataset.wingaTrackEnhanced || "")).toBe("true");
+  await getTrack().scrollIntoViewIfNeeded();
 
-  const initialScrollLeft = await track.evaluate((element) => element.scrollLeft);
-  const box = await track.boundingBox();
+  const initialScrollLeft = await getTrack().evaluate((element) => element.scrollLeft);
+  const box = await getTrack().boundingBox();
   expect(box).not.toBeNull();
 
   const startX = box.x + (box.width * 0.8);
@@ -787,7 +822,7 @@ test("deeper showcase rows keep the same horizontal swipe behavior", async ({ br
   await page.mouse.move(endX, pointerY + 2, { steps: 12 });
   await page.mouse.up();
 
-  await expect.poll(async () => track.evaluate((element) => element.scrollLeft)).toBeGreaterThan(initialScrollLeft);
+  await expect.poll(async () => getTrack().evaluate((element) => element.scrollLeft)).toBeGreaterThan(initialScrollLeft);
 
   await context.close();
 });

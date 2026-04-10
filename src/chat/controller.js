@@ -394,6 +394,10 @@
           productName: matchingSummary.productName || "",
           whatsapp: matchingSummary.whatsapp || ""
         });
+        deps.setProfileMessagesMode?.("detail");
+      } else {
+        deps.setActiveChatContext(null);
+        deps.setProfileMessagesMode?.("list");
       }
       deps.setPendingProfileSection("profile-messages-panel");
       deps.renderCurrentView();
@@ -517,6 +521,7 @@
             productId: button.dataset.conversationProduct || "",
             productName: button.dataset.conversationName || ""
           });
+          deps.setProfileMessagesMode?.("detail");
           deps.setCurrentMessageDraft("");
           try {
             await deps.markActiveConversationRead();
@@ -526,6 +531,11 @@
           deps.replaceMessagesPanel(scope);
           document.getElementById("profile-notifications-panel")?.replaceWith(deps.createNotificationsContainerFromState());
         });
+
+      bindClickOnce("[data-message-list-back]", "MessageListBack", () => {
+        deps.setProfileMessagesMode?.("list");
+        deps.replaceMessagesPanel(scope);
+      });
 
       bindClickOnce("[data-refresh-messages]", "RefreshMessages", async () => {
         try {

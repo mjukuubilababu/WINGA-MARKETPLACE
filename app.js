@@ -77,6 +77,7 @@ function rebuildProductIndex() {
 function refreshProductsFromStore() {
   products = normalizeProductsFromStore();
   rebuildProductIndex();
+  pruneBrokenMarketplaceImageRegistry();
 }
 
 function getProductById(productId) {
@@ -1288,9 +1289,13 @@ function hideAuthGatePrompt() {
 }
 
 function openAuthModal(mode = "login", options = {}) {
-  isLogin = mode !== "signup";
+  isPasswordRecovery = mode === "recover";
+  isLogin = !isPasswordRecovery && mode !== "signup";
   authSignupStep = 1;
   selectedAuthRole = options.role || "seller";
+  if (options.prefillIdentifier) {
+    usernameInput.value = options.prefillIdentifier;
+  }
   syncAuthMode();
   hideAdminLoginScreen();
   if (options.gated) {
@@ -2891,12 +2896,18 @@ function setAuthInteractionPending(kind, pending, options = {}) {
       element.disabled = isPending;
     }
   });
+  [toggleLink, forgotPasswordLink].forEach((element) => {
+    if (element) {
+      element.style.pointerEvents = isPending ? "none" : "";
+      element.style.opacity = isPending ? "0.65" : "";
+    }
+  });
   if (authButton) {
     authButton.innerText = isPending
-      ? (buttonText || (isLogin ? "Inaingia..." : "Inatengeneza akaunti..."))
-      : (isLogin ? "Ingia" : "Tengeneza Akaunti");
+      ? (buttonText || (isPasswordRecovery ? "Inabadilisha password..." : (isLogin ? "Inaingia..." : "Inatengeneza akaunti...")))
+      : (isPasswordRecovery ? "Badilisha Password" : (isLogin ? "Ingia" : "Tengeneza Akaunti"));
   }
-  if (authCategoryNote && !isLogin && isPending) {
+  if (authCategoryNote && !isLogin && !isPasswordRecovery && isPending) {
     authCategoryNote.innerText = noteText || (
       selectedAuthRole === "seller"
         ? "Tunatayarisha ID image yako na kutuma maombi ya seller signup. Hii inapaswa kukamilika haraka."
@@ -2915,10 +2926,23 @@ function releasePublicAuthPendingState() {
 
 function switchToLoginMode(prefillIdentifier = "") {
   isLogin = true;
+  isPasswordRecovery = false;
   authSignupStep = 1;
   formTitle.innerText = "Login";
   authButton.innerText = "Login";
   toggleLink.innerText = "Tengeneza akaunti";
+  if (prefillIdentifier) {
+    usernameInput.value = prefillIdentifier;
+  }
+  passwordInput.value = "";
+  confirmPasswordInput.value = "";
+  syncAuthMode();
+}
+
+function openPasswordRecoveryMode(prefillIdentifier = "") {
+  isLogin = false;
+  isPasswordRecovery = true;
+  authSignupStep = 1;
   if (prefillIdentifier) {
     usernameInput.value = prefillIdentifier;
   }
@@ -3657,6 +3681,8 @@ const {
   getConversationSummaries,
   getActiveConversationMessages,
   getActiveChatContext: () => chatUiState.activeContext,
+  getProfileMessagesMode: () => chatUiState.profileMessagesMode,
+  isCompactMessagesLayout: () => window.innerWidth <= 720,
   getCurrentMessageDraft: () => chatUiState.currentDraft,
   getChatContactState,
   getChatWhatsappNumber,
@@ -3704,6 +3730,9 @@ const {
     chatUiState.activeContext = context;
   },
   getActiveChatContext: () => chatUiState.activeContext,
+  setProfileMessagesMode: (value) => {
+    chatUiState.profileMessagesMode = value === "detail" ? "detail" : "list";
+  },
   setCurrentMessageDraft: (value) => {
     chatUiState.currentDraft = value;
   },
@@ -4329,6 +4358,8 @@ function normalizeProduct(product) {
 }
 
 const brokenMarketplaceImagesByProduct = new Map();
+const BROKEN_IMAGE_FAILURE_THRESHOLD = 2;
+const BROKEN_IMAGE_SUPPRESS_MS = 5 * 60 * 1000;
 let brokenMarketplaceImageRefreshTimer = 0;
 const MAX_ACTIVE_HOME_CONTINUOUS_SECTIONS = 4;
 const MAX_HOME_CONTINUOUS_USED_IDS = 120;
@@ -4354,7 +4385,61 @@ function getProductImageCandidates(product) {
 }
 
 function getBrokenMarketplaceImageSet(productId) {
-  return brokenMarketplaceImagesByProduct.get(String(productId || "")) || new Set();
+  const productKey = String(productId || "").trim();
+  const registry = brokenMarketplaceImagesByProduct.get(productKey);
+  if (!(registry instanceof Map) || !registry.size) {
+    return new Set();
+  }
+  const now = Date.now();
+  const activeSources = new Set();
+  registry.forEach((entry, source) => {
+    if (!entry || !Number.isFinite(entry.hiddenUntil) || entry.hiddenUntil <= now) {
+      registry.delete(source);
+      return;
+    }
+    activeSources.add(source);
+  });
+  if (!registry.size) {
+    brokenMarketplaceImagesByProduct.delete(productKey);
+  }
+  return activeSources;
+}
+
+function pruneBrokenMarketplaceImageRegistry() {
+  const activeProductIds = new Set(products.map((product) => String(product?.id || "")).filter(Boolean));
+  Array.from(brokenMarketplaceImagesByProduct.keys()).forEach((productId) => {
+    if (!activeProductIds.has(productId)) {
+      brokenMarketplaceImagesByProduct.delete(productId);
+      return;
+    }
+    getBrokenMarketplaceImageSet(productId);
+  });
+}
+
+function clearBrokenMarketplaceImage(productId, imageSource = "") {
+  const normalizedProductId = String(productId || "").trim();
+  const normalizedSource = sanitizeImageSource(imageSource, "");
+  if (!normalizedProductId || !normalizedSource) {
+    return;
+  }
+  const registry = brokenMarketplaceImagesByProduct.get(normalizedProductId);
+  if (!(registry instanceof Map) || !registry.has(normalizedSource)) {
+    return;
+  }
+  registry.delete(normalizedSource);
+  if (!registry.size) {
+    brokenMarketplaceImagesByProduct.delete(normalizedProductId);
+  }
+}
+
+function scheduleBrokenMarketplaceImageRetryRefresh() {
+  window.setTimeout(() => {
+    pruneBrokenMarketplaceImageRegistry();
+    if (typeof refreshActiveProductDetail === "function" && document.body.classList.contains("product-detail-open")) {
+      refreshActiveProductDetail();
+    }
+    renderCurrentView();
+  }, 650);
 }
 
 function getRenderableMarketplaceImages(product, options = {}) {
@@ -4401,15 +4486,27 @@ function scheduleBrokenMarketplaceImageRefresh() {
 function noteBrokenMarketplaceImage(productId, imageSource = "") {
   const normalizedProductId = String(productId || "").trim();
   const normalizedSource = sanitizeImageSource(imageSource, "");
-  if (!normalizedProductId || !normalizedSource) {
+  if (!normalizedProductId || !normalizedSource || normalizedSource.startsWith("data:image/")) {
     return;
   }
-  const nextSet = new Set(getBrokenMarketplaceImageSet(normalizedProductId));
-  if (nextSet.has(normalizedSource)) {
+  const registry = brokenMarketplaceImagesByProduct.get(normalizedProductId) instanceof Map
+    ? brokenMarketplaceImagesByProduct.get(normalizedProductId)
+    : new Map();
+  const currentEntry = registry.get(normalizedSource) || {
+    failures: 0,
+    hiddenUntil: 0
+  };
+  const failures = Number(currentEntry.failures || 0) + 1;
+  const shouldHide = failures >= BROKEN_IMAGE_FAILURE_THRESHOLD;
+  registry.set(normalizedSource, {
+    failures,
+    hiddenUntil: shouldHide ? Date.now() + BROKEN_IMAGE_SUPPRESS_MS : 0
+  });
+  brokenMarketplaceImagesByProduct.set(normalizedProductId, registry);
+  if (!shouldHide) {
+    scheduleBrokenMarketplaceImageRetryRefresh();
     return;
   }
-  nextSet.add(normalizedSource);
-  brokenMarketplaceImagesByProduct.set(normalizedProductId, nextSet);
   scheduleBrokenMarketplaceImageRefresh();
 }
 
@@ -4457,6 +4554,7 @@ let products = [];
 let productIndex = new Map();
 
 let isLogin = true;
+let isPasswordRecovery = false;
 let selectedAuthRole = "seller";
 let currentUser = "";
 let selectedCategory = "all";
@@ -4484,6 +4582,7 @@ const authGateCopy = document.getElementById("auth-gate-copy");
 const authGateLoginButton = document.getElementById("auth-gate-login");
 const authGateSignupButton = document.getElementById("auth-gate-signup");
 const toggleLink = document.getElementById("toggle-link");
+const forgotPasswordLink = document.getElementById("forgot-password-link");
 const authButton = document.getElementById("auth-button");
 const authNextButton = document.getElementById("auth-next-button");
 const authBackButton = document.getElementById("auth-back-button");
@@ -4719,7 +4818,8 @@ function hideAdminLoginScreen() {
 }
 
 function syncAuthMode() {
-  const isSecuritySignup = !isLogin;
+  const isSecuritySignup = !isLogin && !isPasswordRecovery;
+  const isRecoveryMode = isPasswordRecovery;
   const isSellerSignup = isSecuritySignup && selectedAuthRole === "seller";
   const isBuyerSignup = isSecuritySignup && selectedAuthRole === "buyer";
   authDetailsStep.style.display = "block";
@@ -4727,19 +4827,19 @@ function syncAuthMode() {
     authCategoryStep.style.display = "none";
   }
   authRoleSelector.style.display = isSecuritySignup ? "grid" : "none";
-  phoneNumberInput.style.display = isSecuritySignup ? "block" : "none";
-  nationalIdInput.style.display = isBuyerSignup ? "block" : "none";
+  phoneNumberInput.style.display = isSecuritySignup || isRecoveryMode ? "block" : "none";
+  nationalIdInput.style.display = isBuyerSignup || isRecoveryMode ? "block" : "none";
   sellerIdentityDocumentTypeInput.style.display = isSellerSignup ? "block" : "none";
   sellerVerificationUploads.style.display = isSellerSignup ? "grid" : "none";
   if (sellerIdentityDocumentNumberInput) {
     sellerIdentityDocumentNumberInput.style.display = isSellerSignup ? "block" : "none";
     sellerIdentityDocumentNumberInput.required = isSellerSignup;
   }
-  confirmPasswordWrap.style.display = isSecuritySignup ? "flex" : "none";
-  phoneNumberInput.required = isSecuritySignup;
-  nationalIdInput.required = isBuyerSignup;
+  confirmPasswordWrap.style.display = isSecuritySignup || isRecoveryMode ? "flex" : "none";
+  phoneNumberInput.required = isSecuritySignup || isRecoveryMode;
+  nationalIdInput.required = isBuyerSignup || isRecoveryMode;
   sellerIdentityDocumentTypeInput.required = isSellerSignup;
-  confirmPasswordInput.required = isSecuritySignup;
+  confirmPasswordInput.required = isSecuritySignup || isRecoveryMode;
   if (authNextButton) {
     authNextButton.style.display = "none";
   }
@@ -4749,14 +4849,23 @@ function syncAuthMode() {
   authButton.style.display = "block";
   usernameInput.placeholder = isLogin
     ? "Username, full name, or phone number"
+    : isRecoveryMode
+      ? "Username, full name, or phone number"
     : isBuyerSignup
       ? "Full name"
       : "Username";
-  authButton.innerText = isLogin ? "Login" : "Sign Up";
+  formTitle.innerText = isRecoveryMode ? "Recover Password" : (isLogin ? "Login" : "Sign Up");
+  authButton.innerText = isRecoveryMode ? "Reset Password" : (isLogin ? "Login" : "Sign Up");
+  toggleLink.innerText = isRecoveryMode ? "Rudi kwenye login" : (isLogin ? "Tengeneza akaunti" : "Tayari una akaunti? Ingia");
+  if (forgotPasswordLink) {
+    forgotPasswordLink.style.display = isLogin ? "block" : "none";
+  }
 
   if (authCategoryNote) {
     authCategoryNote.innerText = isLogin
       ? "Login tumia username, full name, au namba ya simu pamoja na password. Session itaendelea mpaka ulogout."
+      : isRecoveryMode
+        ? "Weka identifier, namba ya simu, NIDA/ID number, na password mpya. Ukimaliza utaingia tena kwa password mpya."
       : isBuyerSignup
         ? "Jaza taarifa za mteja kisha akaunti itafunguliwa na kukuingiza moja kwa moja kwenye app."
         : "Kwa muuzaji: chagua ID type, andika ID number, upload picha moja ya ID, kisha maliza signup. Category utaichagua wakati wa kupost bidhaa.";
@@ -4770,7 +4879,7 @@ function syncAuthMode() {
     button.classList.toggle("active", button.dataset.authRole === selectedAuthRole);
   });
 
-  if (!isSecuritySignup) {
+  if (!isSecuritySignup && !isRecoveryMode) {
     confirmPasswordInput.value = "";
     nationalIdInput.value = "";
     sellerIdentityDocumentTypeInput.value = "";
@@ -4786,7 +4895,7 @@ function syncAuthMode() {
     input.type = "password";
   });
   if (passwordToggleButton) {
-    passwordToggleButton.innerText = isSecuritySignup ? "Show Passwords" : "Show Password";
+    passwordToggleButton.innerText = isSecuritySignup || isRecoveryMode ? "Show Passwords" : "Show Password";
   }
 }
 
@@ -4795,13 +4904,19 @@ bindPublicEntryActions();
 window.addEventListener("hashchange", handleAccessRouteChange);
 
 toggleLink.addEventListener("click", () => {
+  if (isPasswordRecovery) {
+    switchToLoginMode(usernameInput.value.trim());
+    return;
+  }
   isLogin = !isLogin;
+  isPasswordRecovery = false;
   authSignupStep = 1;
   selectedAuthRole = "seller";
-  formTitle.innerText = isLogin ? "Login" : "Sign Up";
-  authButton.innerText = isLogin ? "Login" : "Sign Up";
-  toggleLink.innerText = isLogin ? "Tengeneza akaunti" : "Tayari una akaunti? Ingia";
   syncAuthMode();
+});
+
+forgotPasswordLink?.addEventListener("click", () => {
+  openPasswordRecoveryMode(usernameInput.value.trim());
 });
 
 staffAccessButton?.addEventListener("click", () => {
@@ -5027,6 +5142,7 @@ authButton.addEventListener("click", async () => {
   }
   const username = usernameInput.value.trim();
   const password = passwordInput.value.trim();
+  const confirmPassword = confirmPasswordInput.value.trim();
 
   publicAuthRequestPending = true;
   setAuthInteractionPending("public", true);
@@ -5073,6 +5189,63 @@ authButton.addEventListener("click", async () => {
         return;
       }
       alert(errorMessage);
+    } finally {
+      releasePublicAuthPendingState();
+    }
+    return;
+  }
+
+  if (isPasswordRecovery) {
+    const phoneNumber = normalizePhoneNumber(phoneNumberInput.value);
+    const nationalId = normalizeNationalId(nationalIdInput.value);
+    const passwordMinLength = getAuthPasswordMinLength();
+
+    if (!username || !phoneNumber || !nationalId || !password || !confirmPassword) {
+      releasePublicAuthPendingState();
+      alert("Jaza identifier, namba ya simu, NIDA/ID number, password mpya, na confirm password.");
+      return;
+    }
+    if (!isValidPhoneNumber(phoneNumber)) {
+      releasePublicAuthPendingState();
+      alert("Weka namba ya simu sahihi.");
+      return;
+    }
+    if (!isValidNationalId(nationalId)) {
+      releasePublicAuthPendingState();
+      alert("Weka NIDA/ID number sahihi.");
+      return;
+    }
+    if (password.length < passwordMinLength) {
+      releasePublicAuthPendingState();
+      alert(`Password inapaswa kuwa angalau herufi ${passwordMinLength}.`);
+      return;
+    }
+    if (password !== confirmPassword) {
+      releasePublicAuthPendingState();
+      alert("Password na confirm password hazifanani.");
+      return;
+    }
+
+    try {
+      await window.WingaDataLayer.recoverPassword({
+        identifier: username,
+        username,
+        phoneNumber,
+        nationalId,
+        newPassword: password
+      });
+      showInAppNotification({
+        title: "Password updated",
+        body: "Password yako imebadilishwa. Ingia tena kutumia password mpya.",
+        variant: "success"
+      });
+      switchToLoginMode(username);
+    } catch (error) {
+      showInAppNotification({
+        title: "Recovery failed",
+        body: error.message || "Imeshindikana kubadilisha password kwa sasa.",
+        variant: "error"
+      });
     } finally {
       releasePublicAuthPendingState();
     }
@@ -6060,6 +6233,7 @@ function loginSuccess(username, preferredCategory = "", sessionData = null, opti
   reviewSummaries = {};
   profileRuntimeState.pendingSection = "";
   chatUiState.activeContext = null;
+  chatUiState.profileMessagesMode = "list";
   if (isStaffRole(sessionData?.role || currentSession?.role || "")) {
     clearRequestBoxSessionState();
   } else {
@@ -6180,6 +6354,7 @@ function logout() {
   currentReviews = [];
   reviewSummaries = {};
   chatUiState.activeContext = null;
+  chatUiState.profileMessagesMode = "list";
   clearRequestBoxSessionState();
   chatUiState.currentDraft = "";
   chatUiState.selectedProductIds = [];
@@ -7489,10 +7664,10 @@ function enhanceShowcaseTracks(scope = document) {
       const deltaX = touch.clientX - touchStartX;
       const deltaY = touch.clientY - touchStartY;
       if (!isDragging) {
-        if (Math.abs(deltaX) < 12) {
+        if (Math.abs(deltaX) < 8) {
           return;
         }
-        if (Math.abs(deltaX) <= Math.abs(deltaY) + 6) {
+        if (Math.abs(deltaX) <= Math.abs(deltaY) + 4) {
           clearTouchState();
           return;
         }
@@ -7501,7 +7676,7 @@ function enhanceShowcaseTracks(scope = document) {
       if (event.cancelable) {
         event.preventDefault();
       }
-      track.scrollLeft = touchStartScrollLeft - (deltaX * 1.08);
+      track.scrollLeft = touchStartScrollLeft - (deltaX * 1.28);
     }, { passive: false });
 
     track.addEventListener("touchend", (event) => {
@@ -7556,8 +7731,8 @@ function enhanceShowcaseTracks(scope = document) {
       const deltaY = event.clientY - pointerStartY;
       const isTouchLikePointer = activePointerType === "touch" || activePointerType === "pen";
       if (!isDragging) {
-        const horizontalThreshold = isTouchLikePointer ? 12 : 8;
-        const directionalBias = isTouchLikePointer ? 6 : 0;
+        const horizontalThreshold = isTouchLikePointer ? 8 : 5;
+        const directionalBias = isTouchLikePointer ? 4 : 0;
         if (Math.abs(deltaX) < horizontalThreshold || Math.abs(deltaX) <= Math.abs(deltaY) + directionalBias) {
           return;
         }
@@ -7570,7 +7745,7 @@ function enhanceShowcaseTracks(scope = document) {
       if (event.cancelable) {
         event.preventDefault();
       }
-      track.scrollLeft = pointerStartScrollLeft - (deltaX * 1.08);
+      track.scrollLeft = pointerStartScrollLeft - (deltaX * 1.24);
     });
 
     track.addEventListener("pointerup", (event) => {
@@ -8355,6 +8530,21 @@ function bindImageFallbacks(scope = document) {
       image.src = image.dataset.fallbackSrc;
       image.removeAttribute("data-fallback-src");
     }, { once: true });
+    if (image.dataset.fallbackLoadBound !== "true") {
+      image.dataset.fallbackLoadBound = "true";
+      image.addEventListener("load", () => {
+        const productId = image.dataset.imageActionProduct || "";
+        const loadedSource = image.currentSrc || image.getAttribute("src") || image.dataset.imageActionSrc || "";
+        if (
+          productId
+          && loadedSource
+          && loadedSource !== image.dataset.fallbackSrc
+          && loadedSource !== MARKETPLACE_SCROLL_IMAGE_PLACEHOLDER
+        ) {
+          clearBrokenMarketplaceImage(productId, loadedSource);
+        }
+      });
+    }
   });
   bindMarketplaceScrollImages(scope);
 }

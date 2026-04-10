@@ -117,6 +117,11 @@
       const currentMessageDraft = deps.getCurrentMessageDraft();
       const contactState = deps.getChatContactState(activeChatContext);
       const activeWhatsApp = contactState.whatsapp;
+      const isCompactMessagesLayout = Boolean(deps.isCompactMessagesLayout?.());
+      const profileMessagesMode = deps.getProfileMessagesMode?.() || "list";
+      const showDetailOnly = isCompactMessagesLayout && activeChatContext && profileMessagesMode === "detail";
+      const showConversationList = !showDetailOnly;
+      const showConversationDetail = !isCompactMessagesLayout || profileMessagesMode === "detail";
       const lastActiveLabel = activeMessages[activeMessages.length - 1]?.timestamp
         ? `Last active ${new Date(activeMessages[activeMessages.length - 1].timestamp).toLocaleString("sw-TZ")}`
         : "Ready to continue the conversation";
@@ -130,7 +135,8 @@
             </div>
             <span class="meta-copy">${summaries.length} conversations</span>
           </div>
-          <div class="messages-shell">
+          <div class="messages-shell ${showDetailOnly ? "compact-detail" : ""}">
+            ${showConversationList ? `
             <div class="messages-list">
               ${summaries.length ? summaries.map((summary) => `
                 <button class="message-thread-item ${activeChatContext && summary.key === deps.getChatContextKey(activeChatContext) ? "active" : ""}" type="button" data-conversation-user="${summary.withUser}" data-conversation-product="${summary.productId}" data-conversation-name="${deps.escapeHtml(summary.productName)}">
@@ -140,9 +146,12 @@
                 </button>
               `).join("") : `<p class="empty-copy">Hakuna conversation bado. Tumia Message Muuzaji kwenye bidhaa uanze chat.</p>`}
             </div>
+            ` : ""}
+            ${showConversationDetail ? `
             <div class="messages-thread-card">
               ${activeChatContext ? `
                 <div class="messages-thread-head">
+                  ${isCompactMessagesLayout ? `<button class="message-list-back" type="button" data-message-list-back="true">Back</button>` : ""}
                   <div>
                     <strong>${deps.escapeHtml(activeChatContext.displayName || deps.getUserDisplayName(activeChatContext.withUser))}</strong>
                     <p>${deps.escapeHtml(activeChatContext.productName || "General inquiry")}</p>
@@ -170,6 +179,7 @@
                 </form>
               ` : `<p class="empty-copy">Chagua conversation au tumia Message Muuzaji kutoka kwenye bidhaa.</p>`}
             </div>
+            ` : ""}
           </div>
         </section>
       `;

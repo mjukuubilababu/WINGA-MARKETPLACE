@@ -148,6 +148,7 @@ const RATE_LIMIT_RULES = {
   "/api/auth/login": { limit: 10, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/auth/admin-login": { limit: 8, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/auth/signup": { limit: 6, windowMs: RATE_LIMIT_WINDOW_MS },
+  "/api/auth/recover-password": { limit: 6, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/products": { limit: 30, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/messages": { limit: 24, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/messages/read": { limit: 40, windowMs: RATE_LIMIT_WINDOW_MS },
@@ -1756,6 +1757,34 @@ function validateSignupPayload(payload) {
   return "";
 }
 
+function validatePasswordRecoveryPayload(payload) {
+  const identifier = sanitizePlainText(payload?.identifier || payload?.username, 120);
+  const nextPassword = String(payload?.newPassword || payload?.password || "");
+  if (!isNonEmptyString(identifier, 3, 120)) {
+    return "Weka username, full name, au namba ya simu ya akaunti.";
+  }
+  if (!isValidWhatsapp(payload?.phoneNumber || "")) {
+    return "Weka namba ya simu sahihi ya akaunti hii.";
+  }
+  if (!isValidNationalId(payload?.nationalId || "")) {
+    return "Weka namba ya kitambulisho sahihi.";
+  }
+  if (!isNonEmptyString(nextPassword, MIN_PASSWORD_LENGTH, 120)) {
+    return `Password mpya inapaswa kuwa angalau herufi ${MIN_PASSWORD_LENGTH}.`;
+  }
+  return "";
+}
+
+function findUserIndexByPublicIdentifier(users, rawIdentifier) {
+  const normalizedIdentifier = normalizeIdentifier(rawIdentifier, 120);
+  const normalizedPhone = String(rawIdentifier || "").replace(/\D/g, "").slice(0, 20);
+  return (users || []).findIndex((item) =>
+    normalizeIdentifier(item.username, 120) === normalizedIdentifier
+    || normalizeIdentifier(item.fullName || "", 120) === normalizedIdentifier
+    || String(item.phoneNumber || "") === normalizedPhone
+  );
+}
+
 function validateUserModerationPayload(payload) {
   const hasStatus = typeof payload?.status === "string" && payload.status.length > 0;
   const hasVerificationUpdate = Boolean(payload?.verificationStatus) || typeof payload?.verifiedSeller === "boolean";
@@ -3250,23 +3279,77 @@ http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === "POST" && url.pathname === "/api/auth/recover-password") {
+      const payload = await collectBody(req) || {};
+      const rawIdentifier = sanitizePlainText(payload.identifier || payload.username, 120);
+      const validationError = validatePasswordRecoveryPayload(payload);
+      if (validationError) {
+        sendJson(res, 400, { error: validationError });
+        return;
+      }
+
+      const users = store.users || [];
+      const userIndex = findUserIndexByPublicIdentifier(users, rawIdentifier);
+      const user = userIndex >= 0 ? users[userIndex] : null;
+      const normalizedPhone = String(payload.phoneNumber || "").replace(/\D/g, "").slice(0, 20);
+      const normalizedNationalId = sanitizePlainText(payload.nationalId, 40).toUpperCase();
+      const phoneMatches = user && (
+        String(user.phoneNumber || "") === normalizedPhone
+        || String(user.whatsappNumber || "") === normalizedPhone
+      );
+      const idMatches = user && String(user.nationalId || user.identityDocumentNumber || "").toUpperCase() === normalizedNationalId;
+
+      if (!user || isStaffRole(user.role) || !phoneMatches || !idMatches) {
+        await appendAuditLog({
+          time: new Date().toISOString(),
+          ip: clientIp,
+          method: req.method,
+          path: url.pathname,
+          event: "password_recovery_failed",
+          username: rawIdentifier,
+          reason: "identity_mismatch"
+        });
+        sendJson(res, 403, { error: "Taarifa za kurejesha password hazijalingana na akaunti hii." });
+        return;
+      }
+
+      users[userIndex] = {
+        ...user,
+        password: createPasswordHash(String(payload.newPassword || payload.password || "")),
+        updatedAt: new Date().toISOString()
+      };
+      const nextSessions = (store.sessions || []).filter((session) =>
+        normalizeIdentifier(session.username, 40) !== normalizeIdentifier(user.username, 40)
+      );
+      await writeStore({
+        ...store,
+        users,
+        sessions: nextSessions
+      });
+      await appendAuditLog({
+        time: new Date().toISOString(),
+        ip: clientIp,
+        method: req.method,
+        path: url.pathname,
+        event: "password_recovered",
+        username: user.username
+      });
+      sendJson(res, 200, { ok: true });
+      return;
+    }
+
     if (req.method === "POST" && url.pathname === "/api/auth/login") {
       const payload = await collectBody(req);
       const rawIdentifier = sanitizePlainText(payload?.identifier || payload?.username, 120);
-      const normalizedIdentifier = normalizeIdentifier(rawIdentifier, 120);
-      const normalizedPhone = String(rawIdentifier || "").replace(/\D/g, "").slice(0, 20);
       if (!payload || !isNonEmptyString(rawIdentifier, 3, 120) || !isNonEmptyString(payload.password, 4, 120)) {
         sendJson(res, 400, { error: "Identifier au password si sahihi." });
         return;
       }
 
       const users = store.users || [];
-      const userIndex = users.findIndex((item) =>
-        normalizeIdentifier(item.username, 120) === normalizedIdentifier
-        || normalizeIdentifier(item.fullName || "", 120) === normalizedIdentifier
-        || String(item.phoneNumber || "") === normalizedPhone
-      );
+      const userIndex = findUserIndexByPublicIdentifier(users, rawIdentifier);
       const user = userIndex >= 0 ? users[userIndex] : null;
+      const normalizedIdentifier = normalizeIdentifier(rawIdentifier, 120);
 
       if (!user || !verifyPassword(payload.password, user.password)) {
         await appendAuditLog({
@@ -3340,20 +3423,15 @@ http.createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/api/auth/admin-login") {
       const payload = await collectBody(req);
       const rawIdentifier = sanitizePlainText(payload?.identifier || payload?.username, 120);
-      const normalizedIdentifier = normalizeIdentifier(rawIdentifier, 120);
-      const normalizedPhone = String(rawIdentifier || "").replace(/\D/g, "").slice(0, 20);
       if (!payload || !isNonEmptyString(rawIdentifier, 3, 120) || !isNonEmptyString(payload.password, 4, 120)) {
         sendJson(res, 400, { error: "Identifier au password si sahihi." });
         return;
       }
 
       const users = store.users || [];
-      const userIndex = users.findIndex((item) =>
-        normalizeIdentifier(item.username, 120) === normalizedIdentifier
-        || normalizeIdentifier(item.fullName || "", 120) === normalizedIdentifier
-        || String(item.phoneNumber || "") === normalizedPhone
-      );
+      const userIndex = findUserIndexByPublicIdentifier(users, rawIdentifier);
       const user = userIndex >= 0 ? users[userIndex] : null;
+      const normalizedIdentifier = normalizeIdentifier(rawIdentifier, 120);
 
       if (!user || !verifyPassword(payload.password, user.password) || !isStaffRole(user.role)) {
         await appendAuditLog({

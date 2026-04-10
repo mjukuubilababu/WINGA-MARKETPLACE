@@ -3,6 +3,7 @@
     return {
       openEmojiScope: "",
       activeContext: null,
+      profileMessagesMode: "list",
       currentDraft: "",
       selectedProductIds: [],
       activeReplyMessageId: "",
