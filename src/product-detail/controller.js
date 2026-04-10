@@ -342,6 +342,34 @@
       finalizeHomeNavigation();
     }
 
+    function resetProductDetailHorizontalState(modal) {
+      if (!modal) {
+        return;
+      }
+      const targets = [
+        modal,
+        modal.querySelector(".product-detail-dialog"),
+        modal.querySelector("#product-detail-content"),
+        modal.querySelector(".product-detail-layout")
+      ].filter(Boolean);
+      targets.forEach((node) => {
+        try {
+          node.scrollLeft = 0;
+        } catch (error) {
+          // Ignore nodes that cannot scroll horizontally.
+        }
+      });
+      window.requestAnimationFrame(() => {
+        targets.forEach((node) => {
+          try {
+            node.scrollLeft = 0;
+          } catch (error) {
+            // Ignore nodes that cannot scroll horizontally.
+          }
+        });
+      });
+    }
+
     function closeProductDetailModal(options = {}) {
       const {
         skipHistoryBack = false,
@@ -603,6 +631,7 @@
       document.body.classList.add("product-detail-open");
       deps.syncBodyScrollLockState?.();
       modal.scrollTop = restoreDetailScrollTop || 0;
+      resetProductDetailHorizontalState(modal);
       if (
         !fromHistoryNavigation
         && !skipHistoryPush
