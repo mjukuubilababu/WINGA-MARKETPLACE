@@ -59,6 +59,37 @@ test("app load renders marketplace feed, hero, images, and category navigation",
   await expect(page.locator("[data-continuous-discovery-anchor='home']")).toHaveCount(0);
 });
 
+test("desktop search handles broad intent and still opens the correct product detail", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234");
+  await page.goto("/");
+  await expect(page.locator("#products-container .product-card").first()).toBeVisible({ timeout: 30000 });
+
+  await page.locator("#search-input").fill("shoe");
+  await expect(page.locator("#search-dropdown")).toHaveClass(/open/);
+  await expect(page.locator("[data-search-result]", { hasText: "Sneaker Classic" }).first()).toBeVisible();
+
+  await page.locator("[data-search-result]", { hasText: "Sneaker Classic" }).first().click();
+  await expect(page.locator("#product-detail-modal")).toBeVisible();
+  await expect(page.locator("#product-detail-modal")).toContainText("Sneaker Classic");
+  await page.locator("#product-detail-modal .product-detail-back").click();
+  await expect(page.locator("#product-detail-modal")).not.toBeVisible();
+  await context.close();
+});
+
+test("desktop search stays aligned with category filtering for broad keywords", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234");
+  await page.goto("/");
+  await expect(page.locator("#products-container .product-card").first()).toBeVisible({ timeout: 30000 });
+
+  await page.locator("#categories .cat-btn[data-cat='viatu']").click();
+  await page.locator("#search-input").fill("shoe");
+
+  await expect(page.locator("#results-count")).toContainText("results");
+  await expect(page.locator("#categories .cat-btn[data-cat='viatu']")).toHaveClass(/active/);
+  await expect(page.locator("#products-container")).toContainText("Sneaker Classic");
+  await context.close();
+});
+
 test("broken-image products disappear from public feed but remain visible to the owner profile", async ({ browser, page }) => {
   await applyApiConfigOverride(page);
   await page.goto("/");
@@ -109,6 +140,25 @@ test("mobile category trigger opens sheet, drills into subcategories, and closes
 
   await page.mouse.click(12, 12);
   await expect(menu).not.toBeVisible();
+
+  await context.close();
+});
+
+test("mobile search handles broad intent without breaking home flow", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234", {
+    viewport: { width: 390, height: 844 },
+    isMobile: true
+  });
+
+  await page.goto("/");
+  await page.locator("#search-toggle-button").click();
+  await page.locator("#search-input").fill("shoe");
+  await expect(page.locator("#search-dropdown")).toHaveClass(/open/);
+  await expect(page.locator("[data-search-result]", { hasText: "Sneaker Classic" }).first()).toBeVisible();
+
+  await page.locator("[data-search-result]", { hasText: "Sneaker Classic" }).first().click();
+  await expect(page.locator("#product-detail-modal")).toBeVisible();
+  await expect(page.locator("#product-detail-modal")).toContainText("Sneaker Classic");
 
   await context.close();
 });

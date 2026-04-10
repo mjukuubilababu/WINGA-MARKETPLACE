@@ -125,6 +125,38 @@
       map.set(key, (map.get(key) || 0) + amount);
     }
 
+    function getSearchableProductText(product) {
+      return normalizeLookupValue(
+        product?._searchText
+        || `${product?.name || ""} ${product?.shop || ""} ${product?.uploadedBy || ""} ${product?.category || ""}`
+      );
+    }
+
+    function getSearchIntentBoost(product, searchTerms = []) {
+      const searchableText = getSearchableProductText(product);
+      if (!searchableText) {
+        return 0;
+      }
+
+      let boost = 0;
+      const uniqueTerms = Array.from(new Set((Array.isArray(searchTerms) ? searchTerms : []).map(normalizeLookupValue).filter(Boolean)));
+      uniqueTerms.forEach((term) => {
+        if (!term) {
+          return;
+        }
+        if (searchableText.includes(term)) {
+          boost += term.includes(" ") ? 52 : 28;
+        } else {
+          const termTokens = term.split(/\s+/).filter(Boolean);
+          const matchedTokens = termTokens.filter((token) => searchableText.includes(token));
+          if (matchedTokens.length > 0) {
+            boost += Math.min(24, matchedTokens.length * 8);
+          }
+        }
+      });
+      return boost;
+    }
+
     function getSellerTrustScore(product) {
       const seller = typeof getMarketplaceUser === "function"
         ? getMarketplaceUser(product?.uploadedBy)
@@ -353,12 +385,7 @@
         }
       }
 
-      if (searchTerms.some((term) =>
-        normalizeLookupValue(product.name || "").includes(term)
-        || normalizeLookupValue(product.shop || "").includes(term)
-      )) {
-        score += 58;
-      }
+      score += getSearchIntentBoost(product, searchTerms);
 
       if (context.surface === "trending") {
         score += (toFiniteNumber(product.likes, 0) * 2.5) + (toFiniteNumber(product.views, 0) * 1.4);

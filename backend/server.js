@@ -2639,6 +2639,9 @@ function getRateLimitRule(pathname) {
 }
 
 function isRateLimited(req, store) {
+  if (process.env.WINGA_DISABLE_RATE_LIMIT === "1") {
+    return false;
+  }
   const rule = getRateLimitRule(new URL(req.url, `http://${req.headers.host}`).pathname);
   if (!rule) {
     return false;

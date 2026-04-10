@@ -2,6 +2,7 @@ const assert = require("node:assert/strict");
 const {
   createProductSearchText,
   filterProducts,
+  getSearchQueryDescriptor,
   getShowcaseProducts,
   canRenderBuyButton,
   getOrderActionState,
@@ -70,6 +71,44 @@ test("filterProducts matches broad suruali intent across related subtypes", () =
   });
 
   assert.deepEqual(result.map((item) => item.id), ["cloth-trouser", "jeans"]);
+});
+
+test("filterProducts matches mixed-intent multi-word queries without depending on exact phrase order", () => {
+  const products = [
+    {
+      id: "jean-black",
+      name: "Black denim jean",
+      shop: "City Denim",
+      category: "wanaume-jeans",
+      status: "approved",
+      availability: "available",
+      _searchText: createProductSearchText({ name: "Black denim jean", shop: "City Denim", category: "wanaume-jeans" })
+    },
+    {
+      id: "shirt-black",
+      name: "Black formal shirt",
+      shop: "City Denim",
+      category: "wanaume-mashati",
+      status: "approved",
+      availability: "available",
+      _searchText: createProductSearchText({ name: "Black formal shirt", shop: "City Denim", category: "wanaume-mashati" })
+    }
+  ];
+
+  const result = filterProducts({
+    products,
+    keyword: "suruali black",
+    selectedCategory: "all"
+  });
+
+  assert.deepEqual(result.map((item) => item.id), ["jean-black"]);
+});
+
+test("getSearchQueryDescriptor expands broad shoe intent without dropping exact keywords", () => {
+  const descriptor = getSearchQueryDescriptor("shoe");
+  assert.ok(descriptor.expandedTerms.includes("shoe"));
+  assert.ok(descriptor.expandedTerms.includes("viatu"));
+  assert.ok(descriptor.expandedTerms.includes("sneaker"));
 });
 
 test("filterProducts respects expanded top categories like electronics", () => {

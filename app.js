@@ -7790,6 +7790,9 @@ function clearUploadForm() {
 }
 
 function getFilteredProducts() {
+  const rankingSearchTerms = AppCore.getSearchQueryDescriptor
+    ? AppCore.getSearchQueryDescriptor(searchInput.value).expandedTerms
+    : (searchInput.value ? [searchInput.value] : []);
   const baseList = AppCore.filterProducts
     ? AppCore.filterProducts({
         products,
@@ -7817,7 +7820,7 @@ function getFilteredProducts() {
     surface: currentView === "home" ? "home" : "default",
     limit: filtered.length,
     selectedCategory,
-    searchTerms: searchInput.value ? [searchInput.value] : []
+    searchTerms: rankingSearchTerms
   }));
 }
 
