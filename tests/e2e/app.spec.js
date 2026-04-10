@@ -59,6 +59,23 @@ test("app load renders marketplace feed, hero, images, and category navigation",
   await expect(page.locator("[data-continuous-discovery-anchor='home']")).toHaveCount(0);
 });
 
+test("vertical feed image tiles open the product detail correctly", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234", {
+    viewport: { width: 390, height: 844 },
+    isMobile: true,
+    hasTouch: true
+  });
+  await page.goto("/");
+  await expect(page.locator("#products-container .product-card").first()).toBeVisible({ timeout: 30000 });
+
+  await page.locator("#products-container .feed-gallery-tile").first().click();
+  await expect(page.locator("#product-detail-modal")).toBeVisible();
+  await expect(page.locator("#product-detail-content")).toBeVisible();
+  await expect(page.locator("#product-detail-title")).toBeVisible();
+
+  await context.close();
+});
+
 test("desktop search handles broad intent and still opens the correct product detail", async ({ browser }) => {
   const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234");
   await page.goto("/");

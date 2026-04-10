@@ -64,15 +64,14 @@
         if (!tile) {
           return;
         }
+        if (!tile.classList.contains("has-more-overlay")) {
+          openMarketplaceProductDetail(product, event);
+          return;
+        }
         event.preventDefault();
         event.stopPropagation();
         if (document.activeElement instanceof HTMLElement) {
           document.activeElement.blur();
-        }
-        if (!tile.classList.contains("has-more-overlay")) {
-          deps.noteProductInterest(product.id);
-          deps.openProductDetailModal(product.id);
-          return;
         }
         deps.openImageLightbox(
           tile.dataset.feedGalleryImage || firstImage,
@@ -95,11 +94,25 @@
       );
     }
 
+    function openMarketplaceProductDetail(product, event) {
+      if (!product?.id) {
+        return;
+      }
+      event?.preventDefault?.();
+      event?.stopPropagation?.();
+      if (document.activeElement instanceof HTMLElement) {
+        document.activeElement.blur();
+      }
+      deps.noteProductInterest(product.id);
+      deps.openProductDetailModal(product.id);
+    }
+
     function createProductCardElement(product) {
       const card = createElement("article", {
         className: "product-card",
         attributes: {
-          "data-product-card": product.id
+          "data-product-card": product.id,
+          "data-open-product": product.id
         }
       });
       card.dataset.productCard = product.id;
@@ -140,8 +153,7 @@
         if (event.target.closest(".product-actions, .product-menu")) {
           return;
         }
-        deps.noteProductInterest(product.id);
-        deps.openProductDetailModal(product.id);
+        openMarketplaceProductDetail(product, event);
       });
 
       return card;
@@ -150,7 +162,10 @@
     function createShowcaseProductCardElement(product) {
       const card = createElement("article", {
         className: "product-card showcase-card",
-        attributes: { "data-showcase-id": product.id }
+        attributes: {
+          "data-showcase-id": product.id,
+          "data-open-product": product.id
+        }
       });
       card.dataset.showcaseId = product.id;
       const media = createElement("div", { className: "showcase-media" });
@@ -206,8 +221,7 @@
         if (event.target.closest(".product-actions, .product-menu")) {
           return;
         }
-        deps.noteProductInterest(product.id);
-        deps.openProductDetailModal(product.id);
+        openMarketplaceProductDetail(product, event);
       });
       card.dataset.showcaseClickBound = "true";
       return card;

@@ -355,6 +355,12 @@
       } catch (error) {
         // Ignore viewport reset failures.
       }
+      try {
+        document.documentElement.scrollLeft = 0;
+        document.body.scrollLeft = 0;
+      } catch (error) {
+        // Ignore document horizontal reset failures.
+      }
       const targets = [
         modal,
         modal.querySelector(".product-detail-dialog"),
