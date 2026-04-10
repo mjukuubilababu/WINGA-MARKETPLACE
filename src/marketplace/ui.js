@@ -61,11 +61,19 @@
 
       gallery.addEventListener("click", (event) => {
         const tile = event.target.closest("[data-feed-gallery-image]");
-        if (!tile || !tile.classList.contains("has-more-overlay")) {
+        if (!tile) {
           return;
         }
         event.preventDefault();
         event.stopPropagation();
+        if (document.activeElement instanceof HTMLElement) {
+          document.activeElement.blur();
+        }
+        if (!tile.classList.contains("has-more-overlay")) {
+          deps.noteProductInterest(product.id);
+          deps.openProductDetailModal(product.id);
+          return;
+        }
         deps.openImageLightbox(
           tile.dataset.feedGalleryImage || firstImage,
           product.name || "Product image",

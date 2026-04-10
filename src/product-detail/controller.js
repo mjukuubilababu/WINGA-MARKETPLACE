@@ -346,6 +346,15 @@
       if (!modal) {
         return;
       }
+      try {
+        window.scrollTo({
+          left: 0,
+          top: window.scrollY || window.pageYOffset || 0,
+          behavior: "auto"
+        });
+      } catch (error) {
+        // Ignore viewport reset failures.
+      }
       const targets = [
         modal,
         modal.querySelector(".product-detail-dialog"),
@@ -630,7 +639,14 @@
       modal.style.display = "grid";
       document.body.classList.add("product-detail-open");
       deps.syncBodyScrollLockState?.();
-      modal.scrollTop = restoreDetailScrollTop || 0;
+      if (document.activeElement instanceof HTMLElement) {
+        document.activeElement.blur();
+      }
+      modal.scrollTo({
+        top: restoreDetailScrollTop || 0,
+        left: 0,
+        behavior: "auto"
+      });
       resetProductDetailHorizontalState(modal);
       if (
         !fromHistoryNavigation
