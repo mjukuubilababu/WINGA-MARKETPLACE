@@ -31,6 +31,7 @@
           className: `feed-gallery-tile feed-gallery-tile-${index + 1}${extraImageCount > 0 && index === previewImages.length - 1 ? " has-more-overlay" : ""}`,
           attributes: {
             type: "button",
+            "data-open-product": product.id,
             "data-feed-gallery-image": image,
             "data-feed-gallery-index": index,
             "data-feed-gallery-product": product.id,
@@ -56,33 +57,28 @@
             textContent: `+${extraImageCount}`
           }));
         }
-        gallery.appendChild(tile);
-      });
-
-      gallery.addEventListener("click", (event) => {
-        const tile = event.target.closest("[data-feed-gallery-image]");
-        if (!tile) {
-          return;
-        }
-        if (!tile.classList.contains("has-more-overlay")) {
-          openMarketplaceProductDetail(product, event);
-          return;
-        }
-        event.preventDefault();
-        event.stopPropagation();
-        if (document.activeElement instanceof HTMLElement) {
-          document.activeElement.blur();
-        }
-        deps.openImageLightbox(
-          tile.dataset.feedGalleryImage || firstImage,
-          product.name || "Product image",
-          safeImages,
-          {
-            productId: product.id,
-            surface: "feed",
-            startIndex: Number(tile.dataset.feedGalleryIndex || 0)
+        tile.addEventListener("click", (event) => {
+          if (!tile.classList.contains("has-more-overlay")) {
+            openMarketplaceProductDetail(product, event);
+            return;
           }
-        );
+          event.preventDefault();
+          event.stopPropagation();
+          if (document.activeElement instanceof HTMLElement) {
+            document.activeElement.blur();
+          }
+          deps.openImageLightbox(
+            tile.dataset.feedGalleryImage || firstImage,
+            product.name || "Product image",
+            safeImages,
+            {
+              productId: product.id,
+              surface: "feed",
+              startIndex: Number(tile.dataset.feedGalleryIndex || 0)
+            }
+          );
+        });
+        gallery.appendChild(tile);
       });
 
       return gallery;

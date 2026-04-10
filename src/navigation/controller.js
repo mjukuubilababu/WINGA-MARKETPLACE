@@ -156,11 +156,25 @@
           return;
         }
 
-        const buyButton = event.target.closest("button[data-open-product], .action-btn[data-open-product]");
-        if (buyButton) {
+        const openTrigger = event.target.closest("[data-open-product], [data-product-card], [data-showcase-id]");
+        const shouldIgnoreOpen = Boolean(
+          event.target.closest(
+            ".product-actions, .seller-product-actions, .product-menu, .product-menu-popup, .product-menu-toggle, [data-menu-toggle], [data-menu-popup]"
+          )
+        ) || Boolean(event.target.closest("[data-feed-gallery-image].has-more-overlay"));
+
+        if (openTrigger && !shouldIgnoreOpen) {
+          const productId = openTrigger.dataset.openProduct
+            || openTrigger.dataset.productCard
+            || openTrigger.dataset.showcaseId
+            || "";
+          if (!productId) {
+            return;
+          }
           event.preventDefault();
           event.stopPropagation();
-          deps.openProductDetailModal(buyButton.dataset.openProduct);
+          event.stopImmediatePropagation?.();
+          deps.openProductDetailModal(productId);
         }
       }, true);
     }
