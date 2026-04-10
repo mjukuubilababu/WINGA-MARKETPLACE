@@ -4438,7 +4438,6 @@ function scheduleBrokenMarketplaceImageRetryRefresh() {
     if (typeof refreshActiveProductDetail === "function" && document.body.classList.contains("product-detail-open")) {
       refreshActiveProductDetail();
     }
-    renderCurrentView();
   }, 650);
 }
 
@@ -4479,7 +4478,6 @@ function scheduleBrokenMarketplaceImageRefresh() {
     if (typeof refreshActiveProductDetail === "function" && document.body.classList.contains("product-detail-open")) {
       refreshActiveProductDetail();
     }
-    renderCurrentView();
   }, 90);
 }
 
