@@ -3997,6 +3997,7 @@ const {
   getNewestProducts: (...args) => getNewestProducts(...args),
   getContinuousDiscoveryDescriptor,
   shouldRenderMarketplaceProduct,
+  getRenderableMarketplaceImages,
   renderDiscoveryProductCards,
   getImageFallbackDataUri,
   noteProductInterest,
@@ -8382,7 +8383,10 @@ function openProductDetailModal(productId, options = {}) {
     return;
   }
 
-  return openProductDetailModalFromController(productId, options);
+  return openProductDetailModalFromController(productId, {
+    allowBrokenImageFallbackOpen: true,
+    ...options
+  });
 }
 
 

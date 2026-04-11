@@ -527,26 +527,35 @@
         return;
       }
       const isOwnerView = product.uploadedBy === deps.getCurrentUser?.();
-      if (typeof deps.shouldRenderMarketplaceProduct === "function" && !deps.shouldRenderMarketplaceProduct(product, {
-        allowOwnerVisibility: isOwnerView
-      })) {
-        closeProductDetailModal({
-          skipHistoryBack: true,
-          skipContextRestore: true
-        });
-        return;
-      }
 
       const {
         skipHistoryPush = false,
         sourceProductId = productId,
         restoreDetailScrollTop = 0,
         fromHistoryNavigation = false,
-        historyDepth = 0
+        historyDepth = 0,
+        allowBrokenImageFallbackOpen = false
       } = options;
 
-      deps.noteProductInterest(product.id);
-      deps.noteProductDiscovery(product.id);
+      const renderableImages = typeof deps.getRenderableMarketplaceImages === "function"
+        ? deps.getRenderableMarketplaceImages(product, {
+            allowOwnerVisibility: isOwnerView
+          })
+        : [];
+
+      if (
+        typeof deps.shouldRenderMarketplaceProduct === "function"
+        && !deps.shouldRenderMarketplaceProduct(product, {
+          allowOwnerVisibility: isOwnerView
+        })
+        && !allowBrokenImageFallbackOpen
+      ) {
+        closeProductDetailModal({
+          skipHistoryBack: true,
+          skipContextRestore: true
+        });
+        return;
+      }
 
       const modal = deps.ensureProductDetailModal();
       const isAlreadyOpen = document.body.classList.contains("product-detail-open") && modal.style.display !== "none";
@@ -584,6 +593,9 @@
       if (!detailNavState.detailDepth) {
         detailNavState.detailDepth = Math.max(1, detailNavState.productTrail.length || 1);
       }
+
+      deps.noteProductInterest(product.id);
+      deps.noteProductDiscovery(product.id);
 
       const content = modal.querySelector("#product-detail-content");
       const seller = deps.getMarketplaceUser(product.uploadedBy);
@@ -624,7 +636,9 @@
           excludeIds: shownProductIds
         })
       });
-      const images = Array.isArray(product.images) && product.images.length ? product.images : [product.image].filter(Boolean);
+      const images = renderableImages.length
+        ? renderableImages
+        : (Array.isArray(product.images) && product.images.length ? product.images : [product.image].filter(Boolean));
       const mainImage = images[0] || deps.getImageFallbackDataUri("WINGA");
 
       content?.replaceChildren(deps.createProductDetailContentElement({
