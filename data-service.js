@@ -1045,13 +1045,19 @@
   }
 
   async function fetchJson(url, options) {
+    const requestOptions = options ? { ...options } : {};
     const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
-    const timeoutMs = Number(window.WINGA_CONFIG?.requestTimeoutMs || 25000);
+    const timeoutMs = Number(
+      requestOptions.timeoutMs
+      || window.WINGA_CONFIG?.requestTimeoutMs
+      || 25000
+    );
+    delete requestOptions.timeoutMs;
     const timeoutId = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
     let response;
     try {
       response = await fetch(url, {
-        ...(options || {}),
+        ...requestOptions,
         signal: controller ? controller.signal : undefined
       });
     } catch (error) {
@@ -1230,7 +1236,8 @@
           const data = await fetchJson(`${baseUrl}/auth/session`, {
             headers: {
               ...createAuthHeaders()
-            }
+            },
+            timeoutMs: Number(window.WINGA_CONFIG?.sessionRestoreTimeoutMs || 6000)
           });
           return data;
         } catch (error) {

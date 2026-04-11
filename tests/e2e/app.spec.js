@@ -548,6 +548,41 @@ test("session restore keeps seller-as-buyer browsing and product-detail continua
   await context.close();
 });
 
+test("stale session restore falls back to auth instead of hanging the app boot", async ({ browser }) => {
+  const context = await browser.newContext();
+  await context.addInitScript((baseUrl, payload) => {
+    window.__WINGA_CONFIG_OVERRIDE__ = {
+      provider: "api",
+      fallbackProvider: "api",
+      apiBaseUrl: baseUrl,
+      sessionRestoreTimeoutMs: 1200
+    };
+    window.localStorage.setItem("winga-current-user", JSON.stringify(payload));
+  }, apiBaseUrl, {
+    username: "stale-user",
+    fullName: "Stale User",
+    role: "seller",
+    token: "stale-token"
+  });
+  const page = await context.newPage();
+  await page.route(`${apiBaseUrl}/auth/session`, async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 5000));
+    await route.fulfill({
+      status: 401,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "Session expired" })
+    });
+  });
+
+  await page.goto("/");
+  await expect(page.getByText("Tunaangalia session yako...")).toBeVisible();
+  await expect(page.locator("#auth-container")).toBeVisible({ timeout: 10000 });
+  await expect(page.getByText("Tunaangalia session yako...")).toBeHidden({ timeout: 10000 });
+  await expect(page.locator("body")).toHaveClass(/auth-modal-open/);
+
+  await context.close();
+});
+
 test("refresh while authenticated keeps in-app header and does not show public auth buttons", async ({ browser }) => {
   const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234");
   await page.goto("/");

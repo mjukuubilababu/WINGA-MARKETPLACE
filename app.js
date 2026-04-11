@@ -8773,6 +8773,49 @@ bindTrustReportEntryActions();
 bindImageActionInteractions();
 bindImageZoomInteractions();
 
+const SESSION_RESTORE_BOOT_TIMEOUT_MS = Math.max(
+  2500,
+  Number(window.WINGA_CONFIG?.sessionRestoreTimeoutMs || 6000)
+);
+
+async function resolveSessionRestoreForBoot(restorePromise, { hasCachedSession = false } = {}) {
+  let timeoutId = 0;
+  const timeoutResult = { timedOut: true, session: null };
+  try {
+    const result = await Promise.race([
+      Promise.resolve(restorePromise)
+        .then((session) => ({ timedOut: false, session: session || null }))
+        .catch((error) => {
+          captureClientError("session_restore_boot_failed", error, {
+            category: "auth",
+            alertSeverity: "high",
+            hasCachedSession
+          });
+          return { timedOut: false, session: null };
+        }),
+      new Promise((resolve) => {
+        timeoutId = window.setTimeout(() => resolve(timeoutResult), SESSION_RESTORE_BOOT_TIMEOUT_MS);
+      })
+    ]);
+
+    if (result?.timedOut) {
+      reportClientEvent("warn", "session_restore_timed_out", "Session restore timed out during boot.", {
+        category: "auth",
+        alertSeverity: hasCachedSession ? "high" : "medium"
+      });
+      clearSessionUser();
+      applySessionState(null);
+      clearAppViewState();
+    }
+
+    return result?.session || null;
+  } finally {
+    if (timeoutId) {
+      window.clearTimeout(timeoutId);
+    }
+  }
+}
+
 async function bootApp() {
   reportClientEvent("info", "app_boot_started", "Client app boot started.", {
     category: "runtime"
@@ -8825,8 +8868,11 @@ async function bootApp() {
     // Ignore passive image signature hydration failures during boot.
   });
 
+  const rememberedSession = await resolveSessionRestoreForBoot(rememberedSessionPromise, {
+    hasCachedSession: Boolean(cachedSession?.username)
+  });
+
   if (cachedSession?.username) {
-    const rememberedSession = await rememberedSessionPromise;
     if (rememberedSession?.username) {
       if (isAdminLoginRoute() && !isStaffRole(rememberedSession.role)) {
         setAdminLoginRouteActive(false, { replace: true });
@@ -8869,33 +8915,30 @@ async function bootApp() {
       message: "Session yako imeisha. Ingia tena kuendelea."
     });
     return;
-  } else {
-    const rememberedSession = await rememberedSessionPromise;
-    if (rememberedSession?.username) {
-      if (isAdminLoginRoute() && !isStaffRole(rememberedSession.role)) {
-        setAdminLoginRouteActive(false, { replace: true });
-        showInAppNotification({
-          title: "Admin access only",
-          body: "Route hii ni ya admin au moderator pekee.",
-          variant: "warning"
-        });
-      }
-      loginSuccess(
-        rememberedSession.username,
-        rememberedSession.primaryCategory || "",
-        rememberedSession,
-        {
-          restoreView: false,
-          skipWelcome: true,
-          forceView: isStaffRole(rememberedSession.role) ? "admin" : ""
-        }
-      );
-      reportClientEvent("info", "session_restore_succeeded", "Stored session restored during boot.", {
-        category: "auth",
-        role: rememberedSession.role || ""
+  } else if (rememberedSession?.username) {
+    if (isAdminLoginRoute() && !isStaffRole(rememberedSession.role)) {
+      setAdminLoginRouteActive(false, { replace: true });
+      showInAppNotification({
+        title: "Admin access only",
+        body: "Route hii ni ya admin au moderator pekee.",
+        variant: "warning"
       });
-      return;
     }
+    loginSuccess(
+      rememberedSession.username,
+      rememberedSession.primaryCategory || "",
+      rememberedSession,
+      {
+        restoreView: false,
+        skipWelcome: true,
+        forceView: isStaffRole(rememberedSession.role) ? "admin" : ""
+      }
+    );
+    reportClientEvent("info", "session_restore_succeeded", "Stored session restored during boot.", {
+      category: "auth",
+      role: rememberedSession.role || ""
+    });
+    return;
   }
 
   if (isAdminLoginRoute()) {
