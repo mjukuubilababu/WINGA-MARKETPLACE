@@ -346,6 +346,9 @@
       if (!modal) {
         return;
       }
+      const dialog = modal.querySelector(".product-detail-dialog");
+      const content = modal.querySelector("#product-detail-content");
+      const layout = modal.querySelector(".product-detail-layout");
       try {
         window.scrollTo({
           left: 0,
@@ -363,9 +366,9 @@
       }
       const targets = [
         modal,
-        modal.querySelector(".product-detail-dialog"),
-        modal.querySelector("#product-detail-content"),
-        modal.querySelector(".product-detail-layout")
+        dialog,
+        content,
+        layout
       ].filter(Boolean);
       targets.forEach((node) => {
         try {
@@ -374,12 +377,31 @@
           // Ignore nodes that cannot scroll horizontally.
         }
       });
+      // Ensure no lingering horizontal transform or offsets keep the detail shell shifted.
+      [modal, dialog, content, layout].filter(Boolean).forEach((node) => {
+        try {
+          node.style.transform = "none";
+          node.style.left = "0";
+          node.style.right = "0";
+          node.style.marginLeft = "auto";
+          node.style.marginRight = "auto";
+        } catch (error) {
+          // Ignore nodes that cannot accept inline style updates.
+        }
+      });
       window.requestAnimationFrame(() => {
         targets.forEach((node) => {
           try {
             node.scrollLeft = 0;
           } catch (error) {
             // Ignore nodes that cannot scroll horizontally.
+          }
+        });
+        [modal, dialog, content, layout].filter(Boolean).forEach((node) => {
+          try {
+            node.style.transform = "none";
+          } catch (error) {
+            // Ignore nodes that cannot accept inline style updates.
           }
         });
       });
