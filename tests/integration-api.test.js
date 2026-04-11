@@ -270,6 +270,75 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   assert.ok(bootstrapRecoveredProduct, "Bootstrap should still include recovered product imagery.");
   assert.match(bootstrapRecoveredProduct.image, /^data:image\//);
 
+  const adminLoginForBrokenReference = await request("/auth/admin-login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      username: "admin",
+      password: "Admin1234"
+    })
+  });
+  assert.equal(adminLoginForBrokenReference.response.status, 200);
+
+  const productsBeforeBrokenReference = await request("/products", {
+    headers: {
+      Authorization: `Bearer ${buyerToken}`
+    }
+  });
+  assert.equal(productsBeforeBrokenReference.response.status, 200);
+
+  const brokenReferenceSave = await request("/products", {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminLoginForBrokenReference.body.token}`
+    },
+    body: JSON.stringify([
+      ...productsBeforeBrokenReference.body,
+      {
+        id: "product-test-missing-ref",
+        name: "Kiatu Broken Ref",
+        price: 25500,
+        shop: "Seller One Shop",
+        whatsapp: "255700111111",
+        uploadedBy: "seller_one",
+        category: "viatu",
+        status: "approved",
+        availability: "available",
+        images: ["/uploads/does-not-exist.jpg"],
+        image: "/uploads/does-not-exist.jpg",
+        imageArchives: []
+      }
+    ])
+  });
+  assert.equal(brokenReferenceSave.response.status, 200);
+
+  const visibleProductsAfterBrokenReference = await request("/products", {
+    headers: {
+      Authorization: `Bearer ${buyerToken}`
+    }
+  });
+  assert.equal(visibleProductsAfterBrokenReference.response.status, 200);
+  assert.equal(
+    visibleProductsAfterBrokenReference.body.some((product) => product.id === "product-test-missing-ref"),
+    false,
+    "Products with missing upload refs and no archive should not be returned to visible feeds."
+  );
+
+  const bootstrapAfterBrokenReference = await request("/bootstrap");
+  assert.equal(bootstrapAfterBrokenReference.response.status, 200);
+  assert.equal(
+    bootstrapAfterBrokenReference.body.products.some((product) => product.id === "product-test-missing-ref"),
+    false,
+    "Bootstrap should not include products whose upload refs are broken and unrecoverable."
+  );
+
+  const healthAfterBrokenReference = await request("/health");
+  assert.equal(healthAfterBrokenReference.response.status, 200);
+  assert.equal(Number(healthAfterBrokenReference.body.imageConsistency?.productsWithBrokenImages || 0), 0);
+  assert.equal(Number(healthAfterBrokenReference.body.imageConsistency?.brokenImageReferences || 0), 0);
+  assert.equal(Number(healthAfterBrokenReference.body.imageConsistency?.archiveFallbackImages || 0), 0);
+
   const sameSellerDuplicatePost = await request("/products", {
     method: "POST",
     headers: {

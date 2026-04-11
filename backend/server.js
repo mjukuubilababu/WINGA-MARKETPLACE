@@ -841,6 +841,9 @@ function sanitizeVisibleProduct(product, viewer = null, storeRef = null) {
     images: deliveredImages.length ? deliveredImages : [deliveredPrimaryImage].filter(Boolean),
     whatsapp: normalizedProduct.whatsapp || String(owner?.whatsappNumber || owner?.phoneNumber || "").replace(/\D/g, "").slice(0, 20)
   };
+  if (!safeProduct.image && (!Array.isArray(safeProduct.images) || safeProduct.images.length === 0) && !canSeeModerationData) {
+    return null;
+  }
   if (!canSeeModerationData) {
     safeProduct.moderationNote = "";
     safeProduct.moderatedAt = "";
@@ -1445,15 +1448,96 @@ function buildPersistentImageArchive(value) {
   return `data:${mimeType};base64,${buffer.toString("base64")}`;
 }
 
+function isMissingLocalUploadReference(value) {
+  const normalizedValue = normalizeStoredImageReference(value);
+  if (typeof normalizedValue !== "string" || !normalizedValue.startsWith("/uploads/")) {
+    return false;
+  }
+  const filePath = getLocalUploadFilePath(normalizedValue);
+  return !filePath || !fs.existsSync(filePath);
+}
+
 function resolveProductImageForDelivery(value, archiveValue) {
   const normalizedValue = normalizeStoredImageReference(value);
   if (typeof normalizedValue === "string" && normalizedValue.startsWith("/uploads/")) {
     const filePath = getLocalUploadFilePath(normalizedValue);
     if (!filePath || !fs.existsSync(filePath)) {
-      return isValidPrivateImageValue(archiveValue) ? archiveValue : normalizedValue;
+      return isValidPrivateImageValue(archiveValue) ? archiveValue : "";
     }
   }
   return normalizedValue;
+}
+
+function repairNormalizedProductImageState(product) {
+  const normalizedProduct = normalizeProductRecord(product);
+  const sourceImages = Array.isArray(normalizedProduct.images) && normalizedProduct.images.length
+    ? normalizedProduct.images.map((image) => normalizeStoredImageReference(image))
+    : [normalizeStoredImageReference(normalizedProduct.image || "")].filter(Boolean);
+  const sourceArchives = Array.isArray(normalizedProduct.imageArchives)
+    ? normalizedProduct.imageArchives.map((value) => (isValidPrivateImageValue(value) ? value : ""))
+    : [];
+  const repairedEntries = sourceImages
+    .map((image, index) => {
+      const archiveValue = sourceArchives[index] || "";
+      const deliveredImage = resolveProductImageForDelivery(image, archiveValue);
+      if (!deliveredImage) {
+        return null;
+      }
+      if (isMissingLocalUploadReference(image) && deliveredImage !== image) {
+        return {
+          image: deliveredImage,
+          archive: isValidPrivateImageValue(deliveredImage) ? deliveredImage : archiveValue
+        };
+      }
+      return {
+        image,
+        archive: archiveValue
+      };
+    })
+    .filter(Boolean);
+
+  const repairedImages = repairedEntries.map((entry) => entry.image).filter(Boolean);
+  const repairedArchives = repairedEntries.map((entry) => entry.archive || "");
+
+  return {
+    ...normalizedProduct,
+    image: repairedImages[0] || "",
+    images: repairedImages,
+    imageArchives: repairedArchives
+  };
+}
+
+function summarizeProductImageConsistency(store) {
+  const products = Array.isArray(store?.products) ? store.products : [];
+  let productsWithBrokenImages = 0;
+  let brokenImageReferences = 0;
+  let archiveFallbackImages = 0;
+
+  products.forEach((product) => {
+    const normalizedProduct = normalizeProductRecord(product);
+    const images = Array.isArray(normalizedProduct.images) ? normalizedProduct.images : [];
+    const archives = Array.isArray(normalizedProduct.imageArchives) ? normalizedProduct.imageArchives : [];
+    let productHasBrokenImages = false;
+    images.forEach((image, index) => {
+      if (!isMissingLocalUploadReference(image)) {
+        return;
+      }
+      productHasBrokenImages = true;
+      brokenImageReferences += 1;
+      if (isValidPrivateImageValue(archives[index] || "")) {
+        archiveFallbackImages += 1;
+      }
+    });
+    if (productHasBrokenImages) {
+      productsWithBrokenImages += 1;
+    }
+  });
+
+  return {
+    productsWithBrokenImages,
+    brokenImageReferences,
+    archiveFallbackImages
+  };
 }
 
 function normalizeProductImages(product) {
@@ -1542,7 +1626,7 @@ function migrateLegacyStore(store) {
     const originalImages = Array.isArray(product.images) ? product.images : [];
     const originalImage = product.image || "";
     const originalArchives = Array.isArray(product.imageArchives) ? product.imageArchives : [];
-    const normalizedProduct = normalizeProductRecord(normalizeProductImages(product));
+    const normalizedProduct = repairNormalizedProductImageState(normalizeProductImages(product));
     const imagesChanged = JSON.stringify(normalizedProduct.images) !== JSON.stringify(originalImages);
     const archivesChanged = JSON.stringify(normalizedProduct.imageArchives || []) !== JSON.stringify(originalArchives);
     const imageChanged = normalizedProduct.image !== originalImage
@@ -2745,6 +2829,7 @@ http.createServer(async (req, res) => {
 
     if (req.method === "GET" && url.pathname === "/api/health") {
       const backupStatus = getBackupStatus();
+      const imageConsistency = summarizeProductImageConsistency(store);
       sendJson(res, 200, {
         ok: true,
         time: new Date().toISOString(),
@@ -2753,7 +2838,8 @@ http.createServer(async (req, res) => {
         configWarningsCount: runtimeConfiguration.warnings.length,
         backupStatus,
         users: (store.users || []).length,
-        products: (store.products || []).length
+        products: (store.products || []).length,
+        imageConsistency
       });
       return;
     }
@@ -5098,7 +5184,11 @@ http.createServer(async (req, res) => {
       }
 
       const products = await collectBody(req);
-      await writeStore({ ...store, products: Array.isArray(products) ? products : [] });
+      const normalizedProducts = Array.isArray(products)
+        ? products.map((product) => repairNormalizedProductImageState(normalizeProductImages(product)))
+        : [];
+      store = { ...store, products: normalizedProducts };
+      await writeStore(store);
       sendJson(res, 200, { ok: true });
       return;
     }
