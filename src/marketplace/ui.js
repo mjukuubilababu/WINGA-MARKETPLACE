@@ -17,7 +17,7 @@
 
     const passiveViewedProductQueue = new Set();
     let passiveViewedProductTrackingScheduled = false;
-    const PASSIVE_VIEW_TRACK_BATCH_SIZE = 6;
+    const PASSIVE_VIEW_TRACK_BATCH_SIZE = 3;
 
     function schedulePassiveViewedProductTracking(productIds = []) {
       Array.from(new Set(Array.isArray(productIds) ? productIds : []))
@@ -315,7 +315,7 @@
         : 0;
       const fragment = document.createDocumentFragment();
       const viewedProductIds = [];
-      const passiveViewLimit = Math.max(6, (deps.getProductsPerRow?.() || 3) * 2);
+      const passiveViewLimit = Math.max(4, (deps.getProductsPerRow?.() || 3));
 
       list.forEach((product, index) => {
         if (shouldTrackViews && index < passiveViewLimit && deps.trackView(product)) {

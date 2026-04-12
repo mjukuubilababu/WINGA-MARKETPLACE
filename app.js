@@ -4445,7 +4445,7 @@ const BROKEN_IMAGE_FAILURE_THRESHOLD = 2;
 const BROKEN_IMAGE_SUPPRESS_MS = 5 * 60 * 1000;
 let brokenMarketplaceImageRefreshTimer = 0;
 let brokenMarketplaceImageRetryRefreshTimer = 0;
-const MAX_ACTIVE_HOME_CONTINUOUS_SECTIONS = 4;
+const MAX_ACTIVE_HOME_CONTINUOUS_SECTIONS = 3;
 const MAX_HOME_CONTINUOUS_USED_IDS = 120;
 const MARKETPLACE_SCROLL_IMAGE_PLACEHOLDER = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
 let marketplaceScrollImageObserver = null;
@@ -5002,7 +5002,9 @@ function syncAuthMode() {
   }
 
   authRoleSelector?.querySelectorAll("[data-auth-role]").forEach((button) => {
-    button.classList.toggle("active", button.dataset.authRole === selectedAuthRole);
+    const isSelected = button.dataset.authRole === selectedAuthRole;
+    button.classList.toggle("active", isSelected);
+    button.setAttribute("aria-pressed", String(isSelected));
   });
 
   if (!isSecuritySignup && !isRecoveryMode) {
@@ -5056,6 +5058,11 @@ authRoleSelector?.querySelectorAll("[data-auth-role]").forEach((button) => {
   button.addEventListener("click", () => {
     selectedAuthRole = button.dataset.authRole || "seller";
     authSignupStep = 1;
+    authRoleSelector.querySelectorAll("[data-auth-role]").forEach((roleButton) => {
+      const isSelected = roleButton.dataset.authRole === selectedAuthRole;
+      roleButton.classList.toggle("active", isSelected);
+      roleButton.setAttribute("aria-pressed", String(isSelected));
+    });
     syncAuthMode();
   });
 });
@@ -7555,7 +7562,7 @@ function setupContinuousDiscoveryLoading(scope, options = {}) {
       hydrateContinuousDiscoveryAnchor(anchor);
     });
   }, {
-    rootMargin: "900px 0px 720px 0px"
+    rootMargin: "520px 0px 420px 0px"
   });
   homeContinuousDiscoveryRuntime.observer.observe(anchor);
 }
@@ -7796,7 +7803,7 @@ function enhanceShowcaseTracks(scope = document) {
       if (event.cancelable) {
         event.preventDefault();
       }
-      track.scrollLeft = touchStartScrollLeft - (deltaX * 1.28);
+      track.scrollLeft = touchStartScrollLeft - deltaX;
     }, { passive: false });
 
     track.addEventListener("touchend", (event) => {
@@ -7865,7 +7872,7 @@ function enhanceShowcaseTracks(scope = document) {
       if (event.cancelable) {
         event.preventDefault();
       }
-      track.scrollLeft = pointerStartScrollLeft - (deltaX * 1.24);
+      track.scrollLeft = pointerStartScrollLeft - deltaX;
     });
 
     track.addEventListener("pointerup", (event) => {
