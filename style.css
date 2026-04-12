@@ -3116,7 +3116,17 @@ body.product-detail-open{
 }
 
 .seller-product-actions .product-actions-primary{
-  grid-template-columns:1fr;
+  grid-template-columns:repeat(2, minmax(0, 1fr));
+  display:grid;
+  gap:8px;
+}
+
+.seller-product-actions .product-actions-secondary{
+  justify-content:flex-start;
+}
+
+.seller-product-actions .product-actions-secondary .request-btn{
+  width:100%;
 }
 
 .auth-upload-btn{
@@ -5532,6 +5542,10 @@ button:hover,
 
   .product-actions-simple{
     grid-template-columns:1fr;
+  }
+
+  .seller-product-actions .product-actions-primary{
+    grid-template-columns:repeat(2, minmax(0, 1fr));
   }
 
   .product-detail-media.has-media-stack{
