@@ -224,7 +224,7 @@
         if (deps.canRepostProduct?.(product)) {
           actions.appendChild(deps.createElement("button", {
             className: "action-btn action-btn-secondary",
-            textContent: "Repost",
+            textContent: "Uza",
             attributes: { type: "button", "data-detail-repost": product.id }
           }));
         }

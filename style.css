@@ -2773,7 +2773,8 @@ img[data-zoom-src]{
 
 .product-actions-simple .action-btn{
   min-width:0;
-  width:100%;
+  width:auto;
+  flex:1 1 0;
   justify-content:center;
 }
 
@@ -4148,7 +4149,8 @@ body.context-chat-open{
 
 @media (max-width:960px){
   .product-actions-primary{
-    grid-template-columns:1fr;
+    display:flex;
+    flex-wrap:nowrap;
   }
 }
 
