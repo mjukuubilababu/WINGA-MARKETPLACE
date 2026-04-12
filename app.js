@@ -2,6 +2,7 @@ const USERS_KEY = "winga-users";
 const PRODUCTS_KEY = "winga-products";
 const SESSION_KEY = "winga-current-user";
 const APP_VIEW_KEY = "winga-app-view";
+const PENDING_GUEST_INTENT_KEY = "winga-pending-guest-intent";
 const SELLER_HISTORY_KEY_PREFIX = "winga-seller-history";
 const REQUEST_BOX_KEY_PREFIX = "winga-request-box";
 const { CHAT_EMOJI_CHOICES } = window.WingaModules.config.chat;
@@ -109,6 +110,28 @@ function getStoredAppView() {
     return JSON.parse(localStorage.getItem(APP_VIEW_KEY) || "null");
   } catch (error) {
     return null;
+  }
+}
+
+function getPendingGuestIntent() {
+  try {
+    return JSON.parse(localStorage.getItem(PENDING_GUEST_INTENT_KEY) || "null");
+  } catch (error) {
+    return null;
+  }
+}
+
+function savePendingGuestIntent(intent = null) {
+  try {
+    if (!intent || typeof intent !== "object") {
+      localStorage.removeItem(PENDING_GUEST_INTENT_KEY);
+      return;
+    }
+    localStorage.setItem(PENDING_GUEST_INTENT_KEY, JSON.stringify(intent));
+  } catch (error) {
+    reportClientEvent("warn", "pending_guest_intent_persist_failed", "Unable to persist pending guest intent.", {
+      category: "runtime"
+    });
   }
 }
 
@@ -1271,6 +1294,7 @@ function getAccessDeniedMessage(view) {
 
 function clearPendingGuestIntent() {
   pendingGuestIntent = null;
+  savePendingGuestIntent(null);
 }
 
 function showAuthGatePrompt(options = {}) {
@@ -1321,6 +1345,7 @@ function closeAuthModal() {
 
 function promptGuestAuth(options = {}) {
   pendingGuestIntent = options.intent || null;
+  savePendingGuestIntent(pendingGuestIntent);
   openAuthModal(options.preferredMode || "signup", {
     gated: true,
     role: options.role || "buyer",
@@ -1438,6 +1463,9 @@ function updateMarketplaceActionChrome() {
 }
 
 function resumePendingGuestIntent() {
+  if (!pendingGuestIntent) {
+    pendingGuestIntent = getPendingGuestIntent();
+  }
   if (!pendingGuestIntent) {
     return;
   }
@@ -4076,6 +4104,7 @@ const {
   syncAppShellHistoryState,
   setCurrentViewState,
   renderCurrentView,
+  getProductDetailPath,
   getProductDetailReviewDraft,
   resetReviewDraft: () => {
     productDetailUiState.reviewDraft = { productId: "", rating: 5, comment: "" };
@@ -4827,6 +4856,46 @@ function isAdminLoginRoute() {
   return normalizedHash === ADMIN_LOGIN_HASH
     || normalizedHash === "#admin-login"
     || normalizedPath.endsWith("/admin-login");
+}
+
+function getDeepLinkedProductIdFromRoute() {
+  const normalizedPath = String(window.location.pathname || "").trim().replace(/\/+$/, "");
+  const match = normalizedPath.match(/\/product\/([^/]+)$/i);
+  if (!match) {
+    return "";
+  }
+  try {
+    return decodeURIComponent(match[1] || "").trim();
+  } catch (error) {
+    return String(match[1] || "").trim();
+  }
+}
+
+function getProductDetailPath(productId) {
+  const safeId = encodeURIComponent(String(productId || "").trim());
+  return safeId ? `/product/${safeId}` : window.location.pathname;
+}
+
+function openDeepLinkedProductRouteIfNeeded() {
+  const productId = getDeepLinkedProductIdFromRoute();
+  if (!productId) {
+    return false;
+  }
+  if (isAuthenticatedUser() && (pendingGuestIntent || getPendingGuestIntent())) {
+    return false;
+  }
+  const product = getProductById(productId);
+  if (!product) {
+    return false;
+  }
+  if (currentView !== "home") {
+    setCurrentViewState("home", { syncHistory: "replace" });
+  }
+  renderCurrentView();
+  openProductDetailModal(productId, {
+    allowBrokenImageFallbackOpen: true
+  });
+  return true;
 }
 
 function setAdminLoginRouteActive(active, options = {}) {
@@ -6373,7 +6442,10 @@ function loginSuccess(username, preferredCategory = "", sessionData = null, opti
     }
   }
   resumePendingGuestIntent();
-  if (!skipWelcome && !isStaffUser()) {
+  const handledDeepLink = !pendingGuestIntent && !getPendingGuestIntent()
+    ? openDeepLinkedProductRouteIfNeeded()
+    : false;
+  if (!skipWelcome && !isStaffUser() && !handledDeepLink) {
     if (deferRender) {
       window.setTimeout(showWelcomePopup, 80);
     } else {
@@ -8421,17 +8493,6 @@ function openProductDetailModal(productId, options = {}) {
     return;
   }
 
-  if (!isAuthenticatedUser()) {
-    promptGuestAuth({
-      preferredMode: "signup",
-      role: "buyer",
-      title: "Create an account or sign in to continue",
-      message: "Already have an account? Sign In. New here? Sign Up ili ufungue bidhaa hii, uchati, na uongeze requests.",
-      intent: { type: "focus-product", productId }
-    });
-    return;
-  }
-
   return openProductDetailModalFromController(productId, {
     allowBrokenImageFallbackOpen: true,
     ...options
@@ -8470,13 +8531,14 @@ async function handleShareProduct(product) {
   }
 
   const shareText = `${product.name} - ${formatProductPrice(product.price)} | ${product.shop}`;
+  const shareUrl = `${window.location.origin}${getProductDetailPath(product.id)}`;
 
   if (navigator.share) {
     try {
       await navigator.share({
         title: product.name,
         text: shareText,
-        url: product.image
+        url: shareUrl
       });
       return;
     } catch (error) {
@@ -8487,7 +8549,7 @@ async function handleShareProduct(product) {
   }
 
   if (navigator.clipboard && navigator.clipboard.writeText) {
-    await navigator.clipboard.writeText(`${shareText} | Image: ${product.image}`);
+    await navigator.clipboard.writeText(`${shareText} | Link: ${shareUrl}`);
     showInAppNotification({
       title: "Share ready",
       body: "Maelezo ya bidhaa yame-copy kwa sharing.",
@@ -8496,7 +8558,7 @@ async function handleShareProduct(product) {
     return;
   }
 
-  alert(`${shareText} | Image: ${product.image}`);
+  alert(`${shareText} | Link: ${shareUrl}`);
 }
 
 function handleAccessRouteChange() {
@@ -9007,6 +9069,7 @@ async function bootApp() {
   setCurrentViewState("home");
   renderSlideshow();
   renderCurrentView();
+  openDeepLinkedProductRouteIfNeeded();
   scheduleChromeOffsetSync();
 
   if (typeof ResizeObserver !== "undefined") {

@@ -6,6 +6,7 @@ const outputDir = path.join(rootDir, "public");
 const assetVersion = process.env.WINGA_ASSET_VERSION || new Date().toISOString().replace(/[-:.TZ]/g, "").slice(0, 14);
 const requiredRootFiles = [
   "_headers",
+  "_redirects",
   "index.html",
   "style.css",
   "app.js",
@@ -17,6 +18,7 @@ const requiredRootFiles = [
 
 const fileCopies = [
   ["_headers", "_headers"],
+  ["_redirects", "_redirects"],
   ["index.html", "index.html"],
   ["style.css", "style.css"],
   ["app.js", "app.js"],

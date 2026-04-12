@@ -39,7 +39,10 @@
       if (isSyncingHistoryState || !window.history?.pushState) {
         return;
       }
-      window.history.pushState(buildDetailHistoryState(productId, sourceProductId), "", window.location.href);
+      const nextUrl = typeof deps.getProductDetailPath === "function"
+        ? deps.getProductDetailPath(productId)
+        : window.location.href;
+      window.history.pushState(buildDetailHistoryState(productId, sourceProductId), "", nextUrl);
     }
 
     function syncHistoryForClose() {
