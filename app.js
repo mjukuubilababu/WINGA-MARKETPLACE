@@ -7463,18 +7463,6 @@ function bindShowcaseCardClicks(scope) {
     if (card.dataset.showcaseClickBound === "true") {
       return;
     }
-    card.addEventListener("click", (event) => {
-      if (event.target.closest(".product-actions")) {
-        return;
-      }
-      const targetProduct = getProductById(card.dataset.showcaseId);
-      if (!targetProduct) {
-        return;
-      }
-
-      noteProductInterest(targetProduct.id);
-      openProductDetailModal(targetProduct.id);
-    });
     card.dataset.showcaseClickBound = "true";
   });
 }

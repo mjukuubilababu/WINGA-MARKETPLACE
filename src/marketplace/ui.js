@@ -59,7 +59,6 @@
         }
         tile.addEventListener("click", (event) => {
           if (!tile.classList.contains("has-more-overlay")) {
-            openMarketplaceProductDetail(product, event);
             return;
           }
           event.preventDefault();
@@ -88,19 +87,6 @@
       return deps.createElementFromMarkup(
         deps.renderProductActionGroup(product, { requestLabel: "Add to My Requests" })
       );
-    }
-
-    function openMarketplaceProductDetail(product, event) {
-      if (!product?.id) {
-        return;
-      }
-      event?.preventDefault?.();
-      event?.stopPropagation?.();
-      if (document.activeElement instanceof HTMLElement) {
-        document.activeElement.blur();
-      }
-      deps.noteProductInterest(product.id);
-      deps.openProductDetailModal(product.id);
     }
 
     function createProductCardElement(product) {
@@ -144,13 +130,6 @@
       }
       content.appendChild(createProductActionGroupElement(product));
       card.appendChild(content);
-
-      card.addEventListener("click", (event) => {
-        if (event.target.closest(".product-actions, .product-menu")) {
-          return;
-        }
-        openMarketplaceProductDetail(product, event);
-      });
 
       return card;
     }
@@ -213,12 +192,6 @@
         )
       );
       card.append(media, body);
-      card.addEventListener("click", (event) => {
-        if (event.target.closest(".product-actions, .product-menu")) {
-          return;
-        }
-        openMarketplaceProductDetail(product, event);
-      });
       card.dataset.showcaseClickBound = "true";
       return card;
     }
