@@ -389,6 +389,25 @@
           // Ignore nodes that cannot accept inline style updates.
         }
       });
+      if (modal) {
+        try {
+          modal.style.display = "grid";
+          modal.style.width = "100vw";
+          modal.style.maxWidth = "100vw";
+        } catch (error) {
+          // Ignore modal style updates.
+        }
+      }
+      if (dialog) {
+        try {
+          dialog.style.width = "min(1100px, calc(100vw - 24px))";
+          dialog.style.maxWidth = "calc(100vw - 24px)";
+          dialog.style.marginLeft = "auto";
+          dialog.style.marginRight = "auto";
+        } catch (error) {
+          // Ignore dialog style updates.
+        }
+      }
       window.requestAnimationFrame(() => {
         targets.forEach((node) => {
           try {
