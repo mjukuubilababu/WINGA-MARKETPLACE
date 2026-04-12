@@ -4335,6 +4335,24 @@ body.context-chat-open{
   font-size:1.3rem;
 }
 
+#profile-div #profile-messages-panel,
+#profile-div #profile-notifications-panel,
+#profile-div #profile-products-panel{
+  display:none;
+}
+
+#profile-div[data-active-section="profile-messages-panel"] #profile-messages-panel{
+  display:block;
+}
+
+#profile-div[data-active-section="profile-notifications-panel"] #profile-notifications-panel{
+  display:block;
+}
+
+#profile-div[data-active-section="profile-products-panel"] #profile-products-panel{
+  display:block;
+}
+
 #welcome-popup{
   position:fixed;
   left:50%;

@@ -1618,6 +1618,7 @@ function openProfileSection(sectionId = "") {
     return;
   }
   profileRuntimeState.pendingSection = sectionId;
+  profileRuntimeState.activeSection = sectionId || profileRuntimeState.activeSection || "profile-products-panel";
   toggleHeaderUserMenu(false);
   setCurrentViewState("profile", {
     syncHistory: "push",
@@ -1643,6 +1644,17 @@ function flushPendingProfileSection() {
   requestAnimationFrame(() => {
     document.getElementById(sectionId)?.scrollIntoView({ behavior: "smooth", block: "start" });
   });
+}
+
+function setActiveProfileSection(sectionId) {
+  profileRuntimeState.activeSection = sectionId || "profile-products-panel";
+  if (currentView === "profile" && profileDiv) {
+    profileDiv.dataset.activeSection = profileRuntimeState.activeSection;
+  }
+}
+
+function getActiveProfileSection() {
+  return profileRuntimeState.activeSection || "";
 }
 
 function getAdminNavLabel() {
@@ -1867,6 +1879,8 @@ const {
   captureError: (...args) => captureClientError(...args),
   promptGuestAuth,
   openProfileSection,
+  setActiveProfileSection,
+  getActiveProfileSection,
   cleanupLocalFallbackArtifacts: () => window.WingaDataLayer.cleanupLocalFallbackArtifacts?.(),
   sendMessage: (payload) => window.WingaDataLayer.sendMessage(payload),
   refreshMessagesState,
@@ -3942,16 +3956,18 @@ const {
   getUserInitials,
   getRoleLabel,
   getTotalUnreadMessages,
-  getRequestBoxItemCount,
-  getActivePromotions,
-  getPromotionOptions: () => PROMOTION_OPTIONS,
-  flushPendingProfileSection,
-  setPendingProfileSection: (value) => {
-    profileRuntimeState.pendingSection = value;
-  },
-  setProfileMessagesFilter: (value) => {
-    chatUiState.profileMessagesFilter = value === "unread" ? "unread" : "all";
-  },
+    getRequestBoxItemCount,
+    getActivePromotions,
+    getPromotionOptions: () => PROMOTION_OPTIONS,
+    flushPendingProfileSection,
+    setPendingProfileSection: (value) => {
+      profileRuntimeState.pendingSection = value;
+    },
+    setActiveProfileSection,
+    getActiveProfileSection,
+    setProfileMessagesFilter: (value) => {
+      chatUiState.profileMessagesFilter = value === "unread" ? "unread" : "all";
+    },
   setProfileMessagesMode: (value) => {
     chatUiState.profileMessagesMode = value === "detail" ? "detail" : "list";
   },
@@ -6263,10 +6279,11 @@ function loginSuccess(username, preferredCategory = "", sessionData = null, opti
   currentOrders = { purchases: [], sales: [] };
   currentMessages = [];
   currentNotifications = [];
-  currentPromotions = [];
-  currentReviews = [];
+    currentPromotions = [];
+    currentReviews = [];
     reviewSummaries = {};
     profileRuntimeState.pendingSection = "";
+    profileRuntimeState.activeSection = "profile-products-panel";
     chatUiState.activeContext = null;
     chatUiState.profileMessagesMode = "list";
     chatUiState.profileMessagesFilter = "all";
@@ -6382,9 +6399,10 @@ function logout() {
   clearSessionUser();
   clearAppViewState();
   applySessionState(null);
-  profileRuntimeState.pendingSection = "";
-  currentOrders = { purchases: [], sales: [] };
-  currentMessages = [];
+    profileRuntimeState.pendingSection = "";
+    profileRuntimeState.activeSection = "profile-products-panel";
+    currentOrders = { purchases: [], sales: [] };
+    currentMessages = [];
   currentNotifications = [];
   currentPromotions = [];
   buyerSellerAffinity = {};

@@ -22,6 +22,7 @@
       },
       profile: {
         pendingSection: "",
+        activeSection: "profile-products-panel",
         isHeaderUserMenuOpen: false
       }
     };

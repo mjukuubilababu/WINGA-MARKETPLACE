@@ -438,12 +438,13 @@
       }));
 
       const statsGrid = deps.createElement("div", { className: "profile-stats" });
-      (stats || []).forEach((stat) => {
-        statsGrid.appendChild(deps.createStatBox({
-          value: stat.value,
-          label: stat.label
-        }));
-      });
+        (stats || []).forEach((stat) => {
+          statsGrid.appendChild(deps.createStatBox({
+            value: stat.value,
+            label: stat.label,
+            action: stat.action
+          }));
+        });
       fragment.appendChild(statsGrid);
 
       [

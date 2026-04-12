@@ -157,6 +157,7 @@
         button.addEventListener("click", () => {
           const action = button.dataset.profileAction || "";
           if (action === "products") {
+            deps.setActiveProfileSection?.("profile-products-panel");
             deps.setPendingProfileSection?.("profile-products-panel");
             deps.flushPendingProfileSection?.();
             return;
@@ -166,6 +167,7 @@
             deps.setProfileMessagesMode?.("list");
             deps.setProfileHasSelection?.(false);
             deps.setActiveChatContext?.(null);
+            deps.setActiveProfileSection?.("profile-messages-panel");
             deps.setPendingProfileSection?.("profile-messages-panel");
             deps.replaceMessagesPanel?.(profileDiv);
             deps.flushPendingProfileSection?.();
@@ -176,6 +178,7 @@
             deps.setProfileMessagesMode?.("list");
             deps.setProfileHasSelection?.(false);
             deps.setActiveChatContext?.(null);
+            deps.setActiveProfileSection?.("profile-messages-panel");
             deps.setPendingProfileSection?.("profile-messages-panel");
             deps.replaceMessagesPanel?.(profileDiv);
             deps.flushPendingProfileSection?.();
@@ -439,6 +442,8 @@
         return;
       }
 
+      const activeSection = deps.getActiveProfileSection?.() || "profile-products-panel";
+      deps.setActiveProfileSection?.(activeSection);
       deps.flushPendingProfileSection();
       bindProfileEntryActions();
       const container = document.getElementById("user-products-container");
