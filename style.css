@@ -2790,6 +2790,9 @@ body.product-detail-open{
   position:fixed;
   inset:0;
   z-index:1450;
+  display:flex;
+  justify-content:center;
+  align-items:flex-start;
   overflow:auto;
   overflow-x:hidden;
   background:linear-gradient(180deg, #f7f7f8 0%, #fff7f1 100%);
@@ -2805,9 +2808,10 @@ body.product-detail-open{
 
 .product-detail-dialog{
   position:relative;
-  width:min(1100px, 100%);
+  width:min(1100px, calc(100vw - 24px));
+  max-width:calc(100vw - 24px);
   min-height:100%;
-  margin:0 auto;
+  margin:0;
   padding:72px 0 24px;
   max-width:100%;
   box-sizing:border-box;
