@@ -4,8 +4,5 @@
 /index.html
   Cache-Control: no-store, must-revalidate
 
-/winga.html
-  Cache-Control: no-store, must-revalidate
-
-/winga
+/
   Cache-Control: no-store, must-revalidate

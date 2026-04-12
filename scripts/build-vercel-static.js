@@ -7,7 +7,6 @@ const assetVersion = process.env.WINGA_ASSET_VERSION || new Date().toISOString()
 const requiredRootFiles = [
   "_headers",
   "index.html",
-  "winga.html",
   "style.css",
   "app.js",
   "app-core.js",
@@ -19,7 +18,6 @@ const requiredRootFiles = [
 const fileCopies = [
   ["_headers", "_headers"],
   ["index.html", "index.html"],
-  ["winga.html", "winga.html"],
   ["style.css", "style.css"],
   ["app.js", "app.js"],
   ["app-core.js", "app-core.js"],
@@ -122,7 +120,6 @@ function buildFrontendModuleBundle() {
 function verifyDistContents() {
   const expectedFiles = [
     "index.html",
-    "winga.html",
     "style.css",
     "app.js",
     "app-core.js",
@@ -158,7 +155,6 @@ fileCopies.forEach(([sourceRelativePath, targetRelativePath]) => {
 });
 
 applyAssetVersionToHtml("index.html");
-applyAssetVersionToHtml("winga.html");
 
 copyDirectoryRecursive(path.join(rootDir, "src"), path.join(outputDir, "src"));
 fs.writeFileSync(path.join(outputDir, "winga-modules.js"), buildFrontendModuleBundle(), "utf8");
