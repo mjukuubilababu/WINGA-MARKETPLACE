@@ -144,10 +144,53 @@
       }
     }
 
+    function handleProfileAction(action, profileDiv) {
+      if (!action) {
+        return;
+      }
+      if (action === "products") {
+        deps.setActiveProfileSection?.("profile-products-panel");
+        deps.setPendingProfileSection?.("profile-products-panel");
+        deps.flushPendingProfileSection?.();
+        return;
+      }
+      if (action === "unread") {
+        deps.setProfileMessagesFilter?.("unread");
+        deps.setProfileMessagesMode?.("list");
+        deps.setProfileHasSelection?.(false);
+        deps.setActiveChatContext?.(null);
+        deps.setActiveProfileSection?.("profile-messages-panel");
+        deps.setPendingProfileSection?.("profile-messages-panel");
+        deps.replaceMessagesPanel?.(profileDiv);
+        deps.flushPendingProfileSection?.();
+        return;
+      }
+      if (action === "messages") {
+        deps.setProfileMessagesFilter?.("all");
+        deps.setProfileMessagesMode?.("list");
+        deps.setProfileHasSelection?.(false);
+        deps.setActiveChatContext?.(null);
+        deps.setActiveProfileSection?.("profile-messages-panel");
+        deps.setPendingProfileSection?.("profile-messages-panel");
+        deps.replaceMessagesPanel?.(profileDiv);
+        deps.flushPendingProfileSection?.();
+      }
+    }
+
     function bindProfileEntryActions() {
       const profileDiv = deps.getOrCreateProfileDiv();
       if (!profileDiv) {
         return;
+      }
+      if (profileDiv.dataset.profileActionBound !== "true") {
+        profileDiv.dataset.profileActionBound = "true";
+        profileDiv.addEventListener("click", (event) => {
+          const target = event.target?.closest?.("[data-profile-action]");
+          if (!target) {
+            return;
+          }
+          handleProfileAction(target.dataset.profileAction || "", profileDiv);
+        });
       }
       profileDiv.querySelectorAll("[data-profile-action]").forEach((button) => {
         if (button.dataset.bound === "true") {
@@ -155,34 +198,7 @@
         }
         button.dataset.bound = "true";
         button.addEventListener("click", () => {
-          const action = button.dataset.profileAction || "";
-          if (action === "products") {
-            deps.setActiveProfileSection?.("profile-products-panel");
-            deps.setPendingProfileSection?.("profile-products-panel");
-            deps.flushPendingProfileSection?.();
-            return;
-          }
-          if (action === "unread") {
-            deps.setProfileMessagesFilter?.("unread");
-            deps.setProfileMessagesMode?.("list");
-            deps.setProfileHasSelection?.(false);
-            deps.setActiveChatContext?.(null);
-            deps.setActiveProfileSection?.("profile-messages-panel");
-            deps.setPendingProfileSection?.("profile-messages-panel");
-            deps.replaceMessagesPanel?.(profileDiv);
-            deps.flushPendingProfileSection?.();
-            return;
-          }
-          if (action === "messages") {
-            deps.setProfileMessagesFilter?.("all");
-            deps.setProfileMessagesMode?.("list");
-            deps.setProfileHasSelection?.(false);
-            deps.setActiveChatContext?.(null);
-            deps.setActiveProfileSection?.("profile-messages-panel");
-            deps.setPendingProfileSection?.("profile-messages-panel");
-            deps.replaceMessagesPanel?.(profileDiv);
-            deps.flushPendingProfileSection?.();
-          }
+          handleProfileAction(button.dataset.profileAction || "", profileDiv);
         });
       });
     }
