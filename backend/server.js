@@ -960,7 +960,9 @@ function isValidPaymentStatus(status) {
 
 function normalizeUserRecord(user) {
   const username = normalizeIdentifier(user.username, 40);
-  const fullName = sanitizePlainText(user.fullName || user.displayName || user.username, 120);
+  const fullName = username === "admin"
+    ? sanitizePlainText(user.fullName || user.displayName || ADMIN_SEED.fullName || user.username, 120)
+    : sanitizePlainText(user.fullName || user.displayName || user.username, 120);
   const phoneNumber = String(user.phoneNumber || "").replace(/\D/g, "").slice(0, 20);
   const whatsappNumber = String(user.whatsappNumber || phoneNumber || "").replace(/\D/g, "").slice(0, 20);
   return {
@@ -1866,6 +1868,7 @@ function findUserIndexByPublicIdentifier(users, rawIdentifier) {
   return (users || []).findIndex((item) =>
     normalizeIdentifier(item.username, 120) === normalizedIdentifier
     || normalizeIdentifier(item.fullName || "", 120) === normalizedIdentifier
+    || (normalizeIdentifier(item.username, 120) === "admin" && normalizedIdentifier === normalizeIdentifier(ADMIN_SEED.fullName, 120))
     || String(item.phoneNumber || "") === normalizedPhone
   );
 }
