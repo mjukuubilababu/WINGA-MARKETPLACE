@@ -2794,6 +2794,10 @@ body.product-detail-open{
   overflow-x:hidden;
   background:linear-gradient(180deg, #f7f7f8 0%, #fff7f1 100%);
   padding:0 12px 32px;
+  left:0;
+  right:0;
+  width:100vw;
+  margin:0;
   overscroll-behavior-x:none;
   touch-action:pan-y pinch-zoom;
   scrollbar-gutter:auto;
@@ -2808,6 +2812,7 @@ body.product-detail-open{
   max-width:100%;
   box-sizing:border-box;
   overflow-x:clip;
+  transform:translateX(0);
 }
 
 #product-detail-content{
