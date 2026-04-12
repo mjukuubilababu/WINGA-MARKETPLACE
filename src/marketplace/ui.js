@@ -315,9 +315,10 @@
         : 0;
       const fragment = document.createDocumentFragment();
       const viewedProductIds = [];
+      const passiveViewLimit = Math.max(6, (deps.getProductsPerRow?.() || 3) * 2);
 
       list.forEach((product, index) => {
-        if (shouldTrackViews && deps.trackView(product)) {
+        if (shouldTrackViews && index < passiveViewLimit && deps.trackView(product)) {
           viewedProductIds.push(product.id);
         }
 

@@ -3491,7 +3491,7 @@ body.product-detail-open{
 
 .profile-stats{
   display:grid;
-  grid-template-columns:repeat(3, minmax(90px, 1fr));
+  grid-template-columns:repeat(3, minmax(0, 1fr));
   gap:10px;
   margin:16px 0 18px;
   position:relative;
@@ -4352,6 +4352,7 @@ body.context-chat-open{
   background:#fff;
   border:1px solid var(--border);
   width:100%;
+  min-width:0;
   position:relative;
   z-index:6;
   display:flex;
@@ -4360,6 +4361,7 @@ body.context-chat-open{
   justify-content:center;
   gap:2px;
   pointer-events:auto;
+  touch-action:manipulation;
 }
 
 .stat-box-action:focus-visible{

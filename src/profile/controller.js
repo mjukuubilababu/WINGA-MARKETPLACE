@@ -189,6 +189,8 @@
           if (!target) {
             return;
           }
+          event.preventDefault();
+          event.stopPropagation();
           handleProfileAction(target.dataset.profileAction || "", profileDiv);
         });
       }
@@ -284,6 +286,7 @@
       };
       const isBuyerOnly = deps.isBuyerUser();
       const hasBuyerAccess = deps.canUseBuyerFeatures();
+      const activeSection = deps.getActiveProfileSection?.() || "profile-products-panel";
 
       if (deps.canUseSellerFeatures()) {
         deps.dataLayer.loadAnalytics()
@@ -396,6 +399,7 @@
         });
 
       try {
+        profileDiv.dataset.activeSection = activeSection;
         profileDiv.replaceChildren(deps.createProfileShellElement({
           displayName: deps.getCurrentDisplayName(),
           accountMeta: `${isBuyerOnly ? "Akaunti yako ya mteja" : deps.canUseSellerFeatures() ? "Akaunti ya muuzaji yenye access ya mteja" : "Simamia akaunti yako"}${userProfile?.status && userProfile.status !== "active" ? ` | ${userProfile.status}` : ""}`,
@@ -449,7 +453,6 @@
         return;
       }
 
-      const activeSection = deps.getActiveProfileSection?.() || "profile-products-panel";
       deps.setActiveProfileSection?.(activeSection);
       deps.flushPendingProfileSection();
       bindProfileEntryActions();
