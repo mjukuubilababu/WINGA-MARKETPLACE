@@ -1233,7 +1233,8 @@ const {
 } = window.WingaModules.auth.createPermissionsHelpers({
   getCurrentSession: () => currentSession,
   getCurrentUser: () => currentUser,
-  getCurrentView: () => currentView
+  getCurrentView: () => currentView,
+  getMarketplaceUser
 });
 
 function canAccessView(view) {
@@ -6309,13 +6310,10 @@ function loginSuccess(username, preferredCategory = "", sessionData = null, opti
     || getUserPrimaryCategory(username)
     || "";
   hydrateBuyerSellerAffinityState(username);
-  const shouldRestoreBuyerView = !isBuyerUser();
-  const storedViewState = restoreView && shouldRestoreBuyerView ? getStoredAppView() : null;
+  const storedViewState = restoreView ? getStoredAppView() : null;
   const nextView = forceView && isRestorableView(forceView, currentSession)
     ? forceView
-    : storedViewState?.username === username && isRestorableView(storedViewState.view, currentSession)
-      ? storedViewState.view
-      : (isStaffUser() ? "admin" : "home");
+    : (isStaffUser() ? "admin" : "home");
   saveSessionUser(currentSession);
   authContainer.style.display = "none";
   hideAdminLoginScreen();
@@ -6324,7 +6322,7 @@ function loginSuccess(username, preferredCategory = "", sessionData = null, opti
   appContainer.style.display = "block";
   adminNavItem.style.display = isStaffUser() ? "inline-flex" : "none";
   setAdminNavLabel(adminNavItem, getAdminNavLabel());
-  const storedCategory = !isStaffUser() && storedViewState?.username === username && storedViewState?.selectedCategory
+  const storedCategory = restoreView && !isStaffUser() && storedViewState?.username === username && storedViewState?.selectedCategory
     ? getRestorableCategory(storedViewState.selectedCategory)
     : "all";
   const nextSelectedCategory = storedCategory !== "all"

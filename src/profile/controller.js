@@ -192,15 +192,6 @@
           handleProfileAction(target.dataset.profileAction || "", profileDiv);
         });
       }
-      profileDiv.querySelectorAll("[data-profile-action]").forEach((button) => {
-        if (button.dataset.bound === "true") {
-          return;
-        }
-        button.dataset.bound = "true";
-        button.addEventListener("click", () => {
-          handleProfileAction(button.dataset.profileAction || "", profileDiv);
-        });
-      });
     }
 
     function bindProfileIdentityActions() {

@@ -3,15 +3,25 @@
     const {
       getCurrentSession,
       getCurrentUser,
-      getCurrentView
+      getCurrentView,
+      getMarketplaceUser
     } = deps;
 
+    function getResolvedRole() {
+      const sessionRole = String(getCurrentSession()?.role || "").toLowerCase();
+      if (sessionRole) {
+        return sessionRole;
+      }
+      const marketplaceRole = String(getMarketplaceUser?.(getCurrentUser())?.role || "").toLowerCase();
+      return marketplaceRole;
+    }
+
     function isBuyerUser() {
-      return getCurrentSession()?.role === "buyer";
+      return getResolvedRole() === "buyer";
     }
 
     function isSellerUser() {
-      return getCurrentSession()?.role === "seller";
+      return getResolvedRole() === "seller";
     }
 
     function canUseBuyerFeatures() {
@@ -24,7 +34,7 @@
 
     function isAuthenticatedUser() {
       const currentSession = getCurrentSession();
-      return Boolean(getCurrentUser() && currentSession?.username);
+      return Boolean(getCurrentUser() || currentSession?.username);
     }
 
     function shouldHideOwnProductsInMarketplace() {
