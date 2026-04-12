@@ -111,7 +111,10 @@
     }
 
     function renderMessagesSection() {
-      const summaries = deps.getConversationSummaries();
+      const profileFilter = deps.getProfileMessagesFilter?.() || "all";
+      const summaries = deps.getConversationSummariesFiltered
+        ? deps.getConversationSummariesFiltered(profileFilter)
+        : deps.getConversationSummaries();
       const activeMessages = deps.getActiveConversationMessages();
       const activeChatContext = deps.getActiveChatContext();
       const currentMessageDraft = deps.getCurrentMessageDraft();
@@ -122,6 +125,10 @@
       const showDetailOnly = isCompactMessagesLayout && activeChatContext && profileMessagesMode === "detail";
       const showConversationList = !showDetailOnly;
       const showConversationDetail = !isCompactMessagesLayout || profileMessagesMode === "detail";
+      const panelTitle = profileFilter === "unread" ? "Unread Messages" : "Messages";
+      const panelSubtitle = profileFilter === "unread"
+        ? "Unread conversations"
+        : "Chat ya Mteja na Muuzaji";
       const lastActiveLabel = activeMessages[activeMessages.length - 1]?.timestamp
         ? `Last active ${new Date(activeMessages[activeMessages.length - 1].timestamp).toLocaleString("sw-TZ")}`
         : "Ready to continue the conversation";
@@ -130,8 +137,8 @@
         <section id="profile-messages-panel">
           <div class="section-heading">
             <div>
-              <p class="eyebrow">Messages</p>
-              <h3>Chat ya Mteja na Muuzaji</h3>
+              <p class="eyebrow">${panelTitle}</p>
+              <h3>${panelSubtitle}</h3>
             </div>
             <span class="meta-copy">${summaries.length} conversations</span>
           </div>
@@ -140,11 +147,22 @@
             <div class="messages-list">
               ${summaries.length ? summaries.map((summary) => `
                 <button class="message-thread-item ${activeChatContext && summary.key === deps.getChatContextKey(activeChatContext) ? "active" : ""}" type="button" data-conversation-user="${summary.withUser}" data-conversation-product="${summary.productId}" data-conversation-name="${deps.escapeHtml(summary.productName)}">
-                  <strong>${deps.escapeHtml(summary.displayName || deps.getUserDisplayName(summary.withUser))}${summary.unreadCount ? ` <span class="thread-badge">${summary.unreadCount}</span>` : ""}</strong>
-                  <span>${deps.escapeHtml(summary.productName || "General inquiry")}</span>
-                  <small>${deps.escapeHtml(summary.latestMessage || "Hakuna ujumbe bado.")}</small>
+                  <span class="message-thread-avatar">
+                    ${(() => {
+                      const partner = deps.getMarketplaceUser?.(summary.withUser);
+                      const avatar = deps.sanitizeImageSource?.(partner?.profileImage || "", "");
+                      return avatar
+                        ? `<img src="${avatar}" alt="${deps.escapeHtml(summary.displayName || deps.getUserDisplayName(summary.withUser))}" />`
+                        : `<span>${deps.escapeHtml((summary.displayName || deps.getUserDisplayName(summary.withUser) || "User").slice(0, 1))}</span>`;
+                    })()}
+                  </span>
+                  <span class="message-thread-meta">
+                    <strong>${deps.escapeHtml(summary.displayName || deps.getUserDisplayName(summary.withUser))}${summary.unreadCount ? ` <span class="thread-badge">${summary.unreadCount}</span>` : ""}</strong>
+                    <span>${deps.escapeHtml(summary.productName || "General inquiry")}</span>
+                    <small>${deps.escapeHtml(summary.latestMessage || "Hakuna ujumbe bado.")}</small>
+                  </span>
                 </button>
-              `).join("") : `<p class="empty-copy">Hakuna conversation bado. Tumia Message Muuzaji kwenye bidhaa uanze chat.</p>`}
+              `).join("") : `<p class="empty-copy">${profileFilter === "unread" ? "Hakuna unread conversations kwa sasa." : "Hakuna conversation bado. Tumia Message Muuzaji kwenye bidhaa uanze chat."}</p>`}
             </div>
             ` : ""}
             ${showConversationDetail ? `

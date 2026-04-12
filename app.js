@@ -2072,6 +2072,14 @@ function getConversationSummaries() {
   return summaries;
 }
 
+function getConversationSummariesFiltered(filter = "all") {
+  const summaries = getConversationSummaries();
+  if (filter === "unread") {
+    return summaries.filter((summary) => summary.unreadCount > 0);
+  }
+  return summaries;
+}
+
 function getTotalUnreadMessages() {
   return currentMessages.filter((message) => message.receiverId === currentUser && !message.isRead).length;
 }
@@ -3156,6 +3164,10 @@ function getMessagePreviewText(message) {
 
 function syncActiveChatContext() {
   const summaries = getConversationSummaries();
+  if (currentView === "profile" && chatUiState.profileMessagesMode === "list" && !chatUiState.profileHasSelection) {
+    chatUiState.activeContext = null;
+    return;
+  }
   if (chatUiState.activeContext && summaries.some((item) => item.key === getChatContextKey(chatUiState.activeContext))) {
     return;
   }
@@ -3679,9 +3691,11 @@ const {
   getUnreadNotifications,
   escapeHtml,
   getConversationSummaries,
+  getConversationSummariesFiltered,
   getActiveConversationMessages,
   getActiveChatContext: () => chatUiState.activeContext,
   getProfileMessagesMode: () => chatUiState.profileMessagesMode,
+  getProfileMessagesFilter: () => chatUiState.profileMessagesFilter,
   isCompactMessagesLayout: () => window.innerWidth <= 720,
   getCurrentMessageDraft: () => chatUiState.currentDraft,
   getChatContactState,
@@ -3732,6 +3746,12 @@ const {
   getActiveChatContext: () => chatUiState.activeContext,
   setProfileMessagesMode: (value) => {
     chatUiState.profileMessagesMode = value === "detail" ? "detail" : "list";
+  },
+  setProfileMessagesFilter: (value) => {
+    chatUiState.profileMessagesFilter = value === "unread" ? "unread" : "all";
+  },
+  setProfileHasSelection: (value) => {
+    chatUiState.profileHasSelection = Boolean(value);
   },
   setCurrentMessageDraft: (value) => {
     chatUiState.currentDraft = value;
@@ -3905,10 +3925,11 @@ const {
   setCurrentOrders: (value) => {
     currentOrders = value;
   },
-  getCurrentMessages: () => currentMessages,
-  setCurrentMessages: (value) => {
-    currentMessages = value;
-  },
+    getCurrentMessages: () => currentMessages,
+    getConversationSummaries,
+    setCurrentMessages: (value) => {
+      currentMessages = value;
+    },
   setCurrentNotifications: (value) => {
     currentNotifications = value;
   },
@@ -3925,6 +3946,21 @@ const {
   getActivePromotions,
   getPromotionOptions: () => PROMOTION_OPTIONS,
   flushPendingProfileSection,
+  setPendingProfileSection: (value) => {
+    profileRuntimeState.pendingSection = value;
+  },
+  setProfileMessagesFilter: (value) => {
+    chatUiState.profileMessagesFilter = value === "unread" ? "unread" : "all";
+  },
+  setProfileMessagesMode: (value) => {
+    chatUiState.profileMessagesMode = value === "detail" ? "detail" : "list";
+  },
+  setProfileHasSelection: (value) => {
+    chatUiState.profileHasSelection = Boolean(value);
+  },
+  setActiveChatContext: (context) => {
+    chatUiState.activeContext = context;
+  },
   setEmptyCopy,
   setResultsMeta: (title, caption) => {
     resultsCount.innerText = title;
@@ -6229,10 +6265,12 @@ function loginSuccess(username, preferredCategory = "", sessionData = null, opti
   currentNotifications = [];
   currentPromotions = [];
   currentReviews = [];
-  reviewSummaries = {};
-  profileRuntimeState.pendingSection = "";
-  chatUiState.activeContext = null;
-  chatUiState.profileMessagesMode = "list";
+    reviewSummaries = {};
+    profileRuntimeState.pendingSection = "";
+    chatUiState.activeContext = null;
+    chatUiState.profileMessagesMode = "list";
+    chatUiState.profileMessagesFilter = "all";
+    chatUiState.profileHasSelection = false;
   if (isStaffRole(sessionData?.role || currentSession?.role || "")) {
     clearRequestBoxSessionState();
   } else {
@@ -6351,10 +6389,12 @@ function logout() {
   currentPromotions = [];
   buyerSellerAffinity = {};
   currentReviews = [];
-  reviewSummaries = {};
-  chatUiState.activeContext = null;
-  chatUiState.profileMessagesMode = "list";
-  clearRequestBoxSessionState();
+    reviewSummaries = {};
+    chatUiState.activeContext = null;
+    chatUiState.profileMessagesMode = "list";
+    chatUiState.profileMessagesFilter = "all";
+    chatUiState.profileHasSelection = false;
+    clearRequestBoxSessionState();
   chatUiState.currentDraft = "";
   chatUiState.selectedProductIds = [];
   chatUiState.activeReplyMessageId = "";

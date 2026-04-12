@@ -32,8 +32,15 @@
     });
   }
 
-  function createStatBox({ value = "", label = "" } = {}) {
-    const box = createElement("div", { className: "stat-box" });
+  function createStatBox({ value = "", label = "", action = "", attributes = {} } = {}) {
+    const isAction = Boolean(action);
+    const box = createElement(isAction ? "button" : "div", {
+      className: `stat-box${isAction ? " stat-box-action" : ""}`,
+      attributes: {
+        ...(isAction ? { type: "button", "data-profile-action": action } : {}),
+        ...(attributes || {})
+      }
+    });
     box.append(
       createElement("strong", { textContent: String(value) }),
       createElement("span", { textContent: label })

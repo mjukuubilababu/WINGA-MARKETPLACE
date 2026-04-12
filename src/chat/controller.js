@@ -522,6 +522,7 @@
             productName: button.dataset.conversationName || ""
           });
           deps.setProfileMessagesMode?.("detail");
+          deps.setProfileHasSelection?.(true);
           deps.setCurrentMessageDraft("");
           try {
             await deps.markActiveConversationRead();
@@ -534,6 +535,7 @@
 
       bindClickOnce("[data-message-list-back]", "MessageListBack", () => {
         deps.setProfileMessagesMode?.("list");
+        deps.setProfileHasSelection?.(false);
         deps.replaceMessagesPanel(scope);
       });
 

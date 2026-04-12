@@ -144,6 +144,46 @@
       }
     }
 
+    function bindProfileEntryActions() {
+      const profileDiv = deps.getOrCreateProfileDiv();
+      if (!profileDiv) {
+        return;
+      }
+      profileDiv.querySelectorAll("[data-profile-action]").forEach((button) => {
+        if (button.dataset.bound === "true") {
+          return;
+        }
+        button.dataset.bound = "true";
+        button.addEventListener("click", () => {
+          const action = button.dataset.profileAction || "";
+          if (action === "products") {
+            deps.setPendingProfileSection?.("profile-products-panel");
+            deps.flushPendingProfileSection?.();
+            return;
+          }
+          if (action === "unread") {
+            deps.setProfileMessagesFilter?.("unread");
+            deps.setProfileMessagesMode?.("list");
+            deps.setProfileHasSelection?.(false);
+            deps.setActiveChatContext?.(null);
+            deps.setPendingProfileSection?.("profile-messages-panel");
+            deps.replaceMessagesPanel?.(profileDiv);
+            deps.flushPendingProfileSection?.();
+            return;
+          }
+          if (action === "messages") {
+            deps.setProfileMessagesFilter?.("all");
+            deps.setProfileMessagesMode?.("list");
+            deps.setProfileHasSelection?.(false);
+            deps.setActiveChatContext?.(null);
+            deps.setPendingProfileSection?.("profile-messages-panel");
+            deps.replaceMessagesPanel?.(profileDiv);
+            deps.flushPendingProfileSection?.();
+          }
+        });
+      });
+    }
+
     function bindProfileIdentityActions() {
       const profilePhotoInput = document.getElementById("profile-photo-input");
       const profilePhotoStatus = document.getElementById("profile-photo-status");
@@ -218,7 +258,6 @@
       const currentUser = deps.getCurrentUser();
       const currentSession = deps.getCurrentSession();
       const currentOrders = deps.getCurrentOrders();
-      const currentMessages = deps.getCurrentMessages();
       const userProducts = products
         .filter((product) => product.uploadedBy === currentUser)
         .sort((first, second) => {
@@ -226,16 +265,15 @@
           const firstTime = new Date(first.createdAt || first.updatedAt || first.timestamp || 0).getTime();
           return secondTime - firstTime;
         });
-      const totalLikes = userProducts.reduce((sum, product) => sum + (product.likes || 0), 0);
-      const totalViews = userProducts.reduce((sum, product) => sum + (product.views || 0), 0);
+      const conversationSummaries = deps.getConversationSummaries ? deps.getConversationSummaries() : [];
+      const totalUnreadMessages = deps.getTotalUnreadMessages ? deps.getTotalUnreadMessages() : 0;
+      const conversationCount = conversationSummaries.length;
       const userProfile = {
         ...(deps.getMarketplaceUser(currentUser) || {}),
         ...(currentSession || {})
       };
       const isBuyerOnly = deps.isBuyerUser();
       const hasBuyerAccess = deps.canUseBuyerFeatures();
-      const purchaseCount = Array.isArray(currentOrders?.purchases) ? currentOrders.purchases.length : 0;
-      const unreadConversations = currentMessages.filter((message) => message.receiverId === currentUser && !message.isRead).length;
 
       if (deps.canUseSellerFeatures()) {
         deps.dataLayer.loadAnalytics()
@@ -352,9 +390,21 @@
           displayName: deps.getCurrentDisplayName(),
           accountMeta: `${isBuyerOnly ? "Akaunti yako ya mteja" : deps.canUseSellerFeatures() ? "Akaunti ya muuzaji yenye access ya mteja" : "Simamia akaunti yako"}${userProfile?.status && userProfile.status !== "active" ? ` | ${userProfile.status}` : ""}`,
           stats: [
-            { value: deps.canUseSellerFeatures() ? userProducts.length : purchaseCount, label: deps.canUseSellerFeatures() ? "Bidhaa" : "Orders" },
-            { value: hasBuyerAccess ? deps.getTotalUnreadMessages() : totalLikes, label: hasBuyerAccess ? "Unread" : "Likes" },
-            { value: hasBuyerAccess ? unreadConversations : totalViews, label: hasBuyerAccess ? "Messages" : "Views" }
+            {
+              value: userProducts.length,
+              label: "Products",
+              action: "products"
+            },
+            {
+              value: totalUnreadMessages,
+              label: "Unread",
+              action: "unread"
+            },
+            {
+              value: conversationCount,
+              label: "Messages",
+              action: "messages"
+            }
           ],
           identityMarkup: deps.createProfileIdentitySectionElement(userProfile, {
             displayName: deps.getCurrentDisplayName(),
@@ -390,6 +440,7 @@
       }
 
       deps.flushPendingProfileSection();
+      bindProfileEntryActions();
       const container = document.getElementById("user-products-container");
 
       if (userProducts.length === 0) {

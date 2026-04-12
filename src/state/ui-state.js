@@ -4,6 +4,8 @@
       openEmojiScope: "",
       activeContext: null,
       profileMessagesMode: "list",
+      profileMessagesFilter: "all",
+      profileHasSelection: false,
       currentDraft: "",
       selectedProductIds: [],
       activeReplyMessageId: "",

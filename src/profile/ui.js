@@ -457,10 +457,18 @@
         appendRenderable(fragment, content);
       });
 
-      fragment.appendChild(deps.createElement("div", {
+      const productsPanel = deps.createElement("section", {
+        attributes: { id: "profile-products-panel" }
+      });
+      productsPanel.appendChild(deps.createSectionHeading({
+        eyebrow: "Products",
+        title: "Bidhaa zako zote"
+      }));
+      productsPanel.appendChild(deps.createElement("div", {
         className: "profile-product-grid",
         attributes: { id: "user-products-container" }
       }));
+      fragment.appendChild(productsPanel);
 
       const actionsCard = deps.createElement("div", {
         attributes: { id: "profile-actions-card" }
