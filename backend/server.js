@@ -27,6 +27,7 @@ const ADMIN_SEED_PASSWORD = process.env.ADMIN_SEED_PASSWORD || "";
 const MODERATOR_SEED_PASSWORD = process.env.MODERATOR_SEED_PASSWORD || "";
 const ADMIN_SEED = {
   username: "admin",
+  fullName: "WILHARD MMBANDO",
   password: ADMIN_SEED_PASSWORD || "Admin1234",
   phoneNumber: "255700000000",
   nationalId: "ADMIN001",

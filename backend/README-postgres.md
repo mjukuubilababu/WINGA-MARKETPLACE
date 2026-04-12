@@ -79,4 +79,5 @@ backend\restore-postgres.bat "C:\full\path\to\backup.sql"
 ## 6. Default staff accounts
 
 - admin / Admin1234
+- full name: WILHARD MMBANDO
 - moderator / Moderator1234
