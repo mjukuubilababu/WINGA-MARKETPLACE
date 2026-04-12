@@ -4415,6 +4415,7 @@ const brokenMarketplaceImagesByProduct = new Map();
 const BROKEN_IMAGE_FAILURE_THRESHOLD = 2;
 const BROKEN_IMAGE_SUPPRESS_MS = 5 * 60 * 1000;
 let brokenMarketplaceImageRefreshTimer = 0;
+let brokenMarketplaceImageRetryRefreshTimer = 0;
 const MAX_ACTIVE_HOME_CONTINUOUS_SECTIONS = 4;
 const MAX_HOME_CONTINUOUS_USED_IDS = 120;
 const MARKETPLACE_SCROLL_IMAGE_PLACEHOLDER = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
@@ -4487,7 +4488,11 @@ function clearBrokenMarketplaceImage(productId, imageSource = "") {
 }
 
 function scheduleBrokenMarketplaceImageRetryRefresh() {
-  window.setTimeout(() => {
+  if (brokenMarketplaceImageRetryRefreshTimer || !document.body.classList.contains("product-detail-open")) {
+    return;
+  }
+  brokenMarketplaceImageRetryRefreshTimer = window.setTimeout(() => {
+    brokenMarketplaceImageRetryRefreshTimer = 0;
     pruneBrokenMarketplaceImageRegistry();
     if (typeof refreshActiveProductDetail === "function" && document.body.classList.contains("product-detail-open")) {
       refreshActiveProductDetail();

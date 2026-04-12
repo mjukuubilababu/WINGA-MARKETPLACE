@@ -15,6 +15,46 @@
       window.setTimeout(callback, 180);
     }
 
+    const passiveViewedProductQueue = new Set();
+    let passiveViewedProductTrackingScheduled = false;
+    const PASSIVE_VIEW_TRACK_BATCH_SIZE = 6;
+
+    function schedulePassiveViewedProductTracking(productIds = []) {
+      Array.from(new Set(Array.isArray(productIds) ? productIds : []))
+        .filter(Boolean)
+        .forEach((productId) => passiveViewedProductQueue.add(productId));
+
+      if (passiveViewedProductTrackingScheduled || !passiveViewedProductQueue.size) {
+        return;
+      }
+
+      passiveViewedProductTrackingScheduled = true;
+      schedulePassiveTask(() => {
+        passiveViewedProductTrackingScheduled = false;
+        const batch = Array.from(passiveViewedProductQueue).slice(0, PASSIVE_VIEW_TRACK_BATCH_SIZE);
+        batch.forEach((productId) => passiveViewedProductQueue.delete(productId));
+
+        if (!batch.length) {
+          return;
+        }
+
+        Promise.resolve()
+          .then(async () => {
+            for (const productId of batch) {
+              await deps.trackProductView(productId);
+            }
+          })
+          .catch(() => {
+            // Ignore passive tracking failures.
+          })
+          .finally(() => {
+            if (passiveViewedProductQueue.size > 0) {
+              schedulePassiveViewedProductTracking([]);
+            }
+          });
+      });
+    }
+
     function createProductGalleryElement(product) {
       const safeImages = deps.getRenderableMarketplaceImages
         ? deps.getRenderableMarketplaceImages(product)
@@ -358,15 +398,7 @@
       }
 
       if (viewedProductIds.length > 0) {
-        schedulePassiveTask(() => {
-          Promise.all(viewedProductIds.map((productId) => deps.trackProductView(productId)))
-            .then(() => {
-              deps.refreshProductsFromStore();
-            })
-            .catch(() => {
-              // Ignore passive tracking failures.
-            });
-        });
+        schedulePassiveViewedProductTracking(viewedProductIds);
       }
     }
 
