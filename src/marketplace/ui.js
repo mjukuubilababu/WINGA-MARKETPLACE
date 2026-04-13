@@ -17,7 +17,8 @@
 
     const passiveViewedProductQueue = new Set();
     let passiveViewedProductTrackingScheduled = false;
-    const PASSIVE_VIEW_TRACK_BATCH_SIZE = 3;
+    const PASSIVE_VIEW_TRACK_BATCH_SIZE = 1;
+    const PASSIVE_VIEW_TRACK_IDLE_DELAY_MS = 700;
 
     function schedulePassiveViewedProductTracking(productIds = []) {
       Array.from(new Set(Array.isArray(productIds) ? productIds : []))
@@ -49,7 +50,7 @@
           })
           .finally(() => {
             if (passiveViewedProductQueue.size > 0) {
-              schedulePassiveViewedProductTracking([]);
+              window.setTimeout(() => schedulePassiveViewedProductTracking([]), PASSIVE_VIEW_TRACK_IDLE_DELAY_MS);
             }
           });
       });

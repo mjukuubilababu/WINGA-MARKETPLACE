@@ -5679,6 +5679,13 @@ button:hover,
     touch-action:pan-x pan-y;
   }
 
+  #market-showcase .showcase-card,
+  .showcase-inline .showcase-card,
+  #market-showcase .showcase-card *,
+  .showcase-inline .showcase-card *{
+    touch-action:pan-x pan-y;
+  }
+
   #market-showcase .showcase-track .showcase-card,
   #market-showcase .showcase-track .showcase-card *,
   .showcase-inline .showcase-track .showcase-card,
