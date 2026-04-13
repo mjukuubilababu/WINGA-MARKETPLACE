@@ -4445,8 +4445,10 @@ const BROKEN_IMAGE_FAILURE_THRESHOLD = 2;
 const BROKEN_IMAGE_SUPPRESS_MS = 5 * 60 * 1000;
 let brokenMarketplaceImageRefreshTimer = 0;
 let brokenMarketplaceImageRetryRefreshTimer = 0;
-const MAX_ACTIVE_HOME_CONTINUOUS_SECTIONS = 3;
-const MAX_HOME_CONTINUOUS_USED_IDS = 120;
+const MAX_ACTIVE_HOME_CONTINUOUS_SECTIONS = 2;
+const MAX_HOME_CONTINUOUS_USED_IDS = 96;
+const HOME_CONTINUOUS_DISCOVERY_MIN_INTERVAL_MS = 720;
+const HOME_CONTINUOUS_DISCOVERY_REOBSERVE_DELAY_MS = 420;
 const MARKETPLACE_SCROLL_IMAGE_PLACEHOLDER = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
 let marketplaceScrollImageObserver = null;
 
@@ -4818,7 +4820,8 @@ let homeContinuousDiscoveryRuntime = {
   recentIds: [],
   usedIds: new Set(),
   loading: false,
-  seedProductId: ""
+  seedProductId: "",
+  lastHydrateAt: 0
 };
 const observability = createObservabilityModule({
   emitClientEvent: (payload) => window.WingaDataLayer?.logClientEvent?.(payload),
@@ -7448,7 +7451,8 @@ function disconnectContinuousDiscoveryObserver() {
     usedIds: new Set(),
     loading: false,
     seedProductId: "",
-    reobserveTimer: 0
+    reobserveTimer: 0,
+    lastHydrateAt: 0
   };
 }
 
@@ -7465,7 +7469,7 @@ function scheduleContinuousDiscoveryReobserve(anchor) {
       return;
     }
     homeContinuousDiscoveryRuntime.observer.observe(anchor);
-  }, 180);
+  }, HOME_CONTINUOUS_DISCOVERY_REOBSERVE_DELAY_MS);
 }
 
 function trimHomeContinuousDiscoverySections(anchor) {
@@ -7487,6 +7491,13 @@ function hydrateContinuousDiscoveryAnchor(anchor) {
   if (!anchor || homeContinuousDiscoveryRuntime.loading) {
     return;
   }
+
+  const now = Date.now();
+  if (now - Number(homeContinuousDiscoveryRuntime.lastHydrateAt || 0) < HOME_CONTINUOUS_DISCOVERY_MIN_INTERVAL_MS) {
+    scheduleContinuousDiscoveryReobserve(anchor);
+    return;
+  }
+
   homeContinuousDiscoveryRuntime.loading = true;
   homeContinuousDiscoveryRuntime.observer?.unobserve(anchor);
 
@@ -7530,6 +7541,7 @@ function hydrateContinuousDiscoveryAnchor(anchor) {
     appendedIds
   );
   homeContinuousDiscoveryRuntime.batchIndex += 1;
+  homeContinuousDiscoveryRuntime.lastHydrateAt = now;
   homeContinuousDiscoveryRuntime.loading = false;
   scheduleContinuousDiscoveryReobserve(anchor);
 }
@@ -7546,6 +7558,7 @@ function setupContinuousDiscoveryLoading(scope, options = {}) {
   homeContinuousDiscoveryRuntime.usedIds = usedIds;
   homeContinuousDiscoveryRuntime.recentIds = [];
   homeContinuousDiscoveryRuntime.seedProductId = options.seedProduct?.id || "";
+  homeContinuousDiscoveryRuntime.lastHydrateAt = 0;
 
   if (typeof IntersectionObserver === "undefined") {
     for (let cycle = 0; cycle < 3; cycle += 1) {
@@ -7562,7 +7575,7 @@ function setupContinuousDiscoveryLoading(scope, options = {}) {
       hydrateContinuousDiscoveryAnchor(anchor);
     });
   }, {
-    rootMargin: "520px 0px 420px 0px"
+    rootMargin: "280px 0px 200px 0px"
   });
   homeContinuousDiscoveryRuntime.observer.observe(anchor);
 }
@@ -7763,66 +7776,6 @@ function enhanceShowcaseTracks(scope = document) {
         event.stopPropagation();
       }
     }, true);
-
-    track.addEventListener("touchstart", (event) => {
-      if (track.scrollWidth <= track.clientWidth + 4) {
-        return;
-      }
-      const touch = event.changedTouches?.[0];
-      if (!touch || isInteractiveTarget(event.target)) {
-        return;
-      }
-      activeTouchId = touch.identifier;
-      touchStartX = touch.clientX;
-      touchStartY = touch.clientY;
-      touchStartScrollLeft = track.scrollLeft;
-      isDragging = false;
-      track.classList.remove("is-dragging");
-    }, { passive: true });
-
-    track.addEventListener("touchmove", (event) => {
-      if (activeTouchId === null) {
-        return;
-      }
-      const touch = Array.from(event.changedTouches || []).find((item) => item.identifier === activeTouchId);
-      if (!touch) {
-        return;
-      }
-      const deltaX = touch.clientX - touchStartX;
-      const deltaY = touch.clientY - touchStartY;
-      if (!isDragging) {
-        if (Math.abs(deltaX) < 8) {
-          return;
-        }
-        if (Math.abs(deltaX) <= Math.abs(deltaY) + 4) {
-          clearTouchState();
-          return;
-        }
-        beginHorizontalDrag();
-      }
-      if (event.cancelable) {
-        event.preventDefault();
-      }
-      track.scrollLeft = touchStartScrollLeft - deltaX;
-    }, { passive: false });
-
-    track.addEventListener("touchend", (event) => {
-      if (activeTouchId === null) {
-        return;
-      }
-      const touch = Array.from(event.changedTouches || []).find((item) => item.identifier === activeTouchId);
-      if (!touch) {
-        return;
-      }
-      clearTouchState();
-    }, { passive: true });
-
-    track.addEventListener("touchcancel", () => {
-      if (activeTouchId === null) {
-        return;
-      }
-      clearTouchState();
-    }, { passive: true });
 
     if (typeof PointerEvent === "undefined") {
       return;
