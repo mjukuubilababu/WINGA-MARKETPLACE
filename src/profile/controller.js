@@ -185,6 +185,18 @@
       if (profileDiv.dataset.profileActionBound !== "true") {
         profileDiv.dataset.profileActionBound = "true";
         profileDiv.addEventListener("click", (event) => {
+          const closeMessagesTarget = event.target?.closest?.("[data-close-profile-messages]");
+          if (closeMessagesTarget) {
+            event.preventDefault();
+            event.stopPropagation();
+            deps.setProfileMessagesMode?.("list");
+            deps.setProfileHasSelection?.(false);
+            deps.setActiveChatContext?.(null);
+            deps.setActiveProfileSection?.("profile-products-panel");
+            deps.setPendingProfileSection?.("profile-products-panel");
+            renderProfile();
+            return;
+          }
           const target = event.target?.closest?.("[data-profile-action]");
           if (!target) {
             return;

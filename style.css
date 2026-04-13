@@ -3947,6 +3947,16 @@ body.context-chat-open{
   justify-content:flex-end;
 }
 
+.messages-panel-footer{
+  position:fixed;
+  right:max(16px, env(safe-area-inset-right));
+  bottom:max(16px, calc(env(safe-area-inset-bottom) + 16px));
+  z-index:1465;
+  display:flex;
+  justify-content:flex-end;
+  pointer-events:auto;
+}
+
 .message-panel-close{
   display:inline-flex;
   align-items:center;
@@ -4121,8 +4131,13 @@ body.context-chat-open{
     justify-content:space-between;
   }
 
+  .messages-panel-footer{
+    right:10px;
+    bottom:10px;
+  }
+
   .message-panel-close{
-    width:100%;
+    min-width:0;
   }
 
   .messages-thread-head{

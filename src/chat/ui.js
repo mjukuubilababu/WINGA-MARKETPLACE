@@ -138,10 +138,7 @@
               <p class="eyebrow">${panelTitle}</p>
               <h3>${panelSubtitle}</h3>
             </div>
-            <div class="messages-panel-actions">
-              <span class="meta-copy">${summaries.length} conversations</span>
-              <button class="message-panel-close" type="button" data-close-profile-messages="true">Back to profile</button>
-            </div>
+            <span class="meta-copy">${summaries.length} conversations</span>
           </div>
           <div class="messages-shell ${showConversationDetail ? "compact-detail" : ""}">
             ${showConversationList ? `
@@ -199,6 +196,9 @@
               ` : `<p class="empty-copy">Chagua conversation au tumia Message Muuzaji kutoka kwenye bidhaa.</p>`}
             </div>
             ` : ""}
+          </div>
+          <div class="messages-panel-footer">
+            <button class="message-panel-close" type="button" data-close-profile-messages="true">Back to profile</button>
           </div>
         </section>
       `;
