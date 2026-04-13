@@ -7697,18 +7697,20 @@ function bindShowcaseCardClicks(scope) {
     }
     card.dataset.showcaseClickBound = "true";
     card.addEventListener("click", (event) => {
-      if (
-        event.target.closest(
-          ".product-actions, .seller-product-actions, .product-menu, .product-menu-popup, .product-menu-toggle, [data-menu-toggle], [data-menu-popup], [data-product-caption-toggle], [data-request-product], [data-chat-product], [data-open-own-messages]"
-        )
-      ) {
-        return;
-      }
-
-      const productId = card.dataset.openProduct
+      const openTrigger = event.target.closest("[data-open-product], [data-showcase-id]");
+      const productId = openTrigger?.dataset?.openProduct
+        || openTrigger?.dataset?.showcaseId
+        || card.dataset.openProduct
         || card.dataset.showcaseId
         || "";
       if (!productId || event.__wingaProductOpenHandled) {
+        return;
+      }
+      if (
+        event.target.closest(
+          ".product-menu, .product-menu-popup, .product-menu-toggle, [data-menu-toggle], [data-menu-popup], [data-product-caption-toggle], [data-request-product], [data-chat-product], [data-open-own-messages]"
+        )
+      ) {
         return;
       }
 

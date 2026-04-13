@@ -140,14 +140,6 @@
         if (event.__wingaProductOpenHandled) {
           return;
         }
-        if (
-          event.target.closest(
-            ".product-actions, .seller-product-actions, .product-menu, .product-menu-popup, .product-menu-toggle, [data-menu-toggle], [data-menu-popup], [data-product-caption-toggle], [data-request-product], [data-chat-product], [data-open-own-messages]"
-          )
-        ) {
-          return;
-        }
-
         const openTrigger = event.target.closest("[data-open-product], [data-product-card], [data-showcase-id]");
         const productId = openTrigger?.dataset?.openProduct
           || openTrigger?.dataset?.productCard
@@ -157,8 +149,14 @@
           || card.dataset.showcaseId
           || product?.id
           || "";
-
         if (!productId) {
+          return;
+        }
+        if (
+          event.target.closest(
+            ".product-menu, .product-menu-popup, .product-menu-toggle, [data-menu-toggle], [data-menu-popup], [data-product-caption-toggle], [data-request-product], [data-chat-product], [data-open-own-messages]"
+          )
+        ) {
           return;
         }
 
