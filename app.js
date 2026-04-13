@@ -2451,6 +2451,9 @@ function syncImageLightboxView() {
 }
 
 function openImageLightbox(source = "", alt = "Image preview", images = [], context = {}) {
+  if (document.body.classList.contains("auth-modal-open")) {
+    return;
+  }
   const resolvedImages = Array.isArray(images) && images.length
     ? images.map((item) => sanitizeImageSource(item, "")).filter(Boolean)
     : [sanitizeImageSource(source, "")].filter(Boolean);
@@ -2501,6 +2504,9 @@ function closeImageLightbox() {
 
 function openMediaActionSheet(product, options = {}) {
   if (!product) {
+    return;
+  }
+  if (document.body.classList.contains("auth-modal-open")) {
     return;
   }
 
@@ -2589,6 +2595,9 @@ function bindImageActionInteractions() {
   };
 
   document.addEventListener("pointerdown", (event) => {
+    if (document.body.classList.contains("auth-modal-open")) {
+      return;
+    }
     const info = getProductFromImageTarget(event.target);
     if (!info || (event.pointerType === "mouse" && event.button !== 0)) {
       return;
@@ -2610,6 +2619,9 @@ function bindImageActionInteractions() {
   });
 
   document.addEventListener("contextmenu", (event) => {
+    if (document.body.classList.contains("auth-modal-open")) {
+      return;
+    }
     const info = getProductFromImageTarget(event.target);
     if (!info) {
       return;
@@ -2620,6 +2632,9 @@ function bindImageActionInteractions() {
   });
 
   document.addEventListener("click", (event) => {
+    if (document.body.classList.contains("auth-modal-open")) {
+      return;
+    }
     if (Date.now() < savedProductState.suppressClickUntil && event.target.closest("[data-image-action-product]")) {
       event.preventDefault();
       event.stopPropagation();
@@ -2661,6 +2676,9 @@ function bindImageZoomInteractions() {
   };
 
   document.addEventListener("click", (event) => {
+    if (document.body.classList.contains("auth-modal-open")) {
+      return;
+    }
     const image = getZoomableImage(event.target);
     if (!image) {
       return;
