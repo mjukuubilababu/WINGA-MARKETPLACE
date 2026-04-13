@@ -2064,8 +2064,9 @@ const {
 
 function getConversationSummaries() {
   const summaryMap = new Map();
+  const sourceMessages = Array.isArray(currentMessages) ? currentMessages : [];
 
-  currentMessages.forEach((message) => {
+  sourceMessages.forEach((message) => {
     const withUser = getMessagePartner(message);
     if (!withUser) {
       return;
@@ -2124,11 +2125,13 @@ function getConversationSummariesFiltered(filter = "all") {
 }
 
 function getTotalUnreadMessages() {
-  return currentMessages.filter((message) => message.receiverId === currentUser && !message.isRead).length;
+  return (Array.isArray(currentMessages) ? currentMessages : [])
+    .filter((message) => message.receiverId === currentUser && !message.isRead).length;
 }
 
 function getUnreadNotifications() {
-  return currentNotifications.filter((notification) => !notification.isRead);
+  return (Array.isArray(currentNotifications) ? currentNotifications : [])
+    .filter((notification) => !notification.isRead);
 }
 
 function updateProfileNavBadge() {
@@ -3228,7 +3231,8 @@ function syncActiveChatContext() {
 async function refreshMessagesState() {
   const startedAt = getPerfNow();
   try {
-    currentMessages = await window.WingaDataLayer.loadMessages();
+    const messages = await window.WingaDataLayer.loadMessages();
+    currentMessages = Array.isArray(messages) ? messages : [];
     syncActiveChatContext();
     updateProfileNavBadge();
   } catch (error) {

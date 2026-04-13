@@ -83,7 +83,10 @@
     }
 
     function renderNotificationsSection() {
-      const items = deps.getCurrentNotifications()
+      const currentNotifications = Array.isArray(deps.getCurrentNotifications?.())
+        ? deps.getCurrentNotifications()
+        : [];
+      const items = currentNotifications
         .slice()
         .sort((first, second) => new Date(second.createdAt || 0).getTime() - new Date(first.createdAt || 0).getTime());
       const unreadCount = deps.getUnreadNotifications().length;
@@ -115,10 +118,17 @@
       const summaries = deps.getConversationSummariesFiltered
         ? deps.getConversationSummariesFiltered(profileFilter)
         : deps.getConversationSummaries();
-      const activeMessages = deps.getActiveConversationMessages();
+      const activeMessages = Array.isArray(deps.getActiveConversationMessages?.())
+        ? deps.getActiveConversationMessages()
+        : [];
       const activeChatContext = deps.getActiveChatContext();
       const currentMessageDraft = deps.getCurrentMessageDraft();
-      const contactState = deps.getChatContactState(activeChatContext);
+      const contactState = deps.getChatContactState?.(activeChatContext) || {
+        whatsapp: "",
+        phoneVisible: false,
+        canSharePhone: false,
+        note: ""
+      };
       const activeWhatsApp = contactState.whatsapp;
       const profileMessagesMode = deps.getProfileMessagesMode?.() || "list";
       const showConversationList = profileMessagesMode !== "detail";

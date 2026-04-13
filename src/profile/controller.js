@@ -411,6 +411,9 @@
         });
 
       try {
+        const activePromotions = Array.isArray(deps.getActivePromotions?.())
+          ? deps.getActivePromotions()
+          : [];
         profileDiv.dataset.activeSection = activeSection;
         profileDiv.replaceChildren(deps.createProfileShellElement({
           displayName: deps.getCurrentDisplayName(),
@@ -443,7 +446,7 @@
           }),
           promotionsMarkup: deps.createPromotionOverviewSectionElement({
             canUseSellerFeatures: deps.canUseSellerFeatures(),
-            activePromotionsCount: deps.getActivePromotions().filter((promotion) => promotion.sellerUsername === currentUser).length,
+            activePromotionsCount: activePromotions.filter((promotion) => promotion.sellerUsername === currentUser).length,
             promotionOptions: deps.getPromotionOptions()
           }),
           requestsMarkup: deps.renderRequestBoxSection(),
@@ -452,7 +455,17 @@
           messagesMarkup: deps.renderMessagesSection(),
           hasBuyerAccess,
           requestCount: deps.getRequestBoxItemCount()
-        }));
+        }), activeSection === "profile-messages-panel"
+          ? deps.createElement("button", {
+            className: "profile-messages-fab message-panel-close",
+            textContent: "Back to profile",
+            attributes: {
+              type: "button",
+              "data-close-profile-messages": "true",
+              "aria-label": "Back to profile"
+            }
+          })
+          : null);
       } catch (error) {
         deps.captureError?.("profile_shell_render_failed", error, {
           user: currentUser

@@ -504,18 +504,6 @@
         className: "profile-shell"
       });
       wrapper.appendChild(fragment);
-
-      if (deps.getActiveProfileSection?.() === "profile-messages-panel") {
-        wrapper.appendChild(deps.createElement("button", {
-          className: "profile-messages-fab message-panel-close",
-          textContent: "Back to profile",
-          attributes: {
-            type: "button",
-            "data-close-profile-messages": "true",
-            "aria-label": "Back to profile"
-          }
-        }));
-      }
       return wrapper;
     }
 
