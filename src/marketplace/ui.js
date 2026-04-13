@@ -360,14 +360,15 @@
       const shouldTrackViews = currentView !== "upload";
       const shouldInjectInlineShowcases = currentView === "home" && !deps.hasPrioritySearchResults(list.length);
       const productsPerRow = shouldInjectInlineShowcases ? deps.getProductsPerRow() : 0;
-      const firstShowcaseAfter = shouldInjectInlineShowcases ? productsPerRow * 4 : Number.POSITIVE_INFINITY;
-      const showcaseRepeatInterval = shouldInjectInlineShowcases ? productsPerRow * 5 : Number.POSITIVE_INFINITY;
+      const showcaseSpacing = 10;
+      const firstShowcaseAfter = shouldInjectInlineShowcases ? showcaseSpacing : Number.POSITIVE_INFINITY;
+      const showcaseRepeatInterval = shouldInjectInlineShowcases ? showcaseSpacing : Number.POSITIVE_INFINITY;
       let nextShowcaseInsertAt = firstShowcaseAfter;
       let showcaseIndex = 0;
       let insertedInlineShowcase = false;
       const usedShowcaseProductIds = new Set();
       const maxDeferredShowcases = shouldInjectInlineShowcases
-        ? Math.min(3, Math.max(0, Math.floor((Math.max(0, list.length - firstShowcaseAfter)) / Math.max(1, showcaseRepeatInterval))))
+        ? Math.min(2, Math.max(0, Math.floor((Math.max(0, list.length - firstShowcaseAfter)) / Math.max(1, showcaseRepeatInterval))))
         : 0;
       const fragment = document.createDocumentFragment();
       const viewedProductIds = [];
