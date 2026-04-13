@@ -4382,6 +4382,8 @@ const {
   noteProductInterest,
   openImageLightbox,
   openProductDetailModal,
+  isAuthenticatedUser,
+  promptGuestAuth,
   getBehaviorShowcaseDescriptor,
   getRecommendationSeed,
   getRelatedProducts: (...args) => getRelatedProducts(...args),

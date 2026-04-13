@@ -130,6 +130,53 @@
       );
     }
 
+    function bindCardOpenHandler(card, product) {
+      if (!card || card.dataset.cardOpenBound === "true") {
+        return;
+      }
+
+      card.dataset.cardOpenBound = "true";
+      card.addEventListener("click", (event) => {
+        if (
+          event.target.closest(
+            ".product-actions, .seller-product-actions, .product-menu, .product-menu-popup, .product-menu-toggle, [data-menu-toggle], [data-menu-popup], [data-product-caption-toggle], [data-request-product], [data-chat-product], [data-open-own-messages]"
+          )
+        ) {
+          return;
+        }
+
+        const openTrigger = event.target.closest("[data-open-product], [data-product-card], [data-showcase-id]");
+        const productId = openTrigger?.dataset?.openProduct
+          || openTrigger?.dataset?.productCard
+          || openTrigger?.dataset?.showcaseId
+          || card.dataset.openProduct
+          || card.dataset.productCard
+          || card.dataset.showcaseId
+          || product?.id
+          || "";
+
+        if (!productId) {
+          return;
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+
+        if (!deps.isAuthenticatedUser?.()) {
+          deps.promptGuestAuth?.({
+            preferredMode: "signup",
+            role: "buyer",
+            title: "You need an account to continue",
+            message: "Sign up or log in to open product details and other marketplace actions.",
+            intent: { type: "focus-product", productId }
+          });
+          return;
+        }
+
+        deps.openProductDetailModal?.(productId);
+      });
+    }
+
     function getProductCardCaption(product) {
       return String(
         product?.description
@@ -226,6 +273,7 @@
       }
       content.appendChild(createProductActionGroupElement(product));
       card.appendChild(content);
+      bindCardOpenHandler(card, product);
 
       return card;
     }
@@ -289,6 +337,7 @@
       );
       card.append(media, body);
       card.dataset.showcaseClickBound = "true";
+      bindCardOpenHandler(card, product);
       return card;
     }
 
