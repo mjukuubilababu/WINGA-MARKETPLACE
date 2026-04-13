@@ -156,35 +156,8 @@
           return;
         }
 
-        const openTrigger = event.target.closest("[data-open-product], [data-product-card], [data-showcase-id]");
-        const shouldIgnoreOpen = Boolean(
-          event.target.closest(
-            ".product-actions, .seller-product-actions, .product-menu, .product-menu-popup, .product-menu-toggle, [data-menu-toggle], [data-menu-popup], [data-product-caption-toggle]"
-          )
-        ) || Boolean(event.target.closest("[data-feed-gallery-image].has-more-overlay"));
-
-        if (openTrigger && !shouldIgnoreOpen) {
-          const productId = openTrigger.dataset.openProduct
-            || openTrigger.dataset.productCard
-            || openTrigger.dataset.showcaseId
-            || "";
-          if (!productId) {
-            return;
-          }
-          event.preventDefault();
-          event.__wingaProductOpenHandled = true;
-          if (!deps.isAuthenticatedUser?.()) {
-            deps.promptGuestAuth?.({
-              preferredMode: "signup",
-              role: "buyer",
-              title: "You need an account to continue",
-              message: "Sign up or log in to open product details and other marketplace actions.",
-              intent: { type: "focus-product", productId }
-            });
-            return;
-          }
-          deps.openProductDetailModal(productId);
-        }
+        // Product card opening is owned by the card renderers themselves.
+        // Keep this global delegate focused on request/chat actions only.
       }, true);
     }
 
