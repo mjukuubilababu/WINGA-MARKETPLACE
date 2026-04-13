@@ -172,8 +172,7 @@
             return;
           }
           event.preventDefault();
-          event.stopPropagation();
-          event.stopImmediatePropagation?.();
+          event.__wingaProductOpenHandled = true;
           if (!deps.isAuthenticatedUser?.()) {
             deps.promptGuestAuth?.({
               preferredMode: "signup",

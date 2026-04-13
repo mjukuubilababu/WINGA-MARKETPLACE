@@ -137,6 +137,9 @@
 
       card.dataset.cardOpenBound = "true";
       card.addEventListener("click", (event) => {
+        if (event.__wingaProductOpenHandled) {
+          return;
+        }
         if (
           event.target.closest(
             ".product-actions, .seller-product-actions, .product-menu, .product-menu-popup, .product-menu-toggle, [data-menu-toggle], [data-menu-popup], [data-product-caption-toggle], [data-request-product], [data-chat-product], [data-open-own-messages]"
@@ -161,6 +164,7 @@
 
         event.preventDefault();
         event.stopPropagation();
+        event.__wingaProductOpenHandled = true;
 
         if (!deps.isAuthenticatedUser?.()) {
           deps.promptGuestAuth?.({
