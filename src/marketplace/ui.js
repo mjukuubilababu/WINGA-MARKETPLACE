@@ -329,7 +329,7 @@
       }
       body.append(
         deps.createElementFromMarkup(
-          deps.renderProductActionGroup(product, { requestLabel: "Add to My Requests", extraClass: "showcase-actions" })
+          deps.renderProductActionGroup(product, { requestLabel: "Request", extraClass: "showcase-actions showcase-actions-compact" })
         )
       );
       card.append(media, body);

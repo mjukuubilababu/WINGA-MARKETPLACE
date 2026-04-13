@@ -7133,7 +7133,7 @@ function renderDiscoveryProductCards(items, options = {}) {
               ${safeCaption.length > 120 ? `<button class="product-caption-toggle" type="button" data-product-caption-toggle="true" aria-expanded="false">See more</button>` : ""}
             </div>
             ${promotion ? `<p class="product-meta trust-badges"><span class="status-pill approved sponsored-pill">${escapeHtml(getPromotionLabel(promotion.type))}</span></p>` : ""}
-            ${renderProductActionGroup(item, { requestLabel: "Add to My Requests", extraClass: "seller-product-actions" })}
+            ${renderProductActionGroup(item, { requestLabel: "Request", extraClass: "seller-product-actions seller-product-actions-compact" })}
           </article>
         `;
       }).join("")}
