@@ -5130,6 +5130,34 @@ body.product-detail-open #view-home-back{
   background:linear-gradient(180deg, #ffffff, #f8fafc);
 }
 
+.profile-seller-upgrade-panel{
+  margin-top:18px;
+}
+
+.profile-seller-upgrade-card{
+  display:grid;
+  gap:14px;
+  padding:16px;
+}
+
+.profile-seller-upgrade-form{
+  display:grid;
+  gap:12px;
+  padding-top:6px;
+}
+
+.profile-seller-upgrade-form input,
+.profile-seller-upgrade-form select{
+  width:100%;
+}
+
+.profile-seller-upgrade-actions{
+  display:flex;
+  flex-wrap:wrap;
+  gap:10px;
+  margin-top:2px;
+}
+
 .profile-whatsapp-block{
   margin:14px 0 10px;
   padding:14px;

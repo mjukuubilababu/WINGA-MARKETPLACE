@@ -338,6 +338,7 @@ function applySessionState(session) {
     whatsappNumber: String(session.whatsappNumber || session.phoneNumber || "").replace(/\D/g, "").slice(0, 20),
     profileImage: String(session.profileImage || "").trim(),
     verificationStatus: String(session.verificationStatus || "").trim(),
+    verifiedSeller: Boolean(session.verifiedSeller),
     token: typeof session.token === "string" ? session.token.trim() : ""
   };
   currentUser = username;
@@ -3941,6 +3942,7 @@ const {
   createProfileShellElement,
   createProfileProductCardElement,
   createProfileIdentitySectionElement,
+  createSellerUpgradeSectionElement,
   createOrdersSectionElement,
   createPromotionOverviewSectionElement
 } = window.WingaModules.profile.createProfileUiModule({
@@ -3979,6 +3981,7 @@ const {
   createProfileShellElement,
   createProfileProductCardElement,
   createProfileIdentitySectionElement,
+  createSellerUpgradeSectionElement,
   createOrdersSectionElement,
   createPromotionOverviewSectionElement,
   createOrdersContainerFromState,

@@ -1844,6 +1844,45 @@ function validateSignupPayload(payload) {
   return "";
 }
 
+function validateSellerUpgradePayload(payload, user = {}) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return "Taarifa za seller upgrade si sahihi.";
+  }
+
+  const fullName = sanitizePlainText(payload.fullName || user.fullName || user.username, 120);
+  if (!isNonEmptyString(fullName, 3, 120)) {
+    return "Jina kamili si sahihi.";
+  }
+
+  const primaryCategory = sanitizePlainText(payload.primaryCategory || user.primaryCategory || "", 60).toLowerCase();
+  if (payload.primaryCategory && !isValidCategory(primaryCategory)) {
+    return "Category ya seller si sahihi.";
+  }
+
+  const { idType, idNumber, idImage } = getNormalizedSignupIdentity(payload);
+  if (!ALLOWED_IDENTITY_DOCUMENT_TYPES.includes(idType)) {
+    return "Please select your ID type";
+  }
+  if (!isValidNationalId(idNumber || "")) {
+    return "Please enter your ID number";
+  }
+  if (!idImage || !isValidPrivateImageValue(idImage || "")) {
+    return "ID image is invalid.";
+  }
+
+  const accountNationalId = normalizeNationalId(user.nationalId || user.identityDocumentNumber || "");
+  if (accountNationalId && accountNationalId !== idNumber) {
+    return "The card number and the account details do not match. Please use the same number registered on your account.";
+  }
+
+  const payloadNationalId = sanitizePlainText(payload.nationalId || "", 40).toUpperCase();
+  if (payload.nationalId && payloadNationalId !== idNumber) {
+    return "The card number and the number you entered do not match. Please enter the same number shown on the card.";
+  }
+
+  return "";
+}
+
 function validatePasswordRecoveryPayload(payload) {
   const identifier = sanitizePlainText(payload?.identifier || payload?.username, 120);
   const nextPassword = String(payload?.newPassword || payload?.password || "");
@@ -4836,6 +4875,100 @@ http.createServer(async (req, res) => {
       sendJson(res, 200, {
         ...buildSelfSessionPayload(updatedUser, session.token)
       });
+      return;
+    }
+
+    if (req.method === "PATCH" && url.pathname === "/api/users/me/upgrade-to-seller") {
+      const token = readAuthToken(req);
+      const session = findSession(store, token);
+      const user = ensureMarketplaceUser(store, session, res);
+      if (!user) {
+        return;
+      }
+
+      if (isStaffRole(user.role)) {
+        sendJson(res, 403, { error: "Admin au moderator hawawezi kutumia seller upgrade hii." });
+        return;
+      }
+
+      if (user.role === "seller" && user.verifiedSeller) {
+        sendJson(res, 409, { error: "Akaunti hii tayari ni seller." });
+        return;
+      }
+
+      if (user.role !== "buyer") {
+        sendJson(res, 400, { error: "Seller upgrade inaruhusiwa kwa buyer accounts tu." });
+        return;
+      }
+
+      const payload = await collectBody(req);
+      const validationError = validateSellerUpgradePayload(payload, user);
+      if (validationError) {
+        sendJson(res, 400, { error: validationError });
+        return;
+      }
+
+      const now = new Date().toISOString();
+      const fullName = sanitizePlainText(payload.fullName || user.fullName || user.username, 120);
+      const primaryCategory = sanitizePlainText(payload.primaryCategory || user.primaryCategory || "", 60).toLowerCase();
+      const { idType, idNumber, idImage } = getNormalizedSignupIdentity(payload);
+      const nextNationalId = idNumber;
+      const updatedUser = normalizeUserRecord({
+        ...user,
+        fullName,
+        role: "seller",
+        primaryCategory,
+        nationalId: nextNationalId,
+        identityDocumentType: idType,
+        identityDocumentNumber: nextNationalId,
+        identityDocumentImage: idImage,
+        verifiedSeller: true,
+        verificationStatus: "verified",
+        verificationSubmittedAt: user.verificationSubmittedAt || now,
+        updatedAt: now
+      });
+
+      const users = (store.users || []).map((item) =>
+        item.username === user.username ? updatedUser : item
+      );
+      const sessions = (store.sessions || []).map((item) =>
+        item.username === user.username
+          ? {
+              ...item,
+              fullName: updatedUser.fullName || item.fullName || item.username,
+              role: updatedUser.role || item.role || "seller",
+              primaryCategory: updatedUser.primaryCategory || item.primaryCategory || "",
+              status: updatedUser.status || item.status || "active",
+              verificationStatus: updatedUser.verificationStatus || item.verificationStatus || "verified",
+              verifiedSeller: true,
+              identityDocumentType: updatedUser.identityDocumentType || "",
+              identityDocumentNumber: updatedUser.identityDocumentNumber || "",
+              nationalId: updatedUser.nationalId || "",
+              profileImage: updatedUser.profileImage || item.profileImage || "",
+              whatsappNumber: updatedUser.whatsappNumber || item.whatsappNumber || "",
+              whatsappVerificationStatus: updatedUser.whatsappVerificationStatus || item.whatsappVerificationStatus || "verified"
+            }
+          : item
+      );
+
+      await writeStore({
+        ...store,
+        users,
+        sessions
+      });
+
+      await appendAuditLog({
+        time: now,
+        ip: clientIp,
+        method: req.method,
+        path: url.pathname,
+        event: "buyer_upgraded_to_seller",
+        username: user.username,
+        role: "seller",
+        verificationStatus: "verified"
+      });
+
+      sendJson(res, 200, buildSelfSessionPayload(updatedUser, session.token));
       return;
     }
 

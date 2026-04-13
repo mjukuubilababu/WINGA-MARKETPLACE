@@ -291,6 +291,151 @@
       return section;
     }
 
+    function createSellerUpgradeSectionElement(context = {}) {
+      if (!context.canUpgradeToSeller) {
+        return null;
+      }
+
+      const section = deps.createElement("section", {
+        className: "panel profile-seller-upgrade-panel",
+        attributes: { id: "profile-seller-upgrade-panel" }
+      });
+      section.appendChild(deps.createSectionHeading({
+        eyebrow: "Seller upgrade",
+        title: "Badilika kuwa Muuzaji",
+        meta: "Direct upgrade bila kutoka profile"
+      }));
+
+      const card = deps.createElement("div", { className: "orders-card profile-seller-upgrade-card" });
+      card.append(
+        deps.createElement("p", {
+          className: "auth-note",
+          textContent: "Jaza taarifa za seller hapa. Profile yako itaendelea kubaki wazi wakati role inabadilika."
+        }),
+        deps.createElement("button", {
+          className: "action-btn buy-btn",
+          textContent: "Open seller form",
+          attributes: {
+            type: "button",
+            "data-open-seller-upgrade": "true"
+          }
+        })
+      );
+
+      const form = deps.createElement("div", {
+        className: "profile-seller-upgrade-form",
+        attributes: {
+          id: "profile-seller-upgrade-form",
+          style: "display:none;"
+        }
+      });
+      const idTypeSelect = deps.createElement("select", {
+        attributes: {
+          id: "profile-seller-upgrade-id-type"
+        }
+      });
+      [
+        { value: "", label: "Select ID type" },
+        { value: "NIDA", label: "NIDA" },
+        { value: "VOTER_ID", label: "Voter ID" }
+      ].forEach((option) => {
+        idTypeSelect.appendChild(deps.createElement("option", {
+          textContent: option.label,
+          attributes: {
+            value: option.value,
+            ...(option.value === (context.identityDocumentType || "") ? { selected: "selected" } : {})
+          }
+        }));
+      });
+
+      form.append(
+        deps.createElement("label", {
+          className: "auth-label",
+          textContent: "Full name"
+        }),
+        deps.createElement("input", {
+          attributes: {
+            id: "profile-seller-upgrade-full-name",
+            type: "text",
+            maxlength: "120",
+            value: context.fullName || context.displayName || ""
+          }
+        }),
+        deps.createElement("label", {
+          className: "auth-label",
+          textContent: "Primary category"
+        }),
+        deps.createElement("input", {
+          attributes: {
+            id: "profile-seller-upgrade-category",
+            type: "text",
+            maxlength: "60",
+            placeholder: "e.g. wanawake, vifaa, michezo",
+            value: context.primaryCategory || ""
+          }
+        }),
+        deps.createElement("label", {
+          className: "auth-label",
+          textContent: "ID type"
+        }),
+        idTypeSelect,
+        deps.createElement("label", {
+          className: "auth-label",
+          textContent: "ID number"
+        }),
+        deps.createElement("input", {
+          attributes: {
+            id: "profile-seller-upgrade-id-number",
+            type: "text",
+            maxlength: "20",
+            placeholder: "Enter the number shown on your ID",
+            value: context.identityDocumentNumber || context.nationalId || ""
+          }
+        }),
+        deps.createElement("label", {
+          className: "auth-label",
+          textContent: "ID image"
+        }),
+        deps.createElement("input", {
+          attributes: {
+            id: "profile-seller-upgrade-id-image",
+            type: "file",
+            accept: "image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif"
+          }
+        }),
+        deps.createElement("p", {
+          className: "auth-note",
+          textContent: "The ID number must match the number already registered on your account."
+        }),
+        deps.createElement("div", {
+          className: "profile-seller-upgrade-actions"
+        })
+      );
+
+      form.querySelector(".profile-seller-upgrade-actions")?.append(
+        deps.createElement("button", {
+          className: "action-btn buy-btn",
+          textContent: "Become Seller",
+          attributes: {
+            type: "button",
+            "data-submit-seller-upgrade": "true"
+          }
+        }),
+        deps.createElement("button", {
+          className: "action-btn action-btn-secondary",
+          textContent: "Cancel",
+          attributes: {
+            type: "button",
+            "data-close-seller-upgrade": "true"
+          }
+        })
+      );
+
+      card.appendChild(form);
+      section.appendChild(card);
+      return section;
+    }
+
     function createOrderLineElement(order) {
       const line = deps.createElement("div", { className: "order-line" });
       const lifecycle = typeof deps.getOrderLifecycleMeta === "function"
@@ -421,6 +566,7 @@
         accountMeta,
         stats,
         identityMarkup,
+        sellerUpgradeMarkup,
         promotionsMarkup,
         requestsMarkup,
         ordersMarkup,
@@ -449,6 +595,7 @@
 
       [
         identityMarkup,
+        sellerUpgradeMarkup,
         promotionsMarkup,
         requestsMarkup,
         ordersMarkup,
@@ -488,6 +635,16 @@
           attributes: {
             type: "button",
             "data-open-request-box": "true"
+          }
+        }));
+      }
+      if (context.canUpgradeToSeller) {
+        actionsCard.appendChild(deps.createElement("button", {
+          className: "action-btn buy-btn",
+          textContent: "Become Seller",
+          attributes: {
+            type: "button",
+            "data-open-seller-upgrade": "true"
           }
         }));
       }
@@ -592,6 +749,7 @@
       createProfileShellElement,
       createProfileProductCardElement,
       createProfileIdentitySectionElement,
+      createSellerUpgradeSectionElement,
       createOrdersSectionElement,
       createPromotionOverviewSectionElement
     };

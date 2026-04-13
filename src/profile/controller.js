@@ -144,6 +144,116 @@
       }
     }
 
+    function setSellerUpgradeFormVisibility(open = false) {
+      const form = document.getElementById("profile-seller-upgrade-form");
+      if (!form) {
+        return;
+      }
+      form.style.display = open ? "grid" : "none";
+      if (open) {
+        document.getElementById("profile-seller-upgrade-full-name")?.focus();
+      }
+    }
+
+    async function submitSellerUpgradeForm() {
+      const fullName = String(document.getElementById("profile-seller-upgrade-full-name")?.value || "").trim();
+      const primaryCategory = String(document.getElementById("profile-seller-upgrade-category")?.value || "").trim();
+      const identityDocumentType = String(document.getElementById("profile-seller-upgrade-id-type")?.value || "").trim();
+      const identityDocumentNumber = String(document.getElementById("profile-seller-upgrade-id-number")?.value || "").trim();
+      const idImageFile = document.getElementById("profile-seller-upgrade-id-image")?.files?.[0] || null;
+
+      if (fullName.length < 3) {
+        deps.showInAppNotification?.({
+          title: "Full name required",
+          body: "Jina kamili linahitajika kabla ya upgrade.",
+          variant: "warning"
+        });
+        return;
+      }
+
+      if (primaryCategory && primaryCategory.length < 2) {
+        deps.showInAppNotification?.({
+          title: "Category required",
+          body: "Category ya seller si sahihi.",
+          variant: "warning"
+        });
+        return;
+      }
+
+      if (!identityDocumentType) {
+        deps.showInAppNotification?.({
+          title: "ID type required",
+          body: "Chagua aina ya kitambulisho.",
+          variant: "warning"
+        });
+        return;
+      }
+
+      if (!/^[A-Z0-9]{8,20}$/i.test(identityDocumentNumber)) {
+        deps.showInAppNotification?.({
+          title: "ID number required",
+          body: "Weka namba ya kitambulisho iliyo sahihi.",
+          variant: "warning"
+        });
+        return;
+      }
+
+      if (!idImageFile) {
+        deps.showInAppNotification?.({
+          title: "ID image required",
+          body: "Pakia picha ya kitambulisho kabla ya kuendelea.",
+          variant: "warning"
+        });
+        return;
+      }
+
+      const submitButton = document.querySelector("[data-submit-seller-upgrade]");
+      const cancelButton = document.querySelector("[data-close-seller-upgrade]");
+      submitButton?.setAttribute("disabled", "disabled");
+      if (cancelButton) {
+        cancelButton.setAttribute("disabled", "disabled");
+      }
+
+      try {
+        deps.validateSingleImageFile(idImageFile, "Identity document");
+        const identityDocumentImage = await deps.readFileAsDataUrl(idImageFile, { purpose: "document", fastMode: true });
+        const updatedSession = await deps.dataLayer.upgradeBuyerToSeller({
+          fullName,
+          primaryCategory,
+          identityDocumentType,
+          identityDocumentNumber,
+          nationalId: identityDocumentNumber,
+          identityDocumentImage
+        });
+        if (!updatedSession?.username) {
+          throw new Error("Seller upgrade haikufaulu.");
+        }
+        deps.mergeSessionState(updatedSession);
+        deps.saveSessionUser();
+        deps.renderHeaderUserMenu();
+        deps.showInAppNotification?.({
+          title: "Seller upgrade complete",
+          body: "Akaunti yako sasa ni seller. Bila kutoka profile, unaweza kuanza kuuza.",
+          variant: "success"
+        });
+        deps.renderCurrentView?.();
+      } catch (error) {
+        deps.captureError?.("seller_upgrade_failed", error, {
+          user: deps.getCurrentUser()
+        });
+        deps.showInAppNotification?.({
+          title: "Seller upgrade failed",
+          body: error.message || "Imeshindikana kuupgrade account kwa sasa.",
+          variant: "error"
+        });
+      } finally {
+        submitButton?.removeAttribute("disabled");
+        if (cancelButton) {
+          cancelButton.removeAttribute("disabled");
+        }
+      }
+    }
+
     function handleProfileAction(action, profileDiv) {
       if (!action) {
         return;
@@ -174,6 +284,12 @@
         deps.setPendingProfileSection?.("profile-messages-panel");
         deps.replaceMessagesPanel?.(profileDiv);
         deps.flushPendingProfileSection?.();
+        return;
+      }
+      if (action === "seller-upgrade") {
+        deps.setActiveProfileSection?.("profile-seller-upgrade-panel");
+        deps.setPendingProfileSection?.("profile-seller-upgrade-panel");
+        deps.flushPendingProfileSection?.();
       }
     }
 
@@ -195,6 +311,27 @@
             deps.setActiveProfileSection?.("profile-products-panel");
             deps.setPendingProfileSection?.("profile-products-panel");
             renderProfile();
+            return;
+          }
+          const openSellerUpgradeTarget = event.target?.closest?.("[data-open-seller-upgrade]");
+          if (openSellerUpgradeTarget) {
+            event.preventDefault();
+            event.stopPropagation();
+            setSellerUpgradeFormVisibility(true);
+            return;
+          }
+          const closeSellerUpgradeTarget = event.target?.closest?.("[data-close-seller-upgrade]");
+          if (closeSellerUpgradeTarget) {
+            event.preventDefault();
+            event.stopPropagation();
+            setSellerUpgradeFormVisibility(false);
+            return;
+          }
+          const submitSellerUpgradeTarget = event.target?.closest?.("[data-submit-seller-upgrade]");
+          if (submitSellerUpgradeTarget) {
+            event.preventDefault();
+            event.stopPropagation();
+            submitSellerUpgradeForm();
             return;
           }
           const target = event.target?.closest?.("[data-profile-action]");
@@ -298,6 +435,7 @@
       };
       const isBuyerOnly = deps.isBuyerUser();
       const hasBuyerAccess = deps.canUseBuyerFeatures();
+      const canUpgradeToSeller = userProfile?.role === "buyer";
       const activeSection = deps.getActiveProfileSection?.() || "profile-products-panel";
 
       if (deps.canUseSellerFeatures()) {
@@ -443,6 +581,14 @@
             whatsappNumber: userProfile?.whatsappNumber || userProfile?.phoneNumber || "",
             whatsappVerificationStatus: userProfile?.whatsappVerificationStatus || "verified",
             pendingWhatsappNumber: userProfile?.pendingWhatsappNumber || ""
+          }),
+          sellerUpgradeMarkup: deps.createSellerUpgradeSectionElement?.({
+            canUpgradeToSeller,
+            fullName: deps.getCurrentDisplayName(),
+            primaryCategory: userProfile?.primaryCategory || "",
+            identityDocumentType: userProfile?.identityDocumentType || "",
+            identityDocumentNumber: userProfile?.identityDocumentNumber || "",
+            nationalId: userProfile?.nationalId || ""
           }),
           promotionsMarkup: deps.createPromotionOverviewSectionElement({
             canUseSellerFeatures: deps.canUseSellerFeatures(),

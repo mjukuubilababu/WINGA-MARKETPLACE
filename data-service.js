@@ -216,6 +216,7 @@
       pendingWhatsappExpiresAt: user.pendingWhatsappExpiresAt || "",
       profileImage: user.profileImage || "",
       verificationStatus: user.verificationStatus || "",
+      verifiedSeller: Boolean(user.verifiedSeller),
       token
     };
   }
@@ -510,6 +511,42 @@
           verificationStatus: updatedUser.verificationStatus || "",
           token: session.token || null
         };
+      },
+      async upgradeBuyerToSeller(payload) {
+        const session = this.loadSession();
+        if (!session?.username) {
+          throw new Error("Ingia kwanza kabla ya kuupgrade account.");
+        }
+        const users = await this.loadUsers();
+        let updatedUser = null;
+        const nextUsers = users.map((item) => {
+          if (item.username !== session.username) {
+            return item;
+          }
+          const nextNationalId = normalizeNationalId(payload?.identityDocumentNumber || payload?.nationalId || item.nationalId || item.identityDocumentNumber || "");
+          updatedUser = {
+            ...item,
+            fullName: String(payload?.fullName || item.fullName || item.username).trim() || item.username,
+            primaryCategory: normalizePrimaryCategoryValue(payload?.primaryCategory || item.primaryCategory || ""),
+            role: "seller",
+            nationalId: nextNationalId,
+            identityDocumentType: String(payload?.identityDocumentType || "").toUpperCase(),
+            identityDocumentNumber: nextNationalId,
+            identityDocumentImage: payload?.identityDocumentImage || "",
+            verifiedSeller: true,
+            verificationStatus: "verified",
+            verificationSubmittedAt: item.verificationSubmittedAt || new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          };
+          return updatedUser;
+        });
+        if (!updatedUser) {
+          throw new Error("Akaunti yako haikupatikana tena. Ingia upya kabla ya kujaribu tena.");
+        }
+        await this.saveUsers(nextUsers);
+        const refreshedSession = buildSessionPayload(updatedUser, session.token || null);
+        this.saveSession(refreshedSession);
+        return refreshedSession;
       },
       async updateUserPrimaryCategory(username, primaryCategory) {
         const normalizedCategory = normalizePrimaryCategoryValue(primaryCategory);
@@ -1304,6 +1341,16 @@
       },
       async updateUserProfile(payload) {
         return fetchJson(`${baseUrl}/users/me/profile`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            ...createAuthHeaders()
+          },
+          body: JSON.stringify(payload)
+        });
+      },
+      async upgradeBuyerToSeller(payload) {
+        return fetchJson(`${baseUrl}/users/me/upgrade-to-seller`, {
           method: "PATCH",
           headers: {
             "Content-Type": "application/json",
@@ -2583,6 +2630,14 @@
       const result = await (state.adapter.updateUserProfile ? state.adapter.updateUserProfile(payload) : null);
       if (!result?.username) {
         throw new Error("Profile update haikufaulu. Ingia upya kisha ujaribu tena.");
+      }
+      state.users = await state.adapter.loadUsers();
+      return result;
+    },
+    async upgradeBuyerToSeller(payload) {
+      const result = await (state.adapter.upgradeBuyerToSeller ? state.adapter.upgradeBuyerToSeller(payload) : null);
+      if (!result?.username) {
+        throw new Error("Seller upgrade haikufaulu. Ingia upya kisha ujaribu tena.");
       }
       state.users = await state.adapter.loadUsers();
       return result;
