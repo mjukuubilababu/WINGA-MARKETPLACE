@@ -539,6 +539,15 @@
         deps.replaceMessagesPanel(scope);
       });
 
+      bindClickOnce("[data-close-profile-messages]", "CloseProfileMessages", () => {
+        deps.setProfileMessagesMode?.("list");
+        deps.setProfileHasSelection?.(false);
+        deps.setActiveChatContext?.(null);
+        deps.setActiveProfileSection?.("profile-products-panel");
+        deps.setPendingProfileSection?.("profile-products-panel");
+        deps.renderProfile?.();
+      });
+
       bindClickOnce("[data-refresh-messages]", "RefreshMessages", async () => {
         try {
           await Promise.all([deps.refreshMessagesState(), deps.refreshNotificationsState()]);

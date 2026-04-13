@@ -500,7 +500,9 @@
       }));
       fragment.appendChild(actionsCard);
 
-      const wrapper = deps.createElement("div");
+      const wrapper = deps.createElement("div", {
+        className: "profile-shell"
+      });
       wrapper.appendChild(fragment);
       return wrapper;
     }

@@ -138,7 +138,10 @@
               <p class="eyebrow">${panelTitle}</p>
               <h3>${panelSubtitle}</h3>
             </div>
-            <span class="meta-copy">${summaries.length} conversations</span>
+            <div class="messages-panel-actions">
+              <span class="meta-copy">${summaries.length} conversations</span>
+              <button class="message-panel-close" type="button" data-close-profile-messages="true">Back to profile</button>
+            </div>
           </div>
           <div class="messages-shell ${showConversationDetail ? "compact-detail" : ""}">
             ${showConversationList ? `

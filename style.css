@@ -3939,6 +3939,35 @@ body.context-chat-open{
   margin-bottom:12px;
 }
 
+.messages-panel-actions{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  flex-wrap:wrap;
+  justify-content:flex-end;
+}
+
+.message-panel-close{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-height:38px;
+  padding:0 12px;
+  border:1px solid var(--border);
+  border-radius:999px;
+  background:#fff;
+  color:var(--accent-deep);
+  font-weight:700;
+  cursor:pointer;
+}
+
+.message-panel-close:hover,
+.message-panel-close:focus-visible{
+  border-color:rgba(255,106,0,0.35);
+  color:var(--accent);
+  outline:none;
+}
+
 .message-list-back{
   display:inline-flex;
   align-items:center;
@@ -4438,8 +4467,24 @@ body.context-chat-open{
   display:none;
 }
 
+#profile-div[data-active-section="profile-messages-panel"]{
+  position:fixed;
+  inset:0;
+  z-index:1450;
+  width:100vw;
+  height:100vh;
+  overflow:auto;
+  padding:0 12px 24px;
+  background:linear-gradient(180deg, #f7f7f8 0%, #fff7f1 100%);
+}
+
+#profile-div[data-active-section="profile-messages-panel"] .profile-shell > :not(#profile-messages-panel){
+  display:none !important;
+}
+
 #profile-div[data-active-section="profile-messages-panel"] #profile-messages-panel{
   display:block;
+  min-height:100%;
 }
 
 #profile-div[data-active-section="profile-notifications-panel"] #profile-notifications-panel{
@@ -5757,6 +5802,10 @@ button:hover,
 
   .messages-shell{
     grid-template-columns:1fr;
+  }
+
+  #profile-div[data-active-section="profile-messages-panel"]{
+    padding:0 10px 20px;
   }
 
   .messages-shell.compact-detail .messages-list{
