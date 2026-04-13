@@ -3973,7 +3973,48 @@ body.context-chat-open{
   right:max(16px, env(safe-area-inset-right));
   bottom:max(16px, calc(env(safe-area-inset-bottom) + 16px));
   z-index:1475;
-  box-shadow:0 14px 30px rgba(35, 47, 62, 0.16);
+  min-width:162px;
+  padding:0 18px;
+  border:none;
+  background:linear-gradient(135deg, var(--accent) 0%, #ff8c42 100%);
+  color:#fff;
+  box-shadow:
+    0 18px 36px rgba(255, 106, 0, 0.28),
+    0 0 0 1px rgba(255, 255, 255, 0.18) inset;
+  transform:translateZ(0);
+  backdrop-filter:blur(10px);
+  animation:profile-fab-glow 2.4s ease-in-out infinite;
+}
+
+.profile-messages-fab:hover,
+.profile-messages-fab:focus-visible{
+  color:#fff;
+  background:linear-gradient(135deg, #ff7a1a 0%, #ff9f56 100%);
+  box-shadow:
+    0 22px 42px rgba(255, 106, 0, 0.34),
+    0 0 0 1px rgba(255, 255, 255, 0.2) inset;
+  outline:none;
+  transform:translateY(-1px);
+}
+
+.profile-messages-fab::after{
+  content:"↩";
+  margin-left:10px;
+  font-size:0.95rem;
+  line-height:1;
+}
+
+@keyframes profile-fab-glow{
+  0%, 100%{
+    box-shadow:
+      0 18px 36px rgba(255, 106, 0, 0.28),
+      0 0 0 1px rgba(255, 255, 255, 0.18) inset;
+  }
+  50%{
+    box-shadow:
+      0 22px 44px rgba(255, 106, 0, 0.38),
+      0 0 0 1px rgba(255, 255, 255, 0.24) inset;
+  }
 }
 
 .message-list-back{
@@ -4136,6 +4177,8 @@ body.context-chat-open{
   .profile-messages-fab{
     right:10px;
     bottom:10px;
+    min-width:150px;
+    padding:0 16px;
   }
 
   .messages-thread-head{
