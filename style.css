@@ -5870,23 +5870,23 @@ button:hover,
   .feed-gallery-carousel,
   .feed-gallery-carousel-track,
   .feed-gallery-carousel-slide{
-    touch-action:pan-y;
+    touch-action:auto;
   }
 
   #products-container .product-card,
   #products-container .product-card *,
   #market-showcase .showcase-card,
   .showcase-inline .showcase-card{
-    touch-action:pan-y;
+    touch-action:auto;
   }
 
   #products-container{
-    touch-action:pan-y;
+    touch-action:auto;
   }
 
   #products-container .showcase-inline .showcase-track .showcase-card,
   #products-container .showcase-inline .showcase-track .showcase-card *{
-    touch-action:pan-x pan-y;
+    touch-action:auto;
   }
 
   #products-container .feed-gallery-tile,
@@ -5897,7 +5897,7 @@ button:hover,
   #products-container .feed-gallery-carousel,
   #products-container .feed-gallery-carousel-track,
   #products-container .feed-gallery-carousel-slide{
-    touch-action:pan-x;
+    touch-action:auto;
   }
 
   #products-container .product-card,
@@ -5928,11 +5928,11 @@ button:hover,
   }
 
   .showcase-track{
-    touch-action:pan-x pan-y;
+    touch-action:auto;
   }
 
   .feed-gallery-carousel-track{
-    touch-action:pan-x;
+    touch-action:auto;
   }
 
   #market-showcase .showcase-card,

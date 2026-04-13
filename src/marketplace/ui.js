@@ -190,10 +190,6 @@
         ) {
           return;
         }
-        const gallery = event.target.closest(".feed-gallery-carousel");
-        if (gallery && Date.now() < Number(gallery.dataset.feedGallerySwipeUntil || 0)) {
-          return;
-        }
 
         event.preventDefault();
         event.stopPropagation();
