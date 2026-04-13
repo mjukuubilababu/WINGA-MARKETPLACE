@@ -4385,6 +4385,8 @@ const {
   openProductDetailModal,
   isAuthenticatedUser,
   promptGuestAuth,
+  renderFeedGalleryMarkup,
+  bindFeedGalleryInteractions,
   getBehaviorShowcaseDescriptor,
   getRecommendationSeed,
   getRelatedProducts: (...args) => getRelatedProducts(...args),
@@ -7105,7 +7107,6 @@ function renderDiscoveryProductCards(items, options = {}) {
         const safeName = escapeHtml(item.name || "");
         const safeCaption = escapeHtml(String(item.description || item.caption || item.name || item.shop || getCategoryLabel(item.category) || "").trim());
         const promotion = sponsored ? getPrimaryPromotion(item.id) : null;
-        const primaryImage = getMarketplacePrimaryImage(item);
         const seller = getMarketplaceUser(item.uploadedBy);
         const sellerName = escapeHtml(String(item.shop || seller?.fullName || item.uploadedBy || "Seller").trim());
         const sellerMeta = escapeHtml(String(item.location || getCategoryLabel(item.category) || "").trim());
@@ -7113,12 +7114,10 @@ function renderDiscoveryProductCards(items, options = {}) {
         const sellerAvatar = seller?.profileImage
           ? `<img class="product-seller-avatar-image" src="${sellerProfileImage}" alt="${sellerName}" loading="lazy" decoding="async">`
           : `<span>${escapeHtml(getUserInitials(String(item.shop || seller?.fullName || item.uploadedBy || "S").trim()))}</span>`;
-        const imageCount = Array.isArray(item.images) ? item.images.filter(Boolean).length : (primaryImage ? 1 : 0);
         return `
           <article class="seller-product-card" data-open-product="${item.id}">
             <div class="seller-product-card-media">
-              <img class="zoomable-image feed-gallery-image-social" src="${primaryImage}" alt="${safeName}" loading="lazy" decoding="async" data-marketplace-scroll-image="true" data-fallback-src="${getImageFallbackDataUri("W")}" data-zoom-src="${primaryImage}" data-zoom-alt="${safeName}" data-image-action-product="${item.id}" data-image-action-src="${primaryImage}" data-image-action-surface="discovery">
-              ${imageCount > 1 ? `<span class="feed-gallery-count-badge">${Math.min(imageCount, 9)}/5</span>` : ""}
+              ${renderFeedGalleryMarkup(item, "discovery")}
             </div>
             ${renderProductOverflowMenu(item, { overlay: true })}
             <div class="product-seller-row">
@@ -7708,6 +7707,89 @@ function renderPromoteButton(product) {
   return `<button class="action-btn action-btn-secondary" type="button" data-promote-product="${product.id}">Promote</button>`;
 }
 
+function renderFeedGalleryMarkup(product, surface = "feed") {
+  const safeImages = getRenderableMarketplaceImages(product);
+  const images = safeImages.length > 0 ? safeImages : [getImageFallbackDataUri("WINGA")];
+  const total = images.length;
+  const currentLabel = total > 1 ? `1/${total}` : "";
+  const slides = images.map((src, index) => {
+    const safeSrc = sanitizeImageSource(String(src || "").trim(), getImageFallbackDataUri("WINGA"));
+    const safeAlt = escapeHtml(`${product?.name || product?.shop || "Product image"} ${index + 1}`);
+    return `
+      <div class="feed-gallery-carousel-slide" data-feed-gallery-slide="${index}">
+        <img
+          class="feed-gallery-image feed-gallery-image-social"
+          src="${safeSrc}"
+          alt="${safeAlt}"
+          loading="lazy"
+          decoding="async"
+          draggable="false"
+          data-marketplace-scroll-image="true"
+          data-fallback-src="${getImageFallbackDataUri("WINGA")}"
+        >
+      </div>
+    `;
+  }).join("");
+
+  return `
+    <div class="product-gallery media-gallery feed-gallery-preview feed-gallery-carousel"
+      data-feed-gallery-carousel="true"
+      data-feed-gallery-total="${total}"
+      data-feed-gallery-current="1"
+      data-feed-gallery-surface="${escapeHtml(surface || "feed")}">
+      <div class="feed-gallery-carousel-track" data-feed-gallery-track>
+        ${slides}
+      </div>
+      ${currentLabel ? `<span class="feed-gallery-count-badge" data-feed-gallery-count>${currentLabel}</span>` : ""}
+    </div>
+  `;
+}
+
+function bindFeedGalleryInteractions(scope = document) {
+  if (!scope) {
+    return;
+  }
+
+  scope.querySelectorAll("[data-feed-gallery-carousel]").forEach((carousel) => {
+    if (carousel.dataset.feedGalleryBound === "true") {
+      return;
+    }
+
+    const track = carousel.querySelector("[data-feed-gallery-track]");
+    const badge = carousel.querySelector("[data-feed-gallery-count]");
+    carousel.dataset.feedGalleryBound = "true";
+    if (!track || !badge) {
+      return;
+    }
+
+    const syncBadge = () => {
+      const total = Math.max(1, Number(carousel.dataset.feedGalleryTotal || track.querySelectorAll("[data-feed-gallery-slide]").length || 1));
+      const width = Math.max(1, track.clientWidth || carousel.clientWidth || 1);
+      const currentIndex = Math.min(total - 1, Math.max(0, Math.round(track.scrollLeft / width)));
+      const nextLabel = `${currentIndex + 1}/${total}`;
+      carousel.dataset.feedGalleryCurrent = String(currentIndex + 1);
+      if (badge.textContent !== nextLabel) {
+        badge.textContent = nextLabel;
+      }
+    };
+
+    let rafId = 0;
+    const scheduleSync = () => {
+      if (rafId) {
+        return;
+      }
+      rafId = window.requestAnimationFrame(() => {
+        rafId = 0;
+        syncBadge();
+      });
+    };
+
+    track.addEventListener("scroll", scheduleSync, { passive: true });
+    window.addEventListener("resize", scheduleSync, { passive: true });
+    window.setTimeout(syncBadge, 0);
+  });
+}
+
 function bindShowcaseCardClicks(scope) {
   scope.querySelectorAll(".showcase-card, .seller-product-card").forEach((card) => {
     if (card.dataset.showcaseClickBound === "true") {
@@ -7726,7 +7808,7 @@ function bindShowcaseCardClicks(scope) {
       }
       if (
         event.target.closest(
-          ".product-menu, .product-menu-popup, .product-menu-toggle, [data-menu-toggle], [data-menu-popup], [data-product-caption-toggle], [data-request-product], [data-chat-product], [data-open-own-messages]"
+          ".product-menu, .product-menu-popup, .product-menu-toggle, [data-menu-toggle], [data-menu-popup], [data-product-caption-toggle], [data-request-product], [data-chat-product], [data-open-own-messages], .feed-gallery-carousel, .feed-gallery-carousel *"
         )
       ) {
         return;

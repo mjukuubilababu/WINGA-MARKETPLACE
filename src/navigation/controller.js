@@ -158,6 +158,9 @@
 
         const sellerCardOpenTrigger = event.target.closest(".seller-product-card[data-open-product], .seller-product-card [data-open-product]");
         if (sellerCardOpenTrigger) {
+          if (event.target.closest(".feed-gallery-carousel, .feed-gallery-carousel *")) {
+            return;
+          }
           const productId = sellerCardOpenTrigger.dataset.openProduct
             || sellerCardOpenTrigger.closest(".seller-product-card")?.dataset?.openProduct
             || "";

@@ -2243,6 +2243,39 @@ img[data-zoom-src]{
   background:#f3f4f6;
 }
 
+.feed-gallery-carousel{
+  overflow:hidden;
+}
+
+.feed-gallery-carousel-track{
+  display:flex;
+  width:100%;
+  height:100%;
+  overflow-x:auto;
+  overflow-y:hidden;
+  scroll-snap-type:x mandatory;
+  scroll-behavior:smooth;
+  -webkit-overflow-scrolling:touch;
+  scrollbar-width:none;
+  -ms-overflow-style:none;
+  overscroll-behavior-x:contain;
+}
+
+.feed-gallery-carousel-track::-webkit-scrollbar{
+  display:none;
+}
+
+.feed-gallery-carousel-slide{
+  position:relative;
+  flex:0 0 100%;
+  min-width:100%;
+  height:100%;
+  scroll-snap-align:start;
+  scroll-snap-stop:always;
+  overflow:hidden;
+  background:#eef2f7;
+}
+
 .feed-gallery-count-1{
   grid-template-columns:minmax(0, 1fr);
 }
@@ -2308,6 +2341,11 @@ img[data-zoom-src]{
   object-position:center !important;
 }
 
+.feed-gallery-carousel .feed-gallery-image-social{
+  width:100% !important;
+  height:100% !important;
+}
+
 .feed-gallery-tile.has-more-overlay::after{
   content:"";
   position:absolute;
@@ -2354,6 +2392,10 @@ img[data-zoom-src]{
   letter-spacing:0.02em;
   backdrop-filter:blur(8px);
   z-index:3;
+}
+
+.feed-gallery-carousel .feed-gallery-count-badge{
+  z-index:4;
 }
 
 .media-gallery{
@@ -5797,7 +5839,10 @@ button:hover,
   .showcase-card,
   .showcase-media,
   .showcase-media img,
-  .showcase-body{
+  .showcase-body,
+  .feed-gallery-carousel,
+  .feed-gallery-carousel-track,
+  .feed-gallery-carousel-slide{
     touch-action:pan-y;
   }
 
@@ -5820,6 +5865,12 @@ button:hover,
   #products-container .feed-gallery-tile,
   #products-container .feed-gallery-tile *{
     touch-action:pan-y;
+  }
+
+  #products-container .feed-gallery-carousel,
+  #products-container .feed-gallery-carousel-track,
+  #products-container .feed-gallery-carousel-slide{
+    touch-action:pan-x;
   }
 
   #products-container .product-card,
@@ -5851,6 +5902,10 @@ button:hover,
 
   .showcase-track{
     touch-action:pan-x pan-y;
+  }
+
+  .feed-gallery-carousel-track{
+    touch-action:pan-x;
   }
 
   #market-showcase .showcase-card,
@@ -6792,7 +6847,8 @@ button:hover,
 
   .product-card,
   .seller-product-card{
-    width:min(100%, 380px);
+    width:calc(100vw - 32px);
+    max-width:100%;
   }
 
   .product-card img,
