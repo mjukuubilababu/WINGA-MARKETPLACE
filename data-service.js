@@ -72,9 +72,34 @@
     if (!raw) return null;
 
     try {
-      return JSON.parse(raw);
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        safeStorageRemove(SESSION_KEY);
+        return null;
+      }
+
+      const username = typeof parsed.username === "string" ? parsed.username.trim() : "";
+      if (!username) {
+        safeStorageRemove(SESSION_KEY);
+        return null;
+      }
+
+      return {
+        ...parsed,
+        username,
+        fullName: typeof parsed.fullName === "string" && parsed.fullName.trim() ? parsed.fullName.trim() : username,
+        role: typeof parsed.role === "string" ? parsed.role.trim().toLowerCase() : "",
+        primaryCategory: typeof parsed.primaryCategory === "string" ? parsed.primaryCategory.trim() : "",
+        phoneNumber: typeof parsed.phoneNumber === "string" ? parsed.phoneNumber.replace(/\D/g, "").slice(0, 20) : "",
+        whatsappNumber: typeof parsed.whatsappNumber === "string"
+          ? parsed.whatsappNumber.replace(/\D/g, "").slice(0, 20)
+          : "",
+        profileImage: typeof parsed.profileImage === "string" ? parsed.profileImage.trim() : "",
+        token: typeof parsed.token === "string" ? parsed.token.trim() : ""
+      };
     } catch (error) {
-      return { username: raw };
+      safeStorageRemove(SESSION_KEY);
+      return null;
     }
   }
 
@@ -1239,6 +1264,10 @@
             },
             timeoutMs: Number(window.WINGA_CONFIG?.sessionRestoreTimeoutMs || 6000)
           });
+          if (!data || typeof data !== "object" || Array.isArray(data) || !String(data.username || "").trim()) {
+            sessionAdapter.clearSession();
+            return null;
+          }
           return data;
         } catch (error) {
           sessionAdapter.clearSession();

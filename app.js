@@ -312,8 +312,35 @@ function setCategorySelectionState(categoryValue, options = {}) {
 }
 
 function applySessionState(session) {
-  currentSession = session || null;
-  currentUser = session?.username || "";
+  if (!session || typeof session !== "object" || Array.isArray(session)) {
+    currentSession = null;
+    currentUser = "";
+    return;
+  }
+
+  const username = String(session.username || "").trim();
+  if (!username) {
+    currentSession = null;
+    currentUser = "";
+    return;
+  }
+
+  const role = String(session.role || "").trim().toLowerCase();
+  const normalizedRole = ["buyer", "seller", "admin", "moderator"].includes(role) ? role : "seller";
+
+  currentSession = {
+    ...session,
+    username,
+    fullName: String(session.fullName || username).trim() || username,
+    primaryCategory: String(session.primaryCategory || "").trim(),
+    role: normalizedRole,
+    phoneNumber: String(session.phoneNumber || "").replace(/\D/g, "").slice(0, 20),
+    whatsappNumber: String(session.whatsappNumber || session.phoneNumber || "").replace(/\D/g, "").slice(0, 20),
+    profileImage: String(session.profileImage || "").trim(),
+    verificationStatus: String(session.verificationStatus || "").trim(),
+    token: typeof session.token === "string" ? session.token.trim() : ""
+  };
+  currentUser = username;
 }
 
 function mergeSessionState(patch = {}) {

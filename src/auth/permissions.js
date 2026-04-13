@@ -7,12 +7,30 @@
       getMarketplaceUser
     } = deps;
 
+    function getCurrentUsername() {
+      return String(getCurrentUser?.() || "").trim();
+    }
+
+    function hasValidSessionIdentity(session = getCurrentSession?.()) {
+      const username = String(session?.username || "").trim();
+      return Boolean(username && username === getCurrentUsername());
+    }
+
+    function normalizeRole(role) {
+      const normalized = String(role || "").trim().toLowerCase();
+      return ["buyer", "seller", "admin", "moderator"].includes(normalized) ? normalized : "";
+    }
+
     function getResolvedRole() {
-      const sessionRole = String(getCurrentSession()?.role || "").toLowerCase();
+      const session = getCurrentSession?.();
+      const sessionRole = normalizeRole(session?.role);
       if (sessionRole) {
         return sessionRole;
       }
-      const marketplaceRole = String(getMarketplaceUser?.(getCurrentUser())?.role || "").toLowerCase();
+      if (!hasValidSessionIdentity(session)) {
+        return "";
+      }
+      const marketplaceRole = normalizeRole(getMarketplaceUser?.(getCurrentUsername())?.role);
       return marketplaceRole;
     }
 
@@ -25,16 +43,15 @@
     }
 
     function canUseBuyerFeatures() {
-      return isBuyerUser() || isSellerUser();
+      return isAuthenticatedUser() && (isBuyerUser() || isSellerUser());
     }
 
     function canUseSellerFeatures() {
-      return isSellerUser();
+      return isAuthenticatedUser() && isSellerUser();
     }
 
     function isAuthenticatedUser() {
-      const currentSession = getCurrentSession();
-      return Boolean(getCurrentUser() || currentSession?.username);
+      return hasValidSessionIdentity();
     }
 
     function shouldHideOwnProductsInMarketplace() {
