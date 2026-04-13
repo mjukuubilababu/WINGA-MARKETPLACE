@@ -7621,7 +7621,14 @@ function setupContinuousDiscoveryLoading(scope, options = {}) {
 }
 
 function buildTrendingKariakooSlide() {
-  const trending = getTrendingProducts(4).filter((product) => getMarketplacePrimaryImage(product));
+  const rotationSeed = Math.floor(Date.now() / 600000) % 12;
+  const trending = getDiverseShowcaseProducts(4, rotationSeed).filter((product) => {
+    if (!product) {
+      return false;
+    }
+    const primaryImage = getMarketplacePrimaryImage(product);
+    return Boolean(primaryImage) && Boolean(product.name || product.shop || getCategoryLabel(product.category));
+  });
   if (!trending.length) {
     return null;
   }
