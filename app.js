@@ -54,6 +54,20 @@ const {
 } = window.WingaModules.components.ui;
 const { createObservabilityModule } = window.WingaModules.monitoring;
 
+function getViewportWidth() {
+  const candidates = [
+    window.visualViewport?.width,
+    document.documentElement?.clientWidth,
+    window.innerWidth
+  ]
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value) && value > 0);
+  if (!candidates.length) {
+    return 0;
+  }
+  return Math.round(Math.min(...candidates));
+}
+
 function getUsers() {
   return window.WingaDataLayer.getUsers();
 }
@@ -395,7 +409,7 @@ function toggleMobileCategoryMenu(forceState) {
 
 function syncBodyScrollLockState() {
   const isMobileSheetVisible = Boolean(
-    window.innerWidth <= 720
+    getViewportWidth() <= 720
     && searchRuntimeState.isMobileCategoryOpen
     && mobileCategoryShell
     && mobileCategoryShell.style.display !== "none"
@@ -461,7 +475,7 @@ function resetTransientChromeState() {
 }
 
 function syncMobileCategorySheetOffset() {
-  if (window.innerWidth > 720) {
+  if (getViewportWidth() > 720) {
     document.documentElement.style.removeProperty("--mobile-category-sheet-top");
     return;
   }
@@ -3789,7 +3803,7 @@ const {
   getActiveChatContext: () => chatUiState.activeContext,
   getProfileMessagesMode: () => chatUiState.profileMessagesMode,
   getProfileMessagesFilter: () => chatUiState.profileMessagesFilter,
-  isCompactMessagesLayout: () => window.innerWidth <= 720,
+  isCompactMessagesLayout: () => getViewportWidth() <= 720,
   getCurrentMessageDraft: () => chatUiState.currentDraft,
   getChatContactState,
   getChatWhatsappNumber,
@@ -4510,11 +4524,11 @@ const MARKETPLACE_SCROLL_IMAGE_PLACEHOLDER = "data:image/gif;base64,R0lGODlhAQAB
 let marketplaceScrollImageObserver = null;
 
 function getMarketplaceScrollImageReleaseMargin() {
-  return window.innerWidth <= 720 ? 960 : 1600;
+  return getViewportWidth() <= 720 ? 960 : 1600;
 }
 
 function getMarketplaceScrollImageRootMargin() {
-  const margin = window.innerWidth <= 720 ? 820 : 1200;
+  const margin = getViewportWidth() <= 720 ? 820 : 1200;
   return `${margin}px 0px ${margin}px 0px`;
 }
 
@@ -5714,7 +5728,7 @@ searchToggleButton.addEventListener("click", () => {
     });
     return;
   }
-  if (window.innerWidth <= 720) {
+  if (getViewportWidth() <= 720) {
     searchRuntimeState.isMobileSearchOpen = !searchRuntimeState.isMobileSearchOpen;
     searchBox.classList.toggle("mobile-open", searchRuntimeState.isMobileSearchOpen);
     searchRuntimeState.isInputFocused = searchRuntimeState.isMobileSearchOpen;
@@ -5826,7 +5840,7 @@ document.addEventListener("click", (event) => {
     closeMobileCategoryMenu();
   }
 
-  if (window.innerWidth > 720 && pinnedDesktopCategory && !categories?.contains(event.target)) {
+  if (getViewportWidth() > 720 && pinnedDesktopCategory && !categories?.contains(event.target)) {
     closePinnedDesktopCategoryMenu();
   }
 
@@ -5842,7 +5856,7 @@ document.addEventListener("click", (event) => {
 
 function handleWindowResize() {
   toggleHeaderUserMenu(false);
-  if (window.innerWidth > 720) {
+  if (getViewportWidth() > 720) {
     closeMobileCategoryMenu();
     searchRuntimeState.isMobileSearchOpen = false;
     searchBox.classList.remove("mobile-open");
@@ -5923,7 +5937,7 @@ viewHomeBackButton?.addEventListener("click", () => {
 });
 
 window.addEventListener("scroll", () => {
-  if (window.innerWidth <= 720) {
+  if (getViewportWidth() <= 720) {
     scheduleMobileHeaderScrollSync();
   }
 }, { passive: true });
@@ -8087,7 +8101,7 @@ function renderCurrentView() {
     if (currentView !== "profile") {
       stopMessagePolling();
     }
-    if (window.innerWidth > 720 || currentView !== "home") {
+    if (getViewportWidth() > 720 || currentView !== "home") {
       closeMobileCategoryMenu();
     }
     renderSlideshow();

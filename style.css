@@ -5566,6 +5566,24 @@ button:hover,
   #view-home-back{
     top:calc(var(--app-top-offset, 88px) + 6px);
   }
+
+  #hero-panel{
+    pointer-events:none;
+  }
+
+  #slide-prev,
+  #slide-next,
+  #slide-dots,
+  .slide-dot{
+    pointer-events:auto;
+  }
+
+  .slide-media,
+  .slide-media img,
+  .slide-media video,
+  .slide-placeholder{
+    pointer-events:none;
+  }
 }
 
 @media (max-width:720px){

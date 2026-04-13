@@ -332,6 +332,7 @@
     }
 
     function goHomeFromProductDetail() {
+      deps.resetHomeBrowseState?.();
       const historyDepth = Math.max(1, Number(detailNavState.detailDepth || detailNavState.productTrail.length || 1));
       if (isDetailHistoryState(window.history.state) && window.history?.go) {
         pendingHomeNavigation = true;
@@ -381,13 +382,9 @@
         }
       });
       // Ensure no lingering horizontal transform or offsets keep the detail shell shifted.
-      [modal, dialog, content, layout].filter(Boolean).forEach((node) => {
+      [dialog, content, layout].filter(Boolean).forEach((node) => {
         try {
           node.style.transform = "none";
-          node.style.left = "0";
-          node.style.right = "0";
-          node.style.marginLeft = "auto";
-          node.style.marginRight = "auto";
         } catch (error) {
           // Ignore nodes that cannot accept inline style updates.
         }
@@ -395,6 +392,10 @@
       if (modal) {
         try {
           modal.style.display = "grid";
+          modal.style.left = "0";
+          modal.style.right = "0";
+          modal.style.marginLeft = "0";
+          modal.style.marginRight = "0";
           modal.style.width = "100vw";
           modal.style.maxWidth = "100vw";
         } catch (error) {

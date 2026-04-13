@@ -1,5 +1,19 @@
 (() => {
   function createNavigationChromeModule(deps) {
+    function getViewportWidth() {
+      const candidates = [
+        window.visualViewport?.width,
+        document.documentElement?.clientWidth,
+        window.innerWidth
+      ]
+        .map((value) => Number(value))
+        .filter((value) => Number.isFinite(value) && value > 0);
+      if (!candidates.length) {
+        return 0;
+      }
+      return Math.round(Math.min(...candidates));
+    }
+
     function shouldShowBottomNav() {
       if (!deps.isAuthenticatedUser()) {
         return false;
@@ -41,7 +55,7 @@
       const searchState = deps.getSearchRuntimeState();
       const profileState = deps.getProfileRuntimeState();
       const chatState = deps.getChatUiState();
-      return window.innerWidth <= 720
+      return getViewportWidth() <= 720
         && deps.getAppContainer()?.style.display !== "none"
         && deps.getCurrentView() === "home"
         && !document.body.classList.contains("auth-modal-open")
@@ -112,7 +126,7 @@
 
     function scheduleMobileHeaderScrollSync() {
       const uiState = deps.getUiRuntimeState();
-      if (window.innerWidth > 720) {
+      if (getViewportWidth() > 720) {
         if (uiState.mobileHeaderScrollFrame) {
           cancelAnimationFrame(uiState.mobileHeaderScrollFrame);
           uiState.mobileHeaderScrollFrame = 0;
