@@ -185,9 +185,13 @@
         }
         if (
           event.target.closest(
-            ".product-menu, .product-menu-popup, .product-menu-toggle, [data-menu-toggle], [data-menu-popup], [data-product-caption-toggle], [data-request-product], [data-chat-product], [data-open-own-messages], .feed-gallery-carousel, .feed-gallery-carousel *"
+            ".product-menu, .product-menu-popup, .product-menu-toggle, [data-menu-toggle], [data-menu-popup], [data-product-caption-toggle], [data-request-product], [data-chat-product], [data-open-own-messages]"
           )
         ) {
+          return;
+        }
+        const gallery = event.target.closest(".feed-gallery-carousel");
+        if (gallery && Date.now() < Number(gallery.dataset.feedGallerySwipeUntil || 0)) {
           return;
         }
 
