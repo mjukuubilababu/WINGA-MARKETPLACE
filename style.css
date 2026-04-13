@@ -5643,6 +5643,11 @@ button:hover,
     touch-action:pan-y;
   }
 
+  #products-container .showcase-inline .showcase-track .showcase-card,
+  #products-container .showcase-inline .showcase-track .showcase-card *{
+    touch-action:pan-x pan-y;
+  }
+
   #products-container .feed-gallery-tile,
   #products-container .feed-gallery-tile *{
     touch-action:pan-y;
