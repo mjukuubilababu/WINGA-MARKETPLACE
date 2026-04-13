@@ -120,11 +120,9 @@
       const currentMessageDraft = deps.getCurrentMessageDraft();
       const contactState = deps.getChatContactState(activeChatContext);
       const activeWhatsApp = contactState.whatsapp;
-      const isCompactMessagesLayout = Boolean(deps.isCompactMessagesLayout?.());
       const profileMessagesMode = deps.getProfileMessagesMode?.() || "list";
-      const showDetailOnly = isCompactMessagesLayout && activeChatContext && profileMessagesMode === "detail";
-      const showConversationList = !showDetailOnly;
-      const showConversationDetail = !isCompactMessagesLayout || profileMessagesMode === "detail";
+      const showConversationList = profileMessagesMode !== "detail";
+      const showConversationDetail = profileMessagesMode === "detail";
       const panelTitle = profileFilter === "unread" ? "Unread Messages" : "Messages";
       const panelSubtitle = profileFilter === "unread"
         ? "Unread conversations"
@@ -142,7 +140,7 @@
             </div>
             <span class="meta-copy">${summaries.length} conversations</span>
           </div>
-          <div class="messages-shell ${showDetailOnly ? "compact-detail" : ""}">
+          <div class="messages-shell ${showConversationDetail ? "compact-detail" : ""}">
             ${showConversationList ? `
             <div class="messages-list">
               ${summaries.length ? summaries.map((summary) => `
@@ -169,7 +167,7 @@
             <div class="messages-thread-card">
               ${activeChatContext ? `
                 <div class="messages-thread-head">
-                  ${isCompactMessagesLayout ? `<button class="message-list-back" type="button" data-message-list-back="true">Back</button>` : ""}
+                  <button class="message-list-back" type="button" data-message-list-back="true">Back</button>
                   <div>
                     <strong>${deps.escapeHtml(activeChatContext.displayName || deps.getUserDisplayName(activeChatContext.withUser))}</strong>
                     <p>${deps.escapeHtml(activeChatContext.productName || "General inquiry")}</p>
