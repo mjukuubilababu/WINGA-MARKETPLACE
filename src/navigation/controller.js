@@ -174,6 +174,16 @@
           event.preventDefault();
           event.stopPropagation();
           event.stopImmediatePropagation?.();
+          if (!deps.isAuthenticatedUser?.()) {
+            deps.promptGuestAuth?.({
+              preferredMode: "signup",
+              role: "buyer",
+              title: "You need an account to continue",
+              message: "Sign up or log in to open product details and other marketplace actions.",
+              intent: { type: "focus-product", productId }
+            });
+            return;
+          }
           deps.openProductDetailModal(productId);
         }
       }, true);
