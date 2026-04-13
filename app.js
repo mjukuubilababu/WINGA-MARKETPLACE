@@ -4376,6 +4376,7 @@ const {
   getCategoryLabel,
   getRenderableMarketplaceImages,
   getMarketplacePrimaryImage,
+  getMarketplaceUser,
   renderMarketplaceTrustBadges,
   renderProductActionGroup,
   renderProductOverflowMenu,
@@ -7102,19 +7103,36 @@ function renderDiscoveryProductCards(items, options = {}) {
     <div class="seller-products-grid">
       ${renderableItems.map((item) => {
         const safeName = escapeHtml(item.name || "");
-        const safeCategory = escapeHtml(getCategoryLabel(item.category));
+        const safeCaption = escapeHtml(String(item.description || item.caption || item.name || item.shop || getCategoryLabel(item.category) || "").trim());
         const promotion = sponsored ? getPrimaryPromotion(item.id) : null;
         const primaryImage = getMarketplacePrimaryImage(item);
+        const seller = getMarketplaceUser(item.uploadedBy);
+        const sellerName = escapeHtml(String(item.shop || seller?.fullName || item.uploadedBy || "Seller").trim());
+        const sellerMeta = escapeHtml(String(item.location || getCategoryLabel(item.category) || "").trim());
+        const sellerProfileImage = sanitizeImageSource(String(seller?.profileImage || "").trim(), "");
+        const sellerAvatar = seller?.profileImage
+          ? `<img class="product-seller-avatar-image" src="${sellerProfileImage}" alt="${sellerName}" loading="lazy" decoding="async">`
+          : `<span>${escapeHtml(getUserInitials(String(item.shop || seller?.fullName || item.uploadedBy || "S").trim()))}</span>`;
+        const imageCount = Array.isArray(item.images) ? item.images.filter(Boolean).length : (primaryImage ? 1 : 0);
         return `
           <article class="seller-product-card" data-open-product="${item.id}">
             <div class="seller-product-card-media">
-              <img class="zoomable-image" src="${primaryImage}" alt="${safeName}" loading="lazy" decoding="async" data-marketplace-scroll-image="true" data-fallback-src="${getImageFallbackDataUri("W")}" data-zoom-src="${primaryImage}" data-zoom-alt="${safeName}" data-image-action-product="${item.id}" data-image-action-src="${primaryImage}" data-image-action-surface="discovery">
+              <img class="zoomable-image feed-gallery-image-social" src="${primaryImage}" alt="${safeName}" loading="lazy" decoding="async" data-marketplace-scroll-image="true" data-fallback-src="${getImageFallbackDataUri("W")}" data-zoom-src="${primaryImage}" data-zoom-alt="${safeName}" data-image-action-product="${item.id}" data-image-action-src="${primaryImage}" data-image-action-surface="discovery">
+              ${imageCount > 1 ? `<span class="feed-gallery-count-badge">${Math.min(imageCount, 9)}/5</span>` : ""}
             </div>
             ${renderProductOverflowMenu(item, { overlay: true })}
-            <strong>${formatProductPrice(item.price)}</strong>
-            <span>${safeName}</span>
-            <span>${safeCategory}</span>
-            ${renderMarketplaceTrustBadges(item, { hideVerifiedBadge: true })}
+            <div class="product-seller-row">
+              <div class="product-seller-avatar">${sellerAvatar}</div>
+              <div class="product-seller-copy">
+                <strong class="product-seller-name">${sellerName}</strong>
+                <span class="product-seller-meta">${sellerMeta}</span>
+              </div>
+              <span class="product-seller-badge">${seller?.verifiedSeller ? "Verified" : "Seller"}</span>
+            </div>
+            <div class="product-card-caption-block${safeCaption.length > 120 ? " is-collapsed" : ""}">
+              <p class="product-card-caption">${safeCaption}</p>
+              ${safeCaption.length > 120 ? `<button class="product-caption-toggle" type="button" data-product-caption-toggle="true" aria-expanded="false">See more</button>` : ""}
+            </div>
             ${promotion ? `<p class="product-meta trust-badges"><span class="status-pill approved sponsored-pill">${escapeHtml(getPromotionLabel(promotion.type))}</span></p>` : ""}
             ${renderProductActionGroup(item, { requestLabel: "Add to My Requests", extraClass: "seller-product-actions" })}
           </article>

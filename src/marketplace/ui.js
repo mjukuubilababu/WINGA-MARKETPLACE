@@ -61,67 +61,77 @@
         ? deps.getRenderableMarketplaceImages(product)
         : (Array.isArray(product.images) && product.images.length > 0 ? product.images : [product.image]).filter(Boolean);
       const firstImage = safeImages[0] || deps.getImageFallbackDataUri("WINGA");
-      const gallery = createElement("div", {
+      const image = createResponsiveImage({
+        src: firstImage,
+        alt: product.name || "Product image",
+        className: "feed-gallery-image feed-gallery-image-social",
+        fallbackSrc: deps.getImageFallbackDataUri("WINGA"),
+        attributes: {
+          "data-marketplace-scroll-image": "true",
+          "data-image-action-product": product.id,
+          "data-image-action-src": firstImage,
+          "data-image-action-surface": "feed"
+        }
+      });
+      const wrapper = createElement("div", {
         className: `product-gallery media-gallery feed-gallery-preview feed-gallery-count-${Math.min(Math.max(safeImages.length, 1), 4)}`
       });
-      const previewImages = safeImages.length > 3 ? safeImages.slice(0, 3) : safeImages;
-      const extraImageCount = Math.max(0, safeImages.length - previewImages.length);
-
-      previewImages.forEach((image, index) => {
-        const tile = createElement("button", {
-          className: `feed-gallery-tile feed-gallery-tile-${index + 1}${extraImageCount > 0 && index === previewImages.length - 1 ? " has-more-overlay" : ""}`,
-          attributes: {
-            type: "button",
-            "data-open-product": product.id,
-            "data-feed-gallery-image": image,
-            "data-feed-gallery-index": index,
-            "data-feed-gallery-product": product.id,
-            "aria-label": `${product.name || "Product"} image ${index + 1} of ${safeImages.length}`
-          }
-        });
-        tile.appendChild(createResponsiveImage({
-          src: image,
-          alt: `${product.name || "Product"} ${index + 1}`,
-          className: "feed-gallery-image",
-          fallbackSrc: deps.getImageFallbackDataUri("WINGA"),
-          attributes: {
-            "data-marketplace-scroll-image": "true",
-            "data-image-action-product": product.id,
-            "data-image-action-src": image,
-            "data-image-action-surface": "feed",
-            "data-disable-image-zoom": "true"
-          }
+      wrapper.appendChild(image);
+      if (safeImages.length > 1) {
+        wrapper.appendChild(createElement("span", {
+          className: "feed-gallery-count-badge",
+          textContent: `${Math.min(safeImages.length, 9)}/5`
         }));
-        if (extraImageCount > 0 && index === previewImages.length - 1) {
-          tile.appendChild(createElement("span", {
-            className: "feed-gallery-more-badge",
-            textContent: `+${extraImageCount}`
-          }));
-        }
-        tile.addEventListener("click", (event) => {
-          if (!tile.classList.contains("has-more-overlay")) {
-            return;
-          }
-          event.preventDefault();
-          event.stopPropagation();
-          if (document.activeElement instanceof HTMLElement) {
-            document.activeElement.blur();
-          }
-          deps.openImageLightbox(
-            tile.dataset.feedGalleryImage || firstImage,
-            product.name || "Product image",
-            safeImages,
-            {
-              productId: product.id,
-              surface: "feed",
-              startIndex: Number(tile.dataset.feedGalleryIndex || 0)
-            }
-          );
-        });
-        gallery.appendChild(tile);
-      });
+      }
+      return wrapper;
+    }
 
-      return gallery;
+    function getProductSellerLabel(product) {
+      return String(product?.shop || product?.uploadedBy || "Seller").trim();
+    }
+
+    function getSellerAvatarFallback(product) {
+      const label = getProductSellerLabel(product);
+      const initials = label
+        .split(/\s+/)
+        .filter(Boolean)
+        .slice(0, 2)
+        .map((part) => part.charAt(0))
+        .join("")
+        .toUpperCase();
+      return initials || "S";
+    }
+
+    function createSellerRowElement(product) {
+      const sellerRow = createElement("div", { className: "product-seller-row" });
+      const avatarWrap = createElement("div", { className: "product-seller-avatar" });
+      const sellerUser = deps.getMarketplaceUser?.(product?.uploadedBy);
+      const sellerImage = String(sellerUser?.profileImage || "").trim();
+      if (sellerImage) {
+        avatarWrap.appendChild(createResponsiveImage({
+          src: sellerImage,
+          alt: getProductSellerLabel(product),
+          className: "product-seller-avatar-image",
+          fallbackSrc: deps.getImageFallbackDataUri("WINGA")
+        }));
+      } else {
+        avatarWrap.textContent = getSellerAvatarFallback(product);
+      }
+
+      const sellerCopy = createElement("div", { className: "product-seller-copy" });
+      sellerCopy.append(
+        createElement("strong", { className: "product-seller-name", textContent: getProductSellerLabel(product) }),
+        createElement("span", {
+          className: "product-seller-meta",
+          textContent: `${product?.location || deps.getCategoryLabel(product?.category)}`
+        })
+      );
+
+      sellerRow.append(avatarWrap, sellerCopy, createElement("span", {
+        className: "product-seller-badge",
+        textContent: "Verified"
+      }));
+      return sellerRow;
     }
 
     function createProductActionGroupElement(product) {
@@ -242,8 +252,16 @@
         }
       });
       card.dataset.productCard = product.id;
+      card.dataset.openProduct = product.id;
+      card.dataset.cardOpenBound = "false";
       const media = createElement("div", { className: "product-card-media" });
       media.appendChild(createProductGalleryElement(product));
+      if (Array.isArray(product.images) && product.images.length > 1) {
+        media.appendChild(createElement("span", {
+          className: "feed-gallery-count-badge product-gallery-count-badge",
+          textContent: `${Math.min(product.images.length, 9)}/5`
+        }));
+      }
       card.appendChild(media);
       const overflowMenuMarkup = deps.renderProductOverflowMenu?.(product, { overlay: true });
       if (overflowMenuMarkup) {
@@ -251,27 +269,10 @@
       }
 
       const content = createElement("div", { className: "product-content product-content-simple product-content-social" });
+      content.appendChild(createSellerRowElement(product));
       const caption = createProductCaptionElement(product);
       if (caption) {
         content.appendChild(caption);
-      }
-
-      const head = createElement("div", { className: "product-card-head product-card-meta-row" });
-      head.appendChild(createElement("strong", {
-        className: "product-price product-price-main",
-        textContent: deps.formatProductPrice(product.price)
-      }));
-      if (product.availability === "sold_out") {
-        head.appendChild(createStatusPill(deps.getStatusLabel("sold_out"), "sold_out"));
-      }
-      content.appendChild(head);
-      content.appendChild(createElement("p", {
-        className: "product-category-line product-card-category-line",
-        textContent: deps.getCategoryLabel(product.category)
-      }));
-      const trustBadges = deps.renderMarketplaceTrustBadges?.(product, { hideVerifiedBadge: true });
-      if (trustBadges) {
-        content.appendChild(createFragmentFromMarkup(trustBadges));
       }
       content.appendChild(createProductActionGroupElement(product));
       card.appendChild(content);
@@ -289,6 +290,8 @@
         }
       });
       card.dataset.showcaseId = product.id;
+      card.dataset.openProduct = product.id;
+      card.dataset.cardOpenBound = "false";
       const media = createElement("div", { className: "showcase-media" });
       const primaryImage = deps.getMarketplacePrimaryImage
         ? deps.getMarketplacePrimaryImage(product)
@@ -304,33 +307,21 @@
           "data-image-action-surface": "showcase"
         }
       }));
+      if (Array.isArray(product.images) && product.images.length > 1) {
+        media.appendChild(createElement("span", {
+          className: "feed-gallery-count-badge product-gallery-count-badge",
+          textContent: `${Math.min(product.images.length, 9)}/5`
+        }));
+      }
       const body = createElement("div", { className: "product-content product-content-simple showcase-body" });
       const overflowMenuMarkup = deps.renderProductOverflowMenu?.(product, { overlay: true });
       if (overflowMenuMarkup) {
         card.appendChild(createFragmentFromMarkup(overflowMenuMarkup));
       }
-      const head = createElement("div", { className: "product-card-head product-card-meta-row" });
-      head.appendChild(createElement("strong", {
-        className: "product-price product-price-main showcase-price",
-        textContent: deps.formatProductPrice(product.price)
-      }));
-      if (product.availability === "sold_out") {
-        head.appendChild(createStatusPill(deps.getStatusLabel("sold_out"), "sold_out"));
-      }
+      body.appendChild(createSellerRowElement(product));
       const caption = createProductCaptionElement(product);
       if (caption) {
         body.appendChild(caption);
-      }
-      body.append(
-        head,
-        createElement("p", {
-          className: "product-category-line showcase-category product-card-category-line",
-          textContent: deps.getCategoryLabel(product.category)
-        })
-      );
-      const trustBadges = deps.renderMarketplaceTrustBadges?.(product, { hideVerifiedBadge: true });
-      if (trustBadges) {
-        body.appendChild(createFragmentFromMarkup(trustBadges));
       }
       body.append(
         deps.createElementFromMarkup(

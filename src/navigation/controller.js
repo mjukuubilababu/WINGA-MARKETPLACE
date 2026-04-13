@@ -156,6 +156,30 @@
           return;
         }
 
+        const sellerCardOpenTrigger = event.target.closest(".seller-product-card[data-open-product], .seller-product-card [data-open-product]");
+        if (sellerCardOpenTrigger) {
+          const productId = sellerCardOpenTrigger.dataset.openProduct
+            || sellerCardOpenTrigger.closest(".seller-product-card")?.dataset?.openProduct
+            || "";
+          if (!productId) {
+            return;
+          }
+          event.preventDefault();
+          event.__wingaProductOpenHandled = true;
+          if (!deps.isAuthenticatedUser?.()) {
+            deps.promptGuestAuth?.({
+              preferredMode: "signup",
+              role: "buyer",
+              title: "You need an account to continue",
+              message: "Sign up or log in to open product details and other marketplace actions.",
+              intent: { type: "focus-product", productId }
+            });
+            return;
+          }
+          deps.openProductDetailModal?.(productId);
+          return;
+        }
+
         // Product card opening is owned by the card renderers themselves.
         // Keep this global delegate focused on request/chat actions only.
       }, true);
