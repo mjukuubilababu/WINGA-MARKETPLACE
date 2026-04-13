@@ -4579,7 +4579,7 @@ body.context-chat-open{
   background:linear-gradient(180deg, #f7f7f8 0%, #fff7f1 100%);
 }
 
-#profile-div[data-active-section="profile-messages-panel"] .profile-shell > :not(#profile-messages-panel){
+#profile-div[data-active-section="profile-messages-panel"] .profile-shell > :not(#profile-messages-panel):not(.profile-messages-fab){
   display:none !important;
 }
 
