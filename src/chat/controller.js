@@ -47,6 +47,66 @@
         return;
       }
 
+      const bindMessageLongPress = (scope, rerender) => {
+        if (!scope) {
+          return;
+        }
+
+        scope.querySelectorAll("[data-message-bubble-id]").forEach((bubble) => {
+          const datasetKey = "wingaBoundMessageLongPress";
+          if (bubble.dataset[datasetKey] === "true") {
+            return;
+          }
+          bubble.dataset[datasetKey] = "true";
+
+          let pressTimer = 0;
+          let pressTriggered = false;
+
+          const clearPress = () => {
+            if (pressTimer) {
+              window.clearTimeout(pressTimer);
+            }
+            pressTimer = 0;
+          };
+
+          const openMenu = () => {
+            const messageId = bubble.dataset.messageBubbleId || "";
+            if (!messageId) {
+              return;
+            }
+            pressTriggered = true;
+            deps.setOpenChatMessageMenuId(messageId);
+            rerender();
+          };
+
+          bubble.addEventListener("pointerdown", (event) => {
+            if (event.pointerType === "mouse" && event.button !== 0) {
+              return;
+            }
+            clearPress();
+            pressTriggered = false;
+            pressTimer = window.setTimeout(openMenu, 450);
+          });
+
+          bubble.addEventListener("pointerup", clearPress);
+          bubble.addEventListener("pointercancel", clearPress);
+          bubble.addEventListener("pointerleave", clearPress);
+          bubble.addEventListener("contextmenu", (event) => {
+            event.preventDefault();
+            clearPress();
+            openMenu();
+          });
+
+          bubble.addEventListener("click", (event) => {
+            if (pressTriggered) {
+              event.preventDefault();
+              event.stopPropagation();
+            }
+            clearPress();
+          });
+        });
+      };
+
       modal.querySelectorAll("[data-close-context-chat]").forEach((button) => {
         button.addEventListener("click", closeContextChatModal);
       });
@@ -127,6 +187,8 @@
           replaceContextChatModal();
         });
       });
+
+      bindMessageLongPress(modal, replaceContextChatModal);
 
       modal.querySelectorAll("[data-message-reply]").forEach((button) => {
         button.addEventListener("click", () => {
@@ -416,6 +478,66 @@
         return;
       }
 
+      const bindMessageLongPress = (targetScope, rerender) => {
+        if (!targetScope) {
+          return;
+        }
+
+        targetScope.querySelectorAll("[data-message-bubble-id]").forEach((bubble) => {
+          const datasetKey = "wingaBoundMessageLongPress";
+          if (bubble.dataset[datasetKey] === "true") {
+            return;
+          }
+          bubble.dataset[datasetKey] = "true";
+
+          let pressTimer = 0;
+          let pressTriggered = false;
+
+          const clearPress = () => {
+            if (pressTimer) {
+              window.clearTimeout(pressTimer);
+            }
+            pressTimer = 0;
+          };
+
+          const openMenu = () => {
+            const messageId = bubble.dataset.messageBubbleId || "";
+            if (!messageId) {
+              return;
+            }
+            pressTriggered = true;
+            deps.setOpenChatMessageMenuId(messageId);
+            rerender();
+          };
+
+          bubble.addEventListener("pointerdown", (event) => {
+            if (event.pointerType === "mouse" && event.button !== 0) {
+              return;
+            }
+            clearPress();
+            pressTriggered = false;
+            pressTimer = window.setTimeout(openMenu, 450);
+          });
+
+          bubble.addEventListener("pointerup", clearPress);
+          bubble.addEventListener("pointercancel", clearPress);
+          bubble.addEventListener("pointerleave", clearPress);
+          bubble.addEventListener("contextmenu", (event) => {
+            event.preventDefault();
+            clearPress();
+            openMenu();
+          });
+
+          bubble.addEventListener("click", (event) => {
+            if (pressTriggered) {
+              event.preventDefault();
+              event.stopPropagation();
+            }
+            clearPress();
+          });
+        });
+      };
+
       const bindClickOnce = (selector, bindingKey, handler) => {
         scope.querySelectorAll(selector).forEach((element) => {
           const datasetKey = `wingaBound${bindingKey}`;
@@ -547,6 +669,8 @@
         deps.setPendingProfileSection?.("profile-products-panel");
         deps.renderProfile?.();
       });
+
+      bindMessageLongPress(scope, () => deps.replaceMessagesPanel(scope));
 
       bindClickOnce("[data-refresh-messages]", "RefreshMessages", async () => {
         try {

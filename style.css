@@ -3982,6 +3982,11 @@ body.context-chat-open{
   cursor:pointer;
 }
 
+.message-list-back,
+.message-panel-close{
+  touch-action:manipulation;
+}
+
 .messages-thread-actions{
   display:flex;
   gap:8px;
@@ -4017,6 +4022,7 @@ body.context-chat-open{
   border:1px solid var(--border);
   background:var(--bg-light);
   position:relative;
+  touch-action:manipulation;
 }
 
 .message-bubble.outgoing{
@@ -4069,6 +4075,12 @@ body.context-chat-open{
   cursor:pointer;
 }
 
+.message-bubble[data-message-bubble-id]{
+  cursor:context-menu;
+  -webkit-user-select:none;
+  user-select:none;
+}
+
 .message-action-menu{
   position:absolute;
   top:40px;
@@ -4097,6 +4109,39 @@ body.context-chat-open{
 
 .message-action-menu button:hover{
   background:#fff4ec;
+}
+
+.messages-panel-actions{
+  align-items:flex-start;
+}
+
+@media (max-width:720px){
+  .messages-panel-actions{
+    width:100%;
+    justify-content:space-between;
+  }
+
+  .message-panel-close{
+    width:100%;
+  }
+
+  .messages-thread-head{
+    flex-direction:column;
+    align-items:stretch;
+  }
+
+  .message-list-back{
+    width:100%;
+  }
+
+  .messages-thread-actions{
+    width:100%;
+  }
+
+  .messages-thread-actions .action-btn,
+  .messages-thread-actions .button{
+    width:100%;
+  }
 }
 
 #notification-toast-root{

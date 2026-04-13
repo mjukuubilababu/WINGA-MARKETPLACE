@@ -61,7 +61,7 @@
         const safeReplyText = replyMessage ? deps.escapeHtml(deps.getMessagePreviewText(replyMessage)) : "";
         const safeMessageText = message.message ? deps.escapeHtml(message.message) : "";
         return `
-          <div class="message-bubble ${message.senderId === deps.getCurrentUser() ? "outgoing" : "incoming"}${productItems.length ? " message-bubble-product" : ""}">
+          <div class="message-bubble ${message.senderId === deps.getCurrentUser() ? "outgoing" : "incoming"}${productItems.length ? " message-bubble-product" : ""}" data-message-bubble-id="${message.id}">
             ${replyMessage ? `<div class="message-reply-preview"><strong>Reply</strong><span>${safeReplyText}</span></div>` : ""}
             ${productItems.length ? renderChatProductPreviewItems(productItems) : ""}
             ${message.message ? `<p>${safeMessageText}</p>` : ""}
@@ -71,7 +71,7 @@
               ${deps.getOpenChatMessageMenuId() === message.id ? `
                 <div class="message-action-menu">
                   <button type="button" data-message-reply="${message.id}">Reply</button>
-                  <button type="button" data-message-share="${message.id}">Share</button>
+                  <button type="button" data-message-share="${message.id}">Forward</button>
                   ${hasDownload ? `<button type="button" data-message-download="${message.id}">Download image</button>` : ""}
                   ${canDelete ? `<button type="button" data-message-delete="${message.id}">Delete</button>` : ""}
                 </div>
@@ -184,7 +184,7 @@
                 </div>
                 ${contactState.note ? `<p class="thread-contact-note">${deps.escapeHtml(contactState.note)}</p>` : ""}
                 <div class="messages-thread-body">
-                  ${renderConversationMessagesMarkup(activeMessages)}
+                  ${renderConversationMessagesMarkup(activeMessages, { enableActions: true })}
                 </div>
                 <form id="message-compose-form" class="messages-compose">
                   <textarea id="message-compose-input" rows="3" maxlength="1000" placeholder="Andika ujumbe wako hapa...">${deps.escapeHtml(currentMessageDraft)}</textarea>
