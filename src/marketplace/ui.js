@@ -129,6 +129,60 @@
       );
     }
 
+    function getProductCardCaption(product) {
+      return String(
+        product?.description
+          || product?.caption
+          || product?.name
+          || product?.shop
+          || deps.getCategoryLabel(product?.category)
+          || ""
+      ).trim();
+    }
+
+    function createProductCaptionElement(product) {
+      const captionText = getProductCardCaption(product);
+      if (!captionText) {
+        return null;
+      }
+
+      const needsToggle = captionText.length > 120;
+      const wrapper = createElement("div", {
+        className: "product-card-caption-block"
+      });
+
+      const caption = createElement("p", {
+        className: "product-card-caption",
+        textContent: captionText
+      });
+      caption.setAttribute("aria-label", captionText);
+      wrapper.appendChild(caption);
+
+      if (needsToggle) {
+        wrapper.classList.add("is-collapsed");
+        const toggle = createElement("button", {
+          className: "product-caption-toggle",
+          textContent: "See more",
+          attributes: {
+            type: "button",
+            "data-product-caption-toggle": "true",
+            "aria-expanded": "false"
+          }
+        });
+        toggle.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          const isExpanded = wrapper.classList.toggle("is-expanded");
+          wrapper.classList.toggle("is-collapsed", !isExpanded);
+          toggle.textContent = isExpanded ? "See less" : "See more";
+          toggle.setAttribute("aria-expanded", String(isExpanded));
+        });
+        wrapper.appendChild(toggle);
+      }
+
+      return wrapper;
+    }
+
     function createProductCardElement(product) {
       const card = createElement("article", {
         className: "product-card",
@@ -146,8 +200,13 @@
         card.appendChild(createFragmentFromMarkup(overflowMenuMarkup));
       }
 
-      const content = createElement("div", { className: "product-content product-content-simple" });
-      const head = createElement("div", { className: "product-card-head" });
+      const content = createElement("div", { className: "product-content product-content-simple product-content-social" });
+      const caption = createProductCaptionElement(product);
+      if (caption) {
+        content.appendChild(caption);
+      }
+
+      const head = createElement("div", { className: "product-card-head product-card-meta-row" });
       head.appendChild(createElement("strong", {
         className: "product-price product-price-main",
         textContent: deps.formatProductPrice(product.price)
@@ -156,12 +215,8 @@
         head.appendChild(createStatusPill(deps.getStatusLabel("sold_out"), "sold_out"));
       }
       content.appendChild(head);
-      content.appendChild(createElement("h3", {
-        className: "product-title product-title-main",
-        textContent: product.name || ""
-      }));
       content.appendChild(createElement("p", {
-        className: "product-category-line",
+        className: "product-category-line product-card-category-line",
         textContent: deps.getCategoryLabel(product.category)
       }));
       const trustBadges = deps.renderMarketplaceTrustBadges?.(product, { hideVerifiedBadge: true });
@@ -203,7 +258,7 @@
       if (overflowMenuMarkup) {
         card.appendChild(createFragmentFromMarkup(overflowMenuMarkup));
       }
-      const head = createElement("div", { className: "product-card-head" });
+      const head = createElement("div", { className: "product-card-head product-card-meta-row" });
       head.appendChild(createElement("strong", {
         className: "product-price product-price-main showcase-price",
         textContent: deps.formatProductPrice(product.price)
@@ -211,14 +266,14 @@
       if (product.availability === "sold_out") {
         head.appendChild(createStatusPill(deps.getStatusLabel("sold_out"), "sold_out"));
       }
+      const caption = createProductCaptionElement(product);
+      if (caption) {
+        body.appendChild(caption);
+      }
       body.append(
         head,
-        createElement("h4", {
-          className: "product-title product-title-main showcase-title",
-          textContent: product.name || ""
-        }),
         createElement("p", {
-          className: "product-category-line showcase-category",
+          className: "product-category-line showcase-category product-card-category-line",
           textContent: deps.getCategoryLabel(product.category)
         })
       );

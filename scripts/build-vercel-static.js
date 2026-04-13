@@ -94,7 +94,11 @@ function applyAssetVersionToHtml(relativePath) {
     /(href|src)="((?:style\.css|winga-config\.js|mock-data\.js|data-service\.js|app-core\.js|winga-modules\.js|app\.js|src\/[^"]+\.js))(?:\?[^"]*)?"/g,
     (_, attribute, assetPath) => `${attribute}="${assetPath}?v=${assetVersion}"`
   );
-  fs.writeFileSync(targetPath, next, "utf8");
+  const marked = next.replace(
+    /(<meta name="viewport" content="width=device-width, initial-scale=1.0">)/i,
+    `$1\n  <meta name="winga-build" content="${assetVersion}">`
+  );
+  fs.writeFileSync(targetPath, marked, "utf8");
 }
 
 function copyDirectoryRecursive(sourcePath, targetPath) {

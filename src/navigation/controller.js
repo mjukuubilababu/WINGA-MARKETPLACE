@@ -159,7 +159,7 @@
         const openTrigger = event.target.closest("[data-open-product], [data-product-card], [data-showcase-id]");
         const shouldIgnoreOpen = Boolean(
           event.target.closest(
-            ".product-actions, .seller-product-actions, .product-menu, .product-menu-popup, .product-menu-toggle, [data-menu-toggle], [data-menu-popup]"
+            ".product-actions, .seller-product-actions, .product-menu, .product-menu-popup, .product-menu-toggle, [data-menu-toggle], [data-menu-popup], [data-product-caption-toggle]"
           )
         ) || Boolean(event.target.closest("[data-feed-gallery-image].has-more-overlay"));
 

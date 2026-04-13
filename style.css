@@ -2064,7 +2064,7 @@ img[data-zoom-src]{
   z-index:1;
   contain:layout paint;
   content-visibility:auto;
-  contain-intrinsic-size:380px;
+  contain-intrinsic-size:460px;
 }
 
 .product-card:hover{
@@ -2233,7 +2233,7 @@ img[data-zoom-src]{
   display:grid;
   gap:6px;
   padding:10px;
-  min-height:286px;
+  min-height:332px;
   background:#f8fafc;
 }
 
@@ -2271,11 +2271,11 @@ img[data-zoom-src]{
 }
 
 .feed-gallery-count-1 .feed-gallery-tile{
-  min-height:286px;
+  min-height:332px;
 }
 
 .feed-gallery-count-2 .feed-gallery-tile{
-  min-height:286px;
+  min-height:332px;
 }
 
 .feed-gallery-count-3 .feed-gallery-tile-1,
@@ -2287,7 +2287,7 @@ img[data-zoom-src]{
 .feed-gallery-count-4 .feed-gallery-tile-2,
 .feed-gallery-count-3 .feed-gallery-tile-3,
 .feed-gallery-count-4 .feed-gallery-tile-3{
-  min-height:140px;
+  min-height:163px;
 }
 
 .feed-gallery-image{
@@ -2413,11 +2413,19 @@ img[data-zoom-src]{
   z-index:2;
 }
 
+.product-content-social{
+  gap:10px;
+}
+
 .product-card-head{
   display:flex;
   align-items:flex-start;
   justify-content:space-between;
   gap:10px;
+}
+
+.product-card-meta-row{
+  align-items:flex-end;
 }
 
 .product-card h3{
@@ -2502,6 +2510,46 @@ img[data-zoom-src]{
   color:var(--muted);
   font-size:0.78rem;
   line-height:1.22;
+}
+
+.product-card-caption-block{
+  display:grid;
+  gap:8px;
+}
+
+.product-card-caption{
+  margin:0;
+  color:var(--accent-deep);
+  font-size:0.98rem;
+  line-height:1.55;
+  font-weight:600;
+  overflow:hidden;
+  display:-webkit-box;
+  -webkit-box-orient:vertical;
+  -webkit-line-clamp:3;
+}
+
+.product-card-caption-block.is-expanded .product-card-caption{
+  display:block;
+  -webkit-line-clamp:unset;
+}
+
+.product-caption-toggle{
+  align-self:flex-start;
+  border:none;
+  padding:0;
+  background:transparent;
+  color:var(--accent);
+  font-size:0.84rem;
+  font-weight:800;
+  cursor:pointer;
+}
+
+.product-caption-toggle:hover,
+.product-caption-toggle:focus-visible{
+  color:var(--accent-deep);
+  text-decoration:underline;
+  outline:none;
 }
 
 .product-signal{
@@ -5558,21 +5606,21 @@ button:hover,
   }
 
   .feed-gallery-preview{
-    min-height:248px;
+    min-height:272px;
     padding:8px;
     gap:5px;
   }
 
   .feed-gallery-count-1 .feed-gallery-tile,
   .feed-gallery-count-2 .feed-gallery-tile{
-    min-height:248px;
+    min-height:272px;
   }
 
   .feed-gallery-count-3 .feed-gallery-tile-2,
   .feed-gallery-count-4 .feed-gallery-tile-2,
   .feed-gallery-count-3 .feed-gallery-tile-3,
   .feed-gallery-count-4 .feed-gallery-tile-3{
-    min-height:121px;
+    min-height:133px;
   }
 
   .product-actions,
