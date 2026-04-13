@@ -549,7 +549,7 @@ body.auth-modal-open::before{
 }
 
 #app-container{
-  max-width:1120px;
+  max-width:1240px;
   margin:0 auto;
   padding:150px 16px 110px;
   width:100%;
@@ -5653,6 +5653,12 @@ button:hover,
 }
 
 @media (min-width:961px){
+  #app-container{
+    max-width:1280px;
+    padding-left:24px;
+    padding-right:24px;
+  }
+
   #top-bar{
     display:grid;
     grid-template-columns:minmax(156px, 180px) max-content minmax(280px, 1fr) max-content;
@@ -5711,6 +5717,31 @@ button:hover,
 
   #mobile-category-shell{
     display:none !important;
+  }
+
+  .product-card .product-actions-simple,
+  .seller-product-card .product-actions-simple{
+    display:grid;
+    grid-template-columns:repeat(3, minmax(0, 1fr));
+    gap:6px;
+  }
+
+  .product-card .product-actions-primary,
+  .product-card .product-actions-secondary,
+  .seller-product-card .product-actions-primary,
+  .seller-product-card .product-actions-secondary{
+    display:contents;
+  }
+
+  .product-card .product-actions .action-btn,
+  .product-card .product-actions .button,
+  .seller-product-card .product-actions .action-btn,
+  .seller-product-card .product-actions .button{
+    min-width:0;
+    min-height:34px;
+    padding:0 8px;
+    font-size:0.78rem;
+    white-space:nowrap;
   }
 }
 
