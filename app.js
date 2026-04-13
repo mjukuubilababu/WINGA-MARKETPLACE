@@ -7691,11 +7691,44 @@ function renderPromoteButton(product) {
 }
 
 function bindShowcaseCardClicks(scope) {
-  scope.querySelectorAll(".showcase-card").forEach((card) => {
+  scope.querySelectorAll(".showcase-card, .seller-product-card").forEach((card) => {
     if (card.dataset.showcaseClickBound === "true") {
       return;
     }
     card.dataset.showcaseClickBound = "true";
+    card.addEventListener("click", (event) => {
+      if (
+        event.target.closest(
+          ".product-actions, .seller-product-actions, .product-menu, .product-menu-popup, .product-menu-toggle, [data-menu-toggle], [data-menu-popup], [data-product-caption-toggle], [data-request-product], [data-chat-product], [data-open-own-messages]"
+        )
+      ) {
+        return;
+      }
+
+      const productId = card.dataset.openProduct
+        || card.dataset.showcaseId
+        || "";
+      if (!productId || event.__wingaProductOpenHandled) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      event.__wingaProductOpenHandled = true;
+
+      if (!isAuthenticatedUser()) {
+        promptGuestAuth?.({
+          preferredMode: "signup",
+          role: "buyer",
+          title: "You need an account to continue",
+          message: "Sign up or log in to open product details and other marketplace actions.",
+          intent: { type: "focus-product", productId }
+        });
+        return;
+      }
+
+      openProductDetailModal(productId);
+    });
   });
 }
 
