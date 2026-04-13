@@ -6845,16 +6845,34 @@ function applyProductFilters(list) {
 }
 
 function getShowcaseProducts() {
-  return AppCore.getShowcaseProducts
-    ? AppCore.getShowcaseProducts(products.filter((product) => shouldRenderMarketplaceProduct(product)), 12)
-    : products
-      .filter((product) => product.status === "approved" && product.availability !== "sold_out" && hasRenderableMarketplaceImage(product) && shouldRenderMarketplaceProduct(product))
+  const renderableProducts = products.filter((product) =>
+    product.status === "approved"
+    && product.availability !== "sold_out"
+    && hasRenderableMarketplaceImage(product)
+    && shouldRenderMarketplaceProduct(product)
+  );
+  if (!renderableProducts.length) {
+    return [];
+  }
+
+  const rotationSeed = Math.floor(Date.now() / 600000) % Math.max(1, renderableProducts.length);
+  const diverseProducts = getDiverseShowcaseProducts(12, rotationSeed);
+  const fallbackProducts = AppCore.getShowcaseProducts
+    ? AppCore.getShowcaseProducts(renderableProducts, 12)
+    : renderableProducts
       .sort((first, second) => {
         const firstScore = (first.likes || 0) * 4 + (first.views || 0);
         const secondScore = (second.likes || 0) * 4 + (second.views || 0);
         return secondScore - firstScore;
       })
       .slice(0, 12);
+
+  const combined = [...diverseProducts, ...fallbackProducts].filter((product, index, list) => (
+    Boolean(getMarketplacePrimaryImage(product))
+    && list.findIndex((item) => item.id === product.id) === index
+  ));
+
+  return combined.length ? combined.slice(0, 12) : fallbackProducts;
 }
 
 function getProductsPerRow() {
