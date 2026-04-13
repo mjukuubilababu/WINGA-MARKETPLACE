@@ -3947,16 +3947,6 @@ body.context-chat-open{
   justify-content:flex-end;
 }
 
-.messages-panel-footer{
-  position:fixed;
-  right:max(16px, env(safe-area-inset-right));
-  bottom:max(16px, calc(env(safe-area-inset-bottom) + 16px));
-  z-index:1465;
-  display:flex;
-  justify-content:flex-end;
-  pointer-events:auto;
-}
-
 .message-panel-close{
   display:inline-flex;
   align-items:center;
@@ -3976,6 +3966,14 @@ body.context-chat-open{
   border-color:rgba(255,106,0,0.35);
   color:var(--accent);
   outline:none;
+}
+
+.profile-messages-fab{
+  position:fixed;
+  right:max(16px, env(safe-area-inset-right));
+  bottom:max(16px, calc(env(safe-area-inset-bottom) + 16px));
+  z-index:1475;
+  box-shadow:0 14px 30px rgba(35, 47, 62, 0.16);
 }
 
 .message-list-back{
@@ -4131,13 +4129,13 @@ body.context-chat-open{
     justify-content:space-between;
   }
 
-  .messages-panel-footer{
-    right:10px;
-    bottom:10px;
-  }
-
   .message-panel-close{
     min-width:0;
+  }
+
+  .profile-messages-fab{
+    right:10px;
+    bottom:10px;
   }
 
   .messages-thread-head{

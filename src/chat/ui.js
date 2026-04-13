@@ -197,9 +197,6 @@
             </div>
             ` : ""}
           </div>
-          <div class="messages-panel-footer">
-            <button class="message-panel-close" type="button" data-close-profile-messages="true">Back to profile</button>
-          </div>
         </section>
       `;
     }
