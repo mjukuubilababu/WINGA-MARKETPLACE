@@ -1462,8 +1462,25 @@ img[data-zoom-src]{
 }
 
 @media (max-width:720px){
+  .showcase-card .showcase-actions,
+  .seller-product-card .seller-product-actions{
+    grid-template-columns:repeat(3, minmax(0, 1fr));
+    gap:4px;
+  }
+
+  .showcase-card .showcase-actions .action-btn,
+  .showcase-card .showcase-actions .button,
+  .seller-product-card .seller-product-actions .action-btn,
+  .seller-product-card .seller-product-actions .button{
+    min-height:28px;
+    padding:0 4px;
+    font-size:0.68rem;
+    line-height:1.1;
+    white-space:nowrap;
+  }
+
   .showcase-actions{
-    grid-template-columns:1fr;
+    grid-template-columns:repeat(3, minmax(0, 1fr));
   }
 }
 
