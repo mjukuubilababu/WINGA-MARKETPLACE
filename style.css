@@ -6080,7 +6080,8 @@ button:hover,
   }
 
   .product-actions-simple{
-    grid-template-columns:1fr;
+    grid-template-columns:repeat(3, minmax(0, 1fr));
+    gap:4px;
   }
 
   .showcase-card .showcase-actions,
@@ -6088,13 +6089,21 @@ button:hover,
     gap:4px;
   }
 
+  .product-card .product-actions-primary,
+  .product-card .product-actions-secondary,
+  .seller-product-card .product-actions-primary,
+  .seller-product-card .product-actions-secondary{
+    display:contents;
+  }
+
   .showcase-card .showcase-actions .action-btn,
   .showcase-card .showcase-actions .button,
   .seller-product-card .seller-product-actions .action-btn,
   .seller-product-card .seller-product-actions .button{
-    min-height:30px;
-    padding:0 5px;
-    font-size:0.72rem;
+    min-height:32px;
+    padding:0 6px;
+    font-size:0.74rem;
+    white-space:nowrap;
   }
 
   .product-detail-media.has-media-stack{
