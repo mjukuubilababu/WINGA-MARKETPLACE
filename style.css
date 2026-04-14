@@ -6313,8 +6313,13 @@ button:hover,
   }
 
   .product-detail-dialog{
-    width:min(100vw - 16px, 100%);
+    width:100vw;
+    max-width:100vw;
     padding:72px 0 18px;
+  }
+
+  #product-detail-modal{
+    padding:0;
   }
 
   .product-detail-home-fab{
@@ -6328,6 +6333,7 @@ button:hover,
     grid-template-columns:1fr;
     gap:16px;
     padding:16px;
+    border-radius:0;
   }
 
   .product-detail-actions{
