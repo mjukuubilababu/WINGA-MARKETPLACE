@@ -13,6 +13,25 @@
   --radius:20px;
 }
 
+@media (max-width:360px){
+  .product-actions-simple{
+    gap:3px;
+  }
+
+  .product-card .product-actions .action-btn,
+  .product-card .product-actions .button,
+  .seller-product-card .seller-product-actions .action-btn,
+  .seller-product-card .seller-product-actions .button,
+  .showcase-card .showcase-actions .action-btn,
+  .showcase-card .showcase-actions .button{
+    min-height:28px;
+    padding:0 4px;
+    font-size:0.68rem;
+    line-height:1.1;
+    white-space:nowrap;
+  }
+}
+
 @media (max-width: 720px){
   body #mobile-category-menu{
     position:fixed;
