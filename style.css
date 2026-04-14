@@ -6973,14 +6973,18 @@ button:hover,
 
   .product-card,
   .seller-product-card{
-    width:calc(100vw - 32px);
-    max-width:100%;
+    width:100vw;
+    max-width:100vw;
+    margin-left:calc(50% - 50vw);
+    margin-right:calc(50% - 50vw);
+    border-radius:0;
   }
 
   .product-card img,
   .feed-gallery-image-social,
   .seller-product-card img{
     height:390px;
+    border-radius:0;
   }
 
   .feed-gallery-preview{
