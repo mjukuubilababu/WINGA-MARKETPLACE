@@ -328,21 +328,16 @@
       deps.resetHomeBrowseState?.();
       deps.setCurrentViewState?.("home");
       deps.renderCurrentView?.();
+      deps.syncAppShellHistoryState?.({
+        force: true,
+        url: "/"
+      });
       window.scrollTo({ top: 0, behavior: "auto" });
     }
 
     function goHomeFromProductDetail() {
       deps.resetHomeBrowseState?.();
-      const historyDepth = Math.max(1, Number(detailNavState.detailDepth || detailNavState.productTrail.length || 1));
-      if (isDetailHistoryState(window.history.state) && window.history?.go) {
-        pendingHomeNavigation = true;
-        isSyncingHistoryState = true;
-        window.history.go(-historyDepth);
-        window.setTimeout(() => {
-          isSyncingHistoryState = false;
-        }, 0);
-        return;
-      }
+      deps.refreshSearchInputControl?.();
       finalizeHomeNavigation();
     }
 

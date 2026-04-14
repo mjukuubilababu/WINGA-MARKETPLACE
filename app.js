@@ -1444,7 +1444,7 @@ function buildAppShellHistoryState(overrides = {}) {
 }
 
 function syncAppShellHistoryState(options = {}) {
-  const { force = false, mode = "replace", overrides = {} } = options;
+  const { force = false, mode = "replace", overrides = {}, url } = options;
   if (!window.history?.replaceState || document.body.classList.contains("product-detail-open")) {
     return;
   }
@@ -1464,12 +1464,14 @@ function syncAppShellHistoryState(options = {}) {
     return;
   }
 
-  const url = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  const nextUrl = typeof url === "string"
+    ? url
+    : `${window.location.pathname}${window.location.search}${window.location.hash}`;
   if (mode === "push" && window.history?.pushState) {
-    window.history.pushState(nextState, "", url);
+    window.history.pushState(nextState, "", nextUrl);
     return;
   }
-  window.history.replaceState(nextState, "", url);
+  window.history.replaceState(nextState, "", nextUrl);
 }
 
 function shouldShowBottomNav() {
@@ -4166,6 +4168,7 @@ const {
   toggleProductInRequestBox,
   showInAppNotification,
   resetHomeBrowseState,
+  refreshSearchInputControl,
   syncBodyScrollLockState,
   syncAppShellHistoryState,
   setCurrentViewState,
@@ -4819,7 +4822,7 @@ const previewList = document.getElementById("image-preview-list");
 const uploadButton = document.getElementById("upload-button");
 
 const searchBox = document.getElementById("search-box");
-const searchInput = document.getElementById("search-input");
+let searchInput = document.getElementById("search-input");
 const filterPriceMinInput = document.getElementById("filter-price-min");
 const filterPriceMaxInput = document.getElementById("filter-price-max");
 const filterLocationInput = document.getElementById("filter-location");
@@ -4838,6 +4841,13 @@ const topBar = document.getElementById("top-bar");
 const bottomNav = document.getElementById("bottom-nav");
 const postProductFab = document.getElementById("post-product-fab");
 const viewHomeBackButton = document.getElementById("view-home-back");
+
+if (searchInput) {
+  searchInput.setAttribute("autocomplete", "off");
+  searchInput.setAttribute("autocapitalize", "off");
+  searchInput.setAttribute("spellcheck", "false");
+  searchInput.defaultValue = "";
+}
 
 let profileDiv = null;
 const runtimeState = createRuntimeState();
@@ -5739,53 +5749,7 @@ searchToggleButton.addEventListener("click", () => {
   renderCurrentView();
   searchInput.focus();
 });
-
-searchInput.addEventListener("input", () => {
-  if (!isAuthenticatedUser()) {
-    searchInput.value = "";
-    promptGuestAuth({
-      preferredMode: "signup",
-      role: "buyer",
-      title: "Create an account or sign in to continue",
-      message: "Search and advanced filters are available for members."
-    });
-    return;
-  }
-  searchRuntimeState.isSearchDropdownDismissed = false;
-  searchRuntimeState.isInputFocused = true;
-  syncSearchChromeState();
-  noteSearchInterest(searchInput.value);
-  scheduleSearchDrivenRender(120);
-});
-
-searchInput.addEventListener("focus", () => {
-  if (!isAuthenticatedUser()) {
-    promptGuestAuth({
-      preferredMode: "signup",
-      role: "buyer",
-      title: "Create an account or sign in to continue",
-      message: "Search and advanced filters are available for members."
-    });
-    searchInput.blur();
-    return;
-  }
-  searchRuntimeState.isSearchDropdownDismissed = false;
-  searchRuntimeState.isInputFocused = true;
-  syncSearchChromeState();
-  scheduleSearchDrivenRender(0);
-});
-
-searchInput.addEventListener("blur", () => {
-  window.setTimeout(() => {
-    searchRuntimeState.isInputFocused = false;
-    if (!searchInput.value.trim() && !searchRuntimeState.activeImageSearch?.signature) {
-      searchRuntimeState.isMobileSearchOpen = false;
-      searchBox.classList.remove("mobile-open");
-    }
-    syncSearchChromeState();
-    scheduleSearchDrivenRender(0);
-  }, 120);
-});
+bindSearchInputHandlers(searchInput);
 
 [filterPriceMinInput, filterPriceMaxInput, filterLocationInput, sortSelect].filter(Boolean).forEach((field) => {
   field.addEventListener("input", () => {
@@ -5977,7 +5941,11 @@ function applySelectedCategory(category) {
 }
 
 function resetHomeBrowseState() {
-  searchInput.value = "";
+  if (searchInput) {
+    searchInput.value = "";
+    searchInput.defaultValue = "";
+    searchInput.setAttribute("value", "");
+  }
   if (filterPriceMinInput) {
     filterPriceMinInput.value = "";
   }
@@ -5998,6 +5966,77 @@ function resetHomeBrowseState() {
     expandedBrowseCategory: ""
   });
   closeMobileCategoryMenu();
+}
+
+function bindSearchInputHandlers(node) {
+  if (!node || node.dataset.searchHandlersBound === "true") {
+    return;
+  }
+  node.dataset.searchHandlersBound = "true";
+
+  node.addEventListener("input", () => {
+    if (!isAuthenticatedUser()) {
+      node.value = "";
+      promptGuestAuth({
+        preferredMode: "signup",
+        role: "buyer",
+        title: "Create an account or sign in to continue",
+        message: "Search and advanced filters are available for members."
+      });
+      return;
+    }
+    searchRuntimeState.isSearchDropdownDismissed = false;
+    searchRuntimeState.isInputFocused = true;
+    syncSearchChromeState();
+    noteSearchInterest(node.value);
+    scheduleSearchDrivenRender(120);
+  });
+
+  node.addEventListener("focus", () => {
+    if (!isAuthenticatedUser()) {
+      promptGuestAuth({
+        preferredMode: "signup",
+        role: "buyer",
+        title: "Create an account or sign in to continue",
+        message: "Search and advanced filters are available for members."
+      });
+      node.blur();
+      return;
+    }
+    searchRuntimeState.isSearchDropdownDismissed = false;
+    searchRuntimeState.isInputFocused = true;
+    syncSearchChromeState();
+    scheduleSearchDrivenRender(0);
+  });
+
+  node.addEventListener("blur", () => {
+    window.setTimeout(() => {
+      searchRuntimeState.isInputFocused = false;
+      if (!node.value.trim() && !searchRuntimeState.activeImageSearch?.signature) {
+        searchRuntimeState.isMobileSearchOpen = false;
+        searchBox.classList.remove("mobile-open");
+      }
+      syncSearchChromeState();
+      scheduleSearchDrivenRender(0);
+    }, 120);
+  });
+}
+
+function refreshSearchInputControl() {
+  if (!searchInput) {
+    return;
+  }
+  const replacement = searchInput.cloneNode(true);
+  replacement.removeAttribute("data-search-handlers-bound");
+  replacement.removeAttribute("value");
+  replacement.value = "";
+  replacement.defaultValue = "";
+  replacement.setAttribute("autocomplete", "off");
+  replacement.setAttribute("autocapitalize", "off");
+  replacement.setAttribute("spellcheck", "false");
+  searchInput.replaceWith(replacement);
+  searchInput = replacement;
+  bindSearchInputHandlers(searchInput);
 }
 
 function productMatchesSelectedCategory(product, categoryValue) {
