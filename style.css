@@ -6978,6 +6978,9 @@ button:hover,
     margin-left:calc(50% - 50vw);
     margin-right:calc(50% - 50vw);
     border-radius:0;
+    border:none;
+    box-shadow:none;
+    background:transparent;
   }
 
   .product-card img,
@@ -6985,6 +6988,22 @@ button:hover,
   .seller-product-card img{
     height:390px;
     border-radius:0;
+  }
+
+  .product-content-simple{
+    padding:12px 12px 14px;
+  }
+
+  .product-card .product-seller-row{
+    padding:0 12px;
+  }
+
+  .product-card-caption-block{
+    padding:0 12px;
+  }
+
+  .product-actions-simple{
+    padding:0 12px;
   }
 
   .feed-gallery-preview{
