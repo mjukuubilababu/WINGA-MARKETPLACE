@@ -2296,10 +2296,20 @@ img[data-zoom-src]{
   contain:layout paint;
   content-visibility:auto;
   contain-intrinsic-size:240px;
+  background:#fff;
+  overflow:hidden;
 }
 
 #user-products-container .profile-product-media{
   border-radius:14px;
+  background:#fff;
+}
+
+#user-products-container .profile-product-stage{
+  object-fit:contain !important;
+  object-position:center center !important;
+  padding:4px;
+  background:#fff;
 }
 
 #user-products-container .profile-product-status-pill{
