@@ -5782,6 +5782,20 @@ button:hover,
     padding-right:24px;
   }
 
+  #products-container,
+  #user-products-container{
+    grid-template-columns:repeat(auto-fit, minmax(320px, 1fr));
+    justify-items:stretch;
+    align-items:start;
+  }
+
+  #products-container .product-card,
+  #user-products-container .product-card{
+    width:100%;
+    max-width:380px;
+    justify-self:center;
+  }
+
   #top-bar{
     display:grid;
     grid-template-columns:minmax(156px, 180px) max-content minmax(280px, 1fr) max-content;
