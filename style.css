@@ -2292,6 +2292,7 @@ img[data-zoom-src]{
 }
 
 #user-products-container .profile-product-card{
+  aspect-ratio:1 / 1;
   contain:layout paint;
   content-visibility:auto;
   contain-intrinsic-size:240px;
