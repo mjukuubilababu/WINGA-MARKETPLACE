@@ -7765,6 +7765,26 @@ function renderFeedGalleryMarkup(product, surface = "feed") {
   const images = safeImages.length > 0 ? safeImages : [getImageFallbackDataUri("WINGA")];
   const total = images.length;
   const currentLabel = total > 1 ? `1/${total}` : "";
+  if (surface && surface !== "feed") {
+    const previewSrc = sanitizeImageSource(String(images[0] || "").trim(), getImageFallbackDataUri("WINGA"));
+    const previewAlt = escapeHtml(`${product?.name || product?.shop || "Product image"} 1`);
+    return `
+      <div class="product-gallery media-gallery feed-gallery-preview showcase-media-preview feed-gallery-preview-single"
+        data-feed-gallery-surface="${escapeHtml(surface || "discovery")}">
+        <img
+          class="feed-gallery-image feed-gallery-image-social showcase-preview-image"
+          src="${previewSrc}"
+          alt="${previewAlt}"
+          loading="lazy"
+          decoding="async"
+          draggable="false"
+          data-marketplace-scroll-image="true"
+          data-fallback-src="${getImageFallbackDataUri("WINGA")}"
+        >
+        ${currentLabel ? `<span class="feed-gallery-count-badge product-gallery-count-badge">${currentLabel}</span>` : ""}
+      </div>
+    `;
+  }
   const slides = images.map((src, index) => {
     const safeSrc = sanitizeImageSource(String(src || "").trim(), getImageFallbackDataUri("WINGA"));
     const safeAlt = escapeHtml(`${product?.name || product?.shop || "Product image"} ${index + 1}`);
