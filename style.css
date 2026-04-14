@@ -1360,12 +1360,16 @@ img[data-zoom-src]{
 }
 
 .showcase-media{
-  aspect-ratio:1 / 1.14;
+  aspect-ratio:4 / 5;
   background:linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
   border-bottom:1px solid var(--border);
   position:relative;
   z-index:1;
   overflow:hidden;
+}
+
+.showcase-media-preview{
+  aspect-ratio:4 / 5;
 }
 
 .showcase-media img{
@@ -2140,7 +2144,7 @@ img[data-zoom-src]{
 }
 
 .profile-product-card{
-  aspect-ratio:1 / 1;
+  aspect-ratio:4 / 5;
   min-height:0;
   border-radius:20px;
   box-shadow:0 12px 28px rgba(35, 47, 62, 0.1);
@@ -2150,9 +2154,16 @@ img[data-zoom-src]{
   transform:translateY(-1px);
 }
 
+.product-card-media{
+  position:relative;
+  aspect-ratio:4 / 5;
+  overflow:hidden;
+  background:#f3f4f6;
+}
+
 .product-card img{
   width:100%;
-  height:286px;
+  height:100%;
   object-fit:cover;
   object-position:center;
   background:#f3f4f6;
@@ -2299,7 +2310,8 @@ img[data-zoom-src]{
 .feed-gallery-preview{
   position:relative;
   display:block;
-  min-height:430px;
+  aspect-ratio:4 / 5;
+  min-height:0;
   padding:0;
   overflow:hidden;
   border-radius:24px 24px 0 0;
@@ -2307,6 +2319,8 @@ img[data-zoom-src]{
 }
 
 .feed-gallery-carousel{
+  width:100%;
+  height:100%;
   overflow:hidden;
 }
 
@@ -2399,7 +2413,8 @@ img[data-zoom-src]{
 }
 
 .feed-gallery-image-social{
-  height:430px !important;
+  width:100% !important;
+  height:100% !important;
   object-fit:cover !important;
   object-position:center !important;
 }
@@ -3358,11 +3373,15 @@ body.product-detail-open{
 
 .seller-product-card-media{
   position:relative;
+  aspect-ratio:4 / 5;
+  overflow:hidden;
+  border-radius:18px;
+  background:#f3f4f6;
 }
 
 .seller-product-card img{
   width:100%;
-  height:430px;
+  height:100%;
   object-fit:cover;
   border-radius:18px;
   background:#f3f4f6;
@@ -6105,9 +6124,9 @@ button:hover,
   }
 
   .feed-gallery-preview{
-    min-height:272px;
-    padding:8px;
-    gap:5px;
+    min-height:0;
+    padding:0;
+    gap:0;
   }
 
   .feed-gallery-count-1 .feed-gallery-tile,
@@ -6986,7 +7005,7 @@ button:hover,
   .product-card img,
   .feed-gallery-image-social,
   .seller-product-card img{
-    height:390px;
+    height:100%;
     border-radius:0;
   }
 
@@ -7007,7 +7026,7 @@ button:hover,
   }
 
   .feed-gallery-preview{
-    min-height:390px;
+    min-height:0;
   }
 
   #welcome-popup{
