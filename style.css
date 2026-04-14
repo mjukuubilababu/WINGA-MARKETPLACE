@@ -3932,9 +3932,9 @@ body.context-chat-open{
 .context-chat-thread{
   display:grid;
   gap:10px;
-  max-height:34vh;
-  overflow:auto;
-  padding-right:4px;
+  max-height:none;
+  overflow:visible;
+  padding-right:0;
 }
 
 .context-chat-actions{
@@ -4330,9 +4330,9 @@ body.context-chat-open{
 .messages-thread-body{
   display:grid;
   gap:10px;
-  max-height:360px;
-  overflow-y:auto;
-  padding-right:4px;
+  max-height:none;
+  overflow:visible;
+  padding-right:0;
 }
 
 .message-bubble{
@@ -6278,7 +6278,7 @@ button:hover,
   }
 
   .context-chat-thread{
-    max-height:38vh;
+    max-height:none;
   }
 
   .chat-seller-products{
