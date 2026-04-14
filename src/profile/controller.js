@@ -271,8 +271,7 @@
         deps.setActiveChatContext?.(null);
         deps.setActiveProfileSection?.("profile-messages-panel");
         deps.setPendingProfileSection?.("profile-messages-panel");
-        deps.replaceMessagesPanel?.(profileDiv);
-        deps.flushPendingProfileSection?.();
+        deps.renderProfile?.();
         return;
       }
       if (action === "messages") {
@@ -282,8 +281,7 @@
         deps.setActiveChatContext?.(null);
         deps.setActiveProfileSection?.("profile-messages-panel");
         deps.setPendingProfileSection?.("profile-messages-panel");
-        deps.replaceMessagesPanel?.(profileDiv);
-        deps.flushPendingProfileSection?.();
+        deps.renderProfile?.();
         return;
       }
       if (action === "seller-upgrade") {

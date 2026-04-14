@@ -1386,6 +1386,21 @@ img[data-zoom-src]{
   z-index:2;
 }
 
+.showcase-media-preview .showcase-preview-image{
+  object-fit:contain !important;
+  object-position:center center !important;
+  background:#fff;
+  padding:0;
+}
+
+#products-container .seller-product-card .seller-product-card-media .feed-gallery-image-social,
+.product-detail-showcase-track .seller-product-card .seller-product-card-media .feed-gallery-image-social{
+  object-fit:contain !important;
+  object-position:center center !important;
+  background:#fff;
+  padding:0;
+}
+
 .gallery-stage.image-is-portrait,
 .showcase-media img.image-is-portrait,
 .seller-product-card img.image-is-portrait,
