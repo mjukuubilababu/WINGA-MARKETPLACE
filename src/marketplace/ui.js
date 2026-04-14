@@ -265,6 +265,10 @@
     }
 
     function createShowcasePreviewMediaElement(product) {
+      if (deps.renderFeedGalleryMarkup) {
+        return createElementFromMarkup(deps.renderFeedGalleryMarkup(product, "discovery"));
+      }
+
       const safeImages = deps.getRenderableMarketplaceImages
         ? deps.getRenderableMarketplaceImages(product)
         : (Array.isArray(product.images) && product.images.length > 0 ? product.images : [product.image]).filter(Boolean);

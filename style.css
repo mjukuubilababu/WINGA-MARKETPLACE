@@ -1396,7 +1396,16 @@ img[data-zoom-src]{
 .showcase-media-preview .showcase-preview-image{
   width:100% !important;
   height:100% !important;
-  object-fit:contain !important;
+  object-fit:cover !important;
+  object-position:center center !important;
+  background:#fff;
+  padding:0;
+}
+
+.feed-gallery-preview-single .feed-gallery-image-social{
+  width:100% !important;
+  height:100% !important;
+  object-fit:cover !important;
   object-position:center center !important;
   background:#fff;
   padding:0;
@@ -1406,7 +1415,7 @@ img[data-zoom-src]{
 .product-detail-showcase-track .seller-product-card .seller-product-card-media .feed-gallery-image-social{
   width:100% !important;
   height:100% !important;
-  object-fit:contain !important;
+  object-fit:cover !important;
   object-position:center center !important;
   background:#fff;
   padding:0;
