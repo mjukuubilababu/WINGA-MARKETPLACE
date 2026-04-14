@@ -458,7 +458,10 @@
         detailDepth: 0,
         productTrail: []
       };
-      deps.syncAppShellHistoryState?.({ force: true });
+      deps.syncAppShellHistoryState?.({
+        force: true,
+        url: window.location.pathname.startsWith("/product/") ? "/" : undefined
+      });
     }
 
     function bindProductDetailActions(modal, product) {
