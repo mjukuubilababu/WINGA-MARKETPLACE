@@ -2119,6 +2119,7 @@ img[data-zoom-src]{
   z-index:2;
   justify-items:stretch;
   align-items:start;
+  overflow-x:hidden;
 }
 
 .product-card{
@@ -2294,8 +2295,9 @@ img[data-zoom-src]{
 #user-products-container .profile-product-card{
   aspect-ratio:1 / 1;
   contain:layout paint;
-  content-visibility:auto;
-  contain-intrinsic-size:240px;
+  content-visibility:visible;
+  contain-intrinsic-size:auto;
+  min-width:0;
   background:#fff;
   overflow:hidden;
 }
