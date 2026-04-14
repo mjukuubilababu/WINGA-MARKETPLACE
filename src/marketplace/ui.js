@@ -264,6 +264,33 @@
       return wrapper;
     }
 
+    function createShowcasePreviewMediaElement(product) {
+      const safeImages = deps.getRenderableMarketplaceImages
+        ? deps.getRenderableMarketplaceImages(product)
+        : (Array.isArray(product.images) && product.images.length > 0 ? product.images : [product.image]).filter(Boolean);
+      const images = safeImages.length > 0 ? safeImages : [deps.getImageFallbackDataUri("WINGA")];
+      const media = createElement("div", { className: "showcase-media showcase-media-preview" });
+      media.appendChild(createResponsiveImage({
+        src: images[0],
+        alt: `${product.name || "Product image"} 1`,
+        className: "feed-gallery-image feed-gallery-image-social showcase-preview-image",
+        fallbackSrc: deps.getImageFallbackDataUri("WINGA"),
+        attributes: {
+          draggable: "false",
+          "data-marketplace-scroll-image": "true"
+        }
+      }));
+
+      if (images.length > 1) {
+        media.appendChild(createElement("span", {
+          className: "feed-gallery-count-badge product-gallery-count-badge",
+          textContent: `1/${images.length}`
+        }));
+      }
+
+      return media;
+    }
+
     function createProductCardElement(product) {
       const card = createElement("article", {
         className: "product-card",
@@ -313,10 +340,7 @@
       card.dataset.showcaseId = product.id;
       card.dataset.openProduct = product.id;
       card.dataset.cardOpenBound = "false";
-      const media = createElement("div", { className: "showcase-media" });
-      media.appendChild(deps.renderFeedGalleryMarkup
-        ? createElementFromMarkup(deps.renderFeedGalleryMarkup(product, "showcase"))
-        : createProductGalleryElement(product));
+      const media = createShowcasePreviewMediaElement(product);
       const body = createElement("div", { className: "product-content product-content-simple showcase-body" });
       const overflowMenuMarkup = deps.renderProductOverflowMenu?.(product, { overlay: true });
       if (overflowMenuMarkup) {
