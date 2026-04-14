@@ -7474,14 +7474,14 @@ button:hover,
   }
 
   .showcase-track{
-    grid-auto-columns:84%;
+    grid-auto-columns:clamp(320px, 92vw, 380px);
     gap:10px;
     padding-right:0;
   }
 
   #products-container .showcase-track{
-    padding-right:84px;
-    scroll-padding-inline-end:84px;
+    padding-right:16px;
+    scroll-padding-inline-end:16px;
   }
 
   .media-action-buttons{
