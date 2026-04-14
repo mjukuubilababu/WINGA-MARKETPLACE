@@ -5953,6 +5953,18 @@ button:hover,
     touch-action:auto;
   }
 
+  #products-container .showcase-inline{
+    width:100%;
+    max-width:100%;
+    min-width:0;
+  }
+
+  #products-container .showcase-track{
+    width:100%;
+    max-width:100%;
+    min-width:0;
+  }
+
   #market-showcase .showcase-card,
   .showcase-inline .showcase-card,
   #market-showcase .showcase-card *,
