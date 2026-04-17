@@ -4122,7 +4122,8 @@ const {
   renderProductActionGroup,
   renderMarketplaceTrustBadges,
   renderSellerTrustPanel,
-  renderDiscoveryProductCards
+  renderDiscoveryProductCards,
+  renderFeedGalleryMarkup
 });
 
 const {
@@ -8114,7 +8115,7 @@ function bindShowcaseCardClicks(scope) {
       }
       if (
         event.target.closest(
-          ".product-menu, .product-menu-popup, .product-menu-toggle, [data-menu-toggle], [data-menu-popup], [data-product-caption-toggle], [data-request-product], [data-chat-product], [data-open-own-messages]"
+          ".product-menu, .product-menu-popup, .product-menu-toggle, [data-menu-toggle], [data-menu-popup], [data-product-caption-toggle], [data-request-product], [data-chat-product], [data-open-own-messages], [data-buy-product], .product-actions, .showcase-actions, .seller-product-actions"
         )
       ) {
         return;

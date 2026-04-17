@@ -132,6 +132,28 @@
       document.body.dataset.marketplaceActionsBound = "true";
 
       document.addEventListener("click", (event) => {
+        const buyButton = event.target.closest("[data-buy-product]");
+        if (buyButton) {
+          const productId = buyButton.dataset.buyProduct || "";
+          if (!productId) {
+            return;
+          }
+          event.preventDefault();
+          event.stopPropagation();
+          if (!deps.isAuthenticatedUser?.()) {
+            deps.promptGuestAuth?.({
+              preferredMode: "signup",
+              role: "buyer",
+              title: "You need an account to continue",
+              message: "Sign up or log in to open product details and other marketplace actions.",
+              intent: { type: "focus-product", productId }
+            });
+            return;
+          }
+          deps.openProductDetailModal?.(productId);
+          return;
+        }
+
         const requestButton = event.target.closest("[data-request-product]");
         if (requestButton) {
           event.preventDefault();

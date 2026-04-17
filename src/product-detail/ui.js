@@ -49,43 +49,113 @@
       return heading;
     }
 
+    function createDetailContinuationSellerRowElement(item) {
+      const sellerRow = deps.createElement("div", { className: "product-seller-row" });
+      const sellerAvatar = deps.createElement("div", { className: "product-seller-avatar" });
+      const sellerUser = deps.getMarketplaceUser?.(item?.uploadedBy);
+      const sellerImage = String(sellerUser?.profileImage || "").trim();
+      if (sellerImage) {
+        sellerAvatar.appendChild(deps.createElement("img", {
+          className: "product-seller-avatar-image",
+          attributes: {
+            src: sellerImage,
+            alt: deps.escapeHtml(item.shop || sellerUser?.fullName || item.uploadedBy || "Seller"),
+            loading: "lazy",
+            decoding: "async"
+          }
+        }));
+      } else {
+        const label = String(item.shop || sellerUser?.fullName || item.uploadedBy || "Seller").trim();
+        sellerAvatar.textContent = label
+          .split(/\s+/)
+          .filter(Boolean)
+          .slice(0, 2)
+          .map((part) => part.charAt(0))
+          .join("")
+          .toUpperCase() || "S";
+      }
+
+      const sellerCopy = deps.createElement("div", { className: "product-seller-copy" });
+      sellerCopy.append(
+        deps.createElement("strong", {
+          className: "product-seller-name",
+          textContent: String(item.shop || sellerUser?.fullName || item.uploadedBy || "Seller").trim()
+        }),
+        deps.createElement("span", {
+          className: "product-seller-meta",
+          textContent: String(item.location || deps.getCategoryLabel(item.category) || "").trim()
+        })
+      );
+
+      sellerRow.append(
+        sellerAvatar,
+        sellerCopy,
+        deps.createElement("span", {
+          className: "product-seller-badge",
+          textContent: sellerUser?.verifiedSeller ? "Verified" : "Seller"
+        })
+      );
+      return sellerRow;
+    }
+
     function createDetailContinuationCardElement(item) {
-      const itemImageSrc = deps.getMarketplacePrimaryImage
-        ? deps.getMarketplacePrimaryImage(item, {
-            allowOwnerVisibility: item.uploadedBy === deps.getCurrentUser()
-          })
-        : deps.sanitizeImageSource(item.image || "", deps.getImageFallbackDataUri("W"));
       const card = deps.createElement("article", {
-        className: "seller-product-card",
+        className: "product-card seller-product-card",
         attributes: { "data-open-product": item.id }
       });
-      const itemImage = deps.createElement("img", {
-        className: "zoomable-image",
-        attributes: {
-          src: itemImageSrc || deps.getImageFallbackDataUri("W"),
-          alt: deps.escapeHtml(item.name || ""),
-          loading: "lazy",
-          "data-marketplace-scroll-image": "true",
-          "data-zoom-src": itemImageSrc || deps.getImageFallbackDataUri("W"),
-          "data-zoom-alt": deps.escapeHtml(item.name || ""),
-          "data-image-action-product": item.id,
-          "data-image-action-src": itemImageSrc || deps.getImageFallbackDataUri("W"),
-          "data-image-action-surface": "detail-related",
-          "data-fallback-src": deps.getImageFallbackDataUri("W")
-        }
+      card.dataset.openProduct = item.id;
+      const media = deps.createElement("div", {
+        className: "product-card-media seller-product-card-media"
       });
-      card.append(
-        itemImage,
-        deps.createElement("strong", { textContent: deps.formatProductPrice(item.price) }),
-        deps.createElement("span", { textContent: item.name || "" })
-      );
+      const galleryMarkup = deps.renderFeedGalleryMarkup?.(item, "discovery");
+      if (galleryMarkup) {
+        media.appendChild(deps.createFragmentFromMarkup(galleryMarkup));
+      } else {
+        const itemImageSrc = deps.getMarketplacePrimaryImage
+          ? deps.getMarketplacePrimaryImage(item, {
+              allowOwnerVisibility: item.uploadedBy === deps.getCurrentUser()
+            })
+          : deps.sanitizeImageSource(item.image || "", deps.getImageFallbackDataUri("W"));
+        media.appendChild(deps.createElement("img", {
+          className: "zoomable-image",
+          attributes: {
+            src: itemImageSrc || deps.getImageFallbackDataUri("W"),
+            alt: deps.escapeHtml(item.name || ""),
+            loading: "lazy",
+            "data-marketplace-scroll-image": "true",
+            "data-zoom-src": itemImageSrc || deps.getImageFallbackDataUri("W"),
+            "data-zoom-alt": deps.escapeHtml(item.name || ""),
+            "data-image-action-product": item.id,
+            "data-image-action-src": itemImageSrc || deps.getImageFallbackDataUri("W"),
+            "data-image-action-surface": "detail-related",
+            "data-fallback-src": deps.getImageFallbackDataUri("W")
+          }
+        }));
+      }
+
+      const body = deps.createElement("div", {
+        className: "product-content product-content-simple product-content-social seller-product-body"
+      });
+      body.appendChild(createDetailContinuationSellerRowElement(item));
+      const captionText = String(item.description || item.caption || item.name || "").trim();
+      if (captionText) {
+        const captionBlock = deps.createElement("div", {
+          className: "product-card-caption-block"
+        });
+        captionBlock.appendChild(deps.createElement("p", {
+          className: "product-card-caption",
+          textContent: captionText
+        }));
+        body.appendChild(captionBlock);
+      }
       const itemTrustBadges = deps.renderMarketplaceTrustBadges?.(item, { hideVerifiedBadge: true });
       if (itemTrustBadges) {
-        card.appendChild(deps.createFragmentFromMarkup(itemTrustBadges));
+        body.appendChild(deps.createFragmentFromMarkup(itemTrustBadges));
       }
-      card.appendChild(deps.createFragmentFromMarkup(
+      body.appendChild(deps.createFragmentFromMarkup(
         deps.renderProductActionGroup(item, { requestLabel: "Add to My Requests", extraClass: "seller-product-actions" })
       ));
+      card.append(media, body);
       return card;
     }
 

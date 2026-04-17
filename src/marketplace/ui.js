@@ -188,7 +188,7 @@
         }
         if (
           event.target.closest(
-            ".product-menu, .product-menu-popup, .product-menu-toggle, [data-menu-toggle], [data-menu-popup], [data-product-caption-toggle], [data-request-product], [data-chat-product], [data-open-own-messages]"
+            ".product-menu, .product-menu-popup, .product-menu-toggle, [data-menu-toggle], [data-menu-popup], [data-product-caption-toggle], [data-request-product], [data-chat-product], [data-open-own-messages], [data-buy-product], .product-actions, .showcase-actions, .seller-product-actions"
           )
         ) {
           return;
@@ -268,15 +268,17 @@
     }
 
     function createShowcasePreviewMediaElement(product) {
+      const media = createElement("div", { className: "product-card-media showcase-media showcase-media-preview" });
+
       if (deps.renderFeedGalleryMarkup) {
-        return createElementFromMarkup(deps.renderFeedGalleryMarkup(product, "discovery"));
+        media.appendChild(createElementFromMarkup(deps.renderFeedGalleryMarkup(product, "discovery")));
+        return media;
       }
 
       const safeImages = deps.getRenderableMarketplaceImages
         ? deps.getRenderableMarketplaceImages(product)
         : (Array.isArray(product.images) && product.images.length > 0 ? product.images : [product.image]).filter(Boolean);
       const images = safeImages.length > 0 ? safeImages : [deps.getImageFallbackDataUri("WINGA")];
-      const media = createElement("div", { className: "showcase-media showcase-media-preview" });
       media.appendChild(createResponsiveImage({
         src: images[0],
         alt: `${product.name || "Product image"} 1`,
@@ -350,7 +352,7 @@
       card.dataset.openProduct = product.id;
       card.dataset.cardOpenBound = "false";
       const media = createShowcasePreviewMediaElement(product);
-      const body = createElement("div", { className: "product-content product-content-simple showcase-body" });
+      const body = createElement("div", { className: "product-content product-content-simple product-content-social showcase-body" });
       const overflowMenuMarkup = deps.renderProductOverflowMenu?.(product, { overlay: true });
       if (overflowMenuMarkup) {
         card.appendChild(createFragmentFromMarkup(overflowMenuMarkup));

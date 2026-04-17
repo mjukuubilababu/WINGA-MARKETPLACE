@@ -20,7 +20,7 @@
         return `<button class="action-btn buy-btn is-disabled" type="button" disabled aria-disabled="true">Nunua</button>`;
       }
 
-      return `<button class="action-btn buy-btn" type="button" data-open-product="${product.id}">Nunua</button>`;
+      return `<button class="action-btn buy-btn" type="button" data-buy-product="${product.id}">Nunua</button>`;
     }
 
     function renderSellerSoldOutButton(product) {
