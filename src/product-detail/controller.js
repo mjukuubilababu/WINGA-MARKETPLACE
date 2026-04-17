@@ -21,16 +21,30 @@
     const MAX_ACTIVE_DETAIL_CONTINUATION_SECTIONS = 4;
     const MAX_DETAIL_CONTINUATION_USED_IDS = 120;
 
+    function normalizeProductIdValue(value) {
+      const rawValue = String(value || "").trim();
+      if (!rawValue) {
+        return "";
+      }
+      return rawValue
+        .replace(/^\/+/, "")
+        .replace(/^product\/+/i, "")
+        .replace(/^\/+/, "")
+        .trim();
+    }
+
     function isDetailHistoryState(state) {
-      return Boolean(state?.wingaProductDetail && state?.productId);
+      return Boolean(state?.wingaProductDetail && normalizeProductIdValue(state?.productId));
     }
 
     function buildDetailHistoryState(productId, sourceProductId = "") {
+      const normalizedProductId = normalizeProductIdValue(productId);
+      const normalizedSourceProductId = normalizeProductIdValue(sourceProductId || detailNavState.rootProductId || normalizedProductId);
       return {
         ...(window.history.state && typeof window.history.state === "object" ? window.history.state : {}),
         wingaProductDetail: true,
-        productId,
-        sourceProductId: sourceProductId || detailNavState.rootProductId || productId,
+        productId: normalizedProductId,
+        sourceProductId: normalizedSourceProductId,
         detailDepth: Math.max(1, Number(detailNavState.detailDepth || detailNavState.productTrail.length || 1))
       };
     }
@@ -39,10 +53,14 @@
       if (isSyncingHistoryState || !window.history?.pushState) {
         return;
       }
+      const normalizedProductId = normalizeProductIdValue(productId);
+      if (!normalizedProductId) {
+        return;
+      }
       const nextUrl = typeof deps.getProductDetailPath === "function"
-        ? deps.getProductDetailPath(productId)
+        ? deps.getProductDetailPath(normalizedProductId)
         : window.location.href;
-      window.history.pushState(buildDetailHistoryState(productId, sourceProductId), "", nextUrl);
+      window.history.pushState(buildDetailHistoryState(normalizedProductId, sourceProductId), "", nextUrl);
     }
 
     function syncHistoryForClose() {
@@ -565,7 +583,8 @@
     }
 
     function openProductDetailModal(productId, options = {}) {
-      const product = deps.getProductById ? deps.getProductById(productId) : deps.getProducts().find((item) => item.id === productId);
+      const normalizedProductId = normalizeProductIdValue(productId);
+      const product = deps.getProductById ? deps.getProductById(normalizedProductId) : deps.getProducts().find((item) => item.id === normalizedProductId);
       if (!product) {
         return;
       }
@@ -573,7 +592,7 @@
 
       const {
         skipHistoryPush = false,
-        sourceProductId = productId,
+        sourceProductId = normalizedProductId,
         restoreDetailScrollTop = 0,
         fromHistoryNavigation = false,
         historyDepth = 0,
@@ -607,13 +626,13 @@
         deps.syncAppShellHistoryState?.({ force: true });
         detailNavState = {
           rootScrollY: window.scrollY || window.pageYOffset || 0,
-          rootProductId: sourceProductId || productId,
+          rootProductId: normalizeProductIdValue(sourceProductId || normalizedProductId),
           activeProductId: product.id,
           detailDepth: 1,
           productTrail: [product.id]
         };
       } else if (!fromHistoryNavigation && detailNavState.rootProductId) {
-        detailNavState.rootProductId = detailNavState.rootProductId || sourceProductId || productId;
+        detailNavState.rootProductId = normalizeProductIdValue(detailNavState.rootProductId || sourceProductId || normalizedProductId);
         if (previousActiveProductId !== product.id) {
           detailNavState.productTrail = [...detailNavState.productTrail, product.id];
           detailNavState.detailDepth = detailNavState.productTrail.length;
@@ -621,7 +640,7 @@
       } else if (fromHistoryNavigation) {
         const nextTrail = Array.isArray(detailNavState.productTrail) && detailNavState.productTrail.length
           ? [...detailNavState.productTrail]
-          : [detailNavState.rootProductId || sourceProductId || product.id];
+          : [normalizeProductIdValue(detailNavState.rootProductId || sourceProductId || normalizedProductId) || product.id];
         const existingIndex = nextTrail.indexOf(product.id);
         detailNavState.productTrail = existingIndex >= 0
           ? nextTrail.slice(0, existingIndex + 1)
@@ -748,9 +767,9 @@
       const modal = document.getElementById("product-detail-modal");
       const isDetailOpen = Boolean(modal && modal.style.display !== "none" && document.body.classList.contains("product-detail-open"));
       if (isDetailHistoryState(event.state)) {
-        openProductDetailModal(event.state.productId, {
+        openProductDetailModal(normalizeProductIdValue(event.state.productId), {
           skipHistoryPush: true,
-          sourceProductId: event.state.sourceProductId || event.state.productId,
+          sourceProductId: normalizeProductIdValue(event.state.sourceProductId || event.state.productId),
           restoreDetailScrollTop: 0,
           fromHistoryNavigation: true,
           historyDepth: Number(event.state.detailDepth || 1)

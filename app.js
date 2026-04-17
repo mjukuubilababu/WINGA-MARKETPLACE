@@ -4914,9 +4914,30 @@ function isAdminLoginRoute() {
     || normalizedPath.endsWith("/admin-login");
 }
 
+function normalizeProductIdValue(value) {
+  const rawValue = String(value || "").trim();
+  if (!rawValue) {
+    return "";
+  }
+  const stripped = rawValue
+    .replace(/^\/+/, "")
+    .replace(/^product\/+/i, "");
+  return stripped.replace(/^\/+/, "").trim();
+}
+
+function canonicalizeProductDetailPath(pathname = window.location.pathname) {
+  const normalizedPath = String(pathname || "").trim().replace(/\/+$/, "");
+  const match = normalizedPath.match(/^\/product\/(.+)$/i);
+  if (!match) {
+    return normalizedPath;
+  }
+  const normalizedId = normalizeProductIdValue(match[1]);
+  return normalizedId ? `/product/${encodeURIComponent(normalizedId)}` : "/";
+}
+
 function getDeepLinkedProductIdFromRoute() {
-  const normalizedPath = String(window.location.pathname || "").trim().replace(/\/+$/, "");
-  const match = normalizedPath.match(/\/product\/([^/]+)$/i);
+  const normalizedPath = canonicalizeProductDetailPath(window.location.pathname);
+  const match = String(normalizedPath || "").trim().replace(/\/+$/, "").match(/\/product\/([^/]+)$/i);
   if (!match) {
     return "";
   }
@@ -4928,13 +4949,21 @@ function getDeepLinkedProductIdFromRoute() {
 }
 
 function getProductDetailPath(productId) {
-  const safeId = encodeURIComponent(String(productId || "").trim());
+  const safeId = encodeURIComponent(normalizeProductIdValue(productId));
   return safeId ? `/product/${safeId}` : window.location.pathname;
 }
 
 function openDeepLinkedProductRouteIfNeeded() {
+  const pathname = String(window.location.pathname || "").trim();
+  const canonicalPath = canonicalizeProductDetailPath(pathname);
+  if (canonicalPath !== pathname.replace(/\/+$/, "")) {
+    window.history.replaceState(window.history.state || null, "", canonicalPath);
+  }
   const productId = getDeepLinkedProductIdFromRoute();
   if (!productId) {
+    if (String(window.location.pathname || "").trim().match(/^\/product\/.+/i)) {
+      window.history.replaceState(window.history.state || null, "", "/");
+    }
     return false;
   }
   if (isAuthenticatedUser() && (pendingGuestIntent || getPendingGuestIntent())) {
@@ -8735,12 +8764,13 @@ function closeAllTransientOverlays(options = {}) {
 }
 
 function openProductDetailModal(productId, options = {}) {
-  const product = getProductById(productId);
+  const normalizedProductId = normalizeProductIdValue(productId);
+  const product = getProductById(normalizedProductId);
   if (!product) {
     return;
   }
 
-  return openProductDetailModalFromController(productId, {
+  return openProductDetailModalFromController(normalizedProductId, {
     allowBrokenImageFallbackOpen: true,
     ...options
   });
