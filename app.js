@@ -4964,24 +4964,14 @@ function openDeepLinkedProductRouteIfNeeded() {
     if (String(window.location.pathname || "").trim().match(/^\/product\/.+/i)) {
       window.history.replaceState(window.history.state || null, "", "/");
     }
-    setCurrentViewState("home", { syncHistory: false });
-    syncAppShellHistoryState({
-      force: true,
-      mode: "replace",
-      url: "/"
-    });
+    setCurrentViewState("home", { syncHistory: "replace" });
     renderCurrentView();
     return false;
   }
   const product = getProductById(productId);
   if (!product) {
     window.history.replaceState(window.history.state || null, "", "/");
-    setCurrentViewState("home", { syncHistory: false });
-    syncAppShellHistoryState({
-      force: true,
-      mode: "replace",
-      url: "/"
-    });
+    setCurrentViewState("home", { syncHistory: "replace" });
     renderCurrentView();
     showInAppNotification({
       title: "Product not found",
@@ -4990,12 +4980,9 @@ function openDeepLinkedProductRouteIfNeeded() {
     });
     return false;
   }
-  setCurrentViewState("home", { syncHistory: false });
-  syncAppShellHistoryState({
-    force: true,
-    mode: "replace",
-    url: "/"
-  });
+  if (currentView !== "home") {
+    setCurrentViewState("home", { syncHistory: "replace" });
+  }
   renderCurrentView();
   openProductDetailModal(productId, {
     allowBrokenImageFallbackOpen: true
@@ -9230,13 +9217,12 @@ async function bootApp() {
     category: "runtime"
   });
   syncAuthMode();
-  const bootDeepLinkedProductId = getDeepLinkedProductIdFromRoute();
   const cachedSession = window.WingaDataLayer.bootstrapSession
     ? window.WingaDataLayer.bootstrapSession()
     : null;
   const shouldRestoreSession = Boolean(cachedSession?.username);
 
-  if (shouldRestoreSession && !bootDeepLinkedProductId) {
+  if (shouldRestoreSession) {
     applySessionState(cachedSession);
     showSessionRestoringState(
       isStaffRole(cachedSession.role)
@@ -9253,66 +9239,30 @@ async function bootApp() {
     products = DEFAULT_PRODUCTS.map(normalizeProduct);
     rebuildProductIndex();
   }
-    mergeAvailableCategories(inferCategoriesFromData());
-    refreshCategoryUI();
-    window.WingaDataLayer.loadReviews()
-      .then((reviewPayload) => {
-        currentReviews = Array.isArray(reviewPayload?.reviews) ? reviewPayload.reviews : [];
-        reviewSummaries = reviewPayload?.summaries || {};
-        if (!shouldRestoreSession) {
-          renderCurrentView();
-        }
-      })
-      .catch((error) => {
-        currentReviews = [];
-        reviewSummaries = {};
-        captureClientError("reviews_boot_load_failed", error, {
-          category: "runtime",
-          alertSeverity: "medium"
-        });
+  mergeAvailableCategories(inferCategoriesFromData());
+  refreshCategoryUI();
+  window.WingaDataLayer.loadReviews()
+    .then((reviewPayload) => {
+      currentReviews = Array.isArray(reviewPayload?.reviews) ? reviewPayload.reviews : [];
+      reviewSummaries = reviewPayload?.summaries || {};
+      if (!shouldRestoreSession) {
+        renderCurrentView();
+      }
+    })
+    .catch((error) => {
+      currentReviews = [];
+      reviewSummaries = {};
+      captureClientError("reviews_boot_load_failed", error, {
+        category: "runtime",
+        alertSeverity: "medium"
       });
-    if (!shouldRestoreSession) {
-      renderCurrentView();
+    });
+  if (!shouldRestoreSession) {
+    renderCurrentView();
   }
   hydrateMissingImageSignatures(products).catch(() => {
     // Ignore passive image signature hydration failures during boot.
   });
-
-  if (bootDeepLinkedProductId) {
-    if (shouldRestoreSession) {
-      applySessionState(cachedSession);
-    }
-    authContainer.style.display = "none";
-    document.body.classList.remove("auth-modal-open");
-    hideAdminLoginScreen();
-    appContainer.style.display = "block";
-    refreshPublicEntryChrome();
-    renderCurrentView();
-    openDeepLinkedProductRouteIfNeeded();
-    scheduleChromeOffsetSync();
-    const rememberedSession = await resolveSessionRestoreForBoot(rememberedSessionPromise, {
-      hasCachedSession: Boolean(cachedSession?.username)
-    });
-    if (rememberedSession?.username) {
-      applySessionState({
-        ...(cachedSession || {}),
-        ...rememberedSession
-      });
-      saveSessionUser(currentSession);
-      syncAuthMode();
-      refreshPublicEntryChrome();
-      updateProfileNavBadge();
-      refreshActiveProductDetail?.();
-    } else if (cachedSession?.username) {
-      clearSessionUser();
-      applySessionState(null);
-      syncAuthMode();
-      refreshPublicEntryChrome();
-      updateProfileNavBadge();
-      refreshActiveProductDetail?.();
-    }
-    return;
-  }
 
   const rememberedSession = await resolveSessionRestoreForBoot(rememberedSessionPromise, {
     hasCachedSession: Boolean(cachedSession?.username)
