@@ -4964,14 +4964,24 @@ function openDeepLinkedProductRouteIfNeeded() {
     if (String(window.location.pathname || "").trim().match(/^\/product\/.+/i)) {
       window.history.replaceState(window.history.state || null, "", "/");
     }
-    setCurrentViewState("home", { syncHistory: "replace" });
+    setCurrentViewState("home", { syncHistory: false });
+    syncAppShellHistoryState({
+      force: true,
+      mode: "replace",
+      url: "/"
+    });
     renderCurrentView();
     return false;
   }
   const product = getProductById(productId);
   if (!product) {
     window.history.replaceState(window.history.state || null, "", "/");
-    setCurrentViewState("home", { syncHistory: "replace" });
+    setCurrentViewState("home", { syncHistory: false });
+    syncAppShellHistoryState({
+      force: true,
+      mode: "replace",
+      url: "/"
+    });
     renderCurrentView();
     showInAppNotification({
       title: "Product not found",
@@ -4980,9 +4990,12 @@ function openDeepLinkedProductRouteIfNeeded() {
     });
     return false;
   }
-  if (currentView !== "home") {
-    setCurrentViewState("home", { syncHistory: "replace" });
-  }
+  setCurrentViewState("home", { syncHistory: false });
+  syncAppShellHistoryState({
+    force: true,
+    mode: "replace",
+    url: "/"
+  });
   renderCurrentView();
   openProductDetailModal(productId, {
     allowBrokenImageFallbackOpen: true
@@ -9217,12 +9230,13 @@ async function bootApp() {
     category: "runtime"
   });
   syncAuthMode();
+  const bootDeepLinkedProductId = getDeepLinkedProductIdFromRoute();
   const cachedSession = window.WingaDataLayer.bootstrapSession
     ? window.WingaDataLayer.bootstrapSession()
     : null;
   const shouldRestoreSession = Boolean(cachedSession?.username);
 
-  if (shouldRestoreSession) {
+  if (shouldRestoreSession && !bootDeepLinkedProductId) {
     applySessionState(cachedSession);
     showSessionRestoringState(
       isStaffRole(cachedSession.role)
@@ -9259,10 +9273,46 @@ async function bootApp() {
       });
     if (!shouldRestoreSession) {
       renderCurrentView();
-    }
+  }
   hydrateMissingImageSignatures(products).catch(() => {
     // Ignore passive image signature hydration failures during boot.
   });
+
+  if (bootDeepLinkedProductId) {
+    if (shouldRestoreSession) {
+      applySessionState(cachedSession);
+    }
+    authContainer.style.display = "none";
+    document.body.classList.remove("auth-modal-open");
+    hideAdminLoginScreen();
+    appContainer.style.display = "block";
+    refreshPublicEntryChrome();
+    renderCurrentView();
+    openDeepLinkedProductRouteIfNeeded();
+    scheduleChromeOffsetSync();
+    const rememberedSession = await resolveSessionRestoreForBoot(rememberedSessionPromise, {
+      hasCachedSession: Boolean(cachedSession?.username)
+    });
+    if (rememberedSession?.username) {
+      applySessionState({
+        ...(cachedSession || {}),
+        ...rememberedSession
+      });
+      saveSessionUser(currentSession);
+      syncAuthMode();
+      refreshPublicEntryChrome();
+      updateProfileNavBadge();
+      refreshActiveProductDetail?.();
+    } else if (cachedSession?.username) {
+      clearSessionUser();
+      applySessionState(null);
+      syncAuthMode();
+      refreshPublicEntryChrome();
+      updateProfileNavBadge();
+      refreshActiveProductDetail?.();
+    }
+    return;
+  }
 
   const rememberedSession = await resolveSessionRestoreForBoot(rememberedSessionPromise, {
     hasCachedSession: Boolean(cachedSession?.username)
