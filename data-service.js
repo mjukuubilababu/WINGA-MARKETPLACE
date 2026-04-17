@@ -1299,7 +1299,7 @@
             headers: {
               ...createAuthHeaders()
             },
-            timeoutMs: Number(window.WINGA_CONFIG?.sessionRestoreTimeoutMs || 6000)
+            timeoutMs: Number(window.WINGA_CONFIG?.sessionRestoreTimeoutMs || 12000)
           });
           if (!data || typeof data !== "object" || Array.isArray(data) || !String(data.username || "").trim()) {
             sessionAdapter.clearSession();
@@ -2479,6 +2479,8 @@
     products: [],
     categories: [],
     initialized: false,
+    productsHydrated: false,
+    startupHydrationStarted: false,
     adapter: null,
     activeProvider: ""
   };
@@ -2522,32 +2524,87 @@
   }
 
   async function loadInitialState(adapter) {
-    const products = await adapter.loadProducts();
-    state.products = Array.isArray(products) ? products : [];
+    state.productsHydrated = false;
+    Promise.resolve()
+      .then(() => adapter.loadProducts())
+      .then((products) => {
+        state.products = Array.isArray(products) ? products : [];
+        state.productsHydrated = true;
+        if (typeof window !== "undefined" && typeof window.dispatchEvent === "function" && typeof window.CustomEvent === "function") {
+          window.dispatchEvent(new window.CustomEvent("winga:products-hydrated", {
+            detail: {
+              status: "loaded",
+              count: state.products.length
+            }
+          }));
+        }
+        return state.products;
+      })
+      .catch((error) => {
+        console.warn("[WINGA] Product startup load failed.", error);
+        state.productsHydrated = true;
+        if (typeof window !== "undefined" && typeof window.dispatchEvent === "function" && typeof window.CustomEvent === "function") {
+          window.dispatchEvent(new window.CustomEvent("winga:products-hydrated", {
+            detail: {
+              status: "failed",
+              count: state.products.length,
+              error: String(error?.message || error || "")
+            }
+          }));
+        }
+        return state.products;
+      });
 
-    const [usersResult, categoriesResult] = await Promise.allSettled([
-      adapter.loadUsers(),
-      adapter.loadCategories ? adapter.loadCategories() : Promise.resolve([])
-    ]);
+    Promise.resolve()
+      .then(() => adapter.loadUsers())
+      .then((users) => {
+        state.users = Array.isArray(users) ? users : [];
+        if (typeof window !== "undefined" && typeof window.dispatchEvent === "function" && typeof window.CustomEvent === "function") {
+          window.dispatchEvent(new window.CustomEvent("winga:data-hydrated", {
+            detail: {
+              source: "users",
+              count: state.users.length
+            }
+          }));
+        }
+        return state.users;
+      })
+      .catch((error) => {
+        console.warn("[WINGA] Optional startup load failed for users.", error);
+        return state.users;
+      });
 
-    if (usersResult.status === "rejected") {
-      console.warn("[WINGA] Optional startup load failed for users.", usersResult.reason);
-    }
-    if (categoriesResult.status === "rejected") {
-      console.warn("[WINGA] Optional startup load failed for categories.", categoriesResult.reason);
-    }
-
-    state.users = usersResult.status === "fulfilled" && Array.isArray(usersResult.value)
-      ? usersResult.value
-      : [];
-    state.categories = categoriesResult.status === "fulfilled" && Array.isArray(categoriesResult.value)
-      ? categoriesResult.value
-      : [];
+    Promise.resolve()
+      .then(() => (adapter.loadCategories ? adapter.loadCategories() : Promise.resolve([])))
+      .then((categories) => {
+        state.categories = Array.isArray(categories) ? categories : [];
+        if (typeof window !== "undefined" && typeof window.dispatchEvent === "function" && typeof window.CustomEvent === "function") {
+          window.dispatchEvent(new window.CustomEvent("winga:data-hydrated", {
+            detail: {
+              source: "categories",
+              count: state.categories.length
+            }
+          }));
+        }
+        return state.categories;
+      })
+      .catch((error) => {
+        console.warn("[WINGA] Optional startup load failed for categories.", error);
+        return state.categories;
+      });
   }
 
   window.WingaDataLayer = {
     async init() {
       if (state.initialized) return;
+      ensureAdapter();
+      state.initialized = true;
+    },
+    async hydrateStartupData() {
+      if (state.startupHydrationStarted) {
+        return;
+      }
+      state.startupHydrationStarted = true;
       const config = window.WINGA_CONFIG || {};
       ensureAdapter();
 
@@ -2563,24 +2620,27 @@
         if (state.activeProvider === "api") {
           clearLegacyLocalFallbackArtifacts();
         }
-        state.initialized = true;
       } catch (error) {
         const fallbackProvider = typeof config.fallbackProvider === "string"
           ? config.fallbackProvider.trim()
           : (config.fallbackProvider || "local");
         const canFallback = fallbackProvider && fallbackProvider !== state.activeProvider;
         if (!canFallback) {
-          throw error;
+          console.warn("[WINGA] Startup hydration failed.", error);
+          return;
         }
 
-        console.warn(`[WINGA] Provider "${state.activeProvider}" failed during init. Falling back to "${fallbackProvider}".`, error);
+        console.warn(`[WINGA] Provider "${state.activeProvider}" failed during startup hydration. Falling back to "${fallbackProvider}".`, error);
         state.activeProvider = fallbackProvider;
         state.adapter = chooseAdapter({
           ...config,
           provider: fallbackProvider
         });
-        await loadInitialState(state.adapter);
-        state.initialized = true;
+        try {
+          await loadInitialState(state.adapter);
+        } catch (fallbackError) {
+          console.warn("[WINGA] Fallback startup hydration failed.", fallbackError);
+        }
       }
     },
     bootstrapSession() {
@@ -2603,6 +2663,9 @@
     },
     getCategories() {
       return clone(state.categories);
+    },
+    isProductsHydrated() {
+      return Boolean(state.productsHydrated);
     },
     cleanupLocalFallbackArtifacts() {
       clearLegacyLocalFallbackArtifacts();

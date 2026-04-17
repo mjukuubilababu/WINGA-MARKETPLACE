@@ -4705,6 +4705,7 @@ let editingProductId = null;
 let authSignupStep = 1;
 let currentSession = null;
 let pendingGuestIntent = null;
+let pendingDeepLinkProductId = "";
 let isSessionRestorePending = false;
 const ADMIN_LOGIN_HASH = "#/admin-login";
 
@@ -4953,6 +4954,46 @@ function getProductDetailPath(productId) {
   return safeId ? `/product/${safeId}` : window.location.pathname;
 }
 
+function clearPendingDeepLinkProductRoute() {
+  pendingDeepLinkProductId = "";
+}
+
+function tryOpenPendingDeepLinkProductRoute() {
+  const productId = normalizeProductIdValue(pendingDeepLinkProductId);
+  if (!productId) {
+    return false;
+  }
+
+  const product = getProductById(productId);
+  if (!product) {
+    if (!window.WingaDataLayer?.isProductsHydrated?.()) {
+      return false;
+    }
+
+    clearPendingDeepLinkProductRoute();
+    window.history.replaceState(window.history.state || null, "", "/");
+    setCurrentViewState("home", { syncHistory: false });
+    syncAppShellHistoryState({
+      force: true,
+      mode: "replace",
+      url: "/"
+    });
+    renderCurrentView();
+    showInAppNotification({
+      title: "Product not found",
+      body: "Bidhaa hii haipo tena au link imebadilika. Tumerudisha home salama.",
+      variant: "warning"
+    });
+    return false;
+  }
+
+  clearPendingDeepLinkProductRoute();
+  openProductDetailModal(productId, {
+    allowBrokenImageFallbackOpen: true
+  });
+  return true;
+}
+
 function openDeepLinkedProductRouteIfNeeded() {
   const pathname = String(window.location.pathname || "").trim();
   const canonicalPath = canonicalizeProductDetailPath(pathname);
@@ -4975,6 +5016,12 @@ function openDeepLinkedProductRouteIfNeeded() {
   }
   const product = getProductById(productId);
   if (!product) {
+    if (!window.WingaDataLayer?.isProductsHydrated?.()) {
+      pendingDeepLinkProductId = productId;
+      setCurrentViewState("home", { syncHistory: false });
+      renderCurrentView();
+      return true;
+    }
     window.history.replaceState(window.history.state || null, "", "/");
     setCurrentViewState("home", { syncHistory: false });
     syncAppShellHistoryState({
@@ -5002,9 +5049,11 @@ function openDeepLinkedProductRouteIfNeeded() {
     if (activeProductId !== productId && String(window.location.pathname || "").match(/^\/product\/.+/i)) {
       return;
     }
-    openProductDetailModal(productId, {
-      allowBrokenImageFallbackOpen: true
-    });
+    if (!tryOpenPendingDeepLinkProductRoute()) {
+      openProductDetailModal(productId, {
+        allowBrokenImageFallbackOpen: true
+      });
+    }
   });
   return true;
 }
@@ -6640,6 +6689,7 @@ function logout() {
   });
   clearSessionUser();
   clearAppViewState();
+  clearPendingDeepLinkProductRoute();
   applySessionState(null);
     profileRuntimeState.pendingSection = "";
     profileRuntimeState.activeSection = "profile-products-panel";
@@ -6698,6 +6748,32 @@ function logout() {
   renderCurrentView();
   updateProfileNavBadge();
 }
+
+window.addEventListener("winga:products-hydrated", () => {
+  refreshProductsFromStore();
+  if (currentView !== "profile") {
+    renderCurrentView();
+  }
+  if (tryOpenPendingDeepLinkProductRoute()) {
+    return;
+  }
+  if (pendingDeepLinkProductId && String(window.location.pathname || "").match(/^\/product\/.+/i)) {
+    window.requestAnimationFrame(() => {
+      tryOpenPendingDeepLinkProductRoute();
+    });
+  }
+});
+
+window.addEventListener("winga:data-hydrated", (event) => {
+  const source = String(event?.detail?.source || "").trim().toLowerCase();
+  if (source === "categories" || source === "users") {
+    mergeAvailableCategories(inferCategoriesFromData());
+    refreshCategoryUI();
+    if (currentView !== "profile") {
+      renderCurrentView();
+    }
+  }
+});
 
 window.addEventListener("winga:session-invalidated", (event) => {
   if (isHandlingSessionInvalidation || !currentSession?.username) {
@@ -9190,7 +9266,7 @@ bindImageZoomInteractions();
 
 const SESSION_RESTORE_BOOT_TIMEOUT_MS = Math.max(
   2500,
-  Number(window.WINGA_CONFIG?.sessionRestoreTimeoutMs || 6000)
+  Number(window.WINGA_CONFIG?.sessionRestoreTimeoutMs || 12000)
 );
 
 async function resolveSessionRestoreForBoot(restorePromise, { hasCachedSession = false } = {}) {
@@ -9218,12 +9294,12 @@ async function resolveSessionRestoreForBoot(restorePromise, { hasCachedSession =
         category: "auth",
         alertSeverity: hasCachedSession ? "high" : "medium"
       });
-      clearSessionUser();
-      applySessionState(null);
-      clearAppViewState();
     }
 
-    return result?.session || null;
+    return {
+      timedOut: Boolean(result?.timedOut),
+      session: result?.session || null
+    };
   } finally {
     if (timeoutId) {
       window.clearTimeout(timeoutId);
@@ -9260,32 +9336,42 @@ async function bootApp() {
   }
   mergeAvailableCategories(inferCategoriesFromData());
   refreshCategoryUI();
-  window.WingaDataLayer.loadReviews()
-    .then((reviewPayload) => {
-      currentReviews = Array.isArray(reviewPayload?.reviews) ? reviewPayload.reviews : [];
-      reviewSummaries = reviewPayload?.summaries || {};
-      if (!shouldRestoreSession) {
-        renderCurrentView();
-      }
-    })
-    .catch((error) => {
-      currentReviews = [];
-      reviewSummaries = {};
-      captureClientError("reviews_boot_load_failed", error, {
-        category: "runtime",
-        alertSeverity: "medium"
-      });
-    });
-  if (!shouldRestoreSession) {
-    renderCurrentView();
-  }
+  renderCurrentView();
   hydrateMissingImageSignatures(products).catch(() => {
     // Ignore passive image signature hydration failures during boot.
   });
 
-  const rememberedSession = await resolveSessionRestoreForBoot(rememberedSessionPromise, {
+  const rememberedSessionResult = await resolveSessionRestoreForBoot(rememberedSessionPromise, {
     hasCachedSession: Boolean(cachedSession?.username)
   });
+  const rememberedSession = rememberedSessionResult?.session || null;
+  const restoreTimedOut = Boolean(rememberedSessionResult?.timedOut);
+
+  if (window.WingaDataLayer?.hydrateStartupData) {
+    window.WingaDataLayer.hydrateStartupData().catch((error) => {
+      captureClientError("startup_hydration_failed", error, {
+        category: "runtime",
+        alertSeverity: "medium"
+      });
+    });
+  }
+
+  window.setTimeout(() => {
+    window.WingaDataLayer.loadReviews()
+      .then((reviewPayload) => {
+        currentReviews = Array.isArray(reviewPayload?.reviews) ? reviewPayload.reviews : [];
+        reviewSummaries = reviewPayload?.summaries || {};
+        renderCurrentView();
+      })
+      .catch((error) => {
+        currentReviews = [];
+        reviewSummaries = {};
+        captureClientError("reviews_boot_load_failed", error, {
+          category: "runtime",
+          alertSeverity: "medium"
+        });
+      });
+  }, 1500);
 
   if (cachedSession?.username) {
     if (rememberedSession?.username) {
@@ -9315,6 +9401,62 @@ async function bootApp() {
       reportClientEvent("info", "session_restore_succeeded", "Cached session restored during boot.", {
         category: "auth",
         role: currentSession.role || ""
+      });
+      return;
+    }
+
+    if (restoreTimedOut) {
+      showSessionRestoringState(
+        isStaffRole(cachedSession.role)
+          ? "Tunathibitisha staff session yako kabla ya kufungua admin surface."
+          : "Tunathibitisha session yako ya mteja au muuzaji kabla ya kuendelea."
+      );
+      rememberedSessionPromise.then((lateSession) => {
+        if (lateSession?.username) {
+          if (isAdminLoginRoute() && !isStaffRole(lateSession.role)) {
+            setAdminLoginRouteActive(false, { replace: true });
+            showInAppNotification({
+              title: "Admin access only",
+              body: "Route hii ni ya admin au moderator pekee.",
+              variant: "warning"
+            });
+          }
+          applySessionState({
+            ...cachedSession,
+            ...lateSession
+          });
+          saveSessionUser(currentSession);
+          loginSuccess(
+            currentSession.username,
+            currentSession.primaryCategory || "",
+            currentSession,
+            {
+              restoreView: true,
+              skipWelcome: true,
+              forceView: isStaffRole(currentSession.role) ? "admin" : ""
+            }
+          );
+          reportClientEvent("info", "session_restore_succeeded", "Cached session restored after boot timeout.", {
+            category: "auth",
+            role: currentSession.role || ""
+          });
+          return;
+        }
+
+        clearSessionUser();
+        applySessionState(null);
+        clearAppViewState();
+        logout();
+        showLoggedOutState({
+          audience: isStaffRole(cachedSession?.role || "") || isAdminLoginRoute() ? "admin" : "public",
+          message: "Session yako imeisha. Ingia tena kuendelea."
+        });
+      }).catch((error) => {
+        captureClientError("session_restore_after_timeout_failed", error, {
+          category: "auth",
+          alertSeverity: "high",
+          role: cachedSession?.role || ""
+        });
       });
       return;
     }
