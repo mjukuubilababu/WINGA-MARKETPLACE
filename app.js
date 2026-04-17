@@ -4517,8 +4517,6 @@ function normalizeProduct(product) {
 const brokenMarketplaceImagesByProduct = new Map();
 const BROKEN_IMAGE_FAILURE_THRESHOLD = 2;
 const BROKEN_IMAGE_SUPPRESS_MS = 5 * 60 * 1000;
-let brokenMarketplaceImageRefreshTimer = 0;
-let brokenMarketplaceImageRetryRefreshTimer = 0;
 const MAX_ACTIVE_HOME_CONTINUOUS_SECTIONS = 2;
 const MAX_HOME_CONTINUOUS_USED_IDS = 96;
 const HOME_CONTINUOUS_DISCOVERY_MIN_INTERVAL_MS = 720;
@@ -4592,19 +4590,6 @@ function clearBrokenMarketplaceImage(productId, imageSource = "") {
   }
 }
 
-function scheduleBrokenMarketplaceImageRetryRefresh() {
-  if (brokenMarketplaceImageRetryRefreshTimer || !document.body.classList.contains("product-detail-open")) {
-    return;
-  }
-  brokenMarketplaceImageRetryRefreshTimer = window.setTimeout(() => {
-    brokenMarketplaceImageRetryRefreshTimer = 0;
-    pruneBrokenMarketplaceImageRegistry();
-    if (typeof refreshActiveProductDetail === "function" && document.body.classList.contains("product-detail-open")) {
-      refreshActiveProductDetail();
-    }
-  }, 650);
-}
-
 function getRenderableMarketplaceImages(product, options = {}) {
   const { allowOwnerVisibility = false } = options;
   const candidates = getProductImageCandidates(product);
@@ -4633,18 +4618,6 @@ function shouldRenderMarketplaceProduct(product, options = {}) {
   return hasRenderableMarketplaceImage(product, options);
 }
 
-function scheduleBrokenMarketplaceImageRefresh() {
-  if (brokenMarketplaceImageRefreshTimer) {
-    return;
-  }
-  brokenMarketplaceImageRefreshTimer = window.setTimeout(() => {
-    brokenMarketplaceImageRefreshTimer = 0;
-    if (typeof refreshActiveProductDetail === "function" && document.body.classList.contains("product-detail-open")) {
-      refreshActiveProductDetail();
-    }
-  }, 90);
-}
-
 function noteBrokenMarketplaceImage(productId, imageSource = "") {
   const normalizedProductId = String(productId || "").trim();
   const normalizedSource = sanitizeImageSource(imageSource, "");
@@ -4666,10 +4639,8 @@ function noteBrokenMarketplaceImage(productId, imageSource = "") {
   });
   brokenMarketplaceImagesByProduct.set(normalizedProductId, registry);
   if (!shouldHide) {
-    scheduleBrokenMarketplaceImageRetryRefresh();
     return;
   }
-  scheduleBrokenMarketplaceImageRefresh();
 }
 
 window.addEventListener("winga:image-error", (event) => {
@@ -5905,6 +5876,26 @@ window.addEventListener("scroll", () => {
     scheduleMobileHeaderScrollSync();
   }
 }, { passive: true });
+
+function handleAppLifecycleChange() {
+  if (document.hidden) {
+    stopSlideshow();
+    disconnectContinuousDiscoveryObserver();
+    stopMessagePolling();
+    return;
+  }
+
+  if (currentView === "home" || currentView === "profile") {
+    scheduleRenderCurrentView();
+  }
+}
+
+document.addEventListener("visibilitychange", handleAppLifecycleChange);
+window.addEventListener("pagehide", () => {
+  stopSlideshow();
+  disconnectContinuousDiscoveryObserver();
+  stopMessagePolling();
+});
 
 window.addEventListener("resize", () => {
   syncMobileCategorySheetOffset();
@@ -8151,6 +8142,7 @@ function renderCurrentView() {
     }
     if (currentView !== "home") {
       disconnectContinuousDiscoveryObserver();
+      stopSlideshow();
     }
 
     if (currentView !== "home") {
@@ -8163,8 +8155,12 @@ function renderCurrentView() {
     if (getViewportWidth() > 720 || currentView !== "home") {
       closeMobileCategoryMenu();
     }
-    renderSlideshow();
-    startSlideshow();
+    if (currentView === "home") {
+      renderSlideshow();
+      startSlideshow();
+    } else {
+      stopSlideshow();
+    }
     const filteredProducts = getFilteredProducts();
     const isProfile = currentView === "profile";
     const isUpload = currentView === "upload" && canUseSellerFeatures();
@@ -9096,10 +9092,15 @@ function readFilesAsDataUrls(files) {
   return Promise.all(files.map((file) => readFileAsDataUrl(file, { purpose: "product" })));
 }
 
-function startSlideshow() {
+function stopSlideshow() {
   if (uiRuntimeState.slideshowTimer) {
     clearInterval(uiRuntimeState.slideshowTimer);
+    uiRuntimeState.slideshowTimer = null;
   }
+}
+
+function startSlideshow() {
+  stopSlideshow();
 
   const items = getSlideshowItems();
   if (items.length <= 1) {
