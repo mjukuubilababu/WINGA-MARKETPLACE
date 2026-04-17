@@ -4997,8 +4997,14 @@ function openDeepLinkedProductRouteIfNeeded() {
     url: "/"
   });
   renderCurrentView();
-  openProductDetailModal(productId, {
-    allowBrokenImageFallbackOpen: true
+  window.requestAnimationFrame(() => {
+    const activeProductId = getDeepLinkedProductIdFromRoute();
+    if (activeProductId !== productId && String(window.location.pathname || "").match(/^\/product\/.+/i)) {
+      return;
+    }
+    openProductDetailModal(productId, {
+      allowBrokenImageFallbackOpen: true
+    });
   });
   return true;
 }
