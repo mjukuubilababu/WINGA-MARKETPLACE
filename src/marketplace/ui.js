@@ -84,12 +84,15 @@
           className: "feed-gallery-carousel-slide",
           attributes: { "data-feed-gallery-slide": String(index) }
         });
+        const isFirstSlide = index === 0;
         slide.appendChild(createResponsiveImage({
           src,
           alt: `${product.name || "Product image"} ${index + 1}`,
           className: "feed-gallery-image feed-gallery-image-social",
           fallbackSrc: deps.getImageFallbackDataUri("WINGA"),
           attributes: {
+            loading: isFirstSlide ? "eager" : "lazy",
+            fetchpriority: isFirstSlide ? "high" : "auto",
             draggable: "false",
             "data-marketplace-scroll-image": "true"
           }
@@ -280,6 +283,8 @@
         className: "feed-gallery-image feed-gallery-image-social showcase-preview-image",
         fallbackSrc: deps.getImageFallbackDataUri("WINGA"),
         attributes: {
+          loading: "eager",
+          fetchpriority: "high",
           draggable: "false",
           "data-marketplace-scroll-image": "true"
         }

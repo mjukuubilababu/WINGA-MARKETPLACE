@@ -4523,13 +4523,14 @@ const HOME_CONTINUOUS_DISCOVERY_MIN_INTERVAL_MS = 720;
 const HOME_CONTINUOUS_DISCOVERY_REOBSERVE_DELAY_MS = 420;
 const MARKETPLACE_SCROLL_IMAGE_PLACEHOLDER = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
 let marketplaceScrollImageObserver = null;
+const marketplaceScrollImagePrefetchedSources = new Set();
 
-function getMarketplaceScrollImageReleaseMargin() {
-  return getViewportWidth() <= 720 ? 960 : 1600;
+function getMarketplaceScrollImagePrefetchMargin() {
+  return getViewportWidth() <= 720 ? 1200 : 1800;
 }
 
 function getMarketplaceScrollImageRootMargin() {
-  const margin = getViewportWidth() <= 720 ? 820 : 1200;
+  const margin = getMarketplaceScrollImagePrefetchMargin();
   return `${margin}px 0px ${margin}px 0px`;
 }
 
@@ -7766,7 +7767,8 @@ function renderFeedGalleryMarkup(product, surface = "feed") {
           class="feed-gallery-image feed-gallery-image-social showcase-preview-image"
           src="${previewSrc}"
           alt="${previewAlt}"
-          loading="lazy"
+          loading="eager"
+          fetchpriority="high"
           decoding="async"
           draggable="false"
           data-marketplace-scroll-image="true"
@@ -7779,13 +7781,15 @@ function renderFeedGalleryMarkup(product, surface = "feed") {
   const slides = images.map((src, index) => {
     const safeSrc = sanitizeImageSource(String(src || "").trim(), getImageFallbackDataUri("WINGA"));
     const safeAlt = escapeHtml(`${product?.name || product?.shop || "Product image"} ${index + 1}`);
+    const isFirstSlide = index === 0;
     return `
       <div class="feed-gallery-carousel-slide" data-feed-gallery-slide="${index}">
         <img
           class="feed-gallery-image feed-gallery-image-social"
           src="${safeSrc}"
           alt="${safeAlt}"
-          loading="lazy"
+          loading="${isFirstSlide ? "eager" : "lazy"}"
+          ${isFirstSlide ? 'fetchpriority="high"' : 'fetchpriority="auto"'}
           decoding="async"
           draggable="false"
           data-marketplace-scroll-image="true"
@@ -8929,19 +8933,19 @@ function activateMarketplaceScrollImage(image) {
   image.dataset.marketplaceImageState = "active";
 }
 
-function releaseMarketplaceScrollImage(image) {
+function prefetchMarketplaceScrollImage(image) {
   if (!(image instanceof HTMLImageElement)) {
     return;
   }
-  const currentSrc = image.getAttribute("src") || "";
-  if (currentSrc && currentSrc !== MARKETPLACE_SCROLL_IMAGE_PLACEHOLDER && currentSrc !== image.dataset.fallbackSrc) {
-    image.dataset.marketplaceRealSrc = currentSrc;
-  }
-  if ((image.dataset.marketplaceRealSrc || "") === "") {
+  const realSrc = image.dataset.marketplaceRealSrc || image.dataset.imageActionSrc || image.dataset.zoomSrc || "";
+  if (!realSrc || marketplaceScrollImagePrefetchedSources.has(realSrc)) {
     return;
   }
-  image.setAttribute("src", MARKETPLACE_SCROLL_IMAGE_PLACEHOLDER);
-  image.dataset.marketplaceImageState = "released";
+  marketplaceScrollImagePrefetchedSources.add(realSrc);
+  const warmImage = new Image();
+  warmImage.decoding = "async";
+  warmImage.src = realSrc;
+  image.dataset.marketplaceImageState = "prefetched";
 }
 
 function ensureMarketplaceScrollImageObserver() {
@@ -8956,17 +8960,10 @@ function ensureMarketplaceScrollImageObserver() {
       }
       if (entry.isIntersecting) {
         activateMarketplaceScrollImage(image);
+        prefetchMarketplaceScrollImage(image);
         return;
       }
-      const top = Number(entry.boundingClientRect?.top || 0);
-      const bottom = Number(entry.boundingClientRect?.bottom || 0);
-      const viewportHeight = window.innerHeight || document.documentElement?.clientHeight || 0;
-      const releaseMargin = getMarketplaceScrollImageReleaseMargin();
-      const isFarAway = bottom < -releaseMargin
-        || top > viewportHeight + releaseMargin;
-      if (isFarAway) {
-        releaseMarketplaceScrollImage(image);
-      }
+      prefetchMarketplaceScrollImage(image);
     });
   }, {
     rootMargin: getMarketplaceScrollImageRootMargin(),
@@ -8985,13 +8982,16 @@ function bindMarketplaceScrollImages(scope = document) {
     image.dataset.marketplaceRealSrc = image.getAttribute("src") || image.dataset.imageActionSrc || "";
     const rect = image.getBoundingClientRect();
     const viewportHeight = window.innerHeight || document.documentElement?.clientHeight || 0;
-    const releaseMargin = getMarketplaceScrollImageReleaseMargin();
-    const isFarAway = rect.bottom < -releaseMargin
-      || rect.top > viewportHeight + releaseMargin;
-    if (isFarAway) {
-      releaseMarketplaceScrollImage(image);
-    } else {
+    const prefetchMargin = getMarketplaceScrollImagePrefetchMargin();
+    const isNearViewport = rect.bottom >= -prefetchMargin && rect.top <= viewportHeight + prefetchMargin;
+    if (isNearViewport) {
+      image.setAttribute("loading", "eager");
+      image.setAttribute("fetchpriority", "high");
       activateMarketplaceScrollImage(image);
+      prefetchMarketplaceScrollImage(image);
+    } else {
+      image.setAttribute("loading", "lazy");
+      image.setAttribute("fetchpriority", "auto");
     }
     observer?.observe(image);
   });
