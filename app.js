@@ -4964,6 +4964,10 @@ function openDeepLinkedProductRouteIfNeeded() {
     if (String(window.location.pathname || "").trim().match(/^\/product\/.+/i)) {
       window.history.replaceState(window.history.state || null, "", "/");
     }
+    if (currentView !== "home") {
+      setCurrentViewState("home", { syncHistory: "replace" });
+      renderCurrentView();
+    }
     return false;
   }
   if (isAuthenticatedUser() && (pendingGuestIntent || getPendingGuestIntent())) {
@@ -4971,14 +4975,26 @@ function openDeepLinkedProductRouteIfNeeded() {
   }
   const product = getProductById(productId);
   if (!product) {
+    window.history.replaceState(window.history.state || null, "", "/");
+    if (currentView !== "home") {
+      setCurrentViewState("home", { syncHistory: "replace" });
+    }
+    renderCurrentView();
+    showInAppNotification({
+      title: "Product not found",
+      body: "Bidhaa hii haipo tena au link imebadilika. Tumerudisha home salama.",
+      variant: "warning"
+    });
     return false;
   }
   if (currentView !== "home") {
     setCurrentViewState("home", { syncHistory: "replace" });
   }
   renderCurrentView();
-  openProductDetailModal(productId, {
-    allowBrokenImageFallbackOpen: true
+  window.requestAnimationFrame(() => {
+    openProductDetailModal(productId, {
+      allowBrokenImageFallbackOpen: true
+    });
   });
   return true;
 }
