@@ -4959,6 +4959,14 @@ function clearPendingDeepLinkProductRoute() {
   pendingDeepLinkProductId = "";
 }
 
+function setDeepLinkLoadingShellVisible(visible) {
+  if (!appContainer) {
+    return;
+  }
+  appContainer.style.visibility = visible ? "" : "hidden";
+  appContainer.style.pointerEvents = visible ? "" : "none";
+}
+
 function tryOpenPendingDeepLinkProductRoute() {
   const productId = normalizeProductIdValue(pendingDeepLinkProductId);
   if (!productId) {
@@ -4981,6 +4989,7 @@ function tryOpenPendingDeepLinkProductRoute() {
     });
     renderCurrentView();
     suppressInitialProductHomeRender = false;
+    setDeepLinkLoadingShellVisible(true);
     showInAppNotification({
       title: "Product not found",
       body: "Bidhaa hii haipo tena au link imebadilika. Tumerudisha home salama.",
@@ -4991,6 +5000,7 @@ function tryOpenPendingDeepLinkProductRoute() {
 
   clearPendingDeepLinkProductRoute();
   suppressInitialProductHomeRender = false;
+  setDeepLinkLoadingShellVisible(true);
   openProductDetailModal(productId, {
     allowBrokenImageFallbackOpen: true
   });
@@ -5010,6 +5020,7 @@ function openDeepLinkedProductRouteIfNeeded(options = {}) {
       window.history.replaceState(window.history.state || null, "", "/");
     }
     setCurrentViewState("home", { syncHistory: false });
+    setDeepLinkLoadingShellVisible(true);
     syncAppShellHistoryState({
       force: true,
       mode: "replace",
@@ -5035,6 +5046,7 @@ function openDeepLinkedProductRouteIfNeeded(options = {}) {
     });
     renderCurrentView();
     suppressInitialProductHomeRender = false;
+    setDeepLinkLoadingShellVisible(true);
     showInAppNotification({
       title: "Product not found",
       body: "Bidhaa hii haipo tena au link imebadilika. Tumerudisha home salama.",
@@ -5043,12 +5055,8 @@ function openDeepLinkedProductRouteIfNeeded(options = {}) {
     return false;
   }
   suppressInitialProductHomeRender = false;
+  setDeepLinkLoadingShellVisible(true);
   setCurrentViewState("home", { syncHistory: false });
-  syncAppShellHistoryState({
-    force: true,
-    mode: "replace",
-    url: "/"
-  });
   if (!skipHomeRender) {
     renderCurrentView();
   }
@@ -6619,6 +6627,7 @@ function loginSuccess(username, preferredCategory = "", sessionData = null, opti
   document.body.classList.remove("auth-modal-open");
   hideAuthGatePrompt();
   appContainer.style.display = "block";
+  setDeepLinkLoadingShellVisible(true);
   adminNavItem.style.display = isStaffUser() ? "inline-flex" : "none";
   setAdminNavLabel(adminNavItem, getAdminNavLabel());
   const storedCategory = restoreView && !isStaffUser() && storedViewState?.username === username && storedViewState?.selectedCategory
@@ -8279,6 +8288,13 @@ function enhanceShowcaseTracks(scope = document) {
 }
 
 function renderCurrentView() {
+  if (
+    suppressInitialProductHomeRender
+    && !document.body.classList.contains("product-detail-open")
+    && String(window.location.pathname || "").match(/^\/product\/.+/i)
+  ) {
+    return;
+  }
   const startedAt = getPerfNow();
   if (searchRuntimeState.renderDebounceTimer) {
     clearTimeout(searchRuntimeState.renderDebounceTimer);
@@ -8886,6 +8902,7 @@ function openProductDetailModal(productId, options = {}) {
     return;
   }
 
+  setDeepLinkLoadingShellVisible(true);
   return openProductDetailModalFromController(normalizedProductId, {
     allowBrokenImageFallbackOpen: true,
     ...options
@@ -9341,6 +9358,9 @@ async function bootApp() {
     );
   } else if (suppressInitialProductHomeRender) {
     showSessionRestoringState("Tunafungua bidhaa uliyoifungua...");
+  }
+  if (suppressInitialProductHomeRender) {
+    setDeepLinkLoadingShellVisible(false);
   }
 
   await window.WingaDataLayer.init();
