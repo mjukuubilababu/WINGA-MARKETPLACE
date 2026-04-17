@@ -33,6 +33,15 @@
         .trim();
     }
 
+    function normalizeProductTrail(trail = []) {
+      if (!Array.isArray(trail)) {
+        return [];
+      }
+      return trail
+        .map((value) => normalizeProductIdValue(value))
+        .filter(Boolean);
+    }
+
     function isDetailHistoryState(state) {
       return Boolean(state?.wingaProductDetail && normalizeProductIdValue(state?.productId));
     }
@@ -40,12 +49,16 @@
     function buildDetailHistoryState(productId, sourceProductId = "") {
       const normalizedProductId = normalizeProductIdValue(productId);
       const normalizedSourceProductId = normalizeProductIdValue(sourceProductId || detailNavState.rootProductId || normalizedProductId);
+      const normalizedTrail = normalizeProductTrail(detailNavState.productTrail);
       return {
         ...(window.history.state && typeof window.history.state === "object" ? window.history.state : {}),
         wingaProductDetail: true,
         productId: normalizedProductId,
         sourceProductId: normalizedSourceProductId,
-        detailDepth: Math.max(1, Number(detailNavState.detailDepth || detailNavState.productTrail.length || 1))
+        detailDepth: Math.max(1, Number(detailNavState.detailDepth || detailNavState.productTrail.length || 1)),
+        productTrail: normalizedTrail.length
+          ? normalizedTrail
+          : [normalizedSourceProductId, normalizedProductId].filter(Boolean)
       };
     }
 
@@ -622,14 +635,25 @@
       const modal = deps.ensureProductDetailModal();
       const isAlreadyOpen = document.body.classList.contains("product-detail-open") && modal.style.display !== "none";
       const previousActiveProductId = detailNavState.activeProductId;
+      const historyState = window.history.state && typeof window.history.state === "object"
+        ? window.history.state
+        : null;
+      const historyTrail = normalizeProductTrail(historyState?.productTrail);
       if (!isAlreadyOpen) {
         deps.syncAppShellHistoryState?.({ force: true });
         detailNavState = {
           rootScrollY: window.scrollY || window.pageYOffset || 0,
-          rootProductId: normalizeProductIdValue(sourceProductId || normalizedProductId),
+          rootProductId: normalizeProductIdValue(historyState?.sourceProductId || sourceProductId || normalizedProductId),
           activeProductId: product.id,
-          detailDepth: 1,
-          productTrail: [product.id]
+          detailDepth: Math.max(
+            1,
+            Number(historyDepth || historyState?.detailDepth || 0) || 0,
+            historyTrail.length || 0,
+            1
+          ),
+          productTrail: historyTrail.length
+            ? historyTrail
+            : [normalizeProductIdValue(historyState?.sourceProductId || sourceProductId || normalizedProductId) || product.id, product.id].filter(Boolean)
         };
       } else if (!fromHistoryNavigation && detailNavState.rootProductId) {
         detailNavState.rootProductId = normalizeProductIdValue(detailNavState.rootProductId || sourceProductId || normalizedProductId);
@@ -640,7 +664,9 @@
       } else if (fromHistoryNavigation) {
         const nextTrail = Array.isArray(detailNavState.productTrail) && detailNavState.productTrail.length
           ? [...detailNavState.productTrail]
-          : [normalizeProductIdValue(detailNavState.rootProductId || sourceProductId || normalizedProductId) || product.id];
+          : historyTrail.length
+            ? [...historyTrail]
+            : [normalizeProductIdValue(detailNavState.rootProductId || sourceProductId || normalizedProductId) || product.id];
         const existingIndex = nextTrail.indexOf(product.id);
         detailNavState.productTrail = existingIndex >= 0
           ? nextTrail.slice(0, existingIndex + 1)
@@ -648,7 +674,8 @@
         detailNavState.detailDepth = Math.max(
           1,
           Number(historyDepth || 0) || 0,
-          detailNavState.productTrail.length
+          detailNavState.productTrail.length,
+          historyTrail.length || 0
         );
       }
       detailNavState.activeProductId = product.id;

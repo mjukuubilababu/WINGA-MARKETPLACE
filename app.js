@@ -4999,11 +4999,11 @@ function tryOpenPendingDeepLinkProductRoute() {
   }
 
   clearPendingDeepLinkProductRoute();
-  suppressInitialProductHomeRender = false;
   setDeepLinkLoadingShellVisible(true);
   openProductDetailModal(productId, {
     allowBrokenImageFallbackOpen: true
   });
+  suppressInitialProductHomeRender = false;
   return true;
 }
 
@@ -5054,7 +5054,6 @@ function openDeepLinkedProductRouteIfNeeded(options = {}) {
     });
     return false;
   }
-  suppressInitialProductHomeRender = false;
   setDeepLinkLoadingShellVisible(true);
   setCurrentViewState("home", { syncHistory: false });
   if (!skipHomeRender) {
@@ -5069,8 +5068,8 @@ function openDeepLinkedProductRouteIfNeeded(options = {}) {
       openProductDetailModal(productId, {
         allowBrokenImageFallbackOpen: true
       });
-      suppressInitialProductHomeRender = false;
     }
+    suppressInitialProductHomeRender = false;
   });
   return true;
 }
@@ -6643,10 +6642,10 @@ function loginSuccess(username, preferredCategory = "", sessionData = null, opti
   refreshPublicEntryChrome();
   clearUploadForm();
   productShopInput.value = username;
-  setCurrentViewState(nextView, {
-    syncHistory: "replace"
-  });
   const hasActiveProductDeepLink = Boolean(getDeepLinkedProductIdFromRoute());
+  setCurrentViewState(nextView, {
+    syncHistory: hasActiveProductDeepLink && nextView === "home" ? false : "replace"
+  });
   if (hasActiveProductDeepLink && nextView === "home") {
     showSessionRestoringState("Tunafungua bidhaa uliyoifungua...");
   } else if (deferRender) {
@@ -9553,10 +9552,11 @@ async function bootApp() {
   document.body.classList.remove("auth-modal-open");
   appContainer.style.display = "block";
   refreshPublicEntryChrome();
-  setCurrentViewState("home");
   if (suppressInitialProductHomeRender) {
+    setCurrentViewState("home", { syncHistory: false });
     openDeepLinkedProductRouteIfNeeded({ skipHomeRender: true });
   } else {
+    setCurrentViewState("home");
     renderSlideshow();
     renderCurrentView();
     openDeepLinkedProductRouteIfNeeded();
