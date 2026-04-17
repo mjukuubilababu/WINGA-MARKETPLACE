@@ -26,15 +26,15 @@ if not exist "%PYTHON_EXE%" (
 echo Starting WINGA backend on http://127.0.0.1:%BACKEND_PORT% ...
 start "WINGA Backend" cmd /k "cd /d ""%BACKEND_DIR%"" && node server.js"
 
-echo Starting WINGA frontend on http://127.0.0.1:%FRONTEND_PORT%/winga.html ...
+echo Starting WINGA frontend on http://127.0.0.1:%FRONTEND_PORT%/index.html ...
 start "WINGA Frontend" cmd /k "cd /d ""%ROOT%"" && %PYTHON_EXE% -m http.server %FRONTEND_PORT%"
 
 echo.
 echo Open the app here:
-echo   http://127.0.0.1:%FRONTEND_PORT%/winga.html
+echo   http://127.0.0.1:%FRONTEND_PORT%/index.html
 echo.
 echo Open the admin login here:
-echo   http://127.0.0.1:%FRONTEND_PORT%/winga.html#/admin-login
+echo   http://127.0.0.1:%FRONTEND_PORT%/index.html#/admin-login
 echo.
 echo Local admin credentials:
 echo   username: admin

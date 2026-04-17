@@ -7,13 +7,13 @@ module.exports = defineConfig({
     timeout: 10000
   },
   use: {
-    baseURL: "http://127.0.0.1:4173/winga.html",
+    baseURL: "http://127.0.0.1:4173/index.html",
     channel: "msedge",
     headless: true
   },
   webServer: {
     command: "node tests/e2e/start-servers.js",
-    url: "http://127.0.0.1:4173/winga.html",
+    url: "http://127.0.0.1:4173/index.html",
     reuseExistingServer: true,
     timeout: 120000
   }

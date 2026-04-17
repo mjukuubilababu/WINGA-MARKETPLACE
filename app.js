@@ -4708,6 +4708,7 @@ let pendingGuestIntent = null;
 let pendingDeepLinkProductId = "";
 let suppressInitialProductHomeRender = false;
 let isSessionRestorePending = false;
+let deepLinkLoadingOverlay = null;
 const ADMIN_LOGIN_HASH = "#/admin-login";
 
 const authContainer = document.getElementById("auth-container");
@@ -4967,6 +4968,89 @@ function setDeepLinkLoadingShellVisible(visible) {
   appContainer.style.pointerEvents = visible ? "" : "none";
 }
 
+function hideDeepLinkLoadingOverlay() {
+  if (deepLinkLoadingOverlay?.isConnected) {
+    deepLinkLoadingOverlay.remove();
+  }
+  deepLinkLoadingOverlay = null;
+}
+
+function showDeepLinkLoadingState(message = "Tunafungua bidhaa uliyoifungua...") {
+  setDeepLinkLoadingShellVisible(false);
+  if (!deepLinkLoadingOverlay) {
+    const overlay = document.createElement("div");
+    overlay.id = "deep-link-loading-overlay";
+    overlay.style.cssText = [
+      "position:fixed",
+      "inset:0",
+      "z-index:6000",
+      "display:grid",
+      "place-items:center",
+      "padding:24px",
+      "background:linear-gradient(180deg, rgba(7,10,18,0.72), rgba(7,10,18,0.88))",
+      "color:#fff",
+      "text-align:center"
+    ].join(";");
+
+    const panel = document.createElement("div");
+    panel.style.cssText = [
+      "width:min(420px, calc(100vw - 32px))",
+      "border-radius:24px",
+      "padding:20px 18px",
+      "background:rgba(12,16,24,0.88)",
+      "backdrop-filter:blur(18px)",
+      "box-shadow:0 24px 60px rgba(0,0,0,0.28)",
+      "border:1px solid rgba(255,255,255,0.12)"
+    ].join(";");
+
+    const badge = document.createElement("div");
+    badge.style.cssText = [
+      "display:inline-grid",
+      "place-items:center",
+      "width:56px",
+      "height:56px",
+      "margin:0 auto 14px",
+      "border-radius:18px",
+      "background:rgba(255,255,255,0.10)",
+      "font-size:1.4rem",
+      "font-weight:700"
+    ].join(";");
+    badge.textContent = "W";
+
+    const title = createElement("h3", {
+      textContent: "Tunaendelea kufungua bidhaa..."
+    });
+    title.style.cssText = "margin:0 0 8px;font-size:1.05rem;line-height:1.35;";
+
+    const copy = createElement("p", {
+      className: "empty-copy",
+      textContent: message
+    });
+    copy.style.cssText = "margin:0;font-size:0.95rem;line-height:1.5;opacity:0.9;";
+
+    panel.append(badge, title, copy);
+    overlay.appendChild(panel);
+    document.body.appendChild(overlay);
+    deepLinkLoadingOverlay = overlay;
+    return;
+  }
+
+  const title = deepLinkLoadingOverlay.querySelector("h3");
+  const copy = deepLinkLoadingOverlay.querySelector(".empty-copy");
+  if (title) {
+    title.textContent = "Tunaendelea kufungua bidhaa...";
+  }
+  if (copy) {
+    copy.textContent = message;
+  }
+  deepLinkLoadingOverlay.style.display = "grid";
+}
+
+function hideDeepLinkLoadingState() {
+  hideDeepLinkLoadingOverlay();
+  setDeepLinkLoadingShellVisible(true);
+}
+
 function tryOpenPendingDeepLinkProductRoute() {
   const productId = normalizeProductIdValue(pendingDeepLinkProductId);
   if (!productId) {
@@ -4980,6 +5064,7 @@ function tryOpenPendingDeepLinkProductRoute() {
     }
 
     clearPendingDeepLinkProductRoute();
+    hideDeepLinkLoadingState();
     window.history.replaceState(window.history.state || null, "", "/");
     setCurrentViewState("home", { syncHistory: false });
     syncAppShellHistoryState({
@@ -4989,7 +5074,6 @@ function tryOpenPendingDeepLinkProductRoute() {
     });
     renderCurrentView();
     suppressInitialProductHomeRender = false;
-    setDeepLinkLoadingShellVisible(true);
     showInAppNotification({
       title: "Product not found",
       body: "Bidhaa hii haipo tena au link imebadilika. Tumerudisha home salama.",
@@ -4999,7 +5083,7 @@ function tryOpenPendingDeepLinkProductRoute() {
   }
 
   clearPendingDeepLinkProductRoute();
-  setDeepLinkLoadingShellVisible(true);
+  hideDeepLinkLoadingState();
   openProductDetailModal(productId, {
     allowBrokenImageFallbackOpen: true
   });
@@ -5034,9 +5118,10 @@ function openDeepLinkedProductRouteIfNeeded(options = {}) {
     if (!window.WingaDataLayer?.isProductsHydrated?.()) {
       pendingDeepLinkProductId = productId;
       setCurrentViewState("home", { syncHistory: false });
-      showSessionRestoringState("Tunafungua bidhaa uliyoifungua...");
+      showDeepLinkLoadingState("Tunafungua bidhaa uliyoifungua...");
       return true;
     }
+    hideDeepLinkLoadingState();
     window.history.replaceState(window.history.state || null, "", "/");
     setCurrentViewState("home", { syncHistory: false });
     syncAppShellHistoryState({
@@ -5046,7 +5131,6 @@ function openDeepLinkedProductRouteIfNeeded(options = {}) {
     });
     renderCurrentView();
     suppressInitialProductHomeRender = false;
-    setDeepLinkLoadingShellVisible(true);
     showInAppNotification({
       title: "Product not found",
       body: "Bidhaa hii haipo tena au link imebadilika. Tumerudisha home salama.",
@@ -5054,7 +5138,7 @@ function openDeepLinkedProductRouteIfNeeded(options = {}) {
     });
     return false;
   }
-  setDeepLinkLoadingShellVisible(true);
+  showDeepLinkLoadingState("Tunafungua bidhaa uliyoifungua...");
   setCurrentViewState("home", { syncHistory: false });
   if (!skipHomeRender) {
     renderCurrentView();
@@ -5065,6 +5149,7 @@ function openDeepLinkedProductRouteIfNeeded(options = {}) {
       return;
     }
     if (!tryOpenPendingDeepLinkProductRoute()) {
+      hideDeepLinkLoadingState();
       openProductDetailModal(productId, {
         allowBrokenImageFallbackOpen: true
       });
@@ -6647,7 +6732,7 @@ function loginSuccess(username, preferredCategory = "", sessionData = null, opti
     syncHistory: hasActiveProductDeepLink && nextView === "home" ? false : "replace"
   });
   if (hasActiveProductDeepLink && nextView === "home") {
-    showSessionRestoringState("Tunafungua bidhaa uliyoifungua...");
+    showDeepLinkLoadingState("Tunafungua bidhaa uliyoifungua...");
   } else if (deferRender) {
     scheduleRenderCurrentView();
   } else {
@@ -9356,7 +9441,7 @@ async function bootApp() {
         : "Tunathibitisha session yako ya mteja au muuzaji kabla ya kuendelea."
     );
   } else if (suppressInitialProductHomeRender) {
-    showSessionRestoringState("Tunafungua bidhaa uliyoifungua...");
+    showDeepLinkLoadingState("Tunafungua bidhaa uliyoifungua...");
   }
   if (suppressInitialProductHomeRender) {
     setDeepLinkLoadingShellVisible(false);

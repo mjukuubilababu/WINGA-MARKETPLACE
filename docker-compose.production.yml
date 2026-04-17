@@ -46,7 +46,7 @@ services:
       - "443:443"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - ./winga.html:/srv/winga.html:ro
+      - ./index.html:/srv/index.html:ro
       - ./style.css:/srv/style.css:ro
       - ./app.js:/srv/app.js:ro
       - ./data-service.js:/srv/data-service.js:ro

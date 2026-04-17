@@ -38,8 +38,8 @@ function createStaticServer() {
     try {
       const requestUrl = new URL(req.url, `http://127.0.0.1:${frontendPort}`);
       let pathname = decodeURIComponent(requestUrl.pathname);
-      if (pathname === "/") {
-        pathname = "/winga.html";
+      if (pathname === "/" || !path.extname(pathname)) {
+        pathname = "/index.html";
       }
       const resolvedPath = path.resolve(rootDir, `.${pathname}`);
       if (!resolvedPath.startsWith(rootDir)) {
