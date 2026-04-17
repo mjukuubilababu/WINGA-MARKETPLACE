@@ -6146,15 +6146,46 @@ button:hover,
   }
 
   #products-container .showcase-inline{
-    width:100%;
-    max-width:100%;
+    width:100vw;
+    max-width:100vw;
     min-width:0;
+    margin-left:calc(50% - 50vw);
+    margin-right:calc(50% - 50vw);
+    padding:0;
   }
 
   #products-container .showcase-track{
-    width:100%;
-    max-width:100%;
+    width:100vw;
+    max-width:100vw;
     min-width:0;
+    margin-left:calc(50% - 50vw);
+    margin-right:calc(50% - 50vw);
+    padding:0;
+    scroll-padding-inline:0;
+  }
+
+  .product-detail-showcase-track{
+    width:100vw;
+    max-width:100vw;
+    min-width:0;
+    margin-left:calc(50% - 50vw);
+    margin-right:calc(50% - 50vw);
+    padding:0;
+  }
+
+  .product-detail-showcase-track .seller-product-card{
+    width:100vw;
+    max-width:100vw;
+    margin-left:calc(50% - 50vw);
+    margin-right:calc(50% - 50vw);
+    border:none;
+    border-radius:0;
+    box-shadow:none;
+    background:transparent;
+  }
+
+  .product-detail-showcase-track .seller-product-card-media{
+    border-radius:0;
   }
 
   #market-showcase .showcase-card,
@@ -7199,14 +7230,14 @@ button:hover,
   }
 
   .showcase-track{
-    grid-auto-columns:minmax(210px, 74vw);
-    gap:12px;
-    padding-right:16px;
+    grid-auto-columns:100vw;
+    gap:0;
+    padding-right:0;
   }
 
   #products-container .showcase-track{
-    padding-right:88px;
-    scroll-padding-inline-end:88px;
+    padding-right:0;
+    scroll-padding-inline-end:0;
   }
 }
 
@@ -7277,6 +7308,10 @@ button:hover,
   #empty-state,
   #profile-div{
     padding:14px;
+  }
+
+  .showcase-inline{
+    padding:0;
   }
 
   .product-actions .button,
