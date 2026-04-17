@@ -4964,14 +4964,24 @@ function openDeepLinkedProductRouteIfNeeded() {
     if (String(window.location.pathname || "").trim().match(/^\/product\/.+/i)) {
       window.history.replaceState(window.history.state || null, "", "/");
     }
-    setCurrentViewState("home", { syncHistory: "replace" });
+    setCurrentViewState("home", { syncHistory: false });
+    syncAppShellHistoryState({
+      force: true,
+      mode: "replace",
+      url: "/"
+    });
     renderCurrentView();
     return false;
   }
   const product = getProductById(productId);
   if (!product) {
     window.history.replaceState(window.history.state || null, "", "/");
-    setCurrentViewState("home", { syncHistory: "replace" });
+    setCurrentViewState("home", { syncHistory: false });
+    syncAppShellHistoryState({
+      force: true,
+      mode: "replace",
+      url: "/"
+    });
     renderCurrentView();
     showInAppNotification({
       title: "Product not found",
@@ -4980,9 +4990,12 @@ function openDeepLinkedProductRouteIfNeeded() {
     });
     return false;
   }
-  if (currentView !== "home") {
-    setCurrentViewState("home", { syncHistory: "replace" });
-  }
+  setCurrentViewState("home", { syncHistory: false });
+  syncAppShellHistoryState({
+    force: true,
+    mode: "replace",
+    url: "/"
+  });
   renderCurrentView();
   openProductDetailModal(productId, {
     allowBrokenImageFallbackOpen: true
