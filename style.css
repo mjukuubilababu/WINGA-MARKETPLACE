@@ -7571,13 +7571,13 @@ button:hover,
   }
 
   .showcase-track{
-    grid-auto-columns:clamp(320px, 92vw, 380px);
-    gap:10px;
-    padding-right:0;
+    grid-auto-columns:100vw;
+    gap:0;
+    padding:0;
   }
 
   #products-container .showcase-track{
-    padding-right:0;
+    padding:0;
     scroll-padding-inline-end:0;
   }
 
