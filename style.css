@@ -1291,8 +1291,8 @@ img[data-zoom-src]{
 .showcase-track{
   display:grid;
   grid-auto-flow:column;
-  grid-auto-columns:minmax(220px, 260px);
-  gap:14px;
+  grid-auto-columns:100%;
+  gap:0;
   overflow-x:auto;
   overscroll-behavior-x:contain;
   overscroll-behavior-y:auto;
@@ -1323,6 +1323,10 @@ img[data-zoom-src]{
   overflow:hidden;
   overflow-anchor:none;
   background:transparent;
+  border:none;
+  border-radius:0;
+  box-shadow:none;
+  backdrop-filter:none;
 }
 
 .showcase-inline-pending{
@@ -7287,7 +7291,7 @@ button:hover,
   }
 
   .showcase-heading{
-    padding:0 16px;
+    padding:0;
   }
 
   .showcase-track{
