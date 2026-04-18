@@ -1412,6 +1412,64 @@ img[data-zoom-src]{
   pointer-events:none;
 }
 
+#market-showcase .showcase-track > .showcase-card .product-card-media,
+.showcase-inline .showcase-track > .showcase-card .product-card-media,
+.product-detail-showcase-track > .seller-product-card .seller-product-card-media{
+  width:100%;
+  min-width:0;
+  padding:0;
+  margin:0;
+  border-radius:0;
+  background:transparent;
+  overflow:hidden;
+}
+
+#market-showcase .showcase-track > .showcase-card .product-card-media .product-gallery,
+.showcase-inline .showcase-track > .showcase-card .product-card-media .product-gallery,
+.product-detail-showcase-track > .seller-product-card .seller-product-card-media .product-gallery{
+  width:100%;
+  min-width:0;
+  margin:0;
+  border-radius:0;
+  background:transparent;
+}
+
+#market-showcase .showcase-track > .showcase-card .product-card-media .feed-gallery-preview,
+.showcase-inline .showcase-track > .showcase-card .product-card-media .feed-gallery-preview,
+.product-detail-showcase-track > .seller-product-card .seller-product-card-media .feed-gallery-preview{
+  border-radius:0;
+  background:transparent;
+}
+
+#market-showcase .showcase-track > .showcase-card .product-card-media .feed-gallery-carousel,
+.showcase-inline .showcase-track > .showcase-card .product-card-media .feed-gallery-carousel,
+.product-detail-showcase-track > .seller-product-card .seller-product-card-media .feed-gallery-carousel{
+  width:100%;
+  min-width:0;
+  border-radius:0;
+  background:transparent;
+}
+
+#market-showcase .showcase-track > .showcase-card .product-card-media .feed-gallery-carousel-track,
+.showcase-inline .showcase-track > .showcase-card .product-card-media .feed-gallery-carousel-track,
+.product-detail-showcase-track > .seller-product-card .seller-product-card-media .feed-gallery-carousel-track,
+#market-showcase .showcase-track > .showcase-card .product-card-media .feed-gallery-carousel-slide,
+.showcase-inline .showcase-track > .showcase-card .product-card-media .feed-gallery-carousel-slide,
+.product-detail-showcase-track > .seller-product-card .seller-product-card-media .feed-gallery-carousel-slide{
+  border-radius:0;
+  background:transparent;
+}
+
+#market-showcase .showcase-track > .showcase-card .product-card-media img,
+.showcase-inline .showcase-track > .showcase-card .product-card-media img,
+.product-detail-showcase-track > .seller-product-card .seller-product-card-media img{
+  width:100%;
+  height:100%;
+  display:block;
+  object-fit:cover;
+  object-position:center center;
+}
+
 .showcase-body{
   position:relative;
   z-index:2;
