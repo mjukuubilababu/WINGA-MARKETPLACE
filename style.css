@@ -7217,6 +7217,20 @@ button:hover,
     background:transparent;
   }
 
+  #market-showcase .showcase-track > .showcase-card,
+  .showcase-inline .showcase-track > .showcase-card,
+  .product-detail-showcase-track > .seller-product-card{
+    width:100%;
+    max-width:none;
+    min-width:0;
+    margin-left:0;
+    margin-right:0;
+    border:none;
+    border-radius:0;
+    box-shadow:none;
+    background:transparent;
+  }
+
   .product-card img,
   .feed-gallery-image-social,
   .seller-product-card img{
