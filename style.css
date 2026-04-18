@@ -7261,11 +7261,21 @@ button:hover,
   }
 
   #market-showcase{
-    padding:16px 0;
+    width:100vw;
+    max-width:100vw;
+    min-width:0;
+    margin-left:calc(50% - 50vw);
+    margin-right:calc(50% - 50vw);
+    padding:0;
   }
 
   .showcase-inline{
-    padding:16px 0;
+    width:100vw;
+    max-width:100vw;
+    min-width:0;
+    margin-left:calc(50% - 50vw);
+    margin-right:calc(50% - 50vw);
+    padding:0;
   }
 
   .showcase-heading{
@@ -7354,7 +7364,12 @@ button:hover,
   }
 
   #market-showcase{
-    padding:14px 0;
+    width:100vw;
+    max-width:100vw;
+    min-width:0;
+    margin-left:calc(50% - 50vw);
+    margin-right:calc(50% - 50vw);
+    padding:0;
   }
 
   .showcase-inline{
