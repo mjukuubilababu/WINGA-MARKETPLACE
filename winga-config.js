@@ -7,7 +7,7 @@ const WINGA_PRODUCTION_API_BASE_URL = "https://winga-pflp.onrender.com/api";
 const WINGA_CONFIG_OVERRIDE = window.__WINGA_CONFIG_OVERRIDE__ || {};
 const WINGA_DEFAULT_CONFIG = {
   provider: WINGA_IS_FILE_MODE ? "mock" : "api",
-  fallbackProvider: WINGA_IS_FILE_MODE ? "mock" : (WINGA_IS_LOCAL_WEB ? "local" : ""),
+  fallbackProvider: WINGA_IS_FILE_MODE ? "mock" : "local",
   apiBaseUrl: WINGA_IS_FILE_MODE
     ? "http://localhost:3000/api"
     : WINGA_IS_LOCAL_WEB

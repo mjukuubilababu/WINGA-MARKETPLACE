@@ -1400,16 +1400,16 @@ function refreshPublicEntryChrome() {
   const isGuest = !isAuthenticatedUser();
   const isSessionRestoreUi = isSessionRestorePending && isGuest;
   if (publicHeaderActions) {
-    publicHeaderActions.style.display = isGuest && !isSessionRestoreUi ? "flex" : "none";
+    publicHeaderActions.style.display = isGuest ? "flex" : "none";
   }
   if (headerUserMenu) {
-    headerUserMenu.style.display = isGuest || isSessionRestoreUi ? "none" : "flex";
+    headerUserMenu.style.display = isGuest ? "none" : "flex";
   }
   if (publicFooter) {
-    publicFooter.style.display = isGuest && !isSessionRestoreUi ? "block" : "none";
+    publicFooter.style.display = isGuest ? "block" : "none";
   }
   if (headerSearchArea) {
-    headerSearchArea.style.display = isGuest || isSessionRestoreUi ? "none" : "flex";
+    headerSearchArea.style.display = isGuest ? "flex" : "none";
   }
   if (topBarSubtitle) {
     topBarSubtitle.innerText = isSessionRestoreUi
@@ -2917,21 +2917,109 @@ function showSessionRestoringState(message = "") {
   appContainer.style.display = "block";
   syncBodyScrollLockState();
   refreshPublicEntryChrome();
-  uploadForm.style.display = "none";
-  adminPanel.style.display = "none";
-  analyticsPanel.style.display = "none";
-  emptyState.style.display = "block";
-  emptyState.replaceChildren(
-    createSectionHeading({
-      eyebrow: "Restoring Session",
-      title: "Tunaangalia session yako...",
-      meta: message || "Tafadhali subiri kidogo huku tukihakiki login yako."
-    }),
-    createElement("p", {
-      className: "empty-copy",
-      textContent: "Ukiona hali hii inachelewa sana, refresh ukurasa au ingia tena."
-    })
+  if (topBarSubtitle) {
+    topBarSubtitle.innerText = message || "Tunaangalia session yako nyuma ya pazia.";
+    topBarSubtitle.style.display = "";
+  }
+}
+
+function clearSessionRestoringState() {
+  isSessionRestorePending = false;
+  refreshPublicEntryChrome();
+}
+
+function startBackgroundSessionRestore(restorePromise, cachedSession = null) {
+  const restoreToken = ++activeSessionRestoreToken;
+  if (!cachedSession?.username) {
+    clearSessionRestoringState();
+    return;
+  }
+
+  showSessionRestoringState(
+    isStaffRole(cachedSession.role)
+      ? "Tunathibitisha staff session yako nyuma ya pazia."
+      : "Tunathibitisha session yako nyuma ya pazia."
   );
+
+  const timeoutId = window.setTimeout(() => {
+    if (restoreToken !== activeSessionRestoreToken) {
+      return;
+    }
+    clearSessionRestoringState();
+    reportClientEvent("warn", "session_restore_timed_out", "Session restore timed out during boot.", {
+      category: "auth",
+      alertSeverity: "medium"
+    });
+  }, SESSION_RESTORE_BOOT_TIMEOUT_MS);
+
+  Promise.resolve(restorePromise)
+    .then((session) => {
+      if (restoreToken !== activeSessionRestoreToken) {
+        return;
+      }
+      if (timeoutId) {
+        window.clearTimeout(timeoutId);
+      }
+      if (session?.username) {
+        if (isAdminLoginRoute() && !isStaffRole(session.role)) {
+          setAdminLoginRouteActive(false, { replace: true });
+          showInAppNotification({
+            title: "Admin access only",
+            body: "Route hii ni ya admin au moderator pekee.",
+            variant: "warning"
+          });
+        }
+        const nextSession = cachedSession?.username
+          ? {
+            ...cachedSession,
+            ...session
+          }
+          : session;
+        applySessionState(nextSession);
+        saveSessionUser(currentSession);
+        clearSessionRestoringState();
+        loginSuccess(
+          currentSession.username,
+          currentSession.primaryCategory || "",
+          currentSession,
+          {
+            restoreView: true,
+            skipWelcome: true,
+            forceView: isStaffRole(currentSession.role) ? "admin" : ""
+          }
+        );
+        reportClientEvent("info", "session_restore_succeeded", "Stored session restored during boot.", {
+          category: "auth",
+          role: currentSession.role || ""
+        });
+        return;
+      }
+
+      clearSessionUser();
+      applySessionState(null);
+      clearSessionRestoringState();
+      reportClientEvent("warn", "session_restore_failed", "Stored session could not be restored during boot.", {
+        category: "auth",
+        alertSeverity: "high",
+        role: cachedSession?.role || ""
+      });
+    })
+    .catch((error) => {
+      if (restoreToken !== activeSessionRestoreToken) {
+        return;
+      }
+      if (timeoutId) {
+        window.clearTimeout(timeoutId);
+      }
+      clearSessionUser();
+      applySessionState(null);
+      clearSessionRestoringState();
+      captureClientError("session_restore_boot_failed", error, {
+        category: "auth",
+        alertSeverity: "high",
+        hasCachedSession: Boolean(cachedSession?.username)
+      });
+    });
 }
 
 function showLoggedOutState(options = {}) {
@@ -6650,6 +6738,7 @@ async function hydrateMissingImageSignatures(productList = products) {
 }
 
 function loginSuccess(username, preferredCategory = "", sessionData = null, options = {}) {
+  activeSessionRestoreToken += 1;
   const {
     restoreView = false,
     skipWelcome = false,
@@ -6790,6 +6879,7 @@ function loginSuccess(username, preferredCategory = "", sessionData = null, opti
 }
 
 function logout() {
+  activeSessionRestoreToken += 1;
   isSessionRestorePending = false;
   const wasStaffSession = isStaffUser();
   const shouldReturnToAdminLogin = wasStaffSession || isAdminLoginRoute();
@@ -9406,44 +9496,6 @@ const SESSION_RESTORE_BOOT_TIMEOUT_MS = Math.max(
   Number(window.WINGA_CONFIG?.sessionRestoreTimeoutMs || 12000)
 );
 
-async function resolveSessionRestoreForBoot(restorePromise, { hasCachedSession = false } = {}) {
-  let timeoutId = 0;
-  const timeoutResult = { timedOut: true, session: null };
-  try {
-    const result = await Promise.race([
-      Promise.resolve(restorePromise)
-        .then((session) => ({ timedOut: false, session: session || null }))
-        .catch((error) => {
-          captureClientError("session_restore_boot_failed", error, {
-            category: "auth",
-            alertSeverity: "high",
-            hasCachedSession
-          });
-          return { timedOut: false, session: null };
-        }),
-      new Promise((resolve) => {
-        timeoutId = window.setTimeout(() => resolve(timeoutResult), SESSION_RESTORE_BOOT_TIMEOUT_MS);
-      })
-    ]);
-
-    if (result?.timedOut) {
-      reportClientEvent("warn", "session_restore_timed_out", "Session restore timed out during boot.", {
-        category: "auth",
-        alertSeverity: hasCachedSession ? "high" : "medium"
-      });
-    }
-
-    return {
-      timedOut: Boolean(result?.timedOut),
-      session: result?.session || null
-    };
-  } finally {
-    if (timeoutId) {
-      window.clearTimeout(timeoutId);
-    }
-  }
-}
-
 async function bootApp() {
   reportClientEvent("info", "app_boot_started", "Client app boot started.", {
     category: "runtime"
@@ -9453,16 +9505,7 @@ async function bootApp() {
   const cachedSession = window.WingaDataLayer.bootstrapSession
     ? window.WingaDataLayer.bootstrapSession()
     : null;
-  const shouldRestoreSession = Boolean(cachedSession?.username);
-
-  if (shouldRestoreSession) {
-    applySessionState(cachedSession);
-    showSessionRestoringState(
-      isStaffRole(cachedSession.role)
-        ? "Tunathibitisha staff session yako kabla ya kufungua admin surface."
-        : "Tunathibitisha session yako ya mteja au muuzaji kabla ya kuendelea."
-    );
-  } else if (suppressInitialProductHomeRender) {
+  if (suppressInitialProductHomeRender) {
     showDeepLinkLoadingState("Tunafungua bidhaa uliyoifungua...");
   }
   if (suppressInitialProductHomeRender) {
@@ -9470,6 +9513,14 @@ async function bootApp() {
   }
 
   await window.WingaDataLayer.init();
+  if (window.WingaDataLayer?.hydrateStartupData) {
+    window.WingaDataLayer.hydrateStartupData().catch((error) => {
+      captureClientError("startup_hydration_failed", error, {
+        category: "runtime",
+        alertSeverity: "medium"
+      });
+    });
+  }
   const rememberedSessionPromise = window.WingaDataLayer.restoreSession();
 
   refreshProductsFromStore();
@@ -9485,21 +9536,6 @@ async function bootApp() {
   hydrateMissingImageSignatures(products).catch(() => {
     // Ignore passive image signature hydration failures during boot.
   });
-
-  const rememberedSessionResult = await resolveSessionRestoreForBoot(rememberedSessionPromise, {
-    hasCachedSession: Boolean(cachedSession?.username)
-  });
-  const rememberedSession = rememberedSessionResult?.session || null;
-  const restoreTimedOut = Boolean(rememberedSessionResult?.timedOut);
-
-  if (window.WingaDataLayer?.hydrateStartupData) {
-    window.WingaDataLayer.hydrateStartupData().catch((error) => {
-      captureClientError("startup_hydration_failed", error, {
-        category: "runtime",
-        alertSeverity: "medium"
-      });
-    });
-  }
 
   window.setTimeout(() => {
     window.WingaDataLayer.loadReviews()
@@ -9519,131 +9555,7 @@ async function bootApp() {
         });
       });
   }, 1500);
-
-  if (cachedSession?.username) {
-    if (rememberedSession?.username) {
-      if (isAdminLoginRoute() && !isStaffRole(rememberedSession.role)) {
-        setAdminLoginRouteActive(false, { replace: true });
-        showInAppNotification({
-          title: "Admin access only",
-          body: "Route hii ni ya admin au moderator pekee.",
-          variant: "warning"
-        });
-      }
-      applySessionState({
-        ...cachedSession,
-        ...rememberedSession
-      });
-      saveSessionUser(currentSession);
-      loginSuccess(
-        currentSession.username,
-        currentSession.primaryCategory || "",
-        currentSession,
-        {
-          restoreView: true,
-          skipWelcome: true,
-          forceView: isStaffRole(currentSession.role) ? "admin" : ""
-        }
-      );
-      reportClientEvent("info", "session_restore_succeeded", "Cached session restored during boot.", {
-        category: "auth",
-        role: currentSession.role || ""
-      });
-      return;
-    }
-
-    if (restoreTimedOut) {
-      showSessionRestoringState(
-        isStaffRole(cachedSession.role)
-          ? "Tunathibitisha staff session yako kabla ya kufungua admin surface."
-          : "Tunathibitisha session yako ya mteja au muuzaji kabla ya kuendelea."
-      );
-      rememberedSessionPromise.then((lateSession) => {
-        if (lateSession?.username) {
-          if (isAdminLoginRoute() && !isStaffRole(lateSession.role)) {
-            setAdminLoginRouteActive(false, { replace: true });
-            showInAppNotification({
-              title: "Admin access only",
-              body: "Route hii ni ya admin au moderator pekee.",
-              variant: "warning"
-            });
-          }
-          applySessionState({
-            ...cachedSession,
-            ...lateSession
-          });
-          saveSessionUser(currentSession);
-          loginSuccess(
-            currentSession.username,
-            currentSession.primaryCategory || "",
-            currentSession,
-            {
-              restoreView: true,
-              skipWelcome: true,
-              forceView: isStaffRole(currentSession.role) ? "admin" : ""
-            }
-          );
-          reportClientEvent("info", "session_restore_succeeded", "Cached session restored after boot timeout.", {
-            category: "auth",
-            role: currentSession.role || ""
-          });
-          return;
-        }
-
-        clearSessionUser();
-        applySessionState(null);
-        clearAppViewState();
-        logout();
-        showLoggedOutState({
-          audience: isStaffRole(cachedSession?.role || "") || isAdminLoginRoute() ? "admin" : "public",
-          message: "Session yako imeisha. Ingia tena kuendelea."
-        });
-      }).catch((error) => {
-        captureClientError("session_restore_after_timeout_failed", error, {
-          category: "auth",
-          alertSeverity: "high",
-          role: cachedSession?.role || ""
-        });
-      });
-      return;
-    }
-
-    reportClientEvent("warn", "session_restore_failed", "Cached session could not be restored during boot.", {
-      category: "auth",
-      alertSeverity: "high",
-      role: cachedSession?.role || ""
-    });
-    logout();
-    showLoggedOutState({
-      audience: isStaffRole(cachedSession?.role || "") || isAdminLoginRoute() ? "admin" : "public",
-      message: "Session yako imeisha. Ingia tena kuendelea."
-    });
-    return;
-  } else if (rememberedSession?.username) {
-    if (isAdminLoginRoute() && !isStaffRole(rememberedSession.role)) {
-      setAdminLoginRouteActive(false, { replace: true });
-      showInAppNotification({
-        title: "Admin access only",
-        body: "Route hii ni ya admin au moderator pekee.",
-        variant: "warning"
-      });
-    }
-    loginSuccess(
-      rememberedSession.username,
-      rememberedSession.primaryCategory || "",
-      rememberedSession,
-      {
-        restoreView: false,
-        skipWelcome: true,
-        forceView: isStaffRole(rememberedSession.role) ? "admin" : ""
-      }
-    );
-    reportClientEvent("info", "session_restore_succeeded", "Stored session restored during boot.", {
-      category: "auth",
-      role: rememberedSession.role || ""
-    });
-    return;
-  }
+  startBackgroundSessionRestore(rememberedSessionPromise, cachedSession);
 
   if (isAdminLoginRoute()) {
     showAdminLoginScreen();

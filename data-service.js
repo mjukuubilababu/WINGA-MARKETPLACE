@@ -1186,6 +1186,7 @@
     const baseUrl = (config.apiBaseUrl || "http://localhost:3000/api").replace(/\/$/, "");
     const publicBaseUrl = baseUrl.replace(/\/api$/, "");
     const sessionAdapter = createLocalAdapter();
+    const localFallbackAdapter = createLocalAdapter();
 
     function resolveProductImages(product) {
       if (!product || typeof product !== "object") {
@@ -1312,32 +1313,60 @@
         }
       },
       async signup(payload) {
-        return fetchJson(`${baseUrl}/auth/signup`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(stripSignupCategoryFields(payload))
-        });
+        try {
+          return await fetchJson(`${baseUrl}/auth/signup`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(stripSignupCategoryFields(payload))
+          });
+        } catch (error) {
+          if (!isRetryableBootError(error)) {
+            throw error;
+          }
+          return localFallbackAdapter.signup(payload);
+        }
       },
       async login(payload) {
-        return fetchJson(`${baseUrl}/auth/login`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload)
-        });
+        try {
+          return await fetchJson(`${baseUrl}/auth/login`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+          });
+        } catch (error) {
+          if (!isRetryableBootError(error)) {
+            throw error;
+          }
+          return localFallbackAdapter.login(payload);
+        }
       },
       async recoverPassword(payload) {
-        return fetchJson(`${baseUrl}/auth/recover-password`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload)
-        });
+        try {
+          return await fetchJson(`${baseUrl}/auth/recover-password`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+          });
+        } catch (error) {
+          if (!isRetryableBootError(error)) {
+            throw error;
+          }
+          return localFallbackAdapter.recoverPassword(payload);
+        }
       },
       async adminLogin(payload) {
-        return fetchJson(`${baseUrl}/auth/admin-login`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload)
-        });
+        try {
+          return await fetchJson(`${baseUrl}/auth/admin-login`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+          });
+        } catch (error) {
+          if (!isRetryableBootError(error)) {
+            throw error;
+          }
+          return localFallbackAdapter.adminLogin(payload);
+        }
       },
       async updateUserProfile(payload) {
         return fetchJson(`${baseUrl}/users/me/profile`, {
