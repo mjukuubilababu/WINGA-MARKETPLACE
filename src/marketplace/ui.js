@@ -268,37 +268,8 @@
     }
 
     function createShowcasePreviewMediaElement(product) {
-      const media = createElement("div", { className: "product-card-media showcase-media showcase-media-preview" });
-
-      if (deps.renderFeedGalleryMarkup) {
-        media.appendChild(createElementFromMarkup(deps.renderFeedGalleryMarkup(product, "discovery")));
-        return media;
-      }
-
-      const safeImages = deps.getRenderableMarketplaceImages
-        ? deps.getRenderableMarketplaceImages(product)
-        : (Array.isArray(product.images) && product.images.length > 0 ? product.images : [product.image]).filter(Boolean);
-      const images = safeImages.length > 0 ? safeImages : [deps.getImageFallbackDataUri("WINGA")];
-      media.appendChild(createResponsiveImage({
-        src: images[0],
-        alt: `${product.name || "Product image"} 1`,
-        className: "feed-gallery-image feed-gallery-image-social showcase-preview-image",
-        fallbackSrc: deps.getImageFallbackDataUri("WINGA"),
-        attributes: {
-          loading: "eager",
-          fetchpriority: "high",
-          draggable: "false",
-          "data-marketplace-scroll-image": "true"
-        }
-      }));
-
-      if (images.length > 1) {
-        media.appendChild(createElement("span", {
-          className: "feed-gallery-count-badge product-gallery-count-badge",
-          textContent: `1/${images.length}`
-        }));
-      }
-
+      const media = createElement("div", { className: "product-card-media showcase-media" });
+      media.appendChild(createProductGalleryElement(product));
       return media;
     }
 

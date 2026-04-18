@@ -107,7 +107,7 @@
       const media = deps.createElement("div", {
         className: "product-card-media seller-product-card-media"
       });
-      const galleryMarkup = deps.renderFeedGalleryMarkup?.(item, "discovery");
+      const galleryMarkup = deps.renderFeedGalleryMarkup?.(item, "feed");
       if (galleryMarkup) {
         media.appendChild(deps.createFragmentFromMarkup(galleryMarkup));
       } else {
