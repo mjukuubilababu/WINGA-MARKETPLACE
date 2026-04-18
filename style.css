@@ -1365,7 +1365,7 @@ img[data-zoom-src]{
 
 .showcase-media{
   aspect-ratio:4 / 5;
-  background:linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  background:#f3f4f6;
   position:relative;
   z-index:1;
   overflow:hidden;
@@ -1377,7 +1377,7 @@ img[data-zoom-src]{
 
 .showcase-media-preview{
   aspect-ratio:4 / 5;
-  background:#fff;
+  background:#f3f4f6;
   overflow:hidden;
 }
 
@@ -1396,7 +1396,7 @@ img[data-zoom-src]{
   display:flex;
   flex-direction:column;
   gap:8px;
-  padding:12px 12px 14px;
+  padding:13px 13px 14px;
   min-width:0;
 }
 
@@ -1405,8 +1405,16 @@ img[data-zoom-src]{
   height:100% !important;
   object-fit:cover !important;
   object-position:center center !important;
-  background:#fff;
+  background:#f3f4f6;
   padding:0;
+}
+
+.showcase-media .feed-gallery-preview,
+.showcase-media .feed-gallery-carousel,
+.showcase-media .feed-gallery-carousel-track,
+.showcase-media .feed-gallery-carousel-slide{
+  border-radius:0;
+  background:#f3f4f6;
 }
 
 .feed-gallery-preview-single .feed-gallery-image-social{
@@ -6228,7 +6236,7 @@ button:hover,
   }
 
   .showcase-card .showcase-body{
-    padding:12px 12px 14px;
+    padding:13px 13px 14px;
   }
 
   #market-showcase .showcase-card,
