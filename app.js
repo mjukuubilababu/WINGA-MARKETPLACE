@@ -4808,6 +4808,7 @@ let pendingGuestIntent = null;
 let pendingDeepLinkProductId = "";
 let suppressInitialProductHomeRender = false;
 let isSessionRestorePending = false;
+let activeSessionRestoreToken = 0;
 let deepLinkLoadingOverlay = null;
 const ADMIN_LOGIN_HASH = "#/admin-login";
 
