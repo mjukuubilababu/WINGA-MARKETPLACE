@@ -131,13 +131,34 @@
       }
       document.body.dataset.marketplaceActionsBound = "true";
       let activeActionTouchCard = null;
+      let activeActionTouchClearTimer = 0;
+
+      function clearActiveActionTouchTimer() {
+        if (activeActionTouchClearTimer) {
+          window.clearTimeout(activeActionTouchClearTimer);
+          activeActionTouchClearTimer = 0;
+        }
+      }
 
       function clearActiveActionTouchState() {
+        clearActiveActionTouchTimer();
         if (!activeActionTouchCard) {
           return;
         }
         activeActionTouchCard.classList.remove("is-action-touching");
         activeActionTouchCard = null;
+      }
+
+      function scheduleActiveActionTouchStateClear() {
+        clearActiveActionTouchTimer();
+        activeActionTouchClearTimer = window.setTimeout(() => {
+          activeActionTouchClearTimer = 0;
+          if (!activeActionTouchCard) {
+            return;
+          }
+          activeActionTouchCard.classList.remove("is-action-touching");
+          activeActionTouchCard = null;
+        }, 180);
       }
 
       function markActionTouchState(target) {
@@ -172,7 +193,7 @@
       document.addEventListener("click", (event) => {
         const buyButton = event.target.closest("[data-buy-product]");
         if (buyButton) {
-          clearActiveActionTouchState();
+          scheduleActiveActionTouchStateClear();
           const productId = buyButton.dataset.buyProduct || "";
           if (!productId) {
             return;
@@ -195,7 +216,7 @@
 
         const requestButton = event.target.closest("[data-request-product]");
         if (requestButton) {
-          clearActiveActionTouchState();
+          scheduleActiveActionTouchStateClear();
           event.preventDefault();
           event.stopPropagation();
           deps.toggleProductInRequestBoxById(requestButton.dataset.requestProduct);
@@ -204,7 +225,7 @@
 
         const ownMessagesButton = event.target.closest("[data-open-own-messages]");
         if (ownMessagesButton) {
-          clearActiveActionTouchState();
+          scheduleActiveActionTouchStateClear();
           event.preventDefault();
           event.stopPropagation();
           deps.openOwnProductMessages(ownMessagesButton.dataset.openOwnMessages);
@@ -213,7 +234,7 @@
 
         const chatButton = event.target.closest("[data-chat-product]");
         if (chatButton) {
-          clearActiveActionTouchState();
+          scheduleActiveActionTouchStateClear();
           event.preventDefault();
           event.stopPropagation();
           deps.openProductChatFromCard(chatButton.dataset.chatProduct);
@@ -222,7 +243,7 @@
 
         const sellerCardOpenTrigger = event.target.closest(".seller-product-card[data-open-product], .seller-product-card [data-open-product]");
         if (sellerCardOpenTrigger) {
-          clearActiveActionTouchState();
+          scheduleActiveActionTouchStateClear();
           const productId = sellerCardOpenTrigger.dataset.openProduct
             || sellerCardOpenTrigger.closest(".seller-product-card")?.dataset?.openProduct
             || "";
