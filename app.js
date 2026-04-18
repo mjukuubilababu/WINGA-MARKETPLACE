@@ -4817,6 +4817,8 @@ const topBar = document.getElementById("top-bar");
 const bottomNav = document.getElementById("bottom-nav");
 const postProductFab = document.getElementById("post-product-fab");
 const viewHomeBackButton = document.getElementById("view-home-back");
+const disableHomepageHeroPanel = true;
+const disableStandaloneShowcaseSection = true;
 
 if (searchInput) {
   searchInput.setAttribute("autocomplete", "off");
@@ -6949,7 +6951,7 @@ window.addEventListener("popstate", (event) => {
 });
 
 function syncHeroPanelPosition(isProfile, isUpload) {
-  if (!heroPanel || !productsSummary) {
+  if (disableHomepageHeroPanel || !heroPanel || !productsSummary) {
     return;
   }
 
@@ -8198,6 +8200,13 @@ function setupDynamicShowcaseLoading(scope, usedIds = new Set()) {
 }
 
 function renderMarketShowcase() {
+  if (disableStandaloneShowcaseSection) {
+    marketShowcase?.replaceChildren();
+    if (marketShowcase) {
+      marketShowcase.style.display = "none";
+    }
+    return;
+  }
   if (!marketShowcase || !showcaseTrack) {
     return;
   }
@@ -8405,12 +8414,7 @@ function renderCurrentView() {
     if (getViewportWidth() > 720 || currentView !== "home") {
       closeMobileCategoryMenu();
     }
-    if (currentView === "home") {
-      renderSlideshow();
-      startSlideshow();
-    } else {
-      stopSlideshow();
-    }
+    stopSlideshow();
     const filteredProducts = getFilteredProducts();
     const isProfile = currentView === "profile";
     const isUpload = currentView === "upload" && canUseSellerFeatures();
@@ -8434,8 +8438,8 @@ function renderCurrentView() {
     updateMarketplaceActionChrome();
     scheduleChromeOffsetSync();
     categories.style.display = isProfile || isAdminView || searchPriorityMode ? "none" : "grid";
-    heroPanel.style.display = isProfile || isUpload || isAdminView || searchPriorityMode ? "none" : "flex";
-    marketShowcase.style.display = isProfile || isUpload || isAdminView || searchPriorityMode ? "none" : "block";
+    heroPanel.style.display = "none";
+    marketShowcase.style.display = "none";
     productsContainer.style.display = isProfile || isAdminView ? "none" : "grid";
     emptyState.style.display = !isProfile && !isAdminView && filteredProducts.length === 0 ? "block" : "none";
     uploadForm.style.display = isUpload || editingProductId ? "block" : "none";
@@ -9643,7 +9647,6 @@ async function bootApp() {
     openDeepLinkedProductRouteIfNeeded({ skipHomeRender: true });
   } else {
     setCurrentViewState("home");
-    renderSlideshow();
     renderCurrentView();
     openDeepLinkedProductRouteIfNeeded();
   }
