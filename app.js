@@ -4023,7 +4023,12 @@ const {
     if (!profileDiv) {
       profileDiv = document.createElement("section");
       profileDiv.id = "profile-div";
-      appContainer.insertBefore(profileDiv, document.getElementById("products-summary"));
+      const anchor = productsContainer || uploadForm || emptyState || adminPanel;
+      if (anchor) {
+        appContainer.insertBefore(profileDiv, anchor);
+      } else {
+        appContainer.appendChild(profileDiv);
+      }
     }
     return profileDiv;
   },
@@ -4076,8 +4081,12 @@ const {
   },
   setEmptyCopy,
   setResultsMeta: (title, caption) => {
-    resultsCount.innerText = title;
-    resultsCaption.innerText = caption;
+    if (resultsCount) {
+      resultsCount.innerText = title;
+    }
+    if (resultsCaption) {
+      resultsCaption.innerText = caption;
+    }
   },
   renderAnalyticsPanel,
   refreshPromotionsState,
@@ -7022,7 +7031,7 @@ function scrollToProductCard(productId) {
     `[data-product-card="${productId}"], [data-showcase-id="${productId}"], [data-open-product="${productId}"], .edit-btn[data-id="${productId}"]`
   )?.closest("[data-product-card], [data-showcase-id], [data-open-product], .product-card");
   if (!card) {
-    productsSummary?.scrollIntoView({ behavior: "smooth", block: "start" });
+    (productsContainer || productsSummary)?.scrollIntoView({ behavior: "smooth", block: "start" });
     return;
   }
 
@@ -8630,7 +8639,9 @@ function updateResultsMeta(listLength) {
     filters.sortBy !== "default"
   );
 
-  resultsCount.innerText = `${listLength} results`;
+  if (resultsCount) {
+    resultsCount.innerText = `${listLength} results`;
+  }
   if (searchRuntimeState.activeImageSearch?.signature) {
     const clearButton = createElement("button", {
       attributes: {
@@ -8639,9 +8650,11 @@ function updateResultsMeta(listLength) {
       },
       textContent: "Ondoa"
     });
-    resultsCaption.replaceChildren();
-    resultsCaption.append(`Image search active: ${searchRuntimeState.activeImageSearch.name} | Matokeo yamepangwa kwa similarity `);
-    resultsCaption.appendChild(clearButton);
+    if (resultsCaption) {
+      resultsCaption.replaceChildren();
+      resultsCaption.append(`Image search active: ${searchRuntimeState.activeImageSearch.name} | Matokeo yamepangwa kwa similarity `);
+      resultsCaption.appendChild(clearButton);
+    }
     clearButton.addEventListener("click", () => {
       searchRuntimeState.activeImageSearch = null;
       searchRuntimeState.isSearchDropdownDismissed = false;
@@ -8650,9 +8663,11 @@ function updateResultsMeta(listLength) {
     return;
   }
 
-  resultsCaption.innerText = hasFilters
-      ? "Matokeo haya yamechujwa kwa search, category, filters na sorting uliyochagua."
-      : "Bidhaa zote zilizopo sasa zinaonekana hapa.";
+  if (resultsCaption) {
+    resultsCaption.innerText = hasFilters
+        ? "Matokeo haya yamechujwa kwa search, category, filters na sorting uliyochagua."
+        : "Bidhaa zote zilizopo sasa zinaonekana hapa.";
+  }
 }
 
 function setActiveNav(view) {

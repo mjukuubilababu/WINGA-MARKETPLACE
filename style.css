@@ -586,18 +586,6 @@ body.auth-modal-open::before{
   margin-bottom:16px;
 }
 
-#products-summary{
-  transition:transform 0.18s ease, margin-top 0.18s ease;
-  position:relative;
-  z-index:2;
-}
-
-.search-priority-mode #products-summary,
-#products-summary.search-priority-summary{
-  margin-top:0;
-  transform:translateY(0);
-}
-
 #top-bar,
 #hero-panel{
   display:flex;
@@ -2219,19 +2207,6 @@ img[data-zoom-src]{
   justify-content:space-between;
   gap:16px;
   margin:12px 2px;
-}
-
-#results-meta{
-  display:flex;
-  flex-direction:column;
-  align-items:flex-end;
-  gap:4px;
-}
-
-#results-caption{
-  color:var(--muted);
-  font-size:0.85rem;
-  text-align:right;
 }
 
 #clear-image-search{
