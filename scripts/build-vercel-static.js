@@ -87,17 +87,21 @@ function copyFileIntoDist(sourceRelativePath, targetRelativePath) {
   fs.copyFileSync(sourcePath, targetPath);
 }
 
-function applyAssetVersionToHtml(relativePath) {
-  const targetPath = path.join(outputDir, relativePath);
+function applyAssetVersionToHtml(targetPath) {
   const source = fs.readFileSync(targetPath, "utf8");
   const next = source.replace(
     /(href|src)="((?:style\.css|winga-config\.js|mock-data\.js|data-service\.js|app-core\.js|winga-modules\.js|app\.js|src\/[^"]+\.js))(?:\?[^"]*)?"/g,
     (_, attribute, assetPath) => `${attribute}="${assetPath}?v=${assetVersion}"`
   );
-  const marked = next.replace(
-    /(<meta name="viewport" content="width=device-width, initial-scale=1.0">)/i,
-    `$1\n  <meta name="winga-build" content="${assetVersion}">`
-  );
+  const marked = next.includes('name="winga-build"')
+    ? next.replace(
+        /<meta name="winga-build" content="[^"]*">/i,
+        `<meta name="winga-build" content="${assetVersion}">`
+      )
+    : next.replace(
+        /(<meta name="viewport" content="width=device-width, initial-scale=1.0">)/i,
+        `$1\n  <meta name="winga-build" content="${assetVersion}">`
+      );
   fs.writeFileSync(targetPath, marked, "utf8");
 }
 
@@ -160,7 +164,8 @@ fileCopies.forEach(([sourceRelativePath, targetRelativePath]) => {
   copyFileIntoDist(sourceRelativePath, targetRelativePath);
 });
 
-applyAssetVersionToHtml("index.html");
+applyAssetVersionToHtml(path.join(rootDir, "index.html"));
+applyAssetVersionToHtml(path.join(outputDir, "index.html"));
 
 copyDirectoryRecursive(path.join(rootDir, "src"), path.join(outputDir, "src"));
 fs.writeFileSync(path.join(outputDir, "winga-modules.js"), buildFrontendModuleBundle(), "utf8");
