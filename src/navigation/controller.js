@@ -184,10 +184,10 @@
         markActionTouchState(actionButton);
       }, true);
 
-      document.addEventListener("pointerup", clearActiveActionTouchState, true);
-      document.addEventListener("pointercancel", clearActiveActionTouchState, true);
-      document.addEventListener("touchend", clearActiveActionTouchState, true);
-      document.addEventListener("touchcancel", clearActiveActionTouchState, true);
+      document.addEventListener("pointerup", scheduleActiveActionTouchStateClear, true);
+      document.addEventListener("pointercancel", scheduleActiveActionTouchStateClear, true);
+      document.addEventListener("touchend", scheduleActiveActionTouchStateClear, true);
+      document.addEventListener("touchcancel", scheduleActiveActionTouchStateClear, true);
       window.addEventListener("blur", clearActiveActionTouchState);
 
       document.addEventListener("click", (event) => {
