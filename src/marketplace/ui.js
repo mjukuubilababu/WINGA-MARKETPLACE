@@ -267,12 +267,6 @@
       return wrapper;
     }
 
-    function createShowcasePreviewMediaElement(product) {
-      const media = createElement("div", { className: "product-card-media showcase-media" });
-      media.appendChild(createProductGalleryElement(product));
-      return media;
-    }
-
     function createProductCardElement(product) {
       const card = createElement("article", {
         className: "product-card",
@@ -322,8 +316,15 @@
       card.dataset.showcaseId = product.id;
       card.dataset.openProduct = product.id;
       card.dataset.cardOpenBound = "false";
-      const media = createShowcasePreviewMediaElement(product);
-      const body = createElement("div", { className: "product-content product-content-simple product-content-social showcase-body" });
+      const media = createElement("div", { className: "product-card-media" });
+      media.appendChild(createProductGalleryElement(product));
+      if (Array.isArray(product.images) && product.images.length > 1) {
+        media.appendChild(createElement("span", {
+          className: "feed-gallery-count-badge product-gallery-count-badge",
+          textContent: `${Math.min(product.images.length, 9)}/5`
+        }));
+      }
+      const body = createElement("div", { className: "product-content product-content-simple product-content-social" });
       const overflowMenuMarkup = deps.renderProductOverflowMenu?.(product, { overlay: true });
       if (overflowMenuMarkup) {
         card.appendChild(createFragmentFromMarkup(overflowMenuMarkup));
