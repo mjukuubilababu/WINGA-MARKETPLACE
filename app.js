@@ -4231,6 +4231,8 @@ const {
     searchRuntimeState.isMobileSearchOpen = false;
     searchBox.classList.remove("mobile-open");
   },
+  getProductById,
+  beginPurchaseFlow,
   toggleProductInRequestBoxById: (productId) => {
     const product = getProductById(productId);
     if (product) {

@@ -169,6 +169,14 @@
         attributes
       });
       section.appendChild(createDetailSectionHeading(eyebrow || title, title || eyebrow));
+      if (deps.renderDiscoveryProductCards) {
+        section.appendChild(deps.createFragmentFromMarkup(
+          deps.renderDiscoveryProductCards(safeItems, {
+            sponsored: Boolean(attributes?.["data-product-detail-continuation-kind"] === "sponsored")
+          })
+        ));
+        return section;
+      }
       const track = deps.createElement("div", {
         className: "showcase-track product-detail-showcase-track"
       });

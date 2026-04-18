@@ -200,17 +200,11 @@
           }
           event.preventDefault();
           event.stopPropagation();
-          if (!deps.isAuthenticatedUser?.()) {
-            deps.promptGuestAuth?.({
-              preferredMode: "signup",
-              role: "buyer",
-              title: "You need an account to continue",
-              message: "Sign up or log in to open product details and other marketplace actions.",
-              intent: { type: "focus-product", productId }
-            });
+          const product = deps.getProductById?.(productId);
+          if (!product) {
             return;
           }
-          deps.openProductDetailModal?.(productId);
+          deps.beginPurchaseFlow?.(product);
           return;
         }
 
