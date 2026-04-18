@@ -6192,10 +6192,10 @@ button:hover,
   }
 
   .product-detail-showcase-track .seller-product-card{
-    width:100vw;
-    max-width:100vw;
-    margin-left:calc(50% - 50vw);
-    margin-right:calc(50% - 50vw);
+    width:100%;
+    max-width:none;
+    margin-left:0;
+    margin-right:0;
     padding:0;
     border:none;
     border-radius:0;
@@ -6208,10 +6208,10 @@ button:hover,
   }
 
   .showcase-card{
-    width:100vw;
-    max-width:100vw;
-    margin-left:calc(50% - 50vw);
-    margin-right:calc(50% - 50vw);
+    width:100%;
+    max-width:none;
+    margin-left:0;
+    margin-right:0;
     border:none;
     border-radius:0;
     box-shadow:none;
