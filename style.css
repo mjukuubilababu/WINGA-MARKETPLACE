@@ -2468,7 +2468,7 @@ img[data-zoom-src]{
 #user-products-container .profile-product-stage{
   position:absolute;
   inset:0;
-  object-fit:cover !important;
+  object-fit:contain !important;
   object-position:center center !important;
   padding:0;
   background:#f3f4f6;
@@ -2482,6 +2482,11 @@ img[data-zoom-src]{
 #user-products-container .profile-product-menu{
   top:8px;
   right:8px;
+}
+
+#user-products-container .profile-product-stage.image-is-portrait{
+  object-fit:contain !important;
+  object-position:center center !important;
 }
 
 .profile-product-title{
