@@ -6065,6 +6065,8 @@ productImageFileInput.addEventListener("change", async () => {
   }
 
   try {
+    previewList.replaceChildren();
+    previewList.style.display = "none";
     validateImageFiles(files);
     await renderPreviewFiles(files);
   } catch (error) {
@@ -9519,7 +9521,6 @@ function renderPreviewFiles(files) {
       throw error;
     });
 }
-
 function readFilesAsDataUrls(files) {
   return Promise.all(files.map((file) => readFileAsDataUrl(file, { purpose: "product" })));
 }

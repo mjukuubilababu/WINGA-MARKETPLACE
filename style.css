@@ -7977,3 +7977,30 @@ button:hover,
     padding:12px 12px 13px;
   }
 }
+
+/* Home feed portrait-first image presentation */
+#products-container .feed-gallery-preview{
+  aspect-ratio:4 / 5 !important;
+  background:#ffffff !important;
+  overflow:hidden !important;
+}
+
+#products-container .feed-gallery-carousel,
+#products-container .feed-gallery-carousel-track,
+#products-container .feed-gallery-carousel-slide{
+  background:#ffffff !important;
+}
+
+#products-container .feed-gallery-image-social{
+  width:100% !important;
+  height:100% !important;
+  object-fit:contain !important;
+  object-position:center top !important;
+  background:#ffffff !important;
+  padding:0 !important;
+}
+
+#products-container .feed-gallery-preview .feed-gallery-count-badge{
+  top:8px;
+  right:8px;
+}
