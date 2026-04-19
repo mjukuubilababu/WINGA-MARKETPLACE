@@ -675,7 +675,7 @@
       });
       article.dataset.profileProductCard = product.id;
 
-      const media = deps.createElement("div", { className: "profile-product-media" });
+      const media = deps.createElement("div", { className: "product-card-media profile-product-media" });
       const image = deps.createResponsiveImage
         ? deps.createResponsiveImage({
             src: firstImage,

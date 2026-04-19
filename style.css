@@ -2332,7 +2332,7 @@ img[data-zoom-src]{
   height:100%;
   overflow:hidden;
   border-radius:inherit;
-  background:#eef2f7;
+  background:#f3f4f6;
 }
 
 .profile-product-stage{
@@ -2343,7 +2343,7 @@ img[data-zoom-src]{
   object-fit:cover !important;
   object-position:center !important;
   display:block;
-  background:#eef2f7;
+  background:#f3f4f6;
 }
 
 .profile-product-stage.image-is-portrait{
