@@ -253,8 +253,6 @@
       if (!captionText) {
         return null;
       }
-
-      const needsToggle = captionText.length > 120;
       const wrapper = createElement("div", {
         className: "product-card-caption-block"
       });
@@ -265,28 +263,6 @@
       });
       caption.setAttribute("aria-label", captionText);
       wrapper.appendChild(caption);
-
-      if (needsToggle) {
-        wrapper.classList.add("is-collapsed");
-        const toggle = createElement("button", {
-          className: "product-caption-toggle",
-          textContent: "See more",
-          attributes: {
-            type: "button",
-            "data-product-caption-toggle": "true",
-            "aria-expanded": "false"
-          }
-        });
-        toggle.addEventListener("click", (event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          const isExpanded = wrapper.classList.toggle("is-expanded");
-          wrapper.classList.toggle("is-collapsed", !isExpanded);
-          toggle.textContent = isExpanded ? "See less" : "See more";
-          toggle.setAttribute("aria-expanded", String(isExpanded));
-        });
-        wrapper.appendChild(toggle);
-      }
 
       return wrapper;
     }

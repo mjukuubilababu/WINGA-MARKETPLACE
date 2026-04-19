@@ -2883,33 +2883,9 @@ img[data-zoom-src]{
   font-size:0.98rem;
   line-height:1.55;
   font-weight:600;
-  overflow:hidden;
-  display:-webkit-box;
-  -webkit-box-orient:vertical;
-  -webkit-line-clamp:3;
-}
-
-.product-card-caption-block.is-expanded .product-card-caption{
-  display:block;
-  -webkit-line-clamp:unset;
-}
-
-.product-caption-toggle{
-  align-self:flex-start;
-  border:none;
-  padding:0;
-  background:transparent;
-  color:var(--accent);
-  font-size:0.84rem;
-  font-weight:800;
-  cursor:pointer;
-}
-
-.product-caption-toggle:hover,
-.product-caption-toggle:focus-visible{
-  color:var(--accent-deep);
-  text-decoration:underline;
-  outline:none;
+  white-space:pre-wrap;
+  overflow-wrap:anywhere;
+  word-break:break-word;
 }
 
 .product-seller-row{
