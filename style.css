@@ -2445,7 +2445,13 @@ img[data-zoom-src]{
   display:none;
 }
 
-@media (min-width:390px){
+@media (min-width:520px){
+  #user-products-container{
+    grid-template-columns:repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (orientation: landscape){
   #user-products-container{
     grid-template-columns:repeat(3, minmax(0, 1fr));
   }
