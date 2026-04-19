@@ -4997,6 +4997,7 @@ const uploadCropState = {
   modal: null,
   items: [],
   index: 0,
+  viewMode: "fit",
   currentImage: null,
   dragPointerId: null,
   dragOriginX: 0,
@@ -9589,6 +9590,9 @@ function ensureUploadCropTransform(item) {
   if (!item.transform.ratio) {
     item.transform.ratio = UPLOAD_CROP_DEFAULT_RATIO;
   }
+  if (!item.transform.viewMode) {
+    item.transform.viewMode = "fit";
+  }
   if (!Number.isFinite(Number(item.transform.zoom))) {
     item.transform.zoom = 1;
   }
@@ -9622,7 +9626,16 @@ function ensureUploadCropModalRoot() {
           <p class="eyebrow">Crop tool</p>
           <h3 id="upload-crop-title">Adjust image before posting</h3>
         </div>
-        <span class="upload-crop-counter" aria-live="polite"></span>
+        <div class="upload-crop-header-actions">
+          <button class="upload-crop-view-toggle" type="button" data-upload-crop-view="toggle" aria-label="Picha nzima">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M7 3H3v4h2V5h2V3Zm12 4V3h-4v2h2v2h2ZM5 19v-2H3v4h4v-2H5Zm14-2v2h-2v2h4v-4h-2Z" fill="currentColor"/>
+              <path d="M7 8h10v8H7z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+            </svg>
+            <span class="upload-crop-view-label">Fit</span>
+          </button>
+          <span class="upload-crop-counter" aria-live="polite"></span>
+        </div>
       </div>
       <p class="upload-crop-copy">Drag picha, zoom, na chagua jinsi product itaonekana kabla ya kupost.</p>
       <div class="upload-crop-stage-shell">
@@ -9637,7 +9650,7 @@ function ensureUploadCropModalRoot() {
         <button class="upload-crop-ratio-button" type="button" data-upload-crop-ratio="square">Square</button>
       </div>
       <div class="upload-crop-zoom-row">
-        <button class="upload-crop-zoom-button" type="button" data-upload-crop-zoom="out" aria-label="Punguza zoom">−</button>
+        <button class="upload-crop-zoom-button" type="button" data-upload-crop-zoom="out" aria-label="Punguza zoom">&minus;</button>
         <input id="upload-crop-zoom" type="range" min="1" max="3" step="0.01" value="1" aria-label="Zoom image">
         <button class="upload-crop-zoom-button" type="button" data-upload-crop-zoom="in" aria-label="Ongeza zoom">+</button>
       </div>
@@ -9645,7 +9658,12 @@ function ensureUploadCropModalRoot() {
         <button class="upload-crop-secondary-button" type="button" data-upload-crop-step="-1">Previous</button>
         <button class="upload-crop-secondary-button" type="button" data-upload-crop-step="1">Next</button>
         <button class="upload-crop-secondary-button upload-crop-reset-button" type="button" data-upload-crop-action="reset" aria-label="Crop tool reset">
-          <span aria-hidden="true">◫</span>
+          <span aria-hidden="true" class="upload-crop-reset-icon">
+            <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+              <path d="M7 3H3v4h2V5h2V3Zm12 4V3h-4v2h2v2h2ZM5 19v-2H3v4h4v-2H5Zm14-2v2h-2v2h4v-4h-2Z" fill="currentColor"/>
+              <path d="M7 8h10v8H7z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+            </svg>
+          </span>
           <span>Crop</span>
         </button>
       </div>
@@ -9702,6 +9720,12 @@ function ensureUploadCropModalRoot() {
   root.querySelectorAll("[data-upload-crop-action='reset']").forEach((button) => {
     button.addEventListener("click", () => {
       resetCurrentUploadCropTransform();
+    });
+  });
+
+  root.querySelectorAll("[data-upload-crop-view='toggle']").forEach((button) => {
+    button.addEventListener("click", () => {
+      toggleUploadCropViewMode();
     });
   });
 
@@ -9773,6 +9797,7 @@ function closeUploadCropModal(options = {}) {
   uploadCropState.dragOffsetX = 0;
   uploadCropState.dragOffsetY = 0;
   uploadCropState.items = [];
+  uploadCropState.viewMode = "fit";
   if (options.discardSelection) {
     pendingUploadCroppedImages = [];
     productImageFileInput.value = "";
@@ -9789,6 +9814,7 @@ function resetCurrentUploadCropTransform() {
   item.transform = {
     ...ensureUploadCropTransform(item),
     ratio: UPLOAD_CROP_DEFAULT_RATIO,
+    viewMode: "fit",
     zoom: 1,
     offsetX: 0,
     offsetY: 0
@@ -9808,6 +9834,26 @@ function setUploadCropRatio(ratio) {
   syncUploadCropPreview();
 }
 
+function setUploadCropViewMode(viewMode) {
+  const item = getActiveUploadCropItem();
+  if (!item) {
+    return;
+  }
+  const transform = ensureUploadCropTransform(item);
+  transform.viewMode = viewMode === "crop" ? "crop" : "fit";
+  uploadCropState.viewMode = transform.viewMode;
+  syncUploadCropPreview();
+}
+
+function toggleUploadCropViewMode() {
+  const item = getActiveUploadCropItem();
+  if (!item) {
+    return;
+  }
+  const transform = ensureUploadCropTransform(item);
+  setUploadCropViewMode(transform.viewMode === "fit" ? "crop" : "fit");
+}
+
 function getUploadCropCanvasSize(ratio) {
   return getUploadCropRatioConfig(ratio);
 }
@@ -9824,10 +9870,11 @@ function syncUploadCropPreview() {
   const counter = root.querySelector(".upload-crop-counter");
   const zoomInput = root.querySelector("#upload-crop-zoom");
   const ratioButtons = Array.from(root.querySelectorAll("[data-upload-crop-ratio]"));
+  const viewToggleButton = root.querySelector("[data-upload-crop-view='toggle']");
   const applyButton = root.querySelector("[data-upload-crop-action='apply']");
   const prevButton = root.querySelector("[data-upload-crop-step='-1']");
   const nextButton = root.querySelector("[data-upload-crop-step='1']");
-  if (!image || !stage || !counter || !zoomInput || !applyButton || !prevButton || !nextButton) {
+  if (!image || !stage || !counter || !zoomInput || !applyButton || !prevButton || !nextButton || !viewToggleButton) {
     return;
   }
 
@@ -9841,7 +9888,9 @@ function syncUploadCropPreview() {
 
   const frameWidth = Math.max(1, stage.getBoundingClientRect().width || 1);
   const frameHeight = Math.max(1, stage.getBoundingClientRect().height || 1);
-  const fitScale = Math.max(frameWidth / naturalWidth, frameHeight / naturalHeight);
+  const fitScale = transform.viewMode === "crop"
+    ? Math.max(frameWidth / naturalWidth, frameHeight / naturalHeight)
+    : Math.min(frameWidth / naturalWidth, frameHeight / naturalHeight);
   transform.fitScale = fitScale;
   transform.zoom = clampNumber(transform.zoom || 1, 1, 3);
   const scale = fitScale * transform.zoom;
@@ -9861,11 +9910,15 @@ function syncUploadCropPreview() {
   image.style.opacity = "1";
   stage.style.setProperty("--upload-crop-aspect", String(ratioConfig.aspectRatio));
   stage.dataset.uploadCropRatio = transform.ratio;
+  stage.dataset.uploadCropView = transform.viewMode;
   counter.textContent = `${uploadCropState.index + 1} / ${uploadCropState.items.length}`;
   zoomInput.value = String(transform.zoom);
   ratioButtons.forEach((button) => {
     button.classList.toggle("is-active", button.dataset.uploadCropRatio === transform.ratio);
   });
+  viewToggleButton.classList.toggle("is-active", transform.viewMode === "fit");
+  viewToggleButton.querySelector(".upload-crop-view-label").textContent = transform.viewMode === "fit" ? "Fit" : "Crop";
+  viewToggleButton.title = transform.viewMode === "fit" ? "Picha nzima" : "Crop mode";
   prevButton.disabled = uploadCropState.index === 0;
   nextButton.disabled = uploadCropState.index >= uploadCropState.items.length - 1;
   applyButton.textContent = uploadCropState.index >= uploadCropState.items.length - 1 ? "Finish crop" : "Use crop";
@@ -9959,6 +10012,7 @@ async function beginUploadCropFlow(files = []) {
       alt: safeFiles[index]?.name || `Picha ${index + 1}`,
       transform: {
         ratio: UPLOAD_CROP_DEFAULT_RATIO,
+        viewMode: "fit",
         zoom: 1,
         offsetX: 0,
         offsetY: 0,
@@ -10001,7 +10055,11 @@ function applyCurrentUploadCropSelection() {
   const stage = uploadCropState.modal?.querySelector("[data-upload-crop-stage]");
   const frameWidth = Math.max(1, stage?.getBoundingClientRect().width || 1);
   const frameHeight = Math.max(1, stage?.getBoundingClientRect().height || 1);
-  const fitScale = transform.fitScale || Math.max(frameWidth / naturalWidth, frameHeight / naturalHeight);
+  const fitScale = transform.fitScale || (
+    transform.viewMode === "crop"
+      ? Math.max(frameWidth / naturalWidth, frameHeight / naturalHeight)
+      : Math.min(frameWidth / naturalWidth, frameHeight / naturalHeight)
+  );
   const scale = fitScale * clampNumber(transform.zoom || 1, 1, 3);
   const displayWidth = naturalWidth * scale;
   const displayHeight = naturalHeight * scale;
@@ -10011,25 +10069,37 @@ function applyCurrentUploadCropSelection() {
   const offsetY = clampNumber(transform.offsetY || 0, -maxOffsetY, maxOffsetY);
   const imageLeft = frameWidth / 2 - displayWidth / 2 + offsetX;
   const imageTop = frameHeight / 2 - displayHeight / 2 + offsetY;
-  const sourceX = clampNumber((0 - imageLeft) / scale, 0, Math.max(0, naturalWidth - 1));
-  const sourceY = clampNumber((0 - imageTop) / scale, 0, Math.max(0, naturalHeight - 1));
-  const sourceWidth = Math.min(naturalWidth - sourceX, frameWidth / scale);
-  const sourceHeight = Math.min(naturalHeight - sourceY, frameHeight / scale);
 
   canvas.width = ratioConfig.canvasWidth;
   canvas.height = ratioConfig.canvasHeight;
   context.clearRect(0, 0, canvas.width, canvas.height);
-  context.drawImage(
-    item.image,
-    sourceX,
-    sourceY,
-    Math.max(1, sourceWidth),
-    Math.max(1, sourceHeight),
-    0,
-    0,
-    canvas.width,
-    canvas.height
-  );
+  context.fillStyle = "#ffffff";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+
+  if (transform.viewMode === "fit") {
+    const containScale = Math.min(canvas.width / displayWidth, canvas.height / displayHeight);
+    const finalWidth = displayWidth * containScale;
+    const finalHeight = displayHeight * containScale;
+    const left = (canvas.width - finalWidth) / 2;
+    const top = (canvas.height - finalHeight) / 2;
+    context.drawImage(item.image, 0, 0, naturalWidth, naturalHeight, left, top, finalWidth, finalHeight);
+  } else {
+    const sourceX = clampNumber((0 - imageLeft) / scale, 0, Math.max(0, naturalWidth - 1));
+    const sourceY = clampNumber((0 - imageTop) / scale, 0, Math.max(0, naturalHeight - 1));
+    const sourceWidth = Math.min(naturalWidth - sourceX, frameWidth / scale);
+    const sourceHeight = Math.min(naturalHeight - sourceY, frameHeight / scale);
+    context.drawImage(
+      item.image,
+      sourceX,
+      sourceY,
+      Math.max(1, sourceWidth),
+      Math.max(1, sourceHeight),
+      0,
+      0,
+      canvas.width,
+      canvas.height
+    );
+  }
 
   const output = canvas.toDataURL("image/jpeg", 0.92);
   pendingUploadCroppedImages[uploadCropState.index] = output;
