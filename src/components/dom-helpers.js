@@ -51,8 +51,9 @@
       left.appendChild(createElement("h3", { textContent: title }));
     }
     wrapper.appendChild(left);
-    if (meta) {
-      wrapper.appendChild(createElement("span", { className: "meta-copy", textContent: meta }));
+    const safeMeta = String(meta == null ? "" : meta).trim();
+    if (safeMeta && safeMeta.toLowerCase() !== "null" && safeMeta.toLowerCase() !== "undefined") {
+      wrapper.appendChild(createElement("span", { className: "meta-copy", textContent: safeMeta }));
     }
     return wrapper;
   }

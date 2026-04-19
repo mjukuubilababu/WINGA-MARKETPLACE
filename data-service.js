@@ -87,15 +87,25 @@
       return {
         ...parsed,
         username,
-        fullName: typeof parsed.fullName === "string" && parsed.fullName.trim() ? parsed.fullName.trim() : username,
-        role: typeof parsed.role === "string" ? parsed.role.trim().toLowerCase() : "",
-        primaryCategory: typeof parsed.primaryCategory === "string" ? parsed.primaryCategory.trim() : "",
+        fullName: typeof parsed.fullName === "string" && parsed.fullName.trim() && !/^(null|undefined)$/i.test(parsed.fullName.trim())
+          ? parsed.fullName.trim()
+          : username,
+        role: typeof parsed.role === "string" && parsed.role.trim() && !/^(null|undefined)$/i.test(parsed.role.trim())
+          ? parsed.role.trim().toLowerCase()
+          : "",
+        primaryCategory: typeof parsed.primaryCategory === "string" && parsed.primaryCategory.trim() && !/^(null|undefined)$/i.test(parsed.primaryCategory.trim())
+          ? parsed.primaryCategory.trim()
+          : "",
         phoneNumber: typeof parsed.phoneNumber === "string" ? parsed.phoneNumber.replace(/\D/g, "").slice(0, 20) : "",
         whatsappNumber: typeof parsed.whatsappNumber === "string"
           ? parsed.whatsappNumber.replace(/\D/g, "").slice(0, 20)
           : "",
-        profileImage: typeof parsed.profileImage === "string" ? parsed.profileImage.trim() : "",
-        token: typeof parsed.token === "string" ? parsed.token.trim() : ""
+        profileImage: typeof parsed.profileImage === "string" && parsed.profileImage.trim() && !/^(null|undefined)$/i.test(parsed.profileImage.trim())
+          ? parsed.profileImage.trim()
+          : "",
+        token: typeof parsed.token === "string" && parsed.token.trim() && !/^(null|undefined)$/i.test(parsed.token.trim())
+          ? parsed.token.trim()
+          : ""
       };
     } catch (error) {
       safeStorageRemove(SESSION_KEY);
@@ -203,19 +213,28 @@
   }
 
   function buildSessionPayload(user, token = null) {
+    const normalizeSessionText = (value, fallback = "") => {
+      const normalized = String(value == null ? "" : value).trim();
+      if (!normalized) {
+        return fallback;
+      }
+      const lower = normalized.toLowerCase();
+      return lower === "null" || lower === "undefined" ? fallback : normalized;
+    };
+
     return {
-      username: user.username,
-      fullName: user.fullName || user.username,
-      primaryCategory: user.primaryCategory || "",
-      role: user.role || "seller",
+      username: normalizeSessionText(user.username, ""),
+      fullName: normalizeSessionText(user.fullName, user.username),
+      primaryCategory: normalizeSessionText(user.primaryCategory, ""),
+      role: normalizeSessionText(user.role, "seller"),
       phoneNumber: normalizePhoneNumber(user.phoneNumber || ""),
       whatsappNumber: normalizePhoneNumber(user.whatsappNumber || user.phoneNumber || ""),
       whatsappVerificationStatus: user.whatsappVerificationStatus === "pending" ? "pending" : "verified",
-      whatsappVerifiedAt: user.whatsappVerifiedAt || "",
+      whatsappVerifiedAt: normalizeSessionText(user.whatsappVerifiedAt, ""),
       pendingWhatsappNumber: normalizePhoneNumber(user.pendingWhatsappNumber || ""),
-      pendingWhatsappExpiresAt: user.pendingWhatsappExpiresAt || "",
-      profileImage: user.profileImage || "",
-      verificationStatus: user.verificationStatus || "",
+      pendingWhatsappExpiresAt: normalizeSessionText(user.pendingWhatsappExpiresAt, ""),
+      profileImage: normalizeSessionText(user.profileImage, ""),
+      verificationStatus: normalizeSessionText(user.verificationStatus, ""),
       verifiedSeller: Boolean(user.verifiedSeller),
       token
     };

@@ -1811,7 +1811,14 @@ function getMarketplaceUser(username) {
 }
 
 function normalizeDisplayName(value) {
-  return String(value || "").replace(/\s+/g, " ").trim();
+  const normalized = String(value == null ? "" : value)
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!normalized) {
+    return "";
+  }
+  const lower = normalized.toLowerCase();
+  return lower === "null" || lower === "undefined" ? "" : normalized;
 }
 
 function looksLikePhoneIdentity(value) {
