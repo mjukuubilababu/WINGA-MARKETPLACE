@@ -9,7 +9,8 @@
         mobileHeaderLastScrollY: 0,
         mobileHeaderLastToggleY: 0,
         mobileHeaderHidden: false,
-        mobileHeaderScrollFrame: 0
+        mobileHeaderScrollFrame: 0,
+        lastScrollActivityAt: 0
       },
       search: {
         activeImageSearch: null,

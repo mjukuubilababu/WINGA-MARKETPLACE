@@ -354,7 +354,8 @@
     function finalizeHomeNavigation() {
       closeProductDetailModal({
         skipHistoryBack: true,
-        skipContextRestore: true
+        skipContextRestore: false,
+        skipRootCardScroll: true
       });
       deps.resetHomeBrowseState?.();
       deps.setCurrentViewState?.("home");
@@ -363,7 +364,6 @@
         force: true,
         url: "/"
       });
-      window.scrollTo({ top: 0, behavior: "auto" });
     }
 
     function goHomeFromProductDetail() {
@@ -459,7 +459,8 @@
     function closeProductDetailModal(options = {}) {
       const {
         skipHistoryBack = false,
-        skipContextRestore = false
+        skipContextRestore = false,
+        skipRootCardScroll = false
       } = options;
       if (!skipHistoryBack && syncHistoryForClose()) {
         return;
@@ -477,7 +478,7 @@
       if (!skipContextRestore) {
         window.scrollTo({ top: detailNavState.rootScrollY || 0, behavior: "auto" });
       }
-      if (!skipContextRestore && detailNavState.rootProductId) {
+      if (!skipContextRestore && !skipRootCardScroll && detailNavState.rootProductId) {
         window.setTimeout(() => {
           deps.scrollToProductCard?.(detailNavState.rootProductId);
         }, 40);

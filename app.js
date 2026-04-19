@@ -6580,6 +6580,7 @@ viewHomeBackButton?.addEventListener("click", () => {
 });
 
 window.addEventListener("scroll", () => {
+  uiRuntimeState.lastScrollActivityAt = Date.now();
   if (getViewportWidth() <= 720) {
     scheduleMobileHeaderScrollSync();
   }
@@ -7145,12 +7146,19 @@ async function hydrateMissingImageSignatures(productList = products) {
   const queue = pendingProducts.slice();
   await new Promise((resolve) => {
     const processNext = (deadline = null) => {
+      const recentScrollAt = Number(uiRuntimeState.lastScrollActivityAt || 0);
+      const scrollRecentlyActive = recentScrollAt > 0 && (Date.now() - recentScrollAt) < 900;
       const hasIdleBudget = !deadline
         || deadline.didTimeout
         || deadline.timeRemaining() > 8;
 
       if (!queue.length) {
         resolve();
+        return;
+      }
+
+      if (scrollRecentlyActive) {
+        scheduleIdleBackgroundWork(processNext, 1200);
         return;
       }
 
@@ -9976,17 +9984,28 @@ async function bootApp() {
     // Ignore passive image signature hydration failures during boot.
   });
 
-  window.setTimeout(() => {
-    scheduleIdleBackgroundWork(() => {
-      window.WingaDataLayer.loadReviews()
-        .then((reviewPayload) => {
-          currentReviews = Array.isArray(reviewPayload?.reviews) ? reviewPayload.reviews : [];
-          reviewSummaries = reviewPayload?.summaries || {};
-          if (currentView !== "home" || document.body.classList.contains("product-detail-open")) {
-            renderCurrentView();
-          }
-        })
-        .catch((error) => {
+      window.setTimeout(() => {
+        scheduleIdleBackgroundWork(() => {
+          window.WingaDataLayer.loadReviews()
+            .then((reviewPayload) => {
+              currentReviews = Array.isArray(reviewPayload?.reviews) ? reviewPayload.reviews : [];
+              reviewSummaries = reviewPayload?.summaries || {};
+              const scrollRecentlyActive = Date.now() - Number(uiRuntimeState.lastScrollActivityAt || 0) < 900;
+              if (!scrollRecentlyActive && (currentView !== "home" || document.body.classList.contains("product-detail-open"))) {
+                renderCurrentView();
+              } else if (scrollRecentlyActive) {
+                window.setTimeout(() => {
+                  if (currentView !== "home" || document.body.classList.contains("product-detail-open")) {
+                    return;
+                  }
+                  if (Date.now() - Number(uiRuntimeState.lastScrollActivityAt || 0) < 900) {
+                    return;
+                  }
+                  renderCurrentView();
+                }, 1200);
+              }
+            })
+            .catch((error) => {
           currentReviews = [];
           reviewSummaries = {};
           captureClientError("reviews_boot_load_failed", error, {
