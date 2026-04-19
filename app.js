@@ -8514,11 +8514,11 @@ function renderCurrentView() {
     const searchPriorityMode = hasPrioritySearchResults(filteredProducts.length) && !isProfile && !isUpload && !isAdminView;
     syncHeroPanelPosition(isProfile, isUpload);
 
-    searchBox.style.display = isProfile || isUpload || isAdminView || isGuest ? "none" : "grid";
-    searchToggleButton.style.display = isProfile || isUpload || isAdminView || isGuest ? "none" : "";
-    searchImageButton.style.display = isProfile || isUpload || isAdminView || isGuest ? "none" : "";
+    searchBox.style.display = isProfile || isUpload || isAdminView ? "none" : "grid";
+    searchToggleButton.style.display = isProfile || isUpload || isAdminView ? "none" : "";
+    searchImageButton.style.display = isProfile || isUpload || isAdminView ? "none" : "";
     if (mobileCategoryShell) {
-      mobileCategoryShell.style.display = isProfile || isUpload || isAdminView || isGuest ? "none" : "";
+      mobileCategoryShell.style.display = isProfile || isUpload || isAdminView ? "none" : "";
     }
     syncMobileCategorySheetOffset();
     searchBox.classList.toggle("mobile-open", searchRuntimeState.isMobileSearchOpen);
