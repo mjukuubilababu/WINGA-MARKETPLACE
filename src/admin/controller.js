@@ -73,6 +73,41 @@
       return deepLinkRow;
     }
 
+    function createDeepLinkCard(product) {
+      const card = deps.createElement("article", {
+        className: "moderation-card admin-deep-link-card",
+        attributes: {
+          "data-admin-deep-link-card": product.id
+        }
+      });
+      const deepLink = buildProductDeepLink(product.id);
+      card.append(
+        deps.createElement("strong", { textContent: product.name || product.id }),
+        createMetaCopy(`${product.shop || product.uploadedBy || "-"} | ${deps.getCategoryLabel?.(product.category) || product.category || "-"}`),
+        deps.createElement("code", {
+          className: "admin-deep-link-value",
+          textContent: deepLink
+        })
+      );
+      const actions = deps.createElement("div", { className: "moderation-actions admin-deep-link-actions" });
+      actions.append(
+        createActionButton("Copy Deep Link", {
+          adminDeepLinkCopy: product.id
+        }, "button action-btn action-btn-secondary"),
+        deps.createElement("a", {
+          className: "button action-btn",
+          textContent: "Open Link",
+          attributes: {
+            href: deepLink,
+            target: "_blank",
+            rel: "noopener noreferrer"
+          }
+        })
+      );
+      card.appendChild(actions);
+      return card;
+    }
+
     function createSection(title, meta = "", bodyNode = null) {
       const section = deps.createElement("section", {
         className: "panel",
@@ -718,6 +753,19 @@
     function createAdminBody(state) {
       const wrapper = deps.createElement("div", { className: "moderation-list" });
       wrapper.appendChild(createAdminToolbar(state));
+      if (deps.isAdminUser?.()) {
+        const deepLinkProducts = Array.isArray(state.pendingProducts) ? state.pendingProducts : [];
+        const deepLinkBody = deps.createElement("div", { className: "moderation-list" });
+        if (state.loadErrors.products) {
+          deepLinkBody.appendChild(createLoadIssueState("Deep link products hazikupatikana kwa sasa."));
+        } else if (!deepLinkProducts.length) {
+          deepLinkBody.appendChild(deps.createEmptyState("Hakuna bidhaa pending za deep link kwa sasa."));
+        } else {
+          deepLinkProducts.slice(0, 12).forEach((product) => deepLinkBody.appendChild(createDeepLinkCard(product)));
+        }
+        wrapper.appendChild(createSection("Product Deep Links", "Copy stable /product/:id links kwa ads na sharing.", deepLinkBody));
+      }
+
       const usersSectionBody = deps.createElement("div", { className: "admin-users-list" });
       const actionableUsers = state.users.filter((user) => user.username !== "admin");
       if (state.loadErrors.users) {

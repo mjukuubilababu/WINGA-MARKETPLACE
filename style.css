@@ -1956,6 +1956,10 @@ img[data-zoom-src]{
   word-break:break-all;
 }
 
+.admin-deep-link-card .moderation-actions{
+  margin-top:10px;
+}
+
 .admin-users-heading{
   margin-top:18px;
 }
