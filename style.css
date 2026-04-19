@@ -2445,7 +2445,7 @@ img[data-zoom-src]{
 }
 
 #user-products-container .profile-product-card{
-  aspect-ratio:1 / 1;
+  aspect-ratio:1 / 1 !important;
   contain:none;
   content-visibility:visible;
   contain-intrinsic-size:auto;
@@ -2468,7 +2468,7 @@ img[data-zoom-src]{
 #user-products-container .profile-product-stage{
   position:absolute;
   inset:0;
-  object-fit:contain !important;
+  object-fit:cover !important;
   object-position:center center !important;
   padding:0;
   background:#f3f4f6;
@@ -2485,7 +2485,7 @@ img[data-zoom-src]{
 }
 
 #user-products-container .profile-product-stage.image-is-portrait{
-  object-fit:contain !important;
+  object-fit:cover !important;
   object-position:center center !important;
 }
 
