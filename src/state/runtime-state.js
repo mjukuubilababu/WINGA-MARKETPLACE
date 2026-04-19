@@ -10,7 +10,11 @@
         mobileHeaderLastToggleY: 0,
         mobileHeaderHidden: false,
         mobileHeaderScrollFrame: 0,
-        lastScrollActivityAt: 0
+        lastScrollActivityAt: 0,
+        homeScrollSaveFrame: 0,
+        homeScrollRestoreFrame: 0,
+        homeScrollRestorePending: false,
+        homeScrollRestoreY: 0
       },
       search: {
         activeImageSearch: null,

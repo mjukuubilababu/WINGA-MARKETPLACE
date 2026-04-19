@@ -7,6 +7,7 @@ const SELLER_HISTORY_KEY_PREFIX = "winga-seller-history";
 const REQUEST_BOX_KEY_PREFIX = "winga-request-box";
 const APP_BOOT_BUILD_VERSION = document.querySelector('meta[name="winga-build"]')?.content || "";
 const APP_STORAGE_SCHEMA_KEY = "winga-storage-schema-version";
+const HOME_SCROLL_STATE_KEY = "winga-home-scroll-state";
 const NOTIFICATION_PERMISSION_STATE_KEY = "winga-notification-permission-state";
 const NOTIFICATION_PERMISSION_PROMPT_COOLDOWN_MS = 12 * 60 * 60 * 1000;
 const NOTIFICATION_PERMISSION_TRIGGERS = new Set(["message", "reply", "request", "order", "profile"]);
@@ -202,6 +203,47 @@ function getStoredAppStorageSchemaVersion() {
     return String(localStorage.getItem(APP_STORAGE_SCHEMA_KEY) || "").trim();
   } catch (error) {
     return "";
+  }
+}
+
+function getStoredHomeScrollState() {
+  try {
+    const raw = sessionStorage.getItem(HOME_SCROLL_STATE_KEY);
+    if (!raw) {
+      return 0;
+    }
+    const parsed = JSON.parse(raw);
+    const scrollY = Number(parsed?.scrollY || 0);
+    return Number.isFinite(scrollY) && scrollY > 0 ? Math.max(0, Math.round(scrollY)) : 0;
+  } catch (error) {
+    return 0;
+  }
+}
+
+function saveHomeScrollState(scrollY = window.scrollY || 0) {
+  try {
+    const nextScrollY = Math.max(0, Math.round(Number(scrollY || 0) || 0));
+    if (nextScrollY <= 0) {
+      sessionStorage.removeItem(HOME_SCROLL_STATE_KEY);
+      return;
+    }
+    sessionStorage.setItem(HOME_SCROLL_STATE_KEY, JSON.stringify({
+      scrollY: nextScrollY,
+      path: window.location.pathname || "/",
+      updatedAt: Date.now()
+    }));
+  } catch (error) {
+    reportClientEvent("warn", "home_scroll_state_persist_failed", "Unable to persist home scroll state.", {
+      category: "runtime"
+    });
+  }
+}
+
+function clearHomeScrollState() {
+  try {
+    sessionStorage.removeItem(HOME_SCROLL_STATE_KEY);
+  } catch (error) {
+    // Ignore sessionStorage cleanup failures.
   }
 }
 
@@ -518,6 +560,64 @@ function syncBodyScrollLockState() {
   document.body.classList.toggle("context-chat-open", isContextChatVisible);
   document.body.classList.toggle("media-action-sheet-open", isMediaActionSheetVisible);
   document.body.classList.toggle("image-lightbox-open", isImageLightboxVisible);
+}
+
+function scheduleHomeScrollRestore(scrollY = null) {
+  const nextScrollY = Number.isFinite(Number(scrollY))
+    ? Math.max(0, Math.round(Number(scrollY || 0)))
+    : Math.max(0, Math.round(Number(uiRuntimeState.homeScrollRestoreY || getStoredHomeScrollState()) || 0));
+  if (uiRuntimeState.homeScrollRestoreFrame) {
+    cancelAnimationFrame(uiRuntimeState.homeScrollRestoreFrame);
+    uiRuntimeState.homeScrollRestoreFrame = 0;
+  }
+  if (nextScrollY <= 0) {
+    uiRuntimeState.homeScrollRestorePending = false;
+    uiRuntimeState.homeScrollRestoreY = 0;
+    return;
+  }
+  uiRuntimeState.homeScrollRestorePending = true;
+  uiRuntimeState.homeScrollRestoreY = nextScrollY;
+  uiRuntimeState.homeScrollRestoreFrame = requestAnimationFrame(() => {
+    uiRuntimeState.homeScrollRestoreFrame = 0;
+    requestAnimationFrame(() => {
+      if (currentView !== "home" || document.body.classList.contains("product-detail-open")) {
+        return;
+      }
+      const restoreY = Math.max(0, Math.round(Number(uiRuntimeState.homeScrollRestoreY || 0)));
+      if (restoreY <= 0) {
+        uiRuntimeState.homeScrollRestorePending = false;
+        return;
+      }
+      try {
+        window.scrollTo({ top: restoreY, left: 0, behavior: "auto" });
+      } catch (error) {
+        // Ignore scroll restore failures.
+      }
+      uiRuntimeState.homeScrollRestorePending = false;
+      uiRuntimeState.homeScrollRestoreY = 0;
+      clearHomeScrollState();
+    });
+  });
+}
+
+function scheduleHomeScrollSave(scrollY = window.scrollY || 0) {
+  if (uiRuntimeState.homeScrollSaveFrame) {
+    return;
+  }
+  uiRuntimeState.homeScrollSaveFrame = requestAnimationFrame(() => {
+    uiRuntimeState.homeScrollSaveFrame = 0;
+    if (currentView !== "home" || document.body.classList.contains("product-detail-open")) {
+      return;
+    }
+    saveHomeScrollState(scrollY);
+  });
+}
+
+function restoreStoredHomeScrollPosition() {
+  const storedScrollY = Number(getStoredHomeScrollState() || 0);
+  if (storedScrollY > 0) {
+    scheduleHomeScrollRestore(storedScrollY);
+  }
 }
 
 function resetTransientChromeState() {
@@ -6576,11 +6676,14 @@ viewHomeBackButton?.addEventListener("click", () => {
     syncHistory: "push"
   });
   renderCurrentView();
-  window.scrollTo({ top: 0, behavior: "smooth" });
+  restoreStoredHomeScrollPosition();
 });
 
 window.addEventListener("scroll", () => {
   uiRuntimeState.lastScrollActivityAt = Date.now();
+  if (currentView === "home" && !document.body.classList.contains("product-detail-open")) {
+    scheduleHomeScrollSave();
+  }
   if (getViewportWidth() <= 720) {
     scheduleMobileHeaderScrollSync();
   }
@@ -7288,9 +7391,13 @@ function loginSuccess(username, preferredCategory = "", sessionData = null, opti
   } else {
     renderCurrentView();
   }
-  window.requestAnimationFrame(() => {
-    window.scrollTo({ top: 0, behavior: "auto" });
-  });
+  if (nextView !== "home") {
+    window.requestAnimationFrame(() => {
+      window.scrollTo({ top: 0, behavior: "auto" });
+    });
+  } else if (!hasActiveProductDeepLink) {
+    restoreStoredHomeScrollPosition();
+  }
   updateProfileNavBadge();
   if (!isStaffUser()) {
     const hydrateRealtimeState = () => {
@@ -9950,6 +10057,9 @@ async function bootApp() {
   if (cachedSession?.username) {
     applySessionState(cachedSession);
     saveSessionUser(cachedSession);
+  }
+  if ("scrollRestoration" in window.history) {
+    window.history.scrollRestoration = "manual";
   }
   if (suppressInitialProductHomeRender) {
     showDeepLinkLoadingState("Tunafungua bidhaa uliyoifungua...");

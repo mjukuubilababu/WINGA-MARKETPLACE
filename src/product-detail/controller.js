@@ -469,6 +469,7 @@
       if (!modal) {
         return;
       }
+      const restoreScrollY = Number(detailNavState.rootScrollY || 0) || 0;
       modal.style.display = "none";
       document.body.classList.remove("product-detail-open");
       disconnectDetailContinuousObserver();
@@ -476,12 +477,9 @@
       deps.resetProductDiscoveryTrail();
       deps.resetReviewDraft();
       if (!skipContextRestore) {
-        window.scrollTo({ top: detailNavState.rootScrollY || 0, behavior: "auto" });
-      }
-      if (!skipContextRestore && !skipRootCardScroll && detailNavState.rootProductId) {
-        window.setTimeout(() => {
-          deps.scrollToProductCard?.(detailNavState.rootProductId);
-        }, 40);
+        if (restoreScrollY > 0) {
+          deps.scheduleHomeScrollRestore?.(restoreScrollY);
+        }
       }
       detailNavState = {
         rootScrollY: 0,
