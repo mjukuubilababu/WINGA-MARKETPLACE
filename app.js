@@ -1399,6 +1399,9 @@ function promptGuestAuth(options = {}) {
 function refreshPublicEntryChrome() {
   const isGuest = !isAuthenticatedUser();
   const isSessionRestoreUi = isSessionRestorePending && isGuest;
+  const isRestrictedView = currentView === "profile"
+    || currentView === "upload"
+    || (currentView === "admin" && isStaffUser());
   if (publicHeaderActions) {
     publicHeaderActions.style.display = isGuest ? "flex" : "none";
   }
@@ -1409,7 +1412,7 @@ function refreshPublicEntryChrome() {
     publicFooter.style.display = isGuest ? "block" : "none";
   }
   if (headerSearchArea) {
-    headerSearchArea.style.display = isGuest ? "flex" : "none";
+    headerSearchArea.style.display = isRestrictedView ? "none" : "flex";
   }
   if (topBarSubtitle) {
     topBarSubtitle.innerText = isSessionRestoreUi
@@ -8745,8 +8748,8 @@ function updateResultsMeta(listLength) {
 
   if (resultsCaption) {
     resultsCaption.innerText = hasFilters
-        ? "Matokeo haya yamechujwa kwa search, category, filters na sorting uliyochagua."
-        : "Bidhaa zote zilizopo sasa zinaonekana hapa.";
+      ? "Matokeo haya yamechujwa kwa search, category, filters na sorting uliyochagua."
+      : "Bidhaa zote zilizopo sasa zinaonekana hapa.";
   }
 }
 
