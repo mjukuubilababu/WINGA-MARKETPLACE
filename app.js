@@ -2979,6 +2979,7 @@ function startBackgroundSessionRestore(restorePromise, cachedSession = null) {
           {
             restoreView: true,
             skipWelcome: true,
+            deferRender: true,
             forceView: isStaffRole(currentSession.role) ? "admin" : ""
           }
         );
@@ -6715,19 +6716,58 @@ function scheduleChromeOffsetSync() {
   return appChrome.scheduleChromeOffsetSync?.();
 }
 
+function scheduleIdleBackgroundWork(callback, timeout = 1500) {
+  if (typeof window.requestIdleCallback === "function") {
+    return window.requestIdleCallback((deadline) => {
+      callback(deadline);
+    }, { timeout });
+  }
+  return window.setTimeout(() => {
+    callback({
+      didTimeout: true,
+      timeRemaining: () => 0
+    });
+  }, Math.max(0, Number(timeout) || 0));
+}
+
 async function hydrateMissingImageSignatures(productList = products) {
   const pendingProducts = productList.filter((product) => !product.imageSignature && product.image);
   if (!pendingProducts.length) {
     return;
   }
 
-  await Promise.all(pendingProducts.map(async (product) => {
-    try {
-      product.imageSignature = await createImageSignatureFromSource(product.image);
-    } catch (error) {
-      product.imageSignature = "";
-    }
-  }));
+  const queue = pendingProducts.slice();
+  await new Promise((resolve) => {
+    const processNext = (deadline = null) => {
+      const hasIdleBudget = !deadline
+        || deadline.didTimeout
+        || deadline.timeRemaining() > 8;
+
+      if (!queue.length) {
+        resolve();
+        return;
+      }
+
+      if (!hasIdleBudget) {
+        scheduleIdleBackgroundWork(processNext, 1200);
+        return;
+      }
+
+      const product = queue.shift();
+      Promise.resolve(createImageSignatureFromSource(product.image))
+        .then((signature) => {
+          product.imageSignature = signature;
+        })
+        .catch(() => {
+          product.imageSignature = "";
+        })
+        .finally(() => {
+          scheduleIdleBackgroundWork(processNext, 1200);
+        });
+    };
+
+    scheduleIdleBackgroundWork(processNext, 1200);
+  });
 }
 
 function loginSuccess(username, preferredCategory = "", sessionData = null, options = {}) {
@@ -9535,22 +9575,24 @@ async function bootApp() {
   });
 
   window.setTimeout(() => {
-    window.WingaDataLayer.loadReviews()
-      .then((reviewPayload) => {
-        currentReviews = Array.isArray(reviewPayload?.reviews) ? reviewPayload.reviews : [];
-        reviewSummaries = reviewPayload?.summaries || {};
-        if (!suppressInitialProductHomeRender || document.body.classList.contains("product-detail-open")) {
-          renderCurrentView();
-        }
-      })
-      .catch((error) => {
-        currentReviews = [];
-        reviewSummaries = {};
-        captureClientError("reviews_boot_load_failed", error, {
-          category: "runtime",
-          alertSeverity: "medium"
+    scheduleIdleBackgroundWork(() => {
+      window.WingaDataLayer.loadReviews()
+        .then((reviewPayload) => {
+          currentReviews = Array.isArray(reviewPayload?.reviews) ? reviewPayload.reviews : [];
+          reviewSummaries = reviewPayload?.summaries || {};
+          if (currentView !== "home" || document.body.classList.contains("product-detail-open")) {
+            renderCurrentView();
+          }
+        })
+        .catch((error) => {
+          currentReviews = [];
+          reviewSummaries = {};
+          captureClientError("reviews_boot_load_failed", error, {
+            category: "runtime",
+            alertSeverity: "medium"
+          });
         });
-      });
+    }, 1800);
   }, 1500);
   startBackgroundSessionRestore(rememberedSessionPromise, cachedSession);
 
