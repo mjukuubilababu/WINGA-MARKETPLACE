@@ -301,6 +301,9 @@
       card.dataset.productCard = product.id;
       card.dataset.openProduct = product.id;
       card.dataset.cardOpenBound = "false";
+      if (Array.isArray(product.images) && product.images.length > 1) {
+        card.classList.add("has-gallery-count-badge");
+      }
       const media = createElement("div", { className: "product-card-media" });
       media.appendChild(createProductGalleryElement(product));
       if (Array.isArray(product.images) && product.images.length > 1) {
@@ -339,6 +342,9 @@
       card.dataset.showcaseId = product.id;
       card.dataset.openProduct = product.id;
       card.dataset.cardOpenBound = "false";
+      if (Array.isArray(product.images) && product.images.length > 1) {
+        card.classList.add("has-gallery-count-badge");
+      }
       const media = createShowcasePreviewMediaElement(product);
       const body = createElement("div", { className: "product-content product-content-simple product-content-social showcase-body" });
       const overflowMenuMarkup = deps.renderProductOverflowMenu?.(product, { overlay: true });

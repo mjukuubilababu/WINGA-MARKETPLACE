@@ -2675,6 +2675,18 @@ img[data-zoom-src]{
   z-index:4;
 }
 
+.product-card.has-gallery-count-badge .product-menu-overlay,
+.showcase-card.has-gallery-count-badge .product-menu-overlay,
+.seller-product-card.has-gallery-count-badge .product-menu-overlay{
+  top:50px;
+}
+
+.product-card.has-gallery-count-badge .feed-gallery-count-badge,
+.showcase-card.has-gallery-count-badge .feed-gallery-count-badge,
+.seller-product-card.has-gallery-count-badge .feed-gallery-count-badge{
+  z-index:13;
+}
+
 .media-gallery{
   position:relative;
   isolation:isolate;

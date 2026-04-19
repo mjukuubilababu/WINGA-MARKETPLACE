@@ -7617,7 +7617,7 @@ function renderDiscoveryProductCards(items, options = {}) {
           ? `<img class="product-seller-avatar-image" src="${sellerProfileImage}" alt="${sellerName}" loading="lazy" decoding="async">`
           : `<span>${escapeHtml(getUserInitials(String(item.shop || seller?.fullName || item.uploadedBy || "S").trim()))}</span>`;
         return `
-          <article class="seller-product-card" data-open-product="${item.id}">
+          <article class="seller-product-card${Array.isArray(item.images) && item.images.length > 1 ? " has-gallery-count-badge" : ""}" data-open-product="${item.id}">
             <div class="seller-product-card-media">
               ${renderFeedGalleryMarkup(item, "discovery")}
             </div>
