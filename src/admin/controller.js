@@ -46,6 +46,33 @@
       return button;
     }
 
+    function buildProductDeepLink(productId) {
+      const path = typeof deps.getProductDetailPath === "function"
+        ? deps.getProductDetailPath(productId)
+        : `/product/${encodeURIComponent(String(productId || "").trim())}`;
+      return `${window.location.origin}${path}`;
+    }
+
+    function createDeepLinkRow(product) {
+      if (!deps.isAdminUser?.()) {
+        return null;
+      }
+      const deepLinkRow = deps.createElement("div", { className: "admin-deep-link-row" });
+      const deepLinkValue = deps.createElement("code", {
+        className: "admin-deep-link-value",
+        textContent: buildProductDeepLink(product.id)
+      });
+      const copyButton = createActionButton("Copy Deep Link", {
+        adminDeepLinkCopy: product.id
+      }, "button action-btn action-btn-secondary");
+      deepLinkRow.append(
+        deps.createElement("strong", { textContent: "Deep Link" }),
+        deepLinkValue,
+        copyButton
+      );
+      return deepLinkRow;
+    }
+
     function createSection(title, meta = "", bodyNode = null) {
       const section = deps.createElement("section", {
         className: "panel",
@@ -574,6 +601,8 @@
         })
       );
 
+      const deepLinkRow = createDeepLinkRow(product);
+
       card.append(
         deps.createElement("strong", { textContent: product.name }),
         createMetaCopy(`${product.shop || product.uploadedBy} | ${deps.getCategoryLabel?.(product.category) || product.category}`),
@@ -581,6 +610,9 @@
         createMetaCopy(`Price: ${deps.formatProductPrice(product.price)}`),
         deps.createStatusPill(product.status || "pending", mapStatusClass(product.status))
       );
+      if (deepLinkRow) {
+        card.appendChild(deepLinkRow);
+      }
       if (safeImage) {
         card.appendChild(deps.createResponsiveImage({
           src: safeImage,
@@ -856,6 +888,48 @@
       renderAdminView();
     }
 
+    async function handleDeepLinkCopy(button) {
+      const productId = button.dataset.adminDeepLinkCopy || "";
+      if (!productId) {
+        return;
+      }
+      const deepLink = buildProductDeepLink(productId);
+      try {
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(deepLink);
+        } else {
+          const fallback = deps.createElement("textarea", {
+            attributes: {
+              readonly: "true"
+            }
+          });
+          fallback.value = deepLink;
+          document.body.appendChild(fallback);
+          fallback.select();
+          document.execCommand?.("copy");
+          fallback.remove();
+        }
+        deps.showInAppNotification?.({
+          title: "Deep link copied",
+          body: "Product deep link ime-copy tayari.",
+          variant: "success"
+        });
+        deps.reportEvent?.("info", "admin_product_deep_link_copied", "Admin copied a product deep link.", {
+          productId,
+          deepLink
+        });
+      } catch (error) {
+        deps.captureError?.("admin_product_deep_link_copy_failed", error, {
+          productId
+        });
+        deps.showInAppNotification?.({
+          title: "Copy failed",
+          body: error.message || "Imeshindikana ku-copy deep link.",
+          variant: "error"
+        });
+      }
+    }
+
     async function handlePromotionDisable(button) {
       const promotionId = button.dataset.adminPromotionDisable || "";
       if (!promotionId) {
@@ -992,6 +1066,22 @@
               title: "Report update failed",
               body: error.message || "Imeshindikana kusasisha report.",
               variant: "error"
+            });
+          } finally {
+            toggleScopedBusyState(scope, false);
+          }
+        });
+      });
+
+      panel.querySelectorAll("[data-admin-deep-link-copy]").forEach((button) => {
+        button.addEventListener("click", async () => {
+          const scope = button.closest("[data-admin-product-card]");
+          toggleScopedBusyState(scope, true);
+          try {
+            await handleDeepLinkCopy(button);
+          } catch (error) {
+            deps.captureError?.("admin_product_deep_link_copy_failed", error, {
+              productId: button.dataset.adminDeepLinkCopy || ""
             });
           } finally {
             toggleScopedBusyState(scope, false);

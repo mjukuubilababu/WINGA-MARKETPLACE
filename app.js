@@ -4108,6 +4108,7 @@ const { renderAdminView: renderAdminViewFromController } = window.WingaModules.a
   getPromotionLabel,
   formatNumber,
   formatProductPrice,
+  getProductDetailPath,
   getAdminPanel: () => adminPanel,
   getCurrentView: () => currentView,
   isAdminUser,

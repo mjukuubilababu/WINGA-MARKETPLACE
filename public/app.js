@@ -4108,6 +4108,7 @@ const { renderAdminView: renderAdminViewFromController } = window.WingaModules.a
   getPromotionLabel,
   formatNumber,
   formatProductPrice,
+  getProductDetailPath,
   getAdminPanel: () => adminPanel,
   getCurrentView: () => currentView,
   isAdminUser,
@@ -8280,12 +8281,33 @@ function bindFeedGalleryInteractions(scope = document) {
 
     const track = carousel.querySelector("[data-feed-gallery-track]");
     const badge = carousel.querySelector("[data-feed-gallery-count]");
+    const preview = carousel.closest(".feed-gallery-preview");
     carousel.dataset.feedGalleryBound = "true";
-    if (!track || !badge) {
+    if (!track) {
       return;
     }
 
+    const syncAspectRatio = () => {
+      if (!preview || !preview.closest("#products-container")) {
+        return;
+      }
+      const firstImage = carousel.querySelector(".feed-gallery-carousel-slide .feed-gallery-image-social");
+      if (!firstImage) {
+        return;
+      }
+      const naturalWidth = Number(firstImage.naturalWidth || firstImage.width || 0);
+      const naturalHeight = Number(firstImage.naturalHeight || firstImage.height || 0);
+      if (!naturalWidth || !naturalHeight) {
+        return;
+      }
+      const ratio = Math.max(0.5, Math.min(2, naturalWidth / naturalHeight));
+      preview.style.setProperty("--feed-gallery-aspect-ratio", ratio.toFixed(4));
+    };
+
     const syncBadge = () => {
+      if (!badge) {
+        return;
+      }
       const total = Math.max(1, Number(carousel.dataset.feedGalleryTotal || track.querySelectorAll("[data-feed-gallery-slide]").length || 1));
       const width = Math.max(1, track.clientWidth || carousel.clientWidth || 1);
       const currentIndex = Math.min(total - 1, Math.max(0, Math.round(track.scrollLeft / width)));
@@ -8309,7 +8331,18 @@ function bindFeedGalleryInteractions(scope = document) {
 
     track.addEventListener("scroll", scheduleSync, { passive: true });
     window.addEventListener("resize", scheduleSync, { passive: true });
-    window.setTimeout(syncBadge, 0);
+    const firstImage = carousel.querySelector(".feed-gallery-carousel-slide .feed-gallery-image-social");
+    if (firstImage) {
+      if (firstImage.complete && (firstImage.naturalWidth || firstImage.width) && (firstImage.naturalHeight || firstImage.height)) {
+        syncAspectRatio();
+      } else {
+        firstImage.addEventListener("load", syncAspectRatio, { once: true });
+      }
+    }
+    window.setTimeout(() => {
+      syncAspectRatio();
+      syncBadge();
+    }, 0);
   });
 }
 

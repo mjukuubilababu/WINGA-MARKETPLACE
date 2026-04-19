@@ -1935,6 +1935,27 @@ img[data-zoom-src]{
   margin-top:12px;
 }
 
+.admin-deep-link-row{
+  display:grid;
+  gap:8px;
+  margin-top:12px;
+  padding:12px;
+  border-radius:14px;
+  border:1px dashed rgba(37, 99, 235, 0.24);
+  background:rgba(37, 99, 235, 0.04);
+}
+
+.admin-deep-link-value{
+  display:block;
+  padding:10px 12px;
+  border-radius:12px;
+  background:#fff;
+  border:1px solid var(--border);
+  font-size:0.78rem;
+  line-height:1.45;
+  word-break:break-all;
+}
+
 .admin-users-heading{
   margin-top:18px;
 }
@@ -7980,7 +8001,7 @@ button:hover,
 
 /* Home feed portrait-first image presentation */
 #products-container .feed-gallery-preview{
-  aspect-ratio:4 / 5 !important;
+  aspect-ratio:var(--feed-gallery-aspect-ratio, 4 / 5) !important;
   background:#ffffff !important;
   overflow:hidden !important;
 }
