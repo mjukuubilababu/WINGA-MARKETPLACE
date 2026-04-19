@@ -89,6 +89,42 @@
       return panel;
     }
 
+    function createDetailCaptionElement(item) {
+      const captionText = String(item.description || item.caption || item.name || "").trim();
+      if (!captionText) {
+        return null;
+      }
+      const wrapper = deps.createElement("div", {
+        className: "product-card-caption-block"
+      });
+      wrapper.appendChild(deps.createElement("p", {
+        className: "product-card-caption",
+        textContent: captionText
+      }));
+      if (captionText.length > 120) {
+        wrapper.classList.add("is-collapsed");
+        const toggle = deps.createElement("button", {
+          className: "product-caption-toggle",
+          textContent: "See more",
+          attributes: {
+            type: "button",
+            "data-product-caption-toggle": "true",
+            "aria-expanded": "false"
+          }
+        });
+        toggle.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          const isExpanded = wrapper.classList.toggle("is-expanded");
+          wrapper.classList.toggle("is-collapsed", !isExpanded);
+          toggle.textContent = isExpanded ? "See less" : "See more";
+          toggle.setAttribute("aria-expanded", String(isExpanded));
+        });
+        wrapper.appendChild(toggle);
+      }
+      return wrapper;
+    }
+
     function createDetailContinuationSellerRowElement(item) {
       const sellerRow = deps.createElement("div", { className: "product-seller-row" });
       const sellerAvatar = deps.createElement("div", { className: "product-seller-avatar" });
@@ -177,15 +213,8 @@
         className: "product-content product-content-simple product-content-social seller-product-body"
       });
       body.appendChild(createDetailContinuationSellerRowElement(item));
-      const captionText = String(item.description || item.caption || item.name || "").trim();
-      if (captionText) {
-        const captionBlock = deps.createElement("div", {
-          className: "product-card-caption-block"
-        });
-        captionBlock.appendChild(deps.createElement("p", {
-          className: "product-card-caption",
-          textContent: captionText
-        }));
+      const captionBlock = createDetailCaptionElement(item);
+      if (captionBlock) {
         body.appendChild(captionBlock);
       }
       const itemTrustBadges = deps.renderMarketplaceTrustBadges?.(item, { hideVerifiedBadge: true });
