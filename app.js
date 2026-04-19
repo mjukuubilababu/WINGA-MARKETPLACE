@@ -4161,14 +4161,7 @@ const {
     chatUiState.activeContext = context;
   },
   setEmptyCopy,
-  setResultsMeta: (title, caption) => {
-    if (resultsCount) {
-      resultsCount.innerText = title;
-    }
-    if (resultsCaption) {
-      resultsCaption.innerText = caption;
-    }
-  },
+  setResultsMeta: () => {},
   renderAnalyticsPanel,
   refreshPromotionsState,
   renderCurrentView,
@@ -4863,8 +4856,6 @@ const headerUserDropdown = document.getElementById("header-user-dropdown");
 const headerLoginButton = document.getElementById("header-login-button");
 const headerSignupButton = document.getElementById("header-signup-button");
 const publicFooter = document.getElementById("public-footer");
-const resultsCount = document.getElementById("results-count");
-const resultsCaption = document.getElementById("results-caption");
 const heroPanel = document.getElementById("hero-panel");
 const marketShowcase = document.getElementById("market-showcase");
 const showcaseTrack = document.getElementById("showcase-track");
@@ -8751,46 +8742,8 @@ function getFilteredProducts() {
 }
 
 function updateResultsMeta(listLength) {
-  const filters = getSearchFilterState();
-  const hasFilters = Boolean(
-    searchInput.value.trim() ||
-    searchRuntimeState.activeImageSearch?.signature ||
-    selectedCategory !== "all" ||
-    (Number.isFinite(filters.minPrice) && filters.minPrice > 0) ||
-    (Number.isFinite(filters.maxPrice) && filters.maxPrice > 0) ||
-    filters.location ||
-    filters.sortBy !== "default"
-  );
-
-  if (resultsCount) {
-    resultsCount.innerText = `${listLength} results`;
-  }
-  if (searchRuntimeState.activeImageSearch?.signature) {
-    const clearButton = createElement("button", {
-      attributes: {
-        id: "clear-image-search",
-        type: "button"
-      },
-      textContent: "Ondoa"
-    });
-    if (resultsCaption) {
-      resultsCaption.replaceChildren();
-      resultsCaption.append(`Image search active: ${searchRuntimeState.activeImageSearch.name} | Matokeo yamepangwa kwa similarity `);
-      resultsCaption.appendChild(clearButton);
-    }
-    clearButton.addEventListener("click", () => {
-      searchRuntimeState.activeImageSearch = null;
-      searchRuntimeState.isSearchDropdownDismissed = false;
-      renderCurrentView();
-    });
-    return;
-  }
-
-  if (resultsCaption) {
-    resultsCaption.innerText = hasFilters
-      ? "Matokeo haya yamechujwa kwa search, category, filters na sorting uliyochagua."
-      : "Bidhaa zote zilizopo sasa zinaonekana hapa.";
-  }
+  void listLength;
+  return;
 }
 
 function setActiveNav(view) {
