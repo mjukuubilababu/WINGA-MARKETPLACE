@@ -926,6 +926,15 @@ function loadImageElementFromFile(file) {
   });
 }
 
+function loadImageElementFromSource(source) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("Imeshindikana kufungua picha uliyochagua."));
+    image.src = source;
+  });
+}
+
 function waitForImageElementReady(image) {
   return new Promise((resolve, reject) => {
     if (!image) {
@@ -4967,6 +4976,35 @@ const uploadCustomCategoryAddButton = document.getElementById("upload-custom-cat
 const productImageFileInput = document.getElementById("product-image-file");
 const previewList = document.getElementById("image-preview-list");
 const uploadButton = document.getElementById("upload-button");
+const UPLOAD_CROP_DEFAULT_RATIO = "portrait";
+const UPLOAD_CROP_RATIO_CONFIG = {
+  portrait: {
+    label: "Portrait",
+    aspectRatio: 4 / 5,
+    canvasWidth: 1200,
+    canvasHeight: 1500
+  },
+  square: {
+    label: "Square",
+    aspectRatio: 1,
+    canvasWidth: 1200,
+    canvasHeight: 1200
+  }
+};
+
+const uploadCropState = {
+  active: false,
+  modal: null,
+  items: [],
+  index: 0,
+  currentImage: null,
+  dragPointerId: null,
+  dragOriginX: 0,
+  dragOriginY: 0,
+  dragOffsetX: 0,
+  dragOffsetY: 0
+};
+let pendingUploadCroppedImages = [];
 
 const searchBox = document.getElementById("search-box");
 let searchInput = document.getElementById("search-input");
@@ -5925,6 +5963,10 @@ uploadButton.addEventListener("click", async () => {
     renderCurrentView();
     return;
   }
+  if (uploadCropState.active) {
+    alert("Maliza crop ya picha kwanza.");
+    return;
+  }
 
   const name = productNameInput.value.trim();
   const rawPrice = productPriceInput.value.trim();
@@ -6030,7 +6072,9 @@ uploadButton.addEventListener("click", async () => {
   try {
     if (selectedFiles.length > 0) {
       validateImageFiles(selectedFiles);
-      const images = await readFilesAsDataUrls(selectedFiles);
+      const images = pendingUploadCroppedImages.length === selectedFiles.length && pendingUploadCroppedImages.every(Boolean)
+        ? [...pendingUploadCroppedImages]
+        : await readFilesAsDataUrls(selectedFiles);
       await finalizeSave(images);
       return;
     }
@@ -6059,14 +6103,17 @@ cancelEditButton.addEventListener("click", () => {
 productImageFileInput.addEventListener("change", async () => {
   const files = Array.from(productImageFileInput.files || []);
   if (files.length === 0) {
+    pendingUploadCroppedImages = [];
     previewList.replaceChildren();
     previewList.style.display = "none";
     return;
   }
 
   try {
-    validateImageFiles(files);
-    await renderPreviewFiles(files);
+    pendingUploadCroppedImages = [];
+    previewList.replaceChildren();
+    previewList.style.display = "none";
+    await beginUploadCropFlow(files);
   } catch (error) {
     showInAppNotification({
       title: "Image selection failed",
@@ -6074,6 +6121,7 @@ productImageFileInput.addEventListener("change", async () => {
       variant: "error"
     });
     productImageFileInput.value = "";
+    pendingUploadCroppedImages = [];
     previewList.replaceChildren();
     previewList.style.display = "none";
   }
@@ -8776,6 +8824,7 @@ function deleteProduct(productId) {
 }
 
 function clearUploadForm() {
+  closeUploadCropModal({ discardSelection: true });
   editingProductId = null;
   uploadTitle.innerText = "Ongeza Bidhaa";
   cancelEditButton.style.display = "none";
@@ -8789,6 +8838,7 @@ function clearUploadForm() {
   uploadCustomCategoryWrap.style.display = "none";
   uploadCustomCategoryInput.value = "";
   productImageFileInput.value = "";
+  pendingUploadCroppedImages = [];
   previewList.replaceChildren();
   previewList.style.display = "none";
 }
@@ -9520,6 +9570,511 @@ function renderPreviewFiles(files) {
     });
 }
 
+function getUploadCropRatioConfig(ratio = UPLOAD_CROP_DEFAULT_RATIO) {
+  return UPLOAD_CROP_RATIO_CONFIG[ratio] || UPLOAD_CROP_RATIO_CONFIG[UPLOAD_CROP_DEFAULT_RATIO];
+}
+
+function clampNumber(value, min, max) {
+  return Math.min(Math.max(Number(value) || 0, min), max);
+}
+
+function getActiveUploadCropItem() {
+  return uploadCropState.items[uploadCropState.index] || null;
+}
+
+function ensureUploadCropTransform(item) {
+  if (!item.transform) {
+    item.transform = {};
+  }
+  if (!item.transform.ratio) {
+    item.transform.ratio = UPLOAD_CROP_DEFAULT_RATIO;
+  }
+  if (!Number.isFinite(Number(item.transform.zoom))) {
+    item.transform.zoom = 1;
+  }
+  if (!Number.isFinite(Number(item.transform.offsetX))) {
+    item.transform.offsetX = 0;
+  }
+  if (!Number.isFinite(Number(item.transform.offsetY))) {
+    item.transform.offsetY = 0;
+  }
+  if (!Number.isFinite(Number(item.transform.fitScale))) {
+    item.transform.fitScale = 1;
+  }
+  return item.transform;
+}
+
+function ensureUploadCropModalRoot() {
+  let root = document.getElementById("upload-crop-modal");
+  if (root) {
+    return root;
+  }
+
+  root = document.createElement("div");
+  root.id = "upload-crop-modal";
+  root.style.display = "none";
+  root.innerHTML = `
+    <div class="upload-crop-backdrop" data-upload-crop-close="true"></div>
+    <div class="upload-crop-dialog panel" role="dialog" aria-modal="true" aria-labelledby="upload-crop-title">
+      <button class="upload-crop-close" type="button" aria-label="Funga crop" data-upload-crop-close="true">&times;</button>
+      <div class="upload-crop-header">
+        <div>
+          <p class="eyebrow">Crop tool</p>
+          <h3 id="upload-crop-title">Adjust image before posting</h3>
+        </div>
+        <span class="upload-crop-counter" aria-live="polite"></span>
+      </div>
+      <p class="upload-crop-copy">Drag picha, zoom, na chagua jinsi product itaonekana kabla ya kupost.</p>
+      <div class="upload-crop-stage-shell">
+        <div class="upload-crop-stage" data-upload-crop-stage>
+          <img id="upload-crop-image" alt="Crop preview" draggable="false">
+          <div class="upload-crop-grid" aria-hidden="true"></div>
+          <div class="upload-crop-frame" aria-hidden="true"></div>
+        </div>
+      </div>
+      <div class="upload-crop-ratios" role="tablist" aria-label="Crop ratio options">
+        <button class="upload-crop-ratio-button" type="button" data-upload-crop-ratio="portrait">Portrait</button>
+        <button class="upload-crop-ratio-button" type="button" data-upload-crop-ratio="square">Square</button>
+      </div>
+      <div class="upload-crop-zoom-row">
+        <button class="upload-crop-zoom-button" type="button" data-upload-crop-zoom="out" aria-label="Punguza zoom">−</button>
+        <input id="upload-crop-zoom" type="range" min="1" max="3" step="0.01" value="1" aria-label="Zoom image">
+        <button class="upload-crop-zoom-button" type="button" data-upload-crop-zoom="in" aria-label="Ongeza zoom">+</button>
+      </div>
+      <div class="upload-crop-actions-secondary">
+        <button class="upload-crop-secondary-button" type="button" data-upload-crop-step="-1">Previous</button>
+        <button class="upload-crop-secondary-button" type="button" data-upload-crop-step="1">Next</button>
+        <button class="upload-crop-secondary-button upload-crop-reset-button" type="button" data-upload-crop-action="reset" aria-label="Crop tool reset">
+          <span aria-hidden="true">◫</span>
+          <span>Crop</span>
+        </button>
+      </div>
+      <div class="upload-crop-actions">
+        <button class="upload-crop-cancel" type="button" data-upload-crop-action="cancel">Cancel</button>
+        <button class="upload-crop-primary" type="button" data-upload-crop-action="apply">Use crop</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(root);
+
+  const stage = root.querySelector("[data-upload-crop-stage]");
+  const image = root.querySelector("#upload-crop-image");
+  const zoomInput = root.querySelector("#upload-crop-zoom");
+  const cancelButtons = root.querySelectorAll("[data-upload-crop-close='true'], [data-upload-crop-action='cancel']");
+
+  uploadCropState.modal = root;
+
+  cancelButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      closeUploadCropModal({ discardSelection: true });
+    });
+  });
+
+  root.querySelectorAll("[data-upload-crop-ratio]").forEach((button) => {
+    button.addEventListener("click", () => {
+      setUploadCropRatio(button.dataset.uploadCropRatio || UPLOAD_CROP_DEFAULT_RATIO);
+    });
+  });
+
+  root.querySelectorAll("[data-upload-crop-zoom]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const item = getActiveUploadCropItem();
+      if (!item) {
+        return;
+      }
+      const transform = ensureUploadCropTransform(item);
+      const nextValue = Number(transform.zoom || 1) + (button.dataset.uploadCropZoom === "in" ? 0.12 : -0.12);
+      transform.zoom = clampNumber(nextValue, 1, 3);
+      if (zoomInput) {
+        zoomInput.value = String(transform.zoom);
+      }
+      syncUploadCropPreview();
+    });
+  });
+
+  root.querySelectorAll("[data-upload-crop-step]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const step = Number(button.dataset.uploadCropStep || 0);
+      moveUploadCropSelection(step);
+    });
+  });
+
+  root.querySelectorAll("[data-upload-crop-action='reset']").forEach((button) => {
+    button.addEventListener("click", () => {
+      resetCurrentUploadCropTransform();
+    });
+  });
+
+  root.querySelectorAll("[data-upload-crop-action='apply']").forEach((button) => {
+    button.addEventListener("click", () => {
+      moveUploadCropSelection(1);
+    });
+  });
+
+  if (stage) {
+    stage.addEventListener("pointerdown", handleUploadCropPointerDown);
+    stage.addEventListener("pointermove", handleUploadCropPointerMove);
+    stage.addEventListener("pointerup", handleUploadCropPointerUp);
+    stage.addEventListener("pointercancel", handleUploadCropPointerUp);
+  }
+
+  if (image) {
+    image.addEventListener("load", () => {
+      syncUploadCropPreview();
+    });
+  }
+
+  if (zoomInput) {
+    zoomInput.addEventListener("input", () => {
+      const item = getActiveUploadCropItem();
+      if (!item) {
+        return;
+      }
+      const transform = ensureUploadCropTransform(item);
+      transform.zoom = clampNumber(zoomInput.value, 1, 3);
+      syncUploadCropPreview();
+    });
+  }
+
+  root.addEventListener("click", (event) => {
+    if (event.target.closest("[data-upload-crop-close='true']")) {
+      closeUploadCropModal({ discardSelection: true });
+    }
+  });
+
+  return root;
+}
+
+function openUploadCropModal() {
+  const root = ensureUploadCropModalRoot();
+  root.style.display = "grid";
+  root.classList.add("open");
+  document.body.classList.add("upload-crop-sheet-open");
+  syncBodyScrollLockState();
+  window.requestAnimationFrame(() => {
+    syncUploadCropPreview();
+  });
+}
+
+function closeUploadCropModal(options = {}) {
+  const root = uploadCropState.modal || document.getElementById("upload-crop-modal");
+  if (root) {
+    root.classList.remove("open");
+    root.style.display = "none";
+  }
+  document.body.classList.remove("upload-crop-sheet-open");
+  syncBodyScrollLockState();
+  uploadCropState.active = false;
+  uploadCropState.index = 0;
+  uploadCropState.currentImage = null;
+  uploadCropState.dragPointerId = null;
+  uploadCropState.dragOriginX = 0;
+  uploadCropState.dragOriginY = 0;
+  uploadCropState.dragOffsetX = 0;
+  uploadCropState.dragOffsetY = 0;
+  uploadCropState.items = [];
+  if (options.discardSelection) {
+    pendingUploadCroppedImages = [];
+    productImageFileInput.value = "";
+    previewList.replaceChildren();
+    previewList.style.display = "none";
+  }
+}
+
+function resetCurrentUploadCropTransform() {
+  const item = getActiveUploadCropItem();
+  if (!item) {
+    return;
+  }
+  item.transform = {
+    ...ensureUploadCropTransform(item),
+    ratio: UPLOAD_CROP_DEFAULT_RATIO,
+    zoom: 1,
+    offsetX: 0,
+    offsetY: 0
+  };
+  syncUploadCropPreview();
+}
+
+function setUploadCropRatio(ratio) {
+  const item = getActiveUploadCropItem();
+  if (!item) {
+    return;
+  }
+  const transform = ensureUploadCropTransform(item);
+  transform.ratio = Object.prototype.hasOwnProperty.call(UPLOAD_CROP_RATIO_CONFIG, ratio)
+    ? ratio
+    : UPLOAD_CROP_DEFAULT_RATIO;
+  syncUploadCropPreview();
+}
+
+function getUploadCropCanvasSize(ratio) {
+  return getUploadCropRatioConfig(ratio);
+}
+
+function syncUploadCropPreview() {
+  const root = uploadCropState.modal || document.getElementById("upload-crop-modal");
+  const item = getActiveUploadCropItem();
+  if (!root || !item) {
+    return;
+  }
+
+  const image = root.querySelector("#upload-crop-image");
+  const stage = root.querySelector("[data-upload-crop-stage]");
+  const counter = root.querySelector(".upload-crop-counter");
+  const zoomInput = root.querySelector("#upload-crop-zoom");
+  const ratioButtons = Array.from(root.querySelectorAll("[data-upload-crop-ratio]"));
+  const applyButton = root.querySelector("[data-upload-crop-action='apply']");
+  const prevButton = root.querySelector("[data-upload-crop-step='-1']");
+  const nextButton = root.querySelector("[data-upload-crop-step='1']");
+  if (!image || !stage || !counter || !zoomInput || !applyButton || !prevButton || !nextButton) {
+    return;
+  }
+
+  const transform = ensureUploadCropTransform(item);
+  const ratioConfig = getUploadCropRatioConfig(transform.ratio);
+  const naturalWidth = Number(item.image?.naturalWidth || 0);
+  const naturalHeight = Number(item.image?.naturalHeight || 0);
+  if (!naturalWidth || !naturalHeight) {
+    return;
+  }
+
+  const frameWidth = Math.max(1, stage.getBoundingClientRect().width || 1);
+  const frameHeight = Math.max(1, stage.getBoundingClientRect().height || 1);
+  const fitScale = Math.max(frameWidth / naturalWidth, frameHeight / naturalHeight);
+  transform.fitScale = fitScale;
+  transform.zoom = clampNumber(transform.zoom || 1, 1, 3);
+  const scale = fitScale * transform.zoom;
+  const displayWidth = naturalWidth * scale;
+  const displayHeight = naturalHeight * scale;
+  const maxOffsetX = Math.max(0, (displayWidth - frameWidth) / 2);
+  const maxOffsetY = Math.max(0, (displayHeight - frameHeight) / 2);
+  transform.offsetX = clampNumber(transform.offsetX || 0, -maxOffsetX, maxOffsetX);
+  transform.offsetY = clampNumber(transform.offsetY || 0, -maxOffsetY, maxOffsetY);
+  image.src = item.source;
+  image.alt = item.alt || "Crop preview";
+  image.style.width = `${naturalWidth}px`;
+  image.style.height = `${naturalHeight}px`;
+  image.style.left = `calc(50% + ${transform.offsetX}px)`;
+  image.style.top = `calc(50% + ${transform.offsetY}px)`;
+  image.style.transform = `translate(-50%, -50%) scale(${scale})`;
+  image.style.opacity = "1";
+  stage.style.setProperty("--upload-crop-aspect", String(ratioConfig.aspectRatio));
+  stage.dataset.uploadCropRatio = transform.ratio;
+  counter.textContent = `${uploadCropState.index + 1} / ${uploadCropState.items.length}`;
+  zoomInput.value = String(transform.zoom);
+  ratioButtons.forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.uploadCropRatio === transform.ratio);
+  });
+  prevButton.disabled = uploadCropState.index === 0;
+  nextButton.disabled = uploadCropState.index >= uploadCropState.items.length - 1;
+  applyButton.textContent = uploadCropState.index >= uploadCropState.items.length - 1 ? "Finish crop" : "Use crop";
+}
+
+function handleUploadCropPointerDown(event) {
+  const item = getActiveUploadCropItem();
+  if (!item || event.button !== 0) {
+    return;
+  }
+  const stage = event.currentTarget;
+  const transform = ensureUploadCropTransform(item);
+  uploadCropState.dragPointerId = event.pointerId;
+  uploadCropState.dragOriginX = Number(event.clientX || 0);
+  uploadCropState.dragOriginY = Number(event.clientY || 0);
+  uploadCropState.dragOffsetX = Number(transform.offsetX || 0);
+  uploadCropState.dragOffsetY = Number(transform.offsetY || 0);
+  stage.setPointerCapture?.(event.pointerId);
+  stage.classList.add("is-dragging");
+  event.preventDefault();
+}
+
+function handleUploadCropPointerMove(event) {
+  if (uploadCropState.dragPointerId !== event.pointerId) {
+    return;
+  }
+  const item = getActiveUploadCropItem();
+  if (!item) {
+    return;
+  }
+  const stage = event.currentTarget;
+  const transform = ensureUploadCropTransform(item);
+  const frameWidth = Math.max(1, stage.getBoundingClientRect().width || 1);
+  const frameHeight = Math.max(1, stage.getBoundingClientRect().height || 1);
+  const naturalWidth = Number(item.image?.naturalWidth || 0);
+  const naturalHeight = Number(item.image?.naturalHeight || 0);
+  if (!naturalWidth || !naturalHeight) {
+    return;
+  }
+  const fitScale = transform.fitScale || Math.max(frameWidth / naturalWidth, frameHeight / naturalHeight);
+  const scale = fitScale * clampNumber(transform.zoom || 1, 1, 3);
+  const displayWidth = naturalWidth * scale;
+  const displayHeight = naturalHeight * scale;
+  const maxOffsetX = Math.max(0, (displayWidth - frameWidth) / 2);
+  const maxOffsetY = Math.max(0, (displayHeight - frameHeight) / 2);
+  const deltaX = Number(event.clientX || 0) - uploadCropState.dragOriginX;
+  const deltaY = Number(event.clientY || 0) - uploadCropState.dragOriginY;
+  transform.offsetX = clampNumber(uploadCropState.dragOffsetX + deltaX, -maxOffsetX, maxOffsetX);
+  transform.offsetY = clampNumber(uploadCropState.dragOffsetY + deltaY, -maxOffsetY, maxOffsetY);
+  syncUploadCropPreview();
+}
+
+function handleUploadCropPointerUp(event) {
+  if (uploadCropState.dragPointerId !== event.pointerId) {
+    return;
+  }
+  const stage = event.currentTarget;
+  uploadCropState.dragPointerId = null;
+  stage.classList.remove("is-dragging");
+}
+
+async function renderUploadCropItemSource(item) {
+  if (!item) {
+    return "";
+  }
+  if (item.source) {
+    return item.source;
+  }
+  if (item.file) {
+    item.source = await readRawFileAsDataUrl(item.file);
+    return item.source;
+  }
+  return "";
+}
+
+async function beginUploadCropFlow(files = []) {
+  const safeFiles = Array.from(files || []).slice(0, MAX_UPLOAD_IMAGES);
+  if (!safeFiles.length) {
+    return;
+  }
+
+  validateImageFiles(safeFiles);
+  pendingUploadCroppedImages = new Array(safeFiles.length).fill("");
+  const sources = await Promise.all(safeFiles.map((file) => readRawFileAsDataUrl(file)));
+  const items = await Promise.all(sources.map(async (source, index) => {
+    const image = await loadImageElementFromSource(source);
+    return {
+      file: safeFiles[index],
+      source,
+      image,
+      alt: safeFiles[index]?.name || `Picha ${index + 1}`,
+      transform: {
+        ratio: UPLOAD_CROP_DEFAULT_RATIO,
+        zoom: 1,
+        offsetX: 0,
+        offsetY: 0,
+        fitScale: 1
+      }
+    };
+  }));
+
+  uploadCropState.items = items;
+  uploadCropState.index = 0;
+  uploadCropState.active = true;
+  ensureUploadCropModalRoot();
+  openUploadCropModal();
+}
+
+function applyCurrentUploadCropSelection() {
+  const item = getActiveUploadCropItem();
+  if (!item) {
+    return;
+  }
+  const transform = ensureUploadCropTransform(item);
+  const ratioConfig = getUploadCropCanvasSize(transform.ratio);
+  const naturalWidth = Number(item.image?.naturalWidth || 0);
+  const naturalHeight = Number(item.image?.naturalHeight || 0);
+  if (!naturalWidth || !naturalHeight) {
+    return;
+  }
+
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d", { alpha: true });
+  if (!context) {
+    showInAppNotification({
+      title: "Crop failed",
+      body: "Browser hii imeshindwa kuandaa crop ya picha.",
+      variant: "error"
+    });
+    return;
+  }
+
+  const stage = uploadCropState.modal?.querySelector("[data-upload-crop-stage]");
+  const frameWidth = Math.max(1, stage?.getBoundingClientRect().width || 1);
+  const frameHeight = Math.max(1, stage?.getBoundingClientRect().height || 1);
+  const fitScale = transform.fitScale || Math.max(frameWidth / naturalWidth, frameHeight / naturalHeight);
+  const scale = fitScale * clampNumber(transform.zoom || 1, 1, 3);
+  const displayWidth = naturalWidth * scale;
+  const displayHeight = naturalHeight * scale;
+  const maxOffsetX = Math.max(0, (displayWidth - frameWidth) / 2);
+  const maxOffsetY = Math.max(0, (displayHeight - frameHeight) / 2);
+  const offsetX = clampNumber(transform.offsetX || 0, -maxOffsetX, maxOffsetX);
+  const offsetY = clampNumber(transform.offsetY || 0, -maxOffsetY, maxOffsetY);
+  const imageLeft = frameWidth / 2 - displayWidth / 2 + offsetX;
+  const imageTop = frameHeight / 2 - displayHeight / 2 + offsetY;
+  const sourceX = clampNumber((0 - imageLeft) / scale, 0, Math.max(0, naturalWidth - 1));
+  const sourceY = clampNumber((0 - imageTop) / scale, 0, Math.max(0, naturalHeight - 1));
+  const sourceWidth = Math.min(naturalWidth - sourceX, frameWidth / scale);
+  const sourceHeight = Math.min(naturalHeight - sourceY, frameHeight / scale);
+
+  canvas.width = ratioConfig.canvasWidth;
+  canvas.height = ratioConfig.canvasHeight;
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  context.drawImage(
+    item.image,
+    sourceX,
+    sourceY,
+    Math.max(1, sourceWidth),
+    Math.max(1, sourceHeight),
+    0,
+    0,
+    canvas.width,
+    canvas.height
+  );
+
+  const output = canvas.toDataURL("image/jpeg", 0.92);
+  pendingUploadCroppedImages[uploadCropState.index] = output;
+  item.croppedSource = output;
+  return output;
+}
+
+async function moveUploadCropSelection(step = 1) {
+  const currentItem = getActiveUploadCropItem();
+  if (!currentItem) {
+    return;
+  }
+  await applyCurrentUploadCropSelection();
+  const nextIndex = uploadCropState.index + Number(step || 0);
+  if (nextIndex < 0) {
+    uploadCropState.index = 0;
+    syncUploadCropPreview();
+    return;
+  }
+  if (nextIndex >= uploadCropState.items.length) {
+    await completeUploadCropFlow();
+    return;
+  }
+  uploadCropState.index = nextIndex;
+  syncUploadCropPreview();
+}
+
+async function completeUploadCropFlow() {
+  const currentItem = getActiveUploadCropItem();
+  if (currentItem) {
+    await applyCurrentUploadCropSelection();
+  }
+  const finalImages = uploadCropState.items.map((item, index) => {
+    if (pendingUploadCroppedImages[index]) {
+      return pendingUploadCroppedImages[index];
+    }
+    if (item?.croppedSource) {
+      return item.croppedSource;
+    }
+    return item?.source || "";
+  }).filter(Boolean);
+  pendingUploadCroppedImages = finalImages;
+  renderPreviewImages(finalImages);
+  closeUploadCropModal();
+}
 function readFilesAsDataUrls(files) {
   return Promise.all(files.map((file) => readFileAsDataUrl(file, { purpose: "product" })));
 }
