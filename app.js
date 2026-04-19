@@ -5,6 +5,8 @@ const APP_VIEW_KEY = "winga-app-view";
 const PENDING_GUEST_INTENT_KEY = "winga-pending-guest-intent";
 const SELLER_HISTORY_KEY_PREFIX = "winga-seller-history";
 const REQUEST_BOX_KEY_PREFIX = "winga-request-box";
+const APP_BOOT_BUILD_VERSION = document.querySelector('meta[name="winga-build"]')?.content || "";
+const APP_STORAGE_SCHEMA_KEY = "winga-storage-schema-version";
 const { CHAT_EMOJI_CHOICES } = window.WingaModules.config.chat;
 const {
   MARKETPLACE_CATEGORY_TREE,
@@ -190,6 +192,73 @@ function clearAppViewState() {
       user: currentUser || ""
     });
   }
+}
+
+function getStoredAppStorageSchemaVersion() {
+  try {
+    return String(localStorage.getItem(APP_STORAGE_SCHEMA_KEY) || "").trim();
+  } catch (error) {
+    return "";
+  }
+}
+
+function saveAppStorageSchemaVersion(version = "") {
+  try {
+    if (!version) {
+      localStorage.removeItem(APP_STORAGE_SCHEMA_KEY);
+      return;
+    }
+    localStorage.setItem(APP_STORAGE_SCHEMA_KEY, version);
+  } catch (error) {
+    reportClientEvent("warn", "app_storage_schema_version_persist_failed", "Unable to persist app storage schema version.", {
+      category: "runtime"
+    });
+  }
+}
+
+function clearStaleAppBootstrapState() {
+  clearAppViewState();
+  savePendingGuestIntent(null);
+  try {
+    window.sessionStorage?.clear?.();
+  } catch (error) {
+    // Ignore sessionStorage cleanup failures.
+  }
+}
+
+async function purgeStaleBrowserCacheArtifacts() {
+  try {
+    if (window.navigator?.serviceWorker?.getRegistrations) {
+      const registrations = await window.navigator.serviceWorker.getRegistrations();
+      await Promise.all(registrations.map((registration) => registration.unregister()));
+    }
+  } catch (error) {
+    // Ignore stale service worker cleanup failures.
+  }
+
+  try {
+    if (window.caches?.keys) {
+      const cacheKeys = await window.caches.keys();
+      await Promise.all(cacheKeys.map((cacheKey) => window.caches.delete(cacheKey)));
+    }
+  } catch (error) {
+    // Ignore cache storage cleanup failures.
+  }
+}
+
+function initializeBootstrapStorageVersion() {
+  if (!APP_BOOT_BUILD_VERSION) {
+    return;
+  }
+
+  const storedVersion = getStoredAppStorageSchemaVersion();
+  if (storedVersion === APP_BOOT_BUILD_VERSION) {
+    return;
+  }
+
+  clearStaleAppBootstrapState();
+  saveAppStorageSchemaVersion(APP_BOOT_BUILD_VERSION);
+  void purgeStaleBrowserCacheArtifacts();
 }
 
 function getSellerHistoryStorageKey(username = currentUser) {
@@ -9486,6 +9555,7 @@ async function bootApp() {
   reportClientEvent("info", "app_boot_started", "Client app boot started.", {
     category: "runtime"
   });
+  initializeBootstrapStorageVersion();
   syncAuthMode();
   suppressInitialProductHomeRender = Boolean(getDeepLinkedProductIdFromRoute());
   const cachedSession = window.WingaDataLayer.bootstrapSession

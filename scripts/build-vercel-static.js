@@ -90,7 +90,7 @@ function copyFileIntoDist(sourceRelativePath, targetRelativePath) {
 function applyAssetVersionToHtml(targetPath) {
   const source = fs.readFileSync(targetPath, "utf8");
   const next = source.replace(
-    /(href|src)="((?:style\.css|winga-config\.js|mock-data\.js|data-service\.js|app-core\.js|winga-modules\.js|app\.js|src\/[^"]+\.js))(?:\?[^"]*)?"/g,
+    /(href|src)="(\/?(?:style\.css|winga-config\.js|mock-data\.js|data-service\.js|app-core\.js|winga-modules\.js|app\.js|src\/[^"]+\.js))(?:\?[^"]*)?"/g,
     (_, attribute, assetPath) => `${attribute}="${assetPath}?v=${assetVersion}"`
   );
   const marked = next.includes('name="winga-build"')
