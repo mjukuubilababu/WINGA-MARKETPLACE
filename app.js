@@ -4996,8 +4996,8 @@ const topBar = document.getElementById("top-bar");
 const bottomNav = document.getElementById("bottom-nav");
 const postProductFab = document.getElementById("post-product-fab");
 const viewHomeBackButton = document.getElementById("view-home-back");
-const disableHomepageHeroPanel = true;
-const disableStandaloneShowcaseSection = true;
+const SHOW_HOMEPAGE_HERO_PANEL = false;
+const SHOW_STANDALONE_SHOWCASE_SECTION = false;
 
 if (searchInput) {
   searchInput.setAttribute("autocomplete", "off");
@@ -7499,7 +7499,7 @@ window.addEventListener("popstate", (event) => {
 });
 
 function syncHeroPanelPosition(isProfile, isUpload) {
-  if (disableHomepageHeroPanel || !heroPanel || !productsSummary) {
+  if (!SHOW_HOMEPAGE_HERO_PANEL || !heroPanel || !productsSummary) {
     return;
   }
 
@@ -8780,7 +8780,7 @@ function setupDynamicShowcaseLoading(scope, usedIds = new Set()) {
 }
 
 function renderMarketShowcase() {
-  if (disableStandaloneShowcaseSection) {
+  if (!SHOW_STANDALONE_SHOWCASE_SECTION) {
     marketShowcase?.replaceChildren();
     if (marketShowcase) {
       marketShowcase.style.display = "none";
