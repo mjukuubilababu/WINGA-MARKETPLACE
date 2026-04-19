@@ -5327,7 +5327,7 @@ body.upload-crop-sheet-open{
   max-height:min(92dvh, 980px);
   overflow:hidden auto;
   margin:0;
-  padding:18px;
+  padding:14px;
   border-radius:28px;
   box-shadow:0 30px 80px rgba(15, 23, 42, 0.28);
   display:grid;
@@ -5412,10 +5412,10 @@ body.upload-crop-sheet-open{
 }
 
 .upload-crop-stage-shell{
-  padding:10px;
-  border-radius:28px;
-  background:linear-gradient(180deg, rgba(255,244,236,0.9), rgba(255,255,255,0.86));
-  border:1px solid rgba(198, 90, 30, 0.14);
+  padding:0;
+  border-radius:0;
+  background:transparent;
+  border:none;
 }
 
 .upload-crop-stage{
@@ -5423,10 +5423,8 @@ body.upload-crop-sheet-open{
   width:100%;
   aspect-ratio:var(--upload-crop-aspect, 4 / 5);
   overflow:hidden;
-  border-radius:20px;
-  background:
-    linear-gradient(135deg, rgba(255,255,255,0.16), rgba(255,255,255,0.04)),
-    #111827;
+  border-radius:0;
+  background:#111827;
   touch-action:none;
   user-select:none;
   cursor:grab;
@@ -5441,10 +5439,10 @@ body.upload-crop-sheet-open{
   position:absolute;
   inset:0;
   background:
-    linear-gradient(rgba(255,255,255,0.08), rgba(255,255,255,0.08)) center / 100% 1px no-repeat,
-    linear-gradient(90deg, rgba(255,255,255,0.08), rgba(255,255,255,0.08)) center / 1px 100% no-repeat;
+    linear-gradient(rgba(255,255,255,0.06), rgba(255,255,255,0.06)) center / 100% 1px no-repeat,
+    linear-gradient(90deg, rgba(255,255,255,0.06), rgba(255,255,255,0.06)) center / 1px 100% no-repeat;
   pointer-events:none;
-  opacity:0.7;
+  opacity:0.45;
 }
 
 .upload-crop-stage img{
@@ -5463,10 +5461,10 @@ body.upload-crop-sheet-open{
 
 .upload-crop-frame{
   position:absolute;
-  inset:12px;
-  border-radius:18px;
-  border:2px solid rgba(255,255,255,0.96);
-  box-shadow:0 0 0 9999px rgba(15, 23, 42, 0.18);
+  inset:0;
+  border-radius:0;
+  border:1px solid rgba(255,255,255,0.6);
+  box-shadow:none;
   pointer-events:none;
 }
 
@@ -5543,7 +5541,7 @@ body.upload-crop-sheet-open{
 @media (max-width:640px){
   .upload-crop-dialog{
     width:calc(100vw - 12px);
-    padding:14px;
+    padding:12px;
     border-radius:22px;
     gap:12px;
   }
@@ -5551,6 +5549,11 @@ body.upload-crop-sheet-open{
   .upload-crop-header{
     flex-direction:column;
     padding-right:0;
+  }
+
+  .upload-crop-stage-shell{
+    margin-left:-12px;
+    margin-right:-12px;
   }
 
   .upload-crop-counter{
