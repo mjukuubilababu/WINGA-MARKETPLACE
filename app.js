@@ -4161,6 +4161,7 @@ const {
   renderProfile: renderProfileFromController,
   bindProfileIdentityActions: bindProfileIdentityActionsFromController
 } = window.WingaModules.profile.createProfileControllerModule({
+  createElement,
   createProfileShellElement,
   createProfileProductCardElement,
   createProfileIdentitySectionElement,
