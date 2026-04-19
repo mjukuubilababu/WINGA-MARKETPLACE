@@ -2485,8 +2485,9 @@ img[data-zoom-src]{
 }
 
 #user-products-container .profile-product-stage.image-is-portrait{
-  object-fit:cover !important;
+  object-fit:contain !important;
   object-position:center center !important;
+  background:#f3f4f6;
 }
 
 .profile-product-title{
