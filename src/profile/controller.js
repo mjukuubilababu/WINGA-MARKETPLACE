@@ -431,6 +431,12 @@
         ...(deps.getMarketplaceUser(currentUser) || {}),
         ...(currentSession || {})
       };
+      const normalizedProfileStatus = String(userProfile?.status || "")
+        .trim()
+        .toLowerCase();
+      const safeProfileStatus = normalizedProfileStatus && normalizedProfileStatus !== "null" && normalizedProfileStatus !== "undefined"
+        ? normalizedProfileStatus
+        : "";
       const isBuyerOnly = deps.isBuyerUser();
       const hasBuyerAccess = deps.canUseBuyerFeatures();
       const canUpgradeToSeller = userProfile?.role === "buyer";
@@ -553,7 +559,7 @@
         profileDiv.dataset.activeSection = activeSection;
         profileDiv.replaceChildren(deps.createProfileShellElement({
           displayName: deps.getCurrentDisplayName(),
-          accountMeta: `${isBuyerOnly ? "Akaunti yako ya mteja" : deps.canUseSellerFeatures() ? "Akaunti ya muuzaji yenye access ya mteja" : "Simamia akaunti yako"}${userProfile?.status && userProfile.status !== "active" ? ` | ${userProfile.status}` : ""}`,
+          accountMeta: `${isBuyerOnly ? "Akaunti yako ya mteja" : deps.canUseSellerFeatures() ? "Akaunti ya muuzaji yenye access ya mteja" : "Simamia akaunti yako"}${safeProfileStatus && safeProfileStatus !== "active" ? ` | ${safeProfileStatus}` : ""}`,
           stats: [
             {
               value: userProducts.length,
