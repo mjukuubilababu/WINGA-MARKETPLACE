@@ -6077,8 +6077,8 @@ button:hover,
 
 @media (max-width:960px){
   #app-container{
-    padding-left:14px;
-    padding-right:14px;
+    padding-left:8px;
+    padding-right:8px;
   }
 
   #top-bar{
@@ -6124,7 +6124,21 @@ button:hover,
   }
 
   #user-products-container{
-    gap:4px;
+    gap:2px;
+  }
+
+  #profile-div{
+    margin-left:-8px;
+    margin-right:-8px;
+    width:calc(100% + 16px);
+    border-left:none;
+    border-right:none;
+    border-radius:0;
+  }
+
+  #profile-div .profile-shell{
+    padding-left:8px;
+    padding-right:8px;
   }
 
   .showcase-track{
