@@ -2444,57 +2444,6 @@ img[data-zoom-src]{
   display:none;
 }
 
-#user-products-container .profile-product-card{
-  aspect-ratio:1 / 1 !important;
-  contain:none;
-  content-visibility:visible;
-  contain-intrinsic-size:auto;
-  min-width:0;
-  background:#f3f4f6;
-  overflow:hidden;
-  position:relative;
-  display:block;
-  border-radius:12px;
-}
-
-#user-products-container .profile-product-media{
-  position:absolute;
-  inset:0;
-  border-radius:inherit;
-  background:#f3f4f6;
-  overflow:hidden;
-  display:block;
-  line-height:0;
-}
-
-#user-products-container .profile-product-stage{
-  position:absolute;
-  inset:0;
-  object-fit:cover !important;
-  object-position:center center !important;
-  padding:0;
-  background:#f3f4f6;
-  display:block;
-  width:100%;
-  height:100%;
-}
-
-#user-products-container .profile-product-status-pill{
-  left:8px;
-  bottom:8px;
-}
-
-#user-products-container .profile-product-menu{
-  top:8px;
-  right:8px;
-}
-
-#user-products-container .profile-product-stage.image-is-portrait{
-  object-fit:cover !important;
-  object-position:center center !important;
-  background:#f3f4f6;
-}
-
 .profile-product-title{
   display:block;
   font-size:0.8rem;

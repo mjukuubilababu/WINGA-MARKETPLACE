@@ -1763,17 +1763,15 @@ function openProfileSection(sectionId = "") {
     renderCurrentView();
     return;
   }
-  if (sectionId === "profile-messages-panel") {
-    chatUiState.profileMessagesMode = "list";
-    chatUiState.profileMessagesFilter = "all";
-    chatUiState.profileHasSelection = false;
-    chatUiState.activeContext = null;
-    chatUiState.currentDraft = "";
-    chatUiState.selectedProductIds = [];
-    chatUiState.activeReplyMessageId = "";
-    chatUiState.openMessageMenuId = "";
-    chatUiState.openEmojiScope = "";
-  }
+  chatUiState.profileMessagesMode = "list";
+  chatUiState.profileMessagesFilter = "all";
+  chatUiState.profileHasSelection = false;
+  chatUiState.activeContext = null;
+  chatUiState.currentDraft = "";
+  chatUiState.selectedProductIds = [];
+  chatUiState.activeReplyMessageId = "";
+  chatUiState.openMessageMenuId = "";
+  chatUiState.openEmojiScope = "";
   profileRuntimeState.pendingSection = sectionId;
   profileRuntimeState.activeSection = sectionId || profileRuntimeState.activeSection || "profile-products-panel";
   toggleHeaderUserMenu(false);
