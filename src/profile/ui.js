@@ -572,6 +572,7 @@
         ordersMarkup,
         notificationsMarkup,
         messagesMarkup,
+        notificationPermissionState,
         hasBuyerAccess,
         requestCount
       } = context;
@@ -628,6 +629,52 @@
           textContent: "Ukihitaji kutoka kwenye account yako, bonyeza hapa chini."
         })
       );
+      const browserPermission = typeof Notification !== "undefined" ? Notification.permission : "unsupported";
+      const notificationStatus = browserPermission === "granted" || notificationPermissionState?.status === "allowed"
+        ? "Enabled"
+        : browserPermission === "denied" || notificationPermissionState?.status === "denied"
+          ? "Blocked"
+          : notificationPermissionState?.status === "dismissed"
+            ? "Paused"
+            : "Not enabled";
+      const notificationsEnabled = browserPermission === "granted" || notificationPermissionState?.status === "allowed";
+      const notificationActionLabel = notificationsEnabled
+        ? "Notifications enabled"
+        : browserPermission === "denied" || notificationPermissionState?.status === "denied"
+          ? "Open notifications help"
+          : "Enable notifications";
+      const notificationCopy = browserPermission === "granted" || notificationPermissionState?.status === "allowed"
+        ? "Notifications are on. You will get alerts for messages, orders, and important activity."
+        : browserPermission === "denied" || notificationPermissionState?.status === "denied"
+          ? "Browser imezima notifications. Unaweza kujaribu tena au kubadili browser settings."
+          : "Turn on notifications so you do not miss new messages, order updates, and important activity.";
+      const notificationCard = deps.createElement("div", {
+        className: "profile-notification-settings"
+      });
+      notificationCard.append(
+        deps.createElement("p", { className: "auth-label", textContent: "Notifications" }),
+        deps.createElement("p", { className: "auth-note", textContent: notificationCopy }),
+        deps.createElement("div", {
+          className: "profile-notification-row"
+        })
+      );
+      const notificationRow = notificationCard.lastElementChild;
+      notificationRow?.append(
+        deps.createElement("span", {
+          className: "status-pill",
+          textContent: notificationStatus
+        }),
+        deps.createElement("button", {
+          className: "action-btn action-btn-secondary",
+          textContent: notificationActionLabel,
+          attributes: {
+            type: "button",
+            ...(notificationsEnabled ? { disabled: "true", "aria-disabled": "true" } : {}),
+            "data-open-notification-permission": "true"
+          }
+        })
+      );
+      actionsCard.appendChild(notificationCard);
       if (hasBuyerAccess) {
         actionsCard.appendChild(deps.createElement("button", {
           className: "action-btn action-btn-secondary",

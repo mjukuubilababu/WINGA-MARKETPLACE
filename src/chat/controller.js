@@ -301,6 +301,7 @@
           deps.setOpenChatMessageMenuId("");
           deps.setOpenEmojiScope("");
           await Promise.all([deps.refreshMessagesState(), deps.refreshNotificationsState()]);
+          deps.maybePromptNotificationPermission?.("message");
           replaceContextChatModal();
         } catch (error) {
           deps.captureError?.("context_message_send_failed", error, {
@@ -353,6 +354,7 @@
 
       try {
         await Promise.all([deps.refreshMessagesState(), deps.refreshNotificationsState()]);
+        deps.maybePromptNotificationPermission?.("reply");
         await deps.markActiveConversationRead();
       } catch (error) {
         // Ignore passive refresh failures before opening.
@@ -750,6 +752,7 @@
           deps.setCurrentMessageDraft("");
           deps.setOpenEmojiScope("");
           await Promise.all([deps.refreshMessagesState(), deps.refreshNotificationsState()]);
+          deps.maybePromptNotificationPermission?.("message");
           deps.replaceMessagesPanel(scope);
           document.getElementById("profile-notifications-panel")?.replaceWith(deps.createNotificationsContainerFromState());
         } catch (error) {

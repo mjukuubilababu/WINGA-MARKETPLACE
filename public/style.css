@@ -1956,6 +1956,10 @@ img[data-zoom-src]{
   word-break:break-all;
 }
 
+.admin-deep-link-card .moderation-actions{
+  margin-top:10px;
+}
+
 .admin-users-heading{
   margin-top:18px;
 }
@@ -2671,6 +2675,18 @@ img[data-zoom-src]{
   z-index:4;
 }
 
+.product-card.has-gallery-count-badge .product-menu-overlay,
+.showcase-card.has-gallery-count-badge .product-menu-overlay,
+.seller-product-card.has-gallery-count-badge .product-menu-overlay{
+  top:50px;
+}
+
+.product-card.has-gallery-count-badge .feed-gallery-count-badge,
+.showcase-card.has-gallery-count-badge .feed-gallery-count-badge,
+.seller-product-card.has-gallery-count-badge .feed-gallery-count-badge{
+  z-index:13;
+}
+
 .media-gallery{
   position:relative;
   isolation:isolate;
@@ -2797,6 +2813,16 @@ img[data-zoom-src]{
   line-height:1.35;
   font-weight:700;
   color:var(--accent-deep);
+  overflow-wrap:anywhere;
+  word-break:break-word;
+  white-space:normal;
+}
+
+#product-detail-title,
+.profile-product-title{
+  overflow-wrap:anywhere;
+  word-break:break-word;
+  white-space:normal;
 }
 
 .product-seller-line{
@@ -2846,6 +2872,9 @@ img[data-zoom-src]{
   margin:0;
   font-size:0.96rem;
   line-height:1.24;
+  overflow-wrap:anywhere;
+  word-break:break-word;
+  white-space:normal;
 }
 
 .product-card .product-price,
@@ -2869,6 +2898,13 @@ img[data-zoom-src]{
 }
 
 .product-card-caption-block{
+  display:flex;
+  align-items:baseline;
+  gap:8px;
+  min-width:0;
+}
+
+.product-card-caption-block.is-expanded{
   display:grid;
   gap:8px;
 }
@@ -2879,19 +2915,23 @@ img[data-zoom-src]{
   font-size:0.98rem;
   line-height:1.55;
   font-weight:600;
+  min-width:0;
+  flex:1 1 auto;
+  white-space:nowrap;
   overflow:hidden;
-  display:-webkit-box;
-  -webkit-box-orient:vertical;
-  -webkit-line-clamp:3;
+  text-overflow:ellipsis;
 }
 
 .product-card-caption-block.is-expanded .product-card-caption{
-  display:block;
-  -webkit-line-clamp:unset;
+  white-space:pre-wrap;
+  overflow-wrap:anywhere;
+  word-break:break-word;
+  overflow:visible;
+  text-overflow:unset;
 }
 
 .product-caption-toggle{
-  align-self:flex-start;
+  flex:none;
   border:none;
   padding:0;
   background:transparent;
@@ -2899,6 +2939,7 @@ img[data-zoom-src]{
   font-size:0.84rem;
   font-weight:800;
   cursor:pointer;
+  white-space:nowrap;
 }
 
 .product-caption-toggle:hover,
@@ -3536,6 +3577,32 @@ body.product-detail-open{
   margin-top:12px;
   display:grid;
   gap:10px;
+}
+
+.product-detail-deep-link{
+  display:grid;
+  gap:8px;
+  padding:12px;
+  border-radius:16px;
+  border:1px dashed rgba(37, 99, 235, 0.24);
+  background:rgba(37, 99, 235, 0.04);
+}
+
+.product-detail-deep-link-value{
+  display:block;
+  padding:10px 12px;
+  border-radius:12px;
+  background:#fff;
+  border:1px solid var(--border);
+  font-size:0.78rem;
+  line-height:1.45;
+  word-break:break-all;
+}
+
+.product-detail-deep-link-actions{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
 }
 
 .whatsapp-chat-btn{
@@ -4731,6 +4798,74 @@ body.context-chat-open{
   pointer-events:none;
 }
 
+#notification-permission-root{
+  position:fixed;
+  left:50%;
+  bottom:18px;
+  transform:translateX(-50%);
+  width:min(560px, calc(100vw - 24px));
+  display:grid;
+  z-index:1500;
+  pointer-events:none;
+}
+
+.notification-permission-prompt{
+  display:grid;
+  gap:10px;
+  padding:16px 18px;
+  border:1px solid var(--border);
+  border-radius:20px;
+  background:rgba(255,255,255,0.96);
+  box-shadow:0 22px 48px rgba(35,47,62,0.18);
+  pointer-events:auto;
+  backdrop-filter:blur(10px);
+}
+
+.notification-permission-eyebrow{
+  margin:0;
+  color:var(--accent);
+  font-size:0.76rem;
+  font-weight:800;
+  letter-spacing:0.08em;
+  text-transform:uppercase;
+}
+
+.notification-permission-prompt strong{
+  color:var(--text-main);
+  font-size:1rem;
+  line-height:1.3;
+}
+
+.notification-permission-copy{
+  margin:0;
+  color:var(--text-muted);
+  font-size:0.92rem;
+  line-height:1.55;
+}
+
+.notification-permission-meta{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:8px;
+}
+
+.notification-permission-note{
+  color:var(--text-muted);
+  font-size:0.8rem;
+}
+
+.notification-permission-actions{
+  display:flex;
+  flex-wrap:wrap;
+  gap:10px;
+}
+
+.notification-permission-actions .action-btn{
+  min-width:0;
+  flex:1 1 180px;
+}
+
 .notification-toast{
   min-width:240px;
   max-width:320px;
@@ -5649,6 +5784,27 @@ body.product-detail-open #view-home-back{
   border:1px solid var(--border);
   border-radius:18px;
   background:linear-gradient(180deg, #ffffff, #f8fafc);
+}
+
+.profile-notification-settings{
+  display:grid;
+  gap:10px;
+  margin:12px 0 14px;
+  padding:14px;
+  border:1px solid rgba(59,130,246,0.15);
+  border-radius:16px;
+  background:linear-gradient(180deg, rgba(245,248,255,0.92), rgba(255,255,255,0.98));
+}
+
+.profile-notification-row{
+  display:flex;
+  flex-wrap:wrap;
+  gap:10px;
+  align-items:center;
+}
+
+.profile-notification-row .action-btn{
+  min-width:0;
 }
 
 .profile-seller-upgrade-panel{

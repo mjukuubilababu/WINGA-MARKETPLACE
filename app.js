@@ -7,6 +7,9 @@ const SELLER_HISTORY_KEY_PREFIX = "winga-seller-history";
 const REQUEST_BOX_KEY_PREFIX = "winga-request-box";
 const APP_BOOT_BUILD_VERSION = document.querySelector('meta[name="winga-build"]')?.content || "";
 const APP_STORAGE_SCHEMA_KEY = "winga-storage-schema-version";
+const NOTIFICATION_PERMISSION_STATE_KEY = "winga-notification-permission-state";
+const NOTIFICATION_PERMISSION_PROMPT_COOLDOWN_MS = 12 * 60 * 60 * 1000;
+const NOTIFICATION_PERMISSION_TRIGGERS = new Set(["message", "reply", "request", "order", "profile"]);
 const { CHAT_EMOJI_CHOICES } = window.WingaModules.config.chat;
 const {
   MARKETPLACE_CATEGORY_TREE,
@@ -2047,6 +2050,7 @@ const {
   sendMessage: (payload) => window.WingaDataLayer.sendMessage(payload),
   refreshMessagesState,
   refreshNotificationsState,
+  maybePromptNotificationPermission,
   escapeHtml,
   formatNumber,
   formatProductPrice,
@@ -2922,13 +2926,8 @@ function showInAppNotification(notification) {
     }
   }
 
-  if ("Notification" in window && document.visibilityState === "hidden") {
-    if (Notification.permission === "granted") {
-      new Notification(notification.title, { body: notification.body || "" });
-    } else if (Notification.permission === "default" && !notificationFeedbackState.browserPermissionRequested) {
-      notificationFeedbackState.browserPermissionRequested = true;
-      Notification.requestPermission().catch(() => {});
-    }
+  if ("Notification" in window && document.visibilityState === "hidden" && Notification.permission === "granted") {
+    new Notification(notification.title, { body: notification.body || "" });
   }
 }
 
@@ -3303,6 +3302,7 @@ function connectRealtimeChannel() {
   realtimeChannel = window.WingaDataLayer.openRealtimeChannel({
     onMessage: async () => {
       await Promise.all([refreshMessagesState(), refreshNotificationsState()]);
+      maybePromptNotificationPermission("reply");
       if (currentView === "profile" && profileDiv) {
         replaceMessagesPanel(profileDiv);
       }
@@ -3324,6 +3324,9 @@ function connectRealtimeChannel() {
           ...notification,
           haptic: document.visibilityState === "visible"
         });
+        if (["message", "order"].includes(String(notification.type || "").toLowerCase())) {
+          maybePromptNotificationPermission(notification.type === "order" ? "order" : "reply");
+        }
       }
       if (currentView === "profile" && profileDiv) {
         if (notification?.type === "order") {
@@ -4081,6 +4084,7 @@ const {
   refreshUsersState,
   refreshMessagesState,
   refreshNotificationsState,
+  maybePromptNotificationPermission,
   getCurrentUser: () => currentUser
 });
 
@@ -4226,6 +4230,7 @@ const {
   getCurrentProfileImage,
   getUserInitials,
   getRoleLabel,
+  getNotificationPermissionState,
   getTotalUnreadMessages,
     getRequestBoxItemCount,
     getActivePromotions,
@@ -4250,6 +4255,7 @@ const {
   },
   setEmptyCopy,
   setResultsMeta: () => {},
+  openNotificationPermissionPrompt,
   renderAnalyticsPanel,
   refreshPromotionsState,
   renderCurrentView,
@@ -5014,9 +5020,327 @@ let currentPromotions = [];
 let realtimeChannel = null;
 const notificationFeedbackState = {
   recentKeys: new Map(),
-  lastVibrationAt: 0,
-  browserPermissionRequested: false
+  lastVibrationAt: 0
 };
+function createDefaultNotificationPermissionState() {
+  return {
+    status: "not_asked",
+    lastTrigger: "",
+    lastPromptAt: 0,
+    lastDecisionAt: 0
+  };
+}
+
+function normalizeNotificationPermissionStatus(value) {
+  return ["not_asked", "prompted", "dismissed", "allowed", "denied"].includes(value)
+    ? value
+    : "not_asked";
+}
+
+function readNotificationPermissionState() {
+  try {
+    const raw = localStorage.getItem(NOTIFICATION_PERMISSION_STATE_KEY);
+    if (!raw) {
+      return createDefaultNotificationPermissionState();
+    }
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return createDefaultNotificationPermissionState();
+    }
+    return {
+      ...createDefaultNotificationPermissionState(),
+      ...parsed,
+      status: normalizeNotificationPermissionStatus(parsed.status)
+    };
+  } catch (error) {
+    return createDefaultNotificationPermissionState();
+  }
+}
+
+let notificationPermissionState = readNotificationPermissionState();
+
+function persistNotificationPermissionState() {
+  try {
+    localStorage.setItem(NOTIFICATION_PERMISSION_STATE_KEY, JSON.stringify(notificationPermissionState));
+  } catch (error) {
+    reportClientEvent("warn", "notification_permission_state_persist_failed", "Unable to persist notification permission state.", {
+      category: "runtime"
+    });
+  }
+}
+
+function updateNotificationPermissionState(nextState = {}) {
+  notificationPermissionState = {
+    ...notificationPermissionState,
+    ...nextState,
+    status: normalizeNotificationPermissionStatus(nextState.status ?? notificationPermissionState.status)
+  };
+  persistNotificationPermissionState();
+  return notificationPermissionState;
+}
+
+function syncNotificationPermissionStateFromBrowser() {
+  if (!("Notification" in window)) {
+    return notificationPermissionState;
+  }
+  if (Notification.permission === "granted") {
+    return updateNotificationPermissionState({
+      status: "allowed",
+      lastDecisionAt: Date.now()
+    });
+  }
+  if (Notification.permission === "denied") {
+    return updateNotificationPermissionState({
+      status: "denied",
+      lastDecisionAt: Date.now()
+    });
+  }
+  return notificationPermissionState;
+}
+
+function getNotificationPermissionState() {
+  return {
+    ...syncNotificationPermissionStateFromBrowser()
+  };
+}
+
+function getNotificationPermissionStatusLabel(state = notificationPermissionState) {
+  const browserPermission = "Notification" in window ? Notification.permission : "unsupported";
+  if (browserPermission === "granted" || state.status === "allowed") {
+    return "Enabled";
+  }
+  if (browserPermission === "denied" || state.status === "denied") {
+    return "Blocked";
+  }
+  if (state.status === "dismissed") {
+    return "Paused";
+  }
+  if (browserPermission === "unsupported") {
+    return "Unsupported";
+  }
+  return "Not enabled";
+}
+
+function shouldShowNotificationPermissionPrompt(trigger = "", { allowDenied = false } = {}) {
+  if (!("Notification" in window)) {
+    return false;
+  }
+  const state = syncNotificationPermissionStateFromBrowser();
+  if (Notification.permission === "granted" || state.status === "allowed") {
+    return false;
+  }
+  if (!allowDenied && (Notification.permission === "denied" || state.status === "denied")) {
+    return false;
+  }
+  if (!NOTIFICATION_PERMISSION_TRIGGERS.has(String(trigger || "").trim()) && trigger !== "settings") {
+    return false;
+  }
+  if (!allowDenied && state.status === "dismissed") {
+    return false;
+  }
+  if (!allowDenied && state.status === "prompted") {
+    return false;
+  }
+  if (!allowDenied && state.lastPromptAt && Date.now() - Number(state.lastPromptAt || 0) < NOTIFICATION_PERMISSION_PROMPT_COOLDOWN_MS) {
+    return false;
+  }
+  return true;
+}
+
+function ensureNotificationPermissionPromptRoot() {
+  let root = document.getElementById("notification-permission-root");
+  if (!root) {
+    root = createElement("div", {
+      attributes: { id: "notification-permission-root" },
+      className: "notification-permission-root"
+    });
+    document.body.appendChild(root);
+  }
+  return root;
+}
+
+function closeNotificationPermissionPrompt() {
+  const root = document.getElementById("notification-permission-root");
+  if (!root) {
+    return;
+  }
+  root.replaceChildren();
+  root.dataset.visible = "false";
+}
+
+async function requestBrowserNotificationPermission() {
+  if (!("Notification" in window)) {
+    return "unsupported";
+  }
+  if (Notification.permission === "granted" || Notification.permission === "denied") {
+    return Notification.permission;
+  }
+  if (typeof Notification.requestPermission !== "function") {
+    return Notification.permission;
+  }
+  const result = await Notification.requestPermission();
+  return String(result || Notification.permission || "default");
+}
+
+function renderNotificationPermissionPromptBody(trigger = "", options = {}) {
+  const hasBlockedPermission = "Notification" in window && Notification.permission === "denied";
+  const body = options.body || (
+    hasBlockedPermission
+      ? "Browser yako tayari imezima notifications. Unaweza kujaribu tena au kuruhusu notifications kupitia browser settings."
+      : "Turn on notifications so you do not miss new messages, order updates, and important activity."
+  );
+  const title = options.title || "Stay updated with Winga";
+  return { title, body };
+}
+
+function showNotificationPermissionPrompt(trigger = "message", options = {}) {
+  const allowDenied = Boolean(options.allowDenied);
+  if (!shouldShowNotificationPermissionPrompt(trigger, { allowDenied })) {
+    return false;
+  }
+
+  const root = ensureNotificationPermissionPromptRoot();
+  if (root.dataset.visible === "true") {
+    return true;
+  }
+
+  const { title, body } = renderNotificationPermissionPromptBody(trigger, options);
+  const state = updateNotificationPermissionState({
+    status: "prompted",
+    lastTrigger: String(trigger || ""),
+    lastPromptAt: Date.now()
+  });
+  const statusLabel = getNotificationPermissionStatusLabel(state);
+  const canRequestNow = "Notification" in window && Notification.permission !== "granted";
+  const buttonLabel = Notification.permission === "denied"
+    ? "Open browser settings"
+    : Notification.permission === "granted"
+      ? "Notifications enabled"
+      : "Enable notifications";
+
+  const prompt = createElement("section", {
+    className: "notification-permission-prompt",
+    attributes: {
+      role: "dialog",
+      "aria-live": "polite",
+      "aria-label": title
+    }
+  });
+  const metaRow = createElement("div", { className: "notification-permission-meta" });
+  metaRow.append(
+    createElement("span", { className: "status-pill", textContent: statusLabel }),
+    createElement("span", { className: "notification-permission-note", textContent: "You can change this later in Profile." })
+  );
+  const actionsRow = createElement("div", { className: "notification-permission-actions" });
+  actionsRow.append(
+    createElement("button", {
+      className: "action-btn buy-btn",
+      textContent: buttonLabel,
+      attributes: {
+        type: "button",
+        "data-notification-permission-enable": "true"
+      }
+    }),
+    createElement("button", {
+      className: "action-btn action-btn-secondary",
+      textContent: "Maybe later",
+      attributes: {
+        type: "button",
+        "data-notification-permission-later": "true"
+      }
+    })
+  );
+  prompt.append(
+    createElement("p", { className: "notification-permission-eyebrow", textContent: "Notifications" }),
+    createElement("strong", { textContent: title }),
+    createElement("p", { className: "notification-permission-copy", textContent: body }),
+    metaRow,
+    actionsRow
+  );
+
+  root.replaceChildren(prompt);
+  root.dataset.visible = "true";
+  root.dataset.trigger = String(trigger || "");
+
+  root.querySelector("[data-notification-permission-enable]")?.addEventListener("click", async (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!canRequestNow && Notification.permission !== "denied") {
+      closeNotificationPermissionPrompt();
+      return;
+    }
+    try {
+      const permission = await requestBrowserNotificationPermission();
+      if (permission === "granted") {
+        updateNotificationPermissionState({
+          status: "allowed",
+          lastDecisionAt: Date.now()
+        });
+        showInAppNotification({
+          title: "Notifications enabled",
+          body: "Winga itakutumia updates za messages, orders, na activity muhimu.",
+          variant: "success"
+        });
+        closeNotificationPermissionPrompt();
+        renderCurrentView();
+        return;
+      }
+      updateNotificationPermissionState({
+        status: permission === "denied" ? "denied" : "dismissed",
+        lastDecisionAt: Date.now()
+      });
+      showInAppNotification({
+        title: "Notifications off",
+        body: permission === "denied"
+          ? "Browser imezima notifications. Unaweza kuzi-enable tena kwenye browser settings."
+          : "Umeacha notifications kwa sasa. Unaweza kuziwasha tena baadaye.",
+        variant: "info"
+      });
+      closeNotificationPermissionPrompt();
+      renderCurrentView();
+    } catch (error) {
+      closeNotificationPermissionPrompt();
+      showInAppNotification({
+        title: "Notifications unavailable",
+        body: error.message || "Imeshindikana kuomba notifications kwa sasa.",
+        variant: "warning"
+      });
+    }
+  });
+
+  root.querySelector("[data-notification-permission-later]")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    updateNotificationPermissionState({
+      status: "dismissed",
+      lastDecisionAt: Date.now()
+    });
+    closeNotificationPermissionPrompt();
+    showInAppNotification({
+      title: "Maybe later",
+      body: "Hatutakusumbua sasa. Unaweza kuziwasha from Profile later.",
+      variant: "info"
+    });
+    renderCurrentView();
+  });
+
+  return true;
+}
+
+function openNotificationPermissionPrompt(trigger = "settings", options = {}) {
+  return showNotificationPermissionPrompt(trigger, {
+    ...options,
+    allowDenied: true
+  });
+}
+
+function maybePromptNotificationPermission(trigger = "message", options = {}) {
+  if (!shouldShowNotificationPermissionPrompt(trigger, { allowDenied: false })) {
+    return false;
+  }
+  return showNotificationPermissionPrompt(trigger, options);
+}
+
 const savedProductState = {
   storageKey: "",
   ids: new Set(),
@@ -9021,6 +9345,7 @@ function beginPurchaseFlow(product) {
     reportClientEvent("info", "order_created", "Buyer created an order from product detail.", {
       productId: product.id
     });
+    maybePromptNotificationPermission("order");
     showInAppNotification({
       title: "Request sent",
       body: "Transaction reference imepokelewa. Winga sasa inasubiri verification ya malipo kabla seller hajajibu na kuthibitisha order.",
@@ -9626,6 +9951,7 @@ async function bootApp() {
   }
 
   await window.WingaDataLayer.init();
+  syncNotificationPermissionStateFromBrowser();
   if (window.WingaDataLayer?.hydrateStartupData) {
     window.WingaDataLayer.hydrateStartupData().catch((error) => {
       captureClientError("startup_hydration_failed", error, {

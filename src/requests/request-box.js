@@ -452,6 +452,7 @@
             firstContext: sentContexts[0] || null
           };
           await Promise.all([deps.refreshMessagesState(), deps.refreshNotificationsState()]);
+          deps.maybePromptNotificationPermission?.("request");
           saveRequestBoxState();
           refreshRequestBoxUI({ keepProfileSection: true });
         }

@@ -335,6 +335,16 @@
             setSellerUpgradeFormVisibility(false);
             return;
           }
+          const openNotificationPermissionTarget = event.target?.closest?.("[data-open-notification-permission]");
+          if (openNotificationPermissionTarget) {
+            event.preventDefault();
+            event.stopPropagation();
+            deps.openNotificationPermissionPrompt?.("profile", {
+              title: "Keep your Winga activity in sync",
+              body: "Turn on notifications so you do not miss new messages, order updates, and important activity."
+            });
+            return;
+          }
           const submitSellerUpgradeTarget = event.target?.closest?.("[data-submit-seller-upgrade]");
           if (submitSellerUpgradeTarget) {
             event.preventDefault();
@@ -613,6 +623,7 @@
           ordersMarkup: deps.createOrdersSectionElement(deps.getCurrentOrders()),
           notificationsMarkup: deps.renderNotificationsSection(),
           messagesMarkup: deps.renderMessagesSection(),
+          notificationPermissionState: deps.getNotificationPermissionState?.(),
           hasBuyerAccess,
           requestCount: deps.getRequestBoxItemCount()
         }));

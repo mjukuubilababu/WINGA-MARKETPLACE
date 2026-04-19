@@ -2760,7 +2760,25 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
 
     function createShowcasePreviewMediaElement(product) {
       const media = createElement("div", { className: "product-card-media showcase-media" });
-      media.appendChild(createProductGalleryElement(product));
+      if (deps.renderFeedGalleryMarkup) {
+        media.appendChild(createElementFromMarkup(deps.renderFeedGalleryMarkup(product, "discovery")));
+        return media;
+      }
+
+      const primaryImage = deps.getMarketplacePrimaryImage
+        ? deps.getMarketplacePrimaryImage(product, {
+            allowOwnerVisibility: product.uploadedBy === deps.getCurrentUser?.()
+          })
+        : deps.sanitizeImageSource(product.image || (Array.isArray(product.images) ? product.images[0] : ""), deps.getImageFallbackDataUri("WINGA"));
+      media.appendChild(createResponsiveImage({
+        src: primaryImage,
+        alt: product.name || "Product image",
+        fallbackSrc: deps.getImageFallbackDataUri("WINGA"),
+        className: "showcase-preview-image",
+        attributes: {
+          "data-marketplace-scroll-image": "true"
+        }
+      }));
       return media;
     }
 
@@ -2829,8 +2847,6 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       if (!captionText) {
         return null;
       }
-
-      const needsToggle = captionText.length > 120;
       const wrapper = createElement("div", {
         className: "product-card-caption-block"
       });
@@ -2842,6 +2858,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       caption.setAttribute("aria-label", captionText);
       wrapper.appendChild(caption);
 
+      const needsToggle = captionText.length > 120;
       if (needsToggle) {
         wrapper.classList.add("is-collapsed");
         const toggle = createElement("button", {
@@ -2878,6 +2895,9 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       card.dataset.productCard = product.id;
       card.dataset.openProduct = product.id;
       card.dataset.cardOpenBound = "false";
+      if (Array.isArray(product.images) && product.images.length > 1) {
+        card.classList.add("has-gallery-count-badge");
+      }
       const media = createElement("div", { className: "product-card-media" });
       media.appendChild(createProductGalleryElement(product));
       if (Array.isArray(product.images) && product.images.length > 1) {
@@ -2916,6 +2936,9 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       card.dataset.showcaseId = product.id;
       card.dataset.openProduct = product.id;
       card.dataset.cardOpenBound = "false";
+      if (Array.isArray(product.images) && product.images.length > 1) {
+        card.classList.add("has-gallery-count-badge");
+      }
       const media = createShowcasePreviewMediaElement(product);
       const body = createElement("div", { className: "product-content product-content-simple product-content-social showcase-body" });
       const overflowMenuMarkup = deps.renderProductOverflowMenu?.(product, { overlay: true });
@@ -3732,6 +3755,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
             firstContext: sentContexts[0] || null
           };
           await Promise.all([deps.refreshMessagesState(), deps.refreshNotificationsState()]);
+          deps.maybePromptNotificationPermission?.("request");
           saveRequestBoxState();
           refreshRequestBoxUI({ keepProfileSection: true });
         }
@@ -4845,6 +4869,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
           deps.setOpenChatMessageMenuId("");
           deps.setOpenEmojiScope("");
           await Promise.all([deps.refreshMessagesState(), deps.refreshNotificationsState()]);
+          deps.maybePromptNotificationPermission?.("message");
           replaceContextChatModal();
         } catch (error) {
           deps.captureError?.("context_message_send_failed", error, {
@@ -4897,6 +4922,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
 
       try {
         await Promise.all([deps.refreshMessagesState(), deps.refreshNotificationsState()]);
+        deps.maybePromptNotificationPermission?.("reply");
         await deps.markActiveConversationRead();
       } catch (error) {
         // Ignore passive refresh failures before opening.
@@ -5294,6 +5320,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
           deps.setCurrentMessageDraft("");
           deps.setOpenEmojiScope("");
           await Promise.all([deps.refreshMessagesState(), deps.refreshNotificationsState()]);
+          deps.maybePromptNotificationPermission?.("message");
           deps.replaceMessagesPanel(scope);
           document.getElementById("profile-notifications-panel")?.replaceWith(deps.createNotificationsContainerFromState());
         } catch (error) {
@@ -5491,6 +5518,41 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         copyButton
       );
       return deepLinkRow;
+    }
+
+    function createDeepLinkCard(product) {
+      const card = deps.createElement("article", {
+        className: "moderation-card admin-deep-link-card",
+        attributes: {
+          "data-admin-deep-link-card": product.id
+        }
+      });
+      const deepLink = buildProductDeepLink(product.id);
+      card.append(
+        deps.createElement("strong", { textContent: product.name || product.id }),
+        createMetaCopy(`${product.shop || product.uploadedBy || "-"} | ${deps.getCategoryLabel?.(product.category) || product.category || "-"}`),
+        deps.createElement("code", {
+          className: "admin-deep-link-value",
+          textContent: deepLink
+        })
+      );
+      const actions = deps.createElement("div", { className: "moderation-actions admin-deep-link-actions" });
+      actions.append(
+        createActionButton("Copy Deep Link", {
+          adminDeepLinkCopy: product.id
+        }, "button action-btn action-btn-secondary"),
+        deps.createElement("a", {
+          className: "button action-btn",
+          textContent: "Open Link",
+          attributes: {
+            href: deepLink,
+            target: "_blank",
+            rel: "noopener noreferrer"
+          }
+        })
+      );
+      card.appendChild(actions);
+      return card;
     }
 
     function createSection(title, meta = "", bodyNode = null) {
@@ -6138,6 +6200,19 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
     function createAdminBody(state) {
       const wrapper = deps.createElement("div", { className: "moderation-list" });
       wrapper.appendChild(createAdminToolbar(state));
+      if (deps.isAdminUser?.()) {
+        const deepLinkProducts = Array.isArray(state.pendingProducts) ? state.pendingProducts : [];
+        const deepLinkBody = deps.createElement("div", { className: "moderation-list" });
+        if (state.loadErrors.products) {
+          deepLinkBody.appendChild(createLoadIssueState("Deep link products hazikupatikana kwa sasa."));
+        } else if (!deepLinkProducts.length) {
+          deepLinkBody.appendChild(deps.createEmptyState("Hakuna bidhaa pending za deep link kwa sasa."));
+        } else {
+          deepLinkProducts.slice(0, 12).forEach((product) => deepLinkBody.appendChild(createDeepLinkCard(product)));
+        }
+        wrapper.appendChild(createSection("Product Deep Links", "Copy stable /product/:id links kwa ads na sharing.", deepLinkBody));
+      }
+
       const usersSectionBody = deps.createElement("div", { className: "admin-users-list" });
       const actionableUsers = state.users.filter((user) => user.username !== "admin");
       if (state.loadErrors.users) {
@@ -7215,6 +7290,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         ordersMarkup,
         notificationsMarkup,
         messagesMarkup,
+        notificationPermissionState,
         hasBuyerAccess,
         requestCount
       } = context;
@@ -7271,6 +7347,52 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
           textContent: "Ukihitaji kutoka kwenye account yako, bonyeza hapa chini."
         })
       );
+      const browserPermission = typeof Notification !== "undefined" ? Notification.permission : "unsupported";
+      const notificationStatus = browserPermission === "granted" || notificationPermissionState?.status === "allowed"
+        ? "Enabled"
+        : browserPermission === "denied" || notificationPermissionState?.status === "denied"
+          ? "Blocked"
+          : notificationPermissionState?.status === "dismissed"
+            ? "Paused"
+            : "Not enabled";
+      const notificationsEnabled = browserPermission === "granted" || notificationPermissionState?.status === "allowed";
+      const notificationActionLabel = notificationsEnabled
+        ? "Notifications enabled"
+        : browserPermission === "denied" || notificationPermissionState?.status === "denied"
+          ? "Open notifications help"
+          : "Enable notifications";
+      const notificationCopy = browserPermission === "granted" || notificationPermissionState?.status === "allowed"
+        ? "Notifications are on. You will get alerts for messages, orders, and important activity."
+        : browserPermission === "denied" || notificationPermissionState?.status === "denied"
+          ? "Browser imezima notifications. Unaweza kujaribu tena au kubadili browser settings."
+          : "Turn on notifications so you do not miss new messages, order updates, and important activity.";
+      const notificationCard = deps.createElement("div", {
+        className: "profile-notification-settings"
+      });
+      notificationCard.append(
+        deps.createElement("p", { className: "auth-label", textContent: "Notifications" }),
+        deps.createElement("p", { className: "auth-note", textContent: notificationCopy }),
+        deps.createElement("div", {
+          className: "profile-notification-row"
+        })
+      );
+      const notificationRow = notificationCard.lastElementChild;
+      notificationRow?.append(
+        deps.createElement("span", {
+          className: "status-pill",
+          textContent: notificationStatus
+        }),
+        deps.createElement("button", {
+          className: "action-btn action-btn-secondary",
+          textContent: notificationActionLabel,
+          attributes: {
+            type: "button",
+            ...(notificationsEnabled ? { disabled: "true", "aria-disabled": "true" } : {}),
+            "data-open-notification-permission": "true"
+          }
+        })
+      );
+      actionsCard.appendChild(notificationCard);
       if (hasBuyerAccess) {
         actionsCard.appendChild(deps.createElement("button", {
           className: "action-btn action-btn-secondary",
@@ -7740,6 +7862,16 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
             setSellerUpgradeFormVisibility(false);
             return;
           }
+          const openNotificationPermissionTarget = event.target?.closest?.("[data-open-notification-permission]");
+          if (openNotificationPermissionTarget) {
+            event.preventDefault();
+            event.stopPropagation();
+            deps.openNotificationPermissionPrompt?.("profile", {
+              title: "Keep your Winga activity in sync",
+              body: "Turn on notifications so you do not miss new messages, order updates, and important activity."
+            });
+            return;
+          }
           const submitSellerUpgradeTarget = event.target?.closest?.("[data-submit-seller-upgrade]");
           if (submitSellerUpgradeTarget) {
             event.preventDefault();
@@ -8018,6 +8150,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
           ordersMarkup: deps.createOrdersSectionElement(deps.getCurrentOrders()),
           notificationsMarkup: deps.renderNotificationsSection(),
           messagesMarkup: deps.renderMessagesSection(),
+          notificationPermissionState: deps.getNotificationPermissionState?.(),
           hasBuyerAccess,
           requestCount: deps.getRequestBoxItemCount()
         }));
@@ -8243,6 +8376,82 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       return heading;
     }
 
+    function createDeepLinkPanel(product) {
+      if (!deps.isAdminUser?.()) {
+        return null;
+      }
+      const deepLink = typeof deps.getProductDetailPath === "function"
+        ? `${window.location.origin}${deps.getProductDetailPath(product.id)}`
+        : `${window.location.origin}/product/${encodeURIComponent(String(product.id || "").trim())}`;
+      const panel = deps.createElement("div", { className: "product-detail-deep-link panel" });
+      panel.append(
+        deps.createElement("p", { className: "eyebrow", textContent: "Admin Deep Link" }),
+        deps.createElement("strong", { textContent: "Share this exact product route" }),
+        deps.createElement("code", {
+          className: "product-detail-deep-link-value",
+          textContent: deepLink
+        })
+      );
+      const actions = deps.createElement("div", { className: "product-detail-deep-link-actions" });
+      actions.append(
+        deps.createElement("button", {
+          className: "action-btn action-btn-secondary",
+          textContent: "Copy Deep Link",
+          attributes: {
+            type: "button",
+            "data-copy-product-deep-link": deepLink
+          }
+        }),
+        deps.createElement("a", {
+          className: "action-btn",
+          textContent: "Open Link",
+          attributes: {
+            href: deepLink,
+            target: "_blank",
+            rel: "noopener noreferrer"
+          }
+        })
+      );
+      panel.appendChild(actions);
+      return panel;
+    }
+
+    function createDetailCaptionElement(item) {
+      const captionText = String(item.description || item.caption || item.name || "").trim();
+      if (!captionText) {
+        return null;
+      }
+      const wrapper = deps.createElement("div", {
+        className: "product-card-caption-block"
+      });
+      wrapper.appendChild(deps.createElement("p", {
+        className: "product-card-caption",
+        textContent: captionText
+      }));
+      if (captionText.length > 120) {
+        wrapper.classList.add("is-collapsed");
+        const toggle = deps.createElement("button", {
+          className: "product-caption-toggle",
+          textContent: "See more",
+          attributes: {
+            type: "button",
+            "data-product-caption-toggle": "true",
+            "aria-expanded": "false"
+          }
+        });
+        toggle.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          const isExpanded = wrapper.classList.toggle("is-expanded");
+          wrapper.classList.toggle("is-collapsed", !isExpanded);
+          toggle.textContent = isExpanded ? "See less" : "See more";
+          toggle.setAttribute("aria-expanded", String(isExpanded));
+        });
+        wrapper.appendChild(toggle);
+      }
+      return wrapper;
+    }
+
     function createDetailContinuationSellerRowElement(item) {
       const sellerRow = deps.createElement("div", { className: "product-seller-row" });
       const sellerAvatar = deps.createElement("div", { className: "product-seller-avatar" });
@@ -8331,15 +8540,8 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         className: "product-content product-content-simple product-content-social seller-product-body"
       });
       body.appendChild(createDetailContinuationSellerRowElement(item));
-      const captionText = String(item.description || item.caption || item.name || "").trim();
-      if (captionText) {
-        const captionBlock = deps.createElement("div", {
-          className: "product-card-caption-block"
-        });
-        captionBlock.appendChild(deps.createElement("p", {
-          className: "product-card-caption",
-          textContent: captionText
-        }));
+      const captionBlock = createDetailCaptionElement(item);
+      if (captionBlock) {
         body.appendChild(captionBlock);
       }
       const itemTrustBadges = deps.renderMarketplaceTrustBadges?.(item, { hideVerifiedBadge: true });
@@ -8470,6 +8672,11 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       const sellerTrustPanel = deps.renderSellerTrustPanel?.(product);
       if (sellerTrustPanel) {
         copy.appendChild(deps.createFragmentFromMarkup(sellerTrustPanel));
+      }
+
+      const deepLinkPanel = createDeepLinkPanel(product);
+      if (deepLinkPanel) {
+        copy.appendChild(deepLinkPanel);
       }
 
       const reviewStack = deps.createElement("div", { className: "product-detail-review-stack" });
@@ -9197,6 +9404,48 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
           modal.querySelectorAll("[data-detail-image]").forEach((item) => {
             item.classList.toggle("active", item === thumb);
           });
+        });
+      });
+
+      modal.querySelectorAll("[data-copy-product-deep-link]").forEach((button) => {
+        if (button.dataset.deepLinkBound === "true") {
+          return;
+        }
+        button.dataset.deepLinkBound = "true";
+        button.addEventListener("click", async () => {
+          const deepLink = button.dataset.copyProductDeepLink || "";
+          if (!deepLink) {
+            return;
+          }
+          try {
+            if (navigator.clipboard?.writeText) {
+              await navigator.clipboard.writeText(deepLink);
+            } else {
+              const fallback = document.createElement("textarea");
+              fallback.value = deepLink;
+              fallback.setAttribute("readonly", "true");
+              fallback.style.position = "fixed";
+              fallback.style.left = "-9999px";
+              document.body.appendChild(fallback);
+              fallback.select();
+              document.execCommand?.("copy");
+              fallback.remove();
+            }
+            deps.showInAppNotification?.({
+              title: "Deep link copied",
+              body: "Product deep link ime-copy tayari.",
+              variant: "success"
+            });
+          } catch (error) {
+            deps.captureError?.("product_detail_deep_link_copy_failed", error, {
+              productId: product?.id || ""
+            });
+            deps.showInAppNotification?.({
+              title: "Copy failed",
+              body: error.message || "Imeshindikana ku-copy deep link.",
+              variant: "error"
+            });
+          }
         });
       });
     }
