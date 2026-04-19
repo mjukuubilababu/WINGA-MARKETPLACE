@@ -2931,21 +2931,13 @@ function clearSessionRestoringState() {
 function startBackgroundSessionRestore(restorePromise, cachedSession = null) {
   const restoreToken = ++activeSessionRestoreToken;
   if (!cachedSession?.username) {
-    clearSessionRestoringState();
     return;
   }
-
-  showSessionRestoringState(
-    isStaffRole(cachedSession.role)
-      ? "Tunathibitisha staff session yako nyuma ya pazia."
-      : "Tunathibitisha session yako nyuma ya pazia."
-  );
 
   const timeoutId = window.setTimeout(() => {
     if (restoreToken !== activeSessionRestoreToken) {
       return;
     }
-    clearSessionRestoringState();
     reportClientEvent("warn", "session_restore_timed_out", "Session restore timed out during boot.", {
       category: "auth",
       alertSeverity: "medium"
@@ -2977,7 +2969,6 @@ function startBackgroundSessionRestore(restorePromise, cachedSession = null) {
           : session;
         applySessionState(nextSession);
         saveSessionUser(currentSession);
-        clearSessionRestoringState();
         loginSuccess(
           currentSession.username,
           currentSession.primaryCategory || "",
@@ -2997,7 +2988,6 @@ function startBackgroundSessionRestore(restorePromise, cachedSession = null) {
 
       clearSessionUser();
       applySessionState(null);
-      clearSessionRestoringState();
       reportClientEvent("warn", "session_restore_failed", "Stored session could not be restored during boot.", {
         category: "auth",
         alertSeverity: "high",
@@ -3013,7 +3003,6 @@ function startBackgroundSessionRestore(restorePromise, cachedSession = null) {
       }
       clearSessionUser();
       applySessionState(null);
-      clearSessionRestoringState();
       captureClientError("session_restore_boot_failed", error, {
         category: "auth",
         alertSeverity: "high",
@@ -9506,6 +9495,10 @@ async function bootApp() {
   const cachedSession = window.WingaDataLayer.bootstrapSession
     ? window.WingaDataLayer.bootstrapSession()
     : null;
+  if (cachedSession?.username) {
+    applySessionState(cachedSession);
+    saveSessionUser(cachedSession);
+  }
   if (suppressInitialProductHomeRender) {
     showDeepLinkLoadingState("Tunafungua bidhaa uliyoifungua...");
   }
