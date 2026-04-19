@@ -593,6 +593,48 @@
           });
         });
       });
+
+      modal.querySelectorAll("[data-copy-product-deep-link]").forEach((button) => {
+        if (button.dataset.deepLinkBound === "true") {
+          return;
+        }
+        button.dataset.deepLinkBound = "true";
+        button.addEventListener("click", async () => {
+          const deepLink = button.dataset.copyProductDeepLink || "";
+          if (!deepLink) {
+            return;
+          }
+          try {
+            if (navigator.clipboard?.writeText) {
+              await navigator.clipboard.writeText(deepLink);
+            } else {
+              const fallback = document.createElement("textarea");
+              fallback.value = deepLink;
+              fallback.setAttribute("readonly", "true");
+              fallback.style.position = "fixed";
+              fallback.style.left = "-9999px";
+              document.body.appendChild(fallback);
+              fallback.select();
+              document.execCommand?.("copy");
+              fallback.remove();
+            }
+            deps.showInAppNotification?.({
+              title: "Deep link copied",
+              body: "Product deep link ime-copy tayari.",
+              variant: "success"
+            });
+          } catch (error) {
+            deps.captureError?.("product_detail_deep_link_copy_failed", error, {
+              productId: product?.id || ""
+            });
+            deps.showInAppNotification?.({
+              title: "Copy failed",
+              body: error.message || "Imeshindikana ku-copy deep link.",
+              variant: "error"
+            });
+          }
+        });
+      });
     }
 
     function openProductDetailModal(productId, options = {}) {

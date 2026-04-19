@@ -49,6 +49,46 @@
       return heading;
     }
 
+    function createDeepLinkPanel(product) {
+      if (!deps.isAdminUser?.()) {
+        return null;
+      }
+      const deepLink = typeof deps.getProductDetailPath === "function"
+        ? `${window.location.origin}${deps.getProductDetailPath(product.id)}`
+        : `${window.location.origin}/product/${encodeURIComponent(String(product.id || "").trim())}`;
+      const panel = deps.createElement("div", { className: "product-detail-deep-link panel" });
+      panel.append(
+        deps.createElement("p", { className: "eyebrow", textContent: "Admin Deep Link" }),
+        deps.createElement("strong", { textContent: "Share this exact product route" }),
+        deps.createElement("code", {
+          className: "product-detail-deep-link-value",
+          textContent: deepLink
+        })
+      );
+      const actions = deps.createElement("div", { className: "product-detail-deep-link-actions" });
+      actions.append(
+        deps.createElement("button", {
+          className: "action-btn action-btn-secondary",
+          textContent: "Copy Deep Link",
+          attributes: {
+            type: "button",
+            "data-copy-product-deep-link": deepLink
+          }
+        }),
+        deps.createElement("a", {
+          className: "action-btn",
+          textContent: "Open Link",
+          attributes: {
+            href: deepLink,
+            target: "_blank",
+            rel: "noopener noreferrer"
+          }
+        })
+      );
+      panel.appendChild(actions);
+      return panel;
+    }
+
     function createDetailContinuationSellerRowElement(item) {
       const sellerRow = deps.createElement("div", { className: "product-seller-row" });
       const sellerAvatar = deps.createElement("div", { className: "product-seller-avatar" });
@@ -276,6 +316,11 @@
       const sellerTrustPanel = deps.renderSellerTrustPanel?.(product);
       if (sellerTrustPanel) {
         copy.appendChild(deps.createFragmentFromMarkup(sellerTrustPanel));
+      }
+
+      const deepLinkPanel = createDeepLinkPanel(product);
+      if (deepLinkPanel) {
+        copy.appendChild(deepLinkPanel);
       }
 
       const reviewStack = deps.createElement("div", { className: "product-detail-review-stack" });

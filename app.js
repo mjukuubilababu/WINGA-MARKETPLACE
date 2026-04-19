@@ -4289,6 +4289,7 @@ const {
   renderRequestBoxButton,
   renderWhatsappChatLink,
   getCurrentUser: () => currentUser,
+  isAdminUser: () => isAdminUser(),
   canRepostProduct: (product) => canRepostProductAsSeller(product),
   renderProductActionGroup,
   renderMarketplaceTrustBadges,
