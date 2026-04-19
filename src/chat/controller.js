@@ -440,6 +440,8 @@
       deps.setSelectedChatProductIds([]);
       deps.setActiveChatReplyMessageId("");
       deps.setOpenChatMessageMenuId("");
+      deps.setCurrentMessageDraft("");
+      deps.setOpenEmojiScope("");
 
       const matchingSummary = deps.getConversationSummaries().find((summary) => summary.productId === productId);
       deps.setCurrentViewState("profile", {
@@ -457,9 +459,11 @@
           whatsapp: matchingSummary.whatsapp || ""
         });
         deps.setProfileMessagesMode?.("detail");
+        deps.setProfileHasSelection?.(true);
       } else {
         deps.setActiveChatContext(null);
         deps.setProfileMessagesMode?.("list");
+        deps.setProfileHasSelection?.(false);
       }
       deps.setPendingProfileSection("profile-messages-panel");
       deps.renderCurrentView();

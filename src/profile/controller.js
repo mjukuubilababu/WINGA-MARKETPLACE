@@ -269,6 +269,11 @@
         deps.setProfileMessagesMode?.("list");
         deps.setProfileHasSelection?.(false);
         deps.setActiveChatContext?.(null);
+        deps.setCurrentMessageDraft?.("");
+        deps.setSelectedChatProductIds?.([]);
+        deps.setActiveChatReplyMessageId?.("");
+        deps.setOpenChatMessageMenuId?.("");
+        deps.setOpenEmojiScope?.("");
         deps.setActiveProfileSection?.("profile-messages-panel");
         deps.setPendingProfileSection?.("profile-messages-panel");
         deps.renderProfile?.();
@@ -279,6 +284,11 @@
         deps.setProfileMessagesMode?.("list");
         deps.setProfileHasSelection?.(false);
         deps.setActiveChatContext?.(null);
+        deps.setCurrentMessageDraft?.("");
+        deps.setSelectedChatProductIds?.([]);
+        deps.setActiveChatReplyMessageId?.("");
+        deps.setOpenChatMessageMenuId?.("");
+        deps.setOpenEmojiScope?.("");
         deps.setActiveProfileSection?.("profile-messages-panel");
         deps.setPendingProfileSection?.("profile-messages-panel");
         deps.renderProfile?.();
@@ -605,8 +615,9 @@
           messagesMarkup: deps.renderMessagesSection(),
           hasBuyerAccess,
           requestCount: deps.getRequestBoxItemCount()
-        }), activeSection === "profile-messages-panel"
-          ? deps.createElement("button", {
+        }));
+        if (activeSection === "profile-messages-panel") {
+          profileDiv.appendChild(deps.createElement("button", {
             className: "profile-messages-fab message-panel-close",
             textContent: "Back to profile",
             attributes: {
@@ -614,8 +625,8 @@
               "data-close-profile-messages": "true",
               "aria-label": "Back to profile"
             }
-          })
-          : null);
+          }));
+        }
       } catch (error) {
         deps.captureError?.("profile_shell_render_failed", error, {
           user: currentUser

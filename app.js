@@ -1647,7 +1647,8 @@ function getRoleLabel(role) {
 }
 
 function getCurrentDisplayName() {
-  return String(currentSession?.fullName || currentUser || "User").trim() || "User";
+  const normalized = normalizeDisplayName(currentSession?.fullName || currentUser || "");
+  return normalized || "User";
 }
 
 function getUserInitials(name = "") {
@@ -1761,6 +1762,17 @@ function openProfileSection(sectionId = "") {
     });
     renderCurrentView();
     return;
+  }
+  if (sectionId === "profile-messages-panel") {
+    chatUiState.profileMessagesMode = "list";
+    chatUiState.profileMessagesFilter = "all";
+    chatUiState.profileHasSelection = false;
+    chatUiState.activeContext = null;
+    chatUiState.currentDraft = "";
+    chatUiState.selectedProductIds = [];
+    chatUiState.activeReplyMessageId = "";
+    chatUiState.openMessageMenuId = "";
+    chatUiState.openEmojiScope = "";
   }
   profileRuntimeState.pendingSection = sectionId;
   profileRuntimeState.activeSection = sectionId || profileRuntimeState.activeSection || "profile-products-panel";

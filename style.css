@@ -2463,6 +2463,8 @@ img[data-zoom-src]{
   border-radius:inherit;
   background:#f3f4f6;
   overflow:hidden;
+  display:block;
+  line-height:0;
 }
 
 #user-products-container .profile-product-stage{
@@ -2472,6 +2474,9 @@ img[data-zoom-src]{
   object-position:center center !important;
   padding:0;
   background:#f3f4f6;
+  display:block;
+  width:100%;
+  height:100%;
 }
 
 #user-products-container .profile-product-status-pill{
@@ -2485,7 +2490,7 @@ img[data-zoom-src]{
 }
 
 #user-products-container .profile-product-stage.image-is-portrait{
-  object-fit:contain !important;
+  object-fit:cover !important;
   object-position:center center !important;
   background:#f3f4f6;
 }
