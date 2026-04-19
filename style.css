@@ -2266,7 +2266,7 @@ img[data-zoom-src]{
 #user-products-container{
   display:grid;
   grid-template-columns:repeat(3, minmax(0, 1fr));
-  gap:6px;
+  gap:4px;
   position:relative;
   z-index:2;
   justify-items:stretch;
@@ -2446,24 +2446,32 @@ img[data-zoom-src]{
 
 #user-products-container .profile-product-card{
   aspect-ratio:1 / 1;
-  contain:layout paint;
+  contain:none;
   content-visibility:visible;
   contain-intrinsic-size:auto;
   min-width:0;
-  background:#fff;
+  background:#f3f4f6;
   overflow:hidden;
+  position:relative;
+  display:block;
+  border-radius:12px;
 }
 
 #user-products-container .profile-product-media{
-  border-radius:14px;
-  background:#fff;
+  position:absolute;
+  inset:0;
+  border-radius:inherit;
+  background:#f3f4f6;
+  overflow:hidden;
 }
 
 #user-products-container .profile-product-stage{
+  position:absolute;
+  inset:0;
   object-fit:cover !important;
   object-position:center center !important;
   padding:0;
-  background:#fff;
+  background:#f3f4f6;
 }
 
 #user-products-container .profile-product-status-pill{
@@ -6143,7 +6151,7 @@ button:hover,
   }
 
   #user-products-container{
-    gap:6px;
+    gap:4px;
   }
 
   .showcase-track{
