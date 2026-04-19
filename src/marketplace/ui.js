@@ -166,7 +166,25 @@
 
     function createShowcasePreviewMediaElement(product) {
       const media = createElement("div", { className: "product-card-media showcase-media" });
-      media.appendChild(createProductGalleryElement(product));
+      if (deps.renderFeedGalleryMarkup) {
+        media.appendChild(createElementFromMarkup(deps.renderFeedGalleryMarkup(product, "discovery")));
+        return media;
+      }
+
+      const primaryImage = deps.getMarketplacePrimaryImage
+        ? deps.getMarketplacePrimaryImage(product, {
+            allowOwnerVisibility: product.uploadedBy === deps.getCurrentUser?.()
+          })
+        : deps.sanitizeImageSource(product.image || (Array.isArray(product.images) ? product.images[0] : ""), deps.getImageFallbackDataUri("WINGA"));
+      media.appendChild(createResponsiveImage({
+        src: primaryImage,
+        alt: product.name || "Product image",
+        fallbackSrc: deps.getImageFallbackDataUri("WINGA"),
+        className: "showcase-preview-image",
+        attributes: {
+          "data-marketplace-scroll-image": "true"
+        }
+      }));
       return media;
     }
 
