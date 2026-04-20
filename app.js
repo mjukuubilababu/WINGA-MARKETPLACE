@@ -8938,6 +8938,9 @@ function bindFeedGalleryInteractions(scope = document) {
         if (track.scrollWidth <= track.clientWidth + 4 || isInteractiveTarget(event.target)) {
           return;
         }
+        if (isDetailCarousel && event.pointerType === "touch") {
+          return;
+        }
         if (event.pointerType === "mouse" && event.button !== 0) {
           return;
         }
