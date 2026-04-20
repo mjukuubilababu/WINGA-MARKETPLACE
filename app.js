@@ -8730,6 +8730,7 @@ function bindFeedGalleryInteractions(scope = document) {
     const track = carousel.querySelector("[data-feed-gallery-track]");
     const badge = carousel.querySelector("[data-feed-gallery-count]");
     const preview = carousel.closest(".feed-gallery-preview");
+    const isDetailCarousel = Boolean(carousel.closest("#product-detail-modal"));
     carousel.dataset.feedGalleryBound = "true";
     if (!track) {
       return;
@@ -8793,6 +8794,21 @@ function bindFeedGalleryInteractions(scope = document) {
       if (badge.textContent !== nextLabel) {
         badge.textContent = nextLabel;
       }
+    };
+
+    const snapToNearestSlide = (behavior = "auto") => {
+      const total = Math.max(1, Number(carousel.dataset.feedGalleryTotal || track.querySelectorAll("[data-feed-gallery-slide]").length || 1));
+      const width = Math.max(1, track.clientWidth || carousel.clientWidth || 1);
+      const nextIndex = Math.min(total - 1, Math.max(0, Math.round(track.scrollLeft / width)));
+      const targetLeft = nextIndex * width;
+      if (Math.abs(track.scrollLeft - targetLeft) < 1) {
+        return;
+      }
+      if (behavior === "smooth" && typeof track.scrollTo === "function") {
+        track.scrollTo({ left: targetLeft, behavior: "smooth" });
+        return;
+      }
+      track.scrollLeft = targetLeft;
     };
 
     let rafId = 0;
@@ -8872,6 +8888,9 @@ function bindFeedGalleryInteractions(scope = document) {
           suppressClickUntil = Date.now() + 220;
         }
         clearDragState();
+        if (isDetailCarousel) {
+          snapToNearestSlide("smooth");
+        }
         scheduleSync();
       });
 
@@ -8880,11 +8899,17 @@ function bindFeedGalleryInteractions(scope = document) {
           return;
         }
         clearDragState();
+        if (isDetailCarousel) {
+          snapToNearestSlide("smooth");
+        }
         scheduleSync();
       });
 
       track.addEventListener("lostpointercapture", () => {
         clearDragState();
+        if (isDetailCarousel) {
+          snapToNearestSlide("smooth");
+        }
         scheduleSync();
       });
     }

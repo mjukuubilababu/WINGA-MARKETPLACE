@@ -3361,7 +3361,7 @@ body.product-detail-open{
   width:100vw;
   margin:0;
   overscroll-behavior-x:none;
-  touch-action:auto;
+  touch-action:pan-y pinch-zoom;
   scrollbar-gutter:auto;
 }
 
@@ -3498,7 +3498,8 @@ body.product-detail-open{
 .product-detail-media .feed-gallery-carousel-track,
 .product-detail-media .feed-gallery-carousel-slide,
 .product-detail-media .feed-gallery-image-social{
-  touch-action:auto;
+  touch-action:pan-x pan-y;
+  -webkit-overflow-scrolling:touch;
 }
 
 #product-detail-modal .feed-gallery-preview{
