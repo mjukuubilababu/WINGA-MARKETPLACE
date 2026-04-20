@@ -7,6 +7,7 @@ const SELLER_HISTORY_KEY_PREFIX = "winga-seller-history";
 const REQUEST_BOX_KEY_PREFIX = "winga-request-box";
 const APP_BOOT_BUILD_VERSION = document.querySelector('meta[name="winga-build"]')?.content || "";
 const APP_STORAGE_SCHEMA_KEY = "winga-storage-schema-version";
+const HOME_SCROLL_STATE_KEY = "winga-home-scroll-state";
 const NOTIFICATION_PERMISSION_STATE_KEY = "winga-notification-permission-state";
 const NOTIFICATION_PERMISSION_PROMPT_COOLDOWN_MS = 12 * 60 * 60 * 1000;
 const NOTIFICATION_PERMISSION_TRIGGERS = new Set(["message", "reply", "request", "order", "profile"]);
@@ -202,6 +203,47 @@ function getStoredAppStorageSchemaVersion() {
     return String(localStorage.getItem(APP_STORAGE_SCHEMA_KEY) || "").trim();
   } catch (error) {
     return "";
+  }
+}
+
+function getStoredHomeScrollState() {
+  try {
+    const raw = sessionStorage.getItem(HOME_SCROLL_STATE_KEY);
+    if (!raw) {
+      return 0;
+    }
+    const parsed = JSON.parse(raw);
+    const scrollY = Number(parsed?.scrollY || 0);
+    return Number.isFinite(scrollY) && scrollY > 0 ? Math.max(0, Math.round(scrollY)) : 0;
+  } catch (error) {
+    return 0;
+  }
+}
+
+function saveHomeScrollState(scrollY = window.scrollY || 0) {
+  try {
+    const nextScrollY = Math.max(0, Math.round(Number(scrollY || 0) || 0));
+    if (nextScrollY <= 0) {
+      sessionStorage.removeItem(HOME_SCROLL_STATE_KEY);
+      return;
+    }
+    sessionStorage.setItem(HOME_SCROLL_STATE_KEY, JSON.stringify({
+      scrollY: nextScrollY,
+      path: window.location.pathname || "/",
+      updatedAt: Date.now()
+    }));
+  } catch (error) {
+    reportClientEvent("warn", "home_scroll_state_persist_failed", "Unable to persist home scroll state.", {
+      category: "runtime"
+    });
+  }
+}
+
+function clearHomeScrollState() {
+  try {
+    sessionStorage.removeItem(HOME_SCROLL_STATE_KEY);
+  } catch (error) {
+    // Ignore sessionStorage cleanup failures.
   }
 }
 
@@ -518,6 +560,64 @@ function syncBodyScrollLockState() {
   document.body.classList.toggle("context-chat-open", isContextChatVisible);
   document.body.classList.toggle("media-action-sheet-open", isMediaActionSheetVisible);
   document.body.classList.toggle("image-lightbox-open", isImageLightboxVisible);
+}
+
+function scheduleHomeScrollRestore(scrollY = null) {
+  const nextScrollY = Number.isFinite(Number(scrollY))
+    ? Math.max(0, Math.round(Number(scrollY || 0)))
+    : Math.max(0, Math.round(Number(uiRuntimeState.homeScrollRestoreY || getStoredHomeScrollState()) || 0));
+  if (uiRuntimeState.homeScrollRestoreFrame) {
+    cancelAnimationFrame(uiRuntimeState.homeScrollRestoreFrame);
+    uiRuntimeState.homeScrollRestoreFrame = 0;
+  }
+  if (nextScrollY <= 0) {
+    uiRuntimeState.homeScrollRestorePending = false;
+    uiRuntimeState.homeScrollRestoreY = 0;
+    return;
+  }
+  uiRuntimeState.homeScrollRestorePending = true;
+  uiRuntimeState.homeScrollRestoreY = nextScrollY;
+  uiRuntimeState.homeScrollRestoreFrame = requestAnimationFrame(() => {
+    uiRuntimeState.homeScrollRestoreFrame = 0;
+    requestAnimationFrame(() => {
+      if (currentView !== "home" || document.body.classList.contains("product-detail-open")) {
+        return;
+      }
+      const restoreY = Math.max(0, Math.round(Number(uiRuntimeState.homeScrollRestoreY || 0)));
+      if (restoreY <= 0) {
+        uiRuntimeState.homeScrollRestorePending = false;
+        return;
+      }
+      try {
+        window.scrollTo({ top: restoreY, left: 0, behavior: "auto" });
+      } catch (error) {
+        // Ignore scroll restore failures.
+      }
+      uiRuntimeState.homeScrollRestorePending = false;
+      uiRuntimeState.homeScrollRestoreY = 0;
+      clearHomeScrollState();
+    });
+  });
+}
+
+function scheduleHomeScrollSave(scrollY = window.scrollY || 0) {
+  if (uiRuntimeState.homeScrollSaveFrame) {
+    return;
+  }
+  uiRuntimeState.homeScrollSaveFrame = requestAnimationFrame(() => {
+    uiRuntimeState.homeScrollSaveFrame = 0;
+    if (currentView !== "home" || document.body.classList.contains("product-detail-open")) {
+      return;
+    }
+    saveHomeScrollState(scrollY);
+  });
+}
+
+function restoreStoredHomeScrollPosition() {
+  const storedScrollY = Number(getStoredHomeScrollState() || 0);
+  if (storedScrollY > 0) {
+    scheduleHomeScrollRestore(storedScrollY);
+  }
 }
 
 function resetTransientChromeState() {
@@ -4996,8 +5096,8 @@ const topBar = document.getElementById("top-bar");
 const bottomNav = document.getElementById("bottom-nav");
 const postProductFab = document.getElementById("post-product-fab");
 const viewHomeBackButton = document.getElementById("view-home-back");
-const disableHomepageHeroPanel = true;
-const disableStandaloneShowcaseSection = true;
+const SHOW_HOMEPAGE_HERO_PANEL = false;
+const SHOW_STANDALONE_SHOWCASE_SECTION = false;
 
 if (searchInput) {
   searchInput.setAttribute("autocomplete", "off");
@@ -6576,10 +6676,14 @@ viewHomeBackButton?.addEventListener("click", () => {
     syncHistory: "push"
   });
   renderCurrentView();
-  window.scrollTo({ top: 0, behavior: "smooth" });
+  restoreStoredHomeScrollPosition();
 });
 
 window.addEventListener("scroll", () => {
+  uiRuntimeState.lastScrollActivityAt = Date.now();
+  if (currentView === "home" && !document.body.classList.contains("product-detail-open")) {
+    scheduleHomeScrollSave();
+  }
   if (getViewportWidth() <= 720) {
     scheduleMobileHeaderScrollSync();
   }
@@ -7145,12 +7249,19 @@ async function hydrateMissingImageSignatures(productList = products) {
   const queue = pendingProducts.slice();
   await new Promise((resolve) => {
     const processNext = (deadline = null) => {
+      const recentScrollAt = Number(uiRuntimeState.lastScrollActivityAt || 0);
+      const scrollRecentlyActive = recentScrollAt > 0 && (Date.now() - recentScrollAt) < 900;
       const hasIdleBudget = !deadline
         || deadline.didTimeout
         || deadline.timeRemaining() > 8;
 
       if (!queue.length) {
         resolve();
+        return;
+      }
+
+      if (scrollRecentlyActive) {
+        scheduleIdleBackgroundWork(processNext, 1200);
         return;
       }
 
@@ -7280,21 +7391,25 @@ function loginSuccess(username, preferredCategory = "", sessionData = null, opti
   } else {
     renderCurrentView();
   }
-  window.requestAnimationFrame(() => {
-    window.scrollTo({ top: 0, behavior: "auto" });
-  });
+  if (nextView !== "home") {
+    window.requestAnimationFrame(() => {
+      window.scrollTo({ top: 0, behavior: "auto" });
+    });
+  } else if (!hasActiveProductDeepLink) {
+    restoreStoredHomeScrollPosition();
+  }
   updateProfileNavBadge();
   if (!isStaffUser()) {
     const hydrateRealtimeState = () => {
       connectRealtimeChannel();
       refreshPromotionsState().then(() => {
         if (currentView !== "profile") {
-          renderCurrentView();
+          scheduleRenderCurrentView();
         }
       });
       refreshOrdersState().then(() => {
         if (currentView !== "profile") {
-          renderCurrentView();
+          scheduleRenderCurrentView();
         }
       });
     };
@@ -7491,7 +7606,7 @@ window.addEventListener("popstate", (event) => {
 });
 
 function syncHeroPanelPosition(isProfile, isUpload) {
-  if (disableHomepageHeroPanel || !heroPanel || !productsSummary) {
+  if (!SHOW_HOMEPAGE_HERO_PANEL || !heroPanel || !productsSummary) {
     return;
   }
 
@@ -7959,7 +8074,7 @@ function renderDiscoveryProductCards(items, options = {}) {
               ${safeCaption.length > 120 ? `<button class="product-caption-toggle" type="button" data-product-caption-toggle="true" aria-expanded="false">See more</button>` : ""}
             </div>
             ${promotion ? `<p class="product-meta trust-badges"><span class="status-pill approved sponsored-pill">${escapeHtml(getPromotionLabel(promotion.type))}</span></p>` : ""}
-            ${renderProductActionGroup(item, { requestLabel: "Request", extraClass: "seller-product-actions seller-product-actions-compact" })}
+${renderProductActionGroup(item, { requestLabel: "My Request", extraClass: "seller-product-actions seller-product-actions-compact" })}
           </article>
         `;
       }).join("")}
@@ -8612,8 +8727,37 @@ function bindFeedGalleryInteractions(scope = document) {
       return;
     }
 
+    let pointerId = null;
+    let pointerStartX = 0;
+    let pointerStartY = 0;
+    let pointerStartScrollLeft = 0;
+    let isDragging = false;
+    let hasPointerCapture = false;
+    let suppressClickUntil = 0;
+
+    const clearDragState = () => {
+      if (hasPointerCapture && pointerId != null) {
+        track.releasePointerCapture?.(pointerId);
+      }
+      pointerId = null;
+      isDragging = false;
+      hasPointerCapture = false;
+      track.classList.remove("is-dragging");
+    };
+
+    const beginDrag = () => {
+      if (isDragging) {
+        return;
+      }
+      isDragging = true;
+      track.classList.add("is-dragging");
+    };
+
+    const isInteractiveTarget = (target) => target instanceof Element
+      && Boolean(target.closest("button, a, input, select, textarea, label, [data-product-action]"));
+
     const syncAspectRatio = () => {
-      if (!preview || !preview.closest("#products-container")) {
+      if (!preview) {
         return;
       }
       const firstImage = carousel.querySelector(".feed-gallery-carousel-slide .feed-gallery-image-social");
@@ -8655,6 +8799,12 @@ function bindFeedGalleryInteractions(scope = document) {
     };
 
     track.addEventListener("scroll", scheduleSync, { passive: true });
+    track.addEventListener("click", (event) => {
+      if (suppressClickUntil && Date.now() < suppressClickUntil) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    }, true);
     window.addEventListener("resize", scheduleSync, { passive: true });
     const firstImage = carousel.querySelector(".feed-gallery-carousel-slide .feed-gallery-image-social");
     if (firstImage) {
@@ -8668,6 +8818,63 @@ function bindFeedGalleryInteractions(scope = document) {
       syncAspectRatio();
       syncBadge();
     }, 0);
+
+    if (typeof PointerEvent !== "undefined") {
+      track.addEventListener("pointerdown", (event) => {
+        if (track.scrollWidth <= track.clientWidth + 4 || isInteractiveTarget(event.target)) {
+          return;
+        }
+        if (event.pointerType === "mouse" && event.button !== 0) {
+          return;
+        }
+        pointerId = event.pointerId;
+        pointerStartX = event.clientX;
+        pointerStartY = event.clientY;
+        pointerStartScrollLeft = track.scrollLeft;
+        isDragging = false;
+        track.setPointerCapture?.(event.pointerId);
+        hasPointerCapture = true;
+      });
+
+      track.addEventListener("pointermove", (event) => {
+        if (pointerId !== event.pointerId) {
+          return;
+        }
+        const deltaX = event.clientX - pointerStartX;
+        const deltaY = event.clientY - pointerStartY;
+        if (!isDragging) {
+          if (Math.abs(deltaX) < 8 || Math.abs(deltaX) <= Math.abs(deltaY) + 4) {
+            return;
+          }
+          beginDrag();
+        }
+        if (event.cancelable) {
+          event.preventDefault();
+        }
+        track.scrollLeft = pointerStartScrollLeft - deltaX;
+      });
+
+      track.addEventListener("pointerup", (event) => {
+        if (pointerId !== event.pointerId) {
+          return;
+        }
+        if (isDragging) {
+          suppressClickUntil = Date.now() + 220;
+        }
+        clearDragState();
+      });
+
+      track.addEventListener("pointercancel", (event) => {
+        if (pointerId !== event.pointerId) {
+          return;
+        }
+        clearDragState();
+      });
+
+      track.addEventListener("lostpointercapture", () => {
+        clearDragState();
+      });
+    }
   });
 }
 
@@ -8772,7 +8979,7 @@ function setupDynamicShowcaseLoading(scope, usedIds = new Set()) {
 }
 
 function renderMarketShowcase() {
-  if (disableStandaloneShowcaseSection) {
+  if (!SHOW_STANDALONE_SHOWCASE_SECTION) {
     marketShowcase?.replaceChildren();
     if (marketShowcase) {
       marketShowcase.style.display = "none";
@@ -9943,6 +10150,9 @@ async function bootApp() {
     applySessionState(cachedSession);
     saveSessionUser(cachedSession);
   }
+  if ("scrollRestoration" in window.history) {
+    window.history.scrollRestoration = "manual";
+  }
   if (suppressInitialProductHomeRender) {
     showDeepLinkLoadingState("Tunafungua bidhaa uliyoifungua...");
   }
@@ -9976,17 +10186,28 @@ async function bootApp() {
     // Ignore passive image signature hydration failures during boot.
   });
 
-  window.setTimeout(() => {
-    scheduleIdleBackgroundWork(() => {
-      window.WingaDataLayer.loadReviews()
-        .then((reviewPayload) => {
-          currentReviews = Array.isArray(reviewPayload?.reviews) ? reviewPayload.reviews : [];
-          reviewSummaries = reviewPayload?.summaries || {};
-          if (currentView !== "home" || document.body.classList.contains("product-detail-open")) {
-            renderCurrentView();
-          }
-        })
-        .catch((error) => {
+      window.setTimeout(() => {
+        scheduleIdleBackgroundWork(() => {
+          window.WingaDataLayer.loadReviews()
+            .then((reviewPayload) => {
+              currentReviews = Array.isArray(reviewPayload?.reviews) ? reviewPayload.reviews : [];
+              reviewSummaries = reviewPayload?.summaries || {};
+              const scrollRecentlyActive = Date.now() - Number(uiRuntimeState.lastScrollActivityAt || 0) < 900;
+              if (!scrollRecentlyActive && (currentView !== "home" || document.body.classList.contains("product-detail-open"))) {
+                scheduleRenderCurrentView();
+              } else if (scrollRecentlyActive) {
+                window.setTimeout(() => {
+                  if (currentView !== "home" || document.body.classList.contains("product-detail-open")) {
+                    return;
+                  }
+                  if (Date.now() - Number(uiRuntimeState.lastScrollActivityAt || 0) < 900) {
+                    return;
+                  }
+                  scheduleRenderCurrentView();
+                }, 1200);
+              }
+            })
+            .catch((error) => {
           currentReviews = [];
           reviewSummaries = {};
           captureClientError("reviews_boot_load_failed", error, {

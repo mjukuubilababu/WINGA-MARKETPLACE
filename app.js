@@ -8727,8 +8727,37 @@ function bindFeedGalleryInteractions(scope = document) {
       return;
     }
 
+    let pointerId = null;
+    let pointerStartX = 0;
+    let pointerStartY = 0;
+    let pointerStartScrollLeft = 0;
+    let isDragging = false;
+    let hasPointerCapture = false;
+    let suppressClickUntil = 0;
+
+    const clearDragState = () => {
+      if (hasPointerCapture && pointerId != null) {
+        track.releasePointerCapture?.(pointerId);
+      }
+      pointerId = null;
+      isDragging = false;
+      hasPointerCapture = false;
+      track.classList.remove("is-dragging");
+    };
+
+    const beginDrag = () => {
+      if (isDragging) {
+        return;
+      }
+      isDragging = true;
+      track.classList.add("is-dragging");
+    };
+
+    const isInteractiveTarget = (target) => target instanceof Element
+      && Boolean(target.closest("button, a, input, select, textarea, label, [data-product-action]"));
+
     const syncAspectRatio = () => {
-      if (!preview || !preview.closest("#products-container")) {
+      if (!preview) {
         return;
       }
       const firstImage = carousel.querySelector(".feed-gallery-carousel-slide .feed-gallery-image-social");
@@ -8770,6 +8799,12 @@ function bindFeedGalleryInteractions(scope = document) {
     };
 
     track.addEventListener("scroll", scheduleSync, { passive: true });
+    track.addEventListener("click", (event) => {
+      if (suppressClickUntil && Date.now() < suppressClickUntil) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    }, true);
     window.addEventListener("resize", scheduleSync, { passive: true });
     const firstImage = carousel.querySelector(".feed-gallery-carousel-slide .feed-gallery-image-social");
     if (firstImage) {
@@ -8783,6 +8818,63 @@ function bindFeedGalleryInteractions(scope = document) {
       syncAspectRatio();
       syncBadge();
     }, 0);
+
+    if (typeof PointerEvent !== "undefined") {
+      track.addEventListener("pointerdown", (event) => {
+        if (track.scrollWidth <= track.clientWidth + 4 || isInteractiveTarget(event.target)) {
+          return;
+        }
+        if (event.pointerType === "mouse" && event.button !== 0) {
+          return;
+        }
+        pointerId = event.pointerId;
+        pointerStartX = event.clientX;
+        pointerStartY = event.clientY;
+        pointerStartScrollLeft = track.scrollLeft;
+        isDragging = false;
+        track.setPointerCapture?.(event.pointerId);
+        hasPointerCapture = true;
+      });
+
+      track.addEventListener("pointermove", (event) => {
+        if (pointerId !== event.pointerId) {
+          return;
+        }
+        const deltaX = event.clientX - pointerStartX;
+        const deltaY = event.clientY - pointerStartY;
+        if (!isDragging) {
+          if (Math.abs(deltaX) < 8 || Math.abs(deltaX) <= Math.abs(deltaY) + 4) {
+            return;
+          }
+          beginDrag();
+        }
+        if (event.cancelable) {
+          event.preventDefault();
+        }
+        track.scrollLeft = pointerStartScrollLeft - deltaX;
+      });
+
+      track.addEventListener("pointerup", (event) => {
+        if (pointerId !== event.pointerId) {
+          return;
+        }
+        if (isDragging) {
+          suppressClickUntil = Date.now() + 220;
+        }
+        clearDragState();
+      });
+
+      track.addEventListener("pointercancel", (event) => {
+        if (pointerId !== event.pointerId) {
+          return;
+        }
+        clearDragState();
+      });
+
+      track.addEventListener("lostpointercapture", () => {
+        clearDragState();
+      });
+    }
   });
 }
 

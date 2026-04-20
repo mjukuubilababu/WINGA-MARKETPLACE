@@ -263,7 +263,12 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         mobileHeaderLastScrollY: 0,
         mobileHeaderLastToggleY: 0,
         mobileHeaderHidden: false,
-        mobileHeaderScrollFrame: 0
+        mobileHeaderScrollFrame: 0,
+        lastScrollActivityAt: 0,
+        homeScrollSaveFrame: 0,
+        homeScrollRestoreFrame: 0,
+        homeScrollRestorePending: false,
+        homeScrollRestoreY: 0
       },
       search: {
         activeImageSearch: null,
@@ -2754,7 +2759,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
 
     function createProductActionGroupElement(product) {
       return deps.createElementFromMarkup(
-        deps.renderProductActionGroup(product, { requestLabel: "Add to My Requests" })
+        deps.renderProductActionGroup(product, { requestLabel: "My Request" })
       );
     }
 
@@ -2952,7 +2957,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       }
       body.append(
         deps.createElementFromMarkup(
-          deps.renderProductActionGroup(product, { requestLabel: "Request", extraClass: "showcase-actions showcase-actions-compact" })
+          deps.renderProductActionGroup(product, { requestLabel: "My Request", extraClass: "showcase-actions showcase-actions-compact" })
         )
       );
       card.append(media, body);
@@ -3814,7 +3819,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       if (!groups.length) {
         section.appendChild(deps.createElement("p", {
           className: "empty-copy",
-          textContent: "Hakuna bidhaa kwenye My Requests bado. Tumia Add to My Requests kwenye bidhaa uzikusanye hapa."
+          textContent: "Hakuna bidhaa kwenye My Requests bado. Tumia My Request kwenye bidhaa uzikusanye hapa."
         }));
         return section;
       }
@@ -4133,7 +4138,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       `;
     }
 
-    function renderRequestBoxButton(product, label = "Add to My Requests") {
+    function renderRequestBoxButton(product, label = "My Request") {
       const currentUser = getCurrentUser();
       if (product.status !== "approved") {
         return `<button class="action-btn action-btn-secondary request-btn is-disabled" type="button" disabled aria-disabled="true">Unavailable</button>`;
@@ -4149,7 +4154,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
     }
 
     function renderProductActionGroup(product, options = {}) {
-      const { requestLabel = "Add to My Requests", extraClass = "" } = options;
+      const { requestLabel = "My Request", extraClass = "" } = options;
       const buyButton = renderBuyButton(product);
       const messageButton = renderMessageSellerButton(product);
       const requestButton = renderRequestBoxButton(product, requestLabel);
@@ -8549,7 +8554,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         body.appendChild(deps.createFragmentFromMarkup(itemTrustBadges));
       }
       body.appendChild(deps.createFragmentFromMarkup(
-        deps.renderProductActionGroup(item, { requestLabel: "Add to My Requests", extraClass: "seller-product-actions" })
+        deps.renderProductActionGroup(item, { requestLabel: "My Request", extraClass: "seller-product-actions" })
       ));
       card.append(media, body);
       return card;
@@ -8611,44 +8616,49 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
 
       const wrapper = deps.createElement("div");
       const layout = deps.createElement("div", { className: "product-detail-layout" });
+      const useFeedCarousel = detailImages.length > 1 && typeof deps.renderFeedGalleryMarkup === "function";
       const media = deps.createElement("div", {
-        className: `product-detail-media${detailImages.length > 1 ? " has-media-stack" : ""}`
+        className: `product-detail-media${detailImages.length > 1 && !useFeedCarousel ? " has-media-stack" : ""}`
       });
-      const mainImageElement = deps.createElement("img", {
-        className: "product-detail-image zoomable-image",
-        attributes: {
-          src: safeMainImage,
-          alt: safeProductName,
-          loading: "lazy",
-          "data-zoom-src": safeMainImage,
-          "data-zoom-alt": safeProductName,
-          "data-image-action-product": product.id,
-          "data-image-action-src": safeMainImage,
-          "data-image-action-surface": "detail",
-          "data-fallback-src": deps.getImageFallbackDataUri("WINGA")
-        }
-      });
-      media.appendChild(mainImageElement);
-      if (detailImages.length > 1) {
-        const thumbGrid = deps.createElement("div", { className: "product-detail-thumb-grid" });
-        detailImages.forEach((image, index) => {
-          thumbGrid.appendChild(deps.createElement("img", {
-            className: `product-detail-thumb${image === safeMainImage ? " active" : ""}`,
-            attributes: {
-              src: image,
-              alt: `${safeProductName} ${index + 1}`,
-              loading: "lazy",
-              "data-detail-image": image,
-              "data-detail-image-index": String(index),
-              "data-disable-image-zoom": "true",
-              "data-image-action-product": product.id,
-              "data-image-action-src": image,
-              "data-image-action-surface": "detail-thumb",
-              "data-fallback-src": deps.getImageFallbackDataUri("W")
-            }
-          }));
+      if (useFeedCarousel) {
+        media.appendChild(deps.createFragmentFromMarkup(deps.renderFeedGalleryMarkup(product, "feed")));
+      } else {
+        const mainImageElement = deps.createElement("img", {
+          className: "product-detail-image zoomable-image",
+          attributes: {
+            src: safeMainImage,
+            alt: safeProductName,
+            loading: "lazy",
+            "data-zoom-src": safeMainImage,
+            "data-zoom-alt": safeProductName,
+            "data-image-action-product": product.id,
+            "data-image-action-src": safeMainImage,
+            "data-image-action-surface": "detail",
+            "data-fallback-src": deps.getImageFallbackDataUri("WINGA")
+          }
         });
-        media.appendChild(thumbGrid);
+        media.appendChild(mainImageElement);
+        if (detailImages.length > 1) {
+          const thumbGrid = deps.createElement("div", { className: "product-detail-thumb-grid" });
+          detailImages.forEach((image, index) => {
+            thumbGrid.appendChild(deps.createElement("img", {
+              className: `product-detail-thumb${image === safeMainImage ? " active" : ""}`,
+              attributes: {
+                src: image,
+                alt: `${safeProductName} ${index + 1}`,
+                loading: "lazy",
+                "data-detail-image": image,
+                "data-detail-image-index": String(index),
+                "data-disable-image-zoom": "true",
+                "data-image-action-product": product.id,
+                "data-image-action-src": image,
+                "data-image-action-surface": "detail-thumb",
+                "data-fallback-src": deps.getImageFallbackDataUri("W")
+              }
+            }));
+          });
+          media.appendChild(thumbGrid);
+        }
       }
 
       const copy = deps.createElement("div", { className: "product-detail-copy" });
@@ -9119,6 +9129,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       anchor.after(section);
       section.after(anchor);
       deps.enhanceShowcaseTracks?.(section);
+      deps.bindFeedGalleryInteractions?.(section);
       bindInlineProductActions(section, product);
       deps.bindProductMenus?.(section);
       deps.bindImageFallbacks?.(section);
@@ -9167,7 +9178,8 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
     function finalizeHomeNavigation() {
       closeProductDetailModal({
         skipHistoryBack: true,
-        skipContextRestore: true
+        skipContextRestore: false,
+        skipRootCardScroll: true
       });
       deps.resetHomeBrowseState?.();
       deps.setCurrentViewState?.("home");
@@ -9176,7 +9188,6 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         force: true,
         url: "/"
       });
-      window.scrollTo({ top: 0, behavior: "auto" });
     }
 
     function goHomeFromProductDetail() {
@@ -9272,7 +9283,8 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
     function closeProductDetailModal(options = {}) {
       const {
         skipHistoryBack = false,
-        skipContextRestore = false
+        skipContextRestore = false,
+        skipRootCardScroll = false
       } = options;
       if (!skipHistoryBack && syncHistoryForClose()) {
         return;
@@ -9281,6 +9293,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       if (!modal) {
         return;
       }
+      const restoreScrollY = Number(detailNavState.rootScrollY || 0) || 0;
       modal.style.display = "none";
       document.body.classList.remove("product-detail-open");
       disconnectDetailContinuousObserver();
@@ -9288,12 +9301,9 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       deps.resetProductDiscoveryTrail();
       deps.resetReviewDraft();
       if (!skipContextRestore) {
-        window.scrollTo({ top: detailNavState.rootScrollY || 0, behavior: "auto" });
-      }
-      if (!skipContextRestore && detailNavState.rootProductId) {
-        window.setTimeout(() => {
-          deps.scrollToProductCard?.(detailNavState.rootProductId);
-        }, 40);
+        if (restoreScrollY > 0) {
+          deps.scheduleHomeScrollRestore?.(restoreScrollY);
+        }
       }
       detailNavState = {
         rootScrollY: 0,
@@ -9625,6 +9635,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       }
       bindProductDetailActions(modal, product);
       deps.enhanceShowcaseTracks?.(modal);
+      deps.bindFeedGalleryInteractions?.(modal);
       deps.bindProductMenus?.(modal);
       deps.bindImageFallbacks?.(modal);
       setupDetailContinuousDiscovery(modal, product, shownProductIds);
