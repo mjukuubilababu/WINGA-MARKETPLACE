@@ -222,7 +222,7 @@
         body.appendChild(deps.createFragmentFromMarkup(itemTrustBadges));
       }
       body.appendChild(deps.createFragmentFromMarkup(
-        deps.renderProductActionGroup(item, { requestLabel: "Add to My Requests", extraClass: "seller-product-actions" })
+        deps.renderProductActionGroup(item, { requestLabel: "My Request", extraClass: "seller-product-actions" })
       ));
       card.append(media, body);
       return card;

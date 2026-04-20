@@ -511,7 +511,7 @@
       if (!groups.length) {
         section.appendChild(deps.createElement("p", {
           className: "empty-copy",
-          textContent: "Hakuna bidhaa kwenye My Requests bado. Tumia Add to My Requests kwenye bidhaa uzikusanye hapa."
+          textContent: "Hakuna bidhaa kwenye My Requests bado. Tumia My Request kwenye bidhaa uzikusanye hapa."
         }));
         return section;
       }

@@ -132,7 +132,7 @@
       `;
     }
 
-    function renderRequestBoxButton(product, label = "Add to My Requests") {
+    function renderRequestBoxButton(product, label = "My Request") {
       const currentUser = getCurrentUser();
       if (product.status !== "approved") {
         return `<button class="action-btn action-btn-secondary request-btn is-disabled" type="button" disabled aria-disabled="true">Unavailable</button>`;
@@ -148,7 +148,7 @@
     }
 
     function renderProductActionGroup(product, options = {}) {
-      const { requestLabel = "Add to My Requests", extraClass = "" } = options;
+      const { requestLabel = "My Request", extraClass = "" } = options;
       const buyButton = renderBuyButton(product);
       const messageButton = renderMessageSellerButton(product);
       const requestButton = renderRequestBoxButton(product, requestLabel);

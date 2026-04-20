@@ -7404,12 +7404,12 @@ function loginSuccess(username, preferredCategory = "", sessionData = null, opti
       connectRealtimeChannel();
       refreshPromotionsState().then(() => {
         if (currentView !== "profile") {
-          renderCurrentView();
+          scheduleRenderCurrentView();
         }
       });
       refreshOrdersState().then(() => {
         if (currentView !== "profile") {
-          renderCurrentView();
+          scheduleRenderCurrentView();
         }
       });
     };
@@ -8074,7 +8074,7 @@ function renderDiscoveryProductCards(items, options = {}) {
               ${safeCaption.length > 120 ? `<button class="product-caption-toggle" type="button" data-product-caption-toggle="true" aria-expanded="false">See more</button>` : ""}
             </div>
             ${promotion ? `<p class="product-meta trust-badges"><span class="status-pill approved sponsored-pill">${escapeHtml(getPromotionLabel(promotion.type))}</span></p>` : ""}
-            ${renderProductActionGroup(item, { requestLabel: "Request", extraClass: "seller-product-actions seller-product-actions-compact" })}
+${renderProductActionGroup(item, { requestLabel: "My Request", extraClass: "seller-product-actions seller-product-actions-compact" })}
           </article>
         `;
       }).join("")}
@@ -10102,7 +10102,7 @@ async function bootApp() {
               reviewSummaries = reviewPayload?.summaries || {};
               const scrollRecentlyActive = Date.now() - Number(uiRuntimeState.lastScrollActivityAt || 0) < 900;
               if (!scrollRecentlyActive && (currentView !== "home" || document.body.classList.contains("product-detail-open"))) {
-                renderCurrentView();
+                scheduleRenderCurrentView();
               } else if (scrollRecentlyActive) {
                 window.setTimeout(() => {
                   if (currentView !== "home" || document.body.classList.contains("product-detail-open")) {
@@ -10111,7 +10111,7 @@ async function bootApp() {
                   if (Date.now() - Number(uiRuntimeState.lastScrollActivityAt || 0) < 900) {
                     return;
                   }
-                  renderCurrentView();
+                  scheduleRenderCurrentView();
                 }, 1200);
               }
             })

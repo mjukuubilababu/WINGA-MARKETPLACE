@@ -160,7 +160,7 @@
 
     function createProductActionGroupElement(product) {
       return deps.createElementFromMarkup(
-        deps.renderProductActionGroup(product, { requestLabel: "Add to My Requests" })
+        deps.renderProductActionGroup(product, { requestLabel: "My Request" })
       );
     }
 
@@ -358,7 +358,7 @@
       }
       body.append(
         deps.createElementFromMarkup(
-          deps.renderProductActionGroup(product, { requestLabel: "Request", extraClass: "showcase-actions showcase-actions-compact" })
+          deps.renderProductActionGroup(product, { requestLabel: "My Request", extraClass: "showcase-actions showcase-actions-compact" })
         )
       );
       card.append(media, body);
