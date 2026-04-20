@@ -2573,6 +2573,7 @@ img[data-zoom-src]{
   scrollbar-width:none;
   -ms-overflow-style:none;
   overscroll-behavior-x:contain;
+  touch-action:pan-x pan-y;
 }
 
 .feed-gallery-carousel-track.is-dragging{
@@ -6601,7 +6602,7 @@ button:hover,
   #products-container .feed-gallery-carousel,
   #products-container .feed-gallery-carousel-track,
   #products-container .feed-gallery-carousel-slide{
-    touch-action:auto;
+    touch-action:pan-x pan-y;
   }
 
   #products-container .product-card,
@@ -6636,7 +6637,7 @@ button:hover,
   }
 
   .feed-gallery-carousel-track{
-    touch-action:auto;
+    touch-action:pan-x pan-y;
   }
 
   #products-container .showcase-inline{
