@@ -8802,6 +8802,9 @@ function bindFeedGalleryInteractions(scope = document) {
     let pointerStartX = 0;
     let pointerStartY = 0;
     let pointerStartScrollLeft = 0;
+    let lastPointerMoveX = 0;
+    let lastPointerMoveTime = 0;
+    let gestureVelocity = 0;
     let isDragging = false;
     let hasPointerCapture = false;
     let suppressClickUntil = 0;
@@ -8873,6 +8876,29 @@ function bindFeedGalleryInteractions(scope = document) {
       track.scrollLeft = targetLeft;
     };
 
+    const settleDetailCarousel = () => {
+      if (!isDetailCarousel) {
+        snapToNearestSlide("smooth");
+        return;
+      }
+      const total = Math.max(1, Number(carousel.dataset.feedGalleryTotal || track.querySelectorAll("[data-feed-gallery-slide]").length || 1));
+      const width = Math.max(1, track.clientWidth || carousel.clientWidth || 1);
+      const baseIndex = Math.min(total - 1, Math.max(0, Math.round(track.scrollLeft / width)));
+      const velocityAbs = Math.abs(Number(gestureVelocity || 0));
+      let targetIndex = baseIndex;
+      if (velocityAbs >= 0.32) {
+        const jump = Math.min(3, Math.max(1, Math.round(velocityAbs / 0.55)));
+        targetIndex = baseIndex + (gestureVelocity < 0 ? jump : -jump);
+      }
+      targetIndex = Math.min(total - 1, Math.max(0, targetIndex));
+      const targetLeft = targetIndex * width;
+      if (typeof track.scrollTo === "function") {
+        track.scrollTo({ left: targetLeft, behavior: "smooth" });
+        return;
+      }
+      track.scrollLeft = targetLeft;
+    };
+
     let rafId = 0;
     const scheduleSync = () => {
       if (rafId) {
@@ -8919,6 +8945,9 @@ function bindFeedGalleryInteractions(scope = document) {
         pointerStartX = event.clientX;
         pointerStartY = event.clientY;
         pointerStartScrollLeft = track.scrollLeft;
+        lastPointerMoveX = event.clientX;
+        lastPointerMoveTime = getPerfNow();
+        gestureVelocity = 0;
         isDragging = false;
         track.setPointerCapture?.(event.pointerId);
         hasPointerCapture = true;
@@ -8940,6 +8969,11 @@ function bindFeedGalleryInteractions(scope = document) {
           event.preventDefault();
         }
         track.scrollLeft = pointerStartScrollLeft - deltaX;
+        const now = getPerfNow();
+        const elapsed = Math.max(1, now - Number(lastPointerMoveTime || now));
+        gestureVelocity = (event.clientX - Number(lastPointerMoveX || event.clientX)) / elapsed;
+        lastPointerMoveX = event.clientX;
+        lastPointerMoveTime = now;
       });
 
       track.addEventListener("pointerup", (event) => {
@@ -8950,9 +8984,7 @@ function bindFeedGalleryInteractions(scope = document) {
           suppressClickUntil = Date.now() + 220;
         }
         clearDragState();
-        if (isDetailCarousel) {
-          snapToNearestSlide("smooth");
-        }
+        settleDetailCarousel();
         scheduleSync();
       });
 
@@ -8961,17 +8993,13 @@ function bindFeedGalleryInteractions(scope = document) {
           return;
         }
         clearDragState();
-        if (isDetailCarousel) {
-          snapToNearestSlide("smooth");
-        }
+        settleDetailCarousel();
         scheduleSync();
       });
 
       track.addEventListener("lostpointercapture", () => {
         clearDragState();
-        if (isDetailCarousel) {
-          snapToNearestSlide("smooth");
-        }
+        settleDetailCarousel();
         scheduleSync();
       });
     }
