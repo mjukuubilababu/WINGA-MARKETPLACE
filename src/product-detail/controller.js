@@ -306,6 +306,7 @@
       anchor.after(section);
       section.after(anchor);
       deps.enhanceShowcaseTracks?.(section);
+      deps.bindFeedGalleryInteractions?.(section);
       bindInlineProductActions(section, product);
       deps.bindProductMenus?.(section);
       deps.bindImageFallbacks?.(section);
@@ -811,6 +812,7 @@
       }
       bindProductDetailActions(modal, product);
       deps.enhanceShowcaseTracks?.(modal);
+      deps.bindFeedGalleryInteractions?.(modal);
       deps.bindProductMenus?.(modal);
       deps.bindImageFallbacks?.(modal);
       setupDetailContinuousDiscovery(modal, product, shownProductIds);

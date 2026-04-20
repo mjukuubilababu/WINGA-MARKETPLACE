@@ -287,41 +287,45 @@
       const media = deps.createElement("div", {
         className: `product-detail-media${detailImages.length > 1 ? " has-media-stack" : ""}`
       });
-      const mainImageElement = deps.createElement("img", {
-        className: "product-detail-image zoomable-image",
-        attributes: {
-          src: safeMainImage,
-          alt: safeProductName,
-          loading: "lazy",
-          "data-zoom-src": safeMainImage,
-          "data-zoom-alt": safeProductName,
-          "data-image-action-product": product.id,
-          "data-image-action-src": safeMainImage,
-          "data-image-action-surface": "detail",
-          "data-fallback-src": deps.getImageFallbackDataUri("WINGA")
-        }
-      });
-      media.appendChild(mainImageElement);
-      if (detailImages.length > 1) {
-        const thumbGrid = deps.createElement("div", { className: "product-detail-thumb-grid" });
-        detailImages.forEach((image, index) => {
-          thumbGrid.appendChild(deps.createElement("img", {
-            className: `product-detail-thumb${image === safeMainImage ? " active" : ""}`,
-            attributes: {
-              src: image,
-              alt: `${safeProductName} ${index + 1}`,
-              loading: "lazy",
-              "data-detail-image": image,
-              "data-detail-image-index": String(index),
-              "data-disable-image-zoom": "true",
-              "data-image-action-product": product.id,
-              "data-image-action-src": image,
-              "data-image-action-surface": "detail-thumb",
-              "data-fallback-src": deps.getImageFallbackDataUri("W")
-            }
-          }));
+      if (detailImages.length > 1 && typeof deps.renderFeedGalleryMarkup === "function") {
+        media.appendChild(deps.createFragmentFromMarkup(deps.renderFeedGalleryMarkup(product, "detail")));
+      } else {
+        const mainImageElement = deps.createElement("img", {
+          className: "product-detail-image zoomable-image",
+          attributes: {
+            src: safeMainImage,
+            alt: safeProductName,
+            loading: "lazy",
+            "data-zoom-src": safeMainImage,
+            "data-zoom-alt": safeProductName,
+            "data-image-action-product": product.id,
+            "data-image-action-src": safeMainImage,
+            "data-image-action-surface": "detail",
+            "data-fallback-src": deps.getImageFallbackDataUri("WINGA")
+          }
         });
-        media.appendChild(thumbGrid);
+        media.appendChild(mainImageElement);
+        if (detailImages.length > 1) {
+          const thumbGrid = deps.createElement("div", { className: "product-detail-thumb-grid" });
+          detailImages.forEach((image, index) => {
+            thumbGrid.appendChild(deps.createElement("img", {
+              className: `product-detail-thumb${image === safeMainImage ? " active" : ""}`,
+              attributes: {
+                src: image,
+                alt: `${safeProductName} ${index + 1}`,
+                loading: "lazy",
+                "data-detail-image": image,
+                "data-detail-image-index": String(index),
+                "data-disable-image-zoom": "true",
+                "data-image-action-product": product.id,
+                "data-image-action-src": image,
+                "data-image-action-surface": "detail-thumb",
+                "data-fallback-src": deps.getImageFallbackDataUri("W")
+              }
+            }));
+          });
+          media.appendChild(thumbGrid);
+        }
       }
 
       const copy = deps.createElement("div", { className: "product-detail-copy" });
