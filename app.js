@@ -8799,6 +8799,8 @@ function bindFeedGalleryInteractions(scope = document) {
     };
 
     track.addEventListener("scroll", scheduleSync, { passive: true });
+    track.addEventListener("touchend", scheduleSync, { passive: true });
+    track.addEventListener("touchcancel", scheduleSync, { passive: true });
     track.addEventListener("click", (event) => {
       if (suppressClickUntil && Date.now() < suppressClickUntil) {
         event.preventDefault();
@@ -8862,6 +8864,7 @@ function bindFeedGalleryInteractions(scope = document) {
           suppressClickUntil = Date.now() + 220;
         }
         clearDragState();
+        scheduleSync();
       });
 
       track.addEventListener("pointercancel", (event) => {
@@ -8869,10 +8872,12 @@ function bindFeedGalleryInteractions(scope = document) {
           return;
         }
         clearDragState();
+        scheduleSync();
       });
 
       track.addEventListener("lostpointercapture", () => {
         clearDragState();
+        scheduleSync();
       });
     }
   });
@@ -9740,10 +9745,19 @@ function openProductDetailModal(productId, options = {}) {
   }
 
   setDeepLinkLoadingShellVisible(true);
-  return openProductDetailModalFromController(normalizedProductId, {
+  const result = openProductDetailModalFromController(normalizedProductId, {
     allowBrokenImageFallbackOpen: true,
     ...options
   });
+  window.requestAnimationFrame(() => {
+    window.requestAnimationFrame(() => {
+      const modal = document.getElementById("product-detail-modal");
+      if (modal) {
+        bindFeedGalleryInteractions(modal);
+      }
+    });
+  });
+  return result;
 }
 
 
