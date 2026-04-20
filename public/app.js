@@ -5060,6 +5060,7 @@ const uploadForm = document.getElementById("upload-form");
 const uploadTitle = document.getElementById("upload-title");
 const cancelEditButton = document.getElementById("cancel-edit-button");
 const emptyState = document.getElementById("empty-state");
+const feedLoadingState = document.getElementById("feed-loading-state");
 const analyticsPanel = document.getElementById("analytics-panel");
 const adminPanel = document.getElementById("admin-panel");
 
@@ -5649,6 +5650,13 @@ function showDeepLinkLoadingState(message = "Tunafungua bidhaa uliyoifungua...")
 function hideDeepLinkLoadingState() {
   hideDeepLinkLoadingOverlay();
   setDeepLinkLoadingShellVisible(true);
+}
+
+function setFeedLoadingStateVisible(visible) {
+  if (!feedLoadingState) {
+    return;
+  }
+  feedLoadingState.style.display = visible ? "grid" : "none";
 }
 
 function tryOpenPendingDeepLinkProductRoute() {
@@ -9205,6 +9213,12 @@ function renderCurrentView() {
     const isAdminView = currentView === "admin" && isStaffUser();
     const isGuest = !isAuthenticatedUser();
     const searchPriorityMode = hasPrioritySearchResults(filteredProducts.length) && !isProfile && !isUpload && !isAdminView;
+    const productsHydrated = Boolean(window.WingaDataLayer?.isProductsHydrated?.());
+    const shouldShowFeedLoading = !isProfile
+      && !isUpload
+      && !isAdminView
+      && !productsHydrated
+      && filteredProducts.length === 0;
     syncHeroPanelPosition(isProfile, isUpload);
 
     searchBox.style.display = isProfile || isUpload || isAdminView ? "none" : "grid";
@@ -9221,11 +9235,12 @@ function renderCurrentView() {
     productsSummary?.classList.toggle("search-priority-summary", searchPriorityMode);
     updateMarketplaceActionChrome();
     scheduleChromeOffsetSync();
-    categories.style.display = isProfile || isAdminView || searchPriorityMode ? "none" : "grid";
+    categories.style.display = isProfile || isAdminView || searchPriorityMode || shouldShowFeedLoading ? "none" : "grid";
     heroPanel.style.display = "none";
     marketShowcase.style.display = "none";
-    productsContainer.style.display = isProfile || isAdminView ? "none" : "grid";
-    emptyState.style.display = !isProfile && !isAdminView && filteredProducts.length === 0 ? "block" : "none";
+    productsContainer.style.display = isProfile || isAdminView || shouldShowFeedLoading ? "none" : "grid";
+    emptyState.style.display = !isProfile && !isAdminView && productsHydrated && filteredProducts.length === 0 ? "block" : "none";
+    setFeedLoadingStateVisible(shouldShowFeedLoading);
     uploadForm.style.display = isUpload || editingProductId ? "block" : "none";
     analyticsPanel.style.display = isAdminView || (isProfile && canUseSellerFeatures()) ? "block" : "none";
     adminPanel.style.display = isAdminView ? "block" : "none";
@@ -9243,6 +9258,12 @@ function renderCurrentView() {
 
     if (isProfile) {
       renderProfile();
+      renderSearchDropdown([], { isProfile, isUpload, isAdminView });
+      return;
+    }
+
+    if (shouldShowFeedLoading) {
+      updateResultsMeta(0);
       renderSearchDropdown([], { isProfile, isUpload, isAdminView });
       return;
     }

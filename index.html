@@ -3,15 +3,15 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="winga-build" content="20260420111736">
+  <meta name="winga-build" content="20260420113523">
   <title>Chap kwa haraka</title>
-  <link rel="stylesheet" href="/style.css?v=20260420111736">
-  <script defer src="/winga-config.js?v=20260420111736"></script>
-  <script defer src="/mock-data.js?v=20260420111736"></script>
-  <script defer src="/data-service.js?v=20260420111736"></script>
-  <script defer src="/app-core.js?v=20260420111736"></script>
-  <script defer src="/winga-modules.js?v=20260420111736"></script>
-  <script defer src="/app.js?v=20260420111736"></script>
+  <link rel="stylesheet" href="/style.css?v=20260420113523">
+  <script defer src="/winga-config.js?v=20260420113523"></script>
+  <script defer src="/mock-data.js?v=20260420113523"></script>
+  <script defer src="/data-service.js?v=20260420113523"></script>
+  <script defer src="/app-core.js?v=20260420113523"></script>
+  <script defer src="/winga-modules.js?v=20260420113523"></script>
+  <script defer src="/app.js?v=20260420113523"></script>
 </head>
 <body>
   <div class="form-container" id="auth-container" style="display:none;">
@@ -194,6 +194,14 @@
     <div id="empty-state" class="panel" style="display:none;">
       <h3>Hakuna bidhaa zilizopatikana</h3>
       <p>Jaribu search nyingine, badili category, au upload bidhaa mpya.</p>
+    </div>
+
+    <div id="feed-loading-state" class="panel" style="display:none;" aria-live="polite" aria-busy="true">
+      <div class="feed-loading-shell">
+        <div class="feed-loading-spinner" aria-hidden="true"></div>
+        <h3>Inapakia bidhaa...</h3>
+        <p>Subiri kidogo, tunaleta bidhaa zako pamoja na picha zake.</p>
+      </div>
     </div>
 
     <footer id="bottom-nav">

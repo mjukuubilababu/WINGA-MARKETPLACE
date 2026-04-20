@@ -1658,8 +1658,46 @@ img[data-zoom-src]{
 #upload-form,
 #analytics-panel,
 #admin-panel,
-#empty-state{
+#empty-state,
+#feed-loading-state{
   padding:18px;
+}
+
+#feed-loading-state{
+  display:none;
+  align-items:center;
+  justify-content:center;
+  min-height:260px;
+  text-align:center;
+}
+
+.feed-loading-shell{
+  display:grid;
+  place-items:center;
+  gap:12px;
+  max-width:420px;
+  margin:0 auto;
+}
+
+.feed-loading-spinner{
+  width:56px;
+  height:56px;
+  border-radius:50%;
+  border:4px solid rgba(16, 92, 255, 0.12);
+  border-top-color:var(--accent-deep);
+  animation:winga-feed-spin 0.9s linear infinite;
+}
+
+.feed-loading-shell h3{
+  margin:0;
+  font-size:1.08rem;
+  line-height:1.3;
+}
+
+.feed-loading-shell p{
+  margin:0;
+  color:var(--text-muted);
+  line-height:1.5;
 }
 
 #search-box{
@@ -4641,6 +4679,12 @@ body.context-chat-open{
     box-shadow:
       0 22px 44px rgba(255, 106, 0, 0.38),
       0 0 0 1px rgba(255, 255, 255, 0.24) inset;
+  }
+}
+
+@keyframes winga-feed-spin{
+  to{
+    transform:rotate(360deg);
   }
 }
 
@@ -7827,6 +7871,7 @@ button:hover,
   .showcase-inline,
   #upload-form,
   #empty-state,
+  #feed-loading-state,
   #profile-div{
     padding:14px;
   }
