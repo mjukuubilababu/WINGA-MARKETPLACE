@@ -284,10 +284,11 @@
 
       const wrapper = deps.createElement("div");
       const layout = deps.createElement("div", { className: "product-detail-layout" });
+      const useFeedCarousel = detailImages.length > 1 && typeof deps.renderFeedGalleryMarkup === "function";
       const media = deps.createElement("div", {
-        className: `product-detail-media${detailImages.length > 1 ? " has-media-stack" : ""}`
+        className: `product-detail-media${detailImages.length > 1 && !useFeedCarousel ? " has-media-stack" : ""}`
       });
-      if (detailImages.length > 1 && typeof deps.renderFeedGalleryMarkup === "function") {
+      if (useFeedCarousel) {
         media.appendChild(deps.createFragmentFromMarkup(deps.renderFeedGalleryMarkup(product, "feed")));
       } else {
         const mainImageElement = deps.createElement("img", {

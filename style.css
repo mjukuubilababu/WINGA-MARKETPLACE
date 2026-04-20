@@ -3318,7 +3318,7 @@ body.product-detail-open{
   width:100vw;
   margin:0;
   overscroll-behavior-x:none;
-  touch-action:pan-y pinch-zoom;
+  touch-action:pan-x pan-y pinch-zoom;
   scrollbar-gutter:auto;
 }
 
@@ -3448,6 +3448,12 @@ body.product-detail-open{
 
 .product-detail-media.has-media-stack{
   padding-right:86px;
+}
+
+.product-detail-media .feed-gallery-carousel,
+.product-detail-media .feed-gallery-carousel-track,
+.product-detail-media .feed-gallery-carousel-slide{
+  touch-action:pan-x pan-y;
 }
 
 .product-detail-thumb-grid{
