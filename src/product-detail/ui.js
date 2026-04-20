@@ -288,7 +288,7 @@
         className: `product-detail-media${detailImages.length > 1 ? " has-media-stack" : ""}`
       });
       if (detailImages.length > 1 && typeof deps.renderFeedGalleryMarkup === "function") {
-        media.appendChild(deps.createFragmentFromMarkup(deps.renderFeedGalleryMarkup(product, "detail")));
+        media.appendChild(deps.createFragmentFromMarkup(deps.renderFeedGalleryMarkup(product, "feed")));
       } else {
         const mainImageElement = deps.createElement("img", {
           className: "product-detail-image zoomable-image",
