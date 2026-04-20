@@ -8,6 +8,7 @@ const REQUEST_BOX_KEY_PREFIX = "winga-request-box";
 const APP_BOOT_BUILD_VERSION = document.querySelector('meta[name="winga-build"]')?.content || "";
 const APP_STORAGE_SCHEMA_KEY = "winga-storage-schema-version";
 const HOME_SCROLL_STATE_KEY = "winga-home-scroll-state";
+const HOME_FEED_REFRESH_CURSOR_KEY = "winga-home-feed-refresh-cursor";
 const NOTIFICATION_PERMISSION_STATE_KEY = "winga-notification-permission-state";
 const NOTIFICATION_PERMISSION_PROMPT_COOLDOWN_MS = 12 * 60 * 60 * 1000;
 const NOTIFICATION_PERMISSION_TRIGGERS = new Set(["message", "reply", "request", "order", "profile"]);
@@ -220,6 +221,52 @@ function getStoredHomeScrollState() {
   }
 }
 
+function getStoredHomeFeedRefreshCursor() {
+  try {
+    const raw = sessionStorage.getItem(HOME_FEED_REFRESH_CURSOR_KEY);
+    if (!raw) {
+      return 0;
+    }
+    const cursor = Number(raw);
+    return Number.isFinite(cursor) && cursor >= 0 ? Math.floor(cursor) : 0;
+  } catch (error) {
+    return 0;
+  }
+}
+
+function saveHomeFeedRefreshCursor(value = 0) {
+  try {
+    const nextCursor = Math.max(0, Math.floor(Number(value || 0) || 0));
+    sessionStorage.setItem(HOME_FEED_REFRESH_CURSOR_KEY, String(nextCursor));
+    return nextCursor;
+  } catch (error) {
+    return 0;
+  }
+}
+
+function isReloadNavigation() {
+  try {
+    const navEntry = window.performance?.getEntriesByType?.("navigation")?.[0];
+    if (navEntry?.type) {
+      return navEntry.type === "reload";
+    }
+    if (typeof window.performance?.navigation?.type === "number") {
+      return window.performance.navigation.type === 1;
+    }
+  } catch (error) {
+    // Ignore navigation inspection failures.
+  }
+  return false;
+}
+
+function initializeHomeFeedRefreshCursor() {
+  const cursor = getStoredHomeFeedRefreshCursor();
+  if (isReloadNavigation()) {
+    return saveHomeFeedRefreshCursor(cursor + 1);
+  }
+  return cursor;
+}
+
 function saveHomeScrollState(scrollY = window.scrollY || 0) {
   try {
     const nextScrollY = Math.max(0, Math.round(Number(scrollY || 0) || 0));
@@ -245,6 +292,20 @@ function clearHomeScrollState() {
   } catch (error) {
     // Ignore sessionStorage cleanup failures.
   }
+}
+
+function rotateProductsForHomeRefresh(list = []) {
+  if (!Array.isArray(list) || list.length < 2) {
+    return Array.isArray(list) ? list.slice() : [];
+  }
+  if (currentView !== "home") {
+    return list.slice();
+  }
+  const offset = Math.abs(Number(homeFeedRefreshCursor || 0)) % list.length;
+  if (!offset) {
+    return list.slice();
+  }
+  return list.slice(offset).concat(list.slice(0, offset));
 }
 
 function saveAppStorageSchemaVersion(version = "") {
@@ -4975,6 +5036,7 @@ let currentUser = "";
 let selectedCategory = "all";
 let expandedBrowseCategory = "";
 let currentView = "home";
+let homeFeedRefreshCursor = 0;
 let publicAuthRequestPending = false;
 let publicAuthTransitionPending = false;
 let adminAuthRequestPending = false;
@@ -9293,16 +9355,20 @@ function renderCurrentView() {
       return;
     }
 
-    updateResultsMeta(filteredProducts.length);
+    const homeProducts = currentView === "home"
+      ? rotateProductsForHomeRefresh(filteredProducts)
+      : filteredProducts;
+
+    updateResultsMeta(homeProducts.length);
     renderMarketShowcase();
-    renderProducts(filteredProducts);
+    renderProducts(homeProducts);
     enhanceShowcaseTracks(marketShowcase);
     enhanceShowcaseTracks(productsContainer);
     bindImageFallbacks(marketShowcase);
     bindImageFallbacks(productsContainer);
     bindProductMenus(marketShowcase);
     bindProductMenus(productsContainer);
-    renderSearchDropdown(filteredProducts, { isProfile, isUpload, isAdminView });
+    renderSearchDropdown(homeProducts, { isProfile, isUpload, isAdminView });
 
     if (isUpload && !editingProductId) {
       productNameInput.focus();
@@ -10202,6 +10268,7 @@ async function bootApp() {
   });
   initializeBootstrapStorageVersion();
   syncAuthMode();
+  homeFeedRefreshCursor = initializeHomeFeedRefreshCursor();
   suppressInitialProductHomeRender = Boolean(getDeepLinkedProductIdFromRoute());
   const cachedSession = window.WingaDataLayer.bootstrapSession
     ? window.WingaDataLayer.bootstrapSession()
