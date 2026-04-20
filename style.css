@@ -3498,7 +3498,7 @@ body.product-detail-open{
 .product-detail-media .feed-gallery-carousel-track,
 .product-detail-media .feed-gallery-carousel-slide,
 .product-detail-media .feed-gallery-image-social{
-  touch-action:pan-x pan-y;
+  touch-action:pan-y;
   -webkit-overflow-scrolling:touch;
 }
 
