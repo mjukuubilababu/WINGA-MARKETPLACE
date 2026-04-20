@@ -8058,7 +8058,7 @@ function renderDiscoveryProductCards(items, options = {}) {
         return `
           <article class="seller-product-card${Array.isArray(item.images) && item.images.length > 1 ? " has-gallery-count-badge" : ""}" data-open-product="${item.id}">
             <div class="seller-product-card-media">
-              ${renderFeedGalleryMarkup(item, "discovery")}
+              ${renderFeedGalleryMarkup(item, "feed")}
             </div>
             ${renderProductOverflowMenu(item, { overlay: true })}
             <div class="product-seller-row">
