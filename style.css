@@ -3627,14 +3627,11 @@ body.product-detail-open{
 
 .product-detail-actions{
   display:grid;
-  grid-auto-flow:column;
-  grid-auto-columns:minmax(0, 1fr);
+  grid-template-columns:repeat(2, minmax(0, 1fr));
   gap:8px;
   margin-top:8px;
   align-items:stretch;
-  overflow-x:auto;
-  -webkit-overflow-scrolling:touch;
-  scrollbar-width:thin;
+  overflow:visible;
 }
 
 .product-detail-actions .action-btn,
@@ -6909,7 +6906,7 @@ button:hover,
   }
 
   .product-detail-actions{
-    grid-auto-columns:minmax(0, 1fr);
+    grid-template-columns:repeat(2, minmax(0, 1fr));
   }
 
   .seller-products-grid{
