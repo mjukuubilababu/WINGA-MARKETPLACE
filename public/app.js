@@ -1130,6 +1130,20 @@ function createImageReadOptions(options = {}) {
       maxIterations: 12
     };
   }
+  if (purpose === "product") {
+    const isNarrowScreen = typeof window !== "undefined" && Number(window.innerWidth || 0) <= 768;
+    const isFastMultiImageFlow = fastMode || isNarrowScreen;
+    return {
+      maxDimension: isFastMultiImageFlow ? 1200 : 1440,
+      targetBytes: useLocalBudget
+        ? LOCAL_PRODUCT_IMAGE_TARGET_BYTES
+        : (isFastMultiImageFlow ? 650 * 1024 : PRODUCT_IMAGE_TARGET_BYTES),
+      initialQuality: isFastMultiImageFlow ? 0.8 : 0.84,
+      minimumQuality: 0.52,
+      qualityStep: 0.08,
+      maxIterations: 10
+    };
+  }
   if (purpose === "document") {
     return {
       maxDimension: fastMode ? 1400 : 1600,
@@ -10244,8 +10258,29 @@ function renderPreviewFiles(files) {
       throw error;
     });
 }
-function readFilesAsDataUrls(files) {
-  return Promise.all(files.map((file) => readFileAsDataUrl(file, { purpose: "product" })));
+function waitForNextFrame() {
+  return new Promise((resolve) => {
+    if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
+      window.requestAnimationFrame(() => resolve());
+      return;
+    }
+    window.setTimeout(resolve, 0);
+  });
+}
+
+async function readFilesAsDataUrls(files) {
+  const results = [];
+  for (let index = 0; index < files.length; index += 1) {
+    const imageDataUrl = await readFileAsDataUrl(files[index], {
+      purpose: "product",
+      fastMode: files.length > 1
+    });
+    results.push(imageDataUrl);
+    if (index < files.length - 1) {
+      await waitForNextFrame();
+    }
+  }
+  return results;
 }
 
 function stopSlideshow() {
