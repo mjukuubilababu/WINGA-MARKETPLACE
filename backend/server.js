@@ -650,7 +650,7 @@ function getProductShareImageUrl(product, origin) {
     }
   }
 
-  return "";
+  return `${origin}/share-og.svg`;
 }
 
 function getProductShareTitle(product) {
@@ -688,14 +688,12 @@ function buildProductShareHtml({ title, description, canonicalUrl, imageUrl }) {
   const safeTitle = escapeHtml(title);
   const safeDescription = escapeHtml(description);
   const safeCanonicalUrl = escapeHtml(canonicalUrl);
-  const safeImageUrl = imageUrl ? escapeHtml(imageUrl) : "";
-  const ogImageTags = safeImageUrl
-    ? `
+  const safeImageUrl = escapeHtml(imageUrl || `${new URL(canonicalUrl).origin}/share-og.svg`);
+  const ogImageTags = `
   <meta property="og:image" content="${safeImageUrl}">
   <meta property="og:image:secure_url" content="${safeImageUrl}">
   <meta property="og:image:alt" content="${safeTitle}">
-  <meta name="twitter:image" content="${safeImageUrl}">`
-    : "";
+  <meta name="twitter:image" content="${safeImageUrl}">`;
 
   const metaBlock = `
   <meta name="description" content="${safeDescription}">
@@ -705,7 +703,7 @@ function buildProductShareHtml({ title, description, canonicalUrl, imageUrl }) {
   <meta property="og:description" content="${safeDescription}">
   <meta property="og:url" content="${safeCanonicalUrl}">${ogImageTags}
   <meta property="og:site_name" content="Winga">
-  <meta name="twitter:card" content="${safeImageUrl ? "summary_large_image" : "summary"}">
+  <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="${safeTitle}">
   <meta name="twitter:description" content="${safeDescription}">`;
 
