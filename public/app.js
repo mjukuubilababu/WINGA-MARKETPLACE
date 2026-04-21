@@ -8,6 +8,7 @@ const REQUEST_BOX_KEY_PREFIX = "winga-request-box";
 const APP_BOOT_BUILD_VERSION = document.querySelector('meta[name="winga-build"]')?.content || "";
 const APP_STORAGE_SCHEMA_KEY = "winga-storage-schema-version";
 const HOME_SCROLL_STATE_KEY = "winga-home-scroll-state";
+const HOME_FEED_REFRESH_CURSOR_KEY = "winga-home-feed-refresh-cursor";
 const NOTIFICATION_PERMISSION_STATE_KEY = "winga-notification-permission-state";
 const NOTIFICATION_PERMISSION_PROMPT_COOLDOWN_MS = 12 * 60 * 60 * 1000;
 const NOTIFICATION_PERMISSION_TRIGGERS = new Set(["message", "reply", "request", "order", "profile"]);
@@ -220,6 +221,52 @@ function getStoredHomeScrollState() {
   }
 }
 
+function getStoredHomeFeedRefreshCursor() {
+  try {
+    const raw = sessionStorage.getItem(HOME_FEED_REFRESH_CURSOR_KEY);
+    if (!raw) {
+      return 0;
+    }
+    const cursor = Number(raw);
+    return Number.isFinite(cursor) && cursor >= 0 ? Math.floor(cursor) : 0;
+  } catch (error) {
+    return 0;
+  }
+}
+
+function saveHomeFeedRefreshCursor(value = 0) {
+  try {
+    const nextCursor = Math.max(0, Math.floor(Number(value || 0) || 0));
+    sessionStorage.setItem(HOME_FEED_REFRESH_CURSOR_KEY, String(nextCursor));
+    return nextCursor;
+  } catch (error) {
+    return 0;
+  }
+}
+
+function isReloadNavigation() {
+  try {
+    const navEntry = window.performance?.getEntriesByType?.("navigation")?.[0];
+    if (navEntry?.type) {
+      return navEntry.type === "reload";
+    }
+    if (typeof window.performance?.navigation?.type === "number") {
+      return window.performance.navigation.type === 1;
+    }
+  } catch (error) {
+    // Ignore navigation inspection failures.
+  }
+  return false;
+}
+
+function initializeHomeFeedRefreshCursor() {
+  const cursor = getStoredHomeFeedRefreshCursor();
+  if (isReloadNavigation()) {
+    return saveHomeFeedRefreshCursor(cursor + 1);
+  }
+  return cursor;
+}
+
 function saveHomeScrollState(scrollY = window.scrollY || 0) {
   try {
     const nextScrollY = Math.max(0, Math.round(Number(scrollY || 0) || 0));
@@ -245,6 +292,20 @@ function clearHomeScrollState() {
   } catch (error) {
     // Ignore sessionStorage cleanup failures.
   }
+}
+
+function rotateProductsForHomeRefresh(list = []) {
+  if (!Array.isArray(list) || list.length < 2) {
+    return Array.isArray(list) ? list.slice() : [];
+  }
+  if (currentView !== "home") {
+    return list.slice();
+  }
+  const offset = Math.abs(Number(homeFeedRefreshCursor || 0)) % list.length;
+  if (!offset) {
+    return list.slice();
+  }
+  return list.slice(offset).concat(list.slice(0, offset));
 }
 
 function saveAppStorageSchemaVersion(version = "") {
@@ -4975,6 +5036,7 @@ let currentUser = "";
 let selectedCategory = "all";
 let expandedBrowseCategory = "";
 let currentView = "home";
+let homeFeedRefreshCursor = 0;
 let publicAuthRequestPending = false;
 let publicAuthTransitionPending = false;
 let adminAuthRequestPending = false;
@@ -8730,6 +8792,7 @@ function bindFeedGalleryInteractions(scope = document) {
     const track = carousel.querySelector("[data-feed-gallery-track]");
     const badge = carousel.querySelector("[data-feed-gallery-count]");
     const preview = carousel.closest(".feed-gallery-preview");
+    const isDetailCarousel = Boolean(carousel.closest("#product-detail-modal"));
     carousel.dataset.feedGalleryBound = "true";
     if (!track) {
       return;
@@ -8739,6 +8802,9 @@ function bindFeedGalleryInteractions(scope = document) {
     let pointerStartX = 0;
     let pointerStartY = 0;
     let pointerStartScrollLeft = 0;
+    let lastPointerMoveX = 0;
+    let lastPointerMoveTime = 0;
+    let gestureVelocity = 0;
     let isDragging = false;
     let hasPointerCapture = false;
     let suppressClickUntil = 0;
@@ -8795,6 +8861,44 @@ function bindFeedGalleryInteractions(scope = document) {
       }
     };
 
+    const snapToNearestSlide = (behavior = "auto") => {
+      const total = Math.max(1, Number(carousel.dataset.feedGalleryTotal || track.querySelectorAll("[data-feed-gallery-slide]").length || 1));
+      const width = Math.max(1, track.clientWidth || carousel.clientWidth || 1);
+      const nextIndex = Math.min(total - 1, Math.max(0, Math.round(track.scrollLeft / width)));
+      const targetLeft = nextIndex * width;
+      if (Math.abs(track.scrollLeft - targetLeft) < 1) {
+        return;
+      }
+      if (behavior === "smooth" && typeof track.scrollTo === "function") {
+        track.scrollTo({ left: targetLeft, behavior: "smooth" });
+        return;
+      }
+      track.scrollLeft = targetLeft;
+    };
+
+    const settleDetailCarousel = () => {
+      if (!isDetailCarousel) {
+        snapToNearestSlide("smooth");
+        return;
+      }
+      const total = Math.max(1, Number(carousel.dataset.feedGalleryTotal || track.querySelectorAll("[data-feed-gallery-slide]").length || 1));
+      const width = Math.max(1, track.clientWidth || carousel.clientWidth || 1);
+      const baseIndex = Math.min(total - 1, Math.max(0, Math.round(track.scrollLeft / width)));
+      const velocityAbs = Math.abs(Number(gestureVelocity || 0));
+      let targetIndex = baseIndex;
+      if (velocityAbs >= 0.32) {
+        const jump = Math.min(3, Math.max(1, Math.round(velocityAbs / 0.55)));
+        targetIndex = baseIndex + (gestureVelocity < 0 ? jump : -jump);
+      }
+      targetIndex = Math.min(total - 1, Math.max(0, targetIndex));
+      const targetLeft = targetIndex * width;
+      if (typeof track.scrollTo === "function") {
+        track.scrollTo({ left: targetLeft, behavior: "smooth" });
+        return;
+      }
+      track.scrollLeft = targetLeft;
+    };
+
     let rafId = 0;
     const scheduleSync = () => {
       if (rafId) {
@@ -8834,6 +8938,9 @@ function bindFeedGalleryInteractions(scope = document) {
         if (track.scrollWidth <= track.clientWidth + 4 || isInteractiveTarget(event.target)) {
           return;
         }
+        if (event.pointerType === "touch") {
+          return;
+        }
         if (event.pointerType === "mouse" && event.button !== 0) {
           return;
         }
@@ -8841,6 +8948,9 @@ function bindFeedGalleryInteractions(scope = document) {
         pointerStartX = event.clientX;
         pointerStartY = event.clientY;
         pointerStartScrollLeft = track.scrollLeft;
+        lastPointerMoveX = event.clientX;
+        lastPointerMoveTime = getPerfNow();
+        gestureVelocity = 0;
         isDragging = false;
         track.setPointerCapture?.(event.pointerId);
         hasPointerCapture = true;
@@ -8862,6 +8972,11 @@ function bindFeedGalleryInteractions(scope = document) {
           event.preventDefault();
         }
         track.scrollLeft = pointerStartScrollLeft - deltaX;
+        const now = getPerfNow();
+        const elapsed = Math.max(1, now - Number(lastPointerMoveTime || now));
+        gestureVelocity = (event.clientX - Number(lastPointerMoveX || event.clientX)) / elapsed;
+        lastPointerMoveX = event.clientX;
+        lastPointerMoveTime = now;
       });
 
       track.addEventListener("pointerup", (event) => {
@@ -8872,6 +8987,7 @@ function bindFeedGalleryInteractions(scope = document) {
           suppressClickUntil = Date.now() + 220;
         }
         clearDragState();
+        settleDetailCarousel();
         scheduleSync();
       });
 
@@ -8880,11 +8996,13 @@ function bindFeedGalleryInteractions(scope = document) {
           return;
         }
         clearDragState();
+        settleDetailCarousel();
         scheduleSync();
       });
 
       track.addEventListener("lostpointercapture", () => {
         clearDragState();
+        settleDetailCarousel();
         scheduleSync();
       });
     }
@@ -9268,16 +9386,20 @@ function renderCurrentView() {
       return;
     }
 
-    updateResultsMeta(filteredProducts.length);
+    const homeProducts = currentView === "home"
+      ? rotateProductsForHomeRefresh(filteredProducts)
+      : filteredProducts;
+
+    updateResultsMeta(homeProducts.length);
     renderMarketShowcase();
-    renderProducts(filteredProducts);
+    renderProducts(homeProducts);
     enhanceShowcaseTracks(marketShowcase);
     enhanceShowcaseTracks(productsContainer);
     bindImageFallbacks(marketShowcase);
     bindImageFallbacks(productsContainer);
     bindProductMenus(marketShowcase);
     bindProductMenus(productsContainer);
-    renderSearchDropdown(filteredProducts, { isProfile, isUpload, isAdminView });
+    renderSearchDropdown(homeProducts, { isProfile, isUpload, isAdminView });
 
     if (isUpload && !editingProductId) {
       productNameInput.focus();
@@ -10177,6 +10299,7 @@ async function bootApp() {
   });
   initializeBootstrapStorageVersion();
   syncAuthMode();
+  homeFeedRefreshCursor = initializeHomeFeedRefreshCursor();
   suppressInitialProductHomeRender = Boolean(getDeepLinkedProductIdFromRoute());
   const cachedSession = window.WingaDataLayer.bootstrapSession
     ? window.WingaDataLayer.bootstrapSession()

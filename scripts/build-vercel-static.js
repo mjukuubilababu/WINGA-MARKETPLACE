@@ -70,6 +70,146 @@ const forbiddenDistEntries = [
   ".env.production"
 ];
 
+function getPublicOrigin() {
+  const configuredOrigin = String(process.env.WINGA_PUBLIC_ORIGIN || process.env.PUBLIC_URL || "").trim();
+  if (configuredOrigin) {
+    return configuredOrigin.replace(/\/+$/, "");
+  }
+  return "https://wingamarket.com";
+}
+
+function escapeHtml(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function sanitizePlainText(value, maxLength = 120) {
+  return String(value || "")
+    .replace(/[<>"'`]/g, "")
+    .replace(/[\u0000-\u001F\u007F]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxLength);
+}
+
+function normalizeStoredImageReference(value) {
+  if (typeof value !== "string" || !value) {
+    return "";
+  }
+
+  if (value.startsWith("/uploads/")) {
+    return value;
+  }
+
+  try {
+    const parsed = new URL(value);
+    if (parsed.pathname.startsWith("/uploads/")) {
+      return parsed.pathname;
+    }
+    if (/^https?:\/\//i.test(value)) {
+      return value;
+    }
+  } catch (error) {
+    return value;
+  }
+
+  return value;
+}
+
+function getProductShareImageUrl(product, origin) {
+  const candidates = [
+    ...(Array.isArray(product?.images) ? product.images : []),
+    product?.image || ""
+  ].map(normalizeStoredImageReference).filter(Boolean);
+
+  for (const candidate of candidates) {
+    if (candidate.startsWith("/uploads/")) {
+      return `${origin}${candidate}`;
+    }
+    if (/^https?:\/\//i.test(candidate)) {
+      return candidate;
+    }
+  }
+
+  return `${origin}/share-og.svg`;
+}
+
+function getProductShareTitle(product) {
+  const name = sanitizePlainText(product?.name || "", 120);
+  const shop = sanitizePlainText(product?.shop || "", 80);
+  if (name && shop && !name.toLowerCase().includes(shop.toLowerCase())) {
+    return `${name} | ${shop}`;
+  }
+  return name || shop || "Winga product";
+}
+
+function getProductShareDescription(product) {
+  const caption = sanitizePlainText(product?.description || product?.caption || "", 180);
+  if (caption) {
+    return caption;
+  }
+
+  const parts = [];
+  const shop = sanitizePlainText(product?.shop || "", 80);
+  const category = sanitizePlainText(product?.category || "", 60);
+  const price = Number(product?.price);
+
+  if (shop) parts.push(shop);
+  if (category) parts.push(category);
+  if (Number.isFinite(price) && price > 0) {
+    parts.push(`Bei TSh ${new Intl.NumberFormat("en-US").format(price)}`);
+  }
+
+  return parts.length ? parts.join(" · ") : "Tazama bidhaa hii kwenye Winga.";
+}
+
+function buildProductShareHtml(baseHtml, meta) {
+  const safeTitle = escapeHtml(meta.title);
+  const safeDescription = escapeHtml(meta.description);
+  const safeCanonicalUrl = escapeHtml(meta.url);
+  const safeImageUrl = escapeHtml(meta.image);
+  const safeTemplate = baseHtml || `<!DOCTYPE html>
+<html lang="sw">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="winga-build" content="">
+  <title>${safeTitle}</title>
+</head>
+<body>
+  <div id="app-container"></div>
+</body>
+</html>`;
+
+  const ogImageTags = `
+  <meta property="og:image" content="${safeImageUrl}">
+  <meta property="og:image:secure_url" content="${safeImageUrl}">
+  <meta property="og:image:alt" content="${safeTitle}">
+  <meta name="twitter:image" content="${safeImageUrl}">`;
+
+  const metaBlock = `
+  <meta name="description" content="${safeDescription}">
+  <link rel="canonical" href="${safeCanonicalUrl}">
+  <meta property="og:type" content="product">
+  <meta property="og:title" content="${safeTitle}">
+  <meta property="og:description" content="${safeDescription}">
+  <meta property="og:url" content="${safeCanonicalUrl}">${ogImageTags}
+  <meta property="og:site_name" content="Winga">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="${safeTitle}">
+  <meta name="twitter:description" content="${safeDescription}">`;
+
+  const titlePatched = safeTemplate.replace(/<title>[^<]*<\/title>/i, `<title>${safeTitle}</title>`);
+  if (titlePatched.includes('name="winga-build"')) {
+    return titlePatched.replace(/(<meta name="winga-build" content="[^"]*">)/i, `$1${metaBlock}`);
+  }
+  return titlePatched.replace(/(<meta name="viewport" content="width=device-width, initial-scale=1.0">)/i, `$1${metaBlock}`);
+}
+
 function assertPathExists(relativePath) {
   const absolutePath = path.join(rootDir, relativePath);
   if (!fs.existsSync(absolutePath)) {
@@ -117,6 +257,40 @@ function copyDirectoryRecursive(sourcePath, targetPath) {
     } else {
       fs.copyFileSync(sourceEntryPath, targetEntryPath);
     }
+  }
+}
+
+function loadProductsForPrerender() {
+  const storePath = path.join(rootDir, "backend", "data", "store.json");
+  if (!fs.existsSync(storePath)) {
+    return [];
+  }
+  try {
+    const payload = JSON.parse(fs.readFileSync(storePath, "utf8"));
+    return Array.isArray(payload.products) ? payload.products.filter(Boolean) : [];
+  } catch (error) {
+    return [];
+  }
+}
+
+function generateProductSharePages(baseHtml, origin) {
+  const products = loadProductsForPrerender();
+  for (const product of products) {
+    const productId = String(product?.id || "").trim();
+    if (!productId) {
+      continue;
+    }
+
+    const canonicalUrl = `${origin}/product/${encodeURIComponent(productId)}`;
+    const html = buildProductShareHtml(baseHtml, {
+      title: getProductShareTitle(product),
+      description: getProductShareDescription(product),
+      url: canonicalUrl,
+      image: getProductShareImageUrl(product, origin)
+    });
+    const targetDir = path.join(outputDir, "product", productId);
+    fs.mkdirSync(targetDir, { recursive: true });
+    fs.writeFileSync(path.join(targetDir, "index.html"), html, "utf8");
   }
 }
 
@@ -171,6 +345,7 @@ applyAssetVersionToHtml(path.join(outputDir, "index.html"));
 
 copyDirectoryRecursive(path.join(rootDir, "src"), path.join(outputDir, "src"));
 fs.writeFileSync(path.join(outputDir, "winga-modules.js"), buildFrontendModuleBundle(), "utf8");
+generateProductSharePages(fs.readFileSync(path.join(outputDir, "index.html"), "utf8"), getPublicOrigin());
 verifyDistContents();
 
 console.log(`Built Vercel static frontend into public/ (asset version ${assetVersion})`);
