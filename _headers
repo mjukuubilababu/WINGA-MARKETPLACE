@@ -1,6 +1,9 @@
 /*
   Cache-Control: public, max-age=31536000, immutable
 
+/product/*
+  Cache-Control: no-store, must-revalidate
+
 /index.html
   Cache-Control: no-store, must-revalidate
 
