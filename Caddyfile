@@ -5,7 +5,7 @@
 {$WINGA_DOMAIN} {
   encode zstd gzip
 
-  @api path /api/* /uploads/*
+  @api path /api/* /uploads/* /product/*
   reverse_proxy @api backend:3000
 
   root * /srv

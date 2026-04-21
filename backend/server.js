@@ -18,6 +18,10 @@ const AUDIT_FILE = path.join(DATA_DIR, "audit.log");
 const UPLOADS_DIR = process.env.WINGA_UPLOADS_DIR
   ? path.resolve(process.env.WINGA_UPLOADS_DIR)
   : path.join(__dirname, "uploads");
+const APP_HTML_TEMPLATE_PATH = path.join(__dirname, "..", "index.html");
+const APP_HTML_TEMPLATE = fs.existsSync(APP_HTML_TEMPLATE_PATH)
+  ? fs.readFileSync(APP_HTML_TEMPLATE_PATH, "utf8")
+  : "";
 const NODE_ENV = process.env.NODE_ENV || "development";
 const PAYMENT_WEBHOOK_SECRET = String(process.env.PAYMENT_WEBHOOK_SECRET || "").trim();
 const ALLOW_UNVERIFIED_MANUAL_PAYMENTS = String(process.env.ALLOW_UNVERIFIED_MANUAL_PAYMENTS || "").toLowerCase() === "true";
@@ -589,6 +593,140 @@ async function denyJson(res, statusCode, errorMessage, context = {}) {
     statusCode
   }).catch(() => {});
   sendJson(res, statusCode, { error: errorMessage });
+}
+
+function sendHtml(res, statusCode, html, req = null, extraHeaders = {}) {
+  res.writeHead(statusCode, buildSecurityHeaders(statusCode, {
+    "Content-Type": "text/html; charset=UTF-8",
+    "Cache-Control": "no-store",
+    ...extraHeaders
+  }, req));
+  res.end(html);
+}
+
+function escapeHtml(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function getPublicRequestOrigin(req) {
+  const forwardedProto = String(req?.headers?.["x-forwarded-proto"] || "").split(",")[0].trim();
+  const protocol = forwardedProto || (req?.socket?.encrypted ? "https" : "http");
+  const forwardedHost = String(req?.headers?.["x-forwarded-host"] || "").split(",")[0].trim();
+  const host = forwardedHost || String(req?.headers?.host || "").trim();
+
+  if (host) {
+    return `${protocol}://${host}`;
+  }
+
+  const configuredDomain = String(process.env.WINGA_DOMAIN || "").trim();
+  if (configuredDomain) {
+    return `https://${configuredDomain.replace(/^https?:\/\//i, "")}`;
+  }
+
+  return `${protocol}://localhost:${PORT}`;
+}
+
+function getProductShareImageUrl(product, origin) {
+  const candidates = [
+    ...(Array.isArray(product?.images) ? product.images : []),
+    product?.image || ""
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    const delivered = resolveProductImageForDelivery(candidate, "");
+    if (!delivered) {
+      continue;
+    }
+    if (/^https?:\/\//i.test(delivered)) {
+      return delivered;
+    }
+    if (delivered.startsWith("/uploads/")) {
+      return `${origin}${delivered}`;
+    }
+  }
+
+  return "";
+}
+
+function getProductShareTitle(product) {
+  const name = sanitizePlainText(product?.name || "", 120);
+  const shop = sanitizePlainText(product?.shop || "", 80);
+  if (name && shop && !name.toLowerCase().includes(shop.toLowerCase())) {
+    return `${name} | ${shop}`;
+  }
+  return name || shop || "Winga product";
+}
+
+function getProductShareDescription(product) {
+  const caption = sanitizePlainText(product?.description || product?.caption || "", 180);
+  if (caption) {
+    return caption;
+  }
+
+  const parts = [];
+  const shop = sanitizePlainText(product?.shop || "", 80);
+  const category = sanitizePlainText(product?.category || "", 60);
+  const price = normalizeOptionalPrice(product?.price);
+
+  if (shop) parts.push(shop);
+  if (category) parts.push(category);
+  if (price != null) parts.push(`Bei TSh ${new Intl.NumberFormat("en-US").format(price)}`);
+
+  if (parts.length) {
+    return parts.join(" · ");
+  }
+
+  return "Tazama bidhaa hii kwenye Winga.";
+}
+
+function buildProductShareHtml({ title, description, canonicalUrl, imageUrl }) {
+  const safeTitle = escapeHtml(title);
+  const safeDescription = escapeHtml(description);
+  const safeCanonicalUrl = escapeHtml(canonicalUrl);
+  const safeImageUrl = imageUrl ? escapeHtml(imageUrl) : "";
+  const ogImageTags = safeImageUrl
+    ? `
+  <meta property="og:image" content="${safeImageUrl}">
+  <meta property="og:image:secure_url" content="${safeImageUrl}">
+  <meta property="og:image:alt" content="${safeTitle}">
+  <meta name="twitter:image" content="${safeImageUrl}">`
+    : "";
+
+  const metaBlock = `
+  <meta name="description" content="${safeDescription}">
+  <link rel="canonical" href="${safeCanonicalUrl}">
+  <meta property="og:type" content="product">
+  <meta property="og:title" content="${safeTitle}">
+  <meta property="og:description" content="${safeDescription}">
+  <meta property="og:url" content="${safeCanonicalUrl}">${ogImageTags}
+  <meta property="og:site_name" content="Winga">
+  <meta name="twitter:card" content="${safeImageUrl ? "summary_large_image" : "summary"}">
+  <meta name="twitter:title" content="${safeTitle}">
+  <meta name="twitter:description" content="${safeDescription}">`;
+
+  const baseHtml = APP_HTML_TEMPLATE || `<!DOCTYPE html>
+<html lang="sw">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="winga-build" content="">
+  <title>${safeTitle}</title>
+</head>
+<body>
+  <div id="app-container"></div>
+</body>
+</html>`;
+
+  const titlePatched = baseHtml.replace(/<title>[^<]*<\/title>/i, `<title>${safeTitle}</title>`);
+  if (titlePatched.includes('name="winga-build"')) {
+    return titlePatched.replace(/(<meta name="winga-build" content="[^"]*">)/i, `$1${metaBlock}`);
+  }
+  return titlePatched.replace(/(<meta name="viewport" content="width=device-width, initial-scale=1.0">)/i, `$1${metaBlock}`);
 }
 
 function getAllowedOrigins() {
@@ -2859,6 +2997,35 @@ http.createServer(async (req, res) => {
         "Cache-Control": "public, max-age=3600"
       }, req));
       fs.createReadStream(filePath).pipe(res);
+      return;
+    }
+
+    const productDeepLinkMatch = url.pathname.match(/^\/product\/([^/]+)\/?$/);
+    if (req.method === "GET" && productDeepLinkMatch) {
+      const productId = decodeURIComponent(productDeepLinkMatch[1] || "").trim();
+      const origin = getPublicRequestOrigin(req);
+      const canonicalUrl = `${origin}/product/${encodeURIComponent(productId)}`;
+      const foundProduct = productId ? getProductById(store, productId) : null;
+      const product = foundProduct ? repairNormalizedProductImageState(foundProduct) : null;
+
+      if (!product) {
+        const fallbackHtml = buildProductShareHtml({
+          title: "Bidhaa haijapatikana | Winga",
+          description: "Bidhaa hii haijapatikana kwenye Winga.",
+          canonicalUrl,
+          imageUrl: ""
+        }).replace(/<body>/i, `<body><main style="min-height:100vh;display:flex;align-items:center;justify-content:center;font-family:system-ui,sans-serif;padding:24px;text-align:center;color:#111;"><div><h1>Bidhaa haijapatikana</h1><p>Jaribu product nyingine au rudi Home.</p></div></main>`);
+        sendHtml(res, 404, fallbackHtml, req, { "Cache-Control": "no-store" });
+        return;
+      }
+
+      const shareHtml = buildProductShareHtml({
+        title: getProductShareTitle(product),
+        description: getProductShareDescription(product),
+        canonicalUrl,
+        imageUrl: getProductShareImageUrl(product, origin)
+      });
+      sendHtml(res, 200, shareHtml, req, { "Cache-Control": "no-store" });
       return;
     }
 
