@@ -1549,8 +1549,9 @@ img[data-zoom-src]{
 .seller-product-card .seller-product-actions{
   display:grid;
   grid-template-columns:repeat(3, minmax(0, 1fr));
-  gap:6px;
-  margin-top:8px;
+  gap:4px;
+  margin-top:6px;
+  align-items:stretch;
 }
 
 .showcase-card .showcase-actions .product-actions-primary,
@@ -1565,11 +1566,14 @@ img[data-zoom-src]{
 .seller-product-card .seller-product-actions .action-btn,
 .seller-product-card .seller-product-actions .button{
   min-width:0;
-  min-height:32px;
-  padding:0 6px;
-  font-size:0.74rem;
-  line-height:1.15;
+  min-height:30px;
+  padding:0 4px;
+  font-size:0.70rem;
+  line-height:1.05;
+  letter-spacing:-0.01em;
   white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
 }
 
 .showcase-actions .action-btn{
@@ -6838,7 +6842,7 @@ button:hover,
 
   .showcase-card .showcase-actions,
   .seller-product-card .seller-product-actions{
-    gap:4px;
+    gap:3px;
   }
 
   .product-card .product-actions-primary,
@@ -6852,9 +6856,9 @@ button:hover,
   .showcase-card .showcase-actions .button,
   .seller-product-card .seller-product-actions .action-btn,
   .seller-product-card .seller-product-actions .button{
-    min-height:32px;
-    padding:0 6px;
-    font-size:0.74rem;
+    min-height:28px;
+    padding:0 3px;
+    font-size:0.66rem;
     white-space:nowrap;
   }
 
