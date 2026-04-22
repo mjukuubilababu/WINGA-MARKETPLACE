@@ -675,6 +675,10 @@ function scheduleHomeScrollSave(scrollY = window.scrollY || 0) {
 }
 
 function restoreStoredHomeScrollPosition() {
+  if (isReloadNavigation()) {
+    clearHomeScrollState();
+    return;
+  }
   const storedScrollY = Number(getStoredHomeScrollState() || 0);
   if (storedScrollY > 0) {
     scheduleHomeScrollRestore(storedScrollY);
