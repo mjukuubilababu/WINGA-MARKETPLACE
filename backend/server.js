@@ -1956,7 +1956,7 @@ function validateSellerUpgradePayload(payload, user = {}) {
     return "Jina la duka si sahihi.";
   }
 
-  const phoneNumber = sanitizePlainText(payload.phoneNumber || user.phoneNumber || user.whatsappNumber || "", 20);
+  const phoneNumber = String(payload.phoneNumber || user.phoneNumber || user.whatsappNumber || "").replace(/\D/g, "").slice(0, 20);
   if (!isValidWhatsapp(phoneNumber)) {
     return "Namba ya simu si sahihi.";
   }
@@ -4984,7 +4984,7 @@ http.createServer(async (req, res) => {
 
       const now = new Date().toISOString();
       const fullName = sanitizePlainText(payload.fullName || user.fullName || user.username, 120);
-      const phoneNumber = normalizeWhatsapp(payload.phoneNumber || user.phoneNumber || user.whatsappNumber || "");
+      const phoneNumber = String(payload.phoneNumber || user.phoneNumber || user.whatsappNumber || "").replace(/\D/g, "").slice(0, 20);
       const primaryCategory = sanitizePlainText(payload.primaryCategory || user.primaryCategory || "", 60).toLowerCase();
       const duplicatePhoneUser = (store.users || []).find((item) =>
         item.username !== user.username && String(item.phoneNumber || "") === phoneNumber
