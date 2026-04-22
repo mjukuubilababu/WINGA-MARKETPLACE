@@ -3823,6 +3823,19 @@ body.product-detail-open{
   padding:12px 12px 14px;
 }
 
+@media (min-width:721px){
+  .product-detail-seller-products .seller-products-grid{
+    grid-template-columns:repeat(auto-fit, minmax(240px, 1fr));
+    gap:14px;
+    justify-items:stretch;
+  }
+
+  .product-detail-seller-products .seller-product-card{
+    width:100%;
+    max-width:none;
+  }
+}
+
 .seller-products-grid{
   display:grid;
   grid-template-columns:minmax(0, 1fr);
