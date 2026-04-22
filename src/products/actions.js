@@ -175,15 +175,18 @@
         ? renderWhatsappChatLink(product, "WhatsApp")
         : "";
       const repostButton = renderRepostButton(product);
-      if (!messageButton && !whatsappButton && !repostButton) {
+      const actionButtons = [messageButton, repostButton, whatsappButton].filter(Boolean);
+      if (!actionButtons.length) {
         return "";
       }
-      const groupClass = extraClass ? `product-actions product-actions-simple ${extraClass}` : "product-actions product-actions-simple";
-      const actionButtons = [messageButton, repostButton, whatsappButton].filter(Boolean).join("");
+      const actionCount = Math.min(Math.max(actionButtons.length, 1), 3);
+      const groupClass = extraClass
+        ? `product-actions product-actions-simple product-actions-count-${actionCount} ${extraClass}`
+        : `product-actions product-actions-simple product-actions-count-${actionCount}`;
 
       return `
-        <div class="${groupClass}">
-          ${actionButtons}
+        <div class="${groupClass}" data-action-count="${actionCount}">
+          ${actionButtons.join("")}
         </div>
       `;
     }

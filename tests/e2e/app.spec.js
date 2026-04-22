@@ -256,13 +256,11 @@ test("seller signup completes immediately after account creation without hanging
   expect(signupRequests).toBe(1);
 });
 
-test("logged in seller-buyer can open detail, add to requests, and open chat", async ({ browser }) => {
+test("logged in seller-buyer can open detail and open chat", async ({ browser }) => {
   const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234");
   await page.goto("/");
 
-  const requestButton = page.locator("#products-container [data-request-product]").first();
-  await requestButton.click();
-  await expect(requestButton).toContainText("Added");
+  await expect(page.locator("#products-container [data-request-product]")).toHaveCount(0);
 
   await page.locator("#products-container .product-card", { hasText: "Sneaker Classic" }).first().click();
   await expect(page.locator("#product-detail-modal")).toBeVisible();
@@ -284,7 +282,7 @@ test("logged in seller-buyer can open detail, add to requests, and open chat", a
   await page.locator("#header-user-trigger").click();
   await page.locator("[data-header-menu-action='profile']").click();
   await expect(page.locator("#profile-request-box-panel")).toBeVisible();
-  await expect(page.locator("#profile-request-box-panel .request-group-card").first()).toBeVisible();
+  await expect(page.locator("#profile-request-box-panel")).toContainText("Hakuna bidhaa kwenye My Requests bado");
   await expect(page.locator("#view-home-back")).toBeVisible();
   await page.locator("#view-home-back").click();
   await expect(page.locator("#profile-request-box-panel")).not.toBeVisible();
@@ -328,41 +326,31 @@ test("mobile profile messages use a clear conversation list and detail flow", as
   await context.close();
 });
 
-test("request toggle stays consistent across reload for seller-buyer sessions", async ({ browser }) => {
+test("product cards no longer render request action after reload for seller-buyer sessions", async ({ browser }) => {
   const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234");
   await page.goto("/");
 
-  const firstRequestButton = page.locator("#products-container [data-request-product]").first();
-  await firstRequestButton.click();
-  await expect(firstRequestButton).toContainText("Added");
+  await expect(page.locator("#products-container [data-request-product]")).toHaveCount(0);
 
   await page.reload();
-  await expect(page.locator("#products-container [data-request-product]").first()).toContainText("Added");
+  await expect(page.locator("#products-container [data-request-product]")).toHaveCount(0);
 
   await page.locator("#header-user-trigger").click();
   await page.locator("[data-header-menu-action='profile']").click();
   await expect(page.locator("#profile-request-box-panel")).toBeVisible();
-  await page.locator("#profile-request-box-panel [data-request-remove]").first().click();
-  await expect(page.locator("#profile-request-box-panel .request-group-card").first()).not.toBeVisible();
+  await expect(page.locator("#profile-request-box-panel")).toContainText("Hakuna bidhaa kwenye My Requests bado");
 
   await context.close();
 });
 
-test("request box clear asks for confirmation and clears selected items after acceptance", async ({ browser }) => {
+test("request box stays empty when the request action is removed from cards", async ({ browser }) => {
   const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234");
   await page.goto("/");
 
-  const requestButton = page.locator("#products-container [data-request-product]").first();
-  await requestButton.click();
-  await expect(requestButton).toContainText("Added");
+  await expect(page.locator("#products-container [data-request-product]")).toHaveCount(0);
 
   await page.locator("#header-user-trigger").click();
   await page.locator("[data-header-menu-action='profile']").click();
-  await expect(page.locator("#profile-request-box-panel .request-group-card").first()).toBeVisible();
-
-  page.once("dialog", (dialog) => dialog.accept());
-  await page.locator("#profile-request-box-panel [data-request-clear]").click();
-  await expect(page.locator("#profile-request-box-panel .request-group-card")).toHaveCount(0);
   await expect(page.locator("#profile-request-box-panel")).toContainText("Hakuna bidhaa kwenye My Requests bado");
 
   await context.close();
@@ -539,7 +527,7 @@ test("session restore keeps seller-as-buyer browsing and product-detail continua
   const originalTitle = await page.locator("#product-detail-title").textContent();
   const sellerCard = page.locator("#product-detail-modal .seller-product-card").first();
   await expect(sellerCard).toBeVisible();
-  await expect(page.locator("#product-detail-modal [data-request-product]").first()).toBeVisible();
+  await expect(page.locator("#product-detail-modal [data-request-product]")).toHaveCount(0);
   await sellerCard.click();
   await expect(page.locator("#product-detail-title")).not.toHaveText(originalTitle || "");
   await page.locator("#product-detail-modal .product-detail-back").click();
@@ -1064,31 +1052,35 @@ test("seller can delete an owned marketplace card from home via the three-dots m
   await context.close();
 });
 
-test("recommendation cards also support add-to-requests for seller-buyer sessions", async ({ browser }) => {
+test("recommendation cards keep the buyer action layout compact and consistent", async ({ browser }) => {
   const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234");
   await page.goto("/");
 
-  const recommendationRequestButton = page.locator("[data-recommendation-type] [data-request-product]").first();
-  await expect(recommendationRequestButton).toBeVisible();
-  await recommendationRequestButton.click();
-  await expect(recommendationRequestButton).toContainText("Added");
+  const recommendationCard = page.locator("[data-recommendation-type] .product-card").first();
+  await expect(recommendationCard).toBeVisible();
+  await expect(recommendationCard).not.toContainText("Nunua");
+  await expect(recommendationCard).not.toContainText("My Request");
+  await expect(recommendationCard).toContainText("Message");
+  await expect(recommendationCard).toContainText("WhatsApp");
 
   await page.locator("#header-user-trigger").click();
   await page.locator("[data-header-menu-action='profile']").click();
-  await expect(page.locator("#profile-request-box-panel .request-group-card").first()).toBeVisible();
+  await expect(page.locator("#profile-request-box-panel")).toContainText("Hakuna bidhaa kwenye My Requests bado");
 
   await context.close();
 });
 
-test("buyer-side card buttons on the home feed still work for request and message flows", async ({ browser }) => {
+test("buyer-side card buttons on the home feed keep equal-width message and WhatsApp actions", async ({ browser }) => {
   const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234");
   await page.goto("/");
   await expect(page.locator("#products-container .product-card").first()).toBeVisible({ timeout: 30000 });
 
-  const feedRequestButton = page.locator("#products-container [data-request-product]").first();
-  await expect(feedRequestButton).toBeVisible();
-  await feedRequestButton.click();
-  await expect(feedRequestButton).toContainText("Added");
+  const feedCard = page.locator("#products-container .product-card").first();
+  await expect(feedCard).toBeVisible();
+  await expect(feedCard).not.toContainText("Nunua");
+  await expect(feedCard).not.toContainText("My Request");
+  await expect(feedCard).toContainText("Message");
+  await expect(feedCard).toContainText("WhatsApp");
 
   const feedChatButton = page.locator("#products-container [data-chat-product]").first();
   await expect(feedChatButton).toBeVisible();
@@ -1100,7 +1092,7 @@ test("buyer-side card buttons on the home feed still work for request and messag
   await context.close();
 });
 
-test("buyer-side action buttons still work inside deeper product continuation cards", async ({ browser }) => {
+test("buyer-side action buttons stay compact and consistent inside deeper product continuation cards", async ({ browser }) => {
   const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234");
   await page.goto("/");
   await expect(page.locator("#products-container .product-card").first()).toBeVisible({ timeout: 30000 });
@@ -1111,10 +1103,10 @@ test("buyer-side action buttons still work inside deeper product continuation ca
   const continuationCard = page.locator("#product-detail-modal .seller-product-card").first();
   await expect(continuationCard).toBeVisible();
 
-  const requestButton = continuationCard.locator("[data-request-product]").first();
-  await expect(requestButton).toBeVisible();
-  await requestButton.click();
-  await expect(requestButton).toContainText("Added");
+  await expect(continuationCard).not.toContainText("Nunua");
+  await expect(continuationCard).not.toContainText("My Request");
+  await expect(continuationCard).toContainText("Message");
+  await expect(continuationCard).toContainText("WhatsApp");
 
   const chatButton = continuationCard.locator("[data-chat-product]").first();
   await expect(chatButton).toBeVisible();
