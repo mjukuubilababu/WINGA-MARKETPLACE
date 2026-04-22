@@ -2311,9 +2311,6 @@ function buildWhatsappHref(phoneNumber, productName = "") {
 }
 
 function renderWhatsappChatLink(product, label = "Chat on WhatsApp") {
-  if (product?.uploadedBy && product.uploadedBy === currentUser) {
-    return "";
-  }
   const whatsappNumber = getProductWhatsappNumber(product);
   if (!whatsappNumber) {
     return "";
@@ -9698,7 +9695,6 @@ function canRepostProductAsSeller(product) {
     && canUseSellerFeatures()
     && product.status === "approved"
     && product.uploadedBy
-    && product.uploadedBy !== currentUser
   );
 }
 

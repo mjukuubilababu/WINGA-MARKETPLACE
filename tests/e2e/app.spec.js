@@ -958,7 +958,8 @@ test("seller sees message, WhatsApp, and repost actions on other sellers product
   await expect(ownCard).not.toContainText("Nunua");
   await expect(ownCard).not.toContainText("My Request");
   await expect(ownCard).toContainText("Message");
-  await expect(ownCard).not.toContainText("Uza");
+  await expect(ownCard).toContainText("Uza");
+  await expect(ownCard).toContainText("WhatsApp");
 
   await expect(otherCard).toContainText("Message");
   await expect(otherCard).toContainText("WhatsApp");

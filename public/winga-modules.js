@@ -4045,7 +4045,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         return "";
       }
       if (typeof canRepostProduct === "function" && !canRepostProduct(product)) {
-        return "";
+        return `<button class="action-btn action-btn-secondary repost-btn is-disabled" type="button" disabled aria-disabled="true">Uza</button>`;
       }
       return `<button class="action-btn action-btn-secondary repost-btn" type="button" data-detail-repost="${product.id}">Uza</button>`;
     }
