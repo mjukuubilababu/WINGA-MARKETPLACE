@@ -675,7 +675,8 @@ function scheduleHomeScrollSave(scrollY = window.scrollY || 0) {
 }
 
 function restoreStoredHomeScrollPosition() {
-  if (isReloadNavigation()) {
+  const pathname = String(window.location.pathname || "").trim();
+  if (isReloadNavigation() && pathname.match(/^\/product\/.+/i)) {
     clearHomeScrollState();
     return;
   }
@@ -1785,9 +1786,16 @@ function resumePendingGuestIntent() {
   if (intent.type === "focus-product" && intent.productId) {
     const product = getProductById(intent.productId);
     if (product) {
-      setCurrentViewState("home");
+      setCurrentViewState("home", { syncHistory: false });
       renderCurrentView();
-      openProductDetailModal(intent.productId);
+      syncAppShellHistoryState({
+        force: true,
+        mode: "replace",
+        url: "/"
+      });
+      window.requestAnimationFrame(() => {
+        scrollToProductCard(intent.productId);
+      });
       return;
     }
   }
@@ -7465,11 +7473,27 @@ function loginSuccess(username, preferredCategory = "", sessionData = null, opti
   clearUploadForm();
   productShopInput.value = username;
   const hasActiveProductDeepLink = Boolean(getDeepLinkedProductIdFromRoute());
+  const shouldKeepHomeFirst = nextView === "home"
+    && Boolean(hasActiveProductDeepLink || getPendingGuestIntent() || pendingGuestIntent);
   setCurrentViewState(nextView, {
-    syncHistory: hasActiveProductDeepLink && nextView === "home" ? false : "replace"
+    syncHistory: shouldKeepHomeFirst ? false : "replace"
   });
-  if (hasActiveProductDeepLink && nextView === "home") {
-    showDeepLinkLoadingState("Tunafungua bidhaa uliyoifungua...");
+  if (shouldKeepHomeFirst) {
+    window.history.replaceState(
+      buildAppShellHistoryState({
+        view: "home",
+        productId: "",
+        sourceProductId: "",
+        pendingProfileSection: ""
+      }),
+      "",
+      "/"
+    );
+    if (deferRender) {
+      scheduleRenderCurrentView();
+    } else {
+      renderCurrentView();
+    }
   } else if (deferRender) {
     scheduleRenderCurrentView();
   } else {
@@ -7479,7 +7503,7 @@ function loginSuccess(username, preferredCategory = "", sessionData = null, opti
     window.requestAnimationFrame(() => {
       window.scrollTo({ top: 0, behavior: "auto" });
     });
-  } else if (!hasActiveProductDeepLink) {
+  } else if (!shouldKeepHomeFirst) {
     restoreStoredHomeScrollPosition();
   }
   updateProfileNavBadge();
@@ -7504,9 +7528,11 @@ function loginSuccess(username, preferredCategory = "", sessionData = null, opti
     }
   }
   resumePendingGuestIntent();
-  const handledDeepLink = !pendingGuestIntent && !getPendingGuestIntent()
-    ? openDeepLinkedProductRouteIfNeeded({ skipHomeRender: hasActiveProductDeepLink })
-    : false;
+  const handledDeepLink = shouldKeepHomeFirst
+    ? true
+    : (!pendingGuestIntent && !getPendingGuestIntent()
+      ? openDeepLinkedProductRouteIfNeeded({ skipHomeRender: hasActiveProductDeepLink })
+      : false);
   if (!skipWelcome && !isStaffUser() && !handledDeepLink) {
     if (deferRender) {
       window.setTimeout(showWelcomePopup, 80);
