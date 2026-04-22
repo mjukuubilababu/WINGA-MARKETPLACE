@@ -957,7 +957,7 @@ test("mobile deeper showcase rows respond to touch-style horizontal drags", asyn
   await context.close();
 });
 
-test("seller sees buyer action buttons on other sellers products but not on their own products", async ({ browser }) => {
+test("seller sees message, WhatsApp, and repost actions on other sellers products but not on their own products", async ({ browser }) => {
   const { context, page } = await createLoggedInPage(browser, "market_seller", "Pass1234");
   await page.goto("/");
 
@@ -968,13 +968,15 @@ test("seller sees buyer action buttons on other sellers products but not on thei
   await expect(otherCard).toBeVisible();
 
   await expect(ownCard).not.toContainText("Nunua");
-  await expect(ownCard).not.toContainText("Message");
-  await expect(ownCard).not.toContainText("Add to My Requests");
-  await expect(ownCard).not.toContainText("Your Product");
+  await expect(ownCard).not.toContainText("My Request");
+  await expect(ownCard).toContainText("Message");
+  await expect(ownCard).not.toContainText("Uza");
 
-  await expect(otherCard).toContainText("Nunua");
   await expect(otherCard).toContainText("Message");
-  await expect(otherCard).toContainText("Add to My Requests");
+  await expect(otherCard).toContainText("WhatsApp");
+  await expect(otherCard).toContainText("Uza");
+  await expect(otherCard).not.toContainText("Nunua");
+  await expect(otherCard).not.toContainText("My Request");
 
   await context.close();
 });

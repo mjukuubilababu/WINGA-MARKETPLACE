@@ -260,7 +260,7 @@
         }
         card.dataset.detailBound = "true";
         card.addEventListener("click", (event) => {
-          if (event.target.closest("[data-request-product], [data-chat-product], [data-open-own-messages], [data-buy-product], .product-menu")) {
+          if (event.target.closest("[data-request-product], [data-chat-product], [data-open-own-messages], [data-buy-product], [data-detail-repost], .product-menu")) {
             return;
           }
           openProductDetailModal(card.dataset.openProduct, {

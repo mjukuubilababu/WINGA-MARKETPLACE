@@ -2333,10 +2333,13 @@ const {
   renderProductActionGroup
 } = window.WingaModules.products.createProductActionsModule({
   getCurrentUser: () => currentUser,
+  getCurrentSession: () => currentSession,
   getChatUiState: () => chatUiState,
   chatEmojiChoices: CHAT_EMOJI_CHOICES,
   isProductInRequestBox,
   canUseBuyerFeatures,
+  renderWhatsappChatLink,
+  canRepostProduct: (product) => canRepostProductAsSeller(product),
   getOrderActionState: AppCore.getOrderActionState
     ? (...args) => AppCore.getOrderActionState(...args)
     : null,
@@ -4555,6 +4558,7 @@ const {
   },
   getProductById,
   beginPurchaseFlow,
+  repostProductAsSeller,
   toggleProductInRequestBoxById: (productId) => {
     const product = getProductById(productId);
     if (product) {
@@ -8990,11 +8994,11 @@ function bindShowcaseCardClicks(scope) {
       if (!productId || event.__wingaProductOpenHandled) {
         return;
       }
-      if (
-        event.target.closest(
-          ".product-menu, .product-menu-popup, .product-menu-toggle, [data-menu-toggle], [data-menu-popup], [data-product-caption-toggle], [data-request-product], [data-chat-product], [data-open-own-messages], [data-buy-product], .product-actions, .showcase-actions, .seller-product-actions"
-        )
-      ) {
+        if (
+          event.target.closest(
+            ".product-menu, .product-menu-popup, .product-menu-toggle, [data-menu-toggle], [data-menu-popup], [data-product-caption-toggle], [data-request-product], [data-chat-product], [data-open-own-messages], [data-buy-product], [data-detail-repost], .product-actions, .showcase-actions, .seller-product-actions"
+          )
+        ) {
         return;
       }
 

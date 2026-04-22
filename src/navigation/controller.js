@@ -176,7 +176,7 @@
           return;
         }
         const actionButton = event.target.closest(
-          "[data-buy-product], [data-request-product], [data-open-own-messages], [data-chat-product]"
+          "[data-buy-product], [data-request-product], [data-open-own-messages], [data-chat-product], [data-detail-repost]"
         );
         if (!actionButton) {
           return;
@@ -232,6 +232,23 @@
           event.preventDefault();
           event.stopPropagation();
           deps.openProductChatFromCard(chatButton.dataset.chatProduct);
+          return;
+        }
+
+        const repostButton = event.target.closest("[data-detail-repost]");
+        if (repostButton && !event.target.closest("#product-detail-modal")) {
+          scheduleActiveActionTouchStateClear();
+          const productId = repostButton.dataset.detailRepost || "";
+          if (!productId) {
+            return;
+          }
+          event.preventDefault();
+          event.stopPropagation();
+          const product = deps.getProductById?.(productId);
+          if (!product) {
+            return;
+          }
+          deps.repostProductAsSeller?.(product);
           return;
         }
 

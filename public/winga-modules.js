@@ -1618,7 +1618,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
           return;
         }
         const actionButton = event.target.closest(
-          "[data-buy-product], [data-request-product], [data-open-own-messages], [data-chat-product]"
+          "[data-buy-product], [data-request-product], [data-open-own-messages], [data-chat-product], [data-detail-repost]"
         );
         if (!actionButton) {
           return;
@@ -1674,6 +1674,23 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
           event.preventDefault();
           event.stopPropagation();
           deps.openProductChatFromCard(chatButton.dataset.chatProduct);
+          return;
+        }
+
+        const repostButton = event.target.closest("[data-detail-repost]");
+        if (repostButton && !event.target.closest("#product-detail-modal")) {
+          scheduleActiveActionTouchStateClear();
+          const productId = repostButton.dataset.detailRepost || "";
+          if (!productId) {
+            return;
+          }
+          event.preventDefault();
+          event.stopPropagation();
+          const product = deps.getProductById?.(productId);
+          if (!product) {
+            return;
+          }
+          deps.repostProductAsSeller?.(product);
           return;
         }
 
@@ -2811,7 +2828,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         }
         if (
           event.target.closest(
-            ".product-menu, .product-menu-popup, .product-menu-toggle, [data-menu-toggle], [data-menu-popup], [data-product-caption-toggle], [data-request-product], [data-chat-product], [data-open-own-messages], [data-buy-product], .product-actions, .showcase-actions, .seller-product-actions"
+            ".product-menu, .product-menu-popup, .product-menu-toggle, [data-menu-toggle], [data-menu-popup], [data-product-caption-toggle], [data-request-product], [data-chat-product], [data-open-own-messages], [data-buy-product], [data-detail-repost], .product-actions, .showcase-actions, .seller-product-actions"
           )
         ) {
           return;
@@ -4008,13 +4025,30 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
   function createProductActionsModule(deps) {
     const {
       getCurrentUser,
+      getCurrentSession,
       getChatUiState,
       chatEmojiChoices,
       isProductInRequestBox,
       canUseBuyerFeatures,
+      renderWhatsappChatLink,
+      canRepostProduct,
       getOrderActionState,
       buyerCancelWindowMs
     } = deps;
+
+    function getViewerRole() {
+      return String(getCurrentSession?.()?.role || "").trim().toLowerCase();
+    }
+
+    function renderRepostButton(product) {
+      if (getViewerRole() !== "seller") {
+        return "";
+      }
+      if (typeof canRepostProduct === "function" && !canRepostProduct(product)) {
+        return "";
+      }
+      return `<button class="action-btn action-btn-secondary repost-btn" type="button" data-detail-repost="${product.id}">Uza</button>`;
+    }
 
     function renderBuyButton(product) {
       const currentUser = getCurrentUser();
@@ -4111,7 +4145,11 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
 
     function renderMessageSellerButton(product) {
       const currentUser = getCurrentUser();
+      const viewerRole = getViewerRole();
       if (product.uploadedBy === currentUser) {
+        if (viewerRole === "seller") {
+          return `<button class="action-btn chat-btn" type="button" data-open-own-messages="${product.id}">Message</button>`;
+        }
         return "";
       }
       if (product.status !== "approved") {
@@ -4154,21 +4192,21 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
     }
 
     function renderProductActionGroup(product, options = {}) {
-      const { requestLabel = "My Request", extraClass = "" } = options;
-      const buyButton = renderBuyButton(product);
+      const { extraClass = "" } = options;
       const messageButton = renderMessageSellerButton(product);
-      const requestButton = renderRequestBoxButton(product, requestLabel);
-      if (!buyButton && !messageButton && !requestButton) {
+      const whatsappButton = typeof renderWhatsappChatLink === "function"
+        ? renderWhatsappChatLink(product, "WhatsApp")
+        : "";
+      const repostButton = renderRepostButton(product);
+      if (!messageButton && !whatsappButton && !repostButton) {
         return "";
       }
       const groupClass = extraClass ? `product-actions product-actions-simple ${extraClass}` : "product-actions product-actions-simple";
-      const primaryActions = [buyButton, messageButton].filter(Boolean).join("");
-      const secondaryActions = requestButton ? `<div class="product-actions-secondary">${requestButton}</div>` : "";
+      const actionButtons = [messageButton, repostButton, whatsappButton].filter(Boolean).join("");
 
       return `
         <div class="${groupClass}">
-          ${primaryActions ? `<div class="product-actions-primary">${primaryActions}</div>` : ""}
-          ${secondaryActions}
+          ${actionButtons}
         </div>
       `;
     }
@@ -8722,49 +8760,11 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       });
       copy.appendChild(reviewStack);
 
-      const actions = deps.createElement("div", { className: "product-detail-actions" });
-      const isOwnProduct = product.uploadedBy === deps.getCurrentUser();
-      if (product.status === "approved" && !isOwnProduct) {
-        actions.appendChild(deps.createElement("button", {
-          className: "action-btn buy-btn",
-          textContent: "Nunua",
-          attributes: { type: "button", "data-detail-buy": product.id }
-        }));
-        actions.appendChild(deps.createElement("button", {
-          className: "action-btn chat-btn",
-          textContent: "Message",
-          attributes: product.uploadedBy === deps.getCurrentUser()
-            ? { type: "button", "data-open-own-messages": product.id }
-            : { type: "button", "data-chat-product": product.id }
-        }));
-        if (deps.canRepostProduct?.(product)) {
-          actions.appendChild(deps.createElement("button", {
-            className: "action-btn action-btn-secondary",
-            textContent: "Uza",
-            attributes: { type: "button", "data-detail-repost": product.id }
-          }));
-        }
-      } else if (!isOwnProduct) {
-        actions.append(
-          deps.createElement("button", {
-            className: "action-btn buy-btn is-disabled",
-            textContent: "Nunua",
-            attributes: { type: "button", disabled: "true", "aria-disabled": "true" }
-          }),
-          deps.createElement("button", {
-            className: "action-btn chat-btn is-disabled",
-            textContent: "Message",
-            attributes: { type: "button", disabled: "true", "aria-disabled": "true" }
-          })
-        );
-      }
-      if (!isOwnProduct) {
-        [deps.renderRequestBoxButton(product), deps.renderWhatsappChatLink(product, "WhatsApp")]
-          .filter(Boolean)
-          .forEach((markup) => actions.appendChild(deps.createFragmentFromMarkup(markup)));
-      }
-      if (actions.childNodes.length > 0) {
-        copy.appendChild(actions);
+      const actionsMarkup = deps.renderProductActionGroup?.(product, {
+        extraClass: "product-detail-actions"
+      });
+      if (actionsMarkup) {
+        copy.appendChild(deps.createFragmentFromMarkup(actionsMarkup));
       }
 
       const reviewsPanel = deps.createElement("section", { className: "product-detail-reviews-panel" });
@@ -9110,7 +9110,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         }
         card.dataset.detailBound = "true";
         card.addEventListener("click", (event) => {
-          if (event.target.closest("[data-request-product], [data-chat-product], [data-open-own-messages], [data-buy-product], .product-menu")) {
+          if (event.target.closest("[data-request-product], [data-chat-product], [data-open-own-messages], [data-buy-product], [data-detail-repost], .product-menu")) {
             return;
           }
           openProductDetailModal(card.dataset.openProduct, {

@@ -2,13 +2,30 @@
   function createProductActionsModule(deps) {
     const {
       getCurrentUser,
+      getCurrentSession,
       getChatUiState,
       chatEmojiChoices,
       isProductInRequestBox,
       canUseBuyerFeatures,
+      renderWhatsappChatLink,
+      canRepostProduct,
       getOrderActionState,
       buyerCancelWindowMs
     } = deps;
+
+    function getViewerRole() {
+      return String(getCurrentSession?.()?.role || "").trim().toLowerCase();
+    }
+
+    function renderRepostButton(product) {
+      if (getViewerRole() !== "seller") {
+        return "";
+      }
+      if (typeof canRepostProduct === "function" && !canRepostProduct(product)) {
+        return "";
+      }
+      return `<button class="action-btn action-btn-secondary repost-btn" type="button" data-detail-repost="${product.id}">Uza</button>`;
+    }
 
     function renderBuyButton(product) {
       const currentUser = getCurrentUser();
@@ -105,7 +122,11 @@
 
     function renderMessageSellerButton(product) {
       const currentUser = getCurrentUser();
+      const viewerRole = getViewerRole();
       if (product.uploadedBy === currentUser) {
+        if (viewerRole === "seller") {
+          return `<button class="action-btn chat-btn" type="button" data-open-own-messages="${product.id}">Message</button>`;
+        }
         return "";
       }
       if (product.status !== "approved") {
@@ -148,21 +169,21 @@
     }
 
     function renderProductActionGroup(product, options = {}) {
-      const { requestLabel = "My Request", extraClass = "" } = options;
-      const buyButton = renderBuyButton(product);
+      const { extraClass = "" } = options;
       const messageButton = renderMessageSellerButton(product);
-      const requestButton = renderRequestBoxButton(product, requestLabel);
-      if (!buyButton && !messageButton && !requestButton) {
+      const whatsappButton = typeof renderWhatsappChatLink === "function"
+        ? renderWhatsappChatLink(product, "WhatsApp")
+        : "";
+      const repostButton = renderRepostButton(product);
+      if (!messageButton && !whatsappButton && !repostButton) {
         return "";
       }
       const groupClass = extraClass ? `product-actions product-actions-simple ${extraClass}` : "product-actions product-actions-simple";
-      const primaryActions = [buyButton, messageButton].filter(Boolean).join("");
-      const secondaryActions = requestButton ? `<div class="product-actions-secondary">${requestButton}</div>` : "";
+      const actionButtons = [messageButton, repostButton, whatsappButton].filter(Boolean).join("");
 
       return `
         <div class="${groupClass}">
-          ${primaryActions ? `<div class="product-actions-primary">${primaryActions}</div>` : ""}
-          ${secondaryActions}
+          ${actionButtons}
         </div>
       `;
     }
