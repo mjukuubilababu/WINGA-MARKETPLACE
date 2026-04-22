@@ -274,11 +274,9 @@ function getProductShareDescription(product) {
   }
 
   const parts = [];
-  const shop = sanitizePlainText(product?.shop || "", 80);
   const category = sanitizePlainText(product?.category || "", 60);
   const price = Number(product?.price);
 
-  if (shop) parts.push(shop);
   if (category) parts.push(category);
   if (Number.isFinite(price) && price > 0) {
     parts.push(`Bei TSh ${new Intl.NumberFormat("en-US").format(price)}`);
