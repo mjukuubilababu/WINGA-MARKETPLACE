@@ -71,11 +71,7 @@ function getImageUrl(product, origin) {
 
 function getTitle(product) {
   const name = sanitizePlainText(product?.name || "", 120);
-  const shop = sanitizePlainText(product?.shop || "", 80);
-  if (name && shop && !name.toLowerCase().includes(shop.toLowerCase())) {
-    return `${name} | ${shop}`;
-  }
-  return name || shop || "Winga product";
+  return name || "Winga product";
 }
 
 function getDescription(product) {
