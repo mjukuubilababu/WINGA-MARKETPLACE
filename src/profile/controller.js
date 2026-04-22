@@ -157,15 +157,31 @@
 
     async function submitSellerUpgradeForm() {
       const fullName = String(document.getElementById("profile-seller-upgrade-full-name")?.value || "").trim();
+      const phoneNumber = String(document.getElementById("profile-seller-upgrade-phone-number")?.value || "").trim();
       const primaryCategory = String(document.getElementById("profile-seller-upgrade-category")?.value || "").trim();
-      const identityDocumentType = String(document.getElementById("profile-seller-upgrade-id-type")?.value || "").trim();
-      const identityDocumentNumber = String(document.getElementById("profile-seller-upgrade-id-number")?.value || "").trim();
-      const idImageFile = document.getElementById("profile-seller-upgrade-id-image")?.files?.[0] || null;
 
       if (fullName.length < 3) {
         deps.showInAppNotification?.({
-          title: "Full name required",
-          body: "Jina kamili linahitajika kabla ya upgrade.",
+          title: "Store name required",
+          body: "Jina la duka linahitajika kabla ya kuendelea.",
+          variant: "warning"
+        });
+        return;
+      }
+
+      if (!phoneNumber) {
+        deps.showInAppNotification?.({
+          title: "Phone required",
+          body: "Weka namba ya simu kabla ya kuendelea.",
+          variant: "warning"
+        });
+        return;
+      }
+
+      if (!/^\+?[0-9][0-9\s-]{7,19}$/.test(phoneNumber)) {
+        deps.showInAppNotification?.({
+          title: "Phone required",
+          body: "Weka namba ya simu sahihi.",
           variant: "warning"
         });
         return;
@@ -180,33 +196,6 @@
         return;
       }
 
-      if (!identityDocumentType) {
-        deps.showInAppNotification?.({
-          title: "ID type required",
-          body: "Chagua aina ya kitambulisho.",
-          variant: "warning"
-        });
-        return;
-      }
-
-      if (!/^[A-Z0-9]{8,20}$/i.test(identityDocumentNumber)) {
-        deps.showInAppNotification?.({
-          title: "ID number required",
-          body: "Weka namba ya kitambulisho iliyo sahihi.",
-          variant: "warning"
-        });
-        return;
-      }
-
-      if (!idImageFile) {
-        deps.showInAppNotification?.({
-          title: "ID image required",
-          body: "Pakia picha ya kitambulisho kabla ya kuendelea.",
-          variant: "warning"
-        });
-        return;
-      }
-
       const submitButton = document.querySelector("[data-submit-seller-upgrade]");
       const cancelButton = document.querySelector("[data-close-seller-upgrade]");
       submitButton?.setAttribute("disabled", "disabled");
@@ -215,15 +204,10 @@
       }
 
       try {
-        deps.validateSingleImageFile(idImageFile, "Identity document");
-        const identityDocumentImage = await deps.readFileAsDataUrl(idImageFile, { purpose: "document", fastMode: true });
         const updatedSession = await deps.dataLayer.upgradeBuyerToSeller({
           fullName,
+          phoneNumber,
           primaryCategory,
-          identityDocumentType,
-          identityDocumentNumber,
-          nationalId: identityDocumentNumber,
-          identityDocumentImage
         });
         if (!updatedSession?.username) {
           throw new Error("Seller upgrade haikufaulu.");
@@ -611,10 +595,8 @@
             canUpgradeToSeller,
             canGetVerified,
             fullName: deps.getCurrentDisplayName(),
+            phoneNumber: userProfile?.phoneNumber || userProfile?.whatsappNumber || "",
             primaryCategory: userProfile?.primaryCategory || "",
-            identityDocumentType: userProfile?.identityDocumentType || "",
-            identityDocumentNumber: userProfile?.identityDocumentNumber || "",
-            nationalId: userProfile?.nationalId || ""
           }),
           promotionsMarkup: deps.createPromotionOverviewSectionElement({
             canUseSellerFeatures: deps.canUseSellerFeatures(),

@@ -533,21 +533,29 @@
           if (item.username !== session.username) {
             return item;
           }
-          const nextNationalId = normalizeNationalId(payload?.identityDocumentNumber || payload?.nationalId || item.nationalId || item.identityDocumentNumber || "");
-          const nextVerifiedSeller = true;
-          const nextVerificationStatus = "verified";
+          const nextPhoneNumber = normalizePhoneNumber(payload?.phoneNumber || item.phoneNumber || item.whatsappNumber || "");
+          const duplicatePhone = users.find((other) =>
+            other.username !== item.username && normalizePhoneNumber(other.phoneNumber || other.whatsappNumber || "") === nextPhoneNumber
+          );
+          if (duplicatePhone) {
+            throw new Error("Namba hiyo ya simu tayari imesajiliwa.");
+          }
           updatedUser = {
             ...item,
             fullName: String(payload?.fullName || item.fullName || item.username).trim() || item.username,
             primaryCategory: normalizePrimaryCategoryValue(payload?.primaryCategory || item.primaryCategory || ""),
             role: "seller",
-            nationalId: nextNationalId,
-            identityDocumentType: String(payload?.identityDocumentType || "").toUpperCase(),
-            identityDocumentNumber: nextNationalId,
-            identityDocumentImage: payload?.identityDocumentImage || "",
-            verifiedSeller: nextVerifiedSeller,
-            verificationStatus: nextVerificationStatus,
-            verificationSubmittedAt: item.verificationSubmittedAt || new Date().toISOString(),
+            phoneNumber: nextPhoneNumber,
+            whatsappNumber: nextPhoneNumber,
+            whatsappVerificationStatus: "verified",
+            whatsappVerifiedAt: new Date().toISOString(),
+            nationalId: "",
+            identityDocumentType: "",
+            identityDocumentNumber: "",
+            identityDocumentImage: "",
+            verifiedSeller: false,
+            verificationStatus: "unverified",
+            verificationSubmittedAt: item.verificationSubmittedAt || "",
             updatedAt: new Date().toISOString()
           };
           return updatedUser;

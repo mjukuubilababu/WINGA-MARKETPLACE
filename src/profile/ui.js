@@ -297,17 +297,12 @@
         return null;
       }
 
-      const isVerificationFlow = Boolean(context.canGetVerified);
-      const sectionTitle = isVerificationFlow ? "Get Verified" : "Badilika kuwa Muuzaji";
-      const sectionEyebrow = isVerificationFlow ? "Verification" : "Seller upgrade";
-      const sectionMeta = isVerificationFlow
-        ? "Tuma ID yako kwa verification ya seller."
-        : "Direct upgrade bila kutoka profile";
-      const buttonLabel = isVerificationFlow ? "Open verification form" : "Open seller form";
-      const submitLabel = isVerificationFlow ? "Get Verified" : "Become Seller";
-      const guidanceCopy = isVerificationFlow
-        ? "Jaza taarifa za verification hapa. Akaunti yako itabaki wazi wakati verification inaendelea."
-        : "Jaza taarifa za seller hapa. Profile yako itaendelea kubaki wazi wakati role inabadilika.";
+      const sectionTitle = "Seller Registration";
+      const sectionEyebrow = "Seller upgrade";
+      const sectionMeta = "Jina la duka na namba ya simu";
+      const buttonLabel = "Open seller form";
+      const submitLabel = "Become Seller";
+      const guidanceCopy = "Jaza jina la duka na namba ya simu. Akaunti yako itaendelea kubaki wazi wakati role inabadilika.";
 
       const section = deps.createElement("section", {
         className: "panel profile-seller-upgrade-panel",
@@ -342,36 +337,31 @@
           style: "display:none;"
         }
       });
-      const idTypeSelect = deps.createElement("select", {
-        attributes: {
-          id: "profile-seller-upgrade-id-type"
-        }
-      });
-      [
-        { value: "", label: "Select ID type" },
-        { value: "NIDA", label: "NIDA" },
-        { value: "VOTER_ID", label: "Voter ID" }
-      ].forEach((option) => {
-        idTypeSelect.appendChild(deps.createElement("option", {
-          textContent: option.label,
-          attributes: {
-            value: option.value,
-            ...(option.value === (context.identityDocumentType || "") ? { selected: "selected" } : {})
-          }
-        }));
-      });
-
       form.append(
         deps.createElement("label", {
           className: "auth-label",
-          textContent: "Full name"
+          textContent: "Jina la duka"
         }),
         deps.createElement("input", {
           attributes: {
             id: "profile-seller-upgrade-full-name",
             type: "text",
             maxlength: "120",
+            placeholder: "Weka jina la duka",
             value: context.fullName || context.displayName || ""
+          }
+        }),
+        deps.createElement("label", {
+          className: "auth-label",
+          textContent: "Namba ya simu"
+        }),
+        deps.createElement("input", {
+          attributes: {
+            id: "profile-seller-upgrade-phone-number",
+            type: "tel",
+            maxlength: "20",
+            placeholder: "Namba ya simu ya akaunti",
+            value: context.phoneNumber || context.whatsappNumber || ""
           }
         }),
         deps.createElement("label", {
@@ -387,38 +377,9 @@
             value: context.primaryCategory || ""
           }
         }),
-        deps.createElement("label", {
-          className: "auth-label",
-          textContent: "ID type"
-        }),
-        idTypeSelect,
-        deps.createElement("label", {
-          className: "auth-label",
-          textContent: "ID number"
-        }),
-        deps.createElement("input", {
-          attributes: {
-            id: "profile-seller-upgrade-id-number",
-            type: "text",
-            maxlength: "20",
-            placeholder: "Enter the number shown on your ID",
-            value: context.identityDocumentNumber || context.nationalId || ""
-          }
-        }),
-        deps.createElement("label", {
-          className: "auth-label",
-          textContent: "ID image"
-        }),
-        deps.createElement("input", {
-          attributes: {
-            id: "profile-seller-upgrade-id-image",
-            type: "file",
-            accept: "image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif"
-          }
-        }),
         deps.createElement("p", {
           className: "auth-note",
-          textContent: "The ID number must match the number already registered on your account."
+          textContent: "Hakikisha jina la duka na namba ya simu ni sahihi kabla ya kuendelea."
         }),
         deps.createElement("div", {
           className: "profile-seller-upgrade-actions"

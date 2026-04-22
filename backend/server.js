@@ -1953,33 +1953,17 @@ function validateSellerUpgradePayload(payload, user = {}) {
 
   const fullName = sanitizePlainText(payload.fullName || user.fullName || user.username, 120);
   if (!isNonEmptyString(fullName, 3, 120)) {
-    return "Jina kamili si sahihi.";
+    return "Jina la duka si sahihi.";
+  }
+
+  const phoneNumber = sanitizePlainText(payload.phoneNumber || user.phoneNumber || user.whatsappNumber || "", 20);
+  if (!isValidWhatsapp(phoneNumber)) {
+    return "Namba ya simu si sahihi.";
   }
 
   const primaryCategory = sanitizePlainText(payload.primaryCategory || user.primaryCategory || "", 60).toLowerCase();
   if (payload.primaryCategory && !isValidCategory(primaryCategory)) {
     return "Category ya seller si sahihi.";
-  }
-
-  const { idType, idNumber, idImage } = getNormalizedSignupIdentity(payload);
-  if (!ALLOWED_IDENTITY_DOCUMENT_TYPES.includes(idType)) {
-    return "Please select your ID type";
-  }
-  if (!isValidNationalId(idNumber || "")) {
-    return "Please enter your ID number";
-  }
-  if (!idImage || !isValidPrivateImageValue(idImage || "")) {
-    return "ID image is invalid.";
-  }
-
-  const accountNationalId = normalizeNationalId(user.nationalId || user.identityDocumentNumber || "");
-  if (accountNationalId && accountNationalId !== idNumber) {
-    return "The card number and the account details do not match. Please use the same number registered on your account.";
-  }
-
-  const payloadNationalId = sanitizePlainText(payload.nationalId || "", 40).toUpperCase();
-  if (payload.nationalId && payloadNationalId !== idNumber) {
-    return "The card number and the number you entered do not match. Please enter the same number shown on the card.";
   }
 
   return "";
@@ -5000,21 +4984,31 @@ http.createServer(async (req, res) => {
 
       const now = new Date().toISOString();
       const fullName = sanitizePlainText(payload.fullName || user.fullName || user.username, 120);
+      const phoneNumber = normalizeWhatsapp(payload.phoneNumber || user.phoneNumber || user.whatsappNumber || "");
       const primaryCategory = sanitizePlainText(payload.primaryCategory || user.primaryCategory || "", 60).toLowerCase();
-      const { idType, idNumber, idImage } = getNormalizedSignupIdentity(payload);
-      const nextNationalId = idNumber;
+      const duplicatePhoneUser = (store.users || []).find((item) =>
+        item.username !== user.username && String(item.phoneNumber || "") === phoneNumber
+      );
+      if (duplicatePhoneUser) {
+        sendJson(res, 409, { error: "Namba hiyo ya simu tayari imesajiliwa." });
+        return;
+      }
       const updatedUser = normalizeUserRecord({
         ...user,
         fullName,
         role: "seller",
         primaryCategory,
-        nationalId: nextNationalId,
-        identityDocumentType: idType,
-        identityDocumentNumber: nextNationalId,
-        identityDocumentImage: idImage,
-        verifiedSeller: true,
-        verificationStatus: "verified",
-        verificationSubmittedAt: user.verificationSubmittedAt || now,
+        phoneNumber,
+        whatsappNumber: phoneNumber,
+        whatsappVerificationStatus: "verified",
+        whatsappVerifiedAt: now,
+        nationalId: "",
+        identityDocumentType: "",
+        identityDocumentNumber: "",
+        identityDocumentImage: "",
+        verifiedSeller: false,
+        verificationStatus: "unverified",
+        verificationSubmittedAt: user.verificationSubmittedAt || "",
         updatedAt: now
       });
 
@@ -5030,13 +5024,15 @@ http.createServer(async (req, res) => {
               primaryCategory: updatedUser.primaryCategory || item.primaryCategory || "",
               status: updatedUser.status || item.status || "active",
               verificationStatus: updatedUser.verificationStatus || item.verificationStatus || "verified",
-              verifiedSeller: true,
-              identityDocumentType: updatedUser.identityDocumentType || "",
-              identityDocumentNumber: updatedUser.identityDocumentNumber || "",
-              nationalId: updatedUser.nationalId || "",
+              verifiedSeller: false,
+              identityDocumentType: "",
+              identityDocumentNumber: "",
+              nationalId: "",
               profileImage: updatedUser.profileImage || item.profileImage || "",
+              phoneNumber: updatedUser.phoneNumber || item.phoneNumber || "",
               whatsappNumber: updatedUser.whatsappNumber || item.whatsappNumber || "",
-              whatsappVerificationStatus: updatedUser.whatsappVerificationStatus || item.whatsappVerificationStatus || "verified"
+              whatsappVerificationStatus: updatedUser.whatsappVerificationStatus || item.whatsappVerificationStatus || "verified",
+              whatsappVerifiedAt: updatedUser.whatsappVerifiedAt || item.whatsappVerifiedAt || now
             }
           : item
       );

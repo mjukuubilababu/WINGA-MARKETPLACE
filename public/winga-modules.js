@@ -7079,17 +7079,12 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         return null;
       }
 
-      const isVerificationFlow = Boolean(context.canGetVerified);
-      const sectionTitle = isVerificationFlow ? "Get Verified" : "Badilika kuwa Muuzaji";
-      const sectionEyebrow = isVerificationFlow ? "Verification" : "Seller upgrade";
-      const sectionMeta = isVerificationFlow
-        ? "Tuma ID yako kwa verification ya seller."
-        : "Direct upgrade bila kutoka profile";
-      const buttonLabel = isVerificationFlow ? "Open verification form" : "Open seller form";
-      const submitLabel = isVerificationFlow ? "Get Verified" : "Become Seller";
-      const guidanceCopy = isVerificationFlow
-        ? "Jaza taarifa za verification hapa. Akaunti yako itabaki wazi wakati verification inaendelea."
-        : "Jaza taarifa za seller hapa. Profile yako itaendelea kubaki wazi wakati role inabadilika.";
+      const sectionTitle = "Seller Registration";
+      const sectionEyebrow = "Seller upgrade";
+      const sectionMeta = "Jina la duka na namba ya simu";
+      const buttonLabel = "Open seller form";
+      const submitLabel = "Become Seller";
+      const guidanceCopy = "Jaza jina la duka na namba ya simu. Akaunti yako itaendelea kubaki wazi wakati role inabadilika.";
 
       const section = deps.createElement("section", {
         className: "panel profile-seller-upgrade-panel",
@@ -7124,36 +7119,31 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
           style: "display:none;"
         }
       });
-      const idTypeSelect = deps.createElement("select", {
-        attributes: {
-          id: "profile-seller-upgrade-id-type"
-        }
-      });
-      [
-        { value: "", label: "Select ID type" },
-        { value: "NIDA", label: "NIDA" },
-        { value: "VOTER_ID", label: "Voter ID" }
-      ].forEach((option) => {
-        idTypeSelect.appendChild(deps.createElement("option", {
-          textContent: option.label,
-          attributes: {
-            value: option.value,
-            ...(option.value === (context.identityDocumentType || "") ? { selected: "selected" } : {})
-          }
-        }));
-      });
-
       form.append(
         deps.createElement("label", {
           className: "auth-label",
-          textContent: "Full name"
+          textContent: "Jina la duka"
         }),
         deps.createElement("input", {
           attributes: {
             id: "profile-seller-upgrade-full-name",
             type: "text",
             maxlength: "120",
+            placeholder: "Weka jina la duka",
             value: context.fullName || context.displayName || ""
+          }
+        }),
+        deps.createElement("label", {
+          className: "auth-label",
+          textContent: "Namba ya simu"
+        }),
+        deps.createElement("input", {
+          attributes: {
+            id: "profile-seller-upgrade-phone-number",
+            type: "tel",
+            maxlength: "20",
+            placeholder: "Namba ya simu ya akaunti",
+            value: context.phoneNumber || context.whatsappNumber || ""
           }
         }),
         deps.createElement("label", {
@@ -7169,38 +7159,9 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
             value: context.primaryCategory || ""
           }
         }),
-        deps.createElement("label", {
-          className: "auth-label",
-          textContent: "ID type"
-        }),
-        idTypeSelect,
-        deps.createElement("label", {
-          className: "auth-label",
-          textContent: "ID number"
-        }),
-        deps.createElement("input", {
-          attributes: {
-            id: "profile-seller-upgrade-id-number",
-            type: "text",
-            maxlength: "20",
-            placeholder: "Enter the number shown on your ID",
-            value: context.identityDocumentNumber || context.nationalId || ""
-          }
-        }),
-        deps.createElement("label", {
-          className: "auth-label",
-          textContent: "ID image"
-        }),
-        deps.createElement("input", {
-          attributes: {
-            id: "profile-seller-upgrade-id-image",
-            type: "file",
-            accept: "image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif"
-          }
-        }),
         deps.createElement("p", {
           className: "auth-note",
-          textContent: "The ID number must match the number already registered on your account."
+          textContent: "Hakikisha jina la duka na namba ya simu ni sahihi kabla ya kuendelea."
         }),
         deps.createElement("div", {
           className: "profile-seller-upgrade-actions"
@@ -7732,15 +7693,31 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
 
     async function submitSellerUpgradeForm() {
       const fullName = String(document.getElementById("profile-seller-upgrade-full-name")?.value || "").trim();
+      const phoneNumber = String(document.getElementById("profile-seller-upgrade-phone-number")?.value || "").trim();
       const primaryCategory = String(document.getElementById("profile-seller-upgrade-category")?.value || "").trim();
-      const identityDocumentType = String(document.getElementById("profile-seller-upgrade-id-type")?.value || "").trim();
-      const identityDocumentNumber = String(document.getElementById("profile-seller-upgrade-id-number")?.value || "").trim();
-      const idImageFile = document.getElementById("profile-seller-upgrade-id-image")?.files?.[0] || null;
 
       if (fullName.length < 3) {
         deps.showInAppNotification?.({
-          title: "Full name required",
-          body: "Jina kamili linahitajika kabla ya upgrade.",
+          title: "Store name required",
+          body: "Jina la duka linahitajika kabla ya kuendelea.",
+          variant: "warning"
+        });
+        return;
+      }
+
+      if (!phoneNumber) {
+        deps.showInAppNotification?.({
+          title: "Phone required",
+          body: "Weka namba ya simu kabla ya kuendelea.",
+          variant: "warning"
+        });
+        return;
+      }
+
+      if (!/^\+?[0-9][0-9\s-]{7,19}$/.test(phoneNumber)) {
+        deps.showInAppNotification?.({
+          title: "Phone required",
+          body: "Weka namba ya simu sahihi.",
           variant: "warning"
         });
         return;
@@ -7755,33 +7732,6 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         return;
       }
 
-      if (!identityDocumentType) {
-        deps.showInAppNotification?.({
-          title: "ID type required",
-          body: "Chagua aina ya kitambulisho.",
-          variant: "warning"
-        });
-        return;
-      }
-
-      if (!/^[A-Z0-9]{8,20}$/i.test(identityDocumentNumber)) {
-        deps.showInAppNotification?.({
-          title: "ID number required",
-          body: "Weka namba ya kitambulisho iliyo sahihi.",
-          variant: "warning"
-        });
-        return;
-      }
-
-      if (!idImageFile) {
-        deps.showInAppNotification?.({
-          title: "ID image required",
-          body: "Pakia picha ya kitambulisho kabla ya kuendelea.",
-          variant: "warning"
-        });
-        return;
-      }
-
       const submitButton = document.querySelector("[data-submit-seller-upgrade]");
       const cancelButton = document.querySelector("[data-close-seller-upgrade]");
       submitButton?.setAttribute("disabled", "disabled");
@@ -7790,15 +7740,10 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       }
 
       try {
-        deps.validateSingleImageFile(idImageFile, "Identity document");
-        const identityDocumentImage = await deps.readFileAsDataUrl(idImageFile, { purpose: "document", fastMode: true });
         const updatedSession = await deps.dataLayer.upgradeBuyerToSeller({
           fullName,
+          phoneNumber,
           primaryCategory,
-          identityDocumentType,
-          identityDocumentNumber,
-          nationalId: identityDocumentNumber,
-          identityDocumentImage
         });
         if (!updatedSession?.username) {
           throw new Error("Seller upgrade haikufaulu.");
@@ -8186,10 +8131,8 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
             canUpgradeToSeller,
             canGetVerified,
             fullName: deps.getCurrentDisplayName(),
+            phoneNumber: userProfile?.phoneNumber || userProfile?.whatsappNumber || "",
             primaryCategory: userProfile?.primaryCategory || "",
-            identityDocumentType: userProfile?.identityDocumentType || "",
-            identityDocumentNumber: userProfile?.identityDocumentNumber || "",
-            nationalId: userProfile?.nationalId || ""
           }),
           promotionsMarkup: deps.createPromotionOverviewSectionElement({
             canUseSellerFeatures: deps.canUseSellerFeatures(),
