@@ -1618,7 +1618,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
           return;
         }
         const actionButton = event.target.closest(
-          "[data-buy-product], [data-request-product], [data-open-own-messages], [data-chat-product], [data-detail-repost]"
+          "[data-buy-product], [data-request-product], [data-open-own-messages], [data-chat-product], [data-detail-repost], [data-open-product-whatsapp]"
         );
         if (!actionButton) {
           return;
@@ -1674,6 +1674,15 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
           event.preventDefault();
           event.stopPropagation();
           deps.openProductChatFromCard(chatButton.dataset.chatProduct);
+          return;
+        }
+
+        const whatsappButton = event.target.closest("[data-open-product-whatsapp]");
+        if (whatsappButton) {
+          scheduleActiveActionTouchStateClear();
+          event.preventDefault();
+          event.stopPropagation();
+          deps.openProductWhatsappFromCard?.(whatsappButton.dataset.openProductWhatsapp);
           return;
         }
 
@@ -2828,7 +2837,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         }
         if (
           event.target.closest(
-            ".product-menu, .product-menu-popup, .product-menu-toggle, [data-menu-toggle], [data-menu-popup], [data-product-caption-toggle], [data-request-product], [data-chat-product], [data-open-own-messages], [data-buy-product], [data-detail-repost], .product-actions, .showcase-actions, .seller-product-actions"
+            ".product-menu, .product-menu-popup, .product-menu-toggle, [data-menu-toggle], [data-menu-popup], [data-product-caption-toggle], [data-request-product], [data-chat-product], [data-open-own-messages], [data-open-product-whatsapp], [data-buy-product], [data-detail-repost], .product-actions, .showcase-actions, .seller-product-actions"
           )
         ) {
           return;
@@ -9113,7 +9122,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         }
         card.dataset.detailBound = "true";
         card.addEventListener("click", (event) => {
-          if (event.target.closest("[data-request-product], [data-chat-product], [data-open-own-messages], [data-buy-product], [data-detail-repost], .product-menu")) {
+          if (event.target.closest("[data-request-product], [data-chat-product], [data-open-own-messages], [data-open-product-whatsapp], [data-buy-product], [data-detail-repost], .product-menu")) {
             return;
           }
           openProductDetailModal(card.dataset.openProduct, {

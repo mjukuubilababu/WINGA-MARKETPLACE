@@ -176,7 +176,7 @@
           return;
         }
         const actionButton = event.target.closest(
-          "[data-buy-product], [data-request-product], [data-open-own-messages], [data-chat-product], [data-detail-repost]"
+          "[data-buy-product], [data-request-product], [data-open-own-messages], [data-chat-product], [data-detail-repost], [data-open-product-whatsapp]"
         );
         if (!actionButton) {
           return;
@@ -232,6 +232,15 @@
           event.preventDefault();
           event.stopPropagation();
           deps.openProductChatFromCard(chatButton.dataset.chatProduct);
+          return;
+        }
+
+        const whatsappButton = event.target.closest("[data-open-product-whatsapp]");
+        if (whatsappButton) {
+          scheduleActiveActionTouchStateClear();
+          event.preventDefault();
+          event.stopPropagation();
+          deps.openProductWhatsappFromCard?.(whatsappButton.dataset.openProductWhatsapp);
           return;
         }
 

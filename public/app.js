@@ -1744,6 +1744,20 @@ function resumePendingGuestIntent() {
     }
   }
 
+  if (intent.type === "open-whatsapp" && intent.productId) {
+    const product = getProductById(intent.productId);
+    if (product) {
+      const whatsappHref = buildWhatsappHref(product.whatsapp, product.name);
+      if (whatsappHref !== "#") {
+        const opened = window.open(whatsappHref, "_blank", "noopener,noreferrer");
+        if (!opened) {
+          window.location.href = whatsappHref;
+        }
+      }
+      return;
+    }
+  }
+
   if (intent.type === "add-request" && intent.productId) {
     const product = getProductById(intent.productId);
     if (product) {
@@ -2315,7 +2329,36 @@ function renderWhatsappChatLink(product, label = "Chat on WhatsApp") {
   if (!whatsappNumber) {
     return "";
   }
-  return `<a class="button whatsapp-chat-btn" href="${buildWhatsappHref(whatsappNumber, product.name)}" target="_blank" rel="noopener noreferrer">${label}</a>`;
+  return `<button class="button whatsapp-chat-btn" type="button" data-open-product-whatsapp="${product.id}">${label}</button>`;
+}
+
+function openProductWhatsappFromCard(productId) {
+  const product = getProductById(productId);
+  if (!product) {
+    reportClientEvent("error", "whatsapp_product_missing", "WhatsApp button handler could not resolve the product.", {
+      productId
+    });
+    return;
+  }
+
+  if (!isAuthenticatedUser()) {
+    promptGuestAuth?.({
+      preferredMode: "signup",
+      role: "buyer",
+      title: "You need an account to continue",
+      message: "Sign up or log in to continue with WhatsApp on this product.",
+      intent: { type: "open-whatsapp", productId }
+    });
+    return;
+  }
+
+  const whatsappHref = buildWhatsappHref(product.whatsapp, product.name);
+  if (whatsappHref !== "#") {
+    const opened = window.open(whatsappHref, "_blank", "noopener,noreferrer");
+    if (!opened) {
+      window.location.href = whatsappHref;
+    }
+  }
 }
 
 const {
@@ -4564,6 +4607,7 @@ const {
   },
   openProductDetailModal,
   openOwnProductMessages,
+  openProductWhatsappFromCard,
   openProductChatFromCard: (productId) => {
     const product = getProductById(productId);
     if (!product) {
@@ -8993,7 +9037,7 @@ function bindShowcaseCardClicks(scope) {
       }
         if (
           event.target.closest(
-            ".product-menu, .product-menu-popup, .product-menu-toggle, [data-menu-toggle], [data-menu-popup], [data-product-caption-toggle], [data-request-product], [data-chat-product], [data-open-own-messages], [data-buy-product], [data-detail-repost], .product-actions, .showcase-actions, .seller-product-actions"
+            ".product-menu, .product-menu-popup, .product-menu-toggle, [data-menu-toggle], [data-menu-popup], [data-product-caption-toggle], [data-request-product], [data-chat-product], [data-open-own-messages], [data-open-product-whatsapp], [data-buy-product], [data-detail-repost], .product-actions, .showcase-actions, .seller-product-actions"
           )
         ) {
         return;
