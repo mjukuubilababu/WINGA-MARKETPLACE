@@ -439,6 +439,14 @@
         return;
       }
 
+      if (deps.isProductDetailOpen?.()) {
+        deps.closeProductDetailModal?.({
+          skipHistoryBack: true,
+          skipContextRestore: true,
+          skipRootCardScroll: true
+        });
+      }
+
       deps.setSelectedChatProductIds([]);
       deps.setActiveChatReplyMessageId("");
       deps.setOpenChatMessageMenuId("");
@@ -467,6 +475,7 @@
         deps.setProfileMessagesMode?.("list");
         deps.setProfileHasSelection?.(false);
       }
+      deps.setActiveProfileSection?.("profile-messages-panel");
       deps.setPendingProfileSection("profile-messages-panel");
       deps.renderCurrentView();
 

@@ -5062,6 +5062,14 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         return;
       }
 
+      if (deps.isProductDetailOpen?.()) {
+        deps.closeProductDetailModal?.({
+          skipHistoryBack: true,
+          skipContextRestore: true,
+          skipRootCardScroll: true
+        });
+      }
+
       deps.setSelectedChatProductIds([]);
       deps.setActiveChatReplyMessageId("");
       deps.setOpenChatMessageMenuId("");
@@ -5090,6 +5098,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         deps.setProfileMessagesMode?.("list");
         deps.setProfileHasSelection?.(false);
       }
+      deps.setActiveProfileSection?.("profile-messages-panel");
       deps.setPendingProfileSection("profile-messages-panel");
       deps.renderCurrentView();
 
@@ -7508,9 +7517,9 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       return wrapper;
     }
 
-    function createProfileProductCardElement(product) {
+    function createProfileProductCardElement(product, imageSrc = "") {
       const images = getProductImages(product);
-      const firstImage = images[0] || deps.getImageFallbackDataUri?.("WINGA") || "";
+      const firstImage = imageSrc || images[0] || deps.getImageFallbackDataUri?.("WINGA") || "";
       const article = deps.createElement("article", {
         className: "product-card profile-product-card",
         attributes: {
@@ -7518,6 +7527,9 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         }
       });
       article.dataset.profileProductCard = product.id;
+      if (imageSrc) {
+        article.dataset.profileProductImage = imageSrc;
+      }
 
       const media = deps.createElement("div", { className: "product-card-media profile-product-media" });
       const image = deps.createResponsiveImage
@@ -7541,50 +7553,6 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
           });
       media.appendChild(image);
 
-      const badges = deps.createElement("div", { className: "profile-product-badges" });
-      if (hasProductVideo(product)) {
-        badges.appendChild(deps.createElement("span", {
-          className: "profile-product-badge profile-product-badge-video",
-          textContent: "▶"
-        }));
-      }
-      if (images.length > 1) {
-        badges.appendChild(deps.createElement("span", {
-          className: "profile-product-badge profile-product-badge-count",
-          textContent: `+${Math.max(1, images.length - 1)}`
-        }));
-      }
-      if (badges.childNodes.length) {
-        media.appendChild(badges);
-      }
-
-      media.appendChild(createProfileProductMenuElement(product));
-
-      if (product.status && product.status !== "approved") {
-        media.appendChild(deps.createElement("span", {
-          className: "profile-product-status-pill",
-          textContent: deps.getStatusLabel(product.status)
-        }));
-      } else if (product.availability === "sold_out") {
-        media.appendChild(deps.createElement("span", {
-          className: "profile-product-status-pill sold-out",
-          textContent: deps.getStatusLabel("sold_out")
-        }));
-      }
-
-      const meta = deps.createElement("div", { className: "profile-product-meta" });
-      meta.append(
-        deps.createElement("strong", {
-          className: "profile-product-title",
-          textContent: product.name || ""
-        }),
-        deps.createElement("span", {
-          className: "profile-product-price",
-          textContent: deps.formatProductPrice(product.price)
-        })
-      );
-      media.appendChild(meta);
-
       article.appendChild(media);
       return article;
     }
@@ -7601,6 +7569,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
 
   window.WingaModules.profile.createProfileUiModule = createProfileUiModule;
 })();
+
 
 
 // src/profile/controller.js
@@ -8291,10 +8260,26 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
 
       const productCards = document.createDocumentFragment();
       userProducts.forEach((product) => {
-        const card = deps.createProfileProductCardElement(product);
-        if (card) {
-          productCards.appendChild(card);
+        const rawImages = Array.isArray(product?.images)
+          ? product.images
+          : product?.images
+            ? [product.images]
+            : [];
+        const imageSources = rawImages
+          .map((image) => typeof image === "string" ? image.trim() : "")
+          .filter(Boolean);
+        if (!imageSources.length && product?.image) {
+          imageSources.push(String(product.image).trim());
         }
+        if (!imageSources.length) {
+          imageSources.push("");
+        }
+        imageSources.forEach((imageSrc) => {
+          const card = deps.createProfileProductCardElement(product, imageSrc);
+          if (card) {
+            productCards.appendChild(card);
+          }
+        });
       });
       container.appendChild(productCards);
 

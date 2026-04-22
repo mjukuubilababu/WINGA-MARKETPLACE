@@ -4265,6 +4265,9 @@ const {
   },
   getCurrentView: () => currentView,
   setCurrentViewState,
+  isProductDetailOpen: () => document.body.classList.contains("product-detail-open"),
+  closeProductDetailModal: (options) => closeProductDetailModalFromController(options),
+  setActiveProfileSection,
   setPendingProfileSection: (value) => {
     profileRuntimeState.pendingSection = value;
   },
