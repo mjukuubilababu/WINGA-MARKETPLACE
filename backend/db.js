@@ -45,7 +45,7 @@ function createPostgresStore({ databaseUrl, ssl = false }) {
         full_name TEXT NOT NULL DEFAULT '',
         password TEXT NOT NULL,
         phone_number TEXT UNIQUE NOT NULL,
-        national_id TEXT UNIQUE NOT NULL,
+        national_id TEXT UNIQUE,
         primary_category TEXT NOT NULL,
         role TEXT NOT NULL,
         status TEXT NOT NULL DEFAULT 'active',
@@ -320,6 +320,10 @@ function createPostgresStore({ databaseUrl, ssl = false }) {
     `);
     await query(`
       ALTER TABLE users
+      ALTER COLUMN national_id DROP NOT NULL;
+    `);
+    await query(`
+      ALTER TABLE users
       ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active';
     `);
     await query(`
@@ -483,7 +487,7 @@ function createPostgresStore({ databaseUrl, ssl = false }) {
             user.fullName || user.username,
             user.password,
             user.phoneNumber,
-            user.nationalId,
+            user.nationalId || null,
             user.primaryCategory || "",
             user.role || "seller",
             user.status || "active",
