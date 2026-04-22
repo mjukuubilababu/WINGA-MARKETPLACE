@@ -9247,11 +9247,69 @@ function enhanceShowcaseTracks(scope = document) {
     const isInteractiveTarget = (target) => target instanceof Element
       && Boolean(target.closest("button, a, input, select, textarea, label, [data-product-action]"));
 
+    const isFinePointer = window.matchMedia?.("(pointer: fine)")?.matches ?? false;
+
+    const openShowcaseCardFromEvent = (event) => {
+      if (event.__wingaProductOpenHandled) {
+        return;
+      }
+      if (suppressClickUntil && Date.now() < suppressClickUntil) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+
+      const targetElement = event.target instanceof Element ? event.target : null;
+      if (!targetElement) {
+        return;
+      }
+      if (isInteractiveTarget(targetElement)) {
+        return;
+      }
+      if (targetElement.closest(".product-menu, .product-menu-popup, .product-menu-toggle, [data-menu-toggle], [data-menu-popup], [data-product-caption-toggle], [data-request-product], [data-chat-product], [data-open-own-messages], [data-open-product-whatsapp], [data-buy-product], [data-detail-repost], .product-actions, .showcase-actions, .seller-product-actions")) {
+        return;
+      }
+
+      const pointTarget = typeof document.elementFromPoint === "function" && Number.isFinite(event.clientX) && Number.isFinite(event.clientY)
+        ? document.elementFromPoint(event.clientX, event.clientY)
+        : null;
+      const card = targetElement.closest(".showcase-card, .seller-product-card")
+        || pointTarget?.closest?.(".showcase-card, .seller-product-card")
+        || pointTarget?.parentElement?.closest?.(".showcase-card, .seller-product-card");
+      if (!card) {
+        return;
+      }
+
+      const productId = card.dataset.openProduct
+        || card.dataset.showcaseId
+        || card.dataset.productCard
+        || "";
+      if (!productId) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      event.__wingaProductOpenHandled = true;
+
+      if (!isAuthenticatedUser()) {
+        promptGuestAuth({
+          preferredMode: "signup",
+          role: "buyer",
+          title: "You need an account to continue",
+          message: "Sign up or log in to open product details and other marketplace actions.",
+          intent: { type: "focus-product", productId }
+        });
+        return;
+      }
+
+      openProductDetailModal(productId);
+    };
+
     track.addEventListener("wheel", (event) => {
       if (track.scrollWidth <= track.clientWidth || typeof WheelEvent === "undefined") {
         return;
       }
-      const isFinePointer = window.matchMedia?.("(pointer: fine)")?.matches ?? false;
       if (!isFinePointer) {
         return;
       }
@@ -9274,6 +9332,10 @@ function enhanceShowcaseTracks(scope = document) {
     }, { passive: false });
 
     track.addEventListener("click", (event) => {
+      openShowcaseCardFromEvent(event);
+    });
+
+    track.addEventListener("click", (event) => {
       if (suppressClickUntil && Date.now() < suppressClickUntil) {
         event.preventDefault();
         event.stopPropagation();
@@ -9281,6 +9343,10 @@ function enhanceShowcaseTracks(scope = document) {
     }, true);
 
     if (typeof PointerEvent === "undefined") {
+      return;
+    }
+
+    if (isFinePointer) {
       return;
     }
 
