@@ -2333,8 +2333,8 @@ img[data-zoom-src]{
 
 #user-products-container{
   display:grid;
-  grid-template-columns:repeat(3, minmax(0, 1fr));
-  gap:1px;
+  grid-template-columns:repeat(auto-fit, minmax(120px, 1fr));
+  gap:2px;
   position:relative;
   z-index:2;
   justify-items:stretch;
@@ -2513,12 +2513,6 @@ img[data-zoom-src]{
 
 #user-products-container .profile-product-meta{
   display:none;
-}
-
-@media (max-width:340px){
-  #user-products-container{
-    grid-template-columns:repeat(3, minmax(0, 1fr));
-  }
 }
 
 @media (min-width:768px){
