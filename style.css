@@ -1584,6 +1584,18 @@ img[data-zoom-src]{
   min-width:0;
 }
 
+.action-btn,
+.button,
+.trust-link-btn,
+.product-menu-toggle,
+.product-menu-item,
+.emoji-chip,
+.header-user-action,
+.nav-item,
+.public-header-btn{
+  touch-action:manipulation;
+}
+
 .showcase-price{
   color:var(--accent-deep);
 }

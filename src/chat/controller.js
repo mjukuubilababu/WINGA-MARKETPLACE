@@ -352,32 +352,41 @@
         return;
       }
 
-      try {
-        await Promise.all([deps.refreshMessagesState(), deps.refreshNotificationsState()]);
-        deps.maybePromptNotificationPermission?.("reply");
-        await deps.markActiveConversationRead();
-      } catch (error) {
-        // Ignore passive refresh failures before opening.
-      }
-
       if (!deps.getActiveConversationMessages().length && !(deps.getCurrentMessageDraft() || "").trim()) {
         deps.setCurrentMessageDraft("Habari, naomba maelezo kuhusu bidhaa hii.");
       }
 
-      content.replaceChildren(deps.createElementFromMarkup(deps.renderContextChatModal()));
-      bindContextChatModalActions();
+      content.replaceChildren(deps.createElementFromMarkup(`
+        <section class="context-chat-shell context-chat-shell-loading">
+          <p class="empty-copy">Loading chat...</p>
+        </section>
+      `));
       modal.style.display = "grid";
       document.body.classList.add("context-chat-open");
       deps.syncBodyScrollLockState?.();
       deps.setIsContextOpen(true);
       deps.startMessagePolling?.();
 
-      const input = modal.querySelector("#context-chat-compose-input");
-      if (input) {
-        input.focus();
-        input.selectionStart = input.value.length;
-        input.selectionEnd = input.value.length;
-      }
+      window.requestAnimationFrame(() => {
+        content.replaceChildren(deps.createElementFromMarkup(deps.renderContextChatModal()));
+        bindContextChatModalActions();
+
+        const input = modal.querySelector("#context-chat-compose-input");
+        if (input) {
+          input.focus();
+          input.selectionStart = input.value.length;
+          input.selectionEnd = input.value.length;
+        }
+      });
+
+      void Promise.all([deps.refreshMessagesState(), deps.refreshNotificationsState()])
+        .then(async () => {
+          deps.maybePromptNotificationPermission?.("reply");
+          await deps.markActiveConversationRead();
+        })
+        .catch(() => {
+          // Ignore passive refresh failures after the modal is already open.
+        });
     }
 
     function openProductChat(product) {
