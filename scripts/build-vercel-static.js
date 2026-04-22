@@ -288,9 +288,14 @@ function generateProductSharePages(baseHtml, origin) {
       url: canonicalUrl,
       image: getProductShareImageUrl(product, origin)
     });
-    const targetDir = path.join(outputDir, "product", productId);
-    fs.mkdirSync(targetDir, { recursive: true });
-    fs.writeFileSync(path.join(targetDir, "index.html"), html, "utf8");
+    const targetDirs = [
+      path.join(outputDir, "product", productId),
+      path.join(outputDir, "api", "product", productId)
+    ];
+    targetDirs.forEach((targetDir) => {
+      fs.mkdirSync(targetDir, { recursive: true });
+      fs.writeFileSync(path.join(targetDir, "index.html"), html, "utf8");
+    });
   }
 }
 

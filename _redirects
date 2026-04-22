@@ -1,2 +1,2 @@
-/product/* /product/:splat/index.html 200
+/product/* /api/product/:splat 200
 /* /index.html 200

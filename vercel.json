@@ -49,7 +49,7 @@
   "rewrites": [
     {
       "source": "/product/:id",
-      "destination": "/product/:id/index.html"
+      "destination": "/api/product/:id"
     }
   ],
   "redirects": [
