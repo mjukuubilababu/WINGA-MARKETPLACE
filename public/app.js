@@ -926,15 +926,19 @@ function validateAuthSignupInput() {
   const confirmPassword = confirmPasswordInput.value.trim();
   const passwordMinLength = getAuthPasswordMinLength();
 
+  if (!displayName) {
+    return "Weka jina la duka.";
+  }
+
   if (!phoneNumber || !password || !confirmPassword) {
-    return "Jaza namba ya simu, password, na confirm password.";
+    return "Jaza jina la duka, namba ya simu, password, na confirm password.";
   }
 
   if (!isValidPhoneNumber(phoneNumber)) {
     return "Weka namba ya simu ya WhatsApp sahihi yenye tarakimu 10 hadi 15.";
   }
 
-  if (displayName && displayName.length > 120) {
+  if (displayName.length > 120) {
     return "Jina la kuonekana ni refu sana.";
   }
 
@@ -5959,7 +5963,7 @@ function syncAuthMode() {
     ? "Username, full name, or phone number"
     : isRecoveryMode
       ? "Username, full name, or phone number"
-      : "Jina la kuonekana (hiari)";
+      : "Jina la duka";
   formTitle.innerText = isRecoveryMode ? "Recover Password" : (isLogin ? "Login" : "Sign Up");
   authButton.innerText = isRecoveryMode ? "Reset Password" : (isLogin ? "Login" : "Sign Up");
   toggleLink.innerText = isRecoveryMode ? "Rudi kwenye login" : (isLogin ? "Tengeneza akaunti" : "Tayari una akaunti? Ingia");
@@ -5972,7 +5976,7 @@ function syncAuthMode() {
       ? "Login tumia username, full name, au namba ya simu pamoja na password. Session itaendelea mpaka ulogout."
       : isRecoveryMode
         ? "Weka identifier, namba ya simu, NIDA/ID number, na password mpya. Ukimaliza utaingia tena kwa password mpya."
-        : "Signup sasa ni phone-first. Verification ya ID itafanyika baadaye kupitia Profile > Get Verified.";
+        : "Signup sasa ni phone-first. Weka jina la duka, namba ya simu, na password. Verification ya ID itafanyika baadaye kupitia Profile > Get Verified.";
   }
 
   if (!isSellerSignup) {
@@ -5996,6 +6000,8 @@ function syncAuthMode() {
       updateSellerIdentityDocumentPreview(null);
     }
   }
+
+  usernameInput.required = !isLogin && !isRecoveryMode;
 
   [passwordInput, confirmPasswordInput].forEach((input) => {
     input.type = "password";
@@ -6390,7 +6396,7 @@ authButton.addEventListener("click", async () => {
   try {
     const user = await window.WingaDataLayer.signup({
       username: "",
-      fullName: displayName || phoneNumber,
+      fullName: displayName,
       password,
       phoneNumber,
       nationalId: "",
