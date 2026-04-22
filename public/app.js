@@ -1740,6 +1740,14 @@ function resumePendingGuestIntent() {
 
   const intent = pendingGuestIntent;
   clearPendingGuestIntent();
+  const intentType = String(intent.type || "").trim();
+  const shouldClearDeepLinkRoute = intentType !== "focus-product";
+  if (shouldClearDeepLinkRoute) {
+    clearPendingDeepLinkProductRoute();
+    if (String(window.location.pathname || "").trim().match(/^\/product\/.+/i)) {
+      window.history.replaceState(window.history.state || null, "", "/");
+    }
+  }
 
   if (intent.type === "open-chat" && intent.productId) {
     const product = getProductById(intent.productId);
@@ -7472,9 +7480,17 @@ function loginSuccess(username, preferredCategory = "", sessionData = null, opti
   refreshPublicEntryChrome();
   clearUploadForm();
   productShopInput.value = username;
+  const activeGuestIntent = pendingGuestIntent || getPendingGuestIntent();
+  const activeGuestIntentType = String(activeGuestIntent?.type || "").trim();
   const hasActiveProductDeepLink = Boolean(getDeepLinkedProductIdFromRoute());
   const shouldKeepHomeFirst = nextView === "home"
-    && Boolean(hasActiveProductDeepLink || getPendingGuestIntent() || pendingGuestIntent);
+    && Boolean(hasActiveProductDeepLink || activeGuestIntentType === "focus-product");
+  if (activeGuestIntent && activeGuestIntentType !== "focus-product") {
+    clearPendingDeepLinkProductRoute();
+    if (String(window.location.pathname || "").trim().match(/^\/product\/.+/i)) {
+      window.history.replaceState(window.history.state || null, "", "/");
+    }
+  }
   setCurrentViewState(nextView, {
     syncHistory: shouldKeepHomeFirst ? false : "replace"
   });
@@ -7528,11 +7544,9 @@ function loginSuccess(username, preferredCategory = "", sessionData = null, opti
     }
   }
   resumePendingGuestIntent();
-  const handledDeepLink = shouldKeepHomeFirst
+  const handledDeepLink = activeGuestIntent
     ? true
-    : (!pendingGuestIntent && !getPendingGuestIntent()
-      ? openDeepLinkedProductRouteIfNeeded({ skipHomeRender: hasActiveProductDeepLink })
-      : false);
+    : openDeepLinkedProductRouteIfNeeded({ skipHomeRender: hasActiveProductDeepLink });
   if (!skipWelcome && !isStaffUser() && !handledDeepLink) {
     if (deferRender) {
       window.setTimeout(showWelcomePopup, 80);
