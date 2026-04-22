@@ -6478,7 +6478,7 @@ button:hover,
   }
 
   #user-products-container{
-    grid-template-columns:repeat(6, minmax(0, 1fr));
+    grid-template-columns:repeat(5, minmax(0, 1fr));
   }
 
   #products-container .product-card,
@@ -6686,7 +6686,7 @@ button:hover,
   }
 
   #user-products-container{
-    gap:6px;
+    gap:2px;
   }
 
   #products-container .gallery-stage,
