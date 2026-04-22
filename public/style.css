@@ -5374,6 +5374,17 @@ body.context-chat-open{
   min-height:100%;
 }
 
+#profile-div[data-active-section="profile-messages-panel"] #profile-messages-panel > .section-heading{
+  position:sticky;
+  top:0;
+  z-index:3;
+  margin:0 0 12px;
+  padding:12px 0 10px;
+  background:linear-gradient(180deg, rgba(247,247,248,0.98) 0%, rgba(255,247,241,0.96) 100%);
+  backdrop-filter:blur(8px);
+  border-bottom:1px solid rgba(227, 210, 199, 0.85);
+}
+
 #profile-div[data-active-section="profile-notifications-panel"] #profile-notifications-panel{
   display:block;
 }
