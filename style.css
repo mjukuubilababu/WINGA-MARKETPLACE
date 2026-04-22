@@ -3759,7 +3759,6 @@ body.product-detail-open{
   grid-template-columns:repeat(3, minmax(0, 1fr));
   gap:8px;
   align-items:stretch;
-  margin-bottom:2px;
 }
 
 .product-detail-seller-products .seller-product-actions.product-actions-count-1{
@@ -6981,7 +6980,6 @@ button:hover,
   .product-detail-seller-products .seller-product-actions{
     grid-template-columns:repeat(3, minmax(0, 1fr));
     gap:6px;
-    margin-bottom:2px;
   }
 
   .product-detail-seller-products .seller-product-actions.product-actions-count-1{
