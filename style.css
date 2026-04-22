@@ -2371,7 +2371,7 @@ img[data-zoom-src]{
   min-height:0;
   width:100%;
   max-width:none;
-  border-radius:14px;
+  border-radius:0;
   box-shadow:none;
   border:none;
   -webkit-tap-highlight-color:transparent;
@@ -6831,7 +6831,7 @@ button:hover,
   }
 
   .profile-product-card{
-    border-radius:16px;
+    border-radius:0;
   }
 
   .profile-product-menu{
