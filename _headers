@@ -4,6 +4,9 @@
 /product/*
   Cache-Control: no-store, must-revalidate
 
+/api/product/*
+  Cache-Control: no-store, must-revalidate
+
 /index.html
   Cache-Control: no-store, must-revalidate
 

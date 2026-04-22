@@ -273,8 +273,73 @@ function loadProductsForPrerender() {
   }
 }
 
-function generateProductSharePages(baseHtml, origin) {
-  const products = loadProductsForPrerender();
+function normalizeProductList(products) {
+  const seenIds = new Set();
+  const normalized = [];
+  (Array.isArray(products) ? products : []).forEach((product) => {
+    const productId = String(product?.id || "").trim();
+    if (!productId || seenIds.has(productId)) {
+      return;
+    }
+    seenIds.add(productId);
+    normalized.push(product);
+  });
+  return normalized;
+}
+
+async function fetchProductsForPrerenderFromApi(apiBaseUrl) {
+  const safeBaseUrl = String(apiBaseUrl || "").trim().replace(/\/+$/, "");
+  if (!safeBaseUrl) {
+    return [];
+  }
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15000);
+  try {
+    const response = await fetch(`${safeBaseUrl}/products`, {
+      method: "GET",
+      headers: {
+        Accept: "application/json"
+      },
+      signal: controller.signal
+    });
+    if (!response.ok) {
+      return [];
+    }
+    const payload = await response.json();
+    if (Array.isArray(payload)) {
+      return payload.filter(Boolean);
+    }
+    if (payload && Array.isArray(payload.products)) {
+      return payload.products.filter(Boolean);
+    }
+    return [];
+  } catch (error) {
+    return [];
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function loadProductsForPrerender() {
+  const sourceUrls = [
+    process.env.WINGA_SHARE_API_BASE_URL,
+    process.env.WINGA_PRODUCTION_API_BASE_URL,
+    "https://winga-pflp.onrender.com/api"
+  ].filter(Boolean);
+
+  for (const sourceUrl of sourceUrls) {
+    const remoteProducts = normalizeProductList(await fetchProductsForPrerenderFromApi(sourceUrl));
+    if (remoteProducts.length > 0) {
+      return remoteProducts;
+    }
+  }
+
+  return normalizeProductList(loadProductsForPrerender());
+}
+
+async function generateProductSharePages(baseHtml, origin) {
+  const products = await loadProductsForPrerender();
   for (const product of products) {
     const productId = String(product?.id || "").trim();
     if (!productId) {
@@ -336,21 +401,28 @@ function verifyDistContents() {
   });
 }
 
-requiredRootFiles.forEach(assertPathExists);
-assertPathExists("src");
+async function main() {
+  requiredRootFiles.forEach(assertPathExists);
+  assertPathExists("src");
 
-ensureCleanDir(outputDir);
+  ensureCleanDir(outputDir);
 
-fileCopies.forEach(([sourceRelativePath, targetRelativePath]) => {
-  copyFileIntoDist(sourceRelativePath, targetRelativePath);
+  fileCopies.forEach(([sourceRelativePath, targetRelativePath]) => {
+    copyFileIntoDist(sourceRelativePath, targetRelativePath);
+  });
+
+  applyAssetVersionToHtml(path.join(rootDir, "index.html"));
+  applyAssetVersionToHtml(path.join(outputDir, "index.html"));
+
+  copyDirectoryRecursive(path.join(rootDir, "src"), path.join(outputDir, "src"));
+  fs.writeFileSync(path.join(outputDir, "winga-modules.js"), buildFrontendModuleBundle(), "utf8");
+  await generateProductSharePages(fs.readFileSync(path.join(outputDir, "index.html"), "utf8"), getPublicOrigin());
+  verifyDistContents();
+
+  console.log(`Built Vercel static frontend into public/ (asset version ${assetVersion})`);
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
 });
-
-applyAssetVersionToHtml(path.join(rootDir, "index.html"));
-applyAssetVersionToHtml(path.join(outputDir, "index.html"));
-
-copyDirectoryRecursive(path.join(rootDir, "src"), path.join(outputDir, "src"));
-fs.writeFileSync(path.join(outputDir, "winga-modules.js"), buildFrontendModuleBundle(), "utf8");
-generateProductSharePages(fs.readFileSync(path.join(outputDir, "index.html"), "utf8"), getPublicOrigin());
-verifyDistContents();
-
-console.log(`Built Vercel static frontend into public/ (asset version ${assetVersion})`);
