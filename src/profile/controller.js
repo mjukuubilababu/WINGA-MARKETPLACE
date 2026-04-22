@@ -685,10 +685,26 @@
 
       const productCards = document.createDocumentFragment();
       userProducts.forEach((product) => {
-        const card = deps.createProfileProductCardElement(product);
-        if (card) {
-          productCards.appendChild(card);
+        const rawImages = Array.isArray(product?.images)
+          ? product.images
+          : product?.images
+            ? [product.images]
+            : [];
+        const imageSources = rawImages
+          .map((image) => typeof image === "string" ? image.trim() : "")
+          .filter(Boolean);
+        if (!imageSources.length && product?.image) {
+          imageSources.push(String(product.image).trim());
         }
+        if (!imageSources.length) {
+          imageSources.push("");
+        }
+        imageSources.forEach((imageSrc) => {
+          const card = deps.createProfileProductCardElement(product, imageSrc);
+          if (card) {
+            productCards.appendChild(card);
+          }
+        });
       });
       container.appendChild(productCards);
 

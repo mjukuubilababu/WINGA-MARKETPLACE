@@ -735,9 +735,9 @@
       return wrapper;
     }
 
-    function createProfileProductCardElement(product) {
+    function createProfileProductCardElement(product, imageSrc = "") {
       const images = getProductImages(product);
-      const firstImage = images[0] || deps.getImageFallbackDataUri?.("WINGA") || "";
+      const firstImage = imageSrc || images[0] || deps.getImageFallbackDataUri?.("WINGA") || "";
       const article = deps.createElement("article", {
         className: "product-card profile-product-card",
         attributes: {
@@ -745,6 +745,9 @@
         }
       });
       article.dataset.profileProductCard = product.id;
+      if (imageSrc) {
+        article.dataset.profileProductImage = imageSrc;
+      }
 
       const media = deps.createElement("div", { className: "product-card-media profile-product-media" });
       const image = deps.createResponsiveImage
@@ -768,50 +771,6 @@
           });
       media.appendChild(image);
 
-      const badges = deps.createElement("div", { className: "profile-product-badges" });
-      if (hasProductVideo(product)) {
-        badges.appendChild(deps.createElement("span", {
-          className: "profile-product-badge profile-product-badge-video",
-          textContent: "▶"
-        }));
-      }
-      if (images.length > 1) {
-        badges.appendChild(deps.createElement("span", {
-          className: "profile-product-badge profile-product-badge-count",
-          textContent: `+${Math.max(1, images.length - 1)}`
-        }));
-      }
-      if (badges.childNodes.length) {
-        media.appendChild(badges);
-      }
-
-      media.appendChild(createProfileProductMenuElement(product));
-
-      if (product.status && product.status !== "approved") {
-        media.appendChild(deps.createElement("span", {
-          className: "profile-product-status-pill",
-          textContent: deps.getStatusLabel(product.status)
-        }));
-      } else if (product.availability === "sold_out") {
-        media.appendChild(deps.createElement("span", {
-          className: "profile-product-status-pill sold-out",
-          textContent: deps.getStatusLabel("sold_out")
-        }));
-      }
-
-      const meta = deps.createElement("div", { className: "profile-product-meta" });
-      meta.append(
-        deps.createElement("strong", {
-          className: "profile-product-title",
-          textContent: product.name || ""
-        }),
-        deps.createElement("span", {
-          className: "profile-product-price",
-          textContent: deps.formatProductPrice(product.price)
-        })
-      );
-      media.appendChild(meta);
-
       article.appendChild(media);
       return article;
     }
@@ -828,3 +787,4 @@
 
   window.WingaModules.profile.createProfileUiModule = createProfileUiModule;
 })();
+
