@@ -131,7 +131,7 @@ const ALLOWED_NOTIFICATION_TYPES = ["message", "request", "order"];
 const ALLOWED_PROMOTION_TYPES = ["boost", "featured", "category_boost", "pin_top"];
 const ALLOWED_PROMOTION_STATUSES = ["pending", "active", "expired", "disabled"];
 const ALLOWED_IDENTITY_DOCUMENT_TYPES = ["NIDA", "VOTER_ID"];
-const ALLOWED_VERIFICATION_STATUSES = ["pending", "verified", "rejected"];
+const ALLOWED_VERIFICATION_STATUSES = ["unverified", "pending", "verified", "rejected"];
 const PROMOTION_CONFIG = {
   boost: { amount: 5000, durationDays: 3, label: "Boost Product" },
   featured: { amount: 10000, durationDays: 7, label: "Featured Section" },
@@ -883,7 +883,7 @@ function sanitizeUser(user, options = {}) {
     whatsappVerificationStatus: user.whatsappVerificationStatus || "verified",
     whatsappVerifiedAt: user.whatsappVerifiedAt || "",
     verifiedSeller: Boolean(user.verifiedSeller),
-    verificationStatus: user.verificationStatus || (user.verifiedSeller ? "verified" : "pending"),
+    verificationStatus: user.verificationStatus || (user.verifiedSeller ? "verified" : "unverified"),
     profileImage: user.profileImage || "",
     createdAt: user.createdAt || "",
     phoneVisibility,
@@ -917,7 +917,7 @@ function sanitizeModeratorUser(user) {
     role: user.role || "seller",
     status: user.status || "active",
     verifiedSeller: Boolean(user.verifiedSeller),
-    verificationStatus: user.verificationStatus || (user.verifiedSeller ? "verified" : "pending"),
+    verificationStatus: user.verificationStatus || (user.verifiedSeller ? "verified" : "unverified"),
     verificationSubmittedAt: user.verificationSubmittedAt || "",
     identityDocumentType: user.identityDocumentType || "",
     hasIdentityDocument: Boolean(user.identityDocumentImage),
@@ -938,7 +938,7 @@ function sanitizeAdminUser(user) {
     role: user.role || "seller",
     status: user.status || "active",
     verifiedSeller: Boolean(user.verifiedSeller),
-    verificationStatus: user.verificationStatus || (user.verifiedSeller ? "verified" : "pending"),
+    verificationStatus: user.verificationStatus || (user.verifiedSeller ? "verified" : "unverified"),
     verificationSubmittedAt: user.verificationSubmittedAt || "",
     identityDocumentType: user.identityDocumentType || "",
     identityDocumentNumberMasked: maskSensitiveValue(user.identityDocumentNumber || user.nationalId || ""),
@@ -1062,7 +1062,7 @@ function createSession(user) {
     whatsappNumber: String(user.whatsappNumber || user.phoneNumber || "").replace(/\D/g, "").slice(0, 20),
     whatsappVerificationStatus: user.whatsappVerificationStatus || "verified",
     profileImage: user.profileImage || "",
-    verificationStatus: user.verificationStatus || (user.verifiedSeller ? "verified" : "pending"),
+    verificationStatus: user.verificationStatus || (user.verifiedSeller ? "verified" : "unverified"),
     expiresAt: Date.now() + SESSION_TTL_MS
   };
 }
@@ -1127,8 +1127,8 @@ function normalizeUserRecord(user) {
     identityDocumentImage: isValidPrivateImageValue(user.identityDocumentImage || "") ? user.identityDocumentImage : "",
     verificationStatus: ALLOWED_VERIFICATION_STATUSES.includes(user.verificationStatus)
       ? user.verificationStatus
-      : (Boolean(user.verifiedSeller) ? "verified" : ""),
-    verificationSubmittedAt: user.verificationSubmittedAt || user.createdAt || new Date().toISOString(),
+      : (Boolean(user.verifiedSeller) ? "verified" : "unverified"),
+    verificationSubmittedAt: user.verificationSubmittedAt || (Boolean(user.verifiedSeller) ? (user.createdAt || new Date().toISOString()) : ""),
     moderatedAt: user.moderatedAt || "",
     moderatedBy: normalizeIdentifier(user.moderatedBy, 40),
     updatedAt: user.updatedAt || user.createdAt || new Date().toISOString(),
@@ -1946,36 +1946,8 @@ function validateSignupPayload(payload) {
   if (!isValidWhatsapp(payload.phoneNumber || "")) {
     return "Namba ya simu si sahihi.";
   }
-  if (!isValidNationalId(payload.nationalId || "")) {
-    return "Namba ya kitambulisho si sahihi. Tumia herufi au namba 8 hadi 20.";
-  }
-  if (payload.role === "buyer") {
-    if (!isNonEmptyString(payload.fullName, 3, 120)) {
-      return "Jina kamili si sahihi.";
-    }
-    return "";
-  }
-  const { idType, idNumber, idImage } = getNormalizedSignupIdentity(payload);
-  if (!isSafeIdentifier(payload.username, 3, 40)) {
-    return "Username si sahihi.";
-  }
-  if (["admin", "moderator", "support", "system"].includes(normalizeIdentifier(payload.username, 40))) {
-    return "Username hiyo hairuhusiwi.";
-  }
-  if (!ALLOWED_IDENTITY_DOCUMENT_TYPES.includes(idType)) {
-    return "Please select your ID type";
-  }
-  if (!isValidNationalId(idNumber || "")) {
-    return "Please enter your ID number";
-  }
-  if (payload.nationalId && idNumber && String(idNumber) !== String(payload.nationalId || "").toUpperCase()) {
-    return "The card number and the number you entered do not match. Please enter the same number shown on the card.";
-  }
-  if (!idImage) {
-    return "Please upload your ID image";
-  }
-  if (!isValidPrivateImageValue(idImage || "")) {
-    return "ID image is invalid.";
+  if (!isNonEmptyString(payload.fullName || payload.username, 1, 120)) {
+    return "Jina la kuonekana si sahihi.";
   }
   return "";
 }
@@ -3363,7 +3335,7 @@ http.createServer(async (req, res) => {
       const now = new Date().toISOString();
       const nextVerificationStatus = payload.verificationStatus
         || (typeof payload.verifiedSeller === "boolean"
-          ? (payload.verifiedSeller ? "verified" : (targetUser.verificationStatus === "verified" ? "pending" : targetUser.verificationStatus || "pending"))
+          ? (payload.verifiedSeller ? "verified" : (targetUser.verificationStatus === "verified" ? "pending" : targetUser.verificationStatus || "unverified"))
           : targetUser.verificationStatus);
       const updatedUser = normalizeUserRecord({
         ...targetUser,
@@ -3404,7 +3376,7 @@ http.createServer(async (req, res) => {
         adminUsername: session.username,
         actionType: requestedStatusChange
           ? `user_${payload.status}`
-          : `user_verification_${updatedUser.verificationStatus || "pending"}`,
+          : `user_verification_${updatedUser.verificationStatus || "unverified"}`,
         targetUserId: targetUsername,
         reason: payload.reason || updatedUser.verificationStatus || "",
         note: payload.note || "",
@@ -3467,34 +3439,6 @@ http.createServer(async (req, res) => {
         return;
       }
 
-      if (normalizedRole !== "buyer" && users.find((item) => normalizeIdentifier(item.username) === payload.username)) {
-        await appendAuditLog({
-          time: new Date().toISOString(),
-          ip: clientIp,
-          method: req.method,
-          path: url.pathname,
-          event: "signup_rejected",
-          username: payload.username,
-          reason: "duplicate_username"
-        });
-        sendJson(res, 409, { error: "Username hiyo tayari imetumika." });
-        return;
-      }
-
-      if (normalizedRole === "buyer" && users.find((item) => normalizeIdentifier(item.fullName || "", 120) === normalizeIdentifier(payload.fullName || "", 120))) {
-        await appendAuditLog({
-          time: new Date().toISOString(),
-          ip: clientIp,
-          method: req.method,
-          path: url.pathname,
-          event: "signup_rejected",
-          username: payload.username,
-          reason: "duplicate_full_name"
-        });
-        sendJson(res, 409, { error: "Jina hilo tayari limetumika. Tumia namba ya simu kuingia au tumia jina tofauti." });
-        return;
-      }
-
       if (users.find((item) => String(item.phoneNumber || "") === payload.phoneNumber)) {
         await appendAuditLog({
           time: new Date().toISOString(),
@@ -3509,42 +3453,29 @@ http.createServer(async (req, res) => {
         return;
       }
 
-      const sellerIdentity = normalizedRole === "seller"
-        ? getNormalizedSignupIdentity(payload)
-        : { idType: "", idNumber: sanitizePlainText(payload.nationalId, 40).toUpperCase(), idImage: "" };
-      const normalizedNationalId = normalizedRole === "seller"
-        ? sellerIdentity.idNumber
-        : sanitizePlainText(payload.nationalId, 40).toUpperCase();
-
-      if (users.find((item) => String(item.nationalId || item.identityDocumentNumber || "").toUpperCase() === normalizedNationalId)) {
-        await appendAuditLog({
-          time: new Date().toISOString(),
-          ip: clientIp,
-          method: req.method,
-          path: url.pathname,
-          event: "signup_rejected",
-          username: payload.username,
-          reason: "duplicate_national_id"
-        });
-        sendJson(res, 409, { error: "This identity number is already registered. Please contact the moderator." });
-        return;
-      }
+      const normalizedPhone = String(payload.phoneNumber || "").replace(/\D/g, "").slice(0, 20);
+      const displayName = sanitizePlainText(payload.fullName || payload.username || "", 120);
+      const generatedUsername = normalizedRole === "buyer"
+        ? `buyer-${normalizedPhone || Date.now()}`
+        : `seller-${normalizedPhone || Date.now()}`;
 
       const createdUser = {
         ...payload,
         role: normalizedRole,
         primaryCategory: "",
-        nationalId: normalizedNationalId,
+        username: generatedUsername,
+        fullName: displayName || generatedUsername,
+        nationalId: "",
         status: "active",
         moderationReason: "",
         moderationNote: "",
-        verifiedSeller: normalizedRole === "seller",
+        verifiedSeller: false,
         profileImage: payload.profileImage || "",
-        identityDocumentType: normalizedRole === "seller" ? sellerIdentity.idType : "",
-        identityDocumentNumber: normalizedRole === "seller" ? sellerIdentity.idNumber : "",
-        identityDocumentImage: normalizedRole === "seller" ? sellerIdentity.idImage : "",
-        verificationStatus: normalizedRole === "seller" ? "verified" : "",
-        verificationSubmittedAt: normalizedRole === "seller" ? new Date().toISOString() : "",
+        identityDocumentType: "",
+        identityDocumentNumber: "",
+        identityDocumentImage: "",
+        verificationStatus: normalizedRole === "seller" ? "unverified" : "",
+        verificationSubmittedAt: "",
         moderatedAt: "",
         moderatedBy: "",
         updatedAt: new Date().toISOString(),
@@ -5057,12 +4988,12 @@ http.createServer(async (req, res) => {
       }
 
       if (user.role === "seller" && user.verifiedSeller) {
-        sendJson(res, 409, { error: "Akaunti hii tayari ni seller." });
+        sendJson(res, 409, { error: "Akaunti hii tayari imeverified." });
         return;
       }
 
-      if (user.role !== "buyer") {
-        sendJson(res, 400, { error: "Seller upgrade inaruhusiwa kwa buyer accounts tu." });
+      if (user.role !== "buyer" && user.role !== "seller") {
+        sendJson(res, 400, { error: "Seller verification inaruhusiwa kwa buyer au seller accounts tu." });
         return;
       }
 

@@ -234,7 +234,7 @@
       pendingWhatsappNumber: normalizePhoneNumber(user.pendingWhatsappNumber || ""),
       pendingWhatsappExpiresAt: normalizeSessionText(user.pendingWhatsappExpiresAt, ""),
       profileImage: normalizeSessionText(user.profileImage, ""),
-      verificationStatus: normalizeSessionText(user.verificationStatus, ""),
+      verificationStatus: normalizeSessionText(user.verificationStatus, user.verifiedSeller ? "verified" : "unverified"),
       verifiedSeller: Boolean(user.verifiedSeller),
       token
     };
@@ -348,40 +348,31 @@
       async signup(payload) {
         const safePayload = stripSignupCategoryFields(payload);
         const users = await this.loadUsers();
-        if (safePayload.role !== "buyer" && users.find((item) => item.username === safePayload.username)) {
-          throw new Error("Username hiyo tayari imetumika.");
-        }
-
         const duplicatePhone = users.find((item) => item.phoneNumber === safePayload.phoneNumber);
         if (duplicatePhone) {
           throw new Error("Namba hiyo ya simu tayari imesajiliwa.");
         }
 
-        const duplicateNationalId = users.find((item) => item.nationalId === safePayload.nationalId);
-        if (duplicateNationalId) {
-          throw new Error("Namba hiyo ya kitambulisho tayari imesajiliwa.");
-        }
-
-        if (safePayload.role === "buyer" && users.find((item) => String(item.fullName || "").toLowerCase() === String(safePayload.fullName || "").toLowerCase())) {
-          throw new Error("Jina hilo tayari limetumika.");
-        }
-
+        const displayName = String(safePayload.fullName || safePayload.username || "").trim();
+        const generatedUsername = safePayload.role === "buyer"
+          ? `buyer-${normalizePhoneNumber(safePayload.phoneNumber || "") || Date.now()}`
+          : `seller-${normalizePhoneNumber(safePayload.phoneNumber || "") || Date.now()}`;
         const nextUser = {
           ...safePayload,
-          username: safePayload.role === "buyer" ? `buyer-${Date.now()}` : safePayload.username,
-          fullName: safePayload.fullName || safePayload.username,
+          username: generatedUsername,
+          fullName: displayName || generatedUsername,
           role: safePayload.role || "seller",
           primaryCategory: "",
-          nationalId: normalizeNationalId(safePayload.nationalId),
+          nationalId: "",
           phoneNumber: normalizePhoneNumber(safePayload.phoneNumber),
           whatsappNumber: normalizePhoneNumber(safePayload.phoneNumber),
           whatsappVerificationStatus: "verified",
           whatsappVerifiedAt: new Date().toISOString(),
           password: await hashLocalPassword(safePayload.password),
           status: "active",
-          verifiedSeller: safePayload.role === "seller",
-          verificationStatus: safePayload.role === "seller" ? "verified" : "",
-          verificationSubmittedAt: safePayload.role === "seller" ? new Date().toISOString() : "",
+          verifiedSeller: false,
+          verificationStatus: safePayload.role === "seller" ? "unverified" : "",
+          verificationSubmittedAt: "",
           createdAt: safePayload.createdAt || new Date().toISOString(),
           updatedAt: new Date().toISOString()
         };
@@ -543,6 +534,8 @@
             return item;
           }
           const nextNationalId = normalizeNationalId(payload?.identityDocumentNumber || payload?.nationalId || item.nationalId || item.identityDocumentNumber || "");
+          const nextVerifiedSeller = true;
+          const nextVerificationStatus = "verified";
           updatedUser = {
             ...item,
             fullName: String(payload?.fullName || item.fullName || item.username).trim() || item.username,
@@ -552,8 +545,8 @@
             identityDocumentType: String(payload?.identityDocumentType || "").toUpperCase(),
             identityDocumentNumber: nextNationalId,
             identityDocumentImage: payload?.identityDocumentImage || "",
-            verifiedSeller: true,
-            verificationStatus: "verified",
+            verifiedSeller: nextVerifiedSeller,
+            verificationStatus: nextVerificationStatus,
             verificationSubmittedAt: item.verificationSubmittedAt || new Date().toISOString(),
             updatedAt: new Date().toISOString()
           };
@@ -1948,41 +1941,31 @@
       async signup(payload) {
         const safePayload = stripSignupCategoryFields(payload);
         const users = await this.loadUsers();
-        const duplicateUsername = safePayload.role !== "buyer" && users.find((item) => item.username === safePayload.username);
-        if (duplicateUsername) {
-          throw new Error("Username hiyo tayari imetumika.");
-        }
-
         const duplicatePhone = users.find((item) => item.phoneNumber === safePayload.phoneNumber);
         if (duplicatePhone) {
           throw new Error("Namba hiyo ya simu tayari imesajiliwa.");
         }
 
-        const duplicateNationalId = users.find((item) => item.nationalId === safePayload.nationalId);
-        if (duplicateNationalId) {
-          throw new Error("Namba hiyo ya kitambulisho tayari imesajiliwa.");
-        }
-
-        if (safePayload.role === "buyer" && users.find((item) => normalizeIdentifier(item.fullName) === normalizeIdentifier(safePayload.fullName))) {
-          throw new Error("Jina hilo tayari limetumika.");
-        }
-
+        const displayName = String(safePayload.fullName || safePayload.username || "").trim();
+        const generatedUsername = safePayload.role === "buyer"
+          ? `buyer-${normalizePhoneNumber(safePayload.phoneNumber || "") || Date.now()}`
+          : `seller-${normalizePhoneNumber(safePayload.phoneNumber || "") || Date.now()}`;
         const nextUser = {
           ...safePayload,
-          username: safePayload.role === "buyer" ? `buyer-${Date.now()}` : safePayload.username,
-          fullName: safePayload.fullName || safePayload.username,
+          username: generatedUsername,
+          fullName: displayName || generatedUsername,
           role: safePayload.role || "seller",
           primaryCategory: "",
-          nationalId: normalizeNationalId(safePayload.nationalId),
+          nationalId: "",
           phoneNumber: normalizePhoneNumber(safePayload.phoneNumber),
           whatsappNumber: normalizePhoneNumber(safePayload.phoneNumber),
           whatsappVerificationStatus: "verified",
           whatsappVerifiedAt: new Date().toISOString(),
           password: await hashLocalPassword(safePayload.password),
           status: "active",
-          verifiedSeller: safePayload.role === "seller",
-          verificationStatus: safePayload.role === "seller" ? "verified" : "",
-          verificationSubmittedAt: safePayload.role === "seller" ? new Date().toISOString() : "",
+          verifiedSeller: false,
+          verificationStatus: safePayload.role === "seller" ? "unverified" : "",
+          verificationSubmittedAt: "",
           createdAt: safePayload.createdAt || new Date().toISOString(),
           updatedAt: new Date().toISOString()
         };

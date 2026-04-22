@@ -915,27 +915,22 @@ function getProductWhatsappNumber(product) {
 }
 
 function validateAuthSignupInput() {
-  const identityValue = usernameInput.value.trim();
+  const displayName = usernameInput.value.trim();
   const phoneNumber = normalizePhoneNumber(phoneNumberInput.value);
-  const buyerNationalId = normalizeNationalId(nationalIdInput.value);
-  const sellerIdentityNumber = normalizeNationalId(sellerIdentityDocumentNumberInput?.value || "");
   const password = passwordInput.value.trim();
   const confirmPassword = confirmPasswordInput.value.trim();
   const passwordMinLength = getAuthPasswordMinLength();
-  const normalizedIdentityNumber = selectedAuthRole === "seller" ? sellerIdentityNumber : buyerNationalId;
 
-  if (!identityValue || !phoneNumber || !normalizedIdentityNumber || !password || !confirmPassword) {
-    return selectedAuthRole === "buyer"
-      ? "Jaza full name, namba ya simu, NIDA, password, na confirm password."
-      : "Jaza username, namba ya simu, ID type, ID number, ID image, password, na confirm password.";
+  if (!phoneNumber || !password || !confirmPassword) {
+    return "Jaza namba ya simu, password, na confirm password.";
   }
 
   if (!isValidPhoneNumber(phoneNumber)) {
     return "Weka namba ya simu ya WhatsApp sahihi yenye tarakimu 10 hadi 15.";
   }
 
-  if (!isValidNationalId(normalizedIdentityNumber)) {
-    return "Weka NIDA sahihi yenye herufi au namba 8 hadi 20.";
+  if (displayName && displayName.length > 120) {
+    return "Jina la kuonekana ni refu sana.";
   }
 
   if (password.length < passwordMinLength) {
@@ -946,35 +941,9 @@ function validateAuthSignupInput() {
     return "Password na confirm password hazifanani.";
   }
 
-  const duplicatePhone = getUsersByPhoneNumber(phoneNumber).find((user) =>
-    selectedAuthRole === "buyer"
-      ? String(user.role || "").toLowerCase() === "buyer" || String(user.phoneNumber || "") === phoneNumber
-      : String(user.phoneNumber || "") === phoneNumber
-  );
+  const duplicatePhone = getUsersByPhoneNumber(phoneNumber).find((user) => String(user.phoneNumber || "") === phoneNumber);
   if (duplicatePhone) {
     return "Namba hiyo ya simu tayari imesajiliwa.";
-  }
-
-  if (getUsersByIdentityNumber(normalizedIdentityNumber).length > 0) {
-    return "This identity number is already registered. Please contact the moderator.";
-  }
-
-  if (selectedAuthRole === "seller") {
-    if (!sellerIdentityDocumentTypeInput?.value) {
-      return "Please select your ID type";
-    }
-    if (!sellerIdentityNumber) {
-      return "Please enter your ID number";
-    }
-    if (!sellerIdentityDocumentImageInput?.files?.[0]) {
-      return "Please upload your ID image";
-    }
-
-    try {
-      validateSellerIdentityImageFile(sellerIdentityDocumentImageInput.files[0]);
-    } catch (error) {
-      return error.message || "Please upload a valid ID image";
-    }
   }
 
   return "";
@@ -3367,7 +3336,7 @@ function setAuthInteractionPending(kind, pending, options = {}) {
   if (authCategoryNote && !isLogin && !isPasswordRecovery && isPending) {
     authCategoryNote.innerText = noteText || (
       selectedAuthRole === "seller"
-        ? "Tunatayarisha ID image yako na kutuma maombi ya seller signup. Hii inapaswa kukamilika haraka."
+        ? "Tunatayarisha akaunti yako ya seller. Verification ya ID itafanyika baadaye kwenye Profile > Get Verified."
         : "Tunatengeneza akaunti yako. Tafadhali subiri kidogo."
     );
   }
@@ -3795,7 +3764,7 @@ function getSellerTrustSnapshot(username) {
     reviewCountLabel: Number(reviewSummary.totalReviews || 0) > 0
       ? `${reviewSummary.totalReviews} review${reviewSummary.totalReviews === 1 ? "" : "s"}`
       : "",
-    verificationLabel: seller.verifiedSeller ? "Verified seller" : getVerificationStatusLabel(seller.verificationStatus || "pending"),
+    verificationLabel: seller.verifiedSeller ? "Verified seller" : getVerificationStatusLabel(seller.verificationStatus || "unverified"),
     whatsappLabel: seller.whatsappVerificationStatus === "verified" && normalizeWhatsapp(seller.whatsappNumber || seller.phoneNumber || "")
       ? "WhatsApp verified"
       : ""
@@ -5899,17 +5868,17 @@ function syncAuthMode() {
   }
   authRoleSelector.style.display = isSecuritySignup ? "grid" : "none";
   phoneNumberInput.style.display = isSecuritySignup || isRecoveryMode ? "block" : "none";
-  nationalIdInput.style.display = isBuyerSignup || isRecoveryMode ? "block" : "none";
-  sellerIdentityDocumentTypeInput.style.display = isSellerSignup ? "block" : "none";
-  sellerVerificationUploads.style.display = isSellerSignup ? "grid" : "none";
+  nationalIdInput.style.display = isRecoveryMode ? "block" : "none";
+  sellerIdentityDocumentTypeInput.style.display = "none";
+  sellerVerificationUploads.style.display = "none";
   if (sellerIdentityDocumentNumberInput) {
-    sellerIdentityDocumentNumberInput.style.display = isSellerSignup ? "block" : "none";
-    sellerIdentityDocumentNumberInput.required = isSellerSignup;
+    sellerIdentityDocumentNumberInput.style.display = "none";
+    sellerIdentityDocumentNumberInput.required = false;
   }
   confirmPasswordWrap.style.display = isSecuritySignup || isRecoveryMode ? "flex" : "none";
   phoneNumberInput.required = isSecuritySignup || isRecoveryMode;
-  nationalIdInput.required = isBuyerSignup || isRecoveryMode;
-  sellerIdentityDocumentTypeInput.required = isSellerSignup;
+  nationalIdInput.required = isRecoveryMode;
+  sellerIdentityDocumentTypeInput.required = false;
   confirmPasswordInput.required = isSecuritySignup || isRecoveryMode;
   if (authNextButton) {
     authNextButton.style.display = "none";
@@ -5922,9 +5891,7 @@ function syncAuthMode() {
     ? "Username, full name, or phone number"
     : isRecoveryMode
       ? "Username, full name, or phone number"
-    : isBuyerSignup
-      ? "Full name"
-      : "Username";
+      : "Jina la kuonekana (hiari)";
   formTitle.innerText = isRecoveryMode ? "Recover Password" : (isLogin ? "Login" : "Sign Up");
   authButton.innerText = isRecoveryMode ? "Reset Password" : (isLogin ? "Login" : "Sign Up");
   toggleLink.innerText = isRecoveryMode ? "Rudi kwenye login" : (isLogin ? "Tengeneza akaunti" : "Tayari una akaunti? Ingia");
@@ -5937,9 +5904,7 @@ function syncAuthMode() {
       ? "Login tumia username, full name, au namba ya simu pamoja na password. Session itaendelea mpaka ulogout."
       : isRecoveryMode
         ? "Weka identifier, namba ya simu, NIDA/ID number, na password mpya. Ukimaliza utaingia tena kwa password mpya."
-      : isBuyerSignup
-        ? "Jaza taarifa za mteja kisha akaunti itafunguliwa na kukuingiza moja kwa moja kwenye app."
-        : "Kwa muuzaji: chagua ID type, andika ID number, upload picha moja ya ID, kisha maliza signup. Category utaichagua wakati wa kupost bidhaa.";
+        : "Signup sasa ni phone-first. Verification ya ID itafanyika baadaye kupitia Profile > Get Verified.";
   }
 
   if (!isSellerSignup) {
@@ -6352,31 +6317,17 @@ authButton.addEventListener("click", async () => {
   }
 
   const phoneNumber = normalizePhoneNumber(phoneNumberInput.value);
-  const sellerIdentityNumber = normalizeNationalId(sellerIdentityDocumentNumberInput?.value || "");
-  const buyerNationalId = normalizeNationalId(nationalIdInput.value);
-  const nationalId = selectedAuthRole === "seller" ? sellerIdentityNumber : buyerNationalId;
+  const displayName = usernameInput.value.trim();
 
   try {
-    const sellerIdentityDocumentImage = selectedAuthRole === "seller"
-      ? await resolveSellerSignupIdentityImage(sellerIdentityDocumentImageInput?.files?.[0])
-      : "";
-    const sellerIdentityDocumentNumber = selectedAuthRole === "seller"
-      ? normalizeNationalId(sellerIdentityDocumentNumberInput?.value || "")
-      : "";
     const user = await window.WingaDataLayer.signup({
-      username: selectedAuthRole === "seller" ? username : "",
-      fullName: username,
+      username: "",
+      fullName: displayName || phoneNumber,
       password,
       phoneNumber,
-      nationalId,
+      nationalId: "",
       role: selectedAuthRole,
-      profileImage: "",
-      id_type: selectedAuthRole === "seller" ? sellerIdentityDocumentTypeInput.value : "",
-      id_number: selectedAuthRole === "seller" ? sellerIdentityDocumentNumber : "",
-      id_image: selectedAuthRole === "seller" ? sellerIdentityDocumentImage : "",
-      identityDocumentType: selectedAuthRole === "seller" ? sellerIdentityDocumentTypeInput.value : "",
-      identityDocumentNumber: selectedAuthRole === "seller" ? sellerIdentityDocumentNumber : "",
-      identityDocumentImage: selectedAuthRole === "seller" ? sellerIdentityDocumentImage : ""
+      profileImage: ""
     });
     releasePublicAuthPendingState();
     publicAuthTransitionPending = true;

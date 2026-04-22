@@ -99,7 +99,7 @@
       const displayName = context.displayName || "User";
       const profileImage = context.profileImage || "";
       const roleLabel = context.roleLabel || "User";
-      const verificationStatus = userProfile?.verificationStatus || (userProfile?.verifiedSeller ? "verified" : "pending");
+      const verificationStatus = userProfile?.verificationStatus || (userProfile?.verifiedSeller ? "verified" : "unverified");
       const section = deps.createElement("section", {
         className: "panel",
         attributes: { id: "profile-identity-card" }
@@ -244,9 +244,10 @@
         );
 
         const trustFacts = deps.createElement("div", { className: "trust-badges profile-trust-facts" });
-        if (userProfile?.verifiedSeller) {
-          trustFacts.appendChild(deps.createStatusPill("Verified seller", "approved"));
-        }
+        trustFacts.appendChild(deps.createStatusPill(
+          userProfile?.verifiedSeller ? "Verified seller" : "Unverified seller",
+          userProfile?.verifiedSeller ? "approved" : "pending"
+        ));
         if ((context.whatsappVerificationStatus || "verified") === "verified" && (context.whatsappNumber || userProfile?.phoneNumber)) {
           trustFacts.appendChild(deps.createStatusPill("WhatsApp verified", "approved"));
         }
@@ -292,29 +293,41 @@
     }
 
     function createSellerUpgradeSectionElement(context = {}) {
-      if (!context.canUpgradeToSeller) {
+      if (!context.canUpgradeToSeller && !context.canGetVerified) {
         return null;
       }
+
+      const isVerificationFlow = Boolean(context.canGetVerified);
+      const sectionTitle = isVerificationFlow ? "Get Verified" : "Badilika kuwa Muuzaji";
+      const sectionEyebrow = isVerificationFlow ? "Verification" : "Seller upgrade";
+      const sectionMeta = isVerificationFlow
+        ? "Tuma ID yako kwa verification ya seller."
+        : "Direct upgrade bila kutoka profile";
+      const buttonLabel = isVerificationFlow ? "Open verification form" : "Open seller form";
+      const submitLabel = isVerificationFlow ? "Get Verified" : "Become Seller";
+      const guidanceCopy = isVerificationFlow
+        ? "Jaza taarifa za verification hapa. Akaunti yako itabaki wazi wakati verification inaendelea."
+        : "Jaza taarifa za seller hapa. Profile yako itaendelea kubaki wazi wakati role inabadilika.";
 
       const section = deps.createElement("section", {
         className: "panel profile-seller-upgrade-panel",
         attributes: { id: "profile-seller-upgrade-panel" }
       });
       section.appendChild(deps.createSectionHeading({
-        eyebrow: "Seller upgrade",
-        title: "Badilika kuwa Muuzaji",
-        meta: "Direct upgrade bila kutoka profile"
+        eyebrow: sectionEyebrow,
+        title: sectionTitle,
+        meta: sectionMeta
       }));
 
       const card = deps.createElement("div", { className: "orders-card profile-seller-upgrade-card" });
       card.append(
         deps.createElement("p", {
           className: "auth-note",
-          textContent: "Jaza taarifa za seller hapa. Profile yako itaendelea kubaki wazi wakati role inabadilika."
+          textContent: guidanceCopy
         }),
         deps.createElement("button", {
           className: "action-btn buy-btn",
-          textContent: "Open seller form",
+          textContent: buttonLabel,
           attributes: {
             type: "button",
             "data-open-seller-upgrade": "true"
@@ -415,7 +428,7 @@
       form.querySelector(".profile-seller-upgrade-actions")?.append(
         deps.createElement("button", {
           className: "action-btn buy-btn",
-          textContent: "Become Seller",
+          textContent: submitLabel,
           attributes: {
             type: "button",
             "data-submit-seller-upgrade": "true"
@@ -574,7 +587,8 @@
         messagesMarkup,
         notificationPermissionState,
         hasBuyerAccess,
-        requestCount
+        requestCount,
+        canGetVerified
       } = context;
 
       const fragment = document.createDocumentFragment();
@@ -682,6 +696,16 @@
           attributes: {
             type: "button",
             "data-open-request-box": "true"
+          }
+        }));
+      }
+      if (canGetVerified) {
+        actionsCard.appendChild(deps.createElement("button", {
+          className: "action-btn buy-btn",
+          textContent: "Get Verified",
+          attributes: {
+            type: "button",
+            "data-open-seller-upgrade": "true"
           }
         }));
       }

@@ -576,6 +576,7 @@
         const activePromotions = Array.isArray(deps.getActivePromotions?.())
           ? deps.getActivePromotions()
           : [];
+        const canGetVerified = userProfile?.role === "seller" && !userProfile?.verifiedSeller;
         profileDiv.dataset.activeSection = activeSection;
         profileDiv.replaceChildren(deps.createProfileShellElement({
           displayName: deps.getCurrentDisplayName(),
@@ -608,6 +609,7 @@
           }),
           sellerUpgradeMarkup: deps.createSellerUpgradeSectionElement?.({
             canUpgradeToSeller,
+            canGetVerified,
             fullName: deps.getCurrentDisplayName(),
             primaryCategory: userProfile?.primaryCategory || "",
             identityDocumentType: userProfile?.identityDocumentType || "",
@@ -625,7 +627,8 @@
           messagesMarkup: deps.renderMessagesSection(),
           notificationPermissionState: deps.getNotificationPermissionState?.(),
           hasBuyerAccess,
-          requestCount: deps.getRequestBoxItemCount()
+          requestCount: deps.getRequestBoxItemCount(),
+          canGetVerified
         }));
         if (activeSection === "profile-messages-panel") {
           profileDiv.appendChild(deps.createElement("button", {

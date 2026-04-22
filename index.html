@@ -3,15 +3,15 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="winga-build" content="20260421122222">
+  <meta name="winga-build" content="20260421122453">
   <title>Chap kwa haraka</title>
-  <link rel="stylesheet" href="/style.css?v=20260421122222">
-  <script defer src="/winga-config.js?v=20260421122222"></script>
-  <script defer src="/mock-data.js?v=20260421122222"></script>
-  <script defer src="/data-service.js?v=20260421122222"></script>
-  <script defer src="/app-core.js?v=20260421122222"></script>
-  <script defer src="/winga-modules.js?v=20260421122222"></script>
-  <script defer src="/app.js?v=20260421122222"></script>
+  <link rel="stylesheet" href="/style.css?v=20260421122453">
+  <script defer src="/winga-config.js?v=20260421122453"></script>
+  <script defer src="/mock-data.js?v=20260421122453"></script>
+  <script defer src="/data-service.js?v=20260421122453"></script>
+  <script defer src="/app-core.js?v=20260421122453"></script>
+  <script defer src="/winga-modules.js?v=20260421122453"></script>
+  <script defer src="/app.js?v=20260421122453"></script>
 </head>
 <body>
   <div class="form-container" id="auth-container" style="display:none;">
@@ -38,16 +38,16 @@
         <button class="auth-role-option active" id="auth-role-seller" type="button" data-auth-role="seller"><span class="auth-role-dot"></span><span>Mimi ni muuzaji</span></button>
         <button class="auth-role-option" id="auth-role-buyer" type="button" data-auth-role="buyer"><span class="auth-role-dot"></span><span>Mimi ni mteja</span></button>
       </div>
-      <input type="text" id="username" placeholder="Jina la mtumiaji" required>
+      <input type="text" id="username" placeholder="Jina la kuonekana (hiari)">
       <input type="tel" id="phone-number" placeholder="Namba ya simu ya WhatsApp" required style="display:none;">
-      <input type="text" id="national-id" placeholder="Namba ya kitambulisho cha taifa" required style="display:none;">
+      <input type="text" id="national-id" placeholder="Namba ya kitambulisho cha taifa" style="display:none;">
       <select id="seller-identity-document-type" style="display:none;">
         <option value="">Chagua identity document</option>
         <option value="NIDA">National ID (NIDA)</option>
         <option value="VOTER_ID">Voters ID</option>
       </select>
       <div id="seller-verification-uploads" style="display:none;">
-        <p class="auth-note">Chagua ID type, andika ID number, kisha upload picha moja ya ID yako.</p>
+        <p class="auth-note">Verification ya seller itafanyika baadaye kupitia Profile > Get Verified.</p>
         <input type="text" id="seller-identity-document-number" placeholder="Enter ID number" style="display:none;">
         <label for="seller-identity-document-image" class="upload-btn auth-upload-btn">Upload ID image</label>
         <input type="file" id="seller-identity-document-image" accept="image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif" style="display:none;">
