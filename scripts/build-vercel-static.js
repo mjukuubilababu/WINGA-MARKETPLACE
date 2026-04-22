@@ -1,3 +1,4 @@
+const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 
@@ -120,19 +121,142 @@ function normalizeStoredImageReference(value) {
   return value;
 }
 
-function getProductShareImageUrl(product, origin) {
+function getProductShareImageSource(product) {
   const candidates = [
     ...(Array.isArray(product?.images) ? product.images : []),
     product?.image || ""
   ].map(normalizeStoredImageReference).filter(Boolean);
 
-  for (const candidate of candidates) {
-    if (candidate.startsWith("/uploads/")) {
-      return `${origin}${candidate}`;
+  return candidates[0] || "";
+}
+
+function getProductionAssetOrigin() {
+  const apiBaseUrl = String(process.env.WINGA_PRODUCTION_API_BASE_URL || process.env.WINGA_SHARE_API_BASE_URL || "https://winga-pflp.onrender.com/api").trim().replace(/\/+$/, "");
+  try {
+    const parsed = new URL(apiBaseUrl);
+    if (parsed.pathname.endsWith("/api")) {
+      parsed.pathname = parsed.pathname.replace(/\/api\/?$/, "/");
+    } else if (!parsed.pathname || parsed.pathname === "/") {
+      parsed.pathname = "/";
     }
-    if (/^https?:\/\//i.test(candidate)) {
-      return candidate;
+    return `${parsed.origin}${parsed.pathname === "/" ? "" : parsed.pathname.replace(/\/+$/, "")}`.replace(/\/+$/, "");
+  } catch (error) {
+    return "https://winga-pflp.onrender.com";
+  }
+}
+
+function inferImageExtension(contentType, fallbackPath = "") {
+  const normalized = String(contentType || "").split(";")[0].trim().toLowerCase();
+  const byContentType = {
+    "image/jpeg": ".jpg",
+    "image/jpg": ".jpg",
+    "image/png": ".png",
+    "image/webp": ".webp",
+    "image/gif": ".gif",
+    "image/svg+xml": ".svg"
+  };
+  if (byContentType[normalized]) {
+    return byContentType[normalized];
+  }
+  const ext = path.extname(String(fallbackPath || "")).toLowerCase();
+  return [".jpg", ".jpeg", ".png", ".webp", ".gif", ".svg"].includes(ext) ? (ext === ".jpeg" ? ".jpg" : ext) : ".jpg";
+}
+
+async function loadImageBufferFromReference(reference, productId, assetOrigin) {
+  if (!reference) {
+    return null;
+  }
+
+  if (reference.startsWith("/uploads/")) {
+    const localPath = path.join(rootDir, "backend", reference.replace(/^\/+/, ""));
+    if (fs.existsSync(localPath)) {
+      const extension = inferImageExtension(null, localPath);
+      return {
+        buffer: fs.readFileSync(localPath),
+        contentType: extension === ".png"
+          ? "image/png"
+          : extension === ".webp"
+            ? "image/webp"
+            : extension === ".gif"
+              ? "image/gif"
+              : extension === ".svg"
+                ? "image/svg+xml"
+                : "image/jpeg"
+      };
     }
+
+    const remoteUrl = `${assetOrigin.replace(/\/+$/, "")}${reference}`;
+    const remoteResponse = await fetch(remoteUrl, {
+      headers: {
+        Accept: "image/*"
+      }
+    });
+    if (!remoteResponse.ok) {
+      return null;
+    }
+    const arrayBuffer = await remoteResponse.arrayBuffer();
+    return {
+      buffer: Buffer.from(arrayBuffer),
+      contentType: remoteResponse.headers.get("content-type") || "image/jpeg"
+    };
+  }
+
+  if (/^https?:\/\//i.test(reference)) {
+    const remoteResponse = await fetch(reference, {
+      headers: {
+        Accept: "image/*"
+      }
+    });
+    if (!remoteResponse.ok) {
+      return null;
+    }
+    const arrayBuffer = await remoteResponse.arrayBuffer();
+    return {
+      buffer: Buffer.from(arrayBuffer),
+      contentType: remoteResponse.headers.get("content-type") || "image/jpeg"
+    };
+  }
+
+  return null;
+}
+
+async function generateProductOgImages(products) {
+  const assetsDir = path.join(outputDir, "og-images");
+  fs.mkdirSync(assetsDir, { recursive: true });
+  const assetOrigin = getProductionAssetOrigin();
+  const imageMap = new Map();
+
+  for (const product of products) {
+    const productId = String(product?.id || "").trim();
+    if (!productId) {
+      continue;
+    }
+
+    const source = getProductShareImageSource(product);
+    const imageAsset = await loadImageBufferFromReference(source, productId, assetOrigin);
+    if (!imageAsset?.buffer || !String(imageAsset.contentType || "").startsWith("image/")) {
+      continue;
+    }
+
+    const ext = inferImageExtension(imageAsset.contentType, source);
+    const hash = crypto.createHash("sha256").update(imageAsset.buffer).digest("hex").slice(0, 12);
+    const fileName = `${productId}-${hash}${ext}`;
+    const filePath = path.join(assetsDir, fileName);
+    fs.writeFileSync(filePath, imageAsset.buffer);
+    imageMap.set(productId, `/og-images/${fileName}`);
+  }
+
+  return imageMap;
+}
+
+function getProductShareImageUrl(product, origin, ogImageMap = null) {
+  const productId = String(product?.id || "").trim();
+  if (productId && ogImageMap?.has(productId)) {
+    return `${origin}${ogImageMap.get(productId)}`;
+  }
+
+  if (productId) {
+    return `${origin}/share-og.svg`;
   }
 
   return `${origin}/share-og.svg`;
@@ -340,6 +464,7 @@ async function loadProductsForPrerender() {
 
 async function generateProductSharePages(baseHtml, origin) {
   const products = await loadProductsForPrerender();
+  const ogImageMap = await generateProductOgImages(products);
   for (const product of products) {
     const productId = String(product?.id || "").trim();
     if (!productId) {
@@ -351,7 +476,7 @@ async function generateProductSharePages(baseHtml, origin) {
       title: getProductShareTitle(product),
       description: getProductShareDescription(product),
       url: canonicalUrl,
-      image: getProductShareImageUrl(product, origin)
+      image: getProductShareImageUrl(product, origin, ogImageMap)
     });
     const targetDirs = [
       path.join(outputDir, "product", productId),
