@@ -8083,7 +8083,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
           }
           deps.validateSingleImageFile(file, "Profile photo");
           if (statusNode) {
-            statusNode.innerText = "Tunapakia profile photo...";
+            statusNode.textContent = "Tunapakia profile photo...";
           }
           const profileImage = await deps.readFileAsDataUrl(file, { purpose: "profile" });
           const updatedUser = await deps.dataLayer.updateUserProfile({ profileImage });
@@ -8094,7 +8094,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
           deps.saveSessionUser();
           deps.renderHeaderUserMenu();
           if (statusNode) {
-            statusNode.innerText = "Profile photo imehifadhiwa.";
+            statusNode.textContent = "Profile photo imehifadhiwa.";
           }
           deps.showInAppNotification?.({
             title: "Profile photo updated",
@@ -8108,7 +8108,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
             user: deps.getCurrentUser()
           });
           if (statusNode) {
-            statusNode.innerText = "Profile photo ni optional. Ukikosa, initials zitaendelea kuonekana.";
+            statusNode.textContent = "Profile photo ni optional. Ukikosa, initials zitaendelea kuonekana.";
           }
           deps.showInAppNotification?.({
             title: "Profile photo failed",

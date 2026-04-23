@@ -1607,8 +1607,8 @@ function showAuthGatePrompt(options = {}) {
     return;
   }
 
-  authGateTitle.innerText = options.title || "You need an account to continue";
-  authGateCopy.innerText = options.message || "Already have an account? Sign In. New here? Sign Up.";
+  setNodeText(authGateTitle, options.title || "You need an account to continue");
+  setNodeText(authGateCopy, options.message || "Already have an account? Sign In. New here? Sign Up.");
   authGatePrompt.style.display = "block";
 }
 
@@ -1678,11 +1678,11 @@ function refreshPublicEntryChrome() {
     headerSearchArea.style.display = isRestrictedView ? "none" : "flex";
   }
   if (topBarSubtitle) {
-    topBarSubtitle.innerText = isSessionRestoreUi
+    setNodeText(topBarSubtitle, isSessionRestoreUi
       ? "Restoring your WINGA session..."
       : isGuest
       ? "Discover products first. Sign in only when you want to buy, chat, or sell."
-      : "";
+      : "");
     topBarSubtitle.style.display = isGuest || isSessionRestoreUi ? "" : "none";
   }
   updateMarketplaceActionChrome();
@@ -3187,6 +3187,13 @@ function confirmAction(message) {
   return true;
 }
 
+function setNodeText(node, value) {
+  if (!node) {
+    return;
+  }
+  node.textContent = value ?? "";
+}
+
 function showFatalStartupState(error) {
   const provider = window.WINGA_CONFIG?.provider || "unknown";
   const message = error?.message || "Angalia config ya storage provider.";
@@ -3255,7 +3262,7 @@ function showSessionRestoringState(message = "") {
   syncBodyScrollLockState();
   refreshPublicEntryChrome();
   if (topBarSubtitle) {
-    topBarSubtitle.innerText = message || "Tunaangalia session yako nyuma ya pazia.";
+    setNodeText(topBarSubtitle, message || "Tunaangalia session yako nyuma ya pazia.");
     topBarSubtitle.style.display = "";
   }
 }
@@ -3402,10 +3409,10 @@ function setAuthInteractionPending(kind, pending, options = {}) {
     if (adminLoginPasswordInput) adminLoginPasswordInput.disabled = isPending;
     if (adminLoginButton) {
       adminLoginButton.disabled = isPending;
-      adminLoginButton.innerText = isPending ? "Ingia..." : "Admin Login";
+      setNodeText(adminLoginButton, isPending ? "Ingia..." : "Admin Login");
     }
     if (adminLoginCopy && isPending) {
-      adminLoginCopy.innerText = "Tunaangalia staff access yako...";
+      setNodeText(adminLoginCopy, "Tunaangalia staff access yako...");
     }
     return;
   }
@@ -3434,16 +3441,16 @@ function setAuthInteractionPending(kind, pending, options = {}) {
     }
   });
   if (authButton) {
-    authButton.innerText = isPending
+    setNodeText(authButton, isPending
       ? (buttonText || (isPasswordRecovery ? "Inabadilisha password..." : (isLogin ? "Inaingia..." : "Inatengeneza akaunti...")))
-      : (isPasswordRecovery ? "Badilisha Password" : (isLogin ? "Ingia" : "Tengeneza Akaunti"));
+      : (isPasswordRecovery ? "Badilisha Password" : (isLogin ? "Ingia" : "Tengeneza Akaunti")));
   }
   if (authCategoryNote && !isLogin && !isPasswordRecovery && isPending) {
-    authCategoryNote.innerText = noteText || (
+    setNodeText(authCategoryNote, noteText || (
       selectedAuthRole === "seller"
         ? "Tunatayarisha akaunti yako ya seller. Verification ya ID itafanyika baadaye kwenye Profile > Get Verified."
         : "Tunatengeneza akaunti yako. Tafadhali subiri kidogo."
-    );
+    ));
   }
   if (!isPending) {
     syncAuthMode();
@@ -3459,9 +3466,9 @@ function switchToLoginMode(prefillIdentifier = "") {
   isLogin = true;
   isPasswordRecovery = false;
   authSignupStep = 1;
-  formTitle.innerText = "Login";
-  authButton.innerText = "Login";
-  toggleLink.innerText = "Tengeneza akaunti";
+  setNodeText(formTitle, "Login");
+  setNodeText(authButton, "Login");
+  setNodeText(toggleLink, "Tengeneza akaunti");
   if (prefillIdentifier) {
     usernameInput.value = prefillIdentifier;
   }
@@ -5948,10 +5955,10 @@ function showAdminLoginScreen(options = {}) {
   appContainer.style.display = "none";
   adminLoginContainer.style.display = "block";
   if (adminLoginTitle) {
-    adminLoginTitle.innerText = "Admin Login";
+    setNodeText(adminLoginTitle, "Admin Login");
   }
   if (adminLoginCopy) {
-    adminLoginCopy.innerText = message || "Mteja na muuzaji wa kawaida wanapaswa kutumia login ya kawaida ya marketplace.";
+    setNodeText(adminLoginCopy, message || "Mteja na muuzaji wa kawaida wanapaswa kutumia login ya kawaida ya marketplace.");
   }
   if (document.title !== "WINGA Admin Login") {
     document.title = "WINGA Admin Login";
@@ -6007,19 +6014,19 @@ function syncAuthMode() {
     : isRecoveryMode
       ? "Username, full name, or phone number"
       : "Jina la duka";
-  formTitle.innerText = isRecoveryMode ? "Recover Password" : (isLogin ? "Login" : "Sign Up");
-  authButton.innerText = isRecoveryMode ? "Reset Password" : (isLogin ? "Login" : "Sign Up");
-  toggleLink.innerText = isRecoveryMode ? "Rudi kwenye login" : (isLogin ? "Tengeneza akaunti" : "Tayari una akaunti? Ingia");
+  setNodeText(formTitle, isRecoveryMode ? "Recover Password" : (isLogin ? "Login" : "Sign Up"));
+  setNodeText(authButton, isRecoveryMode ? "Reset Password" : (isLogin ? "Login" : "Sign Up"));
+  setNodeText(toggleLink, isRecoveryMode ? "Rudi kwenye login" : (isLogin ? "Tengeneza akaunti" : "Tayari una akaunti? Ingia"));
   if (forgotPasswordLink) {
     forgotPasswordLink.style.display = isLogin ? "block" : "none";
   }
 
   if (authCategoryNote) {
-    authCategoryNote.innerText = isLogin
+    setNodeText(authCategoryNote, isLogin
       ? "Login tumia username, full name, au namba ya simu pamoja na password. Session itaendelea mpaka ulogout."
       : isRecoveryMode
         ? "Weka identifier, namba ya simu, NIDA/ID number, na password mpya. Ukimaliza utaingia tena kwa password mpya."
-        : "Signup sasa ni phone-first. Weka jina la duka, namba ya simu, na password. Verification ya ID itafanyika baadaye kupitia Profile > Get Verified.";
+        : "Signup sasa ni phone-first. Weka jina la duka, namba ya simu, na password. Verification ya ID itafanyika baadaye kupitia Profile > Get Verified.");
   }
 
   if (!isSellerSignup) {
@@ -6038,7 +6045,7 @@ function syncAuthMode() {
     sellerIdentityDocumentTypeInput.value = "";
     if (sellerIdentityDocumentNumberInput) sellerIdentityDocumentNumberInput.value = "";
     if (sellerIdentityDocumentImageInput) sellerIdentityDocumentImageInput.value = "";
-    if (sellerIdentityDocumentImageName) sellerIdentityDocumentImageName.innerText = "";
+    setNodeText(sellerIdentityDocumentImageName, "");
     if (sellerIdentityDocumentPreview) {
       updateSellerIdentityDocumentPreview(null);
     }
@@ -6050,7 +6057,7 @@ function syncAuthMode() {
     input.type = "password";
   });
   if (passwordToggleButton) {
-    passwordToggleButton.innerText = isSecuritySignup || isRecoveryMode ? "Show Passwords" : "Show Password";
+    setNodeText(passwordToggleButton, isSecuritySignup || isRecoveryMode ? "Show Passwords" : "Show Password");
   }
 }
 
@@ -6103,9 +6110,9 @@ function bindPasswordToggle(button) {
     passwordInputs.forEach((input) => {
       input.type = isHidden ? "text" : "password";
     });
-    button.innerText = isHidden
+    setNodeText(button, isHidden
       ? (confirmPasswordWrap.style.display !== "none" ? "Hide Passwords" : "Hide Password")
-      : (confirmPasswordWrap.style.display !== "none" ? "Show Passwords" : "Show Password");
+      : (confirmPasswordWrap.style.display !== "none" ? "Show Passwords" : "Show Password"));
   });
 }
 
@@ -6131,7 +6138,7 @@ sellerIdentityDocumentImageInput?.addEventListener("change", () => {
       validateSellerIdentityImageFile(file);
     }
     if (sellerIdentityDocumentImageName) {
-      sellerIdentityDocumentImageName.innerText = file ? file.name : "";
+      setNodeText(sellerIdentityDocumentImageName, file ? file.name : "");
     }
     updateSellerIdentityDocumentPreview(file || null);
     if (file) {
@@ -6146,7 +6153,7 @@ sellerIdentityDocumentImageInput?.addEventListener("change", () => {
     sellerIdentityDocumentImageInput.value = "";
     clearPreparedSellerIdentityImage();
     if (sellerIdentityDocumentImageName) {
-      sellerIdentityDocumentImageName.innerText = "";
+      setNodeText(sellerIdentityDocumentImageName, "");
     }
     updateSellerIdentityDocumentPreview(null);
     alert(error.message || "Please upload a valid ID image");
@@ -9615,7 +9622,7 @@ function startEditProduct(productId) {
   }
 
   editingProductId = productId;
-  uploadTitle.innerText = "Hariri Bidhaa";
+  setNodeText(uploadTitle, "Hariri Bidhaa");
   cancelEditButton.style.display = "inline-flex";
 
   productNameInput.value = product.name;
@@ -9675,7 +9682,7 @@ function deleteProduct(productId) {
 
 function clearUploadForm() {
   editingProductId = null;
-  uploadTitle.innerText = "Ongeza Bidhaa";
+  setNodeText(uploadTitle, "Ongeza Bidhaa");
   cancelEditButton.style.display = "none";
   productNameInput.value = "";
   productPriceInput.value = "";
