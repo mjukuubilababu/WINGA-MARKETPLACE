@@ -11,6 +11,7 @@ const APP_STORAGE_SCHEMA_KEY = "winga-storage-schema-version";
 const HOME_SCROLL_STATE_KEY = "winga-home-scroll-state";
 const HOME_FEED_REFRESH_CURSOR_KEY = "winga-home-feed-refresh-cursor";
 const APP_UPDATE_BANNER_DISMISS_KEY = "winga-app-update-banner-dismissed-version";
+const APP_CHAT_DRAFT_KEY_PREFIX = "winga-chat-draft";
 const NOTIFICATION_PERMISSION_STATE_KEY = "winga-notification-permission-state";
 const NOTIFICATION_PERMISSION_PROMPT_COOLDOWN_MS = 12 * 60 * 60 * 1000;
 const NOTIFICATION_PERMISSION_TRIGGERS = new Set(["message", "reply", "request", "order", "profile"]);
@@ -2367,7 +2368,7 @@ const {
       productId: "",
       productName: context.productName || ""
     };
-    chatUiState.currentDraft = "";
+    chatUiState.currentDraft = loadStoredChatDraft(chatUiState.activeContext);
     openProfileSection("profile-messages-panel");
     try {
       await markActiveConversationRead();
@@ -2379,6 +2380,43 @@ const {
 
 function getChatContextKey(context) {
   return `${context?.withUser || ""}::${context?.productId || ""}`;
+}
+
+function getChatDraftStorageKey(context = chatUiState.activeContext) {
+  const contextKey = getChatContextKey(context);
+  if (!contextKey || contextKey === "::") {
+    return "";
+  }
+  return `${APP_CHAT_DRAFT_KEY_PREFIX}:${currentUser || "guest"}:${contextKey}`;
+}
+
+function loadStoredChatDraft(context = chatUiState.activeContext) {
+  const storageKey = getChatDraftStorageKey(context);
+  if (!storageKey) {
+    return "";
+  }
+  try {
+    return String(localStorage.getItem(storageKey) || "");
+  } catch (error) {
+    return "";
+  }
+}
+
+function saveStoredChatDraft(value = "", context = chatUiState.activeContext) {
+  const storageKey = getChatDraftStorageKey(context);
+  if (!storageKey) {
+    return;
+  }
+  try {
+    const nextValue = String(value || "");
+    if (!nextValue.trim()) {
+      localStorage.removeItem(storageKey);
+      return;
+    }
+    localStorage.setItem(storageKey, nextValue);
+  } catch (error) {
+    // Ignore chat draft persistence failures.
+  }
 }
 
 function getMessagePartner(message) {
@@ -4525,8 +4563,11 @@ const {
   },
   setCurrentMessageDraft: (value) => {
     chatUiState.currentDraft = value;
+    saveStoredChatDraft(value, chatUiState.activeContext);
   },
   getCurrentMessageDraft: () => chatUiState.currentDraft,
+  loadStoredChatDraft,
+  saveStoredChatDraft,
   setSelectedChatProductIds: (value) => {
     chatUiState.selectedProductIds = Array.isArray(value) ? value : [];
   },

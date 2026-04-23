@@ -4929,6 +4929,14 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         if (!activeChatContext || (!message && !productItems.length)) {
           return;
         }
+        if (navigator.onLine === false) {
+          deps.showInAppNotification?.({
+            title: "Uko offline",
+            body: "Ujumbe umehifadhiwa kama draft. Unganisha internet kisha utume tena.",
+            variant: "warning"
+          });
+          return;
+        }
 
         try {
           await deps.dataLayer.sendMessage({
@@ -5065,7 +5073,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       deps.setActiveChatReplyMessageId("");
       deps.setOpenChatMessageMenuId("");
       deps.setOpenEmojiScope("");
-      deps.setActiveChatContext({
+      const nextChatContext = {
         withUser: product.uploadedBy,
         displayName: deps.getUserDisplayName(product.uploadedBy, {
           fallback: product.shop || product.uploadedBy || "",
@@ -5074,7 +5082,9 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         productId: product.id,
         productName: product.name,
         whatsapp: deps.normalizeWhatsapp(product.whatsapp || "")
-      });
+      };
+      deps.setActiveChatContext(nextChatContext);
+      deps.setCurrentMessageDraft(deps.loadStoredChatDraft?.(nextChatContext) || "");
 
       openContextChatModal().catch((error) => {
         deps.captureError?.("context_chat_open_failed", error, {
@@ -5104,7 +5114,6 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       deps.setSelectedChatProductIds([]);
       deps.setActiveChatReplyMessageId("");
       deps.setOpenChatMessageMenuId("");
-      deps.setCurrentMessageDraft("");
       deps.setOpenEmojiScope("");
 
       const matchingSummary = deps.getConversationSummaries().find((summary) => summary.productId === productId);
@@ -5115,17 +5124,20 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         }
       });
       if (matchingSummary) {
-        deps.setActiveChatContext({
+        const nextChatContext = {
           withUser: matchingSummary.withUser,
           displayName: matchingSummary.displayName || deps.getUserDisplayName(matchingSummary.withUser),
           productId: matchingSummary.productId || "",
           productName: matchingSummary.productName || "",
           whatsapp: matchingSummary.whatsapp || ""
-        });
+        };
+        deps.setActiveChatContext(nextChatContext);
+        deps.setCurrentMessageDraft(deps.loadStoredChatDraft?.(nextChatContext) || "");
         deps.setProfileMessagesMode?.("detail");
         deps.setProfileHasSelection?.(true);
       } else {
         deps.setActiveChatContext(null);
+        deps.setCurrentMessageDraft("");
         deps.setProfileMessagesMode?.("list");
         deps.setProfileHasSelection?.(false);
       }
@@ -5307,14 +5319,15 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         });
 
       bindClickOnce("[data-conversation-user]", "ConversationUser", async (button) => {
-          deps.setActiveChatContext({
+          const nextChatContext = {
             withUser: button.dataset.conversationUser,
             productId: button.dataset.conversationProduct || "",
             productName: button.dataset.conversationName || ""
-          });
+          };
+          deps.setActiveChatContext(nextChatContext);
           deps.setProfileMessagesMode?.("detail");
           deps.setProfileHasSelection?.(true);
-          deps.setCurrentMessageDraft("");
+          deps.setCurrentMessageDraft(deps.loadStoredChatDraft?.(nextChatContext) || "");
           try {
             await deps.markActiveConversationRead();
           } catch (error) {
@@ -5399,6 +5412,14 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         const message = messageInput?.value.trim() || "";
         const activeChatContext = deps.getActiveChatContext();
         if (!activeChatContext || !message) {
+          return;
+        }
+        if (navigator.onLine === false) {
+          deps.showInAppNotification?.({
+            title: "Uko offline",
+            body: "Ujumbe umehifadhiwa kama draft. Unganisha internet kisha utume tena.",
+            variant: "warning"
+          });
           return;
         }
 
