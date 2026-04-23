@@ -9,7 +9,11 @@ const requiredRootFiles = [
   "_headers",
   "_redirects",
   "index.html",
+  "manifest.webmanifest",
+  "offline.html",
   "share-og.svg",
+  "service-worker.js",
+  "winga-icon.svg",
   "style.css",
   "app.js",
   "app-core.js",
@@ -22,7 +26,11 @@ const fileCopies = [
   ["_headers", "_headers"],
   ["_redirects", "_redirects"],
   ["index.html", "index.html"],
+  ["manifest.webmanifest", "manifest.webmanifest"],
+  ["offline.html", "offline.html"],
   ["share-og.svg", "share-og.svg"],
+  ["service-worker.js", "service-worker.js"],
+  ["winga-icon.svg", "winga-icon.svg"],
   ["style.css", "style.css"],
   ["app.js", "app.js"],
   ["app-core.js", "app-core.js"],
@@ -365,6 +373,14 @@ function applyAssetVersionToHtml(targetPath) {
   fs.writeFileSync(targetPath, marked, "utf8");
 }
 
+function applyAssetVersionToServiceWorker(targetPath) {
+  const source = fs.readFileSync(targetPath, "utf8");
+  const next = source
+    .replace(/__WINGA_ASSET_VERSION__/g, assetVersion)
+    .replace(/__WINGA_BUILD_VERSION__/g, assetVersion);
+  fs.writeFileSync(targetPath, next, "utf8");
+}
+
 function copyDirectoryRecursive(sourcePath, targetPath) {
   fs.mkdirSync(targetPath, { recursive: true });
   for (const entry of fs.readdirSync(sourcePath, { withFileTypes: true })) {
@@ -528,6 +544,10 @@ async function main() {
 
   fileCopies.forEach(([sourceRelativePath, targetRelativePath]) => {
     copyFileIntoDist(sourceRelativePath, targetRelativePath);
+    const targetPath = path.join(outputDir, targetRelativePath);
+    if (targetPath.endsWith("service-worker.js")) {
+      applyAssetVersionToServiceWorker(targetPath);
+    }
   });
 
   applyAssetVersionToHtml(path.join(rootDir, "index.html"));

@@ -6,6 +6,7 @@ const PENDING_GUEST_INTENT_KEY = "winga-pending-guest-intent";
 const SELLER_HISTORY_KEY_PREFIX = "winga-seller-history";
 const REQUEST_BOX_KEY_PREFIX = "winga-request-box";
 const APP_BOOT_BUILD_VERSION = document.querySelector('meta[name="winga-build"]')?.content || "";
+const APP_SERVICE_WORKER_PATH = "/service-worker.js";
 const APP_STORAGE_SCHEMA_KEY = "winga-storage-schema-version";
 const HOME_SCROLL_STATE_KEY = "winga-home-scroll-state";
 const HOME_FEED_REFRESH_CURSOR_KEY = "winga-home-feed-refresh-cursor";
@@ -352,6 +353,20 @@ async function purgeStaleBrowserCacheArtifacts() {
   }
 }
 
+async function registerAppServiceWorker() {
+  if (!("serviceWorker" in navigator)) {
+    return;
+  }
+
+  try {
+    await navigator.serviceWorker.register(APP_SERVICE_WORKER_PATH, { scope: "/" });
+  } catch (error) {
+    reportClientEvent("warn", "service_worker_registration_failed", "Service worker registration failed.", {
+      category: "runtime"
+    });
+  }
+}
+
 function initializeBootstrapStorageVersion() {
   if (!APP_BOOT_BUILD_VERSION) {
     return;
@@ -364,7 +379,7 @@ function initializeBootstrapStorageVersion() {
 
   clearStaleAppBootstrapState();
   saveAppStorageSchemaVersion(APP_BOOT_BUILD_VERSION);
-  void purgeStaleBrowserCacheArtifacts();
+  return purgeStaleBrowserCacheArtifacts();
 }
 
 function getSellerHistoryStorageKey(username = currentUser) {
@@ -10485,7 +10500,7 @@ async function bootApp() {
   reportClientEvent("info", "app_boot_started", "Client app boot started.", {
     category: "runtime"
   });
-  initializeBootstrapStorageVersion();
+  const bootstrapCleanupPromise = initializeBootstrapStorageVersion();
   syncAuthMode();
   homeFeedRefreshCursor = initializeHomeFeedRefreshCursor();
   suppressInitialProductHomeRender = Boolean(getDeepLinkedProductIdFromRoute());
@@ -10505,6 +10520,8 @@ async function bootApp() {
   if (suppressInitialProductHomeRender) {
     setDeepLinkLoadingShellVisible(false);
   }
+
+  await bootstrapCleanupPromise;
 
   await window.WingaDataLayer.init();
   syncNotificationPermissionStateFromBrowser();
@@ -10596,6 +10613,12 @@ async function bootApp() {
     resizeObserver.observe(topBar);
     resizeObserver.observe(bottomNav);
   }
+
+  window.setTimeout(() => {
+    registerAppServiceWorker().catch(() => {
+      // Ignore service worker registration failures on unsupported browsers.
+    });
+  }, 0);
 }
 
 bootApp().catch((error) => {
