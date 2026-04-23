@@ -359,7 +359,17 @@ async function registerAppServiceWorker() {
   }
 
   try {
-    await navigator.serviceWorker.register(APP_SERVICE_WORKER_PATH, { scope: "/" });
+    const registration = await navigator.serviceWorker.register(`${APP_SERVICE_WORKER_PATH}?v=${encodeURIComponent(APP_BOOT_BUILD_VERSION || "0")}`, {
+      scope: "/",
+      updateViaCache: "none"
+    });
+    if (registration?.update) {
+      try {
+        await registration.update();
+      } catch (error) {
+        // Ignore update checks that fail on constrained/offline browsers.
+      }
+    }
   } catch (error) {
     reportClientEvent("warn", "service_worker_registration_failed", "Service worker registration failed.", {
       category: "runtime"

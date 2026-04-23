@@ -41,6 +41,9 @@ function isCacheableAsset(request) {
   if (url.pathname.startsWith("/api/")) {
     return false;
   }
+  if (url.pathname === "/service-worker.js") {
+    return false;
+  }
   return ["script", "style", "image", "font"].includes(request.destination) || /\.(?:css|js|svg|png|jpe?g|webp|gif|ico|json)$/i.test(url.pathname);
 }
 

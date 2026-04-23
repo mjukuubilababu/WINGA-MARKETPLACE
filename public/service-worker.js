@@ -1,4 +1,4 @@
-const BUILD_VERSION = "20260423112705";
+const BUILD_VERSION = "20260423113855";
 const CACHE_PREFIX = "winga-shell";
 const CACHE_NAME = `${CACHE_PREFIX}-${BUILD_VERSION}`;
 const PRECACHE_URLS = [
@@ -39,6 +39,9 @@ function isCacheableAsset(request) {
   }
   const url = new URL(request.url);
   if (url.pathname.startsWith("/api/")) {
+    return false;
+  }
+  if (url.pathname === "/service-worker.js") {
     return false;
   }
   return ["script", "style", "image", "font"].includes(request.destination) || /\.(?:css|js|svg|png|jpe?g|webp|gif|ico|json)$/i.test(url.pathname);
