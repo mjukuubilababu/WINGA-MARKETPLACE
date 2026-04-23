@@ -1441,6 +1441,29 @@ function getImageFallbackDataUri(label = "WINGA") {
   `)}`;
 }
 
+const imagePreloadRegistry = new Set();
+
+function preloadImageSource(src = "", options = {}) {
+  const {
+    fetchPriority = "high",
+    as = "image"
+  } = options;
+  const resolvedSrc = sanitizeImageSource(src, "");
+  if (!resolvedSrc || /^data:/i.test(resolvedSrc) || imagePreloadRegistry.has(resolvedSrc)) {
+    return null;
+  }
+
+  imagePreloadRegistry.add(resolvedSrc);
+  const link = document.createElement("link");
+  link.rel = "preload";
+  link.as = as;
+  link.href = resolvedSrc;
+  link.setAttribute("fetchpriority", fetchPriority);
+  link.setAttribute("data-winga-preload-image", "true");
+  document.head.appendChild(link);
+  return link;
+}
+
 function getCategoryLabel(category) {
   const subcategoryMatch = availableCategories.find((item) => item.value === category);
   if (subcategoryMatch) {
@@ -4321,6 +4344,7 @@ const { renderAdminView: renderAdminViewFromController } = window.WingaModules.a
   createResponsiveImage,
   sanitizeImageSource,
   getImageFallbackDataUri,
+  preloadImageSource,
   getCategoryLabel,
   getRoleLabel,
   getPromotionLabel,
@@ -4358,6 +4382,7 @@ const {
   escapeHtml,
   sanitizeImageSource,
   getImageFallbackDataUri,
+  preloadImageSource,
   renderProductGallery,
   formatNumber,
   formatProductPrice,
@@ -4504,6 +4529,7 @@ const {
   formatNumber,
   formatProductPrice,
   getImageFallbackDataUri,
+  preloadImageSource,
   getRenderableMarketplaceImages,
   getMarketplacePrimaryImage,
   renderRequestBoxButton,
@@ -4542,6 +4568,7 @@ const {
   getRenderableMarketplaceImages,
   renderDiscoveryProductCards,
   getImageFallbackDataUri,
+  preloadImageSource,
   noteProductInterest,
   noteProductDiscovery,
   enhanceShowcaseTracks,
@@ -4779,6 +4806,7 @@ const {
   createResponsiveImage,
   createStatusPill,
   getImageFallbackDataUri,
+  preloadImageSource,
   getProductsContainer: () => productsContainer,
   getCurrentView: () => currentView,
   hasPrioritySearchResults,

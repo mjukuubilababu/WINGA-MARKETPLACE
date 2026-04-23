@@ -696,7 +696,8 @@
       return wrapper;
     }
 
-    function createProfileProductCardElement(product, imageSrc = "") {
+    function createProfileProductCardElement(product, imageSrc = "", options = {}) {
+      const { isPriority = false } = options || {};
       const images = getProductImages(product);
       const firstImage = imageSrc || images[0] || deps.getImageFallbackDataUri?.("WINGA") || "";
       const article = deps.createElement("article", {
@@ -714,22 +715,25 @@
       const image = deps.createResponsiveImage
         ? deps.createResponsiveImage({
             src: firstImage,
+          alt: product?.name || "Product image",
+          className: "profile-product-stage",
+          fallbackSrc: deps.getImageFallbackDataUri?.("WINGA") || "",
+          attributes: {
+            "data-disable-image-zoom": "true",
+            loading: isPriority ? "eager" : "lazy",
+            fetchpriority: isPriority ? "high" : "auto"
+          }
+        })
+      : deps.createElement("img", {
+          className: "profile-product-stage",
+          attributes: {
+            src: firstImage,
             alt: product?.name || "Product image",
-            className: "profile-product-stage",
-            fallbackSrc: deps.getImageFallbackDataUri?.("WINGA") || "",
-            attributes: {
-              "data-disable-image-zoom": "true"
-            }
-          })
-        : deps.createElement("img", {
-            className: "profile-product-stage",
-            attributes: {
-              src: firstImage,
-              alt: product?.name || "Product image",
-              loading: "lazy",
-              decoding: "async"
-            }
-          });
+            loading: isPriority ? "eager" : "lazy",
+            decoding: "async",
+            fetchpriority: isPriority ? "high" : "auto"
+          }
+        });
       media.appendChild(image);
 
       article.appendChild(media);

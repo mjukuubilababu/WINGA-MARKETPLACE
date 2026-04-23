@@ -665,6 +665,21 @@
         return;
       }
 
+      const preloadRegistry = new Set();
+      const priorityTileLimit = Math.max(9, (deps.getProductsPerRow?.() || 3) * 3);
+      let renderedTileCount = 0;
+      const preloadProfileImage = (imageSrc) => {
+        if (!deps.preloadImageSource) {
+          return;
+        }
+        const safeSrc = String(imageSrc || "").trim();
+        if (!safeSrc || preloadRegistry.has(safeSrc)) {
+          return;
+        }
+        preloadRegistry.add(safeSrc);
+        deps.preloadImageSource(safeSrc, { fetchPriority: "high" });
+      };
+
       const productCards = document.createDocumentFragment();
       userProducts.forEach((product) => {
         const rawImages = Array.isArray(product?.images)
@@ -682,10 +697,16 @@
           imageSources.push("");
         }
         imageSources.forEach((imageSrc) => {
-          const card = deps.createProfileProductCardElement(product, imageSrc);
+          if (renderedTileCount < priorityTileLimit) {
+            preloadProfileImage(imageSrc);
+          }
+          const card = deps.createProfileProductCardElement(product, imageSrc, {
+            isPriority: renderedTileCount < priorityTileLimit
+          });
           if (card) {
             productCards.appendChild(card);
           }
+          renderedTileCount += 1;
         });
       });
       container.appendChild(productCards);

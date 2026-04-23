@@ -281,6 +281,14 @@
           ? product.images.map((item) => deps.sanitizeImageSource(item || "", deps.getImageFallbackDataUri("W"))).filter(Boolean)
           : []);
       const safeMainImage = deps.sanitizeImageSource(mainImage || detailImages[0] || "", deps.getImageFallbackDataUri("WINGA"));
+      if (deps.preloadImageSource) {
+        [safeMainImage, ...detailImages.slice(0, 2)]
+          .map((item) => String(item || "").trim())
+          .filter(Boolean)
+          .forEach((item, index) => {
+            deps.preloadImageSource(item, { fetchPriority: index === 0 ? "high" : "auto" });
+          });
+      }
 
       const wrapper = deps.createElement("div");
       const layout = deps.createElement("div", { className: "product-detail-layout" });
@@ -296,7 +304,8 @@
           attributes: {
             src: safeMainImage,
             alt: safeProductName,
-            loading: "lazy",
+            loading: "eager",
+            fetchpriority: "high",
             "data-zoom-src": safeMainImage,
             "data-zoom-alt": safeProductName,
             "data-image-action-product": product.id,
@@ -314,7 +323,8 @@
               attributes: {
                 src: image,
                 alt: `${safeProductName} ${index + 1}`,
-                loading: "lazy",
+                loading: index < 2 ? "eager" : "lazy",
+                fetchpriority: index < 2 ? "high" : "auto",
                 "data-detail-image": image,
                 "data-detail-image-index": String(index),
                 "data-disable-image-zoom": "true",

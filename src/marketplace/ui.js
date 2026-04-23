@@ -60,6 +60,27 @@
       });
     }
 
+    function preloadMarketplaceImages(list = []) {
+      if (!deps.preloadImageSource || !Array.isArray(list) || !list.length) {
+        return;
+      }
+      const seen = new Set();
+      const limit = Math.max(6, (deps.getProductsPerRow?.() || 3) * 2);
+      list.slice(0, limit).forEach((product) => {
+        const primaryImage = deps.getMarketplacePrimaryImage
+          ? deps.getMarketplacePrimaryImage(product, {
+              allowOwnerVisibility: product.uploadedBy === deps.getCurrentUser?.()
+            })
+          : deps.sanitizeImageSource(product.image || (Array.isArray(product.images) ? product.images[0] : ""), deps.getImageFallbackDataUri("WINGA"));
+        const safeSrc = String(primaryImage || "").trim();
+        if (!safeSrc || seen.has(safeSrc)) {
+          return;
+        }
+        seen.add(safeSrc);
+        deps.preloadImageSource(safeSrc, { fetchPriority: "high" });
+      });
+    }
+
     function createProductGalleryElement(product) {
       if (deps.renderFeedGalleryMarkup) {
         return createElementFromMarkup(deps.renderFeedGalleryMarkup(product, "feed"));
@@ -448,6 +469,7 @@
       const fragment = document.createDocumentFragment();
       const viewedProductIds = [];
       const passiveViewLimit = Math.max(4, (deps.getProductsPerRow?.() || 3));
+      preloadMarketplaceImages(list);
 
       list.forEach((product, index) => {
         if (shouldTrackViews && index < passiveViewLimit && deps.trackView(product)) {

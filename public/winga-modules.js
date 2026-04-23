@@ -2685,6 +2685,27 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       });
     }
 
+    function preloadMarketplaceImages(list = []) {
+      if (!deps.preloadImageSource || !Array.isArray(list) || !list.length) {
+        return;
+      }
+      const seen = new Set();
+      const limit = Math.max(6, (deps.getProductsPerRow?.() || 3) * 2);
+      list.slice(0, limit).forEach((product) => {
+        const primaryImage = deps.getMarketplacePrimaryImage
+          ? deps.getMarketplacePrimaryImage(product, {
+              allowOwnerVisibility: product.uploadedBy === deps.getCurrentUser?.()
+            })
+          : deps.sanitizeImageSource(product.image || (Array.isArray(product.images) ? product.images[0] : ""), deps.getImageFallbackDataUri("WINGA"));
+        const safeSrc = String(primaryImage || "").trim();
+        if (!safeSrc || seen.has(safeSrc)) {
+          return;
+        }
+        seen.add(safeSrc);
+        deps.preloadImageSource(safeSrc, { fetchPriority: "high" });
+      });
+    }
+
     function createProductGalleryElement(product) {
       if (deps.renderFeedGalleryMarkup) {
         return createElementFromMarkup(deps.renderFeedGalleryMarkup(product, "feed"));
@@ -3073,6 +3094,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       const fragment = document.createDocumentFragment();
       const viewedProductIds = [];
       const passiveViewLimit = Math.max(4, (deps.getProductsPerRow?.() || 3));
+      preloadMarketplaceImages(list);
 
       list.forEach((product, index) => {
         if (shouldTrackViews && index < passiveViewLimit && deps.trackView(product)) {
@@ -7629,7 +7651,8 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       return wrapper;
     }
 
-    function createProfileProductCardElement(product, imageSrc = "") {
+    function createProfileProductCardElement(product, imageSrc = "", options = {}) {
+      const { isPriority = false } = options || {};
       const images = getProductImages(product);
       const firstImage = imageSrc || images[0] || deps.getImageFallbackDataUri?.("WINGA") || "";
       const article = deps.createElement("article", {
@@ -7647,22 +7670,25 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       const image = deps.createResponsiveImage
         ? deps.createResponsiveImage({
             src: firstImage,
+          alt: product?.name || "Product image",
+          className: "profile-product-stage",
+          fallbackSrc: deps.getImageFallbackDataUri?.("WINGA") || "",
+          attributes: {
+            "data-disable-image-zoom": "true",
+            loading: isPriority ? "eager" : "lazy",
+            fetchpriority: isPriority ? "high" : "auto"
+          }
+        })
+      : deps.createElement("img", {
+          className: "profile-product-stage",
+          attributes: {
+            src: firstImage,
             alt: product?.name || "Product image",
-            className: "profile-product-stage",
-            fallbackSrc: deps.getImageFallbackDataUri?.("WINGA") || "",
-            attributes: {
-              "data-disable-image-zoom": "true"
-            }
-          })
-        : deps.createElement("img", {
-            className: "profile-product-stage",
-            attributes: {
-              src: firstImage,
-              alt: product?.name || "Product image",
-              loading: "lazy",
-              decoding: "async"
-            }
-          });
+            loading: isPriority ? "eager" : "lazy",
+            decoding: "async",
+            fetchpriority: isPriority ? "high" : "auto"
+          }
+        });
       media.appendChild(image);
 
       article.appendChild(media);
@@ -8352,6 +8378,21 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         return;
       }
 
+      const preloadRegistry = new Set();
+      const priorityTileLimit = Math.max(9, (deps.getProductsPerRow?.() || 3) * 3);
+      let renderedTileCount = 0;
+      const preloadProfileImage = (imageSrc) => {
+        if (!deps.preloadImageSource) {
+          return;
+        }
+        const safeSrc = String(imageSrc || "").trim();
+        if (!safeSrc || preloadRegistry.has(safeSrc)) {
+          return;
+        }
+        preloadRegistry.add(safeSrc);
+        deps.preloadImageSource(safeSrc, { fetchPriority: "high" });
+      };
+
       const productCards = document.createDocumentFragment();
       userProducts.forEach((product) => {
         const rawImages = Array.isArray(product?.images)
@@ -8369,10 +8410,16 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
           imageSources.push("");
         }
         imageSources.forEach((imageSrc) => {
-          const card = deps.createProfileProductCardElement(product, imageSrc);
+          if (renderedTileCount < priorityTileLimit) {
+            preloadProfileImage(imageSrc);
+          }
+          const card = deps.createProfileProductCardElement(product, imageSrc, {
+            isPriority: renderedTileCount < priorityTileLimit
+          });
           if (card) {
             productCards.appendChild(card);
           }
+          renderedTileCount += 1;
         });
       });
       container.appendChild(productCards);
@@ -8769,6 +8816,14 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
           ? product.images.map((item) => deps.sanitizeImageSource(item || "", deps.getImageFallbackDataUri("W"))).filter(Boolean)
           : []);
       const safeMainImage = deps.sanitizeImageSource(mainImage || detailImages[0] || "", deps.getImageFallbackDataUri("WINGA"));
+      if (deps.preloadImageSource) {
+        [safeMainImage, ...detailImages.slice(0, 2)]
+          .map((item) => String(item || "").trim())
+          .filter(Boolean)
+          .forEach((item, index) => {
+            deps.preloadImageSource(item, { fetchPriority: index === 0 ? "high" : "auto" });
+          });
+      }
 
       const wrapper = deps.createElement("div");
       const layout = deps.createElement("div", { className: "product-detail-layout" });
@@ -8784,7 +8839,8 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
           attributes: {
             src: safeMainImage,
             alt: safeProductName,
-            loading: "lazy",
+            loading: "eager",
+            fetchpriority: "high",
             "data-zoom-src": safeMainImage,
             "data-zoom-alt": safeProductName,
             "data-image-action-product": product.id,
@@ -8802,7 +8858,8 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
               attributes: {
                 src: image,
                 alt: `${safeProductName} ${index + 1}`,
-                loading: "lazy",
+                loading: index < 2 ? "eager" : "lazy",
+                fetchpriority: index < 2 ? "high" : "auto",
                 "data-detail-image": image,
                 "data-detail-image-index": String(index),
                 "data-disable-image-zoom": "true",
