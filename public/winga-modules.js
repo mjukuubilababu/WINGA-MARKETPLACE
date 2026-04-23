@@ -8776,7 +8776,8 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       if (deps.renderDiscoveryProductCards) {
         section.appendChild(deps.createFragmentFromMarkup(
           deps.renderDiscoveryProductCards(safeItems, {
-            sponsored: Boolean(attributes?.["data-product-detail-continuation-kind"] === "sponsored")
+            sponsored: Boolean(attributes?.["data-product-detail-continuation-kind"] === "sponsored"),
+            priorityCount: Math.min(4, safeItems.length)
           })
         ));
         return section;
@@ -8832,7 +8833,10 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         className: `product-detail-media${detailImages.length > 1 && !useFeedCarousel ? " has-media-stack" : ""}`
       });
       if (useFeedCarousel) {
-        media.appendChild(deps.createFragmentFromMarkup(deps.renderFeedGalleryMarkup(product, "feed")));
+        media.appendChild(deps.createFragmentFromMarkup(deps.renderFeedGalleryMarkup(product, "feed", {
+          priorityCount: Math.min(4, detailImages.length),
+          preload: true
+        })));
       } else {
         const mainImageElement = deps.createElement("img", {
           className: "product-detail-image zoomable-image",
@@ -8853,13 +8857,13 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         if (detailImages.length > 1) {
           const thumbGrid = deps.createElement("div", { className: "product-detail-thumb-grid" });
           detailImages.forEach((image, index) => {
-            thumbGrid.appendChild(deps.createElement("img", {
+          thumbGrid.appendChild(deps.createElement("img", {
               className: `product-detail-thumb${image === safeMainImage ? " active" : ""}`,
               attributes: {
                 src: image,
                 alt: `${safeProductName} ${index + 1}`,
-                loading: index < 2 ? "eager" : "lazy",
-                fetchpriority: index < 2 ? "high" : "auto",
+                loading: index < 4 ? "eager" : "lazy",
+                fetchpriority: index < 4 ? "high" : "auto",
                 "data-detail-image": image,
                 "data-detail-image-index": String(index),
                 "data-disable-image-zoom": "true",

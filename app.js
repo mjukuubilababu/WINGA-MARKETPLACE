@@ -8201,7 +8201,7 @@ const {
 });
 
 function renderDiscoveryProductCards(items, options = {}) {
-  const { sponsored = false } = options;
+  const { sponsored = false, priorityCount = 0 } = options;
   const renderableItems = (Array.isArray(items) ? items : []).filter((item) => getMarketplacePrimaryImage(item));
   if (!renderableItems.length) {
     return "";
@@ -8209,7 +8209,8 @@ function renderDiscoveryProductCards(items, options = {}) {
 
   return `
     <div class="seller-products-grid">
-      ${renderableItems.map((item) => {
+      ${renderableItems.map((item, index) => {
+        const isPriority = index < Math.max(0, Number(priorityCount || 0));
         const safeName = escapeHtml(item.name || "");
         const safeCaption = escapeHtml(String(item.description || item.caption || item.name || item.shop || getCategoryLabel(item.category) || "").trim());
         const promotion = sponsored ? getPrimaryPromotion(item.id) : null;
@@ -8223,7 +8224,7 @@ function renderDiscoveryProductCards(items, options = {}) {
         return `
           <article class="seller-product-card${Array.isArray(item.images) && item.images.length > 1 ? " has-gallery-count-badge" : ""}" data-open-product="${item.id}">
             <div class="seller-product-card-media">
-              ${renderFeedGalleryMarkup(item, "feed")}
+              ${renderFeedGalleryMarkup(item, "feed", { priorityCount: isPriority ? 3 : 1, preload: isPriority })}
             </div>
             ${renderProductOverflowMenu(item, { overlay: true })}
             <div class="product-seller-row">
@@ -8813,11 +8814,17 @@ function renderPromoteButton(product) {
   return `<button class="action-btn action-btn-secondary" type="button" data-promote-product="${product.id}">Promote</button>`;
 }
 
-function renderFeedGalleryMarkup(product, surface = "feed") {
+function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
   const safeImages = getRenderableMarketplaceImages(product);
   const images = safeImages.length > 0 ? safeImages : [getImageFallbackDataUri("WINGA")];
   const total = images.length;
   const currentLabel = total > 1 ? `1/${total}` : "";
+  const priorityLimit = Math.max(1, Number(options?.priorityCount || 1));
+  if (options?.preload && typeof preloadImageSource === "function") {
+    images.slice(0, Math.min(images.length, priorityLimit)).forEach((src, index) => {
+      preloadImageSource(src, { fetchPriority: index === 0 ? "high" : "auto" });
+    });
+  }
   if (surface && surface !== "feed") {
     const previewSrc = sanitizeImageSource(String(images[0] || "").trim(), getImageFallbackDataUri("WINGA"));
     const previewAlt = escapeHtml(`${product?.name || product?.shop || "Product image"} 1`);
@@ -8842,15 +8849,15 @@ function renderFeedGalleryMarkup(product, surface = "feed") {
   const slides = images.map((src, index) => {
     const safeSrc = sanitizeImageSource(String(src || "").trim(), getImageFallbackDataUri("WINGA"));
     const safeAlt = escapeHtml(`${product?.name || product?.shop || "Product image"} ${index + 1}`);
-    const isFirstSlide = index === 0;
+    const isPrioritySlide = index < priorityLimit;
     return `
       <div class="feed-gallery-carousel-slide" data-feed-gallery-slide="${index}">
         <img
           class="feed-gallery-image feed-gallery-image-social"
           src="${safeSrc}"
           alt="${safeAlt}"
-          loading="${isFirstSlide ? "eager" : "lazy"}"
-          ${isFirstSlide ? 'fetchpriority="high"' : 'fetchpriority="auto"'}
+          loading="${isPrioritySlide ? "eager" : "lazy"}"
+          ${isPrioritySlide ? 'fetchpriority="high"' : 'fetchpriority="auto"'}
           decoding="async"
           draggable="false"
           data-marketplace-scroll-image="true"
