@@ -7462,7 +7462,11 @@ function loginSuccess(username, preferredCategory = "", sessionData = null, opti
     || preferredCategory
     || getUserPrimaryCategory(username)
     || "";
-  hydrateBuyerSellerAffinityState(username);
+  if (deferRender) {
+    window.setTimeout(() => hydrateBuyerSellerAffinityState(username), 120);
+  } else {
+    hydrateBuyerSellerAffinityState(username);
+  }
   const storedViewState = restoreView ? getStoredAppView() : null;
   const nextView = forceView && isRestorableView(forceView, currentSession)
     ? forceView
@@ -7547,7 +7551,7 @@ function loginSuccess(username, preferredCategory = "", sessionData = null, opti
       });
     };
     if (deferRender) {
-      window.setTimeout(hydrateRealtimeState, 0);
+      window.setTimeout(hydrateRealtimeState, 120);
     } else {
       hydrateRealtimeState();
     }

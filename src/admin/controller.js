@@ -1170,6 +1170,148 @@
       return result.status === "fulfilled" ? result.value : fallback;
     }
 
+    function nextFrame() {
+      return new Promise((resolve) => {
+        window.requestAnimationFrame(() => resolve());
+      });
+    }
+
+    async function appendItemsInChunks(container, items, createItem, chunkSize = 16) {
+      if (!container || !Array.isArray(items) || !items.length) {
+        return;
+      }
+      for (let index = 0; index < items.length; index += chunkSize) {
+        const fragment = document.createDocumentFragment();
+        items.slice(index, index + chunkSize).forEach((item) => {
+          fragment.appendChild(createItem(item));
+        });
+        container.appendChild(fragment);
+        if (index + chunkSize < items.length) {
+          await nextFrame();
+        }
+      }
+    }
+
+    async function createAdminBody(state) {
+      const wrapper = deps.createElement("div", { className: "moderation-list" });
+      wrapper.appendChild(createAdminToolbar(state));
+
+      if (deps.isAdminUser?.()) {
+        const deepLinkProducts = Array.isArray(state.pendingProducts) ? state.pendingProducts : [];
+        const deepLinkBody = deps.createElement("div", { className: "moderation-list" });
+        if (state.loadErrors.products) {
+          deepLinkBody.appendChild(createLoadIssueState("Deep link products hazikupatikana kwa sasa."));
+        } else if (!deepLinkProducts.length) {
+          deepLinkBody.appendChild(deps.createEmptyState("Hakuna bidhaa pending za deep link kwa sasa."));
+        } else {
+          await appendItemsInChunks(deepLinkBody, deepLinkProducts.slice(0, 12), (product) => createDeepLinkCard(product), 6);
+        }
+        wrapper.appendChild(createSection("Product Deep Links", "Copy stable /product/:id links kwa ads na sharing.", deepLinkBody));
+        await nextFrame();
+      }
+
+      const usersSectionBody = deps.createElement("div", { className: "admin-users-list" });
+      const actionableUsers = state.users.filter((user) => user.username !== "admin");
+      if (state.loadErrors.users) {
+        usersSectionBody.appendChild(createLoadIssueState("User moderation data haikupatikana kwa sasa."));
+      } else if (!actionableUsers.length) {
+        usersSectionBody.appendChild(deps.createEmptyState("Hakuna users wa ku-review kwa sasa."));
+      } else {
+        await appendItemsInChunks(usersSectionBody, actionableUsers, (user) => createUserCard(user), 12);
+      }
+      wrapper.appendChild(createSection("User Review & Access", "Verification, suspension, na moderation ya users.", usersSectionBody));
+      await nextFrame();
+
+      const pendingProductsBody = deps.createElement("div", { className: "moderation-list" });
+      if (state.loadErrors.products) {
+        pendingProductsBody.appendChild(createLoadIssueState("Pending products hazikupatikana kwa sasa."));
+      } else if (!state.pendingProducts.length) {
+        pendingProductsBody.appendChild(deps.createEmptyState("Hakuna bidhaa pending kwa sasa."));
+      } else {
+        await appendItemsInChunks(pendingProductsBody, state.pendingProducts, (product) => createProductCard(product), 10);
+      }
+      wrapper.appendChild(createSection("Pending Products", "Approve au reject catalog entries zinazongoja review.", pendingProductsBody));
+      await nextFrame();
+
+      const reportsBody = deps.createElement("div", { className: "moderation-list" });
+      if (state.loadErrors.reports) {
+        reportsBody.appendChild(createLoadIssueState("Reports hazikupatikana kwa sasa."));
+      } else if (!state.openReports.length) {
+        reportsBody.appendChild(deps.createEmptyState("Hakuna reports wazi kwa sasa."));
+      } else {
+        await appendItemsInChunks(reportsBody, state.openReports, (report) => createReportCard(report), 10);
+      }
+      wrapper.appendChild(createSection("Open Reports", "Chukua hatua kwenye reports za user au product.", reportsBody));
+      await nextFrame();
+
+      if (deps.isAdminUser?.()) {
+        const promotionsBody = deps.createElement("div", { className: "moderation-list" });
+        if (state.loadErrors.promotions) {
+          promotionsBody.appendChild(createLoadIssueState("Promotions data haikupatikana kwa sasa."));
+        } else if (!state.promotions.length) {
+          promotionsBody.appendChild(deps.createEmptyState("Hakuna promotions za kusimamia."));
+        } else {
+          await appendItemsInChunks(promotionsBody, state.promotions, (promotion) => createPromotionCard(promotion), 10);
+        }
+        wrapper.appendChild(createSection("Promotions", "Admin-only promotion controls.", promotionsBody));
+        await nextFrame();
+
+        wrapper.appendChild(state.loadErrors.orders
+          ? createSection("Recent Orders", "Mwonekano wa orders za marketplace.", createLoadIssueState("Orders data haikupatikana kwa sasa."))
+          : createSimpleListSection(
+            "Recent Orders",
+            "Mwonekano wa orders za marketplace.",
+            state.orders.slice(0, 6),
+            (order) => `${order.id} | ${order.buyerUsername || "-"} -> ${order.sellerUsername || "-"} | ${order.status || "-"}`
+          ));
+        await nextFrame();
+
+        wrapper.appendChild(state.loadErrors.payments
+          ? createSection("Recent Payments", "Mwonekano wa payments za marketplace.", createLoadIssueState("Payments data haikupatikana kwa sasa."))
+          : createSimpleListSection(
+            "Recent Payments",
+            "Mwonekano wa payments za marketplace.",
+            state.payments.slice(0, 6),
+            (payment) => `${payment.orderId || payment.id} | ${payment.paymentStatus || "-"} | ${payment.transactionReference || "-"}`
+          ));
+        await nextFrame();
+
+        wrapper.appendChild(state.loadErrors.moderationActions
+          ? createSection("Moderation Audit", "Actions za staff zilizorekodiwa hivi karibuni.", createLoadIssueState("Moderation audit haikupatikana kwa sasa."))
+          : createSimpleListSection(
+            "Moderation Audit",
+            "Actions za staff zilizorekodiwa hivi karibuni.",
+            state.moderationActions.slice(0, 8),
+            (action) => `${action.actionType || "action"} | ${action.targetUserId || action.targetProductId || "-"} | ${action.adminUsername || "-"}`
+          ));
+        await nextFrame();
+
+        if (state.loadErrors.opsSummary) {
+          wrapper.appendChild(createSection("Ops Signals", "Runtime diagnostics za admin.", createLoadIssueState("Ops summary haikupatikana kwa sasa.")));
+        } else if (state.opsSummary) {
+          wrapper.appendChild(createSimpleListSection(
+            "Ops Signals",
+            `Storage: ${state.opsSummary.storageMode || "-"} | Backups: ${state.opsSummary.backupStatus?.fileCount ?? 0} | Warnings: ${(state.opsSummary.configWarnings || []).length} | Auth failures: ${state.opsSummary.counts?.authFailures24h ?? 0} | Alerts: ${state.opsSummary.counts?.alertCandidates24h ?? 0} | Denied: ${state.opsSummary.counts?.deniedActions24h ?? 0}`,
+            [
+              ...(state.opsSummary.backupStatus?.note ? [{ type: "backup", value: `Backup: ${state.opsSummary.backupStatus.note}` }] : []),
+              ...((state.opsSummary.configWarnings || []).map((warning) => ({ type: "warning", value: warning }))),
+              ...((state.opsSummary.recentAlerts || []).slice(0, 4).map((entry) => ({
+                type: "alert",
+                value: `Alert ${entry.alertSeverity || "high"} | ${entry.event || "event"} | ${entry.message || entry.path || "-"}`
+              }))),
+              ...((state.opsSummary.recentFailures || []).slice(0, 6).map((entry) => ({
+                type: "failure",
+                value: `${entry.event || "event"} | ${entry.message || entry.path || "-"}`
+              })))
+            ],
+            (item) => item.value
+          ));
+        }
+      }
+
+      return wrapper;
+    }
+
     async function renderAdminView() {
       const panel = deps.getAdminPanel?.();
       if (!panel) {
@@ -1232,8 +1374,8 @@
         ? "Admin anaona muhtasari wa marketplace nzima."
         : "Moderator anaona muhtasari wa moderation.");
 
-        const state = {
-          users: Array.isArray(users) ? users : [],
+      const state = {
+        users: Array.isArray(users) ? users : [],
         pendingProducts: Array.isArray(pendingProducts) ? pendingProducts : [],
         openReports: Array.isArray(openReports) ? openReports : [],
         promotions: Array.isArray(promotions) ? promotions : [],
@@ -1252,11 +1394,11 @@
           payments: failedLoads.includes("payments"),
           moderationActions: failedLoads.includes("moderationActions"),
           opsSummary: failedLoads.includes("opsSummary")
-          }
-        };
-        latestUsers = state.users;
+        }
+      };
+      latestUsers = state.users;
 
-        const body = createAdminBody(state);
+      const body = await createAdminBody(state);
       panel.replaceChildren(body);
       bindAdminActions(panel);
     }
