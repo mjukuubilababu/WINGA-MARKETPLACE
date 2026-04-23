@@ -1,6 +1,7 @@
-const BUILD_VERSION = "20260423131805";
+const BUILD_VERSION = "20260423132801";
 const CACHE_PREFIX = "winga-shell";
 const CACHE_NAME = `${CACHE_PREFIX}-${BUILD_VERSION}`;
+const IMAGE_CACHE_NAME = "winga-images";
 const ROOT_URL = new URL("/", self.location.origin).toString();
 const INDEX_URL = new URL("/index.html", self.location.origin).toString();
 const OFFLINE_URL = new URL("/offline.html", self.location.origin).toString();
@@ -97,7 +98,7 @@ async function networkFirstNavigation(request) {
 }
 
 async function proxyImageRequest(request) {
-  const cache = await caches.open(CACHE_NAME);
+  const cache = await caches.open(IMAGE_CACHE_NAME);
   const cachedResponse = await cache.match(request);
   if (cachedResponse) {
     return cachedResponse;
@@ -138,7 +139,9 @@ self.addEventListener("install", (event) => {
 self.addEventListener("activate", (event) => {
   event.waitUntil((async () => {
     const keys = await caches.keys();
-    await Promise.all(keys.filter((key) => key.startsWith(CACHE_PREFIX) && key !== CACHE_NAME).map((key) => caches.delete(key)));
+    await Promise.all(keys
+      .filter((key) => key.startsWith(CACHE_PREFIX) && key !== CACHE_NAME)
+      .map((key) => caches.delete(key)));
     await self.clients.claim();
   })());
 });

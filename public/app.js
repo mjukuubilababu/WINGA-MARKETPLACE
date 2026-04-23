@@ -1492,6 +1492,22 @@ function preloadImageSource(src = "", options = {}) {
   return link;
 }
 
+async function warmImageSourceCache(src = "") {
+  const resolvedSrc = sanitizeImageSource(src, "");
+  if (!resolvedSrc || /^data:/i.test(resolvedSrc)) {
+    return false;
+  }
+  try {
+    const response = await fetch(resolvedSrc, {
+      cache: "no-store",
+      credentials: "same-origin"
+    });
+    return Boolean(response);
+  } catch (error) {
+    return false;
+  }
+}
+
 function isStandaloneDisplayMode() {
   return Boolean(
     (typeof window.matchMedia === "function" && window.matchMedia("(display-mode: standalone)").matches)
@@ -1542,6 +1558,9 @@ function warmProductImageCache(products = []) {
     const batch = queue.splice(0, batchSize);
     batch.forEach(({ src, fetchPriority }) => {
       preloadImageSource(src, { fetchPriority });
+      if (isStandalone) {
+        warmImageSourceCache(src).catch(() => {});
+      }
     });
     if (!queue.length) {
       return;
