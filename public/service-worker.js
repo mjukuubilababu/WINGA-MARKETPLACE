@@ -1,4 +1,4 @@
-const BUILD_VERSION = "20260423132801";
+const BUILD_VERSION = "20260423142143";
 const CACHE_PREFIX = "winga-shell";
 const CACHE_NAME = `${CACHE_PREFIX}-${BUILD_VERSION}`;
 const IMAGE_CACHE_NAME = "winga-images";
@@ -99,21 +99,29 @@ async function networkFirstNavigation(request) {
 
 async function proxyImageRequest(request) {
   const cache = await caches.open(IMAGE_CACHE_NAME);
-  const cachedResponse = await cache.match(request);
-  if (cachedResponse) {
-    return cachedResponse;
-  }
-
   const requestUrl = new URL(request.url);
   const remoteUrl = requestUrl.searchParams.get("u") || "";
   if (!remoteUrl) {
     return new Response("", { status: 404, statusText: "Missing image source" });
   }
 
-  try {
+  const refreshImage = async () => {
     const networkResponse = await fetch(remoteUrl, { mode: "no-cors" });
     if (networkResponse) {
       await cache.put(request, networkResponse.clone());
+      return networkResponse;
+    }
+    return null;
+  };
+
+  const cachedResponse = await cache.match(request);
+  if (cachedResponse) {
+    return cachedResponse;
+  }
+
+  try {
+    const networkResponse = await refreshImage();
+    if (networkResponse) {
       return networkResponse;
     }
   } catch (error) {
@@ -158,7 +166,15 @@ self.addEventListener("fetch", (event) => {
   }
 
   if (isImageProxyRequest(request)) {
-    event.respondWith(proxyImageRequest(request));
+    event.respondWith((async () => {
+      const cache = await caches.open(IMAGE_CACHE_NAME);
+      const cachedResponse = await cache.match(request);
+      if (cachedResponse) {
+        event.waitUntil(proxyImageRequest(request).catch(() => {}));
+        return cachedResponse;
+      }
+      return proxyImageRequest(request);
+    })());
     return;
   }
 
