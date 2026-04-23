@@ -4,6 +4,7 @@ const CACHE_NAME = `${CACHE_PREFIX}-${BUILD_VERSION}`;
 const ROOT_URL = new URL("/", self.location.origin).toString();
 const INDEX_URL = new URL("/index.html", self.location.origin).toString();
 const OFFLINE_URL = new URL("/offline.html", self.location.origin).toString();
+const IMAGE_PROXY_PREFIX = "/__winga-image__";
 const PRECACHE_URLS = [
   ROOT_URL,
   INDEX_URL,
@@ -31,6 +32,15 @@ function isSameOrigin(request) {
 
 function isNavigationRequest(request) {
   return request.mode === "navigate" || String(request.headers.get("accept") || "").includes("text/html");
+}
+
+function isImageProxyRequest(request) {
+  try {
+    const url = new URL(request.url);
+    return url.origin === self.location.origin && url.pathname === IMAGE_PROXY_PREFIX;
+  } catch (error) {
+    return false;
+  }
 }
 
 function isCacheableAsset(request) {
@@ -86,6 +96,37 @@ async function networkFirstNavigation(request) {
   }
 }
 
+async function proxyImageRequest(request) {
+  const cache = await caches.open(CACHE_NAME);
+  const cachedResponse = await cache.match(request);
+  if (cachedResponse) {
+    return cachedResponse;
+  }
+
+  const requestUrl = new URL(request.url);
+  const remoteUrl = requestUrl.searchParams.get("u") || "";
+  if (!remoteUrl) {
+    return new Response("", { status: 404, statusText: "Missing image source" });
+  }
+
+  try {
+    const networkResponse = await fetch(remoteUrl, { mode: "no-cors" });
+    if (networkResponse) {
+      await cache.put(request, networkResponse.clone());
+      return networkResponse;
+    }
+  } catch (error) {
+    // Fall through to cached fallback below.
+  }
+
+  const fallbackResponse = await cache.match(request)
+    || await cache.match(OFFLINE_URL);
+  if (fallbackResponse) {
+    return fallbackResponse;
+  }
+  return new Response("", { status: 503, statusText: "Image unavailable" });
+}
+
 self.addEventListener("install", (event) => {
   event.waitUntil((async () => {
     const cache = await caches.open(CACHE_NAME);
@@ -110,6 +151,11 @@ self.addEventListener("fetch", (event) => {
 
   if (isNavigationRequest(request)) {
     event.respondWith(networkFirstNavigation(request));
+    return;
+  }
+
+  if (isImageProxyRequest(request)) {
+    event.respondWith(proxyImageRequest(request));
     return;
   }
 
