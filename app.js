@@ -12,6 +12,7 @@ const HOME_SCROLL_STATE_KEY = "winga-home-scroll-state";
 const HOME_FEED_REFRESH_CURSOR_KEY = "winga-home-feed-refresh-cursor";
 const APP_UPDATE_BANNER_DISMISS_KEY = "winga-app-update-banner-dismissed-version";
 const APP_CHAT_DRAFT_KEY_PREFIX = "winga-chat-draft";
+const APP_INSTALL_STATE_KEY = "winga-pwa-install-state";
 const NOTIFICATION_PERMISSION_STATE_KEY = "winga-notification-permission-state";
 const NOTIFICATION_PERMISSION_PROMPT_COOLDOWN_MS = 12 * 60 * 60 * 1000;
 const NOTIFICATION_PERMISSION_TRIGGERS = new Set(["message", "reply", "request", "order", "profile"]);
@@ -1768,6 +1769,7 @@ function refreshPublicEntryChrome() {
       : "");
     topBarSubtitle.style.display = isGuest || isSessionRestoreUi ? "" : "none";
   }
+  syncInstallChrome();
   updateMarketplaceActionChrome();
   renderHeaderUserMenu();
 }
@@ -1986,6 +1988,7 @@ function getHeaderMenuItems() {
   const unreadMessages = getTotalUnreadMessages();
   const unreadNotifications = getUnreadNotifications().length;
   const items = [
+    ...(isStandaloneDisplayMode() ? [] : [{ action: "install", label: getPwaInstallButtonLabel() }]),
     { action: "profile", label: "Profile" },
     { action: "orders", label: isBuyerUser() ? "My Orders" : "Orders" },
     { action: "messages", label: `Messages${unreadMessages ? ` (${Math.min(unreadMessages, 99)}${unreadMessages > 99 ? "+" : ""})` : ""}` }
@@ -2671,6 +2674,178 @@ function ensureNotificationToastRoot() {
     document.body.appendChild(root);
   }
   return root;
+}
+
+function isStandaloneDisplayMode() {
+  try {
+    return window.matchMedia?.("(display-mode: standalone)")?.matches
+      || window.matchMedia?.("(display-mode: fullscreen)")?.matches
+      || window.navigator?.standalone === true;
+  } catch (error) {
+    return false;
+  }
+}
+
+function isPwaInstallPromotable() {
+  return !isStandaloneDisplayMode() && Boolean(appInstallState.deferredPrompt);
+}
+
+function getPwaInstallButtonLabel() {
+  if (isStandaloneDisplayMode()) {
+    return "Open app";
+  }
+  if (appInstallState.deferredPrompt) {
+    return "Install app";
+  }
+  return "Install app";
+}
+
+function getPwaInstallHelpCopy() {
+  if (isStandaloneDisplayMode()) {
+    return "Winga is already installed on this device.";
+  }
+  return "If the browser prompt is not shown yet, open browser menu and choose Install app or Add to home screen.";
+}
+
+function ensurePwaInstallButton(buttonId, className = "public-header-btn public-header-btn-primary") {
+  let button = document.getElementById(buttonId);
+  if (!button) {
+    button = document.createElement("button");
+    button.id = buttonId;
+    button.type = "button";
+    button.className = className;
+  }
+  return button;
+}
+
+function ensureInstallChrome() {
+  if (publicHeaderActions) {
+    headerInstallButton = ensurePwaInstallButton("header-install-button");
+    if (!headerInstallButton.isConnected) {
+      publicHeaderActions.appendChild(headerInstallButton);
+    }
+  }
+
+  if (authContainer) {
+    let authPromo = document.getElementById("auth-install-promo");
+    if (!authPromo) {
+      authPromo = createElement("div", {
+        attributes: { id: "auth-install-promo" },
+        className: "auth-install-promo"
+      });
+      authPromo.append(
+        createElement("p", {
+          className: "auth-install-title",
+          textContent: "Install Winga on your device"
+        }),
+        createElement("p", {
+          className: "auth-install-copy",
+          textContent: "Get faster access, smoother browsing, and a home-screen shortcut."
+        })
+      );
+      authInstallButton = ensurePwaInstallButton("auth-install-button", "public-header-btn public-header-btn-primary");
+      authPromo.appendChild(authInstallButton);
+      const toggleLink = document.getElementById("toggle-link");
+      if (toggleLink?.parentElement === authContainer) {
+        toggleLink.insertAdjacentElement("afterend", authPromo);
+      } else {
+        authContainer.appendChild(authPromo);
+      }
+    }
+  }
+}
+
+function syncInstallChrome() {
+  ensureInstallChrome();
+
+  const installed = isStandaloneDisplayMode() || appInstallState.installed;
+  if (headerInstallButton) {
+    headerInstallButton.hidden = installed;
+    headerInstallButton.textContent = getPwaInstallButtonLabel();
+  }
+  if (authInstallButton) {
+    authInstallButton.hidden = installed;
+    authInstallButton.textContent = getPwaInstallButtonLabel();
+  }
+
+  const authPromo = document.getElementById("auth-install-promo");
+  if (authPromo) {
+    authPromo.hidden = installed;
+  }
+
+  appInstallState.menuHintVisible = !installed;
+}
+
+async function promptAppInstall(source = "header") {
+  if (isStandaloneDisplayMode()) {
+    showInAppNotification({
+      title: "Winga already installed",
+      body: "App iko tayari kufunguka kama app kwenye kifaa hiki.",
+      variant: "info"
+    });
+    return true;
+  }
+
+  if (appInstallState.deferredPrompt) {
+    const promptEvent = appInstallState.deferredPrompt;
+    appInstallState.deferredPrompt = null;
+    syncInstallChrome();
+    try {
+      promptEvent.prompt();
+      const choiceResult = await promptEvent.userChoice;
+      if (choiceResult?.outcome === "accepted") {
+        showInAppNotification({
+          title: "Installing Winga",
+          body: "Browser inaandaa app yako.",
+          variant: "success"
+        });
+        return true;
+      }
+    } catch (error) {
+      captureClientError("pwa_install_prompt_failed", error, {
+        source
+      });
+    }
+  }
+
+  showInAppNotification({
+    title: "Install Winga",
+    body: getPwaInstallHelpCopy(),
+    variant: "info"
+  });
+  return false;
+}
+
+function initializePwaInstallExperience() {
+  if (appInstallState.initialized) {
+    return;
+  }
+  appInstallState.initialized = true;
+  appInstallState.installed = isStandaloneDisplayMode();
+
+  window.addEventListener("beforeinstallprompt", (event) => {
+    event.preventDefault();
+    appInstallState.deferredPrompt = event;
+    syncInstallChrome();
+  });
+
+  window.addEventListener("appinstalled", () => {
+    appInstallState.deferredPrompt = null;
+    appInstallState.installed = true;
+    syncInstallChrome();
+    showInAppNotification({
+      title: "Winga installed",
+      body: "App iko tayari kutumia kwenye device hii.",
+      variant: "success"
+    });
+  });
+
+  window.matchMedia?.("(display-mode: standalone)")?.addEventListener?.("change", () => {
+    appInstallState.installed = isStandaloneDisplayMode();
+    syncInstallChrome();
+  });
+
+  syncInstallChrome();
 }
 
 function ensureAppUpdateBannerRoot() {
@@ -4918,12 +5093,15 @@ const {
 } = window.WingaModules.navigation.createNavigationControllerModule({
   getHeaderLoginButton: () => headerLoginButton,
   getHeaderSignupButton: () => headerSignupButton,
+  getHeaderInstallButton: () => headerInstallButton,
   getHeaderUserTrigger: () => headerUserTrigger,
   getHeaderUserDropdown: () => headerUserDropdown,
   getAuthGateLoginButton: () => authGateLoginButton,
   getAuthGateSignupButton: () => authGateSignupButton,
   getAuthCloseButton: () => authCloseButton,
   getAuthContainer: () => authContainer,
+  getAuthInstallButton: () => authInstallButton,
+  getPublicHeaderActions: () => publicHeaderActions,
   getPublicAuthButtons: () => document.querySelectorAll("[data-public-auth]"),
   getPublicLinkButtons: () => document.querySelectorAll("[data-public-link]"),
   getNavItems: () => navItems,
@@ -4940,6 +5118,7 @@ const {
   setCurrentViewState,
   renderCurrentView,
   logout,
+  promptAppInstall,
   getAuthGateTitle: () => authGateTitle?.innerText || "",
   getAuthGateMessage: () => authGateCopy?.innerText || "",
   canAccessView,
@@ -5493,6 +5672,8 @@ const headerUserName = document.getElementById("header-user-name");
 const headerUserDropdown = document.getElementById("header-user-dropdown");
 const headerLoginButton = document.getElementById("header-login-button");
 const headerSignupButton = document.getElementById("header-signup-button");
+let headerInstallButton = document.getElementById("header-install-button");
+let authInstallButton = document.getElementById("auth-install-button");
 const publicFooter = document.getElementById("public-footer");
 const heroPanel = document.getElementById("hero-panel");
 const marketShowcase = document.getElementById("market-showcase");
@@ -5572,6 +5753,13 @@ const appUpdateBannerState = {
   visibleVersion: "",
   waitingToReload: false,
   controllerChangeBound: false
+};
+
+const appInstallState = {
+  deferredPrompt: null,
+  installed: false,
+  initialized: false,
+  menuHintVisible: false
 };
 function createDefaultNotificationPermissionState() {
   return {
@@ -10805,6 +10993,7 @@ async function bootApp() {
   authContainer.style.display = "none";
   document.body.classList.remove("auth-modal-open");
   appContainer.style.display = "block";
+  initializePwaInstallExperience();
   refreshPublicEntryChrome();
   homeFeedRefreshCursor = initializeHomeFeedRefreshCursor();
   suppressInitialProductHomeRender = Boolean(getDeepLinkedProductIdFromRoute());

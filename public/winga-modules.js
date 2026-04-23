@@ -1489,6 +1489,11 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
           deps.openProfileSection("profile-notifications-panel");
           return;
         }
+        if (action === "install") {
+          deps.toggleHeaderUserMenu(false);
+          deps.promptAppInstall?.("header-menu");
+          return;
+        }
         if (action === "admin" && deps.isStaffUser()) {
           deps.toggleHeaderUserMenu(false);
           deps.setCurrentViewState("admin", { syncHistory: "push" });
@@ -1499,6 +1504,15 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
           deps.toggleHeaderUserMenu(false);
           deps.logout();
         }
+      });
+
+      deps.getPublicHeaderActions?.()?.addEventListener("click", async (event) => {
+        const installButton = event.target.closest("#header-install-button");
+        if (!installButton) {
+          return;
+        }
+        event.preventDefault();
+        await deps.promptAppInstall?.("public-header");
       });
     }
 
@@ -1521,11 +1535,26 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         });
       });
 
+      deps.getHeaderInstallButton?.()?.addEventListener("click", async (event) => {
+        event.preventDefault();
+        await deps.promptAppInstall?.("header-button");
+      });
+
+      deps.getAuthInstallButton?.()?.addEventListener("click", async (event) => {
+        event.preventDefault();
+        await deps.promptAppInstall?.("auth-button");
+      });
+
       deps.getAuthCloseButton?.()?.addEventListener("click", () => {
         deps.closeAuthModal();
       });
 
       deps.getAuthContainer?.()?.addEventListener("click", (event) => {
+        if (event.target.closest("#auth-install-button")) {
+          event.preventDefault();
+          deps.promptAppInstall?.("auth-container");
+          return;
+        }
         if (event.target === deps.getAuthContainer?.()) {
           deps.closeAuthModal();
         }

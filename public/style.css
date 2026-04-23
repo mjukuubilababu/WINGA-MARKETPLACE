@@ -790,6 +790,34 @@ body.auth-modal-open::before{
   box-shadow:0 12px 22px rgba(255, 106, 0, 0.18);
 }
 
+.auth-install-promo{
+  display:grid;
+  gap:8px;
+  margin-top:14px;
+  padding:14px 16px;
+  border:1px dashed rgba(31,96,183,0.24);
+  border-radius:18px;
+  background:linear-gradient(180deg, rgba(245,248,255,0.92), rgba(255,255,255,0.96));
+}
+
+.auth-install-title{
+  margin:0;
+  color:var(--text-main);
+  font-size:0.98rem;
+  font-weight:800;
+}
+
+.auth-install-copy{
+  margin:0;
+  color:var(--text-muted);
+  font-size:0.9rem;
+  line-height:1.5;
+}
+
+#auth-install-button{
+  width:100%;
+}
+
 #header-brand{
   display:flex;
   flex-direction:column;
