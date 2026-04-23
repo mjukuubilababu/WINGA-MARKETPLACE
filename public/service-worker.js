@@ -1,4 +1,4 @@
-const BUILD_VERSION = "20260423104858";
+const BUILD_VERSION = "20260423110458";
 const CACHE_PREFIX = "winga-shell";
 const CACHE_NAME = `${CACHE_PREFIX}-${BUILD_VERSION}`;
 const PRECACHE_URLS = [
@@ -14,7 +14,8 @@ const PRECACHE_URLS = [
   "/mock-data.js",
   "/winga-config.js",
   "/share-og.svg",
-  "/winga-icon.svg"
+  "/winga-icon.svg",
+  "/winga-maskable-icon.svg"
 ].map((assetPath) => new URL(assetPath, self.location.origin).toString());
 
 function isSameOrigin(request) {

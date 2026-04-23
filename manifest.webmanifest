@@ -11,10 +11,16 @@
   "orientation": "portrait",
   "icons": [
     {
+      "src": "/winga-maskable-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable any"
+    },
+    {
       "src": "/winga-icon.svg",
       "sizes": "any",
       "type": "image/svg+xml",
-      "purpose": "any maskable"
+      "purpose": "any"
     }
   ]
 }

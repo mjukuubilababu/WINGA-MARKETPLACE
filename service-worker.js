@@ -14,7 +14,8 @@ const PRECACHE_URLS = [
   "/mock-data.js",
   "/winga-config.js",
   "/share-og.svg",
-  "/winga-icon.svg"
+  "/winga-icon.svg",
+  "/winga-maskable-icon.svg"
 ].map((assetPath) => new URL(assetPath, self.location.origin).toString());
 
 function isSameOrigin(request) {
