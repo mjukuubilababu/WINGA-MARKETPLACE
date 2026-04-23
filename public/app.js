@@ -1492,6 +1492,70 @@ function preloadImageSource(src = "", options = {}) {
   return link;
 }
 
+function isStandaloneDisplayMode() {
+  return Boolean(
+    (typeof window.matchMedia === "function" && window.matchMedia("(display-mode: standalone)").matches)
+    || window.navigator?.standalone === true
+  );
+}
+
+function warmProductImageCache(products = []) {
+  if (typeof preloadImageSource !== "function" || !Array.isArray(products) || !products.length) {
+    return;
+  }
+
+  const isStandalone = isStandaloneDisplayMode();
+  const productLimit = isStandalone ? 24 : 12;
+  const imageLimitPerProduct = isStandalone ? 3 : 2;
+  const seen = new Set();
+  const queue = [];
+
+  const enqueue = (src, fetchPriority = "auto") => {
+    const safeSrc = sanitizeImageSource(src, "");
+    if (!safeSrc || /^data:/i.test(safeSrc) || seen.has(safeSrc)) {
+      return;
+    }
+    seen.add(safeSrc);
+    queue.push({ src: safeSrc, fetchPriority });
+  };
+
+  products.slice(0, productLimit).forEach((product, index) => {
+    if (!product || typeof product !== "object") {
+      return;
+    }
+    if (typeof product.image === "string") {
+      enqueue(product.image, index === 0 ? "high" : "auto");
+    }
+    if (Array.isArray(product.images) && product.images.length) {
+      product.images.slice(0, imageLimitPerProduct).forEach((imageSrc) => {
+        enqueue(imageSrc, index === 0 ? "high" : "auto");
+      });
+    }
+  });
+
+  if (!queue.length) {
+    return;
+  }
+
+  const batchSize = isStandalone ? 8 : 6;
+  const drainQueue = () => {
+    const batch = queue.splice(0, batchSize);
+    batch.forEach(({ src, fetchPriority }) => {
+      preloadImageSource(src, { fetchPriority });
+    });
+    if (!queue.length) {
+      return;
+    }
+    if (typeof window.requestIdleCallback === "function") {
+      window.requestIdleCallback(drainQueue, { timeout: isStandalone ? 1000 : 750 });
+      return;
+    }
+    window.setTimeout(drainQueue, isStandalone ? 160 : 240);
+  };
+
+  drainQueue();
+}
+
 function getCategoryLabel(category) {
   const subcategoryMatch = availableCategories.find((item) => item.value === category);
   if (subcategoryMatch) {
@@ -7714,6 +7778,7 @@ function logout() {
 
 window.addEventListener("winga:products-hydrated", () => {
   refreshProductsFromStore();
+  warmProductImageCache(window.WingaDataLayer?.getProducts?.() || []);
   const canRenderWhileWaitingForDeepLink = !suppressInitialProductHomeRender || document.body.classList.contains("product-detail-open");
   if (canRenderWhileWaitingForDeepLink && currentView !== "profile") {
     renderCurrentView();
