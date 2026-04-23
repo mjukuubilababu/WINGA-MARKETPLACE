@@ -10,6 +10,7 @@ const APP_SERVICE_WORKER_PATH = "/service-worker.js";
 const APP_STORAGE_SCHEMA_KEY = "winga-storage-schema-version";
 const HOME_SCROLL_STATE_KEY = "winga-home-scroll-state";
 const HOME_FEED_REFRESH_CURSOR_KEY = "winga-home-feed-refresh-cursor";
+const APP_UPDATE_BANNER_DISMISS_KEY = "winga-app-update-banner-dismissed-version";
 const NOTIFICATION_PERMISSION_STATE_KEY = "winga-notification-permission-state";
 const NOTIFICATION_PERMISSION_PROMPT_COOLDOWN_MS = 12 * 60 * 60 * 1000;
 const NOTIFICATION_PERMISSION_TRIGGERS = new Set(["message", "reply", "request", "order", "profile"]);
@@ -366,6 +367,7 @@ async function registerAppServiceWorker() {
       scope: "/",
       updateViaCache: "none"
     });
+    bindAppUpdateLifecycle(registration);
     if (registration?.update) {
       try {
         await registration.update();
@@ -2631,6 +2633,159 @@ function ensureNotificationToastRoot() {
     document.body.appendChild(root);
   }
   return root;
+}
+
+function ensureAppUpdateBannerRoot() {
+  let root = document.getElementById("app-update-banner-root");
+  if (!root) {
+    root = document.createElement("div");
+    root.id = "app-update-banner-root";
+    document.body.appendChild(root);
+  }
+  return root;
+}
+
+function getDismissedUpdateBannerVersion() {
+  try {
+    return String(window.localStorage.getItem(APP_UPDATE_BANNER_DISMISS_KEY) || "").trim();
+  } catch (error) {
+    return "";
+  }
+}
+
+function saveDismissedUpdateBannerVersion(version = "") {
+  try {
+    if (!version) {
+      window.localStorage.removeItem(APP_UPDATE_BANNER_DISMISS_KEY);
+      return;
+    }
+    window.localStorage.setItem(APP_UPDATE_BANNER_DISMISS_KEY, version);
+  } catch (error) {
+    // Ignore update banner persistence failures.
+  }
+}
+
+function clearAppUpdateBanner() {
+  const root = document.getElementById("app-update-banner-root");
+  if (root) {
+    root.replaceChildren();
+  }
+  appUpdateBannerState.visibleVersion = "";
+}
+
+function showAppUpdateBanner(registration, version = APP_BOOT_BUILD_VERSION || "") {
+  if (!registration || !navigator.serviceWorker?.controller) {
+    return;
+  }
+
+  const safeVersion = String(version || APP_BOOT_BUILD_VERSION || "").trim();
+  if (!safeVersion) {
+    return;
+  }
+
+  if (getDismissedUpdateBannerVersion() === safeVersion) {
+    return;
+  }
+
+  const root = ensureAppUpdateBannerRoot();
+  root.replaceChildren();
+
+  const banner = document.createElement("div");
+  banner.className = "app-update-banner";
+  banner.setAttribute("role", "status");
+  banner.setAttribute("aria-live", "polite");
+  banner.innerHTML = `
+    <div class="app-update-banner-copy">
+      <p class="app-update-banner-eyebrow">App update ready</p>
+      <strong>Toleo jipya la Winga lipo tayari.</strong>
+      <p>Bonyeza Reload ili upate maboresho ya sasa bila kuvunja session yako.</p>
+    </div>
+    <div class="app-update-banner-actions">
+      <button type="button" class="action-btn button-primary" data-app-update-reload="true">Reload now</button>
+      <button type="button" class="action-btn button-secondary" data-app-update-later="true">Later</button>
+    </div>
+  `;
+  root.appendChild(banner);
+  appUpdateBannerState.visibleVersion = safeVersion;
+
+  const triggerReload = () => {
+    appUpdateBannerState.waitingToReload = true;
+    saveDismissedUpdateBannerVersion("");
+    try {
+      if (registration.waiting) {
+        registration.waiting.postMessage({ type: "SKIP_WAITING" });
+      } else if (registration.installing?.state === "installed") {
+        registration.update().catch(() => {});
+      } else {
+        window.location.reload();
+      }
+    } catch (error) {
+      window.location.reload();
+    }
+  };
+
+  banner.querySelector("[data-app-update-reload]")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    triggerReload();
+  });
+
+  banner.querySelector("[data-app-update-later]")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    saveDismissedUpdateBannerVersion(safeVersion);
+    clearAppUpdateBanner();
+    showInAppNotification({
+      type: "info",
+      title: "Umeendelea na version ya sasa",
+      body: "Unaweza ku-reload baadaye ili upate update mpya.",
+      variant: "info",
+      durationMs: 2800
+    });
+  });
+}
+
+function bindAppUpdateLifecycle(registration) {
+  if (!registration) {
+    return;
+  }
+
+  appUpdateBannerState.registration = registration;
+
+  if (!appUpdateBannerState.controllerChangeBound && "serviceWorker" in navigator) {
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (!appUpdateBannerState.waitingToReload) {
+        return;
+      }
+      appUpdateBannerState.waitingToReload = false;
+      clearAppUpdateBanner();
+      window.location.reload();
+    });
+    appUpdateBannerState.controllerChangeBound = true;
+  }
+
+  const maybeShowWaitingBanner = () => {
+    if (!registration.waiting || !navigator.serviceWorker.controller) {
+      return;
+    }
+    showAppUpdateBanner(registration);
+  };
+
+  if (registration.waiting) {
+    maybeShowWaitingBanner();
+  }
+
+  registration.addEventListener("updatefound", () => {
+    const installingWorker = registration.installing;
+    if (!installingWorker) {
+      return;
+    }
+    installingWorker.addEventListener("statechange", () => {
+      if (installingWorker.state === "installed" && navigator.serviceWorker.controller) {
+        maybeShowWaitingBanner();
+      }
+    });
+  });
 }
 
 function getSavedProductsStorageKey() {
@@ -5369,6 +5524,13 @@ let realtimeChannel = null;
 const notificationFeedbackState = {
   recentKeys: new Map(),
   lastVibrationAt: 0
+};
+
+const appUpdateBannerState = {
+  registration: null,
+  visibleVersion: "",
+  waitingToReload: false,
+  controllerChangeBound: false
 };
 function createDefaultNotificationPermissionState() {
   return {

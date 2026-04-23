@@ -1,4 +1,4 @@
-const BUILD_VERSION = "20260423142143";
+const BUILD_VERSION = "20260423145710";
 const CACHE_PREFIX = "winga-shell";
 const CACHE_NAME = `${CACHE_PREFIX}-${BUILD_VERSION}`;
 const IMAGE_CACHE_NAME = "winga-images";
@@ -152,6 +152,13 @@ self.addEventListener("activate", (event) => {
       .map((key) => caches.delete(key)));
     await self.clients.claim();
   })());
+});
+
+self.addEventListener("message", (event) => {
+  const messageType = event.data?.type;
+  if (messageType === "SKIP_WAITING") {
+    self.skipWaiting();
+  }
 });
 
 self.addEventListener("fetch", (event) => {
