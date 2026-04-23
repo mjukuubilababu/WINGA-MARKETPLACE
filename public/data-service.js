@@ -2774,6 +2774,9 @@
     getProducts() {
       return clone(state.products);
     },
+    getCachedProducts() {
+      return clone(readStoredJson(PRODUCTS_KEY, []));
+    },
     getActiveProvider() {
       ensureAdapter();
       return state.activeProvider || "";

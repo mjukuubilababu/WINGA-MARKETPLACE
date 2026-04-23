@@ -90,7 +90,10 @@ function getProducts() {
 
 function normalizeProductsFromStore() {
   const storedProducts = getProducts();
-  return (Array.isArray(storedProducts) ? storedProducts : []).map(normalizeProduct);
+  const cachedProducts = Array.isArray(storedProducts) && storedProducts.length
+    ? storedProducts
+    : (window.WingaDataLayer?.getCachedProducts?.() || []);
+  return (Array.isArray(cachedProducts) ? cachedProducts : []).map(normalizeProduct);
 }
 
 function rebuildProductIndex() {
@@ -10644,6 +10647,7 @@ async function bootApp() {
   const rememberedSessionPromise = window.WingaDataLayer.restoreSession();
 
   refreshProductsFromStore();
+  warmProductImageCache(products);
   if (products.length === 0) {
     products = DEFAULT_PRODUCTS.map(normalizeProduct);
     rebuildProductIndex();
