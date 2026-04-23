@@ -27,11 +27,13 @@ const PAYMENT_WEBHOOK_SECRET = String(process.env.PAYMENT_WEBHOOK_SECRET || "").
 const ALLOW_UNVERIFIED_MANUAL_PAYMENTS = String(process.env.ALLOW_UNVERIFIED_MANUAL_PAYMENTS || "").toLowerCase() === "true";
 const HASH_PREFIX = "scrypt";
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const ADMIN_SEED_USERNAME = String(process.env.ADMIN_SEED_USERNAME || "admin").trim();
+const ADMIN_SEED_FULL_NAME = String(process.env.ADMIN_SEED_FULL_NAME || "WILHARD MMBANDO").trim();
 const ADMIN_SEED_PASSWORD = process.env.ADMIN_SEED_PASSWORD || "";
 const MODERATOR_SEED_PASSWORD = process.env.MODERATOR_SEED_PASSWORD || "";
 const ADMIN_SEED = {
-  username: "admin",
-  fullName: "WILHARD MMBANDO",
+  username: ADMIN_SEED_USERNAME || "admin",
+  fullName: ADMIN_SEED_FULL_NAME || "WILHARD MMBANDO",
   password: ADMIN_SEED_PASSWORD || "Admin1234",
   phoneNumber: "255700000000",
   nationalId: "ADMIN001",
@@ -351,6 +353,13 @@ function normalizeIdentifier(value, maxLength = 40) {
   return sanitizePlainText(value, maxLength).toLowerCase();
 }
 
+function getAdminSeedIdentity() {
+  return {
+    username: normalizeIdentifier(ADMIN_SEED_USERNAME || "admin", 40) || "admin",
+    fullName: sanitizePlainText(ADMIN_SEED_FULL_NAME || ADMIN_SEED.fullName || "WILHARD MMBANDO", 120) || "WILHARD MMBANDO"
+  };
+}
+
 function normalizeOptionalPrice(value) {
   if (value == null) {
     return null;
@@ -426,7 +435,7 @@ function mergeCategories(...categoryLists) {
 function readLegacyStore() {
   ensureLocalArtifacts();
   const parsed = JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
-  const users = Array.isArray(parsed.users) ? parsed.users.map(normalizeUserRecord) : [];
+  const users = syncConfiguredAdminIdentity(Array.isArray(parsed.users) ? parsed.users.map(normalizeUserRecord) : []);
   getSeedUsersForEnvironment().forEach((seedUser) => {
     if (!users.find((user) => user.username === seedUser.username)) {
       users.unshift({
@@ -467,6 +476,30 @@ function readLegacyStore() {
       };
     })
   };
+}
+
+function syncConfiguredAdminIdentity(users = []) {
+  const adminIdentity = getAdminSeedIdentity();
+  const normalizedUsers = Array.isArray(users) ? [...users] : [];
+  const adminIndex = normalizedUsers.findIndex((user) => {
+    const normalizedUsername = normalizeIdentifier(user?.username || "", 40);
+    const normalizedFullName = normalizeIdentifier(user?.fullName || "", 120);
+    return user?.role === "admin"
+      || normalizedUsername === adminIdentity.username
+      || normalizedFullName === normalizeIdentifier(ADMIN_SEED_FULL_NAME || "", 120)
+      || normalizedUsername === "admin";
+  });
+
+  if (adminIndex >= 0) {
+    normalizedUsers[adminIndex] = normalizeUserRecord({
+      ...normalizedUsers[adminIndex],
+      username: adminIdentity.username,
+      fullName: adminIdentity.fullName,
+      role: "admin"
+    });
+  }
+
+  return normalizedUsers;
 }
 
 function writeLegacyStore(store) {
@@ -1089,9 +1122,10 @@ function isValidPaymentStatus(status) {
 }
 
 function normalizeUserRecord(user) {
+  const adminIdentity = getAdminSeedIdentity();
   const username = normalizeIdentifier(user.username, 40);
-  const fullName = username === "admin"
-    ? sanitizePlainText(user.fullName || user.displayName || ADMIN_SEED.fullName || user.username, 120)
+  const fullName = username === adminIdentity.username
+    ? sanitizePlainText(user.fullName || user.displayName || adminIdentity.fullName || user.username, 120)
     : sanitizePlainText(user.fullName || user.displayName || user.username, 120);
   const phoneNumber = String(user.phoneNumber || "").replace(/\D/g, "").slice(0, 20);
   const whatsappNumber = String(user.whatsappNumber || phoneNumber || "").replace(/\D/g, "").slice(0, 20);
@@ -1110,7 +1144,7 @@ function normalizeUserRecord(user) {
     nationalId: sanitizePlainText(user.nationalId, 40).toUpperCase(),
     identityDocumentNumber: sanitizePlainText(user.identityDocumentNumber || user.nationalId, 40).toUpperCase(),
     primaryCategory: sanitizePlainText(user.primaryCategory, 60).toLowerCase(),
-    role: isValidRole(user.role) ? user.role : (username === "admin" ? "admin" : "seller"),
+    role: isValidRole(user.role) ? user.role : (username === adminIdentity.username ? "admin" : "seller"),
     status: isValidUserStatus(user.status) ? user.status : "active",
     moderationReason: sanitizePlainText(user.moderationReason, 120),
     moderationNote: sanitizePlainText(user.moderationNote, 300),
@@ -1729,7 +1763,7 @@ function cleanupUnusedLocalImages(previousProduct, nextProduct, allProducts) {
 }
 
 function migrateLegacyStore(store) {
-  const normalizedUsers = (store.users || []).map(normalizeUserRecord);
+  const normalizedUsers = syncConfiguredAdminIdentity((store.users || []).map(normalizeUserRecord));
   getSeedUsersForEnvironment().forEach((seedUser) => {
     if (!normalizedUsers.some((user) => user.username === seedUser.username)) {
       normalizedUsers.unshift({
@@ -1990,10 +2024,11 @@ function validatePasswordRecoveryPayload(payload) {
 function findUserIndexByPublicIdentifier(users, rawIdentifier) {
   const normalizedIdentifier = normalizeIdentifier(rawIdentifier, 120);
   const normalizedPhone = String(rawIdentifier || "").replace(/\D/g, "").slice(0, 20);
+  const adminIdentity = getAdminSeedIdentity();
   return (users || []).findIndex((item) =>
     normalizeIdentifier(item.username, 120) === normalizedIdentifier
     || normalizeIdentifier(item.fullName || "", 120) === normalizedIdentifier
-    || (normalizeIdentifier(item.username, 120) === "admin" && normalizedIdentifier === normalizeIdentifier(ADMIN_SEED.fullName, 120))
+    || (normalizeIdentifier(item.username, 120) === adminIdentity.username && normalizedIdentifier === normalizeIdentifier(adminIdentity.fullName, 120))
     || String(item.phoneNumber || "") === normalizedPhone
   );
 }
@@ -3268,7 +3303,7 @@ http.createServer(async (req, res) => {
         return;
       }
 
-      if (targetUsername === "admin") {
+      if (targetUsername === getAdminSeedIdentity().username) {
         sendJson(res, 400, { error: "Admin mkuu hawezi kubadilishwa status hapa." });
         return;
       }
