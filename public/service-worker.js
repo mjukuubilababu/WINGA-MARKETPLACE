@@ -1,4 +1,4 @@
-const BUILD_VERSION = "20260423163846";
+const BUILD_VERSION = "20260423172029";
 const CACHE_PREFIX = "winga-shell";
 const CACHE_NAME = `${CACHE_PREFIX}-${BUILD_VERSION}`;
 const IMAGE_CACHE_NAME = "winga-images";
@@ -19,6 +19,10 @@ const PRECACHE_URLS = [
   "/mock-data.js",
   "/winga-config.js",
   "/share-og.svg",
+  "/apple-touch-icon.png",
+  "/winga-icon-192.png",
+  "/winga-icon-512.png",
+  "/winga-maskable-icon.png",
   "/winga-icon.svg",
   "/winga-maskable-icon.svg"
 ].map((assetPath) => new URL(assetPath, self.location.origin).toString());

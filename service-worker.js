@@ -19,6 +19,10 @@ const PRECACHE_URLS = [
   "/mock-data.js",
   "/winga-config.js",
   "/share-og.svg",
+  "/apple-touch-icon.png",
+  "/winga-icon-192.png",
+  "/winga-icon-512.png",
+  "/winga-maskable-icon.png",
   "/winga-icon.svg",
   "/winga-maskable-icon.svg"
 ].map((assetPath) => new URL(assetPath, self.location.origin).toString());
