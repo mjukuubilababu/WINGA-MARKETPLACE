@@ -6937,7 +6937,16 @@ function handleAppLifecycleChange() {
   }
 
   if (currentView === "home" || currentView === "profile") {
-    scheduleRenderCurrentView();
+    if (uiRuntimeState.renderFrame) {
+      cancelAnimationFrame(uiRuntimeState.renderFrame);
+      uiRuntimeState.renderFrame = 0;
+    }
+    window.setTimeout(() => {
+      if (document.hidden) {
+        return;
+      }
+      scheduleRenderCurrentView();
+    }, 280);
   }
 }
 
