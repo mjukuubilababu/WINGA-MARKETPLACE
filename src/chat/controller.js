@@ -284,17 +284,8 @@
         if (!activeChatContext || (!message && !productItems.length)) {
           return;
         }
-        if (navigator.onLine === false) {
-          deps.showInAppNotification?.({
-            title: "Uko offline",
-            body: "Ujumbe umehifadhiwa kama draft. Unganisha internet kisha utume tena.",
-            variant: "warning"
-          });
-          return;
-        }
-
         try {
-          await deps.dataLayer.sendMessage({
+          const sendResult = await deps.dataLayer.sendMessage({
             receiverId: activeChatContext.withUser,
             productId: activeChatContext.productId || "",
             productName: activeChatContext.productName || "",
@@ -309,6 +300,13 @@
           deps.setOpenChatMessageMenuId("");
           deps.setOpenEmojiScope("");
           await Promise.all([deps.refreshMessagesState(), deps.refreshNotificationsState()]);
+          if (sendResult?.isQueued) {
+            deps.showInAppNotification?.({
+              title: "Ujumbe umehifadhiwa",
+              body: "Uko offline. Tutautuma internet ikirudi.",
+              variant: "info"
+            });
+          }
           deps.maybePromptNotificationPermission?.("message");
           replaceContextChatModal();
         } catch (error) {
@@ -769,17 +767,8 @@
         if (!activeChatContext || !message) {
           return;
         }
-        if (navigator.onLine === false) {
-          deps.showInAppNotification?.({
-            title: "Uko offline",
-            body: "Ujumbe umehifadhiwa kama draft. Unganisha internet kisha utume tena.",
-            variant: "warning"
-          });
-          return;
-        }
-
         try {
-          await deps.dataLayer.sendMessage({
+          const sendResult = await deps.dataLayer.sendMessage({
             receiverId: activeChatContext.withUser,
             productId: activeChatContext.productId || "",
             productName: activeChatContext.productName || "",
@@ -791,6 +780,13 @@
           deps.setCurrentMessageDraft("");
           deps.setOpenEmojiScope("");
           await Promise.all([deps.refreshMessagesState(), deps.refreshNotificationsState()]);
+          if (sendResult?.isQueued) {
+            deps.showInAppNotification?.({
+              title: "Ujumbe umehifadhiwa",
+              body: "Uko offline. Tutautuma internet ikirudi.",
+              variant: "info"
+            });
+          }
           deps.maybePromptNotificationPermission?.("message");
           deps.replaceMessagesPanel(scope);
           document.getElementById("profile-notifications-panel")?.replaceWith(deps.createNotificationsContainerFromState());

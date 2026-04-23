@@ -393,6 +393,7 @@
 
       const sentSellerIds = [];
       const sentContexts = [];
+      const queuedSellerIds = [];
       const failures = [];
 
       try {
@@ -406,7 +407,7 @@
             : "Habari, naomba maelezo kuhusu bidhaa nilizochagua hapa.";
 
           try {
-            await deps.sendMessage({
+            const sendResult = await deps.sendMessage({
               receiverId: group.sellerId,
               productId: "",
               productName: threadName,
@@ -423,6 +424,9 @@
               productId: "",
               productName: threadName
             });
+            if (sendResult?.isQueued) {
+              queuedSellerIds.push(group.sellerId);
+            }
           } catch (error) {
             deps.captureError?.("request_box_group_send_failed", error, {
               sellerId: group.sellerId,
@@ -467,6 +471,12 @@
             "warning",
             "Some requests failed"
           );
+        } else if (queuedSellerIds.length) {
+          deps.showInAppNotification?.({
+            title: "Requests queued",
+            body: `${queuedSellerIds.length} request${queuedSellerIds.length === 1 ? "" : "s"} zitaenda internet ikirudi.`,
+            variant: "info"
+          });
         }
       } finally {
         state.isSending = false;

@@ -3778,6 +3778,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
 
       const sentSellerIds = [];
       const sentContexts = [];
+      const queuedSellerIds = [];
       const failures = [];
 
       try {
@@ -3791,7 +3792,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
             : "Habari, naomba maelezo kuhusu bidhaa nilizochagua hapa.";
 
           try {
-            await deps.sendMessage({
+            const sendResult = await deps.sendMessage({
               receiverId: group.sellerId,
               productId: "",
               productName: threadName,
@@ -3808,6 +3809,9 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
               productId: "",
               productName: threadName
             });
+            if (sendResult?.isQueued) {
+              queuedSellerIds.push(group.sellerId);
+            }
           } catch (error) {
             deps.captureError?.("request_box_group_send_failed", error, {
               sellerId: group.sellerId,
@@ -3852,6 +3856,12 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
             "warning",
             "Some requests failed"
           );
+        } else if (queuedSellerIds.length) {
+          deps.showInAppNotification?.({
+            title: "Requests queued",
+            body: `${queuedSellerIds.length} request${queuedSellerIds.length === 1 ? "" : "s"} zitaenda internet ikirudi.`,
+            variant: "info"
+          });
         }
       } finally {
         state.isSending = false;
@@ -4958,17 +4968,8 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         if (!activeChatContext || (!message && !productItems.length)) {
           return;
         }
-        if (navigator.onLine === false) {
-          deps.showInAppNotification?.({
-            title: "Uko offline",
-            body: "Ujumbe umehifadhiwa kama draft. Unganisha internet kisha utume tena.",
-            variant: "warning"
-          });
-          return;
-        }
-
         try {
-          await deps.dataLayer.sendMessage({
+          const sendResult = await deps.dataLayer.sendMessage({
             receiverId: activeChatContext.withUser,
             productId: activeChatContext.productId || "",
             productName: activeChatContext.productName || "",
@@ -4983,6 +4984,13 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
           deps.setOpenChatMessageMenuId("");
           deps.setOpenEmojiScope("");
           await Promise.all([deps.refreshMessagesState(), deps.refreshNotificationsState()]);
+          if (sendResult?.isQueued) {
+            deps.showInAppNotification?.({
+              title: "Ujumbe umehifadhiwa",
+              body: "Uko offline. Tutautuma internet ikirudi.",
+              variant: "info"
+            });
+          }
           deps.maybePromptNotificationPermission?.("message");
           replaceContextChatModal();
         } catch (error) {
@@ -5443,17 +5451,8 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         if (!activeChatContext || !message) {
           return;
         }
-        if (navigator.onLine === false) {
-          deps.showInAppNotification?.({
-            title: "Uko offline",
-            body: "Ujumbe umehifadhiwa kama draft. Unganisha internet kisha utume tena.",
-            variant: "warning"
-          });
-          return;
-        }
-
         try {
-          await deps.dataLayer.sendMessage({
+          const sendResult = await deps.dataLayer.sendMessage({
             receiverId: activeChatContext.withUser,
             productId: activeChatContext.productId || "",
             productName: activeChatContext.productName || "",
@@ -5465,6 +5464,13 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
           deps.setCurrentMessageDraft("");
           deps.setOpenEmojiScope("");
           await Promise.all([deps.refreshMessagesState(), deps.refreshNotificationsState()]);
+          if (sendResult?.isQueued) {
+            deps.showInAppNotification?.({
+              title: "Ujumbe umehifadhiwa",
+              body: "Uko offline. Tutautuma internet ikirudi.",
+              variant: "info"
+            });
+          }
           deps.maybePromptNotificationPermission?.("message");
           deps.replaceMessagesPanel(scope);
           document.getElementById("profile-notifications-panel")?.replaceWith(deps.createNotificationsContainerFromState());

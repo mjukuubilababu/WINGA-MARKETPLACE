@@ -8208,6 +8208,28 @@ window.addEventListener("winga:data-hydrated", (event) => {
   }
 });
 
+window.addEventListener("winga:offline-actions-flushed", async (event) => {
+  const flushedCount = Number(event?.detail?.count || 0);
+  const remainingCount = Number(event?.detail?.remaining || 0);
+  if (currentUser) {
+    await Promise.all([
+      refreshMessagesState(),
+      refreshNotificationsState()
+    ]).catch(() => {
+      // Ignore passive refresh failures after queue flush.
+    });
+  }
+  if (flushedCount > 0) {
+    showInAppNotification({
+      title: "Offline actions synced",
+      body: remainingCount > 0
+        ? `${flushedCount} action${flushedCount === 1 ? "" : "s"} zimetumwa, ${remainingCount} zinasubiri.`
+        : `${flushedCount} action${flushedCount === 1 ? "" : "s"} zimetumwa vizuri.`,
+      variant: "success"
+    });
+  }
+});
+
 window.addEventListener("winga:session-invalidated", (event) => {
   if (isHandlingSessionInvalidation || !currentSession?.username) {
     return;
