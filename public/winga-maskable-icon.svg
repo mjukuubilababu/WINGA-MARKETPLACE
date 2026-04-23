@@ -1,21 +1,19 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
   <title id="title">Winga Maskable Icon</title>
-  <desc id="desc">Winga app maskable icon</desc>
+  <desc id="desc">Winga app maskable icon for home screen and splash</desc>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#0f172a"/>
-      <stop offset="100%" stop-color="#111827"/>
-    </linearGradient>
-    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#fbbf24"/>
-      <stop offset="100%" stop-color="#f59e0b"/>
+      <stop offset="0%" stop-color="#ff8a00"/>
+      <stop offset="100%" stop-color="#ff5a00"/>
     </linearGradient>
   </defs>
   <rect width="512" height="512" rx="132" fill="url(#bg)"/>
-  <circle cx="256" cy="176" r="96" fill="url(#accent)"/>
-  <path d="M170 214h172l-18 134c-3 20-20 36-40 36h-56c-20 0-37-16-40-36l-18-134Z" fill="#ffffff"/>
-  <path d="M184 214c0-40 32-72 72-72s72 32 72 72" fill="none" stroke="#0f172a" stroke-width="18" stroke-linecap="round"/>
-  <path d="M208 262h96" stroke="#0f172a" stroke-width="16" stroke-linecap="round"/>
-  <path d="M208 296h96" stroke="#0f172a" stroke-width="16" stroke-linecap="round"/>
-  <text x="256" y="404" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="54" font-weight="800" fill="#ffffff">W</text>
+  <path d="M97 96h318c34 0 61 27 61 61v198c0 34-27 61-61 61H97c-34 0-61-27-61-61V157c0-34 27-61 61-61Z" fill="#ffffff" opacity=".08"/>
+  <g fill="#fff">
+    <path d="M124 151c35 8 58 23 73 46 11 16 17 34 19 53-33-19-63-28-96-29 0-32 1-54 4-70Z"/>
+    <path d="M132 214c33 9 58 25 76 50 11 15 16 33 17 52-34-18-65-28-98-30 0-33 1-54 5-72Z"/>
+    <path d="M141 279c31 10 57 27 74 53 9 14 13 29 14 46-31-17-59-26-91-29 0-31 1-52 3-70Z"/>
+    <path d="M176 196 220 337 256 280 292 337 336 196h-32l-24 82-24-57-24 57-24-82z"/>
+    <path d="M179 201c0-41 33-74 77-74s77 33 77 74v7h-34v-7c0-23-17-40-43-40s-43 17-43 40v7h-34z"/>
+  </g>
 </svg>
