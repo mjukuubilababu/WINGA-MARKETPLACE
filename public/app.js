@@ -10522,6 +10522,10 @@ async function bootApp() {
   });
   const bootstrapCleanupPromise = initializeBootstrapStorageVersion();
   syncAuthMode();
+  authContainer.style.display = "none";
+  document.body.classList.remove("auth-modal-open");
+  appContainer.style.display = "block";
+  refreshPublicEntryChrome();
   homeFeedRefreshCursor = initializeHomeFeedRefreshCursor();
   suppressInitialProductHomeRender = Boolean(getDeepLinkedProductIdFromRoute());
   const cachedSession = window.WingaDataLayer.bootstrapSession

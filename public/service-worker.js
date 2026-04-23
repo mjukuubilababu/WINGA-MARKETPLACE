@@ -1,10 +1,13 @@
-const BUILD_VERSION = "20260423121144";
+const BUILD_VERSION = "20260423122528";
 const CACHE_PREFIX = "winga-shell";
 const CACHE_NAME = `${CACHE_PREFIX}-${BUILD_VERSION}`;
+const ROOT_URL = new URL("/", self.location.origin).toString();
+const INDEX_URL = new URL("/index.html", self.location.origin).toString();
+const OFFLINE_URL = new URL("/offline.html", self.location.origin).toString();
 const PRECACHE_URLS = [
-  "/",
-  "/index.html",
-  "/offline.html",
+  ROOT_URL,
+  INDEX_URL,
+  OFFLINE_URL,
   "/manifest.webmanifest",
   "/style.css",
   "/app.js",
@@ -65,14 +68,14 @@ async function networkFirstNavigation(request) {
   try {
     const networkResponse = await fetch(request);
     if (networkResponse && networkResponse.ok) {
-      cache.put("/index.html", networkResponse.clone());
+      cache.put(INDEX_URL, networkResponse.clone());
     }
     return networkResponse;
   } catch (error) {
-    const cachedPage = await cache.match("/index.html")
-      || await cache.match("/")
+    const cachedPage = await cache.match(INDEX_URL)
+      || await cache.match(ROOT_URL)
       || await cache.match(request, { ignoreSearch: true })
-      || await cache.match("/offline.html");
+      || await cache.match(OFFLINE_URL);
     if (cachedPage) {
       return cachedPage;
     }
