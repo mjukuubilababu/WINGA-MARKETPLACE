@@ -1,4 +1,4 @@
-const BUILD_VERSION = "20260423113855";
+const BUILD_VERSION = "20260423121144";
 const CACHE_PREFIX = "winga-shell";
 const CACHE_NAME = `${CACHE_PREFIX}-${BUILD_VERSION}`;
 const PRECACHE_URLS = [
@@ -69,7 +69,10 @@ async function networkFirstNavigation(request) {
     }
     return networkResponse;
   } catch (error) {
-    const cachedPage = await cache.match(request, { ignoreSearch: true }) || await cache.match("/index.html") || await cache.match("/offline.html");
+    const cachedPage = await cache.match("/index.html")
+      || await cache.match("/")
+      || await cache.match(request, { ignoreSearch: true })
+      || await cache.match("/offline.html");
     if (cachedPage) {
       return cachedPage;
     }

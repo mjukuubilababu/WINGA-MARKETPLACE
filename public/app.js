@@ -389,6 +389,9 @@ function initializeBootstrapStorageVersion() {
 
   clearStaleAppBootstrapState();
   saveAppStorageSchemaVersion(APP_BOOT_BUILD_VERSION);
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    return;
+  }
   return purgeStaleBrowserCacheArtifacts();
 }
 

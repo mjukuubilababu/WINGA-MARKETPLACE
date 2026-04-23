@@ -69,7 +69,10 @@ async function networkFirstNavigation(request) {
     }
     return networkResponse;
   } catch (error) {
-    const cachedPage = await cache.match(request, { ignoreSearch: true }) || await cache.match("/index.html") || await cache.match("/offline.html");
+    const cachedPage = await cache.match("/index.html")
+      || await cache.match("/")
+      || await cache.match(request, { ignoreSearch: true })
+      || await cache.match("/offline.html");
     if (cachedPage) {
       return cachedPage;
     }
