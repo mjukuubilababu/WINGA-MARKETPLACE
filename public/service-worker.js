@@ -1,4 +1,4 @@
-const BUILD_VERSION = "20260423124631";
+const BUILD_VERSION = "20260423130042";
 const CACHE_PREFIX = "winga-shell";
 const CACHE_NAME = `${CACHE_PREFIX}-${BUILD_VERSION}`;
 const ROOT_URL = new URL("/", self.location.origin).toString();

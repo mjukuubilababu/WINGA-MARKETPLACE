@@ -1246,6 +1246,36 @@
       };
     }
 
+    function normalizeImageForPersistence(value) {
+      const source = typeof value === "string" ? value.trim() : "";
+      if (!source) {
+        return "";
+      }
+      try {
+        const parsed = new URL(source, window.location.origin);
+        if (parsed.origin === window.location.origin && parsed.pathname === "/__winga-image__") {
+          const remoteUrl = parsed.searchParams.get("u") || "";
+          if (remoteUrl) {
+            return new URL(remoteUrl).toString();
+          }
+        }
+        return parsed.toString();
+      } catch (error) {
+        return source;
+      }
+    }
+
+    function normalizeProductForPersistence(product) {
+      if (!product || typeof product !== "object") {
+        return product;
+      }
+      return {
+        ...product,
+        image: normalizeImageForPersistence(product.image),
+        images: Array.isArray(product.images) ? product.images.map(normalizeImageForPersistence) : []
+      };
+    }
+
     function createAuthHeaders() {
       const session = sessionAdapter.loadSession();
       if (session?.token) {
@@ -1281,7 +1311,13 @@
             ...createAuthHeaders()
           }
         });
-        return Array.isArray(data) ? data.map(resolveProductImages) : [];
+        const nextProducts = Array.isArray(data) ? data.map(resolveProductImages) : [];
+        void localFallbackAdapter.saveProducts(nextProducts.map(normalizeProductForPersistence)).catch(() => {});
+        return nextProducts;
+      },
+      async loadCachedProducts() {
+        const cachedProducts = await localFallbackAdapter.loadProducts();
+        return Array.isArray(cachedProducts) ? cachedProducts.map(resolveProductImages) : [];
       },
       async loadCategories() {
         const data = await fetchJson(`${baseUrl}/categories`);
@@ -1291,13 +1327,15 @@
         return null;
       },
       async saveProducts(products) {
+        const nextProducts = Array.isArray(products) ? products.map(normalizeProductForPersistence) : [];
+        void localFallbackAdapter.saveProducts(Array.isArray(products) ? products : []).catch(() => {});
         await fetchJson(`${baseUrl}/products`, {
           method: "PUT",
           headers: {
             "Content-Type": "application/json",
             ...createAuthHeaders()
           },
-          body: JSON.stringify(products)
+          body: JSON.stringify(nextProducts)
         });
       },
       loadSession() {
@@ -2583,10 +2621,31 @@
 
   async function loadInitialState(adapter) {
     state.productsHydrated = false;
+    if (typeof adapter.loadCachedProducts === "function") {
+      try {
+        const cachedProducts = await adapter.loadCachedProducts();
+        if (Array.isArray(cachedProducts) && cachedProducts.length) {
+          state.products = cachedProducts;
+          if (typeof window !== "undefined" && typeof window.dispatchEvent === "function" && typeof window.CustomEvent === "function") {
+            window.dispatchEvent(new window.CustomEvent("winga:products-hydrated", {
+              detail: {
+                status: "cached",
+                count: state.products.length
+              }
+            }));
+          }
+        }
+      } catch (error) {
+        // Ignore cached product warmup failures and continue with network loading.
+      }
+    }
     Promise.resolve()
       .then(() => adapter.loadProducts())
       .then((products) => {
-        state.products = Array.isArray(products) ? products : [];
+        const nextProducts = Array.isArray(products) ? products : [];
+        if (nextProducts.length || !Array.isArray(state.products) || state.products.length === 0) {
+          state.products = nextProducts;
+        }
         state.productsHydrated = true;
         if (typeof window !== "undefined" && typeof window.dispatchEvent === "function" && typeof window.CustomEvent === "function") {
           window.dispatchEvent(new window.CustomEvent("winga:products-hydrated", {
