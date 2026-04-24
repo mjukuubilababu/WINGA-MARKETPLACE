@@ -19,6 +19,7 @@ const PRECACHE_URLS = [
   "/mock-data.js",
   "/winga-config.js",
   "/share-og.svg",
+  "/SPLASH%20SCREEN.PNG.png",
   "/apple-touch-icon-v2.png",
   "/winga-icon-192-v2.png",
   "/winga-icon-512-v2.png",

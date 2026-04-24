@@ -1,4 +1,4 @@
-const BUILD_VERSION = "20260424232901";
+const BUILD_VERSION = "20260424234750";
 const CACHE_PREFIX = "winga-shell";
 const CACHE_NAME = `${CACHE_PREFIX}-${BUILD_VERSION}`;
 const IMAGE_CACHE_NAME = "winga-images";
@@ -19,6 +19,7 @@ const PRECACHE_URLS = [
   "/mock-data.js",
   "/winga-config.js",
   "/share-og.svg",
+  "/SPLASH%20SCREEN.PNG.png",
   "/apple-touch-icon-v2.png",
   "/winga-icon-192-v2.png",
   "/winga-icon-512-v2.png",
