@@ -6284,6 +6284,29 @@ body.pwa-install-guide-open{
   cursor:pointer;
 }
 
+#app-launch-splash{
+  position:fixed;
+  inset:0;
+  display:grid;
+  place-items:center;
+  background:#fff;
+  z-index:2000;
+  opacity:1;
+  transition:opacity .25s ease, visibility .25s ease;
+}
+
+#app-launch-splash.hidden{
+  opacity:0;
+  visibility:hidden;
+  pointer-events:none;
+}
+
+#app-launch-splash img{
+  width:min(92vw, 1120px);
+  height:auto;
+  display:block;
+}
+
 .auth-cat-btn:hover,
 button:hover,
 .button:hover,

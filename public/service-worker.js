@@ -1,4 +1,4 @@
-const BUILD_VERSION = "20260424224124";
+const BUILD_VERSION = "20260424232901";
 const CACHE_PREFIX = "winga-shell";
 const CACHE_NAME = `${CACHE_PREFIX}-${BUILD_VERSION}`;
 const IMAGE_CACHE_NAME = "winga-images";
@@ -10,7 +10,7 @@ const PRECACHE_URLS = [
   ROOT_URL,
   INDEX_URL,
   OFFLINE_URL,
-  "/manifest.webmanifest",
+  "/manifest-v2.webmanifest",
   "/style.css",
   "/app.js",
   "/app-core.js",

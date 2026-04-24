@@ -11211,6 +11211,17 @@ const SESSION_RESTORE_BOOT_TIMEOUT_MS = Math.max(
   Number(window.WINGA_CONFIG?.sessionRestoreTimeoutMs || 12000)
 );
 
+function hideAppLaunchSplash() {
+  const splash = document.getElementById("app-launch-splash");
+  if (!splash) {
+    return;
+  }
+  splash.classList.add("hidden");
+  window.setTimeout(() => {
+    splash.remove();
+  }, 300);
+}
+
 async function bootApp() {
   reportClientEvent("info", "app_boot_started", "Client app boot started.", {
     category: "runtime"
@@ -11305,6 +11316,7 @@ async function bootApp() {
 
   if (isAdminLoginRoute()) {
     showAdminLoginScreen();
+    hideAppLaunchSplash();
     return;
   }
 
@@ -11340,6 +11352,8 @@ async function bootApp() {
       // Ignore service worker registration failures on unsupported browsers.
     });
   }, 0);
+
+  hideAppLaunchSplash();
 }
 
 bootApp().catch((error) => {
