@@ -1,19 +1,24 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
-  <title id="title">Winga Maskable Icon</title>
-  <desc id="desc">Winga app maskable icon for home screen and splash</desc>
+  <title id="title">Winga Icon</title>
+  <desc id="desc">Winga app icon with orange background and white W logo</desc>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0%" stop-color="#ff8a00"/>
       <stop offset="100%" stop-color="#ff5a00"/>
     </linearGradient>
+    <linearGradient id="highlight" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity=".32"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
   </defs>
-  <rect width="512" height="512" rx="132" fill="url(#bg)"/>
-  <path d="M97 96h318c34 0 61 27 61 61v198c0 34-27 61-61 61H97c-34 0-61-27-61-61V157c0-34 27-61 61-61Z" fill="#ffffff" opacity=".08"/>
+  <rect width="512" height="512" rx="120" fill="url(#bg)"/>
+  <path d="M96 120h320c24 0 40 16 40 40v192c0 24-16 40-40 40H96c-24 0-40-16-40-40V160c0-24 16-40 40-40Z" fill="url(#highlight)" opacity=".16"/>
   <g fill="#fff">
-    <path d="M124 151c35 8 58 23 73 46 11 16 17 34 19 53-33-19-63-28-96-29 0-32 1-54 4-70Z"/>
-    <path d="M132 214c33 9 58 25 76 50 11 15 16 33 17 52-34-18-65-28-98-30 0-33 1-54 5-72Z"/>
-    <path d="M141 279c31 10 57 27 74 53 9 14 13 29 14 46-31-17-59-26-91-29 0-31 1-52 3-70Z"/>
-    <path d="M176 196 220 337 256 280 292 337 336 196h-32l-24 82-24-57-24 57-24-82z"/>
-    <path d="M179 201c0-41 33-74 77-74s77 33 77 74v7h-34v-7c0-23-17-40-43-40s-43 17-43 40v7h-34z"/>
+    <path d="M123 152c36 8 59 24 75 47 10 15 16 32 18 51-34-19-65-28-99-29 2-31 1-52 6-69Z"/>
+    <path d="M131 214c34 9 61 27 80 53 11 15 17 32 18 51-35-19-68-30-101-31 0-33 0-54 3-73Z"/>
+    <path d="M140 279c33 10 59 28 78 55 10 15 14 31 15 49-32-18-63-28-96-30 0-32 1-54 3-74Z"/>
+    <path d="M173 197 219 338 258 277 297 338 343 197h-33l-26 86-26-61-26 61-26-86z"/>
+    <path d="M176 201c0-41 32-74 80-74s80 33 80 74v7h-34v-7c0-23-18-40-46-40s-46 17-46 40v7h-34z"/>
   </g>
+  <text x="256" y="408" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="56" font-weight="800" letter-spacing="1.2" fill="#ffffff">WINGA</text>
 </svg>
