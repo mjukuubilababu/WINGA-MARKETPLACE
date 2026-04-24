@@ -6200,6 +6200,79 @@ body.product-detail-open #view-home-back{
   gap:10px;
 }
 
+#pwa-install-guide-modal{
+  position:fixed;
+  inset:0;
+  z-index:1545;
+}
+
+.pwa-install-guide-backdrop{
+  position:absolute;
+  inset:0;
+  background:rgba(15, 23, 42, 0.42);
+  backdrop-filter:blur(5px);
+}
+
+.pwa-install-guide-dialog{
+  position:relative;
+  z-index:1;
+  width:min(560px, calc(100vw - 24px));
+  margin:min(9vh, 64px) auto 0;
+  padding:22px 20px 18px;
+}
+
+.pwa-install-guide-close{
+  position:absolute;
+  top:12px;
+  right:12px;
+  width:36px;
+  height:36px;
+  border:none;
+  border-radius:999px;
+  background:#fff3ea;
+  color:var(--accent-deep);
+  font-size:1.35rem;
+  cursor:pointer;
+}
+
+.pwa-install-guide-shell{
+  display:grid;
+  gap:14px;
+}
+
+.pwa-install-guide-copy{
+  margin:0;
+  color:var(--muted);
+  line-height:1.6;
+}
+
+.pwa-install-guide-steps{
+  margin:0;
+  padding-left:20px;
+  display:grid;
+  gap:10px;
+  color:var(--text-main);
+  line-height:1.5;
+}
+
+.pwa-install-guide-steps li{
+  padding-left:4px;
+}
+
+.pwa-install-guide-actions{
+  display:flex;
+  flex-wrap:wrap;
+  gap:10px;
+}
+
+#pwa-install-guide-modal[hidden]{
+  display:none;
+}
+
+body.pwa-install-guide-open{
+  overflow:hidden;
+}
+
 #profile-logout-button{
   width:100%;
   margin-top:12px;

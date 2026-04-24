@@ -2695,16 +2695,216 @@ function getPwaInstallButtonLabel() {
     return "Open app";
   }
   if (appInstallState.deferredPrompt) {
-    return "Install app";
+    return "Download app";
   }
-  return "Install app";
+  return "Download app";
 }
 
 function getPwaInstallHelpCopy() {
   if (isStandaloneDisplayMode()) {
     return "Winga is already installed on this device.";
   }
-  return "If the browser prompt is not shown yet, open browser menu and choose Install app or Add to home screen.";
+  return "Some browsers show the install prompt automatically. If not, open the browser menu and choose Install app, Add to Home screen, or Add to Dock.";
+}
+
+function getPwaInstallGuide() {
+  const ua = String(window.navigator?.userAgent || "");
+  const isIos = /iP(hone|ad|od)/i.test(ua) && !window.MSStream;
+  const isAndroid = /Android/i.test(ua);
+  const isDesktop = !isIos && !isAndroid;
+
+  if (isIos) {
+    return {
+      title: "Install Winga on iPhone",
+      copy: "Safari on iPhone does not always show a native install popup, so use the share menu instead.",
+      steps: [
+        "Tap the Share button in Safari.",
+        "Scroll and choose Add to Home Screen.",
+        "Confirm the name and tap Add."
+      ]
+    };
+  }
+
+  if (isAndroid) {
+    return {
+      title: "Install Winga on Android",
+      copy: "Chrome and other supported browsers may show the install popup. If not, use the browser menu.",
+      steps: [
+        "Open the browser menu.",
+        "Choose Install app or Add to Home screen.",
+        "Confirm to add Winga to your phone."
+      ]
+    };
+  }
+
+  if (isDesktop) {
+    return {
+      title: "Install Winga on desktop",
+      copy: "On desktop browsers, the install option may appear in the address bar or browser menu.",
+      steps: [
+        "Open the browser menu or the install icon near the address bar.",
+        "Choose Install Winga or Open in app.",
+        "Confirm to add the app shortcut."
+      ]
+    };
+  }
+
+  return {
+    title: "Install Winga",
+    copy: "Use your browser menu to add Winga to your home screen or install it as an app.",
+    steps: [
+      "Open the browser menu.",
+      "Look for Install app or Add to Home screen.",
+      "Confirm the install."
+    ]
+  };
+}
+
+function ensurePwaInstallGuideModal() {
+  let modal = document.getElementById("pwa-install-guide-modal");
+  if (modal) {
+    return modal;
+  }
+
+  modal = createElement("div", {
+    attributes: {
+      id: "pwa-install-guide-modal",
+      hidden: "true"
+    }
+  });
+  modal.append(
+    createElement("div", {
+      className: "pwa-install-guide-backdrop",
+      attributes: {
+        "data-close-pwa-install-guide": "true"
+      }
+    }),
+    createElement("div", {
+      className: "pwa-install-guide-dialog panel",
+      attributes: {
+        role: "dialog",
+        "aria-modal": "true",
+        "aria-labelledby": "pwa-install-guide-title"
+      }
+    })
+  );
+
+  const dialog = modal.querySelector(".pwa-install-guide-dialog");
+  dialog.append(
+    createElement("button", {
+      className: "pwa-install-guide-close",
+      attributes: {
+        type: "button",
+        "aria-label": "Close install guide",
+        "data-close-pwa-install-guide": "true"
+      },
+      textContent: "\u00d7"
+    }),
+    createElement("div", {
+      className: "pwa-install-guide-shell"
+    })
+  );
+
+  document.body.appendChild(modal);
+
+  modal.addEventListener("click", (event) => {
+    if (event.target.closest("[data-close-pwa-install-guide='true']")) {
+      closePwaInstallGuideModal();
+    }
+  });
+
+  window.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !modal.hidden) {
+      closePwaInstallGuideModal();
+    }
+  });
+
+  return modal;
+}
+
+function closePwaInstallGuideModal() {
+  const modal = document.getElementById("pwa-install-guide-modal");
+  if (!modal) {
+    return;
+  }
+  modal.hidden = true;
+  document.body.classList.remove("pwa-install-guide-open");
+}
+
+function showPwaInstallGuide(source = "header") {
+  const modal = ensurePwaInstallGuideModal();
+  const dialog = modal.querySelector(".pwa-install-guide-shell");
+  if (!dialog) {
+    return;
+  }
+
+  const guide = getPwaInstallGuide();
+  const promptAvailable = Boolean(appInstallState.deferredPrompt) && !isStandaloneDisplayMode();
+
+  dialog.replaceChildren(
+    createElement("p", {
+      className: "eyebrow",
+      textContent: "Download app"
+    }),
+    createElement("h3", {
+      attributes: {
+        id: "pwa-install-guide-title"
+      },
+      textContent: guide.title
+    }),
+    createElement("p", {
+      className: "pwa-install-guide-copy",
+      textContent: guide.copy
+    }),
+    createElement("ol", {
+      className: "pwa-install-guide-steps",
+      attributes: {
+        "aria-label": "Install steps"
+      }
+    }),
+    createElement("div", {
+      className: "pwa-install-guide-actions"
+    })
+  );
+
+  const stepsList = dialog.querySelector(".pwa-install-guide-steps");
+  guide.steps.forEach((step) => {
+    stepsList.appendChild(createElement("li", { textContent: step }));
+  });
+
+  const actions = dialog.querySelector(".pwa-install-guide-actions");
+  if (promptAvailable) {
+    const retryButton = createElement("button", {
+      className: "public-header-btn public-header-btn-primary",
+      attributes: {
+        type: "button",
+        "data-pwa-install-retry": "true"
+      },
+      textContent: "Try install"
+    });
+    retryButton.addEventListener("click", async () => {
+      closePwaInstallGuideModal();
+      await promptAppInstall(`${source}:retry`);
+    });
+    actions.appendChild(retryButton);
+  }
+
+  const closeButton = createElement("button", {
+    className: "public-header-btn",
+    attributes: {
+      type: "button",
+      "data-close-pwa-install-guide": "true"
+    },
+    textContent: "Close"
+  });
+  actions.appendChild(closeButton);
+
+  modal.hidden = false;
+  document.body.classList.add("pwa-install-guide-open");
+}
+
+function shouldShowInstallGuideInsteadOfPrompt() {
+  return !isStandaloneDisplayMode() && !appInstallState.deferredPrompt;
 }
 
 function ensurePwaInstallButton(buttonId, className = "public-header-btn public-header-btn-primary") {
@@ -2808,8 +3008,13 @@ async function promptAppInstall(source = "header") {
     }
   }
 
+  if (shouldShowInstallGuideInsteadOfPrompt()) {
+    showPwaInstallGuide(source);
+    return false;
+  }
+
   showInAppNotification({
-    title: "Install Winga",
+    title: "Download Winga",
     body: getPwaInstallHelpCopy(),
     variant: "info"
   });
