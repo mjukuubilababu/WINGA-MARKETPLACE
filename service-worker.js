@@ -10,7 +10,7 @@ const PRECACHE_URLS = [
   ROOT_URL,
   INDEX_URL,
   OFFLINE_URL,
-  "/manifest.webmanifest",
+  "/manifest-v4.webmanifest",
   "/style.css",
   "/app.js",
   "/app-core.js",
