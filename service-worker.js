@@ -21,10 +21,8 @@ const PRECACHE_URLS = [
   "/share-og.svg",
   "/apple-touch-icon-v3.png",
   "/winga-icon-192-v3.png",
-  "/winga-icon-512.png",
-  "/winga-maskable-icon.png",
-  "/winga-icon.svg",
-  "/winga-maskable-icon.svg"
+  "/winga-icon-512-v3.png",
+  "/winga-maskable-icon-v3.png"
 ].map((assetPath) => new URL(assetPath, self.location.origin).toString());
 
 function isSameOrigin(request) {
