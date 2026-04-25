@@ -360,6 +360,52 @@ function getAdminSeedIdentity() {
   };
 }
 
+function getAdminSeedPassword() {
+  return String(ADMIN_SEED_PASSWORD || ADMIN_SEED.password || "").trim();
+}
+
+function syncConfiguredAdminCredentials(store) {
+  const nextStore = {
+    ...store,
+    users: Array.isArray(store?.users) ? [...store.users] : []
+  };
+  const adminIdentity = getAdminSeedIdentity();
+  const adminPassword = getAdminSeedPassword();
+  if (!adminPassword) {
+    return { store: nextStore, didChange: false };
+  }
+
+  const adminIndex = nextStore.users.findIndex((user) => {
+    const normalizedUsername = normalizeIdentifier(user?.username || "", 40);
+    const normalizedFullName = normalizeIdentifier(user?.fullName || "", 120);
+    return user?.role === "admin"
+      || normalizedUsername === adminIdentity.username
+      || normalizedFullName === normalizeIdentifier(ADMIN_SEED_FULL_NAME || "", 120)
+      || normalizedUsername === "admin";
+  });
+
+  const adminRecord = normalizeUserRecord({
+    ...(adminIndex >= 0 ? nextStore.users[adminIndex] : {}),
+    username: adminIdentity.username,
+    fullName: adminIdentity.fullName,
+    role: "admin",
+    password: createPasswordHash(adminPassword)
+  });
+
+  if (adminIndex >= 0) {
+    const before = JSON.stringify(nextStore.users[adminIndex] || {});
+    const after = JSON.stringify(adminRecord);
+    if (before !== after) {
+      nextStore.users[adminIndex] = adminRecord;
+      return { store: nextStore, didChange: true };
+    }
+    return { store: nextStore, didChange: false };
+  }
+
+  nextStore.users.unshift(adminRecord);
+  return { store: nextStore, didChange: true };
+}
+
 function normalizeOptionalPrice(value) {
   if (value == null) {
     return null;
@@ -1922,8 +1968,9 @@ async function initializeStoreAtBoot() {
   const cleanedStore = cleanupSessions(rawStore);
   const sessionsChanged = (rawStore.sessions || []).length !== (cleanedStore.sessions || []).length;
   const migrationResult = migrateLegacyStore(cleanedStore);
-  const migratedStore = migrationResult.store;
-  const shouldWrite = sessionsChanged || migrationResult.didChange;
+  const adminSyncResult = syncConfiguredAdminCredentials(migrationResult.store);
+  const migratedStore = adminSyncResult.store;
+  const shouldWrite = sessionsChanged || migrationResult.didChange || adminSyncResult.didChange;
 
   if (shouldWrite) {
     await writeStore(migratedStore);
