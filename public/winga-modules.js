@@ -711,8 +711,17 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
     if (/^data:image\/[a-z0-9.+-]+;base64,/i.test(value)) {
       return value;
     }
-    if (/^[./]/.test(value)) {
-      return value;
+    try {
+      const configuredApiBaseUrl = String(window.WINGA_CONFIG?.apiBaseUrl || "").trim().replace(/\/+$/, "");
+      const publicBaseUrl = configuredApiBaseUrl.replace(/\/api$/, "");
+      if (value.startsWith("/uploads/") && publicBaseUrl) {
+        return new URL(value, publicBaseUrl).toString();
+      }
+      if (/^[./]/.test(value) || value.startsWith("/")) {
+        return new URL(value, window.location.origin).toString();
+      }
+    } catch (error) {
+      // Fall through to fallback.
     }
     return fallbackSrc || "";
   }
@@ -5776,7 +5785,11 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
           src: item.src,
           alt: item.alt,
           fallbackSrc: deps.getImageFallbackDataUri("ID"),
-          className: "admin-verification-image"
+          className: "admin-verification-image",
+          attributes: {
+            loading: "eager",
+            fetchpriority: "high"
+          }
         }));
       });
       return preview;
@@ -6251,7 +6264,11 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
           src: safeImage,
           alt: product.name,
           fallbackSrc: deps.getImageFallbackDataUri("W"),
-          className: "admin-verification-image"
+          className: "admin-verification-image",
+          attributes: {
+            loading: "eager",
+            fetchpriority: "high"
+          }
         }));
       }
       card.append(noteInput, actions);
@@ -6351,6 +6368,27 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
     function createAdminBody(state) {
       const wrapper = deps.createElement("div", { className: "moderation-list" });
       wrapper.appendChild(createAdminToolbar(state));
+      const adminWarmImageSources = new Set();
+      state.users.forEach((user) => {
+        if (user?.identityDocumentImage) {
+          adminWarmImageSources.add(user.identityDocumentImage);
+        }
+      });
+      state.pendingProducts.forEach((product) => {
+        if (product?.image) {
+          adminWarmImageSources.add(product.image);
+        }
+        if (Array.isArray(product?.images)) {
+          product.images.forEach((image) => {
+            if (image) {
+              adminWarmImageSources.add(image);
+            }
+          });
+        }
+      });
+      if (typeof deps.warmAdminImageCache === "function") {
+        deps.warmAdminImageCache(Array.from(adminWarmImageSources).slice(0, 16));
+      }
       if (deps.isAdminUser?.()) {
         const deepLinkProducts = Array.isArray(state.pendingProducts) ? state.pendingProducts : [];
         const deepLinkBody = deps.createElement("div", { className: "moderation-list" });

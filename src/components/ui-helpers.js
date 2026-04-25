@@ -12,8 +12,17 @@
     if (/^data:image\/[a-z0-9.+-]+;base64,/i.test(value)) {
       return value;
     }
-    if (/^[./]/.test(value)) {
-      return value;
+    try {
+      const configuredApiBaseUrl = String(window.WINGA_CONFIG?.apiBaseUrl || "").trim().replace(/\/+$/, "");
+      const publicBaseUrl = configuredApiBaseUrl.replace(/\/api$/, "");
+      if (value.startsWith("/uploads/") && publicBaseUrl) {
+        return new URL(value, publicBaseUrl).toString();
+      }
+      if (/^[./]/.test(value) || value.startsWith("/")) {
+        return new URL(value, window.location.origin).toString();
+      }
+    } catch (error) {
+      // Fall through to fallback.
     }
     return fallbackSrc || "";
   }

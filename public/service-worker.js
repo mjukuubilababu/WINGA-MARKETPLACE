@@ -1,4 +1,4 @@
-const BUILD_VERSION = "20260425202223";
+const BUILD_VERSION = "20260425205129";
 const CACHE_PREFIX = "winga-shell";
 const CACHE_NAME = `${CACHE_PREFIX}-${BUILD_VERSION}`;
 const IMAGE_CACHE_NAME = "winga-images";
@@ -43,6 +43,21 @@ function isImageProxyRequest(request) {
   try {
     const url = new URL(request.url);
     return url.origin === self.location.origin && url.pathname === IMAGE_PROXY_PREFIX;
+  } catch (error) {
+    return false;
+  }
+}
+
+function isCacheableImageUrl(value) {
+  try {
+    const url = new URL(String(value || "").trim(), self.location.origin);
+    if (url.origin !== self.location.origin) {
+      return false;
+    }
+    if (url.pathname.startsWith("/api/")) {
+      return false;
+    }
+    return /\.(?:avif|webp|png|jpe?g|gif|svg|ico)$/i.test(url.pathname) || url.pathname.startsWith(IMAGE_PROXY_PREFIX) || url.pathname.startsWith("/uploads/");
   } catch (error) {
     return false;
   }
@@ -140,6 +155,37 @@ async function proxyImageRequest(request) {
   return new Response("", { status: 503, statusText: "Image unavailable" });
 }
 
+async function cacheImageUrls(urls = []) {
+  const normalizedUrls = Array.isArray(urls)
+    ? urls.map((value) => String(value || "").trim()).filter(Boolean)
+    : [];
+  if (!normalizedUrls.length) {
+    return;
+  }
+  const cache = await caches.open(IMAGE_CACHE_NAME);
+  await Promise.all(normalizedUrls.map(async (value) => {
+    if (!isCacheableImageUrl(value)) {
+      return;
+    }
+    const request = new Request(new URL(value, self.location.origin).toString(), {
+      mode: "same-origin",
+      credentials: "same-origin"
+    });
+    const existing = await cache.match(request);
+    if (existing) {
+      return;
+    }
+    try {
+      const response = await fetch(request);
+      if (response && (response.ok || response.type === "opaque")) {
+        await cache.put(request, response.clone());
+      }
+    } catch (error) {
+      // Ignore background cache warm failures.
+    }
+  }));
+}
+
 self.addEventListener("install", (event) => {
   event.waitUntil((async () => {
     const cache = await caches.open(CACHE_NAME);
@@ -162,6 +208,10 @@ self.addEventListener("message", (event) => {
   const messageType = event.data?.type;
   if (messageType === "SKIP_WAITING") {
     self.skipWaiting();
+    return;
+  }
+  if (messageType === "CACHE_IMAGE_URLS") {
+    event.waitUntil(cacheImageUrls(event.data?.urls || []));
   }
 });
 
