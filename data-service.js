@@ -457,6 +457,20 @@
     }
   }
 
+  function resolveUserImagesForRuntime(user) {
+    if (!user || typeof user !== "object") {
+      return user;
+    }
+
+    const resolveImage = (value) => createMarketplaceImageProxyUrl(value);
+
+    return {
+      ...user,
+      profileImage: resolveImage(user.profileImage),
+      identityDocumentImage: resolveImage(user.identityDocumentImage)
+    };
+  }
+
   function resolveProductImagesForRuntime(product) {
     if (!product || typeof product !== "object") {
       return product;
@@ -474,7 +488,7 @@
   function createLocalAdapter() {
     return {
       async loadUsers() {
-        return readStoredJson(USERS_KEY, []);
+        return readStoredJson(USERS_KEY, []).map(resolveUserImagesForRuntime);
       },
       async saveUsers(users) {
         setStorageOrThrow(USERS_KEY, JSON.stringify(users), "data za akaunti na picha ya profile");
@@ -1470,7 +1484,7 @@
             ...createAuthHeaders()
           }
         });
-        return Array.isArray(data) ? data : [];
+        return Array.isArray(data) ? data.map(resolveUserImagesForRuntime) : [];
       },
       async saveUsers(users) {
         await fetchJson(`${baseUrl}/users`, {
@@ -2147,7 +2161,8 @@
 
     return {
       async loadUsers() {
-        return loadDocument(firebaseConfig.usersDocumentPath || "wingaState/users");
+        const data = await loadDocument(firebaseConfig.usersDocumentPath || "wingaState/users");
+        return Array.isArray(data) ? data.map(resolveUserImagesForRuntime) : [];
       },
       async saveUsers(users) {
         await saveDocument(firebaseConfig.usersDocumentPath || "wingaState/users", users);

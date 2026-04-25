@@ -1563,6 +1563,46 @@ function warmProductImageCache(products = []) {
   drainQueue();
 }
 
+function warmAdminImageCache(imageSources = []) {
+  if (!Array.isArray(imageSources) || !imageSources.length) {
+    return;
+  }
+
+  const seen = new Set();
+  const queue = [];
+  imageSources.forEach((src, index) => {
+    const safeSrc = sanitizeImageSource(src, "");
+    if (!safeSrc || /^data:/i.test(safeSrc) || seen.has(safeSrc)) {
+      return;
+    }
+    seen.add(safeSrc);
+    queue.push({ src: safeSrc, fetchPriority: index === 0 ? "high" : "auto" });
+  });
+
+  queue.slice(0, 14).forEach(({ src, fetchPriority }) => {
+    preloadImageSource(src, { fetchPriority });
+  });
+
+  const cacheUrls = queue.map((item) => item.src).filter(Boolean);
+  if (cacheUrls.length && "serviceWorker" in navigator) {
+    const postCacheMessage = (registration) => {
+      try {
+        registration?.active?.postMessage?.({
+          type: "CACHE_IMAGE_URLS",
+          urls: cacheUrls.slice(0, 14)
+        });
+      } catch (error) {
+        // Ignore SW warm-cache messaging issues.
+      }
+    };
+    if (navigator.serviceWorker.controller) {
+      postCacheMessage({ active: navigator.serviceWorker.controller });
+    } else if (navigator.serviceWorker.ready) {
+      navigator.serviceWorker.ready.then(postCacheMessage).catch(() => {});
+    }
+  }
+}
+
 function getCategoryLabel(category) {
   const subcategoryMatch = availableCategories.find((item) => item.value === category);
   if (subcategoryMatch) {
@@ -4818,6 +4858,7 @@ const { renderAdminView: renderAdminViewFromController } = window.WingaModules.a
   sanitizeImageSource,
   getImageFallbackDataUri,
   preloadImageSource,
+  warmAdminImageCache,
   getCategoryLabel,
   getRoleLabel,
   getPromotionLabel,
