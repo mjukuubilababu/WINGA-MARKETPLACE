@@ -178,11 +178,7 @@
           src: item.src,
           alt: item.alt,
           fallbackSrc: deps.getImageFallbackDataUri("ID"),
-          className: "admin-verification-image",
-          attributes: {
-            loading: "eager",
-            fetchpriority: "high"
-          }
+          className: "admin-verification-image"
         }));
       });
       return preview;
@@ -657,11 +653,7 @@
           src: safeImage,
           alt: product.name,
           fallbackSrc: deps.getImageFallbackDataUri("W"),
-          className: "admin-verification-image",
-          attributes: {
-            loading: "eager",
-            fetchpriority: "high"
-          }
+          className: "admin-verification-image"
         }));
       }
       card.append(noteInput, actions);
@@ -761,27 +753,6 @@
     function createAdminBody(state) {
       const wrapper = deps.createElement("div", { className: "moderation-list" });
       wrapper.appendChild(createAdminToolbar(state));
-      const adminWarmImageSources = new Set();
-      state.users.forEach((user) => {
-        if (user?.identityDocumentImage) {
-          adminWarmImageSources.add(user.identityDocumentImage);
-        }
-      });
-      state.pendingProducts.forEach((product) => {
-        if (product?.image) {
-          adminWarmImageSources.add(product.image);
-        }
-        if (Array.isArray(product?.images)) {
-          product.images.forEach((image) => {
-            if (image) {
-              adminWarmImageSources.add(image);
-            }
-          });
-        }
-      });
-      if (typeof deps.warmAdminImageCache === "function") {
-        deps.warmAdminImageCache(Array.from(adminWarmImageSources).slice(0, 16));
-      }
       if (deps.isAdminUser?.()) {
         const deepLinkProducts = Array.isArray(state.pendingProducts) ? state.pendingProducts : [];
         const deepLinkBody = deps.createElement("div", { className: "moderation-list" });
