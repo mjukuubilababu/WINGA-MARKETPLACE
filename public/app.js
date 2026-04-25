@@ -11232,7 +11232,7 @@ async function bootApp() {
   syncAuthMode();
   authContainer.style.display = "none";
   document.body.classList.remove("auth-modal-open");
-  appContainer.style.display = "block";
+  appContainer.style.display = "none";
   initializePwaInstallExperience();
   refreshPublicEntryChrome();
   homeFeedRefreshCursor = initializeHomeFeedRefreshCursor();
@@ -11318,6 +11318,7 @@ async function bootApp() {
 
   if (isAdminLoginRoute()) {
     showAdminLoginScreen();
+    appContainer.style.display = "block";
     hideAppLaunchSplash();
     return;
   }
