@@ -5613,9 +5613,17 @@ let suppressInitialProductHomeRender = false;
 let isSessionRestorePending = false;
 let activeSessionRestoreToken = 0;
 let deepLinkLoadingOverlay = null;
+const authBootstrapState = {
+  ready: false,
+  pending: true,
+  session: null
+};
 const ADMIN_LOGIN_HASH = "#/admin-login";
 
 const authContainer = document.getElementById("auth-container");
+const authBootOverlay = document.getElementById("auth-boot-overlay");
+const authBootTitle = document.getElementById("auth-boot-title");
+const authBootCopy = document.getElementById("auth-boot-copy");
 const authCloseButton = document.getElementById("auth-close-button");
 const authGatePrompt = document.getElementById("auth-gate-prompt");
 const authGateTitle = document.getElementById("auth-gate-title");
@@ -6212,6 +6220,43 @@ function hideDeepLinkLoadingOverlay() {
     deepLinkLoadingOverlay.remove();
   }
   deepLinkLoadingOverlay = null;
+}
+
+function showAuthBootOverlay(message = "Subiri kidogo, tunathibitisha akaunti kabla ya kuonyesha app.") {
+  authBootstrapState.pending = true;
+  authBootstrapState.ready = false;
+  document.body.classList.add("auth-booting");
+  if (authBootTitle) {
+    setNodeText(authBootTitle, currentUser ? "Tunaendelea kuthibitisha session..." : "Tunaangalia session yako...");
+  }
+  if (authBootCopy) {
+    setNodeText(authBootCopy, message);
+  }
+  if (authBootOverlay) {
+    authBootOverlay.classList.remove("is-hidden");
+    authBootOverlay.setAttribute("aria-hidden", "false");
+  }
+}
+
+function hideAuthBootOverlay() {
+  const overlay = authBootOverlay;
+  if (!overlay) {
+    document.body.classList.remove("auth-booting");
+    authBootstrapState.pending = false;
+    authBootstrapState.ready = true;
+    return;
+  }
+
+  overlay.classList.add("is-hidden");
+  overlay.setAttribute("aria-hidden", "true");
+  document.body.classList.remove("auth-booting");
+  authBootstrapState.pending = false;
+  authBootstrapState.ready = true;
+  window.setTimeout(() => {
+    if (overlay.isConnected) {
+      overlay.remove();
+    }
+  }, 240);
 }
 
 function showDeepLinkLoadingState(message = "Tunafungua bidhaa uliyoifungua...") {
@@ -9992,6 +10037,9 @@ function renderCurrentView() {
   ) {
     return;
   }
+  if (!authBootstrapState.ready) {
+    return;
+  }
   const startedAt = getPerfNow();
   if (searchRuntimeState.renderDebounceTimer) {
     clearTimeout(searchRuntimeState.renderDebounceTimer);
@@ -11010,11 +11058,16 @@ async function bootApp() {
   reportClientEvent("info", "app_boot_started", "Client app boot started.", {
     category: "runtime"
   });
+  authBootstrapState.pending = true;
+  authBootstrapState.ready = false;
+  authBootstrapState.session = null;
+  showAuthBootOverlay("Subiri kidogo, tunathibitisha session kabla ya kuonyesha app.");
   const bootstrapCleanupPromise = initializeBootstrapStorageVersion();
   syncAuthMode();
   authContainer.style.display = "none";
   document.body.classList.remove("auth-modal-open");
-  appContainer.style.display = "block";
+  appContainer.style.display = "none";
+  adminLoginContainer.style.display = "none";
   initializePwaInstallExperience();
   refreshPublicEntryChrome();
   homeFeedRefreshCursor = initializeHomeFeedRefreshCursor();
@@ -11058,68 +11111,90 @@ async function bootApp() {
   }
   mergeAvailableCategories(inferCategoriesFromData());
   refreshCategoryUI();
-  if (!suppressInitialProductHomeRender) {
-    renderCurrentView();
-  }
   hydrateMissingImageSignatures(products).catch(() => {
     // Ignore passive image signature hydration failures during boot.
   });
-
-      window.setTimeout(() => {
-        scheduleIdleBackgroundWork(() => {
-          window.WingaDataLayer.loadReviews()
-            .then((reviewPayload) => {
-              currentReviews = Array.isArray(reviewPayload?.reviews) ? reviewPayload.reviews : [];
-              reviewSummaries = reviewPayload?.summaries || {};
-              const scrollRecentlyActive = Date.now() - Number(uiRuntimeState.lastScrollActivityAt || 0) < 900;
-              if (!scrollRecentlyActive && (currentView !== "home" || document.body.classList.contains("product-detail-open"))) {
-                scheduleRenderCurrentView();
-              } else if (scrollRecentlyActive) {
-                window.setTimeout(() => {
-                  if (currentView !== "home" || document.body.classList.contains("product-detail-open")) {
-                    return;
-                  }
-                  if (Date.now() - Number(uiRuntimeState.lastScrollActivityAt || 0) < 900) {
-                    return;
-                  }
-                  scheduleRenderCurrentView();
-                }, 1200);
-              }
-            })
-            .catch((error) => {
-          currentReviews = [];
-          reviewSummaries = {};
-          captureClientError("reviews_boot_load_failed", error, {
-            category: "runtime",
-            alertSeverity: "medium"
-          });
-        });
-    }, 1800);
-  }, 1500);
-  startBackgroundSessionRestore(rememberedSessionPromise, cachedSession);
-
-  if (isAdminLoginRoute()) {
-    showAdminLoginScreen();
-    return;
-  }
-
-  reportClientEvent("info", "app_boot_completed", "Client app boot completed.", {
-    category: "runtime",
-    authState: currentUser ? "signed_in" : "guest"
+  const restoreResult = await Promise.resolve(rememberedSessionPromise).catch((error) => {
+    captureClientError("session_restore_boot_failed", error, {
+      category: "auth",
+      alertSeverity: "high",
+      hasCachedSession: Boolean(cachedSession?.username)
+    });
+    return null;
   });
 
-  authContainer.style.display = "none";
-  document.body.classList.remove("auth-modal-open");
-  appContainer.style.display = "block";
-  refreshPublicEntryChrome();
-  if (suppressInitialProductHomeRender) {
-    setCurrentViewState("home", { syncHistory: false });
-    openDeepLinkedProductRouteIfNeeded({ skipHomeRender: true });
+  if (restoreResult?.username) {
+    if (isAdminLoginRoute() && !isStaffRole(restoreResult.role)) {
+      setAdminLoginRouteActive(false, { replace: true });
+      showInAppNotification({
+        title: "Admin access only",
+        body: "Route hii ni ya admin au moderator pekee.",
+        variant: "warning"
+      });
+    }
+    const nextSession = cachedSession?.username
+      ? {
+          ...cachedSession,
+          ...restoreResult
+        }
+      : restoreResult;
+    applySessionState(nextSession);
+    saveSessionUser(currentSession);
+    loginSuccess(
+      currentSession.username,
+      currentSession.primaryCategory || "",
+      currentSession,
+      {
+        restoreView: true,
+        skipWelcome: true,
+        deferRender: false,
+        forceView: isStaffRole(currentSession.role) ? "admin" : ""
+      }
+    );
+    reportClientEvent("info", "session_restore_succeeded", "Stored session restored during boot.", {
+      category: "auth",
+      role: currentSession.role || ""
+    });
   } else {
-    setCurrentViewState("home");
-    renderCurrentView();
-    openDeepLinkedProductRouteIfNeeded();
+    clearSessionUser();
+    applySessionState(null);
+    reportClientEvent("warn", "session_restore_failed", "Stored session could not be restored during boot.", {
+      category: "auth",
+      alertSeverity: "high",
+      role: cachedSession?.role || ""
+    });
   }
+
+  authBootstrapState.ready = true;
+  authBootstrapState.session = currentSession ? { ...currentSession } : null;
+  authBootstrapState.pending = false;
+  if (restoreResult?.username) {
+    if (isAdminLoginRoute() && !isStaffUser()) {
+      setAdminLoginRouteActive(false, { replace: true });
+    }
+  } else if (isAdminLoginRoute()) {
+    setAdminLoginRouteActive(true, { replace: true });
+    showAdminLoginScreen();
+  } else {
+    showLoggedOutState({ audience: "public" });
+    if (suppressInitialProductHomeRender) {
+      setCurrentViewState("home", { syncHistory: false });
+      openDeepLinkedProductRouteIfNeeded({ skipHomeRender: true });
+    } else {
+      setCurrentViewState("home");
+      renderCurrentView();
+      openDeepLinkedProductRouteIfNeeded();
+    }
+  }
+  hideAuthBootOverlay();
+
+  if (isAdminLoginRoute() && !isStaffUser()) {
+    appContainer.style.display = "none";
+  } else {
+    appContainer.style.display = "block";
+  }
+  refreshPublicEntryChrome();
+
   scheduleChromeOffsetSync();
 
   if (typeof ResizeObserver !== "undefined") {
