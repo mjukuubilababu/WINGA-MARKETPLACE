@@ -6300,13 +6300,16 @@ body.app-booting #admin-login-container{
 #app-launch-splash{
   position:fixed;
   inset:0;
-  display:block;
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  flex-direction:column;
   width:100vw;
   width:100dvw;
   height:100vh;
   height:100dvh;
   background:
-    linear-gradient(180deg, rgba(255, 106, 0, 0.94), rgba(255, 106, 0, 0.94)),
+    linear-gradient(180deg, rgba(255, 165, 0, 0.18), rgba(255, 165, 0, 0.18)),
     url('/SPLASH%20SCREEN.PNG.png') center center / cover no-repeat;
   z-index:9999;
   opacity:1;
@@ -6314,6 +6317,9 @@ body.app-booting #admin-login-container{
   transition:opacity .35s ease, visibility .35s ease;
   transform:translateZ(0);
   pointer-events:none;
+  text-align:center;
+  padding:24px;
+  color:#fff;
 }
 
 .splash-screen.hidden,
@@ -6328,6 +6334,60 @@ body.app-booting #admin-login-container{
 #admin-login-container{
   position:relative;
   z-index:1;
+}
+
+#products-container,
+#showcase-track,
+#empty-state,
+#feed-loading-state{
+  position:relative;
+  z-index:1;
+}
+
+.splash-screen__content{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:10px;
+  max-width:min(90vw, 420px);
+  z-index:1;
+  text-shadow:0 6px 18px rgba(0,0,0,0.22);
+}
+
+.splash-screen__content h1{
+  margin:0;
+  font-size:clamp(2.6rem, 7vw, 3.9rem);
+  line-height:1;
+  font-weight:900;
+  letter-spacing:0.14em;
+}
+
+.splash-screen__content p{
+  margin:0;
+  font-size:clamp(1.1rem, 3.8vw, 1.6rem);
+  line-height:1.2;
+  font-weight:800;
+  letter-spacing:0.04em;
+}
+
+@media (max-width: 720px){
+  .splash-screen,
+  #app-launch-splash{
+    padding:20px;
+  }
+
+  .splash-screen__content{
+    gap:8px;
+  }
+
+  .splash-screen__content h1{
+    font-size:clamp(2.2rem, 12vw, 3rem);
+  }
+
+  .splash-screen__content p{
+    font-size:clamp(0.95rem, 4.8vw, 1.2rem);
+  }
 }
 
 .auth-cat-btn:hover,
