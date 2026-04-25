@@ -431,6 +431,46 @@
     return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(normalized) ? normalized : "";
   }
 
+  function createMarketplaceImageProxyUrl(value) {
+    const source = typeof value === "string" ? value.trim() : "";
+    if (!source) {
+      return "";
+    }
+    if (source.startsWith("/__winga-image__")) {
+      return source;
+    }
+    try {
+      const configuredApiBaseUrl = String(window.WINGA_CONFIG?.apiBaseUrl || "").trim().replace(/\/+$/, "");
+      const publicBaseUrl = configuredApiBaseUrl.replace(/\/api$/, "");
+      const absoluteUrl = source.startsWith("/uploads/") && publicBaseUrl
+        ? new URL(source, publicBaseUrl).toString()
+        : new URL(source, window.location.origin).toString();
+      const parsed = new URL(absoluteUrl);
+      if (parsed.origin === window.location.origin || parsed.protocol === "data:" || parsed.protocol === "blob:") {
+        return parsed.toString();
+      }
+      const proxyUrl = new URL("/__winga-image__", window.location.origin);
+      proxyUrl.searchParams.set("u", parsed.toString());
+      return proxyUrl.toString();
+    } catch (error) {
+      return source;
+    }
+  }
+
+  function resolveProductImagesForRuntime(product) {
+    if (!product || typeof product !== "object") {
+      return product;
+    }
+
+    const resolveImage = (value) => createMarketplaceImageProxyUrl(value);
+
+    return {
+      ...product,
+      image: resolveImage(product.image),
+      images: Array.isArray(product.images) ? product.images.map(resolveImage) : []
+    };
+  }
+
   function createLocalAdapter() {
     return {
       async loadUsers() {
@@ -440,7 +480,10 @@
         setStorageOrThrow(USERS_KEY, JSON.stringify(users), "data za akaunti na picha ya profile");
       },
       async loadProducts() {
-        return readStoredJson(PRODUCTS_KEY, []);
+        const storedProducts = readStoredJson(PRODUCTS_KEY, []);
+        return Array.isArray(storedProducts)
+          ? storedProducts.map(resolveProductImagesForRuntime)
+          : [];
       },
         async loadCategories() {
           return readStoredJson(CATEGORIES_KEY, []);
@@ -1361,25 +1404,6 @@
     const sessionAdapter = createLocalAdapter();
     const localFallbackAdapter = createLocalAdapter();
 
-    function createImageProxyUrl(value) {
-      const source = typeof value === "string" ? value.trim() : "";
-      if (!source) {
-        return source;
-      }
-      try {
-        const absoluteUrl = new URL(source, window.location.origin).toString();
-        const parsed = new URL(absoluteUrl);
-        if (parsed.origin === window.location.origin || parsed.protocol === "data:" || parsed.protocol === "blob:") {
-          return parsed.toString();
-        }
-        const proxyUrl = new URL("/__winga-image__", window.location.origin);
-        proxyUrl.searchParams.set("u", parsed.toString());
-        return proxyUrl.toString();
-      } catch (error) {
-        return source;
-      }
-    }
-
     function resolveProductImages(product) {
       if (!product || typeof product !== "object") {
         return product;
@@ -1387,9 +1411,9 @@
 
       const resolveImage = (value) => {
         if (typeof value === "string" && value.startsWith("/uploads/")) {
-          return createImageProxyUrl(`${publicBaseUrl}${value}`);
+          return createMarketplaceImageProxyUrl(`${publicBaseUrl}${value}`);
         }
-        return createImageProxyUrl(value);
+        return createMarketplaceImageProxyUrl(value);
       };
 
       return {

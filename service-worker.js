@@ -6,6 +6,7 @@ const ROOT_URL = new URL("/", self.location.origin).toString();
 const INDEX_URL = new URL("/index.html", self.location.origin).toString();
 const OFFLINE_URL = new URL("/offline.html", self.location.origin).toString();
 const IMAGE_PROXY_PREFIX = "/__winga-image__";
+const CRITICAL_IMAGE_URLS = __WINGA_CRITICAL_IMAGE_URLS__;
 const PRECACHE_URLS = [
   ROOT_URL,
   INDEX_URL,
@@ -22,7 +23,8 @@ const PRECACHE_URLS = [
   "/apple-touch-icon-v3.png",
   "/winga-icon-192-v3.png",
   "/winga-icon-512-v3.png",
-  "/winga-maskable-icon-v3.png"
+  "/winga-maskable-icon-v3.png",
+  ...CRITICAL_IMAGE_URLS
 ].map((assetPath) => new URL(assetPath, self.location.origin).toString());
 
 function isSameOrigin(request) {

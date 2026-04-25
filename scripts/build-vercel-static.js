@@ -393,11 +393,12 @@ function applyAssetVersionToHtml(targetPath) {
   fs.writeFileSync(targetPath, marked, "utf8");
 }
 
-function applyAssetVersionToServiceWorker(targetPath) {
+function applyAssetVersionToServiceWorker(targetPath, criticalImageUrls = []) {
   const source = fs.readFileSync(targetPath, "utf8");
   const next = source
     .replace(/__WINGA_ASSET_VERSION__/g, assetVersion)
-    .replace(/__WINGA_BUILD_VERSION__/g, assetVersion);
+    .replace(/__WINGA_BUILD_VERSION__/g, assetVersion)
+    .replace(/__WINGA_CRITICAL_IMAGE_URLS__/g, JSON.stringify(Array.isArray(criticalImageUrls) ? criticalImageUrls : []));
   fs.writeFileSync(targetPath, next, "utf8");
 }
 
@@ -517,6 +518,7 @@ async function generateProductSharePages(baseHtml, origin) {
       fs.writeFileSync(path.join(targetDir, "index.html"), html, "utf8");
     });
   }
+  return ogImageMap;
 }
 
 function buildFrontendModuleBundle() {
@@ -562,12 +564,9 @@ async function main() {
 
   ensureCleanDir(outputDir);
 
+  let criticalImageUrls = [];
   fileCopies.forEach(([sourceRelativePath, targetRelativePath]) => {
     copyFileIntoDist(sourceRelativePath, targetRelativePath);
-    const targetPath = path.join(outputDir, targetRelativePath);
-    if (targetPath.endsWith("service-worker.js")) {
-      applyAssetVersionToServiceWorker(targetPath);
-    }
   });
 
   applyAssetVersionToHtml(path.join(rootDir, "index.html"));
@@ -575,7 +574,9 @@ async function main() {
 
   copyDirectoryRecursive(path.join(rootDir, "src"), path.join(outputDir, "src"));
   fs.writeFileSync(path.join(outputDir, "winga-modules.js"), buildFrontendModuleBundle(), "utf8");
-  await generateProductSharePages(fs.readFileSync(path.join(outputDir, "index.html"), "utf8"), getPublicOrigin());
+  const ogImageMap = await generateProductSharePages(fs.readFileSync(path.join(outputDir, "index.html"), "utf8"), getPublicOrigin());
+  criticalImageUrls = Array.from(ogImageMap.values()).slice(0, 20);
+  applyAssetVersionToServiceWorker(path.join(outputDir, "service-worker.js"), criticalImageUrls);
   verifyDistContents();
 
   console.log(`Built Vercel static frontend into public/ (asset version ${assetVersion})`);
