@@ -6284,6 +6284,18 @@ body.pwa-install-guide-open{
   cursor:pointer;
 }
 
+body.app-booting{
+  overflow:hidden;
+}
+
+body.app-booting #app-container,
+body.app-booting #auth-container,
+body.app-booting #admin-login-container{
+  visibility:hidden;
+  opacity:0;
+  pointer-events:none;
+}
+
 #app-launch-splash{
   position:fixed;
   inset:0;
@@ -6302,9 +6314,11 @@ body.pwa-install-guide-open{
 }
 
 #app-launch-splash img{
-  width:min(92vw, 1120px);
+  width:min(92vw, 760px);
+  max-height:calc(100vh - 28px);
   height:auto;
   display:block;
+  object-fit:contain;
 }
 
 .auth-cat-btn:hover,

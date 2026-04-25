@@ -11214,11 +11214,13 @@ const SESSION_RESTORE_BOOT_TIMEOUT_MS = Math.max(
 function hideAppLaunchSplash() {
   const splash = document.getElementById("app-launch-splash");
   if (!splash) {
+    document.body.classList.remove("app-booting");
     return;
   }
   splash.classList.add("hidden");
   window.setTimeout(() => {
     splash.remove();
+    document.body.classList.remove("app-booting");
   }, 300);
 }
 
@@ -11362,6 +11364,8 @@ bootApp().catch((error) => {
     provider: window.WINGA_CONFIG?.provider || "unknown"
   });
   showFatalStartupState(error);
+  document.body.classList.remove("app-booting");
+  hideAppLaunchSplash();
 });
 
 
