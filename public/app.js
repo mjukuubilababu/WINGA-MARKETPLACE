@@ -11210,6 +11210,8 @@ const SESSION_RESTORE_BOOT_TIMEOUT_MS = Math.max(
   2500,
   Number(window.WINGA_CONFIG?.sessionRestoreTimeoutMs || 12000)
 );
+const APP_LAUNCH_SPLASH_MIN_DURATION_MS = 1800;
+const appLaunchSplashStartedAt = performance.now();
 
 function hideAppLaunchSplash() {
   const splash = document.getElementById("app-launch-splash");
@@ -11222,6 +11224,15 @@ function hideAppLaunchSplash() {
     splash.remove();
     document.body.classList.remove("app-booting");
   }, 300);
+}
+
+function revealAppAfterLaunchSplash() {
+  const elapsed = performance.now() - appLaunchSplashStartedAt;
+  const remaining = Math.max(0, APP_LAUNCH_SPLASH_MIN_DURATION_MS - elapsed);
+  window.setTimeout(() => {
+    appContainer.style.display = "block";
+    hideAppLaunchSplash();
+  }, remaining);
 }
 
 async function bootApp() {
@@ -11318,8 +11329,7 @@ async function bootApp() {
 
   if (isAdminLoginRoute()) {
     showAdminLoginScreen();
-    appContainer.style.display = "block";
-    hideAppLaunchSplash();
+    revealAppAfterLaunchSplash();
     return;
   }
 
@@ -11330,7 +11340,6 @@ async function bootApp() {
 
   authContainer.style.display = "none";
   document.body.classList.remove("auth-modal-open");
-  appContainer.style.display = "block";
   refreshPublicEntryChrome();
   if (suppressInitialProductHomeRender) {
     setCurrentViewState("home", { syncHistory: false });
@@ -11356,7 +11365,7 @@ async function bootApp() {
     });
   }, 0);
 
-  hideAppLaunchSplash();
+  revealAppAfterLaunchSplash();
 }
 
 bootApp().catch((error) => {
