@@ -10,7 +10,7 @@ const PRECACHE_URLS = [
   ROOT_URL,
   INDEX_URL,
   OFFLINE_URL,
-  "/manifest-v2.webmanifest",
+  "/manifest.webmanifest",
   "/style.css",
   "/app.js",
   "/app-core.js",
@@ -19,13 +19,12 @@ const PRECACHE_URLS = [
   "/mock-data.js",
   "/winga-config.js",
   "/share-og.svg",
-  "/SPLASH%20SCREEN.PNG.png",
-  "/apple-touch-icon-v2.png",
-  "/winga-icon-192-v2.png",
-  "/winga-icon-512-v2.png",
-  "/winga-maskable-icon-v2.png",
-  "/winga-icon-v2.svg",
-  "/winga-maskable-icon-v2.svg"
+  "/apple-touch-icon.png",
+  "/winga-icon-192.png",
+  "/winga-icon-512.png",
+  "/winga-maskable-icon.png",
+  "/winga-icon.svg",
+  "/winga-maskable-icon.svg"
 ].map((assetPath) => new URL(assetPath, self.location.origin).toString());
 
 function isSameOrigin(request) {
