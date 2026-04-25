@@ -381,12 +381,16 @@ function applyAssetVersionToHtml(targetPath) {
     /(href|src)="(\/?(?:style\.css|winga-config\.js|mock-data\.js|data-service\.js|app-core\.js|winga-modules\.js|app\.js|src\/[^"]+\.js))(?:\?[^"]*)?"/g,
     (_, attribute, assetPath) => `${attribute}="${assetPath}?v=${assetVersion}"`
   );
-  const marked = next.includes('name="winga-build"')
-    ? next.replace(
-        /<meta name="winga-build" content="[^"]*">/i,
-        `<meta name="winga-build" content="${assetVersion}">`
-      )
-    : next.replace(
+  const publicOrigin = getPublicOrigin();
+  const replaced = next
+    .replace(/__WINGA_PUBLIC_ORIGIN__/g, publicOrigin)
+    .replace(
+      /<meta name="winga-build" content="[^"]*">/i,
+      `<meta name="winga-build" content="${assetVersion}">`
+    );
+  const marked = replaced.includes('name="winga-build"')
+    ? replaced
+    : replaced.replace(
         /(<meta name="viewport" content="width=device-width, initial-scale=1.0">)/i,
         `$1\n  <meta name="winga-build" content="${assetVersion}">`
       );
