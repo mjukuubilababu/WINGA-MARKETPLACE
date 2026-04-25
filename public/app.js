@@ -65,6 +65,469 @@ const {
 } = window.WingaModules.components.ui;
 const { createObservabilityModule } = window.WingaModules.monitoring;
 
+const APP_LANGUAGE_KEY = "winga-app-language";
+const APP_LANGUAGE_PACKS = {
+  en: {
+    appTitle: "WINGA",
+    brandTagline: "Connect. Shop. Grow.",
+    guestTopBarSubtitle: "Discover products first. Sign in only when you want to buy, chat, or sell.",
+    sessionRestoringSubtitle: "Restoring your WINGA session...",
+    loginButton: "Login",
+    signUpButton: "Sign Up",
+    searchPlaceholder: "Search products or shops",
+    searchAria: "Search products or shops",
+    searchImageAria: "Search by image",
+    searchToggleAria: "Open search",
+    mobileCategoryAria: "Open categories",
+    backHomeAria: "Back to home",
+    headerInstall: "Install app",
+    headerOpenApp: "Open app",
+    headerAlreadyInstalled: "Winga is already installed on this device.",
+    headerInstallHelp: "If the browser prompt is not shown yet, open browser menu and choose Install app or Add to home screen.",
+    authGateTitle: "You need an account to continue",
+    authGateMessage: "Already have an account? Sign In. New here? Sign Up.",
+    authNeedAccountContinue: "You need an account to continue",
+    authNeedAccountBuy: "You need an account to buy this product",
+    authNeedAccountWhatsApp: "Sign up or log in to continue with WhatsApp on this product.",
+    authNeedAccountDetails: "Sign up or log in to open product details and other marketplace actions.",
+    authLoginTitle: "Login",
+    authSignupTitle: "Sign Up",
+    authRecoverTitle: "Recover Password",
+    authToggleLogin: "Create account",
+    authToggleSignup: "Already have an account? Sign In",
+    authToggleRecoveryBack: "Back to login",
+    authNoteLogin: "Login uses username, full name, or phone number together with password. Your session will stay active until you log out.",
+    authNoteSignup: "Signup is phone-first. Use store name, phone number, and password. ID verification comes later through Profile > Get Verified.",
+    authNoteRecovery: "Enter your identifier, phone number, NIDA/ID number, and a new password. After finishing, you will sign in again with the new password.",
+    authLoginIdentifierPlaceholder: "Username, full name, or phone number",
+    authSignupStoreName: "Store name",
+    passwordShow: "Show Password",
+    passwordShowPlural: "Show Passwords",
+    passwordHide: "Hide Password",
+    passwordHidePlural: "Hide Passwords",
+    adminLoginTitle: "Admin Login",
+    adminLoginCopy: "Customers and regular sellers should use the normal marketplace login.",
+    adminLoginButton: "Login to Admin",
+    adminLoginBack: "Back to Marketplace",
+    adminLoginRouteTitle: "WINGA Admin Login",
+    adminLoginRouteCopy: "This route is for admins and moderators only. Use the staff route to manage the marketplace.",
+    adminLoginRouteButton: "Admin Login",
+    loginNeeded: "Login needed",
+    uploadTitle: "Add Product",
+    uploadCancel: "Cancel",
+    uploadName: "Product name",
+    uploadPrice: "Price (TSh) - optional",
+    uploadShop: "Store name",
+    uploadWhatsapp: "WhatsApp number for contact",
+    uploadWhatsappNote: "We use your account WhatsApp number directly on this product. If you want to change it, use the Profile section to verify a new number.",
+    uploadGuidelines: "Upload up to 5 images, each under 3MB, in JPG, PNG, WEBP, or GIF format.",
+    uploadButton: "Add Product",
+    emptyStateTitle: "No products found",
+    emptyStateCopy: "Try another search, switch category, or upload a new product.",
+    feedLoadingTitle: "Loading products...",
+    feedLoadingCopy: "Please wait a moment while we bring your products and their images.",
+    searchDropdownEmptyTitle: "No results found",
+    searchDropdownEmptyCopy: "Try another product or shop name.",
+    productWhatsappNote: "We use the WhatsApp number from your account directly on this product. To change it, go to Profile and verify a new number.",
+    installPromoTitle: "Install Winga on your device",
+    installPromoCopy: "Get faster access, smoother browsing, and a home-screen shortcut.",
+    installNotificationTitle: "Install Winga",
+    installNotificationCopy: "Open your browser menu and choose Install app or Add to home screen.",
+    installedNotificationTitle: "Winga already installed",
+    installedNotificationCopy: "Winga is ready to open as an app on this device.",
+    installingNotificationTitle: "Installing Winga",
+    installingNotificationCopy: "Your browser is preparing the app.",
+    installedSuccessTitle: "Winga installed",
+    installedSuccessCopy: "The app is ready to use on this device.",
+    deepLinkLoading: "Opening the product you selected...",
+    sessionRestoring: "Checking your session in the background.",
+    startupTitle: "Startup Error",
+    startupCopy: "The app could not start properly.",
+    startupHelp: "Try refreshing the page. If the problem continues, check the storage/API provider or environment config.",
+    startupButton: "Refresh App",
+    authPendingSellerNote: "We are preparing your seller account. ID verification will happen later in Profile > Get Verified.",
+    authPendingBuyerNote: "We are creating your account. Please wait a moment.",
+    authPendingLogin: "Signing in...",
+    authPendingSignup: "Creating account...",
+    authPendingRecover: "Updating password...",
+    authPendingLoginButton: "Login",
+    authPendingSignupButton: "Sign Up",
+    authPendingRecoverButton: "Reset Password",
+    authSignupSuccessTitle: "Welcome to Winga",
+    authSignupSuccessBody: "Account created. Signing in now...",
+    adminLoginChecking: "We are checking your staff access...",
+    adminNavLabel: "Admin",
+    moderatorNavLabel: "Moderation",
+    headerMessages: "Messages",
+    headerNotifications: "Notifications",
+    headerProfile: "Profile",
+    headerOrdersBuyer: "My Orders",
+    headerOrdersSeller: "Orders",
+    headerLogout: "Logout",
+    navHome: "Home",
+    navUpload: "Upload",
+    navProfile: "Profile",
+    navAdmin: "Admin",
+    footerCopy: "Shop fast. Sell smart. Discover products before signing in.",
+    footerQuickLinks: "Quick Links",
+    footerContact: "Contact",
+    footerMeta: "Marketplace built for fast discovery and trusted transactions.",
+    footerEmail: "Email",
+    footerPhone: "Phone"
+  },
+  fr: {
+    appTitle: "WINGA",
+    brandTagline: "Connecter. Acheter. Grandir.",
+    guestTopBarSubtitle: "Découvrez les produits d'abord. Connectez-vous seulement quand vous voulez acheter, discuter ou vendre.",
+    sessionRestoringSubtitle: "Restauration de votre session WINGA...",
+    loginButton: "Connexion",
+    signUpButton: "S'inscrire",
+    searchPlaceholder: "Rechercher des produits ou des boutiques",
+    searchAria: "Rechercher des produits ou des boutiques",
+    searchImageAria: "Rechercher par image",
+    searchToggleAria: "Ouvrir la recherche",
+    mobileCategoryAria: "Ouvrir les catégories",
+    backHomeAria: "Retour à l'accueil",
+    headerInstall: "Installer l'application",
+    headerOpenApp: "Ouvrir l'application",
+    headerAlreadyInstalled: "Winga est déjà installé sur cet appareil.",
+    headerInstallHelp: "Si l'invite du navigateur n'apparaît pas encore, ouvrez le menu du navigateur et choisissez Installer l'application ou Ajouter à l'écran d'accueil.",
+    authGateTitle: "Vous avez besoin d'un compte pour continuer",
+    authGateMessage: "Vous avez déjà un compte ? Connectez-vous. Nouveau ici ? Inscrivez-vous.",
+    authNeedAccountContinue: "Vous avez besoin d'un compte pour continuer",
+    authNeedAccountBuy: "Vous avez besoin d'un compte pour acheter ce produit",
+    authNeedAccountWhatsApp: "Inscrivez-vous ou connectez-vous pour continuer avec WhatsApp sur ce produit.",
+    authNeedAccountDetails: "Inscrivez-vous ou connectez-vous pour ouvrir les détails du produit et les autres actions de la marketplace.",
+    authLoginTitle: "Connexion",
+    authSignupTitle: "S'inscrire",
+    authRecoverTitle: "Récupérer le mot de passe",
+    authToggleLogin: "Créer un compte",
+    authToggleSignup: "Vous avez déjà un compte ? Connectez-vous",
+    authToggleRecoveryBack: "Retour à la connexion",
+    authNoteLogin: "La connexion utilise le nom d'utilisateur, le nom complet ou le numéro de téléphone avec le mot de passe. Votre session restera active jusqu'à la déconnexion.",
+    authNoteSignup: "L'inscription est d'abord par téléphone. Utilisez le nom de la boutique, le numéro de téléphone et le mot de passe. La vérification d'identité se fera plus tard via Profil > Obtenir la vérification.",
+    authNoteRecovery: "Saisissez votre identifiant, votre numéro de téléphone, votre numéro NIDA/CNI et un nouveau mot de passe. Après validation, vous vous reconnecterez avec le nouveau mot de passe.",
+    authLoginIdentifierPlaceholder: "Nom d'utilisateur, nom complet ou numéro de téléphone",
+    authSignupStoreName: "Nom de la boutique",
+    passwordShow: "Afficher le mot de passe",
+    passwordShowPlural: "Afficher les mots de passe",
+    passwordHide: "Masquer le mot de passe",
+    passwordHidePlural: "Masquer les mots de passe",
+    adminLoginTitle: "Connexion Admin",
+    adminLoginCopy: "Les clients et les vendeurs réguliers doivent utiliser la connexion normale de la marketplace.",
+    adminLoginButton: "Connexion admin",
+    adminLoginBack: "Retour à la marketplace",
+    adminLoginRouteTitle: "Connexion Admin WINGA",
+    adminLoginRouteCopy: "Cette route est réservée aux administrateurs et modérateurs. Utilisez la route staff pour gérer la marketplace.",
+    adminLoginRouteButton: "Connexion Admin",
+    loginNeeded: "Connexion requise",
+    uploadTitle: "Ajouter un produit",
+    uploadCancel: "Annuler",
+    uploadName: "Nom du produit",
+    uploadPrice: "Prix (TSh) - optionnel",
+    uploadShop: "Nom de la boutique",
+    uploadWhatsapp: "Numéro WhatsApp de contact",
+    uploadWhatsappNote: "Nous utilisons directement le numéro WhatsApp de votre compte pour ce produit. Pour le modifier, allez dans Profil et vérifiez un nouveau numéro.",
+    uploadGuidelines: "Téléversez jusqu'à 5 images, chacune inférieure à 3 Mo, au format JPG, PNG, WEBP ou GIF.",
+    uploadButton: "Ajouter le produit",
+    emptyStateTitle: "Aucun produit trouvé",
+    emptyStateCopy: "Essayez une autre recherche, changez de catégorie ou ajoutez un nouveau produit.",
+    feedLoadingTitle: "Chargement des produits...",
+    feedLoadingCopy: "Veuillez patienter pendant que nous chargeons vos produits et leurs images.",
+    searchDropdownEmptyTitle: "Aucun résultat trouvé",
+    searchDropdownEmptyCopy: "Essayez un autre nom de produit ou de boutique.",
+    productWhatsappNote: "Nous utilisons directement le numéro WhatsApp de votre compte pour ce produit. Pour le modifier, allez dans Profil et vérifiez un nouveau numéro.",
+    installPromoTitle: "Installez Winga sur votre appareil",
+    installPromoCopy: "Accédez plus vite, naviguez plus facilement et ajoutez un raccourci à l'écran d'accueil.",
+    installNotificationTitle: "Installer Winga",
+    installNotificationCopy: "Ouvrez le menu de votre navigateur et choisissez Installer l'application ou Ajouter à l'écran d'accueil.",
+    installedNotificationTitle: "Winga déjà installé",
+    installedNotificationCopy: "Winga est prêt à être ouvert comme application sur cet appareil.",
+    installingNotificationTitle: "Installation de Winga",
+    installingNotificationCopy: "Votre navigateur prépare l'application.",
+    installedSuccessTitle: "Winga installé",
+    installedSuccessCopy: "L'application est prête à être utilisée sur cet appareil.",
+    deepLinkLoading: "Ouverture du produit sélectionné...",
+    sessionRestoring: "Vérification de votre session en arrière-plan.",
+    startupTitle: "Erreur de démarrage",
+    startupCopy: "L'application n'a pas pu démarrer correctement.",
+    startupHelp: "Essayez de recharger la page. Si le problème continue, vérifiez le fournisseur de stockage/API ou la configuration d'environnement.",
+    startupButton: "Recharger l'application",
+    authPendingSellerNote: "Nous préparons votre compte vendeur. La vérification d'identité aura lieu plus tard dans Profil > Obtenir la vérification.",
+    authPendingBuyerNote: "Nous créons votre compte. Veuillez patienter un instant.",
+    authPendingLogin: "Connexion...",
+    authPendingSignup: "Création du compte...",
+    authPendingRecover: "Mise à jour du mot de passe...",
+    authPendingLoginButton: "Connexion",
+    authPendingSignupButton: "S'inscrire",
+    authPendingRecoverButton: "Réinitialiser le mot de passe",
+    authSignupSuccessTitle: "Bienvenue sur Winga",
+    authSignupSuccessBody: "Compte créé. Connexion automatique en cours...",
+    adminLoginChecking: "Nous vérifions votre accès staff...",
+    adminNavLabel: "Admin",
+    moderatorNavLabel: "Modération",
+    headerMessages: "Messages",
+    headerNotifications: "Notifications",
+    headerProfile: "Profil",
+    headerOrdersBuyer: "Mes commandes",
+    headerOrdersSeller: "Commandes",
+    headerLogout: "Déconnexion",
+    navHome: "Accueil",
+    navUpload: "Téléverser",
+    navProfile: "Profil",
+    navAdmin: "Admin",
+    footerCopy: "Achetez vite. Vendez intelligemment. Découvrez les produits avant de vous connecter.",
+    footerQuickLinks: "Liens rapides",
+    footerContact: "Contact",
+    footerMeta: "Marketplace conçue pour une découverte rapide et des transactions fiables.",
+    footerEmail: "E-mail",
+    footerPhone: "Téléphone"
+  }
+};
+
+function normalizeAppLanguage(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized.startsWith("fr")) {
+    return "fr";
+  }
+  return "en";
+}
+
+function getStoredAppLanguage() {
+  try {
+    return normalizeAppLanguage(window.localStorage.getItem(APP_LANGUAGE_KEY));
+  } catch (error) {
+    return "";
+  }
+}
+
+function saveAppLanguage(language) {
+  try {
+    window.localStorage.setItem(APP_LANGUAGE_KEY, normalizeAppLanguage(language));
+  } catch (error) {
+    // Ignore language persistence failures.
+  }
+}
+
+function getPreferredAppLanguage() {
+  const storedLanguage = getStoredAppLanguage();
+  if (storedLanguage) {
+    return storedLanguage;
+  }
+  const browserLanguage = String(window.navigator?.language || window.navigator?.userLanguage || "").toLowerCase();
+  return browserLanguage.startsWith("fr") ? "fr" : "en";
+}
+
+let appLanguage = getPreferredAppLanguage();
+let lastRenderFingerprint = "";
+
+function interpolateLocalizedString(template, values = {}) {
+  return String(template || "").replace(/\{\{(\w+)\}\}/g, (_, key) => String(values?.[key] ?? ""));
+}
+
+function t(key, values = {}, fallback = "") {
+  const languagePack = APP_LANGUAGE_PACKS[appLanguage] || APP_LANGUAGE_PACKS.en;
+  const template = languagePack[key] ?? APP_LANGUAGE_PACKS.en[key] ?? fallback ?? key;
+  return interpolateLocalizedString(template, values);
+}
+
+function syncLanguageSwitcherChrome() {
+  const buttons = document.querySelectorAll(".language-switcher-button");
+  buttons.forEach((button) => {
+    const isSelected = normalizeAppLanguage(button.dataset.language) === appLanguage;
+    button.classList.toggle("active", isSelected);
+    button.setAttribute("aria-pressed", String(isSelected));
+  });
+  if (document.documentElement) {
+    document.documentElement.lang = appLanguage;
+  }
+}
+
+function syncLocalizedStaticChrome() {
+  if (document.documentElement) {
+    document.documentElement.lang = appLanguage;
+  }
+  if (document.title === "Chap kwa haraka" || document.title === "WINGA") {
+    document.title = t("appTitle");
+  }
+  if (headerLoginButton) {
+    setNodeText(headerLoginButton, t("loginButton"));
+  }
+  if (headerSignupButton) {
+    setNodeText(headerSignupButton, t("signUpButton"));
+  }
+  if (authGateTitle) {
+    setNodeText(authGateTitle, t("authGateTitle"));
+  }
+  if (authGateCopy) {
+    setNodeText(authGateCopy, t("authGateMessage"));
+  }
+  if (authGateLoginButton) {
+    setNodeText(authGateLoginButton, t("authLoginTitle"));
+  }
+  if (authGateSignupButton) {
+    setNodeText(authGateSignupButton, t("authSignupTitle"));
+  }
+  if (searchInput) {
+    searchInput.placeholder = t("searchPlaceholder");
+    searchInput.setAttribute("aria-label", t("searchAria"));
+  }
+  if (searchImageButton) {
+    searchImageButton.setAttribute("aria-label", t("searchImageAria"));
+  }
+  if (searchToggleButton) {
+    searchToggleButton.setAttribute("aria-label", t("searchToggleAria"));
+  }
+  if (mobileCategoryButton) {
+    mobileCategoryButton.setAttribute("aria-label", t("mobileCategoryAria"));
+  }
+  if (viewHomeBackButton) {
+    viewHomeBackButton.setAttribute("aria-label", t("backHomeAria"));
+  }
+  if (headerBrandTagline) {
+    setNodeText(headerBrandTagline, t("brandTagline"));
+  }
+  if (adminNavItem) {
+    setAdminNavLabel(adminNavItem, getAdminNavLabel());
+  }
+  if (adminLoginButton) {
+    setNodeText(adminLoginButton, t("adminLoginButton"));
+  }
+  if (adminLoginBackButton) {
+    setNodeText(adminLoginBackButton, t("adminLoginBack"));
+  }
+  if (staffAccessButton) {
+    setNodeText(staffAccessButton, t("adminLoginButton"));
+  }
+  if (uploadTitle) {
+    setNodeText(uploadTitle, t("uploadTitle"));
+  }
+  if (cancelEditButton) {
+    setNodeText(cancelEditButton, t("uploadCancel"));
+  }
+  if (productNameInput) {
+    productNameInput.placeholder = t("uploadName");
+  }
+  if (productPriceInput) {
+    productPriceInput.placeholder = t("uploadPrice");
+  }
+  if (productShopInput) {
+    productShopInput.placeholder = t("uploadShop");
+  }
+  if (productWhatsappInput) {
+    productWhatsappInput.placeholder = t("uploadWhatsapp");
+  }
+  if (productWhatsappNote) {
+    setNodeText(productWhatsappNote, t("productWhatsappNote"));
+  }
+  if (uploadGuidelines) {
+    setNodeText(uploadGuidelines, t("uploadGuidelines"));
+  }
+  if (uploadButton) {
+    setNodeText(uploadButton, t("uploadButton"));
+  }
+  if (emptyState) {
+    const titleNode = emptyState.querySelector("h3");
+    const copyNode = emptyState.querySelector("p");
+    if (titleNode) {
+      setNodeText(titleNode, t("emptyStateTitle"));
+    }
+    if (copyNode) {
+      setNodeText(copyNode, t("emptyStateCopy"));
+    }
+  }
+  if (feedLoadingState) {
+    const titleNode = feedLoadingState.querySelector("h3");
+    const copyNode = feedLoadingState.querySelector("p");
+    if (titleNode) {
+      setNodeText(titleNode, t("feedLoadingTitle"));
+    }
+    if (copyNode) {
+      setNodeText(copyNode, t("feedLoadingCopy"));
+    }
+  }
+  document.querySelectorAll("#bottom-nav .nav-item").forEach((button) => {
+    const labelNode = button.querySelector("span:last-child");
+    if (!labelNode) {
+      return;
+    }
+    const view = String(button.dataset.view || "").trim();
+    if (view === "home") {
+      setNodeText(labelNode, t("navHome"));
+    } else if (view === "upload") {
+      setNodeText(labelNode, t("navUpload"));
+    } else if (view === "profile") {
+      setNodeText(labelNode, t("navProfile"));
+    } else if (view === "admin") {
+      setNodeText(labelNode, t("navAdmin"));
+    }
+  });
+  if (publicFooter) {
+    const headings = publicFooter.querySelectorAll(".public-footer-heading");
+    const copies = publicFooter.querySelectorAll(".public-footer-copy");
+    const links = publicFooter.querySelectorAll(".public-footer-links a");
+    const meta = publicFooter.querySelector(".public-footer-meta");
+    if (copies[0]) {
+      setNodeText(copies[0], t("footerCopy"));
+    }
+    if (headings[0]) {
+      setNodeText(headings[0], t("appTitle"));
+    }
+    if (headings[1]) {
+      setNodeText(headings[1], t("footerQuickLinks"));
+    }
+    if (headings[2]) {
+      setNodeText(headings[2], t("footerContact"));
+    }
+    if (meta) {
+      setNodeText(meta, `© 2026 Winga. ${t("footerMeta")}`);
+    }
+    if (links[0]) {
+      setNodeText(links[0], t("navHome"));
+    }
+    if (links[1]) {
+      setNodeText(links[1], t("headerLoginButton"));
+    }
+    if (links[2]) {
+      setNodeText(links[2], t("signUpButton"));
+    }
+    if (links[3]) {
+      setNodeText(links[3], t("footerContact"));
+    }
+  }
+}
+
+function setAppLanguage(nextLanguage, options = {}) {
+  const normalizedLanguage = normalizeAppLanguage(nextLanguage);
+  if (normalizedLanguage === appLanguage && !options.force) {
+    return;
+  }
+  appLanguage = normalizedLanguage;
+  saveAppLanguage(appLanguage);
+  syncLanguageSwitcherChrome();
+  syncLocalizedStaticChrome();
+  syncAuthMode();
+  refreshPublicEntryChrome();
+  if (adminLoginContainer?.style.display !== "none") {
+    showAdminLoginScreen({
+      message: t("adminLoginRouteCopy")
+    });
+  }
+  if (currentView === "profile" && profileDiv) {
+    renderProfile();
+  }
+  lastRenderFingerprint = "";
+  scheduleRenderCurrentView();
+}
+
+function bindLanguageSwitcher() {
+  document.querySelectorAll(".language-switcher-button").forEach((button) => {
+    button.addEventListener("click", () => {
+      setAppLanguage(button.dataset.language || "en");
+    });
+  });
+}
+
 function getViewportWidth() {
   const candidates = [
     window.visualViewport?.width,
@@ -792,6 +1255,54 @@ function syncSearchChromeState() {
     || searchRuntimeState.isMobileSearchOpen
   );
   topBar.classList.toggle("search-engaged", isSearchEngaged);
+}
+
+function buildRenderFingerprint() {
+  const searchValue = String(searchInput?.value || "").trim();
+  const imageSearchSignature = String(searchRuntimeState.activeImageSearch?.signature || "");
+  const currentLocation = `${String(window.location.pathname || "")}|${String(window.location.hash || "")}`;
+  const detailOpen = document.body.classList.contains("product-detail-open") ? "1" : "0";
+  const chatOpen = document.body.classList.contains("context-chat-open") ? "1" : "0";
+  const authOpen = document.body.classList.contains("auth-modal-open") ? "1" : "0";
+  const profileSection = currentView === "profile" ? String(profileRuntimeState.activeSection || "") : "";
+  const hydrated = window.WingaDataLayer?.isProductsHydrated?.() ? "1" : "0";
+  return [
+    appLanguage,
+    currentView,
+    currentUser,
+    selectedCategory,
+    expandedBrowseCategory,
+    isLogin ? "1" : "0",
+    isPasswordRecovery ? "1" : "0",
+    selectedAuthRole,
+    homeFeedRefreshCursor,
+    searchValue,
+    imageSearchSignature,
+    searchRuntimeState.isInputFocused ? "1" : "0",
+    searchRuntimeState.isMobileSearchOpen ? "1" : "0",
+    searchRuntimeState.isMobileCategoryOpen ? "1" : "0",
+    searchRuntimeState.isSearchDropdownDismissed ? "1" : "0",
+    uiRuntimeState.mobileHeaderHidden ? "1" : "0",
+    hydrated,
+    products.length,
+    products[0]?.id || "",
+    products[0]?.updatedAt || "",
+    currentReviews.length,
+    currentMessages.length,
+    currentNotifications.length,
+    currentPromotions.length,
+    currentOrders.purchases.length,
+    currentOrders.sales.length,
+    currentSession?.token ? "1" : "0",
+    isSessionRestorePending ? "1" : "0",
+    detailOpen,
+    chatOpen,
+    authOpen,
+    profileSection,
+    editingProductId || "",
+    pendingDeepLinkProductId || "",
+    currentLocation
+  ].join("|");
 }
 
 function createId() {
@@ -1691,8 +2202,8 @@ function showAuthGatePrompt(options = {}) {
     return;
   }
 
-  setNodeText(authGateTitle, options.title || "You need an account to continue");
-  setNodeText(authGateCopy, options.message || "Already have an account? Sign In. New here? Sign Up.");
+  setNodeText(authGateTitle, options.title || t("authGateTitle"));
+  setNodeText(authGateCopy, options.message || t("authGateMessage"));
   authGatePrompt.style.display = "block";
 }
 
@@ -1738,8 +2249,8 @@ function promptGuestAuth(options = {}) {
   openAuthModal(options.preferredMode || "signup", {
     gated: true,
     role: options.role || "buyer",
-    title: options.title || "You need an account to continue",
-    message: options.message || "Already have an account? Sign In. New here? Sign Up."
+    title: options.title || t("authGateTitle"),
+    message: options.message || t("authGateMessage")
   });
 }
 
@@ -1763,9 +2274,9 @@ function refreshPublicEntryChrome() {
   }
   if (topBarSubtitle) {
     setNodeText(topBarSubtitle, isSessionRestoreUi
-      ? "Restoring your WINGA session..."
+      ? t("sessionRestoringSubtitle")
       : isGuest
-      ? "Discover products first. Sign in only when you want to buy, chat, or sell."
+      ? t("guestTopBarSubtitle")
       : "");
     topBarSubtitle.style.display = isGuest || isSessionRestoreUi ? "" : "none";
   }
@@ -1981,7 +2492,7 @@ function getHeaderMenuItems() {
   if (isStaffUser()) {
     return [
       { action: "admin", label: getAdminNavLabel() },
-      { action: "logout", label: "Logout", danger: true }
+      { action: "logout", label: t("headerLogout"), danger: true }
     ];
   }
 
@@ -1989,20 +2500,20 @@ function getHeaderMenuItems() {
   const unreadNotifications = getUnreadNotifications().length;
   const items = [
     ...(isStandaloneDisplayMode() ? [] : [{ action: "install", label: getPwaInstallButtonLabel() }]),
-    { action: "profile", label: "Profile" },
-    { action: "orders", label: isBuyerUser() ? "My Orders" : "Orders" },
-    { action: "messages", label: `Messages${unreadMessages ? ` (${Math.min(unreadMessages, 99)}${unreadMessages > 99 ? "+" : ""})` : ""}` }
+    { action: "profile", label: t("headerProfile") },
+    { action: "orders", label: isBuyerUser() ? t("headerOrdersBuyer") : t("headerOrdersSeller") },
+    { action: "messages", label: `${t("headerMessages")}${unreadMessages ? ` (${Math.min(unreadMessages, 99)}${unreadMessages > 99 ? "+" : ""})` : ""}` }
   ];
 
   if (unreadNotifications) {
-    items.push({ action: "notifications", label: `Notifications (${Math.min(unreadNotifications, 99)}${unreadNotifications > 99 ? "+" : ""})` });
+    items.push({ action: "notifications", label: `${t("headerNotifications")} (${Math.min(unreadNotifications, 99)}${unreadNotifications > 99 ? "+" : ""})` });
   }
 
   if (isStaffUser()) {
     items.push({ action: "admin", label: getAdminNavLabel() });
   }
 
-  items.push({ action: "logout", label: "Logout", danger: true });
+  items.push({ action: "logout", label: t("headerLogout"), danger: true });
   return items;
 }
 
@@ -2122,7 +2633,7 @@ function getActiveProfileSection() {
 }
 
 function getAdminNavLabel() {
-  return isModeratorUser() ? "Moderation" : "Admin";
+  return isModeratorUser() ? t("moderatorNavLabel") : t("adminNavLabel");
 }
 
 function getMarketplaceUser(username) {
@@ -2530,8 +3041,8 @@ function openProductWhatsappFromCard(productId) {
     promptGuestAuth?.({
       preferredMode: "signup",
       role: "buyer",
-      title: "You need an account to continue",
-      message: "Sign up or log in to continue with WhatsApp on this product.",
+      title: t("authNeedAccountContinue"),
+      message: t("authNeedAccountWhatsApp"),
       intent: { type: "open-whatsapp", productId }
     });
     return;
@@ -2692,19 +3203,19 @@ function isPwaInstallPromotable() {
 
 function getPwaInstallButtonLabel() {
   if (isStandaloneDisplayMode()) {
-    return "Open app";
+    return t("headerOpenApp");
   }
   if (appInstallState.deferredPrompt) {
-    return "Install app";
+    return t("headerInstall");
   }
-  return "Install app";
+  return t("headerInstall");
 }
 
 function getPwaInstallHelpCopy() {
   if (isStandaloneDisplayMode()) {
-    return "Winga is already installed on this device.";
+    return t("headerAlreadyInstalled");
   }
-  return "If the browser prompt is not shown yet, open browser menu and choose Install app or Add to home screen.";
+  return t("headerInstallHelp");
 }
 
 function ensurePwaInstallButton(buttonId, className = "public-header-btn public-header-btn-primary") {
@@ -2736,11 +3247,11 @@ function ensureInstallChrome() {
       authPromo.append(
         createElement("p", {
           className: "auth-install-title",
-          textContent: "Install Winga on your device"
+          textContent: t("installPromoTitle")
         }),
         createElement("p", {
           className: "auth-install-copy",
-          textContent: "Get faster access, smoother browsing, and a home-screen shortcut."
+          textContent: t("installPromoCopy")
         })
       );
       authInstallButton = ensurePwaInstallButton("auth-install-button", "public-header-btn public-header-btn-primary");
@@ -2779,8 +3290,8 @@ function syncInstallChrome() {
 async function promptAppInstall(source = "header") {
   if (isStandaloneDisplayMode()) {
     showInAppNotification({
-      title: "Winga already installed",
-      body: "App iko tayari kufunguka kama app kwenye kifaa hiki.",
+      title: t("installedNotificationTitle"),
+      body: t("installedNotificationCopy"),
       variant: "info"
     });
     return true;
@@ -2795,8 +3306,8 @@ async function promptAppInstall(source = "header") {
       const choiceResult = await promptEvent.userChoice;
       if (choiceResult?.outcome === "accepted") {
         showInAppNotification({
-          title: "Installing Winga",
-          body: "Browser inaandaa app yako.",
+          title: t("installingNotificationTitle"),
+          body: t("installingNotificationCopy"),
           variant: "success"
         });
         return true;
@@ -2809,7 +3320,7 @@ async function promptAppInstall(source = "header") {
   }
 
   showInAppNotification({
-    title: "Install Winga",
+    title: t("installNotificationTitle"),
     body: getPwaInstallHelpCopy(),
     variant: "info"
   });
@@ -2834,8 +3345,8 @@ function initializePwaInstallExperience() {
     appInstallState.installed = true;
     syncInstallChrome();
     showInAppNotification({
-      title: "Winga installed",
-      body: "App iko tayari kutumia kwenye device hii.",
+      title: t("installedSuccessTitle"),
+      body: t("installedSuccessCopy"),
       variant: "success"
     });
   });
@@ -3644,7 +4155,7 @@ function setNodeText(node, value) {
 
 function showFatalStartupState(error) {
   const provider = window.WINGA_CONFIG?.provider || "unknown";
-  const message = error?.message || "Angalia config ya storage provider.";
+  const message = error?.message || t("startupHelp");
 
   closeAllTransientOverlays({
     closeAuthModalIfGuest: false
@@ -3665,11 +4176,11 @@ function showFatalStartupState(error) {
   const panel = createElement("section", { className: "fatal-startup-card panel" });
   const copy = createElement("div", { className: "fatal-startup-copy" });
   copy.append(
-    createElement("p", { className: "eyebrow", textContent: "Startup Error" }),
-    createElement("h2", { textContent: "App haikuweza kuanza vizuri." }),
+    createElement("p", { className: "eyebrow", textContent: t("startupTitle") }),
+    createElement("h2", { textContent: t("startupCopy") }),
     createElement("p", {
       className: "empty-copy",
-      textContent: "Jaribu ku-refresh ukurasa. Ikiwa tatizo linaendelea, kagua provider ya storage/API au environment config."
+      textContent: t("startupHelp")
     })
   );
 
@@ -3688,7 +4199,7 @@ function showFatalStartupState(error) {
   const actions = createElement("div", { className: "fatal-startup-actions" });
   const reloadButton = createElement("button", {
     className: "button",
-    textContent: "Refresh App",
+    textContent: t("startupButton"),
     attributes: { type: "button" }
   });
   reloadButton.addEventListener("click", () => window.location.reload());
@@ -3710,7 +4221,7 @@ function showSessionRestoringState(message = "") {
   syncBodyScrollLockState();
   refreshPublicEntryChrome();
   if (topBarSubtitle) {
-    setNodeText(topBarSubtitle, message || "Tunaangalia session yako nyuma ya pazia.");
+    setNodeText(topBarSubtitle, message || t("sessionRestoring"));
     topBarSubtitle.style.display = "";
   }
 }
@@ -3839,7 +4350,7 @@ function showLoggedOutState(options = {}) {
   syncBodyScrollLockState();
   if (message) {
     showInAppNotification({
-      title: "Login needed",
+      title: t("loginNeeded"),
       body: message,
       variant: "warning"
     });
@@ -3857,10 +4368,10 @@ function setAuthInteractionPending(kind, pending, options = {}) {
     if (adminLoginPasswordInput) adminLoginPasswordInput.disabled = isPending;
     if (adminLoginButton) {
       adminLoginButton.disabled = isPending;
-      setNodeText(adminLoginButton, isPending ? "Ingia..." : "Admin Login");
+      setNodeText(adminLoginButton, isPending ? "..." : t("adminLoginRouteButton"));
     }
     if (adminLoginCopy && isPending) {
-      setNodeText(adminLoginCopy, "Tunaangalia staff access yako...");
+      setNodeText(adminLoginCopy, t("adminLoginChecking"));
     }
     return;
   }
@@ -3890,14 +4401,14 @@ function setAuthInteractionPending(kind, pending, options = {}) {
   });
   if (authButton) {
     setNodeText(authButton, isPending
-      ? (buttonText || (isPasswordRecovery ? "Inabadilisha password..." : (isLogin ? "Inaingia..." : "Inatengeneza akaunti...")))
-      : (isPasswordRecovery ? "Badilisha Password" : (isLogin ? "Ingia" : "Tengeneza Akaunti")));
+      ? (buttonText || (isPasswordRecovery ? t("authPendingRecover") : (isLogin ? t("authPendingLogin") : t("authPendingSignup"))))
+      : (isPasswordRecovery ? t("authPendingRecoverButton") : (isLogin ? t("authPendingLoginButton") : t("authPendingSignupButton"))));
   }
   if (authCategoryNote && !isLogin && !isPasswordRecovery && isPending) {
     setNodeText(authCategoryNote, noteText || (
       selectedAuthRole === "seller"
-        ? "Tunatayarisha akaunti yako ya seller. Verification ya ID itafanyika baadaye kwenye Profile > Get Verified."
-        : "Tunatengeneza akaunti yako. Tafadhali subiri kidogo."
+        ? t("authPendingSellerNote")
+        : t("authPendingBuyerNote")
     ));
   }
   if (!isPending) {
@@ -3914,9 +4425,9 @@ function switchToLoginMode(prefillIdentifier = "") {
   isLogin = true;
   isPasswordRecovery = false;
   authSignupStep = 1;
-  setNodeText(formTitle, "Login");
-  setNodeText(authButton, "Login");
-  setNodeText(toggleLink, "Tengeneza akaunti");
+  setNodeText(formTitle, t("authLoginTitle"));
+  setNodeText(authButton, t("authPendingLoginButton"));
+  setNodeText(toggleLink, t("authToggleLogin"));
   if (prefillIdentifier) {
     usernameInput.value = prefillIdentifier;
   }
@@ -5679,6 +6190,9 @@ const heroPanel = document.getElementById("hero-panel");
 const marketShowcase = document.getElementById("market-showcase");
 const showcaseTrack = document.getElementById("showcase-track");
 const productsContainer = document.getElementById("products-container");
+const headerBrandTagline = document.getElementById("header-brand-tagline");
+const productWhatsappNote = document.getElementById("product-whatsapp-note");
+const uploadGuidelines = document.getElementById("upload-guidelines");
 const productsSummary = document.getElementById("products-summary");
 const uploadForm = document.getElementById("upload-form");
 const uploadTitle = document.getElementById("upload-title");
@@ -6214,7 +6728,7 @@ function hideDeepLinkLoadingOverlay() {
   deepLinkLoadingOverlay = null;
 }
 
-function showDeepLinkLoadingState(message = "Tunafungua bidhaa uliyoifungua...") {
+function showDeepLinkLoadingState(message = t("deepLinkLoading")) {
   setDeepLinkLoadingShellVisible(false);
   if (!deepLinkLoadingOverlay) {
     const overlay = document.createElement("div");
@@ -6364,7 +6878,7 @@ function openDeepLinkedProductRouteIfNeeded(options = {}) {
     if (!window.WingaDataLayer?.isProductsHydrated?.()) {
       pendingDeepLinkProductId = productId;
       setCurrentViewState("home", { syncHistory: false });
-      showDeepLinkLoadingState("Tunafungua bidhaa uliyoifungua...");
+      showDeepLinkLoadingState();
       return true;
     }
     hideDeepLinkLoadingState();
@@ -6384,7 +6898,7 @@ function openDeepLinkedProductRouteIfNeeded(options = {}) {
     });
     return false;
   }
-  showDeepLinkLoadingState("Tunafungua bidhaa uliyoifungua...");
+  showDeepLinkLoadingState();
   setCurrentViewState("home", { syncHistory: false });
   if (!skipHomeRender) {
     renderCurrentView();
@@ -6426,13 +6940,13 @@ function showAdminLoginScreen(options = {}) {
   appContainer.style.display = "none";
   adminLoginContainer.style.display = "block";
   if (adminLoginTitle) {
-    setNodeText(adminLoginTitle, "Admin Login");
+    setNodeText(adminLoginTitle, t("adminLoginRouteTitle"));
   }
   if (adminLoginCopy) {
-    setNodeText(adminLoginCopy, message || "Mteja na muuzaji wa kawaida wanapaswa kutumia login ya kawaida ya marketplace.");
+    setNodeText(adminLoginCopy, message || t("adminLoginRouteCopy"));
   }
-  if (document.title !== "WINGA Admin Login") {
-    document.title = "WINGA Admin Login";
+  if (document.title !== t("adminLoginRouteTitle")) {
+    document.title = t("adminLoginRouteTitle");
   }
   syncBodyScrollLockState();
   requestAnimationFrame(() => {
@@ -6444,8 +6958,8 @@ function hideAdminLoginScreen() {
   if (adminLoginContainer) {
     adminLoginContainer.style.display = "none";
   }
-  if (document.title !== "Chap kwa haraka") {
-    document.title = "Chap kwa haraka";
+  if (document.title !== t("appTitle")) {
+    document.title = t("appTitle");
   }
   syncBodyScrollLockState();
 }
@@ -6481,23 +6995,23 @@ function syncAuthMode() {
   }
   authButton.style.display = "block";
   usernameInput.placeholder = isLogin
-    ? "Username, full name, or phone number"
+    ? t("authLoginIdentifierPlaceholder", {}, "Username, full name, or phone number")
     : isRecoveryMode
-      ? "Username, full name, or phone number"
-      : "Jina la duka";
-  setNodeText(formTitle, isRecoveryMode ? "Recover Password" : (isLogin ? "Login" : "Sign Up"));
-  setNodeText(authButton, isRecoveryMode ? "Reset Password" : (isLogin ? "Login" : "Sign Up"));
-  setNodeText(toggleLink, isRecoveryMode ? "Rudi kwenye login" : (isLogin ? "Tengeneza akaunti" : "Tayari una akaunti? Ingia"));
+      ? t("authLoginIdentifierPlaceholder", {}, "Username, full name, or phone number")
+      : t("authSignupStoreName", {}, "Store name");
+  setNodeText(formTitle, isRecoveryMode ? t("authRecoverTitle") : (isLogin ? t("authLoginTitle") : t("authSignupTitle")));
+  setNodeText(authButton, isRecoveryMode ? t("authPendingRecoverButton") : (isLogin ? t("authPendingLoginButton") : t("authPendingSignupButton")));
+  setNodeText(toggleLink, isRecoveryMode ? t("authToggleRecoveryBack") : (isLogin ? t("authToggleLogin") : t("authToggleSignup")));
   if (forgotPasswordLink) {
     forgotPasswordLink.style.display = isLogin ? "block" : "none";
   }
 
   if (authCategoryNote) {
     setNodeText(authCategoryNote, isLogin
-      ? "Login tumia username, full name, au namba ya simu pamoja na password. Session itaendelea mpaka ulogout."
+      ? t("authNoteLogin")
       : isRecoveryMode
-        ? "Weka identifier, namba ya simu, NIDA/ID number, na password mpya. Ukimaliza utaingia tena kwa password mpya."
-        : "Signup sasa ni phone-first. Weka jina la duka, namba ya simu, na password. Verification ya ID itafanyika baadaye kupitia Profile > Get Verified.");
+        ? t("authNoteRecovery")
+        : t("authNoteSignup"));
   }
 
   if (!isSellerSignup) {
@@ -6528,7 +7042,7 @@ function syncAuthMode() {
     input.type = "password";
   });
   if (passwordToggleButton) {
-    setNodeText(passwordToggleButton, isSecuritySignup || isRecoveryMode ? "Show Passwords" : "Show Password");
+    setNodeText(passwordToggleButton, isSecuritySignup || isRecoveryMode ? t("passwordShowPlural") : t("passwordShow"));
   }
 }
 
@@ -6582,12 +7096,13 @@ function bindPasswordToggle(button) {
       input.type = isHidden ? "text" : "password";
     });
     setNodeText(button, isHidden
-      ? (confirmPasswordWrap.style.display !== "none" ? "Hide Passwords" : "Hide Password")
-      : (confirmPasswordWrap.style.display !== "none" ? "Show Passwords" : "Show Password"));
+      ? (confirmPasswordWrap.style.display !== "none" ? t("passwordHidePlural") : t("passwordHide"))
+      : (confirmPasswordWrap.style.display !== "none" ? t("passwordShowPlural") : t("passwordShow")));
   });
 }
 
 bindPasswordToggle(passwordToggleButton);
+bindLanguageSwitcher();
 
 phoneNumberInput.addEventListener("blur", () => {
   phoneNumberInput.value = normalizePhoneNumber(phoneNumberInput.value);
@@ -6674,7 +7189,7 @@ adminLoginButton?.addEventListener("click", async () => {
       variant: "error"
     });
     showAdminLoginScreen({
-      message: "Tumia admin au moderator account halali. Mteja na muuzaji wa kawaida wanapaswa kutumia login ya kawaida."
+      message: t("adminLoginRouteCopy")
     });
     adminAuthRequestPending = false;
     setAuthInteractionPending("admin", false);
@@ -6927,14 +7442,14 @@ authButton.addEventListener("click", async () => {
     releasePublicAuthPendingState();
     publicAuthTransitionPending = true;
     setAuthInteractionPending("public", true, {
-      buttonText: "Inaingia...",
-      noteText: "Akaunti imeundwa. Tunaingia sasa..."
+      buttonText: t("authPendingLogin"),
+      noteText: t("authSignupSuccessBody")
     });
     await waitForNextPaint();
     try {
       showInAppNotification({
-        title: "Welcome to Winga",
-        body: "Akaunti imeundwa. Unaingia moja kwa moja.",
+      title: t("authSignupSuccessTitle"),
+      body: t("authSignupSuccessBody"),
         variant: "success"
       });
       authSignupStep = 1;
@@ -8395,8 +8910,8 @@ function renderSearchDropdown(filteredProducts, options = {}) {
   const items = getSearchDropdownProducts(filteredProducts);
   if (items.length === 0) {
     const emptyState = createElement("div", { className: "search-dropdown-empty" });
-    emptyState.appendChild(createElement("strong", { textContent: "No results found" }));
-    emptyState.appendChild(createElement("span", { textContent: "Jaribu jina lingine la bidhaa au duka." }));
+    emptyState.appendChild(createElement("strong", { textContent: t("searchDropdownEmptyTitle") }));
+    emptyState.appendChild(createElement("span", { textContent: t("searchDropdownEmptyCopy") }));
     searchDropdown.replaceChildren(emptyState);
     searchDropdown.classList.add("open");
     return;
@@ -9668,8 +10183,8 @@ function bindShowcaseCardClicks(scope) {
         promptGuestAuth?.({
           preferredMode: "signup",
           role: "buyer",
-          title: "You need an account to continue",
-          message: "Sign up or log in to open product details and other marketplace actions.",
+          title: t("authNeedAccountContinue"),
+          message: t("authNeedAccountDetails"),
           intent: { type: "focus-product", productId }
         });
         return;
@@ -9860,8 +10375,8 @@ function enhanceShowcaseTracks(scope = document) {
         promptGuestAuth({
           preferredMode: "signup",
           role: "buyer",
-          title: "You need an account to continue",
-          message: "Sign up or log in to open product details and other marketplace actions.",
+          title: t("authNeedAccountContinue"),
+          message: t("authNeedAccountDetails"),
           intent: { type: "focus-product", productId }
         });
         return;
@@ -9992,6 +10507,11 @@ function renderCurrentView() {
   ) {
     return;
   }
+  const renderFingerprint = buildRenderFingerprint();
+  if (renderFingerprint === lastRenderFingerprint) {
+    return;
+  }
+  lastRenderFingerprint = renderFingerprint;
   const startedAt = getPerfNow();
   if (searchRuntimeState.renderDebounceTimer) {
     clearTimeout(searchRuntimeState.renderDebounceTimer);
@@ -10348,8 +10868,8 @@ function beginPurchaseFlow(product) {
     promptGuestAuth({
       preferredMode: "signup",
       role: "buyer",
-      title: "You need an account to buy this product",
-      message: "Already have an account? Sign In. New here? Sign Up kama mteja ili uendelee na malipo.",
+      title: t("authNeedAccountBuy"),
+      message: `${t("authGateMessage")} ${appLanguage === "fr" ? "Inscrivez-vous comme client pour continuer le paiement." : "Sign Up kama mteja ili uendelee na malipo."}`,
       intent: { type: "focus-product", productId: product?.id }
     });
     return;
@@ -11012,6 +11532,8 @@ async function bootApp() {
   });
   const bootstrapCleanupPromise = initializeBootstrapStorageVersion();
   syncAuthMode();
+  syncLanguageSwitcherChrome();
+  syncLocalizedStaticChrome();
   authContainer.style.display = "none";
   document.body.classList.remove("auth-modal-open");
   appContainer.style.display = "block";
@@ -11030,7 +11552,7 @@ async function bootApp() {
     window.history.scrollRestoration = "manual";
   }
   if (suppressInitialProductHomeRender) {
-    showDeepLinkLoadingState("Tunafungua bidhaa uliyoifungua...");
+    showDeepLinkLoadingState();
   }
   if (suppressInitialProductHomeRender) {
     setDeepLinkLoadingShellVisible(false);
