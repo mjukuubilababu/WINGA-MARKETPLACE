@@ -11210,8 +11210,18 @@ const SESSION_RESTORE_BOOT_TIMEOUT_MS = Math.max(
   2500,
   Number(window.WINGA_CONFIG?.sessionRestoreTimeoutMs || 12000)
 );
-const APP_LAUNCH_SPLASH_MIN_DURATION_MS = 1800;
+const APP_LAUNCH_SPLASH_MIN_DURATION_MS = 900;
 const appLaunchSplashStartedAt = performance.now();
+const appLaunchSplashState = {
+  windowLoaded: document.readyState === "complete",
+  bootReady: false,
+  hideStarted: false
+};
+
+window.addEventListener("load", () => {
+  appLaunchSplashState.windowLoaded = true;
+  maybeHideAppLaunchSplash();
+}, { once: true });
 
 function hideAppLaunchSplash() {
   const splash = document.getElementById("app-launch-splash");
@@ -11219,18 +11229,25 @@ function hideAppLaunchSplash() {
     document.body.classList.remove("app-booting");
     return;
   }
+  if (appLaunchSplashState.hideStarted) {
+    return;
+  }
+  appLaunchSplashState.hideStarted = true;
   splash.classList.add("hidden");
   window.setTimeout(() => {
     splash.remove();
     document.body.classList.remove("app-booting");
-  }, 300);
+  }, 400);
 }
 
-function revealAppAfterLaunchSplash() {
+function maybeHideAppLaunchSplash() {
+  if (!appLaunchSplashState.windowLoaded || !appLaunchSplashState.bootReady) {
+    return;
+  }
+  appContainer.style.display = "block";
   const elapsed = performance.now() - appLaunchSplashStartedAt;
   const remaining = Math.max(0, APP_LAUNCH_SPLASH_MIN_DURATION_MS - elapsed);
   window.setTimeout(() => {
-    appContainer.style.display = "block";
     hideAppLaunchSplash();
   }, remaining);
 }
@@ -11329,7 +11346,8 @@ async function bootApp() {
 
   if (isAdminLoginRoute()) {
     showAdminLoginScreen();
-    revealAppAfterLaunchSplash();
+    appLaunchSplashState.bootReady = true;
+    maybeHideAppLaunchSplash();
     return;
   }
 
@@ -11365,7 +11383,8 @@ async function bootApp() {
     });
   }, 0);
 
-  revealAppAfterLaunchSplash();
+  appLaunchSplashState.bootReady = true;
+  maybeHideAppLaunchSplash();
 }
 
 bootApp().catch((error) => {

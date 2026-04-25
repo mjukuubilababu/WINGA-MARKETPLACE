@@ -6296,6 +6296,7 @@ body.app-booting #admin-login-container{
   pointer-events:none;
 }
 
+.splash-screen,
 #app-launch-splash{
   position:fixed;
   inset:0;
@@ -6304,28 +6305,29 @@ body.app-booting #admin-login-container{
   width:100dvw;
   height:100vh;
   height:100dvh;
-  background:#fff;
-  z-index:2000;
+  background:
+    linear-gradient(180deg, rgba(255, 106, 0, 0.94), rgba(255, 106, 0, 0.94)),
+    url('/SPLASH%20SCREEN.PNG.png') center center / cover no-repeat;
+  z-index:9999;
   opacity:1;
   overflow:hidden;
-  transition:opacity .25s ease, visibility .25s ease;
+  transition:opacity .35s ease, visibility .35s ease;
   transform:translateZ(0);
+  pointer-events:none;
 }
 
+.splash-screen.hidden,
 #app-launch-splash.hidden{
   opacity:0;
   visibility:hidden;
   pointer-events:none;
 }
 
-#app-launch-splash img{
-  position:absolute;
-  inset:0;
-  width:100%;
-  height:100%;
-  display:block;
-  object-fit:cover;
-  object-position:center center;
+#app-container,
+#auth-container,
+#admin-login-container{
+  position:relative;
+  z-index:1;
 }
 
 .auth-cat-btn:hover,
