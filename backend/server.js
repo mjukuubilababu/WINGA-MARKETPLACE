@@ -1785,6 +1785,38 @@ function getLocalUploadFilePath(value) {
   return path.join(UPLOADS_DIR, fileName);
 }
 
+function resolveProxyImageTarget(value, req) {
+  const normalizedValue = String(value || "").trim();
+  if (!normalizedValue) {
+    return null;
+  }
+
+  let parsedTarget;
+  try {
+    parsedTarget = new URL(normalizedValue, getPublicRequestOrigin(req));
+  } catch (error) {
+    return null;
+  }
+
+  const publicOrigin = getPublicRequestOrigin(req);
+  if (parsedTarget.origin !== publicOrigin) {
+    return null;
+  }
+  if (!parsedTarget.pathname.startsWith("/uploads/")) {
+    return null;
+  }
+
+  const filePath = getLocalUploadFilePath(parsedTarget.pathname);
+  if (!filePath || !filePath.startsWith(UPLOADS_DIR)) {
+    return null;
+  }
+
+  return {
+    filePath,
+    contentType: getMimeTypeFromExtension(path.extname(filePath).toLowerCase()) || "application/octet-stream"
+  };
+}
+
 function cleanupUnusedLocalImages(previousProduct, nextProduct, allProducts) {
   const nextImages = new Set((nextProduct?.images || []).filter((image) => image.startsWith("/uploads/")));
   const usedByOtherProducts = new Set(
@@ -3006,6 +3038,21 @@ http.createServer(async (req, res) => {
   }
 
   try {
+    if (req.method === "GET" && url.pathname === "/__winga-image__") {
+      const target = resolveProxyImageTarget(url.searchParams.get("u") || "", req);
+      if (!target || !fs.existsSync(target.filePath)) {
+        sendJson(res, 404, { error: "Picha haijapatikana." });
+        return;
+      }
+
+      res.writeHead(200, buildSecurityHeaders(200, {
+        "Content-Type": target.contentType,
+        "Cache-Control": "public, max-age=31536000, immutable"
+      }, req));
+      fs.createReadStream(target.filePath).pipe(res);
+      return;
+    }
+
     if (req.method === "GET" && url.pathname.startsWith("/uploads/")) {
       const filePath = getLocalUploadFilePath(url.pathname);
       if (!filePath || !filePath.startsWith(UPLOADS_DIR) || !fs.existsSync(filePath)) {

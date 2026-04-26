@@ -124,23 +124,27 @@ async function proxyImageRequest(request) {
     return new Response("", { status: 404, statusText: "Missing image source" });
   }
 
-  const refreshImage = async () => {
-    const networkResponse = await fetch(remoteUrl, { mode: "no-cors" });
-    if (networkResponse) {
-      await cache.put(request, networkResponse.clone());
-      return networkResponse;
-    }
-    return null;
-  };
-
   const cachedResponse = await cache.match(request);
   if (cachedResponse) {
     return cachedResponse;
   }
 
   try {
-    const networkResponse = await refreshImage();
+    const networkResponse = await fetch(request);
     if (networkResponse) {
+      if (networkResponse.ok || networkResponse.type === "opaque") {
+        await cache.put(request, networkResponse.clone());
+      }
+      return networkResponse;
+    }
+  } catch (error) {
+    // Fall through to remote fallback below.
+  }
+
+  try {
+    const networkResponse = await fetch(remoteUrl, { mode: "no-cors" });
+    if (networkResponse) {
+      await cache.put(request, networkResponse.clone());
       return networkResponse;
     }
   } catch (error) {

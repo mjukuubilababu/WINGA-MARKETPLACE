@@ -1,2 +1,3 @@
+/__winga-image__ https://winga-pflp.onrender.com/__winga-image__ 200
 /product/* /api/product/:splat 200
 /* /index.html 200

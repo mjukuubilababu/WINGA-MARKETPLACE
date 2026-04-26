@@ -1,4 +1,4 @@
-const BUILD_VERSION = "20260426123127";
+const BUILD_VERSION = "20260426125836";
 const CACHE_PREFIX = "winga-shell";
 const CACHE_NAME = `${CACHE_PREFIX}-${BUILD_VERSION}`;
 const IMAGE_CACHE_NAME = "winga-images";
@@ -6,7 +6,7 @@ const ROOT_URL = new URL("/", self.location.origin).toString();
 const INDEX_URL = new URL("/index.html", self.location.origin).toString();
 const OFFLINE_URL = new URL("/offline.html", self.location.origin).toString();
 const IMAGE_PROXY_PREFIX = "/__winga-image__";
-const CRITICAL_IMAGE_URLS = [];
+const CRITICAL_IMAGE_URLS = ["/og-images/product-1777035373882-94d77c-64fc4970cb30.jpg","/og-images/product-1776811707733-b96ec5-271ce1ba34c2.jpg","/og-images/product-1776784732920-892ec0-a473096cc3bd.jpg","/og-images/product-1776774500822-065b96-d02ba2e63ed1.jpg","/og-images/product-1776698143995-5f5edf-1446ce3000d1.jpg","/og-images/product-1776698137497-912617-1446ce3000d1.jpg","/og-images/product-1776697256770-115247-a473096cc3bd.jpg","/og-images/product-1776696377914-051e26-9b2778770234.jpg","/og-images/product-1776641342254-4e421b-7733e6fa395b.jpg","/og-images/product-1776636209944-914a0f-81a72010d3a9.jpg","/og-images/product-1776636032627-73222e-8995417a393e.jpg","/og-images/product-1776635946578-fb4643-959f31784b79.jpg","/og-images/product-1776632816253-1ba7f8-31e4a5c4440f.jpg","/og-images/product-1776625047307-9cec81-b885aa7a5d3b.jpg","/og-images/product-1776623713511-146e16-01d9647f3d80.jpg","/og-images/product-1776622980060-6f1c2d-95d4ffacf7dc.jpg","/og-images/product-1776622652471-d8d3ea-e07955e150f6.jpg","/og-images/product-1776351627200-b45359-5ae916b1d778.jpg","/og-images/product-1776259811697-c39bef-95e460fdd98d.jpg","/og-images/product-1776095870275-fd26aa-89563965d1df.jpg"];
 const PRECACHE_URLS = [
   ROOT_URL,
   INDEX_URL,
@@ -124,23 +124,27 @@ async function proxyImageRequest(request) {
     return new Response("", { status: 404, statusText: "Missing image source" });
   }
 
-  const refreshImage = async () => {
-    const networkResponse = await fetch(remoteUrl, { mode: "no-cors" });
-    if (networkResponse) {
-      await cache.put(request, networkResponse.clone());
-      return networkResponse;
-    }
-    return null;
-  };
-
   const cachedResponse = await cache.match(request);
   if (cachedResponse) {
     return cachedResponse;
   }
 
   try {
-    const networkResponse = await refreshImage();
+    const networkResponse = await fetch(request);
     if (networkResponse) {
+      if (networkResponse.ok || networkResponse.type === "opaque") {
+        await cache.put(request, networkResponse.clone());
+      }
+      return networkResponse;
+    }
+  } catch (error) {
+    // Fall through to remote fallback below.
+  }
+
+  try {
+    const networkResponse = await fetch(remoteUrl, { mode: "no-cors" });
+    if (networkResponse) {
+      await cache.put(request, networkResponse.clone());
       return networkResponse;
     }
   } catch (error) {

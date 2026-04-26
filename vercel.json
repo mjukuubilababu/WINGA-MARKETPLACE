@@ -48,6 +48,10 @@
   ],
   "rewrites": [
     {
+      "source": "/__winga-image__",
+      "destination": "https://winga-pflp.onrender.com/__winga-image__"
+    },
+    {
       "source": "/product/:id",
       "destination": "/api/product/:id"
     }
