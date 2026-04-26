@@ -709,6 +709,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       return value;
     }
     try {
+      const isFileProtocol = String(window.location?.protocol || "").toLowerCase() === "file:";
       if (/^blob:/i.test(value)) {
         return value;
       }
@@ -724,18 +725,18 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         if (parsed.origin === window.location.origin) {
           return parsed.toString();
         }
-        return proxyUrlFor(parsed.toString());
+        return isFileProtocol ? parsed.toString() : proxyUrlFor(parsed.toString());
       }
       if (value.startsWith("/uploads/") && publicBaseUrl) {
         const absoluteUrl = new URL(value, publicBaseUrl).toString();
-        return proxyUrlFor(absoluteUrl);
+        return isFileProtocol ? absoluteUrl : proxyUrlFor(absoluteUrl);
       }
       if (/^[./]/.test(value) || value.startsWith("/")) {
         const parsed = new URL(value, window.location.origin);
         if (parsed.origin === window.location.origin || parsed.protocol === "data:" || parsed.protocol === "blob:") {
           return parsed.toString();
         }
-        return proxyUrlFor(parsed.toString());
+        return isFileProtocol ? parsed.toString() : proxyUrlFor(parsed.toString());
       }
     } catch (error) {
       // Fall through to fallback.

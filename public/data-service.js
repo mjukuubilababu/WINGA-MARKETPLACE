@@ -612,6 +612,7 @@
       return source;
     }
     try {
+      const isFileProtocol = String(window.location?.protocol || "").toLowerCase() === "file:";
       const configuredApiBaseUrl = String(window.WINGA_CONFIG?.apiBaseUrl || "").trim().replace(/\/+$/, "");
       const publicBaseUrl = configuredApiBaseUrl.replace(/\/api$/, "");
       const absoluteUrl = source.startsWith("/uploads/") && publicBaseUrl
@@ -619,6 +620,9 @@
         : new URL(source, window.location.origin).toString();
       const parsed = new URL(absoluteUrl);
       if (parsed.origin === window.location.origin || parsed.protocol === "data:" || parsed.protocol === "blob:") {
+        return parsed.toString();
+      }
+      if (isFileProtocol) {
         return parsed.toString();
       }
       const proxyUrl = new URL("/__winga-image__", window.location.origin);
