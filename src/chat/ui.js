@@ -5,11 +5,12 @@
     }
 
     function renderResponsiveImageMarkup({ src = "", alt = "", className = "", fallbackKey = "W" } = {}) {
-      return deps.createResponsiveImage({
+      return (deps.createProgressiveImage || deps.createResponsiveImage)({
         src,
         alt,
         className,
-        fallbackSrc: deps.getImageFallbackDataUri(fallbackKey)
+        fallbackSrc: deps.getImageFallbackDataUri(fallbackKey),
+        placeholderSrc: deps.getImageFallbackDataUri(fallbackKey)
       }).outerHTML;
     }
 

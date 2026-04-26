@@ -174,7 +174,19 @@
         return null;
       }
       images.forEach((item) => {
-        preview.appendChild(deps.createResponsiveImage({
+        preview.appendChild(deps.createProgressiveImage
+          ? deps.createProgressiveImage({
+            src: item.src,
+            alt: item.alt,
+            fallbackSrc: deps.getImageFallbackDataUri("ID"),
+            placeholderSrc: deps.getImageFallbackDataUri("ID"),
+            className: "admin-verification-image",
+            attributes: {
+              loading: "eager",
+              fetchpriority: "high"
+            }
+          })
+          : deps.createResponsiveImage({
           src: item.src,
           alt: item.alt,
           fallbackSrc: deps.getImageFallbackDataUri("ID"),
@@ -653,7 +665,19 @@
         card.appendChild(deepLinkRow);
       }
       if (safeImage) {
-        card.appendChild(deps.createResponsiveImage({
+        card.appendChild(deps.createProgressiveImage
+          ? deps.createProgressiveImage({
+            src: safeImage,
+            alt: product.name,
+            fallbackSrc: deps.getImageFallbackDataUri("W"),
+            placeholderSrc: deps.getImageFallbackDataUri("W"),
+            className: "admin-verification-image",
+            attributes: {
+              loading: "eager",
+              fetchpriority: "high"
+            }
+          })
+          : deps.createResponsiveImage({
           src: safeImage,
           alt: product.name,
           fallbackSrc: deps.getImageFallbackDataUri("W"),

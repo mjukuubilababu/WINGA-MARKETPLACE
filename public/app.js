@@ -60,6 +60,7 @@ const {
   createStatBox,
   createCategoryButton,
   createResponsiveImage,
+  createProgressiveImage,
   createSlideDot,
   sanitizeImageSource
 } = window.WingaModules.components.ui;
@@ -4709,6 +4710,7 @@ const {
   createElement,
   createElementFromMarkup,
   createResponsiveImage,
+  createProgressiveImage,
   sanitizeImageSource,
   getCurrentNotifications: () => currentNotifications,
   getUnreadNotifications,
@@ -4855,6 +4857,7 @@ const { renderAdminView: renderAdminViewFromController } = window.WingaModules.a
   createEmptyState,
   createStatusPill,
   createResponsiveImage,
+  createProgressiveImage,
   sanitizeImageSource,
   getImageFallbackDataUri,
   preloadImageSource,
@@ -4891,6 +4894,7 @@ const {
   createFragmentFromMarkup,
   createElementFromMarkup,
   createResponsiveImage,
+  createProgressiveImage,
   createStatusPill,
   createStatBox,
   escapeHtml,
@@ -5037,6 +5041,7 @@ const {
 } = window.WingaModules.productDetail.createProductDetailUiModule({
   createElement,
   createFragmentFromMarkup,
+  createProgressiveImage,
   sanitizeImageSource,
   escapeHtml,
   getCategoryLabel,
@@ -5234,6 +5239,7 @@ const { renderSlideshow } = window.WingaModules.hero.createHeroUiModule({
   startSlideshow,
   createElement,
   createResponsiveImage,
+  createProgressiveImage,
   createSlideDot
 });
 
@@ -5241,6 +5247,7 @@ const { renderFilterCategories } = window.WingaModules.categories.createCategori
   createElement,
   createCategoryButton,
   createResponsiveImage,
+  createProgressiveImage,
   getImageFallbackDataUri,
   getAvailableTopCategories: () => availableTopCategories,
   getSelectedCategory: () => selectedCategory,
@@ -5322,6 +5329,7 @@ const {
   createFragmentFromMarkup,
   createSectionHeading,
   createResponsiveImage,
+  createProgressiveImage,
   createStatusPill,
   getImageFallbackDataUri,
   preloadImageSource,
@@ -9393,21 +9401,24 @@ function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
   }
   if (surface && surface !== "feed") {
     const previewSrc = sanitizeImageSource(String(images[0] || "").trim(), getImageFallbackDataUri("WINGA"));
-    const previewAlt = escapeHtml(`${product?.name || product?.shop || "Product image"} 1`);
     return `
       <div class="product-gallery media-gallery feed-gallery-preview showcase-media-preview feed-gallery-preview-single"
         data-feed-gallery-surface="${escapeHtml(surface || "discovery")}">
-        <img
-          class="feed-gallery-image feed-gallery-image-social showcase-preview-image"
-          src="${previewSrc}"
-          alt="${previewAlt}"
-          loading="eager"
-          fetchpriority="high"
-          decoding="async"
-          draggable="false"
-          data-marketplace-scroll-image="true"
-          data-fallback-src="${getImageFallbackDataUri("WINGA")}"
-        >
+        ${createProgressiveImage({
+          src: previewSrc,
+          alt: `${product?.name || product?.shop || "Product image"} 1`,
+          className: "feed-gallery-image feed-gallery-image-social showcase-preview-image",
+          fallbackSrc: getImageFallbackDataUri("WINGA"),
+          placeholderSrc: getImageFallbackDataUri("W"),
+          attributes: {
+            loading: "eager",
+            fetchpriority: "high",
+            decoding: "async",
+            draggable: "false",
+            "data-marketplace-scroll-image": "true",
+            "data-fallback-src": getImageFallbackDataUri("WINGA")
+          }
+        }).outerHTML}
         ${currentLabel ? `<span class="feed-gallery-count-badge product-gallery-count-badge">${currentLabel}</span>` : ""}
       </div>
     `;
@@ -9418,17 +9429,21 @@ function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
     const isPrioritySlide = index < priorityLimit;
     return `
       <div class="feed-gallery-carousel-slide" data-feed-gallery-slide="${index}">
-        <img
-          class="feed-gallery-image feed-gallery-image-social"
-          src="${safeSrc}"
-          alt="${safeAlt}"
-          loading="${isPrioritySlide ? "eager" : "lazy"}"
-          ${isPrioritySlide ? 'fetchpriority="high"' : 'fetchpriority="auto"'}
-          decoding="async"
-          draggable="false"
-          data-marketplace-scroll-image="true"
-          data-fallback-src="${getImageFallbackDataUri("WINGA")}"
-        >
+        ${createProgressiveImage({
+          src: safeSrc,
+          alt: `${product?.name || product?.shop || "Product image"} ${index + 1}`,
+          className: "feed-gallery-image feed-gallery-image-social",
+          fallbackSrc: getImageFallbackDataUri("WINGA"),
+          placeholderSrc: getImageFallbackDataUri("W"),
+          attributes: {
+            loading: isPrioritySlide ? "eager" : "lazy",
+            fetchpriority: isPrioritySlide ? "high" : "auto",
+            decoding: "async",
+            draggable: "false",
+            "data-marketplace-scroll-image": "true",
+            "data-fallback-src": getImageFallbackDataUri("WINGA")
+          }
+        }).outerHTML}
       </div>
     `;
   }).join("");

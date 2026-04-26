@@ -107,17 +107,30 @@
       const shell = deps.createElement("div", { className: "profile-identity-shell" });
       const avatar = deps.createElement("div", { className: "profile-identity-avatar" });
       if (profileImage) {
-        avatar.appendChild(deps.createElement("img", {
-          className: "profile-identity-image zoomable-image",
-          attributes: {
+        avatar.appendChild(deps.createProgressiveImage
+          ? deps.createProgressiveImage({
             src: deps.sanitizeImageSource(profileImage, ""),
             alt: `${displayName} profile photo`,
-            loading: "lazy",
-            decoding: "async",
-            "data-zoom-src": deps.sanitizeImageSource(profileImage, ""),
-            "data-zoom-alt": `${displayName} profile photo`
-          }
-        }));
+            className: "profile-identity-image",
+            fallbackSrc: deps.getImageFallbackDataUri?.("WINGA") || "",
+            placeholderSrc: deps.getImageFallbackDataUri?.("W") || "",
+            attributes: {
+              loading: "eager",
+              "data-zoom-src": deps.sanitizeImageSource(profileImage, ""),
+              "data-zoom-alt": `${displayName} profile photo`
+            }
+          })
+          : deps.createElement("img", {
+            className: "profile-identity-image zoomable-image",
+            attributes: {
+              src: deps.sanitizeImageSource(profileImage, ""),
+              alt: `${displayName} profile photo`,
+              loading: "lazy",
+              decoding: "async",
+              "data-zoom-src": deps.sanitizeImageSource(profileImage, ""),
+              "data-zoom-alt": `${displayName} profile photo`
+            }
+          }));
       } else {
         avatar.appendChild(deps.createElement("span", {
           className: "profile-identity-initials",
@@ -713,7 +726,20 @@
 
       const media = deps.createElement("div", { className: "product-card-media profile-product-media" });
       const image = deps.createResponsiveImage
-        ? deps.createResponsiveImage({
+        ? (deps.createProgressiveImage
+          ? deps.createProgressiveImage({
+              src: firstImage,
+              alt: product?.name || "Product image",
+              className: "profile-product-stage",
+              fallbackSrc: deps.getImageFallbackDataUri?.("WINGA") || "",
+              placeholderSrc: deps.getImageFallbackDataUri?.("W") || "",
+              attributes: {
+                "data-disable-image-zoom": "true",
+                loading: isPriority ? "eager" : "lazy",
+                fetchpriority: isPriority ? "high" : "auto"
+              }
+            })
+          : deps.createResponsiveImage({
             src: firstImage,
           alt: product?.name || "Product image",
           className: "profile-product-stage",
@@ -723,7 +749,7 @@
             loading: isPriority ? "eager" : "lazy",
             fetchpriority: isPriority ? "high" : "auto"
           }
-        })
+        }))
       : deps.createElement("img", {
           className: "profile-product-stage",
           attributes: {

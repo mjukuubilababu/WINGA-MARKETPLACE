@@ -148,6 +148,56 @@
     return image;
   }
 
+  function createProgressiveImage({
+    src = "",
+    alt = "",
+    className = "",
+    fallbackSrc = "",
+    placeholderSrc = "",
+    attributes = {}
+  } = {}) {
+    const resolvedSrc = sanitizeImageSource(src, fallbackSrc);
+    const resolvedPlaceholderSrc = sanitizeImageSource(placeholderSrc || fallbackSrc, fallbackSrc || resolvedSrc);
+    const shell = createElement("span", {
+      className: "progressive-image-shell",
+      attributes: {
+        "data-progressive-image": "true",
+        ...(className ? { "data-progressive-image-class": className } : {})
+      }
+    });
+    const placeholder = createElement("img", {
+      className: `progressive-image-placeholder${className ? ` ${className}-placeholder` : ""}`,
+      attributes: {
+        src: resolvedPlaceholderSrc || fallbackSrc || resolvedSrc || "",
+        alt: "",
+        loading: "eager",
+        decoding: "async",
+        draggable: "false",
+        "aria-hidden": "true"
+      }
+    });
+    const fullImage = createResponsiveImage({
+      src: resolvedSrc,
+      alt,
+      className: `progressive-image-full${className ? ` ${className}` : ""}`,
+      fallbackSrc,
+      attributes: {
+        ...attributes,
+        "data-progressive-full": "true"
+      }
+    });
+
+    fullImage.addEventListener("load", function handleProgressiveImageLoad() {
+      shell.classList.add("is-loaded");
+    });
+    if (fullImage.complete && Number(fullImage.naturalWidth || 0) > 0) {
+      shell.classList.add("is-loaded");
+    }
+
+    shell.append(placeholder, fullImage);
+    return shell;
+  }
+
   function createSlideDot(index, isActive = false) {
     return createElement("button", {
       className: `slide-dot${isActive ? " active" : ""}`,
@@ -165,6 +215,7 @@
     createStatBox,
     createCategoryButton,
     createResponsiveImage,
+    createProgressiveImage,
     createSlideDot,
     sanitizeImageSource
   };

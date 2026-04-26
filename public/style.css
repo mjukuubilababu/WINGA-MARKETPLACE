@@ -2436,6 +2436,50 @@ img[data-zoom-src]{
   background:#f3f4f6;
 }
 
+.progressive-image-shell{
+  position:relative;
+  display:block;
+  width:100%;
+  height:100%;
+  overflow:hidden;
+  background:#f3f4f6;
+  contain:layout paint;
+}
+
+.progressive-image-placeholder,
+.progressive-image-full{
+  position:absolute;
+  inset:0;
+  width:100% !important;
+  height:100% !important;
+  display:block;
+}
+
+.progressive-image-placeholder{
+  object-fit:cover;
+  object-position:center;
+  filter:blur(20px);
+  transform:scale(1.06);
+  opacity:1;
+  pointer-events:none;
+  transition:opacity .25s ease;
+}
+
+.progressive-image-full{
+  opacity:0;
+  transition:opacity .32s ease-in;
+  background:#f3f4f6;
+  z-index:2;
+}
+
+.progressive-image-shell.is-loaded .progressive-image-full{
+  opacity:1;
+}
+
+.progressive-image-shell.is-loaded .progressive-image-placeholder{
+  opacity:0;
+}
+
 .profile-product-media{
   position:relative;
   width:100%;

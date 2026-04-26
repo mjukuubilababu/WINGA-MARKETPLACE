@@ -192,11 +192,13 @@
               allowOwnerVisibility: item.uploadedBy === deps.getCurrentUser()
             })
           : deps.sanitizeImageSource(item.image || "", deps.getImageFallbackDataUri("W"));
-        media.appendChild(deps.createElement("img", {
+        media.appendChild((deps.createProgressiveImage || deps.createResponsiveImage)({
+          src: itemImageSrc || deps.getImageFallbackDataUri("W"),
+          alt: deps.escapeHtml(item.name || ""),
           className: "zoomable-image",
+          fallbackSrc: deps.getImageFallbackDataUri("W"),
+          placeholderSrc: deps.getImageFallbackDataUri("W"),
           attributes: {
-            src: itemImageSrc || deps.getImageFallbackDataUri("W"),
-            alt: deps.escapeHtml(item.name || ""),
             loading: "lazy",
             "data-marketplace-scroll-image": "true",
             "data-zoom-src": itemImageSrc || deps.getImageFallbackDataUri("W"),
@@ -303,11 +305,13 @@
           preload: true
         })));
       } else {
-        const mainImageElement = deps.createElement("img", {
+        const mainImageElement = (deps.createProgressiveImage || deps.createResponsiveImage)({
+          src: safeMainImage,
+          alt: safeProductName,
           className: "product-detail-image zoomable-image",
+          fallbackSrc: deps.getImageFallbackDataUri("WINGA"),
+          placeholderSrc: deps.getImageFallbackDataUri("W"),
           attributes: {
-            src: safeMainImage,
-            alt: safeProductName,
             loading: "eager",
             fetchpriority: "high",
             "data-zoom-src": safeMainImage,
@@ -322,11 +326,13 @@
         if (detailImages.length > 1) {
           const thumbGrid = deps.createElement("div", { className: "product-detail-thumb-grid" });
           detailImages.forEach((image, index) => {
-          thumbGrid.appendChild(deps.createElement("img", {
+            thumbGrid.appendChild((deps.createProgressiveImage || deps.createResponsiveImage)({
+              src: image,
+              alt: `${safeProductName} ${index + 1}`,
               className: `product-detail-thumb${image === safeMainImage ? " active" : ""}`,
+              fallbackSrc: deps.getImageFallbackDataUri("W"),
+              placeholderSrc: deps.getImageFallbackDataUri("W"),
               attributes: {
-                src: image,
-                alt: `${safeProductName} ${index + 1}`,
                 loading: index < 4 ? "eager" : "lazy",
                 fetchpriority: index < 4 ? "high" : "auto",
                 "data-detail-image": image,

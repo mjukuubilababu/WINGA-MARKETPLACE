@@ -4,6 +4,7 @@
       createElement,
       createFragmentFromMarkup,
       createResponsiveImage,
+      createProgressiveImage = createResponsiveImage,
       createStatusPill
     } = deps;
 
@@ -106,11 +107,12 @@
           attributes: { "data-feed-gallery-slide": String(index) }
         });
         const isFirstSlide = index === 0;
-        slide.appendChild(createResponsiveImage({
+        slide.appendChild(createProgressiveImage({
           src,
           alt: `${product.name || "Product image"} ${index + 1}`,
           className: "feed-gallery-image feed-gallery-image-social",
           fallbackSrc: deps.getImageFallbackDataUri("WINGA"),
+          placeholderSrc: deps.getImageFallbackDataUri("W"),
           attributes: {
             loading: isFirstSlide ? "eager" : "lazy",
             fetchpriority: isFirstSlide ? "high" : "auto",
@@ -153,11 +155,12 @@
       const sellerUser = deps.getMarketplaceUser?.(product?.uploadedBy);
       const sellerImage = String(sellerUser?.profileImage || "").trim();
       if (sellerImage) {
-        avatarWrap.appendChild(createResponsiveImage({
+        avatarWrap.appendChild(createProgressiveImage({
           src: sellerImage,
           alt: getProductSellerLabel(product),
           className: "product-seller-avatar-image",
-          fallbackSrc: deps.getImageFallbackDataUri("WINGA")
+          fallbackSrc: deps.getImageFallbackDataUri("WINGA"),
+          placeholderSrc: deps.getImageFallbackDataUri("W")
         }));
       } else {
         avatarWrap.textContent = getSellerAvatarFallback(product);
@@ -197,10 +200,11 @@
             allowOwnerVisibility: product.uploadedBy === deps.getCurrentUser?.()
           })
         : deps.sanitizeImageSource(product.image || (Array.isArray(product.images) ? product.images[0] : ""), deps.getImageFallbackDataUri("WINGA"));
-      media.appendChild(createResponsiveImage({
+      media.appendChild(createProgressiveImage({
         src: primaryImage,
         alt: product.name || "Product image",
         fallbackSrc: deps.getImageFallbackDataUri("WINGA"),
+        placeholderSrc: deps.getImageFallbackDataUri("W"),
         className: "showcase-preview-image",
         attributes: {
           "data-marketplace-scroll-image": "true"

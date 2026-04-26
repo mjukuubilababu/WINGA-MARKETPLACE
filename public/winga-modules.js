@@ -847,6 +847,56 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
     return image;
   }
 
+  function createProgressiveImage({
+    src = "",
+    alt = "",
+    className = "",
+    fallbackSrc = "",
+    placeholderSrc = "",
+    attributes = {}
+  } = {}) {
+    const resolvedSrc = sanitizeImageSource(src, fallbackSrc);
+    const resolvedPlaceholderSrc = sanitizeImageSource(placeholderSrc || fallbackSrc, fallbackSrc || resolvedSrc);
+    const shell = createElement("span", {
+      className: "progressive-image-shell",
+      attributes: {
+        "data-progressive-image": "true",
+        ...(className ? { "data-progressive-image-class": className } : {})
+      }
+    });
+    const placeholder = createElement("img", {
+      className: `progressive-image-placeholder${className ? ` ${className}-placeholder` : ""}`,
+      attributes: {
+        src: resolvedPlaceholderSrc || fallbackSrc || resolvedSrc || "",
+        alt: "",
+        loading: "eager",
+        decoding: "async",
+        draggable: "false",
+        "aria-hidden": "true"
+      }
+    });
+    const fullImage = createResponsiveImage({
+      src: resolvedSrc,
+      alt,
+      className: `progressive-image-full${className ? ` ${className}` : ""}`,
+      fallbackSrc,
+      attributes: {
+        ...attributes,
+        "data-progressive-full": "true"
+      }
+    });
+
+    fullImage.addEventListener("load", function handleProgressiveImageLoad() {
+      shell.classList.add("is-loaded");
+    });
+    if (fullImage.complete && Number(fullImage.naturalWidth || 0) > 0) {
+      shell.classList.add("is-loaded");
+    }
+
+    shell.append(placeholder, fullImage);
+    return shell;
+  }
+
   function createSlideDot(index, isActive = false) {
     return createElement("button", {
       className: `slide-dot${isActive ? " active" : ""}`,
@@ -864,6 +914,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
     createStatBox,
     createCategoryButton,
     createResponsiveImage,
+    createProgressiveImage,
     createSlideDot,
     sanitizeImageSource
   };
@@ -1112,11 +1163,12 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
 // src/categories/ui.js
 (() => {
   function createCategoriesUiModule(deps) {
-    const {
-      createElement,
-      createCategoryButton,
-      createResponsiveImage
-    } = deps;
+      const {
+       createElement,
+       createCategoryButton,
+       createResponsiveImage,
+       createProgressiveImage = createResponsiveImage
+     } = deps;
     let resizeBound = false;
 
     function syncDesktopCategoryLayoutMode() {
@@ -1177,10 +1229,11 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
 
       if (previewProduct) {
         const preview = createElement("div", { className: "subcategory-preview" });
-        preview.appendChild(createResponsiveImage({
+        preview.appendChild(createProgressiveImage({
           src: previewProduct.image,
           alt: previewProduct.name || category.label,
-          fallbackSrc: deps.getImageFallbackDataUri("WINGA")
+          fallbackSrc: deps.getImageFallbackDataUri("WINGA"),
+          placeholderSrc: deps.getImageFallbackDataUri("W")
         }));
         panel.appendChild(preview);
       }
@@ -2667,6 +2720,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       createElement,
       createFragmentFromMarkup,
       createResponsiveImage,
+      createProgressiveImage = createResponsiveImage,
       createStatusPill
     } = deps;
 
@@ -2769,11 +2823,12 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
           attributes: { "data-feed-gallery-slide": String(index) }
         });
         const isFirstSlide = index === 0;
-        slide.appendChild(createResponsiveImage({
+        slide.appendChild(createProgressiveImage({
           src,
           alt: `${product.name || "Product image"} ${index + 1}`,
           className: "feed-gallery-image feed-gallery-image-social",
           fallbackSrc: deps.getImageFallbackDataUri("WINGA"),
+          placeholderSrc: deps.getImageFallbackDataUri("W"),
           attributes: {
             loading: isFirstSlide ? "eager" : "lazy",
             fetchpriority: isFirstSlide ? "high" : "auto",
@@ -2816,11 +2871,12 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       const sellerUser = deps.getMarketplaceUser?.(product?.uploadedBy);
       const sellerImage = String(sellerUser?.profileImage || "").trim();
       if (sellerImage) {
-        avatarWrap.appendChild(createResponsiveImage({
+        avatarWrap.appendChild(createProgressiveImage({
           src: sellerImage,
           alt: getProductSellerLabel(product),
           className: "product-seller-avatar-image",
-          fallbackSrc: deps.getImageFallbackDataUri("WINGA")
+          fallbackSrc: deps.getImageFallbackDataUri("WINGA"),
+          placeholderSrc: deps.getImageFallbackDataUri("W")
         }));
       } else {
         avatarWrap.textContent = getSellerAvatarFallback(product);
@@ -2860,10 +2916,11 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
             allowOwnerVisibility: product.uploadedBy === deps.getCurrentUser?.()
           })
         : deps.sanitizeImageSource(product.image || (Array.isArray(product.images) ? product.images[0] : ""), deps.getImageFallbackDataUri("WINGA"));
-      media.appendChild(createResponsiveImage({
+      media.appendChild(createProgressiveImage({
         src: primaryImage,
         alt: product.name || "Product image",
         fallbackSrc: deps.getImageFallbackDataUri("WINGA"),
+        placeholderSrc: deps.getImageFallbackDataUri("W"),
         className: "showcase-preview-image",
         attributes: {
           "data-marketplace-scroll-image": "true"
@@ -4318,11 +4375,12 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
     }
 
     function renderResponsiveImageMarkup({ src = "", alt = "", className = "", fallbackKey = "W" } = {}) {
-      return deps.createResponsiveImage({
+      return (deps.createProgressiveImage || deps.createResponsiveImage)({
         src,
         alt,
         className,
-        fallbackSrc: deps.getImageFallbackDataUri(fallbackKey)
+        fallbackSrc: deps.getImageFallbackDataUri(fallbackKey),
+        placeholderSrc: deps.getImageFallbackDataUri(fallbackKey)
       }).outerHTML;
     }
 
@@ -5781,7 +5839,19 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         return null;
       }
       images.forEach((item) => {
-        preview.appendChild(deps.createResponsiveImage({
+        preview.appendChild(deps.createProgressiveImage
+          ? deps.createProgressiveImage({
+            src: item.src,
+            alt: item.alt,
+            fallbackSrc: deps.getImageFallbackDataUri("ID"),
+            placeholderSrc: deps.getImageFallbackDataUri("ID"),
+            className: "admin-verification-image",
+            attributes: {
+              loading: "eager",
+              fetchpriority: "high"
+            }
+          })
+          : deps.createResponsiveImage({
           src: item.src,
           alt: item.alt,
           fallbackSrc: deps.getImageFallbackDataUri("ID"),
@@ -6260,7 +6330,19 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         card.appendChild(deepLinkRow);
       }
       if (safeImage) {
-        card.appendChild(deps.createResponsiveImage({
+        card.appendChild(deps.createProgressiveImage
+          ? deps.createProgressiveImage({
+            src: safeImage,
+            alt: product.name,
+            fallbackSrc: deps.getImageFallbackDataUri("W"),
+            placeholderSrc: deps.getImageFallbackDataUri("W"),
+            className: "admin-verification-image",
+            attributes: {
+              loading: "eager",
+              fetchpriority: "high"
+            }
+          })
+          : deps.createResponsiveImage({
           src: safeImage,
           alt: product.name,
           fallbackSrc: deps.getImageFallbackDataUri("W"),
@@ -7156,17 +7238,30 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       const shell = deps.createElement("div", { className: "profile-identity-shell" });
       const avatar = deps.createElement("div", { className: "profile-identity-avatar" });
       if (profileImage) {
-        avatar.appendChild(deps.createElement("img", {
-          className: "profile-identity-image zoomable-image",
-          attributes: {
+        avatar.appendChild(deps.createProgressiveImage
+          ? deps.createProgressiveImage({
             src: deps.sanitizeImageSource(profileImage, ""),
             alt: `${displayName} profile photo`,
-            loading: "lazy",
-            decoding: "async",
-            "data-zoom-src": deps.sanitizeImageSource(profileImage, ""),
-            "data-zoom-alt": `${displayName} profile photo`
-          }
-        }));
+            className: "profile-identity-image",
+            fallbackSrc: deps.getImageFallbackDataUri?.("WINGA") || "",
+            placeholderSrc: deps.getImageFallbackDataUri?.("W") || "",
+            attributes: {
+              loading: "eager",
+              "data-zoom-src": deps.sanitizeImageSource(profileImage, ""),
+              "data-zoom-alt": `${displayName} profile photo`
+            }
+          })
+          : deps.createElement("img", {
+            className: "profile-identity-image zoomable-image",
+            attributes: {
+              src: deps.sanitizeImageSource(profileImage, ""),
+              alt: `${displayName} profile photo`,
+              loading: "lazy",
+              decoding: "async",
+              "data-zoom-src": deps.sanitizeImageSource(profileImage, ""),
+              "data-zoom-alt": `${displayName} profile photo`
+            }
+          }));
       } else {
         avatar.appendChild(deps.createElement("span", {
           className: "profile-identity-initials",
@@ -7762,7 +7857,20 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
 
       const media = deps.createElement("div", { className: "product-card-media profile-product-media" });
       const image = deps.createResponsiveImage
-        ? deps.createResponsiveImage({
+        ? (deps.createProgressiveImage
+          ? deps.createProgressiveImage({
+              src: firstImage,
+              alt: product?.name || "Product image",
+              className: "profile-product-stage",
+              fallbackSrc: deps.getImageFallbackDataUri?.("WINGA") || "",
+              placeholderSrc: deps.getImageFallbackDataUri?.("W") || "",
+              attributes: {
+                "data-disable-image-zoom": "true",
+                loading: isPriority ? "eager" : "lazy",
+                fetchpriority: isPriority ? "high" : "auto"
+              }
+            })
+          : deps.createResponsiveImage({
             src: firstImage,
           alt: product?.name || "Product image",
           className: "profile-product-stage",
@@ -7772,7 +7880,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
             loading: isPriority ? "eager" : "lazy",
             fetchpriority: isPriority ? "high" : "auto"
           }
-        })
+        }))
       : deps.createElement("img", {
           className: "profile-product-stage",
           attributes: {
@@ -8821,11 +8929,13 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
               allowOwnerVisibility: item.uploadedBy === deps.getCurrentUser()
             })
           : deps.sanitizeImageSource(item.image || "", deps.getImageFallbackDataUri("W"));
-        media.appendChild(deps.createElement("img", {
+        media.appendChild((deps.createProgressiveImage || deps.createResponsiveImage)({
+          src: itemImageSrc || deps.getImageFallbackDataUri("W"),
+          alt: deps.escapeHtml(item.name || ""),
           className: "zoomable-image",
+          fallbackSrc: deps.getImageFallbackDataUri("W"),
+          placeholderSrc: deps.getImageFallbackDataUri("W"),
           attributes: {
-            src: itemImageSrc || deps.getImageFallbackDataUri("W"),
-            alt: deps.escapeHtml(item.name || ""),
             loading: "lazy",
             "data-marketplace-scroll-image": "true",
             "data-zoom-src": itemImageSrc || deps.getImageFallbackDataUri("W"),
@@ -8932,11 +9042,13 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
           preload: true
         })));
       } else {
-        const mainImageElement = deps.createElement("img", {
+        const mainImageElement = (deps.createProgressiveImage || deps.createResponsiveImage)({
+          src: safeMainImage,
+          alt: safeProductName,
           className: "product-detail-image zoomable-image",
+          fallbackSrc: deps.getImageFallbackDataUri("WINGA"),
+          placeholderSrc: deps.getImageFallbackDataUri("W"),
           attributes: {
-            src: safeMainImage,
-            alt: safeProductName,
             loading: "eager",
             fetchpriority: "high",
             "data-zoom-src": safeMainImage,
@@ -8951,11 +9063,13 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         if (detailImages.length > 1) {
           const thumbGrid = deps.createElement("div", { className: "product-detail-thumb-grid" });
           detailImages.forEach((image, index) => {
-          thumbGrid.appendChild(deps.createElement("img", {
+            thumbGrid.appendChild((deps.createProgressiveImage || deps.createResponsiveImage)({
+              src: image,
+              alt: `${safeProductName} ${index + 1}`,
               className: `product-detail-thumb${image === safeMainImage ? " active" : ""}`,
+              fallbackSrc: deps.getImageFallbackDataUri("W"),
+              placeholderSrc: deps.getImageFallbackDataUri("W"),
               attributes: {
-                src: image,
-                alt: `${safeProductName} ${index + 1}`,
                 loading: index < 4 ? "eager" : "lazy",
                 fetchpriority: index < 4 ? "high" : "auto",
                 "data-detail-image": image,

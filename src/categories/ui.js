@@ -1,10 +1,11 @@
 (() => {
   function createCategoriesUiModule(deps) {
-    const {
-      createElement,
-      createCategoryButton,
-      createResponsiveImage
-    } = deps;
+      const {
+       createElement,
+       createCategoryButton,
+       createResponsiveImage,
+       createProgressiveImage = createResponsiveImage
+     } = deps;
     let resizeBound = false;
 
     function syncDesktopCategoryLayoutMode() {
@@ -65,10 +66,11 @@
 
       if (previewProduct) {
         const preview = createElement("div", { className: "subcategory-preview" });
-        preview.appendChild(createResponsiveImage({
+        preview.appendChild(createProgressiveImage({
           src: previewProduct.image,
           alt: previewProduct.name || category.label,
-          fallbackSrc: deps.getImageFallbackDataUri("WINGA")
+          fallbackSrc: deps.getImageFallbackDataUri("WINGA"),
+          placeholderSrc: deps.getImageFallbackDataUri("W")
         }));
         panel.appendChild(preview);
       }
