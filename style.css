@@ -2550,6 +2550,7 @@ img[data-zoom-src]{
   overflow:hidden;
   background:#eef2f6;
   contain:layout paint;
+  isolation:isolate;
 }
 
 .progressive-image-shell.fit-mode-contain{
@@ -2577,6 +2578,7 @@ img[data-zoom-src]{
   opacity:.2;
   pointer-events:none;
   transition:opacity .25s ease;
+  z-index:1;
 }
 
 .progressive-image-full{
@@ -2600,6 +2602,10 @@ img[data-zoom-src]{
 }
 
 .progressive-image-shell.is-loaded .progressive-image-full{
+  opacity:1;
+}
+
+.progressive-image-shell.is-error .progressive-image-full{
   opacity:1;
 }
 

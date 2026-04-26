@@ -184,6 +184,7 @@
   } = {}) {
     const resolvedSrc = sanitizeImageSource(src, fallbackSrc);
     const resolvedPlaceholderSrc = sanitizeImageSource(placeholderSrc || fallbackSrc, fallbackSrc || resolvedSrc);
+    const effectiveFallbackSrc = fallbackSrc || resolvedPlaceholderSrc || resolvedSrc;
     const normalizedFitMode = String(fitMode || "").trim().toLowerCase() === "contain" ? "contain" : "cover";
     const shouldLoadEagerly = shouldPrioritizeImageLoad(className, attributes);
     const shell = createElement("span", {
@@ -209,7 +210,7 @@
       src: resolvedSrc,
       alt,
       className: `progressive-image-full fit-mode-${normalizedFitMode}${className ? ` ${className}` : ""}`,
-      fallbackSrc,
+      fallbackSrc: effectiveFallbackSrc,
       attributes: {
         ...attributes,
         "data-fit-mode": normalizedFitMode,
@@ -239,6 +240,12 @@
             placeholder.remove();
           }
         });
+      }
+    });
+    fullImage.addEventListener("error", function handleProgressiveImageError() {
+      shell.classList.add("is-loaded", "is-error");
+      if (placeholder.isConnected) {
+        placeholder.remove();
       }
     });
     if (fullImage.complete && Number(fullImage.naturalWidth || 0) > 0) {
