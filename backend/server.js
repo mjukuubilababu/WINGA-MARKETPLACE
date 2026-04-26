@@ -1899,10 +1899,6 @@ function resolveProxyImageTarget(value, req) {
     return null;
   }
 
-  const publicOrigin = getPublicRequestOrigin(req);
-  if (parsedTarget.origin !== publicOrigin) {
-    return null;
-  }
   if (!parsedTarget.pathname.startsWith("/uploads/")) {
     return null;
   }
