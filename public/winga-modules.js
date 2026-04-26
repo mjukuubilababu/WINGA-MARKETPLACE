@@ -933,11 +933,11 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       }
       shell.classList.add("is-loaded");
       if (placeholder.isConnected) {
-        window.setTimeout(() => {
+        window.requestAnimationFrame(() => {
           if (placeholder.isConnected) {
             placeholder.remove();
           }
-        }, 260);
+        });
       }
     });
     if (fullImage.complete && Number(fullImage.naturalWidth || 0) > 0) {
@@ -955,11 +955,11 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       }
       shell.classList.add("is-loaded");
       if (placeholder.isConnected) {
-        window.setTimeout(() => {
+        window.requestAnimationFrame(() => {
           if (placeholder.isConnected) {
             placeholder.remove();
           }
-        }, 260);
+        });
       }
     }
 
