@@ -1,0 +1,17 @@
+/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/product/*
+  Cache-Control: no-store, must-revalidate
+
+/api/product/*
+  Cache-Control: no-store, must-revalidate
+
+/og-images/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/index.html
+  Cache-Control: no-store, must-revalidate
+
+/
+  Cache-Control: no-store, must-revalidate

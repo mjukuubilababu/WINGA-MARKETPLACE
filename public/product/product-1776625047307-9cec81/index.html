@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="sw">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="winga-build" content="20260426140002">
+  <meta name="description" content="casual-mavazi">
+  <link rel="canonical" href="https://wingamarket.com/product/product-1776625047307-9cec81">
+  <meta property="og:type" content="product">
+  <meta property="og:title" content="Casual">
+  <meta property="og:description" content="casual-mavazi">
+  <meta property="og:url" content="https://wingamarket.com/product/product-1776625047307-9cec81">
+  <meta property="og:image" content="https://wingamarket.com/og-images/product-1776625047307-9cec81-b885aa7a5d3b.jpg">
+  <meta property="og:image:secure_url" content="https://wingamarket.com/og-images/product-1776625047307-9cec81-b885aa7a5d3b.jpg">
+  <meta property="og:image:alt" content="Casual">
+  <meta name="twitter:image" content="https://wingamarket.com/og-images/product-1776625047307-9cec81-b885aa7a5d3b.jpg">
+  <meta property="og:site_name" content="Winga">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Casual">
+  <meta name="twitter:description" content="casual-mavazi">
+  <meta name="theme-color" content="#ff6a00">
+  <meta name="msapplication-TileColor" content="#ff6a00">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Winga">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="NUNUA KWA WAUZAJI WALIOTHIBITISHWA">
+  <meta property="og:description" content="Social commerce PWA for Tanzania">
+  <meta property="og:image" content="https://wingamarket.com/winga-icon-512-v3.png">
+  <meta property="og:url" content="https://wingamarket.com/">
+  <meta property="og:site_name" content="Winga">
+  <meta property="al:ios:url" content="winga://home">
+  <meta property="al:android:url" content="winga://home">
+  <meta property="al:web:url" content="https://wingamarket.com/">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="NUNUA KWA WAUZAJI WALIOTHIBITISHWA">
+  <meta name="twitter:description" content="Social commerce PWA for Tanzania">
+  <meta name="twitter:image" content="https://wingamarket.com/winga-icon-512-v3.png">
+  <link rel="manifest" href="/manifest-v4.webmanifest">
+  <link rel="icon" href="/winga-icon-192-v3.png" type="image/png" sizes="192x192">
+  <link rel="apple-touch-icon" href="/apple-touch-icon-v3.png">
+  <link rel="icon" href="/winga-icon-192-v3.png" type="image/png" sizes="192x192">
+  <title>Casual</title>
+  <link rel="stylesheet" href="/style.css?v=20260426140002">
+  <script defer src="/winga-config.js?v=20260426140002"></script>
+  <script defer src="/mock-data.js?v=20260426140002"></script>
+  <script defer src="/data-service.js?v=20260426140002"></script>
+  <script defer src="/app-core.js?v=20260426140002"></script>
+  <script defer src="/winga-modules.js?v=20260426140002"></script>
+  <script defer src="/app.js?v=20260426140002"></script>
+</head>
+<body>
+  <div class="form-container" id="auth-container" style="display:none;">
+    <button id="auth-close-button" type="button" aria-label="Funga auth">&times;</button>
+    <div id="auth-gate-prompt" style="display:none;">
+      <p class="auth-label" id="auth-gate-title">You need an account to continue</p>
+      <p class="auth-note" id="auth-gate-copy">Already have an account? Sign In. New here? Sign Up.</p>
+      <div class="auth-gate-actions">
+        <button class="auth-gate-secondary" id="auth-gate-login" type="button">Sign In</button>
+        <button class="auth-gate-secondary" id="auth-gate-signup" type="button">Sign Up</button>
+      </div>
+    </div>
+    <div class="brand-mark">
+      <span class="brand-badge">W</span>
+      <div>
+        <h1>WINGA</h1>
+        <p>Marketplace ya kuuza kwa haraka</p>
+      </div>
+    </div>
+    <h3 id="form-title">Login</h3>
+    <p class="auth-intro">Panga biashara yako kwa category ili uingie haraka na wateja wakupate kwa urahisi.</p>
+    <p class="auth-note" id="auth-category-note">Signup sasa ni phone-first. Weka jina la duka, namba ya simu, na password. Verification ya ID itafanyika baadaye kupitia Profile &gt; Get Verified.</p>
+    <div id="auth-details-step">
+      <div id="auth-role-selector" class="auth-role-selector" style="display:none;">
+        <button class="auth-role-option active" id="auth-role-seller" type="button" data-auth-role="seller"><span class="auth-role-dot"></span><span>Mimi ni muuzaji</span></button>
+        <button class="auth-role-option" id="auth-role-buyer" type="button" data-auth-role="buyer"><span class="auth-role-dot"></span><span>Mimi ni mteja</span></button>
+      </div>
+      <input type="text" id="username" placeholder="Jina la duka">
+      <input type="tel" id="phone-number" placeholder="Namba ya simu ya WhatsApp" required style="display:none;">
+      <input type="text" id="national-id" placeholder="Namba ya kitambulisho cha taifa" style="display:none;">
+      <select id="seller-identity-document-type" style="display:none;">
+        <option value="">Chagua identity document</option>
+        <option value="NIDA">National ID (NIDA)</option>
+        <option value="VOTER_ID">Voters ID</option>
+      </select>
+      <div id="seller-verification-uploads" style="display:none;">
+        <p class="auth-note">Verification ya seller itafanyika baadaye kupitia Profile > Get Verified.</p>
+        <input type="text" id="seller-identity-document-number" placeholder="Enter ID number" style="display:none;">
+        <label for="seller-identity-document-image" class="upload-btn auth-upload-btn">Upload ID image</label>
+        <input type="file" id="seller-identity-document-image" accept="image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif" style="display:none;">
+        <div id="seller-identity-document-image-name" class="auth-file-name"></div>
+        <div id="seller-identity-document-preview-wrap" class="auth-upload-preview" style="display:none;">
+          <img id="seller-identity-document-preview" alt="Identity document preview">
+        </div>
+      </div>
+      <div class="password-field">
+        <input type="password" id="password" placeholder="Password" required>
+      </div>
+      <div class="password-field" id="confirm-password-wrap" style="display:none;">
+        <input type="password" id="confirm-password" placeholder="Confirm password">
+      </div>
+      <button class="password-toggle password-toggle-standalone" id="password-toggle" type="button">Show Passwords</button>
+    </div>
+    <button id="auth-button" type="button">Login</button>
+    <span class="toggle-link" id="toggle-link">Tengeneza akaunti</span>
+  </div>
+
+  <div class="form-container" id="admin-login-container" style="display:none;">
+    <div class="brand-mark">
+      <span class="brand-badge">W</span>
+      <div>
+        <h1>WINGA</h1>
+        <p>Admin Access</p>
+      </div>
+    </div>
+    <h3 id="admin-login-title">Admin Login</h3>
+    <p class="auth-intro">Njia hii ni ya admin au moderator pekee. Tumia route ya staff kwa usimamizi wa marketplace.</p>
+    <p class="auth-note" id="admin-login-copy">Mteja na muuzaji wa kawaida wanapaswa kutumia login ya kawaida ya marketplace.</p>
+    <input type="text" id="admin-login-identifier" placeholder="Admin username au phone number" autocomplete="username">
+    <div class="password-field">
+      <input type="password" id="admin-login-password" placeholder="Password" autocomplete="current-password">
+    </div>
+    <button id="admin-login-button" type="button">Login to Admin</button>
+    <button class="auth-gate-secondary" id="admin-login-back" type="button">Back to Marketplace</button>
+  </div>
+
+  <div id="app-container" style="display:none;">
+    <header id="top-bar" class="panel">
+        <div id="header-brand">
+          <h2 id="header-brand-title">WINGA</h2>
+          <p id="top-bar-subtitle"><span>Discover</span> products first. Sign in only when you want to <span>buy</span>, <span>chat</span>, or <span>sell</span>.</p>
+        </div>
+      <p id="header-brand-tagline">Shop Fast</p>
+      <div id="public-header-actions">
+        <button class="public-header-btn" id="header-login-button" type="button">Login</button>
+        <button class="public-header-btn public-header-btn-primary" id="header-signup-button" type="button">Sign Up</button>
+      </div>
+      <div id="header-search-area" role="search" aria-label="Marketplace search">
+        <div id="search-box" class="panel">
+          <div id="search-main-row">
+            <input type="text" id="search-input" placeholder="Search bidhaa au duka" aria-label="Search bidhaa au duka">
+            <input type="file" id="search-image-file" accept="image/*,.heic,.heif">
+            <button id="search-image-button" type="button" aria-label="Search kwa picha">&#128247;</button>
+            <button id="search-toggle-button" type="button" aria-label="Fungua search">&#128269;</button>
+          </div>
+          <div id="search-filter-row">
+            <input type="number" id="filter-price-min" placeholder="Min price" min="0">
+            <input type="number" id="filter-price-max" placeholder="Max price" min="0">
+            <input type="text" id="filter-location" placeholder="Location / Shop (optional)">
+            <select id="sort-select">
+              <option value="default">Sort: Default</option>
+              <option value="price-asc">Lowest price</option>
+              <option value="price-desc">Highest price</option>
+              <option value="newest">Newest</option>
+              <option value="popular">Most popular</option>
+            </select>
+          </div>
+          <div id="search-image-preview" style="display:none;"></div>
+          <div id="search-dropdown" aria-live="polite"></div>
+        </div>
+      </div>
+      <div id="mobile-category-shell">
+        <button id="mobile-category-button" type="button" aria-label="Fungua categories" aria-expanded="false">&#9776;</button>
+        <div id="mobile-category-menu" class="panel"></div>
+      </div>
+      <div id="header-user-menu" style="display:none;">
+        <button id="header-user-trigger" type="button" aria-expanded="false" aria-label="Open account menu">
+          <img id="header-user-avatar-image" alt="Profile avatar" style="display:none;">
+          <span id="header-user-avatar-fallback">U</span>
+          <span id="header-user-name">User</span>
+        </button>
+        <div id="header-user-dropdown" class="panel" style="display:none;"></div>
+      </div>
+    </header>
+
+    <button id="view-home-back" type="button" aria-label="Rudi home">&#8592;</button>
+
+    <div id="categories" class="panel"></div>
+
+    <section id="hero-panel" class="panel">
+      <div id="hero-slideshow">
+        <div id="slides-track"></div>
+        <button id="slide-prev" class="slide-arrow" type="button" aria-label="Slide ya nyuma">&#10094;</button>
+        <button id="slide-next" class="slide-arrow" type="button" aria-label="Slide inayofuata">&#10095;</button>
+        <div id="slide-dots"></div>
+      </div>
+    </section>
+
+    <section id="market-showcase" class="panel">
+      <div class="section-heading showcase-heading">
+        <div>
+          <p class="eyebrow">Marketplace Picks</p>
+          <h3>Bidhaa zinazovuma sasa</h3>
+        </div>
+        <span class="meta-copy">Tembea kushoto au kulia kuona bidhaa zaidi</span>
+      </div>
+      <div id="showcase-track" class="showcase-track"></div>
+    </section>
+
+    <div id="upload-form" class="panel">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Upload bidhaa</p>
+          <h3 id="upload-title">Ongeza Bidhaa</h3>
+        </div>
+        <button id="cancel-edit-button" type="button">Cancel</button>
+      </div>
+      <input type="text" id="product-name" placeholder="Jina la bidhaa" required>
+      <input type="number" id="product-price" placeholder="Bei (TSh) - optional">
+      <input type="text" id="product-shop" placeholder="Jina la duka" required>
+      <input type="text" id="product-whatsapp" placeholder="Namba ya WhatsApp ya mawasiliano" required readonly>
+      <p class="auth-note" id="product-whatsapp-note">Tunatumia namba ya WhatsApp ya account yako moja kwa moja kwenye bidhaa hii. Ukiitaka kubadilisha, tumia sehemu ya Profile kuthibitisha namba mpya.</p>
+      <select id="product-category-top" required></select>
+      <select id="product-category" required></select>
+      <div id="upload-custom-category-wrap" class="custom-category-wrap" style="display:none;">
+        <input type="text" id="upload-custom-category-input" placeholder="Andika category mpya">
+        <button id="upload-custom-category-add" type="button">Ongeza Category</button>
+      </div>
+      <p id="upload-guidelines">Pakia picha hadi 5, kila moja isiwe zaidi ya 3MB, na ziwe JPG, PNG, WEBP au GIF.</p>
+      <label for="product-image-file" class="upload-btn">Chagua Picha Moja au Nyingi</label>
+      <input type="file" id="product-image-file" accept="image/*" multiple>
+      <div id="image-preview-list"></div>
+      <button id="upload-button" type="button">Ongeza Bidhaa</button>
+    </div>
+
+    <section id="analytics-panel" class="panel" style="display:none;"></section>
+    <section id="admin-panel" class="panel" style="display:none;"></section>
+
+    <div id="products-container"></div>
+
+    <div id="empty-state" class="panel" style="display:none;">
+      <h3>Hakuna bidhaa zilizopatikana</h3>
+      <p>Jaribu search nyingine, badili category, au upload bidhaa mpya.</p>
+    </div>
+
+    <div id="feed-loading-state" class="panel" style="display:none;" aria-live="polite" aria-busy="true">
+      <div class="feed-loading-shell">
+        <div class="feed-loading-spinner" aria-hidden="true"></div>
+        <h3>Inapakia bidhaa...</h3>
+        <p>Subiri kidogo, tunaleta bidhaa zako pamoja na picha zake.</p>
+      </div>
+    </div>
+
+    <footer id="bottom-nav">
+      <button class="nav-item active" type="button" data-view="home"><span class="nav-icon">&#127968;</span><span>Home</span></button>
+      <button class="nav-item" type="button" data-view="upload"><span class="nav-icon">&#11014;&#65039;</span><span>Upload</span></button>
+      <button class="nav-item" type="button" data-view="profile"><span class="nav-icon">&#128100;</span><span>Profile</span></button>
+      <button class="nav-item" id="admin-nav-item" type="button" data-view="admin" style="display:none;"><span class="nav-icon">&#128737;&#65039;</span><span>Admin</span></button>
+    </footer>
+
+    <button id="post-product-fab" type="button" aria-label="Post product">
+      <span class="fab-icon">&#128221;</span>
+      <span class="fab-label">Post</span>
+    </button>
+
+    <footer id="public-footer" class="panel" style="display:none;">
+      <div class="public-footer-grid">
+        <div>
+          <h3>WINGA</h3>
+          <p class="public-footer-copy">Shop fast. Sell smart. Discover products before signing in.</p>
+        </div>
+        <div>
+          <p class="public-footer-heading">Quick Links</p>
+          <div class="public-footer-links">
+            <a href="#" data-public-link="home">Home</a>
+            <a href="#" data-public-link="products">Products</a>
+            <a href="#" data-public-auth="login">Sign In</a>
+            <a href="#" data-public-auth="signup">Sign Up</a>
+            <a href="#public-footer">Contact</a>
+          </div>
+        </div>
+        <div>
+          <p class="public-footer-heading">Contact</p>
+          <p class="public-footer-copy">Email: contact@winga.app</p>
+          <p class="public-footer-copy">Phone: <a href="tel:+255695237798">+255 695 237 798</a></p>
+        </div>
+      </div>
+      <p class="public-footer-meta">&copy; 2026 Winga. Marketplace built for fast discovery and trusted transactions.</p>
+    </footer>
+  </div>
+</body>
+</html>

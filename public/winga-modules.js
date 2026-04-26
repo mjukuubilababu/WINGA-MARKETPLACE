@@ -5675,6 +5675,20 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       detail: null,
       error: ""
     };
+    let messageReviewState = {
+      conversationId: "",
+      thread: null,
+      reason: "",
+      loading: false,
+      detail: null,
+      error: ""
+    };
+    let settingsState = {
+      loading: false,
+      saving: false,
+      error: "",
+      values: null
+    };
 
     function mapStatusClass(status = "") {
       const normalized = String(status || "").toLowerCase();
@@ -5865,6 +5879,242 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       return preview;
     }
 
+    function formatMessageAccessTime(value) {
+      if (!value) {
+        return "-";
+      }
+      const parsed = new Date(value);
+      if (Number.isNaN(parsed.getTime())) {
+        return String(value);
+      }
+      try {
+        return new Intl.DateTimeFormat("en-GB", {
+          dateStyle: "medium",
+          timeStyle: "short"
+        }).format(parsed);
+      } catch (error) {
+        return parsed.toISOString();
+      }
+    }
+
+    function ensureMessageReviewModal() {
+      let root = document.getElementById("admin-message-review-modal");
+      if (root) {
+        return root;
+      }
+
+      root = deps.createElement("div", {
+        attributes: {
+          id: "admin-message-review-modal",
+          hidden: "true"
+        }
+      });
+      root.innerHTML = `
+        <div class="admin-message-review-backdrop" data-close-admin-message-review="true"></div>
+        <div class="admin-message-review-dialog panel" role="dialog" aria-modal="true" aria-labelledby="admin-message-review-title">
+          <button class="admin-message-review-close" type="button" aria-label="Close message review" data-close-admin-message-review="true">&times;</button>
+          <div class="admin-message-review-body" data-admin-message-review-body="true"></div>
+        </div>
+      `;
+
+      root.addEventListener("click", (event) => {
+        const submitButton = event.target.closest("[data-admin-message-review-submit]");
+        if (submitButton) {
+          handleMessageReviewSubmit(submitButton).catch((error) => {
+            messageReviewState = {
+              ...messageReviewState,
+              loading: false,
+              error: error.message || "Message review haikufunguka."
+            };
+            renderMessageReviewModal();
+          });
+          return;
+        }
+        if (event.target.closest("[data-close-admin-message-review='true']")) {
+          closeMessageReviewModal();
+        }
+      });
+      root.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+          closeMessageReviewModal();
+        }
+      });
+
+      document.body.appendChild(root);
+      return root;
+    }
+
+    function closeMessageReviewModal() {
+      const root = document.getElementById("admin-message-review-modal");
+      if (!root) {
+        return;
+      }
+      root.hidden = true;
+      root.classList.remove("open");
+      messageReviewState = {
+        conversationId: "",
+        thread: null,
+        reason: "",
+        loading: false,
+        detail: null,
+        error: ""
+      };
+      root.querySelector("[data-admin-message-review-body='true']")?.replaceChildren();
+    }
+
+    function createMessageThreadCard(thread) {
+      const card = deps.createElement("article", {
+        className: "moderation-card admin-message-card",
+        attributes: {
+          "data-admin-message-card": thread.conversationId
+        }
+      });
+      card.__adminThread = thread;
+      const messageLabel = thread.messageCount > 1 ? `${thread.messageCount} messages` : `${thread.messageCount} message`;
+      card.append(
+        deps.createElement("strong", {
+          textContent: `${thread.senderName || thread.senderId || "-"} → ${thread.receiverName || thread.receiverId || "-"}`
+        }),
+        createMetaCopy(`Product: ${thread.productName || thread.productId || "-"}`),
+        createMetaCopy(`Last: ${formatMessageAccessTime(thread.lastMessageAt)} | ${messageLabel} | Unread: ${thread.unreadCount || 0}`),
+        createMetaCopy(thread.lastMessagePreview || "Hakuna preview ya ujumbe."),
+        deps.createStatusPill(thread.hasReportedContent ? "Reported" : "Normal", mapStatusClass(thread.hasReportedContent ? "pending" : "approved"))
+      );
+      const actions = deps.createElement("div", { className: "moderation-actions" });
+      actions.appendChild(createActionButton("Open Content", {
+        adminMessageReview: thread.conversationId
+      }, "button"));
+      card.appendChild(actions);
+      return card;
+    }
+
+    function renderMessageReviewModal() {
+      const root = ensureMessageReviewModal();
+      const body = root.querySelector("[data-admin-message-review-body='true']");
+      if (!body || !messageReviewState.thread) {
+        return;
+      }
+
+      const detail = messageReviewState.detail;
+      const thread = messageReviewState.thread;
+      const header = deps.createElement("div", { className: "admin-investigation-header" });
+      const copy = deps.createElement("div");
+      copy.append(
+        deps.createElement("p", { className: "eyebrow", textContent: "Message Moderation" }),
+        deps.createElement("h3", {
+          attributes: { id: "admin-message-review-title" },
+          textContent: `${thread.senderName || thread.senderId || "-"} → ${thread.receiverName || thread.receiverId || "-"}`
+        }),
+        deps.createElement("p", {
+          className: "meta-copy",
+          textContent: `Conversation ${thread.conversationId}`
+        })
+      );
+      const statusGroup = deps.createElement("div", { className: "trust-badges" });
+      statusGroup.appendChild(deps.createStatusPill(thread.hasReportedContent ? "Reported" : "Normal", mapStatusClass(thread.hasReportedContent ? "pending" : "approved")));
+      statusGroup.appendChild(deps.createStatusPill(`${thread.messageCount || 0} msgs`, "approved"));
+      header.append(copy, statusGroup);
+
+      const reasonField = deps.createElement("textarea", {
+        attributes: {
+          "data-admin-message-review-reason": "true",
+          placeholder: "Reason ya ku-open message content (report/dispute reference)"
+        }
+      });
+      reasonField.value = messageReviewState.reason || "";
+
+      const reasonActions = deps.createElement("div", { className: "moderation-actions" });
+      const openButton = createActionButton(
+        messageReviewState.loading ? "Inafungua..." : "Open Message Content",
+        { adminMessageReviewSubmit: thread.conversationId },
+        "button"
+      );
+      if (messageReviewState.loading) {
+        openButton.setAttribute("disabled", "true");
+        reasonField.setAttribute("disabled", "true");
+      }
+      reasonActions.append(
+        openButton,
+        createActionButton("Close", {
+          closeAdminMessageReview: "true"
+        }, "button button-secondary")
+      );
+
+      const reasonPanel = deps.createElement("section", { className: "admin-investigation-section" });
+      reasonPanel.append(
+        deps.createElement("p", {
+          className: "meta-copy",
+          textContent: settingsState.values?.messageReviewRequiresReason === false
+            ? "Message content huonekana mara moja au baada ya sababu fupi. Audit trail huandikwa kila mara."
+            : "Message content huonekana tu baada ya sababu kuandikwa. Audit trail huandikwa kila mara."
+        }),
+        reasonField,
+        reasonActions
+      );
+
+      const nodes = [header, reasonPanel];
+      if (messageReviewState.error) {
+        nodes.push(deps.createElement("p", {
+          className: "empty-copy admin-investigation-error",
+          textContent: messageReviewState.error
+        }));
+      }
+
+      if (detail) {
+        const summaryGrid = deps.createElement("div", { className: "analytics-grid admin-investigation-metrics" });
+        summaryGrid.append(
+          createInvestigationMetric("Messages", detail.summary?.messageCount || detail.messages.length || 0),
+          createInvestigationMetric("Unread", detail.summary?.unreadCount || 0),
+          createInvestigationMetric("Reports", detail.summary?.reportCount || 0),
+          createInvestigationMetric("Reviewed", formatMessageAccessTime(detail.reviewedAt || ""))
+        );
+        nodes.push(summaryGrid);
+
+        nodes.push(createSection("Message Thread", "Review ya content ya conversation hii.", deps.createElement("div", {
+          className: "admin-message-thread-list",
+          attributes: { "data-admin-message-thread": detail.conversationId }
+        })));
+      }
+
+      body.replaceChildren(...nodes);
+
+      if (detail) {
+        const threadList = body.querySelector("[data-admin-message-thread]");
+        if (threadList) {
+          detail.messages.forEach((message) => {
+            threadList.appendChild(deps.createElement("article", {
+              className: "moderation-card admin-message-entry"
+            }));
+            const entry = threadList.lastElementChild;
+            entry.append(
+              deps.createElement("strong", { textContent: `${message.senderId || "-"} → ${message.receiverId || "-"}` }),
+              createMetaCopy(`${formatMessageAccessTime(message.timestamp || message.createdAt || "")} | ${message.messageType || "text"} | ${message.isRead ? "read" : "unread"}`),
+              deps.createElement("p", { className: "product-meta", textContent: message.message || "(empty)" })
+            );
+          });
+        }
+      }
+
+      root.hidden = false;
+      root.classList.add("open");
+      root.querySelector("[data-admin-message-review-reason='true']")?.focus();
+    }
+
+    function openMessageReviewModal(thread) {
+      if (!deps.isAdminUser?.() || !thread) {
+        return;
+      }
+      messageReviewState = {
+        conversationId: thread.conversationId,
+        thread,
+        reason: "",
+        loading: false,
+        detail: null,
+        error: ""
+      };
+      renderMessageReviewModal();
+    }
+
     function createUserActionPayload(action, note) {
       switch (action) {
         case "verify":
@@ -5897,6 +6147,29 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
             reason: "staff_ban",
             note
           };
+        case "deactivate":
+          return {
+            status: "deactivated",
+            reason: "staff_deactivate",
+            note
+          };
+        case "delete":
+          return {
+            status: "deactivated",
+            deleteUser: true,
+            reason: "staff_delete",
+            note
+          };
+        case "makeSeller":
+          return {
+            role: "seller",
+            note
+          };
+        case "makeBuyer":
+          return {
+            role: "buyer",
+            note
+          };
         default:
           return null;
       }
@@ -5920,6 +6193,18 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       }
       if (action === "ban") {
         return deps.confirmAction(`Una uhakika unataka kuban user ${username}? Hii ni hatua nzito.`);
+      }
+      if (action === "deactivate") {
+        return deps.confirmAction(`Una uhakika unataka ku-deactivate user ${username}?`);
+      }
+      if (action === "delete") {
+        return deps.confirmAction(`Una uhakika unataka kufuta akaunti ya ${username}? Hii itazima sessions na moderation itaandikwa.`);
+      }
+      if (action === "makeSeller") {
+        return deps.confirmAction(`Una uhakika unataka kubadilisha ${username} kuwa seller?`);
+      }
+      if (action === "makeBuyer") {
+        return deps.confirmAction(`Una uhakika unataka kubadilisha ${username} kuwa buyer?`);
       }
       return true;
     }
@@ -6252,6 +6537,17 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         }));
       }
       if (deps.isAdminUser?.() && user.username !== "admin") {
+        if (user.role === "seller") {
+          actions.appendChild(createActionButton("Make Buyer", {
+            adminUserAction: "makeBuyer",
+            adminUsername: user.username
+          }));
+        } else {
+          actions.appendChild(createActionButton("Make Seller", {
+            adminUserAction: "makeSeller",
+            adminUsername: user.username
+          }));
+        }
         if (user.status !== "active") {
           actions.appendChild(createActionButton("Restore", {
             adminUserAction: "activate",
@@ -6270,6 +6566,14 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
             adminUsername: user.username
           }));
         }
+        actions.appendChild(createActionButton("Deactivate", {
+          adminUserAction: "deactivate",
+          adminUsername: user.username
+        }, "button button-secondary"));
+        actions.appendChild(createActionButton("Delete Account", {
+          adminUserAction: "delete",
+          adminUsername: user.username
+        }, "button button-danger"));
       }
 
       card.append(
@@ -6433,6 +6737,55 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       return createSection(title, meta, list);
     }
 
+    function createSystemSettingsSection(settings) {
+      const wrapper = deps.createElement("div", { className: "moderation-list admin-settings-panel" });
+      const heading = deps.createElement("div", { className: "section-heading" });
+      const copy = deps.createElement("div");
+      copy.append(
+        deps.createElement("p", { className: "eyebrow", textContent: "Admin" }),
+        deps.createElement("h3", { textContent: "System Settings" }),
+        deps.createElement("p", {
+          className: "meta-copy",
+          textContent: "Control hero visibility, splash visibility, session expiry na cache policy."
+        })
+      );
+      heading.appendChild(copy);
+
+      wrapper.appendChild(heading);
+
+      if (settingsState.error) {
+        wrapper.appendChild(deps.createElement("p", {
+          className: "empty-copy admin-settings-error",
+          textContent: settingsState.error
+        }));
+      }
+
+      if (settingsState.loading && !settingsState.values) {
+        wrapper.appendChild(deps.createEmptyState("Inapakia system settings..."));
+        return wrapper;
+      }
+
+      const form = deps.createElement("div", {
+        className: "admin-settings-form",
+        attributes: {
+          "data-admin-settings-form": "true"
+        }
+      });
+      form.appendChild(createSettingsSectionBody(settings || settingsState.values || {}));
+
+      const actions = deps.createElement("div", { className: "moderation-actions admin-settings-actions" });
+      const saveButton = createActionButton(settingsState.saving ? "Saving..." : "Save Settings", {
+        adminSettingsSave: "true"
+      }, "button");
+      if (settingsState.saving) {
+        saveButton.setAttribute("disabled", "true");
+      }
+      actions.appendChild(saveButton);
+      form.appendChild(actions);
+      wrapper.appendChild(form);
+      return wrapper;
+    }
+
     function readScopedTextarea(scope, selector) {
       return scope?.querySelector(selector)?.value.trim() || "";
     }
@@ -6447,7 +6800,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       });
     }
 
-    function createAdminBody(state) {
+    async function createAdminBody(state) {
       const wrapper = deps.createElement("div", { className: "moderation-list" });
       wrapper.appendChild(createAdminToolbar(state));
       const adminWarmImageSources = new Set();
@@ -6552,6 +6905,22 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
             state.moderationActions.slice(0, 8),
             (action) => `${action.actionType || "action"} | ${action.targetUserId || action.targetProductId || "-"} | ${action.adminUsername || "-"}`
           ));
+        const messageThreads = Array.isArray(state.adminMessages) ? state.adminMessages : [];
+        const messageBody = deps.createElement("div", { className: "moderation-list" });
+        if (state.loadErrors.adminMessages) {
+          messageBody.appendChild(createLoadIssueState("Messages hazikupatikana kwa sasa."));
+        } else if (!messageThreads.length) {
+          messageBody.appendChild(deps.createEmptyState("Hakuna message threads za ku-review kwa sasa."));
+        } else {
+          await appendItemsInChunks(messageBody, messageThreads, (thread) => createMessageThreadCard(thread), 8);
+        }
+        wrapper.appendChild(createSection("Message Moderation", "View metadata, open content only on dispute, na audit trail huandikwa.", messageBody));
+        await nextFrame();
+
+        wrapper.appendChild(state.loadErrors.adminSettings
+          ? createSection("System Settings", "Control splash, hero, cache, na session policy.", createLoadIssueState("System settings hazikupatikana kwa sasa."))
+          : createSection("System Settings", "Control splash, hero, cache, na session policy.", createSystemSettingsSection(state.adminSettings || settingsState.values || {})));
+        await nextFrame();
 
         if (state.loadErrors.opsSummary) {
           wrapper.appendChild(createSection("Ops Signals", "Runtime diagnostics za admin.", createLoadIssueState("Ops summary haikupatikana kwa sasa.")));
@@ -6756,6 +7125,195 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       renderInvestigationModal();
     }
 
+    async function handleMessageReviewSubmit(button) {
+      const conversationId = button.dataset.adminMessageReviewSubmit || messageReviewState.conversationId || "";
+      const root = document.getElementById("admin-message-review-modal");
+      const reason = root?.querySelector("[data-admin-message-review-reason='true']")?.value.trim() || "";
+      if (!conversationId) {
+        return;
+      }
+      messageReviewState = {
+        ...messageReviewState,
+        conversationId,
+        reason,
+        loading: true,
+        error: ""
+      };
+      renderMessageReviewModal();
+      try {
+        const detail = await deps.dataLayer.reviewAdminMessage(conversationId, { reason });
+        messageReviewState = {
+          ...messageReviewState,
+          loading: false,
+          detail,
+          error: ""
+        };
+        deps.reportEvent?.("info", "admin_message_review_opened", "Admin opened a message thread review.", {
+          conversationId,
+          reason
+        });
+      } catch (error) {
+        messageReviewState = {
+          ...messageReviewState,
+          loading: false,
+          error: error.message || "Imeshindikana kufungua message content."
+        };
+      }
+      renderMessageReviewModal();
+    }
+
+    function createSettingsSectionBody(settings) {
+      const panel = deps.createElement("div", { className: "admin-settings-grid" });
+      const field = (label, input) => {
+        const wrapper = deps.createElement("label", { className: "admin-setting-field" });
+        wrapper.append(
+          deps.createElement("span", { className: "admin-setting-label", textContent: label }),
+          input
+        );
+        return wrapper;
+      };
+
+      const heroToggle = deps.createElement("input", {
+        attributes: {
+          type: "checkbox",
+          "data-admin-setting-key": "heroSectionVisible"
+        }
+      });
+      heroToggle.checked = Boolean(settings.heroSectionVisible);
+
+      const showcaseToggle = deps.createElement("input", {
+        attributes: {
+          type: "checkbox",
+          "data-admin-setting-key": "standaloneShowcaseVisible"
+        }
+      });
+      showcaseToggle.checked = Boolean(settings.standaloneShowcaseVisible);
+
+      const splashToggle = deps.createElement("input", {
+        attributes: {
+          type: "checkbox",
+          "data-admin-setting-key": "splashScreenVisible"
+        }
+      });
+      splashToggle.checked = Boolean(settings.splashScreenVisible);
+
+      const signOutToggle = deps.createElement("input", {
+        attributes: {
+          type: "checkbox",
+          "data-admin-setting-key": "requireExplicitSignOut"
+        }
+      });
+      signOutToggle.checked = Boolean(settings.requireExplicitSignOut);
+
+      const messageReviewToggle = deps.createElement("input", {
+        attributes: {
+          type: "checkbox",
+          "data-admin-setting-key": "messageReviewRequiresReason"
+        }
+      });
+      messageReviewToggle.checked = Boolean(settings.messageReviewRequiresReason);
+
+      const expiryInput = deps.createElement("input", {
+        attributes: {
+          type: "number",
+          min: "15",
+          max: "1440",
+          step: "15",
+          "data-admin-setting-key": "sessionExpiryMinutes"
+        }
+      });
+      expiryInput.value = String(settings.sessionExpiryMinutes || 120);
+
+      const cachePolicySelect = deps.createElement("select", {
+        attributes: {
+          "data-admin-setting-key": "cachePolicy"
+        }
+      });
+      [
+        { value: "balanced", label: "Balanced" },
+        { value: "cache-first", label: "Cache first" },
+        { value: "network-first", label: "Network first" }
+      ].forEach((option) => {
+        const opt = deps.createElement("option", {
+          attributes: {
+            value: option.value
+          },
+          textContent: option.label
+        });
+        if ((settings.cachePolicy || "balanced") === option.value) {
+          opt.selected = true;
+        }
+        cachePolicySelect.appendChild(opt);
+      });
+
+      panel.append(
+        field("Hero section visible", heroToggle),
+        field("Standalone showcase visible", showcaseToggle),
+        field("Splash screen visible", splashToggle),
+        field("Require explicit sign-out", signOutToggle),
+        field("Message review requires reason", messageReviewToggle),
+        field("Session expiry (minutes)", expiryInput),
+        field("Cache policy", cachePolicySelect)
+      );
+      return panel;
+    }
+
+    async function handleSettingsSave(button) {
+      const form = button.closest("[data-admin-settings-form]");
+      if (!form) {
+        return;
+      }
+      const payload = {};
+      form.querySelectorAll("[data-admin-setting-key]").forEach((input) => {
+        const key = input.dataset.adminSettingKey;
+        if (!key) {
+          return;
+        }
+        if (input.type === "checkbox") {
+          payload[key] = input.checked;
+          return;
+        }
+        payload[key] = input.value;
+      });
+      settingsState = {
+        ...settingsState,
+        saving: true,
+        error: ""
+      };
+      renderAdminView();
+      try {
+        const updated = await deps.dataLayer.updateAdminSettings(payload);
+        settingsState = {
+          loading: false,
+          saving: false,
+          error: "",
+          values: updated
+        };
+        deps.applyAppSettings?.(updated);
+        deps.showInAppNotification?.({
+          title: "Settings saved",
+          body: "System settings zimehifadhiwa.",
+          variant: "success"
+        });
+        deps.reportEvent?.("info", "admin_settings_updated", "Admin updated system settings.", {
+          heroSectionVisible: Boolean(updated?.heroSectionVisible),
+          standaloneShowcaseVisible: Boolean(updated?.standaloneShowcaseVisible)
+        });
+      } catch (error) {
+        settingsState = {
+          ...settingsState,
+          saving: false,
+          error: error.message || "Imeshindikana kuhifadhi settings."
+        };
+        deps.showInAppNotification?.({
+          title: "Settings save failed",
+          body: error.message || "Imeshindikana kuhifadhi settings.",
+          variant: "error"
+        });
+      }
+      renderAdminView();
+    }
+
     function bindAdminActions(panel) {
       panel.querySelectorAll("[data-admin-investigate-username]").forEach((card) => {
         const openCard = (event) => {
@@ -6787,6 +7345,34 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
             deps.showInAppNotification?.({
               title: "User update failed",
               body: error.message || "Imeshindikana kuhifadhi moderation ya user.",
+              variant: "error"
+            });
+          } finally {
+            toggleScopedBusyState(scope, false);
+          }
+        });
+      });
+
+      panel.querySelectorAll("[data-admin-message-review]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const scope = button.closest("[data-admin-message-card]");
+          openMessageReviewModal(scope?.__adminThread || null);
+        });
+      });
+
+      panel.querySelectorAll("[data-admin-message-review-submit]").forEach((button) => {
+        button.addEventListener("click", async () => {
+          const scope = button.closest("[data-admin-message-card]");
+          toggleScopedBusyState(scope, true);
+          try {
+            await handleMessageReviewSubmit(button);
+          } catch (error) {
+            deps.captureError?.("admin_message_review_failed", error, {
+              conversationId: button.dataset.adminMessageReviewSubmit || ""
+            });
+            deps.showInAppNotification?.({
+              title: "Message review failed",
+              body: error.message || "Imeshindikana kufungua message content.",
               variant: "error"
             });
           } finally {
@@ -6870,6 +7456,20 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
               body: error.message || "Imeshindikana kuzima promotion.",
               variant: "error"
             });
+          } finally {
+            toggleScopedBusyState(scope, false);
+          }
+        });
+      });
+
+      panel.querySelectorAll("[data-admin-settings-save]").forEach((button) => {
+        button.addEventListener("click", async () => {
+          const scope = button.closest("[data-admin-settings-form]");
+          toggleScopedBusyState(scope, true);
+          try {
+            await handleSettingsSave(button);
+          } catch (error) {
+            deps.captureError?.("admin_settings_save_failed", error, {});
           } finally {
             toggleScopedBusyState(scope, false);
           }
@@ -6963,6 +7563,18 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       await nextFrame();
 
       if (deps.isAdminUser?.()) {
+        const messageThreads = Array.isArray(state.adminMessages) ? state.adminMessages : [];
+        const messageBody = deps.createElement("div", { className: "moderation-list" });
+        if (state.loadErrors.adminMessages) {
+          messageBody.appendChild(createLoadIssueState("Messages hazikupatikana kwa sasa."));
+        } else if (!messageThreads.length) {
+          messageBody.appendChild(deps.createEmptyState("Hakuna message threads za ku-review kwa sasa."));
+        } else {
+          await appendItemsInChunks(messageBody, messageThreads, (thread) => createMessageThreadCard(thread), 8);
+        }
+        wrapper.appendChild(createSection("Message Moderation", "View metadata, open content only on dispute, na audit trail huandikwa.", messageBody));
+        await nextFrame();
+
         const promotionsBody = deps.createElement("div", { className: "moderation-list" });
         if (state.loadErrors.promotions) {
           promotionsBody.appendChild(createLoadIssueState("Promotions data haikupatikana kwa sasa."));
@@ -7004,6 +7616,11 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
           ));
         await nextFrame();
 
+        wrapper.appendChild(state.loadErrors.adminSettings
+          ? createSection("System Settings", "Control splash, hero, cache, na session policy.", createLoadIssueState("System settings hazikupatikana kwa sasa."))
+          : createSection("System Settings", "Control splash, hero, cache, na session policy.", createSystemSettingsSection(state.adminSettings || settingsState.values || {})));
+        await nextFrame();
+
         if (state.loadErrors.opsSummary) {
           wrapper.appendChild(createSection("Ops Signals", "Runtime diagnostics za admin.", createLoadIssueState("Ops summary haikupatikana kwa sasa.")));
         } else if (state.opsSummary) {
@@ -7036,6 +7653,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         return;
       }
       closeInvestigationModal();
+      closeMessageReviewModal();
 
       const sequence = ++renderSequence;
       panel.replaceChildren(
@@ -7056,7 +7674,9 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
           deps.dataLayer.loadAdminOrders({}),
           deps.dataLayer.loadAdminPayments({}),
           deps.dataLayer.loadModerationActions(),
-          deps.dataLayer.loadAdminOpsSummary()
+          deps.dataLayer.loadAdminOpsSummary(),
+          deps.dataLayer.loadAdminMessages(),
+          deps.dataLayer.loadAdminSettings()
         );
       }
 
@@ -7074,8 +7694,10 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       const payments = deps.isAdminUser?.() ? getSettledValue(results[6], []) : [];
       const moderationActions = deps.isAdminUser?.() ? getSettledValue(results[7], []) : [];
       const opsSummary = deps.isAdminUser?.() ? getSettledValue(results[8], null) : null;
+      const adminMessages = deps.isAdminUser?.() ? getSettledValue(results[9], []) : [];
+      const adminSettings = deps.isAdminUser?.() ? getSettledValue(results[10], null) : null;
 
-      const failedLoads = ["analytics", "users", "products", "reports", "promotions", "orders", "payments", "moderationActions", "opsSummary"]
+      const failedLoads = ["analytics", "users", "products", "reports", "promotions", "orders", "payments", "moderationActions", "opsSummary", "adminMessages", "adminSettings"]
         .filter((_, index) => results[index] && results[index].status === "rejected");
       if (failedLoads.length) {
         deps.captureError?.("admin_surface_partial_load_failed", new Error("Some admin datasets failed to load."), {
@@ -7100,6 +7722,8 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         orders: Array.isArray(orders) ? orders : [],
         payments: Array.isArray(payments) ? payments : [],
         moderationActions: Array.isArray(moderationActions) ? moderationActions : [],
+        adminMessages: Array.isArray(adminMessages) ? adminMessages : [],
+        adminSettings: adminSettings || null,
         opsSummary,
         hasAnyLoadError: failedLoads.length > 0,
         loadErrors: {
@@ -7111,10 +7735,18 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
           orders: failedLoads.includes("orders"),
           payments: failedLoads.includes("payments"),
           moderationActions: failedLoads.includes("moderationActions"),
-          opsSummary: failedLoads.includes("opsSummary")
+          opsSummary: failedLoads.includes("opsSummary"),
+          adminMessages: failedLoads.includes("adminMessages"),
+          adminSettings: failedLoads.includes("adminSettings")
         }
       };
       latestUsers = state.users;
+      settingsState = {
+        loading: false,
+        saving: settingsState.saving,
+        error: state.loadErrors.adminSettings ? "System settings hazikupatikana kwa sasa." : "",
+        values: adminSettings || settingsState.values || null
+      };
 
       const body = await createAdminBody(state);
       panel.replaceChildren(body);

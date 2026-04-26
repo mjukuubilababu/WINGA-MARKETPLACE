@@ -4875,6 +4875,7 @@ const { renderAdminView: renderAdminViewFromController } = window.WingaModules.a
   refreshProductsFromStore,
   renderAnalyticsPanel,
   dataLayer: window.WingaDataLayer,
+  applyAppSettings,
   showInAppNotification,
   confirmAction,
   reportEvent: (...args) => reportClientEvent(...args),
@@ -5770,8 +5771,44 @@ const topBar = document.getElementById("top-bar");
 const bottomNav = document.getElementById("bottom-nav");
 const postProductFab = document.getElementById("post-product-fab");
 const viewHomeBackButton = document.getElementById("view-home-back");
-const SHOW_HOMEPAGE_HERO_PANEL = false;
-const SHOW_STANDALONE_SHOWCASE_SECTION = false;
+let SHOW_HOMEPAGE_HERO_PANEL = false;
+let SHOW_STANDALONE_SHOWCASE_SECTION = false;
+const runtimeAppSettings = {
+  heroSectionVisible: false,
+  standaloneShowcaseVisible: false,
+  splashScreenVisible: true,
+  sessionExpiryMinutes: 120,
+  cachePolicy: "balanced",
+  requireExplicitSignOut: true,
+  messageReviewRequiresReason: true
+};
+
+function normalizeRuntimeAppSettings(settings = {}) {
+  return {
+    heroSectionVisible: typeof settings.heroSectionVisible === "boolean" ? settings.heroSectionVisible : false,
+    standaloneShowcaseVisible: typeof settings.standaloneShowcaseVisible === "boolean" ? settings.standaloneShowcaseVisible : false,
+    splashScreenVisible: typeof settings.splashScreenVisible === "boolean" ? settings.splashScreenVisible : true,
+    sessionExpiryMinutes: Number.isFinite(Number(settings.sessionExpiryMinutes)) ? Math.max(15, Math.min(1440, Number(settings.sessionExpiryMinutes))) : 120,
+    cachePolicy: ["balanced", "cache-first", "network-first"].includes(String(settings.cachePolicy || "").trim().toLowerCase())
+      ? String(settings.cachePolicy || "").trim().toLowerCase()
+      : "balanced",
+    requireExplicitSignOut: settings.requireExplicitSignOut !== false,
+    messageReviewRequiresReason: settings.messageReviewRequiresReason !== false,
+    updatedAt: String(settings.updatedAt || "").trim(),
+    updatedBy: String(settings.updatedBy || "").trim()
+  };
+}
+
+function applyAppSettings(settings = {}) {
+  const nextSettings = normalizeRuntimeAppSettings(settings);
+  Object.assign(runtimeAppSettings, nextSettings);
+  SHOW_HOMEPAGE_HERO_PANEL = Boolean(nextSettings.heroSectionVisible);
+  SHOW_STANDALONE_SHOWCASE_SECTION = Boolean(nextSettings.standaloneShowcaseVisible);
+  window.WingaRuntimeSettings = { ...runtimeAppSettings };
+  if (typeof refreshPublicEntryChrome === "function") {
+    refreshPublicEntryChrome();
+  }
+}
 
 if (searchInput) {
   searchInput.setAttribute("autocomplete", "off");
@@ -11096,6 +11133,9 @@ async function bootApp() {
 
   await window.WingaDataLayer.init();
   syncNotificationPermissionStateFromBrowser();
+  const appSettingsPromise = window.WingaDataLayer.loadAppSettings
+    ? window.WingaDataLayer.loadAppSettings().catch(() => null)
+    : Promise.resolve(null);
   if (window.WingaDataLayer?.hydrateStartupData) {
     window.WingaDataLayer.hydrateStartupData().catch((error) => {
       captureClientError("startup_hydration_failed", error, {
@@ -11105,6 +11145,10 @@ async function bootApp() {
     });
   }
   const rememberedSessionPromise = window.WingaDataLayer.restoreSession();
+  const appSettings = await appSettingsPromise;
+  if (appSettings) {
+    applyAppSettings(appSettings);
+  }
 
   refreshProductsFromStore();
   warmProductImageCache(products);

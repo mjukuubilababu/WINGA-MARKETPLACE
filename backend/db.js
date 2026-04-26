@@ -282,6 +282,15 @@ function createPostgresStore({ databaseUrl, ssl = false }) {
     `);
 
     await query(`
+      CREATE TABLE IF NOT EXISTS app_settings (
+        id INTEGER PRIMARY KEY DEFAULT 1,
+        settings JSONB NOT NULL DEFAULT '{}'::jsonb,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_by TEXT NOT NULL DEFAULT ''
+      );
+    `);
+
+    await query(`
       ALTER TABLE products
       ADD COLUMN IF NOT EXISTS availability TEXT NOT NULL DEFAULT 'available';
     `);
@@ -451,7 +460,8 @@ function createPostgresStore({ databaseUrl, ssl = false }) {
     try {
       await client.query("BEGIN");
       await client.query("DELETE FROM sessions");
-        await client.query("DELETE FROM moderation_actions");
+      await client.query("DELETE FROM moderation_actions");
+        await client.query("DELETE FROM app_settings");
         await client.query("DELETE FROM reports");
         await client.query("DELETE FROM reviews");
         await client.query("DELETE FROM promotions");
@@ -463,7 +473,7 @@ function createPostgresStore({ databaseUrl, ssl = false }) {
       await client.query("DELETE FROM users");
       await client.query("DELETE FROM categories");
 
-      for (const category of store.categories || []) {
+        for (const category of store.categories || []) {
         await client.query(
           `INSERT INTO categories (value, label, created_at) VALUES ($1, $2, $3)`,
           [
@@ -651,6 +661,16 @@ function createPostgresStore({ databaseUrl, ssl = false }) {
           );
         }
 
+      await client.query(
+        `INSERT INTO app_settings (id, settings, updated_at, updated_by)
+         VALUES (1, $1::jsonb, $2, $3)`,
+        [
+          stringifyJson(store.settings || {}, {}),
+          (store.settings && store.settings.updatedAt) || new Date().toISOString(),
+          (store.settings && store.settings.updatedBy) || ""
+        ]
+      );
+
         for (const message of store.messages || []) {
           await client.query(
             `INSERT INTO messages (
@@ -785,7 +805,7 @@ function createPostgresStore({ databaseUrl, ssl = false }) {
   }
 
   async function readStore() {
-      const [categoriesResult, usersResult, productsResult, sessionsResult, ordersResult, paymentsResult, messagesResult, notificationsResult, promotionsResult, reviewsResult, reportsResult, moderationActionsResult] = await Promise.all([
+      const [categoriesResult, usersResult, productsResult, sessionsResult, ordersResult, paymentsResult, messagesResult, notificationsResult, promotionsResult, reviewsResult, reportsResult, moderationActionsResult, settingsResult] = await Promise.all([
       query(`
         SELECT
           value,
@@ -1001,6 +1021,15 @@ function createPostgresStore({ databaseUrl, ssl = false }) {
           created_at AS "createdAt"
         FROM moderation_actions
         ORDER BY created_at DESC
+      `),
+      query(`
+        SELECT
+          settings,
+          updated_at AS "updatedAt",
+          updated_by AS "updatedBy"
+        FROM app_settings
+        ORDER BY id ASC
+        LIMIT 1
       `)
     ]);
 
@@ -1068,7 +1097,8 @@ function createPostgresStore({ databaseUrl, ssl = false }) {
       moderationActions: moderationActionsResult.rows.map((row) => ({
         ...row,
         createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : ""
-      }))
+      })),
+      settings: parseJson(settingsResult.rows[0]?.settings, {})
     };
   }
 

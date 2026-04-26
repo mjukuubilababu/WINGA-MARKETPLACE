@@ -285,7 +285,29 @@ function ensureLocalArtifacts() {
       password: createPasswordHash(seedUser.password),
       createdAt: new Date().toISOString()
     }));
-      fs.writeFileSync(DATA_FILE, JSON.stringify({ categories: DEFAULT_CATEGORIES, users: seededUsers, products: [], sessions: [], orders: [], payments: [], messages: [], notifications: [], promotions: [], reviews: [] }, null, 2));
+      fs.writeFileSync(DATA_FILE, JSON.stringify({
+        categories: DEFAULT_CATEGORIES,
+        users: seededUsers,
+        products: [],
+        sessions: [],
+        orders: [],
+        payments: [],
+        messages: [],
+        notifications: [],
+        promotions: [],
+        reviews: [],
+        reports: [],
+        moderationActions: [],
+        settings: {
+          heroSectionVisible: false,
+          standaloneShowcaseVisible: false,
+          splashScreenVisible: true,
+          sessionExpiryMinutes: 120,
+          cachePolicy: "balanced",
+          requireExplicitSignOut: true,
+          messageReviewRequiresReason: true
+        }
+      }, null, 2));
   }
 }
 
@@ -362,6 +384,82 @@ function getAdminSeedIdentity() {
 
 function getAdminSeedPassword() {
   return String(ADMIN_SEED_PASSWORD || ADMIN_SEED.password || "").trim();
+}
+
+const DEFAULT_APP_SETTINGS = {
+  heroSectionVisible: false,
+  standaloneShowcaseVisible: false,
+  splashScreenVisible: true,
+  sessionExpiryMinutes: 120,
+  cachePolicy: "balanced",
+  requireExplicitSignOut: true,
+  messageReviewRequiresReason: true
+};
+
+function normalizeAppSettings(settings = {}) {
+  const source = settings && typeof settings === "object" && !Array.isArray(settings) ? settings : {};
+  const sessionExpiryMinutes = Number.parseInt(source.sessionExpiryMinutes, 10);
+  const cachePolicy = sanitizePlainText(source.cachePolicy, 24).toLowerCase();
+  return {
+    heroSectionVisible: typeof source.heroSectionVisible === "boolean" ? source.heroSectionVisible : DEFAULT_APP_SETTINGS.heroSectionVisible,
+    standaloneShowcaseVisible: typeof source.standaloneShowcaseVisible === "boolean" ? source.standaloneShowcaseVisible : DEFAULT_APP_SETTINGS.standaloneShowcaseVisible,
+    splashScreenVisible: typeof source.splashScreenVisible === "boolean" ? source.splashScreenVisible : DEFAULT_APP_SETTINGS.splashScreenVisible,
+    sessionExpiryMinutes: Number.isFinite(sessionExpiryMinutes) ? Math.max(15, Math.min(1440, sessionExpiryMinutes)) : DEFAULT_APP_SETTINGS.sessionExpiryMinutes,
+    cachePolicy: ["balanced", "cache-first", "network-first"].includes(cachePolicy) ? cachePolicy : DEFAULT_APP_SETTINGS.cachePolicy,
+    requireExplicitSignOut: source.requireExplicitSignOut !== false,
+    messageReviewRequiresReason: source.messageReviewRequiresReason !== false,
+    updatedAt: sanitizePlainText(source.updatedAt, 40),
+    updatedBy: sanitizePlainText(source.updatedBy, 40)
+  };
+}
+
+function buildPublicAppSettings(settings = {}) {
+  const normalized = normalizeAppSettings(settings);
+  return {
+    heroSectionVisible: normalized.heroSectionVisible,
+    standaloneShowcaseVisible: normalized.standaloneShowcaseVisible,
+    splashScreenVisible: normalized.splashScreenVisible,
+    sessionExpiryMinutes: normalized.sessionExpiryMinutes,
+    cachePolicy: normalized.cachePolicy,
+    requireExplicitSignOut: normalized.requireExplicitSignOut,
+    messageReviewRequiresReason: normalized.messageReviewRequiresReason,
+    updatedAt: normalized.updatedAt,
+    updatedBy: normalized.updatedBy
+  };
+}
+
+function validateAppSettingsPayload(payload) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return "Settings payload si sahihi.";
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, "heroSectionVisible") && typeof payload.heroSectionVisible !== "boolean") {
+    return "Hero visibility si sahihi.";
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, "standaloneShowcaseVisible") && typeof payload.standaloneShowcaseVisible !== "boolean") {
+    return "Showcase visibility si sahihi.";
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, "splashScreenVisible") && typeof payload.splashScreenVisible !== "boolean") {
+    return "Splash visibility si sahihi.";
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, "requireExplicitSignOut") && typeof payload.requireExplicitSignOut !== "boolean") {
+    return "Sign-out policy si sahihi.";
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, "messageReviewRequiresReason") && typeof payload.messageReviewRequiresReason !== "boolean") {
+    return "Message review policy si sahihi.";
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, "sessionExpiryMinutes")) {
+    const minutes = Number.parseInt(payload.sessionExpiryMinutes, 10);
+    if (!Number.isFinite(minutes) || minutes < 15 || minutes > 1440) {
+      return "Session expiry lazima iwe kati ya dakika 15 na 1440.";
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, "cachePolicy")) {
+    const cachePolicy = sanitizePlainText(payload.cachePolicy, 24).toLowerCase();
+    if (!["balanced", "cache-first", "network-first"].includes(cachePolicy)) {
+      return "Cache policy si sahihi.";
+    }
+  }
+  return "";
 }
 
 function syncConfiguredAdminCredentials(store) {
@@ -513,6 +611,7 @@ function readLegacyStore() {
     reviews: reviews.map(normalizeReviewRecord),
     reports: reports.map(normalizeReportRecord),
     moderationActions: moderationActions.map(normalizeModerationActionRecord),
+    settings: normalizeAppSettings(parsed.settings || DEFAULT_APP_SETTINGS),
     sessions: sessions.map((session) => {
       const sessionUser = users.find((user) => user.username === session.username);
       return {
@@ -1860,6 +1959,7 @@ function migrateLegacyStore(store) {
   const normalizedReviews = (store.reviews || []).map(normalizeReviewRecord);
   const normalizedReports = (store.reports || []).map(normalizeReportRecord);
   const normalizedModerationActions = (store.moderationActions || []).map(normalizeModerationActionRecord);
+  const normalizedSettings = normalizeAppSettings(store.settings || DEFAULT_APP_SETTINGS);
   const mergedCategories = mergeCategories(
     store.categories || [],
     normalizedUsers.map((user) => ({ value: user.primaryCategory, label: user.primaryCategory })),
@@ -1940,6 +2040,9 @@ function migrateLegacyStore(store) {
   if (JSON.stringify(normalizedModerationActions) !== JSON.stringify(store.moderationActions || [])) {
     didChange = true;
   }
+  if (JSON.stringify(normalizedSettings) !== JSON.stringify(normalizeAppSettings(store.settings || DEFAULT_APP_SETTINGS))) {
+    didChange = true;
+  }
 
   if (didChange) {
     const migratedStore = {
@@ -1955,6 +2058,7 @@ function migrateLegacyStore(store) {
       reviews: normalizedReviews,
       reports: normalizedReports,
       moderationActions: normalizedModerationActions,
+      settings: normalizedSettings,
       sessions: normalizedSessions
     };
     return {
@@ -1980,9 +2084,10 @@ function migrateLegacyStore(store) {
         notifications: normalizedNotifications,
         promotions: normalizedPromotions,
         reviews: normalizedReviews,
-        reports: normalizedReports,
-        moderationActions: normalizedModerationActions,
-        sessions: normalizedSessions
+      reports: normalizedReports,
+      moderationActions: normalizedModerationActions,
+      settings: normalizedSettings,
+      sessions: normalizedSessions
     },
     didChange: false,
     auditEntry: null
@@ -2115,7 +2220,9 @@ function findUserIndexByPublicIdentifier(users, rawIdentifier) {
 function validateUserModerationPayload(payload) {
   const hasStatus = typeof payload?.status === "string" && payload.status.length > 0;
   const hasVerificationUpdate = Boolean(payload?.verificationStatus) || typeof payload?.verifiedSeller === "boolean";
-  if (!payload || (!hasStatus && !hasVerificationUpdate)) {
+  const hasRoleChange = typeof payload?.role === "string" && payload.role.length > 0;
+  const hasDeleteRequest = payload?.deleteUser === true;
+  if (!payload || (!hasStatus && !hasVerificationUpdate && !hasRoleChange && !hasDeleteRequest)) {
     return "Hakuna moderation action sahihi.";
   }
   if (hasStatus && !isValidUserStatus(payload.status)) {
@@ -2126,6 +2233,9 @@ function validateUserModerationPayload(payload) {
   }
   if (payload.note && !isNonEmptyString(payload.note, 3, 300)) {
     return "Moderation note si sahihi.";
+  }
+  if (hasRoleChange && !["buyer", "seller"].includes(String(payload.role || "").trim().toLowerCase())) {
+    return "Role ya user si sahihi.";
   }
   if (payload.verificationStatus && !ALLOWED_VERIFICATION_STATUSES.includes(payload.verificationStatus)) {
     return "Verification status si sahihi.";
@@ -2629,6 +2739,144 @@ function buildMessagesSummary(store, username) {
     .map(normalizeMessageRecord)
     .filter((message) => message.senderId === username || message.receiverId === username)
     .sort((first, second) => new Date(first.timestamp).getTime() - new Date(second.timestamp).getTime());
+}
+
+function buildAdminMessageThreadSummaries(store) {
+  const messages = (store.messages || []).map(normalizeMessageRecord);
+  const users = new Map((store.users || []).map((user) => {
+    const normalized = normalizeUserRecord(user);
+    return [normalized.username, normalized];
+  }));
+  const reports = (store.reports || []).map(normalizeReportRecord);
+  const threadMap = new Map();
+
+  messages.forEach((message) => {
+    const conversationId = message.conversationId || buildConversationId(message.senderId, message.receiverId, message.productId || "");
+    const existing = threadMap.get(conversationId) || {
+      conversationId,
+      senderId: message.senderId,
+      receiverId: message.receiverId,
+      senderName: users.get(message.senderId)?.fullName || message.senderId,
+      receiverName: users.get(message.receiverId)?.fullName || message.receiverId,
+      productId: message.productId || "",
+      productName: message.productName || "",
+      messageType: message.messageType || "text",
+      messageCount: 0,
+      unreadCount: 0,
+      lastMessageAt: "",
+      lastMessagePreview: "",
+      reportCount: 0
+    };
+    existing.messageCount += 1;
+    if (!message.isRead) {
+      existing.unreadCount += 1;
+    }
+    const nextTime = new Date(message.timestamp || message.createdAt || 0).getTime();
+    const currentTime = new Date(existing.lastMessageAt || 0).getTime();
+    if (!existing.lastMessageAt || nextTime >= currentTime) {
+      existing.lastMessageAt = message.timestamp || message.createdAt || "";
+      existing.lastMessagePreview = sanitizePlainText(message.message || "", 160);
+      existing.messageType = message.messageType || existing.messageType;
+      existing.productId = message.productId || existing.productId;
+      existing.productName = message.productName || existing.productName;
+      existing.senderId = message.senderId;
+      existing.receiverId = message.receiverId;
+      existing.senderName = users.get(message.senderId)?.fullName || message.senderId;
+      existing.receiverName = users.get(message.receiverId)?.fullName || message.receiverId;
+    }
+    threadMap.set(conversationId, existing);
+  });
+
+  return Array.from(threadMap.values())
+    .map((thread) => {
+      const relatedReports = reports.filter((report) =>
+        report.targetUserId === thread.senderId
+        || report.targetUserId === thread.receiverId
+        || report.targetProductId === thread.productId
+        || /message|chat|conversation|abuse|fraud/i.test(`${report.reason || ""} ${report.description || ""}`)
+      );
+      return {
+        ...thread,
+        reportCount: relatedReports.length,
+        hasReportedContent: relatedReports.length > 0
+      };
+    })
+    .sort((first, second) => new Date(second.lastMessageAt || 0).getTime() - new Date(first.lastMessageAt || 0).getTime());
+}
+
+function buildAdminMessageReviewDetails(store, conversationId, reason, reviewerUsername) {
+  const normalizedConversationId = sanitizePlainText(conversationId, 160);
+  const messages = (store.messages || [])
+    .map(normalizeMessageRecord)
+    .filter((message) => message.conversationId === normalizedConversationId)
+    .sort((first, second) => new Date(first.timestamp).getTime() - new Date(second.timestamp).getTime());
+  if (!messages.length) {
+    return null;
+  }
+
+  const users = new Map((store.users || []).map((user) => {
+    const normalized = normalizeUserRecord(user);
+    return [normalized.username, normalized];
+  }));
+  const summary = buildAdminMessageThreadSummaries(store).find((thread) => thread.conversationId === normalizedConversationId) || null;
+  const lastMessage = messages[messages.length - 1];
+  const participants = {
+    sender: users.get(lastMessage.senderId) ? {
+      username: lastMessage.senderId,
+      fullName: users.get(lastMessage.senderId)?.fullName || lastMessage.senderId,
+      role: users.get(lastMessage.senderId)?.role || ""
+    } : {
+      username: lastMessage.senderId,
+      fullName: lastMessage.senderId,
+      role: ""
+    },
+    receiver: users.get(lastMessage.receiverId) ? {
+      username: lastMessage.receiverId,
+      fullName: users.get(lastMessage.receiverId)?.fullName || lastMessage.receiverId,
+      role: users.get(lastMessage.receiverId)?.role || ""
+    } : {
+      username: lastMessage.receiverId,
+      fullName: lastMessage.receiverId,
+      role: ""
+    }
+  };
+
+  return {
+    conversationId: normalizedConversationId,
+    reason: sanitizePlainText(reason, 240),
+    reviewedBy: sanitizePlainText(reviewerUsername, 40),
+    reviewedAt: new Date().toISOString(),
+    participants,
+    summary: summary || {
+      conversationId: normalizedConversationId,
+      senderId: lastMessage.senderId,
+      receiverId: lastMessage.receiverId,
+      productId: lastMessage.productId || "",
+      productName: lastMessage.productName || "",
+      messageCount: messages.length,
+      unreadCount: messages.filter((message) => !message.isRead).length,
+      lastMessageAt: lastMessage.timestamp || lastMessage.createdAt || "",
+      lastMessagePreview: sanitizePlainText(lastMessage.message || "", 160),
+      reportCount: 0,
+      hasReportedContent: false
+    },
+    messages: messages.map((message) => ({
+      id: message.id,
+      senderId: message.senderId,
+      receiverId: message.receiverId,
+      productId: message.productId || "",
+      productName: message.productName || "",
+      messageType: message.messageType || "text",
+      message: message.message || "",
+      timestamp: message.timestamp || "",
+      createdAt: message.createdAt || "",
+      updatedAt: message.updatedAt || "",
+      deliveredAt: message.deliveredAt || "",
+      readAt: message.readAt || "",
+      isDelivered: Boolean(message.isDelivered),
+      isRead: Boolean(message.isRead)
+    }))
+  };
 }
 
 function buildNotificationsSummary(store, username) {
@@ -3300,8 +3548,167 @@ http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === "GET" && url.pathname === "/api/admin/messages") {
+      const token = readAuthToken(req);
+      const session = findSession(store, token);
+      if (!session) {
+        await denyJson(res, 401, "Session imeisha au si sahihi.", {
+          ip: clientIp,
+          method: req.method,
+          path: url.pathname,
+          event: "admin_messages_denied",
+          reason: "missing_or_invalid_session"
+        });
+        return;
+      }
+      if (!isAdminSession(session)) {
+        await denyJson(res, 403, "Hii area ni ya admin tu.", {
+          ip: clientIp,
+          method: req.method,
+          path: url.pathname,
+          event: "admin_messages_denied",
+          username: session.username,
+          reason: "insufficient_role"
+        });
+        return;
+      }
+      sendJson(res, 200, buildAdminMessageThreadSummaries(store));
+      return;
+    }
+
+    if (req.method === "POST" && /^\/api\/admin\/messages\/[^/]+\/review$/.test(url.pathname)) {
+      const token = readAuthToken(req);
+      const session = findSession(store, token);
+      if (!session || !isAdminSession(session)) {
+        await denyJson(res, session ? 403 : 401, session
+          ? "Message review inaruhusiwa kwa admin mkuu tu."
+          : "Session imeisha au si sahihi.", {
+          ip: clientIp,
+          method: req.method,
+          path: url.pathname,
+          event: "admin_message_review_denied",
+          username: session?.username || "",
+          reason: !session ? "missing_or_invalid_session" : "insufficient_role"
+        });
+        return;
+      }
+
+      const conversationId = sanitizePlainText(decodeURIComponent(url.pathname.split("/")[4] || ""), 160);
+      const payload = await collectBody(req);
+      const requiresReason = normalizeAppSettings(store.settings || DEFAULT_APP_SETTINGS).messageReviewRequiresReason !== false;
+      const reason = sanitizePlainText(payload?.reason, 240);
+      if (requiresReason && !reason) {
+        sendJson(res, 400, { error: "Weka sababu ya kufungua message content." });
+        return;
+      }
+
+      const review = buildAdminMessageReviewDetails(store, conversationId, reason, session.username);
+      if (!review) {
+        sendJson(res, 404, { error: "Conversation haijapatikana." });
+        return;
+      }
+
+      await appendAuditLog({
+        time: new Date().toISOString(),
+        ip: clientIp,
+        method: req.method,
+        path: url.pathname,
+        event: "admin_message_thread_viewed",
+        adminUsername: session.username,
+        conversationId,
+        reason,
+        messageCount: review.messages.length,
+        participants: {
+          senderId: review.participants?.sender?.username || "",
+          receiverId: review.participants?.receiver?.username || ""
+        }
+      });
+      sendJson(res, 200, review);
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/admin/settings") {
+      const token = readAuthToken(req);
+      const session = findSession(store, token);
+      if (!session || !isAdminSession(session)) {
+        await denyJson(res, session ? 403 : 401, session
+          ? "Admin settings ni za admin mkuu tu."
+          : "Session imeisha au si sahihi.", {
+          ip: clientIp,
+          method: req.method,
+          path: url.pathname,
+          event: "admin_settings_denied",
+          username: session?.username || "",
+          reason: !session ? "missing_or_invalid_session" : "insufficient_role"
+        });
+        return;
+      }
+      sendJson(res, 200, buildPublicAppSettings(store.settings || DEFAULT_APP_SETTINGS));
+      return;
+    }
+
+    if (req.method === "PATCH" && url.pathname === "/api/admin/settings") {
+      const token = readAuthToken(req);
+      const session = findSession(store, token);
+      if (!session || !isAdminSession(session)) {
+        await denyJson(res, session ? 403 : 401, session
+          ? "Admin settings ni za admin mkuu tu."
+          : "Session imeisha au si sahihi.", {
+          ip: clientIp,
+          method: req.method,
+          path: url.pathname,
+          event: "admin_settings_denied",
+          username: session?.username || "",
+          reason: !session ? "missing_or_invalid_session" : "insufficient_role"
+        });
+        return;
+      }
+
+      const payload = await collectBody(req);
+      const validationError = validateAppSettingsPayload(payload);
+      if (validationError) {
+        sendJson(res, 400, { error: validationError });
+        return;
+      }
+
+      const nextSettings = normalizeAppSettings({
+        ...(store.settings || DEFAULT_APP_SETTINGS),
+        ...(typeof payload.heroSectionVisible === "boolean" ? { heroSectionVisible: payload.heroSectionVisible } : {}),
+        ...(typeof payload.standaloneShowcaseVisible === "boolean" ? { standaloneShowcaseVisible: payload.standaloneShowcaseVisible } : {}),
+        ...(typeof payload.splashScreenVisible === "boolean" ? { splashScreenVisible: payload.splashScreenVisible } : {}),
+        ...(typeof payload.requireExplicitSignOut === "boolean" ? { requireExplicitSignOut: payload.requireExplicitSignOut } : {}),
+        ...(typeof payload.messageReviewRequiresReason === "boolean" ? { messageReviewRequiresReason: payload.messageReviewRequiresReason } : {}),
+        ...(Object.prototype.hasOwnProperty.call(payload, "sessionExpiryMinutes") ? { sessionExpiryMinutes: Number.parseInt(payload.sessionExpiryMinutes, 10) } : {}),
+        ...(Object.prototype.hasOwnProperty.call(payload, "cachePolicy") ? { cachePolicy: sanitizePlainText(payload.cachePolicy, 24).toLowerCase() } : {}),
+        updatedAt: new Date().toISOString(),
+        updatedBy: session.username
+      });
+
+      store = {
+        ...store,
+        settings: nextSettings
+      };
+      await writeStore(store);
+      await appendAuditLog({
+        time: new Date().toISOString(),
+        ip: clientIp,
+        method: req.method,
+        path: url.pathname,
+        event: "app_settings_updated",
+        adminUsername: session.username,
+        settings: buildPublicAppSettings(nextSettings)
+      });
+      sendJson(res, 200, buildPublicAppSettings(nextSettings));
+      return;
+    }
+
     if (req.method === "GET" && url.pathname === "/api/categories") {
       sendJson(res, 200, store.categories || mergeCategories());
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/settings") {
+      sendJson(res, 200, buildPublicAppSettings(store.settings || DEFAULT_APP_SETTINGS));
       return;
     }
 
@@ -3410,11 +3817,13 @@ http.createServer(async (req, res) => {
 
       const requestedStatusChange = typeof payload.status === "string" && payload.status !== targetUser.status;
       const requestedVerificationUpdate = Boolean(payload.verificationStatus) || typeof payload.verifiedSeller === "boolean";
+      const requestedRoleChange = typeof payload.role === "string" && payload.role.trim() && payload.role.trim().toLowerCase() !== targetUser.role;
+      const requestedDelete = payload.deleteUser === true;
       if (requestedVerificationUpdate && targetUser.role !== "seller") {
         sendJson(res, 400, { error: "Verification review inaruhusiwa kwa seller accounts tu." });
         return;
       }
-      if (!isAdminSession(session) && requestedStatusChange) {
+      if (!isAdminSession(session) && (requestedStatusChange || requestedRoleChange || requestedDelete)) {
         await denyJson(res, 403, "Moderator anaweza kureview verification tu. Kususpend au kuban ni admin pekee.", {
           ip: clientIp,
           method: req.method,
@@ -3422,7 +3831,7 @@ http.createServer(async (req, res) => {
           event: "user_moderation_denied",
           username: session.username,
           targetUserId: targetUsername,
-          reason: "moderator_status_change_blocked"
+          reason: requestedRoleChange || requestedDelete ? "moderator_role_or_delete_blocked" : "moderator_status_change_blocked"
         });
         return;
       }
@@ -3438,16 +3847,45 @@ http.createServer(async (req, res) => {
         });
         return;
       }
+      if (requestedDelete && !isNonEmptyString(payload.reason, 3, 120)) {
+        sendJson(res, 400, { error: "Weka sababu ya kufuta akaunti." });
+        return;
+      }
+      if (requestedRoleChange && !["buyer", "seller"].includes(String(payload.role || "").trim().toLowerCase())) {
+        sendJson(res, 400, { error: "Role ya user si sahihi." });
+        return;
+      }
 
       const now = new Date().toISOString();
       const nextVerificationStatus = payload.verificationStatus
         || (typeof payload.verifiedSeller === "boolean"
           ? (payload.verifiedSeller ? "verified" : (targetUser.verificationStatus === "verified" ? "pending" : targetUser.verificationStatus || "unverified"))
           : targetUser.verificationStatus);
+      const nextRole = requestedRoleChange ? String(payload.role || "").trim().toLowerCase() : targetUser.role;
+      const nextStatus = requestedDelete ? "deactivated" : (requestedStatusChange ? payload.status : targetUser.status);
+      const roleResetFields = requestedRoleChange ? (nextRole === "buyer"
+        ? {
+          verifiedSeller: false,
+          verificationStatus: "",
+          verificationSubmittedAt: null,
+          identityDocumentType: "",
+          identityDocumentNumber: "",
+          identityDocumentImage: "",
+          nationalId: null,
+          primaryCategory: ""
+        }
+        : {
+          verifiedSeller: false,
+          verificationStatus: "unverified",
+          verificationSubmittedAt: targetUser.verificationSubmittedAt || null
+        }) : {};
       const updatedUser = normalizeUserRecord({
         ...targetUser,
-        status: requestedStatusChange ? payload.status : targetUser.status,
-        moderationReason: requestedStatusChange ? (payload.reason || "") : (payload.reason || targetUser.moderationReason || ""),
+        role: nextRole,
+        status: nextStatus,
+        moderationReason: requestedDelete
+          ? (payload.reason || "deleted_by_admin")
+          : (requestedStatusChange ? (payload.reason || "") : (payload.reason || targetUser.moderationReason || "")),
         moderationNote: payload.note || targetUser.moderationNote || "",
         verifiedSeller: typeof payload.verifiedSeller === "boolean"
           ? payload.verifiedSeller
@@ -3455,7 +3893,8 @@ http.createServer(async (req, res) => {
         verificationStatus: nextVerificationStatus || targetUser.verificationStatus || "",
         moderatedAt: now,
         moderatedBy: session.username,
-        updatedAt: now
+        updatedAt: now,
+        ...roleResetFields
       });
 
       const users = (store.users || []).map((user) => user.username === targetUsername ? updatedUser : user);
@@ -3479,11 +3918,27 @@ http.createServer(async (req, res) => {
         }
         return product;
       });
+      const moderationNotification = normalizeNotificationRecord({
+        userId: targetUsername,
+        type: "message",
+        variant: nextStatus === "deactivated" || nextStatus === "banned" || nextStatus === "suspended" ? "warning" : "info",
+        title: requestedDelete ? "Akaunti imeondolewa" : (requestedRoleChange ? "Role ya akaunti imebadilishwa" : "Akaunti imesasishwa"),
+        body: requestedDelete
+          ? `Akaunti yako imeondolewa na admin ${session.username}. Sababu: ${payload.reason || "N/A"}`
+          : `Admin ${session.username} amesasisha akaunti yako. Status: ${nextStatus}.`,
+        conversationId: "",
+        isRead: false,
+        createdAt: now
+      });
       const moderationAction = normalizeModerationActionRecord({
         adminUsername: session.username,
-        actionType: requestedStatusChange
-          ? `user_${payload.status}`
-          : `user_verification_${updatedUser.verificationStatus || "unverified"}`,
+        actionType: requestedDelete
+          ? "user_deleted"
+          : requestedRoleChange
+            ? `user_role_${nextRole}`
+            : requestedStatusChange
+            ? `user_${payload.status}`
+            : `user_verification_${updatedUser.verificationStatus || "unverified"}`,
         targetUserId: targetUsername,
         reason: payload.reason || updatedUser.verificationStatus || "",
         note: payload.note || "",
@@ -3495,6 +3950,7 @@ http.createServer(async (req, res) => {
         users,
         products,
         sessions,
+        notifications: [moderationNotification, ...((store.notifications || []).map(normalizeNotificationRecord))],
         moderationActions: [moderationAction, ...((store.moderationActions || []).map(normalizeModerationActionRecord))]
       });
       await appendAuditLog({
@@ -3506,8 +3962,10 @@ http.createServer(async (req, res) => {
         adminUsername: session.username,
         targetUserId: targetUsername,
         status: updatedUser.status,
+        role: updatedUser.role,
         reason: payload.reason || updatedUser.verificationStatus || ""
       });
+      emitLiveEvent(targetUsername, "notification", { notification: moderationNotification });
       sendJson(res, 200, sanitizeAdminUser(updatedUser));
       return;
     }
@@ -4779,11 +5237,27 @@ http.createServer(async (req, res) => {
         moderatedBy: session.username,
         updatedAt: new Date().toISOString()
       };
+      const sellerNotification = normalizeNotificationRecord({
+        userId: existingProduct.uploadedBy,
+        type: "message",
+        variant: payload.status === "approved" ? "success" : "warning",
+        title: payload.status === "approved" ? "Bidhaa imekubaliwa" : "Bidhaa imekataliwa",
+        body: payload.status === "approved"
+          ? `Bidhaa yako "${existingProduct.name || existingProduct.id}" imekubaliwa.`
+          : `Bidhaa yako "${existingProduct.name || existingProduct.id}" imekataliwa. Sababu: ${moderatedProduct.moderationNote || "Hakuna maelezo."}`,
+        conversationId: existingProduct.id,
+        isRead: false,
+        createdAt: new Date().toISOString()
+      });
 
       const products = (store.products || []).map((item) =>
         item.id === productId ? moderatedProduct : item
       );
-      await writeStore({ ...store, products });
+      await writeStore({
+        ...store,
+        products,
+        notifications: [sellerNotification, ...((store.notifications || []).map(normalizeNotificationRecord))]
+      });
       await appendAuditLog({
         time: new Date().toISOString(),
         ip: clientIp,
@@ -4794,6 +5268,7 @@ http.createServer(async (req, res) => {
         productId,
         status: payload.status
       });
+      emitLiveEvent(existingProduct.uploadedBy, "notification", { notification: sellerNotification });
       sendJson(res, 200, moderatedProduct);
       return;
     }

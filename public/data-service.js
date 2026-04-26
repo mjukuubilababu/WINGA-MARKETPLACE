@@ -7,8 +7,18 @@
   const CATEGORIES_KEY = "winga-categories";
   const MESSAGES_KEY = "winga-messages";
   const REVIEWS_KEY = "winga-reviews";
+  const APP_SETTINGS_KEY = "winga-app-settings";
   const OFFLINE_ACTION_QUEUE_KEY_PREFIX = "winga-offline-action-queue";
   const LOCAL_HASH_PREFIX = "pbkdf2_sha256";
+  const DEFAULT_APP_SETTINGS = {
+    heroSectionVisible: false,
+    standaloneShowcaseVisible: false,
+    splashScreenVisible: true,
+    sessionExpiryMinutes: 120,
+    cachePolicy: "balanced",
+    requireExplicitSignOut: true,
+    messageReviewRequiresReason: true
+  };
 
   function clone(value) {
     return JSON.parse(JSON.stringify(value));
@@ -132,6 +142,7 @@
       CATEGORIES_KEY,
       MESSAGES_KEY,
       REVIEWS_KEY,
+      APP_SETTINGS_KEY,
       MOCK_SEEDED_KEY,
       MOCK_SEED_VERSION_KEY
     ].forEach((key) => {
@@ -429,6 +440,167 @@
       .replace(/^-+|-+$/g, "")
       .slice(0, 40);
     return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(normalized) ? normalized : "";
+  }
+
+  function normalizeAppSettings(settings = {}) {
+    const source = settings && typeof settings === "object" && !Array.isArray(settings) ? settings : {};
+    const sessionExpiryMinutes = Number.parseInt(source.sessionExpiryMinutes, 10);
+    const cachePolicy = String(source.cachePolicy || "").trim().toLowerCase();
+    return {
+      heroSectionVisible: typeof source.heroSectionVisible === "boolean" ? source.heroSectionVisible : DEFAULT_APP_SETTINGS.heroSectionVisible,
+      standaloneShowcaseVisible: typeof source.standaloneShowcaseVisible === "boolean" ? source.standaloneShowcaseVisible : DEFAULT_APP_SETTINGS.standaloneShowcaseVisible,
+      splashScreenVisible: typeof source.splashScreenVisible === "boolean" ? source.splashScreenVisible : DEFAULT_APP_SETTINGS.splashScreenVisible,
+      sessionExpiryMinutes: Number.isFinite(sessionExpiryMinutes) ? Math.max(15, Math.min(1440, sessionExpiryMinutes)) : DEFAULT_APP_SETTINGS.sessionExpiryMinutes,
+      cachePolicy: ["balanced", "cache-first", "network-first"].includes(cachePolicy) ? cachePolicy : DEFAULT_APP_SETTINGS.cachePolicy,
+      requireExplicitSignOut: source.requireExplicitSignOut !== false,
+      messageReviewRequiresReason: source.messageReviewRequiresReason !== false,
+      updatedAt: String(source.updatedAt || "").trim(),
+      updatedBy: String(source.updatedBy || "").trim()
+    };
+  }
+
+  function summarizeAdminMessageThreads(messages = [], users = [], reports = []) {
+    const userMap = new Map((Array.isArray(users) ? users : []).map((user) => {
+      const username = String(user?.username || "").trim();
+      return [username, user];
+    }));
+    const threadMap = new Map();
+    (Array.isArray(messages) ? messages : []).forEach((message) => {
+      const conversationId = String(message?.conversationId || "").trim() || [message?.senderId, message?.receiverId].filter(Boolean).sort().join("::") + `::${message?.productId || ""}`;
+      const existing = threadMap.get(conversationId) || {
+        conversationId,
+        senderId: String(message?.senderId || "").trim(),
+        receiverId: String(message?.receiverId || "").trim(),
+        senderName: userMap.get(String(message?.senderId || "").trim())?.fullName || String(message?.senderId || "").trim(),
+        receiverName: userMap.get(String(message?.receiverId || "").trim())?.fullName || String(message?.receiverId || "").trim(),
+        productId: String(message?.productId || "").trim(),
+        productName: String(message?.productName || "").trim(),
+        messageType: String(message?.messageType || "text").trim(),
+        messageCount: 0,
+        unreadCount: 0,
+        lastMessageAt: "",
+        lastMessagePreview: "",
+        reportCount: 0
+      };
+      existing.messageCount += 1;
+      if (!message?.isRead) {
+        existing.unreadCount += 1;
+      }
+      const nextTime = new Date(message?.timestamp || message?.createdAt || 0).getTime();
+      const currentTime = new Date(existing.lastMessageAt || 0).getTime();
+      if (!existing.lastMessageAt || nextTime >= currentTime) {
+        existing.lastMessageAt = String(message?.timestamp || message?.createdAt || "");
+        existing.lastMessagePreview = String(message?.message || "").trim().slice(0, 160);
+        existing.messageType = String(message?.messageType || "text").trim() || existing.messageType;
+        existing.productId = String(message?.productId || existing.productId || "").trim();
+        existing.productName = String(message?.productName || existing.productName || "").trim();
+        existing.senderId = String(message?.senderId || existing.senderId || "").trim();
+        existing.receiverId = String(message?.receiverId || existing.receiverId || "").trim();
+        existing.senderName = userMap.get(existing.senderId)?.fullName || existing.senderId;
+        existing.receiverName = userMap.get(existing.receiverId)?.fullName || existing.receiverId;
+      }
+      threadMap.set(conversationId, existing);
+    });
+
+    const reportList = Array.isArray(reports) ? reports : [];
+    return Array.from(threadMap.values())
+      .map((thread) => {
+        const relatedReports = reportList.filter((report) =>
+          String(report?.targetUserId || "") === thread.senderId
+          || String(report?.targetUserId || "") === thread.receiverId
+          || String(report?.targetProductId || "") === thread.productId
+          || /message|chat|conversation|abuse|fraud/i.test(`${report?.reason || ""} ${report?.description || ""}`)
+        );
+        return {
+          ...thread,
+          reportCount: relatedReports.length,
+          hasReportedContent: relatedReports.length > 0
+        };
+      })
+      .sort((first, second) => new Date(second.lastMessageAt || 0).getTime() - new Date(first.lastMessageAt || 0).getTime());
+  }
+
+  function buildAdminMessageReviewDetails(messages = [], users = [], reports = [], conversationId = "", reason = "", reviewer = "") {
+    const normalizedConversationId = String(conversationId || "").trim();
+    const normalizedMessages = (Array.isArray(messages) ? messages : [])
+      .filter((message) => String(message?.conversationId || "").trim() === normalizedConversationId)
+      .map((message) => ({
+        ...message,
+        senderId: String(message?.senderId || "").trim(),
+        receiverId: String(message?.receiverId || "").trim(),
+        productId: String(message?.productId || "").trim(),
+        productName: String(message?.productName || "").trim(),
+        messageType: String(message?.messageType || "text").trim(),
+        message: String(message?.message || "").trim()
+      }))
+      .sort((first, second) => new Date(first.timestamp || first.createdAt || 0).getTime() - new Date(second.timestamp || second.createdAt || 0).getTime());
+
+    if (!normalizedMessages.length) {
+      return null;
+    }
+
+    const thread = summarizeAdminMessageThreads(normalizedMessages, users, reports).find((item) => item.conversationId === normalizedConversationId) || null;
+    const lastMessage = normalizedMessages[normalizedMessages.length - 1];
+    const userMap = new Map((Array.isArray(users) ? users : []).map((user) => [String(user?.username || "").trim(), user]));
+    const sender = userMap.get(lastMessage.senderId) || null;
+    const receiver = userMap.get(lastMessage.receiverId) || null;
+
+    return {
+      conversationId: normalizedConversationId,
+      reason: String(reason || "").trim(),
+      reviewedBy: String(reviewer || "").trim(),
+      reviewedAt: new Date().toISOString(),
+      participants: {
+        sender: sender ? {
+          username: sender.username || lastMessage.senderId,
+          fullName: sender.fullName || sender.username || lastMessage.senderId,
+          role: sender.role || ""
+        } : {
+          username: lastMessage.senderId,
+          fullName: lastMessage.senderId,
+          role: ""
+        },
+        receiver: receiver ? {
+          username: receiver.username || lastMessage.receiverId,
+          fullName: receiver.fullName || receiver.username || lastMessage.receiverId,
+          role: receiver.role || ""
+        } : {
+          username: lastMessage.receiverId,
+          fullName: lastMessage.receiverId,
+          role: ""
+        }
+      },
+      summary: thread || {
+        conversationId: normalizedConversationId,
+        senderId: lastMessage.senderId,
+        receiverId: lastMessage.receiverId,
+        productId: lastMessage.productId || "",
+        productName: lastMessage.productName || "",
+        messageType: lastMessage.messageType || "text",
+        messageCount: normalizedMessages.length,
+        unreadCount: normalizedMessages.filter((message) => !message.isRead).length,
+        lastMessageAt: lastMessage.timestamp || lastMessage.createdAt || "",
+        lastMessagePreview: String(lastMessage.message || "").trim().slice(0, 160),
+        reportCount: 0,
+        hasReportedContent: false
+      },
+      messages: normalizedMessages.map((message) => ({
+        id: message.id,
+        senderId: message.senderId,
+        receiverId: message.receiverId,
+        productId: message.productId || "",
+        productName: message.productName || "",
+        messageType: message.messageType || "text",
+        message: message.message || "",
+        timestamp: message.timestamp || "",
+        createdAt: message.createdAt || "",
+        updatedAt: message.updatedAt || "",
+        deliveredAt: message.deliveredAt || "",
+        readAt: message.readAt || "",
+        isDelivered: Boolean(message.isDelivered),
+        isRead: Boolean(message.isRead)
+      }))
+    };
   }
 
   function createMarketplaceImageProxyUrl(value) {
@@ -991,6 +1163,12 @@
         async loadMyOrders() {
           return { purchases: [], sales: [] };
         },
+      async loadAppSettings() {
+        return normalizeAppSettings(readStoredJson(APP_SETTINGS_KEY, DEFAULT_APP_SETTINGS));
+      },
+      async saveAppSettings(settings) {
+        setStorageOrThrow(APP_SETTINGS_KEY, JSON.stringify(normalizeAppSettings(settings || DEFAULT_APP_SETTINGS)), "app settings");
+      },
       async createOrder() {
         throw new Error("Order flow inapatikana kwenye API mode tu.");
       },
@@ -1014,6 +1192,42 @@
       },
       async reviewReport() {
         throw new Error("Report review inapatikana kwenye API mode tu.");
+      },
+      async loadAdminSettings() {
+        return this.loadAppSettings();
+      },
+      async updateAdminSettings(payload) {
+        const current = await this.loadAppSettings();
+        const next = normalizeAppSettings({
+          ...current,
+          ...(typeof payload?.heroSectionVisible === "boolean" ? { heroSectionVisible: payload.heroSectionVisible } : {}),
+          ...(typeof payload?.standaloneShowcaseVisible === "boolean" ? { standaloneShowcaseVisible: payload.standaloneShowcaseVisible } : {}),
+          ...(typeof payload?.splashScreenVisible === "boolean" ? { splashScreenVisible: payload.splashScreenVisible } : {}),
+          ...(typeof payload?.requireExplicitSignOut === "boolean" ? { requireExplicitSignOut: payload.requireExplicitSignOut } : {}),
+          ...(typeof payload?.messageReviewRequiresReason === "boolean" ? { messageReviewRequiresReason: payload.messageReviewRequiresReason } : {}),
+          ...(Object.prototype.hasOwnProperty.call(payload || {}, "sessionExpiryMinutes") ? { sessionExpiryMinutes: Number.parseInt(payload.sessionExpiryMinutes, 10) } : {}),
+          ...(Object.prototype.hasOwnProperty.call(payload || {}, "cachePolicy") ? { cachePolicy: String(payload.cachePolicy || "").trim().toLowerCase() } : {}),
+          updatedAt: new Date().toISOString(),
+          updatedBy: "local-admin"
+        });
+        await this.saveAppSettings(next);
+        return next;
+      },
+      async loadAdminMessages() {
+        const messages = readStoredJson(MESSAGES_KEY, []);
+        const users = readStoredJson(USERS_KEY, []);
+        const reports = readStoredJson("winga-reports", []);
+        return summarizeAdminMessageThreads(messages, users, reports);
+      },
+      async reviewAdminMessage(conversationId, payload = {}) {
+        const messages = readStoredJson(MESSAGES_KEY, []);
+        const users = readStoredJson(USERS_KEY, []);
+        const reports = readStoredJson("winga-reports", []);
+        const review = buildAdminMessageReviewDetails(messages, users, reports, conversationId, payload?.reason || "", "local-admin");
+        if (!review) {
+          throw new Error("Conversation haijapatikana.");
+        }
+        return review;
       },
       async loadAdminUserInvestigation() {
         throw new Error("Fraud review inapatikana kwenye API mode tu.");
@@ -1252,6 +1466,21 @@
         async loadMyOrders() {
           return local.loadMyOrders();
         },
+      async loadAppSettings() {
+        return local.loadAppSettings();
+      },
+      async loadAdminSettings() {
+        return local.loadAdminSettings();
+      },
+      async updateAdminSettings(payload) {
+        return local.updateAdminSettings(payload);
+      },
+      async loadAdminMessages() {
+        return local.loadAdminMessages();
+      },
+      async reviewAdminMessage(conversationId, payload) {
+        return local.reviewAdminMessage(conversationId, payload);
+      },
       async createOrder(payload) {
         return local.createOrder(payload);
       },
@@ -1471,6 +1700,10 @@
       async loadCategories() {
         const data = await fetchJson(`${baseUrl}/categories`);
         return Array.isArray(data) ? data : [];
+      },
+      async loadAppSettings() {
+        const data = await fetchJson(`${baseUrl}/settings`);
+        return normalizeAppSettings(data || DEFAULT_APP_SETTINGS);
       },
       async saveCategories() {
         return null;
@@ -1959,6 +2192,43 @@
           body: JSON.stringify(payload)
         });
       },
+      async loadAdminSettings() {
+        const data = await fetchJson(`${baseUrl}/admin/settings`, {
+          headers: {
+            ...createAuthHeaders()
+          }
+        });
+        return normalizeAppSettings(data || DEFAULT_APP_SETTINGS);
+      },
+      async updateAdminSettings(payload) {
+        const data = await fetchJson(`${baseUrl}/admin/settings`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            ...createAuthHeaders()
+          },
+          body: JSON.stringify(payload || {})
+        });
+        return normalizeAppSettings(data || DEFAULT_APP_SETTINGS);
+      },
+      async loadAdminMessages() {
+        const data = await fetchJson(`${baseUrl}/admin/messages`, {
+          headers: {
+            ...createAuthHeaders()
+          }
+        });
+        return Array.isArray(data) ? data : [];
+      },
+      async reviewAdminMessage(conversationId, payload = {}) {
+        return fetchJson(`${baseUrl}/admin/messages/${encodeURIComponent(conversationId)}/review`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...createAuthHeaders()
+          },
+          body: JSON.stringify(payload || {})
+        });
+      },
       async loadAdminUserInvestigation(username, payload) {
         return fetchJson(`${baseUrl}/admin/users/${encodeURIComponent(username)}/investigation`, {
           method: "POST",
@@ -2136,6 +2406,13 @@
       },
       async saveProducts(products) {
         await saveDocument(firebaseConfig.productsDocumentPath || "wingaState/products", products);
+      },
+      async loadAppSettings() {
+        const data = await loadDocument(firebaseConfig.appSettingsDocumentPath || "wingaState/settings");
+        return normalizeAppSettings(data || DEFAULT_APP_SETTINGS);
+      },
+      async saveAppSettings(settings) {
+        await saveDocument(firebaseConfig.appSettingsDocumentPath || "wingaState/settings", normalizeAppSettings(settings || DEFAULT_APP_SETTINGS));
       },
       loadSession() {
         return sessionAdapter.loadSession();
@@ -2444,6 +2721,42 @@
         const nextProducts = products.filter((item) => item.id !== productId);
         await this.saveProducts(nextProducts);
       },
+      async loadAdminSettings() {
+        return this.loadAppSettings();
+      },
+      async updateAdminSettings(payload) {
+        const current = await this.loadAppSettings();
+        const next = normalizeAppSettings({
+          ...current,
+          ...(typeof payload?.heroSectionVisible === "boolean" ? { heroSectionVisible: payload.heroSectionVisible } : {}),
+          ...(typeof payload?.standaloneShowcaseVisible === "boolean" ? { standaloneShowcaseVisible: payload.standaloneShowcaseVisible } : {}),
+          ...(typeof payload?.splashScreenVisible === "boolean" ? { splashScreenVisible: payload.splashScreenVisible } : {}),
+          ...(typeof payload?.requireExplicitSignOut === "boolean" ? { requireExplicitSignOut: payload.requireExplicitSignOut } : {}),
+          ...(typeof payload?.messageReviewRequiresReason === "boolean" ? { messageReviewRequiresReason: payload.messageReviewRequiresReason } : {}),
+          ...(Object.prototype.hasOwnProperty.call(payload || {}, "sessionExpiryMinutes") ? { sessionExpiryMinutes: Number.parseInt(payload.sessionExpiryMinutes, 10) } : {}),
+          ...(Object.prototype.hasOwnProperty.call(payload || {}, "cachePolicy") ? { cachePolicy: String(payload.cachePolicy || "").trim().toLowerCase() } : {}),
+          updatedAt: new Date().toISOString(),
+          updatedBy: "firebase-admin"
+        });
+        await this.saveAppSettings(next);
+        return next;
+      },
+      async loadAdminMessages() {
+        const messages = await loadDocument(firebaseConfig.messagesDocumentPath || "wingaState/messages");
+        const users = await loadDocument(firebaseConfig.usersDocumentPath || "wingaState/users");
+        const reports = await loadDocument(firebaseConfig.reportsDocumentPath || "wingaState/reports");
+        return summarizeAdminMessageThreads(messages, users, reports);
+      },
+      async reviewAdminMessage(conversationId, payload = {}) {
+        const messages = await loadDocument(firebaseConfig.messagesDocumentPath || "wingaState/messages");
+        const users = await loadDocument(firebaseConfig.usersDocumentPath || "wingaState/users");
+        const reports = await loadDocument(firebaseConfig.reportsDocumentPath || "wingaState/reports");
+        const review = buildAdminMessageReviewDetails(messages, users, reports, conversationId, payload?.reason || "", "firebase-admin");
+        if (!review) {
+          throw new Error("Conversation haijapatikana.");
+        }
+        return review;
+      },
         async loadAnalytics() {
           return null;
         },
@@ -2682,6 +2995,7 @@
     users: [],
     products: [],
     categories: [],
+    appSettings: normalizeAppSettings(DEFAULT_APP_SETTINGS),
     initialized: false,
     productsHydrated: false,
     startupHydrationStarted: false,
@@ -2996,8 +3310,13 @@
       state.products = await state.adapter.loadProducts();
       return result;
     },
-      async loadAnalytics() {
+    async loadAnalytics() {
         return state.adapter.loadAnalytics ? state.adapter.loadAnalytics() : null;
+      },
+      async loadAppSettings() {
+        const settings = state.adapter.loadAppSettings ? await state.adapter.loadAppSettings() : normalizeAppSettings(DEFAULT_APP_SETTINGS);
+        state.appSettings = normalizeAppSettings(settings || DEFAULT_APP_SETTINGS);
+        return clone(state.appSettings);
       },
       async loadMessages() {
         assertBuyerCapableAccess();
@@ -3100,6 +3419,26 @@
     async loadAdminPayments(filters) {
       assertAdminAccess();
       return state.adapter.loadAdminPayments ? state.adapter.loadAdminPayments(filters) : [];
+    },
+    async loadAdminSettings() {
+      assertAdminAccess();
+      const settings = state.adapter.loadAdminSettings ? await state.adapter.loadAdminSettings() : await this.loadAppSettings();
+      state.appSettings = normalizeAppSettings(settings || DEFAULT_APP_SETTINGS);
+      return clone(state.appSettings);
+    },
+    async updateAdminSettings(payload) {
+      assertAdminAccess();
+      const result = state.adapter.updateAdminSettings ? await state.adapter.updateAdminSettings(payload) : await this.loadAppSettings();
+      state.appSettings = normalizeAppSettings(result || DEFAULT_APP_SETTINGS);
+      return clone(state.appSettings);
+    },
+    async loadAdminMessages() {
+      assertAdminAccess();
+      return state.adapter.loadAdminMessages ? state.adapter.loadAdminMessages() : [];
+    },
+    async reviewAdminMessage(conversationId, payload) {
+      assertAdminAccess();
+      return state.adapter.reviewAdminMessage ? state.adapter.reviewAdminMessage(conversationId, payload) : null;
     },
     async createReport(payload) {
       assertBuyerCapableAccess();
