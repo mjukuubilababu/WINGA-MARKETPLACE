@@ -3513,11 +3513,37 @@ http.createServer(async (req, res) => {
         return;
       }
 
+      const normalizedIdentity = getNormalizedSignupIdentity(rawPayload).idNumber;
+      const identityProvided = Boolean(normalizedIdentity || String(rawPayload.id_type || rawPayload.identityDocumentType || "").trim() || String(rawPayload.id_image || rawPayload.identityDocumentImage || "").trim());
+      const normalizedCardNumber = sanitizePlainText(rawPayload.nationalId || "", 40).toUpperCase();
+      if (identityProvided && normalizedCardNumber && normalizedIdentity && normalizedCardNumber !== normalizedIdentity) {
+        sendJson(res, 400, { error: "The card number and the number you entered do not match. Please enter the same number shown on the card." });
+        return;
+      }
+      if (normalizedIdentity) {
+        const duplicateIdentity = users.find((item) =>
+          sanitizePlainText(item.nationalId || item.identityDocumentNumber || item.idNumber || "", 40).toUpperCase() === normalizedIdentity
+        );
+        if (duplicateIdentity) {
+          await appendAuditLog({
+            time: new Date().toISOString(),
+            ip: clientIp,
+            method: req.method,
+            path: url.pathname,
+            event: "signup_rejected",
+            username: payload.username,
+            reason: "duplicate_identity"
+          });
+          sendJson(res, 409, { error: "This identity number is already registered. Please contact the moderator." });
+          return;
+        }
+      }
+
       const normalizedPhone = String(payload.phoneNumber || "").replace(/\D/g, "").slice(0, 20);
       const displayName = sanitizePlainText(payload.fullName || payload.username || "", 120);
       const generatedUsername = normalizedRole === "buyer"
         ? `buyer-${normalizedPhone || Date.now()}`
-        : `seller-${normalizedPhone || Date.now()}`;
+        : sanitizePlainText(rawPayload.username || "", 60) || `seller-${normalizedPhone || Date.now()}`;
 
       const createdUser = {
         ...payload,
@@ -3525,17 +3551,17 @@ http.createServer(async (req, res) => {
         primaryCategory: "",
         username: generatedUsername,
         fullName: displayName || generatedUsername,
-        nationalId: "",
+        nationalId: normalizedIdentity || "",
         status: "active",
         moderationReason: "",
         moderationNote: "",
-        verifiedSeller: false,
+        verifiedSeller: normalizedRole === "seller",
         profileImage: payload.profileImage || "",
-        identityDocumentType: "",
-        identityDocumentNumber: "",
-        identityDocumentImage: "",
-        verificationStatus: normalizedRole === "seller" ? "unverified" : "",
-        verificationSubmittedAt: "",
+        identityDocumentType: getNormalizedSignupIdentity(rawPayload).idType || "",
+        identityDocumentNumber: normalizedIdentity || "",
+        identityDocumentImage: getNormalizedSignupIdentity(rawPayload).idImage || "",
+        verificationStatus: normalizedRole === "seller" ? "verified" : "",
+        verificationSubmittedAt: normalizedRole === "seller" ? new Date().toISOString() : "",
         moderatedAt: "",
         moderatedBy: "",
         updatedAt: new Date().toISOString(),
@@ -4791,132 +4817,39 @@ http.createServer(async (req, res) => {
       }
 
       const payload = await collectBody(req);
-      const nextWhatsappNumber = String(payload?.whatsappNumber || "").replace(/\D/g, "").slice(0, 20);
+      const nextWhatsappNumber = String(payload?.whatsappNumber || payload?.phoneNumber || "").replace(/\D/g, "").slice(0, 20);
       if (!isValidWhatsapp(nextWhatsappNumber)) {
         sendJson(res, 400, { error: "Weka namba mpya ya WhatsApp sahihi." });
         return;
       }
 
-      const activeWhatsappNumber = String(user.whatsappNumber || user.phoneNumber || "").replace(/\D/g, "").slice(0, 20);
-      if (nextWhatsappNumber === activeWhatsappNumber) {
-        sendJson(res, 409, { error: "Namba hiyo tayari ndiyo WhatsApp number ya account yako." });
-        return;
-      }
-
-      const conflictingUser = (store.users || []).find((item) =>
+      const now = new Date().toISOString();
+      const duplicatePhone = (store.users || []).find((item) =>
         item.username !== user.username
         && (
           String(item.phoneNumber || "").replace(/\D/g, "").slice(0, 20) === nextWhatsappNumber
           || String(item.whatsappNumber || "").replace(/\D/g, "").slice(0, 20) === nextWhatsappNumber
-          || String(item.pendingWhatsappNumber || "").replace(/\D/g, "").slice(0, 20) === nextWhatsappNumber
         )
       );
-      if (conflictingUser) {
+      if (duplicatePhone) {
         sendJson(res, 409, { error: "Namba hiyo tayari inatumika kwenye account nyingine." });
         return;
       }
 
-      const now = new Date().toISOString();
-      const verificationCode = generateVerificationCode();
-      const expiresAt = new Date(Date.now() + WHATSAPP_VERIFICATION_CODE_TTL_MS).toISOString();
       const users = (store.users || []).map((item) =>
         item.username === user.username
           ? normalizeUserRecord({
               ...item,
-              whatsappVerificationStatus: "pending",
-              pendingWhatsappNumber: nextWhatsappNumber,
-              pendingWhatsappCodeHash: hashVerificationCode(verificationCode),
-              pendingWhatsappRequestedAt: now,
-              pendingWhatsappExpiresAt: expiresAt,
-              updatedAt: now
-            })
-          : item
-      );
-
-      await writeStore({
-        ...store,
-        users
-      });
-
-      await appendAuditLog({
-        time: now,
-        ip: clientIp,
-        method: req.method,
-        path: url.pathname,
-        event: "whatsapp_change_requested",
-        username: user.username,
-        pendingWhatsappNumber: nextWhatsappNumber,
-        deliveryMode: WHATSAPP_VERIFICATION_PREVIEW_MODE ? "preview" : "provider_unconfigured"
-      });
-
-      if (!WHATSAPP_VERIFICATION_PREVIEW_MODE) {
-        sendJson(res, 503, {
-          error: "WhatsApp verification provider bado haijaunganishwa kwenye production. Wasiliana na support kwa +255 695 237 798."
-        });
-        return;
-      }
-
-      sendJson(res, 200, {
-        ok: true,
-        pendingWhatsappNumber: nextWhatsappNumber,
-        expiresAt,
-        deliveryMode: "preview",
-        previewCode: verificationCode
-      });
-      return;
-    }
-
-    if (req.method === "POST" && url.pathname === "/api/users/me/whatsapp/verify-change") {
-      const token = readAuthToken(req);
-      const session = findSession(store, token);
-      const user = ensureMarketplaceUser(store, session, res);
-      if (!user) {
-        return;
-      }
-
-      const payload = await collectBody(req);
-      const code = String(payload?.code || "").trim();
-      if (!isValidVerificationCode(code)) {
-        sendJson(res, 400, { error: "Weka verification code ya tarakimu 6." });
-        return;
-      }
-
-      if (!user.pendingWhatsappNumber || !user.pendingWhatsappCodeHash || !user.pendingWhatsappExpiresAt) {
-        sendJson(res, 409, { error: "Hakuna mabadiliko ya WhatsApp yanayosubiri verification." });
-        return;
-      }
-
-      if (new Date(user.pendingWhatsappExpiresAt).getTime() < Date.now()) {
-        const expiredUsers = (store.users || []).map((item) =>
-          item.username === user.username
-            ? normalizeUserRecord(clearPendingWhatsappState({
-                ...item,
-                whatsappVerificationStatus: item.whatsappNumber ? "verified" : "pending",
-                updatedAt: new Date().toISOString()
-              }))
-            : item
-        );
-        await writeStore({ ...store, users: expiredUsers });
-        sendJson(res, 410, { error: "Verification code imeexpire. Omba code mpya ya WhatsApp." });
-        return;
-      }
-
-      if (hashVerificationCode(code) !== user.pendingWhatsappCodeHash) {
-        sendJson(res, 401, { error: "Verification code ya WhatsApp si sahihi." });
-        return;
-      }
-
-      const now = new Date().toISOString();
-      const verifiedWhatsappNumber = String(user.pendingWhatsappNumber || "").replace(/\D/g, "").slice(0, 20);
-      const users = (store.users || []).map((item) =>
-        item.username === user.username
-          ? normalizeUserRecord(clearPendingWhatsappState({
-              ...item,
-              whatsappNumber: verifiedWhatsappNumber,
+              phoneNumber: nextWhatsappNumber,
+              whatsappNumber: nextWhatsappNumber,
               whatsappVerificationStatus: "verified",
               whatsappVerifiedAt: now,
+              pendingWhatsappNumber: "",
+              pendingWhatsappCodeHash: "",
+              pendingWhatsappRequestedAt: "",
+              pendingWhatsappExpiresAt: "",
               updatedAt: now
-            }))
+            })
           : item
       );
       const updatedUser = users.find((item) => item.username === user.username);
@@ -4935,7 +4868,7 @@ http.createServer(async (req, res) => {
             }
           : item
       );
-      const products = applySellerWhatsappToProducts(store, user.username, verifiedWhatsappNumber);
+      const products = applySellerWhatsappToProducts(store, user.username, nextWhatsappNumber);
 
       await writeStore({
         ...store,
@@ -4949,9 +4882,94 @@ http.createServer(async (req, res) => {
         ip: clientIp,
         method: req.method,
         path: url.pathname,
-        event: "whatsapp_change_verified",
+        event: "profile_phone_updated",
         username: user.username,
-        whatsappNumber: verifiedWhatsappNumber
+        whatsappNumber: nextWhatsappNumber
+      });
+
+      sendJson(res, 200, {
+        ...buildSelfSessionPayload(updatedUser, session.token)
+      });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/users/me/whatsapp/verify-change") {
+      const token = readAuthToken(req);
+      const session = findSession(store, token);
+      const user = ensureMarketplaceUser(store, session, res);
+      if (!user) {
+        return;
+      }
+
+      const payload = await collectBody(req);
+      const nextWhatsappNumber = String(payload?.whatsappNumber || payload?.phoneNumber || user.whatsappNumber || user.phoneNumber || "").replace(/\D/g, "").slice(0, 20);
+      if (!isValidWhatsapp(nextWhatsappNumber)) {
+        sendJson(res, 400, { error: "Weka namba mpya ya WhatsApp sahihi." });
+        return;
+      }
+
+      const now = new Date().toISOString();
+      const duplicatePhone = (store.users || []).find((item) =>
+        item.username !== user.username
+        && (
+          String(item.phoneNumber || "").replace(/\D/g, "").slice(0, 20) === nextWhatsappNumber
+          || String(item.whatsappNumber || "").replace(/\D/g, "").slice(0, 20) === nextWhatsappNumber
+        )
+      );
+      if (duplicatePhone) {
+        sendJson(res, 409, { error: "Namba hiyo tayari inatumika kwenye account nyingine." });
+        return;
+      }
+
+      const users = (store.users || []).map((item) =>
+        item.username === user.username
+          ? normalizeUserRecord({
+              ...item,
+              phoneNumber: nextWhatsappNumber,
+              whatsappNumber: nextWhatsappNumber,
+              whatsappVerificationStatus: "verified",
+              whatsappVerifiedAt: now,
+              pendingWhatsappNumber: "",
+              pendingWhatsappCodeHash: "",
+              pendingWhatsappRequestedAt: "",
+              pendingWhatsappExpiresAt: "",
+              updatedAt: now
+            })
+          : item
+      );
+      const updatedUser = users.find((item) => item.username === user.username);
+      const sessions = (store.sessions || []).map((item) =>
+        item.username === user.username
+          ? {
+              ...item,
+              fullName: updatedUser?.fullName || item.fullName || item.username,
+              role: updatedUser?.role || item.role || "seller",
+              status: updatedUser?.status || item.status || "active",
+              profileImage: updatedUser?.profileImage || "",
+              verificationStatus: updatedUser?.verificationStatus || item.verificationStatus || "",
+              whatsappNumber: updatedUser?.whatsappNumber || item.whatsappNumber || "",
+              whatsappVerificationStatus: updatedUser?.whatsappVerificationStatus || item.whatsappVerificationStatus || "verified",
+              primaryCategory: updatedUser?.primaryCategory || item.primaryCategory || ""
+            }
+          : item
+      );
+      const products = applySellerWhatsappToProducts(store, user.username, nextWhatsappNumber);
+
+      await writeStore({
+        ...store,
+        users,
+        sessions,
+        products
+      });
+
+      await appendAuditLog({
+        time: now,
+        ip: clientIp,
+        method: req.method,
+        path: url.pathname,
+        event: "profile_phone_updated",
+        username: user.username,
+        whatsappNumber: nextWhatsappNumber
       });
 
       sendJson(res, 200, buildSelfSessionPayload(updatedUser, session.token));

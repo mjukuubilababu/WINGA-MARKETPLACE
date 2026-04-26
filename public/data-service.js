@@ -562,27 +562,39 @@
         if (duplicatePhone) {
           throw new Error("Namba hiyo ya simu tayari imesajiliwa.");
         }
+        const normalizedIdentityNumber = normalizeNationalId(safePayload.nationalId || safePayload.identityDocumentNumber || safePayload.idNumber || "");
+        if (normalizedIdentityNumber) {
+          const duplicateIdentity = users.find((item) =>
+            normalizeNationalId(item.nationalId || item.identityDocumentNumber || item.idNumber || "") === normalizedIdentityNumber
+          );
+          if (duplicateIdentity) {
+            throw new Error("This identity number is already registered. Please contact the moderator.");
+          }
+        }
 
         const displayName = String(safePayload.fullName || safePayload.username || "").trim();
         const generatedUsername = safePayload.role === "buyer"
           ? `buyer-${normalizePhoneNumber(safePayload.phoneNumber || "") || Date.now()}`
-          : `seller-${normalizePhoneNumber(safePayload.phoneNumber || "") || Date.now()}`;
+          : String(safePayload.username || "").trim() || `seller-${normalizePhoneNumber(safePayload.phoneNumber || "") || Date.now()}`;
         const nextUser = {
           ...safePayload,
           username: generatedUsername,
           fullName: displayName || generatedUsername,
           role: safePayload.role || "seller",
           primaryCategory: "",
-          nationalId: "",
+          nationalId: normalizedIdentityNumber,
+          identityDocumentType: String(safePayload.id_type || safePayload.identityDocumentType || "").trim().toUpperCase(),
+          identityDocumentNumber: normalizedIdentityNumber,
+          identityDocumentImage: safePayload.id_image || safePayload.identityDocumentImage || "",
           phoneNumber: normalizePhoneNumber(safePayload.phoneNumber),
           whatsappNumber: normalizePhoneNumber(safePayload.phoneNumber),
           whatsappVerificationStatus: "verified",
           whatsappVerifiedAt: new Date().toISOString(),
           password: await hashLocalPassword(safePayload.password),
           status: "active",
-          verifiedSeller: false,
-          verificationStatus: safePayload.role === "seller" ? "unverified" : "",
-          verificationSubmittedAt: "",
+          verifiedSeller: safePayload.role === "seller",
+          verificationStatus: safePayload.role === "seller" ? "verified" : "",
+          verificationSubmittedAt: safePayload.role === "seller" ? new Date().toISOString() : "",
           createdAt: safePayload.createdAt || new Date().toISOString(),
           updatedAt: new Date().toISOString()
         };
@@ -853,112 +865,27 @@
         return updatedProduct;
       },
       async requestWhatsappChange(payload) {
-        const session = this.loadSession();
-        if (!session?.username) {
-          throw new Error("Ingia kwanza kabla ya kubadilisha WhatsApp number.");
-        }
         const nextWhatsappNumber = normalizePhoneNumber(payload?.whatsappNumber || "");
         if (!/^\d{10,15}$/.test(nextWhatsappNumber)) {
           throw new Error("Weka namba mpya ya WhatsApp sahihi.");
         }
-        const users = await this.loadUsers();
-        const currentUser = users.find((item) => item.username === session.username);
-        if (!currentUser) {
-          throw new Error("Akaunti yako haikupatikana tena. Ingia upya kabla ya kujaribu tena.");
-        }
-        const activeWhatsappNumber = getPreferredWhatsappNumber(currentUser);
-        if (nextWhatsappNumber === activeWhatsappNumber) {
-          throw new Error("Namba hiyo tayari ndiyo WhatsApp number ya account yako.");
-        }
-        const conflictingUser = users.find((item) =>
-          item.username !== session.username
-          && (
-            normalizePhoneNumber(item.phoneNumber || "") === nextWhatsappNumber
-            || normalizePhoneNumber(item.whatsappNumber || "") === nextWhatsappNumber
-            || normalizePhoneNumber(item.pendingWhatsappNumber || "") === nextWhatsappNumber
-          )
-        );
-        if (conflictingUser) {
-          throw new Error("Namba hiyo tayari inatumika kwenye account nyingine.");
-        }
-        const previewCode = generateVerificationCode();
-        const expiresAt = new Date(Date.now() + (10 * 60 * 1000)).toISOString();
-        const nextUsers = users.map((item) =>
-          item.username === session.username
-            ? {
-                ...item,
-                pendingWhatsappNumber: nextWhatsappNumber,
-                pendingWhatsappCode: previewCode,
-                pendingWhatsappExpiresAt: expiresAt,
-                whatsappVerificationStatus: "pending",
-                updatedAt: new Date().toISOString()
-              }
-            : item
-        );
-        await this.saveUsers(nextUsers);
-        return {
-          ok: true,
-          pendingWhatsappNumber: nextWhatsappNumber,
-          expiresAt,
-          deliveryMode: "preview",
-          previewCode
-        };
+        return this.updateUserProfile({
+          phoneNumber: nextWhatsappNumber,
+          whatsappNumber: nextWhatsappNumber
+        });
       },
       async verifyWhatsappChange(payload) {
-        const session = this.loadSession();
-        if (!session?.username) {
-          throw new Error("Ingia kwanza kabla ya kuthibitisha WhatsApp number.");
+        const nextWhatsappNumber = normalizePhoneNumber(payload?.whatsappNumber || payload?.phoneNumber || "");
+        if (nextWhatsappNumber && !/^\d{10,15}$/.test(nextWhatsappNumber)) {
+          throw new Error("Weka namba mpya ya WhatsApp sahihi.");
         }
-        const code = String(payload?.code || "").trim();
-        if (!/^\d{6}$/.test(code)) {
-          throw new Error("Weka verification code ya tarakimu 6.");
+        if (!nextWhatsappNumber) {
+          return { ok: true, ignored: true };
         }
-        const users = await this.loadUsers();
-        const currentUser = users.find((item) => item.username === session.username);
-        if (!currentUser) {
-          throw new Error("Akaunti yako haikupatikana tena. Ingia upya kabla ya kujaribu tena.");
-        }
-        if (!currentUser.pendingWhatsappNumber || !currentUser.pendingWhatsappCode || !currentUser.pendingWhatsappExpiresAt) {
-          throw new Error("Hakuna mabadiliko ya WhatsApp yanayosubiri verification.");
-        }
-        if (new Date(currentUser.pendingWhatsappExpiresAt).getTime() < Date.now()) {
-          throw new Error("Verification code imeexpire. Omba code mpya ya WhatsApp.");
-        }
-        if (currentUser.pendingWhatsappCode !== code) {
-          throw new Error("Verification code ya WhatsApp si sahihi.");
-        }
-        const now = new Date().toISOString();
-        const verifiedWhatsappNumber = normalizePhoneNumber(currentUser.pendingWhatsappNumber);
-        const nextUsers = users.map((item) =>
-          item.username === session.username
-            ? {
-                ...item,
-                whatsappNumber: verifiedWhatsappNumber,
-                whatsappVerificationStatus: "verified",
-                whatsappVerifiedAt: now,
-                pendingWhatsappNumber: "",
-                pendingWhatsappCode: "",
-                pendingWhatsappExpiresAt: "",
-                updatedAt: now
-              }
-            : item
-        );
-        await this.saveUsers(nextUsers);
-        const products = await this.loadProducts();
-        const nextProducts = products.map((item) =>
-          item.uploadedBy === session.username
-            ? { ...item, whatsapp: verifiedWhatsappNumber }
-            : item
-        );
-        await this.saveProducts(nextProducts);
-        return buildSessionPayload({
-          ...currentUser,
-          whatsappNumber: verifiedWhatsappNumber,
-          whatsappVerificationStatus: "verified",
-          whatsappVerifiedAt: now,
-          pendingWhatsappNumber: "",
-          pendingWhatsappExpiresAt: ""
-        }, session.token || null);
+        return this.updateUserProfile({
+          phoneNumber: nextWhatsappNumber,
+          whatsappNumber: nextWhatsappNumber
+        });
       },
       async deleteProduct(productId) {
         const products = await this.loadProducts();
@@ -2233,27 +2160,39 @@
         if (duplicatePhone) {
           throw new Error("Namba hiyo ya simu tayari imesajiliwa.");
         }
+        const normalizedIdentityNumber = normalizeNationalId(safePayload.nationalId || safePayload.identityDocumentNumber || safePayload.idNumber || "");
+        if (normalizedIdentityNumber) {
+          const duplicateIdentity = users.find((item) =>
+            normalizeNationalId(item.nationalId || item.identityDocumentNumber || item.idNumber || "") === normalizedIdentityNumber
+          );
+          if (duplicateIdentity) {
+            throw new Error("This identity number is already registered. Please contact the moderator.");
+          }
+        }
 
         const displayName = String(safePayload.fullName || safePayload.username || "").trim();
         const generatedUsername = safePayload.role === "buyer"
           ? `buyer-${normalizePhoneNumber(safePayload.phoneNumber || "") || Date.now()}`
-          : `seller-${normalizePhoneNumber(safePayload.phoneNumber || "") || Date.now()}`;
+          : String(safePayload.username || "").trim() || `seller-${normalizePhoneNumber(safePayload.phoneNumber || "") || Date.now()}`;
         const nextUser = {
           ...safePayload,
           username: generatedUsername,
           fullName: displayName || generatedUsername,
           role: safePayload.role || "seller",
           primaryCategory: "",
-          nationalId: "",
+          nationalId: normalizedIdentityNumber,
+          identityDocumentType: String(safePayload.id_type || safePayload.identityDocumentType || "").trim().toUpperCase(),
+          identityDocumentNumber: normalizedIdentityNumber,
+          identityDocumentImage: safePayload.id_image || safePayload.identityDocumentImage || "",
           phoneNumber: normalizePhoneNumber(safePayload.phoneNumber),
           whatsappNumber: normalizePhoneNumber(safePayload.phoneNumber),
           whatsappVerificationStatus: "verified",
           whatsappVerifiedAt: new Date().toISOString(),
           password: await hashLocalPassword(safePayload.password),
           status: "active",
-          verifiedSeller: false,
-          verificationStatus: safePayload.role === "seller" ? "unverified" : "",
-          verificationSubmittedAt: "",
+          verifiedSeller: safePayload.role === "seller",
+          verificationStatus: safePayload.role === "seller" ? "verified" : "",
+          verificationSubmittedAt: safePayload.role === "seller" ? new Date().toISOString() : "",
           createdAt: safePayload.createdAt || new Date().toISOString(),
           updatedAt: new Date().toISOString()
         };
@@ -2478,112 +2417,27 @@
         return updatedProduct;
       },
       async requestWhatsappChange(payload) {
-        const session = this.loadSession();
-        if (!session?.username) {
-          throw new Error("Ingia kwanza kabla ya kubadilisha WhatsApp number.");
-        }
         const nextWhatsappNumber = normalizePhoneNumber(payload?.whatsappNumber || "");
         if (!/^\d{10,15}$/.test(nextWhatsappNumber)) {
           throw new Error("Weka namba mpya ya WhatsApp sahihi.");
         }
-        const users = await this.loadUsers();
-        const currentUser = users.find((item) => item.username === session.username);
-        if (!currentUser) {
-          throw new Error("Akaunti yako haikupatikana tena. Ingia upya kabla ya kujaribu tena.");
-        }
-        const activeWhatsappNumber = getPreferredWhatsappNumber(currentUser);
-        if (nextWhatsappNumber === activeWhatsappNumber) {
-          throw new Error("Namba hiyo tayari ndiyo WhatsApp number ya account yako.");
-        }
-        const conflictingUser = users.find((item) =>
-          item.username !== session.username
-          && (
-            normalizePhoneNumber(item.phoneNumber || "") === nextWhatsappNumber
-            || normalizePhoneNumber(item.whatsappNumber || "") === nextWhatsappNumber
-            || normalizePhoneNumber(item.pendingWhatsappNumber || "") === nextWhatsappNumber
-          )
-        );
-        if (conflictingUser) {
-          throw new Error("Namba hiyo tayari inatumika kwenye account nyingine.");
-        }
-        const previewCode = generateVerificationCode();
-        const expiresAt = new Date(Date.now() + (10 * 60 * 1000)).toISOString();
-        const nextUsers = users.map((item) =>
-          item.username === session.username
-            ? {
-                ...item,
-                pendingWhatsappNumber: nextWhatsappNumber,
-                pendingWhatsappCode: previewCode,
-                pendingWhatsappExpiresAt: expiresAt,
-                whatsappVerificationStatus: "pending",
-                updatedAt: new Date().toISOString()
-              }
-            : item
-        );
-        await this.saveUsers(nextUsers);
-        return {
-          ok: true,
-          pendingWhatsappNumber: nextWhatsappNumber,
-          expiresAt,
-          deliveryMode: "preview",
-          previewCode
-        };
+        return this.updateUserProfile({
+          phoneNumber: nextWhatsappNumber,
+          whatsappNumber: nextWhatsappNumber
+        });
       },
       async verifyWhatsappChange(payload) {
-        const session = this.loadSession();
-        if (!session?.username) {
-          throw new Error("Ingia kwanza kabla ya kuthibitisha WhatsApp number.");
+        const nextWhatsappNumber = normalizePhoneNumber(payload?.whatsappNumber || payload?.phoneNumber || "");
+        if (nextWhatsappNumber && !/^\d{10,15}$/.test(nextWhatsappNumber)) {
+          throw new Error("Weka namba mpya ya WhatsApp sahihi.");
         }
-        const code = String(payload?.code || "").trim();
-        if (!/^\d{6}$/.test(code)) {
-          throw new Error("Weka verification code ya tarakimu 6.");
+        if (!nextWhatsappNumber) {
+          return { ok: true, ignored: true };
         }
-        const users = await this.loadUsers();
-        const currentUser = users.find((item) => item.username === session.username);
-        if (!currentUser) {
-          throw new Error("Akaunti yako haikupatikana tena. Ingia upya kabla ya kujaribu tena.");
-        }
-        if (!currentUser.pendingWhatsappNumber || !currentUser.pendingWhatsappCode || !currentUser.pendingWhatsappExpiresAt) {
-          throw new Error("Hakuna mabadiliko ya WhatsApp yanayosubiri verification.");
-        }
-        if (new Date(currentUser.pendingWhatsappExpiresAt).getTime() < Date.now()) {
-          throw new Error("Verification code imeexpire. Omba code mpya ya WhatsApp.");
-        }
-        if (currentUser.pendingWhatsappCode !== code) {
-          throw new Error("Verification code ya WhatsApp si sahihi.");
-        }
-        const now = new Date().toISOString();
-        const verifiedWhatsappNumber = normalizePhoneNumber(currentUser.pendingWhatsappNumber);
-        const nextUsers = users.map((item) =>
-          item.username === session.username
-            ? {
-                ...item,
-                whatsappNumber: verifiedWhatsappNumber,
-                whatsappVerificationStatus: "verified",
-                whatsappVerifiedAt: now,
-                pendingWhatsappNumber: "",
-                pendingWhatsappCode: "",
-                pendingWhatsappExpiresAt: "",
-                updatedAt: now
-              }
-            : item
-        );
-        await this.saveUsers(nextUsers);
-        const products = await this.loadProducts();
-        const nextProducts = products.map((item) =>
-          item.uploadedBy === session.username
-            ? { ...item, whatsapp: verifiedWhatsappNumber }
-            : item
-        );
-        await this.saveProducts(nextProducts);
-        return buildSessionPayload({
-          ...currentUser,
-          whatsappNumber: verifiedWhatsappNumber,
-          whatsappVerificationStatus: "verified",
-          whatsappVerifiedAt: now,
-          pendingWhatsappNumber: "",
-          pendingWhatsappExpiresAt: ""
-        }, session.token || null);
+        return this.updateUserProfile({
+          phoneNumber: nextWhatsappNumber,
+          whatsappNumber: nextWhatsappNumber
+        });
       },
       async deleteProduct(productId) {
         const products = await this.loadProducts();

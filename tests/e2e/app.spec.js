@@ -406,24 +406,21 @@ test("seller can change and verify whatsapp number from profile and upload uses 
   await expect(page.locator("#profile-identity-card")).toBeVisible();
   await expect(page.locator("#profile-whatsapp-block")).toContainText("255700111221");
 
-  const changeRequestPromise = page.waitForResponse((response) =>
-    response.url().includes("/users/me/whatsapp/request-change") && response.request().method() === "POST"
+  const profileUpdatePromise = page.waitForResponse((response) =>
+    response.url().includes("/users/me/profile") && response.request().method() === "PATCH"
   );
 
   await page.locator("#profile-whatsapp-change-toggle").click();
   await page.locator("#profile-whatsapp-input").fill("255700777331");
-  await page.locator("#profile-whatsapp-request-button").click();
-  const changeRequestResponse = await changeRequestPromise;
-  const changeRequestBody = await changeRequestResponse.json();
+  await page.locator("#profile-whatsapp-save-button").click();
+  await profileUpdatePromise;
 
-  await expect(page.locator("#profile-whatsapp-block")).toContainText("Pending");
   await expect(page.locator("#profile-whatsapp-block")).toContainText("255700777331");
+  await expect(page.locator("#profile-whatsapp-block")).toContainText("Active");
 
-  await page.locator("#profile-whatsapp-code").fill(String(changeRequestBody.previewCode || ""));
-  await page.locator("#profile-whatsapp-verify-button").click();
-
-  await expect(page.locator("#profile-whatsapp-block")).toContainText("Verified");
+  await page.reload();
   await expect(page.locator("#profile-whatsapp-block")).toContainText("255700777331");
+  await expect(page.locator("#profile-whatsapp-block")).toContainText("Active");
 
   await page.locator("#view-home-back").click();
   await page.locator("#post-product-fab").click();

@@ -99,6 +99,7 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   assert.equal(sellerSignup.body.phoneNumber, "255700111111");
   assert.equal(sellerSignup.body.primaryCategory, "");
   const sellerToken = sellerSignup.body.token;
+  const sellerUsername = sellerSignup.body.username;
 
   const legacyPrimaryCategoryUpdate = await request("/users/primary-category", {
     method: "PATCH",
@@ -107,7 +108,7 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
       Authorization: `Bearer ${sellerToken}`
     },
     body: JSON.stringify({
-      username: "seller_one",
+      username: sellerUsername,
       primaryCategory: "Totally Invalid Category Label !!!"
     })
   });
@@ -460,8 +461,8 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   assert.equal(forcedWhatsappUpdate.response.status, 200);
   assert.equal(forcedWhatsappUpdate.body.whatsapp, "255700111111");
 
-  const whatsappChangeRequest = await request("/users/me/whatsapp/request-change", {
-    method: "POST",
+  const whatsappUpdate = await request("/users/me/profile", {
+    method: "PATCH",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${sellerToken}`
@@ -470,23 +471,10 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
       whatsappNumber: "255700333333"
     })
   });
-  assert.equal(whatsappChangeRequest.response.status, 200);
-  assert.equal(whatsappChangeRequest.body.pendingWhatsappNumber, "255700333333");
-  assert.match(String(whatsappChangeRequest.body.previewCode || ""), /^\d{6}$/);
-
-  const whatsappVerify = await request("/users/me/whatsapp/verify-change", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${sellerToken}`
-    },
-    body: JSON.stringify({
-      code: whatsappChangeRequest.body.previewCode
-    })
-  });
-  assert.equal(whatsappVerify.response.status, 200);
-  assert.equal(whatsappVerify.body.whatsappNumber, "255700333333");
-  assert.equal(whatsappVerify.body.whatsappVerificationStatus, "verified");
+  assert.equal(whatsappUpdate.response.status, 200);
+  assert.equal(whatsappUpdate.body.whatsappNumber, "255700333333");
+  assert.equal(whatsappUpdate.body.phoneNumber, "255700333333");
+  assert.equal(whatsappUpdate.body.whatsappVerificationStatus, "verified");
 
   const productAfterWhatsappVerify = await request("/products", {
     method: "POST",
@@ -499,7 +487,7 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
       name: "Kiatu Verified Contact",
       price: 32000,
       shop: "Seller One Shop",
-      whatsapp: "255799999999",
+      whatsapp: "255700333333",
       uploadedBy: "seller_one",
       category: "viatu",
       images: [tinyImage],
@@ -633,7 +621,7 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
     headers: { Authorization: `Bearer ${sellerToken}` }
   });
   assert.equal(restoredSellerSession.response.status, 200);
-  assert.equal(restoredSellerSession.body.phoneNumber, "255700111111");
+  assert.equal(restoredSellerSession.body.phoneNumber, "255700333333");
 
   const clientAlertEvent = await request("/client-events", {
     method: "POST",
@@ -1035,7 +1023,7 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   assert.equal(adminUsers.response.status, 200);
   assert.equal(adminUsers.body.some((user) =>
     user.username === "seller_one"
-    && user.phoneNumber === "255700111111"
+    && user.phoneNumber === "255700333333"
     && user.verificationStatus === "verified"
     && user.hasIdentityDocumentImage === true
     && typeof user.activeSessionCount === "number"
