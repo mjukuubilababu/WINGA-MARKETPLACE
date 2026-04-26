@@ -6,20 +6,37 @@
     if (!value) {
       return fallbackSrc || "";
     }
-    if (/^(https?:|blob:)/i.test(value)) {
-      return value;
-    }
     if (/^data:image\/[a-z0-9.+-]+;base64,/i.test(value)) {
       return value;
     }
     try {
+      if (/^blob:/i.test(value)) {
+        return value;
+      }
       const configuredApiBaseUrl = String(window.WINGA_CONFIG?.apiBaseUrl || "").trim().replace(/\/+$/, "");
       const publicBaseUrl = configuredApiBaseUrl.replace(/\/api$/, "");
+      const proxyUrlFor = (candidate) => {
+        const proxyUrl = new URL("/__winga-image__", window.location.origin);
+        proxyUrl.searchParams.set("u", candidate);
+        return proxyUrl.toString();
+      };
+      if (/^https?:/i.test(value)) {
+        const parsed = new URL(value);
+        if (parsed.origin === window.location.origin) {
+          return parsed.toString();
+        }
+        return proxyUrlFor(parsed.toString());
+      }
       if (value.startsWith("/uploads/") && publicBaseUrl) {
-        return new URL(value, publicBaseUrl).toString();
+        const absoluteUrl = new URL(value, publicBaseUrl).toString();
+        return proxyUrlFor(absoluteUrl);
       }
       if (/^[./]/.test(value) || value.startsWith("/")) {
-        return new URL(value, window.location.origin).toString();
+        const parsed = new URL(value, window.location.origin);
+        if (parsed.origin === window.location.origin || parsed.protocol === "data:" || parsed.protocol === "blob:") {
+          return parsed.toString();
+        }
+        return proxyUrlFor(parsed.toString());
       }
     } catch (error) {
       // Fall through to fallback.
