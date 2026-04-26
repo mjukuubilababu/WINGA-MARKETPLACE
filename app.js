@@ -364,6 +364,9 @@ async function registerAppServiceWorker() {
   if (!("serviceWorker" in navigator)) {
     return;
   }
+  if (!/^https?:$/i.test(String(window.location?.protocol || ""))) {
+    return;
+  }
 
   try {
     const registration = await navigator.serviceWorker.register(`${APP_SERVICE_WORKER_PATH}?v=${encodeURIComponent(APP_BOOT_BUILD_VERSION || "0")}`, {
