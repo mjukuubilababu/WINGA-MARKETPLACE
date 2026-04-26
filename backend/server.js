@@ -4967,36 +4967,83 @@ http.createServer(async (req, res) => {
       }
 
       const payload = await collectBody(req);
-      if (!payload || !isValidPrivateImageValue(payload.profileImage || "")) {
+      if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+        sendJson(res, 400, { error: "Payload ya profile si sahihi." });
+        return;
+      }
+
+      const hasProfileImage = Object.prototype.hasOwnProperty.call(payload, "profileImage");
+      const hasPhoneUpdate = Object.prototype.hasOwnProperty.call(payload, "phoneNumber")
+        || Object.prototype.hasOwnProperty.call(payload, "whatsappNumber");
+      if (!hasProfileImage && !hasPhoneUpdate) {
+        sendJson(res, 400, { error: "Hakuna data ya kubadili profile." });
+        return;
+      }
+
+      if (hasProfileImage && !isValidPrivateImageValue(payload.profileImage || "")) {
         sendJson(res, 400, { error: "Profile photo si sahihi." });
         return;
       }
 
+      const nextPhoneNumber = hasPhoneUpdate
+        ? String(payload.phoneNumber || payload.whatsappNumber || "").replace(/\D/g, "").slice(0, 20)
+        : "";
+      if (hasPhoneUpdate && !/^\d{10,15}$/.test(nextPhoneNumber)) {
+        sendJson(res, 400, { error: "Weka namba ya simu sahihi yenye tarakimu 10 hadi 15." });
+        return;
+      }
+
+      if (hasPhoneUpdate) {
+        const duplicatePhone = (store.users || []).find((item) =>
+          item.username !== user.username
+          && (
+            String(item.phoneNumber || "").replace(/\D/g, "").slice(0, 20) === nextPhoneNumber
+            || String(item.whatsappNumber || "").replace(/\D/g, "").slice(0, 20) === nextPhoneNumber
+          )
+        );
+        if (duplicatePhone) {
+          sendJson(res, 409, { error: "Namba hiyo ya simu tayari imesajiliwa." });
+          return;
+        }
+      }
+
+      const nextProfileImage = hasProfileImage ? payload.profileImage : user.profileImage || "";
+      const nextWhatsappNumber = hasPhoneUpdate ? nextPhoneNumber : String(user.whatsappNumber || user.phoneNumber || "").replace(/\D/g, "").slice(0, 20);
+
       const now = new Date().toISOString();
-      const users = (store.users || []).map((item) =>
+      const updatedUsers = (store.users || []).map((item) =>
         item.username === user.username
           ? normalizeUserRecord({
               ...item,
-              profileImage: payload.profileImage,
+              ...(hasProfileImage ? { profileImage: nextProfileImage } : {}),
+              ...(hasPhoneUpdate
+                ? {
+                    phoneNumber: nextPhoneNumber,
+                    whatsappNumber: nextPhoneNumber,
+                    whatsappVerificationStatus: "verified",
+                    whatsappVerifiedAt: now
+                  }
+                : {}),
               updatedAt: now
             })
           : item
       );
 
-      const updatedUser = users.find((item) => item.username === user.username);
+      const updatedUser = updatedUsers.find((item) => item.username === user.username);
       if (!updatedUser) {
         await appendAuditLog({
           time: now,
           ip: clientIp,
           method: req.method,
           path: url.pathname,
-          event: "profile_photo_update_rejected",
+          event: "profile_update_rejected",
           username: user.username,
           reason: "user_record_missing"
         });
         sendJson(res, 404, { error: "Akaunti yako haikupatikana tena. Ingia upya kabla ya kujaribu tena." });
         return;
       }
+
       const sessions = (store.sessions || []).map((item) =>
         item.username === user.username
           ? {
@@ -5013,10 +5060,15 @@ http.createServer(async (req, res) => {
           : item
       );
 
+      const products = hasPhoneUpdate
+        ? applySellerWhatsappToProducts(store, user.username, nextWhatsappNumber)
+        : store.products || [];
+
       await writeStore({
         ...store,
-        users,
-        sessions
+        users: updatedUsers,
+        sessions,
+        ...(hasPhoneUpdate ? { products } : {})
       });
 
       await appendAuditLog({
@@ -5024,7 +5076,7 @@ http.createServer(async (req, res) => {
         ip: clientIp,
         method: req.method,
         path: url.pathname,
-        event: "profile_photo_updated",
+        event: hasPhoneUpdate ? "profile_phone_updated" : "profile_photo_updated",
         username: user.username
       });
 

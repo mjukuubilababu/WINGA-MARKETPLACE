@@ -7297,24 +7297,17 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       }));
       whatsappMeta.append(" ");
       whatsappMeta.appendChild(deps.createElement("span", {
-        className: `status-pill ${(context.whatsappVerificationStatus || "verified") === "verified" ? "approved" : "pending"}`,
-        textContent: (context.whatsappVerificationStatus || "verified") === "verified" ? "Verified" : "Pending"
+        className: "status-pill approved",
+        textContent: "Active"
       }));
       whatsappWrap.appendChild(whatsappMeta);
-      if (context.pendingWhatsappNumber) {
-        whatsappWrap.appendChild(deps.createElement("p", {
-          className: "auth-note",
-          textContent: `Pending change kwenda ${context.pendingWhatsappNumber}. Weka verification code kuthibitisha.`
-        }));
-      } else {
-        whatsappWrap.appendChild(deps.createElement("p", {
-          className: "auth-note",
-          textContent: "Namba hii ndiyo hutumika mteja akibonyeza WhatsApp kwenye bidhaa zako."
-        }));
-      }
+      whatsappWrap.appendChild(deps.createElement("p", {
+        className: "auth-note",
+        textContent: "Hii ndiyo namba itakayotumika kwenye WhatsApp na contact zote za bidhaa zako."
+      }));
       whatsappWrap.appendChild(deps.createElement("button", {
         className: "action-btn action-btn-secondary",
-        textContent: "Change WhatsApp Number",
+        textContent: "Edit WhatsApp Number",
         attributes: {
           type: "button",
           id: "profile-whatsapp-change-toggle"
@@ -7324,7 +7317,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         className: "profile-whatsapp-form",
         attributes: {
           id: "profile-whatsapp-change-form",
-          style: context.pendingWhatsappNumber ? "" : "display:none;"
+          style: "display:none;"
         }
       });
       whatsappForm.append(
@@ -7333,24 +7326,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
             id: "profile-whatsapp-input",
             type: "tel",
             placeholder: "Namba mpya ya WhatsApp",
-            value: context.pendingWhatsappNumber || context.whatsappNumber || ""
-          }
-        }),
-        deps.createElement("button", {
-          className: "action-btn action-btn-secondary",
-          textContent: context.pendingWhatsappNumber ? "Resend Code" : "Send Code",
-          attributes: {
-            type: "button",
-            id: "profile-whatsapp-request-button"
-          }
-        }),
-        deps.createElement("input", {
-          attributes: {
-            id: "profile-whatsapp-code",
-            type: "text",
-            inputmode: "numeric",
-            maxlength: "6",
-            placeholder: "Verification code"
+            value: context.whatsappNumber || context.phoneNumber || ""
           }
         }),
         deps.createElement("div", {
@@ -7360,10 +7336,10 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       whatsappForm.querySelector(".profile-whatsapp-form-actions")?.append(
         deps.createElement("button", {
           className: "action-btn buy-btn",
-          textContent: "Verify WhatsApp",
+          textContent: "Save Number",
           attributes: {
             type: "button",
-            id: "profile-whatsapp-verify-button"
+            id: "profile-whatsapp-save-button"
           }
         }),
         deps.createElement("button", {
@@ -7931,9 +7907,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       const toggleButton = document.getElementById("profile-whatsapp-change-toggle");
       const form = document.getElementById("profile-whatsapp-change-form");
       const input = document.getElementById("profile-whatsapp-input");
-      const requestButton = document.getElementById("profile-whatsapp-request-button");
-      const codeInput = document.getElementById("profile-whatsapp-code");
-      const verifyButton = document.getElementById("profile-whatsapp-verify-button");
+      const saveButton = document.getElementById("profile-whatsapp-save-button");
       const cancelButton = document.getElementById("profile-whatsapp-cancel-button");
 
       if (toggleButton && toggleButton.dataset.bound !== "true") {
@@ -7958,102 +7932,66 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         });
       }
 
-      if (requestButton && requestButton.dataset.bound !== "true") {
-        requestButton.dataset.bound = "true";
-        requestButton.addEventListener("click", async () => {
-          const whatsappNumber = deps.normalizePhoneNumber?.(input?.value || "") || "";
-          if (!whatsappNumber || whatsappNumber.length < 10) {
+      if (saveButton && saveButton.dataset.bound !== "true") {
+        saveButton.dataset.bound = "true";
+        saveButton.addEventListener("click", async () => {
+          const nextWhatsappNumber = deps.normalizePhoneNumber?.(input?.value || "") || "";
+          if (!/^\d{10,15}$/.test(nextWhatsappNumber)) {
             deps.showInAppNotification?.({
-              title: "WhatsApp required",
-              body: "Weka namba mpya ya WhatsApp sahihi kwanza.",
+              title: "Phone number required",
+              body: "Weka namba ya WhatsApp sahihi yenye tarakimu 10 hadi 15.",
               variant: "warning"
             });
             return;
           }
 
-          requestButton.disabled = true;
-          try {
-            const result = await deps.dataLayer.requestWhatsappChange({ whatsappNumber });
-            deps.mergeSessionState({
-              whatsappVerificationStatus: "pending",
-              pendingWhatsappNumber: result?.pendingWhatsappNumber || whatsappNumber,
-              pendingWhatsappExpiresAt: result?.expiresAt || ""
-            });
-            deps.saveSessionUser();
-            deps.renderHeaderUserMenu();
+          const currentPhone = deps.normalizePhoneNumber?.(
+            deps.getCurrentSession?.()?.phoneNumber || deps.getCurrentSession?.()?.whatsappNumber || ""
+          ) || "";
+          if (nextWhatsappNumber === currentPhone && nextWhatsappNumber === deps.normalizePhoneNumber?.(deps.getCurrentSession?.()?.whatsappNumber || "")) {
             deps.showInAppNotification?.({
-              title: "Verification code sent",
-              body: result?.deliveryMode === "preview" && result?.previewCode
-                ? `Preview code: ${result.previewCode}`
-                : "Tumetuma verification code ya WhatsApp. Iweke hapa chini kuthibitisha.",
-              variant: "success",
-              durationMs: result?.deliveryMode === "preview" ? 7000 : 4200
-            });
-            renderProfile();
-          } catch (error) {
-            deps.captureError?.("profile_whatsapp_request_failed", error, {
-              user: deps.getCurrentUser()
-            });
-            deps.showInAppNotification?.({
-              title: "WhatsApp change failed",
-              body: error.message || "Imeshindikana kuomba verification code ya WhatsApp.",
-              variant: "error"
-            });
-          } finally {
-            requestButton.disabled = false;
-          }
-        });
-      }
-
-      if (verifyButton && verifyButton.dataset.bound !== "true") {
-        verifyButton.dataset.bound = "true";
-        verifyButton.addEventListener("click", async () => {
-          const code = String(codeInput?.value || "").trim();
-          if (!/^\d{6}$/.test(code)) {
-            deps.showInAppNotification?.({
-              title: "Verification code required",
-              body: "Weka verification code ya tarakimu 6.",
-              variant: "warning"
+              title: "No changes",
+              body: "Namba mpya ni sawa na ile ya sasa.",
+              variant: "info"
             });
             return;
           }
 
-          verifyButton.disabled = true;
+          saveButton.disabled = true;
           try {
-            const updatedUser = await deps.dataLayer.verifyWhatsappChange({ code });
-            const resolvedWhatsappNumber = deps.normalizePhoneNumber?.(
-              updatedUser?.whatsappNumber
-                || updatedUser?.phoneNumber
-                || deps.getMarketplaceUser?.(deps.getCurrentUser())?.whatsappNumber
-                || input?.value
-                || ""
-            ) || "";
+            const updatedUser = await deps.dataLayer.updateUserProfile({
+              phoneNumber: nextWhatsappNumber,
+              whatsappNumber: nextWhatsappNumber
+            });
             deps.mergeSessionState({
               ...updatedUser,
-              whatsappNumber: resolvedWhatsappNumber,
+              phoneNumber: nextWhatsappNumber,
+              whatsappNumber: nextWhatsappNumber,
+              whatsappVerificationStatus: "verified",
               pendingWhatsappNumber: "",
-              pendingWhatsappExpiresAt: "",
-              whatsappVerificationStatus: "verified"
+              pendingWhatsappExpiresAt: ""
             });
             deps.saveSessionUser();
             deps.renderHeaderUserMenu();
+            deps.refreshProductsFromStore?.();
+            deps.renderCurrentView?.();
             deps.showInAppNotification?.({
-              title: "WhatsApp verified",
-              body: "WhatsApp number yako mpya imehakikiwa na sasa inatumika kwenye bidhaa zako.",
+              title: "Number updated",
+              body: "Namba yako ya WhatsApp imehifadhiwa na imesasishwa papo hapo.",
               variant: "success"
             });
             renderProfile();
           } catch (error) {
-            deps.captureError?.("profile_whatsapp_verify_failed", error, {
+            deps.captureError?.("profile_whatsapp_update_failed", error, {
               user: deps.getCurrentUser()
             });
             deps.showInAppNotification?.({
-              title: "Verification failed",
-              body: error.message || "Imeshindikana kuthibitisha WhatsApp number.",
+              title: "Update failed",
+              body: error.message || "Imeshindikana kuhifadhi namba ya WhatsApp.",
               variant: "error"
             });
           } finally {
-            verifyButton.disabled = false;
+            saveButton.disabled = false;
           }
         });
       }
@@ -8503,8 +8441,8 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
             userInitials: deps.getUserInitials(deps.getCurrentDisplayName()),
             roleLabel: userProfile?.role ? deps.getRoleLabel(userProfile.role) : "User",
             whatsappNumber: userProfile?.whatsappNumber || userProfile?.phoneNumber || "",
-            whatsappVerificationStatus: userProfile?.whatsappVerificationStatus || "verified",
-            pendingWhatsappNumber: userProfile?.pendingWhatsappNumber || ""
+            phoneNumber: userProfile?.phoneNumber || userProfile?.whatsappNumber || "",
+            whatsappVerificationStatus: userProfile?.whatsappVerificationStatus || "verified"
           }),
           sellerUpgradeMarkup: deps.createSellerUpgradeSectionElement?.({
             canUpgradeToSeller,

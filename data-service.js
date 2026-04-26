@@ -700,14 +700,35 @@
           throw new Error("Ingia kwanza kabla ya kubadilisha profile.");
         }
         const users = await this.loadUsers();
+        const phoneUpdateRequested = payload && (Object.prototype.hasOwnProperty.call(payload, "phoneNumber") || Object.prototype.hasOwnProperty.call(payload, "whatsappNumber"));
+        const nextPhoneNumber = phoneUpdateRequested
+          ? normalizePhoneNumber(payload?.phoneNumber || payload?.whatsappNumber || "")
+          : "";
+        if (phoneUpdateRequested && (!/^\d{10,15}$/.test(nextPhoneNumber))) {
+          throw new Error("Weka namba ya simu sahihi yenye tarakimu 10 hadi 15.");
+        }
+        const nextWhatsappNumber = phoneUpdateRequested ? nextPhoneNumber : "";
         let updatedUser = null;
         const nextUsers = users.map((item) => {
           if (item.username !== session.username) {
             return item;
           }
+          const existingPhone = normalizePhoneNumber(item.phoneNumber || item.whatsappNumber || "");
+          const resolvedPhoneNumber = phoneUpdateRequested ? nextPhoneNumber : existingPhone;
+          const duplicatePhone = phoneUpdateRequested && users.find((other) =>
+            other.username !== item.username
+            && normalizePhoneNumber(other.phoneNumber || other.whatsappNumber || "") === resolvedPhoneNumber
+          );
+          if (duplicatePhone) {
+            throw new Error("Namba hiyo ya simu tayari imesajiliwa.");
+          }
           updatedUser = {
             ...item,
-            profileImage: payload?.profileImage || "",
+            profileImage: payload?.profileImage || item.profileImage || "",
+            phoneNumber: phoneUpdateRequested ? resolvedPhoneNumber : item.phoneNumber || "",
+            whatsappNumber: phoneUpdateRequested ? resolvedPhoneNumber : (item.whatsappNumber || item.phoneNumber || ""),
+            whatsappVerificationStatus: phoneUpdateRequested ? "verified" : (item.whatsappVerificationStatus || "verified"),
+            whatsappVerifiedAt: phoneUpdateRequested ? new Date().toISOString() : (item.whatsappVerifiedAt || ""),
             updatedAt: new Date().toISOString()
           };
           return updatedUser;
@@ -715,7 +736,17 @@
         if (!updatedUser) {
           throw new Error("Akaunti yako haikupatikana tena. Ingia upya kabla ya kujaribu tena.");
         }
+        const nextProducts = phoneUpdateRequested
+          ? (await this.loadProducts()).map((product) =>
+              product.uploadedBy === session.username
+                ? { ...product, whatsapp: nextWhatsappNumber || "", updatedAt: new Date().toISOString() }
+                : product
+            )
+          : null;
         await this.saveUsers(nextUsers);
+        if (nextProducts) {
+          await this.saveProducts(nextProducts);
+        }
         return {
           username: updatedUser.username,
           fullName: updatedUser.fullName || updatedUser.username,
@@ -2340,14 +2371,35 @@
           throw new Error("Ingia kwanza kabla ya kubadilisha profile.");
         }
         const users = await this.loadUsers();
+        const phoneUpdateRequested = payload && (Object.prototype.hasOwnProperty.call(payload, "phoneNumber") || Object.prototype.hasOwnProperty.call(payload, "whatsappNumber"));
+        const nextPhoneNumber = phoneUpdateRequested
+          ? normalizePhoneNumber(payload?.phoneNumber || payload?.whatsappNumber || "")
+          : "";
+        if (phoneUpdateRequested && (!/^\d{10,15}$/.test(nextPhoneNumber))) {
+          throw new Error("Weka namba ya simu sahihi yenye tarakimu 10 hadi 15.");
+        }
+        const nextWhatsappNumber = phoneUpdateRequested ? nextPhoneNumber : "";
         let updatedUser = null;
         const nextUsers = users.map((item) => {
           if (item.username !== session.username) {
             return item;
           }
+          const existingPhone = normalizePhoneNumber(item.phoneNumber || item.whatsappNumber || "");
+          const resolvedPhoneNumber = phoneUpdateRequested ? nextPhoneNumber : existingPhone;
+          const duplicatePhone = phoneUpdateRequested && users.find((other) =>
+            other.username !== item.username
+            && normalizePhoneNumber(other.phoneNumber || other.whatsappNumber || "") === resolvedPhoneNumber
+          );
+          if (duplicatePhone) {
+            throw new Error("Namba hiyo ya simu tayari imesajiliwa.");
+          }
           updatedUser = {
             ...item,
-            profileImage: payload?.profileImage || "",
+            profileImage: payload?.profileImage || item.profileImage || "",
+            phoneNumber: phoneUpdateRequested ? resolvedPhoneNumber : item.phoneNumber || "",
+            whatsappNumber: phoneUpdateRequested ? resolvedPhoneNumber : (item.whatsappNumber || item.phoneNumber || ""),
+            whatsappVerificationStatus: phoneUpdateRequested ? "verified" : (item.whatsappVerificationStatus || "verified"),
+            whatsappVerifiedAt: phoneUpdateRequested ? new Date().toISOString() : (item.whatsappVerifiedAt || ""),
             updatedAt: new Date().toISOString()
           };
           return updatedUser;
@@ -2355,7 +2407,17 @@
         if (!updatedUser) {
           throw new Error("Akaunti yako haikupatikana tena. Ingia upya kabla ya kujaribu tena.");
         }
+        const nextProducts = phoneUpdateRequested
+          ? (await this.loadProducts()).map((product) =>
+              product.uploadedBy === session.username
+                ? { ...product, whatsapp: nextWhatsappNumber || "", updatedAt: new Date().toISOString() }
+                : product
+            )
+          : null;
         await this.saveUsers(nextUsers);
+        if (nextProducts) {
+          await this.saveProducts(nextProducts);
+        }
         return {
           username: updatedUser.username,
           fullName: updatedUser.fullName || updatedUser.username,

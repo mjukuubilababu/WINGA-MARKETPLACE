@@ -166,24 +166,17 @@
       }));
       whatsappMeta.append(" ");
       whatsappMeta.appendChild(deps.createElement("span", {
-        className: `status-pill ${(context.whatsappVerificationStatus || "verified") === "verified" ? "approved" : "pending"}`,
-        textContent: (context.whatsappVerificationStatus || "verified") === "verified" ? "Verified" : "Pending"
+        className: "status-pill approved",
+        textContent: "Active"
       }));
       whatsappWrap.appendChild(whatsappMeta);
-      if (context.pendingWhatsappNumber) {
-        whatsappWrap.appendChild(deps.createElement("p", {
-          className: "auth-note",
-          textContent: `Pending change kwenda ${context.pendingWhatsappNumber}. Weka verification code kuthibitisha.`
-        }));
-      } else {
-        whatsappWrap.appendChild(deps.createElement("p", {
-          className: "auth-note",
-          textContent: "Namba hii ndiyo hutumika mteja akibonyeza WhatsApp kwenye bidhaa zako."
-        }));
-      }
+      whatsappWrap.appendChild(deps.createElement("p", {
+        className: "auth-note",
+        textContent: "Hii ndiyo namba itakayotumika kwenye WhatsApp na contact zote za bidhaa zako."
+      }));
       whatsappWrap.appendChild(deps.createElement("button", {
         className: "action-btn action-btn-secondary",
-        textContent: "Change WhatsApp Number",
+        textContent: "Edit WhatsApp Number",
         attributes: {
           type: "button",
           id: "profile-whatsapp-change-toggle"
@@ -193,7 +186,7 @@
         className: "profile-whatsapp-form",
         attributes: {
           id: "profile-whatsapp-change-form",
-          style: context.pendingWhatsappNumber ? "" : "display:none;"
+          style: "display:none;"
         }
       });
       whatsappForm.append(
@@ -202,24 +195,7 @@
             id: "profile-whatsapp-input",
             type: "tel",
             placeholder: "Namba mpya ya WhatsApp",
-            value: context.pendingWhatsappNumber || context.whatsappNumber || ""
-          }
-        }),
-        deps.createElement("button", {
-          className: "action-btn action-btn-secondary",
-          textContent: context.pendingWhatsappNumber ? "Resend Code" : "Send Code",
-          attributes: {
-            type: "button",
-            id: "profile-whatsapp-request-button"
-          }
-        }),
-        deps.createElement("input", {
-          attributes: {
-            id: "profile-whatsapp-code",
-            type: "text",
-            inputmode: "numeric",
-            maxlength: "6",
-            placeholder: "Verification code"
+            value: context.whatsappNumber || context.phoneNumber || ""
           }
         }),
         deps.createElement("div", {
@@ -229,10 +205,10 @@
       whatsappForm.querySelector(".profile-whatsapp-form-actions")?.append(
         deps.createElement("button", {
           className: "action-btn buy-btn",
-          textContent: "Verify WhatsApp",
+          textContent: "Save Number",
           attributes: {
             type: "button",
-            id: "profile-whatsapp-verify-button"
+            id: "profile-whatsapp-save-button"
           }
         }),
         deps.createElement("button", {
