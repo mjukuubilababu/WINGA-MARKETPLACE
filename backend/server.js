@@ -1323,6 +1323,7 @@ function normalizeProductRecord(product) {
   const derivedResoldStatus = product.resoldStatus === "reposted" || originalProductId || originalSellerId || resellerId
     ? "reposted"
     : "original";
+  const fitMode = String(product.fitMode || "").trim().toLowerCase() === "contain" ? "contain" : "cover";
   return {
     ...product,
     name: sanitizePlainText(product.name, 120),
@@ -1341,6 +1342,7 @@ function normalizeProductRecord(product) {
     resellerId,
     resalePrice: derivedResoldStatus === "reposted" ? (normalizedResalePrice ?? normalizeOptionalPrice(product.price)) : null,
     resoldStatus: derivedResoldStatus,
+    fitMode,
     createdAt: product.createdAt || now,
     updatedAt: product.updatedAt || now
   };

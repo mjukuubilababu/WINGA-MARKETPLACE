@@ -689,26 +689,30 @@
       const { isPriority = false } = options || {};
       const images = getProductImages(product);
       const firstImage = imageSrc || images[0] || deps.getImageFallbackDataUri?.("WINGA") || "";
+      const fitMode = String(product.fitMode || "").trim().toLowerCase() === "contain" ? "contain" : "cover";
       const article = deps.createElement("article", {
-        className: "product-card profile-product-card",
+        className: `product-card profile-product-card fit-mode-${fitMode}`,
         attributes: {
-          "data-profile-product-card": product.id
+          "data-profile-product-card": product.id,
+          "data-fit-mode": fitMode
         }
       });
       article.dataset.profileProductCard = product.id;
+      article.dataset.fitMode = fitMode;
       if (imageSrc) {
         article.dataset.profileProductImage = imageSrc;
       }
 
-      const media = deps.createElement("div", { className: "product-card-media profile-product-media" });
+      const media = deps.createElement("div", { className: `product-card-media profile-product-media fit-mode-${fitMode}`, attributes: { "data-fit-mode": fitMode } });
       const image = deps.createResponsiveImage
         ? (deps.createProgressiveImage
           ? deps.createProgressiveImage({
               src: firstImage,
               alt: product?.name || "Product image",
-              className: "profile-product-stage",
+              className: `profile-product-stage fit-mode-${fitMode}`,
               fallbackSrc: deps.getImageFallbackDataUri?.("WINGA") || "",
               placeholderSrc: deps.getImageFallbackDataUri?.("W") || "",
+              fitMode,
               attributes: {
                 "data-disable-image-zoom": "true",
                 loading: isPriority ? "eager" : "lazy",

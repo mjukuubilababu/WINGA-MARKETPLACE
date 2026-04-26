@@ -275,6 +275,7 @@
       const safeProductName = deps.escapeHtml(product.name || "");
       const safeCategoryLabel = deps.escapeHtml(deps.getCategoryLabel(product.category));
       const safeSellerName = deps.escapeHtml(seller?.fullName || product.shop || product.uploadedBy || "");
+      const fitMode = String(product.fitMode || "").trim().toLowerCase() === "contain" ? "contain" : "cover";
 
       const detailImages = deps.getRenderableMarketplaceImages
         ? deps.getRenderableMarketplaceImages(product, {
@@ -297,20 +298,25 @@
       const layout = deps.createElement("div", { className: "product-detail-layout" });
       const useFeedCarousel = detailImages.length > 1 && typeof deps.renderFeedGalleryMarkup === "function";
       const media = deps.createElement("div", {
-        className: `product-detail-media${detailImages.length > 1 && !useFeedCarousel ? " has-media-stack" : ""}`
+        className: `product-detail-media fit-mode-${fitMode}${detailImages.length > 1 && !useFeedCarousel ? " has-media-stack" : ""}`,
+        attributes: {
+          "data-fit-mode": fitMode
+        }
       });
       if (useFeedCarousel) {
         media.appendChild(deps.createFragmentFromMarkup(deps.renderFeedGalleryMarkup(product, "feed", {
           priorityCount: Math.min(4, detailImages.length),
-          preload: true
+          preload: true,
+          fitMode
         })));
       } else {
         const mainImageElement = (deps.createProgressiveImage || deps.createResponsiveImage)({
           src: safeMainImage,
           alt: safeProductName,
-          className: "product-detail-image zoomable-image",
+          className: `product-detail-image zoomable-image fit-mode-${fitMode}`,
           fallbackSrc: deps.getImageFallbackDataUri("WINGA"),
           placeholderSrc: deps.getImageFallbackDataUri("W"),
+          fitMode,
           attributes: {
             loading: "eager",
             fetchpriority: "high",
@@ -332,6 +338,7 @@
               className: `product-detail-thumb${image === safeMainImage ? " active" : ""}`,
               fallbackSrc: deps.getImageFallbackDataUri("W"),
               placeholderSrc: deps.getImageFallbackDataUri("W"),
+              fitMode: "cover",
               attributes: {
                 loading: index < 4 ? "eager" : "lazy",
                 fetchpriority: index < 4 ? "high" : "auto",

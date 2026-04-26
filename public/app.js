@@ -5438,6 +5438,9 @@ function normalizeProduct(product) {
   const normalizedImages = Array.isArray(product.images) && product.images.length > 0
     ? product.images
     : (product.image ? [product.image] : []);
+  const normalizedFitMode = String(product.fitMode || "").trim().toLowerCase() === "contain"
+    ? "contain"
+    : "cover";
 
   return {
     ...product,
@@ -5450,6 +5453,7 @@ function normalizeProduct(product) {
     createdAt: product.createdAt || "",
     updatedAt: product.updatedAt || "",
     imageSignature: typeof product.imageSignature === "string" ? product.imageSignature : "",
+    fitMode: normalizedFitMode,
     likes: Number(product.likes || 0),
     views: Number(product.views || 0),
     viewedBy: Array.isArray(product.viewedBy) ? product.viewedBy : [],
@@ -5562,6 +5566,14 @@ function hasRenderableMarketplaceImage(product, options = {}) {
 
 function getMarketplacePrimaryImage(product, options = {}) {
   return getRenderableMarketplaceImages(product, options)[0] || "";
+}
+
+function normalizeProductFitMode(value) {
+  return String(value || "").trim().toLowerCase() === "contain" ? "contain" : "cover";
+}
+
+function getProductFitMode(product) {
+  return normalizeProductFitMode(product?.fitMode);
 }
 
 function shouldRenderMarketplaceProduct(product, options = {}) {
@@ -5744,6 +5756,7 @@ const productShopInput = document.getElementById("product-shop");
 const productWhatsappInput = document.getElementById("product-whatsapp");
 const productCategoryTopInput = document.getElementById("product-category-top");
 const productCategoryInput = document.getElementById("product-category");
+const productFitModeInputs = document.querySelectorAll('input[name="product-fit-mode"]');
 const uploadCustomCategoryWrap = document.getElementById("upload-custom-category-wrap");
 const uploadCustomCategoryInput = document.getElementById("upload-custom-category-input");
 const uploadCustomCategoryAddButton = document.getElementById("upload-custom-category-add");
@@ -5797,6 +5810,19 @@ function normalizeRuntimeAppSettings(settings = {}) {
     updatedAt: String(settings.updatedAt || "").trim(),
     updatedBy: String(settings.updatedBy || "").trim()
   };
+}
+
+function getSelectedProductFitMode() {
+  const selectedInput = Array.from(productFitModeInputs || []).find((input) => input.checked);
+  return normalizeProductFitMode(selectedInput?.value);
+}
+
+function setSelectedProductFitMode(fitMode = "cover") {
+  const normalizedFitMode = normalizeProductFitMode(fitMode);
+  Array.from(productFitModeInputs || []).forEach((input) => {
+    input.checked = input.value === normalizedFitMode;
+    input.setAttribute("aria-pressed", String(input.checked));
+  });
 }
 
 function applyAppSettings(settings = {}) {
@@ -7132,6 +7158,7 @@ uploadButton.addEventListener("click", async () => {
       price,
       shop,
       whatsapp,
+      fitMode: getSelectedProductFitMode(),
       image: safeImages[0] || "",
       images: safeImages,
       imageSignature,
@@ -9431,6 +9458,7 @@ function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
   const total = images.length;
   const currentLabel = total > 1 ? `1/${total}` : "";
   const priorityLimit = Math.max(1, Number(options?.priorityCount || 1));
+  const fitMode = getProductFitMode(product);
   if (options?.preload && typeof preloadImageSource === "function") {
     images.slice(0, Math.min(images.length, priorityLimit)).forEach((src, index) => {
       preloadImageSource(src, { fetchPriority: index === 0 ? "high" : "auto" });
@@ -9439,14 +9467,16 @@ function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
   if (surface && surface !== "feed") {
     const previewSrc = sanitizeImageSource(String(images[0] || "").trim(), getImageFallbackDataUri("WINGA"));
     return `
-      <div class="product-gallery media-gallery feed-gallery-preview showcase-media-preview feed-gallery-preview-single"
-        data-feed-gallery-surface="${escapeHtml(surface || "discovery")}">
+      <div class="product-gallery media-gallery feed-gallery-preview showcase-media-preview feed-gallery-preview-single fit-mode-${escapeHtml(fitMode)}"
+        data-feed-gallery-surface="${escapeHtml(surface || "discovery")}"
+        data-fit-mode="${escapeHtml(fitMode)}">
         ${createProgressiveImage({
           src: previewSrc,
           alt: `${product?.name || product?.shop || "Product image"} 1`,
           className: "feed-gallery-image feed-gallery-image-social showcase-preview-image",
           fallbackSrc: getImageFallbackDataUri("WINGA"),
           placeholderSrc: getImageFallbackDataUri("W"),
+          fitMode,
           attributes: {
             loading: "eager",
             fetchpriority: "high",
@@ -9472,6 +9502,7 @@ function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
           className: "feed-gallery-image feed-gallery-image-social",
           fallbackSrc: getImageFallbackDataUri("WINGA"),
           placeholderSrc: getImageFallbackDataUri("W"),
+          fitMode,
           attributes: {
             loading: isPrioritySlide ? "eager" : "lazy",
             fetchpriority: isPrioritySlide ? "high" : "auto",
@@ -9486,11 +9517,12 @@ function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
   }).join("");
 
   return `
-    <div class="product-gallery media-gallery feed-gallery-preview feed-gallery-carousel"
+    <div class="product-gallery media-gallery feed-gallery-preview feed-gallery-carousel fit-mode-${escapeHtml(fitMode)}"
       data-feed-gallery-carousel="true"
       data-feed-gallery-total="${total}"
       data-feed-gallery-current="1"
-      data-feed-gallery-surface="${escapeHtml(surface || "feed")}">
+      data-feed-gallery-surface="${escapeHtml(surface || "feed")}"
+      data-fit-mode="${escapeHtml(fitMode)}">
       <div class="feed-gallery-carousel-track" data-feed-gallery-track>
         ${slides}
       </div>
@@ -9554,17 +9586,27 @@ function bindFeedGalleryInteractions(scope = document) {
       if (!preview) {
         return;
       }
-      const firstImage = carousel.querySelector(".feed-gallery-carousel-slide .feed-gallery-image-social");
-      if (!firstImage) {
+      const total = Math.max(1, Number(carousel.dataset.feedGalleryTotal || track.querySelectorAll("[data-feed-gallery-slide]").length || 1));
+      const width = Math.max(1, track.clientWidth || carousel.clientWidth || 1);
+      const currentIndex = Math.min(total - 1, Math.max(0, Math.round(track.scrollLeft / width)));
+      const currentImage = carousel.querySelector(`[data-feed-gallery-slide="${currentIndex}"] .feed-gallery-image-social`)
+        || carousel.querySelector(".feed-gallery-carousel-slide .feed-gallery-image-social");
+      if (!currentImage) {
         return;
       }
-      const naturalWidth = Number(firstImage.naturalWidth || firstImage.width || 0);
-      const naturalHeight = Number(firstImage.naturalHeight || firstImage.height || 0);
+      const naturalWidth = Number(currentImage.naturalWidth || currentImage.width || 0);
+      const naturalHeight = Number(currentImage.naturalHeight || currentImage.height || 0);
       if (!naturalWidth || !naturalHeight) {
         return;
       }
-      const ratio = Math.max(0.5, Math.min(2, naturalWidth / naturalHeight));
-      preview.style.setProperty("--feed-gallery-aspect-ratio", ratio.toFixed(4));
+      const fitMode = normalizeProductFitMode(carousel.dataset.fitMode || preview.dataset.fitMode || "cover");
+      const ratioValue = fitMode === "contain"
+        ? `${naturalWidth} / ${naturalHeight}`
+        : "1 / 1";
+      preview.style.setProperty("--fit-media-aspect-ratio", ratioValue);
+      preview.style.setProperty("--feed-gallery-fit-mode", fitMode);
+      carousel.style.setProperty("--fit-media-aspect-ratio", ratioValue);
+      carousel.style.setProperty("--feed-gallery-fit-mode", fitMode);
     };
 
     const syncBadge = () => {
@@ -9627,6 +9669,7 @@ function bindFeedGalleryInteractions(scope = document) {
       rafId = window.requestAnimationFrame(() => {
         rafId = 0;
         syncBadge();
+        syncAspectRatio();
       });
     };
 
@@ -10233,6 +10276,7 @@ function startEditProduct(productId) {
   uploadCustomCategoryInput.value = "";
   renderPreviewImages(product.images || [product.image]);
   productImageFileInput.value = "";
+  setSelectedProductFitMode(product.fitMode || "cover");
 
   setCurrentViewState("upload", {
     syncHistory: "push"
@@ -10292,6 +10336,7 @@ function clearUploadForm() {
   productImageFileInput.value = "";
   previewList.replaceChildren();
   previewList.style.display = "none";
+  setSelectedProductFitMode("cover");
 }
 
 function getFilteredProducts() {
@@ -10395,10 +10440,11 @@ function getSlideshowItems() {
 function renderProductGallery(product) {
   const safeImages = getRenderableMarketplaceImages(product);
   const firstImage = sanitizeImageSource(safeImages[0] || "", getImageFallbackDataUri("WINGA"));
+  const fitMode = getProductFitMode(product);
 
   return `
-    <div class="product-gallery media-gallery${safeImages.length > 1 ? " has-media-stack" : ""}">
-      <img class="gallery-stage zoomable-image" src="${firstImage}" alt="${product.name}" data-gallery-stage="${product.id}" data-zoom-src="${firstImage}" data-zoom-alt="${product.name}" data-image-action-product="${product.id}" data-image-action-src="${firstImage}" data-image-action-surface="feed" loading="lazy" data-fallback-src="${getImageFallbackDataUri("WINGA")}">
+    <div class="product-gallery media-gallery fit-mode-${escapeHtml(fitMode)}${safeImages.length > 1 ? " has-media-stack" : ""}" data-fit-mode="${escapeHtml(fitMode)}">
+      <img class="gallery-stage zoomable-image fit-mode-${escapeHtml(fitMode)}" src="${firstImage}" alt="${product.name}" data-gallery-stage="${product.id}" data-zoom-src="${firstImage}" data-zoom-alt="${product.name}" data-image-action-product="${product.id}" data-image-action-src="${firstImage}" data-image-action-surface="feed" loading="lazy" data-fallback-src="${getImageFallbackDataUri("WINGA")}" data-fit-mode="${escapeHtml(fitMode)}">
       ${safeImages.length > 1 ? `
         <div class="gallery-thumbs">
           ${safeImages.map((image, index) => `
@@ -10583,6 +10629,7 @@ async function repostProductAsSeller(sourceProduct) {
     price: normalizedPrice,
     shop: getPreferredSellerShopName(),
     whatsapp: getCurrentWhatsappNumber(),
+    fitMode: getProductFitMode(sourceProduct),
     image: sourceImages[0] || "",
     images: sourceImages,
     imageSignature,

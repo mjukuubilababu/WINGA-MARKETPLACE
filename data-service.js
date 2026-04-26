@@ -1647,10 +1647,12 @@
       if (!product || typeof product !== "object") {
         return product;
       }
+      const fitMode = String(product.fitMode || "").trim().toLowerCase() === "contain" ? "contain" : "cover";
       return {
         ...product,
         image: normalizeImageForPersistence(product.image),
-        images: Array.isArray(product.images) ? product.images.map(normalizeImageForPersistence) : []
+        images: Array.isArray(product.images) ? product.images.map(normalizeImageForPersistence) : [],
+        fitMode
       };
     }
 

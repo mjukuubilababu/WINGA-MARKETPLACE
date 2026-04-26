@@ -87,17 +87,19 @@
         return createElementFromMarkup(deps.renderFeedGalleryMarkup(product, "feed"));
       }
 
+      const fitMode = String(product.fitMode || "").trim().toLowerCase() === "contain" ? "contain" : "cover";
       const safeImages = deps.getRenderableMarketplaceImages
         ? deps.getRenderableMarketplaceImages(product)
         : (Array.isArray(product.images) && product.images.length > 0 ? product.images : [product.image]).filter(Boolean);
       const images = safeImages.length > 0 ? safeImages : [deps.getImageFallbackDataUri("WINGA")];
       const wrapper = createElement("div", {
-        className: "product-gallery media-gallery feed-gallery-preview feed-gallery-carousel",
+        className: `product-gallery media-gallery feed-gallery-preview feed-gallery-carousel fit-mode-${fitMode}`,
         attributes: {
           "data-feed-gallery-carousel": "true",
           "data-feed-gallery-total": String(images.length),
           "data-feed-gallery-current": "1",
-          "data-feed-gallery-surface": "feed"
+          "data-feed-gallery-surface": "feed",
+          "data-fit-mode": fitMode
         }
       });
       const track = createElement("div", { className: "feed-gallery-carousel-track", attributes: { "data-feed-gallery-track": "true" } });
@@ -113,6 +115,7 @@
           className: "feed-gallery-image feed-gallery-image-social",
           fallbackSrc: deps.getImageFallbackDataUri("WINGA"),
           placeholderSrc: deps.getImageFallbackDataUri("W"),
+          fitMode,
           attributes: {
             loading: isFirstSlide ? "eager" : "lazy",
             fetchpriority: isFirstSlide ? "high" : "auto",
@@ -189,7 +192,8 @@
     }
 
     function createShowcasePreviewMediaElement(product) {
-      const media = createElement("div", { className: "product-card-media showcase-media" });
+      const fitMode = String(product.fitMode || "").trim().toLowerCase() === "contain" ? "contain" : "cover";
+      const media = createElement("div", { className: `product-card-media showcase-media fit-mode-${fitMode}`, attributes: { "data-fit-mode": fitMode } });
       if (deps.renderFeedGalleryMarkup) {
         media.appendChild(createElementFromMarkup(deps.renderFeedGalleryMarkup(product, "discovery")));
         return media;
@@ -206,6 +210,7 @@
         fallbackSrc: deps.getImageFallbackDataUri("WINGA"),
         placeholderSrc: deps.getImageFallbackDataUri("W"),
         className: "showcase-preview-image",
+        fitMode,
         attributes: {
           "data-marketplace-scroll-image": "true"
         }
