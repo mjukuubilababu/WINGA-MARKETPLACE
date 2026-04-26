@@ -183,8 +183,7 @@
     attributes = {}
   } = {}) {
     const resolvedSrc = sanitizeImageSource(src, fallbackSrc);
-    const resolvedPlaceholderSrc = sanitizeImageSource(placeholderSrc || fallbackSrc, fallbackSrc || resolvedSrc);
-    const effectiveFallbackSrc = fallbackSrc || resolvedPlaceholderSrc || resolvedSrc;
+    const effectiveFallbackSrc = fallbackSrc || resolvedSrc;
     const normalizedFitMode = String(fitMode || "").trim().toLowerCase() === "contain" ? "contain" : "cover";
     const shouldLoadEagerly = shouldPrioritizeImageLoad(className, attributes);
     const shell = createElement("span", {
@@ -193,17 +192,6 @@
         "data-progressive-image": "true",
         "data-fit-mode": normalizedFitMode,
         ...(className ? { "data-progressive-image-class": className } : {})
-      }
-    });
-    const placeholder = createElement("img", {
-      className: `progressive-image-placeholder${className ? ` ${className}-placeholder` : ""}`,
-      attributes: {
-        src: resolvedPlaceholderSrc || fallbackSrc || resolvedSrc || "",
-        alt: "",
-        loading: shouldLoadEagerly ? "eager" : "lazy",
-        decoding: "async",
-        draggable: "false",
-        "aria-hidden": "true"
       }
     });
     const fullImage = createResponsiveImage({
@@ -234,19 +222,9 @@
         fitHost.style.setProperty("--fit-media-aspect-ratio", aspectRatio);
       }
       shell.classList.add("is-loaded");
-      if (placeholder.isConnected) {
-        window.requestAnimationFrame(() => {
-          if (placeholder.isConnected) {
-            placeholder.remove();
-          }
-        });
-      }
     });
     fullImage.addEventListener("error", function handleProgressiveImageError() {
       shell.classList.add("is-loaded", "is-error");
-      if (placeholder.isConnected) {
-        placeholder.remove();
-      }
     });
     if (fullImage.complete && Number(fullImage.naturalWidth || 0) > 0) {
       const naturalWidth = Number(fullImage.naturalWidth || 0);
@@ -262,16 +240,9 @@
         fitHost.style.setProperty("--fit-media-aspect-ratio", aspectRatio);
       }
       shell.classList.add("is-loaded");
-      if (placeholder.isConnected) {
-        window.requestAnimationFrame(() => {
-          if (placeholder.isConnected) {
-            placeholder.remove();
-          }
-        });
-      }
     }
 
-    shell.append(placeholder, fullImage);
+    shell.append(fullImage);
     return shell;
   }
 

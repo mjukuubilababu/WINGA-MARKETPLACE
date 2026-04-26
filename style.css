@@ -2573,17 +2573,18 @@ img[data-zoom-src]{
 .progressive-image-placeholder{
   object-fit:cover;
   object-position:center;
-  filter:blur(10px);
-  transform:scale(1.015);
-  opacity:.2;
+  filter:none;
+  transform:none;
+  opacity:0;
   pointer-events:none;
   transition:opacity .25s ease;
   z-index:1;
+  display:none !important;
 }
 
 .progressive-image-full{
-  opacity:0;
-  transition:opacity .32s ease-in;
+  opacity:1;
+  transition:opacity .18s ease-in;
   background:#eef2f6;
   z-index:2;
 }
