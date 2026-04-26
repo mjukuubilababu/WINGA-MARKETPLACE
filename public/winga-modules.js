@@ -705,7 +705,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
     if (!value) {
       return fallbackSrc || "";
     }
-    if (/^data:image\/[a-z0-9.+-]+;base64,/i.test(value)) {
+    if (/^data:image\/[a-z0-9.+-]+(?:;[^,]*)?,/i.test(value)) {
       return value;
     }
     try {
@@ -814,6 +814,11 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
     return button;
   }
 
+  function shouldPrioritizeImageLoad(className = "", attributes = {}) {
+    const hintSource = `${String(className || "")} ${String(attributes?.["data-image-priority"] || "")}`.toLowerCase();
+    return /(?:\bhero\b|\bshowcase\b|\bproduct-detail\b|\bprofile\b|\badmin\b|\bavatar\b)/.test(hintSource);
+  }
+
   function createResponsiveImage({
     src = "",
     alt = "",
@@ -823,13 +828,15 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
   } = {}) {
     const resolvedSrc = sanitizeImageSource(src, fallbackSrc);
     const shouldDisableZoom = Boolean(attributes["data-disable-image-zoom"]);
+    const shouldLoadEagerly = shouldPrioritizeImageLoad(className, attributes);
     const image = createElement("img", {
       className: `${className}${shouldDisableZoom ? "" : `${className ? " " : ""}zoomable-image`}`,
       attributes: {
         src: resolvedSrc,
         alt,
-        loading: "lazy",
+        loading: shouldLoadEagerly ? "eager" : "lazy",
         decoding: "async",
+        ...(shouldLoadEagerly ? { fetchpriority: "high" } : {}),
         ...(shouldDisableZoom
           ? { "data-disable-image-zoom": "true" }
           : {
@@ -877,6 +884,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
     const resolvedSrc = sanitizeImageSource(src, fallbackSrc);
     const resolvedPlaceholderSrc = sanitizeImageSource(placeholderSrc || fallbackSrc, fallbackSrc || resolvedSrc);
     const normalizedFitMode = String(fitMode || "").trim().toLowerCase() === "contain" ? "contain" : "cover";
+    const shouldLoadEagerly = shouldPrioritizeImageLoad(className, attributes);
     const shell = createElement("span", {
       className: `progressive-image-shell fit-mode-${normalizedFitMode}`,
       attributes: {
@@ -890,7 +898,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       attributes: {
         src: resolvedPlaceholderSrc || fallbackSrc || resolvedSrc || "",
         alt: "",
-        loading: "eager",
+        loading: shouldLoadEagerly ? "eager" : "lazy",
         decoding: "async",
         draggable: "false",
         "aria-hidden": "true"
@@ -904,7 +912,8 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       attributes: {
         ...attributes,
         "data-fit-mode": normalizedFitMode,
-        "data-progressive-full": "true"
+        "data-progressive-full": "true",
+        ...(shouldLoadEagerly ? { fetchpriority: "high" } : {})
       }
     });
 
@@ -923,6 +932,13 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         fitHost.style.setProperty("--fit-media-aspect-ratio", aspectRatio);
       }
       shell.classList.add("is-loaded");
+      if (placeholder.isConnected) {
+        window.setTimeout(() => {
+          if (placeholder.isConnected) {
+            placeholder.remove();
+          }
+        }, 260);
+      }
     });
     if (fullImage.complete && Number(fullImage.naturalWidth || 0) > 0) {
       const naturalWidth = Number(fullImage.naturalWidth || 0);
@@ -938,6 +954,13 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         fitHost.style.setProperty("--fit-media-aspect-ratio", aspectRatio);
       }
       shell.classList.add("is-loaded");
+      if (placeholder.isConnected) {
+        window.setTimeout(() => {
+          if (placeholder.isConnected) {
+            placeholder.remove();
+          }
+        }, 260);
+      }
     }
 
     shell.append(placeholder, fullImage);

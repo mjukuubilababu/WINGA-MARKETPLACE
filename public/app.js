@@ -1840,7 +1840,7 @@ function buildAppShellHistoryState(overrides = {}) {
 
 function syncAppShellHistoryState(options = {}) {
   const { force = false, mode = "replace", overrides = {}, url } = options;
-  if (!window.history?.replaceState || document.body.classList.contains("product-detail-open")) {
+  if (!window.history?.replaceState || document.body.classList.contains("product-detail-open") || isFileProtocolPreview()) {
     return;
   }
 
@@ -1863,10 +1863,39 @@ function syncAppShellHistoryState(options = {}) {
     ? url
     : `${window.location.pathname}${window.location.search}${window.location.hash}`;
   if (mode === "push" && window.history?.pushState) {
-    window.history.pushState(nextState, "", nextUrl);
+    safePushState(nextState, nextUrl);
     return;
   }
-  window.history.replaceState(nextState, "", nextUrl);
+  safeReplaceState(nextState, nextUrl);
+}
+
+function isFileProtocolPreview() {
+  return String(window.location?.protocol || "").toLowerCase() === "file:"
+    || String(window.location?.origin || "").toLowerCase() === "null";
+}
+
+function safeReplaceState(state, url) {
+  if (!window.history?.replaceState || isFileProtocolPreview()) {
+    return false;
+  }
+  try {
+    window.history.replaceState(state, "", url);
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
+function safePushState(state, url) {
+  if (!window.history?.pushState || isFileProtocolPreview()) {
+    return false;
+  }
+  try {
+    window.history.pushState(state, "", url);
+    return true;
+  } catch (error) {
+    return false;
+  }
 }
 
 function shouldShowBottomNav() {
@@ -1916,7 +1945,7 @@ function resumePendingGuestIntent() {
   if (shouldClearDeepLinkRoute) {
     clearPendingDeepLinkProductRoute();
     if (String(window.location.pathname || "").trim().match(/^\/product\/.+/i)) {
-      window.history.replaceState(window.history.state || null, "", "/");
+      safeReplaceState(window.history.state || null, "/");
     }
   }
 
@@ -3705,6 +3734,7 @@ function showFatalStartupState(error) {
   appContainer.style.display = "block";
   appContainer.replaceChildren();
   syncBodyScrollLockState();
+  hideBootOverlayImmediately();
 
   const panel = createElement("section", { className: "fatal-startup-card panel" });
   const copy = createElement("div", { className: "fatal-startup-copy" });
@@ -3740,6 +3770,34 @@ function showFatalStartupState(error) {
 
   panel.append(copy, meta, actions);
   appContainer.appendChild(panel);
+}
+
+function hideBootOverlayImmediately() {
+  if (!bootOverlay) {
+    return;
+  }
+  bootOverlay.classList.add("is-hidden");
+  bootOverlay.setAttribute("aria-hidden", "true");
+}
+
+function revealBootOverlay() {
+  if (!bootOverlay) {
+    return;
+  }
+  bootOverlay.classList.remove("is-hidden");
+  bootOverlay.setAttribute("aria-hidden", "false");
+}
+
+function completeBootOverlay() {
+  if (!bootOverlay) {
+    return;
+  }
+  hideBootOverlayImmediately();
+  window.setTimeout(() => {
+    if (bootOverlay && bootOverlay.classList.contains("is-hidden")) {
+      bootOverlay.style.display = "none";
+    }
+  }, 340);
 }
 
 function showSessionRestoringState(message = "") {
@@ -5720,6 +5778,7 @@ const adminLoginPasswordInput = document.getElementById("admin-login-password");
 const adminLoginButton = document.getElementById("admin-login-button");
 const adminLoginBackButton = document.getElementById("admin-login-back");
 const appContainer = document.getElementById("app-container");
+const bootOverlay = document.getElementById("boot-overlay");
 const adminNavItem = document.getElementById("admin-nav-item");
 const searchToggleButton = document.getElementById("search-toggle-button");
 const searchImageButton = document.getElementById("search-image-button");
@@ -6426,7 +6485,7 @@ function tryOpenPendingDeepLinkProductRoute() {
 
     clearPendingDeepLinkProductRoute();
     hideDeepLinkLoadingState();
-    window.history.replaceState(window.history.state || null, "", "/");
+    safeReplaceState(window.history.state || null, "/");
     setCurrentViewState("home", { syncHistory: false });
     syncAppShellHistoryState({
       force: true,
@@ -6457,12 +6516,12 @@ function openDeepLinkedProductRouteIfNeeded(options = {}) {
   const pathname = String(window.location.pathname || "").trim();
   const canonicalPath = canonicalizeProductDetailPath(pathname);
   if (canonicalPath !== pathname.replace(/\/+$/, "")) {
-    window.history.replaceState(window.history.state || null, "", canonicalPath);
+    safeReplaceState(window.history.state || null, canonicalPath);
   }
   const productId = getDeepLinkedProductIdFromRoute();
   if (!productId) {
     if (String(window.location.pathname || "").trim().match(/^\/product\/.+/i)) {
-      window.history.replaceState(window.history.state || null, "", "/");
+      safeReplaceState(window.history.state || null, "/");
     }
     setCurrentViewState("home", { syncHistory: false });
     setDeepLinkLoadingShellVisible(true);
@@ -6483,7 +6542,7 @@ function openDeepLinkedProductRouteIfNeeded(options = {}) {
       return true;
     }
     hideDeepLinkLoadingState();
-    window.history.replaceState(window.history.state || null, "", "/");
+    safeReplaceState(window.history.state || null, "/");
     setCurrentViewState("home", { syncHistory: false });
     syncAppShellHistoryState({
       force: true,
@@ -6528,7 +6587,7 @@ function setAdminLoginRouteActive(active, options = {}) {
     const currentState = window.history.state && typeof window.history.state === "object"
       ? window.history.state
       : null;
-    window.history.replaceState(currentState, "", url);
+    safeReplaceState(currentState, url);
     return;
   }
   window.location.hash = nextHash;
@@ -8147,21 +8206,20 @@ function loginSuccess(username, preferredCategory = "", sessionData = null, opti
   if (activeGuestIntent && activeGuestIntentType !== "focus-product") {
     clearPendingDeepLinkProductRoute();
     if (String(window.location.pathname || "").trim().match(/^\/product\/.+/i)) {
-      window.history.replaceState(window.history.state || null, "", "/");
+      safeReplaceState(window.history.state || null, "/");
     }
   }
   setCurrentViewState(nextView, {
     syncHistory: shouldKeepHomeFirst ? false : "replace"
   });
   if (shouldKeepHomeFirst) {
-    window.history.replaceState(
+    safeReplaceState(
       buildAppShellHistoryState({
         view: "home",
         productId: "",
         sourceProductId: "",
         pendingProfileSection: ""
       }),
-      "",
       "/"
     );
     if (deferRender) {
@@ -11153,6 +11211,9 @@ async function bootApp() {
   reportClientEvent("info", "app_boot_started", "Client app boot started.", {
     category: "runtime"
   });
+  document.body.classList.add("app-booting");
+  document.body.classList.remove("app-ready");
+  revealBootOverlay();
   const bootstrapCleanupPromise = initializeBootstrapStorageVersion();
   syncAuthMode();
   authContainer.style.display = "none";
@@ -11250,6 +11311,9 @@ async function bootApp() {
 
   if (isAdminLoginRoute()) {
     showAdminLoginScreen();
+    document.body.classList.remove("app-booting");
+    document.body.classList.add("app-ready");
+    completeBootOverlay();
     return;
   }
 
@@ -11271,6 +11335,9 @@ async function bootApp() {
     openDeepLinkedProductRouteIfNeeded();
   }
   scheduleChromeOffsetSync();
+  document.body.classList.remove("app-booting");
+  document.body.classList.add("app-ready");
+  completeBootOverlay();
 
   if (typeof ResizeObserver !== "undefined") {
     const resizeObserver = new ResizeObserver(() => {
