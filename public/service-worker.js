@@ -1,4 +1,4 @@
-const BUILD_VERSION = "20260426190858";
+const BUILD_VERSION = "20260426194139";
 const CACHE_PREFIX = "winga-shell";
 const CACHE_NAME = `${CACHE_PREFIX}-${BUILD_VERSION}`;
 const IMAGE_CACHE_PREFIX = "winga-images";
@@ -52,10 +52,10 @@ function isImageProxyRequest(request) {
 function isCacheableImageUrl(value) {
   try {
     const url = new URL(String(value || "").trim(), self.location.origin);
-    if (url.origin !== self.location.origin) {
+    if (!["http:", "https:"].includes(url.protocol)) {
       return false;
     }
-    if (url.pathname.startsWith("/api/")) {
+    if (url.origin === self.location.origin && url.pathname.startsWith("/api/")) {
       return false;
     }
     return /\.(?:avif|webp|png|jpe?g|gif|svg|ico)$/i.test(url.pathname) || url.pathname.startsWith(IMAGE_PROXY_PREFIX) || url.pathname.startsWith("/uploads/");
@@ -79,6 +79,21 @@ function isCacheableAsset(request) {
     return false;
   }
   return ["script", "style", "image", "font"].includes(request.destination) || /\.(?:css|js|svg|png|jpe?g|webp|gif|ico|json)$/i.test(url.pathname);
+}
+
+function createImageFallbackResponse() {
+  return new Response(`<svg xmlns="http://www.w3.org/2000/svg" width="640" height="640" viewBox="0 0 640 640" role="img" aria-label="WINGA image unavailable">
+    <rect width="640" height="640" fill="#fff4ec"/>
+    <rect x="120" y="120" width="400" height="400" rx="88" fill="#ff6a00"/>
+    <text x="320" y="300" text-anchor="middle" font-family="Arial, sans-serif" font-size="96" font-weight="800" fill="#fff">W</text>
+    <text x="320" y="382" text-anchor="middle" font-family="Arial, sans-serif" font-size="40" font-weight="700" fill="#fff">WINGA</text>
+  </svg>`, {
+    status: 200,
+    headers: {
+      "Content-Type": "image/svg+xml; charset=utf-8",
+      "Cache-Control": "no-store"
+    }
+  });
 }
 
 async function cacheFirst(request) {
@@ -126,7 +141,12 @@ async function proxyImageRequest(request) {
   }
 
   try {
-    const networkResponse = await fetch(request);
+    const remoteRequest = new Request(remoteUrl, {
+      mode: "no-cors",
+      credentials: "omit",
+      cache: "reload"
+    });
+    const networkResponse = await fetch(remoteRequest);
     if (networkResponse) {
       if (networkResponse.ok || networkResponse.type === "opaque") {
         await cache.put(request, networkResponse.clone());
@@ -138,11 +158,28 @@ async function proxyImageRequest(request) {
   }
 
   const fallbackResponse = await cache.match(request)
-    || await cache.match(OFFLINE_URL);
+    || await cache.match(remoteUrl);
   if (fallbackResponse) {
     return fallbackResponse;
   }
-  return new Response("", { status: 503, statusText: "Image unavailable" });
+  return createImageFallbackResponse();
+}
+
+async function networkFirstImage(request) {
+  const cache = await caches.open(IMAGE_CACHE_NAME);
+  try {
+    const networkResponse = await fetch(request);
+    if (networkResponse && (networkResponse.ok || networkResponse.type === "opaque")) {
+      await cache.put(request, networkResponse.clone());
+    }
+    return networkResponse;
+  } catch (error) {
+    const cachedResponse = await cache.match(request, { ignoreSearch: true });
+    if (cachedResponse) {
+      return cachedResponse;
+    }
+  }
+  return createImageFallbackResponse();
 }
 
 async function cacheImageUrls(urls = []) {
@@ -157,15 +194,17 @@ async function cacheImageUrls(urls = []) {
     if (!isCacheableImageUrl(value)) {
       return;
     }
-    const request = new Request(new URL(value, self.location.origin).toString(), {
-      mode: "same-origin",
-      credentials: "same-origin"
-    });
-    const existing = await cache.match(request);
-    if (existing) {
-      return;
-    }
     try {
+      const url = new URL(value, self.location.origin);
+      const isSameOriginImage = url.origin === self.location.origin;
+      const request = new Request(url.toString(), {
+        mode: isSameOriginImage ? "same-origin" : "no-cors",
+        credentials: isSameOriginImage ? "same-origin" : "omit"
+      });
+      const existing = await cache.match(request);
+      if (existing) {
+        return;
+      }
       const response = await fetch(request);
       if (response && (response.ok || response.type === "opaque")) {
         await cache.put(request, response.clone());
@@ -229,6 +268,11 @@ self.addEventListener("fetch", (event) => {
       }
       return proxyImageRequest(request);
     })());
+    return;
+  }
+
+  if (request.destination === "image") {
+    event.respondWith(networkFirstImage(request));
     return;
   }
 

@@ -369,7 +369,7 @@ test("buyer-only sessions do not show the bottom footer nav and can still reach 
   await expect(page.locator("#profile-identity-card")).toBeVisible();
   await expect(page.locator("#view-home-back")).toBeVisible();
   await page.locator("#view-home-back").click();
-  await expect(page.locator("#hero-panel")).toBeVisible();
+  await expect(page.locator("#hero-panel")).not.toBeVisible();
 
   await context.close();
 });
@@ -459,14 +459,14 @@ test("seller home still shows products from other sellers in the marketplace fee
   await context.close();
 });
 
-test("logged in sellers can scroll below the hero and still see marketplace rows", async ({ browser }) => {
+test("logged in sellers can scroll the home feed and still see marketplace rows", async ({ browser }) => {
   const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234", {
     viewport: { width: 390, height: 844 },
     isMobile: true
   });
   await page.goto("/");
 
-  await expect(page.locator("#hero-panel")).toBeVisible();
+  await expect(page.locator("#hero-panel")).not.toBeVisible();
   await expect(page.locator("#market-showcase .showcase-card").first()).toBeVisible();
   await expect(page.locator("#products-container .product-card").first()).toBeVisible();
 
@@ -661,7 +661,7 @@ test("desktop product-detail home clears search context and returns to a clean h
   await homeFab.click();
   await expect(page.locator("#product-detail-modal")).not.toBeVisible();
   await expect(page.locator("#search-input")).toHaveValue("");
-  await expect(page.locator("#hero-panel")).toBeVisible();
+  await expect(page.locator("#hero-panel")).not.toBeVisible();
 
   await context.close();
 });
@@ -977,7 +977,7 @@ test("marketplace cards keep verified copy out of compact card surfaces", async 
   await context.close();
 });
 
-test("signed-in home keeps lower rows visible below the hero", async ({ browser }) => {
+test("signed-in home keeps lower rows visible without the hero", async ({ browser }) => {
   const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234");
   await page.goto("/");
 

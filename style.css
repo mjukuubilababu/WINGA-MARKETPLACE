@@ -264,24 +264,14 @@ body.app-booting #app-container{
   transition:opacity .28s ease, visibility .28s ease;
 }
 
+.boot-overlay-card{
+  display:none;
+}
+
 .boot-overlay.is-hidden{
   opacity:0;
   visibility:hidden;
   pointer-events:none;
-}
-
-.boot-overlay-card{
-  width:min(420px, calc(100vw - 32px));
-  padding:24px 22px;
-  border-radius:24px;
-  background:rgba(255,255,255,0.92);
-  border:1px solid rgba(255,106,0,0.18);
-  box-shadow:0 18px 48px rgba(35,47,62,0.16);
-  display:flex;
-  flex-direction:column;
-  gap:18px;
-  align-items:center;
-  text-align:center;
 }
 
 .boot-overlay-mark{
@@ -692,8 +682,7 @@ body.auth-modal-open::before{
   margin-bottom:16px;
 }
 
-#top-bar,
-#hero-panel{
+#top-bar{
   display:flex;
   align-items:center;
   justify-content:space-between;
@@ -702,6 +691,7 @@ body.auth-modal-open::before{
 }
 
 #hero-panel{
+  display:none !important;
   background:transparent;
   border:none;
   border-radius:0;

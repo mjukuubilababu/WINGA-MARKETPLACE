@@ -709,34 +709,29 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       return value;
     }
     try {
-      const isFileProtocol = String(window.location?.protocol || "").toLowerCase() === "file:";
       if (/^blob:/i.test(value)) {
         return value;
       }
       const configuredApiBaseUrl = String(window.WINGA_CONFIG?.apiBaseUrl || "").trim().replace(/\/+$/, "");
       const publicBaseUrl = configuredApiBaseUrl.replace(/\/api$/, "");
-      const proxyUrlFor = (candidate) => {
-        const proxyUrl = new URL("/__winga-image__", window.location.origin);
-        proxyUrl.searchParams.set("u", candidate);
-        return proxyUrl.toString();
-      };
       if (/^https?:/i.test(value)) {
         const parsed = new URL(value);
-        if (parsed.origin === window.location.origin) {
-          return parsed.toString();
+        if (parsed.origin === window.location.origin && parsed.pathname === "/__winga-image__") {
+          const unwrapped = parsed.searchParams.get("u") || "";
+          return unwrapped ? sanitizeImageSource(unwrapped, fallbackSrc) : (fallbackSrc || "");
         }
-        return isFileProtocol ? parsed.toString() : proxyUrlFor(parsed.toString());
+        return parsed.toString();
       }
       if (value.startsWith("/uploads/") && publicBaseUrl) {
-        const absoluteUrl = new URL(value, publicBaseUrl).toString();
-        return isFileProtocol ? absoluteUrl : proxyUrlFor(absoluteUrl);
+        return new URL(value, publicBaseUrl).toString();
       }
       if (/^[./]/.test(value) || value.startsWith("/")) {
         const parsed = new URL(value, window.location.origin);
-        if (parsed.origin === window.location.origin || parsed.protocol === "data:" || parsed.protocol === "blob:") {
-          return parsed.toString();
+        if (parsed.pathname === "/__winga-image__") {
+          const unwrapped = parsed.searchParams.get("u") || "";
+          return unwrapped ? sanitizeImageSource(unwrapped, fallbackSrc) : (fallbackSrc || "");
         }
-        return isFileProtocol ? parsed.toString() : proxyUrlFor(parsed.toString());
+        return parsed.toString();
       }
     } catch (error) {
       // Fall through to fallback.

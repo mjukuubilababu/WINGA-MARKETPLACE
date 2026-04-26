@@ -608,26 +608,18 @@
     if (!source) {
       return "";
     }
-    if (source.startsWith("/__winga-image__")) {
-      return source;
-    }
     try {
-      const isFileProtocol = String(window.location?.protocol || "").toLowerCase() === "file:";
       const configuredApiBaseUrl = String(window.WINGA_CONFIG?.apiBaseUrl || "").trim().replace(/\/+$/, "");
       const publicBaseUrl = configuredApiBaseUrl.replace(/\/api$/, "");
-      const absoluteUrl = source.startsWith("/uploads/") && publicBaseUrl
-        ? new URL(source, publicBaseUrl).toString()
-        : new URL(source, window.location.origin).toString();
-      const parsed = new URL(absoluteUrl);
-      if (parsed.origin === window.location.origin || parsed.protocol === "data:" || parsed.protocol === "blob:") {
-        return parsed.toString();
+      const baseUrl = source.startsWith("/uploads/") && publicBaseUrl
+        ? publicBaseUrl
+        : window.location.origin;
+      const parsed = new URL(source, baseUrl);
+      if (parsed.pathname === "/__winga-image__") {
+        const unwrappedSource = parsed.searchParams.get("u") || "";
+        return unwrappedSource ? createMarketplaceImageProxyUrl(unwrappedSource) : "";
       }
-      if (isFileProtocol) {
-        return parsed.toString();
-      }
-      const proxyUrl = new URL("/__winga-image__", window.location.origin);
-      proxyUrl.searchParams.set("u", parsed.toString());
-      return proxyUrl.toString();
+      return parsed.toString();
     } catch (error) {
       return source;
     }
