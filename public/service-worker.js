@@ -1,7 +1,8 @@
-const BUILD_VERSION = "20260426163041";
+const BUILD_VERSION = "20260426165520";
 const CACHE_PREFIX = "winga-shell";
 const CACHE_NAME = `${CACHE_PREFIX}-${BUILD_VERSION}`;
-const IMAGE_CACHE_NAME = "winga-images";
+const IMAGE_CACHE_PREFIX = "winga-images";
+const IMAGE_CACHE_NAME = `${IMAGE_CACHE_PREFIX}-${BUILD_VERSION}`;
 const ROOT_URL = new URL("/", self.location.origin).toString();
 const INDEX_URL = new URL("/index.html", self.location.origin).toString();
 const OFFLINE_URL = new URL("/offline.html", self.location.origin).toString();
@@ -124,27 +125,12 @@ async function proxyImageRequest(request) {
     return new Response("", { status: 404, statusText: "Missing image source" });
   }
 
-  const cachedResponse = await cache.match(request);
-  if (cachedResponse) {
-    return cachedResponse;
-  }
-
   try {
     const networkResponse = await fetch(request);
     if (networkResponse) {
       if (networkResponse.ok || networkResponse.type === "opaque") {
         await cache.put(request, networkResponse.clone());
       }
-      return networkResponse;
-    }
-  } catch (error) {
-    // Fall through to remote fallback below.
-  }
-
-  try {
-    const networkResponse = await fetch(remoteUrl, { mode: "no-cors" });
-    if (networkResponse) {
-      await cache.put(request, networkResponse.clone());
       return networkResponse;
     }
   } catch (error) {
@@ -202,7 +188,10 @@ self.addEventListener("activate", (event) => {
   event.waitUntil((async () => {
     const keys = await caches.keys();
     await Promise.all(keys
-      .filter((key) => key.startsWith(CACHE_PREFIX) && key !== CACHE_NAME)
+      .filter((key) => (
+        (key.startsWith(CACHE_PREFIX) && key !== CACHE_NAME)
+        || (key.startsWith(IMAGE_CACHE_PREFIX) && key !== IMAGE_CACHE_NAME)
+      ))
       .map((key) => caches.delete(key)));
     await self.clients.claim();
   })());
