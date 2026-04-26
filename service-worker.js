@@ -96,6 +96,20 @@ function createImageFallbackResponse() {
   });
 }
 
+function isUsableImageResponse(response) {
+  if (!response) {
+    return false;
+  }
+  if (response.type === "opaque") {
+    return true;
+  }
+  if (!response.ok) {
+    return false;
+  }
+  const contentType = String(response.headers.get("Content-Type") || "").toLowerCase();
+  return contentType.startsWith("image/") || contentType.includes("svg");
+}
+
 async function cacheFirst(request) {
   const cache = await caches.open(CACHE_NAME);
   const cachedResponse = await cache.match(request, { ignoreSearch: true });
@@ -148,10 +162,11 @@ async function proxyImageRequest(request) {
     });
     const networkResponse = await fetch(remoteRequest);
     if (networkResponse) {
-      if (networkResponse.ok || networkResponse.type === "opaque") {
+      if (isUsableImageResponse(networkResponse)) {
         await cache.put(request, networkResponse.clone());
+        await cache.put(remoteUrl, networkResponse.clone());
+        return networkResponse;
       }
-      return networkResponse;
     }
   } catch (error) {
     // Fall through to cached fallback below.
@@ -169,10 +184,10 @@ async function networkFirstImage(request) {
   const cache = await caches.open(IMAGE_CACHE_NAME);
   try {
     const networkResponse = await fetch(request);
-    if (networkResponse && (networkResponse.ok || networkResponse.type === "opaque")) {
+    if (isUsableImageResponse(networkResponse)) {
       await cache.put(request, networkResponse.clone());
+      return networkResponse;
     }
-    return networkResponse;
   } catch (error) {
     const cachedResponse = await cache.match(request, { ignoreSearch: true });
     if (cachedResponse) {
@@ -206,7 +221,7 @@ async function cacheImageUrls(urls = []) {
         return;
       }
       const response = await fetch(request);
-      if (response && (response.ok || response.type === "opaque")) {
+      if (isUsableImageResponse(response)) {
         await cache.put(request, response.clone());
       }
     } catch (error) {

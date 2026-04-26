@@ -5609,16 +5609,13 @@ function clearBrokenMarketplaceImage(productId, imageSource = "") {
 }
 
 function getRenderableMarketplaceImages(product, options = {}) {
-  const { allowOwnerVisibility = false } = options;
   const candidates = getProductImageCandidates(product);
   if (!candidates.length) {
     return [];
   }
-  if (allowOwnerVisibility && product?.uploadedBy === currentUser) {
-    return candidates;
-  }
-  const brokenSources = getBrokenMarketplaceImageSet(product?.id);
-  return candidates.filter((image) => !brokenSources.has(image));
+  // Keep the card/media visible everywhere. Broken image telemetry still drives
+  // fallback handling, but it should not remove products from discovery/detail.
+  return candidates;
 }
 
 function hasRenderableMarketplaceImage(product, options = {}) {
