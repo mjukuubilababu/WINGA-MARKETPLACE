@@ -110,6 +110,35 @@ function refreshProductsFromStore() {
   pruneBrokenMarketplaceImageRegistry();
 }
 
+function refreshProductsAfterAuthChange() {
+  const refreshProducts = window.WingaDataLayer?.refreshProducts;
+  if (typeof refreshProducts !== "function") {
+    refreshProductsFromStore();
+    return;
+  }
+
+  const refreshToken = ++postAuthProductRefreshToken;
+  refreshProductsFromStore();
+  Promise.resolve(refreshProducts.call(window.WingaDataLayer))
+    .then(() => {
+      if (refreshToken !== postAuthProductRefreshToken || !isAuthenticatedUser()) {
+        return;
+      }
+      refreshProductsFromStore();
+      renderCurrentView();
+    })
+    .catch((error) => {
+      captureClientError("post_auth_product_refresh_failed", error, {
+        category: "auth",
+        alertSeverity: "medium"
+      });
+      refreshProductsFromStore();
+      if (currentView === "home") {
+        renderCurrentView();
+      }
+    });
+}
+
 function getProductById(productId) {
   return productIndex.get(String(productId || "")) || null;
 }
@@ -4012,6 +4041,16 @@ function releasePublicAuthPendingState() {
   setAuthInteractionPending("public", false);
 }
 
+function completePublicAuthSuccessTransition() {
+  publicAuthRequestPending = false;
+  publicAuthTransitionPending = false;
+  setAuthInteractionPending("public", false);
+  authContainer.style.display = "none";
+  document.body.classList.remove("auth-modal-open");
+  appContainer.style.display = "block";
+  syncBodyScrollLockState();
+}
+
 function switchToLoginMode(prefillIdentifier = "") {
   isLogin = true;
   isPasswordRecovery = false;
@@ -5719,6 +5758,7 @@ let currentView = "home";
 let homeFeedRefreshCursor = 0;
 let publicAuthRequestPending = false;
 let publicAuthTransitionPending = false;
+let postAuthProductRefreshToken = 0;
 let adminAuthRequestPending = false;
 let sellerIdentityPreparedSignature = "";
 let sellerIdentityPreparedDataUrl = "";
@@ -8107,6 +8147,7 @@ function loginSuccess(username, preferredCategory = "", sessionData = null, opti
     deferRender = false
   } = options;
   isSessionRestorePending = false;
+  completePublicAuthSuccessTransition();
   searchRuntimeState.isMobileSearchOpen = false;
   searchRuntimeState.isInputFocused = false;
   searchBox.classList.remove("mobile-open");
@@ -8132,6 +8173,7 @@ function loginSuccess(username, preferredCategory = "", sessionData = null, opti
     primaryCategory: preferredCategory || "",
     role: "seller"
   });
+  refreshProductsFromStore();
   currentOrders = { purchases: [], sales: [] };
   currentMessages = [];
   currentNotifications = [];
@@ -8267,6 +8309,9 @@ function loginSuccess(username, preferredCategory = "", sessionData = null, opti
     } else {
       showWelcomePopup();
     }
+  }
+  if (!isStaffUser()) {
+    refreshProductsAfterAuthChange();
   }
 }
 

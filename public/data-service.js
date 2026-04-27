@@ -3261,6 +3261,21 @@
       state.users = await state.adapter.loadUsers();
       return clone(state.users);
     },
+    async refreshProducts() {
+      ensureAdapter();
+      const nextProducts = await state.adapter.loadProducts();
+      state.products = Array.isArray(nextProducts) ? nextProducts : [];
+      state.productsHydrated = true;
+      if (typeof window !== "undefined" && typeof window.dispatchEvent === "function" && typeof window.CustomEvent === "function") {
+        window.dispatchEvent(new window.CustomEvent("winga:products-hydrated", {
+          detail: {
+            status: "refreshed",
+            count: state.products.length
+          }
+        }));
+      }
+      return clone(state.products);
+    },
     async requestWhatsappChange(payload) {
       const result = await (state.adapter.requestWhatsappChange ? state.adapter.requestWhatsappChange(payload) : null);
       state.users = await state.adapter.loadUsers();
