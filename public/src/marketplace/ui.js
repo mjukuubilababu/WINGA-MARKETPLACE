@@ -120,6 +120,7 @@
             loading: isFirstSlide ? "eager" : "lazy",
             fetchpriority: isFirstSlide ? "high" : "auto",
             draggable: "false",
+            "data-preserve-image-ratio": "true",
             "data-marketplace-scroll-image": "true"
           }
         }));

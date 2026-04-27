@@ -8780,8 +8780,15 @@ button:hover,
 }
 
 /* Home feed portrait-first image presentation */
+#products-container > .product-card > .product-card-media{
+  aspect-ratio:auto !important;
+  height:auto !important;
+  overflow:visible !important;
+  background:#ffffff !important;
+}
+
 #products-container .feed-gallery-preview{
-  aspect-ratio:var(--fit-media-aspect-ratio, 1 / 1) !important;
+  aspect-ratio:var(--fit-media-aspect-ratio, 4 / 5) !important;
   background:#ffffff !important;
   overflow:hidden !important;
 }
@@ -8790,6 +8797,13 @@ button:hover,
 #products-container .feed-gallery-carousel-track,
 #products-container .feed-gallery-carousel-slide{
   background:#ffffff !important;
+}
+
+#products-container .feed-gallery-carousel,
+#products-container .feed-gallery-carousel-track,
+#products-container .feed-gallery-carousel-slide,
+#products-container .progressive-image-shell{
+  min-height:0 !important;
 }
 
 #products-container .feed-gallery-image-social{
