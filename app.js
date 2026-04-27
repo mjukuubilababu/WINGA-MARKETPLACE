@@ -9540,6 +9540,7 @@ function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
             fetchpriority: "high",
             decoding: "async",
             draggable: "false",
+            "data-preserve-image-ratio": "true",
             "data-marketplace-scroll-image": "true",
             "data-fallback-src": getImageFallbackDataUri("WINGA")
           }
@@ -9566,6 +9567,7 @@ function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
             fetchpriority: isPrioritySlide ? "high" : "auto",
             decoding: "async",
             draggable: "false",
+            "data-preserve-image-ratio": "true",
             "data-marketplace-scroll-image": "true",
             "data-fallback-src": getImageFallbackDataUri("WINGA")
           }
@@ -9658,7 +9660,8 @@ function bindFeedGalleryInteractions(scope = document) {
         return;
       }
       const fitMode = normalizeProductFitMode(carousel.dataset.fitMode || preview.dataset.fitMode || "cover");
-      const ratioValue = fitMode === "contain"
+      const shouldPreserveImageRatio = Boolean(carousel.closest("#products-container, #market-showcase"));
+      const ratioValue = (shouldPreserveImageRatio || fitMode === "contain")
         ? `${naturalWidth} / ${naturalHeight}`
         : "1 / 1";
       preview.style.setProperty("--fit-media-aspect-ratio", ratioValue);

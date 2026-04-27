@@ -879,6 +879,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
     const resolvedSrc = sanitizeImageSource(src, fallbackSrc);
     const effectiveFallbackSrc = fallbackSrc || resolvedSrc;
     const normalizedFitMode = String(fitMode || "").trim().toLowerCase() === "contain" ? "contain" : "cover";
+    const shouldPreserveImageRatio = String(attributes?.["data-preserve-image-ratio"] || "").toLowerCase() === "true";
     const shouldLoadEagerly = shouldPrioritizeImageLoad(className, attributes);
     const shell = createElement("span", {
       className: `progressive-image-shell fit-mode-${normalizedFitMode}`,
@@ -904,7 +905,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
     fullImage.addEventListener("load", function handleProgressiveImageLoad() {
       const naturalWidth = Number(this.naturalWidth || 0);
       const naturalHeight = Number(this.naturalHeight || 0);
-      const aspectRatio = normalizedFitMode === "contain" && naturalWidth && naturalHeight
+      const aspectRatio = (shouldPreserveImageRatio || normalizedFitMode === "contain") && naturalWidth && naturalHeight
         ? `${naturalWidth} / ${naturalHeight}`
         : "1 / 1";
       shell.style.setProperty("--fit-media-aspect-ratio", aspectRatio);
@@ -923,7 +924,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
     if (fullImage.complete && Number(fullImage.naturalWidth || 0) > 0) {
       const naturalWidth = Number(fullImage.naturalWidth || 0);
       const naturalHeight = Number(fullImage.naturalHeight || 0);
-      const aspectRatio = normalizedFitMode === "contain" && naturalWidth && naturalHeight
+      const aspectRatio = (shouldPreserveImageRatio || normalizedFitMode === "contain") && naturalWidth && naturalHeight
         ? `${naturalWidth} / ${naturalHeight}`
         : "1 / 1";
       shell.style.setProperty("--fit-media-aspect-ratio", aspectRatio);

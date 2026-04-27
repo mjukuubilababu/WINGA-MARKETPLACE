@@ -8796,13 +8796,13 @@ button:hover,
   width:100% !important;
   height:100% !important;
   object-fit:var(--feed-gallery-object-fit, contain) !important;
-  object-position:center top !important;
+  object-position:center center !important;
   background:#ffffff !important;
   padding:0 !important;
 }
 
 #products-container .feed-gallery-preview[data-fit-mode="cover"]{
-  --feed-gallery-object-fit: cover;
+  --feed-gallery-object-fit: contain;
 }
 
 #products-container .feed-gallery-preview[data-fit-mode="contain"]{
