@@ -1,4 +1,4 @@
-const BUILD_VERSION = "20260427121547";
+const BUILD_VERSION = "20260427130445";
 const CACHE_PREFIX = "winga-shell";
 const CACHE_NAME = `${CACHE_PREFIX}-${BUILD_VERSION}`;
 const IMAGE_CACHE_PREFIX = "winga-images";
@@ -7,8 +7,8 @@ const ROOT_URL = new URL("/", self.location.origin).toString();
 const INDEX_URL = new URL("/index.html", self.location.origin).toString();
 const OFFLINE_URL = new URL("/offline.html", self.location.origin).toString();
 const IMAGE_PROXY_PREFIX = "/__winga-image__";
-const CRITICAL_IMAGE_URLS = ["/og-images/product-1777239500165-0f2f7d-3e8441d7f659.jpg","/og-images/product-1777239370540-25a52a-01d915857279.jpg","/og-images/product-1777223611728-1b98f8-e5394e85fb9a.jpg","/og-images/product-1777035373882-94d77c-64fc4970cb30.jpg","/og-images/product-1776811707733-b96ec5-271ce1ba34c2.jpg","/og-images/product-1776784732920-892ec0-a473096cc3bd.jpg","/og-images/product-1776774500822-065b96-d02ba2e63ed1.jpg","/og-images/product-1776698143995-5f5edf-1446ce3000d1.jpg","/og-images/product-1776698137497-912617-1446ce3000d1.jpg","/og-images/product-1776697256770-115247-a473096cc3bd.jpg","/og-images/product-1776696377914-051e26-9b2778770234.jpg","/og-images/product-1776641342254-4e421b-7733e6fa395b.jpg","/og-images/product-1776636209944-914a0f-81a72010d3a9.jpg","/og-images/product-1776636032627-73222e-8995417a393e.jpg","/og-images/product-1776635946578-fb4643-959f31784b79.jpg","/og-images/product-1776632816253-1ba7f8-31e4a5c4440f.jpg","/og-images/product-1776625047307-9cec81-b885aa7a5d3b.jpg","/og-images/product-1776623713511-146e16-01d9647f3d80.jpg","/og-images/product-1776622980060-6f1c2d-95d4ffacf7dc.jpg","/og-images/product-1776622652471-d8d3ea-e07955e150f6.jpg"];
-const PRECACHE_URLS = [
+const CRITICAL_IMAGE_URLS = [];
+const CORE_PRECACHE_URLS = [
   ROOT_URL,
   INDEX_URL,
   OFFLINE_URL,
@@ -24,9 +24,12 @@ const PRECACHE_URLS = [
   "/apple-touch-icon-v3.png",
   "/winga-icon-192-v3.png",
   "/winga-icon-512-v3.png",
-  "/winga-maskable-icon-v3.png",
-  ...CRITICAL_IMAGE_URLS
+  "/winga-maskable-icon-v3.png"
 ].map((assetPath) => new URL(assetPath, self.location.origin).toString());
+const PRECACHE_URLS = [
+  ...CORE_PRECACHE_URLS,
+  ...CRITICAL_IMAGE_URLS.map((assetPath) => new URL(assetPath, self.location.origin).toString())
+];
 
 function isSameOrigin(request) {
   try {
@@ -83,10 +86,12 @@ function isCacheableAsset(request) {
 
 function createImageFallbackResponse() {
   return new Response(`<svg xmlns="http://www.w3.org/2000/svg" width="640" height="640" viewBox="0 0 640 640" role="img" aria-label="WINGA image unavailable">
-    <rect width="640" height="640" fill="#fff4ec"/>
-    <rect x="120" y="120" width="400" height="400" rx="88" fill="#ff6a00"/>
-    <text x="320" y="300" text-anchor="middle" font-family="Arial, sans-serif" font-size="96" font-weight="800" fill="#fff">W</text>
-    <text x="320" y="382" text-anchor="middle" font-family="Arial, sans-serif" font-size="40" font-weight="700" fill="#fff">WINGA</text>
+    <rect width="640" height="640" fill="#f5f7fa"/>
+    <rect x="96" y="96" width="448" height="448" rx="44" fill="#ffffff" stroke="#e5e7eb" stroke-width="4"/>
+    <path d="M222 272h196v122H222z" fill="#eef2f7"/>
+    <path d="m236 380 72-72 48 48 34-34 78 78H236z" fill="#d9e1ec"/>
+    <circle cx="398" cy="288" r="28" fill="#cbd5e1"/>
+    <text x="320" y="466" text-anchor="middle" font-family="Arial, sans-serif" font-size="34" font-weight="700" fill="#6b7280">Image unavailable</text>
   </svg>`, {
     status: 200,
     headers: {
@@ -233,7 +238,8 @@ async function cacheImageUrls(urls = []) {
 self.addEventListener("install", (event) => {
   event.waitUntil((async () => {
     const cache = await caches.open(CACHE_NAME);
-    await cache.addAll(PRECACHE_URLS);
+    await cache.addAll(CORE_PRECACHE_URLS);
+    await cacheImageUrls(CRITICAL_IMAGE_URLS);
     await self.skipWaiting();
   })());
 });

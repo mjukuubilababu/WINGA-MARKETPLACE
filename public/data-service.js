@@ -1765,6 +1765,10 @@
           }
           return data;
         } catch (error) {
+          const stillStoredSession = sessionAdapter.loadSession();
+          if (stillStoredSession?.token) {
+            return stillStoredSession;
+          }
           sessionAdapter.clearSession();
           return null;
         }

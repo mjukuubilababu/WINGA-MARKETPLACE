@@ -1,5 +1,6 @@
 const crypto = require("crypto");
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
 
 const rootDir = path.resolve(__dirname, "..");
@@ -97,6 +98,12 @@ const forbiddenDistEntries = [
   "node_modules",
   ".env",
   ".env.production"
+];
+
+const generatedPublicAssetDirs = [
+  "product",
+  path.join("api", "product"),
+  "og-images"
 ];
 
 function getPublicOrigin() {
@@ -378,7 +385,7 @@ function copyFileIntoDist(sourceRelativePath, targetRelativePath) {
 function applyAssetVersionToHtml(targetPath) {
   const source = fs.readFileSync(targetPath, "utf8");
   const next = source.replace(
-    /(href|src)="(\/?(?:style\.css|winga-config\.js|mock-data\.js|data-service\.js|app-core\.js|winga-modules\.js|app\.js|src\/[^"]+\.js))(?:\?[^"]*)?"/g,
+    /(href|src)="((?:\.\/|\/)?(?:style\.css|winga-config\.js|mock-data\.js|data-service\.js|app-core\.js|winga-modules\.js|app\.js|src\/[^"]+\.js))(?:\?[^"]*)?"/g,
     (_, attribute, assetPath) => `${attribute}="${assetPath}?v=${assetVersion}"`
   );
   const publicOrigin = getPublicOrigin();
@@ -417,6 +424,62 @@ function copyDirectoryRecursive(sourcePath, targetPath) {
       fs.copyFileSync(sourceEntryPath, targetEntryPath);
     }
   }
+}
+
+function backupGeneratedPublicAssets() {
+  if (!fs.existsSync(outputDir)) {
+    return "";
+  }
+  const backupRoot = fs.mkdtempSync(path.join(os.tmpdir(), "winga-public-generated-"));
+  let copiedAny = false;
+  generatedPublicAssetDirs.forEach((relativePath) => {
+    const sourcePath = path.join(outputDir, relativePath);
+    if (!fs.existsSync(sourcePath)) {
+      return;
+    }
+    const targetPath = path.join(backupRoot, relativePath);
+    fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+    fs.cpSync(sourcePath, targetPath, { recursive: true });
+    copiedAny = true;
+  });
+  if (!copiedAny) {
+    fs.rmSync(backupRoot, { recursive: true, force: true });
+    return "";
+  }
+  return backupRoot;
+}
+
+function restoreGeneratedPublicAssets(backupRoot) {
+  if (!backupRoot || !fs.existsSync(backupRoot)) {
+    return;
+  }
+  generatedPublicAssetDirs.forEach((relativePath) => {
+    const sourcePath = path.join(backupRoot, relativePath);
+    if (!fs.existsSync(sourcePath)) {
+      return;
+    }
+    const targetPath = path.join(outputDir, relativePath);
+    fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+    fs.cpSync(sourcePath, targetPath, { recursive: true });
+  });
+}
+
+function cleanupGeneratedPublicAssetBackup(backupRoot) {
+  if (backupRoot && fs.existsSync(backupRoot)) {
+    fs.rmSync(backupRoot, { recursive: true, force: true });
+  }
+}
+
+function hasGeneratedProductSharePages() {
+  return [
+    path.join(outputDir, "product"),
+    path.join(outputDir, "api", "product")
+  ].some((targetPath) => {
+    if (!fs.existsSync(targetPath)) {
+      return false;
+    }
+    return fs.readdirSync(targetPath, { withFileTypes: true }).some((entry) => entry.isDirectory());
+  });
 }
 
 function loadProductsForPrerender() {
@@ -566,27 +629,39 @@ async function main() {
   requiredRootFiles.forEach(assertPathExists);
   assertPathExists("src");
 
+  const generatedAssetBackup = backupGeneratedPublicAssets();
   ensureCleanDir(outputDir);
 
-  let criticalImageUrls = [];
-  fileCopies.forEach(([sourceRelativePath, targetRelativePath]) => {
-    copyFileIntoDist(sourceRelativePath, targetRelativePath);
-  });
+  try {
+    let criticalImageUrls = [];
+    fileCopies.forEach(([sourceRelativePath, targetRelativePath]) => {
+      copyFileIntoDist(sourceRelativePath, targetRelativePath);
+    });
 
-  applyAssetVersionToHtml(path.join(rootDir, "index.html"));
-  applyAssetVersionToHtml(path.join(outputDir, "index.html"));
+    applyAssetVersionToHtml(path.join(rootDir, "index.html"));
+    applyAssetVersionToHtml(path.join(outputDir, "index.html"));
 
-  copyDirectoryRecursive(path.join(rootDir, "src"), path.join(outputDir, "src"));
-  fs.writeFileSync(path.join(outputDir, "winga-modules.js"), buildFrontendModuleBundle(), "utf8");
-  const ogImageMap = await generateProductSharePages(fs.readFileSync(path.join(outputDir, "index.html"), "utf8"), getPublicOrigin());
-  criticalImageUrls = Array.from(ogImageMap.values()).slice(0, 20);
-  applyAssetVersionToServiceWorker(path.join(outputDir, "service-worker.js"), criticalImageUrls);
-  verifyDistContents();
+    copyDirectoryRecursive(path.join(rootDir, "src"), path.join(outputDir, "src"));
+    fs.writeFileSync(path.join(outputDir, "winga-modules.js"), buildFrontendModuleBundle(), "utf8");
+    const ogImageMap = await generateProductSharePages(fs.readFileSync(path.join(outputDir, "index.html"), "utf8"), getPublicOrigin());
+    if (!hasGeneratedProductSharePages()) {
+      restoreGeneratedPublicAssets(generatedAssetBackup);
+    }
+    criticalImageUrls = Array.from(ogImageMap.values()).slice(0, 20);
+    applyAssetVersionToServiceWorker(path.join(outputDir, "service-worker.js"), criticalImageUrls);
+    verifyDistContents();
+  } finally {
+    cleanupGeneratedPublicAssetBackup(generatedAssetBackup);
+  }
 
   console.log(`Built Vercel static frontend into public/ (asset version ${assetVersion})`);
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exitCode = 1;
-});
+main()
+  .then(() => {
+    process.exit(0);
+  })
+  .catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });

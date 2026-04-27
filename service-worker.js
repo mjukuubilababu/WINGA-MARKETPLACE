@@ -8,7 +8,7 @@ const INDEX_URL = new URL("/index.html", self.location.origin).toString();
 const OFFLINE_URL = new URL("/offline.html", self.location.origin).toString();
 const IMAGE_PROXY_PREFIX = "/__winga-image__";
 const CRITICAL_IMAGE_URLS = __WINGA_CRITICAL_IMAGE_URLS__;
-const PRECACHE_URLS = [
+const CORE_PRECACHE_URLS = [
   ROOT_URL,
   INDEX_URL,
   OFFLINE_URL,
@@ -24,9 +24,12 @@ const PRECACHE_URLS = [
   "/apple-touch-icon-v3.png",
   "/winga-icon-192-v3.png",
   "/winga-icon-512-v3.png",
-  "/winga-maskable-icon-v3.png",
-  ...CRITICAL_IMAGE_URLS
+  "/winga-maskable-icon-v3.png"
 ].map((assetPath) => new URL(assetPath, self.location.origin).toString());
+const PRECACHE_URLS = [
+  ...CORE_PRECACHE_URLS,
+  ...CRITICAL_IMAGE_URLS.map((assetPath) => new URL(assetPath, self.location.origin).toString())
+];
 
 function isSameOrigin(request) {
   try {
@@ -83,10 +86,12 @@ function isCacheableAsset(request) {
 
 function createImageFallbackResponse() {
   return new Response(`<svg xmlns="http://www.w3.org/2000/svg" width="640" height="640" viewBox="0 0 640 640" role="img" aria-label="WINGA image unavailable">
-    <rect width="640" height="640" fill="#fff4ec"/>
-    <rect x="120" y="120" width="400" height="400" rx="88" fill="#ff6a00"/>
-    <text x="320" y="300" text-anchor="middle" font-family="Arial, sans-serif" font-size="96" font-weight="800" fill="#fff">W</text>
-    <text x="320" y="382" text-anchor="middle" font-family="Arial, sans-serif" font-size="40" font-weight="700" fill="#fff">WINGA</text>
+    <rect width="640" height="640" fill="#f5f7fa"/>
+    <rect x="96" y="96" width="448" height="448" rx="44" fill="#ffffff" stroke="#e5e7eb" stroke-width="4"/>
+    <path d="M222 272h196v122H222z" fill="#eef2f7"/>
+    <path d="m236 380 72-72 48 48 34-34 78 78H236z" fill="#d9e1ec"/>
+    <circle cx="398" cy="288" r="28" fill="#cbd5e1"/>
+    <text x="320" y="466" text-anchor="middle" font-family="Arial, sans-serif" font-size="34" font-weight="700" fill="#6b7280">Image unavailable</text>
   </svg>`, {
     status: 200,
     headers: {
@@ -233,7 +238,8 @@ async function cacheImageUrls(urls = []) {
 self.addEventListener("install", (event) => {
   event.waitUntil((async () => {
     const cache = await caches.open(CACHE_NAME);
-    await cache.addAll(PRECACHE_URLS);
+    await cache.addAll(CORE_PRECACHE_URLS);
+    await cacheImageUrls(CRITICAL_IMAGE_URLS);
     await self.skipWaiting();
   })());
 });
