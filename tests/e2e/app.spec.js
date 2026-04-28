@@ -214,7 +214,6 @@ test("seller signup completes immediately after account creation without hanging
   const uniqueSuffix = `${Date.now()}`.slice(-8);
   const username = `seller_${uniqueSuffix}`;
   const phoneNumber = `2557${uniqueSuffix}`;
-  const idNumber = `1990${uniqueSuffix}55`;
   let signupRequests = 0;
 
   page.on("request", (request) => {
@@ -227,17 +226,10 @@ test("seller signup completes immediately after account creation without hanging
   await expect(page.locator("#auth-container")).toBeVisible();
   await expect(page.locator("#auth-role-selector")).toBeVisible();
   await page.locator("#auth-role-seller").click();
-  await expect(page.locator("#seller-identity-document-type")).toBeVisible();
+  await expect(page.locator("#seller-identity-document-type")).toBeHidden();
 
   await page.locator("#username").fill(username);
   await page.locator("#phone-number").fill(phoneNumber);
-  await page.locator("#seller-identity-document-type").selectOption("NIDA");
-  await page.locator("#seller-identity-document-number").fill(idNumber);
-  await page.locator("#seller-identity-document-image").setInputFiles({
-    name: "seller-id.png",
-    mimeType: "image/png",
-    buffer: tinyPngBuffer
-  });
   await page.locator("#password").fill("Pass1234");
   await page.locator("#confirm-password").fill("Pass1234");
 

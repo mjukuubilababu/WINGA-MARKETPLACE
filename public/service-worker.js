@@ -1,4 +1,4 @@
-const BUILD_VERSION = "20260428232224";
+const BUILD_VERSION = "20260428234957";
 const CACHE_PREFIX = "winga-shell";
 const CACHE_NAME = `${CACHE_PREFIX}-${BUILD_VERSION}`;
 const IMAGE_CACHE_PREFIX = "winga-images";
@@ -128,8 +128,26 @@ async function cacheFirst(request) {
   return networkResponse;
 }
 
-async function networkFirstNavigation(request) {
+async function networkFirstNavigation(request, event = null) {
   const cache = await caches.open(CACHE_NAME);
+  const cachedPage = await cache.match(INDEX_URL)
+    || await cache.match(ROOT_URL)
+    || await cache.match(request, { ignoreSearch: true });
+  if (cachedPage) {
+    const refreshPromise = fetch(request)
+      .then((networkResponse) => {
+        if (networkResponse && networkResponse.ok) {
+          return cache.put(INDEX_URL, networkResponse.clone());
+        }
+        return null;
+      })
+      .catch(() => null);
+    if (event && typeof event.waitUntil === "function") {
+      event.waitUntil(refreshPromise);
+    }
+    return cachedPage;
+  }
+
   try {
     const networkResponse = await fetch(request);
     if (networkResponse && networkResponse.ok) {
@@ -275,7 +293,7 @@ self.addEventListener("fetch", (event) => {
   }
 
   if (isNavigationRequest(request)) {
-    event.respondWith(networkFirstNavigation(request));
+    event.respondWith(networkFirstNavigation(request, event));
     return;
   }
 

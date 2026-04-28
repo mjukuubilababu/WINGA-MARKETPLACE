@@ -4003,6 +4003,11 @@ function setAuthInteractionPending(kind, pending, options = {}) {
     }
     return;
   }
+  if (isPending) {
+    schedulePublicAuthSlowFallback(kind);
+  } else {
+    clearPublicAuthSlowFallback();
+  }
 
   [
     usernameInput,
@@ -5781,6 +5786,12 @@ let suppressInitialProductHomeRender = false;
 let isSessionRestorePending = false;
 let activeSessionRestoreToken = 0;
 let deepLinkLoadingOverlay = null;
+let deepLinkRecoveryTimer = null;
+let lifecycleFallbackTimer = null;
+let lifecycleRetryTimer = null;
+let lifecycleFallbackActive = false;
+let lifecycleFallbackReason = "";
+let publicAuthSlowTimer = null;
 const ADMIN_LOGIN_HASH = "#/admin-login";
 
 const authContainer = document.getElementById("auth-container");
@@ -6416,6 +6427,10 @@ function getProductDetailPath(productId) {
 
 function clearPendingDeepLinkProductRoute() {
   pendingDeepLinkProductId = "";
+  if (deepLinkRecoveryTimer) {
+    window.clearTimeout(deepLinkRecoveryTimer);
+    deepLinkRecoveryTimer = null;
+  }
 }
 
 function setDeepLinkLoadingShellVisible(visible) {
@@ -6516,6 +6531,181 @@ function setFeedLoadingStateVisible(visible) {
   feedLoadingState.style.display = visible ? "grid" : "none";
 }
 
+function renderLifecycleFallbackSkeleton(message = "") {
+  if (!feedLoadingState) {
+    return;
+  }
+  const title = feedLoadingState.querySelector(".feed-loading-shell h3");
+  const copy = feedLoadingState.querySelector(".feed-loading-shell p");
+  if (title) {
+    title.textContent = "Tunafungua WINGA...";
+  }
+  if (copy) {
+    copy.textContent = message || "Subiri kidogo, tunaweka feed tayari bila kuacha screen tupu.";
+  }
+  setFeedLoadingStateVisible(true);
+}
+
+function hideLifecycleFallbackShell() {
+  if (lifecycleFallbackTimer) {
+    window.clearTimeout(lifecycleFallbackTimer);
+    lifecycleFallbackTimer = null;
+  }
+  if (lifecycleRetryTimer) {
+    window.clearTimeout(lifecycleRetryTimer);
+    lifecycleRetryTimer = null;
+  }
+  lifecycleFallbackActive = false;
+  lifecycleFallbackReason = "";
+  setFeedLoadingStateVisible(false);
+}
+
+function schedulePublicAuthSlowFallback(kind = "auth") {
+  if (publicAuthSlowTimer) {
+    window.clearTimeout(publicAuthSlowTimer);
+  }
+  publicAuthSlowTimer = window.setTimeout(() => {
+    publicAuthSlowTimer = null;
+    if (!publicAuthRequestPending && !publicAuthTransitionPending) {
+      return;
+    }
+    reportClientEvent("warn", "public_auth_slow", "Public auth is taking longer than expected.", {
+      category: "auth",
+      kind,
+      mode: isLogin ? "login" : (isPasswordRecovery ? "recovery" : "signup")
+    });
+    appContainer.style.display = "block";
+    renderLifecycleFallbackSkeleton(isLogin
+      ? "Login inaendelea. Tunahakikisha bidhaa ziko tayari mara utakapoingia."
+      : "Signup inaendelea. Tunatayarisha feed isiwe blank baada ya akaunti kuundwa.");
+  }, 3500);
+}
+
+function clearPublicAuthSlowFallback() {
+  if (publicAuthSlowTimer) {
+    window.clearTimeout(publicAuthSlowTimer);
+    publicAuthSlowTimer = null;
+  }
+}
+
+function retryLifecycleFeedRestore(reason = lifecycleFallbackReason || "lifecycle_retry") {
+  if (!lifecycleFallbackActive) {
+    return;
+  }
+  Promise.resolve(window.WingaDataLayer?.refreshProducts?.())
+    .catch((error) => {
+      captureClientError("lifecycle_feed_retry_failed", error, {
+        category: "runtime",
+        reason
+      });
+    })
+    .finally(() => {
+      ensureProductsForImmediateRender();
+      mergeAvailableCategories(inferCategoriesFromData());
+      refreshCategoryUI();
+      if (!document.body.classList.contains("product-detail-open") && currentView !== "profile") {
+        renderCurrentView();
+      }
+      if (productsContainer?.querySelector(".product-card, .seller-product-card")) {
+        hideLifecycleFallbackShell();
+      }
+    });
+}
+
+function showLifecycleFallbackShell(reason = "startup_slow", options = {}) {
+  const {
+    message = "Tunaweka bidhaa na picha tayari...",
+    retry = true
+  } = options;
+
+  lifecycleFallbackActive = true;
+  lifecycleFallbackReason = reason;
+  reportClientEvent("warn", "lifecycle_fallback_shell_shown", "Fallback shell shown to avoid blank/stuck startup.", {
+    category: "runtime",
+    reason,
+    view: currentView || "home",
+    authState: currentUser ? "signed_in" : "guest",
+    pathname: window.location.pathname || ""
+  });
+
+  document.body.classList.remove("app-booting");
+  document.body.classList.add("app-ready");
+  hideBootOverlayImmediately();
+  appContainer.style.display = "block";
+  setDeepLinkLoadingShellVisible(true);
+  syncBodyScrollLockState();
+  refreshPublicEntryChrome();
+
+  if (!document.body.classList.contains("auth-modal-open") && !isAdminLoginRoute()) {
+    authContainer.style.display = "none";
+  }
+
+  ensureProductsForImmediateRender();
+  mergeAvailableCategories(inferCategoriesFromData());
+  refreshCategoryUI();
+
+  if (!document.body.classList.contains("product-detail-open") && currentView !== "profile") {
+    setCurrentViewState("home", { syncHistory: false });
+    renderCurrentView();
+  }
+
+  if (!productsContainer?.querySelector(".product-card, .seller-product-card")) {
+    renderLifecycleFallbackSkeleton(message);
+  }
+
+  if (retry && !lifecycleRetryTimer) {
+    lifecycleRetryTimer = window.setTimeout(() => {
+      lifecycleRetryTimer = null;
+      retryLifecycleFeedRestore(reason);
+    }, LIFECYCLE_RETRY_DELAY_MS);
+  }
+}
+
+function scheduleLifecycleFallback(reason, options = {}) {
+  if (lifecycleFallbackTimer) {
+    window.clearTimeout(lifecycleFallbackTimer);
+  }
+  lifecycleFallbackTimer = window.setTimeout(() => {
+    lifecycleFallbackTimer = null;
+    const shouldShowFallback = document.body.classList.contains("app-booting")
+      || bootOverlay?.classList.contains("is-hidden") === false
+      || !productsContainer?.querySelector(".product-card, .seller-product-card");
+    if (shouldShowFallback) {
+      showLifecycleFallbackShell(reason, options);
+    }
+  }, Number(options.delayMs || LIFECYCLE_FALLBACK_DELAY_MS));
+}
+
+function scheduleDeepLinkRecovery(productId) {
+  if (deepLinkRecoveryTimer) {
+    window.clearTimeout(deepLinkRecoveryTimer);
+  }
+  deepLinkRecoveryTimer = window.setTimeout(() => {
+    deepLinkRecoveryTimer = null;
+    if (normalizeProductIdValue(pendingDeepLinkProductId) !== normalizeProductIdValue(productId)) {
+      return;
+    }
+    reportClientEvent("warn", "deep_link_recovery_started", "Deep link waited too long; restoring feed shell.", {
+      category: "runtime",
+      productId
+    });
+    refreshProductsFromStore();
+    if (tryOpenPendingDeepLinkProductRoute()) {
+      return;
+    }
+    clearPendingDeepLinkProductRoute();
+    hideDeepLinkLoadingState();
+    safeReplaceState(window.history.state || null, "/");
+    setCurrentViewState("home", { syncHistory: false });
+    setDeepLinkLoadingShellVisible(true);
+    ensureProductsForImmediateRender();
+    renderCurrentView();
+    showLifecycleFallbackShell("deep_link_recovery", {
+      message: "Link ya bidhaa imechelewa. Tumerudisha feed salama huku tukijaribu tena nyuma ya pazia."
+    });
+  }, DEEP_LINK_RECOVERY_DELAY_MS);
+}
+
 function tryOpenPendingDeepLinkProductRoute() {
   const productId = normalizeProductIdValue(pendingDeepLinkProductId);
   if (!productId) {
@@ -6548,6 +6738,10 @@ function tryOpenPendingDeepLinkProductRoute() {
   }
 
   clearPendingDeepLinkProductRoute();
+  if (deepLinkRecoveryTimer) {
+    window.clearTimeout(deepLinkRecoveryTimer);
+    deepLinkRecoveryTimer = null;
+  }
   hideDeepLinkLoadingState();
   openProductDetailModal(productId, {
     allowBrokenImageFallbackOpen: true
@@ -6584,6 +6778,7 @@ function openDeepLinkedProductRouteIfNeeded(options = {}) {
       pendingDeepLinkProductId = productId;
       setCurrentViewState("home", { syncHistory: false });
       showDeepLinkLoadingState("Tunafungua bidhaa uliyoifungua...");
+      scheduleDeepLinkRecovery(productId);
       return true;
     }
     hideDeepLinkLoadingState();
@@ -8285,6 +8480,9 @@ function loginSuccess(username, preferredCategory = "", sessionData = null, opti
     });
   } else if (!shouldKeepHomeFirst) {
     restoreStoredHomeScrollPosition();
+  }
+  if (productsContainer?.querySelector(".product-card, .seller-product-card") || nextView !== "home") {
+    hideLifecycleFallbackShell();
   }
   updateProfileNavBadge();
   if (!isStaffUser()) {
@@ -11259,6 +11457,18 @@ const SESSION_RESTORE_BOOT_TIMEOUT_MS = Math.max(
   2500,
   Number(window.WINGA_CONFIG?.sessionRestoreTimeoutMs || 12000)
 );
+const LIFECYCLE_FALLBACK_DELAY_MS = Math.max(
+  1600,
+  Number(window.WINGA_CONFIG?.lifecycleFallbackDelayMs || 2600)
+);
+const LIFECYCLE_RETRY_DELAY_MS = Math.max(
+  1800,
+  Number(window.WINGA_CONFIG?.lifecycleRetryDelayMs || 3000)
+);
+const DEEP_LINK_RECOVERY_DELAY_MS = Math.max(
+  2200,
+  Number(window.WINGA_CONFIG?.deepLinkRecoveryDelayMs || 4200)
+);
 
 async function bootApp() {
   reportClientEvent("info", "app_boot_started", "Client app boot started.", {
@@ -11267,6 +11477,9 @@ async function bootApp() {
   document.body.classList.add("app-booting");
   document.body.classList.remove("app-ready");
   revealBootOverlay();
+  scheduleLifecycleFallback("boot_slow", {
+    message: "WINGA inaanza. Tunaonyesha shell salama wakati data inaingia."
+  });
   const bootstrapCleanupPromise = initializeBootstrapStorageVersion();
   syncAuthMode();
   authContainer.style.display = "none";
@@ -11366,6 +11579,7 @@ async function bootApp() {
     showAdminLoginScreen();
     document.body.classList.remove("app-booting");
     document.body.classList.add("app-ready");
+    hideLifecycleFallbackShell();
     completeBootOverlay();
     return;
   }
@@ -11390,6 +11604,7 @@ async function bootApp() {
   scheduleChromeOffsetSync();
   document.body.classList.remove("app-booting");
   document.body.classList.add("app-ready");
+  hideLifecycleFallbackShell();
   completeBootOverlay();
 
   if (typeof ResizeObserver !== "undefined") {
