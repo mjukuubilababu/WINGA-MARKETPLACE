@@ -1,4 +1,4 @@
-const BUILD_VERSION = "__WINGA_ASSET_VERSION__";
+const BUILD_VERSION = "20260428230747";
 const CACHE_PREFIX = "winga-shell";
 const CACHE_NAME = `${CACHE_PREFIX}-${BUILD_VERSION}`;
 const IMAGE_CACHE_PREFIX = "winga-images";
@@ -7,7 +7,7 @@ const ROOT_URL = new URL("/", self.location.origin).toString();
 const INDEX_URL = new URL("/index.html", self.location.origin).toString();
 const OFFLINE_URL = new URL("/offline.html", self.location.origin).toString();
 const IMAGE_PROXY_PREFIX = "/__winga-image__";
-const CRITICAL_IMAGE_URLS = __WINGA_CRITICAL_IMAGE_URLS__;
+const CRITICAL_IMAGE_URLS = [];
 const CORE_PRECACHE_URLS = [
   ROOT_URL,
   INDEX_URL,

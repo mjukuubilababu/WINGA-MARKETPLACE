@@ -406,11 +406,17 @@ function applyAssetVersionToHtml(targetPath) {
 
 function applyAssetVersionToServiceWorker(targetPath, criticalImageUrls = []) {
   const source = fs.readFileSync(targetPath, "utf8");
+  const criticalImageJson = JSON.stringify(Array.isArray(criticalImageUrls) ? criticalImageUrls : []);
   const next = source
     .replace(/__WINGA_ASSET_VERSION__/g, assetVersion)
     .replace(/__WINGA_BUILD_VERSION__/g, assetVersion)
-    .replace(/__WINGA_CRITICAL_IMAGE_URLS__/g, JSON.stringify(Array.isArray(criticalImageUrls) ? criticalImageUrls : []));
+    .replace(/const BUILD_VERSION = "[^"]*";/, `const BUILD_VERSION = "${assetVersion}";`)
+    .replace(/const CRITICAL_IMAGE_URLS = (?:__WINGA_CRITICAL_IMAGE_URLS__|\[[\s\S]*?\]);/, `const CRITICAL_IMAGE_URLS = ${criticalImageJson};`);
   fs.writeFileSync(targetPath, next, "utf8");
+}
+
+function writeFrontendModuleBundle(targetPath) {
+  fs.writeFileSync(targetPath, buildFrontendModuleBundle(), "utf8");
 }
 
 function copyDirectoryRecursive(sourcePath, targetPath) {
@@ -642,12 +648,14 @@ async function main() {
     applyAssetVersionToHtml(path.join(outputDir, "index.html"));
 
     copyDirectoryRecursive(path.join(rootDir, "src"), path.join(outputDir, "src"));
-    fs.writeFileSync(path.join(outputDir, "winga-modules.js"), buildFrontendModuleBundle(), "utf8");
+    writeFrontendModuleBundle(path.join(rootDir, "winga-modules.js"));
+    writeFrontendModuleBundle(path.join(outputDir, "winga-modules.js"));
     const ogImageMap = await generateProductSharePages(fs.readFileSync(path.join(outputDir, "index.html"), "utf8"), getPublicOrigin());
     if (!hasGeneratedProductSharePages()) {
       restoreGeneratedPublicAssets(generatedAssetBackup);
     }
     criticalImageUrls = Array.from(ogImageMap.values()).slice(0, 20);
+    applyAssetVersionToServiceWorker(path.join(rootDir, "service-worker.js"), criticalImageUrls);
     applyAssetVersionToServiceWorker(path.join(outputDir, "service-worker.js"), criticalImageUrls);
     verifyDistContents();
   } finally {

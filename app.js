@@ -110,6 +110,14 @@ function refreshProductsFromStore() {
   pruneBrokenMarketplaceImageRegistry();
 }
 
+function ensureProductsForImmediateRender() {
+  refreshProductsFromStore();
+  if (!products.length) {
+    products = DEFAULT_PRODUCTS.map(normalizeProduct);
+    rebuildProductIndex();
+  }
+}
+
 function refreshProductsAfterAuthChange() {
   const refreshProducts = window.WingaDataLayer?.refreshProducts;
   if (typeof refreshProducts !== "function") {
@@ -8173,7 +8181,7 @@ function loginSuccess(username, preferredCategory = "", sessionData = null, opti
     primaryCategory: preferredCategory || "",
     role: "seller"
   });
-  refreshProductsFromStore();
+  ensureProductsForImmediateRender();
   currentOrders = { purchases: [], sales: [] };
   currentMessages = [];
   currentNotifications = [];
