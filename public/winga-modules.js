@@ -9561,7 +9561,6 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
           placeholderSrc: deps.getImageFallbackDataUri("W"),
           attributes: {
             loading: "lazy",
-            "data-preserve-image-ratio": "true",
             "data-marketplace-scroll-image": "true",
             "data-zoom-src": itemImageSrc || deps.getImageFallbackDataUri("W"),
             "data-zoom-alt": deps.escapeHtml(item.name || ""),
