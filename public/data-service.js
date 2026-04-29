@@ -1530,7 +1530,35 @@
     };
   }
 
+  function createRequestError(message, details = {}) {
+    const error = new Error(message);
+    Object.assign(error, details);
+    return error;
+  }
+
+  function emitApiMetric(detail) {
+    if (typeof window === "undefined" || typeof window.dispatchEvent !== "function" || typeof window.CustomEvent !== "function") {
+      return;
+    }
+    try {
+      window.dispatchEvent(new window.CustomEvent("winga:api-metric", { detail }));
+    } catch (error) {
+      // Metrics must never block the user path.
+    }
+  }
+
+  function getApiEndpointLabel(url) {
+    try {
+      const parsedUrl = new URL(String(url || ""), window.location.origin);
+      return parsedUrl.pathname.replace(/^\/api\//, "/");
+    } catch (error) {
+      return String(url || "");
+    }
+  }
+
   async function fetchJson(url, options) {
+    const startedAt = Date.now();
+    const endpointLabel = getApiEndpointLabel(url);
     const requestOptions = options ? { ...options } : {};
     const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
     const timeoutMs = Number(
@@ -1550,20 +1578,47 @@
       if (timeoutId) {
         clearTimeout(timeoutId);
       }
+      const latencyMs = Date.now() - startedAt;
       if (error?.name === "AbortError") {
         const endpoint = String(url || "");
+        let message = "Request took too long. Check your connection and try again.";
         if (endpoint.includes("/auth/signup")) {
-          throw new Error("Seller signup took too long. Check your connection and try again.");
+          message = "Seller signup took too long. Check your connection and try again.";
         }
         if (endpoint.includes("/auth/admin-login")) {
-          throw new Error("Admin login took too long. Check your connection and try again.");
+          message = "Admin login took too long. Check your connection and try again.";
         }
         if (endpoint.includes("/auth/login")) {
-          throw new Error("Login took too long. Check your connection and try again.");
+          message = "Login took too long. Check your connection and try again.";
         }
-        throw new Error("Request took too long. Check your connection and try again.");
+        emitApiMetric({
+          endpoint: endpointLabel,
+          ok: false,
+          status: 0,
+          code: "timeout",
+          latencyMs
+        });
+        throw createRequestError(message, {
+          code: "timeout",
+          retryable: true,
+          endpoint: endpointLabel,
+          latencyMs
+        });
       }
-      throw error;
+      const networkError = createRequestError(error?.message || "Network issue. Check your connection and try again.", {
+        code: "network",
+        retryable: true,
+        endpoint: endpointLabel,
+        latencyMs
+      });
+      emitApiMetric({
+        endpoint: endpointLabel,
+        ok: false,
+        status: 0,
+        code: "network",
+        latencyMs
+      });
+      throw networkError;
     }
     if (timeoutId) {
       clearTimeout(timeoutId);
@@ -1601,9 +1656,30 @@
           }));
         }
       }
-      throw new Error(errorMessage);
+      const latencyMs = Date.now() - startedAt;
+      emitApiMetric({
+        endpoint: endpointLabel,
+        ok: false,
+        status: response.status,
+        code: `http_${response.status}`,
+        latencyMs
+      });
+      throw createRequestError(errorMessage, {
+        code: `http_${response.status}`,
+        status: response.status,
+        retryable: response.status === 408 || response.status === 429 || response.status >= 500,
+        endpoint: endpointLabel,
+        latencyMs
+      });
     }
-    return response.status === 204 ? null : response.json();
+    const data = response.status === 204 ? null : await response.json();
+    emitApiMetric({
+      endpoint: endpointLabel,
+      ok: true,
+      status: response.status,
+      latencyMs: Date.now() - startedAt
+    });
+    return data;
   }
 
   function createApiAdapter(config) {
@@ -1671,6 +1747,26 @@
         };
       }
       return {};
+    }
+
+    function getAuthTimeoutMs() {
+      return Number(window.WINGA_CONFIG?.authRequestTimeoutMs || 11000);
+    }
+
+    async function authFetchJson(url, options = {}, authOptions = {}) {
+      const retries = Number(authOptions.retries || 0);
+      const timeoutMs = Number(options.timeoutMs || authOptions.timeoutMs || getAuthTimeoutMs());
+      return withRetry(
+        () => fetchJson(url, {
+          ...options,
+          timeoutMs
+        }),
+        {
+          retries,
+          delayMs: Number(authOptions.delayMs || 650),
+          shouldRetry: isRetryableBootError
+        }
+      );
     }
 
     return {
@@ -1785,60 +1881,40 @@
         }
       },
       async signup(payload) {
-        try {
-          return await fetchJson(`${baseUrl}/auth/signup`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(stripSignupCategoryFields(payload))
-          });
-        } catch (error) {
-          if (!isRetryableBootError(error)) {
-            throw error;
-          }
-          return localFallbackAdapter.signup(payload);
-        }
+        return authFetchJson(`${baseUrl}/auth/signup`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(stripSignupCategoryFields(payload))
+        }, {
+          retries: 0
+        });
       },
       async login(payload) {
-        try {
-          return await fetchJson(`${baseUrl}/auth/login`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload)
-          });
-        } catch (error) {
-          if (!isRetryableBootError(error)) {
-            throw error;
-          }
-          return localFallbackAdapter.login(payload);
-        }
+        return authFetchJson(`${baseUrl}/auth/login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        }, {
+          retries: 1
+        });
       },
       async recoverPassword(payload) {
-        try {
-          return await fetchJson(`${baseUrl}/auth/recover-password`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload)
-          });
-        } catch (error) {
-          if (!isRetryableBootError(error)) {
-            throw error;
-          }
-          return localFallbackAdapter.recoverPassword(payload);
-        }
+        return authFetchJson(`${baseUrl}/auth/recover-password`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        }, {
+          retries: 0
+        });
       },
       async adminLogin(payload) {
-        try {
-          return await fetchJson(`${baseUrl}/auth/admin-login`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload)
-          });
-        } catch (error) {
-          if (!isRetryableBootError(error)) {
-            throw error;
-          }
-          return localFallbackAdapter.adminLogin(payload);
-        }
+        return authFetchJson(`${baseUrl}/auth/admin-login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        }, {
+          retries: 1
+        });
       },
       async updateUserProfile(payload) {
         return fetchJson(`${baseUrl}/users/me/profile`, {
@@ -2973,9 +3049,15 @@
   function isRetryableBootError(error) {
     const message = String(error?.message || "").toLowerCase();
     return Boolean(
-      error?.name === "TypeError"
+      error?.retryable
+      || error?.name === "TypeError"
+      || Number(error?.status || 0) === 408
+      || Number(error?.status || 0) === 429
+      || Number(error?.status || 0) >= 500
       || message.includes("fetch")
       || message.includes("network")
+      || message.includes("check your connection")
+      || message.includes("took too long")
       || message.includes("request took too long")
       || message.includes("failed to fetch")
       || message.includes("attempting to fetch resource")
@@ -3244,7 +3326,28 @@
     },
     async signup(payload) {
       const result = await state.adapter.signup(stripSignupCategoryFields(payload));
-      state.users = await state.adapter.loadUsers();
+      if (result?.username) {
+        const normalizedUser = result;
+        state.users = [
+          normalizedUser,
+          ...state.users.filter((user) => user.username !== normalizedUser.username)
+        ];
+      }
+      state.adapter.loadUsers()
+        .then((users) => {
+          state.users = Array.isArray(users) ? users : state.users;
+          if (typeof window !== "undefined" && typeof window.dispatchEvent === "function" && typeof window.CustomEvent === "function") {
+            window.dispatchEvent(new window.CustomEvent("winga:data-hydrated", {
+              detail: {
+                source: "users",
+                background: true
+              }
+            }));
+          }
+        })
+        .catch(() => {
+          // Signup should not stay stuck after the account was already created.
+        });
       return result;
     },
     async login(payload) {

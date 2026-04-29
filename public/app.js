@@ -6411,6 +6411,26 @@ function reportSlowPath(event, durationMs, context = {}, thresholdMs = 120) {
   );
 }
 
+function getFriendlyAuthErrorMessage(error, fallbackMessage) {
+  const status = Number(error?.status || 0);
+  const code = String(error?.code || "").toLowerCase();
+  const message = String(error?.message || "").trim();
+  const normalizedMessage = message.toLowerCase();
+  if (status === 429 || normalizedMessage.includes("too many")) {
+    return "Majaribio ni mengi sana kwa sasa. Subiri kidogo kisha jaribu tena.";
+  }
+  if (error?.retryable || code === "timeout" || code === "network" || normalizedMessage.includes("took too long") || normalizedMessage.includes("failed to fetch") || normalizedMessage.includes("network")) {
+    return "Network issue au server imechelewa kujibu. Hakikisha internet iko sawa kisha jaribu tena.";
+  }
+  if (status >= 500 || normalizedMessage.includes("system error") || normalizedMessage.includes("itilafu ya mfumo")) {
+    return "Server ina tatizo kwa sasa. Jaribu tena baada ya muda mfupi.";
+  }
+  if (status === 401 || status === 403) {
+    return message || fallbackMessage;
+  }
+  return message || fallbackMessage;
+}
+
 function isAdminLoginRoute() {
   const normalizedHash = String(window.location.hash || "").trim().toLowerCase();
   const normalizedPath = String(window.location.pathname || "").trim().replace(/\/+$/, "").toLowerCase();
@@ -7112,12 +7132,13 @@ adminLoginButton?.addEventListener("click", async () => {
   try {
     user = await window.WingaDataLayer.adminLogin({ identifier, username: identifier, password });
   } catch (error) {
+    const errorMessage = getFriendlyAuthErrorMessage(error, "Taarifa za admin login si sahihi.");
     captureClientError("admin_login_failed", error, {
       identifier
     });
     showInAppNotification({
       title: "Admin login failed",
-      body: error.message || "Taarifa za admin login si sahihi.",
+      body: errorMessage,
       variant: "error"
     });
     showAdminLoginScreen({
@@ -7259,7 +7280,7 @@ authButton.addEventListener("click", async () => {
       clearAppViewState();
       loginSuccess(user.username, "", user, { restoreView: false });
     } catch (error) {
-      const errorMessage = error.message || "Taarifa za login si sahihi. Hakikisha identifier na password yako ni sahihi.";
+      const errorMessage = getFriendlyAuthErrorMessage(error, "Taarifa za login si sahihi. Hakikisha identifier na password yako ni sahihi.");
       if (/admin login route|admin au moderator/i.test(errorMessage)) {
         setAdminLoginRouteActive(true);
         showAdminLoginScreen({
@@ -7328,7 +7349,7 @@ authButton.addEventListener("click", async () => {
     } catch (error) {
       showInAppNotification({
         title: "Recovery failed",
-        body: error.message || "Imeshindikana kubadilisha password kwa sasa.",
+        body: getFriendlyAuthErrorMessage(error, "Imeshindikana kubadilisha password kwa sasa."),
         variant: "error"
       });
     } finally {
@@ -7412,7 +7433,7 @@ authButton.addEventListener("click", async () => {
     publicAuthTransitionPending = false;
     showInAppNotification({
       title: "Sign up failed",
-      body: error.message || "Imeshindikana kusajili akaunti.",
+      body: getFriendlyAuthErrorMessage(error, "Imeshindikana kusajili akaunti."),
       variant: "error"
     });
   } finally {
@@ -8633,6 +8654,27 @@ function logout() {
   renderCurrentView();
   updateProfileNavBadge();
 }
+
+window.addEventListener("winga:api-metric", (event) => {
+  const detail = event?.detail || {};
+  const endpoint = String(detail.endpoint || "");
+  if (!endpoint.includes("/auth/")) {
+    return;
+  }
+  const latencyMs = Number(detail.latencyMs || 0);
+  if (detail.ok && latencyMs < 1500) {
+    return;
+  }
+  window.setTimeout(() => {
+    reportClientEvent(detail.ok ? "info" : "warn", "auth_api_latency", "Auth API latency metric captured.", {
+      endpoint,
+      status: Number(detail.status || 0),
+      code: String(detail.code || ""),
+      ok: Boolean(detail.ok),
+      latencyMs: Math.round(latencyMs)
+    });
+  }, 0);
+});
 
 window.addEventListener("winga:products-hydrated", () => {
   refreshProductsFromStore();
