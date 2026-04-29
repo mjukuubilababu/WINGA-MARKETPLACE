@@ -8827,3 +8827,28 @@ button:hover,
   top:8px;
   right:8px;
 }
+
+/* Keep image containers flush at the top across feed, detail, and seller surfaces. */
+#products-container > .product-card > .product-card-media,
+.product-card-media,
+.seller-product-card-media,
+.product-detail-media,
+.showcase-media,
+.showcase-media-preview,
+.product-gallery,
+.feed-gallery-preview,
+.feed-gallery-carousel,
+.feed-gallery-carousel-track,
+.feed-gallery-carousel-slide,
+.feed-gallery-tile,
+.feed-gallery-image,
+.feed-gallery-image-social,
+.gallery-stage,
+.progressive-image-shell,
+.progressive-image-full,
+.progressive-image-placeholder,
+.profile-product-media,
+.profile-product-stage{
+  border-top-left-radius:0 !important;
+  border-top-right-radius:0 !important;
+}
