@@ -46,28 +46,18 @@
       ]
     }
   ],
-  "rewrites": [
-    {
-      "source": "/__winga-image__",
-      "has": [
-        {
-          "type": "query",
-          "key": "u",
-          "value": "(?<u>.*)"
-        }
-      ],
-      "destination": "https://winga-pflp.onrender.com/__winga-image__?u=:u"
-    },
-    {
-      "source": "/__winga-image__",
-      "destination": "https://winga-pflp.onrender.com/__winga-image__"
-    },
-    {
-      "source": "/product/:id",
-      "destination": "/api/product/:id"
-    }
-  ],
+  "rewrites": [],
   "redirects": [
+    {
+      "source": "/__winga-image__",
+      "destination": "https://winga-pflp.onrender.com/__winga-image__",
+      "permanent": false
+    },
+    {
+      "source": "/api/product/:id",
+      "destination": "/product/:id",
+      "permanent": false
+    },
     {
       "source": "/winga",
       "destination": "/",
