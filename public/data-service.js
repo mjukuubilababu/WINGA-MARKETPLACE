@@ -608,6 +608,9 @@
     if (!source) {
       return "";
     }
+    if (/^(?:data|blob):/i.test(source)) {
+      return source;
+    }
     try {
       const configuredApiBaseUrl = String(window.WINGA_CONFIG?.apiBaseUrl || "").trim().replace(/\/+$/, "");
       const publicBaseUrl = configuredApiBaseUrl.replace(/\/api$/, "");
@@ -619,7 +622,12 @@
         const unwrappedSource = parsed.searchParams.get("u") || "";
         return unwrappedSource ? createMarketplaceImageProxyUrl(unwrappedSource) : "";
       }
-      return parsed.toString();
+      if (!["http:", "https:"].includes(parsed.protocol) || !publicBaseUrl) {
+        return parsed.toString();
+      }
+      const proxyUrl = new URL("/__winga-image__", publicBaseUrl);
+      proxyUrl.searchParams.set("u", parsed.toString());
+      return proxyUrl.toString();
     } catch (error) {
       return source;
     }

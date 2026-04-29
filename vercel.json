@@ -49,6 +49,17 @@
   "rewrites": [
     {
       "source": "/__winga-image__",
+      "has": [
+        {
+          "type": "query",
+          "key": "u",
+          "value": "(?<u>.*)"
+        }
+      ],
+      "destination": "https://winga-pflp.onrender.com/__winga-image__?u=:u"
+    },
+    {
+      "source": "/__winga-image__",
       "destination": "https://winga-pflp.onrender.com/__winga-image__"
     },
     {
