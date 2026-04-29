@@ -1841,6 +1841,10 @@ img[data-zoom-src]{
   line-height:1.5;
 }
 
+.feed-loading-shell button{
+  margin-top:6px;
+}
+
 #search-box{
   width:min(700px, 100%);
   display:grid;

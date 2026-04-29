@@ -1948,6 +1948,31 @@ function safeReplaceState(state, url) {
   }
 }
 
+function bindServiceWorkerDiagnostics() {
+  if (!("serviceWorker" in navigator) || bindServiceWorkerDiagnostics.bound) {
+    return;
+  }
+  navigator.serviceWorker.addEventListener("message", (event) => {
+    const payload = event?.data?.payload;
+    if (event?.data?.type !== "WINGA_SW_LOG" || !payload) {
+      return;
+    }
+    reportClientEvent(
+      payload.level === "error" ? "error" : "warn",
+      `sw_${String(payload.event || "event").toLowerCase()}`,
+      "Service worker lifecycle event captured.",
+      {
+        category: "runtime",
+        swEvent: String(payload.event || ""),
+        swUrl: String(payload.url || ""),
+        swMessage: String(payload.message || ""),
+        destination: String(payload.destination || "")
+      }
+    );
+  });
+  bindServiceWorkerDiagnostics.bound = true;
+}
+
 function safePushState(state, url) {
   if (!window.history?.pushState || isFileProtocolPreview()) {
     return false;
@@ -5898,6 +5923,7 @@ const uploadTitle = document.getElementById("upload-title");
 const cancelEditButton = document.getElementById("cancel-edit-button");
 const emptyState = document.getElementById("empty-state");
 const feedLoadingState = document.getElementById("feed-loading-state");
+const feedLoadingRetryButton = document.getElementById("feed-loading-retry-button");
 const analyticsPanel = document.getElementById("analytics-panel");
 const adminPanel = document.getElementById("admin-panel");
 
@@ -6590,6 +6616,10 @@ function renderLifecycleFallbackSkeleton(message = "") {
   }
   const title = feedLoadingState.querySelector(".feed-loading-shell h3");
   const copy = feedLoadingState.querySelector(".feed-loading-shell p");
+  if (feedLoadingRetryButton) {
+    feedLoadingRetryButton.disabled = false;
+    feedLoadingRetryButton.textContent = "Jaribu tena";
+  }
   if (title) {
     title.textContent = "Tunafungua WINGA...";
   }
@@ -6645,6 +6675,10 @@ function retryLifecycleFeedRestore(reason = lifecycleFallbackReason || "lifecycl
   if (!lifecycleFallbackActive) {
     return;
   }
+  if (feedLoadingRetryButton) {
+    feedLoadingRetryButton.disabled = true;
+    feedLoadingRetryButton.textContent = "Inajaribu tena...";
+  }
   Promise.resolve(window.WingaDataLayer?.refreshProducts?.())
     .catch((error) => {
       captureClientError("lifecycle_feed_retry_failed", error, {
@@ -6653,6 +6687,10 @@ function retryLifecycleFeedRestore(reason = lifecycleFallbackReason || "lifecycl
       });
     })
     .finally(() => {
+      if (feedLoadingRetryButton) {
+        feedLoadingRetryButton.disabled = false;
+        feedLoadingRetryButton.textContent = "Jaribu tena";
+      }
       ensureProductsForImmediateRender();
       mergeAvailableCategories(inferCategoriesFromData());
       refreshCategoryUI();
@@ -8742,6 +8780,19 @@ window.addEventListener("winga:session-invalidated", (event) => {
   window.setTimeout(() => {
     isHandlingSessionInvalidation = false;
   }, 0);
+});
+
+feedLoadingRetryButton?.addEventListener("click", () => {
+  reportClientEvent("info", "lifecycle_retry_clicked", "User manually retried lifecycle fallback shell.", {
+    category: "runtime",
+    reason: lifecycleFallbackReason || "manual_retry"
+  });
+  retryLifecycleFeedRestore("manual_retry");
+  window.setTimeout(() => {
+    if (!productsContainer?.querySelector(".product-card, .seller-product-card")) {
+      window.location.reload();
+    }
+  }, 1800);
 });
 
 window.addEventListener("popstate", (event) => {
@@ -11696,6 +11747,7 @@ async function bootApp() {
   }
 
   window.setTimeout(() => {
+    bindServiceWorkerDiagnostics();
     registerAppServiceWorker().catch(() => {
       // Ignore service worker registration failures on unsupported browsers.
     });

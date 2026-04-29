@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="theme-color" content="#ff6a00">
-  <title>Winga - Offline</title>
+  <title>Winga - Loading</title>
   <style>
     :root{
       color-scheme: light;
@@ -24,7 +24,7 @@
         linear-gradient(180deg, #ff8b1f 0%, #ff5a0a 100%);
     }
     .shell{
-      width:min(92vw, 420px);
+      width:min(92vw, 430px);
       padding:32px 24px;
       border-radius:32px;
       background:rgba(255,255,255,.94);
@@ -71,8 +71,31 @@
       line-height:1.6;
       color:#475569;
     }
+    .skeleton{
+      display:grid;
+      gap:12px;
+      margin:24px 0 22px;
+    }
+    .line,
+    .card{
+      position:relative;
+      overflow:hidden;
+      border-radius:18px;
+      background:#f1f5f9;
+    }
+    .line::before,
+    .card::before{
+      content:"";
+      position:absolute;
+      inset:0;
+      background:linear-gradient(90deg, transparent 0%, rgba(255,255,255,.75) 50%, transparent 100%);
+      transform:translateX(-100%);
+      animation:shine 1.25s ease-in-out infinite;
+    }
+    .line{ height:16px; }
+    .line.short{ width:68%; margin:0 auto; }
+    .card{ height:112px; }
     button{
-      margin-top:22px;
       border:0;
       border-radius:999px;
       padding:12px 18px;
@@ -81,6 +104,10 @@
       font-size:.95rem;
       font-weight:700;
       cursor:pointer;
+    }
+    @keyframes shine{
+      0%{ transform:translateX(-100%); }
+      100%{ transform:translateX(100%); }
     }
   </style>
 </head>
@@ -93,8 +120,14 @@
         <span>Shop Fast</span>
       </div>
     </div>
-    <h1>Upo offline</h1>
-    <p>Winga itajaribu kutumia shell iliyohifadhiwa. Unganisha tena mtandao ili upate bidhaa mpya na picha mpya.</p>
+    <h1>Tunafungua Winga...</h1>
+    <p>Shell ya app imefika. Tunajaribu kurudisha bidhaa na picha zako bila kuacha screen tupu.</p>
+    <div class="skeleton" aria-hidden="true">
+      <div class="line"></div>
+      <div class="line short"></div>
+      <div class="card"></div>
+      <div class="card"></div>
+    </div>
     <button type="button" onclick="window.location.reload()">Jaribu tena</button>
   </main>
 </body>

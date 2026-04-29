@@ -3,58 +3,99 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="theme-color" content="#0f172a">
+  <meta name="theme-color" content="#ff6a00">
   <title>Winga - Offline</title>
   <style>
     :root{
       color-scheme: light;
       font-family: "Segoe UI", Arial, sans-serif;
-      background:#f8fafc;
+      background:#fff7ed;
       color:#0f172a;
     }
+    *{ box-sizing:border-box; }
     body{
       margin:0;
       min-height:100vh;
-      display:grid;
-      place-items:center;
-      background:linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      background:
+        radial-gradient(circle at top, rgba(255,255,255,.72), transparent 48%),
+        linear-gradient(180deg, #ff8b1f 0%, #ff5a0a 100%);
     }
     .shell{
       width:min(92vw, 420px);
       padding:32px 24px;
-      border-radius:28px;
-      background:#fff;
-      box-shadow:0 24px 60px rgba(15,23,42,0.12);
+      border-radius:32px;
+      background:rgba(255,255,255,.94);
+      box-shadow:0 28px 60px rgba(15,23,42,.18);
       text-align:center;
     }
+    .brand{
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      gap:14px;
+      margin-bottom:18px;
+    }
     .badge{
-      width:72px;
-      height:72px;
-      border-radius:22px;
-      margin:0 auto 18px;
+      width:64px;
+      height:64px;
+      border-radius:20px;
       display:grid;
       place-items:center;
-      background:#0f172a;
-      color:#f8fafc;
-      font-size:34px;
-      font-weight:800;
+      background:linear-gradient(135deg, #ff9f1c 0%, #ff5a0a 100%);
+      color:#fff;
+      font-size:2rem;
+      font-weight:900;
+      box-shadow:0 16px 28px rgba(255,106,0,.24);
+    }
+    .brand-copy strong{
+      display:block;
+      font-size:1.35rem;
+      letter-spacing:.08em;
+    }
+    .brand-copy span{
+      display:block;
+      font-size:.86rem;
+      color:#64748b;
+      text-transform:uppercase;
+      letter-spacing:.12em;
     }
     h1{
-      margin:0 0 8px;
-      font-size:24px;
+      margin:0 0 10px;
+      font-size:1.3rem;
     }
     p{
       margin:0;
       line-height:1.6;
       color:#475569;
     }
+    button{
+      margin-top:22px;
+      border:0;
+      border-radius:999px;
+      padding:12px 18px;
+      background:#0f172a;
+      color:#fff;
+      font-size:.95rem;
+      font-weight:700;
+      cursor:pointer;
+    }
   </style>
 </head>
 <body>
   <main class="shell">
-    <div class="badge">W</div>
+    <div class="brand">
+      <div class="badge">W</div>
+      <div class="brand-copy">
+        <strong>WINGA</strong>
+        <span>Shop Fast</span>
+      </div>
+    </div>
     <h1>Upo offline</h1>
     <p>Winga itajaribu kutumia shell iliyohifadhiwa. Unganisha tena mtandao ili upate bidhaa mpya na picha mpya.</p>
+    <button type="button" onclick="window.location.reload()">Jaribu tena</button>
   </main>
 </body>
 </html>
