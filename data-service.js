@@ -1643,7 +1643,6 @@
             normalizedMessage.includes("imesimamishwa")
             || normalizedMessage.includes("imezuiwa")
             || normalizedMessage.includes("imezimwa")
-            || normalizedMessage.includes("staff accounts")
           );
       if (shouldInvalidateSession) {
         safeStorageRemove(SESSION_KEY);
