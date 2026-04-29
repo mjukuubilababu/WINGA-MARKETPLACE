@@ -1,4 +1,4 @@
-const BUILD_VERSION = "20260429211751";
+const BUILD_VERSION = "20260429222225";
 const CACHE_PREFIX = "winga-shell";
 const CACHE_NAME = `${CACHE_PREFIX}-${BUILD_VERSION}`;
 const IMAGE_CACHE_PREFIX = "winga-images";
@@ -10,6 +10,9 @@ const INDEX_URL = new URL("/index.html", self.location.origin).toString();
 const OFFLINE_URL = new URL("/offline.html", self.location.origin).toString();
 const APP_SHELL_URL = new URL("/app-shell.html", self.location.origin).toString();
 const IMAGE_PROXY_PREFIX = "/__winga-image__";
+const MAX_SHELL_CACHE_ENTRIES = 48;
+const MAX_IMAGE_CACHE_ENTRIES = 140;
+const MAX_DYNAMIC_CACHE_ENTRIES = 60;
 const CRITICAL_IMAGE_URLS = ["/og-images/product-1777373568833-a7d58c-e5a08dfd75fe.jpg","/og-images/product-1777315330893-808017-b622fc6f2b98.jpg","/og-images/product-1777315199519-bb18e6-0553ccf3672f.jpg","/og-images/product-1777313018004-1d5ae9-174e443d6bdc.jpg","/og-images/product-1777312933662-564522-174e443d6bdc.jpg","/og-images/product-1777312859506-84d83c-312fbf52737e.jpg","/og-images/product-1777239500165-0f2f7d-3e8441d7f659.jpg","/og-images/product-1777239370540-25a52a-01d915857279.jpg","/og-images/product-1777223611728-1b98f8-e5394e85fb9a.jpg","/og-images/product-1777035373882-94d77c-64fc4970cb30.jpg","/og-images/product-1776811707733-b96ec5-271ce1ba34c2.jpg","/og-images/product-1776784732920-892ec0-a473096cc3bd.jpg","/og-images/product-1776774500822-065b96-d02ba2e63ed1.jpg","/og-images/product-1776698143995-5f5edf-1446ce3000d1.jpg","/og-images/product-1776698137497-912617-1446ce3000d1.jpg","/og-images/product-1776697256770-115247-a473096cc3bd.jpg","/og-images/product-1776696377914-051e26-9b2778770234.jpg","/og-images/product-1776641342254-4e421b-7733e6fa395b.jpg","/og-images/product-1776636209944-914a0f-81a72010d3a9.jpg","/og-images/product-1776636032627-73222e-8995417a393e.jpg"];
 const CORE_PRECACHE_URLS = [
   ROOT_URL,
@@ -200,6 +203,20 @@ async function precacheCoreAssets() {
       });
     }
   }));
+  await trimCacheEntries(CACHE_NAME, MAX_SHELL_CACHE_ENTRIES);
+}
+
+async function trimCacheEntries(cacheName, maxEntries) {
+  if (!Number.isFinite(maxEntries) || maxEntries <= 0) {
+    return;
+  }
+  const cache = await caches.open(cacheName);
+  const keys = await cache.keys();
+  const overflow = keys.length - maxEntries;
+  if (overflow <= 0) {
+    return;
+  }
+  await Promise.all(keys.slice(0, overflow).map((request) => cache.delete(request)));
 }
 
 async function cacheFirst(request) {
@@ -215,6 +232,7 @@ async function cacheFirst(request) {
     });
     if (networkResponse && networkResponse.ok) {
       await cache.put(request, networkResponse.clone());
+      await trimCacheEntries(CACHE_NAME, MAX_SHELL_CACHE_ENTRIES);
     }
     return networkResponse;
   } catch (error) {
@@ -305,6 +323,7 @@ async function proxyImageRequest(request) {
     if (isUsableImageResponse(networkResponse)) {
       await cache.put(request, networkResponse.clone());
       await cache.put(remote.toString(), networkResponse.clone());
+      await trimCacheEntries(IMAGE_CACHE_NAME, MAX_IMAGE_CACHE_ENTRIES);
       return networkResponse;
     }
   } catch (error) {
@@ -328,6 +347,7 @@ async function networkFirstImage(request) {
     });
     if (isUsableImageResponse(networkResponse)) {
       await cache.put(request, networkResponse.clone());
+      await trimCacheEntries(IMAGE_CACHE_NAME, MAX_IMAGE_CACHE_ENTRIES);
       return networkResponse;
     }
   } catch (error) {
@@ -349,6 +369,7 @@ async function networkFirstDynamic(request) {
     });
     if (response && response.ok) {
       await cache.put(request, response.clone());
+      await trimCacheEntries(DYNAMIC_CACHE_NAME, MAX_DYNAMIC_CACHE_ENTRIES);
     }
     return response;
   } catch (error) {
@@ -395,6 +416,7 @@ async function cacheImageUrls(urls = []) {
       });
       if (isUsableImageResponse(response)) {
         await cache.put(request, response.clone());
+        await trimCacheEntries(IMAGE_CACHE_NAME, MAX_IMAGE_CACHE_ENTRIES);
       }
     } catch (error) {
       logServiceWorkerEvent("warn", "critical_image_precache_failed", {
@@ -423,6 +445,9 @@ self.addEventListener("activate", (event) => {
         || (key.startsWith(DYNAMIC_CACHE_PREFIX) && key !== DYNAMIC_CACHE_NAME)
       ))
       .map((key) => caches.delete(key)));
+    await trimCacheEntries(CACHE_NAME, MAX_SHELL_CACHE_ENTRIES);
+    await trimCacheEntries(IMAGE_CACHE_NAME, MAX_IMAGE_CACHE_ENTRIES);
+    await trimCacheEntries(DYNAMIC_CACHE_NAME, MAX_DYNAMIC_CACHE_ENTRIES);
     await self.clients.claim();
   })());
 });

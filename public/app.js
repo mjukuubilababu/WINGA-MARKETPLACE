@@ -27,6 +27,9 @@ const SELLER_INTEREST_DECAY_START_DAYS = 3;
 const PRODUCT_CARD_LINGER_THRESHOLD_MS = 5000;
 const PRODUCT_CARD_QUICK_SCROLL_THRESHOLD_MS = 1700;
 const PRODUCT_CARD_VISIBILITY_THRESHOLD = 0.66;
+const MEMORY_SNAPSHOT_LIMIT = 18;
+const MEMORY_WARNING_THRESHOLD_BYTES = 180 * 1024 * 1024;
+const MEMORY_SAMPLING_INTERVAL_MS = 30000;
 const { CHAT_EMOJI_CHOICES } = window.WingaModules.config.chat;
 const {
   MARKETPLACE_CATEGORY_TREE,
@@ -5348,6 +5351,7 @@ const {
   noteProductDiscovery,
   enhanceShowcaseTracks,
   bindProductEngagementSignals,
+  disposeScopedRenderMemory,
   bindProductMenus,
   bindImageFallbacks,
   unbindMarketplaceScrollImages,
@@ -5612,6 +5616,7 @@ const {
   promptGuestAuth,
   renderFeedGalleryMarkup,
   bindFeedGalleryInteractions,
+  disposeScopedRenderMemory,
   getBehaviorShowcaseDescriptor,
   getRecommendationSeed,
   getRelatedProducts: (...args) => getRelatedProducts(...args),
@@ -6530,6 +6535,147 @@ function reportSlowPath(event, durationMs, context = {}, thresholdMs = 120) {
       durationMs: Math.round(durationMs)
     }
   );
+}
+
+function getMemoryUsageSnapshot(reason = "sample") {
+  const memory = performance?.memory;
+  if (!memory) {
+    return null;
+  }
+  const usedJSHeapSize = Number(memory.usedJSHeapSize || 0);
+  const totalJSHeapSize = Number(memory.totalJSHeapSize || 0);
+  const jsHeapSizeLimit = Number(memory.jsHeapSizeLimit || 0);
+  if (!Number.isFinite(usedJSHeapSize) || usedJSHeapSize <= 0) {
+    return null;
+  }
+  return {
+    reason,
+    usedJSHeapSize,
+    totalJSHeapSize,
+    jsHeapSizeLimit,
+    timestamp: Date.now()
+  };
+}
+
+function captureMemorySnapshot(reason = "sample", context = {}) {
+  const snapshot = getMemoryUsageSnapshot(reason);
+  if (!snapshot) {
+    return null;
+  }
+  const snapshots = Array.isArray(uiRuntimeState.memorySnapshots) ? uiRuntimeState.memorySnapshots : [];
+  snapshots.push(snapshot);
+  uiRuntimeState.memorySnapshots = snapshots.slice(-MEMORY_SNAPSHOT_LIMIT);
+  if (
+    snapshot.usedJSHeapSize >= MEMORY_WARNING_THRESHOLD_BYTES
+    && snapshot.timestamp - Number(uiRuntimeState.lastMemoryWarningAt || 0) > MEMORY_SAMPLING_INTERVAL_MS
+  ) {
+    uiRuntimeState.lastMemoryWarningAt = snapshot.timestamp;
+    reportClientEvent("warn", "runtime_memory_pressure", "High client heap usage detected.", {
+      category: "runtime",
+      reason,
+      usedMB: Math.round(snapshot.usedJSHeapSize / (1024 * 1024)),
+      totalMB: Math.round(snapshot.totalJSHeapSize / (1024 * 1024)),
+      limitMB: Math.round(snapshot.jsHeapSizeLimit / (1024 * 1024)),
+      ...context
+    });
+  }
+  return snapshot;
+}
+
+function startMemoryMonitoring() {
+  if (uiRuntimeState.memorySampleTimer) {
+    window.clearInterval(uiRuntimeState.memorySampleTimer);
+    uiRuntimeState.memorySampleTimer = 0;
+  }
+  if (!performance?.memory) {
+    return;
+  }
+  captureMemorySnapshot("boot");
+  uiRuntimeState.memorySampleTimer = window.setInterval(() => {
+    captureMemorySnapshot("interval", {
+      view: currentView,
+      productsCount: Array.isArray(products) ? products.length : 0
+    });
+  }, MEMORY_SAMPLING_INTERVAL_MS);
+}
+
+function disconnectRenderMemoryObservers() {
+  disconnectContinuousDiscoveryObserver();
+  if (uiRuntimeState.chromeResizeObserver) {
+    uiRuntimeState.chromeResizeObserver.disconnect();
+    uiRuntimeState.chromeResizeObserver = null;
+  }
+  if (marketplaceScrollImageObserver) {
+    marketplaceScrollImageObserver.disconnect?.();
+    marketplaceScrollImageObserver = null;
+  }
+  if (productEngagementObserver) {
+    productEngagementObserver.disconnect?.();
+    productEngagementObserver = null;
+  }
+}
+
+function cleanupAppRenderMemory(reason = "cleanup", options = {}) {
+  const { full = false } = options;
+  if (searchRuntimeState.renderDebounceTimer) {
+    clearTimeout(searchRuntimeState.renderDebounceTimer);
+    searchRuntimeState.renderDebounceTimer = 0;
+  }
+  if (uiRuntimeState.renderFrame) {
+    cancelAnimationFrame(uiRuntimeState.renderFrame);
+    uiRuntimeState.renderFrame = 0;
+  }
+  if (uiRuntimeState.homeScrollSaveFrame) {
+    cancelAnimationFrame(uiRuntimeState.homeScrollSaveFrame);
+    uiRuntimeState.homeScrollSaveFrame = 0;
+  }
+  if (uiRuntimeState.homeScrollRestoreFrame) {
+    cancelAnimationFrame(uiRuntimeState.homeScrollRestoreFrame);
+    uiRuntimeState.homeScrollRestoreFrame = 0;
+  }
+  if (uiRuntimeState.mobileHeaderScrollFrame) {
+    cancelAnimationFrame(uiRuntimeState.mobileHeaderScrollFrame);
+    uiRuntimeState.mobileHeaderScrollFrame = 0;
+  }
+  if (uiRuntimeState.chromeResizeFrame) {
+    cancelAnimationFrame(uiRuntimeState.chromeResizeFrame);
+    uiRuntimeState.chromeResizeFrame = 0;
+  }
+  if (uiRuntimeState.memorySampleTimer) {
+    clearInterval(uiRuntimeState.memorySampleTimer);
+    uiRuntimeState.memorySampleTimer = 0;
+  }
+  if (lifecycleFallbackTimer) {
+    clearTimeout(lifecycleFallbackTimer);
+    lifecycleFallbackTimer = null;
+  }
+  if (lifecycleRetryTimer) {
+    clearTimeout(lifecycleRetryTimer);
+    lifecycleRetryTimer = null;
+  }
+  if (deepLinkRecoveryTimer) {
+    clearTimeout(deepLinkRecoveryTimer);
+    deepLinkRecoveryTimer = null;
+  }
+  if (publicAuthSlowTimer) {
+    clearTimeout(publicAuthSlowTimer);
+    publicAuthSlowTimer = null;
+  }
+  stopSlideshow();
+  stopMessagePolling();
+  if (full) {
+    disconnectRealtimeChannel();
+  }
+  disposeScopedRenderMemory(productsContainer);
+  disposeScopedRenderMemory(marketShowcase);
+  const detailModal = document.getElementById("product-detail-modal");
+  if (detailModal) {
+    disposeScopedRenderMemory(detailModal);
+  }
+  disconnectRenderMemoryObservers();
+  captureMemorySnapshot(reason, {
+    view: currentView
+  });
 }
 
 function getFriendlyAuthErrorMessage(error, fallbackMessage) {
@@ -7923,12 +8069,11 @@ window.addEventListener("scroll", () => {
 
 function handleAppLifecycleChange() {
   if (document.hidden) {
-    stopSlideshow();
-    disconnectContinuousDiscoveryObserver();
-    stopMessagePolling();
+    cleanupAppRenderMemory("hidden", { full: false });
     return;
   }
 
+  startMemoryMonitoring();
   if (currentView === "home" || currentView === "profile") {
     if (uiRuntimeState.renderFrame) {
       cancelAnimationFrame(uiRuntimeState.renderFrame);
@@ -7945,9 +8090,7 @@ function handleAppLifecycleChange() {
 
 document.addEventListener("visibilitychange", handleAppLifecycleChange);
 window.addEventListener("pagehide", () => {
-  stopSlideshow();
-  disconnectContinuousDiscoveryObserver();
-  stopMessagePolling();
+  cleanupAppRenderMemory("pagehide", { full: true });
 });
 
 window.addEventListener("resize", () => {
@@ -9571,6 +9714,11 @@ function releasePrunedSectionMedia(section) {
   if (!(section instanceof Element)) {
     return;
   }
+  disposeScopedRenderMemory(section);
+  section.querySelectorAll("[data-open-product], [data-product-card]").forEach((card) => {
+    productEngagementObserver?.unobserve?.(card);
+    productCardEngagementState.delete(card);
+  });
   section.querySelectorAll("img").forEach((image) => {
     marketplaceScrollImageObserver?.unobserve?.(image);
     image.removeAttribute("srcset");
@@ -10070,6 +10218,31 @@ function getProductCardForEngagement(node) {
   return node?.closest?.(".product-card[data-open-product], .showcase-card[data-open-product], .seller-product-card[data-open-product], [data-product-card][data-open-product]");
 }
 
+function disposeFeedGalleryBinding(carousel) {
+  if (!(carousel instanceof Element)) {
+    return;
+  }
+  const cleanup = carousel.__wingaCleanup;
+  if (typeof cleanup === "function") {
+    try {
+      cleanup();
+    } catch (error) {
+      // Ignore cleanup failures for detached carousel nodes.
+    }
+  }
+  carousel.__wingaCleanup = null;
+  carousel.dataset.feedGalleryBound = "false";
+}
+
+function disposeScopedRenderMemory(scope) {
+  if (!(scope instanceof Element)) {
+    return;
+  }
+  scope.querySelectorAll?.("[data-feed-gallery-carousel]").forEach((carousel) => {
+    disposeFeedGalleryBinding(carousel);
+  });
+}
+
 function getOrCreateProductCardEngagementState(card) {
   const existingState = productCardEngagementState.get(card);
   if (existingState) {
@@ -10185,11 +10358,14 @@ function bindFeedGalleryInteractions(scope = document) {
     if (carousel.dataset.feedGalleryBound === "true") {
       return;
     }
+    disposeFeedGalleryBinding(carousel);
 
     const track = carousel.querySelector("[data-feed-gallery-track]");
     const badge = carousel.querySelector("[data-feed-gallery-count]");
     const preview = carousel.closest(".feed-gallery-preview");
     const isDetailCarousel = Boolean(carousel.closest("#product-detail-modal"));
+    const abortController = typeof AbortController !== "undefined" ? new AbortController() : null;
+    const listenerOptions = abortController ? { signal: abortController.signal } : undefined;
     carousel.dataset.feedGalleryBound = "true";
     if (!track) {
       return;
@@ -10205,6 +10381,8 @@ function bindFeedGalleryInteractions(scope = document) {
     let isDragging = false;
     let hasPointerCapture = false;
     let suppressClickUntil = 0;
+    let resizeObserver = null;
+    let initSyncTimer = 0;
     let lastTrackedIndex = 0;
     let variationSignalCount = 0;
 
@@ -10335,25 +10513,49 @@ function bindFeedGalleryInteractions(scope = document) {
       });
     };
 
-    track.addEventListener("scroll", scheduleSync, { passive: true });
-    track.addEventListener("touchend", scheduleSync, { passive: true });
-    track.addEventListener("touchcancel", scheduleSync, { passive: true });
+    const cleanup = () => {
+      if (rafId) {
+        window.cancelAnimationFrame(rafId);
+        rafId = 0;
+      }
+      if (initSyncTimer) {
+        window.clearTimeout(initSyncTimer);
+        initSyncTimer = 0;
+      }
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+        resizeObserver = null;
+      }
+      clearDragState();
+      abortController?.abort();
+    };
+    carousel.__wingaCleanup = cleanup;
+
+    track.addEventListener("scroll", scheduleSync, { passive: true, ...(listenerOptions || {}) });
+    track.addEventListener("touchend", scheduleSync, { passive: true, ...(listenerOptions || {}) });
+    track.addEventListener("touchcancel", scheduleSync, { passive: true, ...(listenerOptions || {}) });
     track.addEventListener("click", (event) => {
       if (suppressClickUntil && Date.now() < suppressClickUntil) {
         event.preventDefault();
         event.stopPropagation();
       }
-    }, true);
-    window.addEventListener("resize", scheduleSync, { passive: true });
+    }, { capture: true, ...(listenerOptions || {}) });
+    if (typeof ResizeObserver !== "undefined") {
+      resizeObserver = new ResizeObserver(() => {
+        scheduleSync();
+      });
+      resizeObserver.observe(carousel);
+    }
     const firstImage = carousel.querySelector(".feed-gallery-carousel-slide .feed-gallery-image-social");
     if (firstImage) {
       if (firstImage.complete && (firstImage.naturalWidth || firstImage.width) && (firstImage.naturalHeight || firstImage.height)) {
         syncAspectRatio();
       } else {
-        firstImage.addEventListener("load", syncAspectRatio, { once: true });
+        firstImage.addEventListener("load", syncAspectRatio, { once: true, ...(listenerOptions || {}) });
       }
     }
-    window.setTimeout(() => {
+    initSyncTimer = window.setTimeout(() => {
+      initSyncTimer = 0;
       syncAspectRatio();
       lastTrackedIndex = syncBadge();
     }, 0);
@@ -10379,7 +10581,7 @@ function bindFeedGalleryInteractions(scope = document) {
         isDragging = false;
         track.setPointerCapture?.(event.pointerId);
         hasPointerCapture = true;
-      });
+      }, listenerOptions);
 
       track.addEventListener("pointermove", (event) => {
         if (pointerId !== event.pointerId) {
@@ -10402,7 +10604,7 @@ function bindFeedGalleryInteractions(scope = document) {
         gestureVelocity = (event.clientX - Number(lastPointerMoveX || event.clientX)) / elapsed;
         lastPointerMoveX = event.clientX;
         lastPointerMoveTime = now;
-      });
+      }, listenerOptions);
 
       track.addEventListener("pointerup", (event) => {
         if (pointerId !== event.pointerId) {
@@ -10414,7 +10616,7 @@ function bindFeedGalleryInteractions(scope = document) {
         clearDragState();
         settleDetailCarousel();
         scheduleSync();
-      });
+      }, listenerOptions);
 
       track.addEventListener("pointercancel", (event) => {
         if (pointerId !== event.pointerId) {
@@ -10423,13 +10625,13 @@ function bindFeedGalleryInteractions(scope = document) {
         clearDragState();
         settleDetailCarousel();
         scheduleSync();
-      });
+      }, listenerOptions);
 
       track.addEventListener("lostpointercapture", () => {
         clearDragState();
         settleDetailCarousel();
         scheduleSync();
-      });
+      }, listenerOptions);
     }
   });
 }
@@ -10914,9 +11116,25 @@ function renderCurrentView(options = {}) {
     if (isUpload && !editingProductId) {
       productNameInput.focus();
     }
+  } catch (error) {
+    renderLifecycleFallbackSkeleton("Tulikutana na mzigo wa render. Tunarejesha shell salama na unaweza kujaribu tena.");
+    captureClientError("render_current_view_failed", error, {
+      category: "runtime",
+      alertSeverity: "high",
+      view: currentView,
+      reason
+    });
+    captureMemorySnapshot("render_error", {
+      view: currentView,
+      reason
+    });
   } finally {
     uiRuntimeState.isRenderingView = false;
     uiRuntimeState.lastRenderCompletedAt = Date.now();
+    captureMemorySnapshot("render_complete", {
+      view: currentView,
+      reason
+    });
     reportSlowPath("render_current_view_slow", getPerfNow() - startedAt, {
       view: currentView,
       productsCount: Array.isArray(products) ? products.length : 0,
@@ -11989,13 +12207,15 @@ async function bootApp() {
   document.body.classList.add("app-ready");
   hideLifecycleFallbackShell();
   completeBootOverlay();
+  startMemoryMonitoring();
 
   if (typeof ResizeObserver !== "undefined") {
-    const resizeObserver = new ResizeObserver(() => {
+    uiRuntimeState.chromeResizeObserver?.disconnect?.();
+    uiRuntimeState.chromeResizeObserver = new ResizeObserver(() => {
       scheduleChromeOffsetSync();
     });
-    resizeObserver.observe(topBar);
-    resizeObserver.observe(bottomNav);
+    uiRuntimeState.chromeResizeObserver.observe(topBar);
+    uiRuntimeState.chromeResizeObserver.observe(bottomNav);
   }
 
   window.setTimeout(() => {
