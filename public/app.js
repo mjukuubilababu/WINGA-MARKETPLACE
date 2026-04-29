@@ -16,6 +16,17 @@ const APP_INSTALL_STATE_KEY = "winga-pwa-install-state";
 const NOTIFICATION_PERMISSION_STATE_KEY = "winga-notification-permission-state";
 const NOTIFICATION_PERMISSION_PROMPT_COOLDOWN_MS = 12 * 60 * 60 * 1000;
 const NOTIFICATION_PERMISSION_TRIGGERS = new Set(["message", "reply", "request", "order", "profile"]);
+const SELLER_INTEREST_SIGNAL_WEIGHTS = Object.freeze({
+  quick_scroll: 4,
+  variation_swipe: 12,
+  linger_5s: 26,
+  card_open: 16,
+  message: 34
+});
+const SELLER_INTEREST_DECAY_START_DAYS = 3;
+const PRODUCT_CARD_LINGER_THRESHOLD_MS = 5000;
+const PRODUCT_CARD_QUICK_SCROLL_THRESHOLD_MS = 1700;
+const PRODUCT_CARD_VISIBILITY_THRESHOLD = 0.66;
 const { CHAT_EMOJI_CHOICES } = window.WingaModules.config.chat;
 const {
   MARKETPLACE_CATEGORY_TREE,
@@ -447,6 +458,19 @@ function getSellerHistoryStorageKey(username = currentUser) {
   return `${SELLER_HISTORY_KEY_PREFIX}:${username || "guest"}`;
 }
 
+function normalizeSellerInterestCounters(interactions) {
+  const signals = interactions && typeof interactions === "object" && !Array.isArray(interactions)
+    ? interactions
+    : {};
+  return {
+    quick_scroll: Math.max(0, Number(signals.quick_scroll || 0)),
+    variation_swipe: Math.max(0, Number(signals.variation_swipe || 0)),
+    linger_5s: Math.max(0, Number(signals.linger_5s || 0)),
+    card_open: Math.max(0, Number(signals.card_open || 0)),
+    message: Math.max(0, Number(signals.message || 0))
+  };
+}
+
 function loadBuyerSellerAffinityState(username = currentUser) {
   if (!username) {
     return {};
@@ -467,7 +491,10 @@ function loadBuyerSellerAffinityState(username = currentUser) {
           }
           return [normalizedSellerId, {
             score: Math.min(420, safeScore),
-            updatedAt: entry?.updatedAt || ""
+            updatedAt: entry?.updatedAt || "",
+            lastSignal: String(entry?.lastSignal || "").trim(),
+            lastProductId: String(entry?.lastProductId || "").trim(),
+            interactions: normalizeSellerInterestCounters(entry?.interactions)
           }];
         })
         .filter(Boolean)
@@ -498,18 +525,35 @@ function hydrateBuyerSellerAffinityState(username = currentUser) {
   buyerSellerAffinity = loadBuyerSellerAffinityState(username);
 }
 
-function noteSellerInterest(sellerId, weight = 1) {
+function getSellerInterestSignalWeight(signalType, fallbackWeight = 1) {
+  const normalizedSignal = String(signalType || "").trim().toLowerCase();
+  if (normalizedSignal && Number.isFinite(SELLER_INTEREST_SIGNAL_WEIGHTS[normalizedSignal])) {
+    return Number(SELLER_INTEREST_SIGNAL_WEIGHTS[normalizedSignal]);
+  }
+  return Number(fallbackWeight);
+}
+
+function noteSellerInterest(sellerId, weight = 1, options = {}) {
   const normalizedSellerId = String(sellerId || "").trim();
-  const safeWeight = Number(weight);
+  const normalizedSignal = String(options.signalType || "").trim().toLowerCase();
+  const safeWeight = getSellerInterestSignalWeight(normalizedSignal, weight);
   if (!currentUser || !normalizedSellerId || !Number.isFinite(safeWeight) || safeWeight <= 0 || normalizedSellerId === currentUser) {
     return;
   }
+  const nowIso = new Date().toISOString();
   const nextEntry = buyerSellerAffinity[normalizedSellerId] || { score: 0, updatedAt: "" };
+  const nextInteractions = normalizeSellerInterestCounters(nextEntry.interactions);
+  if (normalizedSignal && Object.prototype.hasOwnProperty.call(nextInteractions, normalizedSignal)) {
+    nextInteractions[normalizedSignal] += 1;
+  }
   buyerSellerAffinity = {
     ...buyerSellerAffinity,
     [normalizedSellerId]: {
       score: Math.min(420, Math.max(0, nextEntry.score) + safeWeight),
-      updatedAt: new Date().toISOString()
+      updatedAt: nowIso,
+      lastSignal: normalizedSignal || String(nextEntry.lastSignal || "").trim(),
+      lastProductId: String(options.productId || nextEntry.lastProductId || "").trim(),
+      interactions: nextInteractions
     }
   };
   saveBuyerSellerAffinityState();
@@ -519,7 +563,10 @@ function getBuyerSellerAffinityEntries() {
   return Object.entries(buyerSellerAffinity).map(([sellerId, entry]) => ({
     sellerId,
     score: Number(entry?.score || 0),
-    updatedAt: entry?.updatedAt || ""
+    updatedAt: entry?.updatedAt || "",
+    lastSignal: String(entry?.lastSignal || "").trim(),
+    lastProductId: String(entry?.lastProductId || "").trim(),
+    interactions: normalizeSellerInterestCounters(entry?.interactions)
   })).filter((entry) => entry.sellerId && entry.score > 0);
 }
 
@@ -2442,7 +2489,10 @@ function noteProductInterest(productId) {
   recentlyViewedProductIds = [productId, ...recentlyViewedProductIds.filter((item) => item !== productId)].slice(0, 12);
   const relatedProduct = getProductById(productId);
   if (relatedProduct?.uploadedBy) {
-    noteSellerInterest(relatedProduct.uploadedBy, 16);
+    noteSellerInterest(relatedProduct.uploadedBy, 16, {
+      signalType: "card_open",
+      productId
+    });
   }
 }
 
@@ -2484,8 +2534,26 @@ function noteMessageInterest(productId) {
   recentMessagedProductIds = rememberBehaviorValue(recentMessagedProductIds, productId, 10);
   const relatedProduct = getProductById(productId);
   if (relatedProduct?.uploadedBy) {
-    noteSellerInterest(relatedProduct.uploadedBy, 34);
+    noteSellerInterest(relatedProduct.uploadedBy, 34, {
+      signalType: "message",
+      productId
+    });
   }
+}
+
+function noteProductEngagementSignal(productId, signalType, fallbackWeight = 1) {
+  const normalizedProductId = normalizeProductIdValue(productId);
+  if (!normalizedProductId) {
+    return;
+  }
+  const relatedProduct = getProductById(normalizedProductId);
+  if (!relatedProduct?.uploadedBy) {
+    return;
+  }
+  noteSellerInterest(relatedProduct.uploadedBy, fallbackWeight, {
+    signalType,
+    productId: normalizedProductId
+  });
 }
 
 const {
@@ -5279,6 +5347,7 @@ const {
   noteProductInterest,
   noteProductDiscovery,
   enhanceShowcaseTracks,
+  bindProductEngagementSignals,
   bindProductMenus,
   bindImageFallbacks,
   unbindMarketplaceScrollImages,
@@ -6419,6 +6488,8 @@ let productDiscoveryTrail = [];
 let productSeenTimestamps = {};
 let pinnedDesktopCategory = "";
 let buyerSellerAffinity = {};
+let productEngagementObserver = null;
+const productCardEngagementState = new WeakMap();
 let recentCategorySelections = [];
 let recentSearchTerms = [];
 let recentMessagedProductIds = [];
@@ -9823,6 +9894,8 @@ function hydrateContinuousDiscoveryAnchor(anchor) {
   section.after(anchor);
   enhanceShowcaseTracks(section);
   bindShowcaseCardClicks(section);
+  bindFeedGalleryInteractions(section);
+  bindProductEngagementSignals(section);
   bindImageFallbacks(section);
   bindProductMenus(section);
   trimHomeContinuousDiscoverySections(anchor);
@@ -9993,6 +10066,116 @@ function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
   `;
 }
 
+function getProductCardForEngagement(node) {
+  return node?.closest?.(".product-card[data-open-product], .showcase-card[data-open-product], .seller-product-card[data-open-product], [data-product-card][data-open-product]");
+}
+
+function getOrCreateProductCardEngagementState(card) {
+  const existingState = productCardEngagementState.get(card);
+  if (existingState) {
+    return existingState;
+  }
+  const nextState = {
+    visibleSince: 0,
+    strongTimer: 0,
+    strongRecorded: false,
+    quickRecorded: false
+  };
+  productCardEngagementState.set(card, nextState);
+  return nextState;
+}
+
+function clearProductCardEngagementState(card, options = {}) {
+  const state = productCardEngagementState.get(card);
+  if (!state) {
+    return;
+  }
+  if (state.strongTimer) {
+    window.clearTimeout(state.strongTimer);
+    state.strongTimer = 0;
+  }
+  if (options.forget) {
+    productCardEngagementState.delete(card);
+    return;
+  }
+  state.visibleSince = 0;
+}
+
+function handleProductCardVisibilityChange(card, isVisible) {
+  if (!(card instanceof Element)) {
+    return;
+  }
+  const productId = normalizeProductIdValue(card.dataset.openProduct || card.dataset.productCard || "");
+  if (!productId) {
+    return;
+  }
+  const state = getOrCreateProductCardEngagementState(card);
+  if (isVisible) {
+    if (state.visibleSince) {
+      return;
+    }
+    state.visibleSince = Date.now();
+    if (!state.strongRecorded) {
+      state.strongTimer = window.setTimeout(() => {
+        const activeState = productCardEngagementState.get(card);
+        if (!activeState || !activeState.visibleSince || activeState.strongRecorded) {
+          return;
+        }
+        activeState.strongRecorded = true;
+        noteProductEngagementSignal(productId, "linger_5s", SELLER_INTEREST_SIGNAL_WEIGHTS.linger_5s);
+      }, PRODUCT_CARD_LINGER_THRESHOLD_MS);
+    }
+    return;
+  }
+
+  const visibleForMs = state.visibleSince ? Date.now() - state.visibleSince : 0;
+  if (visibleForMs > 0 && visibleForMs < PRODUCT_CARD_QUICK_SCROLL_THRESHOLD_MS && !state.quickRecorded) {
+    state.quickRecorded = true;
+    noteProductEngagementSignal(productId, "quick_scroll", SELLER_INTEREST_SIGNAL_WEIGHTS.quick_scroll);
+  }
+  clearProductCardEngagementState(card);
+}
+
+function getProductEngagementObserver() {
+  if (productEngagementObserver || typeof IntersectionObserver === "undefined") {
+    return productEngagementObserver;
+  }
+  productEngagementObserver = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      const card = entry.target;
+      if (!(card instanceof Element)) {
+        return;
+      }
+      if (!card.isConnected) {
+        clearProductCardEngagementState(card, { forget: true });
+        productEngagementObserver?.unobserve(card);
+        return;
+      }
+      handleProductCardVisibilityChange(card, entry.isIntersecting && entry.intersectionRatio >= PRODUCT_CARD_VISIBILITY_THRESHOLD);
+    });
+  }, {
+    threshold: [0, PRODUCT_CARD_VISIBILITY_THRESHOLD, 0.92]
+  });
+  return productEngagementObserver;
+}
+
+function bindProductEngagementSignals(scope = document) {
+  if (!scope) {
+    return;
+  }
+  const observer = getProductEngagementObserver();
+  if (!observer) {
+    return;
+  }
+  scope.querySelectorAll(".product-card[data-open-product], .showcase-card[data-open-product], .seller-product-card[data-open-product], [data-product-card][data-open-product]").forEach((card) => {
+    if (card.dataset.engagementBound === "true") {
+      return;
+    }
+    card.dataset.engagementBound = "true";
+    observer.observe(card);
+  });
+}
+
 function bindFeedGalleryInteractions(scope = document) {
   if (!scope) {
     return;
@@ -10022,6 +10205,8 @@ function bindFeedGalleryInteractions(scope = document) {
     let isDragging = false;
     let hasPointerCapture = false;
     let suppressClickUntil = 0;
+    let lastTrackedIndex = 0;
+    let variationSignalCount = 0;
 
     const clearDragState = () => {
       if (hasPointerCapture && pointerId != null) {
@@ -10073,17 +10258,30 @@ function bindFeedGalleryInteractions(scope = document) {
     };
 
     const syncBadge = () => {
-      if (!badge) {
-        return;
-      }
       const total = Math.max(1, Number(carousel.dataset.feedGalleryTotal || track.querySelectorAll("[data-feed-gallery-slide]").length || 1));
       const width = Math.max(1, track.clientWidth || carousel.clientWidth || 1);
       const currentIndex = Math.min(total - 1, Math.max(0, Math.round(track.scrollLeft / width)));
       const nextLabel = `${currentIndex + 1}/${total}`;
       carousel.dataset.feedGalleryCurrent = String(currentIndex + 1);
-      if (badge.textContent !== nextLabel) {
+      if (badge && badge.textContent !== nextLabel) {
         badge.textContent = nextLabel;
       }
+      return currentIndex;
+    };
+
+    const recordVariationInterestIfNeeded = (currentIndex) => {
+      const total = Math.max(1, Number(carousel.dataset.feedGalleryTotal || track.querySelectorAll("[data-feed-gallery-slide]").length || 1));
+      if (total <= 1 || currentIndex <= 0 || currentIndex === lastTrackedIndex || variationSignalCount >= 2) {
+        lastTrackedIndex = currentIndex;
+        return;
+      }
+      const card = getProductCardForEngagement(carousel);
+      const productId = normalizeProductIdValue(card?.dataset.openProduct || card?.dataset.productCard || "");
+      if (productId) {
+        noteProductEngagementSignal(productId, "variation_swipe", SELLER_INTEREST_SIGNAL_WEIGHTS.variation_swipe);
+        variationSignalCount += 1;
+      }
+      lastTrackedIndex = currentIndex;
     };
 
     const snapToNearestSlide = (behavior = "auto") => {
@@ -10131,7 +10329,8 @@ function bindFeedGalleryInteractions(scope = document) {
       }
       rafId = window.requestAnimationFrame(() => {
         rafId = 0;
-        syncBadge();
+        const currentIndex = syncBadge();
+        recordVariationInterestIfNeeded(currentIndex);
         syncAspectRatio();
       });
     };
@@ -10156,7 +10355,7 @@ function bindFeedGalleryInteractions(scope = document) {
     }
     window.setTimeout(() => {
       syncAspectRatio();
-      syncBadge();
+      lastTrackedIndex = syncBadge();
     }, 0);
 
     if (typeof PointerEvent !== "undefined") {
@@ -10702,6 +10901,10 @@ function renderCurrentView(options = {}) {
     renderProducts(homeProducts);
     enhanceShowcaseTracks(marketShowcase);
     enhanceShowcaseTracks(productsContainer);
+    bindFeedGalleryInteractions(marketShowcase);
+    bindFeedGalleryInteractions(productsContainer);
+    bindProductEngagementSignals(marketShowcase);
+    bindProductEngagementSignals(productsContainer);
     bindImageFallbacks(marketShowcase);
     bindImageFallbacks(productsContainer);
     bindProductMenus(marketShowcase);
@@ -11206,6 +11409,7 @@ function openProductDetailModal(productId, options = {}) {
     return;
   }
 
+  noteProductInterest(normalizedProductId);
   setDeepLinkLoadingShellVisible(true);
   const result = openProductDetailModalFromController(normalizedProductId, {
     allowBrokenImageFallbackOpen: true,
