@@ -29,12 +29,15 @@
           const unwrapped = parsed.searchParams.get("u") || "";
           return unwrapped ? sanitizeImageSource(unwrapped, fallbackSrc) : (fallbackSrc || "");
         }
+        if (publicBaseUrl && parsed.origin === publicBaseUrl && parsed.pathname.startsWith("/uploads/")) {
+          return parsed.toString();
+        }
         return /\.(?:avif|webp|png|jpe?g|gif)$/i.test(parsed.pathname)
           ? proxyMarketplaceImage(parsed.toString())
           : parsed.toString();
       }
       if (value.startsWith("/uploads/") && publicBaseUrl) {
-        return proxyMarketplaceImage(new URL(value, publicBaseUrl).toString());
+        return new URL(value, publicBaseUrl).toString();
       }
       if (/^[./]/.test(value) || value.startsWith("/")) {
         const parsed = new URL(value, window.location.origin);

@@ -104,13 +104,16 @@
       });
       const track = createElement("div", { className: "feed-gallery-carousel-track", attributes: { "data-feed-gallery-track": "true" } });
       images.forEach((src, index) => {
+        const safeSrc = deps.sanitizeImageSource
+          ? deps.sanitizeImageSource(src || "", deps.getImageFallbackDataUri("WINGA"))
+          : src;
         const slide = createElement("div", {
           className: "feed-gallery-carousel-slide",
           attributes: { "data-feed-gallery-slide": String(index) }
         });
         const isFirstSlide = index === 0;
         slide.appendChild(createProgressiveImage({
-          src,
+          src: safeSrc,
           alt: `${product.name || "Product image"} ${index + 1}`,
           className: "feed-gallery-image feed-gallery-image-social",
           fallbackSrc: deps.getImageFallbackDataUri("WINGA"),
@@ -121,7 +124,8 @@
             fetchpriority: isFirstSlide ? "high" : "auto",
             draggable: "false",
             "data-preserve-image-ratio": "true",
-            "data-marketplace-scroll-image": "true"
+            "data-marketplace-scroll-image": "true",
+            "data-feed-gallery-image-src": safeSrc
           }
         }));
         track.appendChild(slide);

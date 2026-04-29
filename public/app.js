@@ -5632,9 +5632,17 @@ function getProductImageCandidates(product) {
   const sourceImages = Array.isArray(product?.images) && product.images.length > 0
     ? product.images
     : [product?.image];
+  const seen = new Set();
   return sourceImages
     .map((image) => sanitizeImageSource(image, ""))
-    .filter(Boolean);
+    .filter(Boolean)
+    .filter((image) => {
+      if (seen.has(image)) {
+        return false;
+      }
+      seen.add(image);
+      return true;
+    });
 }
 
 function getBrokenMarketplaceImageSet(productId) {
@@ -9845,6 +9853,7 @@ function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
             draggable: "false",
             "data-preserve-image-ratio": "true",
             "data-marketplace-scroll-image": "true",
+            "data-feed-gallery-image-src": safeSrc,
             "data-fallback-src": getImageFallbackDataUri("WINGA")
           }
         }).outerHTML}

@@ -622,6 +622,9 @@
         const unwrappedSource = parsed.searchParams.get("u") || "";
         return unwrappedSource ? createMarketplaceImageProxyUrl(unwrappedSource) : "";
       }
+      if (publicBaseUrl && parsed.origin === publicBaseUrl && parsed.pathname.startsWith("/uploads/")) {
+        return parsed.toString();
+      }
       if (!["http:", "https:"].includes(parsed.protocol) || !publicBaseUrl) {
         return parsed.toString();
       }
