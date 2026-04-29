@@ -798,14 +798,38 @@ function syncMobileCategorySheetOffset() {
   document.documentElement.style.setProperty("--mobile-category-sheet-top", `${topOffset}px`);
 }
 
-function scheduleRenderCurrentView() {
+const MIN_VIEW_RENDER_INTERVAL_MS = Math.max(
+  48,
+  Number(window.WINGA_CONFIG?.minViewRenderIntervalMs || 64)
+);
+
+function queueRenderCurrentView(reason = "scheduled_render") {
+  uiRuntimeState.pendingRenderRequested = true;
+  uiRuntimeState.pendingRenderReason = String(reason || "scheduled_render");
+  if (uiRuntimeState.renderFrame) {
+    return;
+  }
+  uiRuntimeState.renderFrame = requestAnimationFrame(() => {
+    uiRuntimeState.renderFrame = 0;
+    const nextReason = uiRuntimeState.pendingRenderReason || reason;
+    uiRuntimeState.pendingRenderRequested = false;
+    uiRuntimeState.pendingRenderReason = "";
+    renderCurrentView({ reason: nextReason, scheduled: true });
+  });
+}
+
+function scheduleRenderCurrentView(reason = "scheduled_render") {
+  uiRuntimeState.pendingRenderReason = String(reason || "scheduled_render");
   if (uiRuntimeState.renderFrame) {
     cancelAnimationFrame(uiRuntimeState.renderFrame);
   }
 
   uiRuntimeState.renderFrame = requestAnimationFrame(() => {
     uiRuntimeState.renderFrame = 0;
-    renderCurrentView();
+    const nextReason = uiRuntimeState.pendingRenderReason || reason;
+    uiRuntimeState.pendingRenderRequested = false;
+    uiRuntimeState.pendingRenderReason = "";
+    renderCurrentView({ reason: nextReason, scheduled: true });
   });
 }
 
@@ -10559,12 +10583,27 @@ function enhanceShowcaseTracks(scope = document) {
   });
 }
 
-function renderCurrentView() {
+function renderCurrentView(options = {}) {
+  const reason = String(options?.reason || "direct_render");
+  const force = Boolean(options?.force);
+  const now = Date.now();
+  if (uiRuntimeState.isRenderingView) {
+    queueRenderCurrentView(reason);
+    return;
+  }
+  if (!force && now - Number(uiRuntimeState.lastRenderStartedAt || 0) < MIN_VIEW_RENDER_INTERVAL_MS) {
+    queueRenderCurrentView(reason);
+    return;
+  }
+  uiRuntimeState.isRenderingView = true;
+  uiRuntimeState.lastRenderStartedAt = now;
   if (
     suppressInitialProductHomeRender
     && !document.body.classList.contains("product-detail-open")
     && String(window.location.pathname || "").match(/^\/product\/.+/i)
   ) {
+    uiRuntimeState.isRenderingView = false;
+    uiRuntimeState.lastRenderCompletedAt = Date.now();
     return;
   }
   const startedAt = getPerfNow();
@@ -10673,11 +10712,20 @@ function renderCurrentView() {
       productNameInput.focus();
     }
   } finally {
+    uiRuntimeState.isRenderingView = false;
+    uiRuntimeState.lastRenderCompletedAt = Date.now();
     reportSlowPath("render_current_view_slow", getPerfNow() - startedAt, {
       view: currentView,
       productsCount: Array.isArray(products) ? products.length : 0,
-      selectedCategory
+      selectedCategory,
+      reason
     }, 120);
+    if (uiRuntimeState.pendingRenderRequested) {
+      const nextReason = uiRuntimeState.pendingRenderReason || "queued_render";
+      uiRuntimeState.pendingRenderRequested = false;
+      uiRuntimeState.pendingRenderReason = "";
+      scheduleRenderCurrentView(nextReason);
+    }
   }
 }
 
