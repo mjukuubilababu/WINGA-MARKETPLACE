@@ -1,4 +1,4 @@
-const BUILD_VERSION = "20260429151720";
+const BUILD_VERSION = "20260429160952";
 const CACHE_PREFIX = "winga-shell";
 const CACHE_NAME = `${CACHE_PREFIX}-${BUILD_VERSION}`;
 const IMAGE_CACHE_PREFIX = "winga-images";
@@ -85,13 +85,17 @@ function isCacheableAsset(request) {
 }
 
 function createImageFallbackResponse() {
-  return new Response(`<svg xmlns="http://www.w3.org/2000/svg" width="640" height="640" viewBox="0 0 640 640" role="img" aria-label="WINGA image unavailable">
-    <rect width="640" height="640" fill="#f5f7fa"/>
-    <rect x="96" y="96" width="448" height="448" rx="44" fill="#ffffff" stroke="#e5e7eb" stroke-width="4"/>
-    <path d="M222 272h196v122H222z" fill="#eef2f7"/>
-    <path d="m236 380 72-72 48 48 34-34 78 78H236z" fill="#d9e1ec"/>
-    <circle cx="398" cy="288" r="28" fill="#cbd5e1"/>
-    <text x="320" y="466" text-anchor="middle" font-family="Arial, sans-serif" font-size="34" font-weight="700" fill="#6b7280">Image unavailable</text>
+  return new Response(`<svg xmlns="http://www.w3.org/2000/svg" width="640" height="640" viewBox="0 0 640 640" role="img" aria-label="WINGA image fallback">
+    <defs>
+      <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+        <stop offset="0%" stop-color="#ff9f1c"/>
+        <stop offset="100%" stop-color="#ff4f0a"/>
+      </linearGradient>
+    </defs>
+    <rect width="640" height="640" fill="#fff7ed"/>
+    <rect x="110" y="110" width="420" height="420" rx="76" fill="url(#bg)"/>
+    <text x="320" y="330" text-anchor="middle" font-family="Arial, sans-serif" font-size="96" font-weight="900" fill="#ffffff">W</text>
+    <text x="320" y="392" text-anchor="middle" font-family="Arial, sans-serif" font-size="42" font-weight="800" fill="#ffffff">WINGA</text>
   </svg>`, {
     status: 200,
     headers: {
@@ -178,16 +182,18 @@ async function proxyImageRequest(request) {
   }
 
   try {
-    const remoteRequest = new Request(remoteUrl, {
-      mode: "no-cors",
-      credentials: "omit",
+    const remote = new URL(remoteUrl, self.location.origin);
+    const isSameOriginRemote = remote.origin === self.location.origin;
+    const remoteRequest = new Request(remote.toString(), {
+      mode: isSameOriginRemote ? "same-origin" : "no-cors",
+      credentials: isSameOriginRemote ? "same-origin" : "omit",
       cache: "reload"
     });
     const networkResponse = await fetch(remoteRequest);
     if (networkResponse) {
       if (isUsableImageResponse(networkResponse)) {
         await cache.put(request, networkResponse.clone());
-        await cache.put(remoteUrl, networkResponse.clone());
+        await cache.put(remote.toString(), networkResponse.clone());
         return networkResponse;
       }
     }
@@ -237,12 +243,9 @@ async function cacheImageUrls(urls = []) {
       const isSameOriginImage = url.origin === self.location.origin;
       const request = new Request(url.toString(), {
         mode: isSameOriginImage ? "same-origin" : "no-cors",
-        credentials: isSameOriginImage ? "same-origin" : "omit"
+        credentials: isSameOriginImage ? "same-origin" : "omit",
+        cache: "reload"
       });
-      const existing = await cache.match(request);
-      if (existing) {
-        return;
-      }
       const response = await fetch(request);
       if (isUsableImageResponse(response)) {
         await cache.put(request, response.clone());

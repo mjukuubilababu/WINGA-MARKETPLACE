@@ -1509,10 +1509,16 @@ function escapeHtml(value) {
 function getImageFallbackDataUri(label = "WINGA") {
   return `data:image/svg+xml;utf8,${encodeURIComponent(`
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 640">
-      <rect width="640" height="640" fill="#F5F7FA"/>
-      <rect x="80" y="80" width="480" height="480" rx="32" fill="#FFFFFF" stroke="#E5E7EB"/>
-      <text x="320" y="300" text-anchor="middle" font-family="Segoe UI, Arial" font-size="42" fill="#232F3E">${label}</text>
-      <text x="320" y="360" text-anchor="middle" font-family="Segoe UI, Arial" font-size="24" fill="#6B7280">Image unavailable</text>
+      <defs>
+        <linearGradient id="winga-fallback-bg" x1="0" x2="1" y1="0" y2="1">
+          <stop offset="0%" stop-color="#FF9F1C"/>
+          <stop offset="100%" stop-color="#FF4F0A"/>
+        </linearGradient>
+      </defs>
+      <rect width="640" height="640" fill="#FFF7ED"/>
+      <rect x="110" y="110" width="420" height="420" rx="76" fill="url(#winga-fallback-bg)"/>
+      <text x="320" y="330" text-anchor="middle" font-family="Segoe UI, Arial" font-size="96" font-weight="900" fill="#FFFFFF">${label.slice(0, 1).toUpperCase()}</text>
+      <text x="320" y="392" text-anchor="middle" font-family="Segoe UI, Arial" font-size="42" font-weight="800" fill="#FFFFFF">WINGA</text>
     </svg>
   `)}`;
 }
@@ -1583,6 +1589,25 @@ function warmProductImageCache(products = []) {
 
   if (!queue.length) {
     return;
+  }
+
+  const cacheUrls = queue.map((item) => item.src).filter(Boolean);
+  if (cacheUrls.length && "serviceWorker" in navigator) {
+    const postCacheMessage = (registration) => {
+      try {
+        registration?.active?.postMessage?.({
+          type: "CACHE_IMAGE_URLS",
+          urls: cacheUrls.slice(0, isStandalone ? 10 : 18)
+        });
+      } catch (error) {
+        // Ignore SW warm-cache messaging issues.
+      }
+    };
+    if (navigator.serviceWorker.controller) {
+      postCacheMessage({ active: navigator.serviceWorker.controller });
+    } else if (navigator.serviceWorker.ready) {
+      navigator.serviceWorker.ready.then(postCacheMessage).catch(() => {});
+    }
   }
 
   const batchSize = isStandalone ? 8 : 6;
@@ -11180,7 +11205,8 @@ function bindImageFallbacks(scope = document) {
     }
     image.dataset.fallbackBound = "true";
     image.addEventListener("error", () => {
-      if (!image.dataset.fallbackSrc) {
+      const fallbackSrc = image.dataset.fallbackSrc || "";
+      if (!fallbackSrc) {
         return;
       }
       const productId = image.dataset.imageActionProduct || "";
@@ -11188,12 +11214,15 @@ function bindImageFallbacks(scope = document) {
       if (productId && imageSource) {
         noteBrokenMarketplaceImage(productId, imageSource);
       }
-      image.src = image.dataset.fallbackSrc;
-      image.removeAttribute("data-fallback-src");
+      image.closest(".progressive-image-shell")?.classList.add("is-error");
+      if (image.getAttribute("src") !== fallbackSrc) {
+        image.src = fallbackSrc;
+      }
     }, { once: true });
     if (image.dataset.fallbackLoadBound !== "true") {
       image.dataset.fallbackLoadBound = "true";
       image.addEventListener("load", () => {
+        image.closest(".progressive-image-shell")?.classList.add("is-loaded");
         const productId = image.dataset.imageActionProduct || "";
         const loadedSource = image.currentSrc || image.getAttribute("src") || image.dataset.imageActionSrc || "";
         if (

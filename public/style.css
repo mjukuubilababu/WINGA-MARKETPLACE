@@ -2565,6 +2565,30 @@ img[data-zoom-src]{
   isolation:isolate;
 }
 
+.progressive-image-shell::before{
+  content:"";
+  position:absolute;
+  inset:0;
+  z-index:0;
+  pointer-events:none;
+  background:linear-gradient(90deg, #eef2f6 0%, #f8fafc 45%, #eef2f6 100%);
+  background-size:220% 100%;
+  animation:winga-image-shimmer 1.15s ease-in-out infinite;
+  opacity:1;
+  transition:opacity .2s ease;
+}
+
+.progressive-image-shell.is-loaded::before,
+.progressive-image-shell.is-error::before{
+  opacity:0;
+  animation:none;
+}
+
+@keyframes winga-image-shimmer{
+  0%{ background-position:120% 0; }
+  100%{ background-position:-120% 0; }
+}
+
 .progressive-image-shell.fit-mode-contain{
   background:#eef2f6;
 }
@@ -2595,9 +2619,9 @@ img[data-zoom-src]{
 }
 
 .progressive-image-full{
-  opacity:1;
+  opacity:0;
   transition:opacity .18s ease-in;
-  background:#eef2f6;
+  background:transparent;
   z-index:2;
 }
 

@@ -714,16 +714,26 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       }
       const configuredApiBaseUrl = String(window.WINGA_CONFIG?.apiBaseUrl || "").trim().replace(/\/+$/, "");
       const publicBaseUrl = configuredApiBaseUrl.replace(/\/api$/, "");
+      const proxyMarketplaceImage = (imageUrl) => {
+        if (!publicBaseUrl || !/^https?:/i.test(String(imageUrl || ""))) {
+          return imageUrl;
+        }
+        const proxyUrl = new URL("/__winga-image__", publicBaseUrl);
+        proxyUrl.searchParams.set("u", imageUrl);
+        return proxyUrl.toString();
+      };
       if (/^https?:/i.test(value)) {
         const parsed = new URL(value);
-        if (parsed.origin === window.location.origin && parsed.pathname === "/__winga-image__") {
+        if (parsed.pathname === "/__winga-image__") {
           const unwrapped = parsed.searchParams.get("u") || "";
           return unwrapped ? sanitizeImageSource(unwrapped, fallbackSrc) : (fallbackSrc || "");
         }
-        return parsed.toString();
+        return /\.(?:avif|webp|png|jpe?g|gif)$/i.test(parsed.pathname)
+          ? proxyMarketplaceImage(parsed.toString())
+          : parsed.toString();
       }
       if (value.startsWith("/uploads/") && publicBaseUrl) {
-        return new URL(value, publicBaseUrl).toString();
+        return proxyMarketplaceImage(new URL(value, publicBaseUrl).toString());
       }
       if (/^[./]/.test(value) || value.startsWith("/")) {
         const parsed = new URL(value, window.location.origin);

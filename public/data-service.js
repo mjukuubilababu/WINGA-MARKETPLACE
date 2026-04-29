@@ -1635,7 +1635,7 @@
       }
       try {
         const parsed = new URL(source, window.location.origin);
-        if (parsed.origin === window.location.origin && parsed.pathname === "/__winga-image__") {
+        if (parsed.pathname === "/__winga-image__") {
           const remoteUrl = parsed.searchParams.get("u") || "";
           if (remoteUrl) {
             return new URL(remoteUrl).toString();
