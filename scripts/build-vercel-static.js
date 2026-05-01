@@ -327,7 +327,10 @@ function buildProductShareHtml(baseHtml, meta) {
   const safeDescription = escapeHtml(meta.description);
   const safeCanonicalUrl = escapeHtml(meta.url);
   const safeImageUrl = escapeHtml(meta.image);
-  const safeTemplate = baseHtml || `<!DOCTYPE html>
+  const safeTemplate = String(baseHtml || "")
+    .replace(/<meta\s+(?:name="description"|property="og:[^"]+"|name="twitter:[^"]+")[^>]*>\s*/gi, "")
+    .replace(/<link\s+rel="canonical"[^>]*>\s*/gi, "")
+    || `<!DOCTYPE html>
 <html lang="sw">
 <head>
   <meta charset="UTF-8">

@@ -809,6 +809,11 @@ function getPublicRequestOrigin(req) {
   return `${protocol}://localhost:${PORT}`;
 }
 
+function isCrawlerRequest(req) {
+  const userAgent = String(req?.headers?.["user-agent"] || "").toLowerCase();
+  return /(facebookexternalhit|facebot|twitterbot|linkedinbot|slackbot|telegrambot|whatsapp|googlebot|bingbot|discordbot|skypeuripreview|applebot)/i.test(userAgent);
+}
+
 function getProductShareImageUrl(product, origin) {
   const candidates = [
     ...(Array.isArray(product?.images) ? product.images : []),
@@ -879,7 +884,10 @@ function buildProductShareHtml({ title, description, canonicalUrl, imageUrl }) {
   <meta name="twitter:title" content="${safeTitle}">
   <meta name="twitter:description" content="${safeDescription}">`;
 
-  const baseHtml = APP_HTML_TEMPLATE || `<!DOCTYPE html>
+  const baseHtml = String(APP_HTML_TEMPLATE || "")
+    .replace(/<meta\s+(?:name="description"|property="og:[^"]+"|name="twitter:[^"]+")[^>]*>\s*/gi, "")
+    .replace(/<link\s+rel="canonical"[^>]*>\s*/gi, "")
+    || `<!DOCTYPE html>
 <html lang="sw">
 <head>
   <meta charset="UTF-8">
@@ -3330,8 +3338,18 @@ http.createServer(async (req, res) => {
       const canonicalUrl = `${origin}/product/${encodeURIComponent(productId)}`;
       const foundProduct = productId ? getProductById(store, productId) : null;
       const product = foundProduct ? repairNormalizedProductImageState(foundProduct) : null;
+      const crawlerRequest = isCrawlerRequest(req);
 
       if (!product) {
+        await appendAuditLog({
+          time: new Date().toISOString(),
+          ip: clientIp,
+          method: req.method,
+          path: url.pathname,
+          event: "product_deep_link_missing",
+          productId,
+          crawler: crawlerRequest
+        }).catch(() => {});
         const fallbackHtml = buildProductShareHtml({
           title: "Bidhaa haijapatikana | Winga",
           description: "Bidhaa hii haijapatikana kwenye Winga.",
@@ -3348,6 +3366,15 @@ http.createServer(async (req, res) => {
         canonicalUrl,
         imageUrl: getProductShareImageUrl(product, origin)
       });
+      await appendAuditLog({
+        time: new Date().toISOString(),
+        ip: clientIp,
+        method: req.method,
+        path: url.pathname,
+        event: "product_deep_link_resolved",
+        productId,
+        crawler: crawlerRequest
+      }).catch(() => {});
       sendHtml(res, 200, shareHtml, req, { "Cache-Control": "no-store" });
       return;
     }

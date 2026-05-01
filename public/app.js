@@ -7525,6 +7525,12 @@ function tryOpenPendingDeepLinkProductRoute() {
       return false;
     }
 
+    reportClientEvent("warn", "deep_link_product_missing", "Deep link could not resolve a product after hydration.", {
+      category: "runtime",
+      productId,
+      userState: currentUser ? "signed_in" : "guest",
+      route: String(window.location.pathname || "")
+    });
     clearPendingDeepLinkProductRoute();
     hideDeepLinkLoadingState();
     safeReplaceState(window.history.state || null, "/");
@@ -7550,6 +7556,12 @@ function tryOpenPendingDeepLinkProductRoute() {
     deepLinkRecoveryTimer = null;
   }
   hideDeepLinkLoadingState();
+  reportClientEvent("info", "deep_link_product_opened", "Deep link resolved into product detail successfully.", {
+    category: "runtime",
+    productId,
+    userState: currentUser ? "signed_in" : "guest",
+    route: String(window.location.pathname || "")
+  });
   openProductDetailModal(productId, {
     allowBrokenImageFallbackOpen: true
   });

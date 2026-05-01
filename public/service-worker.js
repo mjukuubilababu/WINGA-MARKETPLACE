@@ -1,4 +1,4 @@
-const BUILD_VERSION = "20260501104749";
+const BUILD_VERSION = "20260501111659";
 const CACHE_PREFIX = "winga-shell";
 const CACHE_NAME = `${CACHE_PREFIX}-${BUILD_VERSION}`;
 const IMAGE_CACHE_PREFIX = "winga-images";
@@ -44,6 +44,18 @@ function isSameOrigin(request) {
 
 function isNavigationRequest(request) {
   return request.mode === "navigate" || String(request.headers.get("accept") || "").includes("text/html");
+}
+
+function isDeepLinkDocumentRequest(request) {
+  try {
+    const url = new URL(request.url);
+    if (url.origin !== self.location.origin) {
+      return false;
+    }
+    return /^\/(?:api\/)?product\/[^/]+\/?$/i.test(url.pathname);
+  } catch (error) {
+    return false;
+  }
 }
 
 function isImageProxyRequest(request) {
@@ -294,6 +306,7 @@ async function cacheFirst(request) {
 async function networkFirstNavigation(request, event = null) {
   const cache = await caches.open(CACHE_NAME);
   const cachedPage = await matchCachedShell(cache, request);
+  const isDeepLinkRequest = isDeepLinkDocumentRequest(request);
   if (cachedPage) {
     const refreshPromise = fetchWithRetry(request, {
       retries: 2,
@@ -301,10 +314,14 @@ async function networkFirstNavigation(request, event = null) {
     })
       .then(async (networkResponse) => {
         if (networkResponse && networkResponse.ok) {
-          await Promise.all([
-            cache.put(INDEX_URL, networkResponse.clone()),
-            cache.put(request, networkResponse.clone())
-          ]);
+          if (isDeepLinkRequest) {
+            await cache.put(request, networkResponse.clone());
+          } else {
+            await Promise.all([
+              cache.put(INDEX_URL, networkResponse.clone()),
+              cache.put(request, networkResponse.clone())
+            ]);
+          }
         }
       })
       .catch((error) => {
@@ -325,10 +342,14 @@ async function networkFirstNavigation(request, event = null) {
       baseDelayMs: 320
     });
     if (networkResponse && networkResponse.ok) {
-      await Promise.all([
-        cache.put(INDEX_URL, networkResponse.clone()),
-        cache.put(request, networkResponse.clone())
-      ]);
+      if (isDeepLinkRequest) {
+        await cache.put(request, networkResponse.clone());
+      } else {
+        await Promise.all([
+          cache.put(INDEX_URL, networkResponse.clone()),
+          cache.put(request, networkResponse.clone())
+        ]);
+      }
     }
     return networkResponse;
   } catch (error) {
