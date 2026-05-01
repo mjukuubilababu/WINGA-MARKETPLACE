@@ -38,6 +38,13 @@ const FEED_PREDICTIVE_NEXT_BATCH_SIZE = 6;
 const FEED_MEMORY_IMAGE_CACHE_LIMIT = 18;
 const FEED_MEMORY_PREFETCH_COOLDOWN_MS = 1200;
 const FEED_SCROLL_SPEED_PREFETCH_THRESHOLD = 0.72;
+const BLOCKED_DEMO_PRODUCT_IDENTIFIERS = new Set([
+  "gauni la harusi",
+  "sketi ya rangi",
+  "neema fashion",
+  "mama asha shop",
+  "mama aisha shop"
+]);
 const { CHAT_EMOJI_CHOICES } = window.WingaModules.config.chat;
 const {
   MARKETPLACE_CATEGORY_TREE,
@@ -119,7 +126,7 @@ function normalizeProductsFromStore() {
   const cachedProducts = Array.isArray(storedProducts) && storedProducts.length
     ? storedProducts
     : (window.WingaDataLayer?.getCachedProducts?.() || []);
-  return (Array.isArray(cachedProducts) ? cachedProducts : []).map(normalizeProduct);
+  return sanitizeVisibleProducts(Array.isArray(cachedProducts) ? cachedProducts : []).map(normalizeProduct);
 }
 
 function rebuildProductIndex() {
@@ -1741,18 +1748,30 @@ function getFeedBootstrapSnapshot() {
       localStorage.removeItem(FEED_BOOTSTRAP_CACHE_KEY);
       return [];
     }
-    return parsed.products.map(normalizeProduct);
+    const sanitizedProducts = sanitizeVisibleProducts(parsed.products).map(normalizeProduct);
+    if (!sanitizedProducts.length) {
+      localStorage.removeItem(FEED_BOOTSTRAP_CACHE_KEY);
+      return [];
+    }
+    if (sanitizedProducts.length !== parsed.products.length) {
+      localStorage.setItem(FEED_BOOTSTRAP_CACHE_KEY, JSON.stringify({
+        ...parsed,
+        products: sanitizedProducts
+      }));
+    }
+    return sanitizedProducts;
   } catch (error) {
     return [];
   }
 }
 
 function persistFeedBootstrapSnapshot(productsList = [], reason = "render") {
-  if (!Array.isArray(productsList) || !productsList.length) {
+  const sanitizedProducts = sanitizeVisibleProducts(productsList);
+  if (!Array.isArray(sanitizedProducts) || !sanitizedProducts.length) {
     return;
   }
   try {
-    const snapshot = productsList.slice(0, FEED_BOOTSTRAP_PRODUCT_LIMIT).map((product) => ({
+    const snapshot = sanitizedProducts.slice(0, FEED_BOOTSTRAP_PRODUCT_LIMIT).map((product) => ({
       id: product.id,
       name: product.name,
       price: product.price,
@@ -1778,6 +1797,19 @@ function persistFeedBootstrapSnapshot(productsList = [], reason = "render") {
       category: "cache",
       reason
     });
+  }
+}
+
+function clearBlockedDemoBootstrapSnapshot() {
+  try {
+    const existingSnapshot = getFeedBootstrapSnapshot();
+    if (existingSnapshot.length) {
+      persistFeedBootstrapSnapshot(existingSnapshot, "sanitized_bootstrap_snapshot");
+      return;
+    }
+    localStorage.removeItem(FEED_BOOTSTRAP_CACHE_KEY);
+  } catch (error) {
+    // Ignore cleanup failures and continue with runtime sanitization.
   }
 }
 
@@ -6130,6 +6162,33 @@ function getProductImageCandidates(product) {
     });
 }
 
+function normalizeBlockedDemoIdentifier(value) {
+  return String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function isBlockedDemoProduct(product) {
+  if (!product || typeof product !== "object") {
+    return false;
+  }
+  return [
+    product.name,
+    product.shop,
+    product.uploadedBy,
+    product.whatsapp
+  ]
+    .map(normalizeBlockedDemoIdentifier)
+    .some((value) => BLOCKED_DEMO_PRODUCT_IDENTIFIERS.has(value));
+}
+
+function sanitizeVisibleProducts(productsList = []) {
+  return (Array.isArray(productsList) ? productsList : []).filter((product) => !isBlockedDemoProduct(product));
+}
+
 function getBrokenMarketplaceImageSet(productId) {
   const productKey = String(productId || "").trim();
   const registry = brokenMarketplaceImagesByProduct.get(productKey);
@@ -6245,36 +6304,7 @@ window.addEventListener("winga:image-error", (event) => {
   noteBrokenMarketplaceImage(productId, imageSource);
 });
 
-const DEFAULT_PRODUCTS = [
-  {
-    id: createId(),
-    name: "Gauni la harusi",
-    price: 80000,
-    shop: "Neema Fashion",
-    whatsapp: "255751111111",
-    image: getImageFallbackDataUri("Gauni"),
-    images: [getImageFallbackDataUri("Gauni")],
-    uploadedBy: "admin",
-    category: "wanawake-magauni",
-    likes: 0,
-    views: 12,
-    viewedBy: []
-  },
-  {
-    id: createId(),
-    name: "Sketi ya rangi",
-    price: 20000,
-    shop: "Mama Asha Shop",
-    whatsapp: "255752222222",
-    image: getImageFallbackDataUri("Sketi"),
-    images: [getImageFallbackDataUri("Sketi")],
-    uploadedBy: "admin",
-    category: "sketi",
-    likes: 0,
-    views: 7,
-    viewedBy: []
-  }
-];
+const DEFAULT_PRODUCTS = [];
 
 let products = [];
 let productIndex = new Map();
@@ -12485,6 +12515,7 @@ async function bootApp() {
   reportClientEvent("info", "app_boot_started", "Client app boot started.", {
     category: "runtime"
   });
+  clearBlockedDemoBootstrapSnapshot();
   document.body.classList.add("app-booting");
   document.body.classList.remove("app-ready");
   revealBootOverlay();
