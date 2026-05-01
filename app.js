@@ -35,7 +35,7 @@ const FEED_BOOTSTRAP_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const FEED_BOOTSTRAP_PRODUCT_LIMIT = 14;
 const FEED_PREDICTIVE_PRELOAD_COUNT = 5;
 const FEED_PREDICTIVE_NEXT_BATCH_SIZE = 6;
-const FEED_MEMORY_IMAGE_CACHE_LIMIT = 18;
+const FEED_MEMORY_IMAGE_CACHE_LIMIT = 10;
 const FEED_MEMORY_PREFETCH_COOLDOWN_MS = 1200;
 const FEED_SCROLL_SPEED_PREFETCH_THRESHOLD = 0.72;
 const BLOCKED_DEMO_PRODUCT_IDENTIFIERS = new Set([
@@ -1649,6 +1649,17 @@ function getImageFallbackDataUri(label = "WINGA") {
 const imagePreloadRegistry = new Set();
 const decodedFeedImageCache = new Map();
 
+function clearDecodedFeedImageCache() {
+  decodedFeedImageCache.forEach((entry) => {
+    if (entry?.image instanceof Image) {
+      entry.image.onload = null;
+      entry.image.onerror = null;
+      entry.image.src = "";
+    }
+  });
+  decodedFeedImageCache.clear();
+}
+
 function trimDecodedFeedImageCache() {
   const entries = Array.from(decodedFeedImageCache.entries())
     .sort((first, second) => Number(first[1]?.touchedAt || 0) - Number(second[1]?.touchedAt || 0));
@@ -1911,7 +1922,7 @@ function primeFeedInstantCache(productsList = [], options = {}) {
     urls: imageQueue.slice(0, decodeLimit * 2)
   });
 
-  imageQueue.slice(0, decodeLimit).forEach((src, index) => {
+  imageQueue.slice(0, Math.min(decodeLimit, 3)).forEach((src, index) => {
     preloadImageSource(src, {
       fetchPriority: index < 2 ? "high" : "auto",
       decodeInMemory: true,
@@ -1983,7 +1994,7 @@ function warmProductImageCache(products = []) {
     batch.forEach(({ src, fetchPriority }, index) => {
       preloadImageSource(src, {
         fetchPriority,
-        decodeInMemory: index < Math.min(4, batchSize),
+        decodeInMemory: index < Math.min(2, batchSize),
         reason: "warm_product_image_cache"
       });
     });
@@ -2016,7 +2027,7 @@ function warmAdminImageCache(imageSources = []) {
     queue.push({ src: safeSrc, fetchPriority: index === 0 ? "high" : "auto" });
   });
 
-  queue.slice(0, 14).forEach(({ src, fetchPriority }) => {
+  queue.slice(0, 10).forEach(({ src, fetchPriority }) => {
     preloadImageSource(src, { fetchPriority });
   });
 
@@ -5994,6 +6005,7 @@ const { renderFilterCategories } = window.WingaModules.categories.createCategori
 });
 
 const {
+  cancelScheduledFeedRender: cancelMarketplaceFeedRender,
   renderProducts,
   createShowcaseSectionElement,
   createDynamicShowcasePlaceholderElement,
@@ -7118,6 +7130,7 @@ function cleanupAppRenderMemory(reason = "cleanup", options = {}) {
     clearTimeout(publicAuthSlowTimer);
     publicAuthSlowTimer = null;
   }
+  cancelMarketplaceFeedRender?.();
   stopSlideshow();
   stopMessagePolling();
   if (full) {
@@ -7130,7 +7143,11 @@ function cleanupAppRenderMemory(reason = "cleanup", options = {}) {
     disposeScopedRenderMemory(detailModal);
   }
   disconnectRenderMemoryObservers();
-  trimDecodedFeedImageCache();
+  if (full || reason === "hidden" || reason === "pagehide" || reason === "visibility_hidden") {
+    clearDecodedFeedImageCache();
+  } else {
+    trimDecodedFeedImageCache();
+  }
   captureMemorySnapshot(reason, {
     view: currentView
   });
@@ -11577,6 +11594,7 @@ function renderCurrentView(options = {}) {
     const homeProducts = currentView === "home"
       ? rotateProductsForHomeRefresh(filteredProducts)
       : filteredProducts;
+    const usesProgressiveHomeFeed = currentView === "home" && homeProducts.length > 10;
 
     updateResultsMeta(homeProducts.length);
     renderMarketShowcase();
@@ -11584,13 +11602,15 @@ function renderCurrentView(options = {}) {
     enhanceShowcaseTracks(marketShowcase);
     enhanceShowcaseTracks(productsContainer);
     bindFeedGalleryInteractions(marketShowcase);
-    bindFeedGalleryInteractions(productsContainer);
     bindProductEngagementSignals(marketShowcase);
-    bindProductEngagementSignals(productsContainer);
     bindImageFallbacks(marketShowcase);
-    bindImageFallbacks(productsContainer);
     bindProductMenus(marketShowcase);
-    bindProductMenus(productsContainer);
+    if (!usesProgressiveHomeFeed) {
+      bindFeedGalleryInteractions(productsContainer);
+      bindProductEngagementSignals(productsContainer);
+      bindImageFallbacks(productsContainer);
+      bindProductMenus(productsContainer);
+    }
     renderSearchDropdown(homeProducts, { isProfile, isUpload, isAdminView });
 
     if (isUpload && !editingProductId) {
