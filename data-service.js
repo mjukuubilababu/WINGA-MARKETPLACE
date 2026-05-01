@@ -19,21 +19,6 @@
     requireExplicitSignOut: true,
     messageReviewRequiresReason: true
   };
-  const DEMO_USER_IDENTIFIERS = new Set([
-    "neema fashion",
-    "mama asha",
-    "mama asha shop",
-    "mama aisha",
-    "mama aisha shop"
-  ]);
-  const DEMO_PRODUCT_IDENTIFIERS = new Set([
-    "gauni la harusi",
-    "sketi ya rangi",
-    "neema fashion",
-    "mama asha shop",
-    "mama aisha shop"
-  ]);
-
   function clone(value) {
     return JSON.parse(JSON.stringify(value));
   }
@@ -650,66 +635,6 @@
     }
   }
 
-  function normalizeDemoIdentifier(value) {
-    return String(value || "")
-      .toLowerCase()
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/[^a-z0-9]+/g, " ")
-      .trim();
-  }
-
-  function isBlockedDemoUser(user) {
-    if (!user || typeof user !== "object") {
-      return false;
-    }
-    return [
-      user.username,
-      user.fullName,
-      user.shopName,
-      user.phoneNumber,
-      user.whatsappNumber
-    ]
-      .map(normalizeDemoIdentifier)
-      .some((value) => DEMO_USER_IDENTIFIERS.has(value));
-  }
-
-  function isBlockedDemoProduct(product) {
-    if (!product || typeof product !== "object") {
-      return false;
-    }
-    return [
-      product.name,
-      product.shop,
-      product.uploadedBy,
-      product.whatsapp
-    ]
-      .map(normalizeDemoIdentifier)
-      .some((value) => DEMO_PRODUCT_IDENTIFIERS.has(value));
-  }
-
-  function sanitizeStoredUsers(users) {
-    return (Array.isArray(users) ? users : []).filter((user) => !isBlockedDemoUser(user));
-  }
-
-  function sanitizeStoredProducts(products) {
-    return (Array.isArray(products) ? products : []).filter((product) => !isBlockedDemoProduct(product));
-  }
-
-  function sanitizeAndPersistStorageRecords(key, value, sanitizer) {
-    const originalList = Array.isArray(value) ? value : [];
-    const sanitizedList = sanitizer(originalList);
-    if (JSON.stringify(originalList) !== JSON.stringify(sanitizedList)) {
-      safeStorageSet(key, JSON.stringify(sanitizedList));
-    }
-    return sanitizedList;
-  }
-
-  function clearDemoBootstrapArtifacts() {
-    sanitizeAndPersistStorageRecords(USERS_KEY, readStoredJson(USERS_KEY, []), sanitizeStoredUsers);
-    sanitizeAndPersistStorageRecords(PRODUCTS_KEY, readStoredJson(PRODUCTS_KEY, []), sanitizeStoredProducts);
-  }
-
   function resolveUserImagesForRuntime(user) {
     if (!user || typeof user !== "object") {
       return user;
@@ -741,23 +666,13 @@
   function createLocalAdapter() {
     return {
       async loadUsers() {
-        const sanitizedUsers = sanitizeAndPersistStorageRecords(
-          USERS_KEY,
-          readStoredJson(USERS_KEY, []),
-          sanitizeStoredUsers
-        );
-        return sanitizedUsers.map(resolveUserImagesForRuntime);
+        return readStoredJson(USERS_KEY, []).map(resolveUserImagesForRuntime);
       },
       async saveUsers(users) {
-        const sanitizedUsers = sanitizeStoredUsers(users);
-        setStorageOrThrow(USERS_KEY, JSON.stringify(sanitizedUsers), "data za akaunti na picha ya profile");
+        setStorageOrThrow(USERS_KEY, JSON.stringify(users), "data za akaunti na picha ya profile");
       },
       async loadProducts() {
-        const storedProducts = sanitizeAndPersistStorageRecords(
-          PRODUCTS_KEY,
-          readStoredJson(PRODUCTS_KEY, []),
-          sanitizeStoredProducts
-        );
+        const storedProducts = readStoredJson(PRODUCTS_KEY, []);
         return Array.isArray(storedProducts)
           ? storedProducts.map(resolveProductImagesForRuntime)
           : [];
@@ -800,8 +715,7 @@
           setStorageOrThrow(REVIEWS_KEY, JSON.stringify(reviews), "reviews zako");
         },
         async saveProducts(products) {
-          const sanitizedProducts = sanitizeStoredProducts(products);
-          setStorageOrThrow(PRODUCTS_KEY, JSON.stringify(sanitizedProducts), "data za bidhaa na picha zake");
+          setStorageOrThrow(PRODUCTS_KEY, JSON.stringify(products), "data za bidhaa na picha zake");
         },
       loadSession() {
         return readStoredSession();
@@ -3316,7 +3230,6 @@
   window.WingaDataLayer = {
     async init() {
       if (state.initialized) return;
-      clearDemoBootstrapArtifacts();
       ensureAdapter();
       state.initialized = true;
       if (!state.offlineQueueListenerBound && typeof window !== "undefined") {
@@ -3350,7 +3263,6 @@
         );
         if (state.activeProvider === "api") {
           clearLegacyLocalFallbackArtifacts();
-          clearDemoBootstrapArtifacts();
         }
       } catch (error) {
         const fallbackProvider = typeof config.fallbackProvider === "string"
@@ -3404,10 +3316,9 @@
     },
     cleanupLocalFallbackArtifacts() {
       clearLegacyLocalFallbackArtifacts();
-      clearDemoBootstrapArtifacts();
     },
     async saveProducts(products) {
-      const nextProducts = sanitizeStoredProducts(clone(products));
+      const nextProducts = clone(products);
       await state.adapter.saveProducts(nextProducts);
       state.products = nextProducts;
     },
