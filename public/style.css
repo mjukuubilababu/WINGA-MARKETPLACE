@@ -2656,6 +2656,11 @@ img[data-zoom-src]{
   transition:opacity .2s ease;
 }
 
+.progressive-image-shell.is-pending::before{
+  opacity:1;
+  animation:winga-image-shimmer 1.15s ease-in-out infinite;
+}
+
 .progressive-image-shell.is-loaded::before,
 .progressive-image-shell.is-error::before{
   opacity:0;
@@ -2701,6 +2706,7 @@ img[data-zoom-src]{
   transition:opacity .18s ease-in;
   background:transparent;
   z-index:2;
+  will-change:opacity;
 }
 
 .progressive-image-shell.fit-mode-contain .progressive-image-placeholder,
@@ -2718,6 +2724,10 @@ img[data-zoom-src]{
 
 .progressive-image-shell.is-loaded .progressive-image-full{
   opacity:1;
+}
+
+.progressive-image-shell.is-pending .progressive-image-full{
+  opacity:0;
 }
 
 .progressive-image-shell.is-error .progressive-image-full{

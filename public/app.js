@@ -12244,9 +12244,16 @@ function bindImageFallbacks(scope = document) {
     if (image.dataset.fallbackLoadBound !== "true") {
       image.dataset.fallbackLoadBound = "true";
       image.addEventListener("load", () => {
+        const activeSrc = image.currentSrc || image.getAttribute("src") || image.dataset.imageActionSrc || "";
+        const realSrc = image.dataset.progressiveRealSrc || image.dataset.marketplaceRealSrc || "";
+        if (image.dataset.progressiveDeferred === "true" && realSrc && activeSrc !== realSrc) {
+          image.closest(".progressive-image-shell")?.classList.add("is-pending");
+          return;
+        }
+        image.closest(".progressive-image-shell")?.classList.remove("is-pending", "is-error");
         image.closest(".progressive-image-shell")?.classList.add("is-loaded");
         const productId = image.dataset.imageActionProduct || "";
-        const loadedSource = image.currentSrc || image.getAttribute("src") || image.dataset.imageActionSrc || "";
+        const loadedSource = activeSrc;
         if (
           productId
           && loadedSource
@@ -12275,10 +12282,13 @@ function activateMarketplaceScrollImage(image) {
   if (!(image instanceof HTMLImageElement)) {
     return;
   }
-  const realSrc = image.dataset.marketplaceRealSrc || image.dataset.imageActionSrc || image.dataset.zoomSrc || "";
+  const realSrc = image.dataset.marketplaceRealSrc || image.dataset.progressiveRealSrc || image.dataset.imageActionSrc || image.dataset.zoomSrc || "";
   if (!realSrc) {
     return;
   }
+  image.setAttribute("loading", "eager");
+  image.setAttribute("fetchpriority", "high");
+  image.closest(".progressive-image-shell")?.classList.add("is-pending");
   if (image.getAttribute("src") !== realSrc) {
     image.setAttribute("src", realSrc);
   }
@@ -12289,14 +12299,14 @@ function prefetchMarketplaceScrollImage(image) {
   if (!(image instanceof HTMLImageElement)) {
     return;
   }
-  const realSrc = image.dataset.marketplaceRealSrc || image.dataset.imageActionSrc || image.dataset.zoomSrc || "";
+  const realSrc = image.dataset.marketplaceRealSrc || image.dataset.progressiveRealSrc || image.dataset.imageActionSrc || image.dataset.zoomSrc || "";
   if (!realSrc || marketplaceScrollImagePrefetchedSources.has(realSrc)) {
     return;
   }
   marketplaceScrollImagePrefetchedSources.add(realSrc);
-  const warmImage = new Image();
-  warmImage.decoding = "async";
-  warmImage.src = realSrc;
+  void cacheDecodedFeedImageSource(realSrc, {
+    reason: "scroll_prefetch"
+  });
   image.dataset.marketplaceImageState = "prefetched";
 }
 
