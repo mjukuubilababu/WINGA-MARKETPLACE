@@ -6132,6 +6132,7 @@ const {
     if (!(container instanceof Element)) {
       return;
     }
+    prioritizeVisibleFeedMedia(container, 4);
     scheduleIdleBackgroundWork(() => {
       enhanceShowcaseTracks(container);
       bindFeedGalleryInteractions(container);
@@ -12486,6 +12487,25 @@ function bindImageFallbacks(scope = document) {
     }
   });
   bindMarketplaceScrollImages(scope);
+}
+
+function prioritizeVisibleFeedMedia(scope = document, maxCards = 4) {
+  if (!(scope instanceof Element || scope === document)) {
+    return;
+  }
+  const cards = Array.from(
+    scope.querySelectorAll?.(".product-card[data-open-product], .seller-product-card[data-open-product], .showcase-card[data-open-product]") || []
+  ).slice(0, Math.max(1, Number(maxCards) || 4));
+  cards.forEach((card) => {
+    card.querySelectorAll?.("img[data-marketplace-scroll-image='true']").forEach((image, index) => {
+      if (!(image instanceof HTMLImageElement)) {
+        return;
+      }
+      image.setAttribute("loading", index === 0 ? "eager" : "lazy");
+      image.setAttribute("fetchpriority", index === 0 ? "high" : "auto");
+      activateMarketplaceScrollImage(image);
+    });
+  });
 }
 
 function unbindMarketplaceScrollImages(scope = document) {
