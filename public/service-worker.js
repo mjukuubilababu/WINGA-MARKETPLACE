@@ -1,4 +1,4 @@
-const BUILD_VERSION = "20260501115144";
+const BUILD_VERSION = "20260501175718";
 const CACHE_PREFIX = "winga-shell";
 const CACHE_NAME = `${CACHE_PREFIX}-${BUILD_VERSION}`;
 const IMAGE_CACHE_PREFIX = "winga-images";
@@ -13,6 +13,9 @@ const IMAGE_PROXY_PREFIX = "/__winga-image__";
 const MAX_SHELL_CACHE_ENTRIES = 48;
 const MAX_IMAGE_CACHE_ENTRIES = 140;
 const MAX_DYNAMIC_CACHE_ENTRIES = 60;
+const MAX_SHELL_CACHE_AGE_MS = 14 * 24 * 60 * 60 * 1000;
+const MAX_IMAGE_CACHE_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+const MAX_DYNAMIC_CACHE_AGE_MS = 12 * 60 * 60 * 1000;
 const CRITICAL_IMAGE_URLS = ["/og-images/product-1777373568833-a7d58c-e5a08dfd75fe.jpg","/og-images/product-1777315330893-808017-b622fc6f2b98.jpg","/og-images/product-1777315199519-bb18e6-0553ccf3672f.jpg","/og-images/product-1777313018004-1d5ae9-174e443d6bdc.jpg","/og-images/product-1777312933662-564522-174e443d6bdc.jpg","/og-images/product-1777312859506-84d83c-312fbf52737e.jpg","/og-images/product-1777239500165-0f2f7d-3e8441d7f659.jpg","/og-images/product-1777239370540-25a52a-01d915857279.jpg","/og-images/product-1777223611728-1b98f8-e5394e85fb9a.jpg","/og-images/product-1777035373882-94d77c-64fc4970cb30.jpg","/og-images/product-1776811707733-b96ec5-271ce1ba34c2.jpg","/og-images/product-1776784732920-892ec0-a473096cc3bd.jpg","/og-images/product-1776774500822-065b96-d02ba2e63ed1.jpg","/og-images/product-1776698143995-5f5edf-1446ce3000d1.jpg","/og-images/product-1776698137497-912617-1446ce3000d1.jpg","/og-images/product-1776697256770-115247-a473096cc3bd.jpg","/og-images/product-1776696377914-051e26-9b2778770234.jpg","/og-images/product-1776641342254-4e421b-7733e6fa395b.jpg","/og-images/product-1776636209944-914a0f-81a72010d3a9.jpg","/og-images/product-1776636032627-73222e-8995417a393e.jpg"];
 const CORE_PRECACHE_URLS = [
   ROOT_URL,
@@ -206,7 +209,7 @@ async function precacheCoreAssets() {
         baseDelayMs: 220
       });
       if (response && response.ok) {
-        await cache.put(url, response.clone());
+        await putCachedResponse(cache, url, response.clone());
       }
     } catch (error) {
       logServiceWorkerEvent("warn", "precache_asset_failed", {
@@ -224,11 +227,53 @@ async function trimCacheEntries(cacheName, maxEntries) {
   }
   const cache = await caches.open(cacheName);
   const keys = await cache.keys();
-  const overflow = keys.length - maxEntries;
+  const now = Date.now();
+  const maxAgeMs = cacheName === IMAGE_CACHE_NAME
+    ? MAX_IMAGE_CACHE_AGE_MS
+    : cacheName === DYNAMIC_CACHE_NAME
+      ? MAX_DYNAMIC_CACHE_AGE_MS
+      : MAX_SHELL_CACHE_AGE_MS;
+  await Promise.all(keys.map(async (request) => {
+    if (!maxAgeMs) {
+      return;
+    }
+    const response = await cache.match(request);
+    const cachedAt = Number(response?.headers?.get("x-winga-cached-at") || 0);
+    if (cachedAt > 0 && now - cachedAt > maxAgeMs) {
+      await cache.delete(request);
+    }
+  }));
+  const trimmedKeys = await cache.keys();
+  const overflow = trimmedKeys.length - maxEntries;
   if (overflow <= 0) {
     return;
   }
-  await Promise.all(keys.slice(0, overflow).map((request) => cache.delete(request)));
+  await Promise.all(trimmedKeys.slice(0, overflow).map((request) => cache.delete(request)));
+}
+
+async function withCacheTimestamp(response) {
+  if (!response) {
+    return response;
+  }
+  try {
+    const headers = new Headers(response.headers);
+    headers.set("x-winga-cached-at", String(Date.now()));
+    const body = await response.clone().blob();
+    return new Response(body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers
+    });
+  } catch (error) {
+    return response;
+  }
+}
+
+async function putCachedResponse(cache, request, response) {
+  if (!cache || !request || !response) {
+    return;
+  }
+  await cache.put(request, await withCacheTimestamp(response));
 }
 
 async function cacheDynamicRequests(urls = []) {
@@ -259,7 +304,7 @@ async function cacheDynamicRequests(urls = []) {
         baseDelayMs: 220
       });
       if (response && response.ok) {
-        await cache.put(request, response.clone());
+        await putCachedResponse(cache, request, response.clone());
       }
     } catch (error) {
       logServiceWorkerEvent("warn", "dynamic_precache_failed", {
@@ -283,7 +328,7 @@ async function cacheFirst(request) {
       baseDelayMs: 220
     });
     if (networkResponse && networkResponse.ok) {
-      await cache.put(request, networkResponse.clone());
+      await putCachedResponse(cache, request, networkResponse.clone());
       await trimCacheEntries(CACHE_NAME, MAX_SHELL_CACHE_ENTRIES);
     }
     return networkResponse;
@@ -315,11 +360,11 @@ async function networkFirstNavigation(request, event = null) {
       .then(async (networkResponse) => {
         if (networkResponse && networkResponse.ok) {
           if (isDeepLinkRequest) {
-            await cache.put(request, networkResponse.clone());
+            await putCachedResponse(cache, request, networkResponse.clone());
           } else {
             await Promise.all([
-              cache.put(INDEX_URL, networkResponse.clone()),
-              cache.put(request, networkResponse.clone())
+              putCachedResponse(cache, INDEX_URL, networkResponse.clone()),
+              putCachedResponse(cache, request, networkResponse.clone())
             ]);
           }
         }
@@ -343,11 +388,11 @@ async function networkFirstNavigation(request, event = null) {
     });
     if (networkResponse && networkResponse.ok) {
       if (isDeepLinkRequest) {
-        await cache.put(request, networkResponse.clone());
+        await putCachedResponse(cache, request, networkResponse.clone());
       } else {
         await Promise.all([
-          cache.put(INDEX_URL, networkResponse.clone()),
-          cache.put(request, networkResponse.clone())
+          putCachedResponse(cache, INDEX_URL, networkResponse.clone()),
+          putCachedResponse(cache, request, networkResponse.clone())
         ]);
       }
     }
@@ -391,8 +436,10 @@ async function proxyImageRequest(request, options = {}) {
       baseDelayMs: 220
     });
     if (isUsableImageResponse(networkResponse)) {
-      await cache.put(request, networkResponse.clone());
-      await cache.put(remote.toString(), networkResponse.clone());
+      await Promise.all([
+        putCachedResponse(cache, request, networkResponse.clone()),
+        putCachedResponse(cache, remote.toString(), networkResponse.clone())
+      ]);
       await trimCacheEntries(IMAGE_CACHE_NAME, MAX_IMAGE_CACHE_ENTRIES);
       return networkResponse;
     }
@@ -416,7 +463,7 @@ async function networkFirstImage(request) {
       baseDelayMs: 220
     });
     if (isUsableImageResponse(networkResponse)) {
-      await cache.put(request, networkResponse.clone());
+      await putCachedResponse(cache, request, networkResponse.clone());
       await trimCacheEntries(IMAGE_CACHE_NAME, MAX_IMAGE_CACHE_ENTRIES);
       logServiceWorkerEvent("info", "image_cache_refresh", {
         url: request.url,
@@ -453,7 +500,7 @@ async function networkFirstDynamic(request) {
       baseDelayMs: 250
     });
     if (response && response.ok) {
-      await cache.put(request, response.clone());
+      await putCachedResponse(cache, request, response.clone());
       await trimCacheEntries(DYNAMIC_CACHE_NAME, MAX_DYNAMIC_CACHE_ENTRIES);
     }
     return response;
@@ -500,7 +547,7 @@ async function cacheImageUrls(urls = []) {
         baseDelayMs: 220
       });
       if (isUsableImageResponse(response)) {
-        await cache.put(request, response.clone());
+        await putCachedResponse(cache, request, response.clone());
         await trimCacheEntries(IMAGE_CACHE_NAME, MAX_IMAGE_CACHE_ENTRIES);
       }
     } catch (error) {

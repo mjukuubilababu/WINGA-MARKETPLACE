@@ -30,6 +30,8 @@ const PRODUCT_CARD_VISIBILITY_THRESHOLD = 0.66;
 const MEMORY_SNAPSHOT_LIMIT = 18;
 const MEMORY_WARNING_THRESHOLD_BYTES = 180 * 1024 * 1024;
 const MEMORY_SAMPLING_INTERVAL_MS = 30000;
+const MEMORY_PRESSURE_CONSECUTIVE_LIMIT = 2;
+const MEMORY_CRITICAL_THRESHOLD_BYTES = 220 * 1024 * 1024;
 const FEED_BOOTSTRAP_CACHE_KEY = "winga-feed-bootstrap-cache";
 const FEED_BOOTSTRAP_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const FEED_BOOTSTRAP_PRODUCT_LIMIT = 14;
@@ -38,6 +40,8 @@ const FEED_PREDICTIVE_NEXT_BATCH_SIZE = 6;
 const FEED_MEMORY_IMAGE_CACHE_LIMIT = 10;
 const FEED_MEMORY_PREFETCH_COOLDOWN_MS = 1200;
 const FEED_SCROLL_SPEED_PREFETCH_THRESHOLD = 0.72;
+const IMAGE_PRELOAD_REGISTRY_LIMIT = 180;
+const MARKETPLACE_SCROLL_PREFETCH_REGISTRY_LIMIT = 240;
 const BLOCKED_DEMO_PRODUCT_IDENTIFIERS = new Set([
   "gauni la harusi",
   "sketi ya rangi",
@@ -1646,8 +1650,55 @@ function getImageFallbackDataUri(label = "WINGA") {
   `)}`;
 }
 
-const imagePreloadRegistry = new Set();
+const imagePreloadRegistry = new Map();
 const decodedFeedImageCache = new Map();
+const marketplaceScrollImagePrefetchedSources = new Map();
+
+function pruneTimestampRegistry(registry, limit = 0) {
+  if (!(registry instanceof Map) || !Number.isFinite(limit) || limit < 1) {
+    return;
+  }
+  while (registry.size > limit) {
+    const oldestKey = registry.keys().next().value;
+    if (typeof oldestKey === "undefined") {
+      break;
+    }
+    registry.delete(oldestKey);
+  }
+}
+
+function markImagePreloaded(src = "") {
+  const safeSrc = String(src || "").trim();
+  if (!safeSrc) {
+    return false;
+  }
+  if (imagePreloadRegistry.has(safeSrc)) {
+    imagePreloadRegistry.set(safeSrc, Date.now());
+    return true;
+  }
+  imagePreloadRegistry.set(safeSrc, Date.now());
+  pruneTimestampRegistry(imagePreloadRegistry, IMAGE_PRELOAD_REGISTRY_LIMIT);
+  return false;
+}
+
+function markMarketplaceImagePrefetched(src = "") {
+  const safeSrc = String(src || "").trim();
+  if (!safeSrc) {
+    return false;
+  }
+  if (marketplaceScrollImagePrefetchedSources.has(safeSrc)) {
+    marketplaceScrollImagePrefetchedSources.set(safeSrc, Date.now());
+    return true;
+  }
+  marketplaceScrollImagePrefetchedSources.set(safeSrc, Date.now());
+  pruneTimestampRegistry(marketplaceScrollImagePrefetchedSources, MARKETPLACE_SCROLL_PREFETCH_REGISTRY_LIMIT);
+  return false;
+}
+
+function clearLightweightImageRegistries() {
+  imagePreloadRegistry.clear();
+  marketplaceScrollImagePrefetchedSources.clear();
+}
 
 function clearDecodedFeedImageCache() {
   decodedFeedImageCache.forEach((entry) => {
@@ -1746,14 +1797,12 @@ function preloadImageSource(src = "", options = {}) {
     reason = "preload"
   } = options;
   const resolvedSrc = sanitizeImageSource(src, "");
-  if (!resolvedSrc || /^data:/i.test(resolvedSrc) || imagePreloadRegistry.has(resolvedSrc)) {
+  if (!resolvedSrc || /^data:/i.test(resolvedSrc) || markImagePreloaded(resolvedSrc)) {
     if (decodeInMemory) {
       void cacheDecodedFeedImageSource(resolvedSrc, { reason });
     }
     return null;
   }
-
-  imagePreloadRegistry.add(resolvedSrc);
   const link = document.createElement("link");
   link.rel = "preload";
   link.as = as;
@@ -6207,7 +6256,6 @@ const HOME_CONTINUOUS_DISCOVERY_MIN_INTERVAL_MS = 720;
 const HOME_CONTINUOUS_DISCOVERY_REOBSERVE_DELAY_MS = 420;
 const MARKETPLACE_SCROLL_IMAGE_PLACEHOLDER = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
 let marketplaceScrollImageObserver = null;
-const marketplaceScrollImagePrefetchedSources = new Set();
 
 function getMarketplaceScrollImagePrefetchMargin() {
   return getViewportWidth() <= 720 ? 1200 : 1800;
@@ -7026,6 +7074,18 @@ window.addEventListener("winga:image-telemetry", (event) => {
   }, 160);
 });
 
+window.addEventListener("error", () => {
+  captureMemorySnapshot("window_error", {
+    view: currentView
+  });
+});
+
+window.addEventListener("unhandledrejection", () => {
+  captureMemorySnapshot("unhandled_rejection", {
+    view: currentView
+  });
+});
+
 function getMemoryUsageSnapshot(reason = "sample") {
   const memory = performance?.memory;
   if (!memory) {
@@ -7068,7 +7128,54 @@ function captureMemorySnapshot(reason = "sample", context = {}) {
       ...context
     });
   }
+  if (snapshot.usedJSHeapSize >= MEMORY_WARNING_THRESHOLD_BYTES) {
+    uiRuntimeState.memoryPressureCount = Number(uiRuntimeState.memoryPressureCount || 0) + 1;
+  } else {
+    uiRuntimeState.memoryPressureCount = 0;
+  }
+  if (
+    Number(uiRuntimeState.memoryPressureCount || 0) >= MEMORY_PRESSURE_CONSECUTIVE_LIMIT
+    || snapshot.usedJSHeapSize >= MEMORY_CRITICAL_THRESHOLD_BYTES
+  ) {
+    handleRuntimeMemoryPressure(snapshot, context);
+  }
   return snapshot;
+}
+
+function pruneDynamicFeedDomForMemoryPressure() {
+  document.querySelectorAll("[data-continuous-discovery-section], [data-product-detail-continuation-section]").forEach((section) => {
+    if (!(section instanceof Element)) {
+      return;
+    }
+    releasePrunedSectionMedia(section);
+    section.remove();
+  });
+}
+
+function handleRuntimeMemoryPressure(snapshot, context = {}) {
+  if (!snapshot) {
+    return;
+  }
+  const now = Date.now();
+  if (now - Number(uiRuntimeState.lastMemoryMitigationAt || 0) < 12000) {
+    return;
+  }
+  uiRuntimeState.lastMemoryMitigationAt = now;
+  cancelMarketplaceFeedRender?.();
+  disconnectContinuousDiscoveryObserver();
+  clearDecodedFeedImageCache();
+  clearLightweightImageRegistries();
+  pruneBrokenMarketplaceImageRegistry();
+  pruneDynamicFeedDomForMemoryPressure();
+  disconnectRenderMemoryObservers();
+  reportClientEvent("warn", "runtime_memory_mitigation_applied", "Applied client-side memory pressure mitigation.", {
+    category: "runtime",
+    reason: snapshot.reason || "",
+    usedMB: Math.round(Number(snapshot.usedJSHeapSize || 0) / (1024 * 1024)),
+    critical: Number(snapshot.usedJSHeapSize || 0) >= MEMORY_CRITICAL_THRESHOLD_BYTES,
+    view: currentView,
+    ...context
+  });
 }
 
 function startMemoryMonitoring() {
@@ -7169,8 +7276,11 @@ function cleanupAppRenderMemory(reason = "cleanup", options = {}) {
   disconnectRenderMemoryObservers();
   if (full || reason === "hidden" || reason === "pagehide" || reason === "visibility_hidden") {
     clearDecodedFeedImageCache();
+    clearLightweightImageRegistries();
   } else {
     trimDecodedFeedImageCache();
+    pruneTimestampRegistry(imagePreloadRegistry, Math.max(24, Math.floor(IMAGE_PRELOAD_REGISTRY_LIMIT / 2)));
+    pruneTimestampRegistry(marketplaceScrollImagePrefetchedSources, Math.max(40, Math.floor(MARKETPLACE_SCROLL_PREFETCH_REGISTRY_LIMIT / 2)));
   }
   captureMemorySnapshot(reason, {
     view: currentView
@@ -10785,6 +10895,16 @@ function disposeScopedRenderMemory(scope) {
   scope.querySelectorAll?.("[data-feed-gallery-carousel]").forEach((carousel) => {
     disposeFeedGalleryBinding(carousel);
   });
+  scope.querySelectorAll?.("img[data-marketplace-scroll-image='true']").forEach((image) => {
+    marketplaceScrollImageObserver?.unobserve?.(image);
+    image.dataset.marketplaceScrollBound = "false";
+    image.dataset.marketplaceImageState = "";
+  });
+  scope.querySelectorAll?.(".product-card[data-open-product], .showcase-card[data-open-product], .seller-product-card[data-open-product], [data-product-card][data-open-product]").forEach((card) => {
+    productEngagementObserver?.unobserve?.(card);
+    clearProductCardEngagementState(card, { forget: true });
+    card.dataset.engagementBound = "false";
+  });
 }
 
 function getOrCreateProductCardEngagementState(card) {
@@ -12397,10 +12517,9 @@ function prefetchMarketplaceScrollImage(image) {
     return;
   }
   const realSrc = image.dataset.marketplaceRealSrc || image.dataset.progressiveRealSrc || image.dataset.imageActionSrc || image.dataset.zoomSrc || "";
-  if (!realSrc || marketplaceScrollImagePrefetchedSources.has(realSrc)) {
+  if (!realSrc || markMarketplaceImagePrefetched(realSrc)) {
     return;
   }
-  marketplaceScrollImagePrefetchedSources.add(realSrc);
   void cacheDecodedFeedImageSource(realSrc, {
     reason: "scroll_prefetch"
   });
