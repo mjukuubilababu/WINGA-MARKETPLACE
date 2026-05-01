@@ -682,6 +682,32 @@ function applySessionState(session) {
   currentUser = username;
 }
 
+function beginLifecycleEpoch(kind = "runtime") {
+  const nextEpoch = Number(lifecycleRuntimeState.epoch || 0) + 1;
+  lifecycleRuntimeState.epoch = nextEpoch;
+  lifecycleRuntimeState.activeKind = String(kind || "runtime");
+  return nextEpoch;
+}
+
+function isLifecycleEpochCurrent(epoch) {
+  return Number(epoch || 0) > 0 && Number(epoch) === Number(lifecycleRuntimeState.epoch || 0);
+}
+
+function getEphemeralLifecycleViewOptions(options = {}) {
+  return {
+    persist: false,
+    syncHistory: false,
+    ...options
+  };
+}
+
+function getBootTargetView(session = currentSession) {
+  if (isStaffRole(session?.role || "")) {
+    return "admin";
+  }
+  return "home";
+}
+
 function mergeSessionState(patch = {}) {
   applySessionState({
     ...(currentSession || {}),
@@ -4356,7 +4382,7 @@ function showInstantBootFeedSnapshot(reason = "boot_snapshot") {
   ensureProductsForImmediateRender();
   mergeAvailableCategories(inferCategoriesFromData());
   refreshCategoryUI();
-  setCurrentViewState("home", { syncHistory: false });
+  setCurrentViewState("home", getEphemeralLifecycleViewOptions());
   appContainer.style.display = "block";
   syncBodyScrollLockState();
   refreshPublicEntryChrome();
@@ -4391,14 +4417,15 @@ function showInstantBootFeedSnapshot(reason = "boot_snapshot") {
   return hasVisibleFeedShell;
 }
 
-function startBackgroundSessionRestore(restorePromise, cachedSession = null) {
+function startBackgroundSessionRestore(restorePromise, cachedSession = null, options = {}) {
   const restoreToken = ++activeSessionRestoreToken;
+  const lifecycleEpoch = Number(options.lifecycleEpoch || 0);
   if (!cachedSession?.username) {
     return;
   }
 
   const timeoutId = window.setTimeout(() => {
-    if (restoreToken !== activeSessionRestoreToken) {
+    if (restoreToken !== activeSessionRestoreToken || (lifecycleEpoch && !isLifecycleEpochCurrent(lifecycleEpoch))) {
       return;
     }
     reportClientEvent("warn", "session_restore_timed_out", "Session restore timed out during boot.", {
@@ -4409,7 +4436,7 @@ function startBackgroundSessionRestore(restorePromise, cachedSession = null) {
 
   Promise.resolve(restorePromise)
     .then((session) => {
-      if (restoreToken !== activeSessionRestoreToken) {
+      if (restoreToken !== activeSessionRestoreToken || (lifecycleEpoch && !isLifecycleEpochCurrent(lifecycleEpoch))) {
         return;
       }
       if (timeoutId) {
@@ -4459,7 +4486,7 @@ function startBackgroundSessionRestore(restorePromise, cachedSession = null) {
       });
     })
     .catch((error) => {
-      if (restoreToken !== activeSessionRestoreToken) {
+      if (restoreToken !== activeSessionRestoreToken || (lifecycleEpoch && !isLifecycleEpochCurrent(lifecycleEpoch))) {
         return;
       }
       if (timeoutId) {
@@ -6526,6 +6553,7 @@ const uiRuntimeState = runtimeState.ui;
 const feedRuntimeState = runtimeState.feed || (runtimeState.feed = {});
 const searchRuntimeState = runtimeState.search;
 const profileRuntimeState = runtimeState.profile;
+const lifecycleRuntimeState = runtimeState.lifecycle || (runtimeState.lifecycle = {});
 let availableCategories = [...DEFAULT_PRODUCT_CATEGORIES];
 let availableTopCategories = [...DEFAULT_TOP_CATEGORIES];
 let currentOrders = { purchases: [], sales: [] };
@@ -7407,7 +7435,7 @@ function showLifecycleFallbackShell(reason = "startup_slow", options = {}) {
   refreshCategoryUI();
 
   if (!document.body.classList.contains("product-detail-open") && currentView !== "profile") {
-    setCurrentViewState("home", { syncHistory: false });
+    setCurrentViewState("home", getEphemeralLifecycleViewOptions());
     renderCurrentView();
   }
 
@@ -7458,7 +7486,7 @@ function scheduleDeepLinkRecovery(productId) {
     clearPendingDeepLinkProductRoute();
     hideDeepLinkLoadingState();
     safeReplaceState(window.history.state || null, "/");
-    setCurrentViewState("home", { syncHistory: false });
+    setCurrentViewState("home", getEphemeralLifecycleViewOptions());
     setDeepLinkLoadingShellVisible(true);
     ensureProductsForImmediateRender();
     renderCurrentView();
@@ -9117,6 +9145,7 @@ async function hydrateMissingImageSignatures(productList = products) {
 }
 
 function loginSuccess(username, preferredCategory = "", sessionData = null, options = {}) {
+  beginLifecycleEpoch("login_success");
   activeSessionRestoreToken += 1;
   const {
     restoreView = false,
@@ -9297,6 +9326,7 @@ function loginSuccess(username, preferredCategory = "", sessionData = null, opti
 }
 
 function logout() {
+  beginLifecycleEpoch("logout");
   activeSessionRestoreToken += 1;
   isSessionRestorePending = false;
   const wasStaffSession = isStaffUser();
@@ -12532,6 +12562,8 @@ const DEEP_LINK_RECOVERY_DELAY_MS = Math.max(
 );
 
 async function bootApp() {
+  const lifecycleEpoch = beginLifecycleEpoch("boot");
+  lifecycleRuntimeState.bootEpoch = lifecycleEpoch;
   reportClientEvent("info", "app_boot_started", "Client app boot started.", {
     category: "runtime"
   });
@@ -12557,6 +12589,9 @@ async function bootApp() {
   if (cachedSession?.username) {
     applySessionState(cachedSession);
     saveSessionUser(cachedSession);
+    showSessionRestoringState(currentSession?.role && isStaffRole(currentSession.role)
+      ? "Tunaangalia admin session yako nyuma ya pazia."
+      : "Tunaangalia session yako nyuma ya pazia.");
   }
   if ("scrollRestoration" in window.history) {
     window.history.scrollRestoration = "manual";
@@ -12569,10 +12604,16 @@ async function bootApp() {
   }
 
   await bootstrapCleanupPromise;
+  if (!isLifecycleEpochCurrent(lifecycleEpoch)) {
+    return;
+  }
 
   showInstantBootFeedSnapshot("boot_pre_hydration_snapshot");
 
   await window.WingaDataLayer.init();
+  if (!isLifecycleEpochCurrent(lifecycleEpoch)) {
+    return;
+  }
   syncNotificationPermissionStateFromBrowser();
   const appSettingsPromise = window.WingaDataLayer.loadAppSettings
     ? window.WingaDataLayer.loadAppSettings().catch(() => null)
@@ -12587,6 +12628,9 @@ async function bootApp() {
   }
   const rememberedSessionPromise = window.WingaDataLayer.restoreSession();
   const appSettings = await appSettingsPromise;
+  if (!isLifecycleEpochCurrent(lifecycleEpoch)) {
+    return;
+  }
   if (appSettings) {
     applyAppSettings(appSettings);
   }
@@ -12608,9 +12652,18 @@ async function bootApp() {
   });
 
       window.setTimeout(() => {
+        if (!isLifecycleEpochCurrent(lifecycleEpoch)) {
+          return;
+        }
         scheduleIdleBackgroundWork(() => {
+          if (!isLifecycleEpochCurrent(lifecycleEpoch)) {
+            return;
+          }
           window.WingaDataLayer.loadReviews()
             .then((reviewPayload) => {
+              if (!isLifecycleEpochCurrent(lifecycleEpoch)) {
+                return;
+              }
               currentReviews = Array.isArray(reviewPayload?.reviews) ? reviewPayload.reviews : [];
               reviewSummaries = reviewPayload?.summaries || {};
               const scrollRecentlyActive = Date.now() - Number(uiRuntimeState.lastScrollActivityAt || 0) < 900;
@@ -12629,6 +12682,9 @@ async function bootApp() {
               }
             })
             .catch((error) => {
+          if (!isLifecycleEpochCurrent(lifecycleEpoch)) {
+            return;
+          }
           currentReviews = [];
           reviewSummaries = {};
           captureClientError("reviews_boot_load_failed", error, {
@@ -12638,7 +12694,7 @@ async function bootApp() {
         });
     }, 1800);
   }, 1500);
-  startBackgroundSessionRestore(rememberedSessionPromise, cachedSession);
+  startBackgroundSessionRestore(rememberedSessionPromise, cachedSession, { lifecycleEpoch });
 
   if (isAdminLoginRoute()) {
     showAdminLoginScreen();
@@ -12658,13 +12714,22 @@ async function bootApp() {
   document.body.classList.remove("auth-modal-open");
   appContainer.style.display = "block";
   refreshPublicEntryChrome();
+  const bootTargetView = getBootTargetView(cachedSession);
+  const shouldUseEphemeralBootView = Boolean(cachedSession?.username);
   if (suppressInitialProductHomeRender) {
-    setCurrentViewState("home", { syncHistory: false });
+    setCurrentViewState("home", shouldUseEphemeralBootView ? getEphemeralLifecycleViewOptions() : { syncHistory: false });
     openDeepLinkedProductRouteIfNeeded({ skipHomeRender: true });
   } else {
-    setCurrentViewState("home");
+    setCurrentViewState(
+      bootTargetView,
+      shouldUseEphemeralBootView
+        ? getEphemeralLifecycleViewOptions()
+        : undefined
+    );
     renderCurrentView();
-    openDeepLinkedProductRouteIfNeeded();
+    if (bootTargetView === "home") {
+      openDeepLinkedProductRouteIfNeeded();
+    }
   }
   scheduleChromeOffsetSync();
   document.body.classList.remove("app-booting");
