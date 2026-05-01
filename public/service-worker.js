@@ -1,4 +1,4 @@
-const BUILD_VERSION = "20260429222225";
+const BUILD_VERSION = "20260501044703";
 const CACHE_PREFIX = "winga-shell";
 const CACHE_NAME = `${CACHE_PREFIX}-${BUILD_VERSION}`;
 const IMAGE_CACHE_PREFIX = "winga-images";
@@ -219,6 +219,46 @@ async function trimCacheEntries(cacheName, maxEntries) {
   await Promise.all(keys.slice(0, overflow).map((request) => cache.delete(request)));
 }
 
+async function cacheDynamicRequests(urls = []) {
+  const requests = Array.from(new Set(Array.isArray(urls) ? urls : []))
+    .map((value) => {
+      try {
+        return new URL(String(value || "").trim(), self.location.origin).toString();
+      } catch (error) {
+        return "";
+      }
+    })
+    .filter(Boolean);
+  if (!requests.length) {
+    return;
+  }
+  const cache = await caches.open(DYNAMIC_CACHE_NAME);
+  await Promise.all(requests.map(async (url) => {
+    const request = new Request(url, {
+      method: "GET",
+      credentials: "same-origin",
+      headers: {
+        Accept: "application/json"
+      }
+    });
+    try {
+      const response = await fetchWithRetry(request, {
+        retries: 1,
+        baseDelayMs: 220
+      });
+      if (response && response.ok) {
+        await cache.put(request, response.clone());
+      }
+    } catch (error) {
+      logServiceWorkerEvent("warn", "dynamic_precache_failed", {
+        url,
+        message: String(error?.message || error || "")
+      });
+    }
+  }));
+  await trimCacheEntries(DYNAMIC_CACHE_NAME, MAX_DYNAMIC_CACHE_ENTRIES);
+}
+
 async function cacheFirst(request) {
   const cache = await caches.open(CACHE_NAME);
   const cachedResponse = await cache.match(request, { ignoreSearch: true });
@@ -300,8 +340,17 @@ async function networkFirstNavigation(request, event = null) {
   }
 }
 
-async function proxyImageRequest(request) {
+async function proxyImageRequest(request, options = {}) {
+  const { preferCache = false } = options;
   const cache = await caches.open(IMAGE_CACHE_NAME);
+  const cachedResponse = preferCache ? await cache.match(request) : null;
+  if (cachedResponse) {
+    logServiceWorkerEvent("info", "image_cache_hit", {
+      url: request.url,
+      strategy: "proxy"
+    });
+    return cachedResponse;
+  }
   const requestUrl = new URL(request.url);
   const remoteUrl = requestUrl.searchParams.get("u") || "";
   if (!remoteUrl) {
@@ -348,6 +397,10 @@ async function networkFirstImage(request) {
     if (isUsableImageResponse(networkResponse)) {
       await cache.put(request, networkResponse.clone());
       await trimCacheEntries(IMAGE_CACHE_NAME, MAX_IMAGE_CACHE_ENTRIES);
+      logServiceWorkerEvent("info", "image_cache_refresh", {
+        url: request.url,
+        strategy: "network_first"
+      });
       return networkResponse;
     }
   } catch (error) {
@@ -357,6 +410,17 @@ async function networkFirstImage(request) {
     });
   }
   const cachedResponse = await cache.match(request, { ignoreSearch: true });
+  if (cachedResponse) {
+    logServiceWorkerEvent("info", "image_cache_hit", {
+      url: request.url,
+      strategy: "network_first"
+    });
+  } else {
+    logServiceWorkerEvent("warn", "image_cache_miss", {
+      url: request.url,
+      strategy: "network_first"
+    });
+  }
   return cachedResponse || createImageFallbackResponse();
 }
 
@@ -460,6 +524,10 @@ self.addEventListener("message", (event) => {
   }
   if (messageType === "CACHE_IMAGE_URLS") {
     event.waitUntil(cacheImageUrls(event.data?.urls || []));
+    return;
+  }
+  if (messageType === "CACHE_DYNAMIC_REQUESTS") {
+    event.waitUntil(cacheDynamicRequests(event.data?.urls || []));
   }
 });
 
@@ -484,10 +552,10 @@ self.addEventListener("fetch", (event) => {
       const cache = await caches.open(IMAGE_CACHE_NAME);
       const cachedResponse = await cache.match(request);
       if (cachedResponse) {
-        event.waitUntil(proxyImageRequest(request).catch(() => {}));
+        event.waitUntil(proxyImageRequest(request, { preferCache: false }).catch(() => {}));
         return cachedResponse;
       }
-      return proxyImageRequest(request);
+      return proxyImageRequest(request, { preferCache: true });
     })());
     return;
   }

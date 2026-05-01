@@ -30,6 +30,14 @@ const PRODUCT_CARD_VISIBILITY_THRESHOLD = 0.66;
 const MEMORY_SNAPSHOT_LIMIT = 18;
 const MEMORY_WARNING_THRESHOLD_BYTES = 180 * 1024 * 1024;
 const MEMORY_SAMPLING_INTERVAL_MS = 30000;
+const FEED_BOOTSTRAP_CACHE_KEY = "winga-feed-bootstrap-cache";
+const FEED_BOOTSTRAP_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+const FEED_BOOTSTRAP_PRODUCT_LIMIT = 14;
+const FEED_PREDICTIVE_PRELOAD_COUNT = 5;
+const FEED_PREDICTIVE_NEXT_BATCH_SIZE = 6;
+const FEED_MEMORY_IMAGE_CACHE_LIMIT = 18;
+const FEED_MEMORY_PREFETCH_COOLDOWN_MS = 1200;
+const FEED_SCROLL_SPEED_PREFETCH_THRESHOLD = 0.72;
 const { CHAT_EMOJI_CHOICES } = window.WingaModules.config.chat;
 const {
   MARKETPLACE_CATEGORY_TREE,
@@ -127,7 +135,10 @@ function refreshProductsFromStore() {
 function ensureProductsForImmediateRender() {
   refreshProductsFromStore();
   if (!products.length) {
-    products = DEFAULT_PRODUCTS.map(normalizeProduct);
+    const feedBootstrapSnapshot = getFeedBootstrapSnapshot();
+    products = feedBootstrapSnapshot.length
+      ? feedBootstrapSnapshot
+      : DEFAULT_PRODUCTS.map(normalizeProduct);
     rebuildProductIndex();
   }
 }
@@ -147,6 +158,11 @@ function refreshProductsAfterAuthChange() {
         return;
       }
       refreshProductsFromStore();
+      primeFeedInstantCache(products, {
+        reason: "post_auth_refresh",
+        productLimit: FEED_PREDICTIVE_PRELOAD_COUNT,
+        decodeLimit: FEED_PREDICTIVE_NEXT_BATCH_SIZE
+      });
       renderCurrentView();
     })
     .catch((error) => {
@@ -1598,14 +1614,98 @@ function getImageFallbackDataUri(label = "WINGA") {
 }
 
 const imagePreloadRegistry = new Set();
+const decodedFeedImageCache = new Map();
+
+function trimDecodedFeedImageCache() {
+  const entries = Array.from(decodedFeedImageCache.entries())
+    .sort((first, second) => Number(first[1]?.touchedAt || 0) - Number(second[1]?.touchedAt || 0));
+  while (entries.length > FEED_MEMORY_IMAGE_CACHE_LIMIT) {
+    const [src, entry] = entries.shift();
+    decodedFeedImageCache.delete(src);
+    if (entry?.image instanceof Image) {
+      entry.image.onload = null;
+      entry.image.onerror = null;
+      entry.image.src = "";
+    }
+  }
+}
+
+function cacheDecodedFeedImageSource(src = "", options = {}) {
+  const safeSrc = sanitizeImageSource(src, "");
+  if (!safeSrc || /^data:/i.test(safeSrc)) {
+    return Promise.resolve(null);
+  }
+  const existingEntry = decodedFeedImageCache.get(safeSrc);
+  if (existingEntry?.promise) {
+    existingEntry.touchedAt = Date.now();
+    reportClientEvent("info", "feed_memory_cache_hit", "Feed image served from memory cache.", {
+      category: "image",
+      src: safeSrc,
+      reason: options.reason || "memory_hit"
+    });
+    return existingEntry.promise;
+  }
+
+  const image = new Image();
+  image.decoding = "async";
+  image.loading = "eager";
+  const startedAt = getPerfNow();
+  const promise = new Promise((resolve, reject) => {
+    image.onload = async () => {
+      try {
+        if (typeof image.decode === "function") {
+          await image.decode().catch(() => {});
+        }
+      } catch (error) {
+        // Ignore decode errors after the image is already loaded.
+      }
+      decodedFeedImageCache.set(safeSrc, {
+        image,
+        touchedAt: Date.now(),
+        width: Number(image.naturalWidth || 0),
+        height: Number(image.naturalHeight || 0),
+        promise
+      });
+      trimDecodedFeedImageCache();
+      reportSlowPath("feed_predictive_image_decode", getPerfNow() - startedAt, {
+        category: "image",
+        src: safeSrc,
+        reason: options.reason || "decode"
+      }, 180);
+      resolve(image);
+    };
+    image.onerror = (error) => {
+      decodedFeedImageCache.delete(safeSrc);
+      reportClientEvent("warn", "feed_memory_cache_miss", "Feed image decode failed.", {
+        category: "image",
+        src: safeSrc,
+        reason: options.reason || "decode_error"
+      });
+      reject(error || new Error("Unable to decode image into memory cache."));
+    };
+  });
+
+  decodedFeedImageCache.set(safeSrc, {
+    image,
+    touchedAt: Date.now(),
+    promise
+  });
+  image.src = safeSrc;
+  return promise.catch(() => null);
+}
 
 function preloadImageSource(src = "", options = {}) {
   const {
     fetchPriority = "high",
-    as = "image"
+    as = "image",
+    decodeInMemory = false,
+    reason = "preload"
   } = options;
   const resolvedSrc = sanitizeImageSource(src, "");
   if (!resolvedSrc || /^data:/i.test(resolvedSrc) || imagePreloadRegistry.has(resolvedSrc)) {
+    if (decodeInMemory) {
+      void cacheDecodedFeedImageSource(resolvedSrc, { reason });
+    }
     return null;
   }
 
@@ -1617,6 +1717,9 @@ function preloadImageSource(src = "", options = {}) {
   link.setAttribute("fetchpriority", fetchPriority);
   link.setAttribute("data-winga-preload-image", "true");
   document.head.appendChild(link);
+  if (decodeInMemory) {
+    void cacheDecodedFeedImageSource(resolvedSrc, { reason });
+  }
   return link;
 }
 
@@ -1627,13 +1730,145 @@ function isStandaloneDisplayMode() {
   );
 }
 
+function getFeedBootstrapSnapshot() {
+  try {
+    const raw = localStorage.getItem(FEED_BOOTSTRAP_CACHE_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (!parsed || !Array.isArray(parsed.products) || !parsed.products.length) {
+      return [];
+    }
+    if (Date.now() - Number(parsed.timestamp || 0) > FEED_BOOTSTRAP_CACHE_MAX_AGE_MS) {
+      localStorage.removeItem(FEED_BOOTSTRAP_CACHE_KEY);
+      return [];
+    }
+    return parsed.products.map(normalizeProduct);
+  } catch (error) {
+    return [];
+  }
+}
+
+function persistFeedBootstrapSnapshot(productsList = [], reason = "render") {
+  if (!Array.isArray(productsList) || !productsList.length) {
+    return;
+  }
+  try {
+    const snapshot = productsList.slice(0, FEED_BOOTSTRAP_PRODUCT_LIMIT).map((product) => ({
+      id: product.id,
+      name: product.name,
+      price: product.price,
+      shop: product.shop,
+      whatsapp: product.whatsapp,
+      image: product.image,
+      images: Array.isArray(product.images) ? product.images.slice(0, 3) : [],
+      uploadedBy: product.uploadedBy,
+      category: product.category,
+      fitMode: product.fitMode,
+      status: product.status,
+      availability: product.availability,
+      createdAt: product.createdAt,
+      updatedAt: product.updatedAt
+    }));
+    localStorage.setItem(FEED_BOOTSTRAP_CACHE_KEY, JSON.stringify({
+      timestamp: Date.now(),
+      reason,
+      products: snapshot
+    }));
+  } catch (error) {
+    reportClientEvent("warn", "feed_bootstrap_snapshot_failed", "Unable to persist feed bootstrap snapshot.", {
+      category: "cache",
+      reason
+    });
+  }
+}
+
+function postServiceWorkerWarmCacheMessage(payload) {
+  if (!("serviceWorker" in navigator) || !payload?.type) {
+    return;
+  }
+  const postMessageToWorker = (registration) => {
+    try {
+      registration?.active?.postMessage?.(payload);
+    } catch (error) {
+      // Ignore SW warm-cache messaging issues.
+    }
+  };
+  if (navigator.serviceWorker.controller) {
+    postMessageToWorker({ active: navigator.serviceWorker.controller });
+  } else if (navigator.serviceWorker.ready) {
+    navigator.serviceWorker.ready.then(postMessageToWorker).catch(() => {});
+  }
+}
+
+function getFeedDynamicWarmUrls() {
+  const origin = window.location.origin;
+  return [
+    new URL("/api/products", origin).toString(),
+    new URL("/api/categories", origin).toString(),
+    new URL("/api/settings", origin).toString()
+  ];
+}
+
+function collectProductImageWarmQueue(productsList = [], options = {}) {
+  const {
+    productLimit = FEED_PREDICTIVE_PRELOAD_COUNT,
+    imageLimitPerProduct = 2
+  } = options;
+  const queue = [];
+  const seen = new Set();
+  productsList.slice(0, productLimit).forEach((product) => {
+    getProductImageCandidates(product).slice(0, imageLimitPerProduct).forEach((src) => {
+      const safeSrc = sanitizeImageSource(src, "");
+      if (!safeSrc || seen.has(safeSrc)) {
+        return;
+      }
+      seen.add(safeSrc);
+      queue.push(safeSrc);
+    });
+  });
+  return queue;
+}
+
+function primeFeedInstantCache(productsList = [], options = {}) {
+  if (!Array.isArray(productsList) || !productsList.length) {
+    return;
+  }
+  const reason = String(options.reason || "feed_prime");
+  const productLimit = Number(options.productLimit || FEED_PREDICTIVE_PRELOAD_COUNT);
+  const decodeLimit = Number(options.decodeLimit || FEED_PREDICTIVE_NEXT_BATCH_SIZE);
+  const imageQueue = collectProductImageWarmQueue(productsList, {
+    productLimit,
+    imageLimitPerProduct: 2
+  });
+  if (!imageQueue.length) {
+    return;
+  }
+
+  persistFeedBootstrapSnapshot(productsList, reason);
+  postServiceWorkerWarmCacheMessage({
+    type: "CACHE_DYNAMIC_REQUESTS",
+    urls: getFeedDynamicWarmUrls()
+  });
+  postServiceWorkerWarmCacheMessage({
+    type: "CACHE_IMAGE_URLS",
+    urls: imageQueue.slice(0, decodeLimit * 2)
+  });
+
+  imageQueue.slice(0, decodeLimit).forEach((src, index) => {
+    preloadImageSource(src, {
+      fetchPriority: index < 2 ? "high" : "auto",
+      decodeInMemory: true,
+      reason
+    });
+  });
+}
+
 function warmProductImageCache(products = []) {
   if (typeof preloadImageSource !== "function" || !Array.isArray(products) || !products.length) {
     return;
   }
 
   const isStandalone = isStandaloneDisplayMode();
-  const productLimit = isStandalone ? 6 : 10;
+  const productLimit = isStandalone ? 5 : 6;
   const imageLimitPerProduct = isStandalone ? 1 : 2;
   const seen = new Set();
   const queue = [];
@@ -1687,8 +1922,12 @@ function warmProductImageCache(products = []) {
   const batchSize = isStandalone ? 8 : 6;
   const drainQueue = () => {
     const batch = queue.splice(0, batchSize);
-    batch.forEach(({ src, fetchPriority }) => {
-      preloadImageSource(src, { fetchPriority });
+    batch.forEach(({ src, fetchPriority }, index) => {
+      preloadImageSource(src, {
+        fetchPriority,
+        decodeInMemory: index < Math.min(4, batchSize),
+        reason: "warm_product_image_cache"
+      });
     });
     if (!queue.length) {
       return;
@@ -2020,6 +2259,79 @@ function safeReplaceState(state, url) {
   } catch (error) {
     return false;
   }
+}
+
+function getVisibleFeedProductIndex() {
+  if (!productsContainer) {
+    return -1;
+  }
+  const viewportHeight = window.innerHeight || document.documentElement?.clientHeight || 0;
+  let maxIndex = -1;
+  productsContainer.querySelectorAll(".product-card[data-feed-product-index]").forEach((card) => {
+    const index = Number(card.dataset.feedProductIndex);
+    if (!Number.isFinite(index)) {
+      return;
+    }
+    const rect = card.getBoundingClientRect();
+    if (rect.bottom >= 0 && rect.top <= viewportHeight * 1.2) {
+      maxIndex = Math.max(maxIndex, index);
+    }
+  });
+  return maxIndex;
+}
+
+function primePredictiveFeedBatch(trigger = "scroll") {
+  if (currentView !== "home" || document.hidden) {
+    return;
+  }
+  const filteredProducts = getFilteredProducts();
+  if (!Array.isArray(filteredProducts) || !filteredProducts.length) {
+    return;
+  }
+  const visibleIndex = getVisibleFeedProductIndex();
+  if (visibleIndex < 0) {
+    primeFeedInstantCache(filteredProducts, {
+      reason: `${trigger}_bootstrap`,
+      productLimit: FEED_PREDICTIVE_PRELOAD_COUNT,
+      decodeLimit: FEED_PREDICTIVE_NEXT_BATCH_SIZE
+    });
+    return;
+  }
+  if (visibleIndex <= Number(feedRuntimeState.lastVisibleIndex || -1) && trigger === "scroll") {
+    return;
+  }
+  feedRuntimeState.lastVisibleIndex = visibleIndex;
+  const batchStart = Math.min(filteredProducts.length, visibleIndex + 1);
+  const nextProducts = filteredProducts.slice(batchStart, batchStart + FEED_PREDICTIVE_NEXT_BATCH_SIZE);
+  if (!nextProducts.length) {
+    return;
+  }
+  primeFeedInstantCache(nextProducts, {
+    reason: `${trigger}_next_batch`,
+    productLimit: FEED_PREDICTIVE_NEXT_BATCH_SIZE,
+    decodeLimit: Math.min(FEED_PREDICTIVE_NEXT_BATCH_SIZE, 4)
+  });
+}
+
+function schedulePredictiveFeedPrefetch(trigger = "scroll") {
+  const now = Date.now();
+  if (
+    trigger === "scroll"
+    && now - Number(feedRuntimeState.lastPrefetchAt || 0) < FEED_MEMORY_PREFETCH_COOLDOWN_MS
+  ) {
+    return;
+  }
+  if (feedRuntimeState.prefetchTimer) {
+    window.clearTimeout(feedRuntimeState.prefetchTimer);
+    feedRuntimeState.prefetchTimer = 0;
+  }
+  const delay = trigger === "scroll" ? 120 : 40;
+  feedRuntimeState.prefetchTimer = window.setTimeout(() => {
+    feedRuntimeState.prefetchTimer = 0;
+    feedRuntimeState.lastPrefetchAt = Date.now();
+    feedRuntimeState.lastPrefetchReason = trigger;
+    primePredictiveFeedBatch(trigger);
+  }, delay);
 }
 
 function bindServiceWorkerDiagnostics() {
@@ -5628,7 +5940,14 @@ const {
   createContinuousDiscoveryAnchorElement,
   setupContinuousDiscoveryLoading,
   trackProductView: (productId) => window.WingaDataLayer.trackProductView(productId),
-  refreshProductsFromStore
+  refreshProductsFromStore,
+  onFeedRenderBatch: ({ currentView: renderedView, products: renderedProducts }) => {
+    if (renderedView !== "home" || !Array.isArray(renderedProducts) || !renderedProducts.length) {
+      return;
+    }
+    persistFeedBootstrapSnapshot(renderedProducts, "home_render");
+    schedulePredictiveFeedPrefetch("render");
+  }
 });
 
 function renderReviewButton(product) {
@@ -6121,6 +6440,7 @@ if (searchInput) {
 let profileDiv = null;
 const runtimeState = createRuntimeState();
 const uiRuntimeState = runtimeState.ui;
+const feedRuntimeState = runtimeState.feed || (runtimeState.feed = {});
 const searchRuntimeState = runtimeState.search;
 const profileRuntimeState = runtimeState.profile;
 let availableCategories = [...DEFAULT_PRODUCT_CATEGORIES];
@@ -6537,6 +6857,28 @@ function reportSlowPath(event, durationMs, context = {}, thresholdMs = 120) {
   );
 }
 
+window.addEventListener("winga:image-telemetry", (event) => {
+  const detail = event?.detail || {};
+  const durationMs = Number(detail.durationMs || 0);
+  if (detail.status === "error") {
+    reportClientEvent("warn", "feed_image_load_failed", "Feed image failed to load.", {
+      category: "image",
+      src: detail.src || "",
+      surface: detail.surface || "",
+      fitMode: detail.fitMode || ""
+    });
+    return;
+  }
+  reportSlowPath("feed_image_load_latency", durationMs, {
+    category: "image",
+    src: detail.src || "",
+    surface: detail.surface || "",
+    fitMode: detail.fitMode || "",
+    eager: Boolean(detail.eager),
+    immediate: Boolean(detail.immediate)
+  }, 160);
+});
+
 function getMemoryUsageSnapshot(reason = "sample") {
   const memory = performance?.memory;
   if (!memory) {
@@ -6645,6 +6987,10 @@ function cleanupAppRenderMemory(reason = "cleanup", options = {}) {
     clearInterval(uiRuntimeState.memorySampleTimer);
     uiRuntimeState.memorySampleTimer = 0;
   }
+  if (feedRuntimeState.prefetchTimer) {
+    clearTimeout(feedRuntimeState.prefetchTimer);
+    feedRuntimeState.prefetchTimer = 0;
+  }
   if (lifecycleFallbackTimer) {
     clearTimeout(lifecycleFallbackTimer);
     lifecycleFallbackTimer = null;
@@ -6673,6 +7019,7 @@ function cleanupAppRenderMemory(reason = "cleanup", options = {}) {
     disposeScopedRenderMemory(detailModal);
   }
   disconnectRenderMemoryObservers();
+  trimDecodedFeedImageCache();
   captureMemorySnapshot(reason, {
     view: currentView
   });
@@ -8058,9 +8405,21 @@ viewHomeBackButton?.addEventListener("click", () => {
 });
 
 window.addEventListener("scroll", () => {
+  const now = Date.now();
+  const currentScrollY = window.scrollY || window.pageYOffset || 0;
+  const previousScrollY = Number(feedRuntimeState.lastScrollY || 0);
+  const previousScrollAt = Number(feedRuntimeState.lastScrollAt || 0);
+  const deltaY = Math.abs(currentScrollY - previousScrollY);
+  const deltaTime = Math.max(1, now - previousScrollAt);
+  feedRuntimeState.lastScrollSpeed = deltaY / deltaTime;
+  feedRuntimeState.lastScrollY = currentScrollY;
+  feedRuntimeState.lastScrollAt = now;
   uiRuntimeState.lastScrollActivityAt = Date.now();
   if (currentView === "home" && !document.body.classList.contains("product-detail-open")) {
     scheduleHomeScrollSave();
+    if (feedRuntimeState.lastScrollSpeed >= FEED_SCROLL_SPEED_PREFETCH_THRESHOLD) {
+      schedulePredictiveFeedPrefetch("scroll");
+    }
   }
   if (getViewportWidth() <= 720) {
     scheduleMobileHeaderScrollSync();
@@ -8084,6 +8443,9 @@ function handleAppLifecycleChange() {
         return;
       }
       scheduleRenderCurrentView();
+      if (currentView === "home") {
+        schedulePredictiveFeedPrefetch("resume");
+      }
     }, 280);
   }
 }
@@ -8955,6 +9317,11 @@ window.addEventListener("winga:api-metric", (event) => {
 window.addEventListener("winga:products-hydrated", () => {
   refreshProductsFromStore();
   warmProductImageCache(window.WingaDataLayer?.getProducts?.() || []);
+  primeFeedInstantCache(window.WingaDataLayer?.getProducts?.() || [], {
+    reason: "products_hydrated",
+    productLimit: FEED_PREDICTIVE_PRELOAD_COUNT,
+    decodeLimit: FEED_PREDICTIVE_NEXT_BATCH_SIZE
+  });
   const canRenderWhileWaitingForDeepLink = !suppressInitialProductHomeRender || document.body.classList.contains("product-detail-open");
   if (canRenderWhileWaitingForDeepLink && currentView !== "profile") {
     renderCurrentView();
@@ -12128,12 +12495,13 @@ async function bootApp() {
     applyAppSettings(appSettings);
   }
 
-  refreshProductsFromStore();
+  ensureProductsForImmediateRender();
   warmProductImageCache(products);
-  if (products.length === 0) {
-    products = DEFAULT_PRODUCTS.map(normalizeProduct);
-    rebuildProductIndex();
-  }
+  primeFeedInstantCache(products, {
+    reason: "boot_refresh",
+    productLimit: FEED_PREDICTIVE_PRELOAD_COUNT,
+    decodeLimit: FEED_PREDICTIVE_NEXT_BATCH_SIZE
+  });
   mergeAvailableCategories(inferCategoriesFromData());
   refreshCategoryUI();
   if (!suppressInitialProductHomeRender) {
