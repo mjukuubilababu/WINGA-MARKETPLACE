@@ -4385,6 +4385,14 @@ function clearSessionRestoringState() {
   refreshPublicEntryChrome();
 }
 
+function cancelPendingSessionRestore(reason = "auth_interaction") {
+  activeSessionRestoreToken += 1;
+  reportClientEvent("info", "session_restore_cancelled", "Cancelled stale session restore flow.", {
+    category: "auth",
+    reason
+  });
+}
+
 function showInstantBootFeedSnapshot(reason = "boot_snapshot") {
   if (suppressInitialProductHomeRender || isAdminLoginRoute()) {
     return false;
@@ -4431,9 +4439,19 @@ function showInstantBootFeedSnapshot(reason = "boot_snapshot") {
 function startBackgroundSessionRestore(restorePromise, cachedSession = null, options = {}) {
   const restoreToken = ++activeSessionRestoreToken;
   const lifecycleEpoch = Number(options.lifecycleEpoch || 0);
+  const expectedToken = String(cachedSession?.token || "").trim();
   if (!cachedSession?.username) {
     return;
   }
+
+  const shouldIgnoreRestoreOutcome = () => {
+    if (!expectedToken || !window.WingaDataLayer?.bootstrapSession) {
+      return false;
+    }
+    const activeBootstrapSession = window.WingaDataLayer.bootstrapSession();
+    const activeToken = String(activeBootstrapSession?.token || "").trim();
+    return Boolean(activeToken && activeToken !== expectedToken);
+  };
 
   const timeoutId = window.setTimeout(() => {
     if (restoreToken !== activeSessionRestoreToken || (lifecycleEpoch && !isLifecycleEpochCurrent(lifecycleEpoch))) {
@@ -4448,6 +4466,9 @@ function startBackgroundSessionRestore(restorePromise, cachedSession = null, opt
   Promise.resolve(restorePromise)
     .then((session) => {
       if (restoreToken !== activeSessionRestoreToken || (lifecycleEpoch && !isLifecycleEpochCurrent(lifecycleEpoch))) {
+        return;
+      }
+      if (shouldIgnoreRestoreOutcome()) {
         return;
       }
       if (timeoutId) {
@@ -4498,6 +4519,9 @@ function startBackgroundSessionRestore(restorePromise, cachedSession = null, opt
     })
     .catch((error) => {
       if (restoreToken !== activeSessionRestoreToken || (lifecycleEpoch && !isLifecycleEpochCurrent(lifecycleEpoch))) {
+        return;
+      }
+      if (shouldIgnoreRestoreOutcome()) {
         return;
       }
       if (timeoutId) {
@@ -7893,6 +7917,7 @@ adminLoginButton?.addEventListener("click", async () => {
   }
 
   let user = null;
+  cancelPendingSessionRestore("admin_login_started");
   adminAuthRequestPending = true;
   setAuthInteractionPending("admin", true);
   try {
@@ -7922,7 +7947,9 @@ adminLoginButton?.addEventListener("click", async () => {
     loginSuccess(user.username, "", user, {
       restoreView: false,
       skipWelcome: true,
-      forceView: "admin"
+      forceView: "admin",
+      deferRender: true,
+      skipMarketplaceBootstrap: true
     });
     showInAppNotification({
       title: "Admin access granted",
@@ -8026,6 +8053,7 @@ authButton.addEventListener("click", async () => {
     }
 
     try {
+      cancelPendingSessionRestore("public_login_started");
       const user = await window.WingaDataLayer.login({ identifier: username, username, password });
       if (isStaffRole(user.role)) {
         captureClientError("staff_login_via_public_auth_blocked", new Error("Staff account attempted public auth flow."), {
@@ -8044,7 +8072,10 @@ authButton.addEventListener("click", async () => {
         return;
       }
       clearAppViewState();
-      loginSuccess(user.username, "", user, { restoreView: false });
+      loginSuccess(user.username, "", user, {
+        restoreView: false,
+        deferRender: true
+      });
     } catch (error) {
       const errorMessage = getFriendlyAuthErrorMessage(error, "Taarifa za login si sahihi. Hakikisha identifier na password yako ni sahihi.");
       if (/admin login route|admin au moderator/i.test(errorMessage)) {
@@ -8149,6 +8180,7 @@ authButton.addEventListener("click", async () => {
   const displayName = usernameInput.value.trim();
 
   try {
+    cancelPendingSessionRestore("public_signup_started");
     const user = await window.WingaDataLayer.signup({
       username: "",
       fullName: displayName,
@@ -9180,7 +9212,8 @@ function loginSuccess(username, preferredCategory = "", sessionData = null, opti
     restoreView = false,
     skipWelcome = false,
     forceView = "",
-    deferRender = false
+    deferRender = false,
+    skipMarketplaceBootstrap = false
   } = options;
   isSessionRestorePending = false;
   completePublicAuthSuccessTransition();
@@ -9209,7 +9242,9 @@ function loginSuccess(username, preferredCategory = "", sessionData = null, opti
     primaryCategory: preferredCategory || "",
     role: "seller"
   });
-  ensureProductsForImmediateRender();
+  if (!skipMarketplaceBootstrap) {
+    ensureProductsForImmediateRender();
+  }
   currentOrders = { purchases: [], sales: [] };
   currentMessages = [];
   currentNotifications = [];

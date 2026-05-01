@@ -204,6 +204,34 @@ async function loadImageBufferFromReference(reference, productId, assetOrigin) {
     return null;
   }
 
+  const fetchRemoteImageBuffer = async (targetUrl) => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 12000);
+    try {
+      const remoteResponse = await fetch(targetUrl, {
+        headers: {
+          Accept: "image/*"
+        },
+        signal: controller.signal
+      });
+      if (!remoteResponse.ok) {
+        return null;
+      }
+      const arrayBuffer = await remoteResponse.arrayBuffer();
+      return {
+        buffer: Buffer.from(arrayBuffer),
+        contentType: remoteResponse.headers.get("content-type") || "image/jpeg"
+      };
+    } catch (error) {
+      console.warn(
+        `[build-vercel-static] Skipping OG image fetch for product ${productId || "unknown"} from ${targetUrl}: ${String(error?.message || error || "fetch failed")}`
+      );
+      return null;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  };
+
   if (reference.startsWith("/uploads/")) {
     const localPath = path.join(rootDir, "backend", reference.replace(/^\/+/, ""));
     if (fs.existsSync(localPath)) {
@@ -223,35 +251,11 @@ async function loadImageBufferFromReference(reference, productId, assetOrigin) {
     }
 
     const remoteUrl = `${assetOrigin.replace(/\/+$/, "")}${reference}`;
-    const remoteResponse = await fetch(remoteUrl, {
-      headers: {
-        Accept: "image/*"
-      }
-    });
-    if (!remoteResponse.ok) {
-      return null;
-    }
-    const arrayBuffer = await remoteResponse.arrayBuffer();
-    return {
-      buffer: Buffer.from(arrayBuffer),
-      contentType: remoteResponse.headers.get("content-type") || "image/jpeg"
-    };
+    return fetchRemoteImageBuffer(remoteUrl);
   }
 
   if (/^https?:\/\//i.test(reference)) {
-    const remoteResponse = await fetch(reference, {
-      headers: {
-        Accept: "image/*"
-      }
-    });
-    if (!remoteResponse.ok) {
-      return null;
-    }
-    const arrayBuffer = await remoteResponse.arrayBuffer();
-    return {
-      buffer: Buffer.from(arrayBuffer),
-      contentType: remoteResponse.headers.get("content-type") || "image/jpeg"
-    };
+    return fetchRemoteImageBuffer(reference);
   }
 
   return null;

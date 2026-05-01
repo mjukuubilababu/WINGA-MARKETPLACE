@@ -1,4 +1,4 @@
-const BUILD_VERSION = "20260501111659";
+const BUILD_VERSION = "20260501115144";
 const CACHE_PREFIX = "winga-shell";
 const CACHE_NAME = `${CACHE_PREFIX}-${BUILD_VERSION}`;
 const IMAGE_CACHE_PREFIX = "winga-images";
