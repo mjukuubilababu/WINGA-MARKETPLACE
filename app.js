@@ -6016,6 +6016,16 @@ const {
   setupContinuousDiscoveryLoading,
   trackProductView: (productId) => window.WingaDataLayer.trackProductView(productId),
   refreshProductsFromStore,
+  afterFeedBatchRender: ({ container }) => {
+    if (!(container instanceof Element)) {
+      return;
+    }
+    enhanceShowcaseTracks(container);
+    bindFeedGalleryInteractions(container);
+    bindProductEngagementSignals(container);
+    bindImageFallbacks(container);
+    bindProductMenus(container);
+  },
   onFeedRenderBatch: ({ currentView: renderedView, products: renderedProducts }) => {
     if (renderedView !== "home" || !Array.isArray(renderedProducts) || !renderedProducts.length) {
       return;
