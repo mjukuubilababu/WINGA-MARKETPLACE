@@ -4316,6 +4316,49 @@ function clearSessionRestoringState() {
   refreshPublicEntryChrome();
 }
 
+function showInstantBootFeedSnapshot(reason = "boot_snapshot") {
+  if (suppressInitialProductHomeRender || isAdminLoginRoute()) {
+    return false;
+  }
+
+  ensureProductsForImmediateRender();
+  mergeAvailableCategories(inferCategoriesFromData());
+  refreshCategoryUI();
+  setCurrentViewState("home", { syncHistory: false });
+  appContainer.style.display = "block";
+  syncBodyScrollLockState();
+  refreshPublicEntryChrome();
+
+  try {
+    renderCurrentView({ reason, force: true });
+  } catch (error) {
+    captureClientError("instant_boot_snapshot_render_failed", error, {
+      category: "runtime",
+      alertSeverity: "medium"
+    });
+    return false;
+  }
+
+  const hasVisibleFeedShell = Boolean(
+    productsContainer?.querySelector(".product-card, .seller-product-card")
+    || feedLoadingState?.style.display === "grid"
+  );
+
+  if (hasVisibleFeedShell) {
+    document.body.classList.remove("app-booting");
+    document.body.classList.add("app-ready");
+    hideBootOverlayImmediately();
+    hideLifecycleFallbackShell();
+    reportClientEvent("info", "instant_boot_snapshot_rendered", "Boot snapshot rendered before full hydration.", {
+      category: "runtime",
+      authState: currentUser ? "signed_in" : "guest",
+      productsCount: Array.isArray(products) ? products.length : 0
+    });
+  }
+
+  return hasVisibleFeedShell;
+}
+
 function startBackgroundSessionRestore(restorePromise, cachedSession = null) {
   const restoreToken = ++activeSessionRestoreToken;
   if (!cachedSession?.username) {
@@ -12475,6 +12518,8 @@ async function bootApp() {
   }
 
   await bootstrapCleanupPromise;
+
+  showInstantBootFeedSnapshot("boot_pre_hydration_snapshot");
 
   await window.WingaDataLayer.init();
   syncNotificationPermissionStateFromBrowser();
