@@ -35,10 +35,10 @@ const MEMORY_CRITICAL_THRESHOLD_BYTES = 220 * 1024 * 1024;
 const FEED_BOOTSTRAP_CACHE_KEY = "winga-feed-bootstrap-cache";
 const FEED_BOOTSTRAP_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const FEED_BOOTSTRAP_PRODUCT_LIMIT = 14;
-const FEED_PREDICTIVE_PRELOAD_COUNT = 5;
-const FEED_PREDICTIVE_NEXT_BATCH_SIZE = 6;
+const FEED_PREDICTIVE_PRELOAD_COUNT = 3;
+const FEED_PREDICTIVE_NEXT_BATCH_SIZE = 3;
 const FEED_MEMORY_IMAGE_CACHE_LIMIT = 10;
-const FEED_MEMORY_PREFETCH_COOLDOWN_MS = 1200;
+const FEED_MEMORY_PREFETCH_COOLDOWN_MS = 2200;
 const FEED_SCROLL_SPEED_PREFETCH_THRESHOLD = 0.72;
 const IMAGE_PRELOAD_REGISTRY_LIMIT = 180;
 const MARKETPLACE_SCROLL_PREFETCH_REGISTRY_LIMIT = 240;
@@ -1986,8 +1986,8 @@ function warmProductImageCache(products = []) {
   }
 
   const isStandalone = isStandaloneDisplayMode();
-  const productLimit = isStandalone ? 5 : 6;
-  const imageLimitPerProduct = isStandalone ? 1 : 2;
+  const productLimit = isStandalone ? 2 : 3;
+  const imageLimitPerProduct = 1;
   const seen = new Set();
   const queue = [];
 
@@ -2005,11 +2005,11 @@ function warmProductImageCache(products = []) {
       return;
     }
     if (typeof product.image === "string") {
-      enqueue(product.image, index === 0 ? "high" : "auto");
+      enqueue(product.image, "auto");
     }
     if (Array.isArray(product.images) && product.images.length) {
       product.images.slice(0, imageLimitPerProduct).forEach((imageSrc) => {
-        enqueue(imageSrc, index === 0 ? "high" : "auto");
+        enqueue(imageSrc, "auto");
       });
     }
   });
@@ -2024,7 +2024,7 @@ function warmProductImageCache(products = []) {
       try {
         registration?.active?.postMessage?.({
           type: "CACHE_IMAGE_URLS",
-          urls: cacheUrls.slice(0, isStandalone ? 10 : 18)
+          urls: cacheUrls.slice(0, isStandalone ? 4 : 6)
         });
       } catch (error) {
         // Ignore SW warm-cache messaging issues.
@@ -2037,13 +2037,13 @@ function warmProductImageCache(products = []) {
     }
   }
 
-  const batchSize = isStandalone ? 8 : 6;
+  const batchSize = isStandalone ? 2 : 3;
   const drainQueue = () => {
     const batch = queue.splice(0, batchSize);
     batch.forEach(({ src, fetchPriority }, index) => {
       preloadImageSource(src, {
         fetchPriority,
-        decodeInMemory: index < Math.min(2, batchSize),
+        decodeInMemory: index === 0,
         reason: "warm_product_image_cache"
       });
     });
@@ -2051,10 +2051,10 @@ function warmProductImageCache(products = []) {
       return;
     }
     if (typeof window.requestIdleCallback === "function") {
-      window.requestIdleCallback(drainQueue, { timeout: isStandalone ? 1000 : 750 });
+      window.requestIdleCallback(drainQueue, { timeout: isStandalone ? 1400 : 1200 });
       return;
     }
-    window.setTimeout(drainQueue, isStandalone ? 160 : 240);
+    window.setTimeout(drainQueue, isStandalone ? 320 : 420);
   };
 
   drainQueue();
@@ -6132,18 +6132,22 @@ const {
     if (!(container instanceof Element)) {
       return;
     }
-    enhanceShowcaseTracks(container);
-    bindFeedGalleryInteractions(container);
-    bindProductEngagementSignals(container);
-    bindImageFallbacks(container);
-    bindProductMenus(container);
+    scheduleIdleBackgroundWork(() => {
+      enhanceShowcaseTracks(container);
+      bindFeedGalleryInteractions(container);
+      bindProductEngagementSignals(container);
+      bindImageFallbacks(container);
+      bindProductMenus(container);
+    }, 700);
   },
   onFeedRenderBatch: ({ currentView: renderedView, products: renderedProducts }) => {
     if (renderedView !== "home" || !Array.isArray(renderedProducts) || !renderedProducts.length) {
       return;
     }
-    persistFeedBootstrapSnapshot(renderedProducts, "home_render");
-    schedulePredictiveFeedPrefetch("render");
+    scheduleIdleBackgroundWork(() => {
+      persistFeedBootstrapSnapshot(renderedProducts, "home_render");
+      schedulePredictiveFeedPrefetch("render");
+    }, 900);
   }
 });
 
@@ -6258,7 +6262,7 @@ const MARKETPLACE_SCROLL_IMAGE_PLACEHOLDER = "data:image/gif;base64,R0lGODlhAQAB
 let marketplaceScrollImageObserver = null;
 
 function getMarketplaceScrollImagePrefetchMargin() {
-  return getViewportWidth() <= 720 ? 1200 : 1800;
+  return getViewportWidth() <= 720 ? 380 : 720;
 }
 
 function getMarketplaceScrollImageRootMargin() {
@@ -10812,8 +10816,8 @@ function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
           placeholderSrc: getImageFallbackDataUri("W"),
           fitMode,
           attributes: {
-            loading: "eager",
-            fetchpriority: "high",
+            loading: "lazy",
+            fetchpriority: "auto",
             decoding: "async",
             draggable: "false",
             "data-preserve-image-ratio": "true",
@@ -10828,7 +10832,6 @@ function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
   const slides = images.map((src, index) => {
     const safeSrc = sanitizeImageSource(String(src || "").trim(), getImageFallbackDataUri("WINGA"));
     const safeAlt = escapeHtml(`${product?.name || product?.shop || "Product image"} ${index + 1}`);
-    const isPrioritySlide = index < priorityLimit;
     return `
       <div class="feed-gallery-carousel-slide" data-feed-gallery-slide="${index}">
         ${createProgressiveImage({
@@ -10839,8 +10842,8 @@ function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
           placeholderSrc: getImageFallbackDataUri("W"),
           fitMode,
           attributes: {
-            loading: isPrioritySlide ? "eager" : "lazy",
-            fetchpriority: isPrioritySlide ? "high" : "auto",
+            loading: "lazy",
+            fetchpriority: "auto",
             decoding: "async",
             draggable: "false",
             "data-preserve-image-ratio": "true",
@@ -12504,7 +12507,7 @@ function activateMarketplaceScrollImage(image) {
     return;
   }
   image.setAttribute("loading", "eager");
-  image.setAttribute("fetchpriority", "high");
+  image.setAttribute("fetchpriority", "auto");
   image.closest(".progressive-image-shell")?.classList.add("is-pending");
   if (image.getAttribute("src") !== realSrc) {
     image.setAttribute("src", realSrc);
@@ -12520,9 +12523,11 @@ function prefetchMarketplaceScrollImage(image) {
   if (!realSrc || markMarketplaceImagePrefetched(realSrc)) {
     return;
   }
-  void cacheDecodedFeedImageSource(realSrc, {
-    reason: "scroll_prefetch"
-  });
+  scheduleIdleBackgroundWork(() => {
+    void cacheDecodedFeedImageSource(realSrc, {
+      reason: "scroll_prefetch"
+    });
+  }, 900);
   image.dataset.marketplaceImageState = "prefetched";
 }
 
@@ -12541,7 +12546,6 @@ function ensureMarketplaceScrollImageObserver() {
         prefetchMarketplaceScrollImage(image);
         return;
       }
-      prefetchMarketplaceScrollImage(image);
     });
   }, {
     rootMargin: getMarketplaceScrollImageRootMargin(),
@@ -12564,9 +12568,8 @@ function bindMarketplaceScrollImages(scope = document) {
     const isNearViewport = rect.bottom >= -prefetchMargin && rect.top <= viewportHeight + prefetchMargin;
     if (isNearViewport) {
       image.setAttribute("loading", "eager");
-      image.setAttribute("fetchpriority", "high");
+      image.setAttribute("fetchpriority", "auto");
       activateMarketplaceScrollImage(image);
-      prefetchMarketplaceScrollImage(image);
     } else {
       image.setAttribute("loading", "lazy");
       image.setAttribute("fetchpriority", "auto");
@@ -12822,17 +12825,27 @@ async function bootApp() {
   }
 
   ensureProductsForImmediateRender();
-  warmProductImageCache(products);
-  primeFeedInstantCache(products, {
-    reason: "boot_refresh",
-    productLimit: FEED_PREDICTIVE_PRELOAD_COUNT,
-    decodeLimit: FEED_PREDICTIVE_NEXT_BATCH_SIZE
-  });
   mergeAvailableCategories(inferCategoriesFromData());
   refreshCategoryUI();
   if (!suppressInitialProductHomeRender) {
     renderCurrentView();
   }
+  window.setTimeout(() => {
+    if (!isLifecycleEpochCurrent(lifecycleEpoch)) {
+      return;
+    }
+    scheduleIdleBackgroundWork(() => {
+      if (!isLifecycleEpochCurrent(lifecycleEpoch)) {
+        return;
+      }
+      warmProductImageCache(products);
+      primeFeedInstantCache(products, {
+        reason: "boot_refresh",
+        productLimit: FEED_PREDICTIVE_PRELOAD_COUNT,
+        decodeLimit: FEED_PREDICTIVE_NEXT_BATCH_SIZE
+      });
+    }, 1200);
+  }, 90);
   hydrateMissingImageSignatures(products).catch(() => {
     // Ignore passive image signature hydration failures during boot.
   });
