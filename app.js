@@ -6643,6 +6643,57 @@ const feedRuntimeState = runtimeState.feed || (runtimeState.feed = {});
 const searchRuntimeState = runtimeState.search;
 const profileRuntimeState = runtimeState.profile;
 const lifecycleRuntimeState = runtimeState.lifecycle || (runtimeState.lifecycle = {});
+const runtimeDiagnostics = uiRuntimeState.runtimeDiagnostics || (uiRuntimeState.runtimeDiagnostics = {
+  renderCurrentViewCalls: 0,
+  galleryBindCalls: 0,
+  galleryInitCount: 0,
+  galleryDisposeCount: 0,
+  marketplaceImageBindCalls: 0,
+  marketplaceImageObservedCount: 0,
+  productEngagementBindCalls: 0,
+  productEngagementObservedCount: 0,
+  productMenuBindCalls: 0,
+  lastSnapshotAt: 0
+});
+
+function bumpRuntimeDiagnostic(metric, amount = 1) {
+  const safeMetric = String(metric || "").trim();
+  if (!safeMetric) {
+    return 0;
+  }
+  const nextValue = Number(runtimeDiagnostics[safeMetric] || 0) + Number(amount || 0);
+  runtimeDiagnostics[safeMetric] = nextValue;
+  runtimeDiagnostics.lastSnapshotAt = Date.now();
+  return nextValue;
+}
+
+function getRuntimeDiagnosticsSnapshot() {
+  return {
+    ...runtimeDiagnostics,
+    activeGalleryBindings: document.querySelectorAll?.("[data-feed-gallery-carousel][data-feed-gallery-bound='true'], [data-feed-gallery-carousel].bound").length || document.querySelectorAll?.("[data-feed-gallery-carousel]").length || 0,
+    activeMarketplaceImages: document.querySelectorAll?.("img[data-marketplace-scroll-image='true'][data-marketplace-scroll-bound='true']").length || 0,
+    activeEngagementCards: document.querySelectorAll?.(".product-card[data-open-product][data-engagement-bound='true'], .seller-product-card[data-open-product][data-engagement-bound='true'], .showcase-card[data-open-product][data-engagement-bound='true']").length || 0,
+    trackedEngagementStates: productCardEngagementState?.size || 0,
+    decodedFeedImageCacheSize: decodedFeedImageCache?.size || 0,
+    imagePreloadRegistrySize: imagePreloadRegistry?.size || 0,
+    imagePrefetchRegistrySize: marketplaceScrollImagePrefetchedSources?.size || 0,
+    currentView,
+    timestamp: Date.now()
+  };
+}
+
+window.__WINGA_DIAGNOSTICS__ = {
+  snapshot: getRuntimeDiagnosticsSnapshot,
+  reset() {
+    Object.keys(runtimeDiagnostics).forEach((key) => {
+      if (key === "lastSnapshotAt") {
+        runtimeDiagnostics[key] = Date.now();
+        return;
+      }
+      runtimeDiagnostics[key] = 0;
+    });
+  }
+};
 let availableCategories = [...DEFAULT_PRODUCT_CATEGORIES];
 let availableTopCategories = [...DEFAULT_TOP_CATEGORIES];
 let currentOrders = { purchases: [], sales: [] };
@@ -7116,6 +7167,8 @@ function captureMemorySnapshot(reason = "sample", context = {}) {
   if (!snapshot) {
     return null;
   }
+  const diagnostics = getRuntimeDiagnosticsSnapshot();
+  snapshot.diagnostics = diagnostics;
   const snapshots = Array.isArray(uiRuntimeState.memorySnapshots) ? uiRuntimeState.memorySnapshots : [];
   snapshots.push(snapshot);
   uiRuntimeState.memorySnapshots = snapshots.slice(-MEMORY_SNAPSHOT_LIMIT);
@@ -7126,12 +7179,16 @@ function captureMemorySnapshot(reason = "sample", context = {}) {
     uiRuntimeState.lastMemoryWarningAt = snapshot.timestamp;
     reportClientEvent("warn", "runtime_memory_pressure", "High client heap usage detected.", {
       category: "runtime",
-      reason,
-      usedMB: Math.round(snapshot.usedJSHeapSize / (1024 * 1024)),
-      totalMB: Math.round(snapshot.totalJSHeapSize / (1024 * 1024)),
-      limitMB: Math.round(snapshot.jsHeapSizeLimit / (1024 * 1024)),
-      ...context
-    });
+        reason,
+        usedMB: Math.round(snapshot.usedJSHeapSize / (1024 * 1024)),
+        totalMB: Math.round(snapshot.totalJSHeapSize / (1024 * 1024)),
+        limitMB: Math.round(snapshot.jsHeapSizeLimit / (1024 * 1024)),
+        renderCalls: diagnostics.renderCurrentViewCalls,
+        galleryInits: diagnostics.galleryInitCount,
+        galleryDisposals: diagnostics.galleryDisposeCount,
+        activeGalleryBindings: diagnostics.activeGalleryBindings,
+        ...context
+      });
   }
   if (snapshot.usedJSHeapSize >= MEMORY_WARNING_THRESHOLD_BYTES) {
     uiRuntimeState.memoryPressureCount = Number(uiRuntimeState.memoryPressureCount || 0) + 1;
@@ -7175,12 +7232,16 @@ function handleRuntimeMemoryPressure(snapshot, context = {}) {
   disconnectRenderMemoryObservers();
   reportClientEvent("warn", "runtime_memory_mitigation_applied", "Applied client-side memory pressure mitigation.", {
     category: "runtime",
-    reason: snapshot.reason || "",
-    usedMB: Math.round(Number(snapshot.usedJSHeapSize || 0) / (1024 * 1024)),
-    critical: Number(snapshot.usedJSHeapSize || 0) >= MEMORY_CRITICAL_THRESHOLD_BYTES,
-    view: currentView,
-    ...context
-  });
+      reason: snapshot.reason || "",
+      usedMB: Math.round(Number(snapshot.usedJSHeapSize || 0) / (1024 * 1024)),
+      critical: Number(snapshot.usedJSHeapSize || 0) >= MEMORY_CRITICAL_THRESHOLD_BYTES,
+      renderCalls: diagnostics.renderCurrentViewCalls,
+      galleryInits: diagnostics.galleryInitCount,
+      galleryDisposals: diagnostics.galleryDisposeCount,
+      activeGalleryBindings: diagnostics.activeGalleryBindings,
+      view: currentView,
+      ...context
+    });
 }
 
 function startMemoryMonitoring() {
@@ -10880,6 +10941,7 @@ function disposeFeedGalleryBinding(carousel) {
   if (!(carousel instanceof Element)) {
     return;
   }
+  bumpRuntimeDiagnostic("galleryDisposeCount");
   const cleanup = carousel.__wingaCleanup;
   if (typeof cleanup === "function") {
     try {
@@ -11004,6 +11066,7 @@ function bindProductEngagementSignals(scope = document) {
   if (!scope) {
     return;
   }
+  bumpRuntimeDiagnostic("productEngagementBindCalls");
   const observer = getProductEngagementObserver();
   if (!observer) {
     return;
@@ -11013,6 +11076,7 @@ function bindProductEngagementSignals(scope = document) {
       return;
     }
     card.dataset.engagementBound = "true";
+    bumpRuntimeDiagnostic("productEngagementObservedCount");
     observer.observe(card);
   });
 }
@@ -11021,6 +11085,7 @@ function bindFeedGalleryInteractions(scope = document) {
   if (!scope) {
     return;
   }
+  bumpRuntimeDiagnostic("galleryBindCalls");
 
   scope.querySelectorAll("[data-feed-gallery-carousel]").forEach((carousel) => {
     if (carousel.dataset.feedGalleryBound === "true") {
@@ -11035,6 +11100,7 @@ function bindFeedGalleryInteractions(scope = document) {
     const abortController = typeof AbortController !== "undefined" ? new AbortController() : null;
     const listenerOptions = abortController ? { signal: abortController.signal } : undefined;
     carousel.dataset.feedGalleryBound = "true";
+    bumpRuntimeDiagnostic("galleryInitCount");
     if (!track) {
       return;
     }
@@ -11655,6 +11721,7 @@ function enhanceShowcaseTracks(scope = document) {
 function renderCurrentView(options = {}) {
   const reason = String(options?.reason || "direct_render");
   const force = Boolean(options?.force);
+  bumpRuntimeDiagnostic("renderCurrentViewCalls");
   const now = Date.now();
   if (uiRuntimeState.isRenderingView) {
     queueRenderCurrentView(reason);
@@ -12576,6 +12643,7 @@ function ensureMarketplaceScrollImageObserver() {
 
 function bindMarketplaceScrollImages(scope = document) {
   const observer = ensureMarketplaceScrollImageObserver();
+  bumpRuntimeDiagnostic("marketplaceImageBindCalls");
   scope.querySelectorAll("img[data-marketplace-scroll-image='true']").forEach((image) => {
     if (image.dataset.marketplaceScrollBound === "true") {
       return;
@@ -12594,11 +12662,13 @@ function bindMarketplaceScrollImages(scope = document) {
       image.setAttribute("loading", "lazy");
       image.setAttribute("fetchpriority", "auto");
     }
+    bumpRuntimeDiagnostic("marketplaceImageObservedCount");
     observer?.observe(image);
   });
 }
 
 function bindProductMenus(scope) {
+  bumpRuntimeDiagnostic("productMenuBindCalls");
   const closeMenus = () => {
     scope.querySelectorAll(".product-menu.open").forEach((menu) => {
       menu.classList.remove("open");
