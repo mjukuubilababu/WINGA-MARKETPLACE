@@ -12658,18 +12658,7 @@ function bindImageFallbacks(scope = document) {
           image.closest(".progressive-image-shell")?.classList.add("is-pending");
           return;
         }
-        image.closest(".progressive-image-shell")?.classList.remove("is-pending", "is-error");
-        image.closest(".progressive-image-shell")?.classList.add("is-loaded");
-        const productId = image.dataset.imageActionProduct || "";
-        const loadedSource = activeSrc;
-        if (
-          productId
-          && loadedSource
-          && loadedSource !== image.dataset.fallbackSrc
-          && loadedSource !== MARKETPLACE_SCROLL_IMAGE_PLACEHOLDER
-        ) {
-          clearBrokenMarketplaceImage(productId, loadedSource);
-        }
+        markMarketplaceScrollImageLoaded(image, activeSrc);
       });
     }
   });
@@ -12705,21 +12694,58 @@ function unbindMarketplaceScrollImages(scope = document) {
   });
 }
 
+function markMarketplaceScrollImageLoaded(image, resolvedSrc = "") {
+  if (!(image instanceof HTMLImageElement)) {
+    return;
+  }
+  const shell = image.closest(".progressive-image-shell");
+  shell?.classList.remove("is-pending", "is-error");
+  shell?.classList.add("is-loaded");
+  image.dataset.marketplaceImageState = "loaded";
+  const productId = image.dataset.imageActionProduct || "";
+  const loadedSource = resolvedSrc || image.currentSrc || image.getAttribute("src") || "";
+  if (
+    productId
+    && loadedSource
+    && loadedSource !== image.dataset.fallbackSrc
+    && loadedSource !== MARKETPLACE_SCROLL_IMAGE_PLACEHOLDER
+  ) {
+    clearBrokenMarketplaceImage(productId, loadedSource);
+  }
+}
+
 function activateMarketplaceScrollImage(image) {
   if (!(image instanceof HTMLImageElement)) {
     return;
   }
   const realSrc = image.dataset.marketplaceRealSrc || image.dataset.progressiveRealSrc || image.dataset.imageActionSrc || image.dataset.zoomSrc || "";
   if (!realSrc) {
+    image.closest(".progressive-image-shell")?.classList.add("is-error", "is-loaded");
+    image.dataset.marketplaceImageState = "error";
+    return;
+  }
+  const currentSrc = image.currentSrc || image.getAttribute("src") || "";
+  const sameSource = currentSrc === realSrc;
+  const alreadyLoaded = sameSource && image.complete && Number(image.naturalWidth || 0) > 0;
+  if (alreadyLoaded) {
+    markMarketplaceScrollImageLoaded(image, realSrc);
     return;
   }
   image.setAttribute("loading", "eager");
   image.setAttribute("fetchpriority", "auto");
   image.closest(".progressive-image-shell")?.classList.add("is-pending");
-  if (image.getAttribute("src") !== realSrc) {
+  if (!sameSource) {
     image.setAttribute("src", realSrc);
+    image.dataset.marketplaceImageState = "active";
+    return;
   }
-  image.dataset.marketplaceImageState = "active";
+  window.requestAnimationFrame(() => {
+    if (image.complete && Number(image.naturalWidth || 0) > 0) {
+      markMarketplaceScrollImageLoaded(image, realSrc);
+      return;
+    }
+    image.dataset.marketplaceImageState = "active";
+  });
 }
 
 function prefetchMarketplaceScrollImage(image) {
