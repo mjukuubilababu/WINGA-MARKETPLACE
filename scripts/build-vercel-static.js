@@ -365,11 +365,23 @@ function buildProductShareHtml(baseHtml, meta) {
   <meta name="twitter:title" content="${safeTitle}">
   <meta name="twitter:description" content="${safeDescription}">`;
 
-  const titlePatched = safeTemplate.replace(/<title>[^<]*<\/title>/i, `<title>${safeTitle}</title>`);
+  const titlePatched = safeTemplate
+    .replace(/<title>[^<]*<\/title>/i, `<title>${safeTitle}</title>`)
+    .replace(
+      /(href|src)="\.\/((?:manifest(?:-v4)?\.webmanifest|apple-touch-icon(?:-v3)?\.png|winga-icon(?:-192|-512)?(?:-v3)?\.png|winga-maskable-icon(?:-v3)?\.png|winga-maskable-icon\.svg|winga-icon\.svg|style\.css|winga-config\.js|mock-data\.js|data-service\.js|app-core\.js|winga-modules\.js|app\.js)(?:\?[^"]*)?)"/gi,
+      (_, attribute, assetPath) => `${attribute}="/${assetPath}"`
+    );
   if (titlePatched.includes('name="winga-build"')) {
     return titlePatched.replace(/(<meta name="winga-build" content="[^"]*">)/i, `$1${metaBlock}`);
   }
   return titlePatched.replace(/(<meta name="viewport" content="width=device-width, initial-scale=1.0">)/i, `$1${metaBlock}`);
+}
+
+function absolutizeHtmlAssetPaths(source) {
+  return String(source || "").replace(
+    /(href|src)="\.\/((?:manifest(?:-v4)?\.webmanifest|apple-touch-icon(?:-v3)?\.png|winga-icon(?:-192|-512)?(?:-v3)?\.png|winga-maskable-icon(?:-v3)?\.png|winga-maskable-icon\.svg|winga-icon\.svg|style\.css|winga-config\.js|mock-data\.js|data-service\.js|app-core\.js|winga-modules\.js|app\.js)(?:\?[^"]*)?)"/gi,
+    (_, attribute, assetPath) => `${attribute}="/${assetPath}"`
+  );
 }
 
 function assertPathExists(relativePath) {
@@ -398,7 +410,10 @@ function applyAssetVersionToHtml(targetPath) {
     (_, attribute, assetPath) => `${attribute}="${assetPath}?v=${assetVersion}"`
   );
   const publicOrigin = getPublicOrigin();
-  const replaced = next
+  const replacedSource = targetPath.startsWith(outputDir)
+    ? absolutizeHtmlAssetPaths(next)
+    : next;
+  const replaced = replacedSource
     .replace(/__WINGA_PUBLIC_ORIGIN__/g, publicOrigin)
     .replace(
       /<meta name="winga-build" content="[^"]*">/i,

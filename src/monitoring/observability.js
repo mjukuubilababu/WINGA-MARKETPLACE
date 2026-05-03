@@ -126,6 +126,21 @@
         return;
       }
       recentEvents.set(dedupeKey, now());
+      if (typeof window !== "undefined") {
+        if (!Array.isArray(window.__WINGA_EVENT_BUFFER__)) {
+          window.__WINGA_EVENT_BUFFER__ = [];
+        }
+        window.__WINGA_EVENT_BUFFER__.push({
+          at: now(),
+          level: safeLevel,
+          event: safeEvent,
+          message: finalMessage,
+          context: safeContext
+        });
+        if (window.__WINGA_EVENT_BUFFER__.length > 150) {
+          window.__WINGA_EVENT_BUFFER__.splice(0, window.__WINGA_EVENT_BUFFER__.length - 150);
+        }
+      }
       logger[safeLevel === "info" ? "log" : safeLevel]?.(`[WINGA] ${safeEvent}`, {
         level: safeLevel,
         message: finalMessage,

@@ -1358,6 +1358,10 @@
     }
 
     async function ensureMockSeed() {
+      const config = window.WINGA_CONFIG || {};
+      if (!config.enableMockSeed) {
+        return;
+      }
       const seedUsers = window.WingaMockData?.users || [];
       const seedProducts = window.WingaMockData?.products || [];
       const seedCategories = window.WingaMockData?.categories || [];

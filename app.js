@@ -4492,6 +4492,10 @@ function startBackgroundSessionRestore(restorePromise, cachedSession = null, opt
   if (!cachedSession?.username) {
     return;
   }
+  reportBootPhase("session_restore_started", {
+    role: cachedSession.role || "",
+    hasToken: Boolean(expectedToken)
+  });
 
   const shouldIgnoreRestoreOutcome = () => {
     if (!expectedToken || !window.WingaDataLayer?.bootstrapSession) {
@@ -4555,6 +4559,10 @@ function startBackgroundSessionRestore(restorePromise, cachedSession = null, opt
           category: "auth",
           role: currentSession.role || ""
         });
+        reportBootPhase("session_restore_finished", {
+          outcome: "restored",
+          role: currentSession.role || ""
+        });
         return;
       }
 
@@ -4563,6 +4571,10 @@ function startBackgroundSessionRestore(restorePromise, cachedSession = null, opt
       reportClientEvent("warn", "session_restore_failed", "Stored session could not be restored during boot.", {
         category: "auth",
         alertSeverity: "high",
+        role: cachedSession?.role || ""
+      });
+      reportBootPhase("session_restore_finished", {
+        outcome: "missing",
         role: cachedSession?.role || ""
       });
     })
@@ -4582,6 +4594,10 @@ function startBackgroundSessionRestore(restorePromise, cachedSession = null, opt
         category: "auth",
         alertSeverity: "high",
         hasCachedSession: Boolean(cachedSession?.username)
+      });
+      reportBootPhase("session_restore_finished", {
+        outcome: "failed",
+        role: cachedSession?.role || ""
       });
     });
 }
@@ -6694,6 +6710,49 @@ window.__WINGA_DIAGNOSTICS__ = {
     });
   }
 };
+
+function collectDuplicateEntries(items = [], keySelector) {
+  const counts = new Map();
+  (Array.isArray(items) ? items : []).forEach((item) => {
+    const key = String(typeof keySelector === "function" ? keySelector(item) : "").trim();
+    if (!key) {
+      return;
+    }
+    counts.set(key, (counts.get(key) || 0) + 1);
+  });
+  return Array.from(counts.entries())
+    .filter(([, count]) => count > 1)
+    .map(([key, count]) => ({ key, count }));
+}
+
+function auditHydratedDataIntegrity(reason = "runtime_audit") {
+  const productList = Array.isArray(window.WingaDataLayer?.getProducts?.()) ? window.WingaDataLayer.getProducts() : [];
+  const userList = Array.isArray(window.WingaDataLayer?.getUsers?.()) ? window.WingaDataLayer.getUsers() : [];
+  const duplicateProductIds = collectDuplicateEntries(productList, (item) => item?.id);
+  const duplicateUsernames = collectDuplicateEntries(userList, (item) => item?.username);
+  reportClientEvent(duplicateProductIds.length || duplicateUsernames.length ? "warn" : "info", "data_integrity_audit", "Hydrated data integrity audit completed.", {
+    category: "runtime",
+    reason,
+    productsCount: productList.length,
+    usersCount: userList.length,
+    duplicateProductIds: duplicateProductIds.slice(0, 6),
+    duplicateUsernames: duplicateUsernames.slice(0, 6)
+  });
+  return {
+    productsCount: productList.length,
+    usersCount: userList.length,
+    duplicateProductIds,
+    duplicateUsernames
+  };
+}
+
+function reportBootPhase(phase, context = {}) {
+  reportClientEvent("info", "boot_phase", `Boot phase: ${phase}`, {
+    category: "runtime",
+    phase,
+    ...context
+  });
+}
 let availableCategories = [...DEFAULT_PRODUCT_CATEGORIES];
 let availableTopCategories = [...DEFAULT_TOP_CATEGORIES];
 let currentOrders = { purchases: [], sales: [] };
@@ -7773,6 +7832,10 @@ function openDeepLinkedProductRouteIfNeeded(options = {}) {
   const { skipHomeRender = false } = options;
   const pathname = String(window.location.pathname || "").trim();
   const canonicalPath = canonicalizeProductDetailPath(pathname);
+  reportBootPhase("route_parsed", {
+    pathname,
+    deepLink: pathname.match(/^\/product\/.+/i) ? "product" : "home"
+  });
   if (canonicalPath !== pathname.replace(/\/+$/, "")) {
     safeReplaceState(window.history.state || null, canonicalPath);
   }
@@ -7791,6 +7854,9 @@ function openDeepLinkedProductRouteIfNeeded(options = {}) {
     renderCurrentView();
     return false;
   }
+  reportBootPhase("deep_link_product_requested", {
+    productId
+  });
   const product = getProductById(productId);
   if (!product) {
     if (!window.WingaDataLayer?.isProductsHydrated?.()) {
@@ -7817,6 +7883,10 @@ function openDeepLinkedProductRouteIfNeeded(options = {}) {
     });
     return false;
   }
+  reportBootPhase("product_data_loaded", {
+    productId,
+    source: "boot_cache_or_store"
+  });
   showDeepLinkLoadingState("Tunafungua bidhaa uliyoifungua...");
   setCurrentViewState("home", { syncHistory: false });
   if (!skipHomeRender) {
@@ -9668,7 +9738,11 @@ window.addEventListener("winga:api-metric", (event) => {
 });
 
 window.addEventListener("winga:products-hydrated", () => {
+  reportBootPhase("product_data_loaded", {
+    source: "products_hydrated_event"
+  });
   refreshProductsFromStore();
+  auditHydratedDataIntegrity("products_hydrated");
   warmProductImageCache(window.WingaDataLayer?.getProducts?.() || []);
   primeFeedInstantCache(window.WingaDataLayer?.getProducts?.() || [], {
     reason: "products_hydrated",
@@ -9678,6 +9752,10 @@ window.addEventListener("winga:products-hydrated", () => {
   const canRenderWhileWaitingForDeepLink = !suppressInitialProductHomeRender || document.body.classList.contains("product-detail-open");
   if (canRenderWhileWaitingForDeepLink && currentView !== "profile") {
     renderCurrentView();
+    reportBootPhase("feed_rendered", {
+      reason: "products_hydrated",
+      productsCount: Array.isArray(products) ? products.length : 0
+    });
   }
   if (tryOpenPendingDeepLinkProductRoute()) {
     return;
@@ -9691,6 +9769,7 @@ window.addEventListener("winga:products-hydrated", () => {
 
 window.addEventListener("winga:data-hydrated", (event) => {
   const source = String(event?.detail?.source || "").trim().toLowerCase();
+  auditHydratedDataIntegrity(`data_hydrated_${source || "unknown"}`);
   if (source === "categories" || source === "users") {
     mergeAvailableCategories(inferCategoriesFromData());
     refreshCategoryUI();
@@ -12843,6 +12922,9 @@ const DEEP_LINK_RECOVERY_DELAY_MS = Math.max(
 async function bootApp() {
   const lifecycleEpoch = beginLifecycleEpoch("boot");
   lifecycleRuntimeState.bootEpoch = lifecycleEpoch;
+  reportBootPhase("app_shell_mounted", {
+    pathname: window.location.pathname || "/"
+  });
   reportClientEvent("info", "app_boot_started", "Client app boot started.", {
     category: "runtime"
   });
@@ -12888,6 +12970,7 @@ async function bootApp() {
   }
 
   showInstantBootFeedSnapshot("boot_pre_hydration_snapshot");
+  auditHydratedDataIntegrity("boot_pre_hydration_snapshot");
 
   await window.WingaDataLayer.init();
   if (!isLifecycleEpochCurrent(lifecycleEpoch)) {
@@ -12919,6 +13002,10 @@ async function bootApp() {
   refreshCategoryUI();
   if (!suppressInitialProductHomeRender) {
     renderCurrentView();
+    reportBootPhase("feed_rendered", {
+      reason: "boot_initial_render",
+      productsCount: Array.isArray(products) ? products.length : 0
+    });
   }
   window.setTimeout(() => {
     if (!isLifecycleEpochCurrent(lifecycleEpoch)) {

@@ -510,6 +510,21 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         return;
       }
       recentEvents.set(dedupeKey, now());
+      if (typeof window !== "undefined") {
+        if (!Array.isArray(window.__WINGA_EVENT_BUFFER__)) {
+          window.__WINGA_EVENT_BUFFER__ = [];
+        }
+        window.__WINGA_EVENT_BUFFER__.push({
+          at: now(),
+          level: safeLevel,
+          event: safeEvent,
+          message: finalMessage,
+          context: safeContext
+        });
+        if (window.__WINGA_EVENT_BUFFER__.length > 150) {
+          window.__WINGA_EVENT_BUFFER__.splice(0, window.__WINGA_EVENT_BUFFER__.length - 150);
+        }
+      }
       logger[safeLevel === "info" ? "log" : safeLevel]?.(`[WINGA] ${safeEvent}`, {
         level: safeLevel,
         message: finalMessage,
@@ -2797,6 +2812,20 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
     let passiveViewedProductTrackingScheduled = false;
     const PASSIVE_VIEW_TRACK_BATCH_SIZE = 1;
     const PASSIVE_VIEW_TRACK_IDLE_DELAY_MS = 700;
+    let scheduledFeedRenderState = {
+      token: 0,
+      timer: 0
+    };
+    const FEED_RENDER_BATCH_SIZE = 8;
+    const FEED_RENDER_BATCH_DELAY_MS = 22;
+
+    function cancelScheduledFeedRender() {
+      scheduledFeedRenderState.token += 1;
+      if (scheduledFeedRenderState.timer) {
+        window.clearTimeout(scheduledFeedRenderState.timer);
+        scheduledFeedRenderState.timer = 0;
+      }
+    }
 
     function schedulePassiveViewedProductTracking(productIds = []) {
       Array.from(new Set(Array.isArray(productIds) ? productIds : []))
@@ -2839,7 +2868,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         return;
       }
       const seen = new Set();
-      const limit = Math.max(6, (deps.getProductsPerRow?.() || 3) * 2);
+      const limit = Math.max(2, deps.getProductsPerRow?.() || 2);
       list.slice(0, limit).forEach((product) => {
         const primaryImage = deps.getMarketplacePrimaryImage
           ? deps.getMarketplacePrimaryImage(product, {
@@ -2851,7 +2880,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
           return;
         }
         seen.add(safeSrc);
-        deps.preloadImageSource(safeSrc, { fetchPriority: "high" });
+        deps.preloadImageSource(safeSrc, { fetchPriority: "auto" });
       });
     }
 
@@ -2884,7 +2913,6 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
           className: "feed-gallery-carousel-slide",
           attributes: { "data-feed-gallery-slide": String(index) }
         });
-        const isFirstSlide = index === 0;
         slide.appendChild(createProgressiveImage({
           src: safeSrc,
           alt: `${product.name || "Product image"} ${index + 1}`,
@@ -2893,8 +2921,8 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
           placeholderSrc: deps.getImageFallbackDataUri("W"),
           fitMode,
           attributes: {
-            loading: isFirstSlide ? "eager" : "lazy",
-            fetchpriority: isFirstSlide ? "high" : "auto",
+            loading: "lazy",
+            fetchpriority: "auto",
             draggable: "false",
             "data-preserve-image-ratio": "true",
             "data-marketplace-scroll-image": "true",
@@ -3239,6 +3267,10 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
 
     function renderProducts(list) {
       const productsContainer = deps.getProductsContainer();
+      cancelScheduledFeedRender();
+      if (!productsContainer) {
+        return;
+      }
       const currentView = deps.getCurrentView();
       const shouldTrackViews = currentView !== "upload";
       const shouldInjectInlineShowcases = currentView === "home" && !deps.hasPrioritySearchResults(list.length);
@@ -3253,99 +3285,138 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       const maxDeferredShowcases = shouldInjectInlineShowcases
         ? Math.min(2, Math.max(0, Math.floor((Math.max(0, list.length - firstShowcaseAfter)) / Math.max(1, showcaseRepeatInterval))))
         : 0;
-      const fragment = document.createDocumentFragment();
       const viewedProductIds = [];
       const passiveViewLimit = Math.max(4, (deps.getProductsPerRow?.() || 3));
       preloadMarketplaceImages(list);
+      const renderToken = ++scheduledFeedRenderState.token;
+      productsContainer.replaceChildren();
 
-      list.forEach((product, index) => {
-        if (shouldTrackViews && index < passiveViewLimit && deps.trackView(product)) {
-          viewedProductIds.push(product.id);
+      const appendShowcaseIfNeeded = (fragment, renderedCount) => {
+        if (!shouldInjectInlineShowcases || renderedCount !== nextShowcaseInsertAt || renderedCount >= list.length) {
+          return;
         }
-
-        fragment.appendChild(createProductCardElement(product));
-        const renderedCount = index + 1;
-        if (shouldInjectInlineShowcases && renderedCount === nextShowcaseInsertAt && renderedCount < list.length) {
-          if (showcaseIndex === 0) {
-            const descriptor = deps.getBehaviorShowcaseDescriptor(showcaseIndex, usedShowcaseProductIds);
-            const showcaseElement = createShowcaseSectionElement(
-              descriptor.items,
-              showcaseIndex + 1,
-              descriptor.heading,
-              descriptor.title,
-              descriptor.subtitle
-            );
-            if (showcaseElement) {
-              descriptor.items.forEach((item) => usedShowcaseProductIds.add(item.id));
-              fragment.appendChild(showcaseElement);
-              showcaseIndex += 1;
-              insertedInlineShowcase = true;
-            }
-          } else if (showcaseIndex - 1 < maxDeferredShowcases) {
-            fragment.appendChild(createDynamicShowcasePlaceholderElement(showcaseIndex));
+        if (showcaseIndex === 0) {
+          const descriptor = deps.getBehaviorShowcaseDescriptor(showcaseIndex, usedShowcaseProductIds);
+          const showcaseElement = createShowcaseSectionElement(
+            descriptor.items,
+            showcaseIndex + 1,
+            descriptor.heading,
+            descriptor.title,
+            descriptor.subtitle
+          );
+          if (showcaseElement) {
+            descriptor.items.forEach((item) => usedShowcaseProductIds.add(item.id));
+            fragment.appendChild(showcaseElement);
             showcaseIndex += 1;
             insertedInlineShowcase = true;
           }
-          nextShowcaseInsertAt += showcaseRepeatInterval;
+        } else if (showcaseIndex - 1 < maxDeferredShowcases) {
+          fragment.appendChild(createDynamicShowcasePlaceholderElement(showcaseIndex));
+          showcaseIndex += 1;
+          insertedInlineShowcase = true;
         }
-      });
+        nextShowcaseInsertAt += showcaseRepeatInterval;
+      };
 
-      if (shouldInjectInlineShowcases && !insertedInlineShowcase && list.length >= Math.max(4, productsPerRow * 2 || 4)) {
-        const descriptor = deps.getBehaviorShowcaseDescriptor(0, usedShowcaseProductIds);
-        const showcaseElement = createShowcaseSectionElement(
-          descriptor.items,
-          1,
-          descriptor.heading,
-          descriptor.title,
-          descriptor.subtitle
-        );
-        if (showcaseElement) {
-          fragment.appendChild(showcaseElement);
+      const finalizeFeedRender = () => {
+        if (renderToken !== scheduledFeedRenderState.token) {
+          return;
         }
-      }
-
-      if (currentView === "home" && list.length > 0 && deps.canUseContinuousDiscovery?.()) {
-        const seedProduct = deps.getRecommendationSeed(list);
-        const related = deps.getRelatedProducts(seedProduct, 6);
-        const youMayLike = deps.getYouMayLikeProducts(seedProduct, 6);
-        const trending = deps.getTrendingProducts(8);
-        [
-          createRecommendationSectionElement("Related Products", seedProduct ? `More in ${deps.getCategoryLabel(seedProduct.category)}` : "Similar picks", related, "related"),
-          createRecommendationSectionElement("You May Like", "Based on what you are viewing", youMayLike, "you-may-like"),
-          createRecommendationSectionElement("Trending", "Most viewed and most interacted", trending, "trending")
-        ].filter(Boolean).forEach((section) => fragment.appendChild(section));
-        if (deps.createContinuousDiscoveryAnchorElement) {
-          fragment.appendChild(deps.createContinuousDiscoveryAnchorElement());
-        }
-      }
-
-      productsContainer.replaceChildren(fragment);
-
-      if (shouldInjectInlineShowcases) {
-        deps.bindShowcaseCardClicks(productsContainer);
-        deps.setupDynamicShowcaseLoading(productsContainer, usedShowcaseProductIds);
-      }
-      deps.bindFeedGalleryInteractions?.(productsContainer);
-      if (currentView === "home" && list.length > 0 && deps.canUseContinuousDiscovery?.() && deps.setupContinuousDiscoveryLoading) {
-        const usedProductIds = new Set(list.map((product) => product.id));
-        Array.from(productsContainer.querySelectorAll("[data-showcase-id], [data-open-product]")).forEach((element) => {
-          const productId = element.dataset.showcaseId || element.dataset.openProduct || "";
-          if (productId) {
-            usedProductIds.add(productId);
+        if (shouldInjectInlineShowcases && !insertedInlineShowcase && list.length >= Math.max(4, productsPerRow * 2 || 4)) {
+          const descriptor = deps.getBehaviorShowcaseDescriptor(0, usedShowcaseProductIds);
+          const showcaseElement = createShowcaseSectionElement(
+            descriptor.items,
+            1,
+            descriptor.heading,
+            descriptor.title,
+            descriptor.subtitle
+          );
+          if (showcaseElement) {
+            productsContainer.appendChild(showcaseElement);
           }
-        });
-        deps.setupContinuousDiscoveryLoading(productsContainer, {
-          seedProduct: deps.getRecommendationSeed(list),
-          usedProductIds
-        });
-      }
+        }
 
-      if (viewedProductIds.length > 0) {
-        schedulePassiveViewedProductTracking(viewedProductIds);
-      }
+        if (currentView === "home" && list.length > 0 && deps.canUseContinuousDiscovery?.()) {
+          const seedProduct = deps.getRecommendationSeed(list);
+          const related = deps.getRelatedProducts(seedProduct, 6);
+          const youMayLike = deps.getYouMayLikeProducts(seedProduct, 6);
+          const trending = deps.getTrendingProducts(8);
+          [
+            createRecommendationSectionElement("Related Products", seedProduct ? `More in ${deps.getCategoryLabel(seedProduct.category)}` : "Similar picks", related, "related"),
+            createRecommendationSectionElement("You May Like", "Based on what you are viewing", youMayLike, "you-may-like"),
+            createRecommendationSectionElement("Trending", "Most viewed and most interacted", trending, "trending")
+          ].filter(Boolean).forEach((section) => productsContainer.appendChild(section));
+          if (deps.createContinuousDiscoveryAnchorElement) {
+            productsContainer.appendChild(deps.createContinuousDiscoveryAnchorElement());
+          }
+        }
+
+        if (shouldInjectInlineShowcases) {
+          deps.bindShowcaseCardClicks(productsContainer);
+          deps.setupDynamicShowcaseLoading(productsContainer, usedShowcaseProductIds);
+        }
+        deps.bindFeedGalleryInteractions?.(productsContainer);
+        if (currentView === "home" && list.length > 0 && deps.canUseContinuousDiscovery?.() && deps.setupContinuousDiscoveryLoading) {
+          const usedProductIds = new Set(list.map((product) => product.id));
+          Array.from(productsContainer.querySelectorAll("[data-showcase-id], [data-open-product]")).forEach((element) => {
+            const productId = element.dataset.showcaseId || element.dataset.openProduct || "";
+            if (productId) {
+              usedProductIds.add(productId);
+            }
+          });
+          deps.setupContinuousDiscoveryLoading(productsContainer, {
+            seedProduct: deps.getRecommendationSeed(list),
+            usedProductIds
+          });
+        }
+        if (viewedProductIds.length > 0) {
+          schedulePassiveViewedProductTracking(viewedProductIds);
+        }
+      };
+
+      const renderNextBatch = (startIndex = 0) => {
+        if (renderToken !== scheduledFeedRenderState.token) {
+          return;
+        }
+        const fragment = document.createDocumentFragment();
+        const endIndex = Math.min(list.length, startIndex + FEED_RENDER_BATCH_SIZE);
+        for (let index = startIndex; index < endIndex; index += 1) {
+          const product = list[index];
+          if (shouldTrackViews && index < passiveViewLimit && deps.trackView(product)) {
+            viewedProductIds.push(product.id);
+          }
+          fragment.appendChild(createProductCardElement(product));
+          appendShowcaseIfNeeded(fragment, index + 1);
+        }
+        productsContainer.appendChild(fragment);
+        deps.afterFeedBatchRender?.({
+          container: productsContainer,
+          startIndex,
+          endIndex,
+          total: list.length,
+          currentView
+        });
+        if (endIndex < list.length) {
+          deps.onFeedRenderBatch?.({
+            container: productsContainer,
+            renderedCount: endIndex,
+            total: list.length,
+            currentView
+          });
+          scheduledFeedRenderState.timer = window.setTimeout(() => {
+            scheduledFeedRenderState.timer = 0;
+            renderNextBatch(endIndex);
+          }, FEED_RENDER_BATCH_DELAY_MS);
+          return;
+        }
+        finalizeFeedRender();
+      };
+
+      renderNextBatch(0);
     }
 
     return {
+      cancelScheduledFeedRender,
       renderProducts,
       createProductGalleryElement,
       createDynamicShowcasePlaceholderElement,
