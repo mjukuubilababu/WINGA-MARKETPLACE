@@ -1543,6 +1543,35 @@
     return error;
   }
 
+  function bindAbortSignal(controller, externalSignal) {
+    if (!controller || !externalSignal || typeof externalSignal.addEventListener !== "function") {
+      return () => {};
+    }
+    if (externalSignal.aborted) {
+      try {
+        controller.abort();
+      } catch (error) {
+        // Ignore duplicate abort attempts.
+      }
+      return () => {};
+    }
+    const forwardAbort = () => {
+      try {
+        controller.abort();
+      } catch (error) {
+        // Ignore duplicate abort attempts.
+      }
+    };
+    externalSignal.addEventListener("abort", forwardAbort, { once: true });
+    return () => {
+      try {
+        externalSignal.removeEventListener("abort", forwardAbort);
+      } catch (error) {
+        // Ignore listener cleanup failures.
+      }
+    };
+  }
+
   function emitApiMetric(detail) {
     if (typeof window === "undefined" || typeof window.dispatchEvent !== "function" || typeof window.CustomEvent !== "function") {
       return;
@@ -1567,7 +1596,10 @@
     const startedAt = Date.now();
     const endpointLabel = getApiEndpointLabel(url);
     const requestOptions = options ? { ...options } : {};
+    const externalSignal = requestOptions.signal;
+    delete requestOptions.signal;
     const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+    const detachAbortSignal = bindAbortSignal(controller, externalSignal);
     const timeoutMs = Number(
       requestOptions.timeoutMs
       || window.WINGA_CONFIG?.requestTimeoutMs
@@ -1579,35 +1611,43 @@
     try {
       response = await fetch(url, {
         ...requestOptions,
-        signal: controller ? controller.signal : undefined
+        signal: controller ? controller.signal : externalSignal
       });
     } catch (error) {
+      detachAbortSignal();
       if (timeoutId) {
         clearTimeout(timeoutId);
       }
       const latencyMs = Date.now() - startedAt;
       if (error?.name === "AbortError") {
+        const wasExternallyAborted = Boolean(externalSignal?.aborted);
         const endpoint = String(url || "");
         let message = "Request took too long. Check your connection and try again.";
-        if (endpoint.includes("/auth/signup")) {
-          message = "Seller signup took too long. Check your connection and try again.";
-        }
-        if (endpoint.includes("/auth/admin-login")) {
-          message = "Admin login took too long. Check your connection and try again.";
-        }
-        if (endpoint.includes("/auth/login")) {
-          message = "Login took too long. Check your connection and try again.";
+        let code = "timeout";
+        if (wasExternallyAborted) {
+          message = "Request was cancelled because a newer auth action started.";
+          code = "aborted";
+        } else {
+          if (endpoint.includes("/auth/signup")) {
+            message = "Seller signup took too long. Check your connection and try again.";
+          }
+          if (endpoint.includes("/auth/admin-login")) {
+            message = "Admin login took too long. Check your connection and try again.";
+          }
+          if (endpoint.includes("/auth/login")) {
+            message = "Login took too long. Check your connection and try again.";
+          }
         }
         emitApiMetric({
           endpoint: endpointLabel,
           ok: false,
           status: 0,
-          code: "timeout",
+          code,
           latencyMs
         });
         throw createRequestError(message, {
-          code: "timeout",
-          retryable: true,
+          code,
+          retryable: !wasExternallyAborted,
           endpoint: endpointLabel,
           latencyMs
         });
@@ -1627,6 +1667,7 @@
       });
       throw networkError;
     }
+    detachAbortSignal();
     if (timeoutId) {
       clearTimeout(timeoutId);
     }
@@ -1694,6 +1735,7 @@
     const sessionAdapter = createLocalAdapter();
     const localFallbackAdapter = createLocalAdapter();
     const enableLocalCacheFallback = shouldUseApiLocalCacheFallback(config);
+    let sessionRestoreController = null;
 
     function resolveProductImages(product) {
       if (!product || typeof product !== "object") {
@@ -1757,7 +1799,27 @@
     }
 
     function getAuthTimeoutMs() {
-      return Number(window.WINGA_CONFIG?.authRequestTimeoutMs || 11000);
+      return Number(window.WINGA_CONFIG?.authRequestTimeoutMs || 18000);
+    }
+
+    function cancelSessionRestore(reason = "auth_interaction") {
+      if (!sessionRestoreController) {
+        return;
+      }
+      try {
+        sessionRestoreController.abort();
+      } catch (error) {
+        // Ignore duplicate abort attempts.
+      }
+      sessionRestoreController = null;
+      emitApiMetric({
+        endpoint: "/auth/session",
+        ok: false,
+        status: 0,
+        code: "aborted",
+        latencyMs: 0,
+        reason
+      });
     }
 
     async function authFetchJson(url, options = {}, authOptions = {}) {
@@ -1848,6 +1910,7 @@
       clearSession() {
         sessionAdapter.clearSession();
       },
+      cancelSessionRestore,
       async logoutSession(tokenOverride = "") {
         const session = sessionAdapter.loadSession();
         const token = String(tokenOverride || session?.token || "").trim();
@@ -1873,12 +1936,16 @@
           return null;
         }
 
+        cancelSessionRestore("restart_session_restore");
+        sessionRestoreController = typeof AbortController !== "undefined" ? new AbortController() : null;
+        const requestSignal = sessionRestoreController ? sessionRestoreController.signal : undefined;
         try {
           const data = await fetchJson(`${baseUrl}/auth/session`, {
             headers: {
               ...createAuthHeaders()
             },
-            timeoutMs: Number(window.WINGA_CONFIG?.sessionRestoreTimeoutMs || 12000)
+            signal: requestSignal,
+            timeoutMs: Number(window.WINGA_CONFIG?.sessionRestoreTimeoutMs || 8000)
           });
           if (!data || typeof data !== "object" || Array.isArray(data) || !String(data.username || "").trim()) {
             sessionAdapter.clearSession();
@@ -1886,12 +1953,19 @@
           }
           return data;
         } catch (error) {
+          if (error?.code === "aborted") {
+            return null;
+          }
           const stillStoredSession = sessionAdapter.loadSession();
           if (stillStoredSession?.token) {
             return stillStoredSession;
           }
           sessionAdapter.clearSession();
           return null;
+        } finally {
+          if (!sessionRestoreController || sessionRestoreController.signal === requestSignal) {
+            sessionRestoreController = null;
+          }
         }
       },
       async signup(payload) {
@@ -3636,6 +3710,11 @@
     },
     async restoreSession() {
       return state.adapter.restoreSession();
+    },
+    cancelSessionRestore(reason = "auth_interaction") {
+      return state.adapter.cancelSessionRestore
+        ? state.adapter.cancelSessionRestore(reason)
+        : null;
     },
     async logoutSession(tokenOverride = "") {
       return state.adapter.logoutSession

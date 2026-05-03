@@ -647,9 +647,10 @@ function syncConfiguredAdminIdentity(users = []) {
   return normalizedUsers;
 }
 
-function writeLegacyStore(store) {
+function writeLegacyStore(store, options = {}) {
   ensureLocalArtifacts();
-  if (fs.existsSync(DATA_FILE)) {
+  const skipBackup = Boolean(options.skipBackup);
+  if (!skipBackup && fs.existsSync(DATA_FILE)) {
     const backupName = `store-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
     fs.copyFileSync(DATA_FILE, path.join(BACKUP_DIR, backupName));
 
@@ -666,7 +667,10 @@ function writeLegacyStore(store) {
     });
   }
 
-  fs.writeFileSync(DATA_FILE, JSON.stringify(store, null, 2));
+  const nextStorePayload = JSON.stringify(store, null, 2);
+  const tempFile = `${DATA_FILE}.tmp`;
+  fs.writeFileSync(tempFile, nextStorePayload);
+  fs.renameSync(tempFile, DATA_FILE);
 }
 
 async function appendAuditLog(entry) {
@@ -711,11 +715,21 @@ async function readStore() {
 }
 
 async function writeStore(store) {
+  return writeStoreWithOptions(store, {});
+}
+
+async function writeStoreWithOptions(store, options = {}) {
   if (postgresStore) {
     await postgresStore.writeStore(store);
     return;
   }
-  writeLegacyStore(store);
+  writeLegacyStore(store, options);
+}
+
+function recordAuditLog(entry) {
+  appendAuditLog(entry).catch((error) => {
+    console.warn("[WINGA] Audit log write failed.", error);
+  });
 }
 
 function createPasswordHash(password) {
@@ -4030,7 +4044,7 @@ http.createServer(async (req, res) => {
       }
 
       if (users.find((item) => String(item.phoneNumber || "") === payload.phoneNumber)) {
-        await appendAuditLog({
+        recordAuditLog({
           time: new Date().toISOString(),
           ip: clientIp,
           method: req.method,
@@ -4055,7 +4069,7 @@ http.createServer(async (req, res) => {
           sanitizePlainText(item.nationalId || item.identityDocumentNumber || item.idNumber || "", 40).toUpperCase() === normalizedIdentity
         );
         if (duplicateIdentity) {
-          await appendAuditLog({
+          recordAuditLog({
             time: new Date().toISOString(),
             ip: clientIp,
             method: req.method,
@@ -4100,13 +4114,15 @@ http.createServer(async (req, res) => {
       };
       const session = createSession(createdUser);
       users.push(createdUser);
-      await writeStore({
+      await writeStoreWithOptions({
         ...store,
         categories: mergeCategories(store.categories || []),
         users,
         sessions: [...store.sessions, session]
+      }, {
+        skipBackup: true
       });
-      await appendAuditLog({
+      recordAuditLog({
         time: new Date().toISOString(),
         ip: clientIp,
         method: req.method,
@@ -4193,7 +4209,7 @@ http.createServer(async (req, res) => {
       const normalizedIdentifier = normalizeIdentifier(rawIdentifier, 120);
 
       if (!user || !verifyPassword(payload.password, user.password)) {
-        await appendAuditLog({
+        recordAuditLog({
           time: new Date().toISOString(),
           ip: clientIp,
           method: req.method,
@@ -4206,7 +4222,7 @@ http.createServer(async (req, res) => {
       }
 
       if (isRestrictedUserStatus(user.status)) {
-        await appendAuditLog({
+        recordAuditLog({
           time: new Date().toISOString(),
           ip: clientIp,
           method: req.method,
@@ -4220,7 +4236,7 @@ http.createServer(async (req, res) => {
       }
 
       if (isStaffRole(user.role)) {
-        await appendAuditLog({
+        recordAuditLog({
           time: new Date().toISOString(),
           ip: clientIp,
           method: req.method,
@@ -4243,11 +4259,13 @@ http.createServer(async (req, res) => {
       const freshUser = normalizeUserRecord(users[userIndex] || user);
       const nextSessions = (store.sessions || []).filter((item) => item.username !== freshUser.username);
       const session = createSession(freshUser);
-      await writeStore({
+      await writeStoreWithOptions({
         ...store,
         sessions: [...nextSessions, session]
+      }, {
+        skipBackup: true
       });
-      await appendAuditLog({
+      recordAuditLog({
         time: new Date().toISOString(),
         ip: clientIp,
         method: req.method,
@@ -4275,7 +4293,7 @@ http.createServer(async (req, res) => {
       const normalizedIdentifier = normalizeIdentifier(rawIdentifier, 120);
 
       if (!user || !verifyPassword(payload.password, user.password) || !isStaffRole(user.role)) {
-        await appendAuditLog({
+        recordAuditLog({
           time: new Date().toISOString(),
           ip: clientIp,
           method: req.method,
@@ -4288,7 +4306,7 @@ http.createServer(async (req, res) => {
       }
 
       if (isRestrictedUserStatus(user.status)) {
-        await appendAuditLog({
+        recordAuditLog({
           time: new Date().toISOString(),
           ip: clientIp,
           method: req.method,
@@ -4312,11 +4330,13 @@ http.createServer(async (req, res) => {
       const freshUser = normalizeUserRecord(users[userIndex] || user);
       const nextSessions = (store.sessions || []).filter((item) => item.username !== freshUser.username);
       const session = createSession(freshUser);
-      await writeStore({
+      await writeStoreWithOptions({
         ...store,
         sessions: [...nextSessions, session]
+      }, {
+        skipBackup: true
       });
-      await appendAuditLog({
+      recordAuditLog({
         time: new Date().toISOString(),
         ip: clientIp,
         method: req.method,
@@ -4391,7 +4411,7 @@ http.createServer(async (req, res) => {
       const token = readAuthToken(req);
       const session = findSession(store, token);
       if (!session) {
-        await appendAuditLog({
+        recordAuditLog({
           time: new Date().toISOString(),
           ip: clientIp,
           method: req.method,
@@ -4405,7 +4425,7 @@ http.createServer(async (req, res) => {
 
       const user = (store.users || []).find((item) => item.username === session.username);
       if (!user) {
-        await appendAuditLog({
+        recordAuditLog({
           time: new Date().toISOString(),
           ip: clientIp,
           method: req.method,
@@ -4419,7 +4439,7 @@ http.createServer(async (req, res) => {
       }
 
       if (isRestrictedUserStatus(user.status)) {
-        await appendAuditLog({
+        recordAuditLog({
           time: new Date().toISOString(),
           ip: clientIp,
           method: req.method,

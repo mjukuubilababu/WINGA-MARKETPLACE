@@ -13,6 +13,8 @@ const WINGA_DEFAULT_CONFIG = {
   enableApiLocalCacheFallback: WINGA_IS_FILE_MODE,
   enableBootstrapFeedSnapshot: WINGA_IS_FILE_MODE,
   clearLegacyLocalDataOnBoot: !WINGA_IS_FILE_MODE,
+  authRequestTimeoutMs: 18000,
+  sessionRestoreTimeoutMs: 8000,
   apiBaseUrl: WINGA_IS_FILE_MODE
     ? "http://localhost:3000/api"
     : WINGA_IS_LOCAL_WEB

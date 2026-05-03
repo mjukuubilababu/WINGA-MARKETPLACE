@@ -4466,6 +4466,15 @@ function clearSessionRestoringState() {
 
 function cancelPendingSessionRestore(reason = "auth_interaction") {
   activeSessionRestoreToken += 1;
+  try {
+    window.WingaDataLayer?.cancelSessionRestore?.(reason);
+  } catch (error) {
+    captureClientError("session_restore_cancel_call_failed", error, {
+      category: "auth",
+      alertSeverity: "low",
+      reason
+    });
+  }
   reportClientEvent("info", "session_restore_cancelled", "Cancelled stale session restore flow.", {
     category: "auth",
     reason
@@ -7452,7 +7461,7 @@ function getFriendlyAuthErrorMessage(error, fallbackMessage) {
     return "Majaribio ni mengi sana kwa sasa. Subiri kidogo kisha jaribu tena.";
   }
   if (error?.retryable || code === "timeout" || code === "network" || normalizedMessage.includes("took too long") || normalizedMessage.includes("failed to fetch") || normalizedMessage.includes("network")) {
-    return "Network issue au server imechelewa kujibu. Hakikisha internet iko sawa kisha jaribu tena.";
+    return "Network issue au server imechelewa kujibu. Hakikisha internet iko sawa kisha bonyeza tena kujaribu.";
   }
   if (status >= 500 || normalizedMessage.includes("system error") || normalizedMessage.includes("itilafu ya mfumo")) {
     return "Server ina tatizo kwa sasa. Jaribu tena baada ya muda mfupi.";
@@ -12971,7 +12980,7 @@ bindImageZoomInteractions();
 
 const SESSION_RESTORE_BOOT_TIMEOUT_MS = Math.max(
   2500,
-  Number(window.WINGA_CONFIG?.sessionRestoreTimeoutMs || 12000)
+  Number(window.WINGA_CONFIG?.sessionRestoreTimeoutMs || 8000)
 );
 const LIFECYCLE_FALLBACK_DELAY_MS = Math.max(
   1600,
