@@ -441,6 +441,10 @@
     return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(normalized) ? normalized : "";
   }
 
+  function shouldUseApiLocalCacheFallback(config = window.WINGA_CONFIG || {}) {
+    return Boolean(config?.enableApiLocalCacheFallback);
+  }
+
   function normalizeAppSettings(settings = {}) {
     const source = settings && typeof settings === "object" && !Array.isArray(settings) ? settings : {};
     const sessionExpiryMinutes = Number.parseInt(source.sessionExpiryMinutes, 10);
@@ -1689,6 +1693,7 @@
     const publicBaseUrl = baseUrl.replace(/\/api$/, "");
     const sessionAdapter = createLocalAdapter();
     const localFallbackAdapter = createLocalAdapter();
+    const enableLocalCacheFallback = shouldUseApiLocalCacheFallback(config);
 
     function resolveProductImages(product) {
       if (!product || typeof product !== "object") {
@@ -1797,10 +1802,15 @@
           }
         });
         const nextProducts = Array.isArray(data) ? data.map(resolveProductImages) : [];
-        void localFallbackAdapter.saveProducts(nextProducts.map(normalizeProductForPersistence)).catch(() => {});
+        if (enableLocalCacheFallback) {
+          void localFallbackAdapter.saveProducts(nextProducts.map(normalizeProductForPersistence)).catch(() => {});
+        }
         return nextProducts;
       },
       async loadCachedProducts() {
+        if (!enableLocalCacheFallback) {
+          return [];
+        }
         const cachedProducts = await localFallbackAdapter.loadProducts();
         return Array.isArray(cachedProducts) ? cachedProducts.map(resolveProductImages) : [];
       },
@@ -1817,7 +1827,9 @@
       },
       async saveProducts(products) {
         const nextProducts = Array.isArray(products) ? products.map(normalizeProductForPersistence) : [];
-        void localFallbackAdapter.saveProducts(Array.isArray(products) ? products : []).catch(() => {});
+        if (enableLocalCacheFallback) {
+          void localFallbackAdapter.saveProducts(Array.isArray(products) ? products : []).catch(() => {});
+        }
         await fetchJson(`${baseUrl}/products`, {
           method: "PUT",
           headers: {
@@ -3159,38 +3171,35 @@
         // Ignore cached product warmup failures and continue with network loading.
       }
     }
-    Promise.resolve()
-      .then(() => adapter.loadProducts())
-      .then((products) => {
-        const nextProducts = Array.isArray(products) ? products : [];
-        if (nextProducts.length || !Array.isArray(state.products) || state.products.length === 0) {
-          state.products = nextProducts;
-        }
-        state.productsHydrated = true;
-        if (typeof window !== "undefined" && typeof window.dispatchEvent === "function" && typeof window.CustomEvent === "function") {
-          window.dispatchEvent(new window.CustomEvent("winga:products-hydrated", {
-            detail: {
-              status: "loaded",
-              count: state.products.length
-            }
-          }));
-        }
-        return state.products;
-      })
-      .catch((error) => {
-        console.warn("[WINGA] Product startup load failed.", error);
-        state.productsHydrated = true;
-        if (typeof window !== "undefined" && typeof window.dispatchEvent === "function" && typeof window.CustomEvent === "function") {
-          window.dispatchEvent(new window.CustomEvent("winga:products-hydrated", {
-            detail: {
-              status: "failed",
-              count: state.products.length,
-              error: String(error?.message || error || "")
-            }
-          }));
-        }
-        return state.products;
-      });
+    try {
+      const loadedProducts = await adapter.loadProducts();
+      const nextProducts = Array.isArray(loadedProducts) ? loadedProducts : [];
+      if (nextProducts.length || !Array.isArray(state.products) || state.products.length === 0) {
+        state.products = nextProducts;
+      }
+      state.productsHydrated = true;
+      if (typeof window !== "undefined" && typeof window.dispatchEvent === "function" && typeof window.CustomEvent === "function") {
+        window.dispatchEvent(new window.CustomEvent("winga:products-hydrated", {
+          detail: {
+            status: "loaded",
+            count: state.products.length
+          }
+        }));
+      }
+    } catch (error) {
+      console.warn("[WINGA] Product startup load failed.", error);
+      state.productsHydrated = false;
+      if (typeof window !== "undefined" && typeof window.dispatchEvent === "function" && typeof window.CustomEvent === "function") {
+        window.dispatchEvent(new window.CustomEvent("winga:products-hydrated", {
+          detail: {
+            status: "failed",
+            count: state.products.length,
+            error: String(error?.message || error || "")
+          }
+        }));
+      }
+      throw error;
+    }
 
     Promise.resolve()
       .then(() => adapter.loadUsers())
@@ -3235,6 +3244,9 @@
     async init() {
       if (state.initialized) return;
       ensureAdapter();
+      if (state.activeProvider === "api" && window.WINGA_CONFIG?.clearLegacyLocalDataOnBoot) {
+        clearLegacyLocalFallbackArtifacts();
+      }
       state.initialized = true;
       if (!state.offlineQueueListenerBound && typeof window !== "undefined") {
         window.addEventListener("online", () => {
@@ -3265,7 +3277,7 @@
             shouldRetry: (error) => state.activeProvider === "api" && isRetryableBootError(error)
           }
         );
-        if (state.activeProvider === "api") {
+        if (state.activeProvider === "api" && window.WINGA_CONFIG?.clearLegacyLocalDataOnBoot) {
           clearLegacyLocalFallbackArtifacts();
         }
       } catch (error) {
@@ -3306,6 +3318,9 @@
       return clone(state.products);
     },
     getCachedProducts() {
+      if (!shouldUseApiLocalCacheFallback(window.WINGA_CONFIG || {})) {
+        return [];
+      }
       return clone(readStoredJson(PRODUCTS_KEY, []));
     },
     getActiveProvider() {

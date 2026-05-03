@@ -9,6 +9,10 @@ const WINGA_DEFAULT_CONFIG = {
   provider: WINGA_IS_FILE_MODE ? "mock" : "api",
   fallbackProvider: WINGA_IS_FILE_MODE ? "mock" : "",
   enableMockSeed: WINGA_IS_FILE_MODE,
+  disableServiceWorker: !WINGA_IS_FILE_MODE,
+  enableApiLocalCacheFallback: WINGA_IS_FILE_MODE,
+  enableBootstrapFeedSnapshot: WINGA_IS_FILE_MODE,
+  clearLegacyLocalDataOnBoot: !WINGA_IS_FILE_MODE,
   apiBaseUrl: WINGA_IS_FILE_MODE
     ? "http://localhost:3000/api"
     : WINGA_IS_LOCAL_WEB

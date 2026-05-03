@@ -30,6 +30,26 @@ function createStaticServer() {
   return http.createServer(async (req, res) => {
     try {
       const requestUrl = new URL(req.url, FRONTEND_URL);
+      if (requestUrl.pathname.startsWith("/api/") || requestUrl.pathname.startsWith("/uploads/")) {
+        const proxyTarget = requestUrl.pathname.startsWith("/api/")
+          ? `${BACKEND_URL}${requestUrl.pathname.replace(/^\/api/, "")}${requestUrl.search}`
+          : `http://127.0.0.1:43080${requestUrl.pathname}${requestUrl.search}`;
+        const proxyResponse = await fetch(proxyTarget, {
+          method: req.method,
+          headers: req.headers,
+          body: req.method && ["GET", "HEAD"].includes(req.method.toUpperCase()) ? undefined : req
+        });
+        const responseHeaders = Object.fromEntries(proxyResponse.headers.entries());
+        responseHeaders["Access-Control-Allow-Origin"] = FRONTEND_URL;
+        res.writeHead(proxyResponse.status, responseHeaders);
+        if (proxyResponse.body) {
+          for await (const chunk of proxyResponse.body) {
+            res.write(chunk);
+          }
+        }
+        res.end();
+        return;
+      }
       let pathname = decodeURIComponent(requestUrl.pathname);
       if (pathname === "/" || !path.extname(pathname)) {
         pathname = pathname.startsWith("/product/") || pathname.startsWith("/api/product/")
@@ -55,7 +75,7 @@ function createStaticServer() {
       }
       const contentType = getContentType(resolvedPath);
       if (process.env.WINGA_SERVE_PUBLIC === "1" && contentType.startsWith("text/html")) {
-        const overrideScript = `<script>window.__WINGA_CONFIG_OVERRIDE__={provider:"api",fallbackProvider:"",apiBaseUrl:"http://127.0.0.1:43080/api",enableMockSeed:false};</script>`;
+        const overrideScript = `<script>window.__WINGA_CONFIG_OVERRIDE__={provider:"api",fallbackProvider:"",apiBaseUrl:"${FRONTEND_URL}/api",enableMockSeed:false,disableServiceWorker:true,enableApiLocalCacheFallback:false,enableBootstrapFeedSnapshot:false,clearLegacyLocalDataOnBoot:true};</script>`;
         fileBuffer = Buffer.from(String(fileBuffer).replace(/<head>/i, `<head>${overrideScript}`), "utf8");
       }
       res.writeHead(200, { "Content-Type": contentType });

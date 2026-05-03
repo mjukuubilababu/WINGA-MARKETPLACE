@@ -99,6 +99,18 @@ const {
 } = window.WingaModules.components.ui;
 const { createObservabilityModule } = window.WingaModules.monitoring;
 
+function isServiceWorkerRecoveryDisabled() {
+  return Boolean(window.WINGA_CONFIG?.disableServiceWorker);
+}
+
+function shouldUseBootstrapFeedSnapshot() {
+  return Boolean(window.WINGA_CONFIG?.enableBootstrapFeedSnapshot);
+}
+
+function shouldUseApiLocalCacheFallback() {
+  return Boolean(window.WINGA_CONFIG?.enableApiLocalCacheFallback);
+}
+
 function getViewportWidth() {
   const candidates = [
     window.visualViewport?.width,
@@ -129,7 +141,7 @@ function normalizeProductsFromStore() {
   const storedProducts = getProducts();
   const cachedProducts = Array.isArray(storedProducts) && storedProducts.length
     ? storedProducts
-    : (window.WingaDataLayer?.getCachedProducts?.() || []);
+    : (shouldUseApiLocalCacheFallback() ? (window.WingaDataLayer?.getCachedProducts?.() || []) : []);
   return sanitizeVisibleProducts(Array.isArray(cachedProducts) ? cachedProducts : []).map(normalizeProduct);
 }
 
@@ -146,7 +158,7 @@ function refreshProductsFromStore() {
 function ensureProductsForImmediateRender() {
   refreshProductsFromStore();
   if (!products.length) {
-    const feedBootstrapSnapshot = getFeedBootstrapSnapshot();
+    const feedBootstrapSnapshot = shouldUseBootstrapFeedSnapshot() ? getFeedBootstrapSnapshot() : [];
     products = feedBootstrapSnapshot.length
       ? feedBootstrapSnapshot
       : DEFAULT_PRODUCTS.map(normalizeProduct);
@@ -443,6 +455,10 @@ async function registerAppServiceWorker() {
     return;
   }
   if (!/^https?:$/i.test(String(window.location?.protocol || ""))) {
+    return;
+  }
+  if (isServiceWorkerRecoveryDisabled()) {
+    await purgeStaleBrowserCacheArtifacts();
     return;
   }
 
@@ -1824,6 +1840,9 @@ function isStandaloneDisplayMode() {
 }
 
 function getFeedBootstrapSnapshot() {
+  if (!shouldUseBootstrapFeedSnapshot()) {
+    return [];
+  }
   try {
     const raw = localStorage.getItem(FEED_BOOTSTRAP_CACHE_KEY);
     const parsed = raw ? JSON.parse(raw) : null;
@@ -1852,6 +1871,9 @@ function getFeedBootstrapSnapshot() {
 }
 
 function persistFeedBootstrapSnapshot(productsList = [], reason = "render") {
+  if (!shouldUseBootstrapFeedSnapshot()) {
+    return;
+  }
   const sanitizedProducts = sanitizeVisibleProducts(productsList);
   if (!Array.isArray(sanitizedProducts) || !sanitizedProducts.length) {
     return;
@@ -1887,6 +1909,14 @@ function persistFeedBootstrapSnapshot(productsList = [], reason = "render") {
 }
 
 function clearBlockedDemoBootstrapSnapshot() {
+  if (!shouldUseBootstrapFeedSnapshot()) {
+    try {
+      localStorage.removeItem(FEED_BOOTSTRAP_CACHE_KEY);
+    } catch (error) {
+      // Ignore cleanup failures and continue with network-only recovery.
+    }
+    return;
+  }
   try {
     const existingSnapshot = getFeedBootstrapSnapshot();
     if (existingSnapshot.length) {
@@ -6482,6 +6512,7 @@ let lifecycleRetryTimer = null;
 let lifecycleFallbackActive = false;
 let lifecycleFallbackReason = "";
 let publicAuthSlowTimer = null;
+let productHydrationStatus = "idle";
 const ADMIN_LOGIN_HASH = "#/admin-login";
 
 const authContainer = document.getElementById("auth-container");
@@ -9737,10 +9768,19 @@ window.addEventListener("winga:api-metric", (event) => {
   }, 0);
 });
 
-window.addEventListener("winga:products-hydrated", () => {
+window.addEventListener("winga:products-hydrated", (event) => {
+  const detail = event?.detail || {};
+  productHydrationStatus = String(detail.status || "loaded");
   reportBootPhase("product_data_loaded", {
-    source: "products_hydrated_event"
+    source: "products_hydrated_event",
+    status: productHydrationStatus,
+    count: Number(detail.count || 0)
   });
+  if (productHydrationStatus === "failed") {
+    renderLifecycleFallbackSkeleton("Bidhaa hazijafika bado kutoka kwenye seva. Jaribu tena baada ya sekunde chache.");
+  } else {
+    hideLifecycleFallbackShell();
+  }
   refreshProductsFromStore();
   auditHydratedDataIntegrity("products_hydrated");
   warmProductImageCache(window.WingaDataLayer?.getProducts?.() || []);
@@ -11854,10 +11894,11 @@ function renderCurrentView(options = {}) {
     const isGuest = !isAuthenticatedUser();
     const searchPriorityMode = hasPrioritySearchResults(filteredProducts.length) && !isProfile && !isUpload && !isAdminView;
     const productsHydrated = Boolean(window.WingaDataLayer?.isProductsHydrated?.());
+    const productsLoadFailed = productHydrationStatus === "failed";
     const shouldShowFeedLoading = !isProfile
       && !isUpload
       && !isAdminView
-      && !productsHydrated
+      && (!productsHydrated || productsLoadFailed)
       && filteredProducts.length === 0;
     syncHeroPanelPosition(isProfile, isUpload);
 
@@ -11879,7 +11920,7 @@ function renderCurrentView(options = {}) {
     heroPanel.style.display = "none";
     marketShowcase.style.display = "none";
     productsContainer.style.display = isProfile || isAdminView || shouldShowFeedLoading ? "none" : "grid";
-    emptyState.style.display = !isProfile && !isAdminView && productsHydrated && filteredProducts.length === 0 ? "block" : "none";
+    emptyState.style.display = !isProfile && !isAdminView && productsHydrated && !productsLoadFailed && filteredProducts.length === 0 ? "block" : "none";
     setFeedLoadingStateVisible(shouldShowFeedLoading);
     uploadForm.style.display = isUpload || editingProductId ? "block" : "none";
     analyticsPanel.style.display = isAdminView || (isProfile && canUseSellerFeatures()) ? "block" : "none";
@@ -12922,6 +12963,7 @@ const DEEP_LINK_RECOVERY_DELAY_MS = Math.max(
 async function bootApp() {
   const lifecycleEpoch = beginLifecycleEpoch("boot");
   lifecycleRuntimeState.bootEpoch = lifecycleEpoch;
+  productHydrationStatus = "loading";
   reportBootPhase("app_shell_mounted", {
     pathname: window.location.pathname || "/"
   });
@@ -12982,6 +13024,8 @@ async function bootApp() {
     : Promise.resolve(null);
   if (window.WingaDataLayer?.hydrateStartupData) {
     window.WingaDataLayer.hydrateStartupData().catch((error) => {
+      productHydrationStatus = "failed";
+      renderLifecycleFallbackSkeleton("Hatukuweza kupakia bidhaa kutoka kwenye seva. Hakikisha mtandao upo kisha bonyeza Jaribu tena.");
       captureClientError("startup_hydration_failed", error, {
         category: "runtime",
         alertSeverity: "medium"
