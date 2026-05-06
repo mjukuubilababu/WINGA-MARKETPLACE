@@ -7772,7 +7772,11 @@ function showLifecycleFallbackShell(reason = "startup_slow", options = {}) {
   refreshCategoryUI();
 
   if (!document.body.classList.contains("product-detail-open") && currentView !== "profile") {
-    setCurrentViewState("home", getEphemeralLifecycleViewOptions());
+    const fallbackBootstrapSession = window.WingaDataLayer?.bootstrapSession?.();
+    const fallbackView = (isStaffUser() || isStaffRole(fallbackBootstrapSession?.role || ""))
+      ? "admin"
+      : "home";
+    setCurrentViewState(fallbackView, getEphemeralLifecycleViewOptions());
     renderCurrentView();
   }
 
@@ -13111,6 +13115,8 @@ async function bootApp() {
   }
 
   if (shouldDeferInitialBootRenderForStaffSession) {
+    setCurrentViewState("admin", getEphemeralLifecycleViewOptions());
+    renderCurrentView();
     scheduleChromeOffsetSync();
     document.body.classList.remove("app-booting");
     document.body.classList.add("app-ready");
