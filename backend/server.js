@@ -2600,9 +2600,6 @@ function validateMarkReadPayload(payload) {
   if (!payload || !isSafeIdentifier(payload.withUser, 3, 40)) {
     return "Conversation user si sahihi.";
   }
-  if (payload.productId && !isNonEmptyString(payload.productId, 3, 80)) {
-    return "Conversation product si sahihi.";
-  }
   return "";
 }
 
@@ -3035,19 +3032,35 @@ function buildPromotionsSummary(store, options = {}) {
     .sort((first, second) => new Date(second.createdAt || 0).getTime() - new Date(first.createdAt || 0).getTime());
 }
 
-function buildConversationId(senderId, receiverId, productId = "") {
-  return [senderId, receiverId].filter(Boolean).sort().join("::") + `::${productId || ""}`;
+function buildConversationId(senderId, receiverId) {
+  return [senderId, receiverId].filter(Boolean).sort().join("::");
 }
 
-function markConversationRead(store, username, withUser, productId = "") {
+function getConversationParticipantsMatch(message, firstUser, secondUser) {
+  const normalized = normalizeMessageRecord(message);
+  return [normalized.senderId, normalized.receiverId].sort().join("::") === [firstUser, secondUser].sort().join("::");
+}
+
+function notificationBelongsToUserPair(store, notification, username, withUser) {
+  const targetMessageId = sanitizePlainText(notification.messageId, 80);
+  if (!targetMessageId) {
+    return false;
+  }
+  const matchingMessage = (store.messages || [])
+    .map(normalizeMessageRecord)
+    .find((message) => message.id === targetMessageId);
+  return matchingMessage ? getConversationParticipantsMatch(matchingMessage, username, withUser) : false;
+}
+
+function markConversationRead(store, username, withUser) {
   const now = new Date().toISOString();
-  const conversationId = buildConversationId(username, withUser, productId);
+  const conversationId = buildConversationId(username, withUser);
   let didChange = false;
 
   const messages = (store.messages || []).map((message) => {
     const normalized = normalizeMessageRecord(message);
     if (
-      normalized.conversationId === conversationId
+      getConversationParticipantsMatch(normalized, username, withUser)
       && normalized.receiverId === username
       && !normalized.isRead
     ) {
@@ -3066,9 +3079,9 @@ function markConversationRead(store, username, withUser, productId = "") {
     const normalized = normalizeNotificationRecord(notification);
     if (
       normalized.userId === username
-      && normalized.conversationId === conversationId
       && normalized.type === "message"
       && !normalized.isRead
+      && notificationBelongsToUserPair(store, normalized, username, withUser)
     ) {
       didChange = true;
       return normalizeNotificationRecord({
@@ -4785,21 +4798,18 @@ http.createServer(async (req, res) => {
         }
 
         const targetUser = normalizeIdentifier(payload.withUser, 40);
-        const productId = sanitizePlainText(payload.productId, 80);
-        const updateResult = markConversationRead(store, user.username, targetUser, productId);
+        const updateResult = markConversationRead(store, user.username, targetUser);
         if (updateResult.didChange) {
           store = updateResult.store;
           await writeStore(store);
           emitLiveEvent(user.username, "conversation_read", {
             conversationId: updateResult.conversationId,
             withUser: targetUser,
-            productId,
             readAt: updateResult.readAt
           });
           emitLiveEvent(targetUser, "message_read", {
             conversationId: updateResult.conversationId,
             byUser: user.username,
-            productId,
             readAt: updateResult.readAt
           });
         }

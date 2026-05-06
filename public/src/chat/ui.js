@@ -170,6 +170,7 @@
                   </span>
                   <span class="message-thread-meta">
                     <strong>${deps.escapeHtml(summary.displayName || deps.getUserDisplayName(summary.withUser))}${summary.unreadCount ? ` <span class="thread-badge">${summary.unreadCount}</span>` : ""}</strong>
+                    <span>${summary.timestamp ? deps.escapeHtml(new Date(summary.timestamp).toLocaleString("sw-TZ")) : "No messages yet"}</span>
                     <span>${deps.escapeHtml(summary.productName || "General inquiry")}</span>
                     <small>${deps.escapeHtml(summary.latestMessage || "Hakuna ujumbe bado.")}</small>
                   </span>

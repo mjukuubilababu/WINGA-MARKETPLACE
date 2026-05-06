@@ -303,6 +303,7 @@ test("mobile profile messages use a clear conversation list and detail flow", as
 
   await page.locator("#header-user-trigger").click();
   await page.locator("[data-header-menu-action='profile']").click();
+  await page.locator("[data-profile-action='messages']").click();
   await expect(page.locator("#profile-messages-panel")).toBeVisible();
 
   const firstConversation = page.locator("#profile-messages-panel .message-thread-item").first();
@@ -314,6 +315,53 @@ test("mobile profile messages use a clear conversation list and detail flow", as
 
   await page.locator("#profile-messages-panel .message-list-back").click();
   await expect(page.locator("#profile-messages-panel .message-thread-item").first()).toBeVisible();
+
+  await context.close();
+});
+
+test("profile inbox groups repeated messages from the same seller into one thread", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234");
+  const firstThreadMessage = `Thread test first ${Date.now()}`;
+  const secondThreadMessage = `Thread test second ${Date.now()}`;
+
+  await page.goto("/");
+
+  const sellerCards = page.locator("#products-container .product-card", { hasText: "Market Seller Shop" });
+  await expect(sellerCards.nth(1)).toBeVisible();
+
+  await sellerCards.first().click();
+  await expect(page.locator("#product-detail-modal")).toBeVisible();
+  await page.locator("#product-detail-modal [data-chat-product]").first().click();
+  await expect(page.locator("#context-chat-modal")).toBeVisible();
+  await page.locator("#context-chat-compose-input").fill(firstThreadMessage);
+  await page.locator("#context-chat-compose-form button[type='submit']").click();
+  await expect(page.locator("#context-chat-modal .message-bubble").last()).toContainText(firstThreadMessage);
+  await page.locator("#context-chat-modal .context-chat-close").click();
+  await page.locator("#product-detail-modal .product-detail-back").click();
+
+  await sellerCards.nth(1).click();
+  await expect(page.locator("#product-detail-modal")).toBeVisible();
+  await page.locator("#product-detail-modal [data-chat-product]").first().click();
+  await expect(page.locator("#context-chat-modal")).toBeVisible();
+  await page.locator("#context-chat-compose-input").fill(secondThreadMessage);
+  await page.locator("#context-chat-compose-form button[type='submit']").click();
+  await expect(page.locator("#context-chat-modal .message-bubble").last()).toContainText(secondThreadMessage);
+  await page.locator("#context-chat-modal .context-chat-close").click();
+  await page.locator("#product-detail-modal .product-detail-back").click();
+
+  await page.locator("#header-user-trigger").click();
+  await page.locator("[data-header-menu-action='profile']").click();
+  await page.locator("[data-profile-action='messages']").click();
+  await expect(page.locator("#profile-messages-panel")).toBeVisible();
+
+  const sellerThread = page.locator("#profile-messages-panel .message-thread-item", { hasText: "Market Seller Shop" });
+  await expect(sellerThread).toHaveCount(1);
+  await expect(sellerThread.first()).toContainText(secondThreadMessage);
+  await sellerThread.first().click();
+
+  const threadCard = page.locator("#profile-messages-panel .messages-thread-card");
+  await expect(threadCard).toContainText(firstThreadMessage);
+  await expect(threadCard).toContainText(secondThreadMessage);
 
   await context.close();
 });

@@ -469,7 +469,15 @@
       deps.setOpenChatMessageMenuId("");
       deps.setOpenEmojiScope("");
 
-      const matchingSummary = deps.getConversationSummaries().find((summary) => summary.productId === productId);
+      const relatedMessage = (Array.isArray(deps.getCurrentMessages?.()) ? deps.getCurrentMessages() : [])
+        .filter((message) => (message.productId || "") === productId)
+        .sort((first, second) => new Date(second.timestamp || 0).getTime() - new Date(first.timestamp || 0).getTime())[0] || null;
+      const relatedWithUser = relatedMessage
+        ? (relatedMessage.senderId === deps.getCurrentUser?.() ? relatedMessage.receiverId : relatedMessage.senderId)
+        : "";
+      const matchingSummary = relatedMessage
+        ? deps.getConversationSummaries().find((summary) => summary.withUser === relatedWithUser)
+        : deps.getConversationSummaries().find((summary) => summary.productId === productId);
       deps.setCurrentViewState("profile", {
         syncHistory: "push",
         historyState: {

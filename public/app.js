@@ -3152,7 +3152,7 @@ const {
 });
 
 function getChatContextKey(context) {
-  return `${context?.withUser || ""}::${context?.productId || ""}`;
+  return `${context?.withUser || ""}`;
 }
 
 function getChatDraftStorageKey(context = chatUiState.activeContext) {
@@ -3351,9 +3351,11 @@ function getConversationSummaries() {
       return;
     }
     const productId = message.productId || "";
-    const key = getChatContextKey({ withUser, productId });
+    const key = getChatContextKey({ withUser });
     const existing = summaryMap.get(key);
     const partner = getMarketplaceUser(withUser);
+    const messageTime = new Date(message.timestamp || 0).getTime();
+    const existingTime = new Date(existing?.timestamp || 0).getTime();
     const summary = {
       key,
       withUser,
@@ -3371,8 +3373,13 @@ function getConversationSummaries() {
     if (message.receiverId === currentUser && !message.isRead) {
       summary.unreadCount += 1;
     }
-    if (!existing || new Date(summary.timestamp || 0).getTime() >= new Date(existing.timestamp || 0).getTime()) {
+    if (!existing || messageTime >= existingTime) {
       summaryMap.set(key, summary);
+    } else if (summary.unreadCount !== (existing?.unreadCount || 0)) {
+      summaryMap.set(key, {
+        ...existing,
+        unreadCount: summary.unreadCount
+      });
     }
   });
 
@@ -4901,15 +4908,13 @@ async function markActiveConversationRead() {
     message.receiverId === currentUser
     && !message.isRead
     && getMessagePartner(message) === chatUiState.activeContext.withUser
-    && (message.productId || "") === (chatUiState.activeContext.productId || "")
   );
   if (!hasUnread) {
     return;
   }
 
   await window.WingaDataLayer.markConversationRead({
-    withUser: chatUiState.activeContext.withUser,
-    productId: chatUiState.activeContext.productId || ""
+    withUser: chatUiState.activeContext.withUser
   });
   await Promise.all([refreshMessagesState(), refreshNotificationsState()]);
 }
@@ -5007,7 +5012,6 @@ function getActiveConversationMessages() {
   }
   return currentMessages.filter((message) =>
     getMessagePartner(message) === chatUiState.activeContext.withUser
-    && (message.productId || "") === (chatUiState.activeContext.productId || "")
   );
 }
 
