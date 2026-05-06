@@ -24,6 +24,7 @@
     let passiveViewedProductTrackingScheduled = false;
     const PASSIVE_VIEW_TRACK_BATCH_SIZE = 1;
     const PASSIVE_VIEW_TRACK_IDLE_DELAY_MS = 700;
+    const FEED_GALLERY_IMAGE_LIMIT = 3;
     let scheduledFeedRenderState = {
       token: 0,
       timer: 0
@@ -105,7 +106,9 @@
       const safeImages = deps.getRenderableMarketplaceImages
         ? deps.getRenderableMarketplaceImages(product)
         : (Array.isArray(product.images) && product.images.length > 0 ? product.images : [product.image]).filter(Boolean);
-      const images = safeImages.length > 0 ? safeImages : [deps.getImageFallbackDataUri("WINGA")];
+      const images = safeImages.length > 0
+        ? safeImages.slice(0, FEED_GALLERY_IMAGE_LIMIT)
+        : [deps.getImageFallbackDataUri("WINGA")];
       const wrapper = createElement("div", {
         className: `product-gallery media-gallery feed-gallery-preview feed-gallery-carousel fit-mode-${fitMode}`,
         attributes: {

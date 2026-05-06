@@ -743,6 +743,12 @@
       media.appendChild(image);
 
       article.appendChild(media);
+      if (product?.name) {
+        article.appendChild(deps.createElement("span", {
+          className: "visually-hidden",
+          textContent: String(product.name)
+        }));
+      }
       return article;
     }
 

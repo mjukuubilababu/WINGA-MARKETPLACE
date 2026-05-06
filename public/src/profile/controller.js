@@ -628,7 +628,7 @@
       }
 
       const preloadRegistry = new Set();
-      const priorityTileLimit = Math.max(9, (deps.getProductsPerRow?.() || 3) * 3);
+      const priorityTileLimit = Math.max(4, (deps.getProductsPerRow?.() || 2) * 2);
       let renderedTileCount = 0;
       const preloadProfileImage = (imageSrc) => {
         if (!deps.preloadImageSource) {
@@ -639,7 +639,7 @@
           return;
         }
         preloadRegistry.add(safeSrc);
-        deps.preloadImageSource(safeSrc, { fetchPriority: "high" });
+        deps.preloadImageSource(safeSrc, { fetchPriority: "auto" });
       };
 
       const productCards = document.createDocumentFragment();
@@ -658,18 +658,17 @@
         if (!imageSources.length) {
           imageSources.push("");
         }
-        imageSources.forEach((imageSrc) => {
-          if (renderedTileCount < priorityTileLimit) {
-            preloadProfileImage(imageSrc);
-          }
-          const card = deps.createProfileProductCardElement(product, imageSrc, {
-            isPriority: renderedTileCount < priorityTileLimit
-          });
-          if (card) {
-            productCards.appendChild(card);
-          }
-          renderedTileCount += 1;
+        const primaryImage = imageSources[0] || "";
+        if (renderedTileCount < priorityTileLimit) {
+          preloadProfileImage(primaryImage);
+        }
+        const card = deps.createProfileProductCardElement(product, primaryImage, {
+          isPriority: renderedTileCount < priorityTileLimit
         });
+        if (card) {
+          productCards.appendChild(card);
+        }
+        renderedTileCount += 1;
       });
       container.appendChild(productCards);
 
