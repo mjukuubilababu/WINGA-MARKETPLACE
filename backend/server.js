@@ -889,12 +889,42 @@ function getPublicRequestOrigin(req) {
   return `${protocol}://localhost:${PORT}`;
 }
 
+function getProductShareAssetOrigin(req) {
+  const configuredBaseUrl = String(
+    process.env.WINGA_SHARE_API_BASE_URL
+    || process.env.WINGA_PRODUCTION_API_BASE_URL
+    || process.env.RENDER_EXTERNAL_URL
+    || ""
+  ).trim();
+
+  if (configuredBaseUrl) {
+    try {
+      const parsed = new URL(configuredBaseUrl);
+      if (parsed.pathname.endsWith("/api")) {
+        parsed.pathname = parsed.pathname.replace(/\/api\/?$/, "/");
+      } else if (!parsed.pathname || parsed.pathname === "/") {
+        parsed.pathname = "/";
+      }
+      return `${parsed.origin}${parsed.pathname === "/" ? "" : parsed.pathname.replace(/\/+$/, "")}`.replace(/\/+$/, "");
+    } catch (error) {
+      // Fall through to the defaults below.
+    }
+  }
+
+  const requestOrigin = getPublicRequestOrigin(req);
+  if (/onrender\.com$/i.test(requestOrigin)) {
+    return requestOrigin.replace(/\/+$/, "");
+  }
+
+  return "https://winga-pflp.onrender.com";
+}
+
 function isCrawlerRequest(req) {
   const userAgent = String(req?.headers?.["user-agent"] || "").toLowerCase();
   return /(facebookexternalhit|facebot|twitterbot|linkedinbot|slackbot|telegrambot|whatsapp|googlebot|bingbot|discordbot|skypeuripreview|applebot)/i.test(userAgent);
 }
 
-function getProductShareImageUrl(product, origin) {
+function getProductShareImageUrl(product, publicOrigin, assetOrigin) {
   const candidates = [
     ...(Array.isArray(product?.images) ? product.images : []),
     product?.image || ""
@@ -909,11 +939,14 @@ function getProductShareImageUrl(product, origin) {
       return delivered;
     }
     if (delivered.startsWith("/uploads/")) {
-      return `${origin}${delivered}`;
+      return `${assetOrigin.replace(/\/+$/, "")}${delivered}`;
+    }
+    if (delivered.startsWith("/")) {
+      return `${publicOrigin.replace(/\/+$/, "")}${delivered}`;
     }
   }
 
-  return `${origin}/share-og.svg`;
+  return `${publicOrigin}/share-og.svg`;
 }
 
 function getProductShareTitle(product) {
@@ -3516,7 +3549,7 @@ http.createServer(async (req, res) => {
   }
 
   try {
-    if (req.method === "GET" && url.pathname === "/__winga-image__") {
+    if ((req.method === "GET" || req.method === "HEAD") && url.pathname === "/__winga-image__") {
       const target = resolveProxyImageTarget(url.searchParams.get("u") || "", req);
       if (!target || !fs.existsSync(target.filePath)) {
         sendJson(res, 404, { error: "Picha haijapatikana." });
@@ -3527,11 +3560,15 @@ http.createServer(async (req, res) => {
         "Content-Type": target.contentType,
         "Cache-Control": "public, max-age=31536000, immutable"
       }, req));
+      if (req.method === "HEAD") {
+        res.end();
+        return;
+      }
       fs.createReadStream(target.filePath).pipe(res);
       return;
     }
 
-    if (req.method === "GET" && url.pathname.startsWith("/uploads/")) {
+    if ((req.method === "GET" || req.method === "HEAD") && url.pathname.startsWith("/uploads/")) {
       const filePath = getLocalUploadFilePath(url.pathname);
       if (!filePath || !filePath.startsWith(UPLOADS_DIR) || !fs.existsSync(filePath)) {
         sendJson(res, 404, { error: "Picha haijapatikana." });
@@ -3551,11 +3588,15 @@ http.createServer(async (req, res) => {
         "Content-Type": contentTypes[extension] || "application/octet-stream",
         "Cache-Control": "public, max-age=3600"
       }, req));
+      if (req.method === "HEAD") {
+        res.end();
+        return;
+      }
       fs.createReadStream(filePath).pipe(res);
       return;
     }
 
-    if (req.method === "GET" && ["/share-og.svg", "/winga-icon.svg", "/winga-maskable-icon.svg"].includes(url.pathname)) {
+    if ((req.method === "GET" || req.method === "HEAD") && ["/share-og.svg", "/winga-icon.svg", "/winga-maskable-icon.svg"].includes(url.pathname)) {
       const filePath = path.join(PUBLIC_DIR, path.basename(url.pathname));
       if (!filePath.startsWith(PUBLIC_DIR) || !fs.existsSync(filePath)) {
         sendJson(res, 404, { error: "Asset haijapatikana." });
@@ -3565,6 +3606,10 @@ http.createServer(async (req, res) => {
         "Content-Type": "image/svg+xml",
         "Cache-Control": "public, max-age=3600"
       }, req));
+      if (req.method === "HEAD") {
+        res.end();
+        return;
+      }
       fs.createReadStream(filePath).pipe(res);
       return;
     }
@@ -3573,6 +3618,7 @@ http.createServer(async (req, res) => {
     if (req.method === "GET" && productDeepLinkMatch) {
       const productId = decodeURIComponent(productDeepLinkMatch[1] || "").trim();
       const origin = getPublicRequestOrigin(req);
+      const assetOrigin = getProductShareAssetOrigin(req);
       const canonicalUrl = `${origin}/product/${encodeURIComponent(productId)}`;
       const foundProduct = productId ? getProductById(store, productId) : null;
       const product = foundProduct ? repairNormalizedProductImageState(foundProduct) : null;
@@ -3602,7 +3648,7 @@ http.createServer(async (req, res) => {
         title: getProductShareTitle(product),
         description: getProductShareDescription(product),
         canonicalUrl,
-        imageUrl: getProductShareImageUrl(product, origin)
+        imageUrl: getProductShareImageUrl(product, origin, assetOrigin)
       });
       await appendAuditLog({
         time: new Date().toISOString(),

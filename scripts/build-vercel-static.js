@@ -261,46 +261,41 @@ async function loadImageBufferFromReference(reference, productId, assetOrigin) {
   return null;
 }
 
-async function generateProductOgImages(products) {
-  const assetsDir = path.join(outputDir, "og-images");
-  fs.mkdirSync(assetsDir, { recursive: true });
-  const assetOrigin = getProductionAssetOrigin();
-  const imageMap = new Map();
-
-  for (const product of products) {
-    const productId = String(product?.id || "").trim();
-    if (!productId) {
-      continue;
-    }
-
-    const source = getProductShareImageSource(product);
-    const imageAsset = await loadImageBufferFromReference(source, productId, assetOrigin);
-    if (!imageAsset?.buffer || !String(imageAsset.contentType || "").startsWith("image/")) {
-      continue;
-    }
-
-    const ext = inferImageExtension(imageAsset.contentType, source);
-    const hash = crypto.createHash("sha256").update(imageAsset.buffer).digest("hex").slice(0, 12);
-    const fileName = `${productId}-${hash}${ext}`;
-    const filePath = path.join(assetsDir, fileName);
-    fs.writeFileSync(filePath, imageAsset.buffer);
-    imageMap.set(productId, `/og-images/${fileName}`);
+function resolveAbsoluteProductShareImageUrl(reference, publicOrigin, assetOrigin) {
+  const normalizedReference = normalizeStoredImageReference(reference);
+  if (!normalizedReference) {
+    return "";
   }
 
-  return imageMap;
+  if (/^https?:\/\//i.test(normalizedReference)) {
+    return normalizedReference;
+  }
+
+  if (normalizedReference.startsWith("/uploads/")) {
+    return `${assetOrigin.replace(/\/+$/, "")}${normalizedReference}`;
+  }
+
+  if (normalizedReference.startsWith("/")) {
+    return `${publicOrigin.replace(/\/+$/, "")}${normalizedReference}`;
+  }
+
+  return "";
 }
 
-function getProductShareImageUrl(product, origin, ogImageMap = null) {
-  const productId = String(product?.id || "").trim();
-  if (productId && ogImageMap?.has(productId)) {
-    return `${origin}${ogImageMap.get(productId)}`;
+function getProductShareImageUrl(product, publicOrigin, assetOrigin) {
+  const candidates = [
+    ...(Array.isArray(product?.images) ? product.images : []),
+    product?.image || ""
+  ].map(normalizeStoredImageReference).filter(Boolean);
+
+  for (const candidate of candidates) {
+    const resolvedUrl = resolveAbsoluteProductShareImageUrl(candidate, publicOrigin, assetOrigin);
+    if (resolvedUrl) {
+      return resolvedUrl;
+    }
   }
 
-  if (productId) {
-    return `${origin}/share-og.svg`;
-  }
-
-  return `${origin}/share-og.svg`;
+  return `${publicOrigin}/share-og.svg`;
 }
 
 function getProductShareTitle(product) {
@@ -592,7 +587,8 @@ async function loadProductsForPrerender() {
 
 async function generateProductSharePages(baseHtml, origin) {
   const products = await loadProductsForPrerender();
-  const ogImageMap = await generateProductOgImages(products);
+  const assetOrigin = getProductionAssetOrigin();
+  const criticalImageUrls = [];
   for (const product of products) {
     const productId = String(product?.id || "").trim();
     if (!productId) {
@@ -600,12 +596,16 @@ async function generateProductSharePages(baseHtml, origin) {
     }
 
     const canonicalUrl = `${origin}/product/${encodeURIComponent(productId)}`;
+    const shareImageUrl = getProductShareImageUrl(product, origin, assetOrigin);
     const html = buildProductShareHtml(baseHtml, {
       title: getProductShareTitle(product),
       description: getProductShareDescription(product),
       url: canonicalUrl,
-      image: getProductShareImageUrl(product, origin, ogImageMap)
+      image: shareImageUrl
     });
+    if (shareImageUrl && !shareImageUrl.endsWith("/share-og.svg")) {
+      criticalImageUrls.push(shareImageUrl);
+    }
     const targetDirs = [
       path.join(outputDir, "product", productId),
       path.join(outputDir, "api", "product", productId)
@@ -615,7 +615,7 @@ async function generateProductSharePages(baseHtml, origin) {
       fs.writeFileSync(path.join(targetDir, "index.html"), html, "utf8");
     });
   }
-  return ogImageMap;
+  return criticalImageUrls.slice(0, 20);
 }
 
 function buildFrontendModuleBundle() {
@@ -674,11 +674,10 @@ async function main() {
     copyDirectoryRecursive(path.join(rootDir, "src"), path.join(outputDir, "src"));
     writeFrontendModuleBundle(path.join(rootDir, "winga-modules.js"));
     writeFrontendModuleBundle(path.join(outputDir, "winga-modules.js"));
-    const ogImageMap = await generateProductSharePages(fs.readFileSync(path.join(outputDir, "index.html"), "utf8"), getPublicOrigin());
+    criticalImageUrls = await generateProductSharePages(fs.readFileSync(path.join(outputDir, "index.html"), "utf8"), getPublicOrigin());
     if (!hasGeneratedProductSharePages()) {
       restoreGeneratedPublicAssets(generatedAssetBackup);
     }
-    criticalImageUrls = Array.from(ogImageMap.values()).slice(0, 20);
     applyAssetVersionToServiceWorker(path.join(rootDir, "service-worker.js"), criticalImageUrls);
     applyAssetVersionToServiceWorker(path.join(outputDir, "service-worker.js"), criticalImageUrls);
     verifyDistContents();
