@@ -4464,6 +4464,15 @@ function clearSessionRestoringState() {
   refreshPublicEntryChrome();
 }
 
+function shouldDeferBootRenderForPendingStaffSession() {
+  return Boolean(
+    isSessionRestorePending
+    && currentSession?.username
+    && isStaffRole(currentSession.role || "")
+    && !isAdminLoginRoute()
+  );
+}
+
 function cancelPendingSessionRestore(reason = "auth_interaction") {
   activeSessionRestoreToken += 1;
   try {
@@ -4482,7 +4491,7 @@ function cancelPendingSessionRestore(reason = "auth_interaction") {
 }
 
 function showInstantBootFeedSnapshot(reason = "boot_snapshot") {
-  if (suppressInitialProductHomeRender || isAdminLoginRoute()) {
+  if (suppressInitialProductHomeRender || isAdminLoginRoute() || shouldDeferBootRenderForPendingStaffSession()) {
     return false;
   }
 
@@ -4607,6 +4616,12 @@ function startBackgroundSessionRestore(restorePromise, cachedSession = null, opt
 
       clearSessionUser();
       applySessionState(null);
+      if (cachedSession?.username && isStaffRole(cachedSession.role || "") && !isAdminLoginRoute()) {
+        showLoggedOutState({
+          audience: "admin",
+          message: "Session ya staff imeisha. Ingia tena kuendelea."
+        });
+      }
       reportClientEvent("warn", "session_restore_failed", "Stored session could not be restored during boot.", {
         category: "auth",
         alertSeverity: "high",
@@ -4629,6 +4644,12 @@ function startBackgroundSessionRestore(restorePromise, cachedSession = null, opt
       }
       clearSessionUser();
       applySessionState(null);
+      if (cachedSession?.username && isStaffRole(cachedSession.role || "") && !isAdminLoginRoute()) {
+        showLoggedOutState({
+          audience: "admin",
+          message: "Session ya staff imeisha. Ingia tena kuendelea."
+        });
+      }
       captureClientError("session_restore_boot_failed", error, {
         category: "auth",
         alertSeverity: "high",
@@ -9662,7 +9683,9 @@ function loginSuccess(username, preferredCategory = "", sessionData = null, opti
   resumePendingGuestIntent();
   const handledDeepLink = activeGuestIntent
     ? true
-    : openDeepLinkedProductRouteIfNeeded({ skipHomeRender: hasActiveProductDeepLink });
+    : nextView === "home"
+      ? openDeepLinkedProductRouteIfNeeded({ skipHomeRender: hasActiveProductDeepLink })
+      : false;
   if (!skipWelcome && !isStaffUser() && !handledDeepLink) {
     if (deferRender) {
       window.setTimeout(showWelcomePopup, 80);
@@ -9792,6 +9815,9 @@ window.addEventListener("winga:products-hydrated", (event) => {
   }
   refreshProductsFromStore();
   auditHydratedDataIntegrity("products_hydrated");
+  if (shouldDeferBootRenderForPendingStaffSession()) {
+    return;
+  }
   warmProductImageCache(window.WingaDataLayer?.getProducts?.() || []);
   primeFeedInstantCache(window.WingaDataLayer?.getProducts?.() || [], {
     reason: "products_hydrated",
@@ -9819,6 +9845,9 @@ window.addEventListener("winga:products-hydrated", (event) => {
 window.addEventListener("winga:data-hydrated", (event) => {
   const source = String(event?.detail?.source || "").trim().toLowerCase();
   auditHydratedDataIntegrity(`data_hydrated_${source || "unknown"}`);
+  if (shouldDeferBootRenderForPendingStaffSession()) {
+    return;
+  }
   if (source === "categories" || source === "users") {
     mergeAvailableCategories(inferCategoriesFromData());
     refreshCategoryUI();
@@ -13024,6 +13053,11 @@ async function bootApp() {
   const cachedSession = window.WingaDataLayer.bootstrapSession
     ? window.WingaDataLayer.bootstrapSession()
     : null;
+  const shouldDeferInitialBootRenderForStaffSession = Boolean(
+    cachedSession?.username
+    && isStaffRole(cachedSession.role || "")
+    && !isAdminLoginRoute()
+  );
   if (cachedSession?.username) {
     applySessionState(cachedSession);
     saveSessionUser(cachedSession);
@@ -13074,6 +13108,32 @@ async function bootApp() {
   }
   if (appSettings) {
     applyAppSettings(appSettings);
+  }
+
+  if (shouldDeferInitialBootRenderForStaffSession) {
+    scheduleChromeOffsetSync();
+    document.body.classList.remove("app-booting");
+    document.body.classList.add("app-ready");
+    hideLifecycleFallbackShell();
+    completeBootOverlay();
+    startMemoryMonitoring();
+
+    if (typeof ResizeObserver !== "undefined") {
+      uiRuntimeState.chromeResizeObserver?.disconnect?.();
+      uiRuntimeState.chromeResizeObserver = new ResizeObserver(() => {
+        scheduleChromeOffsetSync();
+      });
+      uiRuntimeState.chromeResizeObserver.observe(topBar);
+      uiRuntimeState.chromeResizeObserver.observe(bottomNav);
+    }
+
+    window.setTimeout(() => {
+      bindServiceWorkerDiagnostics();
+      registerAppServiceWorker().catch(() => {
+        // Ignore service worker registration failures on unsupported browsers.
+      });
+    }, 0);
+    return;
   }
 
   ensureProductsForImmediateRender();
