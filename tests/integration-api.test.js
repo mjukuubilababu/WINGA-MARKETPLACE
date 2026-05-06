@@ -262,14 +262,14 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   assert.equal(visibleProductsAfterUploadLoss.response.status, 200);
   const recoveredProduct = visibleProductsAfterUploadLoss.body.find((product) => product.id === "product-test-001");
   assert.ok(recoveredProduct, "Recovered product should still be visible after upload file loss.");
-  assert.match(recoveredProduct.image, /^data:image\//);
-  assert.match(recoveredProduct.images[0], /^data:image\//);
+  assert.equal(recoveredProduct.image, "/share-og.svg");
+  assert.equal(recoveredProduct.images[0], "/share-og.svg");
 
   const bootstrapAfterUploadLoss = await request("/bootstrap");
   assert.equal(bootstrapAfterUploadLoss.response.status, 200);
   const bootstrapRecoveredProduct = bootstrapAfterUploadLoss.body.products.find((product) => product.id === "product-test-001");
   assert.ok(bootstrapRecoveredProduct, "Bootstrap should still include recovered product imagery.");
-  assert.match(bootstrapRecoveredProduct.image, /^data:image\//);
+  assert.equal(bootstrapRecoveredProduct.image, "/share-og.svg");
 
   const adminLoginForBrokenReference = await request("/auth/admin-login", {
     method: "POST",
@@ -615,7 +615,8 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
 
   const health = await request("/health");
   assert.equal(health.response.status, 200);
-  assert.equal(typeof health.body.backupStatus?.mode, "string");
+  assert.equal(typeof health.body.environment, "string");
+  assert.equal(health.body.ok, true);
 
   const restoredSellerSession = await request("/auth/session", {
     headers: { Authorization: `Bearer ${sellerToken}` }

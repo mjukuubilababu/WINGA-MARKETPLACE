@@ -18,6 +18,7 @@ const AUDIT_FILE = path.join(DATA_DIR, "audit.log");
 const UPLOADS_DIR = process.env.WINGA_UPLOADS_DIR
   ? path.resolve(process.env.WINGA_UPLOADS_DIR)
   : path.join(__dirname, "uploads");
+const PUBLIC_DIR = path.join(__dirname, "..", "public");
 const APP_HTML_TEMPLATE_PATH = path.join(__dirname, "..", "index.html");
 const APP_HTML_TEMPLATE = fs.existsSync(APP_HTML_TEMPLATE_PATH)
   ? fs.readFileSync(APP_HTML_TEMPLATE_PATH, "utf8")
@@ -141,10 +142,10 @@ const PROMOTION_CONFIG = {
   pin_top: { amount: 12000, durationDays: 2, label: "Pin To Top" }
 };
 const MAX_IMAGE_COUNT = 5;
-const MAX_IMAGE_SIZE_MB = 25;
+const MAX_IMAGE_SIZE_MB = 6;
 const MAX_IMAGE_BINARY_BYTES = MAX_IMAGE_SIZE_MB * 1024 * 1024;
 const MAX_DATA_URL_LENGTH = Math.ceil(MAX_IMAGE_BINARY_BYTES * 1.37) + 256;
-const MAX_REQUEST_BODY_BYTES = (MAX_DATA_URL_LENGTH * MAX_IMAGE_COUNT) + (2 * 1024 * 1024);
+const MAX_REQUEST_BODY_BYTES = 16 * 1024 * 1024;
 const MAX_BACKUP_FILES = 5;
 const RATE_LIMIT_WINDOW_MS = 60 * 1000;
 const BUYER_CANCEL_WINDOW_MS = 48 * 60 * 60 * 1000;
@@ -182,6 +183,11 @@ const CONFIGURED_ALLOWED_ORIGINS = String(process.env.ALLOWED_ORIGINS || "")
 const ALLOW_LOCAL_DATA_STORE_IN_PRODUCTION = String(process.env.ALLOW_LOCAL_DATA_STORE_IN_PRODUCTION || "").toLowerCase() === "true";
 const ALLOW_DEFAULT_ORIGIN_FALLBACK = String(process.env.ALLOW_DEFAULT_ORIGIN_FALLBACK || "").toLowerCase() === "true";
 const TRUST_PROXY_HEADERS = String(process.env.TRUST_PROXY_HEADERS || "").toLowerCase() === "true";
+const SAFE_IMAGE_PLACEHOLDER_PATH = "/share-og.svg";
+const DEFAULT_BOOTSTRAP_PRODUCT_LIMIT = 12;
+const MAX_BOOTSTRAP_PRODUCT_LIMIT = 24;
+const MAX_API_PRODUCT_LIMIT = 120;
+let requestSequence = 0;
 
 function validateRuntimeConfiguration() {
   const warnings = [];
@@ -309,6 +315,65 @@ function ensureLocalArtifacts() {
         }
       }, null, 2));
   }
+}
+
+function createRequestId() {
+  requestSequence = (requestSequence + 1) % 1000000000;
+  return `req-${Date.now().toString(36)}-${requestSequence.toString(36)}`;
+}
+
+function getMemoryUsageSnapshot() {
+  const usage = process.memoryUsage();
+  return {
+    rssMb: Number((usage.rss / (1024 * 1024)).toFixed(1)),
+    heapUsedMb: Number((usage.heapUsed / (1024 * 1024)).toFixed(1)),
+    heapTotalMb: Number((usage.heapTotal / (1024 * 1024)).toFixed(1)),
+    externalMb: Number((usage.external / (1024 * 1024)).toFixed(1))
+  };
+}
+
+function logStructuredEvent(level, event, detail = {}) {
+  const payload = {
+    level,
+    event,
+    time: new Date().toISOString(),
+    ...detail
+  };
+  const line = JSON.stringify(payload);
+  if (level === "error") {
+    console.error(line);
+    return;
+  }
+  if (level === "warn") {
+    console.warn(line);
+    return;
+  }
+  console.log(line);
+}
+
+function logRouteSummary(meta, extra = {}) {
+  logStructuredEvent("info", "route_summary", {
+    requestId: meta.requestId,
+    route: meta.route,
+    method: meta.method,
+    durationMs: Date.now() - meta.startedAt,
+    statusCode: meta.statusCode || 200,
+    cfRay: meta.cfRay || "",
+    memory: getMemoryUsageSnapshot(),
+    ...extra
+  });
+}
+
+function logRouteMemoryStage(meta, stage, extra = {}) {
+  logStructuredEvent("info", "route_memory_stage", {
+    requestId: meta.requestId,
+    route: meta.route,
+    method: meta.method,
+    stage,
+    cfRay: meta.cfRay || "",
+    memory: getMemoryUsageSnapshot(),
+    ...extra
+  });
 }
 
 function getBackupStatus() {
@@ -766,7 +831,8 @@ function verifyPassword(password, passwordValue) {
 function sendJson(res, statusCode, data) {
   res.writeHead(statusCode, buildSecurityHeaders(statusCode, {
     "Content-Type": "application/json",
-    "Cache-Control": statusCode >= 400 ? "no-store" : "no-cache"
+    "Cache-Control": statusCode >= 400 ? "no-store" : "no-cache",
+    ...(res.__wingaMeta?.requestId ? { "X-Request-Id": res.__wingaMeta.requestId } : {})
   }, res.__wingaReq));
   res.end(JSON.stringify(data));
 }
@@ -1149,13 +1215,14 @@ function sanitizeAdminUser(user) {
 
 function sanitizeVisibleProduct(product, viewer = null, storeRef = null) {
   const normalizedProduct = normalizeProductRecord(product);
-  const imageArchives = Array.isArray(normalizedProduct.imageArchives) ? normalizedProduct.imageArchives : [];
+  const allowPlaceholder = Boolean(product?.imageFallbackEligible || normalizedProduct.imageFallbackEligible);
   const deliveredImages = (Array.isArray(normalizedProduct.images) ? normalizedProduct.images : [])
-    .map((image, index) => resolveProductImageForDelivery(image, imageArchives[index] || ""))
+    .map((image) => resolveProductImageForDelivery(image, "", allowPlaceholder))
     .filter(Boolean);
   const deliveredPrimaryImage = resolveProductImageForDelivery(
     normalizedProduct.image || deliveredImages[0] || "",
-    imageArchives[0] || ""
+    "",
+    allowPlaceholder
   );
   const isStaffViewer = Boolean(viewer && isStaffRole(viewer.role));
   const isOwner = Boolean(viewer && normalizedProduct.uploadedBy === viewer.username);
@@ -1186,6 +1253,7 @@ function sanitizeVisibleProduct(product, viewer = null, storeRef = null) {
     safeProduct.resoldStatus = "original";
   }
   delete safeProduct.imageArchives;
+  delete safeProduct.imageFallbackEligible;
   return safeProduct;
 }
 
@@ -1193,6 +1261,48 @@ function buildVisibleProducts(store, viewer = null) {
   return (store.products || [])
     .map((product) => sanitizeVisibleProduct(product, viewer, store))
     .filter(Boolean);
+}
+
+function toProductListItem(product) {
+  if (!product || typeof product !== "object") {
+    return null;
+  }
+  return {
+    id: product.id || "",
+    name: product.name || "",
+    price: Number(product.price || 0),
+    image: product.image || "",
+    images: Array.isArray(product.images) ? product.images : [],
+    shop: product.shop || "",
+    category: product.category || "",
+    uploadedBy: product.uploadedBy || "",
+    verifiedSeller: Boolean(product.verifiedSeller),
+    status: product.status || "approved",
+    fitMode: product.fitMode || "cover",
+    createdAt: product.createdAt || "",
+    whatsapp: product.whatsapp || "",
+    imageCount: Array.isArray(product.images) ? product.images.length : 0
+  };
+}
+
+function paginateProducts(products, options = {}) {
+  const source = Array.isArray(products) ? products : [];
+  const requestedOffset = Number.parseInt(options.offset, 10);
+  const requestedLimit = Number.parseInt(options.limit, 10);
+  const offset = Number.isFinite(requestedOffset) && requestedOffset > 0 ? requestedOffset : 0;
+  const maxLimit = Number.isFinite(options.maxLimit) && options.maxLimit > 0 ? options.maxLimit : MAX_API_PRODUCT_LIMIT;
+  const fallbackLimit = Number.isFinite(options.fallbackLimit) && options.fallbackLimit > 0 ? options.fallbackLimit : maxLimit;
+  const limit = Number.isFinite(requestedLimit) && requestedLimit > 0
+    ? Math.min(requestedLimit, maxLimit)
+    : Math.min(fallbackLimit, maxLimit);
+  const items = source.slice(offset, offset + limit);
+  return {
+    items,
+    offset,
+    limit,
+    total: source.length,
+    hasMore: offset + items.length < source.length
+  };
 }
 
 function buildVisibleUsers(store, viewer = null) {
@@ -1765,23 +1875,7 @@ function saveDataUrlImage(value) {
 }
 
 function buildPersistentImageArchive(value) {
-  if (isValidPrivateImageValue(value)) {
-    return value;
-  }
-
-  const normalizedValue = normalizeStoredImageReference(value);
-  const filePath = getLocalUploadFilePath(normalizedValue);
-  if (!filePath || !fs.existsSync(filePath)) {
-    return "";
-  }
-
-  const mimeType = getMimeTypeFromExtension(path.extname(filePath));
-  if (!mimeType) {
-    return "";
-  }
-
-  const buffer = fs.readFileSync(filePath);
-  return `data:${mimeType};base64,${buffer.toString("base64")}`;
+  return "";
 }
 
 function isMissingLocalUploadReference(value) {
@@ -1793,12 +1887,12 @@ function isMissingLocalUploadReference(value) {
   return !filePath || !fs.existsSync(filePath);
 }
 
-function resolveProductImageForDelivery(value, archiveValue) {
+function resolveProductImageForDelivery(value, archiveValue, allowPlaceholder = false) {
   const normalizedValue = normalizeStoredImageReference(value);
   if (typeof normalizedValue === "string" && normalizedValue.startsWith("/uploads/")) {
     const filePath = getLocalUploadFilePath(normalizedValue);
     if (!filePath || !fs.existsSync(filePath)) {
-      return isValidPrivateImageValue(archiveValue) ? archiveValue : "";
+      return allowPlaceholder ? SAFE_IMAGE_PLACEHOLDER_PATH : "";
     }
   }
   return normalizedValue;
@@ -1809,25 +1903,22 @@ function repairNormalizedProductImageState(product) {
   const sourceImages = Array.isArray(normalizedProduct.images) && normalizedProduct.images.length
     ? normalizedProduct.images.map((image) => normalizeStoredImageReference(image))
     : [normalizeStoredImageReference(normalizedProduct.image || "")].filter(Boolean);
-  const sourceArchives = Array.isArray(normalizedProduct.imageArchives)
-    ? normalizedProduct.imageArchives.map((value) => (isValidPrivateImageValue(value) ? value : ""))
-    : [];
+  const allowPlaceholder = Boolean(normalizedProduct.imageFallbackEligible);
   const repairedEntries = sourceImages
     .map((image, index) => {
-      const archiveValue = sourceArchives[index] || "";
-      const deliveredImage = resolveProductImageForDelivery(image, archiveValue);
+      const deliveredImage = resolveProductImageForDelivery(image, "", allowPlaceholder);
       if (!deliveredImage) {
         return null;
       }
       if (isMissingLocalUploadReference(image) && deliveredImage !== image) {
         return {
           image: deliveredImage,
-          archive: isValidPrivateImageValue(deliveredImage) ? deliveredImage : archiveValue
+          archive: ""
         };
       }
       return {
         image,
-        archive: archiveValue
+        archive: ""
       };
     })
     .filter(Boolean);
@@ -1839,7 +1930,8 @@ function repairNormalizedProductImageState(product) {
     ...normalizedProduct,
     image: repairedImages[0] || "",
     images: repairedImages,
-    imageArchives: repairedArchives
+    imageArchives: [],
+    imageFallbackEligible: allowPlaceholder
   };
 }
 
@@ -1852,7 +1944,6 @@ function summarizeProductImageConsistency(store) {
   products.forEach((product) => {
     const normalizedProduct = normalizeProductRecord(product);
     const images = Array.isArray(normalizedProduct.images) ? normalizedProduct.images : [];
-    const archives = Array.isArray(normalizedProduct.imageArchives) ? normalizedProduct.imageArchives : [];
     let productHasBrokenImages = false;
     images.forEach((image, index) => {
       if (!isMissingLocalUploadReference(image)) {
@@ -1860,9 +1951,7 @@ function summarizeProductImageConsistency(store) {
       }
       productHasBrokenImages = true;
       brokenImageReferences += 1;
-      if (isValidPrivateImageValue(archives[index] || "")) {
-        archiveFallbackImages += 1;
-      }
+      archiveFallbackImages += 0;
     });
     if (productHasBrokenImages) {
       productsWithBrokenImages += 1;
@@ -1878,23 +1967,21 @@ function summarizeProductImageConsistency(store) {
 
 function normalizeProductImages(product) {
   const sourceImages = Array.isArray(product.images) ? product.images : [];
-  const existingArchives = Array.isArray(product.imageArchives)
-    ? product.imageArchives.map((value) => (isValidPrivateImageValue(value) ? value : ""))
-    : [];
   const images = sourceImages.map(saveDataUrlImage);
-  const imageArchives = images.map((image, index) => {
-    const sourceImage = sourceImages[index] || "";
-    const existingArchive = existingArchives[index] || "";
-    const preferredArchiveSource = isValidPrivateImageValue(sourceImage)
-      ? sourceImage
-      : (existingArchive || sourceImage || image);
-    return buildPersistentImageArchive(preferredArchiveSource);
-  });
+  const imageFallbackEligible = sourceImages.some((sourceImage, index) => {
+    if (typeof sourceImage === "string" && sourceImage.startsWith("data:image/")) {
+      return true;
+    }
+    const normalizedImage = normalizeStoredImageReference(images[index] || sourceImage || "");
+    const filePath = getLocalUploadFilePath(normalizedImage);
+    return Boolean(filePath && fs.existsSync(filePath));
+  }) || Boolean(product.imageFallbackEligible);
   return {
     ...product,
     images,
     image: images[0] || normalizeStoredImageReference(product.image) || "",
-    imageArchives
+    imageArchives: [],
+    imageFallbackEligible
   };
 }
 
@@ -1993,7 +2080,7 @@ function migrateLegacyStore(store) {
     const originalArchives = Array.isArray(product.imageArchives) ? product.imageArchives : [];
     const normalizedProduct = repairNormalizedProductImageState(normalizeProductImages(product));
     const imagesChanged = JSON.stringify(normalizedProduct.images) !== JSON.stringify(originalImages);
-    const archivesChanged = JSON.stringify(normalizedProduct.imageArchives || []) !== JSON.stringify(originalArchives);
+    const archivesChanged = originalArchives.length > 0;
     const imageChanged = normalizedProduct.image !== originalImage
       || normalizedProduct.status !== product.status
       || normalizedProduct.moderationNote !== (product.moderationNote || "")
@@ -2116,6 +2203,10 @@ function migrateLegacyStore(store) {
 
 async function initializeStoreAtBoot() {
   ensureLocalArtifacts();
+  logStructuredEvent("info", "boot_memory_stage", {
+    stage: "before_initialize_store",
+    memory: getMemoryUsageSnapshot()
+  });
 
   if (postgresStore) {
     await postgresStore.init(() => readLegacyStore());
@@ -2136,6 +2227,14 @@ async function initializeStoreAtBoot() {
   if (migrationResult.auditEntry) {
     await appendAuditLog(migrationResult.auditEntry);
   }
+
+  logStructuredEvent("info", "boot_memory_stage", {
+    stage: "after_initialize_store",
+    memory: getMemoryUsageSnapshot(),
+    users: Array.isArray(migratedStore?.users) ? migratedStore.users.length : 0,
+    products: Array.isArray(migratedStore?.products) ? migratedStore.products.length : 0,
+    sessions: Array.isArray(migratedStore?.sessions) ? migratedStore.sessions.length : 0
+  });
 
   return migratedStore;
 }
@@ -3168,16 +3267,20 @@ function validateClientEventPayload(payload) {
 
 function collectBody(req) {
   return new Promise((resolve, reject) => {
-    let raw = "";
+    const chunks = [];
+    let totalBytes = 0;
     req.on("data", (chunk) => {
-      raw += chunk;
-      if (Buffer.byteLength(raw, "utf8") > MAX_REQUEST_BODY_BYTES) {
+      totalBytes += chunk.length;
+      if (totalBytes > MAX_REQUEST_BODY_BYTES) {
         reject(new Error("PAYLOAD_TOO_LARGE"));
         req.destroy();
+        return;
       }
+      chunks.push(chunk);
     });
     req.on("end", () => {
       try {
+        const raw = chunks.length ? Buffer.concat(chunks).toString("utf8") : "";
         resolve(raw ? JSON.parse(raw) : null);
       } catch (error) {
         reject(error);
@@ -3283,6 +3386,15 @@ function isRateLimited(req, store) {
 
 http.createServer(async (req, res) => {
   res.__wingaReq = req;
+  const requestMeta = {
+    requestId: createRequestId(),
+    route: "",
+    method: req.method || "GET",
+    startedAt: Date.now(),
+    cfRay: String(req.headers["cf-ray"] || "").trim(),
+    statusCode: 200
+  };
+  res.__wingaMeta = requestMeta;
   if (req.method === "OPTIONS") {
     res.writeHead(204, buildSecurityHeaders(204, {}, req));
     res.end();
@@ -3290,7 +3402,52 @@ http.createServer(async (req, res) => {
   }
 
   const url = new URL(req.url, `http://${req.headers.host}`);
+  requestMeta.route = url.pathname;
+
+  if (req.method === "GET" && url.pathname === "/health") {
+    requestMeta.statusCode = 200;
+    logRouteSummary(requestMeta, { lightweight: true });
+    sendJson(res, 200, {
+      ok: true,
+      time: new Date().toISOString(),
+      environment: NODE_ENV
+    });
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/health") {
+    requestMeta.statusCode = 200;
+    logRouteSummary(requestMeta, {
+      lightweight: true,
+      storageMode: runtimeConfiguration.storageMode
+    });
+    sendJson(res, 200, {
+      ok: true,
+      time: new Date().toISOString(),
+      environment: NODE_ENV,
+      storageMode: runtimeConfiguration.storageMode,
+      configWarningsCount: runtimeConfiguration.warnings.length
+    });
+    return;
+  }
+
+  const shouldLogRouteMemory = url.pathname === "/api/bootstrap"
+    || url.pathname === "/api/products"
+    || url.pathname === "/api/auth/login"
+    || url.pathname === "/api/auth/signup"
+    || url.pathname === "/api/auth/admin-login"
+    || url.pathname === "/api/auth/session";
+  if (shouldLogRouteMemory) {
+    logRouteMemoryStage(requestMeta, "before_read_store");
+  }
   let store = migrateLegacyStore(cleanupSessions(await readStore())).store;
+  if (shouldLogRouteMemory) {
+    logRouteMemoryStage(requestMeta, "after_read_store", {
+      users: Array.isArray(store?.users) ? store.users.length : 0,
+      products: Array.isArray(store?.products) ? store.products.length : 0,
+      sessions: Array.isArray(store?.sessions) ? store.sessions.length : 0
+    });
+  }
   const clientIp = getClientIp(req);
 
   if (isRateLimited(req, store)) {
@@ -3339,6 +3496,20 @@ http.createServer(async (req, res) => {
 
       res.writeHead(200, buildSecurityHeaders(200, {
         "Content-Type": contentTypes[extension] || "application/octet-stream",
+        "Cache-Control": "public, max-age=3600"
+      }, req));
+      fs.createReadStream(filePath).pipe(res);
+      return;
+    }
+
+    if (req.method === "GET" && ["/share-og.svg", "/winga-icon.svg", "/winga-maskable-icon.svg"].includes(url.pathname)) {
+      const filePath = path.join(PUBLIC_DIR, path.basename(url.pathname));
+      if (!filePath.startsWith(PUBLIC_DIR) || !fs.existsSync(filePath)) {
+        sendJson(res, 404, { error: "Asset haijapatikana." });
+        return;
+      }
+      res.writeHead(200, buildSecurityHeaders(200, {
+        "Content-Type": "image/svg+xml",
         "Cache-Control": "public, max-age=3600"
       }, req));
       fs.createReadStream(filePath).pipe(res);
@@ -3394,26 +3565,36 @@ http.createServer(async (req, res) => {
     }
 
     if (req.method === "GET" && url.pathname === "/api/bootstrap") {
+      logRouteMemoryStage(requestMeta, "before_bootstrap_build");
+      const visibleProducts = buildVisibleProducts(store, null);
+      const bootstrapPage = paginateProducts(visibleProducts, {
+        limit: url.searchParams.get("limit"),
+        offset: url.searchParams.get("offset"),
+        maxLimit: MAX_BOOTSTRAP_PRODUCT_LIMIT,
+        fallbackLimit: DEFAULT_BOOTSTRAP_PRODUCT_LIMIT
+      });
+      const bootstrapProducts = bootstrapPage.items
+        .map(toProductListItem)
+        .filter(Boolean);
+      logRouteMemoryStage(requestMeta, "after_bootstrap_build", {
+        returnedProducts: bootstrapProducts.length,
+        totalProducts: bootstrapPage.total
+      });
+      requestMeta.statusCode = 200;
+      logRouteSummary(requestMeta, {
+        returnedProducts: bootstrapProducts.length,
+        totalProducts: bootstrapPage.total,
+        hasMore: bootstrapPage.hasMore
+      });
       sendJson(res, 200, {
         categories: store.categories || [],
-        products: buildVisibleProducts(store, null)
-      });
-      return;
-    }
-
-    if (req.method === "GET" && url.pathname === "/api/health") {
-      const backupStatus = getBackupStatus();
-      const imageConsistency = summarizeProductImageConsistency(store);
-      sendJson(res, 200, {
-        ok: true,
-        time: new Date().toISOString(),
-        environment: NODE_ENV,
-        storageMode: runtimeConfiguration.storageMode,
-        configWarningsCount: runtimeConfiguration.warnings.length,
-        backupStatus,
-        users: (store.users || []).length,
-        products: (store.products || []).length,
-        imageConsistency
+        products: bootstrapProducts,
+        pagination: {
+          offset: bootstrapPage.offset,
+          limit: bootstrapPage.limit,
+          total: bootstrapPage.total,
+          hasMore: bootstrapPage.hasMore
+        }
       });
       return;
     }
@@ -4013,11 +4194,21 @@ http.createServer(async (req, res) => {
       const token = readAuthToken(req);
       const session = token ? findSession(store, token) : null;
       const viewer = session ? getUserByUsername(store, session.username) : null;
-      sendJson(res, 200, buildVisibleProducts(store, viewer));
+      logRouteMemoryStage(requestMeta, "before_product_list_build");
+      const visibleProducts = buildVisibleProducts(store, viewer);
+      logRouteMemoryStage(requestMeta, "after_product_list_build", {
+        returnedProducts: visibleProducts.length
+      });
+      requestMeta.statusCode = 200;
+      logRouteSummary(requestMeta, {
+        returnedProducts: visibleProducts.length
+      });
+      sendJson(res, 200, visibleProducts);
       return;
     }
 
     if (req.method === "POST" && url.pathname === "/api/auth/signup") {
+      logRouteMemoryStage(requestMeta, "before_signup_collect_body");
       const rawPayload = await collectBody(req) || {};
       const requestedRole = typeof rawPayload.role === "string" ? rawPayload.role.trim() : "";
       if (requestedRole && requestedRole !== "buyer" && requestedRole !== "seller") {
@@ -4114,6 +4305,10 @@ http.createServer(async (req, res) => {
       };
       const session = createSession(createdUser);
       users.push(createdUser);
+      logRouteMemoryStage(requestMeta, "before_signup_write", {
+        users: users.length,
+        sessions: Array.isArray(store.sessions) ? store.sessions.length + 1 : 1
+      });
       await writeStoreWithOptions({
         ...store,
         categories: mergeCategories(store.categories || []),
@@ -4129,6 +4324,11 @@ http.createServer(async (req, res) => {
         path: url.pathname,
         event: "signup_success",
         username: createdUser.username
+      });
+      requestMeta.statusCode = 200;
+      logRouteSummary(requestMeta, {
+        username: createdUser.username,
+        role: createdUser.role || "buyer"
       });
       sendJson(res, 200, {
         ...buildSelfSessionPayload(createdUser, session.token)
@@ -4196,6 +4396,7 @@ http.createServer(async (req, res) => {
     }
 
     if (req.method === "POST" && url.pathname === "/api/auth/login") {
+      logRouteMemoryStage(requestMeta, "before_login_collect_body");
       const payload = await collectBody(req);
       const rawIdentifier = sanitizePlainText(payload?.identifier || payload?.username, 120);
       if (!payload || !isNonEmptyString(rawIdentifier, 3, 120) || !isNonEmptyString(payload.password, 4, 120)) {
@@ -4259,6 +4460,9 @@ http.createServer(async (req, res) => {
       const freshUser = normalizeUserRecord(users[userIndex] || user);
       const nextSessions = (store.sessions || []).filter((item) => item.username !== freshUser.username);
       const session = createSession(freshUser);
+      logRouteMemoryStage(requestMeta, "before_login_write", {
+        sessions: nextSessions.length + 1
+      });
       await writeStoreWithOptions({
         ...store,
         sessions: [...nextSessions, session]
@@ -4273,6 +4477,11 @@ http.createServer(async (req, res) => {
         event: "login_success",
         username: freshUser.username
       });
+      requestMeta.statusCode = 200;
+      logRouteSummary(requestMeta, {
+        username: freshUser.username,
+        role: freshUser.role || "buyer"
+      });
       sendJson(res, 200, {
         ...buildSelfSessionPayload(freshUser, session.token)
       });
@@ -4280,6 +4489,7 @@ http.createServer(async (req, res) => {
     }
 
     if (req.method === "POST" && url.pathname === "/api/auth/admin-login") {
+      logRouteMemoryStage(requestMeta, "before_admin_login_collect_body");
       const payload = await collectBody(req);
       const rawIdentifier = sanitizePlainText(payload?.identifier || payload?.username, 120);
       if (!payload || !isNonEmptyString(rawIdentifier, 3, 120) || !isNonEmptyString(payload.password, 4, 120)) {
@@ -4330,6 +4540,9 @@ http.createServer(async (req, res) => {
       const freshUser = normalizeUserRecord(users[userIndex] || user);
       const nextSessions = (store.sessions || []).filter((item) => item.username !== freshUser.username);
       const session = createSession(freshUser);
+      logRouteMemoryStage(requestMeta, "before_admin_login_write", {
+        sessions: nextSessions.length + 1
+      });
       await writeStoreWithOptions({
         ...store,
         sessions: [...nextSessions, session]
@@ -4343,6 +4556,11 @@ http.createServer(async (req, res) => {
         path: url.pathname,
         event: "admin_login_success",
         username: freshUser.username
+      });
+      requestMeta.statusCode = 200;
+      logRouteSummary(requestMeta, {
+        username: freshUser.username,
+        role: freshUser.role || "admin"
       });
       sendJson(res, 200, {
         ...buildSelfSessionPayload(freshUser, session.token)
@@ -4452,6 +4670,12 @@ http.createServer(async (req, res) => {
         return;
       }
 
+      requestMeta.statusCode = 200;
+      logRouteSummary(requestMeta, {
+        username: user.username,
+        role: user.role || "",
+        sessionRestored: true
+      });
       sendJson(res, 200, {
         ...buildSelfSessionPayload(user, session.token)
       });
@@ -6125,12 +6349,21 @@ http.createServer(async (req, res) => {
         return;
       }
 
+      logRouteMemoryStage(requestMeta, "before_bulk_products_collect_body");
       const products = await collectBody(req);
       const normalizedProducts = Array.isArray(products)
         ? products.map((product) => repairNormalizedProductImageState(normalizeProductImages(product)))
         : [];
+      logRouteMemoryStage(requestMeta, "after_bulk_products_normalize", {
+        products: normalizedProducts.length
+      });
       store = { ...store, products: normalizedProducts };
       await writeStore(store);
+      requestMeta.statusCode = 200;
+      logRouteSummary(requestMeta, {
+        products: normalizedProducts.length,
+        bulk: true
+      });
       sendJson(res, 200, { ok: true });
       return;
     }
@@ -6147,6 +6380,7 @@ http.createServer(async (req, res) => {
         return;
       }
 
+      logRouteMemoryStage(requestMeta, "before_product_upload_collect_body");
       const payload = await collectBody(req);
       const candidatePayload = {
         ...payload,
@@ -6191,6 +6425,9 @@ http.createServer(async (req, res) => {
         resalePrice: candidatePayload.resalePrice ?? candidatePayload.price,
         resoldStatus: candidatePayload.resoldStatus || ""
       }));
+      logRouteMemoryStage(requestMeta, "after_product_upload_normalize", {
+        imageCount: Array.isArray(normalizedProduct.images) ? normalizedProduct.images.length : 0
+      });
       const products = [normalizedProduct, ...(store.products || [])];
       await writeStore({
         ...store,
@@ -6205,6 +6442,11 @@ http.createServer(async (req, res) => {
         event: "product_created",
         username: sellerUser.username,
         productId: normalizedProduct.id
+      });
+      requestMeta.statusCode = 200;
+      logRouteSummary(requestMeta, {
+        productId: normalizedProduct.id,
+        imageCount: Array.isArray(normalizedProduct.images) ? normalizedProduct.images.length : 0
       });
       sendJson(res, 200, normalizedProduct);
       return;
@@ -6270,6 +6512,7 @@ http.createServer(async (req, res) => {
       }
 
       const productId = getProductIdFromPath(url.pathname);
+      logRouteMemoryStage(requestMeta, "before_product_update_collect_body");
       const payload = await collectBody(req);
       const existingProduct = (store.products || []).find((item) => item.id === productId);
 
@@ -6312,6 +6555,9 @@ http.createServer(async (req, res) => {
         moderatedBy: existingProduct.status === "rejected" ? "" : (existingProduct.moderatedBy || ""),
         createdAt: existingProduct.createdAt || candidateProduct.createdAt
       }));
+      logRouteMemoryStage(requestMeta, "after_product_update_normalize", {
+        imageCount: Array.isArray(updatedProduct.images) ? updatedProduct.images.length : 0
+      });
 
       const products = (store.products || []).map((item) =>
         item.id === productId ? updatedProduct : item
@@ -6331,6 +6577,12 @@ http.createServer(async (req, res) => {
         event: "product_updated",
         username: sellerUser.username,
         productId
+      });
+      requestMeta.statusCode = 200;
+      logRouteSummary(requestMeta, {
+        productId,
+        imageCount: Array.isArray(updatedProduct.images) ? updatedProduct.images.length : 0,
+        updated: true
       });
       sendJson(res, 200, updatedProduct);
       return;
@@ -6376,6 +6628,16 @@ http.createServer(async (req, res) => {
     sendJson(res, 404, { error: "Not found" });
   } catch (error) {
     if (error?.message === "PAYLOAD_TOO_LARGE") {
+      requestMeta.statusCode = 413;
+      logStructuredEvent("warn", "route_error", {
+        requestId: requestMeta.requestId,
+        route: requestMeta.route,
+        method: requestMeta.method,
+        durationMs: Date.now() - requestMeta.startedAt,
+        cfRay: requestMeta.cfRay || "",
+        error: "PAYLOAD_TOO_LARGE",
+        memory: getMemoryUsageSnapshot()
+      });
       sendJson(res, 413, { error: "Data uliyotuma ni kubwa sana. Punguza picha au ukubwa wa request." });
       return;
     }
@@ -6385,6 +6647,16 @@ http.createServer(async (req, res) => {
       event: "server_error",
       message: sanitizePlainText(error?.message || "Unknown server error", 300)
     }).catch(() => {});
+    requestMeta.statusCode = 500;
+    logStructuredEvent("error", "route_error", {
+      requestId: requestMeta.requestId,
+      route: requestMeta.route,
+      method: requestMeta.method,
+      durationMs: Date.now() - requestMeta.startedAt,
+      cfRay: requestMeta.cfRay || "",
+      error: sanitizePlainText(error?.message || "Unknown server error", 300),
+      memory: getMemoryUsageSnapshot()
+    });
     safeConsole("error", "Unhandled server error", error?.message || error);
     sendJson(res, 500, { error: "Hitilafu ya mfumo imetokea. Jaribu tena." });
   }
