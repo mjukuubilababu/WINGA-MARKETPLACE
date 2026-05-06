@@ -1736,6 +1736,7 @@
     const localFallbackAdapter = createLocalAdapter();
     const enableLocalCacheFallback = shouldUseApiLocalCacheFallback(config);
     let sessionRestoreController = null;
+    const productUploadTimeoutMs = Number(config.productUploadTimeoutMs || 45000);
 
     function resolveProductImages(product) {
       if (!product || typeof product !== "object") {
@@ -2075,7 +2076,8 @@
             "Content-Type": "application/json",
             ...createAuthHeaders()
           },
-          body: JSON.stringify(product)
+          body: JSON.stringify(product),
+          timeoutMs: productUploadTimeoutMs
         });
         return resolveProductImages(result);
       },
@@ -2086,7 +2088,8 @@
             "Content-Type": "application/json",
             ...createAuthHeaders()
           },
-          body: JSON.stringify(payload)
+          body: JSON.stringify(payload),
+          timeoutMs: productUploadTimeoutMs
         });
         return resolveProductImages(result);
       },

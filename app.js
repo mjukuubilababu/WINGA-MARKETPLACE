@@ -60,6 +60,8 @@ const FLEXIBLE_SUBCATEGORY_TOP_VALUES = new Set(["vitu-used"]);
 const MAX_UPLOAD_IMAGES = 5;
 const MAX_IMAGE_SIZE_MB = 25;
 const MAX_IMAGE_SIZE_BYTES = MAX_IMAGE_SIZE_MB * 1024 * 1024;
+const MAX_API_PRODUCT_IMAGE_BYTES = 5 * 1024 * 1024;
+const MAX_API_PRODUCT_REQUEST_BYTES = 14 * 1024 * 1024;
 const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif", "image/heic", "image/heif"];
 const ALLOWED_IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp", ".gif", ".heic", ".heif"];
 const PROFILE_IMAGE_TARGET_BYTES = 420 * 1024;
@@ -1566,7 +1568,7 @@ function resolveSellerSignupIdentityImage(file) {
 }
 
 function readFileAsDataUrl(file, options = {}) {
-  return optimizeImageFileAsDataUrl(file, options).catch((error) => {
+  return optimizeImageFileAsDataUrl(file, options).catch(async (error) => {
     if (isHeicLikeFile(file)) {
       throw new Error("Picha ya HEIC/HEIF haikuweza kubadilishwa kwenye format inayotumika hapa. Jaribu JPG au PNG.");
     }
@@ -1574,8 +1576,61 @@ function readFileAsDataUrl(file, options = {}) {
     if (provider === "local" || provider === "mock") {
       throw error;
     }
-    return readRawFileAsDataUrl(file);
+    const purpose = String(options?.purpose || "generic").trim().toLowerCase();
+    const fallbackDataUrl = await readRawFileAsDataUrl(file);
+    if (purpose === "product" && estimateDataUrlBytes(fallbackDataUrl) > MAX_API_PRODUCT_IMAGE_BYTES) {
+      throw new Error("Picha hii ni nzito sana kwa upload salama. Jaribu JPG/PNG au punguza ukubwa wa picha.");
+    }
+    return fallbackDataUrl;
   });
+}
+
+function estimateSerializedPayloadBytes(payload) {
+  try {
+    const serialized = JSON.stringify(payload);
+    if (typeof TextEncoder !== "undefined") {
+      return new TextEncoder().encode(serialized).length;
+    }
+    return new Blob([serialized]).size;
+  } catch (error) {
+    return Number.POSITIVE_INFINITY;
+  }
+}
+
+function ensureSafeProductUploadPayload(productPayload) {
+  const images = Array.isArray(productPayload?.images) ? productPayload.images : [];
+  images.forEach((imageValue, index) => {
+    if (typeof imageValue !== "string" || !imageValue.startsWith("data:image/")) {
+      return;
+    }
+    if (estimateDataUrlBytes(imageValue) > MAX_API_PRODUCT_IMAGE_BYTES) {
+      throw new Error(`Picha ya ${index + 1} ni kubwa sana kwa server. Punguza ukubwa wake au jaribu JPG/PNG.`);
+    }
+  });
+  const payloadBytes = estimateSerializedPayloadBytes(productPayload);
+  if (payloadBytes > MAX_API_PRODUCT_REQUEST_BYTES) {
+    throw new Error("Upload hii ni kubwa sana kwa server kwa sasa. Punguza idadi ya picha au tumia picha ndogo kidogo.");
+  }
+}
+
+function getFriendlyProductUploadErrorMessage(error, fallbackMessage = "Imeshindikana kupost bidhaa.") {
+  const status = Number(error?.status || 0);
+  const code = String(error?.code || "").toLowerCase();
+  const message = String(error?.message || "").trim();
+  const normalizedMessage = message.toLowerCase();
+  if (status === 413 || code === "http_413" || normalizedMessage.includes("kubwa sana") || normalizedMessage.includes("payload_too_large")) {
+    return "Picha au upload yote ni kubwa sana kwa server. Punguza ukubwa wa picha au idadi yake kisha jaribu tena.";
+  }
+  if (status === 429 || normalizedMessage.includes("majaribio ni mengi")) {
+    return "Majaribio ni mengi sana kwa sasa. Subiri kidogo kisha ujaribu tena.";
+  }
+  if (error?.retryable || code === "timeout" || code === "network" || normalizedMessage.includes("network") || normalizedMessage.includes("took too long")) {
+    return "Upload imechelewa au internet imekatika kidogo. Bonyeza tena kujaribu mara moja baada ya connection kutulia.";
+  }
+  if (status >= 500 || normalizedMessage.includes("hitilafu ya mfumo") || normalizedMessage.includes("server")) {
+    return "Server imepata hitilafu wakati wa kusindika upload. Jaribu tena baada ya muda mfupi.";
+  }
+  return message || fallbackMessage;
 }
 
 function normalizeProductLookupKey(value) {
@@ -8552,6 +8607,9 @@ authButton.addEventListener("click", async () => {
 });
 
 uploadButton.addEventListener("click", async () => {
+  if (uiRuntimeState.productUploadInFlight) {
+    return;
+  }
   if (!canUseSellerFeatures()) {
     alert("Akaunti ya mteja haiwezi kupost bidhaa.");
     setCurrentViewState("home");
@@ -8634,6 +8692,7 @@ uploadButton.addEventListener("click", async () => {
       views: existingProduct ? existingProduct.views : 0,
       viewedBy: existingProduct ? existingProduct.viewedBy || [] : []
     };
+    ensureSafeProductUploadPayload(productPayload);
 
     if (editingProductId) {
       await window.WingaDataLayer.updateProduct(editingProductId, productPayload);
@@ -8662,6 +8721,11 @@ uploadButton.addEventListener("click", async () => {
   };
 
   try {
+    uiRuntimeState.productUploadInFlight = true;
+    if (uploadButton) {
+      uploadButton.disabled = true;
+      uploadButton.dataset.loading = "true";
+    }
     if (selectedFiles.length > 0) {
       validateImageFiles(selectedFiles);
       const images = await readFilesAsDataUrls(selectedFiles);
@@ -8676,9 +8740,15 @@ uploadButton.addEventListener("click", async () => {
     });
     showInAppNotification({
       title: "Product save failed",
-      body: error.message || "Imeshindikana kupost bidhaa.",
+      body: getFriendlyProductUploadErrorMessage(error),
       variant: "error"
     });
+  } finally {
+    uiRuntimeState.productUploadInFlight = false;
+    if (uploadButton) {
+      uploadButton.disabled = false;
+      delete uploadButton.dataset.loading;
+    }
   }
 });
 

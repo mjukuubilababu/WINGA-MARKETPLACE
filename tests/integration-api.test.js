@@ -251,6 +251,29 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   assert.equal(productCreate.body.status, "approved");
   assert.match(productCreate.body.image, /^\/uploads\//);
 
+  const oversizedImage = `data:image/png;base64,${"A".repeat((16 * 1024 * 1024) + 1024)}`;
+  const oversizedProductUpload = await request("/products", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${sellerToken}`
+    },
+    body: JSON.stringify({
+      id: "product-test-oversized",
+      name: "Kiatu Oversized",
+      price: 25000,
+      shop: "Seller One Shop",
+      whatsapp: "255700111111",
+      uploadedBy: "seller_one",
+      category: "viatu",
+      images: [oversizedImage],
+      image: oversizedImage,
+      imageSignature: "oversized-image-signature"
+    })
+  });
+  assert.equal(oversizedProductUpload.response.status, 413);
+  assert.match(oversizedProductUpload.body.error, /kubwa sana/i);
+
   const uploadedProductImagePath = path.join(tempRoot, "uploads", path.basename(productCreate.body.image));
   fs.rmSync(uploadedProductImagePath, { force: true });
 

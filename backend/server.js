@@ -3269,24 +3269,64 @@ function collectBody(req) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     let totalBytes = 0;
-    req.on("data", (chunk) => {
+    let settled = false;
+    const cleanup = () => {
+      req.removeListener("data", handleData);
+      req.removeListener("end", handleEnd);
+      req.removeListener("error", handleError);
+    };
+    const fail = (error) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
+      try {
+        req.pause?.();
+      } catch (pauseError) {
+        // Ignore pause failures while aborting oversized bodies.
+      }
+      try {
+        req.resume?.();
+      } catch (resumeError) {
+        // Ignore resume failures while draining the socket safely.
+      }
+      reject(error);
+    };
+    const handleData = (chunk) => {
+      if (settled) {
+        return;
+      }
       totalBytes += chunk.length;
       if (totalBytes > MAX_REQUEST_BODY_BYTES) {
-        reject(new Error("PAYLOAD_TOO_LARGE"));
-        req.destroy();
+        const error = new Error("PAYLOAD_TOO_LARGE");
+        error.code = "PAYLOAD_TOO_LARGE";
+        error.status = 413;
+        error.totalBytes = totalBytes;
+        fail(error);
         return;
       }
       chunks.push(chunk);
-    });
-    req.on("end", () => {
+    };
+    const handleEnd = () => {
+      if (settled) {
+        return;
+      }
       try {
         const raw = chunks.length ? Buffer.concat(chunks).toString("utf8") : "";
+        settled = true;
+        cleanup();
         resolve(raw ? JSON.parse(raw) : null);
       } catch (error) {
-        reject(error);
+        fail(error);
       }
-    });
-    req.on("error", reject);
+    };
+    const handleError = (error) => {
+      fail(error);
+    };
+    req.on("data", handleData);
+    req.on("end", handleEnd);
+    req.on("error", handleError);
   });
 }
 
