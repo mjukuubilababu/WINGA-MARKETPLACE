@@ -236,13 +236,23 @@
         attributes
       });
       section.appendChild(createDetailSectionHeading(eyebrow || title, title || eyebrow));
-      const stack = deps.createElement("div", {
-        className: "product-detail-feed-stack",
-        attributes: {
-          "data-product-detail-feed-stack": "true"
-        }
-      });
-      safeItems.forEach((item) => stack.appendChild(createDetailContinuationCardElement(item)));
+      const stack = typeof deps.createHomeFeedProductCardStackElement === "function"
+        ? deps.createHomeFeedProductCardStackElement(safeItems, {
+            className: "product-detail-feed-stack",
+            attributes: {
+              "data-product-detail-feed-stack": "true"
+            }
+          })
+        : (() => {
+            const fallbackStack = deps.createElement("div", {
+              className: "product-detail-feed-stack",
+              attributes: {
+                "data-product-detail-feed-stack": "true"
+              }
+            });
+            safeItems.forEach((item) => fallbackStack.appendChild(createDetailContinuationCardElement(item)));
+            return fallbackStack;
+          })();
       section.appendChild(stack);
       return section;
     }

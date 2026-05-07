@@ -3170,6 +3170,19 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       return card;
     }
 
+    function createProductCardStackElement(items = [], options = {}) {
+      const safeItems = Array.isArray(items) ? items.filter(Boolean) : [];
+      const stack = createElement("div", {
+        className: options.className || "product-detail-feed-stack",
+        attributes: {
+          "data-product-detail-feed-stack": "true",
+          ...(options.attributes || {})
+        }
+      });
+      safeItems.forEach((item) => stack.appendChild(createProductCardElement(item)));
+      return stack;
+    }
+
     function createShowcaseProductCardElement(product) {
       const card = createElement("article", {
         className: "product-card showcase-card",
@@ -3422,6 +3435,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       cancelScheduledFeedRender,
       renderProducts,
       createProductCardElement,
+      createProductCardStackElement,
       createProductGalleryElement,
       createDynamicShowcasePlaceholderElement,
       createShowcaseSectionElement,
@@ -9703,13 +9717,23 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         attributes
       });
       section.appendChild(createDetailSectionHeading(eyebrow || title, title || eyebrow));
-      const stack = deps.createElement("div", {
-        className: "product-detail-feed-stack",
-        attributes: {
-          "data-product-detail-feed-stack": "true"
-        }
-      });
-      safeItems.forEach((item) => stack.appendChild(createDetailContinuationCardElement(item)));
+      const stack = typeof deps.createHomeFeedProductCardStackElement === "function"
+        ? deps.createHomeFeedProductCardStackElement(safeItems, {
+            className: "product-detail-feed-stack",
+            attributes: {
+              "data-product-detail-feed-stack": "true"
+            }
+          })
+        : (() => {
+            const fallbackStack = deps.createElement("div", {
+              className: "product-detail-feed-stack",
+              attributes: {
+                "data-product-detail-feed-stack": "true"
+              }
+            });
+            safeItems.forEach((item) => fallbackStack.appendChild(createDetailContinuationCardElement(item)));
+            return fallbackStack;
+          })();
       section.appendChild(stack);
       return section;
     }

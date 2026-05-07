@@ -382,6 +382,19 @@
       return card;
     }
 
+    function createProductCardStackElement(items = [], options = {}) {
+      const safeItems = Array.isArray(items) ? items.filter(Boolean) : [];
+      const stack = createElement("div", {
+        className: options.className || "product-detail-feed-stack",
+        attributes: {
+          "data-product-detail-feed-stack": "true",
+          ...(options.attributes || {})
+        }
+      });
+      safeItems.forEach((item) => stack.appendChild(createProductCardElement(item)));
+      return stack;
+    }
+
     function createShowcaseProductCardElement(product) {
       const card = createElement("article", {
         className: "product-card showcase-card",
@@ -634,6 +647,7 @@
       cancelScheduledFeedRender,
       renderProducts,
       createProductCardElement,
+      createProductCardStackElement,
       createProductGalleryElement,
       createDynamicShowcasePlaceholderElement,
       createShowcaseSectionElement,

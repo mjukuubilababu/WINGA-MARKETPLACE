@@ -5926,6 +5926,8 @@ const {
   captureError: (...args) => captureClientError(...args)
 });
 
+let createDetailContinuationFeedStackElement = null;
+
 const {
   ensureProductDetailModal,
   createProductDetailContentElement,
@@ -5951,6 +5953,7 @@ const {
   renderProductActionGroup,
   renderMarketplaceTrustBadges,
   renderSellerTrustPanel,
+  createHomeFeedProductCardStackElement: (...args) => createDetailContinuationFeedStackElement?.(...args) || null,
   renderDiscoveryProductCards,
   renderFeedGalleryMarkup
 });
@@ -6215,6 +6218,7 @@ const { renderFilterCategories } = window.WingaModules.categories.createCategori
 const {
   cancelScheduledFeedRender: cancelMarketplaceFeedRender,
   renderProducts,
+  createProductCardStackElement,
   createShowcaseSectionElement,
   createDynamicShowcasePlaceholderElement,
   renderShowcaseTrack
@@ -6286,6 +6290,8 @@ const {
     }, 900);
   }
 });
+
+createDetailContinuationFeedStackElement = createProductCardStackElement;
 
 function renderReviewButton(product) {
   if (!canCurrentUserReviewProduct(product)) {
