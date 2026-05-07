@@ -338,6 +338,17 @@ function getOgImageMimeType(imageUrl) {
   return "";
 }
 
+function getOgImageDimensions(imageUrl) {
+  const safeUrl = String(imageUrl || "").trim().toLowerCase();
+  if (!safeUrl) {
+    return { width: "", height: "" };
+  }
+  if (safeUrl.includes("/share-og.svg") || safeUrl.includes(".svg")) {
+    return { width: "1200", height: "630" };
+  }
+  return { width: "1200", height: "1200" };
+}
+
 function getProductShareTitle(product) {
   const name = sanitizePlainText(product?.name || "", 120);
   return name || "Winga product";
@@ -367,6 +378,7 @@ function buildProductShareHtml(baseHtml, meta) {
   const safeCanonicalUrl = escapeHtml(meta.url);
   const safeImageUrl = escapeHtml(meta.image);
   const ogImageType = getOgImageMimeType(meta.image);
+  const ogImageDimensions = getOgImageDimensions(meta.image);
   const safeTemplate = String(baseHtml || "")
     .replace(/<meta\s+(?:name="description"|property="og:[^"]+"|name="twitter:[^"]+")[^>]*>\s*/gi, "")
     .replace(/<link\s+rel="canonical"[^>]*>\s*/gi, "")
@@ -387,6 +399,8 @@ function buildProductShareHtml(baseHtml, meta) {
   <meta property="og:image" content="${safeImageUrl}">
   <meta property="og:image:secure_url" content="${safeImageUrl}">
   ${ogImageType ? `<meta property="og:image:type" content="${escapeHtml(ogImageType)}">` : ""}
+  ${ogImageDimensions.width ? `<meta property="og:image:width" content="${ogImageDimensions.width}">` : ""}
+  ${ogImageDimensions.height ? `<meta property="og:image:height" content="${ogImageDimensions.height}">` : ""}
   <meta property="og:image:alt" content="${safeTitle}">
   <meta name="twitter:image" content="${safeImageUrl}">
   <meta name="twitter:image:alt" content="${safeTitle}">`;
