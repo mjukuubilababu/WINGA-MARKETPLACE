@@ -1655,6 +1655,22 @@ function normalizeProductRecord(product) {
 }
 
 function normalizeOrderRecord(order) {
+  const normalizedStatus = isValidOrderStatus(order.status) ? order.status : "placed";
+  const normalizedPaymentStatus = isValidPaymentStatus(order.paymentStatus)
+    ? order.paymentStatus
+    : ((normalizedStatus === "paid" || normalizedStatus === "confirmed" || normalizedStatus === "delivered") ? "paid" : "pending");
+  const createdAt = order.createdAt || new Date().toISOString();
+  const reserveExpiresAt = order.reserveExpiresAt
+    || (normalizedStatus === "placed" && normalizedPaymentStatus === "pending"
+      ? new Date(new Date(createdAt).getTime() + (24 * 60 * 60 * 1000)).toISOString()
+      : "");
+  const paymentIntentStatus = ["submitted", "verified", "cancelled"].includes(String(order.paymentIntentStatus || "").toLowerCase())
+    ? String(order.paymentIntentStatus || "").toLowerCase()
+    : (normalizedStatus === "cancelled" || normalizedPaymentStatus === "failed" || normalizedPaymentStatus === "cancelled"
+      ? "cancelled"
+      : normalizedPaymentStatus === "paid"
+        ? "verified"
+        : "submitted");
   return {
     ...order,
     productName: sanitizePlainText(order.productName, 120),
@@ -1662,15 +1678,17 @@ function normalizeOrderRecord(order) {
     shop: sanitizePlainText(order.shop, 120),
     sellerUsername: normalizeIdentifier(order.sellerUsername, 40),
     buyerUsername: normalizeIdentifier(order.buyerUsername, 40),
-    status: isValidOrderStatus(order.status) ? order.status : "placed",
-    paymentStatus: isValidPaymentStatus(order.paymentStatus) ? order.paymentStatus : ((order.status === "paid" || order.status === "confirmed" || order.status === "delivered") ? "paid" : "pending"),
+    status: normalizedStatus,
+    paymentStatus: normalizedPaymentStatus,
     paymentMethod: sanitizePlainText(order.paymentMethod || "mobile_money", 40).toLowerCase() || "mobile_money",
     paymentPhoneNumber: String(order.paymentPhoneNumber || "").replace(/\D/g, "").slice(0, 20),
     transactionId: sanitizePlainText(order.transactionId, 80).toUpperCase(),
     paymentSubmittedAt: order.paymentSubmittedAt || order.createdAt || new Date().toISOString(),
     paymentConfirmedAt: order.paymentConfirmedAt || "",
     paymentConfirmedBy: normalizeIdentifier(order.paymentConfirmedBy, 40),
-    createdAt: order.createdAt || new Date().toISOString()
+    paymentIntentStatus,
+    reserveExpiresAt,
+    createdAt
   };
 }
 
@@ -6385,6 +6403,8 @@ http.createServer(async (req, res) => {
         paymentSubmittedAt: now,
         paymentConfirmedAt: "",
         paymentConfirmedBy: "",
+        paymentIntentStatus: "submitted",
+        reserveExpiresAt: new Date(new Date(now).getTime() + (24 * 60 * 60 * 1000)).toISOString(),
         createdAt: now
       });
 

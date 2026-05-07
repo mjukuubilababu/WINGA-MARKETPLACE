@@ -313,7 +313,7 @@ test("getOrderActionState enforces seller confirm, buyer receipt, and 48h cancel
 });
 
 test("getOrderLifecycleMeta maps order states to a clear buyer-seller journey", () => {
-  assert.equal(getOrderLifecycleMeta({ status: "placed", paymentStatus: "pending" }).id, "request_sent");
+  assert.equal(getOrderLifecycleMeta({ status: "placed", paymentStatus: "pending" }).id, "pending_verification");
   assert.equal(getOrderLifecycleMeta({ status: "paid", paymentStatus: "paid" }).id, "seller_reviewing");
   assert.equal(getOrderLifecycleMeta({ status: "confirmed", paymentStatus: "paid" }).id, "agreed");
   assert.equal(getOrderLifecycleMeta({ status: "delivered", paymentStatus: "paid" }).id, "completed");

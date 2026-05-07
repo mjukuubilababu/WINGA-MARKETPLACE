@@ -375,9 +375,9 @@ function getOrderActionState(order, currentUser, now = Date.now(), buyerCancelWi
     }
 
     return {
-      id: "request_sent",
-      label: "Request sent",
-      detail: "Buyer ametuma request/order na reference ya malipo. Winga inasubiri verification kabla seller hajajibu.",
+      id: "pending_verification",
+      label: "Pending verification",
+      detail: "Buyer ametuma reference ya Mobile Money. Winga imeshikilia order hii kwa muda huku verification ya malipo ikiendelea.",
       tone: "pending"
     };
   }

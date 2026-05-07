@@ -5070,7 +5070,7 @@ function getConversationCommerceSnapshot(context = null) {
     return { stage: "paid", label: "Payment sent", tone: "pending", productId: anchorProductId, productName };
   }
   if (latestOrder?.status === "placed") {
-    return { stage: "requested", label: "Request sent", tone: "pending", productId: anchorProductId, productName };
+    return { stage: "pending_verification", label: "Pending verification", tone: "pending", productId: anchorProductId, productName };
   }
 
   const latestInquiry = relevantMessages.find((message) =>

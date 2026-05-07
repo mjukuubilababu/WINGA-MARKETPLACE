@@ -437,6 +437,12 @@
           textContent: `${order.paymentStatus === "paid" ? "Paid at" : "Submitted at"}: ${new Date(order.paymentDate).toLocaleString("sw-TZ")}`
         }));
       }
+      if (order.status === "placed" && order.paymentStatus === "pending" && order.reserveExpiresAt) {
+        line.appendChild(deps.createElement("small", {
+          className: "meta-copy",
+          textContent: `Reserved pending verification until ${new Date(order.reserveExpiresAt).toLocaleString("sw-TZ")}`
+        }));
+      }
       const progressLabel = deps.getOrderProgressLabel?.(order);
       if (progressLabel) {
         line.appendChild(deps.createElement("small", {

@@ -4396,7 +4396,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         return "";
       }
       if (order.status === "placed" && order.paymentStatus === "pending") {
-        return "Request sent. Payment reference imepokelewa na Winga inasubiri verification kabla seller hajajibu.";
+        return "Payment reference imepokelewa. Order imehifadhiwa kwa muda wakati Winga inaverify malipo ya Mobile Money.";
       }
       if (order.status === "paid") {
         return "Payment verified. Seller sasa anatakiwa kujibu na kuthibitisha order hii.";
@@ -8397,6 +8397,12 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       if (order.paymentDate) {
         line.appendChild(deps.createElement("small", {
           textContent: `${order.paymentStatus === "paid" ? "Paid at" : "Submitted at"}: ${new Date(order.paymentDate).toLocaleString("sw-TZ")}`
+        }));
+      }
+      if (order.status === "placed" && order.paymentStatus === "pending" && order.reserveExpiresAt) {
+        line.appendChild(deps.createElement("small", {
+          className: "meta-copy",
+          textContent: `Reserved pending verification until ${new Date(order.reserveExpiresAt).toLocaleString("sw-TZ")}`
         }));
       }
       const progressLabel = deps.getOrderProgressLabel?.(order);

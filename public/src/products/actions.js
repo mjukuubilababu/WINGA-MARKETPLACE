@@ -81,7 +81,7 @@
         return "";
       }
       if (order.status === "placed" && order.paymentStatus === "pending") {
-        return "Request sent. Payment reference imepokelewa na Winga inasubiri verification kabla seller hajajibu.";
+        return "Payment reference imepokelewa. Order imehifadhiwa kwa muda wakati Winga inaverify malipo ya Mobile Money.";
       }
       if (order.status === "paid") {
         return "Payment verified. Seller sasa anatakiwa kujibu na kuthibitisha order hii.";
