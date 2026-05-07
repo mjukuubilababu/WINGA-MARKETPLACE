@@ -4039,16 +4039,14 @@ body.product-detail-open{
 }
 
 .product-detail-feed-section{
-  width:calc(100% + 40px);
+  width:100%;
   max-width:none;
-  margin-left:-20px;
-  margin-right:-20px;
-  padding-left:0;
-  padding-right:0;
+  margin:0;
+  padding:0;
 }
 
 .product-detail-feed-section > .section-heading{
-  padding-inline:20px;
+  padding-inline:0;
 }
 
 .product-detail-feed-stack{
@@ -4102,6 +4100,46 @@ body.product-detail-open{
 
 .product-detail-feed-stack .feed-gallery-preview[data-fit-mode="contain"]{
   --feed-gallery-object-fit: contain;
+}
+
+#product-detail-modal .product-detail-feed-stack > .product-card > .product-card-media{
+  aspect-ratio:auto !important;
+  height:auto !important;
+  overflow:visible !important;
+  background:#ffffff !important;
+}
+
+#product-detail-modal .product-detail-feed-stack .feed-gallery-preview{
+  aspect-ratio:var(--fit-media-aspect-ratio, 4 / 5) !important;
+  background:#ffffff !important;
+  overflow:hidden !important;
+}
+
+#product-detail-modal .product-detail-feed-stack .feed-gallery-carousel,
+#product-detail-modal .product-detail-feed-stack .feed-gallery-carousel-track,
+#product-detail-modal .product-detail-feed-stack .feed-gallery-carousel-slide,
+#product-detail-modal .product-detail-feed-stack .progressive-image-shell{
+  min-height:0 !important;
+  background:#ffffff !important;
+}
+
+#product-detail-modal .product-detail-feed-stack .feed-gallery-image-social{
+  width:100% !important;
+  height:100% !important;
+  object-fit:contain !important;
+  object-position:center center !important;
+  background:#ffffff !important;
+  padding:0 !important;
+}
+
+#product-detail-modal .product-detail-feed-stack .feed-gallery-preview[data-fit-mode="cover"],
+#product-detail-modal .product-detail-feed-stack .feed-gallery-preview[data-fit-mode="contain"]{
+  --feed-gallery-object-fit: contain !important;
+}
+
+#product-detail-modal .product-detail-feed-stack .feed-gallery-preview .feed-gallery-count-badge{
+  top:8px;
+  right:8px;
 }
 
 .product-detail-feed-stack > .product-card:first-child{
