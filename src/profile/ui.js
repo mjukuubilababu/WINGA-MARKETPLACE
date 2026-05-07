@@ -154,6 +154,16 @@
           textContent: deps.getVerificationStatusLabel(verificationStatus)
         }));
         copy.appendChild(verificationLine);
+        if (userProfile?.sellerStats?.trustScore) {
+          const trustLine = deps.createElement("p", { className: "product-meta" });
+          trustLine.append("Trust: ");
+          trustLine.appendChild(deps.createElement("span", {
+            className: "status-pill approved",
+            textContent: `${userProfile.sellerStats.trustScore}/100`
+          }));
+          trustLine.append(` ${userProfile.sellerStats.trustTier || "Seller"}`);
+          copy.appendChild(trustLine);
+        }
       }
       const whatsappWrap = deps.createElement("div", {
         className: "profile-whatsapp-block",

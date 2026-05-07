@@ -4649,6 +4649,9 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         ? deps.getActiveConversationMessages()
         : [];
       const activeChatContext = deps.getActiveChatContext();
+      const activeCommerce = deps.getConversationCommerceSnapshot
+        ? deps.getConversationCommerceSnapshot(activeChatContext)
+        : null;
       const currentMessageDraft = deps.getCurrentMessageDraft();
       const contactState = deps.getChatContactState?.(activeChatContext) || {
         whatsapp: "",
@@ -4697,6 +4700,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
                   <span class="message-thread-meta">
                     <strong>${deps.escapeHtml(summary.displayName || deps.getUserDisplayName(summary.withUser))}${summary.unreadCount ? ` <span class="thread-badge">${summary.unreadCount}</span>` : ""}</strong>
                     <span>${summary.timestamp ? deps.escapeHtml(new Date(summary.timestamp).toLocaleString("sw-TZ")) : "No messages yet"}</span>
+                    ${summary.commerceSnapshot?.label ? `<span class="message-thread-stage"><span class="status-pill${summary.commerceSnapshot.tone ? ` ${summary.commerceSnapshot.tone}` : ""}">${deps.escapeHtml(summary.commerceSnapshot.label)}</span></span>` : ""}
                     <span>${deps.escapeHtml(summary.productName || "General inquiry")}</span>
                     <small>${deps.escapeHtml(summary.latestMessage || "Hakuna ujumbe bado.")}</small>
                   </span>
@@ -4712,10 +4716,12 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
                   <div>
                     <strong>${deps.escapeHtml(activeChatContext.displayName || deps.getUserDisplayName(activeChatContext.withUser))}</strong>
                     <p>${deps.escapeHtml(activeChatContext.productName || "General inquiry")}</p>
+                    ${activeCommerce?.label ? `<span class="message-thread-stage"><span class="status-pill${activeCommerce.tone ? ` ${activeCommerce.tone}` : ""}">${deps.escapeHtml(activeCommerce.label)}</span></span>` : ""}
                     <small class="thread-presence">${lastActiveLabel}</small>
                   </div>
                   <div class="messages-thread-actions">
                     <button class="action-btn edit-btn" type="button" data-refresh-messages="true">Refresh</button>
+                    ${activeCommerce?.productId ? `<button class="action-btn action-btn-secondary" type="button" data-chat-open-product="${activeCommerce.productId}">Open product</button>` : ""}
                     ${contactState.canSharePhone ? `<button class="action-btn action-btn-secondary" type="button" data-share-my-phone="true">Share my phone</button>` : ""}
                     ${activeWhatsApp ? `<a class="button" href="${deps.buildWhatsappHref(activeWhatsApp, activeChatContext.productName)}" target="_blank" rel="noopener noreferrer">Chat on WhatsApp</a>` : ""}
                   </div>
@@ -5640,6 +5646,14 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         }
       });
 
+      bindClickOnce("[data-chat-open-product]", "ChatOpenProduct", (button) => {
+        const productId = button.dataset.chatOpenProduct || "";
+        if (!productId || !deps.openProductDetailModal) {
+          return;
+        }
+        deps.openProductDetailModal(productId);
+      });
+
       bindClickOnce("[data-share-my-phone]", "ShareMyPhone", async () => {
         try {
           await sharePhoneWithActiveChat();
@@ -5800,6 +5814,16 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         createAnalyticsCard("Views", deps.formatNumber(data.totalViews || 0)),
         createAnalyticsCard("Likes", deps.formatNumber(data.totalLikes || 0))
       );
+      if (!deps.isAdminUser()) {
+        grid.append(
+          createAnalyticsCard("Trust", data.trustScore ? `${data.trustScore}/100` : "0/100"),
+          createAnalyticsCard("Threads", deps.formatNumber(data.conversationThreads || 0)),
+          createAnalyticsCard("New inquiries", deps.formatNumber(data.newInquiries || 0)),
+          createAnalyticsCard("Open orders", deps.formatNumber(data.openOrders || 0)),
+          createAnalyticsCard("Completed", deps.formatNumber(data.completedOrders || 0)),
+          createAnalyticsCard("Repeat buyers", deps.formatNumber(data.repeatBuyers || 0))
+        );
+      }
 
       const list = deps.createElement("div", { className: "analytics-list" });
       list.appendChild(createAnalyticsListItem(
@@ -5810,6 +5834,16 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         "Recent Products",
         (data.recentProducts || []).map((item) => `${item.name} - ${deps.getStatusLabel(item.status)}`).join(" | ") || "Hakuna bidhaa za kuonyesha."
       ));
+      if (!deps.isAdminUser()) {
+        list.appendChild(createAnalyticsListItem(
+          "Conversation funnel",
+          `${deps.formatNumber(data.conversationThreads || 0)} threads | ${deps.formatNumber(data.openOrders || 0)} active orders | ${deps.formatNumber(data.conversionRate || 0)}% conversion`
+        ));
+        list.appendChild(createAnalyticsListItem(
+          "Seller trust",
+          `${data.trustTier || "New"} seller | ${deps.formatNumber(data.completedOrders || 0)} completed orders | ${deps.formatNumber(data.newInquiries || 0)} fresh inquiries`
+        ));
+      }
       if (typeof data.usersCount === "number" && deps.isAdminUser()) {
         list.appendChild(createAnalyticsListItem(
           "Users",
@@ -8082,6 +8116,16 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
           textContent: deps.getVerificationStatusLabel(verificationStatus)
         }));
         copy.appendChild(verificationLine);
+        if (userProfile?.sellerStats?.trustScore) {
+          const trustLine = deps.createElement("p", { className: "product-meta" });
+          trustLine.append("Trust: ");
+          trustLine.appendChild(deps.createElement("span", {
+            className: "status-pill approved",
+            textContent: `${userProfile.sellerStats.trustScore}/100`
+          }));
+          trustLine.append(` ${userProfile.sellerStats.trustTier || "Seller"}`);
+          copy.appendChild(trustLine);
+        }
       }
       const whatsappWrap = deps.createElement("div", {
         className: "profile-whatsapp-block",

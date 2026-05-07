@@ -5227,6 +5227,10 @@ body.context-chat-open{
   min-width:0;
 }
 
+.message-thread-stage{
+  display:block;
+}
+
 .message-thread-item.active{
   border-color:var(--primary);
   background:#fff4ec;

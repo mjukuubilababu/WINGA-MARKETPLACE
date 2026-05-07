@@ -732,6 +732,14 @@
         }
       });
 
+      bindClickOnce("[data-chat-open-product]", "ChatOpenProduct", (button) => {
+        const productId = button.dataset.chatOpenProduct || "";
+        if (!productId || !deps.openProductDetailModal) {
+          return;
+        }
+        deps.openProductDetailModal(productId);
+      });
+
       bindClickOnce("[data-share-my-phone]", "ShareMyPhone", async () => {
         try {
           await sharePhoneWithActiveChat();

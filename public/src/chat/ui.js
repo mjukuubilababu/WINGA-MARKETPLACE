@@ -123,6 +123,9 @@
         ? deps.getActiveConversationMessages()
         : [];
       const activeChatContext = deps.getActiveChatContext();
+      const activeCommerce = deps.getConversationCommerceSnapshot
+        ? deps.getConversationCommerceSnapshot(activeChatContext)
+        : null;
       const currentMessageDraft = deps.getCurrentMessageDraft();
       const contactState = deps.getChatContactState?.(activeChatContext) || {
         whatsapp: "",
@@ -171,6 +174,7 @@
                   <span class="message-thread-meta">
                     <strong>${deps.escapeHtml(summary.displayName || deps.getUserDisplayName(summary.withUser))}${summary.unreadCount ? ` <span class="thread-badge">${summary.unreadCount}</span>` : ""}</strong>
                     <span>${summary.timestamp ? deps.escapeHtml(new Date(summary.timestamp).toLocaleString("sw-TZ")) : "No messages yet"}</span>
+                    ${summary.commerceSnapshot?.label ? `<span class="message-thread-stage"><span class="status-pill${summary.commerceSnapshot.tone ? ` ${summary.commerceSnapshot.tone}` : ""}">${deps.escapeHtml(summary.commerceSnapshot.label)}</span></span>` : ""}
                     <span>${deps.escapeHtml(summary.productName || "General inquiry")}</span>
                     <small>${deps.escapeHtml(summary.latestMessage || "Hakuna ujumbe bado.")}</small>
                   </span>
@@ -186,10 +190,12 @@
                   <div>
                     <strong>${deps.escapeHtml(activeChatContext.displayName || deps.getUserDisplayName(activeChatContext.withUser))}</strong>
                     <p>${deps.escapeHtml(activeChatContext.productName || "General inquiry")}</p>
+                    ${activeCommerce?.label ? `<span class="message-thread-stage"><span class="status-pill${activeCommerce.tone ? ` ${activeCommerce.tone}` : ""}">${deps.escapeHtml(activeCommerce.label)}</span></span>` : ""}
                     <small class="thread-presence">${lastActiveLabel}</small>
                   </div>
                   <div class="messages-thread-actions">
                     <button class="action-btn edit-btn" type="button" data-refresh-messages="true">Refresh</button>
+                    ${activeCommerce?.productId ? `<button class="action-btn action-btn-secondary" type="button" data-chat-open-product="${activeCommerce.productId}">Open product</button>` : ""}
                     ${contactState.canSharePhone ? `<button class="action-btn action-btn-secondary" type="button" data-share-my-phone="true">Share my phone</button>` : ""}
                     ${activeWhatsApp ? `<a class="button" href="${deps.buildWhatsappHref(activeWhatsApp, activeChatContext.productName)}" target="_blank" rel="noopener noreferrer">Chat on WhatsApp</a>` : ""}
                   </div>

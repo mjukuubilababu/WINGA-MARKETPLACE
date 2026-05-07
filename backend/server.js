@@ -1226,6 +1226,75 @@ function shouldExposeBuyerRecordToSeller(user, viewer, store) {
   );
 }
 
+function roundTrustScore(value) {
+  return Math.max(0, Math.min(100, Math.round(Number(value) || 0)));
+}
+
+function getTrustTierFromScore(score) {
+  if (score >= 85) {
+    return "Trusted";
+  }
+  if (score >= 70) {
+    return "Strong";
+  }
+  if (score >= 55) {
+    return "Growing";
+  }
+  return "New";
+}
+
+function buildSellerPublicStats(store, username = "") {
+  const safeUsername = normalizeIdentifier(username, 40);
+  if (!safeUsername) {
+    return null;
+  }
+
+  const products = (store.products || []).map(normalizeProductRecord);
+  const reviews = (store.reviews || []).map(normalizeReviewRecord);
+  const orders = (store.orders || []).map(normalizeOrderRecord);
+  const reports = (store.reports || []).map(normalizeReportRecord);
+  const users = (store.users || []).map(normalizeUserRecord);
+
+  const sellerProducts = products.filter((product) => product.uploadedBy === safeUsername);
+  const approvedProducts = sellerProducts.filter((product) => product.status === "approved");
+  const sellerProductIds = new Set(sellerProducts.map((product) => product.id));
+  const sellerOrders = orders.filter((order) => order.sellerUsername === safeUsername);
+  const completedOrders = sellerOrders.filter((order) => order.status === "delivered");
+  const sellerReviews = reviews.filter((review) => normalizeIdentifier(review.sellerId, 40) === safeUsername);
+  const averageRating = sellerReviews.length
+    ? sellerReviews.reduce((sum, review) => sum + Number(review.rating || 0), 0) / sellerReviews.length
+    : 0;
+  const openReports = reports.filter((report) =>
+    report.status === "open"
+    && (
+      normalizeIdentifier(report.targetUserId, 40) === safeUsername
+      || sellerProductIds.has(sanitizePlainText(report.targetProductId, 80))
+    )
+  ).length;
+  const sellerRecord = users.find((user) => user.username === safeUsername) || null;
+
+  let trustScore = 25;
+  if (sellerRecord?.verifiedSeller) {
+    trustScore += 22;
+  }
+  trustScore += Math.min(18, approvedProducts.length * 3);
+  trustScore += Math.min(14, completedOrders.length * 2);
+  trustScore += Math.min(16, Math.round(averageRating * 3));
+  trustScore += Math.min(10, sellerReviews.length * 2);
+  trustScore -= Math.min(18, openReports * 6);
+
+  const roundedScore = roundTrustScore(trustScore);
+  return {
+    trustScore: roundedScore,
+    trustTier: getTrustTierFromScore(roundedScore),
+    approvedProducts: approvedProducts.length,
+    completedOrders: completedOrders.length,
+    averageRating: Number(averageRating.toFixed(1)),
+    totalReviews: sellerReviews.length,
+    openReports
+  };
+}
+
 function sanitizeUser(user, options = {}) {
   const viewer = options.viewer || null;
   const store = options.store || null;
@@ -1251,6 +1320,7 @@ function sanitizeUser(user, options = {}) {
     profileImage: user.profileImage || "",
     createdAt: user.createdAt || "",
     phoneVisibility,
+    sellerStats: user.role === "seller" && store ? buildSellerPublicStats(store, user.username) : null,
     canReceivePhoneShare: Boolean(
       viewer
       && viewer.username !== user.username
@@ -2756,6 +2826,45 @@ function buildAnalytics(store, username = "", isAdmin = false) {
   const approvedProducts = products.filter((product) => product.status === "approved");
   const pendingProducts = products.filter((product) => product.status === "pending");
   const rejectedProducts = products.filter((product) => product.status === "rejected");
+  const messages = (store.messages || []).map(normalizeMessageRecord);
+  const orders = (store.orders || []).map(normalizeOrderRecord);
+  const relevantMessages = isAdmin
+    ? messages
+    : messages.filter((message) => message.senderId === username || message.receiverId === username);
+  const conversationThreads = new Set(
+    relevantMessages
+      .map((message) => {
+        const partner = message.senderId === username ? message.receiverId : message.senderId;
+        return normalizeIdentifier(partner, 40);
+      })
+      .filter(Boolean)
+  );
+  const unreadInquiryThreads = new Set(
+    relevantMessages
+      .filter((message) =>
+        message.receiverId === username
+        && !message.isRead
+        && ["text", "product_reference", "product_inquiry", "contact_share"].includes(message.messageType || "text")
+      )
+      .map((message) => normalizeIdentifier(message.senderId, 40))
+      .filter(Boolean)
+  );
+  const sellerOrders = isAdmin ? orders : orders.filter((order) => order.sellerUsername === username);
+  const openOrders = sellerOrders.filter((order) => ["placed", "paid", "confirmed"].includes(order.status)).length;
+  const completedOrders = sellerOrders.filter((order) => order.status === "delivered").length;
+  const repeatBuyers = Object.values(
+    sellerOrders.reduce((accumulator, order) => {
+      if (!order.buyerUsername) {
+        return accumulator;
+      }
+      accumulator[order.buyerUsername] = (accumulator[order.buyerUsername] || 0) + 1;
+      return accumulator;
+    }, {})
+  ).filter((count) => count > 1).length;
+  const conversionRate = conversationThreads.size > 0
+    ? Math.round(((openOrders + completedOrders) / conversationThreads.size) * 100)
+    : 0;
+  const sellerStats = !isAdmin && username ? buildSellerPublicStats(store, username) : null;
 
   return {
     usersCount: (store.users || []).length,
@@ -2766,6 +2875,14 @@ function buildAnalytics(store, username = "", isAdmin = false) {
     rejectedProducts: isAdmin ? rejectedProducts.length : visibleProducts.filter((product) => product.status === "rejected").length,
     totalViews: visibleProducts.reduce((sum, product) => sum + Number(product.views || 0), 0),
     totalLikes: visibleProducts.reduce((sum, product) => sum + Number(product.likes || 0), 0),
+    conversationThreads: conversationThreads.size,
+    newInquiries: unreadInquiryThreads.size,
+    openOrders,
+    completedOrders,
+    repeatBuyers,
+    conversionRate,
+    trustScore: sellerStats?.trustScore || 0,
+    trustTier: sellerStats?.trustTier || "",
     openReports: (store.reports || []).filter((report) => report.status === "open").length,
     topCategories: Object.entries(
       visibleProducts.reduce((accumulator, product) => {

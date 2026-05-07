@@ -3384,6 +3384,10 @@ function getConversationSummaries() {
   });
 
   const summaries = Array.from(summaryMap.values())
+    .map((summary) => ({
+      ...summary,
+      commerceSnapshot: getConversationCommerceSnapshot(summary)
+    }))
     .sort((first, second) => new Date(second.timestamp || 0).getTime() - new Date(first.timestamp || 0).getTime());
 
   if (chatUiState.activeContext && !summaries.some((item) => item.key === getChatContextKey(chatUiState.activeContext))) {
@@ -5015,6 +5019,78 @@ function getActiveConversationMessages() {
   );
 }
 
+function getAllConversationOrders() {
+  const purchases = Array.isArray(currentOrders?.purchases) ? currentOrders.purchases : [];
+  const sales = Array.isArray(currentOrders?.sales) ? currentOrders.sales : [];
+  return [...purchases, ...sales];
+}
+
+function getConversationCommerceSnapshot(context = null) {
+  const withUser = context?.withUser || chatUiState.activeContext?.withUser || "";
+  if (!withUser) {
+    return {
+      stage: "conversation",
+      label: "Conversation",
+      tone: "",
+      productId: context?.productId || chatUiState.activeContext?.productId || "",
+      productName: context?.productName || chatUiState.activeContext?.productName || ""
+    };
+  }
+
+  const relevantMessages = (Array.isArray(currentMessages) ? currentMessages : [])
+    .filter((message) => getMessagePartner(message) === withUser)
+    .sort((first, second) => new Date(second.timestamp || 0).getTime() - new Date(first.timestamp || 0).getTime());
+  const relevantOrders = getAllConversationOrders()
+    .filter((order) =>
+      order?.sellerUsername === withUser
+      || order?.buyerUsername === withUser
+    )
+    .sort((first, second) => new Date(second.createdAt || 0).getTime() - new Date(first.createdAt || 0).getTime());
+
+  const anchorProductId = context?.productId
+    || relevantOrders[0]?.productId
+    || relevantMessages.find((message) => message.productId)?.productId
+    || relevantMessages.find((message) => Array.isArray(message.productItems) && message.productItems[0]?.productId)?.productItems?.[0]?.productId
+    || "";
+  const anchorProduct = anchorProductId ? getProductById(anchorProductId) : null;
+  const productName = context?.productName
+    || anchorProduct?.name
+    || relevantOrders[0]?.productName
+    || relevantMessages.find((message) => message.productName)?.productName
+    || "";
+  const latestOrder = relevantOrders[0] || null;
+
+  if (latestOrder?.status === "delivered") {
+    return { stage: "completed", label: "Completed", tone: "approved", productId: anchorProductId, productName };
+  }
+  if (latestOrder?.status === "confirmed") {
+    return { stage: "confirmed", label: "Order confirmed", tone: "approved", productId: anchorProductId, productName };
+  }
+  if (latestOrder?.status === "paid") {
+    return { stage: "paid", label: "Payment sent", tone: "pending", productId: anchorProductId, productName };
+  }
+  if (latestOrder?.status === "placed") {
+    return { stage: "requested", label: "Request sent", tone: "pending", productId: anchorProductId, productName };
+  }
+
+  const latestInquiry = relevantMessages.find((message) =>
+    ["product_reference", "product_inquiry", "contact_share"].includes(message.messageType)
+    || Boolean(message.productId)
+    || (Array.isArray(message.productItems) && message.productItems.length)
+  );
+  if (latestInquiry) {
+    return { stage: "inquiry", label: "Product inquiry", tone: "", productId: anchorProductId, productName };
+  }
+
+  return {
+    stage: "conversation",
+    label: "Conversation",
+    tone: "",
+    productId: anchorProductId,
+    productName
+  };
+}
+
 function getMessageProductItems(message) {
   return Array.isArray(message?.productItems) ? message.productItems : [];
 }
@@ -5215,6 +5291,10 @@ function renderMarketplaceTrustBadges(product, options = {}) {
   if (owner.status === "flagged") {
     badges.push(`<span class="status-pill pending">Flagged Account</span>`);
   }
+  const trustSnapshot = getSellerTrustSnapshot(product.uploadedBy);
+  if (Number(trustSnapshot?.sellerStats?.trustScore || 0) > 0) {
+    badges.push(`<span class="status-pill">${trustSnapshot.sellerStats.trustScore}/100 trust</span>`);
+  }
   const sellerReviewSummary = getSellerReviewSummary(product.uploadedBy);
   if (Number(sellerReviewSummary?.totalReviews || 0) > 0) {
     badges.push(`<span class="status-pill">${sellerReviewSummary.averageRating.toFixed(1)} rating ya muuzaji</span>`);
@@ -5241,15 +5321,56 @@ function formatMemberSinceLabel(value) {
   })}`;
 }
 
+function getTrustTierFromScore(score) {
+  if (score >= 85) {
+    return "Trusted";
+  }
+  if (score >= 70) {
+    return "Strong";
+  }
+  if (score >= 55) {
+    return "Growing";
+  }
+  return "New";
+}
+
+function computeSellerTrustScoreSnapshot(username) {
+  const sellerProducts = products.filter((product) => product.uploadedBy === username);
+  const approvedProducts = sellerProducts.filter((product) => product.status === "approved").length;
+  const sellerOrders = getAllConversationOrders().filter((order) => order?.sellerUsername === username);
+  const completedOrders = sellerOrders.filter((order) => order?.status === "delivered").length;
+  const reviewSummary = getSellerReviewSummary(username) || {};
+  let trustScore = 25;
+  const seller = getMarketplaceUser(username);
+  if (seller?.verifiedSeller) {
+    trustScore += 22;
+  }
+  trustScore += Math.min(18, approvedProducts * 3);
+  trustScore += Math.min(14, completedOrders * 2);
+  trustScore += Math.min(16, Math.round(Number(reviewSummary.averageRating || 0) * 3));
+  trustScore += Math.min(10, Number(reviewSummary.totalReviews || 0) * 2);
+  const roundedScore = Math.max(0, Math.min(100, Math.round(trustScore)));
+  return {
+    trustScore: roundedScore,
+    trustTier: getTrustTierFromScore(roundedScore),
+    approvedProducts,
+    completedOrders
+  };
+}
+
 function getSellerTrustSnapshot(username) {
   const seller = getMarketplaceUser(username);
   if (!seller) {
     return null;
   }
   const reviewSummary = getSellerReviewSummary(username) || {};
+  const sellerStats = seller.sellerStats || computeSellerTrustScoreSnapshot(username);
   return {
     seller,
+    sellerStats,
     joinedLabel: formatMemberSinceLabel(seller.createdAt || seller.verificationSubmittedAt || ""),
+    trustScoreLabel: sellerStats?.trustScore ? `${sellerStats.trustScore}/100 trust score` : "",
+    trustTierLabel: sellerStats?.trustTier || "",
     ratingLabel: Number(reviewSummary.totalReviews || 0) > 0
       ? `${reviewSummary.averageRating.toFixed(1)} seller rating`
       : "",
@@ -5275,6 +5396,12 @@ function renderSellerTrustPanel(product) {
   if (trust.seller.verifiedSeller) {
     trustBadges.push(`<span class="status-pill approved">Verified Seller</span>`);
   }
+  if (trust.trustScoreLabel) {
+    trustBadges.push(`<span class="status-pill">${escapeHtml(trust.trustScoreLabel)}</span>`);
+  }
+  if (trust.trustTierLabel) {
+    trustBadges.push(`<span class="status-pill">${escapeHtml(trust.trustTierLabel)}</span>`);
+  }
   if (trust.whatsappLabel) {
     trustBadges.push(`<span class="status-pill approved">${escapeHtml(trust.whatsappLabel)}</span>`);
   }
@@ -5285,7 +5412,12 @@ function renderSellerTrustPanel(product) {
     trustBadges.push(`<span class="status-pill pending">Under review</span>`);
   }
 
-  const factLines = [trust.joinedLabel, trust.reviewCountLabel].filter(Boolean);
+  const factLines = [
+    trust.joinedLabel,
+    trust.reviewCountLabel,
+    Number(trust.sellerStats?.approvedProducts || 0) > 0 ? `${trust.sellerStats.approvedProducts} active listings` : "",
+    Number(trust.sellerStats?.completedOrders || 0) > 0 ? `${trust.sellerStats.completedOrders} completed orders` : ""
+  ].filter(Boolean);
   const showReportActions = Boolean(product?.id && product?.uploadedBy && product.uploadedBy !== currentUser);
 
   return `
@@ -5608,6 +5740,7 @@ const {
   escapeHtml,
   getConversationSummaries,
   getConversationSummariesFiltered,
+  getConversationCommerceSnapshot,
   getActiveConversationMessages,
   getActiveChatContext: () => chatUiState.activeContext,
   getProfileMessagesMode: () => chatUiState.profileMessagesMode,
@@ -5698,6 +5831,7 @@ const {
   },
   getCurrentView: () => currentView,
   setCurrentViewState,
+  openProductDetailModal,
   isProductDetailOpen: () => document.body.classList.contains("product-detail-open"),
   closeProductDetailModal: (options) => closeProductDetailModalFromController(options),
   setActiveProfileSection,
@@ -5708,6 +5842,7 @@ const {
   ensureContextChatModal,
   renderContextChatModal,
   getConversationSummaries,
+  getConversationCommerceSnapshot,
   getActiveConversationMessages,
   getSelectedChatProducts,
   getMessageProductItems,

@@ -77,6 +77,126 @@
     }
   }
 
+  function normalizeAnalyticsUsername(value) {
+    return String(value || "").trim().toLowerCase();
+  }
+
+  function roundAnalyticsTrustScore(value) {
+    return Math.max(0, Math.min(100, Math.round(Number(value) || 0)));
+  }
+
+  function getAnalyticsTrustTier(score) {
+    if (score >= 85) {
+      return "Trusted";
+    }
+    if (score >= 70) {
+      return "Strong";
+    }
+    if (score >= 55) {
+      return "Growing";
+    }
+    return "New";
+  }
+
+  function buildSellerAnalyticsSnapshot({ username = "", products = [], users = [], messages = [], reviews = [], orders = [] } = {}) {
+    const safeUsername = normalizeAnalyticsUsername(username);
+    if (!safeUsername) {
+      return null;
+    }
+
+    const visibleProducts = products.filter((product) => normalizeAnalyticsUsername(product.uploadedBy) === safeUsername);
+    const approvedProducts = visibleProducts.filter((product) => product.status === "approved");
+    const relevantMessages = messages.filter((message) =>
+      normalizeAnalyticsUsername(message.senderId) === safeUsername
+      || normalizeAnalyticsUsername(message.receiverId) === safeUsername
+    );
+    const conversationThreads = new Set(
+      relevantMessages
+        .map((message) => normalizeAnalyticsUsername(
+          normalizeAnalyticsUsername(message.senderId) === safeUsername ? message.receiverId : message.senderId
+        ))
+        .filter(Boolean)
+    );
+    const unreadInquiryThreads = new Set(
+      relevantMessages
+        .filter((message) =>
+          normalizeAnalyticsUsername(message.receiverId) === safeUsername
+          && !message.isRead
+        )
+        .map((message) => normalizeAnalyticsUsername(message.senderId))
+        .filter(Boolean)
+    );
+    const sellerOrders = orders.filter((order) => normalizeAnalyticsUsername(order.sellerUsername) === safeUsername);
+    const openOrders = sellerOrders.filter((order) => ["placed", "paid", "confirmed"].includes(String(order.status || "").toLowerCase())).length;
+    const completedOrders = sellerOrders.filter((order) => String(order.status || "").toLowerCase() === "delivered").length;
+    const repeatBuyers = Object.values(
+      sellerOrders.reduce((accumulator, order) => {
+        const buyer = normalizeAnalyticsUsername(order.buyerUsername);
+        if (!buyer) {
+          return accumulator;
+        }
+        accumulator[buyer] = (accumulator[buyer] || 0) + 1;
+        return accumulator;
+      }, {})
+    ).filter((count) => count > 1).length;
+    const sellerReviews = reviews.filter((review) => normalizeAnalyticsUsername(review.sellerId) === safeUsername);
+    const averageRating = sellerReviews.length
+      ? sellerReviews.reduce((sum, review) => sum + Number(review.rating || 0), 0) / sellerReviews.length
+      : 0;
+    const conversionRate = conversationThreads.size > 0
+      ? Math.round(((openOrders + completedOrders) / conversationThreads.size) * 100)
+      : 0;
+    const sellerRecord = users.find((user) => normalizeAnalyticsUsername(user.username) === safeUsername) || null;
+
+    let trustScore = 25;
+    if (sellerRecord?.verifiedSeller) {
+      trustScore += 22;
+    }
+    trustScore += Math.min(18, approvedProducts.length * 3);
+    trustScore += Math.min(14, completedOrders * 2);
+    trustScore += Math.min(16, Math.round(averageRating * 3));
+    trustScore += Math.min(10, sellerReviews.length * 2);
+
+    const roundedScore = roundAnalyticsTrustScore(trustScore);
+    return {
+      totalProducts: visibleProducts.length,
+      approvedProducts: approvedProducts.length,
+      pendingProducts: visibleProducts.filter((product) => product.status === "pending").length,
+      rejectedProducts: visibleProducts.filter((product) => product.status === "rejected").length,
+      totalViews: visibleProducts.reduce((sum, product) => sum + Number(product.views || 0), 0),
+      totalLikes: visibleProducts.reduce((sum, product) => sum + Number(product.likes || 0), 0),
+      topCategories: Object.entries(
+        visibleProducts.reduce((accumulator, product) => {
+          const key = product.category || "other";
+          accumulator[key] = (accumulator[key] || 0) + 1;
+          return accumulator;
+        }, {})
+      )
+        .sort((first, second) => second[1] - first[1])
+        .slice(0, 5)
+        .map(([category, count]) => ({ category, count })),
+      recentProducts: visibleProducts
+        .slice()
+        .sort((first, second) => new Date(second.createdAt || second.updatedAt || 0).getTime() - new Date(first.createdAt || first.updatedAt || 0).getTime())
+        .slice(0, 5)
+        .map((product) => ({
+          id: product.id,
+          name: product.name,
+          status: product.status,
+          shop: product.shop,
+          createdAt: product.createdAt || ""
+        })),
+      conversationThreads: conversationThreads.size,
+      newInquiries: unreadInquiryThreads.size,
+      openOrders,
+      completedOrders,
+      repeatBuyers,
+      conversionRate,
+      trustScore: roundedScore,
+      trustTier: getAnalyticsTrustTier(roundedScore)
+    };
+  }
+
   function dispatchOfflineActionQueueEvent(type, detail = {}) {
     if (typeof window === "undefined" || typeof window.dispatchEvent !== "function" || typeof window.CustomEvent !== "function") {
       return;
@@ -2938,7 +3058,18 @@
         return review;
       },
         async loadAnalytics() {
-          return null;
+          const session = this.loadSession();
+          if (!session?.username) {
+            return null;
+          }
+          return buildSellerAnalyticsSnapshot({
+            username: session.username,
+            products: await loadDocument(firebaseConfig.productsDocumentPath || "wingaState/products"),
+            users: await loadDocument(firebaseConfig.usersDocumentPath || "wingaState/users"),
+            messages: await loadDocument(firebaseConfig.messagesDocumentPath || "wingaState/messages"),
+            reviews: await loadDocument(firebaseConfig.reviewsDocumentPath || "wingaState/reviews"),
+            orders: []
+          });
         },
         async loadMessages() {
           const session = this.loadSession();

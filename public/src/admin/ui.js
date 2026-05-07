@@ -47,6 +47,16 @@
         createAnalyticsCard("Views", deps.formatNumber(data.totalViews || 0)),
         createAnalyticsCard("Likes", deps.formatNumber(data.totalLikes || 0))
       );
+      if (!deps.isAdminUser()) {
+        grid.append(
+          createAnalyticsCard("Trust", data.trustScore ? `${data.trustScore}/100` : "0/100"),
+          createAnalyticsCard("Threads", deps.formatNumber(data.conversationThreads || 0)),
+          createAnalyticsCard("New inquiries", deps.formatNumber(data.newInquiries || 0)),
+          createAnalyticsCard("Open orders", deps.formatNumber(data.openOrders || 0)),
+          createAnalyticsCard("Completed", deps.formatNumber(data.completedOrders || 0)),
+          createAnalyticsCard("Repeat buyers", deps.formatNumber(data.repeatBuyers || 0))
+        );
+      }
 
       const list = deps.createElement("div", { className: "analytics-list" });
       list.appendChild(createAnalyticsListItem(
@@ -57,6 +67,16 @@
         "Recent Products",
         (data.recentProducts || []).map((item) => `${item.name} - ${deps.getStatusLabel(item.status)}`).join(" | ") || "Hakuna bidhaa za kuonyesha."
       ));
+      if (!deps.isAdminUser()) {
+        list.appendChild(createAnalyticsListItem(
+          "Conversation funnel",
+          `${deps.formatNumber(data.conversationThreads || 0)} threads | ${deps.formatNumber(data.openOrders || 0)} active orders | ${deps.formatNumber(data.conversionRate || 0)}% conversion`
+        ));
+        list.appendChild(createAnalyticsListItem(
+          "Seller trust",
+          `${data.trustTier || "New"} seller | ${deps.formatNumber(data.completedOrders || 0)} completed orders | ${deps.formatNumber(data.newInquiries || 0)} fresh inquiries`
+        ));
+      }
       if (typeof data.usersCount === "number" && deps.isAdminUser()) {
         list.appendChild(createAnalyticsListItem(
           "Users",
