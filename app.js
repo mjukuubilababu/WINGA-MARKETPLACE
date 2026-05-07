@@ -5951,7 +5951,7 @@ const {
   renderProductActionGroup,
   renderMarketplaceTrustBadges,
   renderSellerTrustPanel,
-  createHomeFeedProductCardElement,
+  createHomeFeedProductCardElement: (...args) => createHomeFeedProductCardElement(...args),
   renderDiscoveryProductCards,
   renderFeedGalleryMarkup
 });
