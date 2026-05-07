@@ -633,6 +633,7 @@
     return {
       cancelScheduledFeedRender,
       renderProducts,
+      createProductCardElement,
       createProductGalleryElement,
       createDynamicShowcasePlaceholderElement,
       createShowcaseSectionElement,

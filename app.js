@@ -5951,6 +5951,7 @@ const {
   renderProductActionGroup,
   renderMarketplaceTrustBadges,
   renderSellerTrustPanel,
+  createHomeFeedProductCardElement,
   renderDiscoveryProductCards,
   renderFeedGalleryMarkup
 });
@@ -6215,6 +6216,7 @@ const { renderFilterCategories } = window.WingaModules.categories.createCategori
 const {
   cancelScheduledFeedRender: cancelMarketplaceFeedRender,
   renderProducts,
+  createProductCardElement: createHomeFeedProductCardElement,
   createShowcaseSectionElement,
   createDynamicShowcasePlaceholderElement,
   renderShowcaseTrack

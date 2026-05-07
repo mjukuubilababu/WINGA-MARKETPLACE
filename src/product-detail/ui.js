@@ -236,10 +236,21 @@
         return null;
       }
       const section = deps.createElement("section", {
-        className: "product-detail-seller-products",
+        className: "product-detail-seller-products product-detail-feed-section",
         attributes
       });
       section.appendChild(createDetailSectionHeading(eyebrow || title, title || eyebrow));
+      if (typeof deps.createHomeFeedProductCardElement === "function") {
+        const stack = deps.createElement("div", {
+          className: "product-detail-feed-stack",
+          attributes: {
+            "data-product-detail-feed-stack": "true"
+          }
+        });
+        safeItems.forEach((item) => stack.appendChild(deps.createHomeFeedProductCardElement(item)));
+        section.appendChild(stack);
+        return section;
+      }
       if (deps.renderDiscoveryProductCards) {
         section.appendChild(deps.createFragmentFromMarkup(
           deps.renderDiscoveryProductCards(safeItems, {

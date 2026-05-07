@@ -4038,6 +4038,44 @@ body.product-detail-open{
   overflow-anchor:none;
 }
 
+.product-detail-feed-section{
+  width:calc(100% + 40px);
+  max-width:none;
+  margin-left:-20px;
+  margin-right:-20px;
+  padding-left:0;
+  padding-right:0;
+}
+
+.product-detail-feed-section > .section-heading{
+  padding-inline:20px;
+}
+
+.product-detail-feed-stack{
+  display:grid;
+  gap:2px;
+  width:100%;
+}
+
+.product-detail-feed-stack > .product-card{
+  width:100%;
+  max-width:none;
+  margin:0;
+  border-left:none;
+  border-right:none;
+  border-radius:0;
+}
+
+.product-detail-feed-stack > .product-card:first-child{
+  border-top-left-radius:22px;
+  border-top-right-radius:22px;
+}
+
+.product-detail-feed-stack > .product-card:last-child{
+  border-bottom-left-radius:22px;
+  border-bottom-right-radius:22px;
+}
+
 .product-detail-showcase-track{
   max-width:100%;
   overflow-y:hidden;
