@@ -966,6 +966,29 @@ function appendImageVersion(url, version) {
   return `${safeUrl}${safeUrl.includes("?") ? "&" : "?"}v=${encodeURIComponent(safeVersion)}`;
 }
 
+function getOgImageMimeType(imageUrl) {
+  const safeUrl = String(imageUrl || "").trim().toLowerCase();
+  if (!safeUrl) {
+    return "";
+  }
+  if (safeUrl.includes(".png")) {
+    return "image/png";
+  }
+  if (safeUrl.includes(".webp")) {
+    return "image/webp";
+  }
+  if (safeUrl.includes(".gif")) {
+    return "image/gif";
+  }
+  if (safeUrl.includes(".svg")) {
+    return "image/svg+xml";
+  }
+  if (safeUrl.includes(".jpg") || safeUrl.includes(".jpeg")) {
+    return "image/jpeg";
+  }
+  return "";
+}
+
 function getProductShareTitle(product) {
   const name = sanitizePlainText(product?.name || "", 120);
   return name || "Winga product";
@@ -996,11 +1019,14 @@ function buildProductShareHtml({ title, description, canonicalUrl, imageUrl }) {
   const safeDescription = escapeHtml(description);
   const safeCanonicalUrl = escapeHtml(canonicalUrl);
   const safeImageUrl = escapeHtml(imageUrl || `${new URL(canonicalUrl).origin}/share-og.svg`);
+  const ogImageType = getOgImageMimeType(imageUrl || "");
   const ogImageTags = `
   <meta property="og:image" content="${safeImageUrl}">
   <meta property="og:image:secure_url" content="${safeImageUrl}">
+  ${ogImageType ? `<meta property="og:image:type" content="${escapeHtml(ogImageType)}">` : ""}
   <meta property="og:image:alt" content="${safeTitle}">
-  <meta name="twitter:image" content="${safeImageUrl}">`;
+  <meta name="twitter:image" content="${safeImageUrl}">
+  <meta name="twitter:image:alt" content="${safeTitle}">`;
 
   const metaBlock = `
   <meta name="description" content="${safeDescription}">
@@ -1105,6 +1131,20 @@ function buildSecurityHeaders(statusCode, extraHeaders = {}, req = null) {
   }
 
   return headers;
+}
+
+function buildPublicImageHeaders(filePath, contentType, req, cacheControl = "public, max-age=3600") {
+  const stats = fs.statSync(filePath);
+  return buildSecurityHeaders(200, {
+    "Content-Type": contentType,
+    "Content-Length": String(stats.size),
+    "Cache-Control": cacheControl,
+    "Cross-Origin-Resource-Policy": "cross-origin",
+    "Access-Control-Allow-Origin": "*",
+    "Timing-Allow-Origin": "*",
+    "Content-Disposition": `inline; filename="${path.basename(filePath).replace(/"/g, "")}"`,
+    "Last-Modified": stats.mtime.toUTCString()
+  }, req);
 }
 
 function normalizeSharedPhoneViewerIds(value) {
@@ -3573,10 +3613,7 @@ http.createServer(async (req, res) => {
         return;
       }
 
-      res.writeHead(200, buildSecurityHeaders(200, {
-        "Content-Type": target.contentType,
-        "Cache-Control": "public, max-age=31536000, immutable"
-      }, req));
+      res.writeHead(200, buildPublicImageHeaders(target.filePath, target.contentType, req, "public, max-age=31536000, immutable"));
       if (req.method === "HEAD") {
         res.end();
         return;
@@ -3601,10 +3638,7 @@ http.createServer(async (req, res) => {
         ".gif": "image/gif"
       };
 
-      res.writeHead(200, buildSecurityHeaders(200, {
-        "Content-Type": contentTypes[extension] || "application/octet-stream",
-        "Cache-Control": "public, max-age=3600"
-      }, req));
+      res.writeHead(200, buildPublicImageHeaders(filePath, contentTypes[extension] || "application/octet-stream", req));
       if (req.method === "HEAD") {
         res.end();
         return;
