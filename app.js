@@ -801,6 +801,12 @@ function syncBodyScrollLockState() {
     contextChatModal
     && contextChatModal.style.display !== "none"
   );
+  const paymentIntentModal = document.getElementById("payment-intent-modal");
+  const isPaymentIntentVisible = Boolean(
+    paymentIntentModal
+    && !paymentIntentModal.hidden
+    && paymentIntentModal.classList.contains("open")
+  );
   const mediaActionSheet = document.getElementById("media-action-sheet");
   const isMediaActionSheetVisible = Boolean(
     mediaActionSheet
@@ -816,6 +822,7 @@ function syncBodyScrollLockState() {
   document.body.classList.toggle("auth-modal-open", isAuthModalVisible);
   document.body.classList.toggle("product-detail-open", isProductDetailVisible);
   document.body.classList.toggle("context-chat-open", isContextChatVisible);
+  document.body.classList.toggle("payment-intent-open", isPaymentIntentVisible);
   document.body.classList.toggle("media-action-sheet-open", isMediaActionSheetVisible);
   document.body.classList.toggle("image-lightbox-open", isImageLightboxVisible);
 }
@@ -5458,6 +5465,12 @@ let trustReportState = {
   loading: false
 };
 
+let paymentIntentState = {
+  productId: "",
+  loading: false,
+  transactionId: ""
+};
+
 function ensureTrustReportModal() {
   let root = document.getElementById("trust-report-modal");
   if (root) {
@@ -5530,6 +5543,202 @@ function closeTrustReportModal() {
     loading: false
   };
   root.querySelector("[data-trust-report-body='true']")?.replaceChildren();
+}
+
+function isValidTransactionReferenceClient(value) {
+  return /^[A-Z0-9._/-]{4,80}$/i.test(String(value || "").trim());
+}
+
+function ensurePaymentIntentModal() {
+  let root = document.getElementById("payment-intent-modal");
+  if (root) {
+    return root;
+  }
+  root = createElement("div", {
+    attributes: {
+      id: "payment-intent-modal",
+      hidden: "true"
+    }
+  });
+  root.innerHTML = `
+    <div class="payment-intent-backdrop" data-close-payment-intent="true"></div>
+    <div class="payment-intent-dialog panel" role="dialog" aria-modal="true" aria-labelledby="payment-intent-title">
+      <button class="payment-intent-close" type="button" aria-label="Close payment flow" data-close-payment-intent="true">&times;</button>
+      <div class="payment-intent-body" data-payment-intent-body="true"></div>
+    </div>
+  `;
+  root.addEventListener("click", (event) => {
+    if (event.target.closest("[data-close-payment-intent='true']")) {
+      closePaymentIntentModal();
+      return;
+    }
+    if (event.target.closest("[data-payment-open-chat='true']")) {
+      const product = getProductById(paymentIntentState.productId || "");
+      if (product) {
+        closePaymentIntentModal();
+        openProductChat(product);
+      }
+      return;
+    }
+    if (event.target.closest("[data-submit-payment-intent='true']")) {
+      submitPaymentIntentOrder().catch((error) => {
+        captureClientError("payment_intent_submit_failed", error, {
+          productId: paymentIntentState.productId || ""
+        });
+        showInAppNotification({
+          title: "Payment proof failed",
+          body: error.message || "Imeshindikana kutuma reference ya malipo.",
+          variant: "error"
+        });
+        paymentIntentState.loading = false;
+        renderPaymentIntentModal();
+      });
+    }
+  });
+  root.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      closePaymentIntentModal();
+    }
+  });
+  document.body.appendChild(root);
+  return root;
+}
+
+function closePaymentIntentModal() {
+  const root = document.getElementById("payment-intent-modal");
+  if (!root) {
+    return;
+  }
+  root.hidden = true;
+  root.classList.remove("open");
+  paymentIntentState = {
+    productId: "",
+    loading: false,
+    transactionId: ""
+  };
+  root.querySelector("[data-payment-intent-body='true']")?.replaceChildren();
+  syncBodyScrollLockState();
+}
+
+function renderPaymentIntentModal() {
+  const root = ensurePaymentIntentModal();
+  const body = root.querySelector("[data-payment-intent-body='true']");
+  const product = getProductById(paymentIntentState.productId || "");
+  if (!body || !product) {
+    closePaymentIntentModal();
+    return;
+  }
+
+  const wrapper = createElement("div", { className: "payment-intent-shell" });
+  wrapper.append(
+    createElement("p", { className: "eyebrow", textContent: "Mobile Money checkout" }),
+    createElement("h3", {
+      textContent: "Submit payment reference",
+      attributes: { id: "payment-intent-title" }
+    }),
+    createElement("p", {
+      className: "product-meta",
+      textContent: "Lipa kwanza, kisha weka receipt au transaction reference ili order ihifadhiwe pending verification."
+    })
+  );
+
+  const summary = createElement("div", { className: "payment-intent-summary" });
+  summary.append(
+    createElement("strong", { textContent: product.name || "Product" }),
+    createElement("p", { className: "product-meta", textContent: `Kiasi: ${formatProductPrice(product.price)}` }),
+    createElement("p", { className: "product-meta", textContent: `Namba ya malipo: ${product.whatsapp || "Haijawekwa"}` }),
+    createElement("p", { className: "product-meta", textContent: "Reservation window: 24 hours pending verification" })
+  );
+
+  const input = createElement("input", {
+    attributes: {
+      id: "payment-intent-transaction-input",
+      type: "text",
+      maxlength: "80",
+      placeholder: "Weka receipt au transaction reference",
+      value: paymentIntentState.transactionId || "",
+      autocomplete: "off",
+      autocapitalize: "characters"
+    }
+  });
+  const note = createElement("p", {
+    className: "auth-note",
+    textContent: "Tumia reference ya malipo uliyopewa na M-Pesa, Airtel Money, Tigo Pesa, au HaloPesa."
+  });
+  const actions = createElement("div", { className: "payment-intent-actions" });
+  const submitButton = createElement("button", {
+    className: "action-btn buy-btn",
+    textContent: paymentIntentState.loading ? "Submitting..." : "Submit reference",
+    attributes: {
+      type: "button",
+      "data-submit-payment-intent": "true"
+    }
+  });
+  if (paymentIntentState.loading) {
+    submitButton.disabled = true;
+    input.disabled = true;
+  }
+  actions.append(
+    submitButton,
+    createElement("button", {
+      className: "action-btn action-btn-secondary",
+      textContent: "Message seller",
+      attributes: {
+        type: "button",
+        "data-payment-open-chat": "true"
+      }
+    }),
+    createElement("button", {
+      className: "action-btn action-btn-secondary",
+      textContent: "Cancel",
+      attributes: {
+        type: "button",
+        "data-close-payment-intent": "true"
+      }
+    })
+  );
+
+  wrapper.append(summary, input, note, actions);
+  body.replaceChildren(wrapper);
+  root.hidden = false;
+  root.classList.add("open");
+  input.focus();
+  input.select();
+  syncBodyScrollLockState();
+}
+
+async function submitPaymentIntentOrder() {
+  const product = getProductById(paymentIntentState.productId || "");
+  if (!product) {
+    throw new Error("Bidhaa haijapatikana tena. Jaribu kufungua product upya.");
+  }
+  const input = document.getElementById("payment-intent-transaction-input");
+  const transactionId = String(input?.value || paymentIntentState.transactionId || "").trim().toUpperCase();
+  if (!isValidTransactionReferenceClient(transactionId)) {
+    throw new Error("Weka transaction reference sahihi baada ya kulipa.");
+  }
+  paymentIntentState.loading = true;
+  paymentIntentState.transactionId = transactionId;
+  renderPaymentIntentModal();
+
+  await window.WingaDataLayer.createOrder({
+    productId: product.id,
+    transactionId
+  });
+
+  reportClientEvent("info", "order_created", "Buyer created an order from product detail.", {
+    productId: product.id
+  });
+  maybePromptNotificationPermission("order");
+  closePaymentIntentModal();
+  showInAppNotification({
+    title: "Reference submitted",
+    body: "Order imehifadhiwa pending verification. Seller ataona order hii baada ya payment proof kuhakikiwa.",
+    variant: "success"
+  });
+  if (currentView === "profile") {
+    renderCurrentView();
+  }
 }
 
 function renderTrustReportModal() {
@@ -12535,47 +12744,12 @@ function beginPurchaseFlow(product) {
     return;
   }
 
-  const paymentInstructions = [
-    "Lipa kwa Mobile Money",
-    `Bidhaa: ${product.name}`,
-    `Kiasi: ${formatProductPrice(product.price)}`,
-    `Namba ya malipo: ${product.whatsapp}`,
-    "",
-    "Baada ya kulipa, weka receipt au transaction reference.",
-    "Mfumo utahifadhi malipo yako na order itaingia Pending Verification hadi payment ithibitishwe."
-  ].join("\n");
-
-  const transactionId = prompt(paymentInstructions, "");
-  if (!transactionId) {
-    return;
-  }
-
-  window.WingaDataLayer.createOrder({
+  paymentIntentState = {
     productId: product.id,
-    transactionId: transactionId.trim()
-  }).then(() => {
-    reportClientEvent("info", "order_created", "Buyer created an order from product detail.", {
-      productId: product.id
-    });
-    maybePromptNotificationPermission("order");
-    showInAppNotification({
-      title: "Request sent",
-      body: "Transaction reference imepokelewa. Winga sasa inasubiri verification ya malipo kabla seller hajajibu na kuthibitisha order.",
-      variant: "success"
-    });
-    if (currentView === "profile") {
-      renderCurrentView();
-    }
-  }).catch((error) => {
-    captureClientError("order_create_failed", error, {
-      productId: product.id
-    });
-    showInAppNotification({
-      title: "Order failed",
-      body: error.message || "Imeshindikana kuweka order.",
-      variant: "error"
-    });
-  });
+    loading: false,
+    transactionId: ""
+  };
+  renderPaymentIntentModal();
 }
 
 function canRepostProductAsSeller(product) {
