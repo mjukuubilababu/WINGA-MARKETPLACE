@@ -492,7 +492,37 @@ function applyAssetVersionToServiceWorker(targetPath, criticalImageUrls = []) {
 }
 
 function writeFrontendModuleBundle(targetPath) {
-  fs.writeFileSync(targetPath, buildFrontendModuleBundle(), "utf8");
+  writeTextFileWithRetry(targetPath, buildFrontendModuleBundle());
+}
+
+function sleepSync(milliseconds) {
+  const sharedBuffer = new SharedArrayBuffer(4);
+  const view = new Int32Array(sharedBuffer);
+  Atomics.wait(view, 0, 0, milliseconds);
+}
+
+function writeTextFileWithRetry(targetPath, contents, encoding = "utf8") {
+  const maxAttempts = 6;
+  let attempt = 0;
+  let lastError = null;
+  while (attempt < maxAttempts) {
+    attempt += 1;
+    try {
+      fs.writeFileSync(targetPath, contents, encoding);
+      return;
+    } catch (error) {
+      const code = String(error?.code || "").toUpperCase();
+      const shouldRetry = code === "EBUSY" || code === "EPERM";
+      if (!shouldRetry || attempt >= maxAttempts) {
+        throw error;
+      }
+      lastError = error;
+      sleepSync(150 * attempt);
+    }
+  }
+  if (lastError) {
+    throw lastError;
+  }
 }
 
 function copyDirectoryRecursive(sourcePath, targetPath) {
