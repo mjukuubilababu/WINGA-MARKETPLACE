@@ -298,6 +298,23 @@ function getProductShareImageUrl(product, publicOrigin, assetOrigin) {
   return `${publicOrigin}/share-og.svg`;
 }
 
+function getProductShareImageVersion(product) {
+  const candidate = String(product?.updatedAt || product?.createdAt || "").trim();
+  if (!candidate) {
+    return "";
+  }
+  return candidate.replace(/[^0-9A-Za-z]/g, "");
+}
+
+function appendImageVersion(url, version) {
+  const safeUrl = String(url || "").trim();
+  const safeVersion = String(version || "").trim();
+  if (!safeUrl || !safeVersion) {
+    return safeUrl;
+  }
+  return `${safeUrl}${safeUrl.includes("?") ? "&" : "?"}v=${encodeURIComponent(safeVersion)}`;
+}
+
 function getProductShareTitle(product) {
   const name = sanitizePlainText(product?.name || "", 120);
   return name || "Winga product";
@@ -596,7 +613,10 @@ async function generateProductSharePages(baseHtml, origin) {
     }
 
     const canonicalUrl = `${origin}/product/${encodeURIComponent(productId)}`;
-    const shareImageUrl = getProductShareImageUrl(product, origin, assetOrigin);
+    const shareImageUrl = appendImageVersion(
+      getProductShareImageUrl(product, origin, assetOrigin),
+      getProductShareImageVersion(product)
+    );
     const html = buildProductShareHtml(baseHtml, {
       title: getProductShareTitle(product),
       description: getProductShareDescription(product),
