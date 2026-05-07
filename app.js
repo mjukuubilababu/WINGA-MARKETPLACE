@@ -11400,7 +11400,9 @@ function bindFeedGalleryInteractions(scope = document) {
         return;
       }
       const fitMode = normalizeProductFitMode(carousel.dataset.fitMode || preview.dataset.fitMode || "cover");
-      const shouldPreserveImageRatio = Boolean(carousel.closest("#products-container, #market-showcase"));
+      const shouldPreserveImageRatio = Boolean(
+        carousel.closest("#products-container, #market-showcase, .product-detail-feed-stack")
+      );
       const ratioValue = (shouldPreserveImageRatio || fitMode === "contain")
         ? `${naturalWidth} / ${naturalHeight}`
         : "1 / 1";

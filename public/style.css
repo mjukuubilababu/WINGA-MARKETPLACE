@@ -4126,7 +4126,7 @@ body.product-detail-open{
 #product-detail-modal .product-detail-feed-stack .feed-gallery-image-social{
   width:100% !important;
   height:100% !important;
-  object-fit:contain !important;
+  object-fit:var(--feed-gallery-object-fit, contain) !important;
   object-position:center center !important;
   background:#ffffff !important;
   padding:0 !important;
