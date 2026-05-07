@@ -295,6 +295,12 @@
       }
 
       const wrapper = deps.createElement("div");
+      const continuationRail = deps.createElement("div", {
+        className: "product-detail-continuation-rail",
+        attributes: {
+          "data-product-detail-continuation-rail": "true"
+        }
+      });
       const layout = deps.createElement("div", { className: "product-detail-layout" });
       const useFeedCarousel = detailImages.length > 1 && typeof deps.renderFeedGalleryMarkup === "function";
       const media = deps.createElement("div", {
@@ -414,7 +420,7 @@
           items: otherProducts
         });
         if (section) {
-          wrapper.appendChild(section);
+          continuationRail.appendChild(section);
         }
       }
 
@@ -429,9 +435,13 @@
           items
         });
         if (section) {
-          wrapper.appendChild(section);
+          continuationRail.appendChild(section);
         }
       });
+
+      if (continuationRail.childElementCount > 0) {
+        wrapper.appendChild(continuationRail);
+      }
 
       if (params.enableContinuousDiscovery) {
         const anchor = deps.createElement("section", {

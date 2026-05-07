@@ -4045,6 +4045,16 @@ body.product-detail-open{
   padding:0;
 }
 
+.product-detail-continuation-rail{
+  width:100%;
+  max-width:none;
+  min-width:0;
+  margin:0;
+  padding:0;
+  display:grid;
+  gap:0;
+}
+
 .product-detail-feed-section > .section-heading{
   padding-inline:0;
 }
@@ -7663,6 +7673,13 @@ button:hover,
     gap:16px;
     padding:16px;
     border-radius:0;
+  }
+
+  .product-detail-continuation-rail{
+    width:100vw;
+    max-width:100vw;
+    margin-left:calc(50% - 50vw);
+    margin-right:calc(50% - 50vw);
   }
 
   .product-detail-actions{
