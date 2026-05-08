@@ -237,6 +237,18 @@
         whatsappNumber: typeof parsed.whatsappNumber === "string"
           ? parsed.whatsappNumber.replace(/\D/g, "").slice(0, 20)
           : "",
+        paymentProvider: typeof parsed.paymentProvider === "string" && parsed.paymentProvider.trim() && !/^(null|undefined)$/i.test(parsed.paymentProvider.trim())
+          ? parsed.paymentProvider.trim().toLowerCase()
+          : "",
+        paymentNumber: typeof parsed.paymentNumber === "string"
+          ? parsed.paymentNumber.replace(/\D/g, "").slice(0, 20)
+          : "",
+        paymentRecipientName: typeof parsed.paymentRecipientName === "string" && parsed.paymentRecipientName.trim() && !/^(null|undefined)$/i.test(parsed.paymentRecipientName.trim())
+          ? parsed.paymentRecipientName.trim()
+          : "",
+        paymentInstructions: typeof parsed.paymentInstructions === "string" && !/^(null|undefined)$/i.test(parsed.paymentInstructions.trim())
+          ? parsed.paymentInstructions.trim()
+          : "",
         profileImage: typeof parsed.profileImage === "string" && parsed.profileImage.trim() && !/^(null|undefined)$/i.test(parsed.profileImage.trim())
           ? parsed.profileImage.trim()
           : "",
@@ -512,6 +524,10 @@
       role: normalizeSessionText(user.role, "seller"),
       phoneNumber: normalizePhoneNumber(user.phoneNumber || ""),
       whatsappNumber: normalizePhoneNumber(user.whatsappNumber || user.phoneNumber || ""),
+      paymentProvider: normalizeSessionText(user.paymentProvider, ""),
+      paymentNumber: normalizePhoneNumber(user.paymentNumber || ""),
+      paymentRecipientName: normalizeSessionText(user.paymentRecipientName, user.fullName || user.username),
+      paymentInstructions: normalizeSessionText(user.paymentInstructions, ""),
       whatsappVerificationStatus: user.whatsappVerificationStatus === "pending" ? "pending" : "verified",
       whatsappVerifiedAt: normalizeSessionText(user.whatsappVerifiedAt, ""),
       pendingWhatsappNumber: normalizePhoneNumber(user.pendingWhatsappNumber || ""),
@@ -1041,6 +1057,18 @@
             profileImage: payload?.profileImage || item.profileImage || "",
             phoneNumber: phoneUpdateRequested ? resolvedPhoneNumber : item.phoneNumber || "",
             whatsappNumber: phoneUpdateRequested ? resolvedPhoneNumber : (item.whatsappNumber || item.phoneNumber || ""),
+            paymentProvider: Object.prototype.hasOwnProperty.call(payload || {}, "paymentProvider")
+              ? String(payload?.paymentProvider || "").trim().toLowerCase()
+              : (item.paymentProvider || ""),
+            paymentNumber: Object.prototype.hasOwnProperty.call(payload || {}, "paymentNumber")
+              ? normalizePhoneNumber(payload?.paymentNumber || "")
+              : (item.paymentNumber || ""),
+            paymentRecipientName: Object.prototype.hasOwnProperty.call(payload || {}, "paymentRecipientName")
+              ? String(payload?.paymentRecipientName || item.fullName || item.username).trim()
+              : (item.paymentRecipientName || item.fullName || item.username || ""),
+            paymentInstructions: Object.prototype.hasOwnProperty.call(payload || {}, "paymentInstructions")
+              ? String(payload?.paymentInstructions || "").trim()
+              : (item.paymentInstructions || ""),
             whatsappVerificationStatus: phoneUpdateRequested ? "verified" : (item.whatsappVerificationStatus || "verified"),
             whatsappVerifiedAt: phoneUpdateRequested ? new Date().toISOString() : (item.whatsappVerifiedAt || ""),
             updatedAt: new Date().toISOString()
@@ -1068,6 +1096,10 @@
           role: updatedUser.role || "seller",
           phoneNumber: updatedUser.phoneNumber || "",
           whatsappNumber: updatedUser.whatsappNumber || updatedUser.phoneNumber || "",
+          paymentProvider: updatedUser.paymentProvider || "",
+          paymentNumber: updatedUser.paymentNumber || "",
+          paymentRecipientName: updatedUser.paymentRecipientName || updatedUser.fullName || updatedUser.username,
+          paymentInstructions: updatedUser.paymentInstructions || "",
           whatsappVerificationStatus: updatedUser.whatsappVerificationStatus || "verified",
           whatsappVerifiedAt: updatedUser.whatsappVerifiedAt || "",
           pendingWhatsappNumber: updatedUser.pendingWhatsappNumber || "",
@@ -2914,6 +2946,18 @@
             profileImage: payload?.profileImage || item.profileImage || "",
             phoneNumber: phoneUpdateRequested ? resolvedPhoneNumber : item.phoneNumber || "",
             whatsappNumber: phoneUpdateRequested ? resolvedPhoneNumber : (item.whatsappNumber || item.phoneNumber || ""),
+            paymentProvider: Object.prototype.hasOwnProperty.call(payload || {}, "paymentProvider")
+              ? String(payload?.paymentProvider || "").trim().toLowerCase()
+              : (item.paymentProvider || ""),
+            paymentNumber: Object.prototype.hasOwnProperty.call(payload || {}, "paymentNumber")
+              ? normalizePhoneNumber(payload?.paymentNumber || "")
+              : (item.paymentNumber || ""),
+            paymentRecipientName: Object.prototype.hasOwnProperty.call(payload || {}, "paymentRecipientName")
+              ? String(payload?.paymentRecipientName || item.fullName || item.username).trim()
+              : (item.paymentRecipientName || item.fullName || item.username || ""),
+            paymentInstructions: Object.prototype.hasOwnProperty.call(payload || {}, "paymentInstructions")
+              ? String(payload?.paymentInstructions || "").trim()
+              : (item.paymentInstructions || ""),
             whatsappVerificationStatus: phoneUpdateRequested ? "verified" : (item.whatsappVerificationStatus || "verified"),
             whatsappVerifiedAt: phoneUpdateRequested ? new Date().toISOString() : (item.whatsappVerifiedAt || ""),
             updatedAt: new Date().toISOString()
@@ -2941,6 +2985,10 @@
           role: updatedUser.role || "seller",
           phoneNumber: updatedUser.phoneNumber || "",
           whatsappNumber: updatedUser.whatsappNumber || updatedUser.phoneNumber || "",
+          paymentProvider: updatedUser.paymentProvider || "",
+          paymentNumber: updatedUser.paymentNumber || "",
+          paymentRecipientName: updatedUser.paymentRecipientName || updatedUser.fullName || updatedUser.username,
+          paymentInstructions: updatedUser.paymentInstructions || "",
           whatsappVerificationStatus: updatedUser.whatsappVerificationStatus || "verified",
           whatsappVerifiedAt: updatedUser.whatsappVerifiedAt || "",
           pendingWhatsappNumber: updatedUser.pendingWhatsappNumber || "",

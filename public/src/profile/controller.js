@@ -106,6 +106,104 @@
       }
     }
 
+    function bindPaymentDetailsActions() {
+      const toggleButton = document.getElementById("profile-payment-change-toggle");
+      const form = document.getElementById("profile-payment-change-form");
+      const providerInput = document.getElementById("profile-payment-provider-input");
+      const numberInput = document.getElementById("profile-payment-number-input");
+      const recipientInput = document.getElementById("profile-payment-recipient-input");
+      const instructionsInput = document.getElementById("profile-payment-instructions-input");
+      const saveButton = document.getElementById("profile-payment-save-button");
+      const cancelButton = document.getElementById("profile-payment-cancel-button");
+
+      if (toggleButton && toggleButton.dataset.bound !== "true") {
+        toggleButton.dataset.bound = "true";
+        toggleButton.addEventListener("click", () => {
+          if (!form) {
+            return;
+          }
+          form.style.display = form.style.display === "none" ? "grid" : "none";
+          if (form.style.display !== "none") {
+            numberInput?.focus();
+          }
+        });
+      }
+
+      if (cancelButton && cancelButton.dataset.bound !== "true") {
+        cancelButton.dataset.bound = "true";
+        cancelButton.addEventListener("click", () => {
+          if (form) {
+            form.style.display = "none";
+          }
+        });
+      }
+
+      if (saveButton && saveButton.dataset.bound !== "true") {
+        saveButton.dataset.bound = "true";
+        saveButton.addEventListener("click", async () => {
+          const paymentProvider = String(providerInput?.value || "").trim().toLowerCase();
+          const paymentNumber = deps.normalizePhoneNumber?.(numberInput?.value || "") || "";
+          const paymentRecipientName = String(recipientInput?.value || deps.getCurrentDisplayName?.() || "").trim();
+          const paymentInstructions = String(instructionsInput?.value || "").trim();
+
+          if (!paymentNumber || !/^\d{8,20}$/.test(paymentNumber)) {
+            deps.showInAppNotification?.({
+              title: "Lipa namba required",
+              body: "Weka Lipa namba sahihi yenye tarakimu 8 hadi 20.",
+              variant: "warning"
+            });
+            return;
+          }
+
+          if (!paymentRecipientName || paymentRecipientName.length < 2) {
+            deps.showInAppNotification?.({
+              title: "Recipient required",
+              body: "Weka jina la mpokeaji wa malipo.",
+              variant: "warning"
+            });
+            return;
+          }
+
+          saveButton.disabled = true;
+          try {
+            const updatedUser = await deps.dataLayer.updateUserProfile({
+              paymentProvider,
+              paymentNumber,
+              paymentRecipientName,
+              paymentInstructions
+            });
+            deps.mergeSessionState({
+              ...updatedUser,
+              paymentProvider,
+              paymentNumber,
+              paymentRecipientName,
+              paymentInstructions
+            });
+            deps.saveSessionUser();
+            deps.renderHeaderUserMenu();
+            deps.renderCurrentView?.();
+            deps.showInAppNotification?.({
+              title: "Lipa details saved",
+              body: "Buyer sasa ataona Lipa namba yako kwenye product detail na chat flow.",
+              variant: "success"
+            });
+            renderProfile();
+          } catch (error) {
+            deps.captureError?.("profile_payment_update_failed", error, {
+              user: deps.getCurrentUser()
+            });
+            deps.showInAppNotification?.({
+              title: "Update failed",
+              body: error.message || "Imeshindikana kuhifadhi Lipa details.",
+              variant: "error"
+            });
+          } finally {
+            saveButton.disabled = false;
+          }
+        });
+      }
+    }
+
     function setSellerUpgradeFormVisibility(open = false) {
       const form = document.getElementById("profile-seller-upgrade-form");
       if (!form) {
@@ -314,6 +412,7 @@
       const profilePhotoStatus = document.getElementById("profile-photo-status");
       if (!profilePhotoInput || profilePhotoInput.dataset.bound === "true") {
         bindWhatsappNumberActions();
+        bindPaymentDetailsActions();
         return;
       }
 
@@ -373,6 +472,7 @@
       });
 
       bindWhatsappNumberActions();
+      bindPaymentDetailsActions();
     }
 
     function renderProfile() {
@@ -551,7 +651,11 @@
             roleLabel: userProfile?.role ? deps.getRoleLabel(userProfile.role) : "User",
             whatsappNumber: userProfile?.whatsappNumber || userProfile?.phoneNumber || "",
             phoneNumber: userProfile?.phoneNumber || userProfile?.whatsappNumber || "",
-            whatsappVerificationStatus: userProfile?.whatsappVerificationStatus || "verified"
+            whatsappVerificationStatus: userProfile?.whatsappVerificationStatus || "verified",
+            paymentProvider: userProfile?.paymentProvider || "",
+            paymentNumber: userProfile?.paymentNumber || "",
+            paymentRecipientName: userProfile?.paymentRecipientName || userProfile?.fullName || deps.getCurrentDisplayName(),
+            paymentInstructions: userProfile?.paymentInstructions || ""
           }),
           sellerUpgradeMarkup: deps.createSellerUpgradeSectionElement?.({
             canUpgradeToSeller,

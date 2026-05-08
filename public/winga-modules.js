@@ -8214,6 +8214,111 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       );
       whatsappWrap.appendChild(whatsappForm);
 
+      let paymentWrap = null;
+      if (userProfile?.role === "seller") {
+        paymentWrap = deps.createElement("div", {
+          className: "profile-whatsapp-block profile-payment-block",
+          attributes: { id: "profile-payment-block" }
+        });
+        const paymentMeta = deps.createElement("p", { className: "product-meta" });
+        paymentMeta.append("Lipa namba: ");
+        paymentMeta.appendChild(deps.createElement("strong", {
+          textContent: context.paymentNumber || "Haijawekwa"
+        }));
+        paymentMeta.append(" ");
+        paymentMeta.appendChild(deps.createElement("span", {
+          className: `status-pill ${context.paymentNumber ? "approved" : ""}`,
+          textContent: context.paymentNumber ? "Ready" : "Pending"
+        }));
+        paymentWrap.appendChild(paymentMeta);
+        paymentWrap.appendChild(deps.createElement("p", {
+          className: "auth-note",
+          textContent: context.paymentRecipientName
+            ? `Mpokeaji: ${context.paymentRecipientName}${context.paymentProvider ? ` | Mtandao: ${String(context.paymentProvider).replace(/_/g, " ").toUpperCase()}` : ""}`
+            : "Weka Lipa namba yako ili buyer aone analipa kwa nani."
+        }));
+        if (context.paymentInstructions) {
+          paymentWrap.appendChild(deps.createElement("p", {
+            className: "auth-note",
+            textContent: context.paymentInstructions
+          }));
+        }
+        paymentWrap.appendChild(deps.createElement("button", {
+          className: "action-btn action-btn-secondary",
+          textContent: "Edit Lipa Details",
+          attributes: {
+            type: "button",
+            id: "profile-payment-change-toggle"
+          }
+        }));
+        const paymentForm = deps.createElement("div", {
+          className: "profile-whatsapp-form",
+          attributes: {
+            id: "profile-payment-change-form",
+            style: "display:none;"
+          }
+        });
+        paymentForm.append(
+          deps.createElement("input", {
+            attributes: {
+              id: "profile-payment-provider-input",
+              type: "text",
+              maxlength: "40",
+              placeholder: "Provider mfano M-Pesa, Airtel Money",
+              value: context.paymentProvider || ""
+            }
+          }),
+          deps.createElement("input", {
+            attributes: {
+              id: "profile-payment-number-input",
+              type: "tel",
+              placeholder: "Weka Lipa namba",
+              value: context.paymentNumber || ""
+            }
+          }),
+          deps.createElement("input", {
+            attributes: {
+              id: "profile-payment-recipient-input",
+              type: "text",
+              maxlength: "120",
+              placeholder: "Jina la mpokeaji",
+              value: context.paymentRecipientName || context.displayName || ""
+            }
+          }),
+          deps.createElement("textarea", {
+            attributes: {
+              id: "profile-payment-instructions-input",
+              rows: "3",
+              maxlength: "240",
+              placeholder: "Maelekezo mafupi kwa buyer, kwa mfano tuma reference baada ya kulipa"
+            },
+            textContent: context.paymentInstructions || ""
+          }),
+          deps.createElement("div", {
+            className: "profile-whatsapp-form-actions"
+          })
+        );
+        paymentForm.querySelector(".profile-whatsapp-form-actions")?.append(
+          deps.createElement("button", {
+            className: "action-btn buy-btn",
+            textContent: "Save Lipa Details",
+            attributes: {
+              type: "button",
+              id: "profile-payment-save-button"
+            }
+          }),
+          deps.createElement("button", {
+            className: "action-btn action-btn-secondary",
+            textContent: "Cancel",
+            attributes: {
+              type: "button",
+              id: "profile-payment-cancel-button"
+            }
+          })
+        );
+        paymentWrap.appendChild(paymentForm);
+      }
+
       if (userProfile?.role === "seller") {
         const trustBlock = deps.createElement("div", { className: "profile-trust-block" });
         trustBlock.append(
@@ -8246,8 +8351,11 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         copy.appendChild(trustBlock);
       }
 
+      copy.append(whatsappWrap);
+      if (paymentWrap) {
+        copy.append(paymentWrap);
+      }
       copy.append(
-        whatsappWrap,
         deps.createElement("label", {
           className: "upload-btn auth-upload-btn profile-photo-label",
           textContent: "Upload Profile Photo",
@@ -8874,6 +8982,104 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       }
     }
 
+    function bindPaymentDetailsActions() {
+      const toggleButton = document.getElementById("profile-payment-change-toggle");
+      const form = document.getElementById("profile-payment-change-form");
+      const providerInput = document.getElementById("profile-payment-provider-input");
+      const numberInput = document.getElementById("profile-payment-number-input");
+      const recipientInput = document.getElementById("profile-payment-recipient-input");
+      const instructionsInput = document.getElementById("profile-payment-instructions-input");
+      const saveButton = document.getElementById("profile-payment-save-button");
+      const cancelButton = document.getElementById("profile-payment-cancel-button");
+
+      if (toggleButton && toggleButton.dataset.bound !== "true") {
+        toggleButton.dataset.bound = "true";
+        toggleButton.addEventListener("click", () => {
+          if (!form) {
+            return;
+          }
+          form.style.display = form.style.display === "none" ? "grid" : "none";
+          if (form.style.display !== "none") {
+            numberInput?.focus();
+          }
+        });
+      }
+
+      if (cancelButton && cancelButton.dataset.bound !== "true") {
+        cancelButton.dataset.bound = "true";
+        cancelButton.addEventListener("click", () => {
+          if (form) {
+            form.style.display = "none";
+          }
+        });
+      }
+
+      if (saveButton && saveButton.dataset.bound !== "true") {
+        saveButton.dataset.bound = "true";
+        saveButton.addEventListener("click", async () => {
+          const paymentProvider = String(providerInput?.value || "").trim().toLowerCase();
+          const paymentNumber = deps.normalizePhoneNumber?.(numberInput?.value || "") || "";
+          const paymentRecipientName = String(recipientInput?.value || deps.getCurrentDisplayName?.() || "").trim();
+          const paymentInstructions = String(instructionsInput?.value || "").trim();
+
+          if (!paymentNumber || !/^\d{8,20}$/.test(paymentNumber)) {
+            deps.showInAppNotification?.({
+              title: "Lipa namba required",
+              body: "Weka Lipa namba sahihi yenye tarakimu 8 hadi 20.",
+              variant: "warning"
+            });
+            return;
+          }
+
+          if (!paymentRecipientName || paymentRecipientName.length < 2) {
+            deps.showInAppNotification?.({
+              title: "Recipient required",
+              body: "Weka jina la mpokeaji wa malipo.",
+              variant: "warning"
+            });
+            return;
+          }
+
+          saveButton.disabled = true;
+          try {
+            const updatedUser = await deps.dataLayer.updateUserProfile({
+              paymentProvider,
+              paymentNumber,
+              paymentRecipientName,
+              paymentInstructions
+            });
+            deps.mergeSessionState({
+              ...updatedUser,
+              paymentProvider,
+              paymentNumber,
+              paymentRecipientName,
+              paymentInstructions
+            });
+            deps.saveSessionUser();
+            deps.renderHeaderUserMenu();
+            deps.renderCurrentView?.();
+            deps.showInAppNotification?.({
+              title: "Lipa details saved",
+              body: "Buyer sasa ataona Lipa namba yako kwenye product detail na chat flow.",
+              variant: "success"
+            });
+            renderProfile();
+          } catch (error) {
+            deps.captureError?.("profile_payment_update_failed", error, {
+              user: deps.getCurrentUser()
+            });
+            deps.showInAppNotification?.({
+              title: "Update failed",
+              body: error.message || "Imeshindikana kuhifadhi Lipa details.",
+              variant: "error"
+            });
+          } finally {
+            saveButton.disabled = false;
+          }
+        });
+      }
+    }
+
     function setSellerUpgradeFormVisibility(open = false) {
       const form = document.getElementById("profile-seller-upgrade-form");
       if (!form) {
@@ -9082,6 +9288,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       const profilePhotoStatus = document.getElementById("profile-photo-status");
       if (!profilePhotoInput || profilePhotoInput.dataset.bound === "true") {
         bindWhatsappNumberActions();
+        bindPaymentDetailsActions();
         return;
       }
 
@@ -9141,6 +9348,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       });
 
       bindWhatsappNumberActions();
+      bindPaymentDetailsActions();
     }
 
     function renderProfile() {
@@ -9319,7 +9527,11 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
             roleLabel: userProfile?.role ? deps.getRoleLabel(userProfile.role) : "User",
             whatsappNumber: userProfile?.whatsappNumber || userProfile?.phoneNumber || "",
             phoneNumber: userProfile?.phoneNumber || userProfile?.whatsappNumber || "",
-            whatsappVerificationStatus: userProfile?.whatsappVerificationStatus || "verified"
+            whatsappVerificationStatus: userProfile?.whatsappVerificationStatus || "verified",
+            paymentProvider: userProfile?.paymentProvider || "",
+            paymentNumber: userProfile?.paymentNumber || "",
+            paymentRecipientName: userProfile?.paymentRecipientName || userProfile?.fullName || deps.getCurrentDisplayName(),
+            paymentInstructions: userProfile?.paymentInstructions || ""
           }),
           sellerUpgradeMarkup: deps.createSellerUpgradeSectionElement?.({
             canUpgradeToSeller,

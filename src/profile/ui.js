@@ -232,6 +232,111 @@
       );
       whatsappWrap.appendChild(whatsappForm);
 
+      let paymentWrap = null;
+      if (userProfile?.role === "seller") {
+        paymentWrap = deps.createElement("div", {
+          className: "profile-whatsapp-block profile-payment-block",
+          attributes: { id: "profile-payment-block" }
+        });
+        const paymentMeta = deps.createElement("p", { className: "product-meta" });
+        paymentMeta.append("Lipa namba: ");
+        paymentMeta.appendChild(deps.createElement("strong", {
+          textContent: context.paymentNumber || "Haijawekwa"
+        }));
+        paymentMeta.append(" ");
+        paymentMeta.appendChild(deps.createElement("span", {
+          className: `status-pill ${context.paymentNumber ? "approved" : ""}`,
+          textContent: context.paymentNumber ? "Ready" : "Pending"
+        }));
+        paymentWrap.appendChild(paymentMeta);
+        paymentWrap.appendChild(deps.createElement("p", {
+          className: "auth-note",
+          textContent: context.paymentRecipientName
+            ? `Mpokeaji: ${context.paymentRecipientName}${context.paymentProvider ? ` | Mtandao: ${String(context.paymentProvider).replace(/_/g, " ").toUpperCase()}` : ""}`
+            : "Weka Lipa namba yako ili buyer aone analipa kwa nani."
+        }));
+        if (context.paymentInstructions) {
+          paymentWrap.appendChild(deps.createElement("p", {
+            className: "auth-note",
+            textContent: context.paymentInstructions
+          }));
+        }
+        paymentWrap.appendChild(deps.createElement("button", {
+          className: "action-btn action-btn-secondary",
+          textContent: "Edit Lipa Details",
+          attributes: {
+            type: "button",
+            id: "profile-payment-change-toggle"
+          }
+        }));
+        const paymentForm = deps.createElement("div", {
+          className: "profile-whatsapp-form",
+          attributes: {
+            id: "profile-payment-change-form",
+            style: "display:none;"
+          }
+        });
+        paymentForm.append(
+          deps.createElement("input", {
+            attributes: {
+              id: "profile-payment-provider-input",
+              type: "text",
+              maxlength: "40",
+              placeholder: "Provider mfano M-Pesa, Airtel Money",
+              value: context.paymentProvider || ""
+            }
+          }),
+          deps.createElement("input", {
+            attributes: {
+              id: "profile-payment-number-input",
+              type: "tel",
+              placeholder: "Weka Lipa namba",
+              value: context.paymentNumber || ""
+            }
+          }),
+          deps.createElement("input", {
+            attributes: {
+              id: "profile-payment-recipient-input",
+              type: "text",
+              maxlength: "120",
+              placeholder: "Jina la mpokeaji",
+              value: context.paymentRecipientName || context.displayName || ""
+            }
+          }),
+          deps.createElement("textarea", {
+            attributes: {
+              id: "profile-payment-instructions-input",
+              rows: "3",
+              maxlength: "240",
+              placeholder: "Maelekezo mafupi kwa buyer, kwa mfano tuma reference baada ya kulipa"
+            },
+            textContent: context.paymentInstructions || ""
+          }),
+          deps.createElement("div", {
+            className: "profile-whatsapp-form-actions"
+          })
+        );
+        paymentForm.querySelector(".profile-whatsapp-form-actions")?.append(
+          deps.createElement("button", {
+            className: "action-btn buy-btn",
+            textContent: "Save Lipa Details",
+            attributes: {
+              type: "button",
+              id: "profile-payment-save-button"
+            }
+          }),
+          deps.createElement("button", {
+            className: "action-btn action-btn-secondary",
+            textContent: "Cancel",
+            attributes: {
+              type: "button",
+              id: "profile-payment-cancel-button"
+            }
+          })
+        );
+        paymentWrap.appendChild(paymentForm);
+      }
+
       if (userProfile?.role === "seller") {
         const trustBlock = deps.createElement("div", { className: "profile-trust-block" });
         trustBlock.append(
@@ -264,8 +369,11 @@
         copy.appendChild(trustBlock);
       }
 
+      copy.append(whatsappWrap);
+      if (paymentWrap) {
+        copy.append(paymentWrap);
+      }
       copy.append(
-        whatsappWrap,
         deps.createElement("label", {
           className: "upload-btn auth-upload-btn profile-photo-label",
           textContent: "Upload Profile Photo",

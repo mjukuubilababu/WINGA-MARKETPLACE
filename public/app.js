@@ -696,6 +696,10 @@ function applySessionState(session) {
     role: normalizedRole,
     phoneNumber: String(session.phoneNumber || "").replace(/\D/g, "").slice(0, 20),
     whatsappNumber: String(session.whatsappNumber || session.phoneNumber || "").replace(/\D/g, "").slice(0, 20),
+    paymentProvider: String(session.paymentProvider || "").trim().toLowerCase(),
+    paymentNumber: String(session.paymentNumber || "").replace(/\D/g, "").slice(0, 20),
+    paymentRecipientName: String(session.paymentRecipientName || session.fullName || username).trim(),
+    paymentInstructions: String(session.paymentInstructions || "").trim(),
     profileImage: String(session.profileImage || "").trim(),
     verificationStatus: String(session.verificationStatus || "").trim(),
     verifiedSeller: Boolean(session.verifiedSeller),
@@ -1145,6 +1149,27 @@ function getProductWhatsappNumber(product) {
     ? getCurrentWhatsappNumber()
     : normalizeWhatsapp(getMarketplaceUser(product.uploadedBy)?.whatsappNumber || getMarketplaceUser(product.uploadedBy)?.phoneNumber || "");
   return normalizeWhatsapp(product.whatsapp || ownerPhone);
+}
+
+function getProductPaymentDetails(product) {
+  if (!product) {
+    return {
+      provider: "",
+      number: "",
+      recipientName: "",
+      instructions: ""
+    };
+  }
+  const seller = product.uploadedBy === currentUser
+    ? currentSession
+    : getMarketplaceUser(product.uploadedBy);
+  const fallbackNumber = normalizeWhatsapp(product.whatsapp || seller?.whatsappNumber || seller?.phoneNumber || "");
+  return {
+    provider: String(seller?.paymentProvider || "").trim().toLowerCase(),
+    number: String(seller?.paymentNumber || fallbackNumber || "").replace(/\D/g, "").slice(0, 20),
+    recipientName: String(seller?.paymentRecipientName || seller?.fullName || product.shop || product.uploadedBy || "").trim(),
+    instructions: String(seller?.paymentInstructions || "").trim()
+  };
 }
 
 function validateAuthSignupInput() {
@@ -5628,6 +5653,7 @@ function renderPaymentIntentModal() {
     closePaymentIntentModal();
     return;
   }
+  const paymentDetails = getProductPaymentDetails(product);
 
   const wrapper = createElement("div", { className: "payment-intent-shell" });
   wrapper.append(
@@ -5646,9 +5672,19 @@ function renderPaymentIntentModal() {
   summary.append(
     createElement("strong", { textContent: product.name || "Product" }),
     createElement("p", { className: "product-meta", textContent: `Kiasi: ${formatProductPrice(product.price)}` }),
-    createElement("p", { className: "product-meta", textContent: `Namba ya malipo: ${product.whatsapp || "Haijawekwa"}` }),
+    createElement("p", { className: "product-meta", textContent: `Lipa namba: ${paymentDetails.number || "Haijawekwa"}` }),
+    createElement("p", { className: "product-meta", textContent: `Mpokeaji: ${paymentDetails.recipientName || "Muuzaji huyu"}` }),
+    createElement("p", { className: "product-meta", textContent: `Mtandao: ${paymentDetails.provider ? paymentDetails.provider.replace(/_/g, " ").toUpperCase() : "Mobile Money"}` }),
     createElement("p", { className: "product-meta", textContent: "Reservation window: 24 hours pending verification" })
   );
+  if (paymentDetails.instructions) {
+    summary.append(
+      createElement("p", {
+        className: "auth-note",
+        textContent: paymentDetails.instructions
+      })
+    );
+  }
 
   const input = createElement("input", {
     attributes: {
@@ -5711,6 +5747,10 @@ async function submitPaymentIntentOrder() {
   const product = getProductById(paymentIntentState.productId || "");
   if (!product) {
     throw new Error("Bidhaa haijapatikana tena. Jaribu kufungua product upya.");
+  }
+  const paymentDetails = getProductPaymentDetails(product);
+  if (!paymentDetails.number) {
+    throw new Error("Muuzaji bado hajaweka Lipa namba. Tuma ujumbe kwanza ili akamilishe taarifa za malipo.");
   }
   const input = document.getElementById("payment-intent-transaction-input");
   const transactionId = String(input?.value || paymentIntentState.transactionId || "").trim().toUpperCase();
@@ -12739,6 +12779,18 @@ function beginPurchaseFlow(product) {
       title: "Bei kwa maelewano",
       body: "Bidhaa hii haina bei ya wazi. Chat na muuzaji kwanza mkubaliane bei kabla ya kuweka order.",
       variant: "info"
+    });
+    if (product.uploadedBy !== currentUser) {
+      openProductChat(product);
+    }
+    return;
+  }
+  const paymentDetails = getProductPaymentDetails(product);
+  if (!paymentDetails.number) {
+    showInAppNotification({
+      title: "Lipa namba haijawekwa",
+      body: "Muuzaji huyu bado hajaweka Lipa namba kwenye profile yake. Tumia Message kwanza.",
+      variant: "warning"
     });
     if (product.uploadedBy !== currentUser) {
       openProductChat(product);

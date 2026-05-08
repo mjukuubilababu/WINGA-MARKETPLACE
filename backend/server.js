@@ -1318,6 +1318,10 @@ function sanitizeUser(user, options = {}) {
     verifiedSeller: Boolean(user.verifiedSeller),
     verificationStatus: user.verificationStatus || (user.verifiedSeller ? "verified" : "unverified"),
     profileImage: user.profileImage || "",
+    paymentProvider: user.role === "seller" ? (user.paymentProvider || "") : "",
+    paymentNumber: user.role === "seller" ? String(user.paymentNumber || "").replace(/\D/g, "").slice(0, 20) : "",
+    paymentRecipientName: user.role === "seller" ? (user.paymentRecipientName || user.fullName || user.username) : "",
+    paymentInstructions: user.role === "seller" ? (user.paymentInstructions || "") : "",
     createdAt: user.createdAt || "",
     phoneVisibility,
     sellerStats: user.role === "seller" && store ? buildSellerPublicStats(store, user.username) : null,
@@ -1335,6 +1339,10 @@ function buildSelfSessionPayload(user, token = null) {
   return {
     ...sanitizeUser(user, { viewer: user }),
     phoneNumber: String(user.phoneNumber || "").replace(/\D/g, "").slice(0, 20),
+    paymentProvider: user.paymentProvider || "",
+    paymentNumber: String(user.paymentNumber || "").replace(/\D/g, "").slice(0, 20),
+    paymentRecipientName: user.paymentRecipientName || user.fullName || user.username,
+    paymentInstructions: user.paymentInstructions || "",
     pendingWhatsappNumber: String(user.pendingWhatsappNumber || "").replace(/\D/g, "").slice(0, 20),
     pendingWhatsappExpiresAt: user.pendingWhatsappExpiresAt || "",
     token
@@ -1538,6 +1546,10 @@ function createSession(user) {
     role: user.role || "seller",
     status: user.status || "active",
     whatsappNumber: String(user.whatsappNumber || user.phoneNumber || "").replace(/\D/g, "").slice(0, 20),
+    paymentProvider: user.paymentProvider || "",
+    paymentNumber: String(user.paymentNumber || "").replace(/\D/g, "").slice(0, 20),
+    paymentRecipientName: user.paymentRecipientName || user.fullName || user.username,
+    paymentInstructions: user.paymentInstructions || "",
     whatsappVerificationStatus: user.whatsappVerificationStatus || "verified",
     profileImage: user.profileImage || "",
     verificationStatus: user.verificationStatus || (user.verifiedSeller ? "verified" : "unverified"),
@@ -1580,12 +1592,20 @@ function normalizeUserRecord(user) {
     : sanitizePlainText(user.fullName || user.displayName || user.username, 120);
   const phoneNumber = String(user.phoneNumber || "").replace(/\D/g, "").slice(0, 20);
   const whatsappNumber = String(user.whatsappNumber || phoneNumber || "").replace(/\D/g, "").slice(0, 20);
+  const paymentNumber = String(user.paymentNumber || "").replace(/\D/g, "").slice(0, 20);
+  const paymentProvider = sanitizePlainText(user.paymentProvider || "", 40).toLowerCase();
+  const paymentRecipientName = sanitizePlainText(user.paymentRecipientName || user.fullName || user.username, 120);
+  const paymentInstructions = sanitizePlainText(user.paymentInstructions || "", 240);
   return {
     ...user,
     username,
     fullName,
     phoneNumber,
     whatsappNumber,
+    paymentProvider,
+    paymentNumber,
+    paymentRecipientName,
+    paymentInstructions,
     whatsappVerificationStatus: user.whatsappVerificationStatus === "pending" ? "pending" : "verified",
     whatsappVerifiedAt: user.whatsappVerifiedAt || (whatsappNumber ? (user.createdAt || new Date().toISOString()) : ""),
     pendingWhatsappNumber: String(user.pendingWhatsappNumber || "").replace(/\D/g, "").slice(0, 20),
@@ -1682,6 +1702,9 @@ function normalizeOrderRecord(order) {
     paymentStatus: normalizedPaymentStatus,
     paymentMethod: sanitizePlainText(order.paymentMethod || "mobile_money", 40).toLowerCase() || "mobile_money",
     paymentPhoneNumber: String(order.paymentPhoneNumber || "").replace(/\D/g, "").slice(0, 20),
+    paymentProvider: sanitizePlainText(order.paymentProvider || "", 40).toLowerCase(),
+    paymentRecipientName: sanitizePlainText(order.paymentRecipientName || order.sellerUsername || "", 120),
+    paymentInstructions: sanitizePlainText(order.paymentInstructions || "", 240),
     transactionId: sanitizePlainText(order.transactionId, 80).toUpperCase(),
     paymentSubmittedAt: order.paymentSubmittedAt || order.createdAt || new Date().toISOString(),
     paymentConfirmedAt: order.paymentConfirmedAt || "",
@@ -1700,6 +1723,10 @@ function normalizePaymentRecord(payment) {
     buyerUsername: normalizeIdentifier(payment.buyerUsername, 40),
     amountPaid: Number(payment.amountPaid || 0),
     paymentMethod: sanitizePlainText(payment.paymentMethod || "mobile_money", 40).toLowerCase() || "mobile_money",
+    paymentProvider: sanitizePlainText(payment.paymentProvider || "", 40).toLowerCase(),
+    paymentNumber: String(payment.paymentNumber || "").replace(/\D/g, "").slice(0, 20),
+    paymentRecipientName: sanitizePlainText(payment.paymentRecipientName || "", 120),
+    paymentInstructions: sanitizePlainText(payment.paymentInstructions || "", 240),
     transactionReference: sanitizePlainText(payment.transactionReference || payment.receiptNumber || "", 80).toUpperCase(),
     receiptNumber: sanitizePlainText(payment.receiptNumber || payment.transactionReference || "", 80).toUpperCase(),
     paymentStatus: isValidPaymentStatus(payment.paymentStatus) ? payment.paymentStatus : "pending",
@@ -6083,7 +6110,11 @@ http.createServer(async (req, res) => {
       const hasProfileImage = Object.prototype.hasOwnProperty.call(payload, "profileImage");
       const hasPhoneUpdate = Object.prototype.hasOwnProperty.call(payload, "phoneNumber")
         || Object.prototype.hasOwnProperty.call(payload, "whatsappNumber");
-      if (!hasProfileImage && !hasPhoneUpdate) {
+      const hasPaymentUpdate = Object.prototype.hasOwnProperty.call(payload, "paymentProvider")
+        || Object.prototype.hasOwnProperty.call(payload, "paymentNumber")
+        || Object.prototype.hasOwnProperty.call(payload, "paymentRecipientName")
+        || Object.prototype.hasOwnProperty.call(payload, "paymentInstructions");
+      if (!hasProfileImage && !hasPhoneUpdate && !hasPaymentUpdate) {
         sendJson(res, 400, { error: "Hakuna data ya kubadili profile." });
         return;
       }
@@ -6115,6 +6146,27 @@ http.createServer(async (req, res) => {
         }
       }
 
+      const nextPaymentNumber = hasPaymentUpdate
+        ? String(payload.paymentNumber || "").replace(/\D/g, "").slice(0, 20)
+        : String(user.paymentNumber || "").replace(/\D/g, "").slice(0, 20);
+      const nextPaymentProvider = hasPaymentUpdate
+        ? sanitizePlainText(payload.paymentProvider || "", 40).toLowerCase()
+        : sanitizePlainText(user.paymentProvider || "", 40).toLowerCase();
+      const nextPaymentRecipientName = hasPaymentUpdate
+        ? sanitizePlainText(payload.paymentRecipientName || user.fullName || user.username, 120)
+        : sanitizePlainText(user.paymentRecipientName || user.fullName || user.username, 120);
+      const nextPaymentInstructions = hasPaymentUpdate
+        ? sanitizePlainText(payload.paymentInstructions || "", 240)
+        : sanitizePlainText(user.paymentInstructions || "", 240);
+      if (hasPaymentUpdate && nextPaymentNumber && !/^\d{8,20}$/.test(nextPaymentNumber)) {
+        sendJson(res, 400, { error: "Weka Lipa namba sahihi yenye tarakimu 8 hadi 20." });
+        return;
+      }
+      if (hasPaymentUpdate && nextPaymentNumber && !nextPaymentRecipientName) {
+        sendJson(res, 400, { error: "Weka jina la anayepokea malipo." });
+        return;
+      }
+
       const nextProfileImage = hasProfileImage ? payload.profileImage : user.profileImage || "";
       const nextWhatsappNumber = hasPhoneUpdate ? nextPhoneNumber : String(user.whatsappNumber || user.phoneNumber || "").replace(/\D/g, "").slice(0, 20);
 
@@ -6130,6 +6182,14 @@ http.createServer(async (req, res) => {
                     whatsappNumber: nextPhoneNumber,
                     whatsappVerificationStatus: "verified",
                     whatsappVerifiedAt: now
+                  }
+                : {}),
+              ...(hasPaymentUpdate
+                ? {
+                    paymentProvider: nextPaymentProvider,
+                    paymentNumber: nextPaymentNumber,
+                    paymentRecipientName: nextPaymentRecipientName,
+                    paymentInstructions: nextPaymentInstructions
                   }
                 : {}),
               updatedAt: now
@@ -6163,6 +6223,10 @@ http.createServer(async (req, res) => {
               verificationStatus: updatedUser?.verificationStatus || item.verificationStatus || "",
               whatsappNumber: updatedUser?.whatsappNumber || item.whatsappNumber || "",
               whatsappVerificationStatus: updatedUser?.whatsappVerificationStatus || item.whatsappVerificationStatus || "verified",
+              paymentProvider: updatedUser?.paymentProvider || item.paymentProvider || "",
+              paymentNumber: updatedUser?.paymentNumber || item.paymentNumber || "",
+              paymentRecipientName: updatedUser?.paymentRecipientName || item.paymentRecipientName || updatedUser?.fullName || item.fullName || item.username,
+              paymentInstructions: updatedUser?.paymentInstructions || item.paymentInstructions || "",
               primaryCategory: updatedUser?.primaryCategory || item.primaryCategory || ""
             }
           : item
@@ -6184,7 +6248,7 @@ http.createServer(async (req, res) => {
         ip: clientIp,
         method: req.method,
         path: url.pathname,
-        event: hasPhoneUpdate ? "profile_phone_updated" : "profile_photo_updated",
+        event: hasPaymentUpdate ? "profile_payment_details_updated" : (hasPhoneUpdate ? "profile_phone_updated" : "profile_photo_updated"),
         username: user.username
       });
 
@@ -6386,6 +6450,19 @@ http.createServer(async (req, res) => {
         return;
       }
 
+      const sellerUser = (store.users || []).map(normalizeUserRecord).find((item) => item.username === product.uploadedBy) || null;
+      const paymentNumber = String(sellerUser?.paymentNumber || product.whatsapp || "").replace(/\D/g, "").slice(0, 20);
+      const paymentProvider = sanitizePlainText(sellerUser?.paymentProvider || "", 40).toLowerCase();
+      const paymentRecipientName = sanitizePlainText(
+        sellerUser?.paymentRecipientName || sellerUser?.fullName || product.shop || product.uploadedBy || "",
+        120
+      );
+      const paymentInstructions = sanitizePlainText(sellerUser?.paymentInstructions || "", 240);
+      if (!paymentNumber) {
+        sendJson(res, 409, { error: "Muuzaji bado hajaweka Lipa namba ya kupokea malipo. Tuma ujumbe kwanza." });
+        return;
+      }
+
       const order = normalizeOrderRecord({
         id: `order-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`,
         productId: product.id,
@@ -6398,7 +6475,10 @@ http.createServer(async (req, res) => {
         status: "placed",
         paymentStatus: "pending",
         paymentMethod: "mobile_money",
-        paymentPhoneNumber: product.whatsapp || "",
+        paymentPhoneNumber: paymentNumber,
+        paymentProvider,
+        paymentRecipientName,
+        paymentInstructions,
         transactionId,
         paymentSubmittedAt: now,
         paymentConfirmedAt: "",
@@ -6414,6 +6494,10 @@ http.createServer(async (req, res) => {
         buyerUsername: session.username,
         amountPaid: productPrice,
         paymentMethod: "mobile_money",
+        paymentProvider,
+        paymentNumber,
+        paymentRecipientName,
+        paymentInstructions,
         transactionReference: transactionId,
         receiptNumber: transactionId,
         paymentStatus: "pending",
@@ -6423,6 +6507,8 @@ http.createServer(async (req, res) => {
         },
         rawGatewayResponse: {
           provider: "manual_mobile_money",
+          paymentProvider,
+          paymentNumber,
           transactionReference: transactionId,
           status: "submitted_for_verification"
         },
