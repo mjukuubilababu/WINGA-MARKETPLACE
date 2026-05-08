@@ -4484,13 +4484,20 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
     }
 
     function renderProductActionGroup(product, options = {}) {
-      const { extraClass = "" } = options;
+      const {
+        extraClass = "",
+        includeBuyButton = false,
+        buyLabel = "Nunua"
+      } = options;
       const messageButton = renderMessageSellerButton(product);
+      const buyButton = includeBuyButton
+        ? renderBuyButton(product)?.replace(">Nunua<", `>${buyLabel}<`)
+        : "";
       const whatsappButton = typeof renderWhatsappChatLink === "function"
         ? renderWhatsappChatLink(product, "WhatsApp")
         : "";
       const repostButton = renderRepostButton(product);
-      const actionButtons = [messageButton, repostButton, whatsappButton].filter(Boolean);
+      const actionButtons = [messageButton, buyButton, repostButton, whatsappButton].filter(Boolean);
       if (!actionButtons.length) {
         return "";
       }
@@ -4722,6 +4729,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
                   <div class="messages-thread-actions">
                     <button class="action-btn edit-btn" type="button" data-refresh-messages="true">Refresh</button>
                     ${activeCommerce?.productId ? `<button class="action-btn action-btn-secondary" type="button" data-chat-open-product="${activeCommerce.productId}">Open product</button>` : ""}
+                    ${activeCommerce?.productId ? `<button class="action-btn action-btn-secondary chat-pay-pill" type="button" data-chat-buy-product="${activeCommerce.productId}">Lipa</button>` : ""}
                     ${contactState.canSharePhone ? `<button class="action-btn action-btn-secondary" type="button" data-share-my-phone="true">Share my phone</button>` : ""}
                     ${activeWhatsApp ? `<a class="button" href="${deps.buildWhatsappHref(activeWhatsApp, activeChatContext.productName)}" target="_blank" rel="noopener noreferrer">Chat on WhatsApp</a>` : ""}
                   </div>
@@ -5652,6 +5660,18 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
           return;
         }
         deps.openProductDetailModal(productId);
+      });
+
+      bindClickOnce("[data-chat-buy-product]", "ChatBuyProduct", (button) => {
+        const productId = button.dataset.chatBuyProduct || "";
+        if (!productId || !deps.beginPurchaseFlow || !deps.getProductById) {
+          return;
+        }
+        const product = deps.getProductById(productId);
+        if (!product) {
+          return;
+        }
+        deps.beginPurchaseFlow(product);
       });
 
       bindClickOnce("[data-share-my-phone]", "ShareMyPhone", async () => {
@@ -9928,7 +9948,9 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       copy.appendChild(reviewStack);
 
       const actionsMarkup = deps.renderProductActionGroup?.(product, {
-        extraClass: "product-detail-actions"
+        extraClass: "product-detail-actions",
+        includeBuyButton: true,
+        buyLabel: "Lipa"
       });
       if (actionsMarkup) {
         copy.appendChild(deps.createFragmentFromMarkup(actionsMarkup));

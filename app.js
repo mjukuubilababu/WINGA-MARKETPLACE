@@ -6053,6 +6053,7 @@ const {
   getConversationSummaries,
   getConversationCommerceSnapshot,
   getActiveConversationMessages,
+  getProductById,
   getSelectedChatProducts,
   getMessageProductItems,
   formatNumber,
@@ -6072,6 +6073,7 @@ const {
   refreshMessagesState,
   refreshNotificationsState,
   maybePromptNotificationPermission,
+  beginPurchaseFlow,
   getCurrentUser: () => currentUser
 });
 

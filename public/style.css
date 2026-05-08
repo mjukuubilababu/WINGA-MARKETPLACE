@@ -5378,6 +5378,11 @@ body.context-chat-open{
   flex-wrap:wrap;
 }
 
+.chat-pay-pill{
+  min-width:72px;
+  font-weight:800;
+}
+
 .thread-contact-note{
   margin:0 0 12px;
   padding:10px 12px;

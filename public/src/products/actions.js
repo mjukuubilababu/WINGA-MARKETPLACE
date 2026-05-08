@@ -169,13 +169,20 @@
     }
 
     function renderProductActionGroup(product, options = {}) {
-      const { extraClass = "" } = options;
+      const {
+        extraClass = "",
+        includeBuyButton = false,
+        buyLabel = "Nunua"
+      } = options;
       const messageButton = renderMessageSellerButton(product);
+      const buyButton = includeBuyButton
+        ? renderBuyButton(product)?.replace(">Nunua<", `>${buyLabel}<`)
+        : "";
       const whatsappButton = typeof renderWhatsappChatLink === "function"
         ? renderWhatsappChatLink(product, "WhatsApp")
         : "";
       const repostButton = renderRepostButton(product);
-      const actionButtons = [messageButton, repostButton, whatsappButton].filter(Boolean);
+      const actionButtons = [messageButton, buyButton, repostButton, whatsappButton].filter(Boolean);
       if (!actionButtons.length) {
         return "";
       }

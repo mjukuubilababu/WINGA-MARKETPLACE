@@ -740,6 +740,18 @@
         deps.openProductDetailModal(productId);
       });
 
+      bindClickOnce("[data-chat-buy-product]", "ChatBuyProduct", (button) => {
+        const productId = button.dataset.chatBuyProduct || "";
+        if (!productId || !deps.beginPurchaseFlow || !deps.getProductById) {
+          return;
+        }
+        const product = deps.getProductById(productId);
+        if (!product) {
+          return;
+        }
+        deps.beginPurchaseFlow(product);
+      });
+
       bindClickOnce("[data-share-my-phone]", "ShareMyPhone", async () => {
         try {
           await sharePhoneWithActiveChat();

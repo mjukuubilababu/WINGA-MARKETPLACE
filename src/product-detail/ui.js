@@ -397,7 +397,9 @@
       copy.appendChild(reviewStack);
 
       const actionsMarkup = deps.renderProductActionGroup?.(product, {
-        extraClass: "product-detail-actions"
+        extraClass: "product-detail-actions",
+        includeBuyButton: true,
+        buyLabel: "Lipa"
       });
       if (actionsMarkup) {
         copy.appendChild(deps.createFragmentFromMarkup(actionsMarkup));
