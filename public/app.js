@@ -11485,7 +11485,9 @@ function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
   const total = images.length;
   const currentLabel = total > 1 ? `1/${total}` : "";
   const priorityLimit = Math.max(1, Number(options?.priorityCount || 1));
+  const isFeedSurface = String(surface || "").trim().toLowerCase() === "feed";
   const fitMode = getProductFitMode(product);
+  const stableFrameRatio = isFeedSurface ? "3 / 4" : "";
   if (options?.preload && typeof preloadImageSource === "function") {
     images.slice(0, Math.min(images.length, priorityLimit)).forEach((src, index) => {
       preloadImageSource(src, { fetchPriority: index === 0 ? "high" : "auto" });
@@ -11551,6 +11553,7 @@ function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
       data-feed-gallery-total="${total}"
       data-feed-gallery-current="1"
       data-feed-gallery-surface="${escapeHtml(surface || "feed")}"
+      ${stableFrameRatio ? `data-feed-gallery-stable-ratio="${escapeHtml(stableFrameRatio)}"` : ""}
       data-fit-mode="${escapeHtml(fitMode)}">
       <div class="feed-gallery-carousel-track" data-feed-gallery-track>
         ${slides}
@@ -11789,9 +11792,15 @@ function bindFeedGalleryInteractions(scope = document) {
       const shouldPreserveImageRatio = Boolean(
         carousel.closest("#products-container, #market-showcase, .product-detail-feed-stack")
       );
-      const ratioValue = (shouldPreserveImageRatio || fitMode === "contain")
+      const isFeedSurface = String(carousel.dataset.feedGallerySurface || "").trim().toLowerCase() === "feed";
+      const stableRatio = String(carousel.dataset.feedGalleryStableRatio || preview.dataset.feedGalleryStableRatio || "").trim();
+      const ratioValue = stableRatio || ((shouldPreserveImageRatio || fitMode === "contain")
         ? `${naturalWidth} / ${naturalHeight}`
-        : "1 / 1";
+        : "1 / 1");
+      if (isFeedSurface && !stableRatio) {
+        carousel.dataset.feedGalleryStableRatio = ratioValue;
+        preview.dataset.feedGalleryStableRatio = ratioValue;
+      }
       preview.style.setProperty("--fit-media-aspect-ratio", ratioValue);
       preview.style.setProperty("--feed-gallery-fit-mode", fitMode);
       carousel.style.setProperty("--fit-media-aspect-ratio", ratioValue);

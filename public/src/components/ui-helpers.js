@@ -216,16 +216,26 @@
       }
     });
 
+    const getLockedFeedAspectRatio = (fitHost) => {
+      return String(
+        fitHost?.dataset?.feedGalleryStableRatio
+        || fitHost?.closest?.("[data-feed-gallery-stable-ratio]")?.dataset?.feedGalleryStableRatio
+        || ""
+      ).trim();
+    };
+
     fullImage.addEventListener("load", function handleProgressiveImageLoad() {
       const naturalWidth = Number(this.naturalWidth || 0);
       const naturalHeight = Number(this.naturalHeight || 0);
-      const aspectRatio = (shouldPreserveImageRatio || normalizedFitMode === "contain") && naturalWidth && naturalHeight
-        ? `${naturalWidth} / ${naturalHeight}`
-        : "1 / 1";
+      const fitHost = shell.closest(".feed-gallery-preview, .feed-gallery-carousel, .product-gallery, .product-detail-media, .profile-product-media, .showcase-media, .product-card-media, .media-gallery");
+      const lockedFeedAspectRatio = getLockedFeedAspectRatio(fitHost);
+      const aspectRatio = lockedFeedAspectRatio
+        || ((shouldPreserveImageRatio || normalizedFitMode === "contain") && naturalWidth && naturalHeight
+          ? `${naturalWidth} / ${naturalHeight}`
+          : "1 / 1");
       shell.style.setProperty("--fit-media-aspect-ratio", aspectRatio);
       shell.style.setProperty("--progressive-image-aspect-ratio", aspectRatio);
       shell.dataset.fitMode = normalizedFitMode;
-      const fitHost = shell.closest(".feed-gallery-preview, .feed-gallery-carousel, .product-gallery, .product-detail-media, .profile-product-media, .showcase-media, .product-card-media, .media-gallery");
       if (fitHost) {
         fitHost.dataset.fitMode = normalizedFitMode;
         fitHost.style.setProperty("--fit-media-aspect-ratio", aspectRatio);
@@ -238,12 +248,14 @@
     if (fullImage.complete && Number(fullImage.naturalWidth || 0) > 0) {
       const naturalWidth = Number(fullImage.naturalWidth || 0);
       const naturalHeight = Number(fullImage.naturalHeight || 0);
-      const aspectRatio = (shouldPreserveImageRatio || normalizedFitMode === "contain") && naturalWidth && naturalHeight
-        ? `${naturalWidth} / ${naturalHeight}`
-        : "1 / 1";
+      const fitHost = shell.closest(".feed-gallery-preview, .feed-gallery-carousel, .product-gallery, .product-detail-media, .profile-product-media, .showcase-media, .product-card-media, .media-gallery");
+      const lockedFeedAspectRatio = getLockedFeedAspectRatio(fitHost);
+      const aspectRatio = lockedFeedAspectRatio
+        || ((shouldPreserveImageRatio || normalizedFitMode === "contain") && naturalWidth && naturalHeight
+          ? `${naturalWidth} / ${naturalHeight}`
+          : "1 / 1");
       shell.style.setProperty("--fit-media-aspect-ratio", aspectRatio);
       shell.style.setProperty("--progressive-image-aspect-ratio", aspectRatio);
-      const fitHost = shell.closest(".feed-gallery-preview, .feed-gallery-carousel, .product-gallery, .product-detail-media, .profile-product-media, .showcase-media, .product-card-media, .media-gallery");
       if (fitHost) {
         fitHost.dataset.fitMode = normalizedFitMode;
         fitHost.style.setProperty("--fit-media-aspect-ratio", aspectRatio);
