@@ -3831,6 +3831,10 @@ function getSavedProductNotificationReadStorageKey() {
   return `winga-saved-product-note-read:${currentUser || "guest"}`;
 }
 
+function getAffinitySellerNotificationReadStorageKey() {
+  return `winga-affinity-seller-note-read:${currentUser || "guest"}`;
+}
+
 function getFollowedSellerNotificationReadStorageKey() {
   return `winga-followed-seller-note-read:${currentUser || "guest"}`;
 }
@@ -3871,6 +3875,19 @@ function getFollowedSellerNotificationStateStore() {
     readIds: new Set()
   };
   globalThis.__wingaFollowedSellerNotificationState = nextState;
+  return nextState;
+}
+
+function getAffinitySellerNotificationStateStore() {
+  const existingState = globalThis.__wingaAffinitySellerNotificationState;
+  if (existingState && typeof existingState === "object") {
+    return existingState;
+  }
+  const nextState = {
+    storageKey: "",
+    readIds: new Set()
+  };
+  globalThis.__wingaAffinitySellerNotificationState = nextState;
   return nextState;
 }
 
@@ -3971,6 +3988,47 @@ function markSavedProductNotificationRead(notificationId) {
   const readIds = ensureSavedProductNotificationReadIdsLoaded();
   readIds.add(safeId);
   persistSavedProductNotificationReadIds();
+}
+
+function ensureAffinitySellerNotificationReadIdsLoaded() {
+  const state = getAffinitySellerNotificationStateStore();
+  const nextKey = getAffinitySellerNotificationReadStorageKey();
+  if (state.storageKey === nextKey) {
+    return state.readIds;
+  }
+
+  state.storageKey = nextKey;
+  try {
+    const rawValue = window.localStorage.getItem(nextKey);
+    const parsed = rawValue ? JSON.parse(rawValue) : [];
+    state.readIds = new Set(Array.isArray(parsed) ? parsed.filter(Boolean) : []);
+  } catch (error) {
+    state.readIds = new Set();
+    captureClientError("affinity_seller_notification_restore_failed", error, {
+      category: "storage",
+      alertSeverity: "low"
+    });
+  }
+  return state.readIds;
+}
+
+function persistAffinitySellerNotificationReadIds() {
+  const state = getAffinitySellerNotificationStateStore();
+  state.storageKey = getAffinitySellerNotificationReadStorageKey();
+  window.localStorage.setItem(
+    state.storageKey,
+    JSON.stringify(Array.from(state.readIds))
+  );
+}
+
+function markAffinitySellerNotificationRead(notificationId) {
+  const safeId = String(notificationId || "").trim();
+  if (!safeId) {
+    return;
+  }
+  const readIds = ensureAffinitySellerNotificationReadIdsLoaded();
+  readIds.add(safeId);
+  persistAffinitySellerNotificationReadIds();
 }
 
 function clearSavedProductNotificationReadIds(productId) {
@@ -4199,11 +4257,91 @@ function getSavedIntentNotifications() {
     .slice(0, 8);
 }
 
+function getAffinitySellerActivityNotifications() {
+  if (!currentUser || !canUseBuyerFeatures()) {
+    return [];
+  }
+  const followedSellerIds = new Set(Array.from(ensureFollowedSellerIdsLoaded()).filter(Boolean));
+  const affinityEntries = getBuyerSellerAffinityEntries()
+    .filter((entry) =>
+      entry?.sellerId
+      && entry.sellerId !== currentUser
+      && !followedSellerIds.has(entry.sellerId)
+      && Number(entry.score || 0) >= 18
+    )
+    .sort((first, second) => Number(second.score || 0) - Number(first.score || 0))
+    .slice(0, 6);
+  if (!affinityEntries.length) {
+    return [];
+  }
+
+  const readIds = ensureAffinitySellerNotificationReadIdsLoaded();
+  const now = Date.now();
+  const recentWindowMs = 14 * 24 * 60 * 60 * 1000;
+
+  return affinityEntries
+    .flatMap((entry) => {
+      const sellerProducts = products
+        .filter((product) =>
+          product?.status === "approved"
+          && product?.uploadedBy === entry.sellerId
+          && product.uploadedBy !== currentUser
+          && product.availability !== "sold_out"
+          && hasRenderableMarketplaceImage(product)
+          && shouldRenderMarketplaceProduct(product)
+        )
+        .sort((first, second) => new Date(second.createdAt || second.updatedAt || second.timestamp || 0).getTime() - new Date(first.createdAt || first.updatedAt || first.timestamp || 0).getTime());
+      const latestProduct = sellerProducts[0];
+      if (!latestProduct) {
+        return [];
+      }
+
+      const latestProductTime = new Date(latestProduct.createdAt || latestProduct.updatedAt || latestProduct.timestamp || 0).getTime();
+      if (!Number.isFinite(latestProductTime) || (now - latestProductTime) > recentWindowMs) {
+        return [];
+      }
+
+      const sellerName = getUserDisplayName(entry.sellerId, {
+        fallback: latestProduct.shop || entry.sellerId || "Seller"
+      });
+      const primaryReason = entry.interactions?.message > 0 || entry.lastSignal === "message"
+        ? "Umeshawasiliana na seller huyu"
+        : entry.lastSignal === "card_open" || entry.interactions?.card_open > 0
+          ? "Ulishafungua bidhaa za seller huyu"
+          : "Ulishaonyesha interest kwa seller huyu";
+      const notificationId = `affinity-seller:${latestProduct.id}`;
+
+      return [{
+        id: notificationId,
+        userId: currentUser,
+        type: "message",
+        variant: "info",
+        title: `${sellerName} ameweka bidhaa mpya`,
+        body: `${primaryReason}. ${latestProduct.name} sasa ipo live.`,
+        createdAt: latestProduct.createdAt || latestProduct.updatedAt || new Date().toISOString(),
+        isRead: readIds.has(notificationId),
+        productId: latestProduct.id,
+        sellerUsername: latestProduct.uploadedBy
+      }];
+    })
+    .slice(0, 6);
+}
+
 function getRenderableNotifications() {
   const serverNotifications = Array.isArray(currentNotifications) ? currentNotifications : [];
   const localFollowNotifications = getFollowedSellerActivityNotifications();
   const savedIntentNotifications = getSavedIntentNotifications();
-  return [...serverNotifications, ...localFollowNotifications, ...savedIntentNotifications]
+  const affinitySellerNotifications = getAffinitySellerActivityNotifications();
+  const seenIds = new Set();
+  return [...serverNotifications, ...localFollowNotifications, ...savedIntentNotifications, ...affinitySellerNotifications]
+    .filter((notification) => {
+      const notificationId = String(notification?.id || "").trim();
+      if (!notificationId || seenIds.has(notificationId)) {
+        return false;
+      }
+      seenIds.add(notificationId);
+      return true;
+    })
     .sort((first, second) => new Date(second.createdAt || 0).getTime() - new Date(first.createdAt || 0).getTime());
 }
 
@@ -4220,6 +4358,9 @@ async function handleNotificationOpen(notificationId) {
     const [, savedProductId = ""] = safeId.split(":");
     productId = savedProductId;
     markSavedProductNotificationRead(safeId);
+  } else if (safeId.startsWith("affinity-seller:")) {
+    productId = safeId.slice("affinity-seller:".length);
+    markAffinitySellerNotificationRead(safeId);
   } else {
     return false;
   }
