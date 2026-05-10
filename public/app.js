@@ -11788,12 +11788,17 @@ function bindFeedGalleryInteractions(scope = document) {
       if (!naturalWidth || !naturalHeight) {
         return;
       }
-      const fitMode = normalizeProductFitMode(carousel.dataset.fitMode || preview.dataset.fitMode || "cover");
       const shouldPreserveImageRatio = Boolean(
         carousel.closest("#products-container, #market-showcase, .product-detail-feed-stack")
       );
       const isFeedSurface = String(carousel.dataset.feedGallerySurface || "").trim().toLowerCase() === "feed";
       const stableRatio = String(carousel.dataset.feedGalleryStableRatio || preview.dataset.feedGalleryStableRatio || "").trim();
+      const stableFitMode = String(carousel.dataset.feedGalleryStableFitMode || preview.dataset.feedGalleryStableFitMode || "").trim();
+      const portraitLike = naturalHeight > naturalWidth * 1.12;
+      const fitMode = stableFitMode
+        || (isFeedSurface
+          ? (portraitLike ? "contain" : "cover")
+          : normalizeProductFitMode(carousel.dataset.fitMode || preview.dataset.fitMode || "cover"));
       const ratioValue = stableRatio || ((shouldPreserveImageRatio || fitMode === "contain")
         ? `${naturalWidth} / ${naturalHeight}`
         : "1 / 1");
@@ -11801,6 +11806,12 @@ function bindFeedGalleryInteractions(scope = document) {
         carousel.dataset.feedGalleryStableRatio = ratioValue;
         preview.dataset.feedGalleryStableRatio = ratioValue;
       }
+      if (isFeedSurface && !stableFitMode) {
+        carousel.dataset.feedGalleryStableFitMode = fitMode;
+        preview.dataset.feedGalleryStableFitMode = fitMode;
+      }
+      preview.dataset.fitMode = fitMode;
+      carousel.dataset.fitMode = fitMode;
       preview.style.setProperty("--fit-media-aspect-ratio", ratioValue);
       preview.style.setProperty("--feed-gallery-fit-mode", fitMode);
       carousel.style.setProperty("--fit-media-aspect-ratio", ratioValue);

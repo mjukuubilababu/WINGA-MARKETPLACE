@@ -3008,6 +3008,7 @@ img[data-zoom-src]{
   -ms-overflow-style:none;
   overscroll-behavior-x:contain;
   touch-action:pan-x pan-y;
+  isolation:isolate;
 }
 
 .feed-gallery-carousel-track.is-dragging{
@@ -3028,6 +3029,8 @@ img[data-zoom-src]{
   scroll-snap-stop:always;
   overflow:hidden;
   background:#eef2f7;
+  contain:paint;
+  isolation:isolate;
 }
 
 .feed-gallery-count-1{
@@ -9135,7 +9138,7 @@ button:hover,
 #products-container > .product-card > .product-card-media{
   aspect-ratio:auto !important;
   height:auto !important;
-  overflow:visible !important;
+  overflow:hidden !important;
   background:#ffffff !important;
 }
 
@@ -9151,6 +9154,15 @@ button:hover,
   background:#ffffff !important;
 }
 
+#products-container .feed-gallery-preview[data-fit-mode="contain"] .feed-gallery-carousel-track{
+  align-items:stretch !important;
+}
+
+#products-container .feed-gallery-preview[data-fit-mode="contain"] .feed-gallery-carousel-slide{
+  height:100% !important;
+  min-height:100% !important;
+}
+
 #products-container .feed-gallery-carousel,
 #products-container .feed-gallery-carousel-track,
 #products-container .feed-gallery-carousel-slide,
@@ -9163,8 +9175,26 @@ button:hover,
   height:100% !important;
   object-fit:var(--feed-gallery-object-fit, cover) !important;
   object-position:var(--feed-gallery-object-position, center center) !important;
-  background:#ffffff !important;
+  background:transparent !important;
   padding:0 !important;
+  display:block !important;
+  backface-visibility:hidden !important;
+  transform:translateZ(0) !important;
+}
+
+#products-container .progressive-image-shell{
+  background-color:#ffffff !important;
+}
+
+#products-container .progressive-image-shell::before{
+  transition:opacity .12s ease !important;
+}
+
+#products-container .progressive-image-shell .progressive-image-full{
+  transition:none !important;
+  display:block !important;
+  backface-visibility:hidden !important;
+  transform:translateZ(0) !important;
 }
 
 #products-container .feed-gallery-preview[data-fit-mode="cover"]{
@@ -9174,7 +9204,7 @@ button:hover,
 
 #products-container .feed-gallery-preview[data-fit-mode="contain"]{
   --feed-gallery-object-fit: contain;
-  --feed-gallery-object-position: center center;
+  --feed-gallery-object-position: center top;
 }
 
 #products-container .feed-gallery-preview .feed-gallery-count-badge{
