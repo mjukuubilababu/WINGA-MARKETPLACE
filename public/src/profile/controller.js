@@ -669,6 +669,7 @@
             activePromotionsCount: activePromotions.filter((promotion) => promotion.sellerUsername === currentUser).length,
             promotionOptions: deps.getPromotionOptions()
           }),
+          savedIntentMarkup: deps.renderSavedIntentSection?.(),
           requestsMarkup: deps.renderRequestBoxSection(),
           ordersMarkup: deps.createOrdersSectionElement(deps.getCurrentOrders()),
           notificationsMarkup: deps.renderNotificationsSection(),

@@ -3819,6 +3819,10 @@ function getSavedProductsStorageKey() {
   return `winga-saved-products:${currentUser || "guest"}`;
 }
 
+function getFollowedSellersStorageKey() {
+  return `winga-followed-sellers:${currentUser || "guest"}`;
+}
+
 function ensureSavedProductIdsLoaded() {
   const nextKey = getSavedProductsStorageKey();
   if (savedProductState.storageKey === nextKey) {
@@ -3843,6 +3847,52 @@ function ensureSavedProductIdsLoaded() {
 function persistSavedProductIds() {
   savedProductState.storageKey = getSavedProductsStorageKey();
   window.localStorage.setItem(savedProductState.storageKey, JSON.stringify(Array.from(savedProductState.ids)));
+}
+
+function ensureFollowedSellerIdsLoaded() {
+  const nextKey = getFollowedSellersStorageKey();
+  if (followedSellerState.storageKey === nextKey) {
+    return followedSellerState.ids;
+  }
+
+  followedSellerState.storageKey = nextKey;
+  try {
+    const rawValue = window.localStorage.getItem(nextKey);
+    const parsed = rawValue ? JSON.parse(rawValue) : [];
+    followedSellerState.ids = new Set(Array.isArray(parsed) ? parsed.filter(Boolean) : []);
+  } catch (error) {
+    followedSellerState.ids = new Set();
+    captureClientError("followed_sellers_restore_failed", error, {
+      category: "storage",
+      alertSeverity: "low"
+    });
+  }
+  return followedSellerState.ids;
+}
+
+function persistFollowedSellerIds() {
+  followedSellerState.storageKey = getFollowedSellersStorageKey();
+  window.localStorage.setItem(followedSellerState.storageKey, JSON.stringify(Array.from(followedSellerState.ids)));
+}
+
+function isSellerFollowed(username) {
+  return ensureFollowedSellerIdsLoaded().has(String(username || ""));
+}
+
+function toggleFollowSeller(username) {
+  const safeUsername = String(username || "").trim();
+  if (!safeUsername || safeUsername === currentUser) {
+    return false;
+  }
+  const followedIds = ensureFollowedSellerIdsLoaded();
+  if (followedIds.has(safeUsername)) {
+    followedIds.delete(safeUsername);
+    persistFollowedSellerIds();
+    return false;
+  }
+  followedIds.add(safeUsername);
+  persistFollowedSellerIds();
+  return true;
 }
 
 function isProductSaved(productId) {
@@ -5511,6 +5561,8 @@ function renderSellerTrustPanel(product) {
     Number(trust.sellerStats?.repeatBuyers || 0) > 0 ? `${trust.sellerStats.repeatBuyers} repeat buyer${Number(trust.sellerStats.repeatBuyers) === 1 ? "" : "s"}` : ""
   ].filter(Boolean);
   const showReportActions = Boolean(product?.id && product?.uploadedBy && product.uploadedBy !== currentUser);
+  const showFollowAction = Boolean(product?.uploadedBy && product.uploadedBy !== currentUser && canUseBuyerFeatures());
+  const sellerFollowed = showFollowAction ? isSellerFollowed(product.uploadedBy) : false;
 
   return `
     <section class="seller-trust-panel">
@@ -5522,12 +5574,69 @@ function renderSellerTrustPanel(product) {
       </div>
       ${trustBadges.length ? `<div class="trust-badges seller-trust-badges">${trustBadges.join("")}</div>` : ""}
       ${factLines.length ? `<p class="product-meta seller-trust-copy">${escapeHtml(factLines.join(" | "))}</p>` : ""}
-      ${showReportActions ? `
+      ${(showReportActions || showFollowAction) ? `
         <div class="seller-trust-actions">
+          ${showFollowAction ? `<button class="trust-link-btn${sellerFollowed ? " is-active" : ""}" type="button" data-follow-seller="${product.uploadedBy}">${sellerFollowed ? "Following seller" : "Follow seller"}</button>` : ""}
           <button class="trust-link-btn" type="button" data-report-product="${product.id}">Report product</button>
           <button class="trust-link-btn" type="button" data-report-seller="${product.uploadedBy}" data-report-product-context="${product.id}">Report seller</button>
         </div>
       ` : ""}
+    </section>
+  `;
+}
+
+function renderSavedIntentSection() {
+  if (!currentUser || !canUseBuyerFeatures()) {
+    return "";
+  }
+  const savedIds = Array.from(ensureSavedProductIdsLoaded());
+  const followedSellerIds = Array.from(ensureFollowedSellerIdsLoaded());
+  const savedProducts = savedIds
+    .map((productId) => getProductById(productId))
+    .filter((product) => product && product.status === "approved")
+    .slice(0, 6);
+  const followedSellers = followedSellerIds
+    .map((username) => getMarketplaceUser(username))
+    .filter(Boolean)
+    .slice(0, 6);
+  if (!savedProducts.length && !followedSellers.length) {
+    return "";
+  }
+
+  const savedProductButtons = savedProducts.length
+    ? savedProducts.map((product) => `
+        <button class="saved-intent-chip" type="button" data-open-saved-product="${product.id}">
+          ${escapeHtml(product.name || "Saved product")}
+        </button>
+      `).join("")
+    : `<p class="empty-copy compact">Hakuna saved picks bado.</p>`;
+  const followedSellerButtons = followedSellers.length
+    ? followedSellers.map((seller) => `
+        <button class="saved-intent-chip${isSellerFollowed(seller.username) ? " is-active" : ""}" type="button" data-follow-seller="${seller.username}">
+          ${escapeHtml(getUserDisplayName(seller.username, { fallback: seller.fullName || seller.username || "Seller" }))}
+        </button>
+      `).join("")
+    : `<p class="empty-copy compact">Hakuna sellers unaowafuata bado.</p>`;
+
+  return `
+    <section id="profile-saved-intent-panel">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Saved & Following</p>
+          <h3>Rudi kwenye zilizokuvutia</h3>
+        </div>
+        <span class="meta-copy">${savedProducts.length} saved | ${followedSellers.length} followed</span>
+      </div>
+      <div class="saved-intent-grid">
+        <div class="orders-card">
+          <strong>Saved picks</strong>
+          <div class="saved-intent-chip-row">${savedProductButtons}</div>
+        </div>
+        <div class="orders-card">
+          <strong>Followed sellers</strong>
+          <div class="saved-intent-chip-row">${followedSellerButtons}</div>
+        </div>
+      </div>
     </section>
   `;
 }
@@ -5992,6 +6101,62 @@ function bindTrustReportEntryActions() {
   }
   document.body.dataset.trustReportBound = "true";
   document.addEventListener("click", (event) => {
+    const savedProductButton = event.target.closest("[data-open-saved-product]");
+    if (savedProductButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      const product = getProductById(savedProductButton.dataset.openSavedProduct || "");
+      if (product) {
+        openProductDetailModal(product.id);
+      }
+      return;
+    }
+
+    const followSellerButton = event.target.closest("[data-follow-seller]");
+    if (followSellerButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!isAuthenticatedUser()) {
+        promptGuestAuth({
+          preferredMode: "signup",
+          role: "buyer",
+          title: "Sign in to follow sellers",
+          message: "Create an account first so Winga can save your followed sellers safely."
+        });
+        return;
+      }
+      if (!canUseBuyerFeatures()) {
+        showInAppNotification({
+          title: "Buyer access needed",
+          body: "Following sellers is available on buyer-enabled accounts only.",
+          variant: "warning"
+        });
+        return;
+      }
+      const username = followSellerButton.dataset.followSeller || "";
+      if (!username) {
+        return;
+      }
+      const nowFollowing = toggleFollowSeller(username);
+      followSellerButton.textContent = nowFollowing ? "Following seller" : "Follow seller";
+      followSellerButton.classList.toggle("is-active", nowFollowing);
+      noteSellerInterest(username, nowFollowing ? 20 : 4, {
+        signalType: "message"
+      });
+      showInAppNotification({
+        title: nowFollowing ? "Seller followed" : "Seller unfollowed",
+        body: nowFollowing
+          ? `${getUserDisplayName(username)} ataonekana kwa urahisi kwenye return visits zako.`
+          : `${getUserDisplayName(username)} ameondolewa kwenye followed sellers zako.`,
+        variant: "success",
+        durationMs: 2400
+      });
+      if (currentView === "profile" && profileDiv?.isConnected) {
+        renderProfile?.();
+      }
+      return;
+    }
+
     const productButton = event.target.closest("[data-report-product]");
     if (productButton) {
       event.preventDefault();
@@ -6290,6 +6455,7 @@ const {
   createSellerUpgradeSectionElement,
   createOrdersSectionElement,
   createPromotionOverviewSectionElement,
+  renderSavedIntentSection,
   createOrdersContainerFromState,
   renderRequestBoxSection,
   renderNotificationsSection,
@@ -7702,6 +7868,10 @@ const savedProductState = {
   suppressClickUntil: 0,
   activeSheetProductId: "",
   activeSheetSource: ""
+};
+const followedSellerState = {
+  storageKey: "",
+  ids: new Set()
 };
 const imageLightboxState = {
   images: [],

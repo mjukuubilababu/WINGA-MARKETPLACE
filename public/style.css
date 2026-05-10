@@ -3589,6 +3589,42 @@ img[data-zoom-src]{
   outline:none;
 }
 
+.trust-link-btn.is-active{
+  color:var(--success-deep, #1d6f42);
+}
+
+.saved-intent-grid{
+  display:grid;
+  gap:14px;
+}
+
+.saved-intent-chip-row{
+  display:flex;
+  flex-wrap:wrap;
+  gap:10px;
+  margin-top:12px;
+}
+
+.saved-intent-chip{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-height:38px;
+  padding:8px 14px;
+  border:1px solid var(--border);
+  border-radius:999px;
+  background:#fff;
+  color:var(--text);
+  font-weight:700;
+  cursor:pointer;
+}
+
+.saved-intent-chip.is-active{
+  background:#fff4ec;
+  border-color:#ffd3b3;
+  color:var(--accent-deep);
+}
+
 .product-summary-row{
   display:flex;
   flex-wrap:wrap;
