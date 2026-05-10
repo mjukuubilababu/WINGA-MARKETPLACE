@@ -3823,6 +3823,14 @@ function getFollowedSellersStorageKey() {
   return `winga-followed-sellers:${currentUser || "guest"}`;
 }
 
+function getSavedProductMetaStorageKey() {
+  return `winga-saved-product-meta:${currentUser || "guest"}`;
+}
+
+function getSavedProductNotificationReadStorageKey() {
+  return `winga-saved-product-note-read:${currentUser || "guest"}`;
+}
+
 function getFollowedSellerNotificationReadStorageKey() {
   return `winga-followed-seller-note-read:${currentUser || "guest"}`;
 }
@@ -3851,6 +3859,116 @@ function ensureSavedProductIdsLoaded() {
 function persistSavedProductIds() {
   savedProductState.storageKey = getSavedProductsStorageKey();
   window.localStorage.setItem(savedProductState.storageKey, JSON.stringify(Array.from(savedProductState.ids)));
+}
+
+function ensureSavedProductMetaLoaded() {
+  const nextKey = getSavedProductMetaStorageKey();
+  if (savedProductMetaState.storageKey === nextKey) {
+    return savedProductMetaState.entries;
+  }
+
+  savedProductMetaState.storageKey = nextKey;
+  try {
+    const rawValue = window.localStorage.getItem(nextKey);
+    const parsed = rawValue ? JSON.parse(rawValue) : {};
+    savedProductMetaState.entries = parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? Object.fromEntries(
+          Object.entries(parsed).filter(([productId, savedAt]) => String(productId || "").trim() && String(savedAt || "").trim())
+        )
+      : {};
+  } catch (error) {
+    savedProductMetaState.entries = {};
+    captureClientError("saved_product_meta_restore_failed", error, {
+      category: "storage",
+      alertSeverity: "low"
+    });
+  }
+  return savedProductMetaState.entries;
+}
+
+function persistSavedProductMeta() {
+  savedProductMetaState.storageKey = getSavedProductMetaStorageKey();
+  window.localStorage.setItem(savedProductMetaState.storageKey, JSON.stringify(savedProductMetaState.entries));
+}
+
+function ensureSavedProductNotificationReadIdsLoaded() {
+  const nextKey = getSavedProductNotificationReadStorageKey();
+  if (savedProductNotificationState.storageKey === nextKey) {
+    return savedProductNotificationState.readIds;
+  }
+
+  savedProductNotificationState.storageKey = nextKey;
+  try {
+    const rawValue = window.localStorage.getItem(nextKey);
+    const parsed = rawValue ? JSON.parse(rawValue) : [];
+    savedProductNotificationState.readIds = new Set(Array.isArray(parsed) ? parsed.filter(Boolean) : []);
+  } catch (error) {
+    savedProductNotificationState.readIds = new Set();
+    captureClientError("saved_product_notification_restore_failed", error, {
+      category: "storage",
+      alertSeverity: "low"
+    });
+  }
+  return savedProductNotificationState.readIds;
+}
+
+function persistSavedProductNotificationReadIds() {
+  savedProductNotificationState.storageKey = getSavedProductNotificationReadStorageKey();
+  window.localStorage.setItem(
+    savedProductNotificationState.storageKey,
+    JSON.stringify(Array.from(savedProductNotificationState.readIds))
+  );
+}
+
+function markSavedProductNotificationRead(notificationId) {
+  const safeId = String(notificationId || "").trim();
+  if (!safeId) {
+    return;
+  }
+  const readIds = ensureSavedProductNotificationReadIdsLoaded();
+  readIds.add(safeId);
+  persistSavedProductNotificationReadIds();
+}
+
+function clearSavedProductNotificationReadIds(productId) {
+  const safeProductId = String(productId || "").trim();
+  if (!safeProductId) {
+    return;
+  }
+  const readIds = ensureSavedProductNotificationReadIdsLoaded();
+  let changed = false;
+  Array.from(readIds).forEach((notificationId) => {
+    if (String(notificationId || "").startsWith(`saved-item:${safeProductId}:`)) {
+      readIds.delete(notificationId);
+      changed = true;
+    }
+  });
+  if (changed) {
+    persistSavedProductNotificationReadIds();
+  }
+}
+
+function noteSavedProductIntent(productId, savedAt = new Date().toISOString()) {
+  const safeProductId = String(productId || "").trim();
+  if (!safeProductId) {
+    return;
+  }
+  const meta = ensureSavedProductMetaLoaded();
+  meta[safeProductId] = String(savedAt || new Date().toISOString()).trim() || new Date().toISOString();
+  persistSavedProductMeta();
+}
+
+function clearSavedProductIntent(productId) {
+  const safeProductId = String(productId || "").trim();
+  if (!safeProductId) {
+    return;
+  }
+  const meta = ensureSavedProductMetaLoaded();
+  if (Object.prototype.hasOwnProperty.call(meta, safeProductId)) {
+    delete meta[safeProductId];
+    persistSavedProductMeta();
+  }
+  clearSavedProductNotificationReadIds(safeProductId);
 }
 
 function ensureFollowedSellerIdsLoaded() {
@@ -3975,10 +4093,72 @@ function getFollowedSellerActivityNotifications() {
     });
 }
 
+function getSavedIntentNotifications() {
+  if (!currentUser || !canUseBuyerFeatures()) {
+    return [];
+  }
+  const savedProductIds = Array.from(ensureSavedProductIdsLoaded()).filter(Boolean);
+  if (!savedProductIds.length) {
+    return [];
+  }
+  const savedMeta = ensureSavedProductMetaLoaded();
+  const readIds = ensureSavedProductNotificationReadIdsLoaded();
+  const now = Date.now();
+  const reminderDelayMs = 6 * 60 * 60 * 1000;
+
+  return savedProductIds
+    .map((productId) => getProductById(productId))
+    .filter((product) => product && product.uploadedBy !== currentUser)
+    .map((product) => {
+      const availability = product.availability === "sold_out"
+        ? "sold_out"
+        : product.availability === "reserved"
+          ? "reserved"
+          : "available";
+      const savedAt = String(savedMeta[product.id] || "").trim();
+      const savedAtMs = savedAt ? new Date(savedAt).getTime() : 0;
+      if (availability === "available" && (!savedAtMs || (now - savedAtMs) < reminderDelayMs)) {
+        return null;
+      }
+
+      const title = availability === "reserved"
+        ? "Bidhaa uliyohifadhi imewekwa reserve"
+        : availability === "sold_out"
+          ? "Bidhaa uliyohifadhi imeuzwa"
+          : "Uliyohifadhi bado ipo";
+      const body = availability === "reserved"
+        ? `${product.name} imewekewa reserve. Ukiihitaji, fungua haraka uangalie hali yake.`
+        : availability === "sold_out"
+          ? `${product.name} imeondoka. Angalia bidhaa nyingine kutoka kwa seller huyu.`
+          : `${product.name} bado inapatikana. Rudi uiangalie au umalizie mazungumzo na seller.`;
+      const notificationId = `saved-item:${product.id}:${availability === "available" ? "return" : availability}`;
+      const createdAt = availability === "available"
+        ? savedAt || product.updatedAt || product.createdAt || new Date().toISOString()
+        : product.updatedAt || product.createdAt || savedAt || new Date().toISOString();
+
+      return {
+        id: notificationId,
+        userId: currentUser,
+        type: "message",
+        variant: availability === "sold_out" ? "neutral" : "info",
+        title,
+        body,
+        createdAt,
+        isRead: readIds.has(notificationId),
+        productId: product.id,
+        sellerUsername: product.uploadedBy
+      };
+    })
+    .filter(Boolean)
+    .sort((first, second) => new Date(second.createdAt || 0).getTime() - new Date(first.createdAt || 0).getTime())
+    .slice(0, 8);
+}
+
 function getRenderableNotifications() {
   const serverNotifications = Array.isArray(currentNotifications) ? currentNotifications : [];
   const localFollowNotifications = getFollowedSellerActivityNotifications();
-  return [...serverNotifications, ...localFollowNotifications]
+  const savedIntentNotifications = getSavedIntentNotifications();
+  return [...serverNotifications, ...localFollowNotifications, ...savedIntentNotifications]
     .sort((first, second) => new Date(second.createdAt || 0).getTime() - new Date(first.createdAt || 0).getTime());
 }
 
@@ -3987,12 +4167,19 @@ async function handleNotificationOpen(notificationId) {
   if (!safeId) {
     return false;
   }
-  if (!safeId.startsWith("followed-seller:")) {
+  let productId = "";
+  if (safeId.startsWith("followed-seller:")) {
+    productId = safeId.slice("followed-seller:".length);
+    markFollowedSellerNotificationRead(safeId);
+  } else if (safeId.startsWith("saved-item:")) {
+    const [, savedProductId = ""] = safeId.split(":");
+    productId = savedProductId;
+    markSavedProductNotificationRead(safeId);
+  } else {
     return false;
   }
-  const productId = safeId.slice("followed-seller:".length);
+
   const product = getProductById(productId);
-  markFollowedSellerNotificationRead(safeId);
   if (product) {
     openProductDetailModal(product.id);
   }
@@ -4014,11 +4201,13 @@ function toggleSavedProduct(productId) {
   if (savedIds.has(safeProductId)) {
     savedIds.delete(safeProductId);
     persistSavedProductIds();
+    clearSavedProductIntent(safeProductId);
     return false;
   }
 
   savedIds.add(safeProductId);
   persistSavedProductIds();
+  noteSavedProductIntent(safeProductId);
   return true;
 }
 
@@ -8072,6 +8261,14 @@ const savedProductState = {
   suppressClickUntil: 0,
   activeSheetProductId: "",
   activeSheetSource: ""
+};
+const savedProductMetaState = {
+  storageKey: "",
+  entries: {}
+};
+const savedProductNotificationState = {
+  storageKey: "",
+  readIds: new Set()
 };
 const followedSellerState = {
   storageKey: "",
