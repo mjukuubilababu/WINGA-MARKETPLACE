@@ -11128,6 +11128,7 @@ function getBehaviorShowcaseDescriptor(sectionIndex = 0, excludeIds = new Set())
   const preferredCategories = getBehaviorPreferredCategories();
   const viewedSet = new Set(recentlyViewedProductIds);
   const messagedSet = new Set(recentMessagedProductIds);
+  const followedSellerIds = Array.from(ensureFollowedSellerIdsLoaded()).filter(Boolean);
   const searchTerms = recentSearchTerms.slice(0, 3);
   const behaviorHeavy = viewedSet.size > 0 || messagedSet.size > 0 || preferredCategories.length > 0 || searchTerms.length > 0;
 
@@ -11146,6 +11147,28 @@ function getBehaviorShowcaseDescriptor(sectionIndex = 0, excludeIds = new Set())
     preferredCategories,
     searchTerms
   });
+
+  const followedSellerItems = followedSellerIds.length
+    ? rankProductsForSurface(
+      baseProducts.filter((product) => followedSellerIds.includes(product.uploadedBy)),
+      {
+        surface: "behavior_showcase",
+        limit: 12,
+        excludeIds,
+        preferredCategories,
+        searchTerms
+      }
+    )
+    : [];
+
+  if (followedSellerItems.length >= 3) {
+    return {
+      heading: "Following",
+      title: "New from sellers you follow",
+      subtitle: "Fresh picks from shops you chose to keep up with",
+      items: followedSellerItems
+    };
+  }
 
   if (!items.length) {
     return {
@@ -11206,6 +11229,7 @@ const {
   getRecentCategorySelections: () => recentCategorySelections,
   getRecentSearchTerms: () => recentSearchTerms,
   getRecentMessagedProductIds: () => recentMessagedProductIds,
+  getFollowedSellerIds: () => Array.from(ensureFollowedSellerIdsLoaded()).filter(Boolean),
   getBuyerSellerAffinityEntries,
   getCurrentSession: () => currentSession,
   normalizeOptionalPrice

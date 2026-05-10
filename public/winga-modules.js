@@ -2189,6 +2189,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       getRecentCategorySelections,
       getRecentSearchTerms,
       getRecentMessagedProductIds,
+      getFollowedSellerIds,
       getBuyerSellerAffinityEntries,
       getCurrentSession,
       normalizeOptionalPrice
@@ -2374,6 +2375,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       const recentCategorySelections = typeof getRecentCategorySelections === "function" ? getRecentCategorySelections() : [];
       const recentSearchTerms = typeof getRecentSearchTerms === "function" ? getRecentSearchTerms() : [];
       const recentMessagedProductIds = typeof getRecentMessagedProductIds === "function" ? getRecentMessagedProductIds() : [];
+      const followedSellerIds = typeof getFollowedSellerIds === "function" ? getFollowedSellerIds() : [];
       const buyerSellerAffinityEntries = typeof getBuyerSellerAffinityEntries === "function" ? getBuyerSellerAffinityEntries() : [];
       let hasMeaningfulHistory = false;
 
@@ -2480,6 +2482,16 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
           return;
         }
         addScore(sellerScores, sellerId, affinityScore + getRecencyBoost(entry?.updatedAt, 56, 35));
+        hasMeaningfulHistory = true;
+      });
+
+      (Array.isArray(followedSellerIds) ? followedSellerIds : []).forEach((sellerId, index) => {
+        const normalizedSellerId = String(sellerId || "").trim();
+        if (!normalizedSellerId) {
+          return;
+        }
+        const freshness = Math.max(0.55, 1 - (index * 0.06));
+        addScore(sellerScores, normalizedSellerId, 180 * freshness);
         hasMeaningfulHistory = true;
       });
 
