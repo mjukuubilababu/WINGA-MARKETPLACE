@@ -5577,6 +5577,7 @@ function renderSellerTrustPanel(product) {
       ${(showReportActions || showFollowAction) ? `
         <div class="seller-trust-actions">
           ${showFollowAction ? `<button class="trust-link-btn${sellerFollowed ? " is-active" : ""}" type="button" data-follow-seller="${product.uploadedBy}">${sellerFollowed ? "Following seller" : "Follow seller"}</button>` : ""}
+          ${showFollowAction ? `<button class="trust-link-btn" type="button" data-share-seller-shop="${product.uploadedBy}">Share seller</button>` : ""}
           <button class="trust-link-btn" type="button" data-report-product="${product.id}">Report product</button>
           <button class="trust-link-btn" type="button" data-report-seller="${product.uploadedBy}" data-report-product-context="${product.id}">Report seller</button>
         </div>
@@ -5611,11 +5612,21 @@ function renderSavedIntentSection() {
       `).join("")
     : `<p class="empty-copy compact">Hakuna saved picks bado.</p>`;
   const followedSellerButtons = followedSellers.length
-    ? followedSellers.map((seller) => `
-        <button class="saved-intent-chip${isSellerFollowed(seller.username) ? " is-active" : ""}" type="button" data-follow-seller="${seller.username}">
-          ${escapeHtml(getUserDisplayName(seller.username, { fallback: seller.fullName || seller.username || "Seller" }))}
-        </button>
-      `).join("")
+    ? followedSellers.map((seller) => {
+        const latestProduct = getLatestApprovedSellerProduct(seller.username);
+        return `
+          <div class="saved-followed-seller-item">
+            <button class="saved-intent-chip${isSellerFollowed(seller.username) ? " is-active" : ""}" type="button" data-open-followed-seller="${seller.username}">
+              ${escapeHtml(getUserDisplayName(seller.username, { fallback: seller.fullName || seller.username || "Seller" }))}
+            </button>
+            <small class="product-meta">${escapeHtml(latestProduct?.name || "No approved product yet")}</small>
+            <div class="saved-followed-seller-actions">
+              <button class="trust-link-btn" type="button" data-share-seller-shop="${seller.username}">Share seller</button>
+              <button class="trust-link-btn" type="button" data-follow-seller="${seller.username}">Unfollow</button>
+            </div>
+          </div>
+        `;
+      }).join("")
     : `<p class="empty-copy compact">Hakuna sellers unaowafuata bado.</p>`;
 
   return `
@@ -5639,6 +5650,62 @@ function renderSavedIntentSection() {
       </div>
     </section>
   `;
+}
+
+function getLatestApprovedSellerProduct(username) {
+  const safeUsername = String(username || "").trim();
+  if (!safeUsername) {
+    return null;
+  }
+  return products
+    .filter((product) => product?.uploadedBy === safeUsername && product?.status === "approved")
+    .sort((first, second) => new Date(second.createdAt || second.timestamp || 0).getTime() - new Date(first.createdAt || first.timestamp || 0).getTime())[0] || null;
+}
+
+async function handleShareSellerShop(username) {
+  const seller = getMarketplaceUser(username);
+  const latestProduct = getLatestApprovedSellerProduct(username);
+  if (!latestProduct) {
+    showInAppNotification({
+      title: "Nothing to share yet",
+      body: `${getUserDisplayName(username)} bado hana bidhaa approved ya kushare kwa sasa.`,
+      variant: "warning"
+    });
+    return;
+  }
+
+  const sellerName = getUserDisplayName(username, {
+    fallback: seller?.fullName || seller?.username || "Seller"
+  });
+  const shareText = `See more from ${sellerName} on Winga. Start with ${latestProduct.name}.`;
+  const shareUrl = `${window.location.origin}${getProductDetailPath(latestProduct.id)}`;
+
+  if (navigator.share) {
+    try {
+      await navigator.share({
+        title: `${sellerName} on Winga`,
+        text: shareText,
+        url: shareUrl
+      });
+      return;
+    } catch (error) {
+      if (error && error.name === "AbortError") {
+        return;
+      }
+    }
+  }
+
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(`${shareText} | Link: ${shareUrl}`);
+    showInAppNotification({
+      title: "Seller share ready",
+      body: `${sellerName} link ime-copy tayari kwa sharing.`,
+      variant: "success"
+    });
+    return;
+  }
+
+  window.prompt("Copy seller link", `${shareText} | Link: ${shareUrl}`);
 }
 
 const TRUST_REPORT_REASON_OPTIONS = [
@@ -6154,6 +6221,36 @@ function bindTrustReportEntryActions() {
       if (currentView === "profile" && profileDiv?.isConnected) {
         renderProfile?.();
       }
+      return;
+    }
+
+    const openFollowedSellerButton = event.target.closest("[data-open-followed-seller]");
+    if (openFollowedSellerButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      const username = openFollowedSellerButton.dataset.openFollowedSeller || "";
+      const latestProduct = getLatestApprovedSellerProduct(username);
+      if (!latestProduct) {
+        showInAppNotification({
+          title: "No live product yet",
+          body: `${getUserDisplayName(username)} bado hana approved product ya kufungua.`,
+          variant: "warning"
+        });
+        return;
+      }
+      openProductDetailModal(latestProduct.id);
+      return;
+    }
+
+    const shareSellerButton = event.target.closest("[data-share-seller-shop]");
+    if (shareSellerButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      handleShareSellerShop(shareSellerButton.dataset.shareSellerShop || "").catch((error) => {
+        captureClientError("share_seller_shop_failed", error, {
+          sellerUsername: shareSellerButton.dataset.shareSellerShop || ""
+        });
+      });
       return;
     }
 

@@ -3625,6 +3625,17 @@ img[data-zoom-src]{
   color:var(--accent-deep);
 }
 
+.saved-followed-seller-item{
+  display:grid;
+  gap:6px;
+}
+
+.saved-followed-seller-actions{
+  display:flex;
+  flex-wrap:wrap;
+  gap:10px;
+}
+
 .product-summary-row{
   display:flex;
   flex-wrap:wrap;
