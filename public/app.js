@@ -5745,6 +5745,18 @@ function renderPaymentIntentModal() {
       })
     );
   }
+  const safetyCard = createElement("div", { className: "payment-safety-card" });
+  safetyCard.append(
+    createElement("strong", { textContent: "Safety check before you pay" }),
+    createElement("p", {
+      className: "product-meta",
+      textContent: "Hakiki jina la mpokeaji, lipa kiasi kilichoonyeshwa, kisha weka reference ya malipo hapa ndani."
+    }),
+    createElement("p", {
+      className: "product-meta",
+      textContent: "Ukiona taarifa hazilingani au seller anakushinikiza ulipie sehemu nyingine, tumia report seller kwanza."
+    })
+  );
 
   const input = createElement("input", {
     attributes: {
@@ -5778,6 +5790,15 @@ function renderPaymentIntentModal() {
     submitButton,
     createElement("button", {
       className: "action-btn action-btn-secondary",
+      textContent: "Report seller",
+      attributes: {
+        type: "button",
+        "data-report-seller": product.uploadedBy || "",
+        "data-report-product-context": product.id || ""
+      }
+    }),
+    createElement("button", {
+      className: "action-btn action-btn-secondary",
       textContent: "Message seller",
       attributes: {
         type: "button",
@@ -5794,7 +5815,7 @@ function renderPaymentIntentModal() {
     })
   );
 
-  wrapper.append(summary, input, note, actions);
+  wrapper.append(summary, safetyCard, input, note, actions);
   body.replaceChildren(wrapper);
   root.hidden = false;
   root.classList.add("open");

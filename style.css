@@ -5407,6 +5407,30 @@ body.context-chat-open{
   font-size:0.84rem;
 }
 
+.thread-safety-note,
+.payment-safety-card{
+  margin:0 0 12px;
+  padding:10px 12px;
+  border:1px solid #dfe7ff;
+  border-radius:14px;
+  background:linear-gradient(180deg, #f7faff 0%, #ffffff 100%);
+  color:var(--muted);
+  font-size:0.84rem;
+}
+
+.payment-safety-card{
+  display:grid;
+  gap:6px;
+}
+
+.payment-safety-card strong{
+  color:var(--text);
+}
+
+.thread-safety-note{
+  display:block;
+}
+
 .context-chat-note{
   margin-top:4px;
 }

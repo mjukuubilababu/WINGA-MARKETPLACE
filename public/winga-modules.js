@@ -4779,10 +4779,12 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
                     <button class="action-btn edit-btn" type="button" data-refresh-messages="true">Refresh</button>
                     ${activeCommerce?.productId ? `<button class="action-btn action-btn-secondary" type="button" data-chat-open-product="${activeCommerce.productId}">Open product</button>` : ""}
                     ${activeCommerce?.productId ? `<button class="action-btn action-btn-secondary chat-pay-pill" type="button" data-chat-buy-product="${activeCommerce.productId}">Lipa</button>` : ""}
+                    ${activeChatContext?.withUser ? `<button class="action-btn action-btn-secondary" type="button" data-report-seller="${activeChatContext.withUser}" data-report-product-context="${activeCommerce?.productId || activeChatContext.productId || ""}">Report seller</button>` : ""}
                     ${contactState.canSharePhone ? `<button class="action-btn action-btn-secondary" type="button" data-share-my-phone="true">Share my phone</button>` : ""}
                     ${activeWhatsApp ? `<a class="button" href="${deps.buildWhatsappHref(activeWhatsApp, activeChatContext.productName)}" target="_blank" rel="noopener noreferrer">Chat on WhatsApp</a>` : ""}
                   </div>
                 </div>
+                <p class="thread-safety-note">Lipa tu kwa details za seller zilizo ndani ya Winga, kisha tuma reference hapa. Ukiona tabia ya kutia shaka, report seller moja kwa moja.</p>
                 ${contactState.note ? `<p class="thread-contact-note">${deps.escapeHtml(contactState.note)}</p>` : ""}
                 <div class="messages-thread-body">
                   ${renderConversationMessagesMarkup(activeMessages, { enableActions: true })}
@@ -4905,9 +4907,11 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
             ${renderConversationMessagesMarkup(activeMessages, { enableActions: true })}
           </div>
           <div class="context-chat-actions">
+            ${activeChatContext?.withUser ? `<button class="action-btn action-btn-secondary" type="button" data-report-seller="${activeChatContext.withUser}" data-report-product-context="${activeChatContext.productId || ""}">Report seller</button>` : ""}
             ${contactState.canSharePhone ? `<button class="action-btn action-btn-secondary" type="button" data-share-my-phone="true">Share my phone</button>` : ""}
             ${activeWhatsApp ? `<a class="button whatsapp-chat-btn" href="${deps.buildWhatsappHref(activeWhatsApp, productName)}" target="_blank" rel="noopener noreferrer">WhatsApp</a>` : ""}
           </div>
+          <p class="thread-safety-note context-chat-note">Tumia Winga payment details na report seller kama kuna pressure ya kulipa nje ya flow hii.</p>
           ${contactState.note ? `<p class="thread-contact-note context-chat-note">${deps.escapeHtml(contactState.note)}</p>` : ""}
           ${selectedProducts.length ? `
             <div class="context-chat-selection-bar">
