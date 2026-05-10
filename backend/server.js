@@ -1460,6 +1460,7 @@ function toProductListItem(product) {
     uploadedBy: product.uploadedBy || "",
     verifiedSeller: Boolean(product.verifiedSeller),
     status: product.status || "approved",
+    availability: product.availability || "available",
     fitMode: product.fitMode || "cover",
     createdAt: product.createdAt || "",
     whatsapp: product.whatsapp || "",
@@ -1659,7 +1660,11 @@ function normalizeProductRecord(product) {
     uploadedBy: normalizeIdentifier(product.uploadedBy, 40),
     category: sanitizePlainText(product.category, 60).toLowerCase(),
     status: isValidProductStatus(product.status) ? product.status : (hasLegacyModerationFields ? inferredStatus : "approved"),
-    availability: product.availability === "sold_out" ? "sold_out" : "available",
+    availability: product.availability === "sold_out"
+      ? "sold_out"
+      : product.availability === "reserved"
+        ? "reserved"
+        : "available",
     moderationNote: sanitizePlainText(product.moderationNote, 240),
     moderatedAt: product.moderatedAt || "",
     moderatedBy: normalizeIdentifier(product.moderatedBy, 40),
@@ -1713,6 +1718,20 @@ function normalizeOrderRecord(order) {
     reserveExpiresAt,
     createdAt
   };
+}
+
+function deriveProductAvailabilityFromOrders(orders, productId) {
+  const productOrders = (Array.isArray(orders) ? orders : [])
+    .map(normalizeOrderRecord)
+    .filter((order) => order.productId === productId);
+
+  if (productOrders.some((order) => order.status === "delivered")) {
+    return "sold_out";
+  }
+  if (productOrders.some((order) => ["placed", "paid", "confirmed"].includes(order.status))) {
+    return "reserved";
+  }
+  return "available";
 }
 
 function normalizePaymentRecord(payment) {
@@ -1821,7 +1840,10 @@ function buildOrderNotification({ recipientId, actorUsername, order, stage }) {
     body = `Kuna order mpya ya ${productLabel}. Fungua order uone maelezo ya mnunuzi.`;
   } else if (stage === "paid") {
     title = `Malipo ya ${productLabel} yamethibitishwa`;
-    body = "Order iko tayari kwa uthibitisho wa muuzaji na maandalizi ya kuendelea.";
+    body = `${safeActor || "Muuzaji"} amehakiki payment proof. Order iko tayari kwa uthibitisho wa muuzaji na maandalizi ya kuendelea.`;
+  } else if (stage === "payment_rejected") {
+    title = `Payment proof ya ${productLabel} imekataliwa`;
+    body = `${safeActor || "Muuzaji"} hakuweza kuthibitisha malipo ya order hii. Fungua chat au jaribu tena ukiwa na reference sahihi.`;
   } else if (stage === "confirmed") {
     title = `Muuzaji amethibitisha ${productLabel}`;
     body = "Kuna update mpya kwenye order yako. Angalia status ya delivery au maelekezo ya muuzaji.";
@@ -1839,7 +1861,7 @@ function buildOrderNotification({ recipientId, actorUsername, order, stage }) {
     conversationId: safeOrder.id,
     title,
     body,
-    variant: stage === "cancelled" ? "warning" : "success",
+    variant: stage === "cancelled" || stage === "payment_rejected" ? "warning" : "success",
     isRead: false,
     createdAt: new Date().toISOString()
   });
@@ -3463,6 +3485,13 @@ function canBuyerCancelOrder(order, session) {
 function canUpdateOrderStatus(order, session, nextStatus) {
   const isBuyer = order.buyerUsername === session.username;
   const isSeller = order.sellerUsername === session.username;
+  const pendingVerification = order.status === "placed"
+    && order.paymentStatus === "pending"
+    && (order.paymentIntentStatus || "submitted") === "submitted";
+
+  if (nextStatus === "paid") {
+    return isSeller && pendingVerification;
+  }
 
   if (nextStatus === "confirmed") {
     return isSeller && order.status === "paid" && order.paymentStatus === "paid";
@@ -3473,7 +3502,7 @@ function canUpdateOrderStatus(order, session, nextStatus) {
   }
 
   if (nextStatus === "cancelled") {
-    return canBuyerCancelOrder(order, session);
+    return canBuyerCancelOrder(order, session) || (isSeller && pendingVerification);
   }
 
   return false;
@@ -3509,11 +3538,18 @@ function updateOrderAndPaymentFromPaymentResult(store, orderId, paymentStatus, c
     paymentConfirmedAt: normalizedPaymentStatus === "paid" ? now : existingOrder.paymentConfirmedAt,
     paymentConfirmedBy: normalizedPaymentStatus === "paid" ? "system" : existingOrder.paymentConfirmedBy
   });
+  const nextOrders = (store.orders || []).map((order) => order.id === orderId ? updatedOrder : normalizeOrderRecord(order));
+  const nextAvailability = deriveProductAvailabilityFromOrders(nextOrders, existingOrder.productId);
 
   return {
     ...store,
-    orders: (store.orders || []).map((order) => order.id === orderId ? updatedOrder : order),
-    payments: (store.payments || []).map((payment) => payment.orderId === orderId ? updatedPayment : payment)
+    orders: nextOrders,
+    payments: (store.payments || []).map((payment) => payment.orderId === orderId ? updatedPayment : normalizePaymentRecord(payment)),
+    products: (store.products || []).map((product) =>
+      product.id === existingOrder.productId
+        ? { ...product, availability: nextAvailability, updatedAt: now }
+        : product
+    )
   };
 }
 
@@ -6419,6 +6455,10 @@ http.createServer(async (req, res) => {
         sendJson(res, 400, { error: "Bidhaa hii imeisha, ni sold out." });
         return;
       }
+      if (product.availability === "reserved") {
+        sendJson(res, 409, { error: "Bidhaa hii imeshahifadhiwa kwa order nyingine. Tuma ujumbe kwa muuzaji kwanza." });
+        return;
+      }
 
       if (product.uploadedBy === session.username) {
         sendJson(res, 400, { error: "Huwezi kununua bidhaa yako mwenyewe." });
@@ -6525,7 +6565,12 @@ http.createServer(async (req, res) => {
         stage: "created"
       });
       const notifications = [sellerNotification, ...((store.notifications || []).map(normalizeNotificationRecord))];
-      store = { ...store, orders, payments, notifications };
+      const products = (store.products || []).map((item) =>
+        item.id === product.id
+          ? { ...item, availability: "reserved", updatedAt: now }
+          : item
+      );
+      store = { ...store, orders, payments, products, notifications };
       await writeStore(store);
       await appendAuditLog({
         time: new Date().toISOString(),
@@ -6678,29 +6723,64 @@ http.createServer(async (req, res) => {
         return;
       }
 
+      const sellerRejectingPendingPayment = nextStatus === "cancelled"
+        && session.username === existingOrder.sellerUsername
+        && existingOrder.status === "placed"
+        && existingOrder.paymentStatus === "pending";
+      const paymentStatus = nextStatus === "paid"
+        ? "paid"
+        : sellerRejectingPendingPayment
+          ? "failed"
+          : existingOrder.paymentStatus;
+      const paymentIntentStatus = nextStatus === "paid"
+        ? "verified"
+        : sellerRejectingPendingPayment
+          ? "cancelled"
+          : existingOrder.paymentIntentStatus;
+      const paymentConfirmedAt = nextStatus === "paid" ? new Date().toISOString() : existingOrder.paymentConfirmedAt;
+      const paymentConfirmedBy = nextStatus === "paid" ? session.username : existingOrder.paymentConfirmedBy;
+
       const updatedOrder = normalizeOrderRecord({
         ...existingOrder,
         status: nextStatus,
-        paymentStatus: nextStatus === "paid" ? "paid" : existingOrder.paymentStatus,
-        paymentConfirmedAt: nextStatus === "paid" ? new Date().toISOString() : existingOrder.paymentConfirmedAt,
-        paymentConfirmedBy: nextStatus === "paid" ? session.username : existingOrder.paymentConfirmedBy
+        paymentStatus,
+        paymentIntentStatus,
+        paymentConfirmedAt,
+        paymentConfirmedBy,
+        reserveExpiresAt: nextStatus === "placed" ? existingOrder.reserveExpiresAt : ""
       });
 
       const orders = (store.orders || []).map((order) =>
         order.id === orderId ? updatedOrder : order
       );
+      const payments = (store.payments || []).map((payment) =>
+        payment.orderId === orderId
+          ? normalizePaymentRecord({
+            ...payment,
+            paymentStatus,
+            updatedAt: new Date().toISOString()
+          })
+          : normalizePaymentRecord(payment)
+      );
+      const nextAvailability = deriveProductAvailabilityFromOrders(orders, existingOrder.productId);
 
       const notificationRecipient = session.username === existingOrder.sellerUsername
         ? existingOrder.buyerUsername
         : existingOrder.sellerUsername;
+      const notificationStage = sellerRejectingPendingPayment ? "payment_rejected" : nextStatus;
       const orderNotification = buildOrderNotification({
         recipientId: notificationRecipient,
         actorUsername: session.username,
         order: updatedOrder,
-        stage: nextStatus
+        stage: notificationStage
       });
       const notifications = [orderNotification, ...((store.notifications || []).map(normalizeNotificationRecord))];
-      store = { ...store, orders, notifications };
+      const products = (store.products || []).map((item) =>
+        item.id === existingOrder.productId
+          ? { ...item, availability: nextAvailability, updatedAt: new Date().toISOString() }
+          : item
+      );
+      store = { ...store, orders, payments, products, notifications };
       await writeStore(store);
       await appendAuditLog({
         time: new Date().toISOString(),
@@ -6710,7 +6790,8 @@ http.createServer(async (req, res) => {
         event: "order_status_updated",
         username: session.username,
         orderId,
-        status: nextStatus
+        status: nextStatus,
+        paymentStatus
       });
       emitLiveEvent(notificationRecipient, "notification", { notification: orderNotification });
       sendJson(res, 200, updatedOrder);

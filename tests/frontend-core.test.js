@@ -267,6 +267,7 @@ test("canRenderBuyButton enforces approved non-self non-sold-out products", () =
   assert.equal(canRenderBuyButton({ uploadedBy: "seller-a", status: "approved", availability: "available" }, "seller-a"), false);
   assert.equal(canRenderBuyButton({ uploadedBy: "seller-b", status: "pending", availability: "available" }, "seller-a"), false);
   assert.equal(canRenderBuyButton({ uploadedBy: "seller-b", status: "approved", availability: "sold_out" }, "seller-a"), false);
+  assert.equal(canRenderBuyButton({ uploadedBy: "seller-b", status: "approved", availability: "reserved" }, "seller-a"), false);
 });
 
 test("getOrderActionState enforces seller confirm, buyer receipt, and 48h cancel", () => {
@@ -274,6 +275,7 @@ test("getOrderActionState enforces seller confirm, buyer receipt, and 48h cancel
   const oldPlaced = {
     status: "placed",
     paymentStatus: "pending",
+    paymentIntentStatus: "submitted",
     buyerUsername: "buyer-a",
     sellerUsername: "seller-b",
     createdAt: new Date(now - (49 * 60 * 60 * 1000)).toISOString()
@@ -294,18 +296,32 @@ test("getOrderActionState enforces seller confirm, buyer receipt, and 48h cancel
   };
 
   assert.deepEqual(getOrderActionState(paid, "seller-b", now), {
+    canVerifyPayment: false,
+    canRejectPayment: false,
     canConfirm: true,
     canConfirmReceived: false,
     canCancel: false
   });
 
   assert.deepEqual(getOrderActionState(oldPlaced, "buyer-a", now), {
+    canVerifyPayment: false,
+    canRejectPayment: false,
     canConfirm: false,
     canConfirmReceived: false,
     canCancel: true
   });
 
+  assert.deepEqual(getOrderActionState(oldPlaced, "seller-b", now), {
+    canVerifyPayment: true,
+    canRejectPayment: true,
+    canConfirm: false,
+    canConfirmReceived: false,
+    canCancel: false
+  });
+
   assert.deepEqual(getOrderActionState(confirmed, "buyer-a", now), {
+    canVerifyPayment: false,
+    canRejectPayment: false,
     canConfirm: false,
     canConfirmReceived: true,
     canCancel: false

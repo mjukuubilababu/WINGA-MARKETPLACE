@@ -844,6 +844,16 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   assert.equal(orderCreate.body.status, "placed");
   assert.equal(orderCreate.body.paymentStatus, "pending");
   const orderId = orderCreate.body.id;
+  const buyerVisibleProductsAfterOrder = await request("/products", {
+    headers: {
+      Authorization: `Bearer ${buyerToken}`
+    }
+  });
+  assert.equal(buyerVisibleProductsAfterOrder.response.status, 200);
+  assert.equal(
+    buyerVisibleProductsAfterOrder.body.find((product) => product.id === "product-test-001")?.availability,
+    "reserved"
+  );
   const sellerVisibleUsersBeforeShare = await request("/users", {
     headers: { Authorization: `Bearer ${sellerToken}` }
   });
@@ -884,6 +894,79 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
     body: JSON.stringify({ status: "confirmed" })
   });
   assert.equal(sellerConfirmBeforePayment.response.status, 403);
+
+  const sellerVerifyPayment = await request(`/orders/${orderId}/status`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${sellerToken}`
+    },
+    body: JSON.stringify({ status: "paid" })
+  });
+  assert.equal(sellerVerifyPayment.response.status, 200);
+  assert.equal(sellerVerifyPayment.body.status, "paid");
+  assert.equal(sellerVerifyPayment.body.paymentStatus, "paid");
+  assert.equal(sellerVerifyPayment.body.paymentIntentStatus, "verified");
+
+  const buyerNotificationsAfterPaymentVerify = await request("/notifications", {
+    headers: { Authorization: `Bearer ${buyerToken}` }
+  });
+  assert.equal(buyerNotificationsAfterPaymentVerify.response.status, 200);
+  assert.equal(
+    buyerNotificationsAfterPaymentVerify.body.some((notification) =>
+      notification.type === "order"
+      && notification.title.includes("yamethibitishwa")
+      && notification.body.includes("payment proof")
+    ),
+    true
+  );
+
+  const rejectedOrderCreate = await request("/orders", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${buyerToken}`
+    },
+    body: JSON.stringify({ productId: "product-test-002", transactionId: "TXN-1002" })
+  });
+  assert.equal(rejectedOrderCreate.response.status, 200);
+  const rejectedOrderId = rejectedOrderCreate.body.id;
+
+  const sellerRejectPayment = await request(`/orders/${rejectedOrderId}/status`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${sellerToken}`
+    },
+    body: JSON.stringify({ status: "cancelled" })
+  });
+  assert.equal(sellerRejectPayment.response.status, 200);
+  assert.equal(sellerRejectPayment.body.status, "cancelled");
+  assert.equal(sellerRejectPayment.body.paymentStatus, "failed");
+  assert.equal(sellerRejectPayment.body.paymentIntentStatus, "cancelled");
+  const buyerVisibleProductsAfterReject = await request("/products", {
+    headers: {
+      Authorization: `Bearer ${buyerToken}`
+    }
+  });
+  assert.equal(buyerVisibleProductsAfterReject.response.status, 200);
+  assert.equal(
+    buyerVisibleProductsAfterReject.body.find((product) => product.id === "product-test-002")?.availability,
+    "available"
+  );
+
+  const buyerNotificationsAfterPaymentReject = await request("/notifications", {
+    headers: { Authorization: `Bearer ${buyerToken}` }
+  });
+  assert.equal(buyerNotificationsAfterPaymentReject.response.status, 200);
+  assert.equal(
+    buyerNotificationsAfterPaymentReject.body.some((notification) =>
+      notification.type === "order"
+      && notification.title.includes("imekataliwa")
+      && notification.body.includes("reference sahihi")
+    ),
+    true
+  );
 
   const adminOrderAttempt = await request("/orders", {
     method: "POST",
@@ -987,6 +1070,16 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   });
   assert.equal(buyerReceive.response.status, 200);
   assert.equal(buyerReceive.body.status, "delivered");
+  const buyerVisibleProductsAfterDelivery = await request("/products", {
+    headers: {
+      Authorization: `Bearer ${buyerToken}`
+    }
+  });
+  assert.equal(buyerVisibleProductsAfterDelivery.response.status, 200);
+  assert.equal(
+    buyerVisibleProductsAfterDelivery.body.find((product) => product.id === "product-test-001")?.availability,
+    "sold_out"
+  );
   const sellerNotificationsAfterDelivered = await request("/notifications", {
     headers: { Authorization: `Bearer ${sellerToken}` }
   });

@@ -36,6 +36,12 @@
       if (!canOpenDetail) {
         return `<button class="action-btn buy-btn is-disabled" type="button" disabled aria-disabled="true">Nunua</button>`;
       }
+      if (product?.availability === "reserved") {
+        return `<button class="action-btn buy-btn is-disabled" type="button" disabled aria-disabled="true">Reserved</button>`;
+      }
+      if (product?.availability === "sold_out") {
+        return `<button class="action-btn buy-btn is-disabled" type="button" disabled aria-disabled="true">Sold Out</button>`;
+      }
 
       return `<button class="action-btn buy-btn" type="button" data-buy-product="${product.id}">Nunua</button>`;
     }
@@ -54,12 +60,22 @@
       const state = typeof getOrderActionState === "function"
         ? getOrderActionState(order, currentUser, Date.now(), buyerCancelWindowMs)
         : {
-          canConfirm: order.sellerUsername === currentUser && order.status === "placed",
+          canVerifyPayment: order.sellerUsername === currentUser && order.status === "placed" && (order.paymentStatus || "pending") === "pending",
+          canRejectPayment: order.sellerUsername === currentUser && order.status === "placed" && (order.paymentStatus || "pending") === "pending",
+          canConfirm: order.sellerUsername === currentUser && order.status === "paid" && order.paymentStatus === "paid",
           canConfirmReceived: order.buyerUsername === currentUser && order.status === "confirmed",
           canCancel: order.buyerUsername === currentUser && order.status === "placed"
             && (Date.now() - new Date(order.createdAt || 0).getTime() >= buyerCancelWindowMs)
         };
       const actions = [];
+
+      if (state.canVerifyPayment) {
+        actions.push(`<button class="action-btn buy-btn" type="button" data-order-action="paid" data-order-id="${order.id}">Verify Payment</button>`);
+      }
+
+      if (state.canRejectPayment) {
+        actions.push(`<button class="action-btn delete-btn" type="button" data-order-action="cancelled" data-order-id="${order.id}" data-order-reject-payment="true">Reject Payment</button>`);
+      }
 
       if (state.canConfirm) {
         actions.push(`<button class="action-btn buy-btn" type="button" data-order-action="confirmed" data-order-id="${order.id}">Respond & Confirm</button>`);
@@ -81,7 +97,7 @@
         return "";
       }
       if (order.status === "placed" && order.paymentStatus === "pending") {
-        return "Payment reference imepokelewa. Order imehifadhiwa kwa muda wakati Winga inaverify malipo ya Mobile Money.";
+        return "Payment reference imepokelewa. Seller anatakiwa kuhakiki malipo haya ndani ya dirisha la reservation kabla order haijasogea mbele.";
       }
       if (order.status === "paid") {
         return "Payment verified. Seller sasa anatakiwa kujibu na kuthibitisha order hii.";
@@ -96,7 +112,9 @@
         return "Order completed. Buyer anaweza sasa kuacha review ya bidhaa na huduma ya seller.";
       }
       if (order.status === "cancelled") {
-        return "Order hii imecanceliwa. Hakuna hatua nyingine itakayofuata.";
+        return order.paymentStatus === "failed" || order.paymentIntentStatus === "cancelled"
+          ? "Payment proof haikuthibitishwa, hivyo order imefungwa. Buyer anaweza kuwasiliana na seller au kutuma order mpya."
+          : "Order hii imecanceliwa. Hakuna hatua nyingine itakayofuata.";
       }
       return "Fuatilia status ya order hapa hadi ikamilike.";
     }

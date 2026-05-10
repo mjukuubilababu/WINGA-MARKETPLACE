@@ -308,20 +308,25 @@
       && product
       && product.uploadedBy !== currentUser
       && product.status === "approved"
-      && product.availability !== "sold_out"
+      && product.availability === "available"
     );
   }
 
 function getOrderActionState(order, currentUser, now = Date.now(), buyerCancelWindowMs = 48 * 60 * 60 * 1000) {
     if (!order || !currentUser) {
-      return { canConfirm: false, canConfirmReceived: false, canCancel: false };
+      return { canVerifyPayment: false, canRejectPayment: false, canConfirm: false, canConfirmReceived: false, canCancel: false };
     }
 
     const createdAt = new Date(order.createdAt || 0).getTime();
     const isBuyer = order.buyerUsername === currentUser;
     const isSeller = order.sellerUsername === currentUser;
+    const pendingVerification = order.status === "placed"
+      && (order.paymentStatus || "pending") === "pending"
+      && (order.paymentIntentStatus || "submitted") === "submitted";
 
   return {
+      canVerifyPayment: isSeller && pendingVerification,
+      canRejectPayment: isSeller && pendingVerification,
       canConfirm: isSeller && order.status === "paid" && order.paymentStatus === "paid",
       canConfirmReceived: isBuyer && order.status === "confirmed",
       canCancel: isBuyer && order.status === "placed" && (order.paymentStatus || "pending") === "pending" && now - createdAt >= buyerCancelWindowMs
@@ -377,7 +382,7 @@ function getOrderActionState(order, currentUser, now = Date.now(), buyerCancelWi
     return {
       id: "pending_verification",
       label: "Pending verification",
-      detail: "Buyer ametuma reference ya Mobile Money. Winga imeshikilia order hii kwa muda huku verification ya malipo ikiendelea.",
+      detail: "Buyer ametuma reference ya Mobile Money. Seller sasa anatakiwa kuhakiki malipo hayo kabla order haijaendelea.",
       tone: "pending"
     };
   }

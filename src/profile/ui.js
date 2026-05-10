@@ -545,6 +545,19 @@
           textContent: `${order.paymentStatus === "paid" ? "Paid at" : "Submitted at"}: ${new Date(order.paymentDate).toLocaleString("sw-TZ")}`
         }));
       }
+      if (order.transactionId || order.paymentProvider || order.paymentPhoneNumber) {
+        const paymentFacts = [
+          order.transactionId ? `Reference: ${order.transactionId}` : "",
+          order.paymentProvider ? `Provider: ${String(order.paymentProvider).replace(/_/g, " ").toUpperCase()}` : "",
+          order.paymentPhoneNumber ? `Lipa: ${order.paymentPhoneNumber}` : ""
+        ].filter(Boolean);
+        if (paymentFacts.length) {
+          line.appendChild(deps.createElement("small", {
+            className: "meta-copy",
+            textContent: paymentFacts.join(" | ")
+          }));
+        }
+      }
       if (order.status === "placed" && order.paymentStatus === "pending" && order.reserveExpiresAt) {
         line.appendChild(deps.createElement("small", {
           className: "meta-copy",

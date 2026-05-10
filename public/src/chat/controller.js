@@ -622,7 +622,10 @@
       bindClickOnce("[data-order-action]", "OrderAction", async (button) => {
           const orderId = button.dataset.orderId;
           const status = button.dataset.orderAction;
-          if (status === "cancelled" && deps.confirmAction && !deps.confirmAction("Una uhakika unataka kufuta order hii?")) {
+          const isRejectPayment = button.dataset.orderRejectPayment === "true";
+          if (status === "cancelled" && deps.confirmAction && !deps.confirmAction(isRejectPayment
+            ? "Una uhakika unataka kukataa payment proof hii? Order itafungwa."
+            : "Una uhakika unataka kufuta order hii?")) {
             return;
           }
           try {
@@ -630,7 +633,9 @@
             deps.showInAppNotification?.({
               title: "Order updated",
               body: status === "cancelled"
-                ? "Request/order imecanceliwa."
+                ? (isRejectPayment ? "Payment proof imekataliwa na order imefungwa." : "Request/order imecanceliwa.")
+                : status === "paid"
+                  ? "Payment imethibitishwa. Buyer ataona update hii mara moja."
                 : status === "confirmed"
                   ? "Seller amejibu na kuthibitisha order."
                   : "Order imewekwa completed.",

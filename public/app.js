@@ -6757,7 +6757,11 @@ function normalizeProduct(product) {
     price: normalizeOptionalPrice(product.price),
     category: product.category || detectCategory(product.name || ""),
     status: product.status || "approved",
-    availability: product.availability === "sold_out" ? "sold_out" : "available",
+    availability: product.availability === "sold_out"
+      ? "sold_out"
+      : product.availability === "reserved"
+        ? "reserved"
+        : "available",
     moderationNote: product.moderationNote || "",
     createdAt: product.createdAt || "",
     updatedAt: product.updatedAt || "",
@@ -11485,8 +11489,8 @@ function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
   const total = images.length;
   const currentLabel = total > 1 ? `1/${total}` : "";
   const priorityLimit = Math.max(1, Number(options?.priorityCount || 1));
-  const isFeedSurface = String(surface || "").trim().toLowerCase() === "feed";
   const fitMode = getProductFitMode(product);
+  const isFeedSurface = String(surface || "").trim().toLowerCase() === "feed";
   const stableFrameRatio = isFeedSurface ? "3 / 4" : "";
   if (options?.preload && typeof preloadImageSource === "function") {
     images.slice(0, Math.min(images.length, priorityLimit)).forEach((src, index) => {
@@ -11533,12 +11537,13 @@ function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
           placeholderSrc: getImageFallbackDataUri("W"),
           fitMode,
           attributes: {
-            loading: "lazy",
-            fetchpriority: "auto",
+            loading: index === 0 ? "eager" : "lazy",
+            fetchpriority: index === 0 ? "high" : "auto",
             decoding: "async",
             draggable: "false",
             "data-preserve-image-ratio": "true",
             "data-marketplace-scroll-image": "true",
+            "data-feed-gallery-primary": index === 0 ? "true" : "false",
             "data-feed-gallery-image-src": safeSrc,
             "data-fallback-src": getImageFallbackDataUri("WINGA")
           }
@@ -11554,6 +11559,7 @@ function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
       data-feed-gallery-current="1"
       data-feed-gallery-surface="${escapeHtml(surface || "feed")}"
       ${stableFrameRatio ? `data-feed-gallery-stable-ratio="${escapeHtml(stableFrameRatio)}"` : ""}
+      data-feed-gallery-stable-fit-mode="${escapeHtml(fitMode)}"
       data-fit-mode="${escapeHtml(fitMode)}">
       <div class="feed-gallery-carousel-track" data-feed-gallery-track>
         ${slides}
@@ -11778,7 +11784,12 @@ function bindFeedGalleryInteractions(scope = document) {
       const total = Math.max(1, Number(carousel.dataset.feedGalleryTotal || track.querySelectorAll("[data-feed-gallery-slide]").length || 1));
       const width = Math.max(1, track.clientWidth || carousel.clientWidth || 1);
       const currentIndex = Math.min(total - 1, Math.max(0, Math.round(track.scrollLeft / width)));
-      const currentImage = carousel.querySelector(`[data-feed-gallery-slide="${currentIndex}"] .feed-gallery-image-social`)
+      const authorityImage = isFeedSurface
+        ? (carousel.querySelector('[data-feed-gallery-primary="true"]')
+          || carousel.querySelector('[data-feed-gallery-slide="0"] .feed-gallery-image-social'))
+        : null;
+      const currentImage = authorityImage
+        || carousel.querySelector(`[data-feed-gallery-slide="${currentIndex}"] .feed-gallery-image-social`)
         || carousel.querySelector(".feed-gallery-carousel-slide .feed-gallery-image-social");
       if (!currentImage) {
         return;
@@ -11788,25 +11799,23 @@ function bindFeedGalleryInteractions(scope = document) {
       if (!naturalWidth || !naturalHeight) {
         return;
       }
-      const shouldPreserveImageRatio = Boolean(
-        carousel.closest("#products-container, #market-showcase, .product-detail-feed-stack")
-      );
       const isFeedSurface = String(carousel.dataset.feedGallerySurface || "").trim().toLowerCase() === "feed";
       const stableRatio = String(carousel.dataset.feedGalleryStableRatio || preview.dataset.feedGalleryStableRatio || "").trim();
       const stableFitMode = String(carousel.dataset.feedGalleryStableFitMode || preview.dataset.feedGalleryStableFitMode || "").trim();
-      const portraitLike = naturalHeight > naturalWidth * 1.12;
-      const fitMode = stableFitMode
-        || (isFeedSurface
-          ? (portraitLike ? "contain" : "cover")
-          : normalizeProductFitMode(carousel.dataset.fitMode || preview.dataset.fitMode || "cover"));
-      const ratioValue = stableRatio || ((shouldPreserveImageRatio || fitMode === "contain")
-        ? `${naturalWidth} / ${naturalHeight}`
-        : "1 / 1");
-      if (isFeedSurface && !stableRatio) {
+      const shouldPreserveImageRatio = Boolean(
+        carousel.closest("#products-container, #market-showcase, .product-detail-feed-stack")
+      );
+      const fitMode = isFeedSurface
+        ? normalizeProductFitMode(stableFitMode || carousel.dataset.fitMode || preview.dataset.fitMode || "cover")
+        : normalizeProductFitMode(carousel.dataset.fitMode || preview.dataset.fitMode || "cover");
+      const ratioValue = isFeedSurface
+        ? (stableRatio || "3 / 4")
+        : ((shouldPreserveImageRatio || fitMode === "contain")
+          ? `${naturalWidth} / ${naturalHeight}`
+          : "1 / 1");
+      if (isFeedSurface) {
         carousel.dataset.feedGalleryStableRatio = ratioValue;
         preview.dataset.feedGalleryStableRatio = ratioValue;
-      }
-      if (isFeedSurface && !stableFitMode) {
         carousel.dataset.feedGalleryStableFitMode = fitMode;
         preview.dataset.feedGalleryStableFitMode = fitMode;
       }

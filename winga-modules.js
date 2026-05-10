@@ -946,50 +946,47 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       ).trim();
     };
 
-    fullImage.addEventListener("load", function handleProgressiveImageLoad() {
-      const naturalWidth = Number(this.naturalWidth || 0);
-      const naturalHeight = Number(this.naturalHeight || 0);
+    const applyProgressiveImageState = (imageNode) => {
+      const naturalWidth = Number(imageNode?.naturalWidth || 0);
+      const naturalHeight = Number(imageNode?.naturalHeight || 0);
       const fitHost = shell.closest(".feed-gallery-preview, .feed-gallery-carousel, .product-gallery, .product-detail-media, .profile-product-media, .showcase-media, .product-card-media, .media-gallery");
       const lockedFeedAspectRatio = getLockedFeedAspectRatio(fitHost);
       const lockedFeedFitMode = getLockedFeedFitMode(fitHost);
-      const resolvedFitMode = lockedFeedFitMode || normalizedFitMode;
+      const isFeedSurface = String(fitHost?.dataset?.feedGallerySurface || "").trim().toLowerCase() === "feed";
+      const hostFitMode = String(fitHost?.dataset?.fitMode || "").trim().toLowerCase();
+      const resolvedFitMode = lockedFeedFitMode
+        || hostFitMode
+        || normalizedFitMode;
+      const hostAspectRatio = String(
+        fitHost?.style?.getPropertyValue?.("--fit-media-aspect-ratio")
+        || fitHost?.dataset?.feedGalleryStableRatio
+        || ""
+      ).trim();
       const aspectRatio = lockedFeedAspectRatio
+        || hostAspectRatio
         || ((shouldPreserveImageRatio || resolvedFitMode === "contain") && naturalWidth && naturalHeight
           ? `${naturalWidth} / ${naturalHeight}`
           : "1 / 1");
+
       shell.style.setProperty("--fit-media-aspect-ratio", aspectRatio);
       shell.style.setProperty("--progressive-image-aspect-ratio", aspectRatio);
       shell.dataset.fitMode = resolvedFitMode;
       fullImage.dataset.fitMode = resolvedFitMode;
-      if (fitHost) {
+      if (fitHost && !isFeedSurface) {
         fitHost.dataset.fitMode = resolvedFitMode;
         fitHost.style.setProperty("--fit-media-aspect-ratio", aspectRatio);
       }
       shell.classList.add("is-loaded");
+    };
+
+    fullImage.addEventListener("load", function handleProgressiveImageLoad() {
+      applyProgressiveImageState(this);
     });
     fullImage.addEventListener("error", function handleProgressiveImageError() {
       shell.classList.add("is-loaded", "is-error");
     });
     if (fullImage.complete && Number(fullImage.naturalWidth || 0) > 0) {
-      const naturalWidth = Number(fullImage.naturalWidth || 0);
-      const naturalHeight = Number(fullImage.naturalHeight || 0);
-      const fitHost = shell.closest(".feed-gallery-preview, .feed-gallery-carousel, .product-gallery, .product-detail-media, .profile-product-media, .showcase-media, .product-card-media, .media-gallery");
-      const lockedFeedAspectRatio = getLockedFeedAspectRatio(fitHost);
-      const lockedFeedFitMode = getLockedFeedFitMode(fitHost);
-      const resolvedFitMode = lockedFeedFitMode || normalizedFitMode;
-      const aspectRatio = lockedFeedAspectRatio
-        || ((shouldPreserveImageRatio || resolvedFitMode === "contain") && naturalWidth && naturalHeight
-          ? `${naturalWidth} / ${naturalHeight}`
-          : "1 / 1");
-      shell.style.setProperty("--fit-media-aspect-ratio", aspectRatio);
-      shell.style.setProperty("--progressive-image-aspect-ratio", aspectRatio);
-      shell.dataset.fitMode = resolvedFitMode;
-      fullImage.dataset.fitMode = resolvedFitMode;
-      if (fitHost) {
-        fitHost.dataset.fitMode = resolvedFitMode;
-        fitHost.style.setProperty("--fit-media-aspect-ratio", aspectRatio);
-      }
-      shell.classList.add("is-loaded");
+      applyProgressiveImageState(fullImage);
     }
 
     shell.append(fullImage);
@@ -4378,6 +4375,12 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       if (!canOpenDetail) {
         return `<button class="action-btn buy-btn is-disabled" type="button" disabled aria-disabled="true">Nunua</button>`;
       }
+      if (product?.availability === "reserved") {
+        return `<button class="action-btn buy-btn is-disabled" type="button" disabled aria-disabled="true">Reserved</button>`;
+      }
+      if (product?.availability === "sold_out") {
+        return `<button class="action-btn buy-btn is-disabled" type="button" disabled aria-disabled="true">Sold Out</button>`;
+      }
 
       return `<button class="action-btn buy-btn" type="button" data-buy-product="${product.id}">Nunua</button>`;
     }
@@ -4396,12 +4399,22 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       const state = typeof getOrderActionState === "function"
         ? getOrderActionState(order, currentUser, Date.now(), buyerCancelWindowMs)
         : {
-          canConfirm: order.sellerUsername === currentUser && order.status === "placed",
+          canVerifyPayment: order.sellerUsername === currentUser && order.status === "placed" && (order.paymentStatus || "pending") === "pending",
+          canRejectPayment: order.sellerUsername === currentUser && order.status === "placed" && (order.paymentStatus || "pending") === "pending",
+          canConfirm: order.sellerUsername === currentUser && order.status === "paid" && order.paymentStatus === "paid",
           canConfirmReceived: order.buyerUsername === currentUser && order.status === "confirmed",
           canCancel: order.buyerUsername === currentUser && order.status === "placed"
             && (Date.now() - new Date(order.createdAt || 0).getTime() >= buyerCancelWindowMs)
         };
       const actions = [];
+
+      if (state.canVerifyPayment) {
+        actions.push(`<button class="action-btn buy-btn" type="button" data-order-action="paid" data-order-id="${order.id}">Verify Payment</button>`);
+      }
+
+      if (state.canRejectPayment) {
+        actions.push(`<button class="action-btn delete-btn" type="button" data-order-action="cancelled" data-order-id="${order.id}" data-order-reject-payment="true">Reject Payment</button>`);
+      }
 
       if (state.canConfirm) {
         actions.push(`<button class="action-btn buy-btn" type="button" data-order-action="confirmed" data-order-id="${order.id}">Respond & Confirm</button>`);
@@ -4423,7 +4436,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         return "";
       }
       if (order.status === "placed" && order.paymentStatus === "pending") {
-        return "Payment reference imepokelewa. Order imehifadhiwa kwa muda wakati Winga inaverify malipo ya Mobile Money.";
+        return "Payment reference imepokelewa. Seller anatakiwa kuhakiki malipo haya ndani ya dirisha la reservation kabla order haijasogea mbele.";
       }
       if (order.status === "paid") {
         return "Payment verified. Seller sasa anatakiwa kujibu na kuthibitisha order hii.";
@@ -4438,7 +4451,9 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         return "Order completed. Buyer anaweza sasa kuacha review ya bidhaa na huduma ya seller.";
       }
       if (order.status === "cancelled") {
-        return "Order hii imecanceliwa. Hakuna hatua nyingine itakayofuata.";
+        return order.paymentStatus === "failed" || order.paymentIntentStatus === "cancelled"
+          ? "Payment proof haikuthibitishwa, hivyo order imefungwa. Buyer anaweza kuwasiliana na seller au kutuma order mpya."
+          : "Order hii imecanceliwa. Hakuna hatua nyingine itakayofuata.";
       }
       return "Fuatilia status ya order hapa hadi ikamilike.";
     }
@@ -5571,7 +5586,10 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       bindClickOnce("[data-order-action]", "OrderAction", async (button) => {
           const orderId = button.dataset.orderId;
           const status = button.dataset.orderAction;
-          if (status === "cancelled" && deps.confirmAction && !deps.confirmAction("Una uhakika unataka kufuta order hii?")) {
+          const isRejectPayment = button.dataset.orderRejectPayment === "true";
+          if (status === "cancelled" && deps.confirmAction && !deps.confirmAction(isRejectPayment
+            ? "Una uhakika unataka kukataa payment proof hii? Order itafungwa."
+            : "Una uhakika unataka kufuta order hii?")) {
             return;
           }
           try {
@@ -5579,7 +5597,9 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
             deps.showInAppNotification?.({
               title: "Order updated",
               body: status === "cancelled"
-                ? "Request/order imecanceliwa."
+                ? (isRejectPayment ? "Payment proof imekataliwa na order imefungwa." : "Request/order imecanceliwa.")
+                : status === "paid"
+                  ? "Payment imethibitishwa. Buyer ataona update hii mara moja."
                 : status === "confirmed"
                   ? "Seller amejibu na kuthibitisha order."
                   : "Order imewekwa completed.",
@@ -8553,6 +8573,19 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         line.appendChild(deps.createElement("small", {
           textContent: `${order.paymentStatus === "paid" ? "Paid at" : "Submitted at"}: ${new Date(order.paymentDate).toLocaleString("sw-TZ")}`
         }));
+      }
+      if (order.transactionId || order.paymentProvider || order.paymentPhoneNumber) {
+        const paymentFacts = [
+          order.transactionId ? `Reference: ${order.transactionId}` : "",
+          order.paymentProvider ? `Provider: ${String(order.paymentProvider).replace(/_/g, " ").toUpperCase()}` : "",
+          order.paymentPhoneNumber ? `Lipa: ${order.paymentPhoneNumber}` : ""
+        ].filter(Boolean);
+        if (paymentFacts.length) {
+          line.appendChild(deps.createElement("small", {
+            className: "meta-copy",
+            textContent: paymentFacts.join(" | ")
+          }));
+        }
       }
       if (order.status === "placed" && order.paymentStatus === "pending" && order.reserveExpiresAt) {
         line.appendChild(deps.createElement("small", {
