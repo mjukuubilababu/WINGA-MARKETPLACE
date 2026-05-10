@@ -1260,6 +1260,15 @@ function buildSellerPublicStats(store, username = "") {
   const sellerProductIds = new Set(sellerProducts.map((product) => product.id));
   const sellerOrders = orders.filter((order) => order.sellerUsername === safeUsername);
   const completedOrders = sellerOrders.filter((order) => order.status === "delivered");
+  const repeatBuyers = Object.values(
+    sellerOrders.reduce((accumulator, order) => {
+      if (!order.buyerUsername) {
+        return accumulator;
+      }
+      accumulator[order.buyerUsername] = (accumulator[order.buyerUsername] || 0) + 1;
+      return accumulator;
+    }, {})
+  ).filter((count) => count > 1).length;
   const sellerReviews = reviews.filter((review) => normalizeIdentifier(review.sellerId, 40) === safeUsername);
   const averageRating = sellerReviews.length
     ? sellerReviews.reduce((sum, review) => sum + Number(review.rating || 0), 0) / sellerReviews.length
@@ -1289,6 +1298,7 @@ function buildSellerPublicStats(store, username = "") {
     trustTier: getTrustTierFromScore(roundedScore),
     approvedProducts: approvedProducts.length,
     completedOrders: completedOrders.length,
+    repeatBuyers,
     averageRating: Number(averageRating.toFixed(1)),
     totalReviews: sellerReviews.length,
     openReports

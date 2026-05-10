@@ -4701,6 +4701,9 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       const activeCommerce = deps.getConversationCommerceSnapshot
         ? deps.getConversationCommerceSnapshot(activeChatContext)
         : null;
+      const activeRelationshipMemory = deps.getConversationRelationshipMemory
+        ? deps.getConversationRelationshipMemory(activeChatContext)
+        : null;
       const currentMessageDraft = deps.getCurrentMessageDraft();
       const contactState = deps.getChatContactState?.(activeChatContext) || {
         whatsapp: "",
@@ -4750,6 +4753,8 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
                     <strong>${deps.escapeHtml(summary.displayName || deps.getUserDisplayName(summary.withUser))}${summary.unreadCount ? ` <span class="thread-badge">${summary.unreadCount}</span>` : ""}</strong>
                     <span>${summary.timestamp ? deps.escapeHtml(new Date(summary.timestamp).toLocaleString("sw-TZ")) : "No messages yet"}</span>
                     ${summary.commerceSnapshot?.label ? `<span class="message-thread-stage"><span class="status-pill${summary.commerceSnapshot.tone ? ` ${summary.commerceSnapshot.tone}` : ""}">${deps.escapeHtml(summary.commerceSnapshot.label)}</span></span>` : ""}
+                    ${summary.relationshipMemory?.label ? `<span class="message-thread-stage"><span class="status-pill${summary.relationshipMemory.tone ? ` ${summary.relationshipMemory.tone}` : ""}">${deps.escapeHtml(summary.relationshipMemory.label)}</span></span>` : ""}
+                    ${summary.relationshipMemory?.detail ? `<small class="thread-relationship-copy">${deps.escapeHtml(summary.relationshipMemory.detail)}</small>` : ""}
                     <span>${deps.escapeHtml(summary.productName || "General inquiry")}</span>
                     <small>${deps.escapeHtml(summary.latestMessage || "Hakuna ujumbe bado.")}</small>
                   </span>
@@ -4766,6 +4771,8 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
                     <strong>${deps.escapeHtml(activeChatContext.displayName || deps.getUserDisplayName(activeChatContext.withUser))}</strong>
                     <p>${deps.escapeHtml(activeChatContext.productName || "General inquiry")}</p>
                     ${activeCommerce?.label ? `<span class="message-thread-stage"><span class="status-pill${activeCommerce.tone ? ` ${activeCommerce.tone}` : ""}">${deps.escapeHtml(activeCommerce.label)}</span></span>` : ""}
+                    ${activeRelationshipMemory?.label ? `<span class="message-thread-stage"><span class="status-pill${activeRelationshipMemory.tone ? ` ${activeRelationshipMemory.tone}` : ""}">${deps.escapeHtml(activeRelationshipMemory.label)}</span></span>` : ""}
+                    ${activeRelationshipMemory?.detail ? `<small class="thread-relationship-copy">${deps.escapeHtml(activeRelationshipMemory.detail)}</small>` : ""}
                     <small class="thread-presence">${lastActiveLabel}</small>
                   </div>
                   <div class="messages-thread-actions">
@@ -8192,6 +8199,12 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
           }));
           trustLine.append(` ${userProfile.sellerStats.trustTier || "Seller"}`);
           copy.appendChild(trustLine);
+        }
+        if (Number(userProfile?.sellerStats?.repeatBuyers || 0) > 0) {
+          copy.appendChild(deps.createElement("p", {
+            className: "product-meta",
+            textContent: `${userProfile.sellerStats.repeatBuyers} repeat buyer${Number(userProfile.sellerStats.repeatBuyers) === 1 ? "" : "s"}`
+          }));
         }
       }
       const whatsappWrap = deps.createElement("div", {

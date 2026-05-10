@@ -5244,6 +5244,11 @@ body.context-chat-open{
   display:block;
 }
 
+.thread-relationship-copy{
+  color:var(--muted);
+  display:block;
+}
+
 .message-thread-item.active{
   border-color:var(--primary);
   background:#fff4ec;

@@ -164,6 +164,12 @@
           trustLine.append(` ${userProfile.sellerStats.trustTier || "Seller"}`);
           copy.appendChild(trustLine);
         }
+        if (Number(userProfile?.sellerStats?.repeatBuyers || 0) > 0) {
+          copy.appendChild(deps.createElement("p", {
+            className: "product-meta",
+            textContent: `${userProfile.sellerStats.repeatBuyers} repeat buyer${Number(userProfile.sellerStats.repeatBuyers) === 1 ? "" : "s"}`
+          }));
+        }
       }
       const whatsappWrap = deps.createElement("div", {
         className: "profile-whatsapp-block",

@@ -3418,7 +3418,8 @@ function getConversationSummaries() {
   const summaries = Array.from(summaryMap.values())
     .map((summary) => ({
       ...summary,
-      commerceSnapshot: getConversationCommerceSnapshot(summary)
+      commerceSnapshot: getConversationCommerceSnapshot(summary),
+      relationshipMemory: getConversationRelationshipMemory(summary)
     }))
     .sort((first, second) => new Date(second.timestamp || 0).getTime() - new Date(first.timestamp || 0).getTime());
 
@@ -5371,6 +5372,15 @@ function computeSellerTrustScoreSnapshot(username) {
   const approvedProducts = sellerProducts.filter((product) => product.status === "approved").length;
   const sellerOrders = getAllConversationOrders().filter((order) => order?.sellerUsername === username);
   const completedOrders = sellerOrders.filter((order) => order?.status === "delivered").length;
+  const repeatBuyers = Object.values(
+    sellerOrders.reduce((accumulator, order) => {
+      if (!order?.buyerUsername) {
+        return accumulator;
+      }
+      accumulator[order.buyerUsername] = (accumulator[order.buyerUsername] || 0) + 1;
+      return accumulator;
+    }, {})
+  ).filter((count) => count > 1).length;
   const reviewSummary = getSellerReviewSummary(username) || {};
   let trustScore = 25;
   const seller = getMarketplaceUser(username);
@@ -5386,8 +5396,57 @@ function computeSellerTrustScoreSnapshot(username) {
     trustScore: roundedScore,
     trustTier: getTrustTierFromScore(roundedScore),
     approvedProducts,
-    completedOrders
+    completedOrders,
+    repeatBuyers
   };
+}
+
+function getConversationRelationshipMemory(context = null) {
+  const withUser = context?.withUser || chatUiState.activeContext?.withUser || "";
+  if (!withUser || !currentUser || withUser === currentUser) {
+    return null;
+  }
+
+  const sharedOrders = getAllConversationOrders().filter((order) =>
+    (order?.sellerUsername === withUser && order?.buyerUsername === currentUser)
+    || (order?.sellerUsername === currentUser && order?.buyerUsername === withUser)
+  );
+  const sharedMessages = (Array.isArray(currentMessages) ? currentMessages : [])
+    .filter((message) => getMessagePartner(message) === withUser);
+  const outgoingOrders = sharedOrders.filter((order) => order?.sellerUsername === currentUser);
+  const incomingOrders = sharedOrders.filter((order) => order?.sellerUsername === withUser);
+  const outgoingCompleted = outgoingOrders.filter((order) => order?.status === "delivered").length;
+  const incomingCompleted = incomingOrders.filter((order) => order?.status === "delivered").length;
+
+  if (outgoingOrders.length > 1 || outgoingCompleted > 0) {
+    return {
+      label: "Repeat buyer",
+      detail: outgoingCompleted > 0
+        ? `${outgoingCompleted} completed order${outgoingCompleted === 1 ? "" : "s"} with you`
+        : `${outgoingOrders.length} orders in this relationship`,
+      tone: "approved"
+    };
+  }
+
+  if (incomingOrders.length > 1 || incomingCompleted > 0) {
+    return {
+      label: incomingCompleted > 0 ? "Bought before" : "Returning buyer",
+      detail: incomingCompleted > 0
+        ? `You've completed ${incomingCompleted} order${incomingCompleted === 1 ? "" : "s"} with this seller`
+        : `${incomingOrders.length} orders with this seller so far`,
+      tone: "approved"
+    };
+  }
+
+  if (sharedMessages.length >= 3) {
+    return {
+      label: "Conversation history",
+      detail: `${sharedMessages.length} messages exchanged already`,
+      tone: ""
+    };
+  }
+
+  return null;
 }
 
 function getSellerTrustSnapshot(username) {
@@ -5448,7 +5507,8 @@ function renderSellerTrustPanel(product) {
     trust.joinedLabel,
     trust.reviewCountLabel,
     Number(trust.sellerStats?.approvedProducts || 0) > 0 ? `${trust.sellerStats.approvedProducts} active listings` : "",
-    Number(trust.sellerStats?.completedOrders || 0) > 0 ? `${trust.sellerStats.completedOrders} completed orders` : ""
+    Number(trust.sellerStats?.completedOrders || 0) > 0 ? `${trust.sellerStats.completedOrders} completed orders` : "",
+    Number(trust.sellerStats?.repeatBuyers || 0) > 0 ? `${trust.sellerStats.repeatBuyers} repeat buyer${Number(trust.sellerStats.repeatBuyers) === 1 ? "" : "s"}` : ""
   ].filter(Boolean);
   const showReportActions = Boolean(product?.id && product?.uploadedBy && product.uploadedBy !== currentUser);
 
@@ -5990,6 +6050,7 @@ const {
   getConversationSummaries,
   getConversationSummariesFiltered,
   getConversationCommerceSnapshot,
+  getConversationRelationshipMemory,
   getActiveConversationMessages,
   getActiveChatContext: () => chatUiState.activeContext,
   getProfileMessagesMode: () => chatUiState.profileMessagesMode,
