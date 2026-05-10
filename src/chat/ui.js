@@ -84,8 +84,10 @@
     }
 
     function renderNotificationsSection() {
-      const currentNotifications = Array.isArray(deps.getCurrentNotifications?.())
-        ? deps.getCurrentNotifications()
+      const currentNotifications = Array.isArray(deps.getRenderableNotifications?.())
+        ? deps.getRenderableNotifications()
+        : Array.isArray(deps.getCurrentNotifications?.())
+          ? deps.getCurrentNotifications()
         : [];
       const items = currentNotifications
         .slice()

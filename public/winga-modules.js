@@ -4671,8 +4671,10 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
     }
 
     function renderNotificationsSection() {
-      const currentNotifications = Array.isArray(deps.getCurrentNotifications?.())
-        ? deps.getCurrentNotifications()
+      const currentNotifications = Array.isArray(deps.getRenderableNotifications?.())
+        ? deps.getRenderableNotifications()
+        : Array.isArray(deps.getCurrentNotifications?.())
+          ? deps.getCurrentNotifications()
         : [];
       const items = currentNotifications
         .slice()
@@ -5763,8 +5765,11 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
 
       bindClickOnce("[data-notification-id]", "NotificationRead", async (button) => {
           try {
-            await deps.dataLayer.markNotificationRead(button.dataset.notificationId);
-            await deps.refreshNotificationsState();
+            const handledLocally = await deps.handleNotificationOpen?.(button.dataset.notificationId);
+            if (!handledLocally) {
+              await deps.dataLayer.markNotificationRead(button.dataset.notificationId);
+              await deps.refreshNotificationsState();
+            }
             document.getElementById("profile-notifications-panel")?.replaceWith(deps.createNotificationsContainerFromState());
             bindMessageActions(scope);
           } catch (error) {

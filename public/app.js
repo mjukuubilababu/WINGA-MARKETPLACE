@@ -3453,7 +3453,7 @@ function getTotalUnreadMessages() {
 }
 
 function getUnreadNotifications() {
-  return (Array.isArray(currentNotifications) ? currentNotifications : [])
+  return getRenderableNotifications()
     .filter((notification) => !notification.isRead);
 }
 
@@ -3823,6 +3823,10 @@ function getFollowedSellersStorageKey() {
   return `winga-followed-sellers:${currentUser || "guest"}`;
 }
 
+function getFollowedSellerNotificationReadStorageKey() {
+  return `winga-followed-seller-note-read:${currentUser || "guest"}`;
+}
+
 function ensureSavedProductIdsLoaded() {
   const nextKey = getSavedProductsStorageKey();
   if (savedProductState.storageKey === nextKey) {
@@ -3875,6 +3879,45 @@ function persistFollowedSellerIds() {
   window.localStorage.setItem(followedSellerState.storageKey, JSON.stringify(Array.from(followedSellerState.ids)));
 }
 
+function ensureFollowedSellerNotificationReadIdsLoaded() {
+  const nextKey = getFollowedSellerNotificationReadStorageKey();
+  if (followedSellerNotificationState.storageKey === nextKey) {
+    return followedSellerNotificationState.readIds;
+  }
+
+  followedSellerNotificationState.storageKey = nextKey;
+  try {
+    const rawValue = window.localStorage.getItem(nextKey);
+    const parsed = rawValue ? JSON.parse(rawValue) : [];
+    followedSellerNotificationState.readIds = new Set(Array.isArray(parsed) ? parsed.filter(Boolean) : []);
+  } catch (error) {
+    followedSellerNotificationState.readIds = new Set();
+    captureClientError("followed_seller_notification_restore_failed", error, {
+      category: "storage",
+      alertSeverity: "low"
+    });
+  }
+  return followedSellerNotificationState.readIds;
+}
+
+function persistFollowedSellerNotificationReadIds() {
+  followedSellerNotificationState.storageKey = getFollowedSellerNotificationReadStorageKey();
+  window.localStorage.setItem(
+    followedSellerNotificationState.storageKey,
+    JSON.stringify(Array.from(followedSellerNotificationState.readIds))
+  );
+}
+
+function markFollowedSellerNotificationRead(notificationId) {
+  const safeId = String(notificationId || "").trim();
+  if (!safeId) {
+    return;
+  }
+  const readIds = ensureFollowedSellerNotificationReadIdsLoaded();
+  readIds.add(safeId);
+  persistFollowedSellerNotificationReadIds();
+}
+
 function isSellerFollowed(username) {
   return ensureFollowedSellerIdsLoaded().has(String(username || ""));
 }
@@ -3892,6 +3935,68 @@ function toggleFollowSeller(username) {
   }
   followedIds.add(safeUsername);
   persistFollowedSellerIds();
+  return true;
+}
+
+function getFollowedSellerActivityNotifications() {
+  if (!currentUser || !canUseBuyerFeatures()) {
+    return [];
+  }
+  const followedSellerIds = Array.from(ensureFollowedSellerIdsLoaded()).filter(Boolean);
+  if (!followedSellerIds.length) {
+    return [];
+  }
+  const readIds = ensureFollowedSellerNotificationReadIdsLoaded();
+  return products
+    .filter((product) =>
+      product?.status === "approved"
+      && followedSellerIds.includes(product.uploadedBy)
+      && product.uploadedBy !== currentUser
+    )
+    .sort((first, second) => new Date(second.createdAt || second.timestamp || 0).getTime() - new Date(first.createdAt || first.timestamp || 0).getTime())
+    .slice(0, 8)
+    .map((product) => {
+      const sellerName = getUserDisplayName(product.uploadedBy, {
+        fallback: product.shop || product.uploadedBy || "Seller"
+      });
+      const notificationId = `followed-seller:${product.id}`;
+      return {
+        id: notificationId,
+        userId: currentUser,
+        type: "message",
+        variant: "info",
+        title: `${sellerName} ameweka bidhaa mpya`,
+        body: `${product.name} sasa iko live. Fungua uione kabla haijaondoka.`,
+        createdAt: product.createdAt || product.timestamp || new Date().toISOString(),
+        isRead: readIds.has(notificationId),
+        productId: product.id,
+        sellerUsername: product.uploadedBy
+      };
+    });
+}
+
+function getRenderableNotifications() {
+  const serverNotifications = Array.isArray(currentNotifications) ? currentNotifications : [];
+  const localFollowNotifications = getFollowedSellerActivityNotifications();
+  return [...serverNotifications, ...localFollowNotifications]
+    .sort((first, second) => new Date(second.createdAt || 0).getTime() - new Date(first.createdAt || 0).getTime());
+}
+
+async function handleNotificationOpen(notificationId) {
+  const safeId = String(notificationId || "").trim();
+  if (!safeId) {
+    return false;
+  }
+  if (!safeId.startsWith("followed-seller:")) {
+    return false;
+  }
+  const productId = safeId.slice("followed-seller:".length);
+  const product = getProductById(productId);
+  markFollowedSellerNotificationRead(safeId);
+  if (product) {
+    openProductDetailModal(product.id);
+  }
+  updateProfileNavBadge();
   return true;
 }
 
@@ -6328,6 +6433,7 @@ const {
   createProgressiveImage,
   sanitizeImageSource,
   getCurrentNotifications: () => currentNotifications,
+  getRenderableNotifications,
   getUnreadNotifications,
   escapeHtml,
   getConversationSummaries,
@@ -6456,6 +6562,7 @@ const {
   refreshUsersState,
   refreshMessagesState,
   refreshNotificationsState,
+  handleNotificationOpen,
   maybePromptNotificationPermission,
   beginPurchaseFlow,
   getCurrentUser: () => currentUser
@@ -7969,6 +8076,10 @@ const savedProductState = {
 const followedSellerState = {
   storageKey: "",
   ids: new Set()
+};
+const followedSellerNotificationState = {
+  storageKey: "",
+  readIds: new Set()
 };
 const imageLightboxState = {
   images: [],
