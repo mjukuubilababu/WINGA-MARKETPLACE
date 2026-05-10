@@ -3835,6 +3835,45 @@ function getFollowedSellerNotificationReadStorageKey() {
   return `winga-followed-seller-note-read:${currentUser || "guest"}`;
 }
 
+function getSavedProductMetaStateStore() {
+  const existingState = globalThis.__wingaSavedProductMetaState;
+  if (existingState && typeof existingState === "object") {
+    return existingState;
+  }
+  const nextState = {
+    storageKey: "",
+    entries: {}
+  };
+  globalThis.__wingaSavedProductMetaState = nextState;
+  return nextState;
+}
+
+function getSavedProductNotificationStateStore() {
+  const existingState = globalThis.__wingaSavedProductNotificationState;
+  if (existingState && typeof existingState === "object") {
+    return existingState;
+  }
+  const nextState = {
+    storageKey: "",
+    readIds: new Set()
+  };
+  globalThis.__wingaSavedProductNotificationState = nextState;
+  return nextState;
+}
+
+function getFollowedSellerNotificationStateStore() {
+  const existingState = globalThis.__wingaFollowedSellerNotificationState;
+  if (existingState && typeof existingState === "object") {
+    return existingState;
+  }
+  const nextState = {
+    storageKey: "",
+    readIds: new Set()
+  };
+  globalThis.__wingaFollowedSellerNotificationState = nextState;
+  return nextState;
+}
+
 function ensureSavedProductIdsLoaded() {
   const nextKey = getSavedProductsStorageKey();
   if (savedProductState.storageKey === nextKey) {
@@ -3862,61 +3901,65 @@ function persistSavedProductIds() {
 }
 
 function ensureSavedProductMetaLoaded() {
+  const state = getSavedProductMetaStateStore();
   const nextKey = getSavedProductMetaStorageKey();
-  if (savedProductMetaState.storageKey === nextKey) {
-    return savedProductMetaState.entries;
+  if (state.storageKey === nextKey) {
+    return state.entries;
   }
 
-  savedProductMetaState.storageKey = nextKey;
+  state.storageKey = nextKey;
   try {
     const rawValue = window.localStorage.getItem(nextKey);
     const parsed = rawValue ? JSON.parse(rawValue) : {};
-    savedProductMetaState.entries = parsed && typeof parsed === "object" && !Array.isArray(parsed)
+    state.entries = parsed && typeof parsed === "object" && !Array.isArray(parsed)
       ? Object.fromEntries(
           Object.entries(parsed).filter(([productId, savedAt]) => String(productId || "").trim() && String(savedAt || "").trim())
         )
       : {};
   } catch (error) {
-    savedProductMetaState.entries = {};
+    state.entries = {};
     captureClientError("saved_product_meta_restore_failed", error, {
       category: "storage",
       alertSeverity: "low"
     });
   }
-  return savedProductMetaState.entries;
+  return state.entries;
 }
 
 function persistSavedProductMeta() {
-  savedProductMetaState.storageKey = getSavedProductMetaStorageKey();
-  window.localStorage.setItem(savedProductMetaState.storageKey, JSON.stringify(savedProductMetaState.entries));
+  const state = getSavedProductMetaStateStore();
+  state.storageKey = getSavedProductMetaStorageKey();
+  window.localStorage.setItem(state.storageKey, JSON.stringify(state.entries));
 }
 
 function ensureSavedProductNotificationReadIdsLoaded() {
+  const state = getSavedProductNotificationStateStore();
   const nextKey = getSavedProductNotificationReadStorageKey();
-  if (savedProductNotificationState.storageKey === nextKey) {
-    return savedProductNotificationState.readIds;
+  if (state.storageKey === nextKey) {
+    return state.readIds;
   }
 
-  savedProductNotificationState.storageKey = nextKey;
+  state.storageKey = nextKey;
   try {
     const rawValue = window.localStorage.getItem(nextKey);
     const parsed = rawValue ? JSON.parse(rawValue) : [];
-    savedProductNotificationState.readIds = new Set(Array.isArray(parsed) ? parsed.filter(Boolean) : []);
+    state.readIds = new Set(Array.isArray(parsed) ? parsed.filter(Boolean) : []);
   } catch (error) {
-    savedProductNotificationState.readIds = new Set();
+    state.readIds = new Set();
     captureClientError("saved_product_notification_restore_failed", error, {
       category: "storage",
       alertSeverity: "low"
     });
   }
-  return savedProductNotificationState.readIds;
+  return state.readIds;
 }
 
 function persistSavedProductNotificationReadIds() {
-  savedProductNotificationState.storageKey = getSavedProductNotificationReadStorageKey();
+  const state = getSavedProductNotificationStateStore();
+  state.storageKey = getSavedProductNotificationReadStorageKey();
   window.localStorage.setItem(
-    savedProductNotificationState.storageKey,
-    JSON.stringify(Array.from(savedProductNotificationState.readIds))
+    state.storageKey,
+    JSON.stringify(Array.from(state.readIds))
   );
 }
 
@@ -3998,31 +4041,33 @@ function persistFollowedSellerIds() {
 }
 
 function ensureFollowedSellerNotificationReadIdsLoaded() {
+  const state = getFollowedSellerNotificationStateStore();
   const nextKey = getFollowedSellerNotificationReadStorageKey();
-  if (followedSellerNotificationState.storageKey === nextKey) {
-    return followedSellerNotificationState.readIds;
+  if (state.storageKey === nextKey) {
+    return state.readIds;
   }
 
-  followedSellerNotificationState.storageKey = nextKey;
+  state.storageKey = nextKey;
   try {
     const rawValue = window.localStorage.getItem(nextKey);
     const parsed = rawValue ? JSON.parse(rawValue) : [];
-    followedSellerNotificationState.readIds = new Set(Array.isArray(parsed) ? parsed.filter(Boolean) : []);
+    state.readIds = new Set(Array.isArray(parsed) ? parsed.filter(Boolean) : []);
   } catch (error) {
-    followedSellerNotificationState.readIds = new Set();
+    state.readIds = new Set();
     captureClientError("followed_seller_notification_restore_failed", error, {
       category: "storage",
       alertSeverity: "low"
     });
   }
-  return followedSellerNotificationState.readIds;
+  return state.readIds;
 }
 
 function persistFollowedSellerNotificationReadIds() {
-  followedSellerNotificationState.storageKey = getFollowedSellerNotificationReadStorageKey();
+  const state = getFollowedSellerNotificationStateStore();
+  state.storageKey = getFollowedSellerNotificationReadStorageKey();
   window.localStorage.setItem(
-    followedSellerNotificationState.storageKey,
-    JSON.stringify(Array.from(followedSellerNotificationState.readIds))
+    state.storageKey,
+    JSON.stringify(Array.from(state.readIds))
   );
 }
 
