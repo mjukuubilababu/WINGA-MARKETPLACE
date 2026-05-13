@@ -3664,6 +3664,85 @@ function ensureNotificationToastRoot() {
   return root;
 }
 
+function ensureNetworkStatusBannerRoot() {
+  let root = document.getElementById("network-status-banner-root");
+  if (!root) {
+    root = document.createElement("div");
+    root.id = "network-status-banner-root";
+    document.body.appendChild(root);
+  }
+  return root;
+}
+
+function hideNetworkStatusBanner() {
+  const root = document.getElementById("network-status-banner-root");
+  root?.replaceChildren();
+  if (uiRuntimeState.networkStatusHideTimer) {
+    window.clearTimeout(uiRuntimeState.networkStatusHideTimer);
+    uiRuntimeState.networkStatusHideTimer = 0;
+  }
+}
+
+function showNetworkStatusBanner({
+  title = "",
+  body = "",
+  variant = "info",
+  persistent = false,
+  durationMs = 3600
+} = {}) {
+  if (!title) {
+    hideNetworkStatusBanner();
+    return;
+  }
+  const root = ensureNetworkStatusBannerRoot();
+  const banner = createElement("div", {
+    className: `network-status-banner network-status-banner-${["info", "warning", "success"].includes(variant) ? variant : "info"}`
+  });
+  const copy = createElement("div", { className: "network-status-banner-copy" });
+  copy.append(
+    createElement("strong", { textContent: title }),
+    createElement("p", { textContent: body || "" })
+  );
+  banner.appendChild(copy);
+  root.replaceChildren(banner);
+  if (uiRuntimeState.networkStatusHideTimer) {
+    window.clearTimeout(uiRuntimeState.networkStatusHideTimer);
+    uiRuntimeState.networkStatusHideTimer = 0;
+  }
+  if (!persistent) {
+    uiRuntimeState.networkStatusHideTimer = window.setTimeout(() => {
+      uiRuntimeState.networkStatusHideTimer = 0;
+      root.replaceChildren();
+    }, Math.max(1800, Number(durationMs || 3600)));
+  }
+}
+
+function syncNetworkStatusBanner(options = {}) {
+  const online = typeof navigator === "undefined" ? true : navigator.onLine !== false;
+  uiRuntimeState.lastKnownOnlineState = online;
+  if (!online) {
+    showNetworkStatusBanner({
+      title: "Uko offline",
+      body: "Chat zenye queue zitasubiri. Upload na payment submit vinahitaji internet irudi kwanza.",
+      variant: "warning",
+      persistent: true
+    });
+    return;
+  }
+  if (options.justReconnected) {
+    showNetworkStatusBanner({
+      title: "Internet imerudi",
+      body: "Tunaendelea kusync actions zilizokuwa zinasubiri.",
+      variant: "success",
+      durationMs: 2800
+    });
+    return;
+  }
+  if (!options.forceKeepVisible) {
+    hideNetworkStatusBanner();
+  }
+}
+
 function isStandaloneDisplayMode() {
   try {
     return window.matchMedia?.("(display-mode: standalone)")?.matches
@@ -6676,7 +6755,9 @@ let trustReportState = {
 let paymentIntentState = {
   productId: "",
   loading: false,
-  transactionId: ""
+  transactionId: "",
+  feedbackTone: "",
+  feedbackMessage: ""
 };
 const paymentIntentSubmissionRegistry = new Map();
 
@@ -6836,7 +6917,9 @@ function closePaymentIntentModal() {
   paymentIntentState = {
     productId: "",
     loading: false,
-    transactionId: ""
+    transactionId: "",
+    feedbackTone: "",
+    feedbackMessage: ""
   };
   root.querySelector("[data-payment-intent-body='true']")?.replaceChildren();
   syncBodyScrollLockState();
@@ -6910,6 +6993,22 @@ function renderPaymentIntentModal() {
     className: "auth-note",
     textContent: "Tumia reference ya malipo uliyopewa na M-Pesa, Airtel Money, Tigo Pesa, au HaloPesa."
   });
+  const networkMessage = typeof navigator !== "undefined" && navigator.onLine === false
+    ? "Uko offline kwa sasa. Hifadhi reference hii kisha submit internet ikirudi."
+    : paymentIntentState.loading
+      ? "Tunatuma reference yako sasa. Usifunge dirisha hili."
+      : paymentIntentState.feedbackMessage;
+  const networkTone = typeof navigator !== "undefined" && navigator.onLine === false
+    ? "warning"
+    : paymentIntentState.loading
+      ? "info"
+      : (paymentIntentState.feedbackTone || "");
+  if (networkMessage) {
+    wrapper.appendChild(createElement("p", {
+      className: `payment-intent-status${networkTone ? ` is-${networkTone}` : ""}`,
+      textContent: networkMessage
+    }));
+  }
   const actions = createElement("div", { className: "payment-intent-actions" });
   const submitButton = createElement("button", {
     className: "action-btn buy-btn",
@@ -6966,6 +7065,17 @@ async function submitPaymentIntentOrder() {
   if (!product) {
     throw new Error("Bidhaa haijapatikana tena. Jaribu kufungua product upya.");
   }
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    paymentIntentState.feedbackTone = "warning";
+    paymentIntentState.feedbackMessage = "Uko offline. Reference haijatumwa bado. Internet ikirudi, bonyeza Submit reference tena.";
+    renderPaymentIntentModal();
+    showInAppNotification({
+      title: "Uko offline",
+      body: "Reference imebaki kwenye dirisha hili. Internet ikirudi, submit tena.",
+      variant: "warning"
+    });
+    return;
+  }
   const paymentDetails = getProductPaymentDetails(product);
   if (!paymentDetails.number) {
     throw new Error("Muuzaji bado hajaweka Lipa namba. Tuma ujumbe kwanza ili akamilishe taarifa za malipo.");
@@ -6996,6 +7106,8 @@ async function submitPaymentIntentOrder() {
   }
   paymentIntentState.loading = true;
   paymentIntentState.transactionId = transactionId;
+  paymentIntentState.feedbackTone = "info";
+  paymentIntentState.feedbackMessage = "Tunatuma reference yako kwa seller sasa.";
   renderPaymentIntentModal();
   paymentIntentSubmissionRegistry.set(submissionKey, {
     status: "pending",
@@ -11783,8 +11895,35 @@ window.addEventListener("winga:offline-actions-flushed", async (event) => {
         : `${flushedCount} action${flushedCount === 1 ? "" : "s"} zimetumwa vizuri.`,
       variant: "success"
     });
+    showNetworkStatusBanner({
+      title: remainingCount > 0 ? "Baadhi ya actions zinasubiri" : "Offline actions zimesync",
+      body: remainingCount > 0
+        ? `${flushedCount} zimetumwa, ${remainingCount} bado zitasubiri network iwe thabiti.`
+        : "Actions zako zote zilizokuwa zinasubiri zimetumwa vizuri.",
+      variant: remainingCount > 0 ? "info" : "success",
+      persistent: remainingCount > 0,
+      durationMs: remainingCount > 0 ? 4200 : 2600
+    });
   }
 });
+
+window.addEventListener("offline", () => {
+  syncNetworkStatusBanner({ forceKeepVisible: true });
+  if (!document.getElementById("payment-intent-modal")?.hidden) {
+    renderPaymentIntentModal();
+  }
+});
+
+window.addEventListener("online", () => {
+  syncNetworkStatusBanner({ justReconnected: true });
+  if (!document.getElementById("payment-intent-modal")?.hidden) {
+    renderPaymentIntentModal();
+  }
+});
+
+window.setTimeout(() => {
+  syncNetworkStatusBanner();
+}, 0);
 
 window.addEventListener("winga:session-invalidated", (event) => {
   if (isHandlingSessionInvalidation || !currentSession?.username) {
@@ -14310,7 +14449,9 @@ function beginPurchaseFlow(product) {
   paymentIntentState = {
     productId: product.id,
     loading: false,
-    transactionId: ""
+    transactionId: "",
+    feedbackTone: "",
+    feedbackMessage: ""
   };
   renderPaymentIntentModal();
 }
