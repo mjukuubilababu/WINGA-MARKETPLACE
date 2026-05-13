@@ -216,7 +216,10 @@
       const fitMode = String(product.fitMode || "").trim().toLowerCase() === "contain" ? "contain" : "cover";
       const media = createElement("div", { className: `product-card-media showcase-media fit-mode-${fitMode}`, attributes: { "data-fit-mode": fitMode } });
       if (deps.renderFeedGalleryMarkup) {
-        media.appendChild(createElementFromMarkup(deps.renderFeedGalleryMarkup(product, "discovery")));
+        media.appendChild(createElementFromMarkup(deps.renderFeedGalleryMarkup(product, "feed", {
+          priorityCount: 1,
+          preload: false
+        })));
         return media;
       }
 
