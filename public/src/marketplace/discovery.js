@@ -18,6 +18,7 @@
       getRecentCategorySelections,
       getRecentSearchTerms,
       getRecentMessagedProductIds,
+      getSharedCollectionIntentEntries,
       getFollowedSellerIds,
       getBuyerSellerAffinityEntries,
       getCurrentSession,
@@ -204,6 +205,7 @@
       const recentCategorySelections = typeof getRecentCategorySelections === "function" ? getRecentCategorySelections() : [];
       const recentSearchTerms = typeof getRecentSearchTerms === "function" ? getRecentSearchTerms() : [];
       const recentMessagedProductIds = typeof getRecentMessagedProductIds === "function" ? getRecentMessagedProductIds() : [];
+      const sharedCollectionIntentEntries = typeof getSharedCollectionIntentEntries === "function" ? getSharedCollectionIntentEntries() : [];
       const followedSellerIds = typeof getFollowedSellerIds === "function" ? getFollowedSellerIds() : [];
       const buyerSellerAffinityEntries = typeof getBuyerSellerAffinityEntries === "function" ? getBuyerSellerAffinityEntries() : [];
       let hasMeaningfulHistory = false;
@@ -328,6 +330,22 @@
         const freshness = Math.max(0.5, 1 - (index * 0.12));
         addScore(categoryScores, category, 42 * freshness);
         addScore(topCategoryScores, inferTopCategoryValue(category), 24 * freshness);
+      });
+
+      (Array.isArray(sharedCollectionIntentEntries) ? sharedCollectionIntentEntries : []).forEach((entry, index) => {
+        const category = String(entry?.category || "").trim();
+        const topCategory = String(entry?.topCategory || "").trim();
+        const recencyBoost = getRecencyBoost(entry?.updatedAt, 90, 14);
+        const strength = Math.max(1, Math.min(4, Number(entry?.count || 1) || 1));
+        const freshness = Math.max(0.45, 1 - (index * 0.1));
+        if (category && category !== "all") {
+          addScore(categoryScores, category, (58 * freshness * strength) + recencyBoost);
+          addScore(topCategoryScores, inferTopCategoryValue(category), (28 * freshness * strength) + (recencyBoost * 0.3));
+        }
+        if (topCategory) {
+          addScore(topCategoryScores, topCategory, (44 * freshness * strength) + (recencyBoost * 0.55));
+        }
+        hasMeaningfulHistory = true;
       });
 
       const preferredCategories = Array.from(
