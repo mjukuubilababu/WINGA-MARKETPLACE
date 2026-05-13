@@ -5053,6 +5053,66 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
 // src/chat/controller.js
 (() => {
   function createChatControllerModule(deps) {
+    const recentSubmissionRegistry = new Map();
+
+    function pruneRecentSubmissionRegistry(maxAgeMs = 15000) {
+      const now = Date.now();
+      Array.from(recentSubmissionRegistry.entries()).forEach(([key, value]) => {
+        const updatedAt = Number(value?.updatedAt || 0);
+        if (!updatedAt || now - updatedAt > maxAgeMs) {
+          recentSubmissionRegistry.delete(key);
+        }
+      });
+    }
+
+    function createMessageSubmissionKey(context, message = "", productItems = []) {
+      const receiverId = String(context?.withUser || "").trim();
+      const productId = String(context?.productId || "").trim();
+      const normalizedMessage = String(message || "").trim().replace(/\s+/g, " ").toLowerCase();
+      const productItemIds = (Array.isArray(productItems) ? productItems : [])
+        .map((item) => String(item?.productId || "").trim())
+        .filter(Boolean)
+        .sort()
+        .join(",");
+      return `${receiverId}::${productId}::${normalizedMessage}::${productItemIds}`;
+    }
+
+    async function runRetrySafeMessageSend(sendKey, task, duplicateCopy) {
+      pruneRecentSubmissionRegistry(20000);
+      const existing = recentSubmissionRegistry.get(sendKey);
+      if (existing?.status === "pending") {
+        deps.showInAppNotification?.({
+          title: "Sending...",
+          body: duplicateCopy.pending,
+          variant: "info"
+        });
+        return { skipped: true, reason: "pending" };
+      }
+      if (existing?.status === "completed" && Date.now() - Number(existing.updatedAt || 0) < 20000) {
+        deps.showInAppNotification?.({
+          title: "Already sent",
+          body: duplicateCopy.completed,
+          variant: "info"
+        });
+        return { skipped: true, reason: "completed" };
+      }
+      recentSubmissionRegistry.set(sendKey, {
+        status: "pending",
+        updatedAt: Date.now()
+      });
+      try {
+        const result = await task();
+        recentSubmissionRegistry.set(sendKey, {
+          status: "completed",
+          updatedAt: Date.now()
+        });
+        return result;
+      } catch (error) {
+        recentSubmissionRegistry.delete(sendKey);
+        throw error;
+      }
+    }
+
     async function sharePhoneWithActiveChat() {
       const activeChatContext = deps.getActiveChatContext();
       if (!activeChatContext?.withUser) {
@@ -5338,7 +5398,8 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
           return;
         }
         try {
-          const sendResult = await deps.dataLayer.sendMessage({
+          const sendKey = createMessageSubmissionKey(activeChatContext, message, productItems);
+          const sendResult = await runRetrySafeMessageSend(sendKey, () => deps.dataLayer.sendMessage({
             receiverId: activeChatContext.withUser,
             productId: activeChatContext.productId || "",
             productName: activeChatContext.productName || "",
@@ -5346,7 +5407,13 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
             messageType: productItems.length > 1 ? "product_inquiry" : productItems.length === 1 ? "product_reference" : "text",
             productItems,
             replyToMessageId: deps.getActiveChatReplyMessageId()
+          }), {
+            pending: "Ujumbe huu bado unatoka. Subiri kidogo kabla ya kubonyeza tena.",
+            completed: "Ujumbe huu tayari umetumwa. Angalia mazungumzo kabla ya kutuma tena."
           });
+          if (sendResult?.skipped) {
+            return;
+          }
           deps.setCurrentMessageDraft("");
           deps.setSelectedChatProductIds([]);
           deps.setActiveChatReplyMessageId("");
@@ -5857,12 +5924,19 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
           return;
         }
         try {
-          const sendResult = await deps.dataLayer.sendMessage({
+          const sendKey = createMessageSubmissionKey(activeChatContext, message, []);
+          const sendResult = await runRetrySafeMessageSend(sendKey, () => deps.dataLayer.sendMessage({
             receiverId: activeChatContext.withUser,
             productId: activeChatContext.productId || "",
             productName: activeChatContext.productName || "",
             message
+          }), {
+            pending: "Ujumbe huu bado unatoka. Subiri kidogo kabla ya kubonyeza tena.",
+            completed: "Ujumbe huu tayari umetumwa. Angalia thread kabla ya kutuma tena."
           });
+          if (sendResult?.skipped) {
+            return;
+          }
           if (messageInput) {
             messageInput.value = "";
           }

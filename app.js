@@ -6678,6 +6678,20 @@ let paymentIntentState = {
   loading: false,
   transactionId: ""
 };
+const paymentIntentSubmissionRegistry = new Map();
+
+function pruneTimedRegistryEntries(registry, maxAgeMs = 15000) {
+  if (!(registry instanceof Map)) {
+    return;
+  }
+  const now = Date.now();
+  Array.from(registry.entries()).forEach(([key, value]) => {
+    const updatedAt = Number(value?.updatedAt || 0);
+    if (!updatedAt || now - updatedAt > maxAgeMs) {
+      registry.delete(key);
+    }
+  });
+}
 
 function ensureTrustReportModal() {
   let root = document.getElementById("trust-report-modal");
@@ -6961,14 +6975,46 @@ async function submitPaymentIntentOrder() {
   if (!isValidTransactionReferenceClient(transactionId)) {
     throw new Error("Weka transaction reference sahihi baada ya kulipa.");
   }
+  pruneTimedRegistryEntries(paymentIntentSubmissionRegistry, 20000);
+  const submissionKey = createPaymentIntentSubmissionKey(product.id, transactionId);
+  const existingSubmission = paymentIntentSubmissionRegistry.get(submissionKey);
+  if (existingSubmission?.status === "pending") {
+    showInAppNotification({
+      title: "Still submitting",
+      body: "Reference hii bado tunaituma. Subiri kidogo kabla ya kujaribu tena.",
+      variant: "info"
+    });
+    return;
+  }
+  if (existingSubmission?.status === "completed" && Date.now() - Number(existingSubmission.updatedAt || 0) < 20000) {
+    showInAppNotification({
+      title: "Already submitted",
+      body: "Reference hii tayari ilitumwa. Subiri seller athibitishe malipo.",
+      variant: "info"
+    });
+    return;
+  }
   paymentIntentState.loading = true;
   paymentIntentState.transactionId = transactionId;
   renderPaymentIntentModal();
-
-  await window.WingaDataLayer.createOrder({
-    productId: product.id,
-    transactionId
+  paymentIntentSubmissionRegistry.set(submissionKey, {
+    status: "pending",
+    updatedAt: Date.now()
   });
+
+  try {
+    await window.WingaDataLayer.createOrder({
+      productId: product.id,
+      transactionId
+    });
+    paymentIntentSubmissionRegistry.set(submissionKey, {
+      status: "completed",
+      updatedAt: Date.now()
+    });
+  } catch (error) {
+    paymentIntentSubmissionRegistry.delete(submissionKey);
+    throw error;
+  }
 
   reportClientEvent("info", "order_created", "Buyer created an order from product detail.", {
     productId: product.id
@@ -14049,6 +14095,10 @@ function clearUploadForm() {
   previewList.replaceChildren();
   previewList.style.display = "none";
   setSelectedProductFitMode("cover");
+}
+
+function createPaymentIntentSubmissionKey(productId, transactionId) {
+  return `${normalizeProductIdValue(productId)}::${String(transactionId || "").trim().toUpperCase()}`;
 }
 
 function getFilteredProducts() {
