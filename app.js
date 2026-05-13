@@ -12,6 +12,7 @@ const HOME_SCROLL_STATE_KEY = "winga-home-scroll-state";
 const HOME_FEED_REFRESH_CURSOR_KEY = "winga-home-feed-refresh-cursor";
 const APP_UPDATE_BANNER_DISMISS_KEY = "winga-app-update-banner-dismissed-version";
 const APP_CHAT_DRAFT_KEY_PREFIX = "winga-chat-draft";
+const SHARED_COLLECTION_INTENT_KEY_PREFIX = "winga-shared-collection-intent";
 const APP_INSTALL_STATE_KEY = "winga-pwa-install-state";
 const NOTIFICATION_PERMISSION_STATE_KEY = "winga-notification-permission-state";
 const NOTIFICATION_PERMISSION_PROMPT_COOLDOWN_MS = 12 * 60 * 60 * 1000;
@@ -706,6 +707,7 @@ function applySessionState(session) {
     token: typeof session.token === "string" ? session.token.trim() : ""
   };
   currentUser = username;
+  hydrateSharedCollectionIntentState(username);
 }
 
 function beginLifecycleEpoch(kind = "runtime") {
@@ -743,6 +745,109 @@ function mergeSessionState(patch = {}) {
 
 function getRequestBoxStorageKey(username = currentUser) {
   return `${REQUEST_BOX_KEY_PREFIX}:${username || "guest"}`;
+}
+
+function getSharedCollectionIntentStorageKey(username = currentUser) {
+  return `${SHARED_COLLECTION_INTENT_KEY_PREFIX}:${username || "guest"}`;
+}
+
+function normalizeSharedCollectionIntentEntries(entries = []) {
+  if (!Array.isArray(entries)) {
+    return [];
+  }
+  return entries
+    .map((entry) => {
+      const category = getRestorableCategory(entry?.category || "all");
+      const topCategory = isTopCategoryValue(entry?.topCategory)
+        ? entry.topCategory
+        : (category !== "all" ? inferTopCategoryValue(category) : "");
+      const count = Math.max(1, Math.min(12, Number(entry?.count || 1) || 1));
+      const updatedAt = String(entry?.updatedAt || "").trim();
+      const source = String(entry?.source || "").trim().toLowerCase();
+      if (category === "all" && !topCategory) {
+        return null;
+      }
+      return {
+        category,
+        topCategory,
+        count,
+        updatedAt,
+        source: source || "share_collection"
+      };
+    })
+    .filter(Boolean)
+    .sort((first, second) => {
+      const firstTime = new Date(first.updatedAt || 0).getTime();
+      const secondTime = new Date(second.updatedAt || 0).getTime();
+      return secondTime - firstTime;
+    })
+    .slice(0, 8);
+}
+
+function loadSharedCollectionIntentState(username = currentUser) {
+  try {
+    const rawValue = window.localStorage.getItem(getSharedCollectionIntentStorageKey(username));
+    const parsed = rawValue ? JSON.parse(rawValue) : [];
+    return normalizeSharedCollectionIntentEntries(parsed);
+  } catch (error) {
+    return [];
+  }
+}
+
+function mergeSharedCollectionIntentEntryLists(...entryLists) {
+  const merged = new Map();
+  entryLists.flat().forEach((entry) => {
+    const normalizedEntries = normalizeSharedCollectionIntentEntries([entry]);
+    normalizedEntries.forEach((normalizedEntry) => {
+      const key = `${normalizedEntry.category}::${normalizedEntry.topCategory}`;
+      const existing = merged.get(key);
+      if (!existing) {
+        merged.set(key, normalizedEntry);
+        return;
+      }
+      const existingTime = new Date(existing.updatedAt || 0).getTime();
+      const nextTime = new Date(normalizedEntry.updatedAt || 0).getTime();
+      merged.set(key, {
+        ...existing,
+        ...normalizedEntry,
+        count: Math.min(12, Math.max(Number(existing.count || 0), Number(normalizedEntry.count || 0))),
+        updatedAt: nextTime >= existingTime ? normalizedEntry.updatedAt : existing.updatedAt
+      });
+    });
+  });
+  return normalizeSharedCollectionIntentEntries(Array.from(merged.values()));
+}
+
+function saveSharedCollectionIntentState() {
+  try {
+    window.localStorage.setItem(
+      getSharedCollectionIntentStorageKey(currentUser),
+      JSON.stringify(sharedCollectionIntentEntries)
+    );
+  } catch (error) {
+    reportClientEvent("warn", "shared_collection_intent_persist_failed", "Unable to persist shared collection intent.", {
+      category: "runtime",
+      user: currentUser || "guest"
+    });
+  }
+}
+
+function hydrateSharedCollectionIntentState(username = currentUser) {
+  const userEntries = loadSharedCollectionIntentState(username);
+  if (!username || username === "guest") {
+    sharedCollectionIntentEntries = userEntries;
+    return;
+  }
+  const guestEntries = loadSharedCollectionIntentState("guest");
+  sharedCollectionIntentEntries = mergeSharedCollectionIntentEntryLists(userEntries, guestEntries);
+  if (guestEntries.length) {
+    saveSharedCollectionIntentState();
+    try {
+      window.localStorage.removeItem(getSharedCollectionIntentStorageKey("guest"));
+    } catch (error) {
+      // Ignore guest intent cleanup failures.
+    }
+  }
 }
 
 function closeMobileCategoryMenu() {
@@ -3075,6 +3180,32 @@ function noteSearchInterest(term) {
     return;
   }
   recentSearchTerms = rememberBehaviorValue(recentSearchTerms, normalized, 8);
+}
+
+function noteSharedCollectionIntent(intent = {}, options = {}) {
+  const category = getRestorableCategory(intent.category || "all");
+  const topCategory = isTopCategoryValue(intent.topCategory)
+    ? intent.topCategory
+    : (category !== "all" ? inferTopCategoryValue(category) : "");
+  if (category === "all" && !topCategory) {
+    return;
+  }
+  const source = String(options.source || intent.source || "share_collection").trim().toLowerCase() || "share_collection";
+  const entryKey = `${category}::${topCategory}`;
+  const existingEntry = sharedCollectionIntentEntries.find((entry) => `${entry.category}::${entry.topCategory}` === entryKey);
+  const nextEntry = {
+    category,
+    topCategory,
+    count: Math.min(12, Math.max(1, Number(existingEntry?.count || 0) + 1)),
+    updatedAt: new Date().toISOString(),
+    source
+  };
+  sharedCollectionIntentEntries = [
+    nextEntry,
+    ...sharedCollectionIntentEntries.filter((entry) => `${entry.category}::${entry.topCategory}` !== entryKey)
+  ].slice(0, 8);
+  noteCategoryInterest(category);
+  saveSharedCollectionIntentState();
 }
 
 function noteMessageInterest(productId) {
@@ -6230,6 +6361,10 @@ function applySharedCollectionRoute(options = {}) {
     return false;
   }
 
+  noteSharedCollectionIntent(routeState, {
+    source: "share_collection_route"
+  });
+
   let shouldRender = false;
   if (currentView !== "home") {
     setCurrentViewState("home", {
@@ -8631,6 +8766,7 @@ const productCardEngagementState = new WeakMap();
 let recentCategorySelections = [];
 let recentSearchTerms = [];
 let recentMessagedProductIds = [];
+let sharedCollectionIntentEntries = [];
 let homeContinuousDiscoveryRuntime = {
   observer: null,
   batchIndex: 0,
@@ -11189,6 +11325,7 @@ function logout() {
   currentNotifications = [];
   currentPromotions = [];
   buyerSellerAffinity = {};
+  sharedCollectionIntentEntries = [];
   currentReviews = [];
     reviewSummaries = {};
     chatUiState.activeContext = null;
@@ -11870,6 +12007,7 @@ const {
   getRecentCategorySelections: () => recentCategorySelections,
   getRecentSearchTerms: () => recentSearchTerms,
   getRecentMessagedProductIds: () => recentMessagedProductIds,
+  getSharedCollectionIntentEntries: () => sharedCollectionIntentEntries.slice(),
   getFollowedSellerIds: () => Array.from(ensureFollowedSellerIdsLoaded()).filter(Boolean),
   getBuyerSellerAffinityEntries,
   getCurrentSession: () => currentSession,
