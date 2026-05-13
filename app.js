@@ -8010,6 +8010,16 @@ const {
   canUseContinuousDiscovery: () => Boolean(currentUser),
   createContinuousDiscoveryAnchorElement,
   setupContinuousDiscoveryLoading,
+  setDeferredRecommendationDescriptors: (descriptors = []) => {
+    homeContinuousDiscoveryRuntime.pendingDescriptors = Array.isArray(descriptors)
+      ? descriptors
+        .filter((descriptor) => Array.isArray(descriptor?.items) && descriptor.items.length)
+        .map((descriptor) => ({
+          ...descriptor,
+          items: descriptor.items.slice()
+        }))
+      : [];
+  },
   trackProductView: (productId) => window.WingaDataLayer.trackProductView(productId),
   refreshProductsFromStore,
   afterFeedBatchRender: ({ container }) => {
@@ -12815,12 +12825,17 @@ function hydrateContinuousDiscoveryAnchor(anchor) {
   homeContinuousDiscoveryRuntime.observer?.unobserve(anchor);
 
   const seedProduct = getProductById(homeContinuousDiscoveryRuntime.seedProductId) || getRecommendationSeed(getFilteredProducts());
-  const descriptor = getContinuousDiscoveryDescriptor({
-    seedProduct,
-    usedIds: homeContinuousDiscoveryRuntime.usedIds,
-    recentIds: homeContinuousDiscoveryRuntime.recentIds,
-    batchIndex: homeContinuousDiscoveryRuntime.batchIndex
-  });
+  const pendingDescriptors = Array.isArray(homeContinuousDiscoveryRuntime.pendingDescriptors)
+    ? homeContinuousDiscoveryRuntime.pendingDescriptors
+    : [];
+  const descriptor = pendingDescriptors.length
+    ? pendingDescriptors.shift()
+    : getContinuousDiscoveryDescriptor({
+      seedProduct,
+      usedIds: homeContinuousDiscoveryRuntime.usedIds,
+      recentIds: homeContinuousDiscoveryRuntime.recentIds,
+      batchIndex: homeContinuousDiscoveryRuntime.batchIndex
+    });
 
   if (!descriptor) {
     homeContinuousDiscoveryRuntime.loading = false;
@@ -12874,6 +12889,14 @@ function setupContinuousDiscoveryLoading(scope, options = {}) {
   homeContinuousDiscoveryRuntime.recentIds = [];
   homeContinuousDiscoveryRuntime.seedProductId = options.seedProduct?.id || "";
   homeContinuousDiscoveryRuntime.lastHydrateAt = 0;
+  homeContinuousDiscoveryRuntime.pendingDescriptors = Array.isArray(options.pendingDescriptors)
+    ? options.pendingDescriptors
+      .filter((descriptor) => Array.isArray(descriptor?.items) && descriptor.items.length)
+      .map((descriptor) => ({
+        ...descriptor,
+        items: descriptor.items.slice()
+      }))
+    : [];
 
   if (typeof IntersectionObserver === "undefined") {
     for (let cycle = 0; cycle < 3; cycle += 1) {

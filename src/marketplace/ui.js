@@ -521,6 +521,20 @@
       return section;
     }
 
+    function createRecommendationDescriptor(title, subtitle, items, type) {
+      const safeItems = Array.isArray(items) ? items.filter(Boolean) : [];
+      if (!safeItems.length) {
+        return null;
+      }
+      return {
+        kind: type || "recommendation",
+        eyebrow: title,
+        title: subtitle,
+        subtitle: "Suggestions based on the current catalog",
+        items: safeItems
+      };
+    }
+
     function renderProducts(list) {
       const productsContainer = deps.getProductsContainer();
       cancelScheduledFeedRender();
@@ -597,14 +611,32 @@
           const related = deps.getRelatedProducts(seedProduct, 6);
           const youMayLike = deps.getYouMayLikeProducts(seedProduct, 6);
           const trending = deps.getTrendingProducts(8);
-          [
-            createRecommendationSectionElement("Related Products", seedProduct ? `More in ${deps.getCategoryLabel(seedProduct.category)}` : "Similar picks", related, "related"),
-            createRecommendationSectionElement("You May Like", "Based on what you are viewing", youMayLike, "you-may-like"),
-            createRecommendationSectionElement("Trending", "Most viewed and most interacted", trending, "trending")
-          ].filter(Boolean).forEach((section) => productsContainer.appendChild(section));
+          const recommendationDescriptors = [
+            createRecommendationDescriptor("Related Products", seedProduct ? `More in ${deps.getCategoryLabel(seedProduct.category)}` : "Similar picks", related, "related"),
+            createRecommendationDescriptor("You May Like", "Based on what you are viewing", youMayLike, "you-may-like"),
+            createRecommendationDescriptor("Trending", "Most viewed and most interacted", trending, "trending")
+          ].filter(Boolean);
+          if (shouldInjectInlineShowcases && insertedInlineShowcase && deps.setDeferredRecommendationDescriptors) {
+            deps.setDeferredRecommendationDescriptors(recommendationDescriptors);
+          } else {
+            if (deps.setDeferredRecommendationDescriptors) {
+              deps.setDeferredRecommendationDescriptors([]);
+            }
+            recommendationDescriptors
+              .map((descriptor) => createRecommendationSectionElement(
+                descriptor.eyebrow,
+                descriptor.title,
+                descriptor.items,
+                descriptor.kind
+              ))
+              .filter(Boolean)
+              .forEach((section) => productsContainer.appendChild(section));
+          }
           if (deps.createContinuousDiscoveryAnchorElement) {
             productsContainer.appendChild(deps.createContinuousDiscoveryAnchorElement());
           }
+        } else if (deps.setDeferredRecommendationDescriptors) {
+          deps.setDeferredRecommendationDescriptors([]);
         }
 
         if (shouldInjectInlineShowcases) {
