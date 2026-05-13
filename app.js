@@ -14132,10 +14132,12 @@ function handleAccessRouteChange() {
     return;
   }
 
+  appContainer.style.display = "block";
   if (sharedCollectionApplied) {
-    appContainer.style.display = "block";
     renderCurrentView();
+    return;
   }
+  renderCurrentView();
 }
 
 function triggerProductDownload(product) {
