@@ -3831,6 +3831,10 @@ function getSavedProductNotificationReadStorageKey() {
   return `winga-saved-product-note-read:${currentUser || "guest"}`;
 }
 
+function getAffinitySellerNotificationReadStorageKey() {
+  return `winga-affinity-seller-note-read:${currentUser || "guest"}`;
+}
+
 function getFollowedSellerNotificationReadStorageKey() {
   return `winga-followed-seller-note-read:${currentUser || "guest"}`;
 }
@@ -3871,6 +3875,19 @@ function getFollowedSellerNotificationStateStore() {
     readIds: new Set()
   };
   globalThis.__wingaFollowedSellerNotificationState = nextState;
+  return nextState;
+}
+
+function getAffinitySellerNotificationStateStore() {
+  const existingState = globalThis.__wingaAffinitySellerNotificationState;
+  if (existingState && typeof existingState === "object") {
+    return existingState;
+  }
+  const nextState = {
+    storageKey: "",
+    readIds: new Set()
+  };
+  globalThis.__wingaAffinitySellerNotificationState = nextState;
   return nextState;
 }
 
@@ -3971,6 +3988,47 @@ function markSavedProductNotificationRead(notificationId) {
   const readIds = ensureSavedProductNotificationReadIdsLoaded();
   readIds.add(safeId);
   persistSavedProductNotificationReadIds();
+}
+
+function ensureAffinitySellerNotificationReadIdsLoaded() {
+  const state = getAffinitySellerNotificationStateStore();
+  const nextKey = getAffinitySellerNotificationReadStorageKey();
+  if (state.storageKey === nextKey) {
+    return state.readIds;
+  }
+
+  state.storageKey = nextKey;
+  try {
+    const rawValue = window.localStorage.getItem(nextKey);
+    const parsed = rawValue ? JSON.parse(rawValue) : [];
+    state.readIds = new Set(Array.isArray(parsed) ? parsed.filter(Boolean) : []);
+  } catch (error) {
+    state.readIds = new Set();
+    captureClientError("affinity_seller_notification_restore_failed", error, {
+      category: "storage",
+      alertSeverity: "low"
+    });
+  }
+  return state.readIds;
+}
+
+function persistAffinitySellerNotificationReadIds() {
+  const state = getAffinitySellerNotificationStateStore();
+  state.storageKey = getAffinitySellerNotificationReadStorageKey();
+  window.localStorage.setItem(
+    state.storageKey,
+    JSON.stringify(Array.from(state.readIds))
+  );
+}
+
+function markAffinitySellerNotificationRead(notificationId) {
+  const safeId = String(notificationId || "").trim();
+  if (!safeId) {
+    return;
+  }
+  const readIds = ensureAffinitySellerNotificationReadIdsLoaded();
+  readIds.add(safeId);
+  persistAffinitySellerNotificationReadIds();
 }
 
 function clearSavedProductNotificationReadIds(productId) {
@@ -4199,11 +4257,91 @@ function getSavedIntentNotifications() {
     .slice(0, 8);
 }
 
+function getAffinitySellerActivityNotifications() {
+  if (!currentUser || !canUseBuyerFeatures()) {
+    return [];
+  }
+  const followedSellerIds = new Set(Array.from(ensureFollowedSellerIdsLoaded()).filter(Boolean));
+  const affinityEntries = getBuyerSellerAffinityEntries()
+    .filter((entry) =>
+      entry?.sellerId
+      && entry.sellerId !== currentUser
+      && !followedSellerIds.has(entry.sellerId)
+      && Number(entry.score || 0) >= 18
+    )
+    .sort((first, second) => Number(second.score || 0) - Number(first.score || 0))
+    .slice(0, 6);
+  if (!affinityEntries.length) {
+    return [];
+  }
+
+  const readIds = ensureAffinitySellerNotificationReadIdsLoaded();
+  const now = Date.now();
+  const recentWindowMs = 14 * 24 * 60 * 60 * 1000;
+
+  return affinityEntries
+    .flatMap((entry) => {
+      const sellerProducts = products
+        .filter((product) =>
+          product?.status === "approved"
+          && product?.uploadedBy === entry.sellerId
+          && product.uploadedBy !== currentUser
+          && product.availability !== "sold_out"
+          && hasRenderableMarketplaceImage(product)
+          && shouldRenderMarketplaceProduct(product)
+        )
+        .sort((first, second) => new Date(second.createdAt || second.updatedAt || second.timestamp || 0).getTime() - new Date(first.createdAt || first.updatedAt || first.timestamp || 0).getTime());
+      const latestProduct = sellerProducts[0];
+      if (!latestProduct) {
+        return [];
+      }
+
+      const latestProductTime = new Date(latestProduct.createdAt || latestProduct.updatedAt || latestProduct.timestamp || 0).getTime();
+      if (!Number.isFinite(latestProductTime) || (now - latestProductTime) > recentWindowMs) {
+        return [];
+      }
+
+      const sellerName = getUserDisplayName(entry.sellerId, {
+        fallback: latestProduct.shop || entry.sellerId || "Seller"
+      });
+      const primaryReason = entry.interactions?.message > 0 || entry.lastSignal === "message"
+        ? "Umeshawasiliana na seller huyu"
+        : entry.lastSignal === "card_open" || entry.interactions?.card_open > 0
+          ? "Ulishafungua bidhaa za seller huyu"
+          : "Ulishaonyesha interest kwa seller huyu";
+      const notificationId = `affinity-seller:${latestProduct.id}`;
+
+      return [{
+        id: notificationId,
+        userId: currentUser,
+        type: "message",
+        variant: "info",
+        title: `${sellerName} ameweka bidhaa mpya`,
+        body: `${primaryReason}. ${latestProduct.name} sasa ipo live.`,
+        createdAt: latestProduct.createdAt || latestProduct.updatedAt || new Date().toISOString(),
+        isRead: readIds.has(notificationId),
+        productId: latestProduct.id,
+        sellerUsername: latestProduct.uploadedBy
+      }];
+    })
+    .slice(0, 6);
+}
+
 function getRenderableNotifications() {
   const serverNotifications = Array.isArray(currentNotifications) ? currentNotifications : [];
   const localFollowNotifications = getFollowedSellerActivityNotifications();
   const savedIntentNotifications = getSavedIntentNotifications();
-  return [...serverNotifications, ...localFollowNotifications, ...savedIntentNotifications]
+  const affinitySellerNotifications = getAffinitySellerActivityNotifications();
+  const seenIds = new Set();
+  return [...serverNotifications, ...localFollowNotifications, ...savedIntentNotifications, ...affinitySellerNotifications]
+    .filter((notification) => {
+      const notificationId = String(notification?.id || "").trim();
+      if (!notificationId || seenIds.has(notificationId)) {
+        return false;
+      }
+      seenIds.add(notificationId);
+      return true;
+    })
     .sort((first, second) => new Date(second.createdAt || 0).getTime() - new Date(first.createdAt || 0).getTime());
 }
 
@@ -4220,6 +4358,9 @@ async function handleNotificationOpen(notificationId) {
     const [, savedProductId = ""] = safeId.split(":");
     productId = savedProductId;
     markSavedProductNotificationRead(safeId);
+  } else if (safeId.startsWith("affinity-seller:")) {
+    productId = safeId.slice("affinity-seller:".length);
+    markAffinitySellerNotificationRead(safeId);
   } else {
     return false;
   }
@@ -6047,6 +6188,131 @@ async function handleShareSellerShop(username) {
   window.prompt("Copy seller link", `${shareText} | Link: ${shareUrl}`);
 }
 
+function buildCollectionShareUrl({ category = "all", topCategory = "" } = {}) {
+  const shareUrl = new URL(window.location.origin + "/");
+  const safeCategory = getRestorableCategory(category || "all");
+  const safeTopCategory = isTopCategoryValue(topCategory)
+    ? topCategory
+    : (safeCategory !== "all" ? inferTopCategoryValue(safeCategory) : "");
+  if (safeCategory && safeCategory !== "all") {
+    shareUrl.searchParams.set("category", safeCategory);
+  }
+  if (safeTopCategory) {
+    shareUrl.searchParams.set("topCategory", safeTopCategory);
+  }
+  shareUrl.searchParams.set("collection", "1");
+  return shareUrl.toString();
+}
+
+function getSharedCollectionRouteState() {
+  try {
+    const currentUrl = new URL(window.location.href);
+    const collection = currentUrl.searchParams.get("collection");
+    const category = getRestorableCategory(currentUrl.searchParams.get("category") || "all");
+    const topCategory = String(currentUrl.searchParams.get("topCategory") || "").trim().toLowerCase();
+    if (collection !== "1" && category === "all" && !topCategory) {
+      return null;
+    }
+    return {
+      category,
+      topCategory: isTopCategoryValue(topCategory)
+        ? topCategory
+        : (category !== "all" ? inferTopCategoryValue(category) : "")
+    };
+  } catch (error) {
+    return null;
+  }
+}
+
+function applySharedCollectionRoute(options = {}) {
+  const routeState = getSharedCollectionRouteState();
+  if (!routeState) {
+    return false;
+  }
+
+  let shouldRender = false;
+  if (currentView !== "home") {
+    setCurrentViewState("home", {
+      persist: false,
+      syncHistory: false
+    });
+    shouldRender = true;
+  }
+
+  const nextCategory = routeState.category || "all";
+  const nextTopCategory = routeState.topCategory || "";
+  if (selectedCategory !== nextCategory || expandedBrowseCategory !== nextTopCategory) {
+    setCategorySelectionState(nextCategory, {
+      expandedBrowseCategory: nextTopCategory,
+      persist: false,
+      syncHistory: false
+    });
+    shouldRender = true;
+  }
+
+  if (options.clearUrl !== false) {
+    syncAppShellHistoryState({
+      force: true,
+      overrides: {
+        view: "home",
+        selectedCategory: nextCategory
+      },
+      url: `${window.location.pathname}${window.location.hash}`
+    });
+  }
+  return shouldRender;
+}
+
+async function handleShareCollection(options = {}) {
+  const fallbackProduct = getProductById(options.productId || "");
+  const shareCategory = getRestorableCategory(
+    options.category
+    || (selectedCategory !== "all" ? selectedCategory : "")
+    || fallbackProduct?.category
+    || "all"
+  );
+  const shareTopCategory = isTopCategoryValue(options.topCategory)
+    ? options.topCategory
+    : (expandedBrowseCategory || inferTopCategoryValue(shareCategory));
+  const title = String(options.title || "").trim()
+    || (shareCategory !== "all" ? getCategoryLabel(shareCategory) : "Collection");
+  const subtitle = String(options.subtitle || "").trim()
+    || "Discover products selected for this collection on Winga.";
+  const heading = String(options.heading || "").trim() || "Marketplace Picks";
+  const shareText = `${heading}: ${title}. ${subtitle}`;
+  const shareUrl = buildCollectionShareUrl({
+    category: shareCategory,
+    topCategory: shareTopCategory
+  });
+
+  if (navigator.share) {
+    try {
+      await navigator.share({
+        title: `${title} on Winga`,
+        text: shareText,
+        url: shareUrl
+      });
+      return;
+    } catch (error) {
+      if (error && error.name === "AbortError") {
+        return;
+      }
+    }
+  }
+
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(`${shareText} | Link: ${shareUrl}`);
+    showInAppNotification({
+      title: "Collection share ready",
+      body: `${title} link ime-copy tayari kwa sharing.`,
+      variant: "success"
+    });
+    return;
+  }
+
+  window.prompt("Copy collection link", `${shareText} | Link: ${shareUrl}`);
+}
+
 const TRUST_REPORT_REASON_OPTIONS = [
   { id: "fake_item", label: "Fake or misleading item" },
   { id: "unsafe", label: "Unsafe or suspicious" },
@@ -6588,6 +6854,25 @@ function bindTrustReportEntryActions() {
       handleShareSellerShop(shareSellerButton.dataset.shareSellerShop || "").catch((error) => {
         captureClientError("share_seller_shop_failed", error, {
           sellerUsername: shareSellerButton.dataset.shareSellerShop || ""
+        });
+      });
+      return;
+    }
+
+    const shareCollectionButton = event.target.closest("[data-share-collection-title]");
+    if (shareCollectionButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      handleShareCollection({
+        title: shareCollectionButton.dataset.shareCollectionTitle || "",
+        subtitle: shareCollectionButton.dataset.shareCollectionSubtitle || "",
+        heading: shareCollectionButton.dataset.shareCollectionHeading || "",
+        productId: shareCollectionButton.dataset.shareCollectionProductId || "",
+        surface: shareCollectionButton.dataset.shareCollectionSurface || ""
+      }).catch((error) => {
+        captureClientError("share_collection_failed", error, {
+          productId: shareCollectionButton.dataset.shareCollectionProductId || "",
+          surface: shareCollectionButton.dataset.shareCollectionSurface || ""
         });
       });
       return;
@@ -11089,6 +11374,9 @@ feedLoadingRetryButton?.addEventListener("click", () => {
 window.addEventListener("popstate", (event) => {
   const state = event?.state;
   if (!state || state.wingaProductDetail || !state.wingaAppShell) {
+    if (applySharedCollectionRoute({ clearUrl: false }) && appContainer?.style.display !== "none") {
+      renderCurrentView();
+    }
     return;
   }
 
@@ -13832,10 +14120,20 @@ function handleAccessRouteChange() {
   }
 
   hideAdminLoginScreen();
+  const sharedCollectionApplied = applySharedCollectionRoute();
   if (!isAuthenticatedUser()) {
     appContainer.style.display = "block";
     refreshPublicEntryChrome();
-    setCurrentViewState("home");
+    setCurrentViewState("home", {
+      persist: false,
+      syncHistory: false
+    });
+    renderCurrentView();
+    return;
+  }
+
+  if (sharedCollectionApplied) {
+    appContainer.style.display = "block";
     renderCurrentView();
   }
 }
