@@ -764,6 +764,8 @@ function normalizeSharedCollectionIntentEntries(entries = []) {
       const count = Math.max(1, Math.min(12, Number(entry?.count || 1) || 1));
       const updatedAt = String(entry?.updatedAt || "").trim();
       const source = String(entry?.source || "").trim().toLowerCase();
+      const seedSellerIds = Array.from(new Set((Array.isArray(entry?.seedSellerIds) ? entry.seedSellerIds : []).map((value) => String(value || "").trim()).filter(Boolean))).slice(0, 4);
+      const seedProductIds = Array.from(new Set((Array.isArray(entry?.seedProductIds) ? entry.seedProductIds : []).map((value) => normalizeProductIdValue(value)).filter(Boolean))).slice(0, 6);
       if (category === "all" && !topCategory) {
         return null;
       }
@@ -772,7 +774,9 @@ function normalizeSharedCollectionIntentEntries(entries = []) {
         topCategory,
         count,
         updatedAt,
-        source: source || "share_collection"
+        source: source || "share_collection",
+        seedSellerIds,
+        seedProductIds
       };
     })
     .filter(Boolean)
@@ -811,7 +815,9 @@ function mergeSharedCollectionIntentEntryLists(...entryLists) {
         ...existing,
         ...normalizedEntry,
         count: Math.min(12, Math.max(Number(existing.count || 0), Number(normalizedEntry.count || 0))),
-        updatedAt: nextTime >= existingTime ? normalizedEntry.updatedAt : existing.updatedAt
+        updatedAt: nextTime >= existingTime ? normalizedEntry.updatedAt : existing.updatedAt,
+        seedSellerIds: Array.from(new Set([...(existing.seedSellerIds || []), ...(normalizedEntry.seedSellerIds || [])])).slice(0, 4),
+        seedProductIds: Array.from(new Set([...(existing.seedProductIds || []), ...(normalizedEntry.seedProductIds || [])])).slice(0, 6)
       });
     });
   });
@@ -3193,12 +3199,18 @@ function noteSharedCollectionIntent(intent = {}, options = {}) {
   const source = String(options.source || intent.source || "share_collection").trim().toLowerCase() || "share_collection";
   const entryKey = `${category}::${topCategory}`;
   const existingEntry = sharedCollectionIntentEntries.find((entry) => `${entry.category}::${entry.topCategory}` === entryKey);
+  const seedSnapshot = getSharedCollectionIntentSeedSnapshot({
+    category,
+    topCategory
+  });
   const nextEntry = {
     category,
     topCategory,
     count: Math.min(12, Math.max(1, Number(existingEntry?.count || 0) + 1)),
     updatedAt: new Date().toISOString(),
-    source
+    source,
+    seedSellerIds: Array.from(new Set([...(existingEntry?.seedSellerIds || []), ...seedSnapshot.seedSellerIds])).slice(0, 4),
+    seedProductIds: Array.from(new Set([...(existingEntry?.seedProductIds || []), ...seedSnapshot.seedProductIds])).slice(0, 6)
   };
   sharedCollectionIntentEntries = [
     nextEntry,
@@ -3206,6 +3218,32 @@ function noteSharedCollectionIntent(intent = {}, options = {}) {
   ].slice(0, 8);
   noteCategoryInterest(category);
   saveSharedCollectionIntentState();
+}
+
+function getSharedCollectionIntentSeedSnapshot(intent = {}) {
+  const category = getRestorableCategory(intent.category || "all");
+  const topCategory = isTopCategoryValue(intent.topCategory)
+    ? intent.topCategory
+    : (category !== "all" ? inferTopCategoryValue(category) : "");
+  const matchingProducts = products
+    .filter((product) => {
+      if (!product || product.status !== "approved" || product.availability === "sold_out") {
+        return false;
+      }
+      if (category !== "all" && product.category === category) {
+        return true;
+      }
+      if (topCategory && inferTopCategoryValue(product.category) === topCategory) {
+        return true;
+      }
+      return false;
+    })
+    .sort((first, second) => new Date(second.createdAt || second.timestamp || 0).getTime() - new Date(first.createdAt || first.timestamp || 0).getTime())
+    .slice(0, 6);
+  return {
+    seedSellerIds: Array.from(new Set(matchingProducts.map((product) => String(product.uploadedBy || "").trim()).filter(Boolean))).slice(0, 4),
+    seedProductIds: matchingProducts.map((product) => normalizeProductIdValue(product.id)).filter(Boolean).slice(0, 6)
+  };
 }
 
 function noteMessageInterest(productId) {

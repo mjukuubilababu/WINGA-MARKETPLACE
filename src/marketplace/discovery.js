@@ -335,6 +335,8 @@
       (Array.isArray(sharedCollectionIntentEntries) ? sharedCollectionIntentEntries : []).forEach((entry, index) => {
         const category = String(entry?.category || "").trim();
         const topCategory = String(entry?.topCategory || "").trim();
+        const seedSellerIds = Array.isArray(entry?.seedSellerIds) ? entry.seedSellerIds : [];
+        const seedProductIds = Array.isArray(entry?.seedProductIds) ? entry.seedProductIds : [];
         const recencyBoost = getRecencyBoost(entry?.updatedAt, 90, 14);
         const strength = Math.max(1, Math.min(4, Number(entry?.count || 1) || 1));
         const freshness = Math.max(0.45, 1 - (index * 0.1));
@@ -345,6 +347,22 @@
         if (topCategory) {
           addScore(topCategoryScores, topCategory, (44 * freshness * strength) + (recencyBoost * 0.55));
         }
+        seedSellerIds.forEach((sellerId, sellerIndex) => {
+          const safeSellerId = String(sellerId || "").trim();
+          if (!safeSellerId) {
+            return;
+          }
+          const sellerFreshness = Math.max(0.55, 1 - (sellerIndex * 0.12));
+          addScore(sellerScores, safeSellerId, (34 * freshness * sellerFreshness * strength) + (recencyBoost * 0.18));
+        });
+        seedProductIds.forEach((productId, productIndex) => {
+          const safeProductId = String(productId || "").trim();
+          if (!safeProductId) {
+            return;
+          }
+          const productFreshness = Math.max(0.5, 1 - (productIndex * 0.1));
+          addScore(productScores, safeProductId, (28 * freshness * productFreshness * strength) + (recencyBoost * 0.16));
+        });
         hasMeaningfulHistory = true;
       });
 
