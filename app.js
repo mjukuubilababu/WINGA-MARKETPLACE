@@ -13,6 +13,7 @@ const HOME_FEED_REFRESH_CURSOR_KEY = "winga-home-feed-refresh-cursor";
 const APP_UPDATE_BANNER_DISMISS_KEY = "winga-app-update-banner-dismissed-version";
 const APP_CHAT_DRAFT_KEY_PREFIX = "winga-chat-draft";
 const SHARED_COLLECTION_INTENT_KEY_PREFIX = "winga-shared-collection-intent";
+const PRODUCT_UPLOAD_DRAFT_KEY_PREFIX = "winga-product-upload-draft";
 const APP_INSTALL_STATE_KEY = "winga-pwa-install-state";
 const NOTIFICATION_PERMISSION_STATE_KEY = "winga-notification-permission-state";
 const NOTIFICATION_PERMISSION_PROMPT_COOLDOWN_MS = 12 * 60 * 60 * 1000;
@@ -745,6 +746,10 @@ function mergeSessionState(patch = {}) {
 
 function getRequestBoxStorageKey(username = currentUser) {
   return `${REQUEST_BOX_KEY_PREFIX}:${username || "guest"}`;
+}
+
+function getProductUploadDraftStorageKey(username = currentUser) {
+  return `${PRODUCT_UPLOAD_DRAFT_KEY_PREFIX}:${username || "guest"}`;
 }
 
 function getSharedCollectionIntentStorageKey(username = currentUser) {
@@ -4216,6 +4221,170 @@ function clearSavedProductNotificationReadIds(productId) {
   if (changed) {
     persistSavedProductNotificationReadIds();
   }
+}
+
+function collectProductUploadDraftPayload() {
+  if (!currentUser || editingProductId || !canUseSellerFeatures()) {
+    return null;
+  }
+  const name = String(productNameInput?.value || "").trim();
+  const price = String(productPriceInput?.value || "").trim();
+  const shop = String(productShopInput?.value || "").trim();
+  const whatsapp = String(productWhatsappInput?.value || "").trim();
+  const topCategory = String(productCategoryTopInput?.value || "").trim();
+  const category = String(productCategoryInput?.value || "").trim();
+  const customCategory = String(uploadCustomCategoryInput?.value || "").trim();
+  const fitMode = getSelectedProductFitMode();
+  const preparedImages = Array.isArray(productUploadDraftRuntimeState.preparedImages)
+    ? productUploadDraftRuntimeState.preparedImages.filter((value) => typeof value === "string" && value.startsWith("data:image/")).slice(0, MAX_UPLOAD_IMAGES)
+    : [];
+  const hasMeaningfulContent = Boolean(
+    name
+    || price
+    || shop
+    || whatsapp
+    || topCategory
+    || category
+    || customCategory
+    || preparedImages.length
+  );
+  if (!hasMeaningfulContent) {
+    return null;
+  }
+  return {
+    name,
+    price,
+    shop,
+    whatsapp,
+    topCategory,
+    category,
+    customCategory,
+    fitMode,
+    preparedImages,
+    updatedAt: new Date().toISOString()
+  };
+}
+
+function saveProductUploadDraft() {
+  if (!currentUser || editingProductId) {
+    return;
+  }
+  const storageKey = getProductUploadDraftStorageKey(currentUser);
+  try {
+    const payload = collectProductUploadDraftPayload();
+    if (!payload) {
+      window.localStorage.removeItem(storageKey);
+      return;
+    }
+    window.localStorage.setItem(storageKey, JSON.stringify(payload));
+    productUploadDraftRuntimeState.lastSavedAt = Date.now();
+  } catch (error) {
+    reportClientEvent("warn", "product_upload_draft_persist_failed", "Unable to persist product upload draft.", {
+      category: "runtime",
+      user: currentUser
+    });
+  }
+}
+
+function scheduleProductUploadDraftSave(delayMs = 220) {
+  if (productUploadDraftRuntimeState.saveTimer) {
+    window.clearTimeout(productUploadDraftRuntimeState.saveTimer);
+  }
+  productUploadDraftRuntimeState.saveTimer = window.setTimeout(() => {
+    productUploadDraftRuntimeState.saveTimer = 0;
+    saveProductUploadDraft();
+  }, Math.max(0, Number(delayMs || 0) || 0));
+}
+
+function clearProductUploadDraft(options = {}) {
+  const username = options.username || currentUser;
+  if (productUploadDraftRuntimeState.saveTimer) {
+    window.clearTimeout(productUploadDraftRuntimeState.saveTimer);
+    productUploadDraftRuntimeState.saveTimer = 0;
+  }
+  productUploadDraftRuntimeState.preparedImages = [];
+  productUploadDraftRuntimeState.lastSavedAt = 0;
+  productUploadDraftRuntimeState.restoredKey = "";
+  if (username) {
+    try {
+      window.localStorage.removeItem(getProductUploadDraftStorageKey(username));
+    } catch (error) {
+      // Ignore draft cleanup failures.
+    }
+  }
+}
+
+function loadProductUploadDraft(username = currentUser) {
+  if (!username) {
+    return null;
+  }
+  try {
+    const rawValue = window.localStorage.getItem(getProductUploadDraftStorageKey(username));
+    if (!rawValue) {
+      return null;
+    }
+    const parsed = JSON.parse(rawValue);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return null;
+    }
+    return {
+      name: String(parsed.name || "").trim(),
+      price: String(parsed.price || "").trim(),
+      shop: String(parsed.shop || "").trim(),
+      whatsapp: String(parsed.whatsapp || "").trim(),
+      topCategory: String(parsed.topCategory || "").trim(),
+      category: String(parsed.category || "").trim(),
+      customCategory: String(parsed.customCategory || "").trim(),
+      fitMode: normalizeProductFitMode(parsed.fitMode || "cover"),
+      preparedImages: Array.isArray(parsed.preparedImages)
+        ? parsed.preparedImages.filter((value) => typeof value === "string" && value.startsWith("data:image/")).slice(0, MAX_UPLOAD_IMAGES)
+        : [],
+      updatedAt: String(parsed.updatedAt || "").trim()
+    };
+  } catch (error) {
+    return null;
+  }
+}
+
+function restoreProductUploadDraft(options = {}) {
+  if (!currentUser || editingProductId || currentView !== "upload") {
+    return false;
+  }
+  const storageKey = getProductUploadDraftStorageKey(currentUser);
+  if (!options.force && productUploadDraftRuntimeState.restoredKey === storageKey) {
+    return false;
+  }
+  const draft = loadProductUploadDraft(currentUser);
+  if (!draft) {
+    productUploadDraftRuntimeState.restoredKey = storageKey;
+    return false;
+  }
+  productNameInput.value = draft.name;
+  productPriceInput.value = draft.price;
+  productShopInput.value = draft.shop || currentUser;
+  productWhatsappInput.value = draft.whatsapp || getCurrentWhatsappNumber();
+  renderUploadCategoryOptions();
+  productCategoryTopInput.value = draft.topCategory;
+  renderUploadCategoryOptions();
+  productCategoryInput.value = draft.category;
+  if (supportsFlexibleSubcategory(productCategoryTopInput.value)) {
+    uploadCustomCategoryWrap.style.display = "grid";
+    uploadCustomCategoryInput.value = draft.customCategory || (draft.category ? getCategoryLabel(draft.category) : "");
+  } else {
+    uploadCustomCategoryWrap.style.display = "none";
+    uploadCustomCategoryInput.value = "";
+  }
+  setSelectedProductFitMode(draft.fitMode || "cover");
+  productImageFileInput.value = "";
+  productUploadDraftRuntimeState.preparedImages = draft.preparedImages.slice();
+  renderPreviewImages(productUploadDraftRuntimeState.preparedImages);
+  productUploadDraftRuntimeState.restoredKey = storageKey;
+  showInAppNotification({
+    title: "Draft restored",
+    body: "Tumerudisha bidhaa uliyoanza kuandaa ili uendelee ulipoishia.",
+    variant: "success"
+  });
+  return true;
 }
 
 function noteSavedProductIntent(productId, savedAt = new Date().toISOString()) {
@@ -8791,6 +8960,12 @@ const imageLightboxState = {
 };
 const chatUiState = createChatUiState();
 const productDetailUiState = createProductDetailUiState();
+const productUploadDraftRuntimeState = {
+  preparedImages: [],
+  saveTimer: 0,
+  lastSavedAt: 0,
+  restoredKey: ""
+};
 let currentReviews = [];
 let reviewSummaries = {};
 let lastViewedProductId = "";
@@ -9954,12 +10129,31 @@ productCategoryInput.addEventListener("change", () => {
   if (supportsFlexibleSubcategory(productCategoryTopInput.value) && productCategoryInput.value) {
     uploadCustomCategoryInput.value = getCategoryLabel(productCategoryInput.value);
     uploadCustomCategoryWrap.style.display = "grid";
+    scheduleProductUploadDraftSave(0);
     return;
   }
   if (!supportsFlexibleSubcategory(productCategoryTopInput.value)) {
     uploadCustomCategoryWrap.style.display = "none";
   }
   uploadCustomCategoryInput.value = "";
+  scheduleProductUploadDraftSave(0);
+});
+
+[
+  productNameInput,
+  productPriceInput,
+  productShopInput,
+  productWhatsappInput,
+  productCategoryTopInput,
+  productCategoryInput,
+  uploadCustomCategoryInput
+].filter(Boolean).forEach((field) => {
+  field.addEventListener("input", () => scheduleProductUploadDraftSave(220));
+  field.addEventListener("change", () => scheduleProductUploadDraftSave(0));
+});
+
+Array.from(productFitModeInputs || []).forEach((input) => {
+  input.addEventListener("change", () => scheduleProductUploadDraftSave(0));
 });
 
 authButton.addEventListener("click", async () => {
@@ -10264,6 +10458,7 @@ uploadButton.addEventListener("click", async () => {
     refreshProductsFromStore();
     const primaryCategory = inferTopCategoryValue(category) || category;
     await window.WingaDataLayer.updateUserPrimaryCategory(currentUser, primaryCategory);
+    clearProductUploadDraft();
     clearUploadForm();
     applySelectedCategory(primaryCategory);
     setCurrentViewState("home");
@@ -10287,15 +10482,28 @@ uploadButton.addEventListener("click", async () => {
       uploadButton.disabled = true;
       uploadButton.dataset.loading = "true";
     }
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      showInAppNotification({
+        title: "Uko offline",
+        body: "Draft ya bidhaa imehifadhiwa. Internet ikirudi, bonyeza tena kupost.",
+        variant: "warning"
+      });
+      saveProductUploadDraft();
+      return;
+    }
+    saveProductUploadDraft();
     if (selectedFiles.length > 0) {
       validateImageFiles(selectedFiles);
       const images = await readFilesAsDataUrls(selectedFiles);
+      productUploadDraftRuntimeState.preparedImages = images.slice();
+      saveProductUploadDraft();
       await finalizeSave(images);
       return;
     }
 
     await finalizeSave(existingProduct.images || [existingProduct.image].filter(Boolean));
   } catch (error) {
+    saveProductUploadDraft();
     captureClientError("product_save_failed", error, {
       editingProductId: editingProductId || ""
     });
@@ -10324,8 +10532,10 @@ cancelEditButton.addEventListener("click", () => {
 productImageFileInput.addEventListener("change", async () => {
   const files = Array.from(productImageFileInput.files || []);
   if (files.length === 0) {
+    productUploadDraftRuntimeState.preparedImages = [];
     previewList.replaceChildren();
     previewList.style.display = "none";
+    scheduleProductUploadDraftSave(0);
     return;
   }
 
@@ -10333,16 +10543,20 @@ productImageFileInput.addEventListener("change", async () => {
     previewList.replaceChildren();
     previewList.style.display = "none";
     validateImageFiles(files);
-    await renderPreviewFiles(files);
+    const preparedImages = await renderPreviewFiles(files);
+    productUploadDraftRuntimeState.preparedImages = preparedImages.slice();
+    scheduleProductUploadDraftSave(0);
   } catch (error) {
     showInAppNotification({
       title: "Image selection failed",
       body: error.message || "Picha ulizochagua si sahihi.",
       variant: "error"
     });
+    productUploadDraftRuntimeState.preparedImages = [];
     productImageFileInput.value = "";
     previewList.replaceChildren();
     previewList.style.display = "none";
+    scheduleProductUploadDraftSave(0);
   }
 });
 
@@ -13701,6 +13915,7 @@ function renderCurrentView(options = {}) {
     renderSearchDropdown(homeProducts, { isProfile, isUpload, isAdminView });
 
     if (isUpload && !editingProductId) {
+      restoreProductUploadDraft();
       productNameInput.focus();
     }
   } catch (error) {
@@ -13756,6 +13971,7 @@ function startEditProduct(productId) {
   }
 
   editingProductId = productId;
+  clearProductUploadDraft({ username: currentUser });
   setNodeText(uploadTitle, "Hariri Bidhaa");
   cancelEditButton.style.display = "inline-flex";
 
@@ -13829,6 +14045,7 @@ function clearUploadForm() {
   uploadCustomCategoryWrap.style.display = "none";
   uploadCustomCategoryInput.value = "";
   productImageFileInput.value = "";
+  productUploadDraftRuntimeState.preparedImages = [];
   previewList.replaceChildren();
   previewList.style.display = "none";
   setSelectedProductFitMode("cover");
@@ -14615,6 +14832,7 @@ function renderPreviewFiles(files) {
   return readFilesAsDataUrls(files)
     .then((images) => {
       renderPreviewImages(images);
+      return images;
     })
     .catch((error) => {
       previewList.replaceChildren();
