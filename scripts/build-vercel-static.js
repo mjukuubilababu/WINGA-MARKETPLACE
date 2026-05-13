@@ -477,7 +477,7 @@ function applyAssetVersionToHtml(targetPath) {
         /(<meta name="viewport" content="width=device-width, initial-scale=1.0">)/i,
         `$1\n  <meta name="winga-build" content="${assetVersion}">`
       );
-  fs.writeFileSync(targetPath, marked, "utf8");
+  writeTextFileWithRetry(targetPath, marked, "utf8");
 }
 
 function applyAssetVersionToServiceWorker(targetPath, criticalImageUrls = []) {
@@ -488,7 +488,7 @@ function applyAssetVersionToServiceWorker(targetPath, criticalImageUrls = []) {
     .replace(/__WINGA_BUILD_VERSION__/g, assetVersion)
     .replace(/const BUILD_VERSION = "[^"]*";/, `const BUILD_VERSION = "${assetVersion}";`)
     .replace(/const CRITICAL_IMAGE_URLS = (?:__WINGA_CRITICAL_IMAGE_URLS__|\[[\s\S]*?\]);/, `const CRITICAL_IMAGE_URLS = ${criticalImageJson};`);
-  fs.writeFileSync(targetPath, next, "utf8");
+  writeTextFileWithRetry(targetPath, next, "utf8");
 }
 
 function writeFrontendModuleBundle(targetPath) {
@@ -501,8 +501,13 @@ function sleepSync(milliseconds) {
   Atomics.wait(view, 0, 0, milliseconds);
 }
 
+function isRetryableFileLockError(error) {
+  const code = String(error?.code || "").toUpperCase();
+  return code === "EBUSY" || code === "EPERM";
+}
+
 function writeTextFileWithRetry(targetPath, contents, encoding = "utf8") {
-  const maxAttempts = 6;
+  const maxAttempts = 20;
   let attempt = 0;
   let lastError = null;
   while (attempt < maxAttempts) {
@@ -511,17 +516,58 @@ function writeTextFileWithRetry(targetPath, contents, encoding = "utf8") {
       fs.writeFileSync(targetPath, contents, encoding);
       return;
     } catch (error) {
-      const code = String(error?.code || "").toUpperCase();
-      const shouldRetry = code === "EBUSY" || code === "EPERM";
+      const shouldRetry = isRetryableFileLockError(error);
       if (!shouldRetry || attempt >= maxAttempts) {
         throw error;
       }
       lastError = error;
-      sleepSync(150 * attempt);
+      sleepSync(Math.min(250 * attempt, 1500));
     }
   }
   if (lastError) {
     throw lastError;
+  }
+}
+
+function tryWriteFrontendModuleBundle(targetPath, options = {}) {
+  const { allowLockFallback = false } = options;
+  try {
+    writeFrontendModuleBundle(targetPath);
+    return true;
+  } catch (error) {
+    if (!allowLockFallback || !isRetryableFileLockError(error)) {
+      throw error;
+    }
+    console.warn(`[build] Skipped locked frontend bundle write for ${targetPath}; continuing with existing file.`);
+    return false;
+  }
+}
+
+function tryApplyAssetVersionToHtml(targetPath, options = {}) {
+  const { allowLockFallback = false } = options;
+  try {
+    applyAssetVersionToHtml(targetPath);
+    return true;
+  } catch (error) {
+    if (!allowLockFallback || !isRetryableFileLockError(error)) {
+      throw error;
+    }
+    console.warn(`[build] Skipped locked HTML version write for ${targetPath}; continuing with existing file.`);
+    return false;
+  }
+}
+
+function tryApplyAssetVersionToServiceWorker(targetPath, criticalImageUrls = [], options = {}) {
+  const { allowLockFallback = false } = options;
+  try {
+    applyAssetVersionToServiceWorker(targetPath, criticalImageUrls);
+    return true;
+  } catch (error) {
+    if (!allowLockFallback || !isRetryableFileLockError(error)) {
+      throw error;
+    }
+    console.warn(`[build] Skipped locked service worker write for ${targetPath}; continuing with existing file.`);
+    return false;
   }
 }
 
@@ -758,19 +804,22 @@ async function main() {
       copyFileIntoDist(sourceRelativePath, targetRelativePath);
     });
 
-    applyAssetVersionToHtml(path.join(rootDir, "index.html"));
     applyAssetVersionToHtml(path.join(outputDir, "index.html"));
 
     copyDirectoryRecursive(path.join(rootDir, "src"), path.join(outputDir, "src"));
-    writeFrontendModuleBundle(path.join(rootDir, "winga-modules.js"));
     writeFrontendModuleBundle(path.join(outputDir, "winga-modules.js"));
     criticalImageUrls = await generateProductSharePages(fs.readFileSync(path.join(outputDir, "index.html"), "utf8"), getPublicOrigin());
     if (!hasGeneratedProductSharePages()) {
       restoreGeneratedPublicAssets(generatedAssetBackup);
     }
-    applyAssetVersionToServiceWorker(path.join(rootDir, "service-worker.js"), criticalImageUrls);
     applyAssetVersionToServiceWorker(path.join(outputDir, "service-worker.js"), criticalImageUrls);
     verifyDistContents();
+    tryApplyAssetVersionToHtml(path.join(rootDir, "index.html"), { allowLockFallback: true });
+    tryWriteFrontendModuleBundle(path.join(rootDir, "winga-modules.js"), { allowLockFallback: true });
+    tryApplyAssetVersionToServiceWorker(path.join(rootDir, "service-worker.js"), criticalImageUrls, { allowLockFallback: true });
+  } catch (error) {
+    restoreGeneratedPublicAssets(generatedAssetBackup);
+    throw error;
   } finally {
     cleanupGeneratedPublicAssetBackup(generatedAssetBackup);
   }
