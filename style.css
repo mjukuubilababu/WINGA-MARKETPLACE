@@ -1194,6 +1194,25 @@ body.auth-modal-open::before{
   font-weight:800;
 }
 
+.showcase-inline .section-heading,
+.recommendation-strip .section-heading{
+  display:flex;
+  align-items:flex-start;
+  gap:12px;
+  flex-wrap:wrap;
+}
+
+.showcase-inline .section-heading > div:first-child,
+.recommendation-strip .section-heading > div:first-child{
+  flex:1 1 220px;
+  min-width:0;
+}
+
+.showcase-share-btn{
+  margin-inline-start:auto;
+  white-space:nowrap;
+}
+
 .hero-copy,
 .eyebrow,
 #results-count,

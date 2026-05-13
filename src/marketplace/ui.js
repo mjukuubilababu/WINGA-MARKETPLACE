@@ -439,11 +439,25 @@
         className: "showcase-inline panel",
         attributes: { "data-inline-showcase-section": index }
       });
-      section.appendChild(deps.createSectionHeading({
+      const sectionHeading = deps.createSectionHeading({
         eyebrow: heading,
         title,
         meta: subtitle
-      }));
+      });
+      const shareButton = createElement("button", {
+        className: "trust-link-btn showcase-share-btn",
+        textContent: "Share collection",
+        attributes: {
+          type: "button",
+          "data-share-collection-title": title,
+          "data-share-collection-subtitle": subtitle,
+          "data-share-collection-heading": heading,
+          "data-share-collection-product-id": items[0]?.id || "",
+          "data-share-collection-surface": "showcase"
+        }
+      });
+      sectionHeading.appendChild(shareButton);
+      section.appendChild(sectionHeading);
       const track = createElement("div", { className: "showcase-track" });
       items.forEach((product) => track.appendChild(createShowcaseProductCardElement(product)));
       section.appendChild(track);
@@ -482,11 +496,25 @@
         className: "showcase-inline panel recommendation-strip",
         attributes: { "data-recommendation-type": type }
       });
-      section.appendChild(deps.createSectionHeading({
+      const sectionHeading = deps.createSectionHeading({
         eyebrow: title,
         title: subtitle,
         meta: "Suggestions based on the current catalog"
-      }));
+      });
+      const shareButton = createElement("button", {
+        className: "trust-link-btn showcase-share-btn",
+        textContent: "Share collection",
+        attributes: {
+          type: "button",
+          "data-share-collection-title": subtitle,
+          "data-share-collection-subtitle": "Suggestions based on the current catalog",
+          "data-share-collection-heading": title,
+          "data-share-collection-product-id": items[0]?.id || "",
+          "data-share-collection-surface": type || "recommendation"
+        }
+      });
+      sectionHeading.appendChild(shareButton);
+      section.appendChild(sectionHeading);
       const track = createElement("div", { className: "showcase-track" });
       items.forEach((product) => track.appendChild(createShowcaseProductCardElement(product)));
       section.appendChild(track);

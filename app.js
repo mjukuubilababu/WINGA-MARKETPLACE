@@ -6188,6 +6188,131 @@ async function handleShareSellerShop(username) {
   window.prompt("Copy seller link", `${shareText} | Link: ${shareUrl}`);
 }
 
+function buildCollectionShareUrl({ category = "all", topCategory = "" } = {}) {
+  const shareUrl = new URL(window.location.origin + "/");
+  const safeCategory = getRestorableCategory(category || "all");
+  const safeTopCategory = isTopCategoryValue(topCategory)
+    ? topCategory
+    : (safeCategory !== "all" ? inferTopCategoryValue(safeCategory) : "");
+  if (safeCategory && safeCategory !== "all") {
+    shareUrl.searchParams.set("category", safeCategory);
+  }
+  if (safeTopCategory) {
+    shareUrl.searchParams.set("topCategory", safeTopCategory);
+  }
+  shareUrl.searchParams.set("collection", "1");
+  return shareUrl.toString();
+}
+
+function getSharedCollectionRouteState() {
+  try {
+    const currentUrl = new URL(window.location.href);
+    const collection = currentUrl.searchParams.get("collection");
+    const category = getRestorableCategory(currentUrl.searchParams.get("category") || "all");
+    const topCategory = String(currentUrl.searchParams.get("topCategory") || "").trim().toLowerCase();
+    if (collection !== "1" && category === "all" && !topCategory) {
+      return null;
+    }
+    return {
+      category,
+      topCategory: isTopCategoryValue(topCategory)
+        ? topCategory
+        : (category !== "all" ? inferTopCategoryValue(category) : "")
+    };
+  } catch (error) {
+    return null;
+  }
+}
+
+function applySharedCollectionRoute(options = {}) {
+  const routeState = getSharedCollectionRouteState();
+  if (!routeState) {
+    return false;
+  }
+
+  let shouldRender = false;
+  if (currentView !== "home") {
+    setCurrentViewState("home", {
+      persist: false,
+      syncHistory: false
+    });
+    shouldRender = true;
+  }
+
+  const nextCategory = routeState.category || "all";
+  const nextTopCategory = routeState.topCategory || "";
+  if (selectedCategory !== nextCategory || expandedBrowseCategory !== nextTopCategory) {
+    setCategorySelectionState(nextCategory, {
+      expandedBrowseCategory: nextTopCategory,
+      persist: false,
+      syncHistory: false
+    });
+    shouldRender = true;
+  }
+
+  if (options.clearUrl !== false) {
+    syncAppShellHistoryState({
+      force: true,
+      overrides: {
+        view: "home",
+        selectedCategory: nextCategory
+      },
+      url: `${window.location.pathname}${window.location.hash}`
+    });
+  }
+  return shouldRender;
+}
+
+async function handleShareCollection(options = {}) {
+  const fallbackProduct = getProductById(options.productId || "");
+  const shareCategory = getRestorableCategory(
+    options.category
+    || (selectedCategory !== "all" ? selectedCategory : "")
+    || fallbackProduct?.category
+    || "all"
+  );
+  const shareTopCategory = isTopCategoryValue(options.topCategory)
+    ? options.topCategory
+    : (expandedBrowseCategory || inferTopCategoryValue(shareCategory));
+  const title = String(options.title || "").trim()
+    || (shareCategory !== "all" ? getCategoryLabel(shareCategory) : "Collection");
+  const subtitle = String(options.subtitle || "").trim()
+    || "Discover products selected for this collection on Winga.";
+  const heading = String(options.heading || "").trim() || "Marketplace Picks";
+  const shareText = `${heading}: ${title}. ${subtitle}`;
+  const shareUrl = buildCollectionShareUrl({
+    category: shareCategory,
+    topCategory: shareTopCategory
+  });
+
+  if (navigator.share) {
+    try {
+      await navigator.share({
+        title: `${title} on Winga`,
+        text: shareText,
+        url: shareUrl
+      });
+      return;
+    } catch (error) {
+      if (error && error.name === "AbortError") {
+        return;
+      }
+    }
+  }
+
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(`${shareText} | Link: ${shareUrl}`);
+    showInAppNotification({
+      title: "Collection share ready",
+      body: `${title} link ime-copy tayari kwa sharing.`,
+      variant: "success"
+    });
+    return;
+  }
+
+  window.prompt("Copy collection link", `${shareText} | Link: ${shareUrl}`);
+}
+
 const TRUST_REPORT_REASON_OPTIONS = [
   { id: "fake_item", label: "Fake or misleading item" },
   { id: "unsafe", label: "Unsafe or suspicious" },
@@ -6729,6 +6854,25 @@ function bindTrustReportEntryActions() {
       handleShareSellerShop(shareSellerButton.dataset.shareSellerShop || "").catch((error) => {
         captureClientError("share_seller_shop_failed", error, {
           sellerUsername: shareSellerButton.dataset.shareSellerShop || ""
+        });
+      });
+      return;
+    }
+
+    const shareCollectionButton = event.target.closest("[data-share-collection-title]");
+    if (shareCollectionButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      handleShareCollection({
+        title: shareCollectionButton.dataset.shareCollectionTitle || "",
+        subtitle: shareCollectionButton.dataset.shareCollectionSubtitle || "",
+        heading: shareCollectionButton.dataset.shareCollectionHeading || "",
+        productId: shareCollectionButton.dataset.shareCollectionProductId || "",
+        surface: shareCollectionButton.dataset.shareCollectionSurface || ""
+      }).catch((error) => {
+        captureClientError("share_collection_failed", error, {
+          productId: shareCollectionButton.dataset.shareCollectionProductId || "",
+          surface: shareCollectionButton.dataset.shareCollectionSurface || ""
         });
       });
       return;
@@ -11230,6 +11374,9 @@ feedLoadingRetryButton?.addEventListener("click", () => {
 window.addEventListener("popstate", (event) => {
   const state = event?.state;
   if (!state || state.wingaProductDetail || !state.wingaAppShell) {
+    if (applySharedCollectionRoute({ clearUrl: false }) && appContainer?.style.display !== "none") {
+      renderCurrentView();
+    }
     return;
   }
 
@@ -13973,10 +14120,20 @@ function handleAccessRouteChange() {
   }
 
   hideAdminLoginScreen();
+  const sharedCollectionApplied = applySharedCollectionRoute();
   if (!isAuthenticatedUser()) {
     appContainer.style.display = "block";
     refreshPublicEntryChrome();
-    setCurrentViewState("home");
+    setCurrentViewState("home", {
+      persist: false,
+      syncHistory: false
+    });
+    renderCurrentView();
+    return;
+  }
+
+  if (sharedCollectionApplied) {
+    appContainer.style.display = "block";
     renderCurrentView();
   }
 }
