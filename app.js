@@ -8079,7 +8079,8 @@ const {
   createShowcaseSectionElement,
   createDynamicShowcasePlaceholderElement,
   renderShowcaseTrack,
-  repairShowcaseMediaVisibility
+  repairShowcaseMediaVisibility,
+  stabilizeMobileShowcaseRows
 } = window.WingaModules.marketplace.createMarketplaceUiModule({
   createElement,
   createElementFromMarkup,
@@ -13074,6 +13075,7 @@ function hydrateContinuousDiscoveryAnchor(anchor) {
   section.after(anchor);
   enhanceShowcaseTracks(section);
   repairShowcaseMediaVisibility?.(section);
+  stabilizeMobileShowcaseRows?.(section);
   bindShowcaseCardClicks(section);
   bindFeedGalleryInteractions(section);
   bindProductEngagementSignals(section);
@@ -13787,6 +13789,7 @@ function hydrateDynamicShowcaseSection(placeholder, sectionIndex, usedIds) {
   placeholder.replaceWith(nextSection);
   enhanceShowcaseTracks(nextSection);
   repairShowcaseMediaVisibility?.(nextSection);
+  stabilizeMobileShowcaseRows?.(nextSection);
   bindShowcaseCardClicks(nextSection);
   bindImageFallbacks(nextSection);
   bindProductMenus(nextSection);

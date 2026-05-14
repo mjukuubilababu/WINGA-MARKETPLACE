@@ -293,6 +293,46 @@
       });
     }
 
+    function stabilizeMobileShowcaseRows(scope = document) {
+      const isMobileViewport = window.matchMedia?.("(max-width: 780px)")?.matches;
+      if (!isMobileViewport) {
+        return;
+      }
+      const rows = Array.from(scope.querySelectorAll?.(".showcase-inline") || []);
+      rows.forEach((row) => {
+        if (!(row instanceof Element) || row.dataset.showcaseRowStabilityBound === "true") {
+          return;
+        }
+        row.dataset.showcaseRowStabilityBound = "true";
+        window.setTimeout(() => {
+          if (!row.isConnected) {
+            return;
+          }
+          const cards = Array.from(row.querySelectorAll(".showcase-card"));
+          if (!cards.length) {
+            return;
+          }
+          const healthyCardCount = cards.filter((card) => {
+            const image = card.querySelector(".feed-gallery-image-social, .showcase-preview-image, img");
+            return Boolean(
+              image
+              && String(image.currentSrc || image.src || "").trim()
+              && (Number(image.naturalWidth || 0) > 0 || Number(image.clientWidth || 0) > 32)
+            );
+          }).length;
+          if (healthyCardCount > 0) {
+            return;
+          }
+          reportShowcaseInstrumentation("mobile_showcase_row_removed", {
+            heading: String(row.querySelector(".section-heading h2, .section-heading strong, h2")?.textContent || "").trim(),
+            cardCount: cards.length,
+            source: row.getAttribute("data-recommendation-type") || row.getAttribute("data-continuous-discovery-kind") || "showcase_inline"
+          });
+          row.remove();
+        }, 1400);
+      });
+    }
+
     function bindCardOpenHandler(card, product) {
       if (!card || card.dataset.cardOpenBound === "true") {
         return;
@@ -736,6 +776,7 @@
           deps.setupDynamicShowcaseLoading(productsContainer, usedShowcaseProductIds);
         }
         repairShowcaseMediaVisibility(productsContainer);
+        stabilizeMobileShowcaseRows(productsContainer);
         deps.bindFeedGalleryInteractions?.(productsContainer);
         if (currentView === "home" && list.length > 0 && deps.canUseContinuousDiscovery?.() && deps.setupContinuousDiscoveryLoading) {
           const usedProductIds = new Set(list.map((product) => product.id));
@@ -805,7 +846,8 @@
       createDynamicShowcasePlaceholderElement,
       createShowcaseSectionElement,
       renderShowcaseTrack,
-      repairShowcaseMediaVisibility
+      repairShowcaseMediaVisibility,
+      stabilizeMobileShowcaseRows
     };
   }
 
