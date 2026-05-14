@@ -4458,12 +4458,57 @@ function restoreProductUploadDraft(options = {}) {
   productUploadDraftRuntimeState.preparedImages = draft.preparedImages.slice();
   renderPreviewImages(productUploadDraftRuntimeState.preparedImages);
   productUploadDraftRuntimeState.restoredKey = storageKey;
+  setUploadFormStatus("success", "Draft imerudi. Endelea ulipoishia kisha bonyeza post ukiwa tayari.");
   showInAppNotification({
     title: "Draft restored",
     body: "Tumerudisha bidhaa uliyoanza kuandaa ili uendelee ulipoishia.",
     variant: "success"
   });
   return true;
+}
+
+function ensureUploadFormStatusElement() {
+  if (!uploadForm) {
+    return null;
+  }
+  let statusNode = document.getElementById("upload-form-status");
+  if (statusNode) {
+    return statusNode;
+  }
+  statusNode = createElement("p", {
+    className: "upload-form-status",
+    attributes: {
+      id: "upload-form-status",
+      hidden: "hidden",
+      "aria-live": "polite"
+    }
+  });
+  if (uploadButton?.parentElement) {
+    uploadButton.parentElement.insertAdjacentElement("beforebegin", statusNode);
+  } else {
+    uploadForm.appendChild(statusNode);
+  }
+  return statusNode;
+}
+
+function setUploadFormStatus(tone = "", message = "") {
+  const statusNode = ensureUploadFormStatusElement();
+  if (!statusNode) {
+    return;
+  }
+  const safeTone = ["info", "warning", "success", "error"].includes(String(tone || "").trim())
+    ? String(tone || "").trim()
+    : "";
+  const safeMessage = String(message || "").trim();
+  if (!safeMessage) {
+    statusNode.hidden = true;
+    statusNode.textContent = "";
+    statusNode.className = "upload-form-status";
+    return;
+  }
+  statusNode.hidden = false;
+  statusNode.textContent = safeMessage;
+  statusNode.className = `upload-form-status${safeTone ? ` is-${safeTone}` : ""}`;
 }
 
 function noteSavedProductIntent(productId, savedAt = new Date().toISOString()) {
@@ -7089,6 +7134,9 @@ async function submitPaymentIntentOrder() {
   const submissionKey = createPaymentIntentSubmissionKey(product.id, transactionId);
   const existingSubmission = paymentIntentSubmissionRegistry.get(submissionKey);
   if (existingSubmission?.status === "pending") {
+    paymentIntentState.feedbackTone = "info";
+    paymentIntentState.feedbackMessage = "Reference hii bado tunaituma. Subiri kidogo kabla ya kujaribu tena.";
+    renderPaymentIntentModal();
     showInAppNotification({
       title: "Still submitting",
       body: "Reference hii bado tunaituma. Subiri kidogo kabla ya kujaribu tena.",
@@ -7097,6 +7145,9 @@ async function submitPaymentIntentOrder() {
     return;
   }
   if (existingSubmission?.status === "completed" && Date.now() - Number(existingSubmission.updatedAt || 0) < 20000) {
+    paymentIntentState.feedbackTone = "success";
+    paymentIntentState.feedbackMessage = "Reference hii tayari ilitumwa. Subiri seller athibitishe malipo.";
+    renderPaymentIntentModal();
     showInAppNotification({
       title: "Already submitted",
       body: "Reference hii tayari ilitumwa. Subiri seller athibitishe malipo.",
@@ -10403,12 +10454,30 @@ productCategoryInput.addEventListener("change", () => {
   productCategoryInput,
   uploadCustomCategoryInput
 ].filter(Boolean).forEach((field) => {
-  field.addEventListener("input", () => scheduleProductUploadDraftSave(220));
-  field.addEventListener("change", () => scheduleProductUploadDraftSave(0));
+  field.addEventListener("input", () => {
+    if ((uiRuntimeState.productUploadStatusTone || "") !== "info") {
+      setUploadFormStatus("", "");
+      uiRuntimeState.productUploadStatusTone = "";
+    }
+    scheduleProductUploadDraftSave(220);
+  });
+  field.addEventListener("change", () => {
+    if ((uiRuntimeState.productUploadStatusTone || "") !== "info") {
+      setUploadFormStatus("", "");
+      uiRuntimeState.productUploadStatusTone = "";
+    }
+    scheduleProductUploadDraftSave(0);
+  });
 });
 
 Array.from(productFitModeInputs || []).forEach((input) => {
-  input.addEventListener("change", () => scheduleProductUploadDraftSave(0));
+  input.addEventListener("change", () => {
+    if ((uiRuntimeState.productUploadStatusTone || "") !== "info") {
+      setUploadFormStatus("", "");
+      uiRuntimeState.productUploadStatusTone = "";
+    }
+    scheduleProductUploadDraftSave(0);
+  });
 });
 
 authButton.addEventListener("click", async () => {
@@ -10733,11 +10802,20 @@ uploadButton.addEventListener("click", async () => {
 
   try {
     uiRuntimeState.productUploadInFlight = true;
+    uiRuntimeState.productUploadStatusTone = "info";
+    setUploadFormStatus(
+      "info",
+      editingProductId
+        ? "Tunatunza mabadiliko ya bidhaa yako sasa. Usifunge ukurasa huu."
+        : "Tunapakia bidhaa yako sasa. Usifunge ukurasa huu."
+    );
     if (uploadButton) {
       uploadButton.disabled = true;
       uploadButton.dataset.loading = "true";
     }
     if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      uiRuntimeState.productUploadStatusTone = "warning";
+      setUploadFormStatus("warning", "Uko offline. Draft ya bidhaa imehifadhiwa. Internet ikirudi, bonyeza tena kupost.");
       showInAppNotification({
         title: "Uko offline",
         body: "Draft ya bidhaa imehifadhiwa. Internet ikirudi, bonyeza tena kupost.",
@@ -10752,6 +10830,8 @@ uploadButton.addEventListener("click", async () => {
       const images = await readFilesAsDataUrls(selectedFiles);
       productUploadDraftRuntimeState.preparedImages = images.slice();
       saveProductUploadDraft();
+      uiRuntimeState.productUploadStatusTone = "info";
+      setUploadFormStatus("info", "Picha zako zimeandaliwa. Tunahifadhi bidhaa sasa.");
       await finalizeSave(images);
       return;
     }
@@ -10759,6 +10839,8 @@ uploadButton.addEventListener("click", async () => {
     await finalizeSave(existingProduct.images || [existingProduct.image].filter(Boolean));
   } catch (error) {
     saveProductUploadDraft();
+    uiRuntimeState.productUploadStatusTone = "error";
+    setUploadFormStatus("error", getFriendlyProductUploadErrorMessage(error));
     captureClientError("product_save_failed", error, {
       editingProductId: editingProductId || ""
     });
@@ -10785,6 +10867,10 @@ cancelEditButton.addEventListener("click", () => {
 });
 
 productImageFileInput.addEventListener("change", async () => {
+  if ((uiRuntimeState.productUploadStatusTone || "") !== "info") {
+    setUploadFormStatus("", "");
+    uiRuntimeState.productUploadStatusTone = "";
+  }
   const files = Array.from(productImageFileInput.files || []);
   if (files.length === 0) {
     productUploadDraftRuntimeState.preparedImages = [];
@@ -10802,6 +10888,8 @@ productImageFileInput.addEventListener("change", async () => {
     productUploadDraftRuntimeState.preparedImages = preparedImages.slice();
     scheduleProductUploadDraftSave(0);
   } catch (error) {
+    uiRuntimeState.productUploadStatusTone = "error";
+    setUploadFormStatus("error", error.message || "Picha ulizochagua si sahihi.");
     showInAppNotification({
       title: "Image selection failed",
       body: error.message || "Picha ulizochagua si sahihi.",
@@ -14364,6 +14452,8 @@ function clearUploadForm() {
   previewList.replaceChildren();
   previewList.style.display = "none";
   setSelectedProductFitMode("cover");
+  uiRuntimeState.productUploadStatusTone = "";
+  setUploadFormStatus("", "");
 }
 
 function createPaymentIntentSubmissionKey(productId, transactionId) {
