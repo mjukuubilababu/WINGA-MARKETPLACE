@@ -773,7 +773,16 @@
             return;
           }
           try {
+            deps.setProductActionStatus?.(productId, {
+              tone: "info",
+              message: "Tunaweka bidhaa hii sold out sasa."
+            });
+            deps.renderProfile?.();
             await deps.dataLayer.updateProductAvailability(productId, { availability: "sold_out" });
+            deps.setProductActionStatus?.(productId, {
+              tone: "success",
+              message: "Bidhaa imewekwa sold out."
+            });
             deps.refreshProductsFromStore();
             deps.reportEvent?.("info", "product_marked_sold_out", "Seller marked product as sold out.", {
               productId
@@ -785,6 +794,10 @@
             });
             deps.renderProfile();
           } catch (error) {
+            deps.setProductActionStatus?.(productId, {
+              tone: "error",
+              message: error.message || "Imeshindikana kuweka sold out."
+            });
             deps.captureError?.("product_sold_out_failed", error, {
               productId
             });
@@ -793,6 +806,7 @@
               body: error.message || "Imeshindikana kuweka sold out.",
               variant: "error"
             });
+            deps.renderProfile?.();
           }
         });
 

@@ -7685,6 +7685,25 @@ const {
       message: String(status.message || "").trim()
     };
   },
+  setProductActionStatus: (productId, status = null) => {
+    if (!chatUiState.productActionStatus || typeof chatUiState.productActionStatus !== "object") {
+      chatUiState.productActionStatus = {};
+    }
+    const safeProductId = String(productId || "").trim();
+    if (!safeProductId) {
+      return;
+    }
+    if (!status || !status.message) {
+      delete chatUiState.productActionStatus[safeProductId];
+      return;
+    }
+    chatUiState.productActionStatus[safeProductId] = {
+      tone: ["info", "warning", "success", "error"].includes(String(status.tone || "").trim())
+        ? String(status.tone || "").trim()
+        : "info",
+      message: String(status.message || "").trim()
+    };
+  },
   getCurrentMessageDraft: () => chatUiState.currentDraft,
   loadStoredChatDraft,
   saveStoredChatDraft,
@@ -7820,6 +7839,10 @@ const {
   getOrderActionStatus: (orderId) => {
     const orderStatus = chatUiState.orderActionStatus || {};
     return orderStatus[String(orderId || "").trim()] || null;
+  },
+  getProductActionStatus: (productId) => {
+    const productStatus = chatUiState.productActionStatus || {};
+    return productStatus[String(productId || "").trim()] || null;
   },
   getVerificationStatusLabel,
   getOrderActionButtons,

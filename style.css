@@ -6234,6 +6234,11 @@ body.context-chat-open{
   margin-bottom:0;
 }
 
+.profile-product-action-status{
+  margin:8px 10px 10px;
+  font-size:0.78rem;
+}
+
 .stat-box{
   padding:14px 12px;
   border-radius:16px;
