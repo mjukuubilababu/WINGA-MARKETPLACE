@@ -3743,6 +3743,74 @@ function syncNetworkStatusBanner(options = {}) {
   }
 }
 
+function refreshVisibleRecoverySurfaces() {
+  if (document.getElementById("profile-messages-panel")) {
+    replaceMessagesPanel(profileDiv);
+  }
+  const contextModal = document.getElementById("context-chat-modal");
+  if (contextModal && !contextModal.hidden) {
+    replaceContextChatModal();
+  }
+  const paymentModal = document.getElementById("payment-intent-modal");
+  if (paymentModal && !paymentModal.hidden) {
+    renderPaymentIntentModal();
+  }
+}
+
+function applyReconnectRecoveryHints() {
+  let chatStatusChanged = false;
+  if (!chatUiState.composeStatus || typeof chatUiState.composeStatus !== "object") {
+    chatUiState.composeStatus = {};
+  }
+  ["profile", "context"].forEach((scope) => {
+    const currentStatus = chatUiState.composeStatus?.[scope];
+    if (currentStatus?.tone === "warning") {
+      chatUiState.composeStatus[scope] = {
+        tone: "info",
+        message: "Internet imerudi. Ujumbe uliokuwa umehifadhiwa utaendelea kusync. Kama hauonekani baada ya muda, tuma tena."
+      };
+      chatStatusChanged = true;
+    }
+  });
+
+  if (uiRuntimeState.productUploadStatusTone === "warning") {
+    uiRuntimeState.productUploadStatusTone = "info";
+    setUploadFormStatus("info", "Internet imerudi. Unaweza kuendelea kupost bidhaa yako sasa.");
+  }
+
+  if (paymentIntentState.feedbackTone === "warning") {
+    paymentIntentState.feedbackTone = "info";
+    paymentIntentState.feedbackMessage = "Internet imerudi. Kagua reference yako kisha bonyeza Submit reference tena.";
+  }
+
+  if (chatStatusChanged || paymentIntentState.feedbackTone === "info") {
+    refreshVisibleRecoverySurfaces();
+  }
+}
+
+function applyOfflineQueueFlushHints(flushedCount = 0, remainingCount = 0) {
+  let chatStatusChanged = false;
+  if (!chatUiState.composeStatus || typeof chatUiState.composeStatus !== "object") {
+    chatUiState.composeStatus = {};
+  }
+  ["profile", "context"].forEach((scope) => {
+    const currentStatus = chatUiState.composeStatus?.[scope];
+    if (!currentStatus || !["warning", "info"].includes(String(currentStatus.tone || "").trim())) {
+      return;
+    }
+    chatUiState.composeStatus[scope] = {
+      tone: remainingCount > 0 ? "info" : "success",
+      message: remainingCount > 0
+        ? `${flushedCount} action zimesync, lakini bado kuna zingine zinasubiri network iwe thabiti.`
+        : "Ujumbe uliokuwa kwenye queue umesync vizuri."
+    };
+    chatStatusChanged = true;
+  });
+  if (chatStatusChanged) {
+    refreshVisibleRecoverySurfaces();
+  }
+}
+
 function isStandaloneDisplayMode() {
   try {
     return window.matchMedia?.("(display-mode: standalone)")?.matches
@@ -12063,6 +12131,7 @@ window.addEventListener("winga:offline-actions-flushed", async (event) => {
     });
   }
   if (flushedCount > 0) {
+    applyOfflineQueueFlushHints(flushedCount, remainingCount);
     showInAppNotification({
       title: "Offline actions synced",
       body: remainingCount > 0
@@ -12091,6 +12160,7 @@ window.addEventListener("offline", () => {
 
 window.addEventListener("online", () => {
   syncNetworkStatusBanner({ justReconnected: true });
+  applyReconnectRecoveryHints();
   if (!document.getElementById("payment-intent-modal")?.hidden) {
     renderPaymentIntentModal();
   }
