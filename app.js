@@ -8682,6 +8682,37 @@ function bumpRuntimeDiagnostic(metric, amount = 1) {
   return nextValue;
 }
 
+function collectShowcaseRowDiagnostics() {
+  const rows = Array.from(document.querySelectorAll?.(".showcase-inline") || []);
+  return rows.map((row, index) => {
+    const headingNode = row.querySelector(".section-heading h2, .section-heading strong, .section-heading-title, h2");
+    const track = row.querySelector(".showcase-track");
+    const cards = Array.from(track?.querySelectorAll?.(".showcase-card") || []);
+    const images = cards.map((card) => {
+      const image = card.querySelector(".feed-gallery-image-social, .showcase-preview-image, img");
+      return {
+        productId: String(card.dataset.showcaseId || card.dataset.openProduct || "").trim(),
+        hasImageNode: Boolean(image),
+        currentSrc: String(image?.currentSrc || image?.src || "").trim(),
+        complete: Boolean(image?.complete),
+        naturalWidth: Number(image?.naturalWidth || 0),
+        naturalHeight: Number(image?.naturalHeight || 0)
+      };
+    });
+    return {
+      index,
+      heading: String(headingNode?.textContent || "").trim(),
+      recommendationType: String(row.getAttribute("data-recommendation-type") || "").trim(),
+      continuousKey: String(row.getAttribute("data-continuous-discovery-section") || "").trim(),
+      dynamicPlaceholder: String(row.getAttribute("data-dynamic-showcase-placeholder") || "").trim(),
+      cardCount: cards.length,
+      loadedImageCount: images.filter((item) => item.hasImageNode && item.complete && item.naturalWidth > 0 && item.naturalHeight > 0).length,
+      missingImageCount: images.filter((item) => !item.currentSrc || item.naturalWidth < 1 || item.naturalHeight < 1).length,
+      images: images.slice(0, 8)
+    };
+  });
+}
+
 function getRuntimeDiagnosticsSnapshot() {
   return {
     ...runtimeDiagnostics,
@@ -8693,6 +8724,7 @@ function getRuntimeDiagnosticsSnapshot() {
     imagePreloadRegistrySize: imagePreloadRegistry?.size || 0,
     imagePrefetchRegistrySize: marketplaceScrollImagePrefetchedSources?.size || 0,
     showcaseEvents: Array.isArray(runtimeDiagnostics.showcaseEvents) ? runtimeDiagnostics.showcaseEvents.slice(-12) : [],
+    showcaseRows: collectShowcaseRowDiagnostics(),
     currentView,
     timestamp: Date.now()
   };
@@ -8726,6 +8758,7 @@ function reportShowcaseInstrumentation(eventName, payload = {}) {
 
 window.__WINGA_DIAGNOSTICS__ = {
   snapshot: getRuntimeDiagnosticsSnapshot,
+  showcase: collectShowcaseRowDiagnostics,
   reset() {
     Object.keys(runtimeDiagnostics).forEach((key) => {
       if (key === "lastSnapshotAt") {
