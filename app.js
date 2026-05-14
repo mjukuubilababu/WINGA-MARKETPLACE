@@ -8119,6 +8119,7 @@ const {
   getTrendingProducts,
   bindShowcaseCardClicks,
   setupDynamicShowcaseLoading,
+  reportShowcaseInstrumentation,
   canUseContinuousDiscovery: () => Boolean(currentUser),
   createContinuousDiscoveryAnchorElement,
   setupContinuousDiscoveryLoading,
@@ -8666,7 +8667,8 @@ const runtimeDiagnostics = uiRuntimeState.runtimeDiagnostics || (uiRuntimeState.
   productEngagementBindCalls: 0,
   productEngagementObservedCount: 0,
   productMenuBindCalls: 0,
-  lastSnapshotAt: 0
+  lastSnapshotAt: 0,
+  showcaseEvents: []
 });
 
 function bumpRuntimeDiagnostic(metric, amount = 1) {
@@ -8690,9 +8692,36 @@ function getRuntimeDiagnosticsSnapshot() {
     decodedFeedImageCacheSize: decodedFeedImageCache?.size || 0,
     imagePreloadRegistrySize: imagePreloadRegistry?.size || 0,
     imagePrefetchRegistrySize: marketplaceScrollImagePrefetchedSources?.size || 0,
+    showcaseEvents: Array.isArray(runtimeDiagnostics.showcaseEvents) ? runtimeDiagnostics.showcaseEvents.slice(-12) : [],
     currentView,
     timestamp: Date.now()
   };
+}
+
+function reportShowcaseInstrumentation(eventName, payload = {}) {
+  const safeEvent = String(eventName || "").trim();
+  if (!safeEvent) {
+    return;
+  }
+  const entry = {
+    event: safeEvent,
+    payload: payload && typeof payload === "object" ? { ...payload } : {},
+    view: currentView,
+    at: Date.now()
+  };
+  const showcaseEvents = Array.isArray(runtimeDiagnostics.showcaseEvents)
+    ? runtimeDiagnostics.showcaseEvents
+    : (runtimeDiagnostics.showcaseEvents = []);
+  showcaseEvents.push(entry);
+  while (showcaseEvents.length > 40) {
+    showcaseEvents.shift();
+  }
+  runtimeDiagnostics.lastSnapshotAt = Date.now();
+  reportClientEvent("info", "showcase_runtime", `Showcase event: ${safeEvent}`, {
+    category: "marketplace",
+    event: safeEvent,
+    ...entry.payload
+  });
 }
 
 window.__WINGA_DIAGNOSTICS__ = {
@@ -12981,6 +13010,14 @@ function hydrateContinuousDiscoveryAnchor(anchor) {
   const descriptor = eligiblePendingDescriptorIndex >= 0
     ? pendingDescriptors.splice(eligiblePendingDescriptorIndex, 1)[0]
     : (generatedDescriptor || pendingDescriptors.shift());
+  reportShowcaseInstrumentation("continuous_discovery_descriptor_selected", {
+    batchIndex: homeContinuousDiscoveryRuntime.batchIndex,
+    source: descriptor?.source || descriptor?.kind || "generated",
+    kind: descriptor?.kind || "",
+    title: descriptor?.title || "",
+    itemCount: Array.isArray(descriptor?.items) ? descriptor.items.length : 0,
+    pendingRemaining: pendingDescriptors.length
+  });
 
   if (!descriptor) {
     homeContinuousDiscoveryRuntime.loading = false;

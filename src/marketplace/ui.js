@@ -548,6 +548,13 @@
       };
     }
 
+    function reportShowcaseInstrumentation(eventName, payload = {}) {
+      if (typeof deps.reportShowcaseInstrumentation !== "function") {
+        return;
+      }
+      deps.reportShowcaseInstrumentation(eventName, payload);
+    }
+
     function renderProducts(list) {
       const productsContainer = deps.getProductsContainer();
       cancelScheduledFeedRender();
@@ -588,6 +595,13 @@
             descriptor.subtitle
           );
           if (showcaseElement) {
+            reportShowcaseInstrumentation("inline_behavior_showcase_rendered", {
+              sectionIndex: showcaseIndex,
+              heading: descriptor.heading,
+              title: descriptor.title,
+              itemCount: Array.isArray(descriptor.items) ? descriptor.items.length : 0,
+              source: "behavior_showcase"
+            });
             descriptor.items.forEach((item) => usedShowcaseProductIds.add(item.id));
             fragment.appendChild(showcaseElement);
             showcaseIndex += 1;
@@ -630,6 +644,11 @@
             createRecommendationDescriptor("Trending", "Most viewed and most interacted", trending, "trending")
           ].filter(Boolean);
           if (shouldInjectInlineShowcases && insertedInlineShowcase && deps.setDeferredRecommendationDescriptors) {
+            reportShowcaseInstrumentation("deferred_recommendations_queued", {
+              count: recommendationDescriptors.length,
+              kinds: recommendationDescriptors.map((descriptor) => descriptor.kind),
+              itemCounts: recommendationDescriptors.map((descriptor) => Array.isArray(descriptor.items) ? descriptor.items.length : 0)
+            });
             deps.setDeferredRecommendationDescriptors(recommendationDescriptors);
           } else {
             if (deps.setDeferredRecommendationDescriptors) {
@@ -643,7 +662,16 @@
                 descriptor.kind
               ))
               .filter(Boolean)
-              .forEach((section) => productsContainer.appendChild(section));
+              .forEach((section, index) => {
+                const descriptor = recommendationDescriptors[index];
+                reportShowcaseInstrumentation("recommendation_section_rendered", {
+                  kind: descriptor?.kind || "recommendation",
+                  title: descriptor?.title || "",
+                  itemCount: Array.isArray(descriptor?.items) ? descriptor.items.length : 0,
+                  source: "direct_recommendation"
+                });
+                productsContainer.appendChild(section);
+              });
           }
           if (deps.createContinuousDiscoveryAnchorElement) {
             productsContainer.appendChild(deps.createContinuousDiscoveryAnchorElement());
