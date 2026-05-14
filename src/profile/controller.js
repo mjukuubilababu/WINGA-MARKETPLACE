@@ -116,6 +116,51 @@
       const saveButton = document.getElementById("profile-payment-save-button");
       const cancelButton = document.getElementById("profile-payment-cancel-button");
 
+      const ensurePaymentStatusElement = () => {
+        if (!form) {
+          return null;
+        }
+        let statusNode = document.getElementById("profile-payment-status");
+        if (statusNode) {
+          return statusNode;
+        }
+        statusNode = deps.createElement("p", {
+          className: "upload-form-status",
+          attributes: {
+            id: "profile-payment-status",
+            hidden: "hidden",
+            "aria-live": "polite"
+          }
+        });
+        const actionsWrap = form.querySelector(".profile-whatsapp-form-actions");
+        if (actionsWrap) {
+          actionsWrap.insertAdjacentElement("beforebegin", statusNode);
+        } else {
+          form.appendChild(statusNode);
+        }
+        return statusNode;
+      };
+
+      const setPaymentStatus = (tone = "", message = "") => {
+        const statusNode = ensurePaymentStatusElement();
+        if (!statusNode) {
+          return;
+        }
+        const safeTone = ["info", "warning", "success", "error"].includes(String(tone || "").trim())
+          ? String(tone || "").trim()
+          : "";
+        const safeMessage = String(message || "").trim();
+        if (!safeMessage) {
+          statusNode.hidden = true;
+          statusNode.textContent = "";
+          statusNode.className = "upload-form-status";
+          return;
+        }
+        statusNode.hidden = false;
+        statusNode.textContent = safeMessage;
+        statusNode.className = `upload-form-status${safeTone ? ` is-${safeTone}` : ""}`;
+      };
+
       if (toggleButton && toggleButton.dataset.bound !== "true") {
         toggleButton.dataset.bound = "true";
         toggleButton.addEventListener("click", () => {
@@ -124,6 +169,7 @@
           }
           form.style.display = form.style.display === "none" ? "grid" : "none";
           if (form.style.display !== "none") {
+            setPaymentStatus("", "");
             numberInput?.focus();
           }
         });
@@ -135,18 +181,21 @@
           if (form) {
             form.style.display = "none";
           }
+          setPaymentStatus("", "");
         });
       }
 
       if (saveButton && saveButton.dataset.bound !== "true") {
         saveButton.dataset.bound = "true";
         saveButton.addEventListener("click", async () => {
+          setPaymentStatus("info", "Tunatunza Lipa details zako sasa. Usifunge sehemu hii.");
           const paymentProvider = String(providerInput?.value || "").trim().toLowerCase();
           const paymentNumber = deps.normalizePhoneNumber?.(numberInput?.value || "") || "";
           const paymentRecipientName = String(recipientInput?.value || deps.getCurrentDisplayName?.() || "").trim();
           const paymentInstructions = String(instructionsInput?.value || "").trim();
 
           if (!paymentNumber || !/^\d{8,20}$/.test(paymentNumber)) {
+            setPaymentStatus("error", "Weka Lipa namba sahihi yenye tarakimu 8 hadi 20.");
             deps.showInAppNotification?.({
               title: "Lipa namba required",
               body: "Weka Lipa namba sahihi yenye tarakimu 8 hadi 20.",
@@ -156,6 +205,7 @@
           }
 
           if (!paymentRecipientName || paymentRecipientName.length < 2) {
+            setPaymentStatus("error", "Weka jina la mpokeaji wa malipo.");
             deps.showInAppNotification?.({
               title: "Recipient required",
               body: "Weka jina la mpokeaji wa malipo.",
@@ -172,6 +222,7 @@
               paymentRecipientName,
               paymentInstructions
             });
+            setPaymentStatus("success", "Lipa details zimehifadhiwa. Buyer sasa ataona taarifa hizi kwenye flow ya malipo.");
             deps.mergeSessionState({
               ...updatedUser,
               paymentProvider,
@@ -189,6 +240,7 @@
             });
             renderProfile();
           } catch (error) {
+            setPaymentStatus("error", error.message || "Imeshindikana kuhifadhi Lipa details.");
             deps.captureError?.("profile_payment_update_failed", error, {
               user: deps.getCurrentUser()
             });
