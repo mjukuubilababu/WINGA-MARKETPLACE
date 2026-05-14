@@ -12967,14 +12967,20 @@ function hydrateContinuousDiscoveryAnchor(anchor) {
   const pendingDescriptors = Array.isArray(homeContinuousDiscoveryRuntime.pendingDescriptors)
     ? homeContinuousDiscoveryRuntime.pendingDescriptors
     : [];
-  const descriptor = pendingDescriptors.length
-    ? pendingDescriptors.shift()
-    : getContinuousDiscoveryDescriptor({
+  const generatedDescriptor = getContinuousDiscoveryDescriptor({
       seedProduct,
       usedIds: homeContinuousDiscoveryRuntime.usedIds,
       recentIds: homeContinuousDiscoveryRuntime.recentIds,
       batchIndex: homeContinuousDiscoveryRuntime.batchIndex
     });
+  const shouldPreferPendingDescriptor = homeContinuousDiscoveryRuntime.batchIndex > 0
+    && homeContinuousDiscoveryRuntime.lastDescriptorSource !== "deferred_recommendation";
+  const eligiblePendingDescriptorIndex = shouldPreferPendingDescriptor
+    ? pendingDescriptors.findIndex((entry) => Number(entry?.minBatchIndex || 0) <= Number(homeContinuousDiscoveryRuntime.batchIndex || 0))
+    : -1;
+  const descriptor = eligiblePendingDescriptorIndex >= 0
+    ? pendingDescriptors.splice(eligiblePendingDescriptorIndex, 1)[0]
+    : (generatedDescriptor || pendingDescriptors.shift());
 
   if (!descriptor) {
     homeContinuousDiscoveryRuntime.loading = false;
@@ -13010,6 +13016,7 @@ function hydrateContinuousDiscoveryAnchor(anchor) {
     appendedIds
   );
   homeContinuousDiscoveryRuntime.batchIndex += 1;
+  homeContinuousDiscoveryRuntime.lastDescriptorSource = String(descriptor?.source || descriptor?.kind || "generated").trim().toLowerCase();
   homeContinuousDiscoveryRuntime.lastHydrateAt = now;
   homeContinuousDiscoveryRuntime.loading = false;
   scheduleContinuousDiscoveryReobserve(anchor);
@@ -13027,6 +13034,7 @@ function setupContinuousDiscoveryLoading(scope, options = {}) {
   homeContinuousDiscoveryRuntime.usedIds = usedIds;
   homeContinuousDiscoveryRuntime.recentIds = [];
   homeContinuousDiscoveryRuntime.seedProductId = options.seedProduct?.id || "";
+  homeContinuousDiscoveryRuntime.lastDescriptorSource = "";
   homeContinuousDiscoveryRuntime.lastHydrateAt = 0;
   homeContinuousDiscoveryRuntime.pendingDescriptors = Array.isArray(options.pendingDescriptors)
     ? options.pendingDescriptors

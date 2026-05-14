@@ -529,8 +529,18 @@
       if (!safeItems.length) {
         return null;
       }
+      const normalizedType = String(type || "recommendation").trim().toLowerCase();
+      const minBatchIndex = normalizedType === "related"
+        ? 1
+        : normalizedType === "you-may-like"
+          ? 2
+          : normalizedType === "trending"
+            ? 3
+            : 1;
       return {
         kind: type || "recommendation",
+        source: "deferred_recommendation",
+        minBatchIndex,
         eyebrow: title,
         title: subtitle,
         subtitle: "Suggestions based on the current catalog",
