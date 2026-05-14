@@ -577,6 +577,13 @@
           textContent: progressLabel
         }));
       }
+      const actionStatus = deps.getOrderActionStatus?.(order.id);
+      if (actionStatus?.message) {
+        line.appendChild(deps.createElement("p", {
+          className: `upload-form-status order-action-status${actionStatus.tone ? ` is-${actionStatus.tone}` : ""}`,
+          textContent: actionStatus.message
+        }));
+      }
       const actions = deps.createElement("div", { className: "order-actions" });
       appendRenderable(actions, deps.getOrderActionButtons(order));
       line.appendChild(actions);

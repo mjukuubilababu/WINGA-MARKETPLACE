@@ -7666,6 +7666,25 @@ const {
       message: String(status.message || "").trim()
     };
   },
+  setOrderActionStatus: (orderId, status = null) => {
+    if (!chatUiState.orderActionStatus || typeof chatUiState.orderActionStatus !== "object") {
+      chatUiState.orderActionStatus = {};
+    }
+    const safeOrderId = String(orderId || "").trim();
+    if (!safeOrderId) {
+      return;
+    }
+    if (!status || !status.message) {
+      delete chatUiState.orderActionStatus[safeOrderId];
+      return;
+    }
+    chatUiState.orderActionStatus[safeOrderId] = {
+      tone: ["info", "warning", "success", "error"].includes(String(status.tone || "").trim())
+        ? String(status.tone || "").trim()
+        : "info",
+      message: String(status.message || "").trim()
+    };
+  },
   getCurrentMessageDraft: () => chatUiState.currentDraft,
   loadStoredChatDraft,
   saveStoredChatDraft,
@@ -7798,6 +7817,10 @@ const {
   getPaymentStatusLabel,
   getOrderLifecycleMeta,
   getOrderProgressLabel,
+  getOrderActionStatus: (orderId) => {
+    const orderStatus = chatUiState.orderActionStatus || {};
+    return orderStatus[String(orderId || "").trim()] || null;
+  },
   getVerificationStatusLabel,
   getOrderActionButtons,
   renderPromotionBadges,

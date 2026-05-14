@@ -719,21 +719,41 @@
             : "Una uhakika unataka kufuta order hii?")) {
             return;
           }
+          const successMessage = status === "cancelled"
+            ? (isRejectPayment ? "Payment proof imekataliwa na order imefungwa." : "Request/order imecanceliwa.")
+            : status === "paid"
+              ? "Payment imethibitishwa. Buyer ataona update hii mara moja."
+              : status === "confirmed"
+                ? "Seller amejibu na kuthibitisha order."
+                : "Order imewekwa completed.";
           try {
+            deps.setOrderActionStatus?.(orderId, {
+              tone: "info",
+              message: status === "cancelled"
+                ? "Tunafunga order hii sasa."
+                : status === "paid"
+                  ? "Tunathibitisha payment proof sasa."
+                  : status === "confirmed"
+                    ? "Tunathibitisha order kwa buyer sasa."
+                    : "Tunamark order hii completed sasa."
+            });
+            deps.renderProfile?.();
             await deps.dataLayer.updateOrderStatus(orderId, { status });
+            deps.setOrderActionStatus?.(orderId, {
+              tone: "success",
+              message: successMessage
+            });
             deps.showInAppNotification?.({
               title: "Order updated",
-              body: status === "cancelled"
-                ? (isRejectPayment ? "Payment proof imekataliwa na order imefungwa." : "Request/order imecanceliwa.")
-                : status === "paid"
-                  ? "Payment imethibitishwa. Buyer ataona update hii mara moja."
-                : status === "confirmed"
-                  ? "Seller amejibu na kuthibitisha order."
-                  : "Order imewekwa completed.",
+              body: successMessage,
               variant: "success"
             });
             deps.renderProfile();
           } catch (error) {
+            deps.setOrderActionStatus?.(orderId, {
+              tone: "error",
+              message: error.message || "Imeshindikana kubadilisha status ya order."
+            });
             deps.captureError?.("order_status_update_failed", error, {
               orderId,
               status
@@ -743,6 +763,7 @@
               body: error.message || "Imeshindikana kubadilisha status ya order.",
               variant: "error"
             });
+            deps.renderProfile?.();
           }
         });
 

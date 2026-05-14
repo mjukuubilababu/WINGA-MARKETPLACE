@@ -6229,6 +6229,11 @@ body.context-chat-open{
   margin-top:8px;
 }
 
+.order-action-status{
+  margin-top:8px;
+  margin-bottom:0;
+}
+
 .stat-box{
   padding:14px 12px;
   border-radius:16px;
