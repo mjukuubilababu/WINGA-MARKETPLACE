@@ -215,6 +215,13 @@
     function createShowcasePreviewMediaElement(product) {
       const fitMode = String(product.fitMode || "").trim().toLowerCase() === "contain" ? "contain" : "cover";
       const media = createElement("div", { className: `product-card-media showcase-media fit-mode-${fitMode}`, attributes: { "data-fit-mode": fitMode } });
+      const fallbackSrc = deps.getMarketplacePrimaryImage
+        ? deps.getMarketplacePrimaryImage(product, {
+            allowOwnerVisibility: product.uploadedBy === deps.getCurrentUser?.()
+          })
+        : deps.sanitizeImageSource(product.image || (Array.isArray(product.images) ? product.images[0] : ""), deps.getImageFallbackDataUri("WINGA"));
+      media.dataset.showcaseFallbackSrc = fallbackSrc || "";
+      media.dataset.showcaseFallbackAlt = product.name || "Product image";
       if (deps.renderFeedGalleryMarkup) {
         media.appendChild(createElementFromMarkup(deps.renderFeedGalleryMarkup(product, "feed", {
           priorityCount: 1,
@@ -240,6 +247,50 @@
         }
       }));
       return media;
+    }
+
+    function repairShowcaseMediaVisibility(scope = document) {
+      const isMobileViewport = window.matchMedia?.("(max-width: 780px)")?.matches;
+      if (!isMobileViewport) {
+        return;
+      }
+      scope.querySelectorAll?.(".showcase-card .showcase-media").forEach((media) => {
+        if (!(media instanceof Element) || media.dataset.showcaseMediaRepairBound === "true") {
+          return;
+        }
+        media.dataset.showcaseMediaRepairBound = "true";
+        const fallbackSrc = String(media.dataset.showcaseFallbackSrc || "").trim();
+        if (!fallbackSrc) {
+          return;
+        }
+        window.setTimeout(() => {
+          if (!media.isConnected) {
+            return;
+          }
+          const visibleImage = media.querySelector(".feed-gallery-image-social, .showcase-preview-image, img");
+          const hasHealthyImage = Boolean(
+            visibleImage
+            && String(visibleImage.currentSrc || visibleImage.src || "").trim()
+            && (Number(visibleImage.naturalWidth || 0) > 0 || Number(visibleImage.clientWidth || 0) > 0)
+          );
+          if (hasHealthyImage) {
+            return;
+          }
+          media.replaceChildren(createProgressiveImage({
+            src: fallbackSrc,
+            alt: String(media.dataset.showcaseFallbackAlt || "Product image"),
+            fallbackSrc: deps.getImageFallbackDataUri("WINGA"),
+            placeholderSrc: deps.getImageFallbackDataUri("W"),
+            className: "showcase-preview-image",
+            fitMode: String(media.dataset.fitMode || "cover").trim().toLowerCase() === "contain" ? "contain" : "cover",
+            attributes: {
+              "data-marketplace-scroll-image": "true",
+              "data-showcase-media-repaired": "true"
+            }
+          }));
+          media.dataset.showcaseMediaRepaired = "true";
+        }, 900);
+      });
     }
 
     function bindCardOpenHandler(card, product) {
@@ -684,6 +735,7 @@
           deps.bindShowcaseCardClicks(productsContainer);
           deps.setupDynamicShowcaseLoading(productsContainer, usedShowcaseProductIds);
         }
+        repairShowcaseMediaVisibility(productsContainer);
         deps.bindFeedGalleryInteractions?.(productsContainer);
         if (currentView === "home" && list.length > 0 && deps.canUseContinuousDiscovery?.() && deps.setupContinuousDiscoveryLoading) {
           const usedProductIds = new Set(list.map((product) => product.id));
@@ -752,7 +804,8 @@
       createProductGalleryElement,
       createDynamicShowcasePlaceholderElement,
       createShowcaseSectionElement,
-      renderShowcaseTrack
+      renderShowcaseTrack,
+      repairShowcaseMediaVisibility
     };
   }
 
