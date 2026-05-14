@@ -7484,6 +7484,10 @@ const {
   formatNumber,
   formatProductPrice,
   getCategoryLabel,
+  getChatComposeStatus: (scope = "profile") => {
+    const currentStatus = chatUiState.composeStatus || {};
+    return currentStatus[String(scope || "profile").trim().toLowerCase()] || null;
+  },
   getMessageProductItems,
   getReplyPreviewMessage,
   getCurrentUser: () => currentUser,
@@ -7523,6 +7527,25 @@ const {
   setCurrentMessageDraft: (value) => {
     chatUiState.currentDraft = value;
     saveStoredChatDraft(value, chatUiState.activeContext);
+  },
+  setChatComposeStatus: (scope, status = null) => {
+    if (!chatUiState.composeStatus || typeof chatUiState.composeStatus !== "object") {
+      chatUiState.composeStatus = {};
+    }
+    const safeScope = String(scope || "profile").trim().toLowerCase();
+    if (!safeScope) {
+      return;
+    }
+    if (!status || !status.message) {
+      delete chatUiState.composeStatus[safeScope];
+      return;
+    }
+    chatUiState.composeStatus[safeScope] = {
+      tone: ["info", "warning", "success", "error"].includes(String(status.tone || "").trim())
+        ? String(status.tone || "").trim()
+        : "info",
+      message: String(status.message || "").trim()
+    };
   },
   getCurrentMessageDraft: () => chatUiState.currentDraft,
   loadStoredChatDraft,

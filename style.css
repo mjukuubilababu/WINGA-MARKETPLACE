@@ -5091,6 +5091,41 @@ body.context-chat-open{
   margin-left:auto;
 }
 
+.chat-compose-status{
+  margin:0;
+  padding:10px 12px;
+  border-radius:12px;
+  border:1px solid rgba(31, 41, 55, 0.08);
+  background:#f8fafc;
+  color:var(--text-muted);
+  font-size:0.84rem;
+  line-height:1.45;
+}
+
+.chat-compose-status.is-info{
+  border-color:#d5e4ff;
+  background:#f5f8ff;
+  color:#2457a6;
+}
+
+.chat-compose-status.is-warning{
+  border-color:#ffd9b8;
+  background:#fff7ef;
+  color:#9a4d14;
+}
+
+.chat-compose-status.is-success{
+  border-color:#b7ebcb;
+  background:#f1fbf4;
+  color:#1f7a43;
+}
+
+.chat-compose-status.is-error{
+  border-color:#f4c7c3;
+  background:#fff4f3;
+  color:#b42318;
+}
+
 .emoji-picker-shell{
   position:relative;
 }

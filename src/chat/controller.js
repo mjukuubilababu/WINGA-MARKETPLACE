@@ -346,6 +346,10 @@
         }
         try {
           const sendKey = createMessageSubmissionKey(activeChatContext, message, productItems);
+          deps.setChatComposeStatus?.("context", {
+            tone: "info",
+            message: "Tunatuma ujumbe wako sasa."
+          });
           const sendResult = await runRetrySafeMessageSend(sendKey, () => deps.dataLayer.sendMessage({
             receiverId: activeChatContext.withUser,
             productId: activeChatContext.productId || "",
@@ -359,6 +363,13 @@
             completed: "Ujumbe huu tayari umetumwa. Angalia mazungumzo kabla ya kutuma tena."
           });
           if (sendResult?.skipped) {
+            deps.setChatComposeStatus?.("context", {
+              tone: "info",
+              message: sendResult.reason === "completed"
+                ? "Ujumbe huu tayari umetumwa. Angalia mazungumzo kwanza."
+                : "Ujumbe huu bado unatoka. Subiri kidogo kabla ya kutuma tena."
+            });
+            replaceContextChatModal();
             return;
           }
           deps.setCurrentMessageDraft("");
@@ -368,15 +379,28 @@
           deps.setOpenEmojiScope("");
           await Promise.all([deps.refreshMessagesState(), deps.refreshNotificationsState()]);
           if (sendResult?.isQueued) {
+            deps.setChatComposeStatus?.("context", {
+              tone: "warning",
+              message: "Uko offline. Ujumbe umehifadhiwa na utatumwa internet ikirudi."
+            });
             deps.showInAppNotification?.({
               title: "Ujumbe umehifadhiwa",
               body: "Uko offline. Tutautuma internet ikirudi.",
               variant: "info"
             });
+          } else {
+            deps.setChatComposeStatus?.("context", {
+              tone: "success",
+              message: "Ujumbe umetumwa vizuri."
+            });
           }
           deps.maybePromptNotificationPermission?.("message");
           replaceContextChatModal();
         } catch (error) {
+          deps.setChatComposeStatus?.("context", {
+            tone: "error",
+            message: error.message || "Imeshindikana kutuma ujumbe."
+          });
           deps.captureError?.("context_message_send_failed", error, {
             receiverId: activeChatContext?.withUser || ""
           });
@@ -872,6 +896,10 @@
         }
         try {
           const sendKey = createMessageSubmissionKey(activeChatContext, message, []);
+          deps.setChatComposeStatus?.("profile", {
+            tone: "info",
+            message: "Tunatuma ujumbe wako sasa."
+          });
           const sendResult = await runRetrySafeMessageSend(sendKey, () => deps.dataLayer.sendMessage({
             receiverId: activeChatContext.withUser,
             productId: activeChatContext.productId || "",
@@ -882,6 +910,13 @@
             completed: "Ujumbe huu tayari umetumwa. Angalia thread kabla ya kutuma tena."
           });
           if (sendResult?.skipped) {
+            deps.setChatComposeStatus?.("profile", {
+              tone: "info",
+              message: sendResult.reason === "completed"
+                ? "Ujumbe huu tayari umetumwa. Angalia thread kwanza."
+                : "Ujumbe huu bado unatoka. Subiri kidogo kabla ya kutuma tena."
+            });
+            deps.replaceMessagesPanel(scope);
             return;
           }
           if (messageInput) {
@@ -891,16 +926,29 @@
           deps.setOpenEmojiScope("");
           await Promise.all([deps.refreshMessagesState(), deps.refreshNotificationsState()]);
           if (sendResult?.isQueued) {
+            deps.setChatComposeStatus?.("profile", {
+              tone: "warning",
+              message: "Uko offline. Ujumbe umehifadhiwa na utatumwa internet ikirudi."
+            });
             deps.showInAppNotification?.({
               title: "Ujumbe umehifadhiwa",
               body: "Uko offline. Tutautuma internet ikirudi.",
               variant: "info"
+            });
+          } else {
+            deps.setChatComposeStatus?.("profile", {
+              tone: "success",
+              message: "Ujumbe umetumwa vizuri."
             });
           }
           deps.maybePromptNotificationPermission?.("message");
           deps.replaceMessagesPanel(scope);
           document.getElementById("profile-notifications-panel")?.replaceWith(deps.createNotificationsContainerFromState());
         } catch (error) {
+          deps.setChatComposeStatus?.("profile", {
+            tone: "error",
+            message: error.message || "Imeshindikana kutuma ujumbe."
+          });
           deps.captureError?.("profile_message_send_failed", error, {
             receiverId: activeChatContext?.withUser || ""
           });
