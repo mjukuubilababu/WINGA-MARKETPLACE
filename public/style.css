@@ -6243,6 +6243,16 @@ body.context-chat-open{
   font-size:0.78rem;
 }
 
+.profile-product-actions{
+  display:flex;
+  gap:8px;
+  padding:0 10px 12px;
+}
+
+.profile-product-promote-btn{
+  width:100%;
+}
+
 .stat-box{
   padding:14px 12px;
   border-radius:16px;

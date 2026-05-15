@@ -8519,13 +8519,11 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         })
       );
 
-      if (product.status === "approved") {
-        popup.appendChild(deps.createElement("button", {
-          className: "product-menu-item",
-          textContent: "Promote",
-          attributes: { type: "button", "data-promote-product": product.id }
-        }));
-      }
+      popup.appendChild(deps.createElement("button", {
+        className: "product-menu-item",
+        textContent: "Promote",
+        attributes: { type: "button", "data-promote-product": product.id }
+      }));
 
       if (product.status === "approved" && product.availability !== "sold_out") {
         popup.appendChild(deps.createElement("button", {
@@ -9370,6 +9368,16 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
           textContent: actionStatus.message
         }));
       }
+      const actions = deps.createElement("div", { className: "profile-product-actions" });
+      actions.appendChild(deps.createElement("button", {
+        className: "action-btn action-btn-secondary profile-product-promote-btn",
+        textContent: "Promote",
+        attributes: {
+          type: "button",
+          "data-promote-product": product.id
+        }
+      }));
+      article.appendChild(actions);
       if (product?.name) {
         article.appendChild(deps.createElement("span", {
           className: "visually-hidden",

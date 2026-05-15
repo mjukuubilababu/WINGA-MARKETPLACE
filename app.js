@@ -13757,7 +13757,7 @@ function renderPromotionBadges(product) {
 }
 
 function renderPromoteButton(product) {
-  if (!currentUser || product.uploadedBy !== currentUser || product.status !== "approved") {
+  if (!currentUser || product.uploadedBy !== currentUser) {
     return "";
   }
   return `<button class="action-btn action-btn-secondary" type="button" data-promote-product="${product.id}">Promote</button>`;
@@ -15140,15 +15140,6 @@ function openPromotionIntentModal(product) {
     });
     return;
   }
-  if (product.status !== "approved") {
-    showInAppNotification({
-      title: "Promotion unavailable",
-      body: "Subiri bidhaa iidhinishwe kwanza kabla ya kuipromote.",
-      variant: "warning"
-    });
-    return;
-  }
-
   promotionIntentState = {
     productId: product.id,
     selectedType: "boost",
