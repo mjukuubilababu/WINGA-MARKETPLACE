@@ -210,14 +210,20 @@
         textContent: sellerUser?.verifiedSeller ? "Verified" : "Seller"
       }));
       if (isOwnerSeller) {
-        badgeRow.appendChild(createElement("button", {
+        const promoteButton = createElement("button", {
           className: "product-seller-promote-chip",
           textContent: "Promote",
           attributes: {
             type: "button",
             "data-promote-product": product.id
           }
-        }));
+        });
+        promoteButton.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          deps.openPromotionIntentModal?.(product);
+        });
+        badgeRow.appendChild(promoteButton);
       }
 
       sellerRow.append(avatarWrap, sellerCopy, badgeRow);

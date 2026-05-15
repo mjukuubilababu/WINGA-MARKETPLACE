@@ -8603,6 +8603,7 @@ const {
   renderProductActionGroup,
   renderProductOverflowMenu,
   noteProductInterest,
+  openPromotionIntentModal,
   openImageLightbox,
   openProductDetailModal,
   isAuthenticatedUser,
