@@ -7840,6 +7840,19 @@ const {
     const orderStatus = chatUiState.orderActionStatus || {};
     return orderStatus[String(orderId || "").trim()] || null;
   },
+  getOrderReviewAction: (order) => {
+    const product = getProductById(order?.productId || "");
+    if (!product || order?.status !== "delivered" || order?.buyerUsername !== currentUser) {
+      return null;
+    }
+    if (!canCurrentUserReviewProduct(product)) {
+      return null;
+    }
+    return {
+      productId: product.id,
+      label: "Review product"
+    };
+  },
   getProductActionStatus: (productId) => {
     const productStatus = chatUiState.productActionStatus || {};
     return productStatus[String(productId || "").trim()] || null;

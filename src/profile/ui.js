@@ -586,6 +586,17 @@
       }
       const actions = deps.createElement("div", { className: "order-actions" });
       appendRenderable(actions, deps.getOrderActionButtons(order));
+      const reviewAction = deps.getOrderReviewAction?.(order);
+      if (reviewAction?.productId) {
+        actions.appendChild(deps.createElement("button", {
+          className: "action-btn action-btn-secondary",
+          textContent: reviewAction.label || "Review product",
+          attributes: {
+            type: "button",
+            "data-order-review-product": reviewAction.productId
+          }
+        }));
+      }
       line.appendChild(actions);
       return line;
     }

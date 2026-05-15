@@ -917,6 +917,17 @@
         button.addEventListener("click", () => deps.deleteProduct(button.dataset.id));
       });
 
+      container.querySelectorAll("[data-order-review-product]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const productId = button.dataset.orderReviewProduct || "";
+          if (!productId) {
+            return;
+          }
+          deps.noteProductInterest?.(productId);
+          deps.openProductDetailModal?.(productId);
+        });
+      });
+
       deps.bindProductMenus(container);
       profileDiv.querySelector("#profile-logout-button")?.addEventListener("click", deps.logout);
       bindProfileIdentityActions();
