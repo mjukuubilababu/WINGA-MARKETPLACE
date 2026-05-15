@@ -448,15 +448,40 @@ function ensureCleanDir(targetDir) {
   fs.mkdirSync(targetDir, { recursive: true });
 }
 
+function containsNullBytes(value) {
+  return typeof value === "string" && value.includes("\u0000");
+}
+
+function assertHtmlLooksValid(contents, targetPath) {
+  const source = String(contents || "");
+  const normalized = source.trimStart();
+  if (
+    !normalized
+    || containsNullBytes(normalized)
+    || !/^<!doctype html>/i.test(normalized)
+    || !/<html[\s>]/i.test(normalized)
+    || !/<body[\s>]/i.test(normalized)
+  ) {
+    throw new Error(`Invalid HTML detected for ${targetPath}. Build aborted to avoid publishing a blank app shell.`);
+  }
+}
+
 function copyFileIntoDist(sourceRelativePath, targetRelativePath) {
   const sourcePath = path.join(rootDir, sourceRelativePath);
   const targetPath = path.join(outputDir, targetRelativePath);
   fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+  if (/\.html?$/i.test(sourceRelativePath)) {
+    const source = fs.readFileSync(sourcePath, "utf8");
+    assertHtmlLooksValid(source, sourcePath);
+    writeTextFileWithRetry(targetPath, source, "utf8");
+    return;
+  }
   fs.copyFileSync(sourcePath, targetPath);
 }
 
 function applyAssetVersionToHtml(targetPath) {
   const source = fs.readFileSync(targetPath, "utf8");
+  assertHtmlLooksValid(source, targetPath);
   const next = source.replace(
     /(href|src)="((?:\.\/|\/)?(?:style\.css|winga-config\.js|mock-data\.js|data-service\.js|app-core\.js|winga-modules\.js|app\.js|src\/[^"]+\.js))(?:\?[^"]*)?"/g,
     (_, attribute, assetPath) => `${attribute}="${assetPath}?v=${assetVersion}"`
@@ -477,6 +502,7 @@ function applyAssetVersionToHtml(targetPath) {
         /(<meta name="viewport" content="width=device-width, initial-scale=1.0">)/i,
         `$1\n  <meta name="winga-build" content="${assetVersion}">`
       );
+  assertHtmlLooksValid(marked, targetPath);
   writeTextFileWithRetry(targetPath, marked, "utf8");
 }
 
@@ -814,9 +840,6 @@ async function main() {
     }
     applyAssetVersionToServiceWorker(path.join(outputDir, "service-worker.js"), criticalImageUrls);
     verifyDistContents();
-    tryApplyAssetVersionToHtml(path.join(rootDir, "index.html"), { allowLockFallback: true });
-    tryWriteFrontendModuleBundle(path.join(rootDir, "winga-modules.js"), { allowLockFallback: true });
-    tryApplyAssetVersionToServiceWorker(path.join(rootDir, "service-worker.js"), criticalImageUrls, { allowLockFallback: true });
   } catch (error) {
     restoreGeneratedPublicAssets(generatedAssetBackup);
     throw error;
