@@ -4,6 +4,15 @@
       return deps.createElementFromMarkup(markup);
     }
 
+    function renderComposeStatusMarkup(scope = "profile") {
+      const status = deps.getChatComposeStatus?.(scope);
+      if (!status?.message) {
+        return "";
+      }
+      const tone = String(status.tone || "info").trim() || "info";
+      return `<p class="chat-compose-status is-${deps.escapeHtml(tone)}">${deps.escapeHtml(status.message)}</p>`;
+    }
+
     function renderResponsiveImageMarkup({ src = "", alt = "", className = "", fallbackKey = "W" } = {}) {
       return (deps.createProgressiveImage || deps.createResponsiveImage)({
         src,
@@ -88,7 +97,7 @@
         ? deps.getRenderableNotifications()
         : Array.isArray(deps.getCurrentNotifications?.())
           ? deps.getCurrentNotifications()
-        : [];
+          : [];
       const items = currentNotifications
         .slice()
         .sort((first, second) => new Date(second.createdAt || 0).getTime() - new Date(first.createdAt || 0).getTime());
@@ -218,6 +227,7 @@
                 </div>
                 <form id="message-compose-form" class="messages-compose">
                   <textarea id="message-compose-input" rows="3" maxlength="1000" placeholder="Andika ujumbe wako hapa...">${deps.escapeHtml(currentMessageDraft)}</textarea>
+                  ${renderComposeStatusMarkup("profile")}
                   <div class="chat-compose-footer">
                     ${deps.renderEmojiPicker("profile")}
                     <div class="chat-compose-actions">
@@ -355,6 +365,7 @@
           ` : ""}
           <form id="context-chat-compose-form" class="messages-compose context-chat-compose">
             <textarea id="context-chat-compose-input" rows="3" maxlength="1000" placeholder="Andika ujumbe wako hapa...">${deps.escapeHtml(currentMessageDraft)}</textarea>
+            ${renderComposeStatusMarkup("context")}
             <div class="chat-compose-footer">
               ${deps.renderEmojiPicker("context")}
               <div class="chat-compose-actions">

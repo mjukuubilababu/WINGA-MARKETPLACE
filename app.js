@@ -5595,6 +5595,9 @@ function completeBootOverlay() {
   }
   hideBootOverlayImmediately();
   window.setTimeout(() => {
+    ensureVisibleStartupContent("boot_overlay_completed");
+  }, 360);
+  window.setTimeout(() => {
     if (bootOverlay && bootOverlay.classList.contains("is-hidden")) {
       bootOverlay.style.display = "none";
     }
@@ -9889,6 +9892,54 @@ function renderLifecycleFallbackSkeleton(message = "") {
   setFeedLoadingStateVisible(true);
 }
 
+function shouldKeepStartupFeedLoadingVisible() {
+  try {
+    const isProfile = currentView === "profile";
+    const isUpload = currentView === "upload" && canUseSellerFeatures();
+    const isAdminView = currentView === "admin" && isStaffUser();
+    if (isProfile || isUpload || isAdminView) {
+      return false;
+    }
+    const filteredProducts = getFilteredProducts();
+    const productsHydrated = Boolean(window.WingaDataLayer?.isProductsHydrated?.());
+    return (!productsHydrated || productHydrationStatus === "failed") && filteredProducts.length === 0;
+  } catch (error) {
+    captureClientError("startup_feed_loading_state_check_failed", error, {
+      category: "runtime",
+      alertSeverity: "medium",
+      view: currentView
+    });
+    return false;
+  }
+}
+
+function ensureVisibleStartupContent(reason = "startup_guard") {
+  if (!appContainer || appContainer.style.display === "none") {
+    return;
+  }
+  const hasVisibleSurface = Boolean(
+    document.body.classList.contains("auth-modal-open")
+    || document.body.classList.contains("product-detail-open")
+    || productsContainer?.querySelector(".product-card, .seller-product-card")
+    || profileDiv?.style.display === "block"
+    || uploadForm?.style.display === "block"
+    || adminPanel?.style.display === "block"
+    || emptyState?.style.display === "block"
+    || feedLoadingState?.style.display === "grid"
+  );
+  if (hasVisibleSurface) {
+    return;
+  }
+  reportClientEvent("warn", "startup_blank_surface_guarded", "Startup guard restored visible feed loading shell.", {
+    category: "runtime",
+    reason,
+    view: currentView || "home",
+    productsHydrated: Boolean(window.WingaDataLayer?.isProductsHydrated?.()),
+    productsCount: Array.isArray(products) ? products.length : 0
+  });
+  renderLifecycleFallbackSkeleton("Tunaweka bidhaa na picha tayari. Usiondoke, feed inaingia.");
+}
+
 function hideLifecycleFallbackShell() {
   if (lifecycleFallbackTimer) {
     window.clearTimeout(lifecycleFallbackTimer);
@@ -9900,6 +9951,10 @@ function hideLifecycleFallbackShell() {
   }
   lifecycleFallbackActive = false;
   lifecycleFallbackReason = "";
+  if (shouldKeepStartupFeedLoadingVisible()) {
+    renderLifecycleFallbackSkeleton("Tunaweka bidhaa na picha tayari. Usiondoke, feed inaingia.");
+    return;
+  }
   setFeedLoadingStateVisible(false);
 }
 

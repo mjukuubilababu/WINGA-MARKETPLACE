@@ -346,6 +346,10 @@
         }
         try {
           const sendKey = createMessageSubmissionKey(activeChatContext, message, productItems);
+          deps.setChatComposeStatus?.("context", {
+            tone: "info",
+            message: "Tunatuma ujumbe wako sasa."
+          });
           const sendResult = await runRetrySafeMessageSend(sendKey, () => deps.dataLayer.sendMessage({
             receiverId: activeChatContext.withUser,
             productId: activeChatContext.productId || "",
@@ -359,6 +363,13 @@
             completed: "Ujumbe huu tayari umetumwa. Angalia mazungumzo kabla ya kutuma tena."
           });
           if (sendResult?.skipped) {
+            deps.setChatComposeStatus?.("context", {
+              tone: "info",
+              message: sendResult.reason === "completed"
+                ? "Ujumbe huu tayari umetumwa. Angalia mazungumzo kwanza."
+                : "Ujumbe huu bado unatoka. Subiri kidogo kabla ya kutuma tena."
+            });
+            replaceContextChatModal();
             return;
           }
           deps.setCurrentMessageDraft("");
@@ -368,15 +379,28 @@
           deps.setOpenEmojiScope("");
           await Promise.all([deps.refreshMessagesState(), deps.refreshNotificationsState()]);
           if (sendResult?.isQueued) {
+            deps.setChatComposeStatus?.("context", {
+              tone: "warning",
+              message: "Uko offline. Ujumbe umehifadhiwa na utatumwa internet ikirudi."
+            });
             deps.showInAppNotification?.({
               title: "Ujumbe umehifadhiwa",
               body: "Uko offline. Tutautuma internet ikirudi.",
               variant: "info"
             });
+          } else {
+            deps.setChatComposeStatus?.("context", {
+              tone: "success",
+              message: "Ujumbe umetumwa vizuri."
+            });
           }
           deps.maybePromptNotificationPermission?.("message");
           replaceContextChatModal();
         } catch (error) {
+          deps.setChatComposeStatus?.("context", {
+            tone: "error",
+            message: error.message || "Imeshindikana kutuma ujumbe."
+          });
           deps.captureError?.("context_message_send_failed", error, {
             receiverId: activeChatContext?.withUser || ""
           });
@@ -695,21 +719,41 @@
             : "Una uhakika unataka kufuta order hii?")) {
             return;
           }
+          const successMessage = status === "cancelled"
+            ? (isRejectPayment ? "Payment proof imekataliwa na order imefungwa." : "Request/order imecanceliwa.")
+            : status === "paid"
+              ? "Payment imethibitishwa. Buyer ataona update hii mara moja."
+              : status === "confirmed"
+                ? "Seller amejibu na kuthibitisha order."
+                : "Order imewekwa completed.";
           try {
+            deps.setOrderActionStatus?.(orderId, {
+              tone: "info",
+              message: status === "cancelled"
+                ? "Tunafunga order hii sasa."
+                : status === "paid"
+                  ? "Tunathibitisha payment proof sasa."
+                  : status === "confirmed"
+                    ? "Tunathibitisha order kwa buyer sasa."
+                    : "Tunamark order hii completed sasa."
+            });
+            deps.renderProfile?.();
             await deps.dataLayer.updateOrderStatus(orderId, { status });
+            deps.setOrderActionStatus?.(orderId, {
+              tone: "success",
+              message: successMessage
+            });
             deps.showInAppNotification?.({
               title: "Order updated",
-              body: status === "cancelled"
-                ? (isRejectPayment ? "Payment proof imekataliwa na order imefungwa." : "Request/order imecanceliwa.")
-                : status === "paid"
-                  ? "Payment imethibitishwa. Buyer ataona update hii mara moja."
-                : status === "confirmed"
-                  ? "Seller amejibu na kuthibitisha order."
-                  : "Order imewekwa completed.",
+              body: successMessage,
               variant: "success"
             });
             deps.renderProfile();
           } catch (error) {
+            deps.setOrderActionStatus?.(orderId, {
+              tone: "error",
+              message: error.message || "Imeshindikana kubadilisha status ya order."
+            });
             deps.captureError?.("order_status_update_failed", error, {
               orderId,
               status
@@ -719,6 +763,7 @@
               body: error.message || "Imeshindikana kubadilisha status ya order.",
               variant: "error"
             });
+            deps.renderProfile?.();
           }
         });
 
@@ -728,7 +773,16 @@
             return;
           }
           try {
+            deps.setProductActionStatus?.(productId, {
+              tone: "info",
+              message: "Tunaweka bidhaa hii sold out sasa."
+            });
+            deps.renderProfile?.();
             await deps.dataLayer.updateProductAvailability(productId, { availability: "sold_out" });
+            deps.setProductActionStatus?.(productId, {
+              tone: "success",
+              message: "Bidhaa imewekwa sold out."
+            });
             deps.refreshProductsFromStore();
             deps.reportEvent?.("info", "product_marked_sold_out", "Seller marked product as sold out.", {
               productId
@@ -740,6 +794,10 @@
             });
             deps.renderProfile();
           } catch (error) {
+            deps.setProductActionStatus?.(productId, {
+              tone: "error",
+              message: error.message || "Imeshindikana kuweka sold out."
+            });
             deps.captureError?.("product_sold_out_failed", error, {
               productId
             });
@@ -748,6 +806,7 @@
               body: error.message || "Imeshindikana kuweka sold out.",
               variant: "error"
             });
+            deps.renderProfile?.();
           }
         });
 
@@ -872,6 +931,10 @@
         }
         try {
           const sendKey = createMessageSubmissionKey(activeChatContext, message, []);
+          deps.setChatComposeStatus?.("profile", {
+            tone: "info",
+            message: "Tunatuma ujumbe wako sasa."
+          });
           const sendResult = await runRetrySafeMessageSend(sendKey, () => deps.dataLayer.sendMessage({
             receiverId: activeChatContext.withUser,
             productId: activeChatContext.productId || "",
@@ -882,6 +945,13 @@
             completed: "Ujumbe huu tayari umetumwa. Angalia thread kabla ya kutuma tena."
           });
           if (sendResult?.skipped) {
+            deps.setChatComposeStatus?.("profile", {
+              tone: "info",
+              message: sendResult.reason === "completed"
+                ? "Ujumbe huu tayari umetumwa. Angalia thread kwanza."
+                : "Ujumbe huu bado unatoka. Subiri kidogo kabla ya kutuma tena."
+            });
+            deps.replaceMessagesPanel(scope);
             return;
           }
           if (messageInput) {
@@ -891,16 +961,29 @@
           deps.setOpenEmojiScope("");
           await Promise.all([deps.refreshMessagesState(), deps.refreshNotificationsState()]);
           if (sendResult?.isQueued) {
+            deps.setChatComposeStatus?.("profile", {
+              tone: "warning",
+              message: "Uko offline. Ujumbe umehifadhiwa na utatumwa internet ikirudi."
+            });
             deps.showInAppNotification?.({
               title: "Ujumbe umehifadhiwa",
               body: "Uko offline. Tutautuma internet ikirudi.",
               variant: "info"
+            });
+          } else {
+            deps.setChatComposeStatus?.("profile", {
+              tone: "success",
+              message: "Ujumbe umetumwa vizuri."
             });
           }
           deps.maybePromptNotificationPermission?.("message");
           deps.replaceMessagesPanel(scope);
           document.getElementById("profile-notifications-panel")?.replaceWith(deps.createNotificationsContainerFromState());
         } catch (error) {
+          deps.setChatComposeStatus?.("profile", {
+            tone: "error",
+            message: error.message || "Imeshindikana kutuma ujumbe."
+          });
           deps.captureError?.("profile_message_send_failed", error, {
             receiverId: activeChatContext?.withUser || ""
           });

@@ -3664,6 +3664,153 @@ function ensureNotificationToastRoot() {
   return root;
 }
 
+function ensureNetworkStatusBannerRoot() {
+  let root = document.getElementById("network-status-banner-root");
+  if (!root) {
+    root = document.createElement("div");
+    root.id = "network-status-banner-root";
+    document.body.appendChild(root);
+  }
+  return root;
+}
+
+function hideNetworkStatusBanner() {
+  const root = document.getElementById("network-status-banner-root");
+  root?.replaceChildren();
+  if (uiRuntimeState.networkStatusHideTimer) {
+    window.clearTimeout(uiRuntimeState.networkStatusHideTimer);
+    uiRuntimeState.networkStatusHideTimer = 0;
+  }
+}
+
+function showNetworkStatusBanner({
+  title = "",
+  body = "",
+  variant = "info",
+  persistent = false,
+  durationMs = 3600
+} = {}) {
+  if (!title) {
+    hideNetworkStatusBanner();
+    return;
+  }
+  const root = ensureNetworkStatusBannerRoot();
+  const banner = createElement("div", {
+    className: `network-status-banner network-status-banner-${["info", "warning", "success"].includes(variant) ? variant : "info"}`
+  });
+  const copy = createElement("div", { className: "network-status-banner-copy" });
+  copy.append(
+    createElement("strong", { textContent: title }),
+    createElement("p", { textContent: body || "" })
+  );
+  banner.appendChild(copy);
+  root.replaceChildren(banner);
+  if (uiRuntimeState.networkStatusHideTimer) {
+    window.clearTimeout(uiRuntimeState.networkStatusHideTimer);
+    uiRuntimeState.networkStatusHideTimer = 0;
+  }
+  if (!persistent) {
+    uiRuntimeState.networkStatusHideTimer = window.setTimeout(() => {
+      uiRuntimeState.networkStatusHideTimer = 0;
+      root.replaceChildren();
+    }, Math.max(1800, Number(durationMs || 3600)));
+  }
+}
+
+function syncNetworkStatusBanner(options = {}) {
+  const online = typeof navigator === "undefined" ? true : navigator.onLine !== false;
+  uiRuntimeState.lastKnownOnlineState = online;
+  if (!online) {
+    showNetworkStatusBanner({
+      title: "Uko offline",
+      body: "Chat zenye queue zitasubiri. Upload na payment submit vinahitaji internet irudi kwanza.",
+      variant: "warning",
+      persistent: true
+    });
+    return;
+  }
+  if (options.justReconnected) {
+    showNetworkStatusBanner({
+      title: "Internet imerudi",
+      body: "Tunaendelea kusync actions zilizokuwa zinasubiri.",
+      variant: "success",
+      durationMs: 2800
+    });
+    return;
+  }
+  if (!options.forceKeepVisible) {
+    hideNetworkStatusBanner();
+  }
+}
+
+function refreshVisibleRecoverySurfaces() {
+  if (document.getElementById("profile-messages-panel")) {
+    replaceMessagesPanel(profileDiv);
+  }
+  const contextModal = document.getElementById("context-chat-modal");
+  if (contextModal && !contextModal.hidden) {
+    replaceContextChatModal();
+  }
+  const paymentModal = document.getElementById("payment-intent-modal");
+  if (paymentModal && !paymentModal.hidden) {
+    renderPaymentIntentModal();
+  }
+}
+
+function applyReconnectRecoveryHints() {
+  let chatStatusChanged = false;
+  if (!chatUiState.composeStatus || typeof chatUiState.composeStatus !== "object") {
+    chatUiState.composeStatus = {};
+  }
+  ["profile", "context"].forEach((scope) => {
+    const currentStatus = chatUiState.composeStatus?.[scope];
+    if (currentStatus?.tone === "warning") {
+      chatUiState.composeStatus[scope] = {
+        tone: "info",
+        message: "Internet imerudi. Ujumbe uliokuwa umehifadhiwa utaendelea kusync. Kama hauonekani baada ya muda, tuma tena."
+      };
+      chatStatusChanged = true;
+    }
+  });
+
+  if (uiRuntimeState.productUploadStatusTone === "warning") {
+    uiRuntimeState.productUploadStatusTone = "info";
+    setUploadFormStatus("info", "Internet imerudi. Unaweza kuendelea kupost bidhaa yako sasa.");
+  }
+
+  if (paymentIntentState.feedbackTone === "warning") {
+    paymentIntentState.feedbackTone = "info";
+    paymentIntentState.feedbackMessage = "Internet imerudi. Kagua reference yako kisha bonyeza Submit reference tena.";
+  }
+
+  if (chatStatusChanged || paymentIntentState.feedbackTone === "info") {
+    refreshVisibleRecoverySurfaces();
+  }
+}
+
+function applyOfflineQueueFlushHints(flushedCount = 0, remainingCount = 0) {
+  let chatStatusChanged = false;
+  if (!chatUiState.composeStatus || typeof chatUiState.composeStatus !== "object") {
+    chatUiState.composeStatus = {};
+  }
+  ["profile", "context"].forEach((scope) => {
+    const currentStatus = chatUiState.composeStatus?.[scope];
+    if (!currentStatus || !["warning", "info"].includes(String(currentStatus.tone || "").trim())) {
+      return;
+    }
+    chatUiState.composeStatus[scope] = {
+      tone: remainingCount > 0 ? "info" : "success",
+      message: remainingCount > 0
+        ? `${flushedCount} action zimesync, lakini bado kuna zingine zinasubiri network iwe thabiti.`
+        : "Ujumbe uliokuwa kwenye queue umesync vizuri."
+    };
+    chatStatusChanged = true;
+  });
+  if (chatStatusChanged) {
+    refreshVisibleRecoverySurfaces();
+  }
+}
+
 function isStandaloneDisplayMode() {
   try {
     return window.matchMedia?.("(display-mode: standalone)")?.matches
@@ -4379,12 +4526,57 @@ function restoreProductUploadDraft(options = {}) {
   productUploadDraftRuntimeState.preparedImages = draft.preparedImages.slice();
   renderPreviewImages(productUploadDraftRuntimeState.preparedImages);
   productUploadDraftRuntimeState.restoredKey = storageKey;
+  setUploadFormStatus("success", "Draft imerudi. Endelea ulipoishia kisha bonyeza post ukiwa tayari.");
   showInAppNotification({
     title: "Draft restored",
     body: "Tumerudisha bidhaa uliyoanza kuandaa ili uendelee ulipoishia.",
     variant: "success"
   });
   return true;
+}
+
+function ensureUploadFormStatusElement() {
+  if (!uploadForm) {
+    return null;
+  }
+  let statusNode = document.getElementById("upload-form-status");
+  if (statusNode) {
+    return statusNode;
+  }
+  statusNode = createElement("p", {
+    className: "upload-form-status",
+    attributes: {
+      id: "upload-form-status",
+      hidden: "hidden",
+      "aria-live": "polite"
+    }
+  });
+  if (uploadButton?.parentElement) {
+    uploadButton.parentElement.insertAdjacentElement("beforebegin", statusNode);
+  } else {
+    uploadForm.appendChild(statusNode);
+  }
+  return statusNode;
+}
+
+function setUploadFormStatus(tone = "", message = "") {
+  const statusNode = ensureUploadFormStatusElement();
+  if (!statusNode) {
+    return;
+  }
+  const safeTone = ["info", "warning", "success", "error"].includes(String(tone || "").trim())
+    ? String(tone || "").trim()
+    : "";
+  const safeMessage = String(message || "").trim();
+  if (!safeMessage) {
+    statusNode.hidden = true;
+    statusNode.textContent = "";
+    statusNode.className = "upload-form-status";
+    return;
+  }
+  statusNode.hidden = false;
+  statusNode.textContent = safeMessage;
+  statusNode.className = `upload-form-status${safeTone ? ` is-${safeTone}` : ""}`;
 }
 
 function noteSavedProductIntent(productId, savedAt = new Date().toISOString()) {
@@ -5402,6 +5594,9 @@ function completeBootOverlay() {
     return;
   }
   hideBootOverlayImmediately();
+  window.setTimeout(() => {
+    ensureVisibleStartupContent("boot_overlay_completed");
+  }, 360);
   window.setTimeout(() => {
     if (bootOverlay && bootOverlay.classList.contains("is-hidden")) {
       bootOverlay.style.display = "none";
@@ -6676,7 +6871,9 @@ let trustReportState = {
 let paymentIntentState = {
   productId: "",
   loading: false,
-  transactionId: ""
+  transactionId: "",
+  feedbackTone: "",
+  feedbackMessage: ""
 };
 const paymentIntentSubmissionRegistry = new Map();
 
@@ -6836,7 +7033,9 @@ function closePaymentIntentModal() {
   paymentIntentState = {
     productId: "",
     loading: false,
-    transactionId: ""
+    transactionId: "",
+    feedbackTone: "",
+    feedbackMessage: ""
   };
   root.querySelector("[data-payment-intent-body='true']")?.replaceChildren();
   syncBodyScrollLockState();
@@ -6910,6 +7109,22 @@ function renderPaymentIntentModal() {
     className: "auth-note",
     textContent: "Tumia reference ya malipo uliyopewa na M-Pesa, Airtel Money, Tigo Pesa, au HaloPesa."
   });
+  const networkMessage = typeof navigator !== "undefined" && navigator.onLine === false
+    ? "Uko offline kwa sasa. Hifadhi reference hii kisha submit internet ikirudi."
+    : paymentIntentState.loading
+      ? "Tunatuma reference yako sasa. Usifunge dirisha hili."
+      : paymentIntentState.feedbackMessage;
+  const networkTone = typeof navigator !== "undefined" && navigator.onLine === false
+    ? "warning"
+    : paymentIntentState.loading
+      ? "info"
+      : (paymentIntentState.feedbackTone || "");
+  if (networkMessage) {
+    wrapper.appendChild(createElement("p", {
+      className: `payment-intent-status${networkTone ? ` is-${networkTone}` : ""}`,
+      textContent: networkMessage
+    }));
+  }
   const actions = createElement("div", { className: "payment-intent-actions" });
   const submitButton = createElement("button", {
     className: "action-btn buy-btn",
@@ -6966,6 +7181,17 @@ async function submitPaymentIntentOrder() {
   if (!product) {
     throw new Error("Bidhaa haijapatikana tena. Jaribu kufungua product upya.");
   }
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    paymentIntentState.feedbackTone = "warning";
+    paymentIntentState.feedbackMessage = "Uko offline. Reference haijatumwa bado. Internet ikirudi, bonyeza Submit reference tena.";
+    renderPaymentIntentModal();
+    showInAppNotification({
+      title: "Uko offline",
+      body: "Reference imebaki kwenye dirisha hili. Internet ikirudi, submit tena.",
+      variant: "warning"
+    });
+    return;
+  }
   const paymentDetails = getProductPaymentDetails(product);
   if (!paymentDetails.number) {
     throw new Error("Muuzaji bado hajaweka Lipa namba. Tuma ujumbe kwanza ili akamilishe taarifa za malipo.");
@@ -6979,6 +7205,9 @@ async function submitPaymentIntentOrder() {
   const submissionKey = createPaymentIntentSubmissionKey(product.id, transactionId);
   const existingSubmission = paymentIntentSubmissionRegistry.get(submissionKey);
   if (existingSubmission?.status === "pending") {
+    paymentIntentState.feedbackTone = "info";
+    paymentIntentState.feedbackMessage = "Reference hii bado tunaituma. Subiri kidogo kabla ya kujaribu tena.";
+    renderPaymentIntentModal();
     showInAppNotification({
       title: "Still submitting",
       body: "Reference hii bado tunaituma. Subiri kidogo kabla ya kujaribu tena.",
@@ -6987,6 +7216,9 @@ async function submitPaymentIntentOrder() {
     return;
   }
   if (existingSubmission?.status === "completed" && Date.now() - Number(existingSubmission.updatedAt || 0) < 20000) {
+    paymentIntentState.feedbackTone = "success";
+    paymentIntentState.feedbackMessage = "Reference hii tayari ilitumwa. Subiri seller athibitishe malipo.";
+    renderPaymentIntentModal();
     showInAppNotification({
       title: "Already submitted",
       body: "Reference hii tayari ilitumwa. Subiri seller athibitishe malipo.",
@@ -6996,6 +7228,8 @@ async function submitPaymentIntentOrder() {
   }
   paymentIntentState.loading = true;
   paymentIntentState.transactionId = transactionId;
+  paymentIntentState.feedbackTone = "info";
+  paymentIntentState.feedbackMessage = "Tunatuma reference yako kwa seller sasa.";
   renderPaymentIntentModal();
   paymentIntentSubmissionRegistry.set(submissionKey, {
     status: "pending",
@@ -7372,6 +7606,10 @@ const {
   formatNumber,
   formatProductPrice,
   getCategoryLabel,
+  getChatComposeStatus: (scope = "profile") => {
+    const currentStatus = chatUiState.composeStatus || {};
+    return currentStatus[String(scope || "profile").trim().toLowerCase()] || null;
+  },
   getMessageProductItems,
   getReplyPreviewMessage,
   getCurrentUser: () => currentUser,
@@ -7411,6 +7649,63 @@ const {
   setCurrentMessageDraft: (value) => {
     chatUiState.currentDraft = value;
     saveStoredChatDraft(value, chatUiState.activeContext);
+  },
+  setChatComposeStatus: (scope, status = null) => {
+    if (!chatUiState.composeStatus || typeof chatUiState.composeStatus !== "object") {
+      chatUiState.composeStatus = {};
+    }
+    const safeScope = String(scope || "profile").trim().toLowerCase();
+    if (!safeScope) {
+      return;
+    }
+    if (!status || !status.message) {
+      delete chatUiState.composeStatus[safeScope];
+      return;
+    }
+    chatUiState.composeStatus[safeScope] = {
+      tone: ["info", "warning", "success", "error"].includes(String(status.tone || "").trim())
+        ? String(status.tone || "").trim()
+        : "info",
+      message: String(status.message || "").trim()
+    };
+  },
+  setOrderActionStatus: (orderId, status = null) => {
+    if (!chatUiState.orderActionStatus || typeof chatUiState.orderActionStatus !== "object") {
+      chatUiState.orderActionStatus = {};
+    }
+    const safeOrderId = String(orderId || "").trim();
+    if (!safeOrderId) {
+      return;
+    }
+    if (!status || !status.message) {
+      delete chatUiState.orderActionStatus[safeOrderId];
+      return;
+    }
+    chatUiState.orderActionStatus[safeOrderId] = {
+      tone: ["info", "warning", "success", "error"].includes(String(status.tone || "").trim())
+        ? String(status.tone || "").trim()
+        : "info",
+      message: String(status.message || "").trim()
+    };
+  },
+  setProductActionStatus: (productId, status = null) => {
+    if (!chatUiState.productActionStatus || typeof chatUiState.productActionStatus !== "object") {
+      chatUiState.productActionStatus = {};
+    }
+    const safeProductId = String(productId || "").trim();
+    if (!safeProductId) {
+      return;
+    }
+    if (!status || !status.message) {
+      delete chatUiState.productActionStatus[safeProductId];
+      return;
+    }
+    chatUiState.productActionStatus[safeProductId] = {
+      tone: ["info", "warning", "success", "error"].includes(String(status.tone || "").trim())
+        ? String(status.tone || "").trim()
+        : "info",
+      message: String(status.message || "").trim()
+    };
   },
   getCurrentMessageDraft: () => chatUiState.currentDraft,
   loadStoredChatDraft,
@@ -7544,6 +7839,27 @@ const {
   getPaymentStatusLabel,
   getOrderLifecycleMeta,
   getOrderProgressLabel,
+  getOrderActionStatus: (orderId) => {
+    const orderStatus = chatUiState.orderActionStatus || {};
+    return orderStatus[String(orderId || "").trim()] || null;
+  },
+  getOrderReviewAction: (order) => {
+    const product = getProductById(order?.productId || "");
+    if (!product || order?.status !== "delivered" || order?.buyerUsername !== currentUser) {
+      return null;
+    }
+    if (!canCurrentUserReviewProduct(product)) {
+      return null;
+    }
+    return {
+      productId: product.id,
+      label: "Review product"
+    };
+  },
+  getProductActionStatus: (productId) => {
+    const productStatus = chatUiState.productActionStatus || {};
+    return productStatus[String(productId || "").trim()] || null;
+  },
   getVerificationStatusLabel,
   getOrderActionButtons,
   renderPromotionBadges,
@@ -7966,7 +8282,9 @@ const {
   createProductCardStackElement,
   createShowcaseSectionElement,
   createDynamicShowcasePlaceholderElement,
-  renderShowcaseTrack
+  renderShowcaseTrack,
+  repairShowcaseMediaVisibility,
+  stabilizeMobileShowcaseRows
 } = window.WingaModules.marketplace.createMarketplaceUiModule({
   createElement,
   createElementFromMarkup,
@@ -8007,6 +8325,7 @@ const {
   getTrendingProducts,
   bindShowcaseCardClicks,
   setupDynamicShowcaseLoading,
+  reportShowcaseInstrumentation,
   canUseContinuousDiscovery: () => Boolean(currentUser),
   createContinuousDiscoveryAnchorElement,
   setupContinuousDiscoveryLoading,
@@ -8554,7 +8873,8 @@ const runtimeDiagnostics = uiRuntimeState.runtimeDiagnostics || (uiRuntimeState.
   productEngagementBindCalls: 0,
   productEngagementObservedCount: 0,
   productMenuBindCalls: 0,
-  lastSnapshotAt: 0
+  lastSnapshotAt: 0,
+  showcaseEvents: []
 });
 
 function bumpRuntimeDiagnostic(metric, amount = 1) {
@@ -8568,6 +8888,37 @@ function bumpRuntimeDiagnostic(metric, amount = 1) {
   return nextValue;
 }
 
+function collectShowcaseRowDiagnostics() {
+  const rows = Array.from(document.querySelectorAll?.(".showcase-inline") || []);
+  return rows.map((row, index) => {
+    const headingNode = row.querySelector(".section-heading h2, .section-heading strong, .section-heading-title, h2");
+    const track = row.querySelector(".showcase-track");
+    const cards = Array.from(track?.querySelectorAll?.(".showcase-card") || []);
+    const images = cards.map((card) => {
+      const image = card.querySelector(".feed-gallery-image-social, .showcase-preview-image, img");
+      return {
+        productId: String(card.dataset.showcaseId || card.dataset.openProduct || "").trim(),
+        hasImageNode: Boolean(image),
+        currentSrc: String(image?.currentSrc || image?.src || "").trim(),
+        complete: Boolean(image?.complete),
+        naturalWidth: Number(image?.naturalWidth || 0),
+        naturalHeight: Number(image?.naturalHeight || 0)
+      };
+    });
+    return {
+      index,
+      heading: String(headingNode?.textContent || "").trim(),
+      recommendationType: String(row.getAttribute("data-recommendation-type") || "").trim(),
+      continuousKey: String(row.getAttribute("data-continuous-discovery-section") || "").trim(),
+      dynamicPlaceholder: String(row.getAttribute("data-dynamic-showcase-placeholder") || "").trim(),
+      cardCount: cards.length,
+      loadedImageCount: images.filter((item) => item.hasImageNode && item.complete && item.naturalWidth > 0 && item.naturalHeight > 0).length,
+      missingImageCount: images.filter((item) => !item.currentSrc || item.naturalWidth < 1 || item.naturalHeight < 1).length,
+      images: images.slice(0, 8)
+    };
+  });
+}
+
 function getRuntimeDiagnosticsSnapshot() {
   return {
     ...runtimeDiagnostics,
@@ -8578,13 +8929,42 @@ function getRuntimeDiagnosticsSnapshot() {
     decodedFeedImageCacheSize: decodedFeedImageCache?.size || 0,
     imagePreloadRegistrySize: imagePreloadRegistry?.size || 0,
     imagePrefetchRegistrySize: marketplaceScrollImagePrefetchedSources?.size || 0,
+    showcaseEvents: Array.isArray(runtimeDiagnostics.showcaseEvents) ? runtimeDiagnostics.showcaseEvents.slice(-12) : [],
+    showcaseRows: collectShowcaseRowDiagnostics(),
     currentView,
     timestamp: Date.now()
   };
 }
 
+function reportShowcaseInstrumentation(eventName, payload = {}) {
+  const safeEvent = String(eventName || "").trim();
+  if (!safeEvent) {
+    return;
+  }
+  const entry = {
+    event: safeEvent,
+    payload: payload && typeof payload === "object" ? { ...payload } : {},
+    view: currentView,
+    at: Date.now()
+  };
+  const showcaseEvents = Array.isArray(runtimeDiagnostics.showcaseEvents)
+    ? runtimeDiagnostics.showcaseEvents
+    : (runtimeDiagnostics.showcaseEvents = []);
+  showcaseEvents.push(entry);
+  while (showcaseEvents.length > 40) {
+    showcaseEvents.shift();
+  }
+  runtimeDiagnostics.lastSnapshotAt = Date.now();
+  reportClientEvent("info", "showcase_runtime", `Showcase event: ${safeEvent}`, {
+    category: "marketplace",
+    event: safeEvent,
+    ...entry.payload
+  });
+}
+
 window.__WINGA_DIAGNOSTICS__ = {
   snapshot: getRuntimeDiagnosticsSnapshot,
+  showcase: collectShowcaseRowDiagnostics,
   reset() {
     Object.keys(runtimeDiagnostics).forEach((key) => {
       if (key === "lastSnapshotAt") {
@@ -9512,6 +9892,54 @@ function renderLifecycleFallbackSkeleton(message = "") {
   setFeedLoadingStateVisible(true);
 }
 
+function shouldKeepStartupFeedLoadingVisible() {
+  try {
+    const isProfile = currentView === "profile";
+    const isUpload = currentView === "upload" && canUseSellerFeatures();
+    const isAdminView = currentView === "admin" && isStaffUser();
+    if (isProfile || isUpload || isAdminView) {
+      return false;
+    }
+    const filteredProducts = getFilteredProducts();
+    const productsHydrated = Boolean(window.WingaDataLayer?.isProductsHydrated?.());
+    return (!productsHydrated || productHydrationStatus === "failed") && filteredProducts.length === 0;
+  } catch (error) {
+    captureClientError("startup_feed_loading_state_check_failed", error, {
+      category: "runtime",
+      alertSeverity: "medium",
+      view: currentView
+    });
+    return false;
+  }
+}
+
+function ensureVisibleStartupContent(reason = "startup_guard") {
+  if (!appContainer || appContainer.style.display === "none") {
+    return;
+  }
+  const hasVisibleSurface = Boolean(
+    document.body.classList.contains("auth-modal-open")
+    || document.body.classList.contains("product-detail-open")
+    || productsContainer?.querySelector(".product-card, .seller-product-card")
+    || profileDiv?.style.display === "block"
+    || uploadForm?.style.display === "block"
+    || adminPanel?.style.display === "block"
+    || emptyState?.style.display === "block"
+    || feedLoadingState?.style.display === "grid"
+  );
+  if (hasVisibleSurface) {
+    return;
+  }
+  reportClientEvent("warn", "startup_blank_surface_guarded", "Startup guard restored visible feed loading shell.", {
+    category: "runtime",
+    reason,
+    view: currentView || "home",
+    productsHydrated: Boolean(window.WingaDataLayer?.isProductsHydrated?.()),
+    productsCount: Array.isArray(products) ? products.length : 0
+  });
+  renderLifecycleFallbackSkeleton("Tunaweka bidhaa na picha tayari. Usiondoke, feed inaingia.");
+}
+
 function hideLifecycleFallbackShell() {
   if (lifecycleFallbackTimer) {
     window.clearTimeout(lifecycleFallbackTimer);
@@ -9523,6 +9951,10 @@ function hideLifecycleFallbackShell() {
   }
   lifecycleFallbackActive = false;
   lifecycleFallbackReason = "";
+  if (shouldKeepStartupFeedLoadingVisible()) {
+    renderLifecycleFallbackSkeleton("Tunaweka bidhaa na picha tayari. Usiondoke, feed inaingia.");
+    return;
+  }
   setFeedLoadingStateVisible(false);
 }
 
@@ -10204,12 +10636,30 @@ productCategoryInput.addEventListener("change", () => {
   productCategoryInput,
   uploadCustomCategoryInput
 ].filter(Boolean).forEach((field) => {
-  field.addEventListener("input", () => scheduleProductUploadDraftSave(220));
-  field.addEventListener("change", () => scheduleProductUploadDraftSave(0));
+  field.addEventListener("input", () => {
+    if ((uiRuntimeState.productUploadStatusTone || "") !== "info") {
+      setUploadFormStatus("", "");
+      uiRuntimeState.productUploadStatusTone = "";
+    }
+    scheduleProductUploadDraftSave(220);
+  });
+  field.addEventListener("change", () => {
+    if ((uiRuntimeState.productUploadStatusTone || "") !== "info") {
+      setUploadFormStatus("", "");
+      uiRuntimeState.productUploadStatusTone = "";
+    }
+    scheduleProductUploadDraftSave(0);
+  });
 });
 
 Array.from(productFitModeInputs || []).forEach((input) => {
-  input.addEventListener("change", () => scheduleProductUploadDraftSave(0));
+  input.addEventListener("change", () => {
+    if ((uiRuntimeState.productUploadStatusTone || "") !== "info") {
+      setUploadFormStatus("", "");
+      uiRuntimeState.productUploadStatusTone = "";
+    }
+    scheduleProductUploadDraftSave(0);
+  });
 });
 
 authButton.addEventListener("click", async () => {
@@ -10534,11 +10984,20 @@ uploadButton.addEventListener("click", async () => {
 
   try {
     uiRuntimeState.productUploadInFlight = true;
+    uiRuntimeState.productUploadStatusTone = "info";
+    setUploadFormStatus(
+      "info",
+      editingProductId
+        ? "Tunatunza mabadiliko ya bidhaa yako sasa. Usifunge ukurasa huu."
+        : "Tunapakia bidhaa yako sasa. Usifunge ukurasa huu."
+    );
     if (uploadButton) {
       uploadButton.disabled = true;
       uploadButton.dataset.loading = "true";
     }
     if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      uiRuntimeState.productUploadStatusTone = "warning";
+      setUploadFormStatus("warning", "Uko offline. Draft ya bidhaa imehifadhiwa. Internet ikirudi, bonyeza tena kupost.");
       showInAppNotification({
         title: "Uko offline",
         body: "Draft ya bidhaa imehifadhiwa. Internet ikirudi, bonyeza tena kupost.",
@@ -10553,6 +11012,8 @@ uploadButton.addEventListener("click", async () => {
       const images = await readFilesAsDataUrls(selectedFiles);
       productUploadDraftRuntimeState.preparedImages = images.slice();
       saveProductUploadDraft();
+      uiRuntimeState.productUploadStatusTone = "info";
+      setUploadFormStatus("info", "Picha zako zimeandaliwa. Tunahifadhi bidhaa sasa.");
       await finalizeSave(images);
       return;
     }
@@ -10560,6 +11021,8 @@ uploadButton.addEventListener("click", async () => {
     await finalizeSave(existingProduct.images || [existingProduct.image].filter(Boolean));
   } catch (error) {
     saveProductUploadDraft();
+    uiRuntimeState.productUploadStatusTone = "error";
+    setUploadFormStatus("error", getFriendlyProductUploadErrorMessage(error));
     captureClientError("product_save_failed", error, {
       editingProductId: editingProductId || ""
     });
@@ -10586,6 +11049,10 @@ cancelEditButton.addEventListener("click", () => {
 });
 
 productImageFileInput.addEventListener("change", async () => {
+  if ((uiRuntimeState.productUploadStatusTone || "") !== "info") {
+    setUploadFormStatus("", "");
+    uiRuntimeState.productUploadStatusTone = "";
+  }
   const files = Array.from(productImageFileInput.files || []);
   if (files.length === 0) {
     productUploadDraftRuntimeState.preparedImages = [];
@@ -10603,6 +11070,8 @@ productImageFileInput.addEventListener("change", async () => {
     productUploadDraftRuntimeState.preparedImages = preparedImages.slice();
     scheduleProductUploadDraftSave(0);
   } catch (error) {
+    uiRuntimeState.productUploadStatusTone = "error";
+    setUploadFormStatus("error", error.message || "Picha ulizochagua si sahihi.");
     showInAppNotification({
       title: "Image selection failed",
       body: error.message || "Picha ulizochagua si sahihi.",
@@ -11776,6 +12245,7 @@ window.addEventListener("winga:offline-actions-flushed", async (event) => {
     });
   }
   if (flushedCount > 0) {
+    applyOfflineQueueFlushHints(flushedCount, remainingCount);
     showInAppNotification({
       title: "Offline actions synced",
       body: remainingCount > 0
@@ -11783,8 +12253,36 @@ window.addEventListener("winga:offline-actions-flushed", async (event) => {
         : `${flushedCount} action${flushedCount === 1 ? "" : "s"} zimetumwa vizuri.`,
       variant: "success"
     });
+    showNetworkStatusBanner({
+      title: remainingCount > 0 ? "Baadhi ya actions zinasubiri" : "Offline actions zimesync",
+      body: remainingCount > 0
+        ? `${flushedCount} zimetumwa, ${remainingCount} bado zitasubiri network iwe thabiti.`
+        : "Actions zako zote zilizokuwa zinasubiri zimetumwa vizuri.",
+      variant: remainingCount > 0 ? "info" : "success",
+      persistent: remainingCount > 0,
+      durationMs: remainingCount > 0 ? 4200 : 2600
+    });
   }
 });
+
+window.addEventListener("offline", () => {
+  syncNetworkStatusBanner({ forceKeepVisible: true });
+  if (!document.getElementById("payment-intent-modal")?.hidden) {
+    renderPaymentIntentModal();
+  }
+});
+
+window.addEventListener("online", () => {
+  syncNetworkStatusBanner({ justReconnected: true });
+  applyReconnectRecoveryHints();
+  if (!document.getElementById("payment-intent-modal")?.hidden) {
+    renderPaymentIntentModal();
+  }
+});
+
+window.setTimeout(() => {
+  syncNetworkStatusBanner();
+}, 0);
 
 window.addEventListener("winga:session-invalidated", (event) => {
   if (isHandlingSessionInvalidation || !currentSession?.username) {
@@ -12828,14 +13326,28 @@ function hydrateContinuousDiscoveryAnchor(anchor) {
   const pendingDescriptors = Array.isArray(homeContinuousDiscoveryRuntime.pendingDescriptors)
     ? homeContinuousDiscoveryRuntime.pendingDescriptors
     : [];
-  const descriptor = pendingDescriptors.length
-    ? pendingDescriptors.shift()
-    : getContinuousDiscoveryDescriptor({
+  const generatedDescriptor = getContinuousDiscoveryDescriptor({
       seedProduct,
       usedIds: homeContinuousDiscoveryRuntime.usedIds,
       recentIds: homeContinuousDiscoveryRuntime.recentIds,
       batchIndex: homeContinuousDiscoveryRuntime.batchIndex
     });
+  const shouldPreferPendingDescriptor = homeContinuousDiscoveryRuntime.batchIndex > 0
+    && homeContinuousDiscoveryRuntime.lastDescriptorSource !== "deferred_recommendation";
+  const eligiblePendingDescriptorIndex = shouldPreferPendingDescriptor
+    ? pendingDescriptors.findIndex((entry) => Number(entry?.minBatchIndex || 0) <= Number(homeContinuousDiscoveryRuntime.batchIndex || 0))
+    : -1;
+  const descriptor = eligiblePendingDescriptorIndex >= 0
+    ? pendingDescriptors.splice(eligiblePendingDescriptorIndex, 1)[0]
+    : (generatedDescriptor || pendingDescriptors.shift());
+  reportShowcaseInstrumentation("continuous_discovery_descriptor_selected", {
+    batchIndex: homeContinuousDiscoveryRuntime.batchIndex,
+    source: descriptor?.source || descriptor?.kind || "generated",
+    kind: descriptor?.kind || "",
+    title: descriptor?.title || "",
+    itemCount: Array.isArray(descriptor?.items) ? descriptor.items.length : 0,
+    pendingRemaining: pendingDescriptors.length
+  });
 
   if (!descriptor) {
     homeContinuousDiscoveryRuntime.loading = false;
@@ -12857,6 +13369,8 @@ function hydrateContinuousDiscoveryAnchor(anchor) {
   anchor.after(section);
   section.after(anchor);
   enhanceShowcaseTracks(section);
+  repairShowcaseMediaVisibility?.(section);
+  stabilizeMobileShowcaseRows?.(section);
   bindShowcaseCardClicks(section);
   bindFeedGalleryInteractions(section);
   bindProductEngagementSignals(section);
@@ -12871,6 +13385,7 @@ function hydrateContinuousDiscoveryAnchor(anchor) {
     appendedIds
   );
   homeContinuousDiscoveryRuntime.batchIndex += 1;
+  homeContinuousDiscoveryRuntime.lastDescriptorSource = String(descriptor?.source || descriptor?.kind || "generated").trim().toLowerCase();
   homeContinuousDiscoveryRuntime.lastHydrateAt = now;
   homeContinuousDiscoveryRuntime.loading = false;
   scheduleContinuousDiscoveryReobserve(anchor);
@@ -12888,6 +13403,7 @@ function setupContinuousDiscoveryLoading(scope, options = {}) {
   homeContinuousDiscoveryRuntime.usedIds = usedIds;
   homeContinuousDiscoveryRuntime.recentIds = [];
   homeContinuousDiscoveryRuntime.seedProductId = options.seedProduct?.id || "";
+  homeContinuousDiscoveryRuntime.lastDescriptorSource = "";
   homeContinuousDiscoveryRuntime.lastHydrateAt = 0;
   homeContinuousDiscoveryRuntime.pendingDescriptors = Array.isArray(options.pendingDescriptors)
     ? options.pendingDescriptors
@@ -13567,6 +14083,8 @@ function hydrateDynamicShowcaseSection(placeholder, sectionIndex, usedIds) {
   descriptor.items.forEach((item) => usedIds.add(item.id));
   placeholder.replaceWith(nextSection);
   enhanceShowcaseTracks(nextSection);
+  repairShowcaseMediaVisibility?.(nextSection);
+  stabilizeMobileShowcaseRows?.(nextSection);
   bindShowcaseCardClicks(nextSection);
   bindImageFallbacks(nextSection);
   bindProductMenus(nextSection);
@@ -14118,6 +14636,8 @@ function clearUploadForm() {
   previewList.replaceChildren();
   previewList.style.display = "none";
   setSelectedProductFitMode("cover");
+  uiRuntimeState.productUploadStatusTone = "";
+  setUploadFormStatus("", "");
 }
 
 function createPaymentIntentSubmissionKey(productId, transactionId) {
@@ -14310,7 +14830,9 @@ function beginPurchaseFlow(product) {
   paymentIntentState = {
     productId: product.id,
     loading: false,
-    transactionId: ""
+    transactionId: "",
+    feedbackTone: "",
+    feedbackMessage: ""
   };
   renderPaymentIntentModal();
 }

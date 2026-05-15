@@ -215,8 +215,18 @@
     function createShowcasePreviewMediaElement(product) {
       const fitMode = String(product.fitMode || "").trim().toLowerCase() === "contain" ? "contain" : "cover";
       const media = createElement("div", { className: `product-card-media showcase-media fit-mode-${fitMode}`, attributes: { "data-fit-mode": fitMode } });
+      const fallbackSrc = deps.getMarketplacePrimaryImage
+        ? deps.getMarketplacePrimaryImage(product, {
+            allowOwnerVisibility: product.uploadedBy === deps.getCurrentUser?.()
+          })
+        : deps.sanitizeImageSource(product.image || (Array.isArray(product.images) ? product.images[0] : ""), deps.getImageFallbackDataUri("WINGA"));
+      media.dataset.showcaseFallbackSrc = fallbackSrc || "";
+      media.dataset.showcaseFallbackAlt = product.name || "Product image";
       if (deps.renderFeedGalleryMarkup) {
-        media.appendChild(createElementFromMarkup(deps.renderFeedGalleryMarkup(product, "discovery")));
+        media.appendChild(createElementFromMarkup(deps.renderFeedGalleryMarkup(product, "feed", {
+          priorityCount: 1,
+          preload: false
+        })));
         return media;
       }
 
@@ -237,6 +247,90 @@
         }
       }));
       return media;
+    }
+
+    function repairShowcaseMediaVisibility(scope = document) {
+      const isMobileViewport = window.matchMedia?.("(max-width: 780px)")?.matches;
+      if (!isMobileViewport) {
+        return;
+      }
+      scope.querySelectorAll?.(".showcase-card .showcase-media").forEach((media) => {
+        if (!(media instanceof Element) || media.dataset.showcaseMediaRepairBound === "true") {
+          return;
+        }
+        media.dataset.showcaseMediaRepairBound = "true";
+        const fallbackSrc = String(media.dataset.showcaseFallbackSrc || "").trim();
+        if (!fallbackSrc) {
+          return;
+        }
+        window.setTimeout(() => {
+          if (!media.isConnected) {
+            return;
+          }
+          const visibleImage = media.querySelector(".feed-gallery-image-social, .showcase-preview-image, img");
+          const hasHealthyImage = Boolean(
+            visibleImage
+            && String(visibleImage.currentSrc || visibleImage.src || "").trim()
+            && (Number(visibleImage.naturalWidth || 0) > 0 || Number(visibleImage.clientWidth || 0) > 0)
+          );
+          if (hasHealthyImage) {
+            return;
+          }
+          media.replaceChildren(createProgressiveImage({
+            src: fallbackSrc,
+            alt: String(media.dataset.showcaseFallbackAlt || "Product image"),
+            fallbackSrc: deps.getImageFallbackDataUri("WINGA"),
+            placeholderSrc: deps.getImageFallbackDataUri("W"),
+            className: "showcase-preview-image",
+            fitMode: String(media.dataset.fitMode || "cover").trim().toLowerCase() === "contain" ? "contain" : "cover",
+            attributes: {
+              "data-marketplace-scroll-image": "true",
+              "data-showcase-media-repaired": "true"
+            }
+          }));
+          media.dataset.showcaseMediaRepaired = "true";
+        }, 900);
+      });
+    }
+
+    function stabilizeMobileShowcaseRows(scope = document) {
+      const isMobileViewport = window.matchMedia?.("(max-width: 780px)")?.matches;
+      if (!isMobileViewport) {
+        return;
+      }
+      const rows = Array.from(scope.querySelectorAll?.(".showcase-inline") || []);
+      rows.forEach((row) => {
+        if (!(row instanceof Element) || row.dataset.showcaseRowStabilityBound === "true") {
+          return;
+        }
+        row.dataset.showcaseRowStabilityBound = "true";
+        window.setTimeout(() => {
+          if (!row.isConnected) {
+            return;
+          }
+          const cards = Array.from(row.querySelectorAll(".showcase-card"));
+          if (!cards.length) {
+            return;
+          }
+          const healthyCardCount = cards.filter((card) => {
+            const image = card.querySelector(".feed-gallery-image-social, .showcase-preview-image, img");
+            return Boolean(
+              image
+              && String(image.currentSrc || image.src || "").trim()
+              && (Number(image.naturalWidth || 0) > 0 || Number(image.clientWidth || 0) > 32)
+            );
+          }).length;
+          if (healthyCardCount > 0) {
+            return;
+          }
+          reportShowcaseInstrumentation("mobile_showcase_row_removed", {
+            heading: String(row.querySelector(".section-heading h2, .section-heading strong, h2")?.textContent || "").trim(),
+            cardCount: cards.length,
+            source: row.getAttribute("data-recommendation-type") || row.getAttribute("data-continuous-discovery-kind") || "showcase_inline"
+          });
+          row.remove();
+        }, 1400);
+      });
     }
 
     function bindCardOpenHandler(card, product) {
@@ -526,13 +620,30 @@
       if (!safeItems.length) {
         return null;
       }
+      const normalizedType = String(type || "recommendation").trim().toLowerCase();
+      const minBatchIndex = normalizedType === "related"
+        ? 1
+        : normalizedType === "you-may-like"
+          ? 2
+          : normalizedType === "trending"
+            ? 3
+            : 1;
       return {
         kind: type || "recommendation",
+        source: "deferred_recommendation",
+        minBatchIndex,
         eyebrow: title,
         title: subtitle,
         subtitle: "Suggestions based on the current catalog",
         items: safeItems
       };
+    }
+
+    function reportShowcaseInstrumentation(eventName, payload = {}) {
+      if (typeof deps.reportShowcaseInstrumentation !== "function") {
+        return;
+      }
+      deps.reportShowcaseInstrumentation(eventName, payload);
     }
 
     function renderProducts(list) {
@@ -575,6 +686,13 @@
             descriptor.subtitle
           );
           if (showcaseElement) {
+            reportShowcaseInstrumentation("inline_behavior_showcase_rendered", {
+              sectionIndex: showcaseIndex,
+              heading: descriptor.heading,
+              title: descriptor.title,
+              itemCount: Array.isArray(descriptor.items) ? descriptor.items.length : 0,
+              source: "behavior_showcase"
+            });
             descriptor.items.forEach((item) => usedShowcaseProductIds.add(item.id));
             fragment.appendChild(showcaseElement);
             showcaseIndex += 1;
@@ -617,6 +735,11 @@
             createRecommendationDescriptor("Trending", "Most viewed and most interacted", trending, "trending")
           ].filter(Boolean);
           if (shouldInjectInlineShowcases && insertedInlineShowcase && deps.setDeferredRecommendationDescriptors) {
+            reportShowcaseInstrumentation("deferred_recommendations_queued", {
+              count: recommendationDescriptors.length,
+              kinds: recommendationDescriptors.map((descriptor) => descriptor.kind),
+              itemCounts: recommendationDescriptors.map((descriptor) => Array.isArray(descriptor.items) ? descriptor.items.length : 0)
+            });
             deps.setDeferredRecommendationDescriptors(recommendationDescriptors);
           } else {
             if (deps.setDeferredRecommendationDescriptors) {
@@ -630,7 +753,16 @@
                 descriptor.kind
               ))
               .filter(Boolean)
-              .forEach((section) => productsContainer.appendChild(section));
+              .forEach((section, index) => {
+                const descriptor = recommendationDescriptors[index];
+                reportShowcaseInstrumentation("recommendation_section_rendered", {
+                  kind: descriptor?.kind || "recommendation",
+                  title: descriptor?.title || "",
+                  itemCount: Array.isArray(descriptor?.items) ? descriptor.items.length : 0,
+                  source: "direct_recommendation"
+                });
+                productsContainer.appendChild(section);
+              });
           }
           if (deps.createContinuousDiscoveryAnchorElement) {
             productsContainer.appendChild(deps.createContinuousDiscoveryAnchorElement());
@@ -643,6 +775,8 @@
           deps.bindShowcaseCardClicks(productsContainer);
           deps.setupDynamicShowcaseLoading(productsContainer, usedShowcaseProductIds);
         }
+        repairShowcaseMediaVisibility(productsContainer);
+        stabilizeMobileShowcaseRows(productsContainer);
         deps.bindFeedGalleryInteractions?.(productsContainer);
         if (currentView === "home" && list.length > 0 && deps.canUseContinuousDiscovery?.() && deps.setupContinuousDiscoveryLoading) {
           const usedProductIds = new Set(list.map((product) => product.id));
@@ -711,7 +845,9 @@
       createProductGalleryElement,
       createDynamicShowcasePlaceholderElement,
       createShowcaseSectionElement,
-      renderShowcaseTrack
+      renderShowcaseTrack,
+      repairShowcaseMediaVisibility,
+      stabilizeMobileShowcaseRows
     };
   }
 

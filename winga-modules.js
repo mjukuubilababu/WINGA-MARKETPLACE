@@ -4823,6 +4823,15 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       return deps.createElementFromMarkup(markup);
     }
 
+    function renderComposeStatusMarkup(scope = "profile") {
+      const status = deps.getChatComposeStatus?.(scope);
+      if (!status?.message) {
+        return "";
+      }
+      const tone = String(status.tone || "info").trim() || "info";
+      return `<p class="chat-compose-status is-${deps.escapeHtml(tone)}">${deps.escapeHtml(status.message)}</p>`;
+    }
+
     function renderResponsiveImageMarkup({ src = "", alt = "", className = "", fallbackKey = "W" } = {}) {
       return (deps.createProgressiveImage || deps.createResponsiveImage)({
         src,
@@ -4907,7 +4916,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         ? deps.getRenderableNotifications()
         : Array.isArray(deps.getCurrentNotifications?.())
           ? deps.getCurrentNotifications()
-        : [];
+          : [];
       const items = currentNotifications
         .slice()
         .sort((first, second) => new Date(second.createdAt || 0).getTime() - new Date(first.createdAt || 0).getTime());
@@ -5037,6 +5046,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
                 </div>
                 <form id="message-compose-form" class="messages-compose">
                   <textarea id="message-compose-input" rows="3" maxlength="1000" placeholder="Andika ujumbe wako hapa...">${deps.escapeHtml(currentMessageDraft)}</textarea>
+                  ${renderComposeStatusMarkup("profile")}
                   <div class="chat-compose-footer">
                     ${deps.renderEmojiPicker("profile")}
                     <div class="chat-compose-actions">
@@ -5174,6 +5184,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
           ` : ""}
           <form id="context-chat-compose-form" class="messages-compose context-chat-compose">
             <textarea id="context-chat-compose-input" rows="3" maxlength="1000" placeholder="Andika ujumbe wako hapa...">${deps.escapeHtml(currentMessageDraft)}</textarea>
+            ${renderComposeStatusMarkup("context")}
             <div class="chat-compose-footer">
               ${deps.renderEmojiPicker("context")}
               <div class="chat-compose-actions">
@@ -5567,6 +5578,10 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         }
         try {
           const sendKey = createMessageSubmissionKey(activeChatContext, message, productItems);
+          deps.setChatComposeStatus?.("context", {
+            tone: "info",
+            message: "Tunatuma ujumbe wako sasa."
+          });
           const sendResult = await runRetrySafeMessageSend(sendKey, () => deps.dataLayer.sendMessage({
             receiverId: activeChatContext.withUser,
             productId: activeChatContext.productId || "",
@@ -5580,6 +5595,13 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
             completed: "Ujumbe huu tayari umetumwa. Angalia mazungumzo kabla ya kutuma tena."
           });
           if (sendResult?.skipped) {
+            deps.setChatComposeStatus?.("context", {
+              tone: "info",
+              message: sendResult.reason === "completed"
+                ? "Ujumbe huu tayari umetumwa. Angalia mazungumzo kwanza."
+                : "Ujumbe huu bado unatoka. Subiri kidogo kabla ya kutuma tena."
+            });
+            replaceContextChatModal();
             return;
           }
           deps.setCurrentMessageDraft("");
@@ -5589,15 +5611,28 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
           deps.setOpenEmojiScope("");
           await Promise.all([deps.refreshMessagesState(), deps.refreshNotificationsState()]);
           if (sendResult?.isQueued) {
+            deps.setChatComposeStatus?.("context", {
+              tone: "warning",
+              message: "Uko offline. Ujumbe umehifadhiwa na utatumwa internet ikirudi."
+            });
             deps.showInAppNotification?.({
               title: "Ujumbe umehifadhiwa",
               body: "Uko offline. Tutautuma internet ikirudi.",
               variant: "info"
             });
+          } else {
+            deps.setChatComposeStatus?.("context", {
+              tone: "success",
+              message: "Ujumbe umetumwa vizuri."
+            });
           }
           deps.maybePromptNotificationPermission?.("message");
           replaceContextChatModal();
         } catch (error) {
+          deps.setChatComposeStatus?.("context", {
+            tone: "error",
+            message: error.message || "Imeshindikana kutuma ujumbe."
+          });
           deps.captureError?.("context_message_send_failed", error, {
             receiverId: activeChatContext?.withUser || ""
           });
@@ -5916,21 +5951,41 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
             : "Una uhakika unataka kufuta order hii?")) {
             return;
           }
+          const successMessage = status === "cancelled"
+            ? (isRejectPayment ? "Payment proof imekataliwa na order imefungwa." : "Request/order imecanceliwa.")
+            : status === "paid"
+              ? "Payment imethibitishwa. Buyer ataona update hii mara moja."
+              : status === "confirmed"
+                ? "Seller amejibu na kuthibitisha order."
+                : "Order imewekwa completed.";
           try {
+            deps.setOrderActionStatus?.(orderId, {
+              tone: "info",
+              message: status === "cancelled"
+                ? "Tunafunga order hii sasa."
+                : status === "paid"
+                  ? "Tunathibitisha payment proof sasa."
+                  : status === "confirmed"
+                    ? "Tunathibitisha order kwa buyer sasa."
+                    : "Tunamark order hii completed sasa."
+            });
+            deps.renderProfile?.();
             await deps.dataLayer.updateOrderStatus(orderId, { status });
+            deps.setOrderActionStatus?.(orderId, {
+              tone: "success",
+              message: successMessage
+            });
             deps.showInAppNotification?.({
               title: "Order updated",
-              body: status === "cancelled"
-                ? (isRejectPayment ? "Payment proof imekataliwa na order imefungwa." : "Request/order imecanceliwa.")
-                : status === "paid"
-                  ? "Payment imethibitishwa. Buyer ataona update hii mara moja."
-                : status === "confirmed"
-                  ? "Seller amejibu na kuthibitisha order."
-                  : "Order imewekwa completed.",
+              body: successMessage,
               variant: "success"
             });
             deps.renderProfile();
           } catch (error) {
+            deps.setOrderActionStatus?.(orderId, {
+              tone: "error",
+              message: error.message || "Imeshindikana kubadilisha status ya order."
+            });
             deps.captureError?.("order_status_update_failed", error, {
               orderId,
               status
@@ -5940,6 +5995,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
               body: error.message || "Imeshindikana kubadilisha status ya order.",
               variant: "error"
             });
+            deps.renderProfile?.();
           }
         });
 
@@ -5949,7 +6005,16 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
             return;
           }
           try {
+            deps.setProductActionStatus?.(productId, {
+              tone: "info",
+              message: "Tunaweka bidhaa hii sold out sasa."
+            });
+            deps.renderProfile?.();
             await deps.dataLayer.updateProductAvailability(productId, { availability: "sold_out" });
+            deps.setProductActionStatus?.(productId, {
+              tone: "success",
+              message: "Bidhaa imewekwa sold out."
+            });
             deps.refreshProductsFromStore();
             deps.reportEvent?.("info", "product_marked_sold_out", "Seller marked product as sold out.", {
               productId
@@ -5961,6 +6026,10 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
             });
             deps.renderProfile();
           } catch (error) {
+            deps.setProductActionStatus?.(productId, {
+              tone: "error",
+              message: error.message || "Imeshindikana kuweka sold out."
+            });
             deps.captureError?.("product_sold_out_failed", error, {
               productId
             });
@@ -5969,6 +6038,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
               body: error.message || "Imeshindikana kuweka sold out.",
               variant: "error"
             });
+            deps.renderProfile?.();
           }
         });
 
@@ -6093,6 +6163,10 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         }
         try {
           const sendKey = createMessageSubmissionKey(activeChatContext, message, []);
+          deps.setChatComposeStatus?.("profile", {
+            tone: "info",
+            message: "Tunatuma ujumbe wako sasa."
+          });
           const sendResult = await runRetrySafeMessageSend(sendKey, () => deps.dataLayer.sendMessage({
             receiverId: activeChatContext.withUser,
             productId: activeChatContext.productId || "",
@@ -6103,6 +6177,13 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
             completed: "Ujumbe huu tayari umetumwa. Angalia thread kabla ya kutuma tena."
           });
           if (sendResult?.skipped) {
+            deps.setChatComposeStatus?.("profile", {
+              tone: "info",
+              message: sendResult.reason === "completed"
+                ? "Ujumbe huu tayari umetumwa. Angalia thread kwanza."
+                : "Ujumbe huu bado unatoka. Subiri kidogo kabla ya kutuma tena."
+            });
+            deps.replaceMessagesPanel(scope);
             return;
           }
           if (messageInput) {
@@ -6112,16 +6193,29 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
           deps.setOpenEmojiScope("");
           await Promise.all([deps.refreshMessagesState(), deps.refreshNotificationsState()]);
           if (sendResult?.isQueued) {
+            deps.setChatComposeStatus?.("profile", {
+              tone: "warning",
+              message: "Uko offline. Ujumbe umehifadhiwa na utatumwa internet ikirudi."
+            });
             deps.showInAppNotification?.({
               title: "Ujumbe umehifadhiwa",
               body: "Uko offline. Tutautuma internet ikirudi.",
               variant: "info"
+            });
+          } else {
+            deps.setChatComposeStatus?.("profile", {
+              tone: "success",
+              message: "Ujumbe umetumwa vizuri."
             });
           }
           deps.maybePromptNotificationPermission?.("message");
           deps.replaceMessagesPanel(scope);
           document.getElementById("profile-notifications-panel")?.replaceWith(deps.createNotificationsContainerFromState());
         } catch (error) {
+          deps.setChatComposeStatus?.("profile", {
+            tone: "error",
+            message: error.message || "Imeshindikana kutuma ujumbe."
+          });
           deps.captureError?.("profile_message_send_failed", error, {
             receiverId: activeChatContext?.withUser || ""
           });
@@ -8940,8 +9034,26 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
           textContent: progressLabel
         }));
       }
+      const actionStatus = deps.getOrderActionStatus?.(order.id);
+      if (actionStatus?.message) {
+        line.appendChild(deps.createElement("p", {
+          className: `upload-form-status order-action-status${actionStatus.tone ? ` is-${actionStatus.tone}` : ""}`,
+          textContent: actionStatus.message
+        }));
+      }
       const actions = deps.createElement("div", { className: "order-actions" });
       appendRenderable(actions, deps.getOrderActionButtons(order));
+      const reviewAction = deps.getOrderReviewAction?.(order);
+      if (reviewAction?.productId) {
+        actions.appendChild(deps.createElement("button", {
+          className: "action-btn action-btn-secondary",
+          textContent: reviewAction.label || "Review product",
+          attributes: {
+            type: "button",
+            "data-order-review-product": reviewAction.productId
+          }
+        }));
+      }
       line.appendChild(actions);
       return line;
     }
@@ -9251,6 +9363,13 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       media.appendChild(image);
 
       article.appendChild(media);
+      const actionStatus = deps.getProductActionStatus?.(product.id);
+      if (actionStatus?.message) {
+        article.appendChild(deps.createElement("p", {
+          className: `upload-form-status profile-product-action-status${actionStatus.tone ? ` is-${actionStatus.tone}` : ""}`,
+          textContent: actionStatus.message
+        }));
+      }
       if (product?.name) {
         article.appendChild(deps.createElement("span", {
           className: "visually-hidden",
@@ -9394,6 +9513,51 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       const saveButton = document.getElementById("profile-payment-save-button");
       const cancelButton = document.getElementById("profile-payment-cancel-button");
 
+      const ensurePaymentStatusElement = () => {
+        if (!form) {
+          return null;
+        }
+        let statusNode = document.getElementById("profile-payment-status");
+        if (statusNode) {
+          return statusNode;
+        }
+        statusNode = deps.createElement("p", {
+          className: "upload-form-status",
+          attributes: {
+            id: "profile-payment-status",
+            hidden: "hidden",
+            "aria-live": "polite"
+          }
+        });
+        const actionsWrap = form.querySelector(".profile-whatsapp-form-actions");
+        if (actionsWrap) {
+          actionsWrap.insertAdjacentElement("beforebegin", statusNode);
+        } else {
+          form.appendChild(statusNode);
+        }
+        return statusNode;
+      };
+
+      const setPaymentStatus = (tone = "", message = "") => {
+        const statusNode = ensurePaymentStatusElement();
+        if (!statusNode) {
+          return;
+        }
+        const safeTone = ["info", "warning", "success", "error"].includes(String(tone || "").trim())
+          ? String(tone || "").trim()
+          : "";
+        const safeMessage = String(message || "").trim();
+        if (!safeMessage) {
+          statusNode.hidden = true;
+          statusNode.textContent = "";
+          statusNode.className = "upload-form-status";
+          return;
+        }
+        statusNode.hidden = false;
+        statusNode.textContent = safeMessage;
+        statusNode.className = `upload-form-status${safeTone ? ` is-${safeTone}` : ""}`;
+      };
+
       if (toggleButton && toggleButton.dataset.bound !== "true") {
         toggleButton.dataset.bound = "true";
         toggleButton.addEventListener("click", () => {
@@ -9402,6 +9566,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
           }
           form.style.display = form.style.display === "none" ? "grid" : "none";
           if (form.style.display !== "none") {
+            setPaymentStatus("", "");
             numberInput?.focus();
           }
         });
@@ -9413,18 +9578,21 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
           if (form) {
             form.style.display = "none";
           }
+          setPaymentStatus("", "");
         });
       }
 
       if (saveButton && saveButton.dataset.bound !== "true") {
         saveButton.dataset.bound = "true";
         saveButton.addEventListener("click", async () => {
+          setPaymentStatus("info", "Tunatunza Lipa details zako sasa. Usifunge sehemu hii.");
           const paymentProvider = String(providerInput?.value || "").trim().toLowerCase();
           const paymentNumber = deps.normalizePhoneNumber?.(numberInput?.value || "") || "";
           const paymentRecipientName = String(recipientInput?.value || deps.getCurrentDisplayName?.() || "").trim();
           const paymentInstructions = String(instructionsInput?.value || "").trim();
 
           if (!paymentNumber || !/^\d{8,20}$/.test(paymentNumber)) {
+            setPaymentStatus("error", "Weka Lipa namba sahihi yenye tarakimu 8 hadi 20.");
             deps.showInAppNotification?.({
               title: "Lipa namba required",
               body: "Weka Lipa namba sahihi yenye tarakimu 8 hadi 20.",
@@ -9434,6 +9602,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
           }
 
           if (!paymentRecipientName || paymentRecipientName.length < 2) {
+            setPaymentStatus("error", "Weka jina la mpokeaji wa malipo.");
             deps.showInAppNotification?.({
               title: "Recipient required",
               body: "Weka jina la mpokeaji wa malipo.",
@@ -9450,6 +9619,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
               paymentRecipientName,
               paymentInstructions
             });
+            setPaymentStatus("success", "Lipa details zimehifadhiwa. Buyer sasa ataona taarifa hizi kwenye flow ya malipo.");
             deps.mergeSessionState({
               ...updatedUser,
               paymentProvider,
@@ -9467,6 +9637,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
             });
             renderProfile();
           } catch (error) {
+            setPaymentStatus("error", error.message || "Imeshindikana kuhifadhi Lipa details.");
             deps.captureError?.("profile_payment_update_failed", error, {
               user: deps.getCurrentUser()
             });
@@ -10141,6 +10312,17 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
 
       container.querySelectorAll(".delete-btn").forEach((button) => {
         button.addEventListener("click", () => deps.deleteProduct(button.dataset.id));
+      });
+
+      container.querySelectorAll("[data-order-review-product]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const productId = button.dataset.orderReviewProduct || "";
+          if (!productId) {
+            return;
+          }
+          deps.noteProductInterest?.(productId);
+          deps.openProductDetailModal?.(productId);
+        });
       });
 
       deps.bindProductMenus(container);

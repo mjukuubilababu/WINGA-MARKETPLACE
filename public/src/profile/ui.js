@@ -577,8 +577,26 @@
           textContent: progressLabel
         }));
       }
+      const actionStatus = deps.getOrderActionStatus?.(order.id);
+      if (actionStatus?.message) {
+        line.appendChild(deps.createElement("p", {
+          className: `upload-form-status order-action-status${actionStatus.tone ? ` is-${actionStatus.tone}` : ""}`,
+          textContent: actionStatus.message
+        }));
+      }
       const actions = deps.createElement("div", { className: "order-actions" });
       appendRenderable(actions, deps.getOrderActionButtons(order));
+      const reviewAction = deps.getOrderReviewAction?.(order);
+      if (reviewAction?.productId) {
+        actions.appendChild(deps.createElement("button", {
+          className: "action-btn action-btn-secondary",
+          textContent: reviewAction.label || "Review product",
+          attributes: {
+            type: "button",
+            "data-order-review-product": reviewAction.productId
+          }
+        }));
+      }
       line.appendChild(actions);
       return line;
     }
@@ -888,6 +906,13 @@
       media.appendChild(image);
 
       article.appendChild(media);
+      const actionStatus = deps.getProductActionStatus?.(product.id);
+      if (actionStatus?.message) {
+        article.appendChild(deps.createElement("p", {
+          className: `upload-form-status profile-product-action-status${actionStatus.tone ? ` is-${actionStatus.tone}` : ""}`,
+          textContent: actionStatus.message
+        }));
+      }
       if (product?.name) {
         article.appendChild(deps.createElement("span", {
           className: "visually-hidden",
