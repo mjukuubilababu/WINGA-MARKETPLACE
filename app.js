@@ -11448,6 +11448,18 @@ document.addEventListener("pointerdown", (event) => {
 }, true);
 
 document.addEventListener("click", (event) => {
+  const promoteTrigger = event.target.closest?.("[data-promote-product]");
+  if (promoteTrigger) {
+    const productId = String(promoteTrigger.dataset.promoteProduct || "").trim();
+    const product = getProductById(productId);
+    event.preventDefault();
+    event.stopPropagation();
+    if (product) {
+      openPromotionIntentModal(product);
+    }
+    return;
+  }
+
   if (!mobileCategoryShell?.contains(event.target)) {
     closeMobileCategoryMenu();
   }
@@ -13144,7 +13156,10 @@ function renderDiscoveryProductCards(items, options = {}) {
                 <strong class="product-seller-name">${sellerName}</strong>
                 <span class="product-seller-meta">${sellerMeta}</span>
               </div>
-              <span class="product-seller-badge">${seller?.verifiedSeller ? "Verified" : "Seller"}</span>
+              <div class="product-seller-badge-row">
+                <span class="product-seller-badge">${seller?.verifiedSeller ? "Verified" : "Seller"}</span>
+                ${renderSellerCardPromoteChip(item)}
+              </div>
             </div>
             <div class="product-card-caption-block${safeCaption.length > 120 ? " is-collapsed" : ""}">
               <p class="product-card-caption">${safeCaption}</p>
@@ -13761,6 +13776,13 @@ function renderPromoteButton(product) {
     return "";
   }
   return `<button class="action-btn action-btn-secondary" type="button" data-promote-product="${product.id}">Promote</button>`;
+}
+
+function renderSellerCardPromoteChip(product) {
+  if (!currentUser || !canUseSellerFeatures() || product?.uploadedBy !== currentUser) {
+    return "";
+  }
+  return `<button class="product-seller-promote-chip" type="button" data-promote-product="${product.id}">Promote</button>`;
 }
 
 function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {

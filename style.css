@@ -1793,11 +1793,40 @@ img[data-zoom-src]{
 
 .showcase-card .product-seller-badge,
 .seller-product-card .product-seller-badge{
-  grid-area:badge;
-  justify-self:start;
   margin-left:0;
   width:fit-content;
   line-height:1;
+}
+
+.product-seller-badge-row,
+.seller-product-card .product-seller-badge-row{
+  grid-area:badge;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+  width:100%;
+}
+
+.product-seller-promote-chip{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-height:28px;
+  padding:0 10px;
+  border:1px solid rgba(255, 106, 0, 0.24);
+  border-radius:999px;
+  background:#fff4eb;
+  color:var(--accent-deep);
+  font-size:0.74rem;
+  font-weight:800;
+  letter-spacing:0.02em;
+  line-height:1;
+  white-space:nowrap;
+}
+
+.product-seller-promote-chip:hover{
+  background:#ffe9d8;
 }
 
 .showcase-card .product-seller-name,

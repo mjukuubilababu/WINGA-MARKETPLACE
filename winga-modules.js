@@ -10252,16 +10252,6 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         });
       });
 
-      container.querySelectorAll("[data-promote-product]").forEach((button) => {
-        button.addEventListener("click", async () => {
-          const product = deps.getProductById ? deps.getProductById(button.dataset.promoteProduct) : deps.getProducts().find((item) => item.id === button.dataset.promoteProduct);
-          if (!product) {
-            return;
-          }
-          deps.openPromotionIntentModal?.(product);
-        });
-      });
-
       container.querySelectorAll(".delete-btn").forEach((button) => {
         button.addEventListener("click", () => deps.deleteProduct(button.dataset.id));
       });
