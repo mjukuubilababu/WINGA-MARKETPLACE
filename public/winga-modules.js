@@ -3037,6 +3037,11 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       const sellerRow = createElement("div", { className: "product-seller-row" });
       const avatarWrap = createElement("div", { className: "product-seller-avatar" });
       const sellerUser = deps.getMarketplaceUser?.(product?.uploadedBy);
+      const isOwnerSeller = Boolean(
+        deps.canUseSellerFeatures?.()
+        && deps.getCurrentUser?.()
+        && product?.uploadedBy === deps.getCurrentUser?.()
+      );
       const sellerImage = String(sellerUser?.profileImage || "").trim();
       if (sellerImage) {
         avatarWrap.appendChild(createProgressiveImage({
@@ -3059,10 +3064,23 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         })
       );
 
-      sellerRow.append(avatarWrap, sellerCopy, createElement("span", {
+      const badgeRow = createElement("div", { className: "product-seller-badge-row" });
+      badgeRow.appendChild(createElement("span", {
         className: "product-seller-badge",
-        textContent: "Verified"
+        textContent: sellerUser?.verifiedSeller ? "Verified" : "Seller"
       }));
+      if (isOwnerSeller) {
+        badgeRow.appendChild(createElement("button", {
+          className: "product-seller-promote-chip",
+          textContent: "Promote",
+          attributes: {
+            type: "button",
+            "data-promote-product": product.id
+          }
+        }));
+      }
+
+      sellerRow.append(avatarWrap, sellerCopy, badgeRow);
       return sellerRow;
     }
 
