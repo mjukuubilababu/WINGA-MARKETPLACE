@@ -927,6 +927,12 @@ function syncBodyScrollLockState() {
     && !paymentIntentModal.hidden
     && paymentIntentModal.classList.contains("open")
   );
+  const promotionIntentModal = document.getElementById("promotion-intent-modal");
+  const isPromotionIntentVisible = Boolean(
+    promotionIntentModal
+    && !promotionIntentModal.hidden
+    && promotionIntentModal.classList.contains("open")
+  );
   const mediaActionSheet = document.getElementById("media-action-sheet");
   const isMediaActionSheetVisible = Boolean(
     mediaActionSheet
@@ -943,6 +949,7 @@ function syncBodyScrollLockState() {
   document.body.classList.toggle("product-detail-open", isProductDetailVisible);
   document.body.classList.toggle("context-chat-open", isContextChatVisible);
   document.body.classList.toggle("payment-intent-open", isPaymentIntentVisible);
+  document.body.classList.toggle("promotion-intent-open", isPromotionIntentVisible);
   document.body.classList.toggle("media-action-sheet-open", isMediaActionSheetVisible);
   document.body.classList.toggle("image-lightbox-open", isImageLightboxVisible);
 }
@@ -6877,6 +6884,15 @@ let paymentIntentState = {
 };
 const paymentIntentSubmissionRegistry = new Map();
 
+let promotionIntentState = {
+  productId: "",
+  selectedType: "boost",
+  loading: false,
+  transactionId: "",
+  feedbackTone: "",
+  feedbackMessage: ""
+};
+
 function pruneTimedRegistryEntries(registry, maxAgeMs = 15000) {
   if (!(registry instanceof Map)) {
     return;
@@ -6966,6 +6982,280 @@ function closeTrustReportModal() {
 
 function isValidTransactionReferenceClient(value) {
   return /^[A-Z0-9._/-]{4,80}$/i.test(String(value || "").trim());
+}
+
+function getPromotionOption(type) {
+  const normalizedType = String(type || "").trim();
+  return PROMOTION_OPTIONS[normalizedType] || null;
+}
+
+function getPromotionPaymentContact(product) {
+  return normalizeWhatsapp(
+    getProductWhatsapp(product)
+    || currentSession?.phoneNumber
+    || currentSession?.whatsappNumber
+    || ""
+  );
+}
+
+function ensurePromotionIntentModal() {
+  let root = document.getElementById("promotion-intent-modal");
+  if (root) {
+    return root;
+  }
+  root = createElement("div", {
+    attributes: {
+      id: "promotion-intent-modal",
+      hidden: "true"
+    }
+  });
+  root.innerHTML = `
+    <div class="promotion-intent-backdrop" data-close-promotion-intent="true"></div>
+    <div class="promotion-intent-dialog panel" role="dialog" aria-modal="true" aria-labelledby="promotion-intent-title">
+      <button class="promotion-intent-close" type="button" aria-label="Close promotion flow" data-close-promotion-intent="true">&times;</button>
+      <div class="promotion-intent-body" data-promotion-intent-body="true"></div>
+    </div>
+  `;
+  root.addEventListener("click", (event) => {
+    const optionButton = event.target.closest("[data-select-promotion-type]");
+    if (optionButton) {
+      promotionIntentState.selectedType = String(optionButton.dataset.selectPromotionType || "boost").trim() || "boost";
+      promotionIntentState.feedbackTone = "";
+      promotionIntentState.feedbackMessage = "";
+      renderPromotionIntentModal();
+      return;
+    }
+    if (event.target.closest("[data-close-promotion-intent='true']")) {
+      closePromotionIntentModal();
+      return;
+    }
+    if (event.target.closest("[data-submit-promotion-intent='true']")) {
+      submitPromotionIntent().catch((error) => {
+        captureClientError("promotion_intent_submit_failed", error, {
+          productId: promotionIntentState.productId || "",
+          type: promotionIntentState.selectedType || ""
+        });
+        showInAppNotification({
+          title: "Promotion failed",
+          body: error.message || "Imeshindikana kutuma request ya promotion.",
+          variant: "error"
+        });
+        promotionIntentState.loading = false;
+        renderPromotionIntentModal();
+      });
+    }
+  });
+  root.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      closePromotionIntentModal();
+    }
+  });
+  document.body.appendChild(root);
+  return root;
+}
+
+function closePromotionIntentModal() {
+  const root = document.getElementById("promotion-intent-modal");
+  if (!root) {
+    return;
+  }
+  root.hidden = true;
+  root.classList.remove("open");
+  promotionIntentState = {
+    productId: "",
+    selectedType: "boost",
+    loading: false,
+    transactionId: "",
+    feedbackTone: "",
+    feedbackMessage: ""
+  };
+  root.querySelector("[data-promotion-intent-body='true']")?.replaceChildren();
+  syncBodyScrollLockState();
+}
+
+function renderPromotionIntentModal() {
+  const root = ensurePromotionIntentModal();
+  const body = root.querySelector("[data-promotion-intent-body='true']");
+  const product = getProductById(promotionIntentState.productId || "");
+  if (!body || !product) {
+    closePromotionIntentModal();
+    return;
+  }
+  const selectedOption = getPromotionOption(promotionIntentState.selectedType) || getPromotionOption("boost");
+  const paymentContact = getPromotionPaymentContact(product);
+  const wrapper = createElement("div", { className: "promotion-intent-shell" });
+  wrapper.append(
+    createElement("p", { className: "eyebrow", textContent: "Promotion request" }),
+    createElement("h3", {
+      textContent: "Promote this product",
+      attributes: { id: "promotion-intent-title" }
+    }),
+    createElement("p", {
+      className: "product-meta",
+      textContent: "Chagua package, kisha weka transaction reference ya malipo ndani ya app badala ya browser prompt."
+    })
+  );
+
+  const packageGrid = createElement("div", { className: "promotion-intent-options" });
+  Object.entries(PROMOTION_OPTIONS).forEach(([type, option]) => {
+    const button = createElement("button", {
+      className: `promotion-intent-option${type === promotionIntentState.selectedType ? " is-active" : ""}`,
+      attributes: {
+        type: "button",
+        "data-select-promotion-type": type
+      }
+    });
+    button.append(
+      createElement("strong", { textContent: option.label }),
+      createElement("span", { textContent: `TSh ${formatNumber(option.amount)}` }),
+      createElement("small", { textContent: `${option.durationDays} day${option.durationDays === 1 ? "" : "s"}` })
+    );
+    packageGrid.appendChild(button);
+  });
+
+  const summary = createElement("div", { className: "payment-intent-summary" });
+  summary.append(
+    createElement("strong", { textContent: product.name || "Product" }),
+    createElement("p", { className: "product-meta", textContent: `Package: ${selectedOption?.label || "Boost Product"}` }),
+    createElement("p", { className: "product-meta", textContent: `Amount: TSh ${formatNumber(selectedOption?.amount || 0)}` }),
+    createElement("p", { className: "product-meta", textContent: `Duration: ${selectedOption?.durationDays || 0} day${selectedOption?.durationDays === 1 ? "" : "s"}` }),
+    createElement("p", { className: "product-meta", textContent: `Payment contact: ${paymentContact || "Haijawekwa"}` }),
+    createElement("p", { className: "product-meta", textContent: "Promotion itaingia review mara tu reference itakapowasilishwa." })
+  );
+
+  const guidance = createElement("div", { className: "payment-safety-card" });
+  guidance.append(
+    createElement("strong", { textContent: "Manual verification for now" }),
+    createElement("p", {
+      className: "product-meta",
+      textContent: "Flow hii inakusanya package na payment reference kwa njia safi ya ndani ya app. Admin ata-review kabla ya kuactivate promotion."
+    }),
+    createElement("p", {
+      className: "product-meta",
+      textContent: paymentContact
+        ? "Tumia reference ya malipo halisi uliyopewa kwenye route ya sasa ya promotion."
+        : "Kagua namba ya simu ya seller kwenye profile yako kwanza kabla ya kuendelea."
+    })
+  );
+
+  const input = createElement("input", {
+    attributes: {
+      id: "promotion-intent-transaction-input",
+      type: "text",
+      maxlength: "80",
+      placeholder: "Weka transaction reference ya promotion",
+      value: promotionIntentState.transactionId || "",
+      autocomplete: "off",
+      autocapitalize: "characters"
+    }
+  });
+  const note = createElement("p", {
+    className: "auth-note",
+    textContent: "Mfano: M-Pesa code, Airtel Money code, Tigo Pesa code, au receipt reference nyingine halali."
+  });
+
+  const networkMessage = typeof navigator !== "undefined" && navigator.onLine === false
+    ? "Uko offline kwa sasa. Hifadhi reference hii, halafu submit internet ikirudi."
+    : promotionIntentState.loading
+      ? "Tunatuma request yako ya promotion sasa. Usifunge dirisha hili."
+      : promotionIntentState.feedbackMessage;
+  const networkTone = typeof navigator !== "undefined" && navigator.onLine === false
+    ? "warning"
+    : promotionIntentState.loading
+      ? "info"
+      : (promotionIntentState.feedbackTone || "");
+  if (networkMessage) {
+    wrapper.appendChild(createElement("p", {
+      className: `payment-intent-status${networkTone ? ` is-${networkTone}` : ""}`,
+      textContent: networkMessage
+    }));
+  }
+
+  const actions = createElement("div", { className: "payment-intent-actions" });
+  const submitButton = createElement("button", {
+    className: "action-btn buy-btn",
+    textContent: promotionIntentState.loading ? "Submitting..." : "Submit promotion",
+    attributes: {
+      type: "button",
+      "data-submit-promotion-intent": "true"
+    }
+  });
+  if (promotionIntentState.loading) {
+    submitButton.disabled = true;
+    input.disabled = true;
+  }
+  actions.append(
+    submitButton,
+    createElement("button", {
+      className: "action-btn action-btn-secondary",
+      textContent: "Cancel",
+      attributes: {
+        type: "button",
+        "data-close-promotion-intent": "true"
+      }
+    })
+  );
+
+  wrapper.append(packageGrid, summary, guidance, input, note, actions);
+  body.replaceChildren(wrapper);
+  root.hidden = false;
+  root.classList.add("open");
+  input.focus();
+  input.select();
+  syncBodyScrollLockState();
+}
+
+async function submitPromotionIntent() {
+  const product = getProductById(promotionIntentState.productId || "");
+  if (!product) {
+    throw new Error("Bidhaa haijapatikana tena. Fungua profile upya ujaribu tena.");
+  }
+  const selectedType = String(promotionIntentState.selectedType || "").trim();
+  const selectedOption = getPromotionOption(selectedType);
+  if (!selectedOption) {
+    throw new Error("Chagua package ya promotion kwanza.");
+  }
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    promotionIntentState.feedbackTone = "warning";
+    promotionIntentState.feedbackMessage = "Uko offline. Promotion request haijatumwa bado. Internet ikirudi, bonyeza Submit promotion tena.";
+    renderPromotionIntentModal();
+    showInAppNotification({
+      title: "Uko offline",
+      body: "Promotion request imebaki hapa. Internet ikirudi, submit tena.",
+      variant: "warning"
+    });
+    return;
+  }
+  const input = document.getElementById("promotion-intent-transaction-input");
+  const transactionId = String(input?.value || promotionIntentState.transactionId || "").trim().toUpperCase();
+  if (!isValidTransactionReferenceClient(transactionId)) {
+    throw new Error("Weka transaction reference sahihi ya promotion.");
+  }
+
+  promotionIntentState.loading = true;
+  promotionIntentState.transactionId = transactionId;
+  promotionIntentState.feedbackTone = "info";
+  promotionIntentState.feedbackMessage = "Tunatuma request yako ya promotion sasa.";
+  renderPromotionIntentModal();
+
+  await window.WingaDataLayer.createPromotion({
+    productId: product.id,
+    type: selectedType,
+    transactionReference: transactionId
+  });
+  await refreshPromotionsState();
+  reportClientEvent("info", "promotion_created", "Seller created a promotion.", {
+    productId: product.id,
+    type: selectedType
+  });
+  showInAppNotification({
+    title: "Promotion submitted",
+    body: "Promotion imewasilishwa. Utaiona ikishaingia active au ikireviewiwa.",
+    variant: "success"
+  });
+  closePromotionIntentModal();
+  renderProfile();
+  renderCurrentView();
 }
 
 function ensurePaymentIntentModal() {
@@ -7968,6 +8258,7 @@ const {
   openNotificationPermissionPrompt,
   renderAnalyticsPanel,
   refreshPromotionsState,
+  openPromotionIntentModal,
   renderCurrentView,
   updateProfileNavBadge,
   syncActiveChatContext,
@@ -14835,6 +15126,38 @@ function beginPurchaseFlow(product) {
     feedbackMessage: ""
   };
   renderPaymentIntentModal();
+}
+
+function openPromotionIntentModal(product) {
+  if (!product) {
+    return;
+  }
+  if (!isAuthenticatedUser() || !canUseSellerFeatures() || product.uploadedBy !== currentUser) {
+    showInAppNotification({
+      title: "Promotion unavailable",
+      body: "Promotion hii inapatikana kwa muuzaji wa bidhaa hii tu.",
+      variant: "warning"
+    });
+    return;
+  }
+  if (product.status !== "approved") {
+    showInAppNotification({
+      title: "Promotion unavailable",
+      body: "Subiri bidhaa iidhinishwe kwanza kabla ya kuipromote.",
+      variant: "warning"
+    });
+    return;
+  }
+
+  promotionIntentState = {
+    productId: product.id,
+    selectedType: "boost",
+    loading: false,
+    transactionId: "",
+    feedbackTone: "",
+    feedbackMessage: ""
+  };
+  renderPromotionIntentModal();
 }
 
 function canRepostProductAsSeller(product) {

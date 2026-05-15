@@ -381,6 +381,10 @@ body.payment-intent-open{
   overflow:hidden;
 }
 
+body.promotion-intent-open{
+  overflow:hidden;
+}
+
 body.auth-modal-open::before{
   content:"";
   position:fixed;
@@ -6947,7 +6951,20 @@ body.product-detail-open #view-home-back{
   z-index:1525;
 }
 
+#promotion-intent-modal{
+  position:fixed;
+  inset:0;
+  z-index:1525;
+}
+
 .payment-intent-backdrop{
+  position:absolute;
+  inset:0;
+  background:rgba(15, 23, 42, 0.46);
+  backdrop-filter:blur(4px);
+}
+
+.promotion-intent-backdrop{
   position:absolute;
   inset:0;
   background:rgba(15, 23, 42, 0.46);
@@ -6958,6 +6975,14 @@ body.product-detail-open #view-home-back{
   position:relative;
   z-index:1;
   width:min(520px, calc(100vw - 24px));
+  margin:min(8vh, 56px) auto 0;
+  padding:22px 20px 18px;
+}
+
+.promotion-intent-dialog{
+  position:relative;
+  z-index:1;
+  width:min(560px, calc(100vw - 24px));
   margin:min(8vh, 56px) auto 0;
   padding:22px 20px 18px;
 }
@@ -6976,9 +7001,66 @@ body.product-detail-open #view-home-back{
   cursor:pointer;
 }
 
+.promotion-intent-close{
+  position:absolute;
+  top:12px;
+  right:12px;
+  width:36px;
+  height:36px;
+  border:none;
+  border-radius:999px;
+  background:#fff3ea;
+  color:var(--accent-deep);
+  font-size:1.35rem;
+  cursor:pointer;
+}
+
 .payment-intent-shell{
   display:grid;
   gap:14px;
+}
+
+.promotion-intent-shell{
+  display:grid;
+  gap:14px;
+}
+
+.promotion-intent-options{
+  display:grid;
+  grid-template-columns:repeat(2, minmax(0, 1fr));
+  gap:10px;
+}
+
+.promotion-intent-option{
+  display:grid;
+  gap:4px;
+  text-align:left;
+  padding:14px 16px;
+  border:1px solid rgba(210, 162, 122, 0.24);
+  border-radius:18px;
+  background:#fffaf5;
+  color:var(--text-main);
+}
+
+.promotion-intent-option strong{
+  color:var(--accent-deep);
+}
+
+.promotion-intent-option span,
+.promotion-intent-option small{
+  color:var(--muted);
+}
+
+.promotion-intent-option.is-active{
+  border-color:rgba(255, 106, 0, 0.45);
+  background:linear-gradient(180deg, #fff8f2 0%, #fff1e5 100%);
+  box-shadow:0 12px 30px rgba(255, 106, 0, 0.12);
+}
+
+@media (max-width:640px){
+  .promotion-intent-options{
+    grid-template-columns:minmax(0, 1fr);
+  }
 }
 
 .payment-intent-summary{
