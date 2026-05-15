@@ -3,6 +3,7 @@
   "private": true,
   "scripts": {
     "build:vercel": "node scripts/build-vercel-static.js",
+    "verify:production": "node scripts/verify-production-shell.js",
     "test": "npm run test:frontend && npm run test:integration && npm run test:e2e",
     "test:frontend": "node tests/frontend-core.test.js",
     "test:integration": "node --test tests/integration-api.test.js",
