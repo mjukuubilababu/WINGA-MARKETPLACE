@@ -215,12 +215,19 @@
           textContent: "Promote",
           attributes: {
             type: "button",
-            "data-promote-product": product.id
+            "data-promote-product": product.id,
+            "data-promote-product-owner": product.uploadedBy || "",
+            "data-promote-product-name": product.name || "",
+            "data-promote-product-shop": product.shop || "",
+            "data-promote-product-whatsapp": product.whatsapp || "",
+            "data-promote-product-location": product.location || "",
+            "data-promote-product-category": product.category || ""
           }
         });
         promoteButton.addEventListener("click", (event) => {
           event.preventDefault();
           event.stopPropagation();
+          event.stopImmediatePropagation?.();
           deps.openPromotionIntentModal?.(product);
         });
         badgeRow.appendChild(promoteButton);

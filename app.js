@@ -7092,6 +7092,30 @@ function getPromotionIntentProduct() {
   return null;
 }
 
+function getPromotionTriggerProduct(trigger) {
+  const productId = String(trigger?.dataset?.promoteProduct || "").trim();
+  if (productId) {
+    const indexedProduct = getProductById(productId);
+    if (indexedProduct) {
+      return indexedProduct;
+    }
+  }
+  const uploadedBy = String(trigger?.dataset?.promoteProductOwner || "").trim();
+  if (!productId || !uploadedBy) {
+    return null;
+  }
+  return {
+    id: productId,
+    uploadedBy,
+    name: String(trigger?.dataset?.promoteProductName || "").trim(),
+    shop: String(trigger?.dataset?.promoteProductShop || "").trim(),
+    whatsapp: String(trigger?.dataset?.promoteProductWhatsapp || "").trim(),
+    location: String(trigger?.dataset?.promoteProductLocation || "").trim(),
+    category: String(trigger?.dataset?.promoteProductCategory || "").trim(),
+    images: []
+  };
+}
+
 function renderPromotionIntentModal() {
   const root = ensurePromotionIntentModal();
   const body = root.querySelector("[data-promotion-intent-body='true']");
@@ -7134,14 +7158,14 @@ function renderPromotionIntentModal() {
   const paymentContact = getPromotionPaymentContact(product);
   const wrapper = createElement("div", { className: "promotion-intent-shell" });
   wrapper.append(
-    createElement("p", { className: "eyebrow", textContent: "Promotion request" }),
+    createElement("p", { className: "eyebrow", textContent: "Visibility plan" }),
     createElement("h3", {
-      textContent: "Promote this product",
+      textContent: "Choose visibility plan",
       attributes: { id: "promotion-intent-title" }
     }),
     createElement("p", {
       className: "product-meta",
-      textContent: "Chagua package, kisha weka transaction reference ya malipo ndani ya app badala ya browser prompt."
+      textContent: "Chagua siku za tangazo, kisha weka reference ya malipo ili admin aapprove tangazo lako."
     })
   );
 
@@ -7165,11 +7189,11 @@ function renderPromotionIntentModal() {
   const summary = createElement("div", { className: "payment-intent-summary" });
   summary.append(
     createElement("strong", { textContent: product.name || "Product" }),
-    createElement("p", { className: "product-meta", textContent: `Package: ${selectedOption?.label || "Boost Product"}` }),
+    createElement("p", { className: "product-meta", textContent: `Plan: ${selectedOption?.label || "1 day visibility"}` }),
     createElement("p", { className: "product-meta", textContent: `Amount: TSh ${formatNumber(selectedOption?.amount || 0)}` }),
     createElement("p", { className: "product-meta", textContent: `Duration: ${selectedOption?.durationDays || 0} day${selectedOption?.durationDays === 1 ? "" : "s"}` }),
     createElement("p", { className: "product-meta", textContent: `Payment contact: ${paymentContact || "Haijawekwa"}` }),
-    createElement("p", { className: "product-meta", textContent: "Promotion itaingia review mara tu reference itakapowasilishwa." })
+    createElement("p", { className: "product-meta", textContent: "Baada ya kutuma reference, tangazo litaenda kwa admin approval." })
   );
 
   const guidance = createElement("div", { className: "payment-safety-card" });
@@ -7177,7 +7201,7 @@ function renderPromotionIntentModal() {
     createElement("strong", { textContent: "Manual verification for now" }),
     createElement("p", {
       className: "product-meta",
-      textContent: "Flow hii inakusanya package na payment reference kwa njia safi ya ndani ya app. Admin ata-review kabla ya kuactivate promotion."
+      textContent: "Flow hii inakusanya visibility plan na payment reference ndani ya app. Admin ata-review kabla ya kuactivate tangazo."
     }),
     createElement("p", {
       className: "product-meta",
@@ -7192,7 +7216,7 @@ function renderPromotionIntentModal() {
       id: "promotion-intent-transaction-input",
       type: "text",
       maxlength: "80",
-      placeholder: "Weka transaction reference ya promotion",
+      placeholder: "Weka payment reference ya tangazo",
       value: promotionIntentState.transactionId || "",
       autocomplete: "off",
       autocapitalize: "characters"
@@ -7223,7 +7247,7 @@ function renderPromotionIntentModal() {
   const actions = createElement("div", { className: "payment-intent-actions" });
   const submitButton = createElement("button", {
     className: "action-btn buy-btn",
-    textContent: promotionIntentState.loading ? "Submitting..." : "Submit promotion",
+    textContent: promotionIntentState.loading ? "Submitting..." : "Send to admin",
     attributes: {
       type: "button",
       "data-submit-promotion-intent": "true"
@@ -8472,6 +8496,7 @@ const {
     searchBox.classList.remove("mobile-open");
   },
   getProductById,
+  resolvePromotionTriggerProduct: getPromotionTriggerProduct,
   beginPurchaseFlow,
   openPromotionIntentModal,
   repostProductAsSeller,
@@ -11503,12 +11528,18 @@ document.addEventListener("pointerdown", (event) => {
 document.addEventListener("click", (event) => {
   const promoteTrigger = event.target.closest?.("[data-promote-product]");
   if (promoteTrigger) {
-    const productId = String(promoteTrigger.dataset.promoteProduct || "").trim();
-    const product = getProductById(productId);
+    const product = getPromotionTriggerProduct(promoteTrigger);
     event.preventDefault();
     event.stopPropagation();
+    event.stopImmediatePropagation?.();
     if (product) {
       openPromotionIntentModal(product);
+    } else {
+      showInAppNotification({
+        title: "Promotion unavailable",
+        body: "Product context ya promotion haikupatikana. Refresh home feed ujaribu tena.",
+        variant: "warning"
+      });
     }
     return;
   }
@@ -13835,7 +13866,7 @@ function renderSellerCardPromoteChip(product) {
   if (!currentUser || !canUseSellerFeatures() || product?.uploadedBy !== currentUser) {
     return "";
   }
-  return `<button class="product-seller-promote-chip" type="button" data-promote-product="${product.id}">Promote</button>`;
+  return `<button class="product-seller-promote-chip" type="button" data-promote-product="${product.id}" data-promote-product-owner="${escapeHtml(product.uploadedBy || "")}" data-promote-product-name="${escapeHtml(product.name || "")}" data-promote-product-shop="${escapeHtml(product.shop || "")}" data-promote-product-whatsapp="${escapeHtml(product.whatsapp || "")}" data-promote-product-location="${escapeHtml(product.location || "")}" data-promote-product-category="${escapeHtml(product.category || "")}">Promote</button>`;
 }
 
 function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
@@ -15218,7 +15249,7 @@ function openPromotionIntentModal(product) {
   promotionIntentState = {
     productId: product.id,
     product,
-    selectedType: "boost",
+    selectedType: "starter_day",
     loading: false,
     transactionId: "",
     feedbackTone: "",

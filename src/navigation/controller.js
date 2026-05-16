@@ -293,9 +293,31 @@
         const promoteButton = event.target.closest("[data-promote-product]");
         if (promoteButton) {
           scheduleActiveActionTouchStateClear();
-          // Promote owns its own click flow. Do not swallow the event during
-          // capture phase or the card-level and app-level promote handlers
-          // never get a chance to open the plan modal.
+          const product = deps.resolvePromotionTriggerProduct?.(promoteButton)
+            || deps.getProductById?.(String(promoteButton.dataset.promoteProduct || "").trim());
+          event.preventDefault();
+          event.stopPropagation();
+          event.stopImmediatePropagation?.();
+          if (!product) {
+            deps.showInAppNotification?.({
+              title: "Promotion unavailable",
+              body: "Product context ya promotion haikupatikana. Refresh home feed ujaribu tena.",
+              variant: "warning"
+            });
+            return;
+          }
+          try {
+            deps.openPromotionIntentModal?.(product);
+          } catch (error) {
+            deps.captureError?.("home_feed_promotion_open_failed", error, {
+              productId: String(promoteButton.dataset.promoteProduct || "").trim()
+            });
+            deps.showInAppNotification?.({
+              title: "Promotion failed to open",
+              body: error.message || "Imeshindikana kufungua visibility plan. Jaribu tena.",
+              variant: "error"
+            });
+          }
           return;
         }
 
