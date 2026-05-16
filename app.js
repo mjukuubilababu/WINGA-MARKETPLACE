@@ -6886,6 +6886,7 @@ const paymentIntentSubmissionRegistry = new Map();
 
 let promotionIntentState = {
   productId: "",
+  product: null,
   selectedType: "boost",
   loading: false,
   transactionId: "",
@@ -7063,6 +7064,7 @@ function closePromotionIntentModal() {
   root.classList.remove("open");
   promotionIntentState = {
     productId: "",
+    product: null,
     selectedType: "boost",
     loading: false,
     transactionId: "",
@@ -7073,12 +7075,59 @@ function closePromotionIntentModal() {
   syncBodyScrollLockState();
 }
 
+function getPromotionIntentProduct() {
+  const activeProductId = String(promotionIntentState.productId || "").trim();
+  if (!activeProductId) {
+    return promotionIntentState.product || null;
+  }
+  const indexedProduct = getProductById(activeProductId);
+  if (indexedProduct) {
+    promotionIntentState.product = indexedProduct;
+    return indexedProduct;
+  }
+  const stateProduct = promotionIntentState.product;
+  if (stateProduct && String(stateProduct.id || "").trim() === activeProductId) {
+    return stateProduct;
+  }
+  return null;
+}
+
 function renderPromotionIntentModal() {
   const root = ensurePromotionIntentModal();
   const body = root.querySelector("[data-promotion-intent-body='true']");
-  const product = getProductById(promotionIntentState.productId || "");
-  if (!body || !product) {
-    closePromotionIntentModal();
+  const product = getPromotionIntentProduct();
+  if (!body) {
+    return;
+  }
+  if (!product) {
+    promotionIntentState.feedbackTone = "error";
+    promotionIntentState.feedbackMessage = "Promotion plan haikuweza kufunguka kwa sababu context ya bidhaa imepotea. Refresh home feed kisha ujaribu tena.";
+    const wrapper = createElement("div", { className: "promotion-intent-shell" });
+    const actions = createElement("div", { className: "payment-intent-actions" });
+    wrapper.append(
+      createElement("p", { className: "eyebrow", textContent: "Promotion request" }),
+      createElement("h3", {
+        textContent: "Promotion unavailable",
+        attributes: { id: "promotion-intent-title" }
+      }),
+      createElement("p", {
+        className: "payment-intent-status is-error",
+        textContent: promotionIntentState.feedbackMessage
+      }),
+      actions
+    );
+    actions.appendChild(createElement("button", {
+      className: "action-btn action-btn-secondary",
+      textContent: "Close",
+      attributes: {
+        type: "button",
+        "data-close-promotion-intent": "true"
+      }
+    }));
+    body.replaceChildren(wrapper);
+    root.hidden = false;
+    root.classList.add("open");
+    syncBodyScrollLockState();
     return;
   }
   const selectedOption = getPromotionOption(promotionIntentState.selectedType) || getPromotionOption("boost");
@@ -7206,9 +7255,9 @@ function renderPromotionIntentModal() {
 }
 
 async function submitPromotionIntent() {
-  const product = getProductById(promotionIntentState.productId || "");
+  const product = getPromotionIntentProduct();
   if (!product) {
-    throw new Error("Bidhaa haijapatikana tena. Fungua profile upya ujaribu tena.");
+    throw new Error("Bidhaa haijapatikana tena. Refresh home feed kisha ujaribu tena.");
   }
   const selectedType = String(promotionIntentState.selectedType || "").trim();
   const selectedOption = getPromotionOption(selectedType);
@@ -15168,6 +15217,7 @@ function openPromotionIntentModal(product) {
   }
   promotionIntentState = {
     productId: product.id,
+    product,
     selectedType: "boost",
     loading: false,
     transactionId: "",
