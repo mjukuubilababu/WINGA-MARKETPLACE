@@ -293,33 +293,9 @@
         const promoteButton = event.target.closest("[data-promote-product]");
         if (promoteButton) {
           scheduleActiveActionTouchStateClear();
-          const productId = String(promoteButton.dataset.promoteProduct || "").trim();
-          if (!productId) {
-            return;
-          }
-          event.preventDefault();
-          event.stopPropagation();
-          const product = deps.getProductById?.(productId);
-          if (!product) {
-            deps.showInAppNotification?.({
-              title: "Promotion unavailable",
-              body: "Bidhaa hii haikupatikana tena. Refresh home feed ujaribu tena.",
-              variant: "warning"
-            });
-            return;
-          }
-          try {
-            deps.openPromotionIntentModal?.(product);
-          } catch (error) {
-            deps.captureError?.("home_feed_promotion_open_failed", error, {
-              productId
-            });
-            deps.showInAppNotification?.({
-              title: "Promotion failed to open",
-              body: error.message || "Imeshindikana kufungua promotion plan. Jaribu tena.",
-              variant: "error"
-            });
-          }
+          // Promote owns its own click flow. Do not swallow the event during
+          // capture phase or the card-level and app-level promote handlers
+          // never get a chance to open the plan modal.
           return;
         }
 
