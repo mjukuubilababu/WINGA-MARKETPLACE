@@ -5185,7 +5185,25 @@ http.createServer(async (req, res) => {
           return;
         }
 
-        sendJson(res, 200, buildPromotionsSummary(store, { username: user.username }));
+        const publicActivePromotions = buildPromotionsSummary(store, { admin: true })
+          .filter((promotion) =>
+            promotion.status === "active"
+            && promotion.paymentStatus === "paid"
+          );
+        const userScopedPromotions = buildPromotionsSummary(store, { username: user.username });
+        const mergedPromotions = [];
+        const seenPromotionIds = new Set();
+
+        [...userScopedPromotions, ...publicActivePromotions].forEach((promotion) => {
+          const promotionId = String(promotion?.id || "").trim();
+          if (!promotionId || seenPromotionIds.has(promotionId)) {
+            return;
+          }
+          seenPromotionIds.add(promotionId);
+          mergedPromotions.push(promotion);
+        });
+
+        sendJson(res, 200, mergedPromotions);
         return;
       }
 
