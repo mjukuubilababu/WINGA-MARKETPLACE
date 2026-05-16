@@ -6992,7 +6992,7 @@ function getPromotionOption(type) {
 
 function getPromotionPaymentContact(product) {
   return normalizeWhatsapp(
-    getProductWhatsapp(product)
+    getProductWhatsappNumber(product)
     || currentSession?.phoneNumber
     || currentSession?.whatsappNumber
     || ""
