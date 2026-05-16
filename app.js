@@ -13879,7 +13879,7 @@ function renderPromotionBadges(product) {
   if (!promotion) {
     return "";
   }
-  return `<p class="product-meta trust-badges"><span class="status-pill approved sponsored-pill">${promotion.type === "boost" ? "Boosted" : promotion.type === "pin_top" ? "Pinned" : "Sponsored"}</span></p>`;
+  return `<p class="product-meta trust-badges"><span class="status-pill approved sponsored-pill">${escapeHtml(getPromotionLabel(promotion.type))}</span></p>`;
 }
 
 function renderPromoteButton(product) {

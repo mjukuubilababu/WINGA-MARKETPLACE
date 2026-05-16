@@ -1045,14 +1045,31 @@
         deps.createElement("strong", { textContent: `${deps.getPromotionLabel?.(promotion.type) || promotion.type} | ${promotion.productId}` }),
         createMetaCopy(`Muuzaji: ${promotion.sellerUsername || "-"}`),
         createMetaCopy(`Transaction: ${promotion.transactionReference || "-"}`),
+        createMetaCopy(`Amount: TSh ${deps.formatNumber ? deps.formatNumber(promotion.amountPaid || 0) : (promotion.amountPaid || 0)}`),
         deps.createStatusPill(promotion.status || "pending", mapStatusClass(promotion.status))
       );
-      if (deps.isAdminUser?.() && promotion.status !== "disabled" && promotion.status !== "expired") {
+      if (deps.isAdminUser?.()) {
         const actions = deps.createElement("div", { className: "moderation-actions" });
-        actions.appendChild(createActionButton("Disable Promotion", {
-          adminPromotionDisable: promotion.id
-        }));
-        card.appendChild(actions);
+        if (promotion.status === "pending") {
+          actions.append(
+            createActionButton("Approve Promotion", {
+              adminPromotionReview: promotion.id,
+              adminPromotionStatus: "active"
+            }),
+            createActionButton("Reject Promotion", {
+              adminPromotionReview: promotion.id,
+              adminPromotionStatus: "rejected"
+            }, "button action-btn action-btn-secondary")
+          );
+        }
+        if (promotion.status !== "disabled" && promotion.status !== "expired" && promotion.status !== "rejected") {
+          actions.appendChild(createActionButton("Disable Promotion", {
+            adminPromotionDisable: promotion.id
+          }));
+        }
+        if (actions.childNodes.length) {
+          card.appendChild(actions);
+        }
       }
       return card;
     }
@@ -1417,6 +1434,33 @@
       deps.reportEvent?.("info", "admin_promotion_disabled", "Admin disabled a promotion.", {
         promotionId
       });
+      renderAdminView();
+    }
+
+    async function handlePromotionReview(button) {
+      const promotionId = button.dataset.adminPromotionReview || "";
+      const status = button.dataset.adminPromotionStatus || "";
+      if (!promotionId || !status) {
+        return;
+      }
+      if (status === "rejected" && deps.confirmAction && !deps.confirmAction("Una uhakika unataka kukataa promotion hii?")) {
+        return;
+      }
+      const result = await deps.dataLayer.reviewPromotion(promotionId, { status });
+      deps.showInAppNotification?.({
+        title: status === "active" ? "Promotion approved" : "Promotion rejected",
+        body: status === "active"
+          ? "Promotion imekubaliwa na sasa inaweza kuonekana kwenye discovery."
+          : "Promotion imekataliwa. Seller anaweza kutuma tena akiwa tayari.",
+        variant: "success"
+      });
+      deps.reportEvent?.("info", status === "active" ? "admin_promotion_approved" : "admin_promotion_rejected", "Admin reviewed a promotion.", {
+        promotionId,
+        status
+      });
+      if (result?.productId) {
+        deps.refreshProductsFromStore?.();
+      }
       renderAdminView();
     }
 
@@ -1789,6 +1833,28 @@
             deps.showInAppNotification?.({
               title: "Promotion update failed",
               body: error.message || "Imeshindikana kuzima promotion.",
+              variant: "error"
+            });
+          } finally {
+            toggleScopedBusyState(scope, false);
+          }
+        });
+      });
+
+      panel.querySelectorAll("[data-admin-promotion-review]").forEach((button) => {
+        button.addEventListener("click", async () => {
+          const scope = button.closest("[data-admin-promotion-card]");
+          toggleScopedBusyState(scope, true);
+          try {
+            await handlePromotionReview(button);
+          } catch (error) {
+            deps.captureError?.("admin_promotion_review_failed", error, {
+              promotionId: button.dataset.adminPromotionReview || "",
+              status: button.dataset.adminPromotionStatus || ""
+            });
+            deps.showInAppNotification?.({
+              title: "Promotion review failed",
+              body: error.message || "Imeshindikana kureview promotion.",
               variant: "error"
             });
           } finally {

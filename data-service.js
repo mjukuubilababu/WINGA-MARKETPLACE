@@ -2345,6 +2345,16 @@
           }
         });
       },
+      async reviewPromotion(promotionId, payload) {
+        return fetchJson(`${baseUrl}/admin/promotions/${encodeURIComponent(promotionId)}/review`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            ...createAuthHeaders()
+          },
+          body: JSON.stringify(payload || {})
+        });
+      },
       async disablePromotion(promotionId) {
         return fetchJson(`${baseUrl}/admin/promotions/${encodeURIComponent(promotionId)}/disable`, {
           method: "PATCH",
@@ -3777,6 +3787,10 @@
       async loadAdminOpsSummary() {
         assertAdminAccess();
         return state.adapter.loadAdminOpsSummary ? state.adapter.loadAdminOpsSummary() : null;
+      },
+      async reviewPromotion(promotionId, payload) {
+        assertAdminAccess();
+        return state.adapter.reviewPromotion ? state.adapter.reviewPromotion(promotionId, payload) : { ok: true };
       },
       async disablePromotion(promotionId) {
         assertAdminAccess();

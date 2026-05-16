@@ -131,11 +131,15 @@ const ALLOWED_USER_STATUSES = ["active", "suspended", "banned", "flagged", "deac
 const ALLOWED_REPORT_STATUSES = ["open", "reviewed", "resolved"];
 const ALLOWED_REPORT_TARGETS = ["user", "product"];
 const ALLOWED_NOTIFICATION_TYPES = ["message", "request", "order"];
-const ALLOWED_PROMOTION_TYPES = ["boost", "featured", "category_boost", "pin_top"];
-const ALLOWED_PROMOTION_STATUSES = ["pending", "active", "expired", "disabled"];
+const ALLOWED_PROMOTION_TYPES = ["starter_day", "boost_3day", "growth_7day", "premium_14day", "boost", "featured", "category_boost", "pin_top"];
+const ALLOWED_PROMOTION_STATUSES = ["pending", "active", "rejected", "expired", "disabled"];
 const ALLOWED_IDENTITY_DOCUMENT_TYPES = ["NIDA", "VOTER_ID"];
 const ALLOWED_VERIFICATION_STATUSES = ["unverified", "pending", "verified", "rejected"];
 const PROMOTION_CONFIG = {
+  starter_day: { amount: 1000, durationDays: 1, label: "1 day visibility" },
+  boost_3day: { amount: 3000, durationDays: 3, label: "3 day visibility" },
+  growth_7day: { amount: 7000, durationDays: 7, label: "7 day visibility" },
+  premium_14day: { amount: 14000, durationDays: 14, label: "14 day visibility" },
   boost: { amount: 5000, durationDays: 3, label: "Boost Product" },
   featured: { amount: 10000, durationDays: 7, label: "Featured Section" },
   category_boost: { amount: 7000, durationDays: 5, label: "Category Boost" },
@@ -1879,8 +1883,8 @@ function buildOrderNotification({ recipientId, actorUsername, order, stage }) {
 
 function normalizePromotionRecord(promotion) {
   const now = new Date().toISOString();
-  const type = ALLOWED_PROMOTION_TYPES.includes(promotion.type) ? promotion.type : "boost";
-  const config = PROMOTION_CONFIG[type] || PROMOTION_CONFIG.boost;
+  const type = ALLOWED_PROMOTION_TYPES.includes(promotion.type) ? promotion.type : "starter_day";
+  const config = PROMOTION_CONFIG[type] || PROMOTION_CONFIG.starter_day;
   return {
     id: sanitizePlainText(promotion.id, 80) || `promo-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`,
     productId: sanitizePlainText(promotion.productId, 80),
@@ -2870,6 +2874,14 @@ function validatePromotionPayload(payload) {
   return "";
 }
 
+function validatePromotionReviewPayload(payload) {
+  const status = sanitizePlainText(payload?.status, 20).toLowerCase();
+  if (!["active", "rejected"].includes(status)) {
+    return "Promotion review action si sahihi.";
+  }
+  return "";
+}
+
 function isValidTransactionReference(value) {
   return /^[A-Z0-9._/-]{4,80}$/i.test(String(value || "").trim());
 }
@@ -3305,13 +3317,19 @@ function getPromotionDisplayStatus(promotion, now = Date.now()) {
   if (normalized.status === "disabled") {
     return "disabled";
   }
+  if (normalized.status === "rejected") {
+    return "rejected";
+  }
+  if (normalized.status === "pending") {
+    return "pending";
+  }
   if (normalized.paymentStatus !== "paid") {
     return "pending";
   }
   if (new Date(normalized.endDate || 0).getTime() <= now) {
     return "expired";
   }
-  return normalized.status === "pending" ? "active" : normalized.status;
+  return normalized.status === "active" ? "active" : normalized.status;
 }
 
 function buildPromotionsSummary(store, options = {}) {
@@ -3718,6 +3736,13 @@ function getRateLimitRule(pathname) {
       limit: 12,
       windowMs: RATE_LIMIT_WINDOW_MS,
       key: "/api/admin/promotions/:id/disable"
+    };
+  }
+  if (/^\/api\/admin\/promotions\/[^/]+\/review$/.test(pathname)) {
+    return {
+      limit: 16,
+      windowMs: RATE_LIMIT_WINDOW_MS,
+      key: "/api/admin/promotions/:id/review"
     };
   }
   if (/^\/api\/notifications\/[^/]+\/read$/.test(pathname)) {
@@ -5188,11 +5213,6 @@ http.createServer(async (req, res) => {
           sendJson(res, 403, { error: "Unaweza kupromote bidhaa zako tu." });
           return;
         }
-        if (product.status !== "approved") {
-          sendJson(res, 400, { error: "Promotion inaruhusiwa kwa bidhaa approved tu." });
-          return;
-        }
-
         const transactionReference = sanitizePlainText(payload.transactionReference, 80).toUpperCase();
         const duplicateTransaction = (store.payments || []).some((payment) =>
           payment.transactionReference === transactionReference || payment.receiptNumber === transactionReference
@@ -5202,24 +5222,27 @@ http.createServer(async (req, res) => {
           return;
         }
 
-        const hasExistingActivePromotion = buildPromotionsSummary(store, { username: seller.username, productId: product.id })
-          .some((promotion) => promotion.status === "active" && promotion.type === payload.type);
-        if (hasExistingActivePromotion) {
-          sendJson(res, 409, { error: "Bidhaa hii tayari ina promotion ya type hiyo iliyo active." });
+        const existingPromotionForType = buildPromotionsSummary(store, { username: seller.username, productId: product.id })
+          .some((promotion) =>
+            ["pending", "active"].includes(String(promotion.status || "").toLowerCase())
+            && promotion.type === payload.type
+          );
+        if (existingPromotionForType) {
+          sendJson(res, 409, { error: "Bidhaa hii tayari ina request au promotion ya type hiyo inayoendelea." });
           return;
         }
 
-        const config = PROMOTION_CONFIG[payload.type] || PROMOTION_CONFIG.boost;
+        const config = PROMOTION_CONFIG[payload.type] || PROMOTION_CONFIG.starter_day;
         const now = new Date().toISOString();
         const promotion = normalizePromotionRecord({
           productId: product.id,
           sellerUsername: seller.username,
           type: payload.type,
-          status: "active",
+          status: "pending",
           amountPaid: config.amount,
           paymentMethod: "mobile_money",
           transactionReference,
-          paymentStatus: "paid",
+          paymentStatus: "pending",
           startDate: now,
           endDate: new Date(Date.now() + (config.durationDays * 24 * 60 * 60 * 1000)).toISOString(),
           createdAt: now,
@@ -5293,6 +5316,84 @@ http.createServer(async (req, res) => {
         }
 
         sendJson(res, 200, buildPromotionsSummary(store, { admin: true }));
+        return;
+      }
+
+      if (req.method === "PATCH" && /^\/api\/admin\/promotions\/[^/]+\/review$/.test(url.pathname)) {
+        const token = readAuthToken(req);
+        const session = findSession(store, token);
+        if (!session || !isAdminSession(session)) {
+          await denyJson(res, 403, "Hii area ni ya admin tu.", {
+            ip: clientIp,
+            method: req.method,
+            path: url.pathname,
+            event: "admin_promotion_review_denied",
+            username: session?.username || "",
+            reason: !session ? "missing_or_invalid_session" : "insufficient_role"
+          });
+          return;
+        }
+
+        const promotionId = sanitizePlainText(decodeURIComponent(url.pathname.split("/")[4] || ""), 80);
+        const payload = await collectBody(req);
+        const validationError = validatePromotionReviewPayload(payload);
+        if (validationError) {
+          sendJson(res, 400, { error: validationError });
+          return;
+        }
+
+        const requestedStatus = sanitizePlainText(payload.status, 20).toLowerCase();
+        const now = new Date().toISOString();
+        let found = false;
+        let nextPromotion = null;
+        const promotions = (store.promotions || []).map((item) => {
+          const normalized = normalizePromotionRecord(item);
+          if (normalized.id !== promotionId) {
+            return normalized;
+          }
+          found = true;
+          const config = PROMOTION_CONFIG[normalized.type] || PROMOTION_CONFIG.starter_day;
+          if (requestedStatus === "active") {
+            nextPromotion = normalizePromotionRecord({
+              ...normalized,
+              status: "active",
+              paymentStatus: "paid",
+              amountPaid: Number(normalized.amountPaid || config.amount || 0),
+              startDate: now,
+              endDate: new Date(Date.now() + (config.durationDays * 24 * 60 * 60 * 1000)).toISOString(),
+              disabledAt: "",
+              disabledBy: "",
+              updatedAt: now
+            });
+            return nextPromotion;
+          }
+          nextPromotion = normalizePromotionRecord({
+            ...normalized,
+            status: "rejected",
+            paymentStatus: "failed",
+            disabledAt: "",
+            disabledBy: "",
+            updatedAt: now
+          });
+          return nextPromotion;
+        });
+
+        if (!found) {
+          sendJson(res, 404, { error: "Promotion haijapatikana." });
+          return;
+        }
+
+        await writeStore({ ...store, promotions });
+        await appendAuditLog({
+          time: now,
+          ip: clientIp,
+          method: req.method,
+          path: url.pathname,
+          event: requestedStatus === "active" ? "promotion_approved" : "promotion_rejected",
+          username: session.username,
+          promotionId
+        });
+        sendJson(res, 200, nextPromotion || { ok: true });
         return;
       }
 
