@@ -848,65 +848,34 @@
       });
 
       container.querySelectorAll("[data-promote-product]").forEach((button) => {
-        button.addEventListener("click", async () => {
-          const product = deps.getProductById ? deps.getProductById(button.dataset.promoteProduct) : deps.getProducts().find((item) => item.id === button.dataset.promoteProduct);
+        button.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          const productId = String(button.dataset.promoteProduct || "").trim();
+          const product = deps.getProductById
+            ? deps.getProductById(productId)
+            : deps.getProducts().find((item) => item.id === productId);
           if (!product) {
-            return;
-          }
-
-          const selectedType = prompt([
-            "Chagua promotion type:",
-            "boost = Boost Product (TSh 5,000 / 3 days)",
-            "featured = Featured Section (TSh 10,000 / 7 days)",
-            "category_boost = Category Boost (TSh 7,000 / 5 days)",
-            "pin_top = Pin To Top (TSh 12,000 / 2 days)"
-          ].join("\n"), "boost");
-
-          if (!selectedType || !deps.getPromotionOptions()[selectedType]) {
-            return;
-          }
-
-          const option = deps.getPromotionOptions()[selectedType];
-          const transactionReference = prompt([
-            "Lipa kwa Mobile Money kwa promotion hii.",
-            `Product: ${product.name}`,
-            `Promotion: ${option.label}`,
-            `Amount: TSh ${deps.formatNumber(option.amount)}`,
-            `Use seller number for now: ${product.whatsapp}`,
-            "",
-            "Baada ya kulipa, weka transaction reference."
-          ].join("\n"), "");
-
-          if (!transactionReference || !transactionReference.trim()) {
+            deps.showInAppNotification?.({
+              title: "Promotion unavailable",
+              body: "Bidhaa hii haikupatikana tena. Refresh profile yako ujaribu tena.",
+              variant: "warning"
+            });
             return;
           }
 
           try {
-            await deps.dataLayer.createPromotion({
-              productId: product.id,
-              type: selectedType,
-              transactionReference: transactionReference.trim()
-            });
-            await deps.refreshPromotionsState();
-            deps.reportEvent?.("info", "promotion_created", "Seller created a promotion.", {
-              productId: product.id,
-              type: selectedType
-            });
-            deps.showInAppNotification?.({
-              title: "Promotion submitted",
-              body: "Promotion imewasilishwa. Utaiona ikishaingia active au ikireviewiwa.",
-              variant: "success"
-            });
-            renderProfile();
-            deps.renderCurrentView();
+            if (typeof deps.openPromotionIntentModal !== "function") {
+              throw new Error("Promotion plan opener haipo kwa sasa.");
+            }
+            deps.openPromotionIntentModal(product);
           } catch (error) {
-            deps.captureError?.("promotion_create_failed", error, {
-              productId: product.id,
-              type: selectedType
+            deps.captureError?.("promotion_plan_open_failed", error, {
+              productId: product.id
             });
             deps.showInAppNotification?.({
-              title: "Promotion failed",
-              body: error.message || "Promotion imeshindikana.",
+              title: "Promotion failed to open",
+              body: error.message || "Imeshindikana kufungua promotion plan. Jaribu tena.",
               variant: "error"
             });
           }
