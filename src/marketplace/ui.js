@@ -216,6 +216,7 @@
           attributes: {
             type: "button",
             "data-promote-product": product.id,
+            "data-promote-authorized": "true",
             "data-promote-product-owner": product.uploadedBy || "",
             "data-promote-product-name": product.name || "",
             "data-promote-product-shop": product.shop || "",

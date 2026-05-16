@@ -7116,6 +7116,13 @@ function getPromotionTriggerProduct(trigger) {
   };
 }
 
+function getPromotionTriggerContext(trigger) {
+  return {
+    product: getPromotionTriggerProduct(trigger),
+    trustedAuthorized: String(trigger?.dataset?.promoteAuthorized || "").trim() === "true"
+  };
+}
+
 function renderPromotionIntentModal() {
   const root = ensurePromotionIntentModal();
   const body = root.querySelector("[data-promotion-intent-body='true']");
@@ -8497,6 +8504,7 @@ const {
   },
   getProductById,
   resolvePromotionTriggerProduct: getPromotionTriggerProduct,
+  resolvePromotionTriggerContext: getPromotionTriggerContext,
   beginPurchaseFlow,
   openPromotionIntentModal,
   repostProductAsSeller,
@@ -11528,12 +11536,13 @@ document.addEventListener("pointerdown", (event) => {
 document.addEventListener("click", (event) => {
   const promoteTrigger = event.target.closest?.("[data-promote-product]");
   if (promoteTrigger) {
-    const product = getPromotionTriggerProduct(promoteTrigger);
+    const promotionContext = getPromotionTriggerContext(promoteTrigger);
+    const product = promotionContext.product;
     event.preventDefault();
     event.stopPropagation();
     event.stopImmediatePropagation?.();
     if (product) {
-      openPromotionIntentModal(product);
+      openPromotionIntentModal(product, { trustedAuthorized: promotionContext.trustedAuthorized, trigger: promoteTrigger });
     } else {
       showInAppNotification({
         title: "Promotion unavailable",
@@ -13866,7 +13875,7 @@ function renderSellerCardPromoteChip(product) {
   if (!currentUser || !canUseSellerFeatures() || product?.uploadedBy !== currentUser) {
     return "";
   }
-  return `<button class="product-seller-promote-chip" type="button" data-promote-product="${product.id}" data-promote-product-owner="${escapeHtml(product.uploadedBy || "")}" data-promote-product-name="${escapeHtml(product.name || "")}" data-promote-product-shop="${escapeHtml(product.shop || "")}" data-promote-product-whatsapp="${escapeHtml(product.whatsapp || "")}" data-promote-product-location="${escapeHtml(product.location || "")}" data-promote-product-category="${escapeHtml(product.category || "")}">Promote</button>`;
+  return `<button class="product-seller-promote-chip" type="button" data-promote-product="${product.id}" data-promote-authorized="true" data-promote-product-owner="${escapeHtml(product.uploadedBy || "")}" data-promote-product-name="${escapeHtml(product.name || "")}" data-promote-product-shop="${escapeHtml(product.shop || "")}" data-promote-product-whatsapp="${escapeHtml(product.whatsapp || "")}" data-promote-product-location="${escapeHtml(product.location || "")}" data-promote-product-category="${escapeHtml(product.category || "")}">Promote</button>`;
 }
 
 function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
@@ -15234,14 +15243,19 @@ function beginPurchaseFlow(product) {
   renderPaymentIntentModal();
 }
 
-function openPromotionIntentModal(product) {
+function openPromotionIntentModal(product, options = {}) {
   if (!product) {
     return;
   }
-  if (!isAuthenticatedUser() || !canUseSellerFeatures() || product.uploadedBy !== currentUser) {
+  const trustedAuthorized = Boolean(options?.trustedAuthorized);
+  const hasSellerAccess = isAuthenticatedUser() && canUseSellerFeatures();
+  const ownerMatches = String(product.uploadedBy || "").trim() === String(currentUser || "").trim();
+  if (!hasSellerAccess || (!ownerMatches && !trustedAuthorized)) {
     showInAppNotification({
       title: "Promotion unavailable",
-      body: "Promotion hii inapatikana kwa muuzaji wa bidhaa hii tu.",
+      body: !hasSellerAccess
+        ? "Ingia kama seller ili ufungue visibility plans za tangazo hili."
+        : "Promotion hii inapatikana kwa muuzaji wa bidhaa hii tu.",
       variant: "warning"
     });
     return;

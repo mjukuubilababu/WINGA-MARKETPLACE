@@ -293,8 +293,12 @@
         const promoteButton = event.target.closest("[data-promote-product]");
         if (promoteButton) {
           scheduleActiveActionTouchStateClear();
-          const product = deps.resolvePromotionTriggerProduct?.(promoteButton)
-            || deps.getProductById?.(String(promoteButton.dataset.promoteProduct || "").trim());
+          const promotionContext = deps.resolvePromotionTriggerContext?.(promoteButton) || {
+            product: deps.resolvePromotionTriggerProduct?.(promoteButton)
+              || deps.getProductById?.(String(promoteButton.dataset.promoteProduct || "").trim()),
+            trustedAuthorized: String(promoteButton.dataset.promoteAuthorized || "").trim() === "true"
+          };
+          const product = promotionContext.product;
           event.preventDefault();
           event.stopPropagation();
           event.stopImmediatePropagation?.();
@@ -307,7 +311,7 @@
             return;
           }
           try {
-            deps.openPromotionIntentModal?.(product);
+            deps.openPromotionIntentModal?.(product, { trustedAuthorized: promotionContext.trustedAuthorized, trigger: promoteButton });
           } catch (error) {
             deps.captureError?.("home_feed_promotion_open_failed", error, {
               productId: String(promoteButton.dataset.promoteProduct || "").trim()
