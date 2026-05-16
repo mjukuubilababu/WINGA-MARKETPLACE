@@ -8424,6 +8424,7 @@ const {
   },
   getProductById,
   beginPurchaseFlow,
+  openPromotionIntentModal,
   repostProductAsSeller,
   toggleProductInRequestBoxById: (productId) => {
     const product = getProductById(productId);

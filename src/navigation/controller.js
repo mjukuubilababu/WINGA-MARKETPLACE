@@ -205,7 +205,7 @@
           return;
         }
         const actionButton = event.target.closest(
-          "[data-buy-product], [data-request-product], [data-open-own-messages], [data-chat-product], [data-detail-repost], [data-open-product-whatsapp]"
+          "[data-buy-product], [data-request-product], [data-open-own-messages], [data-chat-product], [data-detail-repost], [data-open-product-whatsapp], [data-promote-product]"
         );
         if (!actionButton) {
           return;
@@ -287,6 +287,39 @@
             return;
           }
           deps.repostProductAsSeller?.(product);
+          return;
+        }
+
+        const promoteButton = event.target.closest("[data-promote-product]");
+        if (promoteButton) {
+          scheduleActiveActionTouchStateClear();
+          const productId = String(promoteButton.dataset.promoteProduct || "").trim();
+          if (!productId) {
+            return;
+          }
+          event.preventDefault();
+          event.stopPropagation();
+          const product = deps.getProductById?.(productId);
+          if (!product) {
+            deps.showInAppNotification?.({
+              title: "Promotion unavailable",
+              body: "Bidhaa hii haikupatikana tena. Refresh home feed ujaribu tena.",
+              variant: "warning"
+            });
+            return;
+          }
+          try {
+            deps.openPromotionIntentModal?.(product);
+          } catch (error) {
+            deps.captureError?.("home_feed_promotion_open_failed", error, {
+              productId
+            });
+            deps.showInAppNotification?.({
+              title: "Promotion failed to open",
+              body: error.message || "Imeshindikana kufungua promotion plan. Jaribu tena.",
+              variant: "error"
+            });
+          }
           return;
         }
 
