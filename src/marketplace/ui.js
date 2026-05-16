@@ -215,6 +215,7 @@
           textContent: "Promote",
           attributes: {
             type: "button",
+            onclick: "return window.__wingaOpenPromotionFromTrigger ? window.__wingaOpenPromotionFromTrigger(this) : false;",
             "data-promote-product": product.id,
             "data-promote-authorized": "true",
             "data-promote-product-owner": product.uploadedBy || "",
@@ -229,7 +230,9 @@
           event.preventDefault();
           event.stopPropagation();
           event.stopImmediatePropagation?.();
-          deps.openPromotionIntentModal?.(product, { trustedAuthorized: true, trigger: promoteButton });
+          if (!window.__wingaOpenPromotionFromTrigger?.(promoteButton)) {
+            deps.openPromotionIntentModal?.(product, { trustedAuthorized: true, trigger: promoteButton });
+          }
         });
         badgeRow.appendChild(promoteButton);
       }

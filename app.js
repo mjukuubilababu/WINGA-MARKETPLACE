@@ -7123,6 +7123,24 @@ function getPromotionTriggerContext(trigger) {
   };
 }
 
+function openPromotionFromTrigger(trigger) {
+  const promotionContext = getPromotionTriggerContext(trigger);
+  const product = promotionContext.product;
+  if (!product) {
+    showInAppNotification({
+      title: "Promotion unavailable",
+      body: "Product context ya promotion haikupatikana. Refresh home feed ujaribu tena.",
+      variant: "warning"
+    });
+    return false;
+  }
+  openPromotionIntentModal(product, {
+    trustedAuthorized: promotionContext.trustedAuthorized,
+    trigger
+  });
+  return true;
+}
+
 function renderPromotionIntentModal() {
   const root = ensurePromotionIntentModal();
   const body = root.querySelector("[data-promotion-intent-body='true']");
@@ -13875,7 +13893,7 @@ function renderSellerCardPromoteChip(product) {
   if (!currentUser || !canUseSellerFeatures() || product?.uploadedBy !== currentUser) {
     return "";
   }
-  return `<button class="product-seller-promote-chip" type="button" data-promote-product="${product.id}" data-promote-authorized="true" data-promote-product-owner="${escapeHtml(product.uploadedBy || "")}" data-promote-product-name="${escapeHtml(product.name || "")}" data-promote-product-shop="${escapeHtml(product.shop || "")}" data-promote-product-whatsapp="${escapeHtml(product.whatsapp || "")}" data-promote-product-location="${escapeHtml(product.location || "")}" data-promote-product-category="${escapeHtml(product.category || "")}">Promote</button>`;
+  return `<button class="product-seller-promote-chip" type="button" onclick="return window.__wingaOpenPromotionFromTrigger ? window.__wingaOpenPromotionFromTrigger(this) : false;" data-promote-product="${product.id}" data-promote-authorized="true" data-promote-product-owner="${escapeHtml(product.uploadedBy || "")}" data-promote-product-name="${escapeHtml(product.name || "")}" data-promote-product-shop="${escapeHtml(product.shop || "")}" data-promote-product-whatsapp="${escapeHtml(product.whatsapp || "")}" data-promote-product-location="${escapeHtml(product.location || "")}" data-promote-product-category="${escapeHtml(product.category || "")}">Promote</button>`;
 }
 
 function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
@@ -15271,6 +15289,22 @@ function openPromotionIntentModal(product, options = {}) {
   };
   renderPromotionIntentModal();
 }
+
+window.__wingaOpenPromotionFromTrigger = (trigger) => {
+  try {
+    return openPromotionFromTrigger(trigger);
+  } catch (error) {
+    captureClientError("promotion_trigger_open_failed", error, {
+      productId: String(trigger?.dataset?.promoteProduct || "").trim()
+    });
+    showInAppNotification({
+      title: "Promotion failed to open",
+      body: error.message || "Imeshindikana kufungua visibility plan. Jaribu tena.",
+      variant: "error"
+    });
+    return false;
+  }
+};
 
 function canRepostProductAsSeller(product) {
   return Boolean(
