@@ -7024,6 +7024,16 @@ body.product-detail-open #view-home-back{
   width:min(560px, calc(100vw - 24px));
   margin:min(8vh, 56px) auto 0;
   padding:22px 20px 18px;
+  max-height:min(84vh, 760px);
+  overflow:hidden;
+  display:flex;
+  flex-direction:column;
+}
+
+.promotion-intent-body{
+  min-height:0;
+  overflow:auto;
+  padding-right:4px;
 }
 
 .payment-intent-close{
