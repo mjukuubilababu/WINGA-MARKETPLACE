@@ -229,7 +229,7 @@
           event.preventDefault();
           event.stopPropagation();
           event.stopImmediatePropagation?.();
-          deps.openPromotionIntentModal?.(product);
+          deps.openPromotionIntentModal?.(product, { trustedAuthorized: true, trigger: promoteButton });
         });
         badgeRow.appendChild(promoteButton);
       }

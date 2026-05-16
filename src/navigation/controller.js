@@ -293,35 +293,9 @@
         const promoteButton = event.target.closest("[data-promote-product]");
         if (promoteButton) {
           scheduleActiveActionTouchStateClear();
-          const promotionContext = deps.resolvePromotionTriggerContext?.(promoteButton) || {
-            product: deps.resolvePromotionTriggerProduct?.(promoteButton)
-              || deps.getProductById?.(String(promoteButton.dataset.promoteProduct || "").trim()),
-            trustedAuthorized: String(promoteButton.dataset.promoteAuthorized || "").trim() === "true"
-          };
-          const product = promotionContext.product;
-          event.preventDefault();
-          event.stopPropagation();
-          event.stopImmediatePropagation?.();
-          if (!product) {
-            deps.showInAppNotification?.({
-              title: "Promotion unavailable",
-              body: "Product context ya promotion haikupatikana. Refresh home feed ujaribu tena.",
-              variant: "warning"
-            });
-            return;
-          }
-          try {
-            deps.openPromotionIntentModal?.(product, { trustedAuthorized: promotionContext.trustedAuthorized, trigger: promoteButton });
-          } catch (error) {
-            deps.captureError?.("home_feed_promotion_open_failed", error, {
-              productId: String(promoteButton.dataset.promoteProduct || "").trim()
-            });
-            deps.showInAppNotification?.({
-              title: "Promotion failed to open",
-              body: error.message || "Imeshindikana kufungua visibility plan. Jaribu tena.",
-              variant: "error"
-            });
-          }
+          // Promote flow is owned by the dedicated button/app handlers.
+          // Let those handlers receive the click instead of swallowing it
+          // during navigation capture.
           return;
         }
 

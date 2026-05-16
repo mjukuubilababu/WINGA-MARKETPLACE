@@ -6887,7 +6887,7 @@ const paymentIntentSubmissionRegistry = new Map();
 let promotionIntentState = {
   productId: "",
   product: null,
-  selectedType: "boost",
+  selectedType: "starter_day",
   loading: false,
   transactionId: "",
   feedbackTone: "",
@@ -7020,7 +7020,7 @@ function ensurePromotionIntentModal() {
   root.addEventListener("click", (event) => {
     const optionButton = event.target.closest("[data-select-promotion-type]");
     if (optionButton) {
-      promotionIntentState.selectedType = String(optionButton.dataset.selectPromotionType || "boost").trim() || "boost";
+      promotionIntentState.selectedType = String(optionButton.dataset.selectPromotionType || "starter_day").trim() || "starter_day";
       promotionIntentState.feedbackTone = "";
       promotionIntentState.feedbackMessage = "";
       renderPromotionIntentModal();
@@ -7065,7 +7065,7 @@ function closePromotionIntentModal() {
   promotionIntentState = {
     productId: "",
     product: null,
-    selectedType: "boost",
+    selectedType: "starter_day",
     loading: false,
     transactionId: "",
     feedbackTone: "",
@@ -7161,7 +7161,7 @@ function renderPromotionIntentModal() {
     syncBodyScrollLockState();
     return;
   }
-  const selectedOption = getPromotionOption(promotionIntentState.selectedType) || getPromotionOption("boost");
+  const selectedOption = getPromotionOption(promotionIntentState.selectedType) || getPromotionOption("starter_day");
   const paymentContact = getPromotionPaymentContact(product);
   const wrapper = createElement("div", { className: "promotion-intent-shell" });
   wrapper.append(
