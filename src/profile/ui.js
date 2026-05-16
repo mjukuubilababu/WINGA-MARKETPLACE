@@ -691,7 +691,6 @@
         stats,
         identityMarkup,
         sellerUpgradeMarkup,
-        promotionsMarkup,
         savedIntentMarkup,
         requestsMarkup,
         ordersMarkup,
@@ -723,7 +722,6 @@
       [
         identityMarkup,
         sellerUpgradeMarkup,
-        promotionsMarkup,
         savedIntentMarkup,
         requestsMarkup,
         ordersMarkup,

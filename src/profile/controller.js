@@ -716,11 +716,6 @@
             phoneNumber: userProfile?.phoneNumber || userProfile?.whatsappNumber || "",
             primaryCategory: userProfile?.primaryCategory || "",
           }),
-          promotionsMarkup: deps.createPromotionOverviewSectionElement({
-            canUseSellerFeatures: deps.canUseSellerFeatures(),
-            activePromotionsCount: activePromotions.filter((promotion) => promotion.sellerUsername === currentUser).length,
-            promotionOptions: deps.getPromotionOptions()
-          }),
           savedIntentMarkup: deps.renderSavedIntentSection?.(),
           requestsMarkup: deps.renderRequestBoxSection(),
           ordersMarkup: deps.createOrdersSectionElement(deps.getCurrentOrders()),
