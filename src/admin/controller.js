@@ -1089,6 +1089,39 @@
       return createSection(title, meta, list);
     }
 
+    function createPromotionSummaryStrip(promotions = []) {
+      const safePromotions = Array.isArray(promotions) ? promotions : [];
+      const counts = safePromotions.reduce((accumulator, promotion) => {
+        const status = String(promotion?.status || "pending").trim().toLowerCase() || "pending";
+        accumulator.total += 1;
+        accumulator[status] = (accumulator[status] || 0) + 1;
+        return accumulator;
+      }, {
+        total: 0,
+        pending: 0,
+        active: 0,
+        rejected: 0,
+        expired: 0,
+        disabled: 0
+      });
+
+      const strip = deps.createElement("div", { className: "analytics-list" });
+      [
+        `Total: ${counts.total}`,
+        `Pending: ${counts.pending}`,
+        `Active: ${counts.active}`,
+        `Rejected: ${counts.rejected}`,
+        `Expired: ${counts.expired}`,
+        `Disabled: ${counts.disabled}`
+      ].forEach((entry) => {
+        strip.appendChild(deps.createElement("div", {
+          className: "analytics-list-item",
+          textContent: entry
+        }));
+      });
+      return strip;
+    }
+
     function createSystemSettingsSection(settings) {
       const wrapper = deps.createElement("div", { className: "moderation-list admin-settings-panel" });
       const heading = deps.createElement("div", { className: "section-heading" });
@@ -1222,6 +1255,7 @@
 
       if (deps.isAdminUser?.()) {
         const promotionsBody = deps.createElement("div", { className: "moderation-list" });
+        promotionsBody.appendChild(createPromotionSummaryStrip(state.promotions));
         if (state.loadErrors.promotions) {
           promotionsBody.appendChild(createLoadIssueState("Promotions data haikupatikana kwa sasa."));
         } else if (!state.promotions.length) {
@@ -1977,6 +2011,7 @@
         await nextFrame();
 
         const promotionsBody = deps.createElement("div", { className: "moderation-list" });
+        promotionsBody.appendChild(createPromotionSummaryStrip(state.promotions));
         if (state.loadErrors.promotions) {
           promotionsBody.appendChild(createLoadIssueState("Promotions data haikupatikana kwa sasa."));
         } else if (!state.promotions.length) {
