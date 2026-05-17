@@ -871,9 +871,9 @@
       }
       const currentView = deps.getCurrentView();
       const shouldTrackViews = currentView !== "upload";
-      const legacyShowcaseEnabled = false;
+      const legacyShowcaseEnabled = currentView === "home" && !deps.hasPrioritySearchResults(list.length);
       const intelligentFeedEnabled = false;
-      const shouldInjectInlineShowcases = legacyShowcaseEnabled || intelligentFeedEnabled;
+      const shouldInjectInlineShowcases = legacyShowcaseEnabled;
       const isMobileViewport = window.matchMedia?.("(max-width: 780px)")?.matches;
       const productsPerRow = shouldInjectInlineShowcases ? deps.getProductsPerRow() : 0;
       const showcaseSpacing = isMobileViewport ? 8 : 10;
@@ -927,7 +927,7 @@
           if (!showcaseElement) {
             continue;
           }
-          reportShowcaseInstrumentation("intelligent_section_rendered", {
+          reportShowcaseInstrumentation(descriptor.kind === "legacy-showcase" ? "legacy_showcase_rendered" : "intelligent_section_rendered", {
             sectionIndex: showcaseIndex,
             kind: descriptor.kind || descriptor.heading || descriptor.eyebrow || "section",
             title: descriptor.title || "",
