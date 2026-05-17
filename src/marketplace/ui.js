@@ -836,6 +836,26 @@
       return queue;
     }
 
+    function buildLegacyShowcaseQueue(list, usedShowcaseProductIds = new Set()) {
+      const sourceItems = Array.isArray(deps.getShowcaseProducts?.())
+        ? deps.getShowcaseProducts()
+        : (Array.isArray(list) ? list.filter(Boolean) : []);
+      const safeItems = sourceItems
+        .filter(Boolean)
+        .filter((item) => item?.id && !usedShowcaseProductIds.has(item.id))
+        .slice(0, 12);
+      if (safeItems.length < 3) {
+        return [];
+      }
+      return [{
+        kind: "legacy-showcase",
+        heading: "Marketplace Picks",
+        title: "Bidhaa kutoka maduka tofauti",
+        subtitle: "Tembea kushoto au kulia kuona zaidi",
+        items: safeItems
+      }];
+    }
+
     function reportShowcaseInstrumentation(eventName, payload = {}) {
       if (typeof deps.reportShowcaseInstrumentation !== "function") {
         return;
@@ -851,8 +871,9 @@
       }
       const currentView = deps.getCurrentView();
       const shouldTrackViews = currentView !== "upload";
+      const legacyShowcaseEnabled = currentView === "home" && !deps.hasPrioritySearchResults(list.length);
       const intelligentFeedEnabled = false;
-      const shouldInjectInlineShowcases = intelligentFeedEnabled && currentView === "home" && !deps.hasPrioritySearchResults(list.length);
+      const shouldInjectInlineShowcases = legacyShowcaseEnabled || intelligentFeedEnabled;
       const isMobileViewport = window.matchMedia?.("(max-width: 780px)")?.matches;
       const productsPerRow = shouldInjectInlineShowcases ? deps.getProductsPerRow() : 0;
       const showcaseSpacing = isMobileViewport ? 8 : 10;
@@ -868,27 +889,41 @@
       preloadMarketplaceImages(list);
       const renderToken = ++scheduledFeedRenderState.token;
       productsContainer.replaceChildren();
-      const intelligentSectionQueue = [];
+      const legacySectionQueue = legacyShowcaseEnabled
+        ? buildLegacyShowcaseQueue(list, usedShowcaseProductIds)
+        : [];
+      const intelligentSectionQueue = intelligentFeedEnabled
+        ? buildHomeIntelligentSectionQueue(list, usedShowcaseProductIds)
+        : [];
+      const combinedSectionQueue = [...legacySectionQueue, ...intelligentSectionQueue];
       let intelligentSectionIndex = 0;
 
       const appendShowcaseIfNeeded = (fragment, renderedCount) => {
         if (!shouldInjectInlineShowcases || renderedCount !== nextShowcaseInsertAt || renderedCount >= list.length) {
           return;
         }
-        while (intelligentSectionIndex < intelligentSectionQueue.length) {
-          const descriptor = intelligentSectionQueue[intelligentSectionIndex];
+        while (intelligentSectionIndex < combinedSectionQueue.length) {
+          const descriptor = combinedSectionQueue[intelligentSectionIndex];
           intelligentSectionIndex += 1;
           const safeItems = descriptor.items.filter((item) => item?.id && !usedShowcaseProductIds.has(item.id));
           if (safeItems.length < 3) {
             continue;
           }
-          const showcaseElement = createIntelligentSectionElement(
-            descriptor.heading || descriptor.eyebrow,
-            descriptor.title,
-            descriptor.subtitle,
-            safeItems,
-            descriptor.kind || descriptor.variant || "intelligent"
-          );
+          const showcaseElement = descriptor.kind === "legacy-showcase"
+            ? createShowcaseSectionElement(
+              safeItems,
+              showcaseIndex + 1,
+              descriptor.heading,
+              descriptor.title,
+              descriptor.subtitle
+            )
+            : createIntelligentSectionElement(
+              descriptor.heading || descriptor.eyebrow,
+              descriptor.title,
+              descriptor.subtitle,
+              safeItems,
+              descriptor.kind || descriptor.variant || "intelligent"
+            );
           if (!showcaseElement) {
             continue;
           }
@@ -914,19 +949,27 @@
           return;
         }
         if (shouldInjectInlineShowcases && !insertedInlineShowcase && list.length >= Math.max(4, productsPerRow * 2 || 4)) {
-          const descriptor = intelligentSectionQueue.find((entry) =>
+          const descriptor = combinedSectionQueue.find((entry) =>
             Array.isArray(entry?.items)
             && entry.items.some((item) => item?.id && !usedShowcaseProductIds.has(item.id))
           );
           if (descriptor) {
             const safeItems = descriptor.items.filter((item) => item?.id && !usedShowcaseProductIds.has(item.id));
-            const showcaseElement = createIntelligentSectionElement(
-              descriptor.heading || descriptor.eyebrow,
-              descriptor.title,
-              descriptor.subtitle,
-              safeItems,
-              descriptor.kind || descriptor.variant || "intelligent"
-            );
+            const showcaseElement = descriptor.kind === "legacy-showcase"
+              ? createShowcaseSectionElement(
+                safeItems,
+                1,
+                descriptor.heading,
+                descriptor.title,
+                descriptor.subtitle
+              )
+              : createIntelligentSectionElement(
+                descriptor.heading || descriptor.eyebrow,
+                descriptor.title,
+                descriptor.subtitle,
+                safeItems,
+                descriptor.kind || descriptor.variant || "intelligent"
+              );
             if (showcaseElement) {
               safeItems.forEach((item) => usedShowcaseProductIds.add(item.id));
               productsContainer.appendChild(showcaseElement);

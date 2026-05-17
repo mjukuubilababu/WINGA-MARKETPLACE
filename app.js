@@ -8723,6 +8723,7 @@ const {
   enhanceShowcaseTracks,
   disposeScopedRenderMemory,
   getBehaviorShowcaseDescriptor,
+  getShowcaseProducts,
   getRecommendationSeed,
   getDiscoverySponsoredProducts: (...args) => getDiscoverySponsoredProducts(...args),
   getRelatedProducts: (...args) => getRelatedProducts(...args),
