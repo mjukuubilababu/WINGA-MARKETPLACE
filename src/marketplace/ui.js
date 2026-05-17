@@ -270,14 +270,6 @@
         : deps.sanitizeImageSource(product.image || (Array.isArray(product.images) ? product.images[0] : ""), deps.getImageFallbackDataUri("WINGA"));
       media.dataset.showcaseFallbackSrc = fallbackSrc || "";
       media.dataset.showcaseFallbackAlt = product.name || "Product image";
-      if (deps.renderFeedGalleryMarkup) {
-        media.appendChild(createElementFromMarkup(deps.renderFeedGalleryMarkup(product, "showcase", {
-          priorityCount: 1,
-          preload: false
-        })));
-        return media;
-      }
-
       const primaryImage = deps.getMarketplacePrimaryImage
         ? deps.getMarketplacePrimaryImage(product, {
             allowOwnerVisibility: product.uploadedBy === deps.getCurrentUser?.()
