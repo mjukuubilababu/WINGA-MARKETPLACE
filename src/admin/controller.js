@@ -24,6 +24,7 @@
       error: "",
       values: null
     };
+    let promotionFilterState = "all";
 
     function mapStatusClass(status = "") {
       const normalized = String(status || "").toLowerCase();
@@ -1122,6 +1123,48 @@
       return strip;
     }
 
+    function getFilteredPromotions(promotions = []) {
+      const safePromotions = Array.isArray(promotions) ? promotions : [];
+      if (promotionFilterState === "all") {
+        return safePromotions;
+      }
+      return safePromotions.filter((promotion) =>
+        String(promotion?.status || "").trim().toLowerCase() === promotionFilterState
+      );
+    }
+
+    function createPromotionFilterControl() {
+      const wrapper = deps.createElement("div", { className: "moderation-actions" });
+      const label = deps.createElement("label", {
+        className: "product-meta",
+        textContent: "Status filter"
+      });
+      const select = deps.createElement("select", {
+        attributes: {
+          "data-admin-promotion-filter": "true"
+        }
+      });
+      [
+        ["all", "All"],
+        ["pending", "Pending"],
+        ["active", "Active"],
+        ["rejected", "Rejected"],
+        ["expired", "Expired"],
+        ["disabled", "Disabled"]
+      ].forEach(([value, text]) => {
+        const option = deps.createElement("option", {
+          textContent: text,
+          attributes: { value }
+        });
+        if (promotionFilterState === value) {
+          option.selected = true;
+        }
+        select.appendChild(option);
+      });
+      wrapper.append(label, select);
+      return wrapper;
+    }
+
     function createSystemSettingsSection(settings) {
       const wrapper = deps.createElement("div", { className: "moderation-list admin-settings-panel" });
       const heading = deps.createElement("div", { className: "section-heading" });
@@ -1256,12 +1299,16 @@
       if (deps.isAdminUser?.()) {
         const promotionsBody = deps.createElement("div", { className: "moderation-list" });
         promotionsBody.appendChild(createPromotionSummaryStrip(state.promotions));
+        promotionsBody.appendChild(createPromotionFilterControl());
+        const visiblePromotions = getFilteredPromotions(state.promotions);
         if (state.loadErrors.promotions) {
           promotionsBody.appendChild(createLoadIssueState("Promotions data haikupatikana kwa sasa."));
         } else if (!state.promotions.length) {
           promotionsBody.appendChild(deps.createEmptyState("Hakuna promotions za kusimamia."));
+        } else if (!visiblePromotions.length) {
+          promotionsBody.appendChild(deps.createEmptyState("Hakuna promotions kwenye filter hiyo kwa sasa."));
         } else {
-          state.promotions.forEach((promotion) => promotionsBody.appendChild(createPromotionCard(promotion)));
+          visiblePromotions.forEach((promotion) => promotionsBody.appendChild(createPromotionCard(promotion)));
         }
         wrapper.appendChild(createSection("Promotions", "Admin-only promotion controls.", promotionsBody));
 
@@ -1897,6 +1944,13 @@
         });
       });
 
+      panel.querySelectorAll("[data-admin-promotion-filter]").forEach((select) => {
+        select.addEventListener("change", () => {
+          promotionFilterState = String(select.value || "all").trim().toLowerCase() || "all";
+          renderAdminView();
+        });
+      });
+
       panel.querySelectorAll("[data-admin-settings-save]").forEach((button) => {
         button.addEventListener("click", async () => {
           const scope = button.closest("[data-admin-settings-form]");
@@ -2012,12 +2066,16 @@
 
         const promotionsBody = deps.createElement("div", { className: "moderation-list" });
         promotionsBody.appendChild(createPromotionSummaryStrip(state.promotions));
+        promotionsBody.appendChild(createPromotionFilterControl());
+        const visiblePromotions = getFilteredPromotions(state.promotions);
         if (state.loadErrors.promotions) {
           promotionsBody.appendChild(createLoadIssueState("Promotions data haikupatikana kwa sasa."));
         } else if (!state.promotions.length) {
           promotionsBody.appendChild(deps.createEmptyState("Hakuna promotions za kusimamia."));
+        } else if (!visiblePromotions.length) {
+          promotionsBody.appendChild(deps.createEmptyState("Hakuna promotions kwenye filter hiyo kwa sasa."));
         } else {
-          await appendItemsInChunks(promotionsBody, state.promotions, (promotion) => createPromotionCard(promotion), 10);
+          await appendItemsInChunks(promotionsBody, visiblePromotions, (promotion) => createPromotionCard(promotion), 10);
         }
         wrapper.appendChild(createSection("Promotions", "Admin-only promotion controls.", promotionsBody));
         await nextFrame();
