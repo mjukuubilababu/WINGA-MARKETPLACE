@@ -625,7 +625,7 @@
       sectionHeading.appendChild(shareButton);
       section.appendChild(sectionHeading);
       const track = createElement("div", { className: "showcase-track" });
-      items.forEach((product) => track.appendChild(createShowcaseProductCardElement(product)));
+      appendHorizontalDiscoveryCards(track, items, { priorityCount: 1 });
       section.appendChild(track);
       return section;
     }
@@ -682,9 +682,42 @@
       sectionHeading.appendChild(shareButton);
       section.appendChild(sectionHeading);
       const track = createElement("div", { className: "showcase-track" });
-      items.forEach((product) => track.appendChild(createShowcaseProductCardElement(product)));
+      if (typeof deps.renderDiscoveryProductCards === "function") {
+        const cardsFragment = createFragmentFromMarkup(
+          deps.renderDiscoveryProductCards(items, {
+            priorityCount: 1,
+            sponsored: String(type || "").trim().toLowerCase() === "sponsored"
+          })
+        );
+        const renderedCards = Array.from(cardsFragment.querySelectorAll?.(".seller-product-card") || []);
+        if (renderedCards.length) {
+          renderedCards.forEach((card) => track.appendChild(card));
+        } else {
+          items.forEach((product) => track.appendChild(createShowcaseProductCardElement(product)));
+        }
+      } else {
+        items.forEach((product) => track.appendChild(createShowcaseProductCardElement(product)));
+      }
       section.appendChild(track);
       return section;
+    }
+
+    function appendHorizontalDiscoveryCards(track, items, options = {}) {
+      const safeItems = Array.isArray(items) ? items.filter(Boolean) : [];
+      if (!track || !safeItems.length) {
+        return;
+      }
+      if (typeof deps.renderDiscoveryProductCards === "function") {
+        const cardsFragment = createFragmentFromMarkup(
+          deps.renderDiscoveryProductCards(safeItems, options)
+        );
+        const renderedCards = Array.from(cardsFragment.querySelectorAll?.(".seller-product-card") || []);
+        if (renderedCards.length) {
+          renderedCards.forEach((card) => track.appendChild(card));
+          return;
+        }
+      }
+      safeItems.forEach((product) => track.appendChild(createShowcaseProductCardElement(product)));
     }
 
     function createRecommendationDescriptor(title, subtitle, items, type) {
