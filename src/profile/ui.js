@@ -684,6 +684,53 @@
       return section;
     }
 
+    function createPromotionManagementSectionElement(context = {}) {
+      if (!context.canUseSellerFeatures) {
+        return null;
+      }
+      const section = deps.createElement("section", {
+        attributes: { id: "profile-promotions-management-panel" }
+      });
+      const promotions = Array.isArray(context.promotions) ? context.promotions : [];
+      section.appendChild(deps.createSectionHeading({
+        eyebrow: "Promotions",
+        title: "Promotion status",
+        meta: `${promotions.length} record${promotions.length === 1 ? "" : "s"}`
+      }));
+
+      if (!promotions.length) {
+        section.appendChild(deps.createElement("p", {
+          className: "empty-copy",
+          textContent: "Hakuna promotion requests bado."
+        }));
+        return section;
+      }
+
+      const list = deps.createElement("div", { className: "orders-grid promotion-guide-grid" });
+      promotions.forEach((promotion) => {
+        const card = deps.createElement("div", { className: "orders-card promotion-guide-card" });
+        const status = String(promotion?.status || "pending").trim() || "pending";
+        const amount = Number(promotion?.amountPaid || 0);
+        const startDate = promotion?.startDate ? new Date(promotion.startDate) : null;
+        const endDate = promotion?.endDate ? new Date(promotion.endDate) : null;
+        const hasSchedule = startDate instanceof Date && !Number.isNaN(startDate.getTime()) && endDate instanceof Date && !Number.isNaN(endDate.getTime());
+        card.append(
+          deps.createElement("strong", { textContent: `${promotion.productName || promotion.productId || "Product"} | ${promotion.label || promotion.type}` }),
+          deps.createStatusPill(status, status === "active" ? "approved" : status === "rejected" ? "rejected" : "pending"),
+          deps.createElement("small", {
+            textContent: `TSh ${deps.formatNumber(amount)}${hasSchedule ? ` | ${startDate.toLocaleDateString()} - ${endDate.toLocaleDateString()}` : ""}`
+          }),
+          deps.createElement("p", {
+            className: "product-meta",
+            textContent: `Reference: ${promotion.transactionReference || "-"}`
+          })
+        );
+        list.appendChild(card);
+      });
+      section.appendChild(list);
+      return section;
+    }
+
     function createProfileShellElement(context) {
       const {
         displayName,
@@ -692,6 +739,7 @@
         identityMarkup,
         sellerUpgradeMarkup,
         savedIntentMarkup,
+        promotionsMarkup,
         requestsMarkup,
         ordersMarkup,
         notificationsMarkup,
@@ -723,6 +771,7 @@
         identityMarkup,
         sellerUpgradeMarkup,
         savedIntentMarkup,
+        promotionsMarkup,
         requestsMarkup,
         ordersMarkup,
         notificationsMarkup,
@@ -927,6 +976,8 @@
       createSellerUpgradeSectionElement,
       createOrdersSectionElement,
       createPromotionOverviewSectionElement
+      ,
+      createPromotionManagementSectionElement
     };
   }
 

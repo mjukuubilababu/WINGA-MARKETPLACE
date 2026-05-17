@@ -674,6 +674,21 @@
         const activePromotions = Array.isArray(deps.getActivePromotions?.())
           ? deps.getActivePromotions()
           : [];
+        const sellerPromotions = (Array.isArray(deps.getCurrentPromotions?.()) ? deps.getCurrentPromotions() : [])
+          .filter((promotion) => String(promotion?.sellerUsername || "").trim().toLowerCase() === String(currentUser || "").trim().toLowerCase())
+          .map((promotion) => {
+            const product = deps.getProductById?.(promotion.productId);
+            const option = deps.getPromotionOptions?.()?.[promotion.type] || null;
+            return {
+              ...promotion,
+              productName: product?.name || "",
+              label: option?.label || promotion.type
+            };
+          })
+          .sort((first, second) =>
+            new Date(second?.updatedAt || second?.createdAt || 0).getTime()
+            - new Date(first?.updatedAt || first?.createdAt || 0).getTime()
+          );
         const canGetVerified = userProfile?.role === "seller" && !userProfile?.verifiedSeller;
         profileDiv.dataset.activeSection = activeSection;
         profileDiv.replaceChildren(deps.createProfileShellElement({
@@ -717,6 +732,10 @@
             primaryCategory: userProfile?.primaryCategory || "",
           }),
           savedIntentMarkup: deps.renderSavedIntentSection?.(),
+          promotionsMarkup: deps.createPromotionManagementSectionElement?.({
+            canUseSellerFeatures: deps.canUseSellerFeatures(),
+            promotions: sellerPromotions
+          }),
           requestsMarkup: deps.renderRequestBoxSection(),
           ordersMarkup: deps.createOrdersSectionElement(deps.getCurrentOrders()),
           notificationsMarkup: deps.renderNotificationsSection(),

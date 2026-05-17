@@ -8206,7 +8206,8 @@ const {
   createProfileIdentitySectionElement,
   createSellerUpgradeSectionElement,
   createOrdersSectionElement,
-  createPromotionOverviewSectionElement
+  createPromotionOverviewSectionElement,
+  createPromotionManagementSectionElement
 } = window.WingaModules.profile.createProfileUiModule({
   createElement,
   createSectionHeading,
@@ -8270,6 +8271,7 @@ const {
   createSellerUpgradeSectionElement,
   createOrdersSectionElement,
   createPromotionOverviewSectionElement,
+  createPromotionManagementSectionElement,
   renderSavedIntentSection,
   createOrdersContainerFromState,
   renderRequestBoxSection,
@@ -8308,6 +8310,7 @@ const {
   getCurrentUser: () => currentUser,
   getCurrentSession: () => currentSession,
   getCurrentOrders: () => currentOrders,
+  getCurrentPromotions: () => currentPromotions,
   getCurrentView: () => currentView,
   setCurrentOrders: (value) => {
     currentOrders = value;
