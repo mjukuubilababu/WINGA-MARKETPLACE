@@ -8728,6 +8728,7 @@ const {
   getRelatedProducts: (...args) => getRelatedProducts(...args),
   getYouMayLikeProducts,
   getTrendingProducts,
+  prioritizeVisibleFeedMedia,
   bindShowcaseCardClicks,
   setupDynamicShowcaseLoading,
   reportShowcaseInstrumentation,

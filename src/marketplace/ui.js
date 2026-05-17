@@ -824,6 +824,7 @@
           });
           safeItems.forEach((item) => usedShowcaseProductIds.add(item.id));
           fragment.appendChild(showcaseElement);
+          deps.prioritizeVisibleFeedMedia?.(showcaseElement, Math.min(6, safeItems.length));
           showcaseIndex += 1;
           insertedInlineShowcase = true;
           break;
@@ -855,10 +856,11 @@
                 descriptor.title,
                 safeItems,
                 descriptor.kind
-              );
+            );
             if (showcaseElement) {
               safeItems.forEach((item) => usedShowcaseProductIds.add(item.id));
               productsContainer.appendChild(showcaseElement);
+              deps.prioritizeVisibleFeedMedia?.(showcaseElement, Math.min(6, safeItems.length));
             }
           }
         }
