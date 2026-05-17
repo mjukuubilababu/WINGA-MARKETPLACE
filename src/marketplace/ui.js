@@ -860,9 +860,13 @@
           deps.bindShowcaseCardClicks(productsContainer);
           deps.setupDynamicShowcaseLoading(productsContainer, usedShowcaseProductIds);
         }
+        deps.enhanceShowcaseTracks?.(productsContainer);
         repairShowcaseMediaVisibility(productsContainer);
         stabilizeMobileShowcaseRows(productsContainer);
         deps.bindFeedGalleryInteractions?.(productsContainer);
+        deps.bindImageFallbacks?.(productsContainer);
+        deps.bindProductEngagementSignals?.(productsContainer);
+        deps.bindProductMenus?.(productsContainer);
         if (currentView === "home" && list.length > 0 && deps.canUseContinuousDiscovery?.() && deps.setupContinuousDiscoveryLoading) {
           const usedProductIds = new Set(list.map((product) => product.id));
           Array.from(productsContainer.querySelectorAll("[data-showcase-id], [data-open-product]")).forEach((element) => {
