@@ -210,6 +210,13 @@
         textContent: sellerUser?.verifiedSeller ? "Verified" : "Seller"
       }));
       if (isOwnerSeller) {
+        const promotionStatusMeta = deps.getSellerPromotionStatusMeta?.(product);
+        if (promotionStatusMeta?.label) {
+          badgeRow.appendChild(createElement("span", {
+            className: `status-pill product-seller-promotion-state ${promotionStatusMeta.className || "pending"}`,
+            textContent: promotionStatusMeta.label
+          }));
+        }
         const promoteButton = createElement("button", {
           className: "product-seller-promote-chip",
           textContent: "Promote",

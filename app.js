@@ -8700,6 +8700,7 @@ const {
   getMarketplacePrimaryImage,
   getMarketplaceUser,
   getCurrentUser: () => currentUser,
+  getSellerPromotionStatusMeta,
   renderMarketplaceTrustBadges,
   renderProductActionGroup,
   renderProductOverflowMenu,
@@ -13889,11 +13890,48 @@ function renderPromoteButton(product) {
   return `<button class="action-btn action-btn-secondary" type="button" data-promote-product="${product.id}">Promote</button>`;
 }
 
+function getSellerPromotionStatusMeta(product) {
+  if (!currentUser || !product?.id || product?.uploadedBy !== currentUser) {
+    return null;
+  }
+  const matchingPromotion = (Array.isArray(currentPromotions) ? currentPromotions : [])
+    .filter((promotion) =>
+      String(promotion?.productId || "").trim() === String(product.id || "").trim()
+      && String(promotion?.sellerUsername || "").trim().toLowerCase() === String(currentUser || "").trim().toLowerCase()
+    )
+    .sort((first, second) =>
+      new Date(second?.updatedAt || second?.createdAt || 0).getTime()
+      - new Date(first?.updatedAt || first?.createdAt || 0).getTime()
+    )[0];
+  if (!matchingPromotion) {
+    return null;
+  }
+  const status = String(matchingPromotion.status || "").trim().toLowerCase();
+  if (status === "active") {
+    return { label: "Active", className: "approved" };
+  }
+  if (status === "pending") {
+    return { label: "Pending", className: "pending" };
+  }
+  if (status === "rejected") {
+    return { label: "Rejected", className: "rejected" };
+  }
+  return null;
+}
+
+function renderSellerPromotionStatusChip(product) {
+  const statusMeta = getSellerPromotionStatusMeta(product);
+  if (!statusMeta) {
+    return "";
+  }
+  return `<span class="status-pill product-seller-promotion-state ${statusMeta.className}">${escapeHtml(statusMeta.label)}</span>`;
+}
+
 function renderSellerCardPromoteChip(product) {
   if (!currentUser || !canUseSellerFeatures() || product?.uploadedBy !== currentUser) {
     return "";
   }
-  return `<button class="product-seller-promote-chip" type="button" onclick="return window.__wingaOpenPromotionFromTrigger ? window.__wingaOpenPromotionFromTrigger(this) : false;" data-promote-product="${product.id}" data-promote-authorized="true" data-promote-product-owner="${escapeHtml(product.uploadedBy || "")}" data-promote-product-name="${escapeHtml(product.name || "")}" data-promote-product-shop="${escapeHtml(product.shop || "")}" data-promote-product-whatsapp="${escapeHtml(product.whatsapp || "")}" data-promote-product-location="${escapeHtml(product.location || "")}" data-promote-product-category="${escapeHtml(product.category || "")}">Promote</button>`;
+  return `${renderSellerPromotionStatusChip(product)}<button class="product-seller-promote-chip" type="button" onclick="return window.__wingaOpenPromotionFromTrigger ? window.__wingaOpenPromotionFromTrigger(this) : false;" data-promote-product="${product.id}" data-promote-authorized="true" data-promote-product-owner="${escapeHtml(product.uploadedBy || "")}" data-promote-product-name="${escapeHtml(product.name || "")}" data-promote-product-shop="${escapeHtml(product.shop || "")}" data-promote-product-whatsapp="${escapeHtml(product.whatsapp || "")}" data-promote-product-location="${escapeHtml(product.location || "")}" data-promote-product-category="${escapeHtml(product.category || "")}">Promote</button>`;
 }
 
 function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {

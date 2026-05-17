@@ -1825,6 +1825,14 @@ img[data-zoom-src]{
   white-space:nowrap;
 }
 
+.product-seller-promotion-state{
+  flex:0 0 auto;
+  min-height:24px;
+  padding:0 8px;
+  font-size:0.68rem;
+  line-height:1;
+}
+
 .product-seller-promote-chip:hover{
   background:#ffe9d8;
 }
