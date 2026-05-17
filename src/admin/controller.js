@@ -25,6 +25,7 @@
       values: null
     };
     let promotionFilterState = "all";
+    let promotionSearchState = "";
 
     function mapStatusClass(status = "") {
       const normalized = String(status || "").toLowerCase();
@@ -1125,12 +1126,27 @@
 
     function getFilteredPromotions(promotions = []) {
       const safePromotions = Array.isArray(promotions) ? promotions : [];
-      if (promotionFilterState === "all") {
-        return safePromotions;
-      }
-      return safePromotions.filter((promotion) =>
-        String(promotion?.status || "").trim().toLowerCase() === promotionFilterState
-      );
+      const normalizedQuery = String(promotionSearchState || "").trim().toLowerCase();
+      return safePromotions.filter((promotion) => {
+        const matchesStatus = promotionFilterState === "all"
+          || String(promotion?.status || "").trim().toLowerCase() === promotionFilterState;
+        if (!matchesStatus) {
+          return false;
+        }
+        if (!normalizedQuery) {
+          return true;
+        }
+        const haystack = [
+          promotion?.productId,
+          promotion?.sellerUsername,
+          promotion?.transactionReference,
+          promotion?.type
+        ]
+          .map((value) => String(value || "").trim().toLowerCase())
+          .filter(Boolean)
+          .join(" ");
+        return haystack.includes(normalizedQuery);
+      });
     }
 
     function createPromotionFilterControl() {
@@ -1162,6 +1178,25 @@
         select.appendChild(option);
       });
       wrapper.append(label, select);
+      return wrapper;
+    }
+
+    function createPromotionSearchControl() {
+      const wrapper = deps.createElement("div", { className: "moderation-actions" });
+      const label = deps.createElement("label", {
+        className: "product-meta",
+        textContent: "Search"
+      });
+      const input = deps.createElement("input", {
+        attributes: {
+          type: "search",
+          value: promotionSearchState || "",
+          placeholder: "Seller, product, or reference",
+          "data-admin-promotion-search": "true",
+          autocomplete: "off"
+        }
+      });
+      wrapper.append(label, input);
       return wrapper;
     }
 
@@ -1300,6 +1335,7 @@
         const promotionsBody = deps.createElement("div", { className: "moderation-list" });
         promotionsBody.appendChild(createPromotionSummaryStrip(state.promotions));
         promotionsBody.appendChild(createPromotionFilterControl());
+        promotionsBody.appendChild(createPromotionSearchControl());
         const visiblePromotions = getFilteredPromotions(state.promotions);
         if (state.loadErrors.promotions) {
           promotionsBody.appendChild(createLoadIssueState("Promotions data haikupatikana kwa sasa."));
@@ -1951,6 +1987,13 @@
         });
       });
 
+      panel.querySelectorAll("[data-admin-promotion-search]").forEach((input) => {
+        input.addEventListener("input", () => {
+          promotionSearchState = String(input.value || "").trim();
+          renderAdminView();
+        });
+      });
+
       panel.querySelectorAll("[data-admin-settings-save]").forEach((button) => {
         button.addEventListener("click", async () => {
           const scope = button.closest("[data-admin-settings-form]");
@@ -2067,6 +2110,7 @@
         const promotionsBody = deps.createElement("div", { className: "moderation-list" });
         promotionsBody.appendChild(createPromotionSummaryStrip(state.promotions));
         promotionsBody.appendChild(createPromotionFilterControl());
+        promotionsBody.appendChild(createPromotionSearchControl());
         const visiblePromotions = getFilteredPromotions(state.promotions);
         if (state.loadErrors.promotions) {
           promotionsBody.appendChild(createLoadIssueState("Promotions data haikupatikana kwa sasa."));
