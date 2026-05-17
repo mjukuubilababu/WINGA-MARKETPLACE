@@ -710,13 +710,14 @@
       promotions.forEach((promotion) => {
         const card = deps.createElement("div", { className: "orders-card promotion-guide-card" });
         const status = String(promotion?.status || "pending").trim() || "pending";
+        const statusClass = status === "active" ? "approved" : status === "rejected" ? "rejected" : "pending";
         const amount = Number(promotion?.amountPaid || 0);
         const startDate = promotion?.startDate ? new Date(promotion.startDate) : null;
         const endDate = promotion?.endDate ? new Date(promotion.endDate) : null;
         const hasSchedule = startDate instanceof Date && !Number.isNaN(startDate.getTime()) && endDate instanceof Date && !Number.isNaN(endDate.getTime());
         card.append(
           deps.createElement("strong", { textContent: `${promotion.productName || promotion.productId || "Product"} | ${promotion.label || promotion.type}` }),
-          deps.createStatusPill(status, status === "active" ? "approved" : status === "rejected" ? "rejected" : "pending"),
+          deps.createStatusPill(status, statusClass),
           deps.createElement("small", {
             textContent: `TSh ${deps.formatNumber(amount)}${hasSchedule ? ` | ${startDate.toLocaleDateString()} - ${endDate.toLocaleDateString()}` : ""}`
           }),

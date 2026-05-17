@@ -13940,6 +13940,9 @@ function getSellerPromotionStatusMeta(product) {
   if (status === "rejected") {
     return { label: "Rejected", className: "rejected", detail: "Needs a new request" };
   }
+  if (status === "expired") {
+    return { label: "Expired", className: "pending", detail: "Promotion ended" };
+  }
   return null;
 }
 
