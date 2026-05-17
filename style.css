@@ -9140,10 +9140,11 @@ button:hover,
     padding:16px;
   }
 
-  #market-showcase{
-    width:calc(100% + 16px);
-    max-width:none;
-    min-width:0;
+#market-showcase{
+  display:none !important;
+  width:calc(100% + 16px);
+  max-width:none;
+  min-width:0;
     margin-left:-8px;
     margin-right:-8px;
     padding:0;
