@@ -1840,6 +1840,11 @@ img[data-zoom-src]{
   white-space:nowrap;
 }
 
+.product-seller-promotion-analytics{
+  color:var(--ink-soft);
+  font-size:0.72rem;
+}
+
 .product-seller-promote-chip:hover{
   background:#ffe9d8;
 }

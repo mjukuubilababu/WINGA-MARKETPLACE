@@ -517,6 +517,10 @@
       if (caption) {
         content.appendChild(caption);
       }
+      const promotionAnalyticsMarkup = deps.renderSellerPromotionAnalytics?.(product);
+      if (promotionAnalyticsMarkup) {
+        content.appendChild(createElementFromMarkup(promotionAnalyticsMarkup));
+      }
       content.appendChild(createProductActionGroupElement(product));
       card.appendChild(content);
       bindCardOpenHandler(card, product);

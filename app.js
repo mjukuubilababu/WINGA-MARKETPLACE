@@ -8701,6 +8701,7 @@ const {
   getMarketplaceUser,
   getCurrentUser: () => currentUser,
   getSellerPromotionStatusMeta,
+  renderSellerPromotionAnalytics,
   renderMarketplaceTrustBadges,
   renderProductActionGroup,
   renderProductOverflowMenu,
@@ -13278,6 +13279,7 @@ function renderDiscoveryProductCards(items, options = {}) {
               ${safeCaption.length > 120 ? `<button class="product-caption-toggle" type="button" data-product-caption-toggle="true" aria-expanded="false">See more</button>` : ""}
             </div>
             ${promotion ? `<p class="product-meta trust-badges"><span class="status-pill approved sponsored-pill">${escapeHtml(getPromotionLabel(promotion.type))}</span></p>` : ""}
+            ${renderSellerPromotionAnalytics(item)}
 ${renderProductActionGroup(item, { requestLabel: "My Request", extraClass: "seller-product-actions seller-product-actions-compact" })}
           </article>
         `;
@@ -13947,6 +13949,16 @@ function renderSellerPromotionStatusChip(product) {
     ? `<span class="product-seller-promotion-detail">${escapeHtml(statusMeta.detail)}</span>`
     : "";
   return `<span class="status-pill product-seller-promotion-state ${statusMeta.className}">${escapeHtml(statusMeta.label)}</span>${detailMarkup}`;
+}
+
+function renderSellerPromotionAnalytics(product) {
+  const statusMeta = getSellerPromotionStatusMeta(product);
+  if (!statusMeta || statusMeta.className !== "approved") {
+    return "";
+  }
+  const views = Math.max(0, Number(product?.views || 0));
+  const likes = Math.max(0, Number(product?.likes || 0));
+  return `<p class="product-meta product-seller-promotion-analytics">Promotion reach: ${escapeHtml(formatNumber(views))} views · ${escapeHtml(formatNumber(likes))} likes</p>`;
 }
 
 function renderSellerCardPromoteChip(product) {
