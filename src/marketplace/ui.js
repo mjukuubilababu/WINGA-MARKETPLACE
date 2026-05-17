@@ -271,7 +271,7 @@
       media.dataset.showcaseFallbackSrc = fallbackSrc || "";
       media.dataset.showcaseFallbackAlt = product.name || "Product image";
       if (deps.renderFeedGalleryMarkup) {
-        media.appendChild(createElementFromMarkup(deps.renderFeedGalleryMarkup(product, "feed", {
+        media.appendChild(createElementFromMarkup(deps.renderFeedGalleryMarkup(product, "showcase", {
           priorityCount: 1,
           preload: false
         })));
@@ -371,12 +371,40 @@
           if (healthyCardCount > 0) {
             return;
           }
-          reportShowcaseInstrumentation("mobile_showcase_row_removed", {
+          row.dataset.showcaseRowMediaPending = "true";
+          row.querySelectorAll(".showcase-media").forEach((media) => {
+            if (!(media instanceof Element)) {
+              return;
+            }
+            const fallbackSrc = String(media.dataset.showcaseFallbackSrc || "").trim();
+            const visibleImage = media.querySelector(".feed-gallery-image-social, .showcase-preview-image, img");
+            const hasHealthyImage = Boolean(
+              visibleImage
+              && String(visibleImage.currentSrc || visibleImage.src || "").trim()
+              && (Number(visibleImage.naturalWidth || 0) > 0 || Number(visibleImage.clientWidth || 0) > 0)
+            );
+            if (!fallbackSrc || hasHealthyImage) {
+              return;
+            }
+            media.replaceChildren(createProgressiveImage({
+              src: fallbackSrc,
+              alt: String(media.dataset.showcaseFallbackAlt || "Product image"),
+              fallbackSrc: deps.getImageFallbackDataUri("WINGA"),
+              placeholderSrc: deps.getImageFallbackDataUri("W"),
+              className: "showcase-preview-image",
+              fitMode: String(media.dataset.fitMode || "cover").trim().toLowerCase() === "contain" ? "contain" : "cover",
+              attributes: {
+                "data-marketplace-scroll-image": "true",
+                "data-showcase-media-repaired": "true"
+              }
+            }));
+            media.dataset.showcaseMediaRepaired = "true";
+          });
+          reportShowcaseInstrumentation("mobile_showcase_row_media_pending", {
             heading: String(row.querySelector(".section-heading h2, .section-heading strong, h2")?.textContent || "").trim(),
             cardCount: cards.length,
             source: row.getAttribute("data-recommendation-type") || row.getAttribute("data-continuous-discovery-kind") || "showcase_inline"
           });
-          row.remove();
         }, 1400);
       });
     }
