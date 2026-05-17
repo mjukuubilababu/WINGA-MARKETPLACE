@@ -687,6 +687,72 @@
       };
     }
 
+    function buildHomeIntelligentSectionQueue(list, usedShowcaseProductIds = new Set()) {
+      const safeList = Array.isArray(list) ? list.filter(Boolean) : [];
+      const queue = [];
+      const seenKinds = new Set();
+      const pushDescriptor = (descriptor, variant = "recommendation") => {
+        if (!descriptor || !Array.isArray(descriptor.items)) {
+          return;
+        }
+        const safeItems = descriptor.items
+          .filter(Boolean)
+          .filter((item) => item?.id && !usedShowcaseProductIds.has(item.id));
+        if (safeItems.length < 3) {
+          return;
+        }
+        const key = String(descriptor.kind || descriptor.heading || descriptor.eyebrow || descriptor.title || variant)
+          .trim()
+          .toLowerCase();
+        if (!key || seenKinds.has(key)) {
+          return;
+        }
+        seenKinds.add(key);
+        queue.push({
+          ...descriptor,
+          items: safeItems.slice(0, 12),
+          variant
+        });
+      };
+
+      const followingDescriptor = deps.getBehaviorShowcaseDescriptor?.(0, usedShowcaseProductIds);
+      if (followingDescriptor?.heading === "Following") {
+        pushDescriptor({
+          kind: "following",
+          heading: followingDescriptor.heading,
+          title: followingDescriptor.title,
+          subtitle: followingDescriptor.subtitle,
+          items: followingDescriptor.items
+        }, "showcase");
+      }
+
+      const seedProduct = deps.getRecommendationSeed?.(safeList) || safeList[0] || null;
+      const related = deps.getRelatedProducts?.(seedProduct, 6) || [];
+      const youMayLike = deps.getYouMayLikeProducts?.(seedProduct, 6) || [];
+      const trending = deps.getTrendingProducts?.(8) || [];
+
+      pushDescriptor(createRecommendationDescriptor(
+        "Based on what you viewed",
+        seedProduct ? `More in ${deps.getCategoryLabel(seedProduct.category)}` : "Similar picks",
+        related,
+        "related"
+      ));
+      pushDescriptor(createRecommendationDescriptor(
+        "Most trending",
+        "Most viewed and most interacted",
+        trending,
+        "trending"
+      ));
+      pushDescriptor(createRecommendationDescriptor(
+        "Most casual",
+        "Suggestions refreshed as you continue browsing",
+        youMayLike,
+        "you-may-like"
+      ));
+
+      return queue;
+    }
+
     function reportShowcaseInstrumentation(eventName, payload = {}) {
       if (typeof deps.reportShowcaseInstrumentation !== "function") {
         return;
@@ -705,54 +771,64 @@
       const shouldInjectInlineShowcases = currentView === "home" && !deps.hasPrioritySearchResults(list.length);
       const isMobileViewport = window.matchMedia?.("(max-width: 780px)")?.matches;
       const productsPerRow = shouldInjectInlineShowcases ? deps.getProductsPerRow() : 0;
-      const showcaseSpacing = isMobileViewport ? 14 : 10;
+      const showcaseSpacing = isMobileViewport ? 8 : 10;
+      const showcaseRepeatInterval = isMobileViewport ? 16 : 14;
       const firstShowcaseAfter = shouldInjectInlineShowcases ? showcaseSpacing : Number.POSITIVE_INFINITY;
-      const showcaseRepeatInterval = shouldInjectInlineShowcases ? showcaseSpacing : Number.POSITIVE_INFINITY;
+      const effectiveShowcaseRepeatInterval = shouldInjectInlineShowcases ? showcaseRepeatInterval : Number.POSITIVE_INFINITY;
       let nextShowcaseInsertAt = firstShowcaseAfter;
       let showcaseIndex = 0;
       let insertedInlineShowcase = false;
       const usedShowcaseProductIds = new Set();
-      const maxDeferredShowcases = shouldInjectInlineShowcases
-        ? Math.min(isMobileViewport ? 1 : 2, Math.max(0, Math.floor((Math.max(0, list.length - firstShowcaseAfter)) / Math.max(1, showcaseRepeatInterval))))
-        : 0;
       const viewedProductIds = [];
       const passiveViewLimit = Math.max(4, (deps.getProductsPerRow?.() || 3));
       preloadMarketplaceImages(list);
       const renderToken = ++scheduledFeedRenderState.token;
       productsContainer.replaceChildren();
+      const intelligentSectionQueue = buildHomeIntelligentSectionQueue(list, usedShowcaseProductIds);
+      let intelligentSectionIndex = 0;
 
       const appendShowcaseIfNeeded = (fragment, renderedCount) => {
         if (!shouldInjectInlineShowcases || renderedCount !== nextShowcaseInsertAt || renderedCount >= list.length) {
           return;
         }
-        if (showcaseIndex === 0) {
-          const descriptor = deps.getBehaviorShowcaseDescriptor(showcaseIndex, usedShowcaseProductIds);
-          const showcaseElement = createShowcaseSectionElement(
-            descriptor.items,
-            showcaseIndex + 1,
-            descriptor.heading,
-            descriptor.title,
-            descriptor.subtitle
-          );
-          if (showcaseElement) {
-            reportShowcaseInstrumentation("inline_behavior_showcase_rendered", {
-              sectionIndex: showcaseIndex,
-              heading: descriptor.heading,
-              title: descriptor.title,
-              itemCount: Array.isArray(descriptor.items) ? descriptor.items.length : 0,
-              source: "behavior_showcase"
-            });
-            descriptor.items.forEach((item) => usedShowcaseProductIds.add(item.id));
-            fragment.appendChild(showcaseElement);
-            showcaseIndex += 1;
-            insertedInlineShowcase = true;
+        while (intelligentSectionIndex < intelligentSectionQueue.length) {
+          const descriptor = intelligentSectionQueue[intelligentSectionIndex];
+          intelligentSectionIndex += 1;
+          const safeItems = descriptor.items.filter((item) => item?.id && !usedShowcaseProductIds.has(item.id));
+          if (safeItems.length < 3) {
+            continue;
           }
-        } else if (showcaseIndex - 1 < maxDeferredShowcases) {
-          fragment.appendChild(createDynamicShowcasePlaceholderElement(showcaseIndex));
+          const showcaseElement = descriptor.variant === "showcase"
+            ? createShowcaseSectionElement(
+              safeItems,
+              showcaseIndex + 1,
+              descriptor.heading,
+              descriptor.title,
+              descriptor.subtitle
+            )
+            : createRecommendationSectionElement(
+              descriptor.eyebrow,
+              descriptor.title,
+              safeItems,
+              descriptor.kind
+            );
+          if (!showcaseElement) {
+            continue;
+          }
+          reportShowcaseInstrumentation("intelligent_section_rendered", {
+            sectionIndex: showcaseIndex,
+            kind: descriptor.kind || descriptor.heading || descriptor.eyebrow || "section",
+            title: descriptor.title || "",
+            itemCount: safeItems.length,
+            source: descriptor.variant || "showcase"
+          });
+          safeItems.forEach((item) => usedShowcaseProductIds.add(item.id));
+          fragment.appendChild(showcaseElement);
           showcaseIndex += 1;
           insertedInlineShowcase = true;
+          break;
         }
-        nextShowcaseInsertAt += showcaseRepeatInterval;
+        nextShowcaseInsertAt += effectiveShowcaseRepeatInterval;
       };
 
       const finalizeFeedRender = () => {
@@ -760,61 +836,35 @@
           return;
         }
         if (shouldInjectInlineShowcases && !insertedInlineShowcase && list.length >= Math.max(4, productsPerRow * 2 || 4)) {
-          const descriptor = deps.getBehaviorShowcaseDescriptor(0, usedShowcaseProductIds);
-          const showcaseElement = createShowcaseSectionElement(
-            descriptor.items,
-            1,
-            descriptor.heading,
-            descriptor.title,
-            descriptor.subtitle
+          const descriptor = intelligentSectionQueue.find((entry) =>
+            Array.isArray(entry?.items)
+            && entry.items.some((item) => item?.id && !usedShowcaseProductIds.has(item.id))
           );
-          if (showcaseElement) {
-            productsContainer.appendChild(showcaseElement);
+          if (descriptor) {
+            const safeItems = descriptor.items.filter((item) => item?.id && !usedShowcaseProductIds.has(item.id));
+            const showcaseElement = descriptor.variant === "showcase"
+              ? createShowcaseSectionElement(
+                safeItems,
+                1,
+                descriptor.heading,
+                descriptor.title,
+                descriptor.subtitle
+              )
+              : createRecommendationSectionElement(
+                descriptor.eyebrow,
+                descriptor.title,
+                safeItems,
+                descriptor.kind
+              );
+            if (showcaseElement) {
+              safeItems.forEach((item) => usedShowcaseProductIds.add(item.id));
+              productsContainer.appendChild(showcaseElement);
+            }
           }
         }
 
         if (currentView === "home" && list.length > 0 && deps.canUseContinuousDiscovery?.()) {
-          const seedProduct = deps.getRecommendationSeed(list);
-          const sponsored = deps.getDiscoverySponsoredProducts?.(seedProduct, {
-            limit: 6,
-            excludeIds: new Set(list.map((product) => product.id))
-          }) || [];
-          const related = deps.getRelatedProducts(seedProduct, 6);
-          const youMayLike = deps.getYouMayLikeProducts(seedProduct, 6);
-          const trending = deps.getTrendingProducts(8);
-          const recommendationDescriptors = [
-            createRecommendationDescriptor("Sponsored Picks", "Promoted products getting extra visibility", sponsored, "sponsored"),
-            createRecommendationDescriptor("Related Products", seedProduct ? `More in ${deps.getCategoryLabel(seedProduct.category)}` : "Similar picks", related, "related"),
-            createRecommendationDescriptor("You May Like", "Based on what you are viewing", youMayLike, "you-may-like"),
-            createRecommendationDescriptor("Trending", "Most viewed and most interacted", trending, "trending")
-          ].filter(Boolean);
-          if (deps.setDeferredRecommendationDescriptors) {
-            reportShowcaseInstrumentation("deferred_recommendations_queued", {
-              count: recommendationDescriptors.length,
-              kinds: recommendationDescriptors.map((descriptor) => descriptor.kind),
-              itemCounts: recommendationDescriptors.map((descriptor) => Array.isArray(descriptor.items) ? descriptor.items.length : 0)
-            });
-            deps.setDeferredRecommendationDescriptors(recommendationDescriptors);
-          } else {
-            recommendationDescriptors
-              .map((descriptor) => createRecommendationSectionElement(
-                descriptor.eyebrow,
-                descriptor.title,
-                descriptor.items,
-                descriptor.kind
-              ))
-              .filter(Boolean)
-              .forEach((section, index) => {
-                const descriptor = recommendationDescriptors[index];
-                reportShowcaseInstrumentation("recommendation_section_rendered", {
-                  kind: descriptor?.kind || "recommendation",
-                  title: descriptor?.title || "",
-                  itemCount: Array.isArray(descriptor?.items) ? descriptor.items.length : 0,
-                  source: "direct_recommendation"
-                });
-                productsContainer.appendChild(section);
-              });
-          }
+          deps.setDeferredRecommendationDescriptors?.([]);
           if (deps.createContinuousDiscoveryAnchorElement) {
             productsContainer.appendChild(deps.createContinuousDiscoveryAnchorElement());
           }
