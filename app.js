@@ -13578,6 +13578,21 @@ function getContinuousDiscoveryDescriptor(options = {}) {
   });
   const hardEligibleProducts = renderableProducts.filter((product) => !hardExcludeIds.has(product.id));
   const minimumBatchSize = 3;
+  const sponsoredItems = getDiscoverySponsoredProducts(preferredSeed, {
+    limit: batchIndex === 0 ? 6 : 4,
+    excludeIds: softExcludeIds
+  });
+
+  if (batchIndex === 0 && sponsoredItems.length >= 1) {
+    return {
+      kind: "sponsored",
+      eyebrow: "Sponsored Picks",
+      title: "Promoted products in the spotlight",
+      subtitle: "Paid visibility items are placed earlier so buyers notice them faster.",
+      sponsored: true,
+      items: sponsoredItems
+    };
+  }
 
   const freshNewItems = getNewestProducts({
     limit: 10,
@@ -13626,11 +13641,7 @@ function getContinuousDiscoveryDescriptor(options = {}) {
     };
   }
 
-  const sponsoredItems = getDiscoverySponsoredProducts(preferredSeed, {
-    limit: 4,
-    excludeIds: softExcludeIds
-  });
-  if (sponsoredItems.length >= 2) {
+  if (sponsoredItems.length >= 1) {
     return {
       kind: "sponsored",
       eyebrow: "Sponsored Picks",
