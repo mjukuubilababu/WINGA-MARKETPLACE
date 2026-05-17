@@ -8708,7 +8708,6 @@ const {
   renderMarketplaceTrustBadges,
   renderProductActionGroup,
   renderProductOverflowMenu,
-  renderDiscoveryProductCards,
   noteProductInterest,
   openPromotionIntentModal,
   openImageLightbox,
