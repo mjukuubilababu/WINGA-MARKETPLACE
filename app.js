@@ -13189,6 +13189,42 @@ function getBehaviorShowcaseDescriptor(sectionIndex = 0, excludeIds = new Set())
 
   const topCategory = preferredCategories[0];
   if (behaviorHeavy) {
+    if (sectionIndex > 0) {
+      const seedProduct = getRecommendationSeed(getFilteredProducts());
+      const alternateDescriptors = [
+        {
+          heading: "New Products",
+          title: topCategory ? `Fresh in ${getCategoryLabel(topCategory)}` : "Fresh listings from active sellers",
+          subtitle: "New stock appears as you keep scrolling.",
+          items: getNewestProducts({
+            limit: 12,
+            excludeIds,
+            seedProduct,
+            sourceProducts: baseProducts
+          })
+        },
+        {
+          heading: "Most Searched",
+          title: topCategory ? `Popular in ${getCategoryLabel(topCategory)}` : "Popular products buyers search for most",
+          subtitle: "High-intent products moving through the marketplace right now.",
+          items: getMostSearchedProducts(seedProduct, {
+            limit: 12,
+            excludeIds,
+            sourceProducts: baseProducts
+          })
+        },
+        {
+          heading: "Trending",
+          title: "Most viewed and most interacted products",
+          subtitle: "Marketplace momentum keeps discovery moving.",
+          items: getTrendingProducts(12, excludeIds, baseProducts)
+        }
+      ];
+      const alternateDescriptor = alternateDescriptors[(sectionIndex - 1) % alternateDescriptors.length];
+      if (Array.isArray(alternateDescriptor?.items) && alternateDescriptor.items.length >= 3) {
+        return alternateDescriptor;
+      }
+    }
     return {
       heading: sectionIndex === 0 ? "Marketplace Picks" : "Based on Your Interest",
       title: topCategory ? `More in ${getCategoryLabel(topCategory)}` : "Products related to your recent activity",
