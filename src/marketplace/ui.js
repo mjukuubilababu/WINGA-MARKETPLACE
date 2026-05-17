@@ -289,6 +289,29 @@
       return media;
     }
 
+    function createIntelligentPreviewMediaElement(product) {
+      const fitMode = String(product.fitMode || "").trim().toLowerCase() === "contain" ? "contain" : "cover";
+      const primaryImage = deps.getMarketplacePrimaryImage
+        ? deps.getMarketplacePrimaryImage(product, {
+            allowOwnerVisibility: product.uploadedBy === deps.getCurrentUser?.()
+          })
+        : deps.sanitizeImageSource(product.image || (Array.isArray(product.images) ? product.images[0] : ""), deps.getImageFallbackDataUri("WINGA"));
+      const media = createElement("div", {
+        className: `product-card-media intelligent-feed-media fit-mode-${fitMode}`,
+        attributes: { "data-fit-mode": fitMode }
+      });
+      media.appendChild(createResponsiveImage({
+        src: primaryImage,
+        alt: product.name || "Product image",
+        className: "intelligent-feed-image",
+        fallbackSrc: deps.getImageFallbackDataUri("WINGA"),
+        attributes: {
+          "data-disable-image-zoom": "true"
+        }
+      }));
+      return media;
+    }
+
     function repairShowcaseMediaVisibility(scope = document) {
       const isMobileViewport = window.matchMedia?.("(max-width: 780px)")?.matches;
       if (!isMobileViewport) {
@@ -597,6 +620,66 @@
       return card;
     }
 
+    function createIntelligentFeedCardElement(product) {
+      const card = createElement("article", {
+        className: "product-card intelligent-feed-card",
+        attributes: {
+          "data-intelligent-feed-card": product.id,
+          "data-open-product": product.id
+        }
+      });
+      card.dataset.intelligentFeedCard = product.id;
+      card.dataset.openProduct = product.id;
+      card.dataset.cardOpenBound = "false";
+      if (Array.isArray(product.images) && product.images.length > 1) {
+        card.classList.add("has-gallery-count-badge");
+      }
+      const media = createIntelligentPreviewMediaElement(product);
+      const body = createElement("div", {
+        className: "product-content product-content-simple product-content-social showcase-body intelligent-feed-body"
+      });
+      const overflowMenuMarkup = deps.renderProductOverflowMenu?.(product, { overlay: true });
+      if (overflowMenuMarkup) {
+        card.appendChild(createFragmentFromMarkup(overflowMenuMarkup));
+      }
+      body.appendChild(createSellerRowElement(product));
+      const caption = createProductCaptionElement(product);
+      if (caption) {
+        body.appendChild(caption);
+      }
+      body.append(
+        deps.createElementFromMarkup(
+          deps.renderProductActionGroup(product, {
+            requestLabel: "My Request",
+            extraClass: "showcase-actions showcase-actions-compact intelligent-feed-actions"
+          })
+        )
+      );
+      card.append(media, body);
+      bindCardOpenHandler(card, product);
+      return card;
+    }
+
+    function createIntelligentSectionElement(eyebrow, title, subtitle, items, type = "intelligent") {
+      if (!Array.isArray(items) || !items.length) {
+        return null;
+      }
+      const section = createElement("section", {
+        className: "showcase-inline panel recommendation-strip intelligent-feed-section",
+        attributes: { "data-recommendation-type": type }
+      });
+      const sectionHeading = deps.createSectionHeading({
+        eyebrow: eyebrow || "For you",
+        title: title || "Products picked for you",
+        meta: subtitle || "Suggestions based on the current catalog"
+      });
+      section.appendChild(sectionHeading);
+      const track = createElement("div", { className: "showcase-track intelligent-feed-track" });
+      items.forEach((product) => track.appendChild(createIntelligentFeedCardElement(product)));
+      section.appendChild(track);
+      return section;
+    }
+
     function createShowcaseSectionElement(items, index, heading = "Marketplace Picks", title = "Bidhaa kutoka maduka tofauti", subtitle = "Tembea kushoto au kulia kuona zaidi") {
       if (!items.length) {
         return null;
@@ -798,20 +881,13 @@
           if (safeItems.length < 3) {
             continue;
           }
-          const showcaseElement = descriptor.variant === "showcase"
-            ? createShowcaseSectionElement(
-              safeItems,
-              showcaseIndex + 1,
-              descriptor.heading,
-              descriptor.title,
-              descriptor.subtitle
-            )
-            : createRecommendationSectionElement(
-              descriptor.eyebrow,
-              descriptor.title,
-              safeItems,
-              descriptor.kind
-            );
+          const showcaseElement = createIntelligentSectionElement(
+            descriptor.heading || descriptor.eyebrow,
+            descriptor.title,
+            descriptor.subtitle,
+            safeItems,
+            descriptor.kind || descriptor.variant || "intelligent"
+          );
           if (!showcaseElement) {
             continue;
           }
@@ -843,19 +919,12 @@
           );
           if (descriptor) {
             const safeItems = descriptor.items.filter((item) => item?.id && !usedShowcaseProductIds.has(item.id));
-            const showcaseElement = descriptor.variant === "showcase"
-              ? createShowcaseSectionElement(
-                safeItems,
-                1,
-                descriptor.heading,
-                descriptor.title,
-                descriptor.subtitle
-              )
-              : createRecommendationSectionElement(
-                descriptor.eyebrow,
-                descriptor.title,
-                safeItems,
-                descriptor.kind
+            const showcaseElement = createIntelligentSectionElement(
+              descriptor.heading || descriptor.eyebrow,
+              descriptor.title,
+              descriptor.subtitle,
+              safeItems,
+              descriptor.kind || descriptor.variant || "intelligent"
             );
             if (showcaseElement) {
               safeItems.forEach((item) => usedShowcaseProductIds.add(item.id));
