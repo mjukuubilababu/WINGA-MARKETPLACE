@@ -667,13 +667,15 @@
         return null;
       }
       const normalizedType = String(type || "recommendation").trim().toLowerCase();
-      const minBatchIndex = normalizedType === "related"
+      const minBatchIndex = normalizedType === "sponsored"
         ? 1
-        : normalizedType === "you-may-like"
+        : normalizedType === "related"
           ? 2
-          : normalizedType === "trending"
+          : normalizedType === "you-may-like"
             ? 3
-            : 1;
+            : normalizedType === "trending"
+              ? 4
+              : 2;
       return {
         kind: type || "recommendation",
         source: "deferred_recommendation",
@@ -701,8 +703,9 @@
       const currentView = deps.getCurrentView();
       const shouldTrackViews = currentView !== "upload";
       const shouldInjectInlineShowcases = currentView === "home" && !deps.hasPrioritySearchResults(list.length);
+      const isMobileViewport = window.matchMedia?.("(max-width: 780px)")?.matches;
       const productsPerRow = shouldInjectInlineShowcases ? deps.getProductsPerRow() : 0;
-      const showcaseSpacing = 10;
+      const showcaseSpacing = isMobileViewport ? 14 : 10;
       const firstShowcaseAfter = shouldInjectInlineShowcases ? showcaseSpacing : Number.POSITIVE_INFINITY;
       const showcaseRepeatInterval = shouldInjectInlineShowcases ? showcaseSpacing : Number.POSITIVE_INFINITY;
       let nextShowcaseInsertAt = firstShowcaseAfter;
@@ -710,7 +713,7 @@
       let insertedInlineShowcase = false;
       const usedShowcaseProductIds = new Set();
       const maxDeferredShowcases = shouldInjectInlineShowcases
-        ? Math.min(2, Math.max(0, Math.floor((Math.max(0, list.length - firstShowcaseAfter)) / Math.max(1, showcaseRepeatInterval))))
+        ? Math.min(isMobileViewport ? 1 : 2, Math.max(0, Math.floor((Math.max(0, list.length - firstShowcaseAfter)) / Math.max(1, showcaseRepeatInterval))))
         : 0;
       const viewedProductIds = [];
       const passiveViewLimit = Math.max(4, (deps.getProductsPerRow?.() || 3));
@@ -785,7 +788,7 @@
             createRecommendationDescriptor("You May Like", "Based on what you are viewing", youMayLike, "you-may-like"),
             createRecommendationDescriptor("Trending", "Most viewed and most interacted", trending, "trending")
           ].filter(Boolean);
-          if (shouldInjectInlineShowcases && insertedInlineShowcase && deps.setDeferredRecommendationDescriptors) {
+          if (deps.setDeferredRecommendationDescriptors) {
             reportShowcaseInstrumentation("deferred_recommendations_queued", {
               count: recommendationDescriptors.length,
               kinds: recommendationDescriptors.map((descriptor) => descriptor.kind),
@@ -793,9 +796,6 @@
             });
             deps.setDeferredRecommendationDescriptors(recommendationDescriptors);
           } else {
-            if (deps.setDeferredRecommendationDescriptors) {
-              deps.setDeferredRecommendationDescriptors([]);
-            }
             recommendationDescriptors
               .map((descriptor) => createRecommendationSectionElement(
                 descriptor.eyebrow,
