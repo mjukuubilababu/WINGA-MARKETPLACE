@@ -1127,26 +1127,45 @@
     function getFilteredPromotions(promotions = []) {
       const safePromotions = Array.isArray(promotions) ? promotions : [];
       const normalizedQuery = String(promotionSearchState || "").trim().toLowerCase();
-      return safePromotions.filter((promotion) => {
-        const matchesStatus = promotionFilterState === "all"
-          || String(promotion?.status || "").trim().toLowerCase() === promotionFilterState;
-        if (!matchesStatus) {
-          return false;
-        }
-        if (!normalizedQuery) {
-          return true;
-        }
-        const haystack = [
-          promotion?.productId,
-          promotion?.sellerUsername,
-          promotion?.transactionReference,
-          promotion?.type
-        ]
-          .map((value) => String(value || "").trim().toLowerCase())
-          .filter(Boolean)
-          .join(" ");
-        return haystack.includes(normalizedQuery);
-      });
+      const statusPriority = {
+        pending: 0,
+        active: 1,
+        rejected: 2,
+        expired: 3,
+        disabled: 4
+      };
+      return safePromotions
+        .filter((promotion) => {
+          const matchesStatus = promotionFilterState === "all"
+            || String(promotion?.status || "").trim().toLowerCase() === promotionFilterState;
+          if (!matchesStatus) {
+            return false;
+          }
+          if (!normalizedQuery) {
+            return true;
+          }
+          const haystack = [
+            promotion?.productId,
+            promotion?.sellerUsername,
+            promotion?.transactionReference,
+            promotion?.type
+          ]
+            .map((value) => String(value || "").trim().toLowerCase())
+            .filter(Boolean)
+            .join(" ");
+          return haystack.includes(normalizedQuery);
+        })
+        .sort((first, second) => {
+          const firstStatus = String(first?.status || "").trim().toLowerCase() || "pending";
+          const secondStatus = String(second?.status || "").trim().toLowerCase() || "pending";
+          const firstPriority = Object.prototype.hasOwnProperty.call(statusPriority, firstStatus) ? statusPriority[firstStatus] : 99;
+          const secondPriority = Object.prototype.hasOwnProperty.call(statusPriority, secondStatus) ? statusPriority[secondStatus] : 99;
+          if (firstPriority !== secondPriority) {
+            return firstPriority - secondPriority;
+          }
+          return new Date(second?.updatedAt || second?.createdAt || 0).getTime()
+            - new Date(first?.updatedAt || first?.createdAt || 0).getTime();
+        });
     }
 
     function createPromotionFilterControl() {
