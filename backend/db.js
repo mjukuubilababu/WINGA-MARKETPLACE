@@ -224,10 +224,26 @@ function createPostgresStore({ databaseUrl, ssl = false }) {
           end_date TIMESTAMPTZ NOT NULL,
           created_at TIMESTAMPTZ NOT NULL,
           updated_at TIMESTAMPTZ NOT NULL,
+          approved_at TIMESTAMPTZ NULL,
+          baseline_views INTEGER NOT NULL DEFAULT 0,
+          baseline_likes INTEGER NOT NULL DEFAULT 0,
           disabled_at TIMESTAMPTZ NULL,
           disabled_by TEXT NOT NULL DEFAULT ''
         );
       `);
+
+    await query(`
+      ALTER TABLE promotions
+      ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ NULL;
+    `);
+    await query(`
+      ALTER TABLE promotions
+      ADD COLUMN IF NOT EXISTS baseline_views INTEGER NOT NULL DEFAULT 0;
+    `);
+    await query(`
+      ALTER TABLE promotions
+      ADD COLUMN IF NOT EXISTS baseline_likes INTEGER NOT NULL DEFAULT 0;
+    `);
 
       await query(`
         CREATE TABLE IF NOT EXISTS reviews (
@@ -729,11 +745,11 @@ function createPostgresStore({ databaseUrl, ssl = false }) {
             `INSERT INTO promotions (
               id, product_id, seller_username, type, status, amount_paid, payment_method,
               transaction_reference, payment_status, start_date, end_date, created_at,
-              updated_at, disabled_at, disabled_by
+              updated_at, approved_at, baseline_views, baseline_likes, disabled_at, disabled_by
             ) VALUES (
               $1, $2, $3, $4, $5, $6, $7,
               $8, $9, $10, $11, $12,
-              $13, $14, $15
+              $13, $14, $15, $16, $17, $18
             )`,
             [
               promotion.id,
@@ -749,6 +765,9 @@ function createPostgresStore({ databaseUrl, ssl = false }) {
               promotion.endDate || new Date().toISOString(),
               promotion.createdAt || new Date().toISOString(),
               promotion.updatedAt || promotion.createdAt || new Date().toISOString(),
+              promotion.approvedAt || null,
+              Number(promotion.baselineViews || 0),
+              Number(promotion.baselineLikes || 0),
               promotion.disabledAt || null,
               promotion.disabledBy || ""
             ]
@@ -974,6 +993,9 @@ function createPostgresStore({ databaseUrl, ssl = false }) {
             end_date AS "endDate",
             created_at AS "createdAt",
             updated_at AS "updatedAt",
+            approved_at AS "approvedAt",
+            baseline_views AS "baselineViews",
+            baseline_likes AS "baselineLikes",
             disabled_at AS "disabledAt",
             disabled_by AS "disabledBy"
           FROM promotions
@@ -1083,6 +1105,9 @@ function createPostgresStore({ databaseUrl, ssl = false }) {
           endDate: row.endDate ? new Date(row.endDate).toISOString() : "",
           createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : "",
           updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : "",
+          approvedAt: row.approvedAt ? new Date(row.approvedAt).toISOString() : "",
+          baselineViews: Number(row.baselineViews || 0),
+          baselineLikes: Number(row.baselineLikes || 0),
           disabledAt: row.disabledAt ? new Date(row.disabledAt).toISOString() : ""
         })),
         reviews: reviewsResult.rows.map((row) => ({

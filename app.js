@@ -13956,9 +13956,27 @@ function renderSellerPromotionAnalytics(product) {
   if (!statusMeta || statusMeta.className !== "approved") {
     return "";
   }
+  const matchingPromotion = (Array.isArray(currentPromotions) ? currentPromotions : [])
+    .filter((promotion) =>
+      String(promotion?.productId || "").trim() === String(product?.id || "").trim()
+      && String(promotion?.sellerUsername || "").trim().toLowerCase() === String(currentUser || "").trim().toLowerCase()
+      && String(promotion?.status || "").trim().toLowerCase() === "active"
+    )
+    .sort((first, second) =>
+      new Date(second?.updatedAt || second?.createdAt || 0).getTime()
+      - new Date(first?.updatedAt || first?.createdAt || 0).getTime()
+    )[0];
   const views = Math.max(0, Number(product?.views || 0));
   const likes = Math.max(0, Number(product?.likes || 0));
-  return `<p class="product-meta product-seller-promotion-analytics">Promotion reach: ${escapeHtml(formatNumber(views))} views · ${escapeHtml(formatNumber(likes))} likes</p>`;
+  const baselineViews = Math.max(0, Number(matchingPromotion?.baselineViews || 0));
+  const baselineLikes = Math.max(0, Number(matchingPromotion?.baselineLikes || 0));
+  const viewsLift = Math.max(0, views - baselineViews);
+  const likesLift = Math.max(0, likes - baselineLikes);
+  const hasBaseline = baselineViews > 0 || baselineLikes > 0 || Boolean(matchingPromotion?.approvedAt);
+  const summary = hasBaseline
+    ? `Since promotion: +${escapeHtml(formatNumber(viewsLift))} views · +${escapeHtml(formatNumber(likesLift))} likes`
+    : `Promotion reach: ${escapeHtml(formatNumber(views))} views · ${escapeHtml(formatNumber(likes))} likes`;
+  return `<p class="product-meta product-seller-promotion-analytics">${summary}</p>`;
 }
 
 function renderSellerCardPromoteChip(product) {

@@ -1899,6 +1899,9 @@ function normalizePromotionRecord(promotion) {
     endDate: promotion.endDate || new Date(Date.now() + (config.durationDays * 24 * 60 * 60 * 1000)).toISOString(),
     createdAt: promotion.createdAt || now,
     updatedAt: promotion.updatedAt || promotion.createdAt || now,
+    approvedAt: promotion.approvedAt || "",
+    baselineViews: Math.max(0, Number(promotion.baselineViews || 0)),
+    baselineLikes: Math.max(0, Number(promotion.baselineLikes || 0)),
     disabledAt: promotion.disabledAt || "",
     disabledBy: normalizeIdentifier(promotion.disabledBy, 40)
   };
@@ -5372,6 +5375,7 @@ http.createServer(async (req, res) => {
           found = true;
           const config = PROMOTION_CONFIG[normalized.type] || PROMOTION_CONFIG.starter_day;
           if (requestedStatus === "active") {
+            const product = getProductById(store, normalized.productId);
             nextPromotion = normalizePromotionRecord({
               ...normalized,
               status: "active",
@@ -5379,6 +5383,9 @@ http.createServer(async (req, res) => {
               amountPaid: Number(normalized.amountPaid || config.amount || 0),
               startDate: now,
               endDate: new Date(Date.now() + (config.durationDays * 24 * 60 * 60 * 1000)).toISOString(),
+              approvedAt: now,
+              baselineViews: Math.max(0, Number(product?.views || normalized.baselineViews || 0)),
+              baselineLikes: Math.max(0, Number(product?.likes || normalized.baselineLikes || 0)),
               disabledAt: "",
               disabledBy: "",
               updatedAt: now
