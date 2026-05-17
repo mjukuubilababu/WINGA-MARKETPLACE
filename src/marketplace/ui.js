@@ -81,7 +81,7 @@
         return;
       }
       const seen = new Set();
-      const limit = Math.max(2, deps.getProductsPerRow?.() || 2);
+      const limit = Math.max(8, (deps.getProductsPerRow?.() || 2) * 3);
       list.slice(0, limit).forEach((product) => {
         const primaryImage = deps.getMarketplacePrimaryImage
           ? deps.getMarketplacePrimaryImage(product, {
@@ -93,7 +93,7 @@
           return;
         }
         seen.add(safeSrc);
-        deps.preloadImageSource(safeSrc, { fetchPriority: "auto" });
+        deps.preloadImageSource(safeSrc, { fetchPriority: "high" });
       });
     }
 

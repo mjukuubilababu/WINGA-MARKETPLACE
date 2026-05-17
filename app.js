@@ -37,10 +37,10 @@ const MEMORY_CRITICAL_THRESHOLD_BYTES = 220 * 1024 * 1024;
 const FEED_BOOTSTRAP_CACHE_KEY = "winga-feed-bootstrap-cache";
 const FEED_BOOTSTRAP_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const FEED_BOOTSTRAP_PRODUCT_LIMIT = 14;
-const FEED_PREDICTIVE_PRELOAD_COUNT = 3;
-const FEED_PREDICTIVE_NEXT_BATCH_SIZE = 3;
+const FEED_PREDICTIVE_PRELOAD_COUNT = 8;
+const FEED_PREDICTIVE_NEXT_BATCH_SIZE = 8;
 const FEED_MEMORY_IMAGE_CACHE_LIMIT = 10;
-const FEED_MEMORY_PREFETCH_COOLDOWN_MS = 2200;
+const FEED_MEMORY_PREFETCH_COOLDOWN_MS = 900;
 const FEED_SCROLL_SPEED_PREFETCH_THRESHOLD = 0.72;
 const IMAGE_PRELOAD_REGISTRY_LIMIT = 180;
 const MARKETPLACE_SCROLL_PREFETCH_REGISTRY_LIMIT = 240;
@@ -2667,7 +2667,7 @@ function primePredictiveFeedBatch(trigger = "scroll") {
   primeFeedInstantCache(nextProducts, {
     reason: `${trigger}_next_batch`,
     productLimit: FEED_PREDICTIVE_NEXT_BATCH_SIZE,
-    decodeLimit: Math.min(FEED_PREDICTIVE_NEXT_BATCH_SIZE, 4)
+    decodeLimit: Math.min(FEED_PREDICTIVE_NEXT_BATCH_SIZE, 6)
   });
 }
 
@@ -2683,7 +2683,7 @@ function schedulePredictiveFeedPrefetch(trigger = "scroll") {
     window.clearTimeout(feedRuntimeState.prefetchTimer);
     feedRuntimeState.prefetchTimer = 0;
   }
-  const delay = trigger === "scroll" ? 120 : 40;
+  const delay = trigger === "scroll" ? 40 : 0;
   feedRuntimeState.prefetchTimer = window.setTimeout(() => {
     feedRuntimeState.prefetchTimer = 0;
     feedRuntimeState.lastPrefetchAt = Date.now();
@@ -8752,7 +8752,7 @@ const {
     if (!(container instanceof Element)) {
       return;
     }
-    prioritizeVisibleFeedMedia(container, 4);
+    prioritizeVisibleFeedMedia(container, 8);
     scheduleIdleBackgroundWork(() => {
       enhanceShowcaseTracks(container);
       bindFeedGalleryInteractions(container);
@@ -8889,7 +8889,7 @@ const MARKETPLACE_SCROLL_IMAGE_PLACEHOLDER = "data:image/gif;base64,R0lGODlhAQAB
 let marketplaceScrollImageObserver = null;
 
 function getMarketplaceScrollImagePrefetchMargin() {
-  return getViewportWidth() <= 720 ? 380 : 720;
+  return getViewportWidth() <= 720 ? 1400 : 1800;
 }
 
 function getMarketplaceScrollImageRootMargin() {
@@ -15804,13 +15804,13 @@ function bindImageFallbacks(scope = document) {
   bindMarketplaceScrollImages(scope);
 }
 
-function prioritizeVisibleFeedMedia(scope = document, maxCards = 4) {
+function prioritizeVisibleFeedMedia(scope = document, maxCards = 8) {
   if (!(scope instanceof Element || scope === document)) {
     return;
   }
   const cards = Array.from(
     scope.querySelectorAll?.(".product-card[data-open-product], .seller-product-card[data-open-product], .showcase-card[data-open-product]") || []
-  ).slice(0, Math.max(1, Number(maxCards) || 4));
+  ).slice(0, Math.max(1, Number(maxCards) || 8));
   cards.forEach((card) => {
     card.querySelectorAll?.("img[data-marketplace-scroll-image='true']").forEach((image, index) => {
       if (!(image instanceof HTMLImageElement)) {
