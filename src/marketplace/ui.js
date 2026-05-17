@@ -297,7 +297,7 @@
           })
         : deps.sanitizeImageSource(product.image || (Array.isArray(product.images) ? product.images[0] : ""), deps.getImageFallbackDataUri("WINGA"));
       const media = createElement("div", {
-        className: `product-card-media intelligent-feed-media fit-mode-${fitMode}`,
+        className: `product-card-media showcase-media intelligent-feed-media fit-mode-${fitMode}`,
         attributes: { "data-fit-mode": fitMode }
       });
       media.appendChild(createResponsiveImage({
@@ -622,7 +622,7 @@
 
     function createIntelligentFeedCardElement(product) {
       const card = createElement("article", {
-        className: "product-card intelligent-feed-card",
+        className: "product-card showcase-card intelligent-feed-card",
         attributes: {
           "data-intelligent-feed-card": product.id,
           "data-open-product": product.id
