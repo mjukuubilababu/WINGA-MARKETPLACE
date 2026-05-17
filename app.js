@@ -9206,6 +9206,7 @@ const postProductFab = document.getElementById("post-product-fab");
 const viewHomeBackButton = document.getElementById("view-home-back");
 let SHOW_HOMEPAGE_HERO_PANEL = false;
 let SHOW_STANDALONE_SHOWCASE_SECTION = false;
+const HOME_HORIZONTAL_ROWS_ENABLED = false;
 const runtimeAppSettings = {
   heroSectionVisible: false,
   standaloneShowcaseVisible: false,
@@ -14683,7 +14684,7 @@ function setupDynamicShowcaseLoading(scope, usedIds = new Set()) {
 }
 
 function renderMarketShowcase() {
-  if (!SHOW_STANDALONE_SHOWCASE_SECTION) {
+  if (!HOME_HORIZONTAL_ROWS_ENABLED || !SHOW_STANDALONE_SHOWCASE_SECTION) {
     marketShowcase?.replaceChildren();
     if (marketShowcase) {
       marketShowcase.style.display = "none";

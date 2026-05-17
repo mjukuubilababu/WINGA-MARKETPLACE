@@ -871,7 +871,7 @@
       }
       const currentView = deps.getCurrentView();
       const shouldTrackViews = currentView !== "upload";
-      const legacyShowcaseEnabled = currentView === "home" && !deps.hasPrioritySearchResults(list.length);
+      const legacyShowcaseEnabled = false;
       const intelligentFeedEnabled = false;
       const shouldInjectInlineShowcases = legacyShowcaseEnabled || intelligentFeedEnabled;
       const isMobileViewport = window.matchMedia?.("(max-width: 780px)")?.matches;
