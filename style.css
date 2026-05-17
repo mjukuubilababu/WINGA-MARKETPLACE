@@ -1833,6 +1833,13 @@ img[data-zoom-src]{
   line-height:1;
 }
 
+.product-seller-promotion-detail{
+  flex:0 0 auto;
+  font-size:0.66rem;
+  color:var(--ink-soft);
+  white-space:nowrap;
+}
+
 .product-seller-promote-chip:hover{
   background:#ffe9d8;
 }

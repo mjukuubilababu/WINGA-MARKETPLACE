@@ -13919,13 +13919,21 @@ function getSellerPromotionStatusMeta(product) {
   }
   const status = String(matchingPromotion.status || "").trim().toLowerCase();
   if (status === "active") {
-    return { label: "Active", className: "approved" };
+    const endTime = new Date(matchingPromotion.endDate || 0).getTime();
+    const daysLeft = Number.isFinite(endTime)
+      ? Math.max(0, Math.ceil((endTime - Date.now()) / (24 * 60 * 60 * 1000)))
+      : 0;
+    return {
+      label: "Active",
+      className: "approved",
+      detail: daysLeft > 0 ? `${daysLeft} day${daysLeft === 1 ? "" : "s"} left` : "Ends today"
+    };
   }
   if (status === "pending") {
-    return { label: "Pending", className: "pending" };
+    return { label: "Pending", className: "pending", detail: "Waiting for admin" };
   }
   if (status === "rejected") {
-    return { label: "Rejected", className: "rejected" };
+    return { label: "Rejected", className: "rejected", detail: "Needs a new request" };
   }
   return null;
 }
@@ -13935,7 +13943,10 @@ function renderSellerPromotionStatusChip(product) {
   if (!statusMeta) {
     return "";
   }
-  return `<span class="status-pill product-seller-promotion-state ${statusMeta.className}">${escapeHtml(statusMeta.label)}</span>`;
+  const detailMarkup = statusMeta.detail
+    ? `<span class="product-seller-promotion-detail">${escapeHtml(statusMeta.detail)}</span>`
+    : "";
+  return `<span class="status-pill product-seller-promotion-state ${statusMeta.className}">${escapeHtml(statusMeta.label)}</span>${detailMarkup}`;
 }
 
 function renderSellerCardPromoteChip(product) {

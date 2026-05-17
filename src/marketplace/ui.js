@@ -216,6 +216,12 @@
             className: `status-pill product-seller-promotion-state ${promotionStatusMeta.className || "pending"}`,
             textContent: promotionStatusMeta.label
           }));
+          if (promotionStatusMeta.detail) {
+            badgeRow.appendChild(createElement("span", {
+              className: "product-seller-promotion-detail",
+              textContent: promotionStatusMeta.detail
+            }));
+          }
         }
         const promoteButton = createElement("button", {
           className: "product-seller-promote-chip",
