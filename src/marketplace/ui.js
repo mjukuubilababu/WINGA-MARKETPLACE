@@ -778,10 +778,15 @@
 
         if (currentView === "home" && list.length > 0 && deps.canUseContinuousDiscovery?.()) {
           const seedProduct = deps.getRecommendationSeed(list);
+          const sponsored = deps.getDiscoverySponsoredProducts?.(seedProduct, {
+            limit: 6,
+            excludeIds: new Set(list.map((product) => product.id))
+          }) || [];
           const related = deps.getRelatedProducts(seedProduct, 6);
           const youMayLike = deps.getYouMayLikeProducts(seedProduct, 6);
           const trending = deps.getTrendingProducts(8);
           const recommendationDescriptors = [
+            createRecommendationDescriptor("Sponsored Picks", "Promoted products getting extra visibility", sponsored, "sponsored"),
             createRecommendationDescriptor("Related Products", seedProduct ? `More in ${deps.getCategoryLabel(seedProduct.category)}` : "Similar picks", related, "related"),
             createRecommendationDescriptor("You May Like", "Based on what you are viewing", youMayLike, "you-may-like"),
             createRecommendationDescriptor("Trending", "Most viewed and most interacted", trending, "trending")

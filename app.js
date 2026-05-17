@@ -8720,6 +8720,7 @@ const {
   disposeScopedRenderMemory,
   getBehaviorShowcaseDescriptor,
   getRecommendationSeed,
+  getDiscoverySponsoredProducts: (...args) => getDiscoverySponsoredProducts(...args),
   getRelatedProducts: (...args) => getRelatedProducts(...args),
   getYouMayLikeProducts,
   getTrendingProducts,
