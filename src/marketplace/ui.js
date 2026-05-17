@@ -851,7 +851,8 @@
       }
       const currentView = deps.getCurrentView();
       const shouldTrackViews = currentView !== "upload";
-      const shouldInjectInlineShowcases = currentView === "home" && !deps.hasPrioritySearchResults(list.length);
+      const intelligentFeedEnabled = false;
+      const shouldInjectInlineShowcases = intelligentFeedEnabled && currentView === "home" && !deps.hasPrioritySearchResults(list.length);
       const isMobileViewport = window.matchMedia?.("(max-width: 780px)")?.matches;
       const productsPerRow = shouldInjectInlineShowcases ? deps.getProductsPerRow() : 0;
       const showcaseSpacing = isMobileViewport ? 8 : 10;
@@ -867,7 +868,7 @@
       preloadMarketplaceImages(list);
       const renderToken = ++scheduledFeedRenderState.token;
       productsContainer.replaceChildren();
-      const intelligentSectionQueue = buildHomeIntelligentSectionQueue(list, usedShowcaseProductIds);
+      const intelligentSectionQueue = [];
       let intelligentSectionIndex = 0;
 
       const appendShowcaseIfNeeded = (fragment, renderedCount) => {
@@ -934,12 +935,7 @@
           }
         }
 
-        if (currentView === "home" && list.length > 0 && deps.canUseContinuousDiscovery?.()) {
-          deps.setDeferredRecommendationDescriptors?.([]);
-          if (deps.createContinuousDiscoveryAnchorElement) {
-            productsContainer.appendChild(deps.createContinuousDiscoveryAnchorElement());
-          }
-        } else if (deps.setDeferredRecommendationDescriptors) {
+        if (deps.setDeferredRecommendationDescriptors) {
           deps.setDeferredRecommendationDescriptors([]);
         }
 
@@ -954,7 +950,7 @@
         deps.bindImageFallbacks?.(productsContainer);
         deps.bindProductEngagementSignals?.(productsContainer);
         deps.bindProductMenus?.(productsContainer);
-        if (currentView === "home" && list.length > 0 && deps.canUseContinuousDiscovery?.() && deps.setupContinuousDiscoveryLoading) {
+        if (intelligentFeedEnabled && currentView === "home" && list.length > 0 && deps.canUseContinuousDiscovery?.() && deps.setupContinuousDiscoveryLoading) {
           const usedProductIds = new Set(list.map((product) => product.id));
           Array.from(productsContainer.querySelectorAll("[data-showcase-id], [data-open-product]")).forEach((element) => {
             const productId = element.dataset.showcaseId || element.dataset.openProduct || "";
