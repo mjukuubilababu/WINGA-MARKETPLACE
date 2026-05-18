@@ -36,7 +36,7 @@ const MEMORY_PRESSURE_CONSECUTIVE_LIMIT = 2;
 const MEMORY_CRITICAL_THRESHOLD_BYTES = 220 * 1024 * 1024;
 const FEED_BOOTSTRAP_CACHE_KEY = "winga-feed-bootstrap-cache";
 const FEED_BOOTSTRAP_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
-const FEED_BOOTSTRAP_PRODUCT_LIMIT = 14;
+const FEED_BOOTSTRAP_PRODUCT_LIMIT = 24;
 const FEED_BOOT_IMAGE_WARM_COUNT = 60;
 const FEED_BOOT_IMAGE_DECODE_COUNT = 18;
 const FEED_PREDICTIVE_PRELOAD_COUNT = 8;
@@ -110,11 +110,11 @@ function isServiceWorkerRecoveryDisabled() {
 }
 
 function shouldUseBootstrapFeedSnapshot() {
-  return Boolean(window.WINGA_CONFIG?.enableBootstrapFeedSnapshot);
+  return window.WINGA_CONFIG?.enableBootstrapFeedSnapshot !== false;
 }
 
 function shouldUseApiLocalCacheFallback() {
-  return Boolean(window.WINGA_CONFIG?.enableApiLocalCacheFallback);
+  return window.WINGA_CONFIG?.enableApiLocalCacheFallback !== false;
 }
 
 function getViewportWidth() {
@@ -8779,14 +8779,22 @@ const {
       bindProductMenus(container);
     }, 700);
   },
-  onFeedRenderBatch: ({ currentView: renderedView, products: renderedProducts }) => {
+  onFeedRenderBatch: ({ currentView: renderedView, products: renderedProducts, renderedCount = 0 }) => {
     if (renderedView !== "home" || !Array.isArray(renderedProducts) || !renderedProducts.length) {
       return;
+    }
+    if (renderedCount <= 12) {
+      persistFeedBootstrapSnapshot(renderedProducts, "home_first_batch");
+      primeFeedInstantCache(renderedProducts, {
+        reason: "home_first_batch",
+        productLimit: Math.min(renderedProducts.length, FEED_BOOTSTRAP_PRODUCT_LIMIT),
+        decodeLimit: FEED_BOOT_IMAGE_DECODE_COUNT
+      });
     }
     scheduleIdleBackgroundWork(() => {
       persistFeedBootstrapSnapshot(renderedProducts, "home_render");
       schedulePredictiveFeedPrefetch("render");
-    }, 900);
+    }, 400);
   }
 });
 
