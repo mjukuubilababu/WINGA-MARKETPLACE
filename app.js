@@ -15023,8 +15023,8 @@ function renderCurrentView(options = {}) {
     const shouldShowFeedLoading = !isProfile
       && !isUpload
       && !isAdminView
-      && (!productsHydrated || productsLoadFailed)
-      && filteredProducts.length === 0;
+      && filteredProducts.length === 0
+      && (lifecycleFallbackActive || productsLoadFailed);
     syncHeroPanelPosition(isProfile, isUpload);
 
     searchBox.style.display = isProfile || isUpload || isAdminView ? "none" : "grid";
