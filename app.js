@@ -5612,6 +5612,12 @@ function completeBootOverlay() {
   if (!bootOverlay) {
     return;
   }
+  const shouldDelayHide = currentView === "home"
+    && !hasVisibleStartupSurface({ includeFeedLoading: false })
+    && productHydrationStatus !== "failed";
+  if (shouldDelayHide) {
+    return;
+  }
   hideBootOverlayImmediately();
   window.setTimeout(() => {
     ensureVisibleStartupContent("boot_overlay_completed");
@@ -10293,6 +10299,20 @@ function setFeedLoadingStateVisible(visible) {
   feedLoadingState.style.display = visible ? "grid" : "none";
 }
 
+function hasVisibleStartupSurface(options = {}) {
+  const includeFeedLoading = options.includeFeedLoading !== false;
+  return Boolean(
+    document.body.classList.contains("auth-modal-open")
+    || document.body.classList.contains("product-detail-open")
+    || productsContainer?.querySelector(".product-card, .seller-product-card")
+    || profileDiv?.style.display === "block"
+    || uploadForm?.style.display === "block"
+    || adminPanel?.style.display === "block"
+    || emptyState?.style.display === "block"
+    || (includeFeedLoading && feedLoadingState?.style.display === "grid")
+  );
+}
+
 function renderLifecycleFallbackSkeleton(message = "") {
   if (!feedLoadingState) {
     return;
@@ -10304,10 +10324,10 @@ function renderLifecycleFallbackSkeleton(message = "") {
     feedLoadingRetryButton.textContent = "Jaribu tena";
   }
   if (title) {
-    title.textContent = "Tunafungua WINGA...";
+    title.textContent = "Loading products";
   }
   if (copy) {
-    copy.textContent = message || "Subiri kidogo, tunaweka feed tayari bila kuacha screen tupu.";
+    copy.textContent = message || "Products are taking longer than expected to load. Please try again.";
   }
   setFeedLoadingStateVisible(true);
 }
@@ -10322,7 +10342,7 @@ function shouldKeepStartupFeedLoadingVisible() {
     }
     const filteredProducts = getFilteredProducts();
     const productsHydrated = Boolean(window.WingaDataLayer?.isProductsHydrated?.());
-    return (!productsHydrated || productHydrationStatus === "failed") && filteredProducts.length === 0;
+    return productHydrationStatus === "failed" && !productsHydrated && filteredProducts.length === 0;
   } catch (error) {
     captureClientError("startup_feed_loading_state_check_failed", error, {
       category: "runtime",
@@ -10337,17 +10357,12 @@ function ensureVisibleStartupContent(reason = "startup_guard") {
   if (!appContainer || appContainer.style.display === "none") {
     return;
   }
-  const hasVisibleSurface = Boolean(
-    document.body.classList.contains("auth-modal-open")
-    || document.body.classList.contains("product-detail-open")
-    || productsContainer?.querySelector(".product-card, .seller-product-card")
-    || profileDiv?.style.display === "block"
-    || uploadForm?.style.display === "block"
-    || adminPanel?.style.display === "block"
-    || emptyState?.style.display === "block"
-    || feedLoadingState?.style.display === "grid"
-  );
+  const hasVisibleSurface = hasVisibleStartupSurface();
   if (hasVisibleSurface) {
+    return;
+  }
+  if (productHydrationStatus !== "failed" && !Boolean(window.WingaDataLayer?.isProductsHydrated?.())) {
+    revealBootOverlay();
     return;
   }
   reportClientEvent("warn", "startup_blank_surface_guarded", "Startup guard restored visible feed loading shell.", {
@@ -10357,7 +10372,7 @@ function ensureVisibleStartupContent(reason = "startup_guard") {
     productsHydrated: Boolean(window.WingaDataLayer?.isProductsHydrated?.()),
     productsCount: Array.isArray(products) ? products.length : 0
   });
-  renderLifecycleFallbackSkeleton("Tunaweka bidhaa na picha tayari. Usiondoke, feed inaingia.");
+  renderLifecycleFallbackSkeleton("We couldn't finish loading products. Please try again.");
 }
 
 function hideLifecycleFallbackShell() {
@@ -10372,7 +10387,7 @@ function hideLifecycleFallbackShell() {
   lifecycleFallbackActive = false;
   lifecycleFallbackReason = "";
   if (shouldKeepStartupFeedLoadingVisible()) {
-    renderLifecycleFallbackSkeleton("Tunaweka bidhaa na picha tayari. Usiondoke, feed inaingia.");
+    renderLifecycleFallbackSkeleton("We couldn't finish loading products. Please try again.");
     return;
   }
   setFeedLoadingStateVisible(false);
