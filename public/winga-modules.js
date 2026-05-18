@@ -208,10 +208,10 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
 (() => {
   window.WingaModules.config.promotions = {
     PROMOTION_OPTIONS: {
-      boost: { label: "Boost Product", amount: 5000, durationDays: 3 },
-      featured: { label: "Featured Section", amount: 10000, durationDays: 7 },
-      category_boost: { label: "Category Boost", amount: 7000, durationDays: 5 },
-      pin_top: { label: "Pin To Top", amount: 12000, durationDays: 2 }
+      starter_day: { label: "1 day visibility", amount: 1000, durationDays: 1 },
+      boost_3day: { label: "3 day visibility", amount: 3000, durationDays: 3 },
+      growth_7day: { label: "7 day visibility", amount: 7000, durationDays: 7 },
+      premium_14day: { label: "14 day visibility", amount: 14000, durationDays: 14 }
     }
   };
 })();
@@ -712,6 +712,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
 
 
 // src/components/ui-helpers.js
+// src/components/ui-helpers.js
 (() => {
   const { createElement } = window.WingaModules.components.dom;
 
@@ -1061,6 +1062,10 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
     }
 
     function getPromotionPriority(type) {
+      if (type === "premium_14day") return 4;
+      if (type === "growth_7day") return 3;
+      if (type === "boost_3day") return 2;
+      if (type === "starter_day") return 1;
       if (type === "pin_top") return 4;
       if (type === "featured") return 3;
       if (type === "category_boost") return 2;
@@ -1122,11 +1127,11 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
           + (durationDays * PROMOTION_SCORING.durationWeight)
           + ((1 - elapsedRatio) * PROMOTION_SCORING.earlyBurstWeight);
 
-        if (promotion.type === "featured") {
+        if (promotion.type === "featured" || promotion.type === "growth_7day") {
           score += PROMOTION_SCORING.featuredStabilityBonus;
         }
 
-        if (promotion.type === "pin_top") {
+        if (promotion.type === "pin_top" || promotion.type === "premium_14day") {
           score += (1 - elapsedRatio) * PROMOTION_SCORING.pinTopUrgencyBonus;
         }
 
@@ -1805,7 +1810,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
           return;
         }
         const actionButton = event.target.closest(
-          "[data-buy-product], [data-request-product], [data-open-own-messages], [data-chat-product], [data-detail-repost], [data-open-product-whatsapp]"
+          "[data-buy-product], [data-request-product], [data-open-own-messages], [data-chat-product], [data-detail-repost], [data-open-product-whatsapp], [data-promote-product]"
         );
         if (!actionButton) {
           return;
@@ -1887,6 +1892,15 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
             return;
           }
           deps.repostProductAsSeller?.(product);
+          return;
+        }
+
+        const promoteButton = event.target.closest("[data-promote-product]");
+        if (promoteButton) {
+          scheduleActiveActionTouchStateClear();
+          // Promote flow is owned by the dedicated button/app handlers.
+          // Let those handlers receive the click instead of swallowing it
+          // during navigation capture.
           return;
         }
 
@@ -2503,39 +2517,8 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         addScore(topCategoryScores, inferTopCategoryValue(category), 24 * freshness);
       });
 
-      (Array.isArray(sharedCollectionIntentEntries) ? sharedCollectionIntentEntries : []).forEach((entry, index) => {
-        const category = String(entry?.category || "").trim();
-        const topCategory = String(entry?.topCategory || "").trim();
-        const seedSellerIds = Array.isArray(entry?.seedSellerIds) ? entry.seedSellerIds : [];
-        const seedProductIds = Array.isArray(entry?.seedProductIds) ? entry.seedProductIds : [];
-        const recencyBoost = getRecencyBoost(entry?.updatedAt, 90, 14);
-        const strength = Math.max(1, Math.min(4, Number(entry?.count || 1) || 1));
-        const freshness = Math.max(0.45, 1 - (index * 0.1));
-        if (category && category !== "all") {
-          addScore(categoryScores, category, (58 * freshness * strength) + recencyBoost);
-          addScore(topCategoryScores, inferTopCategoryValue(category), (28 * freshness * strength) + (recencyBoost * 0.3));
-        }
-        if (topCategory) {
-          addScore(topCategoryScores, topCategory, (44 * freshness * strength) + (recencyBoost * 0.55));
-        }
-        seedSellerIds.forEach((sellerId, sellerIndex) => {
-          const safeSellerId = String(sellerId || "").trim();
-          if (!safeSellerId) {
-            return;
-          }
-          const sellerFreshness = Math.max(0.55, 1 - (sellerIndex * 0.12));
-          addScore(sellerScores, safeSellerId, (34 * freshness * sellerFreshness * strength) + (recencyBoost * 0.18));
-        });
-        seedProductIds.forEach((productId, productIndex) => {
-          const safeProductId = String(productId || "").trim();
-          if (!safeProductId) {
-            return;
-          }
-          const productFreshness = Math.max(0.5, 1 - (productIndex * 0.1));
-          addScore(productScores, safeProductId, (28 * freshness * productFreshness * strength) + (recencyBoost * 0.16));
-        });
-        hasMeaningfulHistory = true;
-      });
+      // Share Collection influence is temporarily disabled so mobile recommendation
+      // rows return to the stable pre-share composition path.
 
       const preferredCategories = Array.from(
         new Set([
@@ -2885,6 +2868,8 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
     const PASSIVE_VIEW_TRACK_BATCH_SIZE = 1;
     const PASSIVE_VIEW_TRACK_IDLE_DELAY_MS = 700;
     const FEED_GALLERY_IMAGE_LIMIT = 3;
+    const STARTUP_PRIORITY_CARD_COUNT = 8;
+    const INITIAL_SYNC_FEED_BATCH_SIZE = 12;
     let scheduledFeedRenderState = {
       token: 0,
       timer: 0
@@ -2941,7 +2926,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         return;
       }
       const seen = new Set();
-      const limit = Math.max(2, deps.getProductsPerRow?.() || 2);
+      const limit = Math.max(STARTUP_PRIORITY_CARD_COUNT * 2, (deps.getProductsPerRow?.() || 2) * 4);
       list.slice(0, limit).forEach((product) => {
         const primaryImage = deps.getMarketplacePrimaryImage
           ? deps.getMarketplacePrimaryImage(product, {
@@ -2953,13 +2938,21 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
           return;
         }
         seen.add(safeSrc);
-        deps.preloadImageSource(safeSrc, { fetchPriority: "auto" });
+        deps.preloadImageSource(safeSrc, {
+          fetchPriority: seen.size <= STARTUP_PRIORITY_CARD_COUNT ? "high" : "auto",
+          decodeInMemory: seen.size <= STARTUP_PRIORITY_CARD_COUNT,
+          reason: "marketplace_startup_above_fold"
+        });
       });
     }
 
-    function createProductGalleryElement(product) {
+    function createProductGalleryElement(product, options = {}) {
+      const startupPriority = options.startupPriority === true;
       if (deps.renderFeedGalleryMarkup) {
-        return createElementFromMarkup(deps.renderFeedGalleryMarkup(product, "feed"));
+        return createElementFromMarkup(deps.renderFeedGalleryMarkup(product, "feed", {
+          priorityCount: startupPriority ? 3 : 1,
+          preload: startupPriority
+        }));
       }
 
       const fitMode = String(product.fitMode || "").trim().toLowerCase() === "contain" ? "contain" : "cover";
@@ -2996,12 +2989,13 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
           placeholderSrc: deps.getImageFallbackDataUri("W"),
           fitMode,
           attributes: {
-            loading: "lazy",
-            fetchpriority: "auto",
+            loading: startupPriority && index === 0 ? "eager" : "lazy",
+            fetchpriority: startupPriority && index === 0 ? "high" : "auto",
             draggable: "false",
             "data-preserve-image-ratio": "true",
             "data-marketplace-scroll-image": "true",
-            "data-feed-gallery-image-src": safeSrc
+            "data-feed-gallery-image-src": safeSrc,
+            ...(startupPriority && index === 0 ? { "data-image-priority": "startup-critical feed-primary" } : {})
           }
         }));
         track.appendChild(slide);
@@ -3070,14 +3064,44 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         textContent: sellerUser?.verifiedSeller ? "Verified" : "Seller"
       }));
       if (isOwnerSeller) {
-        badgeRow.appendChild(createElement("button", {
+        const promotionStatusMeta = deps.getSellerPromotionStatusMeta?.(product);
+        if (promotionStatusMeta?.label) {
+          badgeRow.appendChild(createElement("span", {
+            className: `status-pill product-seller-promotion-state ${promotionStatusMeta.className || "pending"}`,
+            textContent: promotionStatusMeta.label
+          }));
+          if (promotionStatusMeta.detail) {
+            badgeRow.appendChild(createElement("span", {
+              className: "product-seller-promotion-detail",
+              textContent: promotionStatusMeta.detail
+            }));
+          }
+        }
+        const promoteButton = createElement("button", {
           className: "product-seller-promote-chip",
           textContent: "Promote",
           attributes: {
             type: "button",
-            "data-promote-product": product.id
+            onclick: "return window.__wingaOpenPromotionFromTrigger ? window.__wingaOpenPromotionFromTrigger(this) : false;",
+            "data-promote-product": product.id,
+            "data-promote-authorized": "true",
+            "data-promote-product-owner": product.uploadedBy || "",
+            "data-promote-product-name": product.name || "",
+            "data-promote-product-shop": product.shop || "",
+            "data-promote-product-whatsapp": product.whatsapp || "",
+            "data-promote-product-location": product.location || "",
+            "data-promote-product-category": product.category || ""
           }
-        }));
+        });
+        promoteButton.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          event.stopImmediatePropagation?.();
+          if (!window.__wingaOpenPromotionFromTrigger?.(promoteButton)) {
+            deps.openPromotionIntentModal?.(product, { trustedAuthorized: true, trigger: promoteButton });
+          }
+        });
+        badgeRow.appendChild(promoteButton);
       }
 
       sellerRow.append(avatarWrap, sellerCopy, badgeRow);
@@ -3100,14 +3124,6 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         : deps.sanitizeImageSource(product.image || (Array.isArray(product.images) ? product.images[0] : ""), deps.getImageFallbackDataUri("WINGA"));
       media.dataset.showcaseFallbackSrc = fallbackSrc || "";
       media.dataset.showcaseFallbackAlt = product.name || "Product image";
-      if (deps.renderFeedGalleryMarkup) {
-        media.appendChild(createElementFromMarkup(deps.renderFeedGalleryMarkup(product, "feed", {
-          priorityCount: 1,
-          preload: false
-        })));
-        return media;
-      }
-
       const primaryImage = deps.getMarketplacePrimaryImage
         ? deps.getMarketplacePrimaryImage(product, {
             allowOwnerVisibility: product.uploadedBy === deps.getCurrentUser?.()
@@ -3122,6 +3138,29 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         fitMode,
         attributes: {
           "data-marketplace-scroll-image": "true"
+        }
+      }));
+      return media;
+    }
+
+    function createIntelligentPreviewMediaElement(product) {
+      const fitMode = String(product.fitMode || "").trim().toLowerCase() === "contain" ? "contain" : "cover";
+      const primaryImage = deps.getMarketplacePrimaryImage
+        ? deps.getMarketplacePrimaryImage(product, {
+            allowOwnerVisibility: product.uploadedBy === deps.getCurrentUser?.()
+          })
+        : deps.sanitizeImageSource(product.image || (Array.isArray(product.images) ? product.images[0] : ""), deps.getImageFallbackDataUri("WINGA"));
+      const media = createElement("div", {
+        className: `product-card-media showcase-media intelligent-feed-media fit-mode-${fitMode}`,
+        attributes: { "data-fit-mode": fitMode }
+      });
+      media.appendChild(createResponsiveImage({
+        src: primaryImage,
+        alt: product.name || "Product image",
+        className: "intelligent-feed-image",
+        fallbackSrc: deps.getImageFallbackDataUri("WINGA"),
+        attributes: {
+          "data-disable-image-zoom": "true"
         }
       }));
       return media;
@@ -3201,12 +3240,40 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
           if (healthyCardCount > 0) {
             return;
           }
-          reportShowcaseInstrumentation("mobile_showcase_row_removed", {
+          row.dataset.showcaseRowMediaPending = "true";
+          row.querySelectorAll(".showcase-media").forEach((media) => {
+            if (!(media instanceof Element)) {
+              return;
+            }
+            const fallbackSrc = String(media.dataset.showcaseFallbackSrc || "").trim();
+            const visibleImage = media.querySelector(".feed-gallery-image-social, .showcase-preview-image, img");
+            const hasHealthyImage = Boolean(
+              visibleImage
+              && String(visibleImage.currentSrc || visibleImage.src || "").trim()
+              && (Number(visibleImage.naturalWidth || 0) > 0 || Number(visibleImage.clientWidth || 0) > 0)
+            );
+            if (!fallbackSrc || hasHealthyImage) {
+              return;
+            }
+            media.replaceChildren(createProgressiveImage({
+              src: fallbackSrc,
+              alt: String(media.dataset.showcaseFallbackAlt || "Product image"),
+              fallbackSrc: deps.getImageFallbackDataUri("WINGA"),
+              placeholderSrc: deps.getImageFallbackDataUri("W"),
+              className: "showcase-preview-image",
+              fitMode: String(media.dataset.fitMode || "cover").trim().toLowerCase() === "contain" ? "contain" : "cover",
+              attributes: {
+                "data-marketplace-scroll-image": "true",
+                "data-showcase-media-repaired": "true"
+              }
+            }));
+            media.dataset.showcaseMediaRepaired = "true";
+          });
+          reportShowcaseInstrumentation("mobile_showcase_row_media_pending", {
             heading: String(row.querySelector(".section-heading h2, .section-heading strong, h2")?.textContent || "").trim(),
             cardCount: cards.length,
             source: row.getAttribute("data-recommendation-type") || row.getAttribute("data-continuous-discovery-kind") || "showcase_inline"
           });
-          row.remove();
         }, 1400);
       });
     }
@@ -3313,12 +3380,14 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       return wrapper;
     }
 
-    function createProductCardElement(product) {
+    function createProductCardElement(product, options = {}) {
+      const startupPriority = options.startupPriority === true;
       const card = createElement("article", {
         className: "product-card",
         attributes: {
           "data-product-card": product.id,
-          "data-open-product": product.id
+          "data-open-product": product.id,
+          ...(startupPriority ? { "data-startup-priority-card": "true" } : {})
         }
       });
       card.dataset.productCard = product.id;
@@ -3328,7 +3397,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         card.classList.add("has-gallery-count-badge");
       }
       const media = createElement("div", { className: "product-card-media" });
-      media.appendChild(createProductGalleryElement(product));
+      media.appendChild(createProductGalleryElement(product, { startupPriority }));
       if (Array.isArray(product.images) && product.images.length > 1) {
         media.appendChild(createElement("span", {
           className: "feed-gallery-count-badge product-gallery-count-badge",
@@ -3347,6 +3416,10 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       if (caption) {
         content.appendChild(caption);
       }
+      const promotionAnalyticsMarkup = deps.renderSellerPromotionAnalytics?.(product);
+      if (promotionAnalyticsMarkup) {
+        content.appendChild(createElementFromMarkup(promotionAnalyticsMarkup));
+      }
       content.appendChild(createProductActionGroupElement(product));
       card.appendChild(content);
       bindCardOpenHandler(card, product);
@@ -3363,7 +3436,9 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
           ...(options.attributes || {})
         }
       });
-      safeItems.forEach((item) => stack.appendChild(createProductCardElement(item)));
+      safeItems.forEach((item, index) => stack.appendChild(createProductCardElement(item, {
+        startupPriority: options.startupPriority === true && index < STARTUP_PRIORITY_CARD_COUNT
+      })));
       return stack;
     }
 
@@ -3403,6 +3478,66 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       return card;
     }
 
+    function createIntelligentFeedCardElement(product) {
+      const card = createElement("article", {
+        className: "product-card showcase-card intelligent-feed-card",
+        attributes: {
+          "data-intelligent-feed-card": product.id,
+          "data-open-product": product.id
+        }
+      });
+      card.dataset.intelligentFeedCard = product.id;
+      card.dataset.openProduct = product.id;
+      card.dataset.cardOpenBound = "false";
+      if (Array.isArray(product.images) && product.images.length > 1) {
+        card.classList.add("has-gallery-count-badge");
+      }
+      const media = createIntelligentPreviewMediaElement(product);
+      const body = createElement("div", {
+        className: "product-content product-content-simple product-content-social showcase-body intelligent-feed-body"
+      });
+      const overflowMenuMarkup = deps.renderProductOverflowMenu?.(product, { overlay: true });
+      if (overflowMenuMarkup) {
+        card.appendChild(createFragmentFromMarkup(overflowMenuMarkup));
+      }
+      body.appendChild(createSellerRowElement(product));
+      const caption = createProductCaptionElement(product);
+      if (caption) {
+        body.appendChild(caption);
+      }
+      body.append(
+        deps.createElementFromMarkup(
+          deps.renderProductActionGroup(product, {
+            requestLabel: "My Request",
+            extraClass: "showcase-actions showcase-actions-compact intelligent-feed-actions"
+          })
+        )
+      );
+      card.append(media, body);
+      bindCardOpenHandler(card, product);
+      return card;
+    }
+
+    function createIntelligentSectionElement(eyebrow, title, subtitle, items, type = "intelligent") {
+      if (!Array.isArray(items) || !items.length) {
+        return null;
+      }
+      const section = createElement("section", {
+        className: "showcase-inline panel recommendation-strip intelligent-feed-section",
+        attributes: { "data-recommendation-type": type }
+      });
+      const sectionHeading = deps.createSectionHeading({
+        eyebrow: eyebrow || "For you",
+        title: title || "Products picked for you",
+        meta: subtitle || "Suggestions based on the current catalog"
+      });
+      section.appendChild(sectionHeading);
+      const track = createElement("div", { className: "showcase-track intelligent-feed-track" });
+      items.forEach((product) => track.appendChild(createIntelligentFeedCardElement(product)));
+      section.appendChild(track);
+      return section;
+    }
+
     function createShowcaseSectionElement(items, index, heading = "Marketplace Picks", title = "Bidhaa kutoka maduka tofauti", subtitle = "Tembea kushoto au kulia kuona zaidi") {
       if (!items.length) {
         return null;
@@ -3416,19 +3551,6 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         title,
         meta: subtitle
       });
-      const shareButton = createElement("button", {
-        className: "trust-link-btn showcase-share-btn",
-        textContent: "Share collection",
-        attributes: {
-          type: "button",
-          "data-share-collection-title": title,
-          "data-share-collection-subtitle": subtitle,
-          "data-share-collection-heading": heading,
-          "data-share-collection-product-id": items[0]?.id || "",
-          "data-share-collection-surface": "showcase"
-        }
-      });
-      sectionHeading.appendChild(shareButton);
       section.appendChild(sectionHeading);
       const track = createElement("div", { className: "showcase-track" });
       items.forEach((product) => track.appendChild(createShowcaseProductCardElement(product)));
@@ -3473,19 +3595,6 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         title: subtitle,
         meta: "Suggestions based on the current catalog"
       });
-      const shareButton = createElement("button", {
-        className: "trust-link-btn showcase-share-btn",
-        textContent: "Share collection",
-        attributes: {
-          type: "button",
-          "data-share-collection-title": subtitle,
-          "data-share-collection-subtitle": "Suggestions based on the current catalog",
-          "data-share-collection-heading": title,
-          "data-share-collection-product-id": items[0]?.id || "",
-          "data-share-collection-surface": type || "recommendation"
-        }
-      });
-      sectionHeading.appendChild(shareButton);
       section.appendChild(sectionHeading);
       const track = createElement("div", { className: "showcase-track" });
       items.forEach((product) => track.appendChild(createShowcaseProductCardElement(product)));
@@ -3499,13 +3608,15 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         return null;
       }
       const normalizedType = String(type || "recommendation").trim().toLowerCase();
-      const minBatchIndex = normalizedType === "related"
+      const minBatchIndex = normalizedType === "sponsored"
         ? 1
-        : normalizedType === "you-may-like"
+        : normalizedType === "related"
           ? 2
-          : normalizedType === "trending"
+          : normalizedType === "you-may-like"
             ? 3
-            : 1;
+            : normalizedType === "trending"
+              ? 4
+              : 2;
       return {
         kind: type || "recommendation",
         source: "deferred_recommendation",
@@ -3515,6 +3626,92 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         subtitle: "Suggestions based on the current catalog",
         items: safeItems
       };
+    }
+
+    function buildHomeIntelligentSectionQueue(list, usedShowcaseProductIds = new Set()) {
+      const safeList = Array.isArray(list) ? list.filter(Boolean) : [];
+      const queue = [];
+      const seenKinds = new Set();
+      const pushDescriptor = (descriptor, variant = "recommendation") => {
+        if (!descriptor || !Array.isArray(descriptor.items)) {
+          return;
+        }
+        const safeItems = descriptor.items
+          .filter(Boolean)
+          .filter((item) => item?.id && !usedShowcaseProductIds.has(item.id));
+        if (safeItems.length < 3) {
+          return;
+        }
+        const key = String(descriptor.kind || descriptor.heading || descriptor.eyebrow || descriptor.title || variant)
+          .trim()
+          .toLowerCase();
+        if (!key || seenKinds.has(key)) {
+          return;
+        }
+        seenKinds.add(key);
+        queue.push({
+          ...descriptor,
+          items: safeItems.slice(0, 12),
+          variant
+        });
+      };
+
+      const followingDescriptor = deps.getBehaviorShowcaseDescriptor?.(0, usedShowcaseProductIds);
+      if (followingDescriptor?.heading === "Following") {
+        pushDescriptor({
+          kind: "following",
+          heading: followingDescriptor.heading,
+          title: followingDescriptor.title,
+          subtitle: followingDescriptor.subtitle,
+          items: followingDescriptor.items
+        }, "showcase");
+      }
+
+      const seedProduct = deps.getRecommendationSeed?.(safeList) || safeList[0] || null;
+      const related = deps.getRelatedProducts?.(seedProduct, 6) || [];
+      const youMayLike = deps.getYouMayLikeProducts?.(seedProduct, 6) || [];
+      const trending = deps.getTrendingProducts?.(8) || [];
+
+      pushDescriptor(createRecommendationDescriptor(
+        "Based on what you viewed",
+        seedProduct ? `More in ${deps.getCategoryLabel(seedProduct.category)}` : "Similar picks",
+        related,
+        "related"
+      ));
+      pushDescriptor(createRecommendationDescriptor(
+        "Most trending",
+        "Most viewed and most interacted",
+        trending,
+        "trending"
+      ));
+      pushDescriptor(createRecommendationDescriptor(
+        "Most casual",
+        "Suggestions refreshed as you continue browsing",
+        youMayLike,
+        "you-may-like"
+      ));
+
+      return queue;
+    }
+
+    function buildLegacyShowcaseQueue(list, usedShowcaseProductIds = new Set()) {
+      const sourceItems = Array.isArray(deps.getShowcaseProducts?.())
+        ? deps.getShowcaseProducts()
+        : (Array.isArray(list) ? list.filter(Boolean) : []);
+      const safeItems = sourceItems
+        .filter(Boolean)
+        .filter((item) => item?.id && !usedShowcaseProductIds.has(item.id))
+        .slice(0, 12);
+      if (safeItems.length < 3) {
+        return [];
+      }
+      return [{
+        kind: "legacy-showcase",
+        heading: "Marketplace Picks",
+        title: "Bidhaa kutoka maduka tofauti",
+        subtitle: "Tembea kushoto au kulia kuona zaidi",
+        items: safeItems
+      }];
     }
 
     function reportShowcaseInstrumentation(eventName, payload = {}) {
@@ -3532,56 +3729,77 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       }
       const currentView = deps.getCurrentView();
       const shouldTrackViews = currentView !== "upload";
-      const shouldInjectInlineShowcases = currentView === "home" && !deps.hasPrioritySearchResults(list.length);
+      const legacyShowcaseEnabled = false;
+      const intelligentFeedEnabled = false;
+      const shouldInjectInlineShowcases = false;
+      const isMobileViewport = window.matchMedia?.("(max-width: 780px)")?.matches;
       const productsPerRow = shouldInjectInlineShowcases ? deps.getProductsPerRow() : 0;
-      const showcaseSpacing = 10;
+      const showcaseSpacing = isMobileViewport ? 8 : 10;
+      const showcaseRepeatInterval = isMobileViewport ? 16 : 14;
       const firstShowcaseAfter = shouldInjectInlineShowcases ? showcaseSpacing : Number.POSITIVE_INFINITY;
-      const showcaseRepeatInterval = shouldInjectInlineShowcases ? showcaseSpacing : Number.POSITIVE_INFINITY;
+      const effectiveShowcaseRepeatInterval = shouldInjectInlineShowcases ? showcaseRepeatInterval : Number.POSITIVE_INFINITY;
       let nextShowcaseInsertAt = firstShowcaseAfter;
       let showcaseIndex = 0;
       let insertedInlineShowcase = false;
       const usedShowcaseProductIds = new Set();
-      const maxDeferredShowcases = shouldInjectInlineShowcases
-        ? Math.min(2, Math.max(0, Math.floor((Math.max(0, list.length - firstShowcaseAfter)) / Math.max(1, showcaseRepeatInterval))))
-        : 0;
       const viewedProductIds = [];
       const passiveViewLimit = Math.max(4, (deps.getProductsPerRow?.() || 3));
       preloadMarketplaceImages(list);
       const renderToken = ++scheduledFeedRenderState.token;
       productsContainer.replaceChildren();
+      const legacySectionQueue = legacyShowcaseEnabled
+        ? buildLegacyShowcaseQueue(list, usedShowcaseProductIds)
+        : [];
+      const intelligentSectionQueue = intelligentFeedEnabled
+        ? buildHomeIntelligentSectionQueue(list, usedShowcaseProductIds)
+        : [];
+      const combinedSectionQueue = [...legacySectionQueue, ...intelligentSectionQueue];
+      let intelligentSectionIndex = 0;
 
       const appendShowcaseIfNeeded = (fragment, renderedCount) => {
         if (!shouldInjectInlineShowcases || renderedCount !== nextShowcaseInsertAt || renderedCount >= list.length) {
           return;
         }
-        if (showcaseIndex === 0) {
-          const descriptor = deps.getBehaviorShowcaseDescriptor(showcaseIndex, usedShowcaseProductIds);
-          const showcaseElement = createShowcaseSectionElement(
-            descriptor.items,
-            showcaseIndex + 1,
-            descriptor.heading,
-            descriptor.title,
-            descriptor.subtitle
-          );
-          if (showcaseElement) {
-            reportShowcaseInstrumentation("inline_behavior_showcase_rendered", {
-              sectionIndex: showcaseIndex,
-              heading: descriptor.heading,
-              title: descriptor.title,
-              itemCount: Array.isArray(descriptor.items) ? descriptor.items.length : 0,
-              source: "behavior_showcase"
-            });
-            descriptor.items.forEach((item) => usedShowcaseProductIds.add(item.id));
-            fragment.appendChild(showcaseElement);
-            showcaseIndex += 1;
-            insertedInlineShowcase = true;
+        while (intelligentSectionIndex < combinedSectionQueue.length) {
+          const descriptor = combinedSectionQueue[intelligentSectionIndex];
+          intelligentSectionIndex += 1;
+          const safeItems = descriptor.items.filter((item) => item?.id && !usedShowcaseProductIds.has(item.id));
+          if (safeItems.length < 3) {
+            continue;
           }
-        } else if (showcaseIndex - 1 < maxDeferredShowcases) {
-          fragment.appendChild(createDynamicShowcasePlaceholderElement(showcaseIndex));
+          const showcaseElement = descriptor.kind === "legacy-showcase"
+            ? createShowcaseSectionElement(
+              safeItems,
+              showcaseIndex + 1,
+              descriptor.heading,
+              descriptor.title,
+              descriptor.subtitle
+            )
+            : createIntelligentSectionElement(
+              descriptor.heading || descriptor.eyebrow,
+              descriptor.title,
+              descriptor.subtitle,
+              safeItems,
+              descriptor.kind || descriptor.variant || "intelligent"
+            );
+          if (!showcaseElement) {
+            continue;
+          }
+          reportShowcaseInstrumentation(descriptor.kind === "legacy-showcase" ? "legacy_showcase_rendered" : "intelligent_section_rendered", {
+            sectionIndex: showcaseIndex,
+            kind: descriptor.kind || descriptor.heading || descriptor.eyebrow || "section",
+            title: descriptor.title || "",
+            itemCount: safeItems.length,
+            source: descriptor.variant || "showcase"
+          });
+          safeItems.forEach((item) => usedShowcaseProductIds.add(item.id));
+          fragment.appendChild(showcaseElement);
+          deps.prioritizeVisibleFeedMedia?.(showcaseElement, Math.min(6, safeItems.length));
           showcaseIndex += 1;
           insertedInlineShowcase = true;
+          break;
         }
-        nextShowcaseInsertAt += showcaseRepeatInterval;
+        nextShowcaseInsertAt += effectiveShowcaseRepeatInterval;
       };
 
       const finalizeFeedRender = () => {
@@ -3589,63 +3807,36 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
           return;
         }
         if (shouldInjectInlineShowcases && !insertedInlineShowcase && list.length >= Math.max(4, productsPerRow * 2 || 4)) {
-          const descriptor = deps.getBehaviorShowcaseDescriptor(0, usedShowcaseProductIds);
-          const showcaseElement = createShowcaseSectionElement(
-            descriptor.items,
-            1,
-            descriptor.heading,
-            descriptor.title,
-            descriptor.subtitle
+          const descriptor = combinedSectionQueue.find((entry) =>
+            Array.isArray(entry?.items)
+            && entry.items.some((item) => item?.id && !usedShowcaseProductIds.has(item.id))
           );
-          if (showcaseElement) {
-            productsContainer.appendChild(showcaseElement);
+          if (descriptor) {
+            const safeItems = descriptor.items.filter((item) => item?.id && !usedShowcaseProductIds.has(item.id));
+            const showcaseElement = descriptor.kind === "legacy-showcase"
+              ? createShowcaseSectionElement(
+                safeItems,
+                1,
+                descriptor.heading,
+                descriptor.title,
+                descriptor.subtitle
+              )
+              : createIntelligentSectionElement(
+                descriptor.heading || descriptor.eyebrow,
+                descriptor.title,
+                descriptor.subtitle,
+                safeItems,
+                descriptor.kind || descriptor.variant || "intelligent"
+              );
+            if (showcaseElement) {
+              safeItems.forEach((item) => usedShowcaseProductIds.add(item.id));
+              productsContainer.appendChild(showcaseElement);
+              deps.prioritizeVisibleFeedMedia?.(showcaseElement, Math.min(6, safeItems.length));
+            }
           }
         }
 
-        if (currentView === "home" && list.length > 0 && deps.canUseContinuousDiscovery?.()) {
-          const seedProduct = deps.getRecommendationSeed(list);
-          const related = deps.getRelatedProducts(seedProduct, 6);
-          const youMayLike = deps.getYouMayLikeProducts(seedProduct, 6);
-          const trending = deps.getTrendingProducts(8);
-          const recommendationDescriptors = [
-            createRecommendationDescriptor("Related Products", seedProduct ? `More in ${deps.getCategoryLabel(seedProduct.category)}` : "Similar picks", related, "related"),
-            createRecommendationDescriptor("You May Like", "Based on what you are viewing", youMayLike, "you-may-like"),
-            createRecommendationDescriptor("Trending", "Most viewed and most interacted", trending, "trending")
-          ].filter(Boolean);
-          if (shouldInjectInlineShowcases && insertedInlineShowcase && deps.setDeferredRecommendationDescriptors) {
-            reportShowcaseInstrumentation("deferred_recommendations_queued", {
-              count: recommendationDescriptors.length,
-              kinds: recommendationDescriptors.map((descriptor) => descriptor.kind),
-              itemCounts: recommendationDescriptors.map((descriptor) => Array.isArray(descriptor.items) ? descriptor.items.length : 0)
-            });
-            deps.setDeferredRecommendationDescriptors(recommendationDescriptors);
-          } else {
-            if (deps.setDeferredRecommendationDescriptors) {
-              deps.setDeferredRecommendationDescriptors([]);
-            }
-            recommendationDescriptors
-              .map((descriptor) => createRecommendationSectionElement(
-                descriptor.eyebrow,
-                descriptor.title,
-                descriptor.items,
-                descriptor.kind
-              ))
-              .filter(Boolean)
-              .forEach((section, index) => {
-                const descriptor = recommendationDescriptors[index];
-                reportShowcaseInstrumentation("recommendation_section_rendered", {
-                  kind: descriptor?.kind || "recommendation",
-                  title: descriptor?.title || "",
-                  itemCount: Array.isArray(descriptor?.items) ? descriptor.items.length : 0,
-                  source: "direct_recommendation"
-                });
-                productsContainer.appendChild(section);
-              });
-          }
-          if (deps.createContinuousDiscoveryAnchorElement) {
-            productsContainer.appendChild(deps.createContinuousDiscoveryAnchorElement());
-          }
-        } else if (deps.setDeferredRecommendationDescriptors) {
+        if (deps.setDeferredRecommendationDescriptors) {
           deps.setDeferredRecommendationDescriptors([]);
         }
 
@@ -3653,10 +3844,14 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
           deps.bindShowcaseCardClicks(productsContainer);
           deps.setupDynamicShowcaseLoading(productsContainer, usedShowcaseProductIds);
         }
+        deps.enhanceShowcaseTracks?.(productsContainer);
         repairShowcaseMediaVisibility(productsContainer);
         stabilizeMobileShowcaseRows(productsContainer);
         deps.bindFeedGalleryInteractions?.(productsContainer);
-        if (currentView === "home" && list.length > 0 && deps.canUseContinuousDiscovery?.() && deps.setupContinuousDiscoveryLoading) {
+        deps.bindImageFallbacks?.(productsContainer);
+        deps.bindProductEngagementSignals?.(productsContainer);
+        deps.bindProductMenus?.(productsContainer);
+        if (intelligentFeedEnabled && currentView === "home" && list.length > 0 && deps.canUseContinuousDiscovery?.() && deps.setupContinuousDiscoveryLoading) {
           const usedProductIds = new Set(list.map((product) => product.id));
           Array.from(productsContainer.querySelectorAll("[data-showcase-id], [data-open-product]")).forEach((element) => {
             const productId = element.dataset.showcaseId || element.dataset.openProduct || "";
@@ -3679,16 +3874,24 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
           return;
         }
         const fragment = document.createDocumentFragment();
-        const endIndex = Math.min(list.length, startIndex + FEED_RENDER_BATCH_SIZE);
+        const batchSize = startIndex === 0 && currentView === "home"
+          ? INITIAL_SYNC_FEED_BATCH_SIZE
+          : FEED_RENDER_BATCH_SIZE;
+        const endIndex = Math.min(list.length, startIndex + batchSize);
         for (let index = startIndex; index < endIndex; index += 1) {
           const product = list[index];
           if (shouldTrackViews && index < passiveViewLimit && deps.trackView(product)) {
             viewedProductIds.push(product.id);
           }
-          fragment.appendChild(createProductCardElement(product));
+          fragment.appendChild(createProductCardElement(product, {
+            startupPriority: currentView === "home" && index < STARTUP_PRIORITY_CARD_COUNT
+          }));
           appendShowcaseIfNeeded(fragment, index + 1);
         }
         productsContainer.appendChild(fragment);
+        if (startIndex === 0 && currentView === "home") {
+          deps.prioritizeVisibleFeedMedia?.(productsContainer, Math.min(STARTUP_PRIORITY_CARD_COUNT, endIndex));
+        }
         deps.afterFeedBatchRender?.({
           container: productsContainer,
           startIndex,
@@ -6401,6 +6604,8 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       error: "",
       values: null
     };
+    let promotionFilterState = "all";
+    let promotionSearchState = "";
 
     function mapStatusClass(status = "") {
       const normalized = String(status || "").toLowerCase();
@@ -7422,14 +7627,31 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         deps.createElement("strong", { textContent: `${deps.getPromotionLabel?.(promotion.type) || promotion.type} | ${promotion.productId}` }),
         createMetaCopy(`Muuzaji: ${promotion.sellerUsername || "-"}`),
         createMetaCopy(`Transaction: ${promotion.transactionReference || "-"}`),
+        createMetaCopy(`Amount: TSh ${deps.formatNumber ? deps.formatNumber(promotion.amountPaid || 0) : (promotion.amountPaid || 0)}`),
         deps.createStatusPill(promotion.status || "pending", mapStatusClass(promotion.status))
       );
-      if (deps.isAdminUser?.() && promotion.status !== "disabled" && promotion.status !== "expired") {
+      if (deps.isAdminUser?.()) {
         const actions = deps.createElement("div", { className: "moderation-actions" });
-        actions.appendChild(createActionButton("Disable Promotion", {
-          adminPromotionDisable: promotion.id
-        }));
-        card.appendChild(actions);
+        if (promotion.status === "pending") {
+          actions.append(
+            createActionButton("Approve Promotion", {
+              adminPromotionReview: promotion.id,
+              adminPromotionStatus: "active"
+            }),
+            createActionButton("Reject Promotion", {
+              adminPromotionReview: promotion.id,
+              adminPromotionStatus: "rejected"
+            }, "button action-btn action-btn-secondary")
+          );
+        }
+        if (promotion.status !== "disabled" && promotion.status !== "expired" && promotion.status !== "rejected") {
+          actions.appendChild(createActionButton("Disable Promotion", {
+            adminPromotionDisable: promotion.id
+          }));
+        }
+        if (actions.childNodes.length) {
+          card.appendChild(actions);
+        }
       }
       return card;
     }
@@ -7447,6 +7669,134 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         });
       }
       return createSection(title, meta, list);
+    }
+
+    function createPromotionSummaryStrip(promotions = []) {
+      const safePromotions = Array.isArray(promotions) ? promotions : [];
+      const counts = safePromotions.reduce((accumulator, promotion) => {
+        const status = String(promotion?.status || "pending").trim().toLowerCase() || "pending";
+        accumulator.total += 1;
+        accumulator[status] = (accumulator[status] || 0) + 1;
+        return accumulator;
+      }, {
+        total: 0,
+        pending: 0,
+        active: 0,
+        rejected: 0,
+        expired: 0,
+        disabled: 0
+      });
+
+      const strip = deps.createElement("div", { className: "analytics-list" });
+      [
+        `Total: ${counts.total}`,
+        `Pending: ${counts.pending}`,
+        `Active: ${counts.active}`,
+        `Rejected: ${counts.rejected}`,
+        `Expired: ${counts.expired}`,
+        `Disabled: ${counts.disabled}`
+      ].forEach((entry) => {
+        strip.appendChild(deps.createElement("div", {
+          className: "analytics-list-item",
+          textContent: entry
+        }));
+      });
+      return strip;
+    }
+
+    function getFilteredPromotions(promotions = []) {
+      const safePromotions = Array.isArray(promotions) ? promotions : [];
+      const normalizedQuery = String(promotionSearchState || "").trim().toLowerCase();
+      const statusPriority = {
+        pending: 0,
+        active: 1,
+        rejected: 2,
+        expired: 3,
+        disabled: 4
+      };
+      return safePromotions
+        .filter((promotion) => {
+          const matchesStatus = promotionFilterState === "all"
+            || String(promotion?.status || "").trim().toLowerCase() === promotionFilterState;
+          if (!matchesStatus) {
+            return false;
+          }
+          if (!normalizedQuery) {
+            return true;
+          }
+          const haystack = [
+            promotion?.productId,
+            promotion?.sellerUsername,
+            promotion?.transactionReference,
+            promotion?.type
+          ]
+            .map((value) => String(value || "").trim().toLowerCase())
+            .filter(Boolean)
+            .join(" ");
+          return haystack.includes(normalizedQuery);
+        })
+        .sort((first, second) => {
+          const firstStatus = String(first?.status || "").trim().toLowerCase() || "pending";
+          const secondStatus = String(second?.status || "").trim().toLowerCase() || "pending";
+          const firstPriority = Object.prototype.hasOwnProperty.call(statusPriority, firstStatus) ? statusPriority[firstStatus] : 99;
+          const secondPriority = Object.prototype.hasOwnProperty.call(statusPriority, secondStatus) ? statusPriority[secondStatus] : 99;
+          if (firstPriority !== secondPriority) {
+            return firstPriority - secondPriority;
+          }
+          return new Date(second?.updatedAt || second?.createdAt || 0).getTime()
+            - new Date(first?.updatedAt || first?.createdAt || 0).getTime();
+        });
+    }
+
+    function createPromotionFilterControl() {
+      const wrapper = deps.createElement("div", { className: "moderation-actions" });
+      const label = deps.createElement("label", {
+        className: "product-meta",
+        textContent: "Status filter"
+      });
+      const select = deps.createElement("select", {
+        attributes: {
+          "data-admin-promotion-filter": "true"
+        }
+      });
+      [
+        ["all", "All"],
+        ["pending", "Pending"],
+        ["active", "Active"],
+        ["rejected", "Rejected"],
+        ["expired", "Expired"],
+        ["disabled", "Disabled"]
+      ].forEach(([value, text]) => {
+        const option = deps.createElement("option", {
+          textContent: text,
+          attributes: { value }
+        });
+        if (promotionFilterState === value) {
+          option.selected = true;
+        }
+        select.appendChild(option);
+      });
+      wrapper.append(label, select);
+      return wrapper;
+    }
+
+    function createPromotionSearchControl() {
+      const wrapper = deps.createElement("div", { className: "moderation-actions" });
+      const label = deps.createElement("label", {
+        className: "product-meta",
+        textContent: "Search"
+      });
+      const input = deps.createElement("input", {
+        attributes: {
+          type: "search",
+          value: promotionSearchState || "",
+          placeholder: "Seller, product, or reference",
+          "data-admin-promotion-search": "true",
+          autocomplete: "off"
+        }
+      });
+      wrapper.append(label, input);
+      return wrapper;
     }
 
     function createSystemSettingsSection(settings) {
@@ -7582,12 +7932,18 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
 
       if (deps.isAdminUser?.()) {
         const promotionsBody = deps.createElement("div", { className: "moderation-list" });
+        promotionsBody.appendChild(createPromotionSummaryStrip(state.promotions));
+        promotionsBody.appendChild(createPromotionFilterControl());
+        promotionsBody.appendChild(createPromotionSearchControl());
+        const visiblePromotions = getFilteredPromotions(state.promotions);
         if (state.loadErrors.promotions) {
           promotionsBody.appendChild(createLoadIssueState("Promotions data haikupatikana kwa sasa."));
         } else if (!state.promotions.length) {
           promotionsBody.appendChild(deps.createEmptyState("Hakuna promotions za kusimamia."));
+        } else if (!visiblePromotions.length) {
+          promotionsBody.appendChild(deps.createEmptyState("Hakuna promotions kwenye filter hiyo kwa sasa."));
         } else {
-          state.promotions.forEach((promotion) => promotionsBody.appendChild(createPromotionCard(promotion)));
+          visiblePromotions.forEach((promotion) => promotionsBody.appendChild(createPromotionCard(promotion)));
         }
         wrapper.appendChild(createSection("Promotions", "Admin-only promotion controls.", promotionsBody));
 
@@ -7794,6 +8150,33 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       deps.reportEvent?.("info", "admin_promotion_disabled", "Admin disabled a promotion.", {
         promotionId
       });
+      renderAdminView();
+    }
+
+    async function handlePromotionReview(button) {
+      const promotionId = button.dataset.adminPromotionReview || "";
+      const status = button.dataset.adminPromotionStatus || "";
+      if (!promotionId || !status) {
+        return;
+      }
+      if (status === "rejected" && deps.confirmAction && !deps.confirmAction("Una uhakika unataka kukataa promotion hii?")) {
+        return;
+      }
+      const result = await deps.dataLayer.reviewPromotion(promotionId, { status });
+      deps.showInAppNotification?.({
+        title: status === "active" ? "Promotion approved" : "Promotion rejected",
+        body: status === "active"
+          ? "Promotion imekubaliwa na sasa inaweza kuonekana kwenye discovery."
+          : "Promotion imekataliwa. Seller anaweza kutuma tena akiwa tayari.",
+        variant: "success"
+      });
+      deps.reportEvent?.("info", status === "active" ? "admin_promotion_approved" : "admin_promotion_rejected", "Admin reviewed a promotion.", {
+        promotionId,
+        status
+      });
+      if (result?.productId) {
+        deps.refreshProductsFromStore?.();
+      }
       renderAdminView();
     }
 
@@ -8174,6 +8557,42 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         });
       });
 
+      panel.querySelectorAll("[data-admin-promotion-review]").forEach((button) => {
+        button.addEventListener("click", async () => {
+          const scope = button.closest("[data-admin-promotion-card]");
+          toggleScopedBusyState(scope, true);
+          try {
+            await handlePromotionReview(button);
+          } catch (error) {
+            deps.captureError?.("admin_promotion_review_failed", error, {
+              promotionId: button.dataset.adminPromotionReview || "",
+              status: button.dataset.adminPromotionStatus || ""
+            });
+            deps.showInAppNotification?.({
+              title: "Promotion review failed",
+              body: error.message || "Imeshindikana kureview promotion.",
+              variant: "error"
+            });
+          } finally {
+            toggleScopedBusyState(scope, false);
+          }
+        });
+      });
+
+      panel.querySelectorAll("[data-admin-promotion-filter]").forEach((select) => {
+        select.addEventListener("change", () => {
+          promotionFilterState = String(select.value || "all").trim().toLowerCase() || "all";
+          renderAdminView();
+        });
+      });
+
+      panel.querySelectorAll("[data-admin-promotion-search]").forEach((input) => {
+        input.addEventListener("input", () => {
+          promotionSearchState = String(input.value || "").trim();
+          renderAdminView();
+        });
+      });
+
       panel.querySelectorAll("[data-admin-settings-save]").forEach((button) => {
         button.addEventListener("click", async () => {
           const scope = button.closest("[data-admin-settings-form]");
@@ -8288,12 +8707,18 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         await nextFrame();
 
         const promotionsBody = deps.createElement("div", { className: "moderation-list" });
+        promotionsBody.appendChild(createPromotionSummaryStrip(state.promotions));
+        promotionsBody.appendChild(createPromotionFilterControl());
+        promotionsBody.appendChild(createPromotionSearchControl());
+        const visiblePromotions = getFilteredPromotions(state.promotions);
         if (state.loadErrors.promotions) {
           promotionsBody.appendChild(createLoadIssueState("Promotions data haikupatikana kwa sasa."));
         } else if (!state.promotions.length) {
           promotionsBody.appendChild(deps.createEmptyState("Hakuna promotions za kusimamia."));
+        } else if (!visiblePromotions.length) {
+          promotionsBody.appendChild(deps.createEmptyState("Hakuna promotions kwenye filter hiyo kwa sasa."));
         } else {
-          await appendItemsInChunks(promotionsBody, state.promotions, (promotion) => createPromotionCard(promotion), 10);
+          await appendItemsInChunks(promotionsBody, visiblePromotions, (promotion) => createPromotionCard(promotion), 10);
         }
         wrapper.appendChild(createSection("Promotions", "Admin-only promotion controls.", promotionsBody));
         await nextFrame();
@@ -9159,6 +9584,54 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       return section;
     }
 
+    function createPromotionManagementSectionElement(context = {}) {
+      if (!context.canUseSellerFeatures) {
+        return null;
+      }
+      const section = deps.createElement("section", {
+        attributes: { id: "profile-promotions-management-panel" }
+      });
+      const promotions = Array.isArray(context.promotions) ? context.promotions : [];
+      section.appendChild(deps.createSectionHeading({
+        eyebrow: "Promotions",
+        title: "Promotion status",
+        meta: `${promotions.length} record${promotions.length === 1 ? "" : "s"}`
+      }));
+
+      if (!promotions.length) {
+        section.appendChild(deps.createElement("p", {
+          className: "empty-copy",
+          textContent: "Hakuna promotion requests bado."
+        }));
+        return section;
+      }
+
+      const list = deps.createElement("div", { className: "orders-grid promotion-guide-grid" });
+      promotions.forEach((promotion) => {
+        const card = deps.createElement("div", { className: "orders-card promotion-guide-card" });
+        const status = String(promotion?.status || "pending").trim() || "pending";
+        const statusClass = status === "active" ? "approved" : status === "rejected" ? "rejected" : "pending";
+        const amount = Number(promotion?.amountPaid || 0);
+        const startDate = promotion?.startDate ? new Date(promotion.startDate) : null;
+        const endDate = promotion?.endDate ? new Date(promotion.endDate) : null;
+        const hasSchedule = startDate instanceof Date && !Number.isNaN(startDate.getTime()) && endDate instanceof Date && !Number.isNaN(endDate.getTime());
+        card.append(
+          deps.createElement("strong", { textContent: `${promotion.productName || promotion.productId || "Product"} | ${promotion.label || promotion.type}` }),
+          deps.createStatusPill(status, statusClass),
+          deps.createElement("small", {
+            textContent: `TSh ${deps.formatNumber(amount)}${hasSchedule ? ` | ${startDate.toLocaleDateString()} - ${endDate.toLocaleDateString()}` : ""}`
+          }),
+          deps.createElement("p", {
+            className: "product-meta",
+            textContent: `Reference: ${promotion.transactionReference || "-"}`
+          })
+        );
+        list.appendChild(card);
+      });
+      section.appendChild(list);
+      return section;
+    }
+
     function createProfileShellElement(context) {
       const {
         displayName,
@@ -9166,8 +9639,8 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         stats,
         identityMarkup,
         sellerUpgradeMarkup,
-        promotionsMarkup,
         savedIntentMarkup,
+        promotionsMarkup,
         requestsMarkup,
         ordersMarkup,
         notificationsMarkup,
@@ -9198,8 +9671,8 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       [
         identityMarkup,
         sellerUpgradeMarkup,
-        promotionsMarkup,
         savedIntentMarkup,
+        promotionsMarkup,
         requestsMarkup,
         ordersMarkup,
         notificationsMarkup,
@@ -9404,6 +9877,8 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       createSellerUpgradeSectionElement,
       createOrdersSectionElement,
       createPromotionOverviewSectionElement
+      ,
+      createPromotionManagementSectionElement
     };
   }
 
@@ -10089,6 +10564,21 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         const activePromotions = Array.isArray(deps.getActivePromotions?.())
           ? deps.getActivePromotions()
           : [];
+        const sellerPromotions = (Array.isArray(deps.getCurrentPromotions?.()) ? deps.getCurrentPromotions() : [])
+          .filter((promotion) => String(promotion?.sellerUsername || "").trim().toLowerCase() === String(currentUser || "").trim().toLowerCase())
+          .map((promotion) => {
+            const product = deps.getProductById?.(promotion.productId);
+            const option = deps.getPromotionOptions?.()?.[promotion.type] || null;
+            return {
+              ...promotion,
+              productName: product?.name || "",
+              label: option?.label || promotion.type
+            };
+          })
+          .sort((first, second) =>
+            new Date(second?.updatedAt || second?.createdAt || 0).getTime()
+            - new Date(first?.updatedAt || first?.createdAt || 0).getTime()
+          );
         const canGetVerified = userProfile?.role === "seller" && !userProfile?.verifiedSeller;
         profileDiv.dataset.activeSection = activeSection;
         profileDiv.replaceChildren(deps.createProfileShellElement({
@@ -10131,12 +10621,11 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
             phoneNumber: userProfile?.phoneNumber || userProfile?.whatsappNumber || "",
             primaryCategory: userProfile?.primaryCategory || "",
           }),
-          promotionsMarkup: deps.createPromotionOverviewSectionElement({
-            canUseSellerFeatures: deps.canUseSellerFeatures(),
-            activePromotionsCount: activePromotions.filter((promotion) => promotion.sellerUsername === currentUser).length,
-            promotionOptions: deps.getPromotionOptions()
-          }),
           savedIntentMarkup: deps.renderSavedIntentSection?.(),
+          promotionsMarkup: deps.createPromotionManagementSectionElement?.({
+            canUseSellerFeatures: deps.canUseSellerFeatures(),
+            promotions: sellerPromotions
+          }),
           requestsMarkup: deps.renderRequestBoxSection(),
           ordersMarkup: deps.createOrdersSectionElement(deps.getCurrentOrders()),
           notificationsMarkup: deps.renderNotificationsSection(),
@@ -10263,65 +10752,34 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       });
 
       container.querySelectorAll("[data-promote-product]").forEach((button) => {
-        button.addEventListener("click", async () => {
-          const product = deps.getProductById ? deps.getProductById(button.dataset.promoteProduct) : deps.getProducts().find((item) => item.id === button.dataset.promoteProduct);
+        button.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          const productId = String(button.dataset.promoteProduct || "").trim();
+          const product = deps.getProductById
+            ? deps.getProductById(productId)
+            : deps.getProducts().find((item) => item.id === productId);
           if (!product) {
-            return;
-          }
-
-          const selectedType = prompt([
-            "Chagua promotion type:",
-            "boost = Boost Product (TSh 5,000 / 3 days)",
-            "featured = Featured Section (TSh 10,000 / 7 days)",
-            "category_boost = Category Boost (TSh 7,000 / 5 days)",
-            "pin_top = Pin To Top (TSh 12,000 / 2 days)"
-          ].join("\n"), "boost");
-
-          if (!selectedType || !deps.getPromotionOptions()[selectedType]) {
-            return;
-          }
-
-          const option = deps.getPromotionOptions()[selectedType];
-          const transactionReference = prompt([
-            "Lipa kwa Mobile Money kwa promotion hii.",
-            `Product: ${product.name}`,
-            `Promotion: ${option.label}`,
-            `Amount: TSh ${deps.formatNumber(option.amount)}`,
-            `Use seller number for now: ${product.whatsapp}`,
-            "",
-            "Baada ya kulipa, weka transaction reference."
-          ].join("\n"), "");
-
-          if (!transactionReference || !transactionReference.trim()) {
+            deps.showInAppNotification?.({
+              title: "Promotion unavailable",
+              body: "Bidhaa hii haikupatikana tena. Refresh profile yako ujaribu tena.",
+              variant: "warning"
+            });
             return;
           }
 
           try {
-            await deps.dataLayer.createPromotion({
-              productId: product.id,
-              type: selectedType,
-              transactionReference: transactionReference.trim()
-            });
-            await deps.refreshPromotionsState();
-            deps.reportEvent?.("info", "promotion_created", "Seller created a promotion.", {
-              productId: product.id,
-              type: selectedType
-            });
-            deps.showInAppNotification?.({
-              title: "Promotion submitted",
-              body: "Promotion imewasilishwa. Utaiona ikishaingia active au ikireviewiwa.",
-              variant: "success"
-            });
-            renderProfile();
-            deps.renderCurrentView();
+            if (typeof deps.openPromotionIntentModal !== "function") {
+              throw new Error("Promotion plan opener haipo kwa sasa.");
+            }
+            deps.openPromotionIntentModal(product);
           } catch (error) {
-            deps.captureError?.("promotion_create_failed", error, {
-              productId: product.id,
-              type: selectedType
+            deps.captureError?.("promotion_plan_open_failed", error, {
+              productId: product.id
             });
             deps.showInAppNotification?.({
-              title: "Promotion failed",
-              body: error.message || "Promotion imeshindikana.",
+              title: "Promotion failed to open",
+              body: error.message || "Imeshindikana kufungua promotion plan. Jaribu tena.",
               variant: "error"
             });
           }

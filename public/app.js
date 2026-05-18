@@ -37,10 +37,12 @@ const MEMORY_CRITICAL_THRESHOLD_BYTES = 220 * 1024 * 1024;
 const FEED_BOOTSTRAP_CACHE_KEY = "winga-feed-bootstrap-cache";
 const FEED_BOOTSTRAP_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const FEED_BOOTSTRAP_PRODUCT_LIMIT = 14;
-const FEED_PREDICTIVE_PRELOAD_COUNT = 3;
-const FEED_PREDICTIVE_NEXT_BATCH_SIZE = 3;
+const FEED_BOOT_IMAGE_WARM_COUNT = 60;
+const FEED_BOOT_IMAGE_DECODE_COUNT = 18;
+const FEED_PREDICTIVE_PRELOAD_COUNT = 8;
+const FEED_PREDICTIVE_NEXT_BATCH_SIZE = 8;
 const FEED_MEMORY_IMAGE_CACHE_LIMIT = 10;
-const FEED_MEMORY_PREFETCH_COOLDOWN_MS = 2200;
+const FEED_MEMORY_PREFETCH_COOLDOWN_MS = 900;
 const FEED_SCROLL_SPEED_PREFETCH_THRESHOLD = 0.72;
 const IMAGE_PRELOAD_REGISTRY_LIMIT = 180;
 const MARKETPLACE_SCROLL_PREFETCH_REGISTRY_LIMIT = 240;
@@ -51,13 +53,16 @@ const BLOCKED_DEMO_PRODUCT_IDENTIFIERS = new Set([
   "mama asha shop",
   "mama aisha shop"
 ]);
-const { CHAT_EMOJI_CHOICES } = window.WingaModules.config.chat;
+const moduleConfig = window.WingaModules?.config || {};
+const chatConfig = moduleConfig.chat || {};
+const categoryConfig = moduleConfig.categories || {};
+const { CHAT_EMOJI_CHOICES = [] } = chatConfig;
 const {
-  MARKETPLACE_CATEGORY_TREE,
-  DEFAULT_TOP_CATEGORIES,
-  DEFAULT_PRODUCT_CATEGORIES,
-  LEGACY_CATEGORY_MAPPINGS
-} = window.WingaModules.config.categories;
+  MARKETPLACE_CATEGORY_TREE = [],
+  DEFAULT_TOP_CATEGORIES = [],
+  DEFAULT_PRODUCT_CATEGORIES = [],
+  LEGACY_CATEGORY_MAPPINGS = {}
+} = categoryConfig;
 const FLEXIBLE_SUBCATEGORY_TOP_VALUES = new Set(["vitu-used"]);
 const MAX_UPLOAD_IMAGES = 5;
 const MAX_IMAGE_SIZE_MB = 25;
@@ -2220,14 +2225,24 @@ function primeFeedInstantCache(productsList = [], options = {}) {
   });
 }
 
-function warmProductImageCache(products = []) {
+function warmProductImageCache(products = [], options = {}) {
   if (typeof preloadImageSource !== "function" || !Array.isArray(products) || !products.length) {
     return;
   }
 
   const isStandalone = isStandaloneDisplayMode();
-  const productLimit = isStandalone ? 2 : 3;
-  const imageLimitPerProduct = 1;
+  const productLimit = Math.max(
+    1,
+    Number(options.productLimit || (isStandalone ? 8 : FEED_BOOT_IMAGE_WARM_COUNT)) || 1
+  );
+  const imageLimitPerProduct = Math.max(
+    1,
+    Number(options.imageLimitPerProduct || 1) || 1
+  );
+  const decodeCount = Math.max(
+    1,
+    Number(options.decodeCount || (isStandalone ? 4 : 8)) || 1
+  );
   const seen = new Set();
   const queue = [];
 
@@ -2245,11 +2260,11 @@ function warmProductImageCache(products = []) {
       return;
     }
     if (typeof product.image === "string") {
-      enqueue(product.image, "auto");
+      enqueue(product.image, index < 12 ? "high" : "auto");
     }
     if (Array.isArray(product.images) && product.images.length) {
       product.images.slice(0, imageLimitPerProduct).forEach((imageSrc) => {
-        enqueue(imageSrc, "auto");
+        enqueue(imageSrc, index < 12 ? "high" : "auto");
       });
     }
   });
@@ -2264,7 +2279,7 @@ function warmProductImageCache(products = []) {
       try {
         registration?.active?.postMessage?.({
           type: "CACHE_IMAGE_URLS",
-          urls: cacheUrls.slice(0, isStandalone ? 4 : 6)
+          urls: cacheUrls.slice(0, isStandalone ? 12 : Math.min(cacheUrls.length, FEED_BOOT_IMAGE_WARM_COUNT))
         });
       } catch (error) {
         // Ignore SW warm-cache messaging issues.
@@ -2277,13 +2292,13 @@ function warmProductImageCache(products = []) {
     }
   }
 
-  const batchSize = isStandalone ? 2 : 3;
+  const batchSize = isStandalone ? 4 : 10;
   const drainQueue = () => {
     const batch = queue.splice(0, batchSize);
     batch.forEach(({ src, fetchPriority }, index) => {
       preloadImageSource(src, {
         fetchPriority,
-        decodeInMemory: index === 0,
+        decodeInMemory: index < decodeCount,
         reason: "warm_product_image_cache"
       });
     });
@@ -2291,10 +2306,10 @@ function warmProductImageCache(products = []) {
       return;
     }
     if (typeof window.requestIdleCallback === "function") {
-      window.requestIdleCallback(drainQueue, { timeout: isStandalone ? 1400 : 1200 });
+      window.requestIdleCallback(drainQueue, { timeout: isStandalone ? 300 : 120 });
       return;
     }
-    window.setTimeout(drainQueue, isStandalone ? 320 : 420);
+    window.setTimeout(drainQueue, isStandalone ? 60 : 20);
   };
 
   drainQueue();
@@ -2667,7 +2682,7 @@ function primePredictiveFeedBatch(trigger = "scroll") {
   primeFeedInstantCache(nextProducts, {
     reason: `${trigger}_next_batch`,
     productLimit: FEED_PREDICTIVE_NEXT_BATCH_SIZE,
-    decodeLimit: Math.min(FEED_PREDICTIVE_NEXT_BATCH_SIZE, 4)
+    decodeLimit: Math.min(FEED_PREDICTIVE_NEXT_BATCH_SIZE, 6)
   });
 }
 
@@ -2683,7 +2698,7 @@ function schedulePredictiveFeedPrefetch(trigger = "scroll") {
     window.clearTimeout(feedRuntimeState.prefetchTimer);
     feedRuntimeState.prefetchTimer = 0;
   }
-  const delay = trigger === "scroll" ? 120 : 40;
+  const delay = trigger === "scroll" ? 40 : 0;
   feedRuntimeState.prefetchTimer = window.setTimeout(() => {
     feedRuntimeState.prefetchTimer = 0;
     feedRuntimeState.lastPrefetchAt = Date.now();
@@ -5600,6 +5615,12 @@ function completeBootOverlay() {
   if (!bootOverlay) {
     return;
   }
+  const shouldDelayHide = currentView === "home"
+    && !hasVisibleStartupSurface({ includeFeedLoading: false })
+    && productHydrationStatus !== "failed";
+  if (shouldDelayHide) {
+    return;
+  }
   hideBootOverlayImmediately();
   window.setTimeout(() => {
     ensureVisibleStartupContent("boot_overlay_completed");
@@ -5684,7 +5705,7 @@ function showInstantBootFeedSnapshot(reason = "boot_snapshot") {
 
   const hasVisibleFeedShell = Boolean(
     productsContainer?.querySelector(".product-card, .seller-product-card")
-    || feedLoadingState?.style.display === "grid"
+    || emptyState?.style.display === "block"
   );
 
   if (hasVisibleFeedShell) {
@@ -6886,7 +6907,8 @@ const paymentIntentSubmissionRegistry = new Map();
 
 let promotionIntentState = {
   productId: "",
-  selectedType: "boost",
+  product: null,
+  selectedType: "starter_day",
   loading: false,
   transactionId: "",
   feedbackTone: "",
@@ -6991,7 +7013,7 @@ function getPromotionOption(type) {
 
 function getPromotionPaymentContact(product) {
   return normalizeWhatsapp(
-    getProductWhatsapp(product)
+    getProductWhatsappNumber(product)
     || currentSession?.phoneNumber
     || currentSession?.whatsappNumber
     || ""
@@ -7019,7 +7041,7 @@ function ensurePromotionIntentModal() {
   root.addEventListener("click", (event) => {
     const optionButton = event.target.closest("[data-select-promotion-type]");
     if (optionButton) {
-      promotionIntentState.selectedType = String(optionButton.dataset.selectPromotionType || "boost").trim() || "boost";
+      promotionIntentState.selectedType = String(optionButton.dataset.selectPromotionType || "starter_day").trim() || "starter_day";
       promotionIntentState.feedbackTone = "";
       promotionIntentState.feedbackMessage = "";
       renderPromotionIntentModal();
@@ -7063,7 +7085,8 @@ function closePromotionIntentModal() {
   root.classList.remove("open");
   promotionIntentState = {
     productId: "",
-    selectedType: "boost",
+    product: null,
+    selectedType: "starter_day",
     loading: false,
     transactionId: "",
     feedbackTone: "",
@@ -7073,26 +7096,122 @@ function closePromotionIntentModal() {
   syncBodyScrollLockState();
 }
 
+function getPromotionIntentProduct() {
+  const activeProductId = String(promotionIntentState.productId || "").trim();
+  if (!activeProductId) {
+    return promotionIntentState.product || null;
+  }
+  const indexedProduct = getProductById(activeProductId);
+  if (indexedProduct) {
+    promotionIntentState.product = indexedProduct;
+    return indexedProduct;
+  }
+  const stateProduct = promotionIntentState.product;
+  if (stateProduct && String(stateProduct.id || "").trim() === activeProductId) {
+    return stateProduct;
+  }
+  return null;
+}
+
+function getPromotionTriggerProduct(trigger) {
+  const productId = String(trigger?.dataset?.promoteProduct || "").trim();
+  if (productId) {
+    const indexedProduct = getProductById(productId);
+    if (indexedProduct) {
+      return indexedProduct;
+    }
+  }
+  const uploadedBy = String(trigger?.dataset?.promoteProductOwner || "").trim();
+  if (!productId || !uploadedBy) {
+    return null;
+  }
+  return {
+    id: productId,
+    uploadedBy,
+    name: String(trigger?.dataset?.promoteProductName || "").trim(),
+    shop: String(trigger?.dataset?.promoteProductShop || "").trim(),
+    whatsapp: String(trigger?.dataset?.promoteProductWhatsapp || "").trim(),
+    location: String(trigger?.dataset?.promoteProductLocation || "").trim(),
+    category: String(trigger?.dataset?.promoteProductCategory || "").trim(),
+    images: []
+  };
+}
+
+function getPromotionTriggerContext(trigger) {
+  return {
+    product: getPromotionTriggerProduct(trigger),
+    trustedAuthorized: String(trigger?.dataset?.promoteAuthorized || "").trim() === "true"
+  };
+}
+
+function openPromotionFromTrigger(trigger) {
+  const promotionContext = getPromotionTriggerContext(trigger);
+  const product = promotionContext.product;
+  if (!product) {
+    showInAppNotification({
+      title: "Promotion unavailable",
+      body: "Product context ya promotion haikupatikana. Refresh home feed ujaribu tena.",
+      variant: "warning"
+    });
+    return false;
+  }
+  openPromotionIntentModal(product, {
+    trustedAuthorized: promotionContext.trustedAuthorized,
+    trigger
+  });
+  return true;
+}
+
 function renderPromotionIntentModal() {
   const root = ensurePromotionIntentModal();
   const body = root.querySelector("[data-promotion-intent-body='true']");
-  const product = getProductById(promotionIntentState.productId || "");
-  if (!body || !product) {
-    closePromotionIntentModal();
+  const product = getPromotionIntentProduct();
+  if (!body) {
     return;
   }
-  const selectedOption = getPromotionOption(promotionIntentState.selectedType) || getPromotionOption("boost");
+  if (!product) {
+    promotionIntentState.feedbackTone = "error";
+    promotionIntentState.feedbackMessage = "Promotion plan haikuweza kufunguka kwa sababu context ya bidhaa imepotea. Refresh home feed kisha ujaribu tena.";
+    const wrapper = createElement("div", { className: "promotion-intent-shell" });
+    const actions = createElement("div", { className: "payment-intent-actions" });
+    wrapper.append(
+      createElement("p", { className: "eyebrow", textContent: "Promotion request" }),
+      createElement("h3", {
+        textContent: "Promotion unavailable",
+        attributes: { id: "promotion-intent-title" }
+      }),
+      createElement("p", {
+        className: "payment-intent-status is-error",
+        textContent: promotionIntentState.feedbackMessage
+      }),
+      actions
+    );
+    actions.appendChild(createElement("button", {
+      className: "action-btn action-btn-secondary",
+      textContent: "Close",
+      attributes: {
+        type: "button",
+        "data-close-promotion-intent": "true"
+      }
+    }));
+    body.replaceChildren(wrapper);
+    root.hidden = false;
+    root.classList.add("open");
+    syncBodyScrollLockState();
+    return;
+  }
+  const selectedOption = getPromotionOption(promotionIntentState.selectedType) || getPromotionOption("starter_day");
   const paymentContact = getPromotionPaymentContact(product);
   const wrapper = createElement("div", { className: "promotion-intent-shell" });
   wrapper.append(
-    createElement("p", { className: "eyebrow", textContent: "Promotion request" }),
+    createElement("p", { className: "eyebrow", textContent: "Visibility plan" }),
     createElement("h3", {
-      textContent: "Promote this product",
+      textContent: "Choose visibility plan",
       attributes: { id: "promotion-intent-title" }
     }),
     createElement("p", {
       className: "product-meta",
-      textContent: "Chagua package, kisha weka transaction reference ya malipo ndani ya app badala ya browser prompt."
+      textContent: "Chagua siku za tangazo, kisha weka reference ya malipo ili admin aapprove tangazo lako."
     })
   );
 
@@ -7116,11 +7235,11 @@ function renderPromotionIntentModal() {
   const summary = createElement("div", { className: "payment-intent-summary" });
   summary.append(
     createElement("strong", { textContent: product.name || "Product" }),
-    createElement("p", { className: "product-meta", textContent: `Package: ${selectedOption?.label || "Boost Product"}` }),
+    createElement("p", { className: "product-meta", textContent: `Plan: ${selectedOption?.label || "1 day visibility"}` }),
     createElement("p", { className: "product-meta", textContent: `Amount: TSh ${formatNumber(selectedOption?.amount || 0)}` }),
     createElement("p", { className: "product-meta", textContent: `Duration: ${selectedOption?.durationDays || 0} day${selectedOption?.durationDays === 1 ? "" : "s"}` }),
     createElement("p", { className: "product-meta", textContent: `Payment contact: ${paymentContact || "Haijawekwa"}` }),
-    createElement("p", { className: "product-meta", textContent: "Promotion itaingia review mara tu reference itakapowasilishwa." })
+    createElement("p", { className: "product-meta", textContent: "Baada ya kutuma reference, tangazo litaenda kwa admin approval." })
   );
 
   const guidance = createElement("div", { className: "payment-safety-card" });
@@ -7128,7 +7247,7 @@ function renderPromotionIntentModal() {
     createElement("strong", { textContent: "Manual verification for now" }),
     createElement("p", {
       className: "product-meta",
-      textContent: "Flow hii inakusanya package na payment reference kwa njia safi ya ndani ya app. Admin ata-review kabla ya kuactivate promotion."
+      textContent: "Flow hii inakusanya visibility plan na payment reference ndani ya app. Admin ata-review kabla ya kuactivate tangazo."
     }),
     createElement("p", {
       className: "product-meta",
@@ -7143,7 +7262,7 @@ function renderPromotionIntentModal() {
       id: "promotion-intent-transaction-input",
       type: "text",
       maxlength: "80",
-      placeholder: "Weka transaction reference ya promotion",
+      placeholder: "Weka payment reference ya tangazo",
       value: promotionIntentState.transactionId || "",
       autocomplete: "off",
       autocapitalize: "characters"
@@ -7174,7 +7293,7 @@ function renderPromotionIntentModal() {
   const actions = createElement("div", { className: "payment-intent-actions" });
   const submitButton = createElement("button", {
     className: "action-btn buy-btn",
-    textContent: promotionIntentState.loading ? "Submitting..." : "Submit promotion",
+    textContent: promotionIntentState.loading ? "Submitting..." : "Send to admin",
     attributes: {
       type: "button",
       "data-submit-promotion-intent": "true"
@@ -7206,9 +7325,9 @@ function renderPromotionIntentModal() {
 }
 
 async function submitPromotionIntent() {
-  const product = getProductById(promotionIntentState.productId || "");
+  const product = getPromotionIntentProduct();
   if (!product) {
-    throw new Error("Bidhaa haijapatikana tena. Fungua profile upya ujaribu tena.");
+    throw new Error("Bidhaa haijapatikana tena. Refresh home feed kisha ujaribu tena.");
   }
   const selectedType = String(promotionIntentState.selectedType || "").trim();
   const selectedOption = getPromotionOption(selectedType);
@@ -8108,7 +8227,8 @@ const {
   createProfileIdentitySectionElement,
   createSellerUpgradeSectionElement,
   createOrdersSectionElement,
-  createPromotionOverviewSectionElement
+  createPromotionOverviewSectionElement,
+  createPromotionManagementSectionElement
 } = window.WingaModules.profile.createProfileUiModule({
   createElement,
   createSectionHeading,
@@ -8172,6 +8292,7 @@ const {
   createSellerUpgradeSectionElement,
   createOrdersSectionElement,
   createPromotionOverviewSectionElement,
+  createPromotionManagementSectionElement,
   renderSavedIntentSection,
   createOrdersContainerFromState,
   renderRequestBoxSection,
@@ -8210,6 +8331,7 @@ const {
   getCurrentUser: () => currentUser,
   getCurrentSession: () => currentSession,
   getCurrentOrders: () => currentOrders,
+  getCurrentPromotions: () => currentPromotions,
   getCurrentView: () => currentView,
   setCurrentOrders: (value) => {
     currentOrders = value;
@@ -8423,7 +8545,10 @@ const {
     searchBox.classList.remove("mobile-open");
   },
   getProductById,
+  resolvePromotionTriggerProduct: getPromotionTriggerProduct,
+  resolvePromotionTriggerContext: getPromotionTriggerContext,
   beginPurchaseFlow,
+  openPromotionIntentModal,
   repostProductAsSeller,
   toggleProductInRequestBoxById: (productId) => {
     const product = getProductById(productId);
@@ -8598,22 +8723,34 @@ const {
   getRenderableMarketplaceImages,
   getMarketplacePrimaryImage,
   getMarketplaceUser,
+  getCurrentUser: () => currentUser,
+  getSellerPromotionStatusMeta,
+  renderSellerPromotionAnalytics,
   renderMarketplaceTrustBadges,
   renderProductActionGroup,
   renderProductOverflowMenu,
   noteProductInterest,
+  openPromotionIntentModal,
   openImageLightbox,
   openProductDetailModal,
   isAuthenticatedUser,
+  canUseSellerFeatures,
   promptGuestAuth,
   renderFeedGalleryMarkup,
   bindFeedGalleryInteractions,
+  bindImageFallbacks,
+  bindProductEngagementSignals,
+  bindProductMenus,
+  enhanceShowcaseTracks,
   disposeScopedRenderMemory,
   getBehaviorShowcaseDescriptor,
+  getShowcaseProducts,
   getRecommendationSeed,
+  getDiscoverySponsoredProducts: (...args) => getDiscoverySponsoredProducts(...args),
   getRelatedProducts: (...args) => getRelatedProducts(...args),
   getYouMayLikeProducts,
   getTrendingProducts,
+  prioritizeVisibleFeedMedia,
   bindShowcaseCardClicks,
   setupDynamicShowcaseLoading,
   reportShowcaseInstrumentation,
@@ -8636,7 +8773,7 @@ const {
     if (!(container instanceof Element)) {
       return;
     }
-    prioritizeVisibleFeedMedia(container, 4);
+    prioritizeVisibleFeedMedia(container, 8);
     scheduleIdleBackgroundWork(() => {
       enhanceShowcaseTracks(container);
       bindFeedGalleryInteractions(container);
@@ -8773,7 +8910,7 @@ const MARKETPLACE_SCROLL_IMAGE_PLACEHOLDER = "data:image/gif;base64,R0lGODlhAQAB
 let marketplaceScrollImageObserver = null;
 
 function getMarketplaceScrollImagePrefetchMargin() {
-  return getViewportWidth() <= 720 ? 380 : 720;
+  return getViewportWidth() <= 720 ? 1400 : 1800;
 }
 
 function getMarketplaceScrollImageRootMargin() {
@@ -9090,6 +9227,7 @@ const postProductFab = document.getElementById("post-product-fab");
 const viewHomeBackButton = document.getElementById("view-home-back");
 let SHOW_HOMEPAGE_HERO_PANEL = false;
 let SHOW_STANDALONE_SHOWCASE_SECTION = false;
+const HOME_HORIZONTAL_ROWS_ENABLED = false;
 const runtimeAppSettings = {
   heroSectionVisible: false,
   standaloneShowcaseVisible: false,
@@ -10164,6 +10302,28 @@ function setFeedLoadingStateVisible(visible) {
   feedLoadingState.style.display = visible ? "grid" : "none";
 }
 
+function hasVisibleStartupSurface(options = {}) {
+  const includeFeedLoading = options.includeFeedLoading !== false;
+  return Boolean(
+    document.body.classList.contains("auth-modal-open")
+    || document.body.classList.contains("product-detail-open")
+    || productsContainer?.querySelector(".product-card, .seller-product-card")
+    || profileDiv?.style.display === "block"
+    || uploadForm?.style.display === "block"
+    || adminPanel?.style.display === "block"
+    || emptyState?.style.display === "block"
+    || (includeFeedLoading && feedLoadingState?.style.display === "grid")
+  );
+}
+
+function hasImmediateProductsAvailable() {
+  const hydratedProducts = window.WingaDataLayer?.getProducts?.();
+  return Boolean(
+    (Array.isArray(products) && products.length)
+    || (Array.isArray(hydratedProducts) && hydratedProducts.length)
+  );
+}
+
 function renderLifecycleFallbackSkeleton(message = "") {
   if (!feedLoadingState) {
     return;
@@ -10175,10 +10335,10 @@ function renderLifecycleFallbackSkeleton(message = "") {
     feedLoadingRetryButton.textContent = "Jaribu tena";
   }
   if (title) {
-    title.textContent = "Tunafungua WINGA...";
+    title.textContent = "Loading products";
   }
   if (copy) {
-    copy.textContent = message || "Subiri kidogo, tunaweka feed tayari bila kuacha screen tupu.";
+    copy.textContent = message || "Products are taking longer than expected to load. Please try again.";
   }
   setFeedLoadingStateVisible(true);
 }
@@ -10193,7 +10353,7 @@ function shouldKeepStartupFeedLoadingVisible() {
     }
     const filteredProducts = getFilteredProducts();
     const productsHydrated = Boolean(window.WingaDataLayer?.isProductsHydrated?.());
-    return (!productsHydrated || productHydrationStatus === "failed") && filteredProducts.length === 0;
+    return productHydrationStatus === "failed" && !productsHydrated && filteredProducts.length === 0;
   } catch (error) {
     captureClientError("startup_feed_loading_state_check_failed", error, {
       category: "runtime",
@@ -10208,17 +10368,12 @@ function ensureVisibleStartupContent(reason = "startup_guard") {
   if (!appContainer || appContainer.style.display === "none") {
     return;
   }
-  const hasVisibleSurface = Boolean(
-    document.body.classList.contains("auth-modal-open")
-    || document.body.classList.contains("product-detail-open")
-    || productsContainer?.querySelector(".product-card, .seller-product-card")
-    || profileDiv?.style.display === "block"
-    || uploadForm?.style.display === "block"
-    || adminPanel?.style.display === "block"
-    || emptyState?.style.display === "block"
-    || feedLoadingState?.style.display === "grid"
-  );
+  const hasVisibleSurface = hasVisibleStartupSurface();
   if (hasVisibleSurface) {
+    return;
+  }
+  if (productHydrationStatus !== "failed" && !Boolean(window.WingaDataLayer?.isProductsHydrated?.())) {
+    revealBootOverlay();
     return;
   }
   reportClientEvent("warn", "startup_blank_surface_guarded", "Startup guard restored visible feed loading shell.", {
@@ -10228,7 +10383,7 @@ function ensureVisibleStartupContent(reason = "startup_guard") {
     productsHydrated: Boolean(window.WingaDataLayer?.isProductsHydrated?.()),
     productsCount: Array.isArray(products) ? products.length : 0
   });
-  renderLifecycleFallbackSkeleton("Tunaweka bidhaa na picha tayari. Usiondoke, feed inaingia.");
+  renderLifecycleFallbackSkeleton("We couldn't finish loading products. Please try again.");
 }
 
 function hideLifecycleFallbackShell() {
@@ -10243,7 +10398,7 @@ function hideLifecycleFallbackShell() {
   lifecycleFallbackActive = false;
   lifecycleFallbackReason = "";
   if (shouldKeepStartupFeedLoadingVisible()) {
-    renderLifecycleFallbackSkeleton("Tunaweka bidhaa na picha tayari. Usiondoke, feed inaingia.");
+    renderLifecycleFallbackSkeleton("We couldn't finish loading products. Please try again.");
     return;
   }
   setFeedLoadingStateVisible(false);
@@ -11450,12 +11605,19 @@ document.addEventListener("pointerdown", (event) => {
 document.addEventListener("click", (event) => {
   const promoteTrigger = event.target.closest?.("[data-promote-product]");
   if (promoteTrigger) {
-    const productId = String(promoteTrigger.dataset.promoteProduct || "").trim();
-    const product = getProductById(productId);
+    const promotionContext = getPromotionTriggerContext(promoteTrigger);
+    const product = promotionContext.product;
     event.preventDefault();
     event.stopPropagation();
+    event.stopImmediatePropagation?.();
     if (product) {
-      openPromotionIntentModal(product);
+      openPromotionIntentModal(product, { trustedAuthorized: promotionContext.trustedAuthorized, trigger: promoteTrigger });
+    } else {
+      showInAppNotification({
+        title: "Promotion unavailable",
+        body: "Product context ya promotion haikupatikana. Refresh home feed ujaribu tena.",
+        variant: "warning"
+      });
     }
     return;
   }
@@ -12487,7 +12649,11 @@ window.addEventListener("winga:products-hydrated", (event) => {
     count: Number(detail.count || 0)
   });
   if (productHydrationStatus === "failed") {
-    renderLifecycleFallbackSkeleton("Bidhaa hazijafika bado kutoka kwenye seva. Jaribu tena baada ya sekunde chache.");
+    if (!hasImmediateProductsAvailable() && !hasVisibleStartupSurface({ includeFeedLoading: false })) {
+      renderLifecycleFallbackSkeleton("Bidhaa hazijafika bado kutoka kwenye seva. Jaribu tena baada ya sekunde chache.");
+    } else {
+      hideLifecycleFallbackShell();
+    }
   } else {
     hideLifecycleFallbackShell();
   }
@@ -12496,11 +12662,15 @@ window.addEventListener("winga:products-hydrated", (event) => {
   if (shouldDeferBootRenderForPendingStaffSession()) {
     return;
   }
-  warmProductImageCache(window.WingaDataLayer?.getProducts?.() || []);
+  warmProductImageCache(window.WingaDataLayer?.getProducts?.() || [], {
+    productLimit: FEED_BOOT_IMAGE_WARM_COUNT,
+    imageLimitPerProduct: 1,
+    decodeCount: FEED_BOOT_IMAGE_DECODE_COUNT
+  });
   primeFeedInstantCache(window.WingaDataLayer?.getProducts?.() || [], {
     reason: "products_hydrated",
-    productLimit: FEED_PREDICTIVE_PRELOAD_COUNT,
-    decodeLimit: FEED_PREDICTIVE_NEXT_BATCH_SIZE
+    productLimit: FEED_BOOT_IMAGE_WARM_COUNT,
+    decodeLimit: FEED_BOOT_IMAGE_DECODE_COUNT
   });
   const canRenderWhileWaitingForDeepLink = !suppressInitialProductHomeRender || document.body.classList.contains("product-detail-open");
   if (canRenderWhileWaitingForDeepLink && currentView !== "profile") {
@@ -13068,6 +13238,42 @@ function getBehaviorShowcaseDescriptor(sectionIndex = 0, excludeIds = new Set())
 
   const topCategory = preferredCategories[0];
   if (behaviorHeavy) {
+    if (sectionIndex > 0) {
+      const seedProduct = getRecommendationSeed(getFilteredProducts());
+      const alternateDescriptors = [
+        {
+          heading: "New Products",
+          title: topCategory ? `Fresh in ${getCategoryLabel(topCategory)}` : "Fresh listings from active sellers",
+          subtitle: "New stock appears as you keep scrolling.",
+          items: getNewestProducts({
+            limit: 12,
+            excludeIds,
+            seedProduct,
+            sourceProducts: baseProducts
+          })
+        },
+        {
+          heading: "Most Searched",
+          title: topCategory ? `Popular in ${getCategoryLabel(topCategory)}` : "Popular products buyers search for most",
+          subtitle: "High-intent products moving through the marketplace right now.",
+          items: getMostSearchedProducts(seedProduct, {
+            limit: 12,
+            excludeIds,
+            sourceProducts: baseProducts
+          })
+        },
+        {
+          heading: "Trending",
+          title: "Most viewed and most interacted products",
+          subtitle: "Marketplace momentum keeps discovery moving.",
+          items: getTrendingProducts(12, excludeIds, baseProducts)
+        }
+      ];
+      const alternateDescriptor = alternateDescriptors[(sectionIndex - 1) % alternateDescriptors.length];
+      if (Array.isArray(alternateDescriptor?.items) && alternateDescriptor.items.length >= 3) {
+        return alternateDescriptor;
+      }
+    }
     return {
       heading: sectionIndex === 0 ? "Marketplace Picks" : "Based on Your Interest",
       title: topCategory ? `More in ${getCategoryLabel(topCategory)}` : "Products related to your recent activity",
@@ -13166,6 +13372,7 @@ function renderDiscoveryProductCards(items, options = {}) {
               ${safeCaption.length > 120 ? `<button class="product-caption-toggle" type="button" data-product-caption-toggle="true" aria-expanded="false">See more</button>` : ""}
             </div>
             ${promotion ? `<p class="product-meta trust-badges"><span class="status-pill approved sponsored-pill">${escapeHtml(getPromotionLabel(promotion.type))}</span></p>` : ""}
+            ${renderSellerPromotionAnalytics(item)}
 ${renderProductActionGroup(item, { requestLabel: "My Request", extraClass: "seller-product-actions seller-product-actions-compact" })}
           </article>
         `;
@@ -13466,6 +13673,21 @@ function getContinuousDiscoveryDescriptor(options = {}) {
   });
   const hardEligibleProducts = renderableProducts.filter((product) => !hardExcludeIds.has(product.id));
   const minimumBatchSize = 3;
+  const sponsoredItems = getDiscoverySponsoredProducts(preferredSeed, {
+    limit: batchIndex === 0 ? 6 : 4,
+    excludeIds: softExcludeIds
+  });
+
+  if (batchIndex === 0 && sponsoredItems.length >= 1) {
+    return {
+      kind: "sponsored",
+      eyebrow: "Sponsored Picks",
+      title: "Promoted products in the spotlight",
+      subtitle: "Paid visibility items are placed earlier so buyers notice them faster.",
+      sponsored: true,
+      items: sponsoredItems
+    };
+  }
 
   const freshNewItems = getNewestProducts({
     limit: 10,
@@ -13514,11 +13736,7 @@ function getContinuousDiscoveryDescriptor(options = {}) {
     };
   }
 
-  const sponsoredItems = getDiscoverySponsoredProducts(preferredSeed, {
-    limit: 4,
-    excludeIds: softExcludeIds
-  });
-  if (sponsoredItems.length >= 2) {
+  if (sponsoredItems.length >= 1) {
     return {
       kind: "sponsored",
       eyebrow: "Sponsored Picks",
@@ -13768,7 +13986,7 @@ function renderPromotionBadges(product) {
   if (!promotion) {
     return "";
   }
-  return `<p class="product-meta trust-badges"><span class="status-pill approved sponsored-pill">${promotion.type === "boost" ? "Boosted" : promotion.type === "pin_top" ? "Pinned" : "Sponsored"}</span></p>`;
+  return `<p class="product-meta trust-badges"><span class="status-pill approved sponsored-pill">${escapeHtml(getPromotionLabel(promotion.type))}</span></p>`;
 }
 
 function renderPromoteButton(product) {
@@ -13778,11 +13996,90 @@ function renderPromoteButton(product) {
   return `<button class="action-btn action-btn-secondary" type="button" data-promote-product="${product.id}">Promote</button>`;
 }
 
+function getSellerPromotionStatusMeta(product) {
+  if (!currentUser || !product?.id || product?.uploadedBy !== currentUser) {
+    return null;
+  }
+  const matchingPromotion = (Array.isArray(currentPromotions) ? currentPromotions : [])
+    .filter((promotion) =>
+      String(promotion?.productId || "").trim() === String(product.id || "").trim()
+      && String(promotion?.sellerUsername || "").trim().toLowerCase() === String(currentUser || "").trim().toLowerCase()
+    )
+    .sort((first, second) =>
+      new Date(second?.updatedAt || second?.createdAt || 0).getTime()
+      - new Date(first?.updatedAt || first?.createdAt || 0).getTime()
+    )[0];
+  if (!matchingPromotion) {
+    return null;
+  }
+  const status = String(matchingPromotion.status || "").trim().toLowerCase();
+  if (status === "active") {
+    const endTime = new Date(matchingPromotion.endDate || 0).getTime();
+    const daysLeft = Number.isFinite(endTime)
+      ? Math.max(0, Math.ceil((endTime - Date.now()) / (24 * 60 * 60 * 1000)))
+      : 0;
+    return {
+      label: "Active",
+      className: "approved",
+      detail: daysLeft > 0 ? `${daysLeft} day${daysLeft === 1 ? "" : "s"} left` : "Ends today"
+    };
+  }
+  if (status === "pending") {
+    return { label: "Pending", className: "pending", detail: "Waiting for admin" };
+  }
+  if (status === "rejected") {
+    return { label: "Rejected", className: "rejected", detail: "Needs a new request" };
+  }
+  if (status === "expired") {
+    return { label: "Expired", className: "pending", detail: "Promotion ended" };
+  }
+  return null;
+}
+
+function renderSellerPromotionStatusChip(product) {
+  const statusMeta = getSellerPromotionStatusMeta(product);
+  if (!statusMeta) {
+    return "";
+  }
+  const detailMarkup = statusMeta.detail
+    ? `<span class="product-seller-promotion-detail">${escapeHtml(statusMeta.detail)}</span>`
+    : "";
+  return `<span class="status-pill product-seller-promotion-state ${statusMeta.className}">${escapeHtml(statusMeta.label)}</span>${detailMarkup}`;
+}
+
+function renderSellerPromotionAnalytics(product) {
+  const statusMeta = getSellerPromotionStatusMeta(product);
+  if (!statusMeta || statusMeta.className !== "approved") {
+    return "";
+  }
+  const matchingPromotion = (Array.isArray(currentPromotions) ? currentPromotions : [])
+    .filter((promotion) =>
+      String(promotion?.productId || "").trim() === String(product?.id || "").trim()
+      && String(promotion?.sellerUsername || "").trim().toLowerCase() === String(currentUser || "").trim().toLowerCase()
+      && String(promotion?.status || "").trim().toLowerCase() === "active"
+    )
+    .sort((first, second) =>
+      new Date(second?.updatedAt || second?.createdAt || 0).getTime()
+      - new Date(first?.updatedAt || first?.createdAt || 0).getTime()
+    )[0];
+  const views = Math.max(0, Number(product?.views || 0));
+  const likes = Math.max(0, Number(product?.likes || 0));
+  const baselineViews = Math.max(0, Number(matchingPromotion?.baselineViews || 0));
+  const baselineLikes = Math.max(0, Number(matchingPromotion?.baselineLikes || 0));
+  const viewsLift = Math.max(0, views - baselineViews);
+  const likesLift = Math.max(0, likes - baselineLikes);
+  const hasBaseline = baselineViews > 0 || baselineLikes > 0 || Boolean(matchingPromotion?.approvedAt);
+  const summary = hasBaseline
+    ? `Since promotion: +${escapeHtml(formatNumber(viewsLift))} views · +${escapeHtml(formatNumber(likesLift))} likes`
+    : `Promotion reach: ${escapeHtml(formatNumber(views))} views · ${escapeHtml(formatNumber(likes))} likes`;
+  return `<p class="product-meta product-seller-promotion-analytics">${summary}</p>`;
+}
+
 function renderSellerCardPromoteChip(product) {
   if (!currentUser || !canUseSellerFeatures() || product?.uploadedBy !== currentUser) {
     return "";
   }
-  return `<button class="product-seller-promote-chip" type="button" data-promote-product="${product.id}">Promote</button>`;
+  return `${renderSellerPromotionStatusChip(product)}<button class="product-seller-promote-chip" type="button" onclick="return window.__wingaOpenPromotionFromTrigger ? window.__wingaOpenPromotionFromTrigger(this) : false;" data-promote-product="${product.id}" data-promote-authorized="true" data-promote-product-owner="${escapeHtml(product.uploadedBy || "")}" data-promote-product-name="${escapeHtml(product.name || "")}" data-promote-product-shop="${escapeHtml(product.shop || "")}" data-promote-product-whatsapp="${escapeHtml(product.whatsapp || "")}" data-promote-product-location="${escapeHtml(product.location || "")}" data-promote-product-category="${escapeHtml(product.category || "")}">Promote</button>`;
 }
 
 function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
@@ -13796,7 +14093,11 @@ function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
   const stableFrameRatio = isFeedSurface ? "3 / 4" : "";
   if (options?.preload && typeof preloadImageSource === "function") {
     images.slice(0, Math.min(images.length, priorityLimit)).forEach((src, index) => {
-      preloadImageSource(src, { fetchPriority: index === 0 ? "high" : "auto" });
+      preloadImageSource(src, {
+        fetchPriority: index === 0 ? "high" : "auto",
+        decodeInMemory: index < priorityLimit,
+        reason: "feed_gallery_startup_priority"
+      });
     });
   }
   if (surface && surface !== "feed") {
@@ -13847,7 +14148,8 @@ function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
             "data-marketplace-scroll-image": "true",
             "data-feed-gallery-primary": index === 0 ? "true" : "false",
             "data-feed-gallery-image-src": safeSrc,
-            "data-fallback-src": getImageFallbackDataUri("WINGA")
+            "data-fallback-src": getImageFallbackDataUri("WINGA"),
+            ...(index < priorityLimit ? { "data-image-priority": "startup-critical feed-primary" } : {})
           }
         }).outerHTML}
       </div>
@@ -14348,7 +14650,7 @@ function bindShowcaseCardClicks(scope) {
       }
         if (
           event.target.closest(
-            ".product-menu, .product-menu-popup, .product-menu-toggle, [data-menu-toggle], [data-menu-popup], [data-product-caption-toggle], [data-request-product], [data-chat-product], [data-open-own-messages], [data-open-product-whatsapp], [data-buy-product], [data-detail-repost], .product-actions, .showcase-actions, .seller-product-actions"
+            ".product-menu, .product-menu-popup, .product-menu-toggle, [data-menu-toggle], [data-menu-popup], [data-product-caption-toggle], [data-request-product], [data-chat-product], [data-open-own-messages], [data-open-product-whatsapp], [data-buy-product], [data-detail-repost], [data-promote-product], .product-actions, .showcase-actions, .seller-product-actions"
           )
         ) {
         return;
@@ -14433,7 +14735,7 @@ function setupDynamicShowcaseLoading(scope, usedIds = new Set()) {
 }
 
 function renderMarketShowcase() {
-  if (!SHOW_STANDALONE_SHOWCASE_SECTION) {
+  if (!HOME_HORIZONTAL_ROWS_ENABLED || !SHOW_STANDALONE_SHOWCASE_SECTION) {
     marketShowcase?.replaceChildren();
     if (marketShowcase) {
       marketShowcase.style.display = "none";
@@ -14741,8 +15043,8 @@ function renderCurrentView(options = {}) {
     const shouldShowFeedLoading = !isProfile
       && !isUpload
       && !isAdminView
-      && (!productsHydrated || productsLoadFailed)
-      && filteredProducts.length === 0;
+      && filteredProducts.length === 0
+      && (lifecycleFallbackActive || productsLoadFailed);
     syncHeroPanelPosition(isProfile, isUpload);
 
     searchBox.style.display = isProfile || isUpload || isAdminView ? "none" : "grid";
@@ -14848,6 +15150,16 @@ function renderCurrentView(options = {}) {
       uiRuntimeState.pendingRenderRequested = false;
       uiRuntimeState.pendingRenderReason = "";
       scheduleRenderCurrentView(nextReason);
+    }
+    if (document.body.classList.contains("app-booting") || !bootOverlay?.classList.contains("is-hidden")) {
+      window.requestAnimationFrame(() => {
+        if (
+          (document.body.classList.contains("app-booting") || !bootOverlay?.classList.contains("is-hidden"))
+          && hasVisibleStartupSurface({ includeFeedLoading: false })
+        ) {
+          completeBootOverlay();
+        }
+      });
     }
   }
 }
@@ -15150,21 +15462,27 @@ function beginPurchaseFlow(product) {
   renderPaymentIntentModal();
 }
 
-function openPromotionIntentModal(product) {
+function openPromotionIntentModal(product, options = {}) {
   if (!product) {
     return;
   }
-  if (!isAuthenticatedUser() || !canUseSellerFeatures() || product.uploadedBy !== currentUser) {
+  const trustedAuthorized = Boolean(options?.trustedAuthorized);
+  const hasSellerAccess = isAuthenticatedUser() && canUseSellerFeatures();
+  const ownerMatches = String(product.uploadedBy || "").trim() === String(currentUser || "").trim();
+  if (!hasSellerAccess || (!ownerMatches && !trustedAuthorized)) {
     showInAppNotification({
       title: "Promotion unavailable",
-      body: "Promotion hii inapatikana kwa muuzaji wa bidhaa hii tu.",
+      body: !hasSellerAccess
+        ? "Ingia kama seller ili ufungue visibility plans za tangazo hili."
+        : "Promotion hii inapatikana kwa muuzaji wa bidhaa hii tu.",
       variant: "warning"
     });
     return;
   }
   promotionIntentState = {
     productId: product.id,
-    selectedType: "boost",
+    product,
+    selectedType: "starter_day",
     loading: false,
     transactionId: "",
     feedbackTone: "",
@@ -15172,6 +15490,22 @@ function openPromotionIntentModal(product) {
   };
   renderPromotionIntentModal();
 }
+
+window.__wingaOpenPromotionFromTrigger = (trigger) => {
+  try {
+    return openPromotionFromTrigger(trigger);
+  } catch (error) {
+    captureClientError("promotion_trigger_open_failed", error, {
+      productId: String(trigger?.dataset?.promoteProduct || "").trim()
+    });
+    showInAppNotification({
+      title: "Promotion failed to open",
+      body: error.message || "Imeshindikana kufungua visibility plan. Jaribu tena.",
+      variant: "error"
+    });
+    return false;
+  }
+};
 
 function canRepostProductAsSeller(product) {
   return Boolean(
@@ -15531,13 +15865,13 @@ function bindImageFallbacks(scope = document) {
   bindMarketplaceScrollImages(scope);
 }
 
-function prioritizeVisibleFeedMedia(scope = document, maxCards = 4) {
+function prioritizeVisibleFeedMedia(scope = document, maxCards = 8) {
   if (!(scope instanceof Element || scope === document)) {
     return;
   }
   const cards = Array.from(
     scope.querySelectorAll?.(".product-card[data-open-product], .seller-product-card[data-open-product], .showcase-card[data-open-product]") || []
-  ).slice(0, Math.max(1, Number(maxCards) || 4));
+  ).slice(0, Math.max(1, Number(maxCards) || 8));
   cards.forEach((card) => {
     card.querySelectorAll?.("img[data-marketplace-scroll-image='true']").forEach((image, index) => {
       if (!(image instanceof HTMLImageElement)) {
@@ -15568,6 +15902,7 @@ function markMarketplaceScrollImageLoaded(image, resolvedSrc = "") {
   shell?.classList.remove("is-pending", "is-error");
   shell?.classList.add("is-loaded");
   image.dataset.marketplaceImageState = "loaded";
+  delete image.dataset.marketplaceRevealScheduled;
   const productId = image.dataset.imageActionProduct || "";
   const loadedSource = resolvedSrc || image.currentSrc || image.getAttribute("src") || "";
   if (
@@ -15578,6 +15913,71 @@ function markMarketplaceScrollImageLoaded(image, resolvedSrc = "") {
   ) {
     clearBrokenMarketplaceImage(productId, loadedSource);
   }
+}
+
+function canRevealMarketplaceScrollImage(image, expectedSrc = "") {
+  if (!(image instanceof HTMLImageElement)) {
+    return false;
+  }
+  const activeSrc = image.currentSrc || image.getAttribute("src") || "";
+  const targetSrc = String(expectedSrc || "").trim();
+  if (targetSrc && activeSrc !== targetSrc) {
+    return false;
+  }
+  return Number(image.naturalWidth || 0) > 0 && Number(image.naturalHeight || 0) > 0;
+}
+
+function settleMarketplaceScrollImage(image, realSrc = "") {
+  if (!(image instanceof HTMLImageElement) || !realSrc) {
+    return;
+  }
+  if (canRevealMarketplaceScrollImage(image, realSrc)) {
+    markMarketplaceScrollImageLoaded(image, realSrc);
+    return;
+  }
+  if (image.dataset.marketplaceRevealScheduled === "true") {
+    return;
+  }
+  image.dataset.marketplaceRevealScheduled = "true";
+  const finalize = () => {
+    delete image.dataset.marketplaceRevealScheduled;
+  };
+  const tryReveal = () => {
+    if (!image.isConnected) {
+      finalize();
+      return true;
+    }
+    if (canRevealMarketplaceScrollImage(image, realSrc)) {
+      markMarketplaceScrollImageLoaded(image, realSrc);
+      finalize();
+      return true;
+    }
+    return false;
+  };
+  const pollForReveal = (attempt = 0) => {
+    if (tryReveal()) {
+      return;
+    }
+    if (attempt >= 12) {
+      finalize();
+      return;
+    }
+    window.setTimeout(() => pollForReveal(attempt + 1), 120);
+  };
+  const decodePromise = typeof image.decode === "function"
+    ? image.decode().catch(() => null)
+    : Promise.resolve();
+  void decodePromise.finally(() => {
+    if (tryReveal()) {
+      return;
+    }
+    window.requestAnimationFrame(() => {
+      if (tryReveal()) {
+        return;
+      }
+      pollForReveal(0);
+    });
+  });
 }
 
 function activateMarketplaceScrollImage(image) {
@@ -15592,26 +15992,22 @@ function activateMarketplaceScrollImage(image) {
   }
   const currentSrc = image.currentSrc || image.getAttribute("src") || "";
   const sameSource = currentSrc === realSrc;
-  const alreadyLoaded = sameSource && image.complete && Number(image.naturalWidth || 0) > 0;
+  const alreadyLoaded = canRevealMarketplaceScrollImage(image, realSrc);
   if (alreadyLoaded) {
     markMarketplaceScrollImageLoaded(image, realSrc);
     return;
   }
   image.setAttribute("loading", "eager");
-  image.setAttribute("fetchpriority", "auto");
+  image.setAttribute("fetchpriority", "high");
   image.closest(".progressive-image-shell")?.classList.add("is-pending");
   if (!sameSource) {
     image.setAttribute("src", realSrc);
     image.dataset.marketplaceImageState = "active";
+    settleMarketplaceScrollImage(image, realSrc);
     return;
   }
-  window.requestAnimationFrame(() => {
-    if (image.complete && Number(image.naturalWidth || 0) > 0) {
-      markMarketplaceScrollImageLoaded(image, realSrc);
-      return;
-    }
-    image.dataset.marketplaceImageState = "active";
-  });
+  image.dataset.marketplaceImageState = "active";
+  settleMarketplaceScrollImage(image, realSrc);
 }
 
 function prefetchMarketplaceScrollImage(image) {
@@ -15662,13 +16058,18 @@ function bindMarketplaceScrollImages(scope = document) {
     }
     image.dataset.marketplaceScrollBound = "true";
     image.dataset.marketplaceRealSrc = image.getAttribute("src") || image.dataset.imageActionSrc || "";
+    const realSrc = image.dataset.marketplaceRealSrc || image.dataset.progressiveRealSrc || image.dataset.imageActionSrc || image.dataset.zoomSrc || "";
+    const isMarketplaceFeedImage = Boolean(image.closest("#products-container"));
+    if (canRevealMarketplaceScrollImage(image, realSrc)) {
+      markMarketplaceScrollImageLoaded(image, realSrc);
+    }
     const rect = image.getBoundingClientRect();
     const viewportHeight = window.innerHeight || document.documentElement?.clientHeight || 0;
     const prefetchMargin = getMarketplaceScrollImagePrefetchMargin();
     const isNearViewport = rect.bottom >= -prefetchMargin && rect.top <= viewportHeight + prefetchMargin;
-    if (isNearViewport) {
+    if (isMarketplaceFeedImage || isNearViewport) {
       image.setAttribute("loading", "eager");
-      image.setAttribute("fetchpriority", "auto");
+      image.setAttribute("fetchpriority", "high");
       activateMarketplaceScrollImage(image);
     } else {
       image.setAttribute("loading", "lazy");
@@ -15867,9 +16268,6 @@ async function bootApp() {
   document.body.classList.add("app-booting");
   document.body.classList.remove("app-ready");
   revealBootOverlay();
-  scheduleLifecycleFallback("boot_slow", {
-    message: "WINGA inaanza. Tunaonyesha shell salama wakati data inaingia."
-  });
   const bootstrapCleanupPromise = initializeBootstrapStorageVersion();
   syncAuthMode();
   authContainer.style.display = "none";
@@ -15904,13 +16302,13 @@ async function bootApp() {
     setDeepLinkLoadingShellVisible(false);
   }
 
+  showInstantBootFeedSnapshot("boot_pre_hydration_snapshot");
+  auditHydratedDataIntegrity("boot_pre_hydration_snapshot");
+
   await bootstrapCleanupPromise;
   if (!isLifecycleEpochCurrent(lifecycleEpoch)) {
     return;
   }
-
-  showInstantBootFeedSnapshot("boot_pre_hydration_snapshot");
-  auditHydratedDataIntegrity("boot_pre_hydration_snapshot");
 
   await window.WingaDataLayer.init();
   if (!isLifecycleEpochCurrent(lifecycleEpoch)) {
@@ -15923,7 +16321,11 @@ async function bootApp() {
   if (window.WingaDataLayer?.hydrateStartupData) {
     window.WingaDataLayer.hydrateStartupData().catch((error) => {
       productHydrationStatus = "failed";
-      renderLifecycleFallbackSkeleton("Hatukuweza kupakia bidhaa kutoka kwenye seva. Hakikisha mtandao upo kisha bonyeza Jaribu tena.");
+      if (!hasImmediateProductsAvailable() && !hasVisibleStartupSurface({ includeFeedLoading: false })) {
+        renderLifecycleFallbackSkeleton("Hatukuweza kupakia bidhaa kutoka kwenye seva. Hakikisha mtandao upo kisha bonyeza Jaribu tena.");
+      } else {
+        hideLifecycleFallbackShell();
+      }
       captureClientError("startup_hydration_failed", error, {
         category: "runtime",
         alertSeverity: "medium"
@@ -15977,22 +16379,21 @@ async function bootApp() {
       productsCount: Array.isArray(products) ? products.length : 0
     });
   }
-  window.setTimeout(() => {
+  window.requestAnimationFrame(() => {
     if (!isLifecycleEpochCurrent(lifecycleEpoch)) {
       return;
     }
-    scheduleIdleBackgroundWork(() => {
-      if (!isLifecycleEpochCurrent(lifecycleEpoch)) {
-        return;
-      }
-      warmProductImageCache(products);
-      primeFeedInstantCache(products, {
-        reason: "boot_refresh",
-        productLimit: FEED_PREDICTIVE_PRELOAD_COUNT,
-        decodeLimit: FEED_PREDICTIVE_NEXT_BATCH_SIZE
-      });
-    }, 1200);
-  }, 90);
+    warmProductImageCache(products, {
+      productLimit: Math.min(products.length || 0, FEED_BOOT_IMAGE_WARM_COUNT),
+      imageLimitPerProduct: 1,
+      decodeCount: FEED_BOOT_IMAGE_DECODE_COUNT
+    });
+    primeFeedInstantCache(products, {
+      reason: "boot_refresh",
+      productLimit: Math.min(products.length || 0, FEED_BOOT_IMAGE_WARM_COUNT),
+      decodeLimit: FEED_BOOT_IMAGE_DECODE_COUNT
+    });
+  });
   hydrateMissingImageSignatures(products).catch(() => {
     // Ignore passive image signature hydration failures during boot.
   });

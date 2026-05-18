@@ -53,13 +53,16 @@ const BLOCKED_DEMO_PRODUCT_IDENTIFIERS = new Set([
   "mama asha shop",
   "mama aisha shop"
 ]);
-const { CHAT_EMOJI_CHOICES } = window.WingaModules.config.chat;
+const moduleConfig = window.WingaModules?.config || {};
+const chatConfig = moduleConfig.chat || {};
+const categoryConfig = moduleConfig.categories || {};
+const { CHAT_EMOJI_CHOICES = [] } = chatConfig;
 const {
-  MARKETPLACE_CATEGORY_TREE,
-  DEFAULT_TOP_CATEGORIES,
-  DEFAULT_PRODUCT_CATEGORIES,
-  LEGACY_CATEGORY_MAPPINGS
-} = window.WingaModules.config.categories;
+  MARKETPLACE_CATEGORY_TREE = [],
+  DEFAULT_TOP_CATEGORIES = [],
+  DEFAULT_PRODUCT_CATEGORIES = [],
+  LEGACY_CATEGORY_MAPPINGS = {}
+} = categoryConfig;
 const FLEXIBLE_SUBCATEGORY_TOP_VALUES = new Set(["vitu-used"]);
 const MAX_UPLOAD_IMAGES = 5;
 const MAX_IMAGE_SIZE_MB = 25;
