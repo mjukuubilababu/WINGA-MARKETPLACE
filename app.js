@@ -14090,7 +14090,11 @@ function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
   const stableFrameRatio = isFeedSurface ? "3 / 4" : "";
   if (options?.preload && typeof preloadImageSource === "function") {
     images.slice(0, Math.min(images.length, priorityLimit)).forEach((src, index) => {
-      preloadImageSource(src, { fetchPriority: index === 0 ? "high" : "auto" });
+      preloadImageSource(src, {
+        fetchPriority: index === 0 ? "high" : "auto",
+        decodeInMemory: index < priorityLimit,
+        reason: "feed_gallery_startup_priority"
+      });
     });
   }
   if (surface && surface !== "feed") {
@@ -14141,7 +14145,8 @@ function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
             "data-marketplace-scroll-image": "true",
             "data-feed-gallery-primary": index === 0 ? "true" : "false",
             "data-feed-gallery-image-src": safeSrc,
-            "data-fallback-src": getImageFallbackDataUri("WINGA")
+            "data-fallback-src": getImageFallbackDataUri("WINGA"),
+            ...(index < priorityLimit ? { "data-image-priority": "startup-critical feed-primary" } : {})
           }
         }).outerHTML}
       </div>

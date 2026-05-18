@@ -25,6 +25,8 @@
     const PASSIVE_VIEW_TRACK_BATCH_SIZE = 1;
     const PASSIVE_VIEW_TRACK_IDLE_DELAY_MS = 700;
     const FEED_GALLERY_IMAGE_LIMIT = 3;
+    const STARTUP_PRIORITY_CARD_COUNT = 8;
+    const INITIAL_SYNC_FEED_BATCH_SIZE = 12;
     let scheduledFeedRenderState = {
       token: 0,
       timer: 0
@@ -81,7 +83,7 @@
         return;
       }
       const seen = new Set();
-      const limit = Math.max(8, (deps.getProductsPerRow?.() || 2) * 3);
+      const limit = Math.max(STARTUP_PRIORITY_CARD_COUNT * 2, (deps.getProductsPerRow?.() || 2) * 4);
       list.slice(0, limit).forEach((product) => {
         const primaryImage = deps.getMarketplacePrimaryImage
           ? deps.getMarketplacePrimaryImage(product, {
@@ -93,13 +95,21 @@
           return;
         }
         seen.add(safeSrc);
-        deps.preloadImageSource(safeSrc, { fetchPriority: "high" });
+        deps.preloadImageSource(safeSrc, {
+          fetchPriority: seen.size <= STARTUP_PRIORITY_CARD_COUNT ? "high" : "auto",
+          decodeInMemory: seen.size <= STARTUP_PRIORITY_CARD_COUNT,
+          reason: "marketplace_startup_above_fold"
+        });
       });
     }
 
-    function createProductGalleryElement(product) {
+    function createProductGalleryElement(product, options = {}) {
+      const startupPriority = options.startupPriority === true;
       if (deps.renderFeedGalleryMarkup) {
-        return createElementFromMarkup(deps.renderFeedGalleryMarkup(product, "feed"));
+        return createElementFromMarkup(deps.renderFeedGalleryMarkup(product, "feed", {
+          priorityCount: startupPriority ? 3 : 1,
+          preload: startupPriority
+        }));
       }
 
       const fitMode = String(product.fitMode || "").trim().toLowerCase() === "contain" ? "contain" : "cover";
@@ -136,12 +146,13 @@
           placeholderSrc: deps.getImageFallbackDataUri("W"),
           fitMode,
           attributes: {
-            loading: "lazy",
-            fetchpriority: "auto",
+            loading: startupPriority && index === 0 ? "eager" : "lazy",
+            fetchpriority: startupPriority && index === 0 ? "high" : "auto",
             draggable: "false",
             "data-preserve-image-ratio": "true",
             "data-marketplace-scroll-image": "true",
-            "data-feed-gallery-image-src": safeSrc
+            "data-feed-gallery-image-src": safeSrc,
+            ...(startupPriority && index === 0 ? { "data-image-priority": "startup-critical feed-primary" } : {})
           }
         }));
         track.appendChild(slide);
@@ -526,12 +537,14 @@
       return wrapper;
     }
 
-    function createProductCardElement(product) {
+    function createProductCardElement(product, options = {}) {
+      const startupPriority = options.startupPriority === true;
       const card = createElement("article", {
         className: "product-card",
         attributes: {
           "data-product-card": product.id,
-          "data-open-product": product.id
+          "data-open-product": product.id,
+          ...(startupPriority ? { "data-startup-priority-card": "true" } : {})
         }
       });
       card.dataset.productCard = product.id;
@@ -541,7 +554,7 @@
         card.classList.add("has-gallery-count-badge");
       }
       const media = createElement("div", { className: "product-card-media" });
-      media.appendChild(createProductGalleryElement(product));
+      media.appendChild(createProductGalleryElement(product, { startupPriority }));
       if (Array.isArray(product.images) && product.images.length > 1) {
         media.appendChild(createElement("span", {
           className: "feed-gallery-count-badge product-gallery-count-badge",
@@ -580,7 +593,9 @@
           ...(options.attributes || {})
         }
       });
-      safeItems.forEach((item) => stack.appendChild(createProductCardElement(item)));
+      safeItems.forEach((item, index) => stack.appendChild(createProductCardElement(item, {
+        startupPriority: options.startupPriority === true && index < STARTUP_PRIORITY_CARD_COUNT
+      })));
       return stack;
     }
 
@@ -1016,16 +1031,24 @@
           return;
         }
         const fragment = document.createDocumentFragment();
-        const endIndex = Math.min(list.length, startIndex + FEED_RENDER_BATCH_SIZE);
+        const batchSize = startIndex === 0 && currentView === "home"
+          ? INITIAL_SYNC_FEED_BATCH_SIZE
+          : FEED_RENDER_BATCH_SIZE;
+        const endIndex = Math.min(list.length, startIndex + batchSize);
         for (let index = startIndex; index < endIndex; index += 1) {
           const product = list[index];
           if (shouldTrackViews && index < passiveViewLimit && deps.trackView(product)) {
             viewedProductIds.push(product.id);
           }
-          fragment.appendChild(createProductCardElement(product));
+          fragment.appendChild(createProductCardElement(product, {
+            startupPriority: currentView === "home" && index < STARTUP_PRIORITY_CARD_COUNT
+          }));
           appendShowcaseIfNeeded(fragment, index + 1);
         }
         productsContainer.appendChild(fragment);
+        if (startIndex === 0 && currentView === "home") {
+          deps.prioritizeVisibleFeedMedia?.(productsContainer, Math.min(STARTUP_PRIORITY_CARD_COUNT, endIndex));
+        }
         deps.afterFeedBatchRender?.({
           container: productsContainer,
           startIndex,
