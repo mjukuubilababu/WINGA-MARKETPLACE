@@ -259,8 +259,7 @@ body.app-booting{
 }
 
 body.app-booting #auth-container,
-body.app-booting #admin-login-container,
-body.app-booting #app-container{
+body.app-booting #admin-login-container{
   visibility:hidden;
 }
 
