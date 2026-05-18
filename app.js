@@ -5536,6 +5536,7 @@ function setNodeText(node, value) {
 }
 
 function showFatalStartupState(error) {
+  deferBootOverlayCompletion = false;
   const provider = window.WINGA_CONFIG?.provider || "unknown";
   const message = error?.message || "Angalia config ya storage provider.";
 
@@ -5707,10 +5708,7 @@ function showInstantBootFeedSnapshot(reason = "boot_snapshot") {
   );
 
   if (hasVisibleFeedShell) {
-    document.body.classList.remove("app-booting");
-    document.body.classList.add("app-ready");
-    hideBootOverlayImmediately();
-    hideLifecycleFallbackShell();
+    deferBootOverlayCompletion = true;
     reportClientEvent("info", "instant_boot_snapshot_rendered", "Boot snapshot rendered before full hydration.", {
       category: "runtime",
       authState: currentUser ? "signed_in" : "guest",
@@ -10510,6 +10508,7 @@ function showLifecycleFallbackShell(reason = "startup_slow", options = {}) {
     retry = true
   } = options;
 
+  deferBootOverlayCompletion = false;
   lifecycleFallbackActive = true;
   lifecycleFallbackReason = reason;
   reportClientEvent("warn", "lifecycle_fallback_shell_shown", "Fallback shell shown to avoid blank/stuck startup.", {
@@ -15205,9 +15204,11 @@ function renderCurrentView(options = {}) {
       uiRuntimeState.pendingRenderReason = "";
       scheduleRenderCurrentView(nextReason);
     }
-    if (document.body.classList.contains("app-booting") || !bootOverlay?.classList.contains("is-hidden")) {
+    if (!deferBootOverlayCompletion && (document.body.classList.contains("app-booting") || !bootOverlay?.classList.contains("is-hidden"))) {
       window.requestAnimationFrame(() => {
         if (
+          !deferBootOverlayCompletion
+          &&
           (document.body.classList.contains("app-booting") || !bootOverlay?.classList.contains("is-hidden"))
           && hasVisibleStartupSurface({ includeFeedLoading: false })
         ) {
@@ -15560,6 +15561,7 @@ window.__wingaOpenPromotionFromTrigger = (trigger) => {
     return false;
   }
 };
+let deferBootOverlayCompletion = false;
 
 function canRepostProductAsSeller(product) {
   return Boolean(
@@ -16401,6 +16403,7 @@ async function bootApp() {
     scheduleChromeOffsetSync();
     document.body.classList.remove("app-booting");
     document.body.classList.add("app-ready");
+    deferBootOverlayCompletion = false;
     hideLifecycleFallbackShell();
     completeBootOverlay();
     startMemoryMonitoring();
@@ -16501,6 +16504,7 @@ async function bootApp() {
     showAdminLoginScreen();
     document.body.classList.remove("app-booting");
     document.body.classList.add("app-ready");
+    deferBootOverlayCompletion = false;
     hideLifecycleFallbackShell();
     completeBootOverlay();
     return;
@@ -16535,6 +16539,7 @@ async function bootApp() {
   scheduleChromeOffsetSync();
   document.body.classList.remove("app-booting");
   document.body.classList.add("app-ready");
+  deferBootOverlayCompletion = false;
   hideLifecycleFallbackShell();
   completeBootOverlay();
   startMemoryMonitoring();
