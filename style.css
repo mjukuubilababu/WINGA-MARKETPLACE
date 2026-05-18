@@ -9686,6 +9686,13 @@ button:hover,
   display:block !important;
   backface-visibility:hidden !important;
   transform:translateZ(0) !important;
+  opacity:1 !important;
+}
+
+#products-container .progressive-image-shell.is-pending .progressive-image-full,
+#products-container .progressive-image-shell.is-loaded .progressive-image-full,
+#products-container .progressive-image-shell.is-error .progressive-image-full{
+  opacity:1 !important;
 }
 
 #products-container .feed-gallery-preview[data-fit-mode="cover"]{

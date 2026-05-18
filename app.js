@@ -37,6 +37,8 @@ const MEMORY_CRITICAL_THRESHOLD_BYTES = 220 * 1024 * 1024;
 const FEED_BOOTSTRAP_CACHE_KEY = "winga-feed-bootstrap-cache";
 const FEED_BOOTSTRAP_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const FEED_BOOTSTRAP_PRODUCT_LIMIT = 14;
+const FEED_BOOT_IMAGE_WARM_COUNT = 60;
+const FEED_BOOT_IMAGE_DECODE_COUNT = 18;
 const FEED_PREDICTIVE_PRELOAD_COUNT = 8;
 const FEED_PREDICTIVE_NEXT_BATCH_SIZE = 8;
 const FEED_MEMORY_IMAGE_CACHE_LIMIT = 10;
@@ -2220,14 +2222,24 @@ function primeFeedInstantCache(productsList = [], options = {}) {
   });
 }
 
-function warmProductImageCache(products = []) {
+function warmProductImageCache(products = [], options = {}) {
   if (typeof preloadImageSource !== "function" || !Array.isArray(products) || !products.length) {
     return;
   }
 
   const isStandalone = isStandaloneDisplayMode();
-  const productLimit = isStandalone ? 2 : 3;
-  const imageLimitPerProduct = 1;
+  const productLimit = Math.max(
+    1,
+    Number(options.productLimit || (isStandalone ? 8 : FEED_BOOT_IMAGE_WARM_COUNT)) || 1
+  );
+  const imageLimitPerProduct = Math.max(
+    1,
+    Number(options.imageLimitPerProduct || 1) || 1
+  );
+  const decodeCount = Math.max(
+    1,
+    Number(options.decodeCount || (isStandalone ? 4 : 8)) || 1
+  );
   const seen = new Set();
   const queue = [];
 
@@ -2245,11 +2257,11 @@ function warmProductImageCache(products = []) {
       return;
     }
     if (typeof product.image === "string") {
-      enqueue(product.image, "auto");
+      enqueue(product.image, index < 12 ? "high" : "auto");
     }
     if (Array.isArray(product.images) && product.images.length) {
       product.images.slice(0, imageLimitPerProduct).forEach((imageSrc) => {
-        enqueue(imageSrc, "auto");
+        enqueue(imageSrc, index < 12 ? "high" : "auto");
       });
     }
   });
@@ -2264,7 +2276,7 @@ function warmProductImageCache(products = []) {
       try {
         registration?.active?.postMessage?.({
           type: "CACHE_IMAGE_URLS",
-          urls: cacheUrls.slice(0, isStandalone ? 4 : 6)
+          urls: cacheUrls.slice(0, isStandalone ? 12 : Math.min(cacheUrls.length, FEED_BOOT_IMAGE_WARM_COUNT))
         });
       } catch (error) {
         // Ignore SW warm-cache messaging issues.
@@ -2277,13 +2289,13 @@ function warmProductImageCache(products = []) {
     }
   }
 
-  const batchSize = isStandalone ? 2 : 3;
+  const batchSize = isStandalone ? 4 : 10;
   const drainQueue = () => {
     const batch = queue.splice(0, batchSize);
     batch.forEach(({ src, fetchPriority }, index) => {
       preloadImageSource(src, {
         fetchPriority,
-        decodeInMemory: index === 0,
+        decodeInMemory: index < decodeCount,
         reason: "warm_product_image_cache"
       });
     });
@@ -2291,10 +2303,10 @@ function warmProductImageCache(products = []) {
       return;
     }
     if (typeof window.requestIdleCallback === "function") {
-      window.requestIdleCallback(drainQueue, { timeout: isStandalone ? 1400 : 1200 });
+      window.requestIdleCallback(drainQueue, { timeout: isStandalone ? 300 : 120 });
       return;
     }
-    window.setTimeout(drainQueue, isStandalone ? 320 : 420);
+    window.setTimeout(drainQueue, isStandalone ? 60 : 20);
   };
 
   drainQueue();
@@ -12620,11 +12632,15 @@ window.addEventListener("winga:products-hydrated", (event) => {
   if (shouldDeferBootRenderForPendingStaffSession()) {
     return;
   }
-  warmProductImageCache(window.WingaDataLayer?.getProducts?.() || []);
+  warmProductImageCache(window.WingaDataLayer?.getProducts?.() || [], {
+    productLimit: FEED_BOOT_IMAGE_WARM_COUNT,
+    imageLimitPerProduct: 1,
+    decodeCount: FEED_BOOT_IMAGE_DECODE_COUNT
+  });
   primeFeedInstantCache(window.WingaDataLayer?.getProducts?.() || [], {
     reason: "products_hydrated",
-    productLimit: FEED_PREDICTIVE_PRELOAD_COUNT,
-    decodeLimit: FEED_PREDICTIVE_NEXT_BATCH_SIZE
+    productLimit: FEED_BOOT_IMAGE_WARM_COUNT,
+    decodeLimit: FEED_BOOT_IMAGE_DECODE_COUNT
   });
   const canRenderWhileWaitingForDeepLink = !suppressInitialProductHomeRender || document.body.classList.contains("product-detail-open");
   if (canRenderWhileWaitingForDeepLink && currentView !== "profile") {
@@ -15998,6 +16014,7 @@ function bindMarketplaceScrollImages(scope = document) {
     image.dataset.marketplaceScrollBound = "true";
     image.dataset.marketplaceRealSrc = image.getAttribute("src") || image.dataset.imageActionSrc || "";
     const realSrc = image.dataset.marketplaceRealSrc || image.dataset.progressiveRealSrc || image.dataset.imageActionSrc || image.dataset.zoomSrc || "";
+    const isMarketplaceFeedImage = Boolean(image.closest("#products-container"));
     if (canRevealMarketplaceScrollImage(image, realSrc)) {
       markMarketplaceScrollImageLoaded(image, realSrc);
     }
@@ -16005,7 +16022,7 @@ function bindMarketplaceScrollImages(scope = document) {
     const viewportHeight = window.innerHeight || document.documentElement?.clientHeight || 0;
     const prefetchMargin = getMarketplaceScrollImagePrefetchMargin();
     const isNearViewport = rect.bottom >= -prefetchMargin && rect.top <= viewportHeight + prefetchMargin;
-    if (isNearViewport) {
+    if (isMarketplaceFeedImage || isNearViewport) {
       image.setAttribute("loading", "eager");
       image.setAttribute("fetchpriority", "high");
       activateMarketplaceScrollImage(image);
@@ -16316,22 +16333,21 @@ async function bootApp() {
       productsCount: Array.isArray(products) ? products.length : 0
     });
   }
-  window.setTimeout(() => {
+  window.requestAnimationFrame(() => {
     if (!isLifecycleEpochCurrent(lifecycleEpoch)) {
       return;
     }
-    scheduleIdleBackgroundWork(() => {
-      if (!isLifecycleEpochCurrent(lifecycleEpoch)) {
-        return;
-      }
-      warmProductImageCache(products);
-      primeFeedInstantCache(products, {
-        reason: "boot_refresh",
-        productLimit: FEED_PREDICTIVE_PRELOAD_COUNT,
-        decodeLimit: FEED_PREDICTIVE_NEXT_BATCH_SIZE
-      });
-    }, 1200);
-  }, 90);
+    warmProductImageCache(products, {
+      productLimit: Math.min(products.length || 0, FEED_BOOT_IMAGE_WARM_COUNT),
+      imageLimitPerProduct: 1,
+      decodeCount: FEED_BOOT_IMAGE_DECODE_COUNT
+    });
+    primeFeedInstantCache(products, {
+      reason: "boot_refresh",
+      productLimit: Math.min(products.length || 0, FEED_BOOT_IMAGE_WARM_COUNT),
+      decodeLimit: FEED_BOOT_IMAGE_DECODE_COUNT
+    });
+  });
   hydrateMissingImageSignatures(products).catch(() => {
     // Ignore passive image signature hydration failures during boot.
   });
