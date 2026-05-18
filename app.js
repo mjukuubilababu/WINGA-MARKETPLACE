@@ -10299,12 +10299,46 @@ function setFeedLoadingStateVisible(visible) {
   feedLoadingState.style.display = visible ? "grid" : "none";
 }
 
+function renderStartupFeedSkeleton(count = 6) {
+  if (!productsContainer) {
+    return;
+  }
+  const safeCount = Math.max(4, Number(count || 6));
+  const fragment = document.createDocumentFragment();
+  for (let index = 0; index < safeCount; index += 1) {
+    const card = createElement("article", {
+      className: "product-card feed-skeleton-card",
+      attributes: {
+        "aria-hidden": "true",
+        "data-feed-skeleton-card": "true"
+      }
+    });
+    const media = createElement("div", { className: "feed-skeleton-media" });
+    const body = createElement("div", { className: "feed-skeleton-body" });
+    body.append(
+      createElement("span", { className: "feed-skeleton-line feed-skeleton-line-title" }),
+      createElement("span", { className: "feed-skeleton-line feed-skeleton-line-copy" }),
+      createElement("span", { className: "feed-skeleton-line feed-skeleton-line-copy-short" })
+    );
+    const actions = createElement("div", { className: "feed-skeleton-actions" });
+    actions.append(
+      createElement("span", { className: "feed-skeleton-pill" }),
+      createElement("span", { className: "feed-skeleton-pill" })
+    );
+    body.appendChild(actions);
+    card.append(media, body);
+    fragment.appendChild(card);
+  }
+  productsContainer.replaceChildren(fragment);
+}
+
 function hasVisibleStartupSurface(options = {}) {
   const includeFeedLoading = options.includeFeedLoading !== false;
   return Boolean(
     document.body.classList.contains("auth-modal-open")
     || document.body.classList.contains("product-detail-open")
     || productsContainer?.querySelector(".product-card, .seller-product-card")
+    || productsContainer?.querySelector("[data-feed-skeleton-card='true']")
     || profileDiv?.style.display === "block"
     || uploadForm?.style.display === "block"
     || adminPanel?.style.display === "block"
@@ -15037,6 +15071,14 @@ function renderCurrentView(options = {}) {
     const searchPriorityMode = hasPrioritySearchResults(filteredProducts.length) && !isProfile && !isUpload && !isAdminView;
     const productsHydrated = Boolean(window.WingaDataLayer?.isProductsHydrated?.());
     const productsLoadFailed = productHydrationStatus === "failed";
+    const shouldShowStartupSkeleton = currentView === "home"
+      && !isProfile
+      && !isUpload
+      && !isAdminView
+      && !searchPriorityMode
+      && !productsHydrated
+      && !productsLoadFailed
+      && filteredProducts.length === 0;
     const shouldShowFeedLoading = !isProfile
       && !isUpload
       && !isAdminView
@@ -15087,6 +15129,12 @@ function renderCurrentView(options = {}) {
 
     if (shouldShowFeedLoading) {
       updateResultsMeta(0);
+      renderSearchDropdown([], { isProfile, isUpload, isAdminView });
+      return;
+    }
+
+    if (shouldShowStartupSkeleton) {
+      renderStartupFeedSkeleton(getViewportWidth() <= 780 ? 6 : 8);
       renderSearchDropdown([], { isProfile, isUpload, isAdminView });
       return;
     }
