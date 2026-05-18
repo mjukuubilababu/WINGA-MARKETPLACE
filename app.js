@@ -36,7 +36,7 @@ const MEMORY_PRESSURE_CONSECUTIVE_LIMIT = 2;
 const MEMORY_CRITICAL_THRESHOLD_BYTES = 220 * 1024 * 1024;
 const FEED_BOOTSTRAP_CACHE_KEY = "winga-feed-bootstrap-cache";
 const FEED_BOOTSTRAP_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
-const FEED_BOOTSTRAP_PRODUCT_LIMIT = 24;
+const FEED_BOOTSTRAP_PRODUCT_LIMIT = 14;
 const FEED_BOOT_IMAGE_WARM_COUNT = 60;
 const FEED_BOOT_IMAGE_DECODE_COUNT = 18;
 const FEED_PREDICTIVE_PRELOAD_COUNT = 8;
@@ -110,11 +110,11 @@ function isServiceWorkerRecoveryDisabled() {
 }
 
 function shouldUseBootstrapFeedSnapshot() {
-  return window.WINGA_CONFIG?.enableBootstrapFeedSnapshot !== false;
+  return Boolean(window.WINGA_CONFIG?.enableBootstrapFeedSnapshot);
 }
 
 function shouldUseApiLocalCacheFallback() {
-  return window.WINGA_CONFIG?.enableApiLocalCacheFallback !== false;
+  return Boolean(window.WINGA_CONFIG?.enableApiLocalCacheFallback);
 }
 
 function getViewportWidth() {
@@ -5536,7 +5536,6 @@ function setNodeText(node, value) {
 }
 
 function showFatalStartupState(error) {
-  deferBootOverlayCompletion = false;
   const provider = window.WINGA_CONFIG?.provider || "unknown";
   const message = error?.message || "Angalia config ya storage provider.";
 
@@ -5703,12 +5702,14 @@ function showInstantBootFeedSnapshot(reason = "boot_snapshot") {
 
   const hasVisibleFeedShell = Boolean(
     productsContainer?.querySelector(".product-card, .seller-product-card")
-    || productsContainer?.querySelector("[data-feed-skeleton-card='true']")
     || emptyState?.style.display === "block"
   );
 
   if (hasVisibleFeedShell) {
-    deferBootOverlayCompletion = true;
+    document.body.classList.remove("app-booting");
+    document.body.classList.add("app-ready");
+    hideBootOverlayImmediately();
+    hideLifecycleFallbackShell();
     reportClientEvent("info", "instant_boot_snapshot_rendered", "Boot snapshot rendered before full hydration.", {
       category: "runtime",
       authState: currentUser ? "signed_in" : "guest",
@@ -8778,22 +8779,14 @@ const {
       bindProductMenus(container);
     }, 700);
   },
-  onFeedRenderBatch: ({ currentView: renderedView, products: renderedProducts, renderedCount = 0 }) => {
+  onFeedRenderBatch: ({ currentView: renderedView, products: renderedProducts }) => {
     if (renderedView !== "home" || !Array.isArray(renderedProducts) || !renderedProducts.length) {
       return;
-    }
-    if (renderedCount <= 12) {
-      persistFeedBootstrapSnapshot(renderedProducts, "home_first_batch");
-      primeFeedInstantCache(renderedProducts, {
-        reason: "home_first_batch",
-        productLimit: Math.min(renderedProducts.length, FEED_BOOTSTRAP_PRODUCT_LIMIT),
-        decodeLimit: FEED_BOOT_IMAGE_DECODE_COUNT
-      });
     }
     scheduleIdleBackgroundWork(() => {
       persistFeedBootstrapSnapshot(renderedProducts, "home_render");
       schedulePredictiveFeedPrefetch("render");
-    }, 400);
+    }, 900);
   }
 });
 
@@ -10306,46 +10299,12 @@ function setFeedLoadingStateVisible(visible) {
   feedLoadingState.style.display = visible ? "grid" : "none";
 }
 
-function renderStartupFeedSkeleton(count = 6) {
-  if (!productsContainer) {
-    return;
-  }
-  const safeCount = Math.max(4, Number(count || 6));
-  const fragment = document.createDocumentFragment();
-  for (let index = 0; index < safeCount; index += 1) {
-    const card = createElement("article", {
-      className: "product-card feed-skeleton-card",
-      attributes: {
-        "aria-hidden": "true",
-        "data-feed-skeleton-card": "true"
-      }
-    });
-    const media = createElement("div", { className: "feed-skeleton-media" });
-    const body = createElement("div", { className: "feed-skeleton-body" });
-    body.append(
-      createElement("span", { className: "feed-skeleton-line feed-skeleton-line-title" }),
-      createElement("span", { className: "feed-skeleton-line feed-skeleton-line-copy" }),
-      createElement("span", { className: "feed-skeleton-line feed-skeleton-line-copy-short" })
-    );
-    const actions = createElement("div", { className: "feed-skeleton-actions" });
-    actions.append(
-      createElement("span", { className: "feed-skeleton-pill" }),
-      createElement("span", { className: "feed-skeleton-pill" })
-    );
-    body.appendChild(actions);
-    card.append(media, body);
-    fragment.appendChild(card);
-  }
-  productsContainer.replaceChildren(fragment);
-}
-
 function hasVisibleStartupSurface(options = {}) {
   const includeFeedLoading = options.includeFeedLoading !== false;
   return Boolean(
     document.body.classList.contains("auth-modal-open")
     || document.body.classList.contains("product-detail-open")
     || productsContainer?.querySelector(".product-card, .seller-product-card")
-    || productsContainer?.querySelector("[data-feed-skeleton-card='true']")
     || profileDiv?.style.display === "block"
     || uploadForm?.style.display === "block"
     || adminPanel?.style.display === "block"
@@ -10508,7 +10467,6 @@ function showLifecycleFallbackShell(reason = "startup_slow", options = {}) {
     retry = true
   } = options;
 
-  deferBootOverlayCompletion = false;
   lifecycleFallbackActive = true;
   lifecycleFallbackReason = reason;
   reportClientEvent("warn", "lifecycle_fallback_shell_shown", "Fallback shell shown to avoid blank/stuck startup.", {
@@ -15079,14 +15037,6 @@ function renderCurrentView(options = {}) {
     const searchPriorityMode = hasPrioritySearchResults(filteredProducts.length) && !isProfile && !isUpload && !isAdminView;
     const productsHydrated = Boolean(window.WingaDataLayer?.isProductsHydrated?.());
     const productsLoadFailed = productHydrationStatus === "failed";
-    const shouldShowStartupSkeleton = currentView === "home"
-      && !isProfile
-      && !isUpload
-      && !isAdminView
-      && !searchPriorityMode
-      && !productsHydrated
-      && !productsLoadFailed
-      && filteredProducts.length === 0;
     const shouldShowFeedLoading = !isProfile
       && !isUpload
       && !isAdminView
@@ -15137,12 +15087,6 @@ function renderCurrentView(options = {}) {
 
     if (shouldShowFeedLoading) {
       updateResultsMeta(0);
-      renderSearchDropdown([], { isProfile, isUpload, isAdminView });
-      return;
-    }
-
-    if (shouldShowStartupSkeleton) {
-      renderStartupFeedSkeleton(getViewportWidth() <= 780 ? 6 : 8);
       renderSearchDropdown([], { isProfile, isUpload, isAdminView });
       return;
     }
@@ -15204,11 +15148,9 @@ function renderCurrentView(options = {}) {
       uiRuntimeState.pendingRenderReason = "";
       scheduleRenderCurrentView(nextReason);
     }
-    if (!deferBootOverlayCompletion && (document.body.classList.contains("app-booting") || !bootOverlay?.classList.contains("is-hidden"))) {
+    if (document.body.classList.contains("app-booting") || !bootOverlay?.classList.contains("is-hidden")) {
       window.requestAnimationFrame(() => {
         if (
-          !deferBootOverlayCompletion
-          &&
           (document.body.classList.contains("app-booting") || !bootOverlay?.classList.contains("is-hidden"))
           && hasVisibleStartupSurface({ includeFeedLoading: false })
         ) {
@@ -15561,7 +15503,6 @@ window.__wingaOpenPromotionFromTrigger = (trigger) => {
     return false;
   }
 };
-let deferBootOverlayCompletion = false;
 
 function canRepostProductAsSeller(product) {
   return Boolean(
@@ -16403,7 +16344,6 @@ async function bootApp() {
     scheduleChromeOffsetSync();
     document.body.classList.remove("app-booting");
     document.body.classList.add("app-ready");
-    deferBootOverlayCompletion = false;
     hideLifecycleFallbackShell();
     completeBootOverlay();
     startMemoryMonitoring();
@@ -16504,7 +16444,6 @@ async function bootApp() {
     showAdminLoginScreen();
     document.body.classList.remove("app-booting");
     document.body.classList.add("app-ready");
-    deferBootOverlayCompletion = false;
     hideLifecycleFallbackShell();
     completeBootOverlay();
     return;
@@ -16539,7 +16478,6 @@ async function bootApp() {
   scheduleChromeOffsetSync();
   document.body.classList.remove("app-booting");
   document.body.classList.add("app-ready");
-  deferBootOverlayCompletion = false;
   hideLifecycleFallbackShell();
   completeBootOverlay();
   startMemoryMonitoring();
