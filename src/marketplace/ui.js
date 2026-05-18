@@ -1061,7 +1061,8 @@
             container: productsContainer,
             renderedCount: endIndex,
             total: list.length,
-            currentView
+            currentView,
+            products: list.slice(0, endIndex)
           });
           scheduledFeedRenderState.timer = window.setTimeout(() => {
             scheduledFeedRenderState.timer = 0;

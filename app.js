@@ -5702,6 +5702,7 @@ function showInstantBootFeedSnapshot(reason = "boot_snapshot") {
 
   const hasVisibleFeedShell = Boolean(
     productsContainer?.querySelector(".product-card, .seller-product-card")
+    || productsContainer?.querySelector("[data-feed-skeleton-card='true']")
     || emptyState?.style.display === "block"
   );
 
