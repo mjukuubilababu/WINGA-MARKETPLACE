@@ -5702,7 +5702,7 @@ function showInstantBootFeedSnapshot(reason = "boot_snapshot") {
 
   const hasVisibleFeedShell = Boolean(
     productsContainer?.querySelector(".product-card, .seller-product-card")
-    || feedLoadingState?.style.display === "grid"
+    || emptyState?.style.display === "block"
   );
 
   if (hasVisibleFeedShell) {
@@ -10313,6 +10313,14 @@ function hasVisibleStartupSurface(options = {}) {
   );
 }
 
+function hasImmediateProductsAvailable() {
+  const hydratedProducts = window.WingaDataLayer?.getProducts?.();
+  return Boolean(
+    (Array.isArray(products) && products.length)
+    || (Array.isArray(hydratedProducts) && hydratedProducts.length)
+  );
+}
+
 function renderLifecycleFallbackSkeleton(message = "") {
   if (!feedLoadingState) {
     return;
@@ -12638,7 +12646,11 @@ window.addEventListener("winga:products-hydrated", (event) => {
     count: Number(detail.count || 0)
   });
   if (productHydrationStatus === "failed") {
-    renderLifecycleFallbackSkeleton("Bidhaa hazijafika bado kutoka kwenye seva. Jaribu tena baada ya sekunde chache.");
+    if (!hasImmediateProductsAvailable() && !hasVisibleStartupSurface({ includeFeedLoading: false })) {
+      renderLifecycleFallbackSkeleton("Bidhaa hazijafika bado kutoka kwenye seva. Jaribu tena baada ya sekunde chache.");
+    } else {
+      hideLifecycleFallbackShell();
+    }
   } else {
     hideLifecycleFallbackShell();
   }
@@ -15131,6 +15143,16 @@ function renderCurrentView(options = {}) {
       uiRuntimeState.pendingRenderReason = "";
       scheduleRenderCurrentView(nextReason);
     }
+    if (document.body.classList.contains("app-booting") || !bootOverlay?.classList.contains("is-hidden")) {
+      window.requestAnimationFrame(() => {
+        if (
+          (document.body.classList.contains("app-booting") || !bootOverlay?.classList.contains("is-hidden"))
+          && hasVisibleStartupSurface({ includeFeedLoading: false })
+        ) {
+          completeBootOverlay();
+        }
+      });
+    }
   }
 }
 
@@ -16238,9 +16260,6 @@ async function bootApp() {
   document.body.classList.add("app-booting");
   document.body.classList.remove("app-ready");
   revealBootOverlay();
-  scheduleLifecycleFallback("boot_slow", {
-    message: "WINGA inaanza. Tunaonyesha shell salama wakati data inaingia."
-  });
   const bootstrapCleanupPromise = initializeBootstrapStorageVersion();
   syncAuthMode();
   authContainer.style.display = "none";
@@ -16275,13 +16294,13 @@ async function bootApp() {
     setDeepLinkLoadingShellVisible(false);
   }
 
+  showInstantBootFeedSnapshot("boot_pre_hydration_snapshot");
+  auditHydratedDataIntegrity("boot_pre_hydration_snapshot");
+
   await bootstrapCleanupPromise;
   if (!isLifecycleEpochCurrent(lifecycleEpoch)) {
     return;
   }
-
-  showInstantBootFeedSnapshot("boot_pre_hydration_snapshot");
-  auditHydratedDataIntegrity("boot_pre_hydration_snapshot");
 
   await window.WingaDataLayer.init();
   if (!isLifecycleEpochCurrent(lifecycleEpoch)) {
@@ -16294,7 +16313,11 @@ async function bootApp() {
   if (window.WingaDataLayer?.hydrateStartupData) {
     window.WingaDataLayer.hydrateStartupData().catch((error) => {
       productHydrationStatus = "failed";
-      renderLifecycleFallbackSkeleton("Hatukuweza kupakia bidhaa kutoka kwenye seva. Hakikisha mtandao upo kisha bonyeza Jaribu tena.");
+      if (!hasImmediateProductsAvailable() && !hasVisibleStartupSurface({ includeFeedLoading: false })) {
+        renderLifecycleFallbackSkeleton("Hatukuweza kupakia bidhaa kutoka kwenye seva. Hakikisha mtandao upo kisha bonyeza Jaribu tena.");
+      } else {
+        hideLifecycleFallbackShell();
+      }
       captureClientError("startup_hydration_failed", error, {
         category: "runtime",
         alertSeverity: "medium"
