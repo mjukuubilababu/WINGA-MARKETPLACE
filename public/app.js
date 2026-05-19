@@ -14418,10 +14418,11 @@ function bindFeedGalleryInteractions(scope = document) {
     const isInteractiveTarget = (target) => target instanceof Element
       && Boolean(target.closest("button, a, input, select, textarea, label, [data-product-action]"));
 
-    const syncAspectRatio = () => {
+const syncAspectRatio = () => {
       if (!preview) {
         return;
       }
+      const isFeedSurface = String(carousel.dataset.feedGallerySurface || "").trim().toLowerCase() === "feed";
       if (isFeedSurface) {
         const stableFitMode = normalizeProductFitMode(
           carousel.dataset.feedGalleryStableFitMode
@@ -14477,7 +14478,6 @@ function bindFeedGalleryInteractions(scope = document) {
       if (!naturalWidth || !naturalHeight) {
         return;
       }
-      const isFeedSurface = String(carousel.dataset.feedGallerySurface || "").trim().toLowerCase() === "feed";
       const stableRatio = String(carousel.dataset.feedGalleryStableRatio || preview.dataset.feedGalleryStableRatio || "").trim();
       const stableFitMode = String(carousel.dataset.feedGalleryStableFitMode || preview.dataset.feedGalleryStableFitMode || "").trim();
       const shouldPreserveImageRatio = Boolean(
