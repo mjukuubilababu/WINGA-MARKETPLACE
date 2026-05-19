@@ -294,7 +294,9 @@
         className: "showcase-preview-image",
         fitMode,
         attributes: {
-          "data-marketplace-scroll-image": "true"
+          "data-marketplace-scroll-image": "true",
+          "data-preserve-image-ratio": "true",
+          "data-fallback-src": deps.getImageFallbackDataUri("WINGA")
         }
       }));
       return media;
