@@ -9662,8 +9662,8 @@ button:hover,
 #products-container .feed-gallery-image-social{
   width:100% !important;
   height:100% !important;
-  object-fit:var(--feed-gallery-object-fit, cover) !important;
-  object-position:var(--feed-gallery-object-position, center center) !important;
+  object-fit:contain !important;
+  object-position:center top !important;
   background:#ffffff !important;
   padding:0 !important;
   display:block !important;
@@ -9693,16 +9693,6 @@ button:hover,
 #products-container .progressive-image-shell.is-loaded .progressive-image-full,
 #products-container .progressive-image-shell.is-error .progressive-image-full{
   opacity:1 !important;
-}
-
-#products-container .feed-gallery-preview[data-fit-mode="cover"]{
-  --feed-gallery-object-fit: cover;
-  --feed-gallery-object-position: center top;
-}
-
-#products-container .feed-gallery-preview[data-fit-mode="contain"]{
-  --feed-gallery-object-fit: contain;
-  --feed-gallery-object-position: center center;
 }
 
 #products-container .feed-gallery-preview .feed-gallery-count-badge{
