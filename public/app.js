@@ -9039,6 +9039,37 @@ function getProductFitMode(product) {
   return normalizeProductFitMode(product?.fitMode);
 }
 
+function getHomeFeedMediaHintText(product) {
+  return [
+    product?.name,
+    product?.category,
+    product?.shop
+  ]
+    .map((value) => String(value || "").trim().toLowerCase())
+    .filter(Boolean)
+    .join(" ");
+}
+
+function shouldPreferFullFeedImageMode(product, options = {}) {
+  const explicitFitMode = getProductFitMode(product);
+  if (explicitFitMode === "contain") {
+    return true;
+  }
+  const hintText = getHomeFeedMediaHintText(product);
+  const topCategory = String(inferTopCategoryValue(product?.category || "") || "").trim().toLowerCase();
+  const naturalWidth = Number(options.naturalWidth || 0);
+  const naturalHeight = Number(options.naturalHeight || 0);
+  const portraitLike = naturalWidth > 0 && naturalHeight > naturalWidth * 1.14;
+  const veryTallPortrait = naturalWidth > 0 && naturalHeight > naturalWidth * 1.28;
+  const footwearHint = /(kiatu|viatu|sneaker|sneakers|heel|heels|boot|boots|sandals?|slippers?|loafer|loafers|flat shoes?)/i.test(hintText);
+  const fashionHint = topCategory === "nguo" || /(gauni|dress|gown|skirt|trouser|suruali|seti|fashion|maxi|jumpsuit|abaya|shirt dress)/i.test(hintText);
+  return footwearHint || veryTallPortrait || (portraitLike && fashionHint);
+}
+
+function resolveHomeFeedFitMode(product, options = {}) {
+  return shouldPreferFullFeedImageMode(product, options) ? "contain" : "cover";
+}
+
 function shouldRenderMarketplaceProduct(product, options = {}) {
   if (!isMarketplaceBrowseCandidate(product)) {
     return false;
@@ -14125,8 +14156,8 @@ function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
   const total = images.length;
   const currentLabel = total > 1 ? `1/${total}` : "";
   const priorityLimit = Math.max(1, Number(options?.priorityCount || 1));
-  const fitMode = getProductFitMode(product);
   const isFeedSurface = String(surface || "").trim().toLowerCase() === "feed";
+  const fitMode = isFeedSurface ? resolveHomeFeedFitMode(product) : getProductFitMode(product);
   const stableFrameRatio = "";
   if (options?.preload && typeof preloadImageSource === "function") {
     images.slice(0, Math.min(images.length, priorityLimit)).forEach((src, index) => {
@@ -14198,6 +14229,7 @@ function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
       data-feed-gallery-carousel="true"
       data-feed-gallery-total="${total}"
       data-feed-gallery-current="1"
+      data-feed-gallery-product-id="${escapeHtml(normalizeProductIdValue(product?.id) || "")}"
       data-feed-gallery-surface="${escapeHtml(surface || "feed")}"
       ${stableFrameRatio ? `data-feed-gallery-stable-ratio="${escapeHtml(stableFrameRatio)}"` : ""}
       data-feed-gallery-stable-fit-mode="${escapeHtml(fitMode)}"
@@ -14446,8 +14478,18 @@ function bindFeedGalleryInteractions(scope = document) {
       const shouldPreserveImageRatio = Boolean(
         carousel.closest("#products-container, #market-showcase, .product-detail-feed-stack")
       );
+      const feedProductId = normalizeProductIdValue(
+        carousel.dataset.feedGalleryProductId
+        || preview?.dataset?.feedGalleryProductId
+        || carousel.closest("[data-open-product]")?.dataset?.openProduct
+        || ""
+      );
+      const sourceProduct = feedProductId ? getProductById(feedProductId) : null;
       const fitMode = isFeedSurface
-        ? normalizeProductFitMode(stableFitMode || carousel.dataset.fitMode || preview.dataset.fitMode || "cover")
+        ? resolveHomeFeedFitMode(sourceProduct, {
+          naturalWidth,
+          naturalHeight
+        })
         : normalizeProductFitMode(carousel.dataset.fitMode || preview.dataset.fitMode || "cover");
       const ratioValue = isFeedSurface
         ? (stableRatio || `${naturalWidth} / ${naturalHeight}`)
