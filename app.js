@@ -5707,6 +5707,7 @@ function showInstantBootFeedSnapshot(reason = "boot_snapshot") {
 
   const hasVisibleFeedShell = Boolean(
     productsContainer?.querySelector(".product-card, .seller-product-card")
+    || productsContainer?.querySelector("[data-feed-skeleton-card='true']")
     || emptyState?.style.display === "block"
   );
 
@@ -10304,12 +10305,46 @@ function setFeedLoadingStateVisible(visible) {
   feedLoadingState.style.display = visible ? "grid" : "none";
 }
 
+function getStartupFeedSkeletonCount() {
+  const viewportWidth = getViewportWidth();
+  if (viewportWidth >= 960) {
+    return 6;
+  }
+  if (viewportWidth >= 720) {
+    return 4;
+  }
+  return 3;
+}
+
+function renderStartupFeedSkeleton() {
+  if (!productsContainer) {
+    return;
+  }
+  const count = getStartupFeedSkeletonCount();
+  const skeletonMarkup = Array.from({ length: count }, () => `
+    <article class="seller-product-card feed-skeleton-card" data-feed-skeleton-card="true" aria-hidden="true">
+      <div class="feed-skeleton-media"></div>
+      <div class="feed-skeleton-body">
+        <span class="feed-skeleton-line feed-skeleton-line-title"></span>
+        <span class="feed-skeleton-line feed-skeleton-line-copy"></span>
+        <span class="feed-skeleton-line feed-skeleton-line-copy-short"></span>
+        <div class="feed-skeleton-actions">
+          <span class="feed-skeleton-pill"></span>
+          <span class="feed-skeleton-pill"></span>
+        </div>
+      </div>
+    </article>
+  `).join("");
+  productsContainer.replaceChildren(createFragmentFromMarkup(skeletonMarkup));
+}
+
 function hasVisibleStartupSurface(options = {}) {
   const includeFeedLoading = options.includeFeedLoading !== false;
   return Boolean(
     document.body.classList.contains("auth-modal-open")
     || document.body.classList.contains("product-detail-open")
     || productsContainer?.querySelector(".product-card, .seller-product-card")
+    || productsContainer?.querySelector("[data-feed-skeleton-card='true']")
     || profileDiv?.style.display === "block"
     || uploadForm?.style.display === "block"
     || adminPanel?.style.display === "block"
@@ -15042,6 +15077,13 @@ function renderCurrentView(options = {}) {
     const searchPriorityMode = hasPrioritySearchResults(filteredProducts.length) && !isProfile && !isUpload && !isAdminView;
     const productsHydrated = Boolean(window.WingaDataLayer?.isProductsHydrated?.());
     const productsLoadFailed = productHydrationStatus === "failed";
+    const shouldShowStartupSkeleton = !isProfile
+      && !isUpload
+      && !isAdminView
+      && filteredProducts.length === 0
+      && !productsHydrated
+      && !productsLoadFailed
+      && !lifecycleFallbackActive;
     const shouldShowFeedLoading = !isProfile
       && !isUpload
       && !isAdminView
@@ -15092,6 +15134,14 @@ function renderCurrentView(options = {}) {
 
     if (shouldShowFeedLoading) {
       updateResultsMeta(0);
+      renderSearchDropdown([], { isProfile, isUpload, isAdminView });
+      return;
+    }
+
+    if (shouldShowStartupSkeleton) {
+      updateResultsMeta(0);
+      renderMarketShowcase();
+      renderStartupFeedSkeleton();
       renderSearchDropdown([], { isProfile, isUpload, isAdminView });
       return;
     }
