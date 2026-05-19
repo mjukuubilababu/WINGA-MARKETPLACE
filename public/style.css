@@ -9662,7 +9662,7 @@ button:hover,
 #products-container .feed-gallery-image-social{
   width:100% !important;
   height:100% !important;
-  object-fit:contain !important;
+  object-fit:cover !important;
   object-position:center top !important;
   background:#ffffff !important;
   padding:0 !important;

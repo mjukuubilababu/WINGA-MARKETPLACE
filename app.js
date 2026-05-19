@@ -14126,7 +14126,7 @@ function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
   const currentLabel = total > 1 ? `1/${total}` : "";
   const priorityLimit = Math.max(1, Number(options?.priorityCount || 1));
   const isFeedSurface = String(surface || "").trim().toLowerCase() === "feed";
-  const fitMode = isFeedSurface ? "contain" : getProductFitMode(product);
+  const fitMode = isFeedSurface ? "cover" : getProductFitMode(product);
   const stableFrameRatio = isFeedSurface ? "4 / 5" : "";
   if (options?.preload && typeof preloadImageSource === "function") {
     images.slice(0, Math.min(images.length, priorityLimit)).forEach((src, index) => {
@@ -14447,7 +14447,7 @@ function bindFeedGalleryInteractions(scope = document) {
         carousel.closest("#products-container, #market-showcase, .product-detail-feed-stack")
       );
       const fitMode = isFeedSurface
-        ? normalizeProductFitMode(stableFitMode || carousel.dataset.fitMode || preview.dataset.fitMode || "contain")
+        ? normalizeProductFitMode(stableFitMode || carousel.dataset.fitMode || preview.dataset.fitMode || "cover")
         : normalizeProductFitMode(carousel.dataset.fitMode || preview.dataset.fitMode || "cover");
       const ratioValue = isFeedSurface
         ? (stableRatio || "4 / 5")
