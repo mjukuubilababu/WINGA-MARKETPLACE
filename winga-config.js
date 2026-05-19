@@ -10,9 +10,11 @@ const WINGA_DEFAULT_CONFIG = {
   fallbackProvider: WINGA_IS_FILE_MODE ? "mock" : "",
   enableMockSeed: WINGA_IS_FILE_MODE,
   disableServiceWorker: !WINGA_IS_FILE_MODE,
-  enableApiLocalCacheFallback: WINGA_IS_FILE_MODE,
-  enableBootstrapFeedSnapshot: WINGA_IS_FILE_MODE,
-  clearLegacyLocalDataOnBoot: !WINGA_IS_FILE_MODE,
+  // Keep the recovery service worker disabled on web for now, but allow
+  // startup to use local API/feed snapshots so refresh and reopen stay fast.
+  enableApiLocalCacheFallback: true,
+  enableBootstrapFeedSnapshot: true,
+  clearLegacyLocalDataOnBoot: false,
   authRequestTimeoutMs: 18000,
   sessionRestoreTimeoutMs: 8000,
   productUploadTimeoutMs: 45000,
