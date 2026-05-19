@@ -9673,11 +9673,13 @@ button:hover,
 }
 
 #products-container .progressive-image-shell{
-  background-color:#ffffff !important;
+  background-color:#eef2f6 !important;
 }
 
 #products-container .progressive-image-shell::before{
-  transition:opacity .12s ease !important;
+  opacity:0 !important;
+  animation:none !important;
+  transition:none !important;
 }
 
 #products-container .progressive-image-shell .progressive-image-full{

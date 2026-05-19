@@ -5601,12 +5601,14 @@ function hideBootOverlayImmediately() {
   }
   bootOverlay.classList.add("is-hidden");
   bootOverlay.setAttribute("aria-hidden", "true");
+  bootOverlay.style.display = "none";
 }
 
 function revealBootOverlay() {
   if (!bootOverlay) {
     return;
   }
+  bootOverlay.style.display = "flex";
   bootOverlay.classList.remove("is-hidden");
   bootOverlay.setAttribute("aria-hidden", "false");
 }
