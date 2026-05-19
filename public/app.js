@@ -14127,7 +14127,7 @@ function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
   const priorityLimit = Math.max(1, Number(options?.priorityCount || 1));
   const fitMode = getProductFitMode(product);
   const isFeedSurface = String(surface || "").trim().toLowerCase() === "feed";
-  const stableFrameRatio = isFeedSurface ? "3 / 4" : "";
+  const stableFrameRatio = "";
   if (options?.preload && typeof preloadImageSource === "function") {
     images.slice(0, Math.min(images.length, priorityLimit)).forEach((src, index) => {
       preloadImageSource(src, {
@@ -14450,7 +14450,7 @@ function bindFeedGalleryInteractions(scope = document) {
         ? normalizeProductFitMode(stableFitMode || carousel.dataset.fitMode || preview.dataset.fitMode || "cover")
         : normalizeProductFitMode(carousel.dataset.fitMode || preview.dataset.fitMode || "cover");
       const ratioValue = isFeedSurface
-        ? (stableRatio || "3 / 4")
+        ? (stableRatio || `${naturalWidth} / ${naturalHeight}`)
         : ((shouldPreserveImageRatio || fitMode === "contain")
           ? `${naturalWidth} / ${naturalHeight}`
           : "1 / 1");

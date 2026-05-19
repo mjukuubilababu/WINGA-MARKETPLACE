@@ -9662,7 +9662,7 @@ button:hover,
 #products-container .feed-gallery-image-social{
   width:100% !important;
   height:100% !important;
-  object-fit:var(--feed-gallery-object-fit, contain) !important;
+  object-fit:var(--feed-gallery-object-fit, cover) !important;
   object-position:var(--feed-gallery-object-position, center center) !important;
   background:#ffffff !important;
   padding:0 !important;
@@ -9696,8 +9696,8 @@ button:hover,
 }
 
 #products-container .feed-gallery-preview[data-fit-mode="cover"]{
-  --feed-gallery-object-fit: contain;
-  --feed-gallery-object-position: center center;
+  --feed-gallery-object-fit: cover;
+  --feed-gallery-object-position: center top;
 }
 
 #products-container .feed-gallery-preview[data-fit-mode="contain"]{
