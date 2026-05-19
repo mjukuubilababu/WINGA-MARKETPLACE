@@ -16057,7 +16057,10 @@ function bindMarketplaceScrollImages(scope = document) {
     image.dataset.marketplaceScrollBound = "true";
     image.dataset.marketplaceRealSrc = image.getAttribute("src") || image.dataset.imageActionSrc || "";
     const realSrc = image.dataset.marketplaceRealSrc || image.dataset.progressiveRealSrc || image.dataset.imageActionSrc || image.dataset.zoomSrc || "";
-    const isMarketplaceFeedImage = Boolean(image.closest("#products-container"));
+    const isStartupCritical = Boolean(
+      String(image.dataset.imagePriority || "").toLowerCase().includes("startup-critical")
+      || image.closest("[data-startup-priority-card='true']")
+    );
     if (canRevealMarketplaceScrollImage(image, realSrc)) {
       markMarketplaceScrollImageLoaded(image, realSrc);
     }
@@ -16065,7 +16068,8 @@ function bindMarketplaceScrollImages(scope = document) {
     const viewportHeight = window.innerHeight || document.documentElement?.clientHeight || 0;
     const prefetchMargin = getMarketplaceScrollImagePrefetchMargin();
     const isNearViewport = rect.bottom >= -prefetchMargin && rect.top <= viewportHeight + prefetchMargin;
-    if (isMarketplaceFeedImage || isNearViewport) {
+    const shouldLoadNow = isStartupCritical || isNearViewport;
+    if (shouldLoadNow) {
       image.setAttribute("loading", "eager");
       image.setAttribute("fetchpriority", "high");
       activateMarketplaceScrollImage(image);
