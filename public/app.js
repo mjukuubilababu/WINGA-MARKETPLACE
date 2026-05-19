@@ -14126,8 +14126,8 @@ function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
   const currentLabel = total > 1 ? `1/${total}` : "";
   const priorityLimit = Math.max(1, Number(options?.priorityCount || 1));
   const isFeedSurface = String(surface || "").trim().toLowerCase() === "feed";
-  const fitMode = isFeedSurface ? "cover" : getProductFitMode(product);
-  const stableFrameRatio = isFeedSurface ? "4 / 5" : "";
+  const fitMode = isFeedSurface ? "contain" : getProductFitMode(product);
+  const stableFrameRatio = "";
   if (options?.preload && typeof preloadImageSource === "function") {
     images.slice(0, Math.min(images.length, priorityLimit)).forEach((src, index) => {
       preloadImageSource(src, {
@@ -14428,16 +14428,35 @@ function bindFeedGalleryInteractions(scope = document) {
           || preview.dataset.feedGalleryStableFitMode
           || carousel.dataset.fitMode
           || preview.dataset.fitMode
-          || "cover"
+          || "contain"
         );
+        const authorityImage = carousel.querySelector('[data-feed-gallery-primary="true"]')
+          || carousel.querySelector('[data-feed-gallery-slide="0"] .feed-gallery-image-social')
+          || carousel.querySelector(".feed-gallery-carousel-slide .feed-gallery-image-social");
+        const naturalWidth = Number(authorityImage?.naturalWidth || authorityImage?.width || 0);
+        const naturalHeight = Number(authorityImage?.naturalHeight || authorityImage?.height || 0);
+        const frameWidth = Math.max(
+          1,
+          Number(preview.clientWidth || 0)
+          || Number(carousel.clientWidth || 0)
+          || Number(track.clientWidth || 0)
+        );
+        const viewportHeight = Math.max(1, Number(window.innerHeight || document.documentElement?.clientHeight || 0));
+        const maxFrameHeight = Math.max(240, Math.round(viewportHeight * 0.85));
+        const naturalFrameHeight = naturalWidth > 0 && naturalHeight > 0
+          ? Math.round(frameWidth * (naturalHeight / naturalWidth))
+          : Math.round(frameWidth * (5 / 4));
+        const frameHeight = Math.max(220, Math.min(maxFrameHeight, naturalFrameHeight));
         preview.dataset.fitMode = stableFitMode;
         carousel.dataset.fitMode = stableFitMode;
-        preview.style.setProperty("--fit-media-aspect-ratio", "4 / 5");
+        preview.style.removeProperty("--fit-media-aspect-ratio");
+        preview.style.setProperty("--feed-gallery-frame-height", `${frameHeight}px`);
         preview.style.setProperty("--feed-gallery-fit-mode", stableFitMode);
-        carousel.style.setProperty("--fit-media-aspect-ratio", "4 / 5");
+        carousel.style.removeProperty("--fit-media-aspect-ratio");
+        carousel.style.setProperty("--feed-gallery-frame-height", `${frameHeight}px`);
         carousel.style.setProperty("--feed-gallery-fit-mode", stableFitMode);
-        carousel.dataset.feedGalleryStableRatio = "4 / 5";
-        preview.dataset.feedGalleryStableRatio = "4 / 5";
+        carousel.dataset.feedGalleryStableRatio = "";
+        preview.dataset.feedGalleryStableRatio = "";
         return;
       }
       const total = Math.max(1, Number(carousel.dataset.feedGalleryTotal || track.querySelectorAll("[data-feed-gallery-slide]").length || 1));
