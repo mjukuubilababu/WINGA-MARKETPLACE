@@ -37,10 +37,10 @@ const MEMORY_CRITICAL_THRESHOLD_BYTES = 220 * 1024 * 1024;
 const FEED_BOOTSTRAP_CACHE_KEY = "winga-feed-bootstrap-cache";
 const FEED_BOOTSTRAP_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const FEED_BOOTSTRAP_PRODUCT_LIMIT = 14;
-const FEED_BOOT_IMAGE_WARM_COUNT = 60;
-const FEED_BOOT_IMAGE_DECODE_COUNT = 18;
-const FEED_PREDICTIVE_PRELOAD_COUNT = 8;
-const FEED_PREDICTIVE_NEXT_BATCH_SIZE = 8;
+const FEED_BOOT_IMAGE_WARM_COUNT = 24;
+const FEED_BOOT_IMAGE_DECODE_COUNT = 8;
+const FEED_PREDICTIVE_PRELOAD_COUNT = 6;
+const FEED_PREDICTIVE_NEXT_BATCH_SIZE = 6;
 const FEED_MEMORY_IMAGE_CACHE_LIMIT = 10;
 const FEED_MEMORY_PREFETCH_COOLDOWN_MS = 900;
 const FEED_SCROLL_SPEED_PREFETCH_THRESHOLD = 0.72;
@@ -14420,6 +14420,24 @@ function bindFeedGalleryInteractions(scope = document) {
 
     const syncAspectRatio = () => {
       if (!preview) {
+        return;
+      }
+      if (isFeedSurface) {
+        const stableFitMode = normalizeProductFitMode(
+          carousel.dataset.feedGalleryStableFitMode
+          || preview.dataset.feedGalleryStableFitMode
+          || carousel.dataset.fitMode
+          || preview.dataset.fitMode
+          || "cover"
+        );
+        preview.dataset.fitMode = stableFitMode;
+        carousel.dataset.fitMode = stableFitMode;
+        preview.style.setProperty("--fit-media-aspect-ratio", "4 / 5");
+        preview.style.setProperty("--feed-gallery-fit-mode", stableFitMode);
+        carousel.style.setProperty("--fit-media-aspect-ratio", "4 / 5");
+        carousel.style.setProperty("--feed-gallery-fit-mode", stableFitMode);
+        carousel.dataset.feedGalleryStableRatio = "4 / 5";
+        preview.dataset.feedGalleryStableRatio = "4 / 5";
         return;
       }
       const total = Math.max(1, Number(carousel.dataset.feedGalleryTotal || track.querySelectorAll("[data-feed-gallery-slide]").length || 1));
