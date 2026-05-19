@@ -578,7 +578,7 @@
   }
 
   function shouldUseApiLocalCacheFallback(config = window.WINGA_CONFIG || {}) {
-    return Boolean(config?.enableApiLocalCacheFallback);
+    return config?.enableApiLocalCacheFallback !== false;
   }
 
   function normalizeAppSettings(settings = {}) {

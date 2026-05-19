@@ -113,11 +113,11 @@ function isServiceWorkerRecoveryDisabled() {
 }
 
 function shouldUseBootstrapFeedSnapshot() {
-  return Boolean(window.WINGA_CONFIG?.enableBootstrapFeedSnapshot);
+  return window.WINGA_CONFIG?.enableBootstrapFeedSnapshot !== false;
 }
 
 function shouldUseApiLocalCacheFallback() {
-  return Boolean(window.WINGA_CONFIG?.enableApiLocalCacheFallback);
+  return window.WINGA_CONFIG?.enableApiLocalCacheFallback !== false;
 }
 
 function getViewportWidth() {

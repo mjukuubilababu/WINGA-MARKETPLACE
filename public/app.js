@@ -113,11 +113,11 @@ function isServiceWorkerRecoveryDisabled() {
 }
 
 function shouldUseBootstrapFeedSnapshot() {
-  return Boolean(window.WINGA_CONFIG?.enableBootstrapFeedSnapshot);
+  return window.WINGA_CONFIG?.enableBootstrapFeedSnapshot !== false;
 }
 
 function shouldUseApiLocalCacheFallback() {
-  return Boolean(window.WINGA_CONFIG?.enableApiLocalCacheFallback);
+  return window.WINGA_CONFIG?.enableApiLocalCacheFallback !== false;
 }
 
 function getViewportWidth() {
@@ -5711,6 +5711,10 @@ function showInstantBootFeedSnapshot(reason = "boot_snapshot") {
   );
 
   if (hasVisibleFeedShell) {
+    document.body.classList.remove("app-booting");
+    document.body.classList.add("app-ready");
+    hideBootOverlayImmediately();
+    hideLifecycleFallbackShell();
     reportClientEvent("info", "instant_boot_snapshot_rendered", "Boot snapshot rendered before full hydration.", {
       category: "runtime",
       authState: currentUser ? "signed_in" : "guest",
