@@ -9642,8 +9642,8 @@ button:hover,
 
 #products-container .feed-gallery-preview{
   aspect-ratio:auto !important;
-  height:var(--feed-gallery-frame-height, auto) !important;
-  max-height:85vh !important;
+  height:auto !important;
+  max-height:none !important;
   background:#ffffff !important;
   overflow:hidden !important;
 }
@@ -9651,15 +9651,15 @@ button:hover,
 #products-container .feed-gallery-carousel,
 #products-container .feed-gallery-carousel-track,
 #products-container .feed-gallery-carousel-slide{
-  height:100% !important;
-  max-height:85vh !important;
+  height:auto !important;
+  max-height:none !important;
   background:#ffffff !important;
 }
 
 #products-container .feed-gallery-carousel-slide{
-  display:flex !important;
-  align-items:flex-start !important;
-  justify-content:center !important;
+  display:block !important;
+  align-items:initial !important;
+  justify-content:initial !important;
 }
 
 #products-container .feed-gallery-carousel,
@@ -9667,6 +9667,16 @@ button:hover,
 #products-container .feed-gallery-carousel-slide,
 #products-container .progressive-image-shell{
   min-height:0 !important;
+}
+
+#products-container .progressive-image-shell{
+  width:100% !important;
+  height:auto !important;
+  min-height:0 !important;
+  max-height:none !important;
+  overflow:hidden !important;
+  background:#ffffff !important;
+  contain:none !important;
 }
 
 #products-container .feed-gallery-image-social{
@@ -9684,7 +9694,7 @@ button:hover,
 }
 
 #products-container .progressive-image-shell{
-  background-color:#eef2f6 !important;
+  background-color:#ffffff !important;
 }
 
 #products-container .progressive-image-shell::before{
@@ -9696,6 +9706,13 @@ button:hover,
 #products-container .progressive-image-shell .progressive-image-full{
   transition:none !important;
   display:block !important;
+  position:relative !important;
+  inset:auto !important;
+  width:100% !important;
+  height:auto !important;
+  max-height:85vh !important;
+  object-fit:contain !important;
+  object-position:center top !important;
   backface-visibility:hidden !important;
   transform:translateZ(0) !important;
   opacity:1 !important;

@@ -14,6 +14,7 @@ const WINGA_DEFAULT_CONFIG = {
   // startup to use local API/feed snapshots so refresh and reopen stay fast.
   enableApiLocalCacheFallback: true,
   enableBootstrapFeedSnapshot: true,
+  enableClientEventLogging: WINGA_IS_FILE_MODE || WINGA_IS_LOCAL_WEB,
   clearLegacyLocalDataOnBoot: false,
   authRequestTimeoutMs: 18000,
   sessionRestoreTimeoutMs: 8000,

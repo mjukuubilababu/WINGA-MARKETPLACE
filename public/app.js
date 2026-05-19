@@ -1883,6 +1883,7 @@ function getImageFallbackDataUri(label = "WINGA") {
 
 const imagePreloadRegistry = new Map();
 const decodedFeedImageCache = new Map();
+const failedDecodedFeedImageCache = new Map();
 const marketplaceScrollImagePrefetchedSources = new Map();
 
 function pruneTimestampRegistry(registry, limit = 0) {
@@ -1961,14 +1962,14 @@ function cacheDecodedFeedImageSource(src = "", options = {}) {
   if (!safeSrc || /^data:/i.test(safeSrc)) {
     return Promise.resolve(null);
   }
+  const failureWindowMs = 2 * 60 * 1000;
+  const lastFailureAt = Number(failedDecodedFeedImageCache.get(safeSrc) || 0);
+  if (lastFailureAt && Date.now() - lastFailureAt < failureWindowMs) {
+    return Promise.resolve(null);
+  }
   const existingEntry = decodedFeedImageCache.get(safeSrc);
   if (existingEntry?.promise) {
     existingEntry.touchedAt = Date.now();
-    reportClientEvent("info", "feed_memory_cache_hit", "Feed image served from memory cache.", {
-      category: "image",
-      src: safeSrc,
-      reason: options.reason || "memory_hit"
-    });
     return existingEntry.promise;
   }
 
@@ -1992,21 +1993,20 @@ function cacheDecodedFeedImageSource(src = "", options = {}) {
         height: Number(image.naturalHeight || 0),
         promise
       });
+      failedDecodedFeedImageCache.delete(safeSrc);
       trimDecodedFeedImageCache();
-      reportSlowPath("feed_predictive_image_decode", getPerfNow() - startedAt, {
-        category: "image",
-        src: safeSrc,
-        reason: options.reason || "decode"
-      }, 180);
+      if (options.telemetry !== false) {
+        reportSlowPath("feed_predictive_image_decode", getPerfNow() - startedAt, {
+          category: "image",
+          src: safeSrc,
+          reason: options.reason || "decode"
+        }, 180);
+      }
       resolve(image);
     };
     image.onerror = (error) => {
       decodedFeedImageCache.delete(safeSrc);
-      reportClientEvent("warn", "feed_memory_cache_miss", "Feed image decode failed.", {
-        category: "image",
-        src: safeSrc,
-        reason: options.reason || "decode_error"
-      });
+      failedDecodedFeedImageCache.set(safeSrc, Date.now());
       reject(error || new Error("Unable to decode image into memory cache."));
     };
   });
@@ -2219,7 +2219,7 @@ function primeFeedInstantCache(productsList = [], options = {}) {
   imageQueue.slice(0, Math.min(decodeLimit, 3)).forEach((src, index) => {
     preloadImageSource(src, {
       fetchPriority: index < 2 ? "high" : "auto",
-      decodeInMemory: true,
+      decodeInMemory: false,
       reason
     });
   });
@@ -2298,7 +2298,7 @@ function warmProductImageCache(products = [], options = {}) {
     batch.forEach(({ src, fetchPriority }, index) => {
       preloadImageSource(src, {
         fetchPriority,
-        decodeInMemory: index < decodeCount,
+        decodeInMemory: false,
         reason: "warm_product_image_cache"
       });
     });
@@ -14132,7 +14132,7 @@ function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
     images.slice(0, Math.min(images.length, priorityLimit)).forEach((src, index) => {
       preloadImageSource(src, {
         fetchPriority: index === 0 ? "high" : "auto",
-        decodeInMemory: index < priorityLimit,
+        decodeInMemory: false,
         reason: "feed_gallery_startup_priority"
       });
     });
@@ -14418,44 +14418,20 @@ function bindFeedGalleryInteractions(scope = document) {
     const isInteractiveTarget = (target) => target instanceof Element
       && Boolean(target.closest("button, a, input, select, textarea, label, [data-product-action]"));
 
-const syncAspectRatio = () => {
+    const syncAspectRatio = () => {
       if (!preview) {
         return;
       }
       const isFeedSurface = String(carousel.dataset.feedGallerySurface || "").trim().toLowerCase() === "feed";
       if (isFeedSurface) {
-        const stableFitMode = normalizeProductFitMode(
-          carousel.dataset.feedGalleryStableFitMode
-          || preview.dataset.feedGalleryStableFitMode
-          || carousel.dataset.fitMode
-          || preview.dataset.fitMode
-          || "contain"
-        );
-        const authorityImage = carousel.querySelector('[data-feed-gallery-primary="true"]')
-          || carousel.querySelector('[data-feed-gallery-slide="0"] .feed-gallery-image-social')
-          || carousel.querySelector(".feed-gallery-carousel-slide .feed-gallery-image-social");
-        const naturalWidth = Number(authorityImage?.naturalWidth || authorityImage?.width || 0);
-        const naturalHeight = Number(authorityImage?.naturalHeight || authorityImage?.height || 0);
-        const frameWidth = Math.max(
-          1,
-          Number(preview.clientWidth || 0)
-          || Number(carousel.clientWidth || 0)
-          || Number(track.clientWidth || 0)
-        );
-        const viewportHeight = Math.max(1, Number(window.innerHeight || document.documentElement?.clientHeight || 0));
-        const maxFrameHeight = Math.max(240, Math.round(viewportHeight * 0.85));
-        const naturalFrameHeight = naturalWidth > 0 && naturalHeight > 0
-          ? Math.round(frameWidth * (naturalHeight / naturalWidth))
-          : Math.round(frameWidth * (5 / 4));
-        const frameHeight = Math.max(220, Math.min(maxFrameHeight, naturalFrameHeight));
-        preview.dataset.fitMode = stableFitMode;
-        carousel.dataset.fitMode = stableFitMode;
+        preview.dataset.fitMode = "contain";
+        carousel.dataset.fitMode = "contain";
         preview.style.removeProperty("--fit-media-aspect-ratio");
-        preview.style.setProperty("--feed-gallery-frame-height", `${frameHeight}px`);
-        preview.style.setProperty("--feed-gallery-fit-mode", stableFitMode);
         carousel.style.removeProperty("--fit-media-aspect-ratio");
-        carousel.style.setProperty("--feed-gallery-frame-height", `${frameHeight}px`);
-        carousel.style.setProperty("--feed-gallery-fit-mode", stableFitMode);
+        preview.style.removeProperty("--feed-gallery-frame-height");
+        carousel.style.removeProperty("--feed-gallery-frame-height");
+        preview.style.setProperty("--feed-gallery-fit-mode", "contain");
+        carousel.style.setProperty("--feed-gallery-fit-mode", "contain");
         carousel.dataset.feedGalleryStableRatio = "";
         preview.dataset.feedGalleryStableRatio = "";
         return;
@@ -16048,24 +16024,17 @@ function settleMarketplaceScrollImage(image, realSrc = "") {
       return;
     }
     if (attempt >= 12) {
+      image.closest(".progressive-image-shell")?.classList.remove("is-pending");
       finalize();
       return;
     }
     window.setTimeout(() => pollForReveal(attempt + 1), 120);
   };
-  const decodePromise = typeof image.decode === "function"
-    ? image.decode().catch(() => null)
-    : Promise.resolve();
-  void decodePromise.finally(() => {
+  window.requestAnimationFrame(() => {
     if (tryReveal()) {
       return;
     }
-    window.requestAnimationFrame(() => {
-      if (tryReveal()) {
-        return;
-      }
-      pollForReveal(0);
-    });
+    pollForReveal(0);
   });
 }
 
@@ -16108,7 +16077,9 @@ function prefetchMarketplaceScrollImage(image) {
     return;
   }
   scheduleIdleBackgroundWork(() => {
-    void cacheDecodedFeedImageSource(realSrc, {
+    preloadImageSource(realSrc, {
+      fetchPriority: "auto",
+      decodeInMemory: false,
       reason: "scroll_prefetch"
     });
   }, 900);
@@ -16155,6 +16126,17 @@ function bindMarketplaceScrollImages(scope = document) {
     if (canRevealMarketplaceScrollImage(image, realSrc)) {
       markMarketplaceScrollImageLoaded(image, realSrc);
     }
+    image.addEventListener("load", () => {
+      const resolvedSrc = image.currentSrc || image.getAttribute("src") || realSrc;
+      markMarketplaceScrollImageLoaded(image, resolvedSrc);
+    }, { passive: true });
+    image.addEventListener("error", () => {
+      const shell = image.closest(".progressive-image-shell");
+      shell?.classList.remove("is-pending");
+      shell?.classList.add("is-error", "is-loaded");
+      image.dataset.marketplaceImageState = "error";
+      delete image.dataset.marketplaceRevealScheduled;
+    }, { passive: true });
     const rect = image.getBoundingClientRect();
     const viewportHeight = window.innerHeight || document.documentElement?.clientHeight || 0;
     const prefetchMargin = getMarketplaceScrollImagePrefetchMargin();

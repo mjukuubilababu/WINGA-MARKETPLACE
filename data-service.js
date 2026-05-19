@@ -2600,6 +2600,9 @@
         return Array.isArray(data) ? data : [];
       },
       async logClientEvent(event) {
+        if (window.WINGA_CONFIG?.enableClientEventLogging === false) {
+          return null;
+        }
         try {
           await fetchJson(`${baseUrl}/client-events`, {
             method: "POST",
