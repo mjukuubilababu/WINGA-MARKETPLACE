@@ -8335,8 +8335,35 @@ button:hover,
   .product-detail-continuation-rail{
     width:100vw;
     max-width:100vw;
+    min-width:100vw;
     margin-left:calc(50% - 50vw);
     margin-right:calc(50% - 50vw);
+    padding:0;
+  }
+
+  .product-detail-feed-section,
+  .product-detail-feed-stack{
+    width:100vw;
+    max-width:100vw;
+    min-width:100vw;
+    margin-left:calc(50% - 50vw);
+    margin-right:calc(50% - 50vw);
+  }
+
+  .product-detail-feed-section > .section-heading{
+    padding-inline:14px;
+    margin:12px 0;
+  }
+
+  .product-detail-feed-stack{
+    gap:0;
+  }
+
+  .product-detail-feed-stack > .product-card:first-child,
+  .product-detail-feed-stack > .product-card:last-child,
+  #product-detail-modal .product-detail-feed-stack > .product-card:first-child,
+  #product-detail-modal .product-detail-feed-stack > .product-card:last-child{
+    border-radius:0;
   }
 
   .product-detail-actions{
