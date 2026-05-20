@@ -2218,6 +2218,10 @@ function primeFeedInstantCache(productsList = [], options = {}) {
   if (!Array.isArray(productsList) || !productsList.length) {
     return;
   }
+  const cycleToken = Number(options.cycleToken || 0);
+  if (cycleToken && cycleToken !== Number(feedRuntimeState.imageWarmCycle || 0)) {
+    return;
+  }
   const reason = String(options.reason || "feed_prime");
   const productLimit = Number(options.productLimit || FEED_PREDICTIVE_PRELOAD_COUNT);
   const decodeLimit = Number(options.decodeLimit || FEED_PREDICTIVE_NEXT_BATCH_SIZE);
@@ -2253,6 +2257,8 @@ function warmProductImageCache(products = [], options = {}) {
     return;
   }
 
+  const cycleToken = Number(options.cycleToken || 0);
+  const isWarmCycleActive = () => !cycleToken || cycleToken === Number(feedRuntimeState.imageWarmCycle || 0);
   const isStandalone = isStandaloneDisplayMode();
   const productLimit = Math.max(
     1,
@@ -2296,13 +2302,17 @@ function warmProductImageCache(products = [], options = {}) {
     return;
   }
 
-  const cacheUrls = queue.map((item) => item.src).filter(Boolean);
+  const pendingQueue = queue.slice(0, Math.min(queue.length, decodeCount));
+  const cacheUrls = pendingQueue.map((item) => item.src).filter(Boolean);
   if (cacheUrls.length && "serviceWorker" in navigator) {
     const postCacheMessage = (registration) => {
+      if (!isWarmCycleActive()) {
+        return;
+      }
       try {
         registration?.active?.postMessage?.({
           type: "CACHE_IMAGE_URLS",
-          urls: cacheUrls.slice(0, isStandalone ? 12 : Math.min(cacheUrls.length, FEED_BOOT_IMAGE_WARM_COUNT))
+          urls: cacheUrls.slice(0, Math.min(cacheUrls.length, decodeCount))
         });
       } catch (error) {
         // Ignore SW warm-cache messaging issues.
@@ -2315,9 +2325,12 @@ function warmProductImageCache(products = [], options = {}) {
     }
   }
 
-  const batchSize = isStandalone ? 4 : 10;
+  const batchSize = Math.max(1, Math.min(isStandalone ? 4 : 6, decodeCount));
   const drainQueue = () => {
-    const batch = queue.splice(0, batchSize);
+    if (!isWarmCycleActive()) {
+      return;
+    }
+    const batch = pendingQueue.splice(0, batchSize);
     batch.forEach(({ src, fetchPriority }, index) => {
       preloadImageSource(src, {
         fetchPriority,
@@ -2325,7 +2338,7 @@ function warmProductImageCache(products = [], options = {}) {
         reason: "warm_product_image_cache"
       });
     });
-    if (!queue.length) {
+    if (!pendingQueue.length) {
       return;
     }
     if (typeof window.requestIdleCallback === "function") {
@@ -2336,6 +2349,53 @@ function warmProductImageCache(products = [], options = {}) {
   };
 
   drainQueue();
+}
+
+function cancelPendingStartupImageWork(reason = "startup_refresh") {
+  if (feedRuntimeState.startupImageWarmTimer) {
+    window.clearTimeout(feedRuntimeState.startupImageWarmTimer);
+    feedRuntimeState.startupImageWarmTimer = 0;
+  }
+  feedRuntimeState.imageWarmCycle = Number(feedRuntimeState.imageWarmCycle || 0) + 1;
+  feedRuntimeState.lastStartupImageWarmReason = reason;
+}
+
+function scheduleStartupImageWork(productsList = [], options = {}) {
+  if (!Array.isArray(productsList) || !productsList.length) {
+    return;
+  }
+  cancelPendingStartupImageWork(String(options.reason || "startup_refresh"));
+  const cycleToken = Number(feedRuntimeState.imageWarmCycle || 0);
+  const productLimit = Math.max(1, Math.min(
+    Number(options.productLimit || 8) || 8,
+    Array.isArray(productsList) ? productsList.length : 0
+  ));
+  const decodeLimit = Math.max(1, Math.min(
+    Number(options.decodeLimit || 3) || 3,
+    productLimit
+  ));
+  const imageLimitPerProduct = Math.max(1, Number(options.imageLimitPerProduct || 1) || 1);
+  const reason = String(options.reason || "startup_refresh");
+  const delayMs = Math.max(0, Number(options.delayMs ?? (document.body.classList.contains("app-booting") ? 220 : 80)) || 0);
+  feedRuntimeState.startupImageWarmTimer = window.setTimeout(() => {
+    feedRuntimeState.startupImageWarmTimer = 0;
+    if (cycleToken !== Number(feedRuntimeState.imageWarmCycle || 0)) {
+      return;
+    }
+    const scopedProducts = productsList.slice(0, productLimit);
+    warmProductImageCache(scopedProducts, {
+      productLimit,
+      imageLimitPerProduct,
+      decodeCount: decodeLimit,
+      cycleToken
+    });
+    primeFeedInstantCache(scopedProducts, {
+      reason,
+      productLimit,
+      decodeLimit,
+      cycleToken
+    });
+  }, delayMs);
 }
 
 function warmAdminImageCache(imageSources = []) {
@@ -2710,6 +2770,12 @@ function primePredictiveFeedBatch(trigger = "scroll") {
 }
 
 function schedulePredictiveFeedPrefetch(trigger = "scroll") {
+  if (
+    trigger !== "scroll"
+    && (document.body.classList.contains("app-booting") || !bootOverlay?.classList.contains("is-hidden"))
+  ) {
+    return;
+  }
   const now = Date.now();
   if (
     trigger === "scroll"
@@ -11929,6 +11995,7 @@ window.addEventListener("scroll", () => {
 
 function handleAppLifecycleChange() {
   if (document.hidden) {
+    cancelPendingStartupImageWork("document_hidden");
     cleanupAppRenderMemory("hidden", { full: false });
     return;
   }
@@ -11953,6 +12020,7 @@ function handleAppLifecycleChange() {
 
 document.addEventListener("visibilitychange", handleAppLifecycleChange);
 window.addEventListener("pagehide", () => {
+  cancelPendingStartupImageWork("pagehide");
   cleanupAppRenderMemory("pagehide", { full: true });
 });
 
@@ -12845,15 +12913,12 @@ window.addEventListener("winga:products-hydrated", (event) => {
   if (shouldDeferBootRenderForPendingStaffSession()) {
     return;
   }
-  warmProductImageCache(window.WingaDataLayer?.getProducts?.() || [], {
-    productLimit: FEED_BOOT_IMAGE_WARM_COUNT,
-    imageLimitPerProduct: 1,
-    decodeCount: FEED_BOOT_IMAGE_DECODE_COUNT
-  });
-  primeFeedInstantCache(window.WingaDataLayer?.getProducts?.() || [], {
+  scheduleStartupImageWork(window.WingaDataLayer?.getProducts?.() || [], {
     reason: "products_hydrated",
-    productLimit: FEED_BOOT_IMAGE_WARM_COUNT,
-    decodeLimit: FEED_BOOT_IMAGE_DECODE_COUNT
+    productLimit: 8,
+    imageLimitPerProduct: 1,
+    decodeLimit: 3,
+    delayMs: 140
   });
   const canRenderWhileWaitingForDeepLink = !suppressInitialProductHomeRender || document.body.classList.contains("product-detail-open");
   if (canRenderWhileWaitingForDeepLink && currentView !== "profile") {
@@ -16645,15 +16710,12 @@ async function bootApp() {
     if (!isLifecycleEpochCurrent(lifecycleEpoch)) {
       return;
     }
-    warmProductImageCache(products, {
-      productLimit: Math.min(products.length || 0, FEED_BOOT_IMAGE_WARM_COUNT),
-      imageLimitPerProduct: 1,
-      decodeCount: FEED_BOOT_IMAGE_DECODE_COUNT
-    });
-    primeFeedInstantCache(products, {
+    scheduleStartupImageWork(products, {
       reason: "boot_refresh",
-      productLimit: Math.min(products.length || 0, FEED_BOOT_IMAGE_WARM_COUNT),
-      decodeLimit: FEED_BOOT_IMAGE_DECODE_COUNT
+      productLimit: 8,
+      imageLimitPerProduct: 1,
+      decodeLimit: 3,
+      delayMs: 180
     });
   });
   hydrateMissingImageSignatures(products).catch(() => {
