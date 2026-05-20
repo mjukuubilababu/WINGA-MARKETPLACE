@@ -14144,6 +14144,7 @@ function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
   const isFeedSurface = normalizedSurface === "feed";
   const isDetailSurface = normalizedSurface === "detail";
   const isDetailContinuationSurface = normalizedSurface === "detail-continuation";
+  const shouldForceDirectVisibility = Boolean(options?.directVisibility || isFeedSurface);
   const useCarouselSurface = isFeedSurface || isDetailSurface || isDetailContinuationSurface;
   const fitMode = isFeedSurface
     ? "contain"
@@ -14179,7 +14180,7 @@ function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
             "data-preserve-image-ratio": "true",
             "data-marketplace-scroll-image": "true",
             "data-fallback-src": getImageFallbackDataUri("WINGA"),
-            ...(options?.directVisibility ? { "data-direct-visibility": "true" } : {})
+            ...(shouldForceDirectVisibility ? { "data-direct-visibility": "true" } : {})
           }
         }).outerHTML}
         ${currentLabel ? `<span class="feed-gallery-count-badge product-gallery-count-badge">${currentLabel}</span>` : ""}
@@ -14208,7 +14209,7 @@ function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
             "data-feed-gallery-primary": index === 0 ? "true" : "false",
             "data-feed-gallery-image-src": safeSrc,
             "data-fallback-src": getImageFallbackDataUri("WINGA"),
-            ...(options?.directVisibility ? { "data-direct-visibility": "true" } : {}),
+            ...(shouldForceDirectVisibility ? { "data-direct-visibility": "true" } : {}),
             ...(index < priorityLimit ? { "data-image-priority": "startup-critical feed-primary" } : {})
           }
         }).outerHTML}
@@ -15943,10 +15944,8 @@ function bindImageFallbacks(scope = document) {
       image.dataset.fallbackLoadBound = "true";
       image.addEventListener("load", () => {
         const activeSrc = image.currentSrc || image.getAttribute("src") || image.dataset.imageActionSrc || "";
-        const realSrc = image.dataset.progressiveRealSrc || image.dataset.marketplaceRealSrc || "";
-        if (image.dataset.progressiveDeferred === "true" && realSrc && activeSrc !== realSrc) {
-          image.closest(".progressive-image-shell")?.classList.add("is-pending");
-          return;
+        if (shouldKeepMarketplaceScrollImageDirectVisible(image)) {
+          keepMarketplaceScrollImageDirectVisible(image, activeSrc);
         }
         markMarketplaceScrollImageLoaded(image, activeSrc);
       });
@@ -15982,6 +15981,34 @@ function unbindMarketplaceScrollImages(scope = document) {
     marketplaceScrollImageObserver?.unobserve?.(image);
     delete image.dataset.marketplaceScrollBound;
   });
+}
+
+function shouldKeepMarketplaceScrollImageDirectVisible(image) {
+  if (!(image instanceof HTMLImageElement)) {
+    return false;
+  }
+  if (String(image.dataset.directVisibility || "").trim().toLowerCase() === "true") {
+    return true;
+  }
+  const surface = String(
+    image.closest?.("[data-feed-gallery-surface]")?.dataset?.feedGallerySurface || ""
+  ).trim().toLowerCase();
+  return surface === "feed";
+}
+
+function keepMarketplaceScrollImageDirectVisible(image, resolvedSrc = "") {
+  if (!(image instanceof HTMLImageElement)) {
+    return;
+  }
+  const shell = image.closest(".progressive-image-shell");
+  shell?.classList.remove("is-pending");
+  shell?.classList.add("is-loaded");
+  if (!image.dataset.marketplaceImageState || image.dataset.marketplaceImageState === "prefetched") {
+    image.dataset.marketplaceImageState = "active";
+  }
+  if (resolvedSrc) {
+    image.dataset.marketplaceLastResolvedSrc = resolvedSrc;
+  }
 }
 
 function markMarketplaceScrollImageLoaded(image, resolvedSrc = "") {
@@ -16049,7 +16076,7 @@ function settleMarketplaceScrollImage(image, realSrc = "") {
       return;
     }
     if (attempt >= 12) {
-      image.closest(".progressive-image-shell")?.classList.remove("is-pending");
+      keepMarketplaceScrollImageDirectVisible(image, image.currentSrc || realSrc);
       finalize();
       return;
     }
@@ -16076,21 +16103,30 @@ function activateMarketplaceScrollImage(image) {
   const currentSrc = image.currentSrc || image.getAttribute("src") || "";
   const sameSource = currentSrc === realSrc;
   const alreadyLoaded = canRevealMarketplaceScrollImage(image, realSrc);
+  const shouldKeepDirectVisible = shouldKeepMarketplaceScrollImageDirectVisible(image);
   if (alreadyLoaded) {
     markMarketplaceScrollImageLoaded(image, realSrc);
     return;
   }
   image.setAttribute("loading", "eager");
   image.setAttribute("fetchpriority", "high");
-  image.closest(".progressive-image-shell")?.classList.add("is-pending");
+  if (shouldKeepDirectVisible) {
+    keepMarketplaceScrollImageDirectVisible(image, sameSource ? currentSrc : realSrc);
+  } else {
+    image.closest(".progressive-image-shell")?.classList.add("is-pending");
+  }
   if (!sameSource) {
     image.setAttribute("src", realSrc);
     image.dataset.marketplaceImageState = "active";
-    settleMarketplaceScrollImage(image, realSrc);
+    if (!shouldKeepDirectVisible) {
+      settleMarketplaceScrollImage(image, realSrc);
+    }
     return;
   }
   image.dataset.marketplaceImageState = "active";
-  settleMarketplaceScrollImage(image, realSrc);
+  if (!shouldKeepDirectVisible) {
+    settleMarketplaceScrollImage(image, realSrc);
+  }
 }
 
 function prefetchMarketplaceScrollImage(image) {
@@ -16144,6 +16180,9 @@ function bindMarketplaceScrollImages(scope = document) {
     image.dataset.marketplaceScrollBound = "true";
     image.dataset.marketplaceRealSrc = image.getAttribute("src") || image.dataset.imageActionSrc || "";
     const realSrc = image.dataset.marketplaceRealSrc || image.dataset.progressiveRealSrc || image.dataset.imageActionSrc || image.dataset.zoomSrc || "";
+    if (shouldKeepMarketplaceScrollImageDirectVisible(image)) {
+      keepMarketplaceScrollImageDirectVisible(image, realSrc || image.currentSrc || image.getAttribute("src") || "");
+    }
     const isStartupCritical = Boolean(
       String(image.dataset.imagePriority || "").toLowerCase().includes("startup-critical")
       || image.closest("[data-startup-priority-card='true']")
