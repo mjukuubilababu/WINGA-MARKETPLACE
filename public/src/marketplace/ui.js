@@ -97,8 +97,8 @@
         }
         seen.add(safeSrc);
         deps.preloadImageSource(safeSrc, {
-          fetchPriority: seen.size <= STARTUP_PRIORITY_CARD_COUNT ? "high" : "auto",
-          decodeInMemory: seen.size <= STARTUP_PRIORITY_CARD_COUNT,
+          fetchPriority: seen.size <= 2 ? "high" : "auto",
+          decodeInMemory: false,
           reason: "marketplace_startup_above_fold"
         });
       });

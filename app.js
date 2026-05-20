@@ -2057,6 +2057,10 @@ function preloadImageSource(src = "", options = {}) {
     }
     return null;
   }
+  const shouldUseLinkPreload = fetchPriority === "high" || decodeInMemory === true;
+  if (!shouldUseLinkPreload) {
+    return null;
+  }
   const link = document.createElement("link");
   link.rel = "preload";
   link.as = as;
@@ -2461,7 +2465,7 @@ function warmAdminImageCache(imageSources = []) {
     queue.push({ src: safeSrc, fetchPriority: index === 0 ? "high" : "auto" });
   });
 
-  queue.slice(0, 10).forEach(({ src, fetchPriority }) => {
+  queue.slice(0, 2).forEach(({ src, fetchPriority }) => {
     preloadImageSource(src, { fetchPriority });
   });
 
@@ -10059,10 +10063,13 @@ function shouldReportSlowPathEvent(event, durationMs, thresholdMs, context = {})
   const nowAt = Date.now();
   let cooldownMs = 10 * 1000;
   if (safeEvent === "feed_predictive_image_decode") {
+    if (isProductionClientRuntime()) {
+      return false;
+    }
     cooldownMs = 60 * 1000;
   } else if (safeEvent === "render_current_view_slow") {
-    cooldownMs = 20 * 1000;
-    if (Number(durationMs || 0) < Math.max(Number(thresholdMs || 0) * 2, 220)) {
+    cooldownMs = isProductionClientRuntime() ? 60 * 1000 : 20 * 1000;
+    if (Number(durationMs || 0) < Math.max(Number(thresholdMs || 0) * 3, isProductionClientRuntime() ? 360 : 220)) {
       return false;
     }
   } else if (safeEvent === "feed_image_load_latency") {
@@ -14393,7 +14400,7 @@ function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
     : normalizeProductFitMode(options?.fitMode || getProductFitMode(product));
   const stableFrameRatio = "";
   if (options?.preload && typeof preloadImageSource === "function") {
-    images.slice(0, Math.min(images.length, priorityLimit)).forEach((src, index) => {
+    images.slice(0, Math.min(images.length, 1, priorityLimit)).forEach((src, index) => {
       preloadImageSource(src, {
         fetchPriority: index === 0 ? "high" : "auto",
         decodeInMemory: false,
