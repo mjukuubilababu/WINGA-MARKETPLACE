@@ -1,6 +1,7 @@
 (() => {
   function createObservabilityModule(deps = {}) {
     const recentEvents = new Map();
+    const recentEventWindows = new Map();
     let globalHandlersInstalled = false;
     const now = typeof deps.now === "function" ? deps.now : () => Date.now();
     const emit = typeof deps.emitClientEvent === "function"
@@ -10,6 +11,61 @@
     const getBaseContext = typeof deps.getBaseContext === "function"
       ? deps.getBaseContext
       : () => ({});
+    const noisyProductionEvents = new Set([
+      "boot_phase",
+      "feed_predictive_image_decode",
+      "data_integrity_audit",
+      "showcase_runtime",
+      "render_current_view_slow",
+      "feed_image_load_latency"
+    ]);
+
+    function isProductionRuntime() {
+      const hostname = String(globalThis?.location?.hostname || "").trim().toLowerCase();
+      return Boolean(hostname && hostname !== "localhost" && hostname !== "127.0.0.1" && hostname !== "::1");
+    }
+
+    function getEventCooldownMs(level = "info", event = "") {
+      const safeEvent = String(event || "").trim().toLowerCase();
+      if (level === "error") {
+        return 0;
+      }
+      if (safeEvent === "data_integrity_audit") {
+        return 5 * 60 * 1000;
+      }
+      if (safeEvent === "showcase_runtime") {
+        return 30 * 1000;
+      }
+      if (safeEvent === "feed_predictive_image_decode") {
+        return 60 * 1000;
+      }
+      if (safeEvent === "render_current_view_slow") {
+        return 15 * 1000;
+      }
+      if (safeEvent === "boot_phase") {
+        return 8 * 1000;
+      }
+      if (level === "warn") {
+        return 8 * 1000;
+      }
+      if (level === "info") {
+        return 4 * 1000;
+      }
+      return 0;
+    }
+
+    function pruneRecentEventWindows() {
+      const cutoff = now() - (10 * 60 * 1000);
+      recentEventWindows.forEach((timestamp, key) => {
+        if (timestamp < cutoff) {
+          recentEventWindows.delete(key);
+        }
+      });
+      if (recentEventWindows.size > 300) {
+        const keys = Array.from(recentEventWindows.keys()).slice(0, recentEventWindows.size - 300);
+        keys.forEach((key) => recentEventWindows.delete(key));
+      }
+    }
 
     function inferCategory(event = "", context = {}) {
       const safeEvent = String(event || "").toLowerCase();
@@ -121,11 +177,19 @@
       const alertSeverity = inferAlertSeverity(safeLevel, safeEvent, safeContext);
       const fingerprint = String(safeContext.fingerprint || `${category}:${safeEvent}`).slice(0, 120);
       const dedupeKey = `${safeLevel}:${safeEvent}:${fingerprint}:${finalMessage}`;
+      const rateWindowKey = `${safeLevel}:${safeEvent}:${fingerprint}`;
       pruneRecentEvents();
+      pruneRecentEventWindows();
       if (recentEvents.has(dedupeKey)) {
         return;
       }
+      const cooldownMs = getEventCooldownMs(safeLevel, safeEvent);
+      const lastWindowTimestamp = Number(recentEventWindows.get(rateWindowKey) || 0);
+      if (cooldownMs > 0 && lastWindowTimestamp && now() - lastWindowTimestamp < cooldownMs) {
+        return;
+      }
       recentEvents.set(dedupeKey, now());
+      recentEventWindows.set(rateWindowKey, now());
       if (typeof window !== "undefined") {
         if (!Array.isArray(window.__WINGA_EVENT_BUFFER__)) {
           window.__WINGA_EVENT_BUFFER__ = [];
@@ -141,14 +205,16 @@
           window.__WINGA_EVENT_BUFFER__.splice(0, window.__WINGA_EVENT_BUFFER__.length - 150);
         }
       }
-      logger[safeLevel === "info" ? "log" : safeLevel]?.(`[WINGA] ${safeEvent}`, {
-        level: safeLevel,
-        message: finalMessage,
-        category,
-        alertSeverity,
-        fingerprint,
-        context: safeContext
-      });
+      if (!(isProductionRuntime() && safeLevel === "info" && noisyProductionEvents.has(String(safeEvent).toLowerCase()))) {
+        logger[safeLevel === "info" ? "log" : safeLevel]?.(`[WINGA] ${safeEvent}`, {
+          level: safeLevel,
+          message: finalMessage,
+          category,
+          alertSeverity,
+          fingerprint,
+          context: safeContext
+        });
+      }
       emit({
         level: safeLevel,
         event: safeEvent,

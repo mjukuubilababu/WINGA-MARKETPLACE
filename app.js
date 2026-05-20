@@ -2018,7 +2018,7 @@ function cacheDecodedFeedImageSource(src = "", options = {}) {
       });
       failedDecodedFeedImageCache.delete(safeSrc);
       trimDecodedFeedImageCache();
-      if (options.telemetry !== false) {
+      if (options.telemetry !== false && shouldReportPredictiveDecodeTelemetry(safeSrc, options.reason || "decode")) {
         reportSlowPath("feed_predictive_image_decode", getPerfNow() - startedAt, {
           category: "image",
           src: safeSrc,
@@ -9410,11 +9410,13 @@ function reportShowcaseInstrumentation(eventName, payload = {}) {
     showcaseEvents.shift();
   }
   runtimeDiagnostics.lastSnapshotAt = Date.now();
-  reportClientEvent("info", "showcase_runtime", `Showcase event: ${safeEvent}`, {
-    category: "marketplace",
-    event: safeEvent,
-    ...entry.payload
-  });
+  if (shouldReportShowcaseRuntime(safeEvent, entry.payload)) {
+    reportClientEvent("info", "showcase_runtime", `Showcase event: ${safeEvent}`, {
+      category: "marketplace",
+      event: safeEvent,
+      ...entry.payload
+    });
+  }
 }
 
 window.__WINGA_DIAGNOSTICS__ = {
@@ -9446,10 +9448,28 @@ function collectDuplicateEntries(items = [], keySelector) {
 }
 
 function auditHydratedDataIntegrity(reason = "runtime_audit") {
+  if (!shouldRunDataIntegrityAudit(reason)) {
+    return runtimeAuditState.lastResult || {
+      productsCount: 0,
+      usersCount: 0,
+      duplicateProductIds: [],
+      duplicateUsernames: []
+    };
+  }
   const productList = Array.isArray(window.WingaDataLayer?.getProducts?.()) ? window.WingaDataLayer.getProducts() : [];
   const userList = Array.isArray(window.WingaDataLayer?.getUsers?.()) ? window.WingaDataLayer.getUsers() : [];
   const duplicateProductIds = collectDuplicateEntries(productList, (item) => item?.id);
   const duplicateUsernames = collectDuplicateEntries(userList, (item) => item?.username);
+  const result = {
+    productsCount: productList.length,
+    usersCount: userList.length,
+    duplicateProductIds,
+    duplicateUsernames
+  };
+  runtimeAuditState.completed = true;
+  runtimeAuditState.lastRunAt = Date.now();
+  runtimeAuditState.lastReason = String(reason || "");
+  runtimeAuditState.lastResult = result;
   reportClientEvent(duplicateProductIds.length || duplicateUsernames.length ? "warn" : "info", "data_integrity_audit", "Hydrated data integrity audit completed.", {
     category: "runtime",
     reason,
@@ -9458,12 +9478,7 @@ function auditHydratedDataIntegrity(reason = "runtime_audit") {
     duplicateProductIds: duplicateProductIds.slice(0, 6),
     duplicateUsernames: duplicateUsernames.slice(0, 6)
   });
-  return {
-    productsCount: productList.length,
-    usersCount: userList.length,
-    duplicateProductIds,
-    duplicateUsernames
-  };
+  return result;
 }
 
 function reportBootPhase(phase, context = {}) {
@@ -9894,9 +9909,117 @@ observability.installGlobalErrorHandlers?.(window);
 const getPerfNow = typeof performance !== "undefined" && typeof performance.now === "function"
   ? () => performance.now()
   : () => Date.now();
+const slowPathTelemetryState = new Map();
+const predictiveDecodeTelemetryState = new Map();
+const runtimeAuditState = {
+  completed: false,
+  lastRunAt: 0,
+  lastResult: null,
+  lastReason: ""
+};
+const showcaseRuntimeReportState = new Map();
+
+function isProductionClientRuntime() {
+  const hostname = String(window.location?.hostname || "").trim().toLowerCase();
+  return Boolean(hostname && hostname !== "localhost" && hostname !== "127.0.0.1" && hostname !== "::1");
+}
+
+function pruneTimestampRegistry(registry, maxEntries = 240, maxAgeMs = 10 * 60 * 1000) {
+  if (!(registry instanceof Map)) {
+    return;
+  }
+  const cutoff = Date.now() - maxAgeMs;
+  registry.forEach((timestamp, key) => {
+    if (Number(timestamp || 0) < cutoff) {
+      registry.delete(key);
+    }
+  });
+  if (registry.size > maxEntries) {
+    Array.from(registry.keys()).slice(0, registry.size - maxEntries).forEach((key) => registry.delete(key));
+  }
+}
+
+function shouldReportSlowPathEvent(event, durationMs, thresholdMs, context = {}) {
+  const safeEvent = String(event || "").trim().toLowerCase();
+  const scopeKey = String(context?.src || context?.view || context?.reason || context?.category || "global").slice(0, 120);
+  const registryKey = `${safeEvent}:${scopeKey}`;
+  const nowAt = Date.now();
+  let cooldownMs = 10 * 1000;
+  if (safeEvent === "feed_predictive_image_decode") {
+    cooldownMs = 60 * 1000;
+  } else if (safeEvent === "render_current_view_slow") {
+    cooldownMs = 20 * 1000;
+    if (Number(durationMs || 0) < Math.max(Number(thresholdMs || 0) * 2, 220)) {
+      return false;
+    }
+  } else if (safeEvent === "feed_image_load_latency") {
+    cooldownMs = 30 * 1000;
+  }
+  pruneTimestampRegistry(slowPathTelemetryState, 320);
+  const lastReportedAt = Number(slowPathTelemetryState.get(registryKey) || 0);
+  if (lastReportedAt && nowAt - lastReportedAt < cooldownMs) {
+    return false;
+  }
+  slowPathTelemetryState.set(registryKey, nowAt);
+  return true;
+}
+
+function shouldReportPredictiveDecodeTelemetry(src = "", reason = "") {
+  const safeSrc = sanitizeImageSource(src, "");
+  if (!safeSrc) {
+    return false;
+  }
+  pruneTimestampRegistry(predictiveDecodeTelemetryState, 160, 15 * 60 * 1000);
+  const registryKey = `${safeSrc}::${String(reason || "").trim().toLowerCase()}`;
+  const nowAt = Date.now();
+  const lastReportedAt = Number(predictiveDecodeTelemetryState.get(registryKey) || 0);
+  if (lastReportedAt && nowAt - lastReportedAt < 10 * 60 * 1000) {
+    return false;
+  }
+  if (isProductionClientRuntime() && predictiveDecodeTelemetryState.size >= 6) {
+    return false;
+  }
+  predictiveDecodeTelemetryState.set(registryKey, nowAt);
+  return true;
+}
+
+function shouldRunDataIntegrityAudit(reason = "runtime_audit") {
+  const safeReason = String(reason || "runtime_audit").trim().toLowerCase();
+  const nowAt = Date.now();
+  if (!isProductionClientRuntime()) {
+    return !runtimeAuditState.lastRunAt || nowAt - runtimeAuditState.lastRunAt >= 5 * 1000;
+  }
+  if (safeReason.includes("boot_pre_hydration")) {
+    return false;
+  }
+  if (runtimeAuditState.completed) {
+    return false;
+  }
+  return !runtimeAuditState.lastRunAt || nowAt - runtimeAuditState.lastRunAt >= 30 * 1000;
+}
+
+function shouldReportShowcaseRuntime(eventName = "", payload = {}) {
+  const safeEvent = String(eventName || "").trim().toLowerCase();
+  if (!safeEvent) {
+    return false;
+  }
+  pruneTimestampRegistry(showcaseRuntimeReportState, 120, 10 * 60 * 1000);
+  const registryKey = `${safeEvent}:${String(payload?.section || payload?.slot || payload?.recommendationType || "").slice(0, 80)}`;
+  const nowAt = Date.now();
+  const cooldownMs = isProductionClientRuntime() ? 30 * 1000 : 5 * 1000;
+  const lastReportedAt = Number(showcaseRuntimeReportState.get(registryKey) || 0);
+  if (lastReportedAt && nowAt - lastReportedAt < cooldownMs) {
+    return false;
+  }
+  showcaseRuntimeReportState.set(registryKey, nowAt);
+  return true;
+}
 
 function reportSlowPath(event, durationMs, context = {}, thresholdMs = 120) {
   if (!Number.isFinite(durationMs) || durationMs < thresholdMs) {
+    return;
+  }
+  if (!shouldReportSlowPathEvent(event, durationMs, thresholdMs, context)) {
     return;
   }
   reportClientEvent(

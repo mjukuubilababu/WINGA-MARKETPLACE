@@ -385,6 +385,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
 (() => {
   function createObservabilityModule(deps = {}) {
     const recentEvents = new Map();
+    const recentEventWindows = new Map();
     let globalHandlersInstalled = false;
     const now = typeof deps.now === "function" ? deps.now : () => Date.now();
     const emit = typeof deps.emitClientEvent === "function"
@@ -394,6 +395,61 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
     const getBaseContext = typeof deps.getBaseContext === "function"
       ? deps.getBaseContext
       : () => ({});
+    const noisyProductionEvents = new Set([
+      "boot_phase",
+      "feed_predictive_image_decode",
+      "data_integrity_audit",
+      "showcase_runtime",
+      "render_current_view_slow",
+      "feed_image_load_latency"
+    ]);
+
+    function isProductionRuntime() {
+      const hostname = String(globalThis?.location?.hostname || "").trim().toLowerCase();
+      return Boolean(hostname && hostname !== "localhost" && hostname !== "127.0.0.1" && hostname !== "::1");
+    }
+
+    function getEventCooldownMs(level = "info", event = "") {
+      const safeEvent = String(event || "").trim().toLowerCase();
+      if (level === "error") {
+        return 0;
+      }
+      if (safeEvent === "data_integrity_audit") {
+        return 5 * 60 * 1000;
+      }
+      if (safeEvent === "showcase_runtime") {
+        return 30 * 1000;
+      }
+      if (safeEvent === "feed_predictive_image_decode") {
+        return 60 * 1000;
+      }
+      if (safeEvent === "render_current_view_slow") {
+        return 15 * 1000;
+      }
+      if (safeEvent === "boot_phase") {
+        return 8 * 1000;
+      }
+      if (level === "warn") {
+        return 8 * 1000;
+      }
+      if (level === "info") {
+        return 4 * 1000;
+      }
+      return 0;
+    }
+
+    function pruneRecentEventWindows() {
+      const cutoff = now() - (10 * 60 * 1000);
+      recentEventWindows.forEach((timestamp, key) => {
+        if (timestamp < cutoff) {
+          recentEventWindows.delete(key);
+        }
+      });
+      if (recentEventWindows.size > 300) {
+        const keys = Array.from(recentEventWindows.keys()).slice(0, recentEventWindows.size - 300);
+        keys.forEach((key) => recentEventWindows.delete(key));
+      }
+    }
 
     function inferCategory(event = "", context = {}) {
       const safeEvent = String(event || "").toLowerCase();
@@ -505,11 +561,19 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       const alertSeverity = inferAlertSeverity(safeLevel, safeEvent, safeContext);
       const fingerprint = String(safeContext.fingerprint || `${category}:${safeEvent}`).slice(0, 120);
       const dedupeKey = `${safeLevel}:${safeEvent}:${fingerprint}:${finalMessage}`;
+      const rateWindowKey = `${safeLevel}:${safeEvent}:${fingerprint}`;
       pruneRecentEvents();
+      pruneRecentEventWindows();
       if (recentEvents.has(dedupeKey)) {
         return;
       }
+      const cooldownMs = getEventCooldownMs(safeLevel, safeEvent);
+      const lastWindowTimestamp = Number(recentEventWindows.get(rateWindowKey) || 0);
+      if (cooldownMs > 0 && lastWindowTimestamp && now() - lastWindowTimestamp < cooldownMs) {
+        return;
+      }
       recentEvents.set(dedupeKey, now());
+      recentEventWindows.set(rateWindowKey, now());
       if (typeof window !== "undefined") {
         if (!Array.isArray(window.__WINGA_EVENT_BUFFER__)) {
           window.__WINGA_EVENT_BUFFER__ = [];
@@ -525,14 +589,16 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
           window.__WINGA_EVENT_BUFFER__.splice(0, window.__WINGA_EVENT_BUFFER__.length - 150);
         }
       }
-      logger[safeLevel === "info" ? "log" : safeLevel]?.(`[WINGA] ${safeEvent}`, {
-        level: safeLevel,
-        message: finalMessage,
-        category,
-        alertSeverity,
-        fingerprint,
-        context: safeContext
-      });
+      if (!(isProductionRuntime() && safeLevel === "info" && noisyProductionEvents.has(String(safeEvent).toLowerCase()))) {
+        logger[safeLevel === "info" ? "log" : safeLevel]?.(`[WINGA] ${safeEvent}`, {
+          level: safeLevel,
+          message: finalMessage,
+          category,
+          alertSeverity,
+          fingerprint,
+          context: safeContext
+        });
+      }
       emit({
         level: safeLevel,
         event: safeEvent,
@@ -909,6 +975,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
     const effectiveFallbackSrc = fallbackSrc || resolvedSrc;
     const normalizedFitMode = String(fitMode || "").trim().toLowerCase() === "contain" ? "contain" : "cover";
     const shouldPreserveImageRatio = String(attributes?.["data-preserve-image-ratio"] || "").toLowerCase() === "true";
+    const shouldForceDirectVisibility = String(attributes?.["data-direct-visibility"] || "").toLowerCase() === "true";
     const shouldLoadEagerly = shouldPrioritizeImageLoad(className, attributes);
     const shell = createElement("span", {
       className: `progressive-image-shell fit-mode-${normalizedFitMode}`,
@@ -986,6 +1053,9 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
     fullImage.addEventListener("error", function handleProgressiveImageError() {
       shell.classList.add("is-loaded", "is-error");
     });
+    if (shouldForceDirectVisibility) {
+      shell.classList.add("is-loaded");
+    }
     if (fullImage.complete && Number(fullImage.naturalWidth || 0) > 0) {
       applyProgressiveImageState(fullImage);
     }
@@ -2948,10 +3018,12 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
 
     function createProductGalleryElement(product, options = {}) {
       const startupPriority = options.startupPriority === true;
+      const surface = String(options.surface || "feed").trim().toLowerCase() || "feed";
       if (deps.renderFeedGalleryMarkup) {
-        return createElementFromMarkup(deps.renderFeedGalleryMarkup(product, "feed", {
+        return createElementFromMarkup(deps.renderFeedGalleryMarkup(product, surface, {
           priorityCount: startupPriority ? 3 : 1,
-          preload: startupPriority
+          preload: startupPriority,
+          directVisibility: options.directVisibility === true
         }));
       }
 
@@ -3139,6 +3211,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         attributes: {
           "data-marketplace-scroll-image": "true",
           "data-preserve-image-ratio": "true",
+          "data-direct-visibility": "true",
           "data-fallback-src": deps.getImageFallbackDataUri("WINGA")
         }
       }));
@@ -3399,7 +3472,11 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         card.classList.add("has-gallery-count-badge");
       }
       const media = createElement("div", { className: "product-card-media" });
-      media.appendChild(createProductGalleryElement(product, { startupPriority }));
+      media.appendChild(createProductGalleryElement(product, {
+        startupPriority,
+        directVisibility: options.directVisibility === true,
+        surface: options.gallerySurface || "feed"
+      }));
       if (Array.isArray(product.images) && product.images.length > 1) {
         media.appendChild(createElement("span", {
           className: "feed-gallery-count-badge product-gallery-count-badge",
@@ -3439,7 +3516,9 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         }
       });
       safeItems.forEach((item, index) => stack.appendChild(createProductCardElement(item, {
-        startupPriority: options.startupPriority === true && index < STARTUP_PRIORITY_CARD_COUNT
+        startupPriority: options.startupPriority === true && index < STARTUP_PRIORITY_CARD_COUNT,
+        directVisibility: options.directVisibility === true,
+        gallerySurface: options.gallerySurface || "feed"
       })));
       return stack;
     }
@@ -3732,12 +3811,12 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       const currentView = deps.getCurrentView();
       const shouldTrackViews = currentView !== "upload";
       const legacyShowcaseEnabled = false;
-      const intelligentFeedEnabled = false;
-      const shouldInjectInlineShowcases = false;
+      const intelligentFeedEnabled = currentView === "home";
+      const shouldInjectInlineShowcases = intelligentFeedEnabled;
       const isMobileViewport = window.matchMedia?.("(max-width: 780px)")?.matches;
       const productsPerRow = shouldInjectInlineShowcases ? deps.getProductsPerRow() : 0;
       const showcaseSpacing = isMobileViewport ? 8 : 10;
-      const showcaseRepeatInterval = isMobileViewport ? 16 : 14;
+      const showcaseRepeatInterval = isMobileViewport ? 8 : 10;
       const firstShowcaseAfter = shouldInjectInlineShowcases ? showcaseSpacing : Number.POSITIVE_INFINITY;
       const effectiveShowcaseRepeatInterval = shouldInjectInlineShowcases ? showcaseRepeatInterval : Number.POSITIVE_INFINITY;
       let nextShowcaseInsertAt = firstShowcaseAfter;
@@ -11010,7 +11089,9 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       const media = deps.createElement("div", {
         className: "product-card-media"
       });
-      const galleryMarkup = deps.renderFeedGalleryMarkup?.(item, "feed");
+      const galleryMarkup = deps.renderFeedGalleryMarkup?.(item, "detail-continuation", {
+        directVisibility: true
+      });
       if (galleryMarkup) {
         media.appendChild(deps.createFragmentFromMarkup(galleryMarkup));
       } else {
@@ -11029,6 +11110,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
             loading: "lazy",
             "data-marketplace-scroll-image": "true",
             "data-preserve-image-ratio": "true",
+            "data-direct-visibility": "true",
             "data-zoom-src": itemImageSrc || deps.getImageFallbackDataUri("W"),
             "data-zoom-alt": deps.escapeHtml(item.name || ""),
             "data-image-action-product": item.id,
@@ -11069,7 +11151,9 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
             className: "product-detail-feed-stack",
             attributes: {
               "data-product-detail-feed-stack": "true"
-            }
+            },
+            directVisibility: true,
+            gallerySurface: "detail-continuation"
           })
         : (() => {
             const fallbackStack = deps.createElement("div", {
@@ -11134,14 +11218,16 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       const media = deps.createElement("div", {
         className: `product-detail-media fit-mode-${fitMode}${detailImages.length > 1 && !useFeedCarousel ? " has-media-stack" : ""}`,
         attributes: {
-          "data-fit-mode": fitMode
+          "data-fit-mode": fitMode,
+          ...(useFeedCarousel ? { "data-detail-gallery-surface": "detail" } : {})
         }
       });
       if (useFeedCarousel) {
-        media.appendChild(deps.createFragmentFromMarkup(deps.renderFeedGalleryMarkup(product, "feed", {
+        media.appendChild(deps.createFragmentFromMarkup(deps.renderFeedGalleryMarkup(product, "detail", {
           priorityCount: Math.min(4, detailImages.length),
           preload: true,
-          fitMode
+          fitMode,
+          directVisibility: true
         })));
       } else {
         const mainImageElement = (deps.createProgressiveImage || deps.createResponsiveImage)({
@@ -11156,6 +11242,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
             fetchpriority: "high",
             "data-marketplace-scroll-image": "true",
             "data-preserve-image-ratio": "true",
+            "data-direct-visibility": "true",
             "data-zoom-src": safeMainImage,
             "data-zoom-alt": safeProductName,
             "data-image-action-product": product.id,
@@ -11179,6 +11266,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
                 loading: index < 4 ? "eager" : "lazy",
                 fetchpriority: index < 4 ? "high" : "auto",
                 "data-marketplace-scroll-image": "true",
+                "data-direct-visibility": "true",
                 "data-detail-image": image,
                 "data-detail-image-index": String(index),
                 "data-disable-image-zoom": "true",
