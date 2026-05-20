@@ -243,7 +243,8 @@
             className: "product-detail-feed-stack",
             attributes: {
               "data-product-detail-feed-stack": "true"
-            }
+            },
+            directVisibility: true
           })
         : (() => {
             const fallbackStack = deps.createElement("div", {
@@ -315,7 +316,8 @@
         media.appendChild(deps.createFragmentFromMarkup(deps.renderFeedGalleryMarkup(product, "feed", {
           priorityCount: Math.min(4, detailImages.length),
           preload: true,
-          fitMode
+          fitMode,
+          directVisibility: true
         })));
       } else {
         const mainImageElement = (deps.createProgressiveImage || deps.createResponsiveImage)({

@@ -108,7 +108,8 @@
       if (deps.renderFeedGalleryMarkup) {
         return createElementFromMarkup(deps.renderFeedGalleryMarkup(product, "feed", {
           priorityCount: startupPriority ? 3 : 1,
-          preload: startupPriority
+          preload: startupPriority,
+          directVisibility: options.directVisibility === true
         }));
       }
 
@@ -557,7 +558,10 @@
         card.classList.add("has-gallery-count-badge");
       }
       const media = createElement("div", { className: "product-card-media" });
-      media.appendChild(createProductGalleryElement(product, { startupPriority }));
+      media.appendChild(createProductGalleryElement(product, {
+        startupPriority,
+        directVisibility: options.directVisibility === true
+      }));
       if (Array.isArray(product.images) && product.images.length > 1) {
         media.appendChild(createElement("span", {
           className: "feed-gallery-count-badge product-gallery-count-badge",
@@ -597,7 +601,8 @@
         }
       });
       safeItems.forEach((item, index) => stack.appendChild(createProductCardElement(item, {
-        startupPriority: options.startupPriority === true && index < STARTUP_PRIORITY_CARD_COUNT
+        startupPriority: options.startupPriority === true && index < STARTUP_PRIORITY_CARD_COUNT,
+        directVisibility: options.directVisibility === true
       })));
       return stack;
     }

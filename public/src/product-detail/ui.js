@@ -201,6 +201,8 @@
           attributes: {
             loading: "lazy",
             "data-marketplace-scroll-image": "true",
+            "data-preserve-image-ratio": "true",
+            "data-direct-visibility": "true",
             "data-zoom-src": itemImageSrc || deps.getImageFallbackDataUri("W"),
             "data-zoom-alt": deps.escapeHtml(item.name || ""),
             "data-image-action-product": item.id,
@@ -241,7 +243,8 @@
             className: "product-detail-feed-stack",
             attributes: {
               "data-product-detail-feed-stack": "true"
-            }
+            },
+            directVisibility: true
           })
         : (() => {
             const fallbackStack = deps.createElement("div", {
@@ -313,7 +316,8 @@
         media.appendChild(deps.createFragmentFromMarkup(deps.renderFeedGalleryMarkup(product, "feed", {
           priorityCount: Math.min(4, detailImages.length),
           preload: true,
-          fitMode
+          fitMode,
+          directVisibility: true
         })));
       } else {
         const mainImageElement = (deps.createProgressiveImage || deps.createResponsiveImage)({
@@ -326,6 +330,9 @@
           attributes: {
             loading: "eager",
             fetchpriority: "high",
+            "data-marketplace-scroll-image": "true",
+            "data-preserve-image-ratio": "true",
+            "data-direct-visibility": "true",
             "data-zoom-src": safeMainImage,
             "data-zoom-alt": safeProductName,
             "data-image-action-product": product.id,
@@ -348,6 +355,8 @@
               attributes: {
                 loading: index < 4 ? "eager" : "lazy",
                 fetchpriority: index < 4 ? "high" : "auto",
+                "data-marketplace-scroll-image": "true",
+                "data-direct-visibility": "true",
                 "data-detail-image": image,
                 "data-detail-image-index": String(index),
                 "data-disable-image-zoom": "true",

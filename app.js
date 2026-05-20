@@ -14139,7 +14139,7 @@ function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
   }
   if (surface && surface !== "feed") {
     const previewSrc = sanitizeImageSource(String(images[0] || "").trim(), getImageFallbackDataUri("WINGA"));
-    return `
+      return `
       <div class="product-gallery media-gallery feed-gallery-preview showcase-media-preview feed-gallery-preview-single fit-mode-${escapeHtml(fitMode)}"
         data-feed-gallery-surface="${escapeHtml(surface || "discovery")}"
         data-fit-mode="${escapeHtml(fitMode)}">
@@ -14157,7 +14157,8 @@ function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
             draggable: "false",
             "data-preserve-image-ratio": "true",
             "data-marketplace-scroll-image": "true",
-            "data-fallback-src": getImageFallbackDataUri("WINGA")
+            "data-fallback-src": getImageFallbackDataUri("WINGA"),
+            ...(options?.directVisibility ? { "data-direct-visibility": "true" } : {})
           }
         }).outerHTML}
         ${currentLabel ? `<span class="feed-gallery-count-badge product-gallery-count-badge">${currentLabel}</span>` : ""}
@@ -14186,6 +14187,7 @@ function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
             "data-feed-gallery-primary": index === 0 ? "true" : "false",
             "data-feed-gallery-image-src": safeSrc,
             "data-fallback-src": getImageFallbackDataUri("WINGA"),
+            ...(options?.directVisibility ? { "data-direct-visibility": "true" } : {}),
             ...(index < priorityLimit ? { "data-image-priority": "startup-critical feed-primary" } : {})
           }
         }).outerHTML}
