@@ -13,6 +13,9 @@
       : () => ({});
     const noisyProductionEvents = new Set([
       "boot_phase",
+      "app_boot_started",
+      "instant_boot_snapshot_rendered",
+      "app_boot_completed",
       "feed_predictive_image_decode",
       "data_integrity_audit",
       "showcase_runtime",
