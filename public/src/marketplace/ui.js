@@ -27,6 +27,7 @@
     const FEED_GALLERY_IMAGE_LIMIT = 3;
     const STARTUP_PRIORITY_CARD_COUNT = 8;
     const INITIAL_SYNC_FEED_BATCH_SIZE = 12;
+    const BOOTSTRAP_SYNC_FEED_TARGET_COUNT = 20;
     let scheduledFeedRenderState = {
       token: 0,
       timer: 0
@@ -896,6 +897,7 @@
         return;
       }
       const currentView = deps.getCurrentView();
+      const isBootingHomeFeed = currentView === "home" && document.body.classList.contains("app-booting");
       const shouldTrackViews = currentView !== "upload";
       const legacyShowcaseEnabled = false;
       const intelligentFeedEnabled = currentView === "home";
@@ -1043,7 +1045,9 @@
         }
         const fragment = document.createDocumentFragment();
         const batchSize = startIndex === 0 && currentView === "home"
-          ? INITIAL_SYNC_FEED_BATCH_SIZE
+          ? (isBootingHomeFeed
+            ? Math.max(INITIAL_SYNC_FEED_BATCH_SIZE, Math.min(list.length, BOOTSTRAP_SYNC_FEED_TARGET_COUNT))
+            : INITIAL_SYNC_FEED_BATCH_SIZE)
           : FEED_RENDER_BATCH_SIZE;
         const endIndex = Math.min(list.length, startIndex + batchSize);
         for (let index = startIndex; index < endIndex; index += 1) {
@@ -1075,10 +1079,14 @@
             currentView,
             products: list.slice(0, endIndex)
           });
-          scheduledFeedRenderState.timer = window.setTimeout(() => {
+          const scheduleNextBatch = () => {
             scheduledFeedRenderState.timer = 0;
             renderNextBatch(endIndex);
-          }, FEED_RENDER_BATCH_DELAY_MS);
+          };
+          scheduledFeedRenderState.timer = window.setTimeout(
+            scheduleNextBatch,
+            isBootingHomeFeed && startIndex === 0 ? 0 : FEED_RENDER_BATCH_DELAY_MS
+          );
           return;
         }
         finalizeFeedRender();

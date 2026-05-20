@@ -2398,6 +2398,53 @@ function scheduleStartupImageWork(productsList = [], options = {}) {
   }, delayMs);
 }
 
+function cancelDeferredImageSignatureHydration(reason = "signature_refresh") {
+  if (feedRuntimeState.imageSignatureHydrationTimer) {
+    window.clearTimeout(feedRuntimeState.imageSignatureHydrationTimer);
+    feedRuntimeState.imageSignatureHydrationTimer = 0;
+  }
+  feedRuntimeState.imageSignatureHydrationCycle = Number(feedRuntimeState.imageSignatureHydrationCycle || 0) + 1;
+  feedRuntimeState.lastImageSignatureHydrationReason = reason;
+}
+
+function scheduleDeferredImageSignatureHydration(productList = products, options = {}) {
+  if (!Array.isArray(productList) || !productList.length) {
+    return;
+  }
+  cancelDeferredImageSignatureHydration(String(options.reason || "signature_refresh"));
+  const cycleToken = Number(feedRuntimeState.imageSignatureHydrationCycle || 0);
+  const productLimit = Math.max(1, Math.min(
+    Number(options.productLimit || 24) || 24,
+    productList.length
+  ));
+  const delayMs = Math.max(0, Number(options.delayMs ?? (document.body.classList.contains("app-booting") ? 1800 : 900)) || 0);
+  const scheduleAttempt = (nextDelayMs = delayMs) => {
+    feedRuntimeState.imageSignatureHydrationTimer = window.setTimeout(() => {
+      feedRuntimeState.imageSignatureHydrationTimer = 0;
+      if (cycleToken !== Number(feedRuntimeState.imageSignatureHydrationCycle || 0)) {
+        return;
+      }
+      const shouldWaitForVisibleHomeFeed = currentView === "home"
+        && document.body.classList.contains("app-booting")
+        && !hasVisibleStartupSurface({ includeFeedLoading: false });
+      if (document.hidden || shouldWaitForVisibleHomeFeed) {
+        scheduleAttempt(Math.max(700, Math.min(1800, nextDelayMs)));
+        return;
+      }
+      const scopedProducts = productList.slice(0, productLimit);
+      scheduleIdleBackgroundWork(() => {
+        if (cycleToken !== Number(feedRuntimeState.imageSignatureHydrationCycle || 0) || document.hidden) {
+          return;
+        }
+        hydrateMissingImageSignatures(scopedProducts).catch(() => {
+          // Ignore passive image signature hydration failures during boot.
+        });
+      }, 900);
+    }, nextDelayMs);
+  };
+  scheduleAttempt(delayMs);
+}
+
 function warmAdminImageCache(imageSources = []) {
   if (!Array.isArray(imageSources) || !imageSources.length) {
     return;
@@ -11996,6 +12043,7 @@ window.addEventListener("scroll", () => {
 function handleAppLifecycleChange() {
   if (document.hidden) {
     cancelPendingStartupImageWork("document_hidden");
+    cancelDeferredImageSignatureHydration("document_hidden");
     cleanupAppRenderMemory("hidden", { full: false });
     return;
   }
@@ -12021,6 +12069,7 @@ function handleAppLifecycleChange() {
 document.addEventListener("visibilitychange", handleAppLifecycleChange);
 window.addEventListener("pagehide", () => {
   cancelPendingStartupImageWork("pagehide");
+  cancelDeferredImageSignatureHydration("pagehide");
   cleanupAppRenderMemory("pagehide", { full: true });
 });
 
@@ -12919,6 +12968,11 @@ window.addEventListener("winga:products-hydrated", (event) => {
     imageLimitPerProduct: 1,
     decodeLimit: 3,
     delayMs: 140
+  });
+  scheduleDeferredImageSignatureHydration(window.WingaDataLayer?.getProducts?.() || [], {
+    reason: "products_hydrated",
+    productLimit: 24,
+    delayMs: 1400
   });
   const canRenderWhileWaitingForDeepLink = !suppressInitialProductHomeRender || document.body.classList.contains("product-detail-open");
   if (canRenderWhileWaitingForDeepLink && currentView !== "profile") {
@@ -16718,8 +16772,10 @@ async function bootApp() {
       delayMs: 180
     });
   });
-  hydrateMissingImageSignatures(products).catch(() => {
-    // Ignore passive image signature hydration failures during boot.
+  scheduleDeferredImageSignatureHydration(products, {
+    reason: "boot_refresh",
+    productLimit: 24,
+    delayMs: 1800
   });
 
       window.setTimeout(() => {
