@@ -898,12 +898,12 @@
       const currentView = deps.getCurrentView();
       const shouldTrackViews = currentView !== "upload";
       const legacyShowcaseEnabled = false;
-      const intelligentFeedEnabled = false;
-      const shouldInjectInlineShowcases = false;
+      const intelligentFeedEnabled = currentView === "home";
+      const shouldInjectInlineShowcases = intelligentFeedEnabled;
       const isMobileViewport = window.matchMedia?.("(max-width: 780px)")?.matches;
       const productsPerRow = shouldInjectInlineShowcases ? deps.getProductsPerRow() : 0;
       const showcaseSpacing = isMobileViewport ? 8 : 10;
-      const showcaseRepeatInterval = isMobileViewport ? 16 : 14;
+      const showcaseRepeatInterval = isMobileViewport ? 8 : 10;
       const firstShowcaseAfter = shouldInjectInlineShowcases ? showcaseSpacing : Number.POSITIVE_INFINITY;
       const effectiveShowcaseRepeatInterval = shouldInjectInlineShowcases ? showcaseRepeatInterval : Number.POSITIVE_INFINITY;
       let nextShowcaseInsertAt = firstShowcaseAfter;

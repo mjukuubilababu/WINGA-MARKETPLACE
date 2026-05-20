@@ -415,6 +415,29 @@ function rotateProductsForHomeRefresh(list = []) {
   return list.slice(offset).concat(list.slice(0, offset));
 }
 
+function getProductCreatedTime(product) {
+  return new Date(
+    product?.createdAt
+    || product?.created_at
+    || product?.timestamp
+    || product?.updatedAt
+    || 0
+  ).getTime();
+}
+
+function compareProductsNewestFirst(first, second) {
+  const secondTime = getProductCreatedTime(second);
+  const firstTime = getProductCreatedTime(first);
+  if (secondTime !== firstTime) {
+    return secondTime - firstTime;
+  }
+  return String(second?.id || "").localeCompare(String(first?.id || ""));
+}
+
+function sortProductsNewestFirst(list = []) {
+  return (Array.isArray(list) ? list : []).slice().sort(compareProductsNewestFirst);
+}
+
 function saveAppStorageSchemaVersion(version = "") {
   try {
     if (!version) {
@@ -13520,7 +13543,6 @@ function getTrendingProducts(limit = 8, excludeIds = new Set(), sourceProducts =
 
 function getNewestProducts(options = {}) {
   const { limit = 8, excludeIds = new Set(), seedProduct = null, sourceProducts = null } = options;
-  const seedTopCategory = inferTopCategoryValue(seedProduct?.category || "");
   const rankedNewest = (Array.isArray(sourceProducts) ? sourceProducts : products)
     .filter((product) =>
       product.status === "approved"
@@ -13529,14 +13551,7 @@ function getNewestProducts(options = {}) {
       && !excludeIds.has(product.id)
       && product.id !== seedProduct?.id
     )
-    .sort((first, second) => {
-      const secondMatchesSeed = seedTopCategory && inferTopCategoryValue(second.category || "") === seedTopCategory ? 1 : 0;
-      const firstMatchesSeed = seedTopCategory && inferTopCategoryValue(first.category || "") === seedTopCategory ? 1 : 0;
-      if (secondMatchesSeed !== firstMatchesSeed) {
-        return secondMatchesSeed - firstMatchesSeed;
-      }
-      return new Date(second.createdAt || 0).getTime() - new Date(first.createdAt || 0).getTime();
-    });
+    .sort(compareProductsNewestFirst);
   return limitProductsPerSeller(rankedNewest, limit, 2);
 }
 
@@ -15167,9 +15182,7 @@ function renderCurrentView(options = {}) {
       return;
     }
 
-    const homeProducts = currentView === "home"
-      ? rotateProductsForHomeRefresh(filteredProducts)
-      : filteredProducts;
+    const homeProducts = filteredProducts;
     const usesProgressiveHomeFeed = currentView === "home" && homeProducts.length > 10;
 
     updateResultsMeta(homeProducts.length);
@@ -15369,8 +15382,12 @@ function getFilteredProducts() {
     return prioritizeSellerMarketplaceMix(filtered);
   }
 
+  if (currentView === "home") {
+    return prioritizeSellerMarketplaceMix(sortProductsNewestFirst(filtered));
+  }
+
   return prioritizeSellerMarketplaceMix(rankProductsForSurface(filtered, {
-    surface: currentView === "home" ? "home" : "default",
+    surface: "default",
     limit: filtered.length,
     selectedCategory,
     searchTerms: rankingSearchTerms

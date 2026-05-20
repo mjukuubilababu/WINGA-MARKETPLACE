@@ -803,6 +803,29 @@
     };
   }
 
+  function getProductCreatedTime(product) {
+    return new Date(
+      product?.createdAt
+      || product?.created_at
+      || product?.timestamp
+      || product?.updatedAt
+      || 0
+    ).getTime();
+  }
+
+  function compareProductsNewestFirst(first, second) {
+    const secondTime = getProductCreatedTime(second);
+    const firstTime = getProductCreatedTime(first);
+    if (secondTime !== firstTime) {
+      return secondTime - firstTime;
+    }
+    return String(second?.id || "").localeCompare(String(first?.id || ""));
+  }
+
+  function sortProductsNewestFirst(products = []) {
+    return (Array.isArray(products) ? products : []).slice().sort(compareProductsNewestFirst);
+  }
+
   function createLocalAdapter() {
     return {
       async loadUsers() {
@@ -814,7 +837,7 @@
       async loadProducts() {
         const storedProducts = readStoredJson(PRODUCTS_KEY, []);
         return Array.isArray(storedProducts)
-          ? storedProducts.map(resolveProductImagesForRuntime)
+          ? sortProductsNewestFirst(storedProducts.map(resolveProductImagesForRuntime))
           : [];
       },
         async loadCategories() {
@@ -2016,7 +2039,9 @@
             ...createAuthHeaders()
           }
         });
-        const nextProducts = Array.isArray(data) ? data.map(resolveProductImages) : [];
+        const nextProducts = Array.isArray(data)
+          ? sortProductsNewestFirst(data.map(resolveProductImages))
+          : [];
         if (enableLocalCacheFallback) {
           void localFallbackAdapter.saveProducts(nextProducts.map(normalizeProductForPersistence)).catch(() => {});
         }
@@ -2741,7 +2766,7 @@
         await saveDocument(firebaseConfig.usersDocumentPath || "wingaState/users", users);
       },
       async loadProducts() {
-        return loadDocument(firebaseConfig.productsDocumentPath || "wingaState/products");
+        return sortProductsNewestFirst(await loadDocument(firebaseConfig.productsDocumentPath || "wingaState/products"));
       },
       async loadCategories() {
         return loadDocument(firebaseConfig.categoriesDocumentPath || "wingaState/categories");
@@ -3606,7 +3631,7 @@
       clearLegacyLocalFallbackArtifacts();
     },
     async saveProducts(products) {
-      const nextProducts = clone(products);
+      const nextProducts = sortProductsNewestFirst(clone(products));
       await state.adapter.saveProducts(nextProducts);
       state.products = nextProducts;
     },
@@ -3668,7 +3693,7 @@
     async refreshProducts() {
       ensureAdapter();
       const nextProducts = await state.adapter.loadProducts();
-      state.products = Array.isArray(nextProducts) ? nextProducts : [];
+      state.products = Array.isArray(nextProducts) ? sortProductsNewestFirst(nextProducts) : [];
       state.productsHydrated = true;
       if (typeof window !== "undefined" && typeof window.dispatchEvent === "function" && typeof window.CustomEvent === "function") {
         window.dispatchEvent(new window.CustomEvent("winga:products-hydrated", {
@@ -3712,19 +3737,19 @@
     async createProduct(product) {
       assertSellerAccess();
       const result = await state.adapter.createProduct(product);
-      state.products = await state.adapter.loadProducts();
+      state.products = sortProductsNewestFirst(await state.adapter.loadProducts());
       return result;
     },
     async updateProduct(productId, payload) {
       assertSellerAccess();
       const result = await state.adapter.updateProduct(productId, payload);
-      state.products = await state.adapter.loadProducts();
+      state.products = sortProductsNewestFirst(await state.adapter.loadProducts());
       return result;
     },
     async deleteProduct(productId) {
       assertSellerAccess();
       const result = await state.adapter.deleteProduct(productId);
-      state.products = await state.adapter.loadProducts();
+      state.products = sortProductsNewestFirst(await state.adapter.loadProducts());
       return result;
     },
     async loadAnalytics() {
