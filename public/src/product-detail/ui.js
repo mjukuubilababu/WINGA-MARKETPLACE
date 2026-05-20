@@ -312,7 +312,8 @@
       const media = deps.createElement("div", {
         className: `product-detail-media fit-mode-${fitMode}${detailImages.length > 1 && !useFeedCarousel ? " has-media-stack" : ""}`,
         attributes: {
-          "data-fit-mode": fitMode
+          "data-fit-mode": fitMode,
+          ...(useFeedCarousel ? { "data-detail-gallery-surface": "detail" } : {})
         }
       });
       if (useFeedCarousel) {
