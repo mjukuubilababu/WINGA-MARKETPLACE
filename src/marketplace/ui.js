@@ -296,6 +296,7 @@
         attributes: {
           "data-marketplace-scroll-image": "true",
           "data-preserve-image-ratio": "true",
+          "data-direct-visibility": "true",
           "data-fallback-src": deps.getImageFallbackDataUri("WINGA")
         }
       }));

@@ -9724,6 +9724,43 @@ button:hover,
   opacity:1 !important;
 }
 
+.product-detail-media .progressive-image-shell,
+.product-detail-thumb-grid .progressive-image-shell,
+.showcase-media .progressive-image-shell,
+.showcase-media-preview .progressive-image-shell,
+.product-detail-showcase-track .seller-product-card .seller-product-card-media .progressive-image-shell{
+  width:100% !important;
+  height:100% !important;
+  min-height:0 !important;
+  overflow:hidden !important;
+}
+
+.product-detail-media .progressive-image-full,
+.product-detail-thumb-grid .progressive-image-full,
+.showcase-media .progressive-image-full,
+.showcase-media-preview .progressive-image-full,
+.product-detail-showcase-track .seller-product-card .seller-product-card-media .progressive-image-full{
+  opacity:1 !important;
+}
+
+.product-detail-media .progressive-image-shell.is-pending .progressive-image-full,
+.product-detail-media .progressive-image-shell.is-loaded .progressive-image-full,
+.product-detail-media .progressive-image-shell.is-error .progressive-image-full,
+.product-detail-thumb-grid .progressive-image-shell.is-pending .progressive-image-full,
+.product-detail-thumb-grid .progressive-image-shell.is-loaded .progressive-image-full,
+.product-detail-thumb-grid .progressive-image-shell.is-error .progressive-image-full,
+.showcase-media .progressive-image-shell.is-pending .progressive-image-full,
+.showcase-media .progressive-image-shell.is-loaded .progressive-image-full,
+.showcase-media .progressive-image-shell.is-error .progressive-image-full,
+.showcase-media-preview .progressive-image-shell.is-pending .progressive-image-full,
+.showcase-media-preview .progressive-image-shell.is-loaded .progressive-image-full,
+.showcase-media-preview .progressive-image-shell.is-error .progressive-image-full,
+.product-detail-showcase-track .seller-product-card .seller-product-card-media .progressive-image-shell.is-pending .progressive-image-full,
+.product-detail-showcase-track .seller-product-card .seller-product-card-media .progressive-image-shell.is-loaded .progressive-image-full,
+.product-detail-showcase-track .seller-product-card .seller-product-card-media .progressive-image-shell.is-error .progressive-image-full{
+  opacity:1 !important;
+}
+
 #products-container .feed-gallery-preview .feed-gallery-count-badge{
   top:8px;
   right:8px;

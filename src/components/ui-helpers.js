@@ -195,6 +195,7 @@
     const effectiveFallbackSrc = fallbackSrc || resolvedSrc;
     const normalizedFitMode = String(fitMode || "").trim().toLowerCase() === "contain" ? "contain" : "cover";
     const shouldPreserveImageRatio = String(attributes?.["data-preserve-image-ratio"] || "").toLowerCase() === "true";
+    const shouldForceDirectVisibility = String(attributes?.["data-direct-visibility"] || "").toLowerCase() === "true";
     const shouldLoadEagerly = shouldPrioritizeImageLoad(className, attributes);
     const shell = createElement("span", {
       className: `progressive-image-shell fit-mode-${normalizedFitMode}`,
@@ -272,6 +273,9 @@
     fullImage.addEventListener("error", function handleProgressiveImageError() {
       shell.classList.add("is-loaded", "is-error");
     });
+    if (shouldForceDirectVisibility) {
+      shell.classList.add("is-loaded");
+    }
     if (fullImage.complete && Number(fullImage.naturalWidth || 0) > 0) {
       applyProgressiveImageState(fullImage);
     }

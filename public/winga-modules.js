@@ -3137,7 +3137,9 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         className: "showcase-preview-image",
         fitMode,
         attributes: {
-          "data-marketplace-scroll-image": "true"
+          "data-marketplace-scroll-image": "true",
+          "data-preserve-image-ratio": "true",
+          "data-fallback-src": deps.getImageFallbackDataUri("WINGA")
         }
       }));
       return media;
@@ -11026,6 +11028,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
           attributes: {
             loading: "lazy",
             "data-marketplace-scroll-image": "true",
+            "data-preserve-image-ratio": "true",
             "data-zoom-src": itemImageSrc || deps.getImageFallbackDataUri("W"),
             "data-zoom-alt": deps.escapeHtml(item.name || ""),
             "data-image-action-product": item.id,
@@ -11151,6 +11154,8 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
           attributes: {
             loading: "eager",
             fetchpriority: "high",
+            "data-marketplace-scroll-image": "true",
+            "data-preserve-image-ratio": "true",
             "data-zoom-src": safeMainImage,
             "data-zoom-alt": safeProductName,
             "data-image-action-product": product.id,
@@ -11173,6 +11178,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
               attributes: {
                 loading: index < 4 ? "eager" : "lazy",
                 fetchpriority: index < 4 ? "high" : "auto",
+                "data-marketplace-scroll-image": "true",
                 "data-detail-image": image,
                 "data-detail-image-index": String(index),
                 "data-disable-image-zoom": "true",
