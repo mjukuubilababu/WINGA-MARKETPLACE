@@ -11081,6 +11081,12 @@ function syncAuthMode() {
     : isRecoveryMode
       ? "Username, full name, or phone number"
       : "Jina la duka";
+  usernameInput.autocomplete = isLogin || isRecoveryMode ? "username" : "organization";
+  phoneNumberInput.autocomplete = isSecuritySignup || isRecoveryMode ? "tel" : "off";
+  nationalIdInput.autocomplete = "off";
+  passwordInput.autocomplete = isSecuritySignup || isRecoveryMode ? "new-password" : "current-password";
+  confirmPasswordInput.autocomplete = isSecuritySignup || isRecoveryMode ? "new-password" : "off";
+  sellerIdentityDocumentNumberInput?.setAttribute("autocomplete", "off");
   setNodeText(formTitle, isRecoveryMode ? "Recover Password" : (isLogin ? "Login" : "Sign Up"));
   setNodeText(authButton, isRecoveryMode ? "Reset Password" : (isLogin ? "Login" : "Sign Up"));
   setNodeText(toggleLink, isRecoveryMode ? "Rudi kwenye login" : (isLogin ? "Tengeneza akaunti" : "Tayari una akaunti? Ingia"));
