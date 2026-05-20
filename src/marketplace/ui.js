@@ -105,8 +105,9 @@
 
     function createProductGalleryElement(product, options = {}) {
       const startupPriority = options.startupPriority === true;
+      const surface = String(options.surface || "feed").trim().toLowerCase() || "feed";
       if (deps.renderFeedGalleryMarkup) {
-        return createElementFromMarkup(deps.renderFeedGalleryMarkup(product, "feed", {
+        return createElementFromMarkup(deps.renderFeedGalleryMarkup(product, surface, {
           priorityCount: startupPriority ? 3 : 1,
           preload: startupPriority,
           directVisibility: options.directVisibility === true
@@ -560,7 +561,8 @@
       const media = createElement("div", { className: "product-card-media" });
       media.appendChild(createProductGalleryElement(product, {
         startupPriority,
-        directVisibility: options.directVisibility === true
+        directVisibility: options.directVisibility === true,
+        surface: options.gallerySurface || "feed"
       }));
       if (Array.isArray(product.images) && product.images.length > 1) {
         media.appendChild(createElement("span", {
@@ -602,7 +604,8 @@
       });
       safeItems.forEach((item, index) => stack.appendChild(createProductCardElement(item, {
         startupPriority: options.startupPriority === true && index < STARTUP_PRIORITY_CARD_COUNT,
-        directVisibility: options.directVisibility === true
+        directVisibility: options.directVisibility === true,
+        gallerySurface: options.gallerySurface || "feed"
       })));
       return stack;
     }

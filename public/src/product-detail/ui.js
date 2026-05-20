@@ -183,7 +183,9 @@
       const media = deps.createElement("div", {
         className: "product-card-media"
       });
-      const galleryMarkup = deps.renderFeedGalleryMarkup?.(item, "feed");
+      const galleryMarkup = deps.renderFeedGalleryMarkup?.(item, "detail-continuation", {
+        directVisibility: true
+      });
       if (galleryMarkup) {
         media.appendChild(deps.createFragmentFromMarkup(galleryMarkup));
       } else {
@@ -244,7 +246,8 @@
             attributes: {
               "data-product-detail-feed-stack": "true"
             },
-            directVisibility: true
+            directVisibility: true,
+            gallerySurface: "detail-continuation"
           })
         : (() => {
             const fallbackStack = deps.createElement("div", {
@@ -313,7 +316,7 @@
         }
       });
       if (useFeedCarousel) {
-        media.appendChild(deps.createFragmentFromMarkup(deps.renderFeedGalleryMarkup(product, "feed", {
+        media.appendChild(deps.createFragmentFromMarkup(deps.renderFeedGalleryMarkup(product, "detail", {
           priorityCount: Math.min(4, detailImages.length),
           preload: true,
           fitMode,

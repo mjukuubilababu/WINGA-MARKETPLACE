@@ -14125,8 +14125,14 @@ function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
   const total = images.length;
   const currentLabel = total > 1 ? `1/${total}` : "";
   const priorityLimit = Math.max(1, Number(options?.priorityCount || 1));
-  const isFeedSurface = String(surface || "").trim().toLowerCase() === "feed";
-  const fitMode = isFeedSurface ? "contain" : getProductFitMode(product);
+  const normalizedSurface = String(surface || "").trim().toLowerCase() || "feed";
+  const isFeedSurface = normalizedSurface === "feed";
+  const isDetailSurface = normalizedSurface === "detail";
+  const isDetailContinuationSurface = normalizedSurface === "detail-continuation";
+  const useCarouselSurface = isFeedSurface || isDetailSurface || isDetailContinuationSurface;
+  const fitMode = isFeedSurface
+    ? "contain"
+    : normalizeProductFitMode(options?.fitMode || getProductFitMode(product));
   const stableFrameRatio = "";
   if (options?.preload && typeof preloadImageSource === "function") {
     images.slice(0, Math.min(images.length, priorityLimit)).forEach((src, index) => {
@@ -14137,11 +14143,11 @@ function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
       });
     });
   }
-  if (surface && surface !== "feed") {
+  if (!useCarouselSurface) {
     const previewSrc = sanitizeImageSource(String(images[0] || "").trim(), getImageFallbackDataUri("WINGA"));
-      return `
+    return `
       <div class="product-gallery media-gallery feed-gallery-preview showcase-media-preview feed-gallery-preview-single fit-mode-${escapeHtml(fitMode)}"
-        data-feed-gallery-surface="${escapeHtml(surface || "discovery")}"
+        data-feed-gallery-surface="${escapeHtml(normalizedSurface || "discovery")}"
         data-fit-mode="${escapeHtml(fitMode)}">
         ${createProgressiveImage({
           src: previewSrc,
@@ -14200,7 +14206,7 @@ function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
       data-feed-gallery-carousel="true"
       data-feed-gallery-total="${total}"
       data-feed-gallery-current="1"
-      data-feed-gallery-surface="${escapeHtml(surface || "feed")}"
+      data-feed-gallery-surface="${escapeHtml(normalizedSurface || "feed")}"
       ${stableFrameRatio ? `data-feed-gallery-stable-ratio="${escapeHtml(stableFrameRatio)}"` : ""}
       data-feed-gallery-stable-fit-mode="${escapeHtml(fitMode)}"
       data-fit-mode="${escapeHtml(fitMode)}">
