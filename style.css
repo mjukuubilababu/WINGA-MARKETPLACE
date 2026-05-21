@@ -1508,6 +1508,19 @@ img[data-zoom-src]{
   border-style:dashed;
 }
 
+@media (max-width: 780px){
+  .showcase-inline[data-mobile-section-pending="true"]{
+    min-height:0 !important;
+    max-height:0 !important;
+    margin:0 !important;
+    padding:0 !important;
+    border:none !important;
+    opacity:0;
+    overflow:hidden !important;
+    pointer-events:none;
+  }
+}
+
 .showcase-track::-webkit-scrollbar{
   height:8px;
 }

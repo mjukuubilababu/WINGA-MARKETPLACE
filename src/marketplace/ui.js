@@ -515,6 +515,59 @@
       return media;
     }
 
+    function isMobileShowcaseQueueViewport() {
+      return Boolean(window.matchMedia?.("(max-width: 780px)")?.matches);
+    }
+
+    function hasHealthyShowcaseMedia(scope) {
+      if (!(scope instanceof Element) && scope !== document) {
+        return false;
+      }
+      const images = Array.from(scope.querySelectorAll?.(".showcase-card .feed-gallery-image-social, .showcase-card .showcase-preview-image, .showcase-card img") || []);
+      return images.some((image) =>
+        Boolean(
+          image
+          && String(image.currentSrc || image.src || "").trim()
+          && (Number(image.naturalWidth || 0) > 0 || Number(image.clientWidth || 0) > 32)
+        )
+      );
+    }
+
+    function clearMobileShowcaseSectionPending(section) {
+      if (!(section instanceof Element)) {
+        return;
+      }
+      section.classList.remove("showcase-inline-pending");
+      section.removeAttribute("data-mobile-section-pending");
+      delete section.dataset.mobileSectionRevealScheduled;
+    }
+
+    function scheduleMobileShowcaseSectionReveal(section, options = {}) {
+      if (!isMobileShowcaseQueueViewport() || !(section instanceof Element)) {
+        clearMobileShowcaseSectionPending(section);
+        return;
+      }
+      if (section.dataset.mobileSectionRevealScheduled === "true") {
+        return;
+      }
+      section.dataset.mobileSectionRevealScheduled = "true";
+      const maxWaitMs = Math.max(0, Number(options.maxWaitMs || 1200));
+      const pollMs = Math.max(60, Number(options.pollMs || 120));
+      const startedAt = Date.now();
+      const attemptReveal = () => {
+        if (!section.isConnected) {
+          delete section.dataset.mobileSectionRevealScheduled;
+          return;
+        }
+        if (hasHealthyShowcaseMedia(section) || Date.now() - startedAt >= maxWaitMs) {
+          clearMobileShowcaseSectionPending(section);
+          return;
+        }
+        window.setTimeout(attemptReveal, pollMs);
+      };
+      attemptReveal();
+    }
+
     function repairShowcaseMediaVisibility(scope = document) {
       const isMobileViewport = window.matchMedia?.("(max-width: 780px)")?.matches;
       if (!isMobileViewport) {
@@ -555,12 +608,12 @@
             }
           }));
           media.dataset.showcaseMediaRepaired = "true";
-        }, 900);
+        }, isMobileShowcaseQueueViewport() ? 120 : 900);
       });
     }
 
     function stabilizeMobileShowcaseRows(scope = document) {
-      const isMobileViewport = window.matchMedia?.("(max-width: 780px)")?.matches;
+      const isMobileViewport = isMobileShowcaseQueueViewport();
       if (!isMobileViewport) {
         return;
       }
@@ -587,6 +640,7 @@
             );
           }).length;
           if (healthyCardCount > 0) {
+            clearMobileShowcaseSectionPending(row);
             return;
           }
           row.dataset.showcaseRowMediaPending = "true";
@@ -623,7 +677,11 @@
             cardCount: cards.length,
             source: row.getAttribute("data-recommendation-type") || row.getAttribute("data-continuous-discovery-kind") || "showcase_inline"
           });
-        }, 1400);
+          scheduleMobileShowcaseSectionReveal(row, {
+            maxWaitMs: 1400,
+            pollMs: 120
+          });
+        }, 180);
       });
     }
 
@@ -881,6 +939,10 @@
         className: "showcase-inline panel recommendation-strip intelligent-feed-section",
         attributes: { "data-recommendation-type": type }
       });
+      if (isMobileShowcaseQueueViewport()) {
+        section.classList.add("showcase-inline-pending");
+        section.setAttribute("data-mobile-section-pending", "true");
+      }
       const sectionHeading = deps.createSectionHeading({
         eyebrow: eyebrow || "For you",
         title: title || "Products picked for you",
@@ -901,6 +963,10 @@
         className: "showcase-inline panel",
         attributes: { "data-inline-showcase-section": index }
       });
+      if (isMobileShowcaseQueueViewport()) {
+        section.classList.add("showcase-inline-pending");
+        section.setAttribute("data-mobile-section-pending", "true");
+      }
       const sectionHeading = deps.createSectionHeading({
         eyebrow: heading,
         title,
@@ -945,6 +1011,10 @@
         className: "showcase-inline panel recommendation-strip",
         attributes: { "data-recommendation-type": type }
       });
+      if (isMobileShowcaseQueueViewport()) {
+        section.classList.add("showcase-inline-pending");
+        section.setAttribute("data-mobile-section-pending", "true");
+      }
       const sectionHeading = deps.createSectionHeading({
         eyebrow: title,
         title: subtitle,
