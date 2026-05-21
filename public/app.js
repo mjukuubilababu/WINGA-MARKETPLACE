@@ -41,6 +41,10 @@ const HOME_FRESH_PROTECTION_WINDOW_MS = 20 * 60 * 1000;
 const HOME_FRESH_TOP_SLOTS = 2;
 const HOME_PROMOTION_TOP_WINDOW = 6;
 const HOME_PROMOTION_TOP_CAP = 1;
+const HOME_VARIANT_RESURFACE_MAX_PER_PRODUCT = 2;
+const HOME_VARIANT_RESURFACE_MIN_BATCH_INDEX = 2;
+const HOME_VARIANT_RESURFACE_MIN_RECENT_IDS = 12;
+const HOME_VARIANT_RESURFACE_BATCH_GAP = 2;
 const FEED_BOOT_IMAGE_WARM_COUNT = 24;
 const FEED_BOOT_IMAGE_DECODE_COUNT = 8;
 const FEED_PREDICTIVE_PRELOAD_COUNT = 6;
@@ -9123,7 +9127,7 @@ const {
   bindShowcaseCardClicks,
   setupDynamicShowcaseLoading,
   reportShowcaseInstrumentation,
-  canUseContinuousDiscovery: () => Boolean(currentUser),
+  canUseContinuousDiscovery: () => true,
   createContinuousDiscoveryAnchorElement,
   setupContinuousDiscoveryLoading,
   setDeferredRecommendationDescriptors: (descriptors = []) => {
@@ -10234,6 +10238,8 @@ let homeContinuousDiscoveryRuntime = {
   batchIndex: 0,
   recentIds: [],
   usedIds: new Set(),
+  variantSurfaceCounts: {},
+  variantLastBatchIndex: {},
   loading: false,
   seedProductId: "",
   lastHydrateAt: 0
@@ -14281,12 +14287,111 @@ function getStaleViewedProducts(options = {}) {
   return limitProductsPerSeller(candidates, limit, 2);
 }
 
+function reorderProductImagesForVariant(product, variantIndex = 1) {
+  const images = getRenderableMarketplaceImages(product);
+  if (images.length < 2) {
+    return images;
+  }
+  const uniqueImages = Array.from(new Set(images.filter(Boolean)));
+  if (uniqueImages.length < 2) {
+    return uniqueImages;
+  }
+  const normalizedIndex = Math.max(1, Math.min(uniqueImages.length - 1, Number(variantIndex || 1)));
+  const leadImage = uniqueImages[normalizedIndex];
+  return [leadImage, ...uniqueImages.filter((image) => image !== leadImage)];
+}
+
+function getVariantResurfacedProducts(options = {}) {
+  const {
+    limit = 6,
+    recentIds = [],
+    usedIds = new Set(),
+    variantCounts = {},
+    variantLastBatchIndex = {},
+    batchIndex = 0,
+    sourceProducts = null
+  } = options;
+  const recentIdSet = new Set(Array.from(recentIds || []).filter(Boolean));
+  const usedIdSet = new Set(Array.from(usedIds || []).filter(Boolean));
+  const counts = variantCounts && typeof variantCounts === "object" ? variantCounts : {};
+  const lastBatchMap = variantLastBatchIndex && typeof variantLastBatchIndex === "object" ? variantLastBatchIndex : {};
+  if (batchIndex < HOME_VARIANT_RESURFACE_MIN_BATCH_INDEX || recentIdSet.size < HOME_VARIANT_RESURFACE_MIN_RECENT_IDS) {
+    return [];
+  }
+  const baseProducts = (Array.isArray(sourceProducts) ? sourceProducts : products)
+    .filter((product) => {
+      if (
+        product.status !== "approved"
+        || product.availability === "sold_out"
+        || !shouldRenderMarketplaceProduct(product)
+        || !usedIdSet.has(product.id)
+        || recentIdSet.has(product.id)
+      ) {
+        return false;
+      }
+      const images = Array.from(new Set(getRenderableMarketplaceImages(product).filter(Boolean)));
+      if (images.length < 2) {
+        return false;
+      }
+      const surfacedCount = Number(counts[product.id] || 0);
+      const lastBatchIndex = Number(lastBatchMap[product.id] || -HOME_VARIANT_RESURFACE_BATCH_GAP);
+      return (
+        surfacedCount < Math.min(HOME_VARIANT_RESURFACE_MAX_PER_PRODUCT, images.length - 1)
+        && (batchIndex - lastBatchIndex) >= HOME_VARIANT_RESURFACE_BATCH_GAP
+      );
+    })
+    .sort((first, second) => {
+      const promotionDelta = Number(getPromotionCommercialScore?.(second) || 0) - Number(getPromotionCommercialScore?.(first) || 0);
+      if (promotionDelta !== 0) {
+        return promotionDelta;
+      }
+      const engagementDelta = getHomeFeedEngagementScore(second) - getHomeFeedEngagementScore(first);
+      if (engagementDelta !== 0) {
+        return engagementDelta;
+      }
+      return compareProductsNewestFirst(first, second);
+    });
+
+  const items = [];
+  const sellerCounts = new Map();
+  baseProducts.forEach((product) => {
+    if (items.length >= limit) {
+      return;
+    }
+    const sellerId = String(product.uploadedBy || "");
+    const currentSellerCount = sellerCounts.get(sellerId) || 0;
+    if (sellerId && currentSellerCount >= 1) {
+      return;
+    }
+    const existingVariantCount = Number(counts[product.id] || 0);
+    const rotatedImages = reorderProductImagesForVariant(product, existingVariantCount + 1);
+    if (rotatedImages.length < 2 || rotatedImages[0] === getMarketplacePrimaryImage(product)) {
+      return;
+    }
+    items.push({
+      ...product,
+      image: rotatedImages[0],
+      images: rotatedImages,
+      feedVariantResurface: true,
+      feedVariantIndex: existingVariantCount + 1,
+      feedVariantSourceId: product.id
+    });
+    if (sellerId) {
+      sellerCounts.set(sellerId, currentSellerCount + 1);
+    }
+  });
+
+  return items;
+}
+
 function getContinuousDiscoveryDescriptor(options = {}) {
   const {
     seedProduct = null,
     usedIds = new Set(),
     recentIds = [],
-    batchIndex = 0
+    batchIndex = 0,
+    variantCounts = {},
+    variantLastBatchIndex = {}
   } = options;
   const preferredSeed = seedProduct || getRecommendationSeed(getFilteredProducts());
   const hardExcludeIds = new Set(Array.from(usedIds || []).filter(Boolean));
@@ -14390,6 +14495,25 @@ function getContinuousDiscoveryDescriptor(options = {}) {
     };
   }
 
+  const variantItems = getVariantResurfacedProducts({
+    limit: 6,
+    recentIds,
+    usedIds,
+    variantCounts,
+    variantLastBatchIndex,
+    batchIndex,
+    sourceProducts: renderableProducts
+  });
+  if (variantItems.length >= minimumBatchSize || (variantItems.length > 0 && batchIndex >= 1)) {
+    return {
+      kind: "variants",
+      eyebrow: "More Colors",
+      title: "Different colors from listings you've already seen",
+      subtitle: "Winga keeps the feed moving by resurfacing other colorways from the same listing later on.",
+      items: variantItems
+    };
+  }
+
   const fallbackItems = getTrendingProducts(
     8,
     new Set(Array.from(recentIds || []).filter(Boolean)),
@@ -14420,6 +14544,8 @@ function disconnectContinuousDiscoveryObserver() {
     batchIndex: 0,
     recentIds: [],
     usedIds: new Set(),
+    variantSurfaceCounts: {},
+    variantLastBatchIndex: {},
     loading: false,
     seedProductId: "",
     reobserveTimer: 0,
@@ -14480,7 +14606,9 @@ function hydrateContinuousDiscoveryAnchor(anchor) {
       seedProduct,
       usedIds: homeContinuousDiscoveryRuntime.usedIds,
       recentIds: homeContinuousDiscoveryRuntime.recentIds,
-      batchIndex: homeContinuousDiscoveryRuntime.batchIndex
+      batchIndex: homeContinuousDiscoveryRuntime.batchIndex,
+      variantCounts: homeContinuousDiscoveryRuntime.variantSurfaceCounts,
+      variantLastBatchIndex: homeContinuousDiscoveryRuntime.variantLastBatchIndex
     });
   const shouldPreferPendingDescriptor = homeContinuousDiscoveryRuntime.batchIndex > 0
     && homeContinuousDiscoveryRuntime.lastDescriptorSource !== "deferred_recommendation";
@@ -14528,6 +14656,17 @@ function hydrateContinuousDiscoveryAnchor(anchor) {
   bindProductMenus(section);
   trimHomeContinuousDiscoverySections(anchor);
   const appendedIds = descriptor.items.map((item) => item.id);
+  descriptor.items.forEach((item) => {
+    if (!item?.feedVariantResurface) {
+      return;
+    }
+    const sourceId = String(item.feedVariantSourceId || item.id || "").trim();
+    if (!sourceId) {
+      return;
+    }
+    homeContinuousDiscoveryRuntime.variantSurfaceCounts[sourceId] = Number(homeContinuousDiscoveryRuntime.variantSurfaceCounts[sourceId] || 0) + 1;
+    homeContinuousDiscoveryRuntime.variantLastBatchIndex[sourceId] = homeContinuousDiscoveryRuntime.batchIndex + 1;
+  });
   appendedIds.forEach((productId) => homeContinuousDiscoveryRuntime.usedIds.add(productId));
   pruneOrderedIdSet(homeContinuousDiscoveryRuntime.usedIds, MAX_HOME_CONTINUOUS_USED_IDS);
   homeContinuousDiscoveryRuntime.recentIds = rememberContinuousDiscoveryIds(
@@ -14545,13 +14684,15 @@ function setupContinuousDiscoveryLoading(scope, options = {}) {
   disconnectContinuousDiscoveryObserver();
 
   const anchor = scope?.querySelector?.("[data-continuous-discovery-anchor='home']");
-  if (!anchor || currentView !== "home" || !currentUser) {
+  if (!anchor || currentView !== "home") {
     return;
   }
 
   const usedIds = new Set(Array.from(options.usedProductIds || []).filter(Boolean));
   homeContinuousDiscoveryRuntime.usedIds = usedIds;
   homeContinuousDiscoveryRuntime.recentIds = [];
+  homeContinuousDiscoveryRuntime.variantSurfaceCounts = {};
+  homeContinuousDiscoveryRuntime.variantLastBatchIndex = {};
   homeContinuousDiscoveryRuntime.seedProductId = options.seedProduct?.id || "";
   homeContinuousDiscoveryRuntime.lastDescriptorSource = "";
   homeContinuousDiscoveryRuntime.lastHydrateAt = 0;
