@@ -2380,10 +2380,23 @@ function scheduleStartupImageWork(productsList = [], options = {}) {
   ));
   const imageLimitPerProduct = Math.max(1, Number(options.imageLimitPerProduct || 1) || 1);
   const reason = String(options.reason || "startup_refresh");
-  const delayMs = Math.max(0, Number(options.delayMs ?? (document.body.classList.contains("app-booting") ? 220 : 80)) || 0);
+  const delayMs = Math.max(0, Number(options.delayMs ?? (document.body.classList.contains("app-booting") ? 1200 : 240)) || 0);
   feedRuntimeState.startupImageWarmTimer = window.setTimeout(() => {
     feedRuntimeState.startupImageWarmTimer = 0;
     if (cycleToken !== Number(feedRuntimeState.imageWarmCycle || 0)) {
+      return;
+    }
+    const shouldWaitForVisibleHomeFeed = currentView === "home"
+      && (
+        document.body.classList.contains("app-booting")
+        || !bootOverlay?.classList.contains("is-hidden")
+        || !hasVisibleStartupSurface({ includeFeedLoading: false })
+      );
+    if (document.hidden || shouldWaitForVisibleHomeFeed) {
+      scheduleStartupImageWork(productsList, {
+        ...options,
+        delayMs: Math.max(900, delayMs)
+      });
       return;
     }
     const scopedProducts = productsList.slice(0, productLimit);
@@ -2421,7 +2434,7 @@ function scheduleDeferredImageSignatureHydration(productList = products, options
     Number(options.productLimit || 24) || 24,
     productList.length
   ));
-  const delayMs = Math.max(0, Number(options.delayMs ?? (document.body.classList.contains("app-booting") ? 1800 : 900)) || 0);
+  const delayMs = Math.max(0, Number(options.delayMs ?? (document.body.classList.contains("app-booting") ? 3200 : 1800)) || 0);
   const scheduleAttempt = (nextDelayMs = delayMs) => {
     feedRuntimeState.imageSignatureHydrationTimer = window.setTimeout(() => {
       feedRuntimeState.imageSignatureHydrationTimer = 0;
@@ -2429,8 +2442,12 @@ function scheduleDeferredImageSignatureHydration(productList = products, options
         return;
       }
       const shouldWaitForVisibleHomeFeed = currentView === "home"
-        && document.body.classList.contains("app-booting")
-        && !hasVisibleStartupSurface({ includeFeedLoading: false });
+        && (
+          document.body.classList.contains("app-booting")
+          || !document.body.classList.contains("app-ready")
+          || !bootOverlay?.classList.contains("is-hidden")
+          || !hasVisibleStartupSurface({ includeFeedLoading: false })
+        );
       if (document.hidden || shouldWaitForVisibleHomeFeed) {
         scheduleAttempt(Math.max(700, Math.min(1800, nextDelayMs)));
         return;
@@ -13072,19 +13089,19 @@ window.addEventListener("winga:products-hydrated", (event) => {
   }
   scheduleStartupImageWork(window.WingaDataLayer?.getProducts?.() || [], {
     reason: "products_hydrated",
-    productLimit: 8,
+    productLimit: 6,
     imageLimitPerProduct: 1,
-    decodeLimit: 3,
-    delayMs: 140
+    decodeLimit: 2,
+    delayMs: 1600
   });
   scheduleDeferredImageSignatureHydration(window.WingaDataLayer?.getProducts?.() || [], {
     reason: "products_hydrated",
     productLimit: 24,
-    delayMs: 1400
+    delayMs: 3200
   });
   const canRenderWhileWaitingForDeepLink = !suppressInitialProductHomeRender || document.body.classList.contains("product-detail-open");
   if (canRenderWhileWaitingForDeepLink && currentView !== "profile") {
-    renderCurrentView();
+    renderCurrentView({ reason: "products_hydrated", force: true });
     reportBootPhase("feed_rendered", {
       reason: "products_hydrated",
       productsCount: Array.isArray(products) ? products.length : 0
@@ -16863,7 +16880,7 @@ async function bootApp() {
   mergeAvailableCategories(inferCategoriesFromData());
   refreshCategoryUI();
   if (!suppressInitialProductHomeRender) {
-    renderCurrentView();
+    renderCurrentView({ reason: "boot_initial_render", force: true });
     reportBootPhase("feed_rendered", {
       reason: "boot_initial_render",
       productsCount: Array.isArray(products) ? products.length : 0
@@ -16875,16 +16892,16 @@ async function bootApp() {
     }
     scheduleStartupImageWork(products, {
       reason: "boot_refresh",
-      productLimit: 8,
+      productLimit: 6,
       imageLimitPerProduct: 1,
-      decodeLimit: 3,
-      delayMs: 180
+      decodeLimit: 2,
+      delayMs: 1800
     });
   });
   scheduleDeferredImageSignatureHydration(products, {
     reason: "boot_refresh",
     productLimit: 24,
-    delayMs: 1800
+    delayMs: 3600
   });
 
       window.setTimeout(() => {

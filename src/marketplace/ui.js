@@ -25,9 +25,9 @@
     const PASSIVE_VIEW_TRACK_BATCH_SIZE = 1;
     const PASSIVE_VIEW_TRACK_IDLE_DELAY_MS = 700;
     const FEED_GALLERY_IMAGE_LIMIT = 3;
-    const STARTUP_PRIORITY_CARD_COUNT = 8;
-    const INITIAL_SYNC_FEED_BATCH_SIZE = 12;
-    const BOOTSTRAP_SYNC_FEED_TARGET_COUNT = 20;
+    const STARTUP_PRIORITY_CARD_COUNT = 12;
+    const INITIAL_SYNC_FEED_BATCH_SIZE = 14;
+    const BOOTSTRAP_SYNC_FEED_TARGET_COUNT = 28;
     const DESKTOP_PACKING_IMAGE_TIMEOUT_MS = 1600;
     const desktopPackingDimensionCache = new Map();
     const desktopPackingProbeInflight = new Map();
