@@ -2941,9 +2941,9 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
     const PASSIVE_VIEW_TRACK_BATCH_SIZE = 1;
     const PASSIVE_VIEW_TRACK_IDLE_DELAY_MS = 700;
     const FEED_GALLERY_IMAGE_LIMIT = 3;
-    const STARTUP_PRIORITY_CARD_COUNT = 12;
-    const INITIAL_SYNC_FEED_BATCH_SIZE = 14;
-    const BOOTSTRAP_SYNC_FEED_TARGET_COUNT = 28;
+    const STARTUP_PRIORITY_CARD_COUNT = 4;
+    const INITIAL_SYNC_FEED_BATCH_SIZE = 10;
+    const BOOTSTRAP_SYNC_FEED_TARGET_COUNT = 16;
     const DESKTOP_PACKING_IMAGE_TIMEOUT_MS = 1600;
     const desktopPackingDimensionCache = new Map();
     const desktopPackingProbeInflight = new Map();
@@ -4006,6 +4006,9 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       const intelligentFeedEnabled = currentView === "home";
       const shouldInjectInlineShowcases = intelligentFeedEnabled;
       const isMobileViewport = layoutMode === "mobile" || layoutMode === "standalone-mobile" || layoutMode === "mobile-desktop-site";
+      const startupPriorityCardCount = isMobileViewport ? 2 : STARTUP_PRIORITY_CARD_COUNT;
+      const initialSyncBatchSize = isMobileViewport ? 8 : INITIAL_SYNC_FEED_BATCH_SIZE;
+      const bootstrapSyncFeedTargetCount = isMobileViewport ? 10 : BOOTSTRAP_SYNC_FEED_TARGET_COUNT;
       const productsPerRow = shouldInjectInlineShowcases ? (deps.getFeedLayoutColumns?.() || deps.getProductsPerRow()) : 0;
       const showcaseSpacing = isMobileViewport ? 8 : 10;
       const showcaseRepeatInterval = isMobileViewport ? 8 : 10;
@@ -4152,8 +4155,8 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         const fragment = document.createDocumentFragment();
         const batchSize = startIndex === 0 && currentView === "home"
           ? (isBootingHomeFeed
-            ? Math.max(INITIAL_SYNC_FEED_BATCH_SIZE, Math.min(safeList.length, BOOTSTRAP_SYNC_FEED_TARGET_COUNT))
-            : INITIAL_SYNC_FEED_BATCH_SIZE)
+            ? Math.max(initialSyncBatchSize, Math.min(safeList.length, bootstrapSyncFeedTargetCount))
+            : initialSyncBatchSize)
           : FEED_RENDER_BATCH_SIZE;
         const endIndex = Math.min(safeList.length, startIndex + batchSize);
         for (let index = startIndex; index < endIndex; index += 1) {
@@ -4162,13 +4165,13 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
             viewedProductIds.push(product.id);
           }
           fragment.appendChild(createProductCardElement(product, {
-            startupPriority: currentView === "home" && index < STARTUP_PRIORITY_CARD_COUNT
+            startupPriority: currentView === "home" && index < startupPriorityCardCount
           }));
           appendShowcaseIfNeeded(fragment, index + 1);
         }
         productsContainer.appendChild(fragment);
         if (startIndex === 0 && currentView === "home") {
-          deps.prioritizeVisibleFeedMedia?.(productsContainer, Math.min(STARTUP_PRIORITY_CARD_COUNT, endIndex));
+          deps.prioritizeVisibleFeedMedia?.(productsContainer, Math.min(startupPriorityCardCount, endIndex));
         }
         deps.afterFeedBatchRender?.({
           container: productsContainer,
@@ -12499,3 +12502,4 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
 
   window.WingaModules.productDetail.createProductDetailControllerModule = createProductDetailControllerModule;
 })();
+

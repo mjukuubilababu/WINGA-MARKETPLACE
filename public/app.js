@@ -5761,6 +5761,35 @@ function hideBootOverlayImmediately() {
   bootOverlay.style.display = "none";
 }
 
+function hasVisibleStartupFeedMedia(options = {}) {
+  const minCount = Math.max(1, Number(options.minCount || 1));
+  const images = Array.from(
+    productsContainer?.querySelectorAll?.(".product-card img[data-marketplace-scroll-image='true'], .seller-product-card img[data-marketplace-scroll-image='true']") || []
+  );
+  if (!images.length) {
+    return false;
+  }
+  let visibleCount = 0;
+  for (const image of images) {
+    if (!(image instanceof HTMLImageElement)) {
+      continue;
+    }
+    const shell = image.closest(".progressive-image-shell");
+    const src = image.currentSrc || image.getAttribute("src") || "";
+    const isLoaded = shell?.classList.contains("is-loaded")
+      || (Number(image.naturalWidth || 0) > 0 && Number(image.naturalHeight || 0) > 0)
+      || (src && !src.startsWith("data:image/gif"));
+    if (!isLoaded) {
+      continue;
+    }
+    visibleCount += 1;
+    if (visibleCount >= minCount) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function revealBootOverlay() {
   if (!bootOverlay) {
     return;
@@ -5774,8 +5803,13 @@ function completeBootOverlay() {
   if (!bootOverlay) {
     return;
   }
+  const requiresMediaReady = currentView === "home"
+    && Boolean(productsContainer?.querySelector(".product-card, .seller-product-card"));
   const shouldDelayHide = currentView === "home"
-    && !hasVisibleStartupSurface({ includeFeedLoading: false })
+    && (
+      !hasVisibleStartupSurface({ includeFeedLoading: false })
+      || (requiresMediaReady && !hasVisibleStartupFeedMedia({ minCount: 1 }))
+    )
     && productHydrationStatus !== "failed";
   if (shouldDelayHide) {
     return;
@@ -5867,8 +5901,11 @@ function showInstantBootFeedSnapshot(reason = "boot_snapshot") {
     || productsContainer?.querySelector("[data-feed-skeleton-card='true']")
     || emptyState?.style.display === "block"
   );
+  const hasVisibleFeedMedia = currentView !== "home"
+    || !productsContainer?.querySelector(".product-card, .seller-product-card")
+    || hasVisibleStartupFeedMedia({ minCount: 1 });
 
-  if (hasVisibleFeedShell) {
+  if (hasVisibleFeedShell && hasVisibleFeedMedia) {
     document.body.classList.remove("app-booting");
     document.body.classList.add("app-ready");
     hideBootOverlayImmediately();
@@ -5880,7 +5917,7 @@ function showInstantBootFeedSnapshot(reason = "boot_snapshot") {
     });
   }
 
-  return hasVisibleFeedShell;
+  return hasVisibleFeedShell && hasVisibleFeedMedia;
 }
 
 function startBackgroundSessionRestore(restorePromise, cachedSession = null, options = {}) {
@@ -15609,9 +15646,13 @@ function renderCurrentView(options = {}) {
     }
     if (document.body.classList.contains("app-booting") || !bootOverlay?.classList.contains("is-hidden")) {
       window.requestAnimationFrame(() => {
+        const hasVisibleBootContent = hasVisibleStartupSurface({ includeFeedLoading: false });
+        const hasFeedCards = Boolean(productsContainer?.querySelector(".product-card, .seller-product-card"));
+        const hasBootMedia = !hasFeedCards || hasVisibleStartupFeedMedia({ minCount: 1 });
         if (
           (document.body.classList.contains("app-booting") || !bootOverlay?.classList.contains("is-hidden"))
-          && hasVisibleStartupSurface({ includeFeedLoading: false })
+          && hasVisibleBootContent
+          && hasBootMedia
         ) {
           completeBootOverlay();
         }
