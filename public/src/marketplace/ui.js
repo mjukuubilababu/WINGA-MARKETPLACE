@@ -229,8 +229,9 @@
         return safeList;
       }
       const isMobileViewport = options.isMobileViewport === true;
+      const layoutMode = String(options.layoutMode || "").trim().toLowerCase();
       const productsPerRow = Math.max(2, Number(options.productsPerRow || 0) || 0);
-      if (isMobileViewport || productsPerRow < 2) {
+      if (isMobileViewport || productsPerRow < 2 || layoutMode !== "desktop") {
         return safeList;
       }
       const inspected = await Promise.all(
@@ -1083,12 +1084,13 @@
       }
       const currentView = deps.getCurrentView();
       const isBootingHomeFeed = currentView === "home" && document.body.classList.contains("app-booting");
+      const layoutMode = String(deps.getLayoutMode?.() || "").trim().toLowerCase() || "desktop";
       const shouldTrackViews = currentView !== "upload";
       const legacyShowcaseEnabled = false;
       const intelligentFeedEnabled = currentView === "home";
       const shouldInjectInlineShowcases = intelligentFeedEnabled;
-      const isMobileViewport = window.matchMedia?.("(max-width: 780px)")?.matches;
-      const productsPerRow = shouldInjectInlineShowcases ? deps.getProductsPerRow() : 0;
+      const isMobileViewport = layoutMode === "mobile" || layoutMode === "mobile-desktop-site";
+      const productsPerRow = shouldInjectInlineShowcases ? (deps.getFeedLayoutColumns?.() || deps.getProductsPerRow()) : 0;
       const showcaseSpacing = isMobileViewport ? 8 : 10;
       const showcaseRepeatInterval = isMobileViewport ? 8 : 10;
       const firstShowcaseAfter = shouldInjectInlineShowcases ? showcaseSpacing : Number.POSITIVE_INFINITY;
@@ -1285,7 +1287,8 @@
 
       buildPackedDesktopProductList(list, {
         isMobileViewport,
-        productsPerRow
+        productsPerRow,
+        layoutMode
       })
         .then((packedList) => {
           if (renderToken !== scheduledFeedRenderState.token) {

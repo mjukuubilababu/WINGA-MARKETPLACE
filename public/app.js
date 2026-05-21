@@ -8858,6 +8858,8 @@ const {
   getCurrentView: () => currentView,
   hasPrioritySearchResults,
   getProductsPerRow,
+  getLayoutMode: () => getClientLayoutMode(),
+  getFeedLayoutColumns: () => getFeedLayoutColumns(),
   trackView,
   formatNumber,
   formatProductPrice,
@@ -10039,6 +10041,85 @@ const showcaseRuntimeReportState = new Map();
 function isProductionClientRuntime() {
   const hostname = String(window.location?.hostname || "").trim().toLowerCase();
   return Boolean(hostname && hostname !== "localhost" && hostname !== "127.0.0.1" && hostname !== "::1");
+}
+
+function getViewportWidth() {
+  return Math.max(
+    0,
+    Number(window.innerWidth || 0),
+    Number(document.documentElement?.clientWidth || 0)
+  );
+}
+
+function getClientLayoutMode() {
+  const viewportWidth = getViewportWidth();
+  const screenWidth = Math.max(0, Number(window.screen?.width || 0));
+  const screenHeight = Math.max(0, Number(window.screen?.height || 0));
+  const smallestScreenEdge = Math.min(
+    screenWidth || Number.POSITIVE_INFINITY,
+    screenHeight || Number.POSITIVE_INFINITY
+  );
+  const coarsePointer = Boolean(window.matchMedia?.("(pointer: coarse)")?.matches);
+  const noHover = Boolean(window.matchMedia?.("(hover: none)")?.matches);
+  const touchPoints = Math.max(0, Number(window.navigator?.maxTouchPoints || 0));
+  const touchLikeDevice = coarsePointer || noHover || touchPoints > 0;
+  const compactScreen = Number.isFinite(smallestScreenEdge) && smallestScreenEdge > 0 && smallestScreenEdge <= 900;
+  if (touchLikeDevice && compactScreen && viewportWidth >= 900) {
+    return "mobile-desktop-site";
+  }
+  if (touchLikeDevice && (viewportWidth < 680 || compactScreen)) {
+    return "mobile";
+  }
+  if (touchLikeDevice && viewportWidth < 1024) {
+    return "tablet";
+  }
+  if (!touchLikeDevice && viewportWidth >= 1024) {
+    return "desktop";
+  }
+  if (viewportWidth < 680) {
+    return "mobile";
+  }
+  if (viewportWidth < 1024) {
+    return "tablet";
+  }
+  return touchLikeDevice ? "tablet" : "desktop";
+}
+
+function getFeedLayoutColumns(mode = getClientLayoutMode()) {
+  const viewportWidth = getViewportWidth();
+  if (mode === "desktop") {
+    return viewportWidth >= 1400 ? 4 : 3;
+  }
+  if (mode === "tablet") {
+    return viewportWidth >= 760 ? 2 : 1;
+  }
+  if (mode === "mobile-desktop-site") {
+    return viewportWidth >= 640 ? 2 : 1;
+  }
+  return viewportWidth >= 560 ? 2 : 1;
+}
+
+function applyFeedLayoutMode(container = productsContainer) {
+  if (!(container instanceof HTMLElement)) {
+    return { mode: "desktop", columns: 1 };
+  }
+  const mode = getClientLayoutMode();
+  const columns = getFeedLayoutColumns(mode);
+  container.dataset.layoutMode = mode;
+  container.dataset.layoutColumns = String(columns);
+  container.style.setProperty("--winga-feed-columns", String(columns));
+  document.body.dataset.layoutMode = mode;
+  if (uiRuntimeState.lastReportedLayoutMode !== mode) {
+    uiRuntimeState.lastReportedLayoutMode = mode;
+    reportClientEvent("info", "layout_mode_detected", "Responsive layout mode detected.", {
+      category: "runtime",
+      mode,
+      columns,
+      viewportWidth: Math.round(getViewportWidth()),
+      screenWidth: Math.round(Number(window.screen?.width || 0))
+    });
+  }
+  return { mode, columns };
 }
 
 function pruneTimestampRegistry(registry, maxEntries = 240, maxAgeMs = 10 * 60 * 1000) {
@@ -15440,6 +15521,7 @@ function renderCurrentView(options = {}) {
 
     const homeProducts = filteredProducts;
     const usesProgressiveHomeFeed = currentView === "home" && homeProducts.length > 10;
+    applyFeedLayoutMode(productsContainer);
 
     updateResultsMeta(homeProducts.length);
     renderMarketShowcase();
