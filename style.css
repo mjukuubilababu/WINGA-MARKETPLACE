@@ -689,6 +689,20 @@ body.auth-modal-open::before{
   width:100%;
 }
 
+body[data-layout-mode="standalone-mobile"] #app-container{
+  max-width:none;
+  margin:0;
+}
+
+body[data-layout-mode="standalone-mobile"] #market-showcase,
+body[data-layout-mode="standalone-mobile"] #products-container{
+  width:calc(100% + 32px);
+  max-width:none;
+  margin-left:-16px;
+  margin-right:-16px;
+  border-radius:0;
+}
+
 #top-bar,
 #hero-panel,
 #search-box,
