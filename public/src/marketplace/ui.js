@@ -1089,7 +1089,7 @@
       const legacyShowcaseEnabled = false;
       const intelligentFeedEnabled = currentView === "home";
       const shouldInjectInlineShowcases = intelligentFeedEnabled;
-      const isMobileViewport = layoutMode === "mobile" || layoutMode === "mobile-desktop-site";
+      const isMobileViewport = layoutMode === "mobile" || layoutMode === "standalone-mobile" || layoutMode === "mobile-desktop-site";
       const productsPerRow = shouldInjectInlineShowcases ? (deps.getFeedLayoutColumns?.() || deps.getProductsPerRow()) : 0;
       const showcaseSpacing = isMobileViewport ? 8 : 10;
       const showcaseRepeatInterval = isMobileViewport ? 8 : 10;

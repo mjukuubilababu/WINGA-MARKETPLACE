@@ -9854,8 +9854,10 @@ button:hover,
   opacity:1 !important;
 }
 
+#products-container[data-layout-mode="standalone-mobile"],
 #products-container[data-layout-mode="mobile"],
 #products-container[data-layout-mode="mobile-desktop-site"],
+#products-container[data-layout-mode="standalone-tablet"],
 #products-container[data-layout-mode="tablet"]{
   width:100%;
   max-width:100%;
@@ -9864,22 +9866,30 @@ button:hover,
   overflow-x:visible;
 }
 
+#products-container[data-layout-mode="standalone-mobile"] > .product-card,
 #products-container[data-layout-mode="mobile"] > .product-card,
 #products-container[data-layout-mode="mobile-desktop-site"] > .product-card,
+#products-container[data-layout-mode="standalone-tablet"] > .product-card,
 #products-container[data-layout-mode="tablet"] > .product-card,
+#products-container[data-layout-mode="standalone-mobile"] > .seller-product-card,
 #products-container[data-layout-mode="mobile"] > .seller-product-card,
 #products-container[data-layout-mode="mobile-desktop-site"] > .seller-product-card,
+#products-container[data-layout-mode="standalone-tablet"] > .seller-product-card,
 #products-container[data-layout-mode="tablet"] > .seller-product-card{
   width:100%;
   max-width:100%;
   min-width:0;
 }
 
+#products-container[data-layout-mode="standalone-mobile"] .product-card-media,
 #products-container[data-layout-mode="mobile"] .product-card-media,
 #products-container[data-layout-mode="mobile-desktop-site"] .product-card-media,
+#products-container[data-layout-mode="standalone-tablet"] .product-card-media,
 #products-container[data-layout-mode="tablet"] .product-card-media,
+#products-container[data-layout-mode="standalone-mobile"] .feed-gallery-preview,
 #products-container[data-layout-mode="mobile"] .feed-gallery-preview,
 #products-container[data-layout-mode="mobile-desktop-site"] .feed-gallery-preview,
+#products-container[data-layout-mode="standalone-tablet"] .feed-gallery-preview,
 #products-container[data-layout-mode="tablet"] .feed-gallery-preview{
   max-width:100%;
   min-width:0;

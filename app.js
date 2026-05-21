@@ -10061,9 +10061,20 @@ function getClientLayoutMode() {
   );
   const coarsePointer = Boolean(window.matchMedia?.("(pointer: coarse)")?.matches);
   const noHover = Boolean(window.matchMedia?.("(hover: none)")?.matches);
+  const standaloneDisplay = Boolean(window.matchMedia?.("(display-mode: standalone)")?.matches);
+  const navigatorStandalone = Boolean(window.navigator?.standalone);
+  const standaloneApp = standaloneDisplay || navigatorStandalone;
   const touchPoints = Math.max(0, Number(window.navigator?.maxTouchPoints || 0));
   const touchLikeDevice = coarsePointer || noHover || touchPoints > 0;
   const compactScreen = Number.isFinite(smallestScreenEdge) && smallestScreenEdge > 0 && smallestScreenEdge <= 900;
+  if (standaloneApp && touchLikeDevice) {
+    if (viewportWidth < 900 || compactScreen) {
+      return "standalone-mobile";
+    }
+    if (viewportWidth < 1280) {
+      return "standalone-tablet";
+    }
+  }
   if (touchLikeDevice && compactScreen && viewportWidth >= 900) {
     return "mobile-desktop-site";
   }
@@ -10090,8 +10101,11 @@ function getFeedLayoutColumns(mode = getClientLayoutMode()) {
   if (mode === "desktop") {
     return viewportWidth >= 1400 ? 4 : 3;
   }
-  if (mode === "tablet") {
+  if (mode === "standalone-tablet" || mode === "tablet") {
     return viewportWidth >= 760 ? 2 : 1;
+  }
+  if (mode === "standalone-mobile") {
+    return viewportWidth >= 560 ? 2 : 1;
   }
   if (mode === "mobile-desktop-site") {
     return viewportWidth >= 640 ? 2 : 1;
