@@ -35,7 +35,7 @@ const MEMORY_SAMPLING_INTERVAL_MS = 30000;
 const MEMORY_PRESSURE_CONSECUTIVE_LIMIT = 2;
 const MEMORY_CRITICAL_THRESHOLD_BYTES = 220 * 1024 * 1024;
 const FEED_BOOTSTRAP_CACHE_KEY = "winga-feed-bootstrap-cache";
-const FEED_BOOTSTRAP_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+const FEED_BOOTSTRAP_CACHE_MAX_AGE_MS = 90 * 1000;
 const FEED_BOOTSTRAP_PRODUCT_LIMIT = 14;
 const FEED_BOOT_IMAGE_WARM_COUNT = 24;
 const FEED_BOOT_IMAGE_DECODE_COUNT = 8;
@@ -113,7 +113,22 @@ function isServiceWorkerRecoveryDisabled() {
 }
 
 function shouldUseBootstrapFeedSnapshot() {
-  return window.WINGA_CONFIG?.enableBootstrapFeedSnapshot !== false;
+  if (window.WINGA_CONFIG?.enableBootstrapFeedSnapshot === false) {
+    return false;
+  }
+  if (navigator.onLine === false) {
+    return true;
+  }
+  try {
+    const navigationEntry = window.performance?.getEntriesByType?.("navigation")?.[0];
+    const navigationType = String(navigationEntry?.type || "").trim().toLowerCase();
+    if (navigationType === "reload") {
+      return false;
+    }
+  } catch (error) {
+    // Ignore navigation API failures and fall back to snapshot support.
+  }
+  return true;
 }
 
 function shouldUseApiLocalCacheFallback() {
@@ -2095,7 +2110,9 @@ function getFeedBootstrapSnapshot() {
       localStorage.removeItem(FEED_BOOTSTRAP_CACHE_KEY);
       return [];
     }
-    const sanitizedProducts = sanitizeVisibleProducts(parsed.products).map(normalizeProduct);
+    const sanitizedProducts = sortProductsNewestFirst(
+      sanitizeVisibleProducts(parsed.products).map(normalizeProduct)
+    );
     if (!sanitizedProducts.length) {
       localStorage.removeItem(FEED_BOOTSTRAP_CACHE_KEY);
       return [];
@@ -2116,7 +2133,7 @@ function persistFeedBootstrapSnapshot(productsList = [], reason = "render") {
   if (!shouldUseBootstrapFeedSnapshot()) {
     return;
   }
-  const sanitizedProducts = sanitizeVisibleProducts(productsList);
+  const sanitizedProducts = sortProductsNewestFirst(sanitizeVisibleProducts(productsList));
   if (!Array.isArray(sanitizedProducts) || !sanitizedProducts.length) {
     return;
   }
