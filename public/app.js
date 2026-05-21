@@ -37,6 +37,10 @@ const MEMORY_CRITICAL_THRESHOLD_BYTES = 220 * 1024 * 1024;
 const FEED_BOOTSTRAP_CACHE_KEY = "winga-feed-bootstrap-cache";
 const FEED_BOOTSTRAP_CACHE_MAX_AGE_MS = 90 * 1000;
 const FEED_BOOTSTRAP_PRODUCT_LIMIT = 14;
+const HOME_FRESH_PROTECTION_WINDOW_MS = 20 * 60 * 1000;
+const HOME_FRESH_TOP_SLOTS = 2;
+const HOME_PROMOTION_TOP_WINDOW = 6;
+const HOME_PROMOTION_TOP_CAP = 1;
 const FEED_BOOT_IMAGE_WARM_COUNT = 24;
 const FEED_BOOT_IMAGE_DECODE_COUNT = 8;
 const FEED_PREDICTIVE_PRELOAD_COUNT = 6;
@@ -451,6 +455,155 @@ function compareProductsNewestFirst(first, second) {
 
 function sortProductsNewestFirst(list = []) {
   return (Array.isArray(list) ? list : []).slice().sort(compareProductsNewestFirst);
+}
+
+function getHomeFeedEngagementScore(product) {
+  if (!product) {
+    return 0;
+  }
+  return (
+    Number(product.views || 0) * 1
+    + Number(product.likes || 0) * 3
+    + Number(product.saves || 0) * 4
+    + Number(product.messages || 0) * 5
+    + Number(product.orders || 0) * 6
+  );
+}
+
+function buildBalancedHomeFeed(list = []) {
+  const visibleList = Array.isArray(list) ? list.slice() : [];
+  if (visibleList.length < 3) {
+    return sortProductsNewestFirst(visibleList);
+  }
+
+  const now = Date.now();
+  const selected = [];
+  const selectedIds = new Set();
+  const sellerCounts = new Map();
+  const isProtectedFresh = (product) => (now - getProductCreatedTime(product)) <= HOME_FRESH_PROTECTION_WINDOW_MS;
+  const hasPromotion = (product) => Boolean(getPrimaryPromotion(product?.id));
+  const getPromotionScore = (product) => {
+    if (!product) {
+      return 0;
+    }
+    const directScore = Number(getPromotionCommercialScore?.(product) || 0);
+    if (Number.isFinite(directScore) && directScore > 0) {
+      return directScore;
+    }
+    return hasPromotion(product) ? 100 : 0;
+  };
+
+  const appendProduct = (product, options = {}) => {
+    if (!product || selectedIds.has(product.id)) {
+      return false;
+    }
+    const sellerId = String(product.uploadedBy || "");
+    const maxPerSeller = Math.max(1, Number(options.maxPerSeller || 2));
+    const currentCount = sellerCounts.get(sellerId) || 0;
+    if (sellerId && currentCount >= maxPerSeller) {
+      return false;
+    }
+    if (
+      options.preventPromotedOverflow === true
+      && hasPromotion(product)
+      && selected.length < HOME_PROMOTION_TOP_WINDOW
+    ) {
+      const promotedAlreadyPlaced = selected
+        .slice(0, HOME_PROMOTION_TOP_WINDOW)
+        .filter((item) => hasPromotion(item)).length;
+      if (promotedAlreadyPlaced >= HOME_PROMOTION_TOP_CAP) {
+        return false;
+      }
+    }
+    selected.push(product);
+    selectedIds.add(product.id);
+    if (sellerId) {
+      sellerCounts.set(sellerId, currentCount + 1);
+    }
+    return true;
+  };
+
+  const newest = sortProductsNewestFirst(visibleList);
+  limitProductsPerSeller(newest.filter(isProtectedFresh), HOME_FRESH_TOP_SLOTS, 1).forEach((product) => {
+    appendProduct(product, { maxPerSeller: 1 });
+  });
+
+  const remaining = newest.filter((product) => !selectedIds.has(product.id));
+  const promotedPool = remaining
+    .filter(hasPromotion)
+    .sort((first, second) => {
+      const delta = getPromotionScore(second) - getPromotionScore(first);
+      if (delta !== 0) {
+        return delta;
+      }
+      return compareProductsNewestFirst(first, second);
+    });
+  const trendingPool = remaining
+    .slice()
+    .sort((first, second) => {
+      const scoreDelta = getHomeFeedEngagementScore(second) - getHomeFeedEngagementScore(first);
+      if (scoreDelta !== 0) {
+        return scoreDelta;
+      }
+      return compareProductsNewestFirst(first, second);
+    });
+  const recentPool = remaining.slice();
+  const diversePool = limitProductsPerSeller(remaining, remaining.length, 1);
+
+  const pickNext = (poolName) => {
+    const pools = {
+      promoted: promotedPool,
+      trending: trendingPool,
+      recent: recentPool,
+      diverse: diversePool
+    };
+    const pool = pools[poolName] || [];
+    while (pool.length) {
+      const candidate = pool.shift();
+      if (!candidate || selectedIds.has(candidate.id)) {
+        continue;
+      }
+      if (appendProduct(candidate, {
+        maxPerSeller: poolName === "diverse" ? 1 : 2,
+        preventPromotedOverflow: true
+      })) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  const rotationPatterns = [
+    ["recent", "promoted", "trending", "diverse", "recent", "trending"],
+    ["recent", "trending", "diverse", "promoted", "recent", "trending"],
+    ["trending", "recent", "diverse", "recent", "promoted", "recent"],
+    ["recent", "diverse", "trending", "recent", "promoted", "diverse"]
+  ];
+  const pattern = rotationPatterns[Math.abs(Number(homeFeedRefreshCursor || 0)) % rotationPatterns.length];
+
+  while (selected.length < visibleList.length) {
+    let pushedInRound = false;
+    for (const poolName of pattern) {
+      if (pickNext(poolName)) {
+        pushedInRound = true;
+      }
+      if (selected.length >= visibleList.length) {
+        break;
+      }
+    }
+    if (!pushedInRound) {
+      break;
+    }
+  }
+
+  remaining.forEach((product) => {
+    appendProduct(product, {
+      maxPerSeller: 2,
+      preventPromotedOverflow: true
+    });
+  });
+
+  return selected;
 }
 
 function saveAppStorageSchemaVersion(version = "") {
@@ -15811,7 +15964,7 @@ function getFilteredProducts() {
   }
 
   if (currentView === "home") {
-    return prioritizeSellerMarketplaceMix(sortProductsNewestFirst(filtered));
+    return prioritizeSellerMarketplaceMix(buildBalancedHomeFeed(filtered));
   }
 
   return prioritizeSellerMarketplaceMix(rankProductsForSurface(filtered, {
