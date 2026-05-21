@@ -126,7 +126,7 @@
 
   function shouldPrioritizeImageLoad(className = "", attributes = {}) {
     const hintSource = `${String(className || "")} ${String(attributes?.["data-image-priority"] || "")}`.toLowerCase();
-    return /(?:\bhero\b|\bshowcase\b|\bproduct-detail\b|\bprofile\b|\badmin\b|\bavatar\b)/.test(hintSource);
+    return /(?:\bhero\b|\bproduct-detail\b|\bprofile\b|\badmin\b|\bavatar\b|\bstartup-critical\b|\bfeed-primary\b)/.test(hintSource);
   }
 
   function createResponsiveImage({
