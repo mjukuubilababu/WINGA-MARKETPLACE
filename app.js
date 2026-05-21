@@ -14011,6 +14011,7 @@ function renderDiscoveryProductCards(items, options = {}) {
               <p class="product-card-caption">${safeCaption}</p>
               ${safeCaption.length > 120 ? `<button class="product-caption-toggle" type="button" data-product-caption-toggle="true" aria-expanded="false">See more</button>` : ""}
             </div>
+            ${item.feedVariantResurface ? `<p class="product-meta trust-badges"><span class="status-pill approved sponsored-pill">Other color</span></p>` : ""}
             ${promotion ? `<p class="product-meta trust-badges"><span class="status-pill approved sponsored-pill">${escapeHtml(getPromotionLabel(promotion.type))}</span></p>` : ""}
             ${renderSellerPromotionAnalytics(item)}
 ${renderProductActionGroup(item, { requestLabel: "My Request", extraClass: "seller-product-actions seller-product-actions-compact" })}
