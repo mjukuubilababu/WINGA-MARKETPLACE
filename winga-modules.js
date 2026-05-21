@@ -905,7 +905,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
 
   function shouldPrioritizeImageLoad(className = "", attributes = {}) {
     const hintSource = `${String(className || "")} ${String(attributes?.["data-image-priority"] || "")}`.toLowerCase();
-    return /(?:\bhero\b|\bshowcase\b|\bproduct-detail\b|\bprofile\b|\badmin\b|\bavatar\b)/.test(hintSource);
+    return /(?:\bhero\b|\bproduct-detail\b|\bprofile\b|\badmin\b|\bavatar\b|\bstartup-critical\b|\bfeed-primary\b)/.test(hintSource);
   }
 
   function createResponsiveImage({
@@ -3025,7 +3025,10 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
 
     function createProductGalleryElement(product) {
       if (deps.renderFeedGalleryMarkup) {
-        return createElementFromMarkup(deps.renderFeedGalleryMarkup(product, "feed"));
+        return createElementFromMarkup(deps.renderFeedGalleryMarkup(product, "feed", {
+          priorityCount: 0,
+          preload: false
+        }));
       }
 
       const fitMode = String(product.fitMode || "").trim().toLowerCase() === "contain" ? "contain" : "cover";
@@ -3168,7 +3171,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       media.dataset.showcaseFallbackAlt = product.name || "Product image";
       if (deps.renderFeedGalleryMarkup) {
         media.appendChild(createElementFromMarkup(deps.renderFeedGalleryMarkup(product, "feed", {
-          priorityCount: 1,
+          priorityCount: 0,
           preload: false
         })));
         return media;

@@ -397,6 +397,9 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       : () => ({});
     const noisyProductionEvents = new Set([
       "boot_phase",
+      "app_boot_started",
+      "instant_boot_snapshot_rendered",
+      "app_boot_completed",
       "feed_predictive_image_decode",
       "data_integrity_audit",
       "showcase_runtime",
@@ -906,7 +909,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
 
   function shouldPrioritizeImageLoad(className = "", attributes = {}) {
     const hintSource = `${String(className || "")} ${String(attributes?.["data-image-priority"] || "")}`.toLowerCase();
-    return /(?:\bhero\b|\bshowcase\b|\bproduct-detail\b|\bprofile\b|\badmin\b|\bavatar\b)/.test(hintSource);
+    return /(?:\bhero\b|\bproduct-detail\b|\bprofile\b|\badmin\b|\bavatar\b|\bstartup-critical\b|\bfeed-primary\b)/.test(hintSource);
   }
 
   function createResponsiveImage({
@@ -2938,8 +2941,12 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
     const PASSIVE_VIEW_TRACK_BATCH_SIZE = 1;
     const PASSIVE_VIEW_TRACK_IDLE_DELAY_MS = 700;
     const FEED_GALLERY_IMAGE_LIMIT = 3;
-    const STARTUP_PRIORITY_CARD_COUNT = 8;
-    const INITIAL_SYNC_FEED_BATCH_SIZE = 12;
+    const STARTUP_PRIORITY_CARD_COUNT = 12;
+    const INITIAL_SYNC_FEED_BATCH_SIZE = 14;
+    const BOOTSTRAP_SYNC_FEED_TARGET_COUNT = 28;
+    const DESKTOP_PACKING_IMAGE_TIMEOUT_MS = 1600;
+    const desktopPackingDimensionCache = new Map();
+    const desktopPackingProbeInflight = new Map();
     let scheduledFeedRenderState = {
       token: 0,
       timer: 0
@@ -3009,11 +3016,194 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         }
         seen.add(safeSrc);
         deps.preloadImageSource(safeSrc, {
-          fetchPriority: seen.size <= STARTUP_PRIORITY_CARD_COUNT ? "high" : "auto",
-          decodeInMemory: seen.size <= STARTUP_PRIORITY_CARD_COUNT,
+          fetchPriority: seen.size <= 2 ? "high" : "auto",
+          decodeInMemory: false,
           reason: "marketplace_startup_above_fold"
         });
       });
+    }
+
+    function classifyProductImageShape(ratio = 1) {
+      if (!Number.isFinite(ratio) || ratio <= 0) {
+        return "normal";
+      }
+      if (ratio <= 0.82) {
+        return "tall";
+      }
+      if (ratio >= 1.28) {
+        return "wide";
+      }
+      return "normal";
+    }
+
+    function getProductPackingDimensionFallback(product) {
+      const fitMode = String(product?.fitMode || "").trim().toLowerCase();
+      if (fitMode === "contain") {
+        return {
+          width: 1,
+          height: 1,
+          ratio: 1,
+          shape: "normal",
+          source: "fit_mode_fallback"
+        };
+      }
+      return {
+        width: 1,
+        height: 1,
+        ratio: 1,
+        shape: "normal",
+        source: "default_fallback"
+      };
+    }
+
+    function getProductPackingImageSrc(product) {
+      const resolvedSrc = deps.getMarketplacePrimaryImage
+        ? deps.getMarketplacePrimaryImage(product, {
+            allowOwnerVisibility: product?.uploadedBy === deps.getCurrentUser?.()
+          })
+        : deps.sanitizeImageSource?.(
+          product?.image || (Array.isArray(product?.images) ? product.images[0] : ""),
+          deps.getImageFallbackDataUri?.("WINGA")
+        );
+      return String(resolvedSrc || "").trim();
+    }
+
+    function inspectProductPackingDimensions(product) {
+      const fallback = getProductPackingDimensionFallback(product);
+      const src = getProductPackingImageSrc(product);
+      if (!src) {
+        return Promise.resolve(fallback);
+      }
+      if (desktopPackingDimensionCache.has(src)) {
+        return Promise.resolve(desktopPackingDimensionCache.get(src));
+      }
+      if (desktopPackingProbeInflight.has(src)) {
+        return desktopPackingProbeInflight.get(src);
+      }
+      const probePromise = new Promise((resolve) => {
+        let settled = false;
+        const finalize = (payload) => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          window.clearTimeout(timeoutId);
+          const safePayload = {
+            width: Number(payload?.width || fallback.width || 1),
+            height: Number(payload?.height || fallback.height || 1),
+            ratio: Number(payload?.ratio || fallback.ratio || 1),
+            shape: payload?.shape || classifyProductImageShape(payload?.ratio || fallback.ratio || 1),
+            source: payload?.source || "inspected"
+          };
+          desktopPackingDimensionCache.set(src, safePayload);
+          desktopPackingProbeInflight.delete(src);
+          resolve(safePayload);
+        };
+        const image = new Image();
+        const timeoutId = window.setTimeout(() => {
+          finalize({
+            ...fallback,
+            source: "timeout_fallback"
+          });
+        }, DESKTOP_PACKING_IMAGE_TIMEOUT_MS);
+        image.decoding = "async";
+        image.loading = "eager";
+        image.onload = () => {
+          const width = Number(image.naturalWidth || 0);
+          const height = Number(image.naturalHeight || 0);
+          if (width > 0 && height > 0) {
+            const ratio = width / height;
+            finalize({
+              width,
+              height,
+              ratio,
+              shape: classifyProductImageShape(ratio),
+              source: "natural"
+            });
+            return;
+          }
+          finalize({
+            ...fallback,
+            source: "empty_natural_fallback"
+          });
+        };
+        image.onerror = () => {
+          finalize({
+            ...fallback,
+            source: "error_fallback"
+          });
+        };
+        image.src = src;
+      });
+      desktopPackingProbeInflight.set(src, probePromise);
+      return probePromise;
+    }
+
+    async function buildPackedDesktopProductList(list = [], options = {}) {
+      const safeList = Array.isArray(list) ? list.filter(Boolean) : [];
+      if (!safeList.length) {
+        return safeList;
+      }
+      const isMobileViewport = options.isMobileViewport === true;
+      const layoutMode = String(options.layoutMode || "").trim().toLowerCase();
+      const productsPerRow = Math.max(2, Number(options.productsPerRow || 0) || 0);
+      if (isMobileViewport || productsPerRow < 2 || layoutMode !== "desktop") {
+        return safeList;
+      }
+      const inspected = await Promise.all(
+        safeList.map(async (product, index) => ({
+          product,
+          index,
+          dimensions: await inspectProductPackingDimensions(product)
+        }))
+      );
+      const rows = [];
+      const remaining = inspected.slice();
+      while (remaining.length) {
+        const anchor = remaining.shift();
+        const row = [anchor];
+        const canUseCandidate = (candidate) => {
+          if (!candidate) {
+            return false;
+          }
+          const candidateShape = candidate.dimensions?.shape || "normal";
+          return !row.some((entry) => {
+            const rowShape = entry.dimensions?.shape || "normal";
+            return (rowShape === "tall" && candidateShape === "wide")
+              || (rowShape === "wide" && candidateShape === "tall");
+          });
+        };
+        while (row.length < productsPerRow && remaining.length) {
+          const anchorRatio = Number(anchor.dimensions?.ratio || 1);
+          let bestIndex = -1;
+          let bestScore = Number.POSITIVE_INFINITY;
+          remaining.forEach((candidate, candidateIndex) => {
+            if (!canUseCandidate(candidate)) {
+              return;
+            }
+            const candidateRatio = Number(candidate.dimensions?.ratio || 1);
+            const ratioDistance = Math.abs(candidateRatio - anchorRatio);
+            const shapePenalty = candidate.dimensions?.shape === anchor.dimensions?.shape
+              ? 0
+              : candidate.dimensions?.shape === "normal" || anchor.dimensions?.shape === "normal"
+                ? 0.35
+                : 1.5;
+            const indexPenalty = Math.abs(candidate.index - anchor.index) * 0.015;
+            const score = ratioDistance + shapePenalty + indexPenalty;
+            if (score < bestScore) {
+              bestScore = score;
+              bestIndex = candidateIndex;
+            }
+          });
+          if (bestIndex === -1) {
+            row.push(remaining.shift());
+            continue;
+          }
+          row.push(remaining.splice(bestIndex, 1)[0]);
+        }
+        rows.push(row.sort((left, right) => left.index - right.index));
+      }
+      return rows.flat().map((entry) => entry.product);
     }
 
     function createProductGalleryElement(product, options = {}) {
@@ -3021,7 +3211,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       const surface = String(options.surface || "feed").trim().toLowerCase() || "feed";
       if (deps.renderFeedGalleryMarkup) {
         return createElementFromMarkup(deps.renderFeedGalleryMarkup(product, surface, {
-          priorityCount: startupPriority ? 3 : 1,
+          priorityCount: startupPriority ? 1 : 0,
           preload: startupPriority,
           directVisibility: options.directVisibility === true
         }));
@@ -3809,12 +3999,14 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         return;
       }
       const currentView = deps.getCurrentView();
+      const isBootingHomeFeed = currentView === "home" && document.body.classList.contains("app-booting");
+      const layoutMode = String(deps.getLayoutMode?.() || "").trim().toLowerCase() || "desktop";
       const shouldTrackViews = currentView !== "upload";
       const legacyShowcaseEnabled = false;
       const intelligentFeedEnabled = currentView === "home";
       const shouldInjectInlineShowcases = intelligentFeedEnabled;
-      const isMobileViewport = window.matchMedia?.("(max-width: 780px)")?.matches;
-      const productsPerRow = shouldInjectInlineShowcases ? deps.getProductsPerRow() : 0;
+      const isMobileViewport = layoutMode === "mobile" || layoutMode === "standalone-mobile" || layoutMode === "mobile-desktop-site";
+      const productsPerRow = shouldInjectInlineShowcases ? (deps.getFeedLayoutColumns?.() || deps.getProductsPerRow()) : 0;
       const showcaseSpacing = isMobileViewport ? 8 : 10;
       const showcaseRepeatInterval = isMobileViewport ? 8 : 10;
       const firstShowcaseAfter = shouldInjectInlineShowcases ? showcaseSpacing : Number.POSITIVE_INFINITY;
@@ -3837,8 +4029,11 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       const combinedSectionQueue = [...legacySectionQueue, ...intelligentSectionQueue];
       let intelligentSectionIndex = 0;
 
+      const startRendering = (resolvedList) => {
+        const safeList = Array.isArray(resolvedList) ? resolvedList : list;
+
       const appendShowcaseIfNeeded = (fragment, renderedCount) => {
-        if (!shouldInjectInlineShowcases || renderedCount !== nextShowcaseInsertAt || renderedCount >= list.length) {
+        if (!shouldInjectInlineShowcases || renderedCount !== nextShowcaseInsertAt || renderedCount >= safeList.length) {
           return;
         }
         while (intelligentSectionIndex < combinedSectionQueue.length) {
@@ -3887,7 +4082,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         if (renderToken !== scheduledFeedRenderState.token) {
           return;
         }
-        if (shouldInjectInlineShowcases && !insertedInlineShowcase && list.length >= Math.max(4, productsPerRow * 2 || 4)) {
+        if (shouldInjectInlineShowcases && !insertedInlineShowcase && safeList.length >= Math.max(4, productsPerRow * 2 || 4)) {
           const descriptor = combinedSectionQueue.find((entry) =>
             Array.isArray(entry?.items)
             && entry.items.some((item) => item?.id && !usedShowcaseProductIds.has(item.id))
@@ -3932,8 +4127,8 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         deps.bindImageFallbacks?.(productsContainer);
         deps.bindProductEngagementSignals?.(productsContainer);
         deps.bindProductMenus?.(productsContainer);
-        if (intelligentFeedEnabled && currentView === "home" && list.length > 0 && deps.canUseContinuousDiscovery?.() && deps.setupContinuousDiscoveryLoading) {
-          const usedProductIds = new Set(list.map((product) => product.id));
+        if (intelligentFeedEnabled && currentView === "home" && safeList.length > 0 && deps.canUseContinuousDiscovery?.() && deps.setupContinuousDiscoveryLoading) {
+          const usedProductIds = new Set(safeList.map((product) => product.id));
           Array.from(productsContainer.querySelectorAll("[data-showcase-id], [data-open-product]")).forEach((element) => {
             const productId = element.dataset.showcaseId || element.dataset.openProduct || "";
             if (productId) {
@@ -3956,11 +4151,13 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         }
         const fragment = document.createDocumentFragment();
         const batchSize = startIndex === 0 && currentView === "home"
-          ? INITIAL_SYNC_FEED_BATCH_SIZE
+          ? (isBootingHomeFeed
+            ? Math.max(INITIAL_SYNC_FEED_BATCH_SIZE, Math.min(safeList.length, BOOTSTRAP_SYNC_FEED_TARGET_COUNT))
+            : INITIAL_SYNC_FEED_BATCH_SIZE)
           : FEED_RENDER_BATCH_SIZE;
-        const endIndex = Math.min(list.length, startIndex + batchSize);
+        const endIndex = Math.min(safeList.length, startIndex + batchSize);
         for (let index = startIndex; index < endIndex; index += 1) {
-          const product = list[index];
+          const product = safeList[index];
           if (shouldTrackViews && index < passiveViewLimit && deps.trackView(product)) {
             viewedProductIds.push(product.id);
           }
@@ -3977,27 +4174,50 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
           container: productsContainer,
           startIndex,
           endIndex,
-          total: list.length,
+          total: safeList.length,
           currentView
         });
-        if (endIndex < list.length) {
+        if (endIndex < safeList.length) {
           deps.onFeedRenderBatch?.({
             container: productsContainer,
             renderedCount: endIndex,
-            total: list.length,
+            total: safeList.length,
             currentView,
-            products: list.slice(0, endIndex)
+            products: safeList.slice(0, endIndex)
           });
-          scheduledFeedRenderState.timer = window.setTimeout(() => {
+          const scheduleNextBatch = () => {
             scheduledFeedRenderState.timer = 0;
             renderNextBatch(endIndex);
-          }, FEED_RENDER_BATCH_DELAY_MS);
+          };
+          scheduledFeedRenderState.timer = window.setTimeout(
+            scheduleNextBatch,
+            isBootingHomeFeed && startIndex === 0 ? 0 : FEED_RENDER_BATCH_DELAY_MS
+          );
           return;
         }
         finalizeFeedRender();
       };
 
       renderNextBatch(0);
+      };
+
+      buildPackedDesktopProductList(list, {
+        isMobileViewport,
+        productsPerRow,
+        layoutMode
+      })
+        .then((packedList) => {
+          if (renderToken !== scheduledFeedRenderState.token) {
+            return;
+          }
+          startRendering(packedList);
+        })
+        .catch(() => {
+          if (renderToken !== scheduledFeedRenderState.token) {
+            return;
+          }
+          startRendering(list);
+        });
     }
 
     return {
@@ -12279,4 +12499,3 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
 
   window.WingaModules.productDetail.createProductDetailControllerModule = createProductDetailControllerModule;
 })();
-

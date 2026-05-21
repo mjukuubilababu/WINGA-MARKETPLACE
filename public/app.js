@@ -9072,7 +9072,7 @@ const MARKETPLACE_SCROLL_IMAGE_PLACEHOLDER = "data:image/gif;base64,R0lGODlhAQAB
 let marketplaceScrollImageObserver = null;
 
 function getMarketplaceScrollImagePrefetchMargin() {
-  return getViewportWidth() <= 720 ? 1400 : 1800;
+  return getViewportWidth() <= 720 ? 280 : 960;
 }
 
 function getMarketplaceScrollImageRootMargin() {
@@ -13780,7 +13780,7 @@ function renderDiscoveryProductCards(items, options = {}) {
         return `
           <article class="seller-product-card${Array.isArray(item.images) && item.images.length > 1 ? " has-gallery-count-badge" : ""}" data-open-product="${item.id}">
             <div class="seller-product-card-media">
-              ${renderFeedGalleryMarkup(item, "feed", { priorityCount: isPriority ? 3 : 1, preload: isPriority })}
+              ${renderFeedGalleryMarkup(item, "feed", { priorityCount: isPriority ? 1 : 0, preload: isPriority })}
             </div>
             ${renderProductOverflowMenu(item, { overlay: true })}
             <div class="product-seller-row">
@@ -14506,7 +14506,8 @@ function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
   const images = safeImages.length > 0 ? safeImages : [getImageFallbackDataUri("WINGA")];
   const total = images.length;
   const currentLabel = total > 1 ? `1/${total}` : "";
-  const priorityLimit = Math.max(1, Number(options?.priorityCount || 1));
+  const priorityLimit = Math.max(0, Number(options?.priorityCount ?? 0) || 0);
+  const shouldUseEagerPrimaryImage = Boolean(options?.preload);
   const normalizedSurface = String(surface || "").trim().toLowerCase() || "feed";
   const isFeedSurface = normalizedSurface === "feed";
   const isDetailSurface = normalizedSurface === "detail";
@@ -14567,8 +14568,8 @@ function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
           placeholderSrc: getImageFallbackDataUri("W"),
           fitMode,
           attributes: {
-            loading: index === 0 ? "eager" : "lazy",
-            fetchpriority: index === 0 ? "high" : "auto",
+            loading: shouldUseEagerPrimaryImage && index === 0 ? "eager" : "lazy",
+            fetchpriority: shouldUseEagerPrimaryImage && index === 0 ? "high" : "auto",
             decoding: "async",
             draggable: "false",
             "data-preserve-image-ratio": "true",
@@ -16326,17 +16327,24 @@ function prioritizeVisibleFeedMedia(scope = document, maxCards = 8) {
   if (!(scope instanceof Element || scope === document)) {
     return;
   }
+  const layoutMode = getClientLayoutMode();
+  const isCompactLayout = layoutMode === "mobile" || layoutMode === "standalone-mobile" || layoutMode === "mobile-desktop-site";
+  const criticalCardLimit = isCompactLayout ? 2 : 4;
   const cards = Array.from(
     scope.querySelectorAll?.(".product-card[data-open-product], .seller-product-card[data-open-product], .showcase-card[data-open-product]") || []
   ).slice(0, Math.max(1, Number(maxCards) || 8));
-  cards.forEach((card) => {
+  cards.forEach((card, cardIndex) => {
     card.querySelectorAll?.("img[data-marketplace-scroll-image='true']").forEach((image, index) => {
       if (!(image instanceof HTMLImageElement)) {
         return;
       }
-      image.setAttribute("loading", index === 0 ? "eager" : "lazy");
-      image.setAttribute("fetchpriority", index === 0 ? "high" : "auto");
-      activateMarketplaceScrollImage(image);
+      const prioritizeImage = index === 0 && cardIndex < criticalCardLimit;
+      image.setAttribute("loading", prioritizeImage ? "eager" : "lazy");
+      image.setAttribute("fetchpriority", prioritizeImage ? "high" : "auto");
+      activateMarketplaceScrollImage(image, {
+        priority: prioritizeImage,
+        shouldSetPending: prioritizeImage
+      });
     });
   });
 }
@@ -16458,7 +16466,7 @@ function settleMarketplaceScrollImage(image, realSrc = "") {
   });
 }
 
-function activateMarketplaceScrollImage(image) {
+function activateMarketplaceScrollImage(image, options = {}) {
   if (!(image instanceof HTMLImageElement)) {
     return;
   }
@@ -16472,27 +16480,30 @@ function activateMarketplaceScrollImage(image) {
   const sameSource = currentSrc === realSrc;
   const alreadyLoaded = canRevealMarketplaceScrollImage(image, realSrc);
   const shouldKeepDirectVisible = shouldKeepMarketplaceScrollImageDirectVisible(image);
+  const prioritizeImage = options?.priority === true
+    || String(image.dataset.imagePriority || "").toLowerCase().includes("startup-critical");
+  const shouldSetPending = options?.shouldSetPending === true && !shouldKeepDirectVisible;
   if (alreadyLoaded) {
     markMarketplaceScrollImageLoaded(image, realSrc);
     return;
   }
-  image.setAttribute("loading", "eager");
-  image.setAttribute("fetchpriority", "high");
+  image.setAttribute("loading", prioritizeImage ? "eager" : "lazy");
+  image.setAttribute("fetchpriority", prioritizeImage ? "high" : "auto");
   if (shouldKeepDirectVisible) {
     keepMarketplaceScrollImageDirectVisible(image, sameSource ? currentSrc : realSrc);
-  } else {
+  } else if (shouldSetPending) {
     image.closest(".progressive-image-shell")?.classList.add("is-pending");
   }
   if (!sameSource) {
     image.setAttribute("src", realSrc);
     image.dataset.marketplaceImageState = "active";
-    if (!shouldKeepDirectVisible) {
+    if (!shouldKeepDirectVisible && shouldSetPending) {
       settleMarketplaceScrollImage(image, realSrc);
     }
     return;
   }
   image.dataset.marketplaceImageState = "active";
-  if (!shouldKeepDirectVisible) {
+  if (!shouldKeepDirectVisible && shouldSetPending) {
     settleMarketplaceScrollImage(image, realSrc);
   }
 }
@@ -16572,12 +16583,17 @@ function bindMarketplaceScrollImages(scope = document) {
     const rect = image.getBoundingClientRect();
     const viewportHeight = window.innerHeight || document.documentElement?.clientHeight || 0;
     const prefetchMargin = getMarketplaceScrollImagePrefetchMargin();
+    const isInViewport = rect.bottom >= 0 && rect.top <= viewportHeight;
     const isNearViewport = rect.bottom >= -prefetchMargin && rect.top <= viewportHeight + prefetchMargin;
-    const shouldLoadNow = isStartupCritical || isNearViewport;
+    const shouldLoadNow = isStartupCritical || isInViewport || isNearViewport;
     if (shouldLoadNow) {
-      image.setAttribute("loading", "eager");
-      image.setAttribute("fetchpriority", "high");
-      activateMarketplaceScrollImage(image);
+      const prioritizeImage = isStartupCritical || isInViewport;
+      image.setAttribute("loading", prioritizeImage ? "eager" : "lazy");
+      image.setAttribute("fetchpriority", prioritizeImage ? "high" : "auto");
+      activateMarketplaceScrollImage(image, {
+        priority: prioritizeImage,
+        shouldSetPending: prioritizeImage
+      });
     } else {
       image.setAttribute("loading", "lazy");
       image.setAttribute("fetchpriority", "auto");
