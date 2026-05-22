@@ -273,8 +273,8 @@
     fullImage.addEventListener("error", function handleProgressiveImageError() {
       shell.classList.add("is-loaded", "is-error");
     });
-    if (shouldForceDirectVisibility) {
-      shell.classList.add("is-loaded");
+    if (shouldForceDirectVisibility && !(fullImage.complete && Number(fullImage.naturalWidth || 0) > 0)) {
+      shell.classList.add("is-pending");
     }
     if (fullImage.complete && Number(fullImage.naturalWidth || 0) > 0) {
       applyProgressiveImageState(fullImage);
