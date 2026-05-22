@@ -1290,6 +1290,12 @@
         deps.bindProductEngagementSignals?.(productsContainer);
         deps.bindProductMenus?.(productsContainer);
         if (intelligentFeedEnabled && currentView === "home" && safeList.length > 0 && deps.canUseContinuousDiscovery?.() && deps.setupContinuousDiscoveryLoading) {
+          if (shouldUseMobileEndlessHomeFeed && typeof deps.createContinuousDiscoveryAnchorElement === "function") {
+            const existingAnchor = productsContainer.querySelector("[data-continuous-discovery-anchor='home']");
+            if (!existingAnchor) {
+              productsContainer.appendChild(deps.createContinuousDiscoveryAnchorElement());
+            }
+          }
           const usedProductIds = new Set(safeList.map((product) => product.id));
           Array.from(productsContainer.querySelectorAll("[data-showcase-id], [data-open-product]")).forEach((element) => {
             const productId = element.dataset.showcaseId || element.dataset.openProduct || "";

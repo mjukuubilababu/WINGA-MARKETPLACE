@@ -9090,6 +9090,7 @@ const {
   getProductsPerRow,
   getLayoutMode: () => getClientLayoutMode(),
   getFeedLayoutColumns: () => getFeedLayoutColumns(),
+  createContinuousDiscoveryAnchorElement,
   trackView,
   formatNumber,
   formatProductPrice,
