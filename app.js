@@ -9066,6 +9066,7 @@ const { renderFilterCategories } = window.WingaModules.categories.createCategori
 const {
   cancelScheduledFeedRender: cancelMarketplaceFeedRender,
   renderProducts,
+  createProductCardElement,
   createProductCardStackElement,
   createShowcaseSectionElement,
   createDynamicShowcasePlaceholderElement,
@@ -14251,6 +14252,24 @@ function createContinuousDiscoverySectionElement(descriptor, index, anchorKind =
   return section;
 }
 
+function createContinuousDiscoveryStreamElements(descriptor, index, anchorKind = "home") {
+  if (!descriptor || !Array.isArray(descriptor.items) || !descriptor.items.length) {
+    return [];
+  }
+  return descriptor.items.map((item, itemIndex) => {
+    const card = createProductCardElement(item, {
+      startupPriority: false
+    });
+    if (!(card instanceof Element)) {
+      return null;
+    }
+    card.setAttribute("data-continuous-discovery-stream", `${anchorKind}-${index}`);
+    card.setAttribute("data-continuous-discovery-kind", descriptor.kind || "stream");
+    card.setAttribute("data-continuous-stream-index", String(itemIndex + 1));
+    return card;
+  }).filter(Boolean);
+}
+
 function getStaleViewedProducts(options = {}) {
   const {
     limit = 8,
@@ -14385,6 +14404,77 @@ function getVariantResurfacedProducts(options = {}) {
   return items;
 }
 
+function getHomeContinuousStreamProducts(options = {}) {
+  const {
+    limit = 10,
+    recentIds = [],
+    usedIds = new Set(),
+    seedProduct = null,
+    sourceProducts = null
+  } = options;
+  const recentIdSet = new Set(Array.from(recentIds || []).filter(Boolean));
+  const usedIdSet = new Set(Array.from(usedIds || []).filter(Boolean));
+  const seedProductId = String(seedProduct?.id || "").trim();
+  const preferredCategory = inferTopCategoryValue(seedProduct?.category || "");
+  const unseenPool = (Array.isArray(sourceProducts) ? sourceProducts : products)
+    .filter((product) =>
+      product.status === "approved"
+      && product.availability !== "sold_out"
+      && shouldRenderMarketplaceProduct(product)
+      && product.id !== seedProductId
+      && !usedIdSet.has(product.id)
+      && !recentIdSet.has(product.id)
+    )
+    .sort((first, second) => {
+      const secondPromotion = Number(getPromotionCommercialScore?.(second) || 0);
+      const firstPromotion = Number(getPromotionCommercialScore?.(first) || 0);
+      if (secondPromotion !== firstPromotion) {
+        return secondPromotion - firstPromotion;
+      }
+      const secondCategoryMatch = preferredCategory && inferTopCategoryValue(second.category || "") === preferredCategory ? 1 : 0;
+      const firstCategoryMatch = preferredCategory && inferTopCategoryValue(first.category || "") === preferredCategory ? 1 : 0;
+      if (secondCategoryMatch !== firstCategoryMatch) {
+        return secondCategoryMatch - firstCategoryMatch;
+      }
+      const engagementDelta = getHomeFeedEngagementScore(second) - getHomeFeedEngagementScore(first);
+      if (engagementDelta !== 0) {
+        return engagementDelta;
+      }
+      return compareProductsNewestFirst(first, second);
+    });
+
+  const fallbackPool = (Array.isArray(sourceProducts) ? sourceProducts : products)
+    .filter((product) =>
+      product.status === "approved"
+      && product.availability !== "sold_out"
+      && shouldRenderMarketplaceProduct(product)
+      && product.id !== seedProductId
+      && !recentIdSet.has(product.id)
+    )
+    .sort((first, second) => {
+      const promotionDelta = Number(getPromotionCommercialScore?.(second) || 0) - Number(getPromotionCommercialScore?.(first) || 0);
+      if (promotionDelta !== 0) {
+        return promotionDelta;
+      }
+      return compareProductsNewestFirst(first, second);
+    });
+
+  const primarySelection = limitProductsPerSeller(unseenPool, limit, 1);
+  if (primarySelection.length >= Math.min(limit, 4)) {
+    return primarySelection.slice(0, limit);
+  }
+  const combined = [];
+  const seenIds = new Set();
+  [...primarySelection, ...limitProductsPerSeller(fallbackPool, limit * 2, 1)].forEach((product) => {
+    if (!product || seenIds.has(product.id) || combined.length >= limit) {
+      return;
+    }
+    seenIds.add(product.id);
+    combined.push(product);
+  });
+  return combined.slice(0, limit);
+}
+
 function getContinuousDiscoveryDescriptor(options = {}) {
   const {
     seedProduct = null,
@@ -14405,10 +14495,28 @@ function getContinuousDiscoveryDescriptor(options = {}) {
   });
   const hardEligibleProducts = renderableProducts.filter((product) => !hardExcludeIds.has(product.id));
   const minimumBatchSize = 3;
+  const shouldPreferMarketplaceStream = batchIndex === 0 || batchIndex % 3 !== 1;
+  const streamItems = getHomeContinuousStreamProducts({
+    limit: batchIndex === 0 ? 10 : 8,
+    recentIds,
+    usedIds,
+    seedProduct: preferredSeed,
+    sourceProducts: renderableProducts
+  });
   const sponsoredItems = getDiscoverySponsoredProducts(preferredSeed, {
     limit: batchIndex === 0 ? 6 : 4,
     excludeIds: softExcludeIds
   });
+
+  if (shouldPreferMarketplaceStream && streamItems.length >= minimumBatchSize) {
+    return {
+      kind: "stream",
+      eyebrow: "Marketplace Stream",
+      title: "More products from different sellers keep loading",
+      subtitle: "As long as you keep scrolling, Winga keeps pulling more active listings into the feed.",
+      items: streamItems
+    };
+  }
 
   if (batchIndex === 0 && sponsoredItems.length >= 1) {
     return {
@@ -14520,6 +14628,15 @@ function getContinuousDiscoveryDescriptor(options = {}) {
     new Set(Array.from(recentIds || []).filter(Boolean)),
     renderableProducts
   );
+  if (streamItems.length) {
+    return {
+      kind: "stream",
+      eyebrow: "Marketplace Stream",
+      title: "More products from the market",
+      subtitle: "Winga keeps the main feed moving with active listings from different sellers.",
+      items: streamItems.slice(0, 8)
+    };
+  }
   if (fallbackItems.length) {
     return {
       kind: "trending-fallback",
@@ -14575,13 +14692,25 @@ function trimHomeContinuousDiscoverySections(anchor) {
   if (!container) {
     return;
   }
-  const sections = Array.from(container.querySelectorAll("[data-continuous-discovery-section]"));
-  if (sections.length <= MAX_ACTIVE_HOME_CONTINUOUS_SECTIONS) {
+  const groupKeys = [];
+  Array.from(container.querySelectorAll("[data-continuous-discovery-section], [data-continuous-discovery-stream]")).forEach((element) => {
+    const key = String(
+      element.getAttribute("data-continuous-discovery-section")
+      || element.getAttribute("data-continuous-discovery-stream")
+      || ""
+    ).trim();
+    if (key && !groupKeys.includes(key)) {
+      groupKeys.push(key);
+    }
+  });
+  if (groupKeys.length <= MAX_ACTIVE_HOME_CONTINUOUS_SECTIONS) {
     return;
   }
-  sections.slice(0, sections.length - MAX_ACTIVE_HOME_CONTINUOUS_SECTIONS).forEach((section) => {
-    releasePrunedSectionMedia(section);
-    section.remove();
+  groupKeys.slice(0, groupKeys.length - MAX_ACTIVE_HOME_CONTINUOUS_SECTIONS).forEach((groupKey) => {
+    Array.from(container.querySelectorAll(`[data-continuous-discovery-section="${groupKey}"], [data-continuous-discovery-stream="${groupKey}"]`)).forEach((node) => {
+      releasePrunedSectionMedia(node);
+      node.remove();
+    });
   });
 }
 
@@ -14634,27 +14763,44 @@ function hydrateContinuousDiscoveryAnchor(anchor) {
     return;
   }
 
-  const section = createContinuousDiscoverySectionElement(
-    descriptor,
-    homeContinuousDiscoveryRuntime.batchIndex + 1,
-    "home"
-  );
-  if (!section) {
+  const batchIndex = homeContinuousDiscoveryRuntime.batchIndex + 1;
+  let insertedNodes = [];
+  if (descriptor.kind === "stream") {
+    insertedNodes = createContinuousDiscoveryStreamElements(descriptor, batchIndex, "home");
+  } else {
+    const section = createContinuousDiscoverySectionElement(
+      descriptor,
+      batchIndex,
+      "home"
+    );
+    if (section) {
+      insertedNodes = [section];
+    }
+  }
+  if (!insertedNodes.length) {
     homeContinuousDiscoveryRuntime.loading = false;
     scheduleContinuousDiscoveryReobserve(anchor);
     return;
   }
 
-  anchor.after(section);
-  section.after(anchor);
-  enhanceShowcaseTracks(section);
-  repairShowcaseMediaVisibility?.(section);
-  stabilizeMobileShowcaseRows?.(section);
-  bindShowcaseCardClicks(section);
-  bindFeedGalleryInteractions(section);
-  bindProductEngagementSignals(section);
-  bindImageFallbacks(section);
-  bindProductMenus(section);
+  const fragment = document.createDocumentFragment();
+  insertedNodes.forEach((node) => fragment.appendChild(node));
+  anchor.before(fragment);
+  insertedNodes.forEach((node) => {
+    if (descriptor.kind !== "stream") {
+      enhanceShowcaseTracks(node);
+      repairShowcaseMediaVisibility?.(node);
+      stabilizeMobileShowcaseRows?.(node);
+      bindShowcaseCardClicks(node);
+    }
+    bindFeedGalleryInteractions(node);
+    bindProductEngagementSignals(node);
+    bindImageFallbacks(node);
+    bindProductMenus(node);
+  });
+  if (descriptor.kind === "stream") {
+    prioritizeVisibleFeedMedia?.(productsContainer, Math.min(4, insertedNodes.length));
+  }
   trimHomeContinuousDiscoverySections(anchor);
   const appendedIds = descriptor.items.map((item) => item.id);
   descriptor.items.forEach((item) => {
