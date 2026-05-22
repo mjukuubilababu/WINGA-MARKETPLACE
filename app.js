@@ -10378,6 +10378,8 @@ let homeContinuousDiscoveryRuntime = {
   productLastAppearanceOrdinal: {},
   normalProductOrdinal: 0,
   lastVariantNormalOrdinal: -HOME_VARIANT_MIN_NORMAL_PRODUCTS_BETWEEN,
+  preparedDescriptor: null,
+  preparedDescriptorBatchIndex: -1,
   loading: false,
   seedProductId: "",
   lastHydrateAt: 0
@@ -14918,6 +14920,8 @@ function disconnectContinuousDiscoveryObserver() {
     productLastAppearanceOrdinal: {},
     normalProductOrdinal: 0,
     lastVariantNormalOrdinal: -HOME_VARIANT_MIN_NORMAL_PRODUCTS_BETWEEN,
+    preparedDescriptor: null,
+    preparedDescriptorBatchIndex: -1,
     loading: false,
     seedProductId: "",
     reobserveTimer: 0,
@@ -14968,6 +14972,48 @@ function trimHomeContinuousDiscoverySections(anchor) {
   });
 }
 
+function prepareNextContinuousDiscoveryDescriptor() {
+  if (currentView !== "home" || homeContinuousDiscoveryRuntime.loading) {
+    return null;
+  }
+  if (homeContinuousDiscoveryRuntime.preparedDescriptor && homeContinuousDiscoveryRuntime.preparedDescriptorBatchIndex === homeContinuousDiscoveryRuntime.batchIndex) {
+    return homeContinuousDiscoveryRuntime.preparedDescriptor;
+  }
+  const seedProduct = getProductById(homeContinuousDiscoveryRuntime.seedProductId) || getRecommendationSeed(getFilteredProducts());
+  const descriptor = getContinuousDiscoveryDescriptor({
+    seedProduct,
+    usedIds: homeContinuousDiscoveryRuntime.usedIds,
+    recentIds: homeContinuousDiscoveryRuntime.recentIds,
+    batchIndex: homeContinuousDiscoveryRuntime.batchIndex,
+    variantCounts: homeContinuousDiscoveryRuntime.variantSurfaceCounts,
+    variantLastBatchIndex: homeContinuousDiscoveryRuntime.variantLastBatchIndex,
+    variantShownImageIndexes: homeContinuousDiscoveryRuntime.variantShownImageIndexes,
+    productLastAppearanceOrdinal: homeContinuousDiscoveryRuntime.productLastAppearanceOrdinal,
+    normalProductOrdinal: homeContinuousDiscoveryRuntime.normalProductOrdinal,
+    lastVariantNormalOrdinal: homeContinuousDiscoveryRuntime.lastVariantNormalOrdinal
+  });
+  if (!descriptor || !Array.isArray(descriptor.items) || !descriptor.items.length) {
+    homeContinuousDiscoveryRuntime.preparedDescriptor = null;
+    homeContinuousDiscoveryRuntime.preparedDescriptorBatchIndex = -1;
+    return null;
+  }
+  homeContinuousDiscoveryRuntime.preparedDescriptor = {
+    ...descriptor,
+    items: descriptor.items.slice()
+  };
+  homeContinuousDiscoveryRuntime.preparedDescriptorBatchIndex = homeContinuousDiscoveryRuntime.batchIndex;
+  primeIncomingFeedItems(homeContinuousDiscoveryRuntime.preparedDescriptor.items, {
+    reason: `continuous_discovery_prepared_${homeContinuousDiscoveryRuntime.batchIndex}`,
+    productLimit: descriptor.kind === "stream"
+      ? Math.min(descriptor.items.length, 8)
+      : Math.min(descriptor.items.length, 4),
+    decodeLimit: descriptor.kind === "stream"
+      ? Math.min(descriptor.items.length, 5)
+      : Math.min(descriptor.items.length, 2)
+  });
+  return homeContinuousDiscoveryRuntime.preparedDescriptor;
+}
+
 function hydrateContinuousDiscoveryAnchor(anchor) {
   if (!anchor || homeContinuousDiscoveryRuntime.loading) {
     return;
@@ -14986,7 +15032,12 @@ function hydrateContinuousDiscoveryAnchor(anchor) {
   const pendingDescriptors = Array.isArray(homeContinuousDiscoveryRuntime.pendingDescriptors)
     ? homeContinuousDiscoveryRuntime.pendingDescriptors
     : [];
-  const generatedDescriptor = getContinuousDiscoveryDescriptor({
+  const generatedDescriptor = (
+    homeContinuousDiscoveryRuntime.preparedDescriptor
+    && homeContinuousDiscoveryRuntime.preparedDescriptorBatchIndex === homeContinuousDiscoveryRuntime.batchIndex
+  )
+    ? homeContinuousDiscoveryRuntime.preparedDescriptor
+    : getContinuousDiscoveryDescriptor({
       seedProduct,
       usedIds: homeContinuousDiscoveryRuntime.usedIds,
       recentIds: homeContinuousDiscoveryRuntime.recentIds,
@@ -14997,7 +15048,7 @@ function hydrateContinuousDiscoveryAnchor(anchor) {
       productLastAppearanceOrdinal: homeContinuousDiscoveryRuntime.productLastAppearanceOrdinal,
       normalProductOrdinal: homeContinuousDiscoveryRuntime.normalProductOrdinal,
       lastVariantNormalOrdinal: homeContinuousDiscoveryRuntime.lastVariantNormalOrdinal
-  });
+    });
   const shouldPreferPendingDescriptor = homeContinuousDiscoveryRuntime.batchIndex > 0
     && homeContinuousDiscoveryRuntime.lastDescriptorSource !== "deferred_recommendation";
   const eligiblePendingDescriptorIndex = shouldPreferPendingDescriptor
@@ -15103,7 +15154,12 @@ function hydrateContinuousDiscoveryAnchor(anchor) {
   homeContinuousDiscoveryRuntime.batchIndex += 1;
   homeContinuousDiscoveryRuntime.lastDescriptorSource = String(descriptor?.source || descriptor?.kind || "generated").trim().toLowerCase();
   homeContinuousDiscoveryRuntime.lastHydrateAt = now;
+  homeContinuousDiscoveryRuntime.preparedDescriptor = null;
+  homeContinuousDiscoveryRuntime.preparedDescriptorBatchIndex = -1;
   homeContinuousDiscoveryRuntime.loading = false;
+  scheduleIdleBackgroundWork(() => {
+    prepareNextContinuousDiscoveryDescriptor();
+  }, 120);
   scheduleContinuousDiscoveryReobserve(anchor);
 }
 
@@ -15125,6 +15181,8 @@ function setupContinuousDiscoveryLoading(scope, options = {}) {
   homeContinuousDiscoveryRuntime.seedProductId = options.seedProduct?.id || "";
   homeContinuousDiscoveryRuntime.lastDescriptorSource = "";
   homeContinuousDiscoveryRuntime.lastHydrateAt = 0;
+  homeContinuousDiscoveryRuntime.preparedDescriptor = null;
+  homeContinuousDiscoveryRuntime.preparedDescriptorBatchIndex = -1;
   const initialProductIds = Array.from(options.initialProductIds || []).filter(Boolean);
   homeContinuousDiscoveryRuntime.normalProductOrdinal = initialProductIds.length;
   initialProductIds.forEach((productId, index) => {
@@ -15163,9 +15221,12 @@ function setupContinuousDiscoveryLoading(scope, options = {}) {
       hydrateContinuousDiscoveryAnchor(anchor);
     });
   }, {
-    rootMargin: "280px 0px 200px 0px"
+    rootMargin: "1200px 0px 900px 0px"
   });
   homeContinuousDiscoveryRuntime.observer.observe(anchor);
+  scheduleIdleBackgroundWork(() => {
+    prepareNextContinuousDiscoveryDescriptor();
+  }, 80);
 }
 
 function buildTrendingKariakooSlide() {
