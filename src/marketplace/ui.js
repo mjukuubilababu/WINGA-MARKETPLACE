@@ -705,6 +705,12 @@
           || card.dataset.showcaseId
           || product?.id
           || "";
+        const initialImageIndex = Number(
+          openTrigger?.dataset?.openImageIndex
+          || card.dataset.openImageIndex
+          || product?.feedInitialImageIndex
+          || 0
+        ) || 0;
         if (!productId) {
           return;
         }
@@ -726,12 +732,12 @@
             role: "buyer",
             title: "You need an account to continue",
             message: "Sign up or log in to open product details and other marketplace actions.",
-            intent: { type: "focus-product", productId }
+            intent: { type: "focus-product", productId, initialImageIndex }
           });
           return;
         }
 
-        deps.openProductDetailModal?.(productId);
+        deps.openProductDetailModal?.(productId, { initialImageIndex });
       });
     }
 

@@ -270,6 +270,7 @@
         otherProducts,
         continuationSections,
         mainImage,
+        initialImageIndex = 0,
         showFloatingHomeAction,
         floatingHomeVariant,
         productReviewSummaryMarkup,
@@ -321,7 +322,8 @@
           priorityCount: Math.min(4, detailImages.length),
           preload: true,
           fitMode,
-          directVisibility: true
+          directVisibility: true,
+          initialImageIndex
         })));
       } else {
         const mainImageElement = (deps.createProgressiveImage || deps.createResponsiveImage)({
@@ -352,7 +354,7 @@
             thumbGrid.appendChild((deps.createProgressiveImage || deps.createResponsiveImage)({
               src: image,
               alt: `${safeProductName} ${index + 1}`,
-              className: `product-detail-thumb${image === safeMainImage ? " active" : ""}`,
+              className: `product-detail-thumb${index === initialImageIndex || image === safeMainImage ? " active" : ""}`,
               fallbackSrc: deps.getImageFallbackDataUri("W"),
               placeholderSrc: deps.getImageFallbackDataUri("W"),
               fitMode: "cover",

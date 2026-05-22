@@ -14265,6 +14265,9 @@ function createContinuousDiscoveryStreamElements(descriptor, index, anchorKind =
     }
     card.classList.remove("showcase-card");
     card.classList.add("seller-product-card");
+    if (Number.isFinite(Number(item?.feedInitialImageIndex))) {
+      card.setAttribute("data-open-image-index", String(Number(item.feedInitialImageIndex) || 0));
+    }
     card.setAttribute("data-continuous-discovery-stream", `${anchorKind}-${index}`);
     card.setAttribute("data-continuous-discovery-kind", descriptor.kind || "stream");
     card.setAttribute("data-continuous-stream-index", String(itemIndex + 1));
@@ -14811,6 +14814,8 @@ function hydrateContinuousDiscoveryAnchor(anchor) {
       enhanceShowcaseTracks(node);
       repairShowcaseMediaVisibility?.(node);
       stabilizeMobileShowcaseRows?.(node);
+    }
+    if (descriptor.kind === "stream") {
       bindShowcaseCardClicks(node);
     }
     bindFeedGalleryInteractions(node);
@@ -15618,6 +15623,11 @@ function bindShowcaseCardClicks(scope) {
         || card.dataset.openProduct
         || card.dataset.showcaseId
         || "";
+      const initialImageIndex = Number(
+        openTrigger?.dataset?.openImageIndex
+        || card.dataset.openImageIndex
+        || 0
+      ) || 0;
       if (!productId || event.__wingaProductOpenHandled) {
         return;
       }
@@ -15639,12 +15649,12 @@ function bindShowcaseCardClicks(scope) {
           role: "buyer",
           title: "You need an account to continue",
           message: "Sign up or log in to open product details and other marketplace actions.",
-          intent: { type: "focus-product", productId }
+          intent: { type: "focus-product", productId, initialImageIndex }
         });
         return;
       }
 
-      openProductDetailModal(productId);
+      openProductDetailModal(productId, { initialImageIndex });
     });
   });
 }
@@ -15819,6 +15829,7 @@ function enhanceShowcaseTracks(scope = document) {
         || card.dataset.showcaseId
         || card.dataset.productCard
         || "";
+      const initialImageIndex = Number(card.dataset.openImageIndex || 0) || 0;
       if (!productId) {
         return;
       }
@@ -15833,12 +15844,12 @@ function enhanceShowcaseTracks(scope = document) {
           role: "buyer",
           title: "You need an account to continue",
           message: "Sign up or log in to open product details and other marketplace actions.",
-          intent: { type: "focus-product", productId }
+          intent: { type: "focus-product", productId, initialImageIndex }
         });
         return;
       }
 
-      openProductDetailModal(productId);
+      openProductDetailModal(productId, { initialImageIndex });
     };
 
     track.addEventListener("wheel", (event) => {
