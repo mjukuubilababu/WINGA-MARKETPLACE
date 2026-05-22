@@ -1381,6 +1381,7 @@
       cancelScheduledFeedRender,
       renderProducts,
       createProductCardElement,
+      createShowcaseProductCardElement,
       createProductCardStackElement,
       createProductGalleryElement,
       createDynamicShowcasePlaceholderElement,

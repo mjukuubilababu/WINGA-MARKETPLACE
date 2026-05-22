@@ -9067,6 +9067,7 @@ const {
   cancelScheduledFeedRender: cancelMarketplaceFeedRender,
   renderProducts,
   createProductCardElement,
+  createShowcaseProductCardElement,
   createProductCardStackElement,
   createShowcaseSectionElement,
   createDynamicShowcasePlaceholderElement,
@@ -14257,12 +14258,12 @@ function createContinuousDiscoveryStreamElements(descriptor, index, anchorKind =
     return [];
   }
   return descriptor.items.map((item, itemIndex) => {
-    const card = createProductCardElement(item, {
-      startupPriority: false
-    });
+    const card = createShowcaseProductCardElement(item);
     if (!(card instanceof Element)) {
       return null;
     }
+    card.classList.remove("showcase-card");
+    card.classList.add("seller-product-card");
     card.setAttribute("data-continuous-discovery-stream", `${anchorKind}-${index}`);
     card.setAttribute("data-continuous-discovery-kind", descriptor.kind || "stream");
     card.setAttribute("data-continuous-stream-index", String(itemIndex + 1));
