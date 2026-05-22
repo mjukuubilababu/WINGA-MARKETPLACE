@@ -9283,7 +9283,7 @@ const MARKETPLACE_SCROLL_IMAGE_PLACEHOLDER = "data:image/gif;base64,R0lGODlhAQAB
 let marketplaceScrollImageObserver = null;
 
 function getMarketplaceScrollImagePrefetchMargin() {
-  return getViewportWidth() <= 720 ? 280 : 960;
+  return getViewportWidth() <= 720 ? 520 : 960;
 }
 
 function getMarketplaceScrollImageRootMargin() {
