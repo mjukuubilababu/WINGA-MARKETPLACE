@@ -59,8 +59,11 @@ const FEED_MEMORY_PREFETCH_COOLDOWN_MS = 900;
 const FEED_SCROLL_SPEED_PREFETCH_THRESHOLD = 0.72;
 const IMAGE_PRELOAD_REGISTRY_LIMIT = 180;
 const MARKETPLACE_SCROLL_PREFETCH_REGISTRY_LIMIT = 240;
-const MARKETPLACE_SCROLL_PREFETCH_CONCURRENCY = 2;
+const MARKETPLACE_SCROLL_PREFETCH_CONCURRENCY = 4;
 const MARKETPLACE_SCROLL_PREFETCH_TIMEOUT_MS = 12000;
+const MARKETPLACE_SCROLL_PREFETCH_MAX_QUEUE = 48;
+const HOME_CONTINUOUS_EARLY_LOAD_RATIO = 0.65;
+const HOME_CONTINUOUS_EARLY_LOAD_COOLDOWN_MS = 180;
 const BLOCKED_DEMO_PRODUCT_IDENTIFIERS = new Set([
   "gauni la harusi",
   "sketi ya rangi",
@@ -2140,6 +2143,12 @@ function clearLightweightImageRegistries() {
   marketplaceScrollPrefetchActiveCount = 0;
 }
 
+function bumpMarketplaceImagePrefetchGeneration(reason = "feed_refresh") {
+  feedRuntimeState.marketplaceImagePrefetchGeneration = Number(feedRuntimeState.marketplaceImagePrefetchGeneration || 0) + 1;
+  feedRuntimeState.lastMarketplaceImagePrefetchReason = reason;
+  marketplaceScrollPrefetchQueue.length = 0;
+}
+
 function drainMarketplaceScrollPrefetchQueue() {
   while (
     marketplaceScrollPrefetchActiveCount < MARKETPLACE_SCROLL_PREFETCH_CONCURRENCY
@@ -2147,7 +2156,12 @@ function drainMarketplaceScrollPrefetchQueue() {
   ) {
     const nextJob = marketplaceScrollPrefetchQueue.shift();
     const safeSrc = String(nextJob?.src || "").trim();
-    if (!safeSrc || marketplaceScrollImagePrefetchedSources.has(safeSrc)) {
+    const generation = Number(nextJob?.generation || 0);
+    if (
+      !safeSrc
+      || marketplaceScrollImagePrefetchedSources.has(safeSrc)
+      || generation !== Number(feedRuntimeState.marketplaceImagePrefetchGeneration || 0)
+    ) {
       continue;
     }
 
@@ -2163,7 +2177,9 @@ function drainMarketplaceScrollPrefetchQueue() {
     const timeoutId = window.setTimeout(cleanup, MARKETPLACE_SCROLL_PREFETCH_TIMEOUT_MS);
     prefetchImage.onload = () => {
       window.clearTimeout(timeoutId);
-      markMarketplaceImagePrefetched(safeSrc);
+      if (generation === Number(feedRuntimeState.marketplaceImagePrefetchGeneration || 0)) {
+        markMarketplaceImagePrefetched(safeSrc);
+      }
       cleanup();
     };
     prefetchImage.onerror = () => {
@@ -2180,16 +2196,20 @@ function drainMarketplaceScrollPrefetchQueue() {
 
 function scheduleMarketplaceScrollImagePrefetch(src = "") {
   const safeSrc = sanitizeImageSource(src, "");
+  const generation = Number(feedRuntimeState.marketplaceImagePrefetchGeneration || 0);
   if (
     !safeSrc
     || /^data:/i.test(safeSrc)
     || marketplaceScrollImagePrefetchedSources.has(safeSrc)
     || marketplaceScrollPrefetchInflight.has(safeSrc)
-    || marketplaceScrollPrefetchQueue.some((entry) => entry?.src === safeSrc)
+    || marketplaceScrollPrefetchQueue.some((entry) => entry?.src === safeSrc && Number(entry?.generation || 0) === generation)
   ) {
     return false;
   }
-  marketplaceScrollPrefetchQueue.push({ src: safeSrc, queuedAt: Date.now() });
+  marketplaceScrollPrefetchQueue.push({ src: safeSrc, queuedAt: Date.now(), generation });
+  if (marketplaceScrollPrefetchQueue.length > MARKETPLACE_SCROLL_PREFETCH_MAX_QUEUE) {
+    marketplaceScrollPrefetchQueue.splice(0, marketplaceScrollPrefetchQueue.length - MARKETPLACE_SCROLL_PREFETCH_MAX_QUEUE);
+  }
   drainMarketplaceScrollPrefetchQueue();
   return true;
 }
@@ -10380,6 +10400,7 @@ let homeContinuousDiscoveryRuntime = {
   lastVariantNormalOrdinal: -HOME_VARIANT_MIN_NORMAL_PRODUCTS_BETWEEN,
   preparedDescriptor: null,
   preparedDescriptorBatchIndex: -1,
+  lastEarlyLoadAt: 0,
   loading: false,
   seedProductId: "",
   lastHydrateAt: 0
@@ -12510,6 +12531,7 @@ window.addEventListener("scroll", () => {
   if (currentView === "home" && !document.body.classList.contains("product-detail-open")) {
     scheduleHomeScrollSave();
     schedulePredictiveFeedPrefetch("scroll");
+    maybeAdvanceBackgroundContinuation();
   }
   if (getViewportWidth() <= 720) {
     scheduleMobileHeaderScrollSync();
@@ -14922,6 +14944,7 @@ function disconnectContinuousDiscoveryObserver() {
     lastVariantNormalOrdinal: -HOME_VARIANT_MIN_NORMAL_PRODUCTS_BETWEEN,
     preparedDescriptor: null,
     preparedDescriptorBatchIndex: -1,
+    lastEarlyLoadAt: 0,
     loading: false,
     seedProductId: "",
     reobserveTimer: 0,
@@ -15021,6 +15044,42 @@ function isAnchorWithinBackgroundContinuationBand(anchor) {
   const viewportHeight = window.innerHeight || document.documentElement?.clientHeight || 0;
   const rect = anchor.getBoundingClientRect();
   return rect.top <= viewportHeight * 2.25;
+}
+
+function maybeAdvanceBackgroundContinuation() {
+  if (currentView !== "home" || homeContinuousDiscoveryRuntime.loading || !productsContainer) {
+    return;
+  }
+  const anchor = productsContainer.querySelector("[data-continuous-discovery-anchor='home']");
+  if (!(anchor instanceof Element) || !anchor.isConnected) {
+    return;
+  }
+  const renderedCards = Array.from(
+    productsContainer.querySelectorAll(".product-card[data-open-product], .seller-product-card[data-open-product]")
+  );
+  if (!renderedCards.length) {
+    return;
+  }
+  const visibleIndex = getVisibleFeedProductIndex();
+  const progressRatio = visibleIndex >= 0 ? (visibleIndex + 1) / Math.max(1, renderedCards.length) : 0;
+  const now = Date.now();
+  if (
+    progressRatio < HOME_CONTINUOUS_EARLY_LOAD_RATIO
+    && !isAnchorWithinBackgroundContinuationBand(anchor)
+  ) {
+    return;
+  }
+  if (now - Number(homeContinuousDiscoveryRuntime.lastEarlyLoadAt || 0) < HOME_CONTINUOUS_EARLY_LOAD_COOLDOWN_MS) {
+    return;
+  }
+  homeContinuousDiscoveryRuntime.lastEarlyLoadAt = now;
+  scheduleIdleBackgroundWork(() => {
+    if (currentView !== "home" || homeContinuousDiscoveryRuntime.loading || !anchor.isConnected) {
+      return;
+    }
+    prepareNextContinuousDiscoveryDescriptor();
+    hydrateContinuousDiscoveryAnchor(anchor);
+  }, 60);
 }
 
 function hydrateContinuousDiscoveryAnchor(anchor) {
@@ -15204,6 +15263,8 @@ function setupContinuousDiscoveryLoading(scope, options = {}) {
   homeContinuousDiscoveryRuntime.lastHydrateAt = 0;
   homeContinuousDiscoveryRuntime.preparedDescriptor = null;
   homeContinuousDiscoveryRuntime.preparedDescriptorBatchIndex = -1;
+  homeContinuousDiscoveryRuntime.lastEarlyLoadAt = 0;
+  bumpMarketplaceImagePrefetchGeneration("continuous_discovery_reset");
   const initialProductIds = Array.from(options.initialProductIds || []).filter(Boolean);
   homeContinuousDiscoveryRuntime.normalProductOrdinal = initialProductIds.length;
   initialProductIds.forEach((productId, index) => {
