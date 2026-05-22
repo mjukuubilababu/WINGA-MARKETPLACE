@@ -711,6 +711,13 @@
           || product?.feedInitialImageIndex
           || 0
         ) || 0;
+        if (product?.feedVariantResurface) {
+          console.info("[WINGA] variant_card_click", {
+            productId,
+            initialImageIndex,
+            cardClass: card.className
+          });
+        }
         if (!productId) {
           return;
         }
@@ -737,6 +744,12 @@
           return;
         }
 
+        if (product?.feedVariantResurface) {
+          console.info("[WINGA] variant_card_open_detail", {
+            productId,
+            initialImageIndex
+          });
+        }
         deps.openProductDetailModal?.(productId, { initialImageIndex });
       });
     }
@@ -801,12 +814,24 @@
         attributes: {
           "data-product-card": product.id,
           "data-open-product": product.id,
+          ...(Number.isFinite(Number(product?.feedInitialImageIndex)) ? { "data-open-image-index": String(Number(product.feedInitialImageIndex) || 0) } : {}),
+          ...(product?.feedVariantResurface ? { "data-feed-variant-card": "true" } : {}),
           ...(startupPriority ? { "data-startup-priority-card": "true" } : {})
         }
       });
       card.dataset.productCard = product.id;
       card.dataset.openProduct = product.id;
+      if (Number.isFinite(Number(product?.feedInitialImageIndex))) {
+        card.dataset.openImageIndex = String(Number(product.feedInitialImageIndex) || 0);
+      }
       card.dataset.cardOpenBound = "false";
+      if (product?.feedVariantResurface) {
+        card.dataset.feedVariantCard = "true";
+        console.info("[WINGA] variant_card_render", {
+          productId: product.id,
+          initialImageIndex: Number(product.feedInitialImageIndex || 0) || 0
+        });
+      }
       if (Array.isArray(product.images) && product.images.length > 1) {
         card.classList.add("has-gallery-count-badge");
       }

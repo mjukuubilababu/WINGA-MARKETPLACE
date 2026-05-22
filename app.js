@@ -14259,14 +14259,11 @@ function createContinuousDiscoveryStreamElements(descriptor, index, anchorKind =
     return [];
   }
   return descriptor.items.map((item, itemIndex) => {
-    const card = createShowcaseProductCardElement(item);
+    const card = createProductCardElement(item, {
+      startupPriority: false
+    });
     if (!(card instanceof Element)) {
       return null;
-    }
-    card.classList.remove("showcase-card");
-    card.classList.add("seller-product-card");
-    if (Number.isFinite(Number(item?.feedInitialImageIndex))) {
-      card.setAttribute("data-open-image-index", String(Number(item.feedInitialImageIndex) || 0));
     }
     card.setAttribute("data-continuous-discovery-stream", `${anchorKind}-${index}`);
     card.setAttribute("data-continuous-discovery-kind", descriptor.kind || "stream");
@@ -14814,9 +14811,6 @@ function hydrateContinuousDiscoveryAnchor(anchor) {
       enhanceShowcaseTracks(node);
       repairShowcaseMediaVisibility?.(node);
       stabilizeMobileShowcaseRows?.(node);
-    }
-    if (descriptor.kind === "stream") {
-      bindShowcaseCardClicks(node);
     }
     bindFeedGalleryInteractions(node);
     bindProductEngagementSignals(node);

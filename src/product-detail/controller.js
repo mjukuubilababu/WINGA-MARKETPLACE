@@ -654,6 +654,12 @@
         allowBrokenImageFallbackOpen = false,
         initialImageIndex = 0
       } = options;
+      if (Number(initialImageIndex || 0) > 0) {
+        console.info("[WINGA] variant_detail_open", {
+          productId: normalizedProductId,
+          initialImageIndex: Number(initialImageIndex || 0) || 0
+        });
+      }
 
       const renderableImages = typeof deps.getRenderableMarketplaceImages === "function"
         ? deps.getRenderableMarketplaceImages(product, {
