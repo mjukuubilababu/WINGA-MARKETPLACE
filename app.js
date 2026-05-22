@@ -3045,6 +3045,40 @@ function getVisibleFeedProductIndex() {
   return maxIndex;
 }
 
+function getAdaptivePredictiveFeedWindow() {
+  const layoutMode = getClientLayoutMode();
+  const isCompactLayout = layoutMode === "mobile" || layoutMode === "standalone-mobile" || layoutMode === "mobile-desktop-site";
+  const scrollSpeed = Number(feedRuntimeState.lastScrollSpeed || 0);
+  if (scrollSpeed <= 0.18) {
+    return {
+      productLimit: isCompactLayout ? 12 : 16,
+      decodeLimit: isCompactLayout ? 6 : 8
+    };
+  }
+  if (scrollSpeed <= FEED_SCROLL_SPEED_PREFETCH_THRESHOLD) {
+    return {
+      productLimit: isCompactLayout ? 8 : 12,
+      decodeLimit: isCompactLayout ? 4 : 6
+    };
+  }
+  return {
+    productLimit: isCompactLayout ? 5 : 8,
+    decodeLimit: isCompactLayout ? 3 : 4
+  };
+}
+
+function primeIncomingFeedItems(productsList = [], options = {}) {
+  if (!Array.isArray(productsList) || !productsList.length) {
+    return;
+  }
+  const windowConfig = getAdaptivePredictiveFeedWindow();
+  primeFeedInstantCache(productsList, {
+    reason: String(options.reason || "incoming_feed_items"),
+    productLimit: Math.min(productsList.length, Number(options.productLimit || windowConfig.productLimit) || windowConfig.productLimit),
+    decodeLimit: Math.min(productsList.length, Number(options.decodeLimit || windowConfig.decodeLimit) || windowConfig.decodeLimit)
+  });
+}
+
 function primePredictiveFeedBatch(trigger = "scroll") {
   if (currentView !== "home" || document.hidden) {
     return;
@@ -3053,12 +3087,13 @@ function primePredictiveFeedBatch(trigger = "scroll") {
   if (!Array.isArray(filteredProducts) || !filteredProducts.length) {
     return;
   }
+  const windowConfig = getAdaptivePredictiveFeedWindow();
   const visibleIndex = getVisibleFeedProductIndex();
   if (visibleIndex < 0) {
-    primeFeedInstantCache(filteredProducts, {
+    primeIncomingFeedItems(filteredProducts, {
       reason: `${trigger}_bootstrap`,
-      productLimit: FEED_PREDICTIVE_PRELOAD_COUNT,
-      decodeLimit: FEED_PREDICTIVE_NEXT_BATCH_SIZE
+      productLimit: windowConfig.productLimit,
+      decodeLimit: windowConfig.decodeLimit
     });
     return;
   }
@@ -3071,10 +3106,10 @@ function primePredictiveFeedBatch(trigger = "scroll") {
   if (!nextProducts.length) {
     return;
   }
-  primeFeedInstantCache(nextProducts, {
+  primeIncomingFeedItems(nextProducts, {
     reason: `${trigger}_next_batch`,
-    productLimit: FEED_PREDICTIVE_NEXT_BATCH_SIZE,
-    decodeLimit: Math.min(FEED_PREDICTIVE_NEXT_BATCH_SIZE, 6)
+    productLimit: Math.min(windowConfig.productLimit, nextProducts.length),
+    decodeLimit: Math.min(windowConfig.decodeLimit, nextProducts.length)
   });
 }
 
@@ -3086,9 +3121,13 @@ function schedulePredictiveFeedPrefetch(trigger = "scroll") {
     return;
   }
   const now = Date.now();
+  const scrollSpeed = Number(feedRuntimeState.lastScrollSpeed || 0);
+  const adaptiveCooldown = trigger === "scroll"
+    ? Math.max(180, Math.min(FEED_MEMORY_PREFETCH_COOLDOWN_MS, scrollSpeed <= 0.18 ? 220 : (scrollSpeed <= FEED_SCROLL_SPEED_PREFETCH_THRESHOLD ? 420 : FEED_MEMORY_PREFETCH_COOLDOWN_MS)))
+    : 0;
   if (
     trigger === "scroll"
-    && now - Number(feedRuntimeState.lastPrefetchAt || 0) < FEED_MEMORY_PREFETCH_COOLDOWN_MS
+    && now - Number(feedRuntimeState.lastPrefetchAt || 0) < adaptiveCooldown
   ) {
     return;
   }
@@ -3096,7 +3135,9 @@ function schedulePredictiveFeedPrefetch(trigger = "scroll") {
     window.clearTimeout(feedRuntimeState.prefetchTimer);
     feedRuntimeState.prefetchTimer = 0;
   }
-  const delay = trigger === "scroll" ? 40 : 0;
+  const delay = trigger === "scroll"
+    ? (scrollSpeed <= 0.18 ? 0 : (scrollSpeed <= FEED_SCROLL_SPEED_PREFETCH_THRESHOLD ? 20 : 40))
+    : 0;
   feedRuntimeState.prefetchTimer = window.setTimeout(() => {
     feedRuntimeState.prefetchTimer = 0;
     feedRuntimeState.lastPrefetchAt = Date.now();
@@ -9367,8 +9408,20 @@ function getMarketplaceScrollImageRootMargin() {
 
 function getProductImageCandidates(product) {
   const sourceImages = Array.isArray(product?.images) && product.images.length > 0
-    ? product.images
+    ? product.images.slice()
     : [product?.image];
+  const preferredImageIndex = Number(product?.feedInitialImageIndex ?? product?.visibleImageIndex);
+  if (
+    Array.isArray(sourceImages)
+    && sourceImages.length > 1
+    && Number.isFinite(preferredImageIndex)
+    && preferredImageIndex > 0
+    && preferredImageIndex < sourceImages.length
+  ) {
+    const preferredImage = sourceImages[preferredImageIndex];
+    sourceImages.splice(preferredImageIndex, 1);
+    sourceImages.unshift(preferredImage);
+  }
   const seen = new Set();
   return sourceImages
     .map((image) => sanitizeImageSource(image, ""))
@@ -12447,9 +12500,7 @@ window.addEventListener("scroll", () => {
   uiRuntimeState.lastScrollActivityAt = Date.now();
   if (currentView === "home" && !document.body.classList.contains("product-detail-open")) {
     scheduleHomeScrollSave();
-    if (feedRuntimeState.lastScrollSpeed >= FEED_SCROLL_SPEED_PREFETCH_THRESHOLD) {
-      schedulePredictiveFeedPrefetch("scroll");
-    }
+    schedulePredictiveFeedPrefetch("scroll");
   }
   if (getViewportWidth() <= 720) {
     scheduleMobileHeaderScrollSync();
@@ -14964,6 +15015,13 @@ function hydrateContinuousDiscoveryAnchor(anchor) {
   }
 
   const batchIndex = homeContinuousDiscoveryRuntime.batchIndex + 1;
+  if (Array.isArray(descriptor?.items) && descriptor.items.length) {
+    primeIncomingFeedItems(descriptor.items, {
+      reason: `continuous_discovery_batch_${batchIndex}_preappend`,
+      productLimit: descriptor.kind === "stream" ? Math.min(descriptor.items.length, 6) : Math.min(descriptor.items.length, 4),
+      decodeLimit: descriptor.kind === "stream" ? Math.min(descriptor.items.length, 4) : Math.min(descriptor.items.length, 2)
+    });
+  }
   let insertedNodes = [];
   if (descriptor.kind === "stream") {
     insertedNodes = createContinuousDiscoveryStreamElements(descriptor, batchIndex, "home");
