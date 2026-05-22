@@ -14476,6 +14476,10 @@ function getHomeContinuousStreamProducts(options = {}) {
   return combined.slice(0, limit);
 }
 
+function shouldPreferHomeContinuousMarketplaceStream() {
+  return getViewportWidth() <= 720;
+}
+
 function getContinuousDiscoveryDescriptor(options = {}) {
   const {
     seedProduct = null,
@@ -14496,7 +14500,9 @@ function getContinuousDiscoveryDescriptor(options = {}) {
   });
   const hardEligibleProducts = renderableProducts.filter((product) => !hardExcludeIds.has(product.id));
   const minimumBatchSize = 3;
-  const shouldPreferMarketplaceStream = batchIndex === 0 || batchIndex % 3 !== 1;
+  const shouldPreferMarketplaceStream = shouldPreferHomeContinuousMarketplaceStream()
+    ? true
+    : (batchIndex === 0 || batchIndex % 3 !== 1);
   const streamItems = getHomeContinuousStreamProducts({
     limit: batchIndex === 0 ? 10 : 8,
     recentIds,

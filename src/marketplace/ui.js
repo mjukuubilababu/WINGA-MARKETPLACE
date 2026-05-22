@@ -37,6 +37,7 @@
     };
     const FEED_RENDER_BATCH_SIZE = 8;
     const FEED_RENDER_BATCH_DELAY_MS = 22;
+    const MOBILE_HOME_INITIAL_FEED_LIMIT = 12;
 
     function cancelScheduledFeedRender() {
       scheduledFeedRenderState.token += 1;
@@ -1158,8 +1159,9 @@
       const shouldTrackViews = currentView !== "upload";
       const legacyShowcaseEnabled = false;
       const intelligentFeedEnabled = currentView === "home";
-      const shouldInjectInlineShowcases = intelligentFeedEnabled;
       const isMobileViewport = layoutMode === "mobile" || layoutMode === "standalone-mobile" || layoutMode === "mobile-desktop-site";
+      const shouldUseMobileEndlessHomeFeed = currentView === "home" && isMobileViewport;
+      const shouldInjectInlineShowcases = intelligentFeedEnabled && !shouldUseMobileEndlessHomeFeed;
       const startupPriorityCardCount = isMobileViewport ? 2 : STARTUP_PRIORITY_CARD_COUNT;
       const initialSyncBatchSize = isMobileViewport ? 8 : INITIAL_SYNC_FEED_BATCH_SIZE;
       const bootstrapSyncFeedTargetCount = isMobileViewport ? 10 : BOOTSTRAP_SYNC_FEED_TARGET_COUNT;
@@ -1187,7 +1189,10 @@
       let intelligentSectionIndex = 0;
 
       const startRendering = (resolvedList) => {
-        const safeList = Array.isArray(resolvedList) ? resolvedList : list;
+        const sourceList = Array.isArray(resolvedList) ? resolvedList : list;
+        const safeList = shouldUseMobileEndlessHomeFeed
+          ? sourceList.slice(0, Math.min(MOBILE_HOME_INITIAL_FEED_LIMIT, sourceList.length))
+          : sourceList;
 
       const appendShowcaseIfNeeded = (fragment, renderedCount) => {
         if (!shouldInjectInlineShowcases || renderedCount !== nextShowcaseInsertAt || renderedCount >= safeList.length) {
