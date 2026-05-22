@@ -1336,7 +1336,8 @@
           });
           deps.setupContinuousDiscoveryLoading(productsContainer, {
             seedProduct: deps.getRecommendationSeed(list),
-            usedProductIds
+            usedProductIds,
+            initialProductIds: safeList.map((product) => product.id).filter(Boolean)
           });
         }
         if (viewedProductIds.length > 0) {
