@@ -6178,6 +6178,12 @@ function showInstantBootFeedSnapshot(reason = "boot_snapshot") {
     return false;
   }
 
+  primeIncomingFeedItems(products.slice(0, Math.min(products.length, 10)), {
+    reason: `${reason}_snapshot_prime`,
+    productLimit: Math.min(products.length, 10),
+    decodeLimit: Math.min(products.length, 5)
+  });
+
   const hasVisibleFeedShell = Boolean(
     productsContainer?.querySelector(".product-card, .seller-product-card")
     || productsContainer?.querySelector("[data-feed-skeleton-card='true']")
@@ -9235,6 +9241,7 @@ const {
   getYouMayLikeProducts,
   getTrendingProducts,
   prioritizeVisibleFeedMedia,
+  primeIncomingFeedItems,
   bindShowcaseCardClicks,
   setupDynamicShowcaseLoading,
   reportShowcaseInstrumentation,
@@ -9264,7 +9271,7 @@ const {
       bindProductEngagementSignals(container);
       bindImageFallbacks(container);
       bindProductMenus(container);
-    }, 700);
+    }, 220);
   },
   onFeedRenderBatch: ({ currentView: renderedView, products: renderedProducts }) => {
     if (renderedView !== "home" || !Array.isArray(renderedProducts) || !renderedProducts.length) {
@@ -17761,10 +17768,10 @@ async function bootApp() {
     }
     scheduleStartupImageWork(products, {
       reason: "boot_refresh",
-      productLimit: 6,
+      productLimit: 8,
       imageLimitPerProduct: 1,
-      decodeLimit: 2,
-      delayMs: 1800
+      decodeLimit: 3,
+      delayMs: 700
     });
   });
   scheduleDeferredImageSignatureHydration(products, {

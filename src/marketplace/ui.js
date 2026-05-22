@@ -1224,6 +1224,16 @@
         const safeList = shouldUseMobileEndlessHomeFeed
           ? sourceList.slice(0, Math.min(MOBILE_HOME_INITIAL_FEED_LIMIT, sourceList.length))
           : sourceList;
+        if (currentView === "home" && typeof deps.primeIncomingFeedItems === "function" && safeList.length > 0) {
+          deps.primeIncomingFeedItems(
+            safeList.slice(0, Math.min(safeList.length, startupPriorityCardCount + 6)),
+            {
+              reason: "home_initial_render_preprime",
+              productLimit: Math.min(safeList.length, startupPriorityCardCount + 6),
+              decodeLimit: Math.min(safeList.length, Math.max(startupPriorityCardCount + 2, 4))
+            }
+          );
+        }
 
       const appendShowcaseIfNeeded = (fragment, renderedCount) => {
         if (!shouldInjectInlineShowcases || renderedCount !== nextShowcaseInsertAt || renderedCount >= safeList.length) {
@@ -1378,6 +1388,16 @@
           currentView
         });
         if (endIndex < safeList.length) {
+          if (currentView === "home" && typeof deps.primeIncomingFeedItems === "function") {
+            deps.primeIncomingFeedItems(
+              safeList.slice(endIndex, Math.min(safeList.length, endIndex + FEED_RENDER_BATCH_SIZE + 4)),
+              {
+                reason: `feed_batch_${endIndex}_preprime`,
+                productLimit: Math.min(FEED_RENDER_BATCH_SIZE + 4, Math.max(0, safeList.length - endIndex)),
+                decodeLimit: Math.min(6, Math.max(0, safeList.length - endIndex))
+              }
+            );
+          }
           deps.onFeedRenderBatch?.({
             container: productsContainer,
             renderedCount: endIndex,
