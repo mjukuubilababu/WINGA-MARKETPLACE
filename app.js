@@ -14323,6 +14323,18 @@ function reorderProductImagesForVariant(product, variantIndex = 1) {
   return [leadImage, ...uniqueImages.filter((image) => image !== leadImage)];
 }
 
+function getVariantInitialImageIndex(product, variantIndex = 1) {
+  const images = Array.from(new Set(getRenderableMarketplaceImages(product).filter(Boolean)));
+  if (images.length < 2) {
+    return 0;
+  }
+  const normalizedIndex = Math.max(1, Math.min(images.length - 1, Number(variantIndex || 1)));
+  const leadImage = images[normalizedIndex];
+  const originalImages = getRenderableMarketplaceImages(product);
+  const originalIndex = originalImages.findIndex((image) => image === leadImage);
+  return originalIndex >= 0 ? originalIndex : 0;
+}
+
 function getVariantResurfacedProducts(options = {}) {
   const {
     limit = 6,
@@ -14386,17 +14398,17 @@ function getVariantResurfacedProducts(options = {}) {
       return;
     }
     const existingVariantCount = Number(counts[product.id] || 0);
-    const rotatedImages = reorderProductImagesForVariant(product, existingVariantCount + 1);
-    if (rotatedImages.length < 2 || rotatedImages[0] === getMarketplacePrimaryImage(product)) {
+    const initialImageIndex = getVariantInitialImageIndex(product, existingVariantCount + 1);
+    const allImages = getRenderableMarketplaceImages(product);
+    if (allImages.length < 2 || initialImageIndex <= 0 || allImages[initialImageIndex] === getMarketplacePrimaryImage(product)) {
       return;
     }
     items.push({
       ...product,
-      image: rotatedImages[0],
-      images: rotatedImages,
       feedVariantResurface: true,
       feedVariantIndex: existingVariantCount + 1,
-      feedVariantSourceId: product.id
+      feedVariantSourceId: product.id,
+      feedInitialImageIndex: initialImageIndex
     });
     if (sellerId) {
       sellerCounts.set(sellerId, currentSellerCount + 1);
@@ -15008,7 +15020,11 @@ function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
   const safeImages = getRenderableMarketplaceImages(product);
   const images = safeImages.length > 0 ? safeImages : [getImageFallbackDataUri("WINGA")];
   const total = images.length;
-  const currentLabel = total > 1 ? `1/${total}` : "";
+  const requestedInitialIndex = Number(options?.initialImageIndex ?? product?.feedInitialImageIndex ?? product?.visibleImageIndex ?? 0);
+  const initialImageIndex = total > 1
+    ? Math.max(0, Math.min(total - 1, Number.isFinite(requestedInitialIndex) ? requestedInitialIndex : 0))
+    : 0;
+  const currentLabel = total > 1 ? `${initialImageIndex + 1}/${total}` : "";
   const priorityLimit = Math.max(0, Number(options?.priorityCount ?? 0) || 0);
   const shouldUseEagerPrimaryImage = Boolean(options?.preload);
   const normalizedSurface = String(surface || "").trim().toLowerCase() || "feed";
@@ -15031,7 +15047,7 @@ function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
     });
   }
   if (!useCarouselSurface) {
-    const previewSrc = sanitizeImageSource(String(images[0] || "").trim(), getImageFallbackDataUri("WINGA"));
+    const previewSrc = sanitizeImageSource(String(images[initialImageIndex] || images[0] || "").trim(), getImageFallbackDataUri("WINGA"));
     return `
       <div class="product-gallery media-gallery feed-gallery-preview showcase-media-preview feed-gallery-preview-single fit-mode-${escapeHtml(fitMode)}"
         data-feed-gallery-surface="${escapeHtml(normalizedSurface || "discovery")}"
@@ -15071,17 +15087,17 @@ function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
           placeholderSrc: getImageFallbackDataUri("W"),
           fitMode,
           attributes: {
-            loading: shouldUseEagerPrimaryImage && index === 0 ? "eager" : "lazy",
-            fetchpriority: shouldUseEagerPrimaryImage && index === 0 ? "high" : "auto",
+            loading: shouldUseEagerPrimaryImage && index === initialImageIndex ? "eager" : "lazy",
+            fetchpriority: shouldUseEagerPrimaryImage && index === initialImageIndex ? "high" : "auto",
             decoding: "async",
             draggable: "false",
             "data-preserve-image-ratio": "true",
             "data-marketplace-scroll-image": "true",
-            "data-feed-gallery-primary": index === 0 ? "true" : "false",
+            "data-feed-gallery-primary": index === initialImageIndex ? "true" : "false",
             "data-feed-gallery-image-src": safeSrc,
             "data-fallback-src": getImageFallbackDataUri("WINGA"),
             ...(shouldForceDirectVisibility ? { "data-direct-visibility": "true" } : {}),
-            ...(index < priorityLimit ? { "data-image-priority": "startup-critical feed-primary" } : {})
+            ...(index === initialImageIndex && priorityLimit > 0 ? { "data-image-priority": "startup-critical feed-primary" } : {})
           }
         }).outerHTML}
       </div>
@@ -15092,7 +15108,8 @@ function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
     <div class="product-gallery media-gallery feed-gallery-preview feed-gallery-carousel fit-mode-${escapeHtml(fitMode)}"
       data-feed-gallery-carousel="true"
       data-feed-gallery-total="${total}"
-      data-feed-gallery-current="1"
+      data-feed-gallery-current="${initialImageIndex + 1}"
+      data-feed-gallery-initial-index="${initialImageIndex}"
       data-feed-gallery-surface="${escapeHtml(normalizedSurface || "feed")}"
       ${stableFrameRatio ? `data-feed-gallery-stable-ratio="${escapeHtml(stableFrameRatio)}"` : ""}
       data-feed-gallery-stable-fit-mode="${escapeHtml(fitMode)}"
@@ -15291,6 +15308,13 @@ function bindFeedGalleryInteractions(scope = document) {
     let initSyncTimer = 0;
     let lastTrackedIndex = 0;
     let variationSignalCount = 0;
+    const initialGalleryIndex = Math.max(
+      0,
+      Math.min(
+        Math.max(0, Number(carousel.dataset.feedGalleryTotal || 1) - 1),
+        Number(carousel.dataset.feedGalleryInitialIndex || 0) || 0
+      )
+    );
 
     const clearDragState = () => {
       if (hasPointerCapture && pointerId != null) {
@@ -15497,6 +15521,10 @@ function bindFeedGalleryInteractions(scope = document) {
     }
     initSyncTimer = window.setTimeout(() => {
       initSyncTimer = 0;
+      const width = Math.max(1, track.clientWidth || carousel.clientWidth || 1);
+      if (initialGalleryIndex > 0) {
+        track.scrollLeft = initialGalleryIndex * width;
+      }
       syncAspectRatio();
       lastTrackedIndex = syncBadge();
     }, 0);
