@@ -133,6 +133,90 @@ function isServiceWorkerRecoveryDisabled() {
   return Boolean(window.WINGA_CONFIG?.disableServiceWorker);
 }
 
+const createMarketplaceImageLoaderModule = window.WingaModules.marketplace.createImageLoaderModule || ((deps = {}) => {
+  const normalizeImageCandidates = (values = []) => {
+    const seen = new Set();
+    return values
+      .map((value) => deps.sanitizeImageSource?.(value, "") || "")
+      .filter(Boolean)
+      .filter((value) => {
+        if (seen.has(value)) {
+          return false;
+        }
+        seen.add(value);
+        return true;
+      });
+  };
+
+  return {
+    collectOptionalFeedImageCandidates(product) {
+      const variants = product?.imageVariants && typeof product.imageVariants === "object"
+        ? product.imageVariants
+        : {};
+      return normalizeImageCandidates([
+        product?.feedImage,
+        product?.feedImageUrl,
+        product?.previewImage,
+        product?.previewImageUrl,
+        product?.preview,
+        product?.thumbnail,
+        product?.thumbnailUrl,
+        product?.thumb,
+        product?.thumbUrl,
+        product?.smallImage,
+        product?.smallImageUrl,
+        product?.imageThumb,
+        product?.imagePreview,
+        variants.feed,
+        variants.feedUrl,
+        variants.preview,
+        variants.previewUrl,
+        variants.thumbnail,
+        variants.thumbnailUrl,
+        variants.thumb,
+        variants.thumbUrl,
+        variants.small,
+        variants.smallUrl
+      ]);
+    },
+    getProductImageCandidates(product) {
+      const sourceImages = Array.isArray(product?.images) && product.images.length > 0
+        ? product.images.slice()
+        : [product?.image];
+      const preferredFeedImages = this.collectOptionalFeedImageCandidates(product);
+      if (preferredFeedImages.length) {
+        sourceImages.unshift(...preferredFeedImages);
+      }
+      const safeImages = normalizeImageCandidates(sourceImages);
+      const preferredImageIndex = Number(product?.feedInitialImageIndex ?? product?.visibleImageIndex);
+      if (
+        safeImages.length > 1
+        && Number.isFinite(preferredImageIndex)
+        && preferredImageIndex > 0
+        && preferredImageIndex < safeImages.length
+      ) {
+        const preferredImage = safeImages[preferredImageIndex];
+        safeImages.splice(preferredImageIndex, 1);
+        safeImages.unshift(preferredImage);
+      }
+      return safeImages;
+    },
+    canUseServiceWorkerImageWarmCache() {
+      return !deps.isServiceWorkerRecoveryDisabled?.();
+    }
+  };
+});
+
+const marketplaceImageLoader = createMarketplaceImageLoaderModule({
+  sanitizeImageSource,
+  isServiceWorkerRecoveryDisabled
+});
+const {
+  collectOptionalFeedImageCandidates: collectFeedImageLoaderCandidates,
+  getProductImageCandidates: getFeedImageLoaderCandidates,
+  canUseServiceWorkerImageWarmCache
+} = marketplaceImageLoader;
+
 function shouldUseBootstrapFeedSnapshot() {
   if (window.WINGA_CONFIG?.enableBootstrapFeedSnapshot === false) {
     return false;
@@ -2436,7 +2520,7 @@ function clearBlockedDemoBootstrapSnapshot() {
 }
 
 function postServiceWorkerWarmCacheMessage(payload) {
-  if (!("serviceWorker" in navigator) || !payload?.type) {
+  if (!canUseServiceWorkerImageWarmCache() || !("serviceWorker" in navigator) || !payload?.type) {
     return;
   }
   const postMessageToWorker = (registration) => {
@@ -2572,7 +2656,7 @@ function warmProductImageCache(products = [], options = {}) {
 
   const pendingQueue = queue.slice(0, Math.min(queue.length, decodeCount));
   const cacheUrls = pendingQueue.map((item) => item.src).filter(Boolean);
-  if (cacheUrls.length && "serviceWorker" in navigator) {
+  if (cacheUrls.length && canUseServiceWorkerImageWarmCache() && "serviceWorker" in navigator) {
     const postCacheMessage = (registration) => {
       if (!isWarmCycleActive()) {
         return;
@@ -2751,7 +2835,7 @@ function warmAdminImageCache(imageSources = []) {
   });
 
   const cacheUrls = queue.map((item) => item.src).filter(Boolean);
-  if (cacheUrls.length && "serviceWorker" in navigator) {
+  if (cacheUrls.length && canUseServiceWorkerImageWarmCache() && "serviceWorker" in navigator) {
     const postCacheMessage = (registration) => {
       try {
         registration?.active?.postMessage?.({
@@ -9414,25 +9498,7 @@ function normalizeProduct(product) {
 }
 
 function collectOptionalFeedImageCandidates(product) {
-  if (!product || typeof product !== "object") {
-    return [];
-  }
-  const variants = product.imageVariants && typeof product.imageVariants === "object"
-    ? product.imageVariants
-    : {};
-  return [
-    product.feedImage,
-    product.previewImage,
-    product.thumbnail,
-    product.smallImage,
-    product.imageThumb,
-    variants.feed,
-    variants.preview,
-    variants.thumbnail,
-    variants.small
-  ]
-    .map((value) => sanitizeImageSource(value, ""))
-    .filter(Boolean);
+  return collectFeedImageLoaderCandidates(product);
 }
 
 const brokenMarketplaceImagesByProduct = new Map();
@@ -9459,36 +9525,7 @@ function getMarketplaceScrollImageRootMargin() {
 }
 
 function getProductImageCandidates(product) {
-  const sourceImages = Array.isArray(product?.images) && product.images.length > 0
-    ? product.images.slice()
-    : [product?.image];
-  const preferredFeedImages = collectOptionalFeedImageCandidates(product);
-  if (preferredFeedImages.length) {
-    sourceImages.unshift(...preferredFeedImages);
-  }
-  const preferredImageIndex = Number(product?.feedInitialImageIndex ?? product?.visibleImageIndex);
-  if (
-    Array.isArray(sourceImages)
-    && sourceImages.length > 1
-    && Number.isFinite(preferredImageIndex)
-    && preferredImageIndex > 0
-    && preferredImageIndex < sourceImages.length
-  ) {
-    const preferredImage = sourceImages[preferredImageIndex];
-    sourceImages.splice(preferredImageIndex, 1);
-    sourceImages.unshift(preferredImage);
-  }
-  const seen = new Set();
-  return sourceImages
-    .map((image) => sanitizeImageSource(image, ""))
-    .filter(Boolean)
-    .filter((image) => {
-      if (seen.has(image)) {
-        return false;
-      }
-      seen.add(image);
-      return true;
-    });
+  return getFeedImageLoaderCandidates(product);
 }
 
 function normalizeBlockedDemoIdentifier(value) {
