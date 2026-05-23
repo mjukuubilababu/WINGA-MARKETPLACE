@@ -65,6 +65,8 @@ const MARKETPLACE_SCROLL_PREFETCH_MAX_QUEUE = 48;
 const HOME_CONTINUOUS_EARLY_LOAD_RATIO = 0.65;
 const HOME_CONTINUOUS_EARLY_LOAD_COOLDOWN_MS = 180;
 const FEED_MEMORY_MAINTENANCE_INTERVAL_MS = 5000;
+const CONTINUATION_MEDIA_REVEAL_MAX_WAIT_MS = 280;
+const CONTINUATION_MEDIA_REVEAL_POLL_MS = 50;
 const BLOCKED_DEMO_PRODUCT_IDENTIFIERS = new Set([
   "gauni la harusi",
   "sketi ya rangi",
@@ -15242,6 +15244,12 @@ function hydrateContinuousDiscoveryAnchor(anchor) {
       bindFeedGalleryInteractions(node);
       bindImageFallbacks(node);
       prioritizeVisibleFeedMedia?.(node, nodeIndex < 2 ? 2 : 1);
+      if (nodeIndex < 2) {
+        scheduleMarketplaceCardMediaReveal(node, {
+          maxWaitMs: CONTINUATION_MEDIA_REVEAL_MAX_WAIT_MS,
+          pollMs: CONTINUATION_MEDIA_REVEAL_POLL_MS
+        });
+      }
     });
   }
 
@@ -17430,6 +17438,72 @@ function keepMarketplaceScrollImageDirectVisible(image, resolvedSrc = "") {
   if (resolvedSrc) {
     image.dataset.marketplaceLastResolvedSrc = resolvedSrc;
   }
+}
+
+function hasHealthyMarketplaceCardMedia(card) {
+  if (!(card instanceof Element)) {
+    return false;
+  }
+  const image = card.querySelector("img[data-marketplace-scroll-image='true']");
+  if (!(image instanceof HTMLImageElement)) {
+    return false;
+  }
+  const shell = image.closest(".progressive-image-shell");
+  const activeSrc = image.currentSrc || image.getAttribute("src") || "";
+  return Boolean(
+    shell?.classList.contains("is-loaded")
+    || (activeSrc && !activeSrc.startsWith(MARKETPLACE_SCROLL_IMAGE_PLACEHOLDER) && (Number(image.naturalWidth || 0) > 0 || Number(image.clientWidth || 0) > 32))
+  );
+}
+
+function setMarketplaceCardMediaPending(card, isPending) {
+  if (!(card instanceof Element)) {
+    return;
+  }
+  if (isPending) {
+    card.setAttribute("data-continuation-media-pending", "true");
+    return;
+  }
+  card.removeAttribute("data-continuation-media-pending");
+  delete card.dataset.continuationMediaRevealScheduled;
+}
+
+function scheduleMarketplaceCardMediaReveal(card, options = {}) {
+  if (!(card instanceof Element)) {
+    return;
+  }
+  if (hasHealthyMarketplaceCardMedia(card)) {
+    setMarketplaceCardMediaPending(card, false);
+    return;
+  }
+  if (card.dataset.continuationMediaRevealScheduled === "true") {
+    return;
+  }
+  const maxWaitMs = Math.max(80, Number(options.maxWaitMs || CONTINUATION_MEDIA_REVEAL_MAX_WAIT_MS) || CONTINUATION_MEDIA_REVEAL_MAX_WAIT_MS);
+  const pollMs = Math.max(30, Number(options.pollMs || CONTINUATION_MEDIA_REVEAL_POLL_MS) || CONTINUATION_MEDIA_REVEAL_POLL_MS);
+  const startedAt = Date.now();
+  card.dataset.continuationMediaRevealScheduled = "true";
+  setMarketplaceCardMediaPending(card, true);
+
+  const poll = () => {
+    if (!card.isConnected) {
+      setMarketplaceCardMediaPending(card, false);
+      return;
+    }
+    if (hasHealthyMarketplaceCardMedia(card) || Date.now() - startedAt >= maxWaitMs) {
+      setMarketplaceCardMediaPending(card, false);
+      return;
+    }
+    window.setTimeout(poll, pollMs);
+  };
+
+  window.requestAnimationFrame(() => {
+    if (hasHealthyMarketplaceCardMedia(card)) {
+      setMarketplaceCardMediaPending(card, false);
+      return;
+    }
+    poll();
+  });
 }
 
 function markMarketplaceScrollImageLoaded(image, resolvedSrc = "") {

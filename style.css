@@ -2941,6 +2941,16 @@ img[data-zoom-src]{
   opacity:1;
 }
 
+.product-card[data-continuation-media-pending="true"] .product-content,
+.product-card[data-continuation-media-pending="true"] .product-menu{
+  opacity:0;
+  pointer-events:none;
+}
+
+.product-card[data-continuation-media-pending="true"] .product-card-media{
+  opacity:1;
+}
+
 .progressive-image-shell.is-loaded .progressive-image-placeholder{
   opacity:0;
 }
