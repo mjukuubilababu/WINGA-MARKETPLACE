@@ -67,6 +67,7 @@ const HOME_CONTINUOUS_EARLY_LOAD_COOLDOWN_MS = 180;
 const FEED_MEMORY_MAINTENANCE_INTERVAL_MS = 5000;
 const CONTINUATION_MEDIA_REVEAL_MAX_WAIT_MS = 280;
 const CONTINUATION_MEDIA_REVEAL_POLL_MS = 50;
+const HOME_CONTINUOUS_BATCH_ADMISSION_MAX_WAIT_MS = 90;
 const HOME_CONTINUOUS_PENDING_MEDIA_LOOKBACK = 8;
 const HOME_CONTINUOUS_MAX_PENDING_MEDIA_CARDS = 2;
 const BLOCKED_DEMO_PRODUCT_IDENTIFIERS = new Set([
@@ -15225,7 +15226,7 @@ function maybeAdvanceBackgroundContinuation() {
   }, 60);
 }
 
-function hydrateContinuousDiscoveryAnchor(anchor) {
+async function hydrateContinuousDiscoveryAnchor(anchor) {
   if (!anchor || homeContinuousDiscoveryRuntime.loading) {
     return;
   }
@@ -15314,14 +15315,20 @@ function hydrateContinuousDiscoveryAnchor(anchor) {
     return;
   }
 
+  let continuationLeadCardCount = 2;
   if (descriptor.kind === "stream") {
-    startContinuationBatchMediaRequests(insertedNodes, {
-      leadCardCount: 2
+    continuationLeadCardCount = await prepareContinuationBatchAdmission(insertedNodes, {
+      leadCardCount: getAdaptiveContinuationLeadCardCount(),
+      maxWaitMs: HOME_CONTINUOUS_BATCH_ADMISSION_MAX_WAIT_MS
     });
+    if (!anchor.isConnected || currentView !== "home") {
+      homeContinuousDiscoveryRuntime.loading = false;
+      return;
+    }
     insertedNodes.forEach((node, nodeIndex) => {
       bindFeedGalleryInteractions(node);
       bindImageFallbacks(node);
-      prioritizeVisibleFeedMedia?.(node, nodeIndex < 2 ? 2 : 1);
+      prioritizeVisibleFeedMedia?.(node, nodeIndex < continuationLeadCardCount ? 2 : 1);
     });
   }
 
@@ -17602,6 +17609,66 @@ function startContinuationBatchMediaRequests(nodes = [], options = {}) {
         pollMs: CONTINUATION_MEDIA_REVEAL_POLL_MS
       });
     }
+  });
+}
+
+function getAdaptiveContinuationLeadCardCount() {
+  const scrollSpeed = Number(feedRuntimeState.lastScrollSpeed || 0);
+  if (scrollSpeed <= 0.18) {
+    return 3;
+  }
+  return 2;
+}
+
+function haveContinuationLeadMediaRequestsStarted(nodes = [], options = {}) {
+  const cards = Array.isArray(nodes)
+    ? nodes.filter((node) => node instanceof Element && node.matches?.(".product-card[data-open-product], .seller-product-card[data-open-product], .showcase-card[data-open-product]"))
+    : [];
+  const leadCardCount = Math.max(1, Number(options.leadCardCount || 2) || 2);
+  const leadCards = cards.slice(0, leadCardCount);
+  if (!leadCards.length) {
+    return true;
+  }
+  return leadCards.every((card) => {
+    const image = card.querySelector("img[data-marketplace-scroll-image='true']");
+    if (!(image instanceof HTMLImageElement)) {
+      return true;
+    }
+    const realSrc = image.dataset.marketplaceRealSrc || image.dataset.progressiveRealSrc || image.dataset.imageActionSrc || image.dataset.zoomSrc || "";
+    const currentSrc = image.currentSrc || image.getAttribute("src") || "";
+    const imageState = String(image.dataset.marketplaceImageState || "").trim().toLowerCase();
+    return Boolean(
+      imageState === "active"
+      || imageState === "loaded"
+      || (realSrc && currentSrc === realSrc)
+      || hasHealthyMarketplaceCardMedia(card)
+    );
+  });
+}
+
+function prepareContinuationBatchAdmission(nodes = [], options = {}) {
+  const leadCardCount = Math.max(1, Number(options.leadCardCount || getAdaptiveContinuationLeadCardCount()) || 2);
+  const maxWaitMs = Math.max(16, Number(options.maxWaitMs || HOME_CONTINUOUS_BATCH_ADMISSION_MAX_WAIT_MS) || HOME_CONTINUOUS_BATCH_ADMISSION_MAX_WAIT_MS);
+  startContinuationBatchMediaRequests(nodes, {
+    leadCardCount
+  });
+  return new Promise((resolve) => {
+    const startedAt = Date.now();
+    let frameCount = 0;
+    const finish = () => resolve(leadCardCount);
+    const tick = () => {
+      if (
+        haveContinuationLeadMediaRequestsStarted(nodes, { leadCardCount })
+        || Date.now() - startedAt >= maxWaitMs
+        || frameCount >= 2
+      ) {
+        finish();
+        return;
+      }
+      frameCount += 1;
+      window.requestAnimationFrame(tick);
+    };
+    window.requestAnimationFrame(tick);
   });
 }
 
