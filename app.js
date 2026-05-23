@@ -14534,7 +14534,7 @@ function createContinuousDiscoveryStreamElements(descriptor, index, anchorKind =
   }
   return descriptor.items.map((item, itemIndex) => {
     const card = createProductCardElement(item, {
-      startupPriority: false
+      startupPriority: itemIndex < 2
     });
     if (!(card instanceof Element)) {
       return null;
@@ -15237,6 +15237,14 @@ function hydrateContinuousDiscoveryAnchor(anchor) {
     return;
   }
 
+  if (descriptor.kind === "stream") {
+    insertedNodes.forEach((node, nodeIndex) => {
+      bindFeedGalleryInteractions(node);
+      bindImageFallbacks(node);
+      prioritizeVisibleFeedMedia?.(node, nodeIndex < 2 ? 2 : 1);
+    });
+  }
+
   const fragment = document.createDocumentFragment();
   insertedNodes.forEach((node) => fragment.appendChild(node));
   anchor.before(fragment);
@@ -15246,9 +15254,13 @@ function hydrateContinuousDiscoveryAnchor(anchor) {
       repairShowcaseMediaVisibility?.(node);
       stabilizeMobileShowcaseRows?.(node);
     }
-    bindFeedGalleryInteractions(node);
+    if (descriptor.kind !== "stream") {
+      bindFeedGalleryInteractions(node);
+    }
     bindProductEngagementSignals(node);
-    bindImageFallbacks(node);
+    if (descriptor.kind !== "stream") {
+      bindImageFallbacks(node);
+    }
     bindProductMenus(node);
   });
   if (descriptor.kind === "stream") {
