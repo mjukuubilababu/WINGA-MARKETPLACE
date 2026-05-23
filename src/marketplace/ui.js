@@ -1371,8 +1371,11 @@
           if (shouldTrackViews && index < passiveViewLimit && deps.trackView(product)) {
             viewedProductIds.push(product.id);
           }
+          const isBatchPriorityCard = shouldUseMobileEndlessHomeFeed
+            && startIndex > 0
+            && index < startIndex + 2;
           fragment.appendChild(createProductCardElement(product, {
-            startupPriority: currentView === "home" && index < startupPriorityCardCount
+            startupPriority: currentView === "home" && (index < startupPriorityCardCount || isBatchPriorityCard)
           }));
           appendShowcaseIfNeeded(fragment, index + 1);
         }

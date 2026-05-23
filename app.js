@@ -9286,11 +9286,11 @@ const {
       return;
     }
     prioritizeVisibleFeedMedia(container, 10);
+    bindFeedGalleryInteractions(container);
+    bindImageFallbacks(container);
     scheduleIdleBackgroundWork(() => {
       enhanceShowcaseTracks(container);
-      bindFeedGalleryInteractions(container);
       bindProductEngagementSignals(container);
-      bindImageFallbacks(container);
       bindProductMenus(container);
     }, 220);
   },
