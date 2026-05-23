@@ -64,6 +64,7 @@ const MARKETPLACE_SCROLL_PREFETCH_TIMEOUT_MS = 12000;
 const MARKETPLACE_SCROLL_PREFETCH_MAX_QUEUE = 48;
 const HOME_CONTINUOUS_EARLY_LOAD_RATIO = 0.65;
 const HOME_CONTINUOUS_EARLY_LOAD_COOLDOWN_MS = 180;
+const FEED_MEMORY_MAINTENANCE_INTERVAL_MS = 5000;
 const BLOCKED_DEMO_PRODUCT_IDENTIFIERS = new Set([
   "gauni la harusi",
   "sketi ya rangi",
@@ -9410,6 +9411,28 @@ function normalizeProduct(product) {
   };
 }
 
+function collectOptionalFeedImageCandidates(product) {
+  if (!product || typeof product !== "object") {
+    return [];
+  }
+  const variants = product.imageVariants && typeof product.imageVariants === "object"
+    ? product.imageVariants
+    : {};
+  return [
+    product.feedImage,
+    product.previewImage,
+    product.thumbnail,
+    product.smallImage,
+    product.imageThumb,
+    variants.feed,
+    variants.preview,
+    variants.thumbnail,
+    variants.small
+  ]
+    .map((value) => sanitizeImageSource(value, ""))
+    .filter(Boolean);
+}
+
 const brokenMarketplaceImagesByProduct = new Map();
 const BROKEN_IMAGE_FAILURE_THRESHOLD = 2;
 const BROKEN_IMAGE_SUPPRESS_MS = 5 * 60 * 1000;
@@ -9437,6 +9460,10 @@ function getProductImageCandidates(product) {
   const sourceImages = Array.isArray(product?.images) && product.images.length > 0
     ? product.images.slice()
     : [product?.image];
+  const preferredFeedImages = collectOptionalFeedImageCandidates(product);
+  if (preferredFeedImages.length) {
+    sourceImages.unshift(...preferredFeedImages);
+  }
   const preferredImageIndex = Number(product?.feedInitialImageIndex ?? product?.visibleImageIndex);
   if (
     Array.isArray(sourceImages)
@@ -10780,7 +10807,12 @@ function startMemoryMonitoring() {
     window.clearInterval(uiRuntimeState.memorySampleTimer);
     uiRuntimeState.memorySampleTimer = 0;
   }
+  if (uiRuntimeState.feedMemoryMaintenanceTimer) {
+    window.clearInterval(uiRuntimeState.feedMemoryMaintenanceTimer);
+    uiRuntimeState.feedMemoryMaintenanceTimer = 0;
+  }
   if (!performance?.memory) {
+    startFeedMemoryMaintenance();
     return;
   }
   captureMemorySnapshot("boot");
@@ -10790,6 +10822,42 @@ function startMemoryMonitoring() {
       productsCount: Array.isArray(products) ? products.length : 0
     });
   }, MEMORY_SAMPLING_INTERVAL_MS);
+  startFeedMemoryMaintenance();
+}
+
+function runFeedMemoryMaintenance(trigger = "interval") {
+  pruneBrokenMarketplaceImageRegistry();
+  trimDecodedFeedImageCache();
+  pruneTimestampRegistry(imagePreloadRegistry, Math.max(32, Math.floor(IMAGE_PRELOAD_REGISTRY_LIMIT / 2)));
+  pruneTimestampRegistry(marketplaceScrollImagePrefetchedSources, Math.max(48, Math.floor(MARKETPLACE_SCROLL_PREFETCH_REGISTRY_LIMIT / 2)));
+  if (marketplaceScrollPrefetchQueue.length > MARKETPLACE_SCROLL_PREFETCH_MAX_QUEUE) {
+    marketplaceScrollPrefetchQueue.splice(0, marketplaceScrollPrefetchQueue.length - MARKETPLACE_SCROLL_PREFETCH_MAX_QUEUE);
+  }
+  marketplaceScrollPrefetchInflight.forEach((entry, src) => {
+    const startedAt = Number(entry?.startedAt || 0);
+    if (!startedAt || Date.now() - startedAt > MARKETPLACE_SCROLL_PREFETCH_TIMEOUT_MS * 2) {
+      marketplaceScrollPrefetchInflight.delete(src);
+    }
+  });
+  if (trigger === "interval") {
+    captureMemorySnapshot("feed_maintenance", {
+      view: currentView,
+      productsCount: Array.isArray(products) ? products.length : 0
+    });
+  }
+}
+
+function startFeedMemoryMaintenance() {
+  if (uiRuntimeState.feedMemoryMaintenanceTimer) {
+    window.clearInterval(uiRuntimeState.feedMemoryMaintenanceTimer);
+    uiRuntimeState.feedMemoryMaintenanceTimer = 0;
+  }
+  uiRuntimeState.feedMemoryMaintenanceTimer = window.setInterval(() => {
+    if (document.hidden) {
+      return;
+    }
+    runFeedMemoryMaintenance("interval");
+  }, FEED_MEMORY_MAINTENANCE_INTERVAL_MS);
 }
 
 function disconnectRenderMemoryObservers() {
@@ -10838,6 +10906,10 @@ function cleanupAppRenderMemory(reason = "cleanup", options = {}) {
     clearInterval(uiRuntimeState.memorySampleTimer);
     uiRuntimeState.memorySampleTimer = 0;
   }
+  if (uiRuntimeState.feedMemoryMaintenanceTimer) {
+    clearInterval(uiRuntimeState.feedMemoryMaintenanceTimer);
+    uiRuntimeState.feedMemoryMaintenanceTimer = 0;
+  }
   if (feedRuntimeState.prefetchTimer) {
     clearTimeout(feedRuntimeState.prefetchTimer);
     feedRuntimeState.prefetchTimer = 0;
@@ -10875,9 +10947,7 @@ function cleanupAppRenderMemory(reason = "cleanup", options = {}) {
     clearDecodedFeedImageCache();
     clearLightweightImageRegistries();
   } else {
-    trimDecodedFeedImageCache();
-    pruneTimestampRegistry(imagePreloadRegistry, Math.max(24, Math.floor(IMAGE_PRELOAD_REGISTRY_LIMIT / 2)));
-    pruneTimestampRegistry(marketplaceScrollImagePrefetchedSources, Math.max(40, Math.floor(MARKETPLACE_SCROLL_PREFETCH_REGISTRY_LIMIT / 2)));
+    runFeedMemoryMaintenance(reason);
   }
   captureMemorySnapshot(reason, {
     view: currentView
