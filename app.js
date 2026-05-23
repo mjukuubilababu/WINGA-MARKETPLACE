@@ -2225,6 +2225,13 @@ function markMarketplaceImagePrefetched(src = "") {
 function clearLightweightImageRegistries() {
   imagePreloadRegistry.clear();
   marketplaceScrollImagePrefetchedSources.clear();
+  marketplaceScrollPrefetchInflight.forEach((entry) => {
+    if (entry?.image instanceof Image) {
+      entry.image.onload = null;
+      entry.image.onerror = null;
+      entry.image.src = "";
+    }
+  });
   marketplaceScrollPrefetchInflight.clear();
   marketplaceScrollPrefetchQueue.length = 0;
   marketplaceScrollPrefetchActiveCount = 0;
@@ -2234,6 +2241,22 @@ function bumpMarketplaceImagePrefetchGeneration(reason = "feed_refresh") {
   feedRuntimeState.marketplaceImagePrefetchGeneration = Number(feedRuntimeState.marketplaceImagePrefetchGeneration || 0) + 1;
   feedRuntimeState.lastMarketplaceImagePrefetchReason = reason;
   marketplaceScrollPrefetchQueue.length = 0;
+}
+
+function cancelMarketplaceScrollPrefetchWork(reason = "feed_pause", options = {}) {
+  bumpMarketplaceImagePrefetchGeneration(reason);
+  marketplaceScrollPrefetchInflight.forEach((entry) => {
+    if (entry?.image instanceof Image) {
+      entry.image.onload = null;
+      entry.image.onerror = null;
+      entry.image.src = "";
+    }
+  });
+  marketplaceScrollPrefetchInflight.clear();
+  marketplaceScrollPrefetchActiveCount = 0;
+  if (options.clearDecodedCache === true) {
+    clearDecodedFeedImageCache();
+  }
 }
 
 function drainMarketplaceScrollPrefetchQueue() {
@@ -2299,6 +2322,15 @@ function scheduleMarketplaceScrollImagePrefetch(src = "") {
   }
   drainMarketplaceScrollPrefetchQueue();
   return true;
+}
+
+function resumeMarketplaceImagePipeline(reason = "feed_resume") {
+  feedRuntimeState.lastMarketplaceImagePrefetchReason = reason;
+  schedulePredictiveFeedPrefetch(reason);
+  window.requestAnimationFrame(() => {
+    prioritizeVisibleFeedMedia(document, 10);
+    bindMarketplaceScrollImages(document);
+  });
 }
 
 function clearDecodedFeedImageCache() {
@@ -15277,16 +15309,13 @@ function hydrateContinuousDiscoveryAnchor(anchor) {
   }
 
   if (descriptor.kind === "stream") {
+    startContinuationBatchMediaRequests(insertedNodes, {
+      leadCardCount: 2
+    });
     insertedNodes.forEach((node, nodeIndex) => {
       bindFeedGalleryInteractions(node);
       bindImageFallbacks(node);
       prioritizeVisibleFeedMedia?.(node, nodeIndex < 2 ? 2 : 1);
-      if (nodeIndex < 2) {
-        scheduleMarketplaceCardMediaReveal(node, {
-          maxWaitMs: CONTINUATION_MEDIA_REVEAL_MAX_WAIT_MS,
-          pollMs: CONTINUATION_MEDIA_REVEAL_POLL_MS
-        });
-      }
     });
   }
 
@@ -17543,6 +17572,32 @@ function scheduleMarketplaceCardMediaReveal(card, options = {}) {
   });
 }
 
+function startContinuationBatchMediaRequests(nodes = [], options = {}) {
+  const cards = Array.isArray(nodes)
+    ? nodes.filter((node) => node instanceof Element && node.matches?.(".product-card[data-open-product], .seller-product-card[data-open-product], .showcase-card[data-open-product]"))
+    : [];
+  const leadCardCount = Math.max(1, Number(options.leadCardCount || 2) || 2);
+  cards.slice(0, leadCardCount).forEach((card, cardIndex) => {
+    const leadImage = card.querySelector("img[data-marketplace-scroll-image='true']");
+    if (!(leadImage instanceof HTMLImageElement)) {
+      return;
+    }
+    const prioritizeImage = cardIndex < 2;
+    leadImage.setAttribute("loading", "eager");
+    leadImage.setAttribute("fetchpriority", prioritizeImage ? "high" : "auto");
+    activateMarketplaceScrollImage(leadImage, {
+      priority: prioritizeImage,
+      shouldSetPending: true
+    });
+    if (prioritizeImage) {
+      scheduleMarketplaceCardMediaReveal(card, {
+        maxWaitMs: CONTINUATION_MEDIA_REVEAL_MAX_WAIT_MS,
+        pollMs: CONTINUATION_MEDIA_REVEAL_POLL_MS
+      });
+    }
+  });
+}
+
 function markMarketplaceScrollImageLoaded(image, resolvedSrc = "") {
   if (!(image instanceof HTMLImageElement)) {
     return;
@@ -18218,6 +18273,28 @@ async function bootApp() {
       // Ignore service worker registration failures on unsupported browsers.
     });
   }, 0);
+}
+
+if (!uiRuntimeState.marketplaceImagePipelineLifecycleBound) {
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) {
+      cancelMarketplaceScrollPrefetchWork("document_hidden");
+      return;
+    }
+    resumeMarketplaceImagePipeline("document_visible");
+  });
+
+  window.addEventListener("pagehide", () => {
+    cancelMarketplaceScrollPrefetchWork("pagehide", {
+      clearDecodedCache: true
+    });
+  });
+
+  window.addEventListener("pageshow", () => {
+    resumeMarketplaceImagePipeline("pageshow");
+  });
+
+  uiRuntimeState.marketplaceImagePipelineLifecycleBound = true;
 }
 
 bootApp().catch((error) => {
