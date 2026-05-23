@@ -9285,7 +9285,7 @@ const {
     if (!(container instanceof Element)) {
       return;
     }
-    prioritizeVisibleFeedMedia(container, 8);
+    prioritizeVisibleFeedMedia(container, 10);
     scheduleIdleBackgroundWork(() => {
       enhanceShowcaseTracks(container);
       bindFeedGalleryInteractions(container);

@@ -35,8 +35,8 @@
       token: 0,
       timer: 0
     };
-    const FEED_RENDER_BATCH_SIZE = 8;
-    const FEED_RENDER_BATCH_DELAY_MS = 22;
+    const FEED_RENDER_BATCH_SIZE = 10;
+    const FEED_RENDER_BATCH_DELAY_MS = 12;
     const MOBILE_HOME_INITIAL_FEED_LIMIT = 12;
 
     function cancelScheduledFeedRender() {
@@ -1193,9 +1193,9 @@
       const isMobileViewport = layoutMode === "mobile" || layoutMode === "standalone-mobile" || layoutMode === "mobile-desktop-site";
       const shouldUseMobileEndlessHomeFeed = currentView === "home" && isMobileViewport;
       const shouldInjectInlineShowcases = intelligentFeedEnabled && !shouldUseMobileEndlessHomeFeed;
-      const startupPriorityCardCount = isMobileViewport ? 2 : STARTUP_PRIORITY_CARD_COUNT;
-      const initialSyncBatchSize = isMobileViewport ? 8 : INITIAL_SYNC_FEED_BATCH_SIZE;
-      const bootstrapSyncFeedTargetCount = isMobileViewport ? 10 : BOOTSTRAP_SYNC_FEED_TARGET_COUNT;
+      const startupPriorityCardCount = isMobileViewport ? 4 : STARTUP_PRIORITY_CARD_COUNT;
+      const initialSyncBatchSize = isMobileViewport ? 10 : INITIAL_SYNC_FEED_BATCH_SIZE;
+      const bootstrapSyncFeedTargetCount = isMobileViewport ? 14 : BOOTSTRAP_SYNC_FEED_TARGET_COUNT;
       const productsPerRow = shouldInjectInlineShowcases ? (deps.getFeedLayoutColumns?.() || deps.getProductsPerRow()) : 0;
       const showcaseSpacing = isMobileViewport ? 8 : 10;
       const showcaseRepeatInterval = isMobileViewport ? 8 : 10;
@@ -1409,9 +1409,12 @@
             scheduledFeedRenderState.timer = 0;
             renderNextBatch(endIndex);
           };
+          const nextBatchDelayMs = shouldUseMobileEndlessHomeFeed
+            ? 0
+            : (isBootingHomeFeed && startIndex === 0 ? 0 : FEED_RENDER_BATCH_DELAY_MS);
           scheduledFeedRenderState.timer = window.setTimeout(
             scheduleNextBatch,
-            isBootingHomeFeed && startIndex === 0 ? 0 : FEED_RENDER_BATCH_DELAY_MS
+            nextBatchDelayMs
           );
           return;
         }
