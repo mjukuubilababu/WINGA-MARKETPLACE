@@ -67,6 +67,8 @@ const HOME_CONTINUOUS_EARLY_LOAD_COOLDOWN_MS = 180;
 const FEED_MEMORY_MAINTENANCE_INTERVAL_MS = 5000;
 const CONTINUATION_MEDIA_REVEAL_MAX_WAIT_MS = 280;
 const CONTINUATION_MEDIA_REVEAL_POLL_MS = 50;
+const HOME_CONTINUOUS_PENDING_MEDIA_LOOKBACK = 8;
+const HOME_CONTINUOUS_MAX_PENDING_MEDIA_CARDS = 2;
 const BLOCKED_DEMO_PRODUCT_IDENTIFIERS = new Set([
   "gauni la harusi",
   "sketi ya rangi",
@@ -15227,6 +15229,10 @@ function hydrateContinuousDiscoveryAnchor(anchor) {
   if (!anchor || homeContinuousDiscoveryRuntime.loading) {
     return;
   }
+  if (!canAdvanceHomeContinuousDiscovery(anchor)) {
+    scheduleContinuousDiscoveryReobserve(anchor);
+    return;
+  }
 
   const now = Date.now();
   if (now - Number(homeContinuousDiscoveryRuntime.lastHydrateAt || 0) < HOME_CONTINUOUS_DISCOVERY_MIN_INTERVAL_MS) {
@@ -15390,6 +15396,7 @@ function hydrateContinuousDiscoveryAnchor(anchor) {
         anchor.isConnected
         && currentView === "home"
         && !homeContinuousDiscoveryRuntime.loading
+        && canAdvanceHomeContinuousDiscovery(anchor)
         && isAnchorWithinBackgroundContinuationBand(anchor)
       ) {
         hydrateContinuousDiscoveryAnchor(anchor);
@@ -17596,6 +17603,26 @@ function startContinuationBatchMediaRequests(nodes = [], options = {}) {
       });
     }
   });
+}
+
+function getHomeContinuousPendingMediaCount(anchor, options = {}) {
+  if (!(anchor instanceof Element)) {
+    return 0;
+  }
+  const lookback = Math.max(1, Number(options.lookback || HOME_CONTINUOUS_PENDING_MEDIA_LOOKBACK) || HOME_CONTINUOUS_PENDING_MEDIA_LOOKBACK);
+  const cards = [];
+  let cursor = anchor.previousElementSibling;
+  while (cursor && cards.length < lookback) {
+    if (cursor.matches?.(".product-card[data-open-product], .seller-product-card[data-open-product], .showcase-card[data-open-product]")) {
+      cards.push(cursor);
+    }
+    cursor = cursor.previousElementSibling;
+  }
+  return cards.filter((card) => card.getAttribute("data-continuation-media-pending") === "true").length;
+}
+
+function canAdvanceHomeContinuousDiscovery(anchor) {
+  return getHomeContinuousPendingMediaCount(anchor) < HOME_CONTINUOUS_MAX_PENDING_MEDIA_CARDS;
 }
 
 function markMarketplaceScrollImageLoaded(image, resolvedSrc = "") {
