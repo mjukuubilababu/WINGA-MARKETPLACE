@@ -47,6 +47,10 @@ function isImageRequest(request, url) {
     || /\.(?:avif|webp|png|jpe?g|gif|svg)$/i.test(url.pathname);
 }
 
+function isSameOriginUrl(url) {
+  return url.origin === self.location.origin;
+}
+
 async function trimCache(cacheName, limit = IMAGE_CACHE_LIMIT) {
   const cache = await caches.open(cacheName);
   const keys = await cache.keys();
@@ -82,9 +86,13 @@ async function cacheImageUrls(urls = []) {
       .filter(Boolean)
       .map(async (url) => {
         try {
-          const request = new Request(url, { mode: "no-cors", credentials: "omit" });
-          const response = await fetch(request);
-          if (!response) {
+          const normalizedUrl = new URL(url, self.location.origin);
+          if (!isSameOriginUrl(normalizedUrl)) {
+            return;
+          }
+          const request = new Request(normalizedUrl.toString(), { credentials: "same-origin" });
+          const response = await fetch(request, { cache: "no-store" });
+          if (!response || !response.ok) {
             return;
           }
           await imageCache.put(request, response.clone());
@@ -207,18 +215,20 @@ self.addEventListener("fetch", (event) => {
     event.respondWith((async () => {
       const cache = await caches.open(IMAGE_CACHE);
       const cached = await cache.match(request, { ignoreSearch: false });
-      if (cached) {
+      if (cached && !(cached.type === "opaque" && request.mode !== "no-cors")) {
         return cached;
       }
       try {
         const response = await fetch(request);
         if (response) {
-          await cache.put(request, response.clone());
-          event.waitUntil(trimCache(IMAGE_CACHE));
+          if (!(response.type === "opaque" && request.mode !== "no-cors")) {
+            await cache.put(request, response.clone());
+            event.waitUntil(trimCache(IMAGE_CACHE));
+          }
         }
         return response;
       } catch (error) {
-        return cached || Response.error();
+        return (cached && !(cached.type === "opaque" && request.mode !== "no-cors")) ? cached : Response.error();
       }
     })());
   }

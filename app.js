@@ -2556,14 +2556,33 @@ function preloadImageSource(src = "", options = {}) {
     reason = "preload"
   } = options;
   const resolvedSrc = sanitizeImageSource(src, "");
-  if (!resolvedSrc || /^data:/i.test(resolvedSrc) || markImagePreloaded(resolvedSrc)) {
+  if (!resolvedSrc || /^data:/i.test(resolvedSrc)) {
     if (decodeInMemory) {
       void cacheDecodedFeedImageSource(resolvedSrc, { reason });
     }
     return null;
   }
   const shouldUseLinkPreload = fetchPriority === "high" || decodeInMemory === true;
+  const shouldUseSameOriginLinkPreload = (() => {
+    try {
+      return new URL(resolvedSrc, window.location.origin).origin === window.location.origin;
+    } catch (error) {
+      return false;
+    }
+  })();
+  if (markImagePreloaded(resolvedSrc)) {
+    if (decodeInMemory) {
+      void cacheDecodedFeedImageSource(resolvedSrc, { reason });
+    }
+    return null;
+  }
   if (!shouldUseLinkPreload) {
+    return null;
+  }
+  if (!shouldUseSameOriginLinkPreload) {
+    if (decodeInMemory) {
+      void cacheDecodedFeedImageSource(resolvedSrc, { reason });
+    }
     return null;
   }
   const link = document.createElement("link");
