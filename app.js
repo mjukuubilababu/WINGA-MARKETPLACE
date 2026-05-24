@@ -76,6 +76,8 @@ const PRODUCT_DETAIL_TRANSITION_PRELOAD_RADIUS = 2;
 const SLOW_PATH_TELEMETRY_LIMIT = 120;
 const PREDICTIVE_DECODE_TELEMETRY_LIMIT = 160;
 const HOME_CONTINUOUS_VARIANT_TRACK_LIMIT = 96;
+const HOME_CONTINUOUS_HARD_PRESSURE_PENDING_MEDIA = 4;
+const MARKETPLACE_PREFETCH_QUEUE_PRESSURE_THRESHOLD = 18;
 const BLOCKED_DEMO_PRODUCT_IDENTIFIERS = new Set([
   "gauni la harusi",
   "sketi ya rangi",
@@ -3230,10 +3232,7 @@ function getAdaptivePredictiveFeedWindow() {
   const layoutMode = getClientLayoutMode();
   const isCompactLayout = layoutMode === "mobile" || layoutMode === "standalone-mobile" || layoutMode === "mobile-desktop-site";
   const scrollSpeed = Number(feedRuntimeState.lastScrollSpeed || 0);
-  const pendingMediaPressure = Math.min(
-    4,
-    Number(document.querySelectorAll?.(".product-card[data-continuation-media-pending='true']").length || 0)
-  );
+  const pendingMediaPressure = Math.min(4, getCurrentPendingContinuationMediaCount());
   const pressureProductPenalty = pendingMediaPressure >= 3 ? 2 : (pendingMediaPressure >= 1 ? 1 : 0);
   const pressureDecodePenalty = pendingMediaPressure >= 2 ? 1 : 0;
   if (scrollSpeed <= 0.18) {
@@ -15491,10 +15490,7 @@ function getAdaptiveBackgroundContinuationDelayMs() {
 
 function getAdaptiveContinuousReobserveDelayMs() {
   const scrollSpeed = Number(feedRuntimeState.lastScrollSpeed || 0);
-  const pendingPressure = Math.min(
-    4,
-    Number(document.querySelectorAll?.(".product-card[data-continuation-media-pending='true']").length || 0)
-  );
+  const pendingPressure = Math.min(4, getCurrentPendingContinuationMediaCount());
   if (scrollSpeed <= 0.18) {
     return pendingPressure >= 2 ? 160 : 90;
   }
@@ -15515,6 +15511,10 @@ function maybeAdvanceBackgroundContinuation() {
   }
   const anchor = productsContainer.querySelector("[data-continuous-discovery-anchor='home']");
   if (!(anchor instanceof Element) || !anchor.isConnected) {
+    return;
+  }
+  if (isHomeFeedUnderPressure(productsContainer)) {
+    scheduleContinuousDiscoveryReobserve(anchor);
     return;
   }
   const renderedCards = Array.from(
@@ -15565,6 +15565,17 @@ async function hydrateContinuousDiscoveryAnchor(anchor) {
       pendingCount,
       batchIndex: homeContinuousDiscoveryRuntime.batchIndex,
       scrollSpeed: Number(feedRuntimeState.lastScrollSpeed || 0)
+    });
+    scheduleContinuousDiscoveryReobserve(anchor);
+    return;
+  }
+  if (isHomeFeedUnderPressure(productsContainer || document)) {
+    bumpRuntimeDiagnostic("continuousPendingMediaDeferrals");
+    reportShowcaseInstrumentation("continuous_feed_pressure_deferral", {
+      pendingCount: getCurrentPendingContinuationMediaCount(productsContainer || document),
+      prefetchQueueSize: Number(marketplaceScrollPrefetchQueue?.length || 0),
+      inflightPrefetchCount: Number(marketplaceScrollPrefetchInflight?.size || 0),
+      batchIndex: homeContinuousDiscoveryRuntime.batchIndex
     });
     scheduleContinuousDiscoveryReobserve(anchor);
     return;
@@ -18065,6 +18076,26 @@ function getAdaptiveVisibleMediaPriorityBudget() {
     return scrollSpeed <= 0.18 ? 3 : 2;
   }
   return scrollSpeed <= FEED_SCROLL_SPEED_PREFETCH_THRESHOLD ? 4 : 3;
+}
+
+function getCurrentPendingContinuationMediaCount(scope = document) {
+  if (typeof document === "undefined" || currentView !== "home" || document.hidden) {
+    return 0;
+  }
+  const root = scope instanceof Element || scope === document ? scope : document;
+  return Math.max(
+    0,
+    Number(root.querySelectorAll?.(".product-card[data-continuation-media-pending='true']").length || 0)
+  );
+}
+
+function isHomeFeedUnderPressure(scope = document) {
+  const pendingMediaCount = getCurrentPendingContinuationMediaCount(scope);
+  const prefetchQueueSize = Number(marketplaceScrollPrefetchQueue?.length || 0);
+  const inflightPrefetchCount = Number(marketplaceScrollPrefetchInflight?.size || 0);
+  return pendingMediaCount >= HOME_CONTINUOUS_HARD_PRESSURE_PENDING_MEDIA
+    || prefetchQueueSize >= MARKETPLACE_PREFETCH_QUEUE_PRESSURE_THRESHOLD
+    || inflightPrefetchCount >= MARKETPLACE_SCROLL_PREFETCH_CONCURRENCY;
 }
 
 function getAdaptiveContinuousPendingMediaLookback() {
