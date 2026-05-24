@@ -9940,9 +9940,14 @@ button:hover,
 }
 
 #products-container .progressive-image-shell::before{
-  opacity:0 !important;
+  opacity:0.94 !important;
   animation:none !important;
-  transition:none !important;
+  transition:opacity .18s ease !important;
+}
+
+#products-container .progressive-image-shell.is-loaded::before,
+#products-container .progressive-image-shell.is-error::before{
+  opacity:0 !important;
 }
 
 #products-container .progressive-image-shell .progressive-image-full{

@@ -1363,6 +1363,16 @@ function restoreStoredHomeScrollPosition() {
   }
 }
 
+function hasRetainedHomeFeedSurface() {
+  if (currentView !== "home" || document.body.classList.contains("product-detail-open")) {
+    return false;
+  }
+  return Boolean(
+    productsContainer?.querySelector(".product-card[data-open-product], .seller-product-card[data-open-product]")
+    || productsContainer?.querySelector("[data-feed-skeleton-card='true']")
+  );
+}
+
 function resetTransientChromeState() {
   searchRuntimeState.isMobileSearchOpen = false;
   searchRuntimeState.isInputFocused = false;
@@ -2863,7 +2873,7 @@ function scheduleStartupImageWork(productsList = [], options = {}) {
     if (document.hidden || shouldWaitForVisibleHomeFeed) {
       scheduleStartupImageWork(productsList, {
         ...options,
-        delayMs: Math.max(900, delayMs)
+        delayMs: Math.max(320, Math.min(900, delayMs))
       });
       return;
     }
@@ -6491,6 +6501,15 @@ function completeBootOverlay() {
     return;
   }
   hideBootOverlayImmediately();
+  if (currentView === "home") {
+    resumeMarketplaceImagePipeline("boot_overlay_completed");
+    scheduleStartupImageWork(products, {
+      reason: "boot_overlay_completed",
+      productLimit: 10,
+      decodeLimit: 4,
+      delayMs: 0
+    });
+  }
   window.setTimeout(() => {
     ensureVisibleStartupContent("boot_overlay_completed");
   }, 360);
@@ -13117,6 +13136,9 @@ window.addEventListener("scroll", () => {
 
 function handleAppLifecycleChange() {
   if (document.hidden) {
+    if (currentView === "home") {
+      saveHomeScrollState(window.scrollY || 0);
+    }
     cancelPendingStartupImageWork("document_hidden");
     cancelDeferredImageSignatureHydration("document_hidden");
     cleanupAppRenderMemory("hidden", { full: false });
@@ -13133,8 +13155,20 @@ function handleAppLifecycleChange() {
       if (document.hidden) {
         return;
       }
+      if (currentView === "home" && hasRetainedHomeFeedSurface()) {
+        restoreStoredHomeScrollPosition();
+        resumeMarketplaceImagePipeline("home_visible_resume");
+        scheduleStartupImageWork(products, {
+          reason: "home_visible_resume",
+          productLimit: 8,
+          decodeLimit: 3,
+          delayMs: 0
+        });
+        return;
+      }
       scheduleRenderCurrentView();
       if (currentView === "home") {
+        restoreStoredHomeScrollPosition();
         schedulePredictiveFeedPrefetch("resume");
       }
     }, 280);
@@ -13143,9 +13177,12 @@ function handleAppLifecycleChange() {
 
 document.addEventListener("visibilitychange", handleAppLifecycleChange);
 window.addEventListener("pagehide", () => {
+  if (currentView === "home") {
+    saveHomeScrollState(window.scrollY || 0);
+  }
   cancelPendingStartupImageWork("pagehide");
   cancelDeferredImageSignatureHydration("pagehide");
-  cleanupAppRenderMemory("pagehide", { full: true });
+  cleanupAppRenderMemory("pagehide", { full: false });
 });
 
 window.addEventListener("resize", () => {
@@ -19266,11 +19303,20 @@ if (!uiRuntimeState.marketplaceImagePipelineLifecycleBound) {
 
   window.addEventListener("pagehide", () => {
     cancelMarketplaceScrollPrefetchWork("pagehide", {
-      clearDecodedCache: true
+      clearDecodedCache: false
     });
   });
 
   window.addEventListener("pageshow", () => {
+    if (currentView === "home") {
+      restoreStoredHomeScrollPosition();
+      scheduleStartupImageWork(products, {
+        reason: "pageshow_resume",
+        productLimit: 10,
+        decodeLimit: 4,
+        delayMs: 0
+      });
+    }
     resumeMarketplaceImagePipeline("pageshow");
   });
 
