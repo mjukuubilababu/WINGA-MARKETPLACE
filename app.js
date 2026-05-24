@@ -7345,8 +7345,6 @@ function renderSellerTrustPanel(product) {
     Number(trust.sellerStats?.repeatBuyers || 0) > 0 ? `${trust.sellerStats.repeatBuyers} repeat buyer${Number(trust.sellerStats.repeatBuyers) === 1 ? "" : "s"}` : ""
   ].filter(Boolean);
   const showReportActions = Boolean(product?.id && product?.uploadedBy && product.uploadedBy !== currentUser);
-  const showFollowAction = Boolean(product?.uploadedBy && product.uploadedBy !== currentUser && canUseBuyerFeatures());
-  const sellerFollowed = showFollowAction ? isSellerFollowed(product.uploadedBy) : false;
 
   return `
     <section class="seller-trust-panel">
@@ -7358,10 +7356,8 @@ function renderSellerTrustPanel(product) {
       </div>
       ${trustBadges.length ? `<div class="trust-badges seller-trust-badges">${trustBadges.join("")}</div>` : ""}
       ${factLines.length ? `<p class="product-meta seller-trust-copy">${escapeHtml(factLines.join(" | "))}</p>` : ""}
-      ${(showReportActions || showFollowAction) ? `
+      ${showReportActions ? `
         <div class="seller-trust-actions">
-          ${showFollowAction ? `<button class="trust-link-btn${sellerFollowed ? " is-active" : ""}" type="button" data-follow-seller="${product.uploadedBy}">${sellerFollowed ? "Following seller" : "Follow seller"}</button>` : ""}
-          ${showFollowAction ? `<button class="trust-link-btn" type="button" data-share-seller-shop="${product.uploadedBy}">Share seller</button>` : ""}
           <button class="trust-link-btn" type="button" data-report-product="${product.id}">Report product</button>
           <button class="trust-link-btn" type="button" data-report-seller="${product.uploadedBy}" data-report-product-context="${product.id}">Report seller</button>
         </div>
