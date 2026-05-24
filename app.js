@@ -15207,6 +15207,25 @@ function shouldUseVariantScrollSlot(normalProductOrdinal = 0) {
   return safeOrdinal >= 15 && safeOrdinal % 15 === 0;
 }
 
+function getDeterministicVariantSlotIndex(candidateIndexes = [], options = {}) {
+  const safeIndexes = Array.from(candidateIndexes || [])
+    .map((index) => Number(index))
+    .filter((index) => Number.isFinite(index) && index > 0);
+  if (!safeIndexes.length) {
+    return -1;
+  }
+  const deeperIndexes = safeIndexes.filter((index) => index >= 2);
+  const pool = deeperIndexes.length ? deeperIndexes : safeIndexes;
+  const seed = Math.max(
+    0,
+    Number(options.batchIndex || 0)
+    + Number(options.normalProductOrdinal || 0)
+    + Number(options.variationSwipeCount || 0)
+    + Number(options.sequenceIndex || 0)
+  );
+  return pool[seed % pool.length] ?? pool[0] ?? -1;
+}
+
 function getBehaviorDrivenVariantImageIndex(product, options = {}) {
   const uniqueImageIndexes = getUniqueRenderableImageIndexes(product).filter((index) => Number(index) > 0);
   if (!uniqueImageIndexes.length) {
@@ -15229,24 +15248,26 @@ function getBehaviorDrivenVariantImageIndex(product, options = {}) {
   const hasDeepLinger = behaviorState.lingerMs >= 10000;
   const slotTriggered = shouldUseVariantScrollSlot(options.normalProductOrdinal);
 
-  let selectedIndex = -1;
-  if (hasBoost) {
-    selectedIndex = resolvePreferredVariantImageIndex(availableIndexes, 1);
+  const prioritizedCandidates = [];
+  if (hasDeepLinger) {
+    prioritizedCandidates.push(resolvePreferredVariantImageIndex(availableIndexes, 3));
   }
   if (hasLiked) {
-    selectedIndex = resolvePreferredVariantImageIndex(availableIndexes, 2);
+    prioritizedCandidates.push(resolvePreferredVariantImageIndex(availableIndexes, 2));
   }
-  if (hasDeepLinger) {
-    selectedIndex = resolvePreferredVariantImageIndex(availableIndexes, 3);
+  if (hasBoost) {
+    prioritizedCandidates.push(resolvePreferredVariantImageIndex(availableIndexes, 1));
   }
-  if (slotTriggered && selectedIndex < 0) {
-    const slotSeed = Math.max(
-      0,
-      Number(options.batchIndex || 0) + Number(options.normalProductOrdinal || 0) + behaviorState.variationSwipeCount
-    );
-    selectedIndex = availableIndexes[slotSeed % availableIndexes.length];
+  if (slotTriggered) {
+    prioritizedCandidates.push(getDeterministicVariantSlotIndex(availableIndexes, {
+      batchIndex: options.batchIndex,
+      normalProductOrdinal: options.normalProductOrdinal,
+      variationSwipeCount: behaviorState.variationSwipeCount,
+      sequenceIndex: options.sequenceIndex
+    }));
   }
-  if (selectedIndex >= 0) {
+  const selectedIndex = prioritizedCandidates.find((index) => Number.isFinite(index) && index >= 1);
+  if (Number.isFinite(selectedIndex) && selectedIndex >= 1) {
     return selectedIndex;
   }
   return availableIndexes[0];
