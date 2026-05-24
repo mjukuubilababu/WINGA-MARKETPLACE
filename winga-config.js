@@ -9,9 +9,10 @@ const WINGA_DEFAULT_CONFIG = {
   provider: WINGA_IS_FILE_MODE ? "mock" : "api",
   fallbackProvider: WINGA_IS_FILE_MODE ? "mock" : "",
   enableMockSeed: WINGA_IS_FILE_MODE,
-  disableServiceWorker: !WINGA_IS_FILE_MODE,
-  // Keep the recovery service worker disabled on web for now, but allow
-  // startup to use local API/feed snapshots so refresh and reopen stay fast.
+  disableServiceWorker: WINGA_IS_FILE_MODE,
+  // Web builds now use a real production service worker for shell + image
+  // caching. File mode stays disabled because service workers do not work
+  // reliably from file:// URLs.
   enableApiLocalCacheFallback: true,
   enableBootstrapFeedSnapshot: true,
   enableClientEventLogging: WINGA_IS_FILE_MODE || WINGA_IS_LOCAL_WEB,
