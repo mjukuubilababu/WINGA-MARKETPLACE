@@ -73,6 +73,8 @@ const HOME_CONTINUOUS_PENDING_MEDIA_LOOKBACK = 8;
 const HOME_CONTINUOUS_MAX_PENDING_MEDIA_CARDS = 2;
 const HOME_CONTINUOUS_PENDING_DESCRIPTOR_LIMIT = 6;
 const PRODUCT_DETAIL_TRANSITION_PRELOAD_RADIUS = 2;
+const SLOW_PATH_TELEMETRY_LIMIT = 120;
+const PREDICTIVE_DECODE_TELEMETRY_LIMIT = 160;
 const BLOCKED_DEMO_PRODUCT_IDENTIFIERS = new Set([
   "gauni la harusi",
   "sketi ya rangi",
@@ -3227,21 +3229,27 @@ function getAdaptivePredictiveFeedWindow() {
   const layoutMode = getClientLayoutMode();
   const isCompactLayout = layoutMode === "mobile" || layoutMode === "standalone-mobile" || layoutMode === "mobile-desktop-site";
   const scrollSpeed = Number(feedRuntimeState.lastScrollSpeed || 0);
+  const pendingMediaPressure = Math.min(
+    4,
+    Number(document.querySelectorAll?.(".product-card[data-continuation-media-pending='true']").length || 0)
+  );
+  const pressureProductPenalty = pendingMediaPressure >= 3 ? 2 : (pendingMediaPressure >= 1 ? 1 : 0);
+  const pressureDecodePenalty = pendingMediaPressure >= 2 ? 1 : 0;
   if (scrollSpeed <= 0.18) {
     return {
-      productLimit: isCompactLayout ? 12 : 16,
-      decodeLimit: isCompactLayout ? 6 : 8
+      productLimit: Math.max(4, (isCompactLayout ? 12 : 16) - pressureProductPenalty),
+      decodeLimit: Math.max(3, (isCompactLayout ? 6 : 8) - pressureDecodePenalty)
     };
   }
   if (scrollSpeed <= FEED_SCROLL_SPEED_PREFETCH_THRESHOLD) {
     return {
-      productLimit: isCompactLayout ? 8 : 12,
-      decodeLimit: isCompactLayout ? 4 : 6
+      productLimit: Math.max(4, (isCompactLayout ? 8 : 12) - pressureProductPenalty),
+      decodeLimit: Math.max(2, (isCompactLayout ? 4 : 6) - pressureDecodePenalty)
     };
   }
   return {
-    productLimit: isCompactLayout ? 5 : 8,
-    decodeLimit: isCompactLayout ? 3 : 4
+    productLimit: Math.max(3, (isCompactLayout ? 5 : 8) - pressureProductPenalty),
+    decodeLimit: Math.max(2, (isCompactLayout ? 3 : 4) - pressureDecodePenalty)
   };
 }
 
@@ -11053,6 +11061,20 @@ function startMemoryMonitoring() {
 function runFeedMemoryMaintenance(trigger = "interval") {
   pruneBrokenMarketplaceImageRegistry();
   trimDecodedFeedImageCache();
+  while (slowPathTelemetryState.size > SLOW_PATH_TELEMETRY_LIMIT) {
+    const oldestKey = slowPathTelemetryState.keys().next().value;
+    if (typeof oldestKey === "undefined") {
+      break;
+    }
+    slowPathTelemetryState.delete(oldestKey);
+  }
+  while (predictiveDecodeTelemetryState.size > PREDICTIVE_DECODE_TELEMETRY_LIMIT) {
+    const oldestKey = predictiveDecodeTelemetryState.keys().next().value;
+    if (typeof oldestKey === "undefined") {
+      break;
+    }
+    predictiveDecodeTelemetryState.delete(oldestKey);
+  }
   pruneTimestampRegistry(imagePreloadRegistry, Math.max(32, Math.floor(IMAGE_PRELOAD_REGISTRY_LIMIT / 2)));
   pruneTimestampRegistry(marketplaceScrollImagePrefetchedSources, Math.max(48, Math.floor(MARKETPLACE_SCROLL_PREFETCH_REGISTRY_LIMIT / 2)));
   if (Array.isArray(homeContinuousDiscoveryRuntime.pendingDescriptors)) {
@@ -17947,7 +17969,10 @@ function getHomeContinuousPendingMediaCount(anchor, options = {}) {
   if (!(anchor instanceof Element)) {
     return 0;
   }
-  const lookback = Math.max(1, Number(options.lookback || HOME_CONTINUOUS_PENDING_MEDIA_LOOKBACK) || HOME_CONTINUOUS_PENDING_MEDIA_LOOKBACK);
+  const lookback = Math.max(
+    1,
+    Number(options.lookback || getAdaptiveContinuousPendingMediaLookback()) || HOME_CONTINUOUS_PENDING_MEDIA_LOOKBACK
+  );
   const cards = [];
   let cursor = anchor.previousElementSibling;
   while (cursor && cards.length < lookback) {
@@ -17960,7 +17985,7 @@ function getHomeContinuousPendingMediaCount(anchor, options = {}) {
 }
 
 function canAdvanceHomeContinuousDiscovery(anchor) {
-  return getHomeContinuousPendingMediaCount(anchor) < HOME_CONTINUOUS_MAX_PENDING_MEDIA_CARDS;
+  return getHomeContinuousPendingMediaCount(anchor) < getAdaptiveContinuousPendingMediaCap();
 }
 
 function getAdaptiveVisibleMediaPriorityBudget() {
@@ -17971,6 +17996,32 @@ function getAdaptiveVisibleMediaPriorityBudget() {
     return scrollSpeed <= 0.18 ? 3 : 2;
   }
   return scrollSpeed <= FEED_SCROLL_SPEED_PREFETCH_THRESHOLD ? 4 : 3;
+}
+
+function getAdaptiveContinuousPendingMediaLookback() {
+  const layoutMode = getClientLayoutMode();
+  const isCompactLayout = layoutMode === "mobile" || layoutMode === "standalone-mobile" || layoutMode === "mobile-desktop-site";
+  const scrollSpeed = Number(feedRuntimeState.lastScrollSpeed || 0);
+  if (scrollSpeed <= 0.18) {
+    return isCompactLayout ? 10 : 8;
+  }
+  if (scrollSpeed <= FEED_SCROLL_SPEED_PREFETCH_THRESHOLD) {
+    return HOME_CONTINUOUS_PENDING_MEDIA_LOOKBACK;
+  }
+  return isCompactLayout ? 6 : 5;
+}
+
+function getAdaptiveContinuousPendingMediaCap() {
+  const layoutMode = getClientLayoutMode();
+  const isCompactLayout = layoutMode === "mobile" || layoutMode === "standalone-mobile" || layoutMode === "mobile-desktop-site";
+  const scrollSpeed = Number(feedRuntimeState.lastScrollSpeed || 0);
+  if (scrollSpeed <= 0.18) {
+    return isCompactLayout ? 3 : 2;
+  }
+  if (scrollSpeed <= FEED_SCROLL_SPEED_PREFETCH_THRESHOLD) {
+    return HOME_CONTINUOUS_MAX_PENDING_MEDIA_CARDS;
+  }
+  return 1;
 }
 
 function markMarketplaceScrollImageLoaded(image, resolvedSrc = "") {
