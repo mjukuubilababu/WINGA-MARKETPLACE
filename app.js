@@ -14783,6 +14783,16 @@ function createContinuousDiscoveryAnchorElement() {
   return anchor;
 }
 
+function buildHomeFeedEntryKey(item, options = {}) {
+  const productId = String(item?.id || item?.productId || "").trim();
+  const sequenceIndex = Number(options.sequenceIndex ?? item?.feedSequenceIndex ?? 0) || 0;
+  if (item?.feedVariantResurface || item?.resurfacedVariant) {
+    const visibleImageIndex = Number(item?.visibleImageIndex ?? item?.feedInitialImageIndex ?? 0) || 0;
+    return `variant:${productId}:${visibleImageIndex}:${sequenceIndex}`;
+  }
+  return `product:${productId}`;
+}
+
 function createContinuousDiscoverySectionElement(descriptor, index, anchorKind = "home") {
   if (!descriptor || !Array.isArray(descriptor.items) || !descriptor.items.length) {
     return null;
@@ -14808,7 +14818,15 @@ function createContinuousDiscoveryStreamElements(descriptor, index, anchorKind =
     return [];
   }
   return descriptor.items.map((item, itemIndex) => {
-    const card = createProductCardElement(item, {
+    const feedEntry = {
+      ...item,
+      feedEntryType: item?.feedVariantResurface ? "variant" : "product",
+      feedSequenceIndex: Number(item?.feedSequenceIndex ?? (index * 100) + itemIndex + 1) || ((index * 100) + itemIndex + 1),
+      feedEntryKey: buildHomeFeedEntryKey(item, {
+        sequenceIndex: Number(item?.feedSequenceIndex ?? (index * 100) + itemIndex + 1) || ((index * 100) + itemIndex + 1)
+      })
+    };
+    const card = createProductCardElement(feedEntry, {
       startupPriority: itemIndex < 2
     });
     if (!(card instanceof Element)) {
@@ -15332,11 +15350,9 @@ function trimHomeContinuousDiscoverySections(anchor) {
   if (groupKeys.length <= MAX_ACTIVE_HOME_CONTINUOUS_SECTIONS) {
     return;
   }
-  groupKeys.slice(0, groupKeys.length - MAX_ACTIVE_HOME_CONTINUOUS_SECTIONS).forEach((groupKey) => {
-    Array.from(container.querySelectorAll(`[data-continuous-discovery-section="${groupKey}"], [data-continuous-discovery-stream="${groupKey}"]`)).forEach((node) => {
-      releasePrunedSectionMedia(node);
-      node.remove();
-    });
+  reportShowcaseInstrumentation("continuous_feed_retention_groups", {
+    retainedGroupCount: groupKeys.length,
+    maxLegacyTrimThreshold: MAX_ACTIVE_HOME_CONTINUOUS_SECTIONS
   });
 }
 

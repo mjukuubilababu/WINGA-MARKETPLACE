@@ -809,11 +809,19 @@
 
     function createProductCardElement(product, options = {}) {
       const startupPriority = options.startupPriority === true;
+      const feedEntryType = String(product?.feedEntryType || (product?.feedVariantResurface ? "variant" : "product")).trim().toLowerCase();
+      const feedEntryKey = String(product?.feedEntryKey || (feedEntryType === "variant"
+        ? `variant:${String(product?.id || "").trim()}:${Number(product?.visibleImageIndex ?? product?.feedInitialImageIndex ?? 0) || 0}:${Number(product?.feedSequenceIndex || 0) || 0}`
+        : `product:${String(product?.id || "").trim()}`)).trim();
+      const feedSequenceIndex = Number(product?.feedSequenceIndex || 0) || 0;
       const card = createElement("article", {
         className: "product-card",
         attributes: {
           "data-product-card": product.id,
           "data-open-product": product.id,
+          ...(feedEntryKey ? { "data-feed-entry-key": feedEntryKey } : {}),
+          ...(feedEntryType ? { "data-feed-entry-type": feedEntryType } : {}),
+          ...(feedSequenceIndex ? { "data-feed-sequence-index": String(feedSequenceIndex) } : {}),
           ...(Number.isFinite(Number(product?.feedInitialImageIndex)) ? { "data-open-image-index": String(Number(product.feedInitialImageIndex) || 0) } : {}),
           ...(product?.feedVariantResurface ? { "data-feed-variant-card": "true" } : {}),
           ...(startupPriority ? { "data-startup-priority-card": "true" } : {})
@@ -821,6 +829,15 @@
       });
       card.dataset.productCard = product.id;
       card.dataset.openProduct = product.id;
+      if (feedEntryKey) {
+        card.dataset.feedEntryKey = feedEntryKey;
+      }
+      if (feedEntryType) {
+        card.dataset.feedEntryType = feedEntryType;
+      }
+      if (feedSequenceIndex) {
+        card.dataset.feedSequenceIndex = String(feedSequenceIndex);
+      }
       if (Number.isFinite(Number(product?.feedInitialImageIndex))) {
         card.dataset.openImageIndex = String(Number(product.feedInitialImageIndex) || 0);
       }
