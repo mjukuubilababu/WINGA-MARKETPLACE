@@ -378,6 +378,12 @@
       const sellerRow = createElement("div", { className: "product-seller-row" });
       const avatarWrap = createElement("div", { className: "product-seller-avatar" });
       const sellerUser = deps.getMarketplaceUser?.(product?.uploadedBy);
+      const canFollowSeller = Boolean(
+        product?.uploadedBy
+        && product.uploadedBy !== deps.getCurrentUser?.()
+        && deps.canUseBuyerFeatures?.()
+      );
+      const canShareSeller = Boolean(product?.uploadedBy);
       const isOwnerSeller = Boolean(
         deps.canUseSellerFeatures?.()
         && deps.getCurrentUser?.()
@@ -395,37 +401,50 @@
       } else {
         avatarWrap.textContent = getSellerAvatarFallback(product);
       }
+      if (sellerUser?.verifiedSeller) {
+        avatarWrap.appendChild(createElement("span", {
+          className: "product-seller-avatar-verified-badge",
+          textContent: "✓",
+          attributes: {
+            "aria-label": "Verified seller",
+            title: "Verified seller"
+          }
+        }));
+      }
 
       const sellerCopy = createElement("div", { className: "product-seller-copy" });
       sellerCopy.append(
-        createElement("strong", { className: "product-seller-name", textContent: getProductSellerLabel(product) }),
-        createElement("span", {
-          className: "product-seller-meta",
-          textContent: `${product?.location || deps.getCategoryLabel(product?.category)}`
-        })
+        createElement("strong", { className: "product-seller-name", textContent: getProductSellerLabel(product) })
       );
 
-      const badgeRow = createElement("div", { className: "product-seller-badge-row" });
-      badgeRow.appendChild(createElement("span", {
-        className: "product-seller-badge",
-        textContent: sellerUser?.verifiedSeller ? "Verified" : "Seller"
-      }));
-      if (isOwnerSeller) {
-        const promotionStatusMeta = deps.getSellerPromotionStatusMeta?.(product);
-        if (promotionStatusMeta?.label) {
-          badgeRow.appendChild(createElement("span", {
-            className: `status-pill product-seller-promotion-state ${promotionStatusMeta.className || "pending"}`,
-            textContent: promotionStatusMeta.label
-          }));
-          if (promotionStatusMeta.detail) {
-            badgeRow.appendChild(createElement("span", {
-              className: "product-seller-promotion-detail",
-              textContent: promotionStatusMeta.detail
-            }));
+      const badgeRow = createElement("div", { className: "product-seller-badge-row product-seller-inline-actions" });
+      if (canFollowSeller) {
+        const followButton = createElement("button", {
+          className: "product-seller-inline-action",
+          textContent: deps.isSellerFollowed?.(product.uploadedBy) ? "Following" : "Follow",
+          attributes: {
+            type: "button",
+            "data-follow-seller": product.uploadedBy || ""
           }
+        });
+        if (deps.isSellerFollowed?.(product.uploadedBy)) {
+          followButton.classList.add("is-active");
         }
+        badgeRow.appendChild(followButton);
+      }
+      if (canShareSeller) {
+        badgeRow.appendChild(createElement("button", {
+          className: "product-seller-inline-action",
+          textContent: "Share",
+          attributes: {
+            type: "button",
+            "data-share-seller-shop": product.uploadedBy || ""
+          }
+        }));
+      }
+      if (isOwnerSeller) {
         const promoteButton = createElement("button", {
-          className: "product-seller-promote-chip",
+          className: "product-seller-inline-action product-seller-promote-chip",
           textContent: "Promote",
           attributes: {
             type: "button",
@@ -723,7 +742,7 @@
         }
         if (
           event.target.closest(
-            ".product-menu, .product-menu-popup, .product-menu-toggle, [data-menu-toggle], [data-menu-popup], [data-product-caption-toggle], [data-request-product], [data-chat-product], [data-open-own-messages], [data-open-product-whatsapp], [data-buy-product], [data-detail-repost], [data-promote-product], .product-actions, .showcase-actions, .seller-product-actions"
+            ".product-menu, .product-menu-popup, .product-menu-toggle, [data-menu-toggle], [data-menu-popup], [data-product-caption-toggle], [data-request-product], [data-chat-product], [data-open-own-messages], [data-open-product-whatsapp], [data-buy-product], [data-detail-repost], [data-promote-product], [data-follow-seller], [data-share-seller-shop], .product-actions, .showcase-actions, .seller-product-actions, .product-seller-inline-actions"
           )
         ) {
           return;

@@ -8584,7 +8584,7 @@ function bindTrustReportEntryActions() {
         return;
       }
       const nowFollowing = toggleFollowSeller(username);
-      followSellerButton.textContent = nowFollowing ? "Following seller" : "Follow seller";
+      followSellerButton.textContent = nowFollowing ? "Following" : "Follow";
       followSellerButton.classList.toggle("is-active", nowFollowing);
       noteSellerInterest(username, nowFollowing ? 20 : 4, {
         signalType: "message"
@@ -9472,6 +9472,7 @@ const {
   getMarketplacePrimaryImage,
   getMarketplaceUser,
   getCurrentUser: () => currentUser,
+  isSellerFollowed,
   getSellerPromotionStatusMeta,
   renderSellerPromotionAnalytics,
   renderMarketplaceTrustBadges,
@@ -9482,6 +9483,7 @@ const {
   openImageLightbox,
   openProductDetailModal,
   isAuthenticatedUser,
+  canUseBuyerFeatures,
   canUseSellerFeatures,
   promptGuestAuth,
   renderFeedGalleryMarkup,
@@ -14575,14 +14577,12 @@ function renderDiscoveryProductCards(items, options = {}) {
             </div>
             ${renderProductOverflowMenu(item, { overlay: true })}
             <div class="product-seller-row">
-              <div class="product-seller-avatar">${sellerAvatar}</div>
+              <div class="product-seller-avatar">${sellerAvatar}${seller?.verifiedSeller ? `<span class="product-seller-avatar-verified-badge" aria-label="Verified seller" title="Verified seller">✓</span>` : ""}</div>
               <div class="product-seller-copy">
                 <strong class="product-seller-name">${sellerName}</strong>
-                <span class="product-seller-meta">${sellerMeta}</span>
               </div>
-              <div class="product-seller-badge-row">
-                <span class="product-seller-badge">${seller?.verifiedSeller ? "Verified" : "Seller"}</span>
-                ${renderSellerCardPromoteChip(item)}
+              <div class="product-seller-badge-row product-seller-inline-actions">
+                ${renderSellerCardInlineActions(item)}
               </div>
             </div>
             <div class="product-card-caption-block${safeCaption.length > 120 ? " is-collapsed" : ""}">
@@ -16038,7 +16038,23 @@ function renderSellerCardPromoteChip(product) {
   if (!currentUser || !canUseSellerFeatures() || product?.uploadedBy !== currentUser) {
     return "";
   }
-  return `${renderSellerPromotionStatusChip(product)}<button class="product-seller-promote-chip" type="button" onclick="return window.__wingaOpenPromotionFromTrigger ? window.__wingaOpenPromotionFromTrigger(this) : false;" data-promote-product="${product.id}" data-promote-authorized="true" data-promote-product-owner="${escapeHtml(product.uploadedBy || "")}" data-promote-product-name="${escapeHtml(product.name || "")}" data-promote-product-shop="${escapeHtml(product.shop || "")}" data-promote-product-whatsapp="${escapeHtml(product.whatsapp || "")}" data-promote-product-location="${escapeHtml(product.location || "")}" data-promote-product-category="${escapeHtml(product.category || "")}">Promote</button>`;
+  return `<button class="product-seller-inline-action product-seller-promote-chip" type="button" onclick="return window.__wingaOpenPromotionFromTrigger ? window.__wingaOpenPromotionFromTrigger(this) : false;" data-promote-product="${product.id}" data-promote-authorized="true" data-promote-product-owner="${escapeHtml(product.uploadedBy || "")}" data-promote-product-name="${escapeHtml(product.name || "")}" data-promote-product-shop="${escapeHtml(product.shop || "")}" data-promote-product-whatsapp="${escapeHtml(product.whatsapp || "")}" data-promote-product-location="${escapeHtml(product.location || "")}" data-promote-product-category="${escapeHtml(product.category || "")}">Promote</button>`;
+}
+
+function renderSellerCardInlineActions(product) {
+  const sellerId = String(product?.uploadedBy || "").trim();
+  if (!sellerId) {
+    return "";
+  }
+  const actions = [];
+  if (sellerId !== currentUser && canUseBuyerFeatures()) {
+    actions.push(`<button class="product-seller-inline-action${isSellerFollowed(sellerId) ? " is-active" : ""}" type="button" data-follow-seller="${escapeHtml(sellerId)}">${isSellerFollowed(sellerId) ? "Following" : "Follow"}</button>`);
+  }
+  actions.push(`<button class="product-seller-inline-action" type="button" data-share-seller-shop="${escapeHtml(sellerId)}">Share</button>`);
+  if (currentUser && canUseSellerFeatures() && sellerId === currentUser) {
+    actions.push(renderSellerCardPromoteChip(product));
+  }
+  return actions.join("");
 }
 
 function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
@@ -16652,7 +16668,7 @@ function bindShowcaseCardClicks(scope) {
       }
         if (
           event.target.closest(
-            ".product-menu, .product-menu-popup, .product-menu-toggle, [data-menu-toggle], [data-menu-popup], [data-product-caption-toggle], [data-request-product], [data-chat-product], [data-open-own-messages], [data-open-product-whatsapp], [data-buy-product], [data-detail-repost], [data-promote-product], .product-actions, .showcase-actions, .seller-product-actions"
+            ".product-menu, .product-menu-popup, .product-menu-toggle, [data-menu-toggle], [data-menu-popup], [data-product-caption-toggle], [data-request-product], [data-chat-product], [data-open-own-messages], [data-open-product-whatsapp], [data-buy-product], [data-detail-repost], [data-promote-product], [data-follow-seller], [data-share-seller-shop], .product-actions, .showcase-actions, .seller-product-actions, .product-seller-inline-actions"
           )
         ) {
         return;
@@ -16830,7 +16846,7 @@ function enhanceShowcaseTracks(scope = document) {
       if (isInteractiveTarget(targetElement)) {
         return;
       }
-      if (targetElement.closest(".product-menu, .product-menu-popup, .product-menu-toggle, [data-menu-toggle], [data-menu-popup], [data-product-caption-toggle], [data-request-product], [data-chat-product], [data-open-own-messages], [data-open-product-whatsapp], [data-buy-product], [data-detail-repost], .product-actions, .showcase-actions, .seller-product-actions")) {
+      if (targetElement.closest(".product-menu, .product-menu-popup, .product-menu-toggle, [data-menu-toggle], [data-menu-popup], [data-product-caption-toggle], [data-request-product], [data-chat-product], [data-open-own-messages], [data-open-product-whatsapp], [data-buy-product], [data-detail-repost], [data-follow-seller], [data-share-seller-shop], .product-actions, .showcase-actions, .seller-product-actions, .product-seller-inline-actions")) {
         return;
       }
 
