@@ -81,6 +81,9 @@ const PREDICTIVE_DECODE_TELEMETRY_LIMIT = 160;
 const HOME_CONTINUOUS_VARIANT_TRACK_LIMIT = 96;
 const HOME_CONTINUOUS_HARD_PRESSURE_PENDING_MEDIA = 4;
 const MARKETPLACE_PREFETCH_QUEUE_PRESSURE_THRESHOLD = 18;
+const FEED_MEDIA_SHED_ABOVE_VIEWPORTS = 4;
+const FEED_MEDIA_SHED_BELOW_VIEWPORTS = 5;
+const FEED_MEDIA_SHED_CARD_LIMIT = 36;
 const BLOCKED_DEMO_PRODUCT_IDENTIFIERS = new Set([
   "gauni la harusi",
   "sketi ya rangi",
@@ -11321,12 +11324,8 @@ function captureMemorySnapshot(reason = "sample", context = {}) {
 }
 
 function pruneDynamicFeedDomForMemoryPressure() {
-  document.querySelectorAll("[data-continuous-discovery-section], [data-product-detail-continuation-section]").forEach((section) => {
-    if (!(section instanceof Element)) {
-      return;
-    }
-    releasePrunedSectionMedia(section);
-    section.remove();
+  return shedFarOffscreenFeedMedia(productsContainer || document, {
+    maxCards: FEED_MEDIA_SHED_CARD_LIMIT * 2
   });
 }
 
@@ -11344,7 +11343,7 @@ function handleRuntimeMemoryPressure(snapshot, context = {}) {
   clearDecodedFeedImageCache();
   clearLightweightImageRegistries();
   pruneBrokenMarketplaceImageRegistry();
-  pruneDynamicFeedDomForMemoryPressure();
+  const shedCount = pruneDynamicFeedDomForMemoryPressure();
   disconnectRenderMemoryObservers();
   reportClientEvent("warn", "runtime_memory_mitigation_applied", "Applied client-side memory pressure mitigation.", {
     category: "runtime",
@@ -11355,9 +11354,19 @@ function handleRuntimeMemoryPressure(snapshot, context = {}) {
       galleryInits: diagnostics.galleryInitCount,
       galleryDisposals: diagnostics.galleryDisposeCount,
       activeGalleryBindings: diagnostics.activeGalleryBindings,
+      shedCardCount: Number(shedCount || 0),
       view: currentView,
       ...context
     });
+  if (currentView === "home") {
+    scheduleIdleBackgroundWork(() => {
+      resumeRetainedHomeFeedSurface("memory_pressure_recovery", {
+        productLimit: 6,
+        decodeLimit: 2,
+        delayMs: 0
+      });
+    }, 180);
+  }
 }
 
 function startMemoryMonitoring() {
@@ -11387,6 +11396,7 @@ function runFeedMemoryMaintenance(trigger = "interval") {
   pruneHomeContinuousDiscoveryRuntimeState();
   pruneBrokenMarketplaceImageRegistry();
   trimDecodedFeedImageCache();
+  const shedCardCount = shedFarOffscreenFeedMedia(productsContainer || document);
   while (slowPathTelemetryState.size > SLOW_PATH_TELEMETRY_LIMIT) {
     const oldestKey = slowPathTelemetryState.keys().next().value;
     if (typeof oldestKey === "undefined") {
@@ -11442,7 +11452,8 @@ function runFeedMemoryMaintenance(trigger = "interval") {
   if (trigger === "interval") {
     captureMemorySnapshot("feed_maintenance", {
       view: currentView,
-      productsCount: Array.isArray(products) ? products.length : 0
+      productsCount: Array.isArray(products) ? products.length : 0,
+      shedCardCount: Number(shedCardCount || 0)
     });
   }
 }
@@ -15878,6 +15889,113 @@ function trimHomeContinuousDiscoverySections(anchor) {
   });
 }
 
+function shedMarketplaceCardMedia(card) {
+  if (!(card instanceof Element) || card.getAttribute("data-feed-media-shed") === "true") {
+    return false;
+  }
+  let shedAny = false;
+  card.querySelectorAll("img[data-marketplace-scroll-image='true']").forEach((image) => {
+    if (!(image instanceof HTMLImageElement)) {
+      return;
+    }
+    const preservedSrc = image.dataset.marketplaceRealSrc
+      || image.dataset.progressiveRealSrc
+      || image.dataset.imageActionSrc
+      || image.dataset.zoomSrc
+      || image.currentSrc
+      || image.getAttribute("src")
+      || "";
+    if (!preservedSrc || preservedSrc === MARKETPLACE_SCROLL_IMAGE_PLACEHOLDER) {
+      return;
+    }
+    image.dataset.marketplaceRealSrc = preservedSrc;
+    marketplaceScrollImageObserver?.unobserve?.(image);
+    image.removeAttribute("srcset");
+    image.removeAttribute("sizes");
+    image.removeAttribute("src");
+    image.dataset.marketplaceImageState = "suspended";
+    const shell = image.closest(".progressive-image-shell");
+    shell?.classList.remove("is-loaded", "is-error");
+    shell?.classList.add("is-pending");
+    shedAny = true;
+  });
+  if (shedAny) {
+    card.setAttribute("data-feed-media-shed", "true");
+  }
+  return shedAny;
+}
+
+function restoreMarketplaceCardMedia(card) {
+  if (!(card instanceof Element) || card.getAttribute("data-feed-media-shed") !== "true") {
+    return false;
+  }
+  let restoredAny = false;
+  card.querySelectorAll("img[data-marketplace-scroll-image='true']").forEach((image) => {
+    if (!(image instanceof HTMLImageElement)) {
+      return;
+    }
+    const preservedSrc = image.dataset.marketplaceRealSrc
+      || image.dataset.progressiveRealSrc
+      || image.dataset.imageActionSrc
+      || image.dataset.zoomSrc
+      || "";
+    if (!preservedSrc || preservedSrc === MARKETPLACE_SCROLL_IMAGE_PLACEHOLDER) {
+      return;
+    }
+    if ((image.getAttribute("src") || "") !== preservedSrc) {
+      image.setAttribute("src", preservedSrc);
+    }
+    image.dataset.marketplaceImageState = image.dataset.marketplaceImageState || "active";
+    restoredAny = true;
+  });
+  if (restoredAny) {
+    card.removeAttribute("data-feed-media-shed");
+  }
+  return restoredAny;
+}
+
+function shedFarOffscreenFeedMedia(scope = productsContainer || document, options = {}) {
+  if (typeof document === "undefined" || currentView !== "home" || document.hidden) {
+    return 0;
+  }
+  const root = scope instanceof Element || scope === document ? scope : (productsContainer || document);
+  const viewportHeight = window.innerHeight || document.documentElement?.clientHeight || 0;
+  if (viewportHeight <= 0) {
+    return 0;
+  }
+  const aboveMargin = Math.max(viewportHeight * FEED_MEDIA_SHED_ABOVE_VIEWPORTS, Number(options.aboveMargin || 0) || 0);
+  const belowMargin = Math.max(viewportHeight * FEED_MEDIA_SHED_BELOW_VIEWPORTS, Number(options.belowMargin || 0) || 0);
+  const maxCards = Math.max(1, Number(options.maxCards || FEED_MEDIA_SHED_CARD_LIMIT) || FEED_MEDIA_SHED_CARD_LIMIT);
+  const cards = Array.from(
+    root.querySelectorAll?.(".product-card[data-open-product], .seller-product-card[data-open-product], .showcase-card[data-open-product]") || []
+  );
+  let shedCount = 0;
+  cards.forEach((card) => {
+    if (shedCount >= maxCards) {
+      return;
+    }
+    if (
+      card.getAttribute("data-continuation-media-pending") === "true"
+      || card.getAttribute("data-startup-priority-card") === "true"
+    ) {
+      return;
+    }
+    const rect = card.getBoundingClientRect();
+    const farAbove = rect.bottom < -aboveMargin;
+    const farBelow = rect.top > viewportHeight + belowMargin;
+    if (!farAbove && !farBelow) {
+      if (card.getAttribute("data-feed-media-shed") === "true") {
+        restoreMarketplaceCardMedia(card);
+      }
+      return;
+    }
+    if (shedMarketplaceCardMedia(card)) {
+      shedCount += 1;
+    }
+  });
+  return shedCount;
+}
+
 function pruneHomeContinuousDiscoveryRuntimeState() {
   const recentIds = Array.isArray(homeContinuousDiscoveryRuntime.recentIds)
     ? homeContinuousDiscoveryRuntime.recentIds
@@ -18381,6 +18499,7 @@ function prioritizeVisibleFeedMedia(scope = document, maxCards = 8) {
     scope.querySelectorAll?.(".product-card[data-open-product], .seller-product-card[data-open-product], .showcase-card[data-open-product]") || []
   ).slice(0, Math.max(1, Number(maxCards) || 8));
   cards.forEach((card, cardIndex) => {
+    restoreMarketplaceCardMedia(card);
     card.querySelectorAll?.("img[data-marketplace-scroll-image='true']").forEach((image, index) => {
       if (!(image instanceof HTMLImageElement)) {
         return;
@@ -18428,6 +18547,9 @@ function activateViewportReadyFeedImages(scope = document, options = {}) {
     }
     const prioritizeImage = isInViewport || activatedCount < 3;
     const owningCard = image.closest(".product-card[data-open-product], .seller-product-card[data-open-product], .showcase-card[data-open-product]");
+    if (owningCard instanceof Element) {
+      restoreMarketplaceCardMedia(owningCard);
+    }
     image.setAttribute("loading", "eager");
     image.setAttribute("fetchpriority", prioritizeImage ? "high" : "auto");
     activateMarketplaceScrollImage(image, {
@@ -19000,6 +19122,9 @@ function bindMarketplaceScrollImages(scope = document) {
     if (isStartupCritical || isInViewport || isWithinActivationBand) {
       const prioritizeImage = isStartupCritical || isInViewport;
       const owningCard = image.closest(".product-card[data-open-product], .seller-product-card[data-open-product], .showcase-card[data-open-product]");
+      if (owningCard instanceof Element) {
+        restoreMarketplaceCardMedia(owningCard);
+      }
       image.setAttribute("loading", "eager");
       image.setAttribute("fetchpriority", prioritizeImage ? "high" : "auto");
       activateMarketplaceScrollImage(image, {
