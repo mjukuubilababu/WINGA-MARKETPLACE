@@ -50,6 +50,8 @@ const HOME_VARIANT_GLOBAL_NORMAL_PRODUCT_GAP = 6;
 const HOME_VARIANT_MAX_PER_BATCH = 1;
 const HOME_VARIANT_MIN_STREAM_ITEMS_BEFORE_INSERT = 6;
 const HOME_VARIANT_STREAM_INSERT_AFTER = 4;
+const HOME_VARIANT_INJECTION_PREFETCH_PRODUCT_LIMIT = 2;
+const HOME_VARIANT_INJECTION_PREFETCH_RADIUS = 1;
 const FEED_BOOT_IMAGE_WARM_COUNT = 24;
 const FEED_BOOT_IMAGE_DECODE_COUNT = 8;
 const FEED_PREDICTIVE_PRELOAD_COUNT = 6;
@@ -3269,6 +3271,78 @@ function primeIncomingFeedItems(productsList = [], options = {}) {
     reason: String(options.reason || "incoming_feed_items"),
     productLimit: Math.min(productsList.length, Number(options.productLimit || windowConfig.productLimit) || windowConfig.productLimit),
     decodeLimit: Math.min(productsList.length, Number(options.decodeLimit || windowConfig.decodeLimit) || windowConfig.decodeLimit)
+  });
+}
+
+function collectVariantInjectionImages(productsList = [], options = {}) {
+  const productLimit = Math.max(
+    1,
+    Math.min(
+      Number(options.productLimit || HOME_VARIANT_INJECTION_PREFETCH_PRODUCT_LIMIT) || HOME_VARIANT_INJECTION_PREFETCH_PRODUCT_LIMIT,
+      Array.isArray(productsList) ? productsList.length : 0
+    )
+  );
+  const radius = Math.max(0, Number(options.radius || HOME_VARIANT_INJECTION_PREFETCH_RADIUS) || 0);
+  const queue = [];
+  const seen = new Set();
+  const pushImage = (src, fetchPriority = "auto", decodeInMemory = false) => {
+    const safeSrc = sanitizeImageSource(src, "");
+    if (!safeSrc || seen.has(safeSrc)) {
+      return;
+    }
+    seen.add(safeSrc);
+    queue.push({
+      src: safeSrc,
+      fetchPriority,
+      decodeInMemory
+    });
+  };
+
+  productsList
+    .filter((product) => product?.feedVariantResurface)
+    .slice(0, productLimit)
+    .forEach((product, productIndex) => {
+      const images = getRenderableMarketplaceImages(product);
+      if (!images.length) {
+        return;
+      }
+      const preferredIndex = Math.max(
+        0,
+        Math.min(
+          images.length - 1,
+          Number(product?.feedInitialImageIndex ?? product?.visibleImageIndex ?? 0) || 0
+        )
+      );
+      pushImage(images[preferredIndex], productIndex === 0 ? "high" : "auto", true);
+      for (let step = 1; step <= radius; step += 1) {
+        const nextIndex = preferredIndex + step;
+        const previousIndex = preferredIndex - step;
+        if (nextIndex < images.length) {
+          pushImage(images[nextIndex], productIndex === 0 && step === 1 ? "high" : "auto", step === 1);
+        }
+        if (previousIndex >= 0) {
+          pushImage(images[previousIndex], "auto", false);
+        }
+      }
+    });
+
+  return queue;
+}
+
+function primeVariantInjectionImages(productsList = [], options = {}) {
+  if (!Array.isArray(productsList) || !productsList.length || typeof preloadImageSource !== "function") {
+    return;
+  }
+  const queue = collectVariantInjectionImages(productsList, options);
+  if (!queue.length) {
+    return;
+  }
+  queue.forEach(({ src, fetchPriority, decodeInMemory }) => {
+    preloadImageSource(src, {
+      fetchPriority,
+      decodeInMemory,
+      reason: String(options.reason || "variant_injection")
+    });
   });
 }
 
@@ -15126,7 +15200,18 @@ function mergeVariantResurfacingIntoStream(streamItems = [], options = {}) {
   if (!variantItems.length) {
     return baseItems;
   }
-  const insertAfter = Math.max(3, Math.min(baseItems.length - 2, HOME_VARIANT_STREAM_INSERT_AFTER + (Number(options?.batchIndex || 0) % 2)));
+  const dynamicOffset = Math.min(
+    2,
+    Math.max(
+      0,
+      (Number(options?.batchIndex || 0) % 2)
+      + (Number(options?.normalProductOrdinal || 0) % 2)
+    )
+  );
+  const insertAfter = Math.max(
+    3,
+    Math.min(baseItems.length - 2, HOME_VARIANT_STREAM_INSERT_AFTER + dynamicOffset)
+  );
   baseItems.splice(insertAfter, 0, variantItems[0]);
   return baseItems;
 }
@@ -15549,6 +15634,14 @@ function prepareNextContinuousDiscoveryDescriptor() {
         ? Math.min(descriptor.items.length, 5)
         : Math.min(descriptor.items.length, 2)
     });
+    if (descriptor.kind === "stream") {
+      // Prime the chosen resurfaced image and its immediate swipe neighbors
+      // without mutating the product gallery. This keeps manual swipe intact
+      // while making injected variants feel native in the feed.
+      primeVariantInjectionImages(homeContinuousDiscoveryRuntime.preparedDescriptor.items, {
+        reason: `continuous_discovery_variant_prepared_${homeContinuousDiscoveryRuntime.batchIndex}`
+      });
+    }
     return homeContinuousDiscoveryRuntime.preparedDescriptor;
   } finally {
     homeContinuousDiscoveryRuntime.preparingDescriptor = false;
@@ -15750,6 +15843,11 @@ async function hydrateContinuousDiscoveryAnchor(anchor) {
       productLimit: descriptor.kind === "stream" ? Math.min(descriptor.items.length, 6) : Math.min(descriptor.items.length, 4),
       decodeLimit: descriptor.kind === "stream" ? Math.min(descriptor.items.length, 4) : Math.min(descriptor.items.length, 2)
     });
+    if (descriptor.kind === "stream") {
+      primeVariantInjectionImages(descriptor.items, {
+        reason: `continuous_discovery_variant_batch_${batchIndex}_preappend`
+      });
+    }
   }
   let insertedNodes = [];
   if (descriptor.kind === "stream") {
