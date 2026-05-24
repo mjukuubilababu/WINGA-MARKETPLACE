@@ -378,6 +378,7 @@
       const sellerRow = createElement("div", { className: "product-seller-row" });
       const avatarWrap = createElement("div", { className: "product-seller-avatar" });
       const sellerUser = deps.getMarketplaceUser?.(product?.uploadedBy);
+      const productLiked = Boolean(deps.isProductSaved?.(product?.id));
       const canFollowSeller = Boolean(
         product?.uploadedBy
         && product.uploadedBy !== deps.getCurrentUser?.()
@@ -418,6 +419,14 @@
       );
 
       const badgeRow = createElement("div", { className: "product-seller-badge-row product-seller-inline-actions" });
+      badgeRow.appendChild(createElement("button", {
+        className: `product-seller-inline-action product-seller-like-chip${productLiked ? " is-active" : ""}`,
+        textContent: productLiked ? "♥ Like" : "♡ Like",
+        attributes: {
+          type: "button",
+          "data-like-product": product.id || ""
+        }
+      }));
       if (canFollowSeller) {
         const followButton = createElement("button", {
           className: "product-seller-inline-action",
@@ -742,7 +751,7 @@
         }
         if (
           event.target.closest(
-            ".product-menu, .product-menu-popup, .product-menu-toggle, [data-menu-toggle], [data-menu-popup], [data-product-caption-toggle], [data-request-product], [data-chat-product], [data-open-own-messages], [data-open-product-whatsapp], [data-buy-product], [data-detail-repost], [data-promote-product], [data-follow-seller], [data-share-seller-shop], .product-actions, .showcase-actions, .seller-product-actions, .product-seller-inline-actions"
+            ".product-menu, .product-menu-popup, .product-menu-toggle, [data-menu-toggle], [data-menu-popup], [data-product-caption-toggle], [data-request-product], [data-chat-product], [data-open-own-messages], [data-open-product-whatsapp], [data-buy-product], [data-detail-repost], [data-promote-product], [data-follow-seller], [data-share-seller-shop], [data-like-product], .product-actions, .showcase-actions, .seller-product-actions, .product-seller-inline-actions"
           )
         ) {
           return;

@@ -1916,6 +1916,17 @@ img[data-zoom-src]{
   border-color:rgba(255, 106, 0, 0.28);
 }
 
+.product-seller-like-chip{
+  min-width:70px;
+  color:#3a3340;
+}
+
+.product-seller-like-chip.is-active{
+  color:#d6456a;
+  border-color:rgba(214, 69, 106, 0.24);
+  background:#fff1f5;
+}
+
 .product-seller-promote-chip{
   background:#fff4eb;
   color:var(--accent-deep);
@@ -3693,8 +3704,8 @@ img[data-zoom-src]{
 
 .product-seller-avatar-verified-badge{
   position:absolute;
-  right:-2px;
-  bottom:-2px;
+  right:-3px;
+  bottom:-3px;
   width:18px;
   height:18px;
   border-radius:999px;

@@ -8558,6 +8558,29 @@ function bindTrustReportEntryActions() {
       return;
     }
 
+    const likeProductButton = event.target.closest("[data-like-product]");
+    if (likeProductButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      const productId = String(likeProductButton.dataset.likeProduct || "").trim();
+      if (!productId) {
+        return;
+      }
+      const nowLiked = toggleSavedProduct(productId);
+      likeProductButton.textContent = nowLiked ? "♥ Like" : "♡ Like";
+      likeProductButton.classList.toggle("is-active", nowLiked);
+      showInAppNotification({
+        type: "info",
+        title: nowLiked ? "Imehifadhiwa kwenye Favorites" : "Imeondolewa kwenye Favorites",
+        body: nowLiked
+          ? "Bidhaa hii itabaki karibu kwa return visits zako."
+          : "Bidhaa hii imeondolewa kwenye favorites zako.",
+        variant: "success",
+        durationMs: 2200
+      });
+      return;
+    }
+
     const followSellerButton = event.target.closest("[data-follow-seller]");
     if (followSellerButton) {
       event.preventDefault();
@@ -9473,6 +9496,7 @@ const {
   getMarketplaceUser,
   getCurrentUser: () => currentUser,
   isSellerFollowed,
+  isProductSaved,
   getSellerPromotionStatusMeta,
   renderSellerPromotionAnalytics,
   renderMarketplaceTrustBadges,
@@ -16047,6 +16071,8 @@ function renderSellerCardInlineActions(product) {
     return "";
   }
   const actions = [];
+  const liked = isProductSaved(product?.id);
+  actions.push(`<button class="product-seller-inline-action product-seller-like-chip${liked ? " is-active" : ""}" type="button" data-like-product="${escapeHtml(String(product?.id || "").trim())}">${liked ? "♥ Like" : "♡ Like"}</button>`);
   if (sellerId !== currentUser && canUseBuyerFeatures()) {
     actions.push(`<button class="product-seller-inline-action${isSellerFollowed(sellerId) ? " is-active" : ""}" type="button" data-follow-seller="${escapeHtml(sellerId)}">${isSellerFollowed(sellerId) ? "Following" : "Follow"}</button>`);
   }
@@ -16668,7 +16694,7 @@ function bindShowcaseCardClicks(scope) {
       }
         if (
           event.target.closest(
-            ".product-menu, .product-menu-popup, .product-menu-toggle, [data-menu-toggle], [data-menu-popup], [data-product-caption-toggle], [data-request-product], [data-chat-product], [data-open-own-messages], [data-open-product-whatsapp], [data-buy-product], [data-detail-repost], [data-promote-product], [data-follow-seller], [data-share-seller-shop], .product-actions, .showcase-actions, .seller-product-actions, .product-seller-inline-actions"
+            ".product-menu, .product-menu-popup, .product-menu-toggle, [data-menu-toggle], [data-menu-popup], [data-product-caption-toggle], [data-request-product], [data-chat-product], [data-open-own-messages], [data-open-product-whatsapp], [data-buy-product], [data-detail-repost], [data-promote-product], [data-follow-seller], [data-share-seller-shop], [data-like-product], .product-actions, .showcase-actions, .seller-product-actions, .product-seller-inline-actions"
           )
         ) {
         return;
@@ -16846,7 +16872,7 @@ function enhanceShowcaseTracks(scope = document) {
       if (isInteractiveTarget(targetElement)) {
         return;
       }
-      if (targetElement.closest(".product-menu, .product-menu-popup, .product-menu-toggle, [data-menu-toggle], [data-menu-popup], [data-product-caption-toggle], [data-request-product], [data-chat-product], [data-open-own-messages], [data-open-product-whatsapp], [data-buy-product], [data-detail-repost], [data-follow-seller], [data-share-seller-shop], .product-actions, .showcase-actions, .seller-product-actions, .product-seller-inline-actions")) {
+      if (targetElement.closest(".product-menu, .product-menu-popup, .product-menu-toggle, [data-menu-toggle], [data-menu-popup], [data-product-caption-toggle], [data-request-product], [data-chat-product], [data-open-own-messages], [data-open-product-whatsapp], [data-buy-product], [data-detail-repost], [data-follow-seller], [data-share-seller-shop], [data-like-product], .product-actions, .showcase-actions, .seller-product-actions, .product-seller-inline-actions")) {
         return;
       }
 
