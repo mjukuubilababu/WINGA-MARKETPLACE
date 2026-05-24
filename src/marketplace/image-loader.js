@@ -53,10 +53,15 @@
       ]);
     }
 
-    function getProductImageCandidates(product) {
+    function getRenderableProductImages(product) {
       const sourceImages = Array.isArray(product?.images) && product.images.length > 0
         ? product.images.slice()
         : [product?.image];
+      return normalizeImageCandidates(sourceImages);
+    }
+
+    function getProductImageCandidates(product) {
+      const sourceImages = getRenderableProductImages(product);
       const preferredFeedImages = collectOptionalFeedImageCandidates(product);
       if (preferredFeedImages.length) {
         sourceImages.unshift(...preferredFeedImages);
@@ -83,6 +88,7 @@
 
     return {
       collectOptionalFeedImageCandidates,
+      getRenderableProductImages,
       getProductImageCandidates,
       canUseServiceWorkerImageWarmCache
     };

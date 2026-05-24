@@ -193,11 +193,45 @@ const createMarketplaceImageLoaderModule = window.WingaModules.marketplace.creat
         variants.smallUrl
       ]);
     },
+    getRenderableProductImages(product) {
+      const sourceImages = Array.isArray(product?.images) && product.images.length > 0
+        ? product.images.slice()
+        : [product?.image];
+      return normalizeImageCandidates(sourceImages);
+    },
     getProductImageCandidates(product) {
       const sourceImages = Array.isArray(product?.images) && product.images.length > 0
         ? product.images.slice()
         : [product?.image];
-      const preferredFeedImages = this.collectOptionalFeedImageCandidates(product);
+      const preferredFeedImages = normalizeImageCandidates([
+        product?.feedImage,
+        product?.feedImageUrl,
+        product?.previewImage,
+        product?.previewImageUrl,
+        product?.preview,
+        product?.thumbnail,
+        product?.thumbnailUrl,
+        product?.thumb,
+        product?.thumbUrl,
+        product?.smallImage,
+        product?.smallImageUrl,
+        product?.imageThumb,
+        product?.imagePreview,
+        ...(product?.imageVariants && typeof product.imageVariants === "object"
+          ? [
+              product.imageVariants.feed,
+              product.imageVariants.feedUrl,
+              product.imageVariants.preview,
+              product.imageVariants.previewUrl,
+              product.imageVariants.thumbnail,
+              product.imageVariants.thumbnailUrl,
+              product.imageVariants.thumb,
+              product.imageVariants.thumbUrl,
+              product.imageVariants.small,
+              product.imageVariants.smallUrl
+            ]
+          : [])
+      ]);
       if (preferredFeedImages.length) {
         sourceImages.unshift(...preferredFeedImages);
       }
@@ -227,6 +261,7 @@ const marketplaceImageLoader = createMarketplaceImageLoaderModule({
 });
 const {
   collectOptionalFeedImageCandidates: collectFeedImageLoaderCandidates,
+  getRenderableProductImages: getFeedRenderableImages,
   getProductImageCandidates: getFeedImageLoaderCandidates,
   canUseServiceWorkerImageWarmCache
 } = marketplaceImageLoader;
@@ -9930,13 +9965,13 @@ function clearBrokenMarketplaceImage(productId, imageSource = "") {
 }
 
 function getRenderableMarketplaceImages(product, options = {}) {
-  const candidates = getProductImageCandidates(product);
-  if (!candidates.length) {
+  const images = getFeedRenderableImages(product);
+  if (!images.length) {
     return [];
   }
   // Keep the card/media visible everywhere. Broken image telemetry still drives
   // fallback handling, but it should not remove products from discovery/detail.
-  return candidates;
+  return images;
 }
 
 function hasRenderableMarketplaceImage(product, options = {}) {
