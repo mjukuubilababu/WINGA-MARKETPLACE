@@ -833,7 +833,7 @@
       const startupPriority = options.startupPriority === true;
       const feedEntryType = String(product?.feedEntryType || (product?.feedVariantResurface ? "variant" : "product")).trim().toLowerCase();
       const feedEntryKey = String(product?.feedEntryKey || (feedEntryType === "variant"
-        ? `variant:${String(product?.id || "").trim()}:${Number(product?.visibleImageIndex ?? product?.feedInitialImageIndex ?? 0) || 0}:${Number(product?.feedSequenceIndex || 0) || 0}`
+        ? `${String(product?.id || "").trim()}-var-${Number(product?.visibleImageIndex ?? product?.feedInitialImageIndex ?? 0) || 0}-${Number(product?.feedSequenceIndex || 0) || 0}`
         : `product:${String(product?.id || "").trim()}`)).trim();
       const feedSequenceIndex = Number(product?.feedSequenceIndex || 0) || 0;
       const card = createElement("article", {

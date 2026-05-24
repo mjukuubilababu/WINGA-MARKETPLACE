@@ -4098,6 +4098,23 @@ function noteProductEngagementSignal(productId, signalType, fallbackWeight = 1) 
   if (!normalizedProductId) {
     return;
   }
+  const normalizedSignal = String(signalType || "").trim().toLowerCase();
+  const existingVariationState = productVariationSignalState[normalizedProductId] || {
+    liked: false,
+    lingerMs: 0,
+    variationSwipeCount: 0,
+    updatedAt: 0
+  };
+  const nextVariationState = {
+    ...existingVariationState,
+    updatedAt: Date.now()
+  };
+  if (normalizedSignal === "linger_5s") {
+    nextVariationState.lingerMs = Math.min(60000, Number(existingVariationState.lingerMs || 0) + PRODUCT_CARD_LINGER_THRESHOLD_MS);
+  } else if (normalizedSignal === "variation_swipe") {
+    nextVariationState.variationSwipeCount = Math.min(12, Number(existingVariationState.variationSwipeCount || 0) + 1);
+  }
+  productVariationSignalState[normalizedProductId] = nextVariationState;
   const relatedProduct = getProductById(normalizedProductId);
   if (!relatedProduct?.uploadedBy) {
     return;
@@ -5746,12 +5763,22 @@ function toggleSavedProduct(productId) {
     savedIds.delete(safeProductId);
     persistSavedProductIds();
     clearSavedProductIntent(safeProductId);
+    productVariationSignalState[safeProductId] = {
+      ...(productVariationSignalState[safeProductId] || {}),
+      liked: false,
+      updatedAt: Date.now()
+    };
     return false;
   }
 
   savedIds.add(safeProductId);
   persistSavedProductIds();
   noteSavedProductIntent(safeProductId);
+  productVariationSignalState[safeProductId] = {
+    ...(productVariationSignalState[safeProductId] || {}),
+    liked: true,
+    updatedAt: Date.now()
+  };
   return true;
 }
 
@@ -10839,6 +10866,7 @@ let lastViewedProductId = "";
 let recentlyViewedProductIds = [];
 let productDiscoveryTrail = [];
 let productSeenTimestamps = {};
+let productVariationSignalState = {};
 let pinnedDesktopCategory = "";
 let buyerSellerAffinity = {};
 let productEngagementObserver = null;
@@ -14990,7 +15018,7 @@ function buildHomeFeedEntryKey(item, options = {}) {
   const sequenceIndex = Number(options.sequenceIndex ?? item?.feedSequenceIndex ?? 0) || 0;
   if (item?.feedVariantResurface || item?.resurfacedVariant) {
     const visibleImageIndex = Number(item?.visibleImageIndex ?? item?.feedInitialImageIndex ?? 0) || 0;
-    return `variant:${productId}:${visibleImageIndex}:${sequenceIndex}`;
+    return `${productId}-var-${visibleImageIndex}-${sequenceIndex}`;
   }
   return `product:${productId}`;
 }
@@ -15101,19 +15129,94 @@ function getVariantInitialImageIndex(product, variantIndex = 1) {
   return uniqueImageIndexes[normalizedIndex] ?? 0;
 }
 
-function getNextVariantResurfaceImageIndex(product, shownIndexes = []) {
-  const uniqueImageIndexes = getUniqueRenderableImageIndexes(product);
-  if (uniqueImageIndexes.length < 2) {
+function getProductVariationBehaviorState(productId) {
+  const normalizedProductId = normalizeProductIdValue(productId);
+  if (!normalizedProductId) {
+    return {
+      liked: false,
+      lingerMs: 0,
+      variationSwipeCount: 0,
+      updatedAt: 0
+    };
+  }
+  return {
+    liked: Boolean(productVariationSignalState[normalizedProductId]?.liked || isProductSaved(normalizedProductId)),
+    lingerMs: Math.max(0, Number(productVariationSignalState[normalizedProductId]?.lingerMs || 0)),
+    variationSwipeCount: Math.max(0, Number(productVariationSignalState[normalizedProductId]?.variationSwipeCount || 0)),
+    updatedAt: Math.max(0, Number(productVariationSignalState[normalizedProductId]?.updatedAt || 0))
+  };
+}
+
+function resolvePreferredVariantImageIndex(candidateIndexes = [], preferredIndex = -1) {
+  const safeIndexes = Array.from(candidateIndexes || [])
+    .map((index) => Number(index))
+    .filter((index) => Number.isFinite(index) && index > 0)
+    .sort((left, right) => left - right);
+  if (!safeIndexes.length) {
     return -1;
   }
-  const surfacedIndexes = new Set(
-    Array.from(shownIndexes || [])
+  const normalizedPreferredIndex = Number(preferredIndex);
+  if (!Number.isFinite(normalizedPreferredIndex) || normalizedPreferredIndex < 1) {
+    return safeIndexes[0];
+  }
+  if (safeIndexes.includes(normalizedPreferredIndex)) {
+    return normalizedPreferredIndex;
+  }
+  return safeIndexes.find((index) => index >= normalizedPreferredIndex) ?? safeIndexes[safeIndexes.length - 1];
+}
+
+function shouldUseVariantScrollSlot(normalProductOrdinal = 0) {
+  const safeOrdinal = Math.max(0, Number(normalProductOrdinal || 0) || 0);
+  return safeOrdinal >= 15 && safeOrdinal % 15 === 0;
+}
+
+function getBehaviorDrivenVariantImageIndex(product, options = {}) {
+  const uniqueImageIndexes = getUniqueRenderableImageIndexes(product).filter((index) => Number(index) > 0);
+  if (!uniqueImageIndexes.length) {
+    return -1;
+  }
+  const shownIndexes = new Set(
+    Array.from(options.shownIndexes || [])
       .map((index) => Number(index))
       .filter((index) => Number.isFinite(index) && index >= 0)
   );
-  surfacedIndexes.add(getProductFeedLeadImageIndex(product));
-  const nextIndex = uniqueImageIndexes.find((index) => !surfacedIndexes.has(index));
-  return Number.isFinite(nextIndex) ? nextIndex : -1;
+  shownIndexes.add(getProductFeedLeadImageIndex(product));
+  const availableIndexes = uniqueImageIndexes.filter((index) => !shownIndexes.has(index));
+  if (!availableIndexes.length) {
+    return -1;
+  }
+
+  const behaviorState = getProductVariationBehaviorState(product?.id);
+  const hasBoost = Boolean(getPrimaryPromotion(product?.id) || Number(getPromotionCommercialScore?.(product) || 0) > 0);
+  const hasLiked = behaviorState.liked;
+  const hasDeepLinger = behaviorState.lingerMs >= 10000;
+  const slotTriggered = shouldUseVariantScrollSlot(options.normalProductOrdinal);
+
+  let selectedIndex = -1;
+  if (hasBoost) {
+    selectedIndex = resolvePreferredVariantImageIndex(availableIndexes, 1);
+  }
+  if (hasLiked) {
+    selectedIndex = resolvePreferredVariantImageIndex(availableIndexes, 2);
+  }
+  if (hasDeepLinger) {
+    selectedIndex = resolvePreferredVariantImageIndex(availableIndexes, 3);
+  }
+  if (slotTriggered && selectedIndex < 0) {
+    const slotSeed = Math.max(
+      0,
+      Number(options.batchIndex || 0) + Number(options.normalProductOrdinal || 0) + behaviorState.variationSwipeCount
+    );
+    selectedIndex = availableIndexes[slotSeed % availableIndexes.length];
+  }
+  if (selectedIndex >= 0) {
+    return selectedIndex;
+  }
+  return availableIndexes[0];
+}
+
+function getNextVariantResurfaceImageIndex(product, shownIndexes = []) {
+  return getBehaviorDrivenVariantImageIndex(product, { shownIndexes });
 }
 
 function getVariantResurfacedProducts(options = {}) {
@@ -15164,7 +15267,11 @@ function getVariantResurfacedProducts(options = {}) {
       const surfacedCount = Number(counts[product.id] || 0);
       const lastBatchIndex = Number(lastBatchMap[product.id] || -HOME_VARIANT_RESURFACE_BATCH_GAP);
       const lastAppearanceOrdinal = Number(appearanceOrdinalMap[product.id] || 0);
-      const nextImageIndex = getNextVariantResurfaceImageIndex(product, shownIndexesMap[product.id] || []);
+      const nextImageIndex = getBehaviorDrivenVariantImageIndex(product, {
+        shownIndexes: shownIndexesMap[product.id] || [],
+        batchIndex,
+        normalProductOrdinal
+      });
       return (
         nextImageIndex >= 0
         && surfacedCount < Math.min(HOME_VARIANT_RESURFACE_MAX_PER_PRODUCT, uniqueImageIndexes.length - 1)
@@ -15201,7 +15308,11 @@ function getVariantResurfacedProducts(options = {}) {
       return;
     }
     const existingVariantCount = Number(counts[product.id] || 0);
-    const initialImageIndex = getNextVariantResurfaceImageIndex(product, shownIndexesMap[product.id] || []);
+    const initialImageIndex = getBehaviorDrivenVariantImageIndex(product, {
+      shownIndexes: shownIndexesMap[product.id] || [],
+      batchIndex,
+      normalProductOrdinal
+    });
     const allImages = getRenderableMarketplaceImages(product);
     if (allImages.length < 2 || initialImageIndex <= 0 || allImages[initialImageIndex] === getMarketplacePrimaryImage(product)) {
       return;
