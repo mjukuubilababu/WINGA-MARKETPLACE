@@ -68,8 +68,10 @@ const FEED_MEMORY_MAINTENANCE_INTERVAL_MS = 5000;
 const CONTINUATION_MEDIA_REVEAL_MAX_WAIT_MS = 280;
 const CONTINUATION_MEDIA_REVEAL_POLL_MS = 50;
 const HOME_CONTINUOUS_BATCH_ADMISSION_MAX_WAIT_MS = 90;
+const HOME_CONTINUOUS_BATCH_ADMISSION_SLOW_SCROLL_WAIT_MS = 140;
 const HOME_CONTINUOUS_PENDING_MEDIA_LOOKBACK = 8;
 const HOME_CONTINUOUS_MAX_PENDING_MEDIA_CARDS = 2;
+const HOME_CONTINUOUS_PENDING_DESCRIPTOR_LIMIT = 6;
 const BLOCKED_DEMO_PRODUCT_IDENTIFIERS = new Set([
   "gauni la harusi",
   "sketi ya rangi",
@@ -2240,6 +2242,34 @@ function clearLightweightImageRegistries() {
   marketplaceScrollPrefetchActiveCount = 0;
 }
 
+function getBrokenMarketplaceImageEntry(productId, imageSource = "") {
+  const normalizedProductId = String(productId || "").trim();
+  const normalizedSource = sanitizeImageSource(imageSource, "");
+  if (!normalizedProductId || !normalizedSource) {
+    return null;
+  }
+  const registry = brokenMarketplaceImagesByProduct.get(normalizedProductId);
+  if (!(registry instanceof Map)) {
+    return null;
+  }
+  const entry = registry.get(normalizedSource);
+  if (!entry) {
+    return null;
+  }
+  if (!Number.isFinite(entry.hiddenUntil) || entry.hiddenUntil <= Date.now()) {
+    registry.delete(normalizedSource);
+    if (!registry.size) {
+      brokenMarketplaceImagesByProduct.delete(normalizedProductId);
+    }
+    return null;
+  }
+  return entry;
+}
+
+function shouldDeprioritizeBrokenMarketplaceImage(productId, imageSource = "") {
+  return Boolean(getBrokenMarketplaceImageEntry(productId, imageSource));
+}
+
 function bumpMarketplaceImagePrefetchGeneration(reason = "feed_refresh") {
   feedRuntimeState.marketplaceImagePrefetchGeneration = Number(feedRuntimeState.marketplaceImagePrefetchGeneration || 0) + 1;
   feedRuntimeState.lastMarketplaceImagePrefetchReason = reason;
@@ -2307,12 +2337,14 @@ function drainMarketplaceScrollPrefetchQueue() {
   }
 }
 
-function scheduleMarketplaceScrollImagePrefetch(src = "") {
+function scheduleMarketplaceScrollImagePrefetch(src = "", productId = "") {
   const safeSrc = sanitizeImageSource(src, "");
+  const normalizedProductId = String(productId || "").trim();
   const generation = Number(feedRuntimeState.marketplaceImagePrefetchGeneration || 0);
   if (
     !safeSrc
     || /^data:/i.test(safeSrc)
+    || shouldDeprioritizeBrokenMarketplaceImage(normalizedProductId, safeSrc)
     || marketplaceScrollImagePrefetchedSources.has(safeSrc)
     || marketplaceScrollPrefetchInflight.has(safeSrc)
     || marketplaceScrollPrefetchQueue.some((entry) => entry?.src === safeSrc && Number(entry?.generation || 0) === generation)
@@ -9691,6 +9723,21 @@ function noteBrokenMarketplaceImage(productId, imageSource = "") {
     hiddenUntil: shouldHide ? Date.now() + BROKEN_IMAGE_SUPPRESS_MS : 0
   });
   brokenMarketplaceImagesByProduct.set(normalizedProductId, registry);
+  if (shouldHide) {
+    marketplaceScrollImagePrefetchedSources.delete(normalizedSource);
+    for (let index = marketplaceScrollPrefetchQueue.length - 1; index >= 0; index -= 1) {
+      if (marketplaceScrollPrefetchQueue[index]?.src === normalizedSource) {
+        marketplaceScrollPrefetchQueue.splice(index, 1);
+      }
+    }
+    const inflightEntry = marketplaceScrollPrefetchInflight.get(normalizedSource);
+    if (inflightEntry?.image instanceof Image) {
+      inflightEntry.image.onload = null;
+      inflightEntry.image.onerror = null;
+      inflightEntry.image.src = "";
+    }
+    marketplaceScrollPrefetchInflight.delete(normalizedSource);
+  }
   if (!shouldHide) {
     return;
   }
@@ -10904,6 +10951,33 @@ function runFeedMemoryMaintenance(trigger = "interval") {
   trimDecodedFeedImageCache();
   pruneTimestampRegistry(imagePreloadRegistry, Math.max(32, Math.floor(IMAGE_PRELOAD_REGISTRY_LIMIT / 2)));
   pruneTimestampRegistry(marketplaceScrollImagePrefetchedSources, Math.max(48, Math.floor(MARKETPLACE_SCROLL_PREFETCH_REGISTRY_LIMIT / 2)));
+  if (Array.isArray(homeContinuousDiscoveryRuntime.pendingDescriptors)) {
+    if (homeContinuousDiscoveryRuntime.pendingDescriptors.length > HOME_CONTINUOUS_PENDING_DESCRIPTOR_LIMIT) {
+      homeContinuousDiscoveryRuntime.pendingDescriptors.splice(HOME_CONTINUOUS_PENDING_DESCRIPTOR_LIMIT);
+    }
+    homeContinuousDiscoveryRuntime.pendingDescriptors = homeContinuousDiscoveryRuntime.pendingDescriptors.filter((descriptor) => Array.isArray(descriptor?.items) && descriptor.items.length);
+  }
+  if (
+    homeContinuousDiscoveryRuntime.preparedDescriptor
+    && homeContinuousDiscoveryRuntime.preparedDescriptorBatchIndex < Number(homeContinuousDiscoveryRuntime.batchIndex || 0) - 1
+  ) {
+    homeContinuousDiscoveryRuntime.preparedDescriptor = null;
+    homeContinuousDiscoveryRuntime.preparedDescriptorBatchIndex = -1;
+  }
+  if (
+    homeContinuousDiscoveryRuntime.productLastAppearanceOrdinal
+    && typeof homeContinuousDiscoveryRuntime.productLastAppearanceOrdinal === "object"
+  ) {
+    const activeIds = new Set([
+      ...Array.from(homeContinuousDiscoveryRuntime.usedIds || []),
+      ...Object.keys(homeContinuousDiscoveryRuntime.variantSurfaceCounts || {})
+    ]);
+    Object.keys(homeContinuousDiscoveryRuntime.productLastAppearanceOrdinal).forEach((productId) => {
+      if (!activeIds.has(productId)) {
+        delete homeContinuousDiscoveryRuntime.productLastAppearanceOrdinal[productId];
+      }
+    });
+  }
   if (marketplaceScrollPrefetchQueue.length > MARKETPLACE_SCROLL_PREFETCH_MAX_QUEUE) {
     marketplaceScrollPrefetchQueue.splice(0, marketplaceScrollPrefetchQueue.length - MARKETPLACE_SCROLL_PREFETCH_MAX_QUEUE);
   }
@@ -15140,45 +15214,54 @@ function trimHomeContinuousDiscoverySections(anchor) {
 }
 
 function prepareNextContinuousDiscoveryDescriptor() {
-  if (currentView !== "home" || homeContinuousDiscoveryRuntime.loading) {
+  if (
+    currentView !== "home"
+    || homeContinuousDiscoveryRuntime.loading
+    || homeContinuousDiscoveryRuntime.preparingDescriptor
+  ) {
     return null;
   }
   if (homeContinuousDiscoveryRuntime.preparedDescriptor && homeContinuousDiscoveryRuntime.preparedDescriptorBatchIndex === homeContinuousDiscoveryRuntime.batchIndex) {
     return homeContinuousDiscoveryRuntime.preparedDescriptor;
   }
-  const seedProduct = getProductById(homeContinuousDiscoveryRuntime.seedProductId) || getRecommendationSeed(getFilteredProducts());
-  const descriptor = getContinuousDiscoveryDescriptor({
-    seedProduct,
-    usedIds: homeContinuousDiscoveryRuntime.usedIds,
-    recentIds: homeContinuousDiscoveryRuntime.recentIds,
-    batchIndex: homeContinuousDiscoveryRuntime.batchIndex,
-    variantCounts: homeContinuousDiscoveryRuntime.variantSurfaceCounts,
-    variantLastBatchIndex: homeContinuousDiscoveryRuntime.variantLastBatchIndex,
-    variantShownImageIndexes: homeContinuousDiscoveryRuntime.variantShownImageIndexes,
-    productLastAppearanceOrdinal: homeContinuousDiscoveryRuntime.productLastAppearanceOrdinal,
-    normalProductOrdinal: homeContinuousDiscoveryRuntime.normalProductOrdinal,
-    lastVariantNormalOrdinal: homeContinuousDiscoveryRuntime.lastVariantNormalOrdinal
-  });
-  if (!descriptor || !Array.isArray(descriptor.items) || !descriptor.items.length) {
-    homeContinuousDiscoveryRuntime.preparedDescriptor = null;
-    homeContinuousDiscoveryRuntime.preparedDescriptorBatchIndex = -1;
-    return null;
+  homeContinuousDiscoveryRuntime.preparingDescriptor = true;
+  try {
+    const seedProduct = getProductById(homeContinuousDiscoveryRuntime.seedProductId) || getRecommendationSeed(getFilteredProducts());
+    const descriptor = getContinuousDiscoveryDescriptor({
+      seedProduct,
+      usedIds: homeContinuousDiscoveryRuntime.usedIds,
+      recentIds: homeContinuousDiscoveryRuntime.recentIds,
+      batchIndex: homeContinuousDiscoveryRuntime.batchIndex,
+      variantCounts: homeContinuousDiscoveryRuntime.variantSurfaceCounts,
+      variantLastBatchIndex: homeContinuousDiscoveryRuntime.variantLastBatchIndex,
+      variantShownImageIndexes: homeContinuousDiscoveryRuntime.variantShownImageIndexes,
+      productLastAppearanceOrdinal: homeContinuousDiscoveryRuntime.productLastAppearanceOrdinal,
+      normalProductOrdinal: homeContinuousDiscoveryRuntime.normalProductOrdinal,
+      lastVariantNormalOrdinal: homeContinuousDiscoveryRuntime.lastVariantNormalOrdinal
+    });
+    if (!descriptor || !Array.isArray(descriptor.items) || !descriptor.items.length) {
+      homeContinuousDiscoveryRuntime.preparedDescriptor = null;
+      homeContinuousDiscoveryRuntime.preparedDescriptorBatchIndex = -1;
+      return null;
+    }
+    homeContinuousDiscoveryRuntime.preparedDescriptor = {
+      ...descriptor,
+      items: descriptor.items.slice()
+    };
+    homeContinuousDiscoveryRuntime.preparedDescriptorBatchIndex = homeContinuousDiscoveryRuntime.batchIndex;
+    primeIncomingFeedItems(homeContinuousDiscoveryRuntime.preparedDescriptor.items, {
+      reason: `continuous_discovery_prepared_${homeContinuousDiscoveryRuntime.batchIndex}`,
+      productLimit: descriptor.kind === "stream"
+        ? Math.min(descriptor.items.length, 8)
+        : Math.min(descriptor.items.length, 4),
+      decodeLimit: descriptor.kind === "stream"
+        ? Math.min(descriptor.items.length, 5)
+        : Math.min(descriptor.items.length, 2)
+    });
+    return homeContinuousDiscoveryRuntime.preparedDescriptor;
+  } finally {
+    homeContinuousDiscoveryRuntime.preparingDescriptor = false;
   }
-  homeContinuousDiscoveryRuntime.preparedDescriptor = {
-    ...descriptor,
-    items: descriptor.items.slice()
-  };
-  homeContinuousDiscoveryRuntime.preparedDescriptorBatchIndex = homeContinuousDiscoveryRuntime.batchIndex;
-  primeIncomingFeedItems(homeContinuousDiscoveryRuntime.preparedDescriptor.items, {
-    reason: `continuous_discovery_prepared_${homeContinuousDiscoveryRuntime.batchIndex}`,
-    productLimit: descriptor.kind === "stream"
-      ? Math.min(descriptor.items.length, 8)
-      : Math.min(descriptor.items.length, 4),
-    decodeLimit: descriptor.kind === "stream"
-      ? Math.min(descriptor.items.length, 5)
-      : Math.min(descriptor.items.length, 2)
-  });
-  return homeContinuousDiscoveryRuntime.preparedDescriptor;
 }
 
 function isAnchorWithinBackgroundContinuationBand(anchor) {
@@ -15191,7 +15274,12 @@ function isAnchorWithinBackgroundContinuationBand(anchor) {
 }
 
 function maybeAdvanceBackgroundContinuation() {
-  if (currentView !== "home" || homeContinuousDiscoveryRuntime.loading || !productsContainer) {
+  if (
+    currentView !== "home"
+    || homeContinuousDiscoveryRuntime.loading
+    || homeContinuousDiscoveryRuntime.preparingDescriptor
+    || !productsContainer
+  ) {
     return;
   }
   const anchor = productsContainer.querySelector("[data-continuous-discovery-anchor='home']");
@@ -15218,7 +15306,13 @@ function maybeAdvanceBackgroundContinuation() {
   }
   homeContinuousDiscoveryRuntime.lastEarlyLoadAt = now;
   scheduleIdleBackgroundWork(() => {
-    if (currentView !== "home" || homeContinuousDiscoveryRuntime.loading || !anchor.isConnected) {
+    if (
+      currentView !== "home"
+      || homeContinuousDiscoveryRuntime.loading
+      || homeContinuousDiscoveryRuntime.preparingDescriptor
+      || !anchor.isConnected
+      || !canAdvanceHomeContinuousDiscovery(anchor)
+    ) {
       return;
     }
     prepareNextContinuousDiscoveryDescriptor();
@@ -15428,6 +15522,7 @@ function setupContinuousDiscoveryLoading(scope, options = {}) {
   homeContinuousDiscoveryRuntime.variantLastBatchIndex = {};
   homeContinuousDiscoveryRuntime.variantShownImageIndexes = {};
   homeContinuousDiscoveryRuntime.productLastAppearanceOrdinal = {};
+  homeContinuousDiscoveryRuntime.preparingDescriptor = false;
   homeContinuousDiscoveryRuntime.seedProductId = options.seedProduct?.id || "";
   homeContinuousDiscoveryRuntime.lastDescriptorSource = "";
   homeContinuousDiscoveryRuntime.lastHydrateAt = 0;
@@ -17458,7 +17553,7 @@ function prioritizeVisibleFeedMedia(scope = document, maxCards = 8) {
   }
   const layoutMode = getClientLayoutMode();
   const isCompactLayout = layoutMode === "mobile" || layoutMode === "standalone-mobile" || layoutMode === "mobile-desktop-site";
-  const criticalCardLimit = isCompactLayout ? 2 : 4;
+  const criticalCardLimit = getAdaptiveVisibleMediaPriorityBudget();
   const cards = Array.from(
     scope.querySelectorAll?.(".product-card[data-open-product], .seller-product-card[data-open-product], .showcase-card[data-open-product]") || []
   ).slice(0, Math.max(1, Number(maxCards) || 8));
@@ -17467,7 +17562,13 @@ function prioritizeVisibleFeedMedia(scope = document, maxCards = 8) {
       if (!(image instanceof HTMLImageElement)) {
         return;
       }
-      const prioritizeImage = index === 0 && cardIndex < criticalCardLimit;
+      const isStartupPriorityCard = card.getAttribute("data-startup-priority-card") === "true";
+      const isContinuationPending = card.getAttribute("data-continuation-media-pending") === "true";
+      const prioritizeImage = index === 0 && (
+        cardIndex < criticalCardLimit
+        || isStartupPriorityCard
+        || (isContinuationPending && cardIndex < criticalCardLimit + (isCompactLayout ? 1 : 0))
+      );
       image.setAttribute("loading", prioritizeImage ? "eager" : "lazy");
       image.setAttribute("fetchpriority", prioritizeImage ? "high" : "auto");
       activateMarketplaceScrollImage(image, {
@@ -17620,6 +17721,14 @@ function getAdaptiveContinuationLeadCardCount() {
   return 2;
 }
 
+function getAdaptiveContinuationAdmissionWindowMs() {
+  const scrollSpeed = Number(feedRuntimeState.lastScrollSpeed || 0);
+  if (scrollSpeed <= 0.18) {
+    return HOME_CONTINUOUS_BATCH_ADMISSION_SLOW_SCROLL_WAIT_MS;
+  }
+  return HOME_CONTINUOUS_BATCH_ADMISSION_MAX_WAIT_MS;
+}
+
 function haveContinuationLeadMediaRequestsStarted(nodes = [], options = {}) {
   const cards = Array.isArray(nodes)
     ? nodes.filter((node) => node instanceof Element && node.matches?.(".product-card[data-open-product], .seller-product-card[data-open-product], .showcase-card[data-open-product]"))
@@ -17648,7 +17757,7 @@ function haveContinuationLeadMediaRequestsStarted(nodes = [], options = {}) {
 
 function prepareContinuationBatchAdmission(nodes = [], options = {}) {
   const leadCardCount = Math.max(1, Number(options.leadCardCount || getAdaptiveContinuationLeadCardCount()) || 2);
-  const maxWaitMs = Math.max(16, Number(options.maxWaitMs || HOME_CONTINUOUS_BATCH_ADMISSION_MAX_WAIT_MS) || HOME_CONTINUOUS_BATCH_ADMISSION_MAX_WAIT_MS);
+  const maxWaitMs = Math.max(16, Number(options.maxWaitMs || getAdaptiveContinuationAdmissionWindowMs()) || HOME_CONTINUOUS_BATCH_ADMISSION_MAX_WAIT_MS);
   startContinuationBatchMediaRequests(nodes, {
     leadCardCount
   });
@@ -17690,6 +17799,16 @@ function getHomeContinuousPendingMediaCount(anchor, options = {}) {
 
 function canAdvanceHomeContinuousDiscovery(anchor) {
   return getHomeContinuousPendingMediaCount(anchor) < HOME_CONTINUOUS_MAX_PENDING_MEDIA_CARDS;
+}
+
+function getAdaptiveVisibleMediaPriorityBudget() {
+  const layoutMode = getClientLayoutMode();
+  const isCompactLayout = layoutMode === "mobile" || layoutMode === "standalone-mobile" || layoutMode === "mobile-desktop-site";
+  const scrollSpeed = Number(feedRuntimeState.lastScrollSpeed || 0);
+  if (isCompactLayout) {
+    return scrollSpeed <= 0.18 ? 3 : 2;
+  }
+  return scrollSpeed <= FEED_SCROLL_SPEED_PREFETCH_THRESHOLD ? 4 : 3;
 }
 
 function markMarketplaceScrollImageLoaded(image, resolvedSrc = "") {
@@ -17818,15 +17937,17 @@ function prefetchMarketplaceScrollImage(image) {
     return;
   }
   const realSrc = image.dataset.marketplaceRealSrc || image.dataset.progressiveRealSrc || image.dataset.imageActionSrc || image.dataset.zoomSrc || "";
+  const productId = String(image.dataset.imageActionProduct || "").trim();
   if (
     !realSrc
+    || shouldDeprioritizeBrokenMarketplaceImage(productId, realSrc)
     || marketplaceScrollImagePrefetchedSources.has(realSrc)
     || marketplaceScrollPrefetchInflight.has(realSrc)
   ) {
     return;
   }
   scheduleIdleBackgroundWork(() => {
-    scheduleMarketplaceScrollImagePrefetch(realSrc);
+    scheduleMarketplaceScrollImagePrefetch(realSrc, productId);
   }, 900);
   image.dataset.marketplaceImageState = image.dataset.marketplaceImageState || "prefetching";
 }
