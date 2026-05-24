@@ -9730,6 +9730,30 @@ function getAdaptiveViewportImageSweepLimit() {
   return 12;
 }
 
+function getAdaptiveMarketplaceCardRevealWindow() {
+  const compactLayout = getViewportWidth() <= 720;
+  const scrollSpeed = Number(feedRuntimeState.lastScrollSpeed || 0);
+  if (compactLayout) {
+    if (scrollSpeed <= 0.18) {
+      return { maxWaitMs: 220, pollMs: 40 };
+    }
+    if (scrollSpeed <= FEED_SCROLL_SPEED_PREFETCH_THRESHOLD) {
+      return { maxWaitMs: 250, pollMs: 45 };
+    }
+    return { maxWaitMs: 200, pollMs: 35 };
+  }
+  if (scrollSpeed <= 0.18) {
+    return { maxWaitMs: 240, pollMs: 45 };
+  }
+  if (scrollSpeed <= FEED_SCROLL_SPEED_PREFETCH_THRESHOLD) {
+    return {
+      maxWaitMs: CONTINUATION_MEDIA_REVEAL_MAX_WAIT_MS,
+      pollMs: CONTINUATION_MEDIA_REVEAL_POLL_MS
+    };
+  }
+  return { maxWaitMs: 210, pollMs: 40 };
+}
+
 function getProductImageCandidates(product) {
   return getFeedImageLoaderCandidates(product);
 }
@@ -17931,9 +17955,10 @@ function activateViewportReadyFeedImages(scope = document, options = {}) {
       shouldSetPending: true
     });
     if (owningCard instanceof Element && activatedCount < 4) {
+      const revealWindow = getAdaptiveMarketplaceCardRevealWindow();
       scheduleMarketplaceCardMediaReveal(owningCard, {
-        maxWaitMs: Math.max(180, CONTINUATION_MEDIA_REVEAL_MAX_WAIT_MS),
-        pollMs: CONTINUATION_MEDIA_REVEAL_POLL_MS
+        maxWaitMs: revealWindow.maxWaitMs,
+        pollMs: revealWindow.pollMs
       });
     }
     activatedCount += 1;
@@ -18040,8 +18065,15 @@ function scheduleMarketplaceCardMediaReveal(card, options = {}) {
   if (card.dataset.continuationMediaRevealScheduled === "true") {
     return;
   }
-  const maxWaitMs = Math.max(80, Number(options.maxWaitMs || CONTINUATION_MEDIA_REVEAL_MAX_WAIT_MS) || CONTINUATION_MEDIA_REVEAL_MAX_WAIT_MS);
-  const pollMs = Math.max(30, Number(options.pollMs || CONTINUATION_MEDIA_REVEAL_POLL_MS) || CONTINUATION_MEDIA_REVEAL_POLL_MS);
+  const adaptiveWindow = getAdaptiveMarketplaceCardRevealWindow();
+  const maxWaitMs = Math.max(
+    80,
+    Number(options.maxWaitMs || adaptiveWindow.maxWaitMs || CONTINUATION_MEDIA_REVEAL_MAX_WAIT_MS) || CONTINUATION_MEDIA_REVEAL_MAX_WAIT_MS
+  );
+  const pollMs = Math.max(
+    30,
+    Number(options.pollMs || adaptiveWindow.pollMs || CONTINUATION_MEDIA_REVEAL_POLL_MS) || CONTINUATION_MEDIA_REVEAL_POLL_MS
+  );
   const startedAt = Date.now();
   card.dataset.continuationMediaRevealScheduled = "true";
   setMarketplaceCardMediaPending(card, true);
@@ -18085,9 +18117,10 @@ function startContinuationBatchMediaRequests(nodes = [], options = {}) {
       shouldSetPending: true
     });
     if (prioritizeImage) {
+      const revealWindow = getAdaptiveMarketplaceCardRevealWindow();
       scheduleMarketplaceCardMediaReveal(card, {
-        maxWaitMs: CONTINUATION_MEDIA_REVEAL_MAX_WAIT_MS,
-        pollMs: CONTINUATION_MEDIA_REVEAL_POLL_MS
+        maxWaitMs: revealWindow.maxWaitMs,
+        pollMs: revealWindow.pollMs
       });
     }
   });
@@ -18494,9 +18527,10 @@ function bindMarketplaceScrollImages(scope = document) {
         shouldSetPending: true
       });
       if (owningCard instanceof Element && (isStartupCritical || isInViewport)) {
+        const revealWindow = getAdaptiveMarketplaceCardRevealWindow();
         scheduleMarketplaceCardMediaReveal(owningCard, {
-          maxWaitMs: Math.max(180, CONTINUATION_MEDIA_REVEAL_MAX_WAIT_MS),
-          pollMs: CONTINUATION_MEDIA_REVEAL_POLL_MS
+          maxWaitMs: revealWindow.maxWaitMs,
+          pollMs: revealWindow.pollMs
         });
       }
       observer?.unobserve(image);
