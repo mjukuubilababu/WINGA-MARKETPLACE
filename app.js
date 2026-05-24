@@ -6512,7 +6512,7 @@ function hasVisibleStartupFeedMedia(options = {}) {
     const src = image.currentSrc || image.getAttribute("src") || "";
     const isLoaded = shell?.classList.contains("is-loaded")
       || (Number(image.naturalWidth || 0) > 0 && Number(image.naturalHeight || 0) > 0)
-      || (src && !src.startsWith("data:image/gif"));
+      || (image.complete && Boolean(src) && !src.startsWith("data:image/gif"));
     if (!isLoaded) {
       continue;
     }
@@ -6522,6 +6522,23 @@ function hasVisibleStartupFeedMedia(options = {}) {
     }
   }
   return false;
+}
+
+function getRequiredStartupFeedMediaCount() {
+  const visibleCards = Array.from(
+    productsContainer?.querySelectorAll?.(".product-card[data-open-product], .seller-product-card[data-open-product]") || []
+  ).filter((card) => {
+    if (!(card instanceof Element)) {
+      return false;
+    }
+    const rect = card.getBoundingClientRect();
+    const viewportHeight = window.innerHeight || document.documentElement?.clientHeight || 0;
+    return rect.bottom > 0 && rect.top < viewportHeight;
+  });
+  if (!visibleCards.length) {
+    return 1;
+  }
+  return Math.max(1, Math.min(2, visibleCards.length));
 }
 
 function revealBootOverlay() {
@@ -6542,7 +6559,7 @@ function completeBootOverlay() {
   const shouldDelayHide = currentView === "home"
     && (
       !hasVisibleStartupSurface({ includeFeedLoading: false })
-      || (requiresMediaReady && !hasVisibleStartupFeedMedia({ minCount: 1 }))
+      || (requiresMediaReady && !hasVisibleStartupFeedMedia({ minCount: getRequiredStartupFeedMediaCount() }))
     )
     && productHydrationStatus !== "failed";
   if (shouldDelayHide) {
@@ -6652,7 +6669,7 @@ function showInstantBootFeedSnapshot(reason = "boot_snapshot") {
   );
   const hasVisibleFeedMedia = currentView !== "home"
     || !productsContainer?.querySelector(".product-card, .seller-product-card")
-    || hasVisibleStartupFeedMedia({ minCount: 1 });
+    || hasVisibleStartupFeedMedia({ minCount: getRequiredStartupFeedMediaCount() });
 
   if (hasVisibleFeedShell && hasVisibleFeedMedia) {
     document.body.classList.remove("app-booting");
@@ -17790,7 +17807,7 @@ function renderCurrentView(options = {}) {
       window.requestAnimationFrame(() => {
         const hasVisibleBootContent = hasVisibleStartupSurface({ includeFeedLoading: false });
         const hasFeedCards = Boolean(productsContainer?.querySelector(".product-card, .seller-product-card"));
-        const hasBootMedia = !hasFeedCards || hasVisibleStartupFeedMedia({ minCount: 1 });
+        const hasBootMedia = !hasFeedCards || hasVisibleStartupFeedMedia({ minCount: getRequiredStartupFeedMediaCount() });
         if (
           (document.body.classList.contains("app-booting") || !bootOverlay?.classList.contains("is-hidden"))
           && hasVisibleBootContent
