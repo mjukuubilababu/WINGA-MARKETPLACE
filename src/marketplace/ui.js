@@ -483,12 +483,6 @@
       return sellerRow;
     }
 
-    function createProductActionGroupElement(product) {
-      return deps.createElementFromMarkup(
-        deps.renderProductActionGroup(product, { requestLabel: "My Request" })
-      );
-    }
-
     function createShowcasePreviewMediaElement(product) {
       const fitMode = String(product.fitMode || "").trim().toLowerCase() === "contain" ? "contain" : "cover";
       const media = createElement("div", { className: `product-card-media showcase-media fit-mode-${fitMode}`, attributes: { "data-fit-mode": fitMode } });
@@ -908,7 +902,6 @@
       if (promotionAnalyticsMarkup) {
         content.appendChild(createElementFromMarkup(promotionAnalyticsMarkup));
       }
-      content.appendChild(createProductActionGroupElement(product));
       card.appendChild(content);
       bindCardOpenHandler(card, product);
 

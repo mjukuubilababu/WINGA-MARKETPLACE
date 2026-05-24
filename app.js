@@ -14616,7 +14616,6 @@ function renderDiscoveryProductCards(items, options = {}) {
             ${item.feedVariantResurface ? `<p class="product-meta trust-badges"><span class="status-pill approved sponsored-pill">Other color</span></p>` : ""}
             ${promotion ? `<p class="product-meta trust-badges"><span class="status-pill approved sponsored-pill">${escapeHtml(getPromotionLabel(promotion.type))}</span></p>` : ""}
             ${renderSellerPromotionAnalytics(item)}
-${renderProductActionGroup(item, { requestLabel: "My Request", extraClass: "seller-product-actions seller-product-actions-compact" })}
           </article>
         `;
       }).join("")}
