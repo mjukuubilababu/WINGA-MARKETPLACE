@@ -15472,6 +15472,22 @@ function getDeterministicVariantSlotIndex(candidateIndexes = [], options = {}) {
   return pool[seed % pool.length] ?? pool[0] ?? -1;
 }
 
+function getStableVariantSelectionSeed(productId = "", options = {}) {
+  const normalizedProductId = String(productId || "").trim();
+  let productHash = 0;
+  for (let index = 0; index < normalizedProductId.length; index += 1) {
+    productHash = (productHash * 31 + normalizedProductId.charCodeAt(index)) % 104729;
+  }
+  return Math.max(
+    0,
+    productHash
+    + Number(options.batchIndex || 0)
+    + Number(options.normalProductOrdinal || 0)
+    + Number(options.variationSwipeCount || 0)
+    + Number(options.sequenceIndex || 0)
+  );
+}
+
 function getBehaviorDrivenVariantImageIndex(product, options = {}) {
   const uniqueImageIndexes = getUniqueRenderableImageIndexes(product).filter((index) => Number(index) > 0);
   if (!uniqueImageIndexes.length) {
@@ -15487,12 +15503,19 @@ function getBehaviorDrivenVariantImageIndex(product, options = {}) {
   if (!availableIndexes.length) {
     return -1;
   }
+  const deeperAvailableIndexes = availableIndexes.filter((index) => index >= 2);
 
   const behaviorState = getProductVariationBehaviorState(product?.id);
   const hasBoost = Boolean(getPrimaryPromotion(product?.id) || Number(getPromotionCommercialScore?.(product) || 0) > 0);
   const hasLiked = behaviorState.liked;
   const hasDeepLinger = behaviorState.lingerMs >= 10000;
   const slotTriggered = shouldUseVariantScrollSlot(options.normalProductOrdinal);
+  const selectionSeed = getStableVariantSelectionSeed(product?.id, {
+    batchIndex: options.batchIndex,
+    normalProductOrdinal: options.normalProductOrdinal,
+    variationSwipeCount: behaviorState.variationSwipeCount,
+    sequenceIndex: options.sequenceIndex
+  });
 
   const prioritizedCandidates = [];
   if (hasDeepLinger) {
@@ -15501,20 +15524,28 @@ function getBehaviorDrivenVariantImageIndex(product, options = {}) {
   if (hasLiked) {
     prioritizedCandidates.push(resolvePreferredVariantImageIndex(availableIndexes, 2));
   }
-  if (hasBoost) {
-    prioritizedCandidates.push(resolvePreferredVariantImageIndex(availableIndexes, 1));
-  }
-  if (slotTriggered) {
-    prioritizedCandidates.push(getDeterministicVariantSlotIndex(availableIndexes, {
-      batchIndex: options.batchIndex,
+  if (slotTriggered && deeperAvailableIndexes.length) {
+    prioritizedCandidates.push(getDeterministicVariantSlotIndex(deeperAvailableIndexes, {
+      batchIndex: selectionSeed,
       normalProductOrdinal: options.normalProductOrdinal,
       variationSwipeCount: behaviorState.variationSwipeCount,
       sequenceIndex: options.sequenceIndex
     }));
   }
+  if (hasBoost) {
+    prioritizedCandidates.push(resolvePreferredVariantImageIndex(availableIndexes, 1));
+  }
   const selectedIndex = prioritizedCandidates.find((index) => Number.isFinite(index) && index >= 1);
   if (Number.isFinite(selectedIndex) && selectedIndex >= 1) {
     return selectedIndex;
+  }
+  if (deeperAvailableIndexes.length) {
+    return getDeterministicVariantSlotIndex(deeperAvailableIndexes, {
+      batchIndex: selectionSeed,
+      normalProductOrdinal: options.normalProductOrdinal,
+      variationSwipeCount: behaviorState.variationSwipeCount,
+      sequenceIndex: options.sequenceIndex
+    });
   }
   return availableIndexes[0];
 }
