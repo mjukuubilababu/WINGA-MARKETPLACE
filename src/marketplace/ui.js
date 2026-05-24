@@ -877,7 +877,7 @@
       const media = createElement("div", { className: "product-card-media" });
       media.appendChild(createProductGalleryElement(product, {
         startupPriority,
-        directVisibility: options.directVisibility === true,
+        directVisibility: options.directVisibility === true || startupPriority,
         surface: options.gallerySurface || "feed"
       }));
       if (Array.isArray(product.images) && product.images.length > 1) {
@@ -1457,8 +1457,13 @@
           const isBatchPriorityCard = shouldUseMobileEndlessHomeFeed
             && startIndex > 0
             && index < startIndex + 2;
+          const shouldUseDirectVisibility = currentView === "home" && (
+            index < startupPriorityCardCount
+            || isBatchPriorityCard
+          );
           fragment.appendChild(createProductCardElement(product, {
-            startupPriority: currentView === "home" && (index < startupPriorityCardCount || isBatchPriorityCard)
+            startupPriority: currentView === "home" && (index < startupPriorityCardCount || isBatchPriorityCard),
+            directVisibility: shouldUseDirectVisibility
           }));
           appendShowcaseIfNeeded(fragment, index + 1);
         }
