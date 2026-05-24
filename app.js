@@ -9695,10 +9695,12 @@ const {
   },
   trackProductView: (productId) => window.WingaDataLayer.trackProductView(productId),
   refreshProductsFromStore,
-  afterFeedBatchRender: ({ container }) => {
+  afterFeedBatchRender: ({ container, startIndex = 0, endIndex = 0 }) => {
     if (!(container instanceof Element)) {
       return;
     }
+    const renderedBatchCards = getRenderedFeedBatchCards(container, startIndex, endIndex);
+    primeRenderedFeedBatchCards(renderedBatchCards);
     scheduleViewportReadyFeedSweep(container, {
       limit: 12
     });
@@ -9732,6 +9734,54 @@ function renderReviewButton(product) {
     return "";
   }
   return `<button class="action-btn edit-btn" type="button" data-review-product="${product.id}">Rate & Review</button>`;
+}
+
+function getRenderedFeedBatchCards(container, startIndex = 0, endIndex = 0) {
+  if (!(container instanceof Element)) {
+    return [];
+  }
+  const allCards = Array.from(
+    container.querySelectorAll(".product-card[data-open-product], .seller-product-card[data-open-product]")
+  );
+  if (!allCards.length) {
+    return [];
+  }
+  const normalizedStartIndex = Math.max(0, Number(startIndex || 0) || 0);
+  const normalizedEndIndex = Math.max(normalizedStartIndex, Number(endIndex || 0) || 0);
+  const scopedCards = allCards.slice(normalizedStartIndex, normalizedEndIndex);
+  if (scopedCards.length) {
+    return scopedCards;
+  }
+  const fallbackBatchSize = Math.max(1, normalizedEndIndex - normalizedStartIndex || Math.min(6, allCards.length));
+  return allCards.slice(-fallbackBatchSize);
+}
+
+function primeRenderedFeedBatchCards(cards = []) {
+  const safeCards = Array.isArray(cards) ? cards.filter((card) => card instanceof Element) : [];
+  if (!safeCards.length) {
+    return;
+  }
+  safeCards.slice(0, Math.min(6, safeCards.length)).forEach((card, cardIndex) => {
+    card.querySelectorAll("img[data-marketplace-scroll-image='true']").forEach((image, imageIndex) => {
+      if (!(image instanceof HTMLImageElement)) {
+        return;
+      }
+      const prioritizeImage = imageIndex === 0 && cardIndex < 4;
+      image.setAttribute("loading", prioritizeImage ? "eager" : "lazy");
+      image.setAttribute("fetchpriority", prioritizeImage ? "high" : "auto");
+      activateMarketplaceScrollImage(image, {
+        priority: prioritizeImage,
+        shouldSetPending: true
+      });
+    });
+    if (cardIndex < 4) {
+      const revealWindow = getAdaptiveMarketplaceCardRevealWindow();
+      scheduleMarketplaceCardMediaReveal(card, {
+        maxWaitMs: revealWindow.maxWaitMs,
+        pollMs: revealWindow.pollMs
+      });
+    }
+  });
 }
 
 function refreshVisibleRequestButtons(scope = document) {
