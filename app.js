@@ -72,6 +72,7 @@ const HOME_CONTINUOUS_BATCH_ADMISSION_SLOW_SCROLL_WAIT_MS = 140;
 const HOME_CONTINUOUS_PENDING_MEDIA_LOOKBACK = 8;
 const HOME_CONTINUOUS_MAX_PENDING_MEDIA_CARDS = 2;
 const HOME_CONTINUOUS_PENDING_DESCRIPTOR_LIMIT = 6;
+const PRODUCT_DETAIL_TRANSITION_PRELOAD_RADIUS = 2;
 const BLOCKED_DEMO_PRODUCT_IDENTIFIERS = new Set([
   "gauni la harusi",
   "sketi ya rangi",
@@ -3253,6 +3254,71 @@ function primeIncomingFeedItems(productsList = [], options = {}) {
     reason: String(options.reason || "incoming_feed_items"),
     productLimit: Math.min(productsList.length, Number(options.productLimit || windowConfig.productLimit) || windowConfig.productLimit),
     decodeLimit: Math.min(productsList.length, Number(options.decodeLimit || windowConfig.decodeLimit) || windowConfig.decodeLimit)
+  });
+}
+
+function collectProductDetailTransitionImages(product, initialImageIndex = 0) {
+  const renderableImages = getRenderableMarketplaceImages(product, {
+    allowOwnerVisibility: product?.uploadedBy === currentUser
+  });
+  const safeImages = (Array.isArray(renderableImages) && renderableImages.length
+    ? renderableImages
+    : (Array.isArray(product?.images) ? product.images : [product?.image]))
+    .map((image) => sanitizeImageSource(image, ""))
+    .filter(Boolean);
+  if (!safeImages.length) {
+    return [];
+  }
+  const safeInitialIndex = safeImages.length > 1
+    ? Math.max(0, Math.min(safeImages.length - 1, Number(initialImageIndex || 0) || 0))
+    : 0;
+  const queue = [];
+  const seen = new Set();
+  const pushIndex = (index, fetchPriority = "auto", decodeInMemory = false) => {
+    if (index < 0 || index >= safeImages.length) {
+      return;
+    }
+    const src = safeImages[index];
+    if (!src || seen.has(src)) {
+      return;
+    }
+    seen.add(src);
+    queue.push({
+      src,
+      fetchPriority,
+      decodeInMemory
+    });
+  };
+
+  pushIndex(safeInitialIndex, "high", true);
+  for (let step = 1; step <= PRODUCT_DETAIL_TRANSITION_PRELOAD_RADIUS; step += 1) {
+    pushIndex(safeInitialIndex + step, step === 1 ? "high" : "auto", step === 1);
+    pushIndex(safeInitialIndex - step, "auto", false);
+  }
+  return queue;
+}
+
+function primeProductDetailTransition(product, initialImageIndex = 0) {
+  if (!product || typeof preloadImageSource !== "function") {
+    return;
+  }
+  const queue = collectProductDetailTransitionImages(product, initialImageIndex);
+  if (!queue.length) {
+    return;
+  }
+  bumpRuntimeDiagnostic("productDetailTransitionPrimeCount");
+  bumpRuntimeDiagnostic("productDetailTransitionImageCount", queue.length);
+  reportShowcaseInstrumentation("product_detail_transition_prime", {
+    productId: String(product.id || "").trim(),
+    initialImageIndex: Number(initialImageIndex || 0) || 0,
+    imageCount: queue.length
+  });
+  queue.forEach(({ src, fetchPriority, decodeInMemory }) => {
+    preloadImageSource(src, {
+      fetchPriority,
+      decodeInMemory,
+      reason: "product_detail_transition"
+    });
   });
 }
 
@@ -9985,6 +10051,8 @@ const runtimeDiagnostics = uiRuntimeState.runtimeDiagnostics || (uiRuntimeState.
   continuousBatchAdmissionWaitMs: 0,
   brokenImageSuppressedPrefetchCount: 0,
   preparedDescriptorSkipCount: 0,
+  productDetailTransitionPrimeCount: 0,
+  productDetailTransitionImageCount: 0,
   lastSnapshotAt: 0,
   showcaseEvents: []
 });
@@ -17385,6 +17453,8 @@ function openProductDetailModal(productId, options = {}) {
   if (!product) {
     return;
   }
+  const requestedInitialImageIndex = Number(options?.initialImageIndex ?? product?.feedInitialImageIndex ?? product?.visibleImageIndex ?? 0) || 0;
+  primeProductDetailTransition(product, requestedInitialImageIndex);
 
   noteProductInterest(normalizedProductId);
   setDeepLinkLoadingShellVisible(true);
