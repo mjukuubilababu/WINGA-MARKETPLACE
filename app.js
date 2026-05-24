@@ -62,6 +62,7 @@ const MARKETPLACE_SCROLL_PREFETCH_REGISTRY_LIMIT = 240;
 const MARKETPLACE_SCROLL_PREFETCH_CONCURRENCY = 4;
 const MARKETPLACE_SCROLL_PREFETCH_TIMEOUT_MS = 12000;
 const MARKETPLACE_SCROLL_PREFETCH_MAX_QUEUE = 48;
+const MARKETPLACE_VIEWPORT_IMAGE_SWEEP_LIMIT = 18;
 const HOME_CONTINUOUS_EARLY_LOAD_RATIO = 0.65;
 const HOME_CONTINUOUS_EARLY_LOAD_COOLDOWN_MS = 180;
 const FEED_MEMORY_MAINTENANCE_INTERVAL_MS = 5000;
@@ -2373,6 +2374,9 @@ function resumeMarketplaceImagePipeline(reason = "feed_resume") {
   schedulePredictiveFeedPrefetch(reason);
   window.requestAnimationFrame(() => {
     prioritizeVisibleFeedMedia(document, 10);
+    activateViewportReadyFeedImages(document, {
+      limit: 12
+    });
     bindMarketplaceScrollImages(document);
   });
 }
@@ -9516,6 +9520,9 @@ const {
       return;
     }
     prioritizeVisibleFeedMedia(container, 10);
+    activateViewportReadyFeedImages(container, {
+      limit: 12
+    });
     bindFeedGalleryInteractions(container);
     bindImageFallbacks(container);
     scheduleIdleBackgroundWork(() => {
@@ -9682,6 +9689,17 @@ function getMarketplaceScrollImageActivationMargin() {
 function getMarketplaceScrollImageRootMargin() {
   const margin = getMarketplaceScrollImagePrefetchMargin();
   return `${margin}px 0px ${margin}px 0px`;
+}
+
+function getAdaptiveImagePrefetchDelayMs() {
+  const scrollSpeed = Number(feedRuntimeState.lastScrollSpeed || 0);
+  if (scrollSpeed <= 0.18) {
+    return 120;
+  }
+  if (scrollSpeed <= FEED_SCROLL_SPEED_PREFETCH_THRESHOLD) {
+    return 260;
+  }
+  return 420;
 }
 
 function getProductImageCandidates(product) {
@@ -17849,6 +17867,38 @@ function prioritizeVisibleFeedMedia(scope = document, maxCards = 8) {
   });
 }
 
+function activateViewportReadyFeedImages(scope = document, options = {}) {
+  if (!(scope instanceof Element || scope === document)) {
+    return;
+  }
+  const viewportHeight = window.innerHeight || document.documentElement?.clientHeight || 0;
+  const activationMargin = getMarketplaceScrollImageActivationMargin();
+  const images = Array.from(
+    scope.querySelectorAll?.("img[data-marketplace-scroll-image='true']") || []
+  ).filter((image) => image instanceof HTMLImageElement);
+  const limit = Math.max(1, Number(options.limit || MARKETPLACE_VIEWPORT_IMAGE_SWEEP_LIMIT) || MARKETPLACE_VIEWPORT_IMAGE_SWEEP_LIMIT);
+  let activatedCount = 0;
+  images.forEach((image) => {
+    if (activatedCount >= limit) {
+      return;
+    }
+    const rect = image.getBoundingClientRect();
+    const isInViewport = rect.bottom >= 0 && rect.top <= viewportHeight;
+    const isWithinLandingZone = rect.bottom >= -Math.max(80, activationMargin * 0.5) && rect.top <= viewportHeight + activationMargin;
+    if (!isInViewport && !isWithinLandingZone) {
+      return;
+    }
+    const prioritizeImage = isInViewport || activatedCount < 3;
+    image.setAttribute("loading", "eager");
+    image.setAttribute("fetchpriority", prioritizeImage ? "high" : "auto");
+    activateMarketplaceScrollImage(image, {
+      priority: prioritizeImage,
+      shouldSetPending: true
+    });
+    activatedCount += 1;
+  });
+}
+
 function unbindMarketplaceScrollImages(scope = document) {
   if (!scope?.querySelectorAll) {
     return;
@@ -18277,7 +18327,7 @@ function prefetchMarketplaceScrollImage(image) {
   }
   scheduleIdleBackgroundWork(() => {
     scheduleMarketplaceScrollImagePrefetch(realSrc, productId);
-  }, 900);
+  }, getAdaptiveImagePrefetchDelayMs());
   image.dataset.marketplaceImageState = image.dataset.marketplaceImageState || "prefetching";
 }
 
@@ -18395,6 +18445,9 @@ function bindMarketplaceScrollImages(scope = document) {
       bumpRuntimeDiagnostic("marketplaceImageObservedCount");
       observer?.observe(image);
     }
+  });
+  activateViewportReadyFeedImages(scope, {
+    limit: MARKETPLACE_VIEWPORT_IMAGE_SWEEP_LIMIT
   });
 }
 
