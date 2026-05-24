@@ -15162,6 +15162,44 @@ function buildHomeFeedEntryKey(item, options = {}) {
   return `product:${productId}`;
 }
 
+function isVariantFeedEntry(item) {
+  return Boolean(
+    item?.feedVariantResurface
+    || item?.resurfacedVariant
+    || String(item?.feedEntryType || "").trim().toLowerCase() === "variant"
+  );
+}
+
+function buildContinuousDiscoveryCandidateKey(item) {
+  const productId = String(item?.id || item?.productId || "").trim();
+  if (!productId) {
+    return "";
+  }
+  if (isVariantFeedEntry(item)) {
+    const visibleImageIndex = Number(item?.visibleImageIndex ?? item?.feedInitialImageIndex ?? 0) || 0;
+    return `variant:${productId}:${visibleImageIndex}`;
+  }
+  return `product:${productId}`;
+}
+
+function dedupeContinuousDiscoveryFeedItems(items = []) {
+  const safeItems = Array.isArray(items) ? items.filter(Boolean) : [];
+  if (!safeItems.length) {
+    return [];
+  }
+  const seenKeys = new Set();
+  const deduped = [];
+  safeItems.forEach((item) => {
+    const candidateKey = buildContinuousDiscoveryCandidateKey(item);
+    if (!candidateKey || seenKeys.has(candidateKey)) {
+      return;
+    }
+    seenKeys.add(candidateKey);
+    deduped.push(item);
+  });
+  return deduped;
+}
+
 function createContinuousDiscoverySectionElement(descriptor, index, anchorKind = "home") {
   if (!descriptor || !Array.isArray(descriptor.items) || !descriptor.items.length) {
     return null;
@@ -15631,7 +15669,7 @@ function getContinuousDiscoveryDescriptor(options = {}) {
     seedProduct: preferredSeed,
     sourceProducts: renderableProducts
   });
-  const streamItemsWithVariants = mergeVariantResurfacingIntoStream(streamItems, {
+  const streamItemsWithVariants = dedupeContinuousDiscoveryFeedItems(mergeVariantResurfacingIntoStream(streamItems, {
     recentIds,
     usedIds,
     batchIndex,
@@ -15642,7 +15680,7 @@ function getContinuousDiscoveryDescriptor(options = {}) {
     normalProductOrdinal,
     lastVariantNormalOrdinal,
     sourceProducts: renderableProducts
-  });
+  }));
   const sponsoredItems = getDiscoverySponsoredProducts(preferredSeed, {
     limit: batchIndex === 0 ? 6 : 4,
     excludeIds: softExcludeIds
@@ -16219,7 +16257,7 @@ async function hydrateContinuousDiscoveryAnchor(anchor) {
     if (!productId) {
       return;
     }
-    if (!item?.feedVariantResurface) {
+    if (!isVariantFeedEntry(item)) {
       appendedIds.push(productId);
       homeContinuousDiscoveryRuntime.usedIds.add(productId);
       homeContinuousDiscoveryRuntime.normalProductOrdinal += 1;

@@ -1419,6 +1419,9 @@
           }
           const usedProductIds = new Set(safeList.map((product) => product.id));
           Array.from(productsContainer.querySelectorAll("[data-showcase-id], [data-open-product]")).forEach((element) => {
+            if (String(element?.dataset?.feedEntryType || "").trim().toLowerCase() === "variant") {
+              return;
+            }
             const productId = element.dataset.showcaseId || element.dataset.openProduct || "";
             if (productId) {
               usedProductIds.add(productId);
