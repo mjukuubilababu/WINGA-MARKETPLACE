@@ -902,6 +902,11 @@
       if (promotionAnalyticsMarkup) {
         content.appendChild(createElementFromMarkup(promotionAnalyticsMarkup));
       }
+      content.appendChild(
+        deps.createElementFromMarkup(
+          deps.renderProductActionGroup(product, { requestLabel: "My Request" })
+        )
+      );
       card.appendChild(content);
       bindCardOpenHandler(card, product);
 
