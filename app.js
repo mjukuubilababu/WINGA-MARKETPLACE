@@ -9672,24 +9672,24 @@ function getMarketplaceScrollImagePrefetchMargin() {
   const compactLayout = getViewportWidth() <= 720;
   const scrollSpeed = Number(feedRuntimeState.lastScrollSpeed || 0);
   if (scrollSpeed <= 0.18) {
-    return compactLayout ? 1160 : 1680;
+    return compactLayout ? 1320 : 1680;
   }
   if (scrollSpeed <= FEED_SCROLL_SPEED_PREFETCH_THRESHOLD) {
-    return compactLayout ? 960 : 1440;
+    return compactLayout ? 1120 : 1440;
   }
-  return compactLayout ? 760 : 1160;
+  return compactLayout ? 920 : 1160;
 }
 
 function getMarketplaceScrollImageActivationMargin() {
   const compactLayout = getViewportWidth() <= 720;
   const scrollSpeed = Number(feedRuntimeState.lastScrollSpeed || 0);
   if (scrollSpeed <= 0.18) {
-    return compactLayout ? 360 : 520;
+    return compactLayout ? 420 : 520;
   }
   if (scrollSpeed <= FEED_SCROLL_SPEED_PREFETCH_THRESHOLD) {
-    return compactLayout ? 420 : 580;
+    return compactLayout ? 500 : 580;
   }
-  return compactLayout ? 520 : 700;
+  return compactLayout ? 620 : 700;
 }
 
 function getMarketplaceScrollImageRootMargin() {
@@ -9699,13 +9699,35 @@ function getMarketplaceScrollImageRootMargin() {
 
 function getAdaptiveImagePrefetchDelayMs() {
   const scrollSpeed = Number(feedRuntimeState.lastScrollSpeed || 0);
+  const compactLayout = getViewportWidth() <= 720;
   if (scrollSpeed <= 0.18) {
-    return 120;
+    return compactLayout ? 60 : 120;
   }
   if (scrollSpeed <= FEED_SCROLL_SPEED_PREFETCH_THRESHOLD) {
-    return 260;
+    return compactLayout ? 160 : 260;
   }
-  return 420;
+  return compactLayout ? 260 : 420;
+}
+
+function getAdaptiveViewportImageSweepLimit() {
+  const compactLayout = getViewportWidth() <= 720;
+  const scrollSpeed = Number(feedRuntimeState.lastScrollSpeed || 0);
+  if (compactLayout) {
+    if (scrollSpeed <= 0.18) {
+      return 22;
+    }
+    if (scrollSpeed <= FEED_SCROLL_SPEED_PREFETCH_THRESHOLD) {
+      return 20;
+    }
+    return 18;
+  }
+  if (scrollSpeed <= 0.18) {
+    return 16;
+  }
+  if (scrollSpeed <= FEED_SCROLL_SPEED_PREFETCH_THRESHOLD) {
+    return 14;
+  }
+  return 12;
 }
 
 function getProductImageCandidates(product) {
@@ -17885,7 +17907,10 @@ function activateViewportReadyFeedImages(scope = document, options = {}) {
   const images = Array.from(
     scope.querySelectorAll?.("img[data-marketplace-scroll-image='true']") || []
   ).filter((image) => image instanceof HTMLImageElement);
-  const limit = Math.max(1, Number(options.limit || MARKETPLACE_VIEWPORT_IMAGE_SWEEP_LIMIT) || MARKETPLACE_VIEWPORT_IMAGE_SWEEP_LIMIT);
+  const limit = Math.max(
+    1,
+    Number(options.limit || getAdaptiveViewportImageSweepLimit()) || getAdaptiveViewportImageSweepLimit()
+  );
   let activatedCount = 0;
   images.forEach((image) => {
     if (activatedCount >= limit) {
@@ -17920,7 +17945,7 @@ function scheduleViewportReadyFeedSweep(scope = document, options = {}) {
     const root = scope instanceof Element || scope === document ? scope : document;
     activateViewportReadyFeedImages(root, {
       limit: Math.max(
-        MARKETPLACE_VIEWPORT_IMAGE_SWEEP_LIMIT,
+        getAdaptiveViewportImageSweepLimit(),
         Number(options.limit || 0) || 0
       )
     });
