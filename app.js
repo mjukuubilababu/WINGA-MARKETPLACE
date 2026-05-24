@@ -75,6 +75,7 @@ const HOME_CONTINUOUS_PENDING_DESCRIPTOR_LIMIT = 6;
 const PRODUCT_DETAIL_TRANSITION_PRELOAD_RADIUS = 2;
 const SLOW_PATH_TELEMETRY_LIMIT = 120;
 const PREDICTIVE_DECODE_TELEMETRY_LIMIT = 160;
+const HOME_CONTINUOUS_VARIANT_TRACK_LIMIT = 96;
 const BLOCKED_DEMO_PRODUCT_IDENTIFIERS = new Set([
   "gauni la harusi",
   "sketi ya rangi",
@@ -11059,6 +11060,7 @@ function startMemoryMonitoring() {
 }
 
 function runFeedMemoryMaintenance(trigger = "interval") {
+  pruneHomeContinuousDiscoveryRuntimeState();
   pruneBrokenMarketplaceImageRegistry();
   trimDecodedFeedImageCache();
   while (slowPathTelemetryState.size > SLOW_PATH_TELEMETRY_LIMIT) {
@@ -15309,7 +15311,7 @@ function scheduleContinuousDiscoveryReobserve(anchor) {
       return;
     }
     homeContinuousDiscoveryRuntime.observer.observe(anchor);
-  }, HOME_CONTINUOUS_DISCOVERY_REOBSERVE_DELAY_MS);
+  }, getAdaptiveContinuousReobserveDelayMs());
 }
 
 function trimHomeContinuousDiscoverySections(anchor) {
@@ -15336,6 +15338,58 @@ function trimHomeContinuousDiscoverySections(anchor) {
       releasePrunedSectionMedia(node);
       node.remove();
     });
+  });
+}
+
+function pruneHomeContinuousDiscoveryRuntimeState() {
+  const recentIds = Array.isArray(homeContinuousDiscoveryRuntime.recentIds)
+    ? homeContinuousDiscoveryRuntime.recentIds
+    : [];
+  const activeIds = new Set([
+    ...Array.from(homeContinuousDiscoveryRuntime.usedIds || []),
+    ...recentIds,
+    ...Object.keys(homeContinuousDiscoveryRuntime.variantSurfaceCounts || {})
+  ].filter(Boolean));
+
+  if (homeContinuousDiscoveryRuntime.usedIds instanceof Set) {
+    pruneOrderedIdSet(homeContinuousDiscoveryRuntime.usedIds, MAX_HOME_CONTINUOUS_USED_IDS);
+  }
+
+  if (Array.isArray(homeContinuousDiscoveryRuntime.recentIds) && homeContinuousDiscoveryRuntime.recentIds.length > MAX_HOME_CONTINUOUS_USED_IDS) {
+    homeContinuousDiscoveryRuntime.recentIds = homeContinuousDiscoveryRuntime.recentIds.slice(-MAX_HOME_CONTINUOUS_USED_IDS);
+  }
+
+  const variantShownImageIndexes = homeContinuousDiscoveryRuntime.variantShownImageIndexes || {};
+  Object.keys(variantShownImageIndexes).forEach((productId) => {
+    if (!activeIds.has(productId)) {
+      delete variantShownImageIndexes[productId];
+      return;
+    }
+    const shownIndexes = Array.isArray(variantShownImageIndexes[productId]) ? variantShownImageIndexes[productId] : [];
+    if (shownIndexes.length > HOME_CONTINUOUS_VARIANT_TRACK_LIMIT) {
+      variantShownImageIndexes[productId] = shownIndexes.slice(-HOME_CONTINUOUS_VARIANT_TRACK_LIMIT);
+    }
+  });
+
+  const variantSurfaceCounts = homeContinuousDiscoveryRuntime.variantSurfaceCounts || {};
+  Object.keys(variantSurfaceCounts).forEach((productId) => {
+    if (!activeIds.has(productId)) {
+      delete variantSurfaceCounts[productId];
+    }
+  });
+
+  const variantLastBatchIndex = homeContinuousDiscoveryRuntime.variantLastBatchIndex || {};
+  Object.keys(variantLastBatchIndex).forEach((productId) => {
+    if (!activeIds.has(productId)) {
+      delete variantLastBatchIndex[productId];
+    }
+  });
+
+  const productLastAppearanceOrdinal = homeContinuousDiscoveryRuntime.productLastAppearanceOrdinal || {};
+  Object.keys(productLastAppearanceOrdinal).forEach((productId) => {
+    if (!activeIds.has(productId)) {
+      delete productLastAppearanceOrdinal[productId];
+    }
   });
 }
 
@@ -15433,6 +15487,21 @@ function getAdaptiveBackgroundContinuationDelayMs() {
     return 60;
   }
   return 90;
+}
+
+function getAdaptiveContinuousReobserveDelayMs() {
+  const scrollSpeed = Number(feedRuntimeState.lastScrollSpeed || 0);
+  const pendingPressure = Math.min(
+    4,
+    Number(document.querySelectorAll?.(".product-card[data-continuation-media-pending='true']").length || 0)
+  );
+  if (scrollSpeed <= 0.18) {
+    return pendingPressure >= 2 ? 160 : 90;
+  }
+  if (scrollSpeed <= FEED_SCROLL_SPEED_PREFETCH_THRESHOLD) {
+    return pendingPressure >= 2 ? HOME_CONTINUOUS_DISCOVERY_REOBSERVE_DELAY_MS + 40 : HOME_CONTINUOUS_DISCOVERY_REOBSERVE_DELAY_MS;
+  }
+  return HOME_CONTINUOUS_DISCOVERY_REOBSERVE_DELAY_MS + 80;
 }
 
 function maybeAdvanceBackgroundContinuation() {
