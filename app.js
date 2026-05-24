@@ -19156,6 +19156,10 @@ function bindProductMenus(scope) {
   };
 
   scope.querySelectorAll("[data-menu-toggle]").forEach((button) => {
+    if (button.dataset.menuToggleBound === "true") {
+      return;
+    }
+    button.dataset.menuToggleBound = "true";
     button.addEventListener("click", (event) => {
       event.stopPropagation();
       const menu = button.closest(".product-menu");
@@ -19174,12 +19178,20 @@ function bindProductMenus(scope) {
   });
 
   scope.querySelectorAll(".product-menu-popup").forEach((popup) => {
+    if (popup.dataset.menuPopupBound === "true") {
+      return;
+    }
+    popup.dataset.menuPopupBound = "true";
     popup.addEventListener("click", (event) => {
       event.stopPropagation();
     });
   });
 
   scope.querySelectorAll("[data-menu-action]").forEach((button) => {
+    if (button.dataset.menuActionBound === "true") {
+      return;
+    }
+    button.dataset.menuActionBound = "true";
     button.addEventListener("click", async () => {
       const product = getProductById(button.dataset.id);
       closeMenus();
