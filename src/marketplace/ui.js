@@ -1221,6 +1221,22 @@
       deps.reportShowcaseInstrumentation(eventName, payload);
     }
 
+    function buildFeedRetentionSignature(list, options = {}) {
+      const safeList = Array.isArray(list) ? list : [];
+      const currentView = String(options.currentView || "").trim().toLowerCase() || "unknown";
+      const layoutMode = String(options.layoutMode || "").trim().toLowerCase() || "unknown";
+      const signatureIds = safeList
+        .slice(0, Math.min(safeList.length, 18))
+        .map((product) => String(product?.id || "").trim())
+        .filter(Boolean);
+      return [
+        currentView,
+        layoutMode,
+        String(safeList.length),
+        signatureIds.join("|")
+      ].join("::");
+    }
+
     function renderProducts(list) {
       const productsContainer = deps.getProductsContainer();
       cancelScheduledFeedRender();
@@ -1252,7 +1268,6 @@
       const passiveViewLimit = Math.max(4, (deps.getProductsPerRow?.() || 3));
       preloadMarketplaceImages(list);
       const renderToken = ++scheduledFeedRenderState.token;
-      productsContainer.replaceChildren();
       const legacySectionQueue = legacyShowcaseEnabled
         ? buildLegacyShowcaseQueue(list, usedShowcaseProductIds)
         : [];
@@ -1267,6 +1282,28 @@
         const safeList = shouldUseMobileEndlessHomeFeed
           ? sourceList.slice(0, Math.min(MOBILE_HOME_INITIAL_FEED_LIMIT, sourceList.length))
           : sourceList;
+        const retentionSignature = buildFeedRetentionSignature(safeList, {
+          currentView,
+          layoutMode
+        });
+        const hasExistingFeedSurface = Boolean(
+          productsContainer.querySelector(".product-card[data-open-product], .seller-product-card[data-open-product]")
+          || productsContainer.querySelector("[data-continuous-discovery-anchor='home']")
+        );
+        const canRetainExistingHomeFeed = currentView === "home"
+          && !isBootingHomeFeed
+          && hasExistingFeedSurface
+          && String(productsContainer.dataset.feedRetentionSignature || "").trim() === retentionSignature;
+        if (canRetainExistingHomeFeed) {
+          deps.prioritizeVisibleFeedMedia?.(productsContainer, startupPriorityCardCount);
+          deps.bindFeedGalleryInteractions?.(productsContainer);
+          deps.bindImageFallbacks?.(productsContainer);
+          deps.bindProductEngagementSignals?.(productsContainer);
+          deps.bindProductMenus?.(productsContainer);
+          return;
+        }
+        productsContainer.replaceChildren();
+        productsContainer.dataset.feedRetentionSignature = retentionSignature;
         if (currentView === "home" && typeof deps.primeIncomingFeedItems === "function" && safeList.length > 0) {
           deps.primeIncomingFeedItems(
             safeList.slice(0, Math.min(safeList.length, startupPriorityCardCount + 6)),
