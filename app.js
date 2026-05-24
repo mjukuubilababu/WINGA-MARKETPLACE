@@ -17923,12 +17923,19 @@ function activateViewportReadyFeedImages(scope = document, options = {}) {
       return;
     }
     const prioritizeImage = isInViewport || activatedCount < 3;
+    const owningCard = image.closest(".product-card[data-open-product], .seller-product-card[data-open-product], .showcase-card[data-open-product]");
     image.setAttribute("loading", "eager");
     image.setAttribute("fetchpriority", prioritizeImage ? "high" : "auto");
     activateMarketplaceScrollImage(image, {
       priority: prioritizeImage,
       shouldSetPending: true
     });
+    if (owningCard instanceof Element && activatedCount < 4) {
+      scheduleMarketplaceCardMediaReveal(owningCard, {
+        maxWaitMs: Math.max(180, CONTINUATION_MEDIA_REVEAL_MAX_WAIT_MS),
+        pollMs: CONTINUATION_MEDIA_REVEAL_POLL_MS
+      });
+    }
     activatedCount += 1;
   });
 }
@@ -18479,12 +18486,19 @@ function bindMarketplaceScrollImages(scope = document) {
     const isWithinPrefetchBand = rect.bottom >= -prefetchMargin && rect.top <= viewportHeight + prefetchMargin;
     if (isStartupCritical || isInViewport || isWithinActivationBand) {
       const prioritizeImage = isStartupCritical || isInViewport;
+      const owningCard = image.closest(".product-card[data-open-product], .seller-product-card[data-open-product], .showcase-card[data-open-product]");
       image.setAttribute("loading", "eager");
       image.setAttribute("fetchpriority", prioritizeImage ? "high" : "auto");
       activateMarketplaceScrollImage(image, {
         priority: prioritizeImage,
         shouldSetPending: true
       });
+      if (owningCard instanceof Element && (isStartupCritical || isInViewport)) {
+        scheduleMarketplaceCardMediaReveal(owningCard, {
+          maxWaitMs: Math.max(180, CONTINUATION_MEDIA_REVEAL_MAX_WAIT_MS),
+          pollMs: CONTINUATION_MEDIA_REVEAL_POLL_MS
+        });
+      }
       observer?.unobserve(image);
     } else if (isWithinPrefetchBand) {
       image.setAttribute("loading", "lazy");
