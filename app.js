@@ -2372,6 +2372,9 @@ function scheduleMarketplaceScrollImagePrefetch(src = "", productId = "") {
 function resumeMarketplaceImagePipeline(reason = "feed_resume") {
   feedRuntimeState.lastMarketplaceImagePrefetchReason = reason;
   schedulePredictiveFeedPrefetch(reason);
+  scheduleViewportReadyFeedSweep(document, {
+    limit: 12
+  });
   window.requestAnimationFrame(() => {
     prioritizeVisibleFeedMedia(document, 10);
     activateViewportReadyFeedImages(document, {
@@ -9519,6 +9522,9 @@ const {
     if (!(container instanceof Element)) {
       return;
     }
+    scheduleViewportReadyFeedSweep(container, {
+      limit: 12
+    });
     prioritizeVisibleFeedMedia(container, 10);
     activateViewportReadyFeedImages(container, {
       limit: 12
@@ -12895,6 +12901,9 @@ window.addEventListener("scroll", () => {
     scheduleHomeScrollSave();
     schedulePredictiveFeedPrefetch("scroll");
     maybeAdvanceBackgroundContinuation();
+    scheduleViewportReadyFeedSweep(document, {
+      limit: 12
+    });
   }
   if (getViewportWidth() <= 720) {
     scheduleMobileHeaderScrollSync();
@@ -17896,6 +17905,25 @@ function activateViewportReadyFeedImages(scope = document, options = {}) {
       shouldSetPending: true
     });
     activatedCount += 1;
+  });
+}
+
+function scheduleViewportReadyFeedSweep(scope = document, options = {}) {
+  if (feedRuntimeState.viewportReadySweepFrame) {
+    return;
+  }
+  feedRuntimeState.viewportReadySweepFrame = window.requestAnimationFrame(() => {
+    feedRuntimeState.viewportReadySweepFrame = 0;
+    if (typeof document === "undefined" || document.hidden) {
+      return;
+    }
+    const root = scope instanceof Element || scope === document ? scope : document;
+    activateViewportReadyFeedImages(root, {
+      limit: Math.max(
+        MARKETPLACE_VIEWPORT_IMAGE_SWEEP_LIMIT,
+        Number(options.limit || 0) || 0
+      )
+    });
   });
 }
 
