@@ -78,6 +78,7 @@ const HOME_CONTINUOUS_PENDING_DESCRIPTOR_LIMIT = 6;
 const PRODUCT_DETAIL_TRANSITION_PRELOAD_RADIUS = 2;
 const SLOW_PATH_TELEMETRY_LIMIT = 120;
 const PREDICTIVE_DECODE_TELEMETRY_LIMIT = 160;
+const RUNTIME_METRIC_WINDOW_LIMIT = 24;
 const HOME_CONTINUOUS_VARIANT_TRACK_LIMIT = 96;
 const HOME_CONTINUOUS_HARD_PRESSURE_PENDING_MEDIA = 4;
 const MARKETPLACE_PREFETCH_QUEUE_PRESSURE_THRESHOLD = 18;
@@ -1377,6 +1378,7 @@ function resumeRetainedHomeFeedSurface(reason = "home_retained_resume", options 
   if (!hasRetainedHomeFeedSurface()) {
     return false;
   }
+  bumpRuntimeDiagnostic("retainedHomeResumeCount");
   hideLifecycleFallbackShell();
   restoreStoredHomeScrollPosition();
   resumeMarketplaceImagePipeline(reason);
@@ -10386,6 +10388,8 @@ const profileRuntimeState = runtimeState.profile;
 const lifecycleRuntimeState = runtimeState.lifecycle || (runtimeState.lifecycle = {});
 const runtimeDiagnostics = uiRuntimeState.runtimeDiagnostics || (uiRuntimeState.runtimeDiagnostics = {
   renderCurrentViewCalls: 0,
+  renderCurrentViewSlowCount: 0,
+  renderCurrentViewErrorCount: 0,
   galleryBindCalls: 0,
   galleryInitCount: 0,
   galleryDisposeCount: 0,
@@ -10402,8 +10406,19 @@ const runtimeDiagnostics = uiRuntimeState.runtimeDiagnostics || (uiRuntimeState.
   productDetailTransitionPrimeCount: 0,
   productDetailTransitionImageCount: 0,
   adaptiveEarlyLoadEvaluations: 0,
+  retainedHomeResumeCount: 0,
+  lifecycleFallbackShellCount: 0,
+  memoryPressureWarningCount: 0,
+  memoryMitigationCount: 0,
+  feedImageLoadSlowCount: 0,
   lastSnapshotAt: 0,
   showcaseEvents: []
+});
+const runtimeMetricWindows = uiRuntimeState.runtimeMetricWindows || (uiRuntimeState.runtimeMetricWindows = {
+  feedImageLoadLatencyMs: [],
+  renderCurrentViewSlowMs: [],
+  continuousBatchAdmissionWaitMs: [],
+  heapUsedMB: []
 });
 
 function bumpRuntimeDiagnostic(metric, amount = 1) {
@@ -10415,6 +10430,59 @@ function bumpRuntimeDiagnostic(metric, amount = 1) {
   runtimeDiagnostics[safeMetric] = nextValue;
   runtimeDiagnostics.lastSnapshotAt = Date.now();
   return nextValue;
+}
+
+function recordRuntimeMetricWindow(metric, value) {
+  const safeMetric = String(metric || "").trim();
+  const numericValue = Number(value);
+  if (!safeMetric || !Number.isFinite(numericValue)) {
+    return [];
+  }
+  const windowValues = Array.isArray(runtimeMetricWindows[safeMetric])
+    ? runtimeMetricWindows[safeMetric]
+    : (runtimeMetricWindows[safeMetric] = []);
+  windowValues.push(Math.round(numericValue));
+  while (windowValues.length > RUNTIME_METRIC_WINDOW_LIMIT) {
+    windowValues.shift();
+  }
+  return windowValues;
+}
+
+function summarizeRuntimeMetricWindow(metric) {
+  const values = Array.isArray(runtimeMetricWindows?.[metric])
+    ? runtimeMetricWindows[metric].filter((value) => Number.isFinite(Number(value)))
+    : [];
+  if (!values.length) {
+    return {
+      count: 0,
+      average: 0,
+      max: 0,
+      latest: 0
+    };
+  }
+  const total = values.reduce((sum, value) => sum + Number(value || 0), 0);
+  return {
+    count: values.length,
+    average: Math.round(total / values.length),
+    max: Math.max(...values),
+    latest: Number(values[values.length - 1] || 0)
+  };
+}
+
+function getRuntimeHealthSnapshot() {
+  const imageLoad = summarizeRuntimeMetricWindow("feedImageLoadLatencyMs");
+  const renderSlow = summarizeRuntimeMetricWindow("renderCurrentViewSlowMs");
+  const admission = summarizeRuntimeMetricWindow("continuousBatchAdmissionWaitMs");
+  const heap = summarizeRuntimeMetricWindow("heapUsedMB");
+  return {
+    imageLoad,
+    renderSlow,
+    admission,
+    heap,
+    underMemoryPressure: Number(uiRuntimeState.memoryPressureCount || 0) > 0,
+    prefetchQueuePressure: Number(marketplaceScrollPrefetchQueue?.length || 0) >= MARKETPLACE_PREFETCH_QUEUE_PRESSURE_THRESHOLD,
+    pendingMediaPressure: getCurrentPendingContinuationMediaCount(document) >= HOME_CONTINUOUS_HARD_PRESSURE_PENDING_MEDIA
+  };
 }
 
 function collectShowcaseRowDiagnostics() {
@@ -10464,6 +10532,13 @@ function getRuntimeDiagnosticsSnapshot() {
     continuousPreparedBatchIndex: Number(homeContinuousDiscoveryRuntime.preparedDescriptorBatchIndex || -1),
     continuousPreparingDescriptor: Boolean(homeContinuousDiscoveryRuntime.preparingDescriptor),
     continuousPendingDescriptorCount: Array.isArray(homeContinuousDiscoveryRuntime.pendingDescriptors) ? homeContinuousDiscoveryRuntime.pendingDescriptors.length : 0,
+    metricWindows: {
+      feedImageLoadLatencyMs: summarizeRuntimeMetricWindow("feedImageLoadLatencyMs"),
+      renderCurrentViewSlowMs: summarizeRuntimeMetricWindow("renderCurrentViewSlowMs"),
+      continuousBatchAdmissionWaitMs: summarizeRuntimeMetricWindow("continuousBatchAdmissionWaitMs"),
+      heapUsedMB: summarizeRuntimeMetricWindow("heapUsedMB")
+    },
+    health: getRuntimeHealthSnapshot(),
     showcaseEvents: Array.isArray(runtimeDiagnostics.showcaseEvents) ? runtimeDiagnostics.showcaseEvents.slice(-12) : [],
     showcaseRows: collectShowcaseRowDiagnostics(),
     currentView,
@@ -10501,6 +10576,7 @@ function reportShowcaseInstrumentation(eventName, payload = {}) {
 
 window.__WINGA_DIAGNOSTICS__ = {
   snapshot: getRuntimeDiagnosticsSnapshot,
+  health: getRuntimeHealthSnapshot,
   showcase: collectShowcaseRowDiagnostics,
   reset() {
     Object.keys(runtimeDiagnostics).forEach((key) => {
@@ -10513,6 +10589,9 @@ window.__WINGA_DIAGNOSTICS__ = {
         return;
       }
       runtimeDiagnostics[key] = 0;
+    });
+    Object.keys(runtimeMetricWindows).forEach((key) => {
+      runtimeMetricWindows[key] = [];
     });
   }
 };
@@ -11140,11 +11219,15 @@ function shouldReportSlowPathEvent(event, durationMs, thresholdMs, context = {})
     cooldownMs = 60 * 1000;
   } else if (safeEvent === "render_current_view_slow") {
     cooldownMs = isProductionClientRuntime() ? 60 * 1000 : 20 * 1000;
+    bumpRuntimeDiagnostic("renderCurrentViewSlowCount");
+    recordRuntimeMetricWindow("renderCurrentViewSlowMs", durationMs);
     if (Number(durationMs || 0) < Math.max(Number(thresholdMs || 0) * 3, isProductionClientRuntime() ? 360 : 220)) {
       return false;
     }
   } else if (safeEvent === "feed_image_load_latency") {
     cooldownMs = 30 * 1000;
+    bumpRuntimeDiagnostic("feedImageLoadSlowCount");
+    recordRuntimeMetricWindow("feedImageLoadLatencyMs", durationMs);
   }
   pruneTimestampRegistry(slowPathTelemetryState, 320);
   const lastReportedAt = Number(slowPathTelemetryState.get(registryKey) || 0);
@@ -11283,6 +11366,7 @@ function captureMemorySnapshot(reason = "sample", context = {}) {
   if (!snapshot) {
     return null;
   }
+  recordRuntimeMetricWindow("heapUsedMB", snapshot.usedJSHeapSize / (1024 * 1024));
   const diagnostics = getRuntimeDiagnosticsSnapshot();
   snapshot.diagnostics = diagnostics;
   const snapshots = Array.isArray(uiRuntimeState.memorySnapshots) ? uiRuntimeState.memorySnapshots : [];
@@ -11292,6 +11376,7 @@ function captureMemorySnapshot(reason = "sample", context = {}) {
     snapshot.usedJSHeapSize >= MEMORY_WARNING_THRESHOLD_BYTES
     && snapshot.timestamp - Number(uiRuntimeState.lastMemoryWarningAt || 0) > MEMORY_SAMPLING_INTERVAL_MS
   ) {
+    bumpRuntimeDiagnostic("memoryPressureWarningCount");
     uiRuntimeState.lastMemoryWarningAt = snapshot.timestamp;
     reportClientEvent("warn", "runtime_memory_pressure", "High client heap usage detected.", {
       category: "runtime",
@@ -11339,6 +11424,7 @@ function handleRuntimeMemoryPressure(snapshot, context = {}) {
     return;
   }
   uiRuntimeState.lastMemoryMitigationAt = now;
+  bumpRuntimeDiagnostic("memoryMitigationCount");
   cancelMarketplaceFeedRender?.();
   disconnectContinuousDiscoveryObserver();
   clearDecodedFeedImageCache();
@@ -11937,6 +12023,7 @@ function showLifecycleFallbackShell(reason = "startup_slow", options = {}) {
 
   lifecycleFallbackActive = true;
   lifecycleFallbackReason = reason;
+  bumpRuntimeDiagnostic("lifecycleFallbackShellCount");
   reportClientEvent("warn", "lifecycle_fallback_shell_shown", "Fallback shell shown to avoid blank/stuck startup.", {
     category: "runtime",
     reason,
@@ -17618,6 +17705,7 @@ function renderCurrentView(options = {}) {
       productNameInput.focus();
     }
   } catch (error) {
+    bumpRuntimeDiagnostic("renderCurrentViewErrorCount");
     renderLifecycleFallbackSkeleton("Tulikutana na mzigo wa render. Tunarejesha shell salama na unaweza kujaribu tena.");
     captureClientError("render_current_view_failed", error, {
       category: "runtime",
@@ -18661,6 +18749,7 @@ function prepareContinuationBatchAdmission(nodes = [], options = {}) {
       const waitedMs = Math.max(0, Date.now() - startedAt);
       bumpRuntimeDiagnostic("continuousBatchAdmissionCount");
       bumpRuntimeDiagnostic("continuousBatchAdmissionWaitMs", waitedMs);
+      recordRuntimeMetricWindow("continuousBatchAdmissionWaitMs", waitedMs);
       reportShowcaseInstrumentation("continuous_batch_admission", {
         leadCardCount,
         waitedMs,
