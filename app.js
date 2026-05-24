@@ -2341,10 +2341,13 @@ function scheduleMarketplaceScrollImagePrefetch(src = "", productId = "") {
   const safeSrc = sanitizeImageSource(src, "");
   const normalizedProductId = String(productId || "").trim();
   const generation = Number(feedRuntimeState.marketplaceImagePrefetchGeneration || 0);
+  if (shouldDeprioritizeBrokenMarketplaceImage(normalizedProductId, safeSrc)) {
+    bumpRuntimeDiagnostic("brokenImageSuppressedPrefetchCount");
+    return false;
+  }
   if (
     !safeSrc
     || /^data:/i.test(safeSrc)
-    || shouldDeprioritizeBrokenMarketplaceImage(normalizedProductId, safeSrc)
     || marketplaceScrollImagePrefetchedSources.has(safeSrc)
     || marketplaceScrollPrefetchInflight.has(safeSrc)
     || marketplaceScrollPrefetchQueue.some((entry) => entry?.src === safeSrc && Number(entry?.generation || 0) === generation)
@@ -9977,6 +9980,11 @@ const runtimeDiagnostics = uiRuntimeState.runtimeDiagnostics || (uiRuntimeState.
   productEngagementBindCalls: 0,
   productEngagementObservedCount: 0,
   productMenuBindCalls: 0,
+  continuousPendingMediaDeferrals: 0,
+  continuousBatchAdmissionCount: 0,
+  continuousBatchAdmissionWaitMs: 0,
+  brokenImageSuppressedPrefetchCount: 0,
+  preparedDescriptorSkipCount: 0,
   lastSnapshotAt: 0,
   showcaseEvents: []
 });
@@ -10033,6 +10041,12 @@ function getRuntimeDiagnosticsSnapshot() {
     decodedFeedImageCacheSize: decodedFeedImageCache?.size || 0,
     imagePreloadRegistrySize: imagePreloadRegistry?.size || 0,
     imagePrefetchRegistrySize: marketplaceScrollImagePrefetchedSources?.size || 0,
+    imagePrefetchQueueSize: marketplaceScrollPrefetchQueue?.length || 0,
+    imagePrefetchInflightSize: marketplaceScrollPrefetchInflight?.size || 0,
+    continuousBatchIndex: Number(homeContinuousDiscoveryRuntime.batchIndex || 0),
+    continuousPreparedBatchIndex: Number(homeContinuousDiscoveryRuntime.preparedDescriptorBatchIndex || -1),
+    continuousPreparingDescriptor: Boolean(homeContinuousDiscoveryRuntime.preparingDescriptor),
+    continuousPendingDescriptorCount: Array.isArray(homeContinuousDiscoveryRuntime.pendingDescriptors) ? homeContinuousDiscoveryRuntime.pendingDescriptors.length : 0,
     showcaseEvents: Array.isArray(runtimeDiagnostics.showcaseEvents) ? runtimeDiagnostics.showcaseEvents.slice(-12) : [],
     showcaseRows: collectShowcaseRowDiagnostics(),
     currentView,
@@ -10073,6 +10087,10 @@ window.__WINGA_DIAGNOSTICS__ = {
   showcase: collectShowcaseRowDiagnostics,
   reset() {
     Object.keys(runtimeDiagnostics).forEach((key) => {
+      if (key === "showcaseEvents") {
+        runtimeDiagnostics[key] = [];
+        return;
+      }
       if (key === "lastSnapshotAt") {
         runtimeDiagnostics[key] = Date.now();
         return;
@@ -10548,6 +10566,7 @@ let homeContinuousDiscoveryRuntime = {
   lastVariantNormalOrdinal: -HOME_VARIANT_MIN_NORMAL_PRODUCTS_BETWEEN,
   preparedDescriptor: null,
   preparedDescriptorBatchIndex: -1,
+  preparingDescriptor: false,
   lastEarlyLoadAt: 0,
   loading: false,
   seedProductId: "",
@@ -15219,6 +15238,9 @@ function prepareNextContinuousDiscoveryDescriptor() {
     || homeContinuousDiscoveryRuntime.loading
     || homeContinuousDiscoveryRuntime.preparingDescriptor
   ) {
+    if (homeContinuousDiscoveryRuntime.preparingDescriptor) {
+      bumpRuntimeDiagnostic("preparedDescriptorSkipCount");
+    }
     return null;
   }
   if (homeContinuousDiscoveryRuntime.preparedDescriptor && homeContinuousDiscoveryRuntime.preparedDescriptorBatchIndex === homeContinuousDiscoveryRuntime.batchIndex) {
@@ -15325,6 +15347,13 @@ async function hydrateContinuousDiscoveryAnchor(anchor) {
     return;
   }
   if (!canAdvanceHomeContinuousDiscovery(anchor)) {
+    const pendingCount = getHomeContinuousPendingMediaCount(anchor);
+    bumpRuntimeDiagnostic("continuousPendingMediaDeferrals");
+    reportShowcaseInstrumentation("continuous_pending_media_deferral", {
+      pendingCount,
+      batchIndex: homeContinuousDiscoveryRuntime.batchIndex,
+      scrollSpeed: Number(feedRuntimeState.lastScrollSpeed || 0)
+    });
     scheduleContinuousDiscoveryReobserve(anchor);
     return;
   }
@@ -17764,7 +17793,17 @@ function prepareContinuationBatchAdmission(nodes = [], options = {}) {
   return new Promise((resolve) => {
     const startedAt = Date.now();
     let frameCount = 0;
-    const finish = () => resolve(leadCardCount);
+    const finish = () => {
+      const waitedMs = Math.max(0, Date.now() - startedAt);
+      bumpRuntimeDiagnostic("continuousBatchAdmissionCount");
+      bumpRuntimeDiagnostic("continuousBatchAdmissionWaitMs", waitedMs);
+      reportShowcaseInstrumentation("continuous_batch_admission", {
+        leadCardCount,
+        waitedMs,
+        scrollSpeed: Number(feedRuntimeState.lastScrollSpeed || 0)
+      });
+      resolve(leadCardCount);
+    };
     const tick = () => {
       if (
         haveContinuationLeadMediaRequestsStarted(nodes, { leadCardCount })
