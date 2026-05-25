@@ -1381,6 +1381,11 @@ function resumeRetainedHomeFeedSurface(reason = "home_retained_resume", options 
   bumpRuntimeDiagnostic("retainedHomeResumeCount");
   hideLifecycleFallbackShell();
   restoreStoredHomeScrollPosition();
+  prioritizeVisibleFeedMedia?.(productsContainer, Math.max(4, Number(options.productLimit || 8)));
+  activateViewportReadyFeedImages(productsContainer || document, {
+    limit: 12
+  });
+  bindMarketplaceScrollImages(productsContainer || document);
   resumeMarketplaceImagePipeline(reason);
   scheduleStartupImageWork(window.WingaDataLayer?.getProducts?.() || products, {
     reason,
