@@ -10576,6 +10576,43 @@ function collectShowcaseRowDiagnostics() {
   });
 }
 
+function collectVisibleHomeImageDiagnostics(limit = 8) {
+  const images = Array.from(
+    productsContainer?.querySelectorAll?.(".product-card img[data-marketplace-scroll-image='true'], .seller-product-card img[data-marketplace-scroll-image='true']") || []
+  );
+  const viewportHeight = window.innerHeight || document.documentElement?.clientHeight || 0;
+  return images
+    .filter((image) => {
+      if (!(image instanceof HTMLImageElement)) {
+        return false;
+      }
+      const rect = image.getBoundingClientRect();
+      return rect.bottom > 0 && rect.top < viewportHeight;
+    })
+    .slice(0, Math.max(1, Number(limit || 8)))
+    .map((image, index) => {
+      const shell = image.closest(".progressive-image-shell");
+      const beforeStyle = shell ? window.getComputedStyle(shell, "::before") : null;
+      const imageStyle = window.getComputedStyle(image);
+      return {
+        index,
+        productId: String(image.dataset.imageActionProduct || image.closest("[data-open-product]")?.dataset?.openProduct || "").trim(),
+        src: String(image.currentSrc || image.getAttribute("src") || "").slice(0, 180),
+        realSrc: String(image.dataset.marketplaceRealSrc || image.dataset.progressiveRealSrc || image.dataset.imageActionSrc || "").slice(0, 180),
+        complete: Boolean(image.complete),
+        naturalWidth: Number(image.naturalWidth || 0),
+        naturalHeight: Number(image.naturalHeight || 0),
+        imageOpacity: imageStyle?.opacity || "",
+        imageFilter: imageStyle?.filter || "",
+        shellClass: shell?.className || "",
+        shellBeforeOpacity: beforeStyle?.opacity || "",
+        shellBeforeFilter: beforeStyle?.filter || "",
+        shellBeforeBackground: beforeStyle?.backgroundImage || beforeStyle?.backgroundColor || "",
+        marketplaceState: String(image.dataset.marketplaceImageState || "")
+      };
+    });
+}
+
 function getRuntimeDiagnosticsSnapshot() {
   return {
     ...runtimeDiagnostics,
@@ -10601,6 +10638,7 @@ function getRuntimeDiagnosticsSnapshot() {
     health: getRuntimeHealthSnapshot(),
     showcaseEvents: Array.isArray(runtimeDiagnostics.showcaseEvents) ? runtimeDiagnostics.showcaseEvents.slice(-12) : [],
     showcaseRows: collectShowcaseRowDiagnostics(),
+    visibleHomeImages: collectVisibleHomeImageDiagnostics(),
     currentView,
     timestamp: Date.now()
   };
