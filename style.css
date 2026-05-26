@@ -9940,7 +9940,7 @@ button:hover,
 }
 
 #products-container .progressive-image-shell::before{
-  opacity:0.94 !important;
+  opacity:0 !important;
   animation:none !important;
   transition:opacity .18s ease !important;
 }
