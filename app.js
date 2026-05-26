@@ -9771,16 +9771,24 @@ const {
     }
     const renderedBatchCards = getRenderedFeedBatchCards(container, startIndex, endIndex);
     primeRenderedFeedBatchCards(renderedBatchCards);
+    bindRenderedFeedBatchCards(renderedBatchCards);
     scheduleViewportReadyFeedSweep(container, {
       limit: 12
     });
-    prioritizeVisibleFeedMedia(container, 10);
-    activateViewportReadyFeedImages(container, {
+    const batchScope = renderedBatchCards.length === 1 ? renderedBatchCards[0] : container;
+    prioritizeVisibleFeedMedia(batchScope, renderedBatchCards.length ? Math.min(10, renderedBatchCards.length * 2) : 10);
+    activateViewportReadyFeedImages(batchScope, {
       limit: 12
     });
-    bindFeedGalleryInteractions(container);
-    bindImageFallbacks(container);
     scheduleIdleBackgroundWork(() => {
+      if (renderedBatchCards.length) {
+        renderedBatchCards.forEach((card) => {
+          enhanceShowcaseTracks(card);
+          bindProductEngagementSignals(card);
+          bindProductMenus(card);
+        });
+        return;
+      }
       enhanceShowcaseTracks(container);
       bindProductEngagementSignals(container);
       bindProductMenus(container);
@@ -9851,6 +9859,17 @@ function primeRenderedFeedBatchCards(cards = []) {
         pollMs: revealWindow.pollMs
       });
     }
+  });
+}
+
+function bindRenderedFeedBatchCards(cards = []) {
+  const safeCards = Array.isArray(cards) ? cards.filter((card) => card instanceof Element) : [];
+  if (!safeCards.length) {
+    return;
+  }
+  safeCards.forEach((card) => {
+    bindFeedGalleryInteractions(card);
+    bindImageFallbacks(card);
   });
 }
 
