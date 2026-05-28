@@ -55,7 +55,8 @@ const HOME_VARIANT_INJECTION_PREFETCH_RADIUS = 1;
 const FEED_BOOT_IMAGE_WARM_COUNT = 24;
 const FEED_BOOT_IMAGE_DECODE_COUNT = 8;
 const SPLASH_FEED_IMAGE_READY_COUNT = 6;
-const SPLASH_FEED_IMAGE_READY_TIMEOUT_MS = 8000;
+const SPLASH_FEED_IMAGE_READY_TIMEOUT_MS = 3000;
+const BOOT_OVERLAY_HARD_SAFETY_TIMEOUT_MS = 5000;
 const SPLASH_FEED_IMAGE_READY_POLL_MS = 80;
 const FEED_PREDICTIVE_PRELOAD_COUNT = 6;
 const FEED_PREDICTIVE_NEXT_BATCH_SIZE = 6;
@@ -6614,9 +6615,10 @@ function forceStartupSplashImageRequest(image) {
 
 function waitForStartupSplashFeedImages(options = {}) {
   const requiredCount = Math.max(1, Number(options.requiredCount || SPLASH_FEED_IMAGE_READY_COUNT));
-  const timeoutMs = Math.max(1200, Number(options.timeoutMs || SPLASH_FEED_IMAGE_READY_TIMEOUT_MS));
-  const startedAt = Date.now();
-  let timeoutReported = false;
+  const timeoutMs = Math.max(500, Math.min(
+    SPLASH_FEED_IMAGE_READY_TIMEOUT_MS,
+    Number(options.timeoutMs || SPLASH_FEED_IMAGE_READY_TIMEOUT_MS)
+  ));
   const images = collectStartupSplashFeedImages(requiredCount);
   if (!images.length) {
     return Promise.resolve(true);
@@ -6627,25 +6629,59 @@ function waitForStartupSplashFeedImages(options = {}) {
     forceStartupSplashImageRequest(image);
   });
 
-  return new Promise((resolve) => {
+  const imageReadiness = Promise.allSettled(images.map((image) => new Promise((resolve) => {
+    if (isFeedImageReadyForSplash(image)) {
+      resolve(true);
+      return;
+    }
+    const cleanup = () => {
+      image.removeEventListener("load", handleDone);
+      image.removeEventListener("error", handleDone);
+    };
+    const handleDone = () => {
+      cleanup();
+      resolve(isFeedImageReadyForSplash(image));
+    };
+    image.addEventListener("load", handleDone, { once: true, passive: true });
+    image.addEventListener("error", handleDone, { once: true, passive: true });
+    window.setTimeout(() => {
+      cleanup();
+      resolve(isFeedImageReadyForSplash(image));
+    }, timeoutMs);
+  })));
+
+  const pollingReadiness = new Promise((resolve) => {
     const check = () => {
       const readyCount = images.filter(isFeedImageReadyForSplash).length;
       if (readyCount >= Math.min(requiredCount, images.length)) {
         resolve(true);
         return;
       }
-      if (!timeoutReported && Date.now() - startedAt >= timeoutMs) {
-        timeoutReported = true;
-        reportClientEvent("warn", "splash_feed_image_gate_timeout", "Splash waited for feed images but timed out before all startup images were ready.", {
-          category: "image",
-          readyCount,
-          requiredCount: Math.min(requiredCount, images.length),
-          imageCount: images.length
-        });
-      }
-      window.setTimeout(check, timeoutReported ? 500 : SPLASH_FEED_IMAGE_READY_POLL_MS);
+      window.setTimeout(check, SPLASH_FEED_IMAGE_READY_POLL_MS);
     };
     check();
+  });
+
+  const hardTimeout = new Promise((resolve) => {
+    window.setTimeout(() => {
+      const readyCount = images.filter(isFeedImageReadyForSplash).length;
+      reportClientEvent("warn", "splash_feed_image_gate_timeout", "Splash feed image gate force-resolved to avoid blocking mobile startup.", {
+        category: "image",
+        readyCount,
+        requiredCount: Math.min(requiredCount, images.length),
+        imageCount: images.length,
+        timeoutMs
+      });
+      resolve(false);
+    }, timeoutMs);
+  });
+
+  return Promise.race([
+    imageReadiness.then((results) => results.filter((entry) => entry.status === "fulfilled" && entry.value === true).length >= Math.min(requiredCount, images.length)),
+    pollingReadiness,
+    hardTimeout
+  ]).finally(() => {
+    hideBootOverlayImmediately();
   });
 }
 
@@ -6674,6 +6710,45 @@ function revealBootOverlay() {
   bootOverlay.style.display = "flex";
   bootOverlay.classList.remove("is-hidden");
   bootOverlay.setAttribute("aria-hidden", "false");
+}
+
+function forceHideBootOverlaySafety(reason = "hard_safety") {
+  const overlay = document.getElementById("boot-overlay");
+  if (!overlay) {
+    return;
+  }
+  overlay.classList.add("is-hidden");
+  overlay.setAttribute("aria-hidden", "true");
+  overlay.style.display = "none";
+  if (document.body.classList.contains("app-booting")) {
+    document.body.classList.remove("app-booting");
+    document.body.classList.add("app-ready");
+  }
+  if (feedRuntimeState) {
+    feedRuntimeState.splashFeedImageGateInFlight = false;
+  }
+  reportClientEvent("warn", "boot_overlay_force_hidden", "Boot overlay was force-hidden by the startup safety net.", {
+    category: "runtime",
+    reason
+  });
+}
+
+function scheduleBootOverlayHardSafety(reason = "boot_start") {
+  if (feedRuntimeState.bootOverlayHardSafetyTimer) {
+    window.clearTimeout(feedRuntimeState.bootOverlayHardSafetyTimer);
+  }
+  feedRuntimeState.bootOverlayHardSafetyTimer = window.setTimeout(() => {
+    feedRuntimeState.bootOverlayHardSafetyTimer = 0;
+    const overlay = document.getElementById("boot-overlay");
+    const overlayStillVisible = Boolean(
+      overlay
+      && !overlay.classList.contains("is-hidden")
+      && overlay.style.display !== "none"
+    );
+    if (overlayStillVisible || document.body.classList.contains("app-booting")) {
+      forceHideBootOverlaySafety(reason);
+    }
+  }, BOOT_OVERLAY_HARD_SAFETY_TIMEOUT_MS);
 }
 
 function completeBootOverlay() {
@@ -19604,6 +19679,7 @@ async function bootApp() {
   document.body.classList.add("app-booting");
   document.body.classList.remove("app-ready");
   revealBootOverlay();
+  scheduleBootOverlayHardSafety("boot_start");
   const bootstrapCleanupPromise = initializeBootstrapStorageVersion();
   syncAuthMode();
   authContainer.style.display = "none";
