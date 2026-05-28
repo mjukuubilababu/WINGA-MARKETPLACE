@@ -6616,6 +6616,7 @@ function waitForStartupSplashFeedImages(options = {}) {
   const requiredCount = Math.max(1, Number(options.requiredCount || SPLASH_FEED_IMAGE_READY_COUNT));
   const timeoutMs = Math.max(1200, Number(options.timeoutMs || SPLASH_FEED_IMAGE_READY_TIMEOUT_MS));
   const startedAt = Date.now();
+  let timeoutReported = false;
   const images = collectStartupSplashFeedImages(requiredCount);
   if (!images.length) {
     return Promise.resolve(true);
@@ -6633,17 +6634,16 @@ function waitForStartupSplashFeedImages(options = {}) {
         resolve(true);
         return;
       }
-      if (Date.now() - startedAt >= timeoutMs) {
+      if (!timeoutReported && Date.now() - startedAt >= timeoutMs) {
+        timeoutReported = true;
         reportClientEvent("warn", "splash_feed_image_gate_timeout", "Splash waited for feed images but timed out before all startup images were ready.", {
           category: "image",
           readyCount,
           requiredCount: Math.min(requiredCount, images.length),
           imageCount: images.length
         });
-        resolve(false);
-        return;
       }
-      window.setTimeout(check, SPLASH_FEED_IMAGE_READY_POLL_MS);
+      window.setTimeout(check, timeoutReported ? 500 : SPLASH_FEED_IMAGE_READY_POLL_MS);
     };
     check();
   });
@@ -6693,17 +6693,12 @@ function completeBootOverlay() {
   }
   if (
     requiresMediaReady
-    && !feedRuntimeState.splashFeedImageGateTimedOut
     && !hasVisibleStartupFeedMedia({ minCount: getRequiredStartupFeedMediaCount() })
   ) {
     feedRuntimeState.splashFeedImageGateInFlight = true;
     waitForStartupSplashFeedImages({
       requiredCount: SPLASH_FEED_IMAGE_READY_COUNT,
       timeoutMs: SPLASH_FEED_IMAGE_READY_TIMEOUT_MS
-    }).then((ready) => {
-      if (!ready) {
-        feedRuntimeState.splashFeedImageGateTimedOut = true;
-      }
     }).finally(() => {
       feedRuntimeState.splashFeedImageGateInFlight = false;
       completeBootOverlay();
