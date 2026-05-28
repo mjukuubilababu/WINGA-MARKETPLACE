@@ -54,6 +54,9 @@ const HOME_VARIANT_INJECTION_PREFETCH_PRODUCT_LIMIT = 2;
 const HOME_VARIANT_INJECTION_PREFETCH_RADIUS = 1;
 const FEED_BOOT_IMAGE_WARM_COUNT = 24;
 const FEED_BOOT_IMAGE_DECODE_COUNT = 8;
+const SPLASH_FEED_IMAGE_READY_COUNT = 6;
+const SPLASH_FEED_IMAGE_READY_TIMEOUT_MS = 8000;
+const SPLASH_FEED_IMAGE_READY_POLL_MS = 80;
 const FEED_PREDICTIVE_PRELOAD_COUNT = 6;
 const FEED_PREDICTIVE_NEXT_BATCH_SIZE = 6;
 const FEED_MEMORY_IMAGE_CACHE_LIMIT = 10;
@@ -6529,6 +6532,123 @@ function hasVisibleStartupFeedMedia(options = {}) {
   return false;
 }
 
+function collectStartupSplashFeedImages(limit = SPLASH_FEED_IMAGE_READY_COUNT) {
+  const safeLimit = Math.max(1, Number(limit || SPLASH_FEED_IMAGE_READY_COUNT));
+  const images = [];
+  const seen = new Set();
+  const cards = Array.from(
+    productsContainer?.querySelectorAll?.(".product-card[data-open-product], .seller-product-card[data-open-product]") || []
+  );
+  for (const card of cards) {
+    if (!(card instanceof Element)) {
+      continue;
+    }
+    const image = card.querySelector("img[data-marketplace-scroll-image='true']");
+    if (!(image instanceof HTMLImageElement)) {
+      continue;
+    }
+    const src = image.dataset.marketplaceRealSrc
+      || image.dataset.progressiveRealSrc
+      || image.dataset.imageActionSrc
+      || image.currentSrc
+      || image.getAttribute("src")
+      || "";
+    const key = sanitizeImageSource(src, "");
+    if (!key || seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    images.push(image);
+    if (images.length >= safeLimit) {
+      break;
+    }
+  }
+  return images;
+}
+
+function isFeedImageReadyForSplash(image) {
+  if (!(image instanceof HTMLImageElement)) {
+    return false;
+  }
+  const shell = image.closest(".progressive-image-shell");
+  const src = image.currentSrc || image.getAttribute("src") || "";
+  return Boolean(
+    shell?.classList.contains("is-loaded")
+    || (Number(image.naturalWidth || 0) > 0 && Number(image.naturalHeight || 0) > 0)
+    || (image.complete && Boolean(src) && !src.startsWith("data:image/gif"))
+  );
+}
+
+function forceStartupSplashImageRequest(image) {
+  if (!(image instanceof HTMLImageElement)) {
+    return null;
+  }
+  const realSrc = image.dataset.marketplaceRealSrc
+    || image.dataset.progressiveRealSrc
+    || image.dataset.imageActionSrc
+    || image.dataset.zoomSrc
+    || image.currentSrc
+    || image.getAttribute("src")
+    || "";
+  const safeSrc = sanitizeImageSource(realSrc, "");
+  if (!safeSrc) {
+    return null;
+  }
+  image.setAttribute("loading", "eager");
+  image.setAttribute("fetchpriority", "high");
+  preloadImageSource(safeSrc, {
+    fetchPriority: "high",
+    decodeInMemory: false,
+    reason: "splash_feed_image_gate"
+  });
+  if (typeof activateMarketplaceScrollImage === "function") {
+    activateMarketplaceScrollImage(image, {
+      priority: true,
+      shouldSetPending: true
+    });
+  } else if (!image.currentSrc && image.getAttribute("src") !== safeSrc) {
+    image.setAttribute("src", safeSrc);
+  }
+  return safeSrc;
+}
+
+function waitForStartupSplashFeedImages(options = {}) {
+  const requiredCount = Math.max(1, Number(options.requiredCount || SPLASH_FEED_IMAGE_READY_COUNT));
+  const timeoutMs = Math.max(1200, Number(options.timeoutMs || SPLASH_FEED_IMAGE_READY_TIMEOUT_MS));
+  const startedAt = Date.now();
+  const images = collectStartupSplashFeedImages(requiredCount);
+  if (!images.length) {
+    return Promise.resolve(true);
+  }
+
+  resumeMarketplaceImagePipeline("splash_feed_image_gate");
+  images.forEach((image) => {
+    forceStartupSplashImageRequest(image);
+  });
+
+  return new Promise((resolve) => {
+    const check = () => {
+      const readyCount = images.filter(isFeedImageReadyForSplash).length;
+      if (readyCount >= Math.min(requiredCount, images.length)) {
+        resolve(true);
+        return;
+      }
+      if (Date.now() - startedAt >= timeoutMs) {
+        reportClientEvent("warn", "splash_feed_image_gate_timeout", "Splash waited for feed images but timed out before all startup images were ready.", {
+          category: "image",
+          readyCount,
+          requiredCount: Math.min(requiredCount, images.length),
+          imageCount: images.length
+        });
+        resolve(false);
+        return;
+      }
+      window.setTimeout(check, SPLASH_FEED_IMAGE_READY_POLL_MS);
+    };
+    check();
+  });
+}
+
 function getRequiredStartupFeedMediaCount() {
   const visibleCards = Array.from(
     productsContainer?.querySelectorAll?.(".product-card[data-open-product], .seller-product-card[data-open-product]") || []
@@ -6543,7 +6663,8 @@ function getRequiredStartupFeedMediaCount() {
   if (!visibleCards.length) {
     return 1;
   }
-  return Math.max(1, Math.min(2, visibleCards.length));
+  const availableStartupImages = collectStartupSplashFeedImages(SPLASH_FEED_IMAGE_READY_COUNT).length;
+  return Math.max(1, Math.min(SPLASH_FEED_IMAGE_READY_COUNT, availableStartupImages || visibleCards.length));
 }
 
 function revealBootOverlay() {
@@ -6559,15 +6680,34 @@ function completeBootOverlay() {
   if (!bootOverlay) {
     return;
   }
+  if (feedRuntimeState.splashFeedImageGateInFlight) {
+    return;
+  }
   const requiresMediaReady = currentView === "home"
     && Boolean(productsContainer?.querySelector(".product-card, .seller-product-card"));
-  const shouldDelayHide = currentView === "home"
-    && (
-      !hasVisibleStartupSurface({ includeFeedLoading: false })
-      || (requiresMediaReady && !hasVisibleStartupFeedMedia({ minCount: getRequiredStartupFeedMediaCount() }))
-    )
+  const missingStartupSurface = currentView === "home"
+    && !hasVisibleStartupSurface({ includeFeedLoading: false })
     && productHydrationStatus !== "failed";
-  if (shouldDelayHide) {
+  if (missingStartupSurface) {
+    return;
+  }
+  if (
+    requiresMediaReady
+    && !feedRuntimeState.splashFeedImageGateTimedOut
+    && !hasVisibleStartupFeedMedia({ minCount: getRequiredStartupFeedMediaCount() })
+  ) {
+    feedRuntimeState.splashFeedImageGateInFlight = true;
+    waitForStartupSplashFeedImages({
+      requiredCount: SPLASH_FEED_IMAGE_READY_COUNT,
+      timeoutMs: SPLASH_FEED_IMAGE_READY_TIMEOUT_MS
+    }).then((ready) => {
+      if (!ready) {
+        feedRuntimeState.splashFeedImageGateTimedOut = true;
+      }
+    }).finally(() => {
+      feedRuntimeState.splashFeedImageGateInFlight = false;
+      completeBootOverlay();
+    });
     return;
   }
   hideBootOverlayImmediately();
