@@ -9856,7 +9856,8 @@ function primeRenderedFeedBatchCards(cards = []) {
       const revealWindow = getAdaptiveMarketplaceCardRevealWindow();
       scheduleMarketplaceCardMediaReveal(card, {
         maxWaitMs: revealWindow.maxWaitMs,
-        pollMs: revealWindow.pollMs
+        pollMs: revealWindow.pollMs,
+        requireLoaded: true
       });
     }
   });
@@ -18655,7 +18656,8 @@ function activateViewportReadyFeedImages(scope = document, options = {}) {
       const revealWindow = getAdaptiveMarketplaceCardRevealWindow();
       scheduleMarketplaceCardMediaReveal(owningCard, {
         maxWaitMs: revealWindow.maxWaitMs,
-        pollMs: revealWindow.pollMs
+        pollMs: revealWindow.pollMs,
+        requireLoaded: true
       });
     }
     activatedCount += 1;
@@ -18745,9 +18747,11 @@ function setMarketplaceCardMediaPending(card, isPending) {
   }
   if (isPending) {
     card.setAttribute("data-continuation-media-pending", "true");
+    card.setAttribute("data-card-media-pending", "true");
     return;
   }
   card.removeAttribute("data-continuation-media-pending");
+  card.removeAttribute("data-card-media-pending");
   delete card.dataset.continuationMediaRevealScheduled;
 }
 
@@ -18763,6 +18767,7 @@ function scheduleMarketplaceCardMediaReveal(card, options = {}) {
     return;
   }
   const adaptiveWindow = getAdaptiveMarketplaceCardRevealWindow();
+  const requireLoaded = options.requireLoaded === true;
   const maxWaitMs = Math.max(
     80,
     Number(options.maxWaitMs || adaptiveWindow.maxWaitMs || CONTINUATION_MEDIA_REVEAL_MAX_WAIT_MS) || CONTINUATION_MEDIA_REVEAL_MAX_WAIT_MS
@@ -18780,7 +18785,11 @@ function scheduleMarketplaceCardMediaReveal(card, options = {}) {
       setMarketplaceCardMediaPending(card, false);
       return;
     }
-    if (hasHealthyMarketplaceCardMedia(card) || Date.now() - startedAt >= maxWaitMs) {
+    if (hasHealthyMarketplaceCardMedia(card)) {
+      setMarketplaceCardMediaPending(card, false);
+      return;
+    }
+    if (!requireLoaded && Date.now() - startedAt >= maxWaitMs) {
       setMarketplaceCardMediaPending(card, false);
       return;
     }
@@ -18817,7 +18826,8 @@ function startContinuationBatchMediaRequests(nodes = [], options = {}) {
       const revealWindow = getAdaptiveMarketplaceCardRevealWindow();
       scheduleMarketplaceCardMediaReveal(card, {
         maxWaitMs: revealWindow.maxWaitMs,
-        pollMs: revealWindow.pollMs
+        pollMs: revealWindow.pollMs,
+        requireLoaded: true
       });
     }
   });
@@ -18988,6 +18998,10 @@ function markMarketplaceScrollImageLoaded(image, resolvedSrc = "") {
   const shell = image.closest(".progressive-image-shell");
   shell?.classList.remove("is-pending", "is-error");
   shell?.classList.add("is-loaded");
+  const owningCard = image.closest(".product-card[data-open-product], .seller-product-card[data-open-product], .showcase-card[data-open-product]");
+  if (owningCard instanceof Element) {
+    setMarketplaceCardMediaPending(owningCard, false);
+  }
   image.dataset.marketplaceImageState = "loaded";
   delete image.dataset.marketplaceRevealScheduled;
   const productId = image.dataset.imageActionProduct || "";
@@ -19201,6 +19215,10 @@ function bindMarketplaceScrollImages(scope = document) {
         const shell = image.closest(".progressive-image-shell");
         shell?.classList.remove("is-pending");
         shell?.classList.add("is-error", "is-loaded");
+        const owningCard = image.closest(".product-card[data-open-product], .seller-product-card[data-open-product], .showcase-card[data-open-product]");
+        if (owningCard instanceof Element) {
+          setMarketplaceCardMediaPending(owningCard, false);
+        }
         image.dataset.marketplaceImageState = "error";
         delete image.dataset.marketplaceRevealScheduled;
         marketplaceScrollImageObserver?.unobserve?.(image);
@@ -19228,7 +19246,8 @@ function bindMarketplaceScrollImages(scope = document) {
         const revealWindow = getAdaptiveMarketplaceCardRevealWindow();
         scheduleMarketplaceCardMediaReveal(owningCard, {
           maxWaitMs: revealWindow.maxWaitMs,
-          pollMs: revealWindow.pollMs
+          pollMs: revealWindow.pollMs,
+          requireLoaded: true
         });
       }
       observer?.unobserve(image);

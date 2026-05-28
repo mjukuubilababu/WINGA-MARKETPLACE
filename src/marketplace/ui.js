@@ -846,7 +846,8 @@
           ...(feedSequenceIndex ? { "data-feed-sequence-index": String(feedSequenceIndex) } : {}),
           ...(Number.isFinite(Number(product?.feedInitialImageIndex)) ? { "data-open-image-index": String(Number(product.feedInitialImageIndex) || 0) } : {}),
           ...(product?.feedVariantResurface ? { "data-feed-variant-card": "true" } : {}),
-          ...(startupPriority ? { "data-startup-priority-card": "true" } : {})
+          ...(startupPriority ? { "data-startup-priority-card": "true" } : {}),
+          "data-card-media-pending": "true"
         }
       });
       card.dataset.productCard = product.id;
