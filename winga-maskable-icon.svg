@@ -11,7 +11,7 @@
       <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
     </linearGradient>
   </defs>
-  <rect width="512" height="512" rx="120" fill="url(#bg)"/>
+  <rect x=".5" y=".5" width="511" height="511" rx="0" fill="url(#bg)" stroke="#ffffff" stroke-width="1"/>
   <path d="M96 120h320c24 0 40 16 40 40v192c0 24-16 40-40 40H96c-24 0-40-16-40-40V160c0-24 16-40 40-40Z" fill="url(#highlight)" opacity=".16"/>
   <g fill="#fff">
     <path d="M123 152c36 8 59 24 75 47 10 15 16 32 18 51-34-19-65-28-99-29 2-31 1-52 6-69Z"/>
