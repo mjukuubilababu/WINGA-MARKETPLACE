@@ -812,6 +812,38 @@ async function purgeStaleBrowserCacheArtifacts() {
   }
 }
 
+function hasCompletedServiceWorkerFirstRun() {
+  try {
+    return window.localStorage?.getItem("winga_service_worker_initialized") === "true";
+  } catch (error) {
+    return true;
+  }
+}
+
+function markServiceWorkerFirstRunComplete() {
+  try {
+    window.localStorage?.setItem("winga_service_worker_initialized", "true");
+  } catch (error) {
+    // Storage may be unavailable in private/locked-down browsers.
+  }
+}
+
+async function waitForServiceWorkerReady(maxWaitMs = 3000) {
+  if (!("serviceWorker" in navigator) || !navigator.serviceWorker.ready) {
+    return null;
+  }
+  let timeoutId = 0;
+  const timeout = new Promise((resolve) => {
+    timeoutId = window.setTimeout(() => resolve(null), Math.max(0, Number(maxWaitMs) || 0));
+  });
+  const registration = await Promise.race([
+    navigator.serviceWorker.ready.catch(() => null),
+    timeout
+  ]);
+  window.clearTimeout(timeoutId);
+  return registration;
+}
+
 async function registerAppServiceWorker() {
   if (!("serviceWorker" in navigator)) {
     return;
@@ -825,6 +857,7 @@ async function registerAppServiceWorker() {
   }
 
   try {
+    const isFirstRunAfterStorageClear = !hasCompletedServiceWorkerFirstRun();
     const registration = await navigator.serviceWorker.register(`${APP_SERVICE_WORKER_PATH}?v=${encodeURIComponent(APP_BOOT_BUILD_VERSION || "0")}`, {
       scope: "/",
       updateViaCache: "none"
@@ -836,6 +869,10 @@ async function registerAppServiceWorker() {
       } catch (error) {
         // Ignore update checks that fail on constrained/offline browsers.
       }
+    }
+    if (isFirstRunAfterStorageClear) {
+      await waitForServiceWorkerReady(3000);
+      markServiceWorkerFirstRunComplete();
     }
   } catch (error) {
     reportClientEvent("warn", "service_worker_registration_failed", "Service worker registration failed.", {

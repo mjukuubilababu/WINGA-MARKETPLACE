@@ -1,7 +1,9 @@
+const SW_SCHEMA_VERSION = "winga-v3";
 const SW_VERSION = new URL(self.location.href).searchParams.get("v") || "0";
-const SHELL_CACHE = `winga-shell-${SW_VERSION}`;
-const IMAGE_CACHE = `winga-images-${SW_VERSION}`;
-const API_CACHE = `winga-api-${SW_VERSION}`;
+const CACHE_VERSION = `${SW_SCHEMA_VERSION}-${SW_VERSION}`;
+const SHELL_CACHE = `winga-shell-${CACHE_VERSION}`;
+const IMAGE_CACHE = `winga-images-${CACHE_VERSION}`;
+const API_CACHE = `winga-api-${CACHE_VERSION}`;
 const RUNTIME_CACHE_PREFIXES = ["winga-shell-", "winga-images-", "winga-api-"];
 const SHELL_ASSETS = [
   "/",
@@ -10,7 +12,18 @@ const SHELL_ASSETS = [
   "/style.css",
   "/winga-config.js",
   "/winga-modules.js",
-  "/service-worker.js"
+  "/app-core.js",
+  "/data-service.js",
+  "/mock-data.js",
+  "/service-worker.js",
+  "/manifest.webmanifest",
+  "/manifest-v4.webmanifest",
+  "/manifest.json",
+  "/offline.html",
+  "/winga-icon-192-v3.png",
+  "/winga-icon-512-v3.png",
+  "/winga-maskable-icon-v3.png",
+  "/apple-touch-icon-v3.png"
 ];
 const API_PATHS = new Set([
   "/api/products",
@@ -63,7 +76,19 @@ async function trimCache(cacheName, limit = IMAGE_CACHE_LIMIT) {
 
 async function precacheShell() {
   const cache = await caches.open(SHELL_CACHE);
-  await cache.addAll(SHELL_ASSETS);
+  await Promise.allSettled(
+    SHELL_ASSETS.map(async (asset) => {
+      try {
+        const request = new Request(asset, { cache: "reload", credentials: "same-origin" });
+        const response = await fetch(request);
+        if (response && response.ok) {
+          await cache.put(asset, response.clone());
+        }
+      } catch (error) {
+        // A missing optional asset must never prevent the replacement SW from installing.
+      }
+    })
+  );
 }
 
 async function cleanupOldCaches() {
@@ -165,7 +190,7 @@ self.addEventListener("fetch", (event) => {
         return response;
       } catch (error) {
         const cache = await caches.open(SHELL_CACHE);
-        return (await cache.match("/index.html")) || (await cache.match("/"));
+        return (await cache.match("/index.html")) || (await cache.match("/")) || (await cache.match("/offline.html"));
       }
     })());
     return;
@@ -178,11 +203,15 @@ self.addEventListener("fetch", (event) => {
       if (cached) {
         return cached;
       }
-      const response = await fetch(request);
-      if (response && response.ok) {
-        await cache.put(request, response.clone());
+      try {
+        const response = await fetch(request);
+        if (response && response.ok) {
+          await cache.put(request, response.clone());
+        }
+        return response;
+      } catch (error) {
+        return (await cache.match(url.pathname)) || (await cache.match("/index.html")) || Response.error();
       }
-      return response;
     })());
     return;
   }

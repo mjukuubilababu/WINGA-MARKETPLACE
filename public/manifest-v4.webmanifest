@@ -1,14 +1,15 @@
 {
-  "name": "Winga",
+  "name": "Winga Market",
   "short_name": "Winga",
   "description": "Connect. Shop. Grow.",
-  "start_url": "/",
+  "start_url": "/?source=pwa",
   "scope": "/",
   "display": "standalone",
   "display_override": ["standalone", "minimal-ui"],
-  "background_color": "#ff6a00",
+  "background_color": "#ffffff",
   "theme_color": "#ff6a00",
   "orientation": "portrait",
+  "prefer_related_applications": false,
   "icons": [
     {
       "src": "/winga-icon-512-v3.png",
