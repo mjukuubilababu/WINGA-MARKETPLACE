@@ -834,10 +834,10 @@
       const feedEntryType = String(product?.feedEntryType || (product?.feedVariantResurface ? "variant" : "product")).trim().toLowerCase();
       const stableProductId = String(product?.id || product?.productId || "").trim();
       const variantDisplayIndex = Number(product?.variantDisplayIndex ?? product?.visibleImageIndex ?? product?.feedInitialImageIndex ?? 0) || 0;
-      const feedEntryKey = String(product?.feedEntryKey || (feedEntryType === "variant"
-        ? `variant:${stableProductId}:${variantDisplayIndex}`
-        : `product:${stableProductId}`)).trim();
       const feedSequenceIndex = Number(product?.feedSequenceIndex || 0) || 0;
+      const feedEntryKey = String(product?.feedEntryKey || (feedEntryType === "variant"
+        ? `variant:${stableProductId}:${variantDisplayIndex}${feedSequenceIndex ? `:${feedSequenceIndex}` : ""}`
+        : `product:${stableProductId}${feedSequenceIndex ? `:${feedSequenceIndex}` : ""}`)).trim();
       const stableInitialImageIndex = feedEntryType === "variant" ? variantDisplayIndex : 0;
       const card = createElement("article", {
         className: "product-card",

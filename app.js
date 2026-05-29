@@ -15768,11 +15768,14 @@ function createContinuousDiscoveryAnchorElement() {
 
 function buildHomeFeedEntryKey(item, options = {}) {
   const productId = String(item?.id || item?.productId || "").trim();
+  const sequenceIndex = Number(options.sequenceIndex ?? item?.feedSequenceIndex ?? 0) || 0;
   if (item?.feedVariantResurface || item?.resurfacedVariant) {
     const variantDisplayIndex = Number(item?.variantDisplayIndex ?? item?.visibleImageIndex ?? item?.feedInitialImageIndex ?? 0) || 0;
-    return `variant:${productId}:${variantDisplayIndex}`;
+    return sequenceIndex > 0
+      ? `variant:${productId}:${variantDisplayIndex}:${sequenceIndex}`
+      : `variant:${productId}:${variantDisplayIndex}`;
   }
-  return `product:${productId}`;
+  return sequenceIndex > 0 ? `product:${productId}:${sequenceIndex}` : `product:${productId}`;
 }
 
 function hasRenderedFeedEntryKey(container, key) {
