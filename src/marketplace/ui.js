@@ -832,10 +832,13 @@
     function createProductCardElement(product, options = {}) {
       const startupPriority = options.startupPriority === true;
       const feedEntryType = String(product?.feedEntryType || (product?.feedVariantResurface ? "variant" : "product")).trim().toLowerCase();
+      const stableProductId = String(product?.id || product?.productId || "").trim();
+      const variantDisplayIndex = Number(product?.variantDisplayIndex ?? product?.visibleImageIndex ?? product?.feedInitialImageIndex ?? 0) || 0;
       const feedEntryKey = String(product?.feedEntryKey || (feedEntryType === "variant"
-        ? `${String(product?.id || "").trim()}-var-${Number(product?.visibleImageIndex ?? product?.feedInitialImageIndex ?? 0) || 0}-${Number(product?.feedSequenceIndex || 0) || 0}`
-        : `product:${String(product?.id || "").trim()}`)).trim();
+        ? `variant:${stableProductId}:${variantDisplayIndex}`
+        : `product:${stableProductId}`)).trim();
       const feedSequenceIndex = Number(product?.feedSequenceIndex || 0) || 0;
+      const stableInitialImageIndex = feedEntryType === "variant" ? variantDisplayIndex : 0;
       const card = createElement("article", {
         className: "product-card",
         attributes: {
@@ -844,7 +847,9 @@
           ...(feedEntryKey ? { "data-feed-entry-key": feedEntryKey } : {}),
           ...(feedEntryType ? { "data-feed-entry-type": feedEntryType } : {}),
           ...(feedSequenceIndex ? { "data-feed-sequence-index": String(feedSequenceIndex) } : {}),
-          ...(Number.isFinite(Number(product?.feedInitialImageIndex)) ? { "data-open-image-index": String(Number(product.feedInitialImageIndex) || 0) } : {}),
+          "data-open-image-index": String(stableInitialImageIndex),
+          "data-mounted-initial-image-index": String(stableInitialImageIndex),
+          ...(Number.isFinite(Number(product?.variantDisplayIndex)) ? { "data-variant-display-index": String(variantDisplayIndex) } : {}),
           ...(product?.feedVariantResurface ? { "data-feed-variant-card": "true" } : {}),
           ...(startupPriority ? { "data-startup-priority-card": "true" } : {}),
           "data-card-media-pending": "true"
@@ -861,16 +866,14 @@
       if (feedSequenceIndex) {
         card.dataset.feedSequenceIndex = String(feedSequenceIndex);
       }
-      if (Number.isFinite(Number(product?.feedInitialImageIndex))) {
-        card.dataset.openImageIndex = String(Number(product.feedInitialImageIndex) || 0);
+      card.dataset.openImageIndex = String(stableInitialImageIndex);
+      card.dataset.mountedInitialImageIndex = String(stableInitialImageIndex);
+      if (Number.isFinite(Number(product?.variantDisplayIndex))) {
+        card.dataset.variantDisplayIndex = String(variantDisplayIndex);
       }
       card.dataset.cardOpenBound = "false";
       if (product?.feedVariantResurface) {
         card.dataset.feedVariantCard = "true";
-        console.info("[WINGA] variant_card_render", {
-          productId: product.id,
-          initialImageIndex: Number(product.feedInitialImageIndex || 0) || 0
-        });
       }
       if (Array.isArray(product.images) && product.images.length > 1) {
         card.classList.add("has-gallery-count-badge");

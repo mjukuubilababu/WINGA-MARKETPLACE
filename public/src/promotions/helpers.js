@@ -41,6 +41,10 @@
     }
 
     function getPromotionPriority(type) {
+      if (type === "premium_14day") return 4;
+      if (type === "growth_7day") return 3;
+      if (type === "boost_3day") return 2;
+      if (type === "starter_day") return 1;
       if (type === "pin_top") return 4;
       if (type === "featured") return 3;
       if (type === "category_boost") return 2;
@@ -102,11 +106,11 @@
           + (durationDays * PROMOTION_SCORING.durationWeight)
           + ((1 - elapsedRatio) * PROMOTION_SCORING.earlyBurstWeight);
 
-        if (promotion.type === "featured") {
+        if (promotion.type === "featured" || promotion.type === "growth_7day") {
           score += PROMOTION_SCORING.featuredStabilityBonus;
         }
 
-        if (promotion.type === "pin_top") {
+        if (promotion.type === "pin_top" || promotion.type === "premium_14day") {
           score += (1 - elapsedRatio) * PROMOTION_SCORING.pinTopUrgencyBonus;
         }
 

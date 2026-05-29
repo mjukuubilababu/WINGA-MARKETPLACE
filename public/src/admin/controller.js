@@ -24,6 +24,8 @@
       error: "",
       values: null
     };
+    let promotionFilterState = "all";
+    let promotionSearchState = "";
 
     function mapStatusClass(status = "") {
       const normalized = String(status || "").toLowerCase();
@@ -1045,14 +1047,31 @@
         deps.createElement("strong", { textContent: `${deps.getPromotionLabel?.(promotion.type) || promotion.type} | ${promotion.productId}` }),
         createMetaCopy(`Muuzaji: ${promotion.sellerUsername || "-"}`),
         createMetaCopy(`Transaction: ${promotion.transactionReference || "-"}`),
+        createMetaCopy(`Amount: TSh ${deps.formatNumber ? deps.formatNumber(promotion.amountPaid || 0) : (promotion.amountPaid || 0)}`),
         deps.createStatusPill(promotion.status || "pending", mapStatusClass(promotion.status))
       );
-      if (deps.isAdminUser?.() && promotion.status !== "disabled" && promotion.status !== "expired") {
+      if (deps.isAdminUser?.()) {
         const actions = deps.createElement("div", { className: "moderation-actions" });
-        actions.appendChild(createActionButton("Disable Promotion", {
-          adminPromotionDisable: promotion.id
-        }));
-        card.appendChild(actions);
+        if (promotion.status === "pending") {
+          actions.append(
+            createActionButton("Approve Promotion", {
+              adminPromotionReview: promotion.id,
+              adminPromotionStatus: "active"
+            }),
+            createActionButton("Reject Promotion", {
+              adminPromotionReview: promotion.id,
+              adminPromotionStatus: "rejected"
+            }, "button action-btn action-btn-secondary")
+          );
+        }
+        if (promotion.status !== "disabled" && promotion.status !== "expired" && promotion.status !== "rejected") {
+          actions.appendChild(createActionButton("Disable Promotion", {
+            adminPromotionDisable: promotion.id
+          }));
+        }
+        if (actions.childNodes.length) {
+          card.appendChild(actions);
+        }
       }
       return card;
     }
@@ -1070,6 +1089,134 @@
         });
       }
       return createSection(title, meta, list);
+    }
+
+    function createPromotionSummaryStrip(promotions = []) {
+      const safePromotions = Array.isArray(promotions) ? promotions : [];
+      const counts = safePromotions.reduce((accumulator, promotion) => {
+        const status = String(promotion?.status || "pending").trim().toLowerCase() || "pending";
+        accumulator.total += 1;
+        accumulator[status] = (accumulator[status] || 0) + 1;
+        return accumulator;
+      }, {
+        total: 0,
+        pending: 0,
+        active: 0,
+        rejected: 0,
+        expired: 0,
+        disabled: 0
+      });
+
+      const strip = deps.createElement("div", { className: "analytics-list" });
+      [
+        `Total: ${counts.total}`,
+        `Pending: ${counts.pending}`,
+        `Active: ${counts.active}`,
+        `Rejected: ${counts.rejected}`,
+        `Expired: ${counts.expired}`,
+        `Disabled: ${counts.disabled}`
+      ].forEach((entry) => {
+        strip.appendChild(deps.createElement("div", {
+          className: "analytics-list-item",
+          textContent: entry
+        }));
+      });
+      return strip;
+    }
+
+    function getFilteredPromotions(promotions = []) {
+      const safePromotions = Array.isArray(promotions) ? promotions : [];
+      const normalizedQuery = String(promotionSearchState || "").trim().toLowerCase();
+      const statusPriority = {
+        pending: 0,
+        active: 1,
+        rejected: 2,
+        expired: 3,
+        disabled: 4
+      };
+      return safePromotions
+        .filter((promotion) => {
+          const matchesStatus = promotionFilterState === "all"
+            || String(promotion?.status || "").trim().toLowerCase() === promotionFilterState;
+          if (!matchesStatus) {
+            return false;
+          }
+          if (!normalizedQuery) {
+            return true;
+          }
+          const haystack = [
+            promotion?.productId,
+            promotion?.sellerUsername,
+            promotion?.transactionReference,
+            promotion?.type
+          ]
+            .map((value) => String(value || "").trim().toLowerCase())
+            .filter(Boolean)
+            .join(" ");
+          return haystack.includes(normalizedQuery);
+        })
+        .sort((first, second) => {
+          const firstStatus = String(first?.status || "").trim().toLowerCase() || "pending";
+          const secondStatus = String(second?.status || "").trim().toLowerCase() || "pending";
+          const firstPriority = Object.prototype.hasOwnProperty.call(statusPriority, firstStatus) ? statusPriority[firstStatus] : 99;
+          const secondPriority = Object.prototype.hasOwnProperty.call(statusPriority, secondStatus) ? statusPriority[secondStatus] : 99;
+          if (firstPriority !== secondPriority) {
+            return firstPriority - secondPriority;
+          }
+          return new Date(second?.updatedAt || second?.createdAt || 0).getTime()
+            - new Date(first?.updatedAt || first?.createdAt || 0).getTime();
+        });
+    }
+
+    function createPromotionFilterControl() {
+      const wrapper = deps.createElement("div", { className: "moderation-actions" });
+      const label = deps.createElement("label", {
+        className: "product-meta",
+        textContent: "Status filter"
+      });
+      const select = deps.createElement("select", {
+        attributes: {
+          "data-admin-promotion-filter": "true"
+        }
+      });
+      [
+        ["all", "All"],
+        ["pending", "Pending"],
+        ["active", "Active"],
+        ["rejected", "Rejected"],
+        ["expired", "Expired"],
+        ["disabled", "Disabled"]
+      ].forEach(([value, text]) => {
+        const option = deps.createElement("option", {
+          textContent: text,
+          attributes: { value }
+        });
+        if (promotionFilterState === value) {
+          option.selected = true;
+        }
+        select.appendChild(option);
+      });
+      wrapper.append(label, select);
+      return wrapper;
+    }
+
+    function createPromotionSearchControl() {
+      const wrapper = deps.createElement("div", { className: "moderation-actions" });
+      const label = deps.createElement("label", {
+        className: "product-meta",
+        textContent: "Search"
+      });
+      const input = deps.createElement("input", {
+        attributes: {
+          type: "search",
+          value: promotionSearchState || "",
+          placeholder: "Seller, product, or reference",
+          "data-admin-promotion-search": "true",
+          autocomplete: "off"
+        }
+      });
+      wrapper.append(label, input);
+      return wrapper;
     }
 
     function createSystemSettingsSection(settings) {
@@ -1205,12 +1352,18 @@
 
       if (deps.isAdminUser?.()) {
         const promotionsBody = deps.createElement("div", { className: "moderation-list" });
+        promotionsBody.appendChild(createPromotionSummaryStrip(state.promotions));
+        promotionsBody.appendChild(createPromotionFilterControl());
+        promotionsBody.appendChild(createPromotionSearchControl());
+        const visiblePromotions = getFilteredPromotions(state.promotions);
         if (state.loadErrors.promotions) {
           promotionsBody.appendChild(createLoadIssueState("Promotions data haikupatikana kwa sasa."));
         } else if (!state.promotions.length) {
           promotionsBody.appendChild(deps.createEmptyState("Hakuna promotions za kusimamia."));
+        } else if (!visiblePromotions.length) {
+          promotionsBody.appendChild(deps.createEmptyState("Hakuna promotions kwenye filter hiyo kwa sasa."));
         } else {
-          state.promotions.forEach((promotion) => promotionsBody.appendChild(createPromotionCard(promotion)));
+          visiblePromotions.forEach((promotion) => promotionsBody.appendChild(createPromotionCard(promotion)));
         }
         wrapper.appendChild(createSection("Promotions", "Admin-only promotion controls.", promotionsBody));
 
@@ -1417,6 +1570,33 @@
       deps.reportEvent?.("info", "admin_promotion_disabled", "Admin disabled a promotion.", {
         promotionId
       });
+      renderAdminView();
+    }
+
+    async function handlePromotionReview(button) {
+      const promotionId = button.dataset.adminPromotionReview || "";
+      const status = button.dataset.adminPromotionStatus || "";
+      if (!promotionId || !status) {
+        return;
+      }
+      if (status === "rejected" && deps.confirmAction && !deps.confirmAction("Una uhakika unataka kukataa promotion hii?")) {
+        return;
+      }
+      const result = await deps.dataLayer.reviewPromotion(promotionId, { status });
+      deps.showInAppNotification?.({
+        title: status === "active" ? "Promotion approved" : "Promotion rejected",
+        body: status === "active"
+          ? "Promotion imekubaliwa na sasa inaweza kuonekana kwenye discovery."
+          : "Promotion imekataliwa. Seller anaweza kutuma tena akiwa tayari.",
+        variant: "success"
+      });
+      deps.reportEvent?.("info", status === "active" ? "admin_promotion_approved" : "admin_promotion_rejected", "Admin reviewed a promotion.", {
+        promotionId,
+        status
+      });
+      if (result?.productId) {
+        deps.refreshProductsFromStore?.();
+      }
       renderAdminView();
     }
 
@@ -1797,6 +1977,42 @@
         });
       });
 
+      panel.querySelectorAll("[data-admin-promotion-review]").forEach((button) => {
+        button.addEventListener("click", async () => {
+          const scope = button.closest("[data-admin-promotion-card]");
+          toggleScopedBusyState(scope, true);
+          try {
+            await handlePromotionReview(button);
+          } catch (error) {
+            deps.captureError?.("admin_promotion_review_failed", error, {
+              promotionId: button.dataset.adminPromotionReview || "",
+              status: button.dataset.adminPromotionStatus || ""
+            });
+            deps.showInAppNotification?.({
+              title: "Promotion review failed",
+              body: error.message || "Imeshindikana kureview promotion.",
+              variant: "error"
+            });
+          } finally {
+            toggleScopedBusyState(scope, false);
+          }
+        });
+      });
+
+      panel.querySelectorAll("[data-admin-promotion-filter]").forEach((select) => {
+        select.addEventListener("change", () => {
+          promotionFilterState = String(select.value || "all").trim().toLowerCase() || "all";
+          renderAdminView();
+        });
+      });
+
+      panel.querySelectorAll("[data-admin-promotion-search]").forEach((input) => {
+        input.addEventListener("input", () => {
+          promotionSearchState = String(input.value || "").trim();
+          renderAdminView();
+        });
+      });
+
       panel.querySelectorAll("[data-admin-settings-save]").forEach((button) => {
         button.addEventListener("click", async () => {
           const scope = button.closest("[data-admin-settings-form]");
@@ -1911,12 +2127,18 @@
         await nextFrame();
 
         const promotionsBody = deps.createElement("div", { className: "moderation-list" });
+        promotionsBody.appendChild(createPromotionSummaryStrip(state.promotions));
+        promotionsBody.appendChild(createPromotionFilterControl());
+        promotionsBody.appendChild(createPromotionSearchControl());
+        const visiblePromotions = getFilteredPromotions(state.promotions);
         if (state.loadErrors.promotions) {
           promotionsBody.appendChild(createLoadIssueState("Promotions data haikupatikana kwa sasa."));
         } else if (!state.promotions.length) {
           promotionsBody.appendChild(deps.createEmptyState("Hakuna promotions za kusimamia."));
+        } else if (!visiblePromotions.length) {
+          promotionsBody.appendChild(deps.createEmptyState("Hakuna promotions kwenye filter hiyo kwa sasa."));
         } else {
-          await appendItemsInChunks(promotionsBody, state.promotions, (promotion) => createPromotionCard(promotion), 10);
+          await appendItemsInChunks(promotionsBody, visiblePromotions, (promotion) => createPromotionCard(promotion), 10);
         }
         wrapper.appendChild(createSection("Promotions", "Admin-only promotion controls.", promotionsBody));
         await nextFrame();

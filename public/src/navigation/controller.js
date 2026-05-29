@@ -205,7 +205,7 @@
           return;
         }
         const actionButton = event.target.closest(
-          "[data-buy-product], [data-request-product], [data-open-own-messages], [data-chat-product], [data-detail-repost], [data-open-product-whatsapp]"
+          "[data-buy-product], [data-request-product], [data-open-own-messages], [data-chat-product], [data-detail-repost], [data-open-product-whatsapp], [data-promote-product]"
         );
         if (!actionButton) {
           return;
@@ -287,6 +287,15 @@
             return;
           }
           deps.repostProductAsSeller?.(product);
+          return;
+        }
+
+        const promoteButton = event.target.closest("[data-promote-product]");
+        if (promoteButton) {
+          scheduleActiveActionTouchStateClear();
+          // Promote flow is owned by the dedicated button/app handlers.
+          // Let those handlers receive the click instead of swallowing it
+          // during navigation capture.
           return;
         }
 

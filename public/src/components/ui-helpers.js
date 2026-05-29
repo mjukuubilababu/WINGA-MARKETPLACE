@@ -126,7 +126,7 @@
 
   function shouldPrioritizeImageLoad(className = "", attributes = {}) {
     const hintSource = `${String(className || "")} ${String(attributes?.["data-image-priority"] || "")}`.toLowerCase();
-    return /(?:\bhero\b|\bshowcase\b|\bproduct-detail\b|\bprofile\b|\badmin\b|\bavatar\b)/.test(hintSource);
+    return /(?:\bhero\b|\bproduct-detail\b|\bprofile\b|\badmin\b|\bavatar\b|\bstartup-critical\b|\bfeed-primary\b)/.test(hintSource);
   }
 
   function createResponsiveImage({
@@ -195,6 +195,7 @@
     const effectiveFallbackSrc = fallbackSrc || resolvedSrc;
     const normalizedFitMode = String(fitMode || "").trim().toLowerCase() === "contain" ? "contain" : "cover";
     const shouldPreserveImageRatio = String(attributes?.["data-preserve-image-ratio"] || "").toLowerCase() === "true";
+    const shouldForceDirectVisibility = String(attributes?.["data-direct-visibility"] || "").toLowerCase() === "true";
     const shouldLoadEagerly = shouldPrioritizeImageLoad(className, attributes);
     const shell = createElement("span", {
       className: `progressive-image-shell fit-mode-${normalizedFitMode}`,
@@ -272,6 +273,9 @@
     fullImage.addEventListener("error", function handleProgressiveImageError() {
       shell.classList.add("is-loaded", "is-error");
     });
+    if (shouldForceDirectVisibility && !(fullImage.complete && Number(fullImage.naturalWidth || 0) > 0)) {
+      shell.classList.add("is-pending");
+    }
     if (fullImage.complete && Number(fullImage.naturalWidth || 0) > 0) {
       applyProgressiveImageState(fullImage);
     }

@@ -15731,12 +15731,40 @@ function createContinuousDiscoveryAnchorElement() {
 
 function buildHomeFeedEntryKey(item, options = {}) {
   const productId = String(item?.id || item?.productId || "").trim();
-  const sequenceIndex = Number(options.sequenceIndex ?? item?.feedSequenceIndex ?? 0) || 0;
   if (item?.feedVariantResurface || item?.resurfacedVariant) {
-    const visibleImageIndex = Number(item?.visibleImageIndex ?? item?.feedInitialImageIndex ?? 0) || 0;
-    return `${productId}-var-${visibleImageIndex}-${sequenceIndex}`;
+    const variantDisplayIndex = Number(item?.variantDisplayIndex ?? item?.visibleImageIndex ?? item?.feedInitialImageIndex ?? 0) || 0;
+    return `variant:${productId}:${variantDisplayIndex}`;
   }
   return `product:${productId}`;
+}
+
+function hasRenderedFeedEntryKey(container, key) {
+  const stableKey = String(key || "").trim();
+  if (!container || !stableKey || typeof container.querySelectorAll !== "function") {
+    return false;
+  }
+  return Array.from(container.querySelectorAll("[data-feed-entry-key]"))
+    .some((node) => String(node?.dataset?.feedEntryKey || "").trim() === stableKey);
+}
+
+function getSmartVariantIndex(feedPosition = 0, variantCount = 1) {
+  const safeVariantCount = Math.max(1, Number(variantCount || 1) || 1);
+  const safeFeedPosition = Math.max(0, Number(feedPosition || 0) || 0);
+  return safeFeedPosition % safeVariantCount;
+}
+
+function getProductVariantCount(product) {
+  const explicitCount = Number(product?.variantCount);
+  if (Number.isFinite(explicitCount) && explicitCount > 0) {
+    return Math.floor(explicitCount);
+  }
+  const variantArrayCount = Array.isArray(product?.variants)
+    ? product.variants.length
+    : (Array.isArray(product?.variations) ? product.variations.length : 0);
+  if (variantArrayCount > 0) {
+    return variantArrayCount;
+  }
+  return Math.max(1, getUniqueRenderableImageIndexes(product).length || 1);
 }
 
 function isVariantFeedEntry(item) {
@@ -15802,12 +15830,26 @@ function createContinuousDiscoveryStreamElements(descriptor, index, anchorKind =
     return [];
   }
   return descriptor.items.map((item, itemIndex) => {
-    const feedEntry = {
+    const feedPosition = (index * 100) + itemIndex;
+    const variantCount = getProductVariantCount(item);
+    const variantDisplayIndex = isVariantFeedEntry(item)
+      ? getSmartVariantIndex(feedPosition, variantCount)
+      : 0;
+    const stableFeedSequenceIndex = Number(item?.feedSequenceIndex ?? feedPosition + 1) || (feedPosition + 1);
+    const feedEntrySeed = {
       ...item,
       feedEntryType: item?.feedVariantResurface ? "variant" : "product",
-      feedSequenceIndex: Number(item?.feedSequenceIndex ?? (index * 100) + itemIndex + 1) || ((index * 100) + itemIndex + 1),
-      feedEntryKey: buildHomeFeedEntryKey(item, {
-        sequenceIndex: Number(item?.feedSequenceIndex ?? (index * 100) + itemIndex + 1) || ((index * 100) + itemIndex + 1)
+      feedSequenceIndex: stableFeedSequenceIndex,
+      variantCount,
+      variantDisplayIndex,
+      feedInitialImageIndex: variantDisplayIndex,
+      visibleImageIndex: variantDisplayIndex
+    };
+    const feedEntry = {
+      ...feedEntrySeed,
+      feedEntryKey: buildHomeFeedEntryKey(feedEntrySeed, {
+        sequenceIndex: stableFeedSequenceIndex,
+        variantDisplayIndex
       })
     };
     const card = createProductCardElement(feedEntry, {
@@ -16841,6 +16883,16 @@ async function hydrateContinuousDiscoveryAnchor(anchor) {
     scheduleContinuousDiscoveryReobserve(anchor);
     return;
   }
+  insertedNodes = insertedNodes.filter((node) => {
+    const entryKey = String(node?.dataset?.feedEntryKey || "").trim();
+    return !entryKey || !hasRenderedFeedEntryKey(productsContainer, entryKey);
+  });
+  if (!insertedNodes.length) {
+    homeContinuousDiscoveryRuntime.loading = false;
+    scheduleContinuousDiscoveryReobserve(anchor);
+    refreshHomeInfiniteScrollSentinels(productsContainer);
+    return;
+  }
 
   let continuationLeadCardCount = 2;
   if (descriptor.kind === "stream") {
@@ -17346,7 +17398,12 @@ function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
   const safeImages = getRenderableMarketplaceImages(product);
   const images = safeImages.length > 0 ? safeImages : [getImageFallbackDataUri("WINGA")];
   const total = images.length;
-  const requestedInitialIndex = Number(options?.initialImageIndex ?? product?.feedInitialImageIndex ?? product?.visibleImageIndex ?? 0);
+  const isVariantEntry = isVariantFeedEntry(product);
+  const requestedInitialIndex = Number(
+    options?.initialImageIndex
+    ?? (isVariantEntry ? (product?.variantDisplayIndex ?? product?.feedInitialImageIndex ?? product?.visibleImageIndex) : 0)
+    ?? 0
+  );
   const initialImageIndex = total > 1
     ? Math.max(0, Math.min(total - 1, Number.isFinite(requestedInitialIndex) ? requestedInitialIndex : 0))
     : 0;

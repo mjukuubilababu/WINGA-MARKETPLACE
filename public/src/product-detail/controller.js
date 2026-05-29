@@ -651,8 +651,15 @@
         restoreDetailScrollTop = 0,
         fromHistoryNavigation = false,
         historyDepth = 0,
-        allowBrokenImageFallbackOpen = false
+        allowBrokenImageFallbackOpen = false,
+        initialImageIndex = 0
       } = options;
+      if (Number(initialImageIndex || 0) > 0) {
+        console.info("[WINGA] variant_detail_open", {
+          productId: normalizedProductId,
+          initialImageIndex: Number(initialImageIndex || 0) || 0
+        });
+      }
 
       const renderableImages = typeof deps.getRenderableMarketplaceImages === "function"
         ? deps.getRenderableMarketplaceImages(product, {
@@ -770,7 +777,10 @@
       const images = renderableImages.length
         ? renderableImages
         : (Array.isArray(product.images) && product.images.length ? product.images : [product.image].filter(Boolean));
-      const mainImage = images[0] || deps.getImageFallbackDataUri("WINGA");
+      const safeInitialImageIndex = images.length > 1
+        ? Math.max(0, Math.min(images.length - 1, Number(initialImageIndex || 0) || 0))
+        : 0;
+      const mainImage = images[safeInitialImageIndex] || images[0] || deps.getImageFallbackDataUri("WINGA");
 
       content?.replaceChildren(deps.createProductDetailContentElement({
         product,
@@ -779,6 +789,7 @@
         continuationSections,
         enableContinuousDiscovery: true,
         mainImage,
+        initialImageIndex: safeInitialImageIndex,
         showFloatingHomeAction: detailNavState.detailDepth > 1,
         floatingHomeVariant: getFloatingHomeVariant(product),
         productReviewSummaryMarkup: deps.renderProductReviewSummary(product),

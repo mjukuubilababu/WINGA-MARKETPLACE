@@ -25,9 +25,9 @@
     const PASSIVE_VIEW_TRACK_BATCH_SIZE = 1;
     const PASSIVE_VIEW_TRACK_IDLE_DELAY_MS = 700;
     const FEED_GALLERY_IMAGE_LIMIT = 3;
-    const STARTUP_PRIORITY_CARD_COUNT = 12;
-    const INITIAL_SYNC_FEED_BATCH_SIZE = 14;
-    const BOOTSTRAP_SYNC_FEED_TARGET_COUNT = 28;
+    const STARTUP_PRIORITY_CARD_COUNT = 4;
+    const INITIAL_SYNC_FEED_BATCH_SIZE = 10;
+    const BOOTSTRAP_SYNC_FEED_TARGET_COUNT = 16;
     const DESKTOP_PACKING_IMAGE_TIMEOUT_MS = 1600;
     const desktopPackingDimensionCache = new Map();
     const desktopPackingProbeInflight = new Map();
@@ -35,8 +35,9 @@
       token: 0,
       timer: 0
     };
-    const FEED_RENDER_BATCH_SIZE = 8;
-    const FEED_RENDER_BATCH_DELAY_MS = 22;
+    const FEED_RENDER_BATCH_SIZE = 10;
+    const FEED_RENDER_BATCH_DELAY_MS = 12;
+    const MOBILE_HOME_INITIAL_FEED_LIMIT = 12;
 
     function cancelScheduledFeedRender() {
       scheduledFeedRenderState.token += 1;
@@ -295,7 +296,7 @@
       const surface = String(options.surface || "feed").trim().toLowerCase() || "feed";
       if (deps.renderFeedGalleryMarkup) {
         return createElementFromMarkup(deps.renderFeedGalleryMarkup(product, surface, {
-          priorityCount: startupPriority ? 3 : 1,
+          priorityCount: startupPriority ? 1 : 0,
           preload: startupPriority,
           directVisibility: options.directVisibility === true
         }));
@@ -377,6 +378,13 @@
       const sellerRow = createElement("div", { className: "product-seller-row" });
       const avatarWrap = createElement("div", { className: "product-seller-avatar" });
       const sellerUser = deps.getMarketplaceUser?.(product?.uploadedBy);
+      const productLiked = Boolean(deps.isProductSaved?.(product?.id));
+      const canFollowSeller = Boolean(
+        product?.uploadedBy
+        && product.uploadedBy !== deps.getCurrentUser?.()
+        && deps.canUseBuyerFeatures?.()
+      );
+      const canShareSeller = Boolean(product?.uploadedBy);
       const isOwnerSeller = Boolean(
         deps.canUseSellerFeatures?.()
         && deps.getCurrentUser?.()
@@ -394,37 +402,58 @@
       } else {
         avatarWrap.textContent = getSellerAvatarFallback(product);
       }
+      if (sellerUser?.verifiedSeller) {
+        avatarWrap.appendChild(createElement("span", {
+          className: "product-seller-avatar-verified-badge",
+          textContent: "✓",
+          attributes: {
+            "aria-label": "Verified seller",
+            title: "Verified seller"
+          }
+        }));
+      }
 
       const sellerCopy = createElement("div", { className: "product-seller-copy" });
       sellerCopy.append(
-        createElement("strong", { className: "product-seller-name", textContent: getProductSellerLabel(product) }),
-        createElement("span", {
-          className: "product-seller-meta",
-          textContent: `${product?.location || deps.getCategoryLabel(product?.category)}`
-        })
+        createElement("strong", { className: "product-seller-name", textContent: getProductSellerLabel(product) })
       );
 
-      const badgeRow = createElement("div", { className: "product-seller-badge-row" });
-      badgeRow.appendChild(createElement("span", {
-        className: "product-seller-badge",
-        textContent: sellerUser?.verifiedSeller ? "Verified" : "Seller"
-      }));
-      if (isOwnerSeller) {
-        const promotionStatusMeta = deps.getSellerPromotionStatusMeta?.(product);
-        if (promotionStatusMeta?.label) {
-          badgeRow.appendChild(createElement("span", {
-            className: `status-pill product-seller-promotion-state ${promotionStatusMeta.className || "pending"}`,
-            textContent: promotionStatusMeta.label
-          }));
-          if (promotionStatusMeta.detail) {
-            badgeRow.appendChild(createElement("span", {
-              className: "product-seller-promotion-detail",
-              textContent: promotionStatusMeta.detail
-            }));
-          }
+      const badgeRow = createElement("div", { className: "product-seller-badge-row product-seller-inline-actions" });
+      badgeRow.appendChild(createElement("button", {
+        className: `product-seller-inline-action product-seller-like-chip${productLiked ? " is-active" : ""}`,
+        textContent: productLiked ? "♥ Like" : "♡ Like",
+        attributes: {
+          type: "button",
+          "data-like-product": product.id || ""
         }
+      }));
+      if (canFollowSeller) {
+        const followButton = createElement("button", {
+          className: "product-seller-inline-action",
+          textContent: deps.isSellerFollowed?.(product.uploadedBy) ? "Following" : "Follow",
+          attributes: {
+            type: "button",
+            "data-follow-seller": product.uploadedBy || ""
+          }
+        });
+        if (deps.isSellerFollowed?.(product.uploadedBy)) {
+          followButton.classList.add("is-active");
+        }
+        badgeRow.appendChild(followButton);
+      }
+      if (canShareSeller) {
+        badgeRow.appendChild(createElement("button", {
+          className: "product-seller-inline-action",
+          textContent: "Share",
+          attributes: {
+            type: "button",
+            "data-share-seller-shop": product.uploadedBy || ""
+          }
+        }));
+      }
+      if (isOwnerSeller) {
         const promoteButton = createElement("button", {
-          className: "product-seller-promote-chip",
+          className: "product-seller-inline-action product-seller-promote-chip",
           textContent: "Promote",
           attributes: {
             type: "button",
@@ -452,12 +481,6 @@
 
       sellerRow.append(avatarWrap, sellerCopy, badgeRow);
       return sellerRow;
-    }
-
-    function createProductActionGroupElement(product) {
-      return deps.createElementFromMarkup(
-        deps.renderProductActionGroup(product, { requestLabel: "My Request" })
-      );
     }
 
     function createShowcasePreviewMediaElement(product) {
@@ -515,6 +538,59 @@
       return media;
     }
 
+    function isMobileShowcaseQueueViewport() {
+      return Boolean(window.matchMedia?.("(max-width: 780px)")?.matches);
+    }
+
+    function hasHealthyShowcaseMedia(scope) {
+      if (!(scope instanceof Element) && scope !== document) {
+        return false;
+      }
+      const images = Array.from(scope.querySelectorAll?.(".showcase-card .feed-gallery-image-social, .showcase-card .showcase-preview-image, .showcase-card img") || []);
+      return images.some((image) =>
+        Boolean(
+          image
+          && String(image.currentSrc || image.src || "").trim()
+          && (Number(image.naturalWidth || 0) > 0 || Number(image.clientWidth || 0) > 32)
+        )
+      );
+    }
+
+    function clearMobileShowcaseSectionPending(section) {
+      if (!(section instanceof Element)) {
+        return;
+      }
+      section.classList.remove("showcase-inline-pending");
+      section.removeAttribute("data-mobile-section-pending");
+      delete section.dataset.mobileSectionRevealScheduled;
+    }
+
+    function scheduleMobileShowcaseSectionReveal(section, options = {}) {
+      if (!isMobileShowcaseQueueViewport() || !(section instanceof Element)) {
+        clearMobileShowcaseSectionPending(section);
+        return;
+      }
+      if (section.dataset.mobileSectionRevealScheduled === "true") {
+        return;
+      }
+      section.dataset.mobileSectionRevealScheduled = "true";
+      const maxWaitMs = Math.max(0, Number(options.maxWaitMs || 1200));
+      const pollMs = Math.max(60, Number(options.pollMs || 120));
+      const startedAt = Date.now();
+      const attemptReveal = () => {
+        if (!section.isConnected) {
+          delete section.dataset.mobileSectionRevealScheduled;
+          return;
+        }
+        if (hasHealthyShowcaseMedia(section) || Date.now() - startedAt >= maxWaitMs) {
+          clearMobileShowcaseSectionPending(section);
+          return;
+        }
+        window.setTimeout(attemptReveal, pollMs);
+      };
+      attemptReveal();
+    }
+
     function repairShowcaseMediaVisibility(scope = document) {
       const isMobileViewport = window.matchMedia?.("(max-width: 780px)")?.matches;
       if (!isMobileViewport) {
@@ -555,12 +631,12 @@
             }
           }));
           media.dataset.showcaseMediaRepaired = "true";
-        }, 900);
+        }, isMobileShowcaseQueueViewport() ? 120 : 900);
       });
     }
 
     function stabilizeMobileShowcaseRows(scope = document) {
-      const isMobileViewport = window.matchMedia?.("(max-width: 780px)")?.matches;
+      const isMobileViewport = isMobileShowcaseQueueViewport();
       if (!isMobileViewport) {
         return;
       }
@@ -587,6 +663,7 @@
             );
           }).length;
           if (healthyCardCount > 0) {
+            clearMobileShowcaseSectionPending(row);
             return;
           }
           row.dataset.showcaseRowMediaPending = "true";
@@ -623,7 +700,11 @@
             cardCount: cards.length,
             source: row.getAttribute("data-recommendation-type") || row.getAttribute("data-continuous-discovery-kind") || "showcase_inline"
           });
-        }, 1400);
+          scheduleMobileShowcaseSectionReveal(row, {
+            maxWaitMs: 1400,
+            pollMs: 120
+          });
+        }, 180);
       });
     }
 
@@ -646,12 +727,25 @@
           || card.dataset.showcaseId
           || product?.id
           || "";
+        const initialImageIndex = Number(
+          openTrigger?.dataset?.openImageIndex
+          || card.dataset.openImageIndex
+          || product?.feedInitialImageIndex
+          || 0
+        ) || 0;
+        if (product?.feedVariantResurface) {
+          console.info("[WINGA] variant_card_click", {
+            productId,
+            initialImageIndex,
+            cardClass: card.className
+          });
+        }
         if (!productId) {
           return;
         }
         if (
           event.target.closest(
-            ".product-menu, .product-menu-popup, .product-menu-toggle, [data-menu-toggle], [data-menu-popup], [data-product-caption-toggle], [data-request-product], [data-chat-product], [data-open-own-messages], [data-open-product-whatsapp], [data-buy-product], [data-detail-repost], [data-promote-product], .product-actions, .showcase-actions, .seller-product-actions"
+            ".product-menu, .product-menu-popup, .product-menu-toggle, [data-menu-toggle], [data-menu-popup], [data-product-caption-toggle], [data-request-product], [data-chat-product], [data-open-own-messages], [data-open-product-whatsapp], [data-buy-product], [data-detail-repost], [data-promote-product], [data-follow-seller], [data-share-seller-shop], [data-like-product], .product-actions, .showcase-actions, .seller-product-actions, .product-seller-inline-actions"
           )
         ) {
           return;
@@ -667,12 +761,18 @@
             role: "buyer",
             title: "You need an account to continue",
             message: "Sign up or log in to open product details and other marketplace actions.",
-            intent: { type: "focus-product", productId }
+            intent: { type: "focus-product", productId, initialImageIndex }
           });
           return;
         }
 
-        deps.openProductDetailModal?.(productId);
+        if (product?.feedVariantResurface) {
+          console.info("[WINGA] variant_card_open_detail", {
+            productId,
+            initialImageIndex
+          });
+        }
+        deps.openProductDetailModal?.(productId, { initialImageIndex });
       });
     }
 
@@ -731,17 +831,50 @@
 
     function createProductCardElement(product, options = {}) {
       const startupPriority = options.startupPriority === true;
+      const feedEntryType = String(product?.feedEntryType || (product?.feedVariantResurface ? "variant" : "product")).trim().toLowerCase();
+      const stableProductId = String(product?.id || product?.productId || "").trim();
+      const variantDisplayIndex = Number(product?.variantDisplayIndex ?? product?.visibleImageIndex ?? product?.feedInitialImageIndex ?? 0) || 0;
+      const feedEntryKey = String(product?.feedEntryKey || (feedEntryType === "variant"
+        ? `variant:${stableProductId}:${variantDisplayIndex}`
+        : `product:${stableProductId}`)).trim();
+      const feedSequenceIndex = Number(product?.feedSequenceIndex || 0) || 0;
+      const stableInitialImageIndex = feedEntryType === "variant" ? variantDisplayIndex : 0;
       const card = createElement("article", {
         className: "product-card",
         attributes: {
           "data-product-card": product.id,
           "data-open-product": product.id,
-          ...(startupPriority ? { "data-startup-priority-card": "true" } : {})
+          ...(feedEntryKey ? { "data-feed-entry-key": feedEntryKey } : {}),
+          ...(feedEntryType ? { "data-feed-entry-type": feedEntryType } : {}),
+          ...(feedSequenceIndex ? { "data-feed-sequence-index": String(feedSequenceIndex) } : {}),
+          "data-open-image-index": String(stableInitialImageIndex),
+          "data-mounted-initial-image-index": String(stableInitialImageIndex),
+          ...(Number.isFinite(Number(product?.variantDisplayIndex)) ? { "data-variant-display-index": String(variantDisplayIndex) } : {}),
+          ...(product?.feedVariantResurface ? { "data-feed-variant-card": "true" } : {}),
+          ...(startupPriority ? { "data-startup-priority-card": "true" } : {}),
+          "data-card-media-pending": "true"
         }
       });
       card.dataset.productCard = product.id;
       card.dataset.openProduct = product.id;
+      if (feedEntryKey) {
+        card.dataset.feedEntryKey = feedEntryKey;
+      }
+      if (feedEntryType) {
+        card.dataset.feedEntryType = feedEntryType;
+      }
+      if (feedSequenceIndex) {
+        card.dataset.feedSequenceIndex = String(feedSequenceIndex);
+      }
+      card.dataset.openImageIndex = String(stableInitialImageIndex);
+      card.dataset.mountedInitialImageIndex = String(stableInitialImageIndex);
+      if (Number.isFinite(Number(product?.variantDisplayIndex))) {
+        card.dataset.variantDisplayIndex = String(variantDisplayIndex);
+      }
       card.dataset.cardOpenBound = "false";
+      if (product?.feedVariantResurface) {
+        card.dataset.feedVariantCard = "true";
+      }
       if (Array.isArray(product.images) && product.images.length > 1) {
         card.classList.add("has-gallery-count-badge");
       }
@@ -773,7 +906,11 @@
       if (promotionAnalyticsMarkup) {
         content.appendChild(createElementFromMarkup(promotionAnalyticsMarkup));
       }
-      content.appendChild(createProductActionGroupElement(product));
+      content.appendChild(
+        deps.createElementFromMarkup(
+          deps.renderProductActionGroup(product, { requestLabel: "My Request" })
+        )
+      );
       card.appendChild(content);
       bindCardOpenHandler(card, product);
 
@@ -881,6 +1018,10 @@
         className: "showcase-inline panel recommendation-strip intelligent-feed-section",
         attributes: { "data-recommendation-type": type }
       });
+      if (isMobileShowcaseQueueViewport()) {
+        section.classList.add("showcase-inline-pending");
+        section.setAttribute("data-mobile-section-pending", "true");
+      }
       const sectionHeading = deps.createSectionHeading({
         eyebrow: eyebrow || "For you",
         title: title || "Products picked for you",
@@ -901,6 +1042,10 @@
         className: "showcase-inline panel",
         attributes: { "data-inline-showcase-section": index }
       });
+      if (isMobileShowcaseQueueViewport()) {
+        section.classList.add("showcase-inline-pending");
+        section.setAttribute("data-mobile-section-pending", "true");
+      }
       const sectionHeading = deps.createSectionHeading({
         eyebrow: heading,
         title,
@@ -945,6 +1090,10 @@
         className: "showcase-inline panel recommendation-strip",
         attributes: { "data-recommendation-type": type }
       });
+      if (isMobileShowcaseQueueViewport()) {
+        section.classList.add("showcase-inline-pending");
+        section.setAttribute("data-mobile-section-pending", "true");
+      }
       const sectionHeading = deps.createSectionHeading({
         eyebrow: title,
         title: subtitle,
@@ -1076,6 +1225,22 @@
       deps.reportShowcaseInstrumentation(eventName, payload);
     }
 
+    function buildFeedRetentionSignature(list, options = {}) {
+      const safeList = Array.isArray(list) ? list : [];
+      const currentView = String(options.currentView || "").trim().toLowerCase() || "unknown";
+      const layoutMode = String(options.layoutMode || "").trim().toLowerCase() || "unknown";
+      const signatureIds = safeList
+        .slice(0, Math.min(safeList.length, 18))
+        .map((product) => String(product?.id || "").trim())
+        .filter(Boolean);
+      return [
+        currentView,
+        layoutMode,
+        String(safeList.length),
+        signatureIds.join("|")
+      ].join("::");
+    }
+
     function renderProducts(list) {
       const productsContainer = deps.getProductsContainer();
       cancelScheduledFeedRender();
@@ -1088,8 +1253,12 @@
       const shouldTrackViews = currentView !== "upload";
       const legacyShowcaseEnabled = false;
       const intelligentFeedEnabled = currentView === "home";
-      const shouldInjectInlineShowcases = intelligentFeedEnabled;
       const isMobileViewport = layoutMode === "mobile" || layoutMode === "standalone-mobile" || layoutMode === "mobile-desktop-site";
+      const shouldUseMobileEndlessHomeFeed = currentView === "home" && isMobileViewport;
+      const shouldInjectInlineShowcases = intelligentFeedEnabled && !shouldUseMobileEndlessHomeFeed;
+      const startupPriorityCardCount = isMobileViewport ? 4 : STARTUP_PRIORITY_CARD_COUNT;
+      const initialSyncBatchSize = isMobileViewport ? 10 : INITIAL_SYNC_FEED_BATCH_SIZE;
+      const bootstrapSyncFeedTargetCount = isMobileViewport ? 14 : BOOTSTRAP_SYNC_FEED_TARGET_COUNT;
       const productsPerRow = shouldInjectInlineShowcases ? (deps.getFeedLayoutColumns?.() || deps.getProductsPerRow()) : 0;
       const showcaseSpacing = isMobileViewport ? 8 : 10;
       const showcaseRepeatInterval = isMobileViewport ? 8 : 10;
@@ -1103,7 +1272,6 @@
       const passiveViewLimit = Math.max(4, (deps.getProductsPerRow?.() || 3));
       preloadMarketplaceImages(list);
       const renderToken = ++scheduledFeedRenderState.token;
-      productsContainer.replaceChildren();
       const legacySectionQueue = legacyShowcaseEnabled
         ? buildLegacyShowcaseQueue(list, usedShowcaseProductIds)
         : [];
@@ -1114,7 +1282,42 @@
       let intelligentSectionIndex = 0;
 
       const startRendering = (resolvedList) => {
-        const safeList = Array.isArray(resolvedList) ? resolvedList : list;
+        const sourceList = Array.isArray(resolvedList) ? resolvedList : list;
+        const safeList = shouldUseMobileEndlessHomeFeed
+          ? sourceList.slice(0, Math.min(MOBILE_HOME_INITIAL_FEED_LIMIT, sourceList.length))
+          : sourceList;
+        const retentionSignature = buildFeedRetentionSignature(safeList, {
+          currentView,
+          layoutMode
+        });
+        const hasExistingFeedSurface = Boolean(
+          productsContainer.querySelector(".product-card[data-open-product], .seller-product-card[data-open-product]")
+          || productsContainer.querySelector("[data-continuous-discovery-anchor='home']")
+        );
+        const canRetainExistingHomeFeed = currentView === "home"
+          && !isBootingHomeFeed
+          && hasExistingFeedSurface
+          && String(productsContainer.dataset.feedRetentionSignature || "").trim() === retentionSignature;
+        if (canRetainExistingHomeFeed) {
+          deps.prioritizeVisibleFeedMedia?.(productsContainer, startupPriorityCardCount);
+          deps.bindFeedGalleryInteractions?.(productsContainer);
+          deps.bindImageFallbacks?.(productsContainer);
+          deps.bindProductEngagementSignals?.(productsContainer);
+          deps.bindProductMenus?.(productsContainer);
+          return;
+        }
+        productsContainer.replaceChildren();
+        productsContainer.dataset.feedRetentionSignature = retentionSignature;
+        if (currentView === "home" && typeof deps.primeIncomingFeedItems === "function" && safeList.length > 0) {
+          deps.primeIncomingFeedItems(
+            safeList.slice(0, Math.min(safeList.length, startupPriorityCardCount + 6)),
+            {
+              reason: "home_initial_render_preprime",
+              productLimit: Math.min(safeList.length, startupPriorityCardCount + 6),
+              decodeLimit: Math.min(safeList.length, Math.max(startupPriorityCardCount + 2, 4))
+            }
+          );
+        }
 
       const appendShowcaseIfNeeded = (fragment, renderedCount) => {
         if (!shouldInjectInlineShowcases || renderedCount !== nextShowcaseInsertAt || renderedCount >= safeList.length) {
@@ -1212,8 +1415,17 @@
         deps.bindProductEngagementSignals?.(productsContainer);
         deps.bindProductMenus?.(productsContainer);
         if (intelligentFeedEnabled && currentView === "home" && safeList.length > 0 && deps.canUseContinuousDiscovery?.() && deps.setupContinuousDiscoveryLoading) {
+          if (shouldUseMobileEndlessHomeFeed && typeof deps.createContinuousDiscoveryAnchorElement === "function") {
+            const existingAnchor = productsContainer.querySelector("[data-continuous-discovery-anchor='home']");
+            if (!existingAnchor) {
+              productsContainer.appendChild(deps.createContinuousDiscoveryAnchorElement());
+            }
+          }
           const usedProductIds = new Set(safeList.map((product) => product.id));
           Array.from(productsContainer.querySelectorAll("[data-showcase-id], [data-open-product]")).forEach((element) => {
+            if (String(element?.dataset?.feedEntryType || "").trim().toLowerCase() === "variant") {
+              return;
+            }
             const productId = element.dataset.showcaseId || element.dataset.openProduct || "";
             if (productId) {
               usedProductIds.add(productId);
@@ -1221,7 +1433,8 @@
           });
           deps.setupContinuousDiscoveryLoading(productsContainer, {
             seedProduct: deps.getRecommendationSeed(list),
-            usedProductIds
+            usedProductIds,
+            initialProductIds: safeList.map((product) => product.id).filter(Boolean)
           });
         }
         if (viewedProductIds.length > 0) {
@@ -1236,8 +1449,8 @@
         const fragment = document.createDocumentFragment();
         const batchSize = startIndex === 0 && currentView === "home"
           ? (isBootingHomeFeed
-            ? Math.max(INITIAL_SYNC_FEED_BATCH_SIZE, Math.min(safeList.length, BOOTSTRAP_SYNC_FEED_TARGET_COUNT))
-            : INITIAL_SYNC_FEED_BATCH_SIZE)
+            ? Math.max(initialSyncBatchSize, Math.min(safeList.length, bootstrapSyncFeedTargetCount))
+            : initialSyncBatchSize)
           : FEED_RENDER_BATCH_SIZE;
         const endIndex = Math.min(safeList.length, startIndex + batchSize);
         for (let index = startIndex; index < endIndex; index += 1) {
@@ -1245,14 +1458,17 @@
           if (shouldTrackViews && index < passiveViewLimit && deps.trackView(product)) {
             viewedProductIds.push(product.id);
           }
+          const isBatchPriorityCard = shouldUseMobileEndlessHomeFeed
+            && startIndex > 0
+            && index < startIndex + 2;
           fragment.appendChild(createProductCardElement(product, {
-            startupPriority: currentView === "home" && index < STARTUP_PRIORITY_CARD_COUNT
+            startupPriority: currentView === "home" && (index < startupPriorityCardCount || isBatchPriorityCard)
           }));
           appendShowcaseIfNeeded(fragment, index + 1);
         }
         productsContainer.appendChild(fragment);
         if (startIndex === 0 && currentView === "home") {
-          deps.prioritizeVisibleFeedMedia?.(productsContainer, Math.min(STARTUP_PRIORITY_CARD_COUNT, endIndex));
+          deps.prioritizeVisibleFeedMedia?.(productsContainer, Math.min(startupPriorityCardCount, endIndex));
         }
         deps.afterFeedBatchRender?.({
           container: productsContainer,
@@ -1262,6 +1478,16 @@
           currentView
         });
         if (endIndex < safeList.length) {
+          if (currentView === "home" && typeof deps.primeIncomingFeedItems === "function") {
+            deps.primeIncomingFeedItems(
+              safeList.slice(endIndex, Math.min(safeList.length, endIndex + FEED_RENDER_BATCH_SIZE + 4)),
+              {
+                reason: `feed_batch_${endIndex}_preprime`,
+                productLimit: Math.min(FEED_RENDER_BATCH_SIZE + 4, Math.max(0, safeList.length - endIndex)),
+                decodeLimit: Math.min(6, Math.max(0, safeList.length - endIndex))
+              }
+            );
+          }
           deps.onFeedRenderBatch?.({
             container: productsContainer,
             renderedCount: endIndex,
@@ -1273,9 +1499,12 @@
             scheduledFeedRenderState.timer = 0;
             renderNextBatch(endIndex);
           };
+          const nextBatchDelayMs = shouldUseMobileEndlessHomeFeed
+            ? 0
+            : (isBootingHomeFeed && startIndex === 0 ? 0 : FEED_RENDER_BATCH_DELAY_MS);
           scheduledFeedRenderState.timer = window.setTimeout(
             scheduleNextBatch,
-            isBootingHomeFeed && startIndex === 0 ? 0 : FEED_RENDER_BATCH_DELAY_MS
+            nextBatchDelayMs
           );
           return;
         }
@@ -1308,6 +1537,7 @@
       cancelScheduledFeedRender,
       renderProducts,
       createProductCardElement,
+      createShowcaseProductCardElement,
       createProductCardStackElement,
       createProductGalleryElement,
       createDynamicShowcasePlaceholderElement,
