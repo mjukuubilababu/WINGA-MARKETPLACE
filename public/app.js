@@ -79,6 +79,13 @@ const HOME_CONTINUOUS_BATCH_ADMISSION_SLOW_SCROLL_WAIT_MS = 140;
 const HOME_CONTINUOUS_PENDING_MEDIA_LOOKBACK = 8;
 const HOME_CONTINUOUS_MAX_PENDING_MEDIA_CARDS = 2;
 const HOME_CONTINUOUS_PENDING_DESCRIPTOR_LIMIT = 6;
+const HOME_INFINITE_SENTINEL_FETCH_OFFSET = 5;
+const HOME_INFINITE_SENTINEL_PRELOAD_OFFSET = 3;
+const HOME_INFINITE_SENTINEL_INJECT_OFFSET = 1;
+const HOME_INFINITE_READY_PRELOAD_TIMEOUT_MS = 3000;
+const HOME_INFINITE_DOM_INJECT_CHUNK_SIZE = 3;
+const HOME_INFINITE_BACKEND_REFRESH_COOLDOWN_MS = 15000;
+const HOME_INFINITE_MAX_DOM_CARDS = 60;
 const PRODUCT_DETAIL_TRANSITION_PRELOAD_RADIUS = 2;
 const SLOW_PATH_TELEMETRY_LIMIT = 120;
 const PREDICTIVE_DECODE_TELEMETRY_LIMIT = 160;
@@ -3446,6 +3453,177 @@ function primeVariantInjectionImages(productsList = [], options = {}) {
       reason: String(options.reason || "variant_injection")
     });
   });
+}
+
+function collectInfiniteScrollImageUrls(items = []) {
+  const urls = [];
+  const seen = new Set();
+  const pushUrl = (value) => {
+    const safeSrc = sanitizeImageSource(value, "");
+    if (!safeSrc || seen.has(safeSrc)) {
+      return;
+    }
+    seen.add(safeSrc);
+    urls.push(safeSrc);
+  };
+  const pushNestedImages = (value, depth = 0) => {
+    if (!value || depth > 3) {
+      return;
+    }
+    if (typeof value === "string") {
+      pushUrl(value);
+      return;
+    }
+    if (Array.isArray(value)) {
+      value.forEach((entry) => pushNestedImages(entry, depth + 1));
+      return;
+    }
+    if (typeof value === "object") {
+      [
+        value.image,
+        value.imageUrl,
+        value.url,
+        value.src,
+        value.thumbnail,
+        value.thumbnailUrl,
+        value.preview,
+        value.previewImage,
+        value.previewImageUrl,
+        value.feed,
+        value.feedImage,
+        value.feedImageUrl
+      ].forEach(pushUrl);
+      ["images", "variants", "variations", "colors", "imageVariants"].forEach((key) => {
+        pushNestedImages(value[key], depth + 1);
+      });
+    }
+  };
+
+  (Array.isArray(items) ? items : []).forEach((product) => {
+    getProductImageCandidates(product).forEach(pushUrl);
+    getRenderableMarketplaceImages(product).forEach(pushUrl);
+    pushNestedImages(product?.variants);
+    pushNestedImages(product?.variations);
+    pushNestedImages(product?.imageVariants);
+  });
+  return urls;
+}
+
+function preloadInfiniteScrollImages(urls = [], options = {}) {
+  const safeUrls = Array.from(new Set((Array.isArray(urls) ? urls : [])
+    .map((url) => sanitizeImageSource(url, ""))
+    .filter(Boolean)));
+  const timeoutMs = Math.max(800, Number(options.timeoutMs || HOME_INFINITE_READY_PRELOAD_TIMEOUT_MS));
+  if (!safeUrls.length) {
+    return Promise.resolve([]);
+  }
+  const imagePromises = safeUrls.map((url) => new Promise((resolve) => {
+    if (/^data:/i.test(url)) {
+      resolve({ url, ok: true, cached: true });
+      return;
+    }
+    preloadImageSource(url, {
+      fetchPriority: options.fetchPriority || "auto",
+      decodeInMemory: false,
+      reason: options.reason || "infinite_scroll_preload"
+    });
+    const image = new Image();
+    let settled = false;
+    const finish = (ok) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      resolve({ url, ok });
+    };
+    image.onload = () => finish(true);
+    image.onerror = () => finish(false);
+    window.setTimeout(() => finish(false), timeoutMs);
+    image.src = url;
+  }));
+  const hardTimeout = new Promise((resolve) => {
+    window.setTimeout(() => resolve([]), timeoutMs);
+  });
+  return Promise.race([
+    Promise.allSettled(imagePromises),
+    hardTimeout
+  ]);
+}
+
+function prepareContinuousDescriptorMedia(descriptor, reason = "continuous_ready_queue") {
+  if (!descriptor || !Array.isArray(descriptor.items) || !descriptor.items.length) {
+    return Promise.resolve(false);
+  }
+  if (descriptor.mediaReady === true) {
+    return Promise.resolve(true);
+  }
+  if (descriptor.mediaReadyPromise) {
+    return descriptor.mediaReadyPromise;
+  }
+  const urls = collectInfiniteScrollImageUrls(descriptor.items);
+  descriptor.mediaReadyPromise = preloadInfiniteScrollImages(urls, {
+    reason,
+    fetchPriority: "auto",
+    timeoutMs: HOME_INFINITE_READY_PRELOAD_TIMEOUT_MS
+  }).then(() => {
+    descriptor.mediaReady = true;
+    descriptor.readyAt = Date.now();
+    return true;
+  }).catch(() => {
+    descriptor.mediaReady = true;
+    descriptor.readyAt = Date.now();
+    return false;
+  });
+  return descriptor.mediaReadyPromise;
+}
+
+function insertContinuousNodesInFrames(anchor, nodes = [], options = {}) {
+  const queue = Array.isArray(nodes) ? nodes.filter(Boolean) : [];
+  const chunkSize = Math.max(1, Number(options.chunkSize || HOME_INFINITE_DOM_INJECT_CHUNK_SIZE));
+  const onChunk = typeof options.onChunk === "function" ? options.onChunk : null;
+  return new Promise((resolve) => {
+    const injectNextChunk = () => {
+      if (!anchor?.isConnected || !queue.length) {
+        resolve();
+        return;
+      }
+      const chunk = queue.splice(0, chunkSize);
+      const fragment = document.createDocumentFragment();
+      chunk.forEach((node) => fragment.appendChild(node));
+      anchor.before(fragment);
+      onChunk?.(chunk);
+      if (!queue.length) {
+        resolve();
+        return;
+      }
+      window.requestAnimationFrame(injectNextChunk);
+    };
+    window.requestAnimationFrame(injectNextChunk);
+  });
+}
+
+function silentlyRefreshInfiniteFeedSource() {
+  const now = Date.now();
+  if (homeContinuousDiscoveryRuntime.backendRefreshPromise) {
+    return homeContinuousDiscoveryRuntime.backendRefreshPromise;
+  }
+  if (now - Number(homeContinuousDiscoveryRuntime.lastBackendRefreshAt || 0) < HOME_INFINITE_BACKEND_REFRESH_COOLDOWN_MS) {
+    return Promise.resolve(false);
+  }
+  if (typeof window.WingaDataLayer?.refreshProducts !== "function") {
+    return Promise.resolve(false);
+  }
+  homeContinuousDiscoveryRuntime.lastBackendRefreshAt = now;
+  homeContinuousDiscoveryRuntime.backendRefreshPromise = Promise.resolve(window.WingaDataLayer.refreshProducts())
+    .then(() => {
+      refreshProductsFromStore();
+      return true;
+    })
+    .catch(() => false)
+    .finally(() => {
+      homeContinuousDiscoveryRuntime.backendRefreshPromise = null;
+    });
+  return homeContinuousDiscoveryRuntime.backendRefreshPromise;
 }
 
 function collectProductDetailTransitionImages(product, initialImageIndex = 0) {
@@ -11361,6 +11539,9 @@ let recentMessagedProductIds = [];
 let sharedCollectionIntentEntries = [];
 let homeContinuousDiscoveryRuntime = {
   observer: null,
+  sentinelObserver: null,
+  virtualObserver: null,
+  sentinelTargets: [],
   batchIndex: 0,
   recentIds: [],
   usedIds: new Set(),
@@ -11376,7 +11557,14 @@ let homeContinuousDiscoveryRuntime = {
   lastEarlyLoadAt: 0,
   loading: false,
   seedProductId: "",
-  lastHydrateAt: 0
+  lastHydrateAt: 0,
+  readyQueue: [],
+  virtualList: [],
+  lastBackendRefreshAt: 0,
+  backendRefreshPromise: null,
+  lastSentinelFetchAt: 0,
+  lastSentinelPreloadAt: 0,
+  lastSentinelInjectAt: 0
 };
 const observability = createObservabilityModule({
   emitClientEvent: (payload) => window.WingaDataLayer?.logClientEvent?.(payload),
@@ -15532,19 +15720,12 @@ function prioritizeSellerMarketplaceMix(list) {
 
 function createContinuousDiscoveryAnchorElement() {
   const anchor = createElement("section", {
-    className: "continuous-discovery-anchor",
+    className: "continuous-discovery-anchor continuous-discovery-sentinel",
     attributes: {
-      "data-continuous-discovery-anchor": "home"
+      "data-continuous-discovery-anchor": "home",
+      "aria-hidden": "true"
     }
   });
-  anchor.append(
-    createElement("p", { className: "eyebrow", textContent: "Winga is loading more" }),
-    createElement("strong", { textContent: "More products are already lining up" }),
-    createElement("p", {
-      className: "product-meta",
-      textContent: "New arrivals come first, then more stylish marketplace picks follow behind them."
-    })
-  );
   return anchor;
 }
 
@@ -16240,11 +16421,20 @@ function disconnectContinuousDiscoveryObserver() {
   if (homeContinuousDiscoveryRuntime.observer) {
     homeContinuousDiscoveryRuntime.observer.disconnect();
   }
+  if (homeContinuousDiscoveryRuntime.sentinelObserver) {
+    homeContinuousDiscoveryRuntime.sentinelObserver.disconnect();
+  }
+  if (homeContinuousDiscoveryRuntime.virtualObserver) {
+    homeContinuousDiscoveryRuntime.virtualObserver.disconnect();
+  }
   if (homeContinuousDiscoveryRuntime.reobserveTimer) {
     window.clearTimeout(homeContinuousDiscoveryRuntime.reobserveTimer);
   }
   homeContinuousDiscoveryRuntime = {
     observer: null,
+    sentinelObserver: null,
+    virtualObserver: null,
+    sentinelTargets: [],
     batchIndex: 0,
     recentIds: [],
     usedIds: new Set(),
@@ -16260,7 +16450,14 @@ function disconnectContinuousDiscoveryObserver() {
     loading: false,
     seedProductId: "",
     reobserveTimer: 0,
-    lastHydrateAt: 0
+    lastHydrateAt: 0,
+    readyQueue: [],
+    virtualList: [],
+    lastBackendRefreshAt: 0,
+    backendRefreshPromise: null,
+    lastSentinelFetchAt: 0,
+    lastSentinelPreloadAt: 0,
+    lastSentinelInjectAt: 0
   };
 }
 
@@ -16413,6 +16610,7 @@ function prepareNextContinuousDiscoveryDescriptor() {
         reason: `continuous_discovery_variant_prepared_${homeContinuousDiscoveryRuntime.batchIndex}`
       });
     }
+    prepareContinuousDescriptorMedia(homeContinuousDiscoveryRuntime.preparedDescriptor, `sentinel_a_fetch_${homeContinuousDiscoveryRuntime.batchIndex}`);
     return homeContinuousDiscoveryRuntime.preparedDescriptor;
   } finally {
     homeContinuousDiscoveryRuntime.preparingDescriptor = false;
@@ -16620,6 +16818,11 @@ async function hydrateContinuousDiscoveryAnchor(anchor) {
       });
     }
   }
+  await prepareContinuousDescriptorMedia(descriptor, `continuous_discovery_batch_${batchIndex}_ready_queue`);
+  if (!anchor.isConnected || currentView !== "home") {
+    homeContinuousDiscoveryRuntime.loading = false;
+    return;
+  }
   let insertedNodes = [];
   if (descriptor.kind === "stream") {
     insertedNodes = createContinuousDiscoveryStreamElements(descriptor, batchIndex, "home");
@@ -16656,24 +16859,30 @@ async function hydrateContinuousDiscoveryAnchor(anchor) {
     });
   }
 
-  const fragment = document.createDocumentFragment();
-  insertedNodes.forEach((node) => fragment.appendChild(node));
-  anchor.before(fragment);
-  insertedNodes.forEach((node) => {
-    if (descriptor.kind !== "stream") {
-      enhanceShowcaseTracks(node);
-      repairShowcaseMediaVisibility?.(node);
-      stabilizeMobileShowcaseRows?.(node);
+  await insertContinuousNodesInFrames(anchor, insertedNodes, {
+    chunkSize: HOME_INFINITE_DOM_INJECT_CHUNK_SIZE,
+    onChunk: (chunk) => {
+      chunk.forEach((node) => {
+        if (descriptor.kind !== "stream") {
+          enhanceShowcaseTracks(node);
+          repairShowcaseMediaVisibility?.(node);
+          stabilizeMobileShowcaseRows?.(node);
+        }
+        if (descriptor.kind !== "stream") {
+          bindFeedGalleryInteractions(node);
+        }
+        bindProductEngagementSignals(node);
+        if (descriptor.kind !== "stream") {
+          bindImageFallbacks(node);
+        }
+        bindProductMenus(node);
+      });
     }
-    if (descriptor.kind !== "stream") {
-      bindFeedGalleryInteractions(node);
-    }
-    bindProductEngagementSignals(node);
-    if (descriptor.kind !== "stream") {
-      bindImageFallbacks(node);
-    }
-    bindProductMenus(node);
   });
+  if (!anchor.isConnected || currentView !== "home") {
+    homeContinuousDiscoveryRuntime.loading = false;
+    return;
+  }
   if (descriptor.kind === "stream") {
     prioritizeVisibleFeedMedia?.(productsContainer, Math.min(4, insertedNodes.length));
   }
@@ -16735,6 +16944,182 @@ async function hydrateContinuousDiscoveryAnchor(anchor) {
     }, 90);
   }
   scheduleContinuousDiscoveryReobserve(anchor);
+  refreshHomeInfiniteScrollSentinels(productsContainer);
+  maintainHomeInfiniteDomBudget();
+}
+
+function getHomeInfiniteSentinelCard(offsetFromEnd = 1) {
+  const cards = Array.from(
+    productsContainer?.querySelectorAll?.(".product-card[data-open-product], .seller-product-card[data-open-product]") || []
+  );
+  if (!cards.length) {
+    return null;
+  }
+  const index = Math.max(0, cards.length - Math.max(1, Number(offsetFromEnd || 1)));
+  return cards[index] || cards[cards.length - 1] || null;
+}
+
+function ensureHomeInfiniteSentinelObserver() {
+  if (typeof IntersectionObserver === "undefined") {
+    return null;
+  }
+  if (homeContinuousDiscoveryRuntime.sentinelObserver) {
+    return homeContinuousDiscoveryRuntime.sentinelObserver;
+  }
+  homeContinuousDiscoveryRuntime.sentinelObserver = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      if (!entry.isIntersecting || currentView !== "home") {
+        return;
+      }
+      if (homeContinuousDiscoveryRuntime.loading) {
+        return;
+      }
+      const stage = String(entry.target?.dataset?.homeInfiniteSentinel || "").trim();
+      const anchor = productsContainer?.querySelector?.("[data-continuous-discovery-anchor='home']");
+      if (!(anchor instanceof Element)) {
+        return;
+      }
+      homeContinuousDiscoveryRuntime.sentinelObserver?.unobserve?.(entry.target);
+      if (stage === "fetch") {
+        if (Date.now() - Number(homeContinuousDiscoveryRuntime.lastSentinelFetchAt || 0) < 900) {
+          return;
+        }
+        homeContinuousDiscoveryRuntime.lastSentinelFetchAt = Date.now();
+        silentlyRefreshInfiniteFeedSource();
+        prepareNextContinuousDiscoveryDescriptor();
+        return;
+      }
+      if (stage === "preload") {
+        if (Date.now() - Number(homeContinuousDiscoveryRuntime.lastSentinelPreloadAt || 0) < 700) {
+          return;
+        }
+        homeContinuousDiscoveryRuntime.lastSentinelPreloadAt = Date.now();
+        const descriptor = prepareNextContinuousDiscoveryDescriptor();
+        if (descriptor) {
+          prepareContinuousDescriptorMedia(descriptor, `sentinel_b_preload_${homeContinuousDiscoveryRuntime.batchIndex}`);
+        }
+        return;
+      }
+      if (stage === "inject") {
+        if (Date.now() - Number(homeContinuousDiscoveryRuntime.lastSentinelInjectAt || 0) < 1400) {
+          return;
+        }
+        homeContinuousDiscoveryRuntime.lastSentinelInjectAt = Date.now();
+        const descriptor = prepareNextContinuousDiscoveryDescriptor();
+        if (descriptor) {
+          prepareContinuousDescriptorMedia(descriptor, `sentinel_c_inject_${homeContinuousDiscoveryRuntime.batchIndex}`)
+            .finally(() => hydrateContinuousDiscoveryAnchor(anchor));
+          return;
+        }
+        hydrateContinuousDiscoveryAnchor(anchor);
+      }
+    });
+  }, {
+    rootMargin: "900px 0px 900px 0px",
+    threshold: 0.01
+  });
+  return homeContinuousDiscoveryRuntime.sentinelObserver;
+}
+
+function refreshHomeInfiniteScrollSentinels(scope = productsContainer) {
+  if (currentView !== "home" || !scope || typeof IntersectionObserver === "undefined") {
+    return;
+  }
+  const observer = ensureHomeInfiniteSentinelObserver();
+  if (!observer) {
+    return;
+  }
+  (homeContinuousDiscoveryRuntime.sentinelTargets || []).forEach((target) => {
+    observer.unobserve(target);
+    delete target.dataset.homeInfiniteSentinel;
+  });
+  const nextTargets = [];
+  [
+    ["fetch", HOME_INFINITE_SENTINEL_FETCH_OFFSET],
+    ["preload", HOME_INFINITE_SENTINEL_PRELOAD_OFFSET],
+    ["inject", HOME_INFINITE_SENTINEL_INJECT_OFFSET]
+  ].forEach(([stage, offset]) => {
+    const target = getHomeInfiniteSentinelCard(offset);
+    if (!(target instanceof Element) || nextTargets.includes(target)) {
+      return;
+    }
+    target.dataset.homeInfiniteSentinel = stage;
+    observer.observe(target);
+    nextTargets.push(target);
+  });
+  homeContinuousDiscoveryRuntime.sentinelTargets = nextTargets;
+}
+
+function ensureHomeInfiniteVirtualObserver() {
+  if (typeof IntersectionObserver === "undefined") {
+    return null;
+  }
+  if (homeContinuousDiscoveryRuntime.virtualObserver) {
+    return homeContinuousDiscoveryRuntime.virtualObserver;
+  }
+  homeContinuousDiscoveryRuntime.virtualObserver = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      if (!entry.isIntersecting) {
+        return;
+      }
+      const spacer = entry.target;
+      const virtualId = spacer?.dataset?.homeVirtualCardId || "";
+      const index = (homeContinuousDiscoveryRuntime.virtualList || []).findIndex((item) => item.id === virtualId);
+      if (index < 0) {
+        return;
+      }
+      const [record] = homeContinuousDiscoveryRuntime.virtualList.splice(index, 1);
+      homeContinuousDiscoveryRuntime.virtualObserver?.unobserve(spacer);
+      spacer.replaceWith(record.node);
+      bindMarketplaceScrollImages(record.node);
+      bindFeedGalleryInteractions(record.node);
+      bindProductEngagementSignals(record.node);
+      bindProductMenus(record.node);
+      refreshHomeInfiniteScrollSentinels(productsContainer);
+    });
+  }, {
+    rootMargin: "1400px 0px 1400px 0px",
+    threshold: 0.01
+  });
+  return homeContinuousDiscoveryRuntime.virtualObserver;
+}
+
+function maintainHomeInfiniteDomBudget() {
+  if (currentView !== "home" || !productsContainer) {
+    return;
+  }
+  const cards = Array.from(
+    productsContainer.querySelectorAll(".product-card[data-open-product], .seller-product-card[data-open-product]")
+  );
+  if (cards.length <= HOME_INFINITE_MAX_DOM_CARDS) {
+    return;
+  }
+  const excessCount = cards.length - HOME_INFINITE_MAX_DOM_CARDS;
+  const viewportHeight = window.innerHeight || document.documentElement?.clientHeight || 0;
+  const virtualObserver = ensureHomeInfiniteVirtualObserver();
+  cards.slice(0, excessCount).forEach((card) => {
+    if (!(card instanceof Element) || card.dataset.homeVirtualized === "true") {
+      return;
+    }
+    const rect = card.getBoundingClientRect();
+    if (rect.bottom > -viewportHeight * 2) {
+      return;
+    }
+    const virtualId = `home-virtual-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const spacer = document.createElement("div");
+    spacer.className = "home-virtual-card-spacer";
+    spacer.dataset.homeVirtualCardId = virtualId;
+    spacer.style.height = `${Math.max(1, Math.round(rect.height || card.offsetHeight || 1))}px`;
+    spacer.style.margin = "0";
+    card.dataset.homeVirtualized = "true";
+    homeContinuousDiscoveryRuntime.virtualList.push({
+      id: virtualId,
+      node: card,
+      createdAt: Date.now()
+    });
+    card.replaceWith(spacer);
+    virtualObserver?.observe(spacer);
+  });
 }
 
 function setupContinuousDiscoveryLoading(scope, options = {}) {
@@ -16759,6 +17144,14 @@ function setupContinuousDiscoveryLoading(scope, options = {}) {
   homeContinuousDiscoveryRuntime.preparedDescriptor = null;
   homeContinuousDiscoveryRuntime.preparedDescriptorBatchIndex = -1;
   homeContinuousDiscoveryRuntime.lastEarlyLoadAt = 0;
+  homeContinuousDiscoveryRuntime.readyQueue = [];
+  homeContinuousDiscoveryRuntime.virtualList = [];
+  homeContinuousDiscoveryRuntime.sentinelTargets = [];
+  homeContinuousDiscoveryRuntime.lastBackendRefreshAt = 0;
+  homeContinuousDiscoveryRuntime.backendRefreshPromise = null;
+  homeContinuousDiscoveryRuntime.lastSentinelFetchAt = 0;
+  homeContinuousDiscoveryRuntime.lastSentinelPreloadAt = 0;
+  homeContinuousDiscoveryRuntime.lastSentinelInjectAt = 0;
   bumpMarketplaceImagePrefetchGeneration("continuous_discovery_reset");
   const initialProductIds = Array.from(options.initialProductIds || []).filter(Boolean);
   homeContinuousDiscoveryRuntime.normalProductOrdinal = initialProductIds.length;
@@ -16801,6 +17194,7 @@ function setupContinuousDiscoveryLoading(scope, options = {}) {
     rootMargin: "1200px 0px 900px 0px"
   });
   homeContinuousDiscoveryRuntime.observer.observe(anchor);
+  refreshHomeInfiniteScrollSentinels(scope);
   scheduleIdleBackgroundWork(() => {
     prepareNextContinuousDiscoveryDescriptor();
   }, 80);
@@ -19945,6 +20339,16 @@ if (!uiRuntimeState.marketplaceImagePipelineLifecycleBound) {
 
   uiRuntimeState.marketplaceImagePipelineLifecycleBound = true;
 }
+
+window.setTimeout(() => {
+  const overlay = document.getElementById("boot-overlay");
+  if (
+    overlay
+    && (!overlay.classList.contains("is-hidden") || overlay.style.display !== "none")
+  ) {
+    forceHideBootOverlaySafety("global_boot_safety");
+  }
+}, BOOT_OVERLAY_HARD_SAFETY_TIMEOUT_MS);
 
 bootApp().catch((error) => {
   console.error("[WINGA] bootApp failed", error);

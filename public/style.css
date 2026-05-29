@@ -285,6 +285,23 @@ body.app-booting #admin-login-container{
   pointer-events:none;
 }
 
+.continuous-discovery-sentinel{
+  width:100%;
+  min-height:1px;
+  height:1px;
+  margin:0;
+  padding:0;
+  overflow:hidden;
+  opacity:0;
+  pointer-events:none;
+}
+
+.home-virtual-card-spacer{
+  width:100%;
+  flex:0 0 auto;
+  pointer-events:none;
+}
+
 .boot-overlay-mark{
   display:flex;
   align-items:center;
