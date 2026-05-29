@@ -25,6 +25,121 @@
   border:0;
 }
 
+.boot-overlay{
+  position:fixed;
+  inset:0;
+  z-index:9999;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:24px;
+  background:
+    radial-gradient(circle at 22% 18%, rgba(255, 255, 255, 0.38), transparent 28%),
+    linear-gradient(135deg, #ff7a1a 0%, #ff6a00 48%, #d94f00 100%);
+  color:#ffffff;
+  opacity:1;
+  visibility:visible;
+  pointer-events:auto;
+  transition:opacity 220ms ease, visibility 220ms ease;
+}
+
+.boot-overlay.is-hidden{
+  opacity:0;
+  visibility:hidden;
+  pointer-events:none;
+}
+
+.boot-overlay-card{
+  width:min(360px, 86vw);
+  min-height:210px;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:22px;
+  padding:32px 28px;
+  border:1px solid rgba(255, 255, 255, 0.28);
+  border-radius:30px;
+  background:rgba(255, 255, 255, 0.14);
+  box-shadow:0 28px 70px rgba(99, 38, 0, 0.26);
+  backdrop-filter:blur(18px);
+  -webkit-backdrop-filter:blur(18px);
+  text-align:center;
+}
+
+.boot-overlay-mark{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:14px;
+}
+
+.boot-overlay-badge{
+  width:58px;
+  height:58px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  border-radius:20px;
+  background:#ffffff;
+  color:#ff6a00;
+  font-size:2rem;
+  font-weight:900;
+  letter-spacing:-0.04em;
+  box-shadow:0 16px 34px rgba(97, 35, 0, 0.22);
+}
+
+.boot-overlay-mark strong{
+  display:block;
+  font-size:2rem;
+  line-height:1;
+  letter-spacing:0.02em;
+}
+
+.boot-overlay-mark span:not(.boot-overlay-badge),
+.boot-overlay-copy p{
+  color:rgba(255, 255, 255, 0.86);
+  font-weight:700;
+}
+
+.boot-overlay-copy{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:12px;
+}
+
+.boot-overlay-copy p{
+  min-height:1.2em;
+  margin:0;
+  font-size:0.95rem;
+}
+
+.boot-overlay-spinner{
+  width:34px;
+  height:34px;
+  border-radius:50%;
+  border:3px solid rgba(255, 255, 255, 0.38);
+  border-top-color:#ffffff;
+  animation:bootOverlaySpin 0.82s linear infinite;
+}
+
+@keyframes bootOverlaySpin{
+  to{
+    transform:rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce){
+  .boot-overlay{
+    transition:none;
+  }
+
+  .boot-overlay-spinner{
+    animation:none;
+  }
+}
+
 @media (max-width:360px){
   .product-actions-simple{
     gap:3px;
@@ -270,13 +385,33 @@ body.app-booting #admin-login-container{
   display:flex;
   align-items:center;
   justify-content:center;
+  padding:24px;
   background:
-    radial-gradient(circle at top, rgba(255,255,255,0.94), rgba(255,255,255,0.82) 42%, rgba(255,255,255,0.98) 100%);
-  transition:none;
+    radial-gradient(circle at 22% 18%, rgba(255,255,255,0.38), transparent 28%),
+    linear-gradient(135deg, #ff7a1a 0%, #ff6a00 48%, #d94f00 100%);
+  color:#fff;
+  opacity:1;
+  visibility:visible;
+  pointer-events:auto;
+  transition:opacity 220ms ease, visibility 220ms ease;
 }
 
 .boot-overlay-card{
-  display:none;
+  width:min(360px, 86vw);
+  min-height:210px;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:22px;
+  padding:32px 28px;
+  border:1px solid rgba(255,255,255,0.28);
+  border-radius:30px;
+  background:rgba(255,255,255,0.14);
+  box-shadow:0 28px 70px rgba(99,38,0,0.26);
+  backdrop-filter:blur(18px);
+  -webkit-backdrop-filter:blur(18px);
+  text-align:center;
 }
 
 .boot-overlay.is-hidden{
@@ -305,6 +440,7 @@ body.app-booting #admin-login-container{
 .boot-overlay-mark{
   display:flex;
   align-items:center;
+  justify-content:center;
   gap:14px;
 }
 
@@ -315,8 +451,8 @@ body.app-booting #admin-login-container{
   display:inline-flex;
   align-items:center;
   justify-content:center;
-  background:linear-gradient(135deg, #ff8a1f, #ff5f00);
-  color:#fff;
+  background:#fff;
+  color:#ff6a00;
   font-size:1.9rem;
   font-weight:800;
   box-shadow:0 12px 28px rgba(255,106,0,0.28);
@@ -324,15 +460,16 @@ body.app-booting #admin-login-container{
 
 .boot-overlay-mark strong{
   display:block;
-  font-size:1.25rem;
-  letter-spacing:0.08em;
-  color:var(--text);
+  font-size:2rem;
+  line-height:1;
+  letter-spacing:0.02em;
+  color:#fff;
 }
 
-.boot-overlay-mark span{
+.boot-overlay-mark span:not(.boot-overlay-badge){
   display:block;
   font-size:.84rem;
-  color:var(--text-muted);
+  color:rgba(255,255,255,0.86);
   text-transform:uppercase;
   letter-spacing:0.12em;
 }
@@ -342,21 +479,22 @@ body.app-booting #admin-login-container{
   flex-direction:column;
   align-items:center;
   gap:10px;
-  color:var(--text);
+  color:#fff;
 }
 
 .boot-overlay-copy p{
   margin:0;
   font-size:1rem;
   font-weight:600;
+  color:rgba(255,255,255,0.86);
 }
 
 .boot-overlay-spinner{
   width:42px;
   height:42px;
   border-radius:50%;
-  border:4px solid rgba(255,106,0,0.14);
-  border-top-color:#ff6a00;
+  border:4px solid rgba(255,255,255,0.34);
+  border-top-color:#fff;
   animation:boot-spin 0.85s linear infinite;
 }
 
