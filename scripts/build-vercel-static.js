@@ -96,6 +96,8 @@ const bundledModuleSources = [
   "src/product-detail/controller.js"
 ];
 
+const criticalBootCss = `body.app-booting{margin:0;overflow:hidden;background:#ff6a00}#boot-overlay.boot-overlay{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;padding:24px;background:radial-gradient(circle at 22% 18%,rgba(255,255,255,.38),transparent 28%),linear-gradient(135deg,#ff7a1a 0%,#ff6a00 48%,#d94f00 100%);color:#fff;opacity:1;visibility:visible;pointer-events:auto}#boot-overlay.boot-overlay.is-hidden{opacity:0;visibility:hidden;pointer-events:none}#boot-overlay .boot-overlay-card{width:min(360px,86vw);min-height:210px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;padding:32px 28px;border:1px solid rgba(255,255,255,.28);border-radius:30px;background:rgba(255,255,255,.14);box-shadow:0 28px 70px rgba(99,38,0,.26);text-align:center}#boot-overlay .boot-overlay-mark{display:flex;align-items:center;justify-content:center;gap:14px}#boot-overlay .boot-overlay-badge{width:58px;height:58px;display:inline-flex;align-items:center;justify-content:center;border-radius:20px;background:#fff;color:#ff6a00;font-size:2rem;font-weight:900}#boot-overlay .boot-overlay-mark strong{display:block;font-size:2rem;line-height:1;letter-spacing:.02em}#boot-overlay .boot-overlay-mark span:not(.boot-overlay-badge),#boot-overlay .boot-overlay-copy p{color:rgba(255,255,255,.86);font-weight:700}#boot-overlay .boot-overlay-copy{display:flex;flex-direction:column;align-items:center;gap:12px}#boot-overlay .boot-overlay-copy p{min-height:1.2em;margin:0;font-size:.95rem}#boot-overlay .boot-overlay-spinner{width:34px;height:34px;border-radius:50%;border:3px solid rgba(255,255,255,.38);border-top-color:#fff;animation:wingaCriticalBootSpin .82s linear infinite}@keyframes wingaCriticalBootSpin{to{transform:rotate(360deg)}}@media (prefers-reduced-motion:reduce){#boot-overlay .boot-overlay-spinner{animation:none}}`;
+
 const forbiddenDistEntries = [
   "backend",
   "tests",
@@ -485,7 +487,10 @@ function copyFileIntoDist(sourceRelativePath, targetRelativePath) {
 function applyAssetVersionToHtml(targetPath) {
   const source = fs.readFileSync(targetPath, "utf8");
   assertHtmlLooksValid(source, targetPath);
-  const next = source.replace(
+  const sourceWithCriticalBootCss = source.includes('id="winga-critical-boot"')
+    ? source
+    : source.replace(/<head>/i, `<head><style id="winga-critical-boot">${criticalBootCss}</style>`);
+  const next = sourceWithCriticalBootCss.replace(
     /(href|src)="((?:\.\/|\/)?(?:style\.css|winga-config\.js|mock-data\.js|data-service\.js|app-core\.js|winga-modules\.js|app\.js|src\/[^"]+\.js))(?:\?[^"]*)?"/g,
     (_, attribute, assetPath) => `${attribute}="${assetPath}?v=${assetVersion}"`
   );

@@ -6880,7 +6880,7 @@ function waitForStartupSplashFeedImages(options = {}) {
   const hardTimeout = new Promise((resolve) => {
     window.setTimeout(() => {
       const readyCount = images.filter(isFeedImageReadyForSplash).length;
-      reportClientEvent("warn", "splash_feed_image_gate_timeout", "Splash feed image gate force-resolved to avoid blocking mobile startup.", {
+      reportClientEvent("info", "splash_feed_image_gate_timeout", "Splash feed image gate force-resolved to avoid blocking mobile startup.", {
         category: "image",
         readyCount,
         requiredCount: Math.min(requiredCount, images.length),
