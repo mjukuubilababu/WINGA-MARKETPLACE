@@ -69,8 +69,8 @@ const MARKETPLACE_SCROLL_PREFETCH_CONCURRENCY = 4;
 const MARKETPLACE_SCROLL_PREFETCH_TIMEOUT_MS = 12000;
 const MARKETPLACE_SCROLL_PREFETCH_MAX_QUEUE = 48;
 const MARKETPLACE_VIEWPORT_IMAGE_SWEEP_LIMIT = 18;
-const HOME_CONTINUOUS_EARLY_LOAD_RATIO = 0.65;
-const HOME_CONTINUOUS_EARLY_LOAD_COOLDOWN_MS = 180;
+const HOME_CONTINUOUS_EARLY_LOAD_RATIO = 0.55;
+const HOME_CONTINUOUS_EARLY_LOAD_COOLDOWN_MS = 120;
 const FEED_MEMORY_MAINTENANCE_INTERVAL_MS = 5000;
 const CONTINUATION_MEDIA_REVEAL_MAX_WAIT_MS = 280;
 const CONTINUATION_MEDIA_REVEAL_POLL_MS = 50;
@@ -79,9 +79,12 @@ const HOME_CONTINUOUS_BATCH_ADMISSION_SLOW_SCROLL_WAIT_MS = 140;
 const HOME_CONTINUOUS_PENDING_MEDIA_LOOKBACK = 8;
 const HOME_CONTINUOUS_MAX_PENDING_MEDIA_CARDS = 2;
 const HOME_CONTINUOUS_PENDING_DESCRIPTOR_LIMIT = 6;
-const HOME_INFINITE_SENTINEL_FETCH_OFFSET = 5;
-const HOME_INFINITE_SENTINEL_PRELOAD_OFFSET = 3;
-const HOME_INFINITE_SENTINEL_INJECT_OFFSET = 1;
+const HOME_INFINITE_SENTINEL_FETCH_OFFSET = 12;
+const HOME_INFINITE_SENTINEL_PRELOAD_OFFSET = 5;
+const HOME_INFINITE_SENTINEL_INJECT_OFFSET = 2;
+const HOME_INFINITE_SENTINEL_FETCH_COOLDOWN_MS = 240;
+const HOME_INFINITE_SENTINEL_PRELOAD_COOLDOWN_MS = 160;
+const HOME_INFINITE_SENTINEL_INJECT_COOLDOWN_MS = 220;
 const HOME_INFINITE_READY_PRELOAD_TIMEOUT_MS = 3000;
 const HOME_INFINITE_DOM_INJECT_CHUNK_SIZE = 3;
 const HOME_INFINITE_BACKEND_REFRESH_COOLDOWN_MS = 15000;
@@ -10405,8 +10408,8 @@ const BROKEN_IMAGE_FAILURE_THRESHOLD = 2;
 const BROKEN_IMAGE_SUPPRESS_MS = 5 * 60 * 1000;
 const MAX_ACTIVE_HOME_CONTINUOUS_SECTIONS = 2;
 const MAX_HOME_CONTINUOUS_USED_IDS = 96;
-const HOME_CONTINUOUS_DISCOVERY_MIN_INTERVAL_MS = 220;
-const HOME_CONTINUOUS_DISCOVERY_REOBSERVE_DELAY_MS = 120;
+const HOME_CONTINUOUS_DISCOVERY_MIN_INTERVAL_MS = 80;
+const HOME_CONTINUOUS_DISCOVERY_REOBSERVE_DELAY_MS = 60;
 const MARKETPLACE_SCROLL_IMAGE_PLACEHOLDER = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
 let marketplaceScrollImageObserver = null;
 
@@ -16705,40 +16708,40 @@ function isAnchorWithinBackgroundContinuationBand(anchor) {
   }
   const viewportHeight = window.innerHeight || document.documentElement?.clientHeight || 0;
   const rect = anchor.getBoundingClientRect();
-  return rect.top <= viewportHeight * 2.25;
+  return rect.top <= viewportHeight * 3.25;
 }
 
 function getAdaptiveContinuousEarlyLoadRatio() {
   const scrollSpeed = Number(feedRuntimeState.lastScrollSpeed || 0);
   if (scrollSpeed <= 0.18) {
-    return 0.58;
+    return 0.46;
   }
   if (scrollSpeed <= FEED_SCROLL_SPEED_PREFETCH_THRESHOLD) {
     return HOME_CONTINUOUS_EARLY_LOAD_RATIO;
   }
-  return 0.74;
+  return 0.62;
 }
 
 function getAdaptiveContinuousEarlyLoadCooldownMs() {
   const scrollSpeed = Number(feedRuntimeState.lastScrollSpeed || 0);
   if (scrollSpeed <= 0.18) {
-    return 140;
+    return 80;
   }
   if (scrollSpeed <= FEED_SCROLL_SPEED_PREFETCH_THRESHOLD) {
     return HOME_CONTINUOUS_EARLY_LOAD_COOLDOWN_MS;
   }
-  return 260;
+  return 160;
 }
 
 function getAdaptiveBackgroundContinuationDelayMs() {
   const scrollSpeed = Number(feedRuntimeState.lastScrollSpeed || 0);
   if (scrollSpeed <= 0.18) {
-    return 24;
+    return 8;
   }
   if (scrollSpeed <= FEED_SCROLL_SPEED_PREFETCH_THRESHOLD) {
-    return 60;
+    return 24;
   }
-  return 90;
+  return 40;
 }
 
 function getAdaptiveContinuousReobserveDelayMs() {
@@ -17021,7 +17024,7 @@ async function hydrateContinuousDiscoveryAnchor(anchor) {
   homeContinuousDiscoveryRuntime.loading = false;
   scheduleIdleBackgroundWork(() => {
     prepareNextContinuousDiscoveryDescriptor();
-  }, 120);
+  }, 24);
   if (isAnchorWithinBackgroundContinuationBand(anchor)) {
     scheduleIdleBackgroundWork(() => {
       if (
@@ -17033,7 +17036,7 @@ async function hydrateContinuousDiscoveryAnchor(anchor) {
       ) {
         hydrateContinuousDiscoveryAnchor(anchor);
       }
-    }, 90);
+    }, 24);
   }
   scheduleContinuousDiscoveryReobserve(anchor);
   refreshHomeInfiniteScrollSentinels(productsContainer);
@@ -17073,7 +17076,7 @@ function ensureHomeInfiniteSentinelObserver() {
       }
       homeContinuousDiscoveryRuntime.sentinelObserver?.unobserve?.(entry.target);
       if (stage === "fetch") {
-        if (Date.now() - Number(homeContinuousDiscoveryRuntime.lastSentinelFetchAt || 0) < 900) {
+        if (Date.now() - Number(homeContinuousDiscoveryRuntime.lastSentinelFetchAt || 0) < HOME_INFINITE_SENTINEL_FETCH_COOLDOWN_MS) {
           return;
         }
         homeContinuousDiscoveryRuntime.lastSentinelFetchAt = Date.now();
@@ -17082,7 +17085,7 @@ function ensureHomeInfiniteSentinelObserver() {
         return;
       }
       if (stage === "preload") {
-        if (Date.now() - Number(homeContinuousDiscoveryRuntime.lastSentinelPreloadAt || 0) < 700) {
+        if (Date.now() - Number(homeContinuousDiscoveryRuntime.lastSentinelPreloadAt || 0) < HOME_INFINITE_SENTINEL_PRELOAD_COOLDOWN_MS) {
           return;
         }
         homeContinuousDiscoveryRuntime.lastSentinelPreloadAt = Date.now();
@@ -17093,7 +17096,7 @@ function ensureHomeInfiniteSentinelObserver() {
         return;
       }
       if (stage === "inject") {
-        if (Date.now() - Number(homeContinuousDiscoveryRuntime.lastSentinelInjectAt || 0) < 1400) {
+        if (Date.now() - Number(homeContinuousDiscoveryRuntime.lastSentinelInjectAt || 0) < HOME_INFINITE_SENTINEL_INJECT_COOLDOWN_MS) {
           return;
         }
         homeContinuousDiscoveryRuntime.lastSentinelInjectAt = Date.now();
@@ -17107,7 +17110,7 @@ function ensureHomeInfiniteSentinelObserver() {
       }
     });
   }, {
-    rootMargin: "900px 0px 900px 0px",
+    rootMargin: "1600px 0px 1600px 0px",
     threshold: 0.01
   });
   return homeContinuousDiscoveryRuntime.sentinelObserver;
