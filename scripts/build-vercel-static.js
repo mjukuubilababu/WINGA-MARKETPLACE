@@ -473,6 +473,31 @@ function assertHtmlLooksValid(contents, targetPath) {
   }
 }
 
+function moveBootScriptsToBodyEnd(html) {
+  const bootScriptPattern = /\s*<script defer src="((?:\.\/|\/)?(?:winga-config\.js|mock-data\.js|data-service\.js|app-core\.js|winga-modules\.js|app\.js|src\/[^"]+\.js))(?:\?[^"]*)?"><\/script>/g;
+  const scripts = [];
+  const withoutBootScripts = html.replace(bootScriptPattern, (scriptTag) => {
+    scripts.push(scriptTag.trim());
+    return "";
+  });
+
+  if (!scripts.length) {
+    return html;
+  }
+
+  const seen = new Set();
+  const orderedScripts = scripts.filter((scriptTag) => {
+    const src = scriptTag.match(/src="([^"]+)"/)?.[1]?.replace(/\?.*$/, "") || scriptTag;
+    if (seen.has(src)) {
+      return false;
+    }
+    seen.add(src);
+    return true;
+  });
+
+  return withoutBootScripts.replace(/\s*<\/body>/i, ` ${orderedScripts.join(" ")} </body>`);
+}
+
 function copyFileIntoDist(sourceRelativePath, targetRelativePath) {
   const sourcePath = path.join(rootDir, sourceRelativePath);
   const targetPath = path.join(outputDir, targetRelativePath);
@@ -516,8 +541,9 @@ function applyAssetVersionToHtml(targetPath) {
         /(<meta name="viewport" content="width=device-width, initial-scale=1.0">)/i,
         `$1\n  <meta name="winga-build" content="${assetVersion}">`
       );
-  assertHtmlLooksValid(marked, targetPath);
-  writeTextFileWithRetry(targetPath, marked, "utf8");
+  const bootReadyHtml = moveBootScriptsToBodyEnd(marked);
+  assertHtmlLooksValid(bootReadyHtml, targetPath);
+  writeTextFileWithRetry(targetPath, bootReadyHtml, "utf8");
 }
 
 function applyAssetVersionToServiceWorker(targetPath, criticalImageUrls = []) {
