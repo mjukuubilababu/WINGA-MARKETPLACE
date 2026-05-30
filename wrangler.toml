@@ -1,0 +1,17 @@
+"$schema" = "./node_modules/wrangler/config-schema.json"
+name = "winga-big-pipe"
+main = "./worker.js"
+compatibility_date = "2026-05-31"
+workers_dev = true
+
+[vars]
+ORIGIN_BASE_URL = "https://winga-pflp.onrender.com"
+
+[triggers]
+crons = ["*/10 * * * *"]
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = true
