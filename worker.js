@@ -575,7 +575,7 @@ function forwardProxyHeaders(request) {
 }
 
 function getOriginBaseUrl(env) {
-  return String(env?.ORIGIN_BASE_URL || ORIGIN_BASE_URL).replace(/\/+$/, "");
+  return String(env?.ORIGIN_BASE_URL || env?.ORIGIN || ORIGIN_BASE_URL).replace(/\/+$/, "");
 }
 
 function normalizeProductCollection(payload) {

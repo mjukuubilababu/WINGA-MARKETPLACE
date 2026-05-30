@@ -5,10 +5,15 @@ compatibility_date = "2026-05-30"
 workers_dev = true
 
 [vars]
+ORIGIN = "https://winga-pflp.onrender.com"
 ORIGIN_BASE_URL = "https://winga-pflp.onrender.com"
 
 [triggers]
 crons = ["*/10 * * * *"]
+
+[[routes]]
+pattern = "wingamarket.com/*"
+zone_name = "wingamarket.com"
 
 [assets]
 directory = "./public"
