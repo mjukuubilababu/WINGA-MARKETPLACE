@@ -15,6 +15,7 @@ const requiredRootFiles = [
   "manifest.json",
   "offline.html",
   "app-shell.html",
+  "splash-logo.png",
   "share-og.svg",
   "service-worker.js",
   "apple-touch-icon.png",
@@ -44,6 +45,7 @@ const fileCopies = [
   ["manifest.json", "manifest.json"],
   ["offline.html", "offline.html"],
   ["app-shell.html", "app-shell.html"],
+  ["splash-logo.png", "splash-logo.png"],
   ["share-og.svg", "share-og.svg"],
   ["service-worker.js", "service-worker.js"],
   ["apple-touch-icon.png", "apple-touch-icon.png"],
@@ -96,7 +98,7 @@ const bundledModuleSources = [
   "src/product-detail/controller.js"
 ];
 
-const criticalBootCss = `body.app-booting{margin:0;overflow:hidden;background:#ff6a00}#boot-overlay.boot-overlay{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;padding:24px;background:radial-gradient(circle at 22% 18%,rgba(255,255,255,.38),transparent 28%),linear-gradient(135deg,#ff7a1a 0%,#ff6a00 48%,#d94f00 100%);color:#fff;opacity:1;visibility:visible;pointer-events:auto}#boot-overlay.boot-overlay.is-hidden{opacity:0;visibility:hidden;pointer-events:none}#boot-overlay .boot-overlay-card{width:min(360px,86vw);min-height:210px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;padding:32px 28px;border:1px solid rgba(255,255,255,.28);border-radius:30px;background:rgba(255,255,255,.14);box-shadow:0 28px 70px rgba(99,38,0,.26);text-align:center}#boot-overlay .boot-overlay-mark{display:flex;align-items:center;justify-content:center;gap:14px}#boot-overlay .boot-overlay-badge{width:58px;height:58px;display:inline-flex;align-items:center;justify-content:center;border-radius:20px;background:#fff;color:#ff6a00;font-size:2rem;font-weight:900}#boot-overlay .boot-overlay-mark strong{display:block;font-size:2rem;line-height:1;letter-spacing:.02em}#boot-overlay .boot-overlay-mark span:not(.boot-overlay-badge),#boot-overlay .boot-overlay-copy p{color:rgba(255,255,255,.86);font-weight:700}#boot-overlay .boot-overlay-copy{display:flex;flex-direction:column;align-items:center;gap:12px}#boot-overlay .boot-overlay-copy p{min-height:1.2em;margin:0;font-size:.95rem}#boot-overlay .boot-overlay-spinner{width:34px;height:34px;border-radius:50%;border:3px solid rgba(255,255,255,.38);border-top-color:#fff;animation:wingaCriticalBootSpin .82s linear infinite}@keyframes wingaCriticalBootSpin{to{transform:rotate(360deg)}}@media (prefers-reduced-motion:reduce){#boot-overlay .boot-overlay-spinner{animation:none}}`;
+const criticalBootCss = `*{box-sizing:border-box}html,body{background:#ff6a00}body.app-booting{margin:0;min-height:100vh;overflow:hidden;background:#ff6a00}#boot-overlay.boot-overlay{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;padding:24px;background:radial-gradient(circle at 22% 18%,rgba(255,255,255,.38),transparent 28%),linear-gradient(135deg,#ff7a1a 0%,#ff6a00 48%,#d94f00 100%);color:#fff;opacity:1;visibility:visible;pointer-events:auto}#boot-overlay.boot-overlay.is-hidden{opacity:0;visibility:hidden;pointer-events:none}#boot-overlay .boot-overlay-card{width:min(360px,86vw);min-height:210px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;padding:32px 28px;border:1px solid rgba(255,255,255,.28);border-radius:30px;background:rgba(255,255,255,.14);box-shadow:0 28px 70px rgba(99,38,0,.26);text-align:center}#boot-overlay .boot-overlay-mark{display:flex;align-items:center;justify-content:center;gap:14px}#boot-overlay .boot-overlay-badge{width:58px;height:58px;display:inline-flex;align-items:center;justify-content:center;border-radius:20px;background:#fff;color:#ff6a00;font-size:2rem;font-weight:900}#boot-overlay .boot-overlay-mark strong{display:block;font-size:2rem;line-height:1;letter-spacing:.02em}#boot-overlay .boot-overlay-mark span:not(.boot-overlay-badge),#boot-overlay .boot-overlay-copy p{color:rgba(255,255,255,.86);font-weight:700}#boot-overlay .boot-overlay-copy{display:flex;flex-direction:column;align-items:center;gap:12px}#boot-overlay .boot-overlay-copy p{min-height:1.2em;margin:0;font-size:.95rem}#boot-overlay .boot-overlay-spinner{width:34px;height:34px;border-radius:50%;border:3px solid rgba(255,255,255,.38);border-top-color:#fff;animation:wingaCriticalBootSpin .82s linear infinite}@keyframes wingaCriticalBootSpin{to{transform:rotate(360deg)}}@media (prefers-reduced-motion:reduce){#boot-overlay .boot-overlay-spinner{animation:none}}`;
 
 const forbiddenDistEntries = [
   "backend",
@@ -425,7 +427,7 @@ function buildProductShareHtml(baseHtml, meta) {
   const titlePatched = safeTemplate
     .replace(/<title>[^<]*<\/title>/i, `<title>${safeTitle}</title>`)
     .replace(
-      /(href|src)="\.\/((?:manifest(?:-v4)?\.webmanifest|apple-touch-icon(?:-v3)?\.png|winga-icon(?:-192|-512)?(?:-v3)?\.png|winga-maskable-icon(?:-v3)?\.png|winga-maskable-icon\.svg|winga-icon\.svg|style\.css|winga-config\.js|mock-data\.js|data-service\.js|app-core\.js|winga-modules\.js|app\.js)(?:\?[^"]*)?)"/gi,
+      /(href|src)="\.\/((?:manifest(?:-v4)?\.webmanifest|apple-touch-icon(?:-v3)?\.png|splash-logo\.png|winga-icon(?:-192|-512)?(?:-v3)?\.png|winga-maskable-icon(?:-v3)?\.png|winga-maskable-icon\.svg|winga-icon\.svg|style\.css|winga-config\.js|mock-data\.js|data-service\.js|app-core\.js|winga-modules\.js|app\.js)(?:\?[^"]*)?)"/gi,
       (_, attribute, assetPath) => `${attribute}="/${assetPath}"`
     );
   if (titlePatched.includes('name="winga-build"')) {
@@ -436,7 +438,7 @@ function buildProductShareHtml(baseHtml, meta) {
 
 function absolutizeHtmlAssetPaths(source) {
   return String(source || "").replace(
-    /(href|src)="\.\/((?:manifest(?:-v4)?\.webmanifest|apple-touch-icon(?:-v3)?\.png|winga-icon(?:-192|-512)?(?:-v3)?\.png|winga-maskable-icon(?:-v3)?\.png|winga-maskable-icon\.svg|winga-icon\.svg|style\.css|winga-config\.js|mock-data\.js|data-service\.js|app-core\.js|winga-modules\.js|app\.js)(?:\?[^"]*)?)"/gi,
+    /(href|src)="\.\/((?:manifest(?:-v4)?\.webmanifest|apple-touch-icon(?:-v3)?\.png|splash-logo\.png|winga-icon(?:-192|-512)?(?:-v3)?\.png|winga-maskable-icon(?:-v3)?\.png|winga-maskable-icon\.svg|winga-icon\.svg|style\.css|winga-config\.js|mock-data\.js|data-service\.js|app-core\.js|winga-modules\.js|app\.js)(?:\?[^"]*)?)"/gi,
     (_, attribute, assetPath) => `${attribute}="/${assetPath}"`
   );
 }
@@ -500,6 +502,10 @@ function applyAssetVersionToHtml(targetPath) {
     : next;
   const replaced = replacedSource
     .replace(/__WINGA_PUBLIC_ORIGIN__/g, publicOrigin)
+    .replace(
+      /<meta name="viewport" content="width=device-width,\s*initial-scale=1\.0(?:,\s*viewport-fit=cover)?">/i,
+      `<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">`
+    )
     .replace(
       /<meta name="winga-build" content="[^"]*">/i,
       `<meta name="winga-build" content="${assetVersion}">`

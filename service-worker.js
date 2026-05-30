@@ -16,6 +16,7 @@ const SHELL_ASSETS = [
   "/data-service.js",
   "/mock-data.js",
   "/service-worker.js",
+  "/splash-logo.png",
   "/manifest.webmanifest",
   "/manifest-v4.webmanifest",
   "/manifest.json",
