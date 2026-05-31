@@ -898,8 +898,10 @@ async function registerAppServiceWorker() {
     }
   } catch (error) {
     registerAppServiceWorker.started = false;
+    console.warn("[WINGA] SW failed:", error);
     reportClientEvent("warn", "service_worker_registration_failed", "Service worker registration failed.", {
-      category: "runtime"
+      category: "runtime",
+      message: String(error?.message || error || "unknown")
     });
   }
 }

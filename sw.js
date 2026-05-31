@@ -1,108 +1,58 @@
-/*
- * WINGA SERVICE WORKER OWNERSHIP
- * 1. This Service Worker owns offline shell resilience only.
- * 2. Cloudflare Worker owns HTML streaming, /uploads/* image edge caching, and /api/* proxy behavior.
- * 3. App JS owns feed state and continuation; this Service Worker must never compete for those concerns.
- */
-const BUILD_VERSION = "__WINGA_BUILD_VERSION__";
-const CACHE = `winga-shell-v5-${BUILD_VERSION}`;
-const SHELL_ASSETS = [
+const CACHE = "winga-shell-v5";
+const SHELL = [
   "/",
   "/index.html",
   "/manifest.json",
   "/manifest-v4.webmanifest",
-  "/splash-logo.png",
-  "/placeholder.jpg",
-  "/offline.html"
+  "/splash-logo.png"
 ];
 
 self.addEventListener("install", (event) => {
-  event.waitUntil((async () => {
-    const cache = await caches.open(CACHE);
-    await Promise.allSettled(
-      SHELL_ASSETS.map(async (asset) => {
-        try {
+  event.waitUntil(
+    caches.open(CACHE)
+      .then((cache) => Promise.allSettled(
+        SHELL.map(async (asset) => {
           const response = await fetch(asset, { cache: "reload" });
           if (response && response.ok) {
             await cache.put(asset, response.clone());
           }
-        } catch (_error) {
-          // Optional shell asset failures must never block install.
-        }
-      })
-    );
-    await self.skipWaiting();
-  })());
+        })
+      ))
+      .then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener("activate", (event) => {
-  event.waitUntil((async () => {
-    const keys = await caches.keys();
-    await Promise.all(keys.map((key) => caches.delete(key)));
-    await self.clients.claim();
-    const clients = await self.clients.matchAll({
-      type: "window"
-    });
-    await Promise.all(
-      clients.map((client) => {
-        try {
-          return client.navigate(client.url);
-        } catch (_error) {
-          return Promise.resolve();
-        }
-      })
-    );
-  })());
+  event.waitUntil(
+    Promise.all([
+      self.clients.claim(),
+      caches.keys().then((keys) =>
+        Promise.all(
+          keys
+            .filter((key) => key !== CACHE)
+            .map((key) => caches.delete(key))
+        )
+      )
+    ])
+  );
 });
 
 self.addEventListener("fetch", (event) => {
-  const request = event.request;
-  const url = new URL(request.url);
-
-  if (url.origin !== self.location.origin) {
-    return;
-  }
+  const url = new URL(event.request.url);
 
   if (url.pathname.startsWith("/uploads/")) {
     return;
   }
-
   if (url.pathname.startsWith("/api/")) {
     return;
   }
-
-  if (SHELL_ASSETS.includes(url.pathname) || url.pathname === "/") {
-    event.respondWith((async () => {
-      const cache = await caches.open(CACHE);
-      const cached = await cache.match(request) || await cache.match(url.pathname);
-      if (cached) {
-        return cached;
-      }
-      try {
-        const response = await fetch(request);
-        if (response && response.ok) {
-          await cache.put(request, response.clone());
-        }
-        return response;
-      } catch (_error) {
-        return (await cache.match("/offline.html")) || Response.error();
-      }
-    })());
+  if (url.origin !== self.location.origin) {
     return;
   }
 
-  if (url.pathname.endsWith(".js") || url.pathname.endsWith(".css")) {
-    event.respondWith((async () => {
-      const cache = await caches.open(CACHE);
-      try {
-        const response = await fetch(request);
-        if (response && response.ok) {
-          await cache.put(request, response.clone());
-        }
-        return response;
-      } catch (_error) {
-        return (await cache.match(request)) || Response.error();
-      }
-    })());
-  }
+  event.respondWith(
+    caches.match(event.request)
+      .then((cached) => cached || fetch(event.request))
+      .catch(() => caches.match("/index.html"))
+  );
 });
