@@ -1,5 +1,6 @@
 const ORIGIN_BASE_URL = "https://winga-pflp.onrender.com";
 const DEFAULT_FEED_LIMIT = 12;
+const BOOTSTRAP_TIMEOUT_MS = 3000;
 const IMAGE_EDGE_TTL_SECONDS = 60 * 60 * 24;
 const encoder = new TextEncoder();
 
@@ -48,38 +49,34 @@ async function streamFeedPage(request, env, ctx) {
 
   ctx.waitUntil((async () => {
     try {
-      await write(buildDocumentHead());
-      await write(buildSkeletonChunk());
+      await write(buildDocumentShellStart());
+      await write(buildFeedSkeletonChunk());
 
-      const initialProducts = await fetchInitialProducts(origin, request);
-      const cardsHtml = initialProducts.items.map((product, index) => buildCardHtml(product, index)).join("");
-      const serializedProducts = serializeForInlineScript(initialProducts.items);
+      const bootstrap = await fetchBootstrapContext(origin, request);
+      const cardsHtml = bootstrap.items.map((product, index) => buildDiscoveryProductCardHtml(product, index, bootstrap)).join("");
 
       await write(`
-    <script>
-      const skeletons = document.getElementById("skeletons");
-      if (skeletons) skeletons.remove();
-      window.__WINGA_BIG_PIPE_INITIAL_PRODUCTS__ = ${serializedProducts};
-    </script>
-    ${cardsHtml}
-`);
+        <script>
+          window.__WINGA_BIG_PIPE_INITIAL_PRODUCTS__ = ${serializeForInlineScript(bootstrap.items)};
+          window.__WINGA_BIG_PIPE_INITIAL_USERS__ = ${serializeForInlineScript(bootstrap.users)};
+          window.__WINGA_BIG_PIPE_INITIAL_SESSION__ = ${serializeForInlineScript(bootstrap.session)};
+          window.__WINGA_BIG_PIPE_INITIAL_IMAGE_URLS__ = ${serializeForInlineScript(extractAllImageUrls(bootstrap.items, bootstrap.usersById))};
+          window.__WINGA_BIG_PIPE_BOOTSTRAPPED__ = true;
+          window.__WINGA_BIG_PIPE_BOOTSTRAP_STATUS__ = ${serializeForInlineScript(bootstrap.status)};
+          document.querySelectorAll("[data-feed-skeleton-card='true']").forEach((node) => node.remove());
+        </script>
+        ${cardsHtml}
+      `);
 
-      await write(buildClientScript(origin));
+      await write(buildDocumentShellEnd());
     } catch (error) {
       await write(`
         <script>
           console.error("[WINGA] Big Pipe stream failed", ${serializeForInlineScript(String(error?.message || error || "unknown"))});
-          const splash = document.getElementById("splash");
-          const app = document.getElementById("app");
-          if (app) app.classList.add("ready");
-          if (splash) {
-            splash.style.opacity = "0";
-            setTimeout(() => { splash.style.display = "none"; }, 120);
-          }
+          window.__WINGA_BIG_PIPE_BOOTSTRAPPED__ = false;
         </script>
-        </body>
-        </html>
       `);
+      await write(buildDocumentShellEnd());
     } finally {
       await writer.close();
     }
@@ -94,429 +91,785 @@ async function streamFeedPage(request, env, ctx) {
   });
 }
 
-async function fetchInitialProducts(origin, request) {
-  const feedUrl = new URL(`${origin}/api/products`);
-  feedUrl.searchParams.set("limit", String(DEFAULT_FEED_LIMIT));
-  feedUrl.searchParams.set("page", "1");
+async function fetchBootstrapContext(origin, request) {
+  const headers = forwardProxyHeaders(request);
+  const fallback = {
+    items: getFallbackProducts(),
+    users: [],
+    usersById: {},
+    session: null,
+    status: "fallback"
+  };
 
   try {
-    const response = await fetch(feedUrl.toString(), {
-      headers: forwardProxyHeaders(request)
-    });
-    if (!response.ok) {
-      throw new Error(`Initial feed request failed with ${response.status}`);
+    const bootstrap = await Promise.race([
+      loadBootstrapContext(origin, headers),
+      new Promise((resolve) => setTimeout(() => resolve({ ...fallback, status: "timeout" }), BOOTSTRAP_TIMEOUT_MS))
+    ]);
+    if (!Array.isArray(bootstrap?.items) || !bootstrap.items.length) {
+      return fallback;
     }
-    const payload = await response.json();
-    const items = normalizeProductCollection(payload);
-    if (!items.length) {
-      return { items: getFallbackProducts() };
-    }
-    return { items };
+    return bootstrap;
   } catch (_error) {
-    return { items: getFallbackProducts() };
+    return fallback;
   }
 }
 
-function buildDocumentHead() {
+async function loadBootstrapContext(origin, headers) {
+  const [productsResult, usersResult, sessionResult] = await Promise.allSettled([
+    fetchProducts(origin, headers),
+    fetchUsers(origin, headers),
+    fetchSession(origin, headers)
+  ]);
+
+  const items = productsResult.status === "fulfilled" && Array.isArray(productsResult.value) && productsResult.value.length
+    ? productsResult.value.slice(0, DEFAULT_FEED_LIMIT)
+    : getFallbackProducts();
+  const users = usersResult.status === "fulfilled" && Array.isArray(usersResult.value)
+    ? usersResult.value
+    : [];
+  const session = sessionResult.status === "fulfilled" && sessionResult.value && typeof sessionResult.value === "object"
+    ? sessionResult.value
+    : null;
+  const usersById = Object.fromEntries(
+    users
+      .filter((user) => user && typeof user === "object")
+      .map((user) => [String(user.username || user.id || "").trim(), user])
+      .filter(([key]) => key)
+  );
+
+  return {
+    items: items.map((product, index) => normalizeProductForStream(product, {
+      feedPosition: index,
+      usersById
+    })),
+    users,
+    usersById,
+    session,
+    status: "loaded"
+  };
+}
+
+async function fetchProducts(origin, headers) {
+  const data = await fetchJsonWithTimeout(`${origin}/api/products`, {
+    headers
+  });
+  const normalized = normalizeProductCollection(data);
+  return normalized.slice(0, DEFAULT_FEED_LIMIT);
+}
+
+async function fetchUsers(origin, headers) {
+  try {
+    const data = await fetchJsonWithTimeout(`${origin}/api/users`, {
+      headers
+    });
+    return Array.isArray(data) ? data : [];
+  } catch (_error) {
+    return [];
+  }
+}
+
+async function fetchSession(origin, headers) {
+  try {
+    return await fetchJsonWithTimeout(`${origin}/api/auth/session`, {
+      headers
+    });
+  } catch (_error) {
+    return null;
+  }
+}
+
+async function fetchJsonWithTimeout(url, options = {}, timeoutMs = BOOTSTRAP_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal
+    });
+    if (!response.ok) {
+      throw new Error(`Request failed with ${response.status}`);
+    }
+    return await response.json();
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+function buildDocumentShellStart() {
   return `<!DOCTYPE html>
 <html lang="sw">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <meta name="theme-color" content="#FF6B00">
+  <meta name="theme-color" content="#ff6a00">
+  <meta name="msapplication-TileColor" content="#ff6a00">
+  <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <title>Winga Market</title>
-  <link rel="manifest" href="/manifest.json">
-  <style>
-    *{margin:0;padding:0;box-sizing:border-box}
-    :root{color-scheme:light;font-family:"Segoe UI",Arial,sans-serif}
-    body{background:#FF6B00;min-height:100vh;overflow-x:hidden}
-    #splash{position:fixed;inset:0;background:#FF6B00;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:99999;transition:opacity .24s ease}
-    #splash img{width:120px;height:120px;object-fit:contain}
-    #splash .name{color:#fff;font-size:26px;font-weight:800;margin-top:12px;letter-spacing:-.4px}
-    #splash .tagline{color:rgba(255,255,255,.8);font-size:13px;margin-top:4px}
-    #app{opacity:0;visibility:hidden;background:#f5f5f5;min-height:100vh}
-    #app.ready{opacity:1;visibility:visible;transition:opacity .2s ease}
-    .feed{padding:8px 0 88px}
-    .card-skeleton,.card{background:#fff;border-radius:16px;margin:8px 12px 16px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,.08)}
-    .card-skeleton{height:480px}
-    .skeleton-img{height:360px;background:linear-gradient(90deg,#f0f0f0 25%,#e4e4e4 50%,#f0f0f0 75%);background-size:200% 100%;animation:shimmer 1.5s infinite}
-    .skeleton-info{padding:12px}
-    .skeleton-line{height:14px;border-radius:8px;background:linear-gradient(90deg,#f0f0f0 25%,#e4e4e4 50%,#f0f0f0 75%);background-size:200% 100%;animation:shimmer 1.5s infinite;margin-bottom:8px}
-    .skeleton-line.short{width:60%}
-    @keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
-    .card{transform:translateY(16px);opacity:0;animation:cardIn .35s ease forwards}
-    @keyframes cardIn{to{transform:translateY(0);opacity:1}}
-    .seller{display:flex;align-items:center;gap:8px;padding:10px 14px}
-    .seller-avatar{width:32px;height:32px;border-radius:50%;background:#FF6B00;display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;font-weight:700}
-    .seller-name{font-size:13px;font-weight:600;color:#444}
-    .card-img-wrap{position:relative;height:380px;overflow:hidden;background:#f0f0f0}
-    .card-img-wrap img{width:100%;height:100%;object-fit:cover;display:block}
-    .carousel-dots{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);display:flex;gap:4px}
-    .dot{width:6px;height:6px;border-radius:50%;background:rgba(255,255,255,.6)}
-    .dot.active{background:#fff;width:18px;border-radius:999px}
-    .card-body{padding:12px 14px}
-    .card-title{font-size:15px;font-weight:600;color:#1a1a1a;margin-bottom:4px;line-height:1.32}
-    .card-price{font-size:18px;font-weight:800;color:#FF6B00}
-    .card-price span{font-size:13px;color:#999;font-weight:400;text-decoration:line-through;margin-left:6px}
-    .card-actions{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-top:1px solid #f5f5f5}
-    .btn-buy{background:#FF6B00;color:#fff;border:none;padding:10px 24px;border-radius:999px;font-size:14px;font-weight:700;cursor:pointer}
-    .btn-like{background:none;border:none;cursor:pointer;font-size:22px;padding:6px}
-    #navbar{position:fixed;bottom:0;left:0;right:0;background:#fff;display:flex;justify-content:space-around;padding:12px 0 max(12px,env(safe-area-inset-bottom));box-shadow:0 -1px 12px rgba(0,0,0,.08);z-index:1000}
-    .nav-btn{display:flex;flex-direction:column;align-items:center;gap:3px;background:none;border:none;cursor:pointer;font-size:10px;color:#999;font-weight:500}
-    .nav-btn.active{color:#FF6B00}
-    .nav-btn svg{width:22px;height:22px}
-  </style>
+  <meta name="apple-mobile-web-app-title" content="Winga">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="NUNUA KWA WAUZAJI WALIOTHIBITISHWA">
+  <meta property="og:description" content="Social commerce PWA for Tanzania">
+  <meta property="og:image" content="https://wingamarket.com/winga-icon-512-v3.png">
+  <meta property="og:url" content="https://wingamarket.com/">
+  <meta property="og:site_name" content="Winga">
+  <meta property="al:ios:url" content="winga://home">
+  <meta property="al:android:url" content="winga://home">
+  <meta property="al:web:url" content="https://wingamarket.com/">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="NUNUA KWA WAUZAJI WALIOTHIBITISHWA">
+  <meta name="twitter:description" content="Social commerce PWA for Tanzania">
+  <meta name="twitter:image" content="https://wingamarket.com/winga-icon-512-v3.png">
+  <link rel="manifest" href="/manifest-v4.webmanifest">
+  <link rel="icon" href="/winga-icon-192-v3.png" type="image/png" sizes="192x192">
+  <link rel="apple-touch-icon" href="/apple-touch-icon-v3.png">
+  <title>Chap kwa haraka</title>
+  <style id="winga-critical-boot">*{box-sizing:border-box}html,body{background:#ff6a00}body.app-booting{margin:0;min-height:100vh;overflow:hidden;background:#ff6a00}#boot-overlay.boot-overlay{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;padding:24px;background:radial-gradient(circle at 22% 18%,rgba(255,255,255,.38),transparent 28%),linear-gradient(135deg,#ff7a1a 0%,#ff6a00 48%,#d94f00 100%);color:#fff;opacity:1;visibility:visible;pointer-events:auto}#boot-overlay.boot-overlay.is-hidden{opacity:0;visibility:hidden;pointer-events:none}#boot-overlay .boot-overlay-card{width:min(360px,86vw);min-height:210px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;padding:32px 28px;border:1px solid rgba(255,255,255,.28);border-radius:30px;background:rgba(255,255,255,.14);box-shadow:0 28px 70px rgba(99,38,0,.26);text-align:center}#boot-overlay .boot-overlay-mark{display:flex;align-items:center;justify-content:center;gap:14px}#boot-overlay .boot-overlay-badge{width:58px;height:58px;display:inline-flex;align-items:center;justify-content:center;border-radius:20px;background:#fff;color:#ff6a00;font-size:2rem;font-weight:900}#boot-overlay .boot-overlay-mark strong{display:block;font-size:2rem;line-height:1;letter-spacing:.02em}#boot-overlay .boot-overlay-mark span:not(.boot-overlay-badge),#boot-overlay .boot-overlay-copy p{color:rgba(255,255,255,.86);font-weight:700}#boot-overlay .boot-overlay-copy{display:flex;flex-direction:column;align-items:center;gap:12px}#boot-overlay .boot-overlay-copy p{min-height:1.2em;margin:0;font-size:.95rem}#boot-overlay .boot-overlay-spinner{width:34px;height:34px;border-radius:50%;border:3px solid rgba(255,255,255,.38);border-top-color:#fff;animation:wingaCriticalBootSpin .82s linear infinite}@keyframes wingaCriticalBootSpin{to{transform:rotate(360deg)}}.feed-skeleton-card{overflow:hidden}.feed-skeleton-media,.feed-skeleton-line,.feed-skeleton-pill{position:relative;background:rgba(15,23,42,.08)}.feed-skeleton-media::after,.feed-skeleton-line::after,.feed-skeleton-pill::after{content:"";position:absolute;inset:0;transform:translateX(-100%);background:linear-gradient(90deg,transparent,rgba(255,255,255,.75),transparent);animation:winga-feed-skeleton-shimmer 1s linear infinite}.feed-skeleton-media{height:min(68vw,360px);background:rgba(15,23,42,.08)}.feed-skeleton-body{padding:18px 16px 20px;display:grid;gap:12px}.feed-skeleton-line{display:block;height:12px;border-radius:999px}.feed-skeleton-line-title{width:54%;height:16px}.feed-skeleton-line-copy{width:92%}.feed-skeleton-line-copy-short{width:68%}.feed-skeleton-actions{display:flex;gap:10px;padding-top:6px}.feed-skeleton-pill{width:92px;height:34px;border-radius:999px}.feed-skeleton-card.feed-skeleton-card{background:#fff;border-radius:24px;margin:0 0 18px;box-shadow:0 16px 36px rgba(15,23,42,.08)}@keyframes winga-feed-skeleton-shimmer{100%{transform:translateX(100%)}}@media (prefers-reduced-motion:reduce){#boot-overlay .boot-overlay-spinner,.feed-skeleton-media::after,.feed-skeleton-line::after,.feed-skeleton-pill::after{animation:none}}</style>
+  <link rel="stylesheet" href="/style.css">
 </head>
-<body>
-  <div id="splash">
-    <img src="/splash-logo.png" alt="Winga" width="120" height="120">
-    <div class="name">WINGA</div>
-    <div class="tagline">Fashion. Fast. Social.</div>
-  </div>
-  <div id="app">
-    <div id="navbar">
-      <button class="nav-btn active" aria-label="Home">
-        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
-        Home
-      </button>
-      <button class="nav-btn" aria-label="Tafuta">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-        Tafuta
-      </button>
-      <button class="nav-btn" aria-label="Akaunti">
-        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/></svg>
-        Akaunti
-      </button>
-    </div>
-    <div class="feed" id="feed">
-`;
-}
-
-function buildSkeletonChunk() {
-  return `
-      <div id="skeletons">
-        ${Array.from({ length: 4 }, () => `
-          <div class="card-skeleton">
-            <div class="skeleton-img"></div>
-            <div class="skeleton-info">
-              <div class="skeleton-line"></div>
-              <div class="skeleton-line short"></div>
-            </div>
-          </div>
-        `).join("")}
+<body class="app-booting">
+  <div id="boot-overlay" class="boot-overlay" aria-hidden="true">
+    <div class="boot-overlay-card">
+      <div class="boot-overlay-mark">
+        <span class="boot-overlay-badge">W</span>
+        <div>
+          <strong>WINGA</strong>
+          <span>Shop Fast</span>
+        </div>
       </div>
-`;
+      <div class="boot-overlay-copy">
+        <div class="boot-overlay-spinner" aria-hidden="true"></div>
+        <p></p>
+      </div>
+    </div>
+  </div>
+  <div class="form-container" id="auth-container" style="display:none;">
+    <button id="auth-close-button" type="button" aria-label="Funga auth">&times;</button>
+    <div id="auth-gate-prompt" style="display:none;">
+      <p class="auth-label" id="auth-gate-title">You need an account to continue</p>
+      <p class="auth-note" id="auth-gate-copy">Already have an account? Sign In. New here? Sign Up.</p>
+      <div class="auth-gate-actions">
+        <button class="auth-gate-secondary" id="auth-gate-login" type="button">Sign In</button>
+        <button class="auth-gate-secondary" id="auth-gate-signup" type="button">Sign Up</button>
+      </div>
+    </div>
+    <div class="brand-mark">
+      <span class="brand-badge">W</span>
+      <div>
+        <h1>WINGA</h1>
+        <p>Marketplace ya kuuza kwa haraka</p>
+      </div>
+    </div>
+    <h3 id="form-title">Login</h3>
+    <p class="auth-intro">Panga biashara yako kwa category ili uingie haraka na wateja wakupate kwa urahisi.</p>
+    <p class="auth-note" id="auth-category-note">Signup sasa ni phone-first. Weka jina la duka, namba ya simu, na password. Verification ya ID itafanyika baadaye kupitia Profile &gt; Get Verified.</p>
+    <div id="auth-details-step">
+      <div id="auth-role-selector" class="auth-role-selector" style="display:none;">
+        <button class="auth-role-option active" id="auth-role-seller" type="button" data-auth-role="seller"><span class="auth-role-dot"></span><span>Mimi ni muuzaji</span></button>
+        <button class="auth-role-option" id="auth-role-buyer" type="button" data-auth-role="buyer"><span class="auth-role-dot"></span><span>Mimi ni mteja</span></button>
+      </div>
+      <input type="text" id="username" placeholder="Jina la duka" autocomplete="username">
+      <input type="tel" id="phone-number" placeholder="Namba ya simu ya WhatsApp" required style="display:none;" autocomplete="tel">
+      <input type="text" id="national-id" placeholder="Namba ya kitambulisho cha taifa" style="display:none;" autocomplete="off">
+      <select id="seller-identity-document-type" style="display:none;">
+        <option value="">Chagua identity document</option>
+        <option value="NIDA">National ID (NIDA)</option>
+        <option value="VOTER_ID">Voters ID</option>
+      </select>
+      <div id="seller-verification-uploads" style="display:none;">
+        <p class="auth-note">Verification ya seller itafanyika baadaye kupitia Profile &gt; Get Verified.</p>
+        <input type="text" id="seller-identity-document-number" placeholder="Enter ID number" style="display:none;" autocomplete="off">
+        <label for="seller-identity-document-image" class="upload-btn auth-upload-btn">Upload ID image</label>
+        <input type="file" id="seller-identity-document-image" accept="image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif" style="display:none;">
+        <div id="seller-identity-document-image-name" class="auth-file-name"></div>
+        <div id="seller-identity-document-preview-wrap" class="auth-upload-preview" style="display:none;">
+          <img id="seller-identity-document-preview" alt="Identity document preview">
+        </div>
+      </div>
+      <div class="password-field">
+        <input type="password" id="password" placeholder="Password" required autocomplete="current-password">
+      </div>
+      <div class="password-field" id="confirm-password-wrap" style="display:none;">
+        <input type="password" id="confirm-password" placeholder="Confirm password" autocomplete="new-password">
+      </div>
+      <button class="password-toggle password-toggle-standalone" id="password-toggle" type="button">Show Passwords</button>
+    </div>
+    <button id="auth-button" type="button">Login</button>
+    <span class="toggle-link" id="toggle-link">Tengeneza akaunti</span>
+  </div>
+  <div class="form-container" id="admin-login-container" style="display:none;">
+    <div class="brand-mark">
+      <span class="brand-badge">W</span>
+      <div>
+        <h1>WINGA</h1>
+        <p>Admin Access</p>
+      </div>
+    </div>
+    <h3 id="admin-login-title">Admin Login</h3>
+    <p class="auth-intro">Njia hii ni ya admin au moderator pekee. Tumia route ya staff kwa usimamizi wa marketplace.</p>
+    <p class="auth-note" id="admin-login-copy">Mteja na muuzaji wa kawaida wanapaswa kutumia login ya kawaida ya marketplace.</p>
+    <input type="text" id="admin-login-identifier" placeholder="Admin username au phone number" autocomplete="username">
+    <div class="password-field">
+      <input type="password" id="admin-login-password" placeholder="Password" autocomplete="current-password">
+    </div>
+    <button id="admin-login-button" type="button">Login to Admin</button>
+    <button class="auth-gate-secondary" id="admin-login-back" type="button">Back to Marketplace</button>
+  </div>
+  <div id="app-container" style="display:none;">
+    <header id="top-bar" class="panel">
+      <div id="header-brand">
+        <h2 id="header-brand-title">WINGA</h2>
+        <p id="top-bar-subtitle"><span>Discover</span> products first. Sign in only when you want to <span>buy</span>, <span>chat</span>, or <span>sell</span>.</p>
+      </div>
+      <p id="header-brand-tagline">Shop Fast</p>
+      <div id="public-header-actions">
+        <button class="public-header-btn" id="header-login-button" type="button">Login</button>
+        <button class="public-header-btn public-header-btn-primary" id="header-signup-button" type="button">Sign Up</button>
+      </div>
+      <div id="header-search-area" role="search" aria-label="Marketplace search">
+        <div id="search-box" class="panel">
+          <div id="search-main-row">
+            <input type="text" id="search-input" placeholder="Search bidhaa au duka" aria-label="Search bidhaa au duka">
+            <input type="file" id="search-image-file" accept="image/*,.heic,.heif">
+            <button id="search-image-button" type="button" aria-label="Search kwa picha">&#128247;</button>
+            <button id="search-toggle-button" type="button" aria-label="Fungua search">&#128269;</button>
+          </div>
+          <div id="search-filter-row">
+            <input type="number" id="filter-price-min" placeholder="Min price" min="0">
+            <input type="number" id="filter-price-max" placeholder="Max price" min="0">
+            <input type="text" id="filter-location" placeholder="Location / Shop (optional)">
+            <select id="sort-select">
+              <option value="default">Sort: Default</option>
+              <option value="price-asc">Lowest price</option>
+              <option value="price-desc">Highest price</option>
+              <option value="newest">Newest</option>
+              <option value="popular">Most popular</option>
+            </select>
+          </div>
+          <div id="search-image-preview" style="display:none;"></div>
+          <div id="search-dropdown" aria-live="polite"></div>
+        </div>
+      </div>
+      <div id="mobile-category-shell">
+        <button id="mobile-category-button" type="button" aria-label="Fungua categories" aria-expanded="false">&#9776;</button>
+        <div id="mobile-category-menu" class="panel"></div>
+      </div>
+      <div id="header-user-menu" style="display:none;">
+        <button id="header-user-trigger" type="button" aria-expanded="false" aria-label="Open account menu">
+          <img id="header-user-avatar-image" alt="Profile avatar" style="display:none;">
+          <span id="header-user-avatar-fallback">U</span>
+          <span id="header-user-name">User</span>
+        </button>
+        <div id="header-user-dropdown" class="panel" style="display:none;"></div>
+      </div>
+    </header>
+    <button id="view-home-back" type="button" aria-label="Rudi home">&#8592;</button>
+    <div id="categories" class="panel"></div>
+    <section id="hero-panel" class="panel">
+      <div id="hero-slideshow">
+        <div id="slides-track"></div>
+        <button id="slide-prev" class="slide-arrow" type="button" aria-label="Slide ya nyuma">&#10094;</button>
+        <button id="slide-next" class="slide-arrow" type="button" aria-label="Slide inayofuata">&#10095;</button>
+        <div id="slide-dots"></div>
+      </div>
+    </section>
+    <section id="market-showcase" class="panel">
+      <div class="section-heading showcase-heading">
+        <div>
+          <p class="eyebrow">Marketplace Picks</p>
+          <h3>Bidhaa zinazovuma sasa</h3>
+        </div>
+        <span class="meta-copy">Tembea kushoto au kulia kuona bidhaa zaidi</span>
+      </div>
+      <div id="showcase-track" class="showcase-track"></div>
+    </section>
+    <div id="upload-form" class="panel">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Upload bidhaa</p>
+          <h3 id="upload-title">Ongeza Bidhaa</h3>
+        </div>
+        <button id="cancel-edit-button" type="button">Cancel</button>
+      </div>
+      <input type="text" id="product-name" placeholder="Jina la bidhaa" required>
+      <input type="number" id="product-price" placeholder="Bei (TSh) - optional">
+      <input type="text" id="product-shop" placeholder="Jina la duka" required>
+      <input type="text" id="product-whatsapp" placeholder="Namba ya WhatsApp ya mawasiliano" required readonly>
+      <p class="auth-note" id="product-whatsapp-note">Tunatumia namba ya WhatsApp ya account yako moja kwa moja kwenye bidhaa hii. Ukiitaka kubadilisha, tumia sehemu ya Profile kuthibitisha namba mpya.</p>
+      <div class="product-fit-mode-wrap">
+        <p class="upload-copy-label">Post Fit Toggle</p>
+        <div class="product-fit-mode-toggle" role="radiogroup" aria-label="Post Fit Toggle">
+          <label class="product-fit-mode-option">
+            <input type="radio" name="product-fit-mode" value="cover" checked>
+            <span>Crop to Square</span>
+          </label>
+          <label class="product-fit-mode-option">
+            <input type="radio" name="product-fit-mode" value="contain">
+            <span>Fit to Frame</span>
+          </label>
+        </div>
+        <p class="auth-note">Crop keeps the feed uniform. Fit shows the full image with a natural frame.</p>
+      </div>
+      <select id="product-category-top" required></select>
+      <select id="product-category" required></select>
+      <div id="upload-custom-category-wrap" class="custom-category-wrap" style="display:none;">
+        <input type="text" id="upload-custom-category-input" placeholder="Andika category mpya">
+        <button id="upload-custom-category-add" type="button">Ongeza Category</button>
+      </div>
+      <p id="upload-guidelines">Pakia picha hadi 5, kila moja isiwe zaidi ya 3MB, na ziwe JPG, PNG, WEBP au GIF.</p>
+      <label for="product-image-file" class="upload-btn">Chagua Picha Moja au Nyingi</label>
+      <input type="file" id="product-image-file" accept="image/*" multiple>
+      <div id="image-preview-list"></div>
+      <button id="upload-button" type="button">Ongeza Bidhaa</button>
+    </div>
+    <section id="analytics-panel" class="panel" style="display:none;"></section>
+    <section id="admin-panel" class="panel" style="display:none;"></section>
+    <div id="products-container">`;
 }
 
-function buildClientScript(origin) {
-  return `
+function buildFeedSkeletonChunk() {
+  return Array.from({ length: 4 }, () => `
+    <article class="seller-product-card feed-skeleton-card" data-feed-skeleton-card="true" aria-hidden="true">
+      <div class="feed-skeleton-media"></div>
+      <div class="feed-skeleton-body">
+        <span class="feed-skeleton-line feed-skeleton-line-title"></span>
+        <span class="feed-skeleton-line feed-skeleton-line-copy"></span>
+        <span class="feed-skeleton-line feed-skeleton-line-copy-short"></span>
+        <div class="feed-skeleton-actions">
+          <span class="feed-skeleton-pill"></span>
+          <span class="feed-skeleton-pill"></span>
+        </div>
+      </div>
+    </article>
+  `).join("");
+}
+
+function buildDocumentShellEnd() {
+  return `</div>
+    <div id="empty-state" class="panel" style="display:none;">
+      <h3>Hakuna bidhaa zilizopatikana</h3>
+      <p>Jaribu search nyingine, badili category, au upload bidhaa mpya.</p>
     </div>
+    <div id="feed-loading-state" class="panel" style="display:none;" aria-live="polite" aria-busy="true">
+      <div class="feed-loading-shell">
+        <div class="feed-loading-spinner" aria-hidden="true"></div>
+        <h3>Inapakia bidhaa...</h3>
+        <p>Subiri kidogo, tunaleta bidhaa zako pamoja na picha zake.</p>
+        <button id="feed-loading-retry-button" type="button">Jaribu tena</button>
+      </div>
+    </div>
+    <footer id="bottom-nav">
+      <button class="nav-item active" type="button" data-view="home"><span class="nav-icon">&#127968;</span><span>Home</span></button>
+      <button class="nav-item" type="button" data-view="upload"><span class="nav-icon">&#11014;&#65039;</span><span>Upload</span></button>
+      <button class="nav-item" type="button" data-view="profile"><span class="nav-icon">&#128100;</span><span>Profile</span></button>
+      <button class="nav-item" id="admin-nav-item" type="button" data-view="admin" style="display:none;"><span class="nav-icon">&#128737;&#65039;</span><span>Admin</span></button>
+    </footer>
+    <button id="post-product-fab" type="button" aria-label="Post product">
+      <span class="fab-icon">&#128221;</span>
+      <span class="fab-label">Post</span>
+    </button>
+    <footer id="public-footer" class="panel" style="display:none;">
+      <div class="public-footer-grid">
+        <div>
+          <h3>WINGA</h3>
+          <p class="public-footer-copy">Shop fast. Sell smart. Discover products before signing in.</p>
+        </div>
+        <div>
+          <p class="public-footer-heading">Quick Links</p>
+          <div class="public-footer-links">
+            <a href="#" data-public-link="home">Home</a>
+            <a href="#" data-public-link="products">Products</a>
+            <a href="#" data-public-auth="login">Sign In</a>
+            <a href="#" data-public-auth="signup">Sign Up</a>
+            <a href="#public-footer">Contact</a>
+          </div>
+        </div>
+        <div>
+          <p class="public-footer-heading">Contact</p>
+          <p class="public-footer-copy">Email: contact@winga.app</p>
+          <p class="public-footer-copy">Phone: <a href="tel:+255695237798">+255 695 237 798</a></p>
+        </div>
+      </div>
+      <p class="public-footer-meta">&copy; 2026 Winga. Marketplace built for fast discovery and trusted transactions.</p>
+    </footer>
   </div>
   <script>
-    const WingaPipe = {
-      page: 1,
-      isFetching: false,
-      readyQueue: [],
-      totalLoaded: (window.__WINGA_BIG_PIPE_INITIAL_PRODUCTS__ || []).length,
-      sentinelObserver: null,
-      sentinelNodes: [],
-
-      async boot() {
-        const urls = this.collectImageUrls(window.__WINGA_BIG_PIPE_INITIAL_PRODUCTS__ || []);
-        await Promise.race([
-          this.preloadImages(urls),
-          new Promise((resolve) => setTimeout(resolve, 3000))
-        ]);
-
-        const app = document.getElementById("app");
-        const splash = document.getElementById("splash");
-        if (app) app.classList.add("ready");
-        setTimeout(() => {
-          if (!splash) return;
-          splash.style.opacity = "0";
-          setTimeout(() => { splash.style.display = "none"; }, 240);
-        }, 80);
-
-        this.initCarousels();
-        this.initSentinels();
-      },
-
-      collectImageUrls(products) {
-        const urls = [];
-        products.forEach((product) => {
-          (product.images || []).forEach((image) => urls.push(this.getImageUrl(image)));
-          (product.variants || product.variations || []).forEach((variant) => {
-            (variant.images || []).forEach((image) => urls.push(this.getImageUrl(image)));
-          });
+    (function(){
+      const urls = Array.isArray(window.__WINGA_BIG_PIPE_INITIAL_IMAGE_URLS__) ? window.__WINGA_BIG_PIPE_INITIAL_IMAGE_URLS__ : [];
+      const cache = new Map();
+      const preloadImage = (url) => {
+        if (!url) return Promise.resolve();
+        if (cache.has(url)) return cache.get(url);
+        const promise = new Promise((resolve) => {
+          const image = new Image();
+          image.onload = image.onerror = () => resolve();
+          image.src = url;
         });
-        return [...new Set(urls.filter(Boolean))];
-      },
-
-      getImageUrl(image) {
-        if (!image) return "";
-        if (typeof image === "string") return image;
-        return image.url || image.src || image.imageUrl || "";
-      },
-
-      preloadImages(urls) {
-        return Promise.allSettled(
-          [...new Set((urls || []).filter(Boolean))].map((url) => new Promise((resolve) => {
-            const img = new Image();
-            img.onload = resolve;
-            img.onerror = resolve;
-            img.src = url;
-          }))
-        );
-      },
-
-      createSentinel(targetCard, callback) {
-        if (!(targetCard instanceof Element)) return null;
-        const sentinel = document.createElement("div");
-        sentinel.style.cssText = "height:1px;width:100%;pointer-events:none";
-        targetCard.after(sentinel);
-        this.sentinelObserver.observe(sentinel);
-        sentinel.__wingaCallback = callback;
-        this.sentinelNodes.push(sentinel);
-        return sentinel;
-      },
-
-      initSentinels() {
-        this.sentinelNodes.forEach((node) => {
-          this.sentinelObserver?.unobserve(node);
-          node.remove();
-        });
-        this.sentinelNodes = [];
-
-        const cards = [...document.querySelectorAll("#feed .card")];
-        if (cards.length < 4) return;
-
-        if (!this.sentinelObserver) {
-          this.sentinelObserver = new IntersectionObserver((entries) => {
-            entries.forEach((entry) => {
-              if (!entry.isIntersecting) return;
-              const callback = entry.target.__wingaCallback;
-              this.sentinelObserver.unobserve(entry.target);
-              entry.target.remove();
-              if (typeof callback === "function") callback();
-            });
-          }, { rootMargin: "1200px 0px 1200px 0px", threshold: 0 });
-        }
-
-        this.createSentinel(cards[Math.max(0, cards.length - 12)], () => { this.fetchNextBatch(); });
-        this.createSentinel(cards[Math.max(0, cards.length - 5)], async () => {
-          if (!this.readyQueue.length && !this.isFetching) {
-            this.fetchNextBatch();
+        cache.set(url, promise);
+        return promise;
+      };
+      window.__WINGA_BIG_PIPE_IMAGE_CACHE__ = cache;
+      window.__WINGA_BIG_PIPE_IMAGE_PRELOAD_PROMISE__ = Promise.race([
+        Promise.allSettled(urls.map(preloadImage)),
+        new Promise((resolve) => setTimeout(resolve, 3000))
+      ]);
+      document.addEventListener("DOMContentLoaded", () => {
+        document.dispatchEvent(new CustomEvent("winga:big-pipe-bootstrap", {
+          detail: {
+            products: window.__WINGA_BIG_PIPE_INITIAL_PRODUCTS__ || [],
+            users: window.__WINGA_BIG_PIPE_INITIAL_USERS__ || [],
+            session: window.__WINGA_BIG_PIPE_INITIAL_SESSION__ || null,
+            status: window.__WINGA_BIG_PIPE_BOOTSTRAP_STATUS__ || "loaded"
           }
-          await this.waitForQueue(1800);
-        });
-        this.createSentinel(cards[Math.max(0, cards.length - 2)], async () => {
-          if (!this.readyQueue.length) {
-            await this.waitForQueue(3200);
-          }
-          this.injectBatch();
-        });
-      },
-
-      async fetchNextBatch() {
-        if (this.isFetching) return;
-        this.isFetching = true;
-        this.page += 1;
-
-        try {
-          const response = await fetch("/api/products?limit=12&page=" + this.page, {
-            credentials: "same-origin"
-          });
-          if (!response.ok) throw new Error("feed fetch failed");
-          const payload = await response.json();
-          const items = Array.isArray(payload?.items) ? payload.items : Array.isArray(payload) ? payload : [];
-          const urls = this.collectImageUrls(items);
-          await this.preloadImages(urls);
-          this.readyQueue.push(...items);
-        } catch (error) {
-          console.warn("[WINGA] next batch fetch failed", error);
-        } finally {
-          this.isFetching = false;
-        }
-      },
-
-      waitForQueue(maxWaitMs = 2500) {
-        return new Promise((resolve) => {
-          const startedAt = Date.now();
-          const check = () => {
-            if (this.readyQueue.length || !this.isFetching || Date.now() - startedAt >= maxWaitMs) {
-              resolve();
-              return;
-            }
-            setTimeout(check, 80);
-          };
-          check();
-        });
-      },
-
-      injectBatch() {
-        if (!this.readyQueue.length) return;
-        const batch = this.readyQueue.splice(0, 12);
-        const feed = document.getElementById("feed");
-        if (!feed) return;
-
-        requestAnimationFrame(() => {
-          const fragment = document.createDocumentFragment();
-          batch.forEach((product, index) => {
-            const wrapper = document.createElement("div");
-            wrapper.innerHTML = this.buildCard(product, this.totalLoaded + index);
-            if (wrapper.firstElementChild) fragment.appendChild(wrapper.firstElementChild);
-          });
-          feed.appendChild(fragment);
-          this.totalLoaded += batch.length;
-          this.initCarousels();
-          this.initSentinels();
-        });
-      },
-
-      initCarousels() {
-        document.querySelectorAll(".card-img-wrap:not([data-carousel-init='true'])").forEach((wrap) => {
-          wrap.setAttribute("data-carousel-init", "true");
-          let startX = 0;
-          let currentIndex = 0;
-          const images = [...wrap.querySelectorAll("img")];
-          const dots = [...wrap.querySelectorAll(".dot")];
-          if (images.length < 2) return;
-
-          const goTo = (index) => {
-            currentIndex = Math.max(0, Math.min(images.length - 1, index));
-            images.forEach((image, imageIndex) => {
-              image.style.display = imageIndex === currentIndex ? "block" : "none";
-            });
-            dots.forEach((dot, dotIndex) => {
-              dot.classList.toggle("active", dotIndex === currentIndex);
-            });
-          };
-
-          wrap.addEventListener("touchstart", (event) => {
-            startX = event.touches[0]?.clientX || 0;
-          }, { passive: true });
-
-          wrap.addEventListener("touchend", (event) => {
-            const endX = event.changedTouches[0]?.clientX || 0;
-            const diff = startX - endX;
-            if (Math.abs(diff) > 40) {
-              goTo(currentIndex + (diff > 0 ? 1 : -1));
-            }
-          }, { passive: true });
-
-          goTo(0);
-        });
-      },
-
-      buildCard(product, index) {
-        const images = Array.isArray(product?.images) && product.images.length
-          ? product.images
-          : [{ url: "" }];
-        const title = this.escapeHtml(product?.title || product?.name || "Bidhaa");
-        const seller = this.escapeHtml(product?.seller?.name || product?.shopName || product?.shop || "Winga Seller");
-        const sellerBadge = this.escapeHtml((seller || "W").trim().charAt(0).toUpperCase() || "W");
-        const price = Number(product?.price || 0);
-        const oldPrice = Number(product?.comparePrice || product?.originalPrice || 0);
-        const delay = (index % 12) * 0.04;
-        return \`
-          <div class="card" style="animation-delay:\${delay}s">
-            <div class="seller">
-              <div class="seller-avatar">\${sellerBadge}</div>
-              <div class="seller-name">\${seller}</div>
-            </div>
-            <div class="card-img-wrap">
-              \${images.map((image, imageIndex) => {
-                const url = this.escapeAttribute(this.getImageUrl(image) || "");
-                return \`<img src="\${url}" alt="\${title}" style="display:\${imageIndex === 0 ? "block" : "none"}" loading="\${index < 3 ? "eager" : "lazy"}" fetchpriority="\${index < 2 ? "high" : "auto"}">\`;
-              }).join("")}
-              \${images.length > 1 ? \`<div class="carousel-dots">\${images.map((_, imageIndex) => \`<div class="dot \${imageIndex === 0 ? "active" : ""}"></div>\`).join("")}</div>\` : ""}
-            </div>
-            <div class="card-body">
-              <div class="card-title">\${title}</div>
-              <div class="card-price">
-                TSh \${price.toLocaleString()}
-                \${oldPrice > price ? \`<span>TSh \${oldPrice.toLocaleString()}</span>\` : ""}
-              </div>
-            </div>
-            <div class="card-actions">
-              <button class="btn-like" aria-label="Like">🤍</button>
-              <button class="btn-buy">Nunua Sasa</button>
-            </div>
-          </div>
-        \`;
-      },
-
-      escapeHtml(value) {
-        return String(value || "").replace(/[&<>"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" }[char] || char));
-      },
-
-      escapeAttribute(value) {
-        return this.escapeHtml(value).replace(/'/g, "&#39;");
-      }
-    };
-
-    WingaPipe.boot();
-
-    if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("/sw.js").catch((error) => {
-        console.warn("[WINGA] SW registration failed", error);
-      });
-    }
-
-    setInterval(() => {
-      fetch("/api/ping").catch(() => {});
-    }, 10 * 60 * 1000);
+        }));
+      }, { once: true });
+    })();
   </script>
+  <script defer src="/winga-config.js"></script>
+  <script defer src="/mock-data.js"></script>
+  <script defer src="/data-service.js"></script>
+  <script defer src="/app-core.js"></script>
+  <script defer src="/winga-modules.js"></script>
+  <script defer src="/app.js"></script>
 </body>
 </html>`;
 }
 
-function buildCardHtml(product, index) {
-  const images = getProductImages(product);
-  const title = escapeHtml(product?.title || product?.name || "Bidhaa");
-  const sellerName = escapeHtml(product?.seller?.name || product?.shopName || product?.shop || "Winga Seller");
-  const sellerInitial = escapeHtml((sellerName || "W").trim().charAt(0).toUpperCase() || "W");
-  const price = Number(product?.price || 0);
-  const oldPrice = Number(product?.comparePrice || product?.originalPrice || 0);
-  const delay = (index % DEFAULT_FEED_LIMIT) * 0.04;
+function buildDiscoveryProductCardHtml(product, index, context) {
+  const safeCaption = escapeHtml(String(product.description || product.caption || product.name || product.shop || product.category || "").trim());
+  const seller = getSellerRecord(product, context.usersById);
+  const sellerName = escapeHtml(getProductSellerLabel(product, seller));
+  const sellerAvatar = buildSellerAvatarMarkup(product, seller);
+  const galleryMarkup = renderFeedGalleryMarkup(product, {
+    preload: index < 4,
+    priorityCount: index < 4 ? 1 : 0
+  });
+  const likeFollowShareMarkup = renderSellerCardInlineActions(product, context);
+  const overflowMenuMarkup = renderProductOverflowMenu(product, context);
+  const actionGroupMarkup = renderProductActionGroup(product, context, {
+    extraClass: "seller-product-actions seller-product-actions-compact"
+  });
 
   return `
-    <div class="card" style="animation-delay:${delay}s">
-      <div class="seller">
-        <div class="seller-avatar">${sellerInitial}</div>
-        <div class="seller-name">${sellerName}</div>
+    <article class="seller-product-card${Array.isArray(product.images) && product.images.length > 1 ? " has-gallery-count-badge" : ""}" data-open-product="${escapeHtml(product.id)}" data-feed-entry-key="product:${escapeHtml(product.id)}" data-feed-entry-type="product">
+      <div class="seller-product-card-media">
+        ${galleryMarkup}
       </div>
-      <div class="card-img-wrap">
-        ${images.map((image, imageIndex) => `
-          <img
-            src="${escapeAttribute(getImageUrl(image) || "")}"
-            alt="${title}"
-            style="display:${imageIndex === 0 ? "block" : "none"}"
-            loading="${index < 3 ? "eager" : "lazy"}"
-            fetchpriority="${index < 2 ? "high" : "auto"}"
-          >
-        `).join("")}
-        ${images.length > 1 ? `
-          <div class="carousel-dots">
-            ${images.map((_, imageIndex) => `<div class="dot ${imageIndex === 0 ? "active" : ""}"></div>`).join("")}
-          </div>
-        ` : ""}
-      </div>
-      <div class="card-body">
-        <div class="card-title">${title}</div>
-        <div class="card-price">
-          TSh ${price.toLocaleString()}
-          ${oldPrice > price ? `<span>TSh ${oldPrice.toLocaleString()}</span>` : ""}
+      ${overflowMenuMarkup}
+      <div class="product-seller-row">
+        <div class="product-seller-avatar">${sellerAvatar}</div>
+        <div class="product-seller-copy">
+          <strong class="product-seller-name">${sellerName}</strong>
+        </div>
+        <div class="product-seller-badge-row product-seller-inline-actions">
+          ${likeFollowShareMarkup}
         </div>
       </div>
-      <div class="card-actions">
-        <button class="btn-like" aria-label="Like">🤍</button>
-        <button class="btn-buy">Nunua Sasa</button>
+      <div class="product-card-caption-block${safeCaption.length > 120 ? " is-collapsed" : ""}">
+        <p class="product-card-caption">${safeCaption}</p>
+        ${safeCaption.length > 120 ? `<button class="product-caption-toggle" type="button" data-product-caption-toggle="true" aria-expanded="false">See more</button>` : ""}
+      </div>
+      ${product.feedVariantResurface ? `<p class="product-meta trust-badges"><span class="status-pill approved sponsored-pill">Other color</span></p>` : ""}
+      ${actionGroupMarkup}
+    </article>
+  `;
+}
+
+function renderSellerCardInlineActions(product, context) {
+  const sellerId = String(product?.uploadedBy || "").trim();
+  if (!sellerId) {
+    return "";
+  }
+  const currentUser = String(context?.session?.username || "").trim();
+  const viewerRole = String(context?.session?.role || "").trim().toLowerCase();
+  const liked = Boolean(product?.isLiked || product?.liked);
+  const actions = [];
+
+  actions.push(`<button class="product-seller-inline-action product-seller-like-chip${liked ? " is-active" : ""}" type="button" data-like-product="${escapeHtml(String(product?.id || "").trim())}">${liked ? "♥ Like" : "♡ Like"}</button>`);
+
+  if (currentUser && sellerId !== currentUser && viewerRole !== "admin" && viewerRole !== "moderator") {
+    actions.push(`<button class="product-seller-inline-action" type="button" data-follow-seller="${escapeHtml(sellerId)}">Follow</button>`);
+  }
+
+  actions.push(`<button class="product-seller-inline-action" type="button" data-share-seller-shop="${escapeHtml(sellerId)}">Share</button>`);
+
+  if (currentUser && sellerId === currentUser && viewerRole === "seller") {
+    actions.push(renderSellerCardPromoteChip(product));
+  }
+
+  return actions.join("");
+}
+
+function renderSellerCardPromoteChip(product) {
+  return `<button class="product-seller-inline-action product-seller-promote-chip" type="button" data-promote-product="${escapeHtml(product.id)}" data-promote-authorized="true" data-promote-product-owner="${escapeHtml(product.uploadedBy || "")}" data-promote-product-name="${escapeHtml(product.name || "")}" data-promote-product-shop="${escapeHtml(product.shop || "")}" data-promote-product-whatsapp="${escapeHtml(product.whatsapp || "")}" data-promote-product-location="${escapeHtml(product.location || "")}" data-promote-product-category="${escapeHtml(product.category || "")}">Promote</button>`;
+}
+
+function renderProductOverflowMenu(product, context) {
+  const currentUser = String(context?.session?.username || "").trim();
+  const isOwner = Boolean(currentUser && product?.uploadedBy === currentUser);
+  if (!isOwner) {
+    return "";
+  }
+  return `
+    <div class="product-menu product-menu-overlay" data-product-menu="${escapeHtml(product.id)}">
+      <button class="product-menu-toggle" type="button" aria-label="Fungua menu" data-menu-toggle="${escapeHtml(product.id)}">&#8942;</button>
+      <div class="product-menu-popup" data-menu-popup="${escapeHtml(product.id)}">
+        <button class="product-menu-item" type="button" data-menu-action="share" data-id="${escapeHtml(product.id)}">Share</button>
+        <button class="product-menu-item" type="button" data-menu-action="download" data-id="${escapeHtml(product.id)}">Download</button>
+        <button class="product-menu-item product-menu-item-danger" type="button" data-menu-action="delete" data-id="${escapeHtml(product.id)}">Delete</button>
       </div>
     </div>
   `;
+}
+
+function renderProductActionGroup(product, context, options = {}) {
+  const currentUser = String(context?.session?.username || "").trim();
+  const viewerRole = String(context?.session?.role || "").trim().toLowerCase();
+  const extraClass = String(options.extraClass || "").trim();
+  const actions = [];
+
+  if (product?.uploadedBy === currentUser) {
+    if (viewerRole === "seller") {
+      actions.push(`<button class="action-btn chat-btn" type="button" data-open-own-messages="${escapeHtml(product.id)}">Message</button>`);
+    }
+  } else if (product?.status === "approved") {
+    actions.push(`<button class="action-btn chat-btn" type="button" data-chat-product="${escapeHtml(product.id)}">Message</button>`);
+  } else {
+    actions.push(`<button class="action-btn chat-btn is-disabled" type="button" disabled aria-disabled="true">Message</button>`);
+  }
+
+  if (viewerRole === "seller") {
+    actions.push(`<button class="action-btn action-btn-secondary repost-btn" type="button" data-detail-repost="${escapeHtml(product.id)}">Uza</button>`);
+  }
+
+  if (String(product?.whatsapp || "").trim()) {
+    actions.push(`<button class="button whatsapp-chat-btn" type="button" data-open-product-whatsapp="${escapeHtml(product.id)}">WhatsApp</button>`);
+  }
+
+  const actionCount = Math.min(Math.max(actions.length, 1), 3);
+  const groupClass = extraClass
+    ? `product-actions product-actions-simple product-actions-count-${actionCount} ${extraClass}`
+    : `product-actions product-actions-simple product-actions-count-${actionCount}`;
+  return actions.length ? `<div class="${groupClass}" data-action-count="${actionCount}">${actions.join("")}</div>` : "";
+}
+
+function renderFeedGalleryMarkup(product, options = {}) {
+  const images = getRenderableMarketplaceImages(product);
+  const total = images.length;
+  const initialImageIndex = Math.max(0, Math.min(total - 1, Number(product?.feedInitialImageIndex || product?.visibleImageIndex || product?.variantDisplayIndex || 0) || 0));
+  const fitMode = "contain";
+  const slidesMarkup = images.map((imageSrc, index) => {
+    const safeSrc = escapeHtml(imageSrc);
+    return `
+      <div class="feed-gallery-carousel-slide" data-feed-gallery-slide="${index}">
+        <img
+          src="${safeSrc}"
+          alt="${escapeHtml(`${product?.name || product?.shop || "Product image"} ${index + 1}`)}"
+          class="feed-gallery-image feed-gallery-image-social"
+          loading="${options.preload && index === initialImageIndex ? "eager" : "lazy"}"
+          fetchpriority="${options.preload && index === initialImageIndex ? "high" : "auto"}"
+          decoding="async"
+          draggable="false"
+          data-preserve-image-ratio="true"
+          data-marketplace-scroll-image="true"
+          data-feed-gallery-primary="${index === initialImageIndex ? "true" : "false"}"
+          data-feed-gallery-image-src="${safeSrc}"
+          data-fallback-src="/winga-icon.svg"
+          data-direct-visibility="true"
+          ${index !== initialImageIndex ? `style="display:none"` : ""}
+        >
+      </div>
+    `;
+  }).join("");
+
+  return `
+    <div class="product-gallery media-gallery feed-gallery-preview feed-gallery-carousel fit-mode-${fitMode}"
+      data-feed-gallery-carousel="true"
+      data-feed-gallery-total="${total}"
+      data-feed-gallery-current="${initialImageIndex + 1}"
+      data-feed-gallery-initial-index="${initialImageIndex}"
+      data-feed-gallery-surface="feed"
+      data-feed-gallery-stable-fit-mode="${fitMode}"
+      data-fit-mode="${fitMode}">
+      <div class="feed-gallery-carousel-track" data-feed-gallery-track>
+        ${slidesMarkup}
+      </div>
+      ${total > 1 ? `<span class="feed-gallery-count-badge" data-feed-gallery-count>${initialImageIndex + 1}/${total}</span>` : ""}
+    </div>
+  `;
+}
+
+function normalizeProductCollection(payload) {
+  const source = Array.isArray(payload)
+    ? payload
+    : Array.isArray(payload?.items)
+      ? payload.items
+      : Array.isArray(payload?.products)
+        ? payload.products
+        : [];
+  return source.map((product) => normalizeProductForStream(product)).filter(Boolean);
+}
+
+function normalizeProductForStream(product, options = {}) {
+  if (!product || typeof product !== "object") {
+    return null;
+  }
+  const baseImages = normalizeImageCollection(product.images || product.imageUrls || product.gallery || []);
+  if (typeof product.image === "string" && product.image.trim()) {
+    baseImages.unshift(product.image.trim());
+  }
+  const dedupedBaseImages = dedupeUrls(baseImages);
+  const variants = normalizeVariantCollection(product.variants || product.variations || [], options.usersById);
+  const variantCount = variants.length;
+  const feedPosition = Number(options.feedPosition || 0) || 0;
+  const chosenVariantIndex = variantCount > 0 ? feedPosition % variantCount : 0;
+  const chosenVariant = variantCount > 0 ? variants[chosenVariantIndex] : null;
+  const displayImages = dedupeUrls(chosenVariant?.images?.length ? chosenVariant.images : dedupedBaseImages);
+  const images = displayImages.length ? displayImages : ["/winga-icon.svg"];
+  return {
+    ...product,
+    id: String(product.id || product.productId || product.slug || `product-${feedPosition}`).trim(),
+    name: String(product.name || product.title || "Bidhaa").trim(),
+    description: String(product.description || product.caption || "").trim(),
+    shop: String(product.shop || product.shopName || product.sellerName || product.uploadedBy || "Seller").trim(),
+    uploadedBy: String(product.uploadedBy || product.sellerId || product.username || "").trim(),
+    price: Number(product.price || 0),
+    comparePrice: Number(product.comparePrice || product.oldPrice || 0),
+    category: String(product.category || "").trim(),
+    whatsapp: String(product.whatsapp || product.whatsappNumber || "").trim(),
+    location: String(product.location || "").trim(),
+    status: String(product.status || "approved").trim(),
+    availability: String(product.availability || "available").trim(),
+    fitMode: String(product.fitMode || "contain").trim().toLowerCase() === "cover" ? "cover" : "contain",
+    likes: Number(product.likes || 0),
+    isLiked: Boolean(product.isLiked || product.liked),
+    images,
+    image: images[0] || "/winga-icon.svg",
+    variants,
+    variantDisplayIndex: chosenVariant ? 0 : 0,
+    feedInitialImageIndex: 0
+  };
+}
+
+function normalizeVariantCollection(variants = []) {
+  return (Array.isArray(variants) ? variants : [])
+    .map((variant) => {
+      if (!variant || typeof variant !== "object") {
+        return null;
+      }
+      const images = dedupeUrls(normalizeImageCollection(variant.images || variant.gallery || []));
+      if (!images.length) {
+        return null;
+      }
+      return {
+        ...variant,
+        color: String(variant.color || variant.name || "").trim(),
+        images
+      };
+    })
+    .filter(Boolean);
+}
+
+function normalizeImageCollection(images) {
+  const source = Array.isArray(images) ? images : [images];
+  return source
+    .map((image) => {
+      if (!image) {
+        return "";
+      }
+      if (typeof image === "string") {
+        return toEdgeImageUrl(image.trim());
+      }
+      const raw = image.url || image.src || image.imageUrl || image.secure_url || "";
+      return toEdgeImageUrl(String(raw || "").trim());
+    })
+    .filter(Boolean);
+}
+
+function getRenderableMarketplaceImages(product) {
+  const images = Array.isArray(product?.images) ? product.images : [];
+  return images.length ? dedupeUrls(images.map((image) => toEdgeImageUrl(String(image || "").trim())).filter(Boolean)) : ["/winga-icon.svg"];
+}
+
+function getSellerRecord(product, usersById = {}) {
+  const sellerId = String(product?.uploadedBy || "").trim();
+  return sellerId ? usersById[sellerId] || null : null;
+}
+
+function getProductSellerLabel(product, seller) {
+  return String(product?.shop || seller?.fullName || product?.uploadedBy || "Seller").trim();
+}
+
+function buildSellerAvatarMarkup(product, seller) {
+  const sellerName = getProductSellerLabel(product, seller);
+  const avatarSrc = toEdgeImageUrl(String(seller?.profileImage || "").trim());
+  const verifiedBadge = seller?.verifiedSeller
+    ? `<span class="product-seller-avatar-verified-badge" aria-label="Verified seller" title="Verified seller">✓</span>`
+    : "";
+  if (avatarSrc) {
+    return `<img class="product-seller-avatar-image" src="${escapeHtml(avatarSrc)}" alt="${escapeHtml(sellerName)}" loading="lazy" decoding="async">${verifiedBadge}`;
+  }
+  return `<span>${escapeHtml(getUserInitials(sellerName))}</span>${verifiedBadge}`;
+}
+
+function extractAllImageUrls(products = [], usersById = {}) {
+  const urls = new Set();
+  products.forEach((product) => {
+    getRenderableMarketplaceImages(product).forEach((src) => urls.add(src));
+    (product?.variants || []).forEach((variant) => {
+      (variant?.images || []).forEach((src) => {
+        if (src) {
+          urls.add(toEdgeImageUrl(String(src || "").trim()));
+        }
+      });
+    });
+    const seller = getSellerRecord(product, usersById);
+    const avatarSrc = toEdgeImageUrl(String(seller?.profileImage || "").trim());
+    if (avatarSrc) {
+      urls.add(avatarSrc);
+    }
+  });
+  return Array.from(urls);
+}
+
+function toEdgeImageUrl(src = "") {
+  const safeSrc = String(src || "").trim();
+  if (!safeSrc) {
+    return "";
+  }
+  if (/^data:/i.test(safeSrc)) {
+    return safeSrc;
+  }
+  try {
+    const parsed = new URL(safeSrc, "https://wingamarket.com");
+    if (parsed.pathname.startsWith("/uploads/")) {
+      return parsed.pathname + parsed.search;
+    }
+    if (parsed.hostname === "winga-pflp.onrender.com" && parsed.pathname.startsWith("/uploads/")) {
+      return parsed.pathname + parsed.search;
+    }
+    if (parsed.origin === "https://wingamarket.com") {
+      return parsed.pathname + parsed.search;
+    }
+    return parsed.toString();
+  } catch (_error) {
+    return safeSrc;
+  }
+}
+
+function dedupeUrls(list = []) {
+  return Array.from(new Set((Array.isArray(list) ? list : []).filter(Boolean)));
+}
+
+function getUserInitials(value = "") {
+  return String(value || "")
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part.charAt(0))
+    .join("")
+    .toUpperCase() || "S";
 }
 
 async function handleImageCache(request, env, ctx) {
@@ -527,50 +880,67 @@ async function handleImageCache(request, env, ctx) {
   }
 
   const origin = getOriginBaseUrl(env);
-  const originUrl = new URL(request.url);
-  originUrl.hostname = new URL(origin).hostname;
-  originUrl.protocol = new URL(origin).protocol;
-  originUrl.port = new URL(origin).port;
+  const upstreamUrl = new URL(request.url);
+  const originUrl = `${origin}${upstreamUrl.pathname}${upstreamUrl.search}`;
 
   try {
-    const response = await fetch(originUrl.toString(), {
+    const response = await fetch(originUrl, {
       cf: {
         cacheTtl: IMAGE_EDGE_TTL_SECONDS,
         cacheEverything: true
-      },
-      headers: forwardProxyHeaders(request)
+      }
     });
-
     if (!response.ok) {
-      return buildPlaceholderImageResponse();
+      throw new Error(`Image origin failed with ${response.status}`);
     }
-
-    const headers = new Headers(response.headers);
-    headers.set("Cache-Control", `public, max-age=${IMAGE_EDGE_TTL_SECONDS}, s-maxage=${IMAGE_EDGE_TTL_SECONDS}`);
-
-    const toCache = new Response(response.body, {
+    const proxied = new Response(response.body, {
       status: response.status,
-      headers
+      statusText: response.statusText,
+      headers: {
+        "Content-Type": response.headers.get("Content-Type") || "image/jpeg",
+        "Cache-Control": `public, max-age=${IMAGE_EDGE_TTL_SECONDS}`
+      }
     });
-    ctx.waitUntil(cache.put(request, toCache.clone()));
-    return toCache;
+    ctx.waitUntil(cache.put(request, proxied.clone()));
+    return proxied;
   } catch (_error) {
-    return buildPlaceholderImageResponse();
+    return new Response(
+      `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1200" viewBox="0 0 1200 1200"><rect width="1200" height="1200" fill="#f4f4f5"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#d94f00" font-family="Arial, sans-serif" font-size="120">W</text></svg>`,
+      {
+        headers: {
+          "Content-Type": "image/svg+xml; charset=utf-8",
+          "Cache-Control": "no-store"
+        }
+      }
+    );
   }
 }
 
 async function proxyToOrigin(request, env) {
   const origin = getOriginBaseUrl(env);
-  const sourceUrl = new URL(request.url);
-  const targetUrl = new URL(sourceUrl.pathname + sourceUrl.search, origin);
-  return fetch(new Request(targetUrl.toString(), request), {
-    headers: forwardProxyHeaders(request)
-  });
+  const requestUrl = new URL(request.url);
+  const targetUrl = `${origin}${requestUrl.pathname}${requestUrl.search}`;
+  return fetch(new Request(targetUrl, request));
 }
 
 function forwardProxyHeaders(request) {
-  const headers = new Headers(request.headers);
-  headers.set("X-Forwarded-Host", new URL(request.url).host);
+  const headers = new Headers();
+  const cookie = request.headers.get("Cookie");
+  const authorization = request.headers.get("Authorization");
+  const accept = request.headers.get("Accept");
+  const userAgent = request.headers.get("User-Agent");
+  if (cookie) {
+    headers.set("Cookie", cookie);
+  }
+  if (authorization) {
+    headers.set("Authorization", authorization);
+  }
+  if (accept) {
+    headers.set("Accept", accept);
+  }
+  if (userAgent) {
+    headers.set("User-Agent", userAgent);
+  }
   return headers;
 }
 
@@ -578,85 +948,32 @@ function getOriginBaseUrl(env) {
   return String(env?.ORIGIN_BASE_URL || env?.ORIGIN || ORIGIN_BASE_URL).replace(/\/+$/, "");
 }
 
-function normalizeProductCollection(payload) {
-  if (Array.isArray(payload?.items)) {
-    return payload.items;
-  }
-  if (Array.isArray(payload?.products)) {
-    return payload.products;
-  }
-  if (Array.isArray(payload)) {
-    return payload;
-  }
-  return [];
+function serializeForInlineScript(value) {
+  return JSON.stringify(value).replace(/</g, "\\u003c");
 }
 
-function getProductImages(product) {
-  const images = Array.isArray(product?.images) && product.images.length
-    ? product.images
-    : Array.isArray(product?.gallery) && product.gallery.length
-      ? product.gallery
-      : Array.isArray(product?.photos) && product.photos.length
-        ? product.photos
-        : [{ url: "" }];
-  return images;
-}
-
-function getImageUrl(image) {
-  if (!image) {
-    return "";
-  }
-  if (typeof image === "string") {
-    return image;
-  }
-  return image.url || image.src || image.imageUrl || image.feedImage || image.feedImageUrl || "";
-}
-
-function escapeHtml(value) {
+function escapeHtml(value = "") {
   return String(value || "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-function escapeAttribute(value) {
-  return escapeHtml(value).replace(/'/g, "&#39;");
-}
-
-function serializeForInlineScript(value) {
-  return JSON.stringify(value ?? null).replace(/</g, "\\u003c");
-}
-
-function buildPlaceholderImageResponse() {
-  const svg = `
-    <svg xmlns="http://www.w3.org/2000/svg" width="720" height="720" viewBox="0 0 720 720" role="img" aria-label="Winga image placeholder">
-      <rect width="720" height="720" fill="#f5ede7"/>
-      <rect x="150" y="150" width="420" height="420" rx="36" fill="#ffffff"/>
-      <circle cx="360" cy="305" r="72" fill="#ff6b00" opacity="0.18"/>
-      <path d="M220 500l96-118 84 76 64-84 116 126H220z" fill="#ff6b00" opacity="0.28"/>
-      <text x="360" y="620" text-anchor="middle" fill="#ff6b00" font-family="Arial, sans-serif" font-size="34" font-weight="700">WINGA</text>
-    </svg>
-  `.trim();
-  return new Response(svg, {
-    headers: {
-      "Content-Type": "image/svg+xml; charset=utf-8",
-      "Cache-Control": "public, max-age=300"
-    }
-  });
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 function getFallbackProducts() {
-  return Array.from({ length: 6 }, (_, index) => ({
+  return Array.from({ length: DEFAULT_FEED_LIMIT }, (_, index) => normalizeProductForStream({
     id: `fallback-${index + 1}`,
-    title: "Bidhaa Inapakia...",
+    name: "Bidhaa inakuja...",
+    description: "Tunatafuta bidhaa za karibu na ladha yako.",
+    shop: "Winga",
+    uploadedBy: "winga",
     price: 0,
-    images: [{ url: "data:image/svg+xml;charset=UTF-8," + encodeURIComponent(`
-      <svg xmlns='http://www.w3.org/2000/svg' width='720' height='720' viewBox='0 0 720 720'>
-        <rect width='720' height='720' fill='#f5ede7'/>
-        <text x='360' y='360' text-anchor='middle' fill='#ff6b00' font-family='Arial, sans-serif' font-size='38' font-weight='700'>Winga</text>
-      </svg>
-    `.trim()) }],
-    seller: { name: "Winga" }
+    images: ["/winga-icon.svg"],
+    status: "approved",
+    availability: "available",
+    whatsapp: ""
+  }, {
+    feedPosition: index
   }));
 }

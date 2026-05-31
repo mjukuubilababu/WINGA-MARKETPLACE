@@ -3447,6 +3447,43 @@
 
   async function loadInitialState(adapter) {
     state.productsHydrated = false;
+    const streamedSession = (typeof window !== "undefined" && window.__WINGA_BIG_PIPE_INITIAL_SESSION__ && typeof window.__WINGA_BIG_PIPE_INITIAL_SESSION__ === "object")
+      ? window.__WINGA_BIG_PIPE_INITIAL_SESSION__
+      : null;
+    if (streamedSession?.username) {
+      const existingSession = sessionAdapter.loadSession();
+      if (!existingSession?.username) {
+        sessionAdapter.saveSession(streamedSession);
+      }
+    }
+    const streamedProducts = (typeof window !== "undefined" && Array.isArray(window.__WINGA_BIG_PIPE_INITIAL_PRODUCTS__))
+      ? window.__WINGA_BIG_PIPE_INITIAL_PRODUCTS__.slice()
+      : [];
+    if (streamedProducts.length) {
+      state.products = streamedProducts;
+      if (typeof window !== "undefined" && typeof window.dispatchEvent === "function" && typeof window.CustomEvent === "function") {
+        window.dispatchEvent(new window.CustomEvent("winga:products-hydrated", {
+          detail: {
+            status: "streamed",
+            count: state.products.length
+          }
+        }));
+      }
+    }
+    const streamedUsers = (typeof window !== "undefined" && Array.isArray(window.__WINGA_BIG_PIPE_INITIAL_USERS__))
+      ? window.__WINGA_BIG_PIPE_INITIAL_USERS__.slice()
+      : [];
+    if (streamedUsers.length) {
+      state.users = streamedUsers;
+      if (typeof window !== "undefined" && typeof window.dispatchEvent === "function" && typeof window.CustomEvent === "function") {
+        window.dispatchEvent(new window.CustomEvent("winga:data-hydrated", {
+          detail: {
+            source: "streamed-users",
+            count: state.users.length
+          }
+        }));
+      }
+    }
     if (typeof adapter.loadCachedProducts === "function") {
       try {
         const cachedProducts = await adapter.loadCachedProducts();
