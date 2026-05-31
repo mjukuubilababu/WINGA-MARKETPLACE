@@ -4,7 +4,7 @@
  * 2. Cloudflare Worker owns HTML streaming, /uploads/* image edge caching, and /api/* proxy behavior.
  * 3. App JS owns feed state and continuation; this Service Worker must never compete for those concerns.
  */
-const BUILD_VERSION = "20260531162023";
+const BUILD_VERSION = "20260531162829";
 const CACHE = `winga-shell-v5-${BUILD_VERSION}`;
 const SHELL_ASSETS = [
   "/",
