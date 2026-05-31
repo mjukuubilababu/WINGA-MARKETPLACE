@@ -1,4 +1,11 @@
 const ORIGIN_BASE_URL = "https://winga-pflp.onrender.com";
+/*
+ * WINGA BOOT OWNERSHIP
+ * 1. Cloudflare Worker owns first paint: inline splash, skeleton shell, streamed first feed batch.
+ * 2. Cloudflare Worker owns edge image caching for /uploads/* and API proxy routing.
+ * 3. App JS owns client state, feed continuation, sentinels, carousel, and interactions after first paint.
+ * 4. Service Worker is offline-shell only and must not compete with Worker image/API caching.
+ */
 const DEFAULT_FEED_LIMIT = 12;
 const BOOTSTRAP_TIMEOUT_MS = 3000;
 const IMAGE_EDGE_TTL_SECONDS = 60 * 60 * 24;
@@ -496,6 +503,8 @@ function buildDocumentShellEnd() {
   </div>
   <script>
     (function(){
+      window.__BIGPIPE_ACTIVE__ = true;
+      window.__WINGA_FEED_CONTINUATION_OWNER__ = "app-continuous-discovery";
       const urls = Array.isArray(window.__WINGA_BIG_PIPE_INITIAL_IMAGE_URLS__) ? window.__WINGA_BIG_PIPE_INITIAL_IMAGE_URLS__ : [];
       const cache = new Map();
       const preloadImage = (url) => {

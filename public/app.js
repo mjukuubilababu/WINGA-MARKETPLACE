@@ -6,7 +6,14 @@ const PENDING_GUEST_INTENT_KEY = "winga-pending-guest-intent";
 const SELLER_HISTORY_KEY_PREFIX = "winga-seller-history";
 const REQUEST_BOX_KEY_PREFIX = "winga-request-box";
 const APP_BOOT_BUILD_VERSION = document.querySelector('meta[name="winga-build"]')?.content || "";
-const APP_SERVICE_WORKER_PATH = "/service-worker.js";
+/*
+ * WINGA BOOT OWNERSHIP
+ * 1. Cloudflare Worker streams the splash, shell, and first feed batch.
+ * 2. This app runtime takes over after first paint for feed continuation, sentinels, carousel, and actions.
+ * 3. Service Worker is registered after the window load event and is limited to offline shell support.
+ * 4. There must be exactly one authoritative Service Worker registration path: /sw.js.
+ */
+const APP_SERVICE_WORKER_PATH = "/sw.js";
 const APP_STORAGE_SCHEMA_KEY = "winga-storage-schema-version";
 const HOME_SCROLL_STATE_KEY = "winga-home-scroll-state";
 const HOME_FEED_REFRESH_CURSOR_KEY = "winga-home-feed-refresh-cursor";
@@ -85,6 +92,8 @@ const HOME_INFINITE_SENTINEL_INJECT_OFFSET = 3;
 const HOME_INFINITE_SENTINEL_FETCH_COOLDOWN_MS = 240;
 const HOME_INFINITE_SENTINEL_PRELOAD_COOLDOWN_MS = 160;
 const HOME_INFINITE_SENTINEL_INJECT_COOLDOWN_MS = 220;
+// This continuous discovery pipeline is the single authoritative continuation system
+// after Big Pipe completes first paint. Do not add a competing client-side load-more owner.
 const HOME_INFINITE_READY_PRELOAD_TIMEOUT_MS = 3000;
 const HOME_INFINITE_DOM_INJECT_CHUNK_SIZE = 12;
 const HOME_INFINITE_BACKEND_REFRESH_COOLDOWN_MS = 15000;
@@ -854,13 +863,27 @@ async function registerAppServiceWorker() {
   if (!/^https?:$/i.test(String(window.location?.protocol || ""))) {
     return;
   }
+  if (document.readyState !== "complete") {
+    if (registerAppServiceWorker.deferredUntilLoad) {
+      return;
+    }
+    registerAppServiceWorker.deferredUntilLoad = true;
+    window.addEventListener("load", () => {
+      registerAppServiceWorker.deferredUntilLoad = false;
+      void registerAppServiceWorker();
+    }, { once: true });
+    return;
+  }
+  if (registerAppServiceWorker.started) {
+    return;
+  }
+  registerAppServiceWorker.started = true;
   if (isServiceWorkerRecoveryDisabled()) {
     await purgeStaleBrowserCacheArtifacts();
     return;
   }
 
   try {
-    const isFirstRunAfterStorageClear = !hasCompletedServiceWorkerFirstRun();
     const registration = await navigator.serviceWorker.register(`${APP_SERVICE_WORKER_PATH}?v=${encodeURIComponent(APP_BOOT_BUILD_VERSION || "0")}`, {
       scope: "/",
       updateViaCache: "none"
@@ -873,11 +896,8 @@ async function registerAppServiceWorker() {
         // Ignore update checks that fail on constrained/offline browsers.
       }
     }
-    if (isFirstRunAfterStorageClear) {
-      await waitForServiceWorkerReady(3000);
-      markServiceWorkerFirstRunComplete();
-    }
   } catch (error) {
+    registerAppServiceWorker.started = false;
     reportClientEvent("warn", "service_worker_registration_failed", "Service worker registration failed.", {
       category: "runtime"
     });

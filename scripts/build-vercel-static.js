@@ -18,7 +18,6 @@ const requiredRootFiles = [
   "splash-logo.png",
   "share-og.svg",
   "sw.js",
-  "service-worker.js",
   "apple-touch-icon.png",
   "apple-touch-icon-v3.png",
   "winga-icon-192.png",
@@ -49,7 +48,6 @@ const fileCopies = [
   ["splash-logo.png", "splash-logo.png"],
   ["share-og.svg", "share-og.svg"],
   ["sw.js", "sw.js"],
-  ["service-worker.js", "service-worker.js"],
   ["apple-touch-icon.png", "apple-touch-icon.png"],
   ["apple-touch-icon-v3.png", "apple-touch-icon-v3.png"],
   ["winga-icon-192.png", "winga-icon-192.png"],
@@ -880,7 +878,7 @@ async function main() {
     if (!hasGeneratedProductSharePages()) {
       restoreGeneratedPublicAssets(generatedAssetBackup);
     }
-    applyAssetVersionToServiceWorker(path.join(outputDir, "service-worker.js"), criticalImageUrls);
+    applyAssetVersionToServiceWorker(path.join(outputDir, "sw.js"), criticalImageUrls);
     verifyDistContents();
   } catch (error) {
     restoreGeneratedPublicAssets(generatedAssetBackup);
