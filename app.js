@@ -906,6 +906,19 @@ async function registerAppServiceWorker() {
   }
 }
 
+function scheduleSingleServiceWorkerRegistration() {
+  if (scheduleSingleServiceWorkerRegistration.queued) {
+    return;
+  }
+  scheduleSingleServiceWorkerRegistration.queued = true;
+  window.setTimeout(() => {
+    bindServiceWorkerDiagnostics();
+    registerAppServiceWorker().catch(() => {
+      // Ignore service worker registration failures on unsupported browsers.
+    });
+  }, 0);
+}
+
 function initializeBootstrapStorageVersion() {
   if (!APP_BOOT_BUILD_VERSION) {
     return;
@@ -20326,12 +20339,7 @@ async function bootApp() {
       uiRuntimeState.chromeResizeObserver.observe(bottomNav);
     }
 
-    window.setTimeout(() => {
-      bindServiceWorkerDiagnostics();
-      registerAppServiceWorker().catch(() => {
-        // Ignore service worker registration failures on unsupported browsers.
-      });
-    }, 0);
+    scheduleSingleServiceWorkerRegistration();
     return;
   }
 
@@ -20463,12 +20471,7 @@ async function bootApp() {
     uiRuntimeState.chromeResizeObserver.observe(bottomNav);
   }
 
-  window.setTimeout(() => {
-    bindServiceWorkerDiagnostics();
-    registerAppServiceWorker().catch(() => {
-      // Ignore service worker registration failures on unsupported browsers.
-    });
-  }, 0);
+  scheduleSingleServiceWorkerRegistration();
 }
 
 if (!uiRuntimeState.marketplaceImagePipelineLifecycleBound) {
