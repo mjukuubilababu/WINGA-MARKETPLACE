@@ -2123,7 +2123,7 @@
               ...createAuthHeaders()
             },
             signal: requestSignal,
-            timeoutMs: Number(window.WINGA_CONFIG?.sessionRestoreTimeoutMs || 8000)
+            timeoutMs: Number(window.WINGA_CONFIG?.sessionRestoreTimeoutMs || 5000)
           });
           if (!data || typeof data !== "object" || Array.isArray(data) || !String(data.username || "").trim()) {
             sessionAdapter.clearSession();

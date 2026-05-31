@@ -55,8 +55,8 @@ const HOME_VARIANT_INJECTION_PREFETCH_RADIUS = 1;
 const FEED_BOOT_IMAGE_WARM_COUNT = 24;
 const FEED_BOOT_IMAGE_DECODE_COUNT = 8;
 const SPLASH_FEED_IMAGE_READY_COUNT = 6;
-const SPLASH_FEED_IMAGE_READY_TIMEOUT_MS = 3000;
-const BOOT_OVERLAY_HARD_SAFETY_TIMEOUT_MS = 5000;
+const SPLASH_FEED_IMAGE_READY_TIMEOUT_MS = 2500;
+const BOOT_OVERLAY_HARD_SAFETY_TIMEOUT_MS = 4000;
 const SPLASH_FEED_IMAGE_READY_POLL_MS = 80;
 const FEED_PREDICTIVE_PRELOAD_COUNT = 6;
 const FEED_PREDICTIVE_NEXT_BATCH_SIZE = 6;
@@ -6831,72 +6831,81 @@ function forceStartupSplashImageRequest(image) {
   return safeSrc;
 }
 
+function collectStartupSplashFeedImageUrls(limit = SPLASH_FEED_IMAGE_READY_COUNT) {
+  return collectStartupSplashFeedImages(limit)
+    .map((image) => forceStartupSplashImageRequest(image))
+    .filter(Boolean)
+    .slice(0, Math.max(1, Number(limit || SPLASH_FEED_IMAGE_READY_COUNT)));
+}
+
 function waitForStartupSplashFeedImages(options = {}) {
   const requiredCount = Math.max(1, Number(options.requiredCount || SPLASH_FEED_IMAGE_READY_COUNT));
   const timeoutMs = Math.max(500, Math.min(
     SPLASH_FEED_IMAGE_READY_TIMEOUT_MS,
     Number(options.timeoutMs || SPLASH_FEED_IMAGE_READY_TIMEOUT_MS)
   ));
-  const images = collectStartupSplashFeedImages(requiredCount);
-  if (!images.length) {
+  const imageUrls = collectStartupSplashFeedImageUrls(requiredCount);
+  if (!imageUrls.length) {
+    hideBootOverlayImmediately();
+    reportClientEvent("info", "splash_feed_images_ready", "Splash feed image gate skipped because no startup images were required.", {
+      category: "image",
+      imageCount: 0,
+      requiredCount: 0,
+      timeoutMs
+    });
     return Promise.resolve(true);
   }
 
   resumeMarketplaceImagePipeline("splash_feed_image_gate");
-  images.forEach((image) => {
-    forceStartupSplashImageRequest(image);
-  });
 
-  const imageReadiness = Promise.allSettled(images.map((image) => new Promise((resolve) => {
-    if (isFeedImageReadyForSplash(image)) {
-      resolve(true);
+  const preloadPromise = Promise.allSettled(imageUrls.map((url) => new Promise((resolve) => {
+    if (!url || url.includes("undefined")) {
+      resolve({
+        url,
+        ok: false,
+        skipped: true
+      });
       return;
     }
-    const cleanup = () => {
-      image.removeEventListener("load", handleDone);
-      image.removeEventListener("error", handleDone);
-    };
-    const handleDone = () => {
-      cleanup();
-      resolve(isFeedImageReadyForSplash(image));
-    };
-    image.addEventListener("load", handleDone, { once: true, passive: true });
-    image.addEventListener("error", handleDone, { once: true, passive: true });
-    window.setTimeout(() => {
-      cleanup();
-      resolve(isFeedImageReadyForSplash(image));
-    }, timeoutMs);
-  })));
-
-  const pollingReadiness = new Promise((resolve) => {
-    const check = () => {
-      const readyCount = images.filter(isFeedImageReadyForSplash).length;
-      if (readyCount >= Math.min(requiredCount, images.length)) {
-        resolve(true);
+    const image = new Image();
+    let settled = false;
+    const finish = (ok) => {
+      if (settled) {
         return;
       }
-      window.setTimeout(check, SPLASH_FEED_IMAGE_READY_POLL_MS);
+      settled = true;
+      resolve({
+        url,
+        ok
+      });
     };
-    check();
-  });
+    image.crossOrigin = "anonymous";
+    image.onload = () => finish(true);
+    image.onerror = () => finish(false);
+    image.onabort = () => finish(false);
+    window.setTimeout(() => finish(false), 2000);
+    image.src = url;
+  })));
 
   const hardTimeout = new Promise((resolve) => {
-    window.setTimeout(() => {
-      const readyCount = images.filter(isFeedImageReadyForSplash).length;
-      reportClientEvent("info", "splash_feed_image_gate_timeout", "Splash feed image gate force-resolved to avoid blocking mobile startup.", {
-        category: "image",
-        readyCount,
-        requiredCount: Math.min(requiredCount, images.length),
-        imageCount: images.length,
-        timeoutMs
-      });
-      resolve(false);
-    }, timeoutMs);
+    window.setTimeout(() => resolve("timeout"), timeoutMs);
   });
 
   return Promise.race([
-    imageReadiness.then((results) => results.filter((entry) => entry.status === "fulfilled" && entry.value === true).length >= Math.min(requiredCount, images.length)),
-    pollingReadiness,
+    preloadPromise.then((results) => {
+      const fulfilled = results
+        .filter((entry) => entry.status === "fulfilled")
+        .map((entry) => entry.value);
+      const readyCount = fulfilled.filter((entry) => entry?.ok).length;
+      reportClientEvent("info", "splash_feed_images_ready", "Startup feed images resolved before splash finished.", {
+        category: "image",
+        readyCount,
+        requiredCount: Math.min(requiredCount, imageUrls.length),
+        imageCount: imageUrls.length,
+        timeoutMs
+      });
+      return true;
+    }),
     hardTimeout
   ]).finally(() => {
     hideBootOverlayImmediately();
@@ -18390,6 +18399,11 @@ function renderCurrentView(options = {}) {
   const reason = String(options?.reason || "direct_render");
   const force = Boolean(options?.force);
   bumpRuntimeDiagnostic("renderCurrentViewCalls");
+  try {
+    performance.mark("winga_render_start");
+  } catch (_error) {
+    // Ignore performance mark failures on older browsers.
+  }
   const now = Date.now();
   if (uiRuntimeState.isRenderingView) {
     queueRenderCurrentView(reason);
@@ -18517,6 +18531,17 @@ function renderCurrentView(options = {}) {
     const usesProgressiveHomeFeed = currentView === "home" && homeProducts.length > 10;
     applyFeedLayoutMode(productsContainer);
 
+    if (currentView === "home" && homeProducts.length) {
+      primeIncomingFeedItems(
+        homeProducts.slice(0, Math.min(homeProducts.length, 10)),
+        {
+          reason: `render_current_view_preprime_${reason}`,
+          productLimit: Math.min(homeProducts.length, 10),
+          decodeLimit: Math.min(homeProducts.length, 4)
+        }
+      );
+    }
+
     updateResultsMeta(homeProducts.length);
     renderMarketShowcase();
     renderProducts(homeProducts);
@@ -18554,16 +18579,23 @@ function renderCurrentView(options = {}) {
   } finally {
     uiRuntimeState.isRenderingView = false;
     uiRuntimeState.lastRenderCompletedAt = Date.now();
+    const renderDurationMs = getPerfNow() - startedAt;
+    try {
+      performance.mark("winga_render_end");
+      performance.measure("winga_render", "winga_render_start", "winga_render_end");
+    } catch (_error) {
+      // Ignore performance measure failures on older browsers.
+    }
     captureMemorySnapshot("render_complete", {
       view: currentView,
       reason
     });
-    reportSlowPath("render_current_view_slow", getPerfNow() - startedAt, {
+    reportSlowPath("render_current_view_slow", renderDurationMs, {
       view: currentView,
       productsCount: Array.isArray(products) ? products.length : 0,
       selectedCategory,
       reason
-    }, 120);
+    }, currentView === "home" ? 240 : 180);
     if (uiRuntimeState.pendingRenderRequested) {
       const nextReason = uiRuntimeState.pendingRenderReason || "queued_render";
       uiRuntimeState.pendingRenderRequested = false;
@@ -20144,7 +20176,7 @@ bindImageZoomInteractions();
 
 const SESSION_RESTORE_BOOT_TIMEOUT_MS = Math.max(
   2500,
-  Number(window.WINGA_CONFIG?.sessionRestoreTimeoutMs || 8000)
+  Number(window.WINGA_CONFIG?.sessionRestoreTimeoutMs || 5000)
 );
 const LIFECYCLE_FALLBACK_DELAY_MS = Math.max(
   1600,
