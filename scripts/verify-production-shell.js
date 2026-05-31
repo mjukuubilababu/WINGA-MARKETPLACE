@@ -4,7 +4,7 @@ const PRODUCTION_ORIGIN = process.env.WINGA_VERIFY_ORIGIN || "https://wingamarke
 const REQUIRED_ROUTES = [
   { path: "/", kind: "html" },
   { path: "/index.html", kind: "html" },
-  { path: "/service-worker.js", kind: "service-worker" },
+  { path: "/sw.js", kind: "service-worker" },
   { path: "/app.js", kind: "javascript" },
   { path: "/style.css", kind: "css" }
 ];
