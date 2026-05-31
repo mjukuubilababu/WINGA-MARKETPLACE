@@ -2203,6 +2203,11 @@ img[data-zoom-src]{
   padding:18px;
 }
 
+#products-container{
+  will-change:transform;
+  isolation:isolate;
+}
+
 #admin-panel{
   padding-bottom:calc(var(--app-bottom-offset, 16px) + 40px);
 }
@@ -5014,6 +5019,9 @@ body.product-detail-open{
   position:relative;
   box-shadow:0 16px 34px rgba(35, 47, 62, 0.08);
   -webkit-tap-highlight-color:transparent;
+  contain:layout style paint;
+  content-visibility:auto;
+  contain-intrinsic-size:0 480px;
 }
 
 .seller-product-card.is-action-touching,
@@ -5055,6 +5063,8 @@ body.product-detail-open{
   object-fit:cover;
   border-radius:18px;
   background:#f3f4f6;
+  decoding:async;
+  transform:translateZ(0);
 }
 
 .seller-product-card strong{

@@ -663,22 +663,26 @@ function renderFeedGalleryMarkup(product, options = {}) {
     const safeSrc = escapeHtml(imageSrc);
     return `
       <div class="feed-gallery-carousel-slide" data-feed-gallery-slide="${index}">
-        <img
-          src="${safeSrc}"
-          alt="${escapeHtml(`${product?.name || product?.shop || "Product image"} ${index + 1}`)}"
-          class="feed-gallery-image feed-gallery-image-social"
-          loading="${options.preload && index === initialImageIndex ? "eager" : "lazy"}"
-          fetchpriority="${options.preload && index === initialImageIndex ? "high" : "auto"}"
-          decoding="async"
-          draggable="false"
-          data-preserve-image-ratio="true"
-          data-marketplace-scroll-image="true"
-          data-feed-gallery-primary="${index === initialImageIndex ? "true" : "false"}"
-          data-feed-gallery-image-src="${safeSrc}"
-          data-fallback-src="/winga-icon.svg"
-          data-direct-visibility="true"
-          ${index !== initialImageIndex ? `style="display:none"` : ""}
-        >
+        <span class="progressive-image-shell fit-mode-${fitMode} is-loaded">
+          <img
+            src="${safeSrc}"
+            alt="${escapeHtml(`${product?.name || product?.shop || "Product image"} ${index + 1}`)}"
+            class="progressive-image-full feed-gallery-image feed-gallery-image-social"
+            loading="${index < 3 || (options.preload && index === initialImageIndex) ? "eager" : "lazy"}"
+            fetchpriority="${index < 3 || (options.preload && index === initialImageIndex) ? "high" : "auto"}"
+            decoding="async"
+            draggable="false"
+            data-preserve-image-ratio="true"
+            data-marketplace-scroll-image="true"
+            data-marketplace-real-src="${safeSrc}"
+            data-marketplace-image-state="loaded"
+            data-feed-gallery-primary="${index === initialImageIndex ? "true" : "false"}"
+            data-feed-gallery-image-src="${safeSrc}"
+            data-fallback-src="/winga-icon.svg"
+            data-direct-visibility="true"
+            ${index !== initialImageIndex ? `style="display:none"` : ""}
+          >
+        </span>
       </div>
     `;
   }).join("");

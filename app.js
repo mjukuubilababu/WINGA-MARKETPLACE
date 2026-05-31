@@ -79,14 +79,14 @@ const HOME_CONTINUOUS_BATCH_ADMISSION_SLOW_SCROLL_WAIT_MS = 140;
 const HOME_CONTINUOUS_PENDING_MEDIA_LOOKBACK = 8;
 const HOME_CONTINUOUS_MAX_PENDING_MEDIA_CARDS = 2;
 const HOME_CONTINUOUS_PENDING_DESCRIPTOR_LIMIT = 6;
-const HOME_INFINITE_SENTINEL_FETCH_OFFSET = 12;
-const HOME_INFINITE_SENTINEL_PRELOAD_OFFSET = 5;
-const HOME_INFINITE_SENTINEL_INJECT_OFFSET = 2;
+const HOME_INFINITE_SENTINEL_FETCH_OFFSET = 15;
+const HOME_INFINITE_SENTINEL_PRELOAD_OFFSET = 8;
+const HOME_INFINITE_SENTINEL_INJECT_OFFSET = 3;
 const HOME_INFINITE_SENTINEL_FETCH_COOLDOWN_MS = 240;
 const HOME_INFINITE_SENTINEL_PRELOAD_COOLDOWN_MS = 160;
 const HOME_INFINITE_SENTINEL_INJECT_COOLDOWN_MS = 220;
 const HOME_INFINITE_READY_PRELOAD_TIMEOUT_MS = 3000;
-const HOME_INFINITE_DOM_INJECT_CHUNK_SIZE = 3;
+const HOME_INFINITE_DOM_INJECT_CHUNK_SIZE = 12;
 const HOME_INFINITE_BACKEND_REFRESH_COOLDOWN_MS = 15000;
 const HOME_INFINITE_MAX_DOM_CARDS = 60;
 const PRODUCT_DETAIL_TRANSITION_PRELOAD_RADIUS = 2;
@@ -3629,7 +3629,13 @@ function insertContinuousNodesInFrames(anchor, nodes = [], options = {}) {
       }
       const chunk = queue.splice(0, chunkSize);
       const fragment = document.createDocumentFragment();
-      chunk.forEach((node) => fragment.appendChild(node));
+      chunk.forEach((node) => {
+        if (node instanceof HTMLElement) {
+          node.style.contentVisibility = "auto";
+          node.style.containIntrinsicSize = "0 480px";
+        }
+        fragment.appendChild(node);
+      });
       anchor.before(fragment);
       onChunk?.(chunk);
       if (!queue.length) {
