@@ -3610,6 +3610,25 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       attemptReveal();
     }
 
+    function getRenderableShowcaseCards(items, factory) {
+      if (!Array.isArray(items) || typeof factory !== "function") {
+        return [];
+      }
+      return items
+        .map((product) => factory(product))
+        .filter((card) => card instanceof Element);
+    }
+
+    function appendShowcaseCards(track, cards) {
+      if (!(track instanceof Element) || !Array.isArray(cards) || !cards.length) {
+        return 0;
+      }
+      const fragment = document.createDocumentFragment();
+      cards.forEach((card) => fragment.appendChild(card));
+      track.appendChild(fragment);
+      return cards.length;
+    }
+
     function repairShowcaseMediaVisibility(scope = document) {
       const isMobileViewport = window.matchMedia?.("(max-width: 780px)")?.matches;
       if (!isMobileViewport) {
@@ -3853,10 +3872,10 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       const feedEntryType = String(product?.feedEntryType || (product?.feedVariantResurface ? "variant" : "product")).trim().toLowerCase();
       const stableProductId = String(product?.id || product?.productId || "").trim();
       const variantDisplayIndex = Number(product?.variantDisplayIndex ?? product?.visibleImageIndex ?? product?.feedInitialImageIndex ?? 0) || 0;
-      const feedEntryKey = String(product?.feedEntryKey || (feedEntryType === "variant"
-        ? `variant:${stableProductId}:${variantDisplayIndex}`
-        : `product:${stableProductId}`)).trim();
       const feedSequenceIndex = Number(product?.feedSequenceIndex || 0) || 0;
+      const feedEntryKey = String(product?.feedEntryKey || (feedEntryType === "variant"
+        ? `variant:${stableProductId}:${variantDisplayIndex}${feedSequenceIndex ? `:${feedSequenceIndex}` : ""}`
+        : `product:${stableProductId}${feedSequenceIndex ? `:${feedSequenceIndex}` : ""}`)).trim();
       const stableInitialImageIndex = feedEntryType === "variant" ? variantDisplayIndex : 0;
       const card = createElement("article", {
         className: "product-card",
@@ -4033,6 +4052,10 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       if (!Array.isArray(items) || !items.length) {
         return null;
       }
+      const cards = getRenderableShowcaseCards(items, createIntelligentFeedCardElement);
+      if (!cards.length) {
+        return null;
+      }
       const section = createElement("section", {
         className: "showcase-inline panel recommendation-strip intelligent-feed-section",
         attributes: { "data-recommendation-type": type }
@@ -4048,13 +4071,17 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       });
       section.appendChild(sectionHeading);
       const track = createElement("div", { className: "showcase-track intelligent-feed-track" });
-      items.forEach((product) => track.appendChild(createIntelligentFeedCardElement(product)));
+      appendShowcaseCards(track, cards);
       section.appendChild(track);
       return section;
     }
 
     function createShowcaseSectionElement(items, index, heading = "Marketplace Picks", title = "Bidhaa kutoka maduka tofauti", subtitle = "Tembea kushoto au kulia kuona zaidi") {
       if (!items.length) {
+        return null;
+      }
+      const cards = getRenderableShowcaseCards(items, createShowcaseProductCardElement);
+      if (!cards.length) {
         return null;
       }
       const section = createElement("section", {
@@ -4072,7 +4099,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       });
       section.appendChild(sectionHeading);
       const track = createElement("div", { className: "showcase-track" });
-      items.forEach((product) => track.appendChild(createShowcaseProductCardElement(product)));
+      appendShowcaseCards(track, cards);
       section.appendChild(track);
       return section;
     }
@@ -4081,11 +4108,12 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       if (!track) {
         return;
       }
-      const fragment = document.createDocumentFragment();
-      (Array.isArray(items) ? items : []).forEach((product) => {
-        fragment.appendChild(createShowcaseProductCardElement(product));
-      });
-      track.replaceChildren(fragment);
+      const cards = getRenderableShowcaseCards(Array.isArray(items) ? items : [], createShowcaseProductCardElement);
+      track.replaceChildren(...cards);
+      const section = track.closest?.("#market-showcase, .showcase-inline, .recommendation-strip, .continuous-discovery-section");
+      if (section instanceof Element) {
+        section.style.display = cards.length ? "" : "none";
+      }
     }
 
     function createDynamicShowcasePlaceholderElement(index) {
@@ -4105,6 +4133,10 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       if (!items.length) {
         return null;
       }
+      const cards = getRenderableShowcaseCards(items, createShowcaseProductCardElement);
+      if (!cards.length) {
+        return null;
+      }
       const section = createElement("section", {
         className: "showcase-inline panel recommendation-strip",
         attributes: { "data-recommendation-type": type }
@@ -4120,7 +4152,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       });
       section.appendChild(sectionHeading);
       const track = createElement("div", { className: "showcase-track" });
-      items.forEach((product) => track.appendChild(createShowcaseProductCardElement(product)));
+      appendShowcaseCards(track, cards);
       section.appendChild(track);
       return section;
     }

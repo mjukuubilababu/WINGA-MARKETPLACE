@@ -9939,6 +9939,13 @@ button:hover,
   backdrop-filter:none;
 }
 
+#market-showcase:not(:has(#showcase-track > *)),
+.showcase-inline:not([data-dynamic-showcase-placeholder]):not(:has(.showcase-track > *)),
+.recommendation-strip:not(:has(.showcase-track > *)),
+.continuous-discovery-section:not(:has(.showcase-track > *)){
+  display:none !important;
+}
+
 .showcase-heading{
   padding:0 18px;
 }
