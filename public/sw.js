@@ -2,9 +2,7 @@ const CACHE = "winga-shell-v5";
 const SHELL = [
   "/",
   "/index.html",
-  "/manifest.json",
-  "/manifest-v4.webmanifest",
-  "/splash-logo.png"
+  "/manifest.json"
 ];
 
 self.addEventListener("install", (event) => {
