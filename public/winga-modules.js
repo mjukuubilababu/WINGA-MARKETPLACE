@@ -3433,9 +3433,21 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       }
 
       const sellerCopy = createElement("div", { className: "product-seller-copy" });
-      sellerCopy.append(
+      const sellerNameRow = createElement("div", { className: "product-seller-name-row" });
+      sellerNameRow.appendChild(
         createElement("strong", { className: "product-seller-name", textContent: getProductSellerLabel(product) })
       );
+      if (sellerUser?.verifiedSeller) {
+        sellerNameRow.appendChild(createElement("span", {
+          className: "product-seller-name-verified-badge",
+          textContent: "✓",
+          attributes: {
+            "aria-label": "Verified seller",
+            title: "Verified seller"
+          }
+        }));
+      }
+      sellerCopy.append(sellerNameRow);
 
       const createInlineActionButton = ({ className = "", icon = "", label = "", attributes = {} } = {}) => {
         const button = createElement("button", {
@@ -4016,6 +4028,11 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       if (caption) {
         body.appendChild(caption);
       }
+      body.append(
+        deps.createElementFromMarkup(
+          deps.renderProductActionGroup(product, { requestLabel: "My Request", extraClass: "showcase-actions showcase-actions-compact" })
+        )
+      );
       card.append(media, body);
       card.dataset.showcaseClickBound = "true";
       bindCardOpenHandler(card, product);
@@ -4049,6 +4066,14 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       if (caption) {
         body.appendChild(caption);
       }
+      body.append(
+        deps.createElementFromMarkup(
+          deps.renderProductActionGroup(product, {
+            requestLabel: "My Request",
+            extraClass: "showcase-actions showcase-actions-compact intelligent-feed-actions"
+          })
+        )
+      );
       card.append(media, body);
       bindCardOpenHandler(card, product);
       return card;

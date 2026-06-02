@@ -2005,8 +2005,20 @@ img[data-zoom-src]{
   display:flex;
   flex-wrap:nowrap;
   align-items:center;
-  gap:10px;
+  gap:8px;
   row-gap:0;
+  padding:10px 12px;
+  overflow-x:auto;
+  overflow-y:hidden;
+  scrollbar-width:none;
+  -ms-overflow-style:none;
+  white-space:nowrap;
+}
+
+.showcase-card .product-seller-row::-webkit-scrollbar,
+.intelligent-feed-card .product-seller-row::-webkit-scrollbar,
+.seller-product-card .product-seller-row::-webkit-scrollbar{
+  display:none;
 }
 
 .showcase-card .product-seller-copy,
@@ -2014,19 +2026,35 @@ img[data-zoom-src]{
 .seller-product-card .product-seller-copy{
   min-width:0;
   gap:3px;
-  flex:1 1 118px;
+  flex:0 0 auto;
+  display:flex;
+  align-items:center;
 }
 
 .showcase-card .product-seller-avatar,
 .intelligent-feed-card .product-seller-avatar,
 .seller-product-card .product-seller-avatar{
-  flex:0 0 40px;
+  flex:0 0 36px;
+  width:36px;
+  height:36px;
 }
 
-.showcase-card .product-seller-copy,
-.intelligent-feed-card .product-seller-copy,
-.seller-product-card .product-seller-copy{
-  flex:1 1 118px;
+.product-seller-name-row{
+  display:flex;
+  align-items:center;
+  gap:4px;
+  min-width:0;
+  white-space:nowrap;
+}
+
+.product-seller-name-verified-badge{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  color:#1da1f2;
+  font-size:0.95rem;
+  font-weight:800;
+  line-height:1;
 }
 
 .showcase-card .product-seller-badge,
@@ -2039,19 +2067,19 @@ img[data-zoom-src]{
 
 .product-seller-badge-row,
 .seller-product-card .product-seller-badge-row{
-  flex:0 1 auto;
+  flex:0 0 auto;
   display:flex;
   align-items:center;
   justify-content:flex-start;
-  gap:6px;
+  gap:8px;
   width:auto;
-  max-width:calc(100% - 170px);
-  min-width:0;
+  min-width:max-content;
   flex-wrap:nowrap;
   overflow-x:auto;
   overflow-y:hidden;
   scrollbar-width:none;
   -ms-overflow-style:none;
+  margin-right:8px;
 }
 
 .product-seller-badge-row::-webkit-scrollbar,
@@ -2077,6 +2105,7 @@ img[data-zoom-src]{
   line-height:1;
   white-space:nowrap;
   box-shadow:0 1px 2px rgba(15, 23, 42, 0.04);
+  flex-shrink:0;
 }
 
 .product-seller-inline-action.is-active{
@@ -2147,6 +2176,8 @@ img[data-zoom-src]{
   overflow:hidden;
   text-overflow:ellipsis;
   white-space:nowrap;
+  font-size:14px;
+  font-weight:600;
 }
 
 @media (max-width:720px){
