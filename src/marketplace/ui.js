@@ -418,21 +418,42 @@
         createElement("strong", { className: "product-seller-name", textContent: getProductSellerLabel(product) })
       );
 
-      const badgeRow = createElement("div", { className: "product-seller-badge-row product-seller-inline-actions" });
-      badgeRow.appendChild(createElement("button", {
-        className: `product-seller-inline-action product-seller-like-chip${productLiked ? " is-active" : ""}`,
-        textContent: productLiked ? "♥ Like" : "♡ Like",
-        attributes: {
-          type: "button",
-          "data-like-product": product.id || ""
-        }
-      }));
-      if (canFollowSeller) {
-        const followButton = createElement("button", {
-          className: "product-seller-inline-action",
-          textContent: deps.isSellerFollowed?.(product.uploadedBy) ? "Following" : "Follow",
+      const createInlineActionButton = ({ className = "", icon = "", label = "", attributes = {} } = {}) => {
+        const button = createElement("button", {
+          className: `product-seller-inline-action ${className}`.trim(),
           attributes: {
             type: "button",
+            ...attributes
+          }
+        });
+        if (icon) {
+          button.appendChild(createElement("span", {
+            className: "product-seller-inline-icon",
+            textContent: icon,
+            attributes: { "aria-hidden": "true" }
+          }));
+        }
+        button.appendChild(createElement("span", {
+          className: "product-seller-inline-label",
+          textContent: label
+        }));
+        return button;
+      };
+
+      const badgeRow = createElement("div", { className: "product-seller-badge-row product-seller-inline-actions" });
+      const likeButton = createInlineActionButton({
+        className: `product-seller-like-chip${productLiked ? " is-active" : ""}`,
+        icon: "♥",
+        label: "Like",
+        attributes: {
+          "data-like-product": product.id || ""
+        }
+      });
+      badgeRow.appendChild(likeButton);
+      if (canFollowSeller) {
+        const followButton = createInlineActionButton({
+          label: deps.isSellerFollowed?.(product.uploadedBy) ? "Following" : "Follow",
+          attributes: {
             "data-follow-seller": product.uploadedBy || ""
           }
         });
@@ -442,21 +463,19 @@
         badgeRow.appendChild(followButton);
       }
       if (canShareSeller) {
-        badgeRow.appendChild(createElement("button", {
-          className: "product-seller-inline-action",
-          textContent: "Share",
+        badgeRow.appendChild(createInlineActionButton({
+          icon: "↗",
+          label: "Share",
           attributes: {
-            type: "button",
             "data-share-seller-shop": product.uploadedBy || ""
           }
         }));
       }
       if (isOwnerSeller) {
-        const promoteButton = createElement("button", {
-          className: "product-seller-inline-action product-seller-promote-chip",
-          textContent: "Promote",
+        const promoteButton = createInlineActionButton({
+          className: "product-seller-promote-chip",
+          label: "Promote",
           attributes: {
-            type: "button",
             onclick: "return window.__wingaOpenPromotionFromTrigger ? window.__wingaOpenPromotionFromTrigger(this) : false;",
             "data-promote-product": product.id,
             "data-promote-authorized": "true",
@@ -978,11 +997,6 @@
       if (caption) {
         body.appendChild(caption);
       }
-      body.append(
-        deps.createElementFromMarkup(
-          deps.renderProductActionGroup(product, { requestLabel: "My Request", extraClass: "showcase-actions showcase-actions-compact" })
-        )
-      );
       card.append(media, body);
       card.dataset.showcaseClickBound = "true";
       bindCardOpenHandler(card, product);
@@ -1016,14 +1030,6 @@
       if (caption) {
         body.appendChild(caption);
       }
-      body.append(
-        deps.createElementFromMarkup(
-          deps.renderProductActionGroup(product, {
-            requestLabel: "My Request",
-            extraClass: "showcase-actions showcase-actions-compact intelligent-feed-actions"
-          })
-        )
-      );
       card.append(media, body);
       bindCardOpenHandler(card, product);
       return card;

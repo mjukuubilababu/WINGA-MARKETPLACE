@@ -17507,13 +17507,42 @@ function renderSellerCardInlineActions(product) {
   if (!sellerId) {
     return "";
   }
+  const createInlineActionMarkup = ({ className = "", icon = "", label = "", attributes = {} } = {}) => {
+    const safeClassName = `product-seller-inline-action ${className}`.trim();
+    const serializedAttributes = Object.entries(attributes)
+      .map(([name, value]) => `${name}="${escapeHtml(String(value ?? ""))}"`)
+      .join(" ");
+    const iconMarkup = icon
+      ? `<span class="product-seller-inline-icon" aria-hidden="true">${escapeHtml(icon)}</span>`
+      : "";
+    return `<button class="${safeClassName}" type="button"${serializedAttributes ? ` ${serializedAttributes}` : ""}>${iconMarkup}<span class="product-seller-inline-label">${escapeHtml(label)}</span></button>`;
+  };
   const actions = [];
   const liked = isProductSaved(product?.id);
-  actions.push(`<button class="product-seller-inline-action product-seller-like-chip${liked ? " is-active" : ""}" type="button" data-like-product="${escapeHtml(String(product?.id || "").trim())}">${liked ? "♥ Like" : "♡ Like"}</button>`);
+  actions.push(createInlineActionMarkup({
+    className: `product-seller-like-chip${liked ? " is-active" : ""}`,
+    icon: "♥",
+    label: "Like",
+    attributes: {
+      "data-like-product": String(product?.id || "").trim()
+    }
+  }));
   if (sellerId !== currentUser && canUseBuyerFeatures()) {
-    actions.push(`<button class="product-seller-inline-action${isSellerFollowed(sellerId) ? " is-active" : ""}" type="button" data-follow-seller="${escapeHtml(sellerId)}">${isSellerFollowed(sellerId) ? "Following" : "Follow"}</button>`);
+    actions.push(createInlineActionMarkup({
+      className: isSellerFollowed(sellerId) ? "is-active" : "",
+      label: isSellerFollowed(sellerId) ? "Following" : "Follow",
+      attributes: {
+        "data-follow-seller": sellerId
+      }
+    }));
   }
-  actions.push(`<button class="product-seller-inline-action" type="button" data-share-seller-shop="${escapeHtml(sellerId)}">Share</button>`);
+  actions.push(createInlineActionMarkup({
+    icon: "↗",
+    label: "Share",
+    attributes: {
+      "data-share-seller-shop": sellerId
+    }
+  }));
   if (currentUser && canUseSellerFeatures() && sellerId === currentUser) {
     actions.push(renderSellerCardPromoteChip(product));
   }

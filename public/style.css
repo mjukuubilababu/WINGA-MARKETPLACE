@@ -2064,39 +2064,52 @@ img[data-zoom-src]{
   display:inline-flex;
   align-items:center;
   justify-content:center;
-  min-height:28px;
-  padding:0 12px;
-  border:1px solid rgba(29, 78, 216, 0.28);
+  gap:6px;
+  min-height:34px;
+  padding:0 14px;
+  border:1px solid #e5e7eb;
   border-radius:999px;
-  background:#eff6ff;
-  color:#1d4ed8;
-  font-size:0.74rem;
+  background:#ffffff;
+  color:#111827;
+  font-size:0.9rem;
   font-weight:700;
-  letter-spacing:0.02em;
+  letter-spacing:0;
   line-height:1;
   white-space:nowrap;
+  box-shadow:0 1px 2px rgba(15, 23, 42, 0.04);
 }
 
 .product-seller-inline-action.is-active{
-  background:#dbeafe;
-  color:#1e40af;
-  border-color:rgba(30, 64, 175, 0.32);
+  background:#f8fafc;
+  color:#0f172a;
+  border-color:#cbd5e1;
 }
 
 .product-seller-like-chip{
-  min-width:70px;
-  color:#1d4ed8;
+  min-width:84px;
+}
+
+.product-seller-inline-icon{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  font-size:1rem;
+  line-height:1;
 }
 
 .product-seller-like-chip.is-active{
-  color:#1e3a8a;
-  border-color:rgba(30, 58, 138, 0.28);
-  background:#dbeafe;
+  color:#0f172a;
+  border-color:#cbd5e1;
+  background:#f8fafc;
+}
+
+.product-seller-like-chip .product-seller-inline-icon{
+  color:#ef4444;
 }
 
 .product-seller-promote-chip{
-  background:#dbeafe;
-  color:#1e40af;
+  background:#ffffff;
+  color:#111827;
 }
 
 .product-seller-promotion-state{
@@ -2121,7 +2134,7 @@ img[data-zoom-src]{
 
 .product-seller-inline-action:hover,
 .product-seller-promote-chip:hover{
-  background:#dbeafe;
+  background:#f8fafc;
 }
 
 .showcase-card .product-seller-name,
