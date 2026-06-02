@@ -1,6 +1,6 @@
 /*
   Cache-Control: public, max-age=31536000, immutable
-  Content-Security-Policy: connect-src 'self' https://winga-pflp.onrender.com
+  Content-Security-Policy: connect-src 'self'
 
 /product/*
   Cache-Control: no-store, must-revalidate

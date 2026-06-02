@@ -6756,36 +6756,11 @@ function showFatalStartupState(error) {
 
 function hideBootOverlayImmediately() {
   if (!bootOverlay) {
-    if (document.body.classList.contains("app-booting")) {
-      document.body.classList.remove("app-booting");
-      document.body.classList.add("app-ready");
-    }
-    if (feedRuntimeState) {
-      feedRuntimeState.splashFeedImageGateInFlight = false;
-    }
     return;
   }
   bootOverlay.classList.add("is-hidden");
   bootOverlay.setAttribute("aria-hidden", "true");
   bootOverlay.style.display = "none";
-  bootOverlay.style.visibility = "hidden";
-  bootOverlay.style.pointerEvents = "none";
-  if (document.body.classList.contains("app-booting")) {
-    document.body.classList.remove("app-booting");
-    document.body.classList.add("app-ready");
-  }
-  if (feedRuntimeState) {
-    feedRuntimeState.splashFeedImageGateInFlight = false;
-    if (feedRuntimeState.bootOverlayHardSafetyTimer) {
-      window.clearTimeout(feedRuntimeState.bootOverlayHardSafetyTimer);
-      feedRuntimeState.bootOverlayHardSafetyTimer = 0;
-    }
-  }
-  window.setTimeout(() => {
-    if (bootOverlay?.isConnected && bootOverlay.classList.contains("is-hidden")) {
-      bootOverlay.remove();
-    }
-  }, 360);
 }
 
 function hasVisibleStartupFeedMedia(options = {}) {
@@ -7008,14 +6983,11 @@ function revealBootOverlay() {
 function forceHideBootOverlaySafety(reason = "hard_safety") {
   const overlay = document.getElementById("boot-overlay");
   if (!overlay) {
-    hideBootOverlayImmediately();
     return;
   }
   overlay.classList.add("is-hidden");
   overlay.setAttribute("aria-hidden", "true");
   overlay.style.display = "none";
-  overlay.style.visibility = "hidden";
-  overlay.style.pointerEvents = "none";
   if (document.body.classList.contains("app-booting")) {
     document.body.classList.remove("app-booting");
     document.body.classList.add("app-ready");
@@ -7023,11 +6995,6 @@ function forceHideBootOverlaySafety(reason = "hard_safety") {
   if (feedRuntimeState) {
     feedRuntimeState.splashFeedImageGateInFlight = false;
   }
-  window.setTimeout(() => {
-    if (overlay.isConnected) {
-      overlay.remove();
-    }
-  }, 0);
   reportClientEvent("warn", "boot_overlay_force_hidden", "Boot overlay was force-hidden by the startup safety net.", {
     category: "runtime",
     reason
@@ -17507,42 +17474,13 @@ function renderSellerCardInlineActions(product) {
   if (!sellerId) {
     return "";
   }
-  const createInlineActionMarkup = ({ className = "", icon = "", label = "", attributes = {} } = {}) => {
-    const safeClassName = `product-seller-inline-action ${className}`.trim();
-    const serializedAttributes = Object.entries(attributes)
-      .map(([name, value]) => `${name}="${escapeHtml(String(value ?? ""))}"`)
-      .join(" ");
-    const iconMarkup = icon
-      ? `<span class="product-seller-inline-icon" aria-hidden="true">${escapeHtml(icon)}</span>`
-      : "";
-    return `<button class="${safeClassName}" type="button"${serializedAttributes ? ` ${serializedAttributes}` : ""}>${iconMarkup}<span class="product-seller-inline-label">${escapeHtml(label)}</span></button>`;
-  };
   const actions = [];
   const liked = isProductSaved(product?.id);
-  actions.push(createInlineActionMarkup({
-    className: `product-seller-like-chip${liked ? " is-active" : ""}`,
-    icon: "♥",
-    label: "Like",
-    attributes: {
-      "data-like-product": String(product?.id || "").trim()
-    }
-  }));
+  actions.push(`<button class="product-seller-inline-action product-seller-like-chip${liked ? " is-active" : ""}" type="button" data-like-product="${escapeHtml(String(product?.id || "").trim())}">${liked ? "♥ Like" : "♡ Like"}</button>`);
   if (sellerId !== currentUser && canUseBuyerFeatures()) {
-    actions.push(createInlineActionMarkup({
-      className: isSellerFollowed(sellerId) ? "is-active" : "",
-      label: isSellerFollowed(sellerId) ? "Following" : "Follow",
-      attributes: {
-        "data-follow-seller": sellerId
-      }
-    }));
+    actions.push(`<button class="product-seller-inline-action${isSellerFollowed(sellerId) ? " is-active" : ""}" type="button" data-follow-seller="${escapeHtml(sellerId)}">${isSellerFollowed(sellerId) ? "Following" : "Follow"}</button>`);
   }
-  actions.push(createInlineActionMarkup({
-    icon: "↗",
-    label: "Share",
-    attributes: {
-      "data-share-seller-shop": sellerId
-    }
-  }));
+  actions.push(`<button class="product-seller-inline-action" type="button" data-share-seller-shop="${escapeHtml(sellerId)}">Share</button>`);
   if (currentUser && canUseSellerFeatures() && sellerId === currentUser) {
     actions.push(renderSellerCardPromoteChip(product));
   }
@@ -20566,14 +20504,25 @@ if (!uiRuntimeState.marketplaceImagePipelineLifecycleBound) {
 }
 
 window.setTimeout(() => {
-  const overlay = document.getElementById("boot-overlay");
-  if (
-    overlay
-    && (!overlay.classList.contains("is-hidden") || overlay.style.display !== "none")
-  ) {
-    forceHideBootOverlaySafety("global_boot_safety");
+  const overlay =
+    document.getElementById("boot-overlay")
+    || document.querySelector(".boot-overlay")
+    || document.querySelector("[data-boot-overlay]")
+    || document.getElementById("splash-screen")
+    || document.getElementById("winga-splash");
+
+  if (!overlay) {
+    return;
   }
-}, BOOT_OVERLAY_HARD_SAFETY_TIMEOUT_MS);
+
+  overlay.style.display = "none";
+  overlay.style.visibility = "hidden";
+  overlay.style.pointerEvents = "none";
+  overlay.remove();
+  document.body.classList.remove("app-booting");
+  document.body.classList.add("app-ready");
+  console.log("[WINGA] Safety net: overlay removed");
+}, 4000);
 
 bootApp().catch((error) => {
   console.error("[WINGA] bootApp failed", error);

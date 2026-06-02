@@ -2005,20 +2005,8 @@ img[data-zoom-src]{
   display:flex;
   flex-wrap:nowrap;
   align-items:center;
-  gap:8px;
+  gap:10px;
   row-gap:0;
-  padding:10px 12px;
-  overflow-x:auto;
-  overflow-y:hidden;
-  scrollbar-width:none;
-  -ms-overflow-style:none;
-  white-space:nowrap;
-}
-
-.showcase-card .product-seller-row::-webkit-scrollbar,
-.intelligent-feed-card .product-seller-row::-webkit-scrollbar,
-.seller-product-card .product-seller-row::-webkit-scrollbar{
-  display:none;
 }
 
 .showcase-card .product-seller-copy,
@@ -2026,35 +2014,19 @@ img[data-zoom-src]{
 .seller-product-card .product-seller-copy{
   min-width:0;
   gap:3px;
-  flex:0 0 auto;
-  display:flex;
-  align-items:center;
+  flex:1 1 118px;
 }
 
 .showcase-card .product-seller-avatar,
 .intelligent-feed-card .product-seller-avatar,
 .seller-product-card .product-seller-avatar{
-  flex:0 0 36px;
-  width:36px;
-  height:36px;
+  flex:0 0 40px;
 }
 
-.product-seller-name-row{
-  display:flex;
-  align-items:center;
-  gap:4px;
-  min-width:0;
-  white-space:nowrap;
-}
-
-.product-seller-name-verified-badge{
-  display:inline-flex;
-  align-items:center;
-  justify-content:center;
-  color:#1da1f2;
-  font-size:0.95rem;
-  font-weight:800;
-  line-height:1;
+.showcase-card .product-seller-copy,
+.intelligent-feed-card .product-seller-copy,
+.seller-product-card .product-seller-copy{
+  flex:1 1 118px;
 }
 
 .showcase-card .product-seller-badge,
@@ -2067,19 +2039,19 @@ img[data-zoom-src]{
 
 .product-seller-badge-row,
 .seller-product-card .product-seller-badge-row{
-  flex:0 0 auto;
+  flex:0 1 auto;
   display:flex;
   align-items:center;
   justify-content:flex-start;
-  gap:8px;
+  gap:6px;
   width:auto;
-  min-width:max-content;
+  max-width:calc(100% - 170px);
+  min-width:0;
   flex-wrap:nowrap;
   overflow-x:auto;
   overflow-y:hidden;
   scrollbar-width:none;
   -ms-overflow-style:none;
-  margin-right:8px;
 }
 
 .product-seller-badge-row::-webkit-scrollbar,
@@ -2092,53 +2064,39 @@ img[data-zoom-src]{
   display:inline-flex;
   align-items:center;
   justify-content:center;
-  gap:6px;
-  min-height:34px;
-  padding:0 14px;
-  border:1px solid #e5e7eb;
+  min-height:28px;
+  padding:0 12px;
+  border:1px solid rgba(29, 78, 216, 0.28);
   border-radius:999px;
-  background:#ffffff;
-  color:#111827;
-  font-size:0.9rem;
+  background:#eff6ff;
+  color:#1d4ed8;
+  font-size:0.74rem;
   font-weight:700;
-  letter-spacing:0;
+  letter-spacing:0.02em;
   line-height:1;
   white-space:nowrap;
-  box-shadow:0 1px 2px rgba(15, 23, 42, 0.04);
-  flex-shrink:0;
 }
 
 .product-seller-inline-action.is-active{
-  background:#f8fafc;
-  color:#0f172a;
-  border-color:#cbd5e1;
+  background:#dbeafe;
+  color:#1e40af;
+  border-color:rgba(30, 64, 175, 0.32);
 }
 
 .product-seller-like-chip{
-  min-width:84px;
-}
-
-.product-seller-inline-icon{
-  display:inline-flex;
-  align-items:center;
-  justify-content:center;
-  font-size:1rem;
-  line-height:1;
+  min-width:70px;
+  color:#1d4ed8;
 }
 
 .product-seller-like-chip.is-active{
-  color:#0f172a;
-  border-color:#cbd5e1;
-  background:#f8fafc;
-}
-
-.product-seller-like-chip .product-seller-inline-icon{
-  color:#ef4444;
+  color:#1e3a8a;
+  border-color:rgba(30, 58, 138, 0.28);
+  background:#dbeafe;
 }
 
 .product-seller-promote-chip{
-  background:#ffffff;
-  color:#111827;
+  background:#dbeafe;
+  color:#1e40af;
 }
 
 .product-seller-promotion-state{
@@ -2163,7 +2121,7 @@ img[data-zoom-src]{
 
 .product-seller-inline-action:hover,
 .product-seller-promote-chip:hover{
-  background:#f8fafc;
+  background:#dbeafe;
 }
 
 .showcase-card .product-seller-name,
@@ -2176,8 +2134,6 @@ img[data-zoom-src]{
   overflow:hidden;
   text-overflow:ellipsis;
   white-space:nowrap;
-  font-size:14px;
-  font-weight:600;
 }
 
 @media (max-width:720px){
@@ -9981,13 +9937,6 @@ button:hover,
   border-radius:0;
   box-shadow:none;
   backdrop-filter:none;
-}
-
-#market-showcase:not(:has(#showcase-track > *)),
-.showcase-inline:not([data-dynamic-showcase-placeholder]):not(:has(.showcase-track > *)),
-.recommendation-strip:not(:has(.showcase-track > *)),
-.continuous-discovery-section:not(:has(.showcase-track > *)){
-  display:none !important;
 }
 
 .showcase-heading{

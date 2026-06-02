@@ -3433,58 +3433,25 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       }
 
       const sellerCopy = createElement("div", { className: "product-seller-copy" });
-      const sellerNameRow = createElement("div", { className: "product-seller-name-row" });
-      sellerNameRow.appendChild(
+      sellerCopy.append(
         createElement("strong", { className: "product-seller-name", textContent: getProductSellerLabel(product) })
       );
-      if (sellerUser?.verifiedSeller) {
-        sellerNameRow.appendChild(createElement("span", {
-          className: "product-seller-name-verified-badge",
-          textContent: "✓",
-          attributes: {
-            "aria-label": "Verified seller",
-            title: "Verified seller"
-          }
-        }));
-      }
-      sellerCopy.append(sellerNameRow);
-
-      const createInlineActionButton = ({ className = "", icon = "", label = "", attributes = {} } = {}) => {
-        const button = createElement("button", {
-          className: `product-seller-inline-action ${className}`.trim(),
-          attributes: {
-            type: "button",
-            ...attributes
-          }
-        });
-        if (icon) {
-          button.appendChild(createElement("span", {
-            className: "product-seller-inline-icon",
-            textContent: icon,
-            attributes: { "aria-hidden": "true" }
-          }));
-        }
-        button.appendChild(createElement("span", {
-          className: "product-seller-inline-label",
-          textContent: label
-        }));
-        return button;
-      };
 
       const badgeRow = createElement("div", { className: "product-seller-badge-row product-seller-inline-actions" });
-      const likeButton = createInlineActionButton({
-        className: `product-seller-like-chip${productLiked ? " is-active" : ""}`,
-        icon: "♥",
-        label: "Like",
+      badgeRow.appendChild(createElement("button", {
+        className: `product-seller-inline-action product-seller-like-chip${productLiked ? " is-active" : ""}`,
+        textContent: productLiked ? "♥ Like" : "♡ Like",
         attributes: {
+          type: "button",
           "data-like-product": product.id || ""
         }
-      });
-      badgeRow.appendChild(likeButton);
+      }));
       if (canFollowSeller) {
-        const followButton = createInlineActionButton({
-          label: deps.isSellerFollowed?.(product.uploadedBy) ? "Following" : "Follow",
+        const followButton = createElement("button", {
+          className: "product-seller-inline-action",
+          textContent: deps.isSellerFollowed?.(product.uploadedBy) ? "Following" : "Follow",
           attributes: {
+            type: "button",
             "data-follow-seller": product.uploadedBy || ""
           }
         });
@@ -3494,19 +3461,21 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         badgeRow.appendChild(followButton);
       }
       if (canShareSeller) {
-        badgeRow.appendChild(createInlineActionButton({
-          icon: "↗",
-          label: "Share",
+        badgeRow.appendChild(createElement("button", {
+          className: "product-seller-inline-action",
+          textContent: "Share",
           attributes: {
+            type: "button",
             "data-share-seller-shop": product.uploadedBy || ""
           }
         }));
       }
       if (isOwnerSeller) {
-        const promoteButton = createInlineActionButton({
-          className: "product-seller-promote-chip",
-          label: "Promote",
+        const promoteButton = createElement("button", {
+          className: "product-seller-inline-action product-seller-promote-chip",
+          textContent: "Promote",
           attributes: {
+            type: "button",
             onclick: "return window.__wingaOpenPromotionFromTrigger ? window.__wingaOpenPromotionFromTrigger(this) : false;",
             "data-promote-product": product.id,
             "data-promote-authorized": "true",
@@ -3639,25 +3608,6 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         window.setTimeout(attemptReveal, pollMs);
       };
       attemptReveal();
-    }
-
-    function getRenderableShowcaseCards(items, factory) {
-      if (!Array.isArray(items) || typeof factory !== "function") {
-        return [];
-      }
-      return items
-        .map((product) => factory(product))
-        .filter((card) => card instanceof Element);
-    }
-
-    function appendShowcaseCards(track, cards) {
-      if (!(track instanceof Element) || !Array.isArray(cards) || !cards.length) {
-        return 0;
-      }
-      const fragment = document.createDocumentFragment();
-      cards.forEach((card) => fragment.appendChild(card));
-      track.appendChild(fragment);
-      return cards.length;
     }
 
     function repairShowcaseMediaVisibility(scope = document) {
@@ -4083,10 +4033,6 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       if (!Array.isArray(items) || !items.length) {
         return null;
       }
-      const cards = getRenderableShowcaseCards(items, createIntelligentFeedCardElement);
-      if (!cards.length) {
-        return null;
-      }
       const section = createElement("section", {
         className: "showcase-inline panel recommendation-strip intelligent-feed-section",
         attributes: { "data-recommendation-type": type }
@@ -4102,17 +4048,13 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       });
       section.appendChild(sectionHeading);
       const track = createElement("div", { className: "showcase-track intelligent-feed-track" });
-      appendShowcaseCards(track, cards);
+      items.forEach((product) => track.appendChild(createIntelligentFeedCardElement(product)));
       section.appendChild(track);
       return section;
     }
 
     function createShowcaseSectionElement(items, index, heading = "Marketplace Picks", title = "Bidhaa kutoka maduka tofauti", subtitle = "Tembea kushoto au kulia kuona zaidi") {
       if (!items.length) {
-        return null;
-      }
-      const cards = getRenderableShowcaseCards(items, createShowcaseProductCardElement);
-      if (!cards.length) {
         return null;
       }
       const section = createElement("section", {
@@ -4130,7 +4072,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       });
       section.appendChild(sectionHeading);
       const track = createElement("div", { className: "showcase-track" });
-      appendShowcaseCards(track, cards);
+      items.forEach((product) => track.appendChild(createShowcaseProductCardElement(product)));
       section.appendChild(track);
       return section;
     }
@@ -4139,12 +4081,11 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       if (!track) {
         return;
       }
-      const cards = getRenderableShowcaseCards(Array.isArray(items) ? items : [], createShowcaseProductCardElement);
-      track.replaceChildren(...cards);
-      const section = track.closest?.("#market-showcase, .showcase-inline, .recommendation-strip, .continuous-discovery-section");
-      if (section instanceof Element) {
-        section.style.display = cards.length ? "" : "none";
-      }
+      const fragment = document.createDocumentFragment();
+      (Array.isArray(items) ? items : []).forEach((product) => {
+        fragment.appendChild(createShowcaseProductCardElement(product));
+      });
+      track.replaceChildren(fragment);
     }
 
     function createDynamicShowcasePlaceholderElement(index) {
@@ -4164,10 +4105,6 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       if (!items.length) {
         return null;
       }
-      const cards = getRenderableShowcaseCards(items, createShowcaseProductCardElement);
-      if (!cards.length) {
-        return null;
-      }
       const section = createElement("section", {
         className: "showcase-inline panel recommendation-strip",
         attributes: { "data-recommendation-type": type }
@@ -4183,7 +4120,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       });
       section.appendChild(sectionHeading);
       const track = createElement("div", { className: "showcase-track" });
-      appendShowcaseCards(track, cards);
+      items.forEach((product) => track.appendChild(createShowcaseProductCardElement(product)));
       section.appendChild(track);
       return section;
     }
