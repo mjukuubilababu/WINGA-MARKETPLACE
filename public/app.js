@@ -6756,11 +6756,36 @@ function showFatalStartupState(error) {
 
 function hideBootOverlayImmediately() {
   if (!bootOverlay) {
+    if (document.body.classList.contains("app-booting")) {
+      document.body.classList.remove("app-booting");
+      document.body.classList.add("app-ready");
+    }
+    if (feedRuntimeState) {
+      feedRuntimeState.splashFeedImageGateInFlight = false;
+    }
     return;
   }
   bootOverlay.classList.add("is-hidden");
   bootOverlay.setAttribute("aria-hidden", "true");
   bootOverlay.style.display = "none";
+  bootOverlay.style.visibility = "hidden";
+  bootOverlay.style.pointerEvents = "none";
+  if (document.body.classList.contains("app-booting")) {
+    document.body.classList.remove("app-booting");
+    document.body.classList.add("app-ready");
+  }
+  if (feedRuntimeState) {
+    feedRuntimeState.splashFeedImageGateInFlight = false;
+    if (feedRuntimeState.bootOverlayHardSafetyTimer) {
+      window.clearTimeout(feedRuntimeState.bootOverlayHardSafetyTimer);
+      feedRuntimeState.bootOverlayHardSafetyTimer = 0;
+    }
+  }
+  window.setTimeout(() => {
+    if (bootOverlay?.isConnected && bootOverlay.classList.contains("is-hidden")) {
+      bootOverlay.remove();
+    }
+  }, 360);
 }
 
 function hasVisibleStartupFeedMedia(options = {}) {
@@ -6983,11 +7008,14 @@ function revealBootOverlay() {
 function forceHideBootOverlaySafety(reason = "hard_safety") {
   const overlay = document.getElementById("boot-overlay");
   if (!overlay) {
+    hideBootOverlayImmediately();
     return;
   }
   overlay.classList.add("is-hidden");
   overlay.setAttribute("aria-hidden", "true");
   overlay.style.display = "none";
+  overlay.style.visibility = "hidden";
+  overlay.style.pointerEvents = "none";
   if (document.body.classList.contains("app-booting")) {
     document.body.classList.remove("app-booting");
     document.body.classList.add("app-ready");
@@ -6995,6 +7023,11 @@ function forceHideBootOverlaySafety(reason = "hard_safety") {
   if (feedRuntimeState) {
     feedRuntimeState.splashFeedImageGateInFlight = false;
   }
+  window.setTimeout(() => {
+    if (overlay.isConnected) {
+      overlay.remove();
+    }
+  }, 0);
   reportClientEvent("warn", "boot_overlay_force_hidden", "Boot overlay was force-hidden by the startup safety net.", {
     category: "runtime",
     reason
