@@ -7038,7 +7038,7 @@ function completeBootOverlay() {
     return;
   }
   const requiresMediaReady = currentView === "home"
-    && Boolean(productsContainer?.querySelector(".product-card, .seller-product-card"));
+    && Boolean(productsContainer?.querySelector(".product-card[data-open-product], .seller-product-card[data-open-product]"));
   const missingStartupSurface = currentView === "home"
     && !hasVisibleStartupSurface({ includeFeedLoading: false })
     && productHydrationStatus !== "failed";
@@ -7161,8 +7161,11 @@ function showInstantBootFeedSnapshot(reason = "boot_snapshot") {
     || productsContainer?.querySelector("[data-feed-skeleton-card='true']")
     || emptyState?.style.display === "block"
   );
+  const hasVisibleProductCards = Boolean(
+    productsContainer?.querySelector(".product-card[data-open-product], .seller-product-card[data-open-product]")
+  );
   const hasVisibleFeedMedia = currentView !== "home"
-    || !productsContainer?.querySelector(".product-card, .seller-product-card")
+    || !hasVisibleProductCards
     || hasVisibleStartupFeedMedia({ minCount: getRequiredStartupFeedMediaCount() });
 
   if (hasVisibleFeedShell) {
