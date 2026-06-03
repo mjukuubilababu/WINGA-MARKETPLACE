@@ -20356,14 +20356,39 @@ async function bootApp() {
   }
 
   ensureProductsForImmediateRender();
-  mergeAvailableCategories(inferCategoriesFromData());
-  refreshCategoryUI();
-  if (!suppressInitialProductHomeRender) {
-    renderCurrentView({ reason: "boot_initial_render", force: true });
-    reportBootPhase("feed_rendered", {
-      reason: "boot_initial_render",
+  const retainedBootHomeFeedSurface = Boolean(
+    !suppressInitialProductHomeRender
+    && currentView === "home"
+    && productsContainer?.querySelector(".product-card[data-open-product], .seller-product-card[data-open-product]")
+  );
+  if (retainedBootHomeFeedSurface) {
+    window.requestAnimationFrame(() => {
+      if (!isLifecycleEpochCurrent(lifecycleEpoch)) {
+        return;
+      }
+      mergeAvailableCategories(inferCategoriesFromData());
+      refreshCategoryUI();
+    });
+    resumeRetainedHomeFeedSurface("boot_initial_render_retained", {
+      productLimit: 8,
+      decodeLimit: 3,
+      delayMs: 0,
+      prefetch: false
+    });
+    reportBootPhase("feed_retained", {
+      reason: "boot_initial_render_retained",
       productsCount: Array.isArray(products) ? products.length : 0
     });
+  } else {
+    mergeAvailableCategories(inferCategoriesFromData());
+    refreshCategoryUI();
+    if (!suppressInitialProductHomeRender) {
+      renderCurrentView({ reason: "boot_initial_render", force: true });
+      reportBootPhase("feed_rendered", {
+        reason: "boot_initial_render",
+        productsCount: Array.isArray(products) ? products.length : 0
+      });
+    }
   }
   window.requestAnimationFrame(() => {
     if (!isLifecycleEpochCurrent(lifecycleEpoch)) {
