@@ -6767,6 +6767,9 @@ function hideBootOverlayImmediately() {
   }
   bootOverlay.classList.add("is-hidden");
   bootOverlay.setAttribute("aria-hidden", "true");
+  bootOverlay.style.opacity = "0";
+  bootOverlay.style.visibility = "hidden";
+  bootOverlay.style.pointerEvents = "none";
   bootOverlay.style.display = "none";
   if (document.body.classList.contains("app-booting")) {
     document.body.classList.remove("app-booting");
@@ -6998,6 +7001,9 @@ function forceHideBootOverlaySafety(reason = "hard_safety") {
   }
   overlay.classList.add("is-hidden");
   overlay.setAttribute("aria-hidden", "true");
+  overlay.style.opacity = "0";
+  overlay.style.visibility = "hidden";
+  overlay.style.pointerEvents = "none";
   overlay.style.display = "none";
   if (document.body.classList.contains("app-booting")) {
     document.body.classList.remove("app-booting");
@@ -7037,12 +7043,32 @@ function completeBootOverlay() {
   if (feedRuntimeState.splashFeedImageGateInFlight) {
     return;
   }
+  const hasVisibleStartupCards = currentView === "home"
+    && Boolean(productsContainer?.querySelector(".product-card[data-open-product], .seller-product-card[data-open-product]"));
   const requiresMediaReady = currentView === "home"
+    && !hasVisibleStartupCards
     && Boolean(productsContainer?.querySelector(".product-card[data-open-product], .seller-product-card[data-open-product]"));
   const missingStartupSurface = currentView === "home"
     && !hasVisibleStartupSurface({ includeFeedLoading: false })
     && productHydrationStatus !== "failed";
   if (missingStartupSurface) {
+    return;
+  }
+  if (hasVisibleStartupCards) {
+    hideBootOverlayImmediately();
+    resumeMarketplaceImagePipeline("boot_overlay_completed");
+    activateViewportReadyFeedImages(productsContainer || document, {
+      limit: Math.max(4, getRequiredStartupFeedMediaCount())
+    });
+    scheduleStartupImageWork(products, {
+      reason: "boot_overlay_completed",
+      productLimit: 10,
+      decodeLimit: 4,
+      delayMs: 0
+    });
+    window.setTimeout(() => {
+      ensureVisibleStartupContent("boot_overlay_completed");
+    }, 360);
     return;
   }
   if (

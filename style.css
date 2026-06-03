@@ -3163,6 +3163,10 @@ img[data-zoom-src]{
   opacity:0;
 }
 
+.progressive-image-shell.is-pending .progressive-image-full[data-direct-visibility="true"]{
+  opacity:1;
+}
+
 .progressive-image-shell.is-error .progressive-image-full{
   opacity:1;
 }
@@ -10148,6 +10152,10 @@ button:hover,
 
 #products-container .progressive-image-shell.is-pending .progressive-image-full{
   opacity:0 !important;
+}
+
+#products-container .progressive-image-shell.is-pending .progressive-image-full[data-direct-visibility="true"]{
+  opacity:1 !important;
 }
 
 #products-container[data-layout-mode="standalone-mobile"],
