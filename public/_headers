@@ -1,18 +1,7 @@
 /*
-  Cache-Control: public, max-age=31536000, immutable
-  Content-Security-Policy: default-src 'self'; connect-src 'self' https://winga-pflp.onrender.com https://*.onrender.com https://wingamarket.com https://cloudflareinsights.com https://*.cloudflareinsights.com; img-src 'self' data: https://winga-pflp.onrender.com https://*.onrender.com https://wingamarket.com; script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; font-src 'self' data:; frame-src 'none'; object-src 'none'
+  Content-Security-Policy: default-src 'self'; connect-src 'self' https://winga-pflp.onrender.com https://*.onrender.com https://wingamarket.com; img-src 'self' data: blob: https://winga-pflp.onrender.com https://*.onrender.com https://wingamarket.com; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; worker-src 'self'; frame-src 'none'; object-src 'none';
+  X-Content-Type-Options: nosniff
 
-/product/*
-  Cache-Control: no-store, must-revalidate
-
-/api/product/*
-  Cache-Control: no-store, must-revalidate
-
-/og-images/*
-  Cache-Control: public, max-age=31536000, immutable
-
-/index.html
-  Cache-Control: no-store, must-revalidate
-
-/
-  Cache-Control: no-store, must-revalidate
+/sw.js
+  Content-Type: application/javascript
+  Cache-Control: no-cache
