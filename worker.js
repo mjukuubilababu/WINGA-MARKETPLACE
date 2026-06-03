@@ -92,7 +92,7 @@ async function streamFeedPage(request, env, ctx) {
   return new Response(readable, {
     headers: {
       "Content-Type": "text/html; charset=utf-8",
-      "Cache-Control": "no-store, no-cache, must-revalidate",
+      "Cache-Control": "no-store",
       "X-Content-Type-Options": "nosniff"
     }
   });
@@ -896,37 +896,43 @@ async function handleImageCache(request, env, ctx) {
   const upstreamUrl = new URL(request.url);
   const originUrl = `${origin}${upstreamUrl.pathname}${upstreamUrl.search}`;
 
-  try {
-    const response = await fetch(originUrl, {
-      cf: {
-        cacheTtl: IMAGE_EDGE_TTL_SECONDS,
-        cacheEverything: true
-      }
-    });
-    if (!response.ok) {
-      throw new Error(`Image origin failed with ${response.status}`);
-    }
-    const proxied = new Response(response.body, {
-      status: response.status,
-      statusText: response.statusText,
-      headers: {
-        "Content-Type": response.headers.get("Content-Type") || "image/jpeg",
-        "Cache-Control": `public, max-age=${IMAGE_EDGE_TTL_SECONDS}`
-      }
-    });
-    ctx.waitUntil(cache.put(request, proxied.clone()));
-    return proxied;
-  } catch (_error) {
-    return new Response(
-      `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1200" viewBox="0 0 1200 1200"><rect width="1200" height="1200" fill="#f4f4f5"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#d94f00" font-family="Arial, sans-serif" font-size="120">W</text></svg>`,
-      {
-        headers: {
-          "Content-Type": "image/svg+xml; charset=utf-8",
-          "Cache-Control": "no-store"
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      const response = await fetch(originUrl, {
+        cf: {
+          cacheTtl: IMAGE_EDGE_TTL_SECONDS,
+          cacheEverything: true
         }
+      });
+      if (!response.ok) {
+        throw new Error(`Image origin failed with ${response.status}`);
       }
-    );
+      const proxied = new Response(response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: {
+          "Content-Type": response.headers.get("Content-Type") || "image/jpeg",
+          "Cache-Control": `public, max-age=${IMAGE_EDGE_TTL_SECONDS}`
+        }
+      });
+      ctx.waitUntil(cache.put(request, proxied.clone()));
+      return proxied;
+    } catch (_error) {
+      if (attempt < 3) {
+        await new Promise((resolve) => setTimeout(resolve, attempt * 500));
+      }
+    }
   }
+
+  return new Response(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1200" viewBox="0 0 1200 1200"><rect width="1200" height="1200" fill="#f4f4f5"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#d94f00" font-family="Arial, sans-serif" font-size="120">W</text></svg>`,
+    {
+      headers: {
+        "Content-Type": "image/svg+xml; charset=utf-8",
+        "Cache-Control": "no-store"
+      }
+    }
+  );
 }
 
 async function proxyToOrigin(request, env) {
