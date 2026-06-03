@@ -20504,25 +20504,14 @@ if (!uiRuntimeState.marketplaceImagePipelineLifecycleBound) {
 }
 
 window.setTimeout(() => {
-  const overlay =
-    document.getElementById("boot-overlay")
-    || document.querySelector(".boot-overlay")
-    || document.querySelector("[data-boot-overlay]")
-    || document.getElementById("splash-screen")
-    || document.getElementById("winga-splash");
-
-  if (!overlay) {
-    return;
+  const overlay = document.getElementById("boot-overlay");
+  if (
+    overlay
+    && (!overlay.classList.contains("is-hidden") || overlay.style.display !== "none")
+  ) {
+    forceHideBootOverlaySafety("global_boot_safety");
   }
-
-  overlay.style.display = "none";
-  overlay.style.visibility = "hidden";
-  overlay.style.pointerEvents = "none";
-  overlay.remove();
-  document.body.classList.remove("app-booting");
-  document.body.classList.add("app-ready");
-  console.log("[WINGA] Safety net: overlay removed");
-}, 4000);
+}, BOOT_OVERLAY_HARD_SAFETY_TIMEOUT_MS);
 
 bootApp().catch((error) => {
   console.error("[WINGA] bootApp failed", error);
