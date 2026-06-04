@@ -17,6 +17,7 @@ const APP_SERVICE_WORKER_PATH = "/sw.js";
 const APP_STORAGE_SCHEMA_KEY = "winga-storage-schema-version";
 const HOME_SCROLL_STATE_KEY = "winga-home-scroll-state";
 const HOME_FEED_REFRESH_CURSOR_KEY = "winga-home-feed-refresh-cursor";
+let cachedHomeFeedRefreshCursor = null;
 const APP_UPDATE_BANNER_DISMISS_KEY = "winga-app-update-banner-dismissed-version";
 const APP_CHAT_DRAFT_KEY_PREFIX = "winga-chat-draft";
 const SHARED_COLLECTION_INTENT_KEY_PREFIX = "winga-shared-collection-intent";
@@ -522,15 +523,21 @@ function getStoredHomeScrollState() {
 }
 
 function getStoredHomeFeedRefreshCursor() {
+  if (cachedHomeFeedRefreshCursor !== null) {
+    return cachedHomeFeedRefreshCursor;
+  }
   try {
     const raw = sessionStorage.getItem(HOME_FEED_REFRESH_CURSOR_KEY);
     if (!raw) {
-      return 0;
+      cachedHomeFeedRefreshCursor = 0;
+      return cachedHomeFeedRefreshCursor;
     }
     const cursor = Number(raw);
-    return Number.isFinite(cursor) && cursor >= 0 ? Math.floor(cursor) : 0;
+    cachedHomeFeedRefreshCursor = Number.isFinite(cursor) && cursor >= 0 ? Math.floor(cursor) : 0;
+    return cachedHomeFeedRefreshCursor;
   } catch (error) {
-    return 0;
+    cachedHomeFeedRefreshCursor = 0;
+    return cachedHomeFeedRefreshCursor;
   }
 }
 
@@ -538,8 +545,10 @@ function saveHomeFeedRefreshCursor(value = 0) {
   try {
     const nextCursor = Math.max(0, Math.floor(Number(value || 0) || 0));
     sessionStorage.setItem(HOME_FEED_REFRESH_CURSOR_KEY, String(nextCursor));
+    cachedHomeFeedRefreshCursor = nextCursor;
     return nextCursor;
   } catch (error) {
+    cachedHomeFeedRefreshCursor = 0;
     return 0;
   }
 }
@@ -3691,36 +3700,59 @@ function silentlyRefreshInfiniteFeedSource() {
   if (now - Number(homeContinuousDiscoveryRuntime.lastBackendRefreshAt || 0) < HOME_INFINITE_BACKEND_REFRESH_COOLDOWN_MS) {
     return Promise.resolve(false);
   }
-  homeContinuousDiscoveryRuntime.lastBackendRefreshAt = now;
-  const appendProductsPage = window.WingaDataLayer?.appendProductsPage;
-  const refreshProducts = window.WingaDataLayer?.refreshProducts;
-  if (typeof appendProductsPage === "function") {
-    homeContinuousDiscoveryRuntime.backendRefreshPromise = Promise.resolve(appendProductsPage.call(window.WingaDataLayer))
-      .then((page) => {
-        const appendedProducts = Array.isArray(page?.items) ? page.items : [];
-        if (appendedProducts.length) {
-          refreshProductsFromStore();
-          return true;
-        }
-        return false;
-      })
-      .catch(() => false)
-      .finally(() => {
-        homeContinuousDiscoveryRuntime.backendRefreshPromise = null;
-      });
-    return homeContinuousDiscoveryRuntime.backendRefreshPromise;
-  }
-  if (typeof refreshProducts !== "function") {
+  const dataLayer = window.WingaDataLayer;
+  const appendProductsPage = dataLayer?.appendProductsPage;
+  const refreshProducts = dataLayer?.refreshProducts;
+  const getPagination = dataLayer?.getProductFeedPagination;
+  if (homeContinuousDiscoveryRuntime.isLoadingMore) {
     return Promise.resolve(false);
   }
-  homeContinuousDiscoveryRuntime.backendRefreshPromise = Promise.resolve(refreshProducts.call(window.WingaDataLayer))
-    .then(() => {
-      refreshProductsFromStore();
-      return true;
+  const pagination = typeof getPagination === "function" ? getPagination.call(dataLayer) : null;
+  if (pagination && pagination.hasMore === false) {
+    return Promise.resolve(false);
+  }
+  homeContinuousDiscoveryRuntime.isLoadingMore = true;
+  homeContinuousDiscoveryRuntime.lastBackendRefreshAt = now;
+  const requestId = ++homeContinuousDiscoveryRuntime.loadMoreRequestId;
+  const requestPromise = typeof appendProductsPage === "function"
+    ? Promise.resolve(appendProductsPage.call(dataLayer, pagination ? {
+      cursor: pagination.nextCursor || "",
+      page: Number(pagination.page || 1) + 1,
+      limit: Number(pagination.limit || 0) || undefined
+    } : {}))
+    : (typeof refreshProducts === "function"
+      ? Promise.resolve(refreshProducts.call(dataLayer))
+      : Promise.resolve(false));
+  homeContinuousDiscoveryRuntime.backendRefreshPromise = requestPromise
+    .then((page) => {
+      if (requestId !== homeContinuousDiscoveryRuntime.loadMoreRequestId) {
+        return false;
+      }
+      const appendedProducts = Array.isArray(page?.appendedItems) && page.appendedItems.length
+        ? page.appendedItems
+        : (Array.isArray(page?.items) ? page.items : []);
+      const appendedCount = Number(page?.appendedCount || appendedProducts.length || 0);
+      if (appendedCount > 0) {
+        refreshProductsFromStore();
+        primeIncomingFeedItems(appendedProducts, {
+          reason: "infinite_scroll_append",
+          productLimit: Math.min(appendedProducts.length, 8),
+          decodeLimit: Math.min(appendedProducts.length, 4)
+        });
+        return true;
+      }
+      if (typeof refreshProducts === "function" && typeof appendProductsPage !== "function") {
+        refreshProductsFromStore();
+        return true;
+      }
+      return false;
     })
     .catch(() => false)
     .finally(() => {
-      homeContinuousDiscoveryRuntime.backendRefreshPromise = null;
+      if (requestId === homeContinuousDiscoveryRuntime.loadMoreRequestId) {
+        homeContinuousDiscoveryRuntime.isLoadingMore = false;
+        homeContinuousDiscoveryRuntime.backendRefreshPromise = null;
+      }
     });
   return homeContinuousDiscoveryRuntime.backendRefreshPromise;
 }
@@ -7198,9 +7230,10 @@ function showInstantBootFeedSnapshot(reason = "boot_snapshot") {
     });
     completeBootOverlay();
     hideLifecycleFallbackShell();
+    const bootPrimeLimit = Math.min(products.length, 10);
     const primeTask = () => primeIncomingFeedItems(products.slice(0, Math.min(products.length, 10)), {
       reason: `${reason}_snapshot_prime`,
-      productLimit: Math.min(products.length, 10),
+      productLimit: bootPrimeLimit,
       decodeLimit: Math.min(products.length, 5)
     });
     if (retainedSurfaceResumed) {
@@ -7227,11 +7260,12 @@ function showInstantBootFeedSnapshot(reason = "boot_snapshot") {
     return false;
   }
 
-  primeIncomingFeedItems(products.slice(0, Math.min(products.length, 10)), {
+  const initialPrimeLimit = Math.min(products.length, 4);
+  scheduleIdleBackgroundWork(() => primeIncomingFeedItems(products.slice(0, initialPrimeLimit), {
     reason: `${reason}_snapshot_prime`,
-    productLimit: Math.min(products.length, 10),
-    decodeLimit: Math.min(products.length, 5)
-  });
+    productLimit: initialPrimeLimit,
+    decodeLimit: Math.min(products.length, 2)
+  }), 120);
 
   return hasVisibleFeedShell;
 }
@@ -10247,8 +10281,11 @@ const {
   preloadImageSource,
   getProductsContainer: () => productsContainer,
   getCurrentView: () => currentView,
+  isBootInitialRender: () => Boolean(uiRuntimeState.isBootInitialRender),
   hasPrioritySearchResults,
   getProductsPerRow,
+  getFeedRenderBatchSize: () => (uiRuntimeState.isBootInitialRender ? 3 : 8),
+  getFeedRenderBatchDelayMs: () => (uiRuntimeState.isBootInitialRender ? 12 : 22),
   getLayoutMode: () => getClientLayoutMode(),
   getFeedLayoutColumns: () => getFeedLayoutColumns(),
   createContinuousDiscoveryAnchorElement,
@@ -11719,6 +11756,8 @@ let homeContinuousDiscoveryRuntime = {
   virtualList: [],
   lastBackendRefreshAt: 0,
   backendRefreshPromise: null,
+  isLoadingMore: false,
+  loadMoreRequestId: 0,
   lastSentinelFetchAt: 0,
   lastSentinelPreloadAt: 0,
   lastSentinelInjectAt: 0
@@ -18506,6 +18545,7 @@ function enhanceShowcaseTracks(scope = document) {
 function renderCurrentView(options = {}) {
   const reason = String(options?.reason || "direct_render");
   const force = Boolean(options?.force);
+  const isBootInitialRender = reason === "boot_initial_render" && currentView === "home";
   bumpRuntimeDiagnostic("renderCurrentViewCalls");
   try {
     performance.mark("winga_render_start");
@@ -18523,6 +18563,7 @@ function renderCurrentView(options = {}) {
   }
   uiRuntimeState.isRenderingView = true;
   uiRuntimeState.lastRenderStartedAt = now;
+  uiRuntimeState.isBootInitialRender = isBootInitialRender;
   if (
     suppressInitialProductHomeRender
     && !document.body.classList.contains("product-detail-open")
@@ -18640,30 +18681,45 @@ function renderCurrentView(options = {}) {
     applyFeedLayoutMode(productsContainer);
 
     if (currentView === "home" && homeProducts.length) {
+      const bootPrimeLimit = isBootInitialRender
+        ? Math.min(homeProducts.length, 4)
+        : Math.min(homeProducts.length, 10);
       primeIncomingFeedItems(
-        homeProducts.slice(0, Math.min(homeProducts.length, 10)),
+        homeProducts.slice(0, bootPrimeLimit),
         {
           reason: `render_current_view_preprime_${reason}`,
-          productLimit: Math.min(homeProducts.length, 10),
-          decodeLimit: Math.min(homeProducts.length, 4)
+          productLimit: bootPrimeLimit,
+          decodeLimit: Math.min(homeProducts.length, isBootInitialRender ? 2 : 4)
         }
       );
     }
 
     updateResultsMeta(homeProducts.length);
-    renderMarketShowcase();
+    if (isBootInitialRender) {
+      scheduleIdleBackgroundWork(() => {
+        if (currentView !== "home" || uiRuntimeState.lastRenderStartedAt !== now) {
+          return;
+        }
+        renderMarketShowcase();
+      }, 120);
+    } else {
+      renderMarketShowcase();
+    }
     renderProducts(homeProducts);
-    enhanceShowcaseTracks(marketShowcase);
-    enhanceShowcaseTracks(productsContainer);
-    bindFeedGalleryInteractions(marketShowcase);
-    bindProductEngagementSignals(marketShowcase);
-    bindImageFallbacks(marketShowcase);
-    bindProductMenus(marketShowcase);
-    if (!usesProgressiveHomeFeed) {
-      bindFeedGalleryInteractions(productsContainer);
-      bindProductEngagementSignals(productsContainer);
-      bindImageFallbacks(productsContainer);
-      bindProductMenus(productsContainer);
+    const bindShowcaseChrome = () => {
+      if (currentView !== "home" || uiRuntimeState.lastRenderStartedAt !== now) {
+        return;
+      }
+      enhanceShowcaseTracks(marketShowcase);
+      bindFeedGalleryInteractions(marketShowcase);
+      bindProductEngagementSignals(marketShowcase);
+      bindImageFallbacks(marketShowcase);
+      bindProductMenus(marketShowcase);
+    };
+    if (isBootInitialRender) {
+      scheduleIdleBackgroundWork(bindShowcaseChrome, 180);
+    } else {
+      bindShowcaseChrome();
     }
     renderSearchDropdown(homeProducts, { isProfile, isUpload, isAdminView });
 
@@ -18686,6 +18742,7 @@ function renderCurrentView(options = {}) {
     });
   } finally {
     uiRuntimeState.isRenderingView = false;
+    uiRuntimeState.isBootInitialRender = false;
     uiRuntimeState.lastRenderCompletedAt = Date.now();
     const renderDurationMs = getPerfNow() - startedAt;
     try {
@@ -20382,6 +20439,11 @@ async function bootApp() {
   }
   if (appSettings) {
     applyAppSettings(appSettings);
+  }
+
+  await new Promise((resolve) => window.requestAnimationFrame(() => resolve()));
+  if (!isLifecycleEpochCurrent(lifecycleEpoch)) {
+    return;
   }
 
   if (shouldDeferInitialBootRenderForStaffSession) {

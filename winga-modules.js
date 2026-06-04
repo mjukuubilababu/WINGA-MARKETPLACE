@@ -3599,6 +3599,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       if (!productsContainer) {
         return;
       }
+      const isBootInitialRender = Boolean(deps.isBootInitialRender?.());
       const currentView = deps.getCurrentView();
       const shouldTrackViews = currentView !== "upload";
       const shouldInjectInlineShowcases = currentView === "home" && !deps.hasPrioritySearchResults(list.length);
@@ -3618,6 +3619,8 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       preloadMarketplaceImages(list);
       const renderToken = ++scheduledFeedRenderState.token;
       productsContainer.replaceChildren();
+      const feedBatchSize = Math.max(2, Number(deps.getFeedRenderBatchSize?.() || (isBootInitialRender ? 3 : FEED_RENDER_BATCH_SIZE)) || FEED_RENDER_BATCH_SIZE);
+      const feedBatchDelayMs = Math.max(0, Number(deps.getFeedRenderBatchDelayMs?.() || (isBootInitialRender ? 12 : FEED_RENDER_BATCH_DELAY_MS)) || 0);
 
       const appendShowcaseIfNeeded = (fragment, renderedCount) => {
         if (!shouldInjectInlineShowcases || renderedCount !== nextShowcaseInsertAt || renderedCount >= list.length) {
@@ -3681,7 +3684,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
             createRecommendationDescriptor("You May Like", "Based on what you are viewing", youMayLike, "you-may-like"),
             createRecommendationDescriptor("Trending", "Most viewed and most interacted", trending, "trending")
           ].filter(Boolean);
-          if (shouldInjectInlineShowcases && insertedInlineShowcase && deps.setDeferredRecommendationDescriptors) {
+          if ((isBootInitialRender || (shouldInjectInlineShowcases && insertedInlineShowcase)) && deps.setDeferredRecommendationDescriptors) {
             reportShowcaseInstrumentation("deferred_recommendations_queued", {
               count: recommendationDescriptors.length,
               kinds: recommendationDescriptors.map((descriptor) => descriptor.kind),
@@ -3724,7 +3727,11 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
         }
         repairShowcaseMediaVisibility(productsContainer);
         stabilizeMobileShowcaseRows(productsContainer);
-        deps.bindFeedGalleryInteractions?.(productsContainer);
+        if (!isBootInitialRender) {
+          deps.bindFeedGalleryInteractions?.(productsContainer);
+        } else {
+          schedulePassiveTask(() => deps.bindFeedGalleryInteractions?.(productsContainer));
+        }
         if (currentView === "home" && list.length > 0 && deps.canUseContinuousDiscovery?.() && deps.setupContinuousDiscoveryLoading) {
           const usedProductIds = new Set(list.map((product) => product.id));
           Array.from(productsContainer.querySelectorAll("[data-showcase-id], [data-open-product]")).forEach((element) => {
@@ -3748,7 +3755,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
           return;
         }
         const fragment = document.createDocumentFragment();
-        const endIndex = Math.min(list.length, startIndex + FEED_RENDER_BATCH_SIZE);
+        const endIndex = Math.min(list.length, startIndex + feedBatchSize);
         for (let index = startIndex; index < endIndex; index += 1) {
           const product = list[index];
           if (shouldTrackViews && index < passiveViewLimit && deps.trackView(product)) {
@@ -3775,7 +3782,7 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
           scheduledFeedRenderState.timer = window.setTimeout(() => {
             scheduledFeedRenderState.timer = 0;
             renderNextBatch(endIndex);
-          }, FEED_RENDER_BATCH_DELAY_MS);
+          }, feedBatchDelayMs);
           return;
         }
         finalizeFeedRender();
