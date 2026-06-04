@@ -53,13 +53,19 @@ async function streamFeedPage(request, env, ctx) {
   const writer = writable.getWriter();
   const write = (html) => writer.write(encoder.encode(String(html || "")));
   const origin = getOriginBaseUrl(env);
+  const bootstrapPromise = fetchBootstrapContext(origin, request);
+  const preloadBootstrap = await Promise.race([
+    bootstrapPromise,
+    new Promise((resolve) => setTimeout(() => resolve(null), 180))
+  ]);
+  const preloadLinkHeader = buildImagePreloadLinkHeader(preloadBootstrap?.items || []);
 
   ctx.waitUntil((async () => {
     try {
       await write(buildDocumentShellStart());
       await write(buildFeedSkeletonChunk());
 
-      const bootstrap = await fetchBootstrapContext(origin, request);
+      const bootstrap = await bootstrapPromise;
       const cardsHtml = bootstrap.items.map((product, index) => buildDiscoveryProductCardHtml(product, index, bootstrap)).join("");
 
       await write(`
@@ -93,7 +99,8 @@ async function streamFeedPage(request, env, ctx) {
     headers: {
       "Content-Type": "text/html; charset=utf-8",
       "Cache-Control": "no-store",
-      "X-Content-Type-Options": "nosniff"
+      "X-Content-Type-Options": "nosniff",
+      ...(preloadLinkHeader ? { Link: preloadLinkHeader } : {})
     }
   });
 }
@@ -844,6 +851,20 @@ function extractAllImageUrls(products = [], usersById = {}) {
     }
   });
   return Array.from(urls);
+}
+
+function buildImagePreloadLinkHeader(products = []) {
+  const preloadUrls = products
+    .slice(0, 6)
+    .map((product) => getRenderableMarketplaceImages(product)[0] || "")
+    .filter(Boolean)
+    .slice(0, 6);
+  if (!preloadUrls.length) {
+    return "";
+  }
+  return preloadUrls
+    .map((url) => `<${url}>; rel=preload; as=image`)
+    .join(", ");
 }
 
 function toEdgeImageUrl(src = "") {
