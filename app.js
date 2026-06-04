@@ -7165,6 +7165,39 @@ function showInstantBootFeedSnapshot(reason = "boot_snapshot") {
   appContainer.style.display = "block";
   syncBodyScrollLockState();
   refreshPublicEntryChrome();
+  const hasVisibleFeedShell = Boolean(
+    productsContainer?.querySelector(".product-card, .seller-product-card")
+    || productsContainer?.querySelector("[data-feed-skeleton-card='true']")
+    || emptyState?.style.display === "block"
+  );
+
+  if (hasVisibleFeedShell) {
+    const retainedSurfaceResumed = resumeRetainedHomeFeedSurface(`${reason}_snapshot_resume`, {
+      productLimit: 8,
+      decodeLimit: 3,
+      delayMs: 0,
+      prefetch: false
+    });
+    completeBootOverlay();
+    hideLifecycleFallbackShell();
+    const primeTask = () => primeIncomingFeedItems(products.slice(0, Math.min(products.length, 10)), {
+      reason: `${reason}_snapshot_prime`,
+      productLimit: Math.min(products.length, 10),
+      decodeLimit: Math.min(products.length, 5)
+    });
+    if (retainedSurfaceResumed) {
+      window.requestAnimationFrame(primeTask);
+    } else {
+      primeTask();
+    }
+    reportClientEvent("info", "instant_boot_snapshot_rendered", "Boot snapshot rendered before full hydration.", {
+      category: "runtime",
+      authState: currentUser ? "signed_in" : "guest",
+      productsCount: Array.isArray(products) ? products.length : 0,
+      mediaReady: Boolean(retainedSurfaceResumed || hasVisibleStartupFeedMedia({ minCount: getRequiredStartupFeedMediaCount() }))
+    });
+    return true;
+  }
 
   try {
     renderCurrentView({ reason, force: true });
@@ -7181,31 +7214,6 @@ function showInstantBootFeedSnapshot(reason = "boot_snapshot") {
     productLimit: Math.min(products.length, 10),
     decodeLimit: Math.min(products.length, 5)
   });
-
-  const hasVisibleFeedShell = Boolean(
-    productsContainer?.querySelector(".product-card, .seller-product-card")
-    || productsContainer?.querySelector("[data-feed-skeleton-card='true']")
-    || emptyState?.style.display === "block"
-  );
-  const hasVisibleProductCards = Boolean(
-    productsContainer?.querySelector(".product-card[data-open-product], .seller-product-card[data-open-product]")
-  );
-  const hasVisibleFeedMedia = currentView !== "home"
-    || !hasVisibleProductCards
-    || hasVisibleStartupFeedMedia({ minCount: getRequiredStartupFeedMediaCount() });
-
-  if (hasVisibleFeedShell) {
-    completeBootOverlay();
-    hideLifecycleFallbackShell();
-    if (!document.body.classList.contains("app-booting") || !bootOverlay || bootOverlay.classList.contains("is-hidden")) {
-      reportClientEvent("info", "instant_boot_snapshot_rendered", "Boot snapshot rendered before full hydration.", {
-        category: "runtime",
-        authState: currentUser ? "signed_in" : "guest",
-        productsCount: Array.isArray(products) ? products.length : 0,
-        mediaReady: hasVisibleFeedMedia
-      });
-    }
-  }
 
   return hasVisibleFeedShell;
 }
