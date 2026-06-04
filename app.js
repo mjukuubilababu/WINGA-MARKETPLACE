@@ -3691,11 +3691,29 @@ function silentlyRefreshInfiniteFeedSource() {
   if (now - Number(homeContinuousDiscoveryRuntime.lastBackendRefreshAt || 0) < HOME_INFINITE_BACKEND_REFRESH_COOLDOWN_MS) {
     return Promise.resolve(false);
   }
-  if (typeof window.WingaDataLayer?.refreshProducts !== "function") {
+  homeContinuousDiscoveryRuntime.lastBackendRefreshAt = now;
+  const appendProductsPage = window.WingaDataLayer?.appendProductsPage;
+  const refreshProducts = window.WingaDataLayer?.refreshProducts;
+  if (typeof appendProductsPage === "function") {
+    homeContinuousDiscoveryRuntime.backendRefreshPromise = Promise.resolve(appendProductsPage.call(window.WingaDataLayer))
+      .then((page) => {
+        const appendedProducts = Array.isArray(page?.items) ? page.items : [];
+        if (appendedProducts.length) {
+          refreshProductsFromStore();
+          return true;
+        }
+        return false;
+      })
+      .catch(() => false)
+      .finally(() => {
+        homeContinuousDiscoveryRuntime.backendRefreshPromise = null;
+      });
+    return homeContinuousDiscoveryRuntime.backendRefreshPromise;
+  }
+  if (typeof refreshProducts !== "function") {
     return Promise.resolve(false);
   }
-  homeContinuousDiscoveryRuntime.lastBackendRefreshAt = now;
-  homeContinuousDiscoveryRuntime.backendRefreshPromise = Promise.resolve(window.WingaDataLayer.refreshProducts())
+  homeContinuousDiscoveryRuntime.backendRefreshPromise = Promise.resolve(refreshProducts.call(window.WingaDataLayer))
     .then(() => {
       refreshProductsFromStore();
       return true;

@@ -826,6 +826,98 @@
     return (Array.isArray(products) ? products : []).slice().sort(compareProductsNewestFirst);
   }
 
+  const DEFAULT_PRODUCTS_PAGE_LIMIT = 12;
+
+  function normalizeProductPageWindow(options = {}) {
+    const requestedLimit = Number(options.limit || DEFAULT_PRODUCTS_PAGE_LIMIT);
+    const limit = Number.isFinite(requestedLimit) && requestedLimit > 0
+      ? Math.max(1, Math.floor(requestedLimit))
+      : DEFAULT_PRODUCTS_PAGE_LIMIT;
+    const requestedPage = Number(options.page || 1);
+    const cursorValue = String(options.cursor || "").trim();
+    const parsedCursor = cursorValue ? Number(cursorValue) : Number.NaN;
+    const page = Number.isFinite(parsedCursor) && parsedCursor > 0
+      ? Math.max(1, Math.floor(parsedCursor))
+      : (Number.isFinite(requestedPage) && requestedPage > 0 ? Math.max(1, Math.floor(requestedPage)) : 1);
+    return {
+      limit,
+      page,
+      cursor: cursorValue
+    };
+  }
+
+  function normalizeProductPageResponse(payload, options = {}, mapProduct = (product) => product) {
+    const pageWindow = normalizeProductPageWindow(options);
+    const isObjectPayload = payload && typeof payload === "object" && !Array.isArray(payload);
+    const sourceItems = Array.isArray(payload)
+      ? payload
+      : (Array.isArray(payload?.items) ? payload.items : Array.isArray(payload?.products) ? payload.products : []);
+    const normalizedItems = sourceItems.map(mapProduct).filter((item) => item && typeof item === "object");
+
+    if (isObjectPayload) {
+      const hasExplicitTotal = Number.isFinite(Number(payload.total));
+      const total = hasExplicitTotal
+        ? Math.max(0, Math.floor(Number(payload.total)))
+        : normalizedItems.length;
+      const limit = Number.isFinite(Number(payload.limit)) && Number(payload.limit) > 0
+        ? Math.max(1, Math.floor(Number(payload.limit)))
+        : pageWindow.limit;
+      const page = Number.isFinite(Number(payload.page)) && Number(payload.page) > 0
+        ? Math.max(1, Math.floor(Number(payload.page)))
+        : pageWindow.page;
+      const hasMore = typeof payload.hasMore === "boolean"
+        ? payload.hasMore
+        : Boolean(payload.nextCursor)
+          || (hasExplicitTotal ? (page * limit) < total : normalizedItems.length >= limit);
+      const nextCursor = payload.nextCursor != null
+        ? String(payload.nextCursor)
+        : (hasMore ? String(page + 1) : "");
+      return {
+        items: normalizedItems,
+        nextCursor,
+        hasMore,
+        total,
+        page,
+        limit
+      };
+    }
+
+    const total = normalizedItems.length;
+    const offset = Math.max(0, (pageWindow.page - 1) * pageWindow.limit);
+    const items = normalizedItems.slice(offset, offset + pageWindow.limit);
+    const hasMore = offset + items.length < total;
+    return {
+      items,
+      nextCursor: hasMore ? String(pageWindow.page + 1) : "",
+      hasMore,
+      total,
+      page: pageWindow.page,
+      limit: pageWindow.limit
+    };
+  }
+
+  function mergeUniqueProducts(existingProducts = [], incomingProducts = []) {
+    const merged = [];
+    const seenIds = new Set();
+    const addProduct = (product) => {
+      if (!product || typeof product !== "object") {
+        return;
+      }
+      const productId = String(product.id || product.productId || product.slug || "").trim();
+      if (productId && seenIds.has(productId)) {
+        return;
+      }
+      if (productId) {
+        seenIds.add(productId);
+      }
+      merged.push(product);
+    };
+
+    (Array.isArray(existingProducts) ? existingProducts : []).forEach(addProduct);
+    (Array.isArray(incomingProducts) ? incomingProducts : []).forEach(addProduct);
+    return merged;
+  }
+
   function createLocalAdapter() {
     return {
       async loadUsers() {
@@ -839,6 +931,13 @@
         return Array.isArray(storedProducts)
           ? sortProductsNewestFirst(storedProducts.map(resolveProductImagesForRuntime))
           : [];
+      },
+      async loadProductsPage(options = {}) {
+        const storedProducts = readStoredJson(PRODUCTS_KEY, []);
+        const products = Array.isArray(storedProducts)
+          ? sortProductsNewestFirst(storedProducts.map(resolveProductImagesForRuntime))
+          : [];
+        return normalizeProductPageResponse(products, options, (product) => product);
       },
         async loadCategories() {
           return readStoredJson(CATEGORIES_KEY, []);
@@ -1585,6 +1684,10 @@
         await ensureMockSeed();
         return local.loadProducts();
       },
+      async loadProductsPage(options = {}) {
+        await ensureMockSeed();
+        return local.loadProductsPage(options);
+      },
       async loadCategories() {
         await ensureMockSeed();
         return local.loadCategories();
@@ -2046,6 +2149,25 @@
           void localFallbackAdapter.saveProducts(nextProducts.map(normalizeProductForPersistence)).catch(() => {});
         }
         return nextProducts;
+      },
+      async loadProductsPage(options = {}) {
+        const pageWindow = normalizeProductPageWindow(options);
+        const query = new URLSearchParams();
+        query.set("limit", String(pageWindow.limit));
+        query.set("page", String(pageWindow.page));
+        if (pageWindow.cursor) {
+          query.set("cursor", pageWindow.cursor);
+        }
+        const data = await fetchJson(`${baseUrl}/products?${query.toString()}`, {
+          headers: {
+            ...createAuthHeaders()
+          }
+        });
+        const page = normalizeProductPageResponse(data, pageWindow, resolveProductImages);
+        if (enableLocalCacheFallback && Array.isArray(page.items) && page.items.length) {
+          void localFallbackAdapter.saveProducts(page.items.map(normalizeProductForPersistence)).catch(() => {});
+        }
+        return page;
       },
       async loadCachedProducts() {
         if (!enableLocalCacheFallback) {
@@ -2768,6 +2890,10 @@
       async loadProducts() {
         return sortProductsNewestFirst(await loadDocument(firebaseConfig.productsDocumentPath || "wingaState/products"));
       },
+      async loadProductsPage(options = {}) {
+        const products = sortProductsNewestFirst(await loadDocument(firebaseConfig.productsDocumentPath || "wingaState/products"));
+        return normalizeProductPageResponse(products, options, (product) => resolveProductImagesForRuntime(product));
+      },
       async loadCategories() {
         return loadDocument(firebaseConfig.categoriesDocumentPath || "wingaState/categories");
       },
@@ -3397,6 +3523,14 @@
   const state = {
     users: [],
     products: [],
+    productFeedPagination: {
+      limit: DEFAULT_PRODUCTS_PAGE_LIMIT,
+      page: 1,
+      nextCursor: "1",
+      hasMore: true,
+      total: 0,
+      loadedCount: 0
+    },
     categories: [],
     appSettings: normalizeAppSettings(DEFAULT_APP_SETTINGS),
     initialized: false,
@@ -3406,6 +3540,43 @@
     adapter: null,
     activeProvider: ""
   };
+
+  function setFullProductFeedPagination(productsList = []) {
+    const total = Array.isArray(productsList) ? productsList.length : 0;
+    state.productFeedPagination = {
+      limit: Math.max(DEFAULT_PRODUCTS_PAGE_LIMIT, total || DEFAULT_PRODUCTS_PAGE_LIMIT),
+      page: 1,
+      nextCursor: "",
+      hasMore: false,
+      total,
+      loadedCount: total
+    };
+  }
+
+  function setPagedProductFeedPagination(pageInfo = {}, loadedCount = 0) {
+    state.productFeedPagination = {
+      limit: Number(pageInfo.limit || DEFAULT_PRODUCTS_PAGE_LIMIT) || DEFAULT_PRODUCTS_PAGE_LIMIT,
+      page: Number(pageInfo.page || 1) || 1,
+      nextCursor: String(pageInfo.nextCursor || ""),
+      hasMore: Boolean(pageInfo.hasMore),
+      total: Number(pageInfo.total || loadedCount || 0),
+      loadedCount: Number(loadedCount || 0)
+    };
+  }
+
+  function getNextProductsPageOptions() {
+    const pagination = state.productFeedPagination || {};
+    const limit = Number(pagination.limit || DEFAULT_PRODUCTS_PAGE_LIMIT) || DEFAULT_PRODUCTS_PAGE_LIMIT;
+    const cursor = String(pagination.nextCursor || "").trim();
+    const page = Number.isFinite(Number(pagination.page)) && Number(pagination.page) > 0
+      ? Math.max(1, Math.floor(Number(pagination.page))) + 1
+      : 2;
+    return {
+      limit,
+      page: Number.isFinite(page) && page > 0 ? page : 2,
+      cursor
+    };
+  }
 
   function getCurrentSessionRole() {
     const session = state.adapter?.loadSession ? state.adapter.loadSession() : null;
@@ -3489,6 +3660,7 @@
         const cachedProducts = await adapter.loadCachedProducts();
         if (Array.isArray(cachedProducts) && cachedProducts.length) {
           state.products = cachedProducts;
+          setFullProductFeedPagination(cachedProducts);
           if (typeof window !== "undefined" && typeof window.dispatchEvent === "function" && typeof window.CustomEvent === "function") {
             window.dispatchEvent(new window.CustomEvent("winga:products-hydrated", {
               detail: {
@@ -3503,11 +3675,40 @@
       }
     }
     try {
-      const loadedProducts = await adapter.loadProducts();
-      const nextProducts = Array.isArray(loadedProducts) ? loadedProducts : [];
+      const startupProductsLimit = Number(config.startupProductsPageLimit || config.feedBootstrapLimit || DEFAULT_PRODUCTS_PAGE_LIMIT);
+      const loadedProducts = typeof adapter.loadProductsPage === "function"
+        ? await adapter.loadProductsPage({
+          limit: Number.isFinite(startupProductsLimit) && startupProductsLimit > 0
+            ? Math.max(1, Math.floor(startupProductsLimit))
+            : DEFAULT_PRODUCTS_PAGE_LIMIT,
+          page: 1
+        })
+        : await adapter.loadProducts();
+      const nextProducts = Array.isArray(loadedProducts)
+        ? loadedProducts
+        : Array.isArray(loadedProducts?.items)
+          ? loadedProducts.items
+          : [];
       if (nextProducts.length || !Array.isArray(state.products) || state.products.length === 0) {
         state.products = nextProducts;
       }
+      state.productFeedPagination = Array.isArray(loadedProducts)
+        ? {
+          limit: nextProducts.length || DEFAULT_PRODUCTS_PAGE_LIMIT,
+          page: 1,
+          nextCursor: "",
+          hasMore: false,
+          total: nextProducts.length,
+          loadedCount: nextProducts.length
+        }
+        : {
+          limit: Number(loadedProducts?.limit || DEFAULT_PRODUCTS_PAGE_LIMIT) || DEFAULT_PRODUCTS_PAGE_LIMIT,
+          page: Number(loadedProducts?.page || 1) || 1,
+          nextCursor: String(loadedProducts?.nextCursor || ""),
+          hasMore: Boolean(loadedProducts?.hasMore),
+          total: Number(loadedProducts?.total || nextProducts.length || 0),
+          loadedCount: nextProducts.length
+        };
       state.productsHydrated = true;
       if (typeof window !== "undefined" && typeof window.dispatchEvent === "function" && typeof window.CustomEvent === "function") {
         window.dispatchEvent(new window.CustomEvent("winga:products-hydrated", {
@@ -3648,6 +3849,9 @@
     getProducts() {
       return clone(state.products);
     },
+    getProductFeedPagination() {
+      return clone(state.productFeedPagination);
+    },
     getCachedProducts() {
       if (!shouldUseApiLocalCacheFallback(window.WINGA_CONFIG || {})) {
         return [];
@@ -3671,6 +3875,64 @@
       const nextProducts = sortProductsNewestFirst(clone(products));
       await state.adapter.saveProducts(nextProducts);
       state.products = nextProducts;
+      setFullProductFeedPagination(nextProducts);
+    },
+    async loadProductsPage(options = {}) {
+      ensureAdapter();
+      if (typeof state.adapter.loadProductsPage !== "function") {
+        const fullProducts = await state.adapter.loadProducts();
+        const page = normalizeProductPageResponse(fullProducts, options, (product) => product);
+        setPagedProductFeedPagination(page, page.items.length);
+        return page;
+      }
+      const page = await state.adapter.loadProductsPage(options);
+      const items = Array.isArray(page?.items) ? page.items : [];
+      if (Array.isArray(items) && items.length) {
+        state.productFeedPagination = {
+          limit: Number(page.limit || DEFAULT_PRODUCTS_PAGE_LIMIT) || DEFAULT_PRODUCTS_PAGE_LIMIT,
+          page: Number(page.page || 1) || 1,
+          nextCursor: String(page.nextCursor || ""),
+          hasMore: Boolean(page.hasMore),
+          total: Number(page.total || items.length || 0),
+          loadedCount: items.length
+        };
+      }
+      return page;
+    },
+    async appendProductsPage(options = {}) {
+      ensureAdapter();
+      const nextOptions = {
+        ...getNextProductsPageOptions(),
+        ...options
+      };
+      const page = typeof state.adapter.loadProductsPage === "function"
+        ? await state.adapter.loadProductsPage(nextOptions)
+        : normalizeProductPageResponse(await state.adapter.loadProducts(), nextOptions, (product) => product);
+      const incomingProducts = Array.isArray(page?.items) ? sortProductsNewestFirst(page.items) : [];
+      if (incomingProducts.length) {
+        state.products = mergeUniqueProducts(state.products, incomingProducts);
+      }
+      if (page && typeof page === "object") {
+        state.productFeedPagination = {
+          limit: Number(page.limit || nextOptions.limit || DEFAULT_PRODUCTS_PAGE_LIMIT) || DEFAULT_PRODUCTS_PAGE_LIMIT,
+          page: Number(page.page || nextOptions.page || 1) || 1,
+          nextCursor: String(page.nextCursor || ""),
+          hasMore: Boolean(page.hasMore),
+          total: Number(page.total || state.products.length || 0),
+          loadedCount: state.products.length
+        };
+      } else {
+        setFullProductFeedPagination(state.products);
+      }
+      if (typeof window !== "undefined" && typeof window.dispatchEvent === "function" && typeof window.CustomEvent === "function") {
+        window.dispatchEvent(new window.CustomEvent("winga:products-hydrated", {
+          detail: {
+            status: "appended",
+            count: state.products.length
+          }
+        }));
+      }
+      return clone(page);
     },
     async signup(payload) {
       const result = await state.adapter.signup(stripSignupCategoryFields(payload));
@@ -3732,6 +3994,7 @@
       const nextProducts = await state.adapter.loadProducts();
       state.products = Array.isArray(nextProducts) ? sortProductsNewestFirst(nextProducts) : [];
       state.productsHydrated = true;
+      setFullProductFeedPagination(state.products);
       if (typeof window !== "undefined" && typeof window.dispatchEvent === "function" && typeof window.CustomEvent === "function") {
         window.dispatchEvent(new window.CustomEvent("winga:products-hydrated", {
           detail: {
@@ -3775,18 +4038,21 @@
       assertSellerAccess();
       const result = await state.adapter.createProduct(product);
       state.products = sortProductsNewestFirst(await state.adapter.loadProducts());
+      setFullProductFeedPagination(state.products);
       return result;
     },
     async updateProduct(productId, payload) {
       assertSellerAccess();
       const result = await state.adapter.updateProduct(productId, payload);
       state.products = sortProductsNewestFirst(await state.adapter.loadProducts());
+      setFullProductFeedPagination(state.products);
       return result;
     },
     async deleteProduct(productId) {
       assertSellerAccess();
       const result = await state.adapter.deleteProduct(productId);
       state.products = sortProductsNewestFirst(await state.adapter.loadProducts());
+      setFullProductFeedPagination(state.products);
       return result;
     },
     async loadAnalytics() {

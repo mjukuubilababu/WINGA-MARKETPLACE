@@ -131,13 +131,16 @@ async function fetchBootstrapContext(origin, request) {
 
 async function loadBootstrapContext(origin, headers) {
   const [productsResult, usersResult, sessionResult] = await Promise.allSettled([
-    fetchProducts(origin, headers),
+    fetchProducts(origin, headers, {
+      limit: DEFAULT_FEED_LIMIT,
+      page: 1
+    }),
     fetchUsers(origin, headers),
     fetchSession(origin, headers)
   ]);
 
-  const items = productsResult.status === "fulfilled" && Array.isArray(productsResult.value) && productsResult.value.length
-    ? productsResult.value.slice(0, DEFAULT_FEED_LIMIT)
+  const items = productsResult.status === "fulfilled" && Array.isArray(productsResult.value?.items) && productsResult.value.items.length
+    ? productsResult.value.items.slice(0, DEFAULT_FEED_LIMIT)
     : getFallbackProducts();
   const users = usersResult.status === "fulfilled" && Array.isArray(usersResult.value)
     ? usersResult.value
@@ -164,12 +167,18 @@ async function loadBootstrapContext(origin, headers) {
   };
 }
 
-async function fetchProducts(origin, headers) {
-  const data = await fetchJsonWithTimeout(`${origin}/api/products`, {
+async function fetchProducts(origin, headers, options = {}) {
+  const pageWindow = normalizeProductPageWindow(options);
+  const query = new URLSearchParams();
+  query.set("limit", String(pageWindow.limit));
+  query.set("page", String(pageWindow.page));
+  if (pageWindow.cursor) {
+    query.set("cursor", pageWindow.cursor);
+  }
+  const data = await fetchJsonWithTimeout(`${origin}/api/products?${query.toString()}`, {
     headers
   });
-  const normalized = normalizeProductCollection(data);
-  return normalized.slice(0, DEFAULT_FEED_LIMIT);
+  return normalizeProductPageCollection(data, pageWindow);
 }
 
 async function fetchUsers(origin, headers) {
@@ -731,6 +740,67 @@ function normalizeProductCollection(payload) {
   return source.map((product) => normalizeProductForStream(product)).filter(Boolean);
 }
 
+function normalizeProductPageWindow(options = {}) {
+  const requestedLimit = Number(options.limit || DEFAULT_FEED_LIMIT);
+  const limit = Number.isFinite(requestedLimit) && requestedLimit > 0
+    ? Math.max(1, Math.floor(requestedLimit))
+    : DEFAULT_FEED_LIMIT;
+  const requestedPage = Number(options.page || 1);
+  const cursorValue = String(options.cursor || "").trim();
+  const parsedCursor = cursorValue ? Number(cursorValue) : Number.NaN;
+  const page = Number.isFinite(parsedCursor) && parsedCursor > 0
+    ? Math.max(1, Math.floor(parsedCursor))
+    : (Number.isFinite(requestedPage) && requestedPage > 0 ? Math.max(1, Math.floor(requestedPage)) : 1);
+  return {
+    limit,
+    page,
+    cursor: cursorValue
+  };
+}
+
+function normalizeProductPageCollection(payload, options = {}) {
+  const pageWindow = normalizeProductPageWindow(options);
+  const isObjectPayload = payload && typeof payload === "object" && !Array.isArray(payload);
+  const normalizedItems = normalizeProductCollection(payload);
+  if (isObjectPayload) {
+    const hasExplicitTotal = Number.isFinite(Number(payload.total));
+    const total = hasExplicitTotal
+      ? Math.max(0, Math.floor(Number(payload.total)))
+      : normalizedItems.length;
+    const limit = Number.isFinite(Number(payload.limit)) && Number(payload.limit) > 0
+      ? Math.max(1, Math.floor(Number(payload.limit)))
+      : pageWindow.limit;
+    const page = Number.isFinite(Number(payload.page)) && Number(payload.page) > 0
+      ? Math.max(1, Math.floor(Number(payload.page)))
+      : pageWindow.page;
+    const hasMore = typeof payload.hasMore === "boolean"
+      ? payload.hasMore
+      : Boolean(payload.nextCursor)
+        || (hasExplicitTotal ? (page * limit) < total : normalizedItems.length >= limit);
+    return {
+      items: normalizedItems,
+      nextCursor: payload.nextCursor != null ? String(payload.nextCursor) : (hasMore ? String(page + 1) : ""),
+      hasMore,
+      total,
+      page,
+      limit
+    };
+  }
+
+  const total = normalizedItems.length;
+  const offset = Math.max(0, (pageWindow.page - 1) * pageWindow.limit);
+  const items = normalizedItems.slice(offset, offset + pageWindow.limit);
+  const hasMore = offset + items.length < total;
+  return {
+    items,
+    nextCursor: hasMore ? String(pageWindow.page + 1) : "",
+    hasMore,
+    total,
+    page: pageWindow.page,
+    limit: pageWindow.limit
+  };
+}
+
 function normalizeProductForStream(product, options = {}) {
   if (!product || typeof product !== "object") {
     return null;
@@ -959,6 +1029,35 @@ async function handleImageCache(request, env, ctx) {
 async function proxyToOrigin(request, env) {
   const origin = getOriginBaseUrl(env);
   const requestUrl = new URL(request.url);
+  if (requestUrl.pathname === "/api/products" && (requestUrl.searchParams.has("limit") || requestUrl.searchParams.has("page") || requestUrl.searchParams.has("cursor"))) {
+    const headers = forwardProxyHeaders(request);
+    const targetUrl = `${origin}${requestUrl.pathname}${requestUrl.search}`;
+    const response = await fetch(targetUrl, {
+      method: request.method,
+      headers
+    });
+    if (!response.ok) {
+      return response;
+    }
+    try {
+      const data = await response.json();
+      const page = normalizeProductPageCollection(data, {
+        limit: requestUrl.searchParams.get("limit") || DEFAULT_FEED_LIMIT,
+        page: requestUrl.searchParams.get("page") || 1,
+        cursor: requestUrl.searchParams.get("cursor") || ""
+      });
+      return new Response(JSON.stringify(page), {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json; charset=utf-8",
+          "Cache-Control": "no-store",
+          "X-Content-Type-Options": "nosniff"
+        }
+      });
+    } catch (_error) {
+      return response;
+    }
+  }
   const targetUrl = `${origin}${requestUrl.pathname}${requestUrl.search}`;
   return fetch(new Request(targetUrl, request));
 }
