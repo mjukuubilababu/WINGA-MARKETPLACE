@@ -3691,36 +3691,59 @@ function silentlyRefreshInfiniteFeedSource() {
   if (now - Number(homeContinuousDiscoveryRuntime.lastBackendRefreshAt || 0) < HOME_INFINITE_BACKEND_REFRESH_COOLDOWN_MS) {
     return Promise.resolve(false);
   }
-  homeContinuousDiscoveryRuntime.lastBackendRefreshAt = now;
-  const appendProductsPage = window.WingaDataLayer?.appendProductsPage;
-  const refreshProducts = window.WingaDataLayer?.refreshProducts;
-  if (typeof appendProductsPage === "function") {
-    homeContinuousDiscoveryRuntime.backendRefreshPromise = Promise.resolve(appendProductsPage.call(window.WingaDataLayer))
-      .then((page) => {
-        const appendedProducts = Array.isArray(page?.items) ? page.items : [];
-        if (appendedProducts.length) {
-          refreshProductsFromStore();
-          return true;
-        }
-        return false;
-      })
-      .catch(() => false)
-      .finally(() => {
-        homeContinuousDiscoveryRuntime.backendRefreshPromise = null;
-      });
-    return homeContinuousDiscoveryRuntime.backendRefreshPromise;
-  }
-  if (typeof refreshProducts !== "function") {
+  const dataLayer = window.WingaDataLayer;
+  const appendProductsPage = dataLayer?.appendProductsPage;
+  const refreshProducts = dataLayer?.refreshProducts;
+  const getPagination = dataLayer?.getProductFeedPagination;
+  if (homeContinuousDiscoveryRuntime.isLoadingMore) {
     return Promise.resolve(false);
   }
-  homeContinuousDiscoveryRuntime.backendRefreshPromise = Promise.resolve(refreshProducts.call(window.WingaDataLayer))
-    .then(() => {
-      refreshProductsFromStore();
-      return true;
+  const pagination = typeof getPagination === "function" ? getPagination.call(dataLayer) : null;
+  if (pagination && pagination.hasMore === false) {
+    return Promise.resolve(false);
+  }
+  homeContinuousDiscoveryRuntime.isLoadingMore = true;
+  homeContinuousDiscoveryRuntime.lastBackendRefreshAt = now;
+  const requestId = ++homeContinuousDiscoveryRuntime.loadMoreRequestId;
+  const requestPromise = typeof appendProductsPage === "function"
+    ? Promise.resolve(appendProductsPage.call(dataLayer, pagination ? {
+      cursor: pagination.nextCursor || "",
+      page: Number(pagination.page || 1) + 1,
+      limit: Number(pagination.limit || 0) || undefined
+    } : {}))
+    : (typeof refreshProducts === "function"
+      ? Promise.resolve(refreshProducts.call(dataLayer))
+      : Promise.resolve(false));
+  homeContinuousDiscoveryRuntime.backendRefreshPromise = requestPromise
+    .then((page) => {
+      if (requestId !== homeContinuousDiscoveryRuntime.loadMoreRequestId) {
+        return false;
+      }
+      const appendedProducts = Array.isArray(page?.appendedItems) && page.appendedItems.length
+        ? page.appendedItems
+        : (Array.isArray(page?.items) ? page.items : []);
+      const appendedCount = Number(page?.appendedCount || appendedProducts.length || 0);
+      if (appendedCount > 0) {
+        refreshProductsFromStore();
+        primeIncomingFeedItems(appendedProducts, {
+          reason: "infinite_scroll_append",
+          productLimit: Math.min(appendedProducts.length, 8),
+          decodeLimit: Math.min(appendedProducts.length, 4)
+        });
+        return true;
+      }
+      if (typeof refreshProducts === "function" && typeof appendProductsPage !== "function") {
+        refreshProductsFromStore();
+        return true;
+      }
+      return false;
     })
     .catch(() => false)
     .finally(() => {
-      homeContinuousDiscoveryRuntime.backendRefreshPromise = null;
+      if (requestId === homeContinuousDiscoveryRuntime.loadMoreRequestId) {
+        homeContinuousDiscoveryRuntime.isLoadingMore = false;
+        homeContinuousDiscoveryRuntime.backendRefreshPromise = null;
+      }
     });
   return homeContinuousDiscoveryRuntime.backendRefreshPromise;
 }
@@ -11719,6 +11742,8 @@ let homeContinuousDiscoveryRuntime = {
   virtualList: [],
   lastBackendRefreshAt: 0,
   backendRefreshPromise: null,
+  isLoadingMore: false,
+  loadMoreRequestId: 0,
   lastSentinelFetchAt: 0,
   lastSentinelPreloadAt: 0,
   lastSentinelInjectAt: 0

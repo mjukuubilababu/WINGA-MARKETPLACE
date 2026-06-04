@@ -827,6 +827,49 @@
   }
 
   const DEFAULT_PRODUCTS_PAGE_LIMIT = 12;
+  const PRODUCT_CURSOR_SEPARATOR = "|";
+
+  function getConfiguredFeedPageLimit(config = window.WINGA_CONFIG || {}) {
+    const explicitLimit = Number(config.feedPageLimit || config.startupProductsPageLimit || config.feedBootstrapLimit);
+    if (Number.isFinite(explicitLimit) && explicitLimit > 0) {
+      return Math.max(1, Math.floor(explicitLimit));
+    }
+    const viewportWidth = Number(window.innerWidth || 0);
+    const mobileLimit = Number(config.feedPageLimitMobile || DEFAULT_PRODUCTS_PAGE_LIMIT) || DEFAULT_PRODUCTS_PAGE_LIMIT;
+    const desktopLimit = Number(config.feedPageLimitDesktop || 24) || 24;
+    return viewportWidth >= 1024
+      ? Math.max(1, Math.floor(desktopLimit))
+      : Math.max(1, Math.floor(mobileLimit));
+  }
+
+  function buildProductCursor(product) {
+    if (!product || typeof product !== "object") {
+      return "";
+    }
+    const timestamp = getProductCreatedTime(product);
+    const productId = String(product.id || product.productId || product.slug || "").trim();
+    if (!Number.isFinite(timestamp) || timestamp <= 0 || !productId) {
+      return "";
+    }
+    return `${timestamp}${PRODUCT_CURSOR_SEPARATOR}${productId}`;
+  }
+
+  function parseProductCursor(cursor) {
+    const rawCursor = String(cursor || "").trim();
+    if (!rawCursor || !rawCursor.includes(PRODUCT_CURSOR_SEPARATOR)) {
+      return null;
+    }
+    const [timestampValue, ...idParts] = rawCursor.split(PRODUCT_CURSOR_SEPARATOR);
+    const timestamp = Number(timestampValue);
+    const productId = idParts.join(PRODUCT_CURSOR_SEPARATOR).trim();
+    if (!Number.isFinite(timestamp) || timestamp <= 0 || !productId) {
+      return null;
+    }
+    return {
+      timestamp,
+      productId
+    };
+  }
 
   function normalizeProductPageWindow(options = {}) {
     const requestedLimit = Number(options.limit || DEFAULT_PRODUCTS_PAGE_LIMIT);
@@ -835,10 +878,9 @@
       : DEFAULT_PRODUCTS_PAGE_LIMIT;
     const requestedPage = Number(options.page || 1);
     const cursorValue = String(options.cursor || "").trim();
-    const parsedCursor = cursorValue ? Number(cursorValue) : Number.NaN;
-    const page = Number.isFinite(parsedCursor) && parsedCursor > 0
-      ? Math.max(1, Math.floor(parsedCursor))
-      : (Number.isFinite(requestedPage) && requestedPage > 0 ? Math.max(1, Math.floor(requestedPage)) : 1);
+    const page = Number.isFinite(requestedPage) && requestedPage > 0
+      ? Math.max(1, Math.floor(requestedPage))
+      : 1;
     return {
       limit,
       page,
@@ -852,7 +894,22 @@
     const sourceItems = Array.isArray(payload)
       ? payload
       : (Array.isArray(payload?.items) ? payload.items : Array.isArray(payload?.products) ? payload.products : []);
-    const normalizedItems = sourceItems.map(mapProduct).filter((item) => item && typeof item === "object");
+    const normalizedItems = sortProductsNewestFirst(sourceItems.map(mapProduct).filter((item) => item && typeof item === "object"));
+    const cursorTarget = pageWindow.cursor ? parseProductCursor(pageWindow.cursor) : null;
+    const cursorIndex = cursorTarget
+      ? normalizedItems.findIndex((item) => {
+        const itemCursor = buildProductCursor(item);
+        return itemCursor && itemCursor === pageWindow.cursor;
+      })
+      : -1;
+    const pageIndex = Math.max(0, (pageWindow.page - 1) * pageWindow.limit);
+    const startIndex = cursorIndex >= 0
+      ? cursorIndex + 1
+      : pageIndex;
+    const slicedItems = normalizedItems.slice(startIndex, startIndex + pageWindow.limit);
+    const inferredNextCursor = slicedItems.length
+      ? buildProductCursor(slicedItems[slicedItems.length - 1])
+      : "";
 
     if (isObjectPayload) {
       const hasExplicitTotal = Number.isFinite(Number(payload.total));
@@ -871,7 +928,7 @@
           || (hasExplicitTotal ? (page * limit) < total : normalizedItems.length >= limit);
       const nextCursor = payload.nextCursor != null
         ? String(payload.nextCursor)
-        : (hasMore ? String(page + 1) : "");
+        : (hasMore ? (slicedItems.length ? inferredNextCursor : buildProductCursor(normalizedItems[normalizedItems.length - 1] || null)) : "");
       return {
         items: normalizedItems,
         nextCursor,
@@ -883,12 +940,11 @@
     }
 
     const total = normalizedItems.length;
-    const offset = Math.max(0, (pageWindow.page - 1) * pageWindow.limit);
-    const items = normalizedItems.slice(offset, offset + pageWindow.limit);
-    const hasMore = offset + items.length < total;
+    const items = slicedItems;
+    const hasMore = startIndex + items.length < total;
     return {
       items,
-      nextCursor: hasMore ? String(pageWindow.page + 1) : "",
+      nextCursor: hasMore ? inferredNextCursor : "",
       hasMore,
       total,
       page: pageWindow.page,
@@ -2165,7 +2221,15 @@
         });
         const page = normalizeProductPageResponse(data, pageWindow, resolveProductImages);
         if (enableLocalCacheFallback && Array.isArray(page.items) && page.items.length) {
-          void localFallbackAdapter.saveProducts(page.items.map(normalizeProductForPersistence)).catch(() => {});
+          void localFallbackAdapter.loadProducts()
+            .then((cachedProducts) => {
+              const mergedProducts = mergeUniqueProducts(
+                Array.isArray(cachedProducts) ? cachedProducts : [],
+                page.items.map(normalizeProductForPersistence)
+              );
+              return localFallbackAdapter.saveProducts(mergedProducts);
+            })
+            .catch(() => {});
         }
         return page;
       },
@@ -3675,12 +3739,10 @@
       }
     }
     try {
-      const startupProductsLimit = Number(config.startupProductsPageLimit || config.feedBootstrapLimit || DEFAULT_PRODUCTS_PAGE_LIMIT);
+      const startupProductsLimit = getConfiguredFeedPageLimit(config);
       const loadedProducts = typeof adapter.loadProductsPage === "function"
         ? await adapter.loadProductsPage({
-          limit: Number.isFinite(startupProductsLimit) && startupProductsLimit > 0
-            ? Math.max(1, Math.floor(startupProductsLimit))
-            : DEFAULT_PRODUCTS_PAGE_LIMIT,
+          limit: startupProductsLimit,
           page: 1
         })
         : await adapter.loadProducts();
@@ -3689,7 +3751,9 @@
         : Array.isArray(loadedProducts?.items)
           ? loadedProducts.items
           : [];
-      if (nextProducts.length || !Array.isArray(state.products) || state.products.length === 0) {
+      if (nextProducts.length) {
+        state.products = mergeUniqueProducts(state.products, nextProducts);
+      } else if (!Array.isArray(state.products) || state.products.length === 0) {
         state.products = nextProducts;
       }
       state.productFeedPagination = Array.isArray(loadedProducts)
@@ -3698,16 +3762,16 @@
           page: 1,
           nextCursor: "",
           hasMore: false,
-          total: nextProducts.length,
-          loadedCount: nextProducts.length
+          total: state.products.length || nextProducts.length,
+          loadedCount: state.products.length || nextProducts.length
         }
         : {
           limit: Number(loadedProducts?.limit || DEFAULT_PRODUCTS_PAGE_LIMIT) || DEFAULT_PRODUCTS_PAGE_LIMIT,
           page: Number(loadedProducts?.page || 1) || 1,
           nextCursor: String(loadedProducts?.nextCursor || ""),
           hasMore: Boolean(loadedProducts?.hasMore),
-          total: Number(loadedProducts?.total || nextProducts.length || 0),
-          loadedCount: nextProducts.length
+          total: Number(loadedProducts?.total || state.products.length || nextProducts.length || 0),
+          loadedCount: state.products.length || nextProducts.length
         };
       state.productsHydrated = true;
       if (typeof window !== "undefined" && typeof window.dispatchEvent === "function" && typeof window.CustomEvent === "function") {
@@ -3720,7 +3784,7 @@
       }
     } catch (error) {
       console.warn("[WINGA] Product startup load failed.", error);
-      state.productsHydrated = false;
+      state.productsHydrated = Boolean(state.products.length);
       if (typeof window !== "undefined" && typeof window.dispatchEvent === "function" && typeof window.CustomEvent === "function") {
         window.dispatchEvent(new window.CustomEvent("winga:products-hydrated", {
           detail: {
@@ -3730,7 +3794,6 @@
           }
         }));
       }
-      throw error;
     }
 
     Promise.resolve()
@@ -3887,16 +3950,14 @@
       }
       const page = await state.adapter.loadProductsPage(options);
       const items = Array.isArray(page?.items) ? page.items : [];
-      if (Array.isArray(items) && items.length) {
-        state.productFeedPagination = {
-          limit: Number(page.limit || DEFAULT_PRODUCTS_PAGE_LIMIT) || DEFAULT_PRODUCTS_PAGE_LIMIT,
-          page: Number(page.page || 1) || 1,
-          nextCursor: String(page.nextCursor || ""),
-          hasMore: Boolean(page.hasMore),
-          total: Number(page.total || items.length || 0),
-          loadedCount: items.length
-        };
-      }
+      state.productFeedPagination = {
+        limit: Number(page.limit || DEFAULT_PRODUCTS_PAGE_LIMIT) || DEFAULT_PRODUCTS_PAGE_LIMIT,
+        page: Number(page.page || 1) || 1,
+        nextCursor: String(page.nextCursor || ""),
+        hasMore: Boolean(page.hasMore),
+        total: Number(page.total || items.length || 0),
+        loadedCount: items.length
+      };
       return page;
     },
     async appendProductsPage(options = {}) {
@@ -3905,6 +3966,7 @@
         ...getNextProductsPageOptions(),
         ...options
       };
+      const beforeCount = Array.isArray(state.products) ? state.products.length : 0;
       const page = typeof state.adapter.loadProductsPage === "function"
         ? await state.adapter.loadProductsPage(nextOptions)
         : normalizeProductPageResponse(await state.adapter.loadProducts(), nextOptions, (product) => product);
@@ -3912,6 +3974,7 @@
       if (incomingProducts.length) {
         state.products = mergeUniqueProducts(state.products, incomingProducts);
       }
+      const appendedCount = Math.max(0, (Array.isArray(state.products) ? state.products.length : 0) - beforeCount);
       if (page && typeof page === "object") {
         state.productFeedPagination = {
           limit: Number(page.limit || nextOptions.limit || DEFAULT_PRODUCTS_PAGE_LIMIT) || DEFAULT_PRODUCTS_PAGE_LIMIT,
@@ -3928,11 +3991,16 @@
         window.dispatchEvent(new window.CustomEvent("winga:products-hydrated", {
           detail: {
             status: "appended",
-            count: state.products.length
+            count: state.products.length,
+            appendedCount
           }
         }));
       }
-      return clone(page);
+      return {
+        ...clone(page),
+        appendedCount,
+        appendedItems: incomingProducts.slice(0, appendedCount || incomingProducts.length)
+      };
     },
     async signup(payload) {
       const result = await state.adapter.signup(stripSignupCategoryFields(payload));
