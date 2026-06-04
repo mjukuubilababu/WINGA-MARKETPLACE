@@ -16,6 +16,28 @@ async function requestJson(url, options = {}) {
   return json;
 }
 
+function normalizeProductPage(payload) {
+  if (Array.isArray(payload)) {
+    return {
+      items: payload,
+      nextCursor: "",
+      hasMore: false,
+      total: payload.length,
+      page: 1,
+      limit: payload.length
+    };
+  }
+
+  return {
+    items: Array.isArray(payload?.items) ? payload.items : [],
+    nextCursor: String(payload?.nextCursor || ""),
+    hasMore: Boolean(payload?.hasMore),
+    total: Number(payload?.total || 0),
+    page: Number(payload?.page || 1),
+    limit: Number(payload?.limit || 0)
+  };
+}
+
 async function main() {
   const stamp = Date.now();
   const username = `smoke${stamp}`;
@@ -93,7 +115,29 @@ async function main() {
     })
   });
 
-  const products = await requestJson(`${API_BASE}/products`);
+  const pageOne = normalizeProductPage(await requestJson(`${API_BASE}/products?limit=12&page=1`, {
+    headers: {
+      Authorization: `Bearer ${signup.token}`
+    }
+  }));
+  const pageTwo = normalizeProductPage(await requestJson(`${API_BASE}/products?limit=12&page=2`, {
+    headers: {
+      Authorization: `Bearer ${signup.token}`
+    }
+  }));
+  if (pageOne.items.length !== 12) {
+    throw new Error(`Expected 12 products on page 1, got ${pageOne.items.length}`);
+  }
+  if (pageTwo.items.length !== 12) {
+    throw new Error(`Expected 12 products on page 2, got ${pageTwo.items.length}`);
+  }
+  if (!pageOne.nextCursor || !pageOne.hasMore) {
+    throw new Error("Expected page 1 to return nextCursor and hasMore");
+  }
+  if (pageOne.items.some((product) => pageTwo.items.some((item) => item.id === product.id))) {
+    throw new Error("Expected page 1 and page 2 to contain distinct products");
+  }
+  const products = pageOne.items.concat(pageTwo.items);
   const adminLogin = await requestJson(`${API_BASE}/auth/admin-login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -146,6 +190,11 @@ async function main() {
     productFoundAfterUpdate: products.some((product) => product.id === productId),
     deleteOk: Boolean(removed?.ok),
     uploadFileRemovedAfterDelete: uploadFile ? !fs.existsSync(uploadFile) : false,
+    pageOneCount: pageOne.items.length,
+    pageTwoCount: pageTwo.items.length,
+    pageOneNextCursor: pageOne.nextCursor,
+    pageOneHasMore: pageOne.hasMore,
+    productPaginationDistinct: !pageOne.items.some((product) => pageTwo.items.some((item) => item.id === product.id)),
     analyticsUsersCount: analytics.usersCount,
     backupsBefore: beforeBackups,
     backupsAfter: afterBackups

@@ -190,7 +190,7 @@ const TRUST_PROXY_HEADERS = String(process.env.TRUST_PROXY_HEADERS || "").toLowe
 const SAFE_IMAGE_PLACEHOLDER_PATH = "/share-og.svg";
 const DEFAULT_BOOTSTRAP_PRODUCT_LIMIT = 12;
 const MAX_BOOTSTRAP_PRODUCT_LIMIT = 24;
-const MAX_API_PRODUCT_LIMIT = 120;
+const MAX_API_PRODUCT_LIMIT = 50;
 let requestSequence = 0;
 
 function validateRuntimeConfiguration() {
@@ -1493,12 +1493,16 @@ function paginateProducts(products, options = {}) {
     ? Math.min(requestedLimit, maxLimit)
     : Math.min(fallbackLimit, maxLimit);
   const items = source.slice(offset, offset + limit);
+  const lastItem = items[items.length - 1] || null;
   return {
     items,
     offset,
     limit,
     total: source.length,
-    hasMore: offset + items.length < source.length
+    hasMore: offset + items.length < source.length,
+    nextCursor: offset + items.length < source.length && lastItem?.createdAt && lastItem?.id
+      ? `${lastItem.createdAt}|${lastItem.id}`
+      : ""
   };
 }
 
@@ -4597,16 +4601,103 @@ http.createServer(async (req, res) => {
       const token = readAuthToken(req);
       const session = token ? findSession(store, token) : null;
       const viewer = session ? getUserByUsername(store, session.username) : null;
-      logRouteMemoryStage(requestMeta, "before_product_list_build");
+      const requestedLimit = Number.parseInt(url.searchParams.get("limit"), 10);
+      const requestedPage = Number.parseInt(url.searchParams.get("page"), 10);
+      const requestedCursor = String(url.searchParams.get("cursor") || "").trim();
+      const pageLimit = Number.isFinite(requestedLimit) && requestedLimit > 0
+        ? Math.min(Math.floor(requestedLimit), MAX_API_PRODUCT_LIMIT)
+        : 12;
+      const safePage = Number.isFinite(requestedPage) && requestedPage > 0 ? Math.floor(requestedPage) : 1;
+      const isStaffViewer = Boolean(viewer && isStaffRole(viewer.role));
+
+      logRouteMemoryStage(requestMeta, "before_product_list_build", {
+        limit: pageLimit,
+        page: safePage,
+        cursor: requestedCursor
+      });
+
+      if (postgresStore?.readProductsPage) {
+        const pageData = await postgresStore.readProductsPage({
+          limit: pageLimit,
+          page: safePage,
+          cursor: requestedCursor,
+          maxLimit: MAX_API_PRODUCT_LIMIT,
+          viewerUsername: viewer?.username || "",
+          isStaffViewer
+        });
+        const visibleProducts = (Array.isArray(pageData.items) ? pageData.items : [])
+          .map((product) => sanitizeVisibleProduct(product, viewer, store))
+          .filter(Boolean);
+        const payload = {
+          items: visibleProducts,
+          nextCursor: String(pageData.nextCursor || ""),
+          hasMore: Boolean(pageData.hasMore),
+          total: Number(pageData.total || 0),
+          page: Number(pageData.page || safePage),
+          limit: Number(pageData.limit || pageLimit)
+        };
+        logRouteMemoryStage(requestMeta, "after_product_list_build", {
+          returnedProducts: visibleProducts.length,
+          totalProducts: payload.total,
+          hasMore: payload.hasMore
+        });
+        requestMeta.statusCode = 200;
+        logRouteSummary(requestMeta, {
+          returnedProducts: visibleProducts.length,
+          totalProducts: payload.total,
+          hasMore: payload.hasMore
+        });
+        sendJson(res, 200, payload);
+        return;
+      }
+
       const visibleProducts = buildVisibleProducts(store, viewer);
+      const fallbackCursorIndex = requestedCursor
+        ? visibleProducts.findIndex((product) => `${product.createdAt || ""}|${product.id || ""}` === requestedCursor)
+        : -1;
+      const fallbackPagination = requestedCursor && fallbackCursorIndex >= 0
+        ? (() => {
+            const cursorOffset = fallbackCursorIndex + 1;
+            const items = visibleProducts.slice(cursorOffset, cursorOffset + pageLimit);
+            const lastItem = items[items.length - 1] || null;
+            return {
+              items,
+              total: visibleProducts.length,
+              hasMore: cursorOffset + items.length < visibleProducts.length,
+              nextCursor: cursorOffset + items.length < visibleProducts.length && lastItem?.createdAt && lastItem?.id
+                ? `${lastItem.createdAt}|${lastItem.id}`
+                : ""
+            };
+          })()
+        : paginateProducts(visibleProducts, {
+            limit: pageLimit,
+            offset: Math.max(0, (safePage - 1) * pageLimit),
+            maxLimit: MAX_API_PRODUCT_LIMIT,
+            fallbackLimit: 12
+          });
+      const fallbackVisibleProducts = (Array.isArray(fallbackPagination.items) ? fallbackPagination.items : [])
+        .map((product) => sanitizeVisibleProduct(product, viewer, store))
+        .filter(Boolean);
+      const fallbackPayload = {
+        items: fallbackVisibleProducts,
+        nextCursor: String(fallbackPagination.nextCursor || ""),
+        hasMore: Boolean(fallbackPagination.hasMore),
+        total: Number(fallbackPagination.total || 0),
+        page: safePage,
+        limit: pageLimit
+      };
       logRouteMemoryStage(requestMeta, "after_product_list_build", {
-        returnedProducts: visibleProducts.length
+        returnedProducts: fallbackVisibleProducts.length,
+        totalProducts: fallbackPayload.total,
+        hasMore: fallbackPayload.hasMore
       });
       requestMeta.statusCode = 200;
       logRouteSummary(requestMeta, {
-        returnedProducts: visibleProducts.length
+        returnedProducts: fallbackVisibleProducts.length,
+        totalProducts: fallbackPayload.total,
+        hasMore: fallbackPayload.hasMore
       });
-      sendJson(res, 200, visibleProducts);
+      sendJson(res, 200, fallbackPayload);
       return;
     }
 

@@ -143,7 +143,13 @@ async function fetchProducts(origin) {
     return [];
   }
   const payload = await response.json().catch(() => []);
-  return Array.isArray(payload) ? payload : [];
+  if (Array.isArray(payload)) {
+    return payload;
+  }
+  if (payload && Array.isArray(payload.items)) {
+    return payload.items;
+  }
+  return [];
 }
 
 module.exports = async function productOgRoute(req, res) {

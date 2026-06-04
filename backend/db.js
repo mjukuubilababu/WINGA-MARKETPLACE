@@ -20,6 +20,68 @@ function parseJson(value, fallback) {
   return value;
 }
 
+function toISOString(value) {
+  if (!value) {
+    return "";
+  }
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? "" : date.toISOString();
+}
+
+function parseProductCursor(cursor) {
+  const rawCursor = String(cursor || "").trim();
+  if (!rawCursor) {
+    return null;
+  }
+  const separatorIndex = rawCursor.indexOf("|");
+  if (separatorIndex <= 0 || separatorIndex >= rawCursor.length - 1) {
+    return null;
+  }
+  const createdAt = rawCursor.slice(0, separatorIndex).trim();
+  const id = rawCursor.slice(separatorIndex + 1).trim();
+  const parsedDate = new Date(createdAt);
+  if (!createdAt || !id || Number.isNaN(parsedDate.getTime())) {
+    return null;
+  }
+  return {
+    createdAt: parsedDate.toISOString(),
+    id
+  };
+}
+
+function normalizeProductRow(row) {
+  if (!row || typeof row !== "object") {
+    return null;
+  }
+
+  return {
+    id: row.id || "",
+    name: row.name || "",
+    price: row.price == null ? null : Number(row.price),
+    shop: row.shop || "",
+    whatsapp: row.whatsapp || "",
+    image: row.image || "",
+    images: parseJson(row.images, []),
+    uploadedBy: row.uploadedBy || "",
+    category: row.category || "",
+    status: row.status || "",
+    availability: row.availability || "available",
+    moderationNote: row.moderationNote || "",
+    moderatedAt: toISOString(row.moderatedAt),
+    moderatedBy: row.moderatedBy || "",
+    originalProductId: row.originalProductId || "",
+    originalSellerId: row.originalSellerId || "",
+    resellerId: row.resellerId || "",
+    resalePrice: row.resalePrice == null ? null : Number(row.resalePrice),
+    resoldStatus: row.resoldStatus || "original",
+    createdAt: toISOString(row.createdAt),
+    updatedAt: toISOString(row.updatedAt),
+    likes: Number(row.likes || 0),
+    views: Number(row.views || 0),
+    viewedBy: parseJson(row.viewedBy, [])
+  };
+}
+
 function createPostgresStore({ databaseUrl, ssl = false }) {
   const pool = new Pool({
     connectionString: databaseUrl,
@@ -28,6 +90,27 @@ function createPostgresStore({ databaseUrl, ssl = false }) {
 
   async function query(text, params = []) {
     return pool.query(text, params);
+  }
+
+  function buildProductVisibilityClause({ viewerUsername = "", isStaffViewer = false } = {}) {
+    const clauses = [];
+    const params = [];
+    const safeViewerUsername = String(viewerUsername || "").trim().slice(0, 40);
+
+    if (!isStaffViewer) {
+      if (safeViewerUsername) {
+        params.push(safeViewerUsername);
+        clauses.push(`(status = 'approved' OR uploaded_by = $${params.length})`);
+      } else {
+        clauses.push("status = 'approved'");
+      }
+    }
+
+    return {
+      clauses,
+      params,
+      safeViewerUsername
+    };
   }
 
   async function ensureSchema() {
@@ -886,7 +969,7 @@ function createPostgresStore({ databaseUrl, ssl = false }) {
           views,
           viewed_by AS "viewedBy"
         FROM products
-        ORDER BY created_at DESC
+        ORDER BY created_at DESC, id DESC
       `),
       query(`
         SELECT
@@ -1127,6 +1210,107 @@ function createPostgresStore({ databaseUrl, ssl = false }) {
     };
   }
 
+  async function readProductsPage(options = {}) {
+    const requestedLimit = Number.parseInt(options.limit, 10);
+    const requestedPage = Number.parseInt(options.page, 10);
+    const requestedOffset = Number.parseInt(options.offset, 10);
+    const requestedMaxLimit = Number.parseInt(options.maxLimit, 10);
+    const maxLimit = Number.isFinite(requestedMaxLimit) && requestedMaxLimit > 0
+      ? Math.min(Math.floor(requestedMaxLimit), 50)
+      : 50;
+    const limit = Number.isFinite(requestedLimit) && requestedLimit > 0
+      ? Math.min(Math.floor(requestedLimit), maxLimit)
+      : Math.min(12, maxLimit);
+    const page = Number.isFinite(requestedPage) && requestedPage > 0 ? Math.floor(requestedPage) : 1;
+    const offset = Number.isFinite(requestedOffset) && requestedOffset >= 0
+      ? Math.floor(requestedOffset)
+      : Math.max(0, (page - 1) * limit);
+    const cursor = parseProductCursor(options.cursor);
+    const { clauses, params: visibilityParams } = buildProductVisibilityClause({
+      viewerUsername: options.viewerUsername,
+      isStaffViewer: Boolean(options.isStaffViewer)
+    });
+    const whereParts = [...clauses];
+    const countParams = [...visibilityParams];
+    const itemParams = [...visibilityParams];
+
+    if (cursor) {
+      itemParams.push(cursor.createdAt, cursor.id);
+      whereParts.push(`(created_at, id) < ($${itemParams.length - 1}::timestamptz, $${itemParams.length}::text)`);
+    }
+
+    const whereSql = whereParts.length ? `WHERE ${whereParts.join(" AND ")}` : "";
+    const itemLimit = limit + 1;
+    let itemsSql = `
+      SELECT
+        id,
+        name,
+        price::float8 AS price,
+        shop,
+        whatsapp,
+        image,
+        images,
+        uploaded_by AS "uploadedBy",
+        category,
+        status,
+        availability,
+        moderation_note AS "moderationNote",
+        moderated_at AS "moderatedAt",
+        moderated_by AS "moderatedBy",
+        original_product_id AS "originalProductId",
+        original_seller_id AS "originalSellerId",
+        reseller_id AS "resellerId",
+        resale_price::float8 AS "resalePrice",
+        resold_status AS "resoldStatus",
+        created_at AS "createdAt",
+        updated_at AS "updatedAt",
+        likes,
+        views,
+        viewed_by AS "viewedBy"
+      FROM products
+      ${whereSql}
+      ORDER BY created_at DESC, id DESC
+      LIMIT $${itemParams.length + 1}
+    `;
+    if (!cursor) {
+      itemParams.push(itemLimit, offset);
+      itemsSql += ` OFFSET $${itemParams.length}`;
+    } else {
+      itemParams.push(itemLimit);
+    }
+
+    const countSql = `
+      SELECT COUNT(*)::int AS total
+      FROM products
+      ${whereSql}
+    `;
+
+    const [itemsResult, countResult] = await Promise.all([
+      query(itemsSql, itemParams),
+      query(countSql, countParams)
+    ]);
+
+    const rawItems = Array.isArray(itemsResult.rows) ? itemsResult.rows : [];
+    const hasMore = rawItems.length > limit;
+    const items = (hasMore ? rawItems.slice(0, limit) : rawItems)
+      .map(normalizeProductRow)
+      .filter(Boolean);
+    const total = Number(countResult.rows[0]?.total || 0);
+    const lastItem = items[items.length - 1] || null;
+    const nextCursor = hasMore && lastItem?.createdAt && lastItem?.id
+      ? `${lastItem.createdAt}|${lastItem.id}`
+      : "";
+
+    return {
+      items,
+      nextCursor,
+      hasMore,
+      total,
+      page,
+      limit
+    };
+  }
+
   async function appendAuditLog(entry) {
     await query(
       "INSERT INTO audit_logs (time, event, entry) VALUES ($1, $2, $3::jsonb)",
@@ -1157,6 +1341,7 @@ function createPostgresStore({ databaseUrl, ssl = false }) {
   return {
     init,
     readStore,
+    readProductsPage,
     writeStore,
     appendAuditLog,
     readRecentAuditLogs
