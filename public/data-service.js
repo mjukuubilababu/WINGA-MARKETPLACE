@@ -751,9 +751,8 @@
       return source;
     }
     try {
-      const configuredApiBaseUrl = String(window.WINGA_CONFIG?.apiBaseUrl || "").trim().replace(/\/+$/, "");
-      const publicBaseUrl = configuredApiBaseUrl.replace(/\/api$/, "");
-      const baseUrl = source.startsWith("/uploads/") && publicBaseUrl
+      const publicBaseUrl = WINGA_API;
+      const baseUrl = source.startsWith("/uploads/")
         ? publicBaseUrl
         : window.location.origin;
       const parsed = new URL(source, baseUrl);
@@ -761,10 +760,10 @@
         const unwrappedSource = parsed.searchParams.get("u") || "";
         return unwrappedSource ? createMarketplaceImageProxyUrl(unwrappedSource) : "";
       }
-      if (publicBaseUrl && parsed.origin === publicBaseUrl && parsed.pathname.startsWith("/uploads/")) {
+      if (parsed.origin === publicBaseUrl && parsed.pathname.startsWith("/uploads/")) {
         return parsed.toString();
       }
-      if (!["http:", "https:"].includes(parsed.protocol) || !publicBaseUrl) {
+      if (!["http:", "https:"].includes(parsed.protocol)) {
         return parsed.toString();
       }
       const proxyUrl = new URL("/__winga-image__", publicBaseUrl);
@@ -827,6 +826,8 @@
   }
 
   const DEFAULT_PRODUCTS_PAGE_LIMIT = 12;
+  const WINGA_API = "https://winga-pflp.onrender.com";
+  const WINGA_API_BASE = `${WINGA_API}/api`;
   const PRODUCT_CURSOR_SEPARATOR = "|";
 
   function getConfiguredFeedPageLimit(config = window.WINGA_CONFIG || {}) {
@@ -2063,14 +2064,14 @@
     return data;
   }
 
-  function createApiAdapter(config) {
-    const baseUrl = (config.apiBaseUrl || "http://localhost:3000/api").replace(/\/$/, "");
-    const publicBaseUrl = baseUrl.replace(/\/api$/, "");
+  function createApiAdapter(config = {}) {
+    const baseUrl = WINGA_API_BASE;
+    const publicBaseUrl = WINGA_API;
     const sessionAdapter = createLocalAdapter();
     const localFallbackAdapter = createLocalAdapter();
-    const enableLocalCacheFallback = shouldUseApiLocalCacheFallback(config);
+    const enableLocalCacheFallback = shouldUseApiLocalCacheFallback(config || {});
     let sessionRestoreController = null;
-    const productUploadTimeoutMs = Number(config.productUploadTimeoutMs || 45000);
+    const productUploadTimeoutMs = Number((config && config.productUploadTimeoutMs) || 45000);
 
     function resolveProductImages(product) {
       if (!product || typeof product !== "object") {
@@ -2193,13 +2194,12 @@
         });
       },
       async loadProducts() {
-        const data = await fetchJson(`${baseUrl}/products`, {
-          headers: {
-            ...createAuthHeaders()
-          }
+        const page = await this.loadProductsPage({
+          limit: DEFAULT_PRODUCTS_PAGE_LIMIT,
+          page: 1
         });
-        const nextProducts = Array.isArray(data)
-          ? sortProductsNewestFirst(data.map(resolveProductImages))
+        const nextProducts = Array.isArray(page?.items)
+          ? page.items.slice()
           : [];
         if (enableLocalCacheFallback) {
           void localFallbackAdapter.saveProducts(nextProducts.map(normalizeProductForPersistence)).catch(() => {});
@@ -3532,7 +3532,7 @@
     };
   }
 
-  function chooseAdapter(config) {
+  function chooseAdapter(config = {}) {
     const provider = config.provider || "local";
     if (provider === "mock") return createMockAdapter();
     if (provider === "api") return createApiAdapter(config);
@@ -3682,6 +3682,7 @@
 
   async function loadInitialState(adapter) {
     state.productsHydrated = false;
+    const config = window.WINGA_CONFIG || {};
     const streamedSession = (typeof window !== "undefined" && window.__WINGA_BIG_PIPE_INITIAL_SESSION__ && typeof window.__WINGA_BIG_PIPE_INITIAL_SESSION__ === "object")
       ? window.__WINGA_BIG_PIPE_INITIAL_SESSION__
       : null;
