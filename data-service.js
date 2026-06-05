@@ -894,7 +894,13 @@
     const isObjectPayload = payload && typeof payload === "object" && !Array.isArray(payload);
     const sourceItems = Array.isArray(payload)
       ? payload
-      : (Array.isArray(payload?.items) ? payload.items : Array.isArray(payload?.products) ? payload.products : []);
+      : (Array.isArray(payload?.items)
+        ? payload.items
+        : Array.isArray(payload?.products)
+          ? payload.products
+          : Array.isArray(payload?.data)
+            ? payload.data
+            : []);
     const normalizedItems = sortProductsNewestFirst(sourceItems.map(mapProduct).filter((item) => item && typeof item === "object"));
     const cursorTarget = pageWindow.cursor ? parseProductCursor(pageWindow.cursor) : null;
     const cursorIndex = cursorTarget
@@ -923,15 +929,18 @@
       const page = Number.isFinite(Number(payload.page)) && Number(payload.page) > 0
         ? Math.max(1, Math.floor(Number(payload.page)))
         : pageWindow.page;
+      const items = normalizedItems;
       const hasMore = typeof payload.hasMore === "boolean"
         ? payload.hasMore
-        : Boolean(payload.nextCursor)
-          || (hasExplicitTotal ? (page * limit) < total : normalizedItems.length >= limit);
+        : Boolean(payload.nextCursor || payload.cursor)
+          || (hasExplicitTotal ? (page * limit) < total : items.length >= limit);
       const nextCursor = payload.nextCursor != null
         ? String(payload.nextCursor)
-        : (hasMore ? (slicedItems.length ? inferredNextCursor : buildProductCursor(normalizedItems[normalizedItems.length - 1] || null)) : "");
+        : payload.cursor != null
+          ? String(payload.cursor)
+          : (hasMore ? (items.length ? buildProductCursor(items[items.length - 1]) : "") : "");
       return {
-        items: normalizedItems,
+        items,
         nextCursor,
         hasMore,
         total,
@@ -2194,9 +2203,17 @@
         });
       },
       async loadProducts() {
+        console.log("[DEBUG] loadProducts called");
         const page = await this.loadProductsPage({
           limit: DEFAULT_PRODUCTS_PAGE_LIMIT,
           page: 1
+        });
+        console.log("[DEBUG] products result:", {
+          type: typeof page,
+          isArray: Array.isArray(page),
+          keys: Object.keys(page || {}),
+          itemsLength: page?.items?.length,
+          raw: page
         });
         const nextProducts = Array.isArray(page?.items)
           ? page.items.slice()
@@ -2218,6 +2235,15 @@
           headers: {
             ...createAuthHeaders()
           }
+        });
+        console.log("[DEBUG] loadProductsPage raw result:", {
+          type: typeof data,
+          isArray: Array.isArray(data),
+          keys: Object.keys(data || {}),
+          itemsLength: data?.items?.length,
+          productsLength: data?.products?.length,
+          dataLength: data?.data?.length,
+          raw: data
         });
         const page = normalizeProductPageResponse(data, pageWindow, resolveProductImages);
         if (enableLocalCacheFallback && Array.isArray(page.items) && page.items.length) {
