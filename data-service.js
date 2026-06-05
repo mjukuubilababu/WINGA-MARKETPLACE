@@ -3683,13 +3683,16 @@
   async function loadInitialState(adapter) {
     state.productsHydrated = false;
     const config = window.WINGA_CONFIG || {};
+    const sessionStore = adapter && typeof adapter.loadSession === "function" && typeof adapter.saveSession === "function"
+      ? adapter
+      : createLocalAdapter();
     const streamedSession = (typeof window !== "undefined" && window.__WINGA_BIG_PIPE_INITIAL_SESSION__ && typeof window.__WINGA_BIG_PIPE_INITIAL_SESSION__ === "object")
       ? window.__WINGA_BIG_PIPE_INITIAL_SESSION__
       : null;
     if (streamedSession?.username) {
-      const existingSession = sessionAdapter.loadSession();
+      const existingSession = sessionStore.loadSession();
       if (!existingSession?.username) {
-        sessionAdapter.saveSession(streamedSession);
+        sessionStore.saveSession(streamedSession);
       }
     }
     const streamedProducts = (typeof window !== "undefined" && Array.isArray(window.__WINGA_BIG_PIPE_INITIAL_PRODUCTS__))
