@@ -2918,7 +2918,8 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
   function createImageLoaderModule(deps = {}) {
     const {
       sanitizeImageSource = (value) => String(value || "").trim(),
-      isServiceWorkerRecoveryDisabled = () => false
+      isServiceWorkerRecoveryDisabled = () => false,
+      getImageFallbackDataUri = () => ""
     } = deps;
 
     function normalizeImageCandidates(values = []) {
@@ -2973,7 +2974,11 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       const sourceImages = Array.isArray(product?.images) && product.images.length > 0
         ? product.images.slice()
         : [product?.image];
-      return normalizeImageCandidates(sourceImages);
+      const safeImages = normalizeImageCandidates(sourceImages);
+      if (safeImages.length > 0) {
+        return safeImages;
+      }
+      return normalizeImageCandidates([getImageFallbackDataUri("WINGA")]);
     }
 
     function getProductImageCandidates(product) {

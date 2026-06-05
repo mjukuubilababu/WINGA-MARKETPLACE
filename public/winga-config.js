@@ -15,6 +15,9 @@ const WINGA_DEFAULT_CONFIG = {
   // reliably from file:// URLs.
   enableApiLocalCacheFallback: true,
   enableBootstrapFeedSnapshot: true,
+  feedPageLimit: 12,
+  feedPageLimitMobile: 12,
+  feedPageLimitDesktop: 24,
   enableClientEventLogging: WINGA_IS_FILE_MODE || WINGA_IS_LOCAL_WEB,
   clearLegacyLocalDataOnBoot: false,
   authRequestTimeoutMs: 18000,

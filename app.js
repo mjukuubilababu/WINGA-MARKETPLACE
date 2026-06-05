@@ -10759,7 +10759,7 @@ function clearBrokenMarketplaceImage(productId, imageSource = "") {
 function getRenderableMarketplaceImages(product, options = {}) {
   const images = getFeedRenderableImages(product);
   if (!images.length) {
-    return [];
+    return [getImageFallbackDataUri("WINGA")];
   }
   // Keep the card/media visible everywhere. Broken image telemetry still drives
   // fallback handling, but it should not remove products from discovery/detail.
