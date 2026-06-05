@@ -7122,10 +7122,11 @@ function completeBootOverlay() {
   const requiresMediaReady = currentView === "home"
     && !hasVisibleStartupCards
     && Boolean(productsContainer?.querySelector(".product-card[data-open-product], .seller-product-card[data-open-product]"));
+  const hasImmediateProducts = hasImmediateProductsAvailable();
   const missingStartupSurface = currentView === "home"
     && !hasVisibleStartupSurface({ includeFeedLoading: false })
     && productHydrationStatus !== "failed";
-  if (missingStartupSurface) {
+  if (missingStartupSurface && !hasImmediateProducts) {
     return;
   }
   if (hasVisibleStartupCards) {
@@ -12640,8 +12641,17 @@ function ensureVisibleStartupContent(reason = "startup_guard") {
   if (hasVisibleSurface) {
     return;
   }
-  if (productHydrationStatus !== "failed" && !Boolean(window.WingaDataLayer?.isProductsHydrated?.())) {
-    revealBootOverlay();
+  const productsHydrated = Boolean(window.WingaDataLayer?.isProductsHydrated?.());
+  if (productHydrationStatus !== "failed" && !productsHydrated) {
+    if (!document.body.classList.contains("app-ready")) {
+      revealBootOverlay();
+      return;
+    }
+    if (currentView === "home" && hasImmediateProductsAvailable()) {
+      scheduleRenderCurrentView("startup_guard_recovery");
+      return;
+    }
+    renderLifecycleFallbackSkeleton("Tunamalizia kupakia bidhaa. Tafadhali subiri kidogo.");
     return;
   }
   reportClientEvent("warn", "startup_blank_surface_guarded", "Startup guard restored visible feed loading shell.", {
