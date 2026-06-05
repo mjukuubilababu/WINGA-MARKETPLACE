@@ -20438,6 +20438,7 @@ const DEEP_LINK_RECOVERY_DELAY_MS = Math.max(
   2200,
   Number(window.WINGA_CONFIG?.deepLinkRecoveryDelayMs || 4200)
 );
+const BOOT_OVERLAY_NUCLEAR_TIMEOUT_MS = 4000;
 
 async function bootApp() {
   const lifecycleEpoch = beginLifecycleEpoch("boot");
@@ -20454,6 +20455,12 @@ async function bootApp() {
   document.body.classList.remove("app-ready");
   revealBootOverlay();
   scheduleBootOverlayHardSafety("boot_start");
+  window.setTimeout(() => {
+    const overlay = document.getElementById("boot-overlay") || document.querySelector(".boot-overlay");
+    if (overlay) {
+      overlay.remove();
+    }
+  }, BOOT_OVERLAY_NUCLEAR_TIMEOUT_MS);
   const bootstrapCleanupPromise = initializeBootstrapStorageVersion();
   syncAuthMode();
   authContainer.style.display = "none";
