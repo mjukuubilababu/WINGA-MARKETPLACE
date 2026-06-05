@@ -369,6 +369,30 @@ function ensureProductsForImmediateRender() {
   }
 }
 
+function hasActiveMarketplaceBootFilters() {
+  return Boolean(
+    String(searchInput?.value || "").trim()
+    || String(selectedCategory || "all") !== "all"
+    || String(sortSelect?.value || "default") !== "default"
+    || Number(filterPriceMinInput?.value || 0) > 0
+    || Number(filterPriceMaxInput?.value || 0) > 0
+    || String(filterLocationInput?.value || "").trim()
+    || Boolean(searchRuntimeState.activeImageSearch?.signature)
+  );
+}
+
+function getBootInitialRenderProducts() {
+  const viewportWidth = getViewportWidth();
+  const bootLimit = viewportWidth >= 960 ? 10 : (viewportWidth >= 720 ? 8 : 6);
+  const sourceProducts = Array.isArray(products) && products.length
+    ? products
+    : (shouldUseBootstrapFeedSnapshot() ? getFeedBootstrapSnapshot() : []);
+  if (!Array.isArray(sourceProducts) || !sourceProducts.length) {
+    return [];
+  }
+  return prioritizeSellerMarketplaceMix(sortProductsNewestFirst(sourceProducts.slice(0, bootLimit)));
+}
+
 function refreshProductsAfterAuthChange() {
   const refreshProducts = window.WingaDataLayer?.refreshProducts;
   if (typeof refreshProducts !== "function") {
@@ -7267,7 +7291,7 @@ function showInstantBootFeedSnapshot(reason = "boot_snapshot") {
     decodeLimit: Math.min(products.length, 2)
   }), 120);
 
-  return hasVisibleFeedShell;
+  return hasVisibleFeedShell || hasVisibleStartupSurface({ includeFeedLoading: false });
 }
 
 function startBackgroundSessionRestore(restorePromise, cachedSession = null, options = {}) {
@@ -18599,6 +18623,58 @@ function renderCurrentView(options = {}) {
       closeMobileCategoryMenu();
     }
     stopSlideshow();
+    const isBootStartupHomeRender = currentView === "home"
+      && (reason === "boot_pre_hydration_snapshot" || reason === "boot_initial_render");
+    const canUseBootFastPath = isBootStartupHomeRender && !hasActiveMarketplaceBootFilters();
+    if (canUseBootFastPath) {
+      const bootProducts = getBootInitialRenderProducts();
+      if (bootProducts.length) {
+        syncHeroPanelPosition(false, false);
+        searchBox.style.display = "";
+        searchToggleButton.style.display = "";
+        searchImageButton.style.display = "";
+        if (mobileCategoryShell) {
+          mobileCategoryShell.style.display = "";
+        }
+        syncMobileCategorySheetOffset();
+        searchBox.classList.toggle("mobile-open", searchRuntimeState.isMobileSearchOpen);
+        syncSearchChromeState();
+        renderImageSearchPreview();
+        appContainer.classList.toggle("search-priority-mode", false);
+        productsSummary?.classList.toggle("search-priority-summary", false);
+        updateMarketplaceActionChrome();
+        scheduleChromeOffsetSync();
+        categories.style.display = "grid";
+        heroPanel.style.display = "none";
+        marketShowcase.style.display = "none";
+        productsContainer.style.display = "grid";
+        emptyState.style.display = "none";
+        setFeedLoadingStateVisible(false);
+        uploadForm.style.display = "none";
+        analyticsPanel.style.display = "none";
+        adminPanel.style.display = "none";
+        syncBodyScrollLockState();
+        if (profileDiv) {
+          profileDiv.style.display = "none";
+        }
+        updateResultsMeta(bootProducts.length);
+        renderSearchDropdown([], { isProfile: false, isUpload: false, isAdminView: false });
+        renderProducts(bootProducts);
+        if (bootProducts.length > 0) {
+          scheduleIdleBackgroundWork(() => {
+            if (currentView !== "home" || uiRuntimeState.lastRenderStartedAt !== now || hasActiveMarketplaceBootFilters()) {
+              return;
+            }
+            renderCurrentView({ reason: "boot_initial_render_upgrade", force: true });
+          }, 220);
+        }
+        const hasVisibleBootContent = hasVisibleStartupSurface({ includeFeedLoading: false });
+        if (hasVisibleBootContent) {
+          hideLifecycleFallbackShell();
+        }
+        return;
+      }
+    }
     const filteredProducts = getFilteredProducts();
     const isProfile = currentView === "profile";
     const isUpload = currentView === "upload" && canUseSellerFeatures();
@@ -20402,7 +20478,7 @@ async function bootApp() {
     setDeepLinkLoadingShellVisible(false);
   }
 
-  showInstantBootFeedSnapshot("boot_pre_hydration_snapshot");
+  const bootSnapshotRendered = showInstantBootFeedSnapshot("boot_pre_hydration_snapshot");
   auditHydratedDataIntegrity("boot_pre_hydration_snapshot");
 
   await bootstrapCleanupPromise;
@@ -20497,11 +20573,30 @@ async function bootApp() {
     mergeAvailableCategories(inferCategoriesFromData());
     refreshCategoryUI();
     if (!suppressInitialProductHomeRender) {
-      renderCurrentView({ reason: "boot_initial_render", force: true });
-      reportBootPhase("feed_rendered", {
-        reason: "boot_initial_render",
-        productsCount: Array.isArray(products) ? products.length : 0
-      });
+      const bootSurfaceAlreadyVisible = hasVisibleStartupSurface({ includeFeedLoading: false });
+      const deferBootRender = Boolean(
+        currentView === "home"
+        && bootSurfaceAlreadyVisible
+        && !bootSnapshotRendered
+      );
+      if (deferBootRender) {
+        scheduleIdleBackgroundWork(() => {
+          if (!isLifecycleEpochCurrent(lifecycleEpoch) || currentView !== "home") {
+            return;
+          }
+          renderCurrentView({ reason: "boot_initial_render", force: true });
+        }, 180);
+        reportBootPhase("feed_render_deferred", {
+          reason: "boot_initial_render",
+          productsCount: Array.isArray(products) ? products.length : 0
+        });
+      } else {
+        renderCurrentView({ reason: "boot_initial_render", force: true });
+        reportBootPhase("feed_rendered", {
+          reason: "boot_initial_render",
+          productsCount: Array.isArray(products) ? products.length : 0
+        });
+      }
     }
   }
   window.requestAnimationFrame(() => {
