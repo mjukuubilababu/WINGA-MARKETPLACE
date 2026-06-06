@@ -7124,8 +7124,8 @@ function completeBootOverlay() {
     && Boolean(productsContainer?.querySelector(".product-card[data-open-product], .seller-product-card[data-open-product]"));
   const hasImmediateProducts = hasImmediateProductsAvailable();
   const missingStartupSurface = currentView === "home"
-    && !hasVisibleStartupSurface({ includeFeedLoading: false })
-    && productHydrationStatus !== "failed";
+    && !hasVisibleStartupSurface({ includeFeedLoading: true })
+    && !didInitialProductsRequestFail();
   if (missingStartupSurface && !hasImmediateProducts) {
     return;
   }
@@ -10878,6 +10878,32 @@ let publicAuthSlowTimer = null;
 let productHydrationStatus = "idle";
 const ADMIN_LOGIN_HASH = "#/admin-login";
 
+function getInitialProductsRequestState() {
+  const requestState = String(window.WingaDataLayer?.getInitialProductsRequestState?.() || "").trim().toLowerCase();
+  if (requestState === "success" || requestState === "error" || requestState === "loading") {
+    return requestState;
+  }
+  if (productHydrationStatus === "failed") {
+    return "error";
+  }
+  if (productHydrationStatus === "loaded" || productHydrationStatus === "appended") {
+    return "success";
+  }
+  if (productHydrationStatus === "loading") {
+    return "loading";
+  }
+  return "idle";
+}
+
+function isInitialProductsRequestPending() {
+  const requestState = getInitialProductsRequestState();
+  return requestState === "idle" || requestState === "loading";
+}
+
+function didInitialProductsRequestFail() {
+  return getInitialProductsRequestState() === "error";
+}
+
 const authContainer = document.getElementById("auth-container");
 const authCloseButton = document.getElementById("auth-close-button");
 const authGatePrompt = document.getElementById("auth-gate-prompt");
@@ -12615,8 +12641,7 @@ function shouldKeepStartupFeedLoadingVisible() {
       return false;
     }
     const filteredProducts = getFilteredProducts();
-    const productsHydrated = Boolean(window.WingaDataLayer?.isProductsHydrated?.());
-    return productHydrationStatus === "failed" && !productsHydrated && filteredProducts.length === 0;
+    return didInitialProductsRequestFail() && filteredProducts.length === 0;
   } catch (error) {
     captureClientError("startup_feed_loading_state_check_failed", error, {
       category: "runtime",
@@ -12642,7 +12667,8 @@ function ensureVisibleStartupContent(reason = "startup_guard") {
     return;
   }
   const productsHydrated = Boolean(window.WingaDataLayer?.isProductsHydrated?.());
-  if (productHydrationStatus !== "failed" && !productsHydrated) {
+  const initialRequestPending = isInitialProductsRequestPending();
+  if (!didInitialProductsRequestFail() && (initialRequestPending || !productsHydrated)) {
     if (!document.body.classList.contains("app-ready")) {
       revealBootOverlay();
       return;
@@ -18691,20 +18717,21 @@ function renderCurrentView(options = {}) {
     const isAdminView = currentView === "admin" && isStaffUser();
     const isGuest = !isAuthenticatedUser();
     const searchPriorityMode = hasPrioritySearchResults(filteredProducts.length) && !isProfile && !isUpload && !isAdminView;
-    const productsHydrated = Boolean(window.WingaDataLayer?.isProductsHydrated?.());
-    const productsLoadFailed = productHydrationStatus === "failed";
+    const initialProductsRequestState = getInitialProductsRequestState();
+    const initialProductsLoading = initialProductsRequestState === "idle" || initialProductsRequestState === "loading";
+    const initialProductsFailed = initialProductsRequestState === "error";
+    const initialProductsResolved = initialProductsRequestState === "success";
     const shouldShowStartupSkeleton = !isProfile
       && !isUpload
       && !isAdminView
       && filteredProducts.length === 0
-      && !productsHydrated
-      && !productsLoadFailed
+      && initialProductsLoading
       && !lifecycleFallbackActive;
     const shouldShowFeedLoading = !isProfile
       && !isUpload
       && !isAdminView
       && filteredProducts.length === 0
-      && (lifecycleFallbackActive || productsLoadFailed);
+      && (lifecycleFallbackActive || initialProductsFailed);
     syncHeroPanelPosition(isProfile, isUpload);
 
     searchBox.style.display = isProfile || isUpload || isAdminView ? "none" : "grid";
@@ -18725,7 +18752,13 @@ function renderCurrentView(options = {}) {
     heroPanel.style.display = "none";
     marketShowcase.style.display = "none";
     productsContainer.style.display = isProfile || isAdminView || shouldShowFeedLoading ? "none" : "grid";
-    emptyState.style.display = !isProfile && !isAdminView && productsHydrated && !productsLoadFailed && filteredProducts.length === 0 ? "block" : "none";
+    emptyState.style.display = !isProfile
+      && !isAdminView
+      && filteredProducts.length === 0
+      && initialProductsResolved
+      && !initialProductsFailed
+      ? "block"
+      : "none";
     setFeedLoadingStateVisible(shouldShowFeedLoading);
     uploadForm.style.display = isUpload || editingProductId ? "block" : "none";
     analyticsPanel.style.display = isAdminView || (isProfile && canUseSellerFeatures()) ? "block" : "none";

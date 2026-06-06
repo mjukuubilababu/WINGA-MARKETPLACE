@@ -3616,8 +3616,8 @@
     productFeedPagination: {
       limit: DEFAULT_PRODUCTS_PAGE_LIMIT,
       page: 1,
-      nextCursor: "1",
-      hasMore: true,
+      nextCursor: "",
+      hasMore: false,
       total: 0,
       loadedCount: 0
     },
@@ -3625,6 +3625,7 @@
     appSettings: normalizeAppSettings(DEFAULT_APP_SETTINGS),
     initialized: false,
     productsHydrated: false,
+    initialProductsRequestState: "idle",
     startupHydrationStarted: false,
     offlineQueueListenerBound: false,
     adapter: null,
@@ -3708,6 +3709,7 @@
 
   async function loadInitialState(adapter) {
     state.productsHydrated = false;
+    state.initialProductsRequestState = "loading";
     const config = window.WINGA_CONFIG || {};
     const sessionStore = adapter && typeof adapter.loadSession === "function" && typeof adapter.saveSession === "function"
       ? adapter
@@ -3804,6 +3806,7 @@
           loadedCount: state.products.length || nextProducts.length
         };
       state.productsHydrated = true;
+      state.initialProductsRequestState = "success";
       if (typeof window !== "undefined" && typeof window.dispatchEvent === "function" && typeof window.CustomEvent === "function") {
         window.dispatchEvent(new window.CustomEvent("winga:products-hydrated", {
           detail: {
@@ -3814,6 +3817,7 @@
       }
     } catch (error) {
       console.warn("[WINGA] Product startup load failed.", error);
+      state.initialProductsRequestState = "error";
       state.productsHydrated = Boolean(state.products.length);
       if (typeof window !== "undefined" && typeof window.dispatchEvent === "function" && typeof window.CustomEvent === "function") {
         window.dispatchEvent(new window.CustomEvent("winga:products-hydrated", {
@@ -3960,6 +3964,9 @@
     },
     isProductsHydrated() {
       return Boolean(state.productsHydrated);
+    },
+    getInitialProductsRequestState() {
+      return String(state.initialProductsRequestState || "idle");
     },
     cleanupLocalFallbackArtifacts() {
       clearLegacyLocalFallbackArtifacts();
