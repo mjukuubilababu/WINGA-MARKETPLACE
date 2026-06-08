@@ -3655,6 +3655,65 @@
     };
   }
 
+  function applyLoadedProductPageToState(loadedProducts, options = {}) {
+    const {
+      replace = false,
+      markHydrated = false,
+      requestState = ""
+    } = options;
+    const nextProducts = Array.isArray(loadedProducts)
+      ? loadedProducts
+      : Array.isArray(loadedProducts?.items)
+        ? loadedProducts.items
+        : Array.isArray(loadedProducts?.products)
+          ? loadedProducts.products
+          : Array.isArray(loadedProducts?.data)
+            ? loadedProducts.data
+            : [];
+
+    const safeProducts = sortProductsNewestFirst(
+      nextProducts.filter((product) => product && typeof product === "object")
+    );
+    const existingProducts = Array.isArray(state.products) ? state.products : [];
+
+    if (replace || existingProducts.length === 0) {
+      state.products = safeProducts.slice();
+    } else if (safeProducts.length > 0) {
+      state.products = sortProductsNewestFirst(mergeUniqueProducts(existingProducts, safeProducts));
+    }
+
+    if (Array.isArray(loadedProducts)) {
+      state.productFeedPagination = {
+        limit: safeProducts.length || DEFAULT_PRODUCTS_PAGE_LIMIT,
+        page: 1,
+        nextCursor: "",
+        hasMore: false,
+        total: state.products.length || safeProducts.length,
+        loadedCount: state.products.length || safeProducts.length
+      };
+    } else if (loadedProducts && typeof loadedProducts === "object") {
+      state.productFeedPagination = {
+        limit: Number(loadedProducts.limit || DEFAULT_PRODUCTS_PAGE_LIMIT) || DEFAULT_PRODUCTS_PAGE_LIMIT,
+        page: Number(loadedProducts.page || 1) || 1,
+        nextCursor: String(loadedProducts.nextCursor || ""),
+        hasMore: Boolean(loadedProducts.hasMore),
+        total: Number(loadedProducts.total || state.products.length || safeProducts.length || 0),
+        loadedCount: state.products.length || safeProducts.length
+      };
+    } else {
+      setFullProductFeedPagination(state.products);
+    }
+
+    if (markHydrated) {
+      state.productsHydrated = true;
+    }
+    if (requestState) {
+      state.initialProductsRequestState = requestState;
+    }
+
+    return safeProducts;
+  }
+
   function getNextProductsPageOptions() {
     const pagination = state.productFeedPagination || {};
     const limit = Number(pagination.limit || DEFAULT_PRODUCTS_PAGE_LIMIT) || DEFAULT_PRODUCTS_PAGE_LIMIT;
@@ -3778,35 +3837,11 @@
           page: 1
         })
         : await adapter.loadProducts();
-      const nextProducts = Array.isArray(loadedProducts)
-        ? loadedProducts
-        : Array.isArray(loadedProducts?.items)
-          ? loadedProducts.items
-          : [];
-      if (nextProducts.length) {
-        state.products = mergeUniqueProducts(state.products, nextProducts);
-      } else if (!Array.isArray(state.products) || state.products.length === 0) {
-        state.products = nextProducts;
-      }
-      state.productFeedPagination = Array.isArray(loadedProducts)
-        ? {
-          limit: nextProducts.length || DEFAULT_PRODUCTS_PAGE_LIMIT,
-          page: 1,
-          nextCursor: "",
-          hasMore: false,
-          total: state.products.length || nextProducts.length,
-          loadedCount: state.products.length || nextProducts.length
-        }
-        : {
-          limit: Number(loadedProducts?.limit || DEFAULT_PRODUCTS_PAGE_LIMIT) || DEFAULT_PRODUCTS_PAGE_LIMIT,
-          page: Number(loadedProducts?.page || 1) || 1,
-          nextCursor: String(loadedProducts?.nextCursor || ""),
-          hasMore: Boolean(loadedProducts?.hasMore),
-          total: Number(loadedProducts?.total || state.products.length || nextProducts.length || 0),
-          loadedCount: state.products.length || nextProducts.length
-        };
-      state.productsHydrated = true;
-      state.initialProductsRequestState = "success";
+      applyLoadedProductPageToState(loadedProducts, {
+        replace: true,
+        markHydrated: true,
+        requestState: "success"
+      });
       if (typeof window !== "undefined" && typeof window.dispatchEvent === "function" && typeof window.CustomEvent === "function") {
         window.dispatchEvent(new window.CustomEvent("winga:products-hydrated", {
           detail: {
@@ -3982,19 +4017,32 @@
       if (typeof state.adapter.loadProductsPage !== "function") {
         const fullProducts = await state.adapter.loadProducts();
         const page = normalizeProductPageResponse(fullProducts, options, (product) => product);
-        setPagedProductFeedPagination(page, page.items.length);
+        const normalizedPageItems = applyLoadedProductPageToState(page, {
+          replace: Number(page.page || 1) <= 1,
+          markHydrated: true,
+          requestState: "success"
+        });
+        setPagedProductFeedPagination(page, normalizedPageItems.length);
         return page;
       }
       const page = await state.adapter.loadProductsPage(options);
       const items = Array.isArray(page?.items) ? page.items : [];
-      state.productFeedPagination = {
-        limit: Number(page.limit || DEFAULT_PRODUCTS_PAGE_LIMIT) || DEFAULT_PRODUCTS_PAGE_LIMIT,
-        page: Number(page.page || 1) || 1,
-        nextCursor: String(page.nextCursor || ""),
-        hasMore: Boolean(page.hasMore),
-        total: Number(page.total || items.length || 0),
-        loadedCount: items.length
-      };
+      if (items.length > 0 || Number(page?.page || options?.page || 1) <= 1) {
+        applyLoadedProductPageToState(page, {
+          replace: Number(page?.page || options?.page || 1) <= 1,
+          markHydrated: true,
+          requestState: "success"
+        });
+      } else {
+        state.productFeedPagination = {
+          limit: Number(page.limit || DEFAULT_PRODUCTS_PAGE_LIMIT) || DEFAULT_PRODUCTS_PAGE_LIMIT,
+          page: Number(page.page || 1) || 1,
+          nextCursor: String(page.nextCursor || ""),
+          hasMore: Boolean(page.hasMore),
+          total: Number(page.total || items.length || 0),
+          loadedCount: items.length
+        };
+      }
       return page;
     },
     async appendProductsPage(options = {}) {
