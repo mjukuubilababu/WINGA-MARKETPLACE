@@ -2202,22 +2202,34 @@
           body: JSON.stringify(users)
         });
       },
-      async loadProducts() {
-        console.log("[DEBUG] loadProducts called");
-        const page = await this.loadProductsPage({
-          limit: DEFAULT_PRODUCTS_PAGE_LIMIT,
+      async loadProducts(options = {}) {
+        const pageWindow = normalizeProductPageWindow({
+          limit: options.limit || DEFAULT_PRODUCTS_PAGE_LIMIT,
           page: 1
         });
-        console.log("[DEBUG] products result:", {
-          type: typeof page,
-          isArray: Array.isArray(page),
-          keys: Object.keys(page || {}),
-          itemsLength: page?.items?.length,
-          raw: page
+        const query = new URLSearchParams({
+          limit: String(pageWindow.limit),
+          page: "1"
         });
-        const nextProducts = Array.isArray(page?.items)
-          ? page.items.slice()
-          : [];
+        const data = await fetchJson(`${baseUrl}/products?${query.toString()}`, {
+          headers: {
+            ...createAuthHeaders()
+          }
+        });
+        const sourceProducts = Array.isArray(data)
+          ? data
+          : Array.isArray(data?.items)
+            ? data.items
+            : Array.isArray(data?.products)
+              ? data.products
+              : Array.isArray(data?.data)
+                ? data.data
+                : [];
+        const nextProducts = sortProductsNewestFirst(
+          sourceProducts
+            .filter((product) => product && typeof product === "object")
+            .map(resolveProductImages)
+        );
         if (enableLocalCacheFallback) {
           void localFallbackAdapter.saveProducts(nextProducts.map(normalizeProductForPersistence)).catch(() => {});
         }
@@ -2235,15 +2247,6 @@
           headers: {
             ...createAuthHeaders()
           }
-        });
-        console.log("[DEBUG] loadProductsPage raw result:", {
-          type: typeof data,
-          isArray: Array.isArray(data),
-          keys: Object.keys(data || {}),
-          itemsLength: data?.items?.length,
-          productsLength: data?.products?.length,
-          dataLength: data?.data?.length,
-          raw: data
         });
         const page = normalizeProductPageResponse(data, pageWindow, resolveProductImages);
         if (enableLocalCacheFallback && Array.isArray(page.items) && page.items.length) {
@@ -3831,17 +3834,30 @@
     }
     try {
       const startupProductsLimit = getConfiguredFeedPageLimit(config);
-      const loadedProducts = typeof adapter.loadProductsPage === "function"
-        ? await adapter.loadProductsPage({
-          limit: startupProductsLimit,
-          page: 1
-        })
-        : await adapter.loadProducts();
-      applyLoadedProductPageToState(loadedProducts, {
+      // Keep first render on the original Product[] contract. Pagination is
+      // only metadata/load-more behavior and must never gate Home visibility.
+      const loadedProducts = await adapter.loadProducts({
+        limit: startupProductsLimit,
+        page: 1
+      });
+      const initialProducts = Array.isArray(loadedProducts)
+        ? sortProductsNewestFirst(loadedProducts)
+        : [];
+      applyLoadedProductPageToState(initialProducts, {
         replace: true,
         markHydrated: true,
         requestState: "success"
       });
+      if (typeof adapter.loadProductsPage === "function") {
+        state.productFeedPagination = {
+          limit: startupProductsLimit,
+          page: 1,
+          nextCursor: initialProducts.length >= startupProductsLimit ? "2" : "",
+          hasMore: initialProducts.length >= startupProductsLimit,
+          total: initialProducts.length,
+          loadedCount: initialProducts.length
+        };
+      }
       if (typeof window !== "undefined" && typeof window.dispatchEvent === "function" && typeof window.CustomEvent === "function") {
         window.dispatchEvent(new window.CustomEvent("winga:products-hydrated", {
           detail: {
