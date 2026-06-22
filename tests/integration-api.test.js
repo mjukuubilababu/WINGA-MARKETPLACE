@@ -33,6 +33,16 @@ async function request(pathname, options = {}) {
   return { response, body };
 }
 
+function getProductResponseItems(body) {
+  if (Array.isArray(body)) {
+    return body;
+  }
+  if (Array.isArray(body?.items)) {
+    return body.items;
+  }
+  return [];
+}
+
 test.before(async () => {
   serverProcess = spawn(process.execPath, ["server.js"], {
     cwd: path.join(process.cwd(), "backend"),
@@ -283,7 +293,7 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
     }
   });
   assert.equal(visibleProductsAfterUploadLoss.response.status, 200);
-  const recoveredProduct = visibleProductsAfterUploadLoss.body.find((product) => product.id === "product-test-001");
+  const recoveredProduct = getProductResponseItems(visibleProductsAfterUploadLoss.body).find((product) => product.id === "product-test-001");
   assert.ok(recoveredProduct, "Recovered product should still be visible after upload file loss.");
   assert.equal(recoveredProduct.image, "/share-og.svg");
   assert.equal(recoveredProduct.images[0], "/share-og.svg");
@@ -318,7 +328,7 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
       Authorization: `Bearer ${adminLoginForBrokenReference.body.token}`
     },
     body: JSON.stringify([
-      ...productsBeforeBrokenReference.body,
+      ...getProductResponseItems(productsBeforeBrokenReference.body),
       {
         id: "product-test-missing-ref",
         name: "Kiatu Broken Ref",
@@ -344,7 +354,7 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   });
   assert.equal(visibleProductsAfterBrokenReference.response.status, 200);
   assert.equal(
-    visibleProductsAfterBrokenReference.body.some((product) => product.id === "product-test-missing-ref"),
+    getProductResponseItems(visibleProductsAfterBrokenReference.body).some((product) => product.id === "product-test-missing-ref"),
     false,
     "Products with missing upload refs and no archive should not be returned to visible feeds."
   );
@@ -575,7 +585,7 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   });
   assert.equal(sellerProductsAfterWhatsappVerify.response.status, 200);
   assert.equal(
-    sellerProductsAfterWhatsappVerify.body
+    getProductResponseItems(sellerProductsAfterWhatsappVerify.body)
       .filter((item) => item.uploadedBy === "seller_one")
       .every((item) => item.whatsapp === "255700333333"),
     true
@@ -583,13 +593,13 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
 
   const publicProductsBeforeApproval = await request("/products");
   assert.equal(publicProductsBeforeApproval.response.status, 200);
-  assert.equal(publicProductsBeforeApproval.body.some((item) => item.id === "product-test-001" && item.status === "approved"), true);
+  assert.equal(getProductResponseItems(publicProductsBeforeApproval.body).some((item) => item.id === "product-test-001" && item.status === "approved"), true);
 
   const sellerVisibleProductsBeforeApproval = await request("/products", {
     headers: { Authorization: `Bearer ${sellerToken}` }
   });
   assert.equal(sellerVisibleProductsBeforeApproval.response.status, 200);
-  assert.equal(sellerVisibleProductsBeforeApproval.body.some((item) => item.id === "product-test-001" && item.status === "approved"), true);
+  assert.equal(getProductResponseItems(sellerVisibleProductsBeforeApproval.body).some((item) => item.id === "product-test-001" && item.status === "approved"), true);
 
   const publicAdminLogin = await request("/auth/login", {
     method: "POST",
@@ -738,7 +748,7 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   });
   assert.equal(buyerVisibleProducts.response.status, 200);
   assert.equal(
-    buyerVisibleProducts.body.some((item) =>
+    getProductResponseItems(buyerVisibleProducts.body).some((item) =>
       item.id === "product-test-001-repost"
       && item.uploadedBy === "seller_two"
       && item.originalProductId === ""
@@ -851,7 +861,7 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   });
   assert.equal(buyerVisibleProductsAfterOrder.response.status, 200);
   assert.equal(
-    buyerVisibleProductsAfterOrder.body.find((product) => product.id === "product-test-001")?.availability,
+    getProductResponseItems(buyerVisibleProductsAfterOrder.body).find((product) => product.id === "product-test-001")?.availability,
     "reserved"
   );
   const sellerVisibleUsersBeforeShare = await request("/users", {
@@ -951,7 +961,7 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   });
   assert.equal(buyerVisibleProductsAfterReject.response.status, 200);
   assert.equal(
-    buyerVisibleProductsAfterReject.body.find((product) => product.id === "product-test-002")?.availability,
+    getProductResponseItems(buyerVisibleProductsAfterReject.body).find((product) => product.id === "product-test-002")?.availability,
     "available"
   );
 
@@ -1077,7 +1087,7 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   });
   assert.equal(buyerVisibleProductsAfterDelivery.response.status, 200);
   assert.equal(
-    buyerVisibleProductsAfterDelivery.body.find((product) => product.id === "product-test-001")?.availability,
+    getProductResponseItems(buyerVisibleProductsAfterDelivery.body).find((product) => product.id === "product-test-001")?.availability,
     "sold_out"
   );
   const sellerNotificationsAfterDelivered = await request("/notifications", {

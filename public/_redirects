@@ -1,3 +1,0 @@
-# Cloudflare Worker + assets mode handles routing directly.
-# Keep this file intentionally empty of rewrite/proxy rules so
-# Wrangler static asset validation does not conflict with Worker routing.
