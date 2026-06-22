@@ -14,7 +14,7 @@ module.exports = defineConfig({
   webServer: {
     command: "node tests/e2e/start-servers.js",
     url: "http://127.0.0.1:4173/index.html",
-    reuseExistingServer: true,
+    reuseExistingServer: false,
     timeout: 120000
   }
 });

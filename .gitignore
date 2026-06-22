@@ -28,6 +28,8 @@ git-index-recovered
 .tmp-*/
 .tmp-*.html
 .tmp-*.json
+.tmp-*.log
+.tmp-*.pid
 tmp_*.js
 tmp-*.mjs
 scripts/prod-*.json

@@ -15,6 +15,7 @@ const promoReference = `E2E-PROMO-${Date.now()}`;
 
 let backendProcess = null;
 let staticServer = null;
+let backendExit = null;
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -61,6 +62,9 @@ function createStaticServer() {
 async function waitFor(url, timeoutMs = 20000) {
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
+    if (backendExit) {
+      throw new Error(`Backend process exited before ${url} was ready: ${backendExit}`);
+    }
     try {
       const response = await fetch(url);
       if (response.ok) {
@@ -72,6 +76,15 @@ async function waitFor(url, timeoutMs = 20000) {
     await new Promise((resolve) => setTimeout(resolve, 200));
   }
   throw new Error(`Timed out waiting for ${url}`);
+}
+
+function assertBackendProcessRunning(label = "backend") {
+  if (backendExit) {
+    throw new Error(`${label} process exited unexpectedly: ${backendExit}`);
+  }
+  if (!backendProcess || backendProcess.exitCode != null) {
+    throw new Error(`${label} process is not running. Check for a stale process on port ${backendPort}.`);
+  }
 }
 
 async function apiRequest(pathname, options = {}) {
@@ -340,6 +353,11 @@ function cleanup() {
   fs.rmSync(tempRoot, { recursive: true, force: true });
 }
 
+function shutdown() {
+  cleanup();
+  process.exit(0);
+}
+
 async function main() {
   backendProcess = spawn(process.execPath, ["server.js"], {
     cwd: path.join(rootDir, "backend"),
@@ -355,20 +373,24 @@ async function main() {
     },
     stdio: "ignore"
   });
+  backendProcess.once("exit", (code, signal) => {
+    backendExit = `code=${code ?? "null"} signal=${signal || "null"}`;
+  });
 
   await waitFor(`http://127.0.0.1:${backendPort}/api/health`);
+  assertBackendProcessRunning("E2E backend");
   await seedMarketplace();
+  assertBackendProcessRunning("E2E backend");
   staticServer = createStaticServer();
   await new Promise((resolve) => staticServer.listen(frontendPort, "127.0.0.1", resolve));
 
   process.on("SIGINT", () => {
-    cleanup();
-    process.exit(0);
+    shutdown();
   });
   process.on("SIGTERM", () => {
-    cleanup();
-    process.exit(0);
+    shutdown();
   });
+  process.stdin?.on?.("close", shutdown);
   process.on("exit", cleanup);
 }
 

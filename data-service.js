@@ -742,7 +742,7 @@
     };
   }
 
-  function createMarketplaceImageProxyUrl(value) {
+  function createMarketplaceImageProxyUrl(value, publicBaseUrlOverride = "") {
     const source = typeof value === "string" ? value.trim() : "";
     if (!source) {
       return "";
@@ -751,7 +751,7 @@
       return source;
     }
     try {
-      const publicBaseUrl = WINGA_API;
+      const publicBaseUrl = publicBaseUrlOverride || getConfiguredPublicBaseUrl();
       const baseUrl = source.startsWith("/uploads/")
         ? publicBaseUrl
         : window.location.origin;
@@ -829,6 +829,25 @@
   const WINGA_API = "https://winga-pflp.onrender.com";
   const WINGA_API_BASE = `${WINGA_API}/api`;
   const PRODUCT_CURSOR_SEPARATOR = "|";
+
+  function getConfiguredApiBaseUrl(config = window.WINGA_CONFIG || {}) {
+    const configuredBaseUrl = String(config?.apiBaseUrl || WINGA_API_BASE).trim();
+    return (configuredBaseUrl || WINGA_API_BASE).replace(/\/+$/, "");
+  }
+
+  function getPublicBaseUrlFromApiBase(apiBaseUrl) {
+    try {
+      const parsed = new URL(apiBaseUrl || WINGA_API_BASE, window.location.origin);
+      const publicPath = parsed.pathname.replace(/\/api\/?$/, "").replace(/\/+$/, "");
+      return `${parsed.origin}${publicPath}`;
+    } catch (error) {
+      return WINGA_API;
+    }
+  }
+
+  function getConfiguredPublicBaseUrl(config = window.WINGA_CONFIG || {}) {
+    return getPublicBaseUrlFromApiBase(getConfiguredApiBaseUrl(config));
+  }
 
   function getConfiguredFeedPageLimit(config = window.WINGA_CONFIG || {}) {
     const explicitLimit = Number(config.feedPageLimit || config.startupProductsPageLimit || config.feedBootstrapLimit);
@@ -2074,8 +2093,8 @@
   }
 
   function createApiAdapter(config = {}) {
-    const baseUrl = WINGA_API_BASE;
-    const publicBaseUrl = WINGA_API;
+    const baseUrl = getConfiguredApiBaseUrl(config);
+    const publicBaseUrl = getPublicBaseUrlFromApiBase(baseUrl);
     const sessionAdapter = createLocalAdapter();
     const localFallbackAdapter = createLocalAdapter();
     const enableLocalCacheFallback = shouldUseApiLocalCacheFallback(config || {});
@@ -2089,9 +2108,9 @@
 
       const resolveImage = (value) => {
         if (typeof value === "string" && value.startsWith("/uploads/")) {
-          return createMarketplaceImageProxyUrl(`${publicBaseUrl}${value}`);
+          return createMarketplaceImageProxyUrl(`${publicBaseUrl}${value}`, publicBaseUrl);
         }
-        return createMarketplaceImageProxyUrl(value);
+        return createMarketplaceImageProxyUrl(value, publicBaseUrl);
       };
 
       return {
