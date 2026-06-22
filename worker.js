@@ -740,6 +740,58 @@ function normalizeProductCollection(payload) {
   return source.map((product) => normalizeProductForStream(product)).filter(Boolean);
 }
 
+function getProductSortTimestamp(product) {
+  return Number(new Date(
+    product?.createdAt
+    || product?.created_at
+    || product?.timestamp
+    || product?.updatedAt
+    || 0
+  ).getTime() || 0);
+}
+
+function compareProductsNewestFirst(first, second) {
+  const secondTime = getProductSortTimestamp(second);
+  const firstTime = getProductSortTimestamp(first);
+  if (secondTime !== firstTime) {
+    return secondTime - firstTime;
+  }
+  return String(second?.id || "").localeCompare(String(first?.id || ""));
+}
+
+function sortProductsNewestFirst(products = []) {
+  return (Array.isArray(products) ? products : []).slice().sort(compareProductsNewestFirst);
+}
+
+function buildProductCursor(product) {
+  if (!product || typeof product !== "object") {
+    return "";
+  }
+  const timestamp = getProductSortTimestamp(product);
+  const productId = String(product.id || product.productId || product.slug || "").trim();
+  if (!Number.isFinite(timestamp) || timestamp <= 0 || !productId) {
+    return "";
+  }
+  return `${timestamp}|${productId}`;
+}
+
+function parseProductCursor(cursor) {
+  const rawCursor = String(cursor || "").trim();
+  if (!rawCursor || !rawCursor.includes("|")) {
+    return null;
+  }
+  const [timestampValue, ...idParts] = rawCursor.split("|");
+  const timestamp = Number(timestampValue);
+  const productId = idParts.join("|").trim();
+  if (!Number.isFinite(timestamp) || timestamp <= 0 || !productId) {
+    return null;
+  }
+  return {
+    timestamp,
+    productId
+  };
+}
+
 function normalizeProductPageWindow(options = {}) {
   const requestedLimit = Number(options.limit || DEFAULT_FEED_LIMIT);
   const limit = Number.isFinite(requestedLimit) && requestedLimit > 0
@@ -761,7 +813,17 @@ function normalizeProductPageWindow(options = {}) {
 function normalizeProductPageCollection(payload, options = {}) {
   const pageWindow = normalizeProductPageWindow(options);
   const isObjectPayload = payload && typeof payload === "object" && !Array.isArray(payload);
-  const normalizedItems = normalizeProductCollection(payload);
+  const normalizedItems = sortProductsNewestFirst(normalizeProductCollection(payload));
+  const cursorTarget = pageWindow.cursor ? parseProductCursor(pageWindow.cursor) : null;
+  const cursorIndex = cursorTarget
+    ? normalizedItems.findIndex((item) => buildProductCursor(item) === pageWindow.cursor)
+    : -1;
+  const pageIndex = Math.max(0, (pageWindow.page - 1) * pageWindow.limit);
+  const startIndex = cursorIndex >= 0 ? cursorIndex + 1 : pageIndex;
+  const slicedItems = normalizedItems.slice(startIndex, startIndex + pageWindow.limit);
+  const inferredNextCursor = slicedItems.length
+    ? buildProductCursor(slicedItems[slicedItems.length - 1])
+    : "";
   if (isObjectPayload) {
     const hasExplicitTotal = Number.isFinite(Number(payload.total));
     const total = hasExplicitTotal
@@ -779,7 +841,7 @@ function normalizeProductPageCollection(payload, options = {}) {
         || (hasExplicitTotal ? (page * limit) < total : normalizedItems.length >= limit);
     return {
       items: normalizedItems,
-      nextCursor: payload.nextCursor != null ? String(payload.nextCursor) : (hasMore ? String(page + 1) : ""),
+      nextCursor: payload.nextCursor != null ? String(payload.nextCursor) : (hasMore ? (slicedItems.length ? inferredNextCursor : buildProductCursor(normalizedItems[normalizedItems.length - 1] || null)) : ""),
       hasMore,
       total,
       page,
@@ -788,12 +850,11 @@ function normalizeProductPageCollection(payload, options = {}) {
   }
 
   const total = normalizedItems.length;
-  const offset = Math.max(0, (pageWindow.page - 1) * pageWindow.limit);
-  const items = normalizedItems.slice(offset, offset + pageWindow.limit);
-  const hasMore = offset + items.length < total;
+  const items = slicedItems;
+  const hasMore = startIndex + items.length < total;
   return {
     items,
-    nextCursor: hasMore ? String(pageWindow.page + 1) : "",
+    nextCursor: hasMore ? inferredNextCursor : "",
     hasMore,
     total,
     page: pageWindow.page,

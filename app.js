@@ -65,6 +65,12 @@ const FEED_BOOT_IMAGE_DECODE_COUNT = 8;
 const SPLASH_FEED_IMAGE_READY_COUNT = 6;
 const SPLASH_FEED_IMAGE_READY_TIMEOUT_MS = 2500;
 const BOOT_OVERLAY_HARD_SAFETY_TIMEOUT_MS = 4000;
+const STARTUP_CARD_VISIBLE_WARN_MS = 500;
+const STARTUP_IMAGE_VISIBLE_WARN_MS = 1000;
+const SCROLL_STOP_IMAGE_VISIBLE_WARN_MS = 300;
+const LOAD_MORE_IMAGE_VISIBLE_WARN_MS = 1000;
+const SCROLL_STOP_IMAGE_DEBOUNCE_MS = 140;
+const EXPERIENCE_METRIC_PROBE_TIMEOUT_MS = 8000;
 const SPLASH_FEED_IMAGE_READY_POLL_MS = 80;
 const FEED_PREDICTIVE_PRELOAD_COUNT = 6;
 const FEED_PREDICTIVE_NEXT_BATCH_SIZE = 6;
@@ -3738,6 +3744,13 @@ function silentlyRefreshInfiniteFeedSource() {
   homeContinuousDiscoveryRuntime.isLoadingMore = true;
   homeContinuousDiscoveryRuntime.lastBackendRefreshAt = now;
   const requestId = ++homeContinuousDiscoveryRuntime.loadMoreRequestId;
+  const loadMoreMetricContext = pagination ? {
+    page: Number(pagination.page || 1) + 1,
+    cursor: String(pagination.nextCursor || "").trim()
+  } : {
+    page: 0,
+    cursor: ""
+  };
   const requestPromise = typeof appendProductsPage === "function"
     ? Promise.resolve(appendProductsPage.call(dataLayer, pagination ? {
       cursor: pagination.nextCursor || "",
@@ -3762,6 +3775,10 @@ function silentlyRefreshInfiniteFeedSource() {
           reason: "infinite_scroll_append",
           productLimit: Math.min(appendedProducts.length, 8),
           decodeLimit: Math.min(appendedProducts.length, 4)
+        });
+        beginLoadMoreImageMeasurement({
+          ...loadMoreMetricContext,
+          productIds: appendedProducts.map((product) => product?.id).filter(Boolean)
         });
         return true;
       }
@@ -6849,6 +6866,7 @@ function hideBootOverlayImmediately() {
     document.body.classList.remove("app-booting");
     document.body.classList.add("app-ready");
   }
+  beginStartupVisibilityMeasurement("overlay_hidden");
 }
 
 function hasVisibleStartupFeedMedia(options = {}) {
@@ -7059,6 +7077,229 @@ function getRequiredStartupFeedMediaCount() {
   return Math.max(1, Math.min(SPLASH_FEED_IMAGE_READY_COUNT, availableStartupImages || visibleCards.length));
 }
 
+function measureStartupVisibilityFromSplashEnd(trigger = "startup_probe") {
+  if (!experienceMetricRuntimeState.splashEndedAt) {
+    return;
+  }
+  const startedAt = Number(experienceMetricRuntimeState.splashEndedAt || 0);
+  const probeStartedAt = Number(experienceMetricRuntimeState.startupProbeStartedAt || 0) || getPerformanceNowSafe();
+  if (getPerformanceNowSafe() - probeStartedAt > EXPERIENCE_METRIC_PROBE_TIMEOUT_MS) {
+    if (experienceMetricRuntimeState.startupProbeRaf) {
+      window.cancelAnimationFrame(experienceMetricRuntimeState.startupProbeRaf);
+      experienceMetricRuntimeState.startupProbeRaf = 0;
+    }
+    return;
+  }
+  const visibleCards = getVisibleMarketplaceCards(6);
+  const firstCard = visibleCards[0] || null;
+  if (firstCard && !experienceMetricRuntimeState.startupCardMeasured) {
+    experienceMetricRuntimeState.startupCardMeasured = true;
+    safePerformanceMark("winga_startup_first_card_visible");
+    safePerformanceMeasure("winga_startup_splash_to_card_visible", "winga_splash_end", "winga_startup_first_card_visible");
+    afterNextPaint(() => {
+      const productId = String(firstCard.getAttribute("data-open-product") || "").trim();
+      finalizeExperienceMetric("splashToFirstCardVisibleMs", getPerformanceNowSafe() - startedAt, getExperienceMetricContext({
+        reason: trigger,
+        productId
+      }));
+    });
+  }
+  const firstImage = firstCard ? getLeadMarketplaceCardImage(firstCard) : null;
+  if (firstImage && !experienceMetricRuntimeState.startupImageMeasured && isMarketplaceImageVisiblyReady(firstImage)) {
+    experienceMetricRuntimeState.startupImageMeasured = true;
+    safePerformanceMark("winga_startup_first_image_visible");
+    safePerformanceMeasure("winga_startup_splash_to_image_visible", "winga_splash_end", "winga_startup_first_image_visible");
+    afterNextPaint(() => {
+      finalizeExperienceMetric("splashToFirstImageVisibleMs", getPerformanceNowSafe() - startedAt, getExperienceMetricContext({
+        reason: trigger,
+        productId: String(firstImage.dataset.imageActionProduct || firstCard?.getAttribute("data-open-product") || "").trim(),
+        imageUrlHash: createExperienceFingerprint(firstImage.currentSrc || firstImage.getAttribute("src") || firstImage.dataset.marketplaceRealSrc || "")
+      }));
+    });
+  }
+  if (experienceMetricRuntimeState.startupCardMeasured && experienceMetricRuntimeState.startupImageMeasured) {
+    if (experienceMetricRuntimeState.startupProbeRaf) {
+      window.cancelAnimationFrame(experienceMetricRuntimeState.startupProbeRaf);
+      experienceMetricRuntimeState.startupProbeRaf = 0;
+    }
+    return;
+  }
+  experienceMetricRuntimeState.startupProbeRaf = window.requestAnimationFrame(() => {
+    experienceMetricRuntimeState.startupProbeRaf = 0;
+    measureStartupVisibilityFromSplashEnd(trigger);
+  });
+}
+
+function beginStartupVisibilityMeasurement(reason = "splash_hidden") {
+  if (experienceMetricRuntimeState.splashEndedAt) {
+    return;
+  }
+  experienceMetricRuntimeState.splashEndedAt = getPerformanceNowSafe();
+  experienceMetricRuntimeState.splashEndReason = String(reason || "splash_hidden");
+  experienceMetricRuntimeState.startupProbeStartedAt = experienceMetricRuntimeState.splashEndedAt;
+  safePerformanceMark("winga_splash_end");
+  measureStartupVisibilityFromSplashEnd(reason);
+}
+
+function beginScrollStopImageMeasurement() {
+  if (currentView !== "home" || document.body.classList.contains("product-detail-open")) {
+    return;
+  }
+  const nowAt = Date.now();
+  if (nowAt - Number(experienceMetricRuntimeState.lastScrollStopMeasuredAt || 0) < 1200) {
+    return;
+  }
+  const sequence = Number(experienceMetricRuntimeState.scrollStopSequence || 0) + 1;
+  experienceMetricRuntimeState.scrollStopSequence = sequence;
+  experienceMetricRuntimeState.scrollStopMetric = {
+    sequence,
+    startedAt: getPerformanceNowSafe(),
+    productId: "",
+    resolved: false
+  };
+  safePerformanceMark(`winga_scroll_stop_${sequence}`);
+  const probe = () => {
+    const metric = experienceMetricRuntimeState.scrollStopMetric;
+    if (!metric || metric.sequence !== sequence || metric.resolved) {
+      return;
+    }
+    if (getPerformanceNowSafe() - Number(metric.startedAt || 0) > 2500) {
+      experienceMetricRuntimeState.scrollStopMetric = null;
+      return;
+    }
+    const firstCard = getVisibleMarketplaceCards(4)[0] || null;
+    const firstImage = firstCard ? getLeadMarketplaceCardImage(firstCard) : null;
+    if (firstCard && !metric.productId) {
+      metric.productId = String(firstCard.getAttribute("data-open-product") || "").trim();
+    }
+    if (firstImage && isMarketplaceImageVisiblyReady(firstImage)) {
+      metric.resolved = true;
+      experienceMetricRuntimeState.lastScrollStopMeasuredAt = Date.now();
+      safePerformanceMark(`winga_scroll_stop_image_visible_${sequence}`);
+      safePerformanceMeasure(`winga_scroll_stop_to_image_visible_${sequence}`, `winga_scroll_stop_${sequence}`, `winga_scroll_stop_image_visible_${sequence}`);
+      afterNextPaint(() => {
+        finalizeExperienceMetric("scrollStopToImageVisibleMs", getPerformanceNowSafe() - Number(metric.startedAt || 0), getExperienceMetricContext({
+          reason: "scroll_stop",
+          productId: String(firstImage.dataset.imageActionProduct || metric.productId || "").trim(),
+          imageUrlHash: createExperienceFingerprint(firstImage.currentSrc || firstImage.getAttribute("src") || firstImage.dataset.marketplaceRealSrc || "")
+        }));
+        if (experienceMetricRuntimeState.scrollStopMetric?.sequence === sequence) {
+          experienceMetricRuntimeState.scrollStopMetric = null;
+        }
+      });
+      return;
+    }
+    window.requestAnimationFrame(probe);
+  };
+  window.requestAnimationFrame(probe);
+}
+
+function beginLoadMoreImageMeasurement(context = {}) {
+  const productIds = Array.isArray(context.productIds) ? context.productIds.filter(Boolean).map((value) => String(value).trim()) : [];
+  if (!productIds.length) {
+    return;
+  }
+  const productIdSet = new Set(productIds);
+  const startedAt = getPerformanceNowSafe();
+  const page = Number(context.page || 0) || 0;
+  const cursor = String(context.cursor || "").trim();
+  const markName = `winga_load_more_trigger_${Date.now()}`;
+  safePerformanceMark(markName);
+  experienceMetricRuntimeState.loadMoreMetric = {
+    startedAt,
+    page,
+    cursor,
+    productIdSet,
+    markName,
+    firstCardVisibleAfterMs: 0,
+    resolved: false
+  };
+  const probe = () => {
+    const metric = experienceMetricRuntimeState.loadMoreMetric;
+    if (!metric || metric.resolved || metric.markName !== markName) {
+      return;
+    }
+    if (getPerformanceNowSafe() - Number(metric.startedAt || 0) > 5000) {
+      experienceMetricRuntimeState.loadMoreMetric = null;
+      return;
+    }
+    const visibleCards = getVisibleMarketplaceCards(12);
+    const matchingCard = visibleCards.find((card) => metric.productIdSet.has(String(card.getAttribute("data-open-product") || "").trim())) || null;
+    if (matchingCard && !metric.firstCardVisibleAfterMs) {
+      metric.firstCardVisibleAfterMs = Math.max(0, Math.round(getPerformanceNowSafe() - Number(metric.startedAt || 0)));
+    }
+    const matchingImage = matchingCard ? getLeadMarketplaceCardImage(matchingCard) : null;
+    if (matchingImage && isMarketplaceImageVisiblyReady(matchingImage)) {
+      metric.resolved = true;
+      safePerformanceMark(`${markName}_image_visible`);
+      safePerformanceMeasure(`${markName}_duration`, markName, `${markName}_image_visible`);
+      afterNextPaint(() => {
+        finalizeExperienceMetric("loadMoreToFirstNewImageVisibleMs", getPerformanceNowSafe() - Number(metric.startedAt || 0), getExperienceMetricContext({
+          reason: "load_more",
+          productId: String(matchingImage.dataset.imageActionProduct || matchingCard?.getAttribute("data-open-product") || "").trim(),
+          imageUrlHash: createExperienceFingerprint(matchingImage.currentSrc || matchingImage.getAttribute("src") || matchingImage.dataset.marketplaceRealSrc || ""),
+          page: metric.page,
+          cursor: metric.cursor,
+          firstCardVisibleAfterMs: metric.firstCardVisibleAfterMs
+        }));
+        if (experienceMetricRuntimeState.loadMoreMetric?.markName === markName) {
+          experienceMetricRuntimeState.loadMoreMetric = null;
+        }
+      });
+      return;
+    }
+    window.requestAnimationFrame(probe);
+  };
+  window.requestAnimationFrame(probe);
+}
+
+function notifyMarketplaceImageVisibility(image, resolvedSrc = "", trigger = "load") {
+  if (!(image instanceof HTMLImageElement) || !isMarketplaceImageVisiblyReady(image)) {
+    return;
+  }
+  const productId = String(image.dataset.imageActionProduct || image.closest?.("[data-open-product]")?.getAttribute?.("data-open-product") || "").trim();
+  const imageUrlHash = createExperienceFingerprint(resolvedSrc || image.currentSrc || image.getAttribute("src") || image.dataset.marketplaceRealSrc || "");
+  if (experienceMetricRuntimeState.splashEndedAt && (!experienceMetricRuntimeState.startupCardMeasured || !experienceMetricRuntimeState.startupImageMeasured)) {
+    measureStartupVisibilityFromSplashEnd(`image_${trigger}`);
+  }
+  const scrollMetric = experienceMetricRuntimeState.scrollStopMetric;
+  if (scrollMetric && !scrollMetric.resolved) {
+    scrollMetric.resolved = true;
+    experienceMetricRuntimeState.lastScrollStopMeasuredAt = Date.now();
+    safePerformanceMark(`winga_scroll_stop_image_visible_${scrollMetric.sequence}`);
+    safePerformanceMeasure(`winga_scroll_stop_to_image_visible_${scrollMetric.sequence}`, `winga_scroll_stop_${scrollMetric.sequence}`, `winga_scroll_stop_image_visible_${scrollMetric.sequence}`);
+    afterNextPaint(() => {
+      finalizeExperienceMetric("scrollStopToImageVisibleMs", getPerformanceNowSafe() - Number(scrollMetric.startedAt || 0), getExperienceMetricContext({
+        reason: `scroll_stop_${trigger}`,
+        productId: productId || scrollMetric.productId || "",
+        imageUrlHash
+      }));
+      if (experienceMetricRuntimeState.scrollStopMetric?.sequence === scrollMetric.sequence) {
+        experienceMetricRuntimeState.scrollStopMetric = null;
+      }
+    });
+  }
+  const loadMoreMetric = experienceMetricRuntimeState.loadMoreMetric;
+  if (loadMoreMetric && !loadMoreMetric.resolved && (!loadMoreMetric.productIdSet?.size || loadMoreMetric.productIdSet.has(productId))) {
+    loadMoreMetric.resolved = true;
+    safePerformanceMark(`${loadMoreMetric.markName}_image_visible`);
+    safePerformanceMeasure(`${loadMoreMetric.markName}_duration`, loadMoreMetric.markName, `${loadMoreMetric.markName}_image_visible`);
+    afterNextPaint(() => {
+      finalizeExperienceMetric("loadMoreToFirstNewImageVisibleMs", getPerformanceNowSafe() - Number(loadMoreMetric.startedAt || 0), getExperienceMetricContext({
+        reason: `load_more_${trigger}`,
+        productId,
+        imageUrlHash,
+        page: loadMoreMetric.page,
+        cursor: loadMoreMetric.cursor,
+        firstCardVisibleAfterMs: loadMoreMetric.firstCardVisibleAfterMs
+      }));
+      if (experienceMetricRuntimeState.loadMoreMetric?.markName === loadMoreMetric.markName) {
+        experienceMetricRuntimeState.loadMoreMetric = null;
+      }
+    });
+  }
+}
+
 function revealBootOverlay() {
   if (!bootOverlay) {
     return;
@@ -7086,6 +7327,7 @@ function forceHideBootOverlaySafety(reason = "hard_safety") {
   if (feedRuntimeState) {
     feedRuntimeState.splashFeedImageGateInFlight = false;
   }
+  beginStartupVisibilityMeasurement(reason);
   reportClientEvent("warn", "boot_overlay_force_hidden", "Boot overlay was force-hidden by the startup safety net.", {
     category: "runtime",
     reason
@@ -11105,6 +11347,7 @@ const runtimeDiagnostics = uiRuntimeState.runtimeDiagnostics || (uiRuntimeState.
   memoryPressureWarningCount: 0,
   memoryMitigationCount: 0,
   feedImageLoadSlowCount: 0,
+  experienceMetricCount: 0,
   lastSnapshotAt: 0,
   showcaseEvents: []
 });
@@ -11112,7 +11355,29 @@ const runtimeMetricWindows = uiRuntimeState.runtimeMetricWindows || (uiRuntimeSt
   feedImageLoadLatencyMs: [],
   renderCurrentViewSlowMs: [],
   continuousBatchAdmissionWaitMs: [],
-  heapUsedMB: []
+  heapUsedMB: [],
+  splashToFirstCardVisibleMs: [],
+  splashToFirstImageVisibleMs: [],
+  scrollStopToImageVisibleMs: [],
+  loadMoreToFirstNewImageVisibleMs: []
+});
+const experienceMetricTelemetryState = new Map();
+const experienceMetricRuntimeState = uiRuntimeState.experienceMetrics || (uiRuntimeState.experienceMetrics = {
+  splashEndedAt: 0,
+  splashEndReason: "",
+  startupCardMeasured: false,
+  startupImageMeasured: false,
+  startupProbeRaf: 0,
+  startupProbeStartedAt: 0,
+  scrollStopTimer: 0,
+  scrollStopMetric: null,
+  scrollStopSequence: 0,
+  lastScrollStopMeasuredAt: 0,
+  loadMoreMetric: null,
+  lastSummaryLogAt: 0,
+  lastMetrics: {},
+  slowestMetricName: "",
+  slowestMetricDurationMs: 0
 });
 
 function bumpRuntimeDiagnostic(metric, amount = 1) {
@@ -11160,6 +11425,225 @@ function summarizeRuntimeMetricWindow(metric) {
     average: Math.round(total / values.length),
     max: Math.max(...values),
     latest: Number(values[values.length - 1] || 0)
+  };
+}
+
+function isExperienceMetricDebugEnabled() {
+  try {
+    if (window.localStorage?.getItem("winga_debug_perf") === "true") {
+      return true;
+    }
+  } catch (_error) {
+    // Ignore debug storage access failures.
+  }
+  return /(?:[?&](?:winga_debug_perf|debugPerf)=1)(?:&|$)/i.test(String(window.location?.search || ""));
+}
+
+function getPerformanceNowSafe() {
+  return getPerfNow();
+}
+
+function safePerformanceMark(name = "") {
+  const safeName = String(name || "").trim();
+  if (!safeName || typeof performance?.mark !== "function") {
+    return;
+  }
+  try {
+    performance.mark(safeName);
+  } catch (_error) {
+    // Ignore mark collisions or unsupported browsers.
+  }
+}
+
+function safePerformanceMeasure(name = "", startMark = "", endMark = "") {
+  const safeName = String(name || "").trim();
+  const safeStart = String(startMark || "").trim();
+  const safeEnd = String(endMark || "").trim();
+  if (!safeName || !safeStart || !safeEnd || typeof performance?.measure !== "function") {
+    return null;
+  }
+  try {
+    performance.measure(safeName, safeStart, safeEnd);
+    const entries = typeof performance.getEntriesByName === "function"
+      ? performance.getEntriesByName(safeName)
+      : [];
+    return entries.length ? Number(entries[entries.length - 1]?.duration || 0) : null;
+  } catch (_error) {
+    return null;
+  }
+}
+
+function getClientNetworkSnapshot() {
+  const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection || null;
+  return {
+    online: navigator.onLine !== false,
+    effectiveType: String(connection?.effectiveType || "").trim(),
+    downlinkMbps: Number.isFinite(Number(connection?.downlink)) ? Number(connection.downlink) : 0,
+    rttMs: Number.isFinite(Number(connection?.rtt)) ? Number(connection.rtt) : 0,
+    saveData: Boolean(connection?.saveData)
+  };
+}
+
+function createExperienceFingerprint(value = "") {
+  const source = String(value || "").trim();
+  if (!source) {
+    return "";
+  }
+  let hash = 0;
+  for (let index = 0; index < source.length; index += 1) {
+    hash = ((hash << 5) - hash) + source.charCodeAt(index);
+    hash |= 0;
+  }
+  return Math.abs(hash).toString(36).slice(0, 8);
+}
+
+function getVisibleMarketplaceCards(limit = 12) {
+  const viewportHeight = window.innerHeight || document.documentElement?.clientHeight || 0;
+  return Array.from(
+    productsContainer?.querySelectorAll?.(".product-card[data-open-product], .seller-product-card[data-open-product]") || []
+  )
+    .filter((card) => {
+      if (!(card instanceof HTMLElement)) {
+        return false;
+      }
+      const rect = card.getBoundingClientRect();
+      return rect.bottom > 0 && rect.top < viewportHeight && rect.width > 0 && rect.height > 0;
+    })
+    .slice(0, Math.max(1, Number(limit || 12) || 12));
+}
+
+function getLeadMarketplaceCardImage(card) {
+  if (!(card instanceof Element)) {
+    return null;
+  }
+  const image = card.querySelector("img[data-marketplace-scroll-image='true']");
+  return image instanceof HTMLImageElement ? image : null;
+}
+
+function isMarketplaceImageVisiblyReady(image) {
+  if (!(image instanceof HTMLImageElement)) {
+    return false;
+  }
+  const rect = image.getBoundingClientRect();
+  const viewportHeight = window.innerHeight || document.documentElement?.clientHeight || 0;
+  const inViewport = rect.bottom > 0 && rect.top < viewportHeight && rect.width > 0 && rect.height > 0;
+  return inViewport && Number(image.naturalWidth || 0) > 0 && Number(image.naturalHeight || 0) > 0;
+}
+
+function afterNextPaint(callback) {
+  window.requestAnimationFrame(() => {
+    window.requestAnimationFrame(() => {
+      callback?.();
+    });
+  });
+}
+
+function updateExperienceMetricSummary(metricName, durationMs) {
+  const safeMetricName = String(metricName || "").trim();
+  if (!safeMetricName || !Number.isFinite(Number(durationMs))) {
+    return;
+  }
+  experienceMetricRuntimeState.lastMetrics[safeMetricName] = Math.round(durationMs);
+  if (Number(durationMs) >= Number(experienceMetricRuntimeState.slowestMetricDurationMs || 0)) {
+    experienceMetricRuntimeState.slowestMetricDurationMs = Math.round(durationMs);
+    experienceMetricRuntimeState.slowestMetricName = safeMetricName;
+  }
+}
+
+function maybeLogExperienceMetricSummary() {
+  if (!isExperienceMetricDebugEnabled()) {
+    return;
+  }
+  const nowAt = Date.now();
+  if (nowAt - Number(experienceMetricRuntimeState.lastSummaryLogAt || 0) < 800) {
+    return;
+  }
+  experienceMetricRuntimeState.lastSummaryLogAt = nowAt;
+  const lastMetrics = experienceMetricRuntimeState.lastMetrics || {};
+  console.table([{
+    splashToFirstCardVisibleMs: Number(lastMetrics.splashToFirstCardVisibleMs || 0),
+    splashToFirstImageVisibleMs: Number(lastMetrics.splashToFirstImageVisibleMs || 0),
+    scrollStopToImageVisibleMs: Number(lastMetrics.scrollStopToImageVisibleMs || 0),
+    loadMoreToFirstNewImageVisibleMs: Number(lastMetrics.loadMoreToFirstNewImageVisibleMs || 0),
+    slowestMetric: String(experienceMetricRuntimeState.slowestMetricName || ""),
+    slowestDurationMs: Number(experienceMetricRuntimeState.slowestMetricDurationMs || 0)
+  }]);
+}
+
+function shouldReportExperienceMetric(metricName = "", context = {}) {
+  const safeMetricName = String(metricName || "").trim().toLowerCase();
+  if (!safeMetricName) {
+    return false;
+  }
+  pruneTimestampRegistry(experienceMetricTelemetryState, 160, 15 * 60 * 1000);
+  const scopeKey = [
+    String(context?.view || currentView || "home"),
+    String(context?.productId || ""),
+    String(context?.page || ""),
+    String(context?.cursor || ""),
+    String(context?.route || "")
+  ].join(":").slice(0, 160);
+  const registryKey = `${safeMetricName}:${scopeKey}`;
+  const cooldownMs = isProductionClientRuntime() ? 60 * 1000 : 10 * 1000;
+  const nowAt = Date.now();
+  const lastReportedAt = Number(experienceMetricTelemetryState.get(registryKey) || 0);
+  if (lastReportedAt && nowAt - lastReportedAt < cooldownMs) {
+    return false;
+  }
+  experienceMetricTelemetryState.set(registryKey, nowAt);
+  return true;
+}
+
+function finalizeExperienceMetric(metricName, durationMs, context = {}) {
+  const roundedDurationMs = Math.max(0, Math.round(Number(durationMs || 0)));
+  if (!Number.isFinite(roundedDurationMs)) {
+    return;
+  }
+  recordRuntimeMetricWindow(metricName, roundedDurationMs);
+  bumpRuntimeDiagnostic("experienceMetricCount");
+  updateExperienceMetricSummary(metricName, roundedDurationMs);
+  maybeLogExperienceMetricSummary();
+
+  const thresholds = {
+    splashToFirstCardVisibleMs: STARTUP_CARD_VISIBLE_WARN_MS,
+    splashToFirstImageVisibleMs: STARTUP_IMAGE_VISIBLE_WARN_MS,
+    scrollStopToImageVisibleMs: SCROLL_STOP_IMAGE_VISIBLE_WARN_MS,
+    loadMoreToFirstNewImageVisibleMs: LOAD_MORE_IMAGE_VISIBLE_WARN_MS
+  };
+  const thresholdMs = Number(thresholds[metricName] || 0);
+  if (roundedDurationMs < thresholdMs) {
+    return;
+  }
+  if (!shouldReportExperienceMetric(metricName, context)) {
+    return;
+  }
+  reportClientEvent("warn", metricName, "Experience visibility metric exceeded threshold.", {
+    category: "performance",
+    durationMs: roundedDurationMs,
+    thresholdMs,
+    route: String(window.location.pathname || "/"),
+    view: currentView || "home",
+    buildId: APP_BOOT_BUILD_VERSION || "",
+    timestamp: Date.now(),
+    productId: String(context?.productId || "").trim(),
+    imageUrlHash: String(context?.imageUrlHash || "").trim(),
+    page: Number(context?.page || 0) || 0,
+    cursor: String(context?.cursor || "").slice(0, 80),
+    reason: String(context?.reason || "").trim(),
+    network: getClientNetworkSnapshot(),
+    firstCardVisibleAfterMs: Number(context?.firstCardVisibleAfterMs || 0) || 0
+  });
+}
+
+function getExperienceMetricContext(overrides = {}) {
+  const pagination = window.WingaDataLayer?.getProductFeedPagination?.() || {};
+  return {
+    route: String(window.location.pathname || "/"),
+    view: currentView || "home",
+    page: Number(pagination?.page || 0) || 0,
+    cursor: String(pagination?.nextCursor || "").trim(),
+    buildId: APP_BOOT_BUILD_VERSION || "",
+    ...overrides
   };
 }
 
@@ -11267,7 +11751,11 @@ function getRuntimeDiagnosticsSnapshot() {
       feedImageLoadLatencyMs: summarizeRuntimeMetricWindow("feedImageLoadLatencyMs"),
       renderCurrentViewSlowMs: summarizeRuntimeMetricWindow("renderCurrentViewSlowMs"),
       continuousBatchAdmissionWaitMs: summarizeRuntimeMetricWindow("continuousBatchAdmissionWaitMs"),
-      heapUsedMB: summarizeRuntimeMetricWindow("heapUsedMB")
+      heapUsedMB: summarizeRuntimeMetricWindow("heapUsedMB"),
+      splashToFirstCardVisibleMs: summarizeRuntimeMetricWindow("splashToFirstCardVisibleMs"),
+      splashToFirstImageVisibleMs: summarizeRuntimeMetricWindow("splashToFirstImageVisibleMs"),
+      scrollStopToImageVisibleMs: summarizeRuntimeMetricWindow("scrollStopToImageVisibleMs"),
+      loadMoreToFirstNewImageVisibleMs: summarizeRuntimeMetricWindow("loadMoreToFirstNewImageVisibleMs")
     },
     health: getRuntimeHealthSnapshot(),
     showcaseEvents: Array.isArray(runtimeDiagnostics.showcaseEvents) ? runtimeDiagnostics.showcaseEvents.slice(-12) : [],
@@ -14051,6 +14539,13 @@ window.addEventListener("scroll", () => {
     scheduleViewportReadyFeedSweep(document, {
       limit: 12
     });
+    if (experienceMetricRuntimeState.scrollStopTimer) {
+      window.clearTimeout(experienceMetricRuntimeState.scrollStopTimer);
+    }
+    experienceMetricRuntimeState.scrollStopTimer = window.setTimeout(() => {
+      experienceMetricRuntimeState.scrollStopTimer = 0;
+      beginScrollStopImageMeasurement();
+    }, SCROLL_STOP_IMAGE_DEBOUNCE_MS);
   }
   if (getViewportWidth() <= 720) {
     scheduleMobileHeaderScrollSync();
@@ -14061,6 +14556,10 @@ function handleAppLifecycleChange() {
   if (document.hidden) {
     if (currentView === "home") {
       saveHomeScrollState(window.scrollY || 0);
+    }
+    if (experienceMetricRuntimeState.scrollStopTimer) {
+      window.clearTimeout(experienceMetricRuntimeState.scrollStopTimer);
+      experienceMetricRuntimeState.scrollStopTimer = 0;
     }
     cancelPendingStartupImageWork("document_hidden");
     cancelDeferredImageSignatureHydration("document_hidden");
@@ -14094,6 +14593,10 @@ document.addEventListener("visibilitychange", handleAppLifecycleChange);
 window.addEventListener("pagehide", () => {
   if (currentView === "home") {
     saveHomeScrollState(window.scrollY || 0);
+  }
+  if (experienceMetricRuntimeState.scrollStopTimer) {
+    window.clearTimeout(experienceMetricRuntimeState.scrollStopTimer);
+    experienceMetricRuntimeState.scrollStopTimer = 0;
   }
   cancelPendingStartupImageWork("pagehide");
   cancelDeferredImageSignatureHydration("pagehide");
@@ -18880,6 +19383,9 @@ function renderCurrentView(options = {}) {
       selectedCategory,
       reason
     }, currentView === "home" ? 240 : 180);
+    if (experienceMetricRuntimeState.splashEndedAt && (!experienceMetricRuntimeState.startupCardMeasured || !experienceMetricRuntimeState.startupImageMeasured)) {
+      measureStartupVisibilityFromSplashEnd(`render_${reason}`);
+    }
     if (uiRuntimeState.pendingRenderRequested) {
       const nextReason = uiRuntimeState.pendingRenderReason || "queued_render";
       uiRuntimeState.pendingRenderRequested = false;
@@ -20031,6 +20537,7 @@ function markMarketplaceScrollImageLoaded(image, resolvedSrc = "") {
   ) {
     clearBrokenMarketplaceImage(productId, loadedSource);
   }
+  notifyMarketplaceImageVisibility(image, loadedSource, "loaded");
 }
 
 function canRevealMarketplaceScrollImage(image, expectedSrc = "") {
