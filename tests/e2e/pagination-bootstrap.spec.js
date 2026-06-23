@@ -135,3 +135,85 @@ test("load-more prefetch keeps one backend runway page", async ({ page }) => {
   expect(duplicateIds).toEqual([]);
   expect(productRequests.map((request) => request.page)).toEqual([1, 2, 3]);
 });
+
+test("final pagination page exhausts without requesting beyond hasMore false", async ({ page }) => {
+  const products = createProducts(38);
+  const productRequests = [];
+
+  await page.route("**/api/products**", async (route) => {
+    const requestUrl = new URL(route.request().url());
+    const limit = Number(requestUrl.searchParams.get("limit") || 12) || 12;
+    const requestedPage = Math.max(1, Number(requestUrl.searchParams.get("page") || 1) || 1);
+    const cursor = String(requestUrl.searchParams.get("cursor") || "");
+    let start = (requestedPage - 1) * limit;
+    if (cursor) {
+      const cursorIndex = products.findIndex((product) => getCursor(product) === cursor);
+      start = cursorIndex >= 0 ? cursorIndex + 1 : start;
+    }
+    const items = products.slice(start, start + limit);
+    const nextCursor = getCursor(items[items.length - 1]);
+    const hasMore = start + items.length < products.length;
+    productRequests.push({
+      page: requestedPage,
+      cursor,
+      count: items.length,
+      first: items[0]?.id || "",
+      last: items[items.length - 1]?.id || "",
+      hasMore
+    });
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        items,
+        nextCursor,
+        hasMore,
+        total: products.length,
+        page: requestedPage,
+        limit
+      })
+    });
+  });
+
+  await page.goto("/");
+  await expect.poll(
+    () => page.evaluate(() => window.WingaDataLayer?.getProducts?.().length || 0),
+    { timeout: 30000 }
+  ).toBe(12);
+
+  await page.evaluate(() => window.WingaDataLayer.appendProductsPage({ prefetchNext: true }));
+  await expect.poll(
+    () => page.evaluate(() => window.WingaDataLayer?.getProducts?.().length || 0),
+    { timeout: 30000 }
+  ).toBe(36);
+
+  await page.evaluate(() => window.WingaDataLayer.appendProductsPage({ prefetchNext: true }));
+  await expect.poll(
+    () => page.evaluate(() => window.WingaDataLayer?.getProducts?.().length || 0),
+    { timeout: 30000 }
+  ).toBe(38);
+  await expect.poll(
+    () => page.evaluate(() => window.WingaDataLayer?.getProductFeedPagination?.()),
+    { timeout: 30000 }
+  ).toMatchObject({
+    page: 4,
+    hasMore: false,
+    total: 38,
+    loadedCount: 38
+  });
+
+  await page.evaluate(() => window.WingaDataLayer.appendProductsPage({ prefetchNext: true }));
+  await page.waitForTimeout(250);
+
+  const duplicateIds = await page.evaluate(() => {
+    const ids = (window.WingaDataLayer?.getProducts?.() || []).map((product) => product.id);
+    return ids.filter((id, index) => ids.indexOf(id) !== index);
+  });
+  expect(duplicateIds).toEqual([]);
+  expect(productRequests.map((request) => request.page)).toEqual([1, 2, 3, 4]);
+  expect(productRequests.at(-1)).toMatchObject({
+    page: 4,
+    count: 2,
+    hasMore: false
+  });
+});

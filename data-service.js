@@ -4072,6 +4072,19 @@
     },
     async appendProductsPage(options = {}) {
       ensureAdapter();
+      if (state.productFeedPagination && state.productFeedPagination.hasMore === false) {
+        return {
+          items: [],
+          appendedCount: 0,
+          appendedItems: [],
+          limit: Number(state.productFeedPagination.limit || DEFAULT_PRODUCTS_PAGE_LIMIT) || DEFAULT_PRODUCTS_PAGE_LIMIT,
+          page: Number(state.productFeedPagination.page || 1) || 1,
+          nextCursor: String(state.productFeedPagination.nextCursor || ""),
+          hasMore: false,
+          total: Number(state.productFeedPagination.total || state.products.length || 0),
+          loadedCount: Array.isArray(state.products) ? state.products.length : 0
+        };
+      }
       const nextOptions = {
         ...getNextProductsPageOptions(),
         ...options
