@@ -18,6 +18,7 @@ const APP_STORAGE_SCHEMA_KEY = "winga-storage-schema-version";
 const HOME_SCROLL_STATE_KEY = "winga-home-scroll-state";
 const HOME_FEED_REFRESH_CURSOR_KEY = "winga-home-feed-refresh-cursor";
 let cachedHomeFeedRefreshCursor = null;
+let homeFeedRefreshCursorStorageSyncScheduled = false;
 const APP_UPDATE_BANNER_DISMISS_KEY = "winga-app-update-banner-dismissed-version";
 const APP_CHAT_DRAFT_KEY_PREFIX = "winga-chat-draft";
 const SHARED_COLLECTION_INTENT_KEY_PREFIX = "winga-shared-collection-intent";
@@ -572,6 +573,38 @@ function getStoredHomeFeedRefreshCursor() {
   }
 }
 
+function syncHomeFeedRefreshCursorFromStorage() {
+  try {
+    const raw = sessionStorage.getItem(HOME_FEED_REFRESH_CURSOR_KEY);
+    const storedCursor = Number(raw || 0);
+    const nextCursor = Number.isFinite(storedCursor) && storedCursor >= 0 ? Math.floor(storedCursor) : 0;
+    const effectiveCursor = isReloadNavigation() ? nextCursor + 1 : nextCursor;
+    cachedHomeFeedRefreshCursor = effectiveCursor;
+    homeFeedRefreshCursor = effectiveCursor;
+    if (isReloadNavigation()) {
+      sessionStorage.setItem(HOME_FEED_REFRESH_CURSOR_KEY, String(effectiveCursor));
+    }
+  } catch (error) {
+    cachedHomeFeedRefreshCursor = 0;
+  }
+}
+
+function scheduleHomeFeedRefreshCursorStorageSync() {
+  if (homeFeedRefreshCursorStorageSyncScheduled) {
+    return;
+  }
+  homeFeedRefreshCursorStorageSyncScheduled = true;
+  const runSync = () => {
+    homeFeedRefreshCursorStorageSyncScheduled = false;
+    syncHomeFeedRefreshCursorFromStorage();
+  };
+  if (typeof window.requestIdleCallback === "function") {
+    window.requestIdleCallback(runSync, { timeout: 1200 });
+    return;
+  }
+  window.setTimeout(runSync, 0);
+}
+
 function saveHomeFeedRefreshCursor(value = 0) {
   try {
     const nextCursor = Math.max(0, Math.floor(Number(value || 0) || 0));
@@ -600,11 +633,12 @@ function isReloadNavigation() {
 }
 
 function initializeHomeFeedRefreshCursor() {
-  const cursor = getStoredHomeFeedRefreshCursor();
-  if (isReloadNavigation()) {
-    return saveHomeFeedRefreshCursor(cursor + 1);
+  if (cachedHomeFeedRefreshCursor !== null) {
+    return cachedHomeFeedRefreshCursor;
   }
-  return cursor;
+  cachedHomeFeedRefreshCursor = 0;
+  scheduleHomeFeedRefreshCursorStorageSync();
+  return cachedHomeFeedRefreshCursor;
 }
 
 function saveHomeScrollState(scrollY = window.scrollY || 0) {
@@ -12712,6 +12746,19 @@ function captureMemorySnapshot(reason = "sample", context = {}) {
   return snapshot;
 }
 
+function scheduleMemorySnapshot(reason = "sample", context = {}, timeout = 1800) {
+  if (typeof window === "undefined") {
+    return 0;
+  }
+  const runSnapshot = () => {
+    captureMemorySnapshot(reason, context);
+  };
+  if (typeof window.requestIdleCallback === "function") {
+    return window.requestIdleCallback(runSnapshot, { timeout });
+  }
+  return window.setTimeout(runSnapshot, Math.max(0, Number(timeout) || 0));
+}
+
 function pruneDynamicFeedDomForMemoryPressure() {
   document.querySelectorAll("[data-continuous-discovery-section], [data-product-detail-continuation-section]").forEach((section) => {
     if (!(section instanceof Element)) {
@@ -12766,7 +12813,7 @@ function startMemoryMonitoring() {
     startFeedMemoryMaintenance();
     return;
   }
-  captureMemorySnapshot("boot");
+  scheduleMemorySnapshot("boot", {}, 2200);
   uiRuntimeState.memorySampleTimer = window.setInterval(() => {
     captureMemorySnapshot("interval", {
       view: currentView,
@@ -19481,6 +19528,7 @@ function renderCurrentView(options = {}) {
       reason
     });
   } finally {
+    const completedBootInitialRender = uiRuntimeState.isBootInitialRender;
     uiRuntimeState.isRenderingView = false;
     uiRuntimeState.isBootInitialRender = false;
     uiRuntimeState.lastRenderCompletedAt = Date.now();
@@ -19491,10 +19539,10 @@ function renderCurrentView(options = {}) {
     } catch (_error) {
       // Ignore performance measure failures on older browsers.
     }
-    captureMemorySnapshot("render_complete", {
+    scheduleMemorySnapshot("render_complete", {
       view: currentView,
       reason
-    });
+    }, completedBootInitialRender ? 2400 : 900);
     reportSlowPath("render_current_view_slow", renderDurationMs, {
       view: currentView,
       productsCount: Array.isArray(products) ? products.length : 0,
