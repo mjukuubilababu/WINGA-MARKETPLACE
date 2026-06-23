@@ -4084,14 +4084,36 @@
       if (incomingProducts.length) {
         state.products = mergeUniqueProducts(state.products, incomingProducts);
       }
+      let finalPage = page;
+      let lookaheadProducts = [];
+      if (
+        Boolean(nextOptions.prefetchNext)
+        && typeof state.adapter.loadProductsPage === "function"
+        && page?.hasMore !== false
+        && String(page?.nextCursor || "").trim()
+      ) {
+        const lookaheadOptions = {
+          cursor: String(page.nextCursor || ""),
+          page: Number(page.page || nextOptions.page || 1) + 1,
+          limit: Number(page.limit || nextOptions.limit || DEFAULT_PRODUCTS_PAGE_LIMIT) || DEFAULT_PRODUCTS_PAGE_LIMIT
+        };
+        const lookaheadPage = await state.adapter.loadProductsPage(lookaheadOptions);
+        lookaheadProducts = Array.isArray(lookaheadPage?.items) ? sortProductsNewestFirst(lookaheadPage.items) : [];
+        if (lookaheadProducts.length) {
+          state.products = mergeUniqueProducts(state.products, lookaheadProducts);
+        }
+        if (lookaheadPage && typeof lookaheadPage === "object") {
+          finalPage = lookaheadPage;
+        }
+      }
       const appendedCount = Math.max(0, (Array.isArray(state.products) ? state.products.length : 0) - beforeCount);
-      if (page && typeof page === "object") {
+      if (finalPage && typeof finalPage === "object") {
         state.productFeedPagination = {
-          limit: Number(page.limit || nextOptions.limit || DEFAULT_PRODUCTS_PAGE_LIMIT) || DEFAULT_PRODUCTS_PAGE_LIMIT,
-          page: Number(page.page || nextOptions.page || 1) || 1,
-          nextCursor: String(page.nextCursor || ""),
-          hasMore: Boolean(page.hasMore),
-          total: Number(page.total || state.products.length || 0),
+          limit: Number(finalPage.limit || nextOptions.limit || DEFAULT_PRODUCTS_PAGE_LIMIT) || DEFAULT_PRODUCTS_PAGE_LIMIT,
+          page: Number(finalPage.page || nextOptions.page || 1) || 1,
+          nextCursor: String(finalPage.nextCursor || ""),
+          hasMore: Boolean(finalPage.hasMore),
+          total: Number(finalPage.total || state.products.length || 0),
           loadedCount: state.products.length
         };
       } else {
@@ -4107,9 +4129,9 @@
         }));
       }
       return {
-        ...clone(page),
+        ...clone(finalPage),
         appendedCount,
-        appendedItems: incomingProducts.slice(0, appendedCount || incomingProducts.length)
+        appendedItems: [...incomingProducts, ...lookaheadProducts].slice(0, appendedCount || incomingProducts.length + lookaheadProducts.length)
       };
     },
     async signup(payload) {

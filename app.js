@@ -3726,6 +3726,7 @@ function insertContinuousNodesInFrames(anchor, nodes = [], options = {}) {
 function silentlyRefreshInfiniteFeedSource(options = {}) {
   const now = Date.now();
   const force = options.force === true;
+  const allowLookahead = options.allowLookahead === true;
   if (homeContinuousDiscoveryRuntime.backendRefreshPromise) {
     return homeContinuousDiscoveryRuntime.backendRefreshPromise;
   }
@@ -3757,7 +3758,8 @@ function silentlyRefreshInfiniteFeedSource(options = {}) {
     ? Promise.resolve(appendProductsPage.call(dataLayer, pagination ? {
       cursor: pagination.nextCursor || "",
       page: Number(pagination.page || 1) + 1,
-      limit: Number(pagination.limit || 0) || undefined
+      limit: Number(pagination.limit || 0) || undefined,
+      prefetchNext: allowLookahead
     } : {}))
     : (typeof refreshProducts === "function"
       ? Promise.resolve(refreshProducts.call(dataLayer))
@@ -3844,9 +3846,31 @@ function refreshHomeBackendRunwayIfNeeded(options = {}) {
     return Promise.resolve(false);
   }
   return silentlyRefreshInfiniteFeedSource({
+    allowLookahead: true,
     ...options,
     force: true
   });
+}
+
+function isHomeScrollNearFeedEnd() {
+  const viewportHeight = window.innerHeight || document.documentElement?.clientHeight || 0;
+  const scrollY = window.scrollY || window.pageYOffset || 0;
+  const documentHeight = Math.max(
+    document.body?.scrollHeight || 0,
+    document.documentElement?.scrollHeight || 0
+  );
+  const remainingDistance = documentHeight - (scrollY + viewportHeight);
+  return remainingDistance <= viewportHeight * 2.5;
+}
+
+function maybeRefreshHomeBackendRunwayOnScroll() {
+  if (currentView !== "home" || document.body.classList.contains("product-detail-open")) {
+    return;
+  }
+  if (!isHomeScrollNearFeedEnd()) {
+    return;
+  }
+  refreshHomeBackendRunwayIfNeeded({ reason: "scroll_bottom_runway" });
 }
 
 function collectProductDetailTransitionImages(product, initialImageIndex = 0) {
@@ -14586,6 +14610,7 @@ window.addEventListener("scroll", () => {
   if (currentView === "home" && !document.body.classList.contains("product-detail-open")) {
     scheduleHomeScrollSave();
     schedulePredictiveFeedPrefetch("scroll");
+    maybeRefreshHomeBackendRunwayOnScroll();
     maybeAdvanceBackgroundContinuation();
     scheduleViewportReadyFeedSweep(document, {
       limit: 12
@@ -14601,6 +14626,14 @@ window.addEventListener("scroll", () => {
   if (getViewportWidth() <= 720) {
     scheduleMobileHeaderScrollSync();
   }
+}, { passive: true });
+
+window.addEventListener("wheel", () => {
+  maybeRefreshHomeBackendRunwayOnScroll();
+}, { passive: true });
+
+window.addEventListener("touchmove", () => {
+  maybeRefreshHomeBackendRunwayOnScroll();
 }, { passive: true });
 
 function handleAppLifecycleChange() {
