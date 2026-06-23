@@ -103,7 +103,8 @@ const HOME_INFINITE_SENTINEL_INJECT_COOLDOWN_MS = 220;
 // after Big Pipe completes first paint. Do not add a competing client-side load-more owner.
 const HOME_INFINITE_READY_PRELOAD_TIMEOUT_MS = 3000;
 const HOME_INFINITE_DOM_INJECT_CHUNK_SIZE = 12;
-const HOME_INFINITE_BACKEND_REFRESH_COOLDOWN_MS = 15000;
+const HOME_INFINITE_BACKEND_REFRESH_COOLDOWN_MS = 1200;
+const HOME_INFINITE_BACKEND_RUNWAY_MIN_PRODUCTS = 6;
 const HOME_INFINITE_MAX_DOM_CARDS = 60;
 const PRODUCT_DETAIL_TRANSITION_PRELOAD_RADIUS = 2;
 const SLOW_PATH_TELEMETRY_LIMIT = 120;
@@ -3722,12 +3723,13 @@ function insertContinuousNodesInFrames(anchor, nodes = [], options = {}) {
   });
 }
 
-function silentlyRefreshInfiniteFeedSource() {
+function silentlyRefreshInfiniteFeedSource(options = {}) {
   const now = Date.now();
+  const force = options.force === true;
   if (homeContinuousDiscoveryRuntime.backendRefreshPromise) {
     return homeContinuousDiscoveryRuntime.backendRefreshPromise;
   }
-  if (now - Number(homeContinuousDiscoveryRuntime.lastBackendRefreshAt || 0) < HOME_INFINITE_BACKEND_REFRESH_COOLDOWN_MS) {
+  if (!force && now - Number(homeContinuousDiscoveryRuntime.lastBackendRefreshAt || 0) < HOME_INFINITE_BACKEND_REFRESH_COOLDOWN_MS) {
     return Promise.resolve(false);
   }
   const dataLayer = window.WingaDataLayer;
@@ -3796,6 +3798,55 @@ function silentlyRefreshInfiniteFeedSource() {
       }
     });
   return homeContinuousDiscoveryRuntime.backendRefreshPromise;
+}
+
+function getHomeFeedPaginationSnapshot() {
+  const dataLayer = window.WingaDataLayer;
+  const getPagination = dataLayer?.getProductFeedPagination;
+  return typeof getPagination === "function" ? getPagination.call(dataLayer) : null;
+}
+
+function getRenderedHomeProductIdentityCount() {
+  if (!productsContainer?.querySelectorAll) {
+    return 0;
+  }
+  const ids = new Set();
+  productsContainer
+    .querySelectorAll(".product-card[data-open-product], .seller-product-card[data-open-product]")
+    .forEach((card) => {
+      const productId = String(card?.dataset?.openProduct || "").trim();
+      if (productId) {
+        ids.add(productId);
+      }
+    });
+  return ids.size;
+}
+
+function shouldRefreshHomeBackendRunway() {
+  const pagination = getHomeFeedPaginationSnapshot();
+  if (!pagination || pagination.hasMore === false) {
+    return false;
+  }
+  const loadedCount = Number(pagination.loadedCount || 0);
+  if (!Number.isFinite(loadedCount) || loadedCount <= 0) {
+    return true;
+  }
+  const consumedNormalCount = Math.max(
+    0,
+    Number(homeContinuousDiscoveryRuntime.normalProductOrdinal || 0) || 0,
+    getRenderedHomeProductIdentityCount()
+  );
+  return loadedCount - consumedNormalCount <= HOME_INFINITE_BACKEND_RUNWAY_MIN_PRODUCTS;
+}
+
+function refreshHomeBackendRunwayIfNeeded(options = {}) {
+  if (!shouldRefreshHomeBackendRunway()) {
+    return Promise.resolve(false);
+  }
+  return silentlyRefreshInfiniteFeedSource({
+    ...options,
+    force: true
+  });
 }
 
 function collectProductDetailTransitionImages(product, initialImageIndex = 0) {
@@ -17514,6 +17565,7 @@ function maybeAdvanceBackgroundContinuation() {
     return;
   }
   homeContinuousDiscoveryRuntime.lastEarlyLoadAt = now;
+  refreshHomeBackendRunwayIfNeeded({ reason: "scroll_progress_runway" });
   scheduleIdleBackgroundWork(() => {
     if (
       currentView !== "home"
@@ -17524,8 +17576,20 @@ function maybeAdvanceBackgroundContinuation() {
     ) {
       return;
     }
-    prepareNextContinuousDiscoveryDescriptor();
-    hydrateContinuousDiscoveryAnchor(anchor);
+    refreshHomeBackendRunwayIfNeeded({ reason: "background_runway" })
+      .finally(() => {
+        if (
+          currentView !== "home"
+          || homeContinuousDiscoveryRuntime.loading
+          || homeContinuousDiscoveryRuntime.preparingDescriptor
+          || !anchor.isConnected
+          || !canAdvanceHomeContinuousDiscovery(anchor)
+        ) {
+          return;
+        }
+        prepareNextContinuousDiscoveryDescriptor();
+        hydrateContinuousDiscoveryAnchor(anchor);
+      });
   }, getAdaptiveBackgroundContinuationDelayMs());
 }
 
@@ -17564,6 +17628,12 @@ async function hydrateContinuousDiscoveryAnchor(anchor) {
 
   homeContinuousDiscoveryRuntime.loading = true;
   homeContinuousDiscoveryRuntime.observer?.unobserve(anchor);
+
+  await refreshHomeBackendRunwayIfNeeded({ reason: "hydrate_runway" });
+  if (!anchor.isConnected || currentView !== "home") {
+    homeContinuousDiscoveryRuntime.loading = false;
+    return;
+  }
 
   const seedProduct = getProductById(homeContinuousDiscoveryRuntime.seedProductId) || getRecommendationSeed(getFilteredProducts());
   const pendingDescriptors = Array.isArray(homeContinuousDiscoveryRuntime.pendingDescriptors)
@@ -17742,6 +17812,11 @@ async function hydrateContinuousDiscoveryAnchor(anchor) {
   homeContinuousDiscoveryRuntime.preparedDescriptorBatchIndex = -1;
   homeContinuousDiscoveryRuntime.loading = false;
   scheduleIdleBackgroundWork(() => {
+    if (anchor.isConnected && currentView === "home") {
+      refreshHomeBackendRunwayIfNeeded({ reason: "post_batch_runway" });
+    }
+  }, 16);
+  scheduleIdleBackgroundWork(() => {
     prepareNextContinuousDiscoveryDescriptor();
   }, 24);
   if (isAnchorWithinBackgroundContinuationBand(anchor)) {
@@ -17799,8 +17874,12 @@ function ensureHomeInfiniteSentinelObserver() {
           return;
         }
         homeContinuousDiscoveryRuntime.lastSentinelFetchAt = Date.now();
-        silentlyRefreshInfiniteFeedSource();
-        prepareNextContinuousDiscoveryDescriptor();
+        refreshHomeBackendRunwayIfNeeded({ reason: "sentinel_fetch_runway" })
+          .finally(() => {
+            if (currentView === "home" && anchor.isConnected) {
+              prepareNextContinuousDiscoveryDescriptor();
+            }
+          });
         return;
       }
       if (stage === "preload") {
@@ -17808,10 +17887,16 @@ function ensureHomeInfiniteSentinelObserver() {
           return;
         }
         homeContinuousDiscoveryRuntime.lastSentinelPreloadAt = Date.now();
-        const descriptor = prepareNextContinuousDiscoveryDescriptor();
-        if (descriptor) {
-          prepareContinuousDescriptorMedia(descriptor, `sentinel_b_preload_${homeContinuousDiscoveryRuntime.batchIndex}`);
-        }
+        refreshHomeBackendRunwayIfNeeded({ reason: "sentinel_preload_runway" })
+          .finally(() => {
+            if (currentView !== "home" || !anchor.isConnected) {
+              return;
+            }
+            const descriptor = prepareNextContinuousDiscoveryDescriptor();
+            if (descriptor) {
+              prepareContinuousDescriptorMedia(descriptor, `sentinel_b_preload_${homeContinuousDiscoveryRuntime.batchIndex}`);
+            }
+          });
         return;
       }
       if (stage === "inject") {

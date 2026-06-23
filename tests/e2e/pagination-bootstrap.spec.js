@@ -18,6 +18,7 @@ function createProducts() {
 
 test("page one renders without depending on pagination metadata", async ({ page }) => {
   const products = createProducts();
+  const nextCursor = `${products[products.length - 1].createdAt}|${products[products.length - 1].id}`;
 
   await page.route("**/api/products**", async (route) => {
     await route.fulfill({
@@ -25,8 +26,11 @@ test("page one renders without depending on pagination metadata", async ({ page 
       contentType: "application/json",
       body: JSON.stringify({
         items: products,
-        nextCursor: null,
-        hasMore: false
+        nextCursor,
+        hasMore: true,
+        total: 24,
+        page: 1,
+        limit: 12
       })
     });
   });
@@ -42,6 +46,17 @@ test("page one renders without depending on pagination metadata", async ({ page 
   });
   await expect(page.locator("#boot-overlay")).toHaveCount(0, {
     timeout: 10000
+  });
+  await expect.poll(
+    () => page.evaluate(() => window.WingaDataLayer?.getProductFeedPagination?.()),
+    { timeout: 30000 }
+  ).toMatchObject({
+    page: 1,
+    limit: 12,
+    nextCursor,
+    hasMore: true,
+    total: 24,
+    loadedCount: 12
   });
 
   const renderedCards = await page.locator("#products-container .product-card").count();

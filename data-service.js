@@ -3853,30 +3853,20 @@
     }
     try {
       const startupProductsLimit = getConfiguredFeedPageLimit(config);
-      // Keep first render on the original Product[] contract. Pagination is
-      // only metadata/load-more behavior and must never gate Home visibility.
-      const loadedProducts = await adapter.loadProducts({
-        limit: startupProductsLimit,
-        page: 1
-      });
-      const initialProducts = Array.isArray(loadedProducts)
-        ? sortProductsNewestFirst(loadedProducts)
-        : [];
-      applyLoadedProductPageToState(initialProducts, {
+      const loadedProducts = typeof adapter.loadProductsPage === "function"
+        ? await adapter.loadProductsPage({
+            limit: startupProductsLimit,
+            page: 1
+          })
+        : await adapter.loadProducts({
+            limit: startupProductsLimit,
+            page: 1
+          });
+      const initialProducts = applyLoadedProductPageToState(loadedProducts, {
         replace: true,
         markHydrated: true,
         requestState: "success"
       });
-      if (typeof adapter.loadProductsPage === "function") {
-        state.productFeedPagination = {
-          limit: startupProductsLimit,
-          page: 1,
-          nextCursor: initialProducts.length >= startupProductsLimit ? "2" : "",
-          hasMore: initialProducts.length >= startupProductsLimit,
-          total: initialProducts.length,
-          loadedCount: initialProducts.length
-        };
-      }
       if (typeof window !== "undefined" && typeof window.dispatchEvent === "function" && typeof window.CustomEvent === "function") {
         window.dispatchEvent(new window.CustomEvent("winga:products-hydrated", {
           detail: {
