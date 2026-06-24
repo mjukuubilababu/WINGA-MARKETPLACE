@@ -1102,7 +1102,21 @@ test("mobile home product media remains edge to edge", async ({ browser }) => {
       scrollWidth: document.documentElement.scrollWidth,
       card: read(card),
       media: read(media),
-      image: read(image)
+      image: read(image),
+      overflowingElements: Array.from(document.querySelectorAll("body *"))
+        .map((element) => {
+          const rect = element.getBoundingClientRect();
+          return {
+            tag: element.tagName,
+            id: element.id || "",
+            className: typeof element.className === "string" ? element.className : "",
+            left: rect.left,
+            right: rect.right,
+            width: rect.width
+          };
+        })
+        .filter((item) => item.left < -1 || item.right > document.documentElement.clientWidth + 1)
+        .slice(0, 12)
     };
   });
 
@@ -1111,7 +1125,10 @@ test("mobile home product media remains edge to edge", async ({ browser }) => {
   expect(geometry.media.left).toBeLessThanOrEqual(1);
   expect(Math.abs(geometry.media.right - geometry.viewportWidth)).toBeLessThanOrEqual(1);
   expect(geometry.image.width).toBeGreaterThanOrEqual(geometry.viewportWidth - 1);
-  expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.viewportWidth + 1);
+  expect(
+    geometry.scrollWidth,
+    `Horizontal overflow: ${JSON.stringify(geometry.overflowingElements)}`
+  ).toBeLessThanOrEqual(geometry.viewportWidth + 1);
 
   await context.close();
 });

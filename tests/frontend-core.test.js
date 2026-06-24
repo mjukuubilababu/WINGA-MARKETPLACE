@@ -29,9 +29,26 @@ test("home feed reserves stable media and deferred section geometry", () => {
   assert.match(styleSource, /#products-container > \.product-card > \.product-card-media\{\s+aspect-ratio:var\(--fit-media-aspect-ratio, 4 \/ 5\) !important;/);
   assert.match(styleSource, /#products-container > \.showcase-inline-pending\{\s+min-height:560px;/);
   assert.match(styleSource, /contain-intrinsic-size:0 560px;/);
-  assert.match(styleSource, /#products-container\[data-layout-mode\]\{[\s\S]*transform:translateX\(-50%\);[\s\S]*width:100vw;/);
+  assert.match(appSource, /container\.style\.setProperty\("--winga-viewport-width", `\$\{usableViewportWidth\}px`\);/);
+  assert.match(appSource, /function handleWindowResize\(\) \{\s+toggleHeaderUserMenu\(false\);\s+applyFeedLayoutMode\(productsContainer\);/);
+  assert.match(styleSource, /#products-container\[data-layout-mode\]\{[\s\S]*left:50%;[\s\S]*transform:translateX\(-50%\);[\s\S]*width:var\(--winga-viewport-width, 100vw\);/);
   assert.match(styleSource, /#products-container\[data-layout-mode\]\s*>\s*\.product-card,[\s\S]*width:100%;/);
+  assert.match(styleSource, /#top-bar\{[\s\S]*box-sizing:border-box;[\s\S]*width:var\(--winga-viewport-width, 100%\);/);
+  assert.match(styleSource, /#products-container\[data-layout-mode\] > \.showcase-inline,[\s\S]*width:100%;[\s\S]*margin-left:0;/);
   assert.match(styleSource, /object-fit:var\(--feed-gallery-fit-mode, cover\) !important;/);
+  assert.match(styleSource, /\.product-detail-media,[\s\S]*\.profile-product-stage\{[\s\S]*width:100% !important;[\s\S]*padding-left:0 !important;/);
+  assert.match(styleSource, /\.product-card-media img,[\s\S]*\.feed-gallery-preview img\{[\s\S]*width:100% !important;/);
+});
+
+test("service worker refreshes versioned frontend assets without trapping stale CSS", () => {
+  const root = path.resolve(__dirname, "..");
+  const serviceWorkerSource = fs.readFileSync(path.join(root, "sw.js"), "utf8");
+
+  assert.match(serviceWorkerSource, /const BUILD_VERSION = "__WINGA_BUILD_VERSION__";/);
+  assert.match(serviceWorkerSource, /const CACHE = `winga-shell-v7-\$\{BUILD_VERSION\}`;/);
+  assert.match(serviceWorkerSource, /fetch\(event\.request, \{ cache: "no-cache" \}\)/);
+  assert.match(serviceWorkerSource, /const cached = await cache\.match\(event\.request\);/);
+  assert.doesNotMatch(serviceWorkerSource, /const cached = await cache\.match\(event\.request\);\s*if \(cached\) \{\s*return cached;\s*\}\s*const response = await fetch/);
 });
 
 test("worker cycles production image arrays without dropping gallery images", () => {

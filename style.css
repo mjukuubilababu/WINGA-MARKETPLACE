@@ -10310,12 +10310,18 @@ button:hover,
 
 /* Mobile Home owns a viewport-width media rail across Worker and client cards. */
 @media (max-width:780px){
+  #top-bar{
+    box-sizing:border-box;
+    width:var(--winga-viewport-width, 100%);
+    max-width:var(--winga-viewport-width, 100%);
+  }
+
   #products-container[data-layout-mode]{
     position:relative;
     left:50%;
     transform:translateX(-50%);
-    width:100vw;
-    max-width:100vw;
+    width:var(--winga-viewport-width, 100vw);
+    max-width:var(--winga-viewport-width, 100vw);
     margin-left:0;
     margin-right:0;
   }
@@ -10339,9 +10345,25 @@ button:hover,
     margin:0;
     border-radius:0;
   }
+
+  #products-container[data-layout-mode] > .showcase-inline,
+  #products-container[data-layout-mode] > .recommendation-strip,
+  #products-container[data-layout-mode] > .continuous-discovery-section{
+    width:100%;
+    max-width:100%;
+    margin-left:0;
+    margin-right:0;
+  }
+
+  #products-container[data-layout-mode] .showcase-track{
+    width:100%;
+    max-width:100%;
+    margin-left:0;
+    margin-right:0;
+  }
 }
 
-/* Keep image containers flush at the top across feed, detail, and seller surfaces. */
+/* Keep every product media surface flush to the edges of its owning card. */
 #products-container > .product-card > .product-card-media,
 .product-card-media,
 .seller-product-card-media,
@@ -10362,6 +10384,28 @@ button:hover,
 .progressive-image-placeholder,
 .profile-product-media,
 .profile-product-stage{
+  width:100% !important;
+  max-width:100% !important;
+  margin-left:0 !important;
+  margin-right:0 !important;
+  padding-left:0 !important;
+  padding-right:0 !important;
+  overflow:hidden;
   border-top-left-radius:0 !important;
   border-top-right-radius:0 !important;
+}
+
+.product-card-media img,
+.seller-product-card-media img,
+.product-detail-media img,
+.showcase-media img,
+.showcase-media-preview img,
+.profile-product-media img,
+.product-gallery img,
+.feed-gallery-preview img{
+  display:block;
+  width:100% !important;
+  max-width:100% !important;
+  margin-left:0 !important;
+  margin-right:0 !important;
 }

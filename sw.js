@@ -1,4 +1,5 @@
-const CACHE = "winga-shell-v6-20260604";
+const BUILD_VERSION = "__WINGA_BUILD_VERSION__";
+const CACHE = `winga-shell-v7-${BUILD_VERSION}`;
 const SHELL_ASSETS = [
   "/manifest.json",
   "/offline.html"
@@ -73,15 +74,19 @@ self.addEventListener("fetch", (event) => {
   if (url.pathname.endsWith(".js") || url.pathname.endsWith(".css")) {
     event.respondWith((async () => {
       const cache = await caches.open(CACHE);
-      const cached = await cache.match(event.request);
-      if (cached) {
-        return cached;
+      try {
+        const response = await fetch(event.request, { cache: "no-cache" });
+        if (response?.ok) {
+          await cache.put(event.request, response.clone());
+        }
+        return response;
+      } catch (error) {
+        const cached = await cache.match(event.request);
+        if (cached) {
+          return cached;
+        }
+        throw error;
       }
-      const response = await fetch(event.request);
-      if (response?.ok) {
-        await cache.put(event.request, response.clone());
-      }
-      return response;
     })());
   }
 });

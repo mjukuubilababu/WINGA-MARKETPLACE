@@ -12530,9 +12530,14 @@ function applyFeedLayoutMode(container = productsContainer) {
   }
   const mode = getClientLayoutMode();
   const columns = getFeedLayoutColumns(mode);
+  const usableViewportWidth = Math.max(
+    0,
+    Number(document.documentElement?.clientWidth || window.innerWidth || 0)
+  );
   container.dataset.layoutMode = mode;
   container.dataset.layoutColumns = String(columns);
   container.style.setProperty("--winga-feed-columns", String(columns));
+  container.style.setProperty("--winga-viewport-width", `${usableViewportWidth}px`);
   document.body.dataset.layoutMode = mode;
   if (uiRuntimeState.lastReportedLayoutMode !== mode) {
     uiRuntimeState.lastReportedLayoutMode = mode;
@@ -14587,6 +14592,7 @@ document.addEventListener("click", (event) => {
 
 function handleWindowResize() {
   toggleHeaderUserMenu(false);
+  applyFeedLayoutMode(productsContainer);
   if (getViewportWidth() > 720) {
     closeMobileCategoryMenu();
     searchRuntimeState.isMobileSearchOpen = false;
