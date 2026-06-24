@@ -1138,6 +1138,42 @@ test("mobile home product media remains edge to edge", async ({ browser }) => {
   await context.close();
 });
 
+test("installed PWA home media ignores legacy standalone padding", async ({ browser }) => {
+  const { context, page } = await createAnonymousPage(browser, {
+    viewport: { width: 390, height: 844 },
+    isMobile: true
+  });
+  await page.goto("/");
+  await expect(page.locator("#products-container .product-card").first()).toBeVisible({ timeout: 30000 });
+
+  const geometry = await page.evaluate(() => {
+    const container = document.querySelector("#products-container");
+    document.body.dataset.layoutMode = "standalone-mobile";
+    container.dataset.layoutMode = "standalone-mobile";
+    const card = container.querySelector(":scope > .product-card, :scope > .seller-product-card");
+    const media = card?.querySelector(".product-card-media, .seller-product-card-media");
+    const image = media?.querySelector("img");
+    const read = (element) => {
+      const rect = element?.getBoundingClientRect();
+      return rect ? { left: rect.left, right: rect.right, width: rect.width } : null;
+    };
+    return {
+      viewportWidth: document.documentElement.clientWidth,
+      container: read(container),
+      card: read(card),
+      media: read(media),
+      image: read(image)
+    };
+  });
+
+  for (const surface of ["container", "card", "media", "image"]) {
+    expect(geometry[surface].left).toBeLessThanOrEqual(1);
+    expect(Math.abs(geometry[surface].right - geometry.viewportWidth)).toBeLessThanOrEqual(1);
+  }
+
+  await context.close();
+});
+
 test("seller-owned marketplace cards expose the three-dots delete menu on home", async ({ browser }) => {
   const { context, page } = await createLoggedInPage(browser, "market_seller", "Pass1234");
   await page.goto("/");

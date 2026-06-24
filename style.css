@@ -849,8 +849,7 @@ body[data-layout-mode="standalone-mobile"] #app-container{
   margin:0;
 }
 
-body[data-layout-mode="standalone-mobile"] #market-showcase,
-body[data-layout-mode="standalone-mobile"] #products-container{
+body[data-layout-mode="standalone-mobile"] #market-showcase{
   width:calc(100% + 32px);
   max-width:none;
   margin-left:-16px;
@@ -10371,6 +10370,20 @@ button:hover,
   #products-container[data-layout-mode] .showcase-track{
     width:100%;
     max-width:100%;
+    margin-left:0;
+    margin-right:0;
+  }
+
+  body[data-layout-mode="standalone-mobile"] #top-bar,
+  body[data-layout-mode="standalone-mobile"] #products-container[data-layout-mode="standalone-mobile"]{
+    width:100dvw;
+    max-width:100dvw;
+  }
+
+  body[data-layout-mode="standalone-mobile"] #products-container[data-layout-mode="standalone-mobile"]{
+    position:relative;
+    left:50%;
+    transform:translateX(-50%);
     margin-left:0;
     margin-right:0;
   }
