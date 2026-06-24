@@ -1041,15 +1041,27 @@ test("home feed keeps loading continuous discovery sections before users hit a h
   await page.goto("/");
 
   await expect(page.locator("[data-continuous-discovery-anchor='home']")).toBeVisible();
-  const initialCount = await page.locator("[data-continuous-discovery-section]").count();
+  const getContinuousGroupCount = () => page.evaluate(() => {
+    const groupKeys = new Set();
+    document.querySelectorAll("[data-continuous-discovery-section], [data-continuous-discovery-stream]").forEach((node) => {
+      const key = node.getAttribute("data-continuous-discovery-section")
+        || node.getAttribute("data-continuous-discovery-stream")
+        || "";
+      if (key) {
+        groupKeys.add(key);
+      }
+    });
+    return groupKeys.size;
+  });
+  const initialCount = await getContinuousGroupCount();
 
   await page.evaluate(() => {
     const anchor = document.querySelector("[data-continuous-discovery-anchor='home']");
     anchor?.scrollIntoView({ block: "center", behavior: "auto" });
   });
-  await expect.poll(async () => page.locator("[data-continuous-discovery-section]").count()).toBeGreaterThan(initialCount);
+  await expect.poll(getContinuousGroupCount).toBeGreaterThan(initialCount);
   await page.waitForTimeout(500);
-  await expect.poll(async () => page.locator("[data-continuous-discovery-section]").count()).toBeLessThanOrEqual(initialCount + 2);
+  await expect.poll(getContinuousGroupCount).toBeLessThanOrEqual(initialCount + 2);
 
   await context.close();
 });

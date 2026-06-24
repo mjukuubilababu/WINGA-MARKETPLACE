@@ -833,12 +833,14 @@
       const startupPriority = options.startupPriority === true;
       const feedEntryType = String(product?.feedEntryType || (product?.feedVariantResurface ? "variant" : "product")).trim().toLowerCase();
       const stableProductId = String(product?.id || product?.productId || "").trim();
-      const variantDisplayIndex = Number(product?.variantDisplayIndex ?? product?.visibleImageIndex ?? product?.feedInitialImageIndex ?? 0) || 0;
+      const variantDisplayIndex = Number(feedEntryType === "variant"
+        ? (product?.visibleImageIndex ?? product?.feedInitialImageIndex ?? product?.variantDisplayIndex ?? 0)
+        : (product?.feedInitialImageIndex ?? product?.visibleImageIndex ?? product?.variantDisplayIndex ?? 0)) || 0;
       const feedSequenceIndex = Number(product?.feedSequenceIndex || 0) || 0;
       const feedEntryKey = String(product?.feedEntryKey || (feedEntryType === "variant"
         ? `variant:${stableProductId}:${variantDisplayIndex}${feedSequenceIndex ? `:${feedSequenceIndex}` : ""}`
         : `product:${stableProductId}${feedSequenceIndex ? `:${feedSequenceIndex}` : ""}`)).trim();
-      const stableInitialImageIndex = feedEntryType === "variant" ? variantDisplayIndex : 0;
+      const stableInitialImageIndex = Math.max(0, variantDisplayIndex);
       const card = createElement("article", {
         className: "product-card",
         attributes: {
@@ -878,12 +880,23 @@
       if (Array.isArray(product.images) && product.images.length > 1) {
         card.classList.add("has-gallery-count-badge");
       }
+      const selectedVariantIndex = Number(product?.selectedVariantIndex);
+      const selectedVariant = Number.isFinite(selectedVariantIndex) && selectedVariantIndex >= 0
+        ? (Array.isArray(product?.variants) ? product.variants[selectedVariantIndex] : null)
+        : null;
+      const variantColor = String(product?.variantColor || selectedVariant?.color || selectedVariant?.name || "").trim();
       const media = createElement("div", { className: "product-card-media" });
       media.appendChild(createProductGalleryElement(product, {
         startupPriority,
         directVisibility: options.directVisibility === true,
         surface: options.gallerySurface || "feed"
       }));
+      if (variantColor) {
+        media.appendChild(createElement("span", {
+          className: "variant-badge",
+          textContent: variantColor
+        }));
+      }
       if (Array.isArray(product.images) && product.images.length > 1) {
         media.appendChild(createElement("span", {
           className: "feed-gallery-count-badge product-gallery-count-badge",

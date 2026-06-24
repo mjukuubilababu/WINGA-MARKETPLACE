@@ -1,6 +1,7 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const vm = require("node:vm");
 const {
   createProductSearchText,
   filterProducts,
@@ -28,6 +29,132 @@ test("home feed reserves stable media and deferred section geometry", () => {
   assert.match(styleSource, /#products-container > \.product-card > \.product-card-media\{\s+aspect-ratio:var\(--fit-media-aspect-ratio, 4 \/ 5\) !important;/);
   assert.match(styleSource, /#products-container > \.showcase-inline-pending\{\s+min-height:560px;/);
   assert.match(styleSource, /contain-intrinsic-size:0 560px;/);
+});
+
+test("worker cycles production image arrays without dropping gallery images", () => {
+  const root = path.resolve(__dirname, "..");
+  const source = fs.readFileSync(path.join(root, "worker.js"), "utf8")
+    .replace("export default {", "const __workerDefault = {");
+  const context = vm.createContext({
+    URL,
+    URLSearchParams,
+    TextEncoder,
+    console,
+    setTimeout,
+    clearTimeout,
+    Headers,
+    Request,
+    Response,
+    fetch: async () => {
+      throw new Error("Network access is not expected in worker unit tests.");
+    }
+  });
+  vm.runInContext(source, context);
+
+  const product = {
+    id: "five-images",
+    name: "Five images",
+    images: ["one.jpg", "two.jpg", "three.jpg", "four.jpg", "five.jpg"]
+  };
+  const normalized = Array.from({ length: 6 }, (_, feedPosition) =>
+    context.normalizeProductForStream(product, { feedPosition })
+  );
+
+  assert.deepEqual(
+    normalized.map((item) => item.feedInitialImageIndex),
+    [0, 1, 2, 3, 4, 0]
+  );
+  normalized.forEach((item) => {
+    assert.deepEqual(Array.from(item.images), product.images.map((image) => `/${image}`));
+  });
+
+  const secondCardHtml = context.buildDiscoveryProductCardHtml(normalized[1], 1, {
+    usersById: {},
+    session: null
+  });
+  assert.match(secondCardHtml, /data-open-image-index="1"/);
+  assert.match(secondCardHtml, /data-feed-sequence-index="2"/);
+  assert.match(secondCardHtml, /data-feed-gallery-initial-index="1"/);
+  assert.match(secondCardHtml, /data-feed-gallery-current="2"/);
+});
+
+test("worker selects structured variants and falls back when a variant has no images", () => {
+  const root = path.resolve(__dirname, "..");
+  const source = fs.readFileSync(path.join(root, "worker.js"), "utf8")
+    .replace("export default {", "const __workerDefault = {");
+  const variantWarnings = [];
+  const context = vm.createContext({
+    URL,
+    URLSearchParams,
+    TextEncoder,
+    console: {
+      ...console,
+      warn: (...args) => variantWarnings.push(args)
+    },
+    setTimeout,
+    clearTimeout,
+    Headers,
+    Request,
+    Response,
+    fetch: async () => {
+      throw new Error("Network access is not expected in worker unit tests.");
+    }
+  });
+  vm.runInContext(source, context);
+
+  const selected = context.normalizeProductForStream({
+    id: "structured",
+    images: ["main-a.jpg", "main-b.jpg"],
+    variants: [
+      { color: "white", images: ["white-a.jpg", "white-b.jpg"] },
+      { color: "black", images: ["black-a.jpg", "black-b.jpg"] }
+    ]
+  }, { feedPosition: 1 });
+  assert.equal(selected.selectedVariantIndex, 1);
+  assert.equal(selected.variantColor, "black");
+  assert.equal(selected.feedInitialImageIndex, 0);
+  assert.deepEqual(Array.from(selected.images), ["/black-a.jpg", "/black-b.jpg"]);
+  assert.match(
+    context.buildDiscoveryProductCardHtml(selected, 1, { usersById: {}, session: null }),
+    /<span class="variant-badge">black<\/span>/
+  );
+
+  const fallback = context.normalizeProductForStream({
+    id: "empty-variant",
+    images: ["main-a.jpg", "main-b.jpg", "main-c.jpg"],
+    variants: [
+      { color: "white", images: ["white.jpg"] },
+      { color: "black", images: [] }
+    ]
+  }, { feedPosition: 1 });
+  assert.equal(fallback.selectedVariantIndex, 1);
+  assert.equal(fallback.variantColor, "black");
+  assert.equal(fallback.variantImageFallback, true);
+  assert.equal(fallback.feedInitialImageIndex, 1);
+  assert.deepEqual(Array.from(fallback.images), ["/main-a.jpg", "/main-b.jpg", "/main-c.jpg"]);
+
+  const fallbackAfterRenormalize = context.normalizeProductForStream(fallback, { feedPosition: 1 });
+  assert.equal(fallbackAfterRenormalize.variantImageFallback, true);
+  assert.equal(fallbackAfterRenormalize.feedInitialImageIndex, 1);
+  assert.deepEqual(Array.from(fallbackAfterRenormalize.images), ["/main-a.jpg", "/main-b.jpg", "/main-c.jpg"]);
+  assert.equal(variantWarnings.length, 2);
+  assert.equal(variantWarnings[0][0], "[WINGA] Variant has no images");
+});
+
+test("client variant entries prefer selected resurfacing indexes and preserve sequence continuity", () => {
+  const root = path.resolve(__dirname, "..");
+  const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
+  const uiSource = fs.readFileSync(path.join(root, "src", "marketplace", "ui.js"), "utf8");
+
+  assert.match(appSource, /item\?\.visibleImageIndex\s*\?\?\s*item\?\.feedInitialImageIndex\s*\?\?\s*item\?\.variantDisplayIndex/);
+  assert.match(appSource, /nextFeedSequenceIndex:\s*0/);
+  assert.match(appSource, /homeContinuousDiscoveryRuntime\.nextFeedSequenceIndex = initialProductIds\.length/);
+  assert.match(appSource, /HOME_VARIANT_RESURFACE_MIN_BATCH_INDEX = 1/);
+  assert.match(appSource, /HOME_VARIANT_RESURFACE_MIN_RECENT_IDS = 6/);
+  assert.match(appSource, /variantDisplayIndex:\s*initialImageIndex,\s*feedInitialImageIndex:\s*initialImageIndex/);
+  assert.match(uiSource, /feedEntryType === "variant"\s*\?\s*\(product\?\.visibleImageIndex \?\? product\?\.feedInitialImageIndex \?\? product\?\.variantDisplayIndex/);
+  assert.match(uiSource, /const stableInitialImageIndex = Math\.max\(0, variantDisplayIndex\);/);
+  assert.match(uiSource, /className: "variant-badge"/);
 });
 
 test("filterProducts keeps only approved items and matches keyword/category", () => {

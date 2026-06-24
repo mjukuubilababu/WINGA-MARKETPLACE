@@ -577,9 +577,10 @@ function buildDiscoveryProductCardHtml(product, index, context) {
   });
 
   return `
-    <article class="seller-product-card${Array.isArray(product.images) && product.images.length > 1 ? " has-gallery-count-badge" : ""}" data-open-product="${escapeHtml(product.id)}" data-feed-entry-key="product:${escapeHtml(product.id)}" data-feed-entry-type="product">
+    <article class="seller-product-card${Array.isArray(product.images) && product.images.length > 1 ? " has-gallery-count-badge" : ""}" data-open-product="${escapeHtml(product.id)}" data-open-image-index="${escapeHtml(product.feedInitialImageIndex || 0)}" data-feed-entry-key="product:${escapeHtml(product.id)}" data-feed-entry-type="product" data-feed-sequence-index="${index + 1}" data-variant-display-index="${escapeHtml(product.variantDisplayIndex || 0)}"${product.selectedVariantIndex != null && Number.isFinite(Number(product.selectedVariantIndex)) ? ` data-selected-variant-index="${escapeHtml(product.selectedVariantIndex)}"` : ""}>
       <div class="seller-product-card-media">
         ${galleryMarkup}
+        ${product.variantColor ? `<span class="variant-badge">${escapeHtml(product.variantColor)}</span>` : ""}
       </div>
       ${overflowMenuMarkup}
       <div class="product-seller-row">
@@ -682,7 +683,16 @@ function renderProductActionGroup(product, context, options = {}) {
 function renderFeedGalleryMarkup(product, options = {}) {
   const images = getRenderableMarketplaceImages(product);
   const total = images.length;
-  const initialImageIndex = Math.max(0, Math.min(total - 1, Number(product?.feedInitialImageIndex || product?.visibleImageIndex || product?.variantDisplayIndex || 0) || 0));
+  const requestedInitialImageIndex = Number(
+    product?.feedInitialImageIndex
+    ?? product?.visibleImageIndex
+    ?? product?.variantDisplayIndex
+    ?? 0
+  );
+  const initialImageIndex = Math.max(
+    0,
+    Math.min(total - 1, Number.isFinite(requestedInitialImageIndex) ? requestedInitialImageIndex : 0)
+  );
   const fitMode = "contain";
   const slidesMarkup = images.map((imageSrc, index) => {
     const safeSrc = escapeHtml(imageSrc);
@@ -866,7 +876,14 @@ function normalizeProductForStream(product, options = {}) {
   if (!product || typeof product !== "object") {
     return null;
   }
-  const baseImages = normalizeImageCollection(product.images || product.imageUrls || product.gallery || []);
+  const baseImages = normalizeImageCollection(
+    product.productImages
+    || product.baseImages
+    || product.images
+    || product.imageUrls
+    || product.gallery
+    || []
+  );
   if (typeof product.image === "string" && product.image.trim()) {
     baseImages.unshift(product.image.trim());
   }
@@ -874,10 +891,21 @@ function normalizeProductForStream(product, options = {}) {
   const variants = normalizeVariantCollection(product.variants || product.variations || [], options.usersById);
   const variantCount = variants.length;
   const feedPosition = Number(options.feedPosition || 0) || 0;
-  const chosenVariantIndex = variantCount > 0 ? feedPosition % variantCount : 0;
+  const chosenVariantIndex = getSmartVariantIndex(feedPosition, variantCount);
   const chosenVariant = variantCount > 0 ? variants[chosenVariantIndex] : null;
-  const displayImages = dedupeUrls(chosenVariant?.images?.length ? chosenVariant.images : dedupedBaseImages);
+  const hasChosenVariantImages = Boolean(chosenVariant?.images?.length);
+  if (chosenVariant && !hasChosenVariantImages) {
+    console.warn("[WINGA] Variant has no images", {
+      productId: String(product.id || product.productId || product.slug || "").trim(),
+      variantIndex: chosenVariantIndex,
+      color: chosenVariant.color || ""
+    });
+  }
+  const displayImages = dedupeUrls(hasChosenVariantImages ? chosenVariant.images : dedupedBaseImages);
   const images = displayImages.length ? displayImages : ["/winga-icon.svg"];
+  const initialImageIndex = hasChosenVariantImages
+    ? 0
+    : getSmartVariantIndex(feedPosition, images.length);
   return {
     ...product,
     id: String(product.id || product.productId || product.slug || `product-${feedPosition}`).trim(),
@@ -897,9 +925,16 @@ function normalizeProductForStream(product, options = {}) {
     isLiked: Boolean(product.isLiked || product.liked),
     images,
     image: images[0] || "/winga-icon.svg",
+    productImages: dedupedBaseImages,
     variants,
-    variantDisplayIndex: chosenVariant ? 0 : 0,
-    feedInitialImageIndex: 0
+    variantCount,
+    selectedVariantIndex: chosenVariant ? chosenVariantIndex : null,
+    variantColor: chosenVariant?.color || "",
+    variantImageFallback: Boolean(chosenVariant && !hasChosenVariantImages),
+    variantDisplayIndex: initialImageIndex,
+    feedInitialImageIndex: initialImageIndex,
+    visibleImageIndex: initialImageIndex,
+    feedSequenceIndex: feedPosition + 1
   };
 }
 
@@ -909,10 +944,13 @@ function normalizeVariantCollection(variants = []) {
       if (!variant || typeof variant !== "object") {
         return null;
       }
-      const images = dedupeUrls(normalizeImageCollection(variant.images || variant.gallery || []));
-      if (!images.length) {
-        return null;
-      }
+      const images = dedupeUrls(normalizeImageCollection(
+        variant.images
+        || variant.imageUrls
+        || variant.gallery
+        || variant.image
+        || []
+      ));
       return {
         ...variant,
         color: String(variant.color || variant.name || "").trim(),
@@ -920,6 +958,15 @@ function normalizeVariantCollection(variants = []) {
       };
     })
     .filter(Boolean);
+}
+
+function getSmartVariantIndex(feedPosition = 0, variantCount = 0) {
+  const safeVariantCount = Math.max(0, Number(variantCount || 0) || 0);
+  if (safeVariantCount < 1) {
+    return 0;
+  }
+  const safeFeedPosition = Math.max(0, Number(feedPosition || 0) || 0);
+  return safeFeedPosition % safeVariantCount;
 }
 
 function normalizeImageCollection(images) {
@@ -987,7 +1034,14 @@ function extractAllImageUrls(products = [], usersById = {}) {
 function buildImagePreloadLinkHeader(products = []) {
   const preloadUrls = products
     .slice(0, 6)
-    .map((product) => getRenderableMarketplaceImages(product)[0] || "")
+    .map((product) => {
+      const images = getRenderableMarketplaceImages(product);
+      const requestedIndex = Number(product?.feedInitialImageIndex ?? product?.visibleImageIndex ?? 0);
+      const initialImageIndex = Number.isFinite(requestedIndex)
+        ? Math.max(0, Math.min(images.length - 1, requestedIndex))
+        : 0;
+      return images[initialImageIndex] || images[0] || "";
+    })
     .filter(Boolean)
     .slice(0, 6);
   if (!preloadUrls.length) {
