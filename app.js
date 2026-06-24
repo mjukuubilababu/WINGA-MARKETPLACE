@@ -3746,12 +3746,14 @@ function insertContinuousNodesInFrames(anchor, nodes = [], options = {}) {
         fragment.appendChild(node);
       });
       anchor.before(fragment);
-      onChunk?.(chunk);
-      if (!queue.length) {
-        resolve();
-        return;
-      }
-      window.requestAnimationFrame(injectNextChunk);
+      window.requestAnimationFrame(() => {
+        onChunk?.(chunk);
+        if (!queue.length) {
+          resolve();
+          return;
+        }
+        window.requestAnimationFrame(injectNextChunk);
+      });
     };
     window.requestAnimationFrame(injectNextChunk);
   });
@@ -10730,27 +10732,32 @@ const {
     const renderedBatchCards = getRenderedFeedBatchCards(container, startIndex, endIndex);
     primeRenderedFeedBatchCards(renderedBatchCards);
     bindRenderedFeedBatchCards(renderedBatchCards);
-    scheduleViewportReadyFeedSweep(container, {
-      limit: 12
-    });
-    const batchScope = renderedBatchCards.length === 1 ? renderedBatchCards[0] : container;
-    prioritizeVisibleFeedMedia(batchScope, renderedBatchCards.length ? Math.min(10, renderedBatchCards.length * 2) : 10);
-    activateViewportReadyFeedImages(batchScope, {
-      limit: 12
-    });
-    scheduleIdleBackgroundWork(() => {
-      if (renderedBatchCards.length) {
-        renderedBatchCards.forEach((card) => {
-          enhanceShowcaseTracks(card);
-          bindProductEngagementSignals(card);
-          bindProductMenus(card);
-        });
+    window.requestAnimationFrame(() => {
+      if (!container.isConnected) {
         return;
       }
-      enhanceShowcaseTracks(container);
-      bindProductEngagementSignals(container);
-      bindProductMenus(container);
-    }, 220);
+      scheduleViewportReadyFeedSweep(container, {
+        limit: 12
+      });
+      const batchScope = renderedBatchCards.length === 1 ? renderedBatchCards[0] : container;
+      prioritizeVisibleFeedMedia(batchScope, renderedBatchCards.length ? Math.min(10, renderedBatchCards.length * 2) : 10);
+      activateViewportReadyFeedImages(batchScope, {
+        limit: 12
+      });
+      scheduleIdleBackgroundWork(() => {
+        if (renderedBatchCards.length) {
+          renderedBatchCards.forEach((card) => {
+            enhanceShowcaseTracks(card);
+            bindProductEngagementSignals(card);
+            bindProductMenus(card);
+          });
+          return;
+        }
+        enhanceShowcaseTracks(container);
+        bindProductEngagementSignals(container);
+        bindProductMenus(container);
+      }, 220);
+    });
   },
   onFeedRenderBatch: ({ currentView: renderedView, products: renderedProducts }) => {
     if (renderedView !== "home" || !Array.isArray(renderedProducts) || !renderedProducts.length) {
@@ -18346,7 +18353,7 @@ function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
   const fitMode = isFeedSurface
     ? "contain"
     : normalizeProductFitMode(options?.fitMode || getProductFitMode(product));
-  const stableFrameRatio = "";
+  const stableFrameRatio = isFeedSurface ? "4 / 5" : "";
   if (options?.preload && typeof preloadImageSource === "function") {
     images.slice(0, Math.min(images.length, 1, priorityLimit)).forEach((src, index) => {
       preloadImageSource(src, {
@@ -18652,16 +18659,21 @@ function bindFeedGalleryInteractions(scope = document) {
       }
       const isFeedSurface = String(carousel.dataset.feedGallerySurface || "").trim().toLowerCase() === "feed";
       if (isFeedSurface) {
+        const stableRatio = String(
+          carousel.dataset.feedGalleryStableRatio
+          || preview.dataset.feedGalleryStableRatio
+          || "4 / 5"
+        ).trim();
         preview.dataset.fitMode = "contain";
         carousel.dataset.fitMode = "contain";
-        preview.style.removeProperty("--fit-media-aspect-ratio");
-        carousel.style.removeProperty("--fit-media-aspect-ratio");
+        preview.dataset.feedGalleryStableRatio = stableRatio;
+        carousel.dataset.feedGalleryStableRatio = stableRatio;
+        preview.style.setProperty("--fit-media-aspect-ratio", stableRatio);
+        carousel.style.setProperty("--fit-media-aspect-ratio", stableRatio);
         preview.style.removeProperty("--feed-gallery-frame-height");
         carousel.style.removeProperty("--feed-gallery-frame-height");
         preview.style.setProperty("--feed-gallery-fit-mode", "contain");
         carousel.style.setProperty("--feed-gallery-fit-mode", "contain");
-        carousel.dataset.feedGalleryStableRatio = "";
-        preview.dataset.feedGalleryStableRatio = "";
         return;
       }
       const total = Math.max(1, Number(carousel.dataset.feedGalleryTotal || track.querySelectorAll("[data-feed-gallery-slide]").length || 1));

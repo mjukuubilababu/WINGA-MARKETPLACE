@@ -3519,7 +3519,10 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
     function createDynamicShowcasePlaceholderElement(index) {
       const section = createElement("section", {
         className: "showcase-inline panel showcase-inline-pending",
-        attributes: { "data-dynamic-showcase-placeholder": index }
+        attributes: {
+          "data-dynamic-showcase-placeholder": index,
+          "aria-busy": "true"
+        }
       });
       section.appendChild(deps.createSectionHeading({
         eyebrow: "More To Explore",

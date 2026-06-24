@@ -10051,14 +10051,14 @@ button:hover,
 
 /* Home feed portrait-first image presentation */
 #products-container > .product-card > .product-card-media{
-  aspect-ratio:auto !important;
+  aspect-ratio:var(--fit-media-aspect-ratio, 4 / 5) !important;
   height:auto !important;
   overflow:hidden !important;
   background:#ffffff !important;
 }
 
 #products-container .feed-gallery-preview{
-  aspect-ratio:auto !important;
+  aspect-ratio:var(--fit-media-aspect-ratio, 4 / 5) !important;
   height:auto !important;
   max-height:none !important;
   background:#ffffff !important;
@@ -10068,7 +10068,7 @@ button:hover,
 #products-container .feed-gallery-carousel,
 #products-container .feed-gallery-carousel-track,
 #products-container .feed-gallery-carousel-slide{
-  height:auto !important;
+  height:100% !important;
   max-height:none !important;
   background:#ffffff !important;
 }
@@ -10083,17 +10083,17 @@ button:hover,
 #products-container .feed-gallery-carousel-track,
 #products-container .feed-gallery-carousel-slide,
 #products-container .progressive-image-shell{
-  min-height:0 !important;
+  min-height:100% !important;
 }
 
 #products-container .progressive-image-shell{
   width:100% !important;
-  height:auto !important;
-  min-height:0 !important;
+  height:100% !important;
+  min-height:100% !important;
   max-height:none !important;
   overflow:hidden !important;
   background:#ffffff !important;
-  contain:none !important;
+  contain:layout paint !important;
 }
 
 #products-container .feed-gallery-image-social{
@@ -10133,16 +10133,53 @@ button:hover,
 #products-container .progressive-image-shell .progressive-image-full{
   transition:none !important;
   display:block !important;
-  position:relative !important;
-  inset:auto !important;
+  position:absolute !important;
+  inset:0 !important;
   width:100% !important;
-  height:auto !important;
-  max-height:85vh !important;
+  height:100% !important;
+  max-height:none !important;
   object-fit:contain !important;
-  object-position:center top !important;
+  object-position:center !important;
   backface-visibility:hidden !important;
   transform:translateZ(0) !important;
   opacity:0 !important;
+}
+
+/* Production CLS guard: reserve feed and recommendation geometry before media arrives. */
+#products-container > .product-card,
+#products-container > .seller-product-card{
+  contain:layout paint;
+  content-visibility:auto;
+  contain-intrinsic-size:0 620px;
+}
+
+#products-container > .showcase-inline,
+#products-container > .recommendation-strip,
+#products-container > .continuous-discovery-section{
+  contain:layout paint;
+  content-visibility:auto;
+  contain-intrinsic-size:0 560px;
+}
+
+#products-container > .showcase-inline-pending{
+  min-height:560px;
+}
+
+#products-container .showcase-card .product-card-media,
+#products-container .showcase-card .feed-gallery-preview{
+  aspect-ratio:4 / 5;
+}
+
+@media (max-width:780px){
+  #products-container > .showcase-inline,
+  #products-container > .recommendation-strip,
+  #products-container > .continuous-discovery-section{
+    contain-intrinsic-size:0 720px;
+  }
+
+  #products-container > .showcase-inline-pending{
+    min-height:720px;
+  }
 }
 
 #products-container .progressive-image-shell.is-loaded .progressive-image-full,

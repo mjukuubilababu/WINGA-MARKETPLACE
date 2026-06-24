@@ -1,4 +1,6 @@
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 const {
   createProductSearchText,
   filterProducts,
@@ -15,6 +17,18 @@ const tests = [];
 function test(name, fn) {
   tests.push({ name, fn });
 }
+
+test("home feed reserves stable media and deferred section geometry", () => {
+  const root = path.resolve(__dirname, "..");
+  const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
+  const styleSource = fs.readFileSync(path.join(root, "style.css"), "utf8");
+
+  assert.match(appSource, /const stableFrameRatio = isFeedSurface \? "4 \/ 5" : "";/);
+  assert.match(appSource, /window\.requestAnimationFrame\(\(\) => \{\s+onChunk\?\.\(chunk\);/);
+  assert.match(styleSource, /#products-container > \.product-card > \.product-card-media\{\s+aspect-ratio:var\(--fit-media-aspect-ratio, 4 \/ 5\) !important;/);
+  assert.match(styleSource, /#products-container > \.showcase-inline-pending\{\s+min-height:560px;/);
+  assert.match(styleSource, /contain-intrinsic-size:0 560px;/);
+});
 
 test("filterProducts keeps only approved items and matches keyword/category", () => {
   const products = [
