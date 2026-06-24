@@ -35,6 +35,9 @@ test("home feed reserves stable media and deferred section geometry", () => {
   assert.match(styleSource, /#products-container\[data-layout-mode\]\s*>\s*\.product-card,[\s\S]*width:100%;/);
   assert.match(styleSource, /#top-bar\{[\s\S]*box-sizing:border-box;[\s\S]*width:var\(--winga-viewport-width, 100%\);/);
   assert.match(styleSource, /#products-container\[data-layout-mode\] > \.showcase-inline,[\s\S]*width:100%;[\s\S]*margin-left:0;/);
+  assert.match(styleSource, /html,\s*body\{\s*scrollbar-width:none;\s*-ms-overflow-style:none;/);
+  assert.match(styleSource, /html::\-webkit-scrollbar,\s*body::\-webkit-scrollbar\{[\s\S]*width:0;[\s\S]*display:none;/);
+  assert.doesNotMatch(styleSource, /@media \(max-width:780px\)\{[\s\S]*html,\s*body\{[^}]*overflow-y:hidden;/);
   assert.match(styleSource, /object-fit:var\(--feed-gallery-fit-mode, cover\) !important;/);
   assert.match(styleSource, /\.product-detail-media,[\s\S]*\.profile-product-stage\{[\s\S]*width:100% !important;[\s\S]*padding-left:0 !important;/);
   assert.match(styleSource, /\.product-card-media img,[\s\S]*\.feed-gallery-preview img\{[\s\S]*width:100% !important;/);

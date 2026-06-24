@@ -1098,8 +1098,11 @@ test("mobile home product media remains edge to edge", async ({ browser }) => {
       return rect ? { left: rect.left, right: rect.right, width: rect.width } : null;
     };
     return {
+      innerWidth: window.innerWidth,
       viewportWidth: document.documentElement.clientWidth,
       scrollWidth: document.documentElement.scrollWidth,
+      bodyOverflowY: getComputedStyle(document.body).overflowY,
+      scrollbarWidth: window.innerWidth - document.documentElement.clientWidth,
       card: read(card),
       media: read(media),
       image: read(image),
@@ -1125,6 +1128,8 @@ test("mobile home product media remains edge to edge", async ({ browser }) => {
   expect(geometry.media.left).toBeLessThanOrEqual(1);
   expect(Math.abs(geometry.media.right - geometry.viewportWidth)).toBeLessThanOrEqual(1);
   expect(geometry.image.width).toBeGreaterThanOrEqual(geometry.viewportWidth - 1);
+  expect(geometry.scrollbarWidth).toBe(0);
+  expect(geometry.bodyOverflowY).not.toBe("hidden");
   expect(
     geometry.scrollWidth,
     `Horizontal overflow: ${JSON.stringify(geometry.overflowingElements)}`

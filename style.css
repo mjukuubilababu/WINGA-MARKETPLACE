@@ -10310,6 +10310,19 @@ button:hover,
 
 /* Mobile Home owns a viewport-width media rail across Worker and client cards. */
 @media (max-width:780px){
+  html,
+  body{
+    scrollbar-width:none;
+    -ms-overflow-style:none;
+  }
+
+  html::-webkit-scrollbar,
+  body::-webkit-scrollbar{
+    width:0;
+    height:0;
+    display:none;
+  }
+
   #top-bar{
     box-sizing:border-box;
     width:var(--winga-viewport-width, 100%);
