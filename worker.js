@@ -58,11 +58,12 @@ async function streamFeedPage(request, env, ctx) {
     bootstrapPromise,
     new Promise((resolve) => setTimeout(() => resolve(null), 180))
   ]);
+  const lcpImageUrl = getPrimaryFeedImageUrl(preloadBootstrap?.items?.[0]);
   const preloadLinkHeader = buildImagePreloadLinkHeader(preloadBootstrap?.items || []);
 
   ctx.waitUntil((async () => {
     try {
-      await write(buildDocumentShellStart());
+      await write(buildDocumentShellStart({ lcpImageUrl, origin }));
       await write(buildFeedSkeletonChunk());
 
       const bootstrap = await bootstrapPromise;
@@ -219,7 +220,15 @@ async function fetchJsonWithTimeout(url, options = {}, timeoutMs = BOOTSTRAP_TIM
   }
 }
 
-function buildDocumentShellStart() {
+function buildDocumentShellStart(options = {}) {
+  const lcpImageUrl = String(options?.lcpImageUrl || "").trim();
+  const assetOrigin = String(options?.origin || "").trim();
+  const lcpImagePreloadTag = lcpImageUrl
+    ? `  <link rel="preload" as="image" href="${escapeHtml(lcpImageUrl)}" fetchpriority="high">\n`
+    : "";
+  const imageOriginPreconnectTag = assetOrigin
+    ? `  <link rel="preconnect" href="${escapeHtml(assetOrigin)}" crossorigin>\n`
+    : "";
   return `<!DOCTYPE html>
 <html lang="sw">
 <head>
@@ -247,7 +256,7 @@ function buildDocumentShellStart() {
   <link rel="manifest" href="/manifest-v4.webmanifest">
   <link rel="icon" href="/winga-icon-192-v3.png" type="image/png" sizes="192x192">
   <link rel="apple-touch-icon" href="/apple-touch-icon-v3.png">
-  <title>Chap kwa haraka</title>
+${lcpImagePreloadTag}${imageOriginPreconnectTag}  <title>Chap kwa haraka</title>
   <style id="winga-critical-boot">*{box-sizing:border-box}html,body{background:#ff6a00}body.app-booting{margin:0;min-height:100vh;overflow:hidden;background:#ff6a00}#boot-overlay.boot-overlay{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;padding:24px;background:radial-gradient(circle at 22% 18%,rgba(255,255,255,.38),transparent 28%),linear-gradient(135deg,#ff7a1a 0%,#ff6a00 48%,#d94f00 100%);color:#fff;opacity:1;visibility:visible;pointer-events:auto}#boot-overlay.boot-overlay.is-hidden{opacity:0;visibility:hidden;pointer-events:none}#boot-overlay .boot-overlay-card{width:min(360px,86vw);min-height:210px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;padding:32px 28px;border:1px solid rgba(255,255,255,.28);border-radius:30px;background:rgba(255,255,255,.14);box-shadow:0 28px 70px rgba(99,38,0,.26);text-align:center}#boot-overlay .boot-overlay-mark{display:flex;align-items:center;justify-content:center;gap:14px}#boot-overlay .boot-overlay-badge{width:58px;height:58px;display:inline-flex;align-items:center;justify-content:center;border-radius:20px;background:#fff;color:#ff6a00;font-size:2rem;font-weight:900}#boot-overlay .boot-overlay-mark strong{display:block;font-size:2rem;line-height:1;letter-spacing:.02em}#boot-overlay .boot-overlay-mark span:not(.boot-overlay-badge),#boot-overlay .boot-overlay-copy p{color:rgba(255,255,255,.86);font-weight:700}#boot-overlay .boot-overlay-copy{display:flex;flex-direction:column;align-items:center;gap:12px}#boot-overlay .boot-overlay-copy p{min-height:1.2em;margin:0;font-size:.95rem}#boot-overlay .boot-overlay-spinner{width:34px;height:34px;border-radius:50%;border:3px solid rgba(255,255,255,.38);border-top-color:#fff;animation:wingaCriticalBootSpin .82s linear infinite}@keyframes wingaCriticalBootSpin{to{transform:rotate(360deg)}}.feed-skeleton-card{overflow:hidden}.feed-skeleton-media,.feed-skeleton-line,.feed-skeleton-pill{position:relative;background:rgba(15,23,42,.08)}.feed-skeleton-media::after,.feed-skeleton-line::after,.feed-skeleton-pill::after{content:"";position:absolute;inset:0;transform:translateX(-100%);background:linear-gradient(90deg,transparent,rgba(255,255,255,.75),transparent);animation:winga-feed-skeleton-shimmer 1s linear infinite}.feed-skeleton-media{height:min(68vw,360px);background:rgba(15,23,42,.08)}.feed-skeleton-body{padding:18px 16px 20px;display:grid;gap:12px}.feed-skeleton-line{display:block;height:12px;border-radius:999px}.feed-skeleton-line-title{width:54%;height:16px}.feed-skeleton-line-copy{width:92%}.feed-skeleton-line-copy-short{width:68%}.feed-skeleton-actions{display:flex;gap:10px;padding-top:6px}.feed-skeleton-pill{width:92px;height:34px;border-radius:999px}.feed-skeleton-card.feed-skeleton-card{background:#fff;border-radius:24px;margin:0 0 18px;box-shadow:0 16px 36px rgba(15,23,42,.08)}@keyframes winga-feed-skeleton-shimmer{100%{transform:translateX(100%)}}@media (prefers-reduced-motion:reduce){#boot-overlay .boot-overlay-spinner,.feed-skeleton-media::after,.feed-skeleton-line::after,.feed-skeleton-pill::after{animation:none}}</style>
   <link rel="stylesheet" href="/style.css">
 </head>
@@ -567,8 +576,8 @@ function buildDiscoveryProductCardHtml(product, index, context) {
   const sellerName = escapeHtml(getProductSellerLabel(product, seller));
   const sellerAvatar = buildSellerAvatarMarkup(product, seller);
   const galleryMarkup = renderFeedGalleryMarkup(product, {
-    preload: index < 4,
-    priorityCount: index < 4 ? 1 : 0
+    eager: index < 2,
+    priority: index === 0
   });
   const likeFollowShareMarkup = renderSellerCardInlineActions(product, context);
   const overflowMenuMarkup = renderProductOverflowMenu(product, context);
@@ -707,6 +716,9 @@ function renderFeedGalleryMarkup(product, options = {}) {
   const fitMode = hasStoredAspectRatio ? "contain" : "cover";
   const slidesMarkup = images.map((imageSrc, index) => {
     const safeSrc = escapeHtml(imageSrc);
+    const isInitialImage = index === initialImageIndex;
+    const shouldLoadEagerly = isInitialImage && Boolean(options.eager);
+    const isLcpPriorityImage = isInitialImage && Boolean(options.priority);
     return `
       <div class="feed-gallery-carousel-slide" data-feed-gallery-slide="${index}">
         <span class="progressive-image-shell fit-mode-${fitMode} is-loaded">
@@ -714,8 +726,8 @@ function renderFeedGalleryMarkup(product, options = {}) {
             src="${safeSrc}"
             alt="${escapeHtml(`${product?.name || product?.shop || "Product image"} ${index + 1}`)}"
             class="progressive-image-full feed-gallery-image feed-gallery-image-social"
-            loading="${index < 3 || (options.preload && index === initialImageIndex) ? "eager" : "lazy"}"
-            fetchpriority="${index < 3 || (options.preload && index === initialImageIndex) ? "high" : "auto"}"
+            loading="${shouldLoadEagerly ? "eager" : "lazy"}"
+            fetchpriority="${isLcpPriorityImage ? "high" : "auto"}"
             decoding="async"
             draggable="false"
             data-preserve-image-ratio="true"
@@ -1058,25 +1070,23 @@ function extractAllImageUrls(products = [], usersById = {}) {
   return Array.from(urls);
 }
 
-function buildImagePreloadLinkHeader(products = []) {
-  const preloadUrls = products
-    .slice(0, 6)
-    .map((product) => {
-      const images = getRenderableMarketplaceImages(product);
-      const requestedIndex = Number(product?.feedInitialImageIndex ?? product?.visibleImageIndex ?? 0);
-      const initialImageIndex = Number.isFinite(requestedIndex)
-        ? Math.max(0, Math.min(images.length - 1, requestedIndex))
-        : 0;
-      return images[initialImageIndex] || images[0] || "";
-    })
-    .filter(Boolean)
-    .slice(0, 6);
-  if (!preloadUrls.length) {
+function getPrimaryFeedImageUrl(product) {
+  if (!product || typeof product !== "object") {
     return "";
   }
-  return preloadUrls
-    .map((url) => `<${url}>; rel=preload; as=image`)
-    .join(", ");
+  const images = getRenderableMarketplaceImages(product);
+  const requestedIndex = Number(product?.feedInitialImageIndex ?? product?.visibleImageIndex ?? 0);
+  const initialImageIndex = Number.isFinite(requestedIndex)
+    ? Math.max(0, Math.min(images.length - 1, requestedIndex))
+    : 0;
+  return images[initialImageIndex] || images[0] || "";
+}
+
+function buildImagePreloadLinkHeader(products = []) {
+  const lcpImageUrl = getPrimaryFeedImageUrl(products[0]);
+  return lcpImageUrl
+    ? `<${lcpImageUrl}>; rel=preload; as=image; fetchpriority=high`
+    : "";
 }
 
 function toEdgeImageUrl(src = "") {

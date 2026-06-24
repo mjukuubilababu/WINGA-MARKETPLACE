@@ -105,6 +105,57 @@ test("worker cycles production image arrays without dropping gallery images", ()
   assert.match(secondCardHtml, /data-fit-mode="cover"/);
 });
 
+test("worker emits one matching LCP image preload in the response header and HTML head", () => {
+  const root = path.resolve(__dirname, "..");
+  const source = fs.readFileSync(path.join(root, "worker.js"), "utf8")
+    .replace("export default {", "const __workerDefault = {");
+  const context = vm.createContext({
+    URL,
+    URLSearchParams,
+    TextEncoder,
+    console,
+    setTimeout,
+    clearTimeout,
+    Headers,
+    Request,
+    Response,
+    fetch: async () => {
+      throw new Error("Network access is not expected in worker unit tests.");
+    }
+  });
+  vm.runInContext(source, context);
+
+  const product = context.normalizeProductForStream({
+    id: "lcp-product",
+    images: ["first.jpg", "second.jpg"]
+  }, { feedPosition: 1 });
+  const lcpImageUrl = context.getPrimaryFeedImageUrl(product);
+  const header = context.buildImagePreloadLinkHeader([product]);
+  const html = context.buildDocumentShellStart({
+    lcpImageUrl,
+    origin: "https://winga-pflp.onrender.com"
+  });
+
+  assert.equal(lcpImageUrl, "/second.jpg");
+  assert.equal(header, "</second.jpg>; rel=preload; as=image; fetchpriority=high");
+  assert.match(html, /<link rel="preload" as="image" href="\/second\.jpg" fetchpriority="high">/);
+  assert.match(html, /<link rel="preconnect" href="https:\/\/winga-pflp\.onrender\.com" crossorigin>/);
+  assert.equal((html.match(/rel="preload" as="image"/g) || []).length, 1);
+
+  const firstCardHtml = context.buildDiscoveryProductCardHtml(product, 0, {
+    usersById: {},
+    session: null
+  });
+  const secondCardHtml = context.buildDiscoveryProductCardHtml(product, 1, {
+    usersById: {},
+    session: null
+  });
+  assert.equal((firstCardHtml.match(/fetchpriority="high"/g) || []).length, 1);
+  assert.equal((secondCardHtml.match(/fetchpriority="high"/g) || []).length, 0);
+  assert.match(firstCardHtml, /loading="eager"\s+fetchpriority="high"/);
+  assert.match(secondCardHtml, /loading="eager"\s+fetchpriority="auto"/);
+});
+
 test("worker uses stored image aspect ratios for uncropped stable feed media", () => {
   const root = path.resolve(__dirname, "..");
   const source = fs.readFileSync(path.join(root, "worker.js"), "utf8")
