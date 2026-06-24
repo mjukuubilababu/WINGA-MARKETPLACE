@@ -10120,7 +10120,7 @@ button:hover,
   width:100% !important;
   height:auto !important;
   max-height:85vh !important;
-  object-fit:contain !important;
+  object-fit:var(--feed-gallery-fit-mode, cover) !important;
   object-position:center top !important;
   background:#ffffff !important;
   padding:0 !important;
@@ -10158,7 +10158,7 @@ button:hover,
   width:100% !important;
   height:100% !important;
   max-height:none !important;
-  object-fit:contain !important;
+  object-fit:var(--feed-gallery-fit-mode, cover) !important;
   object-position:center !important;
   backface-visibility:hidden !important;
   transform:translateZ(0) !important;
@@ -10306,6 +10306,39 @@ button:hover,
 #products-container .feed-gallery-preview .feed-gallery-count-badge{
   top:8px;
   right:8px;
+}
+
+/* Mobile Home owns a viewport-width media rail across Worker and client cards. */
+@media (max-width:780px){
+  #products-container[data-layout-mode]{
+    position:relative;
+    left:50%;
+    transform:translateX(-50%);
+    width:100vw;
+    max-width:100vw;
+    margin-left:0;
+    margin-right:0;
+  }
+
+  #products-container[data-layout-mode] > .product-card,
+  #products-container[data-layout-mode] > .seller-product-card{
+    width:100%;
+    max-width:100%;
+    margin-left:0;
+    margin-right:0;
+    padding:0;
+    border:0;
+    border-radius:0;
+    box-shadow:none;
+  }
+
+  #products-container[data-layout-mode] > .product-card > .product-card-media,
+  #products-container[data-layout-mode] > .seller-product-card > .seller-product-card-media{
+    width:100%;
+    max-width:100%;
+    margin:0;
+    border-radius:0;
+  }
 }
 
 /* Keep image containers flush at the top across feed, detail, and seller surfaces. */

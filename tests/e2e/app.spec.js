@@ -1081,6 +1081,41 @@ test("guest home renders the marketplace feed and keeps discovery loading stable
   await context.close();
 });
 
+test("mobile home product media remains edge to edge", async ({ browser }) => {
+  const { context, page } = await createAnonymousPage(browser, {
+    viewport: { width: 390, height: 844 },
+    isMobile: true
+  });
+  await page.goto("/");
+  await expect(page.locator("#products-container .product-card").first()).toBeVisible({ timeout: 30000 });
+
+  const geometry = await page.evaluate(() => {
+    const card = document.querySelector("#products-container > .product-card, #products-container > .seller-product-card");
+    const media = card?.querySelector(".product-card-media, .seller-product-card-media");
+    const image = media?.querySelector("img");
+    const read = (element) => {
+      const rect = element?.getBoundingClientRect();
+      return rect ? { left: rect.left, right: rect.right, width: rect.width } : null;
+    };
+    return {
+      viewportWidth: document.documentElement.clientWidth,
+      scrollWidth: document.documentElement.scrollWidth,
+      card: read(card),
+      media: read(media),
+      image: read(image)
+    };
+  });
+
+  expect(geometry.card.left).toBeLessThanOrEqual(1);
+  expect(Math.abs(geometry.card.right - geometry.viewportWidth)).toBeLessThanOrEqual(1);
+  expect(geometry.media.left).toBeLessThanOrEqual(1);
+  expect(Math.abs(geometry.media.right - geometry.viewportWidth)).toBeLessThanOrEqual(1);
+  expect(geometry.image.width).toBeGreaterThanOrEqual(geometry.viewportWidth - 1);
+  expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.viewportWidth + 1);
+
+  await context.close();
+});
+
 test("seller-owned marketplace cards expose the three-dots delete menu on home", async ({ browser }) => {
   const { context, page } = await createLoggedInPage(browser, "market_seller", "Pass1234");
   await page.goto("/");

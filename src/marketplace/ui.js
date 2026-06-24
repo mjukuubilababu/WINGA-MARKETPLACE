@@ -885,7 +885,13 @@
         ? (Array.isArray(product?.variants) ? product.variants[selectedVariantIndex] : null)
         : null;
       const variantColor = String(product?.variantColor || selectedVariant?.color || selectedVariant?.name || "").trim();
+      const storedAspectRatio = Number(product?.imageAspectRatios?.[stableInitialImageIndex] || 0);
+      const stableMediaRatio = Number.isFinite(storedAspectRatio) && storedAspectRatio > 0.2 && storedAspectRatio < 5
+        ? String(Number(storedAspectRatio.toFixed(6)))
+        : "4 / 5";
       const media = createElement("div", { className: "product-card-media" });
+      media.style.setProperty("--fit-media-aspect-ratio", stableMediaRatio);
+      media.style.aspectRatio = stableMediaRatio;
       media.appendChild(createProductGalleryElement(product, {
         startupPriority,
         directVisibility: options.directVisibility === true,

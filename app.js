@@ -10900,6 +10900,12 @@ function normalizeProduct(product) {
   const normalizedImages = Array.isArray(product.images) && product.images.length > 0
     ? product.images
     : (product.image ? [product.image] : []);
+  const normalizedImageAspectRatios = normalizedImages.map((_, index) => {
+    const ratio = Number(product?.imageAspectRatios?.[index] || 0);
+    return Number.isFinite(ratio) && ratio > 0.2 && ratio < 5
+      ? Number(ratio.toFixed(6))
+      : 0;
+  });
   const normalizedFitMode = String(product.fitMode || "").trim().toLowerCase() === "contain"
     ? "contain"
     : "cover";
@@ -10924,6 +10930,7 @@ function normalizeProduct(product) {
     views: Number(product.views || 0),
     viewedBy: Array.isArray(product.viewedBy) ? product.viewedBy : [],
     images: normalizedImages,
+    imageAspectRatios: normalizedImageAspectRatios,
     image: normalizedImages[0] || "",
     _searchText: AppCore.createProductSearchText
       ? AppCore.createProductSearchText({
@@ -14310,6 +14317,14 @@ uploadButton.addEventListener("click", async () => {
     const imageSignature = safeImages[0]
       ? await createImageSignatureFromSource(safeImages[0]).catch(() => existingProduct?.imageSignature || "")
       : (existingProduct?.imageSignature || "");
+    const storedAspectRatios = Array.isArray(existingProduct?.imageAspectRatios)
+      ? existingProduct.imageAspectRatios.slice(0, safeImages.length)
+      : [];
+    const hasCompleteStoredAspectRatios = storedAspectRatios.length === safeImages.length
+      && storedAspectRatios.every((ratio) => Number(ratio) > 0.2 && Number(ratio) < 5);
+    const imageAspectRatios = selectedFiles.length > 0 || !hasCompleteStoredAspectRatios
+      ? await getImageAspectRatiosFromSources(safeImages)
+      : storedAspectRatios;
 
     const productPayload = {
       id: editingProductId || createId(),
@@ -14320,6 +14335,7 @@ uploadButton.addEventListener("click", async () => {
       fitMode: getSelectedProductFitMode(),
       image: safeImages[0] || "",
       images: safeImages,
+      imageAspectRatios,
       imageSignature,
       uploadedBy: currentUser,
       category,
@@ -14900,6 +14916,22 @@ function loadImageFromSource(source) {
     image.onerror = () => reject(new Error("Picha haikusomeka vizuri."));
     image.src = source;
   });
+}
+
+async function getImageAspectRatiosFromSources(sources = []) {
+  return Promise.all((Array.isArray(sources) ? sources : []).map(async (source) => {
+    try {
+      const image = await loadImageFromSource(source);
+      const width = Number(image.naturalWidth || image.width || 0);
+      const height = Number(image.naturalHeight || image.height || 0);
+      if (!width || !height) {
+        return 0;
+      }
+      return Number((width / height).toFixed(6));
+    } catch (_error) {
+      return 0;
+    }
+  }));
 }
 
 async function createImageSignatureFromSource(source) {
@@ -18360,7 +18392,9 @@ function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
   const isVariantEntry = isVariantFeedEntry(product);
   const requestedInitialIndex = Number(
     options?.initialImageIndex
-    ?? (isVariantEntry ? (product?.variantDisplayIndex ?? product?.feedInitialImageIndex ?? product?.visibleImageIndex) : 0)
+    ?? (isVariantEntry
+      ? (product?.visibleImageIndex ?? product?.feedInitialImageIndex ?? product?.variantDisplayIndex)
+      : (product?.feedInitialImageIndex ?? product?.visibleImageIndex))
     ?? 0
   );
   const initialImageIndex = total > 1
@@ -18375,10 +18409,14 @@ function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
   const isDetailContinuationSurface = normalizedSurface === "detail-continuation";
   const shouldForceDirectVisibility = Boolean(options?.directVisibility || isFeedSurface);
   const useCarouselSurface = isFeedSurface || isDetailSurface || isDetailContinuationSurface;
+  const storedAspectRatio = Number(product?.imageAspectRatios?.[initialImageIndex] || 0);
+  const hasStoredAspectRatio = Number.isFinite(storedAspectRatio) && storedAspectRatio > 0.2 && storedAspectRatio < 5;
   const fitMode = isFeedSurface
-    ? "contain"
+    ? (hasStoredAspectRatio ? "contain" : "cover")
     : normalizeProductFitMode(options?.fitMode || getProductFitMode(product));
-  const stableFrameRatio = isFeedSurface ? "4 / 5" : "";
+  const stableFrameRatio = isFeedSurface
+    ? (hasStoredAspectRatio ? String(Number(storedAspectRatio.toFixed(6))) : "4 / 5")
+    : "";
   if (options?.preload && typeof preloadImageSource === "function") {
     images.slice(0, Math.min(images.length, 1, priorityLimit)).forEach((src, index) => {
       preloadImageSource(src, {
@@ -18455,7 +18493,8 @@ function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
       data-feed-gallery-surface="${escapeHtml(normalizedSurface || "feed")}"
       ${stableFrameRatio ? `data-feed-gallery-stable-ratio="${escapeHtml(stableFrameRatio)}"` : ""}
       data-feed-gallery-stable-fit-mode="${escapeHtml(fitMode)}"
-      data-fit-mode="${escapeHtml(fitMode)}">
+      data-fit-mode="${escapeHtml(fitMode)}"
+      ${isFeedSurface ? `style="--fit-media-aspect-ratio:${escapeHtml(stableFrameRatio)};--feed-gallery-fit-mode:${escapeHtml(fitMode)}"` : ""}>
       <div class="feed-gallery-carousel-track" data-feed-gallery-track>
         ${slides}
       </div>
@@ -18689,16 +18728,23 @@ function bindFeedGalleryInteractions(scope = document) {
           || preview.dataset.feedGalleryStableRatio
           || "4 / 5"
         ).trim();
-        preview.dataset.fitMode = "contain";
-        carousel.dataset.fitMode = "contain";
+        const stableFitMode = String(
+          carousel.dataset.feedGalleryStableFitMode
+          || preview.dataset.feedGalleryStableFitMode
+          || carousel.dataset.fitMode
+          || preview.dataset.fitMode
+          || "cover"
+        ).trim().toLowerCase() === "contain" ? "contain" : "cover";
+        preview.dataset.fitMode = stableFitMode;
+        carousel.dataset.fitMode = stableFitMode;
         preview.dataset.feedGalleryStableRatio = stableRatio;
         carousel.dataset.feedGalleryStableRatio = stableRatio;
         preview.style.setProperty("--fit-media-aspect-ratio", stableRatio);
         carousel.style.setProperty("--fit-media-aspect-ratio", stableRatio);
         preview.style.removeProperty("--feed-gallery-frame-height");
         carousel.style.removeProperty("--feed-gallery-frame-height");
-        preview.style.setProperty("--feed-gallery-fit-mode", "contain");
-        carousel.style.setProperty("--feed-gallery-fit-mode", "contain");
+        preview.style.setProperty("--feed-gallery-fit-mode", stableFitMode);
+        carousel.style.setProperty("--feed-gallery-fit-mode", stableFitMode);
         return;
       }
       const total = Math.max(1, Number(carousel.dataset.feedGalleryTotal || track.querySelectorAll("[data-feed-gallery-slide]").length || 1));
@@ -20035,6 +20081,11 @@ async function repostProductAsSeller(sourceProduct) {
     fitMode: getProductFitMode(sourceProduct),
     image: sourceImages[0] || "",
     images: sourceImages,
+    imageAspectRatios: Array.isArray(sourceProduct.imageAspectRatios)
+      && sourceProduct.imageAspectRatios.length === sourceImages.length
+      && sourceProduct.imageAspectRatios.every((ratio) => Number(ratio) > 0.2 && Number(ratio) < 5)
+        ? sourceProduct.imageAspectRatios.slice(0, sourceImages.length)
+        : await getImageAspectRatiosFromSources(sourceImages),
     imageSignature,
     uploadedBy: currentUser,
     category: sourceProduct.category,

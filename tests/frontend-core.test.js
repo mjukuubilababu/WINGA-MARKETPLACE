@@ -24,11 +24,14 @@ test("home feed reserves stable media and deferred section geometry", () => {
   const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
   const styleSource = fs.readFileSync(path.join(root, "style.css"), "utf8");
 
-  assert.match(appSource, /const stableFrameRatio = isFeedSurface \? "4 \/ 5" : "";/);
+  assert.match(appSource, /hasStoredAspectRatio \? String\(Number\(storedAspectRatio\.toFixed\(6\)\)\) : "4 \/ 5"/);
   assert.match(appSource, /window\.requestAnimationFrame\(\(\) => \{\s+onChunk\?\.\(chunk\);/);
   assert.match(styleSource, /#products-container > \.product-card > \.product-card-media\{\s+aspect-ratio:var\(--fit-media-aspect-ratio, 4 \/ 5\) !important;/);
   assert.match(styleSource, /#products-container > \.showcase-inline-pending\{\s+min-height:560px;/);
   assert.match(styleSource, /contain-intrinsic-size:0 560px;/);
+  assert.match(styleSource, /#products-container\[data-layout-mode\]\{[\s\S]*transform:translateX\(-50%\);[\s\S]*width:100vw;/);
+  assert.match(styleSource, /#products-container\[data-layout-mode\]\s*>\s*\.product-card,[\s\S]*width:100%;/);
+  assert.match(styleSource, /object-fit:var\(--feed-gallery-fit-mode, cover\) !important;/);
 });
 
 test("worker cycles production image arrays without dropping gallery images", () => {
@@ -76,6 +79,46 @@ test("worker cycles production image arrays without dropping gallery images", ()
   assert.match(secondCardHtml, /data-feed-sequence-index="2"/);
   assert.match(secondCardHtml, /data-feed-gallery-initial-index="1"/);
   assert.match(secondCardHtml, /data-feed-gallery-current="2"/);
+  assert.match(secondCardHtml, /data-feed-gallery-stable-ratio="4 \/ 5"/);
+  assert.match(secondCardHtml, /data-fit-mode="cover"/);
+});
+
+test("worker uses stored image aspect ratios for uncropped stable feed media", () => {
+  const root = path.resolve(__dirname, "..");
+  const source = fs.readFileSync(path.join(root, "worker.js"), "utf8")
+    .replace("export default {", "const __workerDefault = {");
+  const context = vm.createContext({
+    URL,
+    URLSearchParams,
+    TextEncoder,
+    console,
+    setTimeout,
+    clearTimeout,
+    Headers,
+    Request,
+    Response,
+    fetch: async () => {
+      throw new Error("Network access is not expected in worker unit tests.");
+    }
+  });
+  vm.runInContext(source, context);
+
+  const normalized = context.normalizeProductForStream({
+    id: "ratio-aware",
+    name: "Ratio aware",
+    images: ["portrait.jpg", "landscape.jpg"],
+    imageAspectRatios: [0.665, 1.5]
+  }, { feedPosition: 1 });
+  const html = context.buildDiscoveryProductCardHtml(normalized, 1, {
+    usersById: {},
+    session: null
+  });
+
+  assert.equal(normalized.feedInitialImageIndex, 1);
+  assert.deepEqual(Array.from(normalized.imageAspectRatios), [0.665, 1.5]);
+  assert.match(html, /data-feed-gallery-stable-ratio="1.5"/);
+  assert.match(html, /data-fit-mode="contain"/);
+  assert.match(html, /aspect-ratio:1.5/);
 });
 
 test("worker selects structured variants and falls back when a variant has no images", () => {
@@ -155,6 +198,7 @@ test("client variant entries prefer selected resurfacing indexes and preserve se
   assert.match(uiSource, /feedEntryType === "variant"\s*\?\s*\(product\?\.visibleImageIndex \?\? product\?\.feedInitialImageIndex \?\? product\?\.variantDisplayIndex/);
   assert.match(uiSource, /const stableInitialImageIndex = Math\.max\(0, variantDisplayIndex\);/);
   assert.match(uiSource, /className: "variant-badge"/);
+  assert.match(uiSource, /media\.style\.aspectRatio = stableMediaRatio/);
 });
 
 test("filterProducts keeps only approved items and matches keyword/category", () => {

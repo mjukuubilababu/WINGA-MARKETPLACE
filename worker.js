@@ -575,10 +575,16 @@ function buildDiscoveryProductCardHtml(product, index, context) {
   const actionGroupMarkup = renderProductActionGroup(product, context, {
     extraClass: "seller-product-actions seller-product-actions-compact"
   });
+  const requestedInitialIndex = Number(product?.feedInitialImageIndex ?? product?.visibleImageIndex ?? 0);
+  const initialImageIndex = Number.isFinite(requestedInitialIndex) ? Math.max(0, requestedInitialIndex) : 0;
+  const storedAspectRatio = Number(product?.imageAspectRatios?.[initialImageIndex] || 0);
+  const stableMediaRatio = Number.isFinite(storedAspectRatio) && storedAspectRatio > 0.2 && storedAspectRatio < 5
+    ? String(Number(storedAspectRatio.toFixed(6)))
+    : "4 / 5";
 
   return `
     <article class="seller-product-card${Array.isArray(product.images) && product.images.length > 1 ? " has-gallery-count-badge" : ""}" data-open-product="${escapeHtml(product.id)}" data-open-image-index="${escapeHtml(product.feedInitialImageIndex || 0)}" data-feed-entry-key="product:${escapeHtml(product.id)}" data-feed-entry-type="product" data-feed-sequence-index="${index + 1}" data-variant-display-index="${escapeHtml(product.variantDisplayIndex || 0)}"${product.selectedVariantIndex != null && Number.isFinite(Number(product.selectedVariantIndex)) ? ` data-selected-variant-index="${escapeHtml(product.selectedVariantIndex)}"` : ""}>
-      <div class="seller-product-card-media">
+      <div class="seller-product-card-media" style="--fit-media-aspect-ratio:${escapeHtml(stableMediaRatio)};aspect-ratio:${escapeHtml(stableMediaRatio)}">
         ${galleryMarkup}
         ${product.variantColor ? `<span class="variant-badge">${escapeHtml(product.variantColor)}</span>` : ""}
       </div>
@@ -693,7 +699,12 @@ function renderFeedGalleryMarkup(product, options = {}) {
     0,
     Math.min(total - 1, Number.isFinite(requestedInitialImageIndex) ? requestedInitialImageIndex : 0)
   );
-  const fitMode = "contain";
+  const storedAspectRatio = Number(product?.imageAspectRatios?.[initialImageIndex] || 0);
+  const hasStoredAspectRatio = Number.isFinite(storedAspectRatio) && storedAspectRatio > 0.2 && storedAspectRatio < 5;
+  const stableFrameRatio = hasStoredAspectRatio
+    ? String(Number(storedAspectRatio.toFixed(6)))
+    : "4 / 5";
+  const fitMode = hasStoredAspectRatio ? "contain" : "cover";
   const slidesMarkup = images.map((imageSrc, index) => {
     const safeSrc = escapeHtml(imageSrc);
     return `
@@ -729,8 +740,10 @@ function renderFeedGalleryMarkup(product, options = {}) {
       data-feed-gallery-current="${initialImageIndex + 1}"
       data-feed-gallery-initial-index="${initialImageIndex}"
       data-feed-gallery-surface="feed"
+      data-feed-gallery-stable-ratio="${escapeHtml(stableFrameRatio)}"
       data-feed-gallery-stable-fit-mode="${fitMode}"
-      data-fit-mode="${fitMode}">
+      data-fit-mode="${fitMode}"
+      style="--fit-media-aspect-ratio:${escapeHtml(stableFrameRatio)};--feed-gallery-fit-mode:${fitMode}">
       <div class="feed-gallery-carousel-track" data-feed-gallery-track>
         ${slidesMarkup}
       </div>
@@ -903,6 +916,10 @@ function normalizeProductForStream(product, options = {}) {
   }
   const displayImages = dedupeUrls(hasChosenVariantImages ? chosenVariant.images : dedupedBaseImages);
   const images = displayImages.length ? displayImages : ["/winga-icon.svg"];
+  const baseAspectRatios = normalizeImageAspectRatios(product.imageAspectRatios, dedupedBaseImages.length);
+  const selectedAspectRatios = hasChosenVariantImages
+    ? normalizeImageAspectRatios(chosenVariant?.imageAspectRatios, images.length)
+    : baseAspectRatios;
   const initialImageIndex = hasChosenVariantImages
     ? 0
     : getSmartVariantIndex(feedPosition, images.length);
@@ -926,6 +943,7 @@ function normalizeProductForStream(product, options = {}) {
     images,
     image: images[0] || "/winga-icon.svg",
     productImages: dedupedBaseImages,
+    imageAspectRatios: selectedAspectRatios,
     variants,
     variantCount,
     selectedVariantIndex: chosenVariant ? chosenVariantIndex : null,
@@ -967,6 +985,15 @@ function getSmartVariantIndex(feedPosition = 0, variantCount = 0) {
   }
   const safeFeedPosition = Math.max(0, Number(feedPosition || 0) || 0);
   return safeFeedPosition % safeVariantCount;
+}
+
+function normalizeImageAspectRatios(ratios = [], imageCount = 0) {
+  return Array.from({ length: Math.max(0, Number(imageCount || 0) || 0) }, (_, index) => {
+    const ratio = Number(Array.isArray(ratios) ? ratios[index] : 0);
+    return Number.isFinite(ratio) && ratio > 0.2 && ratio < 5
+      ? Number(ratio.toFixed(6))
+      : 0;
+  });
 }
 
 function normalizeImageCollection(images) {
