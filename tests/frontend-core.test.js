@@ -45,6 +45,33 @@ test("home feed reserves stable media and deferred section geometry", () => {
   assert.match(styleSource, /\.product-card-media img,[\s\S]*\.feed-gallery-preview img\{[\s\S]*width:100% !important;/);
 });
 
+test("home pagination retries safely, cancels stale work, and commits pages transactionally", () => {
+  const root = path.resolve(__dirname, "..");
+  const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
+  const dataSource = fs.readFileSync(path.join(root, "data-service.js"), "utf8");
+  const backendSource = fs.readFileSync(path.join(root, "backend", "server.js"), "utf8");
+
+  assert.match(appSource, /const HOME_LOAD_MORE_MAX_ATTEMPTS = 3;/);
+  assert.match(appSource, /function loadHomeFeedPageWithRetry\(loadPage, options = \{\}\)/);
+  assert.match(appSource, /loadMoreAbortController = abortController/);
+  assert.match(appSource, /signal: abortController\?\.signal/);
+  assert.match(appSource, /setHomeFeedLoadMoreState\("success-products"/);
+  assert.match(appSource, /setHomeFeedLoadMoreState\("success-empty"/);
+  assert.match(appSource, /setHomeFeedLoadMoreState\("error"/);
+  assert.match(appSource, /cancelHomeFeedLoadMore\("view_changed"\)/);
+  assert.match(appSource, /cancelHomeFeedLoadMore\("document_hidden"\)/);
+
+  assert.match(dataSource, /signal: options\.signal/);
+  assert.match(dataSource, /signal: nextOptions\.signal/);
+  const firstStateMutation = dataSource.indexOf("state.products = mergeUniqueProducts(state.products, receivedProducts)");
+  const lookaheadRequest = dataSource.indexOf("const lookaheadPage = await state.adapter.loadProductsPage(lookaheadOptions)");
+  assert.ok(lookaheadRequest >= 0);
+  assert.ok(firstStateMutation > lookaheadRequest);
+  assert.match(dataSource, /const appendedItems = receivedProducts\.filter/);
+
+  assert.match(backendSource, /return String\(second\?\.id \|\| ""\)\.localeCompare\(String\(first\?\.id \|\| ""\)\);/);
+});
+
 test("service worker refreshes versioned frontend assets without trapping stale CSS", () => {
   const root = path.resolve(__dirname, "..");
   const serviceWorkerSource = fs.readFileSync(path.join(root, "sw.js"), "utf8");

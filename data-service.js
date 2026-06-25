@@ -2265,7 +2265,8 @@
         const data = await fetchJson(`${baseUrl}/products?${query.toString()}`, {
           headers: {
             ...createAuthHeaders()
-          }
+          },
+          signal: options.signal
         });
         const page = normalizeProductPageResponse(data, pageWindow, resolveProductImages);
         if (enableLocalCacheFallback && Array.isArray(page.items) && page.items.length) {
@@ -4094,9 +4095,6 @@
         ? await state.adapter.loadProductsPage(nextOptions)
         : normalizeProductPageResponse(await state.adapter.loadProducts(), nextOptions, (product) => product);
       const incomingProducts = Array.isArray(page?.items) ? sortProductsNewestFirst(page.items) : [];
-      if (incomingProducts.length) {
-        state.products = mergeUniqueProducts(state.products, incomingProducts);
-      }
       let finalPage = page;
       let lookaheadProducts = [];
       if (
@@ -4108,16 +4106,27 @@
         const lookaheadOptions = {
           cursor: String(page.nextCursor || ""),
           page: Number(page.page || nextOptions.page || 1) + 1,
-          limit: Number(page.limit || nextOptions.limit || DEFAULT_PRODUCTS_PAGE_LIMIT) || DEFAULT_PRODUCTS_PAGE_LIMIT
+          limit: Number(page.limit || nextOptions.limit || DEFAULT_PRODUCTS_PAGE_LIMIT) || DEFAULT_PRODUCTS_PAGE_LIMIT,
+          signal: nextOptions.signal
         };
         const lookaheadPage = await state.adapter.loadProductsPage(lookaheadOptions);
         lookaheadProducts = Array.isArray(lookaheadPage?.items) ? sortProductsNewestFirst(lookaheadPage.items) : [];
-        if (lookaheadProducts.length) {
-          state.products = mergeUniqueProducts(state.products, lookaheadProducts);
-        }
         if (lookaheadPage && typeof lookaheadPage === "object") {
           finalPage = lookaheadPage;
         }
+      }
+      const beforeIds = new Set(
+        (Array.isArray(state.products) ? state.products : [])
+          .map((product) => String(product?.id || product?.productId || product?.slug || "").trim())
+          .filter(Boolean)
+      );
+      const receivedProducts = mergeUniqueProducts(incomingProducts, lookaheadProducts);
+      const appendedItems = receivedProducts.filter((product) => {
+        const productId = String(product?.id || product?.productId || product?.slug || "").trim();
+        return !productId || !beforeIds.has(productId);
+      });
+      if (receivedProducts.length) {
+        state.products = mergeUniqueProducts(state.products, receivedProducts);
       }
       const appendedCount = Math.max(0, (Array.isArray(state.products) ? state.products.length : 0) - beforeCount);
       if (finalPage && typeof finalPage === "object") {
@@ -4144,7 +4153,7 @@
       return {
         ...clone(finalPage),
         appendedCount,
-        appendedItems: [...incomingProducts, ...lookaheadProducts].slice(0, appendedCount || incomingProducts.length + lookaheadProducts.length)
+        appendedItems
       };
     },
     async signup(payload) {

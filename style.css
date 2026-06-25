@@ -2252,6 +2252,46 @@ img[data-zoom-src]{
   margin-top:6px;
 }
 
+.home-feed-load-more-status{
+  width:min(100%, 520px);
+  min-height:44px;
+  margin:12px auto 20px;
+  padding:10px 14px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:10px;
+  color:var(--text-muted);
+  font-size:0.88rem;
+  line-height:1.35;
+  text-align:center;
+}
+
+.home-feed-load-more-status[hidden]{
+  display:none;
+}
+
+.home-feed-load-more-status[data-state="error"]{
+  color:var(--danger);
+}
+
+.home-feed-load-more-spinner{
+  width:18px;
+  height:18px;
+  flex:0 0 18px;
+  border:2px solid rgba(16, 92, 255, 0.16);
+  border-top-color:var(--accent-deep);
+  border-radius:50%;
+  animation:winga-feed-spin 0.8s linear infinite;
+}
+
+.home-feed-load-more-retry{
+  flex:0 0 auto;
+  min-height:34px;
+  padding:6px 12px;
+  border-radius:6px;
+}
+
 .feed-skeleton-card{
   pointer-events:none;
   user-select:none;

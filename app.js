@@ -107,6 +107,8 @@ const HOME_INFINITE_DOM_INJECT_CHUNK_SIZE = 12;
 const HOME_INFINITE_BACKEND_REFRESH_COOLDOWN_MS = 1200;
 const HOME_INFINITE_BACKEND_RUNWAY_MIN_PRODUCTS = 6;
 const HOME_INFINITE_MAX_DOM_CARDS = 60;
+const HOME_LOAD_MORE_MAX_ATTEMPTS = 3;
+const HOME_LOAD_MORE_RETRY_BASE_DELAY_MS = 400;
 const PRODUCT_DETAIL_TRANSITION_PRELOAD_RADIUS = 2;
 const SLOW_PATH_TELEMETRY_LIMIT = 120;
 const PREDICTIVE_DECODE_TELEMETRY_LIMIT = 160;
@@ -1134,6 +1136,9 @@ function setCurrentViewState(nextView, options = {}) {
     syncHistory = true,
     historyState = {}
   } = options;
+  if (currentView === "home" && nextView !== "home") {
+    cancelHomeFeedLoadMore("view_changed");
+  }
   currentView = nextView;
   if (syncNav) {
     setActiveNav(currentView);
@@ -3759,6 +3764,201 @@ function insertContinuousNodesInFrames(anchor, nodes = [], options = {}) {
   });
 }
 
+function isRetryableHomeFeedLoadError(error) {
+  const code = String(error?.code || "").toLowerCase();
+  const status = Number(error?.status || 0);
+  return Boolean(
+    error?.retryable
+    || code === "timeout"
+    || code === "network"
+    || status === 408
+    || status === 429
+    || status >= 500
+  );
+}
+
+function isAbortedHomeFeedLoad(error, signal = null) {
+  return Boolean(
+    signal?.aborted
+    || error?.name === "AbortError"
+    || String(error?.code || "").toLowerCase() === "aborted"
+  );
+}
+
+function waitForHomeFeedRetry(delayMs, signal = null) {
+  if (signal?.aborted) {
+    return Promise.reject(Object.assign(new Error("Home feed load was cancelled."), {
+      name: "AbortError",
+      code: "aborted"
+    }));
+  }
+  return new Promise((resolve, reject) => {
+    const timerId = window.setTimeout(() => {
+      signal?.removeEventListener?.("abort", handleAbort);
+      resolve();
+    }, Math.max(0, Number(delayMs || 0)));
+    const handleAbort = () => {
+      window.clearTimeout(timerId);
+      reject(Object.assign(new Error("Home feed load was cancelled."), {
+        name: "AbortError",
+        code: "aborted"
+      }));
+    };
+    signal?.addEventListener?.("abort", handleAbort, { once: true });
+  });
+}
+
+function ensureHomeFeedLoadMoreStatus() {
+  if (!productsContainer) {
+    return null;
+  }
+  let status = document.getElementById("home-feed-load-more-status");
+  if (status) {
+    return status;
+  }
+  status = createElement("div", {
+    className: "home-feed-load-more-status",
+    attributes: {
+      id: "home-feed-load-more-status",
+      role: "status",
+      "aria-live": "polite"
+    }
+  });
+  status.append(
+    createElement("span", {
+      className: "home-feed-load-more-spinner",
+      attributes: { "aria-hidden": "true" }
+    }),
+    createElement("span", {
+      className: "home-feed-load-more-copy"
+    }),
+    createElement("button", {
+      className: "home-feed-load-more-retry",
+      textContent: "Jaribu tena",
+      attributes: {
+        type: "button",
+        "aria-label": "Jaribu kupakia bidhaa zaidi"
+      }
+    })
+  );
+  status.querySelector(".home-feed-load-more-retry")?.addEventListener("click", () => {
+    reportClientEvent("info", "home_feed_load_more_manual_retry", "User retried Home feed pagination.", {
+      category: "pagination"
+    });
+    silentlyRefreshInfiniteFeedSource({
+      force: true,
+      allowLookahead: true,
+      reason: "manual_retry"
+    });
+  });
+  productsContainer.appendChild(status);
+  return status;
+}
+
+function setHomeFeedLoadMoreState(nextState, details = {}) {
+  const state = String(nextState || "idle");
+  homeContinuousDiscoveryRuntime.loadMoreState = state;
+  homeContinuousDiscoveryRuntime.loadMoreError = String(details.error || "");
+  homeContinuousDiscoveryRuntime.loadMoreAttempt = Number(details.attempt || 0);
+  homeContinuousDiscoveryRuntime.loadMoreHasMore = details.hasMore !== false;
+
+  const isVisible = state === "loading" || state === "error" || state === "success-empty";
+  const status = document.getElementById("home-feed-load-more-status")
+    || (isVisible ? ensureHomeFeedLoadMoreStatus() : null);
+  if (!status) {
+    return;
+  }
+  status.dataset.state = state;
+  const copy = status.querySelector(".home-feed-load-more-copy");
+  const retryButton = status.querySelector(".home-feed-load-more-retry");
+  const spinner = status.querySelector(".home-feed-load-more-spinner");
+  status.hidden = !isVisible;
+  status.setAttribute("aria-busy", state === "loading" ? "true" : "false");
+  if (spinner) {
+    spinner.hidden = state !== "loading";
+  }
+  if (retryButton) {
+    retryButton.hidden = state !== "error";
+    retryButton.disabled = state === "loading";
+  }
+  if (!copy) {
+    return;
+  }
+  if (state === "loading") {
+    copy.textContent = Number(details.attempt || 1) > 1
+      ? "Muunganisho umesita, tunajaribu tena..."
+      : "Inapakia bidhaa zaidi...";
+  } else if (state === "error") {
+    copy.textContent = "Bidhaa zaidi hazikupatikana kwa sasa. Bidhaa ulizoona zimehifadhiwa.";
+  } else if (state === "success-empty") {
+    copy.textContent = details.hasMore === false
+      ? "Bidhaa zote mpya zimepakiwa. Endelea kuona mapendekezo."
+      : "Hakuna bidhaa mpya katika sehemu hii.";
+  } else {
+    copy.textContent = "";
+  }
+}
+
+function cancelHomeFeedLoadMore(reason = "cancelled") {
+  const controller = homeContinuousDiscoveryRuntime?.loadMoreAbortController;
+  const hadActiveRequest = Boolean(
+    controller
+    || homeContinuousDiscoveryRuntime?.isLoadingMore
+    || homeContinuousDiscoveryRuntime?.backendRefreshPromise
+  );
+  if (controller && !controller.signal?.aborted) {
+    controller.abort();
+  }
+  if (homeContinuousDiscoveryRuntime) {
+    homeContinuousDiscoveryRuntime.loadMoreRequestId = Number(homeContinuousDiscoveryRuntime.loadMoreRequestId || 0) + 1;
+    homeContinuousDiscoveryRuntime.isLoadingMore = false;
+    homeContinuousDiscoveryRuntime.loadMoreAbortController = null;
+    setHomeFeedLoadMoreState("idle");
+  }
+  if (hadActiveRequest) {
+    reportClientEvent("info", "home_feed_load_more_cancelled", "Cancelled stale Home feed pagination request.", {
+      category: "pagination",
+      reason
+    });
+  }
+}
+
+async function loadHomeFeedPageWithRetry(loadPage, options = {}) {
+  const signal = options.signal || null;
+  let lastError = null;
+  for (let attempt = 1; attempt <= HOME_LOAD_MORE_MAX_ATTEMPTS; attempt += 1) {
+    if (signal?.aborted) {
+      throw Object.assign(new Error("Home feed load was cancelled."), {
+        name: "AbortError",
+        code: "aborted"
+      });
+    }
+    setHomeFeedLoadMoreState("loading", { attempt });
+    try {
+      return await loadPage();
+    } catch (error) {
+      lastError = error;
+      if (
+        isAbortedHomeFeedLoad(error, signal)
+        || !isRetryableHomeFeedLoadError(error)
+        || attempt >= HOME_LOAD_MORE_MAX_ATTEMPTS
+      ) {
+        throw error;
+      }
+      const delayMs = HOME_LOAD_MORE_RETRY_BASE_DELAY_MS * (2 ** (attempt - 1));
+      reportClientEvent("warn", "home_feed_load_more_retry", "Retrying Home feed pagination after a transient failure.", {
+        category: "pagination",
+        attempt,
+        delayMs,
+        code: String(error?.code || ""),
+        status: Number(error?.status || 0)
+      });
+      await waitForHomeFeedRetry(delayMs, signal);
+    }
+  }
+  throw lastError || new Error("Home feed pagination failed.");
+}
+
 function silentlyRefreshInfiniteFeedSource(options = {}) {
   const now = Date.now();
   const force = options.force === true;
@@ -3783,6 +3983,8 @@ function silentlyRefreshInfiniteFeedSource(options = {}) {
   homeContinuousDiscoveryRuntime.isLoadingMore = true;
   homeContinuousDiscoveryRuntime.lastBackendRefreshAt = now;
   const requestId = ++homeContinuousDiscoveryRuntime.loadMoreRequestId;
+  const abortController = typeof AbortController !== "undefined" ? new AbortController() : null;
+  homeContinuousDiscoveryRuntime.loadMoreAbortController = abortController;
   const loadMoreMetricContext = pagination ? {
     page: Number(pagination.page || 1) + 1,
     cursor: String(pagination.nextCursor || "").trim()
@@ -3790,19 +3992,28 @@ function silentlyRefreshInfiniteFeedSource(options = {}) {
     page: 0,
     cursor: ""
   };
-  const requestPromise = typeof appendProductsPage === "function"
-    ? Promise.resolve(appendProductsPage.call(dataLayer, pagination ? {
-      cursor: pagination.nextCursor || "",
-      page: Number(pagination.page || 1) + 1,
-      limit: Number(pagination.limit || 0) || undefined,
-      prefetchNext: allowLookahead
-    } : {}))
-    : (typeof refreshProducts === "function"
-      ? Promise.resolve(refreshProducts.call(dataLayer))
-      : Promise.resolve(false));
+  const requestPromise = loadHomeFeedPageWithRetry(
+    () => (typeof appendProductsPage === "function"
+      ? Promise.resolve(appendProductsPage.call(dataLayer, pagination ? {
+        cursor: pagination.nextCursor || "",
+        page: Number(pagination.page || 1) + 1,
+        limit: Number(pagination.limit || 0) || undefined,
+        prefetchNext: allowLookahead,
+        signal: abortController?.signal
+      } : {
+        signal: abortController?.signal
+      }))
+      : (typeof refreshProducts === "function"
+        ? Promise.resolve(refreshProducts.call(dataLayer))
+        : Promise.resolve(false))),
+    { signal: abortController?.signal }
+  );
   homeContinuousDiscoveryRuntime.backendRefreshPromise = requestPromise
     .then((page) => {
-      if (requestId !== homeContinuousDiscoveryRuntime.loadMoreRequestId) {
+      if (
+        requestId !== homeContinuousDiscoveryRuntime.loadMoreRequestId
+        || homeContinuousDiscoveryRuntime.loadMoreAbortController !== abortController
+      ) {
         return false;
       }
       const appendedProducts = Array.isArray(page?.appendedItems) && page.appendedItems.length
@@ -3820,19 +4031,45 @@ function silentlyRefreshInfiniteFeedSource(options = {}) {
           ...loadMoreMetricContext,
           productIds: appendedProducts.map((product) => product?.id).filter(Boolean)
         });
+        setHomeFeedLoadMoreState("success-products", {
+          hasMore: page?.hasMore !== false
+        });
         return true;
       }
       if (typeof refreshProducts === "function" && typeof appendProductsPage !== "function") {
         refreshProductsFromStore();
+        setHomeFeedLoadMoreState("success-products");
         return true;
       }
+      setHomeFeedLoadMoreState("success-empty", {
+        hasMore: page?.hasMore !== false
+      });
       return false;
     })
-    .catch(() => false)
+    .catch((error) => {
+      if (isAbortedHomeFeedLoad(error, abortController?.signal)) {
+        setHomeFeedLoadMoreState("idle");
+        return false;
+      }
+      setHomeFeedLoadMoreState("error", {
+        error: String(error?.message || error || "")
+      });
+      captureClientError("home_feed_load_more_failed", error, {
+        category: "pagination",
+        page: loadMoreMetricContext.page,
+        cursor: loadMoreMetricContext.cursor,
+        retryable: isRetryableHomeFeedLoadError(error)
+      });
+      return false;
+    })
     .finally(() => {
-      if (requestId === homeContinuousDiscoveryRuntime.loadMoreRequestId) {
+      if (
+        requestId === homeContinuousDiscoveryRuntime.loadMoreRequestId
+        && homeContinuousDiscoveryRuntime.loadMoreAbortController === abortController
+      ) {
         homeContinuousDiscoveryRuntime.isLoadingMore = false;
         homeContinuousDiscoveryRuntime.backendRefreshPromise = null;
+        homeContinuousDiscoveryRuntime.loadMoreAbortController = null;
       }
     });
   return homeContinuousDiscoveryRuntime.backendRefreshPromise;
@@ -12421,6 +12658,11 @@ let homeContinuousDiscoveryRuntime = {
   backendRefreshPromise: null,
   isLoadingMore: false,
   loadMoreRequestId: 0,
+  loadMoreAbortController: null,
+  loadMoreState: "idle",
+  loadMoreError: "",
+  loadMoreAttempt: 0,
+  loadMoreHasMore: true,
   lastSentinelFetchAt: 0,
   lastSentinelPreloadAt: 0,
   lastSentinelInjectAt: 0
@@ -14717,6 +14959,7 @@ function handleAppLifecycleChange() {
   if (document.hidden) {
     if (currentView === "home") {
       saveHomeScrollState(window.scrollY || 0);
+      cancelHomeFeedLoadMore("document_hidden");
     }
     if (experienceMetricRuntimeState.scrollStopTimer) {
       window.clearTimeout(experienceMetricRuntimeState.scrollStopTimer);
@@ -14754,6 +14997,7 @@ document.addEventListener("visibilitychange", handleAppLifecycleChange);
 window.addEventListener("pagehide", () => {
   if (currentView === "home") {
     saveHomeScrollState(window.scrollY || 0);
+    cancelHomeFeedLoadMore("pagehide");
   }
   if (experienceMetricRuntimeState.scrollStopTimer) {
     window.clearTimeout(experienceMetricRuntimeState.scrollStopTimer);
@@ -17417,6 +17661,7 @@ function getContinuousDiscoveryDescriptor(options = {}) {
 }
 
 function disconnectContinuousDiscoveryObserver() {
+  cancelHomeFeedLoadMore("continuous_discovery_disconnected");
   if (homeContinuousDiscoveryRuntime.observer) {
     homeContinuousDiscoveryRuntime.observer.disconnect();
   }
@@ -17455,6 +17700,13 @@ function disconnectContinuousDiscoveryObserver() {
     virtualList: [],
     lastBackendRefreshAt: 0,
     backendRefreshPromise: null,
+    isLoadingMore: false,
+    loadMoreRequestId: 0,
+    loadMoreAbortController: null,
+    loadMoreState: "idle",
+    loadMoreError: "",
+    loadMoreAttempt: 0,
+    loadMoreHasMore: true,
     lastSentinelFetchAt: 0,
     lastSentinelPreloadAt: 0,
     lastSentinelInjectAt: 0
@@ -18197,6 +18449,13 @@ function setupContinuousDiscoveryLoading(scope, options = {}) {
   homeContinuousDiscoveryRuntime.sentinelTargets = [];
   homeContinuousDiscoveryRuntime.lastBackendRefreshAt = 0;
   homeContinuousDiscoveryRuntime.backendRefreshPromise = null;
+  homeContinuousDiscoveryRuntime.isLoadingMore = false;
+  homeContinuousDiscoveryRuntime.loadMoreRequestId = Number(homeContinuousDiscoveryRuntime.loadMoreRequestId || 0);
+  homeContinuousDiscoveryRuntime.loadMoreAbortController = null;
+  homeContinuousDiscoveryRuntime.loadMoreState = "idle";
+  homeContinuousDiscoveryRuntime.loadMoreError = "";
+  homeContinuousDiscoveryRuntime.loadMoreAttempt = 0;
+  homeContinuousDiscoveryRuntime.loadMoreHasMore = true;
   homeContinuousDiscoveryRuntime.lastSentinelFetchAt = 0;
   homeContinuousDiscoveryRuntime.lastSentinelPreloadAt = 0;
   homeContinuousDiscoveryRuntime.lastSentinelInjectAt = 0;

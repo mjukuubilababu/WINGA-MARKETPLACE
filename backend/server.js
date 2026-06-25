@@ -1456,7 +1456,17 @@ function sanitizeVisibleProduct(product, viewer = null, storeRef = null) {
 function buildVisibleProducts(store, viewer = null) {
   return (store.products || [])
     .map((product) => sanitizeVisibleProduct(product, viewer, store))
-    .filter(Boolean);
+    .filter(Boolean)
+    .sort((first, second) => {
+      const parsedSecondTime = new Date(second?.createdAt || second?.updatedAt || 0).getTime();
+      const parsedFirstTime = new Date(first?.createdAt || first?.updatedAt || 0).getTime();
+      const secondTime = Number.isFinite(parsedSecondTime) ? parsedSecondTime : 0;
+      const firstTime = Number.isFinite(parsedFirstTime) ? parsedFirstTime : 0;
+      if (secondTime !== firstTime) {
+        return secondTime - firstTime;
+      }
+      return String(second?.id || "").localeCompare(String(first?.id || ""));
+    });
 }
 
 function toProductListItem(product) {
