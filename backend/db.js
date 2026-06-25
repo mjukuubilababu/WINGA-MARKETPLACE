@@ -82,8 +82,8 @@ function normalizeProductRow(row) {
   };
 }
 
-function createPostgresStore({ databaseUrl, ssl = false }) {
-  const pool = new Pool({
+function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
+  const pool = queryClient || new Pool({
     connectionString: databaseUrl,
     ssl: ssl ? { rejectUnauthorized: false } : false
   });
@@ -1230,16 +1230,18 @@ function createPostgresStore({ databaseUrl, ssl = false }) {
       viewerUsername: options.viewerUsername,
       isStaffViewer: Boolean(options.isStaffViewer)
     });
-    const whereParts = [...clauses];
+    const countWhereParts = [...clauses];
+    const itemWhereParts = [...clauses];
     const countParams = [...visibilityParams];
     const itemParams = [...visibilityParams];
 
     if (cursor) {
       itemParams.push(cursor.createdAt, cursor.id);
-      whereParts.push(`(created_at, id) < ($${itemParams.length - 1}::timestamptz, $${itemParams.length}::text)`);
+      itemWhereParts.push(`(created_at, id) < ($${itemParams.length - 1}::timestamptz, $${itemParams.length}::text)`);
     }
 
-    const whereSql = whereParts.length ? `WHERE ${whereParts.join(" AND ")}` : "";
+    const itemWhereSql = itemWhereParts.length ? `WHERE ${itemWhereParts.join(" AND ")}` : "";
+    const countWhereSql = countWhereParts.length ? `WHERE ${countWhereParts.join(" AND ")}` : "";
     const itemLimit = limit + 1;
     let itemsSql = `
       SELECT
@@ -1268,7 +1270,7 @@ function createPostgresStore({ databaseUrl, ssl = false }) {
         views,
         viewed_by AS "viewedBy"
       FROM products
-      ${whereSql}
+      ${itemWhereSql}
       ORDER BY created_at DESC, id DESC
       LIMIT $${itemParams.length + 1}
     `;
@@ -1282,7 +1284,7 @@ function createPostgresStore({ databaseUrl, ssl = false }) {
     const countSql = `
       SELECT COUNT(*)::int AS total
       FROM products
-      ${whereSql}
+      ${countWhereSql}
     `;
 
     const [itemsResult, countResult] = await Promise.all([

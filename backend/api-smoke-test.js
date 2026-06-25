@@ -120,22 +120,25 @@ async function main() {
       Authorization: `Bearer ${signup.token}`
     }
   }));
-  const pageTwo = normalizeProductPage(await requestJson(`${API_BASE}/products?limit=12&page=2`, {
-    headers: {
-      Authorization: `Bearer ${signup.token}`
-    }
-  }));
   if (pageOne.items.length !== 12) {
     throw new Error(`Expected 12 products on page 1, got ${pageOne.items.length}`);
-  }
-  if (pageTwo.items.length !== 12) {
-    throw new Error(`Expected 12 products on page 2, got ${pageTwo.items.length}`);
   }
   if (!pageOne.nextCursor || !pageOne.hasMore) {
     throw new Error("Expected page 1 to return nextCursor and hasMore");
   }
+  const pageTwo = normalizeProductPage(await requestJson(
+    `${API_BASE}/products?limit=12&page=2&cursor=${encodeURIComponent(pageOne.nextCursor)}`,
+    {
+      headers: {
+        Authorization: `Bearer ${signup.token}`
+      }
+    }
+  ));
+  if (pageTwo.items.length !== 12) {
+    throw new Error(`Expected 12 products on cursor page 2, got ${pageTwo.items.length}`);
+  }
   if (pageOne.items.some((product) => pageTwo.items.some((item) => item.id === product.id))) {
-    throw new Error("Expected page 1 and page 2 to contain distinct products");
+    throw new Error("Expected page 1 and cursor page 2 to contain distinct products");
   }
   const products = pageOne.items.concat(pageTwo.items);
   const adminLogin = await requestJson(`${API_BASE}/auth/admin-login`, {
