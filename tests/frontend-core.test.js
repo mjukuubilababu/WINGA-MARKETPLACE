@@ -72,6 +72,34 @@ test("home pagination retries safely, cancels stale work, and commits pages tran
   assert.match(backendSource, /return String\(second\?\.id \|\| ""\)\.localeCompare\(String\(first\?\.id \|\| ""\)\);/);
 });
 
+test("product query surfaces share one paginated contract and bounded virtual node retention", () => {
+  const root = path.resolve(__dirname, "..");
+  const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
+  const dataSource = fs.readFileSync(path.join(root, "data-service.js"), "utf8");
+  const profileSource = fs.readFileSync(path.join(root, "src", "profile", "controller.js"), "utf8");
+  const detailSource = fs.readFileSync(path.join(root, "src", "product-detail", "controller.js"), "utf8");
+
+  assert.match(dataSource, /async queryProductsPage\(options = \{\}\)/);
+  assert.match(dataSource, /query\.set\("q", String\(options\.query/);
+  assert.match(dataSource, /query\.set\("category", String\(options\.category/);
+  assert.match(dataSource, /query\.set\("seller", String\(options\.seller/);
+  assert.match(dataSource, /while \(state\.productQueryCache\.size > 24\)/);
+
+  assert.match(appSource, /function scheduleHomeProductQueryHydration\(delayMs = 180\)/);
+  assert.match(appSource, /async function hydrateSellerProductsForProfile\(seller, options = \{\}\)/);
+  assert.match(appSource, /async function hydrateProductDetailContinuationProducts\(product\)/);
+  assert.match(appSource, /append: true[\s\S]*scheduleRenderCurrentView\("product_query_page_appended"\)/);
+  assert.match(profileSource, /deps\.hydrateSellerProducts\(currentUser\)/);
+  assert.match(profileSource, /data-profile-products-load-more/);
+  assert.match(profileSource, /deps\.hydrateSellerProducts\(currentUser, \{ append: true \}\)/);
+  assert.match(detailSource, /deps\.hydrateContinuationProducts\(product\)/);
+
+  assert.match(appSource, /const HOME_INFINITE_MAX_RETAINED_VIRTUAL_NODES = 24;/);
+  assert.match(appSource, /function compactHomeVirtualNodeRecords\(\)/);
+  assert.match(appSource, /record\.node = null;/);
+  assert.match(appSource, /createProductCardElement\(\{\s+\.\.\.product,/);
+});
+
 test("service worker refreshes versioned frontend assets without trapping stale CSS", () => {
   const root = path.resolve(__dirname, "..");
   const serviceWorkerSource = fs.readFileSync(path.join(root, "sw.js"), "utf8");

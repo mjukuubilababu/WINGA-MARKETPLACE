@@ -107,9 +107,16 @@ const HOME_INFINITE_DOM_INJECT_CHUNK_SIZE = 12;
 const HOME_INFINITE_BACKEND_REFRESH_COOLDOWN_MS = 1200;
 const HOME_INFINITE_BACKEND_RUNWAY_MIN_PRODUCTS = 6;
 const HOME_INFINITE_MAX_DOM_CARDS = 60;
+const HOME_INFINITE_MAX_RETAINED_VIRTUAL_NODES = 24;
 const HOME_LOAD_MORE_MAX_ATTEMPTS = 3;
 const HOME_LOAD_MORE_RETRY_BASE_DELAY_MS = 400;
 const PRODUCT_DETAIL_TRANSITION_PRELOAD_RADIUS = 2;
+const productQueryRuntime = {
+  controllers: new Map(),
+  pages: new Map(),
+  searchTimer: 0,
+  generation: 0
+};
 const SLOW_PATH_TELEMETRY_LIMIT = 120;
 const PREDICTIVE_DECODE_TELEMETRY_LIMIT = 160;
 const RUNTIME_METRIC_WINDOW_LIMIT = 24;
@@ -1139,6 +1146,7 @@ function setCurrentViewState(nextView, options = {}) {
   if (currentView === "home" && nextView !== "home") {
     cancelHomeFeedLoadMore("view_changed");
   }
+  cancelStaleProductQuerySurfaces(nextView);
   currentView = nextView;
   if (syncNav) {
     setActiveNav(currentView);
@@ -4115,6 +4123,23 @@ function shouldRefreshHomeBackendRunway() {
 }
 
 function refreshHomeBackendRunwayIfNeeded(options = {}) {
+  const activeQuery = String(searchInput?.value || "").trim();
+  const activeCategory = String(selectedCategory || "all").trim();
+  if (activeQuery.length >= 2 || (activeCategory && activeCategory !== "all")) {
+    return hydrateProductQuerySurface({
+      surface: "home-search-category",
+      query: activeQuery,
+      category: activeCategory,
+      limit: 24,
+      append: true
+    }).then((page) => {
+      if (Number(page?.appendedCount || 0) > 0 && currentView === "home") {
+        scheduleRenderCurrentView("product_query_page_appended");
+        return true;
+      }
+      return false;
+    });
+  }
   if (!shouldRefreshHomeBackendRunway()) {
     return Promise.resolve(false);
   }
@@ -7646,6 +7671,9 @@ function notifyMarketplaceImageVisibility(image, resolvedSrc = "", trigger = "lo
       }
     });
   }
+  if (currentView === "home") {
+    scheduleHomeProductQueryHydration(120);
+  }
 }
 
 function revealBootOverlay() {
@@ -10508,6 +10536,7 @@ const {
     return profileDiv;
   },
   getProducts: () => products,
+  hydrateSellerProducts: hydrateSellerProductsForProfile,
   getProductById,
   getCurrentUser: () => currentUser,
   getCurrentSession: () => currentSession,
@@ -10626,6 +10655,7 @@ const {
   createProductDetailContentElement,
   createDetailShowcaseSectionElement,
   getProducts: () => products,
+  hydrateContinuationProducts: hydrateProductDetailContinuationProducts,
   getProductById,
   getMarketplaceUser,
   getDiscoveryRelatedProducts: (...args) => getDiscoveryRelatedProducts(...args),
@@ -15070,6 +15100,166 @@ function resetHomeBrowseState() {
   closeMobileCategoryMenu();
 }
 
+async function hydrateProductQuerySurface(options = {}) {
+  const queryProductsPage = window.WingaDataLayer?.queryProductsPage;
+  if (typeof queryProductsPage !== "function") {
+    return { items: [], appendedItems: [], appendedCount: 0 };
+  }
+  const surface = String(options.surface || "product-query").trim() || "product-query";
+  const query = String(options.query || "").trim();
+  const category = String(options.category || "").trim();
+  const seller = String(options.seller || "").trim();
+  const queryKey = JSON.stringify({
+    surface,
+    query: query.toLowerCase(),
+    category: category.toLowerCase(),
+    seller: seller.toLowerCase()
+  });
+  const previousPage = productQueryRuntime.pages.get(queryKey);
+  if (options.append === true && previousPage?.hasMore === false) {
+    return {
+      ...previousPage,
+      items: [],
+      appendedItems: [],
+      appendedCount: 0,
+      exhausted: true
+    };
+  }
+  const previousController = productQueryRuntime.controllers.get(surface);
+  previousController?.abort?.();
+  const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+  productQueryRuntime.controllers.set(surface, controller);
+  const generation = ++productQueryRuntime.generation;
+  try {
+    const page = await queryProductsPage.call(window.WingaDataLayer, {
+      query,
+      category,
+      seller,
+      limit: Math.max(1, Math.min(24, Number(options.limit || 24) || 24)),
+      page: options.append === true
+        ? Math.max(1, Number(previousPage?.page || 1) + 1)
+        : 1,
+      cursor: options.append === true ? String(previousPage?.nextCursor || "") : "",
+      signal: controller?.signal
+    });
+    if (
+      controller?.signal?.aborted
+      || productQueryRuntime.controllers.get(surface) !== controller
+    ) {
+      return { items: [], appendedItems: [], appendedCount: 0, stale: true };
+    }
+    const appendedCount = Number(page?.appendedCount || 0);
+    productQueryRuntime.pages.set(queryKey, {
+      page: Number(page?.page || 1) || 1,
+      nextCursor: String(page?.nextCursor || ""),
+      hasMore: page?.hasMore !== false,
+      total: Number(page?.total || 0),
+      limit: Number(page?.limit || options.limit || 24) || 24
+    });
+    while (productQueryRuntime.pages.size > 24) {
+      productQueryRuntime.pages.delete(productQueryRuntime.pages.keys().next().value);
+    }
+    if (appendedCount > 0) {
+      refreshProductsFromStore();
+      reportClientEvent("info", "product_query_surface_hydrated", "Loaded additional products for a paginated product surface.", {
+        category: "pagination",
+        surface,
+        appendedCount,
+        generation
+      });
+    }
+    return page || { items: [], appendedItems: [], appendedCount: 0 };
+  } catch (error) {
+    if (controller?.signal?.aborted || String(error?.code || "").toLowerCase() === "aborted") {
+      return { items: [], appendedItems: [], appendedCount: 0, stale: true };
+    }
+    captureClientError("product_query_surface_failed", error, {
+      category: "pagination",
+      surface
+    });
+    return { items: [], appendedItems: [], appendedCount: 0, error };
+  } finally {
+    if (productQueryRuntime.controllers.get(surface) === controller) {
+      productQueryRuntime.controllers.delete(surface);
+    }
+  }
+}
+
+function cancelStaleProductQuerySurfaces(nextView = "") {
+  const targetView = String(nextView || "").trim();
+  productQueryRuntime.controllers.forEach((controller, surface) => {
+    const isStillRelevant = (targetView === "home" && surface === "home-search-category")
+      || (targetView === "profile" && surface.startsWith("profile-seller:"))
+      || surface.startsWith("detail-");
+    if (!isStillRelevant) {
+      controller?.abort?.();
+      productQueryRuntime.controllers.delete(surface);
+    }
+  });
+}
+
+function scheduleHomeProductQueryHydration(delayMs = 180) {
+  if (productQueryRuntime.searchTimer) {
+    window.clearTimeout(productQueryRuntime.searchTimer);
+  }
+  const expectedQuery = String(searchInput?.value || "").trim();
+  const expectedCategory = String(selectedCategory || "all").trim();
+  if (expectedQuery.length < 2 && (!expectedCategory || expectedCategory === "all")) {
+    return;
+  }
+  productQueryRuntime.searchTimer = window.setTimeout(async () => {
+    productQueryRuntime.searchTimer = 0;
+    const page = await hydrateProductQuerySurface({
+      surface: "home-search-category",
+      query: expectedQuery,
+      category: expectedCategory,
+      limit: 24
+    });
+    if (
+      Number(page?.appendedCount || 0) > 0
+      && currentView === "home"
+      && String(searchInput?.value || "").trim() === expectedQuery
+      && String(selectedCategory || "all").trim() === expectedCategory
+    ) {
+      scheduleRenderCurrentView("product_query_hydrated");
+    }
+  }, Math.max(0, Number(delayMs || 0)));
+}
+
+async function hydrateSellerProductsForProfile(seller, options = {}) {
+  return hydrateProductQuerySurface({
+    surface: `profile-seller:${String(seller || "").trim()}`,
+    seller,
+    limit: 24,
+    append: options.append === true
+  });
+}
+
+async function hydrateProductDetailContinuationProducts(product) {
+  if (!product?.id) {
+    return { appendedCount: 0 };
+  }
+  const [sellerPage, categoryPage] = await Promise.all([
+    product.uploadedBy
+      ? hydrateProductQuerySurface({
+          surface: `detail-seller:${product.id}`,
+          seller: product.uploadedBy,
+          limit: 12
+        })
+      : Promise.resolve({ appendedCount: 0 }),
+    product.category
+      ? hydrateProductQuerySurface({
+          surface: `detail-category:${product.id}`,
+          category: product.category,
+          limit: 12
+        })
+      : Promise.resolve({ appendedCount: 0 })
+  ]);
+  return {
+    appendedCount: Number(sellerPage?.appendedCount || 0) + Number(categoryPage?.appendedCount || 0)
+  };
+}
+
 function bindSearchInputHandlers(node) {
   if (!node || node.dataset.searchHandlersBound === "true") {
     return;
@@ -15092,6 +15282,7 @@ function bindSearchInputHandlers(node) {
     syncSearchChromeState();
     noteSearchInterest(node.value);
     scheduleSearchDrivenRender(120);
+    scheduleHomeProductQueryHydration(220);
   });
 
   node.addEventListener("focus", () => {
@@ -18370,11 +18561,40 @@ function ensureHomeInfiniteVirtualObserver() {
       }
       const [record] = homeContinuousDiscoveryRuntime.virtualList.splice(index, 1);
       homeContinuousDiscoveryRuntime.virtualObserver?.unobserve(spacer);
-      spacer.replaceWith(record.node);
-      bindMarketplaceScrollImages(record.node);
-      bindFeedGalleryInteractions(record.node);
-      bindProductEngagementSignals(record.node);
-      bindProductMenus(record.node);
+      let restoredNode = record.node;
+      if (!(restoredNode instanceof Element)) {
+        const product = getProductById(record.productId);
+        if (product) {
+          restoredNode = createProductCardElement({
+            ...product,
+            feedEntryType: record.feedEntryType,
+            feedEntryKey: record.feedEntryKey,
+            feedSequenceIndex: record.feedSequenceIndex,
+            variantDisplayIndex: record.variantDisplayIndex,
+            feedInitialImageIndex: record.variantDisplayIndex,
+            visibleImageIndex: record.variantDisplayIndex,
+            feedVariantResurface: record.feedEntryType === "variant"
+          });
+          if (restoredNode && record.streamKey) {
+            restoredNode.setAttribute("data-continuous-discovery-stream", record.streamKey);
+          }
+          if (restoredNode && record.streamKind) {
+            restoredNode.setAttribute("data-continuous-discovery-kind", record.streamKind);
+          }
+          if (restoredNode && record.streamIndex) {
+            restoredNode.setAttribute("data-continuous-stream-index", record.streamIndex);
+          }
+        }
+      }
+      if (!(restoredNode instanceof Element)) {
+        homeContinuousDiscoveryRuntime.virtualObserver?.observe(spacer);
+        return;
+      }
+      spacer.replaceWith(restoredNode);
+      bindMarketplaceScrollImages(restoredNode);
+      bindFeedGalleryInteractions(restoredNode);
+      bindProductEngagementSignals(restoredNode);
+      bindProductMenus(restoredNode);
       refreshHomeInfiniteScrollSentinels(productsContainer);
     });
   }, {
@@ -18382,6 +18602,28 @@ function ensureHomeInfiniteVirtualObserver() {
     threshold: 0.01
   });
   return homeContinuousDiscoveryRuntime.virtualObserver;
+}
+
+function compactHomeVirtualNodeRecords() {
+  const records = Array.isArray(homeContinuousDiscoveryRuntime.virtualList)
+    ? homeContinuousDiscoveryRuntime.virtualList
+    : [];
+  const retainedNodes = records.filter((record) => record?.node instanceof Element);
+  const excessCount = retainedNodes.length - HOME_INFINITE_MAX_RETAINED_VIRTUAL_NODES;
+  if (excessCount <= 0) {
+    return;
+  }
+  retainedNodes.slice(0, excessCount).forEach((record) => {
+    releasePrunedSectionMedia(record.node);
+    record.node.remove?.();
+    record.node = null;
+    record.compactedAt = Date.now();
+  });
+  reportShowcaseInstrumentation("home_virtual_nodes_compacted", {
+    compactedCount: excessCount,
+    retainedNodeCount: HOME_INFINITE_MAX_RETAINED_VIRTUAL_NODES,
+    lightweightRecordCount: records.length
+  });
 }
 
 function maintainHomeInfiniteDomBudget() {
@@ -18415,11 +18657,20 @@ function maintainHomeInfiniteDomBudget() {
     homeContinuousDiscoveryRuntime.virtualList.push({
       id: virtualId,
       node: card,
+      productId: String(card.dataset.openProduct || card.dataset.productCard || "").trim(),
+      feedEntryKey: String(card.dataset.feedEntryKey || "").trim(),
+      feedEntryType: String(card.dataset.feedEntryType || "product").trim(),
+      feedSequenceIndex: Number(card.dataset.feedSequenceIndex || 0) || 0,
+      variantDisplayIndex: Number(card.dataset.variantDisplayIndex || card.dataset.openImageIndex || 0) || 0,
+      streamKey: String(card.getAttribute("data-continuous-discovery-stream") || "").trim(),
+      streamKind: String(card.getAttribute("data-continuous-discovery-kind") || "").trim(),
+      streamIndex: String(card.getAttribute("data-continuous-stream-index") || "").trim(),
       createdAt: Date.now()
     });
     card.replaceWith(spacer);
     virtualObserver?.observe(spacer);
   });
+  compactHomeVirtualNodeRecords();
 }
 
 function setupContinuousDiscoveryLoading(scope, options = {}) {

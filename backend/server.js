@@ -4614,6 +4614,9 @@ http.createServer(async (req, res) => {
       const requestedLimit = Number.parseInt(url.searchParams.get("limit"), 10);
       const requestedPage = Number.parseInt(url.searchParams.get("page"), 10);
       const requestedCursor = String(url.searchParams.get("cursor") || "").trim();
+      const requestedQuery = String(url.searchParams.get("q") || "").trim().slice(0, 120);
+      const requestedCategory = String(url.searchParams.get("category") || "").trim().slice(0, 80);
+      const requestedSeller = String(url.searchParams.get("seller") || "").trim().slice(0, 80);
       const pageLimit = Number.isFinite(requestedLimit) && requestedLimit > 0
         ? Math.min(Math.floor(requestedLimit), MAX_API_PRODUCT_LIMIT)
         : 12;
@@ -4631,6 +4634,9 @@ http.createServer(async (req, res) => {
           limit: pageLimit,
           page: safePage,
           cursor: requestedCursor,
+          query: requestedQuery,
+          category: requestedCategory,
+          seller: requestedSeller,
           maxLimit: MAX_API_PRODUCT_LIMIT,
           viewerUsername: viewer?.username || "",
           isStaffViewer
@@ -4661,7 +4667,31 @@ http.createServer(async (req, res) => {
         return;
       }
 
-      const visibleProducts = buildVisibleProducts(store, viewer);
+      const visibleProducts = buildVisibleProducts(store, viewer).filter((product) => {
+        if (requestedSeller && String(product?.uploadedBy || "") !== requestedSeller) {
+          return false;
+        }
+        if (
+          requestedCategory
+          && requestedCategory !== "all"
+          && String(product?.category || "") !== requestedCategory
+          && !String(product?.category || "").startsWith(`${requestedCategory}-`)
+        ) {
+          return false;
+        }
+        if (requestedQuery) {
+          const haystack = [
+            product?.name,
+            product?.shop,
+            product?.uploadedBy,
+            product?.category
+          ].map((value) => String(value || "").toLowerCase()).join(" ");
+          if (!haystack.includes(requestedQuery.toLowerCase())) {
+            return false;
+          }
+        }
+        return true;
+      });
       const fallbackCursorIndex = requestedCursor
         ? visibleProducts.findIndex((product) => `${product.createdAt || ""}|${product.id || ""}` === requestedCursor)
         : -1;

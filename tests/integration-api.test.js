@@ -591,6 +591,15 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
     true
   );
 
+  const filteredSellerProducts = await request("/products?limit=12&page=1&seller=seller_one&q=simu&category=vitu-used", {
+    headers: { Authorization: `Bearer ${sellerToken}` }
+  });
+  assert.equal(filteredSellerProducts.response.status, 200);
+  assert.deepEqual(
+    getProductResponseItems(filteredSellerProducts.body).map((item) => item.id),
+    ["product-test-used-001"]
+  );
+
   const publicProductsBeforeApproval = await request("/products");
   assert.equal(publicProductsBeforeApproval.response.status, 200);
   assert.equal(getProductResponseItems(publicProductsBeforeApproval.body).some((item) => item.id === "product-test-001" && item.status === "approved"), true);

@@ -1230,10 +1230,34 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
       viewerUsername: options.viewerUsername,
       isStaffViewer: Boolean(options.isStaffViewer)
     });
-    const countWhereParts = [...clauses];
-    const itemWhereParts = [...clauses];
-    const countParams = [...visibilityParams];
-    const itemParams = [...visibilityParams];
+    const filterParts = [...clauses];
+    const filterParams = [...visibilityParams];
+    const searchQuery = String(options.query || "").trim().slice(0, 120);
+    const category = String(options.category || "").trim().slice(0, 80);
+    const seller = String(options.seller || "").trim().slice(0, 80);
+
+    if (searchQuery) {
+      filterParams.push(`%${searchQuery}%`);
+      filterParts.push(`(
+        name ILIKE $${filterParams.length}
+        OR shop ILIKE $${filterParams.length}
+        OR uploaded_by ILIKE $${filterParams.length}
+        OR category ILIKE $${filterParams.length}
+      )`);
+    }
+    if (category && category !== "all") {
+      filterParams.push(category, `${category}-%`);
+      filterParts.push(`(category = $${filterParams.length - 1} OR category LIKE $${filterParams.length})`);
+    }
+    if (seller) {
+      filterParams.push(seller);
+      filterParts.push(`uploaded_by = $${filterParams.length}`);
+    }
+
+    const countWhereParts = [...filterParts];
+    const itemWhereParts = [...filterParts];
+    const countParams = [...filterParams];
+    const itemParams = [...filterParams];
 
     if (cursor) {
       itemParams.push(cursor.createdAt, cursor.id);

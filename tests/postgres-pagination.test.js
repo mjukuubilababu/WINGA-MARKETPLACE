@@ -120,3 +120,52 @@ test("anonymous cursor pagination binds only item query cursor parameters", asyn
   assert.equal(page.hasMore, false);
   assert.equal(page.nextCursor, "");
 });
+
+test("product query filters share stable count predicates without cursor leakage", async () => {
+  const calls = [];
+  const queryClient = {
+    async query(text, params) {
+      calls.push({ text, params });
+      return text.includes("COUNT(*)")
+        ? { rows: [{ total: 4 }] }
+        : { rows: [] };
+    }
+  };
+  const store = createPostgresStore({
+    databaseUrl: "postgres://test.invalid/winga",
+    queryClient
+  });
+
+  await store.readProductsPage({
+    limit: 12,
+    cursor: "2026-06-24T12:00:00.000Z|product-cursor",
+    query: "simu",
+    category: "electronics",
+    seller: "seller-one"
+  });
+
+  const itemsCall = calls.find((call) => call.text.includes("ORDER BY created_at DESC, id DESC"));
+  const countCall = calls.find((call) => call.text.includes("COUNT(*)"));
+
+  assert.match(itemsCall.text, /name ILIKE \$1/);
+  assert.match(itemsCall.text, /category = \$2 OR category LIKE \$3/);
+  assert.match(itemsCall.text, /uploaded_by = \$4/);
+  assert.match(itemsCall.text, /\(created_at, id\) < \(\$5::timestamptz, \$6::text\)/);
+  assert.match(itemsCall.text, /LIMIT \$7/);
+  assert.deepEqual(itemsCall.params, [
+    "%simu%",
+    "electronics",
+    "electronics-%",
+    "seller-one",
+    "2026-06-24T12:00:00.000Z",
+    "product-cursor",
+    13
+  ]);
+  assert.doesNotMatch(countCall.text, /\(created_at, id\) </);
+  assert.deepEqual(countCall.params, [
+    "%simu%",
+    "electronics",
+    "electronics-%",
+    "seller-one"
+  ]);
+});

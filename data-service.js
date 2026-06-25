@@ -1003,6 +1003,35 @@
     return merged;
   }
 
+  function filterProductsForQuery(products = [], options = {}) {
+    const query = String(options.query || "").trim().toLowerCase();
+    const category = String(options.category || "").trim().toLowerCase();
+    const seller = String(options.seller || "").trim().toLowerCase();
+    return (Array.isArray(products) ? products : []).filter((product) => {
+      const productCategory = String(product?.category || "").trim().toLowerCase();
+      if (seller && String(product?.uploadedBy || "").trim().toLowerCase() !== seller) {
+        return false;
+      }
+      if (
+        category
+        && category !== "all"
+        && productCategory !== category
+        && !productCategory.startsWith(`${category}-`)
+      ) {
+        return false;
+      }
+      if (!query) {
+        return true;
+      }
+      return [
+        product?.name,
+        product?.shop,
+        product?.uploadedBy,
+        product?.category
+      ].map((value) => String(value || "").toLowerCase()).join(" ").includes(query);
+    });
+  }
+
   function createLocalAdapter() {
     return {
       async loadUsers() {
@@ -2261,6 +2290,15 @@
         query.set("page", String(pageWindow.page));
         if (pageWindow.cursor) {
           query.set("cursor", pageWindow.cursor);
+        }
+        if (String(options.query || "").trim()) {
+          query.set("q", String(options.query || "").trim());
+        }
+        if (String(options.category || "").trim() && String(options.category || "").trim() !== "all") {
+          query.set("category", String(options.category || "").trim());
+        }
+        if (String(options.seller || "").trim()) {
+          query.set("seller", String(options.seller || "").trim());
         }
         const data = await fetchJson(`${baseUrl}/products?${query.toString()}`, {
           headers: {
@@ -3644,6 +3682,7 @@
       total: 0,
       loadedCount: 0
     },
+    productQueryCache: new Map(),
     categories: [],
     appSettings: normalizeAppSettings(DEFAULT_APP_SETTINGS),
     initialized: false,
@@ -4070,6 +4109,89 @@
         };
       }
       return page;
+    },
+    async queryProductsPage(options = {}) {
+      ensureAdapter();
+      const query = String(options.query || "").trim().slice(0, 120);
+      const category = String(options.category || "").trim().slice(0, 80);
+      const seller = String(options.seller || "").trim().slice(0, 80);
+      const pageWindow = normalizeProductPageWindow(options);
+      const cacheKey = JSON.stringify({
+        query: query.toLowerCase(),
+        category: category.toLowerCase(),
+        seller: seller.toLowerCase(),
+        page: pageWindow.page,
+        cursor: pageWindow.cursor,
+        limit: pageWindow.limit
+      });
+      const now = Date.now();
+      const cached = state.productQueryCache.get(cacheKey);
+      if (!options.force && cached && now - Number(cached.cachedAt || 0) < 30000) {
+        return {
+          ...clone(cached.page),
+          appendedItems: [],
+          appendedCount: 0,
+          cached: true
+        };
+      }
+      const page = typeof state.adapter.loadProductsPage === "function"
+        ? await state.adapter.loadProductsPage({
+            ...options,
+            query,
+            category,
+            seller,
+            limit: pageWindow.limit,
+            page: pageWindow.page,
+            cursor: pageWindow.cursor
+          })
+        : normalizeProductPageResponse(await state.adapter.loadProducts(), {
+            ...pageWindow,
+            query,
+            category,
+            seller
+          }, (product) => product);
+      const incomingProducts = filterProductsForQuery(
+        Array.isArray(page?.items) ? sortProductsNewestFirst(page.items) : [],
+        { query, category, seller }
+      );
+      const beforeIds = new Set(
+        (Array.isArray(state.products) ? state.products : [])
+          .map((product) => String(product?.id || product?.productId || product?.slug || "").trim())
+          .filter(Boolean)
+      );
+      const appendedItems = incomingProducts.filter((product) => {
+        const productId = String(product?.id || product?.productId || product?.slug || "").trim();
+        return !productId || !beforeIds.has(productId);
+      });
+      if (incomingProducts.length) {
+        state.products = sortProductsNewestFirst(mergeUniqueProducts(state.products, incomingProducts));
+      }
+      const result = {
+        ...page,
+        items: incomingProducts,
+        appendedItems,
+        appendedCount: appendedItems.length
+      };
+      state.productQueryCache.set(cacheKey, {
+        cachedAt: now,
+        page: clone(result)
+      });
+      while (state.productQueryCache.size > 24) {
+        state.productQueryCache.delete(state.productQueryCache.keys().next().value);
+      }
+      if (typeof window !== "undefined" && typeof window.dispatchEvent === "function" && typeof window.CustomEvent === "function") {
+        window.dispatchEvent(new window.CustomEvent("winga:products-hydrated", {
+          detail: {
+            status: "query-appended",
+            count: state.products.length,
+            appendedCount: appendedItems.length,
+            query,
+            category,
+            seller
+          }
+        }));
+      }
+      return clone(result);
     },
     async appendProductsPage(options = {}) {
       ensureAdapter();

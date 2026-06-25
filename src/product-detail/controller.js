@@ -801,6 +801,23 @@
       modal.style.display = "grid";
       document.body.classList.add("product-detail-open");
       deps.syncBodyScrollLockState?.();
+      if (typeof deps.hydrateContinuationProducts === "function") {
+        deps.hydrateContinuationProducts(product)
+          .then((result) => {
+            if (
+              Number(result?.appendedCount || 0) > 0
+              && detailNavState.activeProductId === product.id
+              && document.body.classList.contains("product-detail-open")
+            ) {
+              refreshActiveProductDetail();
+            }
+          })
+          .catch((error) => {
+            deps.captureError?.("product_detail_pagination_failed", error, {
+              productId: product.id
+            });
+          });
+      }
       if (document.activeElement instanceof HTMLElement) {
         document.activeElement.blur();
       }

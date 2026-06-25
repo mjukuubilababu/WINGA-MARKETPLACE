@@ -1,6 +1,7 @@
 (() => {
   function createProfileControllerModule(deps) {
     let renderSequence = 0;
+    const sellerProductPagination = new Map();
 
     function isRenderActive(sequence) {
       if (sequence !== renderSequence) {
@@ -560,6 +561,32 @@
       const canUpgradeToSeller = userProfile?.role === "buyer";
       const activeSection = deps.getActiveProfileSection?.() || "profile-products-panel";
 
+      if (currentUser && typeof deps.hydrateSellerProducts === "function") {
+        deps.hydrateSellerProducts(currentUser)
+          .then((page) => {
+            const previousPage = sellerProductPagination.get(currentUser);
+            const nextPage = {
+              page: Number(page?.page || 1) || 1,
+              nextCursor: String(page?.nextCursor || ""),
+              hasMore: page?.hasMore !== false,
+              total: Number(page?.total || 0)
+            };
+            sellerProductPagination.set(currentUser, nextPage);
+            const paginationChanged = JSON.stringify(previousPage || null) !== JSON.stringify(nextPage);
+            if (
+              (Number(page?.appendedCount || 0) > 0 || paginationChanged)
+              && isRenderActive(sequence)
+            ) {
+              renderProfile();
+            }
+          })
+          .catch((error) => {
+            deps.captureError?.("profile_products_pagination_failed", error, {
+              user: currentUser
+            });
+          });
+      }
+
       if (deps.canUseSellerFeatures()) {
         deps.dataLayer.loadAnalytics()
           .then((analytics) => {
@@ -842,6 +869,40 @@
         renderedTileCount += 1;
       });
       container.appendChild(productCards);
+      const sellerPage = sellerProductPagination.get(currentUser);
+      if (sellerPage?.hasMore && typeof deps.hydrateSellerProducts === "function") {
+        const loadMoreButton = deps.createElement("button", {
+          className: "action-btn profile-products-load-more",
+          textContent: "Pakia bidhaa zaidi",
+          attributes: {
+            type: "button",
+            "data-profile-products-load-more": "true"
+          }
+        });
+        loadMoreButton.addEventListener("click", async () => {
+          loadMoreButton.disabled = true;
+          loadMoreButton.textContent = "Inapakia...";
+          try {
+            const page = await deps.hydrateSellerProducts(currentUser, { append: true });
+            sellerProductPagination.set(currentUser, {
+              page: Number(page?.page || sellerPage.page || 1) || 1,
+              nextCursor: String(page?.nextCursor || ""),
+              hasMore: page?.hasMore !== false,
+              total: Number(page?.total || sellerPage.total || 0)
+            });
+            if (isRenderActive(sequence)) {
+              renderProfile();
+            }
+          } catch (error) {
+            deps.captureError?.("profile_products_load_more_failed", error, {
+              user: currentUser
+            });
+            loadMoreButton.disabled = false;
+            loadMoreButton.textContent = "Jaribu tena";
+          }
+        });
+        container.appendChild(loadMoreButton);
+      }
 
       container.querySelectorAll(".edit-btn").forEach((button) => {
         button.addEventListener("click", () => deps.startEditProduct(button.dataset.id));
