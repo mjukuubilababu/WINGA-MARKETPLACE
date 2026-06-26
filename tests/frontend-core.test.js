@@ -57,6 +57,7 @@ test("home feed reserves stable media and deferred section geometry", () => {
 test("marketplace gallery module preserves feed carousel markup contract", () => {
   const root = path.resolve(__dirname, "..");
   const source = fs.readFileSync(path.join(root, "src", "marketplace", "gallery.js"), "utf8");
+  const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
   const context = vm.createContext({
     window: { WingaModules: { marketplace: {} } }
   });
@@ -95,6 +96,10 @@ test("marketplace gallery module preserves feed carousel markup contract", () =>
   assert.match(html, /data-fit-mode="contain"/);
   assert.match(html, /data-direct-visibility="true"/);
   assert.match(html, /fetchpriority="high"/);
+  assert.match(source, /function bindFeedGalleryInteractions\(scope = document\)/);
+  assert.match(source, /track\.addEventListener\("pointerdown"/);
+  assert.match(source, /noteProductEngagementSignal\(productId, "variation_swipe", variationSwipeWeight\)/);
+  assert.match(appSource, /function bindFeedGalleryInteractions\(scope = document\) \{\s+getMarketplaceGalleryTools\(\)\.bindFeedGalleryInteractions\?\.\(scope\);\s+\}/);
 });
 
 test("home pagination retries safely, cancels stale work, and commits pages transactionally", () => {
