@@ -11779,6 +11779,7 @@ const experienceMetricRuntimeState = uiRuntimeState.experienceMetrics || (uiRunt
   slowestMetricName: "",
   slowestMetricDurationMs: 0
 });
+let performanceMonitoringTools = null;
 
 function bumpRuntimeDiagnostic(metric, amount = 1) {
   const safeMetric = String(metric || "").trim();
@@ -11828,53 +11829,33 @@ function summarizeRuntimeMetricWindow(metric) {
   };
 }
 
+function getPerformanceMonitoringTools() {
+  if (!performanceMonitoringTools) {
+    const factory = window.WingaModules?.monitoring?.createPerformanceModule;
+    performanceMonitoringTools = typeof factory === "function"
+      ? factory({
+        getNow: getPerfNow,
+        isProductionRuntime: isProductionClientRuntime
+      })
+      : {};
+  }
+  return performanceMonitoringTools;
+}
+
 function isExperienceMetricDebugEnabled() {
-  const queryDebugEnabled = /(?:[?&](?:winga_debug_perf|debugPerf)=1)(?:&|$)/i.test(String(window.location?.search || ""));
-  if (isProductionClientRuntime()) {
-    return queryDebugEnabled;
-  }
-  try {
-    if (window.localStorage?.getItem("winga_debug_perf") === "true") {
-      return true;
-    }
-  } catch (_error) {
-    // Ignore debug storage access failures.
-  }
-  return queryDebugEnabled;
+  return Boolean(getPerformanceMonitoringTools().isExperienceMetricDebugEnabled?.());
 }
 
 function getPerformanceNowSafe() {
-  return getPerfNow();
+  return Number(getPerformanceMonitoringTools().getPerformanceNowSafe?.() || getPerfNow());
 }
 
 function safePerformanceMark(name = "") {
-  const safeName = String(name || "").trim();
-  if (!safeName || typeof performance?.mark !== "function") {
-    return;
-  }
-  try {
-    performance.mark(safeName);
-  } catch (_error) {
-    // Ignore mark collisions or unsupported browsers.
-  }
+  getPerformanceMonitoringTools().safePerformanceMark?.(name);
 }
 
 function safePerformanceMeasure(name = "", startMark = "", endMark = "") {
-  const safeName = String(name || "").trim();
-  const safeStart = String(startMark || "").trim();
-  const safeEnd = String(endMark || "").trim();
-  if (!safeName || !safeStart || !safeEnd || typeof performance?.measure !== "function") {
-    return null;
-  }
-  try {
-    performance.measure(safeName, safeStart, safeEnd);
-    const entries = typeof performance.getEntriesByName === "function"
-      ? performance.getEntriesByName(safeName)
-      : [];
-    return entries.length ? Number(entries[entries.length - 1]?.duration || 0) : null;
-  } catch (_error) {
-    return null;
-  }
+  return getPerformanceMonitoringTools().safePerformanceMeasure?.(name, startMark, endMark) ?? null;
 }
 
 function getClientNetworkSnapshot() {
@@ -11889,16 +11870,7 @@ function getClientNetworkSnapshot() {
 }
 
 function createExperienceFingerprint(value = "") {
-  const source = String(value || "").trim();
-  if (!source) {
-    return "";
-  }
-  let hash = 0;
-  for (let index = 0; index < source.length; index += 1) {
-    hash = ((hash << 5) - hash) + source.charCodeAt(index);
-    hash |= 0;
-  }
-  return Math.abs(hash).toString(36).slice(0, 8);
+  return String(getPerformanceMonitoringTools().createExperienceFingerprint?.(value) || "");
 }
 
 function getVisibleMarketplaceCards(limit = 12) {

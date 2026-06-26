@@ -117,6 +117,8 @@ test("production telemetry stays silent in the browser console while transport r
   const root = path.resolve(__dirname, "..");
   const source = fs.readFileSync(path.join(root, "src", "monitoring", "observability.js"), "utf8");
   const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
+  const buildSource = fs.readFileSync(path.join(root, "scripts", "build-vercel-static.js"), "utf8");
+  const performanceSource = fs.readFileSync(path.join(root, "src", "monitoring", "performance.js"), "utf8");
   const marketplaceSource = fs.readFileSync(path.join(root, "src", "marketplace", "ui.js"), "utf8");
   const detailSource = fs.readFileSync(path.join(root, "src", "product-detail", "controller.js"), "utf8");
   const logged = [];
@@ -158,7 +160,10 @@ test("production telemetry stays silent in the browser console while transport r
     "scrollStopToImageVisibleMs",
     "app_boot_completed"
   ]);
-  assert.match(appSource, /if \(isProductionClientRuntime\(\)\) \{\s+return queryDebugEnabled;/);
+  assert.match(buildSource, /"src\/monitoring\/performance\.js"/);
+  assert.match(performanceSource, /window\.WingaModules\.monitoring\.createPerformanceModule = createPerformanceModule;/);
+  assert.match(performanceSource, /if \(isProductionRuntime\(\)\) \{\s+return queryDebugEnabled;/);
+  assert.match(appSource, /window\.WingaModules\?\.monitoring\?\.createPerformanceModule/);
   assert.match(appSource, /if \(isExperienceMetricDebugEnabled\(\)\) \{\s+safePerformanceMark\("winga_render_start"\);/);
   assert.match(marketplaceSource, /feedVariantResurface && deps\.isPerformanceDebugEnabled\?\.\(\)/);
   assert.match(detailSource, /initialImageIndex \|\| 0\) > 0 && deps\.isPerformanceDebugEnabled\?\.\(\)/);
