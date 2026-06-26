@@ -12653,6 +12653,7 @@ let pinnedDesktopCategory = "";
 let buyerSellerAffinity = {};
 let productEngagementObserver = null;
 const productCardEngagementState = new WeakMap();
+let marketplaceContinuationTools = null;
 let marketplaceVariantTools = null;
 let recentCategorySelections = [];
 let recentSearchTerms = [];
@@ -20932,6 +20933,31 @@ function shouldKeepMarketplaceScrollImageDirectVisible(image) {
   return surface === "feed";
 }
 
+function getMarketplaceContinuationTools() {
+  if (!marketplaceContinuationTools) {
+    const factory = window.WingaModules?.marketplace?.createContinuationHelpers;
+    marketplaceContinuationTools = typeof factory === "function"
+      ? factory({
+        now: () => Date.now(),
+        hasHealthyMarketplaceCardMedia,
+        config: {
+          pendingHardTimeoutMs: CONTINUATION_MEDIA_PENDING_HARD_TIMEOUT_MS,
+          pressureBoundedWaitMs: HOME_CONTINUOUS_PRESSURE_BOUNDED_WAIT_MS,
+          hardPressurePendingMedia: HOME_CONTINUOUS_HARD_PRESSURE_PENDING_MEDIA,
+          prefetchQueuePressureThreshold: MARKETPLACE_PREFETCH_QUEUE_PRESSURE_THRESHOLD,
+          scrollPrefetchConcurrency: MARKETPLACE_SCROLL_PREFETCH_CONCURRENCY,
+          feedScrollSpeedPrefetchThreshold: FEED_SCROLL_SPEED_PREFETCH_THRESHOLD,
+          continuousPendingMediaLookback: HOME_CONTINUOUS_PENDING_MEDIA_LOOKBACK,
+          continuousMaxPendingMediaCards: HOME_CONTINUOUS_MAX_PENDING_MEDIA_CARDS,
+          batchAdmissionSlowScrollWaitMs: HOME_CONTINUOUS_BATCH_ADMISSION_SLOW_SCROLL_WAIT_MS,
+          batchAdmissionMaxWaitMs: HOME_CONTINUOUS_BATCH_ADMISSION_MAX_WAIT_MS
+        }
+      })
+      : {};
+  }
+  return marketplaceContinuationTools;
+}
+
 function keepMarketplaceScrollImageDirectVisible(image, resolvedSrc = "") {
   if (!(image instanceof HTMLImageElement)) {
     return;
@@ -20987,17 +21013,7 @@ function setMarketplaceCardMediaPending(card, isPending) {
 }
 
 function isContinuationMediaPendingStale(card, maxAgeMs = CONTINUATION_MEDIA_PENDING_HARD_TIMEOUT_MS) {
-  if (!(card instanceof Element) || card.getAttribute("data-continuation-media-pending") !== "true") {
-    return false;
-  }
-  if (hasHealthyMarketplaceCardMedia(card)) {
-    return true;
-  }
-  const pendingSince = Number(card.dataset.continuationMediaPendingSince || 0);
-  if (!Number.isFinite(pendingSince) || pendingSince <= 0) {
-    return true;
-  }
-  return Date.now() - pendingSince >= Math.max(80, Number(maxAgeMs || CONTINUATION_MEDIA_PENDING_HARD_TIMEOUT_MS));
+  return Boolean(getMarketplaceContinuationTools().isContinuationMediaPendingStale?.(card, maxAgeMs));
 }
 
 function releaseStaleContinuationMediaPending(scope = document, maxAgeMs = CONTINUATION_MEDIA_PENDING_HARD_TIMEOUT_MS) {
@@ -21108,19 +21124,11 @@ function startContinuationBatchMediaRequests(nodes = [], options = {}) {
 }
 
 function getAdaptiveContinuationLeadCardCount() {
-  const scrollSpeed = Number(feedRuntimeState.lastScrollSpeed || 0);
-  if (scrollSpeed <= 0.18) {
-    return 3;
-  }
-  return 2;
+  return Number(getMarketplaceContinuationTools().getAdaptiveContinuationLeadCardCount?.(feedRuntimeState.lastScrollSpeed) ?? 2);
 }
 
 function getAdaptiveContinuationAdmissionWindowMs() {
-  const scrollSpeed = Number(feedRuntimeState.lastScrollSpeed || 0);
-  if (scrollSpeed <= 0.18) {
-    return HOME_CONTINUOUS_BATCH_ADMISSION_SLOW_SCROLL_WAIT_MS;
-  }
-  return HOME_CONTINUOUS_BATCH_ADMISSION_MAX_WAIT_MS;
+  return Number(getMarketplaceContinuationTools().getAdaptiveContinuationAdmissionWindowMs?.(feedRuntimeState.lastScrollSpeed) ?? HOME_CONTINUOUS_BATCH_ADMISSION_MAX_WAIT_MS);
 }
 
 function haveContinuationLeadMediaRequestsStarted(nodes = [], options = {}) {
@@ -21217,51 +21225,42 @@ function getHomeContinuationPressureSnapshot(anchor, scope = productsContainer |
   const prefetchQueueSize = Number(marketplaceScrollPrefetchQueue?.length || 0);
   const inflightPrefetchCount = Number(marketplaceScrollPrefetchInflight?.size || 0);
   const adaptiveCap = getAdaptiveContinuousPendingMediaCap();
-  return {
+  return getMarketplaceContinuationTools().getHomeContinuationPressureSnapshot?.({
+    pendingCount,
+    currentPendingCount,
+    prefetchQueueSize,
+    inflightPrefetchCount,
+    adaptiveCap
+  }) || {
     pendingCount,
     currentPendingCount,
     prefetchQueueSize,
     inflightPrefetchCount,
     adaptiveCap,
-    blockedByPendingWindow: pendingCount >= adaptiveCap,
-    blockedByFeedPressure: currentPendingCount >= HOME_CONTINUOUS_HARD_PRESSURE_PENDING_MEDIA
-      || prefetchQueueSize >= MARKETPLACE_PREFETCH_QUEUE_PRESSURE_THRESHOLD
-      || inflightPrefetchCount >= MARKETPLACE_SCROLL_PREFETCH_CONCURRENCY
+    blockedByPendingWindow: false,
+    blockedByFeedPressure: false
   };
 }
 
 function shouldDeferHomeContinuousHydration(anchor, scope = productsContainer || document) {
   const snapshot = getHomeContinuationPressureSnapshot(anchor, scope);
-  const blocked = snapshot.blockedByPendingWindow || snapshot.blockedByFeedPressure;
-  if (!blocked) {
-    homeContinuousDiscoveryRuntime.pressureFirstBlockedAt = 0;
-    return {
-      defer: false,
-      reason: "allowed",
-      snapshot
-    };
-  }
-  const now = Date.now();
-  const firstBlockedAt = Number(homeContinuousDiscoveryRuntime.pressureFirstBlockedAt || 0) || now;
-  homeContinuousDiscoveryRuntime.pressureFirstBlockedAt = firstBlockedAt;
-  const waitedMs = now - firstBlockedAt;
-  if (waitedMs >= HOME_CONTINUOUS_PRESSURE_BOUNDED_WAIT_MS) {
-    releaseStaleContinuationMediaPending(scope, Math.min(CONTINUATION_MEDIA_PENDING_HARD_TIMEOUT_MS, HOME_CONTINUOUS_PRESSURE_BOUNDED_WAIT_MS));
-    const refreshed = getHomeContinuationPressureSnapshot(anchor, scope);
-    homeContinuousDiscoveryRuntime.pressureFirstBlockedAt = 0;
-    return {
-      defer: false,
-      reason: "bounded_pressure_release",
-      waitedMs,
-      snapshot: refreshed
-    };
-  }
-  return {
-    defer: true,
-    reason: snapshot.blockedByPendingWindow ? "pending_media" : "feed_pressure",
-    waitedMs,
+  const admission = getMarketplaceContinuationTools().getHydrationAdmission?.({
+    snapshot,
+    firstBlockedAt: homeContinuousDiscoveryRuntime.pressureFirstBlockedAt,
+    now: Date.now()
+  }) || {
+    defer: false,
+    reason: "allowed",
+    waitedMs: 0,
+    nextPressureFirstBlockedAt: 0,
     snapshot
   };
+  if (admission.shouldReleasePending) {
+    releaseStaleContinuationMediaPending(scope, admission.releaseMaxAgeMs);
+    admission.snapshot = getHomeContinuationPressureSnapshot(anchor, scope);
+  }
+  homeContinuousDiscoveryRuntime.pressureFirstBlockedAt = Number(admission.nextPressureFirstBlockedAt || 0);
+  return admission;
 }
 
 function getAdaptiveVisibleMediaPriorityBudget() {
@@ -21296,28 +21295,12 @@ function isHomeFeedUnderPressure(scope = document) {
 
 function getAdaptiveContinuousPendingMediaLookback() {
   const layoutMode = getClientLayoutMode();
-  const isCompactLayout = layoutMode === "mobile" || layoutMode === "standalone-mobile" || layoutMode === "mobile-desktop-site";
-  const scrollSpeed = Number(feedRuntimeState.lastScrollSpeed || 0);
-  if (scrollSpeed <= 0.18) {
-    return isCompactLayout ? 10 : 8;
-  }
-  if (scrollSpeed <= FEED_SCROLL_SPEED_PREFETCH_THRESHOLD) {
-    return HOME_CONTINUOUS_PENDING_MEDIA_LOOKBACK;
-  }
-  return isCompactLayout ? 6 : 5;
+  return Number(getMarketplaceContinuationTools().getAdaptiveContinuousPendingMediaLookback?.(layoutMode, feedRuntimeState.lastScrollSpeed) ?? HOME_CONTINUOUS_PENDING_MEDIA_LOOKBACK);
 }
 
 function getAdaptiveContinuousPendingMediaCap() {
   const layoutMode = getClientLayoutMode();
-  const isCompactLayout = layoutMode === "mobile" || layoutMode === "standalone-mobile" || layoutMode === "mobile-desktop-site";
-  const scrollSpeed = Number(feedRuntimeState.lastScrollSpeed || 0);
-  if (scrollSpeed <= 0.18) {
-    return isCompactLayout ? 3 : 2;
-  }
-  if (scrollSpeed <= FEED_SCROLL_SPEED_PREFETCH_THRESHOLD) {
-    return HOME_CONTINUOUS_MAX_PENDING_MEDIA_CARDS;
-  }
-  return 1;
+  return Number(getMarketplaceContinuationTools().getAdaptiveContinuousPendingMediaCap?.(layoutMode, feedRuntimeState.lastScrollSpeed) ?? HOME_CONTINUOUS_MAX_PENDING_MEDIA_CARDS);
 }
 
 function markMarketplaceScrollImageLoaded(image, resolvedSrc = "") {

@@ -54,6 +54,8 @@ test("home pagination retries safely, cancels stale work, and commits pages tran
   const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
   const dataSource = fs.readFileSync(path.join(root, "data-service.js"), "utf8");
   const backendSource = fs.readFileSync(path.join(root, "backend", "server.js"), "utf8");
+  const buildSource = fs.readFileSync(path.join(root, "scripts", "build-vercel-static.js"), "utf8");
+  const continuationSource = fs.readFileSync(path.join(root, "src", "marketplace", "continuation.js"), "utf8");
 
   assert.match(appSource, /const HOME_LOAD_MORE_MAX_ATTEMPTS = 3;/);
   assert.match(appSource, /function loadHomeFeedPageWithRetry\(loadPage, options = \{\}\)/);
@@ -73,6 +75,9 @@ test("home pagination retries safely, cancels stale work, and commits pages tran
   assert.match(appSource, /logHomeInfiniteDiagnostic\("sentinel_trigger"/);
   assert.match(appSource, /logHomeInfiniteDiagnostic\("backend_append_result"/);
   assert.match(appSource, /return Boolean\(window\.WINGA_CONFIG\?\.enableClientEventLogging\);/);
+  assert.match(buildSource, /"src\/marketplace\/continuation\.js"/);
+  assert.match(continuationSource, /window\.WingaModules\.marketplace\.createContinuationHelpers = createContinuationHelpers;/);
+  assert.match(appSource, /window\.WingaModules\?\.marketplace\?\.createContinuationHelpers/);
 
   assert.match(dataSource, /signal: options\.signal/);
   assert.match(dataSource, /signal: nextOptions\.signal/);
@@ -83,6 +88,72 @@ test("home pagination retries safely, cancels stale work, and commits pages tran
   assert.match(dataSource, /const appendedItems = receivedProducts\.filter/);
 
   assert.match(backendSource, /return String\(second\?\.id \|\| ""\)\.localeCompare\(String\(first\?\.id \|\| ""\)\);/);
+});
+
+test("marketplace continuation helpers bound media pressure without blocking hydration forever", () => {
+  const root = path.resolve(__dirname, "..");
+  const source = fs.readFileSync(path.join(root, "src", "marketplace", "continuation.js"), "utf8");
+  class TestElement {
+    constructor() {
+      this.dataset = {};
+      this.attrs = new Map();
+    }
+    getAttribute(name) {
+      return this.attrs.get(name) || "";
+    }
+    setAttribute(name, value) {
+      this.attrs.set(name, String(value));
+    }
+  }
+  let now = 2000;
+  const context = vm.createContext({
+    window: { WingaModules: { marketplace: {} } },
+    Element: TestElement
+  });
+  vm.runInContext(source, context);
+  const helpers = context.window.WingaModules.marketplace.createContinuationHelpers({
+    now: () => now,
+    hasHealthyMarketplaceCardMedia: () => false,
+    config: {
+      pendingHardTimeoutMs: 1200,
+      pressureBoundedWaitMs: 900,
+      hardPressurePendingMedia: 4,
+      prefetchQueuePressureThreshold: 18,
+      scrollPrefetchConcurrency: 4,
+      feedScrollSpeedPrefetchThreshold: 0.72,
+      continuousPendingMediaLookback: 8,
+      continuousMaxPendingMediaCards: 2
+    }
+  });
+
+  const card = new TestElement();
+  card.setAttribute("data-continuation-media-pending", "true");
+  card.dataset.continuationMediaPendingSince = "900";
+  assert.equal(helpers.isContinuationMediaPendingStale(card, 1200), false);
+  now = 2200;
+  assert.equal(helpers.isContinuationMediaPendingStale(card, 1200), true);
+  assert.equal(helpers.getAdaptiveContinuationLeadCardCount(0.1), 3);
+  assert.equal(helpers.getAdaptiveContinuationAdmissionWindowMs(0.8), 90);
+  assert.equal(helpers.getAdaptiveContinuousPendingMediaLookback("standalone-mobile", 0.1), 10);
+  assert.equal(helpers.getAdaptiveContinuousPendingMediaCap("mobile", 0.1), 3);
+
+  const snapshot = helpers.getHomeContinuationPressureSnapshot({
+    pendingCount: 3,
+    currentPendingCount: 1,
+    prefetchQueueSize: 0,
+    inflightPrefetchCount: 0,
+    adaptiveCap: 2
+  });
+  assert.equal(snapshot.blockedByPendingWindow, true);
+  assert.equal(snapshot.blockedByFeedPressure, false);
+
+  const deferred = helpers.getHydrationAdmission({ snapshot, firstBlockedAt: 2000, now: 2500 });
+  assert.equal(deferred.defer, true);
+  assert.equal(deferred.reason, "pending_media");
+  const released = helpers.getHydrationAdmission({ snapshot, firstBlockedAt: 2000, now: 3000 });
+  assert.equal(released.defer, false);
+  assert.equal(released.reason, "bounded_pressure_release");
+  assert.equal(released.shouldReleasePending, true);
 });
 
 test("product query surfaces share one paginated contract and bounded virtual node retention", () => {
