@@ -87,6 +87,7 @@ const bundledModuleSources = [
   "src/categories/ui.js",
   "src/navigation/controller.js",
   "src/navigation/chrome.js",
+  "src/marketplace/variants.js",
   "src/marketplace/discovery.js",
   "src/marketplace/image-loader.js",
   "src/marketplace/ui.js",

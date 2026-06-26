@@ -384,8 +384,13 @@ test("client variant entries prefer selected resurfacing indexes and preserve se
   const root = path.resolve(__dirname, "..");
   const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
   const uiSource = fs.readFileSync(path.join(root, "src", "marketplace", "ui.js"), "utf8");
+  const buildSource = fs.readFileSync(path.join(root, "scripts", "build-vercel-static.js"), "utf8");
+  const variantSource = fs.readFileSync(path.join(root, "src", "marketplace", "variants.js"), "utf8");
 
-  assert.match(appSource, /item\?\.visibleImageIndex\s*\?\?\s*item\?\.feedInitialImageIndex\s*\?\?\s*item\?\.variantDisplayIndex/);
+  assert.match(buildSource, /"src\/marketplace\/variants\.js"/);
+  assert.match(variantSource, /window\.WingaModules\.marketplace\.createVariantHelpers = createVariantHelpers;/);
+  assert.match(variantSource, /item\?\.visibleImageIndex\s*\?\?\s*item\?\.feedInitialImageIndex\s*\?\?\s*item\?\.variantDisplayIndex/);
+  assert.match(appSource, /window\.WingaModules\?\.marketplace\?\.createVariantHelpers/);
   assert.match(appSource, /nextFeedSequenceIndex:\s*0/);
   assert.match(appSource, /homeContinuousDiscoveryRuntime\.nextFeedSequenceIndex = initialProductIds\.length/);
   assert.match(appSource, /HOME_VARIANT_RESURFACE_MIN_BATCH_INDEX = 1/);
@@ -395,6 +400,41 @@ test("client variant entries prefer selected resurfacing indexes and preserve se
   assert.match(uiSource, /const stableInitialImageIndex = Math\.max\(0, variantDisplayIndex\);/);
   assert.match(uiSource, /className: "variant-badge"/);
   assert.match(uiSource, /media\.style\.aspectRatio = stableMediaRatio/);
+});
+
+test("marketplace variant helpers preserve feed identity and image selection", () => {
+  const root = path.resolve(__dirname, "..");
+  const source = fs.readFileSync(path.join(root, "src", "marketplace", "variants.js"), "utf8");
+  const context = vm.createContext({
+    window: { WingaModules: { marketplace: {} } }
+  });
+  vm.runInContext(source, context);
+  const helpers = context.window.WingaModules.marketplace.createVariantHelpers({
+    getUniqueRenderableImageIndexes: (product) => Array.isArray(product?.images)
+      ? product.images.map((_, index) => index)
+      : [],
+    getRenderableMarketplaceImages: (product) => Array.isArray(product?.images) ? product.images : []
+  });
+
+  const product = { id: "shirt-1", images: ["white.jpg", "black.jpg", "red.jpg"] };
+  assert.equal(helpers.getSmartVariantIndex(4, 3), 1);
+  assert.equal(helpers.getFeedEntryDisplayImageIndex({ ...product, feedEntryType: "variant" }, 2), 2);
+  assert.equal(helpers.getFeedEntryDisplayImageIndex({ ...product, feedInitialImageIndex: 5 }, 0), 2);
+  assert.equal(helpers.getProductVariantCount({ ...product, variants: [{}, {}] }), 2);
+  assert.equal(helpers.buildContinuousDiscoveryCandidateKey({ ...product, feedEntryType: "variant", visibleImageIndex: 1 }), "variant:shirt-1:1");
+  assert.equal(
+    helpers.dedupeContinuousDiscoveryFeedItems([
+      { ...product },
+      { ...product },
+      { ...product, feedEntryType: "variant", visibleImageIndex: 1 }
+    ]).map((item) => helpers.buildContinuousDiscoveryCandidateKey(item)).join("|"),
+    "product:shirt-1|variant:shirt-1:1"
+  );
+  assert.equal(helpers.reorderProductImagesForVariant(product, 2).join("|"), "red.jpg|white.jpg|black.jpg");
+  assert.equal(helpers.getVariantInitialImageIndex(product, 2), 2);
+  assert.equal(helpers.resolvePreferredVariantImageIndex([3, 1, 2], 2), 2);
+  assert.equal(helpers.shouldUseVariantScrollSlot(30), true);
+  assert.equal(helpers.getDeterministicVariantSlotIndex([1, 2, 3], { batchIndex: 1 }), 3);
 });
 
 test("filterProducts keeps only approved items and matches keyword/category", () => {
