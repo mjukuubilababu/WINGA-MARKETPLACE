@@ -40,7 +40,11 @@ test("home feed reserves stable media and deferred section geometry", () => {
   assert.doesNotMatch(styleSource, /@media \(max-width:780px\)\{[\s\S]*html,\s*body\{[^}]*overflow-y:hidden;/);
   assert.doesNotMatch(styleSource, /body\[data-layout-mode="standalone-mobile"\] #market-showcase,\s*body\[data-layout-mode="standalone-mobile"\] #products-container/);
   assert.match(styleSource, /body\[data-layout-mode="standalone-mobile"\] #products-container\[data-layout-mode="standalone-mobile"\]\{[\s\S]*width:100dvw;[\s\S]*transform:translateX\(-50%\);/);
-  assert.match(styleSource, /object-fit:var\(--feed-gallery-fit-mode, cover\) !important;/);
+  assert.match(styleSource, /#products-container \.progressive-image-shell \.progressive-image-full\{[\s\S]*object-fit:contain !important;/);
+  assert.match(styleSource, /#products-container \.feed-gallery-carousel-track\{[\s\S]*overflow-x:auto !important;[\s\S]*scroll-snap-type:x mandatory !important;/);
+  const marketplaceUiSource = fs.readFileSync(path.join(root, "src", "marketplace", "ui.js"), "utf8");
+  assert.match(marketplaceUiSource, /\? safeImages\.slice\(\)/);
+  assert.doesNotMatch(marketplaceUiSource, /safeImages\.slice\(0,\s*FEED_GALLERY_IMAGE_LIMIT\)/);
   assert.match(styleSource, /\.product-detail-media,[\s\S]*\.profile-product-stage\{[\s\S]*width:100% !important;[\s\S]*padding-left:0 !important;/);
   assert.match(styleSource, /\.product-card-media img,[\s\S]*\.feed-gallery-preview img\{[\s\S]*width:100% !important;/);
 });

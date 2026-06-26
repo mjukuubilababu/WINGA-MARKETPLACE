@@ -18934,7 +18934,7 @@ function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
   const storedAspectRatio = Number(product?.imageAspectRatios?.[initialImageIndex] || 0);
   const hasStoredAspectRatio = Number.isFinite(storedAspectRatio) && storedAspectRatio > 0.2 && storedAspectRatio < 5;
   const fitMode = isFeedSurface
-    ? (hasStoredAspectRatio ? "contain" : "cover")
+    ? "contain"
     : normalizeProductFitMode(options?.fitMode || getProductFitMode(product));
   const stableFrameRatio = isFeedSurface
     ? (hasStoredAspectRatio ? String(Number(storedAspectRatio.toFixed(6))) : "4 / 5")
@@ -19255,14 +19255,29 @@ function bindFeedGalleryInteractions(scope = document) {
           || preview.dataset.feedGalleryStableFitMode
           || carousel.dataset.fitMode
           || preview.dataset.fitMode
-          || "cover"
+          || "contain"
         ).trim().toLowerCase() === "contain" ? "contain" : "cover";
+        const authorityImage = carousel.querySelector('[data-feed-gallery-primary="true"]')
+          || carousel.querySelector('[data-feed-gallery-slide="0"] .feed-gallery-image-social');
+        const naturalWidth = Number(authorityImage?.naturalWidth || authorityImage?.width || 0);
+        const naturalHeight = Number(authorityImage?.naturalHeight || authorityImage?.height || 0);
+        const naturalRatio = naturalWidth > 0 && naturalHeight > 0
+          ? Math.max(0.56, Math.min(1.777778, naturalWidth / naturalHeight))
+          : 0;
+        const ratioValue = naturalRatio
+          ? String(Number(naturalRatio.toFixed(6)))
+          : stableRatio;
         preview.dataset.fitMode = stableFitMode;
         carousel.dataset.fitMode = stableFitMode;
-        preview.dataset.feedGalleryStableRatio = stableRatio;
-        carousel.dataset.feedGalleryStableRatio = stableRatio;
-        preview.style.setProperty("--fit-media-aspect-ratio", stableRatio);
-        carousel.style.setProperty("--fit-media-aspect-ratio", stableRatio);
+        preview.dataset.feedGalleryStableRatio = ratioValue;
+        carousel.dataset.feedGalleryStableRatio = ratioValue;
+        preview.style.setProperty("--fit-media-aspect-ratio", ratioValue);
+        carousel.style.setProperty("--fit-media-aspect-ratio", ratioValue);
+        const mediaFrame = carousel.closest(".product-card-media, .seller-product-card-media");
+        if (mediaFrame instanceof HTMLElement) {
+          mediaFrame.style.setProperty("--fit-media-aspect-ratio", ratioValue);
+          mediaFrame.style.aspectRatio = ratioValue;
+        }
         preview.style.removeProperty("--feed-gallery-frame-height");
         carousel.style.removeProperty("--feed-gallery-frame-height");
         preview.style.setProperty("--feed-gallery-fit-mode", stableFitMode);

@@ -10119,7 +10119,7 @@ button:hover,
 #products-container .feed-gallery-preview{
   aspect-ratio:var(--fit-media-aspect-ratio, 4 / 5) !important;
   height:auto !important;
-  max-height:none !important;
+  max-height:86vh !important;
   background:#ffffff !important;
   overflow:hidden !important;
 }
@@ -10136,6 +10136,9 @@ button:hover,
   display:block !important;
   align-items:initial !important;
   justify-content:initial !important;
+  flex:0 0 100% !important;
+  min-width:100% !important;
+  width:100% !important;
 }
 
 #products-container .feed-gallery-carousel,
@@ -10157,10 +10160,10 @@ button:hover,
 
 #products-container .feed-gallery-image-social{
   width:100% !important;
-  height:auto !important;
-  max-height:85vh !important;
-  object-fit:var(--feed-gallery-fit-mode, cover) !important;
-  object-position:center top !important;
+  height:100% !important;
+  max-height:none !important;
+  object-fit:contain !important;
+  object-position:center center !important;
   background:#ffffff !important;
   padding:0 !important;
   display:block !important;
@@ -10197,8 +10200,8 @@ button:hover,
   width:100% !important;
   height:100% !important;
   max-height:none !important;
-  object-fit:var(--feed-gallery-fit-mode, cover) !important;
-  object-position:center !important;
+  object-fit:contain !important;
+  object-position:center center !important;
   backface-visibility:hidden !important;
   transform:translateZ(0) !important;
   opacity:0 !important;
@@ -10474,4 +10477,36 @@ button:hover,
   max-width:100% !important;
   margin-left:0 !important;
   margin-right:0 !important;
+}
+
+/* Carousel rails must stay scrollable after the edge-to-edge reset above. */
+#products-container .feed-gallery-carousel{
+  overflow:hidden !important;
+}
+
+#products-container .feed-gallery-carousel-track{
+  display:flex !important;
+  overflow-x:auto !important;
+  overflow-y:hidden !important;
+  scroll-snap-type:x mandatory !important;
+  scroll-behavior:smooth;
+  -webkit-overflow-scrolling:touch;
+  touch-action:pan-x pan-y !important;
+  scrollbar-width:none;
+  overscroll-behavior-x:contain;
+}
+
+#products-container .feed-gallery-carousel-track::-webkit-scrollbar{
+  display:none;
+}
+
+#products-container .feed-gallery-carousel-track.is-dragging{
+  scroll-snap-type:none !important;
+  scroll-behavior:auto;
+}
+
+#products-container .feed-gallery-carousel-slide{
+  overflow:hidden !important;
+  scroll-snap-align:start !important;
+  scroll-snap-stop:always;
 }

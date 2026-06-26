@@ -24,7 +24,6 @@
     let passiveViewedProductTrackingScheduled = false;
     const PASSIVE_VIEW_TRACK_BATCH_SIZE = 1;
     const PASSIVE_VIEW_TRACK_IDLE_DELAY_MS = 700;
-    const FEED_GALLERY_IMAGE_LIMIT = 3;
     const STARTUP_PRIORITY_CARD_COUNT = 4;
     const INITIAL_SYNC_FEED_BATCH_SIZE = 10;
     const BOOTSTRAP_SYNC_FEED_TARGET_COUNT = 16;
@@ -307,7 +306,7 @@
         ? deps.getRenderableMarketplaceImages(product)
         : (Array.isArray(product.images) && product.images.length > 0 ? product.images : [product.image]).filter(Boolean);
       const images = safeImages.length > 0
-        ? safeImages.slice(0, FEED_GALLERY_IMAGE_LIMIT)
+        ? safeImages.slice()
         : [deps.getImageFallbackDataUri("WINGA")];
       const wrapper = createElement("div", {
         className: `product-gallery media-gallery feed-gallery-preview feed-gallery-carousel fit-mode-${fitMode}`,
