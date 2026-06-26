@@ -1,5 +1,7 @@
 {
   "cleanUrls": false,
+  "buildCommand": "npm run build:vercel",
+  "outputDirectory": "public",
   "headers": [
     {
       "source": "/(.*).html",
@@ -11,7 +13,7 @@
       ]
     },
     {
-      "source": "/(app|app-core|data-service|mock-data|winga-config)\\.js",
+      "source": "/(app|app-core|data-service|mock-data|winga-config|winga-modules)\\.js",
       "headers": [
         {
           "key": "Cache-Control",
