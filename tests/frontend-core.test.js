@@ -23,8 +23,13 @@ test("home feed reserves stable media and deferred section geometry", () => {
   const root = path.resolve(__dirname, "..");
   const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
   const styleSource = fs.readFileSync(path.join(root, "style.css"), "utf8");
+  const buildSource = fs.readFileSync(path.join(root, "scripts", "build-vercel-static.js"), "utf8");
+  const gallerySource = fs.readFileSync(path.join(root, "src", "marketplace", "gallery.js"), "utf8");
 
-  assert.match(appSource, /hasStoredAspectRatio \? String\(Number\(storedAspectRatio\.toFixed\(6\)\)\) : "4 \/ 5"/);
+  assert.match(buildSource, /"src\/marketplace\/gallery\.js"/);
+  assert.match(gallerySource, /window\.WingaModules\.marketplace\.createGalleryModule = createGalleryModule;/);
+  assert.match(gallerySource, /hasStoredAspectRatio \? String\(Number\(storedAspectRatio\.toFixed\(6\)\)\) : "4 \/ 5"/);
+  assert.match(appSource, /window\.WingaModules\?\.marketplace\?\.createGalleryModule/);
   assert.match(appSource, /window\.requestAnimationFrame\(\(\) => \{\s+onChunk\?\.\(chunk\);/);
   assert.match(styleSource, /#products-container > \.product-card > \.product-card-media\{\s+aspect-ratio:var\(--fit-media-aspect-ratio, 4 \/ 5\) !important;/);
   assert.match(styleSource, /#products-container > \.showcase-inline-pending\{\s+min-height:560px;/);
@@ -47,6 +52,49 @@ test("home feed reserves stable media and deferred section geometry", () => {
   assert.doesNotMatch(marketplaceUiSource, /safeImages\.slice\(0,\s*FEED_GALLERY_IMAGE_LIMIT\)/);
   assert.match(styleSource, /\.product-detail-media,[\s\S]*\.profile-product-stage\{[\s\S]*width:100% !important;[\s\S]*padding-left:0 !important;/);
   assert.match(styleSource, /\.product-card-media img,[\s\S]*\.feed-gallery-preview img\{[\s\S]*width:100% !important;/);
+});
+
+test("marketplace gallery module preserves feed carousel markup contract", () => {
+  const root = path.resolve(__dirname, "..");
+  const source = fs.readFileSync(path.join(root, "src", "marketplace", "gallery.js"), "utf8");
+  const context = vm.createContext({
+    window: { WingaModules: { marketplace: {} } }
+  });
+  vm.runInContext(source, context);
+  const preloaded = [];
+  const gallery = context.window.WingaModules.marketplace.createGalleryModule({
+    getRenderableMarketplaceImages: (product) => Array.isArray(product?.images) ? product.images : [],
+    getImageFallbackDataUri: (label) => `fallback-${label}`,
+    isVariantFeedEntry: (product) => product?.feedEntryType === "variant",
+    normalizeProductFitMode: (value) => String(value || "").toLowerCase() === "contain" ? "contain" : "cover",
+    getProductFitMode: (product) => product.fitMode || "cover",
+    preloadImageSource: (src, options) => preloaded.push({ src, options }),
+    sanitizeImageSource: (value, fallback = "") => String(value || fallback || "").replace(/^/, "/"),
+    escapeHtml: (value) => String(value || "").replace(/"/g, "&quot;"),
+    createProgressiveImage: ({ src, alt, className, fitMode, attributes }) => ({
+      outerHTML: `<img src="${src}" alt="${alt}" class="${className}" data-fit-mode="${fitMode}" loading="${attributes.loading}" fetchpriority="${attributes.fetchpriority}" data-feed-gallery-primary="${attributes["data-feed-gallery-primary"] || ""}" data-direct-visibility="${attributes["data-direct-visibility"] || ""}">`
+    })
+  });
+
+  const html = gallery.renderFeedGalleryMarkup({
+    name: "Shirt",
+    images: ["white.jpg", "black.jpg"],
+    imageAspectRatios: [0.8, 0.7],
+    feedEntryType: "variant",
+    visibleImageIndex: 1
+  }, "feed", {
+    preload: true,
+    priorityCount: 1
+  });
+
+  assert.equal(preloaded.length, 1);
+  assert.match(html, /data-feed-gallery-carousel="true"/);
+  assert.match(html, /data-feed-gallery-current="2"/);
+  assert.match(html, /data-feed-gallery-initial-index="1"/);
+  assert.match(html, /data-feed-gallery-stable-ratio="0.7"/);
+  assert.match(html, /data-fit-mode="contain"/);
+  assert.match(html, /data-direct-visibility="true"/);
+  assert.match(html, /fetchpriority="high"/);
 });
 
 test("home pagination retries safely, cancels stale work, and commits pages transactionally", () => {
