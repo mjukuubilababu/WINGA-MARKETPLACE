@@ -89,6 +89,8 @@ const HOME_CONTINUOUS_EARLY_LOAD_COOLDOWN_MS = 120;
 const FEED_MEMORY_MAINTENANCE_INTERVAL_MS = 5000;
 const CONTINUATION_MEDIA_REVEAL_MAX_WAIT_MS = 280;
 const CONTINUATION_MEDIA_REVEAL_POLL_MS = 50;
+const CONTINUATION_MEDIA_PENDING_HARD_TIMEOUT_MS = 1200;
+const HOME_CONTINUOUS_PRESSURE_BOUNDED_WAIT_MS = 900;
 const HOME_CONTINUOUS_BATCH_ADMISSION_MAX_WAIT_MS = 90;
 const HOME_CONTINUOUS_BATCH_ADMISSION_SLOW_SCROLL_WAIT_MS = 140;
 const HOME_CONTINUOUS_PENDING_MEDIA_LOOKBACK = 8;
@@ -4027,6 +4029,13 @@ function silentlyRefreshInfiniteFeedSource(options = {}) {
         ? page.appendedItems
         : (Array.isArray(page?.items) ? page.items : []);
       const appendedCount = Number(page?.appendedCount || appendedProducts.length || 0);
+      logHomeInfiniteDiagnostic("backend_append_result", {
+        appendedCount,
+        hasMore: page?.hasMore !== false,
+        page: Number(page?.page || loadMoreMetricContext.page || 0),
+        cursor: String(page?.nextCursor || ""),
+        reason: String(options.reason || "")
+      });
       if (appendedCount > 0) {
         refreshProductsFromStore();
         primeIncomingFeedItems(appendedProducts, {
@@ -12189,6 +12198,17 @@ function reportShowcaseInstrumentation(eventName, payload = {}) {
   }
 }
 
+function shouldLogHomeInfiniteDiagnostics() {
+  return Boolean(window.WINGA_CONFIG?.enableClientEventLogging);
+}
+
+function logHomeInfiniteDiagnostic(eventName, payload = {}) {
+  if (!shouldLogHomeInfiniteDiagnostics() || typeof console === "undefined" || typeof console.debug !== "function") {
+    return;
+  }
+  console.debug(`[WINGA:HOME_INFINITE] ${eventName}`, payload);
+}
+
 window.__WINGA_DIAGNOSTICS__ = {
   snapshot: getRuntimeDiagnosticsSnapshot,
   health: getRuntimeHealthSnapshot,
@@ -17906,7 +17926,8 @@ function disconnectContinuousDiscoveryObserver() {
     loadMoreHasMore: true,
     lastSentinelFetchAt: 0,
     lastSentinelPreloadAt: 0,
-    lastSentinelInjectAt: 0
+    lastSentinelInjectAt: 0,
+    pressureFirstBlockedAt: 0
   };
 }
 
@@ -18191,27 +18212,37 @@ async function hydrateContinuousDiscoveryAnchor(anchor) {
   if (!anchor || homeContinuousDiscoveryRuntime.loading) {
     return;
   }
-  if (!canAdvanceHomeContinuousDiscovery(anchor)) {
-    const pendingCount = getHomeContinuousPendingMediaCount(anchor);
+  const admission = shouldDeferHomeContinuousHydration(anchor, productsContainer || document);
+  logHomeInfiniteDiagnostic("hydrate_gate", {
+    allowed: !admission.defer,
+    reason: admission.reason,
+    waitedMs: Number(admission.waitedMs || 0),
+    batchIndex: homeContinuousDiscoveryRuntime.batchIndex,
+    ...admission.snapshot
+  });
+  if (admission.defer) {
     bumpRuntimeDiagnostic("continuousPendingMediaDeferrals");
-    reportShowcaseInstrumentation("continuous_pending_media_deferral", {
-      pendingCount,
+    reportShowcaseInstrumentation(admission.reason === "pending_media"
+      ? "continuous_pending_media_deferral"
+      : "continuous_feed_pressure_deferral", {
+      pendingCount: admission.snapshot.pendingCount,
+      currentPendingCount: admission.snapshot.currentPendingCount,
+      prefetchQueueSize: admission.snapshot.prefetchQueueSize,
+      inflightPrefetchCount: admission.snapshot.inflightPrefetchCount,
+      waitedMs: Number(admission.waitedMs || 0),
       batchIndex: homeContinuousDiscoveryRuntime.batchIndex,
       scrollSpeed: Number(feedRuntimeState.lastScrollSpeed || 0)
     });
     scheduleContinuousDiscoveryReobserve(anchor);
     return;
   }
-  if (isHomeFeedUnderPressure(productsContainer || document)) {
-    bumpRuntimeDiagnostic("continuousPendingMediaDeferrals");
-    reportShowcaseInstrumentation("continuous_feed_pressure_deferral", {
-      pendingCount: getCurrentPendingContinuationMediaCount(productsContainer || document),
-      prefetchQueueSize: Number(marketplaceScrollPrefetchQueue?.length || 0),
-      inflightPrefetchCount: Number(marketplaceScrollPrefetchInflight?.size || 0),
+  if (admission.reason === "bounded_pressure_release") {
+    reportShowcaseInstrumentation("continuous_pressure_bounded_release", {
+      pendingCount: admission.snapshot.pendingCount,
+      currentPendingCount: admission.snapshot.currentPendingCount,
+      waitedMs: Number(admission.waitedMs || 0),
       batchIndex: homeContinuousDiscoveryRuntime.batchIndex
     });
-    scheduleContinuousDiscoveryReobserve(anchor);
-    return;
   }
 
   const now = Date.now();
@@ -18467,6 +18498,13 @@ function ensureHomeInfiniteSentinelObserver() {
         return;
       }
       homeContinuousDiscoveryRuntime.sentinelObserver?.unobserve?.(entry.target);
+      logHomeInfiniteDiagnostic("sentinel_trigger", {
+        stage,
+        batchIndex: homeContinuousDiscoveryRuntime.batchIndex,
+        pendingCount: getHomeContinuousPendingMediaCount(anchor),
+        currentPendingCount: getCurrentPendingContinuationMediaCount(productsContainer || document),
+        hasMore: homeContinuousDiscoveryRuntime.loadMoreHasMore
+      });
       if (stage === "fetch") {
         if (Date.now() - Number(homeContinuousDiscoveryRuntime.lastSentinelFetchAt || 0) < HOME_INFINITE_SENTINEL_FETCH_COOLDOWN_MS) {
           return;
@@ -18716,6 +18754,7 @@ function setupContinuousDiscoveryLoading(scope, options = {}) {
   homeContinuousDiscoveryRuntime.lastSentinelFetchAt = 0;
   homeContinuousDiscoveryRuntime.lastSentinelPreloadAt = 0;
   homeContinuousDiscoveryRuntime.lastSentinelInjectAt = 0;
+  homeContinuousDiscoveryRuntime.pressureFirstBlockedAt = 0;
   bumpMarketplaceImagePrefetchGeneration("continuous_discovery_reset");
   const initialProductIds = Array.from(options.initialProductIds || options.usedProductIds || []).filter(Boolean);
   homeContinuousDiscoveryRuntime.normalProductOrdinal = initialProductIds.length;
@@ -21058,11 +21097,53 @@ function setMarketplaceCardMediaPending(card, isPending) {
   if (isPending) {
     card.setAttribute("data-continuation-media-pending", "true");
     card.setAttribute("data-card-media-pending", "true");
+    if (!card.dataset.continuationMediaPendingSince) {
+      card.dataset.continuationMediaPendingSince = String(Date.now());
+    }
     return;
   }
   card.removeAttribute("data-continuation-media-pending");
   card.removeAttribute("data-card-media-pending");
+  delete card.dataset.continuationMediaPendingSince;
   delete card.dataset.continuationMediaRevealScheduled;
+}
+
+function isContinuationMediaPendingStale(card, maxAgeMs = CONTINUATION_MEDIA_PENDING_HARD_TIMEOUT_MS) {
+  if (!(card instanceof Element) || card.getAttribute("data-continuation-media-pending") !== "true") {
+    return false;
+  }
+  if (hasHealthyMarketplaceCardMedia(card)) {
+    return true;
+  }
+  const pendingSince = Number(card.dataset.continuationMediaPendingSince || 0);
+  if (!Number.isFinite(pendingSince) || pendingSince <= 0) {
+    return true;
+  }
+  return Date.now() - pendingSince >= Math.max(80, Number(maxAgeMs || CONTINUATION_MEDIA_PENDING_HARD_TIMEOUT_MS));
+}
+
+function releaseStaleContinuationMediaPending(scope = document, maxAgeMs = CONTINUATION_MEDIA_PENDING_HARD_TIMEOUT_MS) {
+  const root = scope instanceof Element || scope === document ? scope : document;
+  let releasedCount = 0;
+  root.querySelectorAll?.(".product-card[data-continuation-media-pending='true'], .seller-product-card[data-continuation-media-pending='true'], .showcase-card[data-continuation-media-pending='true']")
+    .forEach((card) => {
+      if (!isContinuationMediaPendingStale(card, maxAgeMs)) {
+        return;
+      }
+      setMarketplaceCardMediaPending(card, false);
+      releasedCount += 1;
+    });
+  if (releasedCount > 0) {
+    reportShowcaseInstrumentation("continuous_pending_media_released", {
+      releasedCount,
+      maxAgeMs
+    });
+    logHomeInfiniteDiagnostic("pending_released", {
+      releasedCount,
+      maxAgeMs
+    });
+  }
+  return releasedCount;
 }
 
 function scheduleMarketplaceCardMediaReveal(card, options = {}) {
@@ -21099,7 +21180,12 @@ function scheduleMarketplaceCardMediaReveal(card, options = {}) {
       setMarketplaceCardMediaPending(card, false);
       return;
     }
-    if (!requireLoaded && Date.now() - startedAt >= maxWaitMs) {
+    const waitedMs = Date.now() - startedAt;
+    if (!requireLoaded && waitedMs >= maxWaitMs) {
+      setMarketplaceCardMediaPending(card, false);
+      return;
+    }
+    if (requireLoaded && waitedMs >= Math.max(maxWaitMs, CONTINUATION_MEDIA_PENDING_HARD_TIMEOUT_MS)) {
       setMarketplaceCardMediaPending(card, false);
       return;
     }
@@ -21223,6 +21309,7 @@ function prepareContinuationBatchAdmission(nodes = [], options = {}) {
 }
 
 function getHomeContinuousPendingMediaCount(anchor, options = {}) {
+  releaseStaleContinuationMediaPending(productsContainer || document);
   if (!(anchor instanceof Element)) {
     return 0;
   }
@@ -21243,6 +21330,60 @@ function getHomeContinuousPendingMediaCount(anchor, options = {}) {
 
 function canAdvanceHomeContinuousDiscovery(anchor) {
   return getHomeContinuousPendingMediaCount(anchor) < getAdaptiveContinuousPendingMediaCap();
+}
+
+function getHomeContinuationPressureSnapshot(anchor, scope = productsContainer || document) {
+  releaseStaleContinuationMediaPending(scope);
+  const pendingCount = anchor instanceof Element ? getHomeContinuousPendingMediaCount(anchor) : 0;
+  const currentPendingCount = getCurrentPendingContinuationMediaCount(scope);
+  const prefetchQueueSize = Number(marketplaceScrollPrefetchQueue?.length || 0);
+  const inflightPrefetchCount = Number(marketplaceScrollPrefetchInflight?.size || 0);
+  const adaptiveCap = getAdaptiveContinuousPendingMediaCap();
+  return {
+    pendingCount,
+    currentPendingCount,
+    prefetchQueueSize,
+    inflightPrefetchCount,
+    adaptiveCap,
+    blockedByPendingWindow: pendingCount >= adaptiveCap,
+    blockedByFeedPressure: currentPendingCount >= HOME_CONTINUOUS_HARD_PRESSURE_PENDING_MEDIA
+      || prefetchQueueSize >= MARKETPLACE_PREFETCH_QUEUE_PRESSURE_THRESHOLD
+      || inflightPrefetchCount >= MARKETPLACE_SCROLL_PREFETCH_CONCURRENCY
+  };
+}
+
+function shouldDeferHomeContinuousHydration(anchor, scope = productsContainer || document) {
+  const snapshot = getHomeContinuationPressureSnapshot(anchor, scope);
+  const blocked = snapshot.blockedByPendingWindow || snapshot.blockedByFeedPressure;
+  if (!blocked) {
+    homeContinuousDiscoveryRuntime.pressureFirstBlockedAt = 0;
+    return {
+      defer: false,
+      reason: "allowed",
+      snapshot
+    };
+  }
+  const now = Date.now();
+  const firstBlockedAt = Number(homeContinuousDiscoveryRuntime.pressureFirstBlockedAt || 0) || now;
+  homeContinuousDiscoveryRuntime.pressureFirstBlockedAt = firstBlockedAt;
+  const waitedMs = now - firstBlockedAt;
+  if (waitedMs >= HOME_CONTINUOUS_PRESSURE_BOUNDED_WAIT_MS) {
+    releaseStaleContinuationMediaPending(scope, Math.min(CONTINUATION_MEDIA_PENDING_HARD_TIMEOUT_MS, HOME_CONTINUOUS_PRESSURE_BOUNDED_WAIT_MS));
+    const refreshed = getHomeContinuationPressureSnapshot(anchor, scope);
+    homeContinuousDiscoveryRuntime.pressureFirstBlockedAt = 0;
+    return {
+      defer: false,
+      reason: "bounded_pressure_release",
+      waitedMs,
+      snapshot: refreshed
+    };
+  }
+  return {
+    defer: true,
+    reason: snapshot.blockedByPendingWindow ? "pending_media" : "feed_pressure",
+    waitedMs,
+    snapshot
+  };
 }
 
 function getAdaptiveVisibleMediaPriorityBudget() {

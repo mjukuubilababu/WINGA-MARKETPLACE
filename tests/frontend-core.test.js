@@ -64,6 +64,15 @@ test("home pagination retries safely, cancels stale work, and commits pages tran
   assert.match(appSource, /setHomeFeedLoadMoreState\("error"/);
   assert.match(appSource, /cancelHomeFeedLoadMore\("view_changed"\)/);
   assert.match(appSource, /cancelHomeFeedLoadMore\("document_hidden"\)/);
+  assert.match(appSource, /const CONTINUATION_MEDIA_PENDING_HARD_TIMEOUT_MS = 1200;/);
+  assert.match(appSource, /const HOME_CONTINUOUS_PRESSURE_BOUNDED_WAIT_MS = 900;/);
+  assert.match(appSource, /function shouldDeferHomeContinuousHydration\(anchor, scope = productsContainer \|\| document\)/);
+  assert.match(appSource, /function releaseStaleContinuationMediaPending\(scope = document, maxAgeMs = CONTINUATION_MEDIA_PENDING_HARD_TIMEOUT_MS\)/);
+  assert.match(appSource, /if \(requireLoaded && waitedMs >= Math\.max\(maxWaitMs, CONTINUATION_MEDIA_PENDING_HARD_TIMEOUT_MS\)\)/);
+  assert.match(appSource, /logHomeInfiniteDiagnostic\("hydrate_gate"/);
+  assert.match(appSource, /logHomeInfiniteDiagnostic\("sentinel_trigger"/);
+  assert.match(appSource, /logHomeInfiniteDiagnostic\("backend_append_result"/);
+  assert.match(appSource, /return Boolean\(window\.WINGA_CONFIG\?\.enableClientEventLogging\);/);
 
   assert.match(dataSource, /signal: options\.signal/);
   assert.match(dataSource, /signal: nextOptions\.signal/);
