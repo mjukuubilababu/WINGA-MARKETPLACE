@@ -263,7 +263,12 @@
   }
 
   function writeStoredSession(session) {
-    safeStorageSet(SESSION_KEY, JSON.stringify(session));
+    if (!session || typeof session !== "object") {
+      safeStorageRemove(SESSION_KEY);
+      return;
+    }
+    const { token, ...safeSession } = session;
+    safeStorageSet(SESSION_KEY, JSON.stringify(safeSession));
   }
 
   function clearLegacyLocalFallbackArtifacts() {
@@ -517,7 +522,7 @@
       return lower === "null" || lower === "undefined" ? fallback : normalized;
     };
 
-    return {
+    const sessionPayload = {
       username: normalizeSessionText(user.username, ""),
       fullName: normalizeSessionText(user.fullName, user.username),
       primaryCategory: normalizeSessionText(user.primaryCategory, ""),
@@ -534,9 +539,12 @@
       pendingWhatsappExpiresAt: normalizeSessionText(user.pendingWhatsappExpiresAt, ""),
       profileImage: normalizeSessionText(user.profileImage, ""),
       verificationStatus: normalizeSessionText(user.verificationStatus, user.verifiedSeller ? "verified" : "unverified"),
-      verifiedSeller: Boolean(user.verifiedSeller),
-      token
+      verifiedSeller: Boolean(user.verifiedSeller)
     };
+    if (token) {
+      sessionPayload.token = token;
+    }
+    return sessionPayload;
   }
 
   function generateVerificationCode() {
@@ -1341,8 +1349,7 @@
           pendingWhatsappNumber: updatedUser.pendingWhatsappNumber || "",
           pendingWhatsappExpiresAt: updatedUser.pendingWhatsappExpiresAt || "",
           profileImage: updatedUser.profileImage || "",
-          verificationStatus: updatedUser.verificationStatus || "",
-          token: session.token || null
+          verificationStatus: updatedUser.verificationStatus || ""
         };
       },
       async upgradeBuyerToSeller(payload) {
@@ -1387,7 +1394,7 @@
           throw new Error("Akaunti yako haikupatikana tena. Ingia upya kabla ya kujaribu tena.");
         }
         await this.saveUsers(nextUsers);
-        const refreshedSession = buildSessionPayload(updatedUser, session.token || null);
+        const refreshedSession = buildSessionPayload(updatedUser);
         this.saveSession(refreshedSession);
         return refreshedSession;
       },
@@ -2003,6 +2010,7 @@
     try {
       response = await fetch(url, {
         ...requestOptions,
+        credentials: requestOptions.credentials || "include",
         signal: controller ? controller.signal : externalSignal
       });
     } catch (error) {
@@ -2365,16 +2373,10 @@
       async logoutSession(tokenOverride = "") {
         const session = sessionAdapter.loadSession();
         const token = String(tokenOverride || session?.token || "").trim();
-        if (!token) {
-          sessionAdapter.clearSession();
-          return { ok: true };
-        }
         try {
           return await fetchJson(`${baseUrl}/auth/logout`, {
             method: "POST",
-            headers: {
-              Authorization: `Bearer ${token}`
-            }
+            headers: token ? { Authorization: `Bearer ${token}` } : {}
           });
         } finally {
           sessionAdapter.clearSession();
@@ -2382,10 +2384,6 @@
       },
       async restoreSession() {
         const session = sessionAdapter.loadSession();
-        if (!session?.token) {
-          sessionAdapter.clearSession();
-          return null;
-        }
 
         cancelSessionRestore("restart_session_restore");
         sessionRestoreController = typeof AbortController !== "undefined" ? new AbortController() : null;
@@ -2402,13 +2400,14 @@
             sessionAdapter.clearSession();
             return null;
           }
+          sessionAdapter.saveSession(data);
           return data;
         } catch (error) {
           if (error?.code === "aborted") {
             return null;
           }
           const stillStoredSession = sessionAdapter.loadSession();
-          if (stillStoredSession?.token) {
+          if (stillStoredSession?.token && session?.token) {
             return stillStoredSession;
           }
           sessionAdapter.clearSession();
@@ -2663,12 +2662,12 @@
         },
         openRealtimeChannel(handlers = {}) {
           const session = sessionAdapter.loadSession();
-          if (!session?.token || typeof EventSource === "undefined") {
+          if (typeof EventSource === "undefined") {
             return null;
           }
 
-          const streamUrl = `${baseUrl}/messages/stream?token=${encodeURIComponent(session.token)}`;
-          const source = new EventSource(streamUrl);
+          const streamUrl = `${baseUrl}/messages/stream`;
+          const source = new EventSource(streamUrl, { withCredentials: true });
           const parseEvent = (event) => {
             try {
               return event?.data ? JSON.parse(event.data) : null;
@@ -3309,8 +3308,7 @@
           pendingWhatsappNumber: updatedUser.pendingWhatsappNumber || "",
           pendingWhatsappExpiresAt: updatedUser.pendingWhatsappExpiresAt || "",
           profileImage: updatedUser.profileImage || "",
-          verificationStatus: updatedUser.verificationStatus || "",
-          token: session.token || null
+          verificationStatus: updatedUser.verificationStatus || ""
         };
       },
       async updateUserPrimaryCategory(username, primaryCategory) {

@@ -191,6 +191,7 @@ const SAFE_IMAGE_PLACEHOLDER_PATH = "/share-og.svg";
 const DEFAULT_BOOTSTRAP_PRODUCT_LIMIT = 12;
 const MAX_BOOTSTRAP_PRODUCT_LIMIT = 24;
 const MAX_API_PRODUCT_LIMIT = 50;
+const AUTH_COOKIE_NAME = "winga_auth";
 let requestSequence = 0;
 
 function validateRuntimeConfiguration() {
@@ -832,10 +833,11 @@ function verifyPassword(password, passwordValue) {
   return crypto.timingSafeEqual(storedBuffer, candidateBuffer);
 }
 
-function sendJson(res, statusCode, data) {
+function sendJson(res, statusCode, data, extraHeaders = {}) {
   res.writeHead(statusCode, buildSecurityHeaders(statusCode, {
     "Content-Type": "application/json",
     "Cache-Control": statusCode >= 400 ? "no-store" : "no-cache",
+    ...extraHeaders,
     ...(res.__wingaMeta?.requestId ? { "X-Request-Id": res.__wingaMeta.requestId } : {})
   }, res.__wingaReq));
   res.end(JSON.stringify(data));
@@ -1142,6 +1144,7 @@ function buildSecurityHeaders(statusCode, extraHeaders = {}, req = null) {
     headers["Vary"] = "Origin";
     headers["Access-Control-Allow-Methods"] = "GET,POST,PUT,PATCH,DELETE,OPTIONS";
     headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization";
+    headers["Access-Control-Allow-Credentials"] = "true";
   }
 
   if (statusCode >= 400 && !headers["Cache-Control"]) {
@@ -1350,7 +1353,7 @@ function sanitizeUser(user, options = {}) {
 }
 
 function buildSelfSessionPayload(user, token = null) {
-  return {
+  const payload = {
     ...sanitizeUser(user, { viewer: user }),
     phoneNumber: String(user.phoneNumber || "").replace(/\D/g, "").slice(0, 20),
     paymentProvider: user.paymentProvider || "",
@@ -1358,9 +1361,12 @@ function buildSelfSessionPayload(user, token = null) {
     paymentRecipientName: user.paymentRecipientName || user.fullName || user.username,
     paymentInstructions: user.paymentInstructions || "",
     pendingWhatsappNumber: String(user.pendingWhatsappNumber || "").replace(/\D/g, "").slice(0, 20),
-    pendingWhatsappExpiresAt: user.pendingWhatsappExpiresAt || "",
-    token
+    pendingWhatsappExpiresAt: user.pendingWhatsappExpiresAt || ""
   };
+  if (token) {
+    payload.token = token;
+  }
+  return payload;
 }
 
 function sanitizeModeratorUser(user) {
@@ -1990,7 +1996,75 @@ function getUserRestrictionMessage(status) {
   return "Huna ruhusa ya kutumia action hii.";
 }
 
+function parseCookies(req) {
+  const cookieHeader = String(req?.headers?.cookie || "");
+  if (!cookieHeader) {
+    return {};
+  }
+  return cookieHeader.split(";").reduce((cookies, part) => {
+    const separatorIndex = part.indexOf("=");
+    if (separatorIndex <= 0) {
+      return cookies;
+    }
+    const name = part.slice(0, separatorIndex).trim();
+    const value = part.slice(separatorIndex + 1).trim();
+    if (!name) {
+      return cookies;
+    }
+    try {
+      cookies[name] = decodeURIComponent(value);
+    } catch (error) {
+      cookies[name] = value;
+    }
+    return cookies;
+  }, {});
+}
+
+function getAuthCookieSameSite() {
+  return NODE_ENV === "production" ? "None" : "Lax";
+}
+
+function shouldUseSecureAuthCookie(req) {
+  if (NODE_ENV === "production") {
+    return true;
+  }
+  const forwardedProto = String(req?.headers?.["x-forwarded-proto"] || "").toLowerCase();
+  return forwardedProto === "https";
+}
+
+function buildAuthCookieHeader(token, req) {
+  const attributes = [
+    `${AUTH_COOKIE_NAME}=${encodeURIComponent(String(token || ""))}`,
+    "HttpOnly",
+    "Path=/",
+    `Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}`,
+    `SameSite=${getAuthCookieSameSite()}`
+  ];
+  if (shouldUseSecureAuthCookie(req)) {
+    attributes.push("Secure");
+  }
+  return attributes.join("; ");
+}
+
+function buildClearAuthCookieHeader(req) {
+  const attributes = [
+    `${AUTH_COOKIE_NAME}=`,
+    "HttpOnly",
+    "Path=/",
+    "Max-Age=0",
+    `SameSite=${getAuthCookieSameSite()}`
+  ];
+  if (shouldUseSecureAuthCookie(req)) {
+    attributes.push("Secure");
+  }
+  return attributes.join("; ");
+}
+
 function readAuthToken(req) {
+  const cookieToken = String(parseCookies(req)[AUTH_COOKIE_NAME] || "").trim();
+  if (cookieToken) {
+    return cookieToken;
+  }
   const header = req.headers.authorization || "";
   if (!header.startsWith("Bearer ")) {
     return "";
@@ -4017,7 +4091,7 @@ http.createServer(async (req, res) => {
     }
 
     if (req.method === "GET" && url.pathname === "/api/messages/stream") {
-      const token = sanitizePlainText(url.searchParams.get("token") || "", 120);
+      const token = readAuthToken(req) || sanitizePlainText(url.searchParams.get("token") || "", 120);
       const session = findSession(store, token);
       const user = ensureMarketplaceUser(store, session, res);
       if (!user) {
@@ -4864,9 +4938,12 @@ http.createServer(async (req, res) => {
         username: createdUser.username,
         role: createdUser.role || "buyer"
       });
-      sendJson(res, 200, {
-        ...buildSelfSessionPayload(createdUser, session.token)
-      });
+      sendJson(
+        res,
+        200,
+        buildSelfSessionPayload(createdUser),
+        { "Set-Cookie": buildAuthCookieHeader(session.token, req) }
+      );
       return;
     }
 
@@ -5016,9 +5093,12 @@ http.createServer(async (req, res) => {
         username: freshUser.username,
         role: freshUser.role || "buyer"
       });
-      sendJson(res, 200, {
-        ...buildSelfSessionPayload(freshUser, session.token)
-      });
+      sendJson(
+        res,
+        200,
+        buildSelfSessionPayload(freshUser),
+        { "Set-Cookie": buildAuthCookieHeader(session.token, req) }
+      );
       return;
     }
 
@@ -5096,9 +5176,12 @@ http.createServer(async (req, res) => {
         username: freshUser.username,
         role: freshUser.role || "admin"
       });
-      sendJson(res, 200, {
-        ...buildSelfSessionPayload(freshUser, session.token)
-      });
+      sendJson(
+        res,
+        200,
+        buildSelfSessionPayload(freshUser),
+        { "Set-Cookie": buildAuthCookieHeader(session.token, req) }
+      );
       return;
     }
 
@@ -5155,11 +5238,12 @@ http.createServer(async (req, res) => {
         event: "logout_success",
         username: session?.username || ""
       });
-      sendJson(res, 200, { ok: true });
+      sendJson(res, 200, { ok: true }, { "Set-Cookie": buildClearAuthCookieHeader(req) });
       return;
     }
 
-    if (req.method === "GET" && url.pathname === "/api/auth/session") {
+    if (req.method === "GET" && (url.pathname === "/api/auth/session" || url.pathname === "/api/auth/me")) {
+      const hasAuthCookie = Boolean(String(parseCookies(req)[AUTH_COOKIE_NAME] || "").trim());
       const token = readAuthToken(req);
       const session = findSession(store, token);
       if (!session) {
@@ -5171,7 +5255,7 @@ http.createServer(async (req, res) => {
           event: "session_invalid",
           reason: "missing_or_expired"
         });
-        sendJson(res, 401, { error: "Session imeisha au si sahihi." });
+        sendJson(res, 401, { error: "Session imeisha au si sahihi." }, { "Set-Cookie": buildClearAuthCookieHeader(req) });
         return;
       }
 
@@ -5186,7 +5270,7 @@ http.createServer(async (req, res) => {
           username: session.username,
           reason: "user_not_found"
         });
-        sendJson(res, 401, { error: "Session user hakupatikana." });
+        sendJson(res, 401, { error: "Session user hakupatikana." }, { "Set-Cookie": buildClearAuthCookieHeader(req) });
         return;
       }
 
@@ -5210,9 +5294,12 @@ http.createServer(async (req, res) => {
         role: user.role || "",
         sessionRestored: true
       });
-      sendJson(res, 200, {
-        ...buildSelfSessionPayload(user, session.token)
-      });
+      sendJson(
+        res,
+        200,
+        buildSelfSessionPayload(user),
+        hasAuthCookie ? {} : { "Set-Cookie": buildAuthCookieHeader(session.token, req) }
+      );
       return;
     }
 
@@ -6307,9 +6394,7 @@ http.createServer(async (req, res) => {
         whatsappNumber: nextWhatsappNumber
       });
 
-      sendJson(res, 200, {
-        ...buildSelfSessionPayload(updatedUser, session.token)
-      });
+      sendJson(res, 200, buildSelfSessionPayload(updatedUser));
       return;
     }
 
@@ -6392,7 +6477,7 @@ http.createServer(async (req, res) => {
         whatsappNumber: nextWhatsappNumber
       });
 
-      sendJson(res, 200, buildSelfSessionPayload(updatedUser, session.token));
+      sendJson(res, 200, buildSelfSessionPayload(updatedUser));
       return;
     }
 
@@ -6555,9 +6640,7 @@ http.createServer(async (req, res) => {
         username: user.username
       });
 
-      sendJson(res, 200, {
-        ...buildSelfSessionPayload(updatedUser, session.token)
-      });
+      sendJson(res, 200, buildSelfSessionPayload(updatedUser));
       return;
     }
 
@@ -6663,7 +6746,7 @@ http.createServer(async (req, res) => {
         verificationStatus: "verified"
       });
 
-      sendJson(res, 200, buildSelfSessionPayload(updatedUser, session.token));
+      sendJson(res, 200, buildSelfSessionPayload(updatedUser));
       return;
     }
 

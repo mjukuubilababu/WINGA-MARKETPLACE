@@ -15684,7 +15684,7 @@ async function createCustomCategory(label, options = {}) {
     throw new Error("Andika category mpya iliyo sahihi.");
   }
 
-  if (currentSession?.token) {
+  if (currentSession?.username) {
     await window.WingaDataLayer.addCategory(normalized);
   }
   mergeAvailableCategories(inferCategoriesFromData(), [normalized]);
@@ -16000,7 +16000,7 @@ function logout() {
   const wasStaffSession = isStaffUser();
   const shouldReturnToAdminLogin = wasStaffSession || isAdminLoginRoute();
   const logoutToken = String(currentSession?.token || getSessionUser()?.token || "").trim();
-  if (logoutToken && window.WingaDataLayer.logoutSession) {
+  if (window.WingaDataLayer.logoutSession) {
     window.WingaDataLayer.logoutSession(logoutToken).catch((error) => {
       captureClientError("logout_failed", error, {
         user: currentUser || "",

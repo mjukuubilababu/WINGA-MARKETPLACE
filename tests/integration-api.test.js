@@ -33,6 +33,17 @@ async function request(pathname, options = {}) {
   return { response, body };
 }
 
+function getAuthCookieHeader(response) {
+  const setCookie = response.headers.get("set-cookie") || "";
+  const match = setCookie.match(/(?:^|,\s*)winga_auth=([^;,]+)/);
+  return match ? `winga_auth=${match[1]}` : "";
+}
+
+function getAuthCookieToken(response) {
+  const cookie = getAuthCookieHeader(response);
+  return cookie ? decodeURIComponent(cookie.split("=").slice(1).join("=")) : "";
+}
+
 function getProductResponseItems(body) {
   if (Array.isArray(body)) {
     return body;
@@ -108,7 +119,9 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   assert.equal(sellerSignup.body.verifiedSeller, true);
   assert.equal(sellerSignup.body.phoneNumber, "255700111111");
   assert.equal(sellerSignup.body.primaryCategory, "");
-  const sellerToken = sellerSignup.body.token;
+  assert.equal(Object.prototype.hasOwnProperty.call(sellerSignup.body, "token"), false);
+  assert.match(sellerSignup.response.headers.get("set-cookie") || "", /winga_auth=[^;]+; HttpOnly; Path=\/; Max-Age=604800; SameSite=Lax/);
+  const sellerToken = getAuthCookieToken(sellerSignup.response);
   const sellerUsername = sellerSignup.body.username;
 
   const legacyPrimaryCategoryUpdate = await request("/users/primary-category", {
@@ -172,7 +185,7 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   });
   assert.equal(buyerSignup.response.status, 200);
   assert.equal(buyerSignup.body.phoneNumber, "255700222222");
-  let buyerToken = buyerSignup.body.token;
+  let buyerToken = getAuthCookieToken(buyerSignup.response);
   const buyerUsername = buyerSignup.body.username;
 
   const passwordRecoveryMismatch = await request("/auth/recover-password", {
@@ -219,7 +232,7 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
     })
   });
   assert.equal(recoveredBuyerLogin.response.status, 200);
-  buyerToken = recoveredBuyerLogin.body.token;
+  buyerToken = getAuthCookieToken(recoveredBuyerLogin.response);
 
   const sellerTwoSignup = await request("/auth/signup", {
     method: "POST",
@@ -236,7 +249,7 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
     })
   });
   assert.equal(sellerTwoSignup.response.status, 200);
-  const sellerTwoToken = sellerTwoSignup.body.token;
+  const sellerTwoToken = getAuthCookieToken(sellerTwoSignup.response);
 
   const productCreate = await request("/products", {
     method: "POST",
@@ -325,7 +338,7 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
     method: "PUT",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${adminLoginForBrokenReference.body.token}`
+      Authorization: `Bearer ${getAuthCookieToken(adminLoginForBrokenReference.response)}`
     },
     body: JSON.stringify([
       ...getProductResponseItems(productsBeforeBrokenReference.body),
@@ -629,7 +642,7 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
     })
   });
   assert.equal(adminLogin.response.status, 200);
-  const adminToken = adminLogin.body.token;
+  const adminToken = getAuthCookieToken(adminLogin.response);
 
   const moderatorLogin = await request("/auth/admin-login", {
     method: "POST",
@@ -640,7 +653,7 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
     })
   });
   assert.equal(moderatorLogin.response.status, 200);
-  const moderatorToken = moderatorLogin.body.token;
+  const moderatorToken = getAuthCookieToken(moderatorLogin.response);
 
   const adminOpsSummary = await request("/admin/ops/summary", {
     headers: { Authorization: `Bearer ${adminToken}` }
@@ -665,6 +678,13 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   });
   assert.equal(restoredSellerSession.response.status, 200);
   assert.equal(restoredSellerSession.body.phoneNumber, "255700333333");
+  assert.equal(Object.prototype.hasOwnProperty.call(restoredSellerSession.body, "token"), false);
+
+  const restoredSellerCookieSession = await request("/auth/session", {
+    headers: { Cookie: getAuthCookieHeader(sellerSignup.response) }
+  });
+  assert.equal(restoredSellerCookieSession.response.status, 200);
+  assert.equal(restoredSellerCookieSession.body.username, sellerUsername);
 
   const clientAlertEvent = await request("/client-events", {
     method: "POST",
