@@ -32,22 +32,34 @@
       fitMode,
       attributes
     }) {
-      if (typeof createProgressiveImage === "function") {
-        return createProgressiveImage({
-          src,
-          alt,
-          className,
-          fallbackSrc,
-          placeholderSrc,
-          fitMode,
-          attributes
-        }).outerHTML;
-      }
+      const normalizedFitMode = normalizeProductFitMode(fitMode);
+      const safeSrc = sanitizeImageSource(src, fallbackSrc);
+      const effectiveFallbackSrc = fallbackSrc || safeSrc;
+      const imageAttributes = {
+        ...(attributes || {}),
+        "data-fit-mode": normalizedFitMode,
+        "data-progressive-full": "true",
+        "data-fallback-src": effectiveFallbackSrc
+      };
       const attrMarkup = Object.entries(attributes || {})
         .filter(([, value]) => value !== undefined && value !== null && value !== false)
         .map(([key, value]) => `${escapeHtml(key)}="${escapeHtml(String(value))}"`)
         .join(" ");
-      return `<img src="${escapeHtml(src)}" alt="${escapeHtml(alt)}" class="${escapeHtml(className)}" data-fit-mode="${escapeHtml(fitMode)}" ${attrMarkup}>`;
+      const fullAttrMarkup = Object.entries(imageAttributes)
+        .filter(([, value]) => value !== undefined && value !== null && value !== false)
+        .map(([key, value]) => `${escapeHtml(key)}="${escapeHtml(String(value))}"`)
+        .join(" ");
+      return `
+        <span class="progressive-image-shell fit-mode-${escapeHtml(normalizedFitMode)} is-loaded"
+          data-progressive-image="true"
+          data-fit-mode="${escapeHtml(normalizedFitMode)}"
+          ${className ? `data-progressive-image-class="${escapeHtml(className)}"` : ""}>
+          <img src="${escapeHtml(safeSrc)}"
+            alt="${escapeHtml(alt)}"
+            class="${escapeHtml(`progressive-image-full fit-mode-${normalizedFitMode}${className ? ` ${className}` : ""}`)}"
+            ${fullAttrMarkup || attrMarkup}>
+        </span>
+      `;
     }
 
     function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {

@@ -96,6 +96,8 @@ test("marketplace gallery module preserves feed carousel markup contract", () =>
   assert.match(html, /data-fit-mode="contain"/);
   assert.match(html, /data-direct-visibility="true"/);
   assert.match(html, /fetchpriority="high"/);
+  assert.match(html, /progressive-image-shell[^"]*is-loaded/);
+  assert.doesNotMatch(source, /createProgressiveImage\([\s\S]*?\)\.outerHTML/);
   assert.match(source, /function bindFeedGalleryInteractions\(scope = document\)/);
   assert.match(source, /track\.addEventListener\("pointerdown"/);
   assert.match(source, /noteProductEngagementSignal\(productId, "variation_swipe", variationSwipeWeight\)/);
