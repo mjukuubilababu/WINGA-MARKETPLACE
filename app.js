@@ -981,7 +981,6 @@ async function registerAppServiceWorker() {
     }
   } catch (error) {
     registerAppServiceWorker.started = false;
-    console.warn("[WINGA] SW failed:", error);
     reportClientEvent("warn", "service_worker_registration_failed", "Service worker registration failed.", {
       category: "runtime",
       message: String(error?.message || error || "unknown")
@@ -10655,6 +10654,7 @@ const {
   createProductDetailContentElement,
   createDetailShowcaseSectionElement,
   getProducts: () => products,
+  isPerformanceDebugEnabled: isExperienceMetricDebugEnabled,
   hydrateContinuationProducts: hydrateProductDetailContinuationProducts,
   getProductById,
   getMarketplaceUser,
@@ -10977,6 +10977,7 @@ const {
   bindShowcaseCardClicks,
   setupDynamicShowcaseLoading,
   reportShowcaseInstrumentation,
+  isPerformanceDebugEnabled: isExperienceMetricDebugEnabled,
   canUseContinuousDiscovery: () => true,
   createContinuousDiscoveryAnchorElement,
   setupContinuousDiscoveryLoading,
@@ -11819,6 +11820,10 @@ function summarizeRuntimeMetricWindow(metric) {
 }
 
 function isExperienceMetricDebugEnabled() {
+  const queryDebugEnabled = /(?:[?&](?:winga_debug_perf|debugPerf)=1)(?:&|$)/i.test(String(window.location?.search || ""));
+  if (isProductionClientRuntime()) {
+    return queryDebugEnabled;
+  }
   try {
     if (window.localStorage?.getItem("winga_debug_perf") === "true") {
       return true;
@@ -11826,7 +11831,7 @@ function isExperienceMetricDebugEnabled() {
   } catch (_error) {
     // Ignore debug storage access failures.
   }
-  return /(?:[?&](?:winga_debug_perf|debugPerf)=1)(?:&|$)/i.test(String(window.location?.search || ""));
+  return queryDebugEnabled;
 }
 
 function getPerformanceNowSafe() {
@@ -12700,6 +12705,7 @@ let homeContinuousDiscoveryRuntime = {
 const observability = createObservabilityModule({
   emitClientEvent: (payload) => window.WingaDataLayer?.logClientEvent?.(payload),
   consoleObject: console,
+  shouldLogToConsole: () => !isProductionClientRuntime() || isExperienceMetricDebugEnabled(),
   getBaseContext: () => ({
     view: currentView || "home",
     role: currentSession?.role || (currentUser ? "authenticated" : "guest"),
@@ -19874,10 +19880,8 @@ function renderCurrentView(options = {}) {
   const force = Boolean(options?.force);
   const isBootInitialRender = reason === "boot_initial_render" && currentView === "home";
   bumpRuntimeDiagnostic("renderCurrentViewCalls");
-  try {
-    performance.mark("winga_render_start");
-  } catch (_error) {
-    // Ignore performance mark failures on older browsers.
+  if (isExperienceMetricDebugEnabled()) {
+    safePerformanceMark("winga_render_start");
   }
   const now = Date.now();
   if (uiRuntimeState.isRenderingView) {
@@ -20132,11 +20136,9 @@ function renderCurrentView(options = {}) {
     uiRuntimeState.isBootInitialRender = false;
     uiRuntimeState.lastRenderCompletedAt = Date.now();
     const renderDurationMs = getPerfNow() - startedAt;
-    try {
-      performance.mark("winga_render_end");
-      performance.measure("winga_render", "winga_render_start", "winga_render_end");
-    } catch (_error) {
-      // Ignore performance measure failures on older browsers.
+    if (isExperienceMetricDebugEnabled()) {
+      safePerformanceMark("winga_render_end");
+      safePerformanceMeasure("winga_render", "winga_render_start", "winga_render_end");
     }
     scheduleMemorySnapshot("render_complete", {
       view: currentView,
@@ -22087,7 +22089,6 @@ window.setTimeout(() => {
 }, BOOT_OVERLAY_HARD_SAFETY_TIMEOUT_MS);
 
 bootApp().catch((error) => {
-  console.error("[WINGA] bootApp failed", error);
   captureClientError("boot_failed", error, {
     provider: window.WINGA_CONFIG?.provider || "unknown"
   });

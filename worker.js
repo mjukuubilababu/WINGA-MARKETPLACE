@@ -86,8 +86,8 @@ async function streamFeedPage(request, env, ctx) {
     } catch (error) {
       await write(`
         <script>
-          console.error("[WINGA] Big Pipe stream failed", ${serializeForInlineScript(String(error?.message || error || "unknown"))});
           window.__WINGA_BIG_PIPE_BOOTSTRAPPED__ = false;
+          window.__WINGA_BIG_PIPE_BOOTSTRAP_ERROR__ = ${serializeForInlineScript(String(error?.message || error || "unknown"))};
         </script>
       `);
       await write(buildDocumentShellEnd());
@@ -919,13 +919,6 @@ function normalizeProductForStream(product, options = {}) {
   const chosenVariantIndex = getSmartVariantIndex(feedPosition, variantCount);
   const chosenVariant = variantCount > 0 ? variants[chosenVariantIndex] : null;
   const hasChosenVariantImages = Boolean(chosenVariant?.images?.length);
-  if (chosenVariant && !hasChosenVariantImages) {
-    console.warn("[WINGA] Variant has no images", {
-      productId: String(product.id || product.productId || product.slug || "").trim(),
-      variantIndex: chosenVariantIndex,
-      color: chosenVariant.color || ""
-    });
-  }
   const displayImages = dedupeUrls(hasChosenVariantImages ? chosenVariant.images : dedupedBaseImages);
   const images = displayImages.length ? displayImages : ["/winga-icon.svg"];
   const baseAspectRatios = normalizeImageAspectRatios(product.imageAspectRatios, dedupedBaseImages.length);

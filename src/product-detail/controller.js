@@ -654,7 +654,7 @@
         allowBrokenImageFallbackOpen = false,
         initialImageIndex = 0
       } = options;
-      if (Number(initialImageIndex || 0) > 0) {
+      if (Number(initialImageIndex || 0) > 0 && deps.isPerformanceDebugEnabled?.()) {
         console.info("[WINGA] variant_detail_open", {
           productId: normalizedProductId,
           initialImageIndex: Number(initialImageIndex || 0) || 0

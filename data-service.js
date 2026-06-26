@@ -3916,7 +3916,6 @@
         }));
       }
     } catch (error) {
-      console.warn("[WINGA] Product startup load failed.", error);
       state.initialProductsRequestState = "error";
       state.productsHydrated = Boolean(state.products.length);
       if (typeof window !== "undefined" && typeof window.dispatchEvent === "function" && typeof window.CustomEvent === "function") {
@@ -3945,7 +3944,7 @@
         return state.users;
       })
       .catch((error) => {
-        console.warn("[WINGA] Optional startup load failed for users.", error);
+        void error;
         return state.users;
       });
 
@@ -3964,7 +3963,7 @@
         return state.categories;
       })
       .catch((error) => {
-        console.warn("[WINGA] Optional startup load failed for categories.", error);
+        void error;
         return state.categories;
       });
   }
@@ -4015,11 +4014,10 @@
           : (config.fallbackProvider || "local");
         const canFallback = fallbackProvider && fallbackProvider !== state.activeProvider;
         if (!canFallback) {
-          console.warn("[WINGA] Startup hydration failed.", error);
+          void error;
           return;
         }
 
-        console.warn(`[WINGA] Provider "${state.activeProvider}" failed during startup hydration. Falling back to "${fallbackProvider}".`, error);
         state.activeProvider = fallbackProvider;
         state.adapter = chooseAdapter({
           ...config,
@@ -4028,7 +4026,7 @@
         try {
           await loadInitialState(state.adapter);
         } catch (fallbackError) {
-          console.warn("[WINGA] Fallback startup hydration failed.", fallbackError);
+          void fallbackError;
         }
       }
     },

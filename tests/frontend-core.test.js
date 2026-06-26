@@ -100,6 +100,57 @@ test("product query surfaces share one paginated contract and bounded virtual no
   assert.match(appSource, /createProductCardElement\(\{\s+\.\.\.product,/);
 });
 
+test("production telemetry stays silent in the browser console while transport remains active", () => {
+  const root = path.resolve(__dirname, "..");
+  const source = fs.readFileSync(path.join(root, "src", "monitoring", "observability.js"), "utf8");
+  const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
+  const marketplaceSource = fs.readFileSync(path.join(root, "src", "marketplace", "ui.js"), "utf8");
+  const detailSource = fs.readFileSync(path.join(root, "src", "product-detail", "controller.js"), "utf8");
+  const logged = [];
+  const emitted = [];
+  const listeners = {};
+  const context = vm.createContext({
+    console: {
+      log: (...args) => logged.push(["log", ...args]),
+      warn: (...args) => logged.push(["warn", ...args]),
+      error: (...args) => logged.push(["error", ...args])
+    },
+    location: { hostname: "wingamarket.com" },
+    window: {
+      WingaModules: { monitoring: {} },
+      addEventListener: (name, callback) => {
+        listeners[name] = callback;
+      }
+    }
+  });
+  vm.runInContext(source, context);
+
+  const observability = context.window.WingaModules.monitoring.createObservabilityModule({
+    emitClientEvent: async (payload) => {
+      emitted.push(payload);
+    },
+    consoleObject: context.console
+  });
+  observability.reportEvent("warn", "scrollStopToImageVisibleMs", "Experience visibility metric exceeded threshold.", {
+    category: "performance",
+    durationMs: 900
+  });
+  observability.reportEvent("info", "app_boot_completed", "Client app boot completed.", {
+    category: "runtime"
+  });
+
+  assert.equal(logged.length, 0);
+  assert.equal(emitted.length, 2);
+  assert.deepEqual(emitted.map((event) => event.event), [
+    "scrollStopToImageVisibleMs",
+    "app_boot_completed"
+  ]);
+  assert.match(appSource, /if \(isProductionClientRuntime\(\)\) \{\s+return queryDebugEnabled;/);
+  assert.match(appSource, /if \(isExperienceMetricDebugEnabled\(\)\) \{\s+safePerformanceMark\("winga_render_start"\);/);
+  assert.match(marketplaceSource, /feedVariantResurface && deps\.isPerformanceDebugEnabled\?\.\(\)/);
+  assert.match(detailSource, /initialImageIndex \|\| 0\) > 0 && deps\.isPerformanceDebugEnabled\?\.\(\)/);
+});
+
 test("service worker refreshes versioned frontend assets without trapping stale CSS", () => {
   const root = path.resolve(__dirname, "..");
   const serviceWorkerSource = fs.readFileSync(path.join(root, "sw.js"), "utf8");
@@ -308,8 +359,7 @@ test("worker selects structured variants and falls back when a variant has no im
   assert.equal(fallbackAfterRenormalize.variantImageFallback, true);
   assert.equal(fallbackAfterRenormalize.feedInitialImageIndex, 1);
   assert.deepEqual(Array.from(fallbackAfterRenormalize.images), ["/main-a.jpg", "/main-b.jpg", "/main-c.jpg"]);
-  assert.equal(variantWarnings.length, 2);
-  assert.equal(variantWarnings[0][0], "[WINGA] Variant has no images");
+  assert.equal(variantWarnings.length, 0);
 });
 
 test("client variant entries prefer selected resurfacing indexes and preserve sequence continuity", () => {

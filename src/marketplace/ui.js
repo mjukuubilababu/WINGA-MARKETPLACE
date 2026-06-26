@@ -733,7 +733,7 @@
           || product?.feedInitialImageIndex
           || 0
         ) || 0;
-        if (product?.feedVariantResurface) {
+        if (product?.feedVariantResurface && deps.isPerformanceDebugEnabled?.()) {
           console.info("[WINGA] variant_card_click", {
             productId,
             initialImageIndex,
@@ -766,7 +766,7 @@
           return;
         }
 
-        if (product?.feedVariantResurface) {
+        if (product?.feedVariantResurface && deps.isPerformanceDebugEnabled?.()) {
           console.info("[WINGA] variant_card_open_detail", {
             productId,
             initialImageIndex

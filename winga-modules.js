@@ -392,6 +392,9 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
       ? deps.emitClientEvent
       : () => Promise.resolve(null);
     const logger = deps.consoleObject || console;
+    const shouldLogToConsole = typeof deps.shouldLogToConsole === "function"
+      ? deps.shouldLogToConsole
+      : () => !isProductionRuntime();
     const getBaseContext = typeof deps.getBaseContext === "function"
       ? deps.getBaseContext
       : () => ({});
@@ -589,7 +592,15 @@ window.WingaModules.monitoring = window.WingaModules.monitoring || {};
           window.__WINGA_EVENT_BUFFER__.splice(0, window.__WINGA_EVENT_BUFFER__.length - 150);
         }
       }
-      if (!(isProductionRuntime() && safeLevel === "info" && noisyProductionEvents.has(String(safeEvent).toLowerCase()))) {
+      if (
+        shouldLogToConsole({
+          level: safeLevel,
+          event: safeEvent,
+          context: safeContext,
+          production: isProductionRuntime()
+        })
+        && !(isProductionRuntime() && safeLevel === "info" && noisyProductionEvents.has(String(safeEvent).toLowerCase()))
+      ) {
         logger[safeLevel === "info" ? "log" : safeLevel]?.(`[WINGA] ${safeEvent}`, {
           level: safeLevel,
           message: finalMessage,
