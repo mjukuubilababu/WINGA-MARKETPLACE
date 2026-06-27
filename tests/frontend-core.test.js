@@ -104,6 +104,23 @@ test("marketplace gallery module preserves feed carousel markup contract", () =>
   assert.match(appSource, /function bindFeedGalleryInteractions\(scope = document\) \{\s+getMarketplaceGalleryTools\(\)\.bindFeedGalleryInteractions\?\.\(scope\);\s+\}/);
 });
 
+test("marketplace image loader is a bundled module dependency, not an app fallback", () => {
+  const root = path.resolve(__dirname, "..");
+  const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
+  const buildSource = fs.readFileSync(path.join(root, "scripts", "build-vercel-static.js"), "utf8");
+  const imageLoaderSource = fs.readFileSync(path.join(root, "src", "marketplace", "image-loader.js"), "utf8");
+
+  assert.match(imageLoaderSource, /function createImageLoaderModule\(deps = \{\}\)/);
+  assert.match(imageLoaderSource, /window\.WingaModules\.marketplace\.createImageLoaderModule = createImageLoaderModule/);
+  assert.match(appSource, /const createMarketplaceImageLoaderModule = window\.WingaModules\.marketplace\.createImageLoaderModule;/);
+  assert.doesNotMatch(appSource, /createMarketplaceImageLoaderModule = window\.WingaModules\.marketplace\.createImageLoaderModule \|\|/);
+  assert.match(appSource, /Winga marketplace image loader module is required before app boot/);
+  assert.ok(
+    buildSource.indexOf('"src/marketplace/image-loader.js"') < buildSource.indexOf('"src/marketplace/ui.js"'),
+    "image loader must be bundled before marketplace UI and app boot"
+  );
+});
+
 test("home pagination retries safely, cancels stale work, and commits pages transactionally", () => {
   const root = path.resolve(__dirname, "..");
   const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
