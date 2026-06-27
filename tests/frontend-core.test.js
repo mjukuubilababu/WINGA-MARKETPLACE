@@ -121,6 +121,72 @@ test("marketplace image loader is a bundled module dependency, not an app fallba
   );
 });
 
+test("auth session runtime module owns restore token and reporting", async () => {
+  const root = path.resolve(__dirname, "..");
+  const source = fs.readFileSync(path.join(root, "src", "auth", "session-runtime.js"), "utf8");
+  const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
+  const buildSource = fs.readFileSync(path.join(root, "scripts", "build-vercel-static.js"), "utf8");
+  const context = vm.createContext({
+    window: { WingaModules: { auth: {} } }
+  });
+  vm.runInContext(source, context);
+
+  const events = [];
+  const bootPhases = [];
+  let currentSession = null;
+  let cancelReason = "";
+  let loginPayload = null;
+  const runtime = context.window.WingaModules.auth.createSessionRuntimeModule({
+    bootTimeoutMs: 50,
+    getBootstrapSession: () => ({ token: "cached-token" }),
+    cancelDataLayerSessionRestore: (reason) => { cancelReason = reason; },
+    isLifecycleEpochCurrent: (epoch) => epoch === 7,
+    isStaffRole: (role) => role === "admin",
+    applySessionState: (session) => { currentSession = session; },
+    getCurrentSession: () => currentSession,
+    saveSessionUser: (session) => events.push(["save", session?.username || ""]),
+    loginSuccess: (...args) => { loginPayload = args; },
+    clearSessionUser: () => events.push(["clear"]),
+    reportClientEvent: (level, eventName) => events.push([level, eventName]),
+    reportBootPhase: (phase, contextPayload) => bootPhases.push([phase, contextPayload]),
+    captureClientError: (eventName) => events.push(["error", eventName]),
+    setTimeoutFn: () => 0,
+    clearTimeoutFn: () => {}
+  });
+
+  runtime.cancelPendingSessionRestore("manual_login");
+  assert.equal(cancelReason, "manual_login");
+  assert.ok(events.some((entry) => entry[1] === "session_restore_cancelled"));
+
+  runtime.startBackgroundSessionRestore(Promise.resolve({ username: "old-user", role: "seller" }), {
+    username: "old-user",
+    role: "seller",
+    token: "stale-token"
+  }, { lifecycleEpoch: 7 });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(loginPayload, null);
+
+  runtime.startBackgroundSessionRestore(Promise.resolve({ username: "maria", role: "admin", primaryCategory: "fashion" }), {
+    username: "maria",
+    role: "admin",
+    token: "cached-token"
+  }, { lifecycleEpoch: 7 });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(currentSession.username, "maria");
+  assert.equal(loginPayload[0], "maria");
+  assert.equal(loginPayload[3].forceView, "admin");
+  assert.ok(bootPhases.some(([phase, payload]) => phase === "session_restore_started" && payload.hasToken === true));
+  assert.ok(bootPhases.some(([phase, payload]) => phase === "session_restore_finished" && payload.outcome === "restored"));
+  assert.match(source, /window\.WingaModules\.auth\.createSessionRuntimeModule = createSessionRuntimeModule/);
+  assert.match(appSource, /window\.WingaModules\?\.auth\?\.createSessionRuntimeModule/);
+  assert.doesNotMatch(appSource, /activeSessionRestoreToken/);
+  assert.ok(
+    buildSource.indexOf('"src/auth/session-runtime.js"') < buildSource.indexOf('"src/boot/lifecycle.js"'),
+    "auth session runtime must be bundled before boot lifecycle/app boot"
+  );
+});
+
 test("boot lifecycle module owns lifecycle epoch and boot target helpers", () => {
   const root = path.resolve(__dirname, "..");
   const lifecycleSource = fs.readFileSync(path.join(root, "src", "boot", "lifecycle.js"), "utf8");

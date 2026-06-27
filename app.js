@@ -207,6 +207,7 @@ const {
   canUseServiceWorkerImageWarmCache
 } = marketplaceImageLoader;
 let bootLifecycleTools = null;
+let authSessionRuntimeTools = null;
 
 function shouldUseBootstrapFeedSnapshot() {
   if (window.WINGA_CONFIG?.enableBootstrapFeedSnapshot === false) {
@@ -7712,21 +7713,41 @@ function shouldDeferBootRenderForPendingStaffSession() {
   );
 }
 
-function cancelPendingSessionRestore(reason = "auth_interaction") {
-  activeSessionRestoreToken += 1;
-  try {
-    window.WingaDataLayer?.cancelSessionRestore?.(reason);
-  } catch (error) {
-    captureClientError("session_restore_cancel_call_failed", error, {
-      category: "auth",
-      alertSeverity: "low",
-      reason
+function getAuthSessionRuntimeTools() {
+  if (!authSessionRuntimeTools) {
+    const factory = window.WingaModules?.auth?.createSessionRuntimeModule;
+    if (typeof factory !== "function") {
+      throw new Error("Winga auth session runtime module is required before app boot.");
+    }
+    authSessionRuntimeTools = factory({
+      bootTimeoutMs: SESSION_RESTORE_BOOT_TIMEOUT_MS,
+      getBootstrapSession: () => window.WingaDataLayer?.bootstrapSession?.() || null,
+      cancelDataLayerSessionRestore: (reason) => window.WingaDataLayer?.cancelSessionRestore?.(reason),
+      isLifecycleEpochCurrent,
+      isAdminLoginRoute,
+      isStaffRole,
+      setAdminLoginRouteActive,
+      showInAppNotification,
+      applySessionState,
+      getCurrentSession: () => currentSession,
+      saveSessionUser,
+      loginSuccess,
+      clearSessionUser,
+      showLoggedOutState,
+      reportClientEvent,
+      reportBootPhase,
+      captureClientError
     });
   }
-  reportClientEvent("info", "session_restore_cancelled", "Cancelled stale session restore flow.", {
-    category: "auth",
-    reason
-  });
+  return authSessionRuntimeTools;
+}
+
+function invalidatePendingSessionRestore() {
+  getAuthSessionRuntimeTools().invalidatePendingSessionRestore();
+}
+
+function cancelPendingSessionRestore(reason = "auth_interaction") {
+  getAuthSessionRuntimeTools().cancelPendingSessionRestore(reason);
 }
 
 function showInstantBootFeedSnapshot(reason = "boot_snapshot") {
@@ -7797,132 +7818,7 @@ function showInstantBootFeedSnapshot(reason = "boot_snapshot") {
 }
 
 function startBackgroundSessionRestore(restorePromise, cachedSession = null, options = {}) {
-  const restoreToken = ++activeSessionRestoreToken;
-  const lifecycleEpoch = Number(options.lifecycleEpoch || 0);
-  const expectedToken = String(cachedSession?.token || "").trim();
-  if (!cachedSession?.username) {
-    return;
-  }
-  reportBootPhase("session_restore_started", {
-    role: cachedSession.role || "",
-    hasToken: Boolean(expectedToken)
-  });
-
-  const shouldIgnoreRestoreOutcome = () => {
-    if (!expectedToken || !window.WingaDataLayer?.bootstrapSession) {
-      return false;
-    }
-    const activeBootstrapSession = window.WingaDataLayer.bootstrapSession();
-    const activeToken = String(activeBootstrapSession?.token || "").trim();
-    return Boolean(activeToken && activeToken !== expectedToken);
-  };
-
-  const timeoutId = window.setTimeout(() => {
-    if (restoreToken !== activeSessionRestoreToken || (lifecycleEpoch && !isLifecycleEpochCurrent(lifecycleEpoch))) {
-      return;
-    }
-    reportClientEvent("warn", "session_restore_timed_out", "Session restore timed out during boot.", {
-      category: "auth",
-      alertSeverity: "medium"
-    });
-  }, SESSION_RESTORE_BOOT_TIMEOUT_MS);
-
-  Promise.resolve(restorePromise)
-    .then((session) => {
-      if (restoreToken !== activeSessionRestoreToken || (lifecycleEpoch && !isLifecycleEpochCurrent(lifecycleEpoch))) {
-        return;
-      }
-      if (shouldIgnoreRestoreOutcome()) {
-        return;
-      }
-      if (timeoutId) {
-        window.clearTimeout(timeoutId);
-      }
-      if (session?.username) {
-        if (isAdminLoginRoute() && !isStaffRole(session.role)) {
-          setAdminLoginRouteActive(false, { replace: true });
-          showInAppNotification({
-            title: "Admin access only",
-            body: "Route hii ni ya admin au moderator pekee.",
-            variant: "warning"
-          });
-        }
-        const nextSession = cachedSession?.username
-          ? {
-            ...cachedSession,
-            ...session
-          }
-          : session;
-        applySessionState(nextSession);
-        saveSessionUser(currentSession);
-        loginSuccess(
-          currentSession.username,
-          currentSession.primaryCategory || "",
-          currentSession,
-          {
-            restoreView: true,
-            skipWelcome: true,
-            deferRender: true,
-            forceView: isStaffRole(currentSession.role) ? "admin" : ""
-          }
-        );
-        reportClientEvent("info", "session_restore_succeeded", "Stored session restored during boot.", {
-          category: "auth",
-          role: currentSession.role || ""
-        });
-        reportBootPhase("session_restore_finished", {
-          outcome: "restored",
-          role: currentSession.role || ""
-        });
-        return;
-      }
-
-      clearSessionUser();
-      applySessionState(null);
-      if (cachedSession?.username && isStaffRole(cachedSession.role || "") && !isAdminLoginRoute()) {
-        showLoggedOutState({
-          audience: "admin",
-          message: "Session ya staff imeisha. Ingia tena kuendelea."
-        });
-      }
-      reportClientEvent("warn", "session_restore_failed", "Stored session could not be restored during boot.", {
-        category: "auth",
-        alertSeverity: "high",
-        role: cachedSession?.role || ""
-      });
-      reportBootPhase("session_restore_finished", {
-        outcome: "missing",
-        role: cachedSession?.role || ""
-      });
-    })
-    .catch((error) => {
-      if (restoreToken !== activeSessionRestoreToken || (lifecycleEpoch && !isLifecycleEpochCurrent(lifecycleEpoch))) {
-        return;
-      }
-      if (shouldIgnoreRestoreOutcome()) {
-        return;
-      }
-      if (timeoutId) {
-        window.clearTimeout(timeoutId);
-      }
-      clearSessionUser();
-      applySessionState(null);
-      if (cachedSession?.username && isStaffRole(cachedSession.role || "") && !isAdminLoginRoute()) {
-        showLoggedOutState({
-          audience: "admin",
-          message: "Session ya staff imeisha. Ingia tena kuendelea."
-        });
-      }
-      captureClientError("session_restore_boot_failed", error, {
-        category: "auth",
-        alertSeverity: "high",
-        hasCachedSession: Boolean(cachedSession?.username)
-      });
-      reportBootPhase("session_restore_finished", {
-        outcome: "failed",
-        role: cachedSession?.role || ""
-      });
-    });
+  getAuthSessionRuntimeTools().startBackgroundSessionRestore(restorePromise, cachedSession, options);
 }
 
 function showLoggedOutState(options = {}) {
@@ -11384,7 +11280,6 @@ let pendingGuestIntent = null;
 let pendingDeepLinkProductId = "";
 let suppressInitialProductHomeRender = false;
 let isSessionRestorePending = false;
-let activeSessionRestoreToken = 0;
 let deepLinkLoadingOverlay = null;
 let deepLinkRecoveryTimer = null;
 let lifecycleFallbackTimer = null;
@@ -15671,7 +15566,7 @@ async function hydrateMissingImageSignatures(productList = products) {
 
 function loginSuccess(username, preferredCategory = "", sessionData = null, options = {}) {
   beginLifecycleEpoch("login_success");
-  activeSessionRestoreToken += 1;
+  invalidatePendingSessionRestore();
   const {
     restoreView = false,
     skipWelcome = false,
@@ -15865,7 +15760,7 @@ function loginSuccess(username, preferredCategory = "", sessionData = null, opti
 
 function logout() {
   beginLifecycleEpoch("logout");
-  activeSessionRestoreToken += 1;
+  invalidatePendingSessionRestore();
   isSessionRestorePending = false;
   const wasStaffSession = isStaffUser();
   const shouldReturnToAdminLogin = wasStaffSession || isAdminLoginRoute();
