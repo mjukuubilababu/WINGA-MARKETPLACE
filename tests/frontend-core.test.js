@@ -481,6 +481,37 @@ test("service worker refreshes versioned frontend assets without trapping stale 
   assert.doesNotMatch(serviceWorkerSource, /const cached = await cache\.match\(event\.request\);\s*if \(cached\) \{\s*return cached;\s*\}\s*const response = await fetch/);
 });
 
+test("production CSP is enforced from repo without inline script escape hatches", () => {
+  const root = path.resolve(__dirname, "..");
+  const vercelConfig = JSON.parse(fs.readFileSync(path.join(root, "vercel.json"), "utf8"));
+  const backendSource = fs.readFileSync(path.join(root, "backend", "server.js"), "utf8");
+  const workerSource = fs.readFileSync(path.join(root, "worker.js"), "utf8");
+  const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
+  const marketplaceSource = fs.readFileSync(path.join(root, "src", "marketplace", "ui.js"), "utf8");
+  const globalHeaders = vercelConfig.headers.find((entry) => entry.source === "/(.*)")?.headers || [];
+  const csp = globalHeaders.find((header) => header.key === "Content-Security-Policy")?.value || "";
+
+  assert.ok(csp, "static frontend CSP must be declared in vercel.json");
+  assert.match(csp, /base-uri 'self'/);
+  assert.match(csp, /frame-ancestors 'none'/);
+  assert.match(csp, /form-action 'self'/);
+  assert.match(csp, /object-src 'none'/);
+  assert.match(csp, /script-src 'self' https:\/\/static\.cloudflareinsights\.com/);
+  assert.match(csp, /script-src-attr 'none'/);
+  assert.match(csp, /style-src-attr 'unsafe-inline'/);
+  assert.doesNotMatch(csp, /unsafe-eval/);
+  assert.doesNotMatch(csp, /script-src[^;]*unsafe-inline/);
+  assert.doesNotMatch(csp, /\*\.onrender\.com/);
+  assert.match(backendSource, /"script-src 'self'"/);
+  assert.match(backendSource, /"script-src-attr 'none'"/);
+  assert.match(backendSource, /"Permissions-Policy": "camera=\(\), microphone=\(\), geolocation=\(\), payment=\(\)"/);
+  assert.match(workerSource, /"Content-Security-Policy": buildContentSecurityPolicy/);
+  assert.match(workerSource, /script-src-attr 'none'/);
+  assert.match(workerSource, /nonce="\$\{escapeHtml\(scriptNonce\)\}"/);
+  assert.doesNotMatch(appSource, /onclick="return window\.__wingaOpenPromotionFromTrigger/);
+  assert.doesNotMatch(marketplaceSource, /onclick:\s*"return window\.__wingaOpenPromotionFromTrigger/);
+});
+
 test("worker cycles production image arrays without dropping gallery images", () => {
   const root = path.resolve(__dirname, "..");
   const source = fs.readFileSync(path.join(root, "worker.js"), "utf8")

@@ -1117,15 +1117,23 @@ function getCspHeader(req) {
   return [
     "default-src 'self'",
     "base-uri 'self'",
+    "form-action 'self'",
     "frame-ancestors 'none'",
     "object-src 'none'",
-    "img-src 'self' data: blob:",
+    "img-src 'self' data: blob: https://wingamarket.com",
     "font-src 'self' data:",
     "media-src 'self' data: blob:",
-    "style-src 'self' 'unsafe-inline'",
-    "script-src 'self' 'unsafe-inline'",
+    "script-src 'self'",
+    "script-src-elem 'self'",
+    "script-src-attr 'none'",
+    "style-src 'self'",
+    "style-src-elem 'self' 'unsafe-inline'",
+    "style-src-attr 'unsafe-inline'",
     `connect-src ${allowedOrigins.join(" ")}`,
-    "form-action 'self'"
+    "worker-src 'self'",
+    "manifest-src 'self'",
+    "frame-src 'none'",
+    "upgrade-insecure-requests"
   ].join("; ");
 }
 
@@ -1135,6 +1143,7 @@ function buildSecurityHeaders(statusCode, extraHeaders = {}, req = null) {
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
     "Referrer-Policy": "no-referrer",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=()",
     "Content-Security-Policy": getCspHeader(req),
     ...extraHeaders
   };

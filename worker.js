@@ -53,6 +53,8 @@ async function streamFeedPage(request, env, ctx) {
   const writer = writable.getWriter();
   const write = (html) => writer.write(encoder.encode(String(html || "")));
   const origin = getOriginBaseUrl(env);
+  const scriptNonce = createCspNonce();
+  const styleNonce = createCspNonce();
   const bootstrapPromise = fetchBootstrapContext(origin, request);
   const preloadBootstrap = await Promise.race([
     bootstrapPromise,
@@ -63,14 +65,14 @@ async function streamFeedPage(request, env, ctx) {
 
   ctx.waitUntil((async () => {
     try {
-      await write(buildDocumentShellStart({ lcpImageUrl, origin }));
+      await write(buildDocumentShellStart({ lcpImageUrl, origin, styleNonce }));
       await write(buildFeedSkeletonChunk());
 
       const bootstrap = await bootstrapPromise;
       const cardsHtml = bootstrap.items.map((product, index) => buildDiscoveryProductCardHtml(product, index, bootstrap)).join("");
 
       await write(`
-        <script>
+        <script nonce="${escapeHtml(scriptNonce)}">
           window.__WINGA_BIG_PIPE_INITIAL_PRODUCTS__ = ${serializeForInlineScript(bootstrap.items)};
           window.__WINGA_BIG_PIPE_INITIAL_USERS__ = ${serializeForInlineScript(bootstrap.users)};
           window.__WINGA_BIG_PIPE_INITIAL_SESSION__ = ${serializeForInlineScript(bootstrap.session)};
@@ -82,15 +84,15 @@ async function streamFeedPage(request, env, ctx) {
         ${cardsHtml}
       `);
 
-      await write(buildDocumentShellEnd());
+      await write(buildDocumentShellEnd({ scriptNonce }));
     } catch (error) {
       await write(`
-        <script>
+        <script nonce="${escapeHtml(scriptNonce)}">
           window.__WINGA_BIG_PIPE_BOOTSTRAPPED__ = false;
           window.__WINGA_BIG_PIPE_BOOTSTRAP_ERROR__ = ${serializeForInlineScript(String(error?.message || error || "unknown"))};
         </script>
       `);
-      await write(buildDocumentShellEnd());
+      await write(buildDocumentShellEnd({ scriptNonce }));
     } finally {
       await writer.close();
     }
@@ -101,9 +103,55 @@ async function streamFeedPage(request, env, ctx) {
       "Content-Type": "text/html; charset=utf-8",
       "Cache-Control": "no-store",
       "X-Content-Type-Options": "nosniff",
+      "Referrer-Policy": "strict-origin-when-cross-origin",
+      "Content-Security-Policy": buildContentSecurityPolicy({ origin, scriptNonce, styleNonce }),
       ...(preloadLinkHeader ? { Link: preloadLinkHeader } : {})
     }
   });
+}
+
+function createCspNonce() {
+  if (globalThis.crypto?.randomUUID) {
+    return globalThis.crypto.randomUUID().replace(/-/g, "");
+  }
+  const bytes = new Uint8Array(16);
+  globalThis.crypto?.getRandomValues?.(bytes);
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function buildContentSecurityPolicy(options = {}) {
+  const origin = String(options.origin || ORIGIN_BASE_URL).trim() || ORIGIN_BASE_URL;
+  const scriptNonce = String(options.scriptNonce || "").trim();
+  const styleNonce = String(options.styleNonce || "").trim();
+  const scriptSources = ["'self'", "https://static.cloudflareinsights.com"];
+  if (scriptNonce) {
+    scriptSources.push(`'nonce-${scriptNonce}'`);
+  }
+  const styleElementSources = ["'self'", "'unsafe-inline'"];
+  if (styleNonce) {
+    styleElementSources.push(`'nonce-${styleNonce}'`);
+  }
+  return [
+    "default-src 'self'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+    "object-src 'none'",
+    `img-src 'self' data: blob: ${origin} https://wingamarket.com`,
+    "font-src 'self' data:",
+    `media-src 'self' data: blob: ${origin}`,
+    `connect-src 'self' ${origin} https://wingamarket.com https://cloudflareinsights.com https://static.cloudflareinsights.com`,
+    `script-src ${scriptSources.join(" ")}`,
+    `script-src-elem ${scriptSources.join(" ")}`,
+    "script-src-attr 'none'",
+    "style-src 'self'",
+    `style-src-elem ${styleElementSources.join(" ")}`,
+    "style-src-attr 'unsafe-inline'",
+    "worker-src 'self'",
+    "manifest-src 'self'",
+    "frame-src 'none'",
+    "upgrade-insecure-requests"
+  ].join("; ");
 }
 
 async function fetchBootstrapContext(origin, request) {
@@ -223,6 +271,8 @@ async function fetchJsonWithTimeout(url, options = {}, timeoutMs = BOOTSTRAP_TIM
 function buildDocumentShellStart(options = {}) {
   const lcpImageUrl = String(options?.lcpImageUrl || "").trim();
   const assetOrigin = String(options?.origin || "").trim();
+  const styleNonce = String(options?.styleNonce || "").trim();
+  const styleNonceAttribute = styleNonce ? ` nonce="${escapeHtml(styleNonce)}"` : "";
   const lcpImagePreloadTag = lcpImageUrl
     ? `  <link rel="preload" as="image" href="${escapeHtml(lcpImageUrl)}" fetchpriority="high">\n`
     : "";
@@ -257,7 +307,7 @@ function buildDocumentShellStart(options = {}) {
   <link rel="icon" href="/winga-icon-192-v3.png" type="image/png" sizes="192x192">
   <link rel="apple-touch-icon" href="/apple-touch-icon-v3.png">
 ${lcpImagePreloadTag}${imageOriginPreconnectTag}  <title>Chap kwa haraka</title>
-  <style id="winga-critical-boot">*{box-sizing:border-box}html,body{background:#ff6a00}body.app-booting{margin:0;min-height:100vh;overflow:hidden;background:#ff6a00}#boot-overlay.boot-overlay{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;padding:24px;background:radial-gradient(circle at 22% 18%,rgba(255,255,255,.38),transparent 28%),linear-gradient(135deg,#ff7a1a 0%,#ff6a00 48%,#d94f00 100%);color:#fff;opacity:1;visibility:visible;pointer-events:auto}#boot-overlay.boot-overlay.is-hidden{opacity:0;visibility:hidden;pointer-events:none}#boot-overlay .boot-overlay-card{width:min(360px,86vw);min-height:210px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;padding:32px 28px;border:1px solid rgba(255,255,255,.28);border-radius:30px;background:rgba(255,255,255,.14);box-shadow:0 28px 70px rgba(99,38,0,.26);text-align:center}#boot-overlay .boot-overlay-mark{display:flex;align-items:center;justify-content:center;gap:14px}#boot-overlay .boot-overlay-badge{width:58px;height:58px;display:inline-flex;align-items:center;justify-content:center;border-radius:20px;background:#fff;color:#ff6a00;font-size:2rem;font-weight:900}#boot-overlay .boot-overlay-mark strong{display:block;font-size:2rem;line-height:1;letter-spacing:.02em}#boot-overlay .boot-overlay-mark span:not(.boot-overlay-badge),#boot-overlay .boot-overlay-copy p{color:rgba(255,255,255,.86);font-weight:700}#boot-overlay .boot-overlay-copy{display:flex;flex-direction:column;align-items:center;gap:12px}#boot-overlay .boot-overlay-copy p{min-height:1.2em;margin:0;font-size:.95rem}#boot-overlay .boot-overlay-spinner{width:34px;height:34px;border-radius:50%;border:3px solid rgba(255,255,255,.38);border-top-color:#fff;animation:wingaCriticalBootSpin .82s linear infinite}@keyframes wingaCriticalBootSpin{to{transform:rotate(360deg)}}.feed-skeleton-card{overflow:hidden}.feed-skeleton-media,.feed-skeleton-line,.feed-skeleton-pill{position:relative;background:rgba(15,23,42,.08)}.feed-skeleton-media::after,.feed-skeleton-line::after,.feed-skeleton-pill::after{content:"";position:absolute;inset:0;transform:translateX(-100%);background:linear-gradient(90deg,transparent,rgba(255,255,255,.75),transparent);animation:winga-feed-skeleton-shimmer 1s linear infinite}.feed-skeleton-media{height:min(68vw,360px);background:rgba(15,23,42,.08)}.feed-skeleton-body{padding:18px 16px 20px;display:grid;gap:12px}.feed-skeleton-line{display:block;height:12px;border-radius:999px}.feed-skeleton-line-title{width:54%;height:16px}.feed-skeleton-line-copy{width:92%}.feed-skeleton-line-copy-short{width:68%}.feed-skeleton-actions{display:flex;gap:10px;padding-top:6px}.feed-skeleton-pill{width:92px;height:34px;border-radius:999px}.feed-skeleton-card.feed-skeleton-card{background:#fff;border-radius:24px;margin:0 0 18px;box-shadow:0 16px 36px rgba(15,23,42,.08)}@keyframes winga-feed-skeleton-shimmer{100%{transform:translateX(100%)}}@media (prefers-reduced-motion:reduce){#boot-overlay .boot-overlay-spinner,.feed-skeleton-media::after,.feed-skeleton-line::after,.feed-skeleton-pill::after{animation:none}}</style>
+  <style id="winga-critical-boot"${styleNonceAttribute}>*{box-sizing:border-box}html,body{background:#ff6a00}body.app-booting{margin:0;min-height:100vh;overflow:hidden;background:#ff6a00}#boot-overlay.boot-overlay{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;padding:24px;background:radial-gradient(circle at 22% 18%,rgba(255,255,255,.38),transparent 28%),linear-gradient(135deg,#ff7a1a 0%,#ff6a00 48%,#d94f00 100%);color:#fff;opacity:1;visibility:visible;pointer-events:auto}#boot-overlay.boot-overlay.is-hidden{opacity:0;visibility:hidden;pointer-events:none}#boot-overlay .boot-overlay-card{width:min(360px,86vw);min-height:210px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;padding:32px 28px;border:1px solid rgba(255,255,255,.28);border-radius:30px;background:rgba(255,255,255,.14);box-shadow:0 28px 70px rgba(99,38,0,.26);text-align:center}#boot-overlay .boot-overlay-mark{display:flex;align-items:center;justify-content:center;gap:14px}#boot-overlay .boot-overlay-badge{width:58px;height:58px;display:inline-flex;align-items:center;justify-content:center;border-radius:20px;background:#fff;color:#ff6a00;font-size:2rem;font-weight:900}#boot-overlay .boot-overlay-mark strong{display:block;font-size:2rem;line-height:1;letter-spacing:.02em}#boot-overlay .boot-overlay-mark span:not(.boot-overlay-badge),#boot-overlay .boot-overlay-copy p{color:rgba(255,255,255,.86);font-weight:700}#boot-overlay .boot-overlay-copy{display:flex;flex-direction:column;align-items:center;gap:12px}#boot-overlay .boot-overlay-copy p{min-height:1.2em;margin:0;font-size:.95rem}#boot-overlay .boot-overlay-spinner{width:34px;height:34px;border-radius:50%;border:3px solid rgba(255,255,255,.38);border-top-color:#fff;animation:wingaCriticalBootSpin .82s linear infinite}@keyframes wingaCriticalBootSpin{to{transform:rotate(360deg)}}.feed-skeleton-card{overflow:hidden}.feed-skeleton-media,.feed-skeleton-line,.feed-skeleton-pill{position:relative;background:rgba(15,23,42,.08)}.feed-skeleton-media::after,.feed-skeleton-line::after,.feed-skeleton-pill::after{content:"";position:absolute;inset:0;transform:translateX(-100%);background:linear-gradient(90deg,transparent,rgba(255,255,255,.75),transparent);animation:winga-feed-skeleton-shimmer 1s linear infinite}.feed-skeleton-media{height:min(68vw,360px);background:rgba(15,23,42,.08)}.feed-skeleton-body{padding:18px 16px 20px;display:grid;gap:12px}.feed-skeleton-line{display:block;height:12px;border-radius:999px}.feed-skeleton-line-title{width:54%;height:16px}.feed-skeleton-line-copy{width:92%}.feed-skeleton-line-copy-short{width:68%}.feed-skeleton-actions{display:flex;gap:10px;padding-top:6px}.feed-skeleton-pill{width:92px;height:34px;border-radius:999px}.feed-skeleton-card.feed-skeleton-card{background:#fff;border-radius:24px;margin:0 0 18px;box-shadow:0 16px 36px rgba(15,23,42,.08)}@keyframes winga-feed-skeleton-shimmer{100%{transform:translateX(100%)}}@media (prefers-reduced-motion:reduce){#boot-overlay .boot-overlay-spinner,.feed-skeleton-media::after,.feed-skeleton-line::after,.feed-skeleton-pill::after{animation:none}}</style>
   <link rel="stylesheet" href="/style.css">
 </head>
 <body class="app-booting">
@@ -477,7 +527,9 @@ function buildFeedSkeletonChunk() {
   `).join("");
 }
 
-function buildDocumentShellEnd() {
+function buildDocumentShellEnd(options = {}) {
+  const scriptNonce = String(options?.scriptNonce || "").trim();
+  const scriptNonceAttribute = scriptNonce ? ` nonce="${escapeHtml(scriptNonce)}"` : "";
   return `</div>
     <div id="empty-state" class="panel" style="display:none;">
       <h3>Hakuna bidhaa zilizopatikana</h3>
@@ -526,7 +578,7 @@ function buildDocumentShellEnd() {
       <p class="public-footer-meta">&copy; 2026 Winga. Marketplace built for fast discovery and trusted transactions.</p>
     </footer>
   </div>
-  <script>
+  <script${scriptNonceAttribute}>
     (function(){
       window.__BIGPIPE_ACTIVE__ = true;
       window.__WINGA_FEED_CONTINUATION_OWNER__ = "app-continuous-discovery";

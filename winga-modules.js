@@ -4852,7 +4852,6 @@ window.WingaModules.boot = window.WingaModules.boot || {};
           textContent: "Promote",
           attributes: {
             type: "button",
-            onclick: "return window.__wingaOpenPromotionFromTrigger ? window.__wingaOpenPromotionFromTrigger(this) : false;",
             "data-promote-product": product.id,
             "data-promote-authorized": "true",
             "data-promote-product-owner": product.uploadedBy || "",
