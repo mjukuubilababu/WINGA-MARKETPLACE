@@ -506,6 +506,9 @@ test("production CSP is enforced from repo without inline script escape hatches"
   assert.match(backendSource, /"script-src-attr 'none'"/);
   assert.match(backendSource, /"Permissions-Policy": "camera=\(\), microphone=\(\), geolocation=\(\), payment=\(\)"/);
   assert.match(workerSource, /"Content-Security-Policy": buildContentSecurityPolicy/);
+  assert.match(workerSource, /function hardenResponseHeaders\(response, env/);
+  assert.match(workerSource, /hardenResponseHeaders\(await env\.ASSETS\.fetch\(request\), env\)/);
+  assert.match(workerSource, /hardenResponseHeaders\(await proxyToOrigin\(request, env\), env\)/);
   assert.match(workerSource, /script-src-attr 'none'/);
   assert.match(workerSource, /nonce="\$\{escapeHtml\(scriptNonce\)\}"/);
   assert.doesNotMatch(appSource, /onclick="return window\.__wingaOpenPromotionFromTrigger/);

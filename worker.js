@@ -20,18 +20,18 @@ export default {
     }
 
     if (url.pathname.startsWith("/uploads/")) {
-      return handleImageCache(request, env, ctx);
+      return hardenResponseHeaders(await handleImageCache(request, env, ctx), env);
     }
 
     if (url.pathname.startsWith("/api/")) {
-      return proxyToOrigin(request, env);
+      return hardenResponseHeaders(await proxyToOrigin(request, env), env);
     }
 
     if (env.ASSETS?.fetch) {
-      return env.ASSETS.fetch(request);
+      return hardenResponseHeaders(await env.ASSETS.fetch(request), env);
     }
 
-    return fetch(request);
+    return hardenResponseHeaders(await fetch(request), env);
   },
 
   async scheduled(_event, env, _ctx) {
@@ -103,7 +103,9 @@ async function streamFeedPage(request, env, ctx) {
       "Content-Type": "text/html; charset=utf-8",
       "Cache-Control": "no-store",
       "X-Content-Type-Options": "nosniff",
+      "X-Frame-Options": "DENY",
       "Referrer-Policy": "strict-origin-when-cross-origin",
+      "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=()",
       "Content-Security-Policy": buildContentSecurityPolicy({ origin, scriptNonce, styleNonce }),
       ...(preloadLinkHeader ? { Link: preloadLinkHeader } : {})
     }
@@ -152,6 +154,25 @@ function buildContentSecurityPolicy(options = {}) {
     "frame-src 'none'",
     "upgrade-insecure-requests"
   ].join("; ");
+}
+
+function hardenResponseHeaders(response, env, options = {}) {
+  const origin = getOriginBaseUrl(env);
+  const headers = new Headers(response.headers);
+  headers.set("Content-Security-Policy", buildContentSecurityPolicy({
+    origin,
+    scriptNonce: options.scriptNonce || "",
+    styleNonce: options.styleNonce || ""
+  }));
+  headers.set("X-Content-Type-Options", "nosniff");
+  headers.set("X-Frame-Options", "DENY");
+  headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+  headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()");
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers
+  });
 }
 
 async function fetchBootstrapContext(origin, request) {
