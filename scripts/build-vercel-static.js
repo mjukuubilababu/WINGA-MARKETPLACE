@@ -77,6 +77,7 @@ const bundledModuleSources = [
   "src/config/promotions.js",
   "src/state/ui-state.js",
   "src/state/runtime-state.js",
+  "src/app/events.js",
   "src/auth/permissions.js",
   "src/auth/session-runtime.js",
   "src/boot/lifecycle.js",

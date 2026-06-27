@@ -121,6 +121,48 @@ test("marketplace image loader is a bundled module dependency, not an app fallba
   );
 });
 
+test("app events module controls global listener registration", () => {
+  const root = path.resolve(__dirname, "..");
+  const source = fs.readFileSync(path.join(root, "src", "app", "events.js"), "utf8");
+  const registrySource = fs.readFileSync(path.join(root, "src", "core", "module-registry.js"), "utf8");
+  const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
+  const buildSource = fs.readFileSync(path.join(root, "scripts", "build-vercel-static.js"), "utf8");
+  const calls = [];
+  const target = {
+    id: "target",
+    addEventListener: (type, handler, options) => calls.push(["add", type, handler, options]),
+    removeEventListener: (type, handler, options) => calls.push(["remove", type, handler, options])
+  };
+  const context = vm.createContext({
+    window: { WingaModules: { app: {} } },
+    document: {},
+    AbortController: undefined
+  });
+  vm.runInContext(source, context);
+  const events = context.window.WingaModules.app.createAppEventsModule();
+  const handler = () => {};
+
+  events.register({ target, type: "click", handler, key: "target:click" });
+  events.register({ target, type: "click", handler, key: "target:click" });
+
+  assert.equal(calls.filter(([kind]) => kind === "add").length, 1);
+  const registeredKeys = events.getRegisteredKeys();
+  assert.equal(registeredKeys.length, 1);
+  assert.equal(registeredKeys[0], "target:click");
+  assert.equal(events.unregister("target:click"), true);
+  assert.equal(calls.filter(([kind]) => kind === "remove").length, 1);
+  assert.match(registrySource, /window\.WingaModules\.app = window\.WingaModules\.app \|\| \{\};/);
+  assert.match(source, /window\.WingaModules\.app\.createAppEventsModule = createAppEventsModule;/);
+  assert.match(appSource, /function registerAppEvent\(target, type, handler, options = undefined, key = ""\)/);
+  assert.match(appSource, /registerAppEvent\(window, "scroll"/);
+  assert.match(appSource, /registerAppEvent\(window, "winga:products-hydrated"/);
+  assert.match(appSource, /registerAppEvent\(document, "visibilitychange"/);
+  assert.ok(
+    buildSource.indexOf('"src/app/events.js"') < buildSource.indexOf('"src/auth/permissions.js"'),
+    "app events module must be bundled before app/auth boot code"
+  );
+});
+
 test("auth session runtime module owns restore token and reporting", async () => {
   const root = path.resolve(__dirname, "..");
   const source = fs.readFileSync(path.join(root, "src", "auth", "session-runtime.js"), "utf8");

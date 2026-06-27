@@ -208,6 +208,7 @@ const {
 } = marketplaceImageLoader;
 let bootLifecycleTools = null;
 let authSessionRuntimeTools = null;
+let appEventsTools = null;
 
 function shouldUseBootstrapFeedSnapshot() {
   if (window.WINGA_CONFIG?.enableBootstrapFeedSnapshot === false) {
@@ -1129,6 +1130,33 @@ function getBootLifecycleTools() {
     });
   }
   return bootLifecycleTools;
+}
+
+function getAppEventsTools() {
+  if (!appEventsTools) {
+    const factory = window.WingaModules?.app?.createAppEventsModule;
+    if (typeof factory !== "function") {
+      throw new Error("Winga app events module is required before app boot.");
+    }
+    appEventsTools = factory({
+      reportDuplicate: (key) => reportClientEvent("warn", "app_event_duplicate_registration", "Duplicate app event registration ignored.", {
+        category: "runtime",
+        key
+      }),
+      captureError: captureClientError
+    });
+  }
+  return appEventsTools;
+}
+
+function registerAppEvent(target, type, handler, options = undefined, key = "") {
+  return getAppEventsTools().register({
+    target,
+    type,
+    handler,
+    options,
+    key
+  });
 }
 
 function beginLifecycleEpoch(kind = "runtime") {
@@ -13811,7 +13839,7 @@ function syncAuthMode() {
 
 bindHeaderEntryActions();
 bindPublicEntryActions();
-window.addEventListener("hashchange", handleAccessRouteChange);
+registerAppEvent(window, "hashchange", handleAccessRouteChange, undefined, "window:hashchange:access-route");
 
 toggleLink.addEventListener("click", () => {
   if (isPasswordRecovery) {
@@ -14585,7 +14613,7 @@ mobileCategoryButton?.addEventListener("click", (event) => {
   toggleMobileCategoryMenu();
 });
 
-document.addEventListener("pointerdown", (event) => {
+registerAppEvent(document, "pointerdown", (event) => {
   if (!searchRuntimeState.isMobileCategoryOpen) {
     return;
   }
@@ -14593,9 +14621,9 @@ document.addEventListener("pointerdown", (event) => {
     return;
   }
   closeMobileCategoryMenu();
-}, true);
+}, true, "document:pointerdown:mobile-category-dismiss");
 
-document.addEventListener("click", (event) => {
+registerAppEvent(document, "click", (event) => {
   const promoteTrigger = event.target.closest?.("[data-promote-product]");
   if (promoteTrigger) {
     const promotionContext = getPromotionTriggerContext(promoteTrigger);
@@ -14631,7 +14659,7 @@ document.addEventListener("click", (event) => {
     searchRuntimeState.isSearchDropdownDismissed = true;
     searchDropdown?.classList.remove("open");
   }
-});
+}, undefined, "document:click:app-shell-dismissals");
 
 function handleWindowResize() {
   toggleHeaderUserMenu(false);
@@ -14646,14 +14674,14 @@ function handleWindowResize() {
   scheduleChromeOffsetSync();
 }
 
-window.addEventListener("resize", handleWindowResize);
+registerAppEvent(window, "resize", handleWindowResize, undefined, "window:resize:layout");
 
-document.addEventListener("keydown", (event) => {
+registerAppEvent(document, "keydown", (event) => {
   if (event.key === "Escape") {
     closeContextChatModal();
     closeProductDetailModal();
   }
-});
+}, undefined, "document:keydown:escape-overlays");
 
 searchImageFileInput.addEventListener("change", async () => {
   const [file] = Array.from(searchImageFileInput.files || []);
@@ -14716,7 +14744,7 @@ viewHomeBackButton?.addEventListener("click", () => {
   restoreStoredHomeScrollPosition();
 });
 
-window.addEventListener("scroll", () => {
+registerAppEvent(window, "scroll", () => {
   const now = Date.now();
   const currentScrollY = window.scrollY || window.pageYOffset || 0;
   const previousScrollY = Number(feedRuntimeState.lastScrollY || 0);
@@ -14746,15 +14774,15 @@ window.addEventListener("scroll", () => {
   if (getViewportWidth() <= 720) {
     scheduleMobileHeaderScrollSync();
   }
-}, { passive: true });
+}, { passive: true }, "window:scroll:home-feed");
 
-window.addEventListener("wheel", () => {
+registerAppEvent(window, "wheel", () => {
   maybeRefreshHomeBackendRunwayOnScroll();
-}, { passive: true });
+}, { passive: true }, "window:wheel:home-backend-runway");
 
-window.addEventListener("touchmove", () => {
+registerAppEvent(window, "touchmove", () => {
   maybeRefreshHomeBackendRunwayOnScroll();
-}, { passive: true });
+}, { passive: true }, "window:touchmove:home-backend-runway");
 
 function handleAppLifecycleChange() {
   if (document.hidden) {
@@ -14794,8 +14822,8 @@ function handleAppLifecycleChange() {
   }
 }
 
-document.addEventListener("visibilitychange", handleAppLifecycleChange);
-window.addEventListener("pagehide", () => {
+registerAppEvent(document, "visibilitychange", handleAppLifecycleChange, undefined, "document:visibilitychange:app-lifecycle");
+registerAppEvent(window, "pagehide", () => {
   if (currentView === "home") {
     saveHomeScrollState(window.scrollY || 0);
     cancelHomeFeedLoadMore("pagehide");
@@ -14807,12 +14835,12 @@ window.addEventListener("pagehide", () => {
   cancelPendingStartupImageWork("pagehide");
   cancelDeferredImageSignatureHydration("pagehide");
   cleanupAppRenderMemory("pagehide", { full: false });
-});
+}, undefined, "window:pagehide:app-lifecycle");
 
-window.addEventListener("resize", () => {
+registerAppEvent(window, "resize", () => {
   syncMobileCategorySheetOffset();
   syncMobileHeaderVisibility(true);
-});
+}, undefined, "window:resize:mobile-chrome");
 
 function inferUserCategory(username) {
   const categoryCounts = products
@@ -15840,7 +15868,7 @@ function logout() {
   updateProfileNavBadge();
 }
 
-window.addEventListener("winga:api-metric", (event) => {
+registerAppEvent(window, "winga:api-metric", (event) => {
   const detail = event?.detail || {};
   const endpoint = String(detail.endpoint || "");
   if (!endpoint.includes("/auth/")) {
@@ -15859,9 +15887,9 @@ window.addEventListener("winga:api-metric", (event) => {
       latencyMs: Math.round(latencyMs)
     });
   }, 0);
-});
+}, undefined, "window:winga-api-metric:auth-latency");
 
-window.addEventListener("winga:products-hydrated", (event) => {
+registerAppEvent(window, "winga:products-hydrated", (event) => {
   const detail = event?.detail || {};
   productHydrationStatus = String(detail.status || "loaded");
   const retainedHomeSurface = currentView === "home" && hasRetainedHomeFeedSurface();
@@ -15926,9 +15954,9 @@ window.addEventListener("winga:products-hydrated", (event) => {
       tryOpenPendingDeepLinkProductRoute();
     });
   }
-});
+}, undefined, "window:products-hydrated:home-render");
 
-window.addEventListener("winga:data-hydrated", (event) => {
+registerAppEvent(window, "winga:data-hydrated", (event) => {
   const source = String(event?.detail?.source || "").trim().toLowerCase();
   auditHydratedDataIntegrity(`data_hydrated_${source || "unknown"}`);
   if (shouldDeferBootRenderForPendingStaffSession()) {
@@ -15946,9 +15974,9 @@ window.addEventListener("winga:data-hydrated", (event) => {
       });
     }
   }
-});
+}, undefined, "window:data-hydrated:surface-refresh");
 
-window.addEventListener("winga:offline-actions-flushed", async (event) => {
+registerAppEvent(window, "winga:offline-actions-flushed", async (event) => {
   const flushedCount = Number(event?.detail?.count || 0);
   const remainingCount = Number(event?.detail?.remaining || 0);
   if (currentUser) {
@@ -15978,28 +16006,28 @@ window.addEventListener("winga:offline-actions-flushed", async (event) => {
       durationMs: remainingCount > 0 ? 4200 : 2600
     });
   }
-});
+}, undefined, "window:offline-actions-flushed:sync-ui");
 
-window.addEventListener("offline", () => {
+registerAppEvent(window, "offline", () => {
   syncNetworkStatusBanner({ forceKeepVisible: true });
   if (!document.getElementById("payment-intent-modal")?.hidden) {
     renderPaymentIntentModal();
   }
-});
+}, undefined, "window:offline:network-banner");
 
-window.addEventListener("online", () => {
+registerAppEvent(window, "online", () => {
   syncNetworkStatusBanner({ justReconnected: true });
   applyReconnectRecoveryHints();
   if (!document.getElementById("payment-intent-modal")?.hidden) {
     renderPaymentIntentModal();
   }
-});
+}, undefined, "window:online:network-banner");
 
 window.setTimeout(() => {
   syncNetworkStatusBanner();
 }, 0);
 
-window.addEventListener("winga:session-invalidated", (event) => {
+registerAppEvent(window, "winga:session-invalidated", (event) => {
   if (isHandlingSessionInvalidation || !currentSession?.username) {
     return;
   }
@@ -16014,7 +16042,7 @@ window.addEventListener("winga:session-invalidated", (event) => {
   window.setTimeout(() => {
     isHandlingSessionInvalidation = false;
   }, 0);
-});
+}, undefined, "window:session-invalidated:logout");
 
 feedLoadingRetryButton?.addEventListener("click", () => {
   reportClientEvent("info", "lifecycle_retry_clicked", "User manually retried lifecycle fallback shell.", {
@@ -16029,7 +16057,7 @@ feedLoadingRetryButton?.addEventListener("click", () => {
   }, 1800);
 });
 
-window.addEventListener("popstate", (event) => {
+registerAppEvent(window, "popstate", (event) => {
   const state = event?.state;
   if (!state || state.wingaProductDetail || !state.wingaAppShell) {
     if (applySharedCollectionRoute({ clearUrl: false }) && appContainer?.style.display !== "none") {
@@ -16078,7 +16106,7 @@ window.addEventListener("popstate", (event) => {
   if (shouldRender && appContainer?.style.display !== "none") {
     renderCurrentView();
   }
-});
+}, undefined, "window:popstate:app-shell");
 
 function syncHeroPanelPosition(isProfile, isUpload) {
   if (!SHOW_HOMEPAGE_HERO_PANEL || !heroPanel || !productsSummary) {
@@ -21379,21 +21407,21 @@ async function bootApp() {
 }
 
 if (!uiRuntimeState.marketplaceImagePipelineLifecycleBound) {
-  document.addEventListener("visibilitychange", () => {
+  registerAppEvent(document, "visibilitychange", () => {
     if (document.hidden) {
       cancelMarketplaceScrollPrefetchWork("document_hidden");
       return;
     }
     resumeMarketplaceImagePipeline("document_visible");
-  });
+  }, undefined, "document:visibilitychange:marketplace-image-pipeline");
 
-  window.addEventListener("pagehide", () => {
+  registerAppEvent(window, "pagehide", () => {
     cancelMarketplaceScrollPrefetchWork("pagehide", {
       clearDecodedCache: false
     });
-  });
+  }, undefined, "window:pagehide:marketplace-image-pipeline");
 
-  window.addEventListener("pageshow", () => {
+  registerAppEvent(window, "pageshow", () => {
     if (currentView === "home" && resumeRetainedHomeFeedSurface("pageshow_resume", {
       productLimit: 10,
       decodeLimit: 4,
@@ -21402,7 +21430,7 @@ if (!uiRuntimeState.marketplaceImagePipelineLifecycleBound) {
       return;
     }
     resumeMarketplaceImagePipeline("pageshow");
-  });
+  }, undefined, "window:pageshow:marketplace-image-pipeline");
 
   uiRuntimeState.marketplaceImagePipelineLifecycleBound = true;
 }
