@@ -16,3 +16,4 @@ window.WingaModules.profile = window.WingaModules.profile || {};
 window.WingaModules.admin = window.WingaModules.admin || {};
 window.WingaModules.productDetail = window.WingaModules.productDetail || {};
 window.WingaModules.monitoring = window.WingaModules.monitoring || {};
+window.WingaModules.boot = window.WingaModules.boot || {};

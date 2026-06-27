@@ -121,6 +121,46 @@ test("marketplace image loader is a bundled module dependency, not an app fallba
   );
 });
 
+test("boot lifecycle module owns lifecycle epoch and boot target helpers", () => {
+  const root = path.resolve(__dirname, "..");
+  const lifecycleSource = fs.readFileSync(path.join(root, "src", "boot", "lifecycle.js"), "utf8");
+  const registrySource = fs.readFileSync(path.join(root, "src", "core", "module-registry.js"), "utf8");
+  const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
+  const buildSource = fs.readFileSync(path.join(root, "scripts", "build-vercel-static.js"), "utf8");
+  const context = vm.createContext({
+    window: { WingaModules: { boot: {} } }
+  });
+  vm.runInContext(lifecycleSource, context);
+  const lifecycleState = {};
+  const lifecycle = context.window.WingaModules.boot.createLifecycleModule({
+    getState: () => lifecycleState,
+    isStaffRole: (role) => role === "admin"
+  });
+
+  const firstEpoch = lifecycle.beginLifecycleEpoch("boot");
+  const secondEpoch = lifecycle.beginLifecycleEpoch("runtime");
+
+  assert.equal(firstEpoch, 1);
+  assert.equal(secondEpoch, 2);
+  assert.equal(lifecycleState.activeKind, "runtime");
+  assert.equal(lifecycle.isLifecycleEpochCurrent(firstEpoch), false);
+  assert.equal(lifecycle.isLifecycleEpochCurrent(secondEpoch), true);
+  const ephemeralOptions = lifecycle.getEphemeralLifecycleViewOptions({ reason: "test" });
+  assert.equal(ephemeralOptions.persist, false);
+  assert.equal(ephemeralOptions.syncHistory, false);
+  assert.equal(ephemeralOptions.reason, "test");
+  assert.equal(lifecycle.getBootTargetView({ role: "admin" }), "admin");
+  assert.equal(lifecycle.getBootTargetView({ role: "seller" }), "home");
+  assert.match(registrySource, /window\.WingaModules\.boot = window\.WingaModules\.boot \|\| \{\};/);
+  assert.match(lifecycleSource, /window\.WingaModules\.boot\.createLifecycleModule = createLifecycleModule;/);
+  assert.match(appSource, /window\.WingaModules\?\.boot\?\.createLifecycleModule/);
+  assert.doesNotMatch(appSource, /lifecycleRuntimeState\.epoch = nextEpoch/);
+  assert.ok(
+    buildSource.indexOf('"src/boot/lifecycle.js"') < buildSource.indexOf('"src/monitoring/performance.js"'),
+    "boot lifecycle module must be bundled before app boot"
+  );
+});
+
 test("app boot helpers avoid duplicate hoisted declarations", () => {
   const root = path.resolve(__dirname, "..");
   const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");

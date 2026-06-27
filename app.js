@@ -206,6 +206,7 @@ const {
   getProductImageCandidates: getFeedImageLoaderCandidates,
   canUseServiceWorkerImageWarmCache
 } = marketplaceImageLoader;
+let bootLifecycleTools = null;
 
 function shouldUseBootstrapFeedSnapshot() {
   if (window.WINGA_CONFIG?.enableBootstrapFeedSnapshot === false) {
@@ -1115,30 +1116,34 @@ function applySessionState(session) {
   hydrateSharedCollectionIntentState(username);
 }
 
+function getBootLifecycleTools() {
+  if (!bootLifecycleTools) {
+    const factory = window.WingaModules?.boot?.createLifecycleModule;
+    if (typeof factory !== "function") {
+      throw new Error("Winga boot lifecycle module is required before app boot.");
+    }
+    bootLifecycleTools = factory({
+      getState: () => lifecycleRuntimeState,
+      isStaffRole
+    });
+  }
+  return bootLifecycleTools;
+}
+
 function beginLifecycleEpoch(kind = "runtime") {
-  const nextEpoch = Number(lifecycleRuntimeState.epoch || 0) + 1;
-  lifecycleRuntimeState.epoch = nextEpoch;
-  lifecycleRuntimeState.activeKind = String(kind || "runtime");
-  return nextEpoch;
+  return getBootLifecycleTools().beginLifecycleEpoch(kind);
 }
 
 function isLifecycleEpochCurrent(epoch) {
-  return Number(epoch || 0) > 0 && Number(epoch) === Number(lifecycleRuntimeState.epoch || 0);
+  return getBootLifecycleTools().isLifecycleEpochCurrent(epoch);
 }
 
 function getEphemeralLifecycleViewOptions(options = {}) {
-  return {
-    persist: false,
-    syncHistory: false,
-    ...options
-  };
+  return getBootLifecycleTools().getEphemeralLifecycleViewOptions(options);
 }
 
 function getBootTargetView(session = currentSession) {
-  if (isStaffRole(session?.role || "")) {
-    return "admin";
-  }
-  return "home";
+  return getBootLifecycleTools().getBootTargetView(session);
 }
 
 function mergeSessionState(patch = {}) {
