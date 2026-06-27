@@ -4331,10 +4331,23 @@
     },
     async refreshProducts() {
       ensureAdapter();
-      const nextProducts = await state.adapter.loadProducts();
-      state.products = Array.isArray(nextProducts) ? sortProductsNewestFirst(nextProducts) : [];
-      state.productsHydrated = true;
-      setFullProductFeedPagination(state.products);
+      if (typeof state.adapter.loadProductsPage === "function") {
+        const config = window.WINGA_CONFIG || {};
+        const refreshedPage = await state.adapter.loadProductsPage({
+          limit: getConfiguredFeedPageLimit(config),
+          page: 1
+        });
+        applyLoadedProductPageToState(refreshedPage, {
+          replace: true,
+          markHydrated: true,
+          requestState: "success"
+        });
+      } else {
+        const nextProducts = await state.adapter.loadProducts();
+        state.products = Array.isArray(nextProducts) ? sortProductsNewestFirst(nextProducts) : [];
+        state.productsHydrated = true;
+        setFullProductFeedPagination(state.products);
+      }
       if (typeof window !== "undefined" && typeof window.dispatchEvent === "function" && typeof window.CustomEvent === "function") {
         window.dispatchEvent(new window.CustomEvent("winga:products-hydrated", {
           detail: {

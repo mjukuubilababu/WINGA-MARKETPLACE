@@ -1063,6 +1063,24 @@ test("resolveBootView returns home for valid session and login otherwise", () =>
   assert.equal(resolveBootView(false), "login");
 });
 
+test("authenticated product refresh preserves paginated feed contract", () => {
+  const root = path.resolve(__dirname, "..");
+  const dataSource = fs.readFileSync(path.join(root, "data-service.js"), "utf8");
+  const refreshStart = dataSource.indexOf("async refreshProducts() {");
+  const refreshEnd = dataSource.indexOf("async requestWhatsappChange", refreshStart);
+  const refreshProductsSource = refreshStart >= 0 && refreshEnd > refreshStart
+    ? dataSource.slice(refreshStart, refreshEnd)
+    : "";
+
+  assert.ok(refreshProductsSource, "refreshProducts implementation should be present");
+  assert.match(refreshProductsSource, /typeof state\.adapter\.loadProductsPage === "function"/);
+  assert.match(refreshProductsSource, /await state\.adapter\.loadProductsPage\(\{/);
+  assert.match(refreshProductsSource, /applyLoadedProductPageToState\(refreshedPage,\s*\{/);
+  assert.match(refreshProductsSource, /replace:\s*true/);
+  assert.match(refreshProductsSource, /markHydrated:\s*true/);
+  assert.doesNotMatch(refreshProductsSource, /setFullProductFeedPagination\(state\.products\);[\s\S]*?loadProductsPage/);
+});
+
 (async () => {
   let passed = 0;
   for (const entry of tests) {
