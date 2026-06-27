@@ -121,6 +121,16 @@ test("marketplace image loader is a bundled module dependency, not an app fallba
   );
 });
 
+test("app boot helpers avoid duplicate hoisted declarations", () => {
+  const root = path.resolve(__dirname, "..");
+  const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
+  const viewportDeclarations = appSource.match(/function getViewportWidth\(/g) || [];
+  const pruneDeclarations = appSource.match(/function pruneTimestampRegistry\(/g) || [];
+
+  assert.equal(viewportDeclarations.length, 1);
+  assert.equal(pruneDeclarations.length, 1);
+});
+
 test("home pagination retries safely, cancels stale work, and commits pages transactionally", () => {
   const root = path.resolve(__dirname, "..");
   const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");

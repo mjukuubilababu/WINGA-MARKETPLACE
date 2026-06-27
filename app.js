@@ -230,20 +230,6 @@ function shouldUseApiLocalCacheFallback() {
   return window.WINGA_CONFIG?.enableApiLocalCacheFallback !== false;
 }
 
-function getViewportWidth() {
-  const candidates = [
-    window.visualViewport?.width,
-    document.documentElement?.clientWidth,
-    window.innerWidth
-  ]
-    .map((value) => Number(value))
-    .filter((value) => Number.isFinite(value) && value > 0);
-  if (!candidates.length) {
-    return 0;
-  }
-  return Math.round(Math.min(...candidates));
-}
-
 function getUsers() {
   return window.WingaDataLayer.getUsers();
 }
@@ -2344,19 +2330,6 @@ const marketplaceScrollImagePrefetchedSources = new Map();
 const marketplaceScrollPrefetchInflight = new Map();
 const marketplaceScrollPrefetchQueue = [];
 let marketplaceScrollPrefetchActiveCount = 0;
-
-function pruneTimestampRegistry(registry, limit = 0) {
-  if (!(registry instanceof Map) || !Number.isFinite(limit) || limit < 1) {
-    return;
-  }
-  while (registry.size > limit) {
-    const oldestKey = registry.keys().next().value;
-    if (typeof oldestKey === "undefined") {
-      break;
-    }
-    registry.delete(oldestKey);
-  }
-}
 
 function markImagePreloaded(src = "") {
   const safeSrc = String(src || "").trim();
