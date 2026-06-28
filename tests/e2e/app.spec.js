@@ -1189,11 +1189,13 @@ test("seller-owned marketplace cards expose the three-dots delete menu on home",
   const { context, page } = await createLoggedInPage(browser, "market_seller", "Pass1234");
   await page.goto("/");
 
-  const ownCardMenu = page.locator("[data-product-card='e2e-prod-1'] [data-menu-toggle='e2e-prod-1']").first();
+  const ownCard = page.locator("#products-container .product-card").filter({ hasText: "Shirt Premium" }).first();
+  await expect(ownCard).toBeVisible();
+  const ownCardMenu = ownCard.locator("[data-menu-toggle]").first();
   await expect(ownCardMenu).toBeVisible();
   await ownCardMenu.click();
-  await expect(page.locator("[data-product-card='e2e-prod-1'] [data-menu-popup='e2e-prod-1']").first()).toContainText("Delete");
-  const popupBox = await page.locator("[data-product-card='e2e-prod-1'] [data-menu-popup='e2e-prod-1']").first().boundingBox();
+  await expect(ownCard.locator("[data-menu-popup]").first()).toContainText("Delete");
+  const popupBox = await ownCard.locator("[data-menu-popup]").first().boundingBox();
   const toggleBox = await ownCardMenu.boundingBox();
   expect(popupBox).not.toBeNull();
   expect(toggleBox).not.toBeNull();
@@ -1208,6 +1210,7 @@ test("seller can delete an owned marketplace card from home via the three-dots m
 
   page.once("dialog", (dialog) => dialog.accept());
 
+  await page.locator("#search-input").fill("Delete Me Listing");
   const card = page.locator("[data-product-card='e2e-prod-delete']").first();
   await expect(card).toBeVisible();
   await card.locator("[data-menu-toggle='e2e-prod-delete']").click();
