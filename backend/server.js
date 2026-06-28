@@ -149,6 +149,7 @@ const MAX_IMAGE_COUNT = 5;
 const MAX_IMAGE_SIZE_MB = 6;
 const MAX_IMAGE_BINARY_BYTES = MAX_IMAGE_SIZE_MB * 1024 * 1024;
 const MAX_DATA_URL_LENGTH = Math.ceil(MAX_IMAGE_BINARY_BYTES * 1.37) + 256;
+const ALLOWED_DATA_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
 const MAX_REQUEST_BODY_BYTES = 16 * 1024 * 1024;
 const MAX_BACKUP_FILES = 5;
 const RATE_LIMIT_WINDOW_MS = 60 * 1000;
@@ -2242,19 +2243,69 @@ function isValidCategory(category) {
   return typeof category === "string" && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(category) && category.length <= 40;
 }
 
+function parseDataImageValue(value) {
+  const match = typeof value === "string"
+    ? value.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,([A-Za-z0-9+/]+={0,2})$/)
+    : null;
+  if (!match) {
+    return null;
+  }
+  const mimeType = String(match[1] || "").toLowerCase();
+  const encoded = String(match[2] || "");
+  if (!ALLOWED_DATA_IMAGE_MIME_TYPES.has(mimeType) || encoded.length % 4 !== 0) {
+    return null;
+  }
+  const buffer = Buffer.from(encoded, "base64");
+  if (!buffer.length || buffer.length > MAX_IMAGE_BINARY_BYTES) {
+    return null;
+  }
+  return { mimeType, encoded, buffer };
+}
+
+function imageBufferMatchesMime(buffer, mimeType) {
+  if (!Buffer.isBuffer(buffer) || !buffer.length) {
+    return false;
+  }
+  switch (mimeType) {
+    case "image/jpeg":
+      return buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+    case "image/png":
+      return buffer.length >= 8
+        && buffer[0] === 0x89
+        && buffer[1] === 0x50
+        && buffer[2] === 0x4e
+        && buffer[3] === 0x47
+        && buffer[4] === 0x0d
+        && buffer[5] === 0x0a
+        && buffer[6] === 0x1a
+        && buffer[7] === 0x0a;
+    case "image/gif":
+      return buffer.length >= 6 && (buffer.subarray(0, 6).toString("ascii") === "GIF87a" || buffer.subarray(0, 6).toString("ascii") === "GIF89a");
+    case "image/webp":
+      return buffer.length >= 12 && buffer.subarray(0, 4).toString("ascii") === "RIFF" && buffer.subarray(8, 12).toString("ascii") === "WEBP";
+    default:
+      return false;
+  }
+}
+
+function isValidDataImageValue(value) {
+  if (typeof value !== "string" || value.length > MAX_DATA_URL_LENGTH) {
+    return false;
+  }
+  const parsed = parseDataImageValue(value);
+  return Boolean(parsed && imageBufferMatchesMime(parsed.buffer, parsed.mimeType));
+}
+
 function isValidImageValue(value) {
   if (typeof value !== "string" || !value) return false;
   if (value.startsWith("data:image/")) {
-    return value.length <= MAX_DATA_URL_LENGTH;
+    return isValidDataImageValue(value);
   }
   return /^https?:\/\//i.test(value) || /^\/uploads\/[a-zA-Z0-9._-]+$/.test(value);
 }
 
 function isValidPrivateImageValue(value) {
-  return typeof value === "string"
-    && /^data:image\/(jpeg|png|webp|gif);base64,/i.test(value)
-    && value.length > 32
-    && value.length <= MAX_DATA_URL_LENGTH;
+  return isValidDataImageValue(value);
 }
 
 function getMimeExtension(mimeType) {
@@ -2302,15 +2353,16 @@ function normalizeStoredImageReference(value) {
 
 function saveDataUrlImage(value) {
   const normalizedValue = normalizeStoredImageReference(value);
-  const match = typeof value === "string"
-    ? value.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/)
-    : null;
+  const parsedImage = parseDataImageValue(value);
 
-  if (!match) {
+  if (!parsedImage) {
     return normalizedValue;
   }
 
-  const [, mimeType, encoded] = match;
+  const { mimeType, buffer } = parsedImage;
+  if (!imageBufferMatchesMime(buffer, mimeType)) {
+    throw new Error("Aina ya picha haijaruhusiwa.");
+  }
   const extension = getMimeExtension(mimeType);
   if (!extension) {
     throw new Error("Aina ya picha haijaruhusiwa.");
@@ -2318,7 +2370,7 @@ function saveDataUrlImage(value) {
 
   const fileName = `${Date.now()}-${crypto.randomBytes(8).toString("hex")}${extension}`;
   const filePath = path.join(UPLOADS_DIR, fileName);
-  fs.writeFileSync(filePath, Buffer.from(encoded, "base64"));
+  fs.writeFileSync(filePath, buffer);
   return `/uploads/${fileName}`;
 }
 

@@ -355,6 +355,50 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   assert.equal(productCreate.body.status, "approved");
   assert.match(productCreate.body.image, /^\/uploads\//);
 
+  const svgDataImage = `data:image/svg+xml;base64,${Buffer.from("<svg xmlns=\"http://www.w3.org/2000/svg\"><script>alert(1)</script></svg>").toString("base64")}`;
+  const svgProductUpload = await request("/products", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${sellerToken}`
+    },
+    body: JSON.stringify({
+      id: "product-test-svg",
+      name: "Kiatu SVG",
+      price: 25000,
+      shop: "Seller One Shop",
+      whatsapp: "255700111111",
+      uploadedBy: "seller_one",
+      category: "viatu",
+      images: [svgDataImage],
+      image: svgDataImage
+    })
+  });
+  assert.equal(svgProductUpload.response.status, 400);
+  assert.match(svgProductUpload.body.error, /picha/i);
+
+  const mismatchedPngImage = `data:image/png;base64,${Buffer.from("not a real png").toString("base64")}`;
+  const mismatchedImageUpload = await request("/products", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${sellerToken}`
+    },
+    body: JSON.stringify({
+      id: "product-test-mismatch-image",
+      name: "Kiatu Fake PNG",
+      price: 25000,
+      shop: "Seller One Shop",
+      whatsapp: "255700111111",
+      uploadedBy: "seller_one",
+      category: "viatu",
+      images: [mismatchedPngImage],
+      image: mismatchedPngImage
+    })
+  });
+  assert.equal(mismatchedImageUpload.response.status, 400);
+  assert.match(mismatchedImageUpload.body.error, /picha/i);
+
   const oversizedImage = `data:image/png;base64,${"A".repeat((16 * 1024 * 1024) + 1024)}`;
   const oversizedProductUpload = await request("/products", {
     method: "POST",
