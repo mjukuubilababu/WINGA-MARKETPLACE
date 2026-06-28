@@ -1192,6 +1192,9 @@ test("api writes attach a CSRF token before sending state-changing requests", ()
   assert.match(backendSource, /pathname === "\/api\/payments\/webhook"/);
   assert.match(backendSource, /url\.pathname === "\/api\/auth\/csrf-token"/);
   assert.match(backendSource, /"Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-CSRF-Token, X-Winga-CSRF-Token"/);
+  assert.match(backendSource, /function validateUnsafeApiOrigin\(req, pathname = ""\)/);
+  assert.match(backendSource, /isServerToServerWebhookPath\(pathname\)/);
+  assert.match(backendSource, /code: "origin_not_allowed"/);
   assert.match(backendSource, /function validateJsonRequestContentType\(req, pathname\)/);
   assert.match(backendSource, /requiresJsonRequestBody\(req, pathname\)/);
   assert.match(backendSource, /function isBodylessApiActionPath\(method, pathname\)/);

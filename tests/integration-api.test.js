@@ -115,6 +115,7 @@ test.before(async () => {
       NODE_ENV: "test",
       WINGA_DATA_DIR: path.join(tempRoot, "data"),
       WINGA_UPLOADS_DIR: path.join(tempRoot, "uploads"),
+      ALLOWED_ORIGINS: "http://localhost:3000,https://wingamarket.com",
       PAYMENT_WEBHOOK_SECRET: "integration-webhook-secret",
       DATABASE_URL: ""
     },
@@ -146,6 +147,35 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   });
   assert.equal(missingCsrfWrite.response.status, 403);
   assert.equal(missingCsrfWrite.body.code, "csrf_failed");
+
+  const blockedOriginWrite = await request("/auth/login", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Origin: "https://evil.example"
+    },
+    body: JSON.stringify({
+      identifier: "missing-user",
+      password: "wrong-password"
+    })
+  });
+  assert.equal(blockedOriginWrite.response.status, 403);
+  assert.equal(blockedOriginWrite.body.code, "origin_not_allowed");
+
+  const allowedOriginWrite = await request("/auth/login", {
+    method: "POST",
+    skipCsrf: true,
+    headers: {
+      "Content-Type": "application/json",
+      Origin: "http://localhost:3000"
+    },
+    body: JSON.stringify({
+      identifier: "missing-user",
+      password: "wrong-password"
+    })
+  });
+  assert.equal(allowedOriginWrite.response.status, 403);
+  assert.equal(allowedOriginWrite.body.code, "csrf_failed");
 
   const unsupportedContentTypeWrite = await request("/auth/login", {
     method: "POST",
@@ -180,6 +210,7 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   });
   assert.equal(webhookWithWrongSecret.response.status, 401);
   assert.notEqual(webhookWithWrongSecret.body.code, "csrf_failed");
+  assert.notEqual(webhookWithWrongSecret.body.code, "origin_not_allowed");
 
   const publicStaffSignup = await request("/auth/signup", {
     method: "POST",

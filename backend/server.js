@@ -1125,6 +1125,27 @@ function getCorsOrigin(req) {
   return getAllowedOrigins().includes(origin) ? origin : "";
 }
 
+function isUnsafeApiMethod(method = "GET") {
+  return ["POST", "PUT", "PATCH", "DELETE"].includes(String(method || "GET").toUpperCase());
+}
+
+function validateUnsafeApiOrigin(req, pathname = "") {
+  if (!String(pathname || "").startsWith("/api/") || !isUnsafeApiMethod(req.method) || isServerToServerWebhookPath(pathname)) {
+    return { ok: true };
+  }
+  const origin = String(req.headers.origin || "").trim();
+  if (!origin) {
+    return { ok: true };
+  }
+  if (getAllowedOrigins().includes(origin)) {
+    return { ok: true };
+  }
+  return {
+    ok: false,
+    origin
+  };
+}
+
 function getCspHeader(req) {
   const allowedOrigins = Array.from(new Set(["'self'", ...getAllowedOrigins()]));
   return [
@@ -4158,6 +4179,19 @@ http.createServer(async (req, res) => {
         "Set-Cookie": buildCsrfCookieHeader(csrfToken, req)
       }
     );
+    return;
+  }
+
+  const originStatus = validateUnsafeApiOrigin(req, url.pathname);
+  if (!originStatus.ok) {
+    requestMeta.statusCode = 403;
+    logRouteSummary(requestMeta, {
+      origin: "blocked"
+    });
+    sendJson(res, 403, {
+      error: "Origin hairuhusiwi kwa request hii.",
+      code: "origin_not_allowed"
+    });
     return;
   }
 
