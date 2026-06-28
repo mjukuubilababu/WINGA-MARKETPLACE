@@ -9,6 +9,7 @@ const ORIGIN_BASE_URL = "https://winga-pflp.onrender.com";
 const DEFAULT_FEED_LIMIT = 12;
 const BOOTSTRAP_TIMEOUT_MS = 3000;
 const IMAGE_EDGE_TTL_SECONDS = 60 * 60 * 24;
+const STRICT_TRANSPORT_SECURITY_HEADER = "max-age=31536000; includeSubDomains; preload";
 const encoder = new TextEncoder();
 
 export default {
@@ -106,6 +107,7 @@ async function streamFeedPage(request, env, ctx) {
       "X-Frame-Options": "DENY",
       "Referrer-Policy": "strict-origin-when-cross-origin",
       "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=()",
+      "Strict-Transport-Security": STRICT_TRANSPORT_SECURITY_HEADER,
       "Content-Security-Policy": buildContentSecurityPolicy({ origin, scriptNonce, styleNonce }),
       ...(preloadLinkHeader ? { Link: preloadLinkHeader } : {})
     }
@@ -168,6 +170,7 @@ function hardenResponseHeaders(response, env, options = {}) {
   headers.set("X-Frame-Options", "DENY");
   headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
   headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()");
+  headers.set("Strict-Transport-Security", STRICT_TRANSPORT_SECURITY_HEADER);
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,

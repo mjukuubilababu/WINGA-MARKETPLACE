@@ -502,9 +502,18 @@ test("production CSP is enforced from repo without inline script escape hatches"
   assert.doesNotMatch(csp, /unsafe-eval/);
   assert.doesNotMatch(csp, /script-src[^;]*unsafe-inline/);
   assert.doesNotMatch(csp, /\*\.onrender\.com/);
+  assert.equal(
+    globalHeaders.find((header) => header.key === "Strict-Transport-Security")?.value,
+    "max-age=31536000; includeSubDomains; preload"
+  );
+  assert.match(backendSource, /const STRICT_TRANSPORT_SECURITY_HEADER = "max-age=31536000; includeSubDomains; preload"/);
+  assert.match(backendSource, /headers\["Strict-Transport-Security"\] = STRICT_TRANSPORT_SECURITY_HEADER/);
   assert.match(backendSource, /"script-src 'self'"/);
   assert.match(backendSource, /"script-src-attr 'none'"/);
   assert.match(backendSource, /"Permissions-Policy": "camera=\(\), microphone=\(\), geolocation=\(\), payment=\(\)"/);
+  assert.match(workerSource, /const STRICT_TRANSPORT_SECURITY_HEADER = "max-age=31536000; includeSubDomains; preload"/);
+  assert.match(workerSource, /"Strict-Transport-Security": STRICT_TRANSPORT_SECURITY_HEADER/);
+  assert.match(workerSource, /headers\.set\("Strict-Transport-Security", STRICT_TRANSPORT_SECURITY_HEADER\)/);
   assert.match(workerSource, /"Content-Security-Policy": buildContentSecurityPolicy/);
   assert.match(workerSource, /function hardenResponseHeaders\(response, env/);
   assert.match(workerSource, /hardenResponseHeaders\(await env\.ASSETS\.fetch\(request\), env\)/);

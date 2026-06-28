@@ -196,6 +196,7 @@ const MAX_API_PRODUCT_LIMIT = 50;
 const AUTH_COOKIE_NAME = "winga_auth";
 const CSRF_COOKIE_NAME = "winga_csrf";
 const CSRF_TOKEN_TTL_MS = 2 * 60 * 60 * 1000;
+const STRICT_TRANSPORT_SECURITY_HEADER = "max-age=31536000; includeSubDomains; preload";
 const RAW_CSRF_SECRET = String(process.env.CSRF_SECRET || "").trim();
 const DEVELOPMENT_CSRF_SECRET = "winga-development-csrf-secret";
 const CSRF_SECRET = NODE_ENV === "production" ? RAW_CSRF_SECRET : (RAW_CSRF_SECRET || DEVELOPMENT_CSRF_SECRET);
@@ -1181,6 +1182,10 @@ function buildSecurityHeaders(statusCode, extraHeaders = {}, req = null) {
     "Content-Security-Policy": getCspHeader(req),
     ...extraHeaders
   };
+
+  if (NODE_ENV === "production" || String(req?.headers?.["x-forwarded-proto"] || "").toLowerCase() === "https") {
+    headers["Strict-Transport-Security"] = STRICT_TRANSPORT_SECURITY_HEADER;
+  }
 
   if (corsOrigin) {
     headers["Access-Control-Allow-Origin"] = corsOrigin;
