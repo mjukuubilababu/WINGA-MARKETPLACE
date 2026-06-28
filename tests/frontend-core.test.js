@@ -487,6 +487,7 @@ test("production CSP is enforced from repo without inline script escape hatches"
   const backendSource = fs.readFileSync(path.join(root, "backend", "server.js"), "utf8");
   const workerSource = fs.readFileSync(path.join(root, "worker.js"), "utf8");
   const staticHeadersSource = fs.readFileSync(path.join(root, "_headers"), "utf8");
+  const productionVerifySource = fs.readFileSync(path.join(root, "scripts", "verify-production-shell.js"), "utf8");
   const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
   const marketplaceSource = fs.readFileSync(path.join(root, "src", "marketplace", "ui.js"), "utf8");
   const globalHeaders = vercelConfig.headers.find((entry) => entry.source === "/(.*)")?.headers || [];
@@ -530,6 +531,9 @@ test("production CSP is enforced from repo without inline script escape hatches"
   assert.match(staticHeadersSource, /script-src-attr 'none'/);
   assert.doesNotMatch(staticHeadersSource, /unsafe-eval/);
   assert.doesNotMatch(staticHeadersSource, /script-src[^;\n]*unsafe-inline/);
+  assert.match(productionVerifySource, /extractVersionedAssetPath\(homeHtml, \/src="\(\\\/app\\\.js\\\?v=/);
+  assert.match(productionVerifySource, /assertHardenedHeaders\(route\.path, response\.headers/);
+  assert.doesNotMatch(productionVerifySource, /\{ path: "\/app\.js", kind: "javascript" \}/);
   assert.match(workerSource, /"Content-Security-Policy": buildContentSecurityPolicy/);
   assert.match(workerSource, /function hardenResponseHeaders\(response, env/);
   assert.match(workerSource, /hardenResponseHeaders\(await env\.ASSETS\.fetch\(request\), env\)/);

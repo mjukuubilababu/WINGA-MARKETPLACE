@@ -4,9 +4,7 @@ const PRODUCTION_ORIGIN = process.env.WINGA_VERIFY_ORIGIN || "https://wingamarke
 const REQUIRED_ROUTES = [
   { path: "/", kind: "html" },
   { path: "/index.html", kind: "html" },
-  { path: "/sw.js", kind: "service-worker" },
-  { path: "/app.js", kind: "javascript" },
-  { path: "/style.css", kind: "css" }
+  { path: "/sw.js", kind: "service-worker" }
 ];
 
 function fetchUrl(url, redirectCount = 0) {
@@ -68,6 +66,35 @@ function assertHtml(route, bodyText) {
   }
 }
 
+function getHeader(headers, name) {
+  return String(headers?.[String(name || "").toLowerCase()] || headers?.[name] || "");
+}
+
+function assertHardenedHeaders(route, headers, options = {}) {
+  const hsts = getHeader(headers, "strict-transport-security");
+  if (!/max-age=31536000/i.test(hsts) || !/includeSubDomains/i.test(hsts)) {
+    throw new Error(`${route} is missing production HSTS.`);
+  }
+  const csp = getHeader(headers, "content-security-policy");
+  if (!csp) {
+    throw new Error(`${route} is missing Content-Security-Policy.`);
+  }
+  if (/unsafe-eval/i.test(csp)) {
+    throw new Error(`${route} CSP still allows unsafe-eval.`);
+  }
+  if (options.disallowScriptInline !== false && /script-src[^;]*unsafe-inline/i.test(csp)) {
+    throw new Error(`${route} CSP still allows inline scripts.`);
+  }
+}
+
+function extractVersionedAssetPath(html, pattern, label) {
+  const match = String(html || "").match(pattern);
+  if (!match?.[1]) {
+    throw new Error(`Production shell is missing versioned ${label}.`);
+  }
+  return match[1].replace(/&amp;/g, "&");
+}
+
 function assertServiceWorker(route, bodyText) {
   const normalized = String(bodyText || "").trim();
   if (!normalized) {
@@ -92,33 +119,54 @@ function assertCss(route, bodyText) {
   }
 }
 
+async function verifyRoute(route) {
+  const url = new URL(route.path, PRODUCTION_ORIGIN).toString();
+  const response = await fetchUrl(url);
+  if (response.statusCode !== 200) {
+    throw new Error(`${route.path} returned ${response.statusCode} instead of 200.`);
+  }
+  if (hasNullBytes(response.body)) {
+    throw new Error(`${route.path} contains NUL bytes and would cause a blank shell.`);
+  }
+  const bodyText = response.body.toString("utf8");
+  if (route.kind === "html") {
+    assertHtml(route.path, bodyText);
+    assertHardenedHeaders(route.path, response.headers, { disallowScriptInline: true });
+  } else if (route.kind === "service-worker") {
+    assertServiceWorker(route.path, bodyText);
+    assertHardenedHeaders(route.path, response.headers, { disallowScriptInline: true });
+  } else if (route.kind === "javascript") {
+    assertJavascript(route.path, bodyText);
+    assertHardenedHeaders(route.path, response.headers, { disallowScriptInline: true });
+  } else if (route.kind === "css") {
+    assertCss(route.path, bodyText);
+    assertHardenedHeaders(route.path, response.headers, { disallowScriptInline: true });
+  }
+  console.log(`OK ${route.path}`);
+  return { bodyText, headers: response.headers };
+}
+
 async function main() {
   console.log(`Verifying production shell at ${PRODUCTION_ORIGIN}`);
+  let homeHtml = "";
   for (const route of REQUIRED_ROUTES) {
-    const url = `${PRODUCTION_ORIGIN}${route.path}`;
-    const response = await fetchUrl(url);
-    if (response.statusCode !== 200) {
-      throw new Error(`${route.path} returned ${response.statusCode} instead of 200.`);
+    const result = await verifyRoute(route);
+    if (route.path === "/") {
+      homeHtml = result.bodyText;
     }
-    if (hasNullBytes(response.body)) {
-      throw new Error(`${route.path} contains NUL bytes and would cause a blank shell.`);
-    }
-    const bodyText = response.body.toString("utf8");
-    if (route.kind === "html") {
-      assertHtml(route.path, bodyText);
-    } else if (route.kind === "service-worker") {
-      assertServiceWorker(route.path, bodyText);
-    } else if (route.kind === "javascript") {
-      assertJavascript(route.path, bodyText);
-    } else if (route.kind === "css") {
-      assertCss(route.path, bodyText);
-    }
-    console.log(`OK ${route.path}`);
   }
+  const appPath = extractVersionedAssetPath(homeHtml, /src="(\/app\.js\?v=[^"]+)"/i, "/app.js");
+  const stylePath = extractVersionedAssetPath(homeHtml, /href="(\/style\.css\?v=[^"]+)"/i, "/style.css");
+  await verifyRoute({ path: appPath, kind: "javascript" });
+  await verifyRoute({ path: stylePath, kind: "css" });
   console.log("Production shell verification passed.");
 }
 
 main().catch((error) => {
-  console.error(`Production shell verification failed: ${error.message}`);
+  const message = error?.message || String(error || "") || "Unknown production verification error";
+  console.error(`Production shell verification failed: ${message}`);
+  if (error?.stack) {
+    console.error(error.stack);
+  }
   process.exit(1);
 });
