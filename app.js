@@ -1111,8 +1111,7 @@ function applySessionState(session) {
     paymentInstructions: String(session.paymentInstructions || "").trim(),
     profileImage: String(session.profileImage || "").trim(),
     verificationStatus: String(session.verificationStatus || "").trim(),
-    verifiedSeller: Boolean(session.verifiedSeller),
-    token: typeof session.token === "string" ? session.token.trim() : ""
+    verifiedSeller: Boolean(session.verifiedSeller)
   };
   currentUser = username;
   hydrateSharedCollectionIntentState(username);

@@ -221,8 +221,13 @@
         return null;
       }
 
+      const { token, ...safeParsedSession } = parsed;
+      if (token) {
+        safeStorageSet(SESSION_KEY, JSON.stringify(safeParsedSession));
+      }
+
       return {
-        ...parsed,
+        ...safeParsedSession,
         username,
         fullName: typeof parsed.fullName === "string" && parsed.fullName.trim() && !/^(null|undefined)$/i.test(parsed.fullName.trim())
           ? parsed.fullName.trim()
@@ -251,9 +256,6 @@
           : "",
         profileImage: typeof parsed.profileImage === "string" && parsed.profileImage.trim() && !/^(null|undefined)$/i.test(parsed.profileImage.trim())
           ? parsed.profileImage.trim()
-          : "",
-        token: typeof parsed.token === "string" && parsed.token.trim() && !/^(null|undefined)$/i.test(parsed.token.trim())
-          ? parsed.token.trim()
           : ""
       };
     } catch (error) {
@@ -2272,12 +2274,6 @@
     }
 
     function createAuthHeaders() {
-      const session = sessionAdapter.loadSession();
-      if (session?.token) {
-        return {
-          Authorization: `Bearer ${session.token}`
-        };
-      }
       return {};
     }
 
@@ -2452,13 +2448,10 @@
         sessionAdapter.clearSession();
       },
       cancelSessionRestore,
-      async logoutSession(tokenOverride = "") {
-        const session = sessionAdapter.loadSession();
-        const token = String(tokenOverride || session?.token || "").trim();
+      async logoutSession() {
         try {
           return await fetchJson(`${baseUrl}/auth/logout`, {
-            method: "POST",
-            headers: token ? { Authorization: `Bearer ${token}` } : {}
+            method: "POST"
           });
         } finally {
           sessionAdapter.clearSession();
@@ -2487,10 +2480,6 @@
         } catch (error) {
           if (error?.code === "aborted") {
             return null;
-          }
-          const stillStoredSession = sessionAdapter.loadSession();
-          if (stillStoredSession?.token && session?.token) {
-            return stillStoredSession;
           }
           sessionAdapter.clearSession();
           return null;

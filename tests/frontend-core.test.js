@@ -1174,9 +1174,13 @@ test("api writes attach a CSRF token before sending state-changing requests", ()
   assert.match(dataSource, /function isUnsafeApiMethod\(method = "GET"\)/);
   assert.match(dataSource, /\/auth\/csrf-token/);
   assert.doesNotMatch(dataSource, /document\.cookie/);
+  assert.doesNotMatch(dataSource, /Authorization: `Bearer/);
+  assert.doesNotMatch(dataSource, /stillStoredSession\?\.token/);
   assert.match(dataSource, /headers\.set\("X-CSRF-Token", await fetchCsrfTokenForRequest\(url\)\)/);
   assert.match(dataSource, /response\.status === 403 && errorCode === "csrf_failed" && !hasRetriedCsrf/);
   assert.match(backendSource, /const CSRF_COOKIE_NAME = "winga_csrf"/);
+  assert.match(backendSource, /function buildSelfSessionPayload\(user\)/);
+  assert.doesNotMatch(backendSource, /payload\.token = token/);
   assert.match(backendSource, /function buildCsrfCookieHeader\(token, req\)[\s\S]*"HttpOnly"/);
   assert.match(backendSource, /const RAW_CSRF_SECRET = String\(process\.env\.CSRF_SECRET \|\| ""\)\.trim\(\)/);
   assert.doesNotMatch(backendSource, /process\.env\.CSRF_SECRET\s*\|\|\s*process\.env\.PAYMENT_WEBHOOK_SECRET/);
@@ -1192,6 +1196,18 @@ test("api writes attach a CSRF token before sending state-changing requests", ()
   assert.match(backendSource, /code: "unsupported_media_type"/);
   assert.match(backendSource, /error\.code = "INVALID_JSON"/);
   assert.match(backendSource, /code: "invalid_json"/);
+});
+
+test("browser session state does not persist or propagate auth tokens", () => {
+  const root = path.resolve(__dirname, "..");
+  const dataSource = fs.readFileSync(path.join(root, "data-service.js"), "utf8");
+  const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
+
+  assert.match(dataSource, /const \{ token, \.\.\.safeParsedSession \} = parsed;/);
+  assert.match(dataSource, /const \{ token, \.\.\.safeSession \} = session;/);
+  assert.doesNotMatch(dataSource, /session\?\.token/);
+  assert.doesNotMatch(dataSource, /Authorization: `Bearer/);
+  assert.doesNotMatch(appSource, /token: typeof session\.token/);
 });
 
 (async () => {

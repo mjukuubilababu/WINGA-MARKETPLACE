@@ -1373,8 +1373,8 @@ function sanitizeUser(user, options = {}) {
   };
 }
 
-function buildSelfSessionPayload(user, token = null) {
-  const payload = {
+function buildSelfSessionPayload(user) {
+  return {
     ...sanitizeUser(user, { viewer: user }),
     phoneNumber: String(user.phoneNumber || "").replace(/\D/g, "").slice(0, 20),
     paymentProvider: user.paymentProvider || "",
@@ -1384,10 +1384,6 @@ function buildSelfSessionPayload(user, token = null) {
     pendingWhatsappNumber: String(user.pendingWhatsappNumber || "").replace(/\D/g, "").slice(0, 20),
     pendingWhatsappExpiresAt: user.pendingWhatsappExpiresAt || ""
   };
-  if (token) {
-    payload.token = token;
-  }
-  return payload;
 }
 
 function sanitizeModeratorUser(user) {
