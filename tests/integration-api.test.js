@@ -88,6 +88,22 @@ function getProductResponseItems(body) {
   return [];
 }
 
+function waitForProcessExit(childProcess, timeoutMs = 6000) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error("Process did not exit in time."));
+    }, timeoutMs);
+    childProcess.once("exit", (code, signal) => {
+      clearTimeout(timer);
+      resolve({ code, signal });
+    });
+    childProcess.once("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+  });
+}
+
 test.before(async () => {
   serverProcess = spawn(process.execPath, ["server.js"], {
     cwd: path.join(process.cwd(), "backend"),
@@ -1474,6 +1490,7 @@ test("production boot still seeds staff accounts when seed env passwords are bla
       WINGA_DATA_DIR: path.join(productionTempRoot, "data"),
       WINGA_UPLOADS_DIR: path.join(productionTempRoot, "uploads"),
       DATABASE_URL: "",
+      CSRF_SECRET: "integration-production-csrf-secret-32-plus-chars",
       ADMIN_SEED_PASSWORD: "",
       MODERATOR_SEED_PASSWORD: "",
       ALLOW_LOCAL_DATA_STORE_IN_PRODUCTION: "true",
@@ -1512,5 +1529,44 @@ test("production boot still seeds staff accounts when seed env passwords are bla
       productionServerProcess.kill();
     }
     fs.rmSync(productionTempRoot, { recursive: true, force: true });
+  }
+});
+
+test("production boot requires a dedicated CSRF secret", async () => {
+  const missingSecretTempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "winga-api-prod-csrf-test-"));
+  const missingSecretPort = 45500 + Math.floor(Math.random() * 1000);
+  let stderr = "";
+  const missingSecretProcess = spawn(process.execPath, ["server.js"], {
+    cwd: path.join(process.cwd(), "backend"),
+    env: {
+      ...process.env,
+      PORT: String(missingSecretPort),
+      NODE_ENV: "production",
+      WINGA_DATA_DIR: path.join(missingSecretTempRoot, "data"),
+      WINGA_UPLOADS_DIR: path.join(missingSecretTempRoot, "uploads"),
+      DATABASE_URL: "",
+      CSRF_SECRET: "",
+      PAYMENT_WEBHOOK_SECRET: "payment-webhook-secret-should-not-be-csrf-fallback",
+      ADMIN_SEED_PASSWORD: "admin-seed-password-should-not-be-csrf-fallback",
+      MODERATOR_SEED_PASSWORD: "moderator-seed-password-should-not-be-csrf-fallback",
+      ALLOW_LOCAL_DATA_STORE_IN_PRODUCTION: "true",
+      ALLOW_DEFAULT_ORIGIN_FALLBACK: "true",
+      ALLOW_UNVERIFIED_MANUAL_PAYMENTS: "true"
+    },
+    stdio: ["ignore", "ignore", "pipe"]
+  });
+
+  try {
+    missingSecretProcess.stderr.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+    const result = await waitForProcessExit(missingSecretProcess);
+    assert.notEqual(result.code, 0);
+    assert.match(stderr, /CSRF_SECRET is required in production/);
+  } finally {
+    if (!missingSecretProcess.killed) {
+      missingSecretProcess.kill();
+    }
+    fs.rmSync(missingSecretTempRoot, { recursive: true, force: true });
   }
 });

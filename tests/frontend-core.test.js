@@ -1125,6 +1125,8 @@ test("api writes attach a CSRF token before sending state-changing requests", ()
   assert.match(dataSource, /headers\.set\("X-CSRF-Token", await fetchCsrfTokenForRequest\(url\)\)/);
   assert.match(dataSource, /response\.status === 403 && errorCode === "csrf_failed" && !hasRetriedCsrf/);
   assert.match(backendSource, /const CSRF_COOKIE_NAME = "winga_csrf"/);
+  assert.match(backendSource, /const RAW_CSRF_SECRET = String\(process\.env\.CSRF_SECRET \|\| ""\)\.trim\(\)/);
+  assert.doesNotMatch(backendSource, /process\.env\.CSRF_SECRET\s*\|\|\s*process\.env\.PAYMENT_WEBHOOK_SECRET/);
   assert.match(backendSource, /function validateCsrfRequest\(req, pathname = ""\)/);
   assert.match(backendSource, /function isServerToServerWebhookPath\(pathname = ""\)/);
   assert.match(backendSource, /pathname === "\/api\/payments\/webhook"/);

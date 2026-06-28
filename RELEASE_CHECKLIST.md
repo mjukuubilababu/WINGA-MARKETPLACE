@@ -4,7 +4,7 @@
 - Confirm `window.WINGA_CONFIG` points to the intended provider for the release environment.
 - Verify API base URL, storage provider fallback, and production env values are correct.
 - Confirm seeded mock mode is disabled for real production environments unless intentionally used for demo.
-- Confirm backend env includes `PAYMENT_WEBHOOK_SECRET` and the intended `TRUST_PROXY_HEADERS` setting for the deployment topology.
+- Confirm backend env includes `CSRF_SECRET`, `PAYMENT_WEBHOOK_SECRET`, and the intended `TRUST_PROXY_HEADERS` setting for the deployment topology.
 
 ## Backend + Data
 - Verify backend health endpoints and startup logs are clean.

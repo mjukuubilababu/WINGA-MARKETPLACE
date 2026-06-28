@@ -194,12 +194,9 @@ const MAX_API_PRODUCT_LIMIT = 50;
 const AUTH_COOKIE_NAME = "winga_auth";
 const CSRF_COOKIE_NAME = "winga_csrf";
 const CSRF_TOKEN_TTL_MS = 2 * 60 * 60 * 1000;
-const CSRF_SECRET = String(
-  process.env.CSRF_SECRET
-  || process.env.PAYMENT_WEBHOOK_SECRET
-  || process.env.ADMIN_SEED_PASSWORD
-  || "winga-development-csrf-secret"
-);
+const RAW_CSRF_SECRET = String(process.env.CSRF_SECRET || "").trim();
+const DEVELOPMENT_CSRF_SECRET = "winga-development-csrf-secret";
+const CSRF_SECRET = NODE_ENV === "production" ? RAW_CSRF_SECRET : (RAW_CSRF_SECRET || DEVELOPMENT_CSRF_SECRET);
 let requestSequence = 0;
 
 function validateRuntimeConfiguration() {
@@ -231,8 +228,10 @@ function validateRuntimeConfiguration() {
     if (!PAYMENT_WEBHOOK_SECRET && !ALLOW_UNVERIFIED_MANUAL_PAYMENTS) {
       errors.push("PAYMENT_WEBHOOK_SECRET is required in production unless ALLOW_UNVERIFIED_MANUAL_PAYMENTS=true is explicitly allowed.");
     }
-    if (!process.env.CSRF_SECRET) {
-      warnings.push("CSRF_SECRET is not configured in production. Set it to a high-entropy secret to keep CSRF tokens stable across restarts.");
+    if (!RAW_CSRF_SECRET) {
+      errors.push("CSRF_SECRET is required in production. Set a high-entropy secret that is separate from admin, session, and webhook secrets.");
+    } else if (RAW_CSRF_SECRET.length < 32) {
+      errors.push("CSRF_SECRET must be at least 32 characters in production.");
     }
   } else {
     if (!DATABASE_URL) {
@@ -261,6 +260,7 @@ if (runtimeConfiguration.errors.length) {
     allowedOriginsCount: CONFIGURED_ALLOWED_ORIGINS.length,
     hasAdminSeedPassword: Boolean(ADMIN_SEED_PASSWORD),
     hasModeratorSeedPassword: Boolean(MODERATOR_SEED_PASSWORD),
+    hasCsrfSecret: Boolean(RAW_CSRF_SECRET),
     hasPaymentWebhookSecret: Boolean(PAYMENT_WEBHOOK_SECRET),
     allowUnverifiedManualPayments: ALLOW_UNVERIFIED_MANUAL_PAYMENTS,
     allowLocalDataStoreInProduction: ALLOW_LOCAL_DATA_STORE_IN_PRODUCTION,
