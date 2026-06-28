@@ -479,6 +479,9 @@ test("seller can change and verify whatsapp number from profile and upload uses 
   await expect(page.locator("#profile-whatsapp-block")).toContainText("Active");
 
   await page.reload();
+  await page.locator("#header-user-trigger").click();
+  await page.locator("[data-header-menu-action='profile']").click();
+  await expect(page.locator("#profile-identity-card")).toBeVisible();
   await expect(page.locator("#profile-whatsapp-block")).toContainText("255700777331");
   await expect(page.locator("#profile-whatsapp-block")).toContainText("Active");
 
