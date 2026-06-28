@@ -64,6 +64,7 @@ async function ensureCsrfToken() {
   const setCookie = response.headers.get("set-cookie") || "";
   const match = setCookie.match(/(?:^|,\s*)winga_csrf=([^;,]+)/);
   assert.ok(match, "csrf endpoint must set winga_csrf cookie");
+  assert.match(setCookie, /HttpOnly/);
   csrfCookie = `winga_csrf=${match[1]}`;
 }
 
@@ -134,7 +135,7 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   const csrfResponse = await request("/auth/csrf-token");
   assert.equal(csrfResponse.response.status, 200);
   assert.ok(csrfResponse.body.csrfToken);
-  assert.match(csrfResponse.response.headers.get("set-cookie") || "", /winga_csrf=/);
+  assert.match(csrfResponse.response.headers.get("set-cookie") || "", /winga_csrf=[^;]+; HttpOnly/);
 
   const missingCsrfWrite = await request("/products", {
     method: "POST",
@@ -1463,6 +1464,7 @@ test("production boot still seeds staff accounts when seed env passwords are bla
     productionCsrfToken = body.csrfToken;
     const match = String(response.headers.get("set-cookie") || "").match(/(?:^|,\s*)winga_csrf=([^;,]+)/);
     assert.ok(match, "production csrf endpoint must set winga_csrf cookie");
+    assert.match(String(response.headers.get("set-cookie") || ""), /HttpOnly/);
     productionCsrfCookie = `winga_csrf=${match[1]}`;
   };
   const productionRequest = async (pathname, options = {}) => {

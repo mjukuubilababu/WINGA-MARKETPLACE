@@ -2083,6 +2083,7 @@ function buildClearAuthCookieHeader(req) {
 function buildCsrfCookieHeader(token, req) {
   const attributes = [
     `${CSRF_COOKIE_NAME}=${encodeURIComponent(String(token || ""))}`,
+    "HttpOnly",
     "Path=/",
     `Max-Age=${Math.floor(CSRF_TOKEN_TTL_MS / 1000)}`,
     `SameSite=${getAuthCookieSameSite()}`
