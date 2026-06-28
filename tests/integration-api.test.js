@@ -65,6 +65,7 @@ async function ensureCsrfToken() {
   const match = setCookie.match(/(?:^|,\s*)winga_csrf=([^;,]+)/);
   assert.ok(match, "csrf endpoint must set winga_csrf cookie");
   assert.match(setCookie, /HttpOnly/);
+  assert.match(setCookie, /Priority=High/);
   csrfCookie = `winga_csrf=${match[1]}`;
 }
 
@@ -220,7 +221,7 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   assert.equal(sellerSignup.body.phoneNumber, "255700111111");
   assert.equal(sellerSignup.body.primaryCategory, "");
   assert.equal(Object.prototype.hasOwnProperty.call(sellerSignup.body, "token"), false);
-  assert.match(sellerSignup.response.headers.get("set-cookie") || "", /winga_auth=[^;]+; HttpOnly; Path=\/; Max-Age=604800; SameSite=Lax/);
+  assert.match(sellerSignup.response.headers.get("set-cookie") || "", /winga_auth=[^;]+; HttpOnly; Path=\/; Max-Age=604800; SameSite=Lax; Priority=High/);
   const sellerToken = getAuthCookieToken(sellerSignup.response);
   const sellerUsername = sellerSignup.body.username;
 
@@ -1443,6 +1444,7 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
     }
   });
   assert.equal(buyerLogout.response.status, 200);
+  assert.match(buyerLogout.response.headers.get("set-cookie") || "", /winga_auth=; HttpOnly; Path=\/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax; Priority=High/);
 
   const buyerSessionAfterLogout = await request("/auth/session", {
     headers: { Authorization: `Bearer ${buyerToken}` }
@@ -1528,6 +1530,7 @@ test("production boot still seeds staff accounts when seed env passwords are bla
     const match = String(response.headers.get("set-cookie") || "").match(/(?:^|,\s*)winga_csrf=([^;,]+)/);
     assert.ok(match, "production csrf endpoint must set winga_csrf cookie");
     assert.match(String(response.headers.get("set-cookie") || ""), /HttpOnly/);
+    assert.match(String(response.headers.get("set-cookie") || ""), /Priority=High/);
     productionCsrfCookie = `winga_csrf=${match[1]}`;
   };
   const productionRequest = async (pathname, options = {}) => {

@@ -2055,7 +2055,8 @@ function buildAuthCookieHeader(token, req) {
     "HttpOnly",
     "Path=/",
     `Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}`,
-    `SameSite=${getAuthCookieSameSite()}`
+    `SameSite=${getAuthCookieSameSite()}`,
+    "Priority=High"
   ];
   if (shouldUseSecureAuthCookie(req)) {
     attributes.push("Secure");
@@ -2069,7 +2070,9 @@ function buildClearAuthCookieHeader(req) {
     "HttpOnly",
     "Path=/",
     "Max-Age=0",
-    `SameSite=${getAuthCookieSameSite()}`
+    "Expires=Thu, 01 Jan 1970 00:00:00 GMT",
+    `SameSite=${getAuthCookieSameSite()}`,
+    "Priority=High"
   ];
   if (shouldUseSecureAuthCookie(req)) {
     attributes.push("Secure");
@@ -2083,7 +2086,8 @@ function buildCsrfCookieHeader(token, req) {
     "HttpOnly",
     "Path=/",
     `Max-Age=${Math.floor(CSRF_TOKEN_TTL_MS / 1000)}`,
-    `SameSite=${getAuthCookieSameSite()}`
+    `SameSite=${getAuthCookieSameSite()}`,
+    "Priority=High"
   ];
   if (shouldUseSecureAuthCookie(req)) {
     attributes.push("Secure");

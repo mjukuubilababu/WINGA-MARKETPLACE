@@ -1182,6 +1182,9 @@ test("api writes attach a CSRF token before sending state-changing requests", ()
   assert.match(backendSource, /function buildSelfSessionPayload\(user\)/);
   assert.doesNotMatch(backendSource, /payload\.token = token/);
   assert.match(backendSource, /function buildCsrfCookieHeader\(token, req\)[\s\S]*"HttpOnly"/);
+  assert.match(backendSource, /function buildAuthCookieHeader\(token, req\)[\s\S]*"Priority=High"/);
+  assert.match(backendSource, /function buildClearAuthCookieHeader\(req\)[\s\S]*"Expires=Thu, 01 Jan 1970 00:00:00 GMT"/);
+  assert.match(backendSource, /function buildCsrfCookieHeader\(token, req\)[\s\S]*"Priority=High"/);
   assert.match(backendSource, /const RAW_CSRF_SECRET = String\(process\.env\.CSRF_SECRET \|\| ""\)\.trim\(\)/);
   assert.doesNotMatch(backendSource, /process\.env\.CSRF_SECRET\s*\|\|\s*process\.env\.PAYMENT_WEBHOOK_SECRET/);
   assert.match(backendSource, /function validateCsrfRequest\(req, pathname = ""\)/);
