@@ -507,6 +507,14 @@ test("production CSP is enforced from repo without inline script escape hatches"
     globalHeaders.find((header) => header.key === "Strict-Transport-Security")?.value,
     "max-age=31536000; includeSubDomains; preload"
   );
+  const scriptAssetHeaders = vercelConfig.headers.find((entry) =>
+    String(entry.source || "").includes("app|app-core|data-service")
+  )?.headers || [];
+  assert.equal(
+    scriptAssetHeaders.find((header) => header.key === "Strict-Transport-Security")?.value,
+    "max-age=31536000; includeSubDomains; preload"
+  );
+  assert.ok(scriptAssetHeaders.find((header) => header.key === "Content-Security-Policy")?.value?.includes("script-src-attr 'none'"));
   assert.match(backendSource, /const STRICT_TRANSPORT_SECURITY_HEADER = "max-age=31536000; includeSubDomains; preload"/);
   assert.match(backendSource, /headers\["Strict-Transport-Security"\] = STRICT_TRANSPORT_SECURITY_HEADER/);
   assert.match(backendSource, /"script-src 'self'"/);
@@ -516,6 +524,8 @@ test("production CSP is enforced from repo without inline script escape hatches"
   assert.match(workerSource, /"Strict-Transport-Security": STRICT_TRANSPORT_SECURITY_HEADER/);
   assert.match(workerSource, /headers\.set\("Strict-Transport-Security", STRICT_TRANSPORT_SECURITY_HEADER\)/);
   assert.match(staticHeadersSource, /Strict-Transport-Security: max-age=31536000; includeSubDomains; preload/);
+  assert.match(staticHeadersSource, /\/app\.js[\s\S]*Cache-Control: public, max-age=300, must-revalidate/);
+  assert.match(staticHeadersSource, /\/app\.js[\s\S]*Strict-Transport-Security: max-age=31536000; includeSubDomains; preload/);
   assert.match(staticHeadersSource, /script-src 'self' https:\/\/static\.cloudflareinsights\.com/);
   assert.match(staticHeadersSource, /script-src-attr 'none'/);
   assert.doesNotMatch(staticHeadersSource, /unsafe-eval/);
