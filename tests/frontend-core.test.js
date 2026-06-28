@@ -1133,6 +1133,19 @@ test("legacy product gallery escapes user-controlled HTML attributes", () => {
   assert.doesNotMatch(gallerySource, /data-image="\$\{sanitizeImageSource\(image,/);
 });
 
+test("shared DOM helper blocks unsafe attributes before setAttribute", () => {
+  const root = path.resolve(__dirname, "..");
+  const helperSource = fs.readFileSync(path.join(root, "src", "components", "dom-helpers.js"), "utf8");
+  const bundleSource = fs.readFileSync(path.join(root, "winga-modules.js"), "utf8");
+
+  [helperSource, bundleSource].forEach((source) => {
+    assert.match(source, /function isUnsafeAttribute\(key, value\)/);
+    assert.match(source, /name\.startsWith\("on"\) \|\| name === "srcdoc"/);
+    assert.match(source, /URL_ATTRIBUTE_NAMES\.has\(name\) && normalizedValue\.startsWith\("javascript:"\)/);
+    assert.match(source, /value !== undefined && value !== null && !isUnsafeAttribute\(key, value\)/);
+  });
+});
+
 test("api writes attach a CSRF token before sending state-changing requests", () => {
   const root = path.resolve(__dirname, "..");
   const dataSource = fs.readFileSync(path.join(root, "data-service.js"), "utf8");

@@ -1126,6 +1126,16 @@ window.WingaModules.boot = window.WingaModules.boot || {};
 // src/components/dom-helpers.js
 (() => {
   const BLOCKED_TAGS = new Set(["script", "style", "iframe", "object", "embed", "link", "meta"]);
+  const URL_ATTRIBUTE_NAMES = new Set(["href", "src", "xlink:href", "formaction"]);
+
+  function isUnsafeAttribute(key, value) {
+    const name = String(key || "").toLowerCase();
+    const normalizedValue = String(value || "").trim().toLowerCase();
+    if (name.startsWith("on") || name === "srcdoc") {
+      return true;
+    }
+    return URL_ATTRIBUTE_NAMES.has(name) && normalizedValue.startsWith("javascript:");
+  }
 
   function createElement(tagName, options = {}) {
     const element = document.createElement(tagName);
@@ -1137,7 +1147,7 @@ window.WingaModules.boot = window.WingaModules.boot || {};
     }
     if (options.attributes) {
       Object.entries(options.attributes).forEach(([key, value]) => {
-        if (value !== undefined && value !== null) {
+        if (value !== undefined && value !== null && !isUnsafeAttribute(key, value)) {
           element.setAttribute(key, String(value));
         }
       });
@@ -14317,4 +14327,3 @@ window.WingaModules.boot = window.WingaModules.boot || {};
 
   window.WingaModules.productDetail.createProductDetailControllerModule = createProductDetailControllerModule;
 })();
-
