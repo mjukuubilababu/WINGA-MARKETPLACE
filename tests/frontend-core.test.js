@@ -1196,6 +1196,11 @@ test("api writes attach a CSRF token before sending state-changing requests", ()
   assert.match(backendSource, /requiresJsonRequestBody\(req, pathname\)/);
   assert.match(backendSource, /function isBodylessApiActionPath\(method, pathname\)/);
   assert.match(backendSource, /\/api\\\/admin\\\/promotions\\\/\[\^\/]\+\\\/disable/);
+  assert.match(backendSource, /const RATE_LIMIT_MAX_BUCKETS = 5000/);
+  assert.match(backendSource, /function pruneRateLimitStore\(now = Date\.now\(\)\)/);
+  assert.match(backendSource, /function evaluateRateLimit\(req, store\)/);
+  assert.match(backendSource, /"Retry-After": String\(rateLimitStatus\.retryAfterSeconds \|\| 60\)/);
+  assert.match(backendSource, /code: "rate_limited"/);
   assert.match(backendSource, /code: "unsupported_media_type"/);
   assert.match(backendSource, /error\.code = "INVALID_JSON"/);
   assert.match(backendSource, /code: "invalid_json"/);

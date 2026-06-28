@@ -1511,6 +1511,9 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   }
   assert.ok(lastAdminLoginAttempt);
   assert.equal(lastAdminLoginAttempt.response.status, 429);
+  assert.equal(lastAdminLoginAttempt.body.code, "rate_limited");
+  assert.match(lastAdminLoginAttempt.response.headers.get("retry-after") || "", /^\d+$/);
+  assert.equal(lastAdminLoginAttempt.response.headers.get("x-ratelimit-remaining"), "0");
 });
 
 test("production boot still seeds staff accounts when seed env passwords are blank", async () => {

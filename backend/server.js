@@ -153,6 +153,7 @@ const ALLOWED_DATA_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image
 const MAX_REQUEST_BODY_BYTES = 16 * 1024 * 1024;
 const MAX_BACKUP_FILES = 5;
 const RATE_LIMIT_WINDOW_MS = 60 * 1000;
+const RATE_LIMIT_MAX_BUCKETS = 5000;
 const BUYER_CANCEL_WINDOW_MS = 48 * 60 * 60 * 1000;
 const MIN_PASSWORD_LENGTH = 6;
 const WHATSAPP_VERIFICATION_CODE_TTL_MS = 10 * 60 * 1000;
@@ -4048,13 +4049,34 @@ function getRateLimitRule(pathname) {
   return null;
 }
 
-function isRateLimited(req, store) {
+function pruneRateLimitStore(now = Date.now()) {
+  if (rateLimitStore.size <= RATE_LIMIT_MAX_BUCKETS) {
+    return;
+  }
+  for (const [key, timestamps] of rateLimitStore.entries()) {
+    const fresh = (Array.isArray(timestamps) ? timestamps : []).filter((timestamp) => now - timestamp < RATE_LIMIT_WINDOW_MS);
+    if (fresh.length) {
+      rateLimitStore.set(key, fresh);
+    } else {
+      rateLimitStore.delete(key);
+    }
+  }
+  while (rateLimitStore.size > RATE_LIMIT_MAX_BUCKETS) {
+    const oldestKey = rateLimitStore.keys().next().value;
+    if (!oldestKey) {
+      break;
+    }
+    rateLimitStore.delete(oldestKey);
+  }
+}
+
+function evaluateRateLimit(req, store) {
   if (process.env.WINGA_DISABLE_RATE_LIMIT === "1") {
-    return false;
+    return { limited: false };
   }
   const rule = getRateLimitRule(new URL(req.url, `http://${req.headers.host}`).pathname);
   if (!rule) {
-    return false;
+    return { limited: false };
   }
 
   const identity = getRateLimitIdentity(req, store);
@@ -4064,7 +4086,15 @@ function isRateLimited(req, store) {
   const fresh = existing.filter((timestamp) => now - timestamp < rule.windowMs);
   fresh.push(now);
   rateLimitStore.set(key, fresh);
-  return fresh.length > rule.limit;
+  pruneRateLimitStore(now);
+  const limited = fresh.length > rule.limit;
+  const retryAfterMs = limited ? Math.max(1000, rule.windowMs - (now - fresh[0])) : 0;
+  return {
+    limited,
+    limit: rule.limit,
+    remaining: Math.max(0, rule.limit - fresh.length),
+    retryAfterSeconds: retryAfterMs ? Math.ceil(retryAfterMs / 1000) : 0
+  };
 }
 
 http.createServer(async (req, res) => {
@@ -4176,7 +4206,8 @@ http.createServer(async (req, res) => {
   }
   const clientIp = getClientIp(req);
 
-  if (isRateLimited(req, store)) {
+  const rateLimitStatus = evaluateRateLimit(req, store);
+  if (rateLimitStatus.limited) {
     await appendAuditLog({
       time: new Date().toISOString(),
       ip: clientIp,
@@ -4184,7 +4215,16 @@ http.createServer(async (req, res) => {
       path: url.pathname,
       event: "rate_limited"
     });
-    sendJson(res, 429, { error: "Majaribio ni mengi sana, subiri kidogo ujaribu tena." });
+    sendJson(
+      res,
+      429,
+      { error: "Majaribio ni mengi sana, subiri kidogo ujaribu tena.", code: "rate_limited" },
+      {
+        "Retry-After": String(rateLimitStatus.retryAfterSeconds || 60),
+        "X-RateLimit-Limit": String(rateLimitStatus.limit || ""),
+        "X-RateLimit-Remaining": "0"
+      }
+    );
     return;
   }
 
