@@ -2224,6 +2224,17 @@ function cleanupSessions(store) {
   };
 }
 
+function replaceUserSessions(store, username, nextSession) {
+  const safeUsername = normalizeIdentifier(username, 40);
+  const now = Date.now();
+  const activeSessions = (store.sessions || []).filter((item) =>
+    item
+    && item.expiresAt >= now
+    && normalizeIdentifier(item.username, 40) !== safeUsername
+  );
+  return [...activeSessions, nextSession];
+}
+
 function getProductIdFromPath(pathname) {
   const match = pathname.match(/^\/api\/products\/([^/]+)$/);
   return match ? decodeURIComponent(match[1]) : "";
@@ -5231,16 +5242,17 @@ http.createServer(async (req, res) => {
         password: createPasswordHash(payload.password)
       };
       const session = createSession(createdUser);
+      const nextSessions = replaceUserSessions(store, createdUser.username, session);
       users.push(createdUser);
       logRouteMemoryStage(requestMeta, "before_signup_write", {
         users: users.length,
-        sessions: Array.isArray(store.sessions) ? store.sessions.length + 1 : 1
+        sessions: nextSessions.length
       });
       await writeStoreWithOptions({
         ...store,
         categories: mergeCategories(store.categories || []),
         users,
-        sessions: [...store.sessions, session]
+        sessions: nextSessions
       }, {
         skipBackup: true
       });
@@ -5388,14 +5400,14 @@ http.createServer(async (req, res) => {
       }
 
       const freshUser = normalizeUserRecord(users[userIndex] || user);
-      const nextSessions = (store.sessions || []).filter((item) => item.username !== freshUser.username);
       const session = createSession(freshUser);
+      const nextSessions = replaceUserSessions(store, freshUser.username, session);
       logRouteMemoryStage(requestMeta, "before_login_write", {
-        sessions: nextSessions.length + 1
+        sessions: nextSessions.length
       });
       await writeStoreWithOptions({
         ...store,
-        sessions: [...nextSessions, session]
+        sessions: nextSessions
       }, {
         skipBackup: true
       });
@@ -5471,14 +5483,14 @@ http.createServer(async (req, res) => {
       }
 
       const freshUser = normalizeUserRecord(users[userIndex] || user);
-      const nextSessions = (store.sessions || []).filter((item) => item.username !== freshUser.username);
       const session = createSession(freshUser);
+      const nextSessions = replaceUserSessions(store, freshUser.username, session);
       logRouteMemoryStage(requestMeta, "before_admin_login_write", {
-        sessions: nextSessions.length + 1
+        sessions: nextSessions.length
       });
       await writeStoreWithOptions({
         ...store,
-        sessions: [...nextSessions, session]
+        sessions: nextSessions
       }, {
         skipBackup: true
       });

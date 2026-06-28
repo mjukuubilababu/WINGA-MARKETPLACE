@@ -1185,6 +1185,12 @@ test("api writes attach a CSRF token before sending state-changing requests", ()
   assert.match(backendSource, /function buildAuthCookieHeader\(token, req\)[\s\S]*"Priority=High"/);
   assert.match(backendSource, /function buildClearAuthCookieHeader\(req\)[\s\S]*"Expires=Thu, 01 Jan 1970 00:00:00 GMT"/);
   assert.match(backendSource, /function buildCsrfCookieHeader\(token, req\)[\s\S]*"Priority=High"/);
+  assert.match(backendSource, /function replaceUserSessions\(store, username, nextSession\)/);
+  assert.match(backendSource, /normalizeIdentifier\(item\.username, 40\) !== safeUsername/);
+  assert.match(backendSource, /const nextSessions = replaceUserSessions\(store, createdUser\.username, session\)/);
+  assert.match(backendSource, /const nextSessions = replaceUserSessions\(store, freshUser\.username, session\)/);
+  assert.doesNotMatch(backendSource, /sessions: \[\.\.\.store\.sessions, session\]/);
+  assert.doesNotMatch(backendSource, /sessions: \[\.\.\.nextSessions, session\]/);
   assert.match(backendSource, /const RAW_CSRF_SECRET = String\(process\.env\.CSRF_SECRET \|\| ""\)\.trim\(\)/);
   assert.doesNotMatch(backendSource, /process\.env\.CSRF_SECRET\s*\|\|\s*process\.env\.PAYMENT_WEBHOOK_SECRET/);
   assert.match(backendSource, /function validateCsrfRequest\(req, pathname = ""\)/);
