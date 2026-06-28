@@ -1115,6 +1115,24 @@ test("authenticated product refresh preserves paginated feed contract", () => {
   assert.doesNotMatch(refreshProductsSource, /setFullProductFeedPagination\(state\.products\);[\s\S]*?loadProductsPage/);
 });
 
+test("legacy product gallery escapes user-controlled HTML attributes", () => {
+  const root = path.resolve(__dirname, "..");
+  const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
+  const galleryStart = appSource.indexOf("function renderProductGallery(product)");
+  const galleryEnd = appSource.indexOf("function beginPurchaseFlow", galleryStart);
+  const gallerySource = galleryStart >= 0 && galleryEnd > galleryStart
+    ? appSource.slice(galleryStart, galleryEnd)
+    : "";
+
+  assert.ok(gallerySource, "renderProductGallery implementation should be present");
+  assert.match(gallerySource, /const safeProductId = escapeHtml\(product\?\.id \|\| ""\)/);
+  assert.match(gallerySource, /const safeProductName = escapeHtml\(product\?\.name \|\| "Product"\)/);
+  assert.match(gallerySource, /src="\$\{escapeHtml\(firstImage\)\}"/);
+  assert.doesNotMatch(gallerySource, /alt="\$\{product\.name\}"/);
+  assert.doesNotMatch(gallerySource, /data-gallery-stage="\$\{product\.id\}"/);
+  assert.doesNotMatch(gallerySource, /data-image="\$\{sanitizeImageSource\(image,/);
+});
+
 test("api writes attach a CSRF token before sending state-changing requests", () => {
   const root = path.resolve(__dirname, "..");
   const dataSource = fs.readFileSync(path.join(root, "data-service.js"), "utf8");

@@ -19657,23 +19657,30 @@ function renderProductGallery(product) {
   const safeImages = getRenderableMarketplaceImages(product);
   const firstImage = sanitizeImageSource(safeImages[0] || "", getImageFallbackDataUri("WINGA"));
   const fitMode = getProductFitMode(product);
+  const safeProductId = escapeHtml(product?.id || "");
+  const safeProductName = escapeHtml(product?.name || "Product");
+  const fallbackWinga = escapeHtml(getImageFallbackDataUri("WINGA"));
+  const fallbackThumb = escapeHtml(getImageFallbackDataUri("W"));
 
   return `
     <div class="product-gallery media-gallery fit-mode-${escapeHtml(fitMode)}${safeImages.length > 1 ? " has-media-stack" : ""}" data-fit-mode="${escapeHtml(fitMode)}">
-      <img class="gallery-stage zoomable-image fit-mode-${escapeHtml(fitMode)}" src="${firstImage}" alt="${product.name}" data-gallery-stage="${product.id}" data-zoom-src="${firstImage}" data-zoom-alt="${product.name}" data-image-action-product="${product.id}" data-image-action-src="${firstImage}" data-image-action-surface="feed" loading="lazy" data-fallback-src="${getImageFallbackDataUri("WINGA")}" data-fit-mode="${escapeHtml(fitMode)}">
+      <img class="gallery-stage zoomable-image fit-mode-${escapeHtml(fitMode)}" src="${escapeHtml(firstImage)}" alt="${safeProductName}" data-gallery-stage="${safeProductId}" data-zoom-src="${escapeHtml(firstImage)}" data-zoom-alt="${safeProductName}" data-image-action-product="${safeProductId}" data-image-action-src="${escapeHtml(firstImage)}" data-image-action-surface="feed" loading="lazy" data-fallback-src="${fallbackWinga}" data-fit-mode="${escapeHtml(fitMode)}">
       ${safeImages.length > 1 ? `
         <div class="gallery-thumbs">
-          ${safeImages.map((image, index) => `
+          ${safeImages.map((image, index) => {
+            const thumbSrc = escapeHtml(sanitizeImageSource(image, getImageFallbackDataUri("W")));
+            return `
             <img
               class="gallery-thumb ${index === 0 ? "active" : ""}"
-              src="${sanitizeImageSource(image, getImageFallbackDataUri("W"))}"
-              alt="${product.name} ${index + 1}"
-              data-gallery-target="${product.id}"
-              data-image="${sanitizeImageSource(image, getImageFallbackDataUri("W"))}"
+              src="${thumbSrc}"
+              alt="${safeProductName} ${index + 1}"
+              data-gallery-target="${safeProductId}"
+              data-image="${thumbSrc}"
               data-disable-image-zoom="true"
               loading="lazy"
-              data-fallback-src="${getImageFallbackDataUri("W")}">
-          `).join("")}
+              data-fallback-src="${fallbackThumb}">
+          `;
+          }).join("")}
         </div>
       ` : ""}
     </div>
