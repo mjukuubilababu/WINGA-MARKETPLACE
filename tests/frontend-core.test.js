@@ -486,6 +486,7 @@ test("production CSP is enforced from repo without inline script escape hatches"
   const vercelConfig = JSON.parse(fs.readFileSync(path.join(root, "vercel.json"), "utf8"));
   const backendSource = fs.readFileSync(path.join(root, "backend", "server.js"), "utf8");
   const workerSource = fs.readFileSync(path.join(root, "worker.js"), "utf8");
+  const staticHeadersSource = fs.readFileSync(path.join(root, "_headers"), "utf8");
   const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
   const marketplaceSource = fs.readFileSync(path.join(root, "src", "marketplace", "ui.js"), "utf8");
   const globalHeaders = vercelConfig.headers.find((entry) => entry.source === "/(.*)")?.headers || [];
@@ -514,6 +515,11 @@ test("production CSP is enforced from repo without inline script escape hatches"
   assert.match(workerSource, /const STRICT_TRANSPORT_SECURITY_HEADER = "max-age=31536000; includeSubDomains; preload"/);
   assert.match(workerSource, /"Strict-Transport-Security": STRICT_TRANSPORT_SECURITY_HEADER/);
   assert.match(workerSource, /headers\.set\("Strict-Transport-Security", STRICT_TRANSPORT_SECURITY_HEADER\)/);
+  assert.match(staticHeadersSource, /Strict-Transport-Security: max-age=31536000; includeSubDomains; preload/);
+  assert.match(staticHeadersSource, /script-src 'self' https:\/\/static\.cloudflareinsights\.com/);
+  assert.match(staticHeadersSource, /script-src-attr 'none'/);
+  assert.doesNotMatch(staticHeadersSource, /unsafe-eval/);
+  assert.doesNotMatch(staticHeadersSource, /script-src[^;\n]*unsafe-inline/);
   assert.match(workerSource, /"Content-Security-Policy": buildContentSecurityPolicy/);
   assert.match(workerSource, /function hardenResponseHeaders\(response, env/);
   assert.match(workerSource, /hardenResponseHeaders\(await env\.ASSETS\.fetch\(request\), env\)/);
