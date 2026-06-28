@@ -134,7 +134,7 @@
       const slides = images.map((src, index) => {
         const safeSrc = sanitizeImageSource(String(src || "").trim(), getImageFallbackDataUri("WINGA"));
         return `
-          <div class="feed-gallery-carousel-slide" data-feed-gallery-slide="${index}">
+          <div class="feed-gallery-carousel-slide feed-gallery-tile" data-feed-gallery-slide="${index}">
             ${renderFallbackImageMarkup({
               src: safeSrc,
               alt: `${product?.name || product?.shop || "Product image"} ${index + 1}`,

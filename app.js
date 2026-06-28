@@ -16154,10 +16154,6 @@ function hasPrioritySearchResults(resultCount) {
 
 function getSearchDropdownProducts(filteredProducts) {
   const immediateItems = Array.isArray(filteredProducts) ? filteredProducts.slice(0, 8) : [];
-  if (immediateItems.length > 0) {
-    return immediateItems;
-  }
-
   const keyword = searchInput.value.trim();
   if (!keyword) {
     return immediateItems;
@@ -16183,7 +16179,18 @@ function getSearchDropdownProducts(filteredProducts) {
       return haystack.includes(normalizedKeyword);
     });
 
-  return globalMatches.slice(0, 8);
+  const mergedItems = [];
+  const seenIds = new Set();
+  [...immediateItems, ...globalMatches].forEach((product) => {
+    const productId = String(product?.id || product?.productId || "").trim();
+    if (!productId || seenIds.has(productId)) {
+      return;
+    }
+    seenIds.add(productId);
+    mergedItems.push(product);
+  });
+
+  return mergedItems.slice(0, 8);
 }
 
 function scrollToProductCard(productId) {

@@ -324,7 +324,7 @@
           ? deps.sanitizeImageSource(src || "", deps.getImageFallbackDataUri("WINGA"))
           : src;
         const slide = createElement("div", {
-          className: "feed-gallery-carousel-slide",
+          className: "feed-gallery-carousel-slide feed-gallery-tile",
           attributes: { "data-feed-gallery-slide": String(index) }
         });
         slide.appendChild(createProgressiveImage({

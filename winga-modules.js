@@ -3200,7 +3200,7 @@ window.WingaModules.boot = window.WingaModules.boot || {};
       const slides = images.map((src, index) => {
         const safeSrc = sanitizeImageSource(String(src || "").trim(), getImageFallbackDataUri("WINGA"));
         return `
-          <div class="feed-gallery-carousel-slide" data-feed-gallery-slide="${index}">
+          <div class="feed-gallery-carousel-slide feed-gallery-tile" data-feed-gallery-slide="${index}">
             ${renderFallbackImageMarkup({
               src: safeSrc,
               alt: `${product?.name || product?.shop || "Product image"} ${index + 1}`,
@@ -4730,7 +4730,7 @@ window.WingaModules.boot = window.WingaModules.boot || {};
           ? deps.sanitizeImageSource(src || "", deps.getImageFallbackDataUri("WINGA"))
           : src;
         const slide = createElement("div", {
-          className: "feed-gallery-carousel-slide",
+          className: "feed-gallery-carousel-slide feed-gallery-tile",
           attributes: { "data-feed-gallery-slide": String(index) }
         });
         slide.appendChild(createProgressiveImage({

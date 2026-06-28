@@ -896,6 +896,13 @@ test("getSearchQueryDescriptor expands broad shoe intent without dropping exact 
   assert.ok(descriptor.expandedTerms.includes("sneaker"));
 });
 
+test("search dropdown merges immediate results with broad global matches", () => {
+  const root = path.resolve(__dirname, "..");
+  const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
+  assert.match(appSource, /\[\.\.\.immediateItems,\s*\.\.\.globalMatches\]\.forEach/);
+  assert.match(appSource, /seenIds\.has\(productId\)/);
+});
+
 test("filterProducts respects expanded top categories like electronics", () => {
   const products = [
     {
