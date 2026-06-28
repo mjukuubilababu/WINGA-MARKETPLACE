@@ -10,6 +10,8 @@ const port = 43000 + Math.floor(Math.random() * 1000);
 const baseUrl = `http://127.0.0.1:${port}/api`;
 
 let serverProcess;
+let csrfToken = "";
+let csrfCookie = "";
 
 async function waitForServer(url, timeoutMs = 15000) {
   const startedAt = Date.now();
@@ -28,9 +30,41 @@ async function waitForServer(url, timeoutMs = 15000) {
 }
 
 async function request(pathname, options = {}) {
-  const response = await fetch(`${baseUrl}${pathname}`, options);
+  const requestOptions = { ...options };
+  if (shouldAttachCsrf(requestOptions)) {
+    await ensureCsrfToken();
+    const headers = new Headers(requestOptions.headers || {});
+    headers.set("X-CSRF-Token", csrfToken);
+    const existingCookie = headers.get("Cookie") || headers.get("cookie") || "";
+    headers.set("Cookie", [existingCookie, csrfCookie].filter(Boolean).join("; "));
+    requestOptions.headers = headers;
+  }
+  delete requestOptions.skipCsrf;
+  const response = await fetch(`${baseUrl}${pathname}`, requestOptions);
   const body = response.status === 204 ? null : await response.json();
   return { response, body };
+}
+
+function shouldAttachCsrf(options = {}) {
+  if (options.skipCsrf) {
+    return false;
+  }
+  return ["POST", "PUT", "PATCH", "DELETE"].includes(String(options.method || "GET").toUpperCase());
+}
+
+async function ensureCsrfToken() {
+  if (csrfToken && csrfCookie) {
+    return;
+  }
+  const response = await fetch(`${baseUrl}/auth/csrf-token`);
+  const body = await response.json();
+  assert.equal(response.status, 200);
+  assert.ok(body.csrfToken);
+  csrfToken = body.csrfToken;
+  const setCookie = response.headers.get("set-cookie") || "";
+  const match = setCookie.match(/(?:^|,\s*)winga_csrf=([^;,]+)/);
+  assert.ok(match, "csrf endpoint must set winga_csrf cookie");
+  csrfCookie = `winga_csrf=${match[1]}`;
 }
 
 function getAuthCookieHeader(response) {
@@ -80,6 +114,20 @@ test.after(() => {
 
 test("critical seller, buyer, session, moderation, and monitoring flows work together", async () => {
   const tinyImage = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jk4cAAAAASUVORK5CYII=";
+  const csrfResponse = await request("/auth/csrf-token");
+  assert.equal(csrfResponse.response.status, 200);
+  assert.ok(csrfResponse.body.csrfToken);
+  assert.match(csrfResponse.response.headers.get("set-cookie") || "", /winga_csrf=/);
+
+  const missingCsrfWrite = await request("/products", {
+    method: "POST",
+    skipCsrf: true,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({})
+  });
+  assert.equal(missingCsrfWrite.response.status, 403);
+  assert.equal(missingCsrfWrite.body.code, "csrf_failed");
+
   const publicStaffSignup = await request("/auth/signup", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -1369,8 +1417,32 @@ test("production boot still seeds staff accounts when seed env passwords are bla
   const productionTempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "winga-api-prod-test-"));
   const productionPort = 44000 + Math.floor(Math.random() * 1000);
   const productionBaseUrl = `http://127.0.0.1:${productionPort}/api`;
+  let productionCsrfToken = "";
+  let productionCsrfCookie = "";
+  const ensureProductionCsrfToken = async () => {
+    if (productionCsrfToken && productionCsrfCookie) {
+      return;
+    }
+    const response = await fetch(`${productionBaseUrl}/auth/csrf-token`);
+    const body = await response.json();
+    assert.equal(response.status, 200);
+    productionCsrfToken = body.csrfToken;
+    const match = String(response.headers.get("set-cookie") || "").match(/(?:^|,\s*)winga_csrf=([^;,]+)/);
+    assert.ok(match, "production csrf endpoint must set winga_csrf cookie");
+    productionCsrfCookie = `winga_csrf=${match[1]}`;
+  };
   const productionRequest = async (pathname, options = {}) => {
-    const response = await fetch(`${productionBaseUrl}${pathname}`, options);
+    const requestOptions = { ...options };
+    if (shouldAttachCsrf(requestOptions)) {
+      await ensureProductionCsrfToken();
+      const headers = new Headers(requestOptions.headers || {});
+      headers.set("X-CSRF-Token", productionCsrfToken);
+      const existingCookie = headers.get("Cookie") || headers.get("cookie") || "";
+      headers.set("Cookie", [existingCookie, productionCsrfCookie].filter(Boolean).join("; "));
+      requestOptions.headers = headers;
+    }
+    delete requestOptions.skipCsrf;
+    const response = await fetch(`${productionBaseUrl}${pathname}`, requestOptions);
     const body = response.status === 204 ? null : await response.json();
     return { response, body };
   };

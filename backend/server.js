@@ -192,6 +192,14 @@ const DEFAULT_BOOTSTRAP_PRODUCT_LIMIT = 12;
 const MAX_BOOTSTRAP_PRODUCT_LIMIT = 24;
 const MAX_API_PRODUCT_LIMIT = 50;
 const AUTH_COOKIE_NAME = "winga_auth";
+const CSRF_COOKIE_NAME = "winga_csrf";
+const CSRF_TOKEN_TTL_MS = 2 * 60 * 60 * 1000;
+const CSRF_SECRET = String(
+  process.env.CSRF_SECRET
+  || process.env.PAYMENT_WEBHOOK_SECRET
+  || process.env.ADMIN_SEED_PASSWORD
+  || "winga-development-csrf-secret"
+);
 let requestSequence = 0;
 
 function validateRuntimeConfiguration() {
@@ -222,6 +230,9 @@ function validateRuntimeConfiguration() {
     }
     if (!PAYMENT_WEBHOOK_SECRET && !ALLOW_UNVERIFIED_MANUAL_PAYMENTS) {
       errors.push("PAYMENT_WEBHOOK_SECRET is required in production unless ALLOW_UNVERIFIED_MANUAL_PAYMENTS=true is explicitly allowed.");
+    }
+    if (!process.env.CSRF_SECRET) {
+      warnings.push("CSRF_SECRET is not configured in production. Set it to a high-entropy secret to keep CSRF tokens stable across restarts.");
     }
   } else {
     if (!DATABASE_URL) {
@@ -1152,7 +1163,7 @@ function buildSecurityHeaders(statusCode, extraHeaders = {}, req = null) {
     headers["Access-Control-Allow-Origin"] = corsOrigin;
     headers["Vary"] = "Origin";
     headers["Access-Control-Allow-Methods"] = "GET,POST,PUT,PATCH,DELETE,OPTIONS";
-    headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization";
+    headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-CSRF-Token, X-Winga-CSRF-Token";
     headers["Access-Control-Allow-Credentials"] = "true";
   }
 
@@ -2067,6 +2078,83 @@ function buildClearAuthCookieHeader(req) {
     attributes.push("Secure");
   }
   return attributes.join("; ");
+}
+
+function buildCsrfCookieHeader(token, req) {
+  const attributes = [
+    `${CSRF_COOKIE_NAME}=${encodeURIComponent(String(token || ""))}`,
+    "Path=/",
+    `Max-Age=${Math.floor(CSRF_TOKEN_TTL_MS / 1000)}`,
+    `SameSite=${getAuthCookieSameSite()}`
+  ];
+  if (shouldUseSecureAuthCookie(req)) {
+    attributes.push("Secure");
+  }
+  return attributes.join("; ");
+}
+
+function signCsrfPayload(payload) {
+  return crypto
+    .createHmac("sha256", CSRF_SECRET)
+    .update(String(payload || ""))
+    .digest("base64url");
+}
+
+function createCsrfToken() {
+  const nonce = crypto.randomBytes(24).toString("base64url");
+  const expiresAt = Date.now() + CSRF_TOKEN_TTL_MS;
+  const payload = `${nonce}.${expiresAt}`;
+  return `${payload}.${signCsrfPayload(payload)}`;
+}
+
+function timingSafeStringEqual(first = "", second = "") {
+  const firstBuffer = Buffer.from(String(first || ""));
+  const secondBuffer = Buffer.from(String(second || ""));
+  if (firstBuffer.length !== secondBuffer.length) {
+    return false;
+  }
+  return crypto.timingSafeEqual(firstBuffer, secondBuffer);
+}
+
+function isValidCsrfToken(token = "") {
+  const parts = String(token || "").split(".");
+  if (parts.length !== 3) {
+    return false;
+  }
+  const [nonce, expiresAtText, signature] = parts;
+  if (!nonce || !expiresAtText || !signature) {
+    return false;
+  }
+  const expiresAt = Number(expiresAtText);
+  if (!Number.isFinite(expiresAt) || expiresAt < Date.now()) {
+    return false;
+  }
+  const payload = `${nonce}.${expiresAtText}`;
+  return timingSafeStringEqual(signature, signCsrfPayload(payload));
+}
+
+function isCsrfProtectedMethod(method = "GET") {
+  return ["POST", "PUT", "PATCH", "DELETE"].includes(String(method || "GET").toUpperCase());
+}
+
+function isCsrfExemptPath(pathname = "") {
+  return pathname === "/api/auth/csrf-token" || pathname === "/api/health";
+}
+
+function validateCsrfRequest(req, pathname = "") {
+  if (!String(pathname || "").startsWith("/api/") || !isCsrfProtectedMethod(req.method) || isCsrfExemptPath(pathname)) {
+    return { ok: true };
+  }
+  const cookies = parseCookies(req);
+  const cookieToken = String(cookies[CSRF_COOKIE_NAME] || "").trim();
+  const headerToken = String(req.headers["x-csrf-token"] || req.headers["x-winga-csrf-token"] || "").trim();
+  if (!cookieToken || !headerToken) {
+    return { ok: false, reason: "missing" };
+  }
+  if (!timingSafeStringEqual(cookieToken, headerToken) || !isValidCsrfToken(headerToken)) {
+    return { ok: false, reason: "invalid" };
+  }
+  return { ok: true };
 }
 
 function readAuthToken(req) {
@@ -3917,6 +4005,36 @@ http.createServer(async (req, res) => {
       environment: NODE_ENV,
       storageMode: runtimeConfiguration.storageMode,
       configWarningsCount: runtimeConfiguration.warnings.length
+    });
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/auth/csrf-token") {
+    const csrfToken = createCsrfToken();
+    sendJson(
+      res,
+      200,
+      {
+        csrfToken,
+        expiresInSeconds: Math.floor(CSRF_TOKEN_TTL_MS / 1000)
+      },
+      {
+        "Cache-Control": "no-store",
+        "Set-Cookie": buildCsrfCookieHeader(csrfToken, req)
+      }
+    );
+    return;
+  }
+
+  const csrfStatus = validateCsrfRequest(req, url.pathname);
+  if (!csrfStatus.ok) {
+    requestMeta.statusCode = 403;
+    logRouteSummary(requestMeta, {
+      csrf: csrfStatus.reason || "blocked"
+    });
+    sendJson(res, 403, {
+      error: "CSRF token haipo au si sahihi.",
+      code: "csrf_failed"
     });
     return;
   }

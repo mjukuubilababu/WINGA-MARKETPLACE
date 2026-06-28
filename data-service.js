@@ -1991,10 +1991,80 @@
     }
   }
 
+  const csrfRuntime = {
+    token: "",
+    promise: null
+  };
+
+  function isUnsafeApiMethod(method = "GET") {
+    return ["POST", "PUT", "PATCH", "DELETE"].includes(String(method || "GET").toUpperCase());
+  }
+
+  function getCsrfTokenUrl(url) {
+    const parsedUrl = new URL(String(url || ""), window.location.origin);
+    const parts = parsedUrl.pathname.split("/");
+    const apiIndex = parts.indexOf("api");
+    if (apiIndex >= 0) {
+      parsedUrl.pathname = `${parts.slice(0, apiIndex + 1).join("/")}/auth/csrf-token`;
+    } else {
+      parsedUrl.pathname = "/api/auth/csrf-token";
+    }
+    parsedUrl.search = "";
+    parsedUrl.hash = "";
+    return parsedUrl.toString();
+  }
+
+  async function fetchCsrfTokenForRequest(url) {
+    if (csrfRuntime.token) {
+      return csrfRuntime.token;
+    }
+    if (csrfRuntime.promise) {
+      return csrfRuntime.promise;
+    }
+    csrfRuntime.promise = fetch(getCsrfTokenUrl(url), {
+      method: "GET",
+      credentials: "include",
+      cache: "no-store",
+      headers: {
+        Accept: "application/json"
+      }
+    })
+      .then(async (response) => {
+        const payload = await response.json().catch(() => null);
+        if (!response.ok || !payload?.csrfToken) {
+          const error = new Error(payload?.error || "CSRF token haikupatikana.");
+          error.status = response.status;
+          error.code = "csrf_unavailable";
+          throw error;
+        }
+        csrfRuntime.token = String(payload.csrfToken || "");
+        return csrfRuntime.token;
+      })
+      .finally(() => {
+        csrfRuntime.promise = null;
+      });
+    return csrfRuntime.promise;
+  }
+
+  async function applyCsrfHeader(url, requestOptions) {
+    const method = String(requestOptions.method || "GET").toUpperCase();
+    if (!isUnsafeApiMethod(method)) {
+      return requestOptions;
+    }
+    const headers = new Headers(requestOptions.headers || {});
+    if (!headers.has("X-CSRF-Token")) {
+      headers.set("X-CSRF-Token", await fetchCsrfTokenForRequest(url));
+    }
+    requestOptions.headers = headers;
+    return requestOptions;
+  }
+
   async function fetchJson(url, options) {
     const startedAt = Date.now();
     const endpointLabel = getApiEndpointLabel(url);
     const requestOptions = options ? { ...options } : {};
+    const hasRetriedCsrf = requestOptions.csrfRetry === true;
+    delete requestOptions.csrfRetry;
     const externalSignal = requestOptions.signal;
     delete requestOptions.signal;
     const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
@@ -2008,6 +2078,7 @@
     const timeoutId = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
     let response;
     try {
+      await applyCsrfHeader(url, requestOptions);
       response = await fetch(url, {
         ...requestOptions,
         credentials: requestOptions.credentials || "include",
@@ -2073,13 +2144,24 @@
     }
     if (!response.ok) {
       let errorMessage = `Request failed: ${response.status}`;
+      let errorCode = "";
       try {
         const errorBody = await response.json();
         if (errorBody?.error) {
           errorMessage = errorBody.error;
         }
+        if (errorBody?.code) {
+          errorCode = String(errorBody.code || "");
+        }
       } catch (error) {
         // Ignore JSON parse failures and keep fallback message.
+      }
+      if (response.status === 403 && errorCode === "csrf_failed" && !hasRetriedCsrf) {
+        csrfRuntime.token = "";
+        return fetchJson(url, {
+          ...(options || {}),
+          csrfRetry: true
+        });
       }
       const normalizedMessage = String(errorMessage || "").toLowerCase();
       const shouldInvalidateSession = response.status === 401

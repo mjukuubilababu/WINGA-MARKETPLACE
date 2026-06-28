@@ -1115,6 +1115,21 @@ test("authenticated product refresh preserves paginated feed contract", () => {
   assert.doesNotMatch(refreshProductsSource, /setFullProductFeedPagination\(state\.products\);[\s\S]*?loadProductsPage/);
 });
 
+test("api writes attach a CSRF token before sending state-changing requests", () => {
+  const root = path.resolve(__dirname, "..");
+  const dataSource = fs.readFileSync(path.join(root, "data-service.js"), "utf8");
+  const backendSource = fs.readFileSync(path.join(root, "backend", "server.js"), "utf8");
+
+  assert.match(dataSource, /function isUnsafeApiMethod\(method = "GET"\)/);
+  assert.match(dataSource, /\/auth\/csrf-token/);
+  assert.match(dataSource, /headers\.set\("X-CSRF-Token", await fetchCsrfTokenForRequest\(url\)\)/);
+  assert.match(dataSource, /response\.status === 403 && errorCode === "csrf_failed" && !hasRetriedCsrf/);
+  assert.match(backendSource, /const CSRF_COOKIE_NAME = "winga_csrf"/);
+  assert.match(backendSource, /function validateCsrfRequest\(req, pathname = ""\)/);
+  assert.match(backendSource, /url\.pathname === "\/api\/auth\/csrf-token"/);
+  assert.match(backendSource, /"Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-CSRF-Token, X-Winga-CSRF-Token"/);
+});
+
 (async () => {
   let passed = 0;
   for (const entry of tests) {
