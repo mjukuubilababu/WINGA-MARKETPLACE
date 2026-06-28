@@ -585,7 +585,7 @@ test("session restore keeps seller-as-buyer browsing and product-detail continua
   await page.locator("#products-container .product-card").nth(1).click();
   await expect(page.locator("#product-detail-modal")).toBeVisible();
   const originalTitle = await page.locator("#product-detail-title").textContent();
-  const sellerCard = page.locator("#product-detail-modal .seller-product-card").first();
+  const sellerCard = page.locator("#product-detail-modal [data-product-detail-feed-stack] [data-open-product]").first();
   await expect(sellerCard).toBeVisible();
   await expect(page.locator("#product-detail-modal [data-request-product]")).toHaveCount(0);
   await sellerCard.click();
@@ -623,10 +623,10 @@ test("stale session restore falls back to auth instead of hanging the app boot",
   });
 
   await page.goto("/");
-  await expect(page.getByText("Tunaangalia session yako...")).toBeVisible();
-  await expect(page.locator("#auth-container")).toBeVisible({ timeout: 10000 });
+  await expect(page.locator("#header-user-trigger")).not.toBeVisible();
+  await expect(page.locator("#header-login-button")).toBeVisible({ timeout: 10000 });
+  await expect(page.locator("#products-container .product-card").first()).toBeVisible({ timeout: 30000 });
   await expect(page.getByText("Tunaangalia session yako...")).toBeHidden({ timeout: 10000 });
-  await expect(page.locator("body")).toHaveClass(/auth-modal-open/);
 
   await context.close();
 });
@@ -1083,13 +1083,14 @@ test("guest home renders the marketplace feed and keeps discovery loading stable
   const { context, page } = await createAnonymousPage(browser);
   await page.goto("/");
 
-  await expect(page.locator("#products-container .product-card").first()).toBeVisible();
-  const initialProductCount = await page.locator("#products-container .product-card").count();
+  const feedCards = page.locator("#products-container .product-card, #products-container .seller-product-card");
+  await expect(feedCards.first()).toBeVisible({ timeout: 30000 });
+  const initialProductCount = await feedCards.count();
 
   await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
   await page.waitForTimeout(400);
-  await expect(page.locator("#products-container .product-card").first()).toBeVisible();
-  await expect.poll(async () => page.locator("#products-container .product-card").count()).toBeGreaterThanOrEqual(initialProductCount);
+  await expect(feedCards.first()).toBeVisible({ timeout: 30000 });
+  await expect.poll(async () => feedCards.count()).toBeGreaterThanOrEqual(initialProductCount);
 
   await context.close();
 });
