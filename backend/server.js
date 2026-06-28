@@ -2137,8 +2137,12 @@ function isCsrfProtectedMethod(method = "GET") {
   return ["POST", "PUT", "PATCH", "DELETE"].includes(String(method || "GET").toUpperCase());
 }
 
+function isServerToServerWebhookPath(pathname = "") {
+  return pathname === "/api/payments/webhook";
+}
+
 function isCsrfExemptPath(pathname = "") {
-  return pathname === "/api/auth/csrf-token" || pathname === "/api/health";
+  return pathname === "/api/auth/csrf-token" || pathname === "/api/health" || isServerToServerWebhookPath(pathname);
 }
 
 function validateCsrfRequest(req, pathname = "") {

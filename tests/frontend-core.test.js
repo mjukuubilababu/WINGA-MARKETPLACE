@@ -1126,6 +1126,8 @@ test("api writes attach a CSRF token before sending state-changing requests", ()
   assert.match(dataSource, /response\.status === 403 && errorCode === "csrf_failed" && !hasRetriedCsrf/);
   assert.match(backendSource, /const CSRF_COOKIE_NAME = "winga_csrf"/);
   assert.match(backendSource, /function validateCsrfRequest\(req, pathname = ""\)/);
+  assert.match(backendSource, /function isServerToServerWebhookPath\(pathname = ""\)/);
+  assert.match(backendSource, /pathname === "\/api\/payments\/webhook"/);
   assert.match(backendSource, /url\.pathname === "\/api\/auth\/csrf-token"/);
   assert.match(backendSource, /"Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-CSRF-Token, X-Winga-CSRF-Token"/);
 });

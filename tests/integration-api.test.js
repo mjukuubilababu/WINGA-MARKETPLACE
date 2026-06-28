@@ -97,6 +97,7 @@ test.before(async () => {
       NODE_ENV: "test",
       WINGA_DATA_DIR: path.join(tempRoot, "data"),
       WINGA_UPLOADS_DIR: path.join(tempRoot, "uploads"),
+      PAYMENT_WEBHOOK_SECRET: "integration-webhook-secret",
       DATABASE_URL: ""
     },
     stdio: "ignore"
@@ -127,6 +128,21 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   });
   assert.equal(missingCsrfWrite.response.status, 403);
   assert.equal(missingCsrfWrite.body.code, "csrf_failed");
+
+  const webhookWithWrongSecret = await request("/payments/webhook", {
+    method: "POST",
+    skipCsrf: true,
+    headers: {
+      "Content-Type": "application/json",
+      "X-Winga-Webhook-Secret": "wrong-secret"
+    },
+    body: JSON.stringify({
+      orderId: "missing-order",
+      paymentStatus: "PAID"
+    })
+  });
+  assert.equal(webhookWithWrongSecret.response.status, 401);
+  assert.notEqual(webhookWithWrongSecret.body.code, "csrf_failed");
 
   const publicStaffSignup = await request("/auth/signup", {
     method: "POST",
@@ -1067,8 +1083,10 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
 
   const paymentWebhook = await request("/payments/webhook", {
     method: "POST",
+    skipCsrf: true,
     headers: {
-      "Content-Type": "application/json"
+      "Content-Type": "application/json",
+      "X-Winga-Webhook-Secret": "integration-webhook-secret"
     },
     body: JSON.stringify({
       orderId,
