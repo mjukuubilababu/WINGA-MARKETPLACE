@@ -2340,6 +2340,18 @@ function escapeHtml(value) {
     .replace(/'/g, "&#39;");
 }
 
+function escapeCssAttributeValue(value) {
+  if (window.CSS && typeof window.CSS.escape === "function") {
+    return window.CSS.escape(String(value || ""));
+  }
+  return String(value || "")
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, "\\\"")
+    .replace(/\r/g, "\\d ")
+    .replace(/\n/g, "\\a ")
+    .replace(/\f/g, "\\c ");
+}
+
 function getImageFallbackDataUri(label = "WINGA") {
   return `data:image/svg+xml;utf8,${encodeURIComponent(`
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 640">
@@ -5037,7 +5049,7 @@ function renderWhatsappChatLink(product, label = "Chat on WhatsApp") {
   if (!whatsappNumber) {
     return "";
   }
-  return `<button class="button whatsapp-chat-btn" type="button" data-open-product-whatsapp="${product.id}">${label}</button>`;
+  return `<button class="button whatsapp-chat-btn" type="button" data-open-product-whatsapp="${escapeHtml(product.id || "")}">${escapeHtml(label)}</button>`;
 }
 
 function openProductWhatsappFromCard(productId) {
@@ -8599,6 +8611,8 @@ function renderSellerTrustPanel(product) {
     Number(trust.sellerStats?.repeatBuyers || 0) > 0 ? `${trust.sellerStats.repeatBuyers} repeat buyer${Number(trust.sellerStats.repeatBuyers) === 1 ? "" : "s"}` : ""
   ].filter(Boolean);
   const showReportActions = Boolean(product?.id && product?.uploadedBy && product.uploadedBy !== currentUser);
+  const safeProductId = escapeHtml(product?.id || "");
+  const safeSellerId = escapeHtml(product?.uploadedBy || "");
 
   return `
     <section class="seller-trust-panel">
@@ -8612,8 +8626,8 @@ function renderSellerTrustPanel(product) {
       ${factLines.length ? `<p class="product-meta seller-trust-copy">${escapeHtml(factLines.join(" | "))}</p>` : ""}
       ${showReportActions ? `
         <div class="seller-trust-actions">
-          <button class="trust-link-btn" type="button" data-report-product="${product.id}">Report product</button>
-          <button class="trust-link-btn" type="button" data-report-seller="${product.uploadedBy}" data-report-product-context="${product.id}">Report seller</button>
+          <button class="trust-link-btn" type="button" data-report-product="${safeProductId}">Report product</button>
+          <button class="trust-link-btn" type="button" data-report-seller="${safeSellerId}" data-report-product-context="${safeProductId}">Report seller</button>
         </div>
       ` : ""}
     </section>
@@ -8640,7 +8654,7 @@ function renderSavedIntentSection() {
 
   const savedProductButtons = savedProducts.length
     ? savedProducts.map((product) => `
-        <button class="saved-intent-chip" type="button" data-open-saved-product="${product.id}">
+        <button class="saved-intent-chip" type="button" data-open-saved-product="${escapeHtml(product.id || "")}">
           ${escapeHtml(product.name || "Saved product")}
         </button>
       `).join("")
@@ -8648,15 +8662,16 @@ function renderSavedIntentSection() {
   const followedSellerButtons = followedSellers.length
     ? followedSellers.map((seller) => {
         const latestProduct = getLatestApprovedSellerProduct(seller.username);
+        const safeSellerUsername = escapeHtml(seller.username || "");
         return `
           <div class="saved-followed-seller-item">
-            <button class="saved-intent-chip${isSellerFollowed(seller.username) ? " is-active" : ""}" type="button" data-open-followed-seller="${seller.username}">
+            <button class="saved-intent-chip${isSellerFollowed(seller.username) ? " is-active" : ""}" type="button" data-open-followed-seller="${safeSellerUsername}">
               ${escapeHtml(getUserDisplayName(seller.username, { fallback: seller.fullName || seller.username || "Seller" }))}
             </button>
             <small class="product-meta">${escapeHtml(latestProduct?.name || "No approved product yet")}</small>
             <div class="saved-followed-seller-actions">
-              <button class="trust-link-btn" type="button" data-share-seller-shop="${seller.username}">Share seller</button>
-              <button class="trust-link-btn" type="button" data-follow-seller="${seller.username}">Unfollow</button>
+              <button class="trust-link-btn" type="button" data-share-seller-shop="${safeSellerUsername}">Share seller</button>
+              <button class="trust-link-btn" type="button" data-follow-seller="${safeSellerUsername}">Unfollow</button>
             </div>
           </div>
         `;
@@ -16174,8 +16189,9 @@ function getSearchDropdownProducts(filteredProducts) {
 
 function scrollToProductCard(productId) {
   noteProductInterest(productId);
+  const safeProductSelectorId = escapeCssAttributeValue(productId);
   const card = document.querySelector(
-    `[data-product-card="${productId}"], [data-showcase-id="${productId}"], [data-open-product="${productId}"], .edit-btn[data-id="${productId}"]`
+    `[data-product-card="${safeProductSelectorId}"], [data-showcase-id="${safeProductSelectorId}"], [data-open-product="${safeProductSelectorId}"], .edit-btn[data-id="${safeProductSelectorId}"]`
   )?.closest("[data-product-card], [data-showcase-id], [data-open-product], .product-card");
   if (!card) {
     (productsContainer || productsSummary)?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -16617,11 +16633,12 @@ function renderDiscoveryProductCards(items, options = {}) {
         const sellerName = escapeHtml(String(item.shop || seller?.fullName || item.uploadedBy || "Seller").trim());
         const sellerMeta = escapeHtml(String(item.location || getCategoryLabel(item.category) || "").trim());
         const sellerProfileImage = sanitizeImageSource(String(seller?.profileImage || "").trim(), "");
+        const safeProductId = escapeHtml(item.id || "");
         const sellerAvatar = seller?.profileImage
-          ? `<img class="product-seller-avatar-image" src="${sellerProfileImage}" alt="${sellerName}" loading="lazy" decoding="async">`
+          ? `<img class="product-seller-avatar-image" src="${escapeHtml(sellerProfileImage)}" alt="${sellerName}" loading="lazy" decoding="async">`
           : `<span>${escapeHtml(getUserInitials(String(item.shop || seller?.fullName || item.uploadedBy || "S").trim()))}</span>`;
         return `
-          <article class="seller-product-card${Array.isArray(item.images) && item.images.length > 1 ? " has-gallery-count-badge" : ""}" data-open-product="${item.id}">
+          <article class="seller-product-card${Array.isArray(item.images) && item.images.length > 1 ? " has-gallery-count-badge" : ""}" data-open-product="${safeProductId}">
             <div class="seller-product-card-media">
               ${renderFeedGalleryMarkup(item, "feed", { priorityCount: isPriority ? 1 : 0, preload: isPriority })}
             </div>
@@ -18517,7 +18534,7 @@ function renderPromoteButton(product) {
   if (!currentUser || product.uploadedBy !== currentUser) {
     return "";
   }
-  return `<button class="action-btn action-btn-secondary" type="button" data-promote-product="${product.id}">Promote</button>`;
+  return `<button class="action-btn action-btn-secondary" type="button" data-promote-product="${escapeHtml(product.id || "")}">Promote</button>`;
 }
 
 function getSellerPromotionStatusMeta(product) {
@@ -18603,7 +18620,7 @@ function renderSellerCardPromoteChip(product) {
   if (!currentUser || !canUseSellerFeatures() || product?.uploadedBy !== currentUser) {
     return "";
   }
-  return `<button class="product-seller-inline-action product-seller-promote-chip" type="button" data-promote-product="${product.id}" data-promote-authorized="true" data-promote-product-owner="${escapeHtml(product.uploadedBy || "")}" data-promote-product-name="${escapeHtml(product.name || "")}" data-promote-product-shop="${escapeHtml(product.shop || "")}" data-promote-product-whatsapp="${escapeHtml(product.whatsapp || "")}" data-promote-product-location="${escapeHtml(product.location || "")}" data-promote-product-category="${escapeHtml(product.category || "")}">Promote</button>`;
+  return `<button class="product-seller-inline-action product-seller-promote-chip" type="button" data-promote-product="${escapeHtml(product.id || "")}" data-promote-authorized="true" data-promote-product-owner="${escapeHtml(product.uploadedBy || "")}" data-promote-product-name="${escapeHtml(product.name || "")}" data-promote-product-shop="${escapeHtml(product.shop || "")}" data-promote-product-whatsapp="${escapeHtml(product.whatsapp || "")}" data-promote-product-location="${escapeHtml(product.location || "")}" data-promote-product-category="${escapeHtml(product.category || "")}">Promote</button>`;
 }
 
 function renderSellerCardInlineActions(product) {
@@ -20112,7 +20129,8 @@ function bindGalleryThumbs(scope) {
   scope.querySelectorAll(".gallery-thumb").forEach((thumb) => {
     thumb.addEventListener("click", () => {
       const targetId = thumb.dataset.galleryTarget;
-      const stage = scope.querySelector(`[data-gallery-stage="${targetId}"]`);
+      const safeTargetSelectorId = escapeCssAttributeValue(targetId);
+      const stage = scope.querySelector(`[data-gallery-stage="${safeTargetSelectorId}"]`);
       if (!stage) {
         return;
       }
@@ -20120,7 +20138,7 @@ function bindGalleryThumbs(scope) {
       stage.src = thumb.dataset.image;
       stage.dataset.zoomSrc = thumb.dataset.image;
       stage.dataset.imageActionSrc = thumb.dataset.image;
-      scope.querySelectorAll(`[data-gallery-target="${targetId}"]`).forEach((item) => {
+      scope.querySelectorAll(`[data-gallery-target="${safeTargetSelectorId}"]`).forEach((item) => {
         item.classList.remove("active");
       });
       thumb.classList.add("active");

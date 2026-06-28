@@ -1133,6 +1133,26 @@ test("legacy product gallery escapes user-controlled HTML attributes", () => {
   assert.doesNotMatch(gallerySource, /data-image="\$\{sanitizeImageSource\(image,/);
 });
 
+test("app template actions escape data attributes and selector lookups", () => {
+  const root = path.resolve(__dirname, "..");
+  const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
+
+  assert.match(appSource, /function escapeCssAttributeValue\(value\)/);
+  assert.match(appSource, /const safeProductSelectorId = escapeCssAttributeValue\(productId\)/);
+  assert.match(appSource, /const safeTargetSelectorId = escapeCssAttributeValue\(targetId\)/);
+  assert.match(appSource, /data-report-product="\$\{safeProductId\}"/);
+  assert.match(appSource, /data-report-seller="\$\{safeSellerId\}"/);
+  assert.match(appSource, /data-open-saved-product="\$\{escapeHtml\(product\.id \|\| ""\)\}"/);
+  assert.match(appSource, /data-open-followed-seller="\$\{safeSellerUsername\}"/);
+  assert.match(appSource, /data-share-seller-shop="\$\{safeSellerUsername\}"/);
+  assert.match(appSource, /data-promote-product="\$\{escapeHtml\(product\.id \|\| ""\)\}"/);
+  assert.match(appSource, /data-open-product="\$\{safeProductId\}"/);
+  assert.match(appSource, /data-open-product-whatsapp="\$\{escapeHtml\(product\.id \|\| ""\)\}"/);
+  assert.doesNotMatch(appSource, /data-report-product="\$\{product\.id\}"/);
+  assert.doesNotMatch(appSource, /data-open-product="\$\{item\.id\}"/);
+  assert.doesNotMatch(appSource, /querySelector\(`\[data-gallery-stage="\$\{targetId\}/);
+});
+
 test("shared DOM helper blocks unsafe attributes before setAttribute", () => {
   const root = path.resolve(__dirname, "..");
   const helperSource = fs.readFileSync(path.join(root, "src", "components", "dom-helpers.js"), "utf8");
