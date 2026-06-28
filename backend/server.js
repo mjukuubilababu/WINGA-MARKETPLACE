@@ -3900,12 +3900,15 @@ function collectBody(req) {
       if (settled) {
         return;
       }
+      const raw = chunks.length ? Buffer.concat(chunks).toString("utf8") : "";
       try {
-        const raw = chunks.length ? Buffer.concat(chunks).toString("utf8") : "";
+        const parsedBody = raw ? JSON.parse(raw) : null;
         settled = true;
         cleanup();
-        resolve(raw ? JSON.parse(raw) : null);
+        resolve(parsedBody);
       } catch (error) {
+        error.code = "INVALID_JSON";
+        error.status = 400;
         fail(error);
       }
     };
@@ -3916,6 +3919,51 @@ function collectBody(req) {
     req.on("end", handleEnd);
     req.on("error", handleError);
   });
+}
+
+function isJsonContentType(contentType) {
+  const mediaType = String(contentType || "").split(";")[0].trim().toLowerCase();
+  return mediaType === "application/json" || mediaType.endsWith("+json");
+}
+
+function requiresJsonRequestBody(req, pathname) {
+  const method = String(req.method || "GET").toUpperCase();
+  if (!pathname.startsWith("/api/")) {
+    return false;
+  }
+  if (!["POST", "PUT", "PATCH"].includes(method)) {
+    return false;
+  }
+  if (isBodylessApiActionPath(method, pathname)) {
+    return false;
+  }
+  return true;
+}
+
+function isBodylessApiActionPath(method, pathname) {
+  if (method === "POST" && pathname === "/api/auth/logout") {
+    return true;
+  }
+  if (method === "PATCH" && /^\/api\/admin\/promotions\/[^/]+\/disable$/.test(pathname)) {
+    return true;
+  }
+  if (method === "PATCH" && /^\/api\/notifications\/[^/]+\/read$/.test(pathname)) {
+    return true;
+  }
+  return false;
+}
+
+function validateJsonRequestContentType(req, pathname) {
+  if (!requiresJsonRequestBody(req, pathname)) {
+    return { ok: true };
+  }
+  if (isJsonContentType(req.headers["content-type"])) {
+    return { ok: true };
+  }
+  return {
+    ok: false,
+    reason: "unsupported_media_type"
+  };
 }
 
 function getClientIp(req) {
@@ -4092,6 +4140,19 @@ http.createServer(async (req, res) => {
     sendJson(res, 403, {
       error: "CSRF token haipo au si sahihi.",
       code: "csrf_failed"
+    });
+    return;
+  }
+
+  const jsonContentTypeStatus = validateJsonRequestContentType(req, url.pathname);
+  if (!jsonContentTypeStatus.ok) {
+    requestMeta.statusCode = 415;
+    logRouteSummary(requestMeta, {
+      bodyContract: jsonContentTypeStatus.reason || "unsupported_media_type"
+    });
+    sendJson(res, 415, {
+      error: "Content-Type lazima iwe application/json kwa request hii.",
+      code: "unsupported_media_type"
     });
     return;
   }
@@ -7641,6 +7702,24 @@ http.createServer(async (req, res) => {
         memory: getMemoryUsageSnapshot()
       });
       sendJson(res, 413, { error: "Data uliyotuma ni kubwa sana. Punguza picha au ukubwa wa request." });
+      return;
+    }
+
+    if (error?.code === "INVALID_JSON") {
+      requestMeta.statusCode = 400;
+      logStructuredEvent("warn", "route_error", {
+        requestId: requestMeta.requestId,
+        route: requestMeta.route,
+        method: requestMeta.method,
+        durationMs: Date.now() - requestMeta.startedAt,
+        cfRay: requestMeta.cfRay || "",
+        error: "INVALID_JSON",
+        memory: getMemoryUsageSnapshot()
+      });
+      sendJson(res, 400, {
+        error: "JSON body si sahihi.",
+        code: "invalid_json"
+      });
       return;
     }
 

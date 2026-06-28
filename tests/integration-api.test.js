@@ -146,6 +146,25 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   assert.equal(missingCsrfWrite.response.status, 403);
   assert.equal(missingCsrfWrite.body.code, "csrf_failed");
 
+  const unsupportedContentTypeWrite = await request("/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "text/plain" },
+    body: JSON.stringify({
+      identifier: "missing-user",
+      password: "wrong-password"
+    })
+  });
+  assert.equal(unsupportedContentTypeWrite.response.status, 415);
+  assert.equal(unsupportedContentTypeWrite.body.code, "unsupported_media_type");
+
+  const malformedJsonWrite = await request("/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: "{"
+  });
+  assert.equal(malformedJsonWrite.response.status, 400);
+  assert.equal(malformedJsonWrite.body.code, "invalid_json");
+
   const webhookWithWrongSecret = await request("/payments/webhook", {
     method: "POST",
     skipCsrf: true,
