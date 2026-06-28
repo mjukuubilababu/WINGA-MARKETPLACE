@@ -3982,6 +3982,9 @@ function isBodylessApiActionPath(method, pathname) {
   if (method === "POST" && pathname === "/api/auth/logout") {
     return true;
   }
+  if (method === "POST" && getProductActionMatch(pathname)) {
+    return true;
+  }
   if (method === "PATCH" && /^\/api\/admin\/promotions\/[^/]+\/disable$/.test(pathname)) {
     return true;
   }

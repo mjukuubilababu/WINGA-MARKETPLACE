@@ -25,6 +25,16 @@ async function createLoggedInPage(browser) {
     viewport: { width: 390, height: 844 },
     isMobile: true
   });
+  if (session.authCookie) {
+    await context.addCookies([{
+      name: "winga_auth",
+      value: session.authCookie,
+      url: "http://127.0.0.1:43080",
+      httpOnly: true,
+      sameSite: "Lax"
+    }]);
+  }
+  const { authCookie, ...storedSession } = session;
   await context.addInitScript(({ baseUrl, storedSession }) => {
     window.__WINGA_CONFIG_OVERRIDE__ = {
       provider: "api",
@@ -40,7 +50,7 @@ async function createLoggedInPage(browser) {
         }
       });
     }).observe({ type: "layout-shift", buffered: true });
-  }, { baseUrl: apiBaseUrl, storedSession: session });
+  }, { baseUrl: apiBaseUrl, storedSession });
   const page = await context.newPage();
   return { context, page };
 }

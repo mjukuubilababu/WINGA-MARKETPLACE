@@ -406,6 +406,24 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   assert.equal(productCreate.body.status, "approved");
   assert.match(productCreate.body.image, /^\/uploads\//);
 
+  const bodylessProductView = await request("/products/product-test-001/view", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${buyerToken}`
+    }
+  });
+  assert.equal(bodylessProductView.response.status, 200);
+  assert.equal(bodylessProductView.body.views, 1);
+
+  const bodylessProductLike = await request("/products/product-test-001/like", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${buyerToken}`
+    }
+  });
+  assert.equal(bodylessProductLike.response.status, 200);
+  assert.equal(bodylessProductLike.body.likes, 1);
+
   const svgDataImage = `data:image/svg+xml;base64,${Buffer.from("<svg xmlns=\"http://www.w3.org/2000/svg\"><script>alert(1)</script></svg>").toString("base64")}`;
   const svgProductUpload = await request("/products", {
     method: "POST",

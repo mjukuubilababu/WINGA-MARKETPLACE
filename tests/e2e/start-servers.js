@@ -16,6 +16,9 @@ const promoReference = `E2E-PROMO-${Date.now()}`;
 let backendProcess = null;
 let staticServer = null;
 let backendExit = null;
+let csrfToken = "";
+let csrfCookie = "";
+let cleanedUp = false;
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -90,7 +93,18 @@ function assertBackendProcessRunning(label = "backend") {
 async function apiRequest(pathname, options = {}) {
   const retries = Number.isFinite(options?.retries) ? Math.max(1, options.retries) : 4;
   const requestOptions = { ...options };
+  const skipCsrf = requestOptions.skipCsrf === true;
   delete requestOptions.retries;
+  delete requestOptions.skipCsrf;
+
+  if (!skipCsrf && ["POST", "PUT", "PATCH", "DELETE"].includes(String(requestOptions.method || "GET").toUpperCase())) {
+    await ensureCsrfToken();
+    const headers = new Headers(requestOptions.headers || {});
+    headers.set("X-CSRF-Token", csrfToken);
+    const existingCookie = headers.get("Cookie") || headers.get("cookie") || "";
+    headers.set("Cookie", [existingCookie, csrfCookie].filter(Boolean).join("; "));
+    requestOptions.headers = headers;
+  }
 
   let lastError = null;
   for (let attempt = 0; attempt < retries; attempt += 1) {
@@ -110,6 +124,35 @@ async function apiRequest(pathname, options = {}) {
   throw lastError;
 }
 
+async function ensureCsrfToken() {
+  if (csrfToken && csrfCookie) {
+    return;
+  }
+  const response = await fetch(`http://127.0.0.1:${backendPort}/api/auth/csrf-token`);
+  const body = await response.json();
+  if (!response.ok || !body?.csrfToken) {
+    throw new Error(`Failed to create CSRF token for E2E seed: ${body?.error || response.status}`);
+  }
+  const setCookie = String(response.headers.get("set-cookie") || "");
+  const match = setCookie.match(/(?:^|,\s*)winga_csrf=([^;,]+)/);
+  if (!match?.[1]) {
+    throw new Error("CSRF endpoint did not set winga_csrf cookie for E2E seed.");
+  }
+  csrfToken = String(body.csrfToken || "");
+  csrfCookie = `winga_csrf=${match[1]}`;
+}
+
+function getAuthCookiePayload(response) {
+  const setCookie = String(response?.headers?.get("set-cookie") || "");
+  const match = setCookie.match(/(?:^|,\s*)winga_auth=([^;,]+)/);
+  return match?.[1] ? decodeURIComponent(match[1]) : "";
+}
+
+function withSeedAuthCookie(sessionPayload, response) {
+  const authCookie = getAuthCookiePayload(response);
+  return authCookie ? { ...sessionPayload, authCookie } : sessionPayload;
+}
+
 async function loginSeedAccount({ username, password, admin = false, identifier = "" } = {}) {
   const pathname = admin ? "/auth/admin-login" : "/auth/login";
   const payload = admin
@@ -124,6 +167,7 @@ async function loginSeedAccount({ username, password, admin = false, identifier 
       body: JSON.stringify(payload)
     });
     if (lastResult.response.status === 200) {
+      lastResult.body = withSeedAuthCookie(lastResult.body, lastResult.response);
       return lastResult;
     }
     await delay(250 * (attempt + 1));
@@ -188,7 +232,7 @@ async function seedMarketplace() {
     });
 
     if (signup.response.status === 200) {
-      sessionPayload = signup.body;
+      sessionPayload = withSeedAuthCookie(signup.body, signup.response);
     } else {
       const identifier = account.role === "buyer"
         ? (account.fullName || account.phoneNumber)
@@ -202,7 +246,7 @@ async function seedMarketplace() {
       if (login.response.status !== 200) {
         throw new Error(`Failed to seed ${account.username}: ${signup.body?.error || signup.response.status}`);
       }
-      sessionPayload = login.body;
+      sessionPayload = withSeedAuthCookie(login.body, login.response);
     }
     seededSessions[account.username] = sessionPayload;
   }
@@ -241,15 +285,15 @@ async function seedMarketplace() {
   seededSessions.admin = adminSession.body;
 
   const catalog = [
-    { id: "e2e-prod-1", name: "Sneaker Classic", price: 32000, category: "viatu-sneakers", seller: "market_seller", getToken: () => sellerSession.body?.token, refreshAuth: refreshSellerSession, phone: "255700111222", shop: "Market Seller Shop", images: [tinyImage, tinyImage, tinyImage, tinyImage, tinyImage] },
-    { id: "e2e-prod-delete", name: "Delete Me Listing", price: 35000, category: "viatu-sneakers", seller: "market_seller", getToken: () => sellerSession.body?.token, refreshAuth: refreshSellerSession, phone: "255700111222", shop: "Market Seller Shop" },
-    { id: "e2e-prod-2", name: "Dress Elegant", price: 54000, category: "wanawake-magauni", seller: "market_seller", getToken: () => sellerSession.body?.token, refreshAuth: refreshSellerSession, phone: "255700111222", shop: "Market Seller Shop" },
-    { id: "e2e-prod-3", name: "Shirt Premium", price: 27000, category: "wanaume-mashati", seller: "market_seller", getToken: () => sellerSession.body?.token, refreshAuth: refreshSellerSession, phone: "255700111222", shop: "Market Seller Shop" },
-    { id: "e2e-prod-4", name: "Bag Travel Pro", price: 61000, category: "accessories-mabegi", seller: "buyer_seller", getToken: () => buyerSellerSession.body?.token, refreshAuth: refreshBuyerSellerSession, phone: "255700111221", shop: "Buyer Seller Shop" },
-    { id: "e2e-prod-5", name: "Phone Smart X", price: 420000, category: "electronics-simu", seller: "buyer_seller", getToken: () => buyerSellerSession.body?.token, refreshAuth: refreshBuyerSellerSession, phone: "255700111221", shop: "Buyer Seller Shop" },
-    { id: "e2e-prod-broken", name: "Broken Feed Listing", price: 39000, category: "wanaume-tshirts", seller: "market_seller", getToken: () => sellerSession.body?.token, refreshAuth: refreshSellerSession, phone: "255700111222", shop: "Market Seller Shop", images: ["/uploads/does-not-exist-e2e.png"], image: "/uploads/does-not-exist-e2e.png" },
-    { id: "e2e-prod-pending", name: "Pending Showcase Bag", price: 46000, category: "accessories-mabegi", seller: "market_seller", getToken: () => sellerSession.body?.token, refreshAuth: refreshSellerSession, phone: "255700111222", shop: "Market Seller Shop", approve: false },
-    { id: "e2e-prod-pending-2", name: "Pending Office Shoes", price: 51000, category: "viatu-boots", seller: "market_seller", getToken: () => sellerSession.body?.token, refreshAuth: refreshSellerSession, phone: "255700111222", shop: "Market Seller Shop", approve: false }
+    { id: "e2e-prod-1", name: "Sneaker Classic", price: 32000, category: "viatu-sneakers", seller: "market_seller", getAuthCookie: () => sellerSession.body?.authCookie, refreshAuth: refreshSellerSession, phone: "255700111222", shop: "Market Seller Shop", images: [tinyImage, tinyImage, tinyImage, tinyImage, tinyImage] },
+    { id: "e2e-prod-delete", name: "Delete Me Listing", price: 35000, category: "viatu-sneakers", seller: "market_seller", getAuthCookie: () => sellerSession.body?.authCookie, refreshAuth: refreshSellerSession, phone: "255700111222", shop: "Market Seller Shop" },
+    { id: "e2e-prod-2", name: "Dress Elegant", price: 54000, category: "wanawake-magauni", seller: "market_seller", getAuthCookie: () => sellerSession.body?.authCookie, refreshAuth: refreshSellerSession, phone: "255700111222", shop: "Market Seller Shop" },
+    { id: "e2e-prod-3", name: "Shirt Premium", price: 27000, category: "wanaume-mashati", seller: "market_seller", getAuthCookie: () => sellerSession.body?.authCookie, refreshAuth: refreshSellerSession, phone: "255700111222", shop: "Market Seller Shop" },
+    { id: "e2e-prod-4", name: "Bag Travel Pro", price: 61000, category: "accessories-mabegi", seller: "buyer_seller", getAuthCookie: () => buyerSellerSession.body?.authCookie, refreshAuth: refreshBuyerSellerSession, phone: "255700111221", shop: "Buyer Seller Shop" },
+    { id: "e2e-prod-5", name: "Phone Smart X", price: 420000, category: "electronics-simu", seller: "buyer_seller", getAuthCookie: () => buyerSellerSession.body?.authCookie, refreshAuth: refreshBuyerSellerSession, phone: "255700111221", shop: "Buyer Seller Shop" },
+    { id: "e2e-prod-broken", name: "Broken Feed Listing", price: 39000, category: "wanaume-tshirts", seller: "market_seller", getAuthCookie: () => sellerSession.body?.authCookie, refreshAuth: refreshSellerSession, phone: "255700111222", shop: "Market Seller Shop", images: ["/uploads/does-not-exist-e2e.png"], image: "/uploads/does-not-exist-e2e.png" },
+    { id: "e2e-prod-pending", name: "Pending Showcase Bag", price: 46000, category: "accessories-mabegi", seller: "market_seller", getAuthCookie: () => sellerSession.body?.authCookie, refreshAuth: refreshSellerSession, phone: "255700111222", shop: "Market Seller Shop", approve: false },
+    { id: "e2e-prod-pending-2", name: "Pending Office Shoes", price: 51000, category: "viatu-boots", seller: "market_seller", getAuthCookie: () => sellerSession.body?.authCookie, refreshAuth: refreshSellerSession, phone: "255700111222", shop: "Market Seller Shop", approve: false }
   ];
 
   for (const item of catalog) {
@@ -259,7 +303,7 @@ async function seedMarketplace() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${item.getToken?.() || ""}`
+          Cookie: `winga_auth=${item.getAuthCookie?.() || ""}`
         },
         body: JSON.stringify({
           id: item.id,
@@ -287,7 +331,7 @@ async function seedMarketplace() {
           method: "PATCH",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${adminSession.body?.token || ""}`
+            Cookie: `winga_auth=${adminSession.body?.authCookie || ""}`
           },
           body: JSON.stringify({
             status: "approved",
@@ -306,7 +350,7 @@ async function seedMarketplace() {
           method: "PATCH",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${adminSession.body?.token || ""}`
+            Cookie: `winga_auth=${adminSession.body?.authCookie || ""}`
           },
           body: JSON.stringify({
             status: "pending",
@@ -327,7 +371,7 @@ async function seedMarketplace() {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${sellerSession.body?.token || ""}`
+        Cookie: `winga_auth=${sellerSession.body?.authCookie || ""}`
       },
       body: JSON.stringify({
         productId: "e2e-prod-1",
@@ -345,6 +389,10 @@ async function seedMarketplace() {
 }
 
 function cleanup() {
+  if (cleanedUp) {
+    return;
+  }
+  cleanedUp = true;
   staticServer?.close(() => {});
   if (backendProcess && !backendProcess.killed) {
     backendProcess.kill();

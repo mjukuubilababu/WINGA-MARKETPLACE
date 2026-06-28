@@ -2,6 +2,8 @@ const { defineConfig } = require("@playwright/test");
 
 module.exports = defineConfig({
   testDir: "./tests/e2e",
+  globalSetup: "./tests/e2e/global-setup.js",
+  globalTeardown: "./tests/e2e/global-teardown.js",
   timeout: 60000,
   expect: {
     timeout: 10000
@@ -11,10 +13,5 @@ module.exports = defineConfig({
     channel: "msedge",
     headless: true
   },
-  webServer: {
-    command: "node tests/e2e/start-servers.js",
-    url: "http://127.0.0.1:4173/index.html",
-    reuseExistingServer: false,
-    timeout: 120000
-  }
+  webServer: undefined
 });

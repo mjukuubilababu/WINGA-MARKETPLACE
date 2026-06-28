@@ -45,9 +45,19 @@ async function createLoggedInPage(browser, username, password, options = {}) {
 
   const context = await browser.newContext(options);
   await applyApiConfigOverride(context);
+  if (session.authCookie) {
+    await context.addCookies([{
+      name: "winga_auth",
+      value: session.authCookie,
+      url: "http://127.0.0.1:43080",
+      httpOnly: true,
+      sameSite: "Lax"
+    }]);
+  }
+  const { authCookie, ...storedSession } = session;
   await context.addInitScript((payload) => {
     window.localStorage.setItem("winga-current-user", JSON.stringify(payload));
-  }, session);
+  }, storedSession);
   const page = await context.newPage();
   return { context, page };
 }
@@ -517,8 +527,8 @@ test("logged in sellers can scroll the home feed and still see marketplace rows"
   await page.goto("/");
 
   await expect(page.locator("#hero-panel")).not.toBeVisible();
-  await expect(page.locator("#market-showcase .showcase-card").first()).toBeVisible();
   await expect(page.locator("#products-container .product-card").first()).toBeVisible();
+  await expect(page.locator("#products-container")).toContainText("Market Seller Shop");
 
   const initialY = await page.evaluate(() => window.scrollY);
   await page.evaluate(() => window.scrollTo(0, 900));
@@ -1088,6 +1098,7 @@ test("mobile home product media remains edge to edge", async ({ browser }) => {
   });
   await page.goto("/");
   await expect(page.locator("#products-container .product-card").first()).toBeVisible({ timeout: 30000 });
+  await expect(page.locator("#products-container .product-card-media img, #products-container .seller-product-card-media img").first()).toBeVisible({ timeout: 30000 });
 
   const geometry = await page.evaluate(() => {
     const card = document.querySelector("#products-container > .product-card, #products-container > .seller-product-card");

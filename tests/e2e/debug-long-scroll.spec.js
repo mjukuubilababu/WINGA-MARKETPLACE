@@ -33,9 +33,19 @@ async function createLoggedInPage(browser, username, password, options = {}) {
 
   const context = await browser.newContext(options);
   await applyApiConfigOverride(context);
+  if (session.authCookie) {
+    await context.addCookies([{
+      name: "winga_auth",
+      value: session.authCookie,
+      url: "http://127.0.0.1:43080",
+      httpOnly: true,
+      sameSite: "Lax"
+    }]);
+  }
+  const { authCookie, ...storedSession } = session;
   await context.addInitScript((payload) => {
     window.localStorage.setItem("winga-current-user", JSON.stringify(payload));
-  }, session);
+  }, storedSession);
   const page = await context.newPage();
   return { context, page };
 }
