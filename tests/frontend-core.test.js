@@ -560,6 +560,10 @@ test("production CSP is enforced from repo without inline script escape hatches"
   assert.doesNotMatch(staticHeadersSource, /script-src[^;\n]*unsafe-inline/);
   assert.match(productionVerifySource, /extractVersionedAssetPath\(homeHtml, \/src="\(\\\/app\\\.js\\\?v=/);
   assert.match(productionVerifySource, /assertHardenedHeaders\(route\.path, response\.headers/);
+  assert.match(productionVerifySource, /assertProductsApi\(route\.path, bodyText, response\.headers\)/);
+  assert.match(productionVerifySource, /assertCsrfApi\(route\.path, bodyText, response\.headers\)/);
+  assert.match(productionVerifySource, /\/api\/products\?limit=1&page=1/);
+  assert.match(productionVerifySource, /\/api\/auth\/csrf-token/);
   assert.doesNotMatch(productionVerifySource, /\{ path: "\/app\.js", kind: "javascript" \}/);
   assert.match(workerSource, /"Content-Security-Policy": buildContentSecurityPolicy/);
   assert.match(workerSource, /function hardenResponseHeaders\(response, env/);

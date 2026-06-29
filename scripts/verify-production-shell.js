@@ -119,6 +119,47 @@ function assertCss(route, bodyText) {
   }
 }
 
+function assertJsonContentType(route, headers) {
+  const contentType = getHeader(headers, "content-type");
+  if (!/application\/json/i.test(contentType)) {
+    throw new Error(`${route} returned ${contentType || "no content-type"} instead of application/json.`);
+  }
+}
+
+function parseJsonRoute(route, bodyText) {
+  try {
+    return JSON.parse(String(bodyText || ""));
+  } catch (error) {
+    throw new Error(`${route} returned invalid JSON.`);
+  }
+}
+
+function assertProductsApi(route, bodyText, headers) {
+  assertJsonContentType(route, headers);
+  const payload = parseJsonRoute(route, bodyText);
+  if (!payload || !Array.isArray(payload.items)) {
+    throw new Error(`${route} is missing items[].`);
+  }
+  if (payload.items.length > 50) {
+    throw new Error(`${route} returned more than the production page limit.`);
+  }
+  if (typeof payload.hasMore !== "boolean") {
+    throw new Error(`${route} is missing boolean hasMore.`);
+  }
+}
+
+function assertCsrfApi(route, bodyText, headers) {
+  assertJsonContentType(route, headers);
+  const payload = parseJsonRoute(route, bodyText);
+  if (!payload?.csrfToken || String(payload.csrfToken).length < 32) {
+    throw new Error(`${route} did not return a usable CSRF token.`);
+  }
+  const setCookie = getHeader(headers, "set-cookie");
+  if (!/winga_csrf=/i.test(setCookie) || !/HttpOnly/i.test(setCookie) || !/Secure/i.test(setCookie)) {
+    throw new Error(`${route} did not set a hardened CSRF cookie.`);
+  }
+}
+
 async function verifyRoute(route) {
   const url = new URL(route.path, PRODUCTION_ORIGIN).toString();
   const response = await fetchUrl(url);
@@ -141,6 +182,10 @@ async function verifyRoute(route) {
   } else if (route.kind === "css") {
     assertCss(route.path, bodyText);
     assertHardenedHeaders(route.path, response.headers, { disallowScriptInline: true });
+  } else if (route.kind === "products-api") {
+    assertProductsApi(route.path, bodyText, response.headers);
+  } else if (route.kind === "csrf-api") {
+    assertCsrfApi(route.path, bodyText, response.headers);
   }
   console.log(`OK ${route.path}`);
   return { bodyText, headers: response.headers };
@@ -159,6 +204,8 @@ async function main() {
   const stylePath = extractVersionedAssetPath(homeHtml, /href="(\/style\.css\?v=[^"]+)"/i, "/style.css");
   await verifyRoute({ path: appPath, kind: "javascript" });
   await verifyRoute({ path: stylePath, kind: "css" });
+  await verifyRoute({ path: "/api/products?limit=1&page=1", kind: "products-api" });
+  await verifyRoute({ path: "/api/auth/csrf-token", kind: "csrf-api" });
   console.log("Production shell verification passed.");
 }
 
