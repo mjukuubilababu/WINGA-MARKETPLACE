@@ -574,6 +574,7 @@ test("production CSP is enforced from repo without inline script escape hatches"
 test("production frontend routes same-domain API requests to the backend origin", () => {
   const root = path.resolve(__dirname, "..");
   const vercelConfig = JSON.parse(fs.readFileSync(path.join(root, "vercel.json"), "utf8"));
+  const staticRedirectsSource = fs.readFileSync(path.join(root, "_redirects"), "utf8");
   const rewrites = Array.isArray(vercelConfig.rewrites) ? vercelConfig.rewrites : [];
   const redirects = Array.isArray(vercelConfig.redirects) ? vercelConfig.redirects : [];
   const apiRewrite = rewrites.find((entry) => entry.source === "/api/:path*");
@@ -584,6 +585,8 @@ test("production frontend routes same-domain API requests to the backend origin"
     redirects.some((entry) => entry.source === "/api/product/:id" && entry.destination === "/product/:id"),
     "Product share redirects must remain explicit while general API requests proxy to the backend."
   );
+  assert.match(staticRedirectsSource, /^\/api\/product\/\* \/product\/:splat 302$/m);
+  assert.match(staticRedirectsSource, /^\/api\/\* https:\/\/winga-pflp\.onrender\.com\/api\/:splat 200$/m);
 });
 
 test("worker cycles production image arrays without dropping gallery images", () => {

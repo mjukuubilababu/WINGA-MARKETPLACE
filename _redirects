@@ -1,3 +1,6 @@
-# Cloudflare Worker + assets mode handles routing directly.
-# Keep this file intentionally empty of rewrite/proxy rules so
-# Wrangler static asset validation does not conflict with Worker routing.
+# Cloudflare Pages/static fallback routing.
+# Keep product share routes app-owned, but never let general API calls fall
+# through to index.html. That fallback makes /api/products look successful
+# while returning the static shell instead of JSON.
+/api/product/* /product/:splat 302
+/api/* https://winga-pflp.onrender.com/api/:splat 200
