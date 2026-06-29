@@ -8,6 +8,7 @@ const tinyPngBuffer = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jk4cAAAAASUVORK5CYII=",
   "base64"
 );
+const detailContinuationCardSelector = "#product-detail-modal [data-product-detail-feed-stack] [data-open-product]";
 
 async function applyApiConfigOverride(target) {
   await target.addInitScript((baseUrl) => {
@@ -669,7 +670,7 @@ test("browser back follows product-detail history instead of dumping users home"
   await expect(page.locator("#product-detail-modal")).toBeVisible();
   const firstTitle = await page.locator("#product-detail-title").textContent();
 
-  await page.locator("#product-detail-modal .seller-product-card").first().click();
+  await page.locator(detailContinuationCardSelector).first().click();
   await expect(page.locator("#product-detail-title")).not.toHaveText(firstTitle || "");
 
   await page.goBack();
@@ -691,7 +692,7 @@ test("floating home action appears only for deeper product browsing and returns 
   await expect(page.locator("#product-detail-modal")).toBeVisible();
   await expect(page.locator("#product-detail-modal [data-product-detail-home]")).toHaveCount(0);
 
-  await page.locator("#product-detail-modal .seller-product-card").first().click();
+  await page.locator(detailContinuationCardSelector).first().click();
   const homeFab = page.locator("#product-detail-modal [data-product-detail-home]");
   await expect(homeFab).toBeVisible();
 
@@ -1275,7 +1276,7 @@ test("buyer-side action buttons stay compact and consistent inside deeper produc
   await page.locator("#products-container .product-card").first().click();
   await expect(page.locator("#product-detail-modal")).toBeVisible();
 
-  const continuationCard = page.locator("#product-detail-modal .seller-product-card").first();
+  const continuationCard = page.locator(detailContinuationCardSelector).first();
   await expect(continuationCard).toBeVisible();
 
   await expect(continuationCard).not.toContainText("Nunua");
@@ -1291,9 +1292,7 @@ test("buyer-side action buttons stay compact and consistent inside deeper produc
   await expect(page.locator("#context-chat-modal")).not.toBeVisible();
 
   const originalTitle = await page.locator("#product-detail-title").textContent();
-  const buyButton = continuationCard.locator("button[data-open-product]").first();
-  await expect(buyButton).toBeVisible();
-  await buyButton.click();
+  await continuationCard.click();
   await expect(page.locator("#product-detail-title")).not.toHaveText(originalTitle || "");
 
   await context.close();
@@ -1351,19 +1350,19 @@ test("product detail keeps same-seller continuation and broader discovery surfac
   await expect(page.locator("#product-detail-modal")).toBeVisible();
   const continuationSections = page.locator("#product-detail-modal .product-detail-seller-products");
   await expect(continuationSections.first()).toBeVisible();
-  await expect(page.locator("#product-detail-modal .product-detail-showcase-track").first()).toBeVisible();
-  await expect(page.locator("#product-detail-modal .seller-product-card").first()).toBeVisible();
+  await expect(page.locator("#product-detail-modal [data-product-detail-feed-stack]").first()).toBeVisible();
+  await expect(page.locator(detailContinuationCardSelector).first()).toBeVisible();
   await expect(page.locator("#product-detail-modal")).toContainText("Related Products");
   await expect(continuationSections).toHaveCount(2);
 
-  await page.locator("#product-detail-modal .seller-product-card").first().click();
+  await page.locator(detailContinuationCardSelector).first().click();
   await expect(page.locator("#product-detail-modal [data-product-detail-home]")).toBeVisible();
-  await expect(page.locator("#product-detail-modal .seller-product-card").first()).toBeVisible();
+  await expect(page.locator(detailContinuationCardSelector).first()).toBeVisible();
 
   await context.close();
 });
 
-test("product detail continuation rows use the same enhanced showcase-track architecture as home rows", async ({ browser }) => {
+test("product detail continuation rows use the same feed-stack architecture as home rows", async ({ browser }) => {
   const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234");
   await page.goto("/");
   await expect(page.locator("#products-container .product-card").first()).toBeVisible({ timeout: 30000 });
@@ -1371,13 +1370,13 @@ test("product detail continuation rows use the same enhanced showcase-track arch
   await page.locator("#products-container .product-card").first().click();
   await expect(page.locator("#product-detail-modal")).toBeVisible();
 
-  const tracks = page.locator("#product-detail-modal .product-detail-showcase-track");
-  const trackCount = await tracks.count();
-  expect(trackCount).toBeGreaterThan(0);
-  for (let index = 0; index < trackCount; index += 1) {
-    const track = tracks.nth(index);
-    await expect(track).toBeVisible();
-    await expect.poll(() => track.evaluate((element) => element.dataset.wingaTrackEnhanced || "")).toBe("true");
+  const stacks = page.locator("#product-detail-modal [data-product-detail-feed-stack]");
+  const stackCount = await stacks.count();
+  expect(stackCount).toBeGreaterThan(0);
+  for (let index = 0; index < stackCount; index += 1) {
+    const stack = stacks.nth(index);
+    await expect(stack).toBeVisible();
+    await expect(stack.locator("[data-open-product]").first()).toBeVisible();
   }
 
   await context.close();
