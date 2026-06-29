@@ -1457,6 +1457,60 @@ test("home feed multi-image posts show a compact preview grid with +more and ope
   await context.close();
 });
 
+test("product detail continuation feed cards keep visible media after feed-fit hardening", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234", {
+    viewport: { width: 390, height: 844 },
+    isMobile: true,
+    hasTouch: true
+  });
+  await page.goto("/");
+  await expect(page.locator("#products-container .product-card").first()).toBeVisible({ timeout: 30000 });
+
+  await page.locator("#products-container .product-card").first().click();
+  await expect(page.locator("#product-detail-modal")).toBeVisible();
+  const firstMedia = page.locator("#product-detail-modal [data-product-detail-feed-stack] > .product-card .product-card-media").first();
+  await expect(firstMedia).toBeVisible();
+  await expect(firstMedia.locator("img").first()).toBeVisible();
+  await expect.poll(async () => firstMedia.evaluate((media) => {
+    const image = media.querySelector("img");
+    const mediaRect = media.getBoundingClientRect();
+    const imageRect = image?.getBoundingClientRect?.();
+    return {
+      mediaWidth: Math.round(mediaRect.width),
+      mediaHeight: Math.round(mediaRect.height),
+      imageWidth: Math.round(imageRect?.width || 0),
+      imageHeight: Math.round(imageRect?.height || 0),
+      currentSrc: String(image?.currentSrc || image?.src || "").trim()
+    };
+  }), {
+    timeout: 10000
+  }).toMatchObject({
+    mediaWidth: expect.any(Number),
+    mediaHeight: expect.any(Number),
+    imageWidth: expect.any(Number),
+    imageHeight: expect.any(Number)
+  });
+  const geometry = await firstMedia.evaluate((media) => {
+    const image = media.querySelector("img");
+    const mediaRect = media.getBoundingClientRect();
+    const imageRect = image?.getBoundingClientRect?.();
+    return {
+      mediaWidth: Math.round(mediaRect.width),
+      mediaHeight: Math.round(mediaRect.height),
+      imageWidth: Math.round(imageRect?.width || 0),
+      imageHeight: Math.round(imageRect?.height || 0),
+      currentSrc: String(image?.currentSrc || image?.src || "").trim()
+    };
+  });
+  expect(geometry.mediaWidth).toBeGreaterThan(300);
+  expect(geometry.mediaHeight).toBeGreaterThan(240);
+  expect(geometry.imageWidth).toBeGreaterThan(280);
+  expect(geometry.imageHeight).toBeGreaterThan(200);
+  expect(geometry.currentSrc).not.toBe("");
+
+  await context.close();
+});
+
 test("admin login route opens the admin surface without exposing admin in normal auth", async ({ browser }) => {
   const { context, page } = await createAnonymousPage(browser);
   await page.goto("/#/admin-login");
