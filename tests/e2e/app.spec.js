@@ -10,6 +10,30 @@ const tinyPngBuffer = Buffer.from(
 );
 const detailContinuationCardSelector = "#product-detail-modal [data-product-detail-feed-stack] > .product-card[data-open-product]";
 
+async function dragTrackHorizontally(page, track, options = {}) {
+  await track.scrollIntoViewIfNeeded();
+  const initialScrollLeft = await track.evaluate((element) => {
+    element.scrollTo({ left: 0, behavior: "auto" });
+    return element.scrollLeft;
+  });
+  const box = await track.boundingBox();
+  expect(box).not.toBeNull();
+  const startX = box.x + (box.width * Number(options.startRatio || 0.82));
+  const endX = box.x + (box.width * Number(options.endRatio || 0.18));
+  const pointerY = box.y + Math.min(120, Math.max(48, box.height / 2));
+
+  await page.mouse.move(startX, pointerY);
+  await page.mouse.down();
+  await page.mouse.move(endX, pointerY + 2, { steps: Number(options.steps || 14) });
+  await page.mouse.up();
+  await page.waitForTimeout(Number(options.waitMs || 300));
+
+  return {
+    initialScrollLeft,
+    finalScrollLeft: await track.evaluate((element) => element.scrollLeft)
+  };
+}
+
 async function applyApiConfigOverride(target) {
   await target.addInitScript((baseUrl) => {
     window.__WINGA_CONFIG_OVERRIDE__ = {
@@ -143,6 +167,25 @@ test("product detail main gallery stays visible and swipeable with natural media
   await page.waitForTimeout(300);
   const afterScrollLeft = await track.evaluate((node) => node.scrollLeft);
   expect(afterScrollLeft).toBeGreaterThan(beforeScrollLeft);
+
+  await track.evaluate((node) => {
+    node.scrollTo({ left: 0, behavior: "auto" });
+  });
+  await page.waitForTimeout(120);
+  const dragBox = await track.boundingBox();
+  expect(dragBox).not.toBeNull();
+  const startX = dragBox.x + (dragBox.width * 0.82);
+  const endX = dragBox.x + (dragBox.width * 0.18);
+  const pointerY = dragBox.y + Math.min(120, Math.max(48, dragBox.height / 2));
+
+  await page.mouse.move(startX, pointerY);
+  await page.mouse.down();
+  await page.mouse.move(endX, pointerY + 2, { steps: 14 });
+  await page.mouse.up();
+  await page.waitForTimeout(300);
+
+  const draggedScrollLeft = await track.evaluate((node) => node.scrollLeft);
+  expect(draggedScrollLeft).toBeGreaterThan(24);
 
   await context.close();
 });
@@ -899,163 +942,72 @@ test("vertical page scroll still works while the pointer is over showcase rows",
   await context.close();
 });
 
-test("showcase rows still move horizontally when users drag across product cards", async ({ browser }) => {
+test("home feed galleries still move horizontally when users drag across product cards", async ({ browser }) => {
   const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234", {
-    viewport: { width: 1280, height: 900 }
+    viewport: { width: 390, height: 844 },
+    isMobile: true,
+    hasTouch: true
   });
 
   await page.goto("/");
-  const track = page.locator("#market-showcase .showcase-track");
+  await expect(page.locator("#products-container .product-card").first()).toBeVisible({ timeout: 30000 });
+  const track = page.locator("#products-container .product-card.has-gallery-count-badge [data-feed-gallery-track]").first();
   await expect(track).toBeVisible();
 
-  const initialScrollLeft = await track.evaluate((element) => element.scrollLeft);
-  const box = await track.boundingBox();
-  expect(box).not.toBeNull();
-
-  const startX = box.x + (box.width * 0.82);
-  const endX = box.x + (box.width * 0.22);
-  const pointerY = box.y + Math.min(80, box.height / 2);
-
-  await page.mouse.move(startX, pointerY);
-  await page.mouse.down();
-  await page.mouse.move(endX, pointerY + 2, { steps: 12 });
-  await page.mouse.up();
-
-  const finalScrollLeft = await track.evaluate((element) => element.scrollLeft);
-  const movedBy = finalScrollLeft - initialScrollLeft;
-
-  expect(movedBy).toBeGreaterThan(24);
+  const { initialScrollLeft, finalScrollLeft } = await dragTrackHorizontally(page, track);
+  expect(finalScrollLeft - initialScrollLeft).toBeGreaterThan(24);
 
   await context.close();
 });
 
-test("deeper showcase rows keep the same horizontal swipe behavior", async ({ browser }) => {
+test("product detail continuation feed galleries keep the same horizontal swipe behavior", async ({ browser }) => {
   const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234", {
-    viewport: { width: 1280, height: 900 }
+    viewport: { width: 390, height: 844 },
+    isMobile: true,
+    hasTouch: true
   });
 
   await page.goto("/");
-  await expect(page.locator(".showcase-inline .showcase-track").first()).toBeVisible();
-  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-  const deeperTrackIndex = await page.evaluate(() => {
-    const tracks = Array.from(document.querySelectorAll(".showcase-inline .showcase-track"));
-    for (let index = tracks.length - 1; index >= 1; index -= 1) {
-      const track = tracks[index];
-      if (track.scrollWidth > track.clientWidth + 12) {
-        return index;
-      }
-    }
-    return tracks.length > 1 ? 1 : 0;
-  });
-  const getTrack = () => page.locator(".showcase-inline .showcase-track").nth(deeperTrackIndex);
-  await expect(getTrack()).toBeVisible();
-  await expect.poll(async () => getTrack().evaluate((element) => element.dataset.wingaTrackEnhanced || "")).toBe("true");
-  await getTrack().scrollIntoViewIfNeeded();
-
-  const initialScrollLeft = await getTrack().evaluate((element) => element.scrollLeft);
-  const box = await getTrack().boundingBox();
-  expect(box).not.toBeNull();
-
-  const startX = box.x + (box.width * 0.8);
-  const endX = box.x + (box.width * 0.24);
-  const pointerY = box.y + Math.min(80, box.height / 2);
-  const hit = await page.evaluate(({ x, y }) => {
-    const node = document.elementFromPoint(x, y);
-    return {
-      tag: node?.tagName || "",
-      id: node?.id || "",
-      className: node?.className || "",
-      insideTrack: Boolean(node?.closest?.(".showcase-track")),
-      insideFab: Boolean(node?.closest?.("#post-product-fab")),
-      insideHomeBack: Boolean(node?.closest?.("#view-home-back"))
-    };
-  }, { x: startX, y: pointerY });
-  expect(hit.insideTrack).toBeTruthy();
-
-  await page.mouse.move(startX, pointerY);
-  await page.mouse.down();
-  await page.mouse.move(endX, pointerY + 2, { steps: 12 });
-  await page.mouse.up();
-
-  await expect.poll(async () => getTrack().evaluate((element) => element.scrollLeft)).toBeGreaterThan(initialScrollLeft);
+  await expect(page.locator("#products-container .product-card").first()).toBeVisible({ timeout: 30000 });
+  await page.locator("#products-container .product-card").first().click();
+  await expect(page.locator("#product-detail-modal")).toBeVisible();
+  await expect(page.locator(detailContinuationCardSelector).first()).toBeVisible();
+  const trackCount = await page.locator("#product-detail-modal [data-product-detail-feed-stack] > .product-card [data-feed-gallery-track]").count();
+  expect(trackCount).toBeGreaterThan(0);
+  const scrollableIndex = await page.locator("#product-detail-modal [data-product-detail-feed-stack] > .product-card [data-feed-gallery-track]").evaluateAll((tracks) =>
+    tracks.findIndex((track) => track.scrollWidth > track.clientWidth + 12)
+  );
+  if (scrollableIndex >= 0) {
+    const track = page.locator("#product-detail-modal [data-product-detail-feed-stack] > .product-card [data-feed-gallery-track]").nth(scrollableIndex);
+    await expect(track).toBeVisible();
+    const { initialScrollLeft, finalScrollLeft } = await dragTrackHorizontally(page, track, {
+      startRatio: 0.8,
+      endRatio: 0.24,
+      steps: 12
+    });
+    expect(finalScrollLeft).toBeGreaterThan(initialScrollLeft);
+  }
 
   await context.close();
 });
 
-test("mobile deeper showcase rows respond to touch-style horizontal drags", async ({ browser }) => {
+test("mobile home feed galleries respond to touch-sized horizontal drags", async ({ browser }) => {
   const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234", {
     viewport: { width: 390, height: 844 },
     isMobile: true
   });
 
   await page.goto("/");
-  await expect(page.locator(".showcase-inline .showcase-track").first()).toBeVisible();
-  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-  await page.waitForTimeout(800);
+  await expect(page.locator("#products-container .product-card").first()).toBeVisible({ timeout: 30000 });
+  const track = page.locator("#products-container .product-card.has-gallery-count-badge [data-feed-gallery-track]").first();
+  await expect(track).toBeVisible();
 
-  const result = await page.evaluate(async () => {
-    const tracks = Array.from(document.querySelectorAll(".showcase-inline .showcase-track"));
-    const track = tracks[tracks.length - 1] || tracks[0] || null;
-    if (!track) {
-      return { movedBy: 0, enhanced: "", found: false };
-    }
-    track.scrollIntoView({ block: "center", behavior: "auto" });
-    await new Promise((resolve) => window.setTimeout(resolve, 60));
-    track.scrollLeft = 0;
-    const target = track.querySelector(".showcase-card, .seller-product-card") || track;
-    const startLeft = track.scrollLeft;
-    const touchStart = new Touch({
-      identifier: 91,
-      target,
-      clientX: 286,
-      clientY: 32,
-      pageX: 286,
-      pageY: 32,
-      screenX: 286,
-      screenY: 32
-    });
-    const touchMove = new Touch({
-      identifier: 91,
-      target,
-      clientX: 126,
-      clientY: 34,
-      pageX: 126,
-      pageY: 34,
-      screenX: 126,
-      screenY: 34
-    });
-    target.dispatchEvent(new TouchEvent("touchstart", {
-      bubbles: true,
-      cancelable: true,
-      changedTouches: [touchStart],
-      touches: [touchStart],
-      targetTouches: [touchStart]
-    }));
-    target.dispatchEvent(new TouchEvent("touchmove", {
-      bubbles: true,
-      cancelable: true,
-      changedTouches: [touchMove],
-      touches: [touchMove],
-      targetTouches: [touchMove]
-    }));
-    target.dispatchEvent(new TouchEvent("touchend", {
-      bubbles: true,
-      cancelable: true,
-      changedTouches: [touchMove],
-      touches: [],
-      targetTouches: []
-    }));
-    await new Promise((resolve) => window.setTimeout(resolve, 80));
-    return {
-      movedBy: track.scrollLeft - startLeft,
-      enhanced: track.dataset.wingaTrackEnhanced || "",
-      found: true
-    };
+  const { initialScrollLeft, finalScrollLeft } = await dragTrackHorizontally(page, track, {
+    startRatio: 0.82,
+    endRatio: 0.16,
+    steps: 14
   });
-
-  expect(result.found).toBeTruthy();
-  expect(result.enhanced).toBe("true");
-  expect(result.movedBy).toBeGreaterThan(40);
+  expect(finalScrollLeft - initialScrollLeft).toBeGreaterThan(40);
 
   await context.close();
 });
