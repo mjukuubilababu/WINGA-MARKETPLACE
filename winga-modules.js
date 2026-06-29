@@ -3154,10 +3154,11 @@ window.WingaModules.boot = window.WingaModules.boot || {};
       const useCarouselSurface = isFeedSurface || isDetailSurface || isDetailContinuationSurface;
       const storedAspectRatio = Number(product?.imageAspectRatios?.[initialImageIndex] || 0);
       const hasStoredAspectRatio = Number.isFinite(storedAspectRatio) && storedAspectRatio > 0.2 && storedAspectRatio < 5;
-      const fitMode = isFeedSurface
+      const usesFeedMediaFit = isFeedSurface || isDetailContinuationSurface;
+      const fitMode = usesFeedMediaFit
         ? "contain"
         : normalizeProductFitMode(options?.fitMode || getProductFitMode(product));
-      const stableFrameRatio = isFeedSurface
+      const stableFrameRatio = usesFeedMediaFit
         ? (hasStoredAspectRatio ? String(Number(storedAspectRatio.toFixed(6))) : "4 / 5")
         : "";
       if (options?.preload && typeof preloadImageSource === "function") {
@@ -3236,7 +3237,7 @@ window.WingaModules.boot = window.WingaModules.boot || {};
           ${stableFrameRatio ? `data-feed-gallery-stable-ratio="${escapeHtml(stableFrameRatio)}"` : ""}
           data-feed-gallery-stable-fit-mode="${escapeHtml(fitMode)}"
           data-fit-mode="${escapeHtml(fitMode)}"
-          ${isFeedSurface ? `style="--fit-media-aspect-ratio:${escapeHtml(stableFrameRatio)};--feed-gallery-fit-mode:${escapeHtml(fitMode)}"` : ""}>
+          ${usesFeedMediaFit ? `style="--fit-media-aspect-ratio:${escapeHtml(stableFrameRatio)};--feed-gallery-fit-mode:${escapeHtml(fitMode)}"` : ""}>
           <div class="feed-gallery-carousel-track" data-feed-gallery-track>
             ${slides}
           </div>
@@ -13447,7 +13448,11 @@ window.WingaModules.boot = window.WingaModules.boot || {};
       recentIds: [],
       usedIds: new Set(),
       seedProductId: "",
-      loading: false
+      loading: false,
+      backendStageIndex: 0,
+      backendStageState: {},
+      exhausted: false,
+      requestId: 0
     };
     const MAX_ACTIVE_DETAIL_CONTINUATION_SECTIONS = 4;
     const MAX_DETAIL_CONTINUATION_USED_IDS = 120;
@@ -13593,6 +13598,21 @@ window.WingaModules.boot = window.WingaModules.boot || {};
       return idSet;
     }
 
+    function rememberRenderedDetailContinuationIds(modal) {
+      if (!modal?.querySelectorAll || !(detailContinuousRuntime.usedIds instanceof Set)) {
+        return;
+      }
+      modal
+        .querySelectorAll("[data-product-detail-feed-stack] > .product-card[data-open-product]")
+        .forEach((card) => {
+          const productId = String(card?.dataset?.openProduct || "").trim();
+          if (productId) {
+            detailContinuousRuntime.usedIds.add(productId);
+          }
+        });
+      pruneOrderedIdSet(detailContinuousRuntime.usedIds, MAX_DETAIL_CONTINUATION_USED_IDS);
+    }
+
     function releasePrunedSectionMedia(section) {
       if (!(section instanceof Element)) {
         return;
@@ -13634,6 +13654,10 @@ window.WingaModules.boot = window.WingaModules.boot || {};
         usedIds: new Set(),
         seedProductId: "",
         loading: false,
+        backendStageIndex: 0,
+        backendStageState: {},
+        exhausted: false,
+        requestId: 0,
         reobserveTimer: 0
       };
     }
@@ -13701,15 +13725,10 @@ window.WingaModules.boot = window.WingaModules.boot || {};
       });
     }
 
-    function hydrateDetailContinuousAnchor(modal, anchor, product) {
-      if (!anchor || detailContinuousRuntime.loading) {
-        return;
-      }
-      detailContinuousRuntime.loading = true;
-      detailContinuousRuntime.observer?.unobserve(anchor);
-      const seedProduct = (deps.getProductById ? deps.getProductById(detailContinuousRuntime.seedProductId) : null) || product;
-      const sellerFirstItems = getRemainingSellerProducts(seedProduct, detailContinuousRuntime.usedIds, 8);
-      const descriptor = sellerFirstItems.length
+    function getLocalDetailContinuationDescriptor(seedProduct) {
+      const activeSeedProduct = (deps.getProductById ? deps.getProductById(detailContinuousRuntime.seedProductId) : null) || seedProduct;
+      const sellerFirstItems = getRemainingSellerProducts(activeSeedProduct, detailContinuousRuntime.usedIds, 8);
+      return sellerFirstItems.length
         ? {
           kind: "same-seller",
           eyebrow: "More From This Seller",
@@ -13718,12 +13737,103 @@ window.WingaModules.boot = window.WingaModules.boot || {};
           items: sellerFirstItems
         }
         : deps.getContinuousDiscoveryDescriptor?.({
-          seedProduct,
+          seedProduct: activeSeedProduct,
           usedIds: detailContinuousRuntime.usedIds,
           recentIds: detailContinuousRuntime.recentIds,
           batchIndex: detailContinuousRuntime.batchIndex
         });
+    }
+
+    function filterDetailContinuationDescriptor(descriptor) {
       if (!descriptor) {
+        return null;
+      }
+      const items = (Array.isArray(descriptor.items) ? descriptor.items : []).filter((item) =>
+        item?.id && !detailContinuousRuntime.usedIds.has(item.id)
+      );
+      return items.length ? { ...descriptor, items } : null;
+    }
+
+    async function loadNextDetailContinuationPage(seedProduct) {
+      if (typeof deps.loadDetailContinuationProducts !== "function") {
+        detailContinuousRuntime.exhausted = true;
+        return { appendedCount: 0, exhausted: true };
+      }
+      const stages = ["seller", "category", "general"];
+      for (let index = detailContinuousRuntime.backendStageIndex; index < stages.length; index += 1) {
+        const stage = stages[index];
+        const state = detailContinuousRuntime.backendStageState[stage] || {};
+        if (state.hasMore === false) {
+          detailContinuousRuntime.backendStageIndex = index + 1;
+          continue;
+        }
+        const page = await deps.loadDetailContinuationProducts(seedProduct, {
+          stage,
+          append: true,
+          limit: stage === "general" ? 16 : 12,
+          batchIndex: detailContinuousRuntime.batchIndex
+        });
+        const appendedCount = Number(page?.appendedCount || 0) || 0;
+        detailContinuousRuntime.backendStageState[stage] = {
+          hasMore: page?.hasMore !== false && page?.exhausted !== true,
+          page: Number(page?.page || state.page || 0) || 0,
+          nextCursor: String(page?.nextCursor || "")
+        };
+        if (page?.hasMore === false || page?.exhausted === true) {
+          detailContinuousRuntime.backendStageIndex = index + 1;
+        }
+        if (appendedCount > 0) {
+          return page;
+        }
+      }
+      detailContinuousRuntime.exhausted = true;
+      return { appendedCount: 0, exhausted: true };
+    }
+
+    async function resolveDetailContinuationDescriptor(seedProduct) {
+      for (let attempt = 0; attempt < 4; attempt += 1) {
+        const localDescriptor = filterDetailContinuationDescriptor(getLocalDetailContinuationDescriptor(seedProduct));
+        if (localDescriptor?.items?.length) {
+          return localDescriptor;
+        }
+        const page = await loadNextDetailContinuationPage(seedProduct);
+        if (Number(page?.appendedCount || 0) <= 0) {
+          return null;
+        }
+      }
+      return filterDetailContinuationDescriptor(getLocalDetailContinuationDescriptor(seedProduct));
+    }
+
+    async function hydrateDetailContinuousAnchor(modal, anchor, product) {
+      if (!anchor || detailContinuousRuntime.loading || detailContinuousRuntime.exhausted) {
+        return;
+      }
+      detailContinuousRuntime.loading = true;
+      detailContinuousRuntime.observer?.unobserve(anchor);
+      const requestId = ++detailContinuousRuntime.requestId;
+      const seedProduct = (deps.getProductById ? deps.getProductById(detailContinuousRuntime.seedProductId) : null) || product;
+      rememberRenderedDetailContinuationIds(modal);
+      let descriptor = null;
+      try {
+        descriptor = await resolveDetailContinuationDescriptor(seedProduct);
+      } catch (error) {
+        deps.captureError?.("product_detail_continuation_failed", error, {
+          productId: seedProduct?.id || product?.id || ""
+        });
+      }
+      if (requestId !== detailContinuousRuntime.requestId || !anchor.isConnected || !modal?.isConnected) {
+        detailContinuousRuntime.loading = false;
+        return;
+      }
+      if (!descriptor) {
+        detailContinuousRuntime.loading = false;
+        if (!detailContinuousRuntime.exhausted) {
+          scheduleDetailContinuousReobserve(anchor, modal);
+        }
+        return;
+      }
+      descriptor = filterDetailContinuationDescriptor(descriptor);
+      if (!descriptor?.items?.length) {
         detailContinuousRuntime.loading = false;
         scheduleDetailContinuousReobserve(anchor, modal);
         return;
@@ -14327,3 +14437,4 @@ window.WingaModules.boot = window.WingaModules.boot || {};
 
   window.WingaModules.productDetail.createProductDetailControllerModule = createProductDetailControllerModule;
 })();
+

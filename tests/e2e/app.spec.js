@@ -8,7 +8,7 @@ const tinyPngBuffer = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jk4cAAAAASUVORK5CYII=",
   "base64"
 );
-const detailContinuationCardSelector = "#product-detail-modal [data-product-detail-feed-stack] [data-open-product]";
+const detailContinuationCardSelector = "#product-detail-modal [data-product-detail-feed-stack] > .product-card[data-open-product]";
 
 async function applyApiConfigOverride(target) {
   await target.addInitScript((baseUrl) => {
@@ -1358,6 +1358,46 @@ test("product detail keeps same-seller continuation and broader discovery surfac
   await page.locator(detailContinuationCardSelector).first().click();
   await expect(page.locator("#product-detail-modal [data-product-detail-home]")).toBeVisible();
   await expect(page.locator(detailContinuationCardSelector).first()).toBeVisible();
+
+  await context.close();
+});
+
+test("product detail continuation keeps deeper feed cards stable while scrolling inside the modal", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234", {
+    viewport: { width: 390, height: 844 },
+    isMobile: true,
+    hasTouch: true
+  });
+  await page.goto("/");
+  await expect(page.locator("#products-container .product-card").first()).toBeVisible({ timeout: 30000 });
+
+  await page.locator("#products-container .product-card").first().click();
+  const modal = page.locator("#product-detail-modal");
+  await expect(modal).toBeVisible();
+  await expect(page.locator(detailContinuationCardSelector).first()).toBeVisible();
+
+  const initialIds = await page.locator(detailContinuationCardSelector).evaluateAll((cards) =>
+    cards.map((card) => card.getAttribute("data-open-product")).filter(Boolean)
+  );
+  expect(initialIds.length).toBeGreaterThan(0);
+
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    await modal.evaluate((element) => {
+      element.scrollTo({ top: element.scrollHeight, behavior: "auto" });
+    });
+    await page.waitForTimeout(350);
+  }
+
+  await expect.poll(async () => page.locator(detailContinuationCardSelector).count(), {
+    timeout: 10000
+  }).toBeGreaterThanOrEqual(initialIds.length);
+
+  const finalIds = await page.locator(detailContinuationCardSelector).evaluateAll((cards) =>
+    cards.map((card) => card.getAttribute("data-open-product")).filter(Boolean)
+  );
+  expect(new Set(finalIds).size).toBe(finalIds.length);
+  expect(finalIds.length).toBeGreaterThanOrEqual(initialIds.length);
+  expect(finalIds.slice(0, initialIds.length)).toEqual(initialIds);
 
   await context.close();
 });

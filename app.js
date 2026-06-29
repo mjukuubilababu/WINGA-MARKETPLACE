@@ -10478,6 +10478,7 @@ const {
   getProducts: () => products,
   isPerformanceDebugEnabled: isExperienceMetricDebugEnabled,
   hydrateContinuationProducts: hydrateProductDetailContinuationProducts,
+  loadDetailContinuationProducts: loadProductDetailContinuationProducts,
   getProductById,
   getMarketplaceUser,
   getDiscoveryRelatedProducts: (...args) => getDiscoveryRelatedProducts(...args),
@@ -15048,22 +15049,55 @@ async function hydrateSellerProductsForProfile(seller, options = {}) {
   });
 }
 
+async function loadProductDetailContinuationProducts(product, options = {}) {
+  if (!product?.id) {
+    return { items: [], appendedItems: [], appendedCount: 0, exhausted: true };
+  }
+  const stage = String(options.stage || "general").trim().toLowerCase();
+  const limit = Math.max(1, Math.min(24, Number(options.limit || 12) || 12));
+  if (stage === "seller") {
+    if (!product.uploadedBy) {
+      return { items: [], appendedItems: [], appendedCount: 0, exhausted: true, hasMore: false };
+    }
+    return hydrateProductQuerySurface({
+      surface: `detail-continuation-seller:${product.id}`,
+      seller: product.uploadedBy,
+      limit,
+      append: options.append === true
+    });
+  }
+  if (stage === "category") {
+    if (!product.category) {
+      return { items: [], appendedItems: [], appendedCount: 0, exhausted: true, hasMore: false };
+    }
+    return hydrateProductQuerySurface({
+      surface: `detail-continuation-category:${product.id}`,
+      category: product.category,
+      limit,
+      append: options.append === true
+    });
+  }
+  return hydrateProductQuerySurface({
+    surface: `detail-continuation-general:${product.id}`,
+    limit,
+    append: options.append === true
+  });
+}
+
 async function hydrateProductDetailContinuationProducts(product) {
   if (!product?.id) {
     return { appendedCount: 0 };
   }
   const [sellerPage, categoryPage] = await Promise.all([
     product.uploadedBy
-      ? hydrateProductQuerySurface({
-          surface: `detail-seller:${product.id}`,
-          seller: product.uploadedBy,
+      ? loadProductDetailContinuationProducts(product, {
+          stage: "seller",
           limit: 12
         })
       : Promise.resolve({ appendedCount: 0 }),
     product.category
-      ? hydrateProductQuerySurface({
-          surface: `detail-category:${product.id}`,
-          category: product.category,
+      ? loadProductDetailContinuationProducts(product, {
+          stage: "category",
           limit: 12
         })
       : Promise.resolve({ appendedCount: 0 })

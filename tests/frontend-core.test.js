@@ -104,6 +104,30 @@ test("marketplace gallery module preserves feed carousel markup contract", () =>
   assert.match(appSource, /function bindFeedGalleryInteractions\(scope = document\) \{\s+getMarketplaceGalleryTools\(\)\.bindFeedGalleryInteractions\?\.\(scope\);\s+\}/);
 });
 
+test("product detail continuation uses backend-backed endless feed state and feed media fit", () => {
+  const root = path.resolve(__dirname, "..");
+  const controllerSource = fs.readFileSync(path.join(root, "src", "product-detail", "controller.js"), "utf8");
+  const gallerySource = fs.readFileSync(path.join(root, "src", "marketplace", "gallery.js"), "utf8");
+  const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
+
+  assert.match(controllerSource, /backendStageState:\s*\{\}/);
+  assert.match(controllerSource, /backendStageIndex:\s*0/);
+  assert.match(controllerSource, /async function loadNextDetailContinuationPage\(seedProduct\)/);
+  assert.match(controllerSource, /\["seller", "category", "general"\]/);
+  assert.match(controllerSource, /deps\.loadDetailContinuationProducts\(seedProduct/);
+  assert.match(controllerSource, /function rememberRenderedDetailContinuationIds\(modal\)/);
+  assert.match(controllerSource, /function filterDetailContinuationDescriptor\(descriptor\)/);
+  assert.match(controllerSource, /async function hydrateDetailContinuousAnchor\(modal, anchor, product\)/);
+  assert.match(controllerSource, /detailContinuousRuntime\.exhausted/);
+  assert.match(appSource, /loadDetailContinuationProducts: loadProductDetailContinuationProducts/);
+  assert.match(appSource, /async function loadProductDetailContinuationProducts\(product, options = \{\}\)/);
+  assert.match(appSource, /surface: `detail-continuation-seller:\$\{product\.id\}`/);
+  assert.match(appSource, /surface: `detail-continuation-category:\$\{product\.id\}`/);
+  assert.match(appSource, /surface: `detail-continuation-general:\$\{product\.id\}`/);
+  assert.match(gallerySource, /const usesFeedMediaFit = isFeedSurface \|\| isDetailContinuationSurface;/);
+  assert.match(gallerySource, /usesFeedMediaFit\s+\?\s+"contain"/);
+});
+
 test("marketplace image loader is a bundled module dependency, not an app fallback", () => {
   const root = path.resolve(__dirname, "..");
   const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");

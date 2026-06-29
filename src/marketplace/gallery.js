@@ -88,10 +88,11 @@
       const useCarouselSurface = isFeedSurface || isDetailSurface || isDetailContinuationSurface;
       const storedAspectRatio = Number(product?.imageAspectRatios?.[initialImageIndex] || 0);
       const hasStoredAspectRatio = Number.isFinite(storedAspectRatio) && storedAspectRatio > 0.2 && storedAspectRatio < 5;
-      const fitMode = isFeedSurface
+      const usesFeedMediaFit = isFeedSurface || isDetailContinuationSurface;
+      const fitMode = usesFeedMediaFit
         ? "contain"
         : normalizeProductFitMode(options?.fitMode || getProductFitMode(product));
-      const stableFrameRatio = isFeedSurface
+      const stableFrameRatio = usesFeedMediaFit
         ? (hasStoredAspectRatio ? String(Number(storedAspectRatio.toFixed(6))) : "4 / 5")
         : "";
       if (options?.preload && typeof preloadImageSource === "function") {
@@ -170,7 +171,7 @@
           ${stableFrameRatio ? `data-feed-gallery-stable-ratio="${escapeHtml(stableFrameRatio)}"` : ""}
           data-feed-gallery-stable-fit-mode="${escapeHtml(fitMode)}"
           data-fit-mode="${escapeHtml(fitMode)}"
-          ${isFeedSurface ? `style="--fit-media-aspect-ratio:${escapeHtml(stableFrameRatio)};--feed-gallery-fit-mode:${escapeHtml(fitMode)}"` : ""}>
+          ${usesFeedMediaFit ? `style="--fit-media-aspect-ratio:${escapeHtml(stableFrameRatio)};--feed-gallery-fit-mode:${escapeHtml(fitMode)}"` : ""}>
           <div class="feed-gallery-carousel-track" data-feed-gallery-track>
             ${slides}
           </div>
