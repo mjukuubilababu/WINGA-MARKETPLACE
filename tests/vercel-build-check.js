@@ -12,7 +12,6 @@ function assert(condition, message) {
 
 const requiredFiles = [
   "index.html",
-  "winga.html",
   "style.css",
   "app.js",
   "app-core.js",

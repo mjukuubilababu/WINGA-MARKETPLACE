@@ -575,6 +575,7 @@ test("production frontend routes same-domain API requests to the backend origin"
   const root = path.resolve(__dirname, "..");
   const vercelConfig = JSON.parse(fs.readFileSync(path.join(root, "vercel.json"), "utf8"));
   const staticRedirectsSource = fs.readFileSync(path.join(root, "_redirects"), "utf8");
+  const apiProxySource = fs.readFileSync(path.join(root, "api", "[...path].js"), "utf8");
   const rewrites = Array.isArray(vercelConfig.rewrites) ? vercelConfig.rewrites : [];
   const redirects = Array.isArray(vercelConfig.redirects) ? vercelConfig.redirects : [];
   const apiRewrite = rewrites.find((entry) => entry.source === "/api/:path*");
@@ -587,6 +588,11 @@ test("production frontend routes same-domain API requests to the backend origin"
   );
   assert.match(staticRedirectsSource, /^\/api\/product\/\* \/product\/:splat 302$/m);
   assert.match(staticRedirectsSource, /^\/api\/\* https:\/\/winga-pflp\.onrender\.com\/api\/:splat 200$/m);
+  assert.match(apiProxySource, /const BACKEND_API_ORIGIN = "https:\/\/winga-pflp\.onrender\.com"/);
+  assert.match(apiProxySource, /bodyParser: false/);
+  assert.match(apiProxySource, /MAX_PROXY_BODY_BYTES = 20 \* 1024 \* 1024/);
+  assert.match(apiProxySource, /HOP_BY_HOP_HEADERS/);
+  assert.match(apiProxySource, /headers\["x-winga-proxy"\] = "vercel-api"/);
 });
 
 test("worker cycles production image arrays without dropping gallery images", () => {
