@@ -471,8 +471,10 @@ test("seller can change and verify whatsapp number from profile and upload uses 
   );
 
   await page.locator("#profile-whatsapp-change-toggle").click();
+  await expect(page.locator("#profile-whatsapp-change-form")).toBeVisible();
   await page.locator("#profile-whatsapp-input").fill("255700777331");
-  await page.locator("#profile-whatsapp-save-button").click();
+  await expect(page.locator("#profile-whatsapp-save-button")).toBeVisible();
+  await page.locator("#profile-whatsapp-save-button").dispatchEvent("click");
   await profileUpdatePromise;
 
   await expect(page.locator("#profile-whatsapp-block")).toContainText("255700777331");
