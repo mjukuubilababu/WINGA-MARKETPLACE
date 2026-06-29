@@ -109,6 +109,7 @@ test("product detail continuation uses backend-backed endless feed state and fee
   const controllerSource = fs.readFileSync(path.join(root, "src", "product-detail", "controller.js"), "utf8");
   const gallerySource = fs.readFileSync(path.join(root, "src", "marketplace", "gallery.js"), "utf8");
   const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
+  const styleSource = fs.readFileSync(path.join(root, "style.css"), "utf8");
 
   assert.match(controllerSource, /backendStageState:\s*\{\}/);
   assert.match(controllerSource, /backendStageIndex:\s*0/);
@@ -126,6 +127,8 @@ test("product detail continuation uses backend-backed endless feed state and fee
   assert.match(appSource, /surface: `detail-continuation-general:\$\{product\.id\}`/);
   assert.match(gallerySource, /const usesFeedMediaFit = isFeedSurface \|\| isDetailContinuationSurface;/);
   assert.match(gallerySource, /usesFeedMediaFit\s+\?\s+"contain"/);
+  assert.match(styleSource, /\.feed-gallery-preview\[data-feed-gallery-surface="detail-continuation"\] \.feed-gallery-carousel-track,[\s\S]*height:100% !important;/);
+  assert.match(styleSource, /\.feed-gallery-preview\[data-feed-gallery-surface="detail-continuation"\] \.feed-gallery-carousel-slide,[\s\S]*min-height:100% !important;/);
 });
 
 test("marketplace image loader is a bundled module dependency, not an app fallback", () => {

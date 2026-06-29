@@ -95,6 +95,58 @@ test("vertical feed image tiles open the product detail correctly", async ({ bro
   await context.close();
 });
 
+test("product detail main gallery stays visible and swipeable with natural media height", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234", {
+    viewport: { width: 390, height: 844 },
+    isMobile: true,
+    hasTouch: true
+  });
+  await page.goto("/");
+  await expect(page.locator("#products-container .product-card").first()).toBeVisible({ timeout: 30000 });
+
+  const multiImageCard = page.locator("#products-container .product-card.has-gallery-count-badge").first();
+  await expect(multiImageCard).toBeVisible();
+  await multiImageCard.click();
+  await expect(page.locator("#product-detail-modal")).toBeVisible();
+
+  const gallery = page.locator("#product-detail-modal .product-detail-media [data-feed-gallery-surface='detail']").first();
+  await expect(gallery).toBeVisible();
+  await expect(gallery.locator("img").first()).toBeVisible();
+
+  const geometry = await gallery.evaluate((node) => {
+    const image = node.querySelector("img");
+    const track = node.querySelector("[data-feed-gallery-track]");
+    const rect = node.getBoundingClientRect();
+    const imageRect = image?.getBoundingClientRect?.();
+    return {
+      galleryWidth: Math.round(rect.width),
+      galleryHeight: Math.round(rect.height),
+      imageWidth: Math.round(imageRect?.width || 0),
+      imageHeight: Math.round(imageRect?.height || 0),
+      scrollWidth: Math.round(track?.scrollWidth || 0),
+      clientWidth: Math.round(track?.clientWidth || 0),
+      total: Number(node.getAttribute("data-feed-gallery-total") || 0),
+      currentSrc: String(image?.currentSrc || image?.src || "").trim()
+    };
+  });
+  expect(geometry.galleryWidth).toBeGreaterThan(300);
+  expect(geometry.galleryHeight).toBeGreaterThan(240);
+  expect(geometry.imageWidth).toBeGreaterThan(280);
+  expect(geometry.imageHeight).toBeGreaterThan(200);
+  expect(geometry.currentSrc).not.toBe("");
+  expect(geometry.total).toBeGreaterThan(1);
+  expect(geometry.scrollWidth).toBeGreaterThan(geometry.clientWidth);
+
+  const track = gallery.locator("[data-feed-gallery-track]");
+  const beforeScrollLeft = await track.evaluate((node) => node.scrollLeft);
+  await track.evaluate((node) => node.scrollBy({ left: node.clientWidth, behavior: "auto" }));
+  await page.waitForTimeout(300);
+  const afterScrollLeft = await track.evaluate((node) => node.scrollLeft);
+  expect(afterScrollLeft).toBeGreaterThan(beforeScrollLeft);
+
+  await context.close();
+});
+
 test("desktop search handles broad intent and still opens the correct product detail", async ({ browser }) => {
   const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234");
   await page.goto("/");
