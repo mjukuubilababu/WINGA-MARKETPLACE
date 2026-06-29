@@ -575,6 +575,22 @@ test("production CSP is enforced from repo without inline script escape hatches"
   assert.doesNotMatch(marketplaceSource, /onclick:\s*"return window\.__wingaOpenPromotionFromTrigger/);
 });
 
+test("production domain routing verifier catches API shell fallthrough", () => {
+  const root = path.resolve(__dirname, "..");
+  const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+  const domainVerifySource = fs.readFileSync(path.join(root, "scripts", "verify-domain-routing.js"), "utf8");
+
+  assert.equal(packageJson.scripts["verify:domain-routing"], "node scripts/verify-domain-routing.js");
+  assert.match(domainVerifySource, /FRONTEND_ORIGIN/);
+  assert.match(domainVerifySource, /VERCEL_ORIGIN/);
+  assert.match(domainVerifySource, /BACKEND_ORIGIN/);
+  assert.match(domainVerifySource, /frontend API products/);
+  assert.match(domainVerifySource, /frontend CSRF/);
+  assert.match(domainVerifySource, /application\\\/json/);
+  assert.match(domainVerifySource, /X-Vercel-Id/);
+  assert.match(domainVerifySource, /traffic is not reaching the Vercel deployment/);
+});
+
 test("production frontend routes same-domain API requests to the backend origin", () => {
   const root = path.resolve(__dirname, "..");
   const vercelConfig = JSON.parse(fs.readFileSync(path.join(root, "vercel.json"), "utf8"));
