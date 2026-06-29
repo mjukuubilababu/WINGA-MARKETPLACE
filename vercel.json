@@ -141,7 +141,12 @@
       ]
     }
   ],
-  "rewrites": [],
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://winga-pflp.onrender.com/api/:path*"
+    }
+  ],
   "redirects": [
     {
       "source": "/__winga-image__",

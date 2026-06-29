@@ -571,6 +571,21 @@ test("production CSP is enforced from repo without inline script escape hatches"
   assert.doesNotMatch(marketplaceSource, /onclick:\s*"return window\.__wingaOpenPromotionFromTrigger/);
 });
 
+test("production frontend routes same-domain API requests to the backend origin", () => {
+  const root = path.resolve(__dirname, "..");
+  const vercelConfig = JSON.parse(fs.readFileSync(path.join(root, "vercel.json"), "utf8"));
+  const rewrites = Array.isArray(vercelConfig.rewrites) ? vercelConfig.rewrites : [];
+  const redirects = Array.isArray(vercelConfig.redirects) ? vercelConfig.redirects : [];
+  const apiRewrite = rewrites.find((entry) => entry.source === "/api/:path*");
+
+  assert.ok(apiRewrite, "Vercel must not let /api requests fall through to the static app shell.");
+  assert.equal(apiRewrite.destination, "https://winga-pflp.onrender.com/api/:path*");
+  assert.ok(
+    redirects.some((entry) => entry.source === "/api/product/:id" && entry.destination === "/product/:id"),
+    "Product share redirects must remain explicit while general API requests proxy to the backend."
+  );
+});
+
 test("worker cycles production image arrays without dropping gallery images", () => {
   const root = path.resolve(__dirname, "..");
   const source = fs.readFileSync(path.join(root, "worker.js"), "utf8")
