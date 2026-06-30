@@ -627,6 +627,8 @@ test("backend intelligence platform normalizes canonical marketplace events", as
   assert.equal(event.feedContext, "home-feed");
   assert.equal(event.location, "TZ");
   assert.equal(event.deviceType, "mobile");
+  assert.equal(platform.getSummary().queue.enqueued, 1);
+  await platform.drainForTests();
   assert.equal(appended[0].event, "intelligence_event");
   assert.equal(appended[0].eventType, "product_purchased");
   assert.equal(persisted[0].event.eventType, "product_purchased");
@@ -634,6 +636,33 @@ test("backend intelligence platform normalizes canonical marketplace events", as
   assert.equal(persisted[0].scores.sellerScore.id, "seller_one");
   assert.equal(platform.getSummary().topProducts[0].id, "product-1");
   assert.equal(platform.getSummary().topSellers[0].id, "seller_one");
+});
+
+test("backend intelligence platform bounds persistence queue under pressure", async () => {
+  const root = path.resolve(__dirname, "..");
+  const { createIntelligencePlatform } = require(path.join(root, "backend", "intelligence-platform.js"));
+  const blocker = new Promise(() => {});
+  const platform = createIntelligencePlatform({
+    appendEvent: async () => blocker,
+    persistEvent: async () => {},
+    maxQueueSize: 2,
+    persistenceConcurrency: 1,
+    now: () => new Date("2026-06-30T09:00:00.000Z"),
+    logger: { warn() {} }
+  });
+
+  for (let index = 1; index <= 12; index += 1) {
+    await platform.ingestClientEvent({ level: "info", event: "product_viewed", context: { productId: `product-${index}` } });
+  }
+
+  const summary = platform.getSummary();
+  assert.equal(summary.queue.accepted, 12);
+  assert.equal(summary.queue.enqueued, 12);
+  assert.equal(summary.queue.active, 1);
+  assert.equal(summary.queue.depth, 10);
+  assert.equal(summary.queue.dropped, 1);
+  assert.equal(summary.queue.maxSize, 10);
+  assert.equal(summary.queue.concurrency, 1);
 });
 
 test("production frontend routes same-domain API requests to the backend origin", () => {

@@ -192,16 +192,28 @@ function createIntelligencePlatform(options = {}) {
   const appendEvent = typeof options.appendEvent === "function" ? options.appendEvent : async () => {};
   const logger = options.logger || console;
   const now = typeof options.now === "function" ? options.now : () => new Date();
+  const maxQueueSize = Math.max(10, Math.min(Number(options.maxQueueSize || 1000) || 1000, 100000));
+  const persistenceConcurrency = Math.max(1, Math.min(Number(options.persistenceConcurrency || 2) || 2, 20));
   const recentEvents = [];
   const productScores = new Map();
   const sellerScores = new Map();
   const eventCounts = new Map();
+  const persistenceQueue = [];
+  const drainResolvers = [];
+  let activePersistenceJobs = 0;
   const queueState = {
     accepted: 0,
     processed: 0,
+    enqueued: 0,
+    completed: 0,
+    persisted: 0,
     failed: 0,
+    dropped: 0,
+    maxDepthSeen: 0,
     lastProcessedAt: "",
-    lastFailureAt: ""
+    lastPersistedAt: "",
+    lastFailureAt: "",
+    lastDroppedAt: ""
   };
 
   function getProductScore(productId = "") {
@@ -302,6 +314,110 @@ function createIntelligencePlatform(options = {}) {
     }
   }
 
+  function getAuditEventPayload(event) {
+    return {
+      time: event.timestamp,
+      event: "intelligence_event",
+      eventId: event.eventId,
+      eventType: event.eventType,
+      productId: event.productId,
+      sellerId: event.sellerId,
+      buyerId: event.buyerId,
+      sessionId: event.sessionId,
+      feedContext: event.feedContext,
+      location: event.location,
+      deviceType: event.deviceType,
+      appVersion: event.appVersion,
+      metadata: event.metadata,
+      platformVersion: event.platformVersion
+    };
+  }
+
+  async function runPersistenceJob(job) {
+    const { event, scoreSnapshot } = job;
+    let persistenceSucceeded = true;
+    if (typeof options.persistEvent === "function") {
+      try {
+        await options.persistEvent(event, scoreSnapshot);
+      } catch (error) {
+        persistenceSucceeded = false;
+        queueState.failed += 1;
+        queueState.lastFailureAt = now().toISOString();
+        logger.warn?.("[WINGA] Intelligence event persistence failed.", error);
+      }
+    }
+    let appendSucceeded = true;
+    try {
+      await appendEvent(getAuditEventPayload(event));
+    } catch (error) {
+      appendSucceeded = false;
+      queueState.failed += 1;
+      queueState.lastFailureAt = now().toISOString();
+      logger.warn?.("[WINGA] Intelligence event append failed.", error);
+    }
+    queueState.completed += 1;
+    if (persistenceSucceeded && appendSucceeded) {
+      queueState.persisted += 1;
+      queueState.lastPersistedAt = now().toISOString();
+    }
+  }
+
+  function resolveDrainsIfIdle() {
+    if (persistenceQueue.length || activePersistenceJobs) {
+      return;
+    }
+    while (drainResolvers.length) {
+      drainResolvers.shift()?.();
+    }
+  }
+
+  function pumpPersistenceQueue() {
+    while (activePersistenceJobs < persistenceConcurrency && persistenceQueue.length) {
+      const job = persistenceQueue.shift();
+      activePersistenceJobs += 1;
+      Promise.resolve()
+        .then(() => runPersistenceJob(job))
+        .catch((error) => {
+          queueState.failed += 1;
+          queueState.lastFailureAt = now().toISOString();
+          logger.warn?.("[WINGA] Intelligence queue job failed.", error);
+        })
+        .finally(() => {
+          activePersistenceJobs -= 1;
+          pumpPersistenceQueue();
+          resolveDrainsIfIdle();
+        });
+    }
+    resolveDrainsIfIdle();
+  }
+
+  function enqueuePersistence(event, scoreSnapshot) {
+    if (persistenceQueue.length >= maxQueueSize) {
+      persistenceQueue.shift();
+      queueState.dropped += 1;
+      queueState.lastDroppedAt = now().toISOString();
+    }
+    persistenceQueue.push({ event, scoreSnapshot });
+    queueState.enqueued += 1;
+    queueState.maxDepthSeen = Math.max(queueState.maxDepthSeen, persistenceQueue.length + activePersistenceJobs);
+    pumpPersistenceQueue();
+  }
+
+  function drainForTests(timeoutMs = 5000) {
+    if (!persistenceQueue.length && !activePersistenceJobs) {
+      return Promise.resolve();
+    }
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        reject(new Error("Timed out while draining intelligence queue."));
+      }, timeoutMs);
+      drainResolvers.push(() => {
+        clearTimeout(timer);
+        resolve();
+      });
+    });
+  }
+
   async function ingestClientEvent(payload = {}, context = {}) {
     const event = buildCanonicalEvent(payload, context);
     processCanonicalEvent(event);
@@ -309,44 +425,20 @@ function createIntelligencePlatform(options = {}) {
       productScore: event.productId ? getProductScore(event.productId) : null,
       sellerScore: event.sellerId ? getSellerScore(event.sellerId) : null
     };
-    if (typeof options.persistEvent === "function") {
-      try {
-        await options.persistEvent(event, scoreSnapshot);
-      } catch (error) {
-        queueState.failed += 1;
-        queueState.lastFailureAt = now().toISOString();
-        logger.warn?.("[WINGA] Intelligence event persistence failed.", error);
-      }
-    }
-    try {
-      await appendEvent({
-        time: event.timestamp,
-        event: "intelligence_event",
-        eventId: event.eventId,
-        eventType: event.eventType,
-        productId: event.productId,
-        sellerId: event.sellerId,
-        buyerId: event.buyerId,
-        sessionId: event.sessionId,
-        feedContext: event.feedContext,
-        location: event.location,
-        deviceType: event.deviceType,
-        appVersion: event.appVersion,
-        metadata: event.metadata,
-        platformVersion: event.platformVersion
-      });
-    } catch (error) {
-      queueState.failed += 1;
-      queueState.lastFailureAt = now().toISOString();
-      logger.warn?.("[WINGA] Intelligence event append failed.", error);
-    }
+    enqueuePersistence(event, scoreSnapshot);
     return event;
   }
 
   function getSummary() {
     return {
       version: PLATFORM_VERSION,
-      queue: { ...queueState },
+      queue: {
+        ...queueState,
+        depth: persistenceQueue.length,
+        active: activePersistenceJobs,
+        maxSize: maxQueueSize,
+        concurrency: persistenceConcurrency
+      },
       counts: {
         recentEvents: recentEvents.length,
         productScores: productScores.size,
@@ -364,6 +456,7 @@ function createIntelligencePlatform(options = {}) {
   return {
     buildCanonicalEvent,
     ingestClientEvent,
+    drainForTests,
     getProductScore,
     getSellerScore,
     getSummary
