@@ -591,6 +591,46 @@ test("production domain routing verifier catches API shell fallthrough", () => {
   assert.match(domainVerifySource, /traffic is not reaching the Vercel deployment/);
 });
 
+test("backend intelligence platform normalizes canonical marketplace events", async () => {
+  const root = path.resolve(__dirname, "..");
+  const { createIntelligencePlatform } = require(path.join(root, "backend", "intelligence-platform.js"));
+  const appended = [];
+  const platform = createIntelligencePlatform({
+    appendEvent: async (entry) => appended.push(entry),
+    now: () => new Date("2026-06-30T09:00:00.000Z"),
+    logger: { warn() {} }
+  });
+
+  const event = await platform.ingestClientEvent({
+    level: "info",
+    event: "order_created",
+    message: "Buyer created order",
+    category: "orders",
+    fingerprint: "buyer-flow",
+    context: {
+      productId: "product-1",
+      surface: "home-feed",
+      appVersion: "20260630090000"
+    }
+  }, {
+    session: { username: "buyer_one" },
+    req: { headers: { "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)", "cf-ipcountry": "TZ" } },
+    store: { products: [{ id: "product-1", uploadedBy: "seller_one" }] }
+  });
+
+  assert.equal(event.eventType, "product_purchased");
+  assert.equal(event.productId, "product-1");
+  assert.equal(event.sellerId, "seller_one");
+  assert.equal(event.buyerId, "buyer_one");
+  assert.equal(event.feedContext, "home-feed");
+  assert.equal(event.location, "TZ");
+  assert.equal(event.deviceType, "mobile");
+  assert.equal(appended[0].event, "intelligence_event");
+  assert.equal(appended[0].eventType, "product_purchased");
+  assert.equal(platform.getSummary().topProducts[0].id, "product-1");
+  assert.equal(platform.getSummary().topSellers[0].id, "seller_one");
+});
+
 test("production frontend routes same-domain API requests to the backend origin", () => {
   const root = path.resolve(__dirname, "..");
   const vercelConfig = JSON.parse(fs.readFileSync(path.join(root, "vercel.json"), "utf8"));

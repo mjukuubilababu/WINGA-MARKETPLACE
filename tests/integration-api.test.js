@@ -895,7 +895,8 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
       fingerprint: "chat:send_failed",
       context: {
         surface: "context-chat",
-        flow: "buyer-product-chat"
+        flow: "buyer-product-chat",
+        productId: "product-test-001"
       }
     })
   });
@@ -907,6 +908,10 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   assert.equal(adminOpsSummaryAfterClientAlert.response.status, 200);
   assert.equal(adminOpsSummaryAfterClientAlert.body.counts.alertCandidates24h >= 1, true);
   assert.equal(adminOpsSummaryAfterClientAlert.body.recentAlerts.some((entry) => entry.event === "chat_runtime_failed"), true);
+  assert.equal(adminOpsSummaryAfterClientAlert.body.intelligence.version.length > 0, true);
+  assert.equal(adminOpsSummaryAfterClientAlert.body.intelligence.queue.processed >= 1, true);
+  assert.equal(adminOpsSummaryAfterClientAlert.body.intelligence.topEventTypes.some((entry) => entry.eventType === "conversation_signal"), true);
+  assert.equal(adminOpsSummaryAfterClientAlert.body.intelligence.topProducts.some((entry) => entry.id === "product-test-001"), true);
 
   const moderate = await request("/admin/products/product-test-001/moderate", {
     method: "PATCH",

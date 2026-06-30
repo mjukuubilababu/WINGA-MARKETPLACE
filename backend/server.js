@@ -5,6 +5,7 @@ const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const { createPostgresStore } = require("./db");
+const { createIntelligencePlatform } = require("./intelligence-platform");
 
 const PORT = process.env.PORT || 3000;
 const DATABASE_URL = process.env.DATABASE_URL || "";
@@ -23,6 +24,8 @@ const APP_HTML_TEMPLATE_PATH = path.join(__dirname, "..", "index.html");
 const APP_HTML_TEMPLATE = fs.existsSync(APP_HTML_TEMPLATE_PATH)
   ? fs.readFileSync(APP_HTML_TEMPLATE_PATH, "utf8")
   : "";
+const APP_BUILD_VERSION_MATCH = APP_HTML_TEMPLATE.match(/<meta name="winga-build" content="([^"]*)"/i);
+const APP_BUILD_VERSION = APP_BUILD_VERSION_MATCH?.[1] || "";
 const NODE_ENV = process.env.NODE_ENV || "development";
 const PAYMENT_WEBHOOK_SECRET = String(process.env.PAYMENT_WEBHOOK_SECRET || "").trim();
 const ALLOW_UNVERIFIED_MANUAL_PAYMENTS = String(process.env.ALLOW_UNVERIFIED_MANUAL_PAYMENTS || "").toLowerCase() === "true";
@@ -815,6 +818,11 @@ function recordAuditLog(entry) {
     console.warn("[WINGA] Audit log write failed.", error);
   });
 }
+
+const intelligencePlatform = createIntelligencePlatform({
+  appendEvent: appendAuditLog,
+  logger: console
+});
 
 function createPasswordHash(password) {
   const salt = crypto.randomBytes(16).toString("hex");
@@ -3324,6 +3332,7 @@ async function buildOpsSummary() {
       rateLimited24h: last24Hours.filter((entry) => entry?.event === "rate_limited").length,
       moderationActions24h: last24Hours.filter((entry) => String(entry?.event || "").includes("moderated") || entry?.event === "report_reviewed").length
     },
+    intelligence: intelligencePlatform.getSummary(),
     recentAlerts: alertCandidates.slice(0, 10),
     recentFailures: failureSignals.slice(0, 12),
     recentAuditEntries: recentAuditEntries.slice(0, 20)
@@ -5552,6 +5561,14 @@ http.createServer(async (req, res) => {
                 .map(([key, value]) => [sanitizePlainText(key, 40), sanitizePlainText(value, 120)])
             )
           : {}
+      });
+      intelligencePlatform.ingestClientEvent(payload, {
+        req,
+        session,
+        store,
+        appVersion: APP_BUILD_VERSION
+      }).catch((error) => {
+        console.warn("[WINGA] Intelligence ingestion failed.", error);
       });
       sendJson(res, 202, { ok: true });
       return;
