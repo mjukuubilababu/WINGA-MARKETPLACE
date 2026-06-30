@@ -204,6 +204,28 @@ function createIntelligencePlatform(options = {}) {
     lastFailureAt: ""
   };
 
+  function getProductScore(productId = "") {
+    const entry = productScores.get(normalizeIdentifier(productId, 100));
+    return entry ? {
+      id: entry.id,
+      score: Math.round(Number(entry.score || 0) * 100) / 100,
+      signals: { ...entry.signals },
+      firstSeenAt: entry.firstSeenAt,
+      lastSeenAt: entry.lastSeenAt
+    } : null;
+  }
+
+  function getSellerScore(sellerId = "") {
+    const entry = sellerScores.get(normalizeIdentifier(sellerId, 100));
+    return entry ? {
+      id: entry.id,
+      score: Math.round(Number(entry.score || 0) * 100) / 100,
+      signals: { ...entry.signals },
+      firstSeenAt: entry.firstSeenAt,
+      lastSeenAt: entry.lastSeenAt
+    } : null;
+  }
+
   function buildCanonicalEvent(payload = {}, context = {}) {
     const metadata = normalizeMetadata(payload.context);
     const productId = sanitizeText(pickFirst(
@@ -283,6 +305,19 @@ function createIntelligencePlatform(options = {}) {
   async function ingestClientEvent(payload = {}, context = {}) {
     const event = buildCanonicalEvent(payload, context);
     processCanonicalEvent(event);
+    const scoreSnapshot = {
+      productScore: event.productId ? getProductScore(event.productId) : null,
+      sellerScore: event.sellerId ? getSellerScore(event.sellerId) : null
+    };
+    if (typeof options.persistEvent === "function") {
+      try {
+        await options.persistEvent(event, scoreSnapshot);
+      } catch (error) {
+        queueState.failed += 1;
+        queueState.lastFailureAt = now().toISOString();
+        logger.warn?.("[WINGA] Intelligence event persistence failed.", error);
+      }
+    }
     try {
       await appendEvent({
         time: event.timestamp,
@@ -329,6 +364,8 @@ function createIntelligencePlatform(options = {}) {
   return {
     buildCanonicalEvent,
     ingestClientEvent,
+    getProductScore,
+    getSellerScore,
     getSummary
   };
 }

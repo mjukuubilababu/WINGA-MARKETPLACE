@@ -595,8 +595,10 @@ test("backend intelligence platform normalizes canonical marketplace events", as
   const root = path.resolve(__dirname, "..");
   const { createIntelligencePlatform } = require(path.join(root, "backend", "intelligence-platform.js"));
   const appended = [];
+  const persisted = [];
   const platform = createIntelligencePlatform({
     appendEvent: async (entry) => appended.push(entry),
+    persistEvent: async (event, scores) => persisted.push({ event, scores }),
     now: () => new Date("2026-06-30T09:00:00.000Z"),
     logger: { warn() {} }
   });
@@ -627,6 +629,9 @@ test("backend intelligence platform normalizes canonical marketplace events", as
   assert.equal(event.deviceType, "mobile");
   assert.equal(appended[0].event, "intelligence_event");
   assert.equal(appended[0].eventType, "product_purchased");
+  assert.equal(persisted[0].event.eventType, "product_purchased");
+  assert.equal(persisted[0].scores.productScore.id, "product-1");
+  assert.equal(persisted[0].scores.sellerScore.id, "seller_one");
   assert.equal(platform.getSummary().topProducts[0].id, "product-1");
   assert.equal(platform.getSummary().topSellers[0].id, "seller_one");
 });

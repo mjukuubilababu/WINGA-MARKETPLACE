@@ -169,3 +169,101 @@ test("product query filters share stable count predicates without cursor leakage
     "seller-one"
   ]);
 });
+
+test("PostgreSQL intelligence persistence appends events and upserts score tables", async () => {
+  const calls = [];
+  const queryClient = {
+    async query(text, params) {
+      calls.push({ text, params });
+      return { rows: [] };
+    }
+  };
+  const store = createPostgresStore({
+    databaseUrl: "postgres://test.invalid/winga",
+    queryClient
+  });
+
+  await store.appendIntelligenceEvent({
+    eventId: "intel-test-1",
+    eventType: "product_purchased",
+    sourceEvent: "order_created",
+    timestamp: "2026-06-30T09:00:00.000Z",
+    productId: "product-1",
+    sellerId: "seller-1",
+    buyerId: "buyer-1",
+    sessionId: "session-1",
+    feedContext: "home-feed",
+    location: "TZ",
+    deviceType: "mobile",
+    appVersion: "20260630090000",
+    level: "info",
+    category: "orders",
+    alertSeverity: "low",
+    metadata: { surface: "home-feed" },
+    platformVersion: "2026-06-30.1"
+  }, {
+    productScore: {
+      id: "product-1",
+      score: 12,
+      signals: { product_purchased: 1 },
+      firstSeenAt: "2026-06-30T09:00:00.000Z",
+      lastSeenAt: "2026-06-30T09:00:00.000Z"
+    },
+    sellerScore: {
+      id: "seller-1",
+      score: 5,
+      signals: { product_purchased: 1 },
+      firstSeenAt: "2026-06-30T09:00:00.000Z",
+      lastSeenAt: "2026-06-30T09:00:00.000Z"
+    }
+  });
+
+  assert.equal(calls.length, 3);
+  assert.match(calls[0].text, /INSERT INTO intelligence_events/);
+  assert.match(calls[0].text, /ON CONFLICT \(event_id\) DO NOTHING/);
+  assert.deepEqual(calls[0].params.slice(0, 6), [
+    "intel-test-1",
+    "product_purchased",
+    "order_created",
+    "2026-06-30T09:00:00.000Z",
+    "product-1",
+    "seller-1"
+  ]);
+  assert.match(calls[1].text, /INSERT INTO product_intelligence_scores/);
+  assert.match(calls[1].text, /ON CONFLICT \(product_id\) DO UPDATE SET/);
+  assert.equal(calls[1].params[0], "product-1");
+  assert.match(calls[2].text, /INSERT INTO seller_intelligence_scores/);
+  assert.match(calls[2].text, /ON CONFLICT \(seller_id\) DO UPDATE SET/);
+  assert.equal(calls[2].params[0], "seller-1");
+});
+
+test("PostgreSQL intelligence summary reads dedicated intelligence tables", async () => {
+  const calls = [];
+  const queryClient = {
+    async query(text, params) {
+      calls.push({ text, params });
+      if (text.includes("FROM intelligence_events")) {
+        return { rows: [{ eventType: "product_purchased", count: 2 }] };
+      }
+      if (text.includes("FROM product_intelligence_scores")) {
+        return { rows: [{ id: "product-1", score: 12, signals: { product_purchased: 2 }, lastSeenAt: new Date("2026-06-30T09:00:00.000Z") }] };
+      }
+      if (text.includes("FROM seller_intelligence_scores")) {
+        return { rows: [{ id: "seller-1", score: 5, signals: { product_purchased: 2 }, lastSeenAt: new Date("2026-06-30T09:00:00.000Z") }] };
+      }
+      return { rows: [] };
+    }
+  };
+  const store = createPostgresStore({
+    databaseUrl: "postgres://test.invalid/winga",
+    queryClient
+  });
+
+  const summary = await store.readIntelligenceSummary(5);
+
+  assert.equal(calls.length, 3);
+  assert.deepEqual(calls.map((call) => call.params), [[5], [5], [5]]);
+  assert.equal(summary.topEventTypes[0].eventType, "product_purchased");
+  assert.equal(summary.topProducts[0].id, "product-1");
+  assert.equal(summary.topSellers[0].id, "seller-1");
+});

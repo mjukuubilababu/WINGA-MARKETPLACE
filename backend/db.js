@@ -381,6 +381,72 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
     `);
 
     await query(`
+      CREATE TABLE IF NOT EXISTS intelligence_events (
+        event_id TEXT PRIMARY KEY,
+        event_type TEXT NOT NULL,
+        source_event TEXT NOT NULL DEFAULT '',
+        happened_at TIMESTAMPTZ NOT NULL,
+        product_id TEXT NOT NULL DEFAULT '',
+        seller_id TEXT NOT NULL DEFAULT '',
+        buyer_id TEXT NOT NULL DEFAULT '',
+        session_id TEXT NOT NULL DEFAULT '',
+        feed_context TEXT NOT NULL DEFAULT '',
+        location TEXT NOT NULL DEFAULT '',
+        device_type TEXT NOT NULL DEFAULT '',
+        app_version TEXT NOT NULL DEFAULT '',
+        level TEXT NOT NULL DEFAULT '',
+        category TEXT NOT NULL DEFAULT '',
+        alert_severity TEXT NOT NULL DEFAULT '',
+        metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+        platform_version TEXT NOT NULL DEFAULT '',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+
+    await query(`
+      CREATE TABLE IF NOT EXISTS product_intelligence_scores (
+        product_id TEXT PRIMARY KEY,
+        score NUMERIC(12, 2) NOT NULL DEFAULT 0,
+        signals JSONB NOT NULL DEFAULT '{}'::jsonb,
+        first_seen_at TIMESTAMPTZ NOT NULL,
+        last_seen_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+
+    await query(`
+      CREATE TABLE IF NOT EXISTS seller_intelligence_scores (
+        seller_id TEXT PRIMARY KEY,
+        score NUMERIC(12, 2) NOT NULL DEFAULT 0,
+        signals JSONB NOT NULL DEFAULT '{}'::jsonb,
+        first_seen_at TIMESTAMPTZ NOT NULL,
+        last_seen_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+
+    await query(`
+      CREATE INDEX IF NOT EXISTS idx_intelligence_events_type_time
+      ON intelligence_events (event_type, happened_at DESC);
+    `);
+    await query(`
+      CREATE INDEX IF NOT EXISTS idx_intelligence_events_product_time
+      ON intelligence_events (product_id, happened_at DESC);
+    `);
+    await query(`
+      CREATE INDEX IF NOT EXISTS idx_intelligence_events_seller_time
+      ON intelligence_events (seller_id, happened_at DESC);
+    `);
+    await query(`
+      CREATE INDEX IF NOT EXISTS idx_product_intelligence_scores_score
+      ON product_intelligence_scores (score DESC, last_seen_at DESC);
+    `);
+    await query(`
+      CREATE INDEX IF NOT EXISTS idx_seller_intelligence_scores_score
+      ON seller_intelligence_scores (score DESC, last_seen_at DESC);
+    `);
+
+    await query(`
       CREATE TABLE IF NOT EXISTS app_settings (
         id INTEGER PRIMARY KEY DEFAULT 1,
         settings JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -1344,6 +1410,129 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
     );
   }
 
+  async function appendIntelligenceEvent(event, scores = {}) {
+    await query(
+      `INSERT INTO intelligence_events (
+        event_id, event_type, source_event, happened_at, product_id, seller_id,
+        buyer_id, session_id, feed_context, location, device_type, app_version,
+        level, category, alert_severity, metadata, platform_version
+      ) VALUES (
+        $1, $2, $3, $4::timestamptz, $5, $6, $7, $8, $9, $10, $11, $12,
+        $13, $14, $15, $16::jsonb, $17
+      )
+      ON CONFLICT (event_id) DO NOTHING`,
+      [
+        event.eventId,
+        event.eventType,
+        event.sourceEvent || "",
+        event.timestamp || new Date().toISOString(),
+        event.productId || "",
+        event.sellerId || "",
+        event.buyerId || "",
+        event.sessionId || "",
+        event.feedContext || "",
+        event.location || "",
+        event.deviceType || "",
+        event.appVersion || "",
+        event.level || "",
+        event.category || "",
+        event.alertSeverity || "",
+        JSON.stringify(event.metadata || {}),
+        event.platformVersion || ""
+      ]
+    );
+
+    if (scores.productScore?.id) {
+      await query(
+        `INSERT INTO product_intelligence_scores (
+          product_id, score, signals, first_seen_at, last_seen_at, updated_at
+        ) VALUES ($1, $2, $3::jsonb, $4::timestamptz, $5::timestamptz, NOW())
+        ON CONFLICT (product_id) DO UPDATE SET
+          score = EXCLUDED.score,
+          signals = EXCLUDED.signals,
+          first_seen_at = LEAST(product_intelligence_scores.first_seen_at, EXCLUDED.first_seen_at),
+          last_seen_at = GREATEST(product_intelligence_scores.last_seen_at, EXCLUDED.last_seen_at),
+          updated_at = NOW()`,
+        [
+          scores.productScore.id,
+          Number(scores.productScore.score || 0),
+          JSON.stringify(scores.productScore.signals || {}),
+          scores.productScore.firstSeenAt || event.timestamp || new Date().toISOString(),
+          scores.productScore.lastSeenAt || event.timestamp || new Date().toISOString()
+        ]
+      );
+    }
+
+    if (scores.sellerScore?.id) {
+      await query(
+        `INSERT INTO seller_intelligence_scores (
+          seller_id, score, signals, first_seen_at, last_seen_at, updated_at
+        ) VALUES ($1, $2, $3::jsonb, $4::timestamptz, $5::timestamptz, NOW())
+        ON CONFLICT (seller_id) DO UPDATE SET
+          score = EXCLUDED.score,
+          signals = EXCLUDED.signals,
+          first_seen_at = LEAST(seller_intelligence_scores.first_seen_at, EXCLUDED.first_seen_at),
+          last_seen_at = GREATEST(seller_intelligence_scores.last_seen_at, EXCLUDED.last_seen_at),
+          updated_at = NOW()`,
+        [
+          scores.sellerScore.id,
+          Number(scores.sellerScore.score || 0),
+          JSON.stringify(scores.sellerScore.signals || {}),
+          scores.sellerScore.firstSeenAt || event.timestamp || new Date().toISOString(),
+          scores.sellerScore.lastSeenAt || event.timestamp || new Date().toISOString()
+        ]
+      );
+    }
+  }
+
+  async function readIntelligenceSummary(limit = 10) {
+    const safeLimit = Math.max(1, Math.min(Number(limit) || 10, 50));
+    const [eventTypes, products, sellers] = await Promise.all([
+      query(
+        `SELECT event_type AS "eventType", COUNT(*)::int AS count
+         FROM intelligence_events
+         WHERE happened_at >= NOW() - INTERVAL '24 hours'
+         GROUP BY event_type
+         ORDER BY count DESC, event_type ASC
+         LIMIT $1`,
+        [safeLimit]
+      ),
+      query(
+        `SELECT product_id AS id, score::float AS score, signals, last_seen_at AS "lastSeenAt"
+         FROM product_intelligence_scores
+         ORDER BY score DESC, last_seen_at DESC
+         LIMIT $1`,
+        [safeLimit]
+      ),
+      query(
+        `SELECT seller_id AS id, score::float AS score, signals, last_seen_at AS "lastSeenAt"
+         FROM seller_intelligence_scores
+         ORDER BY score DESC, last_seen_at DESC
+         LIMIT $1`,
+        [safeLimit]
+      )
+    ]);
+
+    return {
+      topEventTypes: eventTypes.rows.map((row) => ({
+        eventType: row.eventType,
+        count: Number(row.count || 0)
+      })),
+      topProducts: products.rows.map((row) => ({
+        id: row.id,
+        score: Number(row.score || 0),
+        signals: row.signals || {},
+        lastSeenAt: toISOString(row.lastSeenAt)
+      })),
+      topSellers: sellers.rows.map((row) => ({
+        id: row.id,
+        score: Number(row.score || 0),
+        signals: row.signals || {},
+        lastSeenAt: toISOString(row.lastSeenAt)
+      }))
+    };
+  }
+
   async function readRecentAuditLogs(limit = 50) {
     const safeLimit = Math.max(1, Math.min(Number(limit) || 50, 200));
     const result = await query(
@@ -1369,6 +1558,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
     readStore,
     readProductsPage,
     writeStore,
+    appendIntelligenceEvent,
+    readIntelligenceSummary,
     appendAuditLog,
     readRecentAuditLogs
   };

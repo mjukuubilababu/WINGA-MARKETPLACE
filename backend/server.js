@@ -821,6 +821,11 @@ function recordAuditLog(entry) {
 
 const intelligencePlatform = createIntelligencePlatform({
   appendEvent: appendAuditLog,
+  persistEvent: async (event, scores) => {
+    if (postgresStore?.appendIntelligenceEvent) {
+      await postgresStore.appendIntelligenceEvent(event, scores);
+    }
+  },
   logger: console
 });
 
@@ -3290,6 +3295,16 @@ function buildAnalytics(store, username = "", isAdmin = false) {
 
 async function buildOpsSummary() {
   const recentAuditEntries = await readRecentAuditEntries(80);
+  const intelligenceSummary = intelligencePlatform.getSummary();
+  if (postgresStore?.readIntelligenceSummary) {
+    try {
+      intelligenceSummary.persistent = await postgresStore.readIntelligenceSummary(10);
+    } catch (error) {
+      intelligenceSummary.persistent = {
+        error: "unavailable"
+      };
+    }
+  }
   const backupStatus = getBackupStatus();
   const now = Date.now();
   const last24Hours = recentAuditEntries.filter((entry) => {
@@ -3332,7 +3347,7 @@ async function buildOpsSummary() {
       rateLimited24h: last24Hours.filter((entry) => entry?.event === "rate_limited").length,
       moderationActions24h: last24Hours.filter((entry) => String(entry?.event || "").includes("moderated") || entry?.event === "report_reviewed").length
     },
-    intelligence: intelligencePlatform.getSummary(),
+    intelligence: intelligenceSummary,
     recentAlerts: alertCandidates.slice(0, 10),
     recentFailures: failureSignals.slice(0, 12),
     recentAuditEntries: recentAuditEntries.slice(0, 20)
