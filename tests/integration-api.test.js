@@ -1364,6 +1364,49 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   assert.equal(sellerMarkSoldOut.response.status, 200);
   assert.equal(sellerMarkSoldOut.body.availability, "sold_out");
 
+  const demandRequest = await request("/products/product-test-001/demand", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${buyerToken}`
+    },
+    body: JSON.stringify({
+      action: "notify_when_available",
+      color: "white",
+      size: "M",
+      country: "TZ",
+      region: "Dar es Salaam"
+    })
+  });
+  assert.equal(demandRequest.response.status, 201);
+  assert.equal(demandRequest.body.inserted, true);
+  assert.equal(demandRequest.body.demand.productId, "product-test-001");
+  assert.equal(demandRequest.body.summary.waitingUsers, 1);
+
+  const duplicateDemandRequest = await request("/products/product-test-001/demand", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${buyerToken}`
+    },
+    body: JSON.stringify({
+      action: "notify_when_available",
+      color: "white",
+      size: "M",
+      country: "TZ",
+      region: "Dar es Salaam"
+    })
+  });
+  assert.equal(duplicateDemandRequest.response.status, 200);
+  assert.equal(duplicateDemandRequest.body.inserted, false);
+
+  const sellerDemandAnalytics = await request("/analytics/summary", {
+    headers: { Authorization: `Bearer ${sellerToken}` }
+  });
+  assert.equal(sellerDemandAnalytics.response.status, 200);
+  assert.equal(sellerDemandAnalytics.body.demand.waitingUsers >= 1, true);
+  assert.equal(sellerDemandAnalytics.body.demand.mostRequestedProducts.some((item) => item.productId === "product-test-001"), true);
+
   const duplicateOrder = await request("/orders", {
     method: "POST",
     headers: {

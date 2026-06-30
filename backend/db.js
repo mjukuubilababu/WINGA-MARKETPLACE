@@ -426,6 +426,42 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
     `);
 
     await query(`
+      CREATE TABLE IF NOT EXISTS demand_events (
+        demand_id TEXT PRIMARY KEY,
+        dedupe_key TEXT NOT NULL UNIQUE,
+        product_id TEXT NOT NULL,
+        seller_id TEXT NOT NULL,
+        buyer_id TEXT NOT NULL DEFAULT '',
+        session_id TEXT NOT NULL DEFAULT '',
+        action TEXT NOT NULL,
+        color TEXT NOT NULL DEFAULT '',
+        size TEXT NOT NULL DEFAULT '',
+        country TEXT NOT NULL DEFAULT '',
+        region TEXT NOT NULL DEFAULT '',
+        demand_score NUMERIC(12, 2) NOT NULL DEFAULT 0,
+        metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL
+      );
+    `);
+
+    await query(`
+      CREATE TABLE IF NOT EXISTS product_demand_summaries (
+        product_id TEXT PRIMARY KEY,
+        seller_id TEXT NOT NULL,
+        total_demand INTEGER NOT NULL DEFAULT 0,
+        waiting_users INTEGER NOT NULL DEFAULT 0,
+        restock_interest INTEGER NOT NULL DEFAULT 0,
+        demand_score NUMERIC(12, 2) NOT NULL DEFAULT 0,
+        action_counts JSONB NOT NULL DEFAULT '{}'::jsonb,
+        top_colors JSONB NOT NULL DEFAULT '[]'::jsonb,
+        top_sizes JSONB NOT NULL DEFAULT '[]'::jsonb,
+        first_demand_at TIMESTAMPTZ,
+        last_demand_at TIMESTAMPTZ,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+
+    await query(`
       CREATE INDEX IF NOT EXISTS idx_intelligence_events_type_time
       ON intelligence_events (event_type, happened_at DESC);
     `);
@@ -444,6 +480,18 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
     await query(`
       CREATE INDEX IF NOT EXISTS idx_seller_intelligence_scores_score
       ON seller_intelligence_scores (score DESC, last_seen_at DESC);
+    `);
+    await query(`
+      CREATE INDEX IF NOT EXISTS idx_demand_events_product_time
+      ON demand_events (product_id, created_at DESC);
+    `);
+    await query(`
+      CREATE INDEX IF NOT EXISTS idx_demand_events_seller_time
+      ON demand_events (seller_id, created_at DESC);
+    `);
+    await query(`
+      CREATE INDEX IF NOT EXISTS idx_product_demand_summaries_seller_score
+      ON product_demand_summaries (seller_id, demand_score DESC, last_demand_at DESC);
     `);
 
     await query(`
@@ -1533,6 +1581,184 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
     };
   }
 
+  async function refreshProductDemandSummary(productId = "") {
+    const safeProductId = String(productId || "").trim();
+    if (!safeProductId) {
+      return null;
+    }
+    const result = await query(
+      `WITH source AS (
+         SELECT *
+         FROM demand_events
+         WHERE product_id = $1
+       ),
+       aggregate AS (
+         SELECT
+           product_id,
+           MAX(seller_id) AS seller_id,
+           COUNT(*)::int AS total_demand,
+           COUNT(DISTINCT NULLIF(COALESCE(NULLIF(buyer_id, ''), NULLIF(session_id, '')), ''))::int AS waiting_users,
+           COUNT(*) FILTER (WHERE action IN ('notify_when_available', 'want_back'))::int AS restock_interest,
+           COALESCE(SUM(demand_score), 0)::float8 AS demand_score,
+           MIN(created_at) AS first_demand_at,
+           MAX(created_at) AS last_demand_at
+         FROM source
+         GROUP BY product_id
+       ),
+       action_counts AS (
+         SELECT COALESCE(jsonb_object_agg(action, count), '{}'::jsonb) AS value
+         FROM (
+           SELECT action, COUNT(*)::int AS count
+           FROM source
+           GROUP BY action
+         ) actions
+       ),
+       top_colors AS (
+         SELECT COALESCE(jsonb_agg(jsonb_build_object('color', color, 'count', count) ORDER BY count DESC, color ASC), '[]'::jsonb) AS value
+         FROM (
+           SELECT color, COUNT(*)::int AS count
+           FROM source
+           WHERE color <> ''
+           GROUP BY color
+           ORDER BY count DESC, color ASC
+           LIMIT 5
+         ) colors
+       ),
+       top_sizes AS (
+         SELECT COALESCE(jsonb_agg(jsonb_build_object('size', size, 'count', count) ORDER BY count DESC, size ASC), '[]'::jsonb) AS value
+         FROM (
+           SELECT size, COUNT(*)::int AS count
+           FROM source
+           WHERE size <> ''
+           GROUP BY size
+           ORDER BY count DESC, size ASC
+           LIMIT 5
+         ) sizes
+       )
+       INSERT INTO product_demand_summaries (
+         product_id, seller_id, total_demand, waiting_users, restock_interest,
+         demand_score, action_counts, top_colors, top_sizes,
+         first_demand_at, last_demand_at, updated_at
+       )
+       SELECT
+         aggregate.product_id,
+         aggregate.seller_id,
+         aggregate.total_demand,
+         aggregate.waiting_users,
+         aggregate.restock_interest,
+         aggregate.demand_score,
+         action_counts.value,
+         top_colors.value,
+         top_sizes.value,
+         aggregate.first_demand_at,
+         aggregate.last_demand_at,
+         NOW()
+       FROM aggregate, action_counts, top_colors, top_sizes
+       ON CONFLICT (product_id) DO UPDATE SET
+         seller_id = EXCLUDED.seller_id,
+         total_demand = EXCLUDED.total_demand,
+         waiting_users = EXCLUDED.waiting_users,
+         restock_interest = EXCLUDED.restock_interest,
+         demand_score = EXCLUDED.demand_score,
+         action_counts = EXCLUDED.action_counts,
+         top_colors = EXCLUDED.top_colors,
+         top_sizes = EXCLUDED.top_sizes,
+         first_demand_at = EXCLUDED.first_demand_at,
+         last_demand_at = EXCLUDED.last_demand_at,
+         updated_at = NOW()
+       RETURNING
+         product_id AS "productId",
+         seller_id AS "sellerId",
+         total_demand AS "totalDemand",
+         waiting_users AS "waitingUsers",
+         restock_interest AS "restockInterest",
+         demand_score::float8 AS "demandScore",
+         action_counts AS "actionCounts",
+         top_colors AS "topColors",
+         top_sizes AS "topSizes",
+         first_demand_at AS "firstDemandAt",
+         last_demand_at AS "lastDemandAt",
+         updated_at AS "updatedAt"`,
+      [safeProductId]
+    );
+    const row = result.rows[0];
+    return row ? {
+      ...row,
+      demandScore: Number(row.demandScore || 0),
+      firstDemandAt: toISOString(row.firstDemandAt),
+      lastDemandAt: toISOString(row.lastDemandAt),
+      updatedAt: toISOString(row.updatedAt)
+    } : null;
+  }
+
+  async function appendDemandEvent(event = {}) {
+    const insertResult = await query(
+      `INSERT INTO demand_events (
+        demand_id, dedupe_key, product_id, seller_id, buyer_id, session_id,
+        action, color, size, country, region, demand_score, metadata, created_at
+      ) VALUES (
+        $1, $2, $3, $4, $5, $6,
+        $7, $8, $9, $10, $11, $12, $13::jsonb, $14::timestamptz
+      )
+      ON CONFLICT (dedupe_key) DO NOTHING
+      RETURNING demand_id`,
+      [
+        event.demandId,
+        event.dedupeKey,
+        event.productId,
+        event.sellerId,
+        event.buyerId || "",
+        event.sessionId || "",
+        event.action,
+        event.color || "",
+        event.size || "",
+        event.country || "",
+        event.region || "",
+        Number(event.demandScore || 0),
+        JSON.stringify(event.metadata || {}),
+        event.createdAt || new Date().toISOString()
+      ]
+    );
+    const inserted = insertResult.rowCount > 0;
+    const summary = await refreshProductDemandSummary(event.productId);
+    return { inserted, summary };
+  }
+
+  async function readSellerDemandSummary(sellerId = "", limit = 10) {
+    const safeSellerId = String(sellerId || "").trim().slice(0, 80);
+    const safeLimit = Math.max(1, Math.min(Number(limit) || 10, 50));
+    if (!safeSellerId) {
+      return [];
+    }
+    const result = await query(
+      `SELECT
+         product_id AS "productId",
+         seller_id AS "sellerId",
+         total_demand AS "totalDemand",
+         waiting_users AS "waitingUsers",
+         restock_interest AS "restockInterest",
+         demand_score::float8 AS "demandScore",
+         action_counts AS "actionCounts",
+         top_colors AS "topColors",
+         top_sizes AS "topSizes",
+         first_demand_at AS "firstDemandAt",
+         last_demand_at AS "lastDemandAt",
+         updated_at AS "updatedAt"
+       FROM product_demand_summaries
+       WHERE seller_id = $1
+       ORDER BY demand_score DESC, last_demand_at DESC NULLS LAST
+       LIMIT $2`,
+      [safeSellerId, safeLimit]
+    );
+    return result.rows.map((row) => ({
+      ...row,
+      demandScore: Number(row.demandScore || 0),
+      firstDemandAt: toISOString(row.firstDemandAt),
+      lastDemandAt: toISOString(row.lastDemandAt),
+      updatedAt: toISOString(row.updatedAt)
+    }));
+  }
+
   async function readRecentAuditLogs(limit = 50) {
     const safeLimit = Math.max(1, Math.min(Number(limit) || 50, 200));
     const result = await query(
@@ -1560,6 +1786,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
     writeStore,
     appendIntelligenceEvent,
     readIntelligenceSummary,
+    appendDemandEvent,
+    readSellerDemandSummary,
     appendAuditLog,
     readRecentAuditLogs
   };

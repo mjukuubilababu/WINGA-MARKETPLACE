@@ -9,6 +9,7 @@
   const REVIEWS_KEY = "winga-reviews";
   const APP_SETTINGS_KEY = "winga-app-settings";
   const OFFLINE_ACTION_QUEUE_KEY_PREFIX = "winga-offline-action-queue";
+  const DEMAND_SESSION_KEY = "winga-demand-session";
   const LOCAL_HASH_PREFIX = "pbkdf2_sha256";
   const DEFAULT_APP_SETTINGS = {
     heroSectionVisible: false,
@@ -271,6 +272,16 @@
     }
     const { token, ...safeSession } = session;
     safeStorageSet(SESSION_KEY, JSON.stringify(safeSession));
+  }
+
+  function getAnonymousDemandSessionId() {
+    const existing = safeStorageGet(DEMAND_SESSION_KEY);
+    if (existing) {
+      return existing;
+    }
+    const generated = `anon-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
+    safeStorageSet(DEMAND_SESSION_KEY, generated);
+    return generated;
   }
 
   function clearLegacyLocalFallbackArtifacts() {
@@ -2823,6 +2834,19 @@
           body: JSON.stringify(payload)
         });
       },
+      async recordDemand(productId, payload = {}) {
+        return fetchJson(`${baseUrl}/products/${encodeURIComponent(productId)}/demand`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...createAuthHeaders()
+          },
+          body: JSON.stringify({
+            ...payload,
+            sessionId: payload.sessionId || getAnonymousDemandSessionId()
+          })
+        });
+      },
       async loadAdminUsers() {
         const data = await fetchJson(`${baseUrl}/admin/users`, {
           headers: {
@@ -3622,6 +3646,9 @@
       },
       async updateProductAvailability() {
         throw new Error("Order flow inapatikana kwenye API mode tu.");
+      },
+      async recordDemand() {
+        return { ok: true, inserted: false, offline: true };
       },
       async loadAdminUsers() {
         return [];
@@ -4576,6 +4603,10 @@
     async updateProductAvailability(productId, payload) {
       assertSellerAccess();
       return state.adapter.updateProductAvailability ? state.adapter.updateProductAvailability(productId, payload) : null;
+    },
+    async recordDemand(productId, payload = {}) {
+      ensureAdapter();
+      return state.adapter.recordDemand ? state.adapter.recordDemand(productId, payload) : { ok: false };
     },
     async loadAdminUsers() {
       assertModerationAccess();

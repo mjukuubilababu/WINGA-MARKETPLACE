@@ -6,6 +6,7 @@ const fs = require("fs");
 const path = require("path");
 const { createPostgresStore } = require("./db");
 const { createIntelligencePlatform } = require("./intelligence-platform");
+const { createDemandService, summarizeDemandEvents } = require("./demand-service");
 
 const PORT = process.env.PORT || 3000;
 const DATABASE_URL = process.env.DATABASE_URL || "";
@@ -686,6 +687,8 @@ function readLegacyStore() {
   const reviews = Array.isArray(parsed.reviews) ? parsed.reviews : [];
   const reports = Array.isArray(parsed.reports) ? parsed.reports : [];
   const moderationActions = Array.isArray(parsed.moderationActions) ? parsed.moderationActions : [];
+  const demandEvents = Array.isArray(parsed.demandEvents) ? parsed.demandEvents : [];
+  const productDemandSummaries = Array.isArray(parsed.productDemandSummaries) ? parsed.productDemandSummaries : [];
   return {
     categories: mergeCategories(parsed.categories || []),
     users,
@@ -698,6 +701,8 @@ function readLegacyStore() {
     reviews: reviews.map(normalizeReviewRecord),
     reports: reports.map(normalizeReportRecord),
     moderationActions: moderationActions.map(normalizeModerationActionRecord),
+    demandEvents,
+    productDemandSummaries,
     settings: normalizeAppSettings(parsed.settings || DEFAULT_APP_SETTINGS),
     sessions: sessions.map((session) => {
       const sessionUser = users.find((user) => user.username === session.username);
@@ -828,6 +833,24 @@ const intelligencePlatform = createIntelligencePlatform({
   },
   logger: console
 });
+
+const demandService = createDemandService();
+const recentDemandDedupeKeys = new Map();
+const MAX_RECENT_DEMAND_DEDUPE_KEYS = 10000;
+
+function rememberDemandDedupeKey(key = "") {
+  const safeKey = String(key || "").trim();
+  if (!safeKey) {
+    return;
+  }
+  recentDemandDedupeKeys.set(safeKey, Date.now());
+  if (recentDemandDedupeKeys.size > MAX_RECENT_DEMAND_DEDUPE_KEYS) {
+    const overflow = recentDemandDedupeKeys.size - MAX_RECENT_DEMAND_DEDUPE_KEYS;
+    Array.from(recentDemandDedupeKeys.keys()).slice(0, overflow).forEach((entryKey) => {
+      recentDemandDedupeKeys.delete(entryKey);
+    });
+  }
+}
 
 function createPasswordHash(password) {
   const salt = crypto.randomBytes(16).toString("hex");
@@ -2617,6 +2640,8 @@ function migrateLegacyStore(store) {
   const normalizedReviews = (store.reviews || []).map(normalizeReviewRecord);
   const normalizedReports = (store.reports || []).map(normalizeReportRecord);
   const normalizedModerationActions = (store.moderationActions || []).map(normalizeModerationActionRecord);
+  const normalizedDemandEvents = Array.isArray(store.demandEvents) ? store.demandEvents : [];
+  const normalizedProductDemandSummaries = Array.isArray(store.productDemandSummaries) ? store.productDemandSummaries : [];
   const normalizedSettings = normalizeAppSettings(store.settings || DEFAULT_APP_SETTINGS);
   const mergedCategories = mergeCategories(
     store.categories || [],
@@ -2716,6 +2741,8 @@ function migrateLegacyStore(store) {
       reviews: normalizedReviews,
       reports: normalizedReports,
       moderationActions: normalizedModerationActions,
+      demandEvents: normalizedDemandEvents,
+      productDemandSummaries: normalizedProductDemandSummaries,
       settings: normalizedSettings,
       sessions: normalizedSessions
     };
@@ -2744,6 +2771,8 @@ function migrateLegacyStore(store) {
         reviews: normalizedReviews,
       reports: normalizedReports,
       moderationActions: normalizedModerationActions,
+      demandEvents: normalizedDemandEvents,
+      productDemandSummaries: normalizedProductDemandSummaries,
       settings: normalizedSettings,
       sessions: normalizedSessions
     },
@@ -3205,6 +3234,38 @@ function validateReportReviewPayload(payload) {
   return "";
 }
 
+function buildDemandAnalytics(store, username = "", isAdmin = false) {
+  const products = Array.isArray(store.products) ? store.products.map(normalizeProductRecord) : [];
+  const demandEvents = Array.isArray(store.demandEvents) ? store.demandEvents : [];
+  const summaries = summarizeDemandEvents(demandEvents, products)
+    .filter((summary) => isAdmin || summary.sellerId === username)
+    .sort((first, second) => Number(second.demandScore || 0) - Number(first.demandScore || 0));
+  return {
+    totalDemand: summaries.reduce((sum, item) => sum + Number(item.totalDemand || 0), 0),
+    waitingUsers: summaries.reduce((sum, item) => sum + Number(item.waitingUsers || 0), 0),
+    restockInterest: summaries.reduce((sum, item) => sum + Number(item.restockInterest || 0), 0),
+    mostRequestedProducts: summaries.slice(0, 8),
+    mostRequestedColors: Object.entries(
+      summaries.reduce((accumulator, summary) => {
+        (summary.topColors || []).forEach((item) => {
+          const color = String(item.color || "").trim();
+          if (color) accumulator[color] = (accumulator[color] || 0) + Number(item.count || 0);
+        });
+        return accumulator;
+      }, {})
+    ).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([color, count]) => ({ color, count })),
+    mostRequestedSizes: Object.entries(
+      summaries.reduce((accumulator, summary) => {
+        (summary.topSizes || []).forEach((item) => {
+          const size = String(item.size || "").trim();
+          if (size) accumulator[size] = (accumulator[size] || 0) + Number(item.count || 0);
+        });
+        return accumulator;
+      }, {})
+    ).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([size, count]) => ({ size, count }))
+  };
+}
+
 function buildAnalytics(store, username = "", isAdmin = false) {
   const products = Array.isArray(store.products) ? store.products : [];
   const visibleProducts = isAdmin ? products : products.filter((product) => product.uploadedBy === username);
@@ -3250,6 +3311,7 @@ function buildAnalytics(store, username = "", isAdmin = false) {
     ? Math.round(((openOrders + completedOrders) / conversationThreads.size) * 100)
     : 0;
   const sellerStats = !isAdmin && username ? buildSellerPublicStats(store, username) : null;
+  const demand = buildDemandAnalytics(store, username, isAdmin);
 
   return {
     usersCount: (store.users || []).length,
@@ -3268,6 +3330,7 @@ function buildAnalytics(store, username = "", isAdmin = false) {
     conversionRate,
     trustScore: sellerStats?.trustScore || 0,
     trustTier: sellerStats?.trustTier || "",
+    demand,
     openReports: (store.reports || []).filter((report) => report.status === "open").length,
     topCategories: Object.entries(
       visibleProducts.reduce((accumulator, product) => {
@@ -5589,6 +5652,127 @@ http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === "POST" && /^\/api\/products\/[^/]+\/demand$/.test(url.pathname)) {
+      const token = readAuthToken(req);
+      const session = token ? findSession(store, token) : null;
+      const productId = decodeURIComponent(url.pathname.split("/")[3] || "");
+      const product = getProductById(store, productId);
+      if (!product) {
+        sendJson(res, 404, { error: "Bidhaa haijapatikana." });
+        return;
+      }
+      if (product.status !== "approved") {
+        sendJson(res, 403, { error: "Bidhaa hii haipo tayari kupokea demand." });
+        return;
+      }
+      if (product.availability !== "sold_out") {
+        sendJson(res, 409, { error: "Demand collection inaruhusiwa kwa bidhaa zilizo sold out." });
+        return;
+      }
+
+      const payload = await collectBody(req);
+      let demandEvent;
+      try {
+        demandEvent = demandService.recordDemand(payload, product, {
+          req,
+          headers: req.headers,
+          username: session?.username || "",
+          sessionId: sanitizePlainText(payload?.sessionId || "", 120),
+          anonymousId: sanitizePlainText(payload?.anonymousId || "", 120),
+          clientIp,
+          source: "product_detail"
+        });
+      } catch (error) {
+        sendJson(res, 400, { error: error.message || "Demand request si sahihi." });
+        return;
+      }
+
+      let inserted = true;
+      let demandSummary = null;
+      if (recentDemandDedupeKeys.has(demandEvent.dedupeKey)) {
+        inserted = false;
+        demandSummary = summarizeDemandEvents(Array.isArray(store.demandEvents) ? store.demandEvents : [], store.products || [])
+          .find((summary) => summary.productId === demandEvent.productId) || null;
+      } else if (postgresStore?.appendDemandEvent) {
+        const result = await postgresStore.appendDemandEvent(demandEvent);
+        inserted = Boolean(result?.inserted);
+        demandSummary = result?.summary || null;
+      } else {
+        const existingEvents = Array.isArray(store.demandEvents) ? store.demandEvents : [];
+        inserted = !existingEvents.some((event) =>
+          event.dedupeKey === demandEvent.dedupeKey
+          || (
+            event.productId === demandEvent.productId
+            && event.action === demandEvent.action
+            && event.color === demandEvent.color
+            && event.size === demandEvent.size
+            && (event.buyerId || event.sessionId || "") === (demandEvent.buyerId || demandEvent.sessionId || "")
+            && String(event.createdAt || "").slice(0, 10) === String(demandEvent.createdAt || "").slice(0, 10)
+          )
+        );
+        const demandEvents = inserted ? [demandEvent, ...existingEvents] : existingEvents;
+        const summaries = summarizeDemandEvents(demandEvents, store.products || []);
+        demandSummary = summaries.find((summary) => summary.productId === demandEvent.productId) || null;
+        store = {
+          ...store,
+          demandEvents,
+          productDemandSummaries: summaries
+        };
+        await writeStore(store);
+      }
+      rememberDemandDedupeKey(demandEvent.dedupeKey);
+
+      await appendAuditLog({
+        time: demandEvent.createdAt,
+        ip: clientIp,
+        method: req.method,
+        path: url.pathname,
+        event: inserted ? "demand_event_recorded" : "demand_event_deduped",
+        username: session?.username || "",
+        productId: demandEvent.productId,
+        sellerId: demandEvent.sellerId,
+        demandAction: demandEvent.action,
+        country: demandEvent.country,
+        region: demandEvent.region
+      });
+      intelligencePlatform.ingestClientEvent({
+        level: "info",
+        event: "demand_requested",
+        message: "Buyer recorded demand for a sold out product.",
+        context: {
+          productId: demandEvent.productId,
+          sellerId: demandEvent.sellerId,
+          demandAction: demandEvent.action,
+          color: demandEvent.color,
+          size: demandEvent.size
+        }
+      }, {
+        req,
+        session,
+        store,
+        appVersion: APP_BUILD_VERSION
+      }).catch((error) => {
+        console.warn("[WINGA] Demand intelligence ingestion failed.", error);
+      });
+      sendJson(res, inserted ? 201 : 200, {
+        ok: true,
+        inserted,
+        demand: {
+          demandId: demandEvent.demandId,
+          productId: demandEvent.productId,
+          sellerId: demandEvent.sellerId,
+          action: demandEvent.action,
+          color: demandEvent.color,
+          size: demandEvent.size,
+          country: demandEvent.country,
+          region: demandEvent.region,
+          createdAt: demandEvent.createdAt
+        },
+        summary: demandSummary
+      });
+      return;
+    }
+
     if (req.method === "POST" && url.pathname === "/api/auth/logout") {
       const token = readAuthToken(req);
       const session = token ? findSession(store, token) : null;
@@ -6361,7 +6545,35 @@ http.createServer(async (req, res) => {
         return;
       }
 
-      sendJson(res, 200, buildAnalytics(store, user.username, isAdminSession(session)));
+      const analytics = buildAnalytics(store, user.username, isAdminSession(session));
+      if (!isAdminSession(session) && postgresStore?.readSellerDemandSummary) {
+        try {
+          const demandRows = await postgresStore.readSellerDemandSummary(user.username, 10);
+          analytics.demand = {
+            totalDemand: demandRows.reduce((sum, item) => sum + Number(item.totalDemand || 0), 0),
+            waitingUsers: demandRows.reduce((sum, item) => sum + Number(item.waitingUsers || 0), 0),
+            restockInterest: demandRows.reduce((sum, item) => sum + Number(item.restockInterest || 0), 0),
+            mostRequestedProducts: demandRows,
+            mostRequestedColors: Object.entries(demandRows.reduce((accumulator, summary) => {
+              (summary.topColors || []).forEach((item) => {
+                const color = String(item.color || "").trim();
+                if (color) accumulator[color] = (accumulator[color] || 0) + Number(item.count || 0);
+              });
+              return accumulator;
+            }, {})).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([color, count]) => ({ color, count })),
+            mostRequestedSizes: Object.entries(demandRows.reduce((accumulator, summary) => {
+              (summary.topSizes || []).forEach((item) => {
+                const size = String(item.size || "").trim();
+                if (size) accumulator[size] = (accumulator[size] || 0) + Number(item.count || 0);
+              });
+              return accumulator;
+            }, {})).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([size, count]) => ({ size, count }))
+          };
+        } catch (error) {
+          analytics.demand = analytics.demand || { error: "unavailable" };
+        }
+      }
+      sendJson(res, 200, analytics);
       return;
     }
 
@@ -7413,6 +7625,22 @@ http.createServer(async (req, res) => {
         event: "product_marked_sold_out",
         username: sellerUser.username,
         productId
+      });
+      intelligencePlatform.ingestClientEvent({
+        level: "info",
+        event: "product_marked_sold_out",
+        message: "Seller marked product as sold out.",
+        context: {
+          productId,
+          sellerId: sellerUser.username
+        }
+      }, {
+        req,
+        session,
+        store: { ...store, products },
+        appVersion: APP_BUILD_VERSION
+      }).catch((error) => {
+        console.warn("[WINGA] Sold out intelligence ingestion failed.", error);
       });
       sendJson(res, 200, products.find((item) => item.id === productId));
       return;

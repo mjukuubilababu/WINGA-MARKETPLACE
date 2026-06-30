@@ -827,6 +827,16 @@
       return wrapper;
     }
 
+    function appendSoldOutRibbon(media, product) {
+      if (!media || product?.availability !== "sold_out") {
+        return;
+      }
+      media.appendChild(createElement("span", {
+        className: "sold-out-ribbon",
+        textContent: "SOLD OUT"
+      }));
+    }
+
     function createProductCardElement(product, options = {}) {
       const startupPriority = options.startupPriority === true;
       const feedEntryType = String(product?.feedEntryType || (product?.feedVariantResurface ? "variant" : "product")).trim().toLowerCase();
@@ -901,6 +911,7 @@
           textContent: variantColor
         }));
       }
+      appendSoldOutRibbon(media, product);
       if (Array.isArray(product.images) && product.images.length > 1) {
         media.appendChild(createElement("span", {
           className: "feed-gallery-count-badge product-gallery-count-badge",
@@ -966,6 +977,7 @@
         card.classList.add("has-gallery-count-badge");
       }
       const media = createShowcasePreviewMediaElement(product);
+      appendSoldOutRibbon(media, product);
       const body = createElement("div", { className: "product-content product-content-simple product-content-social showcase-body" });
       const overflowMenuMarkup = deps.renderProductOverflowMenu?.(product, { overlay: true });
       if (overflowMenuMarkup) {
@@ -1002,6 +1014,7 @@
         card.classList.add("has-gallery-count-badge");
       }
       const media = createIntelligentPreviewMediaElement(product);
+      appendSoldOutRibbon(media, product);
       const body = createElement("div", {
         className: "product-content product-content-simple product-content-social showcase-body intelligent-feed-body"
       });

@@ -620,6 +620,56 @@
       modal.querySelectorAll("[data-detail-repost]").forEach((button) => {
         button.addEventListener("click", () => deps.repostProductAsSeller(product));
       });
+      modal.querySelectorAll("[data-demand-action]").forEach((button) => {
+        button.addEventListener("click", async () => {
+          const action = button.dataset.demandAction || "";
+          button.disabled = true;
+          button.classList.add("is-disabled");
+          try {
+            const selectedColor = product.variantColor || product.color || "";
+            const selectedSize = product.size || "";
+            await deps.dataLayer.recordDemand(product.id, {
+              action,
+              sellerId: product.uploadedBy,
+              color: selectedColor,
+              size: selectedSize,
+              source: "product_detail"
+            });
+            deps.reportEvent?.("info", "demand_requested", "Buyer recorded demand for a sold out product.", {
+              productId: product.id,
+              sellerId: product.uploadedBy,
+              demandAction: action,
+              color: selectedColor,
+              size: selectedSize
+            });
+            deps.showInAppNotification?.({
+              title: action === "show_similar" ? "Similar products" : "Demand recorded",
+              body: action === "show_similar"
+                ? "Tutatumia signal hii kukuonyesha bidhaa zinazofanana."
+                : "Asante. Seller ataona interest hii kwenye demand analytics.",
+              variant: "success"
+            });
+            if (action === "show_similar") {
+              closeProductDetailModal();
+              deps.resetHomeBrowseState?.();
+              deps.setCurrentViewState?.("home");
+              deps.renderCurrentView?.();
+            }
+          } catch (error) {
+            deps.captureError?.("demand_request_failed", error, {
+              productId: product.id,
+              demandAction: action
+            });
+            deps.showInAppNotification?.({
+              title: "Demand failed",
+              body: error.message || "Imeshindikana kuhifadhi demand signal.",
+              variant: "error"
+            });
+            button.disabled = false;
+            button.classList.remove("is-disabled");
+          }
+        });
+      });
       bindInlineProductActions(modal, product);
 
       modal.querySelectorAll("[data-review-rating]").forEach((button) => {

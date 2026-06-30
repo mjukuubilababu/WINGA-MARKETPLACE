@@ -665,6 +665,47 @@ test("backend intelligence platform bounds persistence queue under pressure", as
   assert.equal(summary.queue.concurrency, 1);
 });
 
+test("backend demand service normalizes and aggregates sold out demand signals", () => {
+  const root = path.resolve(__dirname, "..");
+  const { createDemandService, summarizeDemandEvents } = require(path.join(root, "backend", "demand-service.js"));
+  const service = createDemandService({
+    now: () => new Date("2026-06-30T09:00:00.000Z")
+  });
+  const product = {
+    id: "product-demand-1",
+    name: "White Dress",
+    uploadedBy: "seller_one",
+    category: "wanawake-magauni",
+    availability: "sold_out"
+  };
+  const event = service.recordDemand({
+    action: "want_back",
+    color: "White",
+    size: "m",
+    country: "tz",
+    region: "Dar es Salaam"
+  }, product, {
+    username: "buyer_one",
+    headers: {},
+    clientIp: "127.0.0.1"
+  });
+
+  assert.equal(event.productId, "product-demand-1");
+  assert.equal(event.sellerId, "seller_one");
+  assert.equal(event.action, "want_back");
+  assert.equal(event.color, "white");
+  assert.equal(event.size, "M");
+  assert.equal(event.country, "TZ");
+  assert.ok(event.dedupeKey);
+
+  const summary = summarizeDemandEvents([event], [product])[0];
+  assert.equal(summary.productId, "product-demand-1");
+  assert.equal(summary.waitingUsers, 1);
+  assert.equal(summary.restockInterest, 1);
+  assert.equal(summary.topColors[0].color, "white");
+  assert.equal(summary.topSizes[0].size, "M");
+});
+
 test("production frontend routes same-domain API requests to the backend origin", () => {
   const root = path.resolve(__dirname, "..");
   const vercelConfig = JSON.parse(fs.readFileSync(path.join(root, "vercel.json"), "utf8"));

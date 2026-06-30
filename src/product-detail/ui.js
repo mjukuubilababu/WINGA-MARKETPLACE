@@ -89,6 +89,49 @@
       return panel;
     }
 
+    function createSoldOutDemandPanel(product) {
+      if (product?.availability !== "sold_out") {
+        return null;
+      }
+      const panel = deps.createElement("section", { className: "sold-out-demand-panel" });
+      panel.append(
+        deps.createElement("p", { className: "eyebrow", textContent: "Demand Intelligence" }),
+        deps.createElement("h4", { textContent: "Would you like this product to come back?" })
+      );
+      const actions = deps.createElement("div", { className: "sold-out-demand-actions" });
+      [
+        ["notify_when_available", "Notify me when available"],
+        ["want_back", "I want this product back"],
+        ["show_similar", "Show me similar products"]
+      ].forEach(([action, label]) => {
+        actions.appendChild(deps.createElement("button", {
+          className: "action-btn action-btn-secondary demand-action-btn",
+          textContent: label,
+          attributes: {
+            type: "button",
+            "data-demand-action": action,
+            "data-demand-product": product.id
+          }
+        }));
+      });
+      panel.appendChild(actions);
+      panel.appendChild(deps.createElement("p", {
+        className: "meta-copy",
+        textContent: "Your signal helps sellers restock and helps Winga recommend better alternatives."
+      }));
+      return panel;
+    }
+
+    function appendSoldOutRibbon(media, product) {
+      if (!media || product?.availability !== "sold_out") {
+        return;
+      }
+      media.appendChild(deps.createElement("span", {
+        className: "sold-out-ribbon",
+        textContent: "SOLD OUT"
+      }));
+    }
+
     function createDetailCaptionElement(item) {
       const captionText = String(item.description || item.caption || item.name || "").trim();
       if (!captionText) {
@@ -376,6 +419,7 @@
           media.appendChild(thumbGrid);
         }
       }
+      appendSoldOutRibbon(media, product);
 
       const copy = deps.createElement("div", { className: "product-detail-copy" });
       copy.append(
@@ -418,6 +462,10 @@
       });
       if (actionsMarkup) {
         copy.appendChild(deps.createFragmentFromMarkup(actionsMarkup));
+      }
+      const demandPanel = createSoldOutDemandPanel(product);
+      if (demandPanel) {
+        copy.appendChild(demandPanel);
       }
 
       const reviewsPanel = deps.createElement("section", { className: "product-detail-reviews-panel" });

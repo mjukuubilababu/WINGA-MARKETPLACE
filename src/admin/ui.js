@@ -54,7 +54,10 @@
           createAnalyticsCard("New inquiries", deps.formatNumber(data.newInquiries || 0)),
           createAnalyticsCard("Open orders", deps.formatNumber(data.openOrders || 0)),
           createAnalyticsCard("Completed", deps.formatNumber(data.completedOrders || 0)),
-          createAnalyticsCard("Repeat buyers", deps.formatNumber(data.repeatBuyers || 0))
+          createAnalyticsCard("Repeat buyers", deps.formatNumber(data.repeatBuyers || 0)),
+          createAnalyticsCard("Demand Score", deps.formatNumber(data.demand?.totalDemand || 0)),
+          createAnalyticsCard("Waiting users", deps.formatNumber(data.demand?.waitingUsers || 0)),
+          createAnalyticsCard("Restock interest", deps.formatNumber(data.demand?.restockInterest || 0))
         );
       }
 
@@ -75,6 +78,20 @@
         list.appendChild(createAnalyticsListItem(
           "Seller trust",
           `${data.trustTier || "New"} seller | ${deps.formatNumber(data.completedOrders || 0)} completed orders | ${deps.formatNumber(data.newInquiries || 0)} fresh inquiries`
+        ));
+        list.appendChild(createAnalyticsListItem(
+          "Most requested products",
+          (data.demand?.mostRequestedProducts || [])
+            .map((item) => `${item.productName || item.productId} - demand ${deps.formatNumber(item.demandScore || item.totalDemand || 0)}, waiting ${deps.formatNumber(item.waitingUsers || 0)}`)
+            .join(" | ") || "Hakuna demand ya sold out bado."
+        ));
+        list.appendChild(createAnalyticsListItem(
+          "Most requested colors",
+          (data.demand?.mostRequestedColors || []).map((item) => `${item.color} (${item.count})`).join(" | ") || "Hakuna color demand bado."
+        ));
+        list.appendChild(createAnalyticsListItem(
+          "Most requested sizes",
+          (data.demand?.mostRequestedSizes || []).map((item) => `${item.size} (${item.count})`).join(" | ") || "Hakuna size demand bado."
         ));
       }
       if (typeof data.usersCount === "number" && deps.isAdminUser()) {

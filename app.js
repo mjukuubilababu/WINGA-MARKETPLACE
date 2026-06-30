@@ -16674,6 +16674,7 @@ function renderDiscoveryProductCards(items, options = {}) {
         const sellerMeta = escapeHtml(String(item.location || getCategoryLabel(item.category) || "").trim());
         const sellerProfileImage = sanitizeImageSource(String(seller?.profileImage || "").trim(), "");
         const safeProductId = escapeHtml(item.id || "");
+        const soldOutRibbon = item.availability === "sold_out" ? `<span class="sold-out-ribbon">SOLD OUT</span>` : "";
         const sellerAvatar = seller?.profileImage
           ? `<img class="product-seller-avatar-image" src="${escapeHtml(sellerProfileImage)}" alt="${sellerName}" loading="lazy" decoding="async">`
           : `<span>${escapeHtml(getUserInitials(String(item.shop || seller?.fullName || item.uploadedBy || "S").trim()))}</span>`;
@@ -16681,6 +16682,7 @@ function renderDiscoveryProductCards(items, options = {}) {
           <article class="seller-product-card${Array.isArray(item.images) && item.images.length > 1 ? " has-gallery-count-badge" : ""}" data-open-product="${safeProductId}">
             <div class="seller-product-card-media">
               ${renderFeedGalleryMarkup(item, "feed", { priorityCount: isPriority ? 1 : 0, preload: isPriority })}
+              ${soldOutRibbon}
             </div>
             ${renderProductOverflowMenu(item, { overlay: true })}
             <div class="product-seller-row">

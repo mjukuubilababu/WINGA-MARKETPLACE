@@ -267,3 +267,70 @@ test("PostgreSQL intelligence summary reads dedicated intelligence tables", asyn
   assert.equal(summary.topProducts[0].id, "product-1");
   assert.equal(summary.topSellers[0].id, "seller-1");
 });
+
+test("PostgreSQL demand persistence dedupes events and refreshes seller summaries", async () => {
+  const calls = [];
+  const summaryRow = {
+    productId: "product-demand-1",
+    sellerId: "seller-1",
+    totalDemand: 2,
+    waitingUsers: 1,
+    restockInterest: 1,
+    demandScore: 7,
+    actionCounts: { want_back: 1, show_similar: 1 },
+    topColors: [{ color: "white", count: 1 }],
+    topSizes: [{ size: "M", count: 1 }],
+    firstDemandAt: new Date("2026-06-30T09:00:00.000Z"),
+    lastDemandAt: new Date("2026-06-30T09:05:00.000Z"),
+    updatedAt: new Date("2026-06-30T09:05:00.000Z")
+  };
+  const queryClient = {
+    async query(text, params) {
+      calls.push({ text, params });
+      if (text.includes("INSERT INTO demand_events")) {
+        return { rowCount: 1, rows: [{ demand_id: "demand-1" }] };
+      }
+      if (text.includes("INSERT INTO product_demand_summaries")) {
+        return { rows: [summaryRow] };
+      }
+      if (text.includes("FROM product_demand_summaries")) {
+        return { rows: [summaryRow] };
+      }
+      return { rows: [] };
+    }
+  };
+  const store = createPostgresStore({
+    databaseUrl: "postgres://test.invalid/winga",
+    queryClient
+  });
+
+  const result = await store.appendDemandEvent({
+    demandId: "demand-1",
+    dedupeKey: "dedupe-1",
+    productId: "product-demand-1",
+    sellerId: "seller-1",
+    buyerId: "buyer-1",
+    sessionId: "",
+    action: "want_back",
+    color: "white",
+    size: "M",
+    country: "TZ",
+    region: "Dar es Salaam",
+    demandScore: 6,
+    metadata: { source: "product_detail" },
+    createdAt: "2026-06-30T09:00:00.000Z"
+  });
+
+  assert.equal(result.inserted, true);
+  assert.equal(result.summary.productId, "product-demand-1");
+  assert.match(calls[0].text, /INSERT INTO demand_events/);
+  assert.match(calls[0].text, /ON CONFLICT \(dedupe_key\) DO NOTHING/);
+  assert.equal(calls[0].params[1], "dedupe-1");
+  assert.match(calls[1].text, /INSERT INTO product_demand_summaries/);
+  assert.match(calls[1].text, /COUNT\(DISTINCT/);
+
+  const sellerSummary = await store.readSellerDemandSummary("seller-1", 5);
+  assert.equal(sellerSummary[0].sellerId, "seller-1");
+  assert.equal(sellerSummary[0].waitingUsers, 1);
+  assert.deepEqual(calls.at(-1).params, ["seller-1", 5]);
+});
