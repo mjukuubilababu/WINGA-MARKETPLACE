@@ -5234,6 +5234,16 @@ window.WingaModules.boot = window.WingaModules.boot || {};
       return wrapper;
     }
 
+    function appendSoldOutRibbon(media, product) {
+      if (!media || product?.availability !== "sold_out") {
+        return;
+      }
+      media.appendChild(createElement("span", {
+        className: "sold-out-ribbon",
+        textContent: "SOLD OUT"
+      }));
+    }
+
     function createProductCardElement(product, options = {}) {
       const startupPriority = options.startupPriority === true;
       const feedEntryType = String(product?.feedEntryType || (product?.feedVariantResurface ? "variant" : "product")).trim().toLowerCase();
@@ -5308,6 +5318,7 @@ window.WingaModules.boot = window.WingaModules.boot || {};
           textContent: variantColor
         }));
       }
+      appendSoldOutRibbon(media, product);
       if (Array.isArray(product.images) && product.images.length > 1) {
         media.appendChild(createElement("span", {
           className: "feed-gallery-count-badge product-gallery-count-badge",
@@ -5373,6 +5384,7 @@ window.WingaModules.boot = window.WingaModules.boot || {};
         card.classList.add("has-gallery-count-badge");
       }
       const media = createShowcasePreviewMediaElement(product);
+      appendSoldOutRibbon(media, product);
       const body = createElement("div", { className: "product-content product-content-simple product-content-social showcase-body" });
       const overflowMenuMarkup = deps.renderProductOverflowMenu?.(product, { overlay: true });
       if (overflowMenuMarkup) {
@@ -5409,6 +5421,7 @@ window.WingaModules.boot = window.WingaModules.boot || {};
         card.classList.add("has-gallery-count-badge");
       }
       const media = createIntelligentPreviewMediaElement(product);
+      appendSoldOutRibbon(media, product);
       const body = createElement("div", {
         className: "product-content product-content-simple product-content-social showcase-body intelligent-feed-body"
       });
@@ -5567,7 +5580,8 @@ window.WingaModules.boot = window.WingaModules.boot || {};
         const safeItems = descriptor.items
           .filter(Boolean)
           .filter((item) => item?.id && !usedShowcaseProductIds.has(item.id));
-        if (safeItems.length < 3) {
+        const minimumItems = descriptor.kind === "legacy-showcase" ? 3 : 1;
+        if (safeItems.length < minimumItems) {
           return;
         }
         const key = String(descriptor.kind || descriptor.heading || descriptor.eyebrow || descriptor.title || variant)
@@ -5618,6 +5632,15 @@ window.WingaModules.boot = window.WingaModules.boot || {};
         youMayLike,
         "you-may-like"
       ));
+
+      if (!queue.length && safeList.length) {
+        pushDescriptor(createRecommendationDescriptor(
+          "Recommended for you",
+          "Fresh marketplace picks",
+          safeList.slice(0, 6),
+          "catalog-fallback"
+        ));
+      }
 
       return queue;
     }
@@ -5751,7 +5774,8 @@ window.WingaModules.boot = window.WingaModules.boot || {};
           const descriptor = combinedSectionQueue[intelligentSectionIndex];
           intelligentSectionIndex += 1;
           const safeItems = descriptor.items.filter((item) => item?.id && !usedShowcaseProductIds.has(item.id));
-          if (safeItems.length < 3) {
+          const minimumItems = descriptor.kind === "legacy-showcase" ? 3 : 1;
+          if (safeItems.length < minimumItems) {
             continue;
           }
           const showcaseElement = descriptor.kind === "legacy-showcase"
@@ -5793,7 +5817,7 @@ window.WingaModules.boot = window.WingaModules.boot || {};
         if (renderToken !== scheduledFeedRenderState.token) {
           return;
         }
-        if (shouldInjectInlineShowcases && !insertedInlineShowcase && safeList.length >= Math.max(4, productsPerRow * 2 || 4)) {
+        if (shouldInjectInlineShowcases && !insertedInlineShowcase && safeList.length >= 1) {
           const descriptor = combinedSectionQueue.find((entry) =>
             Array.isArray(entry?.items)
             && entry.items.some((item) => item?.id && !usedShowcaseProductIds.has(item.id))
@@ -8577,7 +8601,10 @@ window.WingaModules.boot = window.WingaModules.boot || {};
           createAnalyticsCard("New inquiries", deps.formatNumber(data.newInquiries || 0)),
           createAnalyticsCard("Open orders", deps.formatNumber(data.openOrders || 0)),
           createAnalyticsCard("Completed", deps.formatNumber(data.completedOrders || 0)),
-          createAnalyticsCard("Repeat buyers", deps.formatNumber(data.repeatBuyers || 0))
+          createAnalyticsCard("Repeat buyers", deps.formatNumber(data.repeatBuyers || 0)),
+          createAnalyticsCard("Demand Score", deps.formatNumber(data.demand?.totalDemand || 0)),
+          createAnalyticsCard("Waiting users", deps.formatNumber(data.demand?.waitingUsers || 0)),
+          createAnalyticsCard("Restock interest", deps.formatNumber(data.demand?.restockInterest || 0))
         );
       }
 
@@ -8598,6 +8625,20 @@ window.WingaModules.boot = window.WingaModules.boot || {};
         list.appendChild(createAnalyticsListItem(
           "Seller trust",
           `${data.trustTier || "New"} seller | ${deps.formatNumber(data.completedOrders || 0)} completed orders | ${deps.formatNumber(data.newInquiries || 0)} fresh inquiries`
+        ));
+        list.appendChild(createAnalyticsListItem(
+          "Most requested products",
+          (data.demand?.mostRequestedProducts || [])
+            .map((item) => `${item.productName || item.productId} - demand ${deps.formatNumber(item.demandScore || item.totalDemand || 0)}, waiting ${deps.formatNumber(item.waitingUsers || 0)}`)
+            .join(" | ") || "Hakuna demand ya sold out bado."
+        ));
+        list.appendChild(createAnalyticsListItem(
+          "Most requested colors",
+          (data.demand?.mostRequestedColors || []).map((item) => `${item.color} (${item.count})`).join(" | ") || "Hakuna color demand bado."
+        ));
+        list.appendChild(createAnalyticsListItem(
+          "Most requested sizes",
+          (data.demand?.mostRequestedSizes || []).map((item) => `${item.size} (${item.count})`).join(" | ") || "Hakuna size demand bado."
         ));
       }
       if (typeof data.usersCount === "number" && deps.isAdminUser()) {
@@ -13014,6 +13055,49 @@ window.WingaModules.boot = window.WingaModules.boot || {};
       return panel;
     }
 
+    function createSoldOutDemandPanel(product) {
+      if (product?.availability !== "sold_out") {
+        return null;
+      }
+      const panel = deps.createElement("section", { className: "sold-out-demand-panel" });
+      panel.append(
+        deps.createElement("p", { className: "eyebrow", textContent: "Demand Intelligence" }),
+        deps.createElement("h4", { textContent: "Would you like this product to come back?" })
+      );
+      const actions = deps.createElement("div", { className: "sold-out-demand-actions" });
+      [
+        ["notify_when_available", "Notify me when available"],
+        ["want_back", "I want this product back"],
+        ["show_similar", "Show me similar products"]
+      ].forEach(([action, label]) => {
+        actions.appendChild(deps.createElement("button", {
+          className: "action-btn action-btn-secondary demand-action-btn",
+          textContent: label,
+          attributes: {
+            type: "button",
+            "data-demand-action": action,
+            "data-demand-product": product.id
+          }
+        }));
+      });
+      panel.appendChild(actions);
+      panel.appendChild(deps.createElement("p", {
+        className: "meta-copy",
+        textContent: "Your signal helps sellers restock and helps Winga recommend better alternatives."
+      }));
+      return panel;
+    }
+
+    function appendSoldOutRibbon(media, product) {
+      if (!media || product?.availability !== "sold_out") {
+        return;
+      }
+      media.appendChild(deps.createElement("span", {
+        className: "sold-out-ribbon",
+        textContent: "SOLD OUT"
+      }));
+    }
+
     function createDetailCaptionElement(item) {
       const captionText = String(item.description || item.caption || item.name || "").trim();
       if (!captionText) {
@@ -13301,6 +13385,7 @@ window.WingaModules.boot = window.WingaModules.boot || {};
           media.appendChild(thumbGrid);
         }
       }
+      appendSoldOutRibbon(media, product);
 
       const copy = deps.createElement("div", { className: "product-detail-copy" });
       copy.append(
@@ -13343,6 +13428,10 @@ window.WingaModules.boot = window.WingaModules.boot || {};
       });
       if (actionsMarkup) {
         copy.appendChild(deps.createFragmentFromMarkup(actionsMarkup));
+      }
+      const demandPanel = createSoldOutDemandPanel(product);
+      if (demandPanel) {
+        copy.appendChild(demandPanel);
       }
 
       const reviewsPanel = deps.createElement("section", { className: "product-detail-reviews-panel" });
@@ -13444,6 +13533,8 @@ window.WingaModules.boot = window.WingaModules.boot || {};
     let pendingHomeNavigation = false;
     let detailContinuousRuntime = {
       observer: null,
+      scrollHandler: null,
+      scrollRoot: null,
       batchIndex: 0,
       recentIds: [],
       usedIds: new Set(),
@@ -13452,7 +13543,8 @@ window.WingaModules.boot = window.WingaModules.boot || {};
       backendStageIndex: 0,
       backendStageState: {},
       exhausted: false,
-      requestId: 0
+      requestId: 0,
+      autoWarmupCount: 0
     };
     const MAX_ACTIVE_DETAIL_CONTINUATION_SECTIONS = 4;
     const MAX_DETAIL_CONTINUATION_USED_IDS = 120;
@@ -13644,11 +13736,16 @@ window.WingaModules.boot = window.WingaModules.boot || {};
       if (detailContinuousRuntime.observer) {
         detailContinuousRuntime.observer.disconnect();
       }
+      if (detailContinuousRuntime.scrollHandler && detailContinuousRuntime.scrollRoot) {
+        detailContinuousRuntime.scrollRoot.removeEventListener("scroll", detailContinuousRuntime.scrollHandler);
+      }
       if (detailContinuousRuntime.reobserveTimer) {
         window.clearTimeout(detailContinuousRuntime.reobserveTimer);
       }
       detailContinuousRuntime = {
         observer: null,
+        scrollHandler: null,
+        scrollRoot: null,
         batchIndex: 0,
         recentIds: [],
         usedIds: new Set(),
@@ -13658,8 +13755,32 @@ window.WingaModules.boot = window.WingaModules.boot || {};
         backendStageState: {},
         exhausted: false,
         requestId: 0,
+        autoWarmupCount: 0,
         reobserveTimer: 0
       };
+    }
+
+    function isDetailContinuationAnchorNear(modal, anchor) {
+      if (!modal?.getBoundingClientRect || !anchor?.getBoundingClientRect) {
+        return false;
+      }
+      const modalRect = modal.getBoundingClientRect();
+      const anchorRect = anchor.getBoundingClientRect();
+      return anchorRect.top <= modalRect.bottom + 620 && anchorRect.bottom >= modalRect.top - 760;
+    }
+
+    function requestDetailContinuousHydration(modal, anchor, product, delayMs = 0, options = {}) {
+      if (!anchor || !anchor.isConnected || !modal?.isConnected) {
+        return;
+      }
+      window.setTimeout(() => {
+        if (!anchor.isConnected || !modal?.isConnected || detailContinuousRuntime.loading || detailContinuousRuntime.exhausted) {
+          return;
+        }
+        if (options.force === true || isDetailContinuationAnchorNear(modal, anchor)) {
+          hydrateDetailContinuousAnchor(modal, anchor, product);
+        }
+      }, Math.max(0, Number(delayMs || 0)));
     }
 
     function scheduleDetailContinuousReobserve(anchor, modal) {
@@ -13675,6 +13796,7 @@ window.WingaModules.boot = window.WingaModules.boot || {};
           return;
         }
         detailContinuousRuntime.observer.observe(anchor);
+        requestDetailContinuousHydration(modal, anchor, deps.getProductById?.(detailContinuousRuntime.seedProductId) || null, 60);
       }, 180);
     }
 
@@ -13748,10 +13870,40 @@ window.WingaModules.boot = window.WingaModules.boot || {};
       if (!descriptor) {
         return null;
       }
+      const allowRecycled = descriptor.allowRecycled === true;
       const items = (Array.isArray(descriptor.items) ? descriptor.items : []).filter((item) =>
-        item?.id && !detailContinuousRuntime.usedIds.has(item.id)
+        item?.id && (allowRecycled || !detailContinuousRuntime.usedIds.has(item.id))
       );
       return items.length ? { ...descriptor, items } : null;
+    }
+
+    function getRelaxedDetailContinuationDescriptor(seedProduct) {
+      const seedId = String(seedProduct?.id || detailContinuousRuntime.seedProductId || "").trim();
+      const source = Array.isArray(deps.getProducts?.()) ? deps.getProducts() : [];
+      const items = source
+        .filter((item) =>
+          item?.id
+          && item.id !== seedId
+          && item.status === "approved"
+          && item.availability !== "sold_out"
+          && (typeof deps.shouldRenderMarketplaceProduct !== "function" || deps.shouldRenderMarketplaceProduct(item))
+          && (typeof deps.getRenderableMarketplaceImages !== "function" || deps.getRenderableMarketplaceImages(item).length > 0)
+        )
+        .slice()
+        .sort((first, second) =>
+          (Number(second.views || 0) + Number(second.likes || 0))
+          - (Number(first.views || 0) + Number(first.likes || 0))
+        )
+        .slice(0, 8);
+      return items.length
+        ? {
+          kind: "relaxed-discovery",
+          eyebrow: "Keep Exploring",
+          title: "More products from Winga",
+          allowRecycled: true,
+          items
+        }
+        : null;
     }
 
     async function loadNextDetailContinuationPage(seedProduct) {
@@ -13798,8 +13950,13 @@ window.WingaModules.boot = window.WingaModules.boot || {};
         }
         const page = await loadNextDetailContinuationPage(seedProduct);
         if (Number(page?.appendedCount || 0) <= 0) {
-          return null;
+          break;
         }
+      }
+      const relaxedDescriptor = filterDetailContinuationDescriptor(getRelaxedDetailContinuationDescriptor(seedProduct));
+      if (relaxedDescriptor?.items?.length) {
+        detailContinuousRuntime.exhausted = false;
+        return relaxedDescriptor;
       }
       return filterDetailContinuationDescriptor(getLocalDetailContinuationDescriptor(seedProduct));
     }
@@ -13859,6 +14016,10 @@ window.WingaModules.boot = window.WingaModules.boot || {};
       detailContinuousRuntime.batchIndex += 1;
       detailContinuousRuntime.loading = false;
       scheduleDetailContinuousReobserve(anchor, modal);
+      if (detailContinuousRuntime.autoWarmupCount < 2 && !detailContinuousRuntime.exhausted) {
+        detailContinuousRuntime.autoWarmupCount += 1;
+        requestDetailContinuousHydration(modal, anchor, product, 360, { force: true });
+      }
     }
 
     function setupDetailContinuousDiscovery(modal, product, usedIds = new Set()) {
@@ -13871,6 +14032,11 @@ window.WingaModules.boot = window.WingaModules.boot || {};
       detailContinuousRuntime.usedIds = new Set(Array.from(usedIds || []).filter(Boolean));
       detailContinuousRuntime.recentIds = [];
       detailContinuousRuntime.seedProductId = product.id;
+      detailContinuousRuntime.scrollRoot = modal;
+      detailContinuousRuntime.scrollHandler = () => {
+        requestDetailContinuousHydration(modal, anchor, product, 0);
+      };
+      modal.addEventListener("scroll", detailContinuousRuntime.scrollHandler, { passive: true });
 
       if (typeof IntersectionObserver === "undefined") {
         for (let cycle = 0; cycle < 3; cycle += 1) {
@@ -13891,6 +14057,7 @@ window.WingaModules.boot = window.WingaModules.boot || {};
         rootMargin: "760px 0px 620px 0px"
       });
       detailContinuousRuntime.observer.observe(anchor);
+      requestDetailContinuousHydration(modal, anchor, product, 120, { force: true });
     }
 
     function finalizeHomeNavigation() {
@@ -14051,6 +14218,56 @@ window.WingaModules.boot = window.WingaModules.boot || {};
 
       modal.querySelectorAll("[data-detail-repost]").forEach((button) => {
         button.addEventListener("click", () => deps.repostProductAsSeller(product));
+      });
+      modal.querySelectorAll("[data-demand-action]").forEach((button) => {
+        button.addEventListener("click", async () => {
+          const action = button.dataset.demandAction || "";
+          button.disabled = true;
+          button.classList.add("is-disabled");
+          try {
+            const selectedColor = product.variantColor || product.color || "";
+            const selectedSize = product.size || "";
+            await deps.dataLayer.recordDemand(product.id, {
+              action,
+              sellerId: product.uploadedBy,
+              color: selectedColor,
+              size: selectedSize,
+              source: "product_detail"
+            });
+            deps.reportEvent?.("info", "demand_requested", "Buyer recorded demand for a sold out product.", {
+              productId: product.id,
+              sellerId: product.uploadedBy,
+              demandAction: action,
+              color: selectedColor,
+              size: selectedSize
+            });
+            deps.showInAppNotification?.({
+              title: action === "show_similar" ? "Similar products" : "Demand recorded",
+              body: action === "show_similar"
+                ? "Tutatumia signal hii kukuonyesha bidhaa zinazofanana."
+                : "Asante. Seller ataona interest hii kwenye demand analytics.",
+              variant: "success"
+            });
+            if (action === "show_similar") {
+              closeProductDetailModal();
+              deps.resetHomeBrowseState?.();
+              deps.setCurrentViewState?.("home");
+              deps.renderCurrentView?.();
+            }
+          } catch (error) {
+            deps.captureError?.("demand_request_failed", error, {
+              productId: product.id,
+              demandAction: action
+            });
+            deps.showInAppNotification?.({
+              title: "Demand failed",
+              body: error.message || "Imeshindikana kuhifadhi demand signal.",
+              variant: "error"
+            });
+            button.disabled = false;
+            button.classList.remove("is-disabled");
+          }
+        });
       });
       bindInlineProductActions(modal, product);
 

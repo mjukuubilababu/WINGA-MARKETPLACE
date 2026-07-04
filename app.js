@@ -14950,10 +14950,10 @@ async function hydrateProductQuerySurface(options = {}) {
       category,
       seller,
       limit: Math.max(1, Math.min(24, Number(options.limit || 24) || 24)),
-      page: options.append === true
-        ? Math.max(1, Number(previousPage?.page || 1) + 1)
+      page: options.append === true && previousPage
+        ? Math.max(1, Number(previousPage.page || 1) + 1)
         : 1,
-      cursor: options.append === true ? String(previousPage?.nextCursor || "") : "",
+      cursor: options.append === true && previousPage ? String(previousPage.nextCursor || "") : "",
       signal: controller?.signal
     });
     if (

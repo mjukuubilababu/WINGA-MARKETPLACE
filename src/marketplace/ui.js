@@ -1173,7 +1173,8 @@
         const safeItems = descriptor.items
           .filter(Boolean)
           .filter((item) => item?.id && !usedShowcaseProductIds.has(item.id));
-        if (safeItems.length < 3) {
+        const minimumItems = descriptor.kind === "legacy-showcase" ? 3 : 1;
+        if (safeItems.length < minimumItems) {
           return;
         }
         const key = String(descriptor.kind || descriptor.heading || descriptor.eyebrow || descriptor.title || variant)
@@ -1224,6 +1225,15 @@
         youMayLike,
         "you-may-like"
       ));
+
+      if (!queue.length && safeList.length) {
+        pushDescriptor(createRecommendationDescriptor(
+          "Recommended for you",
+          "Fresh marketplace picks",
+          safeList.slice(0, 6),
+          "catalog-fallback"
+        ));
+      }
 
       return queue;
     }
@@ -1357,7 +1367,8 @@
           const descriptor = combinedSectionQueue[intelligentSectionIndex];
           intelligentSectionIndex += 1;
           const safeItems = descriptor.items.filter((item) => item?.id && !usedShowcaseProductIds.has(item.id));
-          if (safeItems.length < 3) {
+          const minimumItems = descriptor.kind === "legacy-showcase" ? 3 : 1;
+          if (safeItems.length < minimumItems) {
             continue;
           }
           const showcaseElement = descriptor.kind === "legacy-showcase"
@@ -1399,7 +1410,7 @@
         if (renderToken !== scheduledFeedRenderState.token) {
           return;
         }
-        if (shouldInjectInlineShowcases && !insertedInlineShowcase && safeList.length >= Math.max(4, productsPerRow * 2 || 4)) {
+        if (shouldInjectInlineShowcases && !insertedInlineShowcase && safeList.length >= 1) {
           const descriptor = combinedSectionQueue.find((entry) =>
             Array.isArray(entry?.items)
             && entry.items.some((item) => item?.id && !usedShowcaseProductIds.has(item.id))

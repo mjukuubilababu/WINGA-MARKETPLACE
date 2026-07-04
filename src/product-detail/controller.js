@@ -12,6 +12,8 @@
     let pendingHomeNavigation = false;
     let detailContinuousRuntime = {
       observer: null,
+      scrollHandler: null,
+      scrollRoot: null,
       batchIndex: 0,
       recentIds: [],
       usedIds: new Set(),
@@ -20,7 +22,8 @@
       backendStageIndex: 0,
       backendStageState: {},
       exhausted: false,
-      requestId: 0
+      requestId: 0,
+      autoWarmupCount: 0
     };
     const MAX_ACTIVE_DETAIL_CONTINUATION_SECTIONS = 4;
     const MAX_DETAIL_CONTINUATION_USED_IDS = 120;
@@ -212,11 +215,16 @@
       if (detailContinuousRuntime.observer) {
         detailContinuousRuntime.observer.disconnect();
       }
+      if (detailContinuousRuntime.scrollHandler && detailContinuousRuntime.scrollRoot) {
+        detailContinuousRuntime.scrollRoot.removeEventListener("scroll", detailContinuousRuntime.scrollHandler);
+      }
       if (detailContinuousRuntime.reobserveTimer) {
         window.clearTimeout(detailContinuousRuntime.reobserveTimer);
       }
       detailContinuousRuntime = {
         observer: null,
+        scrollHandler: null,
+        scrollRoot: null,
         batchIndex: 0,
         recentIds: [],
         usedIds: new Set(),
@@ -226,8 +234,32 @@
         backendStageState: {},
         exhausted: false,
         requestId: 0,
+        autoWarmupCount: 0,
         reobserveTimer: 0
       };
+    }
+
+    function isDetailContinuationAnchorNear(modal, anchor) {
+      if (!modal?.getBoundingClientRect || !anchor?.getBoundingClientRect) {
+        return false;
+      }
+      const modalRect = modal.getBoundingClientRect();
+      const anchorRect = anchor.getBoundingClientRect();
+      return anchorRect.top <= modalRect.bottom + 620 && anchorRect.bottom >= modalRect.top - 760;
+    }
+
+    function requestDetailContinuousHydration(modal, anchor, product, delayMs = 0, options = {}) {
+      if (!anchor || !anchor.isConnected || !modal?.isConnected) {
+        return;
+      }
+      window.setTimeout(() => {
+        if (!anchor.isConnected || !modal?.isConnected || detailContinuousRuntime.loading || detailContinuousRuntime.exhausted) {
+          return;
+        }
+        if (options.force === true || isDetailContinuationAnchorNear(modal, anchor)) {
+          hydrateDetailContinuousAnchor(modal, anchor, product);
+        }
+      }, Math.max(0, Number(delayMs || 0)));
     }
 
     function scheduleDetailContinuousReobserve(anchor, modal) {
@@ -243,6 +275,7 @@
           return;
         }
         detailContinuousRuntime.observer.observe(anchor);
+        requestDetailContinuousHydration(modal, anchor, deps.getProductById?.(detailContinuousRuntime.seedProductId) || null, 60);
       }, 180);
     }
 
@@ -316,10 +349,40 @@
       if (!descriptor) {
         return null;
       }
+      const allowRecycled = descriptor.allowRecycled === true;
       const items = (Array.isArray(descriptor.items) ? descriptor.items : []).filter((item) =>
-        item?.id && !detailContinuousRuntime.usedIds.has(item.id)
+        item?.id && (allowRecycled || !detailContinuousRuntime.usedIds.has(item.id))
       );
       return items.length ? { ...descriptor, items } : null;
+    }
+
+    function getRelaxedDetailContinuationDescriptor(seedProduct) {
+      const seedId = String(seedProduct?.id || detailContinuousRuntime.seedProductId || "").trim();
+      const source = Array.isArray(deps.getProducts?.()) ? deps.getProducts() : [];
+      const items = source
+        .filter((item) =>
+          item?.id
+          && item.id !== seedId
+          && item.status === "approved"
+          && item.availability !== "sold_out"
+          && (typeof deps.shouldRenderMarketplaceProduct !== "function" || deps.shouldRenderMarketplaceProduct(item))
+          && (typeof deps.getRenderableMarketplaceImages !== "function" || deps.getRenderableMarketplaceImages(item).length > 0)
+        )
+        .slice()
+        .sort((first, second) =>
+          (Number(second.views || 0) + Number(second.likes || 0))
+          - (Number(first.views || 0) + Number(first.likes || 0))
+        )
+        .slice(0, 8);
+      return items.length
+        ? {
+          kind: "relaxed-discovery",
+          eyebrow: "Keep Exploring",
+          title: "More products from Winga",
+          allowRecycled: true,
+          items
+        }
+        : null;
     }
 
     async function loadNextDetailContinuationPage(seedProduct) {
@@ -366,8 +429,13 @@
         }
         const page = await loadNextDetailContinuationPage(seedProduct);
         if (Number(page?.appendedCount || 0) <= 0) {
-          return null;
+          break;
         }
+      }
+      const relaxedDescriptor = filterDetailContinuationDescriptor(getRelaxedDetailContinuationDescriptor(seedProduct));
+      if (relaxedDescriptor?.items?.length) {
+        detailContinuousRuntime.exhausted = false;
+        return relaxedDescriptor;
       }
       return filterDetailContinuationDescriptor(getLocalDetailContinuationDescriptor(seedProduct));
     }
@@ -427,6 +495,10 @@
       detailContinuousRuntime.batchIndex += 1;
       detailContinuousRuntime.loading = false;
       scheduleDetailContinuousReobserve(anchor, modal);
+      if (detailContinuousRuntime.autoWarmupCount < 2 && !detailContinuousRuntime.exhausted) {
+        detailContinuousRuntime.autoWarmupCount += 1;
+        requestDetailContinuousHydration(modal, anchor, product, 360, { force: true });
+      }
     }
 
     function setupDetailContinuousDiscovery(modal, product, usedIds = new Set()) {
@@ -439,6 +511,11 @@
       detailContinuousRuntime.usedIds = new Set(Array.from(usedIds || []).filter(Boolean));
       detailContinuousRuntime.recentIds = [];
       detailContinuousRuntime.seedProductId = product.id;
+      detailContinuousRuntime.scrollRoot = modal;
+      detailContinuousRuntime.scrollHandler = () => {
+        requestDetailContinuousHydration(modal, anchor, product, 0);
+      };
+      modal.addEventListener("scroll", detailContinuousRuntime.scrollHandler, { passive: true });
 
       if (typeof IntersectionObserver === "undefined") {
         for (let cycle = 0; cycle < 3; cycle += 1) {
@@ -459,6 +536,7 @@
         rootMargin: "760px 0px 620px 0px"
       });
       detailContinuousRuntime.observer.observe(anchor);
+      requestDetailContinuousHydration(modal, anchor, product, 120, { force: true });
     }
 
     function finalizeHomeNavigation() {
