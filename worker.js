@@ -672,6 +672,7 @@ function buildDiscoveryProductCardHtml(product, index, context) {
       <div class="seller-product-card-media" style="--fit-media-aspect-ratio:${escapeHtml(stableMediaRatio)};aspect-ratio:${escapeHtml(stableMediaRatio)}">
         ${galleryMarkup}
         ${product.variantColor ? `<span class="variant-badge">${escapeHtml(product.variantColor)}</span>` : ""}
+        ${product.availability === "sold_out" ? `<span class="sold-out-ribbon">SOLD OUT</span>` : ""}
       </div>
       ${overflowMenuMarkup}
       <div class="product-seller-row">

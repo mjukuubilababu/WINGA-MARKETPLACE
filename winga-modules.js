@@ -3818,6 +3818,27 @@ window.WingaModules.boot = window.WingaModules.boot || {};
       return score;
     }
 
+    function getProductDemandScore(product) {
+      const summary = product?.demandSummary && typeof product.demandSummary === "object"
+        ? product.demandSummary
+        : null;
+      if (!summary) {
+        return 0;
+      }
+      return Math.min(
+        260,
+        (toFiniteNumber(summary.demandScore, 0) * 4)
+          + (toFiniteNumber(summary.waitingUsers, 0) * 18)
+          + (toFiniteNumber(summary.restockInterest, 0) * 10)
+      );
+    }
+
+    function canUseProductInDemandDiscovery(product) {
+      return product?.status === "approved"
+        && product?.availability !== "reserved"
+        && isMarketplaceBrowseCandidate(product);
+    }
+
     function getProductById(productId, productMap) {
       return productMap.get(String(productId || "")) || null;
     }
@@ -4048,6 +4069,10 @@ window.WingaModules.boot = window.WingaModules.boot || {};
       if (context.surface === "trending") {
         score += (toFiniteNumber(product.likes, 0) * 2.5) + (toFiniteNumber(product.views, 0) * 1.4);
       }
+      score += getProductDemandScore(product);
+      if (product?.availability === "sold_out") {
+        score -= 95;
+      }
 
       return score;
     }
@@ -4180,7 +4205,7 @@ window.WingaModules.boot = window.WingaModules.boot || {};
         excludeIds = new Set()
       } = options;
       const candidates = (Array.isArray(sourceProducts) ? sourceProducts : [])
-        .filter((product) => product?.status === "approved" && product?.availability !== "sold_out")
+        .filter(canUseProductInDemandDiscovery)
         .filter((product) => !excludeIds.has(product.id));
 
       if (!candidates.length || limit <= 0) {
@@ -4198,8 +4223,7 @@ window.WingaModules.boot = window.WingaModules.boot || {};
 
       const pool = getProducts().filter((product) =>
         product.id !== seedProduct.id
-        && product.status === "approved"
-        && product.availability !== "sold_out"
+        && canUseProductInDemandDiscovery(product)
         && product.category === seedProduct.category
       );
 
@@ -4219,8 +4243,7 @@ window.WingaModules.boot = window.WingaModules.boot || {};
       const productDiscoveryTrail = new Set(getProductDiscoveryTrail());
       const pool = getProducts().filter((product) =>
         product.id !== seedProduct.id
-        && product.status === "approved"
-        && product.availability !== "sold_out"
+        && canUseProductInDemandDiscovery(product)
         && isMarketplaceBrowseCandidate(product)
         && !excludeIds.has(product.id)
         && !productDiscoveryTrail.has(product.id)
@@ -4244,8 +4267,7 @@ window.WingaModules.boot = window.WingaModules.boot || {};
       const fallbackIds = new Set([seedProduct.id, ...excludeIds, ...ranked.map((product) => product.id)]);
       const fallbackPool = getProducts().filter((product) =>
         !fallbackIds.has(product.id)
-        && product.status === "approved"
-        && product.availability !== "sold_out"
+        && canUseProductInDemandDiscovery(product)
         && isMarketplaceBrowseCandidate(product)
       );
 
@@ -13624,7 +13646,7 @@ window.WingaModules.boot = window.WingaModules.boot || {};
         item.id !== product.id
         && item.uploadedBy === product.uploadedBy
         && item.status === "approved"
-        && item.availability !== "sold_out"
+        && item.availability !== "reserved"
         && (typeof deps.shouldRenderMarketplaceProduct !== "function"
           || deps.shouldRenderMarketplaceProduct(item, {
             allowOwnerVisibility: item.uploadedBy === deps.getCurrentUser?.()
@@ -13640,7 +13662,7 @@ window.WingaModules.boot = window.WingaModules.boot || {};
         item.id !== product.id
         && item.uploadedBy === product.uploadedBy
         && item.status === "approved"
-        && item.availability !== "sold_out"
+        && item.availability !== "reserved"
         && !excludeIds.has(item.id)
         && (typeof deps.shouldRenderMarketplaceProduct !== "function"
           || deps.shouldRenderMarketplaceProduct(item, {
@@ -13885,7 +13907,7 @@ window.WingaModules.boot = window.WingaModules.boot || {};
           item?.id
           && item.id !== seedId
           && item.status === "approved"
-          && item.availability !== "sold_out"
+          && item.availability !== "reserved"
           && (typeof deps.shouldRenderMarketplaceProduct !== "function" || deps.shouldRenderMarketplaceProduct(item))
           && (typeof deps.getRenderableMarketplaceImages !== "function" || deps.getRenderableMarketplaceImages(item).length > 0)
         )

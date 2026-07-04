@@ -103,7 +103,7 @@
         item.id !== product.id
         && item.uploadedBy === product.uploadedBy
         && item.status === "approved"
-        && item.availability !== "sold_out"
+        && item.availability !== "reserved"
         && (typeof deps.shouldRenderMarketplaceProduct !== "function"
           || deps.shouldRenderMarketplaceProduct(item, {
             allowOwnerVisibility: item.uploadedBy === deps.getCurrentUser?.()
@@ -119,7 +119,7 @@
         item.id !== product.id
         && item.uploadedBy === product.uploadedBy
         && item.status === "approved"
-        && item.availability !== "sold_out"
+        && item.availability !== "reserved"
         && !excludeIds.has(item.id)
         && (typeof deps.shouldRenderMarketplaceProduct !== "function"
           || deps.shouldRenderMarketplaceProduct(item, {
@@ -364,7 +364,7 @@
           item?.id
           && item.id !== seedId
           && item.status === "approved"
-          && item.availability !== "sold_out"
+          && item.availability !== "reserved"
           && (typeof deps.shouldRenderMarketplaceProduct !== "function" || deps.shouldRenderMarketplaceProduct(item))
           && (typeof deps.getRenderableMarketplaceImages !== "function" || deps.getRenderableMarketplaceImages(item).length > 0)
         )

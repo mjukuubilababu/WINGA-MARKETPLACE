@@ -615,6 +615,27 @@ function getHomeFeedEngagementScore(product) {
   );
 }
 
+function getProductDemandDiscoveryScore(product) {
+  const summary = product?.demandSummary && typeof product.demandSummary === "object"
+    ? product.demandSummary
+    : null;
+  if (!summary) {
+    return 0;
+  }
+  return Math.min(
+    260,
+    (Number(summary.demandScore || 0) * 4)
+      + (Number(summary.waitingUsers || 0) * 18)
+      + (Number(summary.restockInterest || 0) * 10)
+  );
+}
+
+function isDemandDiscoveryCandidate(product) {
+  return product?.status === "approved"
+    && product?.availability !== "reserved"
+    && shouldRenderMarketplaceProduct(product);
+}
+
 function buildBalancedHomeFeed(list = []) {
   const visibleList = Array.isArray(list) ? list.slice() : [];
   if (visibleList.length < 3) {
@@ -16400,7 +16421,7 @@ function applyProductFilters(list) {
 function getShowcaseProducts() {
   const renderableProducts = products.filter((product) =>
     product.status === "approved"
-    && product.availability !== "sold_out"
+    && product.availability !== "reserved"
     && hasRenderableMarketplaceImage(product)
     && shouldRenderMarketplaceProduct(product)
   );
@@ -16443,10 +16464,10 @@ function getProductsPerRow() {
 
 function getDiverseShowcaseProducts(limit = 12, rotation = 0) {
   const sourceProducts = products
-    .filter((product) => product.status === "approved" && product.availability !== "sold_out" && hasRenderableMarketplaceImage(product) && shouldRenderMarketplaceProduct(product))
+    .filter((product) => product.status === "approved" && product.availability !== "reserved" && hasRenderableMarketplaceImage(product) && shouldRenderMarketplaceProduct(product))
     .sort((first, second) => {
-      const firstScore = (first.likes || 0) * 4 + (first.views || 0);
-      const secondScore = (second.likes || 0) * 4 + (second.views || 0);
+      const firstScore = (first.likes || 0) * 4 + (first.views || 0) + getProductDemandDiscoveryScore(first);
+      const secondScore = (second.likes || 0) * 4 + (second.views || 0) + getProductDemandDiscoveryScore(second);
       return secondScore - firstScore;
     });
 
@@ -16517,10 +16538,8 @@ function getBehaviorShowcaseDescriptor(sectionIndex = 0, excludeIds = new Set())
 
   const baseProducts = products
     .filter((product) =>
-      product.status === "approved"
-      && product.availability !== "sold_out"
+      isDemandDiscoveryCandidate(product)
       && hasRenderableMarketplaceImage(product)
-      && shouldRenderMarketplaceProduct(product)
       && !excludeIds.has(product.id)
     );
   const items = rankProductsForSurface(baseProducts, {
@@ -16756,10 +16775,8 @@ function getYouMayLikeProducts(seedProduct, limit = 6) {
   const relatedIds = new Set((seedProduct ? getRelatedProducts(seedProduct, limit).map((item) => item.id) : []));
   const pool = products
     .filter((product) =>
-      product.status === "approved"
-      && product.availability !== "sold_out"
+      isDemandDiscoveryCandidate(product)
       && hasRenderableMarketplaceImage(product)
-      && shouldRenderMarketplaceProduct(product)
       && product.id !== seedProduct?.id
       && !relatedIds.has(product.id)
     );
@@ -16774,9 +16791,7 @@ function getYouMayLikeProducts(seedProduct, limit = 6) {
 function getMostSearchedProducts(seedProduct, options = {}) {
   const { limit = 8, excludeIds = new Set(), sourceProducts = null } = options;
   const pool = (Array.isArray(sourceProducts) ? sourceProducts : products).filter((product) =>
-    product.status === "approved"
-    && product.availability !== "sold_out"
-    && shouldRenderMarketplaceProduct(product)
+    isDemandDiscoveryCandidate(product)
     && product.id !== seedProduct?.id
     && !excludeIds.has(product.id)
   );
@@ -16794,10 +16809,8 @@ function getMostSearchedProducts(seedProduct, options = {}) {
 
 function getTrendingProducts(limit = 8, excludeIds = new Set(), sourceProducts = null) {
   const source = (Array.isArray(sourceProducts) ? sourceProducts : products).filter((product) =>
-    product.status === "approved"
-    && product.availability !== "sold_out"
+    isDemandDiscoveryCandidate(product)
     && hasRenderableMarketplaceImage(product)
-    && shouldRenderMarketplaceProduct(product)
     && !excludeIds.has(product.id)
   );
   const withSignal = source.some((product) => Number(product.views || 0) > 0 || Number(product.likes || 0) > 0);
@@ -16813,9 +16826,7 @@ function getNewestProducts(options = {}) {
   const { limit = 8, excludeIds = new Set(), seedProduct = null, sourceProducts = null } = options;
   const rankedNewest = (Array.isArray(sourceProducts) ? sourceProducts : products)
     .filter((product) =>
-      product.status === "approved"
-      && product.availability !== "sold_out"
-      && shouldRenderMarketplaceProduct(product)
+      isDemandDiscoveryCandidate(product)
       && !excludeIds.has(product.id)
       && product.id !== seedProduct?.id
     )
@@ -16891,9 +16902,7 @@ function pruneOrderedIdSet(idSet, limit = 120) {
 function getRenderableMarketplacePool(options = {}) {
   const { excludeIds = new Set(), seedProduct = null } = options;
   return products.filter((product) =>
-    product.status === "approved"
-    && product.availability !== "sold_out"
-    && shouldRenderMarketplaceProduct(product)
+    isDemandDiscoveryCandidate(product)
     && product.id !== seedProduct?.id
     && !excludeIds.has(product.id)
   );
@@ -17088,9 +17097,7 @@ function getStaleViewedProducts(options = {}) {
   const seedTopCategory = inferTopCategoryValue(seedProduct?.category || "");
   const candidates = (Array.isArray(sourceProducts) ? sourceProducts : products)
     .filter((product) =>
-      product.status === "approved"
-      && product.availability !== "sold_out"
-      && shouldRenderMarketplaceProduct(product)
+      isDemandDiscoveryCandidate(product)
       && product.id !== seedProduct?.id
       && !recentIdSet.has(product.id)
       && (productSeenTimestamps[product.id] || usedIdSet.has(product.id))
@@ -17379,9 +17386,7 @@ function getHomeContinuousStreamProducts(options = {}) {
   const preferredCategory = inferTopCategoryValue(seedProduct?.category || "");
   const unseenPool = (Array.isArray(sourceProducts) ? sourceProducts : products)
     .filter((product) =>
-      product.status === "approved"
-      && product.availability !== "sold_out"
-      && shouldRenderMarketplaceProduct(product)
+      isDemandDiscoveryCandidate(product)
       && product.id !== seedProductId
       && !usedIdSet.has(product.id)
       && !recentIdSet.has(product.id)
@@ -17397,7 +17402,8 @@ function getHomeContinuousStreamProducts(options = {}) {
       if (secondCategoryMatch !== firstCategoryMatch) {
         return secondCategoryMatch - firstCategoryMatch;
       }
-      const engagementDelta = getHomeFeedEngagementScore(second) - getHomeFeedEngagementScore(first);
+      const engagementDelta = (getHomeFeedEngagementScore(second) + getProductDemandDiscoveryScore(second))
+        - (getHomeFeedEngagementScore(first) + getProductDemandDiscoveryScore(first));
       if (engagementDelta !== 0) {
         return engagementDelta;
       }
@@ -17406,9 +17412,7 @@ function getHomeContinuousStreamProducts(options = {}) {
 
   const fallbackPool = (Array.isArray(sourceProducts) ? sourceProducts : products)
     .filter((product) =>
-      product.status === "approved"
-      && product.availability !== "sold_out"
-      && shouldRenderMarketplaceProduct(product)
+      isDemandDiscoveryCandidate(product)
       && product.id !== seedProductId
       && !recentIdSet.has(product.id)
     )

@@ -52,13 +52,14 @@ test("PostgreSQL cursor pagination keeps cursor parameters out of the count quer
   });
 
   assert.equal(calls.length, 2);
-  const itemsCall = calls.find((call) => call.text.includes("ORDER BY created_at DESC, id DESC"));
+  const itemsCall = calls.find((call) => call.text.includes("ORDER BY p.created_at DESC, p.id DESC"));
   const countCall = calls.find((call) => call.text.includes("COUNT(*)"));
 
   assert.ok(itemsCall);
   assert.ok(countCall);
   assert.match(itemsCall.text, /\(created_at, id\) < \(\$2::timestamptz, \$3::text\)/);
-  assert.match(itemsCall.text, /ORDER BY created_at DESC, id DESC/);
+  assert.match(itemsCall.text, /LEFT JOIN product_demand_summaries pds ON pds.product_id = p.id/);
+  assert.match(itemsCall.text, /ORDER BY p.created_at DESC, p.id DESC/);
   assert.match(itemsCall.text, /LIMIT \$4/);
   assert.deepEqual(itemsCall.params, [
     "seller-one",
@@ -105,7 +106,7 @@ test("anonymous cursor pagination binds only item query cursor parameters", asyn
     cursor: "2026-06-24T12:00:00.000Z|product-cursor"
   });
 
-  const itemsCall = calls.find((call) => call.text.includes("ORDER BY created_at DESC, id DESC"));
+  const itemsCall = calls.find((call) => call.text.includes("ORDER BY p.created_at DESC, p.id DESC"));
   const countCall = calls.find((call) => call.text.includes("COUNT(*)"));
 
   assert.match(itemsCall.text, /\(created_at, id\) < \(\$1::timestamptz, \$2::text\)/);
@@ -119,6 +120,44 @@ test("anonymous cursor pagination binds only item query cursor parameters", asyn
   assert.deepEqual(countCall.params, []);
   assert.equal(page.hasMore, false);
   assert.equal(page.nextCursor, "");
+});
+
+test("PostgreSQL product pages expose compact demand summaries for ranking", async () => {
+  const queryClient = {
+    async query(text) {
+      if (text.includes("COUNT(*)")) {
+        return { rows: [{ total: 1 }] };
+      }
+      return {
+        rows: [{
+          id: "product-demand-1",
+          name: "Sold out dress",
+          createdAt: new Date("2026-06-30T12:00:00.000Z"),
+          updatedAt: new Date("2026-06-30T12:00:00.000Z"),
+          images: [],
+          demandTotalDemand: 4,
+          demandWaitingUsers: 3,
+          demandRestockInterest: 2,
+          demandScore: 19,
+          demandActionCounts: { want_back: 2, notify_when_available: 2 },
+          demandTopColors: [{ color: "white", count: 3 }],
+          demandTopSizes: [{ size: "M", count: 2 }],
+          demandLastDemandAt: new Date("2026-06-30T13:00:00.000Z")
+        }]
+      };
+    }
+  };
+  const store = createPostgresStore({
+    databaseUrl: "postgres://test.invalid/winga",
+    queryClient
+  });
+
+  const page = await store.readProductsPage({ limit: 12 });
+
+  assert.equal(page.items[0].demandSummary.waitingUsers, 3);
+  assert.equal(page.items[0].demandSummary.restockInterest, 2);
+  assert.equal(page.items[0].demandSummary.topColors[0].color, "white");
+  assert.equal(page.items[0].demandSummary.lastDemandAt, "2026-06-30T13:00:00.000Z");
 });
 
 test("product query filters share stable count predicates without cursor leakage", async () => {
@@ -144,7 +183,7 @@ test("product query filters share stable count predicates without cursor leakage
     seller: "seller-one"
   });
 
-  const itemsCall = calls.find((call) => call.text.includes("ORDER BY created_at DESC, id DESC"));
+  const itemsCall = calls.find((call) => call.text.includes("ORDER BY p.created_at DESC, p.id DESC"));
   const countCall = calls.find((call) => call.text.includes("COUNT(*)"));
 
   assert.match(itemsCall.text, /name ILIKE \$1/);

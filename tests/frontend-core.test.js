@@ -777,6 +777,16 @@ test("worker cycles production image arrays without dropping gallery images", ()
   assert.match(secondCardHtml, /data-feed-gallery-current="2"/);
   assert.match(secondCardHtml, /data-feed-gallery-stable-ratio="4 \/ 5"/);
   assert.match(secondCardHtml, /data-fit-mode="cover"/);
+
+  const soldOutHtml = context.buildDiscoveryProductCardHtml({
+    ...normalized[0],
+    availability: "sold_out"
+  }, 0, {
+    usersById: {},
+    session: null
+  });
+  assert.match(soldOutHtml, /sold-out-ribbon/);
+  assert.match(soldOutHtml, /SOLD OUT/);
 });
 
 test("worker emits one matching LCP image preload in the response header and HTML head", () => {
@@ -1238,6 +1248,29 @@ test("getShowcaseProducts prefers available approved high-signal items", () => {
 
   assert.equal(result[0].id, "high");
   assert.equal(result.length, 2);
+});
+
+test("getShowcaseProducts admits sold out demand cards only when demand is real", () => {
+  const result = getShowcaseProducts([
+    { id: "available", status: "approved", availability: "available", image: "a", likes: 2, views: 4 },
+    {
+      id: "wanted",
+      status: "approved",
+      availability: "sold_out",
+      image: "b",
+      likes: 1,
+      views: 2,
+      demandSummary: {
+        demandScore: 28,
+        waitingUsers: 6,
+        restockInterest: 5
+      }
+    },
+    { id: "empty-sold", status: "approved", availability: "sold_out", image: "c", likes: 80, views: 80 }
+  ]);
+
+  assert.equal(result.some((product) => product.id === "wanted"), true);
+  assert.equal(result.some((product) => product.id === "empty-sold"), false);
 });
 
 test("canRenderBuyButton enforces approved non-self non-sold-out products", () => {

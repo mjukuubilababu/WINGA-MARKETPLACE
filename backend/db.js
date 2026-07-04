@@ -54,6 +54,12 @@ function normalizeProductRow(row) {
     return null;
   }
 
+  const totalDemand = Number(row.demandTotalDemand || 0);
+  const waitingUsers = Number(row.demandWaitingUsers || 0);
+  const restockInterest = Number(row.demandRestockInterest || 0);
+  const demandScore = Number(row.demandScore || 0);
+  const hasDemandSummary = totalDemand > 0 || waitingUsers > 0 || restockInterest > 0 || demandScore > 0;
+
   return {
     id: row.id || "",
     name: row.name || "",
@@ -78,7 +84,19 @@ function normalizeProductRow(row) {
     updatedAt: toISOString(row.updatedAt),
     likes: Number(row.likes || 0),
     views: Number(row.views || 0),
-    viewedBy: parseJson(row.viewedBy, [])
+    viewedBy: parseJson(row.viewedBy, []),
+    demandSummary: hasDemandSummary
+      ? {
+        totalDemand,
+        waitingUsers,
+        restockInterest,
+        demandScore,
+        actionCounts: parseJson(row.demandActionCounts, {}),
+        topColors: parseJson(row.demandTopColors, []),
+        topSizes: parseJson(row.demandTopSizes, []),
+        lastDemandAt: toISOString(row.demandLastDemandAt)
+      }
+      : null
   };
 }
 
@@ -1383,33 +1401,42 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
     const itemLimit = limit + 1;
     let itemsSql = `
       SELECT
-        id,
-        name,
-        price::float8 AS price,
-        shop,
-        whatsapp,
-        image,
-        images,
-        uploaded_by AS "uploadedBy",
-        category,
-        status,
-        availability,
-        moderation_note AS "moderationNote",
-        moderated_at AS "moderatedAt",
-        moderated_by AS "moderatedBy",
-        original_product_id AS "originalProductId",
-        original_seller_id AS "originalSellerId",
-        reseller_id AS "resellerId",
-        resale_price::float8 AS "resalePrice",
-        resold_status AS "resoldStatus",
-        created_at AS "createdAt",
-        updated_at AS "updatedAt",
-        likes,
-        views,
-        viewed_by AS "viewedBy"
-      FROM products
+        p.id,
+        p.name,
+        p.price::float8 AS price,
+        p.shop,
+        p.whatsapp,
+        p.image,
+        p.images,
+        p.uploaded_by AS "uploadedBy",
+        p.category,
+        p.status,
+        p.availability,
+        p.moderation_note AS "moderationNote",
+        p.moderated_at AS "moderatedAt",
+        p.moderated_by AS "moderatedBy",
+        p.original_product_id AS "originalProductId",
+        p.original_seller_id AS "originalSellerId",
+        p.reseller_id AS "resellerId",
+        p.resale_price::float8 AS "resalePrice",
+        p.resold_status AS "resoldStatus",
+        p.created_at AS "createdAt",
+        p.updated_at AS "updatedAt",
+        p.likes,
+        p.views,
+        p.viewed_by AS "viewedBy",
+        COALESCE(pds.total_demand, 0)::int AS "demandTotalDemand",
+        COALESCE(pds.waiting_users, 0)::int AS "demandWaitingUsers",
+        COALESCE(pds.restock_interest, 0)::int AS "demandRestockInterest",
+        COALESCE(pds.demand_score, 0)::float8 AS "demandScore",
+        COALESCE(pds.action_counts, '{}'::jsonb) AS "demandActionCounts",
+        COALESCE(pds.top_colors, '[]'::jsonb) AS "demandTopColors",
+        COALESCE(pds.top_sizes, '[]'::jsonb) AS "demandTopSizes",
+        pds.last_demand_at AS "demandLastDemandAt"
+      FROM products p
+      LEFT JOIN product_demand_summaries pds ON pds.product_id = p.id
       ${itemWhereSql}
-      ORDER BY created_at DESC, id DESC
+      ORDER BY p.created_at DESC, p.id DESC
       LIMIT $${itemParams.length + 1}
     `;
     if (!cursor) {
@@ -1421,7 +1448,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
 
     const countSql = `
       SELECT COUNT(*)::int AS total
-      FROM products
+      FROM products p
       ${countWhereSql}
     `;
 

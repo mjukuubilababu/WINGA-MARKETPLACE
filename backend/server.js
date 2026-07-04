@@ -1497,6 +1497,22 @@ function sanitizeAdminUser(user) {
 
 function sanitizeVisibleProduct(product, viewer = null, storeRef = null) {
   const normalizedProduct = normalizeProductRecord(product);
+  const storedDemandSummary = product?.demandSummary && typeof product.demandSummary === "object"
+    ? product.demandSummary
+    : (Array.isArray(storeRef?.productDemandSummaries)
+      ? storeRef.productDemandSummaries.find((summary) => summary?.productId === normalizedProduct.id)
+      : null);
+  const demandSummary = storedDemandSummary && typeof storedDemandSummary === "object"
+    ? {
+      totalDemand: Math.max(0, Number(storedDemandSummary.totalDemand || 0)),
+      waitingUsers: Math.max(0, Number(storedDemandSummary.waitingUsers || 0)),
+      restockInterest: Math.max(0, Number(storedDemandSummary.restockInterest || 0)),
+      demandScore: Math.max(0, Number(storedDemandSummary.demandScore || 0)),
+      topColors: Array.isArray(storedDemandSummary.topColors) ? storedDemandSummary.topColors.slice(0, 5) : [],
+      topSizes: Array.isArray(storedDemandSummary.topSizes) ? storedDemandSummary.topSizes.slice(0, 5) : [],
+      lastDemandAt: sanitizePlainText(storedDemandSummary.lastDemandAt || "", 40)
+    }
+    : null;
   const allowPlaceholder = Boolean(product?.imageFallbackEligible || normalizedProduct.imageFallbackEligible);
   const deliveredImages = (Array.isArray(normalizedProduct.images) ? normalizedProduct.images : [])
     .map((image) => resolveProductImageForDelivery(image, "", allowPlaceholder))
@@ -1519,7 +1535,8 @@ function sanitizeVisibleProduct(product, viewer = null, storeRef = null) {
     ...normalizedProduct,
     image: deliveredPrimaryImage || deliveredImages[0] || "",
     images: deliveredImages.length ? deliveredImages : [deliveredPrimaryImage].filter(Boolean),
-    whatsapp: normalizedProduct.whatsapp || String(owner?.whatsappNumber || owner?.phoneNumber || "").replace(/\D/g, "").slice(0, 20)
+    whatsapp: normalizedProduct.whatsapp || String(owner?.whatsappNumber || owner?.phoneNumber || "").replace(/\D/g, "").slice(0, 20),
+    demandSummary
   };
   if (!safeProduct.image && (!Array.isArray(safeProduct.images) || safeProduct.images.length === 0) && !canSeeModerationData) {
     return null;

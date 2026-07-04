@@ -292,11 +292,30 @@
   }
 
   function getShowcaseProducts(products = [], limit = 12) {
+    const getDemandScore = (product) => {
+      const summary = product?.demandSummary && typeof product.demandSummary === "object" ? product.demandSummary : null;
+      if (!summary) {
+        return 0;
+      }
+      return Math.min(
+        260,
+        (Number(summary.demandScore || 0) * 4)
+          + (Number(summary.waitingUsers || 0) * 18)
+          + (Number(summary.restockInterest || 0) * 10)
+      );
+    };
     return products
-      .filter((product) => product?.status === "approved" && product?.availability !== "sold_out" && product?.image)
+      .filter((product) =>
+        product?.status === "approved"
+        && product?.availability !== "reserved"
+        && product?.image
+        && (product?.availability !== "sold_out" || getDemandScore(product) > 0)
+      )
       .sort((first, second) => {
-        const firstScore = (Number(first?.likes || 0) * 4) + Number(first?.views || 0);
-        const secondScore = (Number(second?.likes || 0) * 4) + Number(second?.views || 0);
+        const firstAvailabilityPenalty = first?.availability === "sold_out" ? 95 : 0;
+        const secondAvailabilityPenalty = second?.availability === "sold_out" ? 95 : 0;
+        const firstScore = (Number(first?.likes || 0) * 4) + Number(first?.views || 0) + getDemandScore(first) - firstAvailabilityPenalty;
+        const secondScore = (Number(second?.likes || 0) * 4) + Number(second?.views || 0) + getDemandScore(second) - secondAvailabilityPenalty;
         return secondScore - firstScore;
       })
       .slice(0, limit);
