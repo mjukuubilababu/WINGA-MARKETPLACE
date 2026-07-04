@@ -13,6 +13,7 @@
       maxNearbyBoost: 90,
       maxVariantBoost: 36,
       maxStyleBoost: 180,
+      maxSellerQualityBoost: 170,
       ...deps.config
     };
     let lazyStyleEngine = deps.styleEngine || null;
@@ -154,11 +155,28 @@
       return followed.has(product?.uploadedBy) ? 220 : 0;
     }
 
+    function getSellerQualityScore(product, context) {
+      if (typeof deps.getSellerQualityScore === "function") {
+        return Math.min(config.maxSellerQualityBoost, Math.max(0, toFiniteNumber(deps.getSellerQualityScore(product, context), 0)));
+      }
+      const sellerId = String(product?.uploadedBy || "");
+      const snapshots = context.sellerQualitySnapshots || {};
+      const snapshot = snapshots instanceof Map ? snapshots.get(sellerId) : snapshots[sellerId];
+      if (!snapshot) {
+        return 0;
+      }
+      const trust = toFiniteNumber(snapshot.trustScore || snapshot.sellerTrustScore, 0);
+      const quality = toFiniteNumber(snapshot.qualityScore || snapshot.sellerQualityScore, 0);
+      const activity = toFiniteNumber(snapshot.activityScore || snapshot.sellerActivityScore, 0);
+      return Math.min(config.maxSellerQualityBoost, Math.max(0, (trust * 0.48) + (quality * 0.34) + (activity * 0.18)));
+    }
+
     function scoreProduct(product, context, now) {
       const engagement = getEngagementScore(product);
       const score = {
         freshness: getRecencyScore(product, now),
         followedSeller: getFollowedSellerScore(product, context),
+        sellerQuality: getSellerQualityScore(product, context),
         demand: getDemandScore(product),
         trending: Math.min(220, engagement * 1.35),
         recommendation: getRecommendationScore(product, context),

@@ -94,6 +94,7 @@ const bundledModuleSources = [
   "src/marketplace/variants.js",
   "src/marketplace/gallery.js",
   "src/marketplace/style-intelligence.js",
+  "src/marketplace/seller-quality-intelligence.js",
   "src/marketplace/feed-intelligence.js",
   "src/marketplace/discovery.js",
   "src/marketplace/image-loader.js",

@@ -10,6 +10,8 @@
       getActivePromotions,
       getMarketplaceUser,
       getSellerReviewSummary,
+      getSellerQualitySnapshot,
+      getSellerQualityBoost,
       getPromotionCommercialScore,
       getCurrentUser,
       canUseBuyerFeatures,
@@ -160,6 +162,20 @@
     }
 
     function getSellerTrustScore(product) {
+      const sellerQualitySnapshot = typeof getSellerQualitySnapshot === "function"
+        ? getSellerQualitySnapshot(product?.uploadedBy)
+        : null;
+      if (sellerQualitySnapshot) {
+        if (typeof getSellerQualityBoost === "function") {
+          return toFiniteNumber(getSellerQualityBoost(sellerQualitySnapshot), 0);
+        }
+        return Math.min(
+          170,
+          (toFiniteNumber(sellerQualitySnapshot.trustScore || sellerQualitySnapshot.sellerTrustScore, 0) * 0.48)
+            + (toFiniteNumber(sellerQualitySnapshot.qualityScore || sellerQualitySnapshot.sellerQualityScore, 0) * 0.34)
+            + (toFiniteNumber(sellerQualitySnapshot.activityScore || sellerQualitySnapshot.sellerActivityScore, 0) * 0.18)
+        );
+      }
       const seller = typeof getMarketplaceUser === "function"
         ? getMarketplaceUser(product?.uploadedBy)
         : null;

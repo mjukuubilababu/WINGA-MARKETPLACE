@@ -168,9 +168,63 @@ test("style intelligence builds private aggregate buyer profiles and bounded pro
   assert.match(source, /window\.WingaModules\.marketplace\.createStyleIntelligence = createStyleIntelligence;/);
 });
 
+test("seller quality intelligence scores operational trust signals without follower dependence", () => {
+  const root = path.resolve(__dirname, "..");
+  const source = fs.readFileSync(path.join(root, "src", "marketplace", "seller-quality-intelligence.js"), "utf8");
+  const context = vm.createContext({
+    window: { WingaModules: { marketplace: {} } },
+    Date
+  });
+  vm.runInContext(source, context);
+  const engine = context.window.WingaModules.marketplace.createSellerQualityIntelligence({
+    config: { maxQualityBoost: 150 }
+  });
+  const good = engine.buildSellerQualitySnapshot("seller-good", {
+    seller: { username: "seller-good", status: "active", verifiedSeller: true, followers: 100000 },
+    products: [
+      { id: "p1", uploadedBy: "seller-good", status: "approved", demandSummary: { demandScore: 20, waitingUsers: 6, restockInterest: 3 } },
+      { id: "p2", uploadedBy: "seller-good", status: "approved" }
+    ],
+    orders: [
+      { sellerUsername: "seller-good", buyerUsername: "buyer-a", status: "delivered" },
+      { sellerUsername: "seller-good", buyerUsername: "buyer-a", status: "delivered" },
+      { sellerUsername: "seller-good", buyerUsername: "buyer-b", status: "confirmed" }
+    ],
+    messages: [
+      { senderId: "buyer-a", receiverId: "seller-good", timestamp: "2026-07-04T08:00:00.000Z" },
+      { senderId: "seller-good", receiverId: "buyer-a", timestamp: "2026-07-04T09:00:00.000Z" }
+    ],
+    reviewSummary: { averageRating: 4.8, totalReviews: 8 }
+  });
+  const risky = engine.buildSellerQualitySnapshot("seller-risky", {
+    seller: { username: "seller-risky", status: "flagged", verifiedSeller: false, followers: 1000000 },
+    products: [{ id: "p3", uploadedBy: "seller-risky", status: "approved" }],
+    orders: [
+      { sellerUsername: "seller-risky", buyerUsername: "buyer-c", status: "cancelled" },
+      { sellerUsername: "seller-risky", buyerUsername: "buyer-d", status: "cancelled" }
+    ],
+    messages: [
+      { senderId: "buyer-c", receiverId: "seller-risky", timestamp: "2026-07-01T08:00:00.000Z" }
+    ],
+    reviewSummary: { averageRating: 2.4, totalReviews: 2 },
+    complaintCount: 3
+  });
+
+  assert.equal(good.trustScore > risky.trustScore, true);
+  assert.equal(good.qualityScore > risky.qualityScore, true);
+  assert.equal(good.activityScore > risky.activityScore, true);
+  assert.equal(good.components.repeatBuyers, 1);
+  assert.equal(good.antiManipulation.followerCountIgnored, true);
+  assert.equal(engine.getRankingBoost(good) > engine.getRankingBoost(risky), true);
+  assert.equal(engine.getRankingBoost(good) <= 150, true);
+  assert.equal(engine.getTransparentReasons(good).includes("completed deliveries"), true);
+  assert.match(source, /window\.WingaModules\.marketplace\.createSellerQualityIntelligence = createSellerQualityIntelligence;/);
+});
+
 test("feed intelligence ranks home feed without mutating pagination products", () => {
   const root = path.resolve(__dirname, "..");
   const styleSource = fs.readFileSync(path.join(root, "src", "marketplace", "style-intelligence.js"), "utf8");
+  const sellerQualitySource = fs.readFileSync(path.join(root, "src", "marketplace", "seller-quality-intelligence.js"), "utf8");
   const source = fs.readFileSync(path.join(root, "src", "marketplace", "feed-intelligence.js"), "utf8");
   const buildSource = fs.readFileSync(path.join(root, "scripts", "build-vercel-static.js"), "utf8");
   const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
@@ -179,6 +233,7 @@ test("feed intelligence ranks home feed without mutating pagination products", (
     Date
   });
   vm.runInContext(styleSource, context);
+  vm.runInContext(sellerQualitySource, context);
   vm.runInContext(source, context);
   const engine = context.window.WingaModules.marketplace.createFeedIntelligence({
     inferTopCategoryValue: (category) => String(category || "").split("-")[0],
@@ -203,6 +258,13 @@ test("feed intelligence ranks home feed without mutating pagination products", (
     now,
     followedSellerIds: ["seller-followed"],
     preferredCategories: ["fashion"],
+    sellerQualitySnapshots: {
+      "seller-followed": {
+        trustScore: 86,
+        qualityScore: 82,
+        activityScore: 66
+      }
+    },
     styleProfile: {
       categories: [{ key: "fashion-dress", score: 180 }],
       topCategories: [{ key: "fashion", score: 110 }],
@@ -234,13 +296,19 @@ test("feed intelligence ranks home feed without mutating pagination products", (
     "style intelligence must be bundled before feed intelligence consumers"
   );
   assert.ok(
+    buildSource.indexOf('"src/marketplace/seller-quality-intelligence.js"') < buildSource.indexOf('"src/marketplace/feed-intelligence.js"'),
+    "seller quality intelligence must be bundled before feed intelligence consumers"
+  );
+  assert.ok(
     buildSource.indexOf('"src/marketplace/feed-intelligence.js"') < buildSource.indexOf('"src/marketplace/discovery.js"'),
     "feed intelligence must be bundled before discovery/home ranking consumers"
   );
   assert.match(source, /style:\s*getStyleScore\(product, context\)/);
+  assert.match(source, /sellerQuality:\s*getSellerQualityScore\(product, context\)/);
   assert.match(appSource, /function getHomeFeedIntelligenceEngine\(\)/);
   assert.match(appSource, /function getHomeFeedStyleProfile\(\)/);
-  assert.match(appSource, /intelligenceEngine\.rankHomeFeed\(visibleList, getHomeFeedIntelligenceContext\(\)\)/);
+  assert.match(appSource, /function getSellerQualitySnapshot\(username\)/);
+  assert.match(appSource, /intelligenceEngine\.rankHomeFeed\(visibleList, getHomeFeedIntelligenceContext\(visibleList\)\)/);
 });
 
 test("product detail continuation uses backend-backed endless feed state and feed media fit", () => {

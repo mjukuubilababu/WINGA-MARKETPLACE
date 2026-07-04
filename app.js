@@ -638,6 +638,7 @@ function isDemandDiscoveryCandidate(product) {
 
 let homeFeedIntelligenceEngine = null;
 let homeFeedStyleIntelligenceEngine = null;
+let sellerQualityIntelligenceEngine = null;
 
 function getHomeFeedIntelligenceEngine() {
   if (homeFeedIntelligenceEngine) {
@@ -670,6 +671,18 @@ function getHomeFeedStyleIntelligenceEngine() {
     inferTopCategoryValue
   });
   return homeFeedStyleIntelligenceEngine;
+}
+
+function getSellerQualityIntelligenceEngine() {
+  if (sellerQualityIntelligenceEngine) {
+    return sellerQualityIntelligenceEngine;
+  }
+  const factory = window.WingaModules?.marketplace?.createSellerQualityIntelligence;
+  if (typeof factory !== "function") {
+    return null;
+  }
+  sellerQualityIntelligenceEngine = factory();
+  return sellerQualityIntelligenceEngine;
 }
 
 function getOrderProductId(order) {
@@ -726,7 +739,42 @@ function getHomeFeedStyleProfile() {
   }
 }
 
-function getHomeFeedIntelligenceContext() {
+function getSellerQualitySnapshot(username) {
+  const sellerId = String(username || "").trim();
+  const engine = getSellerQualityIntelligenceEngine();
+  if (!sellerId || !engine || typeof engine.buildSellerQualitySnapshot !== "function") {
+    return null;
+  }
+  try {
+    return engine.buildSellerQualitySnapshot(sellerId, {
+      seller: getMarketplaceUser(sellerId),
+      products,
+      orders: getAllConversationOrders(),
+      messages: currentMessages,
+      reviewSummary: getSellerReviewSummary(sellerId)
+    });
+  } catch (error) {
+    captureClientError?.("seller_quality_snapshot_failed", error, {
+      category: "seller_quality",
+      sellerId,
+      alertSeverity: "low"
+    });
+    return null;
+  }
+}
+
+function getSellerQualitySnapshotMap(productList = products) {
+  const sellerIds = Array.from(new Set((Array.isArray(productList) ? productList : [])
+    .map((product) => String(product?.uploadedBy || "").trim())
+    .filter(Boolean)));
+  return Object.fromEntries(
+    sellerIds
+      .map((sellerId) => [sellerId, getSellerQualitySnapshot(sellerId)])
+      .filter(([, snapshot]) => snapshot)
+  );
+}
+
+function getHomeFeedIntelligenceContext(productList = products) {
   let followedSellerIds = [];
   try {
     followedSellerIds = Array.from(ensureFollowedSellerIdsLoaded?.() || []).filter(Boolean);
@@ -743,6 +791,7 @@ function getHomeFeedIntelligenceContext() {
     followedSellerIds,
     preferredCategories,
     styleProfile: getHomeFeedStyleProfile(),
+    sellerQualitySnapshots: getSellerQualitySnapshotMap(productList),
     seedCategory: selectedCategory !== "all" ? selectedCategory : "",
     locationQuery: String(filterLocationInput?.value || "").trim(),
     homeFeedRefreshCursor: Number(homeFeedRefreshCursor || 0)
@@ -758,7 +807,7 @@ function buildBalancedHomeFeed(list = []) {
   const intelligenceEngine = getHomeFeedIntelligenceEngine();
   if (intelligenceEngine && typeof intelligenceEngine.rankHomeFeed === "function") {
     try {
-      const ranked = intelligenceEngine.rankHomeFeed(visibleList, getHomeFeedIntelligenceContext());
+      const ranked = intelligenceEngine.rankHomeFeed(visibleList, getHomeFeedIntelligenceContext(visibleList));
       if (Array.isArray(ranked) && ranked.length === visibleList.length) {
         return ranked;
       }
@@ -8596,6 +8645,9 @@ function renderMarketplaceTrustBadges(product, options = {}) {
   if (Number(trustSnapshot?.sellerStats?.trustScore || 0) > 0) {
     badges.push(`<span class="status-pill">${trustSnapshot.sellerStats.trustScore}/100 trust</span>`);
   }
+  if (Number(trustSnapshot?.sellerStats?.qualityScore || trustSnapshot?.sellerStats?.sellerQualityScore || 0) >= 70) {
+    badges.push(`<span class="status-pill approved">Trusted quality seller</span>`);
+  }
   const sellerReviewSummary = getSellerReviewSummary(product.uploadedBy);
   if (Number(sellerReviewSummary?.totalReviews || 0) > 0) {
     badges.push(`<span class="status-pill">${sellerReviewSummary.averageRating.toFixed(1)} rating ya muuzaji</span>`);
@@ -8636,6 +8688,16 @@ function getTrustTierFromScore(score) {
 }
 
 function computeSellerTrustScoreSnapshot(username) {
+  const intelligenceSnapshot = getSellerQualitySnapshot(username);
+  if (intelligenceSnapshot) {
+    return {
+      ...intelligenceSnapshot,
+      approvedProducts: Number(intelligenceSnapshot.components?.activeListings || 0),
+      completedOrders: Number(intelligenceSnapshot.components?.deliveredOrders || 0),
+      repeatBuyers: Number(intelligenceSnapshot.components?.repeatBuyers || 0),
+      trustTier: intelligenceSnapshot.trustTier || getTrustTierFromScore(intelligenceSnapshot.trustScore)
+    };
+  }
   const sellerProducts = products.filter((product) => product.uploadedBy === username);
   const approvedProducts = sellerProducts.filter((product) => product.status === "approved").length;
   const sellerOrders = getAllConversationOrders().filter((order) => order?.sellerUsername === username);
@@ -8761,6 +8823,12 @@ function renderSellerTrustPanel(product) {
   if (trust.trustTierLabel) {
     trustBadges.push(`<span class="status-pill">${escapeHtml(trust.trustTierLabel)}</span>`);
   }
+  if (Number(trust.sellerStats?.qualityScore || trust.sellerStats?.sellerQualityScore || 0) >= 70) {
+    trustBadges.push(`<span class="status-pill approved">${Number(trust.sellerStats.qualityScore || trust.sellerStats.sellerQualityScore)}/100 quality</span>`);
+  }
+  if (Number(trust.sellerStats?.activityScore || trust.sellerStats?.sellerActivityScore || 0) >= 55) {
+    trustBadges.push(`<span class="status-pill">${Number(trust.sellerStats.activityScore || trust.sellerStats.sellerActivityScore)}/100 activity</span>`);
+  }
   if (trust.whatsappLabel) {
     trustBadges.push(`<span class="status-pill approved">${escapeHtml(trust.whatsappLabel)}</span>`);
   }
@@ -8776,7 +8844,9 @@ function renderSellerTrustPanel(product) {
     trust.reviewCountLabel,
     Number(trust.sellerStats?.approvedProducts || 0) > 0 ? `${trust.sellerStats.approvedProducts} active listings` : "",
     Number(trust.sellerStats?.completedOrders || 0) > 0 ? `${trust.sellerStats.completedOrders} completed orders` : "",
-    Number(trust.sellerStats?.repeatBuyers || 0) > 0 ? `${trust.sellerStats.repeatBuyers} repeat buyer${Number(trust.sellerStats.repeatBuyers) === 1 ? "" : "s"}` : ""
+    Number(trust.sellerStats?.repeatBuyers || 0) > 0 ? `${trust.sellerStats.repeatBuyers} repeat buyer${Number(trust.sellerStats.repeatBuyers) === 1 ? "" : "s"}` : "",
+    Number(trust.sellerStats?.components?.responseSpeedScore || 0) > 0 ? `${trust.sellerStats.components.responseSpeedScore}/100 response speed` : "",
+    Number(trust.sellerStats?.components?.demandScore || 0) > 0 ? `${trust.sellerStats.components.demandScore} demand signal` : ""
   ].filter(Boolean);
   const showReportActions = Boolean(product?.id && product?.uploadedBy && product.uploadedBy !== currentUser);
   const safeProductId = escapeHtml(product?.id || "");
@@ -16808,6 +16878,8 @@ const {
   getActivePromotions,
   getMarketplaceUser,
   getSellerReviewSummary,
+  getSellerQualitySnapshot,
+  getSellerQualityBoost: (snapshot) => getSellerQualityIntelligenceEngine()?.getRankingBoost?.(snapshot) || 0,
   getPromotionCommercialScore,
   getCurrentUser: () => currentUser,
   canUseBuyerFeatures,
@@ -16878,6 +16950,16 @@ ${renderProductActionGroup(item, { requestLabel: "My Request", extraClass: "sell
 }
 
 function getMarketplaceProductTrustScore(product) {
+  const qualitySnapshot = getSellerQualitySnapshot(product?.uploadedBy);
+  if (qualitySnapshot) {
+    const engine = getSellerQualityIntelligenceEngine();
+    if (engine && typeof engine.getRankingBoost === "function") {
+      return engine.getRankingBoost(qualitySnapshot);
+    }
+    return Math.min(170, Math.max(0, (Number(qualitySnapshot.trustScore || 0) * 0.48)
+      + (Number(qualitySnapshot.qualityScore || 0) * 0.34)
+      + (Number(qualitySnapshot.activityScore || 0) * 0.18)));
+  }
   const owner = getMarketplaceUser(product?.uploadedBy);
   const sellerSummary = getSellerReviewSummary(product?.uploadedBy);
   let score = 0;
