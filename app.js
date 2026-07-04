@@ -637,6 +637,7 @@ function isDemandDiscoveryCandidate(product) {
 }
 
 let homeFeedIntelligenceEngine = null;
+let homeFeedStyleIntelligenceEngine = null;
 
 function getHomeFeedIntelligenceEngine() {
   if (homeFeedIntelligenceEngine) {
@@ -657,6 +658,74 @@ function getHomeFeedIntelligenceEngine() {
   return homeFeedIntelligenceEngine;
 }
 
+function getHomeFeedStyleIntelligenceEngine() {
+  if (homeFeedStyleIntelligenceEngine) {
+    return homeFeedStyleIntelligenceEngine;
+  }
+  const factory = window.WingaModules?.marketplace?.createStyleIntelligence;
+  if (typeof factory !== "function") {
+    return null;
+  }
+  homeFeedStyleIntelligenceEngine = factory({
+    inferTopCategoryValue
+  });
+  return homeFeedStyleIntelligenceEngine;
+}
+
+function getOrderProductId(order) {
+  return String(order?.productId || order?.product?.id || order?.itemId || "").trim();
+}
+
+function getDemandRequestedProductIds() {
+  return Object.entries(productVariationSignalState || {})
+    .filter(([, signal]) => signal?.demandRequested || signal?.restockRequested || signal?.notifyWhenAvailable)
+    .sort((first, second) => Number(second[1]?.updatedAt || 0) - Number(first[1]?.updatedAt || 0))
+    .map(([productId]) => productId)
+    .filter(Boolean)
+    .slice(0, 24);
+}
+
+function getHomeFeedStyleProfile() {
+  const styleEngine = getHomeFeedStyleIntelligenceEngine();
+  if (!styleEngine || typeof styleEngine.buildStyleProfile !== "function") {
+    return null;
+  }
+  const savedProductIds = (() => {
+    try {
+      return Array.from(ensureSavedProductIdsLoaded?.() || []).filter(Boolean);
+    } catch (error) {
+      return [];
+    }
+  })();
+  const purchasedProductIds = Array.isArray(currentOrders?.purchases)
+    ? currentOrders.purchases.map(getOrderProductId).filter(Boolean)
+    : [];
+  const demandProductIds = getDemandRequestedProductIds();
+
+  try {
+    return styleEngine.buildStyleProfile({
+      viewedProductIds: recentlyViewedProductIds,
+      savedProductIds,
+      purchasedProductIds,
+      demandProductIds,
+      searchTerms: recentSearchTerms,
+      categories: [
+        ...recentCategorySelections,
+        selectedCategory !== "all" ? selectedCategory : "",
+        currentSession?.primaryCategory || ""
+      ].filter(Boolean)
+    }, {
+      getProductById
+    });
+  } catch (error) {
+    captureClientError?.("home_feed_style_profile_failed", error, {
+      category: "feed",
+      alertSeverity: "low"
+    });
+    return null;
+  }
+}
+
 function getHomeFeedIntelligenceContext() {
   let followedSellerIds = [];
   try {
@@ -673,6 +742,7 @@ function getHomeFeedIntelligenceContext() {
   return {
     followedSellerIds,
     preferredCategories,
+    styleProfile: getHomeFeedStyleProfile(),
     seedCategory: selectedCategory !== "all" ? selectedCategory : "",
     locationQuery: String(filterLocationInput?.value || "").trim(),
     homeFeedRefreshCursor: Number(homeFeedRefreshCursor || 0)
@@ -4915,6 +4985,26 @@ function noteProductEngagementSignal(productId, signalType, fallbackWeight = 1) 
     signalType,
     productId: normalizedProductId
   });
+}
+
+function noteDemandStyleSignal(productId, action = "") {
+  const normalizedProductId = normalizeProductIdValue(productId);
+  if (!normalizedProductId) {
+    return;
+  }
+  productVariationSignalState[normalizedProductId] = {
+    ...(productVariationSignalState[normalizedProductId] || {}),
+    demandRequested: true,
+    demandAction: String(action || "").trim(),
+    updatedAt: Date.now()
+  };
+  const relatedProduct = getProductById(normalizedProductId);
+  if (relatedProduct?.uploadedBy) {
+    noteSellerInterest(relatedProduct.uploadedBy, 52, {
+      signalType: "demand_request",
+      productId: normalizedProductId
+    });
+  }
 }
 
 const {
@@ -10572,6 +10662,7 @@ const {
   preloadImageSource,
   noteProductInterest,
   noteProductDiscovery,
+  noteDemandStyleSignal,
   enhanceShowcaseTracks,
   bindProductEngagementSignals,
   disposeScopedRenderMemory,

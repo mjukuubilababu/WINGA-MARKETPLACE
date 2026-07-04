@@ -107,8 +107,70 @@ test("marketplace gallery module preserves feed carousel markup contract", () =>
   assert.match(appSource, /function bindFeedGalleryInteractions\(scope = document\) \{\s+getMarketplaceGalleryTools\(\)\.bindFeedGalleryInteractions\?\.\(scope\);\s+\}/);
 });
 
+test("style intelligence builds private aggregate buyer profiles and bounded product scores", () => {
+  const root = path.resolve(__dirname, "..");
+  const source = fs.readFileSync(path.join(root, "src", "marketplace", "style-intelligence.js"), "utf8");
+  const context = vm.createContext({
+    window: { WingaModules: { marketplace: {} } },
+    Date
+  });
+  vm.runInContext(source, context);
+  const engine = context.window.WingaModules.marketplace.createStyleIntelligence({
+    inferTopCategoryValue: (category) => String(category || "").split("-")[0],
+    config: { maxStyleBoost: 120 }
+  });
+  const productMap = new Map([
+    ["dress-white", {
+      id: "dress-white",
+      category: "fashion-dress",
+      name: "Elegant white cotton wedding dress",
+      color: "white",
+      size: "M",
+      material: "cotton",
+      price: 65000
+    }],
+    ["shoe-black", {
+      id: "shoe-black",
+      category: "shoes",
+      name: "Black office leather shoes",
+      color: "black",
+      material: "leather",
+      price: 120000
+    }]
+  ]);
+  const profile = engine.buildStyleProfile({
+    viewedProductIds: ["dress-white"],
+    savedProductIds: ["dress-white"],
+    purchasedProductIds: ["dress-white"],
+    demandProductIds: ["dress-white"],
+    searchTerms: ["white wedding cotton"],
+    categories: ["fashion-dress"]
+  }, {
+    getProductById: (id) => productMap.get(id)
+  });
+  const matching = engine.scoreProductStyle({
+    id: "next-dress",
+    category: "fashion-dress",
+    name: "White cotton party dress",
+    color: "white",
+    material: "cotton",
+    price: 70000
+  }, profile);
+  const unrelated = engine.scoreProductStyle(productMap.get("shoe-black"), profile);
+
+  assert.equal(profile.privacy, "aggregate-style-only");
+  assert.equal(profile.signalCount >= 4, true);
+  assert.equal(profile.colors.some((entry) => entry.key === "white"), true);
+  assert.equal(profile.categories.some((entry) => entry.key === "fashion-dress"), true);
+  assert.equal(matching.score > unrelated.score, true);
+  assert.equal(matching.score <= 120, true);
+  assert.deepEqual(Object.keys(profile).includes("buyerId"), false);
+  assert.match(source, /window\.WingaModules\.marketplace\.createStyleIntelligence = createStyleIntelligence;/);
+});
+
 test("feed intelligence ranks home feed without mutating pagination products", () => {
   const root = path.resolve(__dirname, "..");
+  const styleSource = fs.readFileSync(path.join(root, "src", "marketplace", "style-intelligence.js"), "utf8");
   const source = fs.readFileSync(path.join(root, "src", "marketplace", "feed-intelligence.js"), "utf8");
   const buildSource = fs.readFileSync(path.join(root, "scripts", "build-vercel-static.js"), "utf8");
   const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
@@ -116,6 +178,7 @@ test("feed intelligence ranks home feed without mutating pagination products", (
     window: { WingaModules: { marketplace: {} } },
     Date
   });
+  vm.runInContext(styleSource, context);
   vm.runInContext(source, context);
   const engine = context.window.WingaModules.marketplace.createFeedIntelligence({
     inferTopCategoryValue: (category) => String(category || "").split("-")[0],
@@ -139,7 +202,18 @@ test("feed intelligence ranks home feed without mutating pagination products", (
   const ranked = engine.rankHomeFeed(products, {
     now,
     followedSellerIds: ["seller-followed"],
-    preferredCategories: ["fashion"]
+    preferredCategories: ["fashion"],
+    styleProfile: {
+      categories: [{ key: "fashion-dress", score: 180 }],
+      topCategories: [{ key: "fashion", score: 110 }],
+      colors: [],
+      sizes: [],
+      brands: [],
+      materials: [],
+      fashionStyles: [],
+      priceRanges: [],
+      signalCount: 4
+    }
   });
 
   assert.equal(ranked[0].id, "fresh");
@@ -156,10 +230,16 @@ test("feed intelligence ranks home feed without mutating pagination products", (
   ]);
   assert.match(source, /window\.WingaModules\.marketplace\.createFeedIntelligence = createFeedIntelligence;/);
   assert.ok(
+    buildSource.indexOf('"src/marketplace/style-intelligence.js"') < buildSource.indexOf('"src/marketplace/feed-intelligence.js"'),
+    "style intelligence must be bundled before feed intelligence consumers"
+  );
+  assert.ok(
     buildSource.indexOf('"src/marketplace/feed-intelligence.js"') < buildSource.indexOf('"src/marketplace/discovery.js"'),
     "feed intelligence must be bundled before discovery/home ranking consumers"
   );
+  assert.match(source, /style:\s*getStyleScore\(product, context\)/);
   assert.match(appSource, /function getHomeFeedIntelligenceEngine\(\)/);
+  assert.match(appSource, /function getHomeFeedStyleProfile\(\)/);
   assert.match(appSource, /intelligenceEngine\.rankHomeFeed\(visibleList, getHomeFeedIntelligenceContext\(\)\)/);
 });
 

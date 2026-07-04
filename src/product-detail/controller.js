@@ -713,6 +713,7 @@
               size: selectedSize,
               source: "product_detail"
             });
+            deps.noteDemandStyleSignal?.(product.id, action);
             deps.reportEvent?.("info", "demand_requested", "Buyer recorded demand for a sold out product.", {
               productId: product.id,
               sellerId: product.uploadedBy,

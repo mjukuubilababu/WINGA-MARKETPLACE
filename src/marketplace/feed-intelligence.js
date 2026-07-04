@@ -12,8 +12,10 @@
       maxDemandBoost: 260,
       maxNearbyBoost: 90,
       maxVariantBoost: 36,
+      maxStyleBoost: 180,
       ...deps.config
     };
+    let lazyStyleEngine = deps.styleEngine || null;
 
     function toFiniteNumber(value, fallback = 0) {
       const parsed = Number(value);
@@ -102,6 +104,26 @@
       return score;
     }
 
+    function getStyleScore(product, context) {
+      if (typeof deps.getStyleScore === "function") {
+        return Math.min(config.maxStyleBoost, Math.max(0, toFiniteNumber(deps.getStyleScore(product, context), 0)));
+      }
+      if (!lazyStyleEngine && typeof window.WingaModules?.marketplace?.createStyleIntelligence === "function") {
+        lazyStyleEngine = window.WingaModules.marketplace.createStyleIntelligence({
+          inferTopCategoryValue: deps.inferTopCategoryValue,
+          config: {
+            maxStyleBoost: config.maxStyleBoost
+          }
+        });
+      }
+      const styleEngine = lazyStyleEngine;
+      if (!styleEngine || typeof styleEngine.scoreProductStyle !== "function" || !context.styleProfile) {
+        return 0;
+      }
+      const result = styleEngine.scoreProductStyle(product, context.styleProfile);
+      return Math.min(config.maxStyleBoost, Math.max(0, toFiniteNumber(result?.score, 0)));
+    }
+
     function getNearbyScore(product, context) {
       const wantedLocation = normalizeLookupValue(context.locationQuery || "");
       if (!wantedLocation) {
@@ -140,6 +162,7 @@
         demand: getDemandScore(product),
         trending: Math.min(220, engagement * 1.35),
         recommendation: getRecommendationScore(product, context),
+        style: getStyleScore(product, context),
         nearby: getNearbyScore(product, context),
         variant: getVariantScore(product),
         engagement: Math.min(180, engagement)
