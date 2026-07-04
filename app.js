@@ -636,10 +636,68 @@ function isDemandDiscoveryCandidate(product) {
     && shouldRenderMarketplaceProduct(product);
 }
 
+let homeFeedIntelligenceEngine = null;
+
+function getHomeFeedIntelligenceEngine() {
+  if (homeFeedIntelligenceEngine) {
+    return homeFeedIntelligenceEngine;
+  }
+  const factory = window.WingaModules?.marketplace?.createFeedIntelligence;
+  if (typeof factory !== "function") {
+    return null;
+  }
+  homeFeedIntelligenceEngine = factory({
+    inferTopCategoryValue,
+    getEngagementScore: getHomeFeedEngagementScore,
+    config: {
+      freshProtectionWindowMs: HOME_FRESH_PROTECTION_WINDOW_MS,
+      freshTopSlots: HOME_FRESH_TOP_SLOTS
+    }
+  });
+  return homeFeedIntelligenceEngine;
+}
+
+function getHomeFeedIntelligenceContext() {
+  let followedSellerIds = [];
+  try {
+    followedSellerIds = Array.from(ensureFollowedSellerIdsLoaded?.() || []).filter(Boolean);
+  } catch (error) {
+    followedSellerIds = [];
+  }
+  const preferredCategories = typeof getBehaviorPreferredCategories === "function"
+    ? getBehaviorPreferredCategories()
+    : [
+      selectedCategory !== "all" ? selectedCategory : "",
+      currentSession?.primaryCategory || ""
+    ].filter(Boolean);
+  return {
+    followedSellerIds,
+    preferredCategories,
+    seedCategory: selectedCategory !== "all" ? selectedCategory : "",
+    locationQuery: String(filterLocationInput?.value || "").trim(),
+    homeFeedRefreshCursor: Number(homeFeedRefreshCursor || 0)
+  };
+}
+
 function buildBalancedHomeFeed(list = []) {
   const visibleList = Array.isArray(list) ? list.slice() : [];
   if (visibleList.length < 3) {
     return sortProductsNewestFirst(visibleList);
+  }
+
+  const intelligenceEngine = getHomeFeedIntelligenceEngine();
+  if (intelligenceEngine && typeof intelligenceEngine.rankHomeFeed === "function") {
+    try {
+      const ranked = intelligenceEngine.rankHomeFeed(visibleList, getHomeFeedIntelligenceContext());
+      if (Array.isArray(ranked) && ranked.length === visibleList.length) {
+        return ranked;
+      }
+    } catch (error) {
+      captureClientError?.("home_feed_intelligence_failed", error, {
+        category: "feed",
+        products: visibleList.length
+      });
+    }
   }
 
   const now = Date.now();
@@ -18543,6 +18601,16 @@ function setupContinuousDiscoveryLoading(scope, options = {}) {
   scheduleIdleBackgroundWork(() => {
     prepareNextContinuousDiscoveryDescriptor();
   }, 80);
+  window.setTimeout(() => {
+    if (
+      anchor.isConnected
+      && currentView === "home"
+      && !homeContinuousDiscoveryRuntime.loading
+      && !homeContinuousDiscoveryRuntime.preparingDescriptor
+    ) {
+      hydrateContinuousDiscoveryAnchor(anchor);
+    }
+  }, 220);
 }
 
 function buildTrendingKariakooSlide() {

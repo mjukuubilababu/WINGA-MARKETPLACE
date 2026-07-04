@@ -52,6 +52,9 @@ test("home feed reserves stable media and deferred section geometry", () => {
   assert.doesNotMatch(marketplaceUiSource, /safeImages\.slice\(0,\s*FEED_GALLERY_IMAGE_LIMIT\)/);
   assert.match(styleSource, /\.product-detail-media,[\s\S]*\.profile-product-stage\{[\s\S]*width:100% !important;[\s\S]*padding-left:0 !important;/);
   assert.match(styleSource, /\.product-card-media img,[\s\S]*\.feed-gallery-preview img\{[\s\S]*width:100% !important;/);
+  assert.doesNotMatch(marketplaceUiSource, /shouldUseMobileEndlessHomeFeed && typeof deps\.createContinuousDiscoveryAnchorElement/);
+  assert.match(marketplaceUiSource, /if \(typeof deps\.createContinuousDiscoveryAnchorElement === "function"\)/);
+  assert.match(appSource, /window\.setTimeout\(\(\) => \{\s+if \(\s+anchor\.isConnected\s+&& currentView === "home"[\s\S]*hydrateContinuousDiscoveryAnchor\(anchor\);/);
 });
 
 test("marketplace gallery module preserves feed carousel markup contract", () => {
@@ -102,6 +105,62 @@ test("marketplace gallery module preserves feed carousel markup contract", () =>
   assert.match(source, /track\.addEventListener\("pointerdown"/);
   assert.match(source, /noteProductEngagementSignal\(productId, "variation_swipe", variationSwipeWeight\)/);
   assert.match(appSource, /function bindFeedGalleryInteractions\(scope = document\) \{\s+getMarketplaceGalleryTools\(\)\.bindFeedGalleryInteractions\?\.\(scope\);\s+\}/);
+});
+
+test("feed intelligence ranks home feed without mutating pagination products", () => {
+  const root = path.resolve(__dirname, "..");
+  const source = fs.readFileSync(path.join(root, "src", "marketplace", "feed-intelligence.js"), "utf8");
+  const buildSource = fs.readFileSync(path.join(root, "scripts", "build-vercel-static.js"), "utf8");
+  const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
+  const context = vm.createContext({
+    window: { WingaModules: { marketplace: {} } },
+    Date
+  });
+  vm.runInContext(source, context);
+  const engine = context.window.WingaModules.marketplace.createFeedIntelligence({
+    inferTopCategoryValue: (category) => String(category || "").split("-")[0],
+    getEngagementScore: (product) => Number(product.views || 0) + Number(product.likes || 0) * 3,
+    config: {
+      freshProtectionWindowMs: 20 * 60 * 1000,
+      freshTopSlots: 1,
+      sellerCap: 2
+    }
+  });
+  const now = new Date("2026-07-04T10:00:00.000Z").getTime();
+  const products = [
+    { id: "old-seller-a-1", uploadedBy: "seller-a", category: "fashion-dress", createdAt: "2026-07-01T10:00:00.000Z", views: 500, likes: 20 },
+    { id: "fresh", uploadedBy: "seller-b", category: "shoes", createdAt: "2026-07-04T09:55:00.000Z", views: 1, likes: 0 },
+    { id: "followed", uploadedBy: "seller-followed", category: "fashion-shirt", createdAt: "2026-07-02T10:00:00.000Z", views: 5, likes: 1 },
+    { id: "demand", uploadedBy: "seller-c", category: "fashion-dress", createdAt: "2026-07-02T11:00:00.000Z", views: 2, likes: 0, demandSummary: { demandScore: 30, waitingUsers: 5, restockInterest: 4 } },
+    { id: "old-seller-a-2", uploadedBy: "seller-a", category: "fashion-dress", createdAt: "2026-07-01T09:00:00.000Z", views: 450, likes: 18 },
+    { id: "old-seller-a-1", uploadedBy: "seller-a", category: "fashion-dress", createdAt: "2026-07-01T10:00:00.000Z", views: 500, likes: 20 }
+  ];
+
+  const ranked = engine.rankHomeFeed(products, {
+    now,
+    followedSellerIds: ["seller-followed"],
+    preferredCategories: ["fashion"]
+  });
+
+  assert.equal(ranked[0].id, "fresh");
+  assert.equal(new Set(ranked.map((product) => product.id)).size, ranked.length);
+  assert.equal(ranked.some((product) => product.id === "followed"), true);
+  assert.equal(ranked.some((product) => product.id === "demand"), true);
+  assert.deepEqual(products.map((product) => product.id), [
+    "old-seller-a-1",
+    "fresh",
+    "followed",
+    "demand",
+    "old-seller-a-2",
+    "old-seller-a-1"
+  ]);
+  assert.match(source, /window\.WingaModules\.marketplace\.createFeedIntelligence = createFeedIntelligence;/);
+  assert.ok(
+    buildSource.indexOf('"src/marketplace/feed-intelligence.js"') < buildSource.indexOf('"src/marketplace/discovery.js"'),
+    "feed intelligence must be bundled before discovery/home ranking consumers"
+  );
+  assert.match(appSource, /function getHomeFeedIntelligenceEngine\(\)/);
+  assert.match(appSource, /intelligenceEngine\.rankHomeFeed\(visibleList, getHomeFeedIntelligenceContext\(\)\)/);
 });
 
 test("product detail continuation uses backend-backed endless feed state and feed media fit", () => {
