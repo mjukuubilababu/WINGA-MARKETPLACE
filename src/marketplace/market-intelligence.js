@@ -169,6 +169,7 @@
       const products = (Array.isArray(inputs.products) ? inputs.products : []).filter(Boolean);
       const searchTerms = Array.isArray(inputs.searchTerms) ? inputs.searchTerms : [];
       const messages = Array.isArray(inputs.messages) ? inputs.messages : [];
+      const searchDemand = inputs.searchDemand && typeof inputs.searchDemand === "object" ? inputs.searchDemand : {};
       const regionQuery = normalizeKey(inputs.regionQuery || "");
       const categoryScores = new Map();
       const colorScores = new Map();
@@ -238,8 +239,11 @@
         categoryOpportunities,
         highDemandColors,
         highDemandSizes,
-        regionalTrends
+        regionalTrends,
+        searchDemand
       });
+      const zeroResultOpportunities = Array.isArray(searchDemand.zeroResultOpportunities) ? searchDemand.zeroResultOpportunities.slice(0, config.maxInsightItems) : [];
+      const lowSupplyOpportunities = Array.isArray(searchDemand.lowSupplyOpportunities) ? searchDemand.lowSupplyOpportunities.slice(0, config.maxInsightItems) : [];
 
       return {
         version: "market-intelligence-v1",
@@ -253,8 +257,12 @@
         highDemandSizes,
         regionalTrends,
         categoryOpportunities,
+        trendingSearches: Array.isArray(searchDemand.trendingSearches) ? searchDemand.trendingSearches.slice(0, config.maxInsightItems) : [],
+        fastestGrowingSearches: Array.isArray(searchDemand.fastestGrowingSearches) ? searchDemand.fastestGrowingSearches.slice(0, config.maxInsightItems) : [],
+        zeroResultOpportunities,
+        lowSupplyOpportunities,
         stockingRecommendations,
-        trendAlerts: buildTrendAlerts(risingDemandProducts, likelySellOutProducts, categoryOpportunities),
+        trendAlerts: buildTrendAlerts(risingDemandProducts, likelySellOutProducts, categoryOpportunities, searchDemand),
         productScores: Object.fromEntries(productEntries.map((entry) => [entry.productId, {
           marketScore: Math.round(entry.marketScore),
           sellOutRisk: Math.round(entry.sellOutRisk),
@@ -343,10 +351,28 @@
           score: region.score
         });
       }
+      const lowSupply = summary.searchDemand?.lowSupplyOpportunities?.[0];
+      if (lowSupply) {
+        recommendations.push({
+          type: "search_low_supply",
+          title: `Source products for ${lowSupply.query || lowSupply.queryKey}`,
+          reason: "Buyers are searching but supply is low.",
+          score: lowSupply.score
+        });
+      }
+      const zeroResult = summary.searchDemand?.zeroResultOpportunities?.[0];
+      if (zeroResult) {
+        recommendations.push({
+          type: "zero_result",
+          title: `Consider stocking ${zeroResult.query || zeroResult.queryKey}`,
+          reason: "Searches are returning zero results, which indicates unmet demand.",
+          score: zeroResult.score
+        });
+      }
       return recommendations.slice(0, config.maxInsightItems);
     }
 
-    function buildTrendAlerts(risingDemandProducts, likelySellOutProducts, categoryOpportunities) {
+    function buildTrendAlerts(risingDemandProducts, likelySellOutProducts, categoryOpportunities, searchDemand = {}) {
       const alerts = [];
       if (risingDemandProducts?.[0]) {
         alerts.push({
@@ -367,6 +393,20 @@
           type: "category_growth",
           title: `${categoryOpportunities[0].category} demand is growing`,
           score: categoryOpportunities[0].score
+        });
+      }
+      if (searchDemand.trendingSearches?.[0]) {
+        alerts.push({
+          type: "search_demand",
+          title: `${searchDemand.trendingSearches[0].query || searchDemand.trendingSearches[0].queryKey} searches are rising`,
+          score: searchDemand.trendingSearches[0].score
+        });
+      }
+      if (searchDemand.zeroResultOpportunities?.[0]) {
+        alerts.push({
+          type: "zero_result_opportunity",
+          title: `${searchDemand.zeroResultOpportunities[0].query || searchDemand.zeroResultOpportunities[0].queryKey} has demand but no supply`,
+          score: searchDemand.zeroResultOpportunities[0].score
         });
       }
       return alerts;

@@ -119,6 +119,20 @@
             .map((item) => `${item.region} (${deps.formatNumber(item.score || 0)})`)
             .join(" | ") || "Hakuna regional trend bado."
         ));
+        list.appendChild(createAnalyticsListItem(
+          "Market Opportunities",
+          [
+            ...(data.market?.zeroResultOpportunities || []).slice(0, 3).map((item) => `${item.query || item.queryKey}: zero results`),
+            ...(data.market?.lowSupplyOpportunities || []).slice(0, 3).map((item) => `${item.query || item.queryKey}: low supply`)
+          ].join(" | ") || "Hakuna zero-result au low-supply opportunity mpya."
+        ));
+        list.appendChild(createAnalyticsListItem(
+          "Trending searches",
+          (data.market?.trendingSearches || [])
+            .slice(0, 5)
+            .map((item) => `${item.query || item.queryKey} (${deps.formatNumber(item.searches || 0)} searches)`)
+            .join(" | ") || "Hakuna trending search signal bado."
+        ));
       }
       if (typeof data.usersCount === "number" && deps.isAdminUser()) {
         list.appendChild(createAnalyticsListItem(

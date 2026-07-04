@@ -125,6 +125,7 @@ const RUNTIME_METRIC_WINDOW_LIMIT = 24;
 const HOME_CONTINUOUS_VARIANT_TRACK_LIMIT = 96;
 const HOME_CONTINUOUS_HARD_PRESSURE_PENDING_MEDIA = 4;
 const MARKETPLACE_PREFETCH_QUEUE_PRESSURE_THRESHOLD = 18;
+const SEARCH_DEMAND_STORAGE_KEY = "winga-search-demand-events:v1";
 const BLOCKED_DEMO_PRODUCT_IDENTIFIERS = new Set([
   "gauni la harusi",
   "sketi ya rangi",
@@ -640,6 +641,8 @@ let homeFeedIntelligenceEngine = null;
 let homeFeedStyleIntelligenceEngine = null;
 let sellerQualityIntelligenceEngine = null;
 let marketIntelligenceEngine = null;
+let searchDemandIntelligenceEngine = null;
+let searchDemandCollector = null;
 let marketInsightsCache = {
   key: "",
   updatedAt: 0,
@@ -703,6 +706,120 @@ function getMarketIntelligenceEngine() {
     inferTopCategoryValue
   });
   return marketIntelligenceEngine;
+}
+
+function getSearchDemandIntelligenceEngine() {
+  if (searchDemandIntelligenceEngine) {
+    return searchDemandIntelligenceEngine;
+  }
+  const factory = window.WingaModules?.marketplace?.createSearchDemandIntelligence;
+  if (typeof factory !== "function") {
+    return null;
+  }
+  searchDemandIntelligenceEngine = factory();
+  return searchDemandIntelligenceEngine;
+}
+
+function loadStoredSearchDemandEvents() {
+  try {
+    const rawValue = window.localStorage.getItem(SEARCH_DEMAND_STORAGE_KEY);
+    const parsed = rawValue ? JSON.parse(rawValue) : [];
+    return Array.isArray(parsed) ? parsed.filter((event) => event?.anonymous === true).slice(-800) : [];
+  } catch (error) {
+    return [];
+  }
+}
+
+function persistSearchDemandEvents() {
+  try {
+    const events = getSearchDemandCollector()?.getEvents?.() || [];
+    window.localStorage.setItem(SEARCH_DEMAND_STORAGE_KEY, JSON.stringify(events.slice(-800)));
+  } catch (error) {
+    captureClientError?.("search_demand_persist_failed", error, {
+      category: "search_demand",
+      alertSeverity: "low"
+    });
+  }
+}
+
+function getSearchDemandCollector() {
+  if (searchDemandCollector) {
+    return searchDemandCollector;
+  }
+  const engine = getSearchDemandIntelligenceEngine();
+  if (!engine || typeof engine.createCollector !== "function") {
+    return null;
+  }
+  searchDemandCollector = engine.createCollector({
+    events: loadStoredSearchDemandEvents()
+  });
+  return searchDemandCollector;
+}
+
+function getSearchDemandAnalytics() {
+  const engine = getSearchDemandIntelligenceEngine();
+  const collector = getSearchDemandCollector();
+  if (!engine || !collector || typeof engine.aggregate !== "function") {
+    return null;
+  }
+  try {
+    return engine.aggregate(collector.getEvents(), {
+      now: Date.now()
+    });
+  } catch (error) {
+    captureClientError?.("search_demand_aggregate_failed", error, {
+      category: "search_demand",
+      alertSeverity: "low"
+    });
+    return null;
+  }
+}
+
+function getCurrentSearchDemandFilters() {
+  return {
+    minPrice: Number(filterPriceMinInput?.value || 0),
+    maxPrice: Number(filterPriceMaxInput?.value || 0),
+    location: String(filterLocationInput?.value || "").trim()
+  };
+}
+
+function recordSearchDemandSignal(details = {}) {
+  const collector = getSearchDemandCollector();
+  if (!collector || typeof collector.record !== "function") {
+    return;
+  }
+  const query = String(details.query ?? searchInput?.value ?? "").trim();
+  const source = String(details.source || (searchRuntimeState.activeImageSearch?.signature ? "image" : "text")).trim();
+  if (!query && source === "text") {
+    return;
+  }
+  const task = () => {
+    const result = collector.record({
+      query,
+      source,
+      results: details.results || [],
+      resultCount: Number(details.resultCount ?? 0),
+      category: selectedCategory !== "all" ? selectedCategory : "",
+      filters: getCurrentSearchDemandFilters(),
+      location: String(filterLocationInput?.value || "").trim()
+    });
+    if (result?.accepted) {
+      marketInsightsCache.key = "";
+      persistSearchDemandEvents();
+    }
+  };
+  if (typeof window.requestIdleCallback === "function") {
+    window.requestIdleCallback(task, { timeout: 1200 });
+  } else {
+    window.setTimeout(task, 0);
+  }
+}
+
+function markSearchDemandClick(productId) {
+  const collector = getSearchDemandCollector();
+  const query = String(searchInput?.value || "").trim();
+  collector?.markClick?.(productId, query);
+  persistSearchDemandEvents();
 }
 
 function getOrderProductId(order) {
@@ -816,6 +933,7 @@ function getMarketInsights(productList = products, options = {}) {
     const insights = engine.analyzeMarket({
       products: sourceProducts,
       searchTerms: recentSearchTerms,
+      searchDemand: getSearchDemandAnalytics(),
       messages: currentMessages,
       regionQuery: String(filterLocationInput?.value || "").trim(),
       now
@@ -15036,6 +15154,12 @@ searchImageFileInput.addEventListener("change", async () => {
       previewSrc: imageDataUrl,
       signature: await createImageSignatureFromSource(imageDataUrl)
     };
+    recordSearchDemandSignal({
+      query: "",
+      source: "image",
+      results: [],
+      resultCount: 0
+    });
     setCurrentViewState("home");
     renderCurrentView();
   } catch (error) {
@@ -16637,6 +16761,7 @@ function renderSearchDropdown(filteredProducts, options = {}) {
       searchRuntimeState.isInputFocused = false;
       searchDropdown.classList.remove("open");
       syncSearchChromeState();
+      markSearchDemandClick(productId);
       openProductDetailModal(productId);
     });
   });
@@ -19962,6 +20087,14 @@ function getFilteredProducts() {
     });
 
   const filtered = applyProductFilters(baseList.filter((product) => shouldRenderMarketplaceProduct(product)));
+  if (searchInput?.value?.trim() || searchRuntimeState.activeImageSearch?.signature) {
+    recordSearchDemandSignal({
+      query: searchInput?.value || "",
+      source: searchRuntimeState.activeImageSearch?.signature ? "image" : "text",
+      results: filtered,
+      resultCount: filtered.length
+    });
+  }
   const sortMode = sortSelect?.value || "default";
   if (sortMode !== "default" || !filtered.length) {
     return prioritizeSellerMarketplaceMix(filtered);

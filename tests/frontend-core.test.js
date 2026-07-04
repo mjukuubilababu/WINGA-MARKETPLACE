@@ -284,6 +284,11 @@ test("market intelligence produces regional time-aware demand insights", () => {
   const insights = engine.analyzeMarket({
     products,
     searchTerms: ["white dress", "black shoes"],
+    searchDemand: {
+      trendingSearches: [{ query: "white dress", queryKey: "white-dress", category: "fashion-dress", searches: 12, score: 24 }],
+      zeroResultOpportunities: [{ query: "linen shirt", queryKey: "linen-shirt", category: "fashion-shirt", searches: 9, score: 18 }],
+      lowSupplyOpportunities: [{ query: "black shoes", queryKey: "black-shoes", category: "shoes", searches: 8, score: 16 }]
+    },
     messages: [
       { productId: "white-dress", message: "Nahitaji white dress size M", timestamp: "2026-07-04T09:30:00.000Z" }
     ],
@@ -299,16 +304,74 @@ test("market intelligence produces regional time-aware demand insights", () => {
   assert.equal(insights.regionalTrends.some((item) => item.region.includes("dar")), true);
   assert.equal(insights.categoryOpportunities.some((item) => item.category === "fashion-dress"), true);
   assert.equal(insights.stockingRecommendations.length > 0, true);
+  assert.equal(insights.zeroResultOpportunities.some((item) => item.query === "linen shirt"), true);
+  assert.equal(insights.lowSupplyOpportunities.some((item) => item.query === "black shoes"), true);
+  assert.equal(insights.trendingSearches.some((item) => item.query === "white dress"), true);
   assert.equal(insights.trendAlerts.length > 0, true);
   assert.equal(engine.getProductMarketBoost(products[0], insights) > engine.getProductMarketBoost(products[1], insights), true);
   assert.equal(sellerInsights.risingDemandProducts.every((item) => item.sellerId === "seller-a"), true);
   assert.match(source, /window\.WingaModules\.marketplace\.createMarketIntelligence = createMarketIntelligence;/);
 });
 
+test("search demand intelligence aggregates anonymous zero-result and low-supply opportunities", () => {
+  const root = path.resolve(__dirname, "..");
+  const source = fs.readFileSync(path.join(root, "src", "marketplace", "search-demand-intelligence.js"), "utf8");
+  const context = vm.createContext({
+    window: { WingaModules: { marketplace: {} } },
+    Date,
+    Math
+  });
+  vm.runInContext(source, context);
+  const engine = context.window.WingaModules.marketplace.createSearchDemandIntelligence({
+    config: {
+      dedupeWindowMs: 10,
+      notifyThreshold: 2
+    }
+  });
+  const collector = engine.createCollector();
+  const zero = collector.record({
+    query: "white linen dress",
+    source: "text",
+    resultCount: 0,
+    filters: { location: "Dar es Salaam", maxPrice: 70000 }
+  });
+  const duplicate = collector.record({
+    query: "white linen dress",
+    source: "text",
+    resultCount: 0,
+    filters: { location: "Dar es Salaam", maxPrice: 70000 }
+  });
+  const lowSupply = collector.record({
+    query: "black office shoes",
+    source: "image",
+    resultCount: 2,
+    results: [{ id: "shoe-1", category: "shoes", color: "black" }],
+    filters: { location: "Dar es Salaam" }
+  });
+  collector.markClick("shoe-1", "black office shoes");
+  const analytics = engine.aggregate(collector.getEvents(), {
+    now: Date.now()
+  });
+  const opportunities = engine.createOpportunitySummary(analytics);
+
+  assert.equal(zero.accepted, true);
+  assert.equal(duplicate.accepted, false);
+  assert.equal(lowSupply.accepted, true);
+  assert.equal(collector.getEvents().every((event) => event.anonymous === true), true);
+  assert.equal(collector.getEvents().some((event) => Object.prototype.hasOwnProperty.call(event, "buyerId")), false);
+  assert.equal(analytics.zeroResultOpportunities.some((item) => item.query === "white linen dress"), true);
+  assert.equal(analytics.lowSupplyOpportunities.some((item) => item.query === "black office shoes"), true);
+  assert.equal(analytics.mostSearchedColors.some((item) => item.color === "white" || item.color === "black"), true);
+  assert.equal(opportunities.marketOpportunities.length > 0, true);
+  assert.equal(analytics.privacy, "anonymous-aggregate-only");
+  assert.match(source, /window\.WingaModules\.marketplace\.createSearchDemandIntelligence = createSearchDemandIntelligence;/);
+});
+
 test("feed intelligence ranks home feed without mutating pagination products", () => {
   const root = path.resolve(__dirname, "..");
   const styleSource = fs.readFileSync(path.join(root, "src", "marketplace", "style-intelligence.js"), "utf8");
   const sellerQualitySource = fs.readFileSync(path.join(root, "src", "marketplace", "seller-quality-intelligence.js"), "utf8");
+  const searchDemandSource = fs.readFileSync(path.join(root, "src", "marketplace", "search-demand-intelligence.js"), "utf8");
   const marketSource = fs.readFileSync(path.join(root, "src", "marketplace", "market-intelligence.js"), "utf8");
   const source = fs.readFileSync(path.join(root, "src", "marketplace", "feed-intelligence.js"), "utf8");
   const buildSource = fs.readFileSync(path.join(root, "scripts", "build-vercel-static.js"), "utf8");
@@ -319,6 +382,7 @@ test("feed intelligence ranks home feed without mutating pagination products", (
   });
   vm.runInContext(styleSource, context);
   vm.runInContext(sellerQualitySource, context);
+  vm.runInContext(searchDemandSource, context);
   vm.runInContext(marketSource, context);
   vm.runInContext(source, context);
   const engine = context.window.WingaModules.marketplace.createFeedIntelligence({
@@ -392,6 +456,10 @@ test("feed intelligence ranks home feed without mutating pagination products", (
   assert.ok(
     buildSource.indexOf('"src/marketplace/seller-quality-intelligence.js"') < buildSource.indexOf('"src/marketplace/feed-intelligence.js"'),
     "seller quality intelligence must be bundled before feed intelligence consumers"
+  );
+  assert.ok(
+    buildSource.indexOf('"src/marketplace/search-demand-intelligence.js"') < buildSource.indexOf('"src/marketplace/market-intelligence.js"'),
+    "search demand intelligence must be bundled before market intelligence consumers"
   );
   assert.ok(
     buildSource.indexOf('"src/marketplace/market-intelligence.js"') < buildSource.indexOf('"src/marketplace/feed-intelligence.js"'),
