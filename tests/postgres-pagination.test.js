@@ -373,3 +373,91 @@ test("PostgreSQL demand persistence dedupes events and refreshes seller summarie
   assert.equal(sellerSummary[0].waitingUsers, 1);
   assert.deepEqual(calls.at(-1).params, ["seller-1", 5]);
 });
+
+test("PostgreSQL search demand persistence stores anonymous events and reads aggregate opportunities", async () => {
+  const calls = [];
+  const queryClient = {
+    async query(text, params) {
+      calls.push({ text, params });
+      if (text.includes("INSERT INTO search_demand_events")) {
+        return { rowCount: 1, rows: [] };
+      }
+      if (text.includes("GROUP BY query, query_key") && text.includes("zero_result IS TRUE")) {
+        return {
+          rows: [{
+            query: "white dress",
+            queryKey: "white-dress",
+            category: "fashion-dress",
+            location: "dar-es-salaam",
+            searches: 2
+          }]
+        };
+      }
+      if (text.includes("GROUP BY query, query_key") && text.includes("result_count BETWEEN 1 AND 3")) {
+        return {
+          rows: [{
+            query: "linen shirt",
+            queryKey: "linen-shirt",
+            category: "mens-shirts",
+            searches: 3
+          }]
+        };
+      }
+      if (text.includes("MAX(detected_category)")) {
+        return {
+          rows: [{
+            query: "white dress",
+            queryKey: "white-dress",
+            category: "fashion-dress",
+            location: "dar-es-salaam",
+            searches: 4,
+            score: 7
+          }]
+        };
+      }
+      if (text.includes("detected_category AS category")) {
+        return { rows: [{ category: "fashion-dress", searches: 4 }] };
+      }
+      if (text.includes("detected_color AS color")) {
+        return { rows: [{ color: "white", searches: 4 }] };
+      }
+      if (text.includes("location AS region")) {
+        return { rows: [{ region: "dar-es-salaam", searches: 4 }] };
+      }
+      return { rows: [] };
+    }
+  };
+  const store = createPostgresStore({
+    databaseUrl: "postgres://test.invalid/winga",
+    queryClient
+  });
+
+  const insertResult = await store.appendSearchDemandEvents([{
+    eventId: "search-event-1",
+    dedupeKey: "search-dedupe-1",
+    timestamp: "2026-07-04T09:00:00.000Z",
+    query: "white dress",
+    queryKey: "white-dress",
+    detectedCategory: "fashion-dress",
+    detectedColor: "white",
+    location: "dar-es-salaam",
+    source: "text",
+    resultCount: 0,
+    zeroResult: true,
+    noClick: true,
+    metadata: { anonymous: true }
+  }]);
+  const summary = await store.readSearchDemandSummary(5);
+
+  assert.equal(insertResult.inserted, 1);
+  assert.match(calls[0].text, /INSERT INTO search_demand_events/);
+  assert.match(calls[0].text, /ON CONFLICT \(dedupe_key\) DO NOTHING/);
+  assert.equal(calls[0].params[0], "search-event-1");
+  assert.equal(calls[0].params[1], "search-dedupe-1");
+  assert.equal(calls[0].params[4], "white-dress");
+  assert.equal(summary.privacy, "anonymous-aggregate-only");
+  assert.equal(summary.trendingSearches[0].queryKey, "white-dress");
+  assert.equal(summary.zeroResultOpportunities[0].opportunity, "high");
+  assert.equal(summary.lowSupplyOpportunities[0].supply, "low");
+  assert.equal(summary.regionalDemand[0].region, "dar-es-salaam");
+});

@@ -643,6 +643,9 @@ let sellerQualityIntelligenceEngine = null;
 let marketIntelligenceEngine = null;
 let searchDemandIntelligenceEngine = null;
 let searchDemandCollector = null;
+let searchDemandFlushTimer = null;
+let searchDemandFlushInFlight = false;
+let searchDemandLastFlushedSignature = "";
 let marketInsightsCache = {
   key: "",
   updatedAt: 0,
@@ -742,6 +745,62 @@ function persistSearchDemandEvents() {
   }
 }
 
+function getSearchDemandFlushSignature(events = []) {
+  return events
+    .map((event) => String(event?.eventId || event?.dedupeKey || `${event?.queryKey || event?.query || ""}:${event?.timestamp || ""}`))
+    .filter(Boolean)
+    .join("|");
+}
+
+async function flushSearchDemandEventsToBackend() {
+  if (searchDemandFlushInFlight || typeof window === "undefined") {
+    return;
+  }
+  const submit = window.WingaDataLayer?.submitSearchDemandEvents;
+  if (typeof submit !== "function") {
+    return;
+  }
+  const collector = getSearchDemandCollector();
+  const events = collector?.getEvents?.() || [];
+  const batch = Array.isArray(events) ? events.slice(-25) : [];
+  if (!batch.length) {
+    return;
+  }
+  const signature = getSearchDemandFlushSignature(batch);
+  if (signature && signature === searchDemandLastFlushedSignature) {
+    return;
+  }
+  searchDemandFlushInFlight = true;
+  try {
+    const result = await submit(batch);
+    if (result?.ok !== false) {
+      searchDemandLastFlushedSignature = signature;
+    }
+  } catch (error) {
+    captureClientError?.("search_demand_flush_failed", error, {
+      category: "search_demand",
+      alertSeverity: "low"
+    });
+  } finally {
+    searchDemandFlushInFlight = false;
+  }
+}
+
+function scheduleSearchDemandBackendFlush() {
+  if (typeof window === "undefined" || searchDemandFlushTimer) {
+    return;
+  }
+  const task = () => {
+    searchDemandFlushTimer = null;
+    flushSearchDemandEventsToBackend();
+  };
+  if (typeof window.requestIdleCallback === "function") {
+    searchDemandFlushTimer = window.requestIdleCallback(task, { timeout: 2500 });
+  } else {
+    searchDemandFlushTimer = window.setTimeout(task, 900);
+  }
+}
+
 function getSearchDemandCollector() {
   if (searchDemandCollector) {
     return searchDemandCollector;
@@ -806,6 +865,7 @@ function recordSearchDemandSignal(details = {}) {
     if (result?.accepted) {
       marketInsightsCache.key = "";
       persistSearchDemandEvents();
+      scheduleSearchDemandBackendFlush();
     }
   };
   if (typeof window.requestIdleCallback === "function") {
@@ -820,6 +880,7 @@ function markSearchDemandClick(productId) {
   const query = String(searchInput?.value || "").trim();
   collector?.markClick?.(productId, query);
   persistSearchDemandEvents();
+  scheduleSearchDemandBackendFlush();
 }
 
 function getOrderProductId(order) {

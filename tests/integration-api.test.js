@@ -913,6 +913,27 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   assert.equal(adminOpsSummaryAfterClientAlert.body.intelligence.topEventTypes.some((entry) => entry.eventType === "conversation_signal"), true);
   assert.equal(adminOpsSummaryAfterClientAlert.body.intelligence.topProducts.some((entry) => entry.id === "product-test-001"), true);
 
+  const searchDemandBatch = await request("/search-demand", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      events: [{
+        query: "white dress",
+        source: "text",
+        category: "fashion-dress",
+        color: "white",
+        resultCount: 0,
+        zeroResult: true,
+        noClick: true,
+        location: "Dar es Salaam"
+      }]
+    })
+  });
+  assert.equal(searchDemandBatch.response.status, 202);
+  assert.equal(searchDemandBatch.body.accepted, 1);
+  assert.equal(searchDemandBatch.body.summary.privacy, "anonymous-aggregate-only");
+  assert.equal(searchDemandBatch.body.summary.trendingSearches.some((item) => item.queryKey === "white-dress"), true);
+
   const moderate = await request("/admin/products/product-test-001/moderate", {
     method: "PATCH",
     headers: {
@@ -1406,6 +1427,8 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   assert.equal(sellerDemandAnalytics.response.status, 200);
   assert.equal(sellerDemandAnalytics.body.demand.waitingUsers >= 1, true);
   assert.equal(sellerDemandAnalytics.body.demand.mostRequestedProducts.some((item) => item.productId === "product-test-001"), true);
+  assert.equal(sellerDemandAnalytics.body.searchDemand.privacy, "anonymous-aggregate-only");
+  assert.equal(sellerDemandAnalytics.body.searchDemand.trendingSearches.some((item) => item.queryKey === "white-dress"), true);
 
   const duplicateOrder = await request("/orders", {
     method: "POST",

@@ -7,6 +7,7 @@ const path = require("path");
 const { createPostgresStore } = require("./db");
 const { createIntelligencePlatform } = require("./intelligence-platform");
 const { createDemandService, summarizeDemandEvents } = require("./demand-service");
+const { createSearchDemandService, summarizeSearchDemandEvents } = require("./search-demand-service");
 
 const PORT = process.env.PORT || 3000;
 const DATABASE_URL = process.env.DATABASE_URL || "";
@@ -175,6 +176,7 @@ const RATE_LIMIT_RULES = {
   "/api/promotions": { limit: 8, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/reports": { limit: 8, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/client-events": { limit: 20, windowMs: RATE_LIMIT_WINDOW_MS },
+  "/api/search-demand": { limit: 18, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/users/me/whatsapp/request-change": { limit: 6, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/users/me/whatsapp/verify-change": { limit: 12, windowMs: RATE_LIMIT_WINDOW_MS }
 };
@@ -689,6 +691,10 @@ function readLegacyStore() {
   const moderationActions = Array.isArray(parsed.moderationActions) ? parsed.moderationActions : [];
   const demandEvents = Array.isArray(parsed.demandEvents) ? parsed.demandEvents : [];
   const productDemandSummaries = Array.isArray(parsed.productDemandSummaries) ? parsed.productDemandSummaries : [];
+  const searchDemandEvents = Array.isArray(parsed.searchDemandEvents) ? parsed.searchDemandEvents : [];
+  const searchDemandSummary = parsed.searchDemandSummary && typeof parsed.searchDemandSummary === "object"
+    ? parsed.searchDemandSummary
+    : null;
   return {
     categories: mergeCategories(parsed.categories || []),
     users,
@@ -703,6 +709,8 @@ function readLegacyStore() {
     moderationActions: moderationActions.map(normalizeModerationActionRecord),
     demandEvents,
     productDemandSummaries,
+    searchDemandEvents,
+    searchDemandSummary,
     settings: normalizeAppSettings(parsed.settings || DEFAULT_APP_SETTINGS),
     sessions: sessions.map((session) => {
       const sessionUser = users.find((user) => user.username === session.username);
@@ -835,6 +843,7 @@ const intelligencePlatform = createIntelligencePlatform({
 });
 
 const demandService = createDemandService();
+const searchDemandService = createSearchDemandService();
 const recentDemandDedupeKeys = new Map();
 const MAX_RECENT_DEMAND_DEDUPE_KEYS = 10000;
 
@@ -5669,6 +5678,90 @@ http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === "POST" && url.pathname === "/api/search-demand") {
+      const payload = await collectBody(req);
+      let events = [];
+      try {
+        events = searchDemandService.normalizeBatch(payload, {
+          req,
+          headers: req.headers,
+          clientIp,
+          timestamp: new Date().toISOString()
+        });
+      } catch (error) {
+        sendJson(res, 400, { error: error.message || "Search demand payload si sahihi." });
+        return;
+      }
+      if (!events.length) {
+        sendJson(res, 202, { ok: true, accepted: 0, inserted: 0 });
+        return;
+      }
+
+      let inserted = events.length;
+      let summary = null;
+      if (postgresStore?.appendSearchDemandEvents) {
+        const result = await postgresStore.appendSearchDemandEvents(events);
+        inserted = Number(result?.inserted || 0);
+        summary = postgresStore.readSearchDemandSummary ? await postgresStore.readSearchDemandSummary(10) : null;
+      } else {
+        const existingEvents = Array.isArray(store.searchDemandEvents) ? store.searchDemandEvents : [];
+        const existingKeys = new Set(existingEvents.map((event) => event.dedupeKey).filter(Boolean));
+        const nextEvents = [];
+        events.forEach((event) => {
+          if (!existingKeys.has(event.dedupeKey)) {
+            existingKeys.add(event.dedupeKey);
+            nextEvents.push(event);
+          }
+        });
+        inserted = nextEvents.length;
+        const searchDemandEvents = [...nextEvents, ...existingEvents].slice(0, 5000);
+        summary = summarizeSearchDemandEvents(searchDemandEvents);
+        store = {
+          ...store,
+          searchDemandEvents,
+          searchDemandSummary: summary
+        };
+        await writeStore(store);
+      }
+
+      await appendAuditLog({
+        time: new Date().toISOString(),
+        ip: clientIp,
+        method: req.method,
+        path: url.pathname,
+        event: "search_demand_batch_recorded",
+        accepted: events.length,
+        inserted
+      });
+      intelligencePlatform.ingestClientEvent({
+        level: "info",
+        event: "search_submitted",
+        message: "Anonymous search demand batch recorded.",
+        context: {
+          count: String(events.length),
+          inserted: String(inserted),
+          source: events[0]?.source || "",
+          queryKey: events[0]?.queryKey || "",
+          category: events[0]?.detectedCategory || "",
+          zeroResult: String(events.some((event) => event.zeroResult))
+        }
+      }, {
+        req,
+        session: null,
+        store,
+        appVersion: APP_BUILD_VERSION
+      }).catch((error) => {
+        console.warn("[WINGA] Search demand intelligence ingestion failed.", error);
+      });
+      sendJson(res, 202, {
+        ok: true,
+        accepted: events.length,
+        inserted,
+        summary
+      });
+      return;
+    }
+
     if (req.method === "POST" && /^\/api\/products\/[^/]+\/demand$/.test(url.pathname)) {
       const token = readAuthToken(req);
       const session = token ? findSession(store, token) : null;
@@ -6589,6 +6682,22 @@ http.createServer(async (req, res) => {
         } catch (error) {
           analytics.demand = analytics.demand || { error: "unavailable" };
         }
+      }
+      try {
+        const searchDemandSummary = postgresStore?.readSearchDemandSummary
+          ? await postgresStore.readSearchDemandSummary(10)
+          : (store.searchDemandSummary || summarizeSearchDemandEvents(store.searchDemandEvents || [], { limit: 10 }));
+        analytics.searchDemand = searchDemandSummary;
+        analytics.market = {
+          ...(analytics.market || {}),
+          searchDemand: searchDemandSummary,
+          trendingSearches: searchDemandSummary?.trendingSearches || [],
+          zeroResultOpportunities: searchDemandSummary?.zeroResultOpportunities || [],
+          lowSupplyOpportunities: searchDemandSummary?.lowSupplyOpportunities || [],
+          regionalTrends: searchDemandSummary?.regionalDemand || []
+        };
+      } catch (error) {
+        analytics.searchDemand = { error: "unavailable" };
       }
       sendJson(res, 200, analytics);
       return;

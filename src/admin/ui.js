@@ -60,6 +60,8 @@
           createAnalyticsCard("Restock interest", deps.formatNumber(data.demand?.restockInterest || 0))
         );
       }
+      const marketData = data.market || {};
+      const searchDemandData = data.searchDemand || marketData.searchDemand || {};
 
       const list = deps.createElement("div", { className: "analytics-list" });
       list.appendChild(createAnalyticsListItem(
@@ -95,26 +97,26 @@
         ));
         list.appendChild(createAnalyticsListItem(
           "Stocking recommendations",
-          (data.market?.stockingRecommendations || [])
+          (marketData.stockingRecommendations || [])
             .map((item) => `${item.title} - ${item.reason}`)
             .join(" | ") || "Hakuna recommendation mpya ya stock bado."
         ));
         list.appendChild(createAnalyticsListItem(
           "Trend alerts",
-          (data.market?.trendAlerts || [])
+          (marketData.trendAlerts || [])
             .map((item) => `${item.title} (${deps.formatNumber(item.score || 0)})`)
             .join(" | ") || "Hakuna trend alert mpya kwa sasa."
         ));
         list.appendChild(createAnalyticsListItem(
           "Category opportunities",
-          (data.market?.categoryOpportunities || [])
+          (marketData.categoryOpportunities || [])
             .slice(0, 5)
             .map((item) => `${deps.getCategoryLabel(item.category)} (${deps.formatNumber(item.score || 0)})`)
             .join(" | ") || "Hakuna opportunity ya category bado."
         ));
         list.appendChild(createAnalyticsListItem(
           "Regional demand",
-          (data.market?.regionalTrends || [])
+          (marketData.regionalTrends || searchDemandData.regionalDemand || [])
             .slice(0, 5)
             .map((item) => `${item.region} (${deps.formatNumber(item.score || 0)})`)
             .join(" | ") || "Hakuna regional trend bado."
@@ -122,13 +124,13 @@
         list.appendChild(createAnalyticsListItem(
           "Market Opportunities",
           [
-            ...(data.market?.zeroResultOpportunities || []).slice(0, 3).map((item) => `${item.query || item.queryKey}: zero results`),
-            ...(data.market?.lowSupplyOpportunities || []).slice(0, 3).map((item) => `${item.query || item.queryKey}: low supply`)
+            ...(marketData.zeroResultOpportunities || searchDemandData.zeroResultOpportunities || []).slice(0, 3).map((item) => `${item.query || item.queryKey}: zero results`),
+            ...(marketData.lowSupplyOpportunities || searchDemandData.lowSupplyOpportunities || []).slice(0, 3).map((item) => `${item.query || item.queryKey}: low supply`)
           ].join(" | ") || "Hakuna zero-result au low-supply opportunity mpya."
         ));
         list.appendChild(createAnalyticsListItem(
           "Trending searches",
-          (data.market?.trendingSearches || [])
+          (marketData.trendingSearches || searchDemandData.trendingSearches || [])
             .slice(0, 5)
             .map((item) => `${item.query || item.queryKey} (${deps.formatNumber(item.searches || 0)} searches)`)
             .join(" | ") || "Hakuna trending search signal bado."

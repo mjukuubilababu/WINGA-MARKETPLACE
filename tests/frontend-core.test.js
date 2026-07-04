@@ -1857,6 +1857,57 @@ test("browser session state does not persist or propagate auth tokens", () => {
   assert.doesNotMatch(appSource, /token: typeof session\.token/);
 });
 
+test("backend search demand service keeps search intelligence anonymous and aggregate-ready", () => {
+  const {
+    createSearchDemandService,
+    summarizeSearchDemandEvents
+  } = require("../backend/search-demand-service.js");
+  const service = createSearchDemandService({
+    dedupeWindowMs: 60_000,
+    maxBatchSize: 10
+  });
+  const events = service.normalizeBatch({
+    events: [{
+      query: "White Dresses in Dar es Salaam",
+      source: "text",
+      category: "fashion-dress",
+      color: "white",
+      brand: "Private brand",
+      buyerId: "buyer-should-not-persist",
+      resultCount: 0,
+      zeroResult: true,
+      noClick: true,
+      location: "Dar es Salaam"
+    }, {
+      query: "White Dresses in Dar es Salaam",
+      source: "text",
+      category: "fashion-dress",
+      color: "white",
+      resultCount: 3,
+      clickedProductId: "product-1",
+      location: "Dar es Salaam"
+    }]
+  }, {
+    clientIp: "203.0.113.42",
+    timestamp: "2026-07-04T09:00:00.000Z",
+    headers: { "user-agent": "Mozilla/5.0 Mobile" }
+  });
+  const summary = summarizeSearchDemandEvents(events, { limit: 5 });
+
+  assert.equal(events.length, 2);
+  assert.equal(events[0].metadata.anonymous, true);
+  assert.equal(events[0].buyerId, undefined);
+  assert.equal(events[0].sessionId, undefined);
+  assert.equal(events[0].ip, undefined);
+  assert.equal(events[0].queryKey, "white-dresses-in-dar-es-salaam");
+  assert.equal(events[0].source, "text");
+  assert.equal(events[0].zeroResult, true);
+  assert.equal(summary.privacy, "anonymous-aggregate-only");
+  assert.equal(summary.trendingSearches[0].queryKey, "white-dresses-in-dar-es-salaam");
+  assert.equal(summary.zeroResultOpportunities[0].queryKey, "white-dresses-in-dar-es-salaam");
+  assert.equal(summary.mostSearchedColors[0].color, "white");
+});
+
 (async () => {
   let passed = 0;
   for (const entry of tests) {

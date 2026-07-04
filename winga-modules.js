@@ -10351,6 +10351,8 @@ window.WingaModules.boot = window.WingaModules.boot || {};
           createAnalyticsCard("Restock interest", deps.formatNumber(data.demand?.restockInterest || 0))
         );
       }
+      const marketData = data.market || {};
+      const searchDemandData = data.searchDemand || marketData.searchDemand || {};
 
       const list = deps.createElement("div", { className: "analytics-list" });
       list.appendChild(createAnalyticsListItem(
@@ -10386,26 +10388,26 @@ window.WingaModules.boot = window.WingaModules.boot || {};
         ));
         list.appendChild(createAnalyticsListItem(
           "Stocking recommendations",
-          (data.market?.stockingRecommendations || [])
+          (marketData.stockingRecommendations || [])
             .map((item) => `${item.title} - ${item.reason}`)
             .join(" | ") || "Hakuna recommendation mpya ya stock bado."
         ));
         list.appendChild(createAnalyticsListItem(
           "Trend alerts",
-          (data.market?.trendAlerts || [])
+          (marketData.trendAlerts || [])
             .map((item) => `${item.title} (${deps.formatNumber(item.score || 0)})`)
             .join(" | ") || "Hakuna trend alert mpya kwa sasa."
         ));
         list.appendChild(createAnalyticsListItem(
           "Category opportunities",
-          (data.market?.categoryOpportunities || [])
+          (marketData.categoryOpportunities || [])
             .slice(0, 5)
             .map((item) => `${deps.getCategoryLabel(item.category)} (${deps.formatNumber(item.score || 0)})`)
             .join(" | ") || "Hakuna opportunity ya category bado."
         ));
         list.appendChild(createAnalyticsListItem(
           "Regional demand",
-          (data.market?.regionalTrends || [])
+          (marketData.regionalTrends || searchDemandData.regionalDemand || [])
             .slice(0, 5)
             .map((item) => `${item.region} (${deps.formatNumber(item.score || 0)})`)
             .join(" | ") || "Hakuna regional trend bado."
@@ -10413,13 +10415,13 @@ window.WingaModules.boot = window.WingaModules.boot || {};
         list.appendChild(createAnalyticsListItem(
           "Market Opportunities",
           [
-            ...(data.market?.zeroResultOpportunities || []).slice(0, 3).map((item) => `${item.query || item.queryKey}: zero results`),
-            ...(data.market?.lowSupplyOpportunities || []).slice(0, 3).map((item) => `${item.query || item.queryKey}: low supply`)
+            ...(marketData.zeroResultOpportunities || searchDemandData.zeroResultOpportunities || []).slice(0, 3).map((item) => `${item.query || item.queryKey}: zero results`),
+            ...(marketData.lowSupplyOpportunities || searchDemandData.lowSupplyOpportunities || []).slice(0, 3).map((item) => `${item.query || item.queryKey}: low supply`)
           ].join(" | ") || "Hakuna zero-result au low-supply opportunity mpya."
         ));
         list.appendChild(createAnalyticsListItem(
           "Trending searches",
-          (data.market?.trendingSearches || [])
+          (marketData.trendingSearches || searchDemandData.trendingSearches || [])
             .slice(0, 5)
             .map((item) => `${item.query || item.queryKey} (${deps.formatNumber(item.searches || 0)} searches)`)
             .join(" | ") || "Hakuna trending search signal bado."
@@ -15328,7 +15330,8 @@ window.WingaModules.boot = window.WingaModules.boot || {};
       backendStageState: {},
       exhausted: false,
       requestId: 0,
-      autoWarmupCount: 0
+      autoWarmupCount: 0,
+      terminalRendered: false
     };
     const MAX_ACTIVE_DETAIL_CONTINUATION_SECTIONS = 4;
     const MAX_DETAIL_CONTINUATION_USED_IDS = 120;
@@ -15540,7 +15543,8 @@ window.WingaModules.boot = window.WingaModules.boot || {};
         exhausted: false,
         requestId: 0,
         autoWarmupCount: 0,
-        reobserveTimer: 0
+        reobserveTimer: 0,
+        terminalRendered: false
       };
     }
 
@@ -15550,7 +15554,12 @@ window.WingaModules.boot = window.WingaModules.boot || {};
       }
       const modalRect = modal.getBoundingClientRect();
       const anchorRect = anchor.getBoundingClientRect();
-      return anchorRect.top <= modalRect.bottom + 620 && anchorRect.bottom >= modalRect.top - 760;
+      const modalNear = anchorRect.top <= modalRect.bottom + 620 && anchorRect.bottom >= modalRect.top - 760;
+      const viewportHeight = Number(window.innerHeight || document.documentElement?.clientHeight || 0);
+      const viewportNear = viewportHeight > 0
+        && anchorRect.top <= viewportHeight + 620
+        && anchorRect.bottom >= -760;
+      return modalNear || viewportNear;
     }
 
     function requestDetailContinuousHydration(modal, anchor, product, delayMs = 0, options = {}) {
@@ -15584,6 +15593,17 @@ window.WingaModules.boot = window.WingaModules.boot || {};
       }, 180);
     }
 
+    function watchDetailContinuationAnchorNear(modal, anchor, product, attempts = 16) {
+      const remainingAttempts = Number(attempts || 0);
+      if (remainingAttempts <= 0 || !anchor?.isConnected || !modal?.isConnected || detailContinuousRuntime.exhausted) {
+        return;
+      }
+      requestDetailContinuousHydration(modal, anchor, product, 0);
+      window.setTimeout(() => {
+        watchDetailContinuationAnchorNear(modal, anchor, product, remainingAttempts - 1);
+      }, 420);
+    }
+
     function createDetailContinuationSectionElement(descriptor, index) {
       if (!descriptor || !Array.isArray(descriptor.items) || !descriptor.items.length) {
         return null;
@@ -15597,6 +15617,29 @@ window.WingaModules.boot = window.WingaModules.boot || {};
           "data-product-detail-continuation-kind": descriptor.kind || "continuation"
         }
       }) || null;
+    }
+
+    function createDetailContinuationTerminalSectionElement(index) {
+      return deps.createElement("section", {
+        className: "product-detail-seller-products product-detail-feed-section",
+        attributes: {
+          "data-product-detail-continuation-section": String(index),
+          "data-product-detail-continuation-kind": "exhausted"
+        },
+        children: [
+          deps.createElement("div", {
+            className: "section-heading",
+            children: [
+              deps.createElement("span", { className: "eyebrow", textContent: "Keep Exploring" }),
+              deps.createElement("h3", { textContent: "More products are being refreshed" }),
+              deps.createElement("p", {
+                className: "product-meta",
+                textContent: "Winga has shown the unique continuation picks available for this product right now."
+              })
+            ]
+          })
+        ]
+      });
     }
 
     function trimDetailContinuationSections(anchor) {
@@ -15655,9 +15698,18 @@ window.WingaModules.boot = window.WingaModules.boot || {};
         return null;
       }
       const allowRecycled = descriptor.allowRecycled === true;
-      const items = (Array.isArray(descriptor.items) ? descriptor.items : []).filter((item) =>
-        item?.id && (allowRecycled || !detailContinuousRuntime.usedIds.has(item.id))
-      );
+      const seenIds = new Set();
+      const items = (Array.isArray(descriptor.items) ? descriptor.items : []).filter((item) => {
+        const productId = String(item?.id || "").trim();
+        if (!productId || seenIds.has(productId)) {
+          return false;
+        }
+        if (!allowRecycled && detailContinuousRuntime.usedIds.has(productId)) {
+          return false;
+        }
+        seenIds.add(productId);
+        return true;
+      });
       return items.length ? { ...descriptor, items } : null;
     }
 
@@ -15684,7 +15736,6 @@ window.WingaModules.boot = window.WingaModules.boot || {};
           kind: "relaxed-discovery",
           eyebrow: "Keep Exploring",
           title: "More products from Winga",
-          allowRecycled: true,
           items
         }
         : null;
@@ -15767,6 +15818,16 @@ window.WingaModules.boot = window.WingaModules.boot || {};
         return;
       }
       if (!descriptor) {
+        if (detailContinuousRuntime.exhausted && !detailContinuousRuntime.terminalRendered) {
+          const terminalSection = createDetailContinuationTerminalSectionElement(detailContinuousRuntime.batchIndex + 1);
+          if (terminalSection) {
+            anchor.after(terminalSection);
+            terminalSection.after(anchor);
+            detailContinuousRuntime.batchIndex += 1;
+            detailContinuousRuntime.terminalRendered = true;
+            trimDetailContinuationSections(anchor);
+          }
+        }
         detailContinuousRuntime.loading = false;
         if (!detailContinuousRuntime.exhausted) {
           scheduleDetailContinuousReobserve(anchor, modal);
@@ -15800,10 +15861,6 @@ window.WingaModules.boot = window.WingaModules.boot || {};
       detailContinuousRuntime.batchIndex += 1;
       detailContinuousRuntime.loading = false;
       scheduleDetailContinuousReobserve(anchor, modal);
-      if (detailContinuousRuntime.autoWarmupCount < 2 && !detailContinuousRuntime.exhausted) {
-        detailContinuousRuntime.autoWarmupCount += 1;
-        requestDetailContinuousHydration(modal, anchor, product, 360, { force: true });
-      }
     }
 
     function setupDetailContinuousDiscovery(modal, product, usedIds = new Set()) {
@@ -15818,7 +15875,7 @@ window.WingaModules.boot = window.WingaModules.boot || {};
       detailContinuousRuntime.seedProductId = product.id;
       detailContinuousRuntime.scrollRoot = modal;
       detailContinuousRuntime.scrollHandler = () => {
-        requestDetailContinuousHydration(modal, anchor, product, 0);
+        requestDetailContinuousHydration(modal, anchor, product, 80);
       };
       modal.addEventListener("scroll", detailContinuousRuntime.scrollHandler, { passive: true });
 
@@ -15841,7 +15898,19 @@ window.WingaModules.boot = window.WingaModules.boot || {};
         rootMargin: "760px 0px 620px 0px"
       });
       detailContinuousRuntime.observer.observe(anchor);
-      requestDetailContinuousHydration(modal, anchor, product, 120, { force: true });
+      requestDetailContinuousHydration(modal, anchor, product, 650);
+      watchDetailContinuationAnchorNear(modal, anchor, product, 16);
+      window.setTimeout(() => {
+        if (
+          anchor.isConnected
+          && modal?.isConnected
+          && detailContinuousRuntime.seedProductId === product.id
+          && !detailContinuousRuntime.loading
+          && !detailContinuousRuntime.exhausted
+        ) {
+          requestDetailContinuousHydration(modal, anchor, product, 0, { force: true });
+        }
+      }, 2600);
     }
 
     function finalizeHomeNavigation() {

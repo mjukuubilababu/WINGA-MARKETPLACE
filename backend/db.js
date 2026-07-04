@@ -480,6 +480,32 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
     `);
 
     await query(`
+      CREATE TABLE IF NOT EXISTS search_demand_events (
+        event_id TEXT PRIMARY KEY,
+        dedupe_key TEXT NOT NULL UNIQUE,
+        happened_at TIMESTAMPTZ NOT NULL,
+        query TEXT NOT NULL DEFAULT '',
+        query_key TEXT NOT NULL,
+        detected_category TEXT NOT NULL DEFAULT '',
+        detected_product_type TEXT NOT NULL DEFAULT '',
+        detected_color TEXT NOT NULL DEFAULT '',
+        detected_brand TEXT NOT NULL DEFAULT '',
+        detected_style TEXT NOT NULL DEFAULT '',
+        price_range TEXT NOT NULL DEFAULT '',
+        country TEXT NOT NULL DEFAULT '',
+        region TEXT NOT NULL DEFAULT '',
+        location TEXT NOT NULL DEFAULT '',
+        source TEXT NOT NULL DEFAULT 'text',
+        result_count INTEGER NOT NULL DEFAULT 0,
+        clicked_product_id TEXT NOT NULL DEFAULT '',
+        no_click BOOLEAN NOT NULL DEFAULT FALSE,
+        zero_result BOOLEAN NOT NULL DEFAULT FALSE,
+        metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+
+    await query(`
       CREATE INDEX IF NOT EXISTS idx_intelligence_events_type_time
       ON intelligence_events (event_type, happened_at DESC);
     `);
@@ -510,6 +536,18 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
     await query(`
       CREATE INDEX IF NOT EXISTS idx_product_demand_summaries_seller_score
       ON product_demand_summaries (seller_id, demand_score DESC, last_demand_at DESC);
+    `);
+    await query(`
+      CREATE INDEX IF NOT EXISTS idx_search_demand_events_query_time
+      ON search_demand_events (query_key, happened_at DESC);
+    `);
+    await query(`
+      CREATE INDEX IF NOT EXISTS idx_search_demand_events_category_time
+      ON search_demand_events (detected_category, happened_at DESC);
+    `);
+    await query(`
+      CREATE INDEX IF NOT EXISTS idx_search_demand_events_region_time
+      ON search_demand_events (location, happened_at DESC);
     `);
 
     await query(`
@@ -1786,6 +1824,141 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
     }));
   }
 
+  async function appendSearchDemandEvents(events = []) {
+    const sourceEvents = Array.isArray(events) ? events.slice(0, 25) : [];
+    let inserted = 0;
+    for (const event of sourceEvents) {
+      const result = await query(
+        `INSERT INTO search_demand_events (
+          event_id, dedupe_key, happened_at, query, query_key, detected_category,
+          detected_product_type, detected_color, detected_brand, detected_style,
+          price_range, country, region, location, source, result_count,
+          clicked_product_id, no_click, zero_result, metadata
+        ) VALUES (
+          $1, $2, $3::timestamptz, $4, $5, $6,
+          $7, $8, $9, $10,
+          $11, $12, $13, $14, $15, $16,
+          $17, $18, $19, $20::jsonb
+        )
+        ON CONFLICT (dedupe_key) DO NOTHING`,
+        [
+          event.eventId,
+          event.dedupeKey,
+          event.timestamp || new Date().toISOString(),
+          event.query || "",
+          event.queryKey,
+          event.detectedCategory || "",
+          event.detectedProductType || "",
+          event.detectedColor || "",
+          event.detectedBrand || "",
+          event.detectedStyle || "",
+          event.priceRange || "",
+          event.country || "",
+          event.region || "",
+          event.location || "",
+          event.source || "text",
+          Number(event.resultCount || 0),
+          event.clickedProductId || "",
+          Boolean(event.noClick),
+          Boolean(event.zeroResult),
+          JSON.stringify(event.metadata || {})
+        ]
+      );
+      inserted += Number(result.rowCount || 0);
+    }
+    return { inserted, received: sourceEvents.length };
+  }
+
+  async function readSearchDemandSummary(limit = 10) {
+    const safeLimit = Math.max(1, Math.min(Number(limit) || 10, 50));
+    const [queries, categories, colors, regions, zeroResults, lowSupply] = await Promise.all([
+      query(
+        `SELECT query, query_key AS "queryKey", MAX(detected_category) AS category, MAX(location) AS location,
+                COUNT(*)::int AS searches,
+                SUM(CASE WHEN happened_at >= NOW() - INTERVAL '7 days' THEN 2 ELSE 1 END)::float8 AS score
+         FROM search_demand_events
+         WHERE happened_at >= NOW() - INTERVAL '30 days'
+         GROUP BY query, query_key
+         ORDER BY score DESC, searches DESC, query_key ASC
+         LIMIT $1`,
+        [safeLimit]
+      ),
+      query(
+        `SELECT detected_category AS category, COUNT(*)::int AS searches
+         FROM search_demand_events
+         WHERE happened_at >= NOW() - INTERVAL '30 days' AND detected_category <> ''
+         GROUP BY detected_category
+         ORDER BY searches DESC, detected_category ASC
+         LIMIT $1`,
+        [safeLimit]
+      ),
+      query(
+        `SELECT detected_color AS color, COUNT(*)::int AS searches
+         FROM search_demand_events
+         WHERE happened_at >= NOW() - INTERVAL '30 days' AND detected_color <> ''
+         GROUP BY detected_color
+         ORDER BY searches DESC, detected_color ASC
+         LIMIT $1`,
+        [safeLimit]
+      ),
+      query(
+        `SELECT location AS region, COUNT(*)::int AS searches
+         FROM search_demand_events
+         WHERE happened_at >= NOW() - INTERVAL '30 days' AND location <> ''
+         GROUP BY location
+         ORDER BY searches DESC, location ASC
+         LIMIT $1`,
+        [safeLimit]
+      ),
+      query(
+        `SELECT query, query_key AS "queryKey", MAX(detected_category) AS category, MAX(location) AS location,
+                COUNT(*)::int AS searches
+         FROM search_demand_events
+         WHERE happened_at >= NOW() - INTERVAL '30 days' AND zero_result IS TRUE
+         GROUP BY query, query_key
+         ORDER BY searches DESC, query_key ASC
+         LIMIT $1`,
+        [safeLimit]
+      ),
+      query(
+        `SELECT query, query_key AS "queryKey", MAX(detected_category) AS category,
+                COUNT(*)::int AS searches
+         FROM search_demand_events
+         WHERE happened_at >= NOW() - INTERVAL '30 days' AND zero_result IS FALSE AND result_count BETWEEN 1 AND 3
+         GROUP BY query, query_key
+         ORDER BY searches DESC, query_key ASC
+         LIMIT $1`,
+        [safeLimit]
+      )
+    ]);
+
+    return {
+      version: "search-demand-postgres-v1",
+      privacy: "anonymous-aggregate-only",
+      trendingSearches: queries.rows.map((row) => ({
+        query: row.query,
+        queryKey: row.queryKey,
+        category: row.category || "",
+        location: row.location || "",
+        searches: Number(row.searches || 0),
+        score: Number(row.score || 0)
+      })),
+      fastestGrowingSearches: queries.rows.slice(0, safeLimit).map((row) => ({
+        query: row.query,
+        queryKey: row.queryKey,
+        category: row.category || "",
+        location: row.location || "",
+        searches: Number(row.searches || 0),
+        score: Number(row.score || 0)
+      })),
+      mostSearchedCategories: categories.rows.map((row) => ({ category: row.category, searches: Number(row.searches || 0), score: Number(row.searches || 0) })),
+      mostSearchedColors: colors.rows.map((row) => ({ color: row.color, searches: Number(row.searches || 0), score: Number(row.searches || 0) })),
+      regionalDemand: regions.rows.map((row) => ({ region: row.region, searches: Number(row.searches || 0), score: Number(row.searches || 0) })),
+      zeroResultOpportunities: zeroResults.rows.map((row) => ({ query: row.query, queryKey: row.queryKey, category: row.category || "", location: row.location || "", searches: Number(row.searches || 0), opportunity: "high", score: Number(row.searches || 0) })),
+      lowSupplyOpportunities: lowSupply.rows.map((row) => ({ query: row.query, queryKey: row.queryKey, category: row.category || "", searches: Number(row.searches || 0), supply: "low", opportunity: Number(row.searches || 0) >= 8 ? "high" : "medium", score: Number(row.searches || 0) }))
+    };
+  }
+
   async function readRecentAuditLogs(limit = 50) {
     const safeLimit = Math.max(1, Math.min(Number(limit) || 50, 200));
     const result = await query(
@@ -1815,6 +1988,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
     readIntelligenceSummary,
     appendDemandEvent,
     readSellerDemandSummary,
+    appendSearchDemandEvents,
+    readSearchDemandSummary,
     appendAuditLog,
     readRecentAuditLogs
   };

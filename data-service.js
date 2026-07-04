@@ -1659,6 +1659,9 @@
       async logClientEvent() {
         return null;
       },
+      async submitSearchDemandEvents() {
+        return { ok: true, accepted: 0, inserted: 0, localOnly: true };
+      },
       async moderateProduct() {
         throw new Error("Moderation inapatikana kwenye API mode tu.");
       },
@@ -3006,6 +3009,29 @@
           });
         } catch (error) {
           // Ignore telemetry failures.
+        }
+      },
+      async submitSearchDemandEvents(events = []) {
+        const batch = Array.isArray(events) ? events.filter(Boolean).slice(-25) : [];
+        if (!batch.length) {
+          return { ok: true, accepted: 0, inserted: 0 };
+        }
+        try {
+          return await fetchJson(`${baseUrl}/search-demand`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...createAuthHeaders()
+            },
+            body: JSON.stringify({ events: batch })
+          });
+        } catch (error) {
+          return {
+            ok: false,
+            accepted: 0,
+            inserted: 0,
+            error: error?.message || "search-demand unavailable"
+          };
         }
       },
       async moderateProduct(productId, payload) {
@@ -4673,6 +4699,12 @@
     },
     async logClientEvent(event) {
       return state.adapter.logClientEvent ? state.adapter.logClientEvent(event) : null;
+    },
+    async submitSearchDemandEvents(events = []) {
+      ensureAdapter();
+      return state.adapter.submitSearchDemandEvents
+        ? state.adapter.submitSearchDemandEvents(events)
+        : { ok: true, accepted: 0, inserted: 0 };
     },
     async moderateProduct(productId, payload) {
       assertModerationAccess();

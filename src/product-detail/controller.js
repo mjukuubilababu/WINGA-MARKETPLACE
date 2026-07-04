@@ -23,7 +23,8 @@
       backendStageState: {},
       exhausted: false,
       requestId: 0,
-      autoWarmupCount: 0
+      autoWarmupCount: 0,
+      terminalRendered: false
     };
     const MAX_ACTIVE_DETAIL_CONTINUATION_SECTIONS = 4;
     const MAX_DETAIL_CONTINUATION_USED_IDS = 120;
@@ -235,7 +236,8 @@
         exhausted: false,
         requestId: 0,
         autoWarmupCount: 0,
-        reobserveTimer: 0
+        reobserveTimer: 0,
+        terminalRendered: false
       };
     }
 
@@ -245,7 +247,12 @@
       }
       const modalRect = modal.getBoundingClientRect();
       const anchorRect = anchor.getBoundingClientRect();
-      return anchorRect.top <= modalRect.bottom + 620 && anchorRect.bottom >= modalRect.top - 760;
+      const modalNear = anchorRect.top <= modalRect.bottom + 620 && anchorRect.bottom >= modalRect.top - 760;
+      const viewportHeight = Number(window.innerHeight || document.documentElement?.clientHeight || 0);
+      const viewportNear = viewportHeight > 0
+        && anchorRect.top <= viewportHeight + 620
+        && anchorRect.bottom >= -760;
+      return modalNear || viewportNear;
     }
 
     function requestDetailContinuousHydration(modal, anchor, product, delayMs = 0, options = {}) {
@@ -279,6 +286,17 @@
       }, 180);
     }
 
+    function watchDetailContinuationAnchorNear(modal, anchor, product, attempts = 16) {
+      const remainingAttempts = Number(attempts || 0);
+      if (remainingAttempts <= 0 || !anchor?.isConnected || !modal?.isConnected || detailContinuousRuntime.exhausted) {
+        return;
+      }
+      requestDetailContinuousHydration(modal, anchor, product, 0);
+      window.setTimeout(() => {
+        watchDetailContinuationAnchorNear(modal, anchor, product, remainingAttempts - 1);
+      }, 420);
+    }
+
     function createDetailContinuationSectionElement(descriptor, index) {
       if (!descriptor || !Array.isArray(descriptor.items) || !descriptor.items.length) {
         return null;
@@ -292,6 +310,29 @@
           "data-product-detail-continuation-kind": descriptor.kind || "continuation"
         }
       }) || null;
+    }
+
+    function createDetailContinuationTerminalSectionElement(index) {
+      return deps.createElement("section", {
+        className: "product-detail-seller-products product-detail-feed-section",
+        attributes: {
+          "data-product-detail-continuation-section": String(index),
+          "data-product-detail-continuation-kind": "exhausted"
+        },
+        children: [
+          deps.createElement("div", {
+            className: "section-heading",
+            children: [
+              deps.createElement("span", { className: "eyebrow", textContent: "Keep Exploring" }),
+              deps.createElement("h3", { textContent: "More products are being refreshed" }),
+              deps.createElement("p", {
+                className: "product-meta",
+                textContent: "Winga has shown the unique continuation picks available for this product right now."
+              })
+            ]
+          })
+        ]
+      });
     }
 
     function trimDetailContinuationSections(anchor) {
@@ -350,9 +391,18 @@
         return null;
       }
       const allowRecycled = descriptor.allowRecycled === true;
-      const items = (Array.isArray(descriptor.items) ? descriptor.items : []).filter((item) =>
-        item?.id && (allowRecycled || !detailContinuousRuntime.usedIds.has(item.id))
-      );
+      const seenIds = new Set();
+      const items = (Array.isArray(descriptor.items) ? descriptor.items : []).filter((item) => {
+        const productId = String(item?.id || "").trim();
+        if (!productId || seenIds.has(productId)) {
+          return false;
+        }
+        if (!allowRecycled && detailContinuousRuntime.usedIds.has(productId)) {
+          return false;
+        }
+        seenIds.add(productId);
+        return true;
+      });
       return items.length ? { ...descriptor, items } : null;
     }
 
@@ -379,7 +429,6 @@
           kind: "relaxed-discovery",
           eyebrow: "Keep Exploring",
           title: "More products from Winga",
-          allowRecycled: true,
           items
         }
         : null;
@@ -462,6 +511,16 @@
         return;
       }
       if (!descriptor) {
+        if (detailContinuousRuntime.exhausted && !detailContinuousRuntime.terminalRendered) {
+          const terminalSection = createDetailContinuationTerminalSectionElement(detailContinuousRuntime.batchIndex + 1);
+          if (terminalSection) {
+            anchor.after(terminalSection);
+            terminalSection.after(anchor);
+            detailContinuousRuntime.batchIndex += 1;
+            detailContinuousRuntime.terminalRendered = true;
+            trimDetailContinuationSections(anchor);
+          }
+        }
         detailContinuousRuntime.loading = false;
         if (!detailContinuousRuntime.exhausted) {
           scheduleDetailContinuousReobserve(anchor, modal);
@@ -495,10 +554,6 @@
       detailContinuousRuntime.batchIndex += 1;
       detailContinuousRuntime.loading = false;
       scheduleDetailContinuousReobserve(anchor, modal);
-      if (detailContinuousRuntime.autoWarmupCount < 2 && !detailContinuousRuntime.exhausted) {
-        detailContinuousRuntime.autoWarmupCount += 1;
-        requestDetailContinuousHydration(modal, anchor, product, 360, { force: true });
-      }
     }
 
     function setupDetailContinuousDiscovery(modal, product, usedIds = new Set()) {
@@ -513,7 +568,7 @@
       detailContinuousRuntime.seedProductId = product.id;
       detailContinuousRuntime.scrollRoot = modal;
       detailContinuousRuntime.scrollHandler = () => {
-        requestDetailContinuousHydration(modal, anchor, product, 0);
+        requestDetailContinuousHydration(modal, anchor, product, 80);
       };
       modal.addEventListener("scroll", detailContinuousRuntime.scrollHandler, { passive: true });
 
@@ -536,7 +591,19 @@
         rootMargin: "760px 0px 620px 0px"
       });
       detailContinuousRuntime.observer.observe(anchor);
-      requestDetailContinuousHydration(modal, anchor, product, 120, { force: true });
+      requestDetailContinuousHydration(modal, anchor, product, 650);
+      watchDetailContinuationAnchorNear(modal, anchor, product, 16);
+      window.setTimeout(() => {
+        if (
+          anchor.isConnected
+          && modal?.isConnected
+          && detailContinuousRuntime.seedProductId === product.id
+          && !detailContinuousRuntime.loading
+          && !detailContinuousRuntime.exhausted
+        ) {
+          requestDetailContinuousHydration(modal, anchor, product, 0, { force: true });
+        }
+      }, 2600);
     }
 
     function finalizeHomeNavigation() {
