@@ -14,6 +14,7 @@
       maxVariantBoost: 36,
       maxStyleBoost: 180,
       maxSellerQualityBoost: 170,
+      maxMarketBoost: 190,
       ...deps.config
     };
     let lazyStyleEngine = deps.styleEngine || null;
@@ -171,12 +172,28 @@
       return Math.min(config.maxSellerQualityBoost, Math.max(0, (trust * 0.48) + (quality * 0.34) + (activity * 0.18)));
     }
 
+    function getMarketScore(product, context) {
+      if (typeof deps.getMarketScore === "function") {
+        return Math.min(config.maxMarketBoost, Math.max(0, toFiniteNumber(deps.getMarketScore(product, context), 0)));
+      }
+      const productId = String(product?.id || "");
+      const productScore = context.marketInsights?.productScores?.[productId];
+      if (!productScore) {
+        return 0;
+      }
+      return Math.min(
+        config.maxMarketBoost,
+        Math.max(0, (toFiniteNumber(productScore.marketScore, 0) * 0.34) + (toFiniteNumber(productScore.sellOutRisk, 0) * 0.42))
+      );
+    }
+
     function scoreProduct(product, context, now) {
       const engagement = getEngagementScore(product);
       const score = {
         freshness: getRecencyScore(product, now),
         followedSeller: getFollowedSellerScore(product, context),
         sellerQuality: getSellerQualityScore(product, context),
+        market: getMarketScore(product, context),
         demand: getDemandScore(product),
         trending: Math.min(220, engagement * 1.35),
         recommendation: getRecommendationScore(product, context),

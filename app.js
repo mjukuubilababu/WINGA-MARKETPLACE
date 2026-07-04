@@ -639,6 +639,12 @@ function isDemandDiscoveryCandidate(product) {
 let homeFeedIntelligenceEngine = null;
 let homeFeedStyleIntelligenceEngine = null;
 let sellerQualityIntelligenceEngine = null;
+let marketIntelligenceEngine = null;
+let marketInsightsCache = {
+  key: "",
+  updatedAt: 0,
+  insights: null
+};
 
 function getHomeFeedIntelligenceEngine() {
   if (homeFeedIntelligenceEngine) {
@@ -683,6 +689,20 @@ function getSellerQualityIntelligenceEngine() {
   }
   sellerQualityIntelligenceEngine = factory();
   return sellerQualityIntelligenceEngine;
+}
+
+function getMarketIntelligenceEngine() {
+  if (marketIntelligenceEngine) {
+    return marketIntelligenceEngine;
+  }
+  const factory = window.WingaModules?.marketplace?.createMarketIntelligence;
+  if (typeof factory !== "function") {
+    return null;
+  }
+  marketIntelligenceEngine = factory({
+    inferTopCategoryValue
+  });
+  return marketIntelligenceEngine;
 }
 
 function getOrderProductId(order) {
@@ -774,6 +794,48 @@ function getSellerQualitySnapshotMap(productList = products) {
   );
 }
 
+function getMarketInsights(productList = products, options = {}) {
+  const engine = getMarketIntelligenceEngine();
+  if (!engine || typeof engine.analyzeMarket !== "function") {
+    return null;
+  }
+  const sourceProducts = Array.isArray(productList) ? productList : products;
+  const now = Date.now();
+  const cacheKey = [
+    sourceProducts.length,
+    sourceProducts.slice(0, 8).map((product) => product?.id).join(","),
+    recentSearchTerms.join("|"),
+    String(filterLocationInput?.value || ""),
+    currentMessages.length,
+    options.scope || "market"
+  ].join("::");
+  if (marketInsightsCache.key === cacheKey && now - marketInsightsCache.updatedAt < 15000) {
+    return marketInsightsCache.insights;
+  }
+  try {
+    const insights = engine.analyzeMarket({
+      products: sourceProducts,
+      searchTerms: recentSearchTerms,
+      messages: currentMessages,
+      regionQuery: String(filterLocationInput?.value || "").trim(),
+      now
+    });
+    marketInsightsCache = {
+      key: cacheKey,
+      updatedAt: now,
+      insights
+    };
+    return insights;
+  } catch (error) {
+    captureClientError?.("market_intelligence_failed", error, {
+      category: "market_intelligence",
+      products: sourceProducts.length,
+      alertSeverity: "low"
+    });
+    return null;
+  }
+}
+
 function getHomeFeedIntelligenceContext(productList = products) {
   let followedSellerIds = [];
   try {
@@ -792,6 +854,7 @@ function getHomeFeedIntelligenceContext(productList = products) {
     preferredCategories,
     styleProfile: getHomeFeedStyleProfile(),
     sellerQualitySnapshots: getSellerQualitySnapshotMap(productList),
+    marketInsights: getMarketInsights(productList, { scope: "home_feed" }),
     seedCategory: selectedCategory !== "all" ? selectedCategory : "",
     locationQuery: String(filterLocationInput?.value || "").trim(),
     homeFeedRefreshCursor: Number(homeFeedRefreshCursor || 0)
@@ -10448,7 +10511,7 @@ const {
   getCurrentUser: () => currentUser
 });
 
-const { renderAnalyticsPanel } = window.WingaModules.admin.createAdminUiModule({
+const { renderAnalyticsPanel: renderBaseAnalyticsPanel } = window.WingaModules.admin.createAdminUiModule({
   createElement,
   createSectionHeading,
   createEmptyState,
@@ -10458,6 +10521,26 @@ const { renderAnalyticsPanel } = window.WingaModules.admin.createAdminUiModule({
   getStatusLabel,
   isAdminUser
 });
+
+function getSellerMarketInsightsForAnalytics(sellerId = currentUser) {
+  const insights = getMarketInsights(products, { scope: "seller_dashboard" });
+  const engine = getMarketIntelligenceEngine();
+  if (!engine || !insights || typeof engine.filterInsightsForSeller !== "function") {
+    return insights;
+  }
+  return engine.filterInsightsForSeller(insights, sellerId);
+}
+
+function renderAnalyticsPanel(data, heading, subtitle) {
+  if (data && !isAdminUser() && canUseSellerFeatures()) {
+    renderBaseAnalyticsPanel({
+      ...data,
+      market: getSellerMarketInsightsForAnalytics(currentUser)
+    }, heading, subtitle);
+    return;
+  }
+  renderBaseAnalyticsPanel(data, heading, subtitle);
+}
 
 const { renderAdminView: renderAdminViewFromController } = window.WingaModules.admin.createAdminControllerModule({
   createElement,
@@ -16880,6 +16963,8 @@ const {
   getSellerReviewSummary,
   getSellerQualitySnapshot,
   getSellerQualityBoost: (snapshot) => getSellerQualityIntelligenceEngine()?.getRankingBoost?.(snapshot) || 0,
+  getMarketInsights: () => getMarketInsights(products, { scope: "discovery" }),
+  getMarketBoost: (product, insights) => getMarketIntelligenceEngine()?.getProductMarketBoost?.(product, insights) || 0,
   getPromotionCommercialScore,
   getCurrentUser: () => currentUser,
   canUseBuyerFeatures,

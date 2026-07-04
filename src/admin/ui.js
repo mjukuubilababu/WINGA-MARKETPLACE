@@ -93,6 +93,32 @@
           "Most requested sizes",
           (data.demand?.mostRequestedSizes || []).map((item) => `${item.size} (${item.count})`).join(" | ") || "Hakuna size demand bado."
         ));
+        list.appendChild(createAnalyticsListItem(
+          "Stocking recommendations",
+          (data.market?.stockingRecommendations || [])
+            .map((item) => `${item.title} - ${item.reason}`)
+            .join(" | ") || "Hakuna recommendation mpya ya stock bado."
+        ));
+        list.appendChild(createAnalyticsListItem(
+          "Trend alerts",
+          (data.market?.trendAlerts || [])
+            .map((item) => `${item.title} (${deps.formatNumber(item.score || 0)})`)
+            .join(" | ") || "Hakuna trend alert mpya kwa sasa."
+        ));
+        list.appendChild(createAnalyticsListItem(
+          "Category opportunities",
+          (data.market?.categoryOpportunities || [])
+            .slice(0, 5)
+            .map((item) => `${deps.getCategoryLabel(item.category)} (${deps.formatNumber(item.score || 0)})`)
+            .join(" | ") || "Hakuna opportunity ya category bado."
+        ));
+        list.appendChild(createAnalyticsListItem(
+          "Regional demand",
+          (data.market?.regionalTrends || [])
+            .slice(0, 5)
+            .map((item) => `${item.region} (${deps.formatNumber(item.score || 0)})`)
+            .join(" | ") || "Hakuna regional trend bado."
+        ));
       }
       if (typeof data.usersCount === "number" && deps.isAdminUser()) {
         list.appendChild(createAnalyticsListItem(

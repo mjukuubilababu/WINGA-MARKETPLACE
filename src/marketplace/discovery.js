@@ -12,6 +12,8 @@
       getSellerReviewSummary,
       getSellerQualitySnapshot,
       getSellerQualityBoost,
+      getMarketInsights,
+      getMarketBoost,
       getPromotionCommercialScore,
       getCurrentUser,
       canUseBuyerFeatures,
@@ -206,6 +208,21 @@
           + (toFiniteNumber(summary.waitingUsers, 0) * 18)
           + (toFiniteNumber(summary.restockInterest, 0) * 10)
       );
+    }
+
+    function getProductMarketScore(product) {
+      const insights = typeof getMarketInsights === "function" ? getMarketInsights() : null;
+      if (!insights) {
+        return 0;
+      }
+      if (typeof getMarketBoost === "function") {
+        return toFiniteNumber(getMarketBoost(product, insights), 0);
+      }
+      const productScore = insights.productScores?.[String(product?.id || "")];
+      if (!productScore) {
+        return 0;
+      }
+      return Math.min(190, (toFiniteNumber(productScore.marketScore, 0) * 0.34) + (toFiniteNumber(productScore.sellOutRisk, 0) * 0.42));
     }
 
     function canUseProductInDemandDiscovery(product) {
@@ -445,6 +462,7 @@
         score += (toFiniteNumber(product.likes, 0) * 2.5) + (toFiniteNumber(product.views, 0) * 1.4);
       }
       score += getProductDemandScore(product);
+      score += getProductMarketScore(product);
       if (product?.availability === "sold_out") {
         score -= 95;
       }

@@ -221,10 +221,95 @@ test("seller quality intelligence scores operational trust signals without follo
   assert.match(source, /window\.WingaModules\.marketplace\.createSellerQualityIntelligence = createSellerQualityIntelligence;/);
 });
 
+test("market intelligence produces regional time-aware demand insights", () => {
+  const root = path.resolve(__dirname, "..");
+  const source = fs.readFileSync(path.join(root, "src", "marketplace", "market-intelligence.js"), "utf8");
+  const context = vm.createContext({
+    window: { WingaModules: { marketplace: {} } },
+    Date
+  });
+  vm.runInContext(source, context);
+  const engine = context.window.WingaModules.marketplace.createMarketIntelligence({
+    inferTopCategoryValue: (category) => String(category || "").split("-")[0],
+    config: { maxMarketBoost: 140 }
+  });
+  const products = [
+    {
+      id: "white-dress",
+      uploadedBy: "seller-a",
+      name: "White wedding dress size M",
+      category: "fashion-dress",
+      color: "white",
+      size: "M",
+      location: "Dar es Salaam",
+      createdAt: "2026-07-02T10:00:00.000Z",
+      views: 100,
+      likes: 10,
+      demandSummary: {
+        demandScore: 42,
+        waitingUsers: 8,
+        restockInterest: 5,
+        topColors: [{ color: "white", count: 8 }],
+        topSizes: [{ size: "M", count: 6 }],
+        lastDemandAt: "2026-07-04T09:00:00.000Z"
+      }
+    },
+    {
+      id: "old-shirt",
+      uploadedBy: "seller-b",
+      name: "Old blue shirt",
+      category: "fashion-shirt",
+      color: "blue",
+      location: "Mwanza",
+      createdAt: "2026-05-01T10:00:00.000Z",
+      views: 20,
+      likes: 1
+    },
+    {
+      id: "sold-out-shoes",
+      uploadedBy: "seller-a",
+      name: "Black office shoes",
+      category: "shoes",
+      color: "black",
+      availability: "sold_out",
+      location: "Dar es Salaam",
+      demandSummary: {
+        demandScore: 30,
+        waitingUsers: 4,
+        restockInterest: 4,
+        lastDemandAt: "2026-07-03T09:00:00.000Z"
+      }
+    }
+  ];
+  const insights = engine.analyzeMarket({
+    products,
+    searchTerms: ["white dress", "black shoes"],
+    messages: [
+      { productId: "white-dress", message: "Nahitaji white dress size M", timestamp: "2026-07-04T09:30:00.000Z" }
+    ],
+    regionQuery: "Dar",
+    now: new Date("2026-07-04T10:00:00.000Z").getTime()
+  });
+  const sellerInsights = engine.filterInsightsForSeller(insights, "seller-a");
+
+  assert.equal(insights.risingDemandProducts[0].productId, "white-dress");
+  assert.equal(insights.likelySellOutProducts.some((item) => item.productId === "sold-out-shoes"), true);
+  assert.equal(insights.highDemandColors.some((item) => item.color === "white"), true);
+  assert.equal(insights.highDemandSizes.some((item) => item.size === "m"), true);
+  assert.equal(insights.regionalTrends.some((item) => item.region.includes("dar")), true);
+  assert.equal(insights.categoryOpportunities.some((item) => item.category === "fashion-dress"), true);
+  assert.equal(insights.stockingRecommendations.length > 0, true);
+  assert.equal(insights.trendAlerts.length > 0, true);
+  assert.equal(engine.getProductMarketBoost(products[0], insights) > engine.getProductMarketBoost(products[1], insights), true);
+  assert.equal(sellerInsights.risingDemandProducts.every((item) => item.sellerId === "seller-a"), true);
+  assert.match(source, /window\.WingaModules\.marketplace\.createMarketIntelligence = createMarketIntelligence;/);
+});
+
 test("feed intelligence ranks home feed without mutating pagination products", () => {
   const root = path.resolve(__dirname, "..");
   const styleSource = fs.readFileSync(path.join(root, "src", "marketplace", "style-intelligence.js"), "utf8");
   const sellerQualitySource = fs.readFileSync(path.join(root, "src", "marketplace", "seller-quality-intelligence.js"), "utf8");
+  const marketSource = fs.readFileSync(path.join(root, "src", "marketplace", "market-intelligence.js"), "utf8");
   const source = fs.readFileSync(path.join(root, "src", "marketplace", "feed-intelligence.js"), "utf8");
   const buildSource = fs.readFileSync(path.join(root, "scripts", "build-vercel-static.js"), "utf8");
   const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
@@ -234,6 +319,7 @@ test("feed intelligence ranks home feed without mutating pagination products", (
   });
   vm.runInContext(styleSource, context);
   vm.runInContext(sellerQualitySource, context);
+  vm.runInContext(marketSource, context);
   vm.runInContext(source, context);
   const engine = context.window.WingaModules.marketplace.createFeedIntelligence({
     inferTopCategoryValue: (category) => String(category || "").split("-")[0],
@@ -263,6 +349,14 @@ test("feed intelligence ranks home feed without mutating pagination products", (
         trustScore: 86,
         qualityScore: 82,
         activityScore: 66
+      }
+    },
+    marketInsights: {
+      productScores: {
+        demand: {
+          marketScore: 180,
+          sellOutRisk: 72
+        }
       }
     },
     styleProfile: {
@@ -300,14 +394,20 @@ test("feed intelligence ranks home feed without mutating pagination products", (
     "seller quality intelligence must be bundled before feed intelligence consumers"
   );
   assert.ok(
+    buildSource.indexOf('"src/marketplace/market-intelligence.js"') < buildSource.indexOf('"src/marketplace/feed-intelligence.js"'),
+    "market intelligence must be bundled before feed intelligence consumers"
+  );
+  assert.ok(
     buildSource.indexOf('"src/marketplace/feed-intelligence.js"') < buildSource.indexOf('"src/marketplace/discovery.js"'),
     "feed intelligence must be bundled before discovery/home ranking consumers"
   );
   assert.match(source, /style:\s*getStyleScore\(product, context\)/);
   assert.match(source, /sellerQuality:\s*getSellerQualityScore\(product, context\)/);
+  assert.match(source, /market:\s*getMarketScore\(product, context\)/);
   assert.match(appSource, /function getHomeFeedIntelligenceEngine\(\)/);
   assert.match(appSource, /function getHomeFeedStyleProfile\(\)/);
   assert.match(appSource, /function getSellerQualitySnapshot\(username\)/);
+  assert.match(appSource, /function getMarketInsights\(productList = products, options = \{\}\)/);
   assert.match(appSource, /intelligenceEngine\.rankHomeFeed\(visibleList, getHomeFeedIntelligenceContext\(visibleList\)\)/);
 });
 
