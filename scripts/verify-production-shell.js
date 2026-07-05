@@ -4,7 +4,8 @@ const PRODUCTION_ORIGIN = process.env.WINGA_VERIFY_ORIGIN || "https://wingamarke
 const REQUIRED_ROUTES = [
   { path: "/", kind: "html" },
   { path: "/index.html", kind: "html" },
-  { path: "/sw.js", kind: "service-worker" }
+  { path: "/sw.js", kind: "service-worker" },
+  { path: "/build-version.json", kind: "build-version" }
 ];
 
 function fetchUrl(url, redirectCount = 0) {
@@ -64,6 +65,12 @@ function assertHtml(route, bodyText) {
   if (!/href="\/style\.css\?v=/i.test(normalized)) {
     throw new Error(`${route} is missing versioned /style.css.`);
   }
+  if (!/<meta name="winga-build" content="\d{14}">/i.test(normalized)) {
+    throw new Error(`${route} is missing a concrete Winga build version.`);
+  }
+  if (!/data-winga-build-version/i.test(normalized)) {
+    throw new Error(`${route} is missing the visible app build version marker.`);
+  }
 }
 
 function getHeader(headers, name) {
@@ -102,6 +109,9 @@ function assertServiceWorker(route, bodyText) {
   }
   if (!/clearAllRecoveryCaches|registration\.unregister|self\.addEventListener\("activate"/.test(normalized)) {
     throw new Error(`${route} does not look like the recovery service worker.`);
+  }
+  if (!/const BUILD_VERSION = "\d{14}";/.test(normalized)) {
+    throw new Error(`${route} is missing a concrete BUILD_VERSION.`);
   }
 }
 
@@ -160,6 +170,29 @@ function assertCsrfApi(route, bodyText, headers) {
   }
 }
 
+function extractBuildVersionFromHtml(html) {
+  return String(html || "").match(/<meta name="winga-build" content="([^"]+)">/i)?.[1] || "";
+}
+
+function extractVersionQuery(assetPath = "") {
+  return String(assetPath || "").match(/[?&]v=([^&]+)/)?.[1] || "";
+}
+
+function extractServiceWorkerVersion(source = "") {
+  return String(source || "").match(/const BUILD_VERSION = "([^"]+)";/)?.[1] || "";
+}
+
+function assertBuildVersionJson(route, bodyText, headers) {
+  assertJsonContentType(route, headers);
+  const payload = parseJsonRoute(route, bodyText);
+  if (!payload?.version || !/^\d{14}$/.test(String(payload.version))) {
+    throw new Error(`${route} is missing a concrete version.`);
+  }
+  if (payload.source !== "build-vercel-static") {
+    throw new Error(`${route} has an unexpected source marker.`);
+  }
+}
+
 async function verifyRoute(route) {
   const url = new URL(route.path, PRODUCTION_ORIGIN).toString();
   const response = await fetchUrl(url);
@@ -186,6 +219,9 @@ async function verifyRoute(route) {
     assertProductsApi(route.path, bodyText, response.headers);
   } else if (route.kind === "csrf-api") {
     assertCsrfApi(route.path, bodyText, response.headers);
+  } else if (route.kind === "build-version") {
+    assertBuildVersionJson(route.path, bodyText, response.headers);
+    assertHardenedHeaders(route.path, response.headers, { disallowScriptInline: true });
   }
   console.log(`OK ${route.path}`);
   return { bodyText, headers: response.headers };
@@ -194,14 +230,31 @@ async function verifyRoute(route) {
 async function main() {
   console.log(`Verifying production shell at ${PRODUCTION_ORIGIN}`);
   let homeHtml = "";
+  let serviceWorkerSource = "";
+  let buildVersionPayload = null;
   for (const route of REQUIRED_ROUTES) {
     const result = await verifyRoute(route);
     if (route.path === "/") {
       homeHtml = result.bodyText;
     }
+    if (route.path === "/sw.js") {
+      serviceWorkerSource = result.bodyText;
+    }
+    if (route.path === "/build-version.json") {
+      buildVersionPayload = parseJsonRoute(route.path, result.bodyText);
+    }
   }
   const appPath = extractVersionedAssetPath(homeHtml, /src="(\/app\.js\?v=[^"]+)"/i, "/app.js");
   const stylePath = extractVersionedAssetPath(homeHtml, /href="(\/style\.css\?v=[^"]+)"/i, "/style.css");
+  const htmlVersion = extractBuildVersionFromHtml(homeHtml);
+  const appVersion = extractVersionQuery(appPath);
+  const styleVersion = extractVersionQuery(stylePath);
+  const swVersion = extractServiceWorkerVersion(serviceWorkerSource);
+  const jsonVersion = String(buildVersionPayload?.version || "");
+  const versions = new Set([htmlVersion, appVersion, styleVersion, swVersion, jsonVersion].filter(Boolean));
+  if (versions.size !== 1) {
+    throw new Error(`Production build versions do not match: ${JSON.stringify({ htmlVersion, appVersion, styleVersion, swVersion, jsonVersion })}`);
+  }
   await verifyRoute({ path: appPath, kind: "javascript" });
   await verifyRoute({ path: stylePath, kind: "css" });
   await verifyRoute({ path: "/api/products?limit=1&page=1", kind: "products-api" });

@@ -21,6 +21,20 @@
       ...deps.config
     };
     let lazyStyleEngine = deps.styleEngine || null;
+    let lastRankingDiagnostics = {
+      inputCount: 0,
+      uniqueCount: 0,
+      outputCount: 0,
+      duplicateCount: 0,
+      freshProtectedCount: 0,
+      topSellerConcentration: 0,
+      budgets: {
+        personalization: config.maxPersonalizationBudget,
+        marketDemand: config.maxMarketDemandBudget,
+        engagement: config.maxEngagementBudget,
+        sellerQuality: config.maxSellerQualityBoost
+      }
+    };
 
     function toFiniteNumber(value, fallback = 0) {
       const parsed = Number(value);
@@ -330,6 +344,32 @@
       return selected.map((entry) => entry.product);
     }
 
+    function buildRankingDiagnostics(sourceCount, uniqueCount, selectedProducts, protectedEntries) {
+      const topWindow = selectedProducts.slice(0, Math.min(8, selectedProducts.length));
+      const sellerCounts = new Map();
+      topWindow.forEach((product) => {
+        const sellerId = String(product?.uploadedBy || "");
+        if (sellerId) {
+          sellerCounts.set(sellerId, (sellerCounts.get(sellerId) || 0) + 1);
+        }
+      });
+      const maxSellerCount = Math.max(0, ...sellerCounts.values());
+      return {
+        inputCount: sourceCount,
+        uniqueCount,
+        outputCount: selectedProducts.length,
+        duplicateCount: Math.max(0, sourceCount - uniqueCount),
+        freshProtectedCount: protectedEntries.length,
+        topSellerConcentration: topWindow.length ? Math.round((maxSellerCount / topWindow.length) * 100) / 100 : 0,
+        budgets: {
+          personalization: config.maxPersonalizationBudget,
+          marketDemand: config.maxMarketDemandBudget,
+          engagement: config.maxEngagementBudget,
+          sellerQuality: config.maxSellerQualityBoost
+        }
+      };
+    }
+
     function rankHomeFeed(products = [], context = {}) {
       const source = Array.isArray(products) ? products.filter(Boolean) : [];
       const unique = [];
@@ -343,18 +383,30 @@
         unique.push(product);
       });
       if (unique.length < 3) {
-        return unique.slice().sort(compareNewestFirst);
+        const selected = unique.slice().sort(compareNewestFirst);
+        lastRankingDiagnostics = buildRankingDiagnostics(source.length, unique.length, selected, []);
+        return selected;
       }
 
       const now = Number(context.now || Date.now());
       const entries = unique.map((product) => scoreProduct(product, context, now));
       const protectedEntries = selectFreshProtected(entries, config.freshTopSlots);
-      return sequenceEntries(entries, protectedEntries, unique.length);
+      const selected = sequenceEntries(entries, protectedEntries, unique.length);
+      lastRankingDiagnostics = buildRankingDiagnostics(source.length, unique.length, selected, protectedEntries);
+      return selected;
+    }
+
+    function getLastRankingDiagnostics() {
+      return {
+        ...lastRankingDiagnostics,
+        budgets: { ...lastRankingDiagnostics.budgets }
+      };
     }
 
     return {
       rankHomeFeed,
-      scoreProduct
+      scoreProduct,
+      getLastRankingDiagnostics
     };
   }
 

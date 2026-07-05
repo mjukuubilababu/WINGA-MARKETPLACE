@@ -149,6 +149,15 @@ Fresh products keep protected top slots. Seller diversity is enforced in early
 slots, while fallback still returns all page products so endless scroll,
 retention, and product identity remain stable.
 
+Feed ranking also exposes non-private diagnostics for verification:
+
+- input, unique, output, and duplicate counts
+- protected fresh slot count
+- top seller concentration across early slots
+- active ranking budgets
+
+Diagnostics are summary-only and must not expose private buyer behavior.
+
 ## Monitoring Endpoint
 
 Use the lightweight queue health endpoint for uptime and alert monitors:

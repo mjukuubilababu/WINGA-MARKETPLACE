@@ -543,6 +543,11 @@ function applyAssetVersionToHtml(targetPath) {
     : next;
   const replaced = replacedSource
     .replace(/__WINGA_PUBLIC_ORIGIN__/g, publicOrigin)
+    .replace(/__WINGA_BUILD_VERSION__/g, assetVersion)
+    .replace(
+      /(<p class="public-footer-meta">(?:(?!<\/p>).)*?Marketplace built for fast discovery and trusted transactions\.)(<\/p>)/i,
+      `$1 Build <span id="app-build-version" data-winga-build-version>${assetVersion}</span>$2`
+    )
     .replace(
       /<meta name="viewport" content="width=device-width,\s*initial-scale=1\.0(?:,\s*viewport-fit=cover)?">/i,
       `<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">`
@@ -571,6 +576,14 @@ function applyAssetVersionToServiceWorker(targetPath, criticalImageUrls = []) {
     .replace(/const BUILD_VERSION = "[^"]*";/, `const BUILD_VERSION = "${assetVersion}";`)
     .replace(/const CRITICAL_IMAGE_URLS = (?:__WINGA_CRITICAL_IMAGE_URLS__|\[[\s\S]*?\]);/, `const CRITICAL_IMAGE_URLS = ${criticalImageJson};`);
   writeTextFileWithRetry(targetPath, next, "utf8");
+}
+
+function writeBuildVersionManifest(targetPath) {
+  writeTextFileWithRetry(targetPath, JSON.stringify({
+    version: assetVersion,
+    builtAt: new Date().toISOString(),
+    source: "build-vercel-static"
+  }, null, 2));
 }
 
 function writeFrontendModuleBundle(targetPath) {
@@ -855,6 +868,7 @@ function verifyDistContents() {
     "mock-data.js",
     "winga-config.js",
     "winga-modules.js",
+    "build-version.json",
     path.join("src", "core", "module-registry.js")
   ];
 
@@ -895,6 +909,7 @@ async function main() {
       restoreGeneratedPublicAssets(generatedAssetBackup);
     }
     applyAssetVersionToServiceWorker(path.join(outputDir, "sw.js"), criticalImageUrls);
+    writeBuildVersionManifest(path.join(outputDir, "build-version.json"));
     verifyDistContents();
   } catch (error) {
     restoreGeneratedPublicAssets(generatedAssetBackup);

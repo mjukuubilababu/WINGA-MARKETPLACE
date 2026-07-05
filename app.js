@@ -6,6 +6,13 @@ const PENDING_GUEST_INTENT_KEY = "winga-pending-guest-intent";
 const SELLER_HISTORY_KEY_PREFIX = "winga-seller-history";
 const REQUEST_BOX_KEY_PREFIX = "winga-request-box";
 const APP_BOOT_BUILD_VERSION = document.querySelector('meta[name="winga-build"]')?.content || "";
+window.WINGA_BUILD_VERSION = APP_BOOT_BUILD_VERSION;
+document.documentElement.dataset.wingaBuild = APP_BOOT_BUILD_VERSION;
+document.addEventListener("DOMContentLoaded", () => {
+  document.querySelectorAll("[data-winga-build-version]").forEach((target) => {
+    target.textContent = APP_BOOT_BUILD_VERSION || "dev";
+  });
+});
 /*
  * WINGA BOOT OWNERSHIP
  * 1. Cloudflare Worker streams the splash, shell, and first feed batch.

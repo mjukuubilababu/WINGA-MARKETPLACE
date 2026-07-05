@@ -437,6 +437,14 @@ test("feed intelligence ranks home feed without mutating pagination products", (
   });
 
   assert.equal(ranked[0].id, "fresh");
+  const diagnostics = engine.getLastRankingDiagnostics();
+  assert.equal(diagnostics.inputCount, products.length);
+  assert.equal(diagnostics.uniqueCount, 5);
+  assert.equal(diagnostics.outputCount, ranked.length);
+  assert.equal(diagnostics.duplicateCount, 1);
+  assert.equal(diagnostics.freshProtectedCount, 1);
+  assert.equal(typeof diagnostics.topSellerConcentration, "number");
+  assert.equal(diagnostics.budgets.marketDemand > 0, true);
   assert.equal(new Set(ranked.map((product) => product.id)).size, ranked.length);
   assert.equal(ranked.some((product) => product.id === "followed"), true);
   assert.equal(ranked.some((product) => product.id === "demand"), true);
@@ -475,6 +483,8 @@ test("feed intelligence ranks home feed without mutating pagination products", (
   assert.match(source, /maxPersonalizationBudget/);
   assert.match(source, /maxMarketDemandBudget/);
   assert.match(source, /rawScore/);
+  assert.match(source, /getLastRankingDiagnostics/);
+  assert.match(source, /topSellerConcentration/);
   const safetyEngine = context.window.WingaModules.marketplace.createFeedIntelligence({
     getEngagementScore: (product) => Number(product.views || 0),
     config: {
@@ -996,6 +1006,23 @@ test("production domain routing verifier catches API shell fallthrough", () => {
   assert.match(domainVerifySource, /application\\\/json/);
   assert.match(domainVerifySource, /X-Vercel-Id/);
   assert.match(domainVerifySource, /traffic is not reaching the Vercel deployment/);
+});
+
+test("production builds expose one verifiable app version", () => {
+  const root = path.resolve(__dirname, "..");
+  const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
+  const buildSource = fs.readFileSync(path.join(root, "scripts", "build-vercel-static.js"), "utf8");
+  const verifySource = fs.readFileSync(path.join(root, "scripts", "verify-production-shell.js"), "utf8");
+
+  assert.match(appSource, /window\.WINGA_BUILD_VERSION = APP_BOOT_BUILD_VERSION/);
+  assert.match(appSource, /data-winga-build-version/);
+  assert.match(buildSource, /writeBuildVersionManifest/);
+  assert.match(buildSource, /build-version\.json/);
+  assert.match(buildSource, /source: "build-vercel-static"/);
+  assert.match(verifySource, /\/build-version\.json/);
+  assert.match(verifySource, /extractBuildVersionFromHtml/);
+  assert.match(verifySource, /extractServiceWorkerVersion/);
+  assert.match(verifySource, /Production build versions do not match/);
 });
 
 test("backend intelligence platform normalizes canonical marketplace events", async () => {
