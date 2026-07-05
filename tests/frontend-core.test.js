@@ -1040,6 +1040,64 @@ test("backend intelligence platform bounds persistence queue under pressure", as
   assert.equal(summary.queue.concurrency, 1);
 });
 
+test("backend intelligence uses durable queue hooks when PostgreSQL is available", () => {
+  const root = path.resolve(__dirname, "..");
+  const serverSource = fs.readFileSync(path.join(root, "backend", "server.js"), "utf8");
+  const dbSource = fs.readFileSync(path.join(root, "backend", "db.js"), "utf8");
+  const workerSource = fs.readFileSync(path.join(root, "backend", "intelligence-queue-worker.js"), "utf8");
+  const edgeWorkerSource = fs.readFileSync(path.join(root, "worker.js"), "utf8");
+  const queueWorkerSource = fs.readFileSync(path.join(root, "cloudflare", "intelligence-worker.js"), "utf8");
+  const rootWranglerSource = fs.readFileSync(path.join(root, "wrangler.toml"), "utf8");
+  const wranglerSource = fs.readFileSync(path.join(root, "wrangler.intelligence.toml"), "utf8");
+  const runbookSource = fs.readFileSync(path.join(root, "backend", "INTELLIGENCE_QUEUE.md"), "utf8");
+  const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+
+  assert.match(dbSource, /CREATE TABLE IF NOT EXISTS intelligence_event_queue/);
+  assert.match(dbSource, /FOR UPDATE SKIP LOCKED/);
+  assert.match(dbSource, /function enqueueIntelligenceEvent/);
+  assert.match(dbSource, /function claimIntelligenceQueueBatch/);
+  assert.match(dbSource, /function readIntelligenceQueueHealth/);
+  assert.match(dbSource, /function recoverStaleIntelligenceQueueJobs/);
+  assert.match(dbSource, /function pruneCompletedIntelligenceQueueJobs/);
+  assert.match(serverSource, /postgresStore\?\.enqueueIntelligenceEvent/);
+  assert.match(serverSource, /function processIntelligenceQueueOnce/);
+  assert.match(serverSource, /recoverStaleIntelligenceQueueJobs/);
+  assert.match(serverSource, /pruneCompletedIntelligenceQueueJobs/);
+  assert.match(serverSource, /INTELLIGENCE_QUEUE_EMBEDDED_WORKER/);
+  assert.match(serverSource, /getIntelligenceQueueAlerts/);
+  assert.match(serverSource, /\/api\/intelligence\/queue-events/);
+  assert.match(serverSource, /QUEUE_WEBHOOK_SECRET/);
+  assert.match(serverSource, /startIntelligenceQueueWorker\(\)/);
+  assert.match(serverSource, /intelligenceSummary\.durableQueue/);
+  assert.equal(packageJson.scripts["worker:intelligence"], "node backend/intelligence-queue-worker.js");
+  assert.equal(packageJson.scripts["worker:intelligence:once"], "node backend/intelligence-queue-worker.js --once");
+  assert.match(workerSource, /claimIntelligenceQueueBatch/);
+  assert.match(workerSource, /completeIntelligenceQueueItem/);
+  assert.match(workerSource, /failIntelligenceQueueItem/);
+  assert.match(workerSource, /SIGTERM/);
+  assert.match(edgeWorkerSource, /async queue\(batch, env, ctx\)/);
+  assert.match(edgeWorkerSource, /forwardIntelligenceQueueBatch/);
+  assert.match(edgeWorkerSource, /X-Winga-Queue-Secret/);
+  assert.match(queueWorkerSource, /async queue\(batch, env, ctx\)/);
+  assert.match(queueWorkerSource, /forwardIntelligenceQueueBatch/);
+  assert.match(queueWorkerSource, /X-Winga-Queue-Secret/);
+  assert.doesNotMatch(queueWorkerSource, /ASSETS/);
+  assert.match(wranglerSource, /name = "winga-intelligence-worker"/);
+  assert.match(wranglerSource, /main = "\.\/cloudflare\/intelligence-worker\.js"/);
+  assert.match(wranglerSource, /\[\[queues\.producers\]\]/);
+  assert.match(wranglerSource, /binding = "WINGA_INTELLIGENCE_QUEUE"/);
+  assert.match(wranglerSource, /\[\[queues\.consumers\]\]/);
+  assert.match(wranglerSource, /dead_letter_queue = "winga-intelligence-events-dlq"/);
+  assert.doesNotMatch(wranglerSource, /\[assets\]/);
+  assert.doesNotMatch(wranglerSource, /\[\[routes\]\]/);
+  assert.match(rootWranglerSource, /main = "\.\/cloudflare\/intelligence-worker\.js"/);
+  assert.doesNotMatch(rootWranglerSource, /\[assets\]/);
+  assert.doesNotMatch(rootWranglerSource, /\[\[routes\]\]/);
+  assert.match(runbookSource, /Managed External Queue Upgrade Path/);
+  assert.match(runbookSource, /Cloudflare Queues/);
+  assert.match(runbookSource, /AWS SQS/);
+});
+
 test("backend demand service normalizes and aggregates sold out demand signals", () => {
   const root = path.resolve(__dirname, "..");
   const { createDemandService, summarizeDemandEvents } = require(path.join(root, "backend", "demand-service.js"));

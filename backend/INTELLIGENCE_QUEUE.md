@@ -1,0 +1,165 @@
+# Winga Intelligence Queue Runbook
+
+## Current Production Mode
+
+Winga now uses a PostgreSQL durable outbox for intelligence events:
+
+1. API receives a marketplace intelligence signal.
+2. The signal is normalized by `backend/intelligence-platform.js`.
+3. The API writes the job to `intelligence_event_queue`.
+4. A queue worker claims jobs with `FOR UPDATE SKIP LOCKED`.
+5. The worker writes canonical rows into `intelligence_events`, `product_intelligence_scores`, and `seller_intelligence_scores`.
+6. Jobs are marked `completed`, `failed`, or `dead`.
+
+This is safe for production because events survive API restarts and failed jobs can retry.
+
+## Recommended Deployment
+
+For small and medium production:
+
+- Keep `INTELLIGENCE_QUEUE_EMBEDDED_WORKER=true` on the API.
+- Monitor `/api/admin/ops/summary`.
+
+For larger production:
+
+- Set API env:
+  - `INTELLIGENCE_QUEUE_EMBEDDED_WORKER=false`
+- Deploy a separate worker service:
+  - Command: `npm run worker:intelligence`
+- Use the same `DATABASE_URL` and `DATABASE_SSL=true`.
+
+For scheduled drain/smoke:
+
+- Command: `npm run worker:intelligence:once`
+
+## Cloudflare Queue Binding
+
+The Cloudflare Queue consumer is deployed with `wrangler.intelligence.toml`.
+Use this dedicated config so the queue worker never deploys Vercel/static frontend
+assets and never reads `public/_redirects`.
+
+- Producer queue: `winga-intelligence-events`
+- Producer binding: `WINGA_INTELLIGENCE_QUEUE`
+- Consumer queue: `winga-intelligence-events`
+- Dead-letter queue: `winga-intelligence-events-dlq`
+
+Set the shared queue webhook secret in Cloudflare:
+
+```bash
+npx wrangler secret put QUEUE_WEBHOOK_SECRET --config wrangler.intelligence.toml
+```
+
+Set the same value in the backend environment:
+
+```text
+QUEUE_WEBHOOK_SECRET=<same-secret-value>
+```
+
+The Cloudflare queue consumer forwards messages to:
+
+```text
+https://winga-pflp.onrender.com/api/intelligence/queue-events
+```
+
+Deploy only the queue worker with:
+
+```bash
+npx wrangler deploy --config wrangler.intelligence.toml
+```
+
+Do not use plain `npx wrangler deploy` for the queue worker. The root
+`wrangler.toml` may include full app/asset settings from the older edge worker
+path, while the production frontend is deployed through Vercel.
+
+```text
+POST /api/intelligence/queue-events
+```
+
+The backend rejects that endpoint unless `X-Winga-Queue-Secret` matches `QUEUE_WEBHOOK_SECRET`.
+
+## Required Environment Variables
+
+- `DATABASE_URL`
+- `DATABASE_SSL=true`
+- `QUEUE_WEBHOOK_SECRET`
+- `INTELLIGENCE_QUEUE_BATCH_SIZE=50`
+- `INTELLIGENCE_QUEUE_INTERVAL_MS=5000`
+- `INTELLIGENCE_QUEUE_MAX_ATTEMPTS=12`
+- `INTELLIGENCE_QUEUE_STALE_SECONDS=300`
+- `INTELLIGENCE_QUEUE_COMPLETED_RETENTION_HOURS=72`
+- `INTELLIGENCE_QUEUE_PENDING_ALERT_THRESHOLD=1000`
+- `INTELLIGENCE_QUEUE_FAILED_ALERT_THRESHOLD=25`
+- `INTELLIGENCE_QUEUE_DEAD_ALERT_THRESHOLD=1`
+
+## Managed External Queue Upgrade Path
+
+The current Postgres outbox is production-grade and horizontally safe. At very high global traffic, move the transport to a managed queue while keeping the same canonical event schema.
+
+Recommended providers:
+
+1. Cloudflare Queues
+   - Best when Winga edge/workers become the ingestion layer.
+   - Queue consumer writes to the same Postgres intelligence tables.
+
+2. AWS SQS
+   - Best for high-volume durable queueing with dead-letter queues.
+   - API publishes canonical event JSON.
+   - Worker consumes batches and calls the existing persistence code.
+
+3. Google Pub/Sub
+   - Best for analytics-heavy pipelines and BigQuery/warehouse integration.
+
+4. Upstash Redis Streams
+   - Best if you want simple serverless REST credentials and consumer groups.
+
+## External Queue Contract
+
+Every queued message must contain:
+
+```json
+{
+  "event": {
+    "eventId": "intel_xxx",
+    "eventType": "product_viewed",
+    "sourceEvent": "product_clicked",
+    "timestamp": "2026-07-04T00:00:00.000Z",
+    "productId": "product-1",
+    "sellerId": "seller-1",
+    "buyerId": "buyer-1",
+    "sessionId": "session-or-fingerprint",
+    "feedContext": "home-feed",
+    "location": "TZ",
+    "deviceType": "mobile",
+    "appVersion": "20260704",
+    "metadata": {}
+  },
+  "scores": {
+    "productScore": {},
+    "sellerScore": {}
+  }
+}
+```
+
+The consumer must:
+
+1. Deduplicate by `event.eventId`.
+2. Retry transient failures.
+3. Send exhausted jobs to a dead-letter queue.
+4. Preserve the event schema exactly.
+5. Never block the marketplace API.
+
+## Global-Ready Checklist
+
+- Durable queue exists: yes, Postgres outbox.
+- Horizontal worker claims: yes, `SKIP LOCKED`.
+- Retry/backoff: yes.
+- Dead state: yes.
+- Stale processing recovery: yes.
+- Completed job retention: yes.
+- Ops health/alerts: yes.
+- Separate worker command: yes.
+- External managed queue: guided, requires provider credentials.
+
+## Verdict
+
+Current mode is ready for serious production growth. For global hyperscale, deploy the worker separately first, then migrate the queue transport to Cloudflare Queues, SQS, Pub/Sub, or Redis Streams.

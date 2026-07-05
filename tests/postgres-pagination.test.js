@@ -307,6 +307,75 @@ test("PostgreSQL intelligence summary reads dedicated intelligence tables", asyn
   assert.equal(summary.topSellers[0].id, "seller-1");
 });
 
+test("PostgreSQL durable intelligence queue claims, retries, and completes jobs", async () => {
+  const calls = [];
+  const queryClient = {
+    async query(text, params) {
+      calls.push({ text, params });
+      if (text.includes("INSERT INTO intelligence_event_queue")) {
+        return { rowCount: 1, rows: [] };
+      }
+      if (text.includes("RETURNING") && text.includes("q.queue_id")) {
+        return {
+          rows: [{
+            queueId: 9,
+            eventId: "intel-queued-1",
+            event: { eventId: "intel-queued-1", eventType: "product_viewed" },
+            scores: { productScore: { id: "product-1", score: 1 } },
+            attempts: 2
+          }]
+        };
+      }
+      if (text.includes("GROUP BY status")) {
+        return {
+          rows: [
+            { status: "pending", count: 3 },
+            { status: "failed", count: 1 },
+            { status: "dead", count: 0 }
+          ]
+        };
+      }
+      return { rows: [], rowCount: 1 };
+    }
+  };
+  const store = createPostgresStore({
+    databaseUrl: "postgres://test.invalid/winga",
+    queryClient
+  });
+
+  const enqueueResult = await store.enqueueIntelligenceEvent({
+    eventId: "intel-queued-1",
+    eventType: "product_viewed"
+  }, {
+    productScore: { id: "product-1", score: 1 }
+  });
+  const jobs = await store.claimIntelligenceQueueBatch({ limit: 5, workerId: "worker-a" });
+  await store.completeIntelligenceQueueItem(jobs[0].queueId);
+  await store.failIntelligenceQueueItem(jobs[0].queueId, new Error("temporary"), { attempts: 2, maxAttempts: 5 });
+  const recovery = await store.recoverStaleIntelligenceQueueJobs({ staleSeconds: 120 });
+  const prune = await store.pruneCompletedIntelligenceQueueJobs({ retentionHours: 24 });
+  const health = await store.readIntelligenceQueueHealth();
+
+  assert.equal(enqueueResult.enqueued, true);
+  assert.match(calls[0].text, /INSERT INTO intelligence_event_queue/);
+  assert.match(calls[0].text, /ON CONFLICT \(event_id\) DO NOTHING/);
+  assert.match(calls[1].text, /FOR UPDATE SKIP LOCKED/);
+  assert.equal(calls[1].params[0], 5);
+  assert.equal(calls[1].params[1], "worker-a");
+  assert.equal(jobs[0].eventId, "intel-queued-1");
+  assert.match(calls[2].text, /status = 'completed'/);
+  assert.match(calls[3].text, /status = \$2/);
+  assert.match(calls[4].text, /Recovered stale processing job/);
+  assert.equal(calls[4].params[0], "120");
+  assert.match(calls[5].text, /DELETE FROM intelligence_event_queue/);
+  assert.equal(calls[5].params[0], "24");
+  assert.equal(recovery.recovered, 1);
+  assert.equal(prune.pruned, 1);
+  assert.equal(health.pending, 3);
+  assert.equal(health.failed, 1);
+  assert.equal(health.dead, 0);
+});
+
 test("PostgreSQL demand persistence dedupes events and refreshes seller summaries", async () => {
   const calls = [];
   const summaryRow = {

@@ -35,6 +35,10 @@ export default {
     return hardenResponseHeaders(await fetch(request), env);
   },
 
+  async queue(batch, env, ctx) {
+    ctx.waitUntil(forwardIntelligenceQueueBatch(batch, env));
+  },
+
   async scheduled(_event, env, _ctx) {
     const origin = getOriginBaseUrl(env);
     try {
@@ -48,6 +52,53 @@ export default {
     }
   }
 };
+
+async function forwardIntelligenceQueueBatch(batch, env) {
+  const messages = Array.isArray(batch?.messages) ? batch.messages : [];
+  if (!messages.length) {
+    return;
+  }
+  const secret = String(env?.QUEUE_WEBHOOK_SECRET || "").trim();
+  if (!secret) {
+    messages.forEach((message) => message.retry?.());
+    throw new Error("QUEUE_WEBHOOK_SECRET is required for Winga intelligence queue forwarding.");
+  }
+  const payload = {
+    source: "cloudflare-queue",
+    messages: messages.map((message) => normalizeQueueMessageBody(message?.body))
+  };
+  const response = await fetch(`${getOriginBaseUrl(env)}/api/intelligence/queue-events`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Winga-Queue-Secret": secret,
+      "User-Agent": "winga-intelligence-queue-consumer"
+    },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) {
+    messages.forEach((message) => message.retry?.());
+    throw new Error(`Winga intelligence queue forward failed with ${response.status}`);
+  }
+  messages.forEach((message) => message.ack?.());
+}
+
+function normalizeQueueMessageBody(body) {
+  if (!body) {
+    return {};
+  }
+  if (typeof body === "string") {
+    try {
+      return JSON.parse(body);
+    } catch (_error) {
+      return { event: "queue_message", context: { body } };
+    }
+  }
+  if (typeof body === "object") {
+    return body;
+  }
+  return { event: "queue_message", context: { body: String(body) } };
+}
 
 async function streamFeedPage(request, env, ctx) {
   const { readable, writable } = new TransformStream();

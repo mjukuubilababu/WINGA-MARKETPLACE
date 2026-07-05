@@ -422,6 +422,24 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
     `);
 
     await query(`
+      CREATE TABLE IF NOT EXISTS intelligence_event_queue (
+        queue_id BIGSERIAL PRIMARY KEY,
+        event_id TEXT NOT NULL UNIQUE,
+        event_payload JSONB NOT NULL,
+        score_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+        status TEXT NOT NULL DEFAULT 'pending',
+        attempts INTEGER NOT NULL DEFAULT 0,
+        available_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        locked_at TIMESTAMPTZ,
+        locked_by TEXT NOT NULL DEFAULT '',
+        processed_at TIMESTAMPTZ,
+        last_error TEXT NOT NULL DEFAULT '',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+
+    await query(`
       CREATE TABLE IF NOT EXISTS product_intelligence_scores (
         product_id TEXT PRIMARY KEY,
         score NUMERIC(12, 2) NOT NULL DEFAULT 0,
@@ -508,6 +526,11 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
     await query(`
       CREATE INDEX IF NOT EXISTS idx_intelligence_events_type_time
       ON intelligence_events (event_type, happened_at DESC);
+    `);
+
+    await query(`
+      CREATE INDEX IF NOT EXISTS idx_intelligence_event_queue_status_available
+      ON intelligence_event_queue (status, available_at, queue_id);
     `);
     await query(`
       CREATE INDEX IF NOT EXISTS idx_intelligence_events_product_time
@@ -1598,6 +1621,143 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
     }
   }
 
+  async function enqueueIntelligenceEvent(event, scores = {}) {
+    const result = await query(
+      `INSERT INTO intelligence_event_queue (
+        event_id, event_payload, score_payload, status, available_at, updated_at
+      ) VALUES ($1, $2::jsonb, $3::jsonb, 'pending', NOW(), NOW())
+      ON CONFLICT (event_id) DO NOTHING`,
+      [
+        event.eventId,
+        JSON.stringify(event || {}),
+        JSON.stringify(scores || {})
+      ]
+    );
+    return { enqueued: Number(result.rowCount || 0) > 0 };
+  }
+
+  async function claimIntelligenceQueueBatch(options = {}) {
+    const limit = Math.max(1, Math.min(Number(options.limit || 25) || 25, 100));
+    const workerId = String(options.workerId || "winga-intelligence-worker").slice(0, 120);
+    const result = await query(
+      `WITH next_jobs AS (
+        SELECT queue_id
+        FROM intelligence_event_queue
+        WHERE status IN ('pending', 'failed')
+          AND available_at <= NOW()
+        ORDER BY queue_id ASC
+        LIMIT $1
+        FOR UPDATE SKIP LOCKED
+      )
+      UPDATE intelligence_event_queue q
+      SET status = 'processing',
+          attempts = q.attempts + 1,
+          locked_at = NOW(),
+          locked_by = $2,
+          updated_at = NOW()
+      FROM next_jobs
+      WHERE q.queue_id = next_jobs.queue_id
+      RETURNING
+        q.queue_id AS "queueId",
+        q.event_id AS "eventId",
+        q.event_payload AS "event",
+        q.score_payload AS "scores",
+        q.attempts`,
+      [limit, workerId]
+    );
+    return result.rows.map((row) => ({
+      queueId: Number(row.queueId || 0),
+      eventId: row.eventId,
+      event: row.event || {},
+      scores: row.scores || {},
+      attempts: Number(row.attempts || 0)
+    }));
+  }
+
+  async function completeIntelligenceQueueItem(queueId) {
+    await query(
+      `UPDATE intelligence_event_queue
+       SET status = 'completed',
+           processed_at = NOW(),
+           locked_at = NULL,
+           locked_by = '',
+           last_error = '',
+           updated_at = NOW()
+       WHERE queue_id = $1`,
+      [Number(queueId || 0)]
+    );
+  }
+
+  async function failIntelligenceQueueItem(queueId, error, options = {}) {
+    const attempts = Math.max(1, Number(options.attempts || 1) || 1);
+    const maxAttempts = Math.max(1, Number(options.maxAttempts || 12) || 12);
+    const backoffSeconds = Math.min(3600, Math.max(5, attempts * attempts * 10));
+    const terminal = attempts >= maxAttempts;
+    await query(
+      `UPDATE intelligence_event_queue
+       SET status = $2,
+           available_at = CASE WHEN $2 = 'failed' THEN NOW() + ($3 || ' seconds')::interval ELSE available_at END,
+           locked_at = NULL,
+           locked_by = '',
+           last_error = $4,
+           updated_at = NOW()
+       WHERE queue_id = $1`,
+      [
+        Number(queueId || 0),
+        terminal ? "dead" : "failed",
+        String(backoffSeconds),
+        String(error?.message || error || "unknown").slice(0, 500)
+      ]
+    );
+  }
+
+  async function readIntelligenceQueueHealth() {
+    const result = await query(
+      `SELECT status, COUNT(*)::int AS count
+       FROM intelligence_event_queue
+       GROUP BY status`
+    );
+    const byStatus = {};
+    result.rows.forEach((row) => {
+      byStatus[row.status || "unknown"] = Number(row.count || 0);
+    });
+    return {
+      pending: byStatus.pending || 0,
+      processing: byStatus.processing || 0,
+      failed: byStatus.failed || 0,
+      completed: byStatus.completed || 0,
+      dead: byStatus.dead || 0
+    };
+  }
+
+  async function recoverStaleIntelligenceQueueJobs(options = {}) {
+    const staleSeconds = Math.max(60, Math.min(Number(options.staleSeconds || 300) || 300, 86400));
+    const result = await query(
+      `UPDATE intelligence_event_queue
+       SET status = 'failed',
+           available_at = NOW(),
+           locked_at = NULL,
+           locked_by = '',
+           last_error = 'Recovered stale processing job',
+           updated_at = NOW()
+       WHERE status = 'processing'
+         AND locked_at < NOW() - ($1 || ' seconds')::interval`,
+      [String(staleSeconds)]
+    );
+    return { recovered: Number(result.rowCount || 0) };
+  }
+
+  async function pruneCompletedIntelligenceQueueJobs(options = {}) {
+    const retentionHours = Math.max(1, Math.min(Number(options.retentionHours || 72) || 72, 24 * 90));
+    const result = await query(
+      `DELETE FROM intelligence_event_queue
+       WHERE status = 'completed'
+         AND processed_at < NOW() - ($1 || ' hours')::interval`,
+      [String(retentionHours)]
+    );
+    return { pruned: Number(result.rowCount || 0) };
+  }
+
   async function readIntelligenceSummary(limit = 10) {
     const safeLimit = Math.max(1, Math.min(Number(limit) || 10, 50));
     const [eventTypes, products, sellers] = await Promise.all([
@@ -1979,19 +2139,33 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
     }
   }
 
+  async function close() {
+    if (!queryClient && typeof pool.end === "function") {
+      await pool.end();
+    }
+  }
+
   return {
     init,
     readStore,
     readProductsPage,
     writeStore,
     appendIntelligenceEvent,
+    enqueueIntelligenceEvent,
+    claimIntelligenceQueueBatch,
+    completeIntelligenceQueueItem,
+    failIntelligenceQueueItem,
+    readIntelligenceQueueHealth,
+    recoverStaleIntelligenceQueueJobs,
+    pruneCompletedIntelligenceQueueJobs,
     readIntelligenceSummary,
     appendDemandEvent,
     readSellerDemandSummary,
     appendSearchDemandEvents,
     readSearchDemandSummary,
     appendAuditLog,
-    readRecentAuditLogs
+    readRecentAuditLogs,
+    close
   };
 }
 

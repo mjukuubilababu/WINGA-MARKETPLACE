@@ -30,6 +30,7 @@ const APP_BUILD_VERSION_MATCH = APP_HTML_TEMPLATE.match(/<meta name="winga-build
 const APP_BUILD_VERSION = APP_BUILD_VERSION_MATCH?.[1] || "";
 const NODE_ENV = process.env.NODE_ENV || "development";
 const PAYMENT_WEBHOOK_SECRET = String(process.env.PAYMENT_WEBHOOK_SECRET || "").trim();
+const QUEUE_WEBHOOK_SECRET = String(process.env.QUEUE_WEBHOOK_SECRET || "").trim();
 const ALLOW_UNVERIFIED_MANUAL_PAYMENTS = String(process.env.ALLOW_UNVERIFIED_MANUAL_PAYMENTS || "").toLowerCase() === "true";
 const HASH_PREFIX = "scrypt";
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -835,6 +836,10 @@ function recordAuditLog(entry) {
 const intelligencePlatform = createIntelligencePlatform({
   appendEvent: appendAuditLog,
   persistEvent: async (event, scores) => {
+    if (postgresStore?.enqueueIntelligenceEvent) {
+      await postgresStore.enqueueIntelligenceEvent(event, scores);
+      return;
+    }
     if (postgresStore?.appendIntelligenceEvent) {
       await postgresStore.appendIntelligenceEvent(event, scores);
     }
@@ -846,6 +851,142 @@ const demandService = createDemandService();
 const searchDemandService = createSearchDemandService();
 const recentDemandDedupeKeys = new Map();
 const MAX_RECENT_DEMAND_DEDUPE_KEYS = 10000;
+const INTELLIGENCE_QUEUE_WORKER_ID = `winga-intelligence-${process.pid}`;
+const INTELLIGENCE_QUEUE_BATCH_SIZE = Math.max(1, Math.min(Number(process.env.INTELLIGENCE_QUEUE_BATCH_SIZE || 25) || 25, 100));
+const INTELLIGENCE_QUEUE_INTERVAL_MS = Math.max(1000, Math.min(Number(process.env.INTELLIGENCE_QUEUE_INTERVAL_MS || 5000) || 5000, 60000));
+const INTELLIGENCE_QUEUE_MAX_ATTEMPTS = Math.max(1, Math.min(Number(process.env.INTELLIGENCE_QUEUE_MAX_ATTEMPTS || 12) || 12, 50));
+const INTELLIGENCE_QUEUE_STALE_SECONDS = Math.max(60, Math.min(Number(process.env.INTELLIGENCE_QUEUE_STALE_SECONDS || 300) || 300, 86400));
+const INTELLIGENCE_QUEUE_COMPLETED_RETENTION_HOURS = Math.max(1, Math.min(Number(process.env.INTELLIGENCE_QUEUE_COMPLETED_RETENTION_HOURS || 72) || 72, 24 * 90));
+const INTELLIGENCE_QUEUE_EMBEDDED_WORKER_ENABLED = String(process.env.INTELLIGENCE_QUEUE_EMBEDDED_WORKER || "true").toLowerCase() !== "false";
+const INTELLIGENCE_QUEUE_PENDING_ALERT_THRESHOLD = Math.max(1, Number(process.env.INTELLIGENCE_QUEUE_PENDING_ALERT_THRESHOLD || 1000) || 1000);
+const INTELLIGENCE_QUEUE_FAILED_ALERT_THRESHOLD = Math.max(1, Number(process.env.INTELLIGENCE_QUEUE_FAILED_ALERT_THRESHOLD || 25) || 25);
+const INTELLIGENCE_QUEUE_DEAD_ALERT_THRESHOLD = Math.max(1, Number(process.env.INTELLIGENCE_QUEUE_DEAD_ALERT_THRESHOLD || 1) || 1);
+let intelligenceQueueWorkerTimer = null;
+let intelligenceQueueWorkerRunning = false;
+const intelligenceQueueWorkerState = {
+  enabled: false,
+  embeddedEnabled: INTELLIGENCE_QUEUE_EMBEDDED_WORKER_ENABLED,
+  workerId: INTELLIGENCE_QUEUE_WORKER_ID,
+  batches: 0,
+  processed: 0,
+  failed: 0,
+  recovered: 0,
+  pruned: 0,
+  lastRunAt: "",
+  lastSuccessAt: "",
+  lastFailureAt: "",
+  lastMaintenanceAt: "",
+  lastError: ""
+};
+
+async function processIntelligenceQueueOnce() {
+  if (!postgresStore?.claimIntelligenceQueueBatch || intelligenceQueueWorkerRunning) {
+    return;
+  }
+  intelligenceQueueWorkerRunning = true;
+  intelligenceQueueWorkerState.enabled = true;
+  intelligenceQueueWorkerState.lastRunAt = new Date().toISOString();
+  try {
+    if (postgresStore.recoverStaleIntelligenceQueueJobs) {
+      const recovery = await postgresStore.recoverStaleIntelligenceQueueJobs({
+        staleSeconds: INTELLIGENCE_QUEUE_STALE_SECONDS
+      });
+      intelligenceQueueWorkerState.recovered += Number(recovery?.recovered || 0);
+    }
+    const shouldPrune = !intelligenceQueueWorkerState.lastMaintenanceAt
+      || Date.now() - new Date(intelligenceQueueWorkerState.lastMaintenanceAt).getTime() > 60 * 60 * 1000;
+    if (shouldPrune && postgresStore.pruneCompletedIntelligenceQueueJobs) {
+      const prune = await postgresStore.pruneCompletedIntelligenceQueueJobs({
+        retentionHours: INTELLIGENCE_QUEUE_COMPLETED_RETENTION_HOURS
+      });
+      intelligenceQueueWorkerState.pruned += Number(prune?.pruned || 0);
+      intelligenceQueueWorkerState.lastMaintenanceAt = new Date().toISOString();
+    }
+    const jobs = await postgresStore.claimIntelligenceQueueBatch({
+      limit: INTELLIGENCE_QUEUE_BATCH_SIZE,
+      workerId: INTELLIGENCE_QUEUE_WORKER_ID
+    });
+    if (jobs.length) {
+      intelligenceQueueWorkerState.batches += 1;
+    }
+    for (const job of jobs) {
+      try {
+        await postgresStore.appendIntelligenceEvent(job.event, job.scores);
+        await postgresStore.completeIntelligenceQueueItem(job.queueId);
+        intelligenceQueueWorkerState.processed += 1;
+        intelligenceQueueWorkerState.lastSuccessAt = new Date().toISOString();
+      } catch (error) {
+        await postgresStore.failIntelligenceQueueItem(job.queueId, error, {
+          attempts: job.attempts,
+          maxAttempts: INTELLIGENCE_QUEUE_MAX_ATTEMPTS
+        });
+        intelligenceQueueWorkerState.failed += 1;
+        intelligenceQueueWorkerState.lastFailureAt = new Date().toISOString();
+        intelligenceQueueWorkerState.lastError = String(error?.message || error || "unknown").slice(0, 240);
+      }
+    }
+  } catch (error) {
+    intelligenceQueueWorkerState.failed += 1;
+    intelligenceQueueWorkerState.lastFailureAt = new Date().toISOString();
+    intelligenceQueueWorkerState.lastError = String(error?.message || error || "unknown").slice(0, 240);
+    console.warn("[WINGA] Intelligence durable queue worker failed.", error);
+  } finally {
+    intelligenceQueueWorkerRunning = false;
+  }
+}
+
+function startIntelligenceQueueWorker() {
+  if (!INTELLIGENCE_QUEUE_EMBEDDED_WORKER_ENABLED || !postgresStore?.claimIntelligenceQueueBatch || intelligenceQueueWorkerTimer) {
+    return;
+  }
+  intelligenceQueueWorkerState.enabled = true;
+  processIntelligenceQueueOnce().catch((error) => {
+    console.warn("[WINGA] Intelligence queue startup drain failed.", error);
+  });
+  intelligenceQueueWorkerTimer = setInterval(() => {
+    processIntelligenceQueueOnce().catch((error) => {
+      console.warn("[WINGA] Intelligence queue interval failed.", error);
+    });
+  }, INTELLIGENCE_QUEUE_INTERVAL_MS);
+  intelligenceQueueWorkerTimer.unref?.();
+}
+
+function stopIntelligenceQueueWorker() {
+  if (intelligenceQueueWorkerTimer) {
+    clearInterval(intelligenceQueueWorkerTimer);
+    intelligenceQueueWorkerTimer = null;
+  }
+  intelligenceQueueWorkerState.enabled = false;
+}
+
+function getIntelligenceQueueAlerts(health = {}) {
+  const alerts = [];
+  if (Number(health.dead || 0) >= INTELLIGENCE_QUEUE_DEAD_ALERT_THRESHOLD) {
+    alerts.push({
+      level: "critical",
+      type: "dead_jobs",
+      message: "Intelligence queue has dead jobs that require inspection.",
+      count: Number(health.dead || 0)
+    });
+  }
+  if (Number(health.failed || 0) >= INTELLIGENCE_QUEUE_FAILED_ALERT_THRESHOLD) {
+    alerts.push({
+      level: "high",
+      type: "failed_jobs",
+      message: "Intelligence queue retry backlog is above threshold.",
+      count: Number(health.failed || 0)
+    });
+  }
+  if (Number(health.pending || 0) >= INTELLIGENCE_QUEUE_PENDING_ALERT_THRESHOLD) {
+    alerts.push({
+      level: "medium",
+      type: "pending_backlog",
+      message: "Intelligence queue pending backlog is above threshold.",
+      count: Number(health.pending || 0)
+    });
+  }
+  return alerts;
+}
 
 function rememberDemandDedupeKey(key = "") {
   const safeKey = String(key || "").trim();
@@ -2229,7 +2370,7 @@ function isCsrfProtectedMethod(method = "GET") {
 }
 
 function isServerToServerWebhookPath(pathname = "") {
-  return pathname === "/api/payments/webhook";
+  return pathname === "/api/payments/webhook" || pathname === "/api/intelligence/queue-events";
 }
 
 function isCsrfExemptPath(pathname = "") {
@@ -3392,6 +3533,25 @@ async function buildOpsSummary() {
       intelligenceSummary.persistent = {
         error: "unavailable"
       };
+    }
+  }
+  intelligenceSummary.durableQueue = {
+    worker: { ...intelligenceQueueWorkerState },
+    health: null,
+    alerts: []
+  };
+  if (postgresStore?.readIntelligenceQueueHealth) {
+    try {
+      intelligenceSummary.durableQueue.health = await postgresStore.readIntelligenceQueueHealth();
+      intelligenceSummary.durableQueue.alerts = getIntelligenceQueueAlerts(intelligenceSummary.durableQueue.health);
+    } catch (error) {
+      intelligenceSummary.durableQueue.health = { error: "unavailable" };
+      intelligenceSummary.durableQueue.alerts = [{
+        level: "high",
+        type: "health_unavailable",
+        message: "Intelligence queue health could not be read.",
+        count: 1
+      }];
     }
   }
   const backupStatus = getBackupStatus();
@@ -5675,6 +5835,52 @@ http.createServer(async (req, res) => {
         console.warn("[WINGA] Intelligence ingestion failed.", error);
       });
       sendJson(res, 202, { ok: true });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/intelligence/queue-events") {
+      const providedSecret = String(req.headers["x-winga-queue-secret"] || "").trim();
+      if (!QUEUE_WEBHOOK_SECRET || !providedSecret || !timingSafeStringEqual(providedSecret, QUEUE_WEBHOOK_SECRET)) {
+        await denyJson(res, 403, "Queue webhook haijaruhusiwa.", {
+          ip: clientIp,
+          method: req.method,
+          path: url.pathname,
+          event: "intelligence_queue_webhook_denied",
+          reason: QUEUE_WEBHOOK_SECRET ? "invalid_secret" : "missing_server_secret"
+        });
+        return;
+      }
+      const payload = await collectBody(req);
+      const messages = Array.isArray(payload?.messages)
+        ? payload.messages
+        : Array.isArray(payload)
+          ? payload
+          : [payload];
+      const safeMessages = messages
+        .filter((item) => item && typeof item === "object" && !Array.isArray(item))
+        .slice(0, 100);
+      for (const message of safeMessages) {
+        intelligencePlatform.ingestClientEvent(message.event && typeof message.event === "object" ? message.event : message, {
+          req,
+          session: null,
+          store,
+          appVersion: APP_BUILD_VERSION
+        }).catch((error) => {
+          console.warn("[WINGA] Queue intelligence ingestion failed.", error);
+        });
+      }
+      await appendAuditLog({
+        time: new Date().toISOString(),
+        ip: clientIp,
+        method: req.method,
+        path: url.pathname,
+        event: "intelligence_queue_batch_received",
+        accepted: safeMessages.length
+      });
+      sendJson(res, 202, {
+        ok: true,
+        accepted: safeMessages.length
+      });
       return;
     }
 
@@ -8224,6 +8430,7 @@ http.createServer(async (req, res) => {
 }).listen(PORT, async () => {
   try {
     await initializeStoreAtBoot();
+    startIntelligenceQueueWorker();
     console.log(`WINGA backend running on http://localhost:${PORT}${postgresStore ? " (PostgreSQL mode)" : " (File mode)"}`);
   } catch (error) {
     console.error("[WINGA] failed to initialize backend", {
