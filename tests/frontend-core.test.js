@@ -472,6 +472,38 @@ test("feed intelligence ranks home feed without mutating pagination products", (
   assert.match(source, /style:\s*getStyleScore\(product, context\)/);
   assert.match(source, /sellerQuality:\s*getSellerQualityScore\(product, context\)/);
   assert.match(source, /market:\s*getMarketScore\(product, context\)/);
+  assert.match(source, /maxPersonalizationBudget/);
+  assert.match(source, /maxMarketDemandBudget/);
+  assert.match(source, /rawScore/);
+  const safetyEngine = context.window.WingaModules.marketplace.createFeedIntelligence({
+    getEngagementScore: (product) => Number(product.views || 0),
+    config: {
+      freshProtectionWindowMs: 20 * 60 * 1000,
+      freshTopSlots: 1,
+      sellerCap: 2,
+      maxEngagementBudget: 160,
+      maxMarketDemandBudget: 180,
+      maxPersonalizationBudget: 220
+    }
+  });
+  const safetyRanked = safetyEngine.rankHomeFeed([
+    { id: "fresh-safe", uploadedBy: "seller-fresh", createdAt: "2026-07-04T09:58:00.000Z", views: 0 },
+    { id: "old-hype-1", uploadedBy: "seller-hype", createdAt: "2026-06-01T09:00:00.000Z", views: 999999, demandSummary: { demandScore: 999, waitingUsers: 999, restockInterest: 999 } },
+    { id: "old-hype-2", uploadedBy: "seller-hype", createdAt: "2026-06-01T08:00:00.000Z", views: 999999, demandSummary: { demandScore: 999, waitingUsers: 999, restockInterest: 999 } },
+    { id: "old-hype-3", uploadedBy: "seller-hype", createdAt: "2026-06-01T07:00:00.000Z", views: 999999, demandSummary: { demandScore: 999, waitingUsers: 999, restockInterest: 999 } },
+    { id: "balanced", uploadedBy: "seller-balanced", createdAt: "2026-07-03T09:00:00.000Z", views: 5 }
+  ], { now });
+  const safetyScore = safetyEngine.scoreProduct({
+    id: "old-hype-1",
+    uploadedBy: "seller-hype",
+    createdAt: "2026-06-01T09:00:00.000Z",
+    views: 999999,
+    demandSummary: { demandScore: 999, waitingUsers: 999, restockInterest: 999 }
+  }, {}, now);
+  assert.equal(safetyRanked[0].id, "fresh-safe");
+  assert.equal(safetyRanked.slice(0, 4).filter((product) => product.uploadedBy === "seller-hype").length <= 2, true);
+  assert.equal(safetyScore.score.engagement, 160);
+  assert.equal(safetyScore.score.marketDemand, 180);
   assert.match(appSource, /function getHomeFeedIntelligenceEngine\(\)/);
   assert.match(appSource, /function getHomeFeedStyleProfile\(\)/);
   assert.match(appSource, /function getSellerQualitySnapshot\(username\)/);

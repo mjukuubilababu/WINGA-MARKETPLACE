@@ -133,6 +133,22 @@ Scoring now applies these guardrails:
 This keeps recommendations and seller quality scoring fair while preserving raw
 learning history for future analytics and AI models.
 
+## Feed Intelligence Safety
+
+Home Feed intelligence is a ranking layer only. It must never replace backend
+pagination or remove already-loaded products.
+
+Feed ranking uses bounded score budgets:
+
+- personalization budget: followed sellers, style, nearby, and recommendation
+- market demand budget: market trends, demand summaries, and variant richness
+- engagement budget: views, likes, saves, messages, orders, and trending velocity
+- seller quality budget: trust, quality, and activity snapshots
+
+Fresh products keep protected top slots. Seller diversity is enforced in early
+slots, while fallback still returns all page products so endless scroll,
+retention, and product identity remain stable.
+
 ## Monitoring Endpoint
 
 Use the lightweight queue health endpoint for uptime and alert monitors:

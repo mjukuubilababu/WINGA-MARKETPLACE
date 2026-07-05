@@ -15,6 +15,9 @@
       maxStyleBoost: 180,
       maxSellerQualityBoost: 170,
       maxMarketBoost: 190,
+      maxPersonalizationBudget: 420,
+      maxMarketDemandBudget: 360,
+      maxEngagementBudget: 240,
       ...deps.config
     };
     let lazyStyleEngine = deps.styleEngine || null;
@@ -22,6 +25,10 @@
     function toFiniteNumber(value, fallback = 0) {
       const parsed = Number(value);
       return Number.isFinite(parsed) ? parsed : fallback;
+    }
+
+    function clamp(value, min = 0, max = Number.POSITIVE_INFINITY) {
+      return Math.max(min, Math.min(max, toFiniteNumber(value, 0)));
     }
 
     function normalizeLookupValue(value) {
@@ -189,7 +196,7 @@
 
     function scoreProduct(product, context, now) {
       const engagement = getEngagementScore(product);
-      const score = {
+      const rawScore = {
         freshness: getRecencyScore(product, now),
         followedSeller: getFollowedSellerScore(product, context),
         sellerQuality: getSellerQualityScore(product, context),
@@ -202,12 +209,24 @@
         variant: getVariantScore(product),
         engagement: Math.min(180, engagement)
       };
+      const score = {
+        freshness: rawScore.freshness,
+        personalization: clamp(
+          rawScore.followedSeller + rawScore.recommendation + rawScore.style + rawScore.nearby,
+          0,
+          config.maxPersonalizationBudget
+        ),
+        trustAndQuality: clamp(rawScore.sellerQuality, 0, config.maxSellerQualityBoost),
+        marketDemand: clamp(rawScore.market + rawScore.demand + rawScore.variant, 0, config.maxMarketDemandBudget),
+        engagement: clamp(rawScore.trending + rawScore.engagement, 0, config.maxEngagementBudget)
+      };
       const availabilityPenalty = product?.availability === "sold_out" ? config.soldOutPenalty : 0;
       return {
         product,
         sellerId: String(product?.uploadedBy || ""),
         createdTime: getCreatedTime(product),
         score,
+        rawScore,
         totalScore: Object.values(score).reduce((sum, value) => sum + toFiniteNumber(value, 0), 0) - availabilityPenalty
       };
     }
