@@ -1057,6 +1057,9 @@ test("backend intelligence uses durable queue hooks when PostgreSQL is available
   assert.match(dbSource, /function enqueueIntelligenceEvent/);
   assert.match(dbSource, /function claimIntelligenceQueueBatch/);
   assert.match(dbSource, /function readIntelligenceQueueHealth/);
+  assert.match(dbSource, /function readIntelligenceQueueJobs/);
+  assert.match(dbSource, /function retryIntelligenceQueueItems/);
+  assert.match(dbSource, /function markIntelligenceQueueItemsDead/);
   assert.match(dbSource, /function recoverStaleIntelligenceQueueJobs/);
   assert.match(dbSource, /function pruneCompletedIntelligenceQueueJobs/);
   assert.match(serverSource, /postgresStore\?\.enqueueIntelligenceEvent/);
@@ -1069,7 +1072,11 @@ test("backend intelligence uses durable queue hooks when PostgreSQL is available
   assert.match(serverSource, /QUEUE_WEBHOOK_SECRET/);
   assert.match(serverSource, /OPS_HEALTH_TOKEN/);
   assert.match(serverSource, /\/api\/ops\/intelligence\/queue-health/);
+  assert.match(serverSource, /\/api\/admin\/ops\/intelligence-queue/);
+  assert.match(serverSource, /\/api\/admin\/ops\/intelligence-queue\/retry/);
+  assert.match(serverSource, /\/api\/admin\/ops\/intelligence-queue\/dead/);
   assert.match(serverSource, /X-Ops-Health-Token/i);
+  assert.match(serverSource, /normalizeQueueRecoveryIds/);
   assert.match(serverSource, /INTELLIGENCE_QUEUE_PENDING_AGE_ALERT_SECONDS/);
   assert.match(serverSource, /oldestPendingAgeSeconds/);
   assert.match(serverSource, /processing_stall/);

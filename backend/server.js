@@ -1064,6 +1064,13 @@ async function buildIntelligenceQueueHealthReport() {
   };
 }
 
+function normalizeQueueRecoveryIds(payload = {}) {
+  return Array.from(new Set((Array.isArray(payload?.queueIds) ? payload.queueIds : [])
+    .map((queueId) => Number(queueId || 0))
+    .filter((queueId) => Number.isInteger(queueId) && queueId > 0)))
+    .slice(0, 100);
+}
+
 function rememberDemandDedupeKey(key = "") {
   const safeKey = String(key || "").trim();
   if (!safeKey) {
@@ -4968,6 +4975,116 @@ http.createServer(async (req, res) => {
       }
 
       sendJson(res, 200, await buildOpsSummary());
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/admin/ops/intelligence-queue") {
+      const token = readAuthToken(req);
+      const session = findSession(store, token);
+      if (!session || !isAdminSession(session)) {
+        await denyJson(res, session ? 403 : 401, session ? "Hii area ni ya admin tu." : "Session imeisha au si sahihi.", {
+          ip: clientIp,
+          method: req.method,
+          path: url.pathname,
+          event: "admin_ops_queue_denied",
+          username: session?.username || "",
+          reason: session ? "insufficient_role" : "missing_or_invalid_session"
+        });
+        return;
+      }
+      if (!postgresStore?.readIntelligenceQueueJobs) {
+        sendJson(res, 503, { error: "Durable intelligence queue is unavailable." });
+        return;
+      }
+      const statuses = String(url.searchParams.get("status") || "failed,dead")
+        .split(",")
+        .map((status) => status.trim())
+        .filter(Boolean);
+      const limit = Number.parseInt(url.searchParams.get("limit"), 10) || 50;
+      const cursor = Number.parseInt(url.searchParams.get("cursor"), 10) || 0;
+      sendJson(res, 200, await postgresStore.readIntelligenceQueueJobs({ statuses, limit, cursor }), {
+        "Cache-Control": "no-store"
+      });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/admin/ops/intelligence-queue/retry") {
+      const token = readAuthToken(req);
+      const session = findSession(store, token);
+      if (!session || !isAdminSession(session)) {
+        await denyJson(res, session ? 403 : 401, session ? "Hii area ni ya admin tu." : "Session imeisha au si sahihi.", {
+          ip: clientIp,
+          method: req.method,
+          path: url.pathname,
+          event: "admin_ops_queue_retry_denied",
+          username: session?.username || "",
+          reason: session ? "insufficient_role" : "missing_or_invalid_session"
+        });
+        return;
+      }
+      if (!postgresStore?.retryIntelligenceQueueItems) {
+        sendJson(res, 503, { error: "Durable intelligence queue is unavailable." });
+        return;
+      }
+      const payload = await collectBody(req);
+      const queueIds = normalizeQueueRecoveryIds(payload);
+      if (!queueIds.length) {
+        sendJson(res, 400, { error: "queueIds must include at least one valid queue id." });
+        return;
+      }
+      const result = await postgresStore.retryIntelligenceQueueItems(queueIds);
+      await appendAuditLog({
+        time: new Date().toISOString(),
+        ip: clientIp,
+        method: req.method,
+        path: url.pathname,
+        event: "admin_ops_queue_retry",
+        username: session.username,
+        statusCode: 200,
+        requestId: requestMeta.requestId,
+        details: result
+      });
+      sendJson(res, 200, result, { "Cache-Control": "no-store" });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/admin/ops/intelligence-queue/dead") {
+      const token = readAuthToken(req);
+      const session = findSession(store, token);
+      if (!session || !isAdminSession(session)) {
+        await denyJson(res, session ? 403 : 401, session ? "Hii area ni ya admin tu." : "Session imeisha au si sahihi.", {
+          ip: clientIp,
+          method: req.method,
+          path: url.pathname,
+          event: "admin_ops_queue_dead_denied",
+          username: session?.username || "",
+          reason: session ? "insufficient_role" : "missing_or_invalid_session"
+        });
+        return;
+      }
+      if (!postgresStore?.markIntelligenceQueueItemsDead) {
+        sendJson(res, 503, { error: "Durable intelligence queue is unavailable." });
+        return;
+      }
+      const payload = await collectBody(req);
+      const queueIds = normalizeQueueRecoveryIds(payload);
+      if (!queueIds.length) {
+        sendJson(res, 400, { error: "queueIds must include at least one valid queue id." });
+        return;
+      }
+      const result = await postgresStore.markIntelligenceQueueItemsDead(queueIds, payload?.reason);
+      await appendAuditLog({
+        time: new Date().toISOString(),
+        ip: clientIp,
+        method: req.method,
+        path: url.pathname,
+        event: "admin_ops_queue_mark_dead",
+        username: session.username,
+        statusCode: 200,
+        requestId: requestMeta.requestId,
+        details: result
+      });
+      sendJson(res, 200, result, { "Cache-Control": "no-store" });
       return;
     }
 

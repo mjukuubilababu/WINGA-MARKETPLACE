@@ -1711,6 +1711,117 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
     );
   }
 
+  async function readIntelligenceQueueJobs(options = {}) {
+    const allowedStatuses = new Set(["pending", "processing", "failed", "dead", "completed"]);
+    const statuses = (Array.isArray(options.statuses) ? options.statuses : ["failed", "dead"])
+      .map((status) => String(status || "").trim().toLowerCase())
+      .filter((status) => allowedStatuses.has(status));
+    const safeStatuses = statuses.length ? Array.from(new Set(statuses)) : ["failed", "dead"];
+    const limit = Math.max(1, Math.min(Number(options.limit || 50) || 50, 100));
+    const cursor = Number(options.cursor || 0) || 0;
+    const params = [safeStatuses, limit + 1];
+    const cursorClause = cursor > 0 ? "AND queue_id < $3" : "";
+    if (cursor > 0) {
+      params.push(cursor);
+    }
+    const result = await query(
+      `SELECT
+         queue_id,
+         event_id,
+         status,
+         attempts,
+         available_at,
+         locked_at,
+         locked_by,
+         processed_at,
+         last_error,
+         created_at,
+         updated_at,
+         event_payload->>'eventType' AS event_type,
+         event_payload->>'productId' AS product_id,
+         event_payload->>'sellerId' AS seller_id,
+         event_payload->>'sourceEvent' AS source_event
+       FROM intelligence_event_queue
+       WHERE status = ANY($1::text[])
+       ${cursorClause}
+       ORDER BY queue_id DESC
+       LIMIT $2`,
+      params
+    );
+    const rows = result.rows || [];
+    const items = rows.slice(0, limit).map((row) => ({
+      queueId: Number(row.queue_id || 0),
+      eventId: row.event_id || "",
+      eventType: row.event_type || "",
+      sourceEvent: row.source_event || "",
+      productId: row.product_id || "",
+      sellerId: row.seller_id || "",
+      status: row.status || "",
+      attempts: Number(row.attempts || 0),
+      availableAt: row.available_at || null,
+      lockedAt: row.locked_at || null,
+      lockedBy: row.locked_by || "",
+      processedAt: row.processed_at || null,
+      lastError: String(row.last_error || "").slice(0, 500),
+      createdAt: row.created_at || null,
+      updatedAt: row.updated_at || null
+    }));
+    return {
+      items,
+      hasMore: rows.length > limit,
+      nextCursor: rows.length > limit ? String(items[items.length - 1]?.queueId || "") : "",
+      statuses: safeStatuses
+    };
+  }
+
+  async function retryIntelligenceQueueItems(queueIds = []) {
+    const safeIds = Array.from(new Set((Array.isArray(queueIds) ? queueIds : [])
+      .map((queueId) => Number(queueId || 0))
+      .filter((queueId) => Number.isInteger(queueId) && queueId > 0)))
+      .slice(0, 100);
+    if (!safeIds.length) {
+      return { retried: 0 };
+    }
+    const result = await query(
+      `UPDATE intelligence_event_queue
+       SET status = 'pending',
+           attempts = 0,
+           available_at = NOW(),
+           locked_at = NULL,
+           locked_by = '',
+           processed_at = NULL,
+           last_error = '',
+           updated_at = NOW()
+       WHERE queue_id = ANY($1::bigint[])
+         AND status IN ('failed', 'dead')`,
+      [safeIds]
+    );
+    return { retried: Number(result.rowCount || 0), requested: safeIds.length };
+  }
+
+  async function markIntelligenceQueueItemsDead(queueIds = [], reason = "") {
+    const safeIds = Array.from(new Set((Array.isArray(queueIds) ? queueIds : [])
+      .map((queueId) => Number(queueId || 0))
+      .filter((queueId) => Number.isInteger(queueId) && queueId > 0)))
+      .slice(0, 100);
+    if (!safeIds.length) {
+      return { markedDead: 0 };
+    }
+    const safeReason = String(reason || "Manually marked dead by ops").slice(0, 500);
+    const result = await query(
+      `UPDATE intelligence_event_queue
+       SET status = 'dead',
+           locked_at = NULL,
+           locked_by = '',
+           last_error = $2,
+           updated_at = NOW()
+       WHERE queue_id = ANY($1::bigint[])
+         AND status IN ('pending', 'failed', 'processing')`,
+      [safeIds, safeReason]
+    );
+    return { markedDead: Number(result.rowCount || 0), requested: safeIds.length };
+  }
+
   async function readIntelligenceQueueHealth() {
     const result = await query(
       `SELECT status, COUNT(*)::int AS count
@@ -2174,6 +2285,9 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
     claimIntelligenceQueueBatch,
     completeIntelligenceQueueItem,
     failIntelligenceQueueItem,
+    readIntelligenceQueueJobs,
+    retryIntelligenceQueueItems,
+    markIntelligenceQueueItemsDead,
     readIntelligenceQueueHealth,
     recoverStaleIntelligenceQueueJobs,
     pruneCompletedIntelligenceQueueJobs,

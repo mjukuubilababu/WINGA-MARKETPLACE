@@ -348,6 +348,29 @@ test("PostgreSQL durable intelligence queue claims, retries, and completes jobs"
           }]
         };
       }
+      if (text.includes("event_payload->>'eventType'")) {
+        return {
+          rows: [
+            {
+              queue_id: 9,
+              event_id: "intel-queued-1",
+              status: "dead",
+              attempts: 5,
+              available_at: new Date("2026-07-05T08:00:00.000Z"),
+              locked_at: null,
+              locked_by: "",
+              processed_at: null,
+              last_error: "terminal",
+              created_at: new Date("2026-07-05T07:00:00.000Z"),
+              updated_at: new Date("2026-07-05T08:00:00.000Z"),
+              event_type: "product_viewed",
+              product_id: "product-1",
+              seller_id: "seller-1",
+              source_event: "product_viewed"
+            }
+          ]
+        };
+      }
       return { rows: [], rowCount: 1 };
     }
   };
@@ -368,6 +391,9 @@ test("PostgreSQL durable intelligence queue claims, retries, and completes jobs"
   const recovery = await store.recoverStaleIntelligenceQueueJobs({ staleSeconds: 120 });
   const prune = await store.pruneCompletedIntelligenceQueueJobs({ retentionHours: 24 });
   const health = await store.readIntelligenceQueueHealth();
+  const failedJobs = await store.readIntelligenceQueueJobs({ statuses: ["dead"], limit: 10 });
+  const retry = await store.retryIntelligenceQueueItems([9, 9, "bad"]);
+  const markedDead = await store.markIntelligenceQueueItemsDead([9], "manual stop");
 
   assert.equal(enqueueResult.enqueued, true);
   assert.match(calls[0].text, /INSERT INTO intelligence_event_queue/);
@@ -391,6 +417,15 @@ test("PostgreSQL durable intelligence queue claims, retries, and completes jobs"
   assert.equal(health.oldestFailedAgeSeconds, 120);
   assert.equal(health.secondsSinceLastCompleted, 18);
   assert.equal(health.maxAttemptsSeen, 2);
+  assert.equal(failedJobs.items[0].queueId, 9);
+  assert.equal(failedJobs.items[0].eventType, "product_viewed");
+  assert.equal(failedJobs.items[0].productId, "product-1");
+  assert.equal(failedJobs.items[0].eventPayload, undefined);
+  assert.equal(retry.retried, 1);
+  assert.equal(retry.requested, 1);
+  assert.equal(markedDead.markedDead, 1);
+  assert.match(calls.at(-2).text, /status = 'pending'/);
+  assert.match(calls.at(-1).text, /status = 'dead'/);
 });
 
 test("PostgreSQL demand persistence dedupes events and refreshes seller summaries", async () => {

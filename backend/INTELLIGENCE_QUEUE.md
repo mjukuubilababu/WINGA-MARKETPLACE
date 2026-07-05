@@ -121,6 +121,47 @@ Recommended monitor policy:
 - HTTP 200 and `readiness=watch/degraded`: alert engineering, marketplace can keep running.
 - HTTP 503 or `readiness=critical/unavailable`: page engineering and inspect the queue.
 
+## Admin Recovery Operations
+
+Admin-only queue recovery endpoints are available for incident response. They use
+normal admin authentication and CSRF protection, not the read-only ops health
+token.
+
+List failed/dead jobs without exposing raw event payloads:
+
+```bash
+curl "https://winga-pflp.onrender.com/api/admin/ops/intelligence-queue?status=failed,dead&limit=50" \
+  -H "Cookie: winga_auth=<admin-cookie>"
+```
+
+Retry failed/dead jobs:
+
+```bash
+curl -X POST https://winga-pflp.onrender.com/api/admin/ops/intelligence-queue/retry \
+  -H "Cookie: winga_auth=<admin-cookie>" \
+  -H "Content-Type: application/json" \
+  -H "x-csrf-token: <csrf-token>" \
+  -d '{"queueIds":[123,124]}'
+```
+
+Manually mark stuck jobs dead:
+
+```bash
+curl -X POST https://winga-pflp.onrender.com/api/admin/ops/intelligence-queue/dead \
+  -H "Cookie: winga_auth=<admin-cookie>" \
+  -H "Content-Type: application/json" \
+  -H "x-csrf-token: <csrf-token>" \
+  -d '{"queueIds":[125],"reason":"manual ops quarantine"}'
+```
+
+Rules:
+
+- Retry resets attempts to zero and returns jobs to `pending`.
+- Retry only affects `failed` and `dead` jobs.
+- Mark-dead only affects `pending`, `failed`, and `processing` jobs.
+- Completed jobs are immutable through recovery endpoints.
+- Recovery endpoints return summaries only and never return raw buyer/event payloads.
+
 ## Managed External Queue Upgrade Path
 
 The current Postgres outbox is production-grade and horizontally safe. At very high global traffic, move the transport to a managed queue while keeping the same canonical event schema.
