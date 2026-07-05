@@ -1002,6 +1002,9 @@ test("backend intelligence platform normalizes canonical marketplace events", as
   assert.equal(event.feedContext, "home-feed");
   assert.equal(event.location, "TZ");
   assert.equal(event.deviceType, "mobile");
+  assert.equal(event.quality.known, true);
+  assert.equal(event.quality.scoreableProduct, true);
+  assert.equal(event.quality.scoreableSeller, true);
   assert.equal(platform.getSummary().queue.enqueued, 1);
   await platform.drainForTests();
   assert.equal(appended[0].event, "intelligence_event");
@@ -1011,6 +1014,48 @@ test("backend intelligence platform normalizes canonical marketplace events", as
   assert.equal(persisted[0].scores.sellerScore.id, "seller_one");
   assert.equal(platform.getSummary().topProducts[0].id, "product-1");
   assert.equal(platform.getSummary().topSellers[0].id, "seller_one");
+});
+
+test("backend intelligence scoring caps repeated contributions and preserves noisy history", async () => {
+  const root = path.resolve(__dirname, "..");
+  const { createIntelligencePlatform } = require(path.join(root, "backend", "intelligence-platform.js"));
+  const persisted = [];
+  const platform = createIntelligencePlatform({
+    appendEvent: async () => {},
+    persistEvent: async (event, scores) => persisted.push({ event, scores }),
+    now: () => new Date("2026-06-30T09:00:00.000Z"),
+    logger: { warn() {} }
+  });
+  const context = {
+    session: { username: "buyer_one" },
+    req: { headers: { "user-agent": "Mozilla/5.0", "cf-ipcountry": "TZ" } },
+    store: { products: [{ id: "product-1", uploadedBy: "seller_one" }] }
+  };
+
+  for (let index = 0; index < 5; index += 1) {
+    await platform.ingestClientEvent({
+      level: "info",
+      event: "product_viewed",
+      fingerprint: "buyer-flow",
+      context: { productId: "product-1", surface: "home-feed" }
+    }, context);
+  }
+  const noisy = await platform.ingestClientEvent({
+    level: "info",
+    event: "random_debug_noise",
+    fingerprint: "buyer-flow",
+    context: { route: "/" }
+  }, context);
+  await platform.drainForTests();
+
+  assert.equal(noisy.quality.known, false);
+  assert.equal(noisy.quality.scoreableProduct, false);
+  assert.equal(platform.getProductScore("product-1").score, 3);
+  assert.equal(platform.getProductScore("product-1").signals.product_viewed, 3);
+  assert.equal(platform.getSellerScore("seller_one").signals.product_viewed, 3);
+  assert.equal(platform.getSummary().queue.scoreSuppressed, 4);
+  assert.equal(persisted.length, 6);
+  assert.equal(persisted[persisted.length - 1].scores.productScore, null);
 });
 
 test("backend intelligence platform bounds persistence queue under pressure", async () => {

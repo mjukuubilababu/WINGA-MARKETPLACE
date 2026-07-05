@@ -1547,6 +1547,10 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
   }
 
   async function appendIntelligenceEvent(event, scores = {}) {
+    const metadata = {
+      ...(event.metadata || {}),
+      ...(event.quality ? { signalQuality: event.quality } : {})
+    };
     await query(
       `INSERT INTO intelligence_events (
         event_id, event_type, source_event, happened_at, product_id, seller_id,
@@ -1573,7 +1577,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
         event.level || "",
         event.category || "",
         event.alertSeverity || "",
-        JSON.stringify(event.metadata || {}),
+        JSON.stringify(metadata),
         event.platformVersion || ""
       ]
     );

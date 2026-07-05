@@ -3,6 +3,8 @@ const crypto = require("crypto");
 const PLATFORM_VERSION = "2026-06-30.1";
 const MAX_RECENT_EVENTS = 500;
 const MAX_SCORE_ENTRIES = 5000;
+const CONTRIBUTION_WINDOW_MS = 10 * 60 * 1000;
+const MAX_CONTRIBUTIONS_PER_WINDOW = 3;
 
 const PRODUCT_SIGNAL_WEIGHTS = Object.freeze({
   product_viewed: 1,
@@ -44,6 +46,11 @@ const SELLER_SIGNAL_WEIGHTS = Object.freeze({
   promotion_started: 1.5,
   notification_clicked: 0.5
 });
+
+const KNOWN_EVENT_TYPES = new Set([
+  ...Object.keys(PRODUCT_SIGNAL_WEIGHTS),
+  ...Object.keys(SELLER_SIGNAL_WEIGHTS)
+]);
 
 const EVENT_ALIASES = Object.freeze({
   product_created: "product_uploaded",
@@ -145,6 +152,52 @@ function normalizeMetadata(context = {}) {
   return metadata;
 }
 
+function getActorKey(event = {}) {
+  return normalizeIdentifier(pickFirst(event.buyerId, event.sessionId, event.deviceType, "anonymous"), 120) || "anonymous";
+}
+
+function getScoreTargetKey(event = {}, target = "") {
+  if (target === "product") {
+    return normalizeIdentifier(event.productId, 100);
+  }
+  if (target === "seller") {
+    return normalizeIdentifier(event.sellerId, 100);
+  }
+  return "";
+}
+
+function getSignalQuality(event = {}) {
+  const eventType = normalizeEventType(event.eventType || event.sourceEvent);
+  const known = KNOWN_EVENT_TYPES.has(eventType);
+  const hasProductWeight = Number(PRODUCT_SIGNAL_WEIGHTS[eventType] || 0) !== 0;
+  const hasSellerWeight = Number(SELLER_SIGNAL_WEIGHTS[eventType] || 0) !== 0;
+  const scoreableProduct = Boolean(known && hasProductWeight && event.productId);
+  const scoreableSeller = Boolean(known && hasSellerWeight && event.sellerId);
+  const reasons = [];
+  if (!known) reasons.push("unknown_event_type");
+  if (hasProductWeight && !event.productId) reasons.push("missing_product_id");
+  if (hasSellerWeight && !event.sellerId) reasons.push("missing_seller_id");
+  if (!event.buyerId && !event.sessionId) reasons.push("anonymous_signal");
+  const confidence = Math.max(
+    0,
+    Math.min(
+      1,
+      0.35
+        + (known ? 0.25 : 0)
+        + (event.productId ? 0.16 : 0)
+        + (event.sellerId ? 0.12 : 0)
+        + ((event.buyerId || event.sessionId) ? 0.12 : 0)
+    )
+  );
+  return {
+    known,
+    scoreableProduct,
+    scoreableSeller,
+    confidence: Math.round(confidence * 100) / 100,
+    reasons
+  };
+}
+
 function updateScore(map, key, delta, timestamp) {
   const safeKey = normalizeIdentifier(key, 100);
   if (!safeKey) {
@@ -201,6 +254,7 @@ function createIntelligencePlatform(options = {}) {
   const productScores = new Map();
   const sellerScores = new Map();
   const eventCounts = new Map();
+  const scoreContributionWindows = new Map();
   const persistenceQueue = [];
   const drainResolvers = [];
   let activePersistenceJobs = 0;
@@ -216,7 +270,8 @@ function createIntelligencePlatform(options = {}) {
     lastProcessedAt: "",
     lastPersistedAt: "",
     lastFailureAt: "",
-    lastDroppedAt: ""
+    lastDroppedAt: "",
+    scoreSuppressed: 0
   };
 
   function getProductScore(productId = "") {
@@ -291,8 +346,38 @@ function createIntelligencePlatform(options = {}) {
       category: sanitizeText(payload.category, 40),
       alertSeverity: sanitizeText(payload.alertSeverity, 20),
       metadata,
+      quality: getSignalQuality({
+        eventType,
+        sourceEvent: payload.event,
+        productId,
+        sellerId,
+        buyerId: sessionUser,
+        sessionId: payload.fingerprint || metadata.fingerprint || ""
+      }),
       platformVersion: PLATFORM_VERSION
     };
+  }
+
+  function canContributeScore(event, target) {
+    const targetKey = getScoreTargetKey(event, target);
+    if (!targetKey) {
+      return false;
+    }
+    const actorKey = getActorKey(event);
+    const bucket = Math.floor(new Date(event.timestamp || now().toISOString()).getTime() / CONTRIBUTION_WINDOW_MS);
+    const key = `${target}:${event.eventType}:${targetKey}:${actorKey}:${bucket}`;
+    const count = Number(scoreContributionWindows.get(key) || 0);
+    if (count >= MAX_CONTRIBUTIONS_PER_WINDOW) {
+      queueState.scoreSuppressed += 1;
+      return false;
+    }
+    scoreContributionWindows.set(key, count + 1);
+    if (scoreContributionWindows.size > MAX_SCORE_ENTRIES) {
+      Array.from(scoreContributionWindows.keys()).slice(0, Math.ceil(MAX_SCORE_ENTRIES * 0.1)).forEach((entryKey) => {
+        scoreContributionWindows.delete(entryKey);
+      });
+    }
+    return true;
   }
 
   function processCanonicalEvent(event) {
@@ -307,11 +392,11 @@ function createIntelligencePlatform(options = {}) {
 
     const productDelta = Number(PRODUCT_SIGNAL_WEIGHTS[event.eventType] || 0);
     const sellerDelta = Number(SELLER_SIGNAL_WEIGHTS[event.eventType] || 0);
-    if (event.productId && productDelta) {
+    if (event.quality?.scoreableProduct && productDelta && canContributeScore(event, "product")) {
       updateScore(productScores, event.productId, productDelta, event.timestamp);
       incrementSignal(productScores, event.productId, event.eventType);
     }
-    if (event.sellerId && sellerDelta) {
+    if (event.quality?.scoreableSeller && sellerDelta && canContributeScore(event, "seller")) {
       updateScore(sellerScores, event.sellerId, sellerDelta, event.timestamp);
       incrementSignal(sellerScores, event.sellerId, event.eventType);
     }
@@ -332,6 +417,7 @@ function createIntelligencePlatform(options = {}) {
       deviceType: event.deviceType,
       appVersion: event.appVersion,
       metadata: event.metadata,
+      quality: event.quality,
       platformVersion: event.platformVersion
     };
   }
@@ -445,7 +531,8 @@ function createIntelligencePlatform(options = {}) {
       counts: {
         recentEvents: recentEvents.length,
         productScores: productScores.size,
-        sellerScores: sellerScores.size
+        sellerScores: sellerScores.size,
+        contributionWindows: scoreContributionWindows.size
       },
       topEventTypes: Array.from(eventCounts.entries())
         .sort((first, second) => Number(second[1]) - Number(first[1]))

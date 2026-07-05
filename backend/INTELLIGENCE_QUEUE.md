@@ -114,6 +114,25 @@ This protects recommendation scores, demand analytics, seller quality signals,
 and market intelligence from accidental loops and basic spam without breaking
 Home Feed, image loading, checkout, or messaging.
 
+## Scoring Quality Guardrails
+
+Canonical intelligence events are append-only history, but not every event is
+allowed to move product or seller scores.
+
+Scoring now applies these guardrails:
+
+- unknown event types are recorded but do not affect product/seller scores
+- scoreable product signals require a product id
+- scoreable seller signals require a seller id
+- each event carries a `signalQuality` envelope in metadata
+- repeated score contributions from the same actor/product/event are capped per
+  time window
+- suppressed contributions increment `queue.scoreSuppressed` in the intelligence
+  summary
+
+This keeps recommendations and seller quality scoring fair while preserving raw
+learning history for future analytics and AI models.
+
 ## Monitoring Endpoint
 
 Use the lightweight queue health endpoint for uptime and alert monitors:
