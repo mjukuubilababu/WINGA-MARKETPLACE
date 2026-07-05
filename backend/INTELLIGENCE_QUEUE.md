@@ -90,6 +90,36 @@ The backend rejects that endpoint unless `X-Winga-Queue-Secret` matches `QUEUE_W
 - `INTELLIGENCE_QUEUE_PENDING_ALERT_THRESHOLD=1000`
 - `INTELLIGENCE_QUEUE_FAILED_ALERT_THRESHOLD=25`
 - `INTELLIGENCE_QUEUE_DEAD_ALERT_THRESHOLD=1`
+- `INTELLIGENCE_QUEUE_PENDING_AGE_ALERT_SECONDS=300`
+- `INTELLIGENCE_QUEUE_FAILED_AGE_ALERT_SECONDS=900`
+- `INTELLIGENCE_QUEUE_PROCESSING_AGE_ALERT_SECONDS=600`
+- `OPS_HEALTH_TOKEN=<strong-random-token>`
+
+## Monitoring Endpoint
+
+Use the lightweight queue health endpoint for uptime and alert monitors:
+
+```bash
+curl https://winga-pflp.onrender.com/api/ops/intelligence/queue-health \
+  -H "X-Ops-Health-Token: $OPS_HEALTH_TOKEN"
+```
+
+It returns only operational queue state:
+
+- readiness: `ready`, `watch`, `degraded`, `critical`, or `unavailable`
+- worker counters and timestamps
+- pending, processing, failed, completed, and dead counts
+- oldest pending/failed/processing ages
+- threshold-based alerts
+
+It does not expose buyer data, product events, seller private data, or raw
+intelligence payloads.
+
+Recommended monitor policy:
+
+- HTTP 200 and `readiness=ready`: healthy.
+- HTTP 200 and `readiness=watch/degraded`: alert engineering, marketplace can keep running.
+- HTTP 503 or `readiness=critical/unavailable`: page engineering and inspect the queue.
 
 ## Managed External Queue Upgrade Path
 

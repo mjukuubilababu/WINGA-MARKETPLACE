@@ -861,6 +861,10 @@ const INTELLIGENCE_QUEUE_EMBEDDED_WORKER_ENABLED = String(process.env.INTELLIGEN
 const INTELLIGENCE_QUEUE_PENDING_ALERT_THRESHOLD = Math.max(1, Number(process.env.INTELLIGENCE_QUEUE_PENDING_ALERT_THRESHOLD || 1000) || 1000);
 const INTELLIGENCE_QUEUE_FAILED_ALERT_THRESHOLD = Math.max(1, Number(process.env.INTELLIGENCE_QUEUE_FAILED_ALERT_THRESHOLD || 25) || 25);
 const INTELLIGENCE_QUEUE_DEAD_ALERT_THRESHOLD = Math.max(1, Number(process.env.INTELLIGENCE_QUEUE_DEAD_ALERT_THRESHOLD || 1) || 1);
+const INTELLIGENCE_QUEUE_PENDING_AGE_ALERT_SECONDS = Math.max(60, Number(process.env.INTELLIGENCE_QUEUE_PENDING_AGE_ALERT_SECONDS || 300) || 300);
+const INTELLIGENCE_QUEUE_FAILED_AGE_ALERT_SECONDS = Math.max(60, Number(process.env.INTELLIGENCE_QUEUE_FAILED_AGE_ALERT_SECONDS || 900) || 900);
+const INTELLIGENCE_QUEUE_PROCESSING_AGE_ALERT_SECONDS = Math.max(60, Number(process.env.INTELLIGENCE_QUEUE_PROCESSING_AGE_ALERT_SECONDS || 600) || 600);
+const OPS_HEALTH_TOKEN = String(process.env.OPS_HEALTH_TOKEN || "").trim();
 let intelligenceQueueWorkerTimer = null;
 let intelligenceQueueWorkerRunning = false;
 const intelligenceQueueWorkerState = {
@@ -985,7 +989,79 @@ function getIntelligenceQueueAlerts(health = {}) {
       count: Number(health.pending || 0)
     });
   }
+  if (Number(health.oldestPendingAgeSeconds || 0) >= INTELLIGENCE_QUEUE_PENDING_AGE_ALERT_SECONDS) {
+    alerts.push({
+      level: "high",
+      type: "pending_lag",
+      message: "Oldest intelligence queue pending job is too old.",
+      ageSeconds: Number(health.oldestPendingAgeSeconds || 0)
+    });
+  }
+  if (Number(health.oldestFailedAgeSeconds || 0) >= INTELLIGENCE_QUEUE_FAILED_AGE_ALERT_SECONDS) {
+    alerts.push({
+      level: "high",
+      type: "failed_lag",
+      message: "Failed intelligence queue jobs have not recovered quickly enough.",
+      ageSeconds: Number(health.oldestFailedAgeSeconds || 0)
+    });
+  }
+  if (Number(health.oldestProcessingAgeSeconds || 0) >= INTELLIGENCE_QUEUE_PROCESSING_AGE_ALERT_SECONDS) {
+    alerts.push({
+      level: "critical",
+      type: "processing_stall",
+      message: "An intelligence queue job appears stuck in processing.",
+      ageSeconds: Number(health.oldestProcessingAgeSeconds || 0)
+    });
+  }
   return alerts;
+}
+
+function getIntelligenceQueueReadiness(health = {}, alerts = []) {
+  if (health?.error) {
+    return "unavailable";
+  }
+  if (alerts.some((alert) => alert.level === "critical")) {
+    return "critical";
+  }
+  if (alerts.some((alert) => alert.level === "high")) {
+    return "degraded";
+  }
+  if (alerts.length) {
+    return "watch";
+  }
+  return "ready";
+}
+
+function isValidOpsHealthToken(req) {
+  if (!OPS_HEALTH_TOKEN) {
+    return NODE_ENV !== "production";
+  }
+  const bearer = String(req.headers.authorization || "").replace(/^Bearer\s+/i, "").trim();
+  const headerToken = String(req.headers["x-ops-health-token"] || "").trim();
+  return timingSafeStringEqual(headerToken, OPS_HEALTH_TOKEN) || timingSafeStringEqual(bearer, OPS_HEALTH_TOKEN);
+}
+
+async function buildIntelligenceQueueHealthReport() {
+  const health = postgresStore?.readIntelligenceQueueHealth
+    ? await postgresStore.readIntelligenceQueueHealth()
+    : { error: "postgres_queue_unavailable" };
+  const alerts = getIntelligenceQueueAlerts(health);
+  return {
+    ok: getIntelligenceQueueReadiness(health, alerts) === "ready",
+    readiness: getIntelligenceQueueReadiness(health, alerts),
+    time: new Date().toISOString(),
+    worker: { ...intelligenceQueueWorkerState },
+    health,
+    alerts,
+    thresholds: {
+      pending: INTELLIGENCE_QUEUE_PENDING_ALERT_THRESHOLD,
+      failed: INTELLIGENCE_QUEUE_FAILED_ALERT_THRESHOLD,
+      dead: INTELLIGENCE_QUEUE_DEAD_ALERT_THRESHOLD,
+      pendingAgeSeconds: INTELLIGENCE_QUEUE_PENDING_AGE_ALERT_SECONDS,
+      failedAgeSeconds: INTELLIGENCE_QUEUE_FAILED_AGE_ALERT_SECONDS,
+      processingAgeSeconds: INTELLIGENCE_QUEUE_PROCESSING_AGE_ALERT_SECONDS
+    }
+  };
 }
 
 function rememberDemandDedupeKey(key = "") {
@@ -4453,6 +4529,31 @@ http.createServer(async (req, res) => {
       environment: NODE_ENV,
       storageMode: runtimeConfiguration.storageMode,
       configWarningsCount: runtimeConfiguration.warnings.length
+    });
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/ops/intelligence/queue-health") {
+    if (!isValidOpsHealthToken(req)) {
+      requestMeta.statusCode = OPS_HEALTH_TOKEN ? 401 : 503;
+      logRouteSummary(requestMeta, { lightweight: true, auth: "ops_health_denied" });
+      sendJson(res, OPS_HEALTH_TOKEN ? 401 : 503, {
+        ok: false,
+        error: OPS_HEALTH_TOKEN ? "Unauthorized" : "OPS_HEALTH_TOKEN is not configured."
+      }, {
+        "Cache-Control": "no-store"
+      });
+      return;
+    }
+    const report = await buildIntelligenceQueueHealthReport();
+    requestMeta.statusCode = report.readiness === "critical" ? 503 : 200;
+    logRouteSummary(requestMeta, {
+      lightweight: true,
+      readiness: report.readiness,
+      alerts: report.alerts.length
+    });
+    sendJson(res, report.readiness === "critical" ? 503 : 200, report, {
+      "Cache-Control": "no-store"
     });
     return;
   }

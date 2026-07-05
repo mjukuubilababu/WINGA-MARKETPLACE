@@ -1721,12 +1721,31 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
     result.rows.forEach((row) => {
       byStatus[row.status || "unknown"] = Number(row.count || 0);
     });
+    const metrics = await query(
+      `SELECT
+         COALESCE(EXTRACT(EPOCH FROM (NOW() - (MIN(created_at) FILTER (WHERE status = 'pending'))))::int, 0) AS oldest_pending_age_seconds,
+         COALESCE(EXTRACT(EPOCH FROM (NOW() - (MIN(updated_at) FILTER (WHERE status = 'failed'))))::int, 0) AS oldest_failed_age_seconds,
+         COALESCE(EXTRACT(EPOCH FROM (NOW() - (MIN(locked_at) FILTER (WHERE status = 'processing' AND locked_at IS NOT NULL))))::int, 0) AS oldest_processing_age_seconds,
+         COALESCE(EXTRACT(EPOCH FROM (NOW() - (MAX(processed_at) FILTER (WHERE status = 'completed'))))::int, 0) AS seconds_since_last_completed,
+         MAX(processed_at) FILTER (WHERE status = 'completed') AS last_completed_at,
+         MAX(updated_at) AS last_changed_at,
+         COALESCE(MAX(attempts), 0)::int AS max_attempts_seen
+       FROM intelligence_event_queue`
+    );
+    const metricRow = metrics.rows[0] || {};
     return {
       pending: byStatus.pending || 0,
       processing: byStatus.processing || 0,
       failed: byStatus.failed || 0,
       completed: byStatus.completed || 0,
-      dead: byStatus.dead || 0
+      dead: byStatus.dead || 0,
+      oldestPendingAgeSeconds: Number(metricRow.oldest_pending_age_seconds || 0),
+      oldestFailedAgeSeconds: Number(metricRow.oldest_failed_age_seconds || 0),
+      oldestProcessingAgeSeconds: Number(metricRow.oldest_processing_age_seconds || 0),
+      secondsSinceLastCompleted: Number(metricRow.seconds_since_last_completed || 0),
+      lastCompletedAt: metricRow.last_completed_at || null,
+      lastChangedAt: metricRow.last_changed_at || null,
+      maxAttemptsSeen: Number(metricRow.max_attempts_seen || 0)
     };
   }
 

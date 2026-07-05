@@ -1067,6 +1067,13 @@ test("backend intelligence uses durable queue hooks when PostgreSQL is available
   assert.match(serverSource, /getIntelligenceQueueAlerts/);
   assert.match(serverSource, /\/api\/intelligence\/queue-events/);
   assert.match(serverSource, /QUEUE_WEBHOOK_SECRET/);
+  assert.match(serverSource, /OPS_HEALTH_TOKEN/);
+  assert.match(serverSource, /\/api\/ops\/intelligence\/queue-health/);
+  assert.match(serverSource, /X-Ops-Health-Token/i);
+  assert.match(serverSource, /INTELLIGENCE_QUEUE_PENDING_AGE_ALERT_SECONDS/);
+  assert.match(serverSource, /oldestPendingAgeSeconds/);
+  assert.match(serverSource, /processing_stall/);
+  assert.match(serverSource, /buildIntelligenceQueueHealthReport/);
   assert.match(serverSource, /startIntelligenceQueueWorker\(\)/);
   assert.match(serverSource, /intelligenceSummary\.durableQueue/);
   assert.equal(packageJson.scripts["worker:intelligence"], "node backend/intelligence-queue-worker.js");

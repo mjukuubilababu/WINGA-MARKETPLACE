@@ -335,6 +335,19 @@ test("PostgreSQL durable intelligence queue claims, retries, and completes jobs"
           ]
         };
       }
+      if (text.includes("oldest_pending_age_seconds")) {
+        return {
+          rows: [{
+            oldest_pending_age_seconds: 360,
+            oldest_failed_age_seconds: 120,
+            oldest_processing_age_seconds: 0,
+            seconds_since_last_completed: 18,
+            last_completed_at: new Date("2026-07-05T08:00:00.000Z"),
+            last_changed_at: new Date("2026-07-05T08:01:00.000Z"),
+            max_attempts_seen: 2
+          }]
+        };
+      }
       return { rows: [], rowCount: 1 };
     }
   };
@@ -374,6 +387,10 @@ test("PostgreSQL durable intelligence queue claims, retries, and completes jobs"
   assert.equal(health.pending, 3);
   assert.equal(health.failed, 1);
   assert.equal(health.dead, 0);
+  assert.equal(health.oldestPendingAgeSeconds, 360);
+  assert.equal(health.oldestFailedAgeSeconds, 120);
+  assert.equal(health.secondsSinceLastCompleted, 18);
+  assert.equal(health.maxAttemptsSeen, 2);
 });
 
 test("PostgreSQL demand persistence dedupes events and refreshes seller summaries", async () => {
