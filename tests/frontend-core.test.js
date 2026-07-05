@@ -1170,6 +1170,11 @@ test("backend intelligence uses durable queue hooks when PostgreSQL is available
   assert.match(serverSource, /function processIntelligenceQueueOnce/);
   assert.match(serverSource, /recoverStaleIntelligenceQueueJobs/);
   assert.match(serverSource, /pruneCompletedIntelligenceQueueJobs/);
+  assert.match(serverSource, /INTELLIGENCE_QUEUE_PROCESSOR_MODE/);
+  assert.match(serverSource, /normalizeIntelligenceQueueProcessorMode/);
+  assert.match(serverSource, /shouldRunStandbyIntelligenceQueue/);
+  assert.match(serverSource, /INTELLIGENCE_QUEUE_STANDBY_AFTER_SECONDS/);
+  assert.match(serverSource, /standbyFallbackRuns/);
   assert.match(serverSource, /INTELLIGENCE_QUEUE_EMBEDDED_WORKER/);
   assert.match(serverSource, /getIntelligenceQueueAlerts/);
   assert.match(serverSource, /\/api\/intelligence\/queue-events/);
@@ -1218,6 +1223,8 @@ test("backend intelligence uses durable queue hooks when PostgreSQL is available
   assert.match(runbookSource, /Managed External Queue Upgrade Path/);
   assert.match(runbookSource, /Cloudflare Queues/);
   assert.match(runbookSource, /AWS SQS/);
+  assert.match(runbookSource, /INTELLIGENCE_QUEUE_PROCESSOR_MODE=primary\|standby\|off/);
+  assert.match(runbookSource, /standby fallback/);
 });
 
 test("backend demand service normalizes and aggregates sold out demand signals", () => {

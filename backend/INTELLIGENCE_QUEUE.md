@@ -17,16 +17,34 @@ This is safe for production because events survive API restarts and failed jobs 
 
 For small and medium production:
 
-- Keep `INTELLIGENCE_QUEUE_EMBEDDED_WORKER=true` on the API.
+- Keep `INTELLIGENCE_QUEUE_PROCESSOR_MODE=primary` on the API.
 - Monitor `/api/admin/ops/summary`.
 
-For larger production:
+For larger production, make the external worker primary and keep the API as a
+bounded standby fallback:
 
 - Set API env:
-  - `INTELLIGENCE_QUEUE_EMBEDDED_WORKER=false`
+  - `INTELLIGENCE_QUEUE_PROCESSOR_MODE=standby`
+  - `INTELLIGENCE_QUEUE_STANDBY_AFTER_SECONDS=180`
+  - `INTELLIGENCE_QUEUE_STANDBY_CHECK_INTERVAL_MS=60000`
 - Deploy a separate worker service:
   - Command: `npm run worker:intelligence`
 - Use the same `DATABASE_URL` and `DATABASE_SSL=true`.
+- The API will not claim fresh jobs while the external worker is healthy. It only
+  drains jobs after they have aged past the standby threshold or processing has
+  stalled.
+
+For fully isolated processing after the external worker is proven stable:
+
+- Set API env:
+  - `INTELLIGENCE_QUEUE_PROCESSOR_MODE=off`
+- Keep external worker health and queue alerts active before using this mode.
+
+Legacy env support:
+
+- `INTELLIGENCE_QUEUE_EMBEDDED_WORKER=false` still maps to processor mode `off`
+  when `INTELLIGENCE_QUEUE_PROCESSOR_MODE` is not set.
+- Prefer `INTELLIGENCE_QUEUE_PROCESSOR_MODE` for new deployments.
 
 For scheduled drain/smoke:
 
@@ -82,6 +100,9 @@ The backend rejects that endpoint unless `X-Winga-Queue-Secret` matches `QUEUE_W
 - `DATABASE_URL`
 - `DATABASE_SSL=true`
 - `QUEUE_WEBHOOK_SECRET`
+- `INTELLIGENCE_QUEUE_PROCESSOR_MODE=primary|standby|off`
+- `INTELLIGENCE_QUEUE_STANDBY_AFTER_SECONDS=180`
+- `INTELLIGENCE_QUEUE_STANDBY_CHECK_INTERVAL_MS=60000`
 - `INTELLIGENCE_QUEUE_BATCH_SIZE=50`
 - `INTELLIGENCE_QUEUE_INTERVAL_MS=5000`
 - `INTELLIGENCE_QUEUE_MAX_ATTEMPTS=12`

@@ -862,7 +862,13 @@ const INTELLIGENCE_QUEUE_INTERVAL_MS = Math.max(1000, Math.min(Number(process.en
 const INTELLIGENCE_QUEUE_MAX_ATTEMPTS = Math.max(1, Math.min(Number(process.env.INTELLIGENCE_QUEUE_MAX_ATTEMPTS || 12) || 12, 50));
 const INTELLIGENCE_QUEUE_STALE_SECONDS = Math.max(60, Math.min(Number(process.env.INTELLIGENCE_QUEUE_STALE_SECONDS || 300) || 300, 86400));
 const INTELLIGENCE_QUEUE_COMPLETED_RETENTION_HOURS = Math.max(1, Math.min(Number(process.env.INTELLIGENCE_QUEUE_COMPLETED_RETENTION_HOURS || 72) || 72, 24 * 90));
-const INTELLIGENCE_QUEUE_EMBEDDED_WORKER_ENABLED = String(process.env.INTELLIGENCE_QUEUE_EMBEDDED_WORKER || "true").toLowerCase() !== "false";
+const INTELLIGENCE_QUEUE_LEGACY_EMBEDDED_ENABLED = String(process.env.INTELLIGENCE_QUEUE_EMBEDDED_WORKER || "true").toLowerCase() !== "false";
+const INTELLIGENCE_QUEUE_PROCESSOR_MODE = normalizeIntelligenceQueueProcessorMode(
+  process.env.INTELLIGENCE_QUEUE_PROCESSOR_MODE || (INTELLIGENCE_QUEUE_LEGACY_EMBEDDED_ENABLED ? "primary" : "off")
+);
+const INTELLIGENCE_QUEUE_EMBEDDED_WORKER_ENABLED = INTELLIGENCE_QUEUE_PROCESSOR_MODE !== "off";
+const INTELLIGENCE_QUEUE_STANDBY_CHECK_INTERVAL_MS = Math.max(5000, Math.min(Number(process.env.INTELLIGENCE_QUEUE_STANDBY_CHECK_INTERVAL_MS || 60000) || 60000, 15 * 60 * 1000));
+const INTELLIGENCE_QUEUE_STANDBY_AFTER_SECONDS = Math.max(60, Math.min(Number(process.env.INTELLIGENCE_QUEUE_STANDBY_AFTER_SECONDS || 180) || 180, 3600));
 const INTELLIGENCE_QUEUE_PENDING_ALERT_THRESHOLD = Math.max(1, Number(process.env.INTELLIGENCE_QUEUE_PENDING_ALERT_THRESHOLD || 1000) || 1000);
 const INTELLIGENCE_QUEUE_FAILED_ALERT_THRESHOLD = Math.max(1, Number(process.env.INTELLIGENCE_QUEUE_FAILED_ALERT_THRESHOLD || 25) || 25);
 const INTELLIGENCE_QUEUE_DEAD_ALERT_THRESHOLD = Math.max(1, Number(process.env.INTELLIGENCE_QUEUE_DEAD_ALERT_THRESHOLD || 1) || 1);
@@ -875,22 +881,70 @@ let intelligenceQueueWorkerRunning = false;
 const intelligenceQueueWorkerState = {
   enabled: false,
   embeddedEnabled: INTELLIGENCE_QUEUE_EMBEDDED_WORKER_ENABLED,
+  processorMode: INTELLIGENCE_QUEUE_PROCESSOR_MODE,
   workerId: INTELLIGENCE_QUEUE_WORKER_ID,
   batches: 0,
   processed: 0,
   failed: 0,
   recovered: 0,
   pruned: 0,
+  standbySkips: 0,
+  standbyFallbackRuns: 0,
   lastRunAt: "",
   lastSuccessAt: "",
   lastFailureAt: "",
   lastMaintenanceAt: "",
+  lastSkippedAt: "",
   lastError: ""
 };
 
-async function processIntelligenceQueueOnce() {
+function normalizeIntelligenceQueueProcessorMode(value = "") {
+  const mode = String(value || "").trim().toLowerCase();
+  if (mode === "external" || mode === "disabled" || mode === "false") {
+    return "off";
+  }
+  if (mode === "standby" || mode === "fallback") {
+    return "standby";
+  }
+  if (mode === "off") {
+    return "off";
+  }
+  return "primary";
+}
+
+function shouldRunStandbyIntelligenceQueue(health = {}) {
+  const pending = Number(health.pending || 0);
+  const failed = Number(health.failed || 0);
+  const oldestPendingAge = Number(health.oldestPendingAgeSeconds || 0);
+  const oldestFailedAge = Number(health.oldestFailedAgeSeconds || 0);
+  const oldestProcessingAge = Number(health.oldestProcessingAgeSeconds || 0);
+  return (pending > 0 && oldestPendingAge >= INTELLIGENCE_QUEUE_STANDBY_AFTER_SECONDS)
+    || (failed > 0 && oldestFailedAge >= INTELLIGENCE_QUEUE_STANDBY_AFTER_SECONDS)
+    || oldestProcessingAge >= INTELLIGENCE_QUEUE_PROCESSING_AGE_ALERT_SECONDS;
+}
+
+async function processIntelligenceQueueOnce(options = {}) {
   if (!postgresStore?.claimIntelligenceQueueBatch || intelligenceQueueWorkerRunning) {
     return;
+  }
+  const standby = options.standby === true || INTELLIGENCE_QUEUE_PROCESSOR_MODE === "standby";
+  if (standby && postgresStore?.readIntelligenceQueueHealth) {
+    try {
+      const health = await postgresStore.readIntelligenceQueueHealth();
+      if (!shouldRunStandbyIntelligenceQueue(health)) {
+        intelligenceQueueWorkerState.standbySkips += 1;
+        intelligenceQueueWorkerState.lastRunAt = new Date().toISOString();
+        intelligenceQueueWorkerState.lastSkippedAt = intelligenceQueueWorkerState.lastRunAt;
+        return;
+      }
+      intelligenceQueueWorkerState.standbyFallbackRuns += 1;
+    } catch (error) {
+      intelligenceQueueWorkerState.failed += 1;
+      intelligenceQueueWorkerState.lastFailureAt = new Date().toISOString();
+      intelligenceQueueWorkerState.lastError = String(error?.message || error || "unknown").slice(0, 240);
+      console.warn("[WINGA] Intelligence standby health check failed.", error);
+      return;
+    }
   }
   intelligenceQueueWorkerRunning = true;
   intelligenceQueueWorkerState.enabled = true;
@@ -949,14 +1003,17 @@ function startIntelligenceQueueWorker() {
     return;
   }
   intelligenceQueueWorkerState.enabled = true;
-  processIntelligenceQueueOnce().catch((error) => {
-    console.warn("[WINGA] Intelligence queue startup drain failed.", error);
-  });
-  intelligenceQueueWorkerTimer = setInterval(() => {
+  const standby = INTELLIGENCE_QUEUE_PROCESSOR_MODE === "standby";
+  if (!standby) {
     processIntelligenceQueueOnce().catch((error) => {
+      console.warn("[WINGA] Intelligence queue startup drain failed.", error);
+    });
+  }
+  intelligenceQueueWorkerTimer = setInterval(() => {
+    processIntelligenceQueueOnce({ standby }).catch((error) => {
       console.warn("[WINGA] Intelligence queue interval failed.", error);
     });
-  }, INTELLIGENCE_QUEUE_INTERVAL_MS);
+  }, standby ? INTELLIGENCE_QUEUE_STANDBY_CHECK_INTERVAL_MS : INTELLIGENCE_QUEUE_INTERVAL_MS);
   intelligenceQueueWorkerTimer.unref?.();
 }
 
@@ -1064,7 +1121,9 @@ async function buildIntelligenceQueueHealthReport() {
       dead: INTELLIGENCE_QUEUE_DEAD_ALERT_THRESHOLD,
       pendingAgeSeconds: INTELLIGENCE_QUEUE_PENDING_AGE_ALERT_SECONDS,
       failedAgeSeconds: INTELLIGENCE_QUEUE_FAILED_AGE_ALERT_SECONDS,
-      processingAgeSeconds: INTELLIGENCE_QUEUE_PROCESSING_AGE_ALERT_SECONDS
+      processingAgeSeconds: INTELLIGENCE_QUEUE_PROCESSING_AGE_ALERT_SECONDS,
+      standbyAfterSeconds: INTELLIGENCE_QUEUE_STANDBY_AFTER_SECONDS,
+      standbyCheckIntervalMs: INTELLIGENCE_QUEUE_STANDBY_CHECK_INTERVAL_MS
     }
   };
 }
