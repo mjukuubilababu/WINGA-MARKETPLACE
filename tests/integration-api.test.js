@@ -901,6 +901,31 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
     })
   });
   assert.equal(clientAlertEvent.response.status, 202);
+  assert.equal(clientAlertEvent.body.accepted, true);
+
+  const duplicateClientAlertEvent = await request("/client-events", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${buyerToken}`
+    },
+    body: JSON.stringify({
+      level: "error",
+      event: "chat_runtime_failed",
+      message: "Chat send failed during release smoke.",
+      category: "chat",
+      alertSeverity: "high",
+      fingerprint: "chat:send_failed",
+      context: {
+        surface: "context-chat",
+        flow: "buyer-product-chat",
+        productId: "product-test-001"
+      }
+    })
+  });
+  assert.equal(duplicateClientAlertEvent.response.status, 202);
+  assert.equal(duplicateClientAlertEvent.body.accepted, false);
+  assert.equal(duplicateClientAlertEvent.body.reason, "duplicate_event");
 
   const adminOpsSummaryAfterClientAlert = await request("/admin/ops/summary", {
     headers: { Authorization: `Bearer ${adminToken}` }

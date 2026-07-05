@@ -1077,6 +1077,10 @@ test("backend intelligence uses durable queue hooks when PostgreSQL is available
   assert.match(serverSource, /\/api\/admin\/ops\/intelligence-queue\/dead/);
   assert.match(serverSource, /X-Ops-Health-Token/i);
   assert.match(serverSource, /normalizeQueueRecoveryIds/);
+  assert.match(serverSource, /CLIENT_EVENT_DEDUPE_TTL_MS/);
+  assert.match(serverSource, /evaluateClientEventIngestion/);
+  assert.match(serverSource, /AUTOMATION_USER_AGENT_PATTERN/);
+  assert.match(serverSource, /client_event_dropped/);
   assert.match(serverSource, /INTELLIGENCE_QUEUE_PENDING_AGE_ALERT_SECONDS/);
   assert.match(serverSource, /oldestPendingAgeSeconds/);
   assert.match(serverSource, /processing_stall/);

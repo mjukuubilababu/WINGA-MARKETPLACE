@@ -182,6 +182,11 @@ const RATE_LIMIT_RULES = {
   "/api/users/me/whatsapp/verify-change": { limit: 12, windowMs: RATE_LIMIT_WINDOW_MS }
 };
 const rateLimitStore = new Map();
+const CLIENT_EVENT_DEDUPE_TTL_MS = Math.max(1000, Math.min(Number(process.env.CLIENT_EVENT_DEDUPE_TTL_MS || 30000) || 30000, 10 * 60 * 1000));
+const CLIENT_EVENT_DEDUPE_MAX_KEYS = Math.max(1000, Math.min(Number(process.env.CLIENT_EVENT_DEDUPE_MAX_KEYS || 50000) || 50000, 500000));
+const CLIENT_EVENT_BOT_DROP_ENABLED = String(process.env.CLIENT_EVENT_BOT_DROP_ENABLED || "true").toLowerCase() !== "false";
+const recentClientEventDedupeKeys = new Map();
+const AUTOMATION_USER_AGENT_PATTERN = /\b(bot|crawler|spider|scraper|curl|wget|python-requests|httpclient|headlesschrome|phantomjs|selenium|playwright)\b/i;
 const liveClients = new Map();
 const postgresStore = DATABASE_URL
   ? createPostgresStore({
@@ -4247,6 +4252,86 @@ function validateClientEventPayload(payload) {
   return "";
 }
 
+function normalizeClientEventName(value = "") {
+  return sanitizePlainText(value, 80).toLowerCase().replace(/[^a-z0-9_:-]+/g, "_");
+}
+
+function pruneRecentClientEventDedupeKeys(now = Date.now()) {
+  for (const [key, timestamp] of recentClientEventDedupeKeys.entries()) {
+    if (now - timestamp > CLIENT_EVENT_DEDUPE_TTL_MS) {
+      recentClientEventDedupeKeys.delete(key);
+    }
+  }
+  while (recentClientEventDedupeKeys.size > CLIENT_EVENT_DEDUPE_MAX_KEYS) {
+    const oldestKey = recentClientEventDedupeKeys.keys().next().value;
+    if (!oldestKey) {
+      break;
+    }
+    recentClientEventDedupeKeys.delete(oldestKey);
+  }
+}
+
+function getClientEventDedupeIdentity(req, session) {
+  if (session?.username) {
+    return `user:${session.username}`;
+  }
+  return `ip:${getClientIp(req)}`;
+}
+
+function buildClientEventDedupeKey(payload = {}, req, session) {
+  const context = payload?.context && typeof payload.context === "object" && !Array.isArray(payload.context)
+    ? payload.context
+    : {};
+  const event = normalizeClientEventName(payload.event);
+  const productId = sanitizePlainText(context.productId || context.product_id || payload.productId || "", 100);
+  const route = sanitizePlainText(context.route || context.surface || context.view || "", 80);
+  const fingerprint = sanitizePlainText(payload.fingerprint || context.fingerprint || "", 120);
+  const identity = getClientEventDedupeIdentity(req, session);
+  const source = JSON.stringify({
+    identity,
+    event,
+    productId,
+    route,
+    fingerprint
+  });
+  return crypto.createHash("sha256").update(source).digest("hex");
+}
+
+function isLikelyAutomationUserAgent(req) {
+  const userAgent = String(req.headers["user-agent"] || "");
+  return CLIENT_EVENT_BOT_DROP_ENABLED && AUTOMATION_USER_AGENT_PATTERN.test(userAgent);
+}
+
+function evaluateClientEventIngestion(payload = {}, req, session) {
+  const eventName = normalizeClientEventName(payload.event);
+  const now = Date.now();
+  pruneRecentClientEventDedupeKeys(now);
+  if (isLikelyAutomationUserAgent(req) && !session?.username) {
+    return {
+      accepted: false,
+      reason: "automation_user_agent",
+      eventName
+    };
+  }
+  const dedupeKey = buildClientEventDedupeKey(payload, req, session);
+  const previous = recentClientEventDedupeKeys.get(dedupeKey);
+  if (previous && now - previous <= CLIENT_EVENT_DEDUPE_TTL_MS) {
+    return {
+      accepted: false,
+      reason: "duplicate_event",
+      eventName,
+      dedupeKey
+    };
+  }
+  recentClientEventDedupeKeys.set(dedupeKey, now);
+  return {
+    accepted: true,
+    reason: "accepted",
+    eventName,
+    dedupeKey
+  };
+}
+
 function collectBody(req) {
   return new Promise((resolve, reject) => {
     const chunks = [];
@@ -6025,6 +6110,32 @@ http.createServer(async (req, res) => {
         return;
       }
 
+      const ingestionDecision = evaluateClientEventIngestion(payload, req, session);
+      if (!ingestionDecision.accepted) {
+        await appendAuditLog({
+          time: new Date().toISOString(),
+          ip: clientIp,
+          path: url.pathname,
+          event: "client_event_dropped",
+          level: "info",
+          message: "Client event dropped before intelligence ingestion.",
+          username: session?.username || "",
+          category: sanitizePlainText(payload.category || "", 40).toLowerCase(),
+          alertSeverity: "low",
+          fingerprint: sanitizePlainText(payload.fingerprint || "", 120),
+          context: {
+            reason: ingestionDecision.reason,
+            event: ingestionDecision.eventName
+          }
+        });
+        sendJson(res, 202, {
+          ok: true,
+          accepted: false,
+          reason: ingestionDecision.reason
+        });
+        return;
+      }
+
       await appendAuditLog({
         time: new Date().toISOString(),
         ip: clientIp,
@@ -6052,7 +6163,7 @@ http.createServer(async (req, res) => {
       }).catch((error) => {
         console.warn("[WINGA] Intelligence ingestion failed.", error);
       });
-      sendJson(res, 202, { ok: true });
+      sendJson(res, 202, { ok: true, accepted: true });
       return;
     }
 

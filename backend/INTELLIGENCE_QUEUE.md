@@ -94,6 +94,25 @@ The backend rejects that endpoint unless `X-Winga-Queue-Secret` matches `QUEUE_W
 - `INTELLIGENCE_QUEUE_FAILED_AGE_ALERT_SECONDS=900`
 - `INTELLIGENCE_QUEUE_PROCESSING_AGE_ALERT_SECONDS=600`
 - `OPS_HEALTH_TOKEN=<strong-random-token>`
+- `CLIENT_EVENT_DEDUPE_TTL_MS=30000`
+- `CLIENT_EVENT_DEDUPE_MAX_KEYS=50000`
+- `CLIENT_EVENT_BOT_DROP_ENABLED=true`
+
+## Ingestion Protection
+
+Client intelligence events are protected before they enter scoring or durable
+queue persistence:
+
+- repeated identical events from the same identity are deduped for a bounded TTL
+- obvious anonymous automation user agents are dropped before scoring
+- rejected/dropped events return HTTP 202 so telemetry never blocks the app
+- dropped events are recorded as `client_event_dropped` audit entries
+- accepted events return `{ ok: true, accepted: true }`
+- dropped events return `{ ok: true, accepted: false, reason: "..." }`
+
+This protects recommendation scores, demand analytics, seller quality signals,
+and market intelligence from accidental loops and basic spam without breaking
+Home Feed, image loading, checkout, or messaging.
 
 ## Monitoring Endpoint
 
