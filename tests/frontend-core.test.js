@@ -1147,6 +1147,7 @@ test("backend intelligence platform bounds persistence queue under pressure", as
 test("backend intelligence uses durable queue hooks when PostgreSQL is available", () => {
   const root = path.resolve(__dirname, "..");
   const serverSource = fs.readFileSync(path.join(root, "backend", "server.js"), "utf8");
+  const adminControllerSource = fs.readFileSync(path.join(root, "src", "admin", "controller.js"), "utf8");
   const dbSource = fs.readFileSync(path.join(root, "backend", "db.js"), "utf8");
   const workerSource = fs.readFileSync(path.join(root, "backend", "intelligence-queue-worker.js"), "utf8");
   const edgeWorkerSource = fs.readFileSync(path.join(root, "worker.js"), "utf8");
@@ -1175,6 +1176,10 @@ test("backend intelligence uses durable queue hooks when PostgreSQL is available
   assert.match(serverSource, /shouldRunStandbyIntelligenceQueue/);
   assert.match(serverSource, /INTELLIGENCE_QUEUE_STANDBY_AFTER_SECONDS/);
   assert.match(serverSource, /standbyFallbackRuns/);
+  assert.match(serverSource, /function buildIntelligenceOpsSnapshot/);
+  assert.match(serverSource, /intelligenceSummary\.opsSnapshot = buildIntelligenceOpsSnapshot\(intelligenceSummary\)/);
+  assert.match(serverSource, /topEventTypes: Array\.isArray\(persistent\.topEventTypes\)/);
+  assert.match(serverSource, /topProducts: Array\.isArray\(persistent\.topProducts\)/);
   assert.match(serverSource, /INTELLIGENCE_QUEUE_EMBEDDED_WORKER/);
   assert.match(serverSource, /getIntelligenceQueueAlerts/);
   assert.match(serverSource, /\/api\/intelligence\/queue-events/);
@@ -1225,6 +1230,11 @@ test("backend intelligence uses durable queue hooks when PostgreSQL is available
   assert.match(runbookSource, /AWS SQS/);
   assert.match(runbookSource, /INTELLIGENCE_QUEUE_PROCESSOR_MODE=primary\|standby\|off/);
   assert.match(runbookSource, /standby fallback/);
+  assert.match(adminControllerSource, /function buildOpsSignalLines/);
+  assert.match(adminControllerSource, /Intelligence queue:/);
+  assert.match(adminControllerSource, /Queue counts:/);
+  assert.match(adminControllerSource, /Top event:/);
+  assert.doesNotMatch(adminControllerSource, /event_payload|score_payload|metadata\.buyerId/);
 });
 
 test("backend demand service normalizes and aggregates sold out demand signals", () => {

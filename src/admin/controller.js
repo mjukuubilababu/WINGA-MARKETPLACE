@@ -1091,6 +1091,62 @@
       return createSection(title, meta, list);
     }
 
+    function buildOpsSignalLines(summary = {}) {
+      const intelligence = summary.intelligence || {};
+      const snapshot = intelligence.opsSnapshot || {};
+      const queue = intelligence.durableQueue || {};
+      const health = queue.health || {};
+      const worker = queue.worker || {};
+      const alerts = Array.isArray(queue.alerts) ? queue.alerts : [];
+      const topEventTypes = Array.isArray(snapshot.topEventTypes) ? snapshot.topEventTypes : [];
+      const topProducts = Array.isArray(snapshot.topProducts) ? snapshot.topProducts : [];
+      const topSellers = Array.isArray(snapshot.topSellers) ? snapshot.topSellers : [];
+      return [
+        ...(summary.backupStatus?.note ? [{ type: "backup", value: `Backup: ${summary.backupStatus.note}` }] : []),
+        ...((summary.configWarnings || []).map((warning) => ({ type: "warning", value: warning }))),
+        {
+          type: "queue",
+          value: `Intelligence queue: ${snapshot.readiness || "-"} | mode ${snapshot.processorMode || worker.processorMode || "-"} | enabled ${String(snapshot.workerEnabled ?? worker.enabled ?? false)}`
+        },
+        {
+          type: "queue-health",
+          value: `Queue counts: pending ${snapshot.pending ?? health.pending ?? 0}, processing ${snapshot.processing ?? health.processing ?? 0}, failed ${snapshot.failed ?? health.failed ?? 0}, dead ${snapshot.dead ?? health.dead ?? 0}`
+        },
+        {
+          type: "queue-age",
+          value: `Queue age: oldest pending ${snapshot.oldestPendingAgeSeconds ?? health.oldestPendingAgeSeconds ?? 0}s, oldest processing ${snapshot.oldestProcessingAgeSeconds ?? health.oldestProcessingAgeSeconds ?? 0}s`
+        },
+        {
+          type: "queue-worker",
+          value: `Worker: processed ${snapshot.processed ?? worker.processed ?? 0}, failed runs ${snapshot.failedWorkerRuns ?? worker.failed ?? 0}, standby skips ${snapshot.standbySkips ?? worker.standbySkips ?? 0}, fallback runs ${snapshot.standbyFallbackRuns ?? worker.standbyFallbackRuns ?? 0}`
+        },
+        ...(alerts.slice(0, 4).map((entry) => ({
+          type: "queue-alert",
+          value: `Queue alert ${entry.level || "high"} | ${entry.type || "event"} | ${entry.message || "-"}`
+        }))),
+        ...(topEventTypes.slice(0, 3).map((entry) => ({
+          type: "event-type",
+          value: `Top event: ${entry.eventType || "-"} (${entry.count || 0})`
+        }))),
+        ...(topProducts.slice(0, 3).map((entry) => ({
+          type: "product-score",
+          value: `Top product score: ${entry.id || "-"} (${entry.score || 0})`
+        }))),
+        ...(topSellers.slice(0, 3).map((entry) => ({
+          type: "seller-score",
+          value: `Top seller score: ${entry.id || "-"} (${entry.score || 0})`
+        }))),
+        ...((summary.recentAlerts || []).slice(0, 4).map((entry) => ({
+          type: "alert",
+          value: `Alert ${entry.alertSeverity || "high"} | ${entry.event || "event"} | ${entry.message || entry.path || "-"}`
+        }))),
+        ...((summary.recentFailures || []).slice(0, 6).map((entry) => ({
+          type: "failure",
+          value: `${entry.event || "event"} | ${entry.message || entry.path || "-"}`
+        })))
+      ];
+    }
+
     function createPromotionSummaryStrip(promotions = []) {
       const safePromotions = Array.isArray(promotions) ? promotions : [];
       const counts = safePromotions.reduce((accumulator, promotion) => {
@@ -1416,18 +1472,7 @@
           wrapper.appendChild(createSimpleListSection(
             "Ops Signals",
             `Storage: ${state.opsSummary.storageMode || "-"} | Backups: ${state.opsSummary.backupStatus?.fileCount ?? 0} | Warnings: ${(state.opsSummary.configWarnings || []).length} | Auth failures: ${state.opsSummary.counts?.authFailures24h ?? 0} | Alerts: ${state.opsSummary.counts?.alertCandidates24h ?? 0} | Denied: ${state.opsSummary.counts?.deniedActions24h ?? 0}`,
-            [
-              ...(state.opsSummary.backupStatus?.note ? [{ type: "backup", value: `Backup: ${state.opsSummary.backupStatus.note}` }] : []),
-              ...((state.opsSummary.configWarnings || []).map((warning) => ({ type: "warning", value: warning }))),
-              ...((state.opsSummary.recentAlerts || []).slice(0, 4).map((entry) => ({
-                type: "alert",
-                value: `Alert ${entry.alertSeverity || "high"} | ${entry.event || "event"} | ${entry.message || entry.path || "-"}`
-              }))),
-              ...((state.opsSummary.recentFailures || []).slice(0, 6).map((entry) => ({
-                type: "failure",
-                value: `${entry.event || "event"} | ${entry.message || entry.path || "-"}`
-              })))
-            ],
+            buildOpsSignalLines(state.opsSummary),
             (item) => item.value
           ));
         }
@@ -2184,18 +2229,7 @@
           wrapper.appendChild(createSimpleListSection(
             "Ops Signals",
             `Storage: ${state.opsSummary.storageMode || "-"} | Backups: ${state.opsSummary.backupStatus?.fileCount ?? 0} | Warnings: ${(state.opsSummary.configWarnings || []).length} | Auth failures: ${state.opsSummary.counts?.authFailures24h ?? 0} | Alerts: ${state.opsSummary.counts?.alertCandidates24h ?? 0} | Denied: ${state.opsSummary.counts?.deniedActions24h ?? 0}`,
-            [
-              ...(state.opsSummary.backupStatus?.note ? [{ type: "backup", value: `Backup: ${state.opsSummary.backupStatus.note}` }] : []),
-              ...((state.opsSummary.configWarnings || []).map((warning) => ({ type: "warning", value: warning }))),
-              ...((state.opsSummary.recentAlerts || []).slice(0, 4).map((entry) => ({
-                type: "alert",
-                value: `Alert ${entry.alertSeverity || "high"} | ${entry.event || "event"} | ${entry.message || entry.path || "-"}`
-              }))),
-              ...((state.opsSummary.recentFailures || []).slice(0, 6).map((entry) => ({
-                type: "failure",
-                value: `${entry.event || "event"} | ${entry.message || entry.path || "-"}`
-              })))
-            ],
+            buildOpsSignalLines(state.opsSummary),
             (item) => item.value
           ));
         }

@@ -199,6 +199,28 @@ It returns only operational queue state:
 It does not expose buyer data, product events, seller private data, or raw
 intelligence payloads.
 
+## Admin Ops Snapshot
+
+Admin users can inspect a sanitized intelligence snapshot through:
+
+```text
+GET /api/admin/ops/summary
+```
+
+The response includes `intelligence.opsSnapshot`, which is safe for admin UI and
+monitoring surfaces:
+
+- queue readiness and processor mode
+- pending, processing, failed, and dead counts
+- oldest pending and processing age
+- processed job count and standby fallback counters
+- top event types, top products, and top sellers as aggregate ids/scores only
+
+The snapshot must not expose raw `event_payload`, `score_payload`, private buyer
+behavior, or queue message bodies. Use the recovery endpoints for incident work
+and inspect raw data directly in the database only during controlled ops
+incidents.
+
 Recommended monitor policy:
 
 - HTTP 200 and `readiness=ready`: healthy.

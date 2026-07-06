@@ -1128,6 +1128,43 @@ async function buildIntelligenceQueueHealthReport() {
   };
 }
 
+function buildIntelligenceOpsSnapshot(intelligenceSummary = {}) {
+  const durableQueue = intelligenceSummary.durableQueue || {};
+  const health = durableQueue.health || {};
+  const worker = durableQueue.worker || {};
+  const persistent = intelligenceSummary.persistent || {};
+  return {
+    readiness: getIntelligenceQueueReadiness(health, durableQueue.alerts || []),
+    processorMode: String(worker.processorMode || INTELLIGENCE_QUEUE_PROCESSOR_MODE || "primary"),
+    workerEnabled: Boolean(worker.enabled),
+    pending: Number(health.pending || 0),
+    processing: Number(health.processing || 0),
+    failed: Number(health.failed || 0),
+    dead: Number(health.dead || 0),
+    oldestPendingAgeSeconds: Number(health.oldestPendingAgeSeconds || 0),
+    oldestProcessingAgeSeconds: Number(health.oldestProcessingAgeSeconds || 0),
+    processed: Number(worker.processed || 0),
+    failedWorkerRuns: Number(worker.failed || 0),
+    standbySkips: Number(worker.standbySkips || 0),
+    standbyFallbackRuns: Number(worker.standbyFallbackRuns || 0),
+    lastSuccessAt: String(worker.lastSuccessAt || ""),
+    lastFailureAt: String(worker.lastFailureAt || ""),
+    alertCount: Array.isArray(durableQueue.alerts) ? durableQueue.alerts.length : 0,
+    topEventTypes: Array.isArray(persistent.topEventTypes) ? persistent.topEventTypes.slice(0, 5).map((entry) => ({
+      eventType: String(entry.eventType || ""),
+      count: Number(entry.count || 0)
+    })) : [],
+    topProducts: Array.isArray(persistent.topProducts) ? persistent.topProducts.slice(0, 5).map((entry) => ({
+      id: String(entry.id || ""),
+      score: Number(entry.score || 0)
+    })) : [],
+    topSellers: Array.isArray(persistent.topSellers) ? persistent.topSellers.slice(0, 5).map((entry) => ({
+      id: String(entry.id || ""),
+      score: Number(entry.score || 0)
+    })) : []
+  };
+}
+
 function normalizeQueueRecoveryIds(payload = {}) {
   return Array.from(new Set((Array.isArray(payload?.queueIds) ? payload.queueIds : [])
     .map((queueId) => Number(queueId || 0))
@@ -3701,6 +3738,7 @@ async function buildOpsSummary() {
       }];
     }
   }
+  intelligenceSummary.opsSnapshot = buildIntelligenceOpsSnapshot(intelligenceSummary);
   const backupStatus = getBackupStatus();
   const now = Date.now();
   const last24Hours = recentAuditEntries.filter((entry) => {
