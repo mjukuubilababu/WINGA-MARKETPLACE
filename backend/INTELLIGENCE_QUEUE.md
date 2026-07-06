@@ -227,6 +227,34 @@ Recommended monitor policy:
 - HTTP 200 and `readiness=watch/degraded`: alert engineering, marketplace can keep running.
 - HTTP 503 or `readiness=critical/unavailable`: page engineering and inspect the queue.
 
+## External Alert Command
+
+Use the production monitor script from any trusted command runner, scheduled job,
+or CI monitor:
+
+```bash
+OPS_HEALTH_TOKEN="$OPS_HEALTH_TOKEN" npm run monitor:intelligence
+```
+
+Optional environment:
+
+```bash
+INTELLIGENCE_HEALTH_URL=https://winga-pflp.onrender.com/api/ops/intelligence/queue-health
+INTELLIGENCE_HEALTH_TIMEOUT_MS=15000
+INTELLIGENCE_HEALTH_WARN_AS_SUCCESS=false
+```
+
+Exit codes:
+
+- `0`: ready
+- `1`: watch/degraded, alert engineering
+- `2`: critical/unavailable or non-2xx health response
+- `3`: missing monitor token/config
+- `4`: network timeout or monitor runtime failure
+
+The script prints sanitized JSON only. It never prints the ops token, raw queue
+payloads, buyer behavior, or private event metadata.
+
 ## Admin Recovery Operations
 
 Admin-only queue recovery endpoints are available for incident response. They use

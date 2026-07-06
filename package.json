@@ -9,6 +9,7 @@
     "test:frontend": "node tests/frontend-core.test.js",
     "test:integration": "node --test tests/integration-api.test.js tests/postgres-pagination.test.js",
     "test:e2e": "playwright test",
+    "monitor:intelligence": "node scripts/check-intelligence-health.js",
     "worker:intelligence": "node backend/intelligence-queue-worker.js",
     "worker:intelligence:once": "node backend/intelligence-queue-worker.js --once"
   },

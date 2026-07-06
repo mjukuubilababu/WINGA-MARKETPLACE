@@ -1148,6 +1148,7 @@ test("backend intelligence uses durable queue hooks when PostgreSQL is available
   const root = path.resolve(__dirname, "..");
   const serverSource = fs.readFileSync(path.join(root, "backend", "server.js"), "utf8");
   const adminControllerSource = fs.readFileSync(path.join(root, "src", "admin", "controller.js"), "utf8");
+  const monitorSource = fs.readFileSync(path.join(root, "scripts", "check-intelligence-health.js"), "utf8");
   const dbSource = fs.readFileSync(path.join(root, "backend", "db.js"), "utf8");
   const workerSource = fs.readFileSync(path.join(root, "backend", "intelligence-queue-worker.js"), "utf8");
   const edgeWorkerSource = fs.readFileSync(path.join(root, "worker.js"), "utf8");
@@ -1203,6 +1204,7 @@ test("backend intelligence uses durable queue hooks when PostgreSQL is available
   assert.match(serverSource, /intelligenceSummary\.durableQueue/);
   assert.equal(packageJson.scripts["worker:intelligence"], "node backend/intelligence-queue-worker.js");
   assert.equal(packageJson.scripts["worker:intelligence:once"], "node backend/intelligence-queue-worker.js --once");
+  assert.equal(packageJson.scripts["monitor:intelligence"], "node scripts/check-intelligence-health.js");
   assert.match(workerSource, /claimIntelligenceQueueBatch/);
   assert.match(workerSource, /completeIntelligenceQueueItem/);
   assert.match(workerSource, /failIntelligenceQueueItem/);
@@ -1230,11 +1232,22 @@ test("backend intelligence uses durable queue hooks when PostgreSQL is available
   assert.match(runbookSource, /AWS SQS/);
   assert.match(runbookSource, /INTELLIGENCE_QUEUE_PROCESSOR_MODE=primary\|standby\|off/);
   assert.match(runbookSource, /standby fallback/);
+  assert.match(runbookSource, /npm run monitor:intelligence/);
+  assert.match(runbookSource, /Exit codes:/);
   assert.match(adminControllerSource, /function buildOpsSignalLines/);
   assert.match(adminControllerSource, /Intelligence queue:/);
   assert.match(adminControllerSource, /Queue counts:/);
   assert.match(adminControllerSource, /Top event:/);
   assert.doesNotMatch(adminControllerSource, /event_payload|score_payload|metadata\.buyerId/);
+  assert.match(monitorSource, /OPS_HEALTH_TOKEN/);
+  assert.match(monitorSource, /INTELLIGENCE_HEALTH_TOKEN/);
+  assert.match(monitorSource, /EXIT_WARNING = 1/);
+  assert.match(monitorSource, /EXIT_CRITICAL = 2/);
+  assert.match(monitorSource, /EXIT_CONFIG = 3/);
+  assert.match(monitorSource, /EXIT_NETWORK = 4/);
+  assert.match(monitorSource, /X-Ops-Health-Token/);
+  assert.match(monitorSource, /readiness/);
+  assert.doesNotMatch(monitorSource, /console\.log\(token|process\.stdout\.write\(token/);
 });
 
 test("backend demand service normalizes and aggregates sold out demand signals", () => {
