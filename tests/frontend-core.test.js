@@ -1149,6 +1149,7 @@ test("backend intelligence uses durable queue hooks when PostgreSQL is available
   const serverSource = fs.readFileSync(path.join(root, "backend", "server.js"), "utf8");
   const adminControllerSource = fs.readFileSync(path.join(root, "src", "admin", "controller.js"), "utf8");
   const monitorSource = fs.readFileSync(path.join(root, "scripts", "check-intelligence-health.js"), "utf8");
+  const workflowSource = fs.readFileSync(path.join(root, ".github", "workflows", "intelligence-health.yml"), "utf8");
   const dbSource = fs.readFileSync(path.join(root, "backend", "db.js"), "utf8");
   const workerSource = fs.readFileSync(path.join(root, "backend", "intelligence-queue-worker.js"), "utf8");
   const edgeWorkerSource = fs.readFileSync(path.join(root, "worker.js"), "utf8");
@@ -1234,6 +1235,8 @@ test("backend intelligence uses durable queue hooks when PostgreSQL is available
   assert.match(runbookSource, /standby fallback/);
   assert.match(runbookSource, /npm run monitor:intelligence/);
   assert.match(runbookSource, /Exit codes:/);
+  assert.match(runbookSource, /GitHub Scheduled Health Check/);
+  assert.match(runbookSource, /OPS_HEALTH_TOKEN=<same value used by the backend health endpoint>/);
   assert.match(adminControllerSource, /function buildOpsSignalLines/);
   assert.match(adminControllerSource, /Intelligence queue:/);
   assert.match(adminControllerSource, /Queue counts:/);
@@ -1248,6 +1251,12 @@ test("backend intelligence uses durable queue hooks when PostgreSQL is available
   assert.match(monitorSource, /X-Ops-Health-Token/);
   assert.match(monitorSource, /readiness/);
   assert.doesNotMatch(monitorSource, /console\.log\(token|process\.stdout\.write\(token/);
+  assert.match(workflowSource, /name: Winga Intelligence Health/);
+  assert.match(workflowSource, /cron: "\*\/15 \* \* \* \*"/);
+  assert.match(workflowSource, /OPS_HEALTH_TOKEN: \$\{\{ secrets\.OPS_HEALTH_TOKEN \}\}/);
+  assert.match(workflowSource, /node-version: "24"/);
+  assert.match(workflowSource, /npm run monitor:intelligence/);
+  assert.doesNotMatch(workflowSource, /wingaopshealth|DATABASE_URL|QUEUE_WEBHOOK_SECRET/);
 });
 
 test("backend demand service normalizes and aggregates sold out demand signals", () => {

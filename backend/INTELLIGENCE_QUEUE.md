@@ -255,6 +255,33 @@ Exit codes:
 The script prints sanitized JSON only. It never prints the ops token, raw queue
 payloads, buyer behavior, or private event metadata.
 
+## GitHub Scheduled Health Check
+
+The repository includes `.github/workflows/intelligence-health.yml`.
+
+Required GitHub repository secret:
+
+```text
+OPS_HEALTH_TOKEN=<same value used by the backend health endpoint>
+```
+
+The workflow runs every 15 minutes and can also be started manually from GitHub
+Actions. It runs:
+
+```bash
+npm run monitor:intelligence
+```
+
+Expected behavior:
+
+- healthy queue: workflow passes
+- watch/degraded queue: workflow fails with exit code `1`
+- critical/unavailable queue: workflow fails with exit code `2`
+- missing secret: workflow fails with exit code `3`
+
+Use GitHub notification rules, email, or a connected incident tool so failed
+scheduled runs page engineering automatically.
+
 ## Admin Recovery Operations
 
 Admin-only queue recovery endpoints are available for incident response. They use

@@ -1,0 +1,38 @@
+name: Winga Intelligence Health
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/15 * * * *"
+
+concurrency:
+  group: winga-intelligence-health
+  cancel-in-progress: true
+
+jobs:
+  intelligence-health:
+    name: Check intelligence queue health
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    env:
+      OPS_HEALTH_TOKEN: ${{ secrets.OPS_HEALTH_TOKEN }}
+      INTELLIGENCE_HEALTH_URL: https://winga-pflp.onrender.com/api/ops/intelligence/queue-health
+      INTELLIGENCE_HEALTH_TIMEOUT_MS: "15000"
+      INTELLIGENCE_HEALTH_WARN_AS_SUCCESS: "false"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run intelligence health monitor
+        run: npm run monitor:intelligence
