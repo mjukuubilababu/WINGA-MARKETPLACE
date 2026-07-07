@@ -113,6 +113,7 @@ The backend rejects that endpoint unless `X-Winga-Queue-Secret` matches `QUEUE_W
 - `SEARCH_DEMAND_RAW_EVENT_RETENTION_DAYS=365`
 - `INTELLIGENCE_SNAPSHOT_WINDOW_DAYS=14`
 - `INTELLIGENCE_SNAPSHOT_RETENTION_DAYS=1095`
+- `INTELLIGENCE_SNAPSHOT_STALE_SECONDS=93600`
 - `INTELLIGENCE_QUEUE_PENDING_ALERT_THRESHOLD=1000`
 - `INTELLIGENCE_QUEUE_FAILED_ALERT_THRESHOLD=25`
 - `INTELLIGENCE_QUEUE_DEAD_ALERT_THRESHOLD=1`
@@ -194,10 +195,15 @@ Defaults:
 
 - `INTELLIGENCE_SNAPSHOT_WINDOW_DAYS=14`
 - `INTELLIGENCE_SNAPSHOT_RETENTION_DAYS=1095`
+- `INTELLIGENCE_SNAPSHOT_STALE_SECONDS=93600`
 
 Snapshots are aggregate-only and safe for admin operations, market intelligence,
 seller insights, and future recommendation features. They do not store buyer
 identity lists and they do not run on the Home Feed critical path.
+
+The queue health endpoint also reports `snapshotHealth`. It alerts when recent
+raw intelligence exists but daily snapshots are missing or stale, while staying
+quiet for truly empty systems with no recent intelligence events.
 
 ## Feed Intelligence Safety
 

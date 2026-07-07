@@ -49,6 +49,15 @@ function sanitizeMonitorPayload(payload = {}) {
       oldestFailedAgeSeconds: Number(payload.health.oldestFailedAgeSeconds || 0),
       oldestProcessingAgeSeconds: Number(payload.health.oldestProcessingAgeSeconds || 0)
     } : null,
+    snapshotHealth: payload.snapshotHealth && typeof payload.snapshotHealth === "object" ? {
+      totalSnapshots: Number(payload.snapshotHealth.totalSnapshots || 0),
+      recentSnapshots: Number(payload.snapshotHealth.recentSnapshots || 0),
+      recentRawEventCount: Number(payload.snapshotHealth.recentRawEventCount || 0),
+      latestSnapshotDate: String(payload.snapshotHealth.latestSnapshotDate || ""),
+      latestUpdatedAt: String(payload.snapshotHealth.latestUpdatedAt || ""),
+      secondsSinceLatestUpdate: Number(payload.snapshotHealth.secondsSinceLatestUpdate || 0),
+      windowDays: Number(payload.snapshotHealth.windowDays || 0)
+    } : null,
     worker: payload.worker && typeof payload.worker === "object" ? {
       enabled: Boolean(payload.worker.enabled),
       embeddedEnabled: Boolean(payload.worker.embeddedEnabled),
@@ -99,6 +108,7 @@ async function sendAlertWebhook(webhookUrl, payload = {}) {
       url: payload.url || "",
       alerts: payload.alerts || [],
       health: payload.health || null,
+      snapshotHealth: payload.snapshotHealth || null,
       worker: payload.worker || null,
       checkedAt: new Date().toISOString()
     })
@@ -194,6 +204,7 @@ async function main() {
     httpStatus: response.status,
     alerts: body?.alerts || [],
     health: body?.health || null,
+    snapshotHealth: body?.snapshotHealth || null,
     worker: body?.worker || null
   });
   await maybeSendAlertWebhook(alertWebhookUrl, output);

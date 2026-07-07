@@ -867,6 +867,7 @@ const DEMAND_RAW_EVENT_RETENTION_DAYS = Math.max(30, Math.min(Number(process.env
 const SEARCH_DEMAND_RAW_EVENT_RETENTION_DAYS = Math.max(7, Math.min(Number(process.env.SEARCH_DEMAND_RAW_EVENT_RETENTION_DAYS || 365) || 365, 3650));
 const INTELLIGENCE_SNAPSHOT_WINDOW_DAYS = Math.max(1, Math.min(Number(process.env.INTELLIGENCE_SNAPSHOT_WINDOW_DAYS || 14) || 14, 90));
 const INTELLIGENCE_SNAPSHOT_RETENTION_DAYS = Math.max(30, Math.min(Number(process.env.INTELLIGENCE_SNAPSHOT_RETENTION_DAYS || 1095) || 1095, 3650));
+const INTELLIGENCE_SNAPSHOT_STALE_SECONDS = Math.max(60 * 60, Math.min(Number(process.env.INTELLIGENCE_SNAPSHOT_STALE_SECONDS || 26 * 60 * 60) || 26 * 60 * 60, 14 * 24 * 60 * 60));
 const INTELLIGENCE_QUEUE_LEGACY_EMBEDDED_ENABLED = String(process.env.INTELLIGENCE_QUEUE_EMBEDDED_WORKER || "true").toLowerCase() !== "false";
 const INTELLIGENCE_QUEUE_PROCESSOR_MODE = normalizeIntelligenceQueueProcessorMode(
   process.env.INTELLIGENCE_QUEUE_PROCESSOR_MODE || (INTELLIGENCE_QUEUE_LEGACY_EMBEDDED_ENABLED ? "primary" : "off")
@@ -1061,7 +1062,7 @@ function stopIntelligenceQueueWorker() {
   intelligenceQueueWorkerState.enabled = false;
 }
 
-function getIntelligenceQueueAlerts(health = {}) {
+function getIntelligenceQueueAlerts(health = {}, snapshotHealth = {}) {
   const alerts = [];
   if (Number(health.dead || 0) >= INTELLIGENCE_QUEUE_DEAD_ALERT_THRESHOLD) {
     alerts.push({
@@ -1111,6 +1112,32 @@ function getIntelligenceQueueAlerts(health = {}) {
       ageSeconds: Number(health.oldestProcessingAgeSeconds || 0)
     });
   }
+  if (snapshotHealth?.error) {
+    alerts.push({
+      level: "high",
+      type: "snapshot_health_unavailable",
+      message: "Intelligence snapshot health could not be read."
+    });
+  } else {
+    const recentRawEvents = Number(snapshotHealth.recentRawEventCount || 0);
+    const recentSnapshots = Number(snapshotHealth.recentSnapshots || 0);
+    const secondsSinceLatestUpdate = Number(snapshotHealth.secondsSinceLatestUpdate || 0);
+    if (recentRawEvents > 0 && recentSnapshots <= 0) {
+      alerts.push({
+        level: "high",
+        type: "snapshot_missing",
+        message: "Recent intelligence events exist but daily snapshots have not been created.",
+        count: recentRawEvents
+      });
+    } else if (recentRawEvents > 0 && secondsSinceLatestUpdate >= INTELLIGENCE_SNAPSHOT_STALE_SECONDS) {
+      alerts.push({
+        level: "medium",
+        type: "snapshot_stale",
+        message: "Daily intelligence snapshots are older than the freshness threshold.",
+        ageSeconds: secondsSinceLatestUpdate
+      });
+    }
+  }
   return alerts;
 }
 
@@ -1143,13 +1170,17 @@ async function buildIntelligenceQueueHealthReport() {
   const health = postgresStore?.readIntelligenceQueueHealth
     ? await postgresStore.readIntelligenceQueueHealth()
     : { error: "postgres_queue_unavailable" };
-  const alerts = getIntelligenceQueueAlerts(health);
+  const snapshotHealth = postgresStore?.readIntelligenceSnapshotHealth
+    ? await postgresStore.readIntelligenceSnapshotHealth({ windowDays: INTELLIGENCE_SNAPSHOT_WINDOW_DAYS })
+    : { error: "postgres_snapshot_health_unavailable" };
+  const alerts = getIntelligenceQueueAlerts(health, snapshotHealth);
   return {
     ok: getIntelligenceQueueReadiness(health, alerts) === "ready",
     readiness: getIntelligenceQueueReadiness(health, alerts),
     time: new Date().toISOString(),
     worker: { ...intelligenceQueueWorkerState },
     health,
+    snapshotHealth,
     alerts,
     thresholds: {
       pending: INTELLIGENCE_QUEUE_PENDING_ALERT_THRESHOLD,
@@ -1166,7 +1197,8 @@ async function buildIntelligenceQueueHealthReport() {
         searchDemand: SEARCH_DEMAND_RAW_EVENT_RETENTION_DAYS
       },
       snapshotWindowDays: INTELLIGENCE_SNAPSHOT_WINDOW_DAYS,
-      snapshotRetentionDays: INTELLIGENCE_SNAPSHOT_RETENTION_DAYS
+      snapshotRetentionDays: INTELLIGENCE_SNAPSHOT_RETENTION_DAYS,
+      snapshotStaleSeconds: INTELLIGENCE_SNAPSHOT_STALE_SECONDS
     }
   };
 }
@@ -3791,14 +3823,22 @@ async function buildOpsSummary() {
   intelligenceSummary.durableQueue = {
     worker: { ...intelligenceQueueWorkerState },
     health: null,
+    snapshotHealth: null,
     alerts: []
   };
   if (postgresStore?.readIntelligenceQueueHealth) {
     try {
       intelligenceSummary.durableQueue.health = await postgresStore.readIntelligenceQueueHealth();
-      intelligenceSummary.durableQueue.alerts = getIntelligenceQueueAlerts(intelligenceSummary.durableQueue.health);
+      intelligenceSummary.durableQueue.snapshotHealth = postgresStore?.readIntelligenceSnapshotHealth
+        ? await postgresStore.readIntelligenceSnapshotHealth({ windowDays: INTELLIGENCE_SNAPSHOT_WINDOW_DAYS })
+        : { error: "unavailable" };
+      intelligenceSummary.durableQueue.alerts = getIntelligenceQueueAlerts(
+        intelligenceSummary.durableQueue.health,
+        intelligenceSummary.durableQueue.snapshotHealth
+      );
     } catch (error) {
       intelligenceSummary.durableQueue.health = { error: "unavailable" };
+      intelligenceSummary.durableQueue.snapshotHealth = { error: "unavailable" };
       intelligenceSummary.durableQueue.alerts = [{
         level: "high",
         type: "health_unavailable",

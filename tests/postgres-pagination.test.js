@@ -396,6 +396,53 @@ test("PostgreSQL intelligence snapshots aggregate raw signals before pruning", a
   assert.deepEqual(calls.at(-1).params, ["7", 5]);
 });
 
+test("PostgreSQL intelligence snapshot health compares aggregates with recent raw events", async () => {
+  const calls = [];
+  const queryClient = {
+    async query(text, params) {
+      calls.push({ text, params });
+      if (text.includes("COUNT(*)::int AS total_snapshots")) {
+        return {
+          rows: [{
+            total_snapshots: 12,
+            recent_snapshots: 5,
+            latest_snapshot_date: "2026-07-06",
+            latest_updated_at: new Date("2026-07-06T10:00:00.000Z"),
+            seconds_since_latest_update: 3600
+          }]
+        };
+      }
+      return {
+        rows: [{
+          intelligence_events: 4,
+          demand_events: 2,
+          search_demand_events: 3
+        }]
+      };
+    }
+  };
+  const store = createPostgresStore({
+    databaseUrl: "postgres://test.invalid/winga",
+    queryClient
+  });
+
+  const health = await store.readIntelligenceSnapshotHealth({ windowDays: 10 });
+
+  assert.equal(health.totalSnapshots, 12);
+  assert.equal(health.recentSnapshots, 5);
+  assert.equal(health.recentRawEventCount, 9);
+  assert.equal(health.recentRawEvents.intelligenceEvents, 4);
+  assert.equal(health.latestSnapshotDate, "2026-07-06");
+  assert.equal(health.latestUpdatedAt, "2026-07-06T10:00:00.000Z");
+  assert.equal(health.secondsSinceLatestUpdate, 3600);
+  assert.equal(health.windowDays, 10);
+  assert.match(calls[0].text, /FROM intelligence_daily_snapshots/);
+  assert.match(calls[1].text, /FROM intelligence_events/);
+  assert.match(calls[1].text, /FROM demand_events/);
+  assert.match(calls[1].text, /FROM search_demand_events/);
+  assert.deepEqual(calls.map((call) => call.params), [["10"], ["10"]]);
+});
+
 test("PostgreSQL durable intelligence queue claims, retries, and completes jobs", async () => {
   const calls = [];
   const queryClient = {

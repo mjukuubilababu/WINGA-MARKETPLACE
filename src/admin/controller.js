@@ -1096,6 +1096,7 @@
       const snapshot = intelligence.opsSnapshot || {};
       const queue = intelligence.durableQueue || {};
       const health = queue.health || {};
+      const snapshotHealth = queue.snapshotHealth || {};
       const worker = queue.worker || {};
       const alerts = Array.isArray(queue.alerts) ? queue.alerts : [];
       const topEventTypes = Array.isArray(snapshot.topEventTypes) ? snapshot.topEventTypes : [];
@@ -1125,6 +1126,10 @@
         {
           type: "intelligence-snapshots",
           value: `Daily snapshots: event types ${snapshots.eventTypes ?? 0}, demand products ${snapshots.demandProducts ?? 0}, search queries ${snapshots.searchQueries ?? 0}, pruned ${snapshots.prunedSnapshots ?? 0}`
+        },
+        {
+          type: "snapshot-health",
+          value: `Snapshot health: recent ${snapshotHealth.recentSnapshots ?? 0}, raw ${snapshotHealth.recentRawEventCount ?? 0}, latest ${snapshotHealth.latestUpdatedAt || "-"}`
         },
         ...(alerts.slice(0, 4).map((entry) => ({
           type: "queue-alert",

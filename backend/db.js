@@ -2107,6 +2107,58 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
     }));
   }
 
+  async function readIntelligenceSnapshotHealth(options = {}) {
+    const windowDays = Math.max(1, Math.min(Number(options.windowDays || 14) || 14, 90));
+    const [snapshotMetrics, rawMetrics] = await Promise.all([
+      query(
+        `SELECT
+           COUNT(*)::int AS total_snapshots,
+           COUNT(*) FILTER (WHERE snapshot_date >= CURRENT_DATE - ($1 || ' days')::interval)::int AS recent_snapshots,
+           MAX(snapshot_date) AS latest_snapshot_date,
+           MAX(updated_at) AS latest_updated_at,
+           COALESCE(EXTRACT(EPOCH FROM (NOW() - MAX(updated_at)))::int, 0) AS seconds_since_latest_update
+         FROM intelligence_daily_snapshots`,
+        [String(windowDays)]
+      ),
+      query(
+        `SELECT
+           (
+             SELECT COUNT(*)::int
+             FROM intelligence_events
+             WHERE happened_at >= NOW() - ($1 || ' days')::interval
+           ) AS intelligence_events,
+           (
+             SELECT COUNT(*)::int
+             FROM demand_events
+             WHERE created_at >= NOW() - ($1 || ' days')::interval
+           ) AS demand_events,
+           (
+             SELECT COUNT(*)::int
+             FROM search_demand_events
+             WHERE happened_at >= NOW() - ($1 || ' days')::interval
+           ) AS search_demand_events`,
+        [String(windowDays)]
+      )
+    ]);
+    const snapshotRow = snapshotMetrics.rows[0] || {};
+    const rawRow = rawMetrics.rows[0] || {};
+    const raw = {
+      intelligenceEvents: Number(rawRow.intelligence_events || 0),
+      demandEvents: Number(rawRow.demand_events || 0),
+      searchDemandEvents: Number(rawRow.search_demand_events || 0)
+    };
+    return {
+      totalSnapshots: Number(snapshotRow.total_snapshots || 0),
+      recentSnapshots: Number(snapshotRow.recent_snapshots || 0),
+      latestSnapshotDate: snapshotRow.latest_snapshot_date ? String(snapshotRow.latest_snapshot_date).slice(0, 10) : "",
+      latestUpdatedAt: toISOString(snapshotRow.latest_updated_at),
+      secondsSinceLatestUpdate: Number(snapshotRow.seconds_since_latest_update || 0),
+      recentRawEvents: raw,
+      recentRawEventCount: raw.intelligenceEvents + raw.demandEvents + raw.searchDemandEvents,
+      windowDays
+    };
+  }
+
   async function readIntelligenceSummary(limit = 10) {
     const safeLimit = Math.max(1, Math.min(Number(limit) || 10, 50));
     const [eventTypes, products, sellers, snapshots] = await Promise.all([
@@ -2515,6 +2567,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
     pruneIntelligenceRawEvents,
     refreshIntelligenceDailySnapshots,
     readIntelligenceSnapshotSummary,
+    readIntelligenceSnapshotHealth,
     readIntelligenceSummary,
     appendDemandEvent,
     readSellerDemandSummary,

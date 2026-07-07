@@ -1173,6 +1173,7 @@ test("backend intelligence uses durable queue hooks when PostgreSQL is available
   assert.match(dbSource, /CREATE TABLE IF NOT EXISTS intelligence_daily_snapshots/);
   assert.match(dbSource, /function refreshIntelligenceDailySnapshots/);
   assert.match(dbSource, /function readIntelligenceSnapshotSummary/);
+  assert.match(dbSource, /function readIntelligenceSnapshotHealth/);
   assert.match(serverSource, /postgresStore\?\.enqueueIntelligenceEvent/);
   assert.match(serverSource, /function processIntelligenceQueueOnce/);
   assert.match(serverSource, /recoverStaleIntelligenceQueueJobs/);
@@ -1185,7 +1186,11 @@ test("backend intelligence uses durable queue hooks when PostgreSQL is available
   assert.match(serverSource, /DEMAND_RAW_EVENT_RETENTION_DAYS/);
   assert.match(serverSource, /SEARCH_DEMAND_RAW_EVENT_RETENTION_DAYS/);
   assert.match(serverSource, /INTELLIGENCE_SNAPSHOT_WINDOW_DAYS/);
+  assert.match(serverSource, /INTELLIGENCE_SNAPSHOT_STALE_SECONDS/);
   assert.match(serverSource, /refreshIntelligenceDailySnapshots/);
+  assert.match(serverSource, /readIntelligenceSnapshotHealth/);
+  assert.match(serverSource, /snapshot_missing/);
+  assert.match(serverSource, /snapshot_stale/);
   assert.match(serverSource, /standbyFallbackRuns/);
   assert.match(serverSource, /rawPruned/);
   assert.match(serverSource, /trendSnapshots: Array\.isArray\(persistent\.trendSnapshots\)/);
@@ -1249,6 +1254,7 @@ test("backend intelligence uses durable queue hooks when PostgreSQL is available
   assert.match(runbookSource, /INTELLIGENCE_QUEUE_PROCESSOR_MODE=primary\|standby\|off/);
   assert.match(runbookSource, /INTELLIGENCE_RAW_EVENT_RETENTION_DAYS=180/);
   assert.match(runbookSource, /INTELLIGENCE_SNAPSHOT_WINDOW_DAYS=14/);
+  assert.match(runbookSource, /INTELLIGENCE_SNAPSHOT_STALE_SECONDS=93600/);
   assert.match(runbookSource, /Daily Snapshot Aggregation/);
   assert.match(runbookSource, /Raw Event Retention/);
   assert.match(runbookSource, /standby fallback/);
@@ -1263,6 +1269,7 @@ test("backend intelligence uses durable queue hooks when PostgreSQL is available
   assert.match(adminControllerSource, /Intelligence queue:/);
   assert.match(adminControllerSource, /Queue counts:/);
   assert.match(adminControllerSource, /Daily snapshots:/);
+  assert.match(adminControllerSource, /Snapshot health:/);
   assert.match(adminControllerSource, /Trend snapshot:/);
   assert.match(adminControllerSource, /Top event:/);
   assert.doesNotMatch(adminControllerSource, /event_payload|score_payload|metadata\.buyerId/);
@@ -1277,6 +1284,7 @@ test("backend intelligence uses durable queue hooks when PostgreSQL is available
   assert.match(monitorSource, /INTELLIGENCE_ALERT_WEBHOOK_URL/);
   assert.match(monitorSource, /rawPruned/);
   assert.match(monitorSource, /snapshots/);
+  assert.match(monitorSource, /snapshotHealth/);
   assert.match(monitorSource, /function sanitizeMonitorPayload/);
   assert.match(monitorSource, /async function sendAlertWebhook/);
   assert.match(monitorSource, /source: "winga-intelligence-health"/);
