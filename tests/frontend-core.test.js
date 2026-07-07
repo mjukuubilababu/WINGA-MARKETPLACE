@@ -890,6 +890,7 @@ test("home pagination retries safely, cancels stale work, and commits pages tran
   const buildSource = fs.readFileSync(path.join(root, "scripts", "build-vercel-static.js"), "utf8");
   const continuationSource = fs.readFileSync(path.join(root, "src", "marketplace", "continuation.js"), "utf8");
   const productApiSource = fs.readFileSync(path.join(root, "src", "api", "products.js"), "utf8");
+  const feedStateSource = fs.readFileSync(path.join(root, "src", "api", "feed-state.js"), "utf8");
   const registrySource = fs.readFileSync(path.join(root, "src", "core", "module-registry.js"), "utf8");
 
   assert.match(appSource, /const HOME_LOAD_MORE_MAX_ATTEMPTS = 3;/);
@@ -912,13 +913,21 @@ test("home pagination retries safely, cancels stale work, and commits pages tran
   assert.match(appSource, /return Boolean\(window\.WINGA_CONFIG\?\.enableClientEventLogging\);/);
   assert.match(buildSource, /"src\/marketplace\/continuation\.js"/);
   assert.match(registrySource, /window\.WingaModules\.api\.products = window\.WingaModules\.api\.products \|\| \{\};/);
+  assert.match(registrySource, /window\.WingaModules\.api\.feedState = window\.WingaModules\.api\.feedState \|\| \{\};/);
   assert.match(productApiSource, /window\.WingaModules\.api\.products\.createProductApiTools = createProductApiTools;/);
+  assert.match(feedStateSource, /window\.WingaModules\.api\.feedState\.createProductFeedStateTools = createProductFeedStateTools;/);
   assert.match(productApiSource, /function normalizeProductPageResponse\(payload, options = \{\}, mapProduct = \(product\) => product\)/);
   assert.match(productApiSource, /function mergeUniqueProducts\(existingProducts = \[\], incomingProducts = \[\]\)/);
+  assert.match(feedStateSource, /function applyLoadedProductPageToState\(loadedProducts, options = \{\}\)/);
+  assert.match(feedStateSource, /function getNextProductsPageOptions\(\)/);
   assert.match(dataSource, /window\.WingaModules\?\.api\?\.products\?\.createProductApiTools/);
+  assert.match(dataSource, /window\.WingaModules\?\.api\?\.feedState\?\.createProductFeedStateTools/);
   assert.match(dataSource, /function normalizeProductPageResponse\(payload, options = \{\}, mapProduct = \(product\) => product\) \{\s+return getProductApiTools\(\)\.normalizeProductPageResponse\(payload, options, mapProduct\);/);
+  assert.match(dataSource, /function applyLoadedProductPageToState\(loadedProducts, options = \{\}\) \{\s+return getProductFeedStateTools\(\)\.applyLoadedProductPageToState\(loadedProducts, options\);/);
   assert.ok(buildSource.indexOf('"src/api/runtime.js"') < buildSource.indexOf('"src/api/products.js"'));
   assert.ok(buildSource.indexOf('"src/api/products.js"') < buildSource.indexOf('"src/config/categories.js"'));
+  assert.ok(buildSource.indexOf('"src/api/products.js"') < buildSource.indexOf('"src/api/feed-state.js"'));
+  assert.ok(buildSource.indexOf('"src/api/feed-state.js"') < buildSource.indexOf('"src/config/categories.js"'));
   assert.match(continuationSource, /window\.WingaModules\.marketplace\.createContinuationHelpers = createContinuationHelpers;/);
   assert.match(continuationSource, /function createContinuousDiscoveryRuntime\(options = \{\}\)/);
   assert.match(continuationSource, /pendingDescriptors: normalizePendingDescriptors\(options\.pendingDescriptors\)/);
