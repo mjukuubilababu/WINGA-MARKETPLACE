@@ -215,6 +215,7 @@ const {
   canUseServiceWorkerImageWarmCache
 } = marketplaceImageLoader;
 let bootLifecycleTools = null;
+let pwaLifecycleTools = null;
 let authSessionRuntimeTools = null;
 let appEventsTools = null;
 
@@ -1576,6 +1577,39 @@ function getBootLifecycleTools() {
     });
   }
   return bootLifecycleTools;
+}
+
+function getPwaLifecycleTools() {
+  if (!pwaLifecycleTools) {
+    const factory = window.WingaModules?.boot?.createPwaLifecycleModule;
+    if (typeof factory !== "function") {
+      throw new Error("Winga PWA lifecycle module is required before app boot.");
+    }
+    pwaLifecycleTools = factory({
+      getWindow: () => window,
+      getDocument: () => document,
+      getNavigator: () => navigator,
+      getInstallState: () => appInstallState,
+      getUpdateBannerState: () => appUpdateBannerState,
+      getBuildVersion: () => APP_BOOT_BUILD_VERSION,
+      updateDismissStorageKey: APP_UPDATE_BANNER_DISMISS_KEY,
+      createElement,
+      showInAppNotification,
+      captureClientError,
+      getPublicHeaderActions: () => publicHeaderActions,
+      getAuthContainer: () => authContainer,
+      getToggleLink: () => document.getElementById("toggle-link"),
+      getHeaderInstallButton: () => headerInstallButton,
+      setHeaderInstallButton: (button) => {
+        headerInstallButton = button;
+      },
+      getAuthInstallButton: () => authInstallButton,
+      setAuthInstallButton: (button) => {
+        authInstallButton = button;
+      }
+    });
+  }
+  return pwaLifecycleTools;
 }
 
 function getAppEventsTools() {
@@ -5837,328 +5871,63 @@ function applyOfflineQueueFlushHints(flushedCount = 0, remainingCount = 0) {
 }
 
 function isStandaloneDisplayMode() {
-  try {
-    return window.matchMedia?.("(display-mode: standalone)")?.matches
-      || window.matchMedia?.("(display-mode: fullscreen)")?.matches
-      || window.navigator?.standalone === true;
-  } catch (error) {
-    return false;
-  }
+  return getPwaLifecycleTools().isStandaloneDisplayMode();
 }
 
 function isPwaInstallPromotable() {
-  return !isStandaloneDisplayMode() && Boolean(appInstallState.deferredPrompt);
+  return getPwaLifecycleTools().isPwaInstallPromotable();
 }
 
 function getPwaInstallButtonLabel() {
-  if (isStandaloneDisplayMode()) {
-    return "Open app";
-  }
-  if (appInstallState.deferredPrompt) {
-    return "Install app";
-  }
-  return "Install app";
+  return getPwaLifecycleTools().getPwaInstallButtonLabel();
 }
 
 function getPwaInstallHelpCopy() {
-  if (isStandaloneDisplayMode()) {
-    return "Winga is already installed on this device.";
-  }
-  return "If the browser prompt is not shown yet, open browser menu and choose Install app or Add to home screen.";
+  return getPwaLifecycleTools().getPwaInstallHelpCopy();
 }
 
 function ensurePwaInstallButton(buttonId, className = "public-header-btn public-header-btn-primary") {
-  let button = document.getElementById(buttonId);
-  if (!button) {
-    button = document.createElement("button");
-    button.id = buttonId;
-    button.type = "button";
-    button.className = className;
-  }
-  return button;
+  return getPwaLifecycleTools().ensurePwaInstallButton(buttonId, className);
 }
 
 function ensureInstallChrome() {
-  if (publicHeaderActions) {
-    headerInstallButton = ensurePwaInstallButton("header-install-button");
-    if (!headerInstallButton.isConnected) {
-      publicHeaderActions.appendChild(headerInstallButton);
-    }
-  }
-
-  if (authContainer) {
-    let authPromo = document.getElementById("auth-install-promo");
-    if (!authPromo) {
-      authPromo = createElement("div", {
-        attributes: { id: "auth-install-promo" },
-        className: "auth-install-promo"
-      });
-      authPromo.append(
-        createElement("p", {
-          className: "auth-install-title",
-          textContent: "Install Winga on your device"
-        }),
-        createElement("p", {
-          className: "auth-install-copy",
-          textContent: "Get faster access, smoother browsing, and a home-screen shortcut."
-        })
-      );
-      authInstallButton = ensurePwaInstallButton("auth-install-button", "public-header-btn public-header-btn-primary");
-      authPromo.appendChild(authInstallButton);
-      const toggleLink = document.getElementById("toggle-link");
-      if (toggleLink?.parentElement === authContainer) {
-        toggleLink.insertAdjacentElement("afterend", authPromo);
-      } else {
-        authContainer.appendChild(authPromo);
-      }
-    }
-  }
+  getPwaLifecycleTools().ensureInstallChrome();
 }
 
 function syncInstallChrome() {
-  ensureInstallChrome();
-
-  const installed = isStandaloneDisplayMode() || appInstallState.installed;
-  if (headerInstallButton) {
-    headerInstallButton.hidden = installed;
-    headerInstallButton.textContent = getPwaInstallButtonLabel();
-  }
-  if (authInstallButton) {
-    authInstallButton.hidden = installed;
-    authInstallButton.textContent = getPwaInstallButtonLabel();
-  }
-
-  const authPromo = document.getElementById("auth-install-promo");
-  if (authPromo) {
-    authPromo.hidden = installed;
-  }
-
-  appInstallState.menuHintVisible = !installed;
+  getPwaLifecycleTools().syncInstallChrome();
 }
 
 async function promptAppInstall(source = "header") {
-  if (isStandaloneDisplayMode()) {
-    showInAppNotification({
-      title: "Winga already installed",
-      body: "App iko tayari kufunguka kama app kwenye kifaa hiki.",
-      variant: "info"
-    });
-    return true;
-  }
-
-  if (appInstallState.deferredPrompt) {
-    const promptEvent = appInstallState.deferredPrompt;
-    appInstallState.deferredPrompt = null;
-    syncInstallChrome();
-    try {
-      promptEvent.prompt();
-      const choiceResult = await promptEvent.userChoice;
-      if (choiceResult?.outcome === "accepted") {
-        showInAppNotification({
-          title: "Installing Winga",
-          body: "Browser inaandaa app yako.",
-          variant: "success"
-        });
-        return true;
-      }
-    } catch (error) {
-      captureClientError("pwa_install_prompt_failed", error, {
-        source
-      });
-    }
-  }
-
-  showInAppNotification({
-    title: "Install Winga",
-    body: getPwaInstallHelpCopy(),
-    variant: "info"
-  });
-  return false;
+  return getPwaLifecycleTools().promptAppInstall(source);
 }
 
 function initializePwaInstallExperience() {
-  if (appInstallState.initialized) {
-    return;
-  }
-  appInstallState.initialized = true;
-  appInstallState.installed = isStandaloneDisplayMode();
-
-  window.addEventListener("beforeinstallprompt", (event) => {
-    event.preventDefault();
-    appInstallState.deferredPrompt = event;
-    syncInstallChrome();
-  });
-
-  window.addEventListener("appinstalled", () => {
-    appInstallState.deferredPrompt = null;
-    appInstallState.installed = true;
-    syncInstallChrome();
-    showInAppNotification({
-      title: "Winga installed",
-      body: "App iko tayari kutumia kwenye device hii.",
-      variant: "success"
-    });
-  });
-
-  window.matchMedia?.("(display-mode: standalone)")?.addEventListener?.("change", () => {
-    appInstallState.installed = isStandaloneDisplayMode();
-    syncInstallChrome();
-  });
-
-  syncInstallChrome();
+  getPwaLifecycleTools().initializePwaInstallExperience();
 }
 
 function ensureAppUpdateBannerRoot() {
-  let root = document.getElementById("app-update-banner-root");
-  if (!root) {
-    root = document.createElement("div");
-    root.id = "app-update-banner-root";
-    document.body.appendChild(root);
-  }
-  return root;
+  return getPwaLifecycleTools().ensureAppUpdateBannerRoot();
 }
 
 function getDismissedUpdateBannerVersion() {
-  try {
-    return String(window.localStorage.getItem(APP_UPDATE_BANNER_DISMISS_KEY) || "").trim();
-  } catch (error) {
-    return "";
-  }
+  return getPwaLifecycleTools().getDismissedUpdateBannerVersion();
 }
 
 function saveDismissedUpdateBannerVersion(version = "") {
-  try {
-    if (!version) {
-      window.localStorage.removeItem(APP_UPDATE_BANNER_DISMISS_KEY);
-      return;
-    }
-    window.localStorage.setItem(APP_UPDATE_BANNER_DISMISS_KEY, version);
-  } catch (error) {
-    // Ignore update banner persistence failures.
-  }
+  getPwaLifecycleTools().saveDismissedUpdateBannerVersion(version);
 }
 
 function clearAppUpdateBanner() {
-  const root = document.getElementById("app-update-banner-root");
-  if (root) {
-    root.replaceChildren();
-  }
-  appUpdateBannerState.visibleVersion = "";
+  getPwaLifecycleTools().clearAppUpdateBanner();
 }
 
 function showAppUpdateBanner(registration, version = APP_BOOT_BUILD_VERSION || "") {
-  if (!registration || !navigator.serviceWorker?.controller) {
-    return;
-  }
-
-  const safeVersion = String(version || APP_BOOT_BUILD_VERSION || "").trim();
-  if (!safeVersion) {
-    return;
-  }
-
-  if (getDismissedUpdateBannerVersion() === safeVersion) {
-    return;
-  }
-
-  const root = ensureAppUpdateBannerRoot();
-  root.replaceChildren();
-
-  const banner = document.createElement("div");
-  banner.className = "app-update-banner";
-  banner.setAttribute("role", "status");
-  banner.setAttribute("aria-live", "polite");
-  banner.innerHTML = `
-    <div class="app-update-banner-copy">
-      <p class="app-update-banner-eyebrow">App update ready</p>
-      <strong>Toleo jipya la Winga lipo tayari.</strong>
-      <p>Bonyeza Reload ili upate maboresho ya sasa bila kuvunja session yako.</p>
-    </div>
-    <div class="app-update-banner-actions">
-      <button type="button" class="action-btn button-primary" data-app-update-reload="true">Reload now</button>
-      <button type="button" class="action-btn button-secondary" data-app-update-later="true">Later</button>
-    </div>
-  `;
-  root.appendChild(banner);
-  appUpdateBannerState.visibleVersion = safeVersion;
-
-  const triggerReload = () => {
-    appUpdateBannerState.waitingToReload = true;
-    saveDismissedUpdateBannerVersion("");
-    try {
-      if (registration.waiting) {
-        registration.waiting.postMessage({ type: "SKIP_WAITING" });
-      } else if (registration.installing?.state === "installed") {
-        registration.update().catch(() => {});
-      } else {
-        window.location.reload();
-      }
-    } catch (error) {
-      window.location.reload();
-    }
-  };
-
-  banner.querySelector("[data-app-update-reload]")?.addEventListener("click", (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    triggerReload();
-  });
-
-  banner.querySelector("[data-app-update-later]")?.addEventListener("click", (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    saveDismissedUpdateBannerVersion(safeVersion);
-    clearAppUpdateBanner();
-    showInAppNotification({
-      type: "info",
-      title: "Umeendelea na version ya sasa",
-      body: "Unaweza ku-reload baadaye ili upate update mpya.",
-      variant: "info",
-      durationMs: 2800
-    });
-  });
+  getPwaLifecycleTools().showAppUpdateBanner(registration, version);
 }
 
 function bindAppUpdateLifecycle(registration) {
-  if (!registration) {
-    return;
-  }
-
-  appUpdateBannerState.registration = registration;
-
-  if (!appUpdateBannerState.controllerChangeBound && "serviceWorker" in navigator) {
-    navigator.serviceWorker.addEventListener("controllerchange", () => {
-      if (!appUpdateBannerState.waitingToReload) {
-        return;
-      }
-      appUpdateBannerState.waitingToReload = false;
-      clearAppUpdateBanner();
-      window.location.reload();
-    });
-    appUpdateBannerState.controllerChangeBound = true;
-  }
-
-  const maybeShowWaitingBanner = () => {
-    if (!registration.waiting || !navigator.serviceWorker.controller) {
-      return;
-    }
-    showAppUpdateBanner(registration);
-  };
-
-  if (registration.waiting) {
-    maybeShowWaitingBanner();
-  }
-
-  registration.addEventListener("updatefound", () => {
-    const installingWorker = registration.installing;
-    if (!installingWorker) {
-      return;
-    }
-    installingWorker.addEventListener("statechange", () => {
-      if (installingWorker.state === "installed" && navigator.serviceWorker.controller) {
-        maybeShowWaitingBanner();
-      }
-    });
-  });
+  getPwaLifecycleTools().bindAppUpdateLifecycle(registration);
 }
 
 function getSavedProductsStorageKey() {

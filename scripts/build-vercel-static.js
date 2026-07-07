@@ -858,6 +858,10 @@ function buildFrontendModuleBundle() {
   return `${sections.join("\n\n")}\n`;
 }
 
+function syncRootFrontendModuleBundle() {
+  fs.writeFileSync(path.join(rootDir, "winga-modules.js"), buildFrontendModuleBundle(), "utf8");
+}
+
 function verifyDistContents() {
   const expectedFiles = [
     "index.html",
@@ -890,6 +894,7 @@ function verifyDistContents() {
 async function main() {
   requiredRootFiles.forEach(assertPathExists);
   assertPathExists("src");
+  syncRootFrontendModuleBundle();
 
   const generatedAssetBackup = backupGeneratedPublicAssets();
   ensureCleanDir(outputDir);

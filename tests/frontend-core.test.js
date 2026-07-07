@@ -703,9 +703,36 @@ test("boot lifecycle module owns lifecycle epoch and boot target helpers", () =>
   assert.equal(ephemeralOptions.reason, "test");
   assert.equal(lifecycle.getBootTargetView({ role: "admin" }), "admin");
   assert.equal(lifecycle.getBootTargetView({ role: "seller" }), "home");
+  const localStore = new Map();
+  const installState = { deferredPrompt: null, installed: false, initialized: false };
+  const pwa = context.window.WingaModules.boot.createPwaLifecycleModule({
+    getWindow: () => ({
+      matchMedia: (query) => ({ matches: query.includes("standalone"), addEventListener: () => {} }),
+      navigator: {},
+      localStorage: {
+        getItem: (key) => localStore.get(key) || "",
+        setItem: (key, value) => localStore.set(key, String(value)),
+        removeItem: (key) => localStore.delete(key)
+      }
+    }),
+    getNavigator: () => ({ serviceWorker: {} }),
+    getDocument: () => ({ getElementById: () => null, createElement: () => ({ setAttribute: () => {} }), body: { appendChild: () => {} } }),
+    getInstallState: () => installState,
+    getUpdateBannerState: () => ({ visibleVersion: "" }),
+    updateDismissStorageKey: "test-dismiss-key"
+  });
+  assert.equal(pwa.isStandaloneDisplayMode(), true);
+  assert.equal(pwa.getPwaInstallButtonLabel(), "Open app");
+  pwa.saveDismissedUpdateBannerVersion("20260707");
+  assert.equal(pwa.getDismissedUpdateBannerVersion(), "20260707");
+  pwa.saveDismissedUpdateBannerVersion("");
+  assert.equal(pwa.getDismissedUpdateBannerVersion(), "");
   assert.match(registrySource, /window\.WingaModules\.boot = window\.WingaModules\.boot \|\| \{\};/);
   assert.match(lifecycleSource, /window\.WingaModules\.boot\.createLifecycleModule = createLifecycleModule;/);
+  assert.match(lifecycleSource, /window\.WingaModules\.boot\.createPwaLifecycleModule = createPwaLifecycleModule;/);
   assert.match(appSource, /window\.WingaModules\?\.boot\?\.createLifecycleModule/);
+  assert.match(appSource, /window\.WingaModules\?\.boot\?\.createPwaLifecycleModule/);
+  assert.match(appSource, /function initializePwaInstallExperience\(\) \{\s+getPwaLifecycleTools\(\)\.initializePwaInstallExperience\(\);/);
   assert.doesNotMatch(appSource, /lifecycleRuntimeState\.epoch = nextEpoch/);
   assert.ok(
     buildSource.indexOf('"src/boot/lifecycle.js"') < buildSource.indexOf('"src/monitoring/performance.js"'),

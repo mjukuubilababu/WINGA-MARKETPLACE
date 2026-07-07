@@ -739,9 +739,365 @@ window.WingaModules.boot = window.WingaModules.boot || {};
     };
   }
 
+  function createPwaLifecycleModule(deps = {}) {
+    const getWindow = typeof deps.getWindow === "function" ? deps.getWindow : () => window;
+    const getDocument = typeof deps.getDocument === "function" ? deps.getDocument : () => document;
+    const getNavigator = typeof deps.getNavigator === "function" ? deps.getNavigator : () => navigator;
+    const getInstallState = typeof deps.getInstallState === "function" ? deps.getInstallState : () => ({});
+    const getUpdateBannerState = typeof deps.getUpdateBannerState === "function" ? deps.getUpdateBannerState : () => ({});
+    const getBuildVersion = typeof deps.getBuildVersion === "function" ? deps.getBuildVersion : () => "";
+    const createElement = typeof deps.createElement === "function"
+      ? deps.createElement
+      : (tag, options = {}) => {
+        const element = getDocument().createElement(tag);
+        if (options.className) element.className = options.className;
+        if (options.textContent) element.textContent = options.textContent;
+        Object.entries(options.attributes || {}).forEach(([key, value]) => element.setAttribute(key, value));
+        return element;
+      };
+    const showNotification = typeof deps.showInAppNotification === "function" ? deps.showInAppNotification : () => {};
+    const captureError = typeof deps.captureClientError === "function" ? deps.captureClientError : () => {};
+    const updateDismissStorageKey = String(deps.updateDismissStorageKey || "winga-app-update-banner-dismissed-version");
+
+    function isStandaloneDisplayMode() {
+      const targetWindow = getWindow();
+      try {
+        return Boolean(
+          targetWindow.matchMedia?.("(display-mode: standalone)")?.matches
+          || targetWindow.matchMedia?.("(display-mode: fullscreen)")?.matches
+          || targetWindow.navigator?.standalone === true
+        );
+      } catch (_error) {
+        return false;
+      }
+    }
+
+    function isPwaInstallPromotable() {
+      return !isStandaloneDisplayMode() && Boolean(getInstallState().deferredPrompt);
+    }
+
+    function getPwaInstallButtonLabel() {
+      return isStandaloneDisplayMode() ? "Open app" : "Install app";
+    }
+
+    function getPwaInstallHelpCopy() {
+      if (isStandaloneDisplayMode()) {
+        return "Winga is already installed on this device.";
+      }
+      return "If the browser prompt is not shown yet, open browser menu and choose Install app or Add to home screen.";
+    }
+
+    function ensurePwaInstallButton(buttonId, className = "public-header-btn public-header-btn-primary") {
+      const targetDocument = getDocument();
+      let button = targetDocument.getElementById(buttonId);
+      if (!button) {
+        button = targetDocument.createElement("button");
+        button.id = buttonId;
+        button.type = "button";
+        button.className = className;
+      }
+      return button;
+    }
+
+    function ensureInstallChrome() {
+      const publicHeaderActions = deps.getPublicHeaderActions?.();
+      const authContainer = deps.getAuthContainer?.();
+      let headerInstallButton = deps.getHeaderInstallButton?.();
+      let authInstallButton = deps.getAuthInstallButton?.();
+
+      if (publicHeaderActions) {
+        headerInstallButton = ensurePwaInstallButton("header-install-button");
+        deps.setHeaderInstallButton?.(headerInstallButton);
+        if (!headerInstallButton.isConnected) {
+          publicHeaderActions.appendChild(headerInstallButton);
+        }
+      }
+
+      if (authContainer) {
+        let authPromo = getDocument().getElementById("auth-install-promo");
+        if (!authPromo) {
+          authPromo = createElement("div", {
+            attributes: { id: "auth-install-promo" },
+            className: "auth-install-promo"
+          });
+          authPromo.append(
+            createElement("p", {
+              className: "auth-install-title",
+              textContent: "Install Winga on your device"
+            }),
+            createElement("p", {
+              className: "auth-install-copy",
+              textContent: "Get faster access, smoother browsing, and a home-screen shortcut."
+            })
+          );
+          authInstallButton = ensurePwaInstallButton("auth-install-button", "public-header-btn public-header-btn-primary");
+          deps.setAuthInstallButton?.(authInstallButton);
+          authPromo.appendChild(authInstallButton);
+          const toggleLink = deps.getToggleLink?.() || getDocument().getElementById("toggle-link");
+          if (toggleLink?.parentElement === authContainer) {
+            toggleLink.insertAdjacentElement("afterend", authPromo);
+          } else {
+            authContainer.appendChild(authPromo);
+          }
+        }
+      }
+    }
+
+    function syncInstallChrome() {
+      ensureInstallChrome();
+      const installState = getInstallState();
+      const installed = isStandaloneDisplayMode() || Boolean(installState.installed);
+      const headerInstallButton = deps.getHeaderInstallButton?.();
+      const authInstallButton = deps.getAuthInstallButton?.();
+      if (headerInstallButton) {
+        headerInstallButton.hidden = installed;
+        headerInstallButton.textContent = getPwaInstallButtonLabel();
+      }
+      if (authInstallButton) {
+        authInstallButton.hidden = installed;
+        authInstallButton.textContent = getPwaInstallButtonLabel();
+      }
+      const authPromo = getDocument().getElementById("auth-install-promo");
+      if (authPromo) {
+        authPromo.hidden = installed;
+      }
+      installState.menuHintVisible = !installed;
+    }
+
+    async function promptAppInstall(source = "header") {
+      const installState = getInstallState();
+      if (isStandaloneDisplayMode()) {
+        showNotification({
+          title: "Winga already installed",
+          body: "App iko tayari kufunguka kama app kwenye kifaa hiki.",
+          variant: "info"
+        });
+        return true;
+      }
+      if (installState.deferredPrompt) {
+        const promptEvent = installState.deferredPrompt;
+        installState.deferredPrompt = null;
+        syncInstallChrome();
+        try {
+          promptEvent.prompt();
+          const choiceResult = await promptEvent.userChoice;
+          if (choiceResult?.outcome === "accepted") {
+            showNotification({
+              title: "Installing Winga",
+              body: "Browser inaandaa app yako.",
+              variant: "success"
+            });
+            return true;
+          }
+        } catch (error) {
+          captureError("pwa_install_prompt_failed", error, { source });
+        }
+      }
+      showNotification({
+        title: "Install Winga",
+        body: getPwaInstallHelpCopy(),
+        variant: "info"
+      });
+      return false;
+    }
+
+    function initializePwaInstallExperience() {
+      const targetWindow = getWindow();
+      const installState = getInstallState();
+      if (installState.initialized) {
+        return;
+      }
+      installState.initialized = true;
+      installState.installed = isStandaloneDisplayMode();
+      targetWindow.addEventListener("beforeinstallprompt", (event) => {
+        event.preventDefault();
+        installState.deferredPrompt = event;
+        syncInstallChrome();
+      });
+      targetWindow.addEventListener("appinstalled", () => {
+        installState.deferredPrompt = null;
+        installState.installed = true;
+        syncInstallChrome();
+        showNotification({
+          title: "Winga installed",
+          body: "App iko tayari kutumia kwenye device hii.",
+          variant: "success"
+        });
+      });
+      targetWindow.matchMedia?.("(display-mode: standalone)")?.addEventListener?.("change", () => {
+        installState.installed = isStandaloneDisplayMode();
+        syncInstallChrome();
+      });
+      syncInstallChrome();
+    }
+
+    function ensureAppUpdateBannerRoot() {
+      const targetDocument = getDocument();
+      let root = targetDocument.getElementById("app-update-banner-root");
+      if (!root) {
+        root = targetDocument.createElement("div");
+        root.id = "app-update-banner-root";
+        targetDocument.body.appendChild(root);
+      }
+      return root;
+    }
+
+    function getDismissedUpdateBannerVersion() {
+      try {
+        return String(getWindow().localStorage.getItem(updateDismissStorageKey) || "").trim();
+      } catch (_error) {
+        return "";
+      }
+    }
+
+    function saveDismissedUpdateBannerVersion(version = "") {
+      try {
+        if (!version) {
+          getWindow().localStorage.removeItem(updateDismissStorageKey);
+          return;
+        }
+        getWindow().localStorage.setItem(updateDismissStorageKey, version);
+      } catch (_error) {
+        // Ignore update banner persistence failures.
+      }
+    }
+
+    function clearAppUpdateBanner() {
+      const root = getDocument().getElementById("app-update-banner-root");
+      if (root) {
+        root.replaceChildren();
+      }
+      getUpdateBannerState().visibleVersion = "";
+    }
+
+    function showAppUpdateBanner(registration, version = getBuildVersion()) {
+      const targetNavigator = getNavigator();
+      if (!registration || !targetNavigator.serviceWorker?.controller) {
+        return;
+      }
+      const safeVersion = String(version || getBuildVersion() || "").trim();
+      if (!safeVersion || getDismissedUpdateBannerVersion() === safeVersion) {
+        return;
+      }
+      const root = ensureAppUpdateBannerRoot();
+      root.replaceChildren();
+      const banner = getDocument().createElement("div");
+      banner.className = "app-update-banner";
+      banner.setAttribute("role", "status");
+      banner.setAttribute("aria-live", "polite");
+      banner.innerHTML = `
+        <div class="app-update-banner-copy">
+          <p class="app-update-banner-eyebrow">App update ready</p>
+          <strong>Toleo jipya la Winga lipo tayari.</strong>
+          <p>Bonyeza Reload ili upate maboresho ya sasa bila kuvunja session yako.</p>
+        </div>
+        <div class="app-update-banner-actions">
+          <button type="button" class="action-btn button-primary" data-app-update-reload="true">Reload now</button>
+          <button type="button" class="action-btn button-secondary" data-app-update-later="true">Later</button>
+        </div>
+      `;
+      root.appendChild(banner);
+      getUpdateBannerState().visibleVersion = safeVersion;
+
+      const triggerReload = () => {
+        getUpdateBannerState().waitingToReload = true;
+        saveDismissedUpdateBannerVersion("");
+        try {
+          if (registration.waiting) {
+            registration.waiting.postMessage({ type: "SKIP_WAITING" });
+          } else if (registration.installing?.state === "installed") {
+            registration.update().catch(() => {});
+          } else {
+            getWindow().location.reload();
+          }
+        } catch (_error) {
+          getWindow().location.reload();
+        }
+      };
+
+      banner.querySelector("[data-app-update-reload]")?.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        triggerReload();
+      });
+      banner.querySelector("[data-app-update-later]")?.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        saveDismissedUpdateBannerVersion(safeVersion);
+        clearAppUpdateBanner();
+        showNotification({
+          type: "info",
+          title: "Umeendelea na version ya sasa",
+          body: "Unaweza ku-reload baadaye ili upate update mpya.",
+          variant: "info",
+          durationMs: 2800
+        });
+      });
+    }
+
+    function bindAppUpdateLifecycle(registration) {
+      const targetNavigator = getNavigator();
+      const updateState = getUpdateBannerState();
+      if (!registration) {
+        return;
+      }
+      updateState.registration = registration;
+      if (!updateState.controllerChangeBound && "serviceWorker" in targetNavigator) {
+        targetNavigator.serviceWorker.addEventListener("controllerchange", () => {
+          if (!updateState.waitingToReload) {
+            return;
+          }
+          updateState.waitingToReload = false;
+          clearAppUpdateBanner();
+          getWindow().location.reload();
+        });
+        updateState.controllerChangeBound = true;
+      }
+      const maybeShowWaitingBanner = () => {
+        if (!registration.waiting || !targetNavigator.serviceWorker.controller) {
+          return;
+        }
+        showAppUpdateBanner(registration);
+      };
+      if (registration.waiting) {
+        maybeShowWaitingBanner();
+      }
+      registration.addEventListener("updatefound", () => {
+        const installingWorker = registration.installing;
+        if (!installingWorker) {
+          return;
+        }
+        installingWorker.addEventListener("statechange", () => {
+          if (installingWorker.state === "installed" && targetNavigator.serviceWorker.controller) {
+            maybeShowWaitingBanner();
+          }
+        });
+      });
+    }
+
+    return {
+      isStandaloneDisplayMode,
+      isPwaInstallPromotable,
+      getPwaInstallButtonLabel,
+      getPwaInstallHelpCopy,
+      ensurePwaInstallButton,
+      ensureInstallChrome,
+      syncInstallChrome,
+      promptAppInstall,
+      initializePwaInstallExperience,
+      ensureAppUpdateBannerRoot,
+      getDismissedUpdateBannerVersion,
+      saveDismissedUpdateBannerVersion,
+      clearAppUpdateBanner,
+      showAppUpdateBanner,
+      bindAppUpdateLifecycle
+    };
+  }
+
   window.WingaModules = window.WingaModules || {};
   window.WingaModules.boot = window.WingaModules.boot || {};
   window.WingaModules.boot.createLifecycleModule = createLifecycleModule;
+  window.WingaModules.boot.createPwaLifecycleModule = createPwaLifecycleModule;
 })();
 
 
@@ -820,12 +1176,66 @@ window.WingaModules.boot = window.WingaModules.boot || {};
       return Math.abs(hash).toString(36).slice(0, 8);
     }
 
+    function createMetricWindowStore(windows = {}, options = {}) {
+      const limit = Math.max(1, Number(options.limit || 24) || 24);
+
+      function record(metric, value) {
+        const safeMetric = String(metric || "").trim();
+        const numericValue = Number(value);
+        if (!safeMetric || !Number.isFinite(numericValue)) {
+          return [];
+        }
+        const windowValues = Array.isArray(windows[safeMetric])
+          ? windows[safeMetric]
+          : (windows[safeMetric] = []);
+        windowValues.push(Math.round(numericValue));
+        while (windowValues.length > limit) {
+          windowValues.shift();
+        }
+        return windowValues;
+      }
+
+      function summarize(metric) {
+        const values = Array.isArray(windows?.[metric])
+          ? windows[metric].filter((value) => Number.isFinite(Number(value)))
+          : [];
+        if (!values.length) {
+          return {
+            count: 0,
+            average: 0,
+            max: 0,
+            latest: 0
+          };
+        }
+        const total = values.reduce((sum, value) => sum + Number(value || 0), 0);
+        return {
+          count: values.length,
+          average: Math.round(total / values.length),
+          max: Math.max(...values),
+          latest: Number(values[values.length - 1] || 0)
+        };
+      }
+
+      function reset() {
+        Object.keys(windows).forEach((key) => {
+          windows[key] = [];
+        });
+      }
+
+      return {
+        record,
+        summarize,
+        reset
+      };
+    }
+
     return {
       isExperienceMetricDebugEnabled,
       getPerformanceNowSafe,
       safePerformanceMark,
       safePerformanceMeasure,
-      createExperienceFingerprint
+      createExperienceFingerprint,
+      createMetricWindowStore
     };
   }
 
@@ -2856,6 +3266,69 @@ window.WingaModules.boot = window.WingaModules.boot || {};
       };
     }
 
+    function normalizePendingDescriptors(descriptors = []) {
+      return Array.isArray(descriptors)
+        ? descriptors
+          .filter((descriptor) => Array.isArray(descriptor?.items) && descriptor.items.length)
+          .map((descriptor) => ({
+            ...descriptor,
+            items: descriptor.items.slice()
+          }))
+        : [];
+    }
+
+    function createContinuousDiscoveryRuntime(options = {}) {
+      const initialProductIds = Array.from(options.initialProductIds || []).filter(Boolean);
+      const usedIds = options.usedIds instanceof Set
+        ? options.usedIds
+        : new Set(Array.from(options.usedIds || initialProductIds).filter(Boolean));
+      const productLastAppearanceOrdinal = {};
+      initialProductIds.forEach((productId, index) => {
+        productLastAppearanceOrdinal[productId] = index + 1;
+      });
+      return {
+        observer: null,
+        sentinelObserver: null,
+        virtualObserver: null,
+        sentinelTargets: [],
+        batchIndex: 0,
+        recentIds: [],
+        usedIds,
+        variantSurfaceCounts: {},
+        variantLastBatchIndex: {},
+        variantShownImageIndexes: {},
+        productLastAppearanceOrdinal,
+        normalProductOrdinal: initialProductIds.length,
+        nextFeedSequenceIndex: initialProductIds.length,
+        lastVariantNormalOrdinal: Number(options.lastVariantNormalOrdinal || 0),
+        preparedDescriptor: null,
+        preparedDescriptorBatchIndex: -1,
+        preparingDescriptor: false,
+        lastEarlyLoadAt: 0,
+        loading: false,
+        seedProductId: String(options.seedProductId || ""),
+        reobserveTimer: 0,
+        lastHydrateAt: 0,
+        readyQueue: [],
+        virtualList: [],
+        lastBackendRefreshAt: 0,
+        backendRefreshPromise: null,
+        isLoadingMore: false,
+        loadMoreRequestId: Number(options.loadMoreRequestId || 0),
+        loadMoreAbortController: null,
+        loadMoreState: "idle",
+        loadMoreError: "",
+        loadMoreAttempt: 0,
+        loadMoreHasMore: true,
+        lastSentinelFetchAt: 0,
+        lastSentinelPreloadAt: 0,
+        lastSentinelInjectAt: 0,
+        pressureFirstBlockedAt: 0,
+        lastDescriptorSource: "",
+        pendingDescriptors: normalizePendingDescriptors(options.pendingDescriptors)
+      };
+    }
+
     return {
       isContinuationMediaPendingStale,
       getAdaptiveContinuationLeadCardCount,
@@ -2863,7 +3336,9 @@ window.WingaModules.boot = window.WingaModules.boot || {};
       getAdaptiveContinuousPendingMediaLookback,
       getAdaptiveContinuousPendingMediaCap,
       getHomeContinuationPressureSnapshot,
-      getHydrationAdmission
+      getHydrationAdmission,
+      normalizePendingDescriptors,
+      createContinuousDiscoveryRuntime
     };
   }
 
@@ -4998,13 +5473,34 @@ window.WingaModules.boot = window.WingaModules.boot || {};
       maxStyleBoost: 180,
       maxSellerQualityBoost: 170,
       maxMarketBoost: 190,
+      maxPersonalizationBudget: 420,
+      maxMarketDemandBudget: 360,
+      maxEngagementBudget: 240,
       ...deps.config
     };
     let lazyStyleEngine = deps.styleEngine || null;
+    let lastRankingDiagnostics = {
+      inputCount: 0,
+      uniqueCount: 0,
+      outputCount: 0,
+      duplicateCount: 0,
+      freshProtectedCount: 0,
+      topSellerConcentration: 0,
+      budgets: {
+        personalization: config.maxPersonalizationBudget,
+        marketDemand: config.maxMarketDemandBudget,
+        engagement: config.maxEngagementBudget,
+        sellerQuality: config.maxSellerQualityBoost
+      }
+    };
 
     function toFiniteNumber(value, fallback = 0) {
       const parsed = Number(value);
       return Number.isFinite(parsed) ? parsed : fallback;
+    }
+
+    function clamp(value, min = 0, max = Number.POSITIVE_INFINITY) {
+      return Math.max(min, Math.min(max, toFiniteNumber(value, 0)));
     }
 
     function normalizeLookupValue(value) {
@@ -5172,7 +5668,7 @@ window.WingaModules.boot = window.WingaModules.boot || {};
 
     function scoreProduct(product, context, now) {
       const engagement = getEngagementScore(product);
-      const score = {
+      const rawScore = {
         freshness: getRecencyScore(product, now),
         followedSeller: getFollowedSellerScore(product, context),
         sellerQuality: getSellerQualityScore(product, context),
@@ -5185,12 +5681,24 @@ window.WingaModules.boot = window.WingaModules.boot || {};
         variant: getVariantScore(product),
         engagement: Math.min(180, engagement)
       };
+      const score = {
+        freshness: rawScore.freshness,
+        personalization: clamp(
+          rawScore.followedSeller + rawScore.recommendation + rawScore.style + rawScore.nearby,
+          0,
+          config.maxPersonalizationBudget
+        ),
+        trustAndQuality: clamp(rawScore.sellerQuality, 0, config.maxSellerQualityBoost),
+        marketDemand: clamp(rawScore.market + rawScore.demand + rawScore.variant, 0, config.maxMarketDemandBudget),
+        engagement: clamp(rawScore.trending + rawScore.engagement, 0, config.maxEngagementBudget)
+      };
       const availabilityPenalty = product?.availability === "sold_out" ? config.soldOutPenalty : 0;
       return {
         product,
         sellerId: String(product?.uploadedBy || ""),
         createdTime: getCreatedTime(product),
         score,
+        rawScore,
         totalScore: Object.values(score).reduce((sum, value) => sum + toFiniteNumber(value, 0), 0) - availabilityPenalty
       };
     }
@@ -5294,6 +5802,32 @@ window.WingaModules.boot = window.WingaModules.boot || {};
       return selected.map((entry) => entry.product);
     }
 
+    function buildRankingDiagnostics(sourceCount, uniqueCount, selectedProducts, protectedEntries) {
+      const topWindow = selectedProducts.slice(0, Math.min(8, selectedProducts.length));
+      const sellerCounts = new Map();
+      topWindow.forEach((product) => {
+        const sellerId = String(product?.uploadedBy || "");
+        if (sellerId) {
+          sellerCounts.set(sellerId, (sellerCounts.get(sellerId) || 0) + 1);
+        }
+      });
+      const maxSellerCount = Math.max(0, ...sellerCounts.values());
+      return {
+        inputCount: sourceCount,
+        uniqueCount,
+        outputCount: selectedProducts.length,
+        duplicateCount: Math.max(0, sourceCount - uniqueCount),
+        freshProtectedCount: protectedEntries.length,
+        topSellerConcentration: topWindow.length ? Math.round((maxSellerCount / topWindow.length) * 100) / 100 : 0,
+        budgets: {
+          personalization: config.maxPersonalizationBudget,
+          marketDemand: config.maxMarketDemandBudget,
+          engagement: config.maxEngagementBudget,
+          sellerQuality: config.maxSellerQualityBoost
+        }
+      };
+    }
+
     function rankHomeFeed(products = [], context = {}) {
       const source = Array.isArray(products) ? products.filter(Boolean) : [];
       const unique = [];
@@ -5307,18 +5841,30 @@ window.WingaModules.boot = window.WingaModules.boot || {};
         unique.push(product);
       });
       if (unique.length < 3) {
-        return unique.slice().sort(compareNewestFirst);
+        const selected = unique.slice().sort(compareNewestFirst);
+        lastRankingDiagnostics = buildRankingDiagnostics(source.length, unique.length, selected, []);
+        return selected;
       }
 
       const now = Number(context.now || Date.now());
       const entries = unique.map((product) => scoreProduct(product, context, now));
       const protectedEntries = selectFreshProtected(entries, config.freshTopSlots);
-      return sequenceEntries(entries, protectedEntries, unique.length);
+      const selected = sequenceEntries(entries, protectedEntries, unique.length);
+      lastRankingDiagnostics = buildRankingDiagnostics(source.length, unique.length, selected, protectedEntries);
+      return selected;
+    }
+
+    function getLastRankingDiagnostics() {
+      return {
+        ...lastRankingDiagnostics,
+        budgets: { ...lastRankingDiagnostics.budgets }
+      };
     }
 
     return {
       rankHomeFeed,
-      scoreProduct
+      scoreProduct,
+      getLastRankingDiagnostics
     };
   }
 
@@ -11538,6 +12084,81 @@ window.WingaModules.boot = window.WingaModules.boot || {};
       return createSection(title, meta, list);
     }
 
+    function buildOpsSignalLines(summary = {}) {
+      const intelligence = summary.intelligence || {};
+      const snapshot = intelligence.opsSnapshot || {};
+      const queue = intelligence.durableQueue || {};
+      const health = queue.health || {};
+      const snapshotHealth = queue.snapshotHealth || {};
+      const worker = queue.worker || {};
+      const alerts = Array.isArray(queue.alerts) ? queue.alerts : [];
+      const topEventTypes = Array.isArray(snapshot.topEventTypes) ? snapshot.topEventTypes : [];
+      const topProducts = Array.isArray(snapshot.topProducts) ? snapshot.topProducts : [];
+      const topSellers = Array.isArray(snapshot.topSellers) ? snapshot.topSellers : [];
+      const snapshots = snapshot.snapshots || worker.snapshots || {};
+      const trendSnapshots = Array.isArray(snapshot.trendSnapshots) ? snapshot.trendSnapshots : [];
+      return [
+        ...(summary.backupStatus?.note ? [{ type: "backup", value: `Backup: ${summary.backupStatus.note}` }] : []),
+        ...((summary.configWarnings || []).map((warning) => ({ type: "warning", value: warning }))),
+        {
+          type: "ops-contract",
+          value: `Ops contract: ${snapshot.schemaVersion || "-"} | ${snapshot.privacy || "aggregate"} | critical path ${String(snapshot.criticalPath ?? false)}`
+        },
+        {
+          type: "queue",
+          value: `Intelligence queue: ${snapshot.readiness || "-"} | mode ${snapshot.processorMode || worker.processorMode || "-"} | enabled ${String(snapshot.workerEnabled ?? worker.enabled ?? false)}`
+        },
+        {
+          type: "queue-health",
+          value: `Queue counts: pending ${snapshot.pending ?? health.pending ?? 0}, processing ${snapshot.processing ?? health.processing ?? 0}, failed ${snapshot.failed ?? health.failed ?? 0}, dead ${snapshot.dead ?? health.dead ?? 0}`
+        },
+        {
+          type: "queue-age",
+          value: `Queue age: oldest pending ${snapshot.oldestPendingAgeSeconds ?? health.oldestPendingAgeSeconds ?? 0}s, oldest processing ${snapshot.oldestProcessingAgeSeconds ?? health.oldestProcessingAgeSeconds ?? 0}s`
+        },
+        {
+          type: "queue-worker",
+          value: `Worker: processed ${snapshot.processed ?? worker.processed ?? 0}, failed runs ${snapshot.failedWorkerRuns ?? worker.failed ?? 0}, standby skips ${snapshot.standbySkips ?? worker.standbySkips ?? 0}, fallback runs ${snapshot.standbyFallbackRuns ?? worker.standbyFallbackRuns ?? 0}`
+        },
+        {
+          type: "intelligence-snapshots",
+          value: `Daily snapshots: event types ${snapshots.eventTypes ?? 0}, demand products ${snapshots.demandProducts ?? 0}, search queries ${snapshots.searchQueries ?? 0}, pruned ${snapshots.prunedSnapshots ?? 0}`
+        },
+        {
+          type: "snapshot-health",
+          value: `Snapshot health: recent ${snapshotHealth.recentSnapshots ?? 0}, estimated total ${snapshotHealth.estimatedTotalSnapshots ?? snapshotHealth.totalSnapshots ?? 0}, raw ${snapshotHealth.recentRawEventCount ?? 0}, latest ${snapshotHealth.latestUpdatedAt || "-"}`
+        },
+        ...(alerts.slice(0, 4).map((entry) => ({
+          type: "queue-alert",
+          value: `Queue alert ${entry.level || "high"} | ${entry.type || "event"} | ${entry.message || "-"}`
+        }))),
+        ...(trendSnapshots.slice(0, 3).map((entry) => ({
+          type: "trend-snapshot",
+          value: `Trend snapshot: ${entry.snapshotType || "-"}:${entry.snapshotKey || "-"} (${entry.count || 0}, score ${entry.score || 0})`
+        }))),
+        ...(topEventTypes.slice(0, 3).map((entry) => ({
+          type: "event-type",
+          value: `Top event: ${entry.eventType || "-"} (${entry.count || 0})`
+        }))),
+        ...(topProducts.slice(0, 3).map((entry) => ({
+          type: "product-score",
+          value: `Top product score: ${entry.id || "-"} (${entry.score || 0})`
+        }))),
+        ...(topSellers.slice(0, 3).map((entry) => ({
+          type: "seller-score",
+          value: `Top seller score: ${entry.id || "-"} (${entry.score || 0})`
+        }))),
+        ...((summary.recentAlerts || []).slice(0, 4).map((entry) => ({
+          type: "alert",
+          value: `Alert ${entry.alertSeverity || "high"} | ${entry.event || "event"} | ${entry.message || entry.path || "-"}`
+        }))),
+        ...((summary.recentFailures || []).slice(0, 6).map((entry) => ({
+          type: "failure",
+          value: `${entry.event || "event"} | ${entry.message || entry.path || "-"}`
+        })))
+      ];
+    }
+
     function createPromotionSummaryStrip(promotions = []) {
       const safePromotions = Array.isArray(promotions) ? promotions : [];
       const counts = safePromotions.reduce((accumulator, promotion) => {
@@ -11863,18 +12484,7 @@ window.WingaModules.boot = window.WingaModules.boot || {};
           wrapper.appendChild(createSimpleListSection(
             "Ops Signals",
             `Storage: ${state.opsSummary.storageMode || "-"} | Backups: ${state.opsSummary.backupStatus?.fileCount ?? 0} | Warnings: ${(state.opsSummary.configWarnings || []).length} | Auth failures: ${state.opsSummary.counts?.authFailures24h ?? 0} | Alerts: ${state.opsSummary.counts?.alertCandidates24h ?? 0} | Denied: ${state.opsSummary.counts?.deniedActions24h ?? 0}`,
-            [
-              ...(state.opsSummary.backupStatus?.note ? [{ type: "backup", value: `Backup: ${state.opsSummary.backupStatus.note}` }] : []),
-              ...((state.opsSummary.configWarnings || []).map((warning) => ({ type: "warning", value: warning }))),
-              ...((state.opsSummary.recentAlerts || []).slice(0, 4).map((entry) => ({
-                type: "alert",
-                value: `Alert ${entry.alertSeverity || "high"} | ${entry.event || "event"} | ${entry.message || entry.path || "-"}`
-              }))),
-              ...((state.opsSummary.recentFailures || []).slice(0, 6).map((entry) => ({
-                type: "failure",
-                value: `${entry.event || "event"} | ${entry.message || entry.path || "-"}`
-              })))
-            ],
+            buildOpsSignalLines(state.opsSummary),
             (item) => item.value
           ));
         }
@@ -12631,18 +13241,7 @@ window.WingaModules.boot = window.WingaModules.boot || {};
           wrapper.appendChild(createSimpleListSection(
             "Ops Signals",
             `Storage: ${state.opsSummary.storageMode || "-"} | Backups: ${state.opsSummary.backupStatus?.fileCount ?? 0} | Warnings: ${(state.opsSummary.configWarnings || []).length} | Auth failures: ${state.opsSummary.counts?.authFailures24h ?? 0} | Alerts: ${state.opsSummary.counts?.alertCandidates24h ?? 0} | Denied: ${state.opsSummary.counts?.deniedActions24h ?? 0}`,
-            [
-              ...(state.opsSummary.backupStatus?.note ? [{ type: "backup", value: `Backup: ${state.opsSummary.backupStatus.note}` }] : []),
-              ...((state.opsSummary.configWarnings || []).map((warning) => ({ type: "warning", value: warning }))),
-              ...((state.opsSummary.recentAlerts || []).slice(0, 4).map((entry) => ({
-                type: "alert",
-                value: `Alert ${entry.alertSeverity || "high"} | ${entry.event || "event"} | ${entry.message || entry.path || "-"}`
-              }))),
-              ...((state.opsSummary.recentFailures || []).slice(0, 6).map((entry) => ({
-                type: "failure",
-                value: `${entry.event || "event"} | ${entry.message || entry.path || "-"}`
-              })))
-            ],
+            buildOpsSignalLines(state.opsSummary),
             (item) => item.value
           ));
         }
