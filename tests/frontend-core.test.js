@@ -750,6 +750,138 @@ test("app boot helpers avoid duplicate hoisted declarations", () => {
   assert.equal(pruneDeclarations.length, 1);
 });
 
+test("notification permission module owns prompt state and cooldown logic", () => {
+  const root = path.resolve(__dirname, "..");
+  const source = fs.readFileSync(path.join(root, "src", "notifications", "permission.js"), "utf8");
+  const registrySource = fs.readFileSync(path.join(root, "src", "core", "module-registry.js"), "utf8");
+  const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
+  const buildSource = fs.readFileSync(path.join(root, "scripts", "build-vercel-static.js"), "utf8");
+  const localStore = new Map();
+  const elements = new Map();
+  const notifications = [];
+  const events = [];
+  const makeElement = (tag) => {
+    const node = {
+      tag,
+      id: "",
+      className: "",
+      textContent: "",
+      dataset: {},
+      children: [],
+      listeners: {},
+      setAttribute(name, value) {
+        if (name === "id") {
+          this.id = String(value);
+          elements.set(this.id, this);
+        }
+        this[name] = String(value);
+      },
+      append(...items) {
+        this.children.push(...items);
+      },
+      appendChild(child) {
+        this.children.push(child);
+        if (child.id) elements.set(child.id, child);
+      },
+      replaceChildren(...items) {
+        this.children = items;
+      },
+      querySelector(selector) {
+        const attr = selector.match(/\[([^=]+)="([^"]+)"\]/);
+        if (!attr) return null;
+        const [name, value] = [attr[1], attr[2]];
+        const stack = [...this.children];
+        while (stack.length) {
+          const current = stack.shift();
+          if (current?.[name] === value || current?.attributes?.[name] === value) return current;
+          stack.push(...(current?.children || []));
+        }
+        return null;
+      },
+      addEventListener(type, handler) {
+        this.listeners[type] = handler;
+      },
+      attributes: {}
+    };
+    return node;
+  };
+  const documentStub = {
+    body: makeElement("body"),
+    createElement: makeElement,
+    getElementById: (id) => elements.get(id) || null
+  };
+  let permission = "default";
+  const context = vm.createContext({
+    window: {
+      WingaModules: { notifications: {} },
+      Notification: {
+        get permission() {
+          return permission;
+        },
+        requestPermission: async () => {
+          permission = "granted";
+          return permission;
+        }
+      },
+      localStorage: {
+        getItem: (key) => localStore.get(key) || "",
+        setItem: (key, value) => localStore.set(key, String(value)),
+        removeItem: (key) => localStore.delete(key)
+      }
+    },
+    Date,
+    JSON,
+    Math,
+    Object,
+    Number,
+    String,
+    Boolean,
+    Array,
+    Set
+  });
+  vm.runInContext(source, context);
+  const module = context.window.WingaModules.notifications.createNotificationPermissionModule({
+    getWindow: () => context.window,
+    getDocument: () => documentStub,
+    storageKey: "test-notification-permission",
+    promptCooldownMs: 60_000,
+    allowedTriggers: new Set(["message", "order"]),
+    createElement: (tag, options = {}) => {
+      const node = makeElement(tag);
+      node.className = options.className || "";
+      node.textContent = options.textContent || "";
+      node.attributes = options.attributes || {};
+      Object.entries(options.attributes || {}).forEach(([key, value]) => node.setAttribute(key, value));
+      return node;
+    },
+    showInAppNotification: (notification) => notifications.push(notification),
+    renderCurrentView: () => events.push("render"),
+    reportClientEvent: (...args) => events.push(args)
+  });
+
+  assert.equal(module.normalizeNotificationPermissionStatus("bad"), "not_asked");
+  assert.equal(module.shouldShowNotificationPermissionPrompt("message"), true);
+  assert.equal(module.showNotificationPermissionPrompt("message"), true);
+  assert.equal(module.shouldShowNotificationPermissionPrompt("message"), false);
+  const rootNode = elements.get("notification-permission-root");
+  assert.equal(rootNode.dataset.visible, "true");
+  const enableButton = rootNode.querySelector('[data-notification-permission-enable="true"]');
+  assert.ok(enableButton);
+  return module.requestBrowserNotificationPermission().then((permissionResult) => {
+    assert.equal(permissionResult, "granted");
+    module.updateNotificationPermissionState({ status: "allowed" });
+    assert.equal(module.getNotificationPermissionState().status, "allowed");
+    assert.match(registrySource, /window\.WingaModules\.notifications = window\.WingaModules\.notifications \|\| \{\};/);
+    assert.match(source, /window\.WingaModules\.notifications\.createNotificationPermissionModule = createNotificationPermissionModule;/);
+    assert.match(appSource, /window\.WingaModules\?\.notifications\?\.createNotificationPermissionModule/);
+    assert.match(appSource, /function maybePromptNotificationPermission\(trigger = "message", options = \{\}\) \{\s+return getNotificationPermissionTools\(\)\.maybePromptNotificationPermission\(trigger, options\);/);
+    assert.ok(
+      buildSource.indexOf('"src/notifications/permission.js"') < buildSource.indexOf('"src/monitoring/performance.js"'),
+      "notification permission module must be bundled before app boot"
+    );
+  });
+});
+
 test("home pagination retries safely, cancels stale work, and commits pages transactionally", () => {
   const root = path.resolve(__dirname, "..");
   const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");

@@ -81,6 +81,7 @@ const bundledModuleSources = [
   "src/auth/permissions.js",
   "src/auth/session-runtime.js",
   "src/boot/lifecycle.js",
+  "src/notifications/permission.js",
   "src/monitoring/performance.js",
   "src/monitoring/observability.js",
   "src/components/dom-helpers.js",

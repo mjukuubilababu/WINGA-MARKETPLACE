@@ -216,6 +216,7 @@ const {
 } = marketplaceImageLoader;
 let bootLifecycleTools = null;
 let pwaLifecycleTools = null;
+let notificationPermissionTools = null;
 let authSessionRuntimeTools = null;
 let appEventsTools = null;
 
@@ -1610,6 +1611,27 @@ function getPwaLifecycleTools() {
     });
   }
   return pwaLifecycleTools;
+}
+
+function getNotificationPermissionTools() {
+  if (!notificationPermissionTools) {
+    const factory = window.WingaModules?.notifications?.createNotificationPermissionModule;
+    if (typeof factory !== "function") {
+      throw new Error("Winga notification permission module is required before app boot.");
+    }
+    notificationPermissionTools = factory({
+      getWindow: () => window,
+      getDocument: () => document,
+      createElement,
+      showInAppNotification,
+      renderCurrentView,
+      reportClientEvent,
+      storageKey: NOTIFICATION_PERMISSION_STATE_KEY,
+      promptCooldownMs: NOTIFICATION_PERMISSION_PROMPT_COOLDOWN_MS,
+      allowedTriggers: NOTIFICATION_PERMISSION_TRIGGERS
+    });
+  }
+  return notificationPermissionTools;
 }
 
 function getAppEventsTools() {
@@ -12370,322 +12392,67 @@ const appInstallState = {
   menuHintVisible: false
 };
 function createDefaultNotificationPermissionState() {
-  return {
-    status: "not_asked",
-    lastTrigger: "",
-    lastPromptAt: 0,
-    lastDecisionAt: 0
-  };
+  return getNotificationPermissionTools().createDefaultNotificationPermissionState();
 }
 
 function normalizeNotificationPermissionStatus(value) {
-  return ["not_asked", "prompted", "dismissed", "allowed", "denied"].includes(value)
-    ? value
-    : "not_asked";
+  return getNotificationPermissionTools().normalizeNotificationPermissionStatus(value);
 }
 
 function readNotificationPermissionState() {
-  try {
-    const raw = localStorage.getItem(NOTIFICATION_PERMISSION_STATE_KEY);
-    if (!raw) {
-      return createDefaultNotificationPermissionState();
-    }
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return createDefaultNotificationPermissionState();
-    }
-    return {
-      ...createDefaultNotificationPermissionState(),
-      ...parsed,
-      status: normalizeNotificationPermissionStatus(parsed.status)
-    };
-  } catch (error) {
-    return createDefaultNotificationPermissionState();
-  }
+  return getNotificationPermissionTools().readNotificationPermissionState();
 }
 
-let notificationPermissionState = readNotificationPermissionState();
-
 function persistNotificationPermissionState() {
-  try {
-    localStorage.setItem(NOTIFICATION_PERMISSION_STATE_KEY, JSON.stringify(notificationPermissionState));
-  } catch (error) {
-    reportClientEvent("warn", "notification_permission_state_persist_failed", "Unable to persist notification permission state.", {
-      category: "runtime"
-    });
-  }
+  getNotificationPermissionTools().persistNotificationPermissionState();
 }
 
 function updateNotificationPermissionState(nextState = {}) {
-  notificationPermissionState = {
-    ...notificationPermissionState,
-    ...nextState,
-    status: normalizeNotificationPermissionStatus(nextState.status ?? notificationPermissionState.status)
-  };
-  persistNotificationPermissionState();
-  return notificationPermissionState;
+  return getNotificationPermissionTools().updateNotificationPermissionState(nextState);
 }
 
 function syncNotificationPermissionStateFromBrowser() {
-  if (!("Notification" in window)) {
-    return notificationPermissionState;
-  }
-  if (Notification.permission === "granted") {
-    return updateNotificationPermissionState({
-      status: "allowed",
-      lastDecisionAt: Date.now()
-    });
-  }
-  if (Notification.permission === "denied") {
-    return updateNotificationPermissionState({
-      status: "denied",
-      lastDecisionAt: Date.now()
-    });
-  }
-  return notificationPermissionState;
+  return getNotificationPermissionTools().syncNotificationPermissionStateFromBrowser();
 }
 
 function getNotificationPermissionState() {
-  return {
-    ...syncNotificationPermissionStateFromBrowser()
-  };
+  return getNotificationPermissionTools().getNotificationPermissionState();
 }
 
-function getNotificationPermissionStatusLabel(state = notificationPermissionState) {
-  const browserPermission = "Notification" in window ? Notification.permission : "unsupported";
-  if (browserPermission === "granted" || state.status === "allowed") {
-    return "Enabled";
-  }
-  if (browserPermission === "denied" || state.status === "denied") {
-    return "Blocked";
-  }
-  if (state.status === "dismissed") {
-    return "Paused";
-  }
-  if (browserPermission === "unsupported") {
-    return "Unsupported";
-  }
-  return "Not enabled";
+function getNotificationPermissionStatusLabel(state = getNotificationPermissionState()) {
+  return getNotificationPermissionTools().getNotificationPermissionStatusLabel(state);
 }
 
 function shouldShowNotificationPermissionPrompt(trigger = "", { allowDenied = false } = {}) {
-  if (!("Notification" in window)) {
-    return false;
-  }
-  const state = syncNotificationPermissionStateFromBrowser();
-  if (Notification.permission === "granted" || state.status === "allowed") {
-    return false;
-  }
-  if (!allowDenied && (Notification.permission === "denied" || state.status === "denied")) {
-    return false;
-  }
-  if (!NOTIFICATION_PERMISSION_TRIGGERS.has(String(trigger || "").trim()) && trigger !== "settings") {
-    return false;
-  }
-  if (!allowDenied && state.status === "dismissed") {
-    return false;
-  }
-  if (!allowDenied && state.status === "prompted") {
-    return false;
-  }
-  if (!allowDenied && state.lastPromptAt && Date.now() - Number(state.lastPromptAt || 0) < NOTIFICATION_PERMISSION_PROMPT_COOLDOWN_MS) {
-    return false;
-  }
-  return true;
+  return getNotificationPermissionTools().shouldShowNotificationPermissionPrompt(trigger, { allowDenied });
 }
 
 function ensureNotificationPermissionPromptRoot() {
-  let root = document.getElementById("notification-permission-root");
-  if (!root) {
-    root = createElement("div", {
-      attributes: { id: "notification-permission-root" },
-      className: "notification-permission-root"
-    });
-    document.body.appendChild(root);
-  }
-  return root;
+  return getNotificationPermissionTools().ensureNotificationPermissionPromptRoot();
 }
 
 function closeNotificationPermissionPrompt() {
-  const root = document.getElementById("notification-permission-root");
-  if (!root) {
-    return;
-  }
-  root.replaceChildren();
-  root.dataset.visible = "false";
+  getNotificationPermissionTools().closeNotificationPermissionPrompt();
 }
 
 async function requestBrowserNotificationPermission() {
-  if (!("Notification" in window)) {
-    return "unsupported";
-  }
-  if (Notification.permission === "granted" || Notification.permission === "denied") {
-    return Notification.permission;
-  }
-  if (typeof Notification.requestPermission !== "function") {
-    return Notification.permission;
-  }
-  const result = await Notification.requestPermission();
-  return String(result || Notification.permission || "default");
+  return getNotificationPermissionTools().requestBrowserNotificationPermission();
 }
 
 function renderNotificationPermissionPromptBody(trigger = "", options = {}) {
-  const hasBlockedPermission = "Notification" in window && Notification.permission === "denied";
-  const body = options.body || (
-    hasBlockedPermission
-      ? "Browser yako tayari imezima notifications. Unaweza kujaribu tena au kuruhusu notifications kupitia browser settings."
-      : "Turn on notifications so you do not miss new messages, order updates, and important activity."
-  );
-  const title = options.title || "Stay updated with Winga";
-  return { title, body };
+  return getNotificationPermissionTools().renderNotificationPermissionPromptBody(trigger, options);
 }
 
 function showNotificationPermissionPrompt(trigger = "message", options = {}) {
-  const allowDenied = Boolean(options.allowDenied);
-  if (!shouldShowNotificationPermissionPrompt(trigger, { allowDenied })) {
-    return false;
-  }
-
-  const root = ensureNotificationPermissionPromptRoot();
-  if (root.dataset.visible === "true") {
-    return true;
-  }
-
-  const { title, body } = renderNotificationPermissionPromptBody(trigger, options);
-  const state = updateNotificationPermissionState({
-    status: "prompted",
-    lastTrigger: String(trigger || ""),
-    lastPromptAt: Date.now()
-  });
-  const statusLabel = getNotificationPermissionStatusLabel(state);
-  const canRequestNow = "Notification" in window && Notification.permission !== "granted";
-  const buttonLabel = Notification.permission === "denied"
-    ? "Open browser settings"
-    : Notification.permission === "granted"
-      ? "Notifications enabled"
-      : "Enable notifications";
-
-  const prompt = createElement("section", {
-    className: "notification-permission-prompt",
-    attributes: {
-      role: "dialog",
-      "aria-live": "polite",
-      "aria-label": title
-    }
-  });
-  const metaRow = createElement("div", { className: "notification-permission-meta" });
-  metaRow.append(
-    createElement("span", { className: "status-pill", textContent: statusLabel }),
-    createElement("span", { className: "notification-permission-note", textContent: "You can change this later in Profile." })
-  );
-  const actionsRow = createElement("div", { className: "notification-permission-actions" });
-  actionsRow.append(
-    createElement("button", {
-      className: "action-btn buy-btn",
-      textContent: buttonLabel,
-      attributes: {
-        type: "button",
-        "data-notification-permission-enable": "true"
-      }
-    }),
-    createElement("button", {
-      className: "action-btn action-btn-secondary",
-      textContent: "Maybe later",
-      attributes: {
-        type: "button",
-        "data-notification-permission-later": "true"
-      }
-    })
-  );
-  prompt.append(
-    createElement("p", { className: "notification-permission-eyebrow", textContent: "Notifications" }),
-    createElement("strong", { textContent: title }),
-    createElement("p", { className: "notification-permission-copy", textContent: body }),
-    metaRow,
-    actionsRow
-  );
-
-  root.replaceChildren(prompt);
-  root.dataset.visible = "true";
-  root.dataset.trigger = String(trigger || "");
-
-  root.querySelector("[data-notification-permission-enable]")?.addEventListener("click", async (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    if (!canRequestNow && Notification.permission !== "denied") {
-      closeNotificationPermissionPrompt();
-      return;
-    }
-    try {
-      const permission = await requestBrowserNotificationPermission();
-      if (permission === "granted") {
-        updateNotificationPermissionState({
-          status: "allowed",
-          lastDecisionAt: Date.now()
-        });
-        showInAppNotification({
-          title: "Notifications enabled",
-          body: "Winga itakutumia updates za messages, orders, na activity muhimu.",
-          variant: "success"
-        });
-        closeNotificationPermissionPrompt();
-        renderCurrentView();
-        return;
-      }
-      updateNotificationPermissionState({
-        status: permission === "denied" ? "denied" : "dismissed",
-        lastDecisionAt: Date.now()
-      });
-      showInAppNotification({
-        title: "Notifications off",
-        body: permission === "denied"
-          ? "Browser imezima notifications. Unaweza kuzi-enable tena kwenye browser settings."
-          : "Umeacha notifications kwa sasa. Unaweza kuziwasha tena baadaye.",
-        variant: "info"
-      });
-      closeNotificationPermissionPrompt();
-      renderCurrentView();
-    } catch (error) {
-      closeNotificationPermissionPrompt();
-      showInAppNotification({
-        title: "Notifications unavailable",
-        body: error.message || "Imeshindikana kuomba notifications kwa sasa.",
-        variant: "warning"
-      });
-    }
-  });
-
-  root.querySelector("[data-notification-permission-later]")?.addEventListener("click", (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    updateNotificationPermissionState({
-      status: "dismissed",
-      lastDecisionAt: Date.now()
-    });
-    closeNotificationPermissionPrompt();
-    showInAppNotification({
-      title: "Maybe later",
-      body: "Hatutakusumbua sasa. Unaweza kuziwasha from Profile later.",
-      variant: "info"
-    });
-    renderCurrentView();
-  });
-
-  return true;
+  return getNotificationPermissionTools().showNotificationPermissionPrompt(trigger, options);
 }
 
 function openNotificationPermissionPrompt(trigger = "settings", options = {}) {
-  return showNotificationPermissionPrompt(trigger, {
-    ...options,
-    allowDenied: true
-  });
+  return getNotificationPermissionTools().openNotificationPermissionPrompt(trigger, options);
 }
 
 function maybePromptNotificationPermission(trigger = "message", options = {}) {
-  if (!shouldShowNotificationPermissionPrompt(trigger, { allowDenied: false })) {
-    return false;
-  }
-  return showNotificationPermissionPrompt(trigger, options);
+  return getNotificationPermissionTools().maybePromptNotificationPermission(trigger, options);
 }
 
 const savedProductState = {
