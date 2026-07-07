@@ -2297,15 +2297,25 @@ test("shared DOM helper blocks unsafe attributes before setAttribute", () => {
 test("api writes attach a CSRF token before sending state-changing requests", () => {
   const root = path.resolve(__dirname, "..");
   const dataSource = fs.readFileSync(path.join(root, "data-service.js"), "utf8");
+  const apiRuntimeSource = fs.readFileSync(path.join(root, "src", "api", "runtime.js"), "utf8");
+  const registrySource = fs.readFileSync(path.join(root, "src", "core", "module-registry.js"), "utf8");
+  const buildSource = fs.readFileSync(path.join(root, "scripts", "build-vercel-static.js"), "utf8");
+  const indexSource = fs.readFileSync(path.join(root, "index.html"), "utf8");
   const backendSource = fs.readFileSync(path.join(root, "backend", "server.js"), "utf8");
 
-  assert.match(dataSource, /function isUnsafeApiMethod\(method = "GET"\)/);
-  assert.match(dataSource, /\/auth\/csrf-token/);
+  assert.match(registrySource, /window\.WingaModules\.api = window\.WingaModules\.api \|\| \{\};/);
+  assert.match(apiRuntimeSource, /window\.WingaModules\.api\.createApiRuntime = createApiRuntime;/);
+  assert.match(apiRuntimeSource, /function isUnsafeApiMethod\(method = "GET"\)/);
+  assert.match(apiRuntimeSource, /\/auth\/csrf-token/);
   assert.doesNotMatch(dataSource, /document\.cookie/);
   assert.doesNotMatch(dataSource, /Authorization: `Bearer/);
   assert.doesNotMatch(dataSource, /stillStoredSession\?\.token/);
-  assert.match(dataSource, /headers\.set\("X-CSRF-Token", await fetchCsrfTokenForRequest\(url\)\)/);
-  assert.match(dataSource, /response\.status === 403 && errorCode === "csrf_failed" && !hasRetriedCsrf/);
+  assert.match(apiRuntimeSource, /headers\.set\("X-CSRF-Token", await fetchCsrfTokenForRequest\(url\)\)/);
+  assert.match(apiRuntimeSource, /response\.status === 403 && errorCode === "csrf_failed" && !hasRetriedCsrf/);
+  assert.match(dataSource, /window\.WingaModules\?\.api\?\.createApiRuntime/);
+  assert.match(dataSource, /function fetchJson\(url, options\) \{\s+return getApiRuntimeTools\(\)\.fetchJson\(url, options\);/);
+  assert.ok(buildSource.indexOf('"src/api/runtime.js"') < buildSource.indexOf('"src/config/categories.js"'));
+  assert.ok(indexSource.indexOf("/winga-modules.js") < indexSource.indexOf("/data-service.js"));
   assert.match(backendSource, /const CSRF_COOKIE_NAME = "winga_csrf"/);
   assert.match(backendSource, /function buildSelfSessionPayload\(user\)/);
   assert.doesNotMatch(backendSource, /payload\.token = token/);
