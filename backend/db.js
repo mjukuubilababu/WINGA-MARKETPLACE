@@ -1892,6 +1892,39 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
     return { pruned: Number(result.rowCount || 0) };
   }
 
+  async function pruneIntelligenceRawEvents(options = {}) {
+    const intelligenceDays = Math.max(7, Math.min(Number(options.intelligenceDays || 180) || 180, 3650));
+    const demandDays = Math.max(30, Math.min(Number(options.demandDays || 730) || 730, 3650));
+    const searchDays = Math.max(7, Math.min(Number(options.searchDays || 365) || 365, 3650));
+    const [intelligence, demand, search] = await Promise.all([
+      query(
+        `DELETE FROM intelligence_events
+         WHERE happened_at < NOW() - ($1 || ' days')::interval`,
+        [String(intelligenceDays)]
+      ),
+      query(
+        `DELETE FROM demand_events
+         WHERE created_at < NOW() - ($1 || ' days')::interval`,
+        [String(demandDays)]
+      ),
+      query(
+        `DELETE FROM search_demand_events
+         WHERE happened_at < NOW() - ($1 || ' days')::interval`,
+        [String(searchDays)]
+      )
+    ]);
+    return {
+      intelligenceEvents: Number(intelligence.rowCount || 0),
+      demandEvents: Number(demand.rowCount || 0),
+      searchDemandEvents: Number(search.rowCount || 0),
+      retentionDays: {
+        intelligence: intelligenceDays,
+        demand: demandDays,
+        search: searchDays
+      }
+    };
+  }
+
   async function readIntelligenceSummary(limit = 10) {
     const safeLimit = Math.max(1, Math.min(Number(limit) || 10, 50));
     const [eventTypes, products, sellers] = await Promise.all([
@@ -2295,6 +2328,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
     readIntelligenceQueueHealth,
     recoverStaleIntelligenceQueueJobs,
     pruneCompletedIntelligenceQueueJobs,
+    pruneIntelligenceRawEvents,
     readIntelligenceSummary,
     appendDemandEvent,
     readSellerDemandSummary,

@@ -8,6 +8,9 @@ const INTERVAL_MS = Math.max(1000, Math.min(Number(process.env.INTELLIGENCE_QUEU
 const MAX_ATTEMPTS = Math.max(1, Math.min(Number(process.env.INTELLIGENCE_QUEUE_MAX_ATTEMPTS || 12) || 12, 50));
 const STALE_SECONDS = Math.max(60, Math.min(Number(process.env.INTELLIGENCE_QUEUE_STALE_SECONDS || 300) || 300, 86400));
 const COMPLETED_RETENTION_HOURS = Math.max(1, Math.min(Number(process.env.INTELLIGENCE_QUEUE_COMPLETED_RETENTION_HOURS || 72) || 72, 24 * 90));
+const INTELLIGENCE_RAW_EVENT_RETENTION_DAYS = Math.max(7, Math.min(Number(process.env.INTELLIGENCE_RAW_EVENT_RETENTION_DAYS || 180) || 180, 3650));
+const DEMAND_RAW_EVENT_RETENTION_DAYS = Math.max(30, Math.min(Number(process.env.DEMAND_RAW_EVENT_RETENTION_DAYS || 730) || 730, 3650));
+const SEARCH_DEMAND_RAW_EVENT_RETENTION_DAYS = Math.max(7, Math.min(Number(process.env.SEARCH_DEMAND_RAW_EVENT_RETENTION_DAYS || 365) || 365, 3650));
 const RUN_ONCE = process.argv.includes("--once") || process.env.INTELLIGENCE_QUEUE_RUN_ONCE === "true";
 
 if (!DATABASE_URL) {
@@ -26,6 +29,11 @@ const state = {
   failed: 0,
   recovered: 0,
   pruned: 0,
+  rawPruned: {
+    intelligenceEvents: 0,
+    demandEvents: 0,
+    searchDemandEvents: 0
+  },
   lastMaintenanceAt: 0
 };
 
@@ -41,6 +49,16 @@ async function runMaintenance() {
       retentionHours: COMPLETED_RETENTION_HOURS
     });
     state.pruned += Number(prune?.pruned || 0);
+    if (store.pruneIntelligenceRawEvents) {
+      const rawPrune = await store.pruneIntelligenceRawEvents({
+        intelligenceDays: INTELLIGENCE_RAW_EVENT_RETENTION_DAYS,
+        demandDays: DEMAND_RAW_EVENT_RETENTION_DAYS,
+        searchDays: SEARCH_DEMAND_RAW_EVENT_RETENTION_DAYS
+      });
+      state.rawPruned.intelligenceEvents += Number(rawPrune?.intelligenceEvents || 0);
+      state.rawPruned.demandEvents += Number(rawPrune?.demandEvents || 0);
+      state.rawPruned.searchDemandEvents += Number(rawPrune?.searchDemandEvents || 0);
+    }
     state.lastMaintenanceAt = now;
   }
 }
@@ -83,6 +101,7 @@ async function processOnce() {
         failed: state.failed,
         recovered: state.recovered,
         pruned: state.pruned,
+        rawPruned: state.rawPruned,
         health
       });
     }

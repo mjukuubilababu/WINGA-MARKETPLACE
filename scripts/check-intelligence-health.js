@@ -55,6 +55,11 @@ function sanitizeMonitorPayload(payload = {}) {
       processorMode: String(payload.worker.processorMode || ""),
       processed: Number(payload.worker.processed || 0),
       failed: Number(payload.worker.failed || 0),
+      rawPruned: payload.worker.rawPruned && typeof payload.worker.rawPruned === "object" ? {
+        intelligenceEvents: Number(payload.worker.rawPruned.intelligenceEvents || 0),
+        demandEvents: Number(payload.worker.rawPruned.demandEvents || 0),
+        searchDemandEvents: Number(payload.worker.rawPruned.searchDemandEvents || 0)
+      } : null,
       standbySkips: Number(payload.worker.standbySkips || 0),
       standbyFallbackRuns: Number(payload.worker.standbyFallbackRuns || 0),
       lastSuccessAt: String(payload.worker.lastSuccessAt || ""),

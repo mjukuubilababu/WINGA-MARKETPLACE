@@ -862,6 +862,9 @@ const INTELLIGENCE_QUEUE_INTERVAL_MS = Math.max(1000, Math.min(Number(process.en
 const INTELLIGENCE_QUEUE_MAX_ATTEMPTS = Math.max(1, Math.min(Number(process.env.INTELLIGENCE_QUEUE_MAX_ATTEMPTS || 12) || 12, 50));
 const INTELLIGENCE_QUEUE_STALE_SECONDS = Math.max(60, Math.min(Number(process.env.INTELLIGENCE_QUEUE_STALE_SECONDS || 300) || 300, 86400));
 const INTELLIGENCE_QUEUE_COMPLETED_RETENTION_HOURS = Math.max(1, Math.min(Number(process.env.INTELLIGENCE_QUEUE_COMPLETED_RETENTION_HOURS || 72) || 72, 24 * 90));
+const INTELLIGENCE_RAW_EVENT_RETENTION_DAYS = Math.max(7, Math.min(Number(process.env.INTELLIGENCE_RAW_EVENT_RETENTION_DAYS || 180) || 180, 3650));
+const DEMAND_RAW_EVENT_RETENTION_DAYS = Math.max(30, Math.min(Number(process.env.DEMAND_RAW_EVENT_RETENTION_DAYS || 730) || 730, 3650));
+const SEARCH_DEMAND_RAW_EVENT_RETENTION_DAYS = Math.max(7, Math.min(Number(process.env.SEARCH_DEMAND_RAW_EVENT_RETENTION_DAYS || 365) || 365, 3650));
 const INTELLIGENCE_QUEUE_LEGACY_EMBEDDED_ENABLED = String(process.env.INTELLIGENCE_QUEUE_EMBEDDED_WORKER || "true").toLowerCase() !== "false";
 const INTELLIGENCE_QUEUE_PROCESSOR_MODE = normalizeIntelligenceQueueProcessorMode(
   process.env.INTELLIGENCE_QUEUE_PROCESSOR_MODE || (INTELLIGENCE_QUEUE_LEGACY_EMBEDDED_ENABLED ? "primary" : "off")
@@ -888,6 +891,11 @@ const intelligenceQueueWorkerState = {
   failed: 0,
   recovered: 0,
   pruned: 0,
+  rawPruned: {
+    intelligenceEvents: 0,
+    demandEvents: 0,
+    searchDemandEvents: 0
+  },
   standbySkips: 0,
   standbyFallbackRuns: 0,
   lastRunAt: "",
@@ -963,6 +971,16 @@ async function processIntelligenceQueueOnce(options = {}) {
         retentionHours: INTELLIGENCE_QUEUE_COMPLETED_RETENTION_HOURS
       });
       intelligenceQueueWorkerState.pruned += Number(prune?.pruned || 0);
+      if (postgresStore.pruneIntelligenceRawEvents) {
+        const rawPrune = await postgresStore.pruneIntelligenceRawEvents({
+          intelligenceDays: INTELLIGENCE_RAW_EVENT_RETENTION_DAYS,
+          demandDays: DEMAND_RAW_EVENT_RETENTION_DAYS,
+          searchDays: SEARCH_DEMAND_RAW_EVENT_RETENTION_DAYS
+        });
+        intelligenceQueueWorkerState.rawPruned.intelligenceEvents += Number(rawPrune?.intelligenceEvents || 0);
+        intelligenceQueueWorkerState.rawPruned.demandEvents += Number(rawPrune?.demandEvents || 0);
+        intelligenceQueueWorkerState.rawPruned.searchDemandEvents += Number(rawPrune?.searchDemandEvents || 0);
+      }
       intelligenceQueueWorkerState.lastMaintenanceAt = new Date().toISOString();
     }
     const jobs = await postgresStore.claimIntelligenceQueueBatch({
@@ -1123,7 +1141,12 @@ async function buildIntelligenceQueueHealthReport() {
       failedAgeSeconds: INTELLIGENCE_QUEUE_FAILED_AGE_ALERT_SECONDS,
       processingAgeSeconds: INTELLIGENCE_QUEUE_PROCESSING_AGE_ALERT_SECONDS,
       standbyAfterSeconds: INTELLIGENCE_QUEUE_STANDBY_AFTER_SECONDS,
-      standbyCheckIntervalMs: INTELLIGENCE_QUEUE_STANDBY_CHECK_INTERVAL_MS
+      standbyCheckIntervalMs: INTELLIGENCE_QUEUE_STANDBY_CHECK_INTERVAL_MS,
+      rawEventRetentionDays: {
+        intelligence: INTELLIGENCE_RAW_EVENT_RETENTION_DAYS,
+        demand: DEMAND_RAW_EVENT_RETENTION_DAYS,
+        searchDemand: SEARCH_DEMAND_RAW_EVENT_RETENTION_DAYS
+      }
     }
   };
 }
@@ -1145,6 +1168,15 @@ function buildIntelligenceOpsSnapshot(intelligenceSummary = {}) {
     oldestProcessingAgeSeconds: Number(health.oldestProcessingAgeSeconds || 0),
     processed: Number(worker.processed || 0),
     failedWorkerRuns: Number(worker.failed || 0),
+    rawPruned: worker.rawPruned && typeof worker.rawPruned === "object" ? {
+      intelligenceEvents: Number(worker.rawPruned.intelligenceEvents || 0),
+      demandEvents: Number(worker.rawPruned.demandEvents || 0),
+      searchDemandEvents: Number(worker.rawPruned.searchDemandEvents || 0)
+    } : {
+      intelligenceEvents: 0,
+      demandEvents: 0,
+      searchDemandEvents: 0
+    },
     standbySkips: Number(worker.standbySkips || 0),
     standbyFallbackRuns: Number(worker.standbyFallbackRuns || 0),
     lastSuccessAt: String(worker.lastSuccessAt || ""),

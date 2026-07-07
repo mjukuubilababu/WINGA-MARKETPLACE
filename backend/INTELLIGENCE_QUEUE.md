@@ -108,6 +108,9 @@ The backend rejects that endpoint unless `X-Winga-Queue-Secret` matches `QUEUE_W
 - `INTELLIGENCE_QUEUE_MAX_ATTEMPTS=12`
 - `INTELLIGENCE_QUEUE_STALE_SECONDS=300`
 - `INTELLIGENCE_QUEUE_COMPLETED_RETENTION_HOURS=72`
+- `INTELLIGENCE_RAW_EVENT_RETENTION_DAYS=180`
+- `DEMAND_RAW_EVENT_RETENTION_DAYS=730`
+- `SEARCH_DEMAND_RAW_EVENT_RETENTION_DAYS=365`
 - `INTELLIGENCE_QUEUE_PENDING_ALERT_THRESHOLD=1000`
 - `INTELLIGENCE_QUEUE_FAILED_ALERT_THRESHOLD=25`
 - `INTELLIGENCE_QUEUE_DEAD_ALERT_THRESHOLD=1`
@@ -153,6 +156,27 @@ Scoring now applies these guardrails:
 
 This keeps recommendations and seller quality scoring fair while preserving raw
 learning history for future analytics and AI models.
+
+## Raw Event Retention
+
+Raw intelligence tables are append-only during normal processing, then pruned on
+the worker maintenance cycle:
+
+- `intelligence_events`: default 180 days
+- `demand_events`: default 730 days
+- `search_demand_events`: default 365 days
+
+Retention only deletes raw historical rows older than the configured windows. It
+does not delete:
+
+- `product_intelligence_scores`
+- `seller_intelligence_scores`
+- `product_demand_summaries`
+
+This keeps long-term recommendations, seller demand summaries, and market scores
+available while bounding database growth and reducing long-term privacy risk.
+Set longer windows only when there is a clear analytics need and a matching
+privacy policy.
 
 ## Feed Intelligence Safety
 

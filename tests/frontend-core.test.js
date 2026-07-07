@@ -1169,6 +1169,7 @@ test("backend intelligence uses durable queue hooks when PostgreSQL is available
   assert.match(dbSource, /function markIntelligenceQueueItemsDead/);
   assert.match(dbSource, /function recoverStaleIntelligenceQueueJobs/);
   assert.match(dbSource, /function pruneCompletedIntelligenceQueueJobs/);
+  assert.match(dbSource, /function pruneIntelligenceRawEvents/);
   assert.match(serverSource, /postgresStore\?\.enqueueIntelligenceEvent/);
   assert.match(serverSource, /function processIntelligenceQueueOnce/);
   assert.match(serverSource, /recoverStaleIntelligenceQueueJobs/);
@@ -1177,7 +1178,11 @@ test("backend intelligence uses durable queue hooks when PostgreSQL is available
   assert.match(serverSource, /normalizeIntelligenceQueueProcessorMode/);
   assert.match(serverSource, /shouldRunStandbyIntelligenceQueue/);
   assert.match(serverSource, /INTELLIGENCE_QUEUE_STANDBY_AFTER_SECONDS/);
+  assert.match(serverSource, /INTELLIGENCE_RAW_EVENT_RETENTION_DAYS/);
+  assert.match(serverSource, /DEMAND_RAW_EVENT_RETENTION_DAYS/);
+  assert.match(serverSource, /SEARCH_DEMAND_RAW_EVENT_RETENTION_DAYS/);
   assert.match(serverSource, /standbyFallbackRuns/);
+  assert.match(serverSource, /rawPruned/);
   assert.match(serverSource, /function buildIntelligenceOpsSnapshot/);
   assert.match(serverSource, /intelligenceSummary\.opsSnapshot = buildIntelligenceOpsSnapshot\(intelligenceSummary\)/);
   assert.match(serverSource, /topEventTypes: Array\.isArray\(persistent\.topEventTypes\)/);
@@ -1209,6 +1214,8 @@ test("backend intelligence uses durable queue hooks when PostgreSQL is available
   assert.match(workerSource, /claimIntelligenceQueueBatch/);
   assert.match(workerSource, /completeIntelligenceQueueItem/);
   assert.match(workerSource, /failIntelligenceQueueItem/);
+  assert.match(workerSource, /pruneIntelligenceRawEvents/);
+  assert.match(workerSource, /INTELLIGENCE_RAW_EVENT_RETENTION_DAYS/);
   assert.match(workerSource, /SIGTERM/);
   assert.match(edgeWorkerSource, /async queue\(batch, env, ctx\)/);
   assert.match(edgeWorkerSource, /forwardIntelligenceQueueBatch/);
@@ -1232,6 +1239,8 @@ test("backend intelligence uses durable queue hooks when PostgreSQL is available
   assert.match(runbookSource, /Cloudflare Queues/);
   assert.match(runbookSource, /AWS SQS/);
   assert.match(runbookSource, /INTELLIGENCE_QUEUE_PROCESSOR_MODE=primary\|standby\|off/);
+  assert.match(runbookSource, /INTELLIGENCE_RAW_EVENT_RETENTION_DAYS=180/);
+  assert.match(runbookSource, /Raw Event Retention/);
   assert.match(runbookSource, /standby fallback/);
   assert.match(runbookSource, /npm run monitor:intelligence/);
   assert.match(runbookSource, /Exit codes:/);
@@ -1254,6 +1263,7 @@ test("backend intelligence uses durable queue hooks when PostgreSQL is available
   assert.match(monitorSource, /X-Ops-Health-Token/);
   assert.match(monitorSource, /readiness/);
   assert.match(monitorSource, /INTELLIGENCE_ALERT_WEBHOOK_URL/);
+  assert.match(monitorSource, /rawPruned/);
   assert.match(monitorSource, /function sanitizeMonitorPayload/);
   assert.match(monitorSource, /async function sendAlertWebhook/);
   assert.match(monitorSource, /source: "winga-intelligence-health"/);

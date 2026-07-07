@@ -307,6 +307,42 @@ test("PostgreSQL intelligence summary reads dedicated intelligence tables", asyn
   assert.equal(summary.topSellers[0].id, "seller-1");
 });
 
+test("PostgreSQL intelligence retention prunes raw events without deleting summaries", async () => {
+  const calls = [];
+  const queryClient = {
+    async query(text, params) {
+      calls.push({ text, params });
+      return { rows: [], rowCount: 2 };
+    }
+  };
+  const store = createPostgresStore({
+    databaseUrl: "postgres://test.invalid/winga",
+    queryClient
+  });
+
+  const result = await store.pruneIntelligenceRawEvents({
+    intelligenceDays: 90,
+    demandDays: 365,
+    searchDays: 120
+  });
+
+  assert.equal(result.intelligenceEvents, 2);
+  assert.equal(result.demandEvents, 2);
+  assert.equal(result.searchDemandEvents, 2);
+  assert.deepEqual(result.retentionDays, {
+    intelligence: 90,
+    demand: 365,
+    search: 120
+  });
+  assert.match(calls[0].text, /DELETE FROM intelligence_events/);
+  assert.match(calls[1].text, /DELETE FROM demand_events/);
+  assert.match(calls[2].text, /DELETE FROM search_demand_events/);
+  assert.equal(calls[0].params[0], "90");
+  assert.equal(calls[1].params[0], "365");
+  assert.equal(calls[2].params[0], "120");
+  assert.equal(calls.some((call) => /DELETE FROM product_intelligence_scores|DELETE FROM seller_intelligence_scores|DELETE FROM product_demand_summaries/.test(call.text)), false);
+});
+
 test("PostgreSQL durable intelligence queue claims, retries, and completes jobs", async () => {
   const calls = [];
   const queryClient = {
