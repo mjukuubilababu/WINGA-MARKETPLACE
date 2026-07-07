@@ -857,6 +857,7 @@ const searchDemandService = createSearchDemandService();
 const recentDemandDedupeKeys = new Map();
 const MAX_RECENT_DEMAND_DEDUPE_KEYS = 10000;
 const INTELLIGENCE_QUEUE_WORKER_ID = `winga-intelligence-${process.pid}`;
+const INTELLIGENCE_HEALTH_SCHEMA_VERSION = "2026-07-07.intelligence-health.v1";
 const INTELLIGENCE_QUEUE_BATCH_SIZE = Math.max(1, Math.min(Number(process.env.INTELLIGENCE_QUEUE_BATCH_SIZE || 25) || 25, 100));
 const INTELLIGENCE_QUEUE_INTERVAL_MS = Math.max(1000, Math.min(Number(process.env.INTELLIGENCE_QUEUE_INTERVAL_MS || 5000) || 5000, 60000));
 const INTELLIGENCE_QUEUE_MAX_ATTEMPTS = Math.max(1, Math.min(Number(process.env.INTELLIGENCE_QUEUE_MAX_ATTEMPTS || 12) || 12, 50));
@@ -1175,6 +1176,9 @@ async function buildIntelligenceQueueHealthReport() {
     : { error: "postgres_snapshot_health_unavailable" };
   const alerts = getIntelligenceQueueAlerts(health, snapshotHealth);
   return {
+    schemaVersion: INTELLIGENCE_HEALTH_SCHEMA_VERSION,
+    privacy: "ops-aggregate-only",
+    criticalPath: false,
     ok: getIntelligenceQueueReadiness(health, alerts) === "ready",
     readiness: getIntelligenceQueueReadiness(health, alerts),
     time: new Date().toISOString(),
@@ -1209,6 +1213,9 @@ function buildIntelligenceOpsSnapshot(intelligenceSummary = {}) {
   const worker = durableQueue.worker || {};
   const persistent = intelligenceSummary.persistent || {};
   return {
+    schemaVersion: INTELLIGENCE_HEALTH_SCHEMA_VERSION,
+    privacy: "ops-aggregate-only",
+    criticalPath: false,
     readiness: getIntelligenceQueueReadiness(health, durableQueue.alerts || []),
     processorMode: String(worker.processorMode || INTELLIGENCE_QUEUE_PROCESSOR_MODE || "primary"),
     workerEnabled: Boolean(worker.enabled),

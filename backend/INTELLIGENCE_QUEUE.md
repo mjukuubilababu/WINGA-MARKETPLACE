@@ -241,6 +241,7 @@ curl https://winga-pflp.onrender.com/api/ops/intelligence/queue-health \
 
 It returns only operational queue state:
 
+- schema/version/privacy markers for monitor compatibility
 - readiness: `ready`, `watch`, `degraded`, `critical`, or `unavailable`
 - worker counters and timestamps
 - pending, processing, failed, completed, and dead counts

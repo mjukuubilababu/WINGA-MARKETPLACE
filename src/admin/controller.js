@@ -1108,6 +1108,10 @@
         ...(summary.backupStatus?.note ? [{ type: "backup", value: `Backup: ${summary.backupStatus.note}` }] : []),
         ...((summary.configWarnings || []).map((warning) => ({ type: "warning", value: warning }))),
         {
+          type: "ops-contract",
+          value: `Ops contract: ${snapshot.schemaVersion || "-"} | ${snapshot.privacy || "aggregate"} | critical path ${String(snapshot.criticalPath ?? false)}`
+        },
+        {
           type: "queue",
           value: `Intelligence queue: ${snapshot.readiness || "-"} | mode ${snapshot.processorMode || worker.processorMode || "-"} | enabled ${String(snapshot.workerEnabled ?? worker.enabled ?? false)}`
         },

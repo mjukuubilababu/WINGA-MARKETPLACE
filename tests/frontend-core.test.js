@@ -1179,6 +1179,9 @@ test("backend intelligence uses durable queue hooks when PostgreSQL is available
   assert.match(serverSource, /recoverStaleIntelligenceQueueJobs/);
   assert.match(serverSource, /pruneCompletedIntelligenceQueueJobs/);
   assert.match(serverSource, /INTELLIGENCE_QUEUE_PROCESSOR_MODE/);
+  assert.match(serverSource, /INTELLIGENCE_HEALTH_SCHEMA_VERSION/);
+  assert.match(serverSource, /privacy: "ops-aggregate-only"/);
+  assert.match(serverSource, /criticalPath: false/);
   assert.match(serverSource, /normalizeIntelligenceQueueProcessorMode/);
   assert.match(serverSource, /shouldRunStandbyIntelligenceQueue/);
   assert.match(serverSource, /INTELLIGENCE_QUEUE_STANDBY_AFTER_SECONDS/);
@@ -1261,6 +1264,7 @@ test("backend intelligence uses durable queue hooks when PostgreSQL is available
   assert.match(runbookSource, /npm run monitor:intelligence/);
   assert.match(runbookSource, /Exit codes:/);
   assert.match(runbookSource, /GitHub Scheduled Health Check/);
+  assert.match(runbookSource, /schema\/version\/privacy markers/);
   assert.match(runbookSource, /OPS_HEALTH_TOKEN=<same value used by the backend health endpoint>/);
   assert.match(runbookSource, /INTELLIGENCE_ALERT_WEBHOOK_URL=<Slack\/Discord\/BetterStack\/Make\/Zapier webhook>/);
   assert.match(runbookSource, /Incident Severity And Response/);
@@ -1270,6 +1274,7 @@ test("backend intelligence uses durable queue hooks when PostgreSQL is available
   assert.match(adminControllerSource, /Queue counts:/);
   assert.match(adminControllerSource, /Daily snapshots:/);
   assert.match(adminControllerSource, /Snapshot health:/);
+  assert.match(adminControllerSource, /Ops contract:/);
   assert.match(adminControllerSource, /Trend snapshot:/);
   assert.match(adminControllerSource, /Top event:/);
   assert.doesNotMatch(adminControllerSource, /event_payload|score_payload|metadata\.buyerId/);
@@ -1281,6 +1286,8 @@ test("backend intelligence uses durable queue hooks when PostgreSQL is available
   assert.match(monitorSource, /EXIT_NETWORK = 4/);
   assert.match(monitorSource, /X-Ops-Health-Token/);
   assert.match(monitorSource, /readiness/);
+  assert.match(monitorSource, /schemaVersion/);
+  assert.match(monitorSource, /criticalPath/);
   assert.match(monitorSource, /INTELLIGENCE_ALERT_WEBHOOK_URL/);
   assert.match(monitorSource, /rawPruned/);
   assert.match(monitorSource, /snapshots/);

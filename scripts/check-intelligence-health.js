@@ -29,6 +29,9 @@ function writeResult(payload = {}) {
 function sanitizeMonitorPayload(payload = {}) {
   return {
     ok: Boolean(payload.ok),
+    schemaVersion: String(payload.schemaVersion || ""),
+    privacy: String(payload.privacy || ""),
+    criticalPath: Boolean(payload.criticalPath),
     status: payload.status || "unknown",
     readiness: payload.readiness || "unknown",
     message: payload.message || "",
@@ -100,6 +103,9 @@ async function sendAlertWebhook(webhookUrl, payload = {}) {
     },
     body: JSON.stringify({
       source: "winga-intelligence-health",
+      schemaVersion: payload.schemaVersion || "",
+      privacy: payload.privacy || "",
+      criticalPath: Boolean(payload.criticalPath),
       severity: readiness === "critical" || readiness === "unavailable" ? "critical" : "warning",
       readiness,
       status: payload.status || "unknown",
@@ -199,6 +205,9 @@ async function main() {
     ok: response.ok && exitCode === EXIT_OK,
     status: response.ok ? "http_ok" : "http_error",
     readiness,
+    schemaVersion: body?.schemaVersion || "",
+    privacy: body?.privacy || "",
+    criticalPath: Boolean(body?.criticalPath),
     message: body?.error || body?.message || "",
     url,
     httpStatus: response.status,
