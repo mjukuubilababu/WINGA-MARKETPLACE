@@ -357,6 +357,18 @@ test("PostgreSQL intelligence init creates time-only indexes for global raw even
   assert.match(source, /CREATE INDEX IF NOT EXISTS idx_search_demand_events_happened_at\s+ON search_demand_events \(happened_at DESC\)/);
 });
 
+test("PostgreSQL intelligence init creates partial indexes for global queue health", () => {
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const source = fs.readFileSync(path.join(__dirname, "..", "backend", "db.js"), "utf8");
+
+  assert.match(source, /CREATE INDEX IF NOT EXISTS idx_intelligence_event_queue_pending_created\s+ON intelligence_event_queue \(created_at, queue_id\)\s+WHERE status = 'pending'/);
+  assert.match(source, /CREATE INDEX IF NOT EXISTS idx_intelligence_event_queue_failed_updated\s+ON intelligence_event_queue \(updated_at, queue_id\)\s+WHERE status = 'failed'/);
+  assert.match(source, /CREATE INDEX IF NOT EXISTS idx_intelligence_event_queue_processing_locked\s+ON intelligence_event_queue \(locked_at, queue_id\)\s+WHERE status = 'processing'/);
+  assert.match(source, /CREATE INDEX IF NOT EXISTS idx_intelligence_event_queue_completed_processed\s+ON intelligence_event_queue \(processed_at, queue_id\)\s+WHERE status = 'completed'/);
+  assert.match(source, /CREATE INDEX IF NOT EXISTS idx_intelligence_event_queue_dead_updated\s+ON intelligence_event_queue \(updated_at, queue_id\)\s+WHERE status = 'dead'/);
+});
+
 test("PostgreSQL intelligence snapshots aggregate raw signals before pruning", async () => {
   const calls = [];
   const queryClient = {

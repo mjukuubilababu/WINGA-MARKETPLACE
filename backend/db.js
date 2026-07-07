@@ -550,6 +550,31 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
       ON intelligence_event_queue (status, available_at, queue_id);
     `);
     await query(`
+      CREATE INDEX IF NOT EXISTS idx_intelligence_event_queue_pending_created
+      ON intelligence_event_queue (created_at, queue_id)
+      WHERE status = 'pending';
+    `);
+    await query(`
+      CREATE INDEX IF NOT EXISTS idx_intelligence_event_queue_failed_updated
+      ON intelligence_event_queue (updated_at, queue_id)
+      WHERE status = 'failed';
+    `);
+    await query(`
+      CREATE INDEX IF NOT EXISTS idx_intelligence_event_queue_processing_locked
+      ON intelligence_event_queue (locked_at, queue_id)
+      WHERE status = 'processing';
+    `);
+    await query(`
+      CREATE INDEX IF NOT EXISTS idx_intelligence_event_queue_completed_processed
+      ON intelligence_event_queue (processed_at, queue_id)
+      WHERE status = 'completed';
+    `);
+    await query(`
+      CREATE INDEX IF NOT EXISTS idx_intelligence_event_queue_dead_updated
+      ON intelligence_event_queue (updated_at, queue_id)
+      WHERE status = 'dead';
+    `);
+    await query(`
       CREATE INDEX IF NOT EXISTS idx_intelligence_events_product_time
       ON intelligence_events (product_id, happened_at DESC);
     `);
