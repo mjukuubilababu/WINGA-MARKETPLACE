@@ -367,6 +367,9 @@ test("PostgreSQL intelligence init creates partial indexes for global queue heal
   assert.match(source, /CREATE INDEX IF NOT EXISTS idx_intelligence_event_queue_processing_locked\s+ON intelligence_event_queue \(locked_at, queue_id\)\s+WHERE status = 'processing'/);
   assert.match(source, /CREATE INDEX IF NOT EXISTS idx_intelligence_event_queue_completed_processed\s+ON intelligence_event_queue \(processed_at, queue_id\)\s+WHERE status = 'completed'/);
   assert.match(source, /CREATE INDEX IF NOT EXISTS idx_intelligence_event_queue_dead_updated\s+ON intelligence_event_queue \(updated_at, queue_id\)\s+WHERE status = 'dead'/);
+  assert.match(source, /CREATE INDEX IF NOT EXISTS idx_intelligence_event_queue_updated_at\s+ON intelligence_event_queue \(updated_at DESC\)/);
+  assert.match(source, /CREATE INDEX IF NOT EXISTS idx_intelligence_event_queue_attempts\s+ON intelligence_event_queue \(attempts DESC\)/);
+  assert.doesNotMatch(source, /GROUP BY status/);
 });
 
 test("PostgreSQL intelligence snapshots aggregate raw signals before pruning", async () => {
@@ -500,18 +503,14 @@ test("PostgreSQL durable intelligence queue claims, retries, and completes jobs"
           }]
         };
       }
-      if (text.includes("GROUP BY status")) {
-        return {
-          rows: [
-            { status: "pending", count: 3 },
-            { status: "failed", count: 1 },
-            { status: "dead", count: 0 }
-          ]
-        };
-      }
       if (text.includes("oldest_pending_age_seconds")) {
         return {
           rows: [{
+            pending: 3,
+            processing: 0,
+            failed: 1,
+            completed: 2,
+            dead: 0,
             oldest_pending_age_seconds: 360,
             oldest_failed_age_seconds: 120,
             oldest_processing_age_seconds: 0,
@@ -582,6 +581,12 @@ test("PostgreSQL durable intelligence queue claims, retries, and completes jobs"
   assert.equal(calls[4].params[0], "120");
   assert.match(calls[5].text, /DELETE FROM intelligence_event_queue/);
   assert.equal(calls[5].params[0], "24");
+  assert.doesNotMatch(calls[6].text, /GROUP BY status/);
+  assert.match(calls[6].text, /SELECT COUNT\(\*\)::int FROM intelligence_event_queue WHERE status = 'pending'/);
+  assert.match(calls[6].text, /ORDER BY created_at ASC/);
+  assert.match(calls[6].text, /ORDER BY updated_at ASC/);
+  assert.match(calls[6].text, /ORDER BY locked_at ASC/);
+  assert.match(calls[6].text, /ORDER BY processed_at DESC/);
   assert.equal(recovery.recovered, 1);
   assert.equal(prune.pruned, 1);
   assert.equal(health.pending, 3);

@@ -575,6 +575,14 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
       WHERE status = 'dead';
     `);
     await query(`
+      CREATE INDEX IF NOT EXISTS idx_intelligence_event_queue_updated_at
+      ON intelligence_event_queue (updated_at DESC);
+    `);
+    await query(`
+      CREATE INDEX IF NOT EXISTS idx_intelligence_event_queue_attempts
+      ON intelligence_event_queue (attempts DESC);
+    `);
+    await query(`
       CREATE INDEX IF NOT EXISTS idx_intelligence_events_product_time
       ON intelligence_events (product_id, happened_at DESC);
     `);
@@ -1889,33 +1897,66 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
   }
 
   async function readIntelligenceQueueHealth() {
-    const result = await query(
-      `SELECT status, COUNT(*)::int AS count
-       FROM intelligence_event_queue
-       GROUP BY status`
-    );
-    const byStatus = {};
-    result.rows.forEach((row) => {
-      byStatus[row.status || "unknown"] = Number(row.count || 0);
-    });
     const metrics = await query(
       `SELECT
-         COALESCE(EXTRACT(EPOCH FROM (NOW() - (MIN(created_at) FILTER (WHERE status = 'pending'))))::int, 0) AS oldest_pending_age_seconds,
-         COALESCE(EXTRACT(EPOCH FROM (NOW() - (MIN(updated_at) FILTER (WHERE status = 'failed'))))::int, 0) AS oldest_failed_age_seconds,
-         COALESCE(EXTRACT(EPOCH FROM (NOW() - (MIN(locked_at) FILTER (WHERE status = 'processing' AND locked_at IS NOT NULL))))::int, 0) AS oldest_processing_age_seconds,
-         COALESCE(EXTRACT(EPOCH FROM (NOW() - (MAX(processed_at) FILTER (WHERE status = 'completed'))))::int, 0) AS seconds_since_last_completed,
-         MAX(processed_at) FILTER (WHERE status = 'completed') AS last_completed_at,
-         MAX(updated_at) AS last_changed_at,
-         COALESCE(MAX(attempts), 0)::int AS max_attempts_seen
-       FROM intelligence_event_queue`
+         (SELECT COUNT(*)::int FROM intelligence_event_queue WHERE status = 'pending') AS pending,
+         (SELECT COUNT(*)::int FROM intelligence_event_queue WHERE status = 'processing') AS processing,
+         (SELECT COUNT(*)::int FROM intelligence_event_queue WHERE status = 'failed') AS failed,
+         (SELECT COUNT(*)::int FROM intelligence_event_queue WHERE status = 'completed') AS completed,
+         (SELECT COUNT(*)::int FROM intelligence_event_queue WHERE status = 'dead') AS dead,
+         COALESCE(EXTRACT(EPOCH FROM (NOW() - (
+           SELECT created_at
+           FROM intelligence_event_queue
+           WHERE status = 'pending'
+           ORDER BY created_at ASC
+           LIMIT 1
+         )))::int, 0) AS oldest_pending_age_seconds,
+         COALESCE(EXTRACT(EPOCH FROM (NOW() - (
+           SELECT updated_at
+           FROM intelligence_event_queue
+           WHERE status = 'failed'
+           ORDER BY updated_at ASC
+           LIMIT 1
+         )))::int, 0) AS oldest_failed_age_seconds,
+         COALESCE(EXTRACT(EPOCH FROM (NOW() - (
+           SELECT locked_at
+           FROM intelligence_event_queue
+           WHERE status = 'processing'
+             AND locked_at IS NOT NULL
+           ORDER BY locked_at ASC
+           LIMIT 1
+         )))::int, 0) AS oldest_processing_age_seconds,
+         COALESCE(EXTRACT(EPOCH FROM (NOW() - (
+           SELECT processed_at
+           FROM intelligence_event_queue
+           WHERE status = 'completed'
+             AND processed_at IS NOT NULL
+           ORDER BY processed_at DESC
+           LIMIT 1
+         )))::int, 0) AS seconds_since_last_completed,
+         (
+           SELECT processed_at
+           FROM intelligence_event_queue
+           WHERE status = 'completed'
+             AND processed_at IS NOT NULL
+           ORDER BY processed_at DESC
+           LIMIT 1
+         ) AS last_completed_at,
+         (
+           SELECT updated_at
+           FROM intelligence_event_queue
+           ORDER BY updated_at DESC
+           LIMIT 1
+         ) AS last_changed_at,
+         COALESCE((SELECT MAX(attempts)::int FROM intelligence_event_queue), 0) AS max_attempts_seen`
     );
     const metricRow = metrics.rows[0] || {};
     return {
-      pending: byStatus.pending || 0,
-      processing: byStatus.processing || 0,
-      failed: byStatus.failed || 0,
-      completed: byStatus.completed || 0,
-      dead: byStatus.dead || 0,
+      pending: Number(metricRow.pending || 0),
+      processing: Number(metricRow.processing || 0),
+      failed: Number(metricRow.failed || 0),
+      completed: Number(metricRow.completed || 0),
+      dead: Number(metricRow.dead || 0),
       oldestPendingAgeSeconds: Number(metricRow.oldest_pending_age_seconds || 0),
       oldestFailedAgeSeconds: Number(metricRow.oldest_failed_age_seconds || 0),
       oldestProcessingAgeSeconds: Number(metricRow.oldest_processing_age_seconds || 0),

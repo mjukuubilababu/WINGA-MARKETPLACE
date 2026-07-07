@@ -1166,6 +1166,9 @@ test("backend intelligence uses durable queue hooks when PostgreSQL is available
   assert.match(dbSource, /idx_intelligence_event_queue_processing_locked/);
   assert.match(dbSource, /idx_intelligence_event_queue_completed_processed/);
   assert.match(dbSource, /idx_intelligence_event_queue_dead_updated/);
+  assert.match(dbSource, /idx_intelligence_event_queue_updated_at/);
+  assert.match(dbSource, /idx_intelligence_event_queue_attempts/);
+  assert.doesNotMatch(dbSource, /GROUP BY status/);
   assert.match(dbSource, /function enqueueIntelligenceEvent/);
   assert.match(dbSource, /function claimIntelligenceQueueBatch/);
   assert.match(dbSource, /function readIntelligenceQueueHealth/);
