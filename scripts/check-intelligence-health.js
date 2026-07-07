@@ -60,6 +60,12 @@ function sanitizeMonitorPayload(payload = {}) {
         demandEvents: Number(payload.worker.rawPruned.demandEvents || 0),
         searchDemandEvents: Number(payload.worker.rawPruned.searchDemandEvents || 0)
       } : null,
+      snapshots: payload.worker.snapshots && typeof payload.worker.snapshots === "object" ? {
+        eventTypes: Number(payload.worker.snapshots.eventTypes || 0),
+        demandProducts: Number(payload.worker.snapshots.demandProducts || 0),
+        searchQueries: Number(payload.worker.snapshots.searchQueries || 0),
+        prunedSnapshots: Number(payload.worker.snapshots.prunedSnapshots || 0)
+      } : null,
       standbySkips: Number(payload.worker.standbySkips || 0),
       standbyFallbackRuns: Number(payload.worker.standbyFallbackRuns || 0),
       lastSuccessAt: String(payload.worker.lastSuccessAt || ""),

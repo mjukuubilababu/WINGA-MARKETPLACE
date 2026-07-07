@@ -11,6 +11,8 @@ const COMPLETED_RETENTION_HOURS = Math.max(1, Math.min(Number(process.env.INTELL
 const INTELLIGENCE_RAW_EVENT_RETENTION_DAYS = Math.max(7, Math.min(Number(process.env.INTELLIGENCE_RAW_EVENT_RETENTION_DAYS || 180) || 180, 3650));
 const DEMAND_RAW_EVENT_RETENTION_DAYS = Math.max(30, Math.min(Number(process.env.DEMAND_RAW_EVENT_RETENTION_DAYS || 730) || 730, 3650));
 const SEARCH_DEMAND_RAW_EVENT_RETENTION_DAYS = Math.max(7, Math.min(Number(process.env.SEARCH_DEMAND_RAW_EVENT_RETENTION_DAYS || 365) || 365, 3650));
+const INTELLIGENCE_SNAPSHOT_WINDOW_DAYS = Math.max(1, Math.min(Number(process.env.INTELLIGENCE_SNAPSHOT_WINDOW_DAYS || 14) || 14, 90));
+const INTELLIGENCE_SNAPSHOT_RETENTION_DAYS = Math.max(30, Math.min(Number(process.env.INTELLIGENCE_SNAPSHOT_RETENTION_DAYS || 1095) || 1095, 3650));
 const RUN_ONCE = process.argv.includes("--once") || process.env.INTELLIGENCE_QUEUE_RUN_ONCE === "true";
 
 if (!DATABASE_URL) {
@@ -34,6 +36,12 @@ const state = {
     demandEvents: 0,
     searchDemandEvents: 0
   },
+  snapshots: {
+    eventTypes: 0,
+    demandProducts: 0,
+    searchQueries: 0,
+    prunedSnapshots: 0
+  },
   lastMaintenanceAt: 0
 };
 
@@ -49,6 +57,16 @@ async function runMaintenance() {
       retentionHours: COMPLETED_RETENTION_HOURS
     });
     state.pruned += Number(prune?.pruned || 0);
+    if (store.refreshIntelligenceDailySnapshots) {
+      const snapshots = await store.refreshIntelligenceDailySnapshots({
+        windowDays: INTELLIGENCE_SNAPSHOT_WINDOW_DAYS,
+        retentionDays: INTELLIGENCE_SNAPSHOT_RETENTION_DAYS
+      });
+      state.snapshots.eventTypes += Number(snapshots?.eventTypes || 0);
+      state.snapshots.demandProducts += Number(snapshots?.demandProducts || 0);
+      state.snapshots.searchQueries += Number(snapshots?.searchQueries || 0);
+      state.snapshots.prunedSnapshots += Number(snapshots?.prunedSnapshots || 0);
+    }
     if (store.pruneIntelligenceRawEvents) {
       const rawPrune = await store.pruneIntelligenceRawEvents({
         intelligenceDays: INTELLIGENCE_RAW_EVENT_RETENTION_DAYS,
@@ -102,6 +120,7 @@ async function processOnce() {
         recovered: state.recovered,
         pruned: state.pruned,
         rawPruned: state.rawPruned,
+        snapshots: state.snapshots,
         health
       });
     }

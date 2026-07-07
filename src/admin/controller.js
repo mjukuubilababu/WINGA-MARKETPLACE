@@ -1101,6 +1101,8 @@
       const topEventTypes = Array.isArray(snapshot.topEventTypes) ? snapshot.topEventTypes : [];
       const topProducts = Array.isArray(snapshot.topProducts) ? snapshot.topProducts : [];
       const topSellers = Array.isArray(snapshot.topSellers) ? snapshot.topSellers : [];
+      const snapshots = snapshot.snapshots || worker.snapshots || {};
+      const trendSnapshots = Array.isArray(snapshot.trendSnapshots) ? snapshot.trendSnapshots : [];
       return [
         ...(summary.backupStatus?.note ? [{ type: "backup", value: `Backup: ${summary.backupStatus.note}` }] : []),
         ...((summary.configWarnings || []).map((warning) => ({ type: "warning", value: warning }))),
@@ -1120,9 +1122,17 @@
           type: "queue-worker",
           value: `Worker: processed ${snapshot.processed ?? worker.processed ?? 0}, failed runs ${snapshot.failedWorkerRuns ?? worker.failed ?? 0}, standby skips ${snapshot.standbySkips ?? worker.standbySkips ?? 0}, fallback runs ${snapshot.standbyFallbackRuns ?? worker.standbyFallbackRuns ?? 0}`
         },
+        {
+          type: "intelligence-snapshots",
+          value: `Daily snapshots: event types ${snapshots.eventTypes ?? 0}, demand products ${snapshots.demandProducts ?? 0}, search queries ${snapshots.searchQueries ?? 0}, pruned ${snapshots.prunedSnapshots ?? 0}`
+        },
         ...(alerts.slice(0, 4).map((entry) => ({
           type: "queue-alert",
           value: `Queue alert ${entry.level || "high"} | ${entry.type || "event"} | ${entry.message || "-"}`
+        }))),
+        ...(trendSnapshots.slice(0, 3).map((entry) => ({
+          type: "trend-snapshot",
+          value: `Trend snapshot: ${entry.snapshotType || "-"}:${entry.snapshotKey || "-"} (${entry.count || 0}, score ${entry.score || 0})`
         }))),
         ...(topEventTypes.slice(0, 3).map((entry) => ({
           type: "event-type",

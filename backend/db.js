@@ -524,6 +524,19 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
     `);
 
     await query(`
+      CREATE TABLE IF NOT EXISTS intelligence_daily_snapshots (
+        snapshot_date DATE NOT NULL,
+        snapshot_type TEXT NOT NULL,
+        snapshot_key TEXT NOT NULL,
+        count INTEGER NOT NULL DEFAULT 0,
+        score NUMERIC(12, 2) NOT NULL DEFAULT 0,
+        metric JSONB NOT NULL DEFAULT '{}'::jsonb,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (snapshot_date, snapshot_type, snapshot_key)
+      );
+    `);
+
+    await query(`
       CREATE INDEX IF NOT EXISTS idx_intelligence_events_type_time
       ON intelligence_events (event_type, happened_at DESC);
     `);
@@ -567,6 +580,10 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
     await query(`
       CREATE INDEX IF NOT EXISTS idx_search_demand_events_category_time
       ON search_demand_events (detected_category, happened_at DESC);
+    `);
+    await query(`
+      CREATE INDEX IF NOT EXISTS idx_intelligence_daily_snapshots_type_date_score
+      ON intelligence_daily_snapshots (snapshot_type, snapshot_date DESC, score DESC);
     `);
     await query(`
       CREATE INDEX IF NOT EXISTS idx_search_demand_events_region_time
@@ -1925,9 +1942,174 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
     };
   }
 
+  async function refreshIntelligenceDailySnapshots(options = {}) {
+    const windowDays = Math.max(1, Math.min(Number(options.windowDays || 14) || 14, 90));
+    const retentionDays = Math.max(30, Math.min(Number(options.retentionDays || 1095) || 1095, 3650));
+    const [eventTypes, demandProducts, searchQueries, pruned] = await Promise.all([
+      query(
+        `INSERT INTO intelligence_daily_snapshots (
+           snapshot_date,
+           snapshot_type,
+           snapshot_key,
+           count,
+           score,
+           metric,
+           updated_at
+         )
+         SELECT
+           happened_at::date AS snapshot_date,
+           'event_type' AS snapshot_type,
+           event_type AS snapshot_key,
+           COUNT(*)::int AS count,
+           COUNT(*)::numeric(12, 2) AS score,
+           jsonb_build_object(
+             'sampleProductId', MAX(product_id),
+             'sampleSellerId', MAX(seller_id),
+             'lastSeenAt', MAX(happened_at)
+           ) AS metric,
+           NOW() AS updated_at
+         FROM intelligence_events
+         WHERE happened_at >= NOW() - ($1 || ' days')::interval
+           AND event_type <> ''
+         GROUP BY happened_at::date, event_type
+         ON CONFLICT (snapshot_date, snapshot_type, snapshot_key)
+         DO UPDATE SET
+           count = EXCLUDED.count,
+           score = EXCLUDED.score,
+           metric = EXCLUDED.metric,
+           updated_at = NOW()`,
+        [String(windowDays)]
+      ),
+      query(
+        `INSERT INTO intelligence_daily_snapshots (
+           snapshot_date,
+           snapshot_type,
+           snapshot_key,
+           count,
+           score,
+           metric,
+           updated_at
+         )
+         SELECT
+           created_at::date AS snapshot_date,
+           'demand_product' AS snapshot_type,
+           product_id AS snapshot_key,
+           COUNT(*)::int AS count,
+           COALESCE(SUM(demand_score), 0)::numeric(12, 2) AS score,
+           jsonb_build_object(
+             'sellerId', MAX(seller_id),
+             'waitingUsers', COUNT(DISTINCT NULLIF(COALESCE(NULLIF(buyer_id, ''), NULLIF(session_id, '')), '')),
+             'restockInterest', COUNT(*) FILTER (WHERE action IN ('notify_when_available', 'want_back')),
+             'sampleColor', MAX(NULLIF(color, '')),
+             'sampleSize', MAX(NULLIF(size, '')),
+             'sampleAction', MAX(action),
+             'lastDemandAt', MAX(created_at)
+           ) AS metric,
+           NOW() AS updated_at
+         FROM demand_events
+         WHERE created_at >= NOW() - ($1 || ' days')::interval
+           AND product_id <> ''
+         GROUP BY created_at::date, product_id
+         ON CONFLICT (snapshot_date, snapshot_type, snapshot_key)
+         DO UPDATE SET
+           count = EXCLUDED.count,
+           score = EXCLUDED.score,
+           metric = EXCLUDED.metric,
+           updated_at = NOW()`,
+        [String(windowDays)]
+      ),
+      query(
+        `INSERT INTO intelligence_daily_snapshots (
+           snapshot_date,
+           snapshot_type,
+           snapshot_key,
+           count,
+           score,
+           metric,
+           updated_at
+         )
+         SELECT
+           happened_at::date AS snapshot_date,
+           'search_query' AS snapshot_type,
+           query_key AS snapshot_key,
+           COUNT(*)::int AS count,
+           (
+             COUNT(*) +
+             COUNT(*) FILTER (WHERE zero_result) * 3 +
+             COUNT(*) FILTER (WHERE clicked_product_id <> '') * 2
+           )::numeric(12, 2) AS score,
+           jsonb_build_object(
+             'query', MAX(query),
+             'category', MAX(detected_category),
+             'color', MAX(detected_color),
+             'source', MAX(source),
+             'zeroResults', COUNT(*) FILTER (WHERE zero_result),
+             'clickedResults', COUNT(*) FILTER (WHERE clicked_product_id <> ''),
+             'lastSearchedAt', MAX(happened_at)
+           ) AS metric,
+           NOW() AS updated_at
+         FROM search_demand_events
+         WHERE happened_at >= NOW() - ($1 || ' days')::interval
+           AND query_key <> ''
+         GROUP BY happened_at::date, query_key
+         ON CONFLICT (snapshot_date, snapshot_type, snapshot_key)
+         DO UPDATE SET
+           count = EXCLUDED.count,
+           score = EXCLUDED.score,
+           metric = EXCLUDED.metric,
+           updated_at = NOW()`,
+        [String(windowDays)]
+      ),
+      query(
+        `DELETE FROM intelligence_daily_snapshots
+         WHERE snapshot_date < CURRENT_DATE - ($1 || ' days')::interval`,
+        [String(retentionDays)]
+      )
+    ]);
+    return {
+      eventTypes: Number(eventTypes.rowCount || 0),
+      demandProducts: Number(demandProducts.rowCount || 0),
+      searchQueries: Number(searchQueries.rowCount || 0),
+      prunedSnapshots: Number(pruned.rowCount || 0),
+      windowDays,
+      retentionDays
+    };
+  }
+
+  async function readIntelligenceSnapshotSummary(options = {}) {
+    const days = Math.max(1, Math.min(Number(options.days || 14) || 14, 90));
+    const limit = Math.max(1, Math.min(Number(options.limit || 10) || 10, 50));
+    const result = await query(
+      `SELECT
+         snapshot_type AS "snapshotType",
+         snapshot_key AS "snapshotKey",
+         SUM(count)::int AS count,
+         SUM(score)::float8 AS score,
+         jsonb_build_object(
+           'lastUpdatedAt', MAX(updated_at),
+           'lastMetric', (array_agg(metric ORDER BY snapshot_date DESC, updated_at DESC))[1]
+         ) AS metric,
+         MAX(updated_at) AS "updatedAt"
+       FROM intelligence_daily_snapshots
+       WHERE snapshot_date >= CURRENT_DATE - ($1 || ' days')::interval
+       GROUP BY snapshot_type, snapshot_key
+       ORDER BY score DESC, count DESC, snapshot_type ASC, snapshot_key ASC
+       LIMIT $2`,
+      [String(days), limit]
+    );
+    return result.rows.map((row) => ({
+      snapshotType: row.snapshotType,
+      snapshotKey: row.snapshotKey,
+      count: Number(row.count || 0),
+      score: Number(row.score || 0),
+      metric: row.metric || {},
+      updatedAt: toISOString(row.updatedAt)
+    }));
+  }
+
   async function readIntelligenceSummary(limit = 10) {
     const safeLimit = Math.max(1, Math.min(Number(limit) || 10, 50));
-    const [eventTypes, products, sellers] = await Promise.all([
+    const [eventTypes, products, sellers, snapshots] = await Promise.all([
       query(
         `SELECT event_type AS "eventType", COUNT(*)::int AS count
          FROM intelligence_events
@@ -1950,7 +2132,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
          ORDER BY score DESC, last_seen_at DESC
          LIMIT $1`,
         [safeLimit]
-      )
+      ),
+      readIntelligenceSnapshotSummary({ days: 14, limit: safeLimit })
     ]);
 
     return {
@@ -1969,7 +2152,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
         score: Number(row.score || 0),
         signals: row.signals || {},
         lastSeenAt: toISOString(row.lastSeenAt)
-      }))
+      })),
+      trendSnapshots: snapshots
     };
   }
 
@@ -2329,6 +2513,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
     recoverStaleIntelligenceQueueJobs,
     pruneCompletedIntelligenceQueueJobs,
     pruneIntelligenceRawEvents,
+    refreshIntelligenceDailySnapshots,
+    readIntelligenceSnapshotSummary,
     readIntelligenceSummary,
     appendDemandEvent,
     readSellerDemandSummary,

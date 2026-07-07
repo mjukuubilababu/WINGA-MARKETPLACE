@@ -865,6 +865,8 @@ const INTELLIGENCE_QUEUE_COMPLETED_RETENTION_HOURS = Math.max(1, Math.min(Number
 const INTELLIGENCE_RAW_EVENT_RETENTION_DAYS = Math.max(7, Math.min(Number(process.env.INTELLIGENCE_RAW_EVENT_RETENTION_DAYS || 180) || 180, 3650));
 const DEMAND_RAW_EVENT_RETENTION_DAYS = Math.max(30, Math.min(Number(process.env.DEMAND_RAW_EVENT_RETENTION_DAYS || 730) || 730, 3650));
 const SEARCH_DEMAND_RAW_EVENT_RETENTION_DAYS = Math.max(7, Math.min(Number(process.env.SEARCH_DEMAND_RAW_EVENT_RETENTION_DAYS || 365) || 365, 3650));
+const INTELLIGENCE_SNAPSHOT_WINDOW_DAYS = Math.max(1, Math.min(Number(process.env.INTELLIGENCE_SNAPSHOT_WINDOW_DAYS || 14) || 14, 90));
+const INTELLIGENCE_SNAPSHOT_RETENTION_DAYS = Math.max(30, Math.min(Number(process.env.INTELLIGENCE_SNAPSHOT_RETENTION_DAYS || 1095) || 1095, 3650));
 const INTELLIGENCE_QUEUE_LEGACY_EMBEDDED_ENABLED = String(process.env.INTELLIGENCE_QUEUE_EMBEDDED_WORKER || "true").toLowerCase() !== "false";
 const INTELLIGENCE_QUEUE_PROCESSOR_MODE = normalizeIntelligenceQueueProcessorMode(
   process.env.INTELLIGENCE_QUEUE_PROCESSOR_MODE || (INTELLIGENCE_QUEUE_LEGACY_EMBEDDED_ENABLED ? "primary" : "off")
@@ -895,6 +897,12 @@ const intelligenceQueueWorkerState = {
     intelligenceEvents: 0,
     demandEvents: 0,
     searchDemandEvents: 0
+  },
+  snapshots: {
+    eventTypes: 0,
+    demandProducts: 0,
+    searchQueries: 0,
+    prunedSnapshots: 0
   },
   standbySkips: 0,
   standbyFallbackRuns: 0,
@@ -971,6 +979,16 @@ async function processIntelligenceQueueOnce(options = {}) {
         retentionHours: INTELLIGENCE_QUEUE_COMPLETED_RETENTION_HOURS
       });
       intelligenceQueueWorkerState.pruned += Number(prune?.pruned || 0);
+      if (postgresStore.refreshIntelligenceDailySnapshots) {
+        const snapshots = await postgresStore.refreshIntelligenceDailySnapshots({
+          windowDays: INTELLIGENCE_SNAPSHOT_WINDOW_DAYS,
+          retentionDays: INTELLIGENCE_SNAPSHOT_RETENTION_DAYS
+        });
+        intelligenceQueueWorkerState.snapshots.eventTypes += Number(snapshots?.eventTypes || 0);
+        intelligenceQueueWorkerState.snapshots.demandProducts += Number(snapshots?.demandProducts || 0);
+        intelligenceQueueWorkerState.snapshots.searchQueries += Number(snapshots?.searchQueries || 0);
+        intelligenceQueueWorkerState.snapshots.prunedSnapshots += Number(snapshots?.prunedSnapshots || 0);
+      }
       if (postgresStore.pruneIntelligenceRawEvents) {
         const rawPrune = await postgresStore.pruneIntelligenceRawEvents({
           intelligenceDays: INTELLIGENCE_RAW_EVENT_RETENTION_DAYS,
@@ -1146,7 +1164,9 @@ async function buildIntelligenceQueueHealthReport() {
         intelligence: INTELLIGENCE_RAW_EVENT_RETENTION_DAYS,
         demand: DEMAND_RAW_EVENT_RETENTION_DAYS,
         searchDemand: SEARCH_DEMAND_RAW_EVENT_RETENTION_DAYS
-      }
+      },
+      snapshotWindowDays: INTELLIGENCE_SNAPSHOT_WINDOW_DAYS,
+      snapshotRetentionDays: INTELLIGENCE_SNAPSHOT_RETENTION_DAYS
     }
   };
 }
@@ -1177,6 +1197,17 @@ function buildIntelligenceOpsSnapshot(intelligenceSummary = {}) {
       demandEvents: 0,
       searchDemandEvents: 0
     },
+    snapshots: worker.snapshots && typeof worker.snapshots === "object" ? {
+      eventTypes: Number(worker.snapshots.eventTypes || 0),
+      demandProducts: Number(worker.snapshots.demandProducts || 0),
+      searchQueries: Number(worker.snapshots.searchQueries || 0),
+      prunedSnapshots: Number(worker.snapshots.prunedSnapshots || 0)
+    } : {
+      eventTypes: 0,
+      demandProducts: 0,
+      searchQueries: 0,
+      prunedSnapshots: 0
+    },
     standbySkips: Number(worker.standbySkips || 0),
     standbyFallbackRuns: Number(worker.standbyFallbackRuns || 0),
     lastSuccessAt: String(worker.lastSuccessAt || ""),
@@ -1192,6 +1223,12 @@ function buildIntelligenceOpsSnapshot(intelligenceSummary = {}) {
     })) : [],
     topSellers: Array.isArray(persistent.topSellers) ? persistent.topSellers.slice(0, 5).map((entry) => ({
       id: String(entry.id || ""),
+      score: Number(entry.score || 0)
+    })) : [],
+    trendSnapshots: Array.isArray(persistent.trendSnapshots) ? persistent.trendSnapshots.slice(0, 10).map((entry) => ({
+      snapshotType: String(entry.snapshotType || ""),
+      snapshotKey: String(entry.snapshotKey || ""),
+      count: Number(entry.count || 0),
       score: Number(entry.score || 0)
     })) : []
   };

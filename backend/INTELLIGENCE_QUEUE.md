@@ -111,6 +111,8 @@ The backend rejects that endpoint unless `X-Winga-Queue-Secret` matches `QUEUE_W
 - `INTELLIGENCE_RAW_EVENT_RETENTION_DAYS=180`
 - `DEMAND_RAW_EVENT_RETENTION_DAYS=730`
 - `SEARCH_DEMAND_RAW_EVENT_RETENTION_DAYS=365`
+- `INTELLIGENCE_SNAPSHOT_WINDOW_DAYS=14`
+- `INTELLIGENCE_SNAPSHOT_RETENTION_DAYS=1095`
 - `INTELLIGENCE_QUEUE_PENDING_ALERT_THRESHOLD=1000`
 - `INTELLIGENCE_QUEUE_FAILED_ALERT_THRESHOLD=25`
 - `INTELLIGENCE_QUEUE_DEAD_ALERT_THRESHOLD=1`
@@ -177,6 +179,25 @@ This keeps long-term recommendations, seller demand summaries, and market scores
 available while bounding database growth and reducing long-term privacy risk.
 Set longer windows only when there is a clear analytics need and a matching
 privacy policy.
+
+## Daily Snapshot Aggregation
+
+The worker maintenance cycle refreshes aggregate daily snapshots before raw
+event pruning runs. Snapshots are stored in `intelligence_daily_snapshots` and
+summarize:
+
+- event type volume from `intelligence_events`
+- product demand from `demand_events`
+- search demand from `search_demand_events`
+
+Defaults:
+
+- `INTELLIGENCE_SNAPSHOT_WINDOW_DAYS=14`
+- `INTELLIGENCE_SNAPSHOT_RETENTION_DAYS=1095`
+
+Snapshots are aggregate-only and safe for admin operations, market intelligence,
+seller insights, and future recommendation features. They do not store buyer
+identity lists and they do not run on the Home Feed critical path.
 
 ## Feed Intelligence Safety
 

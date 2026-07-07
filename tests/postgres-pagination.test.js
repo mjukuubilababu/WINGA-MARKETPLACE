@@ -290,6 +290,9 @@ test("PostgreSQL intelligence summary reads dedicated intelligence tables", asyn
       if (text.includes("FROM seller_intelligence_scores")) {
         return { rows: [{ id: "seller-1", score: 5, signals: { product_purchased: 2 }, lastSeenAt: new Date("2026-06-30T09:00:00.000Z") }] };
       }
+      if (text.includes("FROM intelligence_daily_snapshots")) {
+        return { rows: [{ snapshotType: "event_type", snapshotKey: "product_purchased", count: 2, score: 2, metric: { lastMetric: {} }, updatedAt: new Date("2026-06-30T10:00:00.000Z") }] };
+      }
       return { rows: [] };
     }
   };
@@ -300,11 +303,12 @@ test("PostgreSQL intelligence summary reads dedicated intelligence tables", asyn
 
   const summary = await store.readIntelligenceSummary(5);
 
-  assert.equal(calls.length, 3);
-  assert.deepEqual(calls.map((call) => call.params), [[5], [5], [5]]);
+  assert.equal(calls.length, 4);
+  assert.deepEqual(calls.map((call) => call.params), [[5], [5], [5], ["14", 5]]);
   assert.equal(summary.topEventTypes[0].eventType, "product_purchased");
   assert.equal(summary.topProducts[0].id, "product-1");
   assert.equal(summary.topSellers[0].id, "seller-1");
+  assert.equal(summary.trendSnapshots[0].snapshotType, "event_type");
 });
 
 test("PostgreSQL intelligence retention prunes raw events without deleting summaries", async () => {
@@ -341,6 +345,55 @@ test("PostgreSQL intelligence retention prunes raw events without deleting summa
   assert.equal(calls[1].params[0], "365");
   assert.equal(calls[2].params[0], "120");
   assert.equal(calls.some((call) => /DELETE FROM product_intelligence_scores|DELETE FROM seller_intelligence_scores|DELETE FROM product_demand_summaries/.test(call.text)), false);
+});
+
+test("PostgreSQL intelligence snapshots aggregate raw signals before pruning", async () => {
+  const calls = [];
+  const queryClient = {
+    async query(text, params) {
+      calls.push({ text, params });
+      if (text.includes("FROM intelligence_daily_snapshots") && text.includes("GROUP BY snapshot_type")) {
+        return {
+          rows: [{
+            snapshotType: "search_query",
+            snapshotKey: "white-dress",
+            count: 3,
+            score: 9,
+            metric: { lastMetric: { query: "white dress" } },
+            updatedAt: new Date("2026-07-06T09:00:00.000Z")
+          }]
+        };
+      }
+      return { rows: [], rowCount: 2 };
+    }
+  };
+  const store = createPostgresStore({
+    databaseUrl: "postgres://test.invalid/winga",
+    queryClient
+  });
+
+  const refresh = await store.refreshIntelligenceDailySnapshots({
+    windowDays: 10,
+    retentionDays: 365
+  });
+  const summary = await store.readIntelligenceSnapshotSummary({ days: 7, limit: 5 });
+
+  assert.equal(refresh.eventTypes, 2);
+  assert.equal(refresh.demandProducts, 2);
+  assert.equal(refresh.searchQueries, 2);
+  assert.equal(refresh.prunedSnapshots, 2);
+  assert.equal(refresh.windowDays, 10);
+  assert.equal(refresh.retentionDays, 365);
+  assert.match(calls[0].text, /INSERT INTO intelligence_daily_snapshots/);
+  assert.match(calls[0].text, /FROM intelligence_events/);
+  assert.match(calls[1].text, /FROM demand_events/);
+  assert.match(calls[2].text, /FROM search_demand_events/);
+  assert.match(calls[3].text, /DELETE FROM intelligence_daily_snapshots/);
+  assert.deepEqual(calls.slice(0, 4).map((call) => call.params[0]), ["10", "10", "10", "365"]);
+  assert.equal(summary[0].snapshotType, "search_query");
+  assert.equal(summary[0].snapshotKey, "white-dress");
+  assert.equal(summary[0].score, 9);
+  assert.deepEqual(calls.at(-1).params, ["7", 5]);
 });
 
 test("PostgreSQL durable intelligence queue claims, retries, and completes jobs", async () => {
