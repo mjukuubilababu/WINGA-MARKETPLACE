@@ -347,6 +347,16 @@ test("PostgreSQL intelligence retention prunes raw events without deleting summa
   assert.equal(calls.some((call) => /DELETE FROM product_intelligence_scores|DELETE FROM seller_intelligence_scores|DELETE FROM product_demand_summaries/.test(call.text)), false);
 });
 
+test("PostgreSQL intelligence init creates time-only indexes for global raw event scans", () => {
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const source = fs.readFileSync(path.join(__dirname, "..", "backend", "db.js"), "utf8");
+
+  assert.match(source, /CREATE INDEX IF NOT EXISTS idx_intelligence_events_happened_at\s+ON intelligence_events \(happened_at DESC\)/);
+  assert.match(source, /CREATE INDEX IF NOT EXISTS idx_demand_events_created_at\s+ON demand_events \(created_at DESC\)/);
+  assert.match(source, /CREATE INDEX IF NOT EXISTS idx_search_demand_events_happened_at\s+ON search_demand_events \(happened_at DESC\)/);
+});
+
 test("PostgreSQL intelligence snapshots aggregate raw signals before pruning", async () => {
   const calls = [];
   const queryClient = {

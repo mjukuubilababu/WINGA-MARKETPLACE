@@ -1170,6 +1170,9 @@ test("backend intelligence uses durable queue hooks when PostgreSQL is available
   assert.match(dbSource, /function recoverStaleIntelligenceQueueJobs/);
   assert.match(dbSource, /function pruneCompletedIntelligenceQueueJobs/);
   assert.match(dbSource, /function pruneIntelligenceRawEvents/);
+  assert.match(dbSource, /idx_intelligence_events_happened_at/);
+  assert.match(dbSource, /idx_demand_events_created_at/);
+  assert.match(dbSource, /idx_search_demand_events_happened_at/);
   assert.match(dbSource, /CREATE TABLE IF NOT EXISTS intelligence_daily_snapshots/);
   assert.match(dbSource, /idx_intelligence_daily_snapshots_date_updated/);
   assert.match(dbSource, /idx_intelligence_daily_snapshots_updated/);

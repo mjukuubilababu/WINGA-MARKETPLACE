@@ -540,6 +540,10 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
       CREATE INDEX IF NOT EXISTS idx_intelligence_events_type_time
       ON intelligence_events (event_type, happened_at DESC);
     `);
+    await query(`
+      CREATE INDEX IF NOT EXISTS idx_intelligence_events_happened_at
+      ON intelligence_events (happened_at DESC);
+    `);
 
     await query(`
       CREATE INDEX IF NOT EXISTS idx_intelligence_event_queue_status_available
@@ -566,6 +570,10 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
       ON demand_events (product_id, created_at DESC);
     `);
     await query(`
+      CREATE INDEX IF NOT EXISTS idx_demand_events_created_at
+      ON demand_events (created_at DESC);
+    `);
+    await query(`
       CREATE INDEX IF NOT EXISTS idx_demand_events_seller_time
       ON demand_events (seller_id, created_at DESC);
     `);
@@ -576,6 +584,10 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
     await query(`
       CREATE INDEX IF NOT EXISTS idx_search_demand_events_query_time
       ON search_demand_events (query_key, happened_at DESC);
+    `);
+    await query(`
+      CREATE INDEX IF NOT EXISTS idx_search_demand_events_happened_at
+      ON search_demand_events (happened_at DESC);
     `);
     await query(`
       CREATE INDEX IF NOT EXISTS idx_search_demand_events_category_time
