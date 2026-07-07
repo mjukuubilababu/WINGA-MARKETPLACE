@@ -242,6 +242,7 @@ Optional environment:
 INTELLIGENCE_HEALTH_URL=https://winga-pflp.onrender.com/api/ops/intelligence/queue-health
 INTELLIGENCE_HEALTH_TIMEOUT_MS=15000
 INTELLIGENCE_HEALTH_WARN_AS_SUCCESS=false
+INTELLIGENCE_ALERT_WEBHOOK_URL=https://example.com/winga-alert-webhook
 ```
 
 Exit codes:
@@ -255,6 +256,10 @@ Exit codes:
 The script prints sanitized JSON only. It never prints the ops token, raw queue
 payloads, buyer behavior, or private event metadata.
 
+If `INTELLIGENCE_ALERT_WEBHOOK_URL` is set, the monitor sends a sanitized JSON
+POST only when readiness is not `ready`. The webhook payload contains readiness,
+safe queue counts, worker counters, alert types, and timestamps only.
+
 ## GitHub Scheduled Health Check
 
 The repository includes `.github/workflows/intelligence-health.yml`.
@@ -263,6 +268,12 @@ Required GitHub repository secret:
 
 ```text
 OPS_HEALTH_TOKEN=<same value used by the backend health endpoint>
+```
+
+Optional GitHub repository secret:
+
+```text
+INTELLIGENCE_ALERT_WEBHOOK_URL=<Slack/Discord/BetterStack/Make/Zapier webhook>
 ```
 
 The workflow runs every 15 minutes and can also be started manually from GitHub
@@ -281,6 +292,26 @@ Expected behavior:
 
 Use GitHub notification rules, email, or a connected incident tool so failed
 scheduled runs page engineering automatically.
+
+## Incident Severity And Response
+
+| Readiness | Severity | User impact | Action |
+| --- | --- | --- | --- |
+| `ready` | healthy | none | no action |
+| `watch` | low | intelligence delay risk only | review within business hours |
+| `degraded` | high | recommendations/analytics may lag | inspect worker logs and queue health soon |
+| `critical` | critical | intelligence processing is blocked | page engineering immediately |
+| `unavailable` | critical | monitoring cannot read queue health | page engineering immediately |
+
+First-response checklist:
+
+1. Run `OPS_HEALTH_TOKEN="$OPS_HEALTH_TOKEN" npm run monitor:intelligence`.
+2. Check Render backend/API env: `INTELLIGENCE_QUEUE_PROCESSOR_MODE`.
+3. Check Render Background Worker logs for `npm run worker:intelligence`.
+4. Inspect `/api/admin/ops/summary` as an admin and confirm `intelligence.opsSnapshot`.
+5. If `failed` or `dead` jobs exist, list jobs through the admin recovery endpoint.
+6. Retry failed/dead jobs only after confirming the root cause is fixed.
+7. Mark jobs dead only for controlled incidents where retrying would repeat failure.
 
 ## Admin Recovery Operations
 

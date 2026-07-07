@@ -18,6 +18,7 @@ jobs:
       contents: read
     env:
       OPS_HEALTH_TOKEN: ${{ secrets.OPS_HEALTH_TOKEN }}
+      INTELLIGENCE_ALERT_WEBHOOK_URL: ${{ secrets.INTELLIGENCE_ALERT_WEBHOOK_URL }}
       INTELLIGENCE_HEALTH_URL: https://winga-pflp.onrender.com/api/ops/intelligence/queue-health
       INTELLIGENCE_HEALTH_TIMEOUT_MS: "15000"
       INTELLIGENCE_HEALTH_WARN_AS_SUCCESS: "false"

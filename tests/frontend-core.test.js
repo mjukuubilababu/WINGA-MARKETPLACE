@@ -1237,6 +1237,9 @@ test("backend intelligence uses durable queue hooks when PostgreSQL is available
   assert.match(runbookSource, /Exit codes:/);
   assert.match(runbookSource, /GitHub Scheduled Health Check/);
   assert.match(runbookSource, /OPS_HEALTH_TOKEN=<same value used by the backend health endpoint>/);
+  assert.match(runbookSource, /INTELLIGENCE_ALERT_WEBHOOK_URL=<Slack\/Discord\/BetterStack\/Make\/Zapier webhook>/);
+  assert.match(runbookSource, /Incident Severity And Response/);
+  assert.match(runbookSource, /First-response checklist/);
   assert.match(adminControllerSource, /function buildOpsSignalLines/);
   assert.match(adminControllerSource, /Intelligence queue:/);
   assert.match(adminControllerSource, /Queue counts:/);
@@ -1250,10 +1253,15 @@ test("backend intelligence uses durable queue hooks when PostgreSQL is available
   assert.match(monitorSource, /EXIT_NETWORK = 4/);
   assert.match(monitorSource, /X-Ops-Health-Token/);
   assert.match(monitorSource, /readiness/);
+  assert.match(monitorSource, /INTELLIGENCE_ALERT_WEBHOOK_URL/);
+  assert.match(monitorSource, /function sanitizeMonitorPayload/);
+  assert.match(monitorSource, /async function sendAlertWebhook/);
+  assert.match(monitorSource, /source: "winga-intelligence-health"/);
   assert.doesNotMatch(monitorSource, /console\.log\(token|process\.stdout\.write\(token/);
   assert.match(workflowSource, /name: Winga Intelligence Health/);
   assert.match(workflowSource, /cron: "\*\/15 \* \* \* \*"/);
   assert.match(workflowSource, /OPS_HEALTH_TOKEN: \$\{\{ secrets\.OPS_HEALTH_TOKEN \}\}/);
+  assert.match(workflowSource, /INTELLIGENCE_ALERT_WEBHOOK_URL: \$\{\{ secrets\.INTELLIGENCE_ALERT_WEBHOOK_URL \}\}/);
   assert.match(workflowSource, /node-version: "24"/);
   assert.match(workflowSource, /npm run monitor:intelligence/);
   assert.doesNotMatch(workflowSource, /wingaopshealth|DATABASE_URL|QUEUE_WEBHOOK_SECRET/);

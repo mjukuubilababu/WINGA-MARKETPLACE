@@ -21,7 +21,13 @@ function parseTimeoutMs(value) {
 }
 
 function writeResult(payload = {}) {
-  const safePayload = {
+  const safePayload = sanitizeMonitorPayload(payload);
+  process.stdout.write(`${JSON.stringify(safePayload, null, 2)}\n`);
+  return safePayload;
+}
+
+function sanitizeMonitorPayload(payload = {}) {
+  return {
     ok: Boolean(payload.ok),
     status: payload.status || "unknown",
     readiness: payload.readiness || "unknown",
@@ -55,7 +61,41 @@ function writeResult(payload = {}) {
       lastFailureAt: String(payload.worker.lastFailureAt || "")
     } : null
   };
-  process.stdout.write(`${JSON.stringify(safePayload, null, 2)}\n`);
+}
+
+async function sendAlertWebhook(webhookUrl, payload = {}) {
+  const safeUrl = String(webhookUrl || "").trim();
+  if (!safeUrl) {
+    return { sent: false, reason: "missing_webhook" };
+  }
+  const readiness = String(payload.readiness || "");
+  if (readiness === "ready") {
+    return { sent: false, reason: "ready" };
+  }
+  const response = await fetch(safeUrl, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "User-Agent": "winga-intelligence-health-monitor"
+    },
+    body: JSON.stringify({
+      source: "winga-intelligence-health",
+      severity: readiness === "critical" || readiness === "unavailable" ? "critical" : "warning",
+      readiness,
+      status: payload.status || "unknown",
+      httpStatus: Number(payload.httpStatus || 0),
+      message: payload.message || "",
+      url: payload.url || "",
+      alerts: payload.alerts || [],
+      health: payload.health || null,
+      worker: payload.worker || null,
+      checkedAt: new Date().toISOString()
+    })
+  });
+  if (!response.ok) {
+    throw new Error(`Alert webhook failed with ${response.status}`);
+  }
+  return { sent: true };
 }
 
 async function fetchHealth(url, token, timeoutMs) {
@@ -98,15 +138,17 @@ async function main() {
   const token = readEnv("OPS_HEALTH_TOKEN", readEnv("INTELLIGENCE_HEALTH_TOKEN"));
   const timeoutMs = parseTimeoutMs(readEnv("INTELLIGENCE_HEALTH_TIMEOUT_MS"));
   const warnAsSuccess = readEnv("INTELLIGENCE_HEALTH_WARN_AS_SUCCESS").toLowerCase() === "true";
+  const alertWebhookUrl = readEnv("INTELLIGENCE_ALERT_WEBHOOK_URL");
 
   if (!token) {
-    writeResult({
+    const output = writeResult({
       ok: false,
       status: "config_error",
       readiness: "unavailable",
       message: "OPS_HEALTH_TOKEN or INTELLIGENCE_HEALTH_TOKEN is required.",
       url
     });
+    await maybeSendAlertWebhook(alertWebhookUrl, output);
     process.exitCode = EXIT_CONFIG;
     return;
   }
@@ -116,13 +158,14 @@ async function main() {
   try {
     ({ response, body } = await fetchHealth(url, token, timeoutMs));
   } catch (error) {
-    writeResult({
+    const output = writeResult({
       ok: false,
       status: "network_error",
       readiness: "unavailable",
       message: error?.name === "AbortError" ? "Health check timed out." : String(error?.message || error || "Health check failed."),
       url
     });
+    await maybeSendAlertWebhook(alertWebhookUrl, output);
     process.exitCode = EXIT_NETWORK;
     return;
   }
@@ -131,7 +174,7 @@ async function main() {
   const exitCode = response.ok
     ? getExitForReadiness(readiness, warnAsSuccess)
     : EXIT_CRITICAL;
-  writeResult({
+  const output = writeResult({
     ok: response.ok && exitCode === EXIT_OK,
     status: response.ok ? "http_ok" : "http_error",
     readiness,
@@ -142,16 +185,29 @@ async function main() {
     health: body?.health || null,
     worker: body?.worker || null
   });
+  await maybeSendAlertWebhook(alertWebhookUrl, output);
   process.exitCode = exitCode;
 }
 
+async function maybeSendAlertWebhook(webhookUrl, payload) {
+  if (!webhookUrl || payload?.readiness === "ready") {
+    return;
+  }
+  try {
+    await sendAlertWebhook(webhookUrl, payload);
+  } catch (error) {
+    process.stderr.write(`[WINGA] Intelligence alert webhook failed: ${String(error?.message || error || "unknown")}\n`);
+  }
+}
+
 main().catch((error) => {
-  writeResult({
+  const output = writeResult({
     ok: false,
     status: "monitor_crashed",
     readiness: "unavailable",
     message: String(error?.message || error || "Monitor crashed."),
     url: readEnv("INTELLIGENCE_HEALTH_URL", DEFAULT_HEALTH_URL)
   });
+  maybeSendAlertWebhook(readEnv("INTELLIGENCE_ALERT_WEBHOOK_URL"), output).finally(() => {});
   process.exitCode = EXIT_NETWORK;
 });
