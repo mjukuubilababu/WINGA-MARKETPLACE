@@ -1171,9 +1171,13 @@ test("backend intelligence uses durable queue hooks when PostgreSQL is available
   assert.match(dbSource, /function pruneCompletedIntelligenceQueueJobs/);
   assert.match(dbSource, /function pruneIntelligenceRawEvents/);
   assert.match(dbSource, /CREATE TABLE IF NOT EXISTS intelligence_daily_snapshots/);
+  assert.match(dbSource, /idx_intelligence_daily_snapshots_date_updated/);
+  assert.match(dbSource, /idx_intelligence_daily_snapshots_updated/);
   assert.match(dbSource, /function refreshIntelligenceDailySnapshots/);
   assert.match(dbSource, /function readIntelligenceSnapshotSummary/);
   assert.match(dbSource, /function readIntelligenceSnapshotHealth/);
+  assert.match(dbSource, /estimated_total_snapshots/);
+  assert.doesNotMatch(dbSource, /COUNT\(\*\)::int AS total_snapshots/);
   assert.match(serverSource, /postgresStore\?\.enqueueIntelligenceEvent/);
   assert.match(serverSource, /function processIntelligenceQueueOnce/);
   assert.match(serverSource, /recoverStaleIntelligenceQueueJobs/);
@@ -1259,6 +1263,7 @@ test("backend intelligence uses durable queue hooks when PostgreSQL is available
   assert.match(runbookSource, /INTELLIGENCE_SNAPSHOT_WINDOW_DAYS=14/);
   assert.match(runbookSource, /INTELLIGENCE_SNAPSHOT_STALE_SECONDS=93600/);
   assert.match(runbookSource, /Daily Snapshot Aggregation/);
+  assert.match(runbookSource, /catalog estimates instead of\s+full-table snapshot counts/);
   assert.match(runbookSource, /Raw Event Retention/);
   assert.match(runbookSource, /standby fallback/);
   assert.match(runbookSource, /npm run monitor:intelligence/);

@@ -204,6 +204,8 @@ identity lists and they do not run on the Home Feed critical path.
 The queue health endpoint also reports `snapshotHealth`. It alerts when recent
 raw intelligence exists but daily snapshots are missing or stale, while staying
 quiet for truly empty systems with no recent intelligence events.
+Snapshot health uses indexed recent counts and catalog estimates instead of
+full-table snapshot counts, so monitoring stays cheap at high scale.
 
 ## Feed Intelligence Safety
 

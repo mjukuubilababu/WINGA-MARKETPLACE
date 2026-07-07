@@ -1133,7 +1133,7 @@
         },
         {
           type: "snapshot-health",
-          value: `Snapshot health: recent ${snapshotHealth.recentSnapshots ?? 0}, raw ${snapshotHealth.recentRawEventCount ?? 0}, latest ${snapshotHealth.latestUpdatedAt || "-"}`
+          value: `Snapshot health: recent ${snapshotHealth.recentSnapshots ?? 0}, estimated total ${snapshotHealth.estimatedTotalSnapshots ?? snapshotHealth.totalSnapshots ?? 0}, raw ${snapshotHealth.recentRawEventCount ?? 0}, latest ${snapshotHealth.latestUpdatedAt || "-"}`
         },
         ...(alerts.slice(0, 4).map((entry) => ({
           type: "queue-alert",

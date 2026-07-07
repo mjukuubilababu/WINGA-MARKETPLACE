@@ -53,7 +53,7 @@ function sanitizeMonitorPayload(payload = {}) {
       oldestProcessingAgeSeconds: Number(payload.health.oldestProcessingAgeSeconds || 0)
     } : null,
     snapshotHealth: payload.snapshotHealth && typeof payload.snapshotHealth === "object" ? {
-      totalSnapshots: Number(payload.snapshotHealth.totalSnapshots || 0),
+      estimatedTotalSnapshots: Number(payload.snapshotHealth.estimatedTotalSnapshots || payload.snapshotHealth.totalSnapshots || 0),
       recentSnapshots: Number(payload.snapshotHealth.recentSnapshots || 0),
       recentRawEventCount: Number(payload.snapshotHealth.recentRawEventCount || 0),
       latestSnapshotDate: String(payload.snapshotHealth.latestSnapshotDate || ""),

@@ -401,11 +401,23 @@ test("PostgreSQL intelligence snapshot health compares aggregates with recent ra
   const queryClient = {
     async query(text, params) {
       calls.push({ text, params });
-      if (text.includes("COUNT(*)::int AS total_snapshots")) {
+      if (text.includes("estimated_total_snapshots")) {
         return {
           rows: [{
-            total_snapshots: 12,
-            recent_snapshots: 5,
+            estimated_total_snapshots: 1200000
+          }]
+        };
+      }
+      if (text.includes("COUNT(*)::int AS recent_snapshots")) {
+        return {
+          rows: [{
+            recent_snapshots: 5
+          }]
+        };
+      }
+      if (text.includes("ORDER BY updated_at DESC")) {
+        return {
+          rows: [{
             latest_snapshot_date: "2026-07-06",
             latest_updated_at: new Date("2026-07-06T10:00:00.000Z"),
             seconds_since_latest_update: 3600
@@ -428,7 +440,7 @@ test("PostgreSQL intelligence snapshot health compares aggregates with recent ra
 
   const health = await store.readIntelligenceSnapshotHealth({ windowDays: 10 });
 
-  assert.equal(health.totalSnapshots, 12);
+  assert.equal(health.estimatedTotalSnapshots, 1200000);
   assert.equal(health.recentSnapshots, 5);
   assert.equal(health.recentRawEventCount, 9);
   assert.equal(health.recentRawEvents.intelligenceEvents, 4);
@@ -436,11 +448,15 @@ test("PostgreSQL intelligence snapshot health compares aggregates with recent ra
   assert.equal(health.latestUpdatedAt, "2026-07-06T10:00:00.000Z");
   assert.equal(health.secondsSinceLatestUpdate, 3600);
   assert.equal(health.windowDays, 10);
-  assert.match(calls[0].text, /FROM intelligence_daily_snapshots/);
-  assert.match(calls[1].text, /FROM intelligence_events/);
-  assert.match(calls[1].text, /FROM demand_events/);
-  assert.match(calls[1].text, /FROM search_demand_events/);
-  assert.deepEqual(calls.map((call) => call.params), [["10"], ["10"]]);
+  assert.match(calls[0].text, /FROM pg_class/);
+  assert.match(calls[0].text, /intelligence_daily_snapshots'::regclass/);
+  assert.match(calls[1].text, /COUNT\(\*\)::int AS recent_snapshots/);
+  assert.match(calls[1].text, /WHERE snapshot_date >=/);
+  assert.match(calls[2].text, /ORDER BY updated_at DESC/);
+  assert.match(calls[3].text, /FROM intelligence_events/);
+  assert.match(calls[3].text, /FROM demand_events/);
+  assert.match(calls[3].text, /FROM search_demand_events/);
+  assert.deepEqual(calls.map((call) => call.params), [[], ["10"], [], ["10"]]);
 });
 
 test("PostgreSQL durable intelligence queue claims, retries, and completes jobs", async () => {

@@ -586,6 +586,14 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
       ON intelligence_daily_snapshots (snapshot_type, snapshot_date DESC, score DESC);
     `);
     await query(`
+      CREATE INDEX IF NOT EXISTS idx_intelligence_daily_snapshots_date_updated
+      ON intelligence_daily_snapshots (snapshot_date DESC, updated_at DESC);
+    `);
+    await query(`
+      CREATE INDEX IF NOT EXISTS idx_intelligence_daily_snapshots_updated
+      ON intelligence_daily_snapshots (updated_at DESC);
+    `);
+    await query(`
       CREATE INDEX IF NOT EXISTS idx_search_demand_events_region_time
       ON search_demand_events (location, happened_at DESC);
     `);
@@ -2109,16 +2117,29 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
 
   async function readIntelligenceSnapshotHealth(options = {}) {
     const windowDays = Math.max(1, Math.min(Number(options.windowDays || 14) || 14, 90));
-    const [snapshotMetrics, rawMetrics] = await Promise.all([
+    const [snapshotEstimate, recentSnapshotMetrics, latestSnapshotMetrics, rawMetrics] = await Promise.all([
       query(
         `SELECT
-           COUNT(*)::int AS total_snapshots,
-           COUNT(*) FILTER (WHERE snapshot_date >= CURRENT_DATE - ($1 || ' days')::interval)::int AS recent_snapshots,
-           MAX(snapshot_date) AS latest_snapshot_date,
-           MAX(updated_at) AS latest_updated_at,
-           COALESCE(EXTRACT(EPOCH FROM (NOW() - MAX(updated_at)))::int, 0) AS seconds_since_latest_update
-         FROM intelligence_daily_snapshots`,
+           GREATEST(COALESCE(reltuples, 0), 0)::bigint AS estimated_total_snapshots
+         FROM pg_class
+         WHERE oid = 'intelligence_daily_snapshots'::regclass`,
+        []
+      ),
+      query(
+        `SELECT COUNT(*)::int AS recent_snapshots
+         FROM intelligence_daily_snapshots
+         WHERE snapshot_date >= CURRENT_DATE - ($1 || ' days')::interval`,
         [String(windowDays)]
+      ),
+      query(
+        `SELECT
+           snapshot_date AS latest_snapshot_date,
+           updated_at AS latest_updated_at,
+           COALESCE(EXTRACT(EPOCH FROM (NOW() - updated_at))::int, 0) AS seconds_since_latest_update
+         FROM intelligence_daily_snapshots
+         ORDER BY updated_at DESC
+         LIMIT 1`,
+        []
       ),
       query(
         `SELECT
@@ -2140,7 +2161,9 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
         [String(windowDays)]
       )
     ]);
-    const snapshotRow = snapshotMetrics.rows[0] || {};
+    const estimateRow = snapshotEstimate.rows[0] || {};
+    const recentSnapshotRow = recentSnapshotMetrics.rows[0] || {};
+    const latestSnapshotRow = latestSnapshotMetrics.rows[0] || {};
     const rawRow = rawMetrics.rows[0] || {};
     const raw = {
       intelligenceEvents: Number(rawRow.intelligence_events || 0),
@@ -2148,11 +2171,11 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
       searchDemandEvents: Number(rawRow.search_demand_events || 0)
     };
     return {
-      totalSnapshots: Number(snapshotRow.total_snapshots || 0),
-      recentSnapshots: Number(snapshotRow.recent_snapshots || 0),
-      latestSnapshotDate: snapshotRow.latest_snapshot_date ? String(snapshotRow.latest_snapshot_date).slice(0, 10) : "",
-      latestUpdatedAt: toISOString(snapshotRow.latest_updated_at),
-      secondsSinceLatestUpdate: Number(snapshotRow.seconds_since_latest_update || 0),
+      estimatedTotalSnapshots: Number(estimateRow.estimated_total_snapshots || 0),
+      recentSnapshots: Number(recentSnapshotRow.recent_snapshots || 0),
+      latestSnapshotDate: latestSnapshotRow.latest_snapshot_date ? String(latestSnapshotRow.latest_snapshot_date).slice(0, 10) : "",
+      latestUpdatedAt: toISOString(latestSnapshotRow.latest_updated_at),
+      secondsSinceLatestUpdate: Number(latestSnapshotRow.seconds_since_latest_update || 0),
       recentRawEvents: raw,
       recentRawEventCount: raw.intelligenceEvents + raw.demandEvents + raw.searchDemandEvents,
       windowDays
