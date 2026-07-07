@@ -751,7 +751,10 @@ test("home pagination retries safely, cancels stale work, and commits pages tran
   assert.match(appSource, /return Boolean\(window\.WINGA_CONFIG\?\.enableClientEventLogging\);/);
   assert.match(buildSource, /"src\/marketplace\/continuation\.js"/);
   assert.match(continuationSource, /window\.WingaModules\.marketplace\.createContinuationHelpers = createContinuationHelpers;/);
+  assert.match(continuationSource, /function createContinuousDiscoveryRuntime\(options = \{\}\)/);
+  assert.match(continuationSource, /pendingDescriptors: normalizePendingDescriptors\(options\.pendingDescriptors\)/);
   assert.match(appSource, /window\.WingaModules\?\.marketplace\?\.createContinuationHelpers/);
+  assert.match(appSource, /let homeContinuousDiscoveryRuntime = createHomeContinuousDiscoveryRuntime\(\);/);
 
   assert.match(dataSource, /signal: options\.signal/);
   assert.match(dataSource, /signal: nextOptions\.signal/);
@@ -828,6 +831,24 @@ test("marketplace continuation helpers bound media pressure without blocking hyd
   assert.equal(released.defer, false);
   assert.equal(released.reason, "bounded_pressure_release");
   assert.equal(released.shouldReleasePending, true);
+
+  const runtime = helpers.createContinuousDiscoveryRuntime({
+    usedIds: new Set(["product-a"]),
+    initialProductIds: ["product-a", "product-b"],
+    pendingDescriptors: [
+      { kind: "valid", items: [{ id: "product-c" }] },
+      { kind: "empty", items: [] }
+    ],
+    lastVariantNormalOrdinal: -3,
+    loadMoreRequestId: 7
+  });
+  assert.equal(runtime.normalProductOrdinal, 2);
+  assert.equal(runtime.nextFeedSequenceIndex, 2);
+  assert.equal(runtime.usedIds.has("product-a"), true);
+  assert.equal(runtime.productLastAppearanceOrdinal["product-b"], 2);
+  assert.equal(runtime.pendingDescriptors.length, 1);
+  assert.equal(runtime.lastVariantNormalOrdinal, -3);
+  assert.equal(runtime.loadMoreRequestId, 7);
 });
 
 test("product query surfaces share one paginated contract and bounded virtual node retention", () => {
@@ -908,10 +929,46 @@ test("production telemetry stays silent in the browser console while transport r
   assert.match(buildSource, /"src\/monitoring\/performance\.js"/);
   assert.match(performanceSource, /window\.WingaModules\.monitoring\.createPerformanceModule = createPerformanceModule;/);
   assert.match(performanceSource, /if \(isProductionRuntime\(\)\) \{\s+return queryDebugEnabled;/);
+  assert.match(performanceSource, /function createMetricWindowStore\(windows = \{\}, options = \{\}\)/);
   assert.match(appSource, /window\.WingaModules\?\.monitoring\?\.createPerformanceModule/);
+  assert.match(appSource, /getRuntimeMetricWindowTools\(\)\.record\(metric, value\)/);
+  assert.match(appSource, /getRuntimeMetricWindowTools\(\)\.summarize\(metric\)/);
   assert.match(appSource, /if \(isExperienceMetricDebugEnabled\(\)\) \{\s+safePerformanceMark\("winga_render_start"\);/);
   assert.match(marketplaceSource, /feedVariantResurface && deps\.isPerformanceDebugEnabled\?\.\(\)/);
   assert.match(detailSource, /initialImageIndex \|\| 0\) > 0 && deps\.isPerformanceDebugEnabled\?\.\(\)/);
+
+  const performanceContext = vm.createContext({
+    window: {
+      WingaModules: { monitoring: {} },
+      location: { search: "", hostname: "wingamarket.com" }
+    },
+    performance: { now: () => 12 },
+    Date,
+    Math,
+    Object,
+    Number,
+    String,
+    Boolean,
+    Array
+  });
+  vm.runInContext(performanceSource, performanceContext);
+  const performanceTools = performanceContext.window.WingaModules.monitoring.createPerformanceModule({
+    isProductionRuntime: () => true
+  });
+  const windows = { feedImageLoadLatencyMs: [] };
+  const metricStore = performanceTools.createMetricWindowStore(windows, { limit: 2 });
+  metricStore.record("feedImageLoadLatencyMs", 10.4);
+  metricStore.record("feedImageLoadLatencyMs", 20.2);
+  metricStore.record("feedImageLoadLatencyMs", 30.8);
+  assert.deepEqual(windows.feedImageLoadLatencyMs, [20, 31]);
+  assert.deepEqual(JSON.parse(JSON.stringify(metricStore.summarize("feedImageLoadLatencyMs"))), {
+    count: 2,
+    average: 26,
+    max: 31,
+    latest: 31
+  });
+  metricStore.reset();
+  assert.equal(windows.feedImageLoadLatencyMs.length, 0);
 });
 
 test("service worker refreshes versioned frontend assets without trapping stale CSS", () => {
@@ -1602,13 +1659,14 @@ test("client variant entries prefer selected resurfacing indexes and preserve se
   const uiSource = fs.readFileSync(path.join(root, "src", "marketplace", "ui.js"), "utf8");
   const buildSource = fs.readFileSync(path.join(root, "scripts", "build-vercel-static.js"), "utf8");
   const variantSource = fs.readFileSync(path.join(root, "src", "marketplace", "variants.js"), "utf8");
+  const continuationSource = fs.readFileSync(path.join(root, "src", "marketplace", "continuation.js"), "utf8");
 
   assert.match(buildSource, /"src\/marketplace\/variants\.js"/);
   assert.match(variantSource, /window\.WingaModules\.marketplace\.createVariantHelpers = createVariantHelpers;/);
   assert.match(variantSource, /item\?\.visibleImageIndex\s*\?\?\s*item\?\.feedInitialImageIndex\s*\?\?\s*item\?\.variantDisplayIndex/);
   assert.match(appSource, /window\.WingaModules\?\.marketplace\?\.createVariantHelpers/);
-  assert.match(appSource, /nextFeedSequenceIndex:\s*0/);
-  assert.match(appSource, /homeContinuousDiscoveryRuntime\.nextFeedSequenceIndex = initialProductIds\.length/);
+  assert.match(appSource, /homeContinuousDiscoveryRuntime = createHomeContinuousDiscoveryRuntime\(\{\s+usedIds: new Set\(Array\.from\(options\.usedProductIds/);
+  assert.match(continuationSource, /nextFeedSequenceIndex: initialProductIds\.length/);
   assert.match(appSource, /HOME_VARIANT_RESURFACE_MIN_BATCH_INDEX = 1/);
   assert.match(appSource, /HOME_VARIANT_RESURFACE_MIN_RECENT_IDS = 6/);
   assert.match(appSource, /variantDisplayIndex:\s*initialImageIndex,\s*feedInitialImageIndex:\s*initialImageIndex/);

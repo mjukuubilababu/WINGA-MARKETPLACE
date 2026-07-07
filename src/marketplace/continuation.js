@@ -123,6 +123,69 @@
       };
     }
 
+    function normalizePendingDescriptors(descriptors = []) {
+      return Array.isArray(descriptors)
+        ? descriptors
+          .filter((descriptor) => Array.isArray(descriptor?.items) && descriptor.items.length)
+          .map((descriptor) => ({
+            ...descriptor,
+            items: descriptor.items.slice()
+          }))
+        : [];
+    }
+
+    function createContinuousDiscoveryRuntime(options = {}) {
+      const initialProductIds = Array.from(options.initialProductIds || []).filter(Boolean);
+      const usedIds = options.usedIds instanceof Set
+        ? options.usedIds
+        : new Set(Array.from(options.usedIds || initialProductIds).filter(Boolean));
+      const productLastAppearanceOrdinal = {};
+      initialProductIds.forEach((productId, index) => {
+        productLastAppearanceOrdinal[productId] = index + 1;
+      });
+      return {
+        observer: null,
+        sentinelObserver: null,
+        virtualObserver: null,
+        sentinelTargets: [],
+        batchIndex: 0,
+        recentIds: [],
+        usedIds,
+        variantSurfaceCounts: {},
+        variantLastBatchIndex: {},
+        variantShownImageIndexes: {},
+        productLastAppearanceOrdinal,
+        normalProductOrdinal: initialProductIds.length,
+        nextFeedSequenceIndex: initialProductIds.length,
+        lastVariantNormalOrdinal: Number(options.lastVariantNormalOrdinal || 0),
+        preparedDescriptor: null,
+        preparedDescriptorBatchIndex: -1,
+        preparingDescriptor: false,
+        lastEarlyLoadAt: 0,
+        loading: false,
+        seedProductId: String(options.seedProductId || ""),
+        reobserveTimer: 0,
+        lastHydrateAt: 0,
+        readyQueue: [],
+        virtualList: [],
+        lastBackendRefreshAt: 0,
+        backendRefreshPromise: null,
+        isLoadingMore: false,
+        loadMoreRequestId: Number(options.loadMoreRequestId || 0),
+        loadMoreAbortController: null,
+        loadMoreState: "idle",
+        loadMoreError: "",
+        loadMoreAttempt: 0,
+        loadMoreHasMore: true,
+        lastSentinelFetchAt: 0,
+        lastSentinelPreloadAt: 0,
+        lastSentinelInjectAt: 0,
+        pressureFirstBlockedAt: 0,
+        lastDescriptorSource: "",
+        pendingDescriptors: normalizePendingDescriptors(options.pendingDescriptors)
+      };
+    }
+
     return {
       isContinuationMediaPendingStale,
       getAdaptiveContinuationLeadCardCount,
@@ -130,7 +193,9 @@
       getAdaptiveContinuousPendingMediaLookback,
       getAdaptiveContinuousPendingMediaCap,
       getHomeContinuationPressureSnapshot,
-      getHydrationAdmission
+      getHydrationAdmission,
+      normalizePendingDescriptors,
+      createContinuousDiscoveryRuntime
     };
   }
 

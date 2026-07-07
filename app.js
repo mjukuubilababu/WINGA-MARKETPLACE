@@ -12102,6 +12102,7 @@ const experienceMetricRuntimeState = uiRuntimeState.experienceMetrics || (uiRunt
   slowestMetricDurationMs: 0
 });
 let performanceMonitoringTools = null;
+let runtimeMetricWindowTools = null;
 
 function bumpRuntimeDiagnostic(metric, amount = 1) {
   const safeMetric = String(metric || "").trim();
@@ -12115,40 +12116,11 @@ function bumpRuntimeDiagnostic(metric, amount = 1) {
 }
 
 function recordRuntimeMetricWindow(metric, value) {
-  const safeMetric = String(metric || "").trim();
-  const numericValue = Number(value);
-  if (!safeMetric || !Number.isFinite(numericValue)) {
-    return [];
-  }
-  const windowValues = Array.isArray(runtimeMetricWindows[safeMetric])
-    ? runtimeMetricWindows[safeMetric]
-    : (runtimeMetricWindows[safeMetric] = []);
-  windowValues.push(Math.round(numericValue));
-  while (windowValues.length > RUNTIME_METRIC_WINDOW_LIMIT) {
-    windowValues.shift();
-  }
-  return windowValues;
+  return getRuntimeMetricWindowTools().record(metric, value);
 }
 
 function summarizeRuntimeMetricWindow(metric) {
-  const values = Array.isArray(runtimeMetricWindows?.[metric])
-    ? runtimeMetricWindows[metric].filter((value) => Number.isFinite(Number(value)))
-    : [];
-  if (!values.length) {
-    return {
-      count: 0,
-      average: 0,
-      max: 0,
-      latest: 0
-    };
-  }
-  const total = values.reduce((sum, value) => sum + Number(value || 0), 0);
-  return {
-    count: values.length,
-    average: Math.round(total / values.length),
-    max: Math.max(...values),
-    latest: Number(values[values.length - 1] || 0)
-  };
+  return getRuntimeMetricWindowTools().summarize(metric);
 }
 
 function getPerformanceMonitoringTools() {
@@ -12162,6 +12134,31 @@ function getPerformanceMonitoringTools() {
       : {};
   }
   return performanceMonitoringTools;
+}
+
+function getRuntimeMetricWindowTools() {
+  if (!runtimeMetricWindowTools) {
+    const factory = getPerformanceMonitoringTools().createMetricWindowStore;
+    runtimeMetricWindowTools = typeof factory === "function"
+      ? factory(runtimeMetricWindows, {
+        limit: RUNTIME_METRIC_WINDOW_LIMIT
+      })
+      : {
+        record: () => [],
+        summarize: () => ({
+          count: 0,
+          average: 0,
+          max: 0,
+          latest: 0
+        }),
+        reset: () => {
+          Object.keys(runtimeMetricWindows).forEach((key) => {
+            runtimeMetricWindows[key] = [];
+          });
+        }
+      };
+  }
+  return runtimeMetricWindowTools;
 }
 
 function isExperienceMetricDebugEnabled() {
@@ -12519,9 +12516,7 @@ window.__WINGA_DIAGNOSTICS__ = {
       }
       runtimeDiagnostics[key] = 0;
     });
-    Object.keys(runtimeMetricWindows).forEach((key) => {
-      runtimeMetricWindows[key] = [];
-    });
+    getRuntimeMetricWindowTools().reset();
   }
 };
 
@@ -12982,43 +12977,7 @@ let recentCategorySelections = [];
 let recentSearchTerms = [];
 let recentMessagedProductIds = [];
 let sharedCollectionIntentEntries = [];
-let homeContinuousDiscoveryRuntime = {
-  observer: null,
-  sentinelObserver: null,
-  virtualObserver: null,
-  sentinelTargets: [],
-  batchIndex: 0,
-  recentIds: [],
-  usedIds: new Set(),
-  variantSurfaceCounts: {},
-  variantLastBatchIndex: {},
-  variantShownImageIndexes: {},
-  productLastAppearanceOrdinal: {},
-  normalProductOrdinal: 0,
-  nextFeedSequenceIndex: 0,
-  lastVariantNormalOrdinal: -HOME_VARIANT_MIN_NORMAL_PRODUCTS_BETWEEN,
-  preparedDescriptor: null,
-  preparedDescriptorBatchIndex: -1,
-  preparingDescriptor: false,
-  lastEarlyLoadAt: 0,
-  loading: false,
-  seedProductId: "",
-  lastHydrateAt: 0,
-  readyQueue: [],
-  virtualList: [],
-  lastBackendRefreshAt: 0,
-  backendRefreshPromise: null,
-  isLoadingMore: false,
-  loadMoreRequestId: 0,
-  loadMoreAbortController: null,
-  loadMoreState: "idle",
-  loadMoreError: "",
-  loadMoreAttempt: 0,
-  loadMoreHasMore: true,
-  lastSentinelFetchAt: 0,
-  lastSentinelPreloadAt: 0,
-  lastSentinelInjectAt: 0
-};
+let homeContinuousDiscoveryRuntime = createHomeContinuousDiscoveryRuntime();
 const observability = createObservabilityModule({
   emitClientEvent: (payload) => window.WingaDataLayer?.logClientEvent?.(payload),
   consoleObject: console,
@@ -18141,44 +18100,7 @@ function disconnectContinuousDiscoveryObserver() {
   if (homeContinuousDiscoveryRuntime.reobserveTimer) {
     window.clearTimeout(homeContinuousDiscoveryRuntime.reobserveTimer);
   }
-  homeContinuousDiscoveryRuntime = {
-    observer: null,
-    sentinelObserver: null,
-    virtualObserver: null,
-    sentinelTargets: [],
-    batchIndex: 0,
-    recentIds: [],
-    usedIds: new Set(),
-    variantSurfaceCounts: {},
-    variantLastBatchIndex: {},
-    variantShownImageIndexes: {},
-    productLastAppearanceOrdinal: {},
-    normalProductOrdinal: 0,
-    nextFeedSequenceIndex: 0,
-    lastVariantNormalOrdinal: -HOME_VARIANT_MIN_NORMAL_PRODUCTS_BETWEEN,
-    preparedDescriptor: null,
-    preparedDescriptorBatchIndex: -1,
-    lastEarlyLoadAt: 0,
-    loading: false,
-    seedProductId: "",
-    reobserveTimer: 0,
-    lastHydrateAt: 0,
-    readyQueue: [],
-    virtualList: [],
-    lastBackendRefreshAt: 0,
-    backendRefreshPromise: null,
-    isLoadingMore: false,
-    loadMoreRequestId: 0,
-    loadMoreAbortController: null,
-    loadMoreState: "idle",
-    loadMoreError: "",
-    loadMoreAttempt: 0,
-    loadMoreHasMore: true,
-    lastSentinelFetchAt: 0,
-    lastSentinelPreloadAt: 0,
-    lastSentinelInjectAt: 0,
-    pressureFirstBlockedAt: 0
-  };
+  homeContinuousDiscoveryRuntime = createHomeContinuousDiscoveryRuntime();
 }
 
 function scheduleContinuousDiscoveryReobserve(anchor) {
@@ -18975,40 +18897,15 @@ function setupContinuousDiscoveryLoading(scope, options = {}) {
     return;
   }
 
-  const usedIds = new Set(Array.from(options.usedProductIds || []).filter(Boolean));
-  homeContinuousDiscoveryRuntime.usedIds = usedIds;
-  homeContinuousDiscoveryRuntime.recentIds = [];
-  homeContinuousDiscoveryRuntime.variantSurfaceCounts = {};
-  homeContinuousDiscoveryRuntime.variantLastBatchIndex = {};
-  homeContinuousDiscoveryRuntime.variantShownImageIndexes = {};
-  homeContinuousDiscoveryRuntime.productLastAppearanceOrdinal = {};
-  homeContinuousDiscoveryRuntime.preparingDescriptor = false;
-  homeContinuousDiscoveryRuntime.seedProductId = options.seedProduct?.id || "";
-  homeContinuousDiscoveryRuntime.lastDescriptorSource = "";
-  homeContinuousDiscoveryRuntime.lastHydrateAt = 0;
-  homeContinuousDiscoveryRuntime.preparedDescriptor = null;
-  homeContinuousDiscoveryRuntime.preparedDescriptorBatchIndex = -1;
-  homeContinuousDiscoveryRuntime.lastEarlyLoadAt = 0;
-  homeContinuousDiscoveryRuntime.readyQueue = [];
-  homeContinuousDiscoveryRuntime.virtualList = [];
-  homeContinuousDiscoveryRuntime.sentinelTargets = [];
-  homeContinuousDiscoveryRuntime.lastBackendRefreshAt = 0;
-  homeContinuousDiscoveryRuntime.backendRefreshPromise = null;
-  homeContinuousDiscoveryRuntime.isLoadingMore = false;
-  homeContinuousDiscoveryRuntime.loadMoreRequestId = Number(homeContinuousDiscoveryRuntime.loadMoreRequestId || 0);
-  homeContinuousDiscoveryRuntime.loadMoreAbortController = null;
-  homeContinuousDiscoveryRuntime.loadMoreState = "idle";
-  homeContinuousDiscoveryRuntime.loadMoreError = "";
-  homeContinuousDiscoveryRuntime.loadMoreAttempt = 0;
-  homeContinuousDiscoveryRuntime.loadMoreHasMore = true;
-  homeContinuousDiscoveryRuntime.lastSentinelFetchAt = 0;
-  homeContinuousDiscoveryRuntime.lastSentinelPreloadAt = 0;
-  homeContinuousDiscoveryRuntime.lastSentinelInjectAt = 0;
-  homeContinuousDiscoveryRuntime.pressureFirstBlockedAt = 0;
-  bumpMarketplaceImagePrefetchGeneration("continuous_discovery_reset");
   const initialProductIds = Array.from(options.initialProductIds || options.usedProductIds || []).filter(Boolean);
-  homeContinuousDiscoveryRuntime.normalProductOrdinal = initialProductIds.length;
-  homeContinuousDiscoveryRuntime.nextFeedSequenceIndex = initialProductIds.length;
+  homeContinuousDiscoveryRuntime = createHomeContinuousDiscoveryRuntime({
+    usedIds: new Set(Array.from(options.usedProductIds || []).filter(Boolean)),
+    seedProductId: options.seedProduct?.id || "",
+    initialProductIds,
+    pendingDescriptors: options.pendingDescriptors,
+    loadMoreRequestId: Number(homeContinuousDiscoveryRuntime.loadMoreRequestId || 0)
+  });
+  bumpMarketplaceImagePrefetchGeneration("continuous_discovery_reset");
   initialProductIds.forEach((productId, index) => {
     homeContinuousDiscoveryRuntime.productLastAppearanceOrdinal[productId] = index + 1;
     const product = getProductById(productId);
@@ -19021,14 +18918,6 @@ function setupContinuousDiscoveryLoading(scope, options = {}) {
     }
   });
   homeContinuousDiscoveryRuntime.lastVariantNormalOrdinal = -HOME_VARIANT_MIN_NORMAL_PRODUCTS_BETWEEN;
-  homeContinuousDiscoveryRuntime.pendingDescriptors = Array.isArray(options.pendingDescriptors)
-    ? options.pendingDescriptors
-      .filter((descriptor) => Array.isArray(descriptor?.items) && descriptor.items.length)
-      .map((descriptor) => ({
-        ...descriptor,
-        items: descriptor.items.slice()
-      }))
-    : [];
 
   if (typeof IntersectionObserver === "undefined") {
     for (let cycle = 0; cycle < 3; cycle += 1) {
@@ -20894,6 +20783,72 @@ function getMarketplaceContinuationTools() {
       : {};
   }
   return marketplaceContinuationTools;
+}
+
+function createHomeContinuousDiscoveryRuntime(options = {}) {
+  const runtimeFactory = getMarketplaceContinuationTools().createContinuousDiscoveryRuntime;
+  if (typeof runtimeFactory === "function") {
+    return runtimeFactory({
+      lastVariantNormalOrdinal: -HOME_VARIANT_MIN_NORMAL_PRODUCTS_BETWEEN,
+      ...options
+    });
+  }
+  const initialProductIds = Array.from(options.initialProductIds || []).filter(Boolean);
+  const usedIds = options.usedIds instanceof Set
+    ? options.usedIds
+    : new Set(Array.from(options.usedIds || initialProductIds).filter(Boolean));
+  const productLastAppearanceOrdinal = {};
+  initialProductIds.forEach((productId, index) => {
+    productLastAppearanceOrdinal[productId] = index + 1;
+  });
+  return {
+    observer: null,
+    sentinelObserver: null,
+    virtualObserver: null,
+    sentinelTargets: [],
+    batchIndex: 0,
+    recentIds: [],
+    usedIds,
+    variantSurfaceCounts: {},
+    variantLastBatchIndex: {},
+    variantShownImageIndexes: {},
+    productLastAppearanceOrdinal,
+    normalProductOrdinal: initialProductIds.length,
+    nextFeedSequenceIndex: initialProductIds.length,
+    lastVariantNormalOrdinal: -HOME_VARIANT_MIN_NORMAL_PRODUCTS_BETWEEN,
+    preparedDescriptor: null,
+    preparedDescriptorBatchIndex: -1,
+    preparingDescriptor: false,
+    lastEarlyLoadAt: 0,
+    loading: false,
+    seedProductId: String(options.seedProductId || ""),
+    reobserveTimer: 0,
+    lastHydrateAt: 0,
+    readyQueue: [],
+    virtualList: [],
+    lastBackendRefreshAt: 0,
+    backendRefreshPromise: null,
+    isLoadingMore: false,
+    loadMoreRequestId: Number(options.loadMoreRequestId || 0),
+    loadMoreAbortController: null,
+    loadMoreState: "idle",
+    loadMoreError: "",
+    loadMoreAttempt: 0,
+    loadMoreHasMore: true,
+    lastSentinelFetchAt: 0,
+    lastSentinelPreloadAt: 0,
+    lastSentinelInjectAt: 0,
+    pressureFirstBlockedAt: 0,
+    lastDescriptorSource: "",
+    pendingDescriptors: Array.isArray(options.pendingDescriptors)
+      ? options.pendingDescriptors
+        .filter((descriptor) => Array.isArray(descriptor?.items) && descriptor.items.length)
+        .map((descriptor) => ({
+          ...descriptor,
+          items: descriptor.items.slice()
+        }))
+      : []
+  };
 }
 
 function keepMarketplaceScrollImageDirectVisible(image, resolvedSrc = "") {
