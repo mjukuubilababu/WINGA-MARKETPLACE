@@ -3,6 +3,7 @@ window.WingaModules.config = window.WingaModules.config || {};
 window.WingaModules.state = window.WingaModules.state || {};
 window.WingaModules.app = window.WingaModules.app || {};
 window.WingaModules.api = window.WingaModules.api || {};
+window.WingaModules.api.products = window.WingaModules.api.products || {};
 window.WingaModules.auth = window.WingaModules.auth || {};
 window.WingaModules.promotions = window.WingaModules.promotions || {};
 window.WingaModules.marketplace = window.WingaModules.marketplace || {};

@@ -73,6 +73,7 @@ const fileCopies = [
 const bundledModuleSources = [
   "src/core/module-registry.js",
   "src/api/runtime.js",
+  "src/api/products.js",
   "src/config/categories.js",
   "src/config/chat.js",
   "src/config/promotions.js",

@@ -889,6 +889,8 @@ test("home pagination retries safely, cancels stale work, and commits pages tran
   const backendSource = fs.readFileSync(path.join(root, "backend", "server.js"), "utf8");
   const buildSource = fs.readFileSync(path.join(root, "scripts", "build-vercel-static.js"), "utf8");
   const continuationSource = fs.readFileSync(path.join(root, "src", "marketplace", "continuation.js"), "utf8");
+  const productApiSource = fs.readFileSync(path.join(root, "src", "api", "products.js"), "utf8");
+  const registrySource = fs.readFileSync(path.join(root, "src", "core", "module-registry.js"), "utf8");
 
   assert.match(appSource, /const HOME_LOAD_MORE_MAX_ATTEMPTS = 3;/);
   assert.match(appSource, /function loadHomeFeedPageWithRetry\(loadPage, options = \{\}\)/);
@@ -909,6 +911,14 @@ test("home pagination retries safely, cancels stale work, and commits pages tran
   assert.match(appSource, /logHomeInfiniteDiagnostic\("backend_append_result"/);
   assert.match(appSource, /return Boolean\(window\.WINGA_CONFIG\?\.enableClientEventLogging\);/);
   assert.match(buildSource, /"src\/marketplace\/continuation\.js"/);
+  assert.match(registrySource, /window\.WingaModules\.api\.products = window\.WingaModules\.api\.products \|\| \{\};/);
+  assert.match(productApiSource, /window\.WingaModules\.api\.products\.createProductApiTools = createProductApiTools;/);
+  assert.match(productApiSource, /function normalizeProductPageResponse\(payload, options = \{\}, mapProduct = \(product\) => product\)/);
+  assert.match(productApiSource, /function mergeUniqueProducts\(existingProducts = \[\], incomingProducts = \[\]\)/);
+  assert.match(dataSource, /window\.WingaModules\?\.api\?\.products\?\.createProductApiTools/);
+  assert.match(dataSource, /function normalizeProductPageResponse\(payload, options = \{\}, mapProduct = \(product\) => product\) \{\s+return getProductApiTools\(\)\.normalizeProductPageResponse\(payload, options, mapProduct\);/);
+  assert.ok(buildSource.indexOf('"src/api/runtime.js"') < buildSource.indexOf('"src/api/products.js"'));
+  assert.ok(buildSource.indexOf('"src/api/products.js"') < buildSource.indexOf('"src/config/categories.js"'));
   assert.match(continuationSource, /window\.WingaModules\.marketplace\.createContinuationHelpers = createContinuationHelpers;/);
   assert.match(continuationSource, /function createContinuousDiscoveryRuntime\(options = \{\}\)/);
   assert.match(continuationSource, /pendingDescriptors: normalizePendingDescriptors\(options\.pendingDescriptors\)/);
