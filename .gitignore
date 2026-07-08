@@ -38,3 +38,5 @@ scripts/measure-production-metrics.js
 scripts/playwright-load-check.js
 scripts/prod-statecheck-*.js
 Microsoft/
+.vercel
+.env*.local

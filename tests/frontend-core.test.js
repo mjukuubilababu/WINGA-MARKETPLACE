@@ -1062,11 +1062,13 @@ test("home pagination retries safely, cancels stale work, and commits pages tran
   assert.match(feedStateSource, /window\.WingaModules\.api\.feedState\.createProductFeedStateTools = createProductFeedStateTools;/);
   assert.match(productApiSource, /function normalizeProductPageResponse\(payload, options = \{\}, mapProduct = \(product\) => product\)/);
   assert.match(productApiSource, /function mergeUniqueProducts\(existingProducts = \[\], incomingProducts = \[\]\)/);
+  assert.match(productApiSource, /function filterProductsForQuery\(products = \[\], options = \{\}\)/);
   assert.match(feedStateSource, /function applyLoadedProductPageToState\(loadedProducts, options = \{\}\)/);
   assert.match(feedStateSource, /function getNextProductsPageOptions\(\)/);
   assert.match(dataSource, /window\.WingaModules\?\.api\?\.products\?\.createProductApiTools/);
   assert.match(dataSource, /window\.WingaModules\?\.api\?\.feedState\?\.createProductFeedStateTools/);
   assert.match(dataSource, /function normalizeProductPageResponse\(payload, options = \{\}, mapProduct = \(product\) => product\) \{\s+return getProductApiTools\(\)\.normalizeProductPageResponse\(payload, options, mapProduct\);/);
+  assert.match(dataSource, /function filterProductsForQuery\(products = \[\], options = \{\}\) \{\s+return getProductApiTools\(\)\.filterProductsForQuery\(products, options\);/);
   assert.match(dataSource, /function applyLoadedProductPageToState\(loadedProducts, options = \{\}\) \{\s+return getProductFeedStateTools\(\)\.applyLoadedProductPageToState\(loadedProducts, options\);/);
   assert.ok(buildSource.indexOf('"src/api/runtime.js"') < buildSource.indexOf('"src/api/products.js"'));
   assert.ok(buildSource.indexOf('"src/api/products.js"') < buildSource.indexOf('"src/config/categories.js"'));

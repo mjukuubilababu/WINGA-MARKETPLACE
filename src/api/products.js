@@ -182,6 +182,35 @@
       return merged;
     }
 
+    function filterProductsForQuery(products = [], options = {}) {
+      const query = String(options.query || "").trim().toLowerCase();
+      const category = String(options.category || "").trim().toLowerCase();
+      const seller = String(options.seller || "").trim().toLowerCase();
+      return (Array.isArray(products) ? products : []).filter((product) => {
+        const productCategory = String(product?.category || "").trim().toLowerCase();
+        if (seller && String(product?.uploadedBy || "").trim().toLowerCase() !== seller) {
+          return false;
+        }
+        if (
+          category
+          && category !== "all"
+          && productCategory !== category
+          && !productCategory.startsWith(`${category}-`)
+        ) {
+          return false;
+        }
+        if (!query) {
+          return true;
+        }
+        return [
+          product?.name,
+          product?.shop,
+          product?.uploadedBy,
+          product?.category
+        ].map((value) => String(value || "").toLowerCase()).join(" ").includes(query);
+      });
+    }
+
     return {
       getProductCreatedTime,
       compareProductsNewestFirst,
@@ -191,7 +220,8 @@
       parseProductCursor,
       normalizeProductPageWindow,
       normalizeProductPageResponse,
-      mergeUniqueProducts
+      mergeUniqueProducts,
+      filterProductsForQuery
     };
   }
 
