@@ -795,6 +795,28 @@ test("remote admin API client owns moderation reports and ops endpoints", () => 
   assert.ok(buildSource.indexOf('"src/api/admin-client.js"') < buildSource.indexOf('"src/config/categories.js"'));
 });
 
+test("remote intelligence API client owns fail-soft telemetry and search demand writes", () => {
+  const root = path.resolve(__dirname, "..");
+  const dataSource = fs.readFileSync(path.join(root, "data-service.js"), "utf8");
+  const moduleSource = fs.readFileSync(path.join(root, "src", "api", "intelligence-client.js"), "utf8");
+  const registrySource = fs.readFileSync(path.join(root, "src", "core", "module-registry.js"), "utf8");
+  const buildSource = fs.readFileSync(path.join(root, "scripts", "build-vercel-static.js"), "utf8");
+
+  assert.match(registrySource, /window\.WingaModules\.api\.intelligence = window\.WingaModules\.api\.intelligence \|\| \{\};/);
+  assert.match(moduleSource, /window\.WingaModules\.api\.intelligence\.createIntelligenceApiClient = createIntelligenceApiClient;/);
+  assert.match(moduleSource, /async function logClientEvent\(event\)/);
+  assert.match(moduleSource, /enableClientEventLogging === false/);
+  assert.match(moduleSource, /Telemetry must never block the marketplace path/);
+  assert.match(moduleSource, /async function submitSearchDemandEvents\(events = \[\]\)/);
+  assert.match(moduleSource, /events\.filter\(Boolean\)\.slice\(-25\)/);
+  assert.match(moduleSource, /error: error\?\.message \|\| "search-demand unavailable"/);
+  assert.match(dataSource, /window\.WingaModules\?\.api\?\.intelligence\?\.createIntelligenceApiClient/);
+  assert.match(dataSource, /async logClientEvent\(event\) \{\s+return getIntelligenceApiClient\(\)\.logClientEvent\(event\);/);
+  assert.match(dataSource, /async submitSearchDemandEvents\(events = \[\]\) \{\s+return getIntelligenceApiClient\(\)\.submitSearchDemandEvents\(events\);/);
+  assert.ok(buildSource.indexOf('"src/api/admin-client.js"') < buildSource.indexOf('"src/api/intelligence-client.js"'));
+  assert.ok(buildSource.indexOf('"src/api/intelligence-client.js"') < buildSource.indexOf('"src/config/categories.js"'));
+});
+
 test("boot lifecycle module owns lifecycle epoch and boot target helpers", () => {
   const root = path.resolve(__dirname, "..");
   const lifecycleSource = fs.readFileSync(path.join(root, "src", "boot", "lifecycle.js"), "utf8");

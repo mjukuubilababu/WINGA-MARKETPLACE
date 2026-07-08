@@ -1896,6 +1896,7 @@
     let communicationsApiClient = null;
     let commerceApiClient = null;
     let adminApiClient = null;
+    let intelligenceApiClient = null;
 
     function resolveProductImages(product) {
       if (!product || typeof product !== "object") {
@@ -2062,6 +2063,22 @@
         });
       }
       return adminApiClient;
+    }
+
+    function getIntelligenceApiClient() {
+      if (!intelligenceApiClient) {
+        const factory = window.WingaModules?.api?.intelligence?.createIntelligenceApiClient;
+        if (typeof factory !== "function") {
+          throw new Error("Winga intelligence API client module is required before data service boot.");
+        }
+        intelligenceApiClient = factory({
+          baseUrl,
+          fetchJson,
+          createAuthHeaders,
+          getConfig: () => window.WINGA_CONFIG || {}
+        });
+      }
+      return intelligenceApiClient;
     }
 
     return {
@@ -2357,44 +2374,10 @@
         return getAdminApiClient().loadModerationActions();
       },
       async logClientEvent(event) {
-        if (window.WINGA_CONFIG?.enableClientEventLogging === false) {
-          return null;
-        }
-        try {
-          await fetchJson(`${baseUrl}/client-events`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              ...createAuthHeaders()
-            },
-            body: JSON.stringify(event)
-          });
-        } catch (error) {
-          // Ignore telemetry failures.
-        }
+        return getIntelligenceApiClient().logClientEvent(event);
       },
       async submitSearchDemandEvents(events = []) {
-        const batch = Array.isArray(events) ? events.filter(Boolean).slice(-25) : [];
-        if (!batch.length) {
-          return { ok: true, accepted: 0, inserted: 0 };
-        }
-        try {
-          return await fetchJson(`${baseUrl}/search-demand`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              ...createAuthHeaders()
-            },
-            body: JSON.stringify({ events: batch })
-          });
-        } catch (error) {
-          return {
-            ok: false,
-            accepted: 0,
-            inserted: 0,
-            error: error?.message || "search-demand unavailable"
-          };
-        }
+        return getIntelligenceApiClient().submitSearchDemandEvents(events);
       },
       async moderateProduct(productId, payload) {
         return getProductsApiClient().moderateProduct(productId, payload);

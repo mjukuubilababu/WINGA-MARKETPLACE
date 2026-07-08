@@ -10,6 +10,7 @@ window.WingaModules.api.productActions = window.WingaModules.api.productActions 
 window.WingaModules.api.communications = window.WingaModules.api.communications || {};
 window.WingaModules.api.commerce = window.WingaModules.api.commerce || {};
 window.WingaModules.api.admin = window.WingaModules.api.admin || {};
+window.WingaModules.api.intelligence = window.WingaModules.api.intelligence || {};
 window.WingaModules.auth = window.WingaModules.auth || {};
 window.WingaModules.promotions = window.WingaModules.promotions || {};
 window.WingaModules.marketplace = window.WingaModules.marketplace || {};
