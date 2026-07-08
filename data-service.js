@@ -1894,6 +1894,7 @@
     let authApiClient = null;
     let productsApiClient = null;
     let communicationsApiClient = null;
+    let commerceApiClient = null;
 
     function resolveProductImages(product) {
       if (!product || typeof product !== "object") {
@@ -2027,6 +2028,21 @@
         });
       }
       return communicationsApiClient;
+    }
+
+    function getCommerceApiClient() {
+      if (!commerceApiClient) {
+        const factory = window.WingaModules?.api?.commerce?.createCommerceApiClient;
+        if (typeof factory !== "function") {
+          throw new Error("Winga commerce API client module is required before data service boot.");
+        }
+        commerceApiClient = factory({
+          baseUrl,
+          fetchJson,
+          createAuthHeaders
+        });
+      }
+      return commerceApiClient;
     }
 
     return {
@@ -2238,30 +2254,13 @@
           return getCommunicationsApiClient().markNotificationRead(notificationId);
         },
         async loadPromotions() {
-          const data = await fetchJson(`${baseUrl}/promotions`, {
-            headers: {
-              ...createAuthHeaders()
-            }
-          });
-          return Array.isArray(data) ? data : [];
+          return getCommerceApiClient().loadPromotions();
         },
         async createPromotion(payload) {
-          return fetchJson(`${baseUrl}/promotions`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              ...createAuthHeaders()
-            },
-            body: JSON.stringify(payload)
-          });
+          return getCommerceApiClient().createPromotion(payload);
         },
       async loadAdminPromotions() {
-        const data = await fetchJson(`${baseUrl}/admin/promotions`, {
-          headers: {
-            ...createAuthHeaders()
-          }
-        });
-        return Array.isArray(data) ? data : [];
+        return getCommerceApiClient().loadAdminPromotions();
       },
       async loadAdminOpsSummary() {
         return fetchJson(`${baseUrl}/admin/ops/summary`, {
@@ -2271,66 +2270,28 @@
         });
       },
       async reviewPromotion(promotionId, payload) {
-        return fetchJson(`${baseUrl}/admin/promotions/${encodeURIComponent(promotionId)}/review`, {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            ...createAuthHeaders()
-          },
-          body: JSON.stringify(payload || {})
-        });
+        return getCommerceApiClient().reviewPromotion(promotionId, payload);
       },
       async disablePromotion(promotionId) {
-        return fetchJson(`${baseUrl}/admin/promotions/${encodeURIComponent(promotionId)}/disable`, {
-          method: "PATCH",
-            headers: {
-              ...createAuthHeaders()
-            }
-          });
+        return getCommerceApiClient().disablePromotion(promotionId);
         },
         openRealtimeChannel(handlers = {}) {
           return getCommunicationsApiClient().openRealtimeChannel(handlers);
         },
         async loadReviews(productId = "") {
-          const suffix = productId ? `?productId=${encodeURIComponent(productId)}` : "";
-          return fetchJson(`${baseUrl}/reviews${suffix}`);
+          return getCommerceApiClient().loadReviews(productId);
         },
         async createReview(payload) {
-          return fetchJson(`${baseUrl}/reviews`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              ...createAuthHeaders()
-            },
-            body: JSON.stringify(payload)
-          });
+          return getCommerceApiClient().createReview(payload);
         },
         async loadMyOrders() {
-          return fetchJson(`${baseUrl}/orders/mine`, {
-            headers: {
-            ...createAuthHeaders()
-          }
-        });
+          return getCommerceApiClient().loadMyOrders();
       },
       async createOrder(payload) {
-        return fetchJson(`${baseUrl}/orders`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...createAuthHeaders()
-          },
-          body: JSON.stringify(payload)
-        });
+        return getCommerceApiClient().createOrder(payload);
       },
       async updateOrderStatus(orderId, payload) {
-        return fetchJson(`${baseUrl}/orders/${encodeURIComponent(orderId)}/status`, {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            ...createAuthHeaders()
-          },
-          body: JSON.stringify(payload)
-        });
+        return getCommerceApiClient().updateOrderStatus(orderId, payload);
       },
       async updateProductAvailability(productId, payload) {
         return getProductsApiClient().updateProductAvailability(productId, payload);

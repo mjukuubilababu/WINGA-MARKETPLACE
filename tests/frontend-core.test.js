@@ -744,6 +744,31 @@ test("remote communications API client owns messages notifications and realtime 
   assert.ok(buildSource.indexOf('"src/api/communications-client.js"') < buildSource.indexOf('"src/config/categories.js"'));
 });
 
+test("remote commerce API client owns promotions reviews and order writes", () => {
+  const root = path.resolve(__dirname, "..");
+  const dataSource = fs.readFileSync(path.join(root, "data-service.js"), "utf8");
+  const moduleSource = fs.readFileSync(path.join(root, "src", "api", "commerce-client.js"), "utf8");
+  const registrySource = fs.readFileSync(path.join(root, "src", "core", "module-registry.js"), "utf8");
+  const buildSource = fs.readFileSync(path.join(root, "scripts", "build-vercel-static.js"), "utf8");
+
+  assert.match(registrySource, /window\.WingaModules\.api\.commerce = window\.WingaModules\.api\.commerce \|\| \{\};/);
+  assert.match(moduleSource, /window\.WingaModules\.api\.commerce\.createCommerceApiClient = createCommerceApiClient;/);
+  assert.match(moduleSource, /async function loadPromotions\(\)/);
+  assert.match(moduleSource, /async function createPromotion\(payload\)/);
+  assert.match(moduleSource, /async function reviewPromotion\(promotionId, payload\)/);
+  assert.match(moduleSource, /async function disablePromotion\(promotionId\)/);
+  assert.match(moduleSource, /async function loadReviews\(productId = ""\)/);
+  assert.match(moduleSource, /async function createReview\(payload\)/);
+  assert.match(moduleSource, /async function loadMyOrders\(\)/);
+  assert.match(moduleSource, /async function createOrder\(payload\)/);
+  assert.match(moduleSource, /async function updateOrderStatus\(orderId, payload\)/);
+  assert.match(dataSource, /window\.WingaModules\?\.api\?\.commerce\?\.createCommerceApiClient/);
+  assert.match(dataSource, /async createPromotion\(payload\) \{\s+return getCommerceApiClient\(\)\.createPromotion\(payload\);/);
+  assert.match(dataSource, /async createOrder\(payload\) \{\s+return getCommerceApiClient\(\)\.createOrder\(payload\);/);
+  assert.ok(buildSource.indexOf('"src/api/communications-client.js"') < buildSource.indexOf('"src/api/commerce-client.js"'));
+  assert.ok(buildSource.indexOf('"src/api/commerce-client.js"') < buildSource.indexOf('"src/config/categories.js"'));
+});
+
 test("boot lifecycle module owns lifecycle epoch and boot target helpers", () => {
   const root = path.resolve(__dirname, "..");
   const lifecycleSource = fs.readFileSync(path.join(root, "src", "boot", "lifecycle.js"), "utf8");
