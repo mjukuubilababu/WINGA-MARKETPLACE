@@ -1895,6 +1895,7 @@
     let productsApiClient = null;
     let communicationsApiClient = null;
     let commerceApiClient = null;
+    let adminApiClient = null;
 
     function resolveProductImages(product) {
       if (!product || typeof product !== "object") {
@@ -2043,6 +2044,24 @@
         });
       }
       return commerceApiClient;
+    }
+
+    function getAdminApiClient() {
+      if (!adminApiClient) {
+        const factory = window.WingaModules?.api?.admin?.createAdminApiClient;
+        if (typeof factory !== "function") {
+          throw new Error("Winga admin API client module is required before data service boot.");
+        }
+        adminApiClient = factory({
+          baseUrl,
+          fetchJson,
+          createAuthHeaders,
+          resolveProductImages,
+          normalizeAppSettings,
+          defaultAppSettings: DEFAULT_APP_SETTINGS
+        });
+      }
+      return adminApiClient;
     }
 
     return {
@@ -2263,11 +2282,7 @@
         return getCommerceApiClient().loadAdminPromotions();
       },
       async loadAdminOpsSummary() {
-        return fetchJson(`${baseUrl}/admin/ops/summary`, {
-          headers: {
-            ...createAuthHeaders()
-          }
-        });
+        return getAdminApiClient().loadAdminOpsSummary();
       },
       async reviewPromotion(promotionId, payload) {
         return getCommerceApiClient().reviewPromotion(promotionId, payload);
@@ -2300,148 +2315,46 @@
         return getProductsApiClient().recordDemand(productId, payload);
       },
       async loadAdminUsers() {
-        const data = await fetchJson(`${baseUrl}/admin/users`, {
-          headers: {
-            ...createAuthHeaders()
-          }
-        });
-        return Array.isArray(data) ? data : [];
+        return getAdminApiClient().loadAdminUsers();
       },
       async loadAdminProducts(status = "") {
-        const suffix = status ? `?status=${encodeURIComponent(status)}` : "";
-        const data = await fetchJson(`${baseUrl}/admin/products${suffix}`, {
-          headers: {
-            ...createAuthHeaders()
-          }
-        });
-        return Array.isArray(data) ? data.map(resolveProductImages) : [];
+        return getAdminApiClient().loadAdminProducts(status);
       },
       async loadAdminOrders(filters = {}) {
-        const params = new URLSearchParams();
-        if (filters.paymentStatus) {
-          params.set("paymentStatus", filters.paymentStatus);
-        }
-        if (filters.status) {
-          params.set("status", filters.status);
-        }
-        const suffix = params.toString() ? `?${params.toString()}` : "";
-        const data = await fetchJson(`${baseUrl}/admin/orders${suffix}`, {
-          headers: {
-            ...createAuthHeaders()
-          }
-        });
-        return Array.isArray(data) ? data.map(resolveProductImages) : [];
+        return getAdminApiClient().loadAdminOrders(filters);
       },
       async loadAdminPayments(filters = {}) {
-        const params = new URLSearchParams();
-        if (filters.paymentStatus) {
-          params.set("paymentStatus", filters.paymentStatus);
-        }
-        const suffix = params.toString() ? `?${params.toString()}` : "";
-        const data = await fetchJson(`${baseUrl}/admin/payments${suffix}`, {
-          headers: {
-            ...createAuthHeaders()
-          }
-        });
-        return Array.isArray(data) ? data : [];
+        return getAdminApiClient().loadAdminPayments(filters);
       },
       async createReport(payload) {
-        return fetchJson(`${baseUrl}/reports`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...createAuthHeaders()
-          },
-          body: JSON.stringify(payload)
-        });
+        return getAdminApiClient().createReport(payload);
       },
       async loadAdminReports(filters = {}) {
-        const params = new URLSearchParams();
-        if (filters.status) {
-          params.set("status", filters.status);
-        }
-        const suffix = params.toString() ? `?${params.toString()}` : "";
-        const data = await fetchJson(`${baseUrl}/admin/reports${suffix}`, {
-          headers: {
-            ...createAuthHeaders()
-          }
-        });
-        return Array.isArray(data) ? data : [];
+        return getAdminApiClient().loadAdminReports(filters);
       },
       async reviewReport(reportId, payload) {
-        return fetchJson(`${baseUrl}/admin/reports/${encodeURIComponent(reportId)}`, {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            ...createAuthHeaders()
-          },
-          body: JSON.stringify(payload)
-        });
+        return getAdminApiClient().reviewReport(reportId, payload);
       },
       async loadAdminSettings() {
-        const data = await fetchJson(`${baseUrl}/admin/settings`, {
-          headers: {
-            ...createAuthHeaders()
-          }
-        });
-        return normalizeAppSettings(data || DEFAULT_APP_SETTINGS);
+        return getAdminApiClient().loadAdminSettings();
       },
       async updateAdminSettings(payload) {
-        const data = await fetchJson(`${baseUrl}/admin/settings`, {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            ...createAuthHeaders()
-          },
-          body: JSON.stringify(payload || {})
-        });
-        return normalizeAppSettings(data || DEFAULT_APP_SETTINGS);
+        return getAdminApiClient().updateAdminSettings(payload);
       },
       async loadAdminMessages() {
-        const data = await fetchJson(`${baseUrl}/admin/messages`, {
-          headers: {
-            ...createAuthHeaders()
-          }
-        });
-        return Array.isArray(data) ? data : [];
+        return getAdminApiClient().loadAdminMessages();
       },
       async reviewAdminMessage(conversationId, payload = {}) {
-        return fetchJson(`${baseUrl}/admin/messages/${encodeURIComponent(conversationId)}/review`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...createAuthHeaders()
-          },
-          body: JSON.stringify(payload || {})
-        });
+        return getAdminApiClient().reviewAdminMessage(conversationId, payload);
       },
       async loadAdminUserInvestigation(username, payload) {
-        return fetchJson(`${baseUrl}/admin/users/${encodeURIComponent(username)}/investigation`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...createAuthHeaders()
-          },
-          body: JSON.stringify(payload || {})
-        });
+        return getAdminApiClient().loadAdminUserInvestigation(username, payload);
       },
       async moderateUser(username, payload) {
-        return fetchJson(`${baseUrl}/admin/users/${encodeURIComponent(username)}/moderation`, {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            ...createAuthHeaders()
-          },
-          body: JSON.stringify(payload)
-        });
+        return getAdminApiClient().moderateUser(username, payload);
       },
       async loadModerationActions() {
-        const data = await fetchJson(`${baseUrl}/admin/moderation-actions`, {
-          headers: {
-            ...createAuthHeaders()
-          }
-        });
-        return Array.isArray(data) ? data : [];
+        return getAdminApiClient().loadModerationActions();
       },
       async logClientEvent(event) {
         if (window.WINGA_CONFIG?.enableClientEventLogging === false) {
