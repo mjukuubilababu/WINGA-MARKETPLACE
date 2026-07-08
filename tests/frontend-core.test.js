@@ -795,6 +795,25 @@ test("remote admin API client owns moderation reports and ops endpoints", () => 
   assert.ok(buildSource.indexOf('"src/api/admin-client.js"') < buildSource.indexOf('"src/config/categories.js"'));
 });
 
+test("admin data tools module owns local message review summaries", () => {
+  const root = path.resolve(__dirname, "..");
+  const dataSource = fs.readFileSync(path.join(root, "data-service.js"), "utf8");
+  const moduleSource = fs.readFileSync(path.join(root, "src", "api", "admin-tools.js"), "utf8");
+  const registrySource = fs.readFileSync(path.join(root, "src", "core", "module-registry.js"), "utf8");
+  const buildSource = fs.readFileSync(path.join(root, "scripts", "build-vercel-static.js"), "utf8");
+
+  assert.match(registrySource, /window\.WingaModules\.api\.adminTools = window\.WingaModules\.api\.adminTools \|\| \{\};/);
+  assert.match(moduleSource, /window\.WingaModules\.api\.adminTools\.createAdminDataTools = createAdminDataTools;/);
+  assert.match(moduleSource, /function summarizeAdminMessageThreads\(messages = \[\], users = \[\], reports = \[\]\)/);
+  assert.match(moduleSource, /function buildAdminMessageReviewDetails\(messages = \[\], users = \[\], reports = \[\], conversationId = "", reason = "", reviewer = ""\)/);
+  assert.match(moduleSource, /hasReportedContent: relatedReports\.length > 0/);
+  assert.match(dataSource, /window\.WingaModules\?\.api\?\.adminTools\?\.createAdminDataTools/);
+  assert.match(dataSource, /function summarizeAdminMessageThreads\(messages = \[\], users = \[\], reports = \[\]\) \{\s+return getAdminDataTools\(\)\.summarizeAdminMessageThreads\(messages, users, reports\);/);
+  assert.match(dataSource, /function buildAdminMessageReviewDetails\(messages = \[\], users = \[\], reports = \[\], conversationId = "", reason = "", reviewer = ""\) \{\s+return getAdminDataTools\(\)\.buildAdminMessageReviewDetails\(messages, users, reports, conversationId, reason, reviewer\);/);
+  assert.ok(buildSource.indexOf('"src/api/intelligence-client.js"') < buildSource.indexOf('"src/api/admin-tools.js"'));
+  assert.ok(buildSource.indexOf('"src/api/admin-tools.js"') < buildSource.indexOf('"src/config/categories.js"'));
+});
+
 test("remote intelligence API client owns fail-soft telemetry and search demand writes", () => {
   const root = path.resolve(__dirname, "..");
   const dataSource = fs.readFileSync(path.join(root, "data-service.js"), "utf8");
