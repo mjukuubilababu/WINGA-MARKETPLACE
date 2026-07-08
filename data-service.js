@@ -1893,6 +1893,7 @@
     const productUploadTimeoutMs = Number((config && config.productUploadTimeoutMs) || 45000);
     let authApiClient = null;
     let productsApiClient = null;
+    let communicationsApiClient = null;
 
     function resolveProductImages(product) {
       if (!product || typeof product !== "object") {
@@ -2010,6 +2011,22 @@
         });
       }
       return productsApiClient;
+    }
+
+    function getCommunicationsApiClient() {
+      if (!communicationsApiClient) {
+        const factory = window.WingaModules?.api?.communications?.createCommunicationsApiClient;
+        if (typeof factory !== "function") {
+          throw new Error("Winga communications API client module is required before data service boot.");
+        }
+        communicationsApiClient = factory({
+          baseUrl,
+          fetchJson,
+          createAuthHeaders,
+          getEventSource: () => globalThis.EventSource
+        });
+      }
+      return communicationsApiClient;
     }
 
     return {
@@ -2203,56 +2220,22 @@
           });
         },
         async loadMessages() {
-          const data = await fetchJson(`${baseUrl}/messages`, {
-            headers: {
-              ...createAuthHeaders()
-            }
-          });
-          return Array.isArray(data) ? data : [];
+          return getCommunicationsApiClient().loadMessages();
         },
         async sendMessage(payload) {
-          return fetchJson(`${baseUrl}/messages`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              ...createAuthHeaders()
-            },
-            body: JSON.stringify(payload)
-          });
+          return getCommunicationsApiClient().sendMessage(payload);
         },
         async deleteMessage(messageId) {
-          return fetchJson(`${baseUrl}/messages/${encodeURIComponent(messageId)}`, {
-            method: "DELETE",
-            headers: {
-              ...createAuthHeaders()
-            }
-          });
+          return getCommunicationsApiClient().deleteMessage(messageId);
         },
         async markConversationRead(payload) {
-          return fetchJson(`${baseUrl}/messages/read`, {
-            method: "PATCH",
-            headers: {
-              "Content-Type": "application/json",
-              ...createAuthHeaders()
-            },
-            body: JSON.stringify(payload)
-          });
+          return getCommunicationsApiClient().markConversationRead(payload);
         },
         async loadNotifications() {
-          const data = await fetchJson(`${baseUrl}/notifications`, {
-            headers: {
-              ...createAuthHeaders()
-            }
-          });
-          return Array.isArray(data) ? data : [];
+          return getCommunicationsApiClient().loadNotifications();
         },
         async markNotificationRead(notificationId) {
-          return fetchJson(`${baseUrl}/notifications/${encodeURIComponent(notificationId)}/read`, {
-            method: "PATCH",
-            headers: {
-              ...createAuthHeaders()
-            }
-          });
+          return getCommunicationsApiClient().markNotificationRead(notificationId);
         },
         async loadPromotions() {
           const data = await fetchJson(`${baseUrl}/promotions`, {
@@ -2306,45 +2289,7 @@
           });
         },
         openRealtimeChannel(handlers = {}) {
-          const session = sessionAdapter.loadSession();
-          if (typeof EventSource === "undefined") {
-            return null;
-          }
-
-          const streamUrl = `${baseUrl}/messages/stream`;
-          const source = new EventSource(streamUrl, { withCredentials: true });
-          const parseEvent = (event) => {
-            try {
-              return event?.data ? JSON.parse(event.data) : null;
-            } catch (error) {
-              return null;
-            }
-          };
-
-          source.addEventListener("message", (event) => {
-            handlers.onMessage?.(parseEvent(event));
-          });
-          source.addEventListener("notification", (event) => {
-            handlers.onNotification?.(parseEvent(event));
-          });
-          source.addEventListener("message_read", (event) => {
-            handlers.onMessageRead?.(parseEvent(event));
-          });
-          source.addEventListener("conversation_read", (event) => {
-            handlers.onConversationRead?.(parseEvent(event));
-          });
-          source.addEventListener("users", (event) => {
-            handlers.onUsers?.(parseEvent(event));
-          });
-          source.onerror = () => {
-            handlers.onError?.();
-          };
-
-          return {
-            close() {
-              source.close();
-            }
-          };
+          return getCommunicationsApiClient().openRealtimeChannel(handlers);
         },
         async loadReviews(productId = "") {
           const suffix = productId ? `?productId=${encodeURIComponent(productId)}` : "";

@@ -7,6 +7,7 @@ window.WingaModules.api.products = window.WingaModules.api.products || {};
 window.WingaModules.api.feedState = window.WingaModules.api.feedState || {};
 window.WingaModules.api.auth = window.WingaModules.api.auth || {};
 window.WingaModules.api.productActions = window.WingaModules.api.productActions || {};
+window.WingaModules.api.communications = window.WingaModules.api.communications || {};
 window.WingaModules.auth = window.WingaModules.auth || {};
 window.WingaModules.promotions = window.WingaModules.promotions || {};
 window.WingaModules.marketplace = window.WingaModules.marketplace || {};

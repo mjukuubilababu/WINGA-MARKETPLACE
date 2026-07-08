@@ -721,6 +721,29 @@ test("remote product actions API client owns product writes and demand signals",
   assert.ok(buildSource.indexOf('"src/api/products-client.js"') < buildSource.indexOf('"src/config/categories.js"'));
 });
 
+test("remote communications API client owns messages notifications and realtime stream", () => {
+  const root = path.resolve(__dirname, "..");
+  const dataSource = fs.readFileSync(path.join(root, "data-service.js"), "utf8");
+  const moduleSource = fs.readFileSync(path.join(root, "src", "api", "communications-client.js"), "utf8");
+  const registrySource = fs.readFileSync(path.join(root, "src", "core", "module-registry.js"), "utf8");
+  const buildSource = fs.readFileSync(path.join(root, "scripts", "build-vercel-static.js"), "utf8");
+
+  assert.match(registrySource, /window\.WingaModules\.api\.communications = window\.WingaModules\.api\.communications \|\| \{\};/);
+  assert.match(moduleSource, /window\.WingaModules\.api\.communications\.createCommunicationsApiClient = createCommunicationsApiClient;/);
+  assert.match(moduleSource, /async function loadMessages\(\)/);
+  assert.match(moduleSource, /async function sendMessage\(payload\)/);
+  assert.match(moduleSource, /async function markConversationRead\(payload\)/);
+  assert.match(moduleSource, /async function loadNotifications\(\)/);
+  assert.match(moduleSource, /async function markNotificationRead\(notificationId\)/);
+  assert.match(moduleSource, /new EventSourceCtor\(`\$\{baseUrl\}\/messages\/stream`, \{ withCredentials: true \}\)/);
+  assert.match(moduleSource, /handlers\.onConversationRead\?\.\(parseEvent\(event\)\)/);
+  assert.match(dataSource, /window\.WingaModules\?\.api\?\.communications\?\.createCommunicationsApiClient/);
+  assert.match(dataSource, /async sendMessage\(payload\) \{\s+return getCommunicationsApiClient\(\)\.sendMessage\(payload\);/);
+  assert.match(dataSource, /openRealtimeChannel\(handlers = \{\}\) \{\s+return getCommunicationsApiClient\(\)\.openRealtimeChannel\(handlers\);/);
+  assert.ok(buildSource.indexOf('"src/api/products-client.js"') < buildSource.indexOf('"src/api/communications-client.js"'));
+  assert.ok(buildSource.indexOf('"src/api/communications-client.js"') < buildSource.indexOf('"src/config/categories.js"'));
+});
+
 test("boot lifecycle module owns lifecycle epoch and boot target helpers", () => {
   const root = path.resolve(__dirname, "..");
   const lifecycleSource = fs.readFileSync(path.join(root, "src", "boot", "lifecycle.js"), "utf8");
