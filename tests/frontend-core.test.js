@@ -814,6 +814,49 @@ test("admin data tools module owns local message review summaries", () => {
   assert.ok(buildSource.indexOf('"src/api/admin-tools.js"') < buildSource.indexOf('"src/config/categories.js"'));
 });
 
+test("app settings tools module owns settings defaults and normalization", () => {
+  const root = path.resolve(__dirname, "..");
+  const dataSource = fs.readFileSync(path.join(root, "data-service.js"), "utf8");
+  const moduleSource = fs.readFileSync(path.join(root, "src", "api", "settings-tools.js"), "utf8");
+  const registrySource = fs.readFileSync(path.join(root, "src", "core", "module-registry.js"), "utf8");
+  const buildSource = fs.readFileSync(path.join(root, "scripts", "build-vercel-static.js"), "utf8");
+  const context = vm.createContext({
+    window: { WingaModules: { api: { settingsTools: {} } } }
+  });
+  vm.runInContext(moduleSource, context);
+  const tools = context.window.WingaModules.api.settingsTools.createSettingsTools();
+
+  assert.match(registrySource, /window\.WingaModules\.api\.settingsTools = window\.WingaModules\.api\.settingsTools \|\| \{\};/);
+  assert.match(moduleSource, /const DEFAULT_APP_SETTINGS = Object\.freeze\(\{/);
+  assert.match(moduleSource, /function normalizeAppSettings\(settings = \{\}\)/);
+  assert.equal(tools.DEFAULT_APP_SETTINGS.sessionExpiryMinutes, 120);
+  assert.equal(JSON.stringify(tools.normalizeAppSettings({
+    heroSectionVisible: true,
+    standaloneShowcaseVisible: true,
+    splashScreenVisible: false,
+    sessionExpiryMinutes: 5000,
+    cachePolicy: "NETWORK-FIRST",
+    requireExplicitSignOut: false,
+    messageReviewRequiresReason: false,
+    updatedAt: " now ",
+    updatedBy: " admin "
+  })), JSON.stringify({
+    heroSectionVisible: true,
+    standaloneShowcaseVisible: true,
+    splashScreenVisible: false,
+    sessionExpiryMinutes: 1440,
+    cachePolicy: "network-first",
+    requireExplicitSignOut: false,
+    messageReviewRequiresReason: false,
+    updatedAt: "now",
+    updatedBy: "admin"
+  }));
+  assert.match(dataSource, /window\.WingaModules\?\.api\?\.settingsTools\?\.createSettingsTools/);
+  assert.match(dataSource, /function normalizeAppSettings\(settings = \{\}\) \{\s+return getSettingsTools\(\)\.normalizeAppSettings\(settings\);/);
+  assert.ok(buildSource.indexOf('"src/api/admin-tools.js"') < buildSource.indexOf('"src/api/settings-tools.js"'));
+  assert.ok(buildSource.indexOf('"src/api/settings-tools.js"') < buildSource.indexOf('"src/config/categories.js"'));
+});
+
 test("remote intelligence API client owns fail-soft telemetry and search demand writes", () => {
   const root = path.resolve(__dirname, "..");
   const dataSource = fs.readFileSync(path.join(root, "data-service.js"), "utf8");

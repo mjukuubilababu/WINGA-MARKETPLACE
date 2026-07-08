@@ -11,15 +11,20 @@
   const OFFLINE_ACTION_QUEUE_KEY_PREFIX = "winga-offline-action-queue";
   const DEMAND_SESSION_KEY = "winga-demand-session";
   const LOCAL_HASH_PREFIX = "pbkdf2_sha256";
-  const DEFAULT_APP_SETTINGS = {
-    heroSectionVisible: false,
-    standaloneShowcaseVisible: false,
-    splashScreenVisible: true,
-    sessionExpiryMinutes: 120,
-    cachePolicy: "balanced",
-    requireExplicitSignOut: true,
-    messageReviewRequiresReason: true
-  };
+  let settingsTools = null;
+
+  function getSettingsTools() {
+    if (!settingsTools) {
+      const factory = window.WingaModules?.api?.settingsTools?.createSettingsTools;
+      if (typeof factory !== "function") {
+        throw new Error("Winga settings tools module is required before data service boot.");
+      }
+      settingsTools = factory();
+    }
+    return settingsTools;
+  }
+
+  const DEFAULT_APP_SETTINGS = getSettingsTools().DEFAULT_APP_SETTINGS;
   function clone(value) {
     return JSON.parse(JSON.stringify(value));
   }
@@ -603,20 +608,7 @@
   }
 
   function normalizeAppSettings(settings = {}) {
-    const source = settings && typeof settings === "object" && !Array.isArray(settings) ? settings : {};
-    const sessionExpiryMinutes = Number.parseInt(source.sessionExpiryMinutes, 10);
-    const cachePolicy = String(source.cachePolicy || "").trim().toLowerCase();
-    return {
-      heroSectionVisible: typeof source.heroSectionVisible === "boolean" ? source.heroSectionVisible : DEFAULT_APP_SETTINGS.heroSectionVisible,
-      standaloneShowcaseVisible: typeof source.standaloneShowcaseVisible === "boolean" ? source.standaloneShowcaseVisible : DEFAULT_APP_SETTINGS.standaloneShowcaseVisible,
-      splashScreenVisible: typeof source.splashScreenVisible === "boolean" ? source.splashScreenVisible : DEFAULT_APP_SETTINGS.splashScreenVisible,
-      sessionExpiryMinutes: Number.isFinite(sessionExpiryMinutes) ? Math.max(15, Math.min(1440, sessionExpiryMinutes)) : DEFAULT_APP_SETTINGS.sessionExpiryMinutes,
-      cachePolicy: ["balanced", "cache-first", "network-first"].includes(cachePolicy) ? cachePolicy : DEFAULT_APP_SETTINGS.cachePolicy,
-      requireExplicitSignOut: source.requireExplicitSignOut !== false,
-      messageReviewRequiresReason: source.messageReviewRequiresReason !== false,
-      updatedAt: String(source.updatedAt || "").trim(),
-      updatedBy: String(source.updatedBy || "").trim()
-    };
+    return getSettingsTools().normalizeAppSettings(settings);
   }
 
   let adminDataTools = null;
