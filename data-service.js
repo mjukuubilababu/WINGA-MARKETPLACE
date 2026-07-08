@@ -1890,8 +1890,8 @@
     const sessionAdapter = createLocalAdapter();
     const localFallbackAdapter = createLocalAdapter();
     const enableLocalCacheFallback = shouldUseApiLocalCacheFallback(config || {});
-    let sessionRestoreController = null;
     const productUploadTimeoutMs = Number((config && config.productUploadTimeoutMs) || 45000);
+    let authApiClient = null;
 
     function resolveProductImages(product) {
       if (!product || typeof product !== "object") {
@@ -1952,26 +1952,6 @@
       return Number(window.WINGA_CONFIG?.authRequestTimeoutMs || 18000);
     }
 
-    function cancelSessionRestore(reason = "auth_interaction") {
-      if (!sessionRestoreController) {
-        return;
-      }
-      try {
-        sessionRestoreController.abort();
-      } catch (error) {
-        // Ignore duplicate abort attempts.
-      }
-      sessionRestoreController = null;
-      emitApiMetric({
-        endpoint: "/auth/session",
-        ok: false,
-        status: 0,
-        code: "aborted",
-        latencyMs: 0,
-        reason
-      });
-    }
-
     async function authFetchJson(url, options = {}, authOptions = {}) {
       const retries = Number(authOptions.retries || 0);
       const timeoutMs = Number(options.timeoutMs || authOptions.timeoutMs || getAuthTimeoutMs());
@@ -1986,6 +1966,31 @@
           shouldRetry: isRetryableBootError
         }
       );
+    }
+
+    function getAuthApiClient() {
+      if (!authApiClient) {
+        const factory = window.WingaModules?.api?.auth?.createAuthApiClient;
+        if (typeof factory !== "function") {
+          throw new Error("Winga auth API client module is required before data service boot.");
+        }
+        authApiClient = factory({
+          baseUrl,
+          sessionAdapter,
+          fetchJson,
+          authFetchJson,
+          createAuthHeaders,
+          emitApiMetric,
+          stripSignupCategoryFields,
+          normalizePrimaryCategoryValue,
+          getWindow: () => window
+        });
+      }
+      return authApiClient;
+    }
+
+    function cancelSessionRestore(reason = "auth_interaction") {
+      return getAuthApiClient().cancelSessionRestore(reason);
     }
 
     return {
@@ -2120,135 +2125,37 @@
       },
       cancelSessionRestore,
       async logoutSession() {
-        try {
-          return await fetchJson(`${baseUrl}/auth/logout`, {
-            method: "POST"
-          });
-        } finally {
-          sessionAdapter.clearSession();
-        }
+        return getAuthApiClient().logoutSession();
       },
       async restoreSession() {
-        const session = sessionAdapter.loadSession();
-
-        cancelSessionRestore("restart_session_restore");
-        sessionRestoreController = typeof AbortController !== "undefined" ? new AbortController() : null;
-        const requestSignal = sessionRestoreController ? sessionRestoreController.signal : undefined;
-        try {
-          const data = await fetchJson(`${baseUrl}/auth/session`, {
-            headers: {
-              ...createAuthHeaders()
-            },
-            signal: requestSignal,
-            timeoutMs: Number(window.WINGA_CONFIG?.sessionRestoreTimeoutMs || 5000)
-          });
-          if (!data || typeof data !== "object" || Array.isArray(data) || !String(data.username || "").trim()) {
-            sessionAdapter.clearSession();
-            return null;
-          }
-          sessionAdapter.saveSession(data);
-          return data;
-        } catch (error) {
-          if (error?.code === "aborted") {
-            return null;
-          }
-          sessionAdapter.clearSession();
-          return null;
-        } finally {
-          if (!sessionRestoreController || sessionRestoreController.signal === requestSignal) {
-            sessionRestoreController = null;
-          }
-        }
+        return getAuthApiClient().restoreSession();
       },
       async signup(payload) {
-        return authFetchJson(`${baseUrl}/auth/signup`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(stripSignupCategoryFields(payload))
-        }, {
-          retries: 0
-        });
+        return getAuthApiClient().signup(payload);
       },
       async login(payload) {
-        return authFetchJson(`${baseUrl}/auth/login`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload)
-        }, {
-          retries: 1
-        });
+        return getAuthApiClient().login(payload);
       },
       async recoverPassword(payload) {
-        return authFetchJson(`${baseUrl}/auth/recover-password`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload)
-        }, {
-          retries: 0
-        });
+        return getAuthApiClient().recoverPassword(payload);
       },
       async adminLogin(payload) {
-        return authFetchJson(`${baseUrl}/auth/admin-login`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload)
-        }, {
-          retries: 1
-        });
+        return getAuthApiClient().adminLogin(payload);
       },
       async updateUserProfile(payload) {
-        return fetchJson(`${baseUrl}/users/me/profile`, {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            ...createAuthHeaders()
-          },
-          body: JSON.stringify(payload)
-        });
+        return getAuthApiClient().updateUserProfile(payload);
       },
       async upgradeBuyerToSeller(payload) {
-        return fetchJson(`${baseUrl}/users/me/upgrade-to-seller`, {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            ...createAuthHeaders()
-          },
-          body: JSON.stringify(payload)
-        });
+        return getAuthApiClient().upgradeBuyerToSeller(payload);
       },
       async requestWhatsappChange(payload) {
-        return fetchJson(`${baseUrl}/users/me/whatsapp/request-change`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...createAuthHeaders()
-          },
-          body: JSON.stringify(payload)
-        });
+        return getAuthApiClient().requestWhatsappChange(payload);
       },
       async verifyWhatsappChange(payload) {
-        return fetchJson(`${baseUrl}/users/me/whatsapp/verify-change`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...createAuthHeaders()
-          },
-          body: JSON.stringify(payload)
-        });
+        return getAuthApiClient().verifyWhatsappChange(payload);
       },
       async updateUserPrimaryCategory(username, primaryCategory) {
-        const normalizedCategory = normalizePrimaryCategoryValue(primaryCategory);
-        if (!normalizedCategory) {
-          return { ok: true, ignored: true };
-        }
-        await fetchJson(`${baseUrl}/users/primary-category`, {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            ...createAuthHeaders()
-          },
-          body: JSON.stringify({ username, primaryCategory: normalizedCategory })
-        });
+        return getAuthApiClient().updateUserPrimaryCategory(username, primaryCategory);
       },
       async addCategory(category) {
         return fetchJson(`${baseUrl}/categories`, {

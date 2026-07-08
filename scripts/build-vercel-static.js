@@ -75,6 +75,7 @@ const bundledModuleSources = [
   "src/api/runtime.js",
   "src/api/products.js",
   "src/api/feed-state.js",
+  "src/api/auth-client.js",
   "src/config/categories.js",
   "src/config/chat.js",
   "src/config/promotions.js",

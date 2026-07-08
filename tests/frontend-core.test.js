@@ -673,6 +673,29 @@ test("auth session runtime module owns restore token and reporting", async () =>
   );
 });
 
+test("remote auth API client owns session restore and credentialed auth writes", () => {
+  const root = path.resolve(__dirname, "..");
+  const dataSource = fs.readFileSync(path.join(root, "data-service.js"), "utf8");
+  const moduleSource = fs.readFileSync(path.join(root, "src", "api", "auth-client.js"), "utf8");
+  const registrySource = fs.readFileSync(path.join(root, "src", "core", "module-registry.js"), "utf8");
+  const buildSource = fs.readFileSync(path.join(root, "scripts", "build-vercel-static.js"), "utf8");
+
+  assert.match(registrySource, /window\.WingaModules\.api\.auth = window\.WingaModules\.api\.auth \|\| \{\};/);
+  assert.match(moduleSource, /window\.WingaModules\.api\.auth\.createAuthApiClient = createAuthApiClient;/);
+  assert.match(moduleSource, /let sessionRestoreController = null;/);
+  assert.match(moduleSource, /function cancelSessionRestore\(reason = "auth_interaction"\)/);
+  assert.match(moduleSource, /async function restoreSession\(\)/);
+  assert.match(moduleSource, /sessionAdapter\.saveSession\?\.\(data\)/);
+  assert.match(moduleSource, /sessionAdapter\.clearSession\?\.\(\)/);
+  assert.match(moduleSource, /authFetchJson\(`\$\{baseUrl\}\/auth\/login`/);
+  assert.match(moduleSource, /fetchJson\(`\$\{baseUrl\}\/users\/me\/profile`/);
+  assert.match(dataSource, /window\.WingaModules\?\.api\?\.auth\?\.createAuthApiClient/);
+  assert.match(dataSource, /async restoreSession\(\) \{\s+return getAuthApiClient\(\)\.restoreSession\(\);/);
+  assert.match(dataSource, /async login\(payload\) \{\s+return getAuthApiClient\(\)\.login\(payload\);/);
+  assert.ok(buildSource.indexOf('"src/api/feed-state.js"') < buildSource.indexOf('"src/api/auth-client.js"'));
+  assert.ok(buildSource.indexOf('"src/api/auth-client.js"') < buildSource.indexOf('"src/config/categories.js"'));
+});
+
 test("boot lifecycle module owns lifecycle epoch and boot target helpers", () => {
   const root = path.resolve(__dirname, "..");
   const lifecycleSource = fs.readFileSync(path.join(root, "src", "boot", "lifecycle.js"), "utf8");
