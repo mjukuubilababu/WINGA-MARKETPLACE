@@ -1892,6 +1892,7 @@
     const enableLocalCacheFallback = shouldUseApiLocalCacheFallback(config || {});
     const productUploadTimeoutMs = Number((config && config.productUploadTimeoutMs) || 45000);
     let authApiClient = null;
+    let productsApiClient = null;
 
     function resolveProductImages(product) {
       if (!product || typeof product !== "object") {
@@ -1991,6 +1992,24 @@
 
     function cancelSessionRestore(reason = "auth_interaction") {
       return getAuthApiClient().cancelSessionRestore(reason);
+    }
+
+    function getProductsApiClient() {
+      if (!productsApiClient) {
+        const factory = window.WingaModules?.api?.productActions?.createProductsApiClient;
+        if (typeof factory !== "function") {
+          throw new Error("Winga products API client module is required before data service boot.");
+        }
+        productsApiClient = factory({
+          baseUrl,
+          fetchJson,
+          createAuthHeaders,
+          resolveProductImages,
+          getAnonymousDemandSessionId,
+          productUploadTimeoutMs
+        });
+      }
+      return productsApiClient;
     }
 
     return {
@@ -2168,36 +2187,13 @@
         });
       },
       async createProduct(product) {
-        const result = await fetchJson(`${baseUrl}/products`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...createAuthHeaders()
-          },
-          body: JSON.stringify(product),
-          timeoutMs: productUploadTimeoutMs
-        });
-        return resolveProductImages(result);
+        return getProductsApiClient().createProduct(product);
       },
       async updateProduct(productId, payload) {
-        const result = await fetchJson(`${baseUrl}/products/${encodeURIComponent(productId)}`, {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            ...createAuthHeaders()
-          },
-          body: JSON.stringify(payload),
-          timeoutMs: productUploadTimeoutMs
-        });
-        return resolveProductImages(result);
+        return getProductsApiClient().updateProduct(productId, payload);
       },
       async deleteProduct(productId) {
-        return fetchJson(`${baseUrl}/products/${encodeURIComponent(productId)}`, {
-          method: "DELETE",
-          headers: {
-            ...createAuthHeaders()
-          }
-        });
+        return getProductsApiClient().deleteProduct(productId);
       },
         async loadAnalytics() {
           return fetchJson(`${baseUrl}/analytics/summary`, {
@@ -2392,27 +2388,10 @@
         });
       },
       async updateProductAvailability(productId, payload) {
-        return fetchJson(`${baseUrl}/products/${encodeURIComponent(productId)}/availability`, {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            ...createAuthHeaders()
-          },
-          body: JSON.stringify(payload)
-        });
+        return getProductsApiClient().updateProductAvailability(productId, payload);
       },
       async recordDemand(productId, payload = {}) {
-        return fetchJson(`${baseUrl}/products/${encodeURIComponent(productId)}/demand`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...createAuthHeaders()
-          },
-          body: JSON.stringify({
-            ...payload,
-            sessionId: payload.sessionId || getAnonymousDemandSessionId()
-          })
-        });
+        return getProductsApiClient().recordDemand(productId, payload);
       },
       async loadAdminUsers() {
         const data = await fetchJson(`${baseUrl}/admin/users`, {
@@ -2599,33 +2578,13 @@
         }
       },
       async moderateProduct(productId, payload) {
-        const result = await fetchJson(`${baseUrl}/admin/products/${encodeURIComponent(productId)}/moderate`, {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            ...createAuthHeaders()
-          },
-          body: JSON.stringify(payload)
-        });
-        return resolveProductImages(result);
+        return getProductsApiClient().moderateProduct(productId, payload);
       },
       async likeProduct(productId) {
-        const result = await fetchJson(`${baseUrl}/products/${encodeURIComponent(productId)}/like`, {
-          method: "POST",
-          headers: {
-            ...createAuthHeaders()
-          }
-        });
-        return resolveProductImages(result);
+        return getProductsApiClient().likeProduct(productId);
       },
       async trackProductView(productId) {
-        const result = await fetchJson(`${baseUrl}/products/${encodeURIComponent(productId)}/view`, {
-          method: "POST",
-          headers: {
-            ...createAuthHeaders()
-          }
-        });
-        return resolveProductImages(result);
+        return getProductsApiClient().trackProductView(productId);
       }
     };
   }

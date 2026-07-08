@@ -696,6 +696,31 @@ test("remote auth API client owns session restore and credentialed auth writes",
   assert.ok(buildSource.indexOf('"src/api/auth-client.js"') < buildSource.indexOf('"src/config/categories.js"'));
 });
 
+test("remote product actions API client owns product writes and demand signals", () => {
+  const root = path.resolve(__dirname, "..");
+  const dataSource = fs.readFileSync(path.join(root, "data-service.js"), "utf8");
+  const moduleSource = fs.readFileSync(path.join(root, "src", "api", "products-client.js"), "utf8");
+  const registrySource = fs.readFileSync(path.join(root, "src", "core", "module-registry.js"), "utf8");
+  const buildSource = fs.readFileSync(path.join(root, "scripts", "build-vercel-static.js"), "utf8");
+
+  assert.match(registrySource, /window\.WingaModules\.api\.productActions = window\.WingaModules\.api\.productActions \|\| \{\};/);
+  assert.match(moduleSource, /window\.WingaModules\.api\.productActions\.createProductsApiClient = createProductsApiClient;/);
+  assert.match(moduleSource, /async function createProduct\(product\)/);
+  assert.match(moduleSource, /async function updateProduct\(productId, payload\)/);
+  assert.match(moduleSource, /async function deleteProduct\(productId\)/);
+  assert.match(moduleSource, /async function updateProductAvailability\(productId, payload\)/);
+  assert.match(moduleSource, /async function recordDemand\(productId, payload = \{\}\)/);
+  assert.match(moduleSource, /sessionId: payload\.sessionId \|\| getAnonymousDemandSessionId\(\)/);
+  assert.match(moduleSource, /async function moderateProduct\(productId, payload\)/);
+  assert.match(moduleSource, /async function likeProduct\(productId\)/);
+  assert.match(moduleSource, /async function trackProductView\(productId\)/);
+  assert.match(dataSource, /window\.WingaModules\?\.api\?\.productActions\?\.createProductsApiClient/);
+  assert.match(dataSource, /async createProduct\(product\) \{\s+return getProductsApiClient\(\)\.createProduct\(product\);/);
+  assert.match(dataSource, /async recordDemand\(productId, payload = \{\}\) \{\s+return getProductsApiClient\(\)\.recordDemand\(productId, payload\);/);
+  assert.ok(buildSource.indexOf('"src/api/auth-client.js"') < buildSource.indexOf('"src/api/products-client.js"'));
+  assert.ok(buildSource.indexOf('"src/api/products-client.js"') < buildSource.indexOf('"src/config/categories.js"'));
+});
+
 test("boot lifecycle module owns lifecycle epoch and boot target helpers", () => {
   const root = path.resolve(__dirname, "..");
   const lifecycleSource = fs.readFileSync(path.join(root, "src", "boot", "lifecycle.js"), "utf8");
