@@ -13,6 +13,7 @@ window.WingaModules.api.admin = window.WingaModules.api.admin || {};
 window.WingaModules.api.intelligence = window.WingaModules.api.intelligence || {};
 window.WingaModules.api.adminTools = window.WingaModules.api.adminTools || {};
 window.WingaModules.api.settingsTools = window.WingaModules.api.settingsTools || {};
+window.WingaModules.api.storageTools = window.WingaModules.api.storageTools || {};
 window.WingaModules.auth = window.WingaModules.auth || {};
 window.WingaModules.promotions = window.WingaModules.promotions || {};
 window.WingaModules.marketplace = window.WingaModules.marketplace || {};

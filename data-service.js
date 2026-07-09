@@ -11,7 +11,19 @@
   const OFFLINE_ACTION_QUEUE_KEY_PREFIX = "winga-offline-action-queue";
   const DEMAND_SESSION_KEY = "winga-demand-session";
   const LOCAL_HASH_PREFIX = "pbkdf2_sha256";
+  let storageTools = null;
   let settingsTools = null;
+
+  function getStorageTools() {
+    if (!storageTools) {
+      const factory = window.WingaModules?.api?.storageTools?.createStorageTools;
+      if (typeof factory !== "function") {
+        throw new Error("Winga storage tools module is required before data service boot.");
+      }
+      storageTools = factory();
+    }
+    return storageTools;
+  }
 
   function getSettingsTools() {
     if (!settingsTools) {
@@ -30,57 +42,23 @@
   }
 
   function safeStorageGet(key) {
-    try {
-      return localStorage.getItem(key);
-    } catch (error) {
-      return null;
-    }
+    return getStorageTools().safeStorageGet(key);
   }
 
   function safeStorageSet(key, value) {
-    try {
-      localStorage.setItem(key, value);
-      return true;
-    } catch (error) {
-      return false;
-    }
+    return getStorageTools().safeStorageSet(key, value);
   }
 
   function setStorageOrThrow(key, value, label = "data za Winga") {
-    try {
-      localStorage.setItem(key, value);
-      return true;
-    } catch (error) {
-      const quotaExceeded = error?.name === "QuotaExceededError"
-        || error?.code === 22
-        || error?.code === 1014
-        || /quota|storage|space/i.test(String(error?.message || ""));
-      if (quotaExceeded) {
-        throw new Error(`${label} zimezidi nafasi ya browser/simu. Punguza idadi au ukubwa wa picha kisha ujaribu tena.`);
-      }
-      throw new Error(`Imeshindikana kuhifadhi ${label} kwenye browser hii. Jaribu tena au fungua app upya.`);
-    }
+    return getStorageTools().setStorageOrThrow(key, value, label);
   }
 
   function safeStorageRemove(key) {
-    try {
-      localStorage.removeItem(key);
-    } catch (error) {
-      // Ignore storage removal failures and continue with in-memory flow.
-    }
+    getStorageTools().safeStorageRemove(key);
   }
 
   function readStoredJson(key, fallbackValue) {
-    const raw = safeStorageGet(key);
-    if (!raw) {
-      return fallbackValue;
-    }
-
-    try {
-      return JSON.parse(raw);
-    } catch (error) {
-      return fallbackValue;
-    }
+    return getStorageTools().readStoredJson(key, fallbackValue);
   }
 
   function normalizeAnalyticsUsername(value) {

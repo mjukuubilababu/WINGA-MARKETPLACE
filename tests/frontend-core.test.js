@@ -857,6 +857,55 @@ test("app settings tools module owns settings defaults and normalization", () =>
   assert.ok(buildSource.indexOf('"src/api/settings-tools.js"') < buildSource.indexOf('"src/config/categories.js"'));
 });
 
+test("storage tools module owns browser storage safety and JSON fallback", () => {
+  const root = path.resolve(__dirname, "..");
+  const dataSource = fs.readFileSync(path.join(root, "data-service.js"), "utf8");
+  const moduleSource = fs.readFileSync(path.join(root, "src", "api", "storage-tools.js"), "utf8");
+  const registrySource = fs.readFileSync(path.join(root, "src", "core", "module-registry.js"), "utf8");
+  const buildSource = fs.readFileSync(path.join(root, "scripts", "build-vercel-static.js"), "utf8");
+  const store = new Map();
+  const context = vm.createContext({
+    window: { WingaModules: { api: { storageTools: {} } } },
+    localStorage: {
+      getItem: (key) => store.get(key) || null,
+      setItem: (key, value) => store.set(key, String(value)),
+      removeItem: (key) => store.delete(key)
+    },
+    JSON,
+    String,
+    Error
+  });
+  vm.runInContext(moduleSource, context);
+  const tools = context.window.WingaModules.api.storageTools.createStorageTools();
+
+  assert.match(registrySource, /window\.WingaModules\.api\.storageTools = window\.WingaModules\.api\.storageTools \|\| \{\};/);
+  assert.match(moduleSource, /function setStorageOrThrow\(key, value, label = "data za Winga"\)/);
+  assert.equal(tools.safeStorageSet("valid", JSON.stringify({ ok: true })), true);
+  assert.equal(tools.readStoredJson("valid", null).ok, true);
+  store.set("broken-json", "{");
+  assert.deepEqual(tools.readStoredJson("broken-json", ["fallback"]), ["fallback"]);
+
+  const quotaTools = context.window.WingaModules.api.storageTools.createStorageTools({
+    getStorage: () => ({
+      setItem: () => {
+        const error = new Error("quota full");
+        error.name = "QuotaExceededError";
+        error.code = 22;
+        throw error;
+      }
+    })
+  });
+  assert.equal(quotaTools.safeStorageSet("x", "y"), false);
+  assert.throws(
+    () => quotaTools.setStorageOrThrow("x", "y", "picha"),
+    /picha zimezidi nafasi ya browser\/simu/
+  );
+  assert.match(dataSource, /window\.WingaModules\?\.api\?\.storageTools\?\.createStorageTools/);
+  assert.match(dataSource, /function readStoredJson\(key, fallbackValue\) \{\s+return getStorageTools\(\)\.readStoredJson\(key, fallbackValue\);/);
+  assert.ok(buildSource.indexOf('"src/api/admin-tools.js"') < buildSource.indexOf('"src/api/storage-tools.js"'));
+  assert.ok(buildSource.indexOf('"src/api/storage-tools.js"') < buildSource.indexOf('"src/api/settings-tools.js"'));
+});
+
 test("remote intelligence API client owns fail-soft telemetry and search demand writes", () => {
   const root = path.resolve(__dirname, "..");
   const dataSource = fs.readFileSync(path.join(root, "data-service.js"), "utf8");
