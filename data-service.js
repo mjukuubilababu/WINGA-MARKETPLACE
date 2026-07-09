@@ -12,6 +12,7 @@
   const DEMAND_SESSION_KEY = "winga-demand-session";
   const LOCAL_HASH_PREFIX = "pbkdf2_sha256";
   let storageTools = null;
+  let offlineQueueTools = null;
   let settingsTools = null;
 
   function getStorageTools() {
@@ -34,6 +35,27 @@
       settingsTools = factory();
     }
     return settingsTools;
+  }
+
+  function getOfflineQueueTools() {
+    if (!offlineQueueTools) {
+      const factory = window.WingaModules?.api?.offlineQueue?.createOfflineQueueTools;
+      if (typeof factory !== "function") {
+        throw new Error("Winga offline queue module is required before data service boot.");
+      }
+      offlineQueueTools = factory({
+        queueKeyPrefix: OFFLINE_ACTION_QUEUE_KEY_PREFIX,
+        readSession: readStoredSession,
+        safeStorageGet,
+        safeStorageSet,
+        safeStorageRemove,
+        clone,
+        getDefaultAdapter: () => state.adapter,
+        getNavigator: () => globalThis.navigator,
+        dispatchEvent: dispatchOfflineActionQueueEvent
+      });
+    }
+    return offlineQueueTools;
   }
 
   const DEFAULT_APP_SETTINGS = getSettingsTools().DEFAULT_APP_SETTINGS;
@@ -295,148 +317,27 @@
   }
 
   function getOfflineActionQueueStorageKey(session = readStoredSession()) {
-    const username = String(session?.username || "").trim();
-    if (!username) {
-      return "";
-    }
-    return `${OFFLINE_ACTION_QUEUE_KEY_PREFIX}:${username}`;
+    return getOfflineQueueTools().getOfflineActionQueueStorageKey(session);
   }
 
   function readOfflineActionQueue(session = readStoredSession()) {
-    const storageKey = getOfflineActionQueueStorageKey(session);
-    if (!storageKey) {
-      return [];
-    }
-    const raw = safeStorageGet(storageKey);
-    if (!raw) {
-      return [];
-    }
-    try {
-      const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed.filter(Boolean) : [];
-    } catch (error) {
-      return [];
-    }
+    return getOfflineQueueTools().readOfflineActionQueue(session);
   }
 
   function saveOfflineActionQueue(queue = [], session = readStoredSession()) {
-    const storageKey = getOfflineActionQueueStorageKey(session);
-    if (!storageKey) {
-      return;
-    }
-    if (!Array.isArray(queue) || !queue.length) {
-      safeStorageRemove(storageKey);
-      return;
-    }
-    safeStorageSet(storageKey, JSON.stringify(queue));
+    getOfflineQueueTools().saveOfflineActionQueue(queue, session);
   }
 
   function isLikelyOfflineActionError(error) {
-    const message = String(error?.message || "").toLowerCase();
-    return Boolean(
-      error?.name === "TypeError"
-      || message.includes("failed to fetch")
-      || message.includes("network")
-      || message.includes("offline")
-      || message.includes("fetch")
-      || message.includes("request took too long")
-    );
+    return getOfflineQueueTools().isLikelyOfflineActionError(error);
   }
 
   function queueOfflineMessageAction(payload) {
-    const session = readStoredSession();
-    const username = String(session?.username || "").trim();
-    if (!username) {
-      throw new Error("Ingia kwanza kabla ya kutuma ujumbe.");
-    }
-    if (!payload?.receiverId || (!payload?.message && !(Array.isArray(payload?.productItems) && payload.productItems.length))) {
-      throw new Error("Receiver na ujumbe au bidhaa vinahitajika.");
-    }
-
-    const queue = readOfflineActionQueue(session);
-    const queuedAction = {
-      id: `offline-msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      type: "sendMessage",
-      payload: clone(payload),
-      createdAt: new Date().toISOString(),
-      attempts: 0
-    };
-    queue.push(queuedAction);
-    saveOfflineActionQueue(queue, session);
-    dispatchOfflineActionQueueEvent("winga:offline-actions-updated", {
-      count: queue.length,
-      username
-    });
-    return {
-      id: queuedAction.id,
-      senderId: username,
-      receiverId: payload.receiverId,
-      messageType: payload.messageType || (Array.isArray(payload.productItems) && payload.productItems.length > 1 ? "product_inquiry" : Array.isArray(payload.productItems) && payload.productItems.length === 1 ? "product_reference" : "text"),
-      productId: payload.productId || "",
-      productName: payload.productName || "",
-      productItems: Array.isArray(payload.productItems) ? payload.productItems : [],
-      replyToMessageId: payload.replyToMessageId || "",
-      message: payload.message || "",
-      timestamp: queuedAction.createdAt,
-      createdAt: queuedAction.createdAt,
-      updatedAt: queuedAction.createdAt,
-      deliveredAt: "",
-      readAt: "",
-      isDelivered: false,
-      isRead: false,
-      isQueued: true
-    };
+    return getOfflineQueueTools().queueOfflineMessageAction(payload);
   }
 
   async function flushOfflineActionQueue(adapter = null) {
-    const activeAdapter = adapter || state.adapter;
-    if (!activeAdapter || typeof activeAdapter.sendMessage !== "function") {
-      return 0;
-    }
-    const session = readStoredSession();
-    if (!session?.username || globalThis.navigator?.onLine === false) {
-      return 0;
-    }
-
-    const queue = readOfflineActionQueue(session);
-    if (!queue.length) {
-      return 0;
-    }
-
-    const remaining = [];
-    let flushedCount = 0;
-
-    for (const item of queue) {
-      if (!item || item.type !== "sendMessage") {
-        continue;
-      }
-
-      try {
-        await activeAdapter.sendMessage(item.payload);
-        flushedCount += 1;
-      } catch (error) {
-        const retryable = isLikelyOfflineActionError(error);
-        if (retryable) {
-          remaining.push({
-            ...item,
-            attempts: Number(item.attempts || 0) + 1
-          });
-          remaining.push(...queue.slice(queue.indexOf(item) + 1));
-          break;
-        }
-        // Non-retryable send errors are discarded so they don't get stuck forever.
-      }
-    }
-
-    saveOfflineActionQueue(remaining, session);
-    if (flushedCount > 0 || queue.length !== remaining.length) {
-      dispatchOfflineActionQueueEvent("winga:offline-actions-flushed", {
-        count: flushedCount,
-        remaining: remaining.length,
-        username: session.username
-      });
-    }
-    return flushedCount;
+    return getOfflineQueueTools().flushOfflineActionQueue(adapter);
   }
 
   function isLocalPasswordHashed(passwordValue) {

@@ -906,6 +906,77 @@ test("storage tools module owns browser storage safety and JSON fallback", () =>
   assert.ok(buildSource.indexOf('"src/api/storage-tools.js"') < buildSource.indexOf('"src/api/settings-tools.js"'));
 });
 
+test("offline queue module owns retry-safe message queue behavior", async () => {
+  const root = path.resolve(__dirname, "..");
+  const dataSource = fs.readFileSync(path.join(root, "data-service.js"), "utf8");
+  const moduleSource = fs.readFileSync(path.join(root, "src", "api", "offline-queue.js"), "utf8");
+  const registrySource = fs.readFileSync(path.join(root, "src", "core", "module-registry.js"), "utf8");
+  const buildSource = fs.readFileSync(path.join(root, "scripts", "build-vercel-static.js"), "utf8");
+  const store = new Map();
+  const events = [];
+  const context = vm.createContext({
+    window: { WingaModules: { api: { offlineQueue: {} } } },
+    globalThis: { navigator: { onLine: true } },
+    Date,
+    Math,
+    JSON,
+    String,
+    Number,
+    Array,
+    Boolean,
+    Error
+  });
+  vm.runInContext(moduleSource, context);
+  const tools = context.window.WingaModules.api.offlineQueue.createOfflineQueueTools({
+    queueKeyPrefix: "test-offline",
+    readSession: () => ({ username: "seller_one" }),
+    safeStorageGet: (key) => store.get(key) || null,
+    safeStorageSet: (key, value) => {
+      store.set(key, String(value));
+      return true;
+    },
+    safeStorageRemove: (key) => store.delete(key),
+    clone: (value) => JSON.parse(JSON.stringify(value)),
+    getNavigator: () => ({ onLine: true }),
+    dispatchEvent: (type, detail) => events.push({ type, detail })
+  });
+
+  assert.match(registrySource, /window\.WingaModules\.api\.offlineQueue = window\.WingaModules\.api\.offlineQueue \|\| \{\};/);
+  assert.match(moduleSource, /function queueOfflineMessageAction\(payload\)/);
+  assert.match(moduleSource, /async function flushOfflineActionQueue\(adapter = null\)/);
+  assert.equal(tools.getOfflineActionQueueStorageKey(), "test-offline:seller_one");
+
+  const queuedMessage = tools.queueOfflineMessageAction({
+    receiverId: "buyer_one",
+    message: "Nahitaji bidhaa hii"
+  });
+  assert.equal(queuedMessage.isQueued, true);
+  assert.equal(JSON.parse(store.get("test-offline:seller_one")).length, 1);
+  assert.equal(events[0].type, "winga:offline-actions-updated");
+
+  const retryCount = await tools.flushOfflineActionQueue({
+    sendMessage: async () => {
+      throw new TypeError("Failed to fetch");
+    }
+  });
+  const retryQueue = JSON.parse(store.get("test-offline:seller_one"));
+  assert.equal(retryCount, 0);
+  assert.equal(retryQueue.length, 1);
+  assert.equal(retryQueue[0].attempts, 1);
+
+  const flushedCount = await tools.flushOfflineActionQueue({
+    sendMessage: async () => ({ ok: true })
+  });
+  assert.equal(flushedCount, 1);
+  assert.equal(store.has("test-offline:seller_one"), false);
+  assert.equal(events.at(-1).type, "winga:offline-actions-flushed");
+  assert.match(dataSource, /window\.WingaModules\?\.api\?\.offlineQueue\?\.createOfflineQueueTools/);
+  assert.match(dataSource, /function queueOfflineMessageAction\(payload\) \{\s+return getOfflineQueueTools\(\)\.queueOfflineMessageAction\(payload\);/);
+  assert.match(dataSource, /async function flushOfflineActionQueue\(adapter = null\) \{\s+return getOfflineQueueTools\(\)\.flushOfflineActionQueue\(adapter\);/);
+  assert.ok(buildSource.indexOf('"src/api/storage-tools.js"') < buildSource.indexOf('"src/api/offline-queue.js"'));
+  assert.ok(buildSource.indexOf('"src/api/offline-queue.js"') < buildSource.indexOf('"src/api/settings-tools.js"'));
+});
+
 test("remote intelligence API client owns fail-soft telemetry and search demand writes", () => {
   const root = path.resolve(__dirname, "..");
   const dataSource = fs.readFileSync(path.join(root, "data-service.js"), "utf8");
