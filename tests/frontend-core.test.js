@@ -1212,6 +1212,7 @@ test("home pagination retries safely, cancels stale work, and commits pages tran
   const root = path.resolve(__dirname, "..");
   const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
   const dataSource = fs.readFileSync(path.join(root, "data-service.js"), "utf8");
+  const workerSource = fs.readFileSync(path.join(root, "worker.js"), "utf8");
   const backendSource = fs.readFileSync(path.join(root, "backend", "server.js"), "utf8");
   const buildSource = fs.readFileSync(path.join(root, "scripts", "build-vercel-static.js"), "utf8");
   const continuationSource = fs.readFileSync(path.join(root, "src", "marketplace", "continuation.js"), "utf8");
@@ -1247,6 +1248,12 @@ test("home pagination retries safely, cancels stale work, and commits pages tran
   assert.match(productApiSource, /function filterProductsForQuery\(products = \[\], options = \{\}\)/);
   assert.match(feedStateSource, /function applyLoadedProductPageToState\(loadedProducts, options = \{\}\)/);
   assert.match(feedStateSource, /function getNextProductsPageOptions\(\)/);
+  assert.match(workerSource, /window\.__WINGA_BIG_PIPE_INITIAL_PAGE__ =/);
+  assert.match(workerSource, /page: window\.__WINGA_BIG_PIPE_INITIAL_PAGE__ \|\| null/);
+  assert.match(dataSource, /function getBigPipeInitialProductPage\(options = \{\}\)/);
+  assert.match(dataSource, /window\.__WINGA_BIG_PIPE_INITIAL_PAGE__/);
+  assert.match(dataSource, /status: "big-pipe"/);
+  assert.match(dataSource, /if \(!bigPipeInitialPage\?\.items\?\.length\)/);
   assert.match(dataSource, /window\.WingaModules\?\.api\?\.products\?\.createProductApiTools/);
   assert.match(dataSource, /window\.WingaModules\?\.api\?\.feedState\?\.createProductFeedStateTools/);
   assert.match(dataSource, /function normalizeProductPageResponse\(payload, options = \{\}, mapProduct = \(product\) => product\) \{\s+return getProductApiTools\(\)\.normalizeProductPageResponse\(payload, options, mapProduct\);/);

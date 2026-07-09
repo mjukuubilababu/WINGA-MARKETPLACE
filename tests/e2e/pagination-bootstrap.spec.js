@@ -67,6 +67,93 @@ test("page one renders without depending on pagination metadata", async ({ page 
   expect(renderedCards).toBeGreaterThan(0);
 });
 
+test("Big Pipe handoff seeds page one and continuation starts from next cursor", async ({ page }) => {
+  const products = createProducts(24);
+  const firstPage = products.slice(0, 12);
+  const secondPage = products.slice(12, 24);
+  const nextCursor = getCursor(firstPage[firstPage.length - 1]);
+  const productRequests = [];
+
+  await page.addInitScript(({ firstPagePayload, nextCursorPayload }) => {
+    window.__WINGA_BIG_PIPE_BOOTSTRAPPED__ = true;
+    window.__WINGA_BIG_PIPE_BOOTSTRAP_STATUS__ = "loaded";
+    window.__WINGA_BIG_PIPE_INITIAL_PRODUCTS__ = firstPagePayload;
+    window.__WINGA_BIG_PIPE_INITIAL_PAGE__ = {
+      items: firstPagePayload,
+      nextCursor: nextCursorPayload,
+      hasMore: true,
+      total: 24,
+      page: 1,
+      limit: 12
+    };
+    window.__WINGA_BIG_PIPE_INITIAL_USERS__ = [];
+    window.__WINGA_BIG_PIPE_INITIAL_SESSION__ = null;
+  }, {
+    firstPagePayload: firstPage,
+    nextCursorPayload: nextCursor
+  });
+
+  await page.route("**/api/products**", async (route) => {
+    const requestUrl = new URL(route.request().url());
+    const requestedPage = Number(requestUrl.searchParams.get("page") || 1);
+    const cursor = String(requestUrl.searchParams.get("cursor") || "");
+    productRequests.push({ page: requestedPage, cursor });
+    if (requestedPage === 1 && !cursor) {
+      await route.fulfill({
+        status: 500,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "Big Pipe handoff should not refetch page 1" })
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        items: secondPage,
+        nextCursor: "",
+        hasMore: false,
+        total: 24,
+        page: 2,
+        limit: 12
+      })
+    });
+  });
+
+  await page.goto("/");
+  await expect.poll(
+    () => page.evaluate(() => window.WingaDataLayer?.getProducts?.().length || 0),
+    { timeout: 30000 }
+  ).toBe(12);
+  await expect.poll(
+    () => page.evaluate(() => window.WingaDataLayer?.getProductFeedPagination?.()),
+    { timeout: 30000 }
+  ).toMatchObject({
+    page: 1,
+    limit: 12,
+    nextCursor,
+    hasMore: true,
+    total: 24,
+    loadedCount: 12
+  });
+
+  await page.evaluate(() => window.WingaDataLayer.appendProductsPage());
+
+  await expect.poll(
+    () => page.evaluate(() => window.WingaDataLayer?.getProducts?.().length || 0),
+    { timeout: 30000 }
+  ).toBe(24);
+  await expect.poll(
+    () => page.evaluate(() => window.WingaDataLayer?.getProductFeedPagination?.()),
+    { timeout: 30000 }
+  ).toMatchObject({
+    page: 2,
+    hasMore: false,
+    loadedCount: 24
+  });
+  expect(productRequests).toEqual([{ page: 2, cursor: nextCursor }]);
+});
+
 test("load-more prefetch keeps one backend runway page", async ({ page }) => {
   const products = createProducts(36);
   const productRequests = [];

@@ -2936,6 +2936,39 @@
     return state.adapter;
   }
 
+  function getBigPipeInitialProductPage(options = {}) {
+    if (typeof window === "undefined" || window.__WINGA_BIG_PIPE_BOOTSTRAPPED__ === false) {
+      return null;
+    }
+    const streamedPage = window.__WINGA_BIG_PIPE_INITIAL_PAGE__;
+    const streamedProducts = Array.isArray(window.__WINGA_BIG_PIPE_INITIAL_PRODUCTS__)
+      ? window.__WINGA_BIG_PIPE_INITIAL_PRODUCTS__.slice()
+      : [];
+    const pageItems = Array.isArray(streamedPage?.items)
+      ? streamedPage.items.slice()
+      : streamedProducts;
+    if (!pageItems.length) {
+      return null;
+    }
+    const pageLimit = Number(streamedPage?.limit || options.limit || DEFAULT_PRODUCTS_PAGE_LIMIT) || DEFAULT_PRODUCTS_PAGE_LIMIT;
+    const pageNumber = Number(streamedPage?.page || 1) || 1;
+    return normalizeProductPageResponse({
+      ...(streamedPage && typeof streamedPage === "object" ? streamedPage : {}),
+      items: pageItems,
+      page: pageNumber,
+      limit: pageLimit,
+      total: Number(streamedPage?.total || pageItems.length || 0),
+      hasMore: typeof streamedPage?.hasMore === "boolean"
+        ? streamedPage.hasMore
+        : Boolean(streamedPage?.nextCursor),
+      nextCursor: String(streamedPage?.nextCursor || "")
+    }, {
+      page: pageNumber,
+      limit: pageLimit,
+      cursor: ""
+    }, resolveProductImagesForRuntime);
+  }
+
   async function loadInitialState(adapter) {
     state.productsHydrated = false;
     state.initialProductsRequestState = "loading";
@@ -2955,12 +2988,32 @@
     const streamedProducts = (typeof window !== "undefined" && Array.isArray(window.__WINGA_BIG_PIPE_INITIAL_PRODUCTS__))
       ? window.__WINGA_BIG_PIPE_INITIAL_PRODUCTS__.slice()
       : [];
-    if (streamedProducts.length) {
-      state.products = streamedProducts;
+    const bigPipeInitialPage = getBigPipeInitialProductPage({
+      limit: getConfiguredFeedPageLimit(config)
+    });
+    if (bigPipeInitialPage?.items?.length) {
+      const initialProducts = applyLoadedProductPageToState(bigPipeInitialPage, {
+        replace: true,
+        markHydrated: true,
+        requestState: "success"
+      });
       if (typeof window !== "undefined" && typeof window.dispatchEvent === "function" && typeof window.CustomEvent === "function") {
         window.dispatchEvent(new window.CustomEvent("winga:products-hydrated", {
           detail: {
-            status: "streamed",
+            status: "big-pipe",
+            count: state.products.length
+          }
+        }));
+      }
+    } else if (streamedProducts.length) {
+      state.products = streamedProducts.map(resolveProductImagesForRuntime);
+      setFullProductFeedPagination(state.products);
+      state.productsHydrated = true;
+      state.initialProductsRequestState = "success";
+      if (typeof window !== "undefined" && typeof window.dispatchEvent === "function" && typeof window.CustomEvent === "function") {
+        window.dispatchEvent(new window.CustomEvent("winga:products-hydrated", {
+          detail: {
+            status: "streamed-legacy",
             count: state.products.length
           }
         }));
@@ -2980,7 +3033,7 @@
         }));
       }
     }
-    if (typeof adapter.loadCachedProducts === "function") {
+    if (!bigPipeInitialPage?.items?.length && typeof adapter.loadCachedProducts === "function") {
       try {
         const cachedProducts = await adapter.loadCachedProducts();
         if (Array.isArray(cachedProducts) && cachedProducts.length) {
@@ -2999,41 +3052,43 @@
         // Ignore cached product warmup failures and continue with network loading.
       }
     }
-    try {
-      const startupProductsLimit = getConfiguredFeedPageLimit(config);
-      const loadedProducts = typeof adapter.loadProductsPage === "function"
-        ? await adapter.loadProductsPage({
-            limit: startupProductsLimit,
-            page: 1
-          })
-        : await adapter.loadProducts({
-            limit: startupProductsLimit,
-            page: 1
-          });
-      const initialProducts = applyLoadedProductPageToState(loadedProducts, {
-        replace: true,
-        markHydrated: true,
-        requestState: "success"
-      });
-      if (typeof window !== "undefined" && typeof window.dispatchEvent === "function" && typeof window.CustomEvent === "function") {
-        window.dispatchEvent(new window.CustomEvent("winga:products-hydrated", {
-          detail: {
-            status: "loaded",
-            count: state.products.length
-          }
-        }));
-      }
-    } catch (error) {
-      state.initialProductsRequestState = "error";
-      state.productsHydrated = Boolean(state.products.length);
-      if (typeof window !== "undefined" && typeof window.dispatchEvent === "function" && typeof window.CustomEvent === "function") {
-        window.dispatchEvent(new window.CustomEvent("winga:products-hydrated", {
-          detail: {
-            status: "failed",
-            count: state.products.length,
-            error: String(error?.message || error || "")
-          }
-        }));
+    if (!bigPipeInitialPage?.items?.length) {
+      try {
+        const startupProductsLimit = getConfiguredFeedPageLimit(config);
+        const loadedProducts = typeof adapter.loadProductsPage === "function"
+          ? await adapter.loadProductsPage({
+              limit: startupProductsLimit,
+              page: 1
+            })
+          : await adapter.loadProducts({
+              limit: startupProductsLimit,
+              page: 1
+            });
+        const initialProducts = applyLoadedProductPageToState(loadedProducts, {
+          replace: true,
+          markHydrated: true,
+          requestState: "success"
+        });
+        if (typeof window !== "undefined" && typeof window.dispatchEvent === "function" && typeof window.CustomEvent === "function") {
+          window.dispatchEvent(new window.CustomEvent("winga:products-hydrated", {
+            detail: {
+              status: "loaded",
+              count: state.products.length
+            }
+          }));
+        }
+      } catch (error) {
+        state.initialProductsRequestState = "error";
+        state.productsHydrated = Boolean(state.products.length);
+        if (typeof window !== "undefined" && typeof window.dispatchEvent === "function" && typeof window.CustomEvent === "function") {
+          window.dispatchEvent(new window.CustomEvent("winga:products-hydrated", {
+            detail: {
+              status: "failed",
+              count: state.products.length,
+              error: String(error?.message || error || "")
+            }
+          }));
+        }
       }
     }
 

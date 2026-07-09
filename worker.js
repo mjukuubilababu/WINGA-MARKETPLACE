@@ -126,6 +126,7 @@ async function streamFeedPage(request, env, ctx) {
       await write(`
         <script nonce="${escapeHtml(scriptNonce)}">
           window.__WINGA_BIG_PIPE_INITIAL_PRODUCTS__ = ${serializeForInlineScript(bootstrap.items)};
+          window.__WINGA_BIG_PIPE_INITIAL_PAGE__ = ${serializeForInlineScript(bootstrap.page)};
           window.__WINGA_BIG_PIPE_INITIAL_USERS__ = ${serializeForInlineScript(bootstrap.users)};
           window.__WINGA_BIG_PIPE_INITIAL_SESSION__ = ${serializeForInlineScript(bootstrap.session)};
           window.__WINGA_BIG_PIPE_INITIAL_IMAGE_URLS__ = ${serializeForInlineScript(extractAllImageUrls(bootstrap.items, bootstrap.usersById))};
@@ -233,6 +234,7 @@ async function fetchBootstrapContext(origin, request) {
   const headers = forwardProxyHeaders(request);
   const fallback = {
     items: getFallbackProducts(),
+    page: normalizeProductPageCollection({ items: getFallbackProducts(), hasMore: false, nextCursor: "", page: 1, limit: DEFAULT_FEED_LIMIT, total: DEFAULT_FEED_LIMIT }, { limit: DEFAULT_FEED_LIMIT, page: 1 }),
     users: [],
     usersById: {},
     session: null,
@@ -266,6 +268,9 @@ async function loadBootstrapContext(origin, headers) {
   const items = productsResult.status === "fulfilled" && Array.isArray(productsResult.value?.items) && productsResult.value.items.length
     ? productsResult.value.items.slice(0, DEFAULT_FEED_LIMIT)
     : getFallbackProducts();
+  const productPage = productsResult.status === "fulfilled" && productsResult.value && typeof productsResult.value === "object"
+    ? productsResult.value
+    : normalizeProductPageCollection({ items, hasMore: false, nextCursor: "", page: 1, limit: DEFAULT_FEED_LIMIT, total: items.length }, { limit: DEFAULT_FEED_LIMIT, page: 1 });
   const users = usersResult.status === "fulfilled" && Array.isArray(usersResult.value)
     ? usersResult.value
     : [];
@@ -279,11 +284,18 @@ async function loadBootstrapContext(origin, headers) {
       .filter(([key]) => key)
   );
 
-  return {
-    items: items.map((product, index) => normalizeProductForStream(product, {
+  const normalizedItems = items.map((product, index) => normalizeProductForStream(product, {
       feedPosition: index,
       usersById
-    })),
+    }));
+
+  return {
+    items: normalizedItems,
+    page: {
+      ...productPage,
+      items: normalizedItems,
+      loadedCount: normalizedItems.length
+    },
     users,
     usersById,
     session,
@@ -679,6 +691,7 @@ function buildDocumentShellEnd(options = {}) {
         document.dispatchEvent(new CustomEvent("winga:big-pipe-bootstrap", {
           detail: {
             products: window.__WINGA_BIG_PIPE_INITIAL_PRODUCTS__ || [],
+            page: window.__WINGA_BIG_PIPE_INITIAL_PAGE__ || null,
             users: window.__WINGA_BIG_PIPE_INITIAL_USERS__ || [],
             session: window.__WINGA_BIG_PIPE_INITIAL_SESSION__ || null,
             status: window.__WINGA_BIG_PIPE_BOOTSTRAP_STATUS__ || "loaded"
