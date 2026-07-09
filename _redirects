@@ -1,6 +1,5 @@
 # Cloudflare Pages/static fallback routing.
-# Keep product share routes app-owned, but never let general API calls fall
-# through to index.html. That fallback makes /api/products look successful
-# while returning the static shell instead of JSON.
+# Keep product share routes app-owned. General /api/* traffic is handled by
+# worker.js before static asset routing, so this file must not declare an
+# absolute proxy redirect that Wrangler Assets rejects during deployment.
 /api/product/* /product/:splat 302
-/api/* https://winga-pflp.onrender.com/api/:splat 200

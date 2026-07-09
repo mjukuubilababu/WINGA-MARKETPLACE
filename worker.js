@@ -107,6 +107,7 @@ async function streamFeedPage(request, env, ctx) {
   const origin = getOriginBaseUrl(env);
   const scriptNonce = createCspNonce();
   const styleNonce = createCspNonce();
+  const buildVersion = await resolveAssetBuildVersion(env);
   const bootstrapPromise = fetchBootstrapContext(origin, request);
   const preloadBootstrap = await Promise.race([
     bootstrapPromise,
@@ -117,7 +118,7 @@ async function streamFeedPage(request, env, ctx) {
 
   ctx.waitUntil((async () => {
     try {
-      await write(buildDocumentShellStart({ lcpImageUrl, origin, styleNonce }));
+      await write(buildDocumentShellStart({ lcpImageUrl, origin, styleNonce, buildVersion }));
       await write(buildFeedSkeletonChunk());
 
       const bootstrap = await bootstrapPromise;
@@ -137,7 +138,7 @@ async function streamFeedPage(request, env, ctx) {
         ${cardsHtml}
       `);
 
-      await write(buildDocumentShellEnd({ scriptNonce }));
+      await write(buildDocumentShellEnd({ scriptNonce, buildVersion }));
     } catch (error) {
       await write(`
         <script nonce="${escapeHtml(scriptNonce)}">
@@ -145,7 +146,7 @@ async function streamFeedPage(request, env, ctx) {
           window.__WINGA_BIG_PIPE_BOOTSTRAP_ERROR__ = ${serializeForInlineScript(String(error?.message || error || "unknown"))};
         </script>
       `);
-      await write(buildDocumentShellEnd({ scriptNonce }));
+      await write(buildDocumentShellEnd({ scriptNonce, buildVersion }));
     } finally {
       await writer.close();
     }
@@ -173,6 +174,26 @@ function createCspNonce() {
   const bytes = new Uint8Array(16);
   globalThis.crypto?.getRandomValues?.(bytes);
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function resolveAssetBuildVersion(env) {
+  const configuredVersion = String(env?.BUILD_VERSION || env?.WINGA_BUILD_VERSION || "").trim();
+  if (/^\d{14}$/.test(configuredVersion)) {
+    return configuredVersion;
+  }
+  if (env?.ASSETS?.fetch) {
+    try {
+      const response = await env.ASSETS.fetch(new Request("https://wingamarket.com/build-version.json"));
+      const payload = await response.json();
+      const version = String(payload?.version || "").trim();
+      if (response.ok && /^\d{14}$/.test(version)) {
+        return version;
+      }
+    } catch (_error) {
+      // Fall through to a deterministic dev-safe marker.
+    }
+  }
+  return "00000000000000";
 }
 
 function buildContentSecurityPolicy(options = {}) {
@@ -359,6 +380,8 @@ function buildDocumentShellStart(options = {}) {
   const lcpImageUrl = String(options?.lcpImageUrl || "").trim();
   const assetOrigin = String(options?.origin || "").trim();
   const styleNonce = String(options?.styleNonce || "").trim();
+  const buildVersion = String(options?.buildVersion || "00000000000000").trim();
+  const assetVersionQuery = /^\d{14}$/.test(buildVersion) ? `?v=${buildVersion}` : "";
   const styleNonceAttribute = styleNonce ? ` nonce="${escapeHtml(styleNonce)}"` : "";
   const lcpImagePreloadTag = lcpImageUrl
     ? `  <link rel="preload" as="image" href="${escapeHtml(lcpImageUrl)}" fetchpriority="high">\n`
@@ -371,6 +394,7 @@ function buildDocumentShellStart(options = {}) {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="winga-build" content="${escapeHtml(buildVersion)}">
   <meta name="theme-color" content="#ff6a00">
   <meta name="msapplication-TileColor" content="#ff6a00">
   <meta name="mobile-web-app-capable" content="yes">
@@ -395,7 +419,7 @@ function buildDocumentShellStart(options = {}) {
   <link rel="apple-touch-icon" href="/apple-touch-icon-v3.png">
 ${lcpImagePreloadTag}${imageOriginPreconnectTag}  <title>Chap kwa haraka</title>
   <style id="winga-critical-boot"${styleNonceAttribute}>*{box-sizing:border-box}html,body{background:#ff6a00}body.app-booting{margin:0;min-height:100vh;overflow:hidden;background:#ff6a00}#boot-overlay.boot-overlay{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;padding:24px;background:radial-gradient(circle at 22% 18%,rgba(255,255,255,.38),transparent 28%),linear-gradient(135deg,#ff7a1a 0%,#ff6a00 48%,#d94f00 100%);color:#fff;opacity:1;visibility:visible;pointer-events:auto}#boot-overlay.boot-overlay.is-hidden{opacity:0;visibility:hidden;pointer-events:none}#boot-overlay .boot-overlay-card{width:min(360px,86vw);min-height:210px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;padding:32px 28px;border:1px solid rgba(255,255,255,.28);border-radius:30px;background:rgba(255,255,255,.14);box-shadow:0 28px 70px rgba(99,38,0,.26);text-align:center}#boot-overlay .boot-overlay-mark{display:flex;align-items:center;justify-content:center;gap:14px}#boot-overlay .boot-overlay-badge{width:58px;height:58px;display:inline-flex;align-items:center;justify-content:center;border-radius:20px;background:#fff;color:#ff6a00;font-size:2rem;font-weight:900}#boot-overlay .boot-overlay-mark strong{display:block;font-size:2rem;line-height:1;letter-spacing:.02em}#boot-overlay .boot-overlay-mark span:not(.boot-overlay-badge),#boot-overlay .boot-overlay-copy p{color:rgba(255,255,255,.86);font-weight:700}#boot-overlay .boot-overlay-copy{display:flex;flex-direction:column;align-items:center;gap:12px}#boot-overlay .boot-overlay-copy p{min-height:1.2em;margin:0;font-size:.95rem}#boot-overlay .boot-overlay-spinner{width:34px;height:34px;border-radius:50%;border:3px solid rgba(255,255,255,.38);border-top-color:#fff;animation:wingaCriticalBootSpin .82s linear infinite}@keyframes wingaCriticalBootSpin{to{transform:rotate(360deg)}}.feed-skeleton-card{overflow:hidden}.feed-skeleton-media,.feed-skeleton-line,.feed-skeleton-pill{position:relative;background:rgba(15,23,42,.08)}.feed-skeleton-media::after,.feed-skeleton-line::after,.feed-skeleton-pill::after{content:"";position:absolute;inset:0;transform:translateX(-100%);background:linear-gradient(90deg,transparent,rgba(255,255,255,.75),transparent);animation:winga-feed-skeleton-shimmer 1s linear infinite}.feed-skeleton-media{height:min(68vw,360px);background:rgba(15,23,42,.08)}.feed-skeleton-body{padding:18px 16px 20px;display:grid;gap:12px}.feed-skeleton-line{display:block;height:12px;border-radius:999px}.feed-skeleton-line-title{width:54%;height:16px}.feed-skeleton-line-copy{width:92%}.feed-skeleton-line-copy-short{width:68%}.feed-skeleton-actions{display:flex;gap:10px;padding-top:6px}.feed-skeleton-pill{width:92px;height:34px;border-radius:999px}.feed-skeleton-card.feed-skeleton-card{background:#fff;border-radius:24px;margin:0 0 18px;box-shadow:0 16px 36px rgba(15,23,42,.08)}@keyframes winga-feed-skeleton-shimmer{100%{transform:translateX(100%)}}@media (prefers-reduced-motion:reduce){#boot-overlay .boot-overlay-spinner,.feed-skeleton-media::after,.feed-skeleton-line::after,.feed-skeleton-pill::after{animation:none}}</style>
-  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/style.css${assetVersionQuery}">
 </head>
 <body class="app-booting">
   <div id="boot-overlay" class="boot-overlay" aria-hidden="true">
@@ -617,6 +641,8 @@ function buildFeedSkeletonChunk() {
 function buildDocumentShellEnd(options = {}) {
   const scriptNonce = String(options?.scriptNonce || "").trim();
   const scriptNonceAttribute = scriptNonce ? ` nonce="${escapeHtml(scriptNonce)}"` : "";
+  const buildVersion = String(options?.buildVersion || "00000000000000").trim();
+  const assetVersionQuery = /^\d{14}$/.test(buildVersion) ? `?v=${buildVersion}` : "";
   return `</div>
     <div id="empty-state" class="panel" style="display:none;">
       <h3>Hakuna bidhaa zilizopatikana</h3>
@@ -663,6 +689,7 @@ function buildDocumentShellEnd(options = {}) {
         </div>
       </div>
       <p class="public-footer-meta">&copy; 2026 Winga. Marketplace built for fast discovery and trusted transactions.</p>
+      <span class="sr-only" data-winga-build-version>${escapeHtml(buildVersion)}</span>
     </footer>
   </div>
   <script${scriptNonceAttribute}>
@@ -700,12 +727,12 @@ function buildDocumentShellEnd(options = {}) {
       }, { once: true });
     })();
   </script>
-  <script defer src="/winga-config.js"></script>
-  <script defer src="/mock-data.js"></script>
-  <script defer src="/data-service.js"></script>
-  <script defer src="/app-core.js"></script>
-  <script defer src="/winga-modules.js"></script>
-  <script defer src="/app.js"></script>
+  <script defer src="/winga-config.js${assetVersionQuery}"></script>
+  <script defer src="/mock-data.js${assetVersionQuery}"></script>
+  <script defer src="/winga-modules.js${assetVersionQuery}"></script>
+  <script defer src="/data-service.js${assetVersionQuery}"></script>
+  <script defer src="/app-core.js${assetVersionQuery}"></script>
+  <script defer src="/app.js${assetVersionQuery}"></script>
 </body>
 </html>`;
 }

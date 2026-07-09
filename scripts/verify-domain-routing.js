@@ -3,11 +3,13 @@ const https = require("https");
 const FRONTEND_ORIGIN = process.env.WINGA_FRONTEND_ORIGIN || "https://wingamarket.com";
 const VERCEL_ORIGIN = process.env.WINGA_VERCEL_ORIGIN || "https://winga-marketplace.vercel.app";
 const BACKEND_ORIGIN = process.env.WINGA_BACKEND_ORIGIN || "https://winga-pflp.onrender.com";
+const runtimeArg = (process.argv.find((arg) => /^--runtime=/.test(arg)) || "").split("=").slice(1).join("=");
+const FRONTEND_RUNTIME = String(runtimeArg || process.env.WINGA_FRONTEND_RUNTIME || "vercel").trim().toLowerCase();
 
 const CHECKS = [
-  { label: "frontend home", url: `${FRONTEND_ORIGIN}/`, expected: "html", requireVercel: true },
-  { label: "frontend API products", url: `${FRONTEND_ORIGIN}/api/products?limit=1&page=1`, expected: "json", requireVercel: true },
-  { label: "frontend CSRF", url: `${FRONTEND_ORIGIN}/api/auth/csrf-token`, expected: "json", requireVercel: true, requireCookie: true },
+  { label: "frontend home", url: `${FRONTEND_ORIGIN}/`, expected: "html", requireFrontendRuntime: true },
+  { label: "frontend API products", url: `${FRONTEND_ORIGIN}/api/products?limit=1&page=1`, expected: "json", requireFrontendRuntime: true },
+  { label: "frontend CSRF", url: `${FRONTEND_ORIGIN}/api/auth/csrf-token`, expected: "json", requireFrontendRuntime: true, requireCookie: true },
   { label: "vercel API products", url: `${VERCEL_ORIGIN}/api/products?limit=1&page=1`, expected: "json", requireVercel: true },
   { label: "backend API products", url: `${BACKEND_ORIGIN}/api/products?limit=1&page=1`, expected: "json" }
 ];
@@ -75,6 +77,18 @@ function assertExpected(check, response, summary) {
     throw new Error(`${check.label} did not include X-Vercel-Id, so traffic is not reaching the Vercel deployment.`);
   }
 
+  if (check.requireFrontendRuntime) {
+    if (FRONTEND_RUNTIME === "vercel" && !summary.xVercelId) {
+      throw new Error(`${check.label} did not include X-Vercel-Id, so traffic is not reaching the Vercel deployment.`);
+    }
+    if (FRONTEND_RUNTIME === "worker" && (!summary.cfRay || summary.xVercelId)) {
+      throw new Error(`${check.label} did not look like Cloudflare Worker traffic. Expected CF-Ray and no X-Vercel-Id.`);
+    }
+    if (!["vercel", "worker", "any"].includes(FRONTEND_RUNTIME)) {
+      throw new Error(`Unsupported WINGA_FRONTEND_RUNTIME=${FRONTEND_RUNTIME}. Use vercel, worker, or any.`);
+    }
+  }
+
   if (check.requireCookie && !summary.setCookie) {
     throw new Error(`${check.label} did not set the expected CSRF cookie.`);
   }
@@ -94,7 +108,7 @@ function formatError(error) {
 }
 
 async function main() {
-  console.log("Verifying Winga production domain routing");
+  console.log(`Verifying Winga production domain routing (frontend runtime: ${FRONTEND_RUNTIME})`);
   const summaries = [];
   const failures = [];
 
@@ -116,8 +130,8 @@ async function main() {
 
   if (failures.length) {
     console.error("Domain routing verification failed.");
-    console.error("Expected wingamarket.com to reach Vercel for both the app shell and /api/* routes.");
-    console.error("If Vercel alias checks pass while wingamarket.com fails, fix Cloudflare DNS/Page/Worker routing before launch.");
+    console.error(`Expected wingamarket.com to reach the configured frontend runtime: ${FRONTEND_RUNTIME}.`);
+    console.error("If Vercel alias/backend checks pass while wingamarket.com fails, fix Cloudflare DNS/Worker routing before launch.");
     process.exit(1);
   }
 

@@ -9,6 +9,9 @@
     "test:frontend": "node tests/frontend-core.test.js",
     "test:integration": "node --test tests/integration-api.test.js tests/postgres-pagination.test.js",
     "test:e2e": "playwright test",
+    "deploy:worker:frontend": "npm run build:vercel && npx wrangler deploy --config wrangler.toml",
+    "deploy:worker:intelligence": "npx wrangler deploy --config wrangler.intelligence.toml",
+    "verify:frontend-worker-routing": "node scripts/verify-domain-routing.js --runtime=worker",
     "monitor:intelligence": "node scripts/check-intelligence-health.js",
     "worker:intelligence": "node backend/intelligence-queue-worker.js",
     "worker:intelligence:once": "node backend/intelligence-queue-worker.js --once"

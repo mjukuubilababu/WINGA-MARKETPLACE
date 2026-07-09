@@ -1,20 +1,21 @@
 "$schema" = "./node_modules/wrangler/config-schema.json"
-name = "winga-intelligence-worker"
-main = "./cloudflare/intelligence-worker.js"
+name = "winga"
+main = "./worker.js"
 compatibility_date = "2026-05-30"
-workers_dev = true
+workers_dev = false
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
 
 [vars]
 ORIGIN = "https://winga-pflp.onrender.com"
 ORIGIN_BASE_URL = "https://winga-pflp.onrender.com"
 
-[[queues.producers]]
-queue = "winga-intelligence-events"
-binding = "WINGA_INTELLIGENCE_QUEUE"
+[[routes]]
+pattern = "wingamarket.com/*"
+zone_name = "wingamarket.com"
 
-[[queues.consumers]]
-queue = "winga-intelligence-events"
-max_batch_size = 50
-max_batch_timeout = 10
-max_retries = 12
-dead_letter_queue = "winga-intelligence-events-dlq"
+[[routes]]
+pattern = "www.wingamarket.com/*"
+zone_name = "wingamarket.com"

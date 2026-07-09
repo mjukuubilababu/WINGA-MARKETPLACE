@@ -1501,6 +1501,7 @@ test("production CSP is enforced from repo without inline script escape hatches"
   const backendSource = fs.readFileSync(path.join(root, "backend", "server.js"), "utf8");
   const workerSource = fs.readFileSync(path.join(root, "worker.js"), "utf8");
   const staticHeadersSource = fs.readFileSync(path.join(root, "_headers"), "utf8");
+  const redirectsSource = fs.readFileSync(path.join(root, "_redirects"), "utf8");
   const productionVerifySource = fs.readFileSync(path.join(root, "scripts", "verify-production-shell.js"), "utf8");
   const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
   const marketplaceSource = fs.readFileSync(path.join(root, "src", "marketplace", "ui.js"), "utf8");
@@ -1556,8 +1557,16 @@ test("production CSP is enforced from repo without inline script escape hatches"
   assert.match(workerSource, /function hardenResponseHeaders\(response, env/);
   assert.match(workerSource, /hardenResponseHeaders\(await env\.ASSETS\.fetch\(request\), env\)/);
   assert.match(workerSource, /hardenResponseHeaders\(await proxyToOrigin\(request, env\), env\)/);
+  assert.match(workerSource, /async function resolveAssetBuildVersion\(env\)/);
+  assert.match(workerSource, /env\.ASSETS\.fetch\(new Request\("https:\/\/wingamarket\.com\/build-version\.json"\)\)/);
+  assert.match(workerSource, /<meta name="winga-build" content="\$\{escapeHtml\(buildVersion\)\}">/);
+  assert.match(workerSource, /data-winga-build-version/);
+  assert.match(workerSource, /\/style\.css\$\{assetVersionQuery\}/);
+  assert.match(workerSource, /\/winga-modules\.js\$\{assetVersionQuery\}[\s\S]*\/data-service\.js\$\{assetVersionQuery\}/);
   assert.match(workerSource, /script-src-attr 'none'/);
   assert.match(workerSource, /nonce="\$\{escapeHtml\(scriptNonce\)\}"/);
+  assert.doesNotMatch(redirectsSource, /https:\/\/winga-pflp\.onrender\.com\/api/);
+  assert.match(redirectsSource, /worker\.js before static asset routing/);
   assert.doesNotMatch(appSource, /onclick="return window\.__wingaOpenPromotionFromTrigger/);
   assert.doesNotMatch(marketplaceSource, /onclick:\s*"return window\.__wingaOpenPromotionFromTrigger/);
 });
@@ -1568,14 +1577,18 @@ test("production domain routing verifier catches API shell fallthrough", () => {
   const domainVerifySource = fs.readFileSync(path.join(root, "scripts", "verify-domain-routing.js"), "utf8");
 
   assert.equal(packageJson.scripts["verify:domain-routing"], "node scripts/verify-domain-routing.js");
+  assert.equal(packageJson.scripts["verify:frontend-worker-routing"], "node scripts/verify-domain-routing.js --runtime=worker");
   assert.match(domainVerifySource, /FRONTEND_ORIGIN/);
   assert.match(domainVerifySource, /VERCEL_ORIGIN/);
   assert.match(domainVerifySource, /BACKEND_ORIGIN/);
+  assert.match(domainVerifySource, /FRONTEND_RUNTIME/);
+  assert.match(domainVerifySource, /--runtime=/);
   assert.match(domainVerifySource, /frontend API products/);
   assert.match(domainVerifySource, /frontend CSRF/);
   assert.match(domainVerifySource, /application\\\/json/);
   assert.match(domainVerifySource, /X-Vercel-Id/);
-  assert.match(domainVerifySource, /traffic is not reaching the Vercel deployment/);
+  assert.match(domainVerifySource, /Cloudflare Worker traffic/);
+  assert.match(domainVerifySource, /Expected CF-Ray and no X-Vercel-Id/);
 });
 
 test("production builds expose one verifiable app version", () => {
@@ -1810,6 +1823,8 @@ test("backend intelligence uses durable queue hooks when PostgreSQL is available
   assert.equal(packageJson.scripts["worker:intelligence"], "node backend/intelligence-queue-worker.js");
   assert.equal(packageJson.scripts["worker:intelligence:once"], "node backend/intelligence-queue-worker.js --once");
   assert.equal(packageJson.scripts["monitor:intelligence"], "node scripts/check-intelligence-health.js");
+  assert.equal(packageJson.scripts["deploy:worker:frontend"], "npm run build:vercel && npx wrangler deploy --config wrangler.toml");
+  assert.equal(packageJson.scripts["deploy:worker:intelligence"], "npx wrangler deploy --config wrangler.intelligence.toml");
   assert.match(workerSource, /claimIntelligenceQueueBatch/);
   assert.match(workerSource, /completeIntelligenceQueueItem/);
   assert.match(workerSource, /failIntelligenceQueueItem/);
@@ -1825,6 +1840,17 @@ test("backend intelligence uses durable queue hooks when PostgreSQL is available
   assert.match(queueWorkerSource, /forwardIntelligenceQueueBatch/);
   assert.match(queueWorkerSource, /X-Winga-Queue-Secret/);
   assert.doesNotMatch(queueWorkerSource, /ASSETS/);
+  assert.match(rootWranglerSource, /name = "winga"/);
+  assert.match(rootWranglerSource, /main = "\.\/worker\.js"/);
+  assert.match(rootWranglerSource, /workers_dev = false/);
+  assert.match(rootWranglerSource, /\[assets\]/);
+  assert.match(rootWranglerSource, /directory = "\.\/public"/);
+  assert.match(rootWranglerSource, /binding = "ASSETS"/);
+  assert.match(rootWranglerSource, /\[\[routes\]\]/);
+  assert.match(rootWranglerSource, /pattern = "wingamarket\.com\/\*"/);
+  assert.match(rootWranglerSource, /pattern = "www\.wingamarket\.com\/\*"/);
+  assert.match(rootWranglerSource, /ORIGIN_BASE_URL = "https:\/\/winga-pflp\.onrender\.com"/);
+  assert.doesNotMatch(rootWranglerSource, /cloudflare\/intelligence-worker\.js/);
   assert.match(wranglerSource, /name = "winga-intelligence-worker"/);
   assert.match(wranglerSource, /main = "\.\/cloudflare\/intelligence-worker\.js"/);
   assert.match(wranglerSource, /\[\[queues\.producers\]\]/);
@@ -1833,9 +1859,6 @@ test("backend intelligence uses durable queue hooks when PostgreSQL is available
   assert.match(wranglerSource, /dead_letter_queue = "winga-intelligence-events-dlq"/);
   assert.doesNotMatch(wranglerSource, /\[assets\]/);
   assert.doesNotMatch(wranglerSource, /\[\[routes\]\]/);
-  assert.match(rootWranglerSource, /main = "\.\/cloudflare\/intelligence-worker\.js"/);
-  assert.doesNotMatch(rootWranglerSource, /\[assets\]/);
-  assert.doesNotMatch(rootWranglerSource, /\[\[routes\]\]/);
   assert.match(runbookSource, /Managed External Queue Upgrade Path/);
   assert.match(runbookSource, /Cloudflare Queues/);
   assert.match(runbookSource, /AWS SQS/);
@@ -1948,7 +1971,8 @@ test("production frontend routes same-domain API requests to the backend origin"
     "Product share redirects must remain explicit while general API requests proxy to the backend."
   );
   assert.match(staticRedirectsSource, /^\/api\/product\/\* \/product\/:splat 302$/m);
-  assert.match(staticRedirectsSource, /^\/api\/\* https:\/\/winga-pflp\.onrender\.com\/api\/:splat 200$/m);
+  assert.match(staticRedirectsSource, /General \/api\/\* traffic is handled by/);
+  assert.doesNotMatch(staticRedirectsSource, /https:\/\/winga-pflp\.onrender\.com\/api\/:splat 200/);
   assert.match(apiProxySource, /const BACKEND_API_ORIGIN = "https:\/\/winga-pflp\.onrender\.com"/);
   assert.match(apiProxySource, /bodyParser: false/);
   assert.match(apiProxySource, /MAX_PROXY_BODY_BYTES = 20 \* 1024 \* 1024/);
