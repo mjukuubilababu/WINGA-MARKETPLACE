@@ -62,6 +62,11 @@ test("home feed reserves stable media and deferred section geometry", () => {
   assert.match(appSource, /renderCurrentView\(\{\s+reason,\s+force: true,\s+allowBootHomeFeedRanking: true\s+\}\);/);
   assert.match(appSource, /const allowQueuedBootRanking = Boolean\(uiRuntimeState\.pendingRenderAllowsBootHomeFeedRanking\);[\s\S]*allowBootHomeFeedRanking: allowQueuedBootRanking/);
   assert.match(appSource, /schedulePostPaintHomeFeedRankingUpgrade\("boot_initial_render_upgrade"\);/);
+  assert.match(appSource, /function refreshPublicEntryChrome\(options = \{\}\) \{[\s\S]*const deferHeavyChrome = Boolean\(options\?\.deferHeavyChrome\);[\s\S]*schedulePostPaintPublicChromeRefresh\(\);[\s\S]*return;[\s\S]*renderHeaderUserMenu\(\);/);
+  assert.match(appSource, /function showInstantBootFeedSnapshot[\s\S]*refreshPublicEntryChrome\(\{ deferHeavyChrome: true \}\);/);
+  assert.match(appSource, /const hasVisibleFeedCards = Boolean\(\s+productsContainer\?\.querySelector\("\.product-card\[data-open-product\], \.seller-product-card\[data-open-product\]"\)\s+\);[\s\S]*if \(hasVisibleFeedCards\) \{/);
+  assert.doesNotMatch(appSource, /const hasVisibleFeedShell = Boolean\([\s\S]*data-feed-skeleton-card[\s\S]*\);\s+if \(hasVisibleFeedShell\)/);
+  assert.match(appSource, /async function bootApp[\s\S]*initializePwaInstallExperience\(\);\s+refreshPublicEntryChrome\(\{ deferHeavyChrome: true \}\);/);
   assert.match(appSource, /if \(typeof IntersectionObserver !== "undefined"\) \{[\s\S]*const observer = ensureMarketplaceScrollImageObserver\(\);[\s\S]*images\.slice\(0, limit\)\.forEach/);
   assert.match(appSource, /const hasIntersectionObserver = typeof IntersectionObserver !== "undefined";[\s\S]*if \(hasIntersectionObserver\) \{[\s\S]*observer\?\.observe\?\.\(image\);[\s\S]*return;/);
   assert.match(appSource, /const viewportCandidates = images\s+\.map\(\(image\) => \{[\s\S]*const rect = image\.getBoundingClientRect\(\);[\s\S]*\.filter\(\(item\) => item\.isInViewport \|\| item\.isWithinLandingZone\)[\s\S]*\.slice\(0, limit\);/);

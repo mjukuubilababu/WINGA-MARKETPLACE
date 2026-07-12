@@ -153,6 +153,7 @@ const {
 const FLEXIBLE_SUBCATEGORY_TOP_VALUES = new Set(["vitu-used"]);
 let allowHomeFeedRankingDuringBootRender = false;
 let postPaintHomeFeedRankingScheduled = false;
+let postPaintPublicChromeRefreshScheduled = false;
 const MAX_UPLOAD_IMAGES = 5;
 const MAX_IMAGE_SIZE_MB = 25;
 const MAX_IMAGE_SIZE_BYTES = MAX_IMAGE_SIZE_MB * 1024 * 1024;
@@ -3856,7 +3857,8 @@ function promptGuestAuth(options = {}) {
   });
 }
 
-function refreshPublicEntryChrome() {
+function refreshPublicEntryChrome(options = {}) {
+  const deferHeavyChrome = Boolean(options?.deferHeavyChrome);
   const isGuest = !isAuthenticatedUser();
   const isSessionRestoreUi = isSessionRestorePending && isGuest;
   const isRestrictedView = currentView === "profile"
@@ -3882,9 +3884,26 @@ function refreshPublicEntryChrome() {
       : "");
     topBarSubtitle.style.display = isGuest || isSessionRestoreUi ? "" : "none";
   }
+  if (deferHeavyChrome) {
+    schedulePostPaintPublicChromeRefresh();
+    return;
+  }
   syncInstallChrome();
   updateMarketplaceActionChrome();
   renderHeaderUserMenu();
+}
+
+function schedulePostPaintPublicChromeRefresh() {
+  if (postPaintPublicChromeRefreshScheduled) {
+    return;
+  }
+  postPaintPublicChromeRefreshScheduled = true;
+  afterNextPaint(() => {
+    scheduleIdleBackgroundWork(() => {
+      postPaintPublicChromeRefreshScheduled = false;
+      refreshPublicEntryChrome();
+    }, 500);
+  });
 }
 
 function buildAppShellHistoryState(overrides = {}) {
@@ -8038,7 +8057,7 @@ function showSessionRestoringState(message = "") {
   hideAdminLoginScreen();
   appContainer.style.display = "block";
   syncBodyScrollLockState();
-  refreshPublicEntryChrome();
+  refreshPublicEntryChrome({ deferHeavyChrome: true });
   if (topBarSubtitle) {
     setNodeText(topBarSubtitle, message || "Tunaangalia session yako nyuma ya pazia.");
     topBarSubtitle.style.display = "";
@@ -8047,7 +8066,7 @@ function showSessionRestoringState(message = "") {
 
 function clearSessionRestoringState() {
   isSessionRestorePending = false;
-  refreshPublicEntryChrome();
+  refreshPublicEntryChrome({ deferHeavyChrome: true });
 }
 
 function shouldDeferBootRenderForPendingStaffSession() {
@@ -8109,14 +8128,13 @@ function showInstantBootFeedSnapshot(reason = "boot_snapshot") {
   setCurrentViewState("home", getEphemeralLifecycleViewOptions());
   appContainer.style.display = "block";
   syncBodyScrollLockState();
-  refreshPublicEntryChrome();
-  const hasVisibleFeedShell = Boolean(
-    productsContainer?.querySelector(".product-card, .seller-product-card")
-    || productsContainer?.querySelector("[data-feed-skeleton-card='true']")
-    || emptyState?.style.display === "block"
+  refreshPublicEntryChrome({ deferHeavyChrome: true });
+  const hasVisibleFeedCards = Boolean(
+    productsContainer?.querySelector(".product-card[data-open-product], .seller-product-card[data-open-product]")
   );
+  const hasVisibleFeedShell = Boolean(hasVisibleFeedCards || emptyState?.style.display === "block");
 
-  if (hasVisibleFeedShell) {
+  if (hasVisibleFeedCards) {
     const retainedSurfaceResumed = resumeRetainedHomeFeedSurface(`${reason}_snapshot_resume`, {
       productLimit: 8,
       decodeLimit: 3,
@@ -21369,7 +21387,7 @@ async function bootApp() {
   document.body.classList.remove("auth-modal-open");
   appContainer.style.display = "block";
   initializePwaInstallExperience();
-  refreshPublicEntryChrome();
+  refreshPublicEntryChrome({ deferHeavyChrome: true });
   homeFeedRefreshCursor = initializeHomeFeedRefreshCursor();
   suppressInitialProductHomeRender = Boolean(getDeepLinkedProductIdFromRoute());
   const cachedSession = window.WingaDataLayer.bootstrapSession
