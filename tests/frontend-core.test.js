@@ -57,15 +57,28 @@ test("home feed reserves stable media and deferred section geometry", () => {
   assert.match(marketplaceUiSource, /if \(typeof deps\.createContinuousDiscoveryAnchorElement === "function"\)/);
   assert.match(appSource, /window\.setTimeout\(\(\) => \{\s+if \(\s+anchor\.isConnected\s+&& currentView === "home"[\s\S]*hydrateContinuousDiscoveryAnchor\(anchor\);/);
   assert.match(appSource, /afterNextPaint\(\(\) => \{\s+scheduleIdleBackgroundWork\(\(\) => refreshCategoryUI\(\), 80\);/);
+  assert.match(appSource, /if \(typeof IntersectionObserver !== "undefined"\) \{[\s\S]*const observer = ensureMarketplaceScrollImageObserver\(\);[\s\S]*images\.slice\(0, limit\)\.forEach/);
+  assert.match(appSource, /const hasIntersectionObserver = typeof IntersectionObserver !== "undefined";[\s\S]*if \(hasIntersectionObserver\) \{[\s\S]*observer\?\.observe\?\.\(image\);[\s\S]*return;/);
   assert.match(appSource, /const viewportCandidates = images\s+\.map\(\(image\) => \{[\s\S]*const rect = image\.getBoundingClientRect\(\);[\s\S]*\.filter\(\(item\) => item\.isInViewport \|\| item\.isWithinLandingZone\)[\s\S]*\.slice\(0, limit\);/);
   assert.match(appSource, /viewportCandidates\.forEach\(\(\{ image, isInViewport \}, activatedCount\) => \{[\s\S]*image\.setAttribute\("loading", "eager"\);[\s\S]*activateMarketplaceScrollImage\(image,/);
   const viewportActivationSource = appSource.slice(
     appSource.indexOf("function activateViewportReadyFeedImages"),
     appSource.indexOf("function scheduleViewportReadyFeedSweep")
   );
-  const candidateReadEndIndex = viewportActivationSource.indexOf(".slice(0, limit);");
-  const firstWriteIndex = viewportActivationSource.indexOf("image.setAttribute(\"loading\", \"eager\")");
+  const observerPathIndex = viewportActivationSource.indexOf('if (typeof IntersectionObserver !== "undefined")');
+  const firstViewportRectIndex = viewportActivationSource.indexOf("getBoundingClientRect()");
+  assert.ok(observerPathIndex > -1 && firstViewportRectIndex > observerPathIndex, "viewport image activation must prefer IntersectionObserver before geometry fallback");
+  const fallbackSource = viewportActivationSource.slice(firstViewportRectIndex);
+  const candidateReadEndIndex = fallbackSource.indexOf(".slice(0, limit);");
+  const firstWriteIndex = fallbackSource.indexOf("image.setAttribute(\"loading\", \"eager\")");
   assert.ok(candidateReadEndIndex > -1 && firstWriteIndex > candidateReadEndIndex, "viewport image activation must finish layout reads before DOM writes");
+  const bindImagesSource = appSource.slice(
+    appSource.indexOf("function bindMarketplaceScrollImages"),
+    appSource.indexOf("function bindProductMenus")
+  );
+  const bindObserverIndex = bindImagesSource.indexOf("if (hasIntersectionObserver)");
+  const bindRectIndex = bindImagesSource.indexOf("getBoundingClientRect()");
+  assert.ok(bindObserverIndex > -1 && bindRectIndex > bindObserverIndex, "marketplace image binding must observe before falling back to geometry polling");
 });
 
 test("marketplace gallery module preserves feed carousel markup contract", () => {
@@ -2090,13 +2103,15 @@ test("worker emits one matching LCP image preload in the response header and HTM
   assert.match(source, /function getFirstPreloadableFeedImageUrl\(products = \[\]\)/);
   assert.match(source, /function withJsonAcceptHeaders\(headers = new Headers\(\)\)/);
   assert.match(source, /nextHeaders\.set\("Accept", "application\/json"\)/);
-  assert.ok(
-    source.indexOf("const preloadProductsPromise = fetchPreloadProductPage(origin, request);") < source.indexOf("preloadBootstrap = await Promise.race"),
-    "LCP product preload should be scheduled before the bounded preload race"
-  );
+  assert.doesNotMatch(source, /preloadBootstrap = await Promise\.race/);
+  assert.match(source, /const lcpPreloadStatus = lcpImageUrl \? "cache-hit" : "cache-miss-background-refresh";/);
   assert.ok(
     source.indexOf("let lcpImageUrl = await readCachedLcpImageUrl();") < source.indexOf("const preloadLinkHeader = buildImagePreloadLinkHeaderFromUrl(lcpImageUrl);"),
     "LCP preload should prefer the edge-cached image candidate before building response headers"
+  );
+  assert.ok(
+    source.indexOf("const preloadLinkHeader = buildImagePreloadLinkHeaderFromUrl(lcpImageUrl);") < source.indexOf("ctx.waitUntil(refreshCachedLcpImageUrl(preloadProductsPromise));"),
+    "LCP cache refresh must not block document response headers"
   );
 
   const product = context.normalizeProductForStream({

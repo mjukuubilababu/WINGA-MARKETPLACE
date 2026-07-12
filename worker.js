@@ -113,20 +113,8 @@ async function streamFeedPage(request, env, ctx) {
   const buildVersion = await resolveAssetBuildVersion(env);
   const bootstrapPromise = fetchBootstrapContext(origin, request);
   const preloadProductsPromise = fetchPreloadProductPage(origin, request);
-  let preloadBootstrap = null;
-  let lcpPreloadStatus = "cache-miss";
   let lcpImageUrl = await readCachedLcpImageUrl();
-  if (lcpImageUrl) {
-    lcpPreloadStatus = "cache-hit";
-  }
-  if (!lcpImageUrl) {
-    preloadBootstrap = await Promise.race([
-      preloadProductsPromise,
-      new Promise((resolve) => setTimeout(() => resolve({ status: "timeout", items: [] }), LCP_PRELOAD_TIMEOUT_MS))
-    ]);
-    lcpImageUrl = getFirstPreloadableFeedImageUrl(preloadBootstrap?.items || []);
-    lcpPreloadStatus = lcpImageUrl ? "preload-hit" : String(preloadBootstrap?.status || "empty");
-  }
+  const lcpPreloadStatus = lcpImageUrl ? "cache-hit" : "cache-miss-background-refresh";
   const preloadLinkHeader = buildImagePreloadLinkHeaderFromUrl(lcpImageUrl);
 
   ctx.waitUntil(refreshCachedLcpImageUrl(preloadProductsPromise));

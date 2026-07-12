@@ -20217,8 +20217,6 @@ function activateViewportReadyFeedImages(scope = document, options = {}) {
   if (!(scope instanceof Element || scope === document)) {
     return;
   }
-  const viewportHeight = window.innerHeight || document.documentElement?.clientHeight || 0;
-  const activationMargin = getMarketplaceScrollImageActivationMargin();
   const images = Array.from(
     scope.querySelectorAll?.("img[data-marketplace-scroll-image='true']") || []
   ).filter((image) => image instanceof HTMLImageElement);
@@ -20227,6 +20225,40 @@ function activateViewportReadyFeedImages(scope = document, options = {}) {
     Number(options.limit || getAdaptiveViewportImageSweepLimit()) || getAdaptiveViewportImageSweepLimit()
   );
 
+  if (typeof IntersectionObserver !== "undefined") {
+    const observer = ensureMarketplaceScrollImageObserver();
+    images.slice(0, limit).forEach((image, index) => {
+      const prioritizeImage = index < 3
+        || String(image.dataset.imagePriority || "").toLowerCase().includes("startup-critical")
+        || Boolean(image.closest("[data-startup-priority-card='true']"));
+      const owningCard = image.closest(".product-card[data-open-product], .seller-product-card[data-open-product], .showcase-card[data-open-product]");
+      if (prioritizeImage) {
+        image.setAttribute("loading", "eager");
+        image.setAttribute("fetchpriority", "high");
+        activateMarketplaceScrollImage(image, {
+          priority: true,
+          shouldSetPending: true
+        });
+        observer?.unobserve?.(image);
+      } else {
+        image.setAttribute("loading", "lazy");
+        image.setAttribute("fetchpriority", "auto");
+        observer?.observe?.(image);
+      }
+      if (owningCard instanceof Element && index < 4) {
+        const revealWindow = getAdaptiveMarketplaceCardRevealWindow();
+        scheduleMarketplaceCardMediaReveal(owningCard, {
+          maxWaitMs: revealWindow.maxWaitMs,
+          pollMs: revealWindow.pollMs,
+          requireLoaded: true
+        });
+      }
+    });
+    return;
+  }
+
+  const viewportHeight = window.innerHeight || document.documentElement?.clientHeight || 0;
+  const activationMargin = getMarketplaceScrollImageActivationMargin();
   const viewportCandidates = images
     .map((image) => {
       const rect = image.getBoundingClientRect();
@@ -20935,6 +20967,7 @@ function ensureMarketplaceScrollImageObserver() {
 function bindMarketplaceScrollImages(scope = document) {
   const observer = ensureMarketplaceScrollImageObserver();
   bumpRuntimeDiagnostic("marketplaceImageBindCalls");
+  const hasIntersectionObserver = typeof IntersectionObserver !== "undefined";
   scope.querySelectorAll("img[data-marketplace-scroll-image='true']").forEach((image) => {
     if (image.dataset.marketplaceScrollBound === "true") {
       return;
@@ -20973,6 +21006,32 @@ function bindMarketplaceScrollImages(scope = document) {
       };
       image.addEventListener("load", image.__wingaMarketplaceLoadHandler, { passive: true });
       image.addEventListener("error", image.__wingaMarketplaceErrorHandler, { passive: true });
+    }
+    if (hasIntersectionObserver) {
+      if (isStartupCritical) {
+        const owningCard = image.closest(".product-card[data-open-product], .seller-product-card[data-open-product], .showcase-card[data-open-product]");
+        image.setAttribute("loading", "eager");
+        image.setAttribute("fetchpriority", "high");
+        activateMarketplaceScrollImage(image, {
+          priority: true,
+          shouldSetPending: true
+        });
+        if (owningCard instanceof Element) {
+          const revealWindow = getAdaptiveMarketplaceCardRevealWindow();
+          scheduleMarketplaceCardMediaReveal(owningCard, {
+            maxWaitMs: revealWindow.maxWaitMs,
+            pollMs: revealWindow.pollMs,
+            requireLoaded: true
+          });
+        }
+        observer?.unobserve?.(image);
+        return;
+      }
+      image.setAttribute("loading", "lazy");
+      image.setAttribute("fetchpriority", "auto");
+      bumpRuntimeDiagnostic("marketplaceImageObservedCount");
+      observer?.observe?.(image);
+      return;
     }
     const rect = image.getBoundingClientRect();
     const viewportHeight = window.innerHeight || document.documentElement?.clientHeight || 0;
