@@ -8,6 +8,9 @@ const ORIGIN_BASE_URL = "https://winga-pflp.onrender.com";
  */
 const DEFAULT_FEED_LIMIT = 12;
 const BOOTSTRAP_TIMEOUT_MS = 3000;
+const LCP_PRELOAD_TIMEOUT_MS = 3000;
+const LCP_PRELOAD_CACHE_TTL_SECONDS = 60 * 5;
+const LCP_PRELOAD_CACHE_URL = "https://wingamarket.com/__winga_lcp_preload_candidate";
 const IMAGE_EDGE_TTL_SECONDS = 60 * 60 * 24;
 const STRICT_TRANSPORT_SECURITY_HEADER = "max-age=31536000; includeSubDomains; preload";
 const encoder = new TextEncoder();
@@ -109,12 +112,24 @@ async function streamFeedPage(request, env, ctx) {
   const styleNonce = createCspNonce();
   const buildVersion = await resolveAssetBuildVersion(env);
   const bootstrapPromise = fetchBootstrapContext(origin, request);
-  const preloadBootstrap = await Promise.race([
-    bootstrapPromise,
-    new Promise((resolve) => setTimeout(() => resolve(null), 180))
-  ]);
-  const lcpImageUrl = getPrimaryFeedImageUrl(preloadBootstrap?.items?.[0]);
-  const preloadLinkHeader = buildImagePreloadLinkHeader(preloadBootstrap?.items || []);
+  const preloadProductsPromise = fetchPreloadProductPage(origin, request);
+  let preloadBootstrap = null;
+  let lcpPreloadStatus = "cache-miss";
+  let lcpImageUrl = await readCachedLcpImageUrl();
+  if (lcpImageUrl) {
+    lcpPreloadStatus = "cache-hit";
+  }
+  if (!lcpImageUrl) {
+    preloadBootstrap = await Promise.race([
+      preloadProductsPromise,
+      new Promise((resolve) => setTimeout(() => resolve({ status: "timeout", items: [] }), LCP_PRELOAD_TIMEOUT_MS))
+    ]);
+    lcpImageUrl = getFirstPreloadableFeedImageUrl(preloadBootstrap?.items || []);
+    lcpPreloadStatus = lcpImageUrl ? "preload-hit" : String(preloadBootstrap?.status || "empty");
+  }
+  const preloadLinkHeader = buildImagePreloadLinkHeaderFromUrl(lcpImageUrl);
+
+  ctx.waitUntil(refreshCachedLcpImageUrl(preloadProductsPromise));
 
   ctx.waitUntil((async () => {
     try {
@@ -162,6 +177,7 @@ async function streamFeedPage(request, env, ctx) {
       "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=()",
       "Strict-Transport-Security": STRICT_TRANSPORT_SECURITY_HEADER,
       "Content-Security-Policy": buildContentSecurityPolicy({ origin, scriptNonce, styleNonce }),
+      "X-Winga-LCP-Preload": lcpPreloadStatus,
       ...(preloadLinkHeader ? { Link: preloadLinkHeader } : {})
     }
   });
@@ -276,6 +292,32 @@ async function fetchBootstrapContext(origin, request) {
   }
 }
 
+async function fetchPreloadProductPage(origin, request) {
+  try {
+    const headers = forwardProxyHeaders(request);
+    const productPage = await fetchProducts(origin, headers, {
+      limit: Math.min(DEFAULT_FEED_LIMIT, 6),
+      page: 1,
+      timeoutMs: LCP_PRELOAD_TIMEOUT_MS
+    });
+    const items = Array.isArray(productPage?.items)
+      ? productPage.items.slice(0, DEFAULT_FEED_LIMIT)
+      : [];
+    if (!items.length) {
+      return { status: "no-products", items: [] };
+    }
+    return {
+      status: "preload-products",
+      items: items.map((product, index) => normalizeProductForStream(product, {
+        feedPosition: index,
+        usersById: {}
+      }))
+    };
+  } catch (error) {
+    return { status: `error:${String(error?.message || "unknown").slice(0, 40)}`, items: [] };
+  }
+}
+
 async function loadBootstrapContext(origin, headers) {
   const [productsResult, usersResult, sessionResult] = await Promise.allSettled([
     fetchProducts(origin, headers, {
@@ -333,15 +375,15 @@ async function fetchProducts(origin, headers, options = {}) {
     query.set("cursor", pageWindow.cursor);
   }
   const data = await fetchJsonWithTimeout(`${origin}/api/products?${query.toString()}`, {
-    headers
-  });
+    headers: withJsonAcceptHeaders(headers)
+  }, Number(pageWindow.timeoutMs || options.timeoutMs || BOOTSTRAP_TIMEOUT_MS) || BOOTSTRAP_TIMEOUT_MS);
   return normalizeProductPageCollection(data, pageWindow);
 }
 
 async function fetchUsers(origin, headers) {
   try {
     const data = await fetchJsonWithTimeout(`${origin}/api/users`, {
-      headers
+      headers: withJsonAcceptHeaders(headers)
     });
     return Array.isArray(data) ? data : [];
   } catch (_error) {
@@ -352,7 +394,7 @@ async function fetchUsers(origin, headers) {
 async function fetchSession(origin, headers) {
   try {
     return await fetchJsonWithTimeout(`${origin}/api/auth/session`, {
-      headers
+      headers: withJsonAcceptHeaders(headers)
     });
   } catch (_error) {
     return null;
@@ -1236,11 +1278,63 @@ function getPrimaryFeedImageUrl(product) {
   return images[initialImageIndex] || images[0] || "";
 }
 
+function getFirstPreloadableFeedImageUrl(products = []) {
+  const source = Array.isArray(products) ? products : [];
+  for (const product of source) {
+    const imageUrl = getPrimaryFeedImageUrl(product);
+    if (imageUrl && !/^data:/i.test(imageUrl)) {
+      return imageUrl;
+    }
+  }
+  return "";
+}
+
 function buildImagePreloadLinkHeader(products = []) {
-  const lcpImageUrl = getPrimaryFeedImageUrl(products[0]);
-  return lcpImageUrl
-    ? `<${lcpImageUrl}>; rel=preload; as=image; fetchpriority=high`
+  return buildImagePreloadLinkHeaderFromUrl(getFirstPreloadableFeedImageUrl(products));
+}
+
+function buildImagePreloadLinkHeaderFromUrl(lcpImageUrl = "") {
+  const safeUrl = String(lcpImageUrl || "").trim();
+  return safeUrl
+    ? `<${safeUrl}>; rel=preload; as=image; fetchpriority=high`
     : "";
+}
+
+async function readCachedLcpImageUrl() {
+  try {
+    const response = await caches.default.match(new Request(LCP_PRELOAD_CACHE_URL));
+    if (!response?.ok) {
+      return "";
+    }
+    const payload = await response.json();
+    return String(payload?.imageUrl || "").trim();
+  } catch (_error) {
+    return "";
+  }
+}
+
+async function refreshCachedLcpImageUrl(preloadProductsPromise) {
+  try {
+    const preloadBootstrap = await preloadProductsPromise;
+    const imageUrl = getFirstPreloadableFeedImageUrl(preloadBootstrap?.items || []);
+    if (!imageUrl) {
+      return;
+    }
+    await caches.default.put(
+      new Request(LCP_PRELOAD_CACHE_URL),
+      new Response(JSON.stringify({
+        imageUrl,
+        updatedAt: new Date().toISOString()
+      }), {
+        headers: {
+          "Content-Type": "application/json; charset=utf-8",
+          "Cache-Control": `public, max-age=${LCP_PRELOAD_CACHE_TTL_SECONDS}`
+        }
+      })
+    );
+  } catch (_error) {
+    // LCP candidate refresh is best-effort and must never block the feed.
+  }
 }
 
 function toEdgeImageUrl(src = "") {
@@ -1387,6 +1481,12 @@ function forwardProxyHeaders(request) {
     headers.set("User-Agent", userAgent);
   }
   return headers;
+}
+
+function withJsonAcceptHeaders(headers = new Headers()) {
+  const nextHeaders = new Headers(headers);
+  nextHeaders.set("Accept", "application/json");
+  return nextHeaders;
 }
 
 function getOriginBaseUrl(env) {

@@ -1577,9 +1577,11 @@ test("production domain routing verifier catches API shell fallthrough", () => {
   const root = path.resolve(__dirname, "..");
   const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
   const domainVerifySource = fs.readFileSync(path.join(root, "scripts", "verify-domain-routing.js"), "utf8");
+  const workerPerformanceVerifySource = fs.readFileSync(path.join(root, "scripts", "verify-worker-performance.js"), "utf8");
 
   assert.equal(packageJson.scripts["verify:domain-routing"], "node scripts/verify-domain-routing.js");
   assert.equal(packageJson.scripts["verify:frontend-worker-routing"], "node scripts/verify-domain-routing.js --runtime=worker");
+  assert.equal(packageJson.scripts["verify:worker-performance"], "node scripts/verify-worker-performance.js");
   assert.match(domainVerifySource, /FRONTEND_ORIGIN/);
   assert.match(domainVerifySource, /VERCEL_ORIGIN/);
   assert.match(domainVerifySource, /BACKEND_ORIGIN/);
@@ -1591,6 +1593,9 @@ test("production domain routing verifier catches API shell fallthrough", () => {
   assert.match(domainVerifySource, /X-Vercel-Id/);
   assert.match(domainVerifySource, /Cloudflare Worker traffic/);
   assert.match(domainVerifySource, /Expected CF-Ray and no X-Vercel-Id/);
+  assert.match(workerPerformanceVerifySource, /rel=preload;\\s\*as=image;\\s\*fetchpriority=high/);
+  assert.match(workerPerformanceVerifySource, /preloadTagCount/);
+  assert.match(workerPerformanceVerifySource, /data-winga-build-version/);
 });
 
 test("production builds expose one verifiable app version", () => {
@@ -1962,6 +1967,7 @@ test("production frontend routes same-domain API requests to the backend origin"
   const vercelConfig = JSON.parse(fs.readFileSync(path.join(root, "vercel.json"), "utf8"));
   const staticRedirectsSource = fs.readFileSync(path.join(root, "_redirects"), "utf8");
   const apiProxySource = fs.readFileSync(path.join(root, "api", "[...path].js"), "utf8");
+  const wranglerSource = fs.readFileSync(path.join(root, "wrangler.toml"), "utf8");
   const rewrites = Array.isArray(vercelConfig.rewrites) ? vercelConfig.rewrites : [];
   const redirects = Array.isArray(vercelConfig.redirects) ? vercelConfig.redirects : [];
   const apiRewrite = rewrites.find((entry) => entry.source === "/api/:path*");
@@ -1980,6 +1986,7 @@ test("production frontend routes same-domain API requests to the backend origin"
   assert.match(apiProxySource, /MAX_PROXY_BODY_BYTES = 20 \* 1024 \* 1024/);
   assert.match(apiProxySource, /HOP_BY_HOP_HEADERS/);
   assert.match(apiProxySource, /headers\["x-winga-proxy"\] = "vercel-api"/);
+  assert.match(wranglerSource, /run_worker_first = \["\/", "\/feed", "\/api\/\*", "\/uploads\/\*"\]/);
 });
 
 test("worker cycles production image arrays without dropping gallery images", () => {
@@ -2061,11 +2068,32 @@ test("worker emits one matching LCP image preload in the response header and HTM
   });
   vm.runInContext(source, context);
 
+  assert.match(source, /const LCP_PRELOAD_TIMEOUT_MS = 3000;/);
+  assert.match(source, /const LCP_PRELOAD_CACHE_TTL_SECONDS = 60 \* 5;/);
+  assert.match(source, /const preloadProductsPromise = fetchPreloadProductPage\(origin, request\);/);
+  assert.match(source, /function fetchPreloadProductPage\(origin, request\)/);
+  assert.match(source, /limit: Math\.min\(DEFAULT_FEED_LIMIT, 6\),/);
+  assert.match(source, /timeoutMs: LCP_PRELOAD_TIMEOUT_MS/);
+  assert.match(source, /function readCachedLcpImageUrl\(\)/);
+  assert.match(source, /function refreshCachedLcpImageUrl\(preloadProductsPromise\)/);
+  assert.match(source, /function getFirstPreloadableFeedImageUrl\(products = \[\]\)/);
+  assert.match(source, /function withJsonAcceptHeaders\(headers = new Headers\(\)\)/);
+  assert.match(source, /nextHeaders\.set\("Accept", "application\/json"\)/);
+  assert.ok(
+    source.indexOf("const preloadProductsPromise = fetchPreloadProductPage(origin, request);") < source.indexOf("preloadBootstrap = await Promise.race"),
+    "LCP product preload should be scheduled before the bounded preload race"
+  );
+  assert.ok(
+    source.indexOf("let lcpImageUrl = await readCachedLcpImageUrl();") < source.indexOf("const preloadLinkHeader = buildImagePreloadLinkHeaderFromUrl(lcpImageUrl);"),
+    "LCP preload should prefer the edge-cached image candidate before building response headers"
+  );
+
   const product = context.normalizeProductForStream({
     id: "lcp-product",
     images: ["first.jpg", "second.jpg"]
   }, { feedPosition: 1 });
   const lcpImageUrl = context.getPrimaryFeedImageUrl(product);
+  const firstPreloadable = context.getFirstPreloadableFeedImageUrl([{ images: ["data:image/png;base64,abc"] }, product]);
   const header = context.buildImagePreloadLinkHeader([product]);
   const html = context.buildDocumentShellStart({
     lcpImageUrl,
@@ -2073,6 +2101,7 @@ test("worker emits one matching LCP image preload in the response header and HTM
   });
 
   assert.equal(lcpImageUrl, "/second.jpg");
+  assert.equal(firstPreloadable, "/second.jpg");
   assert.equal(header, "</second.jpg>; rel=preload; as=image; fetchpriority=high");
   assert.match(html, /<link rel="preload" as="image" href="\/second\.jpg" fetchpriority="high">/);
   assert.match(html, /<link rel="preconnect" href="https:\/\/winga-pflp\.onrender\.com" crossorigin>/);

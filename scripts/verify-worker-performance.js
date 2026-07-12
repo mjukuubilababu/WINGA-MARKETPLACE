@@ -1,0 +1,65 @@
+const FRONTEND_ORIGIN = process.env.WINGA_FRONTEND_ORIGIN || "https://wingamarket.com";
+
+function getHeader(headers, name) {
+  return headers.get(name) || headers.get(name.toLowerCase()) || "";
+}
+
+function normalizeBodyStart(value = "") {
+  return String(value || "").replace(/\s+/g, " ").trim().slice(0, 180);
+}
+
+async function main() {
+  const target = `${FRONTEND_ORIGIN.replace(/\/$/, "")}/`;
+  console.log(`Verifying Winga Worker performance hints at ${target}`);
+  const response = await fetch(target, {
+    headers: {
+      "Cache-Control": "no-cache",
+      "Pragma": "no-cache"
+    }
+  });
+  const body = await response.text();
+  const linkHeader = getHeader(response.headers, "link");
+  const cfRay = getHeader(response.headers, "cf-ray");
+  const xVercelId = getHeader(response.headers, "x-vercel-id");
+  const lcpPreloadStatus = getHeader(response.headers, "x-winga-lcp-preload");
+  const server = getHeader(response.headers, "server");
+  const preloadTags = body.match(/<link\s+rel="preload"\s+as="image"[^>]+fetchpriority="high"[^>]*>/gi) || [];
+  const buildVersionMatch = body.match(/data-winga-build-version[^>]*>(\d{14})</i);
+  const bodyStart = normalizeBodyStart(body);
+
+  const summary = {
+    status: response.status,
+    server,
+    cfRay: cfRay ? "present" : "",
+    xVercelId: xVercelId ? "present" : "",
+    linkHeader,
+    lcpPreloadStatus,
+    preloadTagCount: preloadTags.length,
+    buildVersion: buildVersionMatch?.[1] || "",
+    bodyStart
+  };
+  console.log(JSON.stringify(summary, null, 2));
+
+  if (!response.ok) {
+    throw new Error(`Home returned HTTP ${response.status}`);
+  }
+  if (!cfRay || xVercelId) {
+    throw new Error("Home response does not look like Cloudflare Worker traffic.");
+  }
+  if (!/rel=preload;\s*as=image;\s*fetchpriority=high/i.test(linkHeader)) {
+    throw new Error("Home response is missing the LCP image preload Link header.");
+  }
+  if (preloadTags.length !== 1) {
+    throw new Error(`Expected exactly one LCP image preload tag, found ${preloadTags.length}.`);
+  }
+  if (!buildVersionMatch?.[1]) {
+    throw new Error("Home response is missing the production build version marker.");
+  }
+  console.log("Worker performance hint verification passed.");
+}
+
+main().catch((error) => {
+  console.error("Worker performance hint verification failed.");
+  console.error(error?.message || error);
+  process.exit(1);
+});
