@@ -57,6 +57,11 @@ test("home feed reserves stable media and deferred section geometry", () => {
   assert.match(marketplaceUiSource, /if \(typeof deps\.createContinuousDiscoveryAnchorElement === "function"\)/);
   assert.match(appSource, /window\.setTimeout\(\(\) => \{\s+if \(\s+anchor\.isConnected\s+&& currentView === "home"[\s\S]*hydrateContinuousDiscoveryAnchor\(anchor\);/);
   assert.match(appSource, /afterNextPaint\(\(\) => \{\s+scheduleIdleBackgroundWork\(\(\) => refreshCategoryUI\(\), 80\);/);
+  assert.match(appSource, /function shouldDeferHomeFeedRankingForFirstPaint\(\) \{[\s\S]*document\.body\?\.classList\?\.contains\("app-booting"\)[\s\S]*!hasActiveMarketplaceBootFilters\(\)/);
+  assert.match(appSource, /if \(shouldDeferHomeFeedRankingForFirstPaint\(\)\) \{\s+schedulePostPaintHomeFeedRankingUpgrade\("boot_home_feed_ranking_upgrade"\);\s+return sortProductsNewestFirst\(visibleList\);/);
+  assert.match(appSource, /renderCurrentView\(\{\s+reason,\s+force: true,\s+allowBootHomeFeedRanking: true\s+\}\);/);
+  assert.match(appSource, /const allowQueuedBootRanking = Boolean\(uiRuntimeState\.pendingRenderAllowsBootHomeFeedRanking\);[\s\S]*allowBootHomeFeedRanking: allowQueuedBootRanking/);
+  assert.match(appSource, /schedulePostPaintHomeFeedRankingUpgrade\("boot_initial_render_upgrade"\);/);
   assert.match(appSource, /if \(typeof IntersectionObserver !== "undefined"\) \{[\s\S]*const observer = ensureMarketplaceScrollImageObserver\(\);[\s\S]*images\.slice\(0, limit\)\.forEach/);
   assert.match(appSource, /const hasIntersectionObserver = typeof IntersectionObserver !== "undefined";[\s\S]*if \(hasIntersectionObserver\) \{[\s\S]*observer\?\.observe\?\.\(image\);[\s\S]*return;/);
   assert.match(appSource, /const viewportCandidates = images\s+\.map\(\(image\) => \{[\s\S]*const rect = image\.getBoundingClientRect\(\);[\s\S]*\.filter\(\(item\) => item\.isInViewport \|\| item\.isWithinLandingZone\)[\s\S]*\.slice\(0, limit\);/);

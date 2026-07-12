@@ -151,6 +151,8 @@ const {
   LEGACY_CATEGORY_MAPPINGS = {}
 } = categoryConfig;
 const FLEXIBLE_SUBCATEGORY_TOP_VALUES = new Set(["vitu-used"]);
+let allowHomeFeedRankingDuringBootRender = false;
+let postPaintHomeFeedRankingScheduled = false;
 const MAX_UPLOAD_IMAGES = 5;
 const MAX_IMAGE_SIZE_MB = 25;
 const MAX_IMAGE_SIZE_BYTES = MAX_IMAGE_SIZE_MB * 1024 * 1024;
@@ -306,6 +308,35 @@ function getBootInitialRenderProducts() {
     return [];
   }
   return prioritizeSellerMarketplaceMix(sortProductsNewestFirst(sourceProducts.slice(0, bootLimit)));
+}
+
+function shouldDeferHomeFeedRankingForFirstPaint() {
+  return Boolean(
+    currentView === "home"
+    && !allowHomeFeedRankingDuringBootRender
+    && document.body?.classList?.contains("app-booting")
+    && !hasActiveMarketplaceBootFilters()
+  );
+}
+
+function schedulePostPaintHomeFeedRankingUpgrade(reason = "boot_home_feed_ranking_upgrade") {
+  if (postPaintHomeFeedRankingScheduled) {
+    return;
+  }
+  postPaintHomeFeedRankingScheduled = true;
+  afterNextPaint(() => {
+    scheduleIdleBackgroundWork(() => {
+      postPaintHomeFeedRankingScheduled = false;
+      if (currentView !== "home" || hasActiveMarketplaceBootFilters()) {
+        return;
+      }
+      renderCurrentView({
+        reason,
+        force: true,
+        allowBootHomeFeedRanking: true
+      });
+    }, 700);
+  });
 }
 
 function refreshProductsAfterAuthChange() {
@@ -1052,6 +1083,10 @@ function getHomeFeedIntelligenceContext(productList = products) {
 function buildBalancedHomeFeed(list = []) {
   const visibleList = Array.isArray(list) ? list.slice() : [];
   if (visibleList.length < 3) {
+    return sortProductsNewestFirst(visibleList);
+  }
+  if (shouldDeferHomeFeedRankingForFirstPaint()) {
+    schedulePostPaintHomeFeedRankingUpgrade("boot_home_feed_ranking_upgrade");
     return sortProductsNewestFirst(visibleList);
   }
 
@@ -2050,9 +2085,15 @@ function queueRenderCurrentView(reason = "scheduled_render") {
   uiRuntimeState.renderFrame = requestAnimationFrame(() => {
     uiRuntimeState.renderFrame = 0;
     const nextReason = uiRuntimeState.pendingRenderReason || reason;
+    const allowQueuedBootRanking = Boolean(uiRuntimeState.pendingRenderAllowsBootHomeFeedRanking);
     uiRuntimeState.pendingRenderRequested = false;
     uiRuntimeState.pendingRenderReason = "";
-    renderCurrentView({ reason: nextReason, scheduled: true });
+    uiRuntimeState.pendingRenderAllowsBootHomeFeedRanking = false;
+    renderCurrentView({
+      reason: nextReason,
+      scheduled: true,
+      allowBootHomeFeedRanking: allowQueuedBootRanking
+    });
   });
 }
 
@@ -2065,9 +2106,15 @@ function scheduleRenderCurrentView(reason = "scheduled_render") {
   uiRuntimeState.renderFrame = requestAnimationFrame(() => {
     uiRuntimeState.renderFrame = 0;
     const nextReason = uiRuntimeState.pendingRenderReason || reason;
+    const allowQueuedBootRanking = Boolean(uiRuntimeState.pendingRenderAllowsBootHomeFeedRanking);
     uiRuntimeState.pendingRenderRequested = false;
     uiRuntimeState.pendingRenderReason = "";
-    renderCurrentView({ reason: nextReason, scheduled: true });
+    uiRuntimeState.pendingRenderAllowsBootHomeFeedRanking = false;
+    renderCurrentView({
+      reason: nextReason,
+      scheduled: true,
+      allowBootHomeFeedRanking: allowQueuedBootRanking
+    });
   });
 }
 
@@ -19186,16 +19233,26 @@ function renderCurrentView(options = {}) {
   const reason = String(options?.reason || "direct_render");
   const force = Boolean(options?.force);
   const isBootInitialRender = reason === "boot_initial_render" && currentView === "home";
+  const previousBootRankingPermission = allowHomeFeedRankingDuringBootRender;
+  allowHomeFeedRankingDuringBootRender = Boolean(options?.allowBootHomeFeedRanking);
   bumpRuntimeDiagnostic("renderCurrentViewCalls");
   if (isExperienceMetricDebugEnabled()) {
     safePerformanceMark("winga_render_start");
   }
   const now = Date.now();
   if (uiRuntimeState.isRenderingView) {
+    if (options?.allowBootHomeFeedRanking) {
+      uiRuntimeState.pendingRenderAllowsBootHomeFeedRanking = true;
+    }
+    allowHomeFeedRankingDuringBootRender = previousBootRankingPermission;
     queueRenderCurrentView(reason);
     return;
   }
   if (!force && now - Number(uiRuntimeState.lastRenderStartedAt || 0) < MIN_VIEW_RENDER_INTERVAL_MS) {
+    if (options?.allowBootHomeFeedRanking) {
+      uiRuntimeState.pendingRenderAllowsBootHomeFeedRanking = true;
+    }
+    allowHomeFeedRankingDuringBootRender = previousBootRankingPermission;
     queueRenderCurrentView(reason);
     return;
   }
@@ -19209,6 +19266,7 @@ function renderCurrentView(options = {}) {
   ) {
     uiRuntimeState.isRenderingView = false;
     uiRuntimeState.lastRenderCompletedAt = Date.now();
+    allowHomeFeedRankingDuringBootRender = previousBootRankingPermission;
     return;
   }
   const startedAt = getPerfNow();
@@ -19275,12 +19333,7 @@ function renderCurrentView(options = {}) {
         renderSearchDropdown([], { isProfile: false, isUpload: false, isAdminView: false });
         renderProducts(bootProducts);
         if (bootProducts.length > 0) {
-          scheduleIdleBackgroundWork(() => {
-            if (currentView !== "home" || uiRuntimeState.lastRenderStartedAt !== now || hasActiveMarketplaceBootFilters()) {
-              return;
-            }
-            renderCurrentView({ reason: "boot_initial_render_upgrade", force: true });
-          }, 220);
+          schedulePostPaintHomeFeedRankingUpgrade("boot_initial_render_upgrade");
         }
         const hasVisibleBootContent = hasVisibleStartupSurface({ includeFeedLoading: false });
         if (hasVisibleBootContent) {
@@ -19438,6 +19491,7 @@ function renderCurrentView(options = {}) {
       reason
     });
   } finally {
+    allowHomeFeedRankingDuringBootRender = previousBootRankingPermission;
     const completedBootInitialRender = uiRuntimeState.isBootInitialRender;
     uiRuntimeState.isRenderingView = false;
     uiRuntimeState.isBootInitialRender = false;
