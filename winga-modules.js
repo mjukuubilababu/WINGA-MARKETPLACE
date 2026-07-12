@@ -5287,18 +5287,36 @@ window.WingaModules.notifications = window.WingaModules.notifications || {};
 // src/navigation/chrome.js
 (() => {
   function createNavigationChromeModule(deps) {
-    function getViewportWidth() {
-      const candidates = [
-        window.visualViewport?.width,
-        document.documentElement?.clientWidth,
-        window.innerWidth
-      ]
-        .map((value) => Number(value))
-        .filter((value) => Number.isFinite(value) && value > 0);
-      if (!candidates.length) {
-        return 0;
+    let cachedViewportWidth = Math.max(0, Number(window.innerWidth || 0));
+    let viewportWidthFrame = 0;
+
+    function refreshViewportWidthCache() {
+      const nextWidth = Math.max(
+        0,
+        Number(window.visualViewport?.width || 0),
+        Number(window.innerWidth || 0)
+      );
+      if (nextWidth > 0) {
+        cachedViewportWidth = nextWidth;
       }
-      return Math.round(Math.min(...candidates));
+    }
+
+    function scheduleViewportWidthCacheRefresh() {
+      if (viewportWidthFrame) {
+        return;
+      }
+      viewportWidthFrame = requestAnimationFrame(() => {
+        viewportWidthFrame = 0;
+        refreshViewportWidthCache();
+      });
+    }
+
+    refreshViewportWidthCache();
+    window.addEventListener?.("resize", scheduleViewportWidthCacheRefresh, { passive: true });
+    window.visualViewport?.addEventListener?.("resize", scheduleViewportWidthCacheRefresh, { passive: true });
+
+    function getViewportWidth() {
+      return Math.round(Math.max(0, Number(cachedViewportWidth || window.innerWidth || 0)));
     }
 
     function shouldShowBottomNav() {

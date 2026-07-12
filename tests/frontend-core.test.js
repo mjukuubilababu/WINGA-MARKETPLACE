@@ -36,7 +36,7 @@ test("home feed reserves stable media and deferred section geometry", () => {
   assert.match(styleSource, /#products-container > \.showcase-inline-pending\{\s+min-height:560px;/);
   assert.match(styleSource, /contain-intrinsic-size:0 560px;/);
   assert.match(appSource, /container\.style\.setProperty\("--winga-viewport-width", `\$\{usableViewportWidth\}px`\);/);
-  assert.match(appSource, /function handleWindowResize\(\) \{\s+toggleHeaderUserMenu\(false\);\s+applyFeedLayoutMode\(productsContainer\);/);
+  assert.match(appSource, /function handleWindowResize\(\) \{\s+refreshCachedViewportWidth\(\);\s+toggleHeaderUserMenu\(false\);\s+applyFeedLayoutMode\(productsContainer\);/);
   assert.match(styleSource, /#products-container\[data-layout-mode\]\{[\s\S]*left:50%;[\s\S]*transform:translateX\(-50%\);[\s\S]*width:var\(--winga-viewport-width, 100vw\);/);
   assert.match(styleSource, /#products-container\[data-layout-mode\]\s*>\s*\.product-card,[\s\S]*width:100%;/);
   assert.match(styleSource, /#top-bar\{[\s\S]*box-sizing:border-box;[\s\S]*width:var\(--winga-viewport-width, 100%\);/);
@@ -1095,11 +1095,28 @@ test("boot lifecycle module owns lifecycle epoch and boot target helpers", () =>
 test("app boot helpers avoid duplicate hoisted declarations", () => {
   const root = path.resolve(__dirname, "..");
   const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
+  const navigationChromeSource = fs.readFileSync(path.join(root, "src", "navigation", "chrome.js"), "utf8");
   const viewportDeclarations = appSource.match(/function getViewportWidth\(/g) || [];
   const pruneDeclarations = appSource.match(/function pruneTimestampRegistry\(/g) || [];
 
   assert.equal(viewportDeclarations.length, 1);
   assert.equal(pruneDeclarations.length, 1);
+  assert.match(appSource, /let cachedViewportWidth = Math\.max\(0, Number\(window\.innerWidth \|\| 0\)\);/);
+  assert.match(appSource, /function getViewportWidth\(\) \{\s+return Math\.max\(0, Number\(cachedViewportWidth \|\| window\.innerWidth \|\| 0\)\);/);
+  const viewportWidthSource = appSource.slice(
+    appSource.indexOf("function getViewportWidth()"),
+    appSource.indexOf("function getClientLayoutMode()")
+  );
+  assert.doesNotMatch(viewportWidthSource, /document\.documentElement\?\.clientWidth/);
+  assert.match(navigationChromeSource, /let cachedViewportWidth = Math\.max\(0, Number\(window\.innerWidth \|\| 0\)\);/);
+  assert.match(navigationChromeSource, /window\.visualViewport\?\.addEventListener\?\.\("resize", scheduleViewportWidthCacheRefresh, \{ passive: true \}\);/);
+  assert.doesNotMatch(navigationChromeSource, /document\.documentElement\?\.clientWidth/);
+  assert.match(appSource, /afterNextPaint\(\(\) => \{\s+scheduleIdleBackgroundWork\(\(\) => beginStartupVisibilityMeasurement\("overlay_hidden"\), 120\);/);
+  const hideBootOverlaySource = appSource.slice(
+    appSource.indexOf("function hideBootOverlayImmediately()"),
+    appSource.indexOf("function hasVisibleStartupFeedMedia")
+  );
+  assert.doesNotMatch(hideBootOverlaySource, /style\.display = "none"/);
 });
 
 test("notification permission module owns prompt state and cooldown logic", () => {

@@ -7415,12 +7415,13 @@ function hideBootOverlayImmediately() {
   bootOverlay.style.opacity = "0";
   bootOverlay.style.visibility = "hidden";
   bootOverlay.style.pointerEvents = "none";
-  bootOverlay.style.display = "none";
   if (document.body.classList.contains("app-booting")) {
     document.body.classList.remove("app-booting");
     document.body.classList.add("app-ready");
   }
-  beginStartupVisibilityMeasurement("overlay_hidden");
+  afterNextPaint(() => {
+    scheduleIdleBackgroundWork(() => beginStartupVisibilityMeasurement("overlay_hidden"), 120);
+  });
 }
 
 function hasVisibleStartupFeedMedia(options = {}) {
@@ -7876,7 +7877,6 @@ function forceHideBootOverlaySafety(reason = "hard_safety") {
   overlay.style.opacity = "0";
   overlay.style.visibility = "hidden";
   overlay.style.pointerEvents = "none";
-  overlay.style.display = "none";
   if (document.body.classList.contains("app-booting")) {
     document.body.classList.remove("app-booting");
     document.body.classList.add("app-ready");
@@ -7884,7 +7884,9 @@ function forceHideBootOverlaySafety(reason = "hard_safety") {
   if (feedRuntimeState) {
     feedRuntimeState.splashFeedImageGateInFlight = false;
   }
-  beginStartupVisibilityMeasurement(reason);
+  afterNextPaint(() => {
+    scheduleIdleBackgroundWork(() => beginStartupVisibilityMeasurement(reason), 120);
+  });
   reportClientEvent("warn", "boot_overlay_force_hidden", "Boot overlay was force-hidden by the startup safety net.", {
     category: "runtime",
     reason
@@ -12531,6 +12533,8 @@ observability.installGlobalErrorHandlers?.(window);
 const getPerfNow = typeof performance !== "undefined" && typeof performance.now === "function"
   ? () => performance.now()
   : () => Date.now();
+let cachedViewportWidth = Math.max(0, Number(window.innerWidth || 0));
+let viewportWidthRefreshFrame = 0;
 const slowPathTelemetryState = new Map();
 const predictiveDecodeTelemetryState = new Map();
 const runtimeAuditState = {
@@ -12547,11 +12551,28 @@ function isProductionClientRuntime() {
 }
 
 function getViewportWidth() {
-  return Math.max(
+  return Math.max(0, Number(cachedViewportWidth || window.innerWidth || 0));
+}
+
+function refreshCachedViewportWidth() {
+  const nextWidth = Math.max(
     0,
-    Number(window.innerWidth || 0),
-    Number(document.documentElement?.clientWidth || 0)
+    Number(window.visualViewport?.width || 0),
+    Number(window.innerWidth || 0)
   );
+  if (nextWidth > 0) {
+    cachedViewportWidth = nextWidth;
+  }
+}
+
+function scheduleViewportWidthRefresh() {
+  if (viewportWidthRefreshFrame) {
+    return;
+  }
+  viewportWidthRefreshFrame = window.requestAnimationFrame(() => {
+    viewportWidthRefreshFrame = 0;
+    refreshCachedViewportWidth();
+  });
 }
 
 function getClientLayoutMode() {
@@ -14683,6 +14704,7 @@ registerAppEvent(document, "click", (event) => {
 }, undefined, "document:click:app-shell-dismissals");
 
 function handleWindowResize() {
+  refreshCachedViewportWidth();
   toggleHeaderUserMenu(false);
   applyFeedLayoutMode(productsContainer);
   if (getViewportWidth() > 720) {
@@ -14696,6 +14718,9 @@ function handleWindowResize() {
 }
 
 registerAppEvent(window, "resize", handleWindowResize, undefined, "window:resize:layout");
+if (window.visualViewport && typeof window.visualViewport.addEventListener === "function") {
+  registerAppEvent(window.visualViewport, "resize", scheduleViewportWidthRefresh, { passive: true }, "visualViewport:resize:viewport-width");
+}
 
 registerAppEvent(document, "keydown", (event) => {
   if (event.key === "Escape") {
