@@ -21289,7 +21289,9 @@ async function bootApp() {
       });
     });
   }
-  const rememberedSessionPromise = window.WingaDataLayer.restoreSession();
+  const rememberedSessionPromise = cachedSession?.username
+    ? window.WingaDataLayer.restoreSession()
+    : Promise.resolve(null);
   const appSettings = await appSettingsPromise;
   if (!isLifecycleEpochCurrent(lifecycleEpoch)) {
     return;

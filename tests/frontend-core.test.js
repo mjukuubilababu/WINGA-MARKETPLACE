@@ -678,6 +678,7 @@ test("auth session runtime module owns restore token and reporting", async () =>
   assert.ok(bootPhases.some(([phase, payload]) => phase === "session_restore_finished" && payload.outcome === "restored"));
   assert.match(source, /window\.WingaModules\.auth\.createSessionRuntimeModule = createSessionRuntimeModule/);
   assert.match(appSource, /window\.WingaModules\?\.auth\?\.createSessionRuntimeModule/);
+  assert.match(appSource, /const rememberedSessionPromise = cachedSession\?\.username\s+\? window\.WingaDataLayer\.restoreSession\(\)\s+: Promise\.resolve\(null\);/);
   assert.doesNotMatch(appSource, /activeSessionRestoreToken/);
   assert.ok(
     buildSource.indexOf('"src/auth/session-runtime.js"') < buildSource.indexOf('"src/boot/lifecycle.js"'),
