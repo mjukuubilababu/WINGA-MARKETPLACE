@@ -10230,7 +10230,7 @@ button:hover,
   width:100% !important;
   height:100% !important;
   max-height:none !important;
-  object-fit:contain !important;
+  object-fit:cover !important;
   object-position:center center !important;
   background:#ffffff !important;
   padding:0 !important;
@@ -10268,7 +10268,7 @@ button:hover,
   width:100% !important;
   height:100% !important;
   max-height:none !important;
-  object-fit:contain !important;
+  object-fit:cover !important;
   object-position:center center !important;
   backface-visibility:hidden !important;
   transform:translateZ(0) !important;

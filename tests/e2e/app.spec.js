@@ -90,7 +90,7 @@ async function createLoggedInPage(browser, username, password, options = {}) {
 test("app load renders marketplace feed, hero, images, and category navigation", async ({ browser }) => {
   const { context, page } = await createAnonymousPage(browser);
   await page.goto("/");
-  await expect(page.locator("#products-container .product-card").first()).toBeVisible({ timeout: 30000 });
+  await expect(page.locator("#products-container .product-card, #products-container .seller-product-card").first()).toBeVisible({ timeout: 30000 });
   await expect(page.locator("#products-container .product-card img").first()).toBeVisible();
   await expect(page.locator("#public-footer")).toBeVisible();
 

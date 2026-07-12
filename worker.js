@@ -874,7 +874,7 @@ function renderFeedGalleryMarkup(product, options = {}) {
     Math.min(total - 1, Number.isFinite(requestedInitialImageIndex) ? requestedInitialImageIndex : 0)
   );
   const stableFrameRatio = "4 / 5";
-  const fitMode = "contain";
+  const fitMode = "cover";
   const slidesMarkup = images.map((imageSrc, index) => {
     const safeSrc = escapeHtml(imageSrc);
     const isInitialImage = index === initialImageIndex;

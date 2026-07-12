@@ -87,9 +87,11 @@
       const shouldForceDirectVisibility = Boolean(options?.directVisibility || isFeedSurface);
       const useCarouselSurface = isFeedSurface || isDetailSurface || isDetailContinuationSurface;
       const usesFeedMediaFit = isFeedSurface || isDetailContinuationSurface;
-      const fitMode = usesFeedMediaFit
-        ? "contain"
-        : normalizeProductFitMode(options?.fitMode || getProductFitMode(product));
+      const fitMode = isFeedSurface
+        ? "cover"
+        : (isDetailContinuationSurface
+          ? "contain"
+          : normalizeProductFitMode(options?.fitMode || getProductFitMode(product)));
       const stableFrameRatio = usesFeedMediaFit
         ? "4 / 5"
         : "";
