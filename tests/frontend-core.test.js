@@ -28,7 +28,8 @@ test("home feed reserves stable media and deferred section geometry", () => {
 
   assert.match(buildSource, /"src\/marketplace\/gallery\.js"/);
   assert.match(gallerySource, /window\.WingaModules\.marketplace\.createGalleryModule = createGalleryModule;/);
-  assert.match(gallerySource, /hasStoredAspectRatio \? String\(Number\(storedAspectRatio\.toFixed\(6\)\)\) : "4 \/ 5"/);
+  assert.match(gallerySource, /const stableFrameRatio = usesFeedMediaFit\s*\?\s*"4 \/ 5"\s*:\s*"";/);
+  assert.match(gallerySource, /const ratioValue = stableRatio \|\| "4 \/ 5";/);
   assert.match(appSource, /window\.WingaModules\?\.marketplace\?\.createGalleryModule/);
   assert.match(appSource, /window\.requestAnimationFrame\(\(\) => \{\s+onChunk\?\.\(chunk\);/);
   assert.match(styleSource, /#products-container > \.product-card > \.product-card-media\{\s+aspect-ratio:var\(--fit-media-aspect-ratio, 4 \/ 5\) !important;/);
@@ -95,7 +96,7 @@ test("marketplace gallery module preserves feed carousel markup contract", () =>
   assert.match(html, /data-feed-gallery-carousel="true"/);
   assert.match(html, /data-feed-gallery-current="2"/);
   assert.match(html, /data-feed-gallery-initial-index="1"/);
-  assert.match(html, /data-feed-gallery-stable-ratio="0.7"/);
+  assert.match(html, /data-feed-gallery-stable-ratio="4 \/ 5"/);
   assert.match(html, /data-fit-mode="contain"/);
   assert.match(html, /data-direct-visibility="true"/);
   assert.match(html, /fetchpriority="high"/);
@@ -2026,7 +2027,7 @@ test("worker cycles production image arrays without dropping gallery images", ()
   assert.match(secondCardHtml, /data-feed-gallery-initial-index="1"/);
   assert.match(secondCardHtml, /data-feed-gallery-current="2"/);
   assert.match(secondCardHtml, /data-feed-gallery-stable-ratio="4 \/ 5"/);
-  assert.match(secondCardHtml, /data-fit-mode="cover"/);
+  assert.match(secondCardHtml, /data-fit-mode="contain"/);
 
   const soldOutHtml = context.buildDiscoveryProductCardHtml({
     ...normalized[0],
@@ -2090,7 +2091,7 @@ test("worker emits one matching LCP image preload in the response header and HTM
   assert.match(secondCardHtml, /loading="eager"\s+fetchpriority="auto"/);
 });
 
-test("worker uses stored image aspect ratios for uncropped stable feed media", () => {
+test("worker preserves stored image ratios while using fixed CLS-safe feed media", () => {
   const root = path.resolve(__dirname, "..");
   const source = fs.readFileSync(path.join(root, "worker.js"), "utf8")
     .replace("export default {", "const __workerDefault = {");
@@ -2123,9 +2124,9 @@ test("worker uses stored image aspect ratios for uncropped stable feed media", (
 
   assert.equal(normalized.feedInitialImageIndex, 1);
   assert.deepEqual(Array.from(normalized.imageAspectRatios), [0.665, 1.5]);
-  assert.match(html, /data-feed-gallery-stable-ratio="1.5"/);
+  assert.match(html, /data-feed-gallery-stable-ratio="4 \/ 5"/);
   assert.match(html, /data-fit-mode="contain"/);
-  assert.match(html, /aspect-ratio:1.5/);
+  assert.match(html, /aspect-ratio:4 \/ 5/);
 });
 
 test("worker selects structured variants and falls back when a variant has no images", () => {

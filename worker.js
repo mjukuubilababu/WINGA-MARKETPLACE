@@ -753,10 +753,7 @@ function buildDiscoveryProductCardHtml(product, index, context) {
   });
   const requestedInitialIndex = Number(product?.feedInitialImageIndex ?? product?.visibleImageIndex ?? 0);
   const initialImageIndex = Number.isFinite(requestedInitialIndex) ? Math.max(0, requestedInitialIndex) : 0;
-  const storedAspectRatio = Number(product?.imageAspectRatios?.[initialImageIndex] || 0);
-  const stableMediaRatio = Number.isFinite(storedAspectRatio) && storedAspectRatio > 0.2 && storedAspectRatio < 5
-    ? String(Number(storedAspectRatio.toFixed(6)))
-    : "4 / 5";
+  const stableMediaRatio = "4 / 5";
 
   return `
     <article class="seller-product-card${Array.isArray(product.images) && product.images.length > 1 ? " has-gallery-count-badge" : ""}" data-open-product="${escapeHtml(product.id)}" data-open-image-index="${escapeHtml(product.feedInitialImageIndex || 0)}" data-feed-entry-key="product:${escapeHtml(product.id)}" data-feed-entry-type="product" data-feed-sequence-index="${index + 1}" data-variant-display-index="${escapeHtml(product.variantDisplayIndex || 0)}"${product.selectedVariantIndex != null && Number.isFinite(Number(product.selectedVariantIndex)) ? ` data-selected-variant-index="${escapeHtml(product.selectedVariantIndex)}"` : ""}>
@@ -876,12 +873,8 @@ function renderFeedGalleryMarkup(product, options = {}) {
     0,
     Math.min(total - 1, Number.isFinite(requestedInitialImageIndex) ? requestedInitialImageIndex : 0)
   );
-  const storedAspectRatio = Number(product?.imageAspectRatios?.[initialImageIndex] || 0);
-  const hasStoredAspectRatio = Number.isFinite(storedAspectRatio) && storedAspectRatio > 0.2 && storedAspectRatio < 5;
-  const stableFrameRatio = hasStoredAspectRatio
-    ? String(Number(storedAspectRatio.toFixed(6)))
-    : "4 / 5";
-  const fitMode = hasStoredAspectRatio ? "contain" : "cover";
+  const stableFrameRatio = "4 / 5";
+  const fitMode = "contain";
   const slidesMarkup = images.map((imageSrc, index) => {
     const safeSrc = escapeHtml(imageSrc);
     const isInitialImage = index === initialImageIndex;

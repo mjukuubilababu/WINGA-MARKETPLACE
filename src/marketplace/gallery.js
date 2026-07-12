@@ -86,14 +86,12 @@
       const isDetailContinuationSurface = normalizedSurface === "detail-continuation";
       const shouldForceDirectVisibility = Boolean(options?.directVisibility || isFeedSurface);
       const useCarouselSurface = isFeedSurface || isDetailSurface || isDetailContinuationSurface;
-      const storedAspectRatio = Number(product?.imageAspectRatios?.[initialImageIndex] || 0);
-      const hasStoredAspectRatio = Number.isFinite(storedAspectRatio) && storedAspectRatio > 0.2 && storedAspectRatio < 5;
       const usesFeedMediaFit = isFeedSurface || isDetailContinuationSurface;
       const fitMode = usesFeedMediaFit
         ? "contain"
         : normalizeProductFitMode(options?.fitMode || getProductFitMode(product));
       const stableFrameRatio = usesFeedMediaFit
-        ? (hasStoredAspectRatio ? String(Number(storedAspectRatio.toFixed(6))) : "4 / 5")
+        ? "4 / 5"
         : "";
       if (options?.preload && typeof preloadImageSource === "function") {
         images.slice(0, Math.min(images.length, 1, priorityLimit)).forEach((src, index) => {
@@ -284,14 +282,7 @@
             ).trim().toLowerCase() === "contain" ? "contain" : "cover";
             const authorityImage = carousel.querySelector('[data-feed-gallery-primary="true"]')
               || carousel.querySelector('[data-feed-gallery-slide="0"] .feed-gallery-image-social');
-            const naturalWidth = Number(authorityImage?.naturalWidth || authorityImage?.width || 0);
-            const naturalHeight = Number(authorityImage?.naturalHeight || authorityImage?.height || 0);
-            const naturalRatio = naturalWidth > 0 && naturalHeight > 0
-              ? Math.max(0.56, Math.min(1.777778, naturalWidth / naturalHeight))
-              : 0;
-            const ratioValue = naturalRatio
-              ? String(Number(naturalRatio.toFixed(6)))
-              : stableRatio;
+            const ratioValue = stableRatio || "4 / 5";
             preview.dataset.fitMode = stableFitMode;
             carousel.dataset.fitMode = stableFitMode;
             preview.dataset.feedGalleryStableRatio = ratioValue;

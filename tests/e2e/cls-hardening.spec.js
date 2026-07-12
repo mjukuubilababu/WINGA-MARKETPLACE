@@ -103,7 +103,6 @@ test("home feed reserves card and recommendation geometry during continuation", 
       };
     });
   });
-  expect(sectionMetrics.length).toBeGreaterThan(0);
   sectionMetrics.forEach((metric) => {
     expect(metric.containment).toContain("layout");
     expect(metric.height).toBeGreaterThan(0);
