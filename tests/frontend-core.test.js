@@ -56,6 +56,16 @@ test("home feed reserves stable media and deferred section geometry", () => {
   assert.doesNotMatch(marketplaceUiSource, /shouldUseMobileEndlessHomeFeed && typeof deps\.createContinuousDiscoveryAnchorElement/);
   assert.match(marketplaceUiSource, /if \(typeof deps\.createContinuousDiscoveryAnchorElement === "function"\)/);
   assert.match(appSource, /window\.setTimeout\(\(\) => \{\s+if \(\s+anchor\.isConnected\s+&& currentView === "home"[\s\S]*hydrateContinuousDiscoveryAnchor\(anchor\);/);
+  assert.match(appSource, /afterNextPaint\(\(\) => \{\s+scheduleIdleBackgroundWork\(\(\) => refreshCategoryUI\(\), 80\);/);
+  assert.match(appSource, /const viewportCandidates = images\s+\.map\(\(image\) => \{[\s\S]*const rect = image\.getBoundingClientRect\(\);[\s\S]*\.filter\(\(item\) => item\.isInViewport \|\| item\.isWithinLandingZone\)[\s\S]*\.slice\(0, limit\);/);
+  assert.match(appSource, /viewportCandidates\.forEach\(\(\{ image, isInViewport \}, activatedCount\) => \{[\s\S]*image\.setAttribute\("loading", "eager"\);[\s\S]*activateMarketplaceScrollImage\(image,/);
+  const viewportActivationSource = appSource.slice(
+    appSource.indexOf("function activateViewportReadyFeedImages"),
+    appSource.indexOf("function scheduleViewportReadyFeedSweep")
+  );
+  const candidateReadEndIndex = viewportActivationSource.indexOf(".slice(0, limit);");
+  const firstWriteIndex = viewportActivationSource.indexOf("image.setAttribute(\"loading\", \"eager\")");
+  assert.ok(candidateReadEndIndex > -1 && firstWriteIndex > candidateReadEndIndex, "viewport image activation must finish layout reads before DOM writes");
 });
 
 test("marketplace gallery module preserves feed carousel markup contract", () => {

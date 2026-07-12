@@ -8054,7 +8054,9 @@ function showInstantBootFeedSnapshot(reason = "boot_snapshot") {
 
   ensureProductsForImmediateRender();
   mergeAvailableCategories(inferCategoriesFromData());
-  refreshCategoryUI();
+  afterNextPaint(() => {
+    scheduleIdleBackgroundWork(() => refreshCategoryUI(), 80);
+  });
   setCurrentViewState("home", getEphemeralLifecycleViewOptions());
   appContainer.style.display = "block";
   syncBodyScrollLockState();
@@ -20224,17 +20226,22 @@ function activateViewportReadyFeedImages(scope = document, options = {}) {
     1,
     Number(options.limit || getAdaptiveViewportImageSweepLimit()) || getAdaptiveViewportImageSweepLimit()
   );
-  let activatedCount = 0;
-  images.forEach((image) => {
-    if (activatedCount >= limit) {
-      return;
-    }
-    const rect = image.getBoundingClientRect();
-    const isInViewport = rect.bottom >= 0 && rect.top <= viewportHeight;
-    const isWithinLandingZone = rect.bottom >= -Math.max(80, activationMargin * 0.5) && rect.top <= viewportHeight + activationMargin;
-    if (!isInViewport && !isWithinLandingZone) {
-      return;
-    }
+
+  const viewportCandidates = images
+    .map((image) => {
+      const rect = image.getBoundingClientRect();
+      const isInViewport = rect.bottom >= 0 && rect.top <= viewportHeight;
+      const isWithinLandingZone = rect.bottom >= -Math.max(80, activationMargin * 0.5) && rect.top <= viewportHeight + activationMargin;
+      return {
+        image,
+        isInViewport,
+        isWithinLandingZone
+      };
+    })
+    .filter((item) => item.isInViewport || item.isWithinLandingZone)
+    .slice(0, limit);
+
+  viewportCandidates.forEach(({ image, isInViewport }, activatedCount) => {
     const prioritizeImage = isInViewport || activatedCount < 3;
     const owningCard = image.closest(".product-card[data-open-product], .seller-product-card[data-open-product], .showcase-card[data-open-product]");
     image.setAttribute("loading", "eager");
@@ -20251,7 +20258,6 @@ function activateViewportReadyFeedImages(scope = document, options = {}) {
         requireLoaded: true
       });
     }
-    activatedCount += 1;
   });
 }
 
