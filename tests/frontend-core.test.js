@@ -1840,7 +1840,7 @@ test("backend intelligence uses durable queue hooks when PostgreSQL is available
   assert.match(queueWorkerSource, /forwardIntelligenceQueueBatch/);
   assert.match(queueWorkerSource, /X-Winga-Queue-Secret/);
   assert.doesNotMatch(queueWorkerSource, /ASSETS/);
-  assert.match(rootWranglerSource, /name = "winga"/);
+  assert.match(rootWranglerSource, /name = "mkubwa"/);
   assert.match(rootWranglerSource, /main = "\.\/worker\.js"/);
   assert.match(rootWranglerSource, /workers_dev = false/);
   assert.match(rootWranglerSource, /\[assets\]/);
