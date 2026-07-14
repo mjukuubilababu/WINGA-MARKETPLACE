@@ -600,6 +600,23 @@ function writeBuildVersionManifest(targetPath) {
   }, null, 2));
 }
 
+function syncWorkerBuildVersionConfig() {
+  const wranglerPath = path.join(rootDir, "wrangler.toml");
+  if (!fs.existsSync(wranglerPath)) {
+    return;
+  }
+  const source = fs.readFileSync(wranglerPath, "utf8");
+  const next = /WINGA_BUILD_VERSION\s*=/.test(source)
+    ? source.replace(/WINGA_BUILD_VERSION\s*=\s*"[^"]*"/, `WINGA_BUILD_VERSION = "${assetVersion}"`)
+    : source.replace(
+        /(\[vars\][\s\S]*?ORIGIN_BASE_URL\s*=\s*"[^"]*")/,
+        `$1\nWINGA_BUILD_VERSION = "${assetVersion}"`
+      );
+  if (next !== source) {
+    writeTextFileWithRetry(wranglerPath, next, "utf8");
+  }
+}
+
 function writeFrontendModuleBundle(targetPath) {
   writeTextFileWithRetry(targetPath, buildFrontendModuleBundle());
 }
@@ -929,6 +946,7 @@ async function main() {
     }
     applyAssetVersionToServiceWorker(path.join(outputDir, "sw.js"), criticalImageUrls);
     writeBuildVersionManifest(path.join(outputDir, "build-version.json"));
+    syncWorkerBuildVersionConfig();
     verifyDistContents();
   } catch (error) {
     restoreGeneratedPublicAssets(generatedAssetBackup);

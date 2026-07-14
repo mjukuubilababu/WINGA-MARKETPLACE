@@ -9,11 +9,14 @@ const ORIGIN_BASE_URL = "https://winga-pflp.onrender.com";
 const DEFAULT_FEED_LIMIT = 12;
 const BOOTSTRAP_TIMEOUT_MS = 3000;
 const LCP_PRELOAD_TIMEOUT_MS = 3000;
+const LCP_PRELOAD_CACHE_READ_BUDGET_MS = 25;
 const LCP_PRELOAD_CACHE_TTL_SECONDS = 60 * 5;
 const LCP_PRELOAD_CACHE_URL = "https://wingamarket.com/__winga_lcp_preload_candidate";
 const IMAGE_EDGE_TTL_SECONDS = 60 * 60 * 24;
 const STRICT_TRANSPORT_SECURITY_HEADER = "max-age=31536000; includeSubDomains; preload";
 const encoder = new TextEncoder();
+let cachedAssetBuildVersion = "00000000000000";
+let cachedLcpImageUrl = "";
 
 export default {
   async fetch(request, env, ctx) {
@@ -104,19 +107,26 @@ function normalizeQueueMessageBody(body) {
 }
 
 async function streamFeedPage(request, env, ctx) {
+  const shellStartedAt = getWorkerNow();
   const { readable, writable } = new TransformStream();
   const writer = writable.getWriter();
   const write = (html) => writer.write(encoder.encode(String(html || "")));
   const origin = getOriginBaseUrl(env);
   const scriptNonce = createCspNonce();
   const styleNonce = createCspNonce();
-  const buildVersion = await resolveAssetBuildVersion(env);
+  const buildVersion = resolveAssetBuildVersion(env);
   const bootstrapPromise = fetchBootstrapContext(origin, request);
   const preloadProductsPromise = fetchPreloadProductPage(origin, request);
-  let lcpImageUrl = await readCachedLcpImageUrl();
-  const lcpPreloadStatus = lcpImageUrl ? "cache-hit" : "cache-miss-background-refresh";
+  let lcpPreloadStatus = cachedLcpImageUrl ? "memory-hit" : "cache-miss-background-refresh";
+  let lcpImageUrl = cachedLcpImageUrl || "";
+  if (!lcpImageUrl) {
+    lcpImageUrl = await readCachedLcpImageUrl({ timeoutMs: LCP_PRELOAD_CACHE_READ_BUDGET_MS });
+    lcpPreloadStatus = lcpImageUrl ? "cache-hit-bounded" : "cache-miss-background-refresh";
+  }
   const preloadLinkHeader = buildImagePreloadLinkHeaderFromUrl(lcpImageUrl);
+  const shellReadyMs = Math.max(0, getWorkerNow() - shellStartedAt);
 
+  ctx.waitUntil(refreshAssetBuildVersion(env));
   ctx.waitUntil(refreshCachedLcpImageUrl(preloadProductsPromise));
 
   ctx.waitUntil((async () => {
@@ -166,9 +176,21 @@ async function streamFeedPage(request, env, ctx) {
       "Strict-Transport-Security": STRICT_TRANSPORT_SECURITY_HEADER,
       "Content-Security-Policy": buildContentSecurityPolicy({ origin, scriptNonce, styleNonce }),
       "X-Winga-LCP-Preload": lcpPreloadStatus,
+      "X-Winga-Worker-Mode": "streaming-shell",
+      "X-Winga-Bootstrap-Status": "background-stream",
+      "Server-Timing": buildWorkerServerTiming({
+        shellReadyMs,
+        lcpPreloadStatus
+      }),
       ...(preloadLinkHeader ? { Link: preloadLinkHeader } : {})
     }
   });
+}
+
+function getWorkerNow() {
+  return typeof performance !== "undefined" && typeof performance.now === "function"
+    ? performance.now()
+    : Date.now();
 }
 
 function createCspNonce() {
@@ -180,24 +202,37 @@ function createCspNonce() {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-async function resolveAssetBuildVersion(env) {
+function resolveAssetBuildVersion(env) {
   const configuredVersion = String(env?.BUILD_VERSION || env?.WINGA_BUILD_VERSION || "").trim();
   if (/^\d{14}$/.test(configuredVersion)) {
+    cachedAssetBuildVersion = configuredVersion;
     return configuredVersion;
   }
+  return cachedAssetBuildVersion;
+}
+
+async function refreshAssetBuildVersion(env) {
   if (env?.ASSETS?.fetch) {
     try {
       const response = await env.ASSETS.fetch(new Request("https://wingamarket.com/build-version.json"));
       const payload = await response.json();
       const version = String(payload?.version || "").trim();
       if (response.ok && /^\d{14}$/.test(version)) {
-        return version;
+        cachedAssetBuildVersion = version;
       }
     } catch (_error) {
-      // Fall through to a deterministic dev-safe marker.
+      // Build version refresh is best-effort and must never block the HTML shell.
     }
   }
-  return "00000000000000";
+}
+
+function buildWorkerServerTiming(options = {}) {
+  const shellReadyMs = Math.max(0, Number(options.shellReadyMs || 0));
+  const lcpPreloadStatus = String(options.lcpPreloadStatus || "unknown").replace(/[^a-z0-9_-]/gi, "");
+  return [
+    `worker-shell;dur=${shellReadyMs.toFixed(1)}`,
+    `lcp-preload;desc="${lcpPreloadStatus || "unknown"}"`
+  ].join(", ");
 }
 
 function buildContentSecurityPolicy(options = {}) {
@@ -1288,17 +1323,31 @@ function buildImagePreloadLinkHeaderFromUrl(lcpImageUrl = "") {
     : "";
 }
 
-async function readCachedLcpImageUrl() {
-  try {
-    const response = await caches.default.match(new Request(LCP_PRELOAD_CACHE_URL));
-    if (!response?.ok) {
+async function readCachedLcpImageUrl(options = {}) {
+  const timeoutMs = Math.max(0, Number(options.timeoutMs || 0) || 0);
+  const readFromCache = async () => {
+    try {
+      const response = await caches.default.match(new Request(LCP_PRELOAD_CACHE_URL));
+      if (!response?.ok) {
+        return "";
+      }
+      const payload = await response.json();
+      const imageUrl = String(payload?.imageUrl || "").trim();
+      if (imageUrl) {
+        cachedLcpImageUrl = imageUrl;
+      }
+      return imageUrl;
+    } catch (_error) {
       return "";
     }
-    const payload = await response.json();
-    return String(payload?.imageUrl || "").trim();
-  } catch (_error) {
-    return "";
+  };
+  if (timeoutMs > 0) {
+    return Promise.race([
+      readFromCache(),
+      new Promise((resolve) => setTimeout(() => resolve(""), timeoutMs))
+    ]);
   }
+  return readFromCache();
 }
 
 async function refreshCachedLcpImageUrl(preloadProductsPromise) {
@@ -1308,6 +1357,7 @@ async function refreshCachedLcpImageUrl(preloadProductsPromise) {
     if (!imageUrl) {
       return;
     }
+    cachedLcpImageUrl = imageUrl;
     await caches.default.put(
       new Request(LCP_PRELOAD_CACHE_URL),
       new Response(JSON.stringify({

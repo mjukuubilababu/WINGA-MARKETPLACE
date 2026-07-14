@@ -1556,6 +1556,7 @@ test("production CSP is enforced from repo without inline script escape hatches"
   const staticHeadersSource = fs.readFileSync(path.join(root, "_headers"), "utf8");
   const redirectsSource = fs.readFileSync(path.join(root, "_redirects"), "utf8");
   const productionVerifySource = fs.readFileSync(path.join(root, "scripts", "verify-production-shell.js"), "utf8");
+  const buildSource = fs.readFileSync(path.join(root, "scripts", "build-vercel-static.js"), "utf8");
   const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
   const marketplaceSource = fs.readFileSync(path.join(root, "src", "marketplace", "ui.js"), "utf8");
   const globalHeaders = vercelConfig.headers.find((entry) => entry.source === "/(.*)")?.headers || [];
@@ -1610,14 +1611,24 @@ test("production CSP is enforced from repo without inline script escape hatches"
   assert.match(workerSource, /function hardenResponseHeaders\(response, env/);
   assert.match(workerSource, /hardenResponseHeaders\(await env\.ASSETS\.fetch\(request\), env\)/);
   assert.match(workerSource, /hardenResponseHeaders\(await proxyToOrigin\(request, env\), env\)/);
-  assert.match(workerSource, /async function resolveAssetBuildVersion\(env\)/);
+  assert.match(workerSource, /let cachedAssetBuildVersion = "00000000000000";/);
+  assert.match(workerSource, /function resolveAssetBuildVersion\(env\)/);
+  assert.match(workerSource, /ctx\.waitUntil\(refreshAssetBuildVersion\(env\)\);/);
   assert.match(workerSource, /env\.ASSETS\.fetch\(new Request\("https:\/\/wingamarket\.com\/build-version\.json"\)\)/);
+  assert.doesNotMatch(workerSource, /const buildVersion = await resolveAssetBuildVersion\(env\)/);
   assert.match(workerSource, /<meta name="winga-build" content="\$\{escapeHtml\(buildVersion\)\}">/);
   assert.match(workerSource, /data-winga-build-version/);
   assert.match(workerSource, /\/style\.css\$\{assetVersionQuery\}/);
   assert.match(workerSource, /\/winga-modules\.js\$\{assetVersionQuery\}[\s\S]*\/data-service\.js\$\{assetVersionQuery\}/);
   assert.match(workerSource, /script-src-attr 'none'/);
   assert.match(workerSource, /nonce="\$\{escapeHtml\(scriptNonce\)\}"/);
+  assert.match(workerSource, /"X-Winga-Worker-Mode": "streaming-shell"/);
+  assert.match(workerSource, /"X-Winga-Bootstrap-Status": "background-stream"/);
+  assert.match(workerSource, /"Server-Timing": buildWorkerServerTiming/);
+  assert.match(workerSource, /const LCP_PRELOAD_CACHE_READ_BUDGET_MS = 25;/);
+  assert.match(workerSource, /readCachedLcpImageUrl\(\{ timeoutMs: LCP_PRELOAD_CACHE_READ_BUDGET_MS \}\)/);
+  assert.match(buildSource, /function syncWorkerBuildVersionConfig\(\)/);
+  assert.match(buildSource, /WINGA_BUILD_VERSION = "\$\{assetVersion\}"/);
   assert.doesNotMatch(redirectsSource, /https:\/\/winga-pflp\.onrender\.com\/api/);
   assert.match(redirectsSource, /worker\.js before static asset routing/);
   assert.doesNotMatch(appSource, /onclick="return window\.__wingaOpenPromotionFromTrigger/);
@@ -1647,6 +1658,9 @@ test("production domain routing verifier catches API shell fallthrough", () => {
   assert.match(workerPerformanceVerifySource, /rel=preload;\\s\*as=image;\\s\*fetchpriority=high/);
   assert.match(workerPerformanceVerifySource, /preloadTagCount/);
   assert.match(workerPerformanceVerifySource, /data-winga-build-version/);
+  assert.match(workerPerformanceVerifySource, /x-winga-worker-mode/);
+  assert.match(workerPerformanceVerifySource, /background-stream/);
+  assert.match(workerPerformanceVerifySource, /worker-shell;dur=/);
 });
 
 test("production builds expose one verifiable app version", () => {
@@ -2125,16 +2139,18 @@ test("worker emits one matching LCP image preload in the response header and HTM
   assert.match(source, /function fetchPreloadProductPage\(origin, request\)/);
   assert.match(source, /limit: Math\.min\(DEFAULT_FEED_LIMIT, 6\),/);
   assert.match(source, /timeoutMs: LCP_PRELOAD_TIMEOUT_MS/);
-  assert.match(source, /function readCachedLcpImageUrl\(\)/);
+  assert.match(source, /function readCachedLcpImageUrl\(options = \{\}\)/);
   assert.match(source, /function refreshCachedLcpImageUrl\(preloadProductsPromise\)/);
   assert.match(source, /function getFirstPreloadableFeedImageUrl\(products = \[\]\)/);
   assert.match(source, /function withJsonAcceptHeaders\(headers = new Headers\(\)\)/);
   assert.match(source, /nextHeaders\.set\("Accept", "application\/json"\)/);
   assert.doesNotMatch(source, /preloadBootstrap = await Promise\.race/);
-  assert.match(source, /const lcpPreloadStatus = lcpImageUrl \? "cache-hit" : "cache-miss-background-refresh";/);
+  assert.match(source, /const LCP_PRELOAD_CACHE_READ_BUDGET_MS = 25;/);
+  assert.match(source, /let lcpPreloadStatus = cachedLcpImageUrl \? "memory-hit" : "cache-miss-background-refresh";/);
+  assert.match(source, /await readCachedLcpImageUrl\(\{ timeoutMs: LCP_PRELOAD_CACHE_READ_BUDGET_MS \}\)/);
   assert.ok(
-    source.indexOf("let lcpImageUrl = await readCachedLcpImageUrl();") < source.indexOf("const preloadLinkHeader = buildImagePreloadLinkHeaderFromUrl(lcpImageUrl);"),
-    "LCP preload should prefer the edge-cached image candidate before building response headers"
+    source.indexOf('let lcpImageUrl = cachedLcpImageUrl || "";') < source.indexOf("const preloadLinkHeader = buildImagePreloadLinkHeaderFromUrl(lcpImageUrl);"),
+    "LCP preload should prefer the in-memory image candidate before building response headers"
   );
   assert.ok(
     source.indexOf("const preloadLinkHeader = buildImagePreloadLinkHeaderFromUrl(lcpImageUrl);") < source.indexOf("ctx.waitUntil(refreshCachedLcpImageUrl(preloadProductsPromise));"),
