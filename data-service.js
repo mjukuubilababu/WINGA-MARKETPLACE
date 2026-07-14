@@ -2852,6 +2852,7 @@
       total: 0,
       loadedCount: 0
     },
+    productFeedPageInflightRequests: new Map(),
     productQueryCache: new Map(),
     categories: [],
     appSettings: normalizeAppSettings(DEFAULT_APP_SETTINGS),
@@ -2863,6 +2864,13 @@
     adapter: null,
     activeProvider: ""
   };
+
+  function getProductFeedPageRequestKey(options = {}) {
+    const limit = Math.max(1, Math.min(50, Number(options.limit || DEFAULT_PRODUCTS_PAGE_LIMIT) || DEFAULT_PRODUCTS_PAGE_LIMIT));
+    const page = Math.max(1, Number(options.page || 1) || 1);
+    const cursor = String(options.cursor || "").trim();
+    return JSON.stringify({ cursor, page, limit });
+  }
 
   let productFeedStateTools = null;
 
@@ -3373,71 +3381,86 @@
         ...getNextProductsPageOptions(),
         ...options
       };
-      const beforeCount = Array.isArray(state.products) ? state.products.length : 0;
-      const page = typeof state.adapter.loadProductsPage === "function"
-        ? await state.adapter.loadProductsPage(nextOptions)
-        : normalizeProductPageResponse(await state.adapter.loadProducts(), nextOptions, (product) => product);
-      const incomingProducts = Array.isArray(page?.items) ? sortProductsNewestFirst(page.items) : [];
-      let finalPage = page;
-      let lookaheadProducts = [];
-      if (
-        Boolean(nextOptions.prefetchNext)
-        && typeof state.adapter.loadProductsPage === "function"
-        && page?.hasMore !== false
-        && String(page?.nextCursor || "").trim()
-      ) {
-        const lookaheadOptions = {
-          cursor: String(page.nextCursor || ""),
-          page: Number(page.page || nextOptions.page || 1) + 1,
-          limit: Number(page.limit || nextOptions.limit || DEFAULT_PRODUCTS_PAGE_LIMIT) || DEFAULT_PRODUCTS_PAGE_LIMIT,
-          signal: nextOptions.signal
-        };
-        const lookaheadPage = await state.adapter.loadProductsPage(lookaheadOptions);
-        lookaheadProducts = Array.isArray(lookaheadPage?.items) ? sortProductsNewestFirst(lookaheadPage.items) : [];
-        if (lookaheadPage && typeof lookaheadPage === "object") {
-          finalPage = lookaheadPage;
-        }
+      const requestKey = getProductFeedPageRequestKey(nextOptions);
+      if (state.productFeedPageInflightRequests.has(requestKey)) {
+        return state.productFeedPageInflightRequests.get(requestKey);
       }
-      const beforeIds = new Set(
-        (Array.isArray(state.products) ? state.products : [])
-          .map((product) => String(product?.id || product?.productId || product?.slug || "").trim())
-          .filter(Boolean)
-      );
-      const receivedProducts = mergeUniqueProducts(incomingProducts, lookaheadProducts);
-      const appendedItems = receivedProducts.filter((product) => {
-        const productId = String(product?.id || product?.productId || product?.slug || "").trim();
-        return !productId || !beforeIds.has(productId);
-      });
-      if (receivedProducts.length) {
-        state.products = mergeUniqueProducts(state.products, receivedProducts);
-      }
-      const appendedCount = Math.max(0, (Array.isArray(state.products) ? state.products.length : 0) - beforeCount);
-      if (finalPage && typeof finalPage === "object") {
-        state.productFeedPagination = {
-          limit: Number(finalPage.limit || nextOptions.limit || DEFAULT_PRODUCTS_PAGE_LIMIT) || DEFAULT_PRODUCTS_PAGE_LIMIT,
-          page: Number(finalPage.page || nextOptions.page || 1) || 1,
-          nextCursor: String(finalPage.nextCursor || ""),
-          hasMore: Boolean(finalPage.hasMore),
-          total: Number(finalPage.total || state.products.length || 0),
-          loadedCount: state.products.length
-        };
-      } else {
-        setFullProductFeedPagination(state.products);
-      }
-      if (typeof window !== "undefined" && typeof window.dispatchEvent === "function" && typeof window.CustomEvent === "function") {
-        window.dispatchEvent(new window.CustomEvent("winga:products-hydrated", {
-          detail: {
-            status: "appended",
-            count: state.products.length,
-            appendedCount
+      let requestPromise;
+      requestPromise = (async () => {
+        try {
+        const beforeCount = Array.isArray(state.products) ? state.products.length : 0;
+        const page = typeof state.adapter.loadProductsPage === "function"
+          ? await state.adapter.loadProductsPage(nextOptions)
+          : normalizeProductPageResponse(await state.adapter.loadProducts(), nextOptions, (product) => product);
+        const incomingProducts = Array.isArray(page?.items) ? sortProductsNewestFirst(page.items) : [];
+        let finalPage = page;
+        let lookaheadProducts = [];
+        if (
+          Boolean(nextOptions.prefetchNext)
+          && typeof state.adapter.loadProductsPage === "function"
+          && page?.hasMore !== false
+          && String(page?.nextCursor || "").trim()
+        ) {
+          const lookaheadOptions = {
+            cursor: String(page.nextCursor || ""),
+            page: Number(page.page || nextOptions.page || 1) + 1,
+            limit: Number(page.limit || nextOptions.limit || DEFAULT_PRODUCTS_PAGE_LIMIT) || DEFAULT_PRODUCTS_PAGE_LIMIT,
+            signal: nextOptions.signal
+          };
+          const lookaheadPage = await state.adapter.loadProductsPage(lookaheadOptions);
+          lookaheadProducts = Array.isArray(lookaheadPage?.items) ? sortProductsNewestFirst(lookaheadPage.items) : [];
+          if (lookaheadPage && typeof lookaheadPage === "object") {
+            finalPage = lookaheadPage;
           }
-        }));
-      }
-      return {
-        ...clone(finalPage),
-        appendedCount,
-        appendedItems
-      };
+        }
+        const beforeIds = new Set(
+          (Array.isArray(state.products) ? state.products : [])
+            .map((product) => String(product?.id || product?.productId || product?.slug || "").trim())
+            .filter(Boolean)
+        );
+        const receivedProducts = mergeUniqueProducts(incomingProducts, lookaheadProducts);
+        const appendedItems = receivedProducts.filter((product) => {
+          const productId = String(product?.id || product?.productId || product?.slug || "").trim();
+          return !productId || !beforeIds.has(productId);
+        });
+        if (receivedProducts.length) {
+          state.products = mergeUniqueProducts(state.products, receivedProducts);
+        }
+        const appendedCount = Math.max(0, (Array.isArray(state.products) ? state.products.length : 0) - beforeCount);
+        if (finalPage && typeof finalPage === "object") {
+          state.productFeedPagination = {
+            limit: Number(finalPage.limit || nextOptions.limit || DEFAULT_PRODUCTS_PAGE_LIMIT) || DEFAULT_PRODUCTS_PAGE_LIMIT,
+            page: Number(finalPage.page || nextOptions.page || 1) || 1,
+            nextCursor: String(finalPage.nextCursor || ""),
+            hasMore: Boolean(finalPage.hasMore),
+            total: Number(finalPage.total || state.products.length || 0),
+            loadedCount: state.products.length
+          };
+        } else {
+          setFullProductFeedPagination(state.products);
+        }
+        if (typeof window !== "undefined" && typeof window.dispatchEvent === "function" && typeof window.CustomEvent === "function") {
+          window.dispatchEvent(new window.CustomEvent("winga:products-hydrated", {
+            detail: {
+              status: "appended",
+              count: state.products.length,
+              appendedCount
+            }
+          }));
+        }
+        return {
+          ...clone(finalPage),
+          appendedCount,
+          appendedItems
+        };
+        } finally {
+          if (state.productFeedPageInflightRequests.get(requestKey) === requestPromise) {
+            state.productFeedPageInflightRequests.delete(requestKey);
+          }
+        }
+      })();
+      state.productFeedPageInflightRequests.set(requestKey, requestPromise);
+      return requestPromise;
     },
     async signup(payload) {
       const result = await state.adapter.signup(stripSignupCategoryFields(payload));
