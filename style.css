@@ -2297,6 +2297,9 @@ img[data-zoom-src]{
   user-select:none;
   gap:0;
   overflow:hidden;
+  contain:layout paint;
+  content-visibility:auto;
+  contain-intrinsic-size:0 620px;
 }
 
 .feed-skeleton-media,
@@ -2321,6 +2324,8 @@ img[data-zoom-src]{
 .feed-skeleton-media{
   width:100%;
   aspect-ratio:4/5;
+  height:auto;
+  min-height:0;
   border-radius:0;
 }
 
@@ -10277,7 +10282,8 @@ button:hover,
 
 /* Production CLS guard: reserve feed and recommendation geometry before media arrives. */
 #products-container > .product-card,
-#products-container > .seller-product-card{
+#products-container > .seller-product-card,
+#products-container > .feed-skeleton-card{
   contain:layout paint;
   content-visibility:auto;
   contain-intrinsic-size:0 620px;
@@ -10450,7 +10456,8 @@ button:hover,
   }
 
   #products-container[data-layout-mode] > .product-card,
-  #products-container[data-layout-mode] > .seller-product-card{
+  #products-container[data-layout-mode] > .seller-product-card,
+  #products-container[data-layout-mode] > .feed-skeleton-card{
     width:100%;
     max-width:100%;
     margin-left:0;
@@ -10462,7 +10469,8 @@ button:hover,
   }
 
   #products-container[data-layout-mode] > .product-card > .product-card-media,
-  #products-container[data-layout-mode] > .seller-product-card > .seller-product-card-media{
+  #products-container[data-layout-mode] > .seller-product-card > .seller-product-card-media,
+  #products-container[data-layout-mode] > .feed-skeleton-card > .feed-skeleton-media{
     width:100%;
     max-width:100%;
     margin:0;

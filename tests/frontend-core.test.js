@@ -33,6 +33,10 @@ test("home feed reserves stable media and deferred section geometry", () => {
   assert.match(appSource, /window\.WingaModules\?\.marketplace\?\.createGalleryModule/);
   assert.match(appSource, /window\.requestAnimationFrame\(\(\) => \{\s+onChunk\?\.\(chunk\);/);
   assert.match(styleSource, /#products-container > \.product-card > \.product-card-media\{\s+aspect-ratio:var\(--fit-media-aspect-ratio, 4 \/ 5\) !important;/);
+  assert.match(styleSource, /\.feed-skeleton-card\{[\s\S]*contain:layout paint;[\s\S]*content-visibility:auto;[\s\S]*contain-intrinsic-size:0 620px;/);
+  assert.match(styleSource, /\.feed-skeleton-media\{[\s\S]*aspect-ratio:4\/5;[\s\S]*height:auto;/);
+  assert.match(styleSource, /#products-container > \.product-card,[\s\S]*#products-container > \.seller-product-card,[\s\S]*#products-container > \.feed-skeleton-card\{[\s\S]*contain-intrinsic-size:0 620px;/);
+  assert.match(styleSource, /#products-container\[data-layout-mode\] > \.product-card,[\s\S]*#products-container\[data-layout-mode\] > \.seller-product-card,[\s\S]*#products-container\[data-layout-mode\] > \.feed-skeleton-card\{[\s\S]*padding:0;[\s\S]*border-radius:0;/);
   assert.match(styleSource, /#products-container > \.showcase-inline-pending\{\s+min-height:560px;/);
   assert.match(styleSource, /contain-intrinsic-size:0 560px;/);
   assert.match(appSource, /container\.style\.setProperty\("--winga-viewport-width", `\$\{usableViewportWidth\}px`\);/);
@@ -2148,6 +2152,9 @@ test("worker emits one matching LCP image preload in the response header and HTM
   assert.match(source, /const LCP_PRELOAD_CACHE_READ_BUDGET_MS = 25;/);
   assert.match(source, /let lcpPreloadStatus = cachedLcpImageUrl \? "memory-hit" : "cache-miss-background-refresh";/);
   assert.match(source, /await readCachedLcpImageUrl\(\{ timeoutMs: LCP_PRELOAD_CACHE_READ_BUDGET_MS \}\)/);
+  assert.match(source, /\.feed-skeleton-card\{overflow:hidden;contain:layout paint;content-visibility:auto;contain-intrinsic-size:0 620px\}/);
+  assert.match(source, /\.feed-skeleton-media\{width:100%;height:auto;aspect-ratio:4\/5;min-height:0;border-radius:0;/);
+  assert.match(source, /#products-container\[data-layout-mode\]>\.feed-skeleton-card\{[\s\S]*padding:0;[\s\S]*border-radius:0;/);
   assert.ok(
     source.indexOf('let lcpImageUrl = cachedLcpImageUrl || "";') < source.indexOf("const preloadLinkHeader = buildImagePreloadLinkHeaderFromUrl(lcpImageUrl);"),
     "LCP preload should prefer the in-memory image candidate before building response headers"
