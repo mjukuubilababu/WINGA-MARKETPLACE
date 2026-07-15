@@ -787,3 +787,117 @@ test("final pagination page exhausts without requesting beyond hasMore false", a
     hasMore: false
   });
 });
+
+test("empty continuation page with hasMore true is bounded as exhausted", async ({ page }) => {
+  const products = createProducts(12);
+  const productRequests = [];
+
+  await page.route("**/api/products**", async (route) => {
+    const requestUrl = new URL(route.request().url());
+    const requestedPage = Math.max(1, Number(requestUrl.searchParams.get("page") || 1) || 1);
+    productRequests.push(requestedPage);
+    if (requestedPage === 1) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          items: products,
+          nextCursor: getCursor(products[products.length - 1]),
+          hasMore: true,
+          total: 24,
+          page: 1,
+          limit: 12
+        })
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        items: [],
+        nextCursor: getCursor(products[products.length - 1]),
+        hasMore: true,
+        total: 24,
+        page: requestedPage,
+        limit: 12
+      })
+    });
+  });
+
+  await page.goto("/");
+  await expect.poll(
+    () => page.evaluate(() => window.WingaDataLayer?.getProducts?.().length || 0),
+    { timeout: 30000 }
+  ).toBe(12);
+
+  const result = await page.evaluate(() => window.WingaDataLayer.appendProductsPage({ prefetchNext: false }));
+  expect(result).toMatchObject({
+    appendedCount: 0,
+    exhausted: true,
+    hasMore: false
+  });
+  await expect.poll(
+    () => page.evaluate(() => window.WingaDataLayer?.getProductFeedPagination?.()),
+    { timeout: 10000 }
+  ).toMatchObject({
+    page: 2,
+    hasMore: false,
+    loadedCount: 12
+  });
+
+  await page.evaluate(() => window.WingaDataLayer.appendProductsPage({ prefetchNext: false }));
+  await page.waitForTimeout(250);
+  expect(productRequests).toEqual([1, 2]);
+});
+
+test("duplicate continuation page with unchanged cursor cannot loop forever", async ({ page }) => {
+  const products = createProducts(12);
+  const productRequests = [];
+
+  await page.route("**/api/products**", async (route) => {
+    const requestUrl = new URL(route.request().url());
+    const requestedPage = Math.max(1, Number(requestUrl.searchParams.get("page") || 1) || 1);
+    productRequests.push({
+      page: requestedPage,
+      cursor: String(requestUrl.searchParams.get("cursor") || "")
+    });
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        items: products,
+        nextCursor: getCursor(products[products.length - 1]),
+        hasMore: true,
+        total: 24,
+        page: requestedPage,
+        limit: 12
+      })
+    });
+  });
+
+  await page.goto("/");
+  await expect.poll(
+    () => page.evaluate(() => window.WingaDataLayer?.getProducts?.().length || 0),
+    { timeout: 30000 }
+  ).toBe(12);
+
+  const result = await page.evaluate(() => window.WingaDataLayer.appendProductsPage({ prefetchNext: false }));
+  expect(result).toMatchObject({
+    appendedCount: 0,
+    exhausted: true,
+    hasMore: false
+  });
+  await expect.poll(
+    () => page.evaluate(() => window.WingaDataLayer?.getProductFeedPagination?.()),
+    { timeout: 10000 }
+  ).toMatchObject({
+    page: 2,
+    hasMore: false,
+    loadedCount: 12
+  });
+
+  await page.evaluate(() => window.WingaDataLayer.appendProductsPage({ prefetchNext: false }));
+  await page.waitForTimeout(250);
+  expect(productRequests).toHaveLength(2);
+});

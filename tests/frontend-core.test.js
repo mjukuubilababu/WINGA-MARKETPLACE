@@ -1357,6 +1357,11 @@ test("home pagination retries safely, cancels stale work, and commits pages tran
   assert.match(dataSource, /const appendedItems = receivedProducts\.filter/);
   assert.match(dataSource, /productFeedPageInflightRequests: new Map\(\)/);
   assert.match(dataSource, /function getProductFeedPageRequestKey\(options = \{\}\)/);
+  assert.match(dataSource, /productFeedNoProgressPages: 0/);
+  assert.match(dataSource, /function hasProductPageCursorAdvanced\(previousPagination = \{\}, requestedOptions = \{\}, page = \{\}\)/);
+  assert.match(dataSource, /function shouldExhaustNoProgressProductPage/);
+  assert.match(dataSource, /function resetProductFeedNoProgress\(\)/);
+  assert.match(dataSource, /exhausted: shouldForceExhausted/);
   assert.match(dataSource, /if \(state\.productFeedPageInflightRequests\.has\(requestKey\)\)/);
   assert.match(dataSource, /state\.productFeedPageInflightRequests\.set\(requestKey, requestPromise\)/);
 
