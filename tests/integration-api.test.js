@@ -117,6 +117,7 @@ test.before(async () => {
       WINGA_UPLOADS_DIR: path.join(tempRoot, "uploads"),
       ALLOWED_ORIGINS: "http://localhost:3000,https://wingamarket.com",
       PAYMENT_WEBHOOK_SECRET: "integration-webhook-secret",
+      OPS_HEALTH_TOKEN: "integration-ops-health-token",
       DATABASE_URL: ""
     },
     stdio: "ignore"
@@ -130,6 +131,36 @@ test.after(() => {
     serverProcess.kill();
   }
   fs.rmSync(tempRoot, { recursive: true, force: true });
+});
+
+test("ops intelligence recovery endpoints require token and fail closed without durable queue", async () => {
+  const denied = await fetch(`${baseUrl}/ops/intelligence/queue-items`);
+  const deniedBody = await denied.json();
+  assert.equal(denied.status, 401);
+  assert.equal(deniedBody.ok, false);
+
+  const unavailable = await fetch(`${baseUrl}/ops/intelligence/queue-items?status=failed,dead&limit=5`, {
+    headers: {
+      "X-Ops-Health-Token": "integration-ops-health-token"
+    }
+  });
+  const unavailableBody = await unavailable.json();
+  assert.equal(unavailable.status, 503);
+  assert.equal(unavailableBody.ok, false);
+  assert.equal(unavailableBody.error, "Durable intelligence queue is unavailable.");
+  assert.equal(unavailable.headers.get("cache-control"), "no-store");
+
+  const retryUnavailable = await fetch(`${baseUrl}/ops/intelligence/queue-retry`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Ops-Health-Token": "integration-ops-health-token"
+    },
+    body: JSON.stringify({ queueIds: [1, 2] })
+  });
+  const retryUnavailableBody = await retryUnavailable.json();
+  assert.equal(retryUnavailable.status, 503);
+  assert.equal(retryUnavailableBody.ok, false);
 });
 
 test("critical seller, buyer, session, moderation, and monitoring flows work together", async () => {

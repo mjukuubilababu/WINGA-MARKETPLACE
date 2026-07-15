@@ -1843,6 +1843,7 @@ test("backend intelligence uses durable queue hooks when PostgreSQL is available
   const wranglerSource = fs.readFileSync(path.join(root, "wrangler.intelligence.toml"), "utf8");
   const runbookSource = fs.readFileSync(path.join(root, "backend", "INTELLIGENCE_QUEUE.md"), "utf8");
   const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+  const opsScriptSource = fs.readFileSync(path.join(root, "scripts", "intelligence-ops.js"), "utf8");
 
   assert.match(dbSource, /CREATE TABLE IF NOT EXISTS intelligence_event_queue/);
   assert.match(dbSource, /FOR UPDATE SKIP LOCKED/);
@@ -1907,6 +1908,12 @@ test("backend intelligence uses durable queue hooks when PostgreSQL is available
   assert.match(serverSource, /QUEUE_WEBHOOK_SECRET/);
   assert.match(serverSource, /OPS_HEALTH_TOKEN/);
   assert.match(serverSource, /\/api\/ops\/intelligence\/queue-health/);
+  assert.match(serverSource, /\/api\/ops\/intelligence\/queue-items/);
+  assert.match(serverSource, /\/api\/ops\/intelligence\/queue-retry/);
+  assert.match(serverSource, /\/api\/ops\/intelligence\/queue-dead/);
+  assert.match(serverSource, /normalizeIntelligenceQueueStatuses/);
+  assert.match(serverSource, /ops_token_queue_retry/);
+  assert.match(serverSource, /ops_token_queue_mark_dead/);
   assert.match(serverSource, /\/api\/admin\/ops\/intelligence-queue/);
   assert.match(serverSource, /\/api\/admin\/ops\/intelligence-queue\/retry/);
   assert.match(serverSource, /\/api\/admin\/ops\/intelligence-queue\/dead/);
@@ -1927,6 +1934,9 @@ test("backend intelligence uses durable queue hooks when PostgreSQL is available
   assert.equal(packageJson.scripts["monitor:intelligence"], "node scripts/check-intelligence-health.js");
   assert.equal(packageJson.scripts["deploy:worker:frontend"], "npm run build:vercel && npx wrangler deploy --config wrangler.toml");
   assert.equal(packageJson.scripts["deploy:worker:intelligence"], "npx wrangler deploy --config wrangler.intelligence.toml");
+  assert.equal(packageJson.scripts["ops:intelligence:list"], "node scripts/intelligence-ops.js list");
+  assert.equal(packageJson.scripts["ops:intelligence:retry"], "node scripts/intelligence-ops.js retry");
+  assert.equal(packageJson.scripts["ops:intelligence:dead"], "node scripts/intelligence-ops.js dead");
   assert.match(workerSource, /claimIntelligenceQueueBatch/);
   assert.match(workerSource, /completeIntelligenceQueueItem/);
   assert.match(workerSource, /failIntelligenceQueueItem/);
@@ -1955,6 +1965,10 @@ test("backend intelligence uses durable queue hooks when PostgreSQL is available
   assert.doesNotMatch(rootWranglerSource, /cloudflare\/intelligence-worker\.js/);
   assert.match(wranglerSource, /name = "winga-intelligence-worker"/);
   assert.match(wranglerSource, /main = "\.\/cloudflare\/intelligence-worker\.js"/);
+  assert.match(wranglerSource, /workers_dev = false/);
+  assert.match(wranglerSource, /\[observability\]/);
+  assert.match(wranglerSource, /enabled = true/);
+  assert.match(wranglerSource, /head_sampling_rate = 1/);
   assert.match(wranglerSource, /\[\[queues\.producers\]\]/);
   assert.match(wranglerSource, /binding = "WINGA_INTELLIGENCE_QUEUE"/);
   assert.match(wranglerSource, /\[\[queues\.consumers\]\]/);
@@ -1975,6 +1989,7 @@ test("backend intelligence uses durable queue hooks when PostgreSQL is available
   assert.match(runbookSource, /npm run monitor:intelligence/);
   assert.match(runbookSource, /Exit codes:/);
   assert.match(runbookSource, /GitHub Scheduled Health Check/);
+  assert.match(runbookSource, /Token-based Ops Recovery/);
   assert.match(runbookSource, /schema\/version\/privacy markers/);
   assert.match(runbookSource, /OPS_HEALTH_TOKEN=<same value used by the backend health endpoint>/);
   assert.match(runbookSource, /INTELLIGENCE_ALERT_WEBHOOK_URL=<Slack\/Discord\/BetterStack\/Make\/Zapier webhook>/);
@@ -2007,6 +2022,14 @@ test("backend intelligence uses durable queue hooks when PostgreSQL is available
   assert.match(monitorSource, /async function sendAlertWebhook/);
   assert.match(monitorSource, /source: "winga-intelligence-health"/);
   assert.doesNotMatch(monitorSource, /console\.log\(token|process\.stdout\.write\(token/);
+  assert.match(opsScriptSource, /\/api\/ops\/intelligence\/queue-items/);
+  assert.match(opsScriptSource, /\/api\/ops\/intelligence\/queue-retry/);
+  assert.match(opsScriptSource, /\/api\/ops\/intelligence\/queue-dead/);
+  assert.match(opsScriptSource, /OPS_HEALTH_TOKEN/);
+  assert.match(opsScriptSource, /INTELLIGENCE_OPS_BASE_URL/);
+  assert.match(opsScriptSource, /X-Ops-Health-Token/);
+  assert.match(opsScriptSource, /sanitizeOutput/);
+  assert.doesNotMatch(opsScriptSource, /console\.log\(token|process\.stdout\.write\(token/);
   assert.match(workflowSource, /name: Winga Intelligence Health/);
   assert.match(workflowSource, /cron: "\*\/15 \* \* \* \*"/);
   assert.match(workflowSource, /OPS_HEALTH_TOKEN: \$\{\{ secrets\.OPS_HEALTH_TOKEN \}\}/);

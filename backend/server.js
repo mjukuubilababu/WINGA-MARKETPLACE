@@ -1280,6 +1280,22 @@ function normalizeQueueRecoveryIds(payload = {}) {
     .slice(0, 100);
 }
 
+function normalizeIntelligenceQueueStatuses(value = "failed,dead") {
+  return String(value || "failed,dead")
+    .split(",")
+    .map((status) => status.trim().toLowerCase())
+    .filter(Boolean)
+    .slice(0, 8);
+}
+
+function normalizeIntelligenceQueueLimit(value, fallback = 50) {
+  return Math.max(1, Math.min(Number.parseInt(value, 10) || fallback, 100));
+}
+
+function normalizeIntelligenceQueueCursor(value) {
+  return Math.max(0, Number.parseInt(value, 10) || 0);
+}
+
 function rememberDemandDedupeKey(key = "") {
   const safeKey = String(key || "").trim();
   if (!safeKey) {
@@ -4858,6 +4874,162 @@ http.createServer(async (req, res) => {
       alerts: report.alerts.length
     });
     sendJson(res, report.readiness === "critical" ? 503 : 200, report, {
+      "Cache-Control": "no-store"
+    });
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/ops/intelligence/queue-items") {
+    if (!isValidOpsHealthToken(req)) {
+      requestMeta.statusCode = OPS_HEALTH_TOKEN ? 401 : 503;
+      logRouteSummary(requestMeta, { lightweight: true, auth: "ops_queue_items_denied" });
+      sendJson(res, OPS_HEALTH_TOKEN ? 401 : 503, {
+        ok: false,
+        error: OPS_HEALTH_TOKEN ? "Unauthorized" : "OPS_HEALTH_TOKEN is not configured."
+      }, {
+        "Cache-Control": "no-store"
+      });
+      return;
+    }
+    if (!postgresStore?.readIntelligenceQueueJobs) {
+      sendJson(res, 503, {
+        ok: false,
+        error: "Durable intelligence queue is unavailable."
+      }, {
+        "Cache-Control": "no-store"
+      });
+      return;
+    }
+    const statuses = normalizeIntelligenceQueueStatuses(url.searchParams.get("status") || "failed,dead");
+    const limit = normalizeIntelligenceQueueLimit(url.searchParams.get("limit"), 50);
+    const cursor = normalizeIntelligenceQueueCursor(url.searchParams.get("cursor"));
+    const page = await postgresStore.readIntelligenceQueueJobs({ statuses, limit, cursor });
+    requestMeta.statusCode = 200;
+    logRouteSummary(requestMeta, {
+      lightweight: true,
+      event: "ops_queue_items_read",
+      statuses: page.statuses?.join(",") || "",
+      count: Array.isArray(page.items) ? page.items.length : 0
+    });
+    sendJson(res, 200, {
+      ok: true,
+      schemaVersion: INTELLIGENCE_HEALTH_SCHEMA_VERSION,
+      privacy: "ops-aggregate-only",
+      criticalPath: false,
+      ...page
+    }, {
+      "Cache-Control": "no-store"
+    });
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/ops/intelligence/queue-retry") {
+    if (!isValidOpsHealthToken(req)) {
+      requestMeta.statusCode = OPS_HEALTH_TOKEN ? 401 : 503;
+      logRouteSummary(requestMeta, { lightweight: true, auth: "ops_queue_retry_denied" });
+      sendJson(res, OPS_HEALTH_TOKEN ? 401 : 503, {
+        ok: false,
+        error: OPS_HEALTH_TOKEN ? "Unauthorized" : "OPS_HEALTH_TOKEN is not configured."
+      }, {
+        "Cache-Control": "no-store"
+      });
+      return;
+    }
+    if (!postgresStore?.retryIntelligenceQueueItems) {
+      sendJson(res, 503, {
+        ok: false,
+        error: "Durable intelligence queue is unavailable."
+      }, {
+        "Cache-Control": "no-store"
+      });
+      return;
+    }
+    const payload = await collectBody(req);
+    const queueIds = normalizeQueueRecoveryIds(payload);
+    if (!queueIds.length) {
+      sendJson(res, 400, {
+        ok: false,
+        error: "queueIds must include at least one valid queue id."
+      }, {
+        "Cache-Control": "no-store"
+      });
+      return;
+    }
+    const result = await postgresStore.retryIntelligenceQueueItems(queueIds);
+    await appendAuditLog({
+      time: new Date().toISOString(),
+      ip: clientIp,
+      method: req.method,
+      path: url.pathname,
+      event: "ops_token_queue_retry",
+      username: "ops-token",
+      statusCode: 200,
+      requestId: requestMeta.requestId,
+      details: result
+    });
+    sendJson(res, 200, {
+      ok: true,
+      schemaVersion: INTELLIGENCE_HEALTH_SCHEMA_VERSION,
+      privacy: "ops-aggregate-only",
+      criticalPath: false,
+      ...result
+    }, {
+      "Cache-Control": "no-store"
+    });
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/ops/intelligence/queue-dead") {
+    if (!isValidOpsHealthToken(req)) {
+      requestMeta.statusCode = OPS_HEALTH_TOKEN ? 401 : 503;
+      logRouteSummary(requestMeta, { lightweight: true, auth: "ops_queue_dead_denied" });
+      sendJson(res, OPS_HEALTH_TOKEN ? 401 : 503, {
+        ok: false,
+        error: OPS_HEALTH_TOKEN ? "Unauthorized" : "OPS_HEALTH_TOKEN is not configured."
+      }, {
+        "Cache-Control": "no-store"
+      });
+      return;
+    }
+    if (!postgresStore?.markIntelligenceQueueItemsDead) {
+      sendJson(res, 503, {
+        ok: false,
+        error: "Durable intelligence queue is unavailable."
+      }, {
+        "Cache-Control": "no-store"
+      });
+      return;
+    }
+    const payload = await collectBody(req);
+    const queueIds = normalizeQueueRecoveryIds(payload);
+    if (!queueIds.length) {
+      sendJson(res, 400, {
+        ok: false,
+        error: "queueIds must include at least one valid queue id."
+      }, {
+        "Cache-Control": "no-store"
+      });
+      return;
+    }
+    const result = await postgresStore.markIntelligenceQueueItemsDead(queueIds, payload?.reason);
+    await appendAuditLog({
+      time: new Date().toISOString(),
+      ip: clientIp,
+      method: req.method,
+      path: url.pathname,
+      event: "ops_token_queue_mark_dead",
+      username: "ops-token",
+      statusCode: 200,
+      requestId: requestMeta.requestId,
+      details: result
+    });
+    sendJson(res, 200, {
+      ok: true,
+      schemaVersion: INTELLIGENCE_HEALTH_SCHEMA_VERSION,
+      privacy: "ops-aggregate-only",
+      criticalPath: false,
+      ...result
+    }, {
       "Cache-Control": "no-store"
     });
     return;

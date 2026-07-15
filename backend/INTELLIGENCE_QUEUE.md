@@ -314,6 +314,54 @@ If `INTELLIGENCE_ALERT_WEBHOOK_URL` is set, the monitor sends a sanitized JSON
 POST only when readiness is not `ready`. The webhook payload contains readiness,
 safe queue counts, worker counters, alert types, and timestamps only.
 
+## Token-based Ops Recovery
+
+Trusted production monitors can use the same `OPS_HEALTH_TOKEN` for sanitized
+queue recovery when an admin browser session is unavailable. These endpoints are
+for controlled incident response only. They are not on the user critical path and
+they return `Cache-Control: no-store`.
+
+List failed/dead jobs:
+
+```bash
+OPS_HEALTH_TOKEN="$OPS_HEALTH_TOKEN" npm run ops:intelligence:list -- --status failed,dead --limit 50
+```
+
+Continue from a previous list page:
+
+```bash
+OPS_HEALTH_TOKEN="$OPS_HEALTH_TOKEN" npm run ops:intelligence:list -- --status failed,dead --limit 50 --cursor <nextCursor>
+```
+
+Retry fixed failed/dead jobs:
+
+```bash
+OPS_HEALTH_TOKEN="$OPS_HEALTH_TOKEN" npm run ops:intelligence:retry -- 123,124
+```
+
+Quarantine jobs that should not be retried:
+
+```bash
+OPS_HEALTH_TOKEN="$OPS_HEALTH_TOKEN" npm run ops:intelligence:dead -- 125 --reason "bad payload quarantined after incident review"
+```
+
+The underlying endpoints are:
+
+- `GET /api/ops/intelligence/queue-items`
+- `POST /api/ops/intelligence/queue-retry`
+- `POST /api/ops/intelligence/queue-dead`
+
+Security rules:
+
+- Every request must send `X-Ops-Health-Token`.
+- Responses include schema/version/privacy markers and summary fields only.
+- Responses must not expose raw `event_payload`, buyer private metadata, or
+  queue secrets.
+- Retry and mark-dead actions are audit logged as `ops_token_queue_retry` and
+  `ops_token_queue_mark_dead`.
+- Retry only after the processing bug, backend outage, or downstream incident is
+  fixed.
+
 ## GitHub Scheduled Health Check
 
 The repository includes `.github/workflows/intelligence-health.yml`.
