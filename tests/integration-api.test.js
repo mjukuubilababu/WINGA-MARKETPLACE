@@ -193,6 +193,21 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   assert.equal(blockedOriginWrite.response.status, 403);
   assert.equal(blockedOriginWrite.body.code, "origin_not_allowed");
 
+  const blockedFetchMetadataWrite = await request("/auth/login", {
+    method: "POST",
+    skipCsrf: true,
+    headers: {
+      "Content-Type": "application/json",
+      "Sec-Fetch-Site": "cross-site"
+    },
+    body: JSON.stringify({
+      identifier: "missing-user",
+      password: "wrong-password"
+    })
+  });
+  assert.equal(blockedFetchMetadataWrite.response.status, 403);
+  assert.equal(blockedFetchMetadataWrite.body.code, "origin_not_allowed");
+
   const allowedOriginWrite = await request("/auth/login", {
     method: "POST",
     skipCsrf: true,
@@ -207,6 +222,7 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   });
   assert.equal(allowedOriginWrite.response.status, 403);
   assert.equal(allowedOriginWrite.body.code, "csrf_failed");
+  assert.doesNotMatch(allowedOriginWrite.response.headers.get("access-control-allow-headers") || "", /Authorization/);
 
   const unsupportedContentTypeWrite = await request("/auth/login", {
     method: "POST",
@@ -1710,6 +1726,8 @@ test("production boot still seeds staff accounts when seed env passwords are bla
     assert.ok(match, "production csrf endpoint must set winga_csrf cookie");
     assert.match(String(response.headers.get("set-cookie") || ""), /HttpOnly/);
     assert.match(String(response.headers.get("set-cookie") || ""), /Priority=High/);
+    assert.match(String(response.headers.get("set-cookie") || ""), /SameSite=Lax/);
+    assert.match(String(response.headers.get("set-cookie") || ""), /Secure/);
     productionCsrfCookie = `winga_csrf=${match[1]}`;
   };
   const productionRequest = async (pathname, options = {}) => {
@@ -1760,6 +1778,7 @@ test("production boot still seeds staff accounts when seed env passwords are bla
     });
     assert.equal(adminLogin.response.status, 200);
     assert.equal(adminLogin.body.role, "admin");
+    assert.match(String(adminLogin.response.headers.get("set-cookie") || ""), /winga_auth=[^;]+; HttpOnly; Path=\/; Max-Age=604800; SameSite=Lax; Priority=High; Secure/);
 
     const moderatorLogin = await productionRequest("/auth/admin-login", {
       method: "POST",

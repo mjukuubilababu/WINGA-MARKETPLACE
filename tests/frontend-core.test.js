@@ -2871,6 +2871,8 @@ test("api writes attach a CSRF token before sending state-changing requests", ()
   assert.match(backendSource, /function buildAuthCookieHeader\(token, req\)[\s\S]*"Priority=High"/);
   assert.match(backendSource, /function buildClearAuthCookieHeader\(req\)[\s\S]*"Expires=Thu, 01 Jan 1970 00:00:00 GMT"/);
   assert.match(backendSource, /function buildCsrfCookieHeader\(token, req\)[\s\S]*"Priority=High"/);
+  assert.match(backendSource, /const AUTH_COOKIE_SAMESITE = normalizeCookieSameSite\(process\.env\.AUTH_COOKIE_SAMESITE \|\| "Lax"\)/);
+  assert.match(backendSource, /function getAuthCookieSameSite\(\) \{\s+return AUTH_COOKIE_SAMESITE;\s+\}/);
   assert.match(backendSource, /function replaceUserSessions\(store, username, nextSession\)/);
   assert.match(backendSource, /normalizeIdentifier\(item\.username, 40\) !== safeUsername/);
   assert.match(backendSource, /const nextSessions = replaceUserSessions\(store, createdUser\.username, session\)/);
@@ -2883,10 +2885,13 @@ test("api writes attach a CSRF token before sending state-changing requests", ()
   assert.match(backendSource, /function isServerToServerWebhookPath\(pathname = ""\)/);
   assert.match(backendSource, /pathname === "\/api\/payments\/webhook"/);
   assert.match(backendSource, /url\.pathname === "\/api\/auth\/csrf-token"/);
-  assert.match(backendSource, /"Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-CSRF-Token, X-Winga-CSRF-Token"/);
   assert.match(backendSource, /function validateUnsafeApiOrigin\(req, pathname = ""\)/);
+  assert.match(backendSource, /req\.headers\["sec-fetch-site"\]/);
+  assert.match(backendSource, /fetchSite === "cross-site"/);
   assert.match(backendSource, /isServerToServerWebhookPath\(pathname\)/);
   assert.match(backendSource, /code: "origin_not_allowed"/);
+  assert.match(backendSource, /"Access-Control-Allow-Headers"] = "Content-Type, X-CSRF-Token, X-Winga-CSRF-Token"/);
+  assert.doesNotMatch(backendSource, /"Access-Control-Allow-Headers"] = "Content-Type, Authorization/);
   assert.match(backendSource, /function validateJsonRequestContentType\(req, pathname\)/);
   assert.match(backendSource, /requiresJsonRequestBody\(req, pathname\)/);
   assert.match(backendSource, /function isBodylessApiActionPath\(method, pathname\)/);

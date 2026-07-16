@@ -210,9 +210,17 @@ const CSRF_COOKIE_NAME = "winga_csrf";
 const CSRF_TOKEN_TTL_MS = 2 * 60 * 60 * 1000;
 const STRICT_TRANSPORT_SECURITY_HEADER = "max-age=31536000; includeSubDomains; preload";
 const RAW_CSRF_SECRET = String(process.env.CSRF_SECRET || "").trim();
+const AUTH_COOKIE_SAMESITE = normalizeCookieSameSite(process.env.AUTH_COOKIE_SAMESITE || "Lax");
 const DEVELOPMENT_CSRF_SECRET = "winga-development-csrf-secret";
 const CSRF_SECRET = NODE_ENV === "production" ? RAW_CSRF_SECRET : (RAW_CSRF_SECRET || DEVELOPMENT_CSRF_SECRET);
 let requestSequence = 0;
+
+function normalizeCookieSameSite(value = "Lax") {
+  const normalized = String(value || "Lax").trim().toLowerCase();
+  if (normalized === "strict") return "Strict";
+  if (normalized === "none") return "None";
+  return "Lax";
+}
 
 function validateRuntimeConfiguration() {
   const warnings = [];
@@ -247,6 +255,9 @@ function validateRuntimeConfiguration() {
       errors.push("CSRF_SECRET is required in production. Set a high-entropy secret that is separate from admin, session, and webhook secrets.");
     } else if (RAW_CSRF_SECRET.length < 32) {
       errors.push("CSRF_SECRET must be at least 32 characters in production.");
+    }
+    if (String(process.env.AUTH_COOKIE_SAMESITE || "").trim().toLowerCase() === "none" && !TRUST_PROXY_HEADERS) {
+      warnings.push("AUTH_COOKIE_SAMESITE=None is enabled. Only use this for an intentional cross-site frontend/API deployment with HTTPS.");
     }
   } else {
     if (!DATABASE_URL) {
@@ -1628,6 +1639,14 @@ function validateUnsafeApiOrigin(req, pathname = "") {
   if (!String(pathname || "").startsWith("/api/") || !isUnsafeApiMethod(req.method) || isServerToServerWebhookPath(pathname)) {
     return { ok: true };
   }
+  const fetchSite = String(req.headers["sec-fetch-site"] || "").trim().toLowerCase();
+  if (fetchSite === "cross-site") {
+    return {
+      ok: false,
+      reason: "cross_site_fetch_metadata",
+      origin: String(req.headers.origin || "").trim()
+    };
+  }
   const origin = String(req.headers.origin || "").trim();
   if (!origin) {
     return { ok: true };
@@ -1685,7 +1704,7 @@ function buildSecurityHeaders(statusCode, extraHeaders = {}, req = null) {
     headers["Access-Control-Allow-Origin"] = corsOrigin;
     headers["Vary"] = "Origin";
     headers["Access-Control-Allow-Methods"] = "GET,POST,PUT,PATCH,DELETE,OPTIONS";
-    headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-CSRF-Token, X-Winga-CSRF-Token";
+    headers["Access-Control-Allow-Headers"] = "Content-Type, X-CSRF-Token, X-Winga-CSRF-Token";
     headers["Access-Control-Allow-Credentials"] = "true";
   }
 
@@ -2576,7 +2595,7 @@ function parseCookies(req) {
 }
 
 function getAuthCookieSameSite() {
-  return NODE_ENV === "production" ? "None" : "Lax";
+  return AUTH_COOKIE_SAMESITE;
 }
 
 function shouldUseSecureAuthCookie(req) {
