@@ -32,7 +32,7 @@ test("home feed reserves stable media and deferred section geometry", () => {
   assert.match(gallerySource, /const ratioValue = stableRatio \|\| "4 \/ 5";/);
   assert.match(appSource, /window\.WingaModules\?\.marketplace\?\.createGalleryModule/);
   assert.match(appSource, /window\.requestAnimationFrame\(\(\) => \{\s+onChunk\?\.\(chunk\);/);
-  assert.match(styleSource, /#products-container > \.product-card > \.product-card-media\{\s+aspect-ratio:var\(--fit-media-aspect-ratio, 4 \/ 5\) !important;/);
+  assert.match(styleSource, /#products-container > \.product-card > \.product-card-media,\s*#products-container > \.seller-product-card > \.seller-product-card-media\{\s+aspect-ratio:var\(--fit-media-aspect-ratio, 4 \/ 5\) !important;/);
   assert.match(styleSource, /\.feed-skeleton-card\{[\s\S]*contain:layout paint;[\s\S]*content-visibility:auto;[\s\S]*contain-intrinsic-size:0 620px;/);
   assert.match(styleSource, /\.feed-skeleton-media\{[\s\S]*aspect-ratio:4\/5;[\s\S]*height:auto;/);
   assert.match(styleSource, /#products-container > \.product-card,[\s\S]*#products-container > \.seller-product-card,[\s\S]*#products-container > \.feed-skeleton-card\{[\s\S]*contain-intrinsic-size:0 620px;/);
@@ -49,7 +49,7 @@ test("home feed reserves stable media and deferred section geometry", () => {
   assert.match(styleSource, /html::\-webkit-scrollbar,\s*body::\-webkit-scrollbar\{[\s\S]*width:0;[\s\S]*display:none;/);
   assert.doesNotMatch(styleSource, /@media \(max-width:780px\)\{[\s\S]*html,\s*body\{[^}]*overflow-y:hidden;/);
   assert.doesNotMatch(styleSource, /body\[data-layout-mode="standalone-mobile"\] #market-showcase,\s*body\[data-layout-mode="standalone-mobile"\] #products-container/);
-  assert.match(styleSource, /body\[data-layout-mode="standalone-mobile"\] #products-container\[data-layout-mode="standalone-mobile"\]\{[\s\S]*width:100dvw;[\s\S]*transform:translateX\(-50%\);/);
+  assert.match(styleSource, /body\[data-layout-mode="standalone-mobile"\] #products-container\[data-layout-mode="standalone-mobile"\]\{[\s\S]*width:var\(--winga-viewport-width, 100dvw\);[\s\S]*transform:translateX\(-50%\);/);
   assert.match(styleSource, /#products-container \.progressive-image-shell \.progressive-image-full\{[\s\S]*object-fit:cover !important;/);
   assert.match(styleSource, /#products-container \.feed-gallery-carousel-track\{[\s\S]*overflow-x:auto !important;[\s\S]*scroll-snap-type:x mandatory !important;/);
   const marketplaceUiSource = fs.readFileSync(path.join(root, "src", "marketplace", "ui.js"), "utf8");

@@ -1127,6 +1127,24 @@ test("mobile home product media remains edge to edge", async ({ browser }) => {
       card: read(card),
       media: read(media),
       image: read(image),
+      mediaSurfaces: Array.from(document.querySelectorAll("#products-container > .product-card, #products-container > .seller-product-card"))
+        .slice(0, 6)
+        .map((cardNode) => {
+          const cardRect = cardNode.getBoundingClientRect();
+          const mediaNode = cardNode.querySelector(".product-card-media, .seller-product-card-media");
+          const mediaRect = mediaNode?.getBoundingClientRect();
+          const imageNode = mediaNode?.querySelector("img");
+          const imageRect = imageNode?.getBoundingClientRect();
+          return {
+            cardLeft: Math.round(cardRect.left),
+            cardRight: Math.round(cardRect.right),
+            mediaLeft: mediaRect ? Math.round(mediaRect.left) : null,
+            mediaRight: mediaRect ? Math.round(mediaRect.right) : null,
+            imageLeft: imageRect ? Math.round(imageRect.left) : null,
+            imageRight: imageRect ? Math.round(imageRect.right) : null,
+            imageWidth: imageRect ? Math.round(imageRect.width) : 0
+          };
+        }),
       overflowingElements: Array.from(document.querySelectorAll("body *"))
         .map((element) => {
           const rect = element.getBoundingClientRect();
@@ -1151,6 +1169,13 @@ test("mobile home product media remains edge to edge", async ({ browser }) => {
   expect(geometry.image.width).toBeGreaterThanOrEqual(geometry.viewportWidth - 1);
   expect(geometry.scrollbarWidth).toBe(0);
   expect(geometry.bodyOverflowY).not.toBe("hidden");
+  for (const surface of geometry.mediaSurfaces) {
+    expect(surface.cardLeft).toBeLessThanOrEqual(1);
+    expect(Math.abs(surface.cardRight - geometry.viewportWidth)).toBeLessThanOrEqual(1);
+    expect(surface.mediaLeft).toBeLessThanOrEqual(1);
+    expect(Math.abs(surface.mediaRight - geometry.viewportWidth)).toBeLessThanOrEqual(1);
+    expect(surface.imageWidth).toBeGreaterThanOrEqual(geometry.viewportWidth - 1);
+  }
   expect(
     geometry.scrollWidth,
     `Horizontal overflow: ${JSON.stringify(geometry.overflowingElements)}`

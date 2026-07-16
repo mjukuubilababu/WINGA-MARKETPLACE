@@ -12684,16 +12684,24 @@ function isProductionClientRuntime() {
   return Boolean(hostname && hostname !== "localhost" && hostname !== "127.0.0.1" && hostname !== "::1");
 }
 
+function readUsableViewportWidth() {
+  const layoutViewportWidth = Math.max(0, Number(document.documentElement?.clientWidth || 0));
+  if (layoutViewportWidth > 0) {
+    return layoutViewportWidth;
+  }
+  return Math.max(
+    0,
+    Number(window.visualViewport?.width || 0),
+    Number(window.innerWidth || 0)
+  );
+}
+
 function getViewportWidth() {
   return Math.max(0, Number(cachedViewportWidth || window.innerWidth || 0));
 }
 
 function refreshCachedViewportWidth() {
-  const nextWidth = Math.max(
-    0,
-    Number(window.visualViewport?.width || 0),
-    Number(window.innerWidth || 0)
-  );
+  const nextWidth = readUsableViewportWidth();
   if (nextWidth > 0) {
     cachedViewportWidth = nextWidth;
   }
@@ -12777,10 +12785,7 @@ function applyFeedLayoutMode(container = productsContainer) {
   }
   const mode = getClientLayoutMode();
   const columns = getFeedLayoutColumns(mode);
-  const usableViewportWidth = Math.max(
-    0,
-    Number(document.documentElement?.clientWidth || window.innerWidth || 0)
-  );
+  const usableViewportWidth = readUsableViewportWidth();
   container.dataset.layoutMode = mode;
   container.dataset.layoutColumns = String(columns);
   container.style.setProperty("--winga-feed-columns", String(columns));
