@@ -8,6 +8,7 @@ const ORIGIN_BASE_URL = "https://winga-pflp.onrender.com";
  */
 const DEFAULT_FEED_LIMIT = 12;
 const BOOTSTRAP_TIMEOUT_MS = 3000;
+const OPTIONAL_BOOTSTRAP_CONTEXT_TIMEOUT_MS = 220;
 const LCP_PRELOAD_TIMEOUT_MS = 3000;
 const LCP_PRELOAD_CACHE_READ_BUDGET_MS = 25;
 const LCP_PRELOAD_CACHE_TTL_SECONDS = 60 * 5;
@@ -110,7 +111,18 @@ async function streamFeedPage(request, env, ctx) {
   const shellStartedAt = getWorkerNow();
   const { readable, writable } = new TransformStream();
   const writer = writable.getWriter();
-  const write = (html) => writer.write(encoder.encode(String(html || "")));
+  let streamClosed = false;
+  const write = async (html) => {
+    if (streamClosed) {
+      return;
+    }
+    try {
+      await writer.write(encoder.encode(String(html || "")));
+    } catch (error) {
+      streamClosed = true;
+      throw error;
+    }
+  };
   const origin = getOriginBaseUrl(env);
   const scriptNonce = createCspNonce();
   const styleNonce = createCspNonce();
@@ -129,7 +141,7 @@ async function streamFeedPage(request, env, ctx) {
   ctx.waitUntil(refreshAssetBuildVersion(env));
   ctx.waitUntil(refreshCachedLcpImageUrl(preloadProductsPromise));
 
-  ctx.waitUntil((async () => {
+  const streamTask = (async () => {
     try {
       await write(buildDocumentShellStart({ lcpImageUrl, origin, styleNonce, buildVersion }));
       await write(buildFeedSkeletonChunk());
@@ -153,17 +165,31 @@ async function streamFeedPage(request, env, ctx) {
 
       await write(buildDocumentShellEnd({ scriptNonce, buildVersion }));
     } catch (error) {
-      await write(`
-        <script nonce="${escapeHtml(scriptNonce)}">
-          window.__WINGA_BIG_PIPE_BOOTSTRAPPED__ = false;
-          window.__WINGA_BIG_PIPE_BOOTSTRAP_ERROR__ = ${serializeForInlineScript(String(error?.message || error || "unknown"))};
-        </script>
-      `);
-      await write(buildDocumentShellEnd({ scriptNonce, buildVersion }));
+      if (!streamClosed) {
+        try {
+          await write(`
+            <script nonce="${escapeHtml(scriptNonce)}">
+              window.__WINGA_BIG_PIPE_BOOTSTRAPPED__ = false;
+              window.__WINGA_BIG_PIPE_BOOTSTRAP_ERROR__ = ${serializeForInlineScript(String(error?.message || error || "unknown"))};
+            </script>
+          `);
+          await write(buildDocumentShellEnd({ scriptNonce, buildVersion }));
+        } catch (_writeError) {
+          streamClosed = true;
+        }
+      }
     } finally {
-      await writer.close();
+      if (!streamClosed) {
+        streamClosed = true;
+        try {
+          await writer.close();
+        } catch (_error) {
+          // The client may have disconnected after the shell was sent.
+        }
+      }
     }
-  })());
+  })();
+  ctx.waitUntil(streamTask.catch(() => {}));
 
   return new Response(readable, {
     headers: {
@@ -178,6 +204,7 @@ async function streamFeedPage(request, env, ctx) {
       "X-Winga-LCP-Preload": lcpPreloadStatus,
       "X-Winga-Worker-Mode": "streaming-shell",
       "X-Winga-Bootstrap-Status": "background-stream",
+      "X-Winga-Bootstrap-Context-Budget": String(OPTIONAL_BOOTSTRAP_CONTEXT_TIMEOUT_MS),
       "Server-Timing": buildWorkerServerTiming({
         shellReadyMs,
         lcpPreloadStatus
@@ -342,27 +369,31 @@ async function fetchPreloadProductPage(origin, request) {
 }
 
 async function loadBootstrapContext(origin, headers) {
-  const [productsResult, usersResult, sessionResult] = await Promise.allSettled([
-    fetchProducts(origin, headers, {
-      limit: DEFAULT_FEED_LIMIT,
-      page: 1
-    }),
-    fetchUsers(origin, headers),
-    fetchSession(origin, headers)
-  ]);
+  const productsPromise = fetchProducts(origin, headers, {
+    limit: DEFAULT_FEED_LIMIT,
+    page: 1
+  });
+  const usersPromise = withTimeoutValue(
+    fetchUsers(origin, headers, OPTIONAL_BOOTSTRAP_CONTEXT_TIMEOUT_MS),
+    [],
+    OPTIONAL_BOOTSTRAP_CONTEXT_TIMEOUT_MS
+  );
+  const sessionPromise = withTimeoutValue(
+    fetchSession(origin, headers, OPTIONAL_BOOTSTRAP_CONTEXT_TIMEOUT_MS),
+    null,
+    OPTIONAL_BOOTSTRAP_CONTEXT_TIMEOUT_MS
+  );
 
-  const items = productsResult.status === "fulfilled" && Array.isArray(productsResult.value?.items) && productsResult.value.items.length
-    ? productsResult.value.items.slice(0, DEFAULT_FEED_LIMIT)
+  const productResult = await productsPromise;
+  const [usersResult, sessionResult] = await Promise.allSettled([usersPromise, sessionPromise]);
+  const items = Array.isArray(productResult?.items) && productResult.items.length
+    ? productResult.items.slice(0, DEFAULT_FEED_LIMIT)
     : getFallbackProducts();
-  const productPage = productsResult.status === "fulfilled" && productsResult.value && typeof productsResult.value === "object"
-    ? productsResult.value
+  const productPage = productResult && typeof productResult === "object"
+    ? productResult
     : normalizeProductPageCollection({ items, hasMore: false, nextCursor: "", page: 1, limit: DEFAULT_FEED_LIMIT, total: items.length }, { limit: DEFAULT_FEED_LIMIT, page: 1 });
-  const users = usersResult.status === "fulfilled" && Array.isArray(usersResult.value)
-    ? usersResult.value
-    : [];
-  const session = sessionResult.status === "fulfilled" && sessionResult.value && typeof sessionResult.value === "object"
-    ? sessionResult.value
-    : null;
+  const users = usersResult.status === "fulfilled" && Array.isArray(usersResult.value) ? usersResult.value : [];
+  const session = sessionResult.status === "fulfilled" && sessionResult.value && typeof sessionResult.value === "object" ? sessionResult.value : null;
   const usersById = Object.fromEntries(
     users
       .filter((user) => user && typeof user === "object")
@@ -385,7 +416,7 @@ async function loadBootstrapContext(origin, headers) {
     users,
     usersById,
     session,
-    status: "loaded"
+    status: users.length || session ? "loaded" : "loaded-products-first"
   };
 }
 
@@ -403,25 +434,32 @@ async function fetchProducts(origin, headers, options = {}) {
   return normalizeProductPageCollection(data, pageWindow);
 }
 
-async function fetchUsers(origin, headers) {
+async function fetchUsers(origin, headers, timeoutMs = BOOTSTRAP_TIMEOUT_MS) {
   try {
     const data = await fetchJsonWithTimeout(`${origin}/api/users`, {
       headers: withJsonAcceptHeaders(headers)
-    });
+    }, timeoutMs);
     return Array.isArray(data) ? data : [];
   } catch (_error) {
     return [];
   }
 }
 
-async function fetchSession(origin, headers) {
+async function fetchSession(origin, headers, timeoutMs = BOOTSTRAP_TIMEOUT_MS) {
   try {
     return await fetchJsonWithTimeout(`${origin}/api/auth/session`, {
       headers: withJsonAcceptHeaders(headers)
-    });
+    }, timeoutMs);
   } catch (_error) {
     return null;
   }
+}
+
+async function withTimeoutValue(promise, fallbackValue, timeoutMs = OPTIONAL_BOOTSTRAP_CONTEXT_TIMEOUT_MS) {
+  return Promise.race([
+    Promise.resolve(promise).catch(() => fallbackValue),
+    new Promise((resolve) => setTimeout(() => resolve(fallbackValue), Math.max(1, Number(timeoutMs || 1) || 1)))
+  ]);
 }
 
 async function fetchJsonWithTimeout(url, options = {}, timeoutMs = BOOTSTRAP_TIMEOUT_MS) {

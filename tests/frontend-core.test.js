@@ -1649,6 +1649,12 @@ test("production CSP is enforced from repo without inline script escape hatches"
   assert.match(workerSource, /let cachedAssetBuildVersion = "00000000000000";/);
   assert.match(workerSource, /function resolveAssetBuildVersion\(env\)/);
   assert.match(workerSource, /ctx\.waitUntil\(refreshAssetBuildVersion\(env\)\);/);
+  assert.match(workerSource, /const OPTIONAL_BOOTSTRAP_CONTEXT_TIMEOUT_MS = 220;/);
+  assert.match(workerSource, /const streamTask = \(async \(\) => \{/);
+  assert.match(workerSource, /ctx\.waitUntil\(streamTask\.catch\(\(\) => \{\}\)\);/);
+  assert.match(workerSource, /withTimeoutValue\(\s*fetchUsers\(origin, headers, OPTIONAL_BOOTSTRAP_CONTEXT_TIMEOUT_MS\)/);
+  assert.match(workerSource, /withTimeoutValue\(\s*fetchSession\(origin, headers, OPTIONAL_BOOTSTRAP_CONTEXT_TIMEOUT_MS\)/);
+  assert.match(workerSource, /status: users\.length \|\| session \? "loaded" : "loaded-products-first"/);
   assert.match(workerSource, /env\.ASSETS\.fetch\(new Request\("https:\/\/wingamarket\.com\/build-version\.json"\)\)/);
   assert.doesNotMatch(workerSource, /const buildVersion = await resolveAssetBuildVersion\(env\)/);
   assert.match(workerSource, /<meta name="winga-build" content="\$\{escapeHtml\(buildVersion\)\}">/);
@@ -1659,6 +1665,7 @@ test("production CSP is enforced from repo without inline script escape hatches"
   assert.match(workerSource, /nonce="\$\{escapeHtml\(scriptNonce\)\}"/);
   assert.match(workerSource, /"X-Winga-Worker-Mode": "streaming-shell"/);
   assert.match(workerSource, /"X-Winga-Bootstrap-Status": "background-stream"/);
+  assert.match(workerSource, /"X-Winga-Bootstrap-Context-Budget": String\(OPTIONAL_BOOTSTRAP_CONTEXT_TIMEOUT_MS\)/);
   assert.match(workerSource, /"Server-Timing": buildWorkerServerTiming/);
   assert.match(workerSource, /const LCP_PRELOAD_CACHE_READ_BUDGET_MS = 25;/);
   assert.match(workerSource, /readCachedLcpImageUrl\(\{ timeoutMs: LCP_PRELOAD_CACHE_READ_BUDGET_MS \}\)/);
@@ -1695,6 +1702,8 @@ test("production domain routing verifier catches API shell fallthrough", () => {
   assert.match(workerPerformanceVerifySource, /data-winga-build-version/);
   assert.match(workerPerformanceVerifySource, /x-winga-worker-mode/);
   assert.match(workerPerformanceVerifySource, /background-stream/);
+  assert.match(workerPerformanceVerifySource, /x-winga-bootstrap-context-budget/);
+  assert.match(workerPerformanceVerifySource, /bounded optional bootstrap context budget/);
   assert.match(workerPerformanceVerifySource, /worker-shell;dur=/);
 });
 

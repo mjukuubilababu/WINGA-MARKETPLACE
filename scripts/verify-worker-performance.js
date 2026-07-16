@@ -24,6 +24,7 @@ async function main() {
   const lcpPreloadStatus = getHeader(response.headers, "x-winga-lcp-preload");
   const workerMode = getHeader(response.headers, "x-winga-worker-mode");
   const bootstrapStatus = getHeader(response.headers, "x-winga-bootstrap-status");
+  const bootstrapContextBudget = getHeader(response.headers, "x-winga-bootstrap-context-budget");
   const serverTiming = getHeader(response.headers, "server-timing");
   const server = getHeader(response.headers, "server");
   const preloadTags = body.match(/<link\s+rel="preload"\s+as="image"[^>]+fetchpriority="high"[^>]*>/gi) || [];
@@ -39,6 +40,7 @@ async function main() {
     lcpPreloadStatus,
     workerMode,
     bootstrapStatus,
+    bootstrapContextBudget,
     serverTiming,
     preloadTagCount: preloadTags.length,
     buildVersion: buildVersionMatch?.[1] || "",
@@ -57,6 +59,9 @@ async function main() {
   }
   if (workerMode !== "streaming-shell" || bootstrapStatus !== "background-stream") {
     throw new Error("Home response is missing streaming Worker mode headers.");
+  }
+  if (!/^\d+$/.test(bootstrapContextBudget) || Number(bootstrapContextBudget) > 300) {
+    throw new Error("Home response is missing a bounded optional bootstrap context budget.");
   }
   if (!/worker-shell;dur=/i.test(serverTiming)) {
     throw new Error("Home response is missing worker-shell Server-Timing.");
