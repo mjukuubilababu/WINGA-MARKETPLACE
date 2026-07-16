@@ -34,6 +34,11 @@ const QUEUE_WEBHOOK_SECRET = String(process.env.QUEUE_WEBHOOK_SECRET || "").trim
 const ALLOW_UNVERIFIED_MANUAL_PAYMENTS = String(process.env.ALLOW_UNVERIFIED_MANUAL_PAYMENTS || "").toLowerCase() === "true";
 const HASH_PREFIX = "scrypt";
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const SESSION_TOUCH_INTERVAL_MS = 5 * 60 * 1000;
+const SESSION_ROTATION_INTERVAL_MS = 30 * 60 * 1000;
+const SESSION_MAX_ACTIVE_PER_USER = 5;
+const SUSPICIOUS_LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const SUSPICIOUS_LOGIN_MAX_FAILURES = 4;
 const ADMIN_SEED_USERNAME = String(process.env.ADMIN_SEED_USERNAME || "admin").trim();
 const ADMIN_SEED_FULL_NAME = String(process.env.ADMIN_SEED_FULL_NAME || "WILHARD MMBANDO").trim();
 const ADMIN_SEED_PASSWORD = process.env.ADMIN_SEED_PASSWORD || "";
@@ -182,6 +187,7 @@ const RATE_LIMIT_RULES = {
   "/api/users/me/whatsapp/verify-change": { limit: 12, windowMs: RATE_LIMIT_WINDOW_MS }
 };
 const rateLimitStore = new Map();
+const suspiciousLoginStore = new Map();
 const CLIENT_EVENT_DEDUPE_TTL_MS = Math.max(1000, Math.min(Number(process.env.CLIENT_EVENT_DEDUPE_TTL_MS || 30000) || 30000, 10 * 60 * 1000));
 const CLIENT_EVENT_DEDUPE_MAX_KEYS = Math.max(1000, Math.min(Number(process.env.CLIENT_EVENT_DEDUPE_MAX_KEYS || 50000) || 50000, 500000));
 const CLIENT_EVENT_BOT_DROP_ENABLED = String(process.env.CLIENT_EVENT_BOT_DROP_ENABLED || "true").toLowerCase() !== "false";
@@ -731,11 +737,7 @@ function readLegacyStore() {
     settings: normalizeAppSettings(parsed.settings || DEFAULT_APP_SETTINGS),
     sessions: sessions.map((session) => {
       const sessionUser = users.find((user) => user.username === session.username);
-      return {
-        ...session,
-        primaryCategory: session.primaryCategory || sessionUser?.primaryCategory || "",
-        role: isValidRole(session.role) ? session.role : (sessionUser?.role || "seller")
-      };
+      return normalizeSessionRecord(session, sessionUser);
     })
   };
 }
@@ -2146,8 +2148,12 @@ function readWebhookSecret(req) {
   return String(req.headers["x-webhook-secret"] || "").trim();
 }
 
-function createSession(user) {
+function createSession(user, req = null) {
+  const now = Date.now();
+  const nowIso = new Date(now).toISOString();
+  const context = getSessionRequestContext(req);
   return {
+    sessionId: `sess-${crypto.randomBytes(12).toString("hex")}`,
     token: crypto.randomBytes(32).toString("hex"),
     username: user.username,
     fullName: user.fullName || user.username,
@@ -2162,7 +2168,14 @@ function createSession(user) {
     whatsappVerificationStatus: user.whatsappVerificationStatus || "verified",
     profileImage: user.profileImage || "",
     verificationStatus: user.verificationStatus || (user.verifiedSeller ? "verified" : "unverified"),
-    expiresAt: Date.now() + SESSION_TTL_MS
+    createdAt: nowIso,
+    lastSeenAt: nowIso,
+    lastRotatedAt: nowIso,
+    ipHash: context.ipHash,
+    userAgentHash: context.userAgentHash,
+    deviceType: context.deviceType,
+    cfRay: context.cfRay,
+    expiresAt: now + SESSION_TTL_MS
   };
 }
 
@@ -2570,6 +2583,43 @@ function getUserRestrictionMessage(status) {
   return "Huna ruhusa ya kutumia action hii.";
 }
 
+function hashSessionContextValue(value = "") {
+  const source = String(value || "").trim();
+  if (!source) {
+    return "";
+  }
+  return crypto
+    .createHmac("sha256", CSRF_SECRET || "winga-session-context")
+    .update(source)
+    .digest("base64url")
+    .slice(0, 32);
+}
+
+function getClientDeviceType(req) {
+  const userAgent = String(req?.headers?.["user-agent"] || "").toLowerCase();
+  if (/mobile|android|iphone|ipod|opera mini|iemobile/.test(userAgent)) {
+    return "mobile";
+  }
+  if (/ipad|tablet/.test(userAgent)) {
+    return "tablet";
+  }
+  if (userAgent) {
+    return "desktop";
+  }
+  return "unknown";
+}
+
+function getSessionRequestContext(req) {
+  const userAgent = String(req?.headers?.["user-agent"] || "").slice(0, 240);
+  const ip = getClientIp(req);
+  return {
+    ipHash: hashSessionContextValue(ip),
+    userAgentHash: hashSessionContextValue(userAgent),
+    deviceType: getClientDeviceType(req),
+    cfRay: sanitizePlainText(req?.headers?.["cf-ray"] || "", 80)
+  };
+}
+
 function parseCookies(req) {
   const cookieHeader = String(req?.headers?.cookie || "");
   if (!cookieHeader) {
@@ -2759,15 +2809,102 @@ function cleanupSessions(store) {
   };
 }
 
+function normalizeSessionRecord(session = {}, user = null) {
+  const now = Date.now();
+  const createdAt = session.createdAt || new Date(now).toISOString();
+  return {
+    ...session,
+    sessionId: sanitizePlainText(session.sessionId || "", 80) || `sess-${crypto.randomBytes(12).toString("hex")}`,
+    createdAt,
+    lastSeenAt: session.lastSeenAt || createdAt,
+    lastRotatedAt: session.lastRotatedAt || createdAt,
+    ipHash: sanitizePlainText(session.ipHash || "", 80),
+    userAgentHash: sanitizePlainText(session.userAgentHash || "", 80),
+    deviceType: ["mobile", "tablet", "desktop", "unknown"].includes(session.deviceType) ? session.deviceType : "unknown",
+    cfRay: sanitizePlainText(session.cfRay || "", 80),
+    primaryCategory: session.primaryCategory || user?.primaryCategory || "",
+    role: isValidRole(session.role) ? session.role : (user?.role || "seller")
+  };
+}
+
 function replaceUserSessions(store, username, nextSession) {
   const safeUsername = normalizeIdentifier(username, 40);
   const now = Date.now();
-  const activeSessions = (store.sessions || []).filter((item) =>
+  const activeOtherSessions = (store.sessions || []).filter((item) =>
     item
     && item.expiresAt >= now
     && normalizeIdentifier(item.username, 40) !== safeUsername
   );
-  return [...activeSessions, nextSession];
+  const activeUserSessions = (store.sessions || [])
+    .filter((item) =>
+      item
+      && item.expiresAt >= now
+      && normalizeIdentifier(item.username, 40) === safeUsername
+      && item.token !== nextSession.token
+    )
+    .sort((first, second) => Number(second.expiresAt || 0) - Number(first.expiresAt || 0))
+    .slice(0, Math.max(0, SESSION_MAX_ACTIVE_PER_USER - 1));
+  return [...activeOtherSessions, ...activeUserSessions, nextSession];
+}
+
+function shouldRotateSession(session) {
+  const lastRotatedAt = session?.lastRotatedAt ? new Date(session.lastRotatedAt).getTime() : 0;
+  if (!Number.isFinite(lastRotatedAt) || lastRotatedAt <= 0) {
+    return true;
+  }
+  return Date.now() - lastRotatedAt >= SESSION_ROTATION_INTERVAL_MS;
+}
+
+function shouldTouchSession(session) {
+  const lastSeenAt = session?.lastSeenAt ? new Date(session.lastSeenAt).getTime() : 0;
+  if (!Number.isFinite(lastSeenAt) || lastSeenAt <= 0) {
+    return true;
+  }
+  return Date.now() - lastSeenAt >= SESSION_TOUCH_INTERVAL_MS;
+}
+
+function refreshSessionRecord(session, req = null, options = {}) {
+  const now = Date.now();
+  const nowIso = new Date(now).toISOString();
+  const context = getSessionRequestContext(req);
+  const rotate = options.rotate === true;
+  return {
+    ...session,
+    token: rotate ? crypto.randomBytes(32).toString("hex") : session.token,
+    lastSeenAt: nowIso,
+    lastRotatedAt: rotate ? nowIso : (session.lastRotatedAt || nowIso),
+    ipHash: context.ipHash || session.ipHash || "",
+    userAgentHash: context.userAgentHash || session.userAgentHash || "",
+    deviceType: context.deviceType || session.deviceType || "unknown",
+    cfRay: context.cfRay || session.cfRay || "",
+    expiresAt: now + SESSION_TTL_MS
+  };
+}
+
+function updateSessionInStore(store, currentToken, nextSession) {
+  return (store.sessions || []).map((item) =>
+    item.token === currentToken || item.sessionId === nextSession.sessionId
+      ? nextSession
+      : item
+  );
+}
+
+function sanitizeSessionForAdmin(session = {}) {
+  const expiresAt = Number(session.expiresAt || 0);
+  return {
+    sessionId: sanitizePlainText(session.sessionId || "", 80),
+    username: normalizeIdentifier(session.username, 40),
+    role: session.role || "",
+    deviceType: session.deviceType || "unknown",
+    createdAt: session.createdAt || "",
+    lastSeenAt: session.lastSeenAt || "",
+    lastRotatedAt: session.lastRotatedAt || "",
+    expiresAt,
+    expiresAtIso: expiresAt ? new Date(expiresAt).toISOString() : "",
+    tokenLast4: String(session.token || "").slice(-4),
+    ipHash: sanitizePlainText(session.ipHash || "", 80),
+    userAgentHash: sanitizePlainText(session.userAgentHash || "", 80)
+  };
 }
 
 function getProductIdFromPath(pathname) {
@@ -3167,11 +3304,7 @@ function migrateLegacyStore(store) {
 
   const normalizedSessions = (store.sessions || []).map((session) => {
     const sessionUser = normalizedUsers.find((user) => user.username === session.username);
-    return {
-      ...session,
-      primaryCategory: session.primaryCategory || sessionUser?.primaryCategory || "",
-      role: isValidRole(session.role) ? session.role : (sessionUser?.role || "seller")
-    };
+    return normalizeSessionRecord(session, sessionUser);
   });
 
   if (JSON.stringify(normalizedSessions) !== JSON.stringify(store.sessions || [])) {
@@ -4826,6 +4959,55 @@ function evaluateRateLimit(req, store) {
   };
 }
 
+function getSuspiciousLoginKey(req, identifier = "", scope = "public") {
+  const safeIdentifier = normalizeIdentifier(identifier || "unknown", 120) || "unknown";
+  return `${scope}:${getClientIp(req)}:${safeIdentifier}`;
+}
+
+function pruneSuspiciousLoginStore(now = Date.now()) {
+  for (const [key, attempts] of suspiciousLoginStore.entries()) {
+    const fresh = (Array.isArray(attempts) ? attempts : []).filter((timestamp) => now - timestamp < SUSPICIOUS_LOGIN_WINDOW_MS);
+    if (fresh.length) {
+      suspiciousLoginStore.set(key, fresh);
+    } else {
+      suspiciousLoginStore.delete(key);
+    }
+  }
+  while (suspiciousLoginStore.size > RATE_LIMIT_MAX_BUCKETS) {
+    const oldestKey = suspiciousLoginStore.keys().next().value;
+    if (!oldestKey) break;
+    suspiciousLoginStore.delete(oldestKey);
+  }
+}
+
+function getSuspiciousLoginStatus(req, identifier = "", scope = "public") {
+  const now = Date.now();
+  pruneSuspiciousLoginStore(now);
+  const key = getSuspiciousLoginKey(req, identifier, scope);
+  const attempts = (suspiciousLoginStore.get(key) || []).filter((timestamp) => now - timestamp < SUSPICIOUS_LOGIN_WINDOW_MS);
+  const blocked = attempts.length >= SUSPICIOUS_LOGIN_MAX_FAILURES;
+  return {
+    blocked,
+    key,
+    attempts: attempts.length,
+    retryAfterSeconds: blocked ? Math.max(1, Math.ceil((SUSPICIOUS_LOGIN_WINDOW_MS - (now - attempts[0])) / 1000)) : 0
+  };
+}
+
+function recordSuspiciousLoginFailure(req, identifier = "", scope = "public") {
+  const now = Date.now();
+  const key = getSuspiciousLoginKey(req, identifier, scope);
+  const attempts = (suspiciousLoginStore.get(key) || []).filter((timestamp) => now - timestamp < SUSPICIOUS_LOGIN_WINDOW_MS);
+  attempts.push(now);
+  suspiciousLoginStore.set(key, attempts);
+  pruneSuspiciousLoginStore(now);
+  return attempts.length;
+}
+
+function clearSuspiciousLoginFailures(req, identifier = "", scope = "public") {
+  suspiciousLoginStore.delete(getSuspiciousLoginKey(req, identifier, scope));
+}
+
 http.createServer(async (req, res) => {
   res.__wingaReq = req;
   const requestMeta = {
@@ -5373,6 +5555,101 @@ http.createServer(async (req, res) => {
           ...buildAdminUserSummary(store, user)
         }))
       );
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/admin/sessions") {
+      const token = readAuthToken(req);
+      const session = findSession(store, token);
+      if (!session) {
+        await denyJson(res, 401, "Session imeisha au si sahihi.", {
+          ip: clientIp,
+          method: req.method,
+          path: url.pathname,
+          event: "admin_sessions_denied",
+          reason: "missing_or_invalid_session"
+        });
+        return;
+      }
+      if (!canModerateSession(session)) {
+        await denyJson(res, 403, "Hii area ni ya admin au moderator tu.", {
+          ip: clientIp,
+          method: req.method,
+          path: url.pathname,
+          event: "admin_sessions_denied",
+          username: session.username,
+          reason: "insufficient_role"
+        });
+        return;
+      }
+      const usernameFilter = normalizeIdentifier(url.searchParams.get("username") || "", 40);
+      const activeSessions = (store.sessions || [])
+        .filter((item) => Number(item?.expiresAt || 0) >= Date.now())
+        .filter((item) => !usernameFilter || normalizeIdentifier(item.username, 40) === usernameFilter)
+        .map(sanitizeSessionForAdmin)
+        .sort((first, second) => String(second.lastSeenAt || second.createdAt || "").localeCompare(String(first.lastSeenAt || first.createdAt || "")));
+      sendJson(res, 200, {
+        items: activeSessions,
+        count: activeSessions.length,
+        maxActivePerUser: SESSION_MAX_ACTIVE_PER_USER,
+        rotationIntervalSeconds: Math.floor(SESSION_ROTATION_INTERVAL_MS / 1000)
+      });
+      return;
+    }
+
+    const revokeSessionMatch = url.pathname.match(/^\/api\/admin\/sessions\/([^/]+)$/);
+    if (req.method === "DELETE" && revokeSessionMatch) {
+      const token = readAuthToken(req);
+      const session = findSession(store, token);
+      if (!session) {
+        await denyJson(res, 401, "Session imeisha au si sahihi.", {
+          ip: clientIp,
+          method: req.method,
+          path: url.pathname,
+          event: "admin_session_revoke_denied",
+          reason: "missing_or_invalid_session"
+        });
+        return;
+      }
+      if (!isAdminSession(session)) {
+        await denyJson(res, 403, "Hii area ni ya admin tu.", {
+          ip: clientIp,
+          method: req.method,
+          path: url.pathname,
+          event: "admin_session_revoke_denied",
+          username: session.username,
+          reason: "insufficient_role"
+        });
+        return;
+      }
+      const targetSessionId = sanitizePlainText(decodeURIComponent(revokeSessionMatch[1] || ""), 80);
+      const targetSession = (store.sessions || []).find((item) => item.sessionId === targetSessionId);
+      if (!targetSession) {
+        sendJson(res, 404, { error: "Session haijapatikana.", code: "session_not_found" });
+        return;
+      }
+      if (targetSession.token === token) {
+        sendJson(res, 400, { error: "Huwezi kurevoke session unayotumia sasa.", code: "cannot_revoke_current_session" });
+        return;
+      }
+      const nextSessions = (store.sessions || []).filter((item) => item.sessionId !== targetSessionId);
+      await writeStoreWithOptions({
+        ...store,
+        sessions: nextSessions
+      }, {
+        skipBackup: true
+      });
+      await appendAuditLog({
+        time: new Date().toISOString(),
+        ip: clientIp,
+        method: req.method,
+        path: url.pathname,
+        event: "admin_session_revoked",
+        adminUsername: session.username,
+        targetUserId: targetSession.username || "",
+        sessionId: targetSessionId
+      });
+      sendJson(res, 200, { ok: true, revokedSessionId: targetSessionId });
       return;
     }
 
@@ -6229,7 +6506,7 @@ http.createServer(async (req, res) => {
         createdAt: new Date().toISOString(),
         password: createPasswordHash(payload.password)
       };
-      const session = createSession(createdUser);
+      const session = createSession(createdUser, req);
       const nextSessions = replaceUserSessions(store, createdUser.username, session);
       users.push(createdUser);
       logRouteMemoryStage(requestMeta, "before_signup_write", {
@@ -6338,15 +6615,36 @@ http.createServer(async (req, res) => {
       const userIndex = findUserIndexByPublicIdentifier(users, rawIdentifier);
       const user = userIndex >= 0 ? users[userIndex] : null;
       const normalizedIdentifier = normalizeIdentifier(rawIdentifier, 120);
+      const suspiciousStatus = getSuspiciousLoginStatus(req, normalizedIdentifier, "public");
+      if (suspiciousStatus.blocked) {
+        await appendAuditLog({
+          time: new Date().toISOString(),
+          ip: clientIp,
+          method: req.method,
+          path: url.pathname,
+          event: "login_throttled",
+          username: normalizedIdentifier,
+          attempts: suspiciousStatus.attempts
+        });
+        sendJson(
+          res,
+          429,
+          { error: "Majaribio ya login ni mengi sana. Subiri kidogo ujaribu tena.", code: "login_throttled" },
+          { "Retry-After": String(suspiciousStatus.retryAfterSeconds || 60) }
+        );
+        return;
+      }
 
       if (!user || !verifyPassword(payload.password, user.password)) {
+        const attempts = recordSuspiciousLoginFailure(req, normalizedIdentifier, "public");
         recordAuditLog({
           time: new Date().toISOString(),
           ip: clientIp,
           method: req.method,
           path: url.pathname,
           event: "login_failed",
-          username: normalizedIdentifier
+          username: normalizedIdentifier,
+          attempts
         });
         sendJson(res, 401, { error: "Taarifa za login si sahihi. Hakikisha username na password ni sahihi." });
         return;
@@ -6388,7 +6686,8 @@ http.createServer(async (req, res) => {
       }
 
       const freshUser = normalizeUserRecord(users[userIndex] || user);
-      const session = createSession(freshUser);
+      clearSuspiciousLoginFailures(req, normalizedIdentifier, "public");
+      const session = createSession(freshUser, req);
       const nextSessions = replaceUserSessions(store, freshUser.username, session);
       logRouteMemoryStage(requestMeta, "before_login_write", {
         sessions: nextSessions.length
@@ -6434,15 +6733,36 @@ http.createServer(async (req, res) => {
       const userIndex = findUserIndexByPublicIdentifier(users, rawIdentifier);
       const user = userIndex >= 0 ? users[userIndex] : null;
       const normalizedIdentifier = normalizeIdentifier(rawIdentifier, 120);
+      const suspiciousStatus = getSuspiciousLoginStatus(req, normalizedIdentifier, "staff");
+      if (suspiciousStatus.blocked) {
+        await appendAuditLog({
+          time: new Date().toISOString(),
+          ip: clientIp,
+          method: req.method,
+          path: url.pathname,
+          event: "admin_login_throttled",
+          username: normalizedIdentifier,
+          attempts: suspiciousStatus.attempts
+        });
+        sendJson(
+          res,
+          429,
+          { error: "Majaribio ya admin login ni mengi sana. Subiri kidogo ujaribu tena.", code: "login_throttled" },
+          { "Retry-After": String(suspiciousStatus.retryAfterSeconds || 60) }
+        );
+        return;
+      }
 
       if (!user || !verifyPassword(payload.password, user.password) || !isStaffRole(user.role)) {
+        const attempts = recordSuspiciousLoginFailure(req, normalizedIdentifier, "staff");
         recordAuditLog({
           time: new Date().toISOString(),
           ip: clientIp,
           method: req.method,
           path: url.pathname,
           event: "admin_login_failed",
-          username: normalizedIdentifier
+          username: normalizedIdentifier,
+          attempts
         });
         sendJson(res, 401, { error: "Taarifa za admin login si sahihi." });
         return;
@@ -6471,7 +6791,8 @@ http.createServer(async (req, res) => {
       }
 
       const freshUser = normalizeUserRecord(users[userIndex] || user);
-      const session = createSession(freshUser);
+      clearSuspiciousLoginFailures(req, normalizedIdentifier, "staff");
+      const session = createSession(freshUser, req);
       const nextSessions = replaceUserSessions(store, freshUser.username, session);
       logRouteMemoryStage(requestMeta, "before_admin_login_write", {
         sessions: nextSessions.length
@@ -6898,11 +7219,35 @@ http.createServer(async (req, res) => {
         role: user.role || "",
         sessionRestored: true
       });
+      const rotateSession = shouldRotateSession(session);
+      const touchSession = rotateSession || shouldTouchSession(session);
+      const refreshedSession = touchSession
+        ? refreshSessionRecord(session, req, { rotate: rotateSession })
+        : session;
+      if (touchSession) {
+        await writeStoreWithOptions({
+          ...store,
+          sessions: updateSessionInStore(store, token, refreshedSession)
+        }, {
+          skipBackup: true
+        });
+      }
+      if (rotateSession) {
+        await appendAuditLog({
+          time: new Date().toISOString(),
+          ip: clientIp,
+          method: req.method,
+          path: url.pathname,
+          event: "session_rotated",
+          username: user.username,
+          sessionId: refreshedSession.sessionId
+        });
+      }
       sendJson(
         res,
         200,
         buildSelfSessionPayload(user),
-        hasAuthCookie ? {} : { "Set-Cookie": buildAuthCookieHeader(session.token, req) }
+        (rotateSession || !hasAuthCookie) ? { "Set-Cookie": buildAuthCookieHeader(refreshedSession.token, req) } : {}
       );
       return;
     }

@@ -243,6 +243,29 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   assert.equal(malformedJsonWrite.response.status, 400);
   assert.equal(malformedJsonWrite.body.code, "invalid_json");
 
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const failedThrottleProbe = await request("/auth/admin-login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        identifier: "staff-throttle-probe",
+        password: "wrong-password"
+      })
+    });
+    assert.equal(failedThrottleProbe.response.status, 401);
+  }
+  const throttledLogin = await request("/auth/admin-login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      identifier: "staff-throttle-probe",
+      password: "wrong-password"
+    })
+  });
+  assert.equal(throttledLogin.response.status, 429);
+  assert.equal(throttledLogin.body.code, "login_throttled");
+  assert.ok(Number(throttledLogin.response.headers.get("retry-after") || 0) > 0);
+
   const webhookWithWrongSecret = await request("/payments/webhook", {
     method: "POST",
     skipCsrf: true,
@@ -885,6 +908,17 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   assert.equal(adminLogin.response.status, 200);
   const adminToken = getAuthCookieToken(adminLogin.response);
 
+  const sellerSecondLogin = await request("/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      username: "seller_one",
+      password: "Pass1234"
+    })
+  });
+  assert.equal(sellerSecondLogin.response.status, 200);
+  const sellerSecondToken = getAuthCookieToken(sellerSecondLogin.response);
+
   const moderatorLogin = await request("/auth/admin-login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -895,6 +929,35 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   });
   assert.equal(moderatorLogin.response.status, 200);
   const moderatorToken = getAuthCookieToken(moderatorLogin.response);
+
+  const adminSessions = await request("/admin/sessions?username=seller_one", {
+    headers: { Authorization: `Bearer ${adminToken}` }
+  });
+  assert.equal(adminSessions.response.status, 200);
+  assert.ok(adminSessions.body.count >= 2);
+  assert.equal(adminSessions.body.maxActivePerUser, 5);
+  const revocableSellerSession = adminSessions.body.items.find((item) => item.tokenLast4 === sellerSecondToken.slice(-4));
+  assert.ok(revocableSellerSession?.sessionId);
+  assert.equal(typeof revocableSellerSession.ipHash, "string");
+  assert.equal(typeof revocableSellerSession.userAgentHash, "string");
+
+  const moderatorSessionRevoke = await request(`/admin/sessions/${encodeURIComponent(revocableSellerSession.sessionId)}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${moderatorToken}` }
+  });
+  assert.equal(moderatorSessionRevoke.response.status, 403);
+
+  const adminSessionRevoke = await request(`/admin/sessions/${encodeURIComponent(revocableSellerSession.sessionId)}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${adminToken}` }
+  });
+  assert.equal(adminSessionRevoke.response.status, 200);
+  assert.equal(adminSessionRevoke.body.revokedSessionId, revocableSellerSession.sessionId);
+
+  const revokedSellerSession = await request("/auth/session", {
+    headers: { Authorization: `Bearer ${sellerSecondToken}` }
+  });
+  assert.equal(revokedSellerSession.response.status, 401);
 
   const adminOpsSummary = await request("/admin/ops/summary", {
     headers: { Authorization: `Bearer ${adminToken}` }
