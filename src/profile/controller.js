@@ -257,6 +257,160 @@
       }
     }
 
+    function formatSessionDate(value = "") {
+      const date = value ? new Date(value) : null;
+      if (!date || Number.isNaN(date.getTime())) {
+        return "Unknown";
+      }
+      return date.toLocaleString([], {
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit"
+      });
+    }
+
+    function renderSessionSecurityList(payload = {}) {
+      const list = document.getElementById("profile-session-list");
+      if (!list) {
+        return;
+      }
+      const sessions = Array.isArray(payload.items) ? payload.items : [];
+      list.replaceChildren();
+      if (!sessions.length) {
+        list.appendChild(deps.createElement("p", {
+          className: "empty-copy",
+          textContent: "Hakuna active sessions zilizopatikana."
+        }));
+        return;
+      }
+      sessions.forEach((session) => {
+        const card = deps.createElement("div", { className: "orders-card profile-session-card" });
+        const riskLevel = String(session.riskLevel || "low").toLowerCase();
+        const title = `${session.current ? "Current device" : "Other device"} | ${session.deviceType || "unknown"}`;
+        card.append(
+          deps.createElement("strong", { textContent: title }),
+          deps.createElement("small", {
+            textContent: `Last seen: ${formatSessionDate(session.lastSeenAt || session.createdAt)}`
+          }),
+          deps.createElement("p", {
+            className: "product-meta",
+            textContent: `Risk: ${riskLevel}${session.stepUpVerifiedAt ? ` | verified ${formatSessionDate(session.stepUpVerifiedAt)}` : ""}`
+          })
+        );
+        if (!session.current) {
+          card.appendChild(deps.createElement("button", {
+            className: "action-btn action-btn-secondary",
+            textContent: "Revoke session",
+            attributes: {
+              type: "button",
+              "data-revoke-session": session.sessionId
+            }
+          }));
+        }
+        list.appendChild(card);
+      });
+    }
+
+    async function loadProfileSessionSecurity(sequence) {
+      const list = document.getElementById("profile-session-list");
+      if (!list || typeof deps.dataLayer?.loadActiveSessions !== "function") {
+        return;
+      }
+      try {
+        const payload = await deps.dataLayer.loadActiveSessions();
+        if (!isRenderActive(sequence)) {
+          return;
+        }
+        renderSessionSecurityList(payload);
+      } catch (error) {
+        deps.captureError?.("profile_sessions_load_failed", error, {
+          user: deps.getCurrentUser?.()
+        });
+        if (isRenderActive(sequence)) {
+          list.replaceChildren(deps.createElement("p", {
+            className: "empty-copy",
+            textContent: "Session list haikupatikana sasa. Jaribu tena baadaye."
+          }));
+        }
+      }
+    }
+
+    function bindSessionSecurityActions(sequence) {
+      const form = document.getElementById("profile-session-stepup-form");
+      if (form && form.dataset.bound !== "true") {
+        form.dataset.bound = "true";
+        form.addEventListener("submit", async (event) => {
+          event.preventDefault();
+          const input = document.getElementById("profile-session-stepup-password");
+          const password = String(input?.value || "");
+          if (!password) {
+            deps.showInAppNotification?.({
+              title: "Password required",
+              body: "Weka password kuthibitisha session.",
+              variant: "warning"
+            });
+            return;
+          }
+          const button = form.querySelector("button");
+          if (button) button.disabled = true;
+          try {
+            await deps.dataLayer.verifySessionStepUp(password);
+            deps.showInAppNotification?.({
+              title: "Session verified",
+              body: "Security check imekamilika.",
+              variant: "success"
+            });
+            input.value = "";
+            await loadProfileSessionSecurity(sequence);
+          } catch (error) {
+            deps.showInAppNotification?.({
+              title: "Verification failed",
+              body: error.message || "Password haikuthibitishwa.",
+              variant: "error"
+            });
+          } finally {
+            if (button) button.disabled = false;
+          }
+        });
+      }
+
+      const list = document.getElementById("profile-session-list");
+      if (list && list.dataset.bound !== "true") {
+        list.dataset.bound = "true";
+        list.addEventListener("click", async (event) => {
+          const target = event.target?.closest?.("[data-revoke-session]");
+          if (!target) {
+            return;
+          }
+          const sessionId = target.dataset.revokeSession || "";
+          const confirmed = typeof deps.confirmAction === "function"
+            ? await deps.confirmAction("Revoke this device session?")
+            : true;
+          if (!confirmed) {
+            return;
+          }
+          target.disabled = true;
+          try {
+            await deps.dataLayer.revokeActiveSession(sessionId);
+            deps.showInAppNotification?.({
+              title: "Session revoked",
+              body: "Device session imefungwa.",
+              variant: "success"
+            });
+            await loadProfileSessionSecurity(sequence);
+          } catch (error) {
+            target.disabled = false;
+            deps.showInAppNotification?.({
+              title: "Revoke failed",
+              body: error.message || "Session haikuweza kufungwa.",
+              variant: "error"
+            });
+          }
+        });
+      }
+    }
+
     function setSellerUpgradeFormVisibility(open = false) {
       const form = document.getElementById("profile-seller-upgrade-form");
       if (!form) {
@@ -767,6 +921,9 @@
           ordersMarkup: deps.createOrdersSectionElement(deps.getCurrentOrders()),
           notificationsMarkup: deps.renderNotificationsSection(),
           messagesMarkup: deps.renderMessagesSection(),
+          sessionSecurityMarkup: deps.createSessionSecuritySectionElement?.({
+            security: userProfile?.security || deps.getCurrentSession?.()?.security || {}
+          }),
           notificationPermissionState: deps.getNotificationPermissionState?.(),
           hasBuyerAccess,
           requestCount: deps.getRequestBoxItemCount(),
@@ -798,6 +955,8 @@
       deps.setActiveProfileSection?.(activeSection);
       deps.flushPendingProfileSection();
       bindProfileEntryActions();
+      bindSessionSecurityActions(sequence);
+      loadProfileSessionSecurity(sequence);
       const container = document.getElementById("user-products-container");
 
       if (userProducts.length === 0) {

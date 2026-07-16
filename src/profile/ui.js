@@ -732,6 +732,66 @@
       return section;
     }
 
+    function createSessionSecuritySectionElement(context = {}) {
+      const security = context.security || {};
+      const section = deps.createElement("section", {
+        className: "panel profile-session-security",
+        attributes: { id: "profile-session-security-panel" }
+      });
+      const riskLevel = String(security.riskLevel || "low").trim().toLowerCase();
+      section.appendChild(deps.createSectionHeading({
+        eyebrow: "Security",
+        title: "Active sessions",
+        meta: riskLevel === "high"
+          ? "Security check needed"
+          : riskLevel === "medium"
+            ? "Session watch active"
+            : "Session health looks normal"
+      }));
+      if (security.requiresStepUp) {
+        const alert = deps.createElement("div", { className: "orders-card profile-session-alert" });
+        alert.append(
+          deps.createElement("strong", { textContent: "Thibitisha session" }),
+          deps.createElement("p", {
+            className: "product-meta",
+            textContent: "Tumeona mazingira mapya kwenye session yako. Weka password ili kuthibitisha kabla ya actions nyeti."
+          })
+        );
+        const form = deps.createElement("form", {
+          className: "profile-session-stepup-form",
+          attributes: { id: "profile-session-stepup-form" }
+        });
+        form.append(
+          deps.createElement("input", {
+            className: "auth-input",
+            attributes: {
+              id: "profile-session-stepup-password",
+              type: "password",
+              autocomplete: "current-password",
+              placeholder: "Password"
+            }
+          }),
+          deps.createElement("button", {
+            className: "action-btn buy-btn",
+            textContent: "Verify session",
+            attributes: { type: "submit" }
+          })
+        );
+        alert.appendChild(form);
+        section.appendChild(alert);
+      }
+      const list = deps.createElement("div", {
+        className: "orders-grid profile-session-grid",
+        attributes: { id: "profile-session-list", "aria-live": "polite" }
+      });
+      list.appendChild(deps.createElement("p", {
+        className: "empty-copy",
+        textContent: "Loading active sessions..."
+      }));
+      section.appendChild(list);
+      return section;
+    }
+
     function createProfileShellElement(context) {
       const {
         displayName,
@@ -745,6 +805,7 @@
         ordersMarkup,
         notificationsMarkup,
         messagesMarkup,
+        sessionSecurityMarkup,
         notificationPermissionState,
         hasBuyerAccess,
         requestCount,
@@ -776,7 +837,8 @@
         requestsMarkup,
         ordersMarkup,
         notificationsMarkup,
-        messagesMarkup
+        messagesMarkup,
+        sessionSecurityMarkup
       ].filter(Boolean).forEach((content) => {
         appendRenderable(fragment, content);
       });
@@ -978,7 +1040,8 @@
       createOrdersSectionElement,
       createPromotionOverviewSectionElement
       ,
-      createPromotionManagementSectionElement
+      createPromotionManagementSectionElement,
+      createSessionSecuritySectionElement
     };
   }
 

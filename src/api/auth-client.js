@@ -172,6 +172,36 @@
       });
     }
 
+    async function loadActiveSessions() {
+      requireFetcher();
+      const data = await fetchJson(`${baseUrl}/auth/sessions`, {
+        headers: createAuthHeaders()
+      });
+      return {
+        items: Array.isArray(data?.items) ? data.items : [],
+        count: Number(data?.count || 0),
+        maxActivePerUser: Number(data?.maxActivePerUser || 0),
+        rotationIntervalSeconds: Number(data?.rotationIntervalSeconds || 0)
+      };
+    }
+
+    async function revokeActiveSession(sessionId) {
+      requireFetcher();
+      return fetchJson(`${baseUrl}/auth/sessions/${encodeURIComponent(String(sessionId || ""))}`, {
+        method: "DELETE",
+        headers: createAuthHeaders()
+      });
+    }
+
+    async function verifySessionStepUp(password) {
+      requireFetcher();
+      return fetchJson(`${baseUrl}/auth/step-up`, {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: JSON.stringify({ password })
+      });
+    }
+
     async function updateUserPrimaryCategory(username, primaryCategory) {
       requireFetcher();
       const normalizedCategory = normalizePrimaryCategoryValue(primaryCategory);
@@ -198,6 +228,9 @@
       upgradeBuyerToSeller,
       requestWhatsappChange,
       verifyWhatsappChange,
+      loadActiveSessions,
+      revokeActiveSession,
+      verifySessionStepUp,
       updateUserPrimaryCategory
     };
   }

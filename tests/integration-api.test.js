@@ -919,6 +919,40 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   assert.equal(sellerSecondLogin.response.status, 200);
   const sellerSecondToken = getAuthCookieToken(sellerSecondLogin.response);
 
+  const sellerSelfSessions = await request("/auth/sessions", {
+    headers: { Authorization: `Bearer ${sellerToken}` }
+  });
+  assert.equal(sellerSelfSessions.response.status, 200);
+  assert.ok(sellerSelfSessions.body.count >= 2);
+  assert.equal(sellerSelfSessions.body.maxActivePerUser, 5);
+  const currentSellerSession = sellerSelfSessions.body.items.find((item) => item.current);
+  assert.ok(currentSellerSession?.sessionId);
+  assert.equal(Object.prototype.hasOwnProperty.call(currentSellerSession, "ipHash"), false);
+
+  const currentSelfRevoke = await request(`/auth/sessions/${encodeURIComponent(currentSellerSession.sessionId)}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${sellerToken}` }
+  });
+  assert.equal(currentSelfRevoke.response.status, 400);
+  assert.equal(currentSelfRevoke.body.code, "cannot_revoke_current_session");
+
+  const failedStepUp = await request("/auth/step-up", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${sellerToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ password: "wrong-password" })
+  });
+  assert.equal(failedStepUp.response.status, 401);
+  assert.equal(failedStepUp.body.code, "step_up_failed");
+
+  const successfulStepUp = await request("/auth/step-up", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${sellerToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ password: "Pass1234" })
+  });
+  assert.equal(successfulStepUp.response.status, 200);
+  assert.equal(successfulStepUp.body.ok, true);
+  assert.equal(successfulStepUp.body.security.requiresStepUp, false);
+
   const moderatorLogin = await request("/auth/admin-login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

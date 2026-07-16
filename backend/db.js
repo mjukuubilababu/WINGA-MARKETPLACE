@@ -198,6 +198,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
     await query(`
       CREATE TABLE IF NOT EXISTS sessions (
         token TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL DEFAULT '',
         username TEXT NOT NULL,
         full_name TEXT NOT NULL DEFAULT '',
         primary_category TEXT NOT NULL DEFAULT '',
@@ -205,6 +206,16 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
         status TEXT NOT NULL DEFAULT 'active',
         profile_image TEXT NOT NULL DEFAULT '',
         verification_status TEXT NOT NULL DEFAULT '',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        last_rotated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        ip_hash TEXT NOT NULL DEFAULT '',
+        user_agent_hash TEXT NOT NULL DEFAULT '',
+        device_type TEXT NOT NULL DEFAULT 'unknown',
+        cf_ray TEXT NOT NULL DEFAULT '',
+        step_up_verified_at TIMESTAMPTZ NULL,
+        risk_score INTEGER NOT NULL DEFAULT 0,
+        risk_level TEXT NOT NULL DEFAULT 'low',
         expires_at BIGINT NOT NULL
       );
     `);
@@ -747,6 +758,10 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
     `);
     await query(`
       ALTER TABLE sessions
+      ADD COLUMN IF NOT EXISTS session_id TEXT NOT NULL DEFAULT '';
+    `);
+    await query(`
+      ALTER TABLE sessions
       ADD COLUMN IF NOT EXISTS full_name TEXT NOT NULL DEFAULT '';
     `);
     await query(`
@@ -760,6 +775,71 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
     await query(`
       ALTER TABLE sessions
       ADD COLUMN IF NOT EXISTS verification_status TEXT NOT NULL DEFAULT '';
+    `);
+    await query(`
+      ALTER TABLE sessions
+      ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+    `);
+    await query(`
+      ALTER TABLE sessions
+      ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+    `);
+    await query(`
+      ALTER TABLE sessions
+      ADD COLUMN IF NOT EXISTS last_rotated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+    `);
+    await query(`
+      ALTER TABLE sessions
+      ADD COLUMN IF NOT EXISTS ip_hash TEXT NOT NULL DEFAULT '';
+    `);
+    await query(`
+      ALTER TABLE sessions
+      ADD COLUMN IF NOT EXISTS user_agent_hash TEXT NOT NULL DEFAULT '';
+    `);
+    await query(`
+      ALTER TABLE sessions
+      ADD COLUMN IF NOT EXISTS device_type TEXT NOT NULL DEFAULT 'unknown';
+    `);
+    await query(`
+      ALTER TABLE sessions
+      ADD COLUMN IF NOT EXISTS cf_ray TEXT NOT NULL DEFAULT '';
+    `);
+    await query(`
+      ALTER TABLE sessions
+      ADD COLUMN IF NOT EXISTS step_up_verified_at TIMESTAMPTZ NULL;
+    `);
+    await query(`
+      ALTER TABLE sessions
+      ADD COLUMN IF NOT EXISTS risk_score INTEGER NOT NULL DEFAULT 0;
+    `);
+    await query(`
+      ALTER TABLE sessions
+      ADD COLUMN IF NOT EXISTS risk_level TEXT NOT NULL DEFAULT 'low';
+    `);
+    await query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_session_id_unique
+      ON sessions (session_id)
+      WHERE session_id <> '';
+    `);
+    await query(`
+      CREATE INDEX IF NOT EXISTS idx_sessions_username_seen
+      ON sessions (username, last_seen_at DESC);
+    `);
+    await query(`
+      CREATE TABLE IF NOT EXISTS suspicious_login_attempts (
+        attempt_id BIGSERIAL PRIMARY KEY,
+        key_hash TEXT NOT NULL,
+        scope TEXT NOT NULL DEFAULT 'public',
+        attempt_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    await query(`
+      CREATE INDEX IF NOT EXISTS idx_suspicious_login_key_time
+      ON suspicious_login_attempts (key_hash, attempt_at DESC);
+    `);
+    await query(`
+      CREATE INDEX IF NOT EXISTS idx_suspicious_login_attempt_at
+      ON suspicious_login_attempts (attempt_at);
     `);
     await query(`
       ALTER TABLE payments
@@ -924,10 +1004,20 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
 
       for (const session of store.sessions || []) {
         await client.query(
-          `INSERT INTO sessions (token, username, full_name, primary_category, role, status, profile_image, verification_status, expires_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+          `INSERT INTO sessions (
+            token, session_id, username, full_name, primary_category, role, status,
+            profile_image, verification_status, created_at, last_seen_at, last_rotated_at,
+            ip_hash, user_agent_hash, device_type, cf_ray, step_up_verified_at, risk_score,
+            risk_level, expires_at
+          )
+           VALUES (
+            $1, $2, $3, $4, $5, $6, $7,
+            $8, $9, $10::timestamptz, $11::timestamptz, $12::timestamptz,
+            $13, $14, $15, $16, $17::timestamptz, $18, $19, $20
+          )`,
           [
             session.token,
+            session.sessionId || "",
             session.username,
             session.fullName || session.username,
             session.primaryCategory || "",
@@ -935,6 +1025,16 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
             session.status || "active",
             session.profileImage || "",
             session.verificationStatus || "",
+            session.createdAt || new Date().toISOString(),
+            session.lastSeenAt || session.createdAt || new Date().toISOString(),
+            session.lastRotatedAt || session.createdAt || new Date().toISOString(),
+            session.ipHash || "",
+            session.userAgentHash || "",
+            session.deviceType || "unknown",
+            session.cfRay || "",
+            session.stepUpVerifiedAt || null,
+            Number(session.riskScore || 0),
+            session.riskLevel || "low",
             session.expiresAt
           ]
         );
@@ -1237,6 +1337,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
       query(`
         SELECT
           token,
+          session_id AS "sessionId",
           username,
           full_name AS "fullName",
           primary_category AS "primaryCategory",
@@ -1244,9 +1345,19 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
           status,
           profile_image AS "profileImage",
           verification_status AS "verificationStatus",
+          created_at AS "createdAt",
+          last_seen_at AS "lastSeenAt",
+          last_rotated_at AS "lastRotatedAt",
+          ip_hash AS "ipHash",
+          user_agent_hash AS "userAgentHash",
+          device_type AS "deviceType",
+          cf_ray AS "cfRay",
+          step_up_verified_at AS "stepUpVerifiedAt",
+          risk_score AS "riskScore",
+          risk_level AS "riskLevel",
           expires_at AS "expiresAt"
         FROM sessions
-        ORDER BY expires_at DESC
+        ORDER BY last_seen_at DESC, expires_at DESC
       `),
       query(`
         SELECT
@@ -2632,6 +2743,58 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
     return result.rows.map((row) => row.entry || {}).filter(Boolean);
   }
 
+  async function pruneSuspiciousLoginAttempts(windowMs) {
+    const safeWindowMs = Math.max(60 * 1000, Math.min(Number(windowMs || 15 * 60 * 1000) || 15 * 60 * 1000, 24 * 60 * 60 * 1000));
+    await query(
+      "DELETE FROM suspicious_login_attempts WHERE attempt_at < NOW() - ($1::text)::interval",
+      [`${Math.ceil(safeWindowMs / 1000)} seconds`]
+    );
+  }
+
+  async function readSuspiciousLoginAttempts(keyHash, options = {}) {
+    const safeKeyHash = String(keyHash || "").slice(0, 120);
+    if (!safeKeyHash) {
+      return [];
+    }
+    const safeWindowMs = Math.max(60 * 1000, Math.min(Number(options.windowMs || 15 * 60 * 1000) || 15 * 60 * 1000, 24 * 60 * 60 * 1000));
+    const result = await query(
+      `SELECT attempt_at AS "attemptAt"
+       FROM suspicious_login_attempts
+       WHERE key_hash = $1 AND attempt_at >= NOW() - ($2::text)::interval
+       ORDER BY attempt_at ASC`,
+      [safeKeyHash, `${Math.ceil(safeWindowMs / 1000)} seconds`]
+    );
+    return result.rows.map((row) => toISOString(row.attemptAt)).filter(Boolean);
+  }
+
+  async function recordSuspiciousLoginAttempt(keyHash, options = {}) {
+    const safeKeyHash = String(keyHash || "").slice(0, 120);
+    if (!safeKeyHash) {
+      return { attempts: 0 };
+    }
+    const scope = String(options.scope || "public").slice(0, 40) || "public";
+    const safeWindowMs = Math.max(60 * 1000, Math.min(Number(options.windowMs || 15 * 60 * 1000) || 15 * 60 * 1000, 24 * 60 * 60 * 1000));
+    await query(
+      "INSERT INTO suspicious_login_attempts (key_hash, scope, attempt_at) VALUES ($1, $2, NOW())",
+      [safeKeyHash, scope]
+    );
+    await pruneSuspiciousLoginAttempts(safeWindowMs);
+    const attempts = await readSuspiciousLoginAttempts(safeKeyHash, { windowMs: safeWindowMs });
+    return { attempts: attempts.length };
+  }
+
+  async function clearSuspiciousLoginAttempts(keyHash) {
+    const safeKeyHash = String(keyHash || "").slice(0, 120);
+    if (!safeKeyHash) {
+      return { cleared: 0 };
+    }
+    const result = await query(
+      "DELETE FROM suspicious_login_attempts WHERE key_hash = $1",
+      [safeKeyHash]
+    );
+    return { cleared: Number(result.rowCount || 0) };
+  }
+
   async function init(getLegacyStore) {
     await ensureSchema();
 
@@ -2676,6 +2839,10 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
     readSearchDemandSummary,
     appendAuditLog,
     readRecentAuditLogs,
+    pruneSuspiciousLoginAttempts,
+    readSuspiciousLoginAttempts,
+    recordSuspiciousLoginAttempt,
+    clearSuspiciousLoginAttempts,
     close
   };
 }

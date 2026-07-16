@@ -39,6 +39,7 @@ const SESSION_ROTATION_INTERVAL_MS = 30 * 60 * 1000;
 const SESSION_MAX_ACTIVE_PER_USER = 5;
 const SUSPICIOUS_LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const SUSPICIOUS_LOGIN_MAX_FAILURES = 4;
+const STEP_UP_CONTEXT_CHANGE_THRESHOLD = 2;
 const ADMIN_SEED_USERNAME = String(process.env.ADMIN_SEED_USERNAME || "admin").trim();
 const ADMIN_SEED_FULL_NAME = String(process.env.ADMIN_SEED_FULL_NAME || "WILHARD MMBANDO").trim();
 const ADMIN_SEED_PASSWORD = process.env.ADMIN_SEED_PASSWORD || "";
@@ -1915,7 +1916,7 @@ function sanitizeUser(user, options = {}) {
   };
 }
 
-function buildSelfSessionPayload(user) {
+function buildSelfSessionPayload(user, options = {}) {
   return {
     ...sanitizeUser(user, { viewer: user }),
     phoneNumber: String(user.phoneNumber || "").replace(/\D/g, "").slice(0, 20),
@@ -1924,7 +1925,8 @@ function buildSelfSessionPayload(user) {
     paymentRecipientName: user.paymentRecipientName || user.fullName || user.username,
     paymentInstructions: user.paymentInstructions || "",
     pendingWhatsappNumber: String(user.pendingWhatsappNumber || "").replace(/\D/g, "").slice(0, 20),
-    pendingWhatsappExpiresAt: user.pendingWhatsappExpiresAt || ""
+    pendingWhatsappExpiresAt: user.pendingWhatsappExpiresAt || "",
+    ...(options.security ? { security: options.security } : {})
   };
 }
 
@@ -2175,6 +2177,9 @@ function createSession(user, req = null) {
     userAgentHash: context.userAgentHash,
     deviceType: context.deviceType,
     cfRay: context.cfRay,
+    stepUpVerifiedAt: nowIso,
+    riskScore: 0,
+    riskLevel: "low",
     expiresAt: now + SESSION_TTL_MS
   };
 }
@@ -2483,6 +2488,18 @@ function buildOrderNotification({ recipientId, actorUsername, order, stage }) {
     title,
     body,
     variant: stage === "cancelled" || stage === "payment_rejected" ? "warning" : "success",
+    isRead: false,
+    createdAt: new Date().toISOString()
+  });
+}
+
+function buildSessionSecurityNotification({ userId, title, body, variant = "warning" }) {
+  return normalizeNotificationRecord({
+    userId,
+    type: "message",
+    title: title || "Session security update",
+    body: body || "Kuna mabadiliko kwenye session yako ya Winga.",
+    variant,
     isRead: false,
     createdAt: new Date().toISOString()
   });
@@ -2822,6 +2839,9 @@ function normalizeSessionRecord(session = {}, user = null) {
     userAgentHash: sanitizePlainText(session.userAgentHash || "", 80),
     deviceType: ["mobile", "tablet", "desktop", "unknown"].includes(session.deviceType) ? session.deviceType : "unknown",
     cfRay: sanitizePlainText(session.cfRay || "", 80),
+    stepUpVerifiedAt: session.stepUpVerifiedAt || session.createdAt || "",
+    riskScore: Math.max(0, Math.min(Number(session.riskScore || 0) || 0, 10)),
+    riskLevel: ["low", "medium", "high"].includes(session.riskLevel) ? session.riskLevel : "low",
     primaryCategory: session.primaryCategory || user?.primaryCategory || "",
     role: isValidRole(session.role) ? session.role : (user?.role || "seller")
   };
@@ -2877,6 +2897,9 @@ function refreshSessionRecord(session, req = null, options = {}) {
     userAgentHash: context.userAgentHash || session.userAgentHash || "",
     deviceType: context.deviceType || session.deviceType || "unknown",
     cfRay: context.cfRay || session.cfRay || "",
+    stepUpVerifiedAt: options.stepUp === true ? nowIso : (session.stepUpVerifiedAt || ""),
+    riskScore: Number.isFinite(Number(options.riskScore)) ? Math.max(0, Math.min(Number(options.riskScore), 10)) : Math.max(0, Number(session.riskScore || 0)),
+    riskLevel: options.riskLevel || session.riskLevel || "low",
     expiresAt: now + SESSION_TTL_MS
   };
 }
@@ -2903,7 +2926,69 @@ function sanitizeSessionForAdmin(session = {}) {
     expiresAtIso: expiresAt ? new Date(expiresAt).toISOString() : "",
     tokenLast4: String(session.token || "").slice(-4),
     ipHash: sanitizePlainText(session.ipHash || "", 80),
-    userAgentHash: sanitizePlainText(session.userAgentHash || "", 80)
+    userAgentHash: sanitizePlainText(session.userAgentHash || "", 80),
+    riskScore: Math.max(0, Number(session.riskScore || 0)),
+    riskLevel: session.riskLevel || "low",
+    stepUpVerifiedAt: session.stepUpVerifiedAt || ""
+  };
+}
+
+function sanitizeSessionForSelf(session = {}, currentToken = "") {
+  const adminView = sanitizeSessionForAdmin(session);
+  return {
+    sessionId: adminView.sessionId,
+    current: Boolean(currentToken && session.token === currentToken),
+    deviceType: adminView.deviceType,
+    createdAt: adminView.createdAt,
+    lastSeenAt: adminView.lastSeenAt,
+    lastRotatedAt: adminView.lastRotatedAt,
+    expiresAt: adminView.expiresAt,
+    expiresAtIso: adminView.expiresAtIso,
+    riskScore: adminView.riskScore,
+    riskLevel: adminView.riskLevel,
+    stepUpVerifiedAt: adminView.stepUpVerifiedAt
+  };
+}
+
+function evaluateSessionRisk(session = {}, req = null) {
+  const context = getSessionRequestContext(req);
+  let score = 0;
+  const reasons = [];
+  if (session.ipHash && context.ipHash && session.ipHash !== context.ipHash) {
+    score += 1;
+    reasons.push("network_changed");
+  }
+  if (session.userAgentHash && context.userAgentHash && session.userAgentHash !== context.userAgentHash) {
+    score += 1;
+    reasons.push("browser_changed");
+  }
+  if (session.deviceType && context.deviceType && session.deviceType !== "unknown" && context.deviceType !== "unknown" && session.deviceType !== context.deviceType) {
+    score += 1;
+    reasons.push("device_type_changed");
+  }
+  const riskLevel = score >= STEP_UP_CONTEXT_CHANGE_THRESHOLD ? "high" : score > 0 ? "medium" : "low";
+  return {
+    score,
+    riskLevel,
+    reasons,
+    requiresStepUp: score >= STEP_UP_CONTEXT_CHANGE_THRESHOLD
+  };
+}
+
+function isSessionStepUpFresh(session = {}) {
+  const verifiedAt = session.stepUpVerifiedAt ? new Date(session.stepUpVerifiedAt).getTime() : 0;
+  return Number.isFinite(verifiedAt) && verifiedAt > 0 && Date.now() - verifiedAt <= SESSION_ROTATION_INTERVAL_MS;
+}
+
+function buildSessionSecurityPayload(session = {}, req = null) {
+  const risk = evaluateSessionRisk(session, req);
+  return {
+    riskScore: Math.max(Number(session.riskScore || 0), risk.score),
+    riskLevel: risk.riskLevel,
+    reasons: risk.reasons,
+    requiresStepUp: risk.requiresStepUp && !isSessionStepUpFresh(session),
+    stepUpFresh: isSessionStepUpFresh(session),
+    rotationIntervalSeconds: Math.floor(SESSION_ROTATION_INTERVAL_MS / 1000)
   };
 }
 
@@ -4961,7 +5046,7 @@ function evaluateRateLimit(req, store) {
 
 function getSuspiciousLoginKey(req, identifier = "", scope = "public") {
   const safeIdentifier = normalizeIdentifier(identifier || "unknown", 120) || "unknown";
-  return `${scope}:${getClientIp(req)}:${safeIdentifier}`;
+  return hashSessionContextValue(`${scope}:${getClientIp(req)}:${safeIdentifier}`);
 }
 
 function pruneSuspiciousLoginStore(now = Date.now()) {
@@ -4980,11 +5065,18 @@ function pruneSuspiciousLoginStore(now = Date.now()) {
   }
 }
 
-function getSuspiciousLoginStatus(req, identifier = "", scope = "public") {
+async function getSuspiciousLoginStatus(req, identifier = "", scope = "public") {
   const now = Date.now();
-  pruneSuspiciousLoginStore(now);
   const key = getSuspiciousLoginKey(req, identifier, scope);
-  const attempts = (suspiciousLoginStore.get(key) || []).filter((timestamp) => now - timestamp < SUSPICIOUS_LOGIN_WINDOW_MS);
+  let attempts = [];
+  if (postgresStore?.readSuspiciousLoginAttempts) {
+    attempts = (await postgresStore.readSuspiciousLoginAttempts(key, { windowMs: SUSPICIOUS_LOGIN_WINDOW_MS }))
+      .map((timestamp) => new Date(timestamp).getTime())
+      .filter((timestamp) => Number.isFinite(timestamp) && now - timestamp < SUSPICIOUS_LOGIN_WINDOW_MS);
+  } else {
+    pruneSuspiciousLoginStore(now);
+    attempts = (suspiciousLoginStore.get(key) || []).filter((timestamp) => now - timestamp < SUSPICIOUS_LOGIN_WINDOW_MS);
+  }
   const blocked = attempts.length >= SUSPICIOUS_LOGIN_MAX_FAILURES;
   return {
     blocked,
@@ -4994,9 +5086,16 @@ function getSuspiciousLoginStatus(req, identifier = "", scope = "public") {
   };
 }
 
-function recordSuspiciousLoginFailure(req, identifier = "", scope = "public") {
+async function recordSuspiciousLoginFailure(req, identifier = "", scope = "public") {
   const now = Date.now();
   const key = getSuspiciousLoginKey(req, identifier, scope);
+  if (postgresStore?.recordSuspiciousLoginAttempt) {
+    const result = await postgresStore.recordSuspiciousLoginAttempt(key, {
+      scope,
+      windowMs: SUSPICIOUS_LOGIN_WINDOW_MS
+    });
+    return Number(result?.attempts || 0);
+  }
   const attempts = (suspiciousLoginStore.get(key) || []).filter((timestamp) => now - timestamp < SUSPICIOUS_LOGIN_WINDOW_MS);
   attempts.push(now);
   suspiciousLoginStore.set(key, attempts);
@@ -5004,8 +5103,13 @@ function recordSuspiciousLoginFailure(req, identifier = "", scope = "public") {
   return attempts.length;
 }
 
-function clearSuspiciousLoginFailures(req, identifier = "", scope = "public") {
-  suspiciousLoginStore.delete(getSuspiciousLoginKey(req, identifier, scope));
+async function clearSuspiciousLoginFailures(req, identifier = "", scope = "public") {
+  const key = getSuspiciousLoginKey(req, identifier, scope);
+  if (postgresStore?.clearSuspiciousLoginAttempts) {
+    await postgresStore.clearSuspiciousLoginAttempts(key);
+    return;
+  }
+  suspiciousLoginStore.delete(key);
 }
 
 http.createServer(async (req, res) => {
@@ -5635,7 +5739,16 @@ http.createServer(async (req, res) => {
       const nextSessions = (store.sessions || []).filter((item) => item.sessionId !== targetSessionId);
       await writeStoreWithOptions({
         ...store,
-        sessions: nextSessions
+        sessions: nextSessions,
+        notifications: [
+          buildSessionSecurityNotification({
+            userId: targetSession.username || "",
+            title: "Session revoked",
+            body: "Moja ya device sessions zako imefungwa na admin kwa usalama.",
+            variant: "warning"
+          }),
+          ...((store.notifications || []).map(normalizeNotificationRecord))
+        ]
       }, {
         skipBackup: true
       });
@@ -6615,7 +6728,7 @@ http.createServer(async (req, res) => {
       const userIndex = findUserIndexByPublicIdentifier(users, rawIdentifier);
       const user = userIndex >= 0 ? users[userIndex] : null;
       const normalizedIdentifier = normalizeIdentifier(rawIdentifier, 120);
-      const suspiciousStatus = getSuspiciousLoginStatus(req, normalizedIdentifier, "public");
+      const suspiciousStatus = await getSuspiciousLoginStatus(req, normalizedIdentifier, "public");
       if (suspiciousStatus.blocked) {
         await appendAuditLog({
           time: new Date().toISOString(),
@@ -6636,7 +6749,7 @@ http.createServer(async (req, res) => {
       }
 
       if (!user || !verifyPassword(payload.password, user.password)) {
-        const attempts = recordSuspiciousLoginFailure(req, normalizedIdentifier, "public");
+        const attempts = await recordSuspiciousLoginFailure(req, normalizedIdentifier, "public");
         recordAuditLog({
           time: new Date().toISOString(),
           ip: clientIp,
@@ -6686,7 +6799,7 @@ http.createServer(async (req, res) => {
       }
 
       const freshUser = normalizeUserRecord(users[userIndex] || user);
-      clearSuspiciousLoginFailures(req, normalizedIdentifier, "public");
+      await clearSuspiciousLoginFailures(req, normalizedIdentifier, "public");
       const session = createSession(freshUser, req);
       const nextSessions = replaceUserSessions(store, freshUser.username, session);
       logRouteMemoryStage(requestMeta, "before_login_write", {
@@ -6694,7 +6807,16 @@ http.createServer(async (req, res) => {
       });
       await writeStoreWithOptions({
         ...store,
-        sessions: nextSessions
+        sessions: nextSessions,
+        notifications: [
+          buildSessionSecurityNotification({
+            userId: freshUser.username,
+            title: "New login",
+            body: `Winga account yako imefunguliwa kwenye ${session.deviceType || "device"} mpya.`,
+            variant: "info"
+          }),
+          ...((store.notifications || []).map(normalizeNotificationRecord))
+        ]
       }, {
         skipBackup: true
       });
@@ -6733,7 +6855,7 @@ http.createServer(async (req, res) => {
       const userIndex = findUserIndexByPublicIdentifier(users, rawIdentifier);
       const user = userIndex >= 0 ? users[userIndex] : null;
       const normalizedIdentifier = normalizeIdentifier(rawIdentifier, 120);
-      const suspiciousStatus = getSuspiciousLoginStatus(req, normalizedIdentifier, "staff");
+      const suspiciousStatus = await getSuspiciousLoginStatus(req, normalizedIdentifier, "staff");
       if (suspiciousStatus.blocked) {
         await appendAuditLog({
           time: new Date().toISOString(),
@@ -6754,7 +6876,7 @@ http.createServer(async (req, res) => {
       }
 
       if (!user || !verifyPassword(payload.password, user.password) || !isStaffRole(user.role)) {
-        const attempts = recordSuspiciousLoginFailure(req, normalizedIdentifier, "staff");
+        const attempts = await recordSuspiciousLoginFailure(req, normalizedIdentifier, "staff");
         recordAuditLog({
           time: new Date().toISOString(),
           ip: clientIp,
@@ -6791,7 +6913,7 @@ http.createServer(async (req, res) => {
       }
 
       const freshUser = normalizeUserRecord(users[userIndex] || user);
-      clearSuspiciousLoginFailures(req, normalizedIdentifier, "staff");
+      await clearSuspiciousLoginFailures(req, normalizedIdentifier, "staff");
       const session = createSession(freshUser, req);
       const nextSessions = replaceUserSessions(store, freshUser.username, session);
       logRouteMemoryStage(requestMeta, "before_admin_login_write", {
@@ -6799,7 +6921,16 @@ http.createServer(async (req, res) => {
       });
       await writeStoreWithOptions({
         ...store,
-        sessions: nextSessions
+        sessions: nextSessions,
+        notifications: [
+          buildSessionSecurityNotification({
+            userId: freshUser.username,
+            title: "Staff login",
+            body: `Staff account yako imefunguliwa kwenye ${session.deviceType || "device"} mpya.`,
+            variant: "warning"
+          }),
+          ...((store.notifications || []).map(normalizeNotificationRecord))
+        ]
       }, {
         skipBackup: true
       });
@@ -7219,15 +7350,40 @@ http.createServer(async (req, res) => {
         role: user.role || "",
         sessionRestored: true
       });
+      const securityPayload = buildSessionSecurityPayload(session, req);
       const rotateSession = shouldRotateSession(session);
       const touchSession = rotateSession || shouldTouchSession(session);
+      const riskChanged = securityPayload.riskScore > Number(session.riskScore || 0)
+        || securityPayload.riskLevel !== (session.riskLevel || "low");
       const refreshedSession = touchSession
-        ? refreshSessionRecord(session, req, { rotate: rotateSession })
+        ? refreshSessionRecord(session, req, {
+            rotate: rotateSession,
+            riskScore: securityPayload.riskScore,
+            riskLevel: securityPayload.riskLevel
+          })
         : session;
-      if (touchSession) {
+      if (touchSession || riskChanged) {
+        const nextSession = touchSession
+          ? refreshedSession
+          : {
+              ...session,
+              riskScore: securityPayload.riskScore,
+              riskLevel: securityPayload.riskLevel
+            };
+        const nextNotifications = riskChanged && securityPayload.requiresStepUp
+          ? [
+              buildSessionSecurityNotification({
+                userId: user.username,
+                title: "Security check needed",
+                body: "Tumeona session yako inatumika kwenye mazingira mapya. Thibitisha password kabla ya actions nyeti."
+              }),
+              ...((store.notifications || []).map(normalizeNotificationRecord))
+            ]
+          : store.notifications;
         await writeStoreWithOptions({
           ...store,
-          sessions: updateSessionInStore(store, token, refreshedSession)
+          sessions: updateSessionInStore(store, token, nextSession),
+          notifications: nextNotifications
         }, {
           skipBackup: true
         });
@@ -7246,9 +7402,129 @@ http.createServer(async (req, res) => {
       sendJson(
         res,
         200,
-        buildSelfSessionPayload(user),
+        buildSelfSessionPayload(user, { security: securityPayload }),
         (rotateSession || !hasAuthCookie) ? { "Set-Cookie": buildAuthCookieHeader(refreshedSession.token, req) } : {}
       );
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/auth/sessions") {
+      const token = readAuthToken(req);
+      const session = findSession(store, token);
+      const user = ensureMarketplaceUser(store, session, res, { allowStaff: true });
+      if (!user) {
+        return;
+      }
+      const items = (store.sessions || [])
+        .filter((item) => Number(item?.expiresAt || 0) >= Date.now())
+        .filter((item) => normalizeIdentifier(item.username, 40) === user.username)
+        .map((item) => sanitizeSessionForSelf(item, token))
+        .sort((first, second) => Number(second.current) - Number(first.current)
+          || String(second.lastSeenAt || second.createdAt || "").localeCompare(String(first.lastSeenAt || first.createdAt || "")));
+      sendJson(res, 200, {
+        items,
+        count: items.length,
+        maxActivePerUser: SESSION_MAX_ACTIVE_PER_USER,
+        rotationIntervalSeconds: Math.floor(SESSION_ROTATION_INTERVAL_MS / 1000)
+      }, {
+        "Cache-Control": "no-store"
+      });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/auth/step-up") {
+      const token = readAuthToken(req);
+      const session = findSession(store, token);
+      const user = ensureMarketplaceUser(store, session, res, { allowStaff: true });
+      if (!user) {
+        return;
+      }
+      const payload = await collectBody(req);
+      if (!payload || !isNonEmptyString(payload.password, 4, 120)) {
+        sendJson(res, 400, { error: "Password inahitajika kuthibitisha session.", code: "password_required" });
+        return;
+      }
+      if (!verifyPassword(payload.password, user.password)) {
+        await appendAuditLog({
+          time: new Date().toISOString(),
+          ip: clientIp,
+          method: req.method,
+          path: url.pathname,
+          event: "session_step_up_failed",
+          username: user.username,
+          sessionId: session.sessionId
+        });
+        sendJson(res, 401, { error: "Password si sahihi.", code: "step_up_failed" });
+        return;
+      }
+      const steppedSession = refreshSessionRecord(session, req, {
+        stepUp: true,
+        riskScore: 0,
+        riskLevel: "low"
+      });
+      await writeStoreWithOptions({
+        ...store,
+        sessions: updateSessionInStore(store, token, steppedSession)
+      }, {
+        skipBackup: true
+      });
+      await appendAuditLog({
+        time: new Date().toISOString(),
+        ip: clientIp,
+        method: req.method,
+        path: url.pathname,
+        event: "session_step_up_success",
+        username: user.username,
+        sessionId: session.sessionId
+      });
+      sendJson(res, 200, {
+        ok: true,
+        security: buildSessionSecurityPayload(steppedSession, req)
+      }, {
+        "Set-Cookie": buildAuthCookieHeader(steppedSession.token, req),
+        "Cache-Control": "no-store"
+      });
+      return;
+    }
+
+    const selfRevokeSessionMatch = url.pathname.match(/^\/api\/auth\/sessions\/([^/]+)$/);
+    if (req.method === "DELETE" && selfRevokeSessionMatch) {
+      const token = readAuthToken(req);
+      const session = findSession(store, token);
+      const user = ensureMarketplaceUser(store, session, res, { allowStaff: true });
+      if (!user) {
+        return;
+      }
+      const targetSessionId = sanitizePlainText(decodeURIComponent(selfRevokeSessionMatch[1] || ""), 80);
+      const targetSession = (store.sessions || []).find((item) =>
+        item.sessionId === targetSessionId && normalizeIdentifier(item.username, 40) === user.username
+      );
+      if (!targetSession) {
+        sendJson(res, 404, { error: "Session haijapatikana.", code: "session_not_found" });
+        return;
+      }
+      if (targetSession.token === token) {
+        sendJson(res, 400, { error: "Tumia Logout kufunga session unayotumia sasa.", code: "cannot_revoke_current_session" });
+        return;
+      }
+      await writeStoreWithOptions({
+        ...store,
+        sessions: (store.sessions || []).filter((item) => item.sessionId !== targetSessionId)
+      }, {
+        skipBackup: true
+      });
+      await appendAuditLog({
+        time: new Date().toISOString(),
+        ip: clientIp,
+        method: req.method,
+        path: url.pathname,
+        event: "self_session_revoked",
+        username: user.username,
+        sessionId: targetSessionId
+      });
+      sendJson(res, 200, { ok: true, revokedSessionId: targetSessionId }, {
+        "Cache-Control": "no-store"
+      });
       return;
     }
 

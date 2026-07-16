@@ -10587,3 +10587,23 @@ button:hover,
   scroll-snap-align:start !important;
   scroll-snap-stop:always;
 }
+
+.profile-session-security{
+  display:grid;
+  gap:12px;
+}
+
+.profile-session-grid{
+  grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
+}
+
+.profile-session-card,
+.profile-session-alert{
+  gap:8px;
+}
+
+.profile-session-stepup-form{
+  display:grid;
+  gap:8px;
+  margin-top:8px;
+}

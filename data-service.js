@@ -1965,6 +1965,15 @@
       async verifyWhatsappChange(payload) {
         return getAuthApiClient().verifyWhatsappChange(payload);
       },
+      async loadActiveSessions() {
+        return getAuthApiClient().loadActiveSessions();
+      },
+      async revokeActiveSession(sessionId) {
+        return getAuthApiClient().revokeActiveSession(sessionId);
+      },
+      async verifySessionStepUp(password) {
+        return getAuthApiClient().verifySessionStepUp(password);
+      },
       async updateUserPrimaryCategory(username, primaryCategory) {
         return getAuthApiClient().updateUserPrimaryCategory(username, primaryCategory);
       },
@@ -3611,6 +3620,24 @@
       }
       state.users = await state.adapter.loadUsers();
       return result;
+    },
+    async loadActiveSessions() {
+      ensureAdapter();
+      return state.adapter.loadActiveSessions
+        ? state.adapter.loadActiveSessions()
+        : { items: [], count: 0, maxActivePerUser: 0, rotationIntervalSeconds: 0 };
+    },
+    async revokeActiveSession(sessionId) {
+      ensureAdapter();
+      return state.adapter.revokeActiveSession
+        ? state.adapter.revokeActiveSession(sessionId)
+        : { ok: true, revokedSessionId: sessionId };
+    },
+    async verifySessionStepUp(password) {
+      ensureAdapter();
+      return state.adapter.verifySessionStepUp
+        ? state.adapter.verifySessionStepUp(password)
+        : { ok: true, security: { stepUpFresh: true, requiresStepUp: false } };
     },
     async updateUserPrimaryCategory(username, primaryCategory) {
       assertSellerAccess();

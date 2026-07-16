@@ -10695,7 +10695,8 @@ const {
   createSellerUpgradeSectionElement,
   createOrdersSectionElement,
   createPromotionOverviewSectionElement,
-  createPromotionManagementSectionElement
+  createPromotionManagementSectionElement,
+  createSessionSecuritySectionElement
 } = window.WingaModules.profile.createProfileUiModule({
   createElement,
   createSectionHeading,
@@ -10760,6 +10761,7 @@ const {
   createOrdersSectionElement,
   createPromotionOverviewSectionElement,
   createPromotionManagementSectionElement,
+  createSessionSecuritySectionElement,
   renderSavedIntentSection,
   createOrdersContainerFromState,
   renderRequestBoxSection,
