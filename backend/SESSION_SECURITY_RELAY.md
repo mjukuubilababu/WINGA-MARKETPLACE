@@ -81,6 +81,10 @@ and recovery flows exist.
 npm run deploy:worker:session-security
 ```
 
+The first deploy uses the Worker `workers.dev` URL so Render has a webhook
+endpoint immediately. After a custom route is attached, `workers_dev` can be
+disabled if desired.
+
 Health check:
 
 ```bash
