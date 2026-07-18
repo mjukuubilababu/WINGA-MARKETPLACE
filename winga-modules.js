@@ -7146,11 +7146,17 @@ window.WingaModules.notifications = window.WingaModules.notifications || {};
       maxEvents: 800,
       maxAggregates: 80,
       dedupeWindowMs: 45 * 1000,
+      minDedupeWindowMs: 1 * 1000,
       abuseWindowMs: 60 * 1000,
       abuseMaxSignals: 30,
       notifyThreshold: 8,
       ...deps.config
     };
+    const effectiveDedupeWindowMs = Math.max(
+      1 * 1000,
+      toFiniteNumber(config.minDedupeWindowMs, 1 * 1000),
+      toFiniteNumber(config.dedupeWindowMs, 45 * 1000)
+    );
 
     const COLOR_WORDS = [
       "black", "white", "red", "blue", "green", "yellow", "pink", "purple", "brown", "grey", "gray",
@@ -7253,11 +7259,16 @@ window.WingaModules.notifications = window.WingaModules.notifications || {};
           return true;
         }
         recentSignalTimes = recentSignalTimes.filter((time) => now - time <= config.abuseWindowMs);
+        for (const [key, timestamp] of recentKeys.entries()) {
+          if (now - timestamp > effectiveDedupeWindowMs) {
+            recentKeys.delete(key);
+          }
+        }
         if (recentSignalTimes.length >= config.abuseMaxSignals) {
           return true;
         }
         const lastSeen = recentKeys.get(signal.dedupeKey) || 0;
-        if (lastSeen && now - lastSeen < config.dedupeWindowMs) {
+        if (lastSeen && now - lastSeen <= effectiveDedupeWindowMs) {
           return true;
         }
         recentSignalTimes.push(now);
