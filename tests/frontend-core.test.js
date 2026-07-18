@@ -2879,6 +2879,7 @@ test("api writes attach a CSRF token before sending state-changing requests", ()
   assert.match(backendSource, /const STEP_UP_CONTEXT_CHANGE_THRESHOLD = 2/);
   assert.match(backendSource, /const SESSION_MFA_POLICY = String\(process\.env\.SESSION_MFA_POLICY \|\| "optional"\)/);
   assert.match(backendSource, /const SESSION_SECURITY_NOTIFICATION_WEBHOOK_URL = String\(process\.env\.SESSION_SECURITY_NOTIFICATION_WEBHOOK_URL \|\| ""\)/);
+  assert.match(backendSource, /const SESSION_SECURITY_NOTIFICATION_WEBHOOK_SECRET = String\(process\.env\.SESSION_SECURITY_NOTIFICATION_WEBHOOK_SECRET \|\| ""\)/);
   assert.match(backendSource, /function normalizeSessionRecord\(session = \{\}, user = null\)/);
   assert.match(backendSource, /function replaceUserSessions\(store, username, nextSession\)/);
   assert.match(backendSource, /SESSION_MAX_ACTIVE_PER_USER - 1/);
@@ -2891,6 +2892,7 @@ test("api writes attach a CSRF token before sending state-changing requests", ()
   assert.match(backendSource, /async function buildSessionAuditTrail\(username = "", options = \{\}\)/);
   assert.match(backendSource, /function buildExternalSessionSecurityEvent\(\{ event, userId, session = \{\}, req = null, risk = null, metadata = \{\} \}\)/);
   assert.match(backendSource, /function dispatchSessionSecurityEvent\(eventPayload = \{\}\)/);
+  assert.match(backendSource, /"X-Winga-Session-Security-Secret": SESSION_SECURITY_NOTIFICATION_WEBHOOK_SECRET/);
   assert.match(backendSource, /function buildSessionSecurityPayload\(session = \{\}, req = null\)/);
   assert.match(backendSource, /version: "session-security-v1"/);
   assert.match(backendSource, /mfa:\s*\{/);
@@ -2936,6 +2938,30 @@ test("api writes attach a CSRF token before sending state-changing requests", ()
   assert.match(backendSource, /code: "unsupported_media_type"/);
   assert.match(backendSource, /error\.code = "INVALID_JSON"/);
   assert.match(backendSource, /code: "invalid_json"/);
+});
+
+test("session security relay is isolated from frontend and validates webhook events", () => {
+  const root = path.resolve(__dirname, "..");
+  const relaySource = fs.readFileSync(path.join(root, "cloudflare", "session-security-relay.js"), "utf8");
+  const relayConfig = fs.readFileSync(path.join(root, "wrangler.session-security.toml"), "utf8");
+  const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+
+  assert.match(relayConfig, /name = "winga-session-security-relay"/);
+  assert.match(relayConfig, /main = "\.\/cloudflare\/session-security-relay\.js"/);
+  assert.match(relayConfig, /binding = "SESSION_SECURITY_DEDUPE"/);
+  assert.match(relayConfig, /queue = "winga-session-security-events"/);
+  assert.match(relayConfig, /dead_letter_queue = "winga-session-security-events-dlq"/);
+  assert.equal(packageJson.scripts["deploy:worker:session-security"], "npx wrangler deploy --config wrangler.session-security.toml");
+  assert.match(relaySource, /X-Winga-Session-Security-Secret/i);
+  assert.match(relaySource, /SESSION_SECURITY_WEBHOOK_SECRET/);
+  assert.match(relaySource, /SESSION_SECURITY_QUEUE\.send/);
+  assert.match(relaySource, /SESSION_SECURITY_DEDUPE/);
+  assert.match(relaySource, /DEDUPE_TTL_SECONDS/);
+  assert.match(relaySource, /RATE_LIMIT_MAX_EVENTS/);
+  assert.match(relaySource, /SESSION_SECURITY_OPS_WEBHOOK_URL/);
+  assert.match(relaySource, /EMAIL_PROVIDER_URL/);
+  assert.doesNotMatch(relayConfig, /name = "mkubwa"/);
+  assert.doesNotMatch(relayConfig, /cloudflare\/intelligence-worker\.js/);
 });
 
 test("browser session state does not persist or propagate auth tokens", () => {

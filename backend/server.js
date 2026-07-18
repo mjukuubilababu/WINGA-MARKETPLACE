@@ -42,6 +42,7 @@ const SUSPICIOUS_LOGIN_MAX_FAILURES = 4;
 const STEP_UP_CONTEXT_CHANGE_THRESHOLD = 2;
 const SESSION_MFA_POLICY = String(process.env.SESSION_MFA_POLICY || "optional").trim().toLowerCase();
 const SESSION_SECURITY_NOTIFICATION_WEBHOOK_URL = String(process.env.SESSION_SECURITY_NOTIFICATION_WEBHOOK_URL || "").trim();
+const SESSION_SECURITY_NOTIFICATION_WEBHOOK_SECRET = String(process.env.SESSION_SECURITY_NOTIFICATION_WEBHOOK_SECRET || "").trim();
 const ADMIN_SEED_USERNAME = String(process.env.ADMIN_SEED_USERNAME || "admin").trim();
 const ADMIN_SEED_FULL_NAME = String(process.env.ADMIN_SEED_FULL_NAME || "WILHARD MMBANDO").trim();
 const ADMIN_SEED_PASSWORD = process.env.ADMIN_SEED_PASSWORD || "";
@@ -2531,14 +2532,18 @@ function buildExternalSessionSecurityEvent({ event, userId, session = {}, req = 
 }
 
 function dispatchSessionSecurityEvent(eventPayload = {}) {
-  if (!SESSION_SECURITY_NOTIFICATION_WEBHOOK_URL || typeof fetch !== "function") {
+  if (!SESSION_SECURITY_NOTIFICATION_WEBHOOK_URL || !SESSION_SECURITY_NOTIFICATION_WEBHOOK_SECRET || typeof fetch !== "function") {
     return;
   }
   const targetUrl = SESSION_SECURITY_NOTIFICATION_WEBHOOK_URL;
   setTimeout(() => {
     fetch(targetUrl, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "X-Winga-Session-Security-Secret": SESSION_SECURITY_NOTIFICATION_WEBHOOK_SECRET,
+        "User-Agent": "winga-session-security-dispatcher"
+      },
       body: JSON.stringify(eventPayload)
     }).catch((error) => {
       console.warn("[WINGA] Session security notification dispatch failed.", error);

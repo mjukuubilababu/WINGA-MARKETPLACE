@@ -1,0 +1,29 @@
+"$schema" = "./node_modules/wrangler/config-schema.json"
+name = "winga-session-security-relay"
+main = "./cloudflare/session-security-relay.js"
+compatibility_date = "2026-05-30"
+workers_dev = false
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+[vars]
+APP_NAME = "Winga"
+RATE_LIMIT_WINDOW_SECONDS = "60"
+RATE_LIMIT_MAX_EVENTS = "120"
+
+[[kv_namespaces]]
+binding = "SESSION_SECURITY_DEDUPE"
+id = "replace-with-session-security-dedupe-kv-id"
+
+[[queues.producers]]
+queue = "winga-session-security-events"
+binding = "SESSION_SECURITY_QUEUE"
+
+[[queues.consumers]]
+queue = "winga-session-security-events"
+max_batch_size = 25
+max_batch_timeout = 10
+max_retries = 8
+dead_letter_queue = "winga-session-security-events-dlq"
