@@ -15,7 +15,7 @@ RATE_LIMIT_MAX_EVENTS = "120"
 
 [[kv_namespaces]]
 binding = "SESSION_SECURITY_DEDUPE"
-id = "replace-with-session-security-dedupe-kv-id"
+id = "717a8635455d49a8b6c1424c40dcc0c1"
 
 [[queues.producers]]
 queue = "winga-session-security-events"
