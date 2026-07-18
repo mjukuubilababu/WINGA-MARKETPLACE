@@ -6,6 +6,7 @@
     "verify:production": "node scripts/verify-production-shell.js",
     "verify:worker-performance": "node scripts/verify-worker-performance.js",
     "verify:domain-routing": "node scripts/verify-domain-routing.js",
+    "verify:source": "node scripts/verify-source-of-truth.js",
     "test": "npm run test:frontend && npm run test:integration && npm run test:e2e",
     "test:frontend": "node tests/frontend-core.test.js",
     "test:integration": "node --test tests/integration-api.test.js tests/postgres-pagination.test.js",
