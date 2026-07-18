@@ -40,6 +40,8 @@ const SESSION_MAX_ACTIVE_PER_USER = 5;
 const SUSPICIOUS_LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const SUSPICIOUS_LOGIN_MAX_FAILURES = 4;
 const STEP_UP_CONTEXT_CHANGE_THRESHOLD = 2;
+const SESSION_MFA_POLICY = String(process.env.SESSION_MFA_POLICY || "optional").trim().toLowerCase();
+const SESSION_SECURITY_NOTIFICATION_WEBHOOK_URL = String(process.env.SESSION_SECURITY_NOTIFICATION_WEBHOOK_URL || "").trim();
 const ADMIN_SEED_USERNAME = String(process.env.ADMIN_SEED_USERNAME || "admin").trim();
 const ADMIN_SEED_FULL_NAME = String(process.env.ADMIN_SEED_FULL_NAME || "WILHARD MMBANDO").trim();
 const ADMIN_SEED_PASSWORD = process.env.ADMIN_SEED_PASSWORD || "";
@@ -1926,6 +1928,7 @@ function buildSelfSessionPayload(user, options = {}) {
     paymentInstructions: user.paymentInstructions || "",
     pendingWhatsappNumber: String(user.pendingWhatsappNumber || "").replace(/\D/g, "").slice(0, 20),
     pendingWhatsappExpiresAt: user.pendingWhatsappExpiresAt || "",
+    sessionPolicy: buildSessionPolicyPayload(),
     ...(options.security ? { security: options.security } : {})
   };
 }
@@ -2505,6 +2508,44 @@ function buildSessionSecurityNotification({ userId, title, body, variant = "warn
   });
 }
 
+function buildExternalSessionSecurityEvent({ event, userId, session = {}, req = null, risk = null, metadata = {} }) {
+  const context = getSessionRequestContext(req);
+  return {
+    version: "session-security-event-v1",
+    event: sanitizePlainText(event || "session_security_event", 80),
+    userId: normalizeIdentifier(userId || session.username || "", 40),
+    sessionId: sanitizePlainText(session.sessionId || "", 80),
+    deviceType: session.deviceType || context.deviceType || "unknown",
+    riskLevel: risk?.riskLevel || session.riskLevel || "low",
+    riskScore: Math.max(0, Number(risk?.riskScore ?? session.riskScore ?? 0) || 0),
+    reasons: Array.isArray(risk?.reasons) ? risk.reasons.slice(0, 6).map((item) => sanitizePlainText(item, 80)) : [],
+    ipHash: context.ipHash || session.ipHash || "",
+    userAgentHash: context.userAgentHash || session.userAgentHash || "",
+    cfRay: context.cfRay || session.cfRay || "",
+    createdAt: new Date().toISOString(),
+    metadata: Object.fromEntries(Object.entries(metadata || {}).slice(0, 8).map(([key, value]) => [
+      sanitizePlainText(key, 60),
+      sanitizePlainText(value, 160)
+    ]))
+  };
+}
+
+function dispatchSessionSecurityEvent(eventPayload = {}) {
+  if (!SESSION_SECURITY_NOTIFICATION_WEBHOOK_URL || typeof fetch !== "function") {
+    return;
+  }
+  const targetUrl = SESSION_SECURITY_NOTIFICATION_WEBHOOK_URL;
+  setTimeout(() => {
+    fetch(targetUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(eventPayload)
+    }).catch((error) => {
+      console.warn("[WINGA] Session security notification dispatch failed.", error);
+    });
+  }, 0);
+}
+
 function normalizePromotionRecord(promotion) {
   const now = new Date().toISOString();
   const type = ALLOWED_PROMOTION_TYPES.includes(promotion.type) ? promotion.type : "starter_day";
@@ -2950,6 +2991,70 @@ function sanitizeSessionForSelf(session = {}, currentToken = "") {
   };
 }
 
+function buildSessionPolicyPayload() {
+  const mfaRequiredFor = SESSION_MFA_POLICY === "required"
+    ? ["login", "step_up", "payment", "admin"]
+    : SESSION_MFA_POLICY === "staff"
+      ? ["staff_login", "admin", "moderation"]
+      : ["high_risk_step_up"];
+  return {
+    version: "session-policy-v1",
+    ttlSeconds: Math.floor(SESSION_TTL_MS / 1000),
+    touchIntervalSeconds: Math.floor(SESSION_TOUCH_INTERVAL_MS / 1000),
+    rotationIntervalSeconds: Math.floor(SESSION_ROTATION_INTERVAL_MS / 1000),
+    maxActivePerUser: SESSION_MAX_ACTIVE_PER_USER,
+    suspiciousLoginWindowSeconds: Math.floor(SUSPICIOUS_LOGIN_WINDOW_MS / 1000),
+    suspiciousLoginMaxFailures: SUSPICIOUS_LOGIN_MAX_FAILURES,
+    stepUpContextChangeThreshold: STEP_UP_CONTEXT_CHANGE_THRESHOLD,
+    mfa: {
+      status: SESSION_MFA_POLICY === "required" || SESSION_MFA_POLICY === "staff" ? "provider_required" : "optional_ready",
+      policy: ["required", "staff", "optional"].includes(SESSION_MFA_POLICY) ? SESSION_MFA_POLICY : "optional",
+      requiredFor: mfaRequiredFor,
+      providerConfigured: false,
+      supportedMethods: ["password_step_up", "totp_ready", "webauthn_ready", "otp_provider_ready"]
+    },
+    notifications: {
+      inApp: true,
+      externalWebhookConfigured: Boolean(SESSION_SECURITY_NOTIFICATION_WEBHOOK_URL),
+      providerReady: Boolean(SESSION_SECURITY_NOTIFICATION_WEBHOOK_URL)
+    }
+  };
+}
+
+async function buildSessionAuditTrail(username = "", options = {}) {
+  const safeUsername = normalizeIdentifier(username, 40);
+  const limit = Math.max(1, Math.min(Number(options.limit || 12) || 12, 30));
+  const events = new Set([
+    "login_success",
+    "admin_login_success",
+    "login_failed",
+    "admin_login_failed",
+    "login_throttled",
+    "admin_login_throttled",
+    "session_rotated",
+    "session_context_step_up_required",
+    "session_step_up_failed",
+    "session_step_up_success",
+    "self_session_revoked",
+    "admin_session_revoked",
+    "logout_success"
+  ]);
+  const source = await readRecentAuditEntries(Math.max(80, limit * 8));
+  return source
+    .filter((entry) => !safeUsername || normalizeIdentifier(entry?.username || entry?.targetUserId || "", 40) === safeUsername)
+    .filter((entry) => events.has(String(entry?.event || "")))
+    .slice(0, limit)
+    .map((entry) => ({
+      time: entry.time || "",
+      event: sanitizePlainText(entry.event || "", 80),
+      path: sanitizePlainText(entry.path || "", 120),
+      reason: sanitizePlainText(entry.reason || "", 120),
+      sessionId: sanitizePlainText(entry.sessionId || "", 80),
+      riskLevel: sanitizePlainText(entry.riskLevel || "", 20),
+      attempts: Math.max(0, Number(entry.attempts || 0) || 0)
+    }));
+}
+
 function evaluateSessionRisk(session = {}, req = null) {
   const context = getSessionRequestContext(req);
   let score = 0;
@@ -2983,12 +3088,14 @@ function isSessionStepUpFresh(session = {}) {
 function buildSessionSecurityPayload(session = {}, req = null) {
   const risk = evaluateSessionRisk(session, req);
   return {
+    version: "session-security-v1",
     riskScore: Math.max(Number(session.riskScore || 0), risk.score),
     riskLevel: risk.riskLevel,
     reasons: risk.reasons,
     requiresStepUp: risk.requiresStepUp && !isSessionStepUpFresh(session),
     stepUpFresh: isSessionStepUpFresh(session),
-    rotationIntervalSeconds: Math.floor(SESSION_ROTATION_INTERVAL_MS / 1000)
+    rotationIntervalSeconds: Math.floor(SESSION_ROTATION_INTERVAL_MS / 1000),
+    policy: buildSessionPolicyPayload()
   };
 }
 
@@ -5692,11 +5799,14 @@ http.createServer(async (req, res) => {
         .filter((item) => !usernameFilter || normalizeIdentifier(item.username, 40) === usernameFilter)
         .map(sanitizeSessionForAdmin)
         .sort((first, second) => String(second.lastSeenAt || second.createdAt || "").localeCompare(String(first.lastSeenAt || first.createdAt || "")));
+      const auditTrail = usernameFilter ? await buildSessionAuditTrail(usernameFilter, { limit: 20 }) : [];
       sendJson(res, 200, {
         items: activeSessions,
         count: activeSessions.length,
         maxActivePerUser: SESSION_MAX_ACTIVE_PER_USER,
-        rotationIntervalSeconds: Math.floor(SESSION_ROTATION_INTERVAL_MS / 1000)
+        rotationIntervalSeconds: Math.floor(SESSION_ROTATION_INTERVAL_MS / 1000),
+        policy: buildSessionPolicyPayload(),
+        auditTrail
       });
       return;
     }
@@ -5762,6 +5872,16 @@ http.createServer(async (req, res) => {
         targetUserId: targetSession.username || "",
         sessionId: targetSessionId
       });
+      dispatchSessionSecurityEvent(buildExternalSessionSecurityEvent({
+        event: "admin_session_revoked",
+        userId: targetSession.username || "",
+        session: targetSession,
+        req,
+        metadata: {
+          adminUsername: session.username,
+          route: "admin_session_revoke"
+        }
+      }));
       sendJson(res, 200, { ok: true, revokedSessionId: targetSessionId });
       return;
     }
@@ -6828,6 +6948,13 @@ http.createServer(async (req, res) => {
         event: "login_success",
         username: freshUser.username
       });
+      dispatchSessionSecurityEvent(buildExternalSessionSecurityEvent({
+        event: "login_success",
+        userId: freshUser.username,
+        session,
+        req,
+        metadata: { route: "public_login" }
+      }));
       requestMeta.statusCode = 200;
       logRouteSummary(requestMeta, {
         username: freshUser.username,
@@ -6942,6 +7069,13 @@ http.createServer(async (req, res) => {
         event: "admin_login_success",
         username: freshUser.username
       });
+      dispatchSessionSecurityEvent(buildExternalSessionSecurityEvent({
+        event: "admin_login_success",
+        userId: freshUser.username,
+        session,
+        req,
+        metadata: { route: "staff_login" }
+      }));
       requestMeta.statusCode = 200;
       logRouteSummary(requestMeta, {
         username: freshUser.username,
@@ -7387,6 +7521,27 @@ http.createServer(async (req, res) => {
         }, {
           skipBackup: true
         });
+        if (riskChanged && securityPayload.requiresStepUp) {
+          await appendAuditLog({
+            time: new Date().toISOString(),
+            ip: clientIp,
+            method: req.method,
+            path: url.pathname,
+            event: "session_context_step_up_required",
+            username: user.username,
+            sessionId: nextSession.sessionId,
+            riskLevel: securityPayload.riskLevel,
+            reasons: securityPayload.reasons
+          });
+          dispatchSessionSecurityEvent(buildExternalSessionSecurityEvent({
+            event: "session_context_step_up_required",
+            userId: user.username,
+            session: nextSession,
+            req,
+            risk: securityPayload,
+            metadata: { route: "session_restore" }
+          }));
+        }
       }
       if (rotateSession) {
         await appendAuditLog({
@@ -7421,11 +7576,14 @@ http.createServer(async (req, res) => {
         .map((item) => sanitizeSessionForSelf(item, token))
         .sort((first, second) => Number(second.current) - Number(first.current)
           || String(second.lastSeenAt || second.createdAt || "").localeCompare(String(first.lastSeenAt || first.createdAt || "")));
+      const auditTrail = await buildSessionAuditTrail(user.username, { limit: 12 });
       sendJson(res, 200, {
         items,
         count: items.length,
         maxActivePerUser: SESSION_MAX_ACTIVE_PER_USER,
-        rotationIntervalSeconds: Math.floor(SESSION_ROTATION_INTERVAL_MS / 1000)
+        rotationIntervalSeconds: Math.floor(SESSION_ROTATION_INTERVAL_MS / 1000),
+        policy: buildSessionPolicyPayload(),
+        auditTrail
       }, {
         "Cache-Control": "no-store"
       });
@@ -7477,6 +7635,14 @@ http.createServer(async (req, res) => {
         username: user.username,
         sessionId: session.sessionId
       });
+      dispatchSessionSecurityEvent(buildExternalSessionSecurityEvent({
+        event: "session_step_up_success",
+        userId: user.username,
+        session: steppedSession,
+        req,
+        risk: { riskLevel: "low", riskScore: 0, reasons: [] },
+        metadata: { route: "step_up" }
+      }));
       sendJson(res, 200, {
         ok: true,
         security: buildSessionSecurityPayload(steppedSession, req)
@@ -7522,6 +7688,13 @@ http.createServer(async (req, res) => {
         username: user.username,
         sessionId: targetSessionId
       });
+      dispatchSessionSecurityEvent(buildExternalSessionSecurityEvent({
+        event: "self_session_revoked",
+        userId: user.username,
+        session: targetSession,
+        req,
+        metadata: { route: "self_session_revoke" }
+      }));
       sendJson(res, 200, { ok: true, revokedSessionId: targetSessionId }, {
         "Cache-Control": "no-store"
       });

@@ -181,7 +181,9 @@
         items: Array.isArray(data?.items) ? data.items : [],
         count: Number(data?.count || 0),
         maxActivePerUser: Number(data?.maxActivePerUser || 0),
-        rotationIntervalSeconds: Number(data?.rotationIntervalSeconds || 0)
+        rotationIntervalSeconds: Number(data?.rotationIntervalSeconds || 0),
+        policy: data?.policy && typeof data.policy === "object" ? data.policy : null,
+        auditTrail: Array.isArray(data?.auditTrail) ? data.auditTrail : []
       };
     }
 

@@ -925,9 +925,15 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   assert.equal(sellerSelfSessions.response.status, 200);
   assert.ok(sellerSelfSessions.body.count >= 2);
   assert.equal(sellerSelfSessions.body.maxActivePerUser, 5);
+  assert.equal(sellerSelfSessions.body.policy.version, "session-policy-v1");
+  assert.equal(sellerSelfSessions.body.policy.mfa.status, "optional_ready");
+  assert.equal(sellerSelfSessions.body.policy.notifications.inApp, true);
+  assert.equal(Array.isArray(sellerSelfSessions.body.auditTrail), true);
+  assert.equal(sellerSelfSessions.body.auditTrail.some((entry) => entry.event === "login_success"), true);
   const currentSellerSession = sellerSelfSessions.body.items.find((item) => item.current);
   assert.ok(currentSellerSession?.sessionId);
   assert.equal(Object.prototype.hasOwnProperty.call(currentSellerSession, "ipHash"), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(currentSellerSession, "tokenLast4"), false);
 
   const currentSelfRevoke = await request(`/auth/sessions/${encodeURIComponent(currentSellerSession.sessionId)}`, {
     method: "DELETE",
@@ -952,6 +958,8 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   assert.equal(successfulStepUp.response.status, 200);
   assert.equal(successfulStepUp.body.ok, true);
   assert.equal(successfulStepUp.body.security.requiresStepUp, false);
+  assert.equal(successfulStepUp.body.security.version, "session-security-v1");
+  assert.equal(successfulStepUp.body.security.policy.mfa.supportedMethods.includes("totp_ready"), true);
 
   const moderatorLogin = await request("/auth/admin-login", {
     method: "POST",
@@ -970,6 +978,8 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   assert.equal(adminSessions.response.status, 200);
   assert.ok(adminSessions.body.count >= 2);
   assert.equal(adminSessions.body.maxActivePerUser, 5);
+  assert.equal(adminSessions.body.policy.version, "session-policy-v1");
+  assert.equal(Array.isArray(adminSessions.body.auditTrail), true);
   const revocableSellerSession = adminSessions.body.items.find((item) => item.tokenLast4 === sellerSecondToken.slice(-4));
   assert.ok(revocableSellerSession?.sessionId);
   assert.equal(typeof revocableSellerSession.ipHash, "string");
@@ -1017,6 +1027,8 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   assert.equal(restoredSellerSession.response.status, 200);
   assert.equal(restoredSellerSession.body.phoneNumber, "255700333333");
   assert.equal(Object.prototype.hasOwnProperty.call(restoredSellerSession.body, "token"), false);
+  assert.equal(restoredSellerSession.body.sessionPolicy.version, "session-policy-v1");
+  assert.equal(restoredSellerSession.body.sessionPolicy.notifications.inApp, true);
 
   const restoredSellerCookieSession = await request("/auth/session", {
     headers: { Cookie: getAuthCookieHeader(sellerSignup.response) }

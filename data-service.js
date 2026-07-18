@@ -3625,7 +3625,7 @@
       ensureAdapter();
       return state.adapter.loadActiveSessions
         ? state.adapter.loadActiveSessions()
-        : { items: [], count: 0, maxActivePerUser: 0, rotationIntervalSeconds: 0 };
+        : { items: [], count: 0, maxActivePerUser: 0, rotationIntervalSeconds: 0, policy: null, auditTrail: [] };
     },
     async revokeActiveSession(sessionId) {
       ensureAdapter();
