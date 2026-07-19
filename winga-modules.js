@@ -5746,6 +5746,8 @@ window.WingaModules.notifications = window.WingaModules.notifications || {};
         virtualList: [],
         lastBackendRefreshAt: 0,
         backendRefreshPromise: null,
+        backgroundRunwayTimer: 0,
+        lastBackgroundRunwayAt: 0,
         isLoadingMore: false,
         loadMoreRequestId: Number(options.loadMoreRequestId || 0),
         loadMoreAbortController: null,
@@ -6369,7 +6371,7 @@ window.WingaModules.notifications = window.WingaModules.notifications || {};
 
         const settleDetailCarousel = () => {
           if (!isDetailCarousel) {
-            snapToNearestSlide("smooth");
+            snapToNearestSlide("auto");
             return;
           }
           const total = Math.max(1, Number(carousel.dataset.feedGalleryTotal || track.querySelectorAll("[data-feed-gallery-slide]").length || 1));

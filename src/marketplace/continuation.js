@@ -170,6 +170,8 @@
         virtualList: [],
         lastBackendRefreshAt: 0,
         backendRefreshPromise: null,
+        backgroundRunwayTimer: 0,
+        lastBackgroundRunwayAt: 0,
         isLoadingMore: false,
         loadMoreRequestId: Number(options.loadMoreRequestId || 0),
         loadMoreAbortController: null,

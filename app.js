@@ -116,6 +116,9 @@ const HOME_INFINITE_READY_PRELOAD_TIMEOUT_MS = 3000;
 const HOME_INFINITE_DOM_INJECT_CHUNK_SIZE = 12;
 const HOME_INFINITE_BACKEND_REFRESH_COOLDOWN_MS = 1200;
 const HOME_INFINITE_BACKEND_RUNWAY_MIN_PRODUCTS = 6;
+const HOME_INFINITE_BACKGROUND_RUNWAY_TARGET_PRODUCTS = 24;
+const HOME_INFINITE_BACKGROUND_RUNWAY_WARMUP_DELAY_MS = 520;
+const HOME_INFINITE_BACKGROUND_RUNWAY_COOLDOWN_MS = 2200;
 const HOME_INFINITE_MAX_DOM_CARDS = 60;
 const HOME_INFINITE_MAX_RETAINED_VIRTUAL_NODES = 24;
 const HOME_LOAD_MORE_MAX_ATTEMPTS = 3;
@@ -4646,6 +4649,20 @@ function getRenderedHomeProductIdentityCount() {
   return ids.size;
 }
 
+function getHomeBackendRunwayRemaining() {
+  const pagination = getHomeFeedPaginationSnapshot();
+  const loadedCount = Number(pagination?.loadedCount || 0);
+  if (!Number.isFinite(loadedCount) || loadedCount <= 0) {
+    return 0;
+  }
+  const consumedNormalCount = Math.max(
+    0,
+    Number(homeContinuousDiscoveryRuntime.normalProductOrdinal || 0) || 0,
+    getRenderedHomeProductIdentityCount()
+  );
+  return Math.max(0, loadedCount - consumedNormalCount);
+}
+
 function shouldRefreshHomeBackendRunway() {
   const pagination = getHomeFeedPaginationSnapshot();
   if (!pagination || pagination.hasMore === false) {
@@ -4655,12 +4672,7 @@ function shouldRefreshHomeBackendRunway() {
   if (!Number.isFinite(loadedCount) || loadedCount <= 0) {
     return true;
   }
-  const consumedNormalCount = Math.max(
-    0,
-    Number(homeContinuousDiscoveryRuntime.normalProductOrdinal || 0) || 0,
-    getRenderedHomeProductIdentityCount()
-  );
-  return loadedCount - consumedNormalCount <= HOME_INFINITE_BACKEND_RUNWAY_MIN_PRODUCTS;
+  return getHomeBackendRunwayRemaining() <= HOME_INFINITE_BACKEND_RUNWAY_MIN_PRODUCTS;
 }
 
 function enqueueBackendContinuationDescriptor(appendedProducts = [], options = {}) {
@@ -4731,6 +4743,12 @@ function refreshHomeBackendRunwayIfNeeded(options = {}) {
       return false;
     });
   }
+  if (homeContinuousDiscoveryRuntime.backendRefreshPromise) {
+    return homeContinuousDiscoveryRuntime.backendRefreshPromise;
+  }
+  if (homeContinuousDiscoveryRuntime.isLoadingMore) {
+    return Promise.resolve(false);
+  }
   if (
     !options.force
     && reason
@@ -4747,6 +4765,77 @@ function refreshHomeBackendRunwayIfNeeded(options = {}) {
     ...options,
     force: true
   });
+}
+
+function ensureHomeBackgroundRunway(options = {}) {
+  if (currentView !== "home" || document.body.classList.contains("product-detail-open")) {
+    return Promise.resolve(false);
+  }
+  if (homeContinuousDiscoveryRuntime.backendRefreshPromise) {
+    return homeContinuousDiscoveryRuntime.backendRefreshPromise;
+  }
+  if (homeContinuousDiscoveryRuntime.isLoadingMore) {
+    return Promise.resolve(false);
+  }
+  const pagination = getHomeFeedPaginationSnapshot();
+  if (!pagination || pagination.hasMore === false) {
+    return Promise.resolve(false);
+  }
+  const loadedCount = Number(pagination.loadedCount || 0);
+  const runwayRemaining = getHomeBackendRunwayRemaining();
+  if (
+    Number.isFinite(loadedCount)
+    && loadedCount >= HOME_INFINITE_BACKGROUND_RUNWAY_TARGET_PRODUCTS
+    && runwayRemaining > HOME_INFINITE_BACKEND_RUNWAY_MIN_PRODUCTS
+  ) {
+    return Promise.resolve(false);
+  }
+  const now = Date.now();
+  if (
+    !options.force
+    && now - Number(homeContinuousDiscoveryRuntime.lastBackgroundRunwayAt || 0) < HOME_INFINITE_BACKGROUND_RUNWAY_COOLDOWN_MS
+  ) {
+    return Promise.resolve(false);
+  }
+  homeContinuousDiscoveryRuntime.lastBackgroundRunwayAt = now;
+  return refreshHomeBackendRunwayIfNeeded({
+    force: true,
+    allowLookahead: true,
+    reason: options.reason || "background_runway_warmup"
+  }).finally(() => {
+    if (currentView !== "home" || document.body.classList.contains("product-detail-open")) {
+      return;
+    }
+    const anchor = productsContainer?.querySelector?.("[data-continuous-discovery-anchor='home']");
+    if (!(anchor instanceof Element) || !anchor.isConnected) {
+      return;
+    }
+    const descriptor = prepareNextContinuousDiscoveryDescriptor();
+    if (descriptor) {
+      prepareContinuousDescriptorMedia(descriptor, `background_runway_${homeContinuousDiscoveryRuntime.batchIndex}`);
+    }
+    if (!homeContinuousDiscoveryRuntime.loading && canAdvanceHomeContinuousDiscovery(anchor)) {
+      hydrateContinuousDiscoveryAnchor(anchor);
+    }
+  });
+}
+
+function scheduleHomeBackgroundRunwayWarmup(anchor, options = {}) {
+  if (currentView !== "home" || !(anchor instanceof Element) || !anchor.isConnected) {
+    return;
+  }
+  if (homeContinuousDiscoveryRuntime.backgroundRunwayTimer) {
+    window.clearTimeout(homeContinuousDiscoveryRuntime.backgroundRunwayTimer);
+  }
+  homeContinuousDiscoveryRuntime.backgroundRunwayTimer = window.setTimeout(() => {
+    homeContinuousDiscoveryRuntime.backgroundRunwayTimer = 0;
+    if (currentView !== "home" || !anchor.isConnected) {
+      return;
+    }
+    ensureHomeBackgroundRunway({
+      reason: options.reason || "boot_background_runway"
+    });
+  }, Math.max(0, Number(options.delayMs ?? HOME_INFINITE_BACKGROUND_RUNWAY_WARMUP_DELAY_MS)));
 }
 
 function isHomeScrollNearFeedEnd() {
@@ -4767,7 +4856,7 @@ function maybeRefreshHomeBackendRunwayOnScroll() {
   if (!isHomeScrollNearFeedEnd()) {
     return;
   }
-  refreshHomeBackendRunwayIfNeeded({ reason: "scroll_bottom_runway" });
+  ensureHomeBackgroundRunway({ reason: "scroll_bottom_runway" });
 }
 
 function markHomeContinuationUserIntent() {
@@ -17878,6 +17967,9 @@ function disconnectContinuousDiscoveryObserver() {
   if (homeContinuousDiscoveryRuntime.reobserveTimer) {
     window.clearTimeout(homeContinuousDiscoveryRuntime.reobserveTimer);
   }
+  if (homeContinuousDiscoveryRuntime.backgroundRunwayTimer) {
+    window.clearTimeout(homeContinuousDiscoveryRuntime.backgroundRunwayTimer);
+  }
   homeContinuousDiscoveryRuntime = createHomeContinuousDiscoveryRuntime();
 }
 
@@ -18130,7 +18222,7 @@ function maybeAdvanceBackgroundContinuation() {
     return;
   }
   homeContinuousDiscoveryRuntime.lastEarlyLoadAt = now;
-  refreshHomeBackendRunwayIfNeeded({ reason: "scroll_progress_runway" });
+  ensureHomeBackgroundRunway({ reason: "scroll_progress_runway" });
   scheduleIdleBackgroundWork(() => {
     if (
       currentView !== "home"
@@ -18141,7 +18233,7 @@ function maybeAdvanceBackgroundContinuation() {
     ) {
       return;
     }
-    refreshHomeBackendRunwayIfNeeded({ reason: "background_runway" })
+    ensureHomeBackgroundRunway({ reason: "background_runway" })
       .finally(() => {
         if (
           currentView !== "home"
@@ -18719,6 +18811,10 @@ function setupContinuousDiscoveryLoading(scope, options = {}) {
   scheduleIdleBackgroundWork(() => {
     prepareNextContinuousDiscoveryDescriptor();
   }, 80);
+  scheduleHomeBackgroundRunwayWarmup(anchor, {
+    reason: "boot_background_runway",
+    delayMs: HOME_INFINITE_BACKGROUND_RUNWAY_WARMUP_DELAY_MS
+  });
   window.setTimeout(() => {
     if (
       anchor.isConnected
@@ -20652,6 +20748,8 @@ function createHomeContinuousDiscoveryRuntime(options = {}) {
     virtualList: [],
     lastBackendRefreshAt: 0,
     backendRefreshPromise: null,
+    backgroundRunwayTimer: 0,
+    lastBackgroundRunwayAt: 0,
     isLoadingMore: false,
     loadMoreRequestId: Number(options.loadMoreRequestId || 0),
     loadMoreAbortController: null,

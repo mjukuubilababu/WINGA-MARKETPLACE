@@ -395,7 +395,7 @@
 
         const settleDetailCarousel = () => {
           if (!isDetailCarousel) {
-            snapToNearestSlide("smooth");
+            snapToNearestSlide("auto");
             return;
           }
           const total = Math.max(1, Number(carousel.dataset.feedGalleryTotal || track.querySelectorAll("[data-feed-gallery-slide]").length || 1));

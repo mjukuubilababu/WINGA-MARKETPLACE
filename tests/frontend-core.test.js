@@ -51,7 +51,7 @@ test("home feed reserves stable media and deferred section geometry", () => {
   assert.doesNotMatch(styleSource, /body\[data-layout-mode="standalone-mobile"\] #market-showcase,\s*body\[data-layout-mode="standalone-mobile"\] #products-container/);
   assert.match(styleSource, /body\[data-layout-mode="standalone-mobile"\] #products-container\[data-layout-mode="standalone-mobile"\]\{[\s\S]*width:var\(--winga-viewport-width, 100dvw\);[\s\S]*transform:translateX\(-50%\);/);
   assert.match(styleSource, /#products-container \.progressive-image-shell \.progressive-image-full\{[\s\S]*object-fit:cover !important;/);
-  assert.match(styleSource, /#products-container \.feed-gallery-carousel-track\{[\s\S]*overflow-x:auto !important;[\s\S]*scroll-snap-type:x mandatory !important;/);
+  assert.match(styleSource, /#products-container \.feed-gallery-carousel-track\{[\s\S]*overflow-x:auto !important;[\s\S]*scroll-snap-type:x mandatory !important;[\s\S]*scroll-behavior:auto !important;/);
   assert.match(styleSource, /#products-container \.feed-gallery-carousel-track \.feed-gallery-tile,[\s\S]*#products-container \.feed-gallery-carousel-track \.progressive-image-full\{[\s\S]*touch-action:pan-x pan-y !important;/);
   const marketplaceUiSource = fs.readFileSync(path.join(root, "src", "marketplace", "ui.js"), "utf8");
   assert.match(marketplaceUiSource, /\? safeImages\.slice\(\)/);
@@ -61,6 +61,9 @@ test("home feed reserves stable media and deferred section geometry", () => {
   assert.doesNotMatch(marketplaceUiSource, /shouldUseMobileEndlessHomeFeed && typeof deps\.createContinuousDiscoveryAnchorElement/);
   assert.match(marketplaceUiSource, /if \(typeof deps\.createContinuousDiscoveryAnchorElement === "function"\)/);
   assert.match(appSource, /window\.setTimeout\(\(\) => \{\s+if \(\s+anchor\.isConnected\s+&& currentView === "home"[\s\S]*hydrateContinuousDiscoveryAnchor\(anchor\);/);
+  assert.match(appSource, /const HOME_INFINITE_BACKGROUND_RUNWAY_TARGET_PRODUCTS = 24;/);
+  assert.match(appSource, /function ensureHomeBackgroundRunway\(options = \{\}\) \{/);
+  assert.match(appSource, /scheduleHomeBackgroundRunwayWarmup\(anchor,[\s\S]*reason: "boot_background_runway"/);
   assert.match(appSource, /afterNextPaint\(\(\) => \{\s+scheduleIdleBackgroundWork\(\(\) => refreshCategoryUI\(\), 80\);/);
   assert.match(appSource, /function shouldDeferHomeFeedRankingForFirstPaint\(\) \{[\s\S]*document\.body\?\.classList\?\.contains\("app-booting"\)[\s\S]*!hasActiveMarketplaceBootFilters\(\)/);
   assert.match(appSource, /if \(shouldDeferHomeFeedRankingForFirstPaint\(\)\) \{\s+schedulePostPaintHomeFeedRankingUpgrade\("boot_home_feed_ranking_upgrade"\);\s+return sortProductsNewestFirst\(visibleList\);/);
@@ -166,6 +169,7 @@ test("marketplace gallery module preserves feed carousel markup contract", () =>
   assert.match(source, /track\.addEventListener\("pointerdown"/);
   assert.doesNotMatch(source, /event\.pointerType === "touch"\)\s*\{\s*return;/);
   assert.match(source, /track\.scrollLeft = pointerStartScrollLeft - deltaX/);
+  assert.match(source, /if \(!isDetailCarousel\) \{\s+snapToNearestSlide\("auto"\);/);
   assert.match(source, /noteProductEngagementSignal\(productId, "variation_swipe", variationSwipeWeight\)/);
   assert.match(appSource, /function bindFeedGalleryInteractions\(scope = document\) \{\s+getMarketplaceGalleryTools\(\)\.bindFeedGalleryInteractions\?\.\(scope\);\s+\}/);
 });
