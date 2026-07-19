@@ -622,7 +622,8 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
       }
     ])
   });
-  assert.equal(brokenReferenceSave.response.status, 200);
+  assert.equal(brokenReferenceSave.response.status, 410);
+  assert.equal(brokenReferenceSave.body.code, "bulk_product_replace_retired");
 
   const visibleProductsAfterBrokenReference = await request("/products", {
     headers: {
@@ -630,19 +631,11 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
     }
   });
   assert.equal(visibleProductsAfterBrokenReference.response.status, 200);
-  assert.equal(
-    getProductResponseItems(visibleProductsAfterBrokenReference.body).some((product) => product.id === "product-test-missing-ref"),
-    false,
-    "Products with missing upload refs and no archive should not be returned to visible feeds."
-  );
+  assert.equal(getProductResponseItems(visibleProductsAfterBrokenReference.body).some((product) => product.id === "product-test-missing-ref"), false);
 
   const bootstrapAfterBrokenReference = await request("/bootstrap");
   assert.equal(bootstrapAfterBrokenReference.response.status, 200);
-  assert.equal(
-    bootstrapAfterBrokenReference.body.products.some((product) => product.id === "product-test-missing-ref"),
-    false,
-    "Bootstrap should not include products whose upload refs are broken and unrecoverable."
-  );
+  assert.equal(bootstrapAfterBrokenReference.body.products.some((product) => product.id === "product-test-missing-ref"), false);
 
   const healthAfterBrokenReference = await request("/health");
   assert.equal(healthAfterBrokenReference.response.status, 200);
@@ -907,6 +900,17 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   });
   assert.equal(adminLogin.response.status, 200);
   const adminToken = getAuthCookieToken(adminLogin.response);
+
+  const retiredBulkUserSave = await request("/users", {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminToken}`
+    },
+    body: JSON.stringify([])
+  });
+  assert.equal(retiredBulkUserSave.response.status, 410);
+  assert.equal(retiredBulkUserSave.body.code, "bulk_user_replace_retired");
 
   const sellerSecondLogin = await request("/auth/login", {
     method: "POST",

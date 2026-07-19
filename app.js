@@ -9171,7 +9171,27 @@ function getSellerTrustSnapshot(username) {
 function renderSellerTrustPanel(product) {
   const trust = getSellerTrustSnapshot(product?.uploadedBy);
   if (!trust) {
-    return "";
+    const sellerName = escapeHtml(product?.shop || product?.uploadedBy || "Seller");
+    const showReportActions = Boolean(product?.id && product?.uploadedBy && product.uploadedBy !== currentUser);
+    const safeProductId = escapeHtml(product?.id || "");
+    const safeSellerId = escapeHtml(product?.uploadedBy || "");
+    return `
+      <section class="seller-trust-panel" data-trust-state="unavailable">
+        <div class="seller-trust-heading">
+          <div>
+            <p class="eyebrow">Trust & Safety</p>
+            <strong>${sellerName}</strong>
+          </div>
+        </div>
+        <p class="product-meta seller-trust-copy">Seller trust details are temporarily unavailable.</p>
+        ${showReportActions ? `
+          <div class="seller-trust-actions">
+            <button class="trust-link-btn" type="button" data-report-product="${safeProductId}">Report product</button>
+            <button class="trust-link-btn" type="button" data-report-seller="${safeSellerId}" data-report-product-context="${safeProductId}">Report seller</button>
+          </div>
+        ` : ""}
+      </section>
+    `;
   }
   const sellerName = escapeHtml(getUserDisplayName(product.uploadedBy, {
     fallback: product?.shop || product?.uploadedBy || "Seller"

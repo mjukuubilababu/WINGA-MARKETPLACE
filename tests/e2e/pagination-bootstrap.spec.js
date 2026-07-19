@@ -834,11 +834,19 @@ test("exhausted load-more retries expose a recoverable inline error state", asyn
     { timeout: 30000 }
   ).toBe(12);
 
-  const result = await page.evaluate(() => window.silentlyRefreshInfiniteFeedSource({
-    force: true,
-    allowLookahead: false,
-    reason: "e2e_error"
-  }));
+  const result = await page.evaluate(async () => {
+    if (homeContinuousDiscoveryRuntime.backgroundRunwayTimer) {
+      window.clearTimeout(homeContinuousDiscoveryRuntime.backgroundRunwayTimer);
+      homeContinuousDiscoveryRuntime.backgroundRunwayTimer = 0;
+    }
+    window.cancelHomeFeedLoadMore?.("e2e_error_setup");
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+    return window.silentlyRefreshInfiniteFeedSource({
+      force: true,
+      allowLookahead: false,
+      reason: "e2e_error"
+    });
+  });
 
   expect(result).toBe(false);
   expect(await page.evaluate(() => window.WingaDataLayer.getProducts().length)).toBe(12);

@@ -848,8 +848,7 @@ async function writeStore(store) {
 
 async function writeStoreWithOptions(store, options = {}) {
   if (postgresStore) {
-    await postgresStore.writeStore(store);
-    return;
+    throw new Error("PostgreSQL bulk store replacement is disabled; use an atomic repository operation.");
   }
   writeLegacyStore(store, options);
 }
@@ -3629,7 +3628,15 @@ async function initializeStoreAtBoot() {
   const migratedStore = adminSyncResult.store;
   const shouldWrite = sessionsChanged || migrationResult.didChange || adminSyncResult.didChange;
 
-  if (shouldWrite) {
+  if (postgresStore?.runBootMaintenance) {
+    const configuredAdmin = adminSyncResult.didChange
+      ? migratedStore.users.find((user) => user.role === "admin" && user.username === getAdminSeedIdentity().username)
+      : null;
+    await postgresStore.runBootMaintenance({
+      nowMs: Date.now(),
+      adminUser: configuredAdmin || null
+    });
+  } else if (shouldWrite) {
     await writeStore(migratedStore);
   }
 
@@ -5898,22 +5905,29 @@ http.createServer(async (req, res) => {
         sendJson(res, 400, { error: "Huwezi kurevoke session unayotumia sasa.", code: "cannot_revoke_current_session" });
         return;
       }
-      const nextSessions = (store.sessions || []).filter((item) => item.sessionId !== targetSessionId);
-      await writeStoreWithOptions({
-        ...store,
-        sessions: nextSessions,
-        notifications: [
-          buildSessionSecurityNotification({
+      const revocationNotification = buildSessionSecurityNotification({
             userId: targetSession.username || "",
             title: "Session revoked",
             body: "Moja ya device sessions zako imefungwa na admin kwa usalama.",
             variant: "warning"
-          }),
-          ...((store.notifications || []).map(normalizeNotificationRecord))
-        ]
-      }, {
-        skipBackup: true
       });
+      if (postgresStore?.deleteSessionById) {
+        await postgresStore.deleteSessionById(targetSessionId, {
+          notification: revocationNotification
+        });
+      } else {
+        const nextSessions = (store.sessions || []).filter((item) => item.sessionId !== targetSessionId);
+        await writeStoreWithOptions({
+          ...store,
+          sessions: nextSessions,
+          notifications: [
+            revocationNotification,
+            ...((store.notifications || []).map(normalizeNotificationRecord))
+          ]
+        }, {
+          skipBackup: true
+        });
+      }
       await appendAuditLog({
         time: new Date().toISOString(),
         ip: clientIp,
@@ -6279,7 +6293,11 @@ http.createServer(async (req, res) => {
         ...store,
         settings: nextSettings
       };
-      await writeStore(store);
+      if (postgresStore?.saveAppSettings) {
+        await postgresStore.saveAppSettings(nextSettings);
+      } else {
+        await writeStore(store);
+      }
       await appendAuditLog({
         time: new Date().toISOString(),
         ip: clientIp,
@@ -6316,9 +6334,18 @@ http.createServer(async (req, res) => {
         });
         return;
       }
-      const users = await collectBody(req);
-      await writeStore({ ...store, users: Array.isArray(users) ? users.map(normalizeUserRecord) : [] });
-      sendJson(res, 200, { ok: true });
+      await appendAuditLog({
+        time: new Date().toISOString(),
+        ip: clientIp,
+        method: req.method,
+        path: url.pathname,
+        event: "admin_users_bulk_save_retired",
+        username: session.username
+      });
+      sendJson(res, 410, {
+        error: "Bulk user replacement imeondolewa. Tumia endpoint ya profile au moderation yenye atomic update.",
+        code: "bulk_user_replace_retired"
+      });
       return;
     }
 
@@ -6536,14 +6563,33 @@ http.createServer(async (req, res) => {
         createdAt: now
       });
 
-      await writeStore({
-        ...store,
-        users,
-        products,
-        sessions,
-        notifications: [moderationNotification, ...((store.notifications || []).map(normalizeNotificationRecord))],
-        moderationActions: [moderationAction, ...((store.moderationActions || []).map(normalizeModerationActionRecord))]
-      });
+      if (postgresStore?.updateUserRecord) {
+        const userResult = await postgresStore.updateUserRecord(updatedUser, {
+          expectedRowVersion: Number(targetUser.rowVersion || 0),
+          revokeSessions: isRestrictedUserStatus(updatedUser.status),
+          hideProducts: requestedStatusChange && ["banned", "deactivated"].includes(updatedUser.status),
+          productModerationNote: `Listing hidden after account ${updatedUser.status}.`,
+          notification: moderationNotification,
+          moderationAction
+        });
+        if (!userResult.updated) {
+          sendJson(res, 409, {
+            error: "User amebadilika wakati wa moderation. Refresh kabla ya kuendelea.",
+            code: "user_state_conflict"
+          });
+          return;
+        }
+        updatedUser.rowVersion = userResult.rowVersion;
+      } else {
+        await writeStore({
+          ...store,
+          users,
+          products,
+          sessions,
+          notifications: [moderationNotification, ...((store.notifications || []).map(normalizeNotificationRecord))],
+          moderationActions: [moderationAction, ...((store.moderationActions || []).map(normalizeModerationActionRecord))]
+        });
+      }
       await appendAuditLog({
         time: now,
         ip: clientIp,
@@ -6798,14 +6844,30 @@ http.createServer(async (req, res) => {
         users: users.length,
         sessions: nextSessions.length
       });
-      await writeStoreWithOptions({
-        ...store,
-        categories: mergeCategories(store.categories || []),
-        users,
-        sessions: nextSessions
-      }, {
-        skipBackup: true
-      });
+      if (postgresStore?.createUserWithSession) {
+        const signupResult = await postgresStore.createUserWithSession(createdUser, session, {
+          maxActiveSessions: SESSION_MAX_ACTIVE_PER_USER
+        });
+        if (!signupResult.created) {
+          const conflictMessages = {
+            phoneNumber: "Namba hiyo ya simu tayari imesajiliwa.",
+            nationalId: "This identity number is already registered. Please contact the moderator.",
+            username: "Jina hilo la account tayari linatumika.",
+            user: "Account hiyo tayari imesajiliwa."
+          };
+          sendJson(res, 409, { error: conflictMessages[signupResult.conflict] || conflictMessages.user });
+          return;
+        }
+      } else {
+        await writeStoreWithOptions({
+          ...store,
+          categories: mergeCategories(store.categories || []),
+          users,
+          sessions: nextSessions
+        }, {
+          skipBackup: true
+        });
+      }
       recordAuditLog({
         time: new Date().toISOString(),
         ip: clientIp,
@@ -6862,19 +6924,35 @@ http.createServer(async (req, res) => {
         return;
       }
 
-      users[userIndex] = {
+      const updatedUser = {
         ...user,
         password: createPasswordHash(String(payload.newPassword || payload.password || "")),
         updatedAt: new Date().toISOString()
       };
-      const nextSessions = (store.sessions || []).filter((session) =>
-        normalizeIdentifier(session.username, 40) !== normalizeIdentifier(user.username, 40)
-      );
-      await writeStore({
-        ...store,
-        users,
-        sessions: nextSessions
-      });
+      if (postgresStore?.resetUserPassword) {
+        const resetResult = await postgresStore.resetUserPassword(
+          user.username,
+          updatedUser.password,
+          { expectedRowVersion: Number(user.rowVersion || 0) }
+        );
+        if (!resetResult.updated) {
+          sendJson(res, 409, {
+            error: "Akaunti imebadilika wakati wa password recovery. Anza recovery tena.",
+            code: "user_state_conflict"
+          });
+          return;
+        }
+      } else {
+        users[userIndex] = updatedUser;
+        const nextSessions = (store.sessions || []).filter((session) =>
+          normalizeIdentifier(session.username, 40) !== normalizeIdentifier(user.username, 40)
+        );
+        await writeStore({
+          ...store,
+          users,
+          sessions: nextSessions
+        });
+      }
       await appendAuditLog({
         time: new Date().toISOString(),
         ip: clientIp,
@@ -6962,10 +7040,12 @@ http.createServer(async (req, res) => {
         return;
       }
 
+      let upgradedPasswordHash = "";
       if (!isPasswordHashed(user.password)) {
+        upgradedPasswordHash = createPasswordHash(payload.password);
         users[userIndex] = {
           ...user,
-          password: createPasswordHash(payload.password)
+          password: upgradedPasswordHash
         };
         store = { ...store, users };
       }
@@ -6977,21 +7057,30 @@ http.createServer(async (req, res) => {
       logRouteMemoryStage(requestMeta, "before_login_write", {
         sessions: nextSessions.length
       });
-      await writeStoreWithOptions({
-        ...store,
-        sessions: nextSessions,
-        notifications: [
-          buildSessionSecurityNotification({
+      const loginNotification = buildSessionSecurityNotification({
             userId: freshUser.username,
             title: "New login",
             body: `Winga account yako imefunguliwa kwenye ${session.deviceType || "device"} mpya.`,
             variant: "info"
-          }),
-          ...((store.notifications || []).map(normalizeNotificationRecord))
-        ]
-      }, {
-        skipBackup: true
       });
+      if (postgresStore?.createLoginSession) {
+        await postgresStore.createLoginSession(freshUser, session, {
+          passwordHash: upgradedPasswordHash,
+          notification: loginNotification,
+          maxActiveSessions: SESSION_MAX_ACTIVE_PER_USER
+        });
+      } else {
+        await writeStoreWithOptions({
+          ...store,
+          sessions: nextSessions,
+          notifications: [
+            loginNotification,
+            ...((store.notifications || []).map(normalizeNotificationRecord))
+          ]
+        }, {
+          skipBackup: true
+        });
+      }
       recordAuditLog({
         time: new Date().toISOString(),
         ip: clientIp,
@@ -7083,10 +7172,12 @@ http.createServer(async (req, res) => {
         return;
       }
 
+      let upgradedPasswordHash = "";
       if (!isPasswordHashed(user.password)) {
+        upgradedPasswordHash = createPasswordHash(payload.password);
         users[userIndex] = {
           ...user,
-          password: createPasswordHash(payload.password)
+          password: upgradedPasswordHash
         };
         store = { ...store, users };
       }
@@ -7098,21 +7189,30 @@ http.createServer(async (req, res) => {
       logRouteMemoryStage(requestMeta, "before_admin_login_write", {
         sessions: nextSessions.length
       });
-      await writeStoreWithOptions({
-        ...store,
-        sessions: nextSessions,
-        notifications: [
-          buildSessionSecurityNotification({
+      const staffLoginNotification = buildSessionSecurityNotification({
             userId: freshUser.username,
             title: "Staff login",
             body: `Staff account yako imefunguliwa kwenye ${session.deviceType || "device"} mpya.`,
             variant: "warning"
-          }),
-          ...((store.notifications || []).map(normalizeNotificationRecord))
-        ]
-      }, {
-        skipBackup: true
       });
+      if (postgresStore?.createLoginSession) {
+        await postgresStore.createLoginSession(freshUser, session, {
+          passwordHash: upgradedPasswordHash,
+          notification: staffLoginNotification,
+          maxActiveSessions: SESSION_MAX_ACTIVE_PER_USER
+        });
+      } else {
+        await writeStoreWithOptions({
+          ...store,
+          sessions: nextSessions,
+          notifications: [
+            staffLoginNotification,
+            ...((store.notifications || []).map(normalizeNotificationRecord))
+          ]
+        }, {
+          skipBackup: true
+        });
+      }
       recordAuditLog({
         time: new Date().toISOString(),
         ip: clientIp,
@@ -7467,10 +7567,14 @@ http.createServer(async (req, res) => {
         ? (store.sessions || []).filter((item) => item.token !== token)
         : (store.sessions || []);
       if (nextSessions.length !== (store.sessions || []).length) {
-        await writeStore({
-          ...store,
-          sessions: nextSessions
-        });
+        if (postgresStore?.deleteSessionByToken) {
+          await postgresStore.deleteSessionByToken(token);
+        } else {
+          await writeStore({
+            ...store,
+            sessions: nextSessions
+          });
+        }
       }
       await appendAuditLog({
         time: new Date().toISOString(),
@@ -7556,23 +7660,29 @@ http.createServer(async (req, res) => {
               riskScore: securityPayload.riskScore,
               riskLevel: securityPayload.riskLevel
             };
-        const nextNotifications = riskChanged && securityPayload.requiresStepUp
-          ? [
-              buildSessionSecurityNotification({
+        const securityNotification = riskChanged && securityPayload.requiresStepUp
+          ? buildSessionSecurityNotification({
                 userId: user.username,
                 title: "Security check needed",
                 body: "Tumeona session yako inatumika kwenye mazingira mapya. Thibitisha password kabla ya actions nyeti."
-              }),
-              ...((store.notifications || []).map(normalizeNotificationRecord))
-            ]
-          : store.notifications;
-        await writeStoreWithOptions({
-          ...store,
-          sessions: updateSessionInStore(store, token, nextSession),
-          notifications: nextNotifications
-        }, {
-          skipBackup: true
-        });
+              })
+          : null;
+        if (postgresStore?.replaceSession) {
+          await postgresStore.replaceSession(token, nextSession, {
+            notification: securityNotification
+          });
+        } else {
+          const nextNotifications = securityNotification
+            ? [securityNotification, ...((store.notifications || []).map(normalizeNotificationRecord))]
+            : store.notifications;
+          await writeStoreWithOptions({
+            ...store,
+            sessions: updateSessionInStore(store, token, nextSession),
+            notifications: nextNotifications
+          }, {
+            skipBackup: true
+          });
+        }
         if (riskChanged && securityPayload.requiresStepUp) {
           await appendAuditLog({
             time: new Date().toISOString(),
@@ -7672,12 +7782,16 @@ http.createServer(async (req, res) => {
         riskScore: 0,
         riskLevel: "low"
       });
-      await writeStoreWithOptions({
-        ...store,
-        sessions: updateSessionInStore(store, token, steppedSession)
-      }, {
-        skipBackup: true
-      });
+      if (postgresStore?.replaceSession) {
+        await postgresStore.replaceSession(token, steppedSession);
+      } else {
+        await writeStoreWithOptions({
+          ...store,
+          sessions: updateSessionInStore(store, token, steppedSession)
+        }, {
+          skipBackup: true
+        });
+      }
       await appendAuditLog({
         time: new Date().toISOString(),
         ip: clientIp,
@@ -7725,12 +7839,16 @@ http.createServer(async (req, res) => {
         sendJson(res, 400, { error: "Tumia Logout kufunga session unayotumia sasa.", code: "cannot_revoke_current_session" });
         return;
       }
-      await writeStoreWithOptions({
-        ...store,
-        sessions: (store.sessions || []).filter((item) => item.sessionId !== targetSessionId)
-      }, {
-        skipBackup: true
-      });
+      if (postgresStore?.deleteSessionById) {
+        await postgresStore.deleteSessionById(targetSessionId, { username: user.username });
+      } else {
+        await writeStoreWithOptions({
+          ...store,
+          sessions: (store.sessions || []).filter((item) => item.sessionId !== targetSessionId)
+        }, {
+          skipBackup: true
+        });
+      }
       await appendAuditLog({
         time: new Date().toISOString(),
         ip: clientIp,
@@ -7793,9 +7911,17 @@ http.createServer(async (req, res) => {
           return;
         }
 
-        const messages = existingMessages.filter((item) => item.id !== messageId);
-        store = { ...store, messages };
-        await writeStore(store);
+        if (postgresStore?.deleteMessage) {
+          const deleteResult = await postgresStore.deleteMessage(messageId, user.username);
+          if (!deleteResult.deleted) {
+            sendJson(res, 404, { error: "Ujumbe huo haujapatikana." });
+            return;
+          }
+        } else {
+          const messages = existingMessages.filter((item) => item.id !== messageId);
+          store = { ...store, messages };
+          await writeStore(store);
+        }
         sendJson(res, 200, { ok: true });
         return;
       }
@@ -7816,10 +7942,14 @@ http.createServer(async (req, res) => {
         }
 
         const targetUser = normalizeIdentifier(payload.withUser, 40);
-        const updateResult = markConversationRead(store, user.username, targetUser);
-        if (updateResult.didChange) {
-          store = updateResult.store;
-          await writeStore(store);
+        const updateResult = postgresStore?.markConversationRead
+          ? await postgresStore.markConversationRead(user.username, targetUser)
+          : markConversationRead(store, user.username, targetUser);
+        if (updateResult.changed || updateResult.didChange) {
+          if (!postgresStore?.markConversationRead) {
+            store = updateResult.store;
+            await writeStore(store);
+          }
           emitLiveEvent(user.username, "conversation_read", {
             conversationId: updateResult.conversationId,
             withUser: targetUser,
@@ -7939,7 +8069,23 @@ http.createServer(async (req, res) => {
         });
 
         const promotions = [promotion, ...((store.promotions || []).map(normalizePromotionRecord))];
-        await writeStore({ ...store, promotions });
+        if (postgresStore?.createPromotion) {
+          const promotionResult = await postgresStore.createPromotion(promotion);
+          if (!promotionResult.created) {
+            const errors = {
+              product_not_found: [404, "Bidhaa ya promotion haijapatikana."],
+              not_owner: [403, "Unaweza kupromote bidhaa zako tu."],
+              active_promotion: [409, "Bidhaa hii tayari ina promotion ya type hiyo inayoendelea."],
+              duplicate_transaction: [409, "Transaction reference hiyo tayari imetumika."]
+            };
+            const [statusCode, message] = errors[promotionResult.code] || [409, "Promotion haikuweza kuhifadhiwa."];
+            sendJson(res, statusCode, { error: message, code: promotionResult.code });
+            return;
+          }
+          promotion.rowVersion = promotionResult.rowVersion;
+        } else {
+          await writeStore({ ...store, promotions });
+        }
         await appendAuditLog({
           time: now,
           ip: clientIp,
@@ -7983,9 +8129,18 @@ http.createServer(async (req, res) => {
           return;
         }
 
-        store = { ...store, notifications };
-        await writeStore(store);
-        sendJson(res, 200, { ok: true, readAt: now });
+        if (postgresStore?.markNotificationRead) {
+          const readResult = await postgresStore.markNotificationRead(notificationId, user.username);
+          if (!readResult.updated) {
+            sendJson(res, 404, { error: "Notification haijapatikana." });
+            return;
+          }
+          sendJson(res, 200, { ok: true, readAt: readResult.readAt });
+        } else {
+          store = { ...store, notifications };
+          await writeStore(store);
+          sendJson(res, 200, { ok: true, readAt: now });
+        }
         return;
       }
 
@@ -8076,7 +8231,17 @@ http.createServer(async (req, res) => {
           return;
         }
 
-        await writeStore({ ...store, promotions });
+        if (postgresStore?.updatePromotion) {
+          const currentPromotion = (store.promotions || []).map(normalizePromotionRecord).find((item) => item.id === promotionId);
+          const promotionResult = await postgresStore.updatePromotion(nextPromotion, currentPromotion?.status || "pending");
+          if (!promotionResult.updated) {
+            sendJson(res, 409, { error: "Promotion imebadilika. Refresh kisha ujaribu tena.", code: "promotion_state_conflict" });
+            return;
+          }
+          nextPromotion.rowVersion = promotionResult.rowVersion;
+        } else {
+          await writeStore({ ...store, promotions });
+        }
         await appendAuditLog({
           time: now,
           ip: clientIp,
@@ -8128,7 +8293,17 @@ http.createServer(async (req, res) => {
           return;
         }
 
-        await writeStore({ ...store, promotions });
+        if (postgresStore?.updatePromotion) {
+          const nextPromotion = promotions.find((item) => item.id === promotionId);
+          const currentPromotion = (store.promotions || []).map(normalizePromotionRecord).find((item) => item.id === promotionId);
+          const promotionResult = await postgresStore.updatePromotion(nextPromotion, currentPromotion?.status || "");
+          if (!promotionResult.updated) {
+            sendJson(res, 409, { error: "Promotion imebadilika. Refresh kisha ujaribu tena.", code: "promotion_state_conflict" });
+            return;
+          }
+        } else {
+          await writeStore({ ...store, promotions });
+        }
         await appendAuditLog({
           time: now,
           ip: clientIp,
@@ -8282,7 +8457,27 @@ http.createServer(async (req, res) => {
           });
         }
         store = { ...store, users, messages, notifications };
-        await writeStore(store);
+        if (postgresStore?.createMessageWithNotification) {
+          const messageResult = await postgresStore.createMessageWithNotification(
+            nextMessage,
+            notification,
+            {
+              sharePhoneWith: nextMessage.messageType === "contact_share" ? receiver.username : ""
+            }
+          );
+          if (!messageResult.created) {
+            const isDuplicate = messageResult.code === "duplicate_message";
+            sendJson(res, 429, {
+              error: isDuplicate
+                ? "Ujumbe huo huo umetumwa hivi karibuni. Subiri kidogo kabla ya kurudia."
+                : "Ujumbe mwingi sana umetumwa kwa muda mfupi. Subiri kidogo ujaribu tena.",
+              code: messageResult.code
+            });
+            return;
+          }
+        } else {
+          await writeStore(store);
+        }
         await appendAuditLog({
           time: now,
           ip: clientIp,
@@ -8351,7 +8546,20 @@ http.createServer(async (req, res) => {
         });
 
         const reviews = [review, ...((store.reviews || []).map(normalizeReviewRecord))];
-        await writeStore({ ...store, reviews });
+        if (postgresStore?.createReview) {
+          const reviewResult = await postgresStore.createReview(review);
+          if (!reviewResult.created) {
+            sendJson(res, reviewResult.code === "not_delivered" ? 403 : 409, {
+              error: reviewResult.code === "not_delivered"
+                ? "Review inaruhusiwa kwa buyer aliyekamilisha order tu."
+                : "Tayari ume-review bidhaa hii.",
+              code: reviewResult.code
+            });
+            return;
+          }
+        } else {
+          await writeStore({ ...store, reviews });
+        }
         await appendAuditLog({
           time: new Date().toISOString(),
           ip: clientIp,
@@ -8416,7 +8624,15 @@ http.createServer(async (req, res) => {
       }
 
       const reports = [normalizedPayload, ...((store.reports || []).map(normalizeReportRecord))];
-      await writeStore({ ...store, reports });
+      if (postgresStore?.createReport) {
+        const reportResult = await postgresStore.createReport(normalizedPayload);
+        if (!reportResult.created) {
+          sendJson(res, 409, { error: "Tayari una report ya wazi kwa target hii.", code: reportResult.code });
+          return;
+        }
+      } else {
+        await writeStore({ ...store, reports });
+      }
       await appendAuditLog({
         time: new Date().toISOString(),
         ip: clientIp,
@@ -8651,10 +8867,19 @@ http.createServer(async (req, res) => {
         updatedAt: new Date().toISOString()
       });
 
-      await writeStore({
-        ...store,
-        reports: (store.reports || []).map((item) => item.id === reportId ? updatedReport : item)
-      });
+      if (postgresStore?.reviewReport) {
+        const reportResult = await postgresStore.reviewReport(updatedReport, report.status || "open");
+        if (!reportResult.updated) {
+          sendJson(res, 409, { error: "Report imebadilika. Refresh kisha ujaribu tena.", code: "report_state_conflict" });
+          return;
+        }
+        updatedReport.rowVersion = reportResult.rowVersion;
+      } else {
+        await writeStore({
+          ...store,
+          reports: (store.reports || []).map((item) => item.id === reportId ? updatedReport : item)
+        });
+      }
       await appendAuditLog({
         time: new Date().toISOString(),
         ip: clientIp,
@@ -8729,14 +8954,23 @@ http.createServer(async (req, res) => {
         createdAt: new Date().toISOString()
       });
 
-      const products = (store.products || []).map((item) =>
-        item.id === productId ? moderatedProduct : item
-      );
-      await writeStore({
-        ...store,
-        products,
-        notifications: [sellerNotification, ...((store.notifications || []).map(normalizeNotificationRecord))]
-      });
+      if (postgresStore?.moderateProduct) {
+        const moderationResult = await postgresStore.moderateProduct(productId, moderatedProduct, sellerNotification);
+        if (!moderationResult.updated) {
+          sendJson(res, 409, { error: "Bidhaa imebadilika wakati wa moderation. Jaribu tena." });
+          return;
+        }
+        moderatedProduct.rowVersion = moderationResult.rowVersion;
+      } else {
+        const products = (store.products || []).map((item) =>
+          item.id === productId ? moderatedProduct : item
+        );
+        await writeStore({
+          ...store,
+          products,
+          notifications: [sellerNotification, ...((store.notifications || []).map(normalizeNotificationRecord))]
+        });
+      }
       await appendAuditLog({
         time: new Date().toISOString(),
         ip: clientIp,
@@ -8797,14 +9031,25 @@ http.createServer(async (req, res) => {
       const sessions = (store.sessions || []).map((item) =>
         item.username === normalizedUsername ? { ...item, primaryCategory: normalizedCategory } : item
       );
-      await writeStore({
-        ...store,
-        categories: normalizedCategory
-          ? mergeCategories(store.categories || [], [{ value: normalizedCategory, label: normalizedCategory }])
-          : mergeCategories(store.categories || []),
-        users,
-        sessions
-      });
+      if (postgresStore?.updateUserRecord) {
+        const updatedUser = normalizeUserRecord({ ...user, primaryCategory: normalizedCategory, updatedAt: new Date().toISOString() });
+        const userResult = await postgresStore.updateUserRecord(updatedUser, {
+          expectedRowVersion: Number(user.rowVersion || 0)
+        });
+        if (!userResult.updated) {
+          sendJson(res, 409, { error: "Profile imebadilika. Refresh kisha ujaribu tena.", code: "user_state_conflict" });
+          return;
+        }
+      } else {
+        await writeStore({
+          ...store,
+          categories: normalizedCategory
+            ? mergeCategories(store.categories || [], [{ value: normalizedCategory, label: normalizedCategory }])
+            : mergeCategories(store.categories || []),
+          users,
+          sessions
+        });
+      }
       sendJson(res, 200, { ok: true });
       return;
     }
@@ -8871,12 +9116,29 @@ http.createServer(async (req, res) => {
       );
       const products = applySellerWhatsappToProducts(store, user.username, nextWhatsappNumber);
 
-      await writeStore({
-        ...store,
-        users,
-        sessions,
-        products
-      });
+      if (postgresStore?.updateUserRecord) {
+        const userResult = await postgresStore.updateUserRecord(updatedUser, {
+          expectedRowVersion: Number(user.rowVersion || 0),
+          syncWhatsapp: true
+        });
+        if (!userResult.updated) {
+          sendJson(res, 409, {
+            error: userResult.conflictField === "phoneNumber"
+              ? "Namba hiyo tayari inatumika kwenye account nyingine."
+              : "Profile imebadilika. Refresh kisha ujaribu tena.",
+            code: "user_state_conflict"
+          });
+          return;
+        }
+        updatedUser.rowVersion = userResult.rowVersion;
+      } else {
+        await writeStore({
+          ...store,
+          users,
+          sessions,
+          products
+        });
+      }
 
       await appendAuditLog({
         time: now,
@@ -8954,12 +9216,29 @@ http.createServer(async (req, res) => {
       );
       const products = applySellerWhatsappToProducts(store, user.username, nextWhatsappNumber);
 
-      await writeStore({
-        ...store,
-        users,
-        sessions,
-        products
-      });
+      if (postgresStore?.updateUserRecord) {
+        const userResult = await postgresStore.updateUserRecord(updatedUser, {
+          expectedRowVersion: Number(user.rowVersion || 0),
+          syncWhatsapp: true
+        });
+        if (!userResult.updated) {
+          sendJson(res, 409, {
+            error: userResult.conflictField === "phoneNumber"
+              ? "Namba hiyo tayari inatumika kwenye account nyingine."
+              : "Profile imebadilika. Refresh kisha ujaribu tena.",
+            code: "user_state_conflict"
+          });
+          return;
+        }
+        updatedUser.rowVersion = userResult.rowVersion;
+      } else {
+        await writeStore({
+          ...store,
+          users,
+          sessions,
+          products
+        });
+      }
 
       await appendAuditLog({
         time: now,
@@ -9118,12 +9397,29 @@ http.createServer(async (req, res) => {
         ? applySellerWhatsappToProducts(store, user.username, nextWhatsappNumber)
         : store.products || [];
 
-      await writeStore({
-        ...store,
-        users: updatedUsers,
-        sessions,
-        ...(hasPhoneUpdate ? { products } : {})
-      });
+      if (postgresStore?.updateUserRecord) {
+        const userResult = await postgresStore.updateUserRecord(updatedUser, {
+          expectedRowVersion: Number(user.rowVersion || 0),
+          syncWhatsapp: hasPhoneUpdate
+        });
+        if (!userResult.updated) {
+          sendJson(res, 409, {
+            error: userResult.conflictField === "phoneNumber"
+              ? "Namba hiyo ya simu tayari imesajiliwa."
+              : "Profile imebadilika kwenye device nyingine. Refresh kisha ujaribu tena.",
+            code: "user_state_conflict"
+          });
+          return;
+        }
+        updatedUser.rowVersion = userResult.rowVersion;
+      } else {
+        await writeStore({
+          ...store,
+          users: updatedUsers,
+          sessions,
+          ...(hasPhoneUpdate ? { products } : {})
+        });
+      }
 
       await appendAuditLog({
         time: now,
@@ -9223,11 +9519,28 @@ http.createServer(async (req, res) => {
           : item
       );
 
-      await writeStore({
-        ...store,
-        users,
-        sessions
-      });
+      if (postgresStore?.updateUserRecord) {
+        const userResult = await postgresStore.updateUserRecord(updatedUser, {
+          expectedRowVersion: Number(user.rowVersion || 0),
+          syncWhatsapp: true
+        });
+        if (!userResult.updated) {
+          sendJson(res, 409, {
+            error: userResult.conflictField === "phoneNumber"
+              ? "Namba hiyo ya simu tayari imesajiliwa."
+              : "Profile imebadilika. Refresh kisha ujaribu tena.",
+            code: "user_state_conflict"
+          });
+          return;
+        }
+        updatedUser.rowVersion = userResult.rowVersion;
+      } else {
+        await writeStore({
+          ...store,
+          users,
+          sessions
+        });
+      }
 
       await appendAuditLog({
         time: now,
@@ -9259,7 +9572,11 @@ http.createServer(async (req, res) => {
       }
 
       const categories = mergeCategories(store.categories || [], [category]);
-      await writeStore({ ...store, categories });
+      if (postgresStore?.saveCategory) {
+        await postgresStore.saveCategory(category);
+      } else {
+        await writeStore({ ...store, categories });
+      }
       sendJson(res, 200, category);
       return;
     }
@@ -9415,7 +9732,25 @@ http.createServer(async (req, res) => {
           : item
       );
       store = { ...store, orders, payments, products, notifications };
-      await writeStore(store);
+      if (postgresStore?.createCommerceOrder) {
+        const commerceResult = await postgresStore.createCommerceOrder(order, payment, sellerNotification);
+        if (!commerceResult.created) {
+          const errors = {
+            product_not_found: [404, "Bidhaa haijapatikana."],
+            product_not_approved: [409, "Bidhaa hii bado haijaruhusiwa kuuzwa."],
+            product_unavailable: [409, "Bidhaa hii imeshahifadhiwa au imeisha."],
+            self_purchase: [400, "Huwezi kununua bidhaa yako mwenyewe."],
+            price_changed: [409, "Bei ya bidhaa imebadilika. Refresh kabla ya kuendelea."],
+            active_order: [409, "Tayari una order inayoendelea kwa bidhaa hii."],
+            duplicate_transaction: [409, "Receipt au transaction reference hiyo tayari imetumika."]
+          };
+          const [statusCode, message] = errors[commerceResult.code] || [409, "Order haikuweza kuhifadhiwa. Jaribu tena."];
+          sendJson(res, statusCode, { error: message, code: commerceResult.code || "order_conflict" });
+          return;
+        }
+      } else {
+        await writeStore(store);
+      }
       await appendAuditLog({
         time: new Date().toISOString(),
         ip: clientIp,
@@ -9475,12 +9810,33 @@ http.createServer(async (req, res) => {
         return;
       }
 
-      const nextStore = updateOrderAndPaymentFromPaymentResult(store, matchedOrderId, paymentStatus, {
-        rawGatewayResponse: payload?.rawGatewayResponse && typeof payload.rawGatewayResponse === "object"
-          ? payload.rawGatewayResponse
-          : null
-      });
-      await writeStore(nextStore);
+      const rawGatewayResponse = payload?.rawGatewayResponse && typeof payload.rawGatewayResponse === "object"
+        ? payload.rawGatewayResponse
+        : null;
+      if (postgresStore?.applyPaymentResult) {
+        const paymentResult = await postgresStore.applyPaymentResult(
+          matchedOrderId,
+          transactionReference,
+          paymentStatus,
+          rawGatewayResponse
+        );
+        if (!paymentResult.updated) {
+          const isStateConflict = paymentResult.code === "payment_state_conflict";
+          sendJson(res, isStateConflict ? 409 : 404, {
+            error: isStateConflict
+              ? "Payment iliyothibitishwa haiwezi kushushwa na callback ya zamani."
+              : "Payment au order haijapatikana.",
+            code: paymentResult.code
+          });
+          return;
+        }
+        matchedOrderId = paymentResult.orderId;
+      } else {
+        const nextStore = updateOrderAndPaymentFromPaymentResult(store, matchedOrderId, paymentStatus, {
+          rawGatewayResponse
+        });
+        await writeStore(nextStore);
+      }
       await appendAuditLog({
         time: new Date().toISOString(),
         ip: clientIp,
@@ -9521,13 +9877,30 @@ http.createServer(async (req, res) => {
         return;
       }
 
-      const products = (store.products || []).map((item) =>
-        item.id === productId
-          ? { ...item, availability: "sold_out", updatedAt: new Date().toISOString() }
-          : item
+      const soldOutAt = new Date().toISOString();
+      let soldOutProduct = { ...product, availability: "sold_out", updatedAt: soldOutAt };
+      let products = (store.products || []).map((item) =>
+        item.id === productId ? soldOutProduct : item
       );
-
-      await writeStore({ ...store, products });
+      if (postgresStore?.setProductAvailability) {
+        const availabilityResult = await postgresStore.setProductAvailability(
+          productId,
+          sellerUser.username,
+          "sold_out"
+        );
+        if (!availabilityResult.updated) {
+          sendJson(res, 409, { error: "Bidhaa imebadilika. Refresh kisha ujaribu tena." });
+          return;
+        }
+        soldOutProduct = {
+          ...soldOutProduct,
+          updatedAt: availabilityResult.updatedAt || soldOutAt,
+          rowVersion: availabilityResult.rowVersion
+        };
+        products = products.map((item) => item.id === productId ? soldOutProduct : item);
+      } else {
+        await writeStore({ ...store, products });
+      }
       await appendAuditLog({
         time: new Date().toISOString(),
         ip: clientIp,
@@ -9553,7 +9926,7 @@ http.createServer(async (req, res) => {
       }).catch((error) => {
         console.warn("[WINGA] Sold out intelligence ingestion failed.", error);
       });
-      sendJson(res, 200, products.find((item) => item.id === productId));
+      sendJson(res, 200, soldOutProduct);
       return;
     }
 
@@ -9641,7 +10014,25 @@ http.createServer(async (req, res) => {
           : item
       );
       store = { ...store, orders, payments, products, notifications };
-      await writeStore(store);
+      if (postgresStore?.transitionCommerceOrder) {
+        const transitionResult = await postgresStore.transitionCommerceOrder(
+          existingOrder,
+          updatedOrder,
+          { paymentStatus },
+          nextAvailability,
+          orderNotification
+        );
+        if (!transitionResult.updated) {
+          sendJson(res, 409, {
+            error: "Order imebadilika kwenye device nyingine. Refresh kabla ya kuendelea.",
+            code: "order_state_conflict"
+          });
+          return;
+        }
+        updatedOrder.rowVersion = transitionResult.rowVersion;
+      } else {
+        await writeStore(store);
+      }
       await appendAuditLog({
         time: new Date().toISOString(),
         ip: clientIp,
@@ -9677,22 +10068,18 @@ http.createServer(async (req, res) => {
         return;
       }
 
-      logRouteMemoryStage(requestMeta, "before_bulk_products_collect_body");
-      const products = await collectBody(req);
-      const normalizedProducts = Array.isArray(products)
-        ? products.map((product) => repairNormalizedProductImageState(normalizeProductImages(product)))
-        : [];
-      logRouteMemoryStage(requestMeta, "after_bulk_products_normalize", {
-        products: normalizedProducts.length
+      await appendAuditLog({
+        time: new Date().toISOString(),
+        ip: clientIp,
+        method: req.method,
+        path: url.pathname,
+        event: "admin_products_bulk_save_retired",
+        username: session.username
       });
-      store = { ...store, products: normalizedProducts };
-      await writeStore(store);
-      requestMeta.statusCode = 200;
-      logRouteSummary(requestMeta, {
-        products: normalizedProducts.length,
-        bulk: true
+      sendJson(res, 410, {
+        error: "Bulk product replacement imeondolewa. Tumia product create, update, delete au moderation endpoints.",
+        code: "bulk_product_replace_retired"
       });
-      sendJson(res, 200, { ok: true });
       return;
     }
 
@@ -9756,12 +10143,17 @@ http.createServer(async (req, res) => {
       logRouteMemoryStage(requestMeta, "after_product_upload_normalize", {
         imageCount: Array.isArray(normalizedProduct.images) ? normalizedProduct.images.length : 0
       });
-      const products = [normalizedProduct, ...(store.products || [])];
-      await writeStore({
-        ...store,
-        categories: mergeCategories(store.categories || [], [{ value: normalizedProduct.category, label: normalizedProduct.category }]),
-        products
-      });
+      if (postgresStore?.createProduct) {
+        const createResult = await postgresStore.createProduct(normalizedProduct);
+        normalizedProduct.rowVersion = createResult.rowVersion;
+      } else {
+        const products = [normalizedProduct, ...(store.products || [])];
+        await writeStore({
+          ...store,
+          categories: mergeCategories(store.categories || [], [{ value: normalizedProduct.category, label: normalizedProduct.category }]),
+          products
+        });
+      }
       await appendAuditLog({
         time: new Date().toISOString(),
         ip: clientIp,
@@ -9797,27 +10189,38 @@ http.createServer(async (req, res) => {
         return;
       }
 
-      const updatedProduct = {
+      let updatedProduct = {
         ...existingProduct,
         likes: Number(existingProduct.likes || 0),
         views: Number(existingProduct.views || 0),
         viewedBy: Array.isArray(existingProduct.viewedBy) ? existingProduct.viewedBy : []
       };
 
-      if (action === "like") {
-        updatedProduct.likes += 1;
+      if (postgresStore?.recordProductAction) {
+        const actionResult = await postgresStore.recordProductAction(productId, actingUser.username, action);
+        if (!actionResult) {
+          sendJson(res, 404, { error: "Bidhaa haijapatikana." });
+          return;
+        }
+        updatedProduct = {
+          ...updatedProduct,
+          ...actionResult
+        };
+      } else {
+        if (action === "like") {
+          updatedProduct.likes += 1;
+        }
+
+        if (action === "view" && !updatedProduct.viewedBy.includes(actingUser.username)) {
+          updatedProduct.views += 1;
+          updatedProduct.viewedBy = [...updatedProduct.viewedBy, actingUser.username];
+        }
+
+        const products = (store.products || []).map((item) =>
+          item.id === productId ? { ...updatedProduct, updatedAt: new Date().toISOString() } : item
+        );
+        await writeStore({ ...store, products });
       }
-
-      if (action === "view" && !updatedProduct.viewedBy.includes(actingUser.username)) {
-        updatedProduct.views += 1;
-        updatedProduct.viewedBy = [...updatedProduct.viewedBy, actingUser.username];
-      }
-
-      const products = (store.products || []).map((item) =>
-        item.id === productId ? { ...updatedProduct, updatedAt: new Date().toISOString() } : item
-      );
-
-      await writeStore({ ...store, products });
       await appendAuditLog({
         time: new Date().toISOString(),
         ip: clientIp,
@@ -9887,15 +10290,33 @@ http.createServer(async (req, res) => {
         imageCount: Array.isArray(updatedProduct.images) ? updatedProduct.images.length : 0
       });
 
-      const products = (store.products || []).map((item) =>
+      let products = (store.products || []).map((item) =>
         item.id === productId ? updatedProduct : item
       );
-
-      await writeStore({
-        ...store,
-        categories: mergeCategories(store.categories || [], [{ value: updatedProduct.category, label: updatedProduct.category }]),
-        products
-      });
+      if (postgresStore?.updateProduct) {
+        const updateResult = await postgresStore.updateProduct(
+          productId,
+          sellerUser.username,
+          updatedProduct,
+          { expectedRowVersion: Number(existingProduct.rowVersion || 0) }
+        );
+        if (!updateResult.updated) {
+          sendJson(res, 409, {
+            error: updateResult.conflict
+              ? "Bidhaa imehaririwa sehemu nyingine. Refresh kabla ya kuhifadhi tena."
+              : "Bidhaa haijapatikana au ownership imebadilika."
+          });
+          return;
+        }
+        updatedProduct.rowVersion = updateResult.rowVersion;
+        products = products.map((item) => item.id === productId ? updatedProduct : item);
+      } else {
+        await writeStore({
+          ...store,
+          categories: mergeCategories(store.categories || [], [{ value: updatedProduct.category, label: updatedProduct.category }]),
+          products
+        });
+      }
       cleanupUnusedLocalImages(existingProduct, updatedProduct, products);
       await appendAuditLog({
         time: new Date().toISOString(),
@@ -9938,7 +10359,15 @@ http.createServer(async (req, res) => {
       }
 
       const products = (store.products || []).filter((item) => item.id !== productId);
-      await writeStore({ ...store, products });
+      if (postgresStore?.deleteProduct) {
+        const deleteResult = await postgresStore.deleteProduct(productId, sellerUser.username);
+        if (!deleteResult.deleted) {
+          sendJson(res, 409, { error: "Bidhaa haijapatikana au ownership imebadilika." });
+          return;
+        }
+      } else {
+        await writeStore({ ...store, products });
+      }
       cleanupUnusedLocalImages(existingProduct, null, products);
       await appendAuditLog({
         time: new Date().toISOString(),

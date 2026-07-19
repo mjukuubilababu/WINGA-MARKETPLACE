@@ -1,4 +1,5 @@
 const { Pool } = require("pg");
+const { runSchemaMigrations } = require("./migrations");
 
 function stringifyJson(value, fallback = []) {
   return JSON.stringify(value ?? fallback);
@@ -131,7 +132,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
     };
   }
 
-  async function ensureSchema() {
+  async function ensureSchema(schemaClient = pool) {
+    const query = (text, params = []) => schemaClient.query(text, params);
     await query(`
       CREATE TABLE IF NOT EXISTS categories (
         value TEXT PRIMARY KEY,
@@ -146,6 +148,17 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
         full_name TEXT NOT NULL DEFAULT '',
         password TEXT NOT NULL,
         phone_number TEXT UNIQUE NOT NULL,
+        whatsapp_number TEXT NOT NULL DEFAULT '',
+        whatsapp_verification_status TEXT NOT NULL DEFAULT 'verified',
+        whatsapp_verified_at TIMESTAMPTZ NULL,
+        pending_whatsapp_number TEXT NOT NULL DEFAULT '',
+        pending_whatsapp_code_hash TEXT NOT NULL DEFAULT '',
+        pending_whatsapp_requested_at TIMESTAMPTZ NULL,
+        pending_whatsapp_expires_at TIMESTAMPTZ NULL,
+        payment_provider TEXT NOT NULL DEFAULT '',
+        payment_number TEXT NOT NULL DEFAULT '',
+        payment_recipient_name TEXT NOT NULL DEFAULT '',
+        payment_instructions TEXT NOT NULL DEFAULT '',
         national_id TEXT UNIQUE,
         primary_category TEXT NOT NULL,
         role TEXT NOT NULL,
@@ -161,8 +174,10 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
         verification_submitted_at TIMESTAMPTZ NULL,
         moderated_at TIMESTAMPTZ NULL,
         moderated_by TEXT NOT NULL DEFAULT '',
+        shared_phone_viewer_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        created_at TIMESTAMPTZ NOT NULL
+        created_at TIMESTAMPTZ NOT NULL,
+        row_version BIGINT NOT NULL DEFAULT 1
       );
     `);
 
@@ -191,7 +206,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
         updated_at TIMESTAMPTZ NOT NULL,
         likes INTEGER NOT NULL DEFAULT 0,
         views INTEGER NOT NULL DEFAULT 0,
-        viewed_by JSONB NOT NULL DEFAULT '[]'::jsonb
+        viewed_by JSONB NOT NULL DEFAULT '[]'::jsonb,
+        row_version BIGINT NOT NULL DEFAULT 1
       );
     `);
 
@@ -216,7 +232,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
         step_up_verified_at TIMESTAMPTZ NULL,
         risk_score INTEGER NOT NULL DEFAULT 0,
         risk_level TEXT NOT NULL DEFAULT 'low',
-        expires_at BIGINT NOT NULL
+        expires_at BIGINT NOT NULL,
+        row_version BIGINT NOT NULL DEFAULT 1
       );
     `);
 
@@ -263,7 +280,14 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
         payment_submitted_at TIMESTAMPTZ NULL,
         payment_confirmed_at TIMESTAMPTZ NULL,
         payment_confirmed_by TEXT NOT NULL DEFAULT '',
-        created_at TIMESTAMPTZ NOT NULL
+        payment_provider TEXT NOT NULL DEFAULT '',
+        payment_recipient_name TEXT NOT NULL DEFAULT '',
+        payment_instructions TEXT NOT NULL DEFAULT '',
+        payment_intent_status TEXT NOT NULL DEFAULT 'submitted',
+        reserve_expires_at TIMESTAMPTZ NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        created_at TIMESTAMPTZ NOT NULL,
+        row_version BIGINT NOT NULL DEFAULT 1
       );
     `);
 
@@ -279,8 +303,13 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
         payment_status TEXT NOT NULL DEFAULT 'pending',
         payer_details JSONB NOT NULL DEFAULT '{}'::jsonb,
         raw_gateway_response JSONB NULL,
+          payment_provider TEXT NOT NULL DEFAULT '',
+          payment_number TEXT NOT NULL DEFAULT '',
+          payment_recipient_name TEXT NOT NULL DEFAULT '',
+          payment_instructions TEXT NOT NULL DEFAULT '',
           created_at TIMESTAMPTZ NOT NULL,
-          updated_at TIMESTAMPTZ NOT NULL
+          updated_at TIMESTAMPTZ NOT NULL,
+          row_version BIGINT NOT NULL DEFAULT 1
         );
       `);
 
@@ -302,7 +331,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
           delivered_at TIMESTAMPTZ NULL,
           read_at TIMESTAMPTZ NULL,
           is_delivered BOOLEAN NOT NULL DEFAULT TRUE,
-          is_read BOOLEAN NOT NULL DEFAULT FALSE
+          is_read BOOLEAN NOT NULL DEFAULT FALSE,
+          row_version BIGINT NOT NULL DEFAULT 1
         );
       `);
 
@@ -317,7 +347,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
           body TEXT NOT NULL DEFAULT '',
           is_read BOOLEAN NOT NULL DEFAULT FALSE,
           read_at TIMESTAMPTZ NULL,
-          created_at TIMESTAMPTZ NOT NULL
+          created_at TIMESTAMPTZ NOT NULL,
+          row_version BIGINT NOT NULL DEFAULT 1
         );
       `);
 
@@ -340,7 +371,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
           baseline_views INTEGER NOT NULL DEFAULT 0,
           baseline_likes INTEGER NOT NULL DEFAULT 0,
           disabled_at TIMESTAMPTZ NULL,
-          disabled_by TEXT NOT NULL DEFAULT ''
+          disabled_by TEXT NOT NULL DEFAULT '',
+          row_version BIGINT NOT NULL DEFAULT 1
         );
       `);
 
@@ -366,7 +398,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
           rating INTEGER NOT NULL,
           comment TEXT NOT NULL,
           verified_buyer BOOLEAN NOT NULL DEFAULT FALSE,
-          date TIMESTAMPTZ NOT NULL
+          date TIMESTAMPTZ NOT NULL,
+          row_version BIGINT NOT NULL DEFAULT 1
         );
       `);
 
@@ -383,7 +416,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
         review_note TEXT NOT NULL DEFAULT '',
         reviewed_by TEXT NOT NULL DEFAULT '',
         created_at TIMESTAMPTZ NOT NULL,
-        updated_at TIMESTAMPTZ NOT NULL
+        updated_at TIMESTAMPTZ NOT NULL,
+        row_version BIGINT NOT NULL DEFAULT 1
       );
     `);
 
@@ -659,7 +693,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
         id INTEGER PRIMARY KEY DEFAULT 1,
         settings JSONB NOT NULL DEFAULT '{}'::jsonb,
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        updated_by TEXT NOT NULL DEFAULT ''
+        updated_by TEXT NOT NULL DEFAULT '',
+        row_version BIGINT NOT NULL DEFAULT 1
       );
     `);
 
@@ -945,16 +980,32 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
       for (const user of store.users || []) {
         await client.query(
           `INSERT INTO users (
-            username, full_name, password, phone_number, national_id, primary_category, role, status,
+            username, full_name, password, phone_number, whatsapp_number, whatsapp_verification_status,
+            whatsapp_verified_at, pending_whatsapp_number, pending_whatsapp_code_hash,
+            pending_whatsapp_requested_at, pending_whatsapp_expires_at, payment_provider,
+            payment_number, payment_recipient_name, payment_instructions,
+            national_id, primary_category, role, status,
             moderation_reason, moderation_note, verified_seller, profile_image, identity_document_type,
-            identity_document_number, identity_document_image, verification_status, verification_submitted_at, moderated_at, moderated_by, updated_at, created_at
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7,
-            $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)`,
+            identity_document_number, identity_document_image, verification_status, verification_submitted_at, moderated_at, moderated_by, updated_at, created_at,
+            shared_phone_viewer_ids
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
+            $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33::jsonb)`,
           [
             user.username,
             user.fullName || user.username,
             user.password,
             user.phoneNumber,
+            user.whatsappNumber || user.phoneNumber || "",
+            user.whatsappVerificationStatus || "verified",
+            user.whatsappVerifiedAt || null,
+            user.pendingWhatsappNumber || "",
+            user.pendingWhatsappCodeHash || "",
+            user.pendingWhatsappRequestedAt || null,
+            user.pendingWhatsappExpiresAt || null,
+            user.paymentProvider || "",
+            user.paymentNumber || "",
+            user.paymentRecipientName || user.fullName || user.username,
+            user.paymentInstructions || "",
             user.nationalId || null,
             user.primaryCategory || "",
             user.role || "seller",
@@ -971,7 +1022,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
             user.moderatedAt || null,
             user.moderatedBy || "",
             user.updatedAt || user.createdAt || new Date().toISOString(),
-            user.createdAt || new Date().toISOString()
+            user.createdAt || new Date().toISOString(),
+            stringifyJson(user.sharedPhoneViewerIds, [])
           ]
         );
       }
@@ -1060,10 +1112,11 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
         await client.query(
           `INSERT INTO orders (
             id, product_id, product_name, product_image, price, buyer_username, seller_username, shop, status,
-            payment_status, payment_method, payment_phone_number, transaction_id, payment_submitted_at, payment_confirmed_at, payment_confirmed_by, created_at
+            payment_status, payment_method, payment_phone_number, transaction_id, payment_submitted_at, payment_confirmed_at, payment_confirmed_by,
+            payment_provider, payment_recipient_name, payment_instructions, payment_intent_status, reserve_expires_at, updated_at, created_at
           ) VALUES (
             $1, $2, $3, $4, $5, $6, $7, $8, $9,
-            $10, $11, $12, $13, $14, $15, $16, $17
+            $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23
           )`,
           [
             order.id,
@@ -1082,6 +1135,12 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
             order.paymentSubmittedAt || null,
             order.paymentConfirmedAt || null,
             order.paymentConfirmedBy || "",
+            order.paymentProvider || "",
+            order.paymentRecipientName || "",
+            order.paymentInstructions || "",
+            order.paymentIntentStatus || "submitted",
+            order.reserveExpiresAt || null,
+            order.updatedAt || order.createdAt || new Date().toISOString(),
             order.createdAt || new Date().toISOString()
           ]
         );
@@ -1091,10 +1150,11 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
         await client.query(
           `INSERT INTO payments (
             id, order_id, buyer_username, amount_paid, payment_method, transaction_reference,
-            receipt_number, payment_status, payer_details, raw_gateway_response, created_at, updated_at
+            receipt_number, payment_status, payer_details, raw_gateway_response, payment_provider,
+            payment_number, payment_recipient_name, payment_instructions, created_at, updated_at
           ) VALUES (
             $1, $2, $3, $4, $5, $6,
-            $7, $8, $9::jsonb, $10::jsonb, $11, $12
+            $7, $8, $9::jsonb, $10::jsonb, $11, $12, $13, $14, $15, $16
           )`,
           [
             payment.id,
@@ -1107,6 +1167,10 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
             payment.paymentStatus || "pending",
             stringifyJson(payment.payerDetails, {}),
             payment.rawGatewayResponse == null ? null : stringifyJson(payment.rawGatewayResponse, null),
+            payment.paymentProvider || "",
+            payment.paymentNumber || "",
+            payment.paymentRecipientName || "",
+            payment.paymentInstructions || "",
             payment.createdAt || new Date().toISOString(),
             payment.updatedAt || payment.createdAt || new Date().toISOString()
           ]
@@ -1301,6 +1365,17 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
           full_name AS "fullName",
           password,
           phone_number AS "phoneNumber",
+          whatsapp_number AS "whatsappNumber",
+          whatsapp_verification_status AS "whatsappVerificationStatus",
+          whatsapp_verified_at AS "whatsappVerifiedAt",
+          pending_whatsapp_number AS "pendingWhatsappNumber",
+          pending_whatsapp_code_hash AS "pendingWhatsappCodeHash",
+          pending_whatsapp_requested_at AS "pendingWhatsappRequestedAt",
+          pending_whatsapp_expires_at AS "pendingWhatsappExpiresAt",
+          payment_provider AS "paymentProvider",
+          payment_number AS "paymentNumber",
+          payment_recipient_name AS "paymentRecipientName",
+          payment_instructions AS "paymentInstructions",
           national_id AS "nationalId",
           primary_category AS "primaryCategory",
           role,
@@ -1317,7 +1392,9 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
           moderated_at AS "moderatedAt",
           moderated_by AS "moderatedBy",
           updated_at AS "updatedAt",
-          created_at AS "createdAt"
+          created_at AS "createdAt",
+          shared_phone_viewer_ids AS "sharedPhoneViewerIds",
+          row_version AS "rowVersion"
         FROM users
         ORDER BY created_at ASC
       `),
@@ -1346,7 +1423,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
           updated_at AS "updatedAt",
           likes,
           views,
-          viewed_by AS "viewedBy"
+          viewed_by AS "viewedBy",
+          row_version AS "rowVersion"
         FROM products
         ORDER BY created_at DESC, id DESC
       `),
@@ -1393,6 +1471,13 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
           payment_submitted_at AS "paymentSubmittedAt",
           payment_confirmed_at AS "paymentConfirmedAt",
           payment_confirmed_by AS "paymentConfirmedBy",
+          payment_provider AS "paymentProvider",
+          payment_recipient_name AS "paymentRecipientName",
+          payment_instructions AS "paymentInstructions",
+          payment_intent_status AS "paymentIntentStatus",
+          reserve_expires_at AS "reserveExpiresAt",
+          updated_at AS "updatedAt",
+          row_version AS "rowVersion",
           created_at AS "createdAt"
         FROM orders
         ORDER BY created_at DESC
@@ -1409,6 +1494,11 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
           payment_status AS "paymentStatus",
           payer_details AS "payerDetails",
           raw_gateway_response AS "rawGatewayResponse",
+          payment_provider AS "paymentProvider",
+          payment_number AS "paymentNumber",
+          payment_recipient_name AS "paymentRecipientName",
+          payment_instructions AS "paymentInstructions",
+          row_version AS "rowVersion",
           created_at AS "createdAt",
           updated_at AS "updatedAt"
           FROM payments
@@ -1432,7 +1522,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
             delivered_at AS "deliveredAt",
             read_at AS "readAt",
             is_delivered AS "isDelivered",
-            is_read AS "isRead"
+            is_read AS "isRead",
+            row_version AS "rowVersion"
           FROM messages
           ORDER BY timestamp ASC
         `),
@@ -1447,7 +1538,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
             body,
             is_read AS "isRead",
             read_at AS "readAt",
-            created_at AS "createdAt"
+            created_at AS "createdAt",
+            row_version AS "rowVersion"
           FROM notifications
           ORDER BY created_at DESC
         `),
@@ -1535,6 +1627,10 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
       })),
       users: usersResult.rows.map((row) => ({
         ...row,
+        sharedPhoneViewerIds: parseJson(row.sharedPhoneViewerIds, []),
+        whatsappVerifiedAt: row.whatsappVerifiedAt ? new Date(row.whatsappVerifiedAt).toISOString() : "",
+        pendingWhatsappRequestedAt: row.pendingWhatsappRequestedAt ? new Date(row.pendingWhatsappRequestedAt).toISOString() : "",
+        pendingWhatsappExpiresAt: row.pendingWhatsappExpiresAt ? new Date(row.pendingWhatsappExpiresAt).toISOString() : "",
         moderatedAt: row.moderatedAt ? new Date(row.moderatedAt).toISOString() : "",
         updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : "",
         createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : ""
@@ -2153,6 +2249,1144 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
         search: searchDays
       }
     };
+  }
+
+  async function recordProductAction(productId, username, action) {
+    const safeProductId = String(productId || "").trim().slice(0, 80);
+    const safeUsername = String(username || "").trim().slice(0, 40);
+    const safeAction = String(action || "").trim().toLowerCase();
+    if (!safeProductId || !safeUsername || !["like", "view"].includes(safeAction)) {
+      return null;
+    }
+
+    const result = await query(
+      `UPDATE products
+       SET likes = likes + CASE WHEN $3 = 'like' THEN 1 ELSE 0 END,
+           views = views + CASE
+             WHEN $3 = 'view' AND NOT (COALESCE(viewed_by, '[]'::jsonb) ? $2) THEN 1
+             ELSE 0
+           END,
+           viewed_by = CASE
+             WHEN $3 = 'view' AND NOT (COALESCE(viewed_by, '[]'::jsonb) ? $2)
+               THEN COALESCE(viewed_by, '[]'::jsonb) || to_jsonb($2::text)
+             ELSE COALESCE(viewed_by, '[]'::jsonb)
+           END,
+           updated_at = NOW(),
+           row_version = row_version + 1
+       WHERE id = $1
+       RETURNING
+         likes,
+         views,
+         viewed_by AS "viewedBy",
+         updated_at AS "updatedAt",
+         row_version AS "rowVersion"`,
+      [safeProductId, safeUsername, safeAction]
+    );
+    const row = result.rows?.[0];
+    if (!row) {
+      return null;
+    }
+    return {
+      likes: Number(row.likes || 0),
+      views: Number(row.views || 0),
+      viewedBy: parseJson(row.viewedBy, []),
+      updatedAt: toISOString(row.updatedAt),
+      rowVersion: Number(row.rowVersion || 0)
+    };
+  }
+
+  function getProductWriteValues(product = {}) {
+    return [
+      product.name,
+      product.price,
+      product.shop,
+      product.whatsapp,
+      product.image,
+      stringifyJson(product.images, []),
+      product.uploadedBy,
+      product.category,
+      product.status || "approved",
+      product.availability || "available",
+      product.moderationNote || "",
+      product.moderatedAt || null,
+      product.moderatedBy || "",
+      product.originalProductId || "",
+      product.originalSellerId || "",
+      product.resellerId || "",
+      product.resalePrice ?? null,
+      product.resoldStatus || "original",
+      product.createdAt || new Date().toISOString(),
+      product.updatedAt || new Date().toISOString(),
+      Number(product.likes || 0),
+      Number(product.views || 0),
+      stringifyJson(product.viewedBy, [])
+    ];
+  }
+
+  async function upsertProductCategory(client, product = {}) {
+    const category = String(product.category || "").trim().slice(0, 60);
+    if (!category) return;
+    await client.query(
+      `INSERT INTO categories (value, label, created_at)
+       VALUES ($1, $1, NOW())
+       ON CONFLICT (value) DO NOTHING`,
+      [category]
+    );
+  }
+
+  async function createProduct(product = {}) {
+    return withTransaction(async (client) => {
+      await upsertProductCategory(client, product);
+      const values = getProductWriteValues(product);
+      const result = await client.query(
+        `INSERT INTO products (
+           id, name, price, shop, whatsapp, image, images, uploaded_by, category,
+           status, availability, moderation_note, moderated_at, moderated_by,
+           original_product_id, original_seller_id, reseller_id, resale_price,
+           resold_status, created_at, updated_at, likes, views, viewed_by, row_version
+         ) VALUES (
+           $1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9,
+           $10, $11, $12, $13, $14, $15, $16, $17, $18,
+           $19, $20, $21, $22, $23, $24::jsonb, 1
+         )
+         RETURNING row_version AS "rowVersion"`,
+        [product.id, ...values]
+      );
+      return { created: true, rowVersion: Number(result.rows?.[0]?.rowVersion || 1) };
+    });
+  }
+
+  async function updateProduct(productId, ownerUsername, product = {}, options = {}) {
+    return withTransaction(async (client) => {
+      await upsertProductCategory(client, product);
+      const values = getProductWriteValues(product);
+      const expectedVersion = Number(options.expectedRowVersion || 0);
+      const result = await client.query(
+        `UPDATE products
+         SET name = $3, price = $4, shop = $5, whatsapp = $6, image = $7,
+             images = $8::jsonb, uploaded_by = $9, category = $10, status = $11,
+             availability = $12, moderation_note = $13, moderated_at = $14,
+             moderated_by = $15, original_product_id = $16, original_seller_id = $17,
+             reseller_id = $18, resale_price = $19, resold_status = $20,
+             created_at = $21, updated_at = $22, likes = $23, views = $24,
+             viewed_by = $25::jsonb, row_version = row_version + 1
+         WHERE id = $1 AND uploaded_by = $2
+           AND ($26::bigint = 0 OR row_version = $26::bigint)
+         RETURNING row_version AS "rowVersion"`,
+        [productId, ownerUsername, ...values, expectedVersion]
+      );
+      return result.rowCount
+        ? { updated: true, conflict: false, rowVersion: Number(result.rows?.[0]?.rowVersion || 0) }
+        : { updated: false, conflict: expectedVersion > 0, rowVersion: 0 };
+    });
+  }
+
+  async function deleteProduct(productId, ownerUsername) {
+    const result = await query(
+      "DELETE FROM products WHERE id = $1 AND uploaded_by = $2",
+      [productId, ownerUsername]
+    );
+    return { deleted: Number(result.rowCount || 0) > 0 };
+  }
+
+  async function setProductAvailability(productId, ownerUsername, availability) {
+    const result = await query(
+      `UPDATE products
+       SET availability = $3, updated_at = NOW(), row_version = row_version + 1
+       WHERE id = $1 AND uploaded_by = $2
+       RETURNING row_version AS "rowVersion", updated_at AS "updatedAt"`,
+      [productId, ownerUsername, availability]
+    );
+    const row = result.rows?.[0];
+    return row ? {
+      updated: true,
+      rowVersion: Number(row.rowVersion || 0),
+      updatedAt: toISOString(row.updatedAt)
+    } : { updated: false, rowVersion: 0, updatedAt: "" };
+  }
+
+  async function moderateProduct(productId, moderation = {}, notification = null) {
+    return withTransaction(async (client) => {
+      const result = await client.query(
+        `UPDATE products
+         SET status = $2, moderation_note = $3, moderated_at = $4,
+             moderated_by = $5, updated_at = $6, row_version = row_version + 1
+         WHERE id = $1
+         RETURNING row_version AS "rowVersion"`,
+        [
+          productId,
+          moderation.status,
+          moderation.moderationNote || "",
+          moderation.moderatedAt || new Date().toISOString(),
+          moderation.moderatedBy || "",
+          moderation.updatedAt || new Date().toISOString()
+        ]
+      );
+      if (!result.rowCount) return { updated: false, rowVersion: 0 };
+      await insertNotificationRow(client, notification);
+      return { updated: true, rowVersion: Number(result.rows?.[0]?.rowVersion || 0) };
+    });
+  }
+
+  async function createCommerceOrder(order = {}, payment = {}, notification = null) {
+    return withTransaction(async (client) => {
+      const productResult = await client.query(
+        `SELECT id, price::float8 AS price, uploaded_by AS "uploadedBy", status, availability
+         FROM products WHERE id = $1 FOR UPDATE`,
+        [order.productId]
+      );
+      const product = productResult.rows?.[0];
+      if (!product) return { created: false, code: "product_not_found" };
+      if (product.status !== "approved") return { created: false, code: "product_not_approved" };
+      if (product.availability !== "available") return { created: false, code: "product_unavailable" };
+      if (product.uploadedBy === order.buyerUsername) return { created: false, code: "self_purchase" };
+      if (Number(product.price) !== Number(order.price)) return { created: false, code: "price_changed" };
+
+      const activeOrderResult = await client.query(
+        `SELECT 1 FROM orders
+         WHERE product_id = $1 AND buyer_username = $2
+           AND status IN ('placed', 'paid', 'confirmed')
+         LIMIT 1`,
+        [order.productId, order.buyerUsername]
+      );
+      if (activeOrderResult.rowCount) return { created: false, code: "active_order" };
+
+      const claimResult = await client.query(
+        `INSERT INTO payment_transaction_claims (transaction_reference, payment_id, order_id)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (transaction_reference) DO NOTHING
+         RETURNING transaction_reference`,
+        [payment.transactionReference, payment.id, order.id]
+      );
+      if (!claimResult.rowCount) return { created: false, code: "duplicate_transaction" };
+
+      await client.query(
+        `INSERT INTO orders (
+           id, product_id, product_name, product_image, price, buyer_username,
+           seller_username, shop, status, payment_status, payment_method,
+           payment_phone_number, transaction_id, payment_submitted_at,
+           payment_confirmed_at, payment_confirmed_by, payment_provider,
+           payment_recipient_name, payment_instructions, payment_intent_status,
+           reserve_expires_at, updated_at, created_at, row_version
+         ) VALUES (
+           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+           $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, 1
+         )`,
+        [
+          order.id, order.productId, order.productName, order.productImage || "",
+          order.price, order.buyerUsername, order.sellerUsername, order.shop || "",
+          order.status || "placed", order.paymentStatus || "pending",
+          order.paymentMethod || "mobile_money", order.paymentPhoneNumber || "",
+          order.transactionId || "", order.paymentSubmittedAt || null,
+          order.paymentConfirmedAt || null, order.paymentConfirmedBy || "",
+          order.paymentProvider || "", order.paymentRecipientName || "",
+          order.paymentInstructions || "", order.paymentIntentStatus || "submitted",
+          order.reserveExpiresAt || null, order.updatedAt || order.createdAt,
+          order.createdAt || new Date().toISOString()
+        ]
+      );
+      await client.query(
+        `INSERT INTO payments (
+           id, order_id, buyer_username, amount_paid, payment_method,
+           transaction_reference, receipt_number, payment_status, payer_details,
+           raw_gateway_response, payment_provider, payment_number,
+           payment_recipient_name, payment_instructions, created_at, updated_at,
+           row_version
+         ) VALUES (
+           $1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb,
+           $11, $12, $13, $14, $15, $16, 1
+         )`,
+        [
+          payment.id, payment.orderId, payment.buyerUsername, payment.amountPaid,
+          payment.paymentMethod || "mobile_money", payment.transactionReference,
+          payment.receiptNumber || payment.transactionReference,
+          payment.paymentStatus || "pending", stringifyJson(payment.payerDetails, {}),
+          payment.rawGatewayResponse == null ? null : stringifyJson(payment.rawGatewayResponse, null),
+          payment.paymentProvider || "", payment.paymentNumber || "",
+          payment.paymentRecipientName || "", payment.paymentInstructions || "",
+          payment.createdAt || new Date().toISOString(),
+          payment.updatedAt || payment.createdAt || new Date().toISOString()
+        ]
+      );
+      await client.query(
+        `UPDATE products SET availability = 'reserved', updated_at = NOW(), row_version = row_version + 1
+         WHERE id = $1`,
+        [order.productId]
+      );
+      await insertNotificationRow(client, notification);
+      return { created: true, code: "", orderId: order.id, paymentId: payment.id };
+    });
+  }
+
+  async function applyPaymentResult(orderId, transactionReference, paymentStatus, rawGatewayResponse = null) {
+    return withTransaction(async (client) => {
+      const paymentResult = await client.query(
+        `SELECT id, order_id AS "orderId", payment_status AS "paymentStatus"
+         FROM payments
+         WHERE ($1 <> '' AND order_id = $1)
+            OR ($1 = '' AND transaction_reference = $2)
+         ORDER BY created_at ASC LIMIT 1 FOR UPDATE`,
+        [orderId || "", transactionReference || ""]
+      );
+      const payment = paymentResult.rows?.[0];
+      if (!payment) return { updated: false, code: "payment_not_found" };
+      const orderResult = await client.query(
+        `SELECT id, product_id AS "productId", status, payment_status AS "paymentStatus"
+         FROM orders WHERE id = $1 FOR UPDATE`,
+        [payment.orderId]
+      );
+      const order = orderResult.rows?.[0];
+      if (!order) return { updated: false, code: "order_not_found" };
+      if (payment.paymentStatus === paymentStatus) {
+        return {
+          updated: true,
+          idempotent: true,
+          code: "",
+          orderId: order.id,
+          paymentStatus,
+          orderStatus: order.status
+        };
+      }
+      if (payment.paymentStatus === "paid" || ["confirmed", "delivered"].includes(order.status)) {
+        return {
+          updated: false,
+          code: "payment_state_conflict",
+          orderId: order.id,
+          paymentStatus: payment.paymentStatus,
+          orderStatus: order.status
+        };
+      }
+      const nextOrderStatus = paymentStatus === "paid"
+        ? "paid"
+        : (["failed", "cancelled"].includes(paymentStatus) ? "cancelled" : order.status);
+      const now = new Date().toISOString();
+      await client.query(
+        `UPDATE payments
+         SET payment_status = $2,
+             raw_gateway_response = COALESCE($3::jsonb, raw_gateway_response),
+             updated_at = $4, row_version = row_version + 1
+         WHERE id = $1`,
+        [payment.id, paymentStatus, rawGatewayResponse == null ? null : stringifyJson(rawGatewayResponse, null), now]
+      );
+      await client.query(
+        `UPDATE orders
+         SET status = $2, payment_status = $3,
+             payment_confirmed_at = CASE WHEN $3 = 'paid' THEN $4 ELSE payment_confirmed_at END,
+             payment_confirmed_by = CASE WHEN $3 = 'paid' THEN 'system' ELSE payment_confirmed_by END,
+             payment_intent_status = CASE WHEN $3 = 'paid' THEN 'verified' WHEN $3 IN ('failed','cancelled') THEN 'cancelled' ELSE payment_intent_status END,
+             updated_at = $4, row_version = row_version + 1
+         WHERE id = $1`,
+        [order.id, nextOrderStatus, paymentStatus, now]
+      );
+      const availability = nextOrderStatus === "cancelled" ? "available" : "reserved";
+      await client.query(
+        `UPDATE products SET availability = $2, updated_at = $3, row_version = row_version + 1
+         WHERE id = $1`,
+        [order.productId, availability, now]
+      );
+      return { updated: true, code: "", orderId: order.id, paymentStatus, orderStatus: nextOrderStatus };
+    });
+  }
+
+  async function transitionCommerceOrder(currentOrder = {}, nextOrder = {}, nextPayment = {}, availability, notification = null) {
+    return withTransaction(async (client) => {
+      const result = await client.query(
+        `UPDATE orders
+         SET status = $4, payment_status = $5, payment_confirmed_at = $6,
+             payment_confirmed_by = $7, payment_intent_status = $8,
+             reserve_expires_at = $9, updated_at = NOW(), row_version = row_version + 1
+         WHERE id = $1 AND status = $2 AND payment_status = $3
+         RETURNING product_id AS "productId", row_version AS "rowVersion"`,
+        [
+          currentOrder.id, currentOrder.status, currentOrder.paymentStatus,
+          nextOrder.status, nextOrder.paymentStatus, nextOrder.paymentConfirmedAt || null,
+          nextOrder.paymentConfirmedBy || "", nextOrder.paymentIntentStatus || "submitted",
+          nextOrder.reserveExpiresAt || null
+        ]
+      );
+      const row = result.rows?.[0];
+      if (!row) return { updated: false, conflict: true };
+      await client.query(
+        `UPDATE payments SET payment_status = $2, updated_at = NOW(), row_version = row_version + 1
+         WHERE order_id = $1`,
+        [currentOrder.id, nextPayment.paymentStatus]
+      );
+      await client.query(
+        `UPDATE products SET availability = $2, updated_at = NOW(), row_version = row_version + 1
+         WHERE id = $1`,
+        [row.productId, availability]
+      );
+      await insertNotificationRow(client, notification);
+      return { updated: true, conflict: false, rowVersion: Number(row.rowVersion || 0) };
+    });
+  }
+
+  async function createMessageWithNotification(message = {}, notification = null, options = {}) {
+    return withTransaction(async (client) => {
+      const participantKey = [message.senderId, message.receiverId].sort().join(":");
+      await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`winga-message:${participantKey}`]);
+      const pressureResult = await client.query(
+        `SELECT
+           COUNT(*)::int AS "burstCount",
+           COALESCE(BOOL_OR(
+             sender_id = $1 AND receiver_id = $2 AND product_id = $3 AND message = $4
+             AND created_at > NOW() - INTERVAL '30 seconds'
+           ), FALSE) AS duplicate
+         FROM messages
+         WHERE sender_id = $1 AND receiver_id = $2
+           AND created_at > NOW() - INTERVAL '60 seconds'`,
+        [message.senderId, message.receiverId, message.productId || "", message.message || ""]
+      );
+      const pressure = pressureResult.rows?.[0] || {};
+      if (pressure.duplicate) return { created: false, code: "duplicate_message" };
+      if (Number(pressure.burstCount || 0) >= 5) return { created: false, code: "message_burst" };
+
+      await client.query(
+        `INSERT INTO messages (
+           id, sender_id, receiver_id, conversation_id, message, message_type,
+           product_id, product_name, product_items, reply_to_message_id,
+           timestamp, created_at, updated_at, delivered_at, read_at,
+           is_delivered, is_read, row_version
+         ) VALUES (
+           $1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10,
+           $11, $12, $13, $14, $15, $16, $17, 1
+         )`,
+        [
+          message.id, message.senderId, message.receiverId, message.conversationId || "",
+          message.message || "", message.messageType || "text", message.productId || "",
+          message.productName || "", stringifyJson(message.productItems, []),
+          message.replyToMessageId || "", message.timestamp || message.createdAt,
+          message.createdAt || new Date().toISOString(), message.updatedAt || message.createdAt,
+          message.deliveredAt || message.createdAt || new Date().toISOString(),
+          message.readAt || null, Boolean(message.isDelivered), Boolean(message.isRead)
+        ]
+      );
+      await insertNotificationRow(client, notification);
+      if (options.sharePhoneWith) {
+        await client.query(
+          `UPDATE users
+           SET shared_phone_viewer_ids = CASE
+                 WHEN COALESCE(shared_phone_viewer_ids, '[]'::jsonb) ? $2
+                   THEN COALESCE(shared_phone_viewer_ids, '[]'::jsonb)
+                 ELSE COALESCE(shared_phone_viewer_ids, '[]'::jsonb) || to_jsonb($2::text)
+               END,
+               updated_at = NOW(), row_version = row_version + 1
+           WHERE username = $1`,
+          [message.senderId, options.sharePhoneWith]
+        );
+      }
+      return { created: true, code: "" };
+    });
+  }
+
+  async function deleteMessage(messageId, senderId) {
+    const result = await query(
+      "DELETE FROM messages WHERE id = $1 AND sender_id = $2",
+      [messageId, senderId]
+    );
+    return { deleted: Number(result.rowCount || 0) > 0 };
+  }
+
+  async function markConversationRead(receiverId, senderId) {
+    return withTransaction(async (client) => {
+      const now = new Date().toISOString();
+      const result = await client.query(
+        `UPDATE messages
+         SET is_read = TRUE, read_at = $3, updated_at = $3, row_version = row_version + 1
+         WHERE receiver_id = $1 AND sender_id = $2 AND is_read = FALSE
+         RETURNING conversation_id AS "conversationId"`,
+        [receiverId, senderId, now]
+      );
+      const conversationIds = [...new Set((result.rows || []).map((row) => row.conversationId).filter(Boolean))];
+      if (conversationIds.length) {
+        await client.query(
+          `UPDATE notifications
+           SET is_read = TRUE, read_at = $2, row_version = row_version + 1
+           WHERE user_id = $1 AND conversation_id = ANY($3::text[]) AND is_read = FALSE`,
+          [receiverId, now, conversationIds]
+        );
+      }
+      return {
+        changed: Number(result.rowCount || 0) > 0,
+        readAt: now,
+        conversationId: conversationIds[0] || ""
+      };
+    });
+  }
+
+  async function markNotificationRead(notificationId, userId) {
+    const now = new Date().toISOString();
+    const result = await query(
+      `UPDATE notifications
+       SET is_read = TRUE, read_at = COALESCE(read_at, $3), row_version = row_version + 1
+       WHERE id = $1 AND user_id = $2
+       RETURNING read_at AS "readAt"`,
+      [notificationId, userId, now]
+    );
+    return result.rowCount
+      ? { updated: true, readAt: toISOString(result.rows?.[0]?.readAt) || now }
+      : { updated: false, readAt: "" };
+  }
+
+  async function resetUserPassword(username, passwordHash, options = {}) {
+    return withTransaction(async (client) => {
+      const expectedVersion = Number(options.expectedRowVersion || 0);
+      const result = await client.query(
+        `UPDATE users
+         SET password = $2, updated_at = NOW(), row_version = row_version + 1
+         WHERE username = $1 AND ($3::bigint = 0 OR row_version = $3::bigint)
+         RETURNING row_version AS "rowVersion"`,
+        [username, passwordHash, expectedVersion]
+      );
+      if (!result.rowCount) {
+        return { updated: false, conflict: expectedVersion > 0, rowVersion: 0 };
+      }
+      await client.query("DELETE FROM sessions WHERE username = $1", [username]);
+      return {
+        updated: true,
+        conflict: false,
+        rowVersion: Number(result.rows?.[0]?.rowVersion || 0)
+      };
+    });
+  }
+
+  async function runBootMaintenance(options = {}) {
+    return withTransaction(async (client) => {
+      await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", ["winga-boot-maintenance"]);
+      const nowMs = Number(options.nowMs || Date.now()) || Date.now();
+      const expiredResult = await client.query(
+        "DELETE FROM sessions WHERE expires_at <= $1",
+        [nowMs]
+      );
+      let adminSynced = false;
+      const adminUser = options.adminUser;
+      if (adminUser?.username && adminUser?.password) {
+        const result = await client.query(
+          `INSERT INTO users (
+             username, full_name, password, phone_number, whatsapp_number,
+             national_id, primary_category, role, status, verified_seller,
+             verification_status, updated_at, created_at, row_version
+           ) VALUES (
+             $1, $2, $3, $4, $5, $6, $7, 'admin', 'active', TRUE,
+             'verified', $8, $9, 1
+           )
+           ON CONFLICT (username) DO UPDATE SET
+             full_name = EXCLUDED.full_name,
+             password = EXCLUDED.password,
+             role = 'admin',
+             status = 'active',
+             verified_seller = TRUE,
+             verification_status = 'verified',
+             updated_at = EXCLUDED.updated_at,
+             row_version = users.row_version + 1`,
+          [
+            adminUser.username,
+            adminUser.fullName || adminUser.username,
+            adminUser.password,
+            adminUser.phoneNumber || `staff-${adminUser.username}`,
+            adminUser.whatsappNumber || adminUser.phoneNumber || "",
+            adminUser.nationalId || null,
+            adminUser.primaryCategory || "",
+            adminUser.updatedAt || new Date().toISOString(),
+            adminUser.createdAt || new Date().toISOString()
+          ]
+        );
+        adminSynced = Number(result.rowCount || 0) > 0;
+      }
+      return {
+        expiredSessions: Number(expiredResult.rowCount || 0),
+        adminSynced
+      };
+    });
+  }
+
+  async function updateUserRecord(user = {}, options = {}) {
+    try {
+      return await withTransaction(async (client) => {
+        if (user.primaryCategory) {
+          await client.query(
+            `INSERT INTO categories (value, label, created_at)
+             VALUES ($1, $1, NOW()) ON CONFLICT (value) DO NOTHING`,
+            [user.primaryCategory]
+          );
+        }
+        const expectedVersion = Number(options.expectedRowVersion || 0);
+        const result = await client.query(
+          `UPDATE users
+           SET full_name = $2, phone_number = $3, whatsapp_number = $4,
+               whatsapp_verification_status = $5, whatsapp_verified_at = $6,
+               pending_whatsapp_number = $7, pending_whatsapp_code_hash = $8,
+               pending_whatsapp_requested_at = $9, pending_whatsapp_expires_at = $10,
+               payment_provider = $11, payment_number = $12,
+               payment_recipient_name = $13, payment_instructions = $14,
+               national_id = $15, primary_category = $16, role = $17, status = $18,
+               moderation_reason = $19, moderation_note = $20, verified_seller = $21,
+               profile_image = $22, identity_document_type = $23,
+               identity_document_number = $24, identity_document_image = $25,
+               verification_status = $26, verification_submitted_at = $27,
+               moderated_at = $28, moderated_by = $29,
+               shared_phone_viewer_ids = $30::jsonb, updated_at = $31,
+               row_version = row_version + 1
+           WHERE username = $1 AND ($32::bigint = 0 OR row_version = $32::bigint)
+           RETURNING row_version AS "rowVersion"`,
+          [
+            user.username, user.fullName || user.username, user.phoneNumber,
+            user.whatsappNumber || user.phoneNumber || "", user.whatsappVerificationStatus || "verified",
+            user.whatsappVerifiedAt || null, user.pendingWhatsappNumber || "",
+            user.pendingWhatsappCodeHash || "", user.pendingWhatsappRequestedAt || null,
+            user.pendingWhatsappExpiresAt || null, user.paymentProvider || "",
+            user.paymentNumber || "", user.paymentRecipientName || user.fullName || user.username,
+            user.paymentInstructions || "", user.nationalId || null, user.primaryCategory || "",
+            user.role || "seller", user.status || "active", user.moderationReason || "",
+            user.moderationNote || "", Boolean(user.verifiedSeller), user.profileImage || "",
+            user.identityDocumentType || "", user.identityDocumentNumber || user.nationalId || "",
+            user.identityDocumentImage || "", user.verificationStatus || "",
+            user.verificationSubmittedAt || null, user.moderatedAt || null,
+            user.moderatedBy || "", stringifyJson(user.sharedPhoneViewerIds, []),
+            user.updatedAt || new Date().toISOString(), expectedVersion
+          ]
+        );
+        if (!result.rowCount) {
+          return { updated: false, conflict: expectedVersion > 0, rowVersion: 0 };
+        }
+        if (options.revokeSessions) {
+          await client.query("DELETE FROM sessions WHERE username = $1", [user.username]);
+        } else {
+          await client.query(
+            `UPDATE sessions
+             SET full_name = $2, primary_category = $3, role = $4, status = $5,
+                 profile_image = $6, verification_status = $7,
+                 row_version = row_version + 1
+             WHERE username = $1`,
+            [
+              user.username, user.fullName || user.username, user.primaryCategory || "",
+              user.role || "seller", user.status || "active", user.profileImage || "",
+              user.verificationStatus || ""
+            ]
+          );
+        }
+        if (options.syncWhatsapp) {
+          await client.query(
+            `UPDATE products SET whatsapp = $2, updated_at = NOW(), row_version = row_version + 1
+             WHERE uploaded_by = $1`,
+            [user.username, user.whatsappNumber || user.phoneNumber || ""]
+          );
+        }
+        if (options.hideProducts) {
+          await client.query(
+            `UPDATE products
+             SET status = 'rejected', moderation_note = $2, moderated_at = $3,
+                 moderated_by = $4, updated_at = $3, row_version = row_version + 1
+             WHERE uploaded_by = $1`,
+            [
+              user.username,
+              options.productModerationNote || `Listing hidden after account ${user.status}.`,
+              user.updatedAt || new Date().toISOString(),
+              user.moderatedBy || ""
+            ]
+          );
+        }
+        await insertNotificationRow(client, options.notification);
+        if (options.moderationAction?.id) {
+          const action = options.moderationAction;
+          await client.query(
+            `INSERT INTO moderation_actions (
+               id, admin_username, action_type, target_user_id, target_product_id,
+               reason, note, created_at
+             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+             ON CONFLICT (id) DO NOTHING`,
+            [
+              action.id, action.adminUsername, action.actionType, action.targetUserId || "",
+              action.targetProductId || "", action.reason || "", action.note || "",
+              action.createdAt || new Date().toISOString()
+            ]
+          );
+        }
+        return {
+          updated: true,
+          conflict: false,
+          rowVersion: Number(result.rows?.[0]?.rowVersion || 0)
+        };
+      });
+    } catch (error) {
+      const conflict = getUserConflictField(error);
+      if (conflict) return { updated: false, conflict: true, conflictField: conflict, rowVersion: 0 };
+      throw error;
+    }
+  }
+
+  async function saveAppSettings(settings = {}) {
+    const result = await query(
+      `INSERT INTO app_settings (id, settings, updated_at, updated_by, row_version)
+       VALUES (1, $1::jsonb, $2, $3, 1)
+       ON CONFLICT (id) DO UPDATE SET
+         settings = EXCLUDED.settings, updated_at = EXCLUDED.updated_at,
+         updated_by = EXCLUDED.updated_by, row_version = app_settings.row_version + 1
+       RETURNING row_version AS "rowVersion"`,
+      [stringifyJson(settings, {}), settings.updatedAt || new Date().toISOString(), settings.updatedBy || ""]
+    );
+    return { updated: true, rowVersion: Number(result.rows?.[0]?.rowVersion || 1) };
+  }
+
+  async function saveCategory(category = {}) {
+    const result = await query(
+      `INSERT INTO categories (value, label, created_at)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (value) DO UPDATE SET label = EXCLUDED.label
+       RETURNING value`,
+      [category.value, category.label, category.createdAt || new Date().toISOString()]
+    );
+    return { updated: Number(result.rowCount || 0) > 0 };
+  }
+
+  async function createPromotion(promotion = {}) {
+    return withTransaction(async (client) => {
+      await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+        `winga-promotion:${promotion.productId}:${promotion.type}`
+      ]);
+      const productResult = await client.query(
+        "SELECT uploaded_by AS \"uploadedBy\" FROM products WHERE id = $1",
+        [promotion.productId]
+      );
+      if (!productResult.rowCount) return { created: false, code: "product_not_found" };
+      if (productResult.rows[0].uploadedBy !== promotion.sellerUsername) {
+        return { created: false, code: "not_owner" };
+      }
+      const activeResult = await client.query(
+        `SELECT 1 FROM promotions
+         WHERE product_id = $1 AND type = $2 AND status IN ('pending', 'active') LIMIT 1`,
+        [promotion.productId, promotion.type]
+      );
+      if (activeResult.rowCount) return { created: false, code: "active_promotion" };
+      const paymentClaim = await client.query(
+        `SELECT 1 FROM payment_transaction_claims WHERE transaction_reference = $1
+         UNION ALL
+         SELECT 1 FROM promotion_transaction_claims WHERE transaction_reference = $1
+         LIMIT 1`,
+        [promotion.transactionReference]
+      );
+      if (paymentClaim.rowCount) return { created: false, code: "duplicate_transaction" };
+      const claimResult = await client.query(
+        `INSERT INTO promotion_transaction_claims (transaction_reference, promotion_id)
+         VALUES ($1, $2) ON CONFLICT DO NOTHING RETURNING transaction_reference`,
+        [promotion.transactionReference, promotion.id]
+      );
+      if (!claimResult.rowCount) return { created: false, code: "duplicate_transaction" };
+      await client.query(
+        `INSERT INTO promotions (
+           id, product_id, seller_username, type, status, amount_paid, payment_method,
+           transaction_reference, payment_status, start_date, end_date, created_at,
+           updated_at, approved_at, baseline_views, baseline_likes, disabled_at,
+           disabled_by, row_version
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,1)`,
+        [
+          promotion.id, promotion.productId, promotion.sellerUsername, promotion.type,
+          promotion.status || "pending", Number(promotion.amountPaid || 0),
+          promotion.paymentMethod || "mobile_money", promotion.transactionReference,
+          promotion.paymentStatus || "pending", promotion.startDate, promotion.endDate,
+          promotion.createdAt, promotion.updatedAt, promotion.approvedAt || null,
+          Number(promotion.baselineViews || 0), Number(promotion.baselineLikes || 0),
+          promotion.disabledAt || null, promotion.disabledBy || ""
+        ]
+      );
+      return { created: true, code: "", rowVersion: 1 };
+    });
+  }
+
+  async function updatePromotion(promotion = {}, expectedStatus = "") {
+    const result = await query(
+      `UPDATE promotions SET
+         status=$2, amount_paid=$3, payment_status=$4, start_date=$5, end_date=$6,
+         updated_at=$7, approved_at=$8, baseline_views=$9, baseline_likes=$10,
+         disabled_at=$11, disabled_by=$12, row_version=row_version+1
+       WHERE id=$1 AND ($13 = '' OR status=$13)
+       RETURNING row_version AS "rowVersion"`,
+      [
+        promotion.id, promotion.status, Number(promotion.amountPaid || 0), promotion.paymentStatus,
+        promotion.startDate, promotion.endDate, promotion.updatedAt, promotion.approvedAt || null,
+        Number(promotion.baselineViews || 0), Number(promotion.baselineLikes || 0),
+        promotion.disabledAt || null, promotion.disabledBy || "", expectedStatus
+      ]
+    );
+    return result.rowCount
+      ? { updated: true, rowVersion: Number(result.rows?.[0]?.rowVersion || 0) }
+      : { updated: false, rowVersion: 0 };
+  }
+
+  async function createReview(review = {}) {
+    return withTransaction(async (client) => {
+      const delivered = await client.query(
+        `SELECT 1 FROM orders WHERE product_id=$1 AND buyer_username=$2 AND status='delivered' LIMIT 1`,
+        [review.productId, review.userId]
+      );
+      if (!delivered.rowCount) return { created: false, code: "not_delivered" };
+      const claim = await client.query(
+        `INSERT INTO review_claims (user_id, product_id, review_id)
+         VALUES ($1,$2,$3) ON CONFLICT DO NOTHING RETURNING review_id`,
+        [review.userId, review.productId, review.id]
+      );
+      if (!claim.rowCount) return { created: false, code: "duplicate_review" };
+      await client.query(
+        `INSERT INTO reviews (id,user_id,product_id,seller_id,rating,comment,verified_buyer,date,row_version)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,1)`,
+        [review.id, review.userId, review.productId, review.sellerId || "", Number(review.rating), review.comment, Boolean(review.verifiedBuyer), review.date]
+      );
+      return { created: true, code: "" };
+    });
+  }
+
+  async function createReport(report = {}) {
+    return withTransaction(async (client) => {
+      const claim = await client.query(
+        `INSERT INTO open_report_claims (
+           reporter_user_id,target_type,target_user_id,target_product_id,report_id
+         ) VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING RETURNING report_id`,
+        [report.reporterUserId, report.targetType, report.targetUserId || "", report.targetProductId || "", report.id]
+      );
+      if (!claim.rowCount) return { created: false, code: "duplicate_report" };
+      await client.query(
+        `INSERT INTO reports (
+           id,target_type,target_user_id,target_product_id,reporter_user_id,reason,
+           description,status,review_note,reviewed_by,created_at,updated_at,row_version
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,1)`,
+        [
+          report.id, report.targetType, report.targetUserId || "", report.targetProductId || "",
+          report.reporterUserId, report.reason, report.description || "", report.status || "open",
+          report.reviewNote || "", report.reviewedBy || "", report.createdAt, report.updatedAt
+        ]
+      );
+      return { created: true, code: "" };
+    });
+  }
+
+  async function reviewReport(report = {}, expectedStatus = "open") {
+    return withTransaction(async (client) => {
+      const result = await client.query(
+        `UPDATE reports SET status=$2, review_note=$3, reviewed_by=$4, updated_at=$5,
+           row_version=row_version+1
+         WHERE id=$1 AND status=$6
+         RETURNING reporter_user_id AS "reporterUserId", target_type AS "targetType",
+           target_user_id AS "targetUserId", target_product_id AS "targetProductId",
+           row_version AS "rowVersion"`,
+        [report.id, report.status, report.reviewNote || "", report.reviewedBy || "", report.updatedAt, expectedStatus]
+      );
+      const row = result.rows?.[0];
+      if (!row) return { updated: false, rowVersion: 0 };
+      if (report.status !== "open") {
+        await client.query(
+          `DELETE FROM open_report_claims
+           WHERE reporter_user_id=$1 AND target_type=$2 AND target_user_id=$3 AND target_product_id=$4`,
+          [row.reporterUserId, row.targetType, row.targetUserId || "", row.targetProductId || ""]
+        );
+      }
+      return { updated: true, rowVersion: Number(row.rowVersion || 0) };
+    });
+  }
+
+  async function withTransaction(work) {
+    const ownsClient = typeof pool.connect === "function";
+    const client = ownsClient ? await pool.connect() : pool;
+    try {
+      await client.query("BEGIN");
+      const result = await work(client);
+      await client.query("COMMIT");
+      return result;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      if (ownsClient && typeof client.release === "function") {
+        client.release();
+      }
+    }
+  }
+
+  async function insertNotificationRow(client, notification = {}) {
+    if (!notification?.id || !notification?.userId) {
+      return;
+    }
+    await client.query(
+      `INSERT INTO notifications (
+         id, user_id, type, message_id, conversation_id, title, body,
+         is_read, read_at, created_at
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       ON CONFLICT (id) DO NOTHING`,
+      [
+        notification.id,
+        notification.userId,
+        notification.type || "message",
+        notification.messageId || "",
+        notification.conversationId || "",
+        notification.title || "",
+        notification.body || "",
+        Boolean(notification.isRead),
+        notification.readAt || null,
+        notification.createdAt || new Date().toISOString()
+      ]
+    );
+  }
+
+  async function insertSessionRow(client, session = {}) {
+    await client.query(
+      `INSERT INTO sessions (
+         token, session_id, username, full_name, primary_category, role, status,
+         profile_image, verification_status, created_at, last_seen_at, last_rotated_at,
+         ip_hash, user_agent_hash, device_type, cf_ray, step_up_verified_at, risk_score,
+         risk_level, expires_at, row_version
+       ) VALUES (
+         $1, $2, $3, $4, $5, $6, $7,
+         $8, $9, $10, $11, $12,
+         $13, $14, $15, $16, $17, $18,
+         $19, $20, 1
+       )`,
+      [
+        session.token,
+        session.sessionId || "",
+        session.username,
+        session.fullName || session.username,
+        session.primaryCategory || "",
+        session.role || "seller",
+        session.status || "active",
+        session.profileImage || "",
+        session.verificationStatus || "",
+        session.createdAt || new Date().toISOString(),
+        session.lastSeenAt || session.createdAt || new Date().toISOString(),
+        session.lastRotatedAt || session.createdAt || new Date().toISOString(),
+        session.ipHash || "",
+        session.userAgentHash || "",
+        session.deviceType || "unknown",
+        session.cfRay || "",
+        session.stepUpVerifiedAt || null,
+        Math.max(0, Number(session.riskScore || 0)),
+        session.riskLevel || "low",
+        Number(session.expiresAt || 0)
+      ]
+    );
+  }
+
+  async function enforceActiveSessionLimit(client, username, currentToken, maxActiveSessions = 5) {
+    const safeLimit = Math.max(1, Math.min(Number(maxActiveSessions || 5) || 5, 20));
+    await client.query(
+      `DELETE FROM sessions
+       WHERE token IN (
+         SELECT token
+         FROM sessions
+         WHERE username = $1 AND token <> $2
+         ORDER BY expires_at DESC, last_seen_at DESC, token DESC
+         OFFSET $3
+       )`,
+      [username, currentToken, Math.max(0, safeLimit - 1)]
+    );
+  }
+
+  function getUserConflictField(error) {
+    if (String(error?.code || "") !== "23505") {
+      return "";
+    }
+    const constraint = String(error?.constraint || "").toLowerCase();
+    if (constraint.includes("phone")) return "phoneNumber";
+    if (constraint.includes("national")) return "nationalId";
+    if (constraint.includes("username") || constraint.includes("users_pkey")) return "username";
+    return "user";
+  }
+
+  async function createUserWithSession(user = {}, session = {}, options = {}) {
+    try {
+      return await withTransaction(async (client) => {
+        await client.query(
+          `INSERT INTO users (
+             username, full_name, password, phone_number, national_id, primary_category, role, status,
+             moderation_reason, moderation_note, verified_seller, profile_image, identity_document_type,
+             identity_document_number, identity_document_image, verification_status,
+             verification_submitted_at, moderated_at, moderated_by, updated_at, created_at, row_version
+           ) VALUES (
+             $1, $2, $3, $4, $5, $6, $7, $8,
+             $9, $10, $11, $12, $13,
+             $14, $15, $16,
+             $17, $18, $19, $20, $21, 1
+           )`,
+          [
+            user.username,
+            user.fullName || user.username,
+            user.password,
+            user.phoneNumber,
+            user.whatsappNumber || user.phoneNumber || "",
+            user.whatsappVerificationStatus || "verified",
+            user.whatsappVerifiedAt || null,
+            user.pendingWhatsappNumber || "",
+            user.pendingWhatsappCodeHash || "",
+            user.pendingWhatsappRequestedAt || null,
+            user.pendingWhatsappExpiresAt || null,
+            user.paymentProvider || "",
+            user.paymentNumber || "",
+            user.paymentRecipientName || user.fullName || user.username,
+            user.paymentInstructions || "",
+            user.nationalId || null,
+            user.primaryCategory || "",
+            user.role || "seller",
+            user.status || "active",
+            user.moderationReason || "",
+            user.moderationNote || "",
+            Boolean(user.verifiedSeller),
+            user.profileImage || "",
+            user.identityDocumentType || "",
+            user.identityDocumentNumber || user.nationalId || "",
+            user.identityDocumentImage || "",
+            user.verificationStatus || "",
+            user.verificationSubmittedAt || null,
+            user.moderatedAt || null,
+            user.moderatedBy || "",
+            user.updatedAt || user.createdAt || new Date().toISOString(),
+            user.createdAt || new Date().toISOString(),
+            stringifyJson(user.sharedPhoneViewerIds, [])
+          ]
+        );
+        await client.query(
+          `UPDATE users
+           SET whatsapp_number = $2, whatsapp_verification_status = $3,
+               whatsapp_verified_at = $4, payment_provider = $5, payment_number = $6,
+               payment_recipient_name = $7, payment_instructions = $8,
+               shared_phone_viewer_ids = $9::jsonb
+           WHERE username = $1`,
+          [
+            user.username, user.whatsappNumber || user.phoneNumber || "",
+            user.whatsappVerificationStatus || "verified", user.whatsappVerifiedAt || user.createdAt || null,
+            user.paymentProvider || "", user.paymentNumber || "",
+            user.paymentRecipientName || user.fullName || user.username,
+            user.paymentInstructions || "", stringifyJson(user.sharedPhoneViewerIds, [])
+          ]
+        );
+        await insertSessionRow(client, session);
+        await enforceActiveSessionLimit(client, user.username, session.token, options.maxActiveSessions);
+        return { created: true, conflict: "" };
+      });
+    } catch (error) {
+      const conflict = getUserConflictField(error);
+      if (conflict) {
+        return { created: false, conflict };
+      }
+      throw error;
+    }
+  }
+
+  async function createLoginSession(user = {}, session = {}, options = {}) {
+    return withTransaction(async (client) => {
+      if (options.passwordHash) {
+        await client.query(
+          `UPDATE users
+           SET password = $2, updated_at = NOW(), row_version = row_version + 1
+           WHERE username = $1`,
+          [user.username, options.passwordHash]
+        );
+      }
+      await client.query("DELETE FROM sessions WHERE expires_at < $1", [Date.now()]);
+      await insertSessionRow(client, session);
+      await enforceActiveSessionLimit(client, user.username, session.token, options.maxActiveSessions);
+      await insertNotificationRow(client, options.notification);
+      return { created: true };
+    });
+  }
+
+  async function replaceSession(currentToken, session = {}, options = {}) {
+    const safeCurrentToken = String(currentToken || "").trim().slice(0, 160);
+    const safeNextToken = String(session.token || "").trim().slice(0, 160);
+    const safeSessionId = String(session.sessionId || "").trim().slice(0, 80);
+    if (!safeCurrentToken || !safeNextToken || !safeSessionId) {
+      return { updated: false };
+    }
+
+    return withTransaction(async (client) => {
+      const result = await client.query(
+        `UPDATE sessions
+         SET token = $2,
+             session_id = $3,
+             username = $4,
+             full_name = $5,
+             primary_category = $6,
+             role = $7,
+             status = $8,
+             profile_image = $9,
+             verification_status = $10,
+             created_at = $11,
+             last_seen_at = $12,
+             last_rotated_at = $13,
+             ip_hash = $14,
+             user_agent_hash = $15,
+             device_type = $16,
+             cf_ray = $17,
+             step_up_verified_at = $18,
+             risk_score = $19,
+             risk_level = $20,
+             expires_at = $21,
+             row_version = row_version + 1
+         WHERE token = $1 OR session_id = $3
+         RETURNING row_version AS "rowVersion"`,
+        [
+          safeCurrentToken,
+          safeNextToken,
+          safeSessionId,
+          String(session.username || "").trim().slice(0, 40),
+          String(session.fullName || session.username || "").trim().slice(0, 120),
+          String(session.primaryCategory || "").trim().slice(0, 80),
+          session.role || "seller",
+          session.status || "active",
+          session.profileImage || "",
+          session.verificationStatus || "",
+          session.createdAt || new Date().toISOString(),
+          session.lastSeenAt || new Date().toISOString(),
+          session.lastRotatedAt || new Date().toISOString(),
+          session.ipHash || "",
+          session.userAgentHash || "",
+          session.deviceType || "unknown",
+          session.cfRay || "",
+          session.stepUpVerifiedAt || null,
+          Math.max(0, Number(session.riskScore || 0)),
+          session.riskLevel || "low",
+          Number(session.expiresAt || 0)
+        ]
+      );
+      if (!result.rowCount) {
+        return { updated: false };
+      }
+      await insertNotificationRow(client, options.notification);
+      return {
+        updated: true,
+        rowVersion: Number(result.rows?.[0]?.rowVersion || 0)
+      };
+    });
+  }
+
+  async function deleteSessionByToken(token) {
+    const safeToken = String(token || "").trim().slice(0, 160);
+    if (!safeToken) {
+      return { deleted: false };
+    }
+    const result = await query("DELETE FROM sessions WHERE token = $1", [safeToken]);
+    return { deleted: Number(result.rowCount || 0) > 0 };
+  }
+
+  async function deleteSessionById(sessionId, options = {}) {
+    const safeSessionId = String(sessionId || "").trim().slice(0, 80);
+    const safeUsername = String(options.username || "").trim().slice(0, 40);
+    if (!safeSessionId) {
+      return { deleted: false };
+    }
+    return withTransaction(async (client) => {
+      const params = [safeSessionId];
+      const usernameClause = safeUsername ? " AND username = $2" : "";
+      if (safeUsername) {
+        params.push(safeUsername);
+      }
+      const result = await client.query(
+        `DELETE FROM sessions WHERE session_id = $1${usernameClause}`,
+        params
+      );
+      if (!result.rowCount) {
+        return { deleted: false };
+      }
+      await insertNotificationRow(client, options.notification);
+      return { deleted: true };
+    });
   }
 
   async function refreshIntelligenceDailySnapshots(options = {}) {
@@ -2857,7 +4091,10 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
   }
 
   async function init(getLegacyStore) {
-    await ensureSchema();
+    await runSchemaMigrations({
+      pool,
+      beforeMigrations: ensureSchema
+    });
 
     if (await isEmpty()) {
       const legacyStore = typeof getLegacyStore === "function" ? getLegacyStore() : null;
@@ -2877,6 +4114,34 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
     init,
     readStore,
     readProductsPage,
+    recordProductAction,
+    createProduct,
+    updateProduct,
+    deleteProduct,
+    setProductAvailability,
+    moderateProduct,
+    createCommerceOrder,
+    applyPaymentResult,
+    transitionCommerceOrder,
+    createMessageWithNotification,
+    deleteMessage,
+    markConversationRead,
+    markNotificationRead,
+    resetUserPassword,
+    runBootMaintenance,
+    updateUserRecord,
+    saveAppSettings,
+    saveCategory,
+    createPromotion,
+    updatePromotion,
+    createReview,
+    createReport,
+    reviewReport,
+    replaceSession,
+    deleteSessionByToken,
+    deleteSessionById,
+    createUserWithSession,
+    createLoginSession,
     writeStore,
     appendIntelligenceEvent,
     enqueueIntelligenceEvent,
