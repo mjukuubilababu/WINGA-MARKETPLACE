@@ -929,6 +929,72 @@ test("final pagination page exhausts without requesting beyond hasMore false", a
   });
 });
 
+test("Home feed keeps social discovery alive after backend inventory is exhausted", async ({ page }) => {
+  const products = createProducts(12);
+  const productRequests = [];
+
+  await page.route("**/api/products**", async (route) => {
+    const requestUrl = new URL(route.request().url());
+    const requestedPage = Math.max(1, Number(requestUrl.searchParams.get("page") || 1) || 1);
+    productRequests.push(requestedPage);
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        items: requestedPage === 1 ? products : [],
+        nextCursor: requestedPage === 1 ? getCursor(products[products.length - 1]) : "",
+        hasMore: false,
+        total: products.length,
+        page: requestedPage,
+        limit: 12
+      })
+    });
+  });
+
+  await page.goto("/");
+  await expect.poll(
+    () => page.locator("#products-container .product-card").count(),
+    { timeout: 30000 }
+  ).toBeGreaterThanOrEqual(12);
+
+  const initialCount = await page.locator("#products-container .product-card").count();
+  for (let index = 0; index < 4; index += 1) {
+    await page.evaluate(async () => {
+      const container = document.querySelector("#products-container");
+      const anchor = container?.querySelector?.("[data-continuous-discovery-anchor='home']");
+      if (typeof hydrateContinuousDiscoveryAnchor === "function" && anchor) {
+        await hydrateContinuousDiscoveryAnchor(anchor);
+        return;
+      }
+      window.scrollTo(0, document.body.scrollHeight);
+    });
+    await page.waitForTimeout(250);
+  }
+
+  const summary = await page.evaluate(() => {
+    const cards = Array.from(document.querySelectorAll("#products-container .product-card[data-open-product]"));
+    const keys = cards.map((card) => String(card.dataset.feedEntryKey || ""));
+    const duplicateKeys = keys.filter((key, index) => key && keys.indexOf(key) !== index);
+    return {
+      count: cards.length,
+      uniqueKeys: new Set(keys.filter(Boolean)).size,
+      duplicateKeys,
+      runtimeBatchIndex: Number(homeContinuousDiscoveryRuntime?.batchIndex || 0),
+      pagination: window.WingaDataLayer?.getProductFeedPagination?.()
+    };
+  });
+
+  expect(summary.count).toBeGreaterThan(initialCount);
+  expect(summary.runtimeBatchIndex).toBeGreaterThanOrEqual(2);
+  expect(summary.duplicateKeys).toEqual([]);
+  expect(summary.pagination).toMatchObject({
+    page: 1,
+    hasMore: false,
+    loadedCount: 12
+  });
+  expect(productRequests).toEqual([1]);
+});
+
 test("empty continuation page with hasMore true is bounded as exhausted", async ({ page }) => {
   const products = createProducts(12);
   const productRequests = [];

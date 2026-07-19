@@ -121,6 +121,9 @@ const HOME_INFINITE_BACKGROUND_RUNWAY_WARMUP_DELAY_MS = 520;
 const HOME_INFINITE_BACKGROUND_RUNWAY_COOLDOWN_MS = 2200;
 const HOME_INFINITE_MAX_DOM_CARDS = 60;
 const HOME_INFINITE_MAX_RETAINED_VIRTUAL_NODES = 24;
+const HOME_SOCIAL_RECYCLED_STREAM_LIMIT = 8;
+const HOME_SOCIAL_RECYCLED_RECENT_WINDOW = 18;
+const HOME_SOCIAL_RECYCLED_MIN_BATCH_INDEX = 1;
 const HOME_LOAD_MORE_MAX_ATTEMPTS = 3;
 const HOME_LOAD_MORE_RETRY_BASE_DELAY_MS = 400;
 const PRODUCT_DETAIL_TRANSITION_PRELOAD_RADIUS = 2;
@@ -17799,6 +17802,62 @@ function getHomeContinuousStreamProducts(options = {}) {
   return combined.slice(0, limit);
 }
 
+function getRecycledContinuousDiscoveryProducts(options = {}) {
+  const {
+    limit = HOME_SOCIAL_RECYCLED_STREAM_LIMIT,
+    recentIds = [],
+    seedProduct = null,
+    sourceProducts = null,
+    productLastAppearanceOrdinal = {},
+    normalProductOrdinal = 0
+  } = options;
+  const recentIdSet = new Set(
+    Array.from(recentIds || [])
+      .filter(Boolean)
+      .slice(-HOME_SOCIAL_RECYCLED_RECENT_WINDOW)
+  );
+  const seedProductId = String(seedProduct?.id || "").trim();
+  const preferredCategory = inferTopCategoryValue(seedProduct?.category || "");
+  const appearanceOrdinalMap = productLastAppearanceOrdinal && typeof productLastAppearanceOrdinal === "object"
+    ? productLastAppearanceOrdinal
+    : {};
+  const currentOrdinal = Math.max(0, Number(normalProductOrdinal || 0));
+  const candidates = (Array.isArray(sourceProducts) ? sourceProducts : products)
+    .filter((product) =>
+      isDemandDiscoveryCandidate(product)
+      && product.id !== seedProductId
+      && !recentIdSet.has(product.id)
+    )
+    .sort((first, second) => {
+      const secondDistance = currentOrdinal - Number(appearanceOrdinalMap[second.id] || 0);
+      const firstDistance = currentOrdinal - Number(appearanceOrdinalMap[first.id] || 0);
+      if (secondDistance !== firstDistance) {
+        return secondDistance - firstDistance;
+      }
+      const secondCategoryMatch = preferredCategory && inferTopCategoryValue(second.category || "") === preferredCategory ? 1 : 0;
+      const firstCategoryMatch = preferredCategory && inferTopCategoryValue(first.category || "") === preferredCategory ? 1 : 0;
+      if (secondCategoryMatch !== firstCategoryMatch) {
+        return secondCategoryMatch - firstCategoryMatch;
+      }
+      const secondScore = Number(getPromotionCommercialScore?.(second) || 0)
+        + getHomeFeedEngagementScore(second)
+        + getProductDemandDiscoveryScore(second);
+      const firstScore = Number(getPromotionCommercialScore?.(first) || 0)
+        + getHomeFeedEngagementScore(first)
+        + getProductDemandDiscoveryScore(first);
+      if (secondScore !== firstScore) {
+        return secondScore - firstScore;
+      }
+      return compareProductsNewestFirst(first, second);
+    });
+
+  const strictSelection = limitProductsPerSeller(candidates, limit, 1);
+  if (strictSelection.length >= Math.min(limit, 4)) {
+    return strictSelection.slice(0, limit);
+  }
+  return limitProductsPerSeller(candidates, limit, 2).slice(0, limit);
+}
+
 function shouldPreferHomeContinuousMarketplaceStream() {
   return getViewportWidth() <= 720;
 }
@@ -17972,6 +18031,39 @@ function getContinuousDiscoveryDescriptor(options = {}) {
       subtitle: "Winga keeps discovery alive even when fresh stock is limited.",
       items: fallbackItems
     };
+  }
+
+  if (batchIndex >= HOME_SOCIAL_RECYCLED_MIN_BATCH_INDEX) {
+    const recycledItems = getRecycledContinuousDiscoveryProducts({
+      limit: HOME_SOCIAL_RECYCLED_STREAM_LIMIT,
+      recentIds,
+      seedProduct: preferredSeed,
+      sourceProducts: renderableProducts,
+      productLastAppearanceOrdinal,
+      normalProductOrdinal
+    });
+    const recycledItemsWithVariants = dedupeContinuousDiscoveryFeedItems(mergeVariantResurfacingIntoStream(recycledItems, {
+      recentIds,
+      usedIds,
+      batchIndex,
+      variantCounts,
+      variantLastBatchIndex,
+      variantShownImageIndexes,
+      productLastAppearanceOrdinal,
+      normalProductOrdinal,
+      lastVariantNormalOrdinal,
+      sourceProducts: renderableProducts
+    }));
+    if (recycledItemsWithVariants.length) {
+      return {
+        kind: "stream",
+        source: "recycled-discovery",
+        eyebrow: "Keep Exploring",
+        title: "More market picks keep coming",
+        subtitle: "Winga keeps discovery moving with fresh angles from active listings.",
+        items: recycledItemsWithVariants
+      };
+    }
   }
 
   return null;
