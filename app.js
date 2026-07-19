@@ -4551,6 +4551,9 @@ function silentlyRefreshInfiniteFeedSource(options = {}) {
       });
       if (appendedCount > 0) {
         refreshProductsFromStore();
+        const queuedContinuationCount = enqueueBackendContinuationDescriptor(appendedProducts, {
+          reason: options.reason || "infinite_scroll_append"
+        });
         primeIncomingFeedItems(appendedProducts, {
           reason: "infinite_scroll_append",
           productLimit: Math.min(appendedProducts.length, 8),
@@ -4563,6 +4566,23 @@ function silentlyRefreshInfiniteFeedSource(options = {}) {
         setHomeFeedLoadMoreState("success-products", {
           hasMore: page?.hasMore !== false
         });
+        if (queuedContinuationCount > 0 && currentView === "home") {
+          const anchor = productsContainer?.querySelector?.("[data-continuous-discovery-anchor='home']");
+          if (anchor instanceof Element && anchor.isConnected) {
+            refreshHomeInfiniteScrollSentinels(productsContainer);
+            const shouldHydrateNow = isHomeScrollNearFeedEnd() || isAnchorWithinBackgroundContinuationBand(anchor);
+            scheduleIdleBackgroundWork(() => {
+              if (
+                currentView === "home"
+                && anchor.isConnected
+                && !homeContinuousDiscoveryRuntime.loading
+                && (shouldHydrateNow || canAdvanceHomeContinuousDiscovery(anchor))
+              ) {
+                hydrateContinuousDiscoveryAnchor(anchor);
+              }
+            }, shouldHydrateNow ? 16 : 80);
+          }
+        }
         return true;
       }
       if (typeof refreshProducts === "function" && typeof appendProductsPage !== "function") {
@@ -4641,6 +4661,55 @@ function shouldRefreshHomeBackendRunway() {
     getRenderedHomeProductIdentityCount()
   );
   return loadedCount - consumedNormalCount <= HOME_INFINITE_BACKEND_RUNWAY_MIN_PRODUCTS;
+}
+
+function enqueueBackendContinuationDescriptor(appendedProducts = [], options = {}) {
+  if (currentView !== "home" || !Array.isArray(appendedProducts) || !appendedProducts.length) {
+    return 0;
+  }
+  const seenIds = new Set();
+  const items = appendedProducts.filter((product) => {
+    const productId = String(product?.id || "").trim();
+    if (!productId || seenIds.has(productId)) {
+      return false;
+    }
+    seenIds.add(productId);
+    if (homeContinuousDiscoveryRuntime.usedIds?.has?.(productId)) {
+      return false;
+    }
+    const feedEntryKey = buildHomeFeedEntryKey(product, {
+      sequenceIndex: Number(homeContinuousDiscoveryRuntime.nextFeedSequenceIndex || 0) + seenIds.size
+    });
+    return !hasRenderedFeedEntryKey(productsContainer, feedEntryKey);
+  });
+  if (!items.length) {
+    return 0;
+  }
+  const descriptor = {
+    kind: "stream",
+    source: "backend-pagination",
+    eyebrow: "Marketplace Stream",
+    title: "More products from the market",
+    subtitle: "Winga keeps loading fresh listings as you scroll.",
+    minBatchIndex: Number(homeContinuousDiscoveryRuntime.batchIndex || 0),
+    items
+  };
+  homeContinuousDiscoveryRuntime.preparedDescriptor = descriptor;
+  homeContinuousDiscoveryRuntime.preparedDescriptorBatchIndex = Number(homeContinuousDiscoveryRuntime.batchIndex || 0);
+  homeContinuousDiscoveryRuntime.pendingDescriptors = [
+    descriptor,
+    ...(
+      Array.isArray(homeContinuousDiscoveryRuntime.pendingDescriptors)
+        ? homeContinuousDiscoveryRuntime.pendingDescriptors
+        : []
+    ).filter((entry) => String(entry?.source || "") !== "backend-pagination")
+  ].slice(0, HOME_CONTINUOUS_PENDING_DESCRIPTOR_LIMIT);
+  logHomeInfiniteDiagnostic("backend_append_descriptor_queued", {
+    itemCount: items.length,
+    batchIndex: homeContinuousDiscoveryRuntime.batchIndex,
+    reason: String(options.reason || "")
+  });
+  return items.length;
 }
 
 function refreshHomeBackendRunwayIfNeeded(options = {}) {

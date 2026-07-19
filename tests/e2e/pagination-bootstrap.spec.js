@@ -154,6 +154,78 @@ test("Big Pipe handoff seeds page one and continuation starts from next cursor",
   expect(productRequests).toEqual([{ page: 2, cursor: nextCursor }]);
 });
 
+test("backend appended Home page is rendered into the visible feed stream", async ({ page }) => {
+  const products = createProducts(24);
+  const nextCursor = getCursor(products[11]);
+  const productRequests = [];
+
+  await page.route("**/api/products**", async (route) => {
+    const requestUrl = new URL(route.request().url());
+    const limit = Number(requestUrl.searchParams.get("limit") || 12) || 12;
+    const requestedPage = Math.max(1, Number(requestUrl.searchParams.get("page") || 1) || 1);
+    const cursor = String(requestUrl.searchParams.get("cursor") || "");
+    const start = cursor
+      ? products.findIndex((product) => getCursor(product) === cursor) + 1
+      : (requestedPage - 1) * limit;
+    const safeStart = Math.max(0, start);
+    const items = products.slice(safeStart, safeStart + limit);
+    productRequests.push({
+      page: requestedPage,
+      cursor,
+      first: items[0]?.id || "",
+      count: items.length
+    });
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        items,
+        nextCursor: getCursor(items[items.length - 1]),
+        hasMore: safeStart + items.length < products.length,
+        total: products.length,
+        page: requestedPage,
+        limit
+      })
+    });
+  });
+
+  await page.goto("/");
+  await expect.poll(
+    () => page.locator("#products-container .product-card").count(),
+    { timeout: 30000 }
+  ).toBeGreaterThanOrEqual(12);
+  await expect.poll(
+    () => page.evaluate(() => typeof window.silentlyRefreshInfiniteFeedSource),
+    { timeout: 30000 }
+  ).toBe("function");
+  const loaded = await page.evaluate(() => {
+    window.scrollTo(0, document.body.scrollHeight);
+    return window.silentlyRefreshInfiniteFeedSource({ force: true, reason: "e2e_dom_append" });
+  });
+  expect(loaded).toBe(true);
+
+  await expect.poll(
+    () => page.evaluate(() => window.WingaDataLayer?.getProductFeedPagination?.()),
+    { timeout: 30000 }
+  ).toMatchObject({
+    page: 2,
+    hasMore: false,
+    loadedCount: 24
+  });
+  await expect.poll(
+    () => page.locator("#products-container .product-card").count(),
+    { timeout: 30000 }
+  ).toBeGreaterThan(12);
+  await expect(page.locator("[data-open-product='pagination-bootstrap-13']").first()).toBeVisible({
+    timeout: 30000
+  });
+  expect(productRequests.map((request) => request.page)).toEqual([1, 2]);
+  expect(productRequests[1]).toMatchObject({
+    cursor: nextCursor,
+    first: "pagination-bootstrap-13"
+  });
+});
+
 test("load-more prefetch keeps one backend runway page", async ({ page }) => {
   const products = createProducts(36);
   const productRequests = [];
