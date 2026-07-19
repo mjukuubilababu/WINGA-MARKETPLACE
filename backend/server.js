@@ -190,6 +190,11 @@ const RATE_LIMIT_RULES = {
   "/api/users/me/whatsapp/request-change": { limit: 6, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/users/me/whatsapp/verify-change": { limit: 12, windowMs: RATE_LIMIT_WINDOW_MS }
 };
+const READ_RATE_LIMIT_RULES = {
+  "/api/products": { limit: 240, windowMs: RATE_LIMIT_WINDOW_MS },
+  "/api/bootstrap": { limit: 120, windowMs: RATE_LIMIT_WINDOW_MS },
+  "/api/auth/session": { limit: 120, windowMs: RATE_LIMIT_WINDOW_MS }
+};
 const rateLimitStore = new Map();
 const suspiciousLoginStore = new Map();
 const CLIENT_EVENT_DEDUPE_TTL_MS = Math.max(1000, Math.min(Number(process.env.CLIENT_EVENT_DEDUPE_TTL_MS || 30000) || 30000, 10 * 60 * 1000));
@@ -5050,11 +5055,24 @@ function getRateLimitIdentity(req, store) {
   return `ip:${getClientIp(req)}`;
 }
 
-function getRateLimitRule(pathname) {
+function getRateLimitRule(pathname, method = "GET") {
+  const normalizedMethod = String(method || "GET").toUpperCase();
+  if (normalizedMethod === "GET" && READ_RATE_LIMIT_RULES[pathname]) {
+    return {
+      ...READ_RATE_LIMIT_RULES[pathname],
+      key: pathname
+    };
+  }
   if (RATE_LIMIT_RULES[pathname]) {
     return {
       ...RATE_LIMIT_RULES[pathname],
       key: pathname
+    };
+  }
+  if (normalizedMethod === "GET" && pathname.startsWith("/api/products/")) {
+    return {
+      ...READ_RATE_LIMIT_RULES["/api/products"],
+      key: "/api/products"
     };
   }
   if (pathname.startsWith("/api/products/")) {
@@ -5150,7 +5168,7 @@ async function evaluateRateLimit(req, store) {
   if (process.env.WINGA_DISABLE_RATE_LIMIT === "1") {
     return { limited: false };
   }
-  const rule = getRateLimitRule(new URL(req.url, `http://${req.headers.host}`).pathname);
+  const rule = getRateLimitRule(new URL(req.url, `http://${req.headers.host}`).pathname, req.method);
   if (!rule) {
     return { limited: false };
   }

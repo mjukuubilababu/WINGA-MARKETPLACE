@@ -1799,6 +1799,12 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   });
   assert.equal(monitorEvent.response.status, 202);
 
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    const feedPage = await request("/products?limit=12&page=1");
+    assert.equal(feedPage.response.status, 200);
+    assert.ok(Array.isArray(getProductResponseItems(feedPage.body)));
+  }
+
   let lastAdminLoginAttempt = null;
   for (let attempt = 0; attempt < 7; attempt += 1) {
     lastAdminLoginAttempt = await request("/auth/admin-login", {

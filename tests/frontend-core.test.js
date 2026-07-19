@@ -2931,7 +2931,12 @@ test("api writes attach a CSRF token before sending state-changing requests", ()
   assert.match(backendSource, /function isBodylessApiActionPath\(method, pathname\)/);
   assert.match(backendSource, /\/api\\\/admin\\\/promotions\\\/\[\^\/]\+\\\/disable/);
   assert.match(backendSource, /const RATE_LIMIT_MAX_BUCKETS = 5000/);
+  assert.match(backendSource, /const READ_RATE_LIMIT_RULES = \{/);
+  assert.match(backendSource, /"\/api\/products": \{ limit: 240, windowMs: RATE_LIMIT_WINDOW_MS \}/);
   assert.match(backendSource, /function pruneRateLimitStore\(now = Date\.now\(\)\)/);
+  assert.match(backendSource, /function getRateLimitRule\(pathname, method = "GET"\)/);
+  assert.match(backendSource, /normalizedMethod === "GET" && READ_RATE_LIMIT_RULES\[pathname\]/);
+  assert.match(backendSource, /normalizedMethod === "GET" && pathname\.startsWith\("\/api\/products\/"\)/);
   assert.match(backendSource, /async function evaluateRateLimit\(req, store\)/);
   assert.match(backendSource, /postgresStore\?\.recordApiRateLimitHit/);
   assert.match(backendSource, /storage: "postgres"/);
