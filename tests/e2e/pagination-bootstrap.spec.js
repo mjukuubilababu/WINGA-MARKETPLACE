@@ -930,7 +930,10 @@ test("final pagination page exhausts without requesting beyond hasMore false", a
 });
 
 test("Home feed keeps social discovery alive after backend inventory is exhausted", async ({ page }) => {
-  const products = createProducts(12);
+  const products = createProducts(12).map((product) => ({
+    ...product,
+    feedSequenceIndex: 1
+  }));
   const productRequests = [];
 
   await page.route("**/api/products**", async (route) => {

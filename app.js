@@ -17416,7 +17416,7 @@ function createContinuousDiscoveryStreamElements(descriptor, index, anchorKind =
     const feedPosition = Number(homeContinuousDiscoveryRuntime.nextFeedSequenceIndex || 0) + itemIndex;
     const variantCount = getProductVariantCount(item);
     const variantDisplayIndex = getFeedEntryDisplayImageIndex(item, feedPosition);
-    const stableFeedSequenceIndex = Number(item?.feedSequenceIndex ?? feedPosition + 1) || (feedPosition + 1);
+    const stableFeedSequenceIndex = feedPosition + 1;
     const feedEntrySeed = {
       ...item,
       feedEntryType: item?.feedVariantResurface ? "variant" : "product",
