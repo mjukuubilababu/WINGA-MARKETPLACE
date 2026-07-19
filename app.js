@@ -4814,9 +4814,33 @@ function ensureHomeBackgroundRunway(options = {}) {
     if (descriptor) {
       prepareContinuousDescriptorMedia(descriptor, `background_runway_${homeContinuousDiscoveryRuntime.batchIndex}`);
     }
-    if (!homeContinuousDiscoveryRuntime.loading && canAdvanceHomeContinuousDiscovery(anchor)) {
+    scheduleHomeBackgroundHydrationAttempt(anchor, {
+      reason: "background_runway_ready",
+      delays: [0, 360, 1200]
+    });
+  });
+}
+
+function scheduleHomeBackgroundHydrationAttempt(anchor, options = {}) {
+  if (!(anchor instanceof Element) || !anchor.isConnected || currentView !== "home") {
+    return;
+  }
+  const delays = Array.isArray(options.delays) && options.delays.length
+    ? options.delays
+    : [0];
+  delays.forEach((delay) => {
+    window.setTimeout(() => {
+      if (
+        currentView !== "home"
+        || !(anchor instanceof Element)
+        || !anchor.isConnected
+        || homeContinuousDiscoveryRuntime.loading
+        || homeContinuousDiscoveryRuntime.preparingDescriptor
+      ) {
+        return;
+      }
       hydrateContinuousDiscoveryAnchor(anchor);
-    }
+    }, Math.max(0, Number(delay || 0)));
   });
 }
 
@@ -18790,9 +18814,9 @@ function setupContinuousDiscoveryLoading(scope, options = {}) {
   homeContinuousDiscoveryRuntime.lastVariantNormalOrdinal = -HOME_VARIANT_MIN_NORMAL_PRODUCTS_BETWEEN;
 
   if (typeof IntersectionObserver === "undefined") {
-    for (let cycle = 0; cycle < 3; cycle += 1) {
-      hydrateContinuousDiscoveryAnchor(anchor);
-    }
+    scheduleIdleBackgroundWork(() => {
+      prepareNextContinuousDiscoveryDescriptor();
+    }, 80);
     return;
   }
 
