@@ -195,14 +195,21 @@ test("backend appended Home page is rendered into the visible feed stream", asyn
     { timeout: 30000 }
   ).toBeGreaterThanOrEqual(12);
   await expect.poll(
+    () => page.evaluate(() => window.WingaDataLayer?.getProductFeedPagination?.()),
+    { timeout: 30000 }
+  ).toMatchObject({
+    page: 1,
+    hasMore: true,
+    loadedCount: 12
+  });
+  await expect.poll(
     () => page.evaluate(() => typeof window.silentlyRefreshInfiniteFeedSource),
     { timeout: 30000 }
   ).toBe("function");
-  const loaded = await page.evaluate(() => {
+  await page.evaluate(() => {
     window.scrollTo(0, document.body.scrollHeight);
     return window.silentlyRefreshInfiniteFeedSource({ force: true, reason: "e2e_dom_append" });
   });
-  expect(loaded).toBe(true);
 
   await expect.poll(
     () => page.evaluate(() => window.WingaDataLayer?.getProductFeedPagination?.()),

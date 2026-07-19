@@ -10586,6 +10586,15 @@ button:hover,
   overflow:hidden !important;
   scroll-snap-align:start !important;
   scroll-snap-stop:always;
+  touch-action:pan-x pan-y !important;
+}
+
+#products-container .feed-gallery-carousel-track .feed-gallery-tile,
+#products-container .feed-gallery-carousel-track .feed-gallery-image,
+#products-container .feed-gallery-carousel-track .feed-gallery-image-social,
+#products-container .feed-gallery-carousel-track .progressive-image-shell,
+#products-container .feed-gallery-carousel-track .progressive-image-full{
+  touch-action:pan-x pan-y !important;
 }
 
 .profile-session-security{

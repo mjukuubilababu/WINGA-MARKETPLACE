@@ -6219,7 +6219,11 @@ window.WingaModules.notifications = window.WingaModules.notifications || {};
 
         const clearDragState = () => {
           if (hasPointerCapture && pointerId != null) {
-            track.releasePointerCapture?.(pointerId);
+            try {
+              track.releasePointerCapture?.(pointerId);
+            } catch (error) {
+              // Some browsers reject release after a touch pointer is cancelled.
+            }
           }
           pointerId = null;
           isDragging = false;
@@ -6455,9 +6459,6 @@ window.WingaModules.notifications = window.WingaModules.notifications || {};
             if (track.scrollWidth <= track.clientWidth + 4 || isInteractiveTarget(event.target)) {
               return;
             }
-            if (event.pointerType === "touch") {
-              return;
-            }
             if (event.pointerType === "mouse" && event.button !== 0) {
               return;
             }
@@ -6469,8 +6470,12 @@ window.WingaModules.notifications = window.WingaModules.notifications || {};
             lastPointerMoveTime = getPerfNow();
             gestureVelocity = 0;
             isDragging = false;
-            track.setPointerCapture?.(event.pointerId);
-            hasPointerCapture = true;
+            try {
+              track.setPointerCapture?.(event.pointerId);
+              hasPointerCapture = true;
+            } catch (error) {
+              hasPointerCapture = false;
+            }
           }, listenerOptions);
 
           track.addEventListener("pointermove", (event) => {
