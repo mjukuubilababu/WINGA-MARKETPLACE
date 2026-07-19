@@ -5129,18 +5129,7 @@ function pruneRateLimitStore(now = Date.now()) {
   }
 }
 
-function evaluateRateLimit(req, store) {
-  if (process.env.WINGA_DISABLE_RATE_LIMIT === "1") {
-    return { limited: false };
-  }
-  const rule = getRateLimitRule(new URL(req.url, `http://${req.headers.host}`).pathname);
-  if (!rule) {
-    return { limited: false };
-  }
-
-  const identity = getRateLimitIdentity(req, store);
-  const key = `${identity}:${req.method}:${rule.key}`;
-  const now = Date.now();
+function evaluateMemoryRateLimit(key, rule, now = Date.now()) {
   const existing = rateLimitStore.get(key) || [];
   const fresh = existing.filter((timestamp) => now - timestamp < rule.windowMs);
   fresh.push(now);
@@ -5152,8 +5141,47 @@ function evaluateRateLimit(req, store) {
     limited,
     limit: rule.limit,
     remaining: Math.max(0, rule.limit - fresh.length),
-    retryAfterSeconds: retryAfterMs ? Math.ceil(retryAfterMs / 1000) : 0
+    retryAfterSeconds: retryAfterMs ? Math.ceil(retryAfterMs / 1000) : 0,
+    storage: "memory"
   };
+}
+
+async function evaluateRateLimit(req, store) {
+  if (process.env.WINGA_DISABLE_RATE_LIMIT === "1") {
+    return { limited: false };
+  }
+  const rule = getRateLimitRule(new URL(req.url, `http://${req.headers.host}`).pathname);
+  if (!rule) {
+    return { limited: false };
+  }
+
+  const identity = getRateLimitIdentity(req, store);
+  const key = `${identity}:${req.method}:${rule.key}`;
+  const now = Date.now();
+  if (postgresStore?.recordApiRateLimitHit) {
+    try {
+      const durable = await postgresStore.recordApiRateLimitHit(hashSessionContextValue(key), {
+        limit: rule.limit,
+        windowMs: rule.windowMs,
+        scope: rule.key,
+        now
+      });
+      return {
+        limited: Boolean(durable.limited),
+        limit: Number(durable.limit || rule.limit),
+        remaining: Math.max(0, Number(durable.remaining || 0)),
+        retryAfterSeconds: Math.max(0, Number(durable.retryAfterSeconds || 0)),
+        resetAt: durable.resetAt || "",
+        storage: "postgres"
+      };
+    } catch (error) {
+      console.warn("[WINGA] Durable API rate limiter failed; using local fallback.", {
+        route: rule.key,
+        error: String(error?.message || error || "unknown").slice(0, 160)
+      });
+    }
+  }
+  return evaluateMemoryRateLimit(key, rule, now);
 }
 
 function getSuspiciousLoginKey(req, identifier = "", scope = "public") {
@@ -5527,14 +5555,15 @@ http.createServer(async (req, res) => {
   }
   const clientIp = getClientIp(req);
 
-  const rateLimitStatus = evaluateRateLimit(req, store);
+  const rateLimitStatus = await evaluateRateLimit(req, store);
   if (rateLimitStatus.limited) {
     await appendAuditLog({
       time: new Date().toISOString(),
       ip: clientIp,
       method: req.method,
       path: url.pathname,
-      event: "rate_limited"
+      event: "rate_limited",
+      storage: rateLimitStatus.storage || ""
     });
     sendJson(
       res,

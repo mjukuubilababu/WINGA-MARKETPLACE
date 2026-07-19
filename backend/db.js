@@ -834,12 +834,28 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
       );
     `);
     await query(`
+      CREATE TABLE IF NOT EXISTS api_rate_limit_buckets (
+        key_hash TEXT NOT NULL,
+        bucket_id BIGINT NOT NULL,
+        scope TEXT NOT NULL DEFAULT '',
+        count INTEGER NOT NULL DEFAULT 0,
+        window_started_at TIMESTAMPTZ NOT NULL,
+        expires_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (key_hash, bucket_id)
+      );
+    `);
+    await query(`
       CREATE INDEX IF NOT EXISTS idx_suspicious_login_key_time
       ON suspicious_login_attempts (key_hash, attempt_at DESC);
     `);
     await query(`
       CREATE INDEX IF NOT EXISTS idx_suspicious_login_attempt_at
       ON suspicious_login_attempts (attempt_at);
+    `);
+    await query(`
+      CREATE INDEX IF NOT EXISTS idx_api_rate_limit_buckets_expires
+      ON api_rate_limit_buckets (expires_at);
     `);
     await query(`
       ALTER TABLE payments
@@ -2795,6 +2811,51 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
     return { cleared: Number(result.rowCount || 0) };
   }
 
+  async function recordApiRateLimitHit(keyHash, options = {}) {
+    const safeKeyHash = String(keyHash || "").slice(0, 120);
+    if (!safeKeyHash) {
+      return { count: 0, limited: false, retryAfterSeconds: 0 };
+    }
+    const safeLimit = Math.max(1, Math.min(Number(options.limit || 60) || 60, 100000));
+    const safeWindowMs = Math.max(1000, Math.min(Number(options.windowMs || 60 * 1000) || 60 * 1000, 24 * 60 * 60 * 1000));
+    const now = Number(options.now || Date.now()) || Date.now();
+    const bucketId = Math.floor(now / safeWindowMs);
+    const windowStartedAt = new Date(bucketId * safeWindowMs);
+    const expiresAt = new Date(windowStartedAt.getTime() + safeWindowMs);
+    const scope = String(options.scope || "").slice(0, 120);
+    const result = await query(
+      `INSERT INTO api_rate_limit_buckets (
+         key_hash, bucket_id, scope, count, window_started_at, expires_at, updated_at
+       )
+       VALUES ($1, $2, $3, 1, $4, $5, NOW())
+       ON CONFLICT (key_hash, bucket_id)
+       DO UPDATE SET
+         count = api_rate_limit_buckets.count + 1,
+         scope = EXCLUDED.scope,
+         expires_at = EXCLUDED.expires_at,
+         updated_at = NOW()
+       RETURNING count, expires_at AS "expiresAt"`,
+      [safeKeyHash, bucketId, scope, windowStartedAt.toISOString(), expiresAt.toISOString()]
+    );
+    const count = Number(result.rows[0]?.count || 0);
+    const retryAfterMs = count > safeLimit ? Math.max(1000, expiresAt.getTime() - now) : 0;
+    return {
+      count,
+      limited: count > safeLimit,
+      limit: safeLimit,
+      remaining: Math.max(0, safeLimit - count),
+      retryAfterSeconds: retryAfterMs ? Math.ceil(retryAfterMs / 1000) : 0,
+      resetAt: expiresAt.toISOString()
+    };
+  }
+
+  async function pruneApiRateLimitBuckets() {
+    const result = await query(
+      "DELETE FROM api_rate_limit_buckets WHERE expires_at < NOW() - INTERVAL '5 minutes'"
+    );
+    return { pruned: Number(result.rowCount || 0) };
+  }
+
   async function init(getLegacyStore) {
     await ensureSchema();
 
@@ -2843,6 +2904,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
     readSuspiciousLoginAttempts,
     recordSuspiciousLoginAttempt,
     clearSuspiciousLoginAttempts,
+    recordApiRateLimitHit,
+    pruneApiRateLimitBuckets,
     close
   };
 }

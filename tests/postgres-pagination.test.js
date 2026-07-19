@@ -209,6 +209,50 @@ test("product query filters share stable count predicates without cursor leakage
   ]);
 });
 
+test("PostgreSQL API rate limiter uses atomic shared buckets", async () => {
+  const calls = [];
+  const queryClient = {
+    async query(text, params) {
+      calls.push({ text, params });
+      if (text.includes("INSERT INTO api_rate_limit_buckets")) {
+        return {
+          rows: [{
+            count: 4,
+            expiresAt: new Date("2026-07-19T12:01:00.000Z")
+          }]
+        };
+      }
+      return { rows: [], rowCount: 0 };
+    }
+  };
+  const store = createPostgresStore({
+    databaseUrl: "postgres://test.invalid/winga",
+    queryClient
+  });
+
+  const result = await store.recordApiRateLimitHit("rate-limit-key", {
+    limit: 3,
+    windowMs: 60000,
+    scope: "/api/auth/login",
+    now: new Date("2026-07-19T12:00:15.000Z").getTime()
+  });
+
+  assert.equal(result.limited, true);
+  assert.equal(result.count, 4);
+  assert.equal(result.limit, 3);
+  assert.equal(result.remaining, 0);
+  assert.equal(result.retryAfterSeconds, 45);
+  assert.equal(result.resetAt, "2026-07-19T12:01:00.000Z");
+  assert.match(calls[0].text, /INSERT INTO api_rate_limit_buckets/);
+  assert.match(calls[0].text, /ON CONFLICT \(key_hash, bucket_id\)/);
+  assert.match(calls[0].text, /count = api_rate_limit_buckets\.count \+ 1/);
+  assert.deepEqual(calls[0].params.slice(0, 3), [
+    "rate-limit-key",
+    29741040,
+    "/api/auth/login"
+  ]);
+});
+
 test("PostgreSQL intelligence persistence appends events and upserts score tables", async () => {
   const calls = [];
   const queryClient = {
