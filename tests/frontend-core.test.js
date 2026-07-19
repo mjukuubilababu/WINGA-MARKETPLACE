@@ -2951,6 +2951,10 @@ test("session security relay is isolated from frontend and validates webhook eve
   assert.match(relayConfig, /binding = "SESSION_SECURITY_DEDUPE"/);
   assert.match(relayConfig, /queue = "winga-session-security-events"/);
   assert.match(relayConfig, /dead_letter_queue = "winga-session-security-events-dlq"/);
+  assert.match(relayConfig, /\[\[send_email\]\]/);
+  assert.match(relayConfig, /name = "EMAIL"/);
+  assert.match(relayConfig, /allowed_sender_addresses = \["security@wingamarket.com"\]/);
+  assert.match(relayConfig, /SESSION_SECURITY_EMAIL_ENABLED = "false"/);
   assert.equal(packageJson.scripts["deploy:worker:session-security"], "npx wrangler deploy --config wrangler.session-security.toml");
   assert.match(relaySource, /X-Winga-Session-Security-Secret/i);
   assert.match(relaySource, /SESSION_SECURITY_WEBHOOK_SECRET/);
@@ -2959,6 +2963,9 @@ test("session security relay is isolated from frontend and validates webhook eve
   assert.match(relaySource, /DEDUPE_TTL_SECONDS/);
   assert.match(relaySource, /RATE_LIMIT_MAX_EVENTS/);
   assert.match(relaySource, /SESSION_SECURITY_OPS_WEBHOOK_URL/);
+  assert.match(relaySource, /sendCloudflareEmail/);
+  assert.match(relaySource, /env\.EMAIL\.send/);
+  assert.match(relaySource, /isCloudflareEmailEnabled/);
   assert.match(relaySource, /EMAIL_PROVIDER_URL/);
   assert.doesNotMatch(relayConfig, /name = "mkubwa"/);
   assert.doesNotMatch(relayConfig, /cloudflare\/intelligence-worker\.js/);

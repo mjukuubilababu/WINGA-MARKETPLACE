@@ -86,6 +86,9 @@ async function deliverSessionSecurityEvent(event, env) {
   if (env.SESSION_SECURITY_OPS_WEBHOOK_URL) {
     destinations.push(sendOpsWebhook(event, env));
   }
+  if (isCloudflareEmailEnabled(env)) {
+    destinations.push(sendCloudflareEmail(event, env));
+  }
   if (env.EMAIL_PROVIDER_URL && env.EMAIL_PROVIDER_TOKEN) {
     destinations.push(sendEmailProviderEvent(event, env));
   }
@@ -119,14 +122,35 @@ async function sendOpsWebhook(event, env) {
   }
 }
 
+async function sendCloudflareEmail(event, env) {
+  const message = buildEmailPayload(event, env);
+  if (!message.to) {
+    return { skipped: true, reason: "missing_recipient" };
+  }
+  await env.EMAIL.send({
+    to: message.to,
+    from: {
+      email: message.from,
+      name: env.APP_NAME || "Winga"
+    },
+    subject: message.subject,
+    text: message.text
+  });
+  return { delivered: true, provider: "cloudflare-email-service" };
+}
+
 async function sendEmailProviderEvent(event, env) {
+  const message = buildEmailPayload(event, env);
+  if (!message.to) {
+    return { skipped: true, reason: "missing_recipient" };
+  }
   const response = await fetch(env.EMAIL_PROVIDER_URL, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${env.EMAIL_PROVIDER_TOKEN}`
     },
-    body: JSON.stringify(buildEmailPayload(event, env))
+    body: JSON.stringify(message)
   });
   if (!response.ok) {
     throw new Error(`email provider failed with ${response.status}`);
@@ -152,6 +176,15 @@ function buildEmailPayload(event, env) {
     to: event.email || env.SECURITY_TEST_RECIPIENT || "",
     subject,
     text: body,
+    html: [
+      `<p><strong>${escapeHtml(appName)} account security event</strong></p>`,
+      `<p>Event: ${escapeHtml(event.event)}</p>`,
+      `<p>Account: ${escapeHtml(event.userId)}</p>`,
+      `<p>Device: ${escapeHtml(event.deviceType || "unknown")}</p>`,
+      `<p>Risk: ${escapeHtml(event.riskLevel || "low")} (${escapeHtml(event.riskScore || 0)})</p>`,
+      `<p>Time: ${escapeHtml(event.createdAt)}</p>`,
+      "<p>If this was not you, open Winga and revoke unknown sessions from Profile &gt; Security.</p>"
+    ].join(""),
     metadata: {
       event: event.event,
       sessionId: event.sessionId,
@@ -241,12 +274,28 @@ function sanitize(value, maxLength = 120) {
   return String(value || "").replace(/[\r\n\t]+/g, " ").replace(/[<>]/g, "").trim().slice(0, maxLength);
 }
 
+function escapeHtml(value) {
+  return String(value || "").replace(/[&<>"']/g, (char) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    "\"": "&quot;",
+    "'": "&#39;"
+  })[char] || char);
+}
+
 function getDestinationSummary(env) {
   return {
     opsWebhook: Boolean(env.SESSION_SECURITY_OPS_WEBHOOK_URL),
+    cloudflareEmailBinding: Boolean(env.EMAIL?.send),
+    cloudflareEmailEnabled: isCloudflareEmailEnabled(env),
     emailProvider: Boolean(env.EMAIL_PROVIDER_URL && env.EMAIL_PROVIDER_TOKEN),
-    dryRun: !env.SESSION_SECURITY_OPS_WEBHOOK_URL && !(env.EMAIL_PROVIDER_URL && env.EMAIL_PROVIDER_TOKEN)
+    dryRun: !env.SESSION_SECURITY_OPS_WEBHOOK_URL && !isCloudflareEmailEnabled(env) && !(env.EMAIL_PROVIDER_URL && env.EMAIL_PROVIDER_TOKEN)
   };
+}
+
+function isCloudflareEmailEnabled(env) {
+  return Boolean(env.EMAIL?.send) && String(env.SESSION_SECURITY_EMAIL_ENABLED || "").trim().toLowerCase() === "true";
 }
 
 function json(payload, status = 200, headers = {}) {

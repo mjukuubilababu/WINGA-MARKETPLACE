@@ -61,6 +61,22 @@ npx wrangler secret put EMAIL_PROVIDER_TOKEN --config wrangler.session-security.
 npx wrangler secret put EMAIL_FROM --config wrangler.session-security.toml
 ```
 
+Preferred Cloudflare Email Service setup:
+
+```bash
+npx wrangler email sending list
+npx wrangler email sending enable wingamarket.com
+npx wrangler deploy --config wrangler.session-security.toml
+```
+
+The Worker config binds Cloudflare Email Service as `EMAIL` and restricts the
+sender to `security@wingamarket.com`. Keep `EMAIL_FROM=security@wingamarket.com`
+unless that address/domain has not been onboarded yet.
+
+Email delivery is guarded by `SESSION_SECURITY_EMAIL_ENABLED`. Keep it `false`
+until Cloudflare confirms the sending domain and a real smoke email succeeds,
+then set it to `true` and redeploy the relay.
+
 ## Backend Environment
 
 Set these on Render:

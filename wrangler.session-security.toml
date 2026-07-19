@@ -12,6 +12,12 @@ head_sampling_rate = 1
 APP_NAME = "Winga"
 RATE_LIMIT_WINDOW_SECONDS = "60"
 RATE_LIMIT_MAX_EVENTS = "120"
+EMAIL_FROM = "security@wingamarket.com"
+SESSION_SECURITY_EMAIL_ENABLED = "false"
+
+[[send_email]]
+name = "EMAIL"
+allowed_sender_addresses = ["security@wingamarket.com"]
 
 [[kv_namespaces]]
 binding = "SESSION_SECURITY_DEDUPE"
