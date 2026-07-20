@@ -233,7 +233,7 @@ test("backend appended Home page is rendered into the visible feed stream", asyn
   });
 });
 
-test("load-more prefetch keeps one backend runway page", async ({ page }) => {
+test("load-more commits its primary page before background runway prefetch", async ({ page }) => {
   const products = createProducts(36);
   const productRequests = [];
 
@@ -283,16 +283,23 @@ test("load-more prefetch keeps one backend runway page", async ({ page }) => {
   await expect.poll(
     () => page.evaluate(() => window.WingaDataLayer?.getProducts?.().length || 0),
     { timeout: 30000 }
-  ).toBe(36);
+  ).toBe(24);
   await expect.poll(
     () => page.evaluate(() => window.WingaDataLayer?.getProductFeedPagination?.()),
     { timeout: 30000 }
   ).toMatchObject({
-    page: 3,
-    hasMore: false,
+    page: 2,
+    hasMore: true,
     total: 36,
-    loadedCount: 36
+    loadedCount: 24
   });
+
+  expect(productRequests.map((request) => request.page)).toEqual([1, 2]);
+  await page.evaluate(() => window.WingaDataLayer.appendProductsPage({ prefetchNext: true }));
+  await expect.poll(
+    () => page.evaluate(() => window.WingaDataLayer?.getProductFeedPagination?.()),
+    { timeout: 30000 }
+  ).toMatchObject({ page: 3, hasMore: false, total: 36, loadedCount: 36 });
 
   const duplicateIds = await page.evaluate(() => {
     const ids = (window.WingaDataLayer?.getProducts?.() || []).map((product) => product.id);
@@ -350,9 +357,9 @@ test("boot background runway prepares continuation before users hit the end", as
     () => page.evaluate(() => window.WingaDataLayer?.getProductFeedPagination?.()),
     { timeout: 30000 }
   ).toMatchObject({
-    page: 3,
-    hasMore: false,
-    loadedCount: 36
+    page: 2,
+    hasMore: true,
+    loadedCount: 24
   });
   await expect.poll(
     () => page.locator("#products-container .product-card").count(),
@@ -361,7 +368,7 @@ test("boot background runway prepares continuation before users hit the end", as
   await expect(page.locator("[data-open-product='pagination-bootstrap-13']").first()).toBeVisible({
     timeout: 30000
   });
-  expect(productRequests.map((request) => request.page)).toEqual([1, 2, 3]);
+  expect(productRequests.map((request) => request.page)).toEqual([1, 2]);
 });
 
 test("queryProductsPage hydrates seller and category results without replacing Home pagination", async ({ page }) => {
@@ -615,9 +622,10 @@ test("virtualized Home cards release heavy nodes above the retained-node budget"
   });
 });
 
-test("failed lookahead does not partially commit a pagination batch", async ({ page }) => {
+test("prefetch flag never makes the primary append depend on another page", async ({ page }) => {
   const products = createProducts(36);
   let failLookahead = true;
+  let pageThreeAttempts = 0;
 
   await page.route("**/api/products**", async (route) => {
     const requestUrl = new URL(route.request().url());
@@ -630,6 +638,7 @@ test("failed lookahead does not partially commit a pagination batch", async ({ p
       start = cursorIndex >= 0 ? cursorIndex + 1 : start;
     }
     if (requestedPage === 3 && failLookahead) {
+      pageThreeAttempts += 1;
       await route.fulfill({
         status: 503,
         contentType: "application/json",
@@ -659,25 +668,18 @@ test("failed lookahead does not partially commit a pagination batch", async ({ p
     { timeout: 30000 }
   ).toBe(12);
 
-  const failedMessage = await page.evaluate(async () => {
-    try {
-      await window.WingaDataLayer.appendProductsPage({ prefetchNext: true });
-      return "";
-    } catch (error) {
-      return String(error?.message || error || "");
-    }
-  });
-  expect(failedMessage).toContain("Temporary pagination failure");
-  expect(await page.evaluate(() => window.WingaDataLayer.getProducts().length)).toBe(12);
+  await page.evaluate(() => window.WingaDataLayer.appendProductsPage({ prefetchNext: true }));
+  expect(await page.evaluate(() => window.WingaDataLayer.getProducts().length)).toBe(24);
   await expect.poll(
     () => page.evaluate(() => window.WingaDataLayer.getProductFeedPagination()),
     { timeout: 10000 }
   ).toMatchObject({
-    page: 1,
-    loadedCount: 12,
+    page: 2,
+    loadedCount: 24,
     hasMore: true
   });
 
+  expect(pageThreeAttempts).toBe(0);
   failLookahead = false;
   await page.evaluate(() => window.WingaDataLayer.appendProductsPage({ prefetchNext: true }));
   expect(await page.evaluate(() => window.WingaDataLayer.getProducts().length)).toBe(36);
@@ -899,6 +901,12 @@ test("final pagination page exhausts without requesting beyond hasMore false", a
     () => page.evaluate(() => window.WingaDataLayer?.getProducts?.().length || 0),
     { timeout: 30000 }
   ).toBe(12);
+
+  await page.evaluate(() => window.WingaDataLayer.appendProductsPage({ prefetchNext: true }));
+  await expect.poll(
+    () => page.evaluate(() => window.WingaDataLayer?.getProducts?.().length || 0),
+    { timeout: 30000 }
+  ).toBe(24);
 
   await page.evaluate(() => window.WingaDataLayer.appendProductsPage({ prefetchNext: true }));
   await expect.poll(

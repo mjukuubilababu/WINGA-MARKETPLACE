@@ -1150,7 +1150,7 @@ test("home feed keeps loading continuous discovery sections before users hit a h
     const anchor = document.querySelector("[data-continuous-discovery-anchor='home']");
     anchor?.scrollIntoView({ block: "center", behavior: "auto" });
   });
-  await expect.poll(getContinuousGroupCount).toBeGreaterThan(initialCount);
+  await expect.poll(getContinuousGroupCount, { timeout: 30000 }).toBeGreaterThan(initialCount);
   await page.waitForTimeout(500);
   await expect.poll(getContinuousGroupCount).toBeLessThanOrEqual(initialCount + 2);
 

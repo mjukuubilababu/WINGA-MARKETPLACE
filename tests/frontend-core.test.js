@@ -1365,11 +1365,11 @@ test("home pagination retries safely, cancels stale work, and commits pages tran
   assert.match(appSource, /let homeContinuousDiscoveryRuntime = createHomeContinuousDiscoveryRuntime\(\);/);
 
   assert.match(dataSource, /signal: options\.signal/);
-  assert.match(dataSource, /signal: nextOptions\.signal/);
   const firstStateMutation = dataSource.indexOf("state.products = mergeUniqueProducts(state.products, receivedProducts)");
   const lookaheadRequest = dataSource.indexOf("const lookaheadPage = await state.adapter.loadProductsPage(lookaheadOptions)");
-  assert.ok(lookaheadRequest >= 0);
-  assert.ok(firstStateMutation > lookaheadRequest);
+  assert.equal(lookaheadRequest, -1);
+  assert.ok(firstStateMutation >= 0);
+  assert.match(dataSource, /const receivedProducts = incomingProducts;/);
   assert.match(dataSource, /const appendedItems = receivedProducts\.filter/);
   assert.match(dataSource, /productFeedPageInflightRequests: new Map\(\)/);
   assert.match(dataSource, /function getProductFeedPageRequestKey\(options = \{\}\)/);
