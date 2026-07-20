@@ -2244,7 +2244,7 @@ function isValidNationalId(value) {
 }
 
 function getAuthPasswordMinLength() {
-  return 6;
+  return 12;
 }
 
 function getUsersByPhoneNumber(phoneNumber) {
@@ -8565,6 +8565,8 @@ function completePublicAuthSuccessTransition() {
 function switchToLoginMode(prefillIdentifier = "") {
   isLogin = true;
   isPasswordRecovery = false;
+  passwordRecoveryStep = "request";
+  passwordRecoveryChallengeId = "";
   authSignupStep = 1;
   setNodeText(formTitle, "Login");
   setNodeText(authButton, "Login");
@@ -8580,6 +8582,8 @@ function switchToLoginMode(prefillIdentifier = "") {
 function openPasswordRecoveryMode(prefillIdentifier = "") {
   isLogin = false;
   isPasswordRecovery = true;
+  passwordRecoveryStep = "request";
+  passwordRecoveryChallengeId = "";
   authSignupStep = 1;
   if (prefillIdentifier) {
     usernameInput.value = prefillIdentifier;
@@ -11947,6 +11951,8 @@ let productIndex = new Map();
 
 let isLogin = true;
 let isPasswordRecovery = false;
+let passwordRecoveryStep = "request";
+let passwordRecoveryChallengeId = "";
 let selectedAuthRole = "seller";
 let currentUser = "";
 let selectedCategory = "all";
@@ -14140,6 +14146,7 @@ function hideAdminLoginScreen() {
 function syncAuthMode() {
   const isSecuritySignup = !isLogin && !isPasswordRecovery;
   const isRecoveryMode = isPasswordRecovery;
+  const isRecoveryVerification = isRecoveryMode && passwordRecoveryStep === "verify";
   const isSellerSignup = isSecuritySignup && selectedAuthRole === "seller";
   const isBuyerSignup = isSecuritySignup && selectedAuthRole === "buyer";
   authDetailsStep.style.display = "block";
@@ -14147,19 +14154,23 @@ function syncAuthMode() {
     authCategoryStep.style.display = "none";
   }
   authRoleSelector.style.display = isSecuritySignup ? "grid" : "none";
-  phoneNumberInput.style.display = isSecuritySignup || isRecoveryMode ? "block" : "none";
-  nationalIdInput.style.display = isRecoveryMode ? "block" : "none";
+  phoneNumberInput.style.display = isSecuritySignup ? "block" : "none";
+  nationalIdInput.style.display = isRecoveryVerification ? "block" : "none";
+  const passwordField = passwordInput.closest(".password-field");
+  if (passwordField) {
+    passwordField.style.display = isRecoveryMode && !isRecoveryVerification ? "none" : "";
+  }
   sellerIdentityDocumentTypeInput.style.display = "none";
   sellerVerificationUploads.style.display = "none";
   if (sellerIdentityDocumentNumberInput) {
     sellerIdentityDocumentNumberInput.style.display = "none";
     sellerIdentityDocumentNumberInput.required = false;
   }
-  confirmPasswordWrap.style.display = isSecuritySignup || isRecoveryMode ? "flex" : "none";
-  phoneNumberInput.required = isSecuritySignup || isRecoveryMode;
-  nationalIdInput.required = isRecoveryMode;
+  confirmPasswordWrap.style.display = isSecuritySignup || isRecoveryVerification ? "flex" : "none";
+  phoneNumberInput.required = isSecuritySignup;
+  nationalIdInput.required = isRecoveryVerification;
   sellerIdentityDocumentTypeInput.required = false;
-  confirmPasswordInput.required = isSecuritySignup || isRecoveryMode;
+  confirmPasswordInput.required = isSecuritySignup || isRecoveryVerification;
   if (authNextButton) {
     authNextButton.style.display = "none";
   }
@@ -14173,13 +14184,19 @@ function syncAuthMode() {
       ? "Username, full name, or phone number"
       : "Jina la duka";
   usernameInput.autocomplete = isLogin || isRecoveryMode ? "username" : "organization";
-  phoneNumberInput.autocomplete = isSecuritySignup || isRecoveryMode ? "tel" : "off";
-  nationalIdInput.autocomplete = "off";
-  passwordInput.autocomplete = isSecuritySignup || isRecoveryMode ? "new-password" : "current-password";
-  confirmPasswordInput.autocomplete = isSecuritySignup || isRecoveryMode ? "new-password" : "off";
+  usernameInput.readOnly = isRecoveryVerification;
+  phoneNumberInput.autocomplete = isSecuritySignup ? "tel" : "off";
+  nationalIdInput.autocomplete = isRecoveryVerification ? "one-time-code" : "off";
+  nationalIdInput.inputMode = isRecoveryVerification ? "numeric" : "text";
+  nationalIdInput.maxLength = isRecoveryVerification ? 6 : 40;
+  nationalIdInput.placeholder = isRecoveryVerification ? "Recovery code ya tarakimu 6" : "Namba ya kitambulisho cha taifa";
+  passwordInput.autocomplete = isSecuritySignup || isRecoveryVerification ? "new-password" : "current-password";
+  confirmPasswordInput.autocomplete = isSecuritySignup || isRecoveryVerification ? "new-password" : "off";
   sellerIdentityDocumentNumberInput?.setAttribute("autocomplete", "off");
   setNodeText(formTitle, isRecoveryMode ? "Recover Password" : (isLogin ? "Login" : "Sign Up"));
-  setNodeText(authButton, isRecoveryMode ? "Reset Password" : (isLogin ? "Login" : "Sign Up"));
+  setNodeText(authButton, isRecoveryMode
+    ? (isRecoveryVerification ? "Reset Password" : "Send Recovery Code")
+    : (isLogin ? "Login" : "Sign Up"));
   setNodeText(toggleLink, isRecoveryMode ? "Rudi kwenye login" : (isLogin ? "Tengeneza akaunti" : "Tayari una akaunti? Ingia"));
   if (forgotPasswordLink) {
     forgotPasswordLink.style.display = isLogin ? "block" : "none";
@@ -14189,7 +14206,9 @@ function syncAuthMode() {
     setNodeText(authCategoryNote, isLogin
       ? "Login tumia username, full name, au namba ya simu pamoja na password. Session itaendelea mpaka ulogout."
       : isRecoveryMode
-        ? "Weka identifier, namba ya simu, NIDA/ID number, na password mpya. Ukimaliza utaingia tena kwa password mpya."
+        ? (isRecoveryVerification
+          ? "Weka code iliyotumwa kwenye namba iliyothibitishwa na password mpya yenye herufi 12 au zaidi."
+          : "Weka username, full name, au namba ya simu. Tutatuma one-time code kwenye namba iliyothibitishwa bila kukuomba NIDA.")
         : "Signup sasa ni phone-first. Weka jina la duka, namba ya simu, na password. Verification ya ID itafanyika baadaye kupitia Profile > Get Verified.");
   }
 
@@ -14572,23 +14591,53 @@ authButton.addEventListener("click", async () => {
   }
 
   if (isPasswordRecovery) {
-    const phoneNumber = normalizePhoneNumber(phoneNumberInput.value);
-    const nationalId = normalizeNationalId(nationalIdInput.value);
+    if (passwordRecoveryStep === "request") {
+      if (!username) {
+        releasePublicAuthPendingState();
+        alert("Weka username, full name, au namba ya simu ya account.");
+        return;
+      }
+      try {
+        const recoveryRequest = await window.WingaDataLayer.requestPasswordRecovery({
+          identifier: username,
+          username
+        });
+        passwordRecoveryChallengeId = String(recoveryRequest?.challengeId || "");
+        if (!passwordRecoveryChallengeId) {
+          throw new Error("Recovery challenge haikupatikana. Jaribu tena.");
+        }
+        passwordRecoveryStep = "verify";
+        nationalIdInput.value = String(recoveryRequest?.previewCode || "");
+        syncAuthMode();
+        showInAppNotification({
+          title: "Recovery code requested",
+          body: recoveryRequest?.message || "Kama account inaruhusiwa, code imetumwa kwenye namba iliyothibitishwa.",
+          variant: "success"
+        });
+        nationalIdInput.focus();
+      } catch (error) {
+        showInAppNotification({
+          title: "Recovery unavailable",
+          body: getFriendlyAuthErrorMessage(error, "Imeshindikana kuomba recovery code kwa sasa."),
+          variant: "error"
+        });
+      } finally {
+        releasePublicAuthPendingState();
+      }
+      return;
+    }
+
+    const recoveryCode = String(nationalIdInput.value || "").replace(/\D/g, "");
     const passwordMinLength = getAuthPasswordMinLength();
 
-    if (!username || !phoneNumber || !nationalId || !password || !confirmPassword) {
+    if (!passwordRecoveryChallengeId || !recoveryCode || !password || !confirmPassword) {
       releasePublicAuthPendingState();
-      alert("Jaza identifier, namba ya simu, NIDA/ID number, password mpya, na confirm password.");
+      alert("Weka recovery code, password mpya, na confirm password.");
       return;
     }
-    if (!isValidPhoneNumber(phoneNumber)) {
+    if (!/^\d{6}$/.test(recoveryCode)) {
       releasePublicAuthPendingState();
-      alert("Weka namba ya simu sahihi.");
-      return;
-    }
-    if (!isValidNationalId(nationalId)) {
-      releasePublicAuthPendingState();
-      alert("Weka NIDA/ID number sahihi.");
+      alert("Recovery code inapaswa kuwa na tarakimu 6.");
       return;
     }
     if (password.length < passwordMinLength) {
@@ -14603,11 +14652,9 @@ authButton.addEventListener("click", async () => {
     }
 
     try {
-      await window.WingaDataLayer.recoverPassword({
-        identifier: username,
-        username,
-        phoneNumber,
-        nationalId,
+      await window.WingaDataLayer.completePasswordRecovery({
+        challengeId: passwordRecoveryChallengeId,
+        code: recoveryCode,
         newPassword: password
       });
       showInAppNotification({

@@ -14,7 +14,7 @@ async function createLoggedInPage(browser) {
   if (!session) {
     const api = await playwrightRequest.newContext({ baseURL: apiBaseUrl });
     const response = await api.post("/auth/login", {
-      data: { username: "buyer_seller", password: "Pass1234" }
+      data: { username: "buyer_seller", password: "Pass1234!Secure" }
     });
     expect(response.ok()).toBeTruthy();
     session = await response.json();

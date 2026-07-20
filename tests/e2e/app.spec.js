@@ -122,7 +122,7 @@ test("app load renders marketplace feed, hero, images, and category navigation",
 });
 
 test("vertical feed image tiles open the product detail correctly", async ({ browser }) => {
-  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234", {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure", {
     viewport: { width: 390, height: 844 },
     isMobile: true,
     hasTouch: true
@@ -139,7 +139,7 @@ test("vertical feed image tiles open the product detail correctly", async ({ bro
 });
 
 test("product detail main gallery stays visible and swipeable with natural media height", async ({ browser }) => {
-  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234", {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure", {
     viewport: { width: 390, height: 844 },
     isMobile: true,
     hasTouch: true
@@ -210,7 +210,7 @@ test("product detail main gallery stays visible and swipeable with natural media
 });
 
 test("desktop search handles broad intent and still opens the correct product detail", async ({ browser }) => {
-  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234");
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure");
   await page.goto("/");
   await expect(page.locator("#products-container .product-card").first()).toBeVisible({ timeout: 30000 });
 
@@ -227,7 +227,7 @@ test("desktop search handles broad intent and still opens the correct product de
 });
 
 test("desktop search stays aligned with category filtering for broad keywords", async ({ browser }) => {
-  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234");
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure");
   await page.goto("/");
   await expect(page.locator("#products-container .product-card").first()).toBeVisible({ timeout: 30000 });
 
@@ -248,7 +248,7 @@ test("broken-image products disappear from public feed but remain visible to the
   });
   await publicContext.close();
 
-  const { context, page: sellerPage } = await createLoggedInPage(browser, "market_seller", "Pass1234");
+  const { context, page: sellerPage } = await createLoggedInPage(browser, "market_seller", "Pass1234!Secure");
   await sellerPage.goto("/");
   await sellerPage.locator("#header-user-trigger").click();
   await sellerPage.locator("[data-header-menu-action='profile']").click();
@@ -257,7 +257,7 @@ test("broken-image products disappear from public feed but remain visible to the
 });
 
 test("mobile category trigger opens sheet, drills into subcategories, and closes cleanly", async ({ browser }) => {
-  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234", {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure", {
     viewport: { width: 390, height: 844 },
     isMobile: true
   });
@@ -295,7 +295,7 @@ test("mobile category trigger opens sheet, drills into subcategories, and closes
 });
 
 test("mobile search handles broad intent without breaking home flow", async ({ browser }) => {
-  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234", {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure", {
     viewport: { width: 390, height: 844 },
     isMobile: true
   });
@@ -314,7 +314,7 @@ test("mobile search handles broad intent without breaking home flow", async ({ b
 });
 
 test("closed mobile category sheet does not sit on top of the logged-in home feed", async ({ browser }) => {
-  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234", {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure", {
     viewport: { width: 390, height: 844 },
     isMobile: true
   });
@@ -363,8 +363,8 @@ test("seller signup completes immediately after account creation without hanging
 
   await page.locator("#username").fill(username);
   await page.locator("#phone-number").fill(phoneNumber);
-  await page.locator("#password").fill("Pass1234");
-  await page.locator("#confirm-password").fill("Pass1234");
+  await page.locator("#password").fill("Pass1234!Secure");
+  await page.locator("#confirm-password").fill("Pass1234!Secure");
 
   const signupResponsePromise = page.waitForResponse((response) =>
     response.url().includes("/auth/signup") && response.request().method() === "POST"
@@ -383,8 +383,62 @@ test("seller signup completes immediately after account creation without hanging
   await context.close();
 });
 
+test("account recovery uses a one-time code and invalidates the old password", async ({ browser }) => {
+  const { context, page } = await createAnonymousPage(browser);
+  await page.goto("/");
+
+  const uniqueSuffix = `${Date.now()}`.slice(-8);
+  const username = `recover_${uniqueSuffix}`;
+  const phoneNumber = `2556${uniqueSuffix}`;
+  const originalPassword = "Pass1234!Secure";
+  const recoveredPassword = "Recovered1234!Secure";
+
+  await page.locator("#header-signup-button").click();
+  await page.locator("#auth-role-buyer").click();
+  await page.locator("#username").fill(username);
+  await page.locator("#phone-number").fill(phoneNumber);
+  await page.locator("#password").fill(originalPassword);
+  await page.locator("#confirm-password").fill(originalPassword);
+  await page.locator("#auth-button").click();
+  await expect(page.locator("#header-user-trigger")).toBeVisible({ timeout: 15000 });
+
+  await page.keyboard.press("Escape");
+  await openHeaderMenuAction(page, "logout");
+  await expect(page.locator("#header-login-button")).toBeVisible({ timeout: 10000 });
+
+  await page.locator("#header-login-button").click();
+  await page.locator("#username").fill(username);
+  await page.locator("#forgot-password-link").click();
+  await expect(page.locator("#auth-button")).toHaveText("Send Recovery Code");
+  await expect(page.locator("#phone-number")).toBeHidden();
+  await expect(page.locator("#national-id")).toBeHidden();
+
+  await page.locator("#auth-button").click();
+  await expect(page.locator("#auth-button")).toHaveText("Reset Password");
+  await expect(page.locator("#national-id")).toBeVisible();
+  await expect(page.locator("#national-id")).toHaveValue(/^\d{6}$/);
+  await page.locator("#password").fill(recoveredPassword);
+  await page.locator("#confirm-password").fill(recoveredPassword);
+  await page.locator("#auth-button").click();
+  await expect(page.locator("#auth-button")).toHaveText("Login");
+
+  await page.locator("#password").fill(originalPassword);
+  const oldPasswordResponse = page.waitForResponse((response) =>
+    response.url().includes("/auth/login") && response.request().method() === "POST"
+  );
+  await page.locator("#auth-button").click();
+  expect((await oldPasswordResponse).status()).toBe(401);
+  await expect(page.locator("#auth-container")).toBeVisible();
+
+  await page.locator("#password").fill(recoveredPassword);
+  await page.locator("#auth-button").click();
+  await expect(page.locator("#header-user-trigger")).toBeVisible({ timeout: 15000 });
+
+  await context.close();
+});
+
 test("logged in seller-buyer can open detail and open chat", async ({ browser }) => {
-  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234");
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure");
   await page.goto("/");
 
   await expect(page.locator("#products-container [data-request-product]")).toHaveCount(0);
@@ -419,7 +473,7 @@ test("logged in seller-buyer can open detail and open chat", async ({ browser })
 });
 
 test("mobile profile messages use a clear conversation list and detail flow", async ({ browser }) => {
-  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234", {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure", {
     viewport: { width: 390, height: 844 },
     isMobile: true,
     hasTouch: true
@@ -455,7 +509,7 @@ test("mobile profile messages use a clear conversation list and detail flow", as
 });
 
 test("profile inbox groups repeated messages from the same seller into one thread", async ({ browser }) => {
-  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234");
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure");
   const firstThreadMessage = `Thread test first ${Date.now()}`;
   const secondThreadMessage = `Thread test second ${Date.now()}`;
 
@@ -502,7 +556,7 @@ test("profile inbox groups repeated messages from the same seller into one threa
 });
 
 test("product cards no longer render request action after reload for seller-buyer sessions", async ({ browser }) => {
-  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234");
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure");
   await page.goto("/");
 
   await expect(page.locator("#products-container [data-request-product]")).toHaveCount(0);
@@ -519,7 +573,7 @@ test("product cards no longer render request action after reload for seller-buye
 });
 
 test("request box stays empty when the request action is removed from cards", async ({ browser }) => {
-  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234");
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure");
   await page.goto("/");
 
   await expect(page.locator("#products-container [data-request-product]")).toHaveCount(0);
@@ -532,7 +586,7 @@ test("request box stays empty when the request action is removed from cards", as
 });
 
 test("buyer-only sessions do not show the bottom footer nav and can still reach profile from the header menu", async ({ browser }) => {
-  const { context, page } = await createLoggedInPage(browser, "buyer_only", "Pass1234");
+  const { context, page } = await createLoggedInPage(browser, "buyer_only", "Pass1234!Secure");
   await page.goto("/");
 
   await expect(page.locator("#bottom-nav")).not.toBeVisible();
@@ -549,7 +603,7 @@ test("buyer-only sessions do not show the bottom footer nav and can still reach 
 });
 
 test("buyer-only profile photo upload stays stable and updates the profile avatar", async ({ browser }) => {
-  const { context, page } = await createLoggedInPage(browser, "buyer_only", "Pass1234");
+  const { context, page } = await createLoggedInPage(browser, "buyer_only", "Pass1234!Secure");
   const pageErrors = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
 
@@ -573,7 +627,7 @@ test("buyer-only profile photo upload stays stable and updates the profile avata
 
 test("seller can change and verify whatsapp number from profile and upload uses the new verified number", async ({ browser }) => {
   const nextWhatsappNumber = `2557${String(Date.now()).slice(-8)}`;
-  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234");
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure");
   await page.goto("/");
 
   await openHeaderMenuAction(page, "profile");
@@ -608,7 +662,7 @@ test("seller can change and verify whatsapp number from profile and upload uses 
 });
 
 test("seller-capable home feed hides the normal footer nav and shows the floating post action", async ({ browser }) => {
-  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234");
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure");
   await page.goto("/");
 
   await expect(page.locator("#bottom-nav")).not.toBeVisible();
@@ -629,7 +683,7 @@ test("seller-capable home feed hides the normal footer nav and shows the floatin
 });
 
 test("seller home still shows products from other sellers in the marketplace feed", async ({ browser }) => {
-  const { context, page } = await createLoggedInPage(browser, "market_seller", "Pass1234");
+  const { context, page } = await createLoggedInPage(browser, "market_seller", "Pass1234!Secure");
   await page.goto("/");
 
   await expect(page.locator("#products-container .product-card", { hasText: "Bag Travel Pro" }).first()).toBeVisible();
@@ -638,7 +692,7 @@ test("seller home still shows products from other sellers in the marketplace fee
 });
 
 test("logged in sellers can scroll the home feed and still see marketplace rows", async ({ browser }) => {
-  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234", {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure", {
     viewport: { width: 390, height: 844 },
     isMobile: true
   });
@@ -656,7 +710,7 @@ test("logged in sellers can scroll the home feed and still see marketplace rows"
 });
 
 test("seller can post without price and sees negotiation fallback in product management", async ({ browser }) => {
-  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234");
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure");
   await page.goto("/");
 
   const postResponsePromise = page.waitForResponse((response) =>
@@ -692,7 +746,7 @@ test("seller can post without price and sees negotiation fallback in product man
 });
 
 test("session restore keeps seller-as-buyer browsing and product-detail continuation stable", async ({ browser }) => {
-  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234");
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure");
   await page.goto("/");
   await page.reload();
 
@@ -747,7 +801,7 @@ test("stale session restore falls back to auth instead of hanging the app boot",
 });
 
 test("refresh while authenticated keeps in-app header and does not show public auth buttons", async ({ browser }) => {
-  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234");
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure");
   await page.goto("/");
 
   await page.reload();
@@ -760,7 +814,7 @@ test("refresh while authenticated keeps in-app header and does not show public a
 });
 
 test("browser back from the first product detail returns to the in-app feed without leaving the app shell", async ({ browser }) => {
-  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234");
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure");
   await page.goto("/");
 
   await page.locator("#products-container .product-card").first().click();
@@ -775,7 +829,7 @@ test("browser back from the first product detail returns to the in-app feed with
 });
 
 test("browser back follows product-detail history instead of dumping users home", async ({ browser }) => {
-  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234");
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure");
   await page.goto("/");
 
   await page.locator("#products-container .product-card").first().click();
@@ -797,7 +851,7 @@ test("browser back follows product-detail history instead of dumping users home"
 });
 
 test("floating home action appears only for deeper product browsing and returns users home quickly", async ({ browser }) => {
-  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234");
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure");
   await page.goto("/");
 
   await page.locator("#products-container .product-card").first().click();
@@ -816,7 +870,7 @@ test("floating home action appears only for deeper product browsing and returns 
 });
 
 test("desktop product-detail home clears search context and returns to a clean home page", async ({ browser }) => {
-  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234");
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure");
   await page.goto("/");
 
   await page.locator("#search-input").fill("Sneaker");
@@ -845,7 +899,7 @@ test("desktop product-detail home clears search context and returns to a clean h
 });
 
 test("mobile product-detail home clears search context and returns to a clean home page", async ({ browser }) => {
-  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234", {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure", {
     viewport: { width: 390, height: 844 }
   });
   await page.goto("/");
@@ -883,7 +937,7 @@ test("mobile product-detail home clears search context and returns to a clean ho
 });
 
 test("mobile header hides on downward scroll, reappears on upward scroll, and stays visible near the top", async ({ browser }) => {
-  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234", {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure", {
     viewport: { width: 390, height: 844 }
   });
   await page.goto("/");
@@ -905,7 +959,7 @@ test("mobile header hides on downward scroll, reappears on upward scroll, and st
 });
 
 test("mobile header auto-hide does not reflow the feed container while users scroll", async ({ browser }) => {
-  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234", {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure", {
     viewport: { width: 390, height: 844 }
   });
   await page.goto("/");
@@ -928,7 +982,7 @@ test("mobile header auto-hide does not reflow the feed container while users scr
 });
 
 test("desktop header remains stable and does not enter the mobile auto-hide state", async ({ browser }) => {
-  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234", {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure", {
     viewport: { width: 1280, height: 900 }
   });
   await page.goto("/");
@@ -941,7 +995,7 @@ test("desktop header remains stable and does not enter the mobile auto-hide stat
 });
 
 test("vertical page scroll still works while the pointer is over horizontal media", async ({ browser }) => {
-  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234", {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure", {
     viewport: { width: 1280, height: 900 }
   });
   await page.goto("/");
@@ -960,7 +1014,7 @@ test("vertical page scroll still works while the pointer is over horizontal medi
 });
 
 test("home feed galleries still move horizontally when users drag across product cards", async ({ browser }) => {
-  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234", {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure", {
     viewport: { width: 390, height: 844 },
     isMobile: true,
     hasTouch: true
@@ -978,7 +1032,7 @@ test("home feed galleries still move horizontally when users drag across product
 });
 
 test("product detail continuation feed galleries keep the same horizontal swipe behavior", async ({ browser }) => {
-  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234", {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure", {
     viewport: { width: 390, height: 844 },
     isMobile: true,
     hasTouch: true
@@ -1009,7 +1063,7 @@ test("product detail continuation feed galleries keep the same horizontal swipe 
 });
 
 test("mobile home feed galleries respond to touch-sized horizontal drags", async ({ browser }) => {
-  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234", {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure", {
     viewport: { width: 390, height: 844 },
     isMobile: true
   });
@@ -1030,7 +1084,7 @@ test("mobile home feed galleries respond to touch-sized horizontal drags", async
 });
 
 test("seller sees message, WhatsApp, and repost actions on other sellers products but not on their own products", async ({ browser }) => {
-  const { context, page } = await createLoggedInPage(browser, "market_seller", "Pass1234");
+  const { context, page } = await createLoggedInPage(browser, "market_seller", "Pass1234!Secure");
   await page.goto("/");
 
   const ownCard = page.locator("#products-container .product-card").filter({ hasText: "Shirt Premium" }).first();
@@ -1055,7 +1109,7 @@ test("seller sees message, WhatsApp, and repost actions on other sellers product
 });
 
 test("marketplace cards keep verified copy out of compact card surfaces", async ({ browser }) => {
-  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234");
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure");
   await page.goto("/");
 
   await expect(page.locator("#market-showcase")).not.toContainText("Muuzaji Aliyethibitishwa");
@@ -1065,7 +1119,7 @@ test("marketplace cards keep verified copy out of compact card surfaces", async 
 });
 
 test("signed-in home keeps lower rows visible without the hero", async ({ browser }) => {
-  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234");
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure");
   await page.goto("/");
 
   await expect(page.locator(".showcase-inline, [data-recommendation-type]").first()).toBeVisible();
@@ -1074,7 +1128,7 @@ test("signed-in home keeps lower rows visible without the hero", async ({ browse
 });
 
 test("home feed keeps loading continuous discovery sections before users hit a hard end", async ({ browser }) => {
-  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234");
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure");
   await page.goto("/");
 
   await expect(page.locator("[data-continuous-discovery-anchor='home']")).toBeVisible();
@@ -1238,7 +1292,7 @@ test("installed PWA home media ignores legacy standalone padding", async ({ brow
 });
 
 test("seller-owned marketplace cards expose the three-dots delete menu on home", async ({ browser }) => {
-  const { context, page } = await createLoggedInPage(browser, "market_seller", "Pass1234");
+  const { context, page } = await createLoggedInPage(browser, "market_seller", "Pass1234!Secure");
   await page.goto("/");
 
   const ownCard = page.locator("#products-container .product-card").filter({ hasText: "Shirt Premium" }).first();
@@ -1257,7 +1311,7 @@ test("seller-owned marketplace cards expose the three-dots delete menu on home",
 });
 
 test("seller can delete an owned marketplace card from home via the three-dots menu", async ({ browser }) => {
-  const { context, page } = await createLoggedInPage(browser, "market_seller", "Pass1234");
+  const { context, page } = await createLoggedInPage(browser, "market_seller", "Pass1234!Secure");
   await page.goto("/");
 
   page.once("dialog", (dialog) => dialog.accept());
@@ -1275,7 +1329,7 @@ test("seller can delete an owned marketplace card from home via the three-dots m
 });
 
 test("recommendation cards keep the buyer action layout compact and consistent", async ({ browser }) => {
-  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234");
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure");
   await page.goto("/");
 
   const recommendationCard = page.locator("[data-recommendation-type] .product-card").first();
@@ -1293,7 +1347,7 @@ test("recommendation cards keep the buyer action layout compact and consistent",
 });
 
 test("buyer-side card buttons on the home feed keep equal-width message and WhatsApp actions", async ({ browser }) => {
-  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234");
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure");
   await page.goto("/");
   await expect(page.locator("#products-container .product-card").first()).toBeVisible({ timeout: 30000 });
 
@@ -1315,7 +1369,7 @@ test("buyer-side card buttons on the home feed keep equal-width message and What
 });
 
 test("buyer-side action buttons stay compact and consistent inside deeper product continuation cards", async ({ browser }) => {
-  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234");
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure");
   await page.goto("/");
   await expect(page.locator("#products-container .product-card").first()).toBeVisible({ timeout: 30000 });
 
@@ -1345,7 +1399,7 @@ test("buyer-side action buttons stay compact and consistent inside deeper produc
 });
 
 test("seller profile and product detail show clean trust indicators", async ({ browser }) => {
-  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234");
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure");
   await page.goto("/");
 
   await page.locator("#header-user-trigger").click();
@@ -1367,7 +1421,7 @@ test("seller profile and product detail show clean trust indicators", async ({ b
 });
 
 test("buyer can report a product from the trust panel without breaking browsing flow", async ({ browser }) => {
-  const { context, page } = await createLoggedInPage(browser, "buyer_only", "Pass1234");
+  const { context, page } = await createLoggedInPage(browser, "buyer_only", "Pass1234!Secure");
   await page.goto("/");
   await expect(page.locator("#products-container .product-card").first()).toBeVisible({ timeout: 30000 });
 
@@ -1388,7 +1442,7 @@ test("buyer can report a product from the trust panel without breaking browsing 
 });
 
 test("product detail keeps same-seller continuation and broader discovery surfaces available", async ({ browser }) => {
-  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234");
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure");
   await page.goto("/");
   await expect(page.locator("#products-container .product-card").first()).toBeVisible({ timeout: 30000 });
 
@@ -1409,7 +1463,7 @@ test("product detail keeps same-seller continuation and broader discovery surfac
 });
 
 test("product detail continuation keeps deeper feed cards stable while scrolling inside the modal", async ({ browser }) => {
-  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234", {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure", {
     viewport: { width: 390, height: 844 },
     isMobile: true,
     hasTouch: true
@@ -1449,7 +1503,7 @@ test("product detail continuation keeps deeper feed cards stable while scrolling
 });
 
 test("product detail continuation rows use the same feed-stack architecture as home rows", async ({ browser }) => {
-  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234");
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure");
   await page.goto("/");
   await expect(page.locator("#products-container .product-card").first()).toBeVisible({ timeout: 30000 });
 
@@ -1469,7 +1523,7 @@ test("product detail continuation rows use the same feed-stack architecture as h
 });
 
 test("product detail keeps loading deeper discovery sections while users browse inside it", async ({ browser }) => {
-  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234");
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure");
   await page.goto("/");
   await expect(page.locator("#products-container .product-card").first()).toBeVisible({ timeout: 30000 });
 
@@ -1485,7 +1539,7 @@ test("product detail keeps loading deeper discovery sections while users browse 
 });
 
 test("home feed multi-image posts preserve every swipe slide and open the full gallery", async ({ browser }) => {
-  const { context, page } = await createLoggedInPage(browser, "buyer_only", "Pass1234");
+  const { context, page } = await createLoggedInPage(browser, "buyer_only", "Pass1234!Secure");
   await page.goto("/");
 
   const multiImageCard = page.locator("#products-container .product-card", { hasText: "Sneaker Classic" }).first();
@@ -1503,7 +1557,7 @@ test("home feed multi-image posts preserve every swipe slide and open the full g
 });
 
 test("product detail continuation feed cards keep visible media after feed-fit hardening", async ({ browser }) => {
-  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234", {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure", {
     viewport: { width: 390, height: 844 },
     isMobile: true,
     hasTouch: true
@@ -1594,7 +1648,7 @@ test("tampered cached admin session is not trusted before backend restore comple
 });
 
 test("logged in marketplace users are blocked from the admin route and returned safely home", async ({ browser }) => {
-  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234");
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure");
   await page.goto("/#/admin-login");
 
   await expect(page.locator("#admin-login-container")).not.toBeVisible();

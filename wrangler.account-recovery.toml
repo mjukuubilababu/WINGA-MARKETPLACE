@@ -1,0 +1,28 @@
+"$schema" = "./node_modules/wrangler/config-schema.json"
+name = "winga-account-recovery-relay"
+main = "./cloudflare/account-recovery-relay.js"
+compatibility_date = "2026-07-20"
+workers_dev = true
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+[vars]
+APP_NAME = "Winga"
+
+[[kv_namespaces]]
+binding = "ACCOUNT_RECOVERY_DEDUPE"
+id = "a74d2540844e42a485360c80ed1d3057"
+
+[[queues.producers]]
+queue = "winga-account-recovery-events"
+binding = "ACCOUNT_RECOVERY_QUEUE"
+
+[[queues.consumers]]
+queue = "winga-account-recovery-events"
+max_batch_size = 10
+max_batch_timeout = 5
+max_retries = 8
+retry_delay = 30
+dead_letter_queue = "winga-account-recovery-events-dlq"

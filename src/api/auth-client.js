@@ -114,9 +114,20 @@
       });
     }
 
-    async function recoverPassword(payload) {
+    async function requestPasswordRecovery(payload) {
       requireFetcher();
-      return authFetchJson(`${baseUrl}/auth/recover-password`, {
+      return authFetchJson(`${baseUrl}/auth/recovery/request`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      }, {
+        retries: 0
+      });
+    }
+
+    async function completePasswordRecovery(payload) {
+      requireFetcher();
+      return authFetchJson(`${baseUrl}/auth/recovery/complete`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
@@ -224,7 +235,8 @@
       restoreSession,
       signup,
       login,
-      recoverPassword,
+      requestPasswordRecovery,
+      completePasswordRecovery,
       adminLogin,
       updateUserProfile,
       upgradeBuyerToSeller,

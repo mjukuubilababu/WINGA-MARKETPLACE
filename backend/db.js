@@ -2750,6 +2750,118 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
     });
   }
 
+  async function createPasswordRecoveryChallenge(challenge = {}) {
+    return withTransaction(async (client) => {
+      await client.query(
+        `UPDATE password_recovery_challenges
+         SET consumed_at = NOW(), delivery_status = CASE
+           WHEN delivery_status = 'pending' THEN 'superseded'
+           ELSE delivery_status
+         END
+         WHERE username = $1 AND consumed_at IS NULL`,
+        [challenge.username]
+      );
+      await client.query(
+        `INSERT INTO password_recovery_challenges (
+           challenge_id, username, destination_hash, code_hash, requested_ip_hash,
+           delivery_status, attempts, max_attempts, expires_at, created_at
+         ) VALUES ($1,$2,$3,$4,$5,$6,0,$7,$8,$9)`,
+        [
+          challenge.challengeId,
+          challenge.username,
+          challenge.destinationHash,
+          challenge.codeHash,
+          challenge.requestedIpHash || "",
+          challenge.deliveryStatus || "pending",
+          Math.max(1, Number(challenge.maxAttempts || 5)),
+          challenge.expiresAt,
+          challenge.createdAt || new Date().toISOString()
+        ]
+      );
+      await client.query(
+        "DELETE FROM password_recovery_challenges WHERE created_at < NOW() - INTERVAL '7 days'"
+      );
+      return { created: true };
+    });
+  }
+
+  async function completePasswordRecoveryChallenge(challengeId, codeHash, passwordHash, options = {}) {
+    return withTransaction(async (client) => {
+      const lookup = await client.query(
+        `SELECT challenge_id AS "challengeId", username, code_hash AS "codeHash",
+                attempts, max_attempts AS "maxAttempts", expires_at AS "expiresAt",
+                consumed_at AS "consumedAt"
+         FROM password_recovery_challenges
+         WHERE challenge_id = $1
+         FOR UPDATE`,
+        [challengeId]
+      );
+      const challenge = lookup.rows?.[0];
+      if (!challenge || challenge.consumedAt) {
+        return { completed: false, code: "invalid_or_consumed", attemptsRemaining: 0 };
+      }
+
+      const expiresAt = new Date(challenge.expiresAt).getTime();
+      const attempts = Math.max(0, Number(challenge.attempts || 0));
+      const maxAttempts = Math.max(1, Number(challenge.maxAttempts || 5));
+      if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+        await client.query(
+          "UPDATE password_recovery_challenges SET consumed_at=NOW(), delivery_status='expired' WHERE challenge_id=$1",
+          [challengeId]
+        );
+        return { completed: false, code: "expired", attemptsRemaining: 0 };
+      }
+      if (attempts >= maxAttempts) {
+        await client.query(
+          "UPDATE password_recovery_challenges SET consumed_at=NOW(), delivery_status='locked' WHERE challenge_id=$1",
+          [challengeId]
+        );
+        return { completed: false, code: "attempts_exhausted", attemptsRemaining: 0 };
+      }
+      if (String(challenge.codeHash || "") !== String(codeHash || "")) {
+        const nextAttempts = attempts + 1;
+        await client.query(
+          `UPDATE password_recovery_challenges
+           SET attempts=$2,
+               consumed_at=CASE WHEN $2 >= max_attempts THEN NOW() ELSE consumed_at END,
+               delivery_status=CASE WHEN $2 >= max_attempts THEN 'locked' ELSE delivery_status END
+           WHERE challenge_id=$1`,
+          [challengeId, nextAttempts]
+        );
+        return {
+          completed: false,
+          code: nextAttempts >= maxAttempts ? "attempts_exhausted" : "invalid_code",
+          attemptsRemaining: Math.max(0, maxAttempts - nextAttempts)
+        };
+      }
+
+      const userUpdate = await client.query(
+        `UPDATE users
+         SET password=$2, updated_at=NOW(), row_version=row_version+1
+         WHERE username=$1 AND role NOT IN ('admin','moderator')
+         RETURNING username`,
+        [challenge.username, passwordHash]
+      );
+      if (!userUpdate.rowCount) {
+        await client.query(
+          "UPDATE password_recovery_challenges SET consumed_at=NOW(), delivery_status='rejected' WHERE challenge_id=$1",
+          [challengeId]
+        );
+        return { completed: false, code: "account_unavailable", attemptsRemaining: 0 };
+      }
+
+      await client.query("DELETE FROM sessions WHERE username=$1", [challenge.username]);
+      await client.query(
+        "UPDATE password_recovery_challenges SET consumed_at=NOW(), delivery_status='consumed' WHERE challenge_id=$1",
+        [challengeId]
+      );
+      await insertNotificationRow(client, options.notification
+        ? { ...options.notification, userId: challenge.username }
+        : null);
+      return { completed: true, code: "", username: challenge.username, attemptsRemaining: maxAttempts - attempts };
+    });
+  }
+
   async function runBootMaintenance(options = {}) {
     return withTransaction(async (client) => {
       await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", ["winga-boot-maintenance"]);
@@ -4128,6 +4240,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
     markConversationRead,
     markNotificationRead,
     resetUserPassword,
+    createPasswordRecoveryChallenge,
+    completePasswordRecoveryChallenge,
     runBootMaintenance,
     updateUserRecord,
     saveAppSettings,

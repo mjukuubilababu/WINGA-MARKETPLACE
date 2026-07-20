@@ -9,6 +9,8 @@
 - `TRUST_PROXY_HEADERS=true` only when the backend is actually behind a trusted reverse proxy that sets `X-Forwarded-For` correctly
 - `CSRF_SECRET` must be a high-entropy secret with at least 32 characters and must be separate from admin, session, and webhook secrets
 - `PAYMENT_WEBHOOK_SECRET` should be configured for signed payment callbacks
+- `ACCOUNT_RECOVERY_SECRET` must be a separate high-entropy secret with at least 32 characters
+- `ACCOUNT_RECOVERY_DELIVERY_WEBHOOK_URL` and `ACCOUNT_RECOVERY_DELIVERY_WEBHOOK_SECRET` must point to the approved SMS delivery adapter; production never returns OTP codes to the browser
 - `ALLOW_LOCAL_DATA_STORE_IN_PRODUCTION=false`
 - `ALLOW_DEFAULT_ORIGIN_FALLBACK=false`
 - `ALLOW_UNVERIFIED_MANUAL_PAYMENTS=false` unless you are intentionally operating a manual-payment workflow and have accepted that risk
@@ -26,6 +28,7 @@
 - Production startup fails if default staff seed passwords are configured.
 - Production startup fails if `CSRF_SECRET` is missing or shorter than 32 characters.
 - Production startup fails if payment-webhook signing is not configured and unverified manual payment capture was not explicitly allowed.
+- Account recovery fails closed with HTTP 503 until its signing secret and delivery webhook are configured.
 - Payment submission through `/api/orders` should remain `pending` until a verified payment callback or explicit reconciliation marks it paid.
 
 ## Operational endpoints to verify

@@ -43,6 +43,11 @@ const STEP_UP_CONTEXT_CHANGE_THRESHOLD = 2;
 const SESSION_MFA_POLICY = String(process.env.SESSION_MFA_POLICY || "optional").trim().toLowerCase();
 const SESSION_SECURITY_NOTIFICATION_WEBHOOK_URL = String(process.env.SESSION_SECURITY_NOTIFICATION_WEBHOOK_URL || "").trim();
 const SESSION_SECURITY_NOTIFICATION_WEBHOOK_SECRET = String(process.env.SESSION_SECURITY_NOTIFICATION_WEBHOOK_SECRET || "").trim();
+const ACCOUNT_RECOVERY_SECRET = String(process.env.ACCOUNT_RECOVERY_SECRET || "").trim();
+const ACCOUNT_RECOVERY_DELIVERY_WEBHOOK_URL = String(process.env.ACCOUNT_RECOVERY_DELIVERY_WEBHOOK_URL || "").trim();
+const ACCOUNT_RECOVERY_DELIVERY_WEBHOOK_SECRET = String(process.env.ACCOUNT_RECOVERY_DELIVERY_WEBHOOK_SECRET || "").trim();
+const ACCOUNT_RECOVERY_CODE_TTL_MS = 10 * 60 * 1000;
+const ACCOUNT_RECOVERY_MAX_ATTEMPTS = 5;
 const ADMIN_SEED_USERNAME = String(process.env.ADMIN_SEED_USERNAME || "admin").trim();
 const ADMIN_SEED_FULL_NAME = String(process.env.ADMIN_SEED_FULL_NAME || "WILHARD MMBANDO").trim();
 const ADMIN_SEED_PASSWORD = process.env.ADMIN_SEED_PASSWORD || "";
@@ -170,14 +175,16 @@ const MAX_BACKUP_FILES = 5;
 const RATE_LIMIT_WINDOW_MS = 60 * 1000;
 const RATE_LIMIT_MAX_BUCKETS = 5000;
 const BUYER_CANCEL_WINDOW_MS = 48 * 60 * 60 * 1000;
-const MIN_PASSWORD_LENGTH = 6;
+const MIN_PASSWORD_LENGTH = 12;
 const WHATSAPP_VERIFICATION_CODE_TTL_MS = 10 * 60 * 1000;
 const WHATSAPP_VERIFICATION_PREVIEW_MODE = NODE_ENV !== "production";
 const RATE_LIMIT_RULES = {
   "/api/auth/login": { limit: 10, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/auth/admin-login": { limit: 8, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/auth/signup": { limit: 6, windowMs: RATE_LIMIT_WINDOW_MS },
-  "/api/auth/recover-password": { limit: 6, windowMs: RATE_LIMIT_WINDOW_MS },
+  "/api/auth/recovery/request": { limit: 4, windowMs: 15 * 60 * 1000 },
+  "/api/auth/recovery/complete": { limit: 8, windowMs: 15 * 60 * 1000 },
+  "/api/auth/recover-password": { limit: 2, windowMs: 15 * 60 * 1000 },
   "/api/products": { limit: 30, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/messages": { limit: 24, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/messages/read": { limit: 40, windowMs: RATE_LIMIT_WINDOW_MS },
@@ -270,6 +277,12 @@ function validateRuntimeConfiguration() {
       errors.push("CSRF_SECRET is required in production. Set a high-entropy secret that is separate from admin, session, and webhook secrets.");
     } else if (RAW_CSRF_SECRET.length < 32) {
       errors.push("CSRF_SECRET must be at least 32 characters in production.");
+    }
+    if (!ACCOUNT_RECOVERY_SECRET || ACCOUNT_RECOVERY_SECRET.length < 32) {
+      warnings.push("Account recovery is disabled until ACCOUNT_RECOVERY_SECRET is configured with at least 32 characters.");
+    }
+    if (!ACCOUNT_RECOVERY_DELIVERY_WEBHOOK_URL || !ACCOUNT_RECOVERY_DELIVERY_WEBHOOK_SECRET) {
+      warnings.push("Account recovery delivery is disabled until its webhook URL and secret are configured.");
     }
     if (String(process.env.AUTH_COOKIE_SAMESITE || "").trim().toLowerCase() === "none" && !TRUST_PROXY_HEADERS) {
       warnings.push("AUTH_COOKIE_SAMESITE=None is enabled. Only use this for an intentional cross-site frontend/API deployment with HTTPS.");
@@ -724,6 +737,9 @@ function readLegacyStore() {
   const demandEvents = Array.isArray(parsed.demandEvents) ? parsed.demandEvents : [];
   const productDemandSummaries = Array.isArray(parsed.productDemandSummaries) ? parsed.productDemandSummaries : [];
   const searchDemandEvents = Array.isArray(parsed.searchDemandEvents) ? parsed.searchDemandEvents : [];
+  const passwordRecoveryChallenges = Array.isArray(parsed.passwordRecoveryChallenges)
+    ? parsed.passwordRecoveryChallenges.slice(-5000)
+    : [];
   const searchDemandSummary = parsed.searchDemandSummary && typeof parsed.searchDemandSummary === "object"
     ? parsed.searchDemandSummary
     : null;
@@ -743,6 +759,7 @@ function readLegacyStore() {
     productDemandSummaries,
     searchDemandEvents,
     searchDemandSummary,
+    passwordRecoveryChallenges,
     settings: normalizeAppSettings(parsed.settings || DEFAULT_APP_SETTINGS),
     sessions: sessions.map((session) => {
       const sessionUser = users.find((user) => user.username === session.username);
@@ -2555,6 +2572,76 @@ function dispatchSessionSecurityEvent(eventPayload = {}) {
   }, 0);
 }
 
+function getAccountRecoverySigningSecret() {
+  if (ACCOUNT_RECOVERY_SECRET) {
+    return ACCOUNT_RECOVERY_SECRET;
+  }
+  return NODE_ENV === "production"
+    ? ""
+    : crypto.createHash("sha256").update(CSRF_SECRET || DEVELOPMENT_CSRF_SECRET).digest("hex");
+}
+
+function isAccountRecoveryReady() {
+  const hasSigningSecret = getAccountRecoverySigningSecret().length >= 32;
+  if (NODE_ENV !== "production") {
+    return hasSigningSecret;
+  }
+  return hasSigningSecret
+    && Boolean(ACCOUNT_RECOVERY_DELIVERY_WEBHOOK_URL)
+    && Boolean(ACCOUNT_RECOVERY_DELIVERY_WEBHOOK_SECRET);
+}
+
+function createAccountRecoveryCodeHash(challengeId, code) {
+  const secret = getAccountRecoverySigningSecret();
+  if (!secret) {
+    return "";
+  }
+  return crypto.createHmac("sha256", secret)
+    .update(`${String(challengeId || "")}:${String(code || "")}`)
+    .digest("hex");
+}
+
+async function dispatchAccountRecoveryCode({ challengeId, username, destination, code, expiresAt, suppress = false }) {
+  if (NODE_ENV !== "production" && !ACCOUNT_RECOVERY_DELIVERY_WEBHOOK_URL) {
+    return { delivered: true, mode: "preview" };
+  }
+  if (!ACCOUNT_RECOVERY_DELIVERY_WEBHOOK_URL || !ACCOUNT_RECOVERY_DELIVERY_WEBHOOK_SECRET || typeof fetch !== "function") {
+    return { delivered: false, mode: "unavailable" };
+  }
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
+  try {
+    const response = await fetch(ACCOUNT_RECOVERY_DELIVERY_WEBHOOK_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Winga-Recovery-Secret": ACCOUNT_RECOVERY_DELIVERY_WEBHOOK_SECRET,
+        "User-Agent": "winga-account-recovery"
+      },
+      body: JSON.stringify({
+        version: "account-recovery-code-v1",
+        challengeId,
+        userId: username || "privacy-envelope",
+        destination: suppress ? "00000000" : destination,
+        channel: "sms",
+        code,
+        expiresAt,
+        suppress: Boolean(suppress)
+      }),
+      signal: controller.signal
+    });
+    return { delivered: response.ok, mode: response.ok ? "queued" : "relay_error" };
+  } catch (error) {
+    console.warn("[WINGA] Account recovery relay request failed.", {
+      error: String(error?.message || error || "unknown").slice(0, 160)
+    });
+    return { delivered: false, mode: "relay_error" };
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 function normalizePromotionRecord(promotion) {
   const now = new Date().toISOString();
   const type = ALLOWED_PROMOTION_TYPES.includes(promotion.type) ? promotion.type : "starter_day";
@@ -3722,17 +3809,23 @@ function validateSellerUpgradePayload(payload, user = {}) {
   return "";
 }
 
-function validatePasswordRecoveryPayload(payload) {
+function validatePasswordRecoveryRequestPayload(payload) {
   const identifier = sanitizePlainText(payload?.identifier || payload?.username, 120);
-  const nextPassword = String(payload?.newPassword || payload?.password || "");
   if (!isNonEmptyString(identifier, 3, 120)) {
     return "Weka username, full name, au namba ya simu ya akaunti.";
   }
-  if (!isValidWhatsapp(payload?.phoneNumber || "")) {
-    return "Weka namba ya simu sahihi ya akaunti hii.";
+  return "";
+}
+
+function validatePasswordRecoveryCompletePayload(payload) {
+  const challengeId = sanitizePlainText(payload?.challengeId, 120);
+  const code = String(payload?.code || "").replace(/\D/g, "");
+  const nextPassword = String(payload?.newPassword || payload?.password || "");
+  if (!isNonEmptyString(challengeId, 24, 120)) {
+    return "Recovery challenge si sahihi. Omba code mpya.";
   }
-  if (!isValidNationalId(payload?.nationalId || "")) {
-    return "Weka namba ya kitambulisho sahihi.";
+  if (!/^\d{6}$/.test(code)) {
+    return "Weka recovery code yenye tarakimu 6.";
   }
   if (!isNonEmptyString(nextPassword, MIN_PASSWORD_LENGTH, 120)) {
     return `Password mpya inapaswa kuwa angalau herufi ${MIN_PASSWORD_LENGTH}.`;
@@ -6891,76 +6984,240 @@ http.createServer(async (req, res) => {
     }
 
     if (req.method === "POST" && url.pathname === "/api/auth/recover-password") {
+      sendJson(res, 410, {
+        error: "Password recovery hii imeondolewa. Omba one-time code kupitia recovery flow mpya.",
+        code: "legacy_password_recovery_retired"
+      });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/auth/recovery/request") {
+      const recoveryRequestStartedAt = Date.now();
       const payload = await collectBody(req) || {};
-      const rawIdentifier = sanitizePlainText(payload.identifier || payload.username, 120);
-      const validationError = validatePasswordRecoveryPayload(payload);
+      const validationError = validatePasswordRecoveryRequestPayload(payload);
       if (validationError) {
         sendJson(res, 400, { error: validationError });
         return;
       }
+      if (!isAccountRecoveryReady()) {
+        sendJson(res, 503, {
+          error: "Account recovery haijapatikana kwa sasa. Jaribu tena baadaye.",
+          code: "account_recovery_unavailable"
+        });
+        return;
+      }
 
+      const rawIdentifier = sanitizePlainText(payload.identifier || payload.username, 120);
       const users = store.users || [];
       const userIndex = findUserIndexByPublicIdentifier(users, rawIdentifier);
       const user = userIndex >= 0 ? users[userIndex] : null;
-      const normalizedPhone = String(payload.phoneNumber || "").replace(/\D/g, "").slice(0, 20);
-      const normalizedNationalId = sanitizePlainText(payload.nationalId, 40).toUpperCase();
-      const phoneMatches = user && (
-        String(user.phoneNumber || "") === normalizedPhone
-        || String(user.whatsappNumber || "") === normalizedPhone
-      );
-      const idMatches = user && String(user.nationalId || user.identityDocumentNumber || "").toUpperCase() === normalizedNationalId;
+      const eligibleUser = user && !isStaffRole(user.role) && user.status === "active" ? user : null;
+      const challengeId = `recovery-${crypto.randomUUID()}`;
+      const code = String(crypto.randomInt(100000, 1000000));
+      const createdAt = new Date().toISOString();
+      const expiresAt = new Date(Date.now() + ACCOUNT_RECOVERY_CODE_TTL_MS).toISOString();
+      let previewCode = "";
 
-      if (!user || isStaffRole(user.role) || !phoneMatches || !idMatches) {
+      let recoveryDelivery = { delivered: true, mode: "privacy_envelope" };
+      if (eligibleUser) {
+        const destination = String(eligibleUser.whatsappNumber || eligibleUser.phoneNumber || "").replace(/\D/g, "").slice(0, 20);
+        const challenge = {
+          challengeId,
+          username: eligibleUser.username,
+          destinationHash: hashSessionContextValue(destination),
+          codeHash: createAccountRecoveryCodeHash(challengeId, code),
+          requestedIpHash: hashSessionContextValue(clientIp),
+          deliveryStatus: "pending",
+          maxAttempts: ACCOUNT_RECOVERY_MAX_ATTEMPTS,
+          expiresAt,
+          createdAt
+        };
+        if (postgresStore?.createPasswordRecoveryChallenge) {
+          await postgresStore.createPasswordRecoveryChallenge(challenge);
+        } else {
+          const retainedChallenges = (store.passwordRecoveryChallenges || [])
+            .filter((item) => item.username !== eligibleUser.username && Date.now() - new Date(item.createdAt || 0).getTime() < 7 * 24 * 60 * 60 * 1000)
+            .slice(-4999);
+          await writeStore({
+            ...store,
+            passwordRecoveryChallenges: [...retainedChallenges, { ...challenge, attempts: 0, consumedAt: "" }]
+          });
+        }
+
+        recoveryDelivery = await dispatchAccountRecoveryCode({
+          challengeId,
+          username: eligibleUser.username,
+          destination,
+          code,
+          expiresAt
+        });
+        if (NODE_ENV !== "production" && recoveryDelivery.mode === "preview") {
+          previewCode = code;
+        }
+        await appendAuditLog({
+          time: createdAt,
+          ip: clientIp,
+          method: req.method,
+          path: url.pathname,
+          event: recoveryDelivery.delivered ? "password_recovery_code_requested" : "password_recovery_delivery_failed",
+          username: eligibleUser.username,
+          reason: recoveryDelivery.mode
+        });
+      } else {
+        recoveryDelivery = await dispatchAccountRecoveryCode({
+          challengeId,
+          username: "privacy-envelope",
+          destination: "00000000",
+          code,
+          expiresAt,
+          suppress: true
+        });
+        await appendAuditLog({
+          time: createdAt,
+          ip: clientIp,
+          method: req.method,
+          path: url.pathname,
+          event: "password_recovery_code_requested",
+          username: "",
+          reason: recoveryDelivery.delivered ? "privacy_envelope" : "relay_error"
+        });
+      }
+
+      if (NODE_ENV === "production" && !recoveryDelivery.delivered) {
+        sendJson(res, 503, {
+          error: "Account recovery haijapatikana kwa sasa. Jaribu tena baadaye.",
+          code: "account_recovery_unavailable"
+        });
+        return;
+      }
+
+      const minimumResponseDelayMs = 140;
+      const remainingDelayMs = minimumResponseDelayMs - (Date.now() - recoveryRequestStartedAt);
+      if (remainingDelayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, remainingDelayMs));
+      }
+
+      sendJson(res, 202, {
+        ok: true,
+        challengeId,
+        expiresInSeconds: Math.floor(ACCOUNT_RECOVERY_CODE_TTL_MS / 1000),
+        message: "Kama account inaruhusiwa, recovery code imetumwa kwenye namba iliyothibitishwa.",
+        ...(previewCode ? { previewCode } : {})
+      });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/auth/recovery/complete") {
+      const payload = await collectBody(req) || {};
+      const validationError = validatePasswordRecoveryCompletePayload(payload);
+      if (validationError) {
+        sendJson(res, 400, { error: validationError });
+        return;
+      }
+      if (!isAccountRecoveryReady()) {
+        sendJson(res, 503, {
+          error: "Account recovery haijapatikana kwa sasa. Jaribu tena baadaye.",
+          code: "account_recovery_unavailable"
+        });
+        return;
+      }
+
+      const challengeId = sanitizePlainText(payload.challengeId, 120);
+      const code = String(payload.code || "").replace(/\D/g, "");
+      const codeHash = createAccountRecoveryCodeHash(challengeId, code);
+      const passwordHash = createPasswordHash(String(payload.newPassword || payload.password || ""));
+      let result = null;
+      let recoveredUsername = "";
+
+      if (postgresStore?.completePasswordRecoveryChallenge) {
+        const challengeNotification = buildSessionSecurityNotification({
+          userId: "pending-recovery-user",
+          title: "Password yako imebadilishwa",
+          body: "Password ya Winga imebadilishwa na sessions zote za zamani zimeondolewa.",
+          variant: "warning"
+        });
+        result = await postgresStore.completePasswordRecoveryChallenge(
+          challengeId,
+          codeHash,
+          passwordHash,
+          { notification: challengeNotification }
+        );
+        recoveredUsername = result?.username || "";
+      } else {
+        const challenges = Array.isArray(store.passwordRecoveryChallenges) ? [...store.passwordRecoveryChallenges] : [];
+        const challengeIndex = challenges.findIndex((item) => item.challengeId === challengeId);
+        const challenge = challengeIndex >= 0 ? challenges[challengeIndex] : null;
+        const expired = !challenge || new Date(challenge.expiresAt || 0).getTime() <= Date.now();
+        const exhausted = challenge && Number(challenge.attempts || 0) >= Number(challenge.maxAttempts || ACCOUNT_RECOVERY_MAX_ATTEMPTS);
+        if (!challenge || challenge.consumedAt || expired || exhausted) {
+          result = { completed: false, code: expired ? "expired" : "invalid_or_consumed" };
+        } else if (!timingSafeStringEqual(challenge.codeHash, codeHash)) {
+          const nextAttempts = Number(challenge.attempts || 0) + 1;
+          challenges[challengeIndex] = {
+            ...challenge,
+            attempts: nextAttempts,
+            consumedAt: nextAttempts >= Number(challenge.maxAttempts || ACCOUNT_RECOVERY_MAX_ATTEMPTS) ? new Date().toISOString() : ""
+          };
+          await writeStore({ ...store, passwordRecoveryChallenges: challenges });
+          result = { completed: false, code: nextAttempts >= ACCOUNT_RECOVERY_MAX_ATTEMPTS ? "attempts_exhausted" : "invalid_code" };
+        } else {
+          const users = [...(store.users || [])];
+          const userIndex = users.findIndex((item) => item.username === challenge.username && !isStaffRole(item.role));
+          if (userIndex < 0) {
+            result = { completed: false, code: "account_unavailable" };
+          } else {
+            recoveredUsername = users[userIndex].username;
+            users[userIndex] = { ...users[userIndex], password: passwordHash, updatedAt: new Date().toISOString() };
+            challenges[challengeIndex] = { ...challenge, consumedAt: new Date().toISOString(), deliveryStatus: "consumed" };
+            const notification = buildSessionSecurityNotification({
+              userId: recoveredUsername,
+              title: "Password yako imebadilishwa",
+              body: "Password ya Winga imebadilishwa na sessions zote za zamani zimeondolewa.",
+              variant: "warning"
+            });
+            await writeStore({
+              ...store,
+              users,
+              sessions: (store.sessions || []).filter((session) => session.username !== recoveredUsername),
+              notifications: [notification, ...(store.notifications || [])],
+              passwordRecoveryChallenges: challenges
+            });
+            result = { completed: true, code: "", username: recoveredUsername };
+          }
+        }
+      }
+
+      if (!result?.completed) {
         await appendAuditLog({
           time: new Date().toISOString(),
           ip: clientIp,
           method: req.method,
           path: url.pathname,
           event: "password_recovery_failed",
-          username: rawIdentifier,
-          reason: "identity_mismatch"
+          username: "",
+          reason: result?.code || "invalid_recovery"
         });
-        sendJson(res, 403, { error: "Taarifa za kurejesha password hazijalingana na akaunti hii." });
+        sendJson(res, 400, {
+          error: "Recovery code si sahihi au imeisha. Omba code mpya.",
+          code: "invalid_recovery_code"
+        });
         return;
       }
 
-      const updatedUser = {
-        ...user,
-        password: createPasswordHash(String(payload.newPassword || payload.password || "")),
-        updatedAt: new Date().toISOString()
-      };
-      if (postgresStore?.resetUserPassword) {
-        const resetResult = await postgresStore.resetUserPassword(
-          user.username,
-          updatedUser.password,
-          { expectedRowVersion: Number(user.rowVersion || 0) }
-        );
-        if (!resetResult.updated) {
-          sendJson(res, 409, {
-            error: "Akaunti imebadilika wakati wa password recovery. Anza recovery tena.",
-            code: "user_state_conflict"
-          });
-          return;
-        }
-      } else {
-        users[userIndex] = updatedUser;
-        const nextSessions = (store.sessions || []).filter((session) =>
-          normalizeIdentifier(session.username, 40) !== normalizeIdentifier(user.username, 40)
-        );
-        await writeStore({
-          ...store,
-          users,
-          sessions: nextSessions
-        });
-      }
       await appendAuditLog({
         time: new Date().toISOString(),
         ip: clientIp,
         method: req.method,
         path: url.pathname,
         event: "password_recovered",
-        username: user.username
+        username: recoveredUsername
       });
+      dispatchSessionSecurityEvent(buildExternalSessionSecurityEvent({
+        event: "password_recovered",
+        userId: recoveredUsername,
+        req,
+        risk: { riskLevel: "medium", riskScore: 35, reasons: ["password_recovery_completed"] }
+      }));
       sendJson(res, 200, { ok: true });
       return;
     }

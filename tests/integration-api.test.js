@@ -287,7 +287,7 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       username: "rogue_admin",
-      password: "Pass1234",
+      password: "Pass1234!Secure",
       phoneNumber: "255700999111",
       nationalId: "ROGUE001",
       role: "admin",
@@ -301,7 +301,7 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       username: "seller_one",
-      password: "Pass1234",
+      password: "Pass1234!Secure",
       phoneNumber: "255700111111",
       nationalId: "SELLER001",
       role: "seller",
@@ -344,7 +344,7 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       username: "seller_duplicate_identity",
-      password: "Pass1234",
+      password: "Pass1234!Secure",
       phoneNumber: "255700111119",
       nationalId: "SELLER001",
       role: "seller",
@@ -361,7 +361,7 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       username: "seller_mismatch_identity",
-      password: "Pass1234",
+      password: "Pass1234!Secure",
       phoneNumber: "255700111118",
       nationalId: "SELLER009",
       role: "seller",
@@ -378,7 +378,7 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       fullName: "Buyer One",
-      password: "Pass1234",
+      password: "Pass1234!Secure",
       phoneNumber: "255700222222",
       nationalId: "BUYER001",
       role: "buyer",
@@ -390,37 +390,80 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   let buyerToken = getAuthCookieToken(buyerSignup.response);
   const buyerUsername = buyerSignup.body.username;
 
-  const passwordRecoveryMismatch = await request("/auth/recover-password", {
+  const unknownRecoveryRequest = await request("/auth/recovery/request", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      identifier: "Buyer One",
-      phoneNumber: "255700222222",
-      nationalId: "BUYER404",
+      identifier: "account-does-not-exist"
+    })
+  });
+  assert.equal(unknownRecoveryRequest.response.status, 202);
+  assert.equal(unknownRecoveryRequest.body.ok, true);
+  assert.ok(unknownRecoveryRequest.body.challengeId);
+  assert.equal(Object.prototype.hasOwnProperty.call(unknownRecoveryRequest.body, "previewCode"), false);
+
+  const recoveryRequest = await request("/auth/recovery/request", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      identifier: "Buyer One"
+    })
+  });
+  assert.equal(recoveryRequest.response.status, 202);
+  assert.equal(recoveryRequest.body.ok, true);
+  assert.ok(recoveryRequest.body.challengeId);
+  assert.match(recoveryRequest.body.previewCode, /^\d{6}$/);
+
+  const invalidRecoveryCode = await request("/auth/recovery/complete", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      challengeId: recoveryRequest.body.challengeId,
+      code: recoveryRequest.body.previewCode === "000000" ? "000001" : "000000",
       newPassword: "Recovered1234"
     })
   });
-  assert.equal(passwordRecoveryMismatch.response.status, 403);
+  assert.equal(invalidRecoveryCode.response.status, 400);
+  assert.equal(invalidRecoveryCode.body.code, "invalid_recovery_code");
 
-  const passwordRecovery = await request("/auth/recover-password", {
+  const passwordRecovery = await request("/auth/recovery/complete", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      identifier: "Buyer One",
-      phoneNumber: "255700222222",
-      nationalId: "BUYER001",
+      challengeId: recoveryRequest.body.challengeId,
+      code: recoveryRequest.body.previewCode,
       newPassword: "Recovered1234"
     })
   });
   assert.equal(passwordRecovery.response.status, 200);
   assert.equal(passwordRecovery.body.ok, true);
 
+  const recoveryReplay = await request("/auth/recovery/complete", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      challengeId: recoveryRequest.body.challengeId,
+      code: recoveryRequest.body.previewCode,
+      newPassword: "AnotherRecovered1234"
+    })
+  });
+  assert.equal(recoveryReplay.response.status, 400);
+  assert.equal(recoveryReplay.body.code, "invalid_recovery_code");
+
+  const legacyRecovery = await request("/auth/recover-password", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ identifier: "Buyer One" })
+  });
+  assert.equal(legacyRecovery.response.status, 410);
+  assert.equal(legacyRecovery.body.code, "legacy_password_recovery_retired");
+
   const oldBuyerLogin = await request("/auth/login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       identifier: "Buyer One",
-      password: "Pass1234"
+      password: "Pass1234!Secure"
     })
   });
   assert.equal(oldBuyerLogin.response.status, 401);
@@ -441,7 +484,7 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       username: "seller_two",
-      password: "Pass1234",
+      password: "Pass1234!Secure",
       phoneNumber: "255700111112",
       nationalId: "SELLER002",
       role: "seller",
@@ -917,7 +960,7 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       username: "seller_one",
-      password: "Pass1234"
+      password: "Pass1234!Secure"
     })
   });
   assert.equal(sellerSecondLogin.response.status, 200);
@@ -957,7 +1000,7 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   const successfulStepUp = await request("/auth/step-up", {
     method: "POST",
     headers: { Authorization: `Bearer ${sellerToken}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ password: "Pass1234" })
+    body: JSON.stringify({ password: "Pass1234!Secure" })
   });
   assert.equal(successfulStepUp.response.status, 200);
   assert.equal(successfulStepUp.body.ok, true);

@@ -192,7 +192,7 @@ async function seedMarketplace() {
   const accounts = [
     {
       username: "buyer_only",
-      password: "Pass1234",
+      password: "Pass1234!Secure",
       phoneNumber: "255700111220",
       nationalId: "BUYER1001",
       primaryCategory: "viatu",
@@ -201,7 +201,7 @@ async function seedMarketplace() {
     },
     {
       username: "buyer_seller",
-      password: "Pass1234",
+      password: "Pass1234!Secure",
       phoneNumber: "255700111221",
       nationalId: "SELLER1001",
       primaryCategory: "viatu",
@@ -209,7 +209,7 @@ async function seedMarketplace() {
     },
     {
       username: "market_seller",
-      password: "Pass1234",
+      password: "Pass1234!Secure",
       phoneNumber: "255700111222",
       nationalId: "SELLER1002",
       primaryCategory: "wanawake",
@@ -256,13 +256,13 @@ async function seedMarketplace() {
   const adminSession = { body: null };
 
   async function refreshSellerSession() {
-    const login = await loginSeedAccount({ username: "market_seller", password: "Pass1234" });
+    const login = await loginSeedAccount({ username: "market_seller", password: "Pass1234!Secure" });
     sellerSession.body = login.body;
     return login;
   }
 
   async function refreshBuyerSellerSession() {
-    const login = await loginSeedAccount({ username: "buyer_seller", password: "Pass1234" });
+    const login = await loginSeedAccount({ username: "buyer_seller", password: "Pass1234!Secure" });
     buyerSellerSession.body = login.body;
     return login;
   }

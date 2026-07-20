@@ -1947,8 +1947,11 @@
       async login(payload) {
         return getAuthApiClient().login(payload);
       },
-      async recoverPassword(payload) {
-        return getAuthApiClient().recoverPassword(payload);
+      async requestPasswordRecovery(payload) {
+        return getAuthApiClient().requestPasswordRecovery(payload);
+      },
+      async completePasswordRecovery(payload) {
+        return getAuthApiClient().completePasswordRecovery(payload);
       },
       async adminLogin(payload) {
         return getAuthApiClient().adminLogin(payload);
@@ -3551,8 +3554,17 @@
     async login(payload) {
       return state.adapter.login(payload);
     },
-    async recoverPassword(payload) {
-      return state.adapter.recoverPassword(payload);
+    async requestPasswordRecovery(payload) {
+      if (typeof state.adapter.requestPasswordRecovery !== "function") {
+        throw new Error("Secure account recovery inahitaji API provider.");
+      }
+      return state.adapter.requestPasswordRecovery(payload);
+    },
+    async completePasswordRecovery(payload) {
+      if (typeof state.adapter.completePasswordRecovery !== "function") {
+        throw new Error("Secure account recovery inahitaji API provider.");
+      }
+      return state.adapter.completePasswordRecovery(payload);
     },
     async adminLogin(payload) {
       return state.adapter.adminLogin ? state.adapter.adminLogin(payload) : state.adapter.login(payload);

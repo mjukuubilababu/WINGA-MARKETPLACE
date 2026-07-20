@@ -776,6 +776,127 @@ test("PostgreSQL password recovery updates one user and revokes sessions atomica
   assert.equal(calls.at(-1).text, "COMMIT");
 });
 
+test("PostgreSQL password recovery challenge supersedes prior codes and stores only hashes", async () => {
+  const calls = [];
+  const client = {
+    async query(text, params = []) {
+      calls.push({ text: String(text), params });
+      return { rows: [], rowCount: 1 };
+    },
+    release() {}
+  };
+  const store = createPostgresStore({
+    databaseUrl: "postgres://test.invalid/winga",
+    queryClient: { query: client.query.bind(client), connect: async () => client }
+  });
+
+  const result = await store.createPasswordRecoveryChallenge({
+    challengeId: "recovery-123456789012345678901234",
+    username: "buyer",
+    destinationHash: "destination-hash",
+    codeHash: "code-hash",
+    requestedIpHash: "ip-hash",
+    maxAttempts: 5,
+    expiresAt: "2026-07-20T12:10:00.000Z",
+    createdAt: "2026-07-20T12:00:00.000Z"
+  });
+
+  assert.deepEqual(result, { created: true });
+  assert.equal(calls[0].text, "BEGIN");
+  assert.match(calls[1].text, /UPDATE password_recovery_challenges/);
+  assert.match(calls[2].text, /INSERT INTO password_recovery_challenges/);
+  assert.equal(calls[2].params.includes("123456"), false);
+  assert.equal(calls.at(-1).text, "COMMIT");
+});
+
+test("PostgreSQL OTP completion locks challenge, resets password, revokes sessions, and notifies atomically", async () => {
+  const calls = [];
+  const client = {
+    async query(text, params = []) {
+      const sql = String(text);
+      calls.push({ text: sql, params });
+      if (sql.includes("FROM password_recovery_challenges") && sql.includes("FOR UPDATE")) {
+        return {
+          rows: [{
+            challengeId: "recovery-123456789012345678901234",
+            username: "buyer",
+            codeHash: "expected-code-hash",
+            attempts: 1,
+            maxAttempts: 5,
+            expiresAt: new Date(Date.now() + 600000).toISOString(),
+            consumedAt: null
+          }],
+          rowCount: 1
+        };
+      }
+      if (sql.includes("UPDATE users")) return { rows: [{ username: "buyer" }], rowCount: 1 };
+      return { rows: [], rowCount: 1 };
+    },
+    release() {}
+  };
+  const store = createPostgresStore({
+    databaseUrl: "postgres://test.invalid/winga",
+    queryClient: { query: client.query.bind(client), connect: async () => client }
+  });
+
+  const result = await store.completePasswordRecoveryChallenge(
+    "recovery-123456789012345678901234",
+    "expected-code-hash",
+    "scrypt:new-password-hash",
+    { notification: { id: "note-recovery", userId: "placeholder", title: "Password changed", createdAt: new Date().toISOString() } }
+  );
+
+  assert.equal(result.completed, true);
+  assert.equal(result.username, "buyer");
+  assert.ok(calls.some((call) => /DELETE FROM sessions WHERE username=\$1/.test(call.text)));
+  assert.ok(calls.some((call) => /delivery_status='consumed'/.test(call.text)));
+  const notificationInsert = calls.find((call) => call.text.includes("INSERT INTO notifications"));
+  assert.equal(notificationInsert.params[1], "buyer");
+  assert.equal(calls.at(-1).text, "COMMIT");
+});
+
+test("PostgreSQL OTP mismatch consumes the attempt without changing user state", async () => {
+  const calls = [];
+  const client = {
+    async query(text, params = []) {
+      const sql = String(text);
+      calls.push({ text: sql, params });
+      if (sql.includes("FROM password_recovery_challenges") && sql.includes("FOR UPDATE")) {
+        return {
+          rows: [{
+            challengeId: "recovery-123456789012345678901234",
+            username: "buyer",
+            codeHash: "expected-code-hash",
+            attempts: 4,
+            maxAttempts: 5,
+            expiresAt: new Date(Date.now() + 600000).toISOString(),
+            consumedAt: null
+          }],
+          rowCount: 1
+        };
+      }
+      return { rows: [], rowCount: 1 };
+    },
+    release() {}
+  };
+  const store = createPostgresStore({
+    databaseUrl: "postgres://test.invalid/winga",
+    queryClient: { query: client.query.bind(client), connect: async () => client }
+  });
+
+  const result = await store.completePasswordRecoveryChallenge(
+    "recovery-123456789012345678901234",
+    "wrong-code-hash",
+    "scrypt:must-not-be-written"
+  );
+
+  assert.equal(result.completed, false);
+  assert.equal(result.code, "attempts_exhausted");
+  assert.equal(result.attemptsRemaining, 0);
+  assert.equal(calls.some((call) => call.text.includes("UPDATE users")), false);
+  assert.equal(calls.at(-1).text, "COMMIT");
+});
+
 test("PostgreSQL boot maintenance prunes sessions and syncs one admin without replacing collections", async () => {
   const calls = [];
   const client = {

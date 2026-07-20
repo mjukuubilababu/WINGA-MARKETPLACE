@@ -744,6 +744,7 @@ test("auth session runtime module owns restore token and reporting", async () =>
 
 test("remote auth API client owns session restore and credentialed auth writes", () => {
   const root = path.resolve(__dirname, "..");
+  const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
   const dataSource = fs.readFileSync(path.join(root, "data-service.js"), "utf8");
   const moduleSource = fs.readFileSync(path.join(root, "src", "api", "auth-client.js"), "utf8");
   const registrySource = fs.readFileSync(path.join(root, "src", "core", "module-registry.js"), "utf8");
@@ -757,10 +758,18 @@ test("remote auth API client owns session restore and credentialed auth writes",
   assert.match(moduleSource, /sessionAdapter\.saveSession\?\.\(data\)/);
   assert.match(moduleSource, /sessionAdapter\.clearSession\?\.\(\)/);
   assert.match(moduleSource, /authFetchJson\(`\$\{baseUrl\}\/auth\/login`/);
+  assert.match(moduleSource, /authFetchJson\(`\$\{baseUrl\}\/auth\/recovery\/request`/);
+  assert.match(moduleSource, /authFetchJson\(`\$\{baseUrl\}\/auth\/recovery\/complete`/);
+  assert.doesNotMatch(moduleSource, /authFetchJson\(`\$\{baseUrl\}\/auth\/recover-password`/);
   assert.match(moduleSource, /fetchJson\(`\$\{baseUrl\}\/users\/me\/profile`/);
   assert.match(dataSource, /window\.WingaModules\?\.api\?\.auth\?\.createAuthApiClient/);
   assert.match(dataSource, /async restoreSession\(\) \{\s+return getAuthApiClient\(\)\.restoreSession\(\);/);
   assert.match(dataSource, /async login\(payload\) \{\s+return getAuthApiClient\(\)\.login\(payload\);/);
+  assert.match(dataSource, /async requestPasswordRecovery\(payload\)/);
+  assert.match(dataSource, /async completePasswordRecovery\(payload\)/);
+  assert.match(appSource, /WingaDataLayer\.requestPasswordRecovery/);
+  assert.match(appSource, /WingaDataLayer\.completePasswordRecovery/);
+  assert.doesNotMatch(appSource, /WingaDataLayer\.recoverPassword\(/);
   assert.ok(buildSource.indexOf('"src/api/feed-state.js"') < buildSource.indexOf('"src/api/auth-client.js"'));
   assert.ok(buildSource.indexOf('"src/api/auth-client.js"') < buildSource.indexOf('"src/config/categories.js"'));
 });
@@ -2984,6 +2993,30 @@ test("session security relay is isolated from frontend and validates webhook eve
   assert.match(relaySource, /EMAIL_PROVIDER_URL/);
   assert.doesNotMatch(relayConfig, /name = "mkubwa"/);
   assert.doesNotMatch(relayConfig, /cloudflare\/intelligence-worker\.js/);
+});
+
+test("account recovery relay queues signed OTP delivery without joining the frontend runtime", () => {
+  const root = path.resolve(__dirname, "..");
+  const relaySource = fs.readFileSync(path.join(root, "cloudflare", "account-recovery-relay.js"), "utf8");
+  const relayConfig = fs.readFileSync(path.join(root, "wrangler.account-recovery.toml"), "utf8");
+  const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+
+  assert.match(relayConfig, /name = "winga-account-recovery-relay"/);
+  assert.match(relayConfig, /main = "\.\/cloudflare\/account-recovery-relay\.js"/);
+  assert.match(relayConfig, /queue = "winga-account-recovery-events"/);
+  assert.match(relayConfig, /dead_letter_queue = "winga-account-recovery-events-dlq"/);
+  assert.equal(packageJson.scripts["deploy:worker:account-recovery"], "npx wrangler deploy --config wrangler.account-recovery.toml");
+  assert.match(relaySource, /x-winga-recovery-secret/i);
+  assert.match(relaySource, /crypto\.subtle\.timingSafeEqual/);
+  assert.match(relaySource, /ACCOUNT_RECOVERY_QUEUE\.send/);
+  assert.match(relaySource, /ACCOUNT_RECOVERY_DEDUPE/);
+  assert.match(relaySource, /Idempotency-Key/);
+  assert.match(relaySource, /message\.retry\(\{ delaySeconds: 30 \}\)/);
+  assert.match(relaySource, /event\.suppress/);
+  assert.doesNotMatch(relaySource, /console\.log\([^\n]*(?:event\.code|event\.destination)/);
+  assert.doesNotMatch(relayConfig, /ACCOUNT_RECOVERY_DELIVERY_WEBHOOK_SECRET\s*=/);
+  assert.doesNotMatch(relayConfig, /SMS_PROVIDER_TOKEN\s*=/);
+  assert.doesNotMatch(relayConfig, /name = "mkubwa"/);
 });
 
 test("browser session state does not persist or propagate auth tokens", () => {

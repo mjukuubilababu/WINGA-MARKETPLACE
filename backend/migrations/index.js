@@ -158,6 +158,30 @@ const MIGRATIONS = Object.freeze([
       `CREATE INDEX IF NOT EXISTS idx_reviews_product_date ON reviews (product_id, date DESC);`,
       `CREATE INDEX IF NOT EXISTS idx_reports_status_updated ON reports (status, updated_at DESC);`
     ])
+  }),
+  Object.freeze({
+    id: "2026072001_password_recovery_challenges",
+    statements: Object.freeze([
+      `CREATE TABLE IF NOT EXISTS password_recovery_challenges (
+         challenge_id TEXT PRIMARY KEY,
+         username TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
+         destination_hash TEXT NOT NULL,
+         code_hash TEXT NOT NULL,
+         requested_ip_hash TEXT NOT NULL DEFAULT '',
+         delivery_status TEXT NOT NULL DEFAULT 'pending',
+         attempts INTEGER NOT NULL DEFAULT 0,
+         max_attempts INTEGER NOT NULL DEFAULT 5,
+         expires_at TIMESTAMPTZ NOT NULL,
+         consumed_at TIMESTAMPTZ NULL,
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+       );`,
+      `CREATE INDEX IF NOT EXISTS idx_password_recovery_user_active
+       ON password_recovery_challenges (username, created_at DESC)
+       WHERE consumed_at IS NULL;`,
+      `CREATE INDEX IF NOT EXISTS idx_password_recovery_expiry
+       ON password_recovery_challenges (expires_at)
+       WHERE consumed_at IS NULL;`
+    ])
   })
 ]);
 

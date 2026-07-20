@@ -51,7 +51,7 @@ async function createLoggedInPage(browser, username, password, options = {}) {
 }
 
 test("debug long scroll runtime and DOM growth", async ({ browser }) => {
-  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234", {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure", {
     viewport: { width: 390, height: 844 },
     isMobile: true
   });
