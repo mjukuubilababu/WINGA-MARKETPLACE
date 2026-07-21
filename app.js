@@ -2032,6 +2032,20 @@ function resumeRetainedHomeFeedSurface(reason = "home_retained_resume", options 
   if (options.prefetch !== false) {
     schedulePredictiveFeedPrefetch(reason);
   }
+  const anchor = productsContainer?.querySelector?.("[data-continuous-discovery-anchor='home']");
+  if (options.resumeContinuation === true && anchor instanceof Element && anchor.isConnected) {
+    homeContinuousDiscoveryRuntime.observer?.observe?.(anchor);
+    refreshHomeInfiniteScrollSentinels(productsContainer);
+    scheduleContinuousDiscoveryReobserve(anchor);
+    scheduleHomeBackgroundRunwayWarmup(anchor, {
+      reason: `${reason}_runway`,
+      delayMs: Math.max(0, Number(options.runwayDelayMs || 0))
+    });
+    scheduleHomeBackgroundHydrationAttempt(anchor, {
+      reason: `${reason}_hydrate`,
+      delays: [0, 240, 900]
+    });
+  }
   return true;
 }
 
@@ -11163,6 +11177,7 @@ const {
   resetHomeBrowseState,
   refreshSearchInputControl,
   syncBodyScrollLockState,
+  resumeRetainedHomeFeedSurface,
   syncAppShellHistoryState,
   setCurrentViewState,
   renderCurrentView,

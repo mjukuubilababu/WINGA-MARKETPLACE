@@ -19320,6 +19320,11 @@ window.WingaModules.notifications = window.WingaModules.notifications || {};
           deps.scheduleHomeScrollRestore?.(restoreScrollY);
         }
       }
+      deps.resumeRetainedHomeFeedSurface?.("product_detail_closed", {
+        prefetch: true,
+        resumeContinuation: true,
+        runwayDelayMs: 0
+      });
       detailNavState = {
         rootScrollY: 0,
         rootProductId: "",

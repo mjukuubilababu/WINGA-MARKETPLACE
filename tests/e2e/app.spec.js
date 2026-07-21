@@ -824,6 +824,40 @@ test("browser back from the first product detail returns to the in-app feed with
   await expect(page.locator("#product-detail-modal")).not.toBeVisible();
   await expect(page.locator("#header-user-trigger")).toBeVisible();
   await expect(page.locator("#products-container .product-card").first()).toBeVisible();
+  await expect.poll(() => page.evaluate(() => ({
+    hasObserver: Boolean(homeContinuousDiscoveryRuntime?.sentinelObserver),
+    connectedTargets: (homeContinuousDiscoveryRuntime?.sentinelTargets || [])
+      .filter((target) => target?.isConnected).length
+  }))).toMatchObject({
+    hasObserver: true,
+    connectedTargets: 3
+  });
+
+  const paginationBeforeScroll = await page.evaluate(() => window.WingaDataLayer?.getProductFeedPagination?.() || null);
+  if (paginationBeforeScroll?.hasMore !== false) {
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    await expect.poll(
+      () => page.evaluate(() => window.WingaDataLayer?.getProductFeedPagination?.().loadedCount || 0),
+      { timeout: 30000 }
+    ).toBeGreaterThan(Number(paginationBeforeScroll?.loadedCount || 0));
+  }
+
+  await context.close();
+});
+
+test("refreshing a product deep link restores the app shell and product detail", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure");
+  await page.goto("/");
+
+  await page.locator("#products-container .product-card").first().click();
+  await expect(page.locator("#product-detail-modal")).toBeVisible();
+  await expect(page).toHaveURL(/\/product\/[^/?#]+/);
+  const detailTitle = await page.locator("#product-detail-title").textContent();
+
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await expect(page.locator("#product-detail-modal")).toBeVisible({ timeout: 30000 });
+  await expect(page.locator("#product-detail-title")).toHaveText(detailTitle || "");
+  await expect(page.locator("#products-container .product-card").first()).toBeVisible();
 
   await context.close();
 });

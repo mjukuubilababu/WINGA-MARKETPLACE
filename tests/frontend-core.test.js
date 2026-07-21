@@ -1327,6 +1327,10 @@ test("home pagination retries safely, cancels stale work, and commits pages tran
   assert.match(appSource, /const CONTINUATION_MEDIA_PENDING_HARD_TIMEOUT_MS = 1200;/);
   assert.match(appSource, /const HOME_CONTINUOUS_PRESSURE_BOUNDED_WAIT_MS = 900;/);
   assert.match(appSource, /function shouldDeferHomeContinuousHydration\(anchor, scope = productsContainer \|\| document\)/);
+  assert.match(appSource, /resumeRetainedHomeFeedSurface,/);
+  assert.match(appSource, /refreshHomeInfiniteScrollSentinels\(productsContainer\);/);
+  assert.match(appSource, /scheduleHomeBackgroundRunwayWarmup\(anchor,/);
+  assert.match(continuationSource, /sentinelObserver: null,/);
   assert.match(appSource, /function releaseStaleContinuationMediaPending\(scope = document, maxAgeMs = CONTINUATION_MEDIA_PENDING_HARD_TIMEOUT_MS\)/);
   assert.match(appSource, /if \(requireLoaded && waitedMs >= Math\.max\(maxWaitMs, CONTINUATION_MEDIA_PENDING_HARD_TIMEOUT_MS\)\)/);
   assert.match(appSource, /logHomeInfiniteDiagnostic\("hydrate_gate"/);
@@ -2116,6 +2120,7 @@ test("production frontend routes same-domain API requests to the backend origin"
   const staticRedirectsSource = fs.readFileSync(path.join(root, "_redirects"), "utf8");
   const apiProxySource = fs.readFileSync(path.join(root, "api", "[...path].js"), "utf8");
   const wranglerSource = fs.readFileSync(path.join(root, "wrangler.toml"), "utf8");
+  const workerSource = fs.readFileSync(path.join(root, "worker.js"), "utf8");
   const rewrites = Array.isArray(vercelConfig.rewrites) ? vercelConfig.rewrites : [];
   const redirects = Array.isArray(vercelConfig.redirects) ? vercelConfig.redirects : [];
   const apiRewrite = rewrites.find((entry) => entry.source === "/api/:path*");
@@ -2134,7 +2139,8 @@ test("production frontend routes same-domain API requests to the backend origin"
   assert.match(apiProxySource, /MAX_PROXY_BODY_BYTES = 20 \* 1024 \* 1024/);
   assert.match(apiProxySource, /HOP_BY_HOP_HEADERS/);
   assert.match(apiProxySource, /headers\["x-winga-proxy"\] = "vercel-api"/);
-  assert.match(wranglerSource, /run_worker_first = \["\/", "\/feed", "\/api\/\*", "\/uploads\/\*"\]/);
+  assert.match(wranglerSource, /run_worker_first = \["\/", "\/feed", "\/product\/\*", "\/api\/\*", "\/uploads\/\*"\]/);
+  assert.match(workerSource, /function isAppShellRoute\(pathname = "\/"\)/);
 });
 
 test("worker cycles production image arrays without dropping gallery images", () => {
@@ -2215,6 +2221,11 @@ test("worker emits one matching LCP image preload in the response header and HTM
     }
   });
   vm.runInContext(source, context);
+  assert.equal(context.isAppShellRoute("/"), true);
+  assert.equal(context.isAppShellRoute("/feed"), true);
+  assert.equal(context.isAppShellRoute("/product/product-123"), true);
+  assert.equal(context.isAppShellRoute("/product/product-123/"), true);
+  assert.equal(context.isAppShellRoute("/api/products"), false);
 
   assert.match(source, /const LCP_PRELOAD_TIMEOUT_MS = 3000;/);
   assert.match(source, /const LCP_PRELOAD_CACHE_TTL_SECONDS = 60 \* 5;/);

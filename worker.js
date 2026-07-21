@@ -23,7 +23,7 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
-    if (url.pathname === "/" || url.pathname === "/feed") {
+    if (isAppShellRoute(url.pathname)) {
       return streamFeedPage(request, env, ctx);
     }
 
@@ -59,6 +59,13 @@ export default {
     }
   }
 };
+
+function isAppShellRoute(pathname = "/") {
+  const normalizedPath = String(pathname || "/").trim();
+  return normalizedPath === "/"
+    || normalizedPath === "/feed"
+    || /^\/product\/[^/]+\/?$/i.test(normalizedPath);
+}
 
 async function forwardIntelligenceQueueBatch(batch, env) {
   const messages = Array.isArray(batch?.messages) ? batch.messages : [];
