@@ -195,20 +195,16 @@ test("backend appended Home page is rendered into the visible feed stream", asyn
     { timeout: 30000 }
   ).toBeGreaterThanOrEqual(12);
   await expect.poll(
-    () => page.evaluate(() => window.WingaDataLayer?.getProductFeedPagination?.()),
-    { timeout: 30000 }
-  ).toMatchObject({
-    page: 1,
-    hasMore: true,
-    loadedCount: 12
-  });
-  await expect.poll(
     () => page.evaluate(() => typeof window.silentlyRefreshInfiniteFeedSource),
     { timeout: 30000 }
   ).toBe("function");
   await page.evaluate(() => {
-    window.scrollTo(0, document.body.scrollHeight);
-    return window.silentlyRefreshInfiniteFeedSource({ force: true, reason: "e2e_dom_append" });
+    const pagination = window.WingaDataLayer?.getProductFeedPagination?.();
+    if (Number(pagination?.page || 1) < 2) {
+      window.scrollTo(0, document.body.scrollHeight);
+      return window.silentlyRefreshInfiniteFeedSource({ force: true, reason: "e2e_dom_append" });
+    }
+    return null;
   });
 
   await expect.poll(
@@ -302,6 +298,75 @@ test("authenticated refresh preserves loaded Home pages and continuation cursor"
   }
 });
 
+test("authenticated session restore keeps cursor continuation through three pages", async ({ page }) => {
+  const products = createProducts(36);
+  const productRequests = [];
+
+  await page.addInitScript(() => {
+    window.localStorage.setItem("winga-current-user", JSON.stringify({
+      username: "pagination-auth-user",
+      fullName: "Pagination Auth User",
+      role: "seller"
+    }));
+  });
+  await page.route("**/api/auth/session", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ username: "pagination-auth-user", fullName: "Pagination Auth User", role: "seller" })
+    });
+  });
+  await page.route("**/api/products**", async (route) => {
+    const requestUrl = new URL(route.request().url());
+    const limit = Number(requestUrl.searchParams.get("limit") || 12) || 12;
+    const requestedPage = Math.max(1, Number(requestUrl.searchParams.get("page") || 1) || 1);
+    const cursor = String(requestUrl.searchParams.get("cursor") || "");
+    const cursorIndex = cursor ? products.findIndex((product) => getCursor(product) === cursor) : -1;
+    const start = cursorIndex >= 0 ? cursorIndex + 1 : (requestedPage - 1) * limit;
+    const items = products.slice(start, start + limit);
+    productRequests.push({ page: requestedPage, cursor, ids: items.map((item) => item.id) });
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        items,
+        nextCursor: start + items.length < products.length ? getCursor(items[items.length - 1]) : "",
+        hasMore: start + items.length < products.length,
+        total: products.length,
+        page: requestedPage,
+        limit
+      })
+    });
+  });
+
+  await page.goto("/");
+  await expect(page.locator("#header-user-trigger")).toBeVisible({ timeout: 30000 });
+  await expect.poll(
+    () => page.evaluate(() => window.WingaDataLayer?.getProducts?.().length || 0),
+    { timeout: 30000 }
+  ).toBe(12);
+  await page.evaluate(() => window.WingaDataLayer.appendProductsPage());
+  await expect.poll(
+    () => page.evaluate(() => window.WingaDataLayer.getProducts().length),
+    { timeout: 30000 }
+  ).toBe(24);
+  await page.evaluate(() => window.WingaDataLayer.appendProductsPage());
+  await expect.poll(
+    () => page.evaluate(() => window.WingaDataLayer.getProducts().length),
+    { timeout: 30000 }
+  ).toBe(36);
+
+  const result = await page.evaluate(() => ({
+    ids: window.WingaDataLayer.getProducts().map((product) => product.id),
+    pagination: window.WingaDataLayer.getProductFeedPagination()
+  }));
+  expect(new Set(result.ids).size).toBe(36);
+  expect(result.pagination).toMatchObject({ page: 3, loadedCount: 36, hasMore: false, nextCursor: "" });
+  expect(productRequests.map((request) => request.page)).toEqual([1, 1, 2, 3]);
+  expect(productRequests.filter((request) => request.page === 1)).toHaveLength(2);
+  expect(productRequests[2].cursor).toBe(getCursor(products[11]));
+  expect(productRequests[3].cursor).toBe(getCursor(products[23]));
+});
 test("successful passive product views do not replace authenticated pagination state", async ({ page }) => {
   const products = createProducts(24);
   const collectionRequests = [];

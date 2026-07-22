@@ -21,7 +21,9 @@
     "ops:intelligence:retry": "node scripts/intelligence-ops.js retry",
     "ops:intelligence:dead": "node scripts/intelligence-ops.js dead",
     "worker:intelligence": "node backend/intelligence-queue-worker.js",
-    "worker:intelligence:once": "node backend/intelligence-queue-worker.js --once"
+    "worker:intelligence:once": "node backend/intelligence-queue-worker.js --once",
+    "verify:feed-production": "node scripts/verify-feed-production.js",
+    "test:feed-production": "node tests/frontend-core.test.js && node --test tests/postgres-pagination.test.js && playwright test tests/e2e/pagination-bootstrap.spec.js tests/e2e/cls-hardening.spec.js --reporter=list && playwright test tests/e2e/app.spec.js --grep \"gallery|swipe|edge to edge|installed PWA|browser back from the first product|refreshing a product deep link|logged in sellers can scroll|guest home renders|vertical page scroll\" --reporter=list"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2"
