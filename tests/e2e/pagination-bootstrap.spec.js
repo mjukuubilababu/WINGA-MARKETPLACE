@@ -403,6 +403,92 @@ test("successful passive product views do not replace authenticated pagination s
   });
 });
 
+test("product actions preserve the loaded Home cursor and canonical feed", async ({ page }) => {
+  const products = createProducts(30);
+  const collectionRequests = [];
+  let likeRequests = 0;
+
+  await page.route("**/api/auth/csrf-token", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ csrfToken: "pagination-action-test-token" })
+    });
+  });
+
+  await page.route("**/api/products**", async (route) => {
+    const requestUrl = new URL(route.request().url());
+    const likeMatch = requestUrl.pathname.match(/\/api\/products\/([^/]+)\/like$/);
+    if (likeMatch) {
+      likeRequests += 1;
+      const productId = decodeURIComponent(likeMatch[1]);
+      const product = products.find((item) => item.id === productId);
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ ...product, likes: Number(product?.likes || 0) + 1 })
+      });
+      return;
+    }
+
+    const limit = Number(requestUrl.searchParams.get("limit") || 12) || 12;
+    const requestedPage = Math.max(1, Number(requestUrl.searchParams.get("page") || 1) || 1);
+    const cursor = String(requestUrl.searchParams.get("cursor") || "");
+    const cursorIndex = cursor
+      ? products.findIndex((product) => getCursor(product) === cursor)
+      : -1;
+    const start = cursorIndex >= 0 ? cursorIndex + 1 : (requestedPage - 1) * limit;
+    const items = products.slice(start, start + limit);
+    collectionRequests.push({ page: requestedPage, cursor });
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        items,
+        nextCursor: getCursor(items[items.length - 1]),
+        hasMore: start + items.length < products.length,
+        total: products.length,
+        page: requestedPage,
+        limit
+      })
+    });
+  });
+
+  await page.goto("/");
+  await expect.poll(
+    () => page.evaluate(() => window.WingaDataLayer?.getProducts?.().length || 0),
+    { timeout: 30000 }
+  ).toBe(12);
+  await page.evaluate(() => window.WingaDataLayer.appendProductsPage());
+  await expect.poll(
+    () => page.evaluate(() => window.WingaDataLayer.getProducts().length),
+    { timeout: 30000 }
+  ).toBe(24);
+
+  const beforeAction = await page.evaluate(() => ({
+    pagination: window.WingaDataLayer.getProductFeedPagination(),
+    ids: window.WingaDataLayer.getProducts().map((product) => product.id)
+  }));
+  await page.evaluate(async () => {
+    const productId = window.WingaDataLayer.getProducts()[0].id;
+    await window.WingaDataLayer.likeProduct(productId);
+  });
+  const afterAction = await page.evaluate(() => ({
+    pagination: window.WingaDataLayer.getProductFeedPagination(),
+    ids: window.WingaDataLayer.getProducts().map((product) => product.id)
+  }));
+
+  expect(likeRequests).toBe(1);
+  expect(collectionRequests).toHaveLength(2);
+  expect(afterAction.ids).toEqual(beforeAction.ids);
+  expect(afterAction.pagination).toMatchObject({
+    page: beforeAction.pagination.page,
+    nextCursor: beforeAction.pagination.nextCursor,
+    hasMore: beforeAction.pagination.hasMore,
+    loadedCount: beforeAction.pagination.loadedCount
+  });
+});
+
 test("load-more commits its primary page before background runway prefetch", async ({ page }) => {
   const products = createProducts(36);
   const productRequests = [];

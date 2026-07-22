@@ -2919,6 +2919,57 @@
     return getProductFeedStateTools().getNextProductsPageOptions();
   }
 
+  function syncProductFeedCounts(totalDelta = 0) {
+    const pagination = state.productFeedPagination;
+    if (!pagination || typeof pagination !== "object") {
+      return;
+    }
+    const previousTotal = Number(pagination.total || 0) || 0;
+    state.productFeedPagination = {
+      ...pagination,
+      total: Math.max(state.products.length, previousTotal + Number(totalDelta || 0)),
+      loadedCount: state.products.length
+    };
+  }
+
+  function mergeProductMutationResult(productId, result, options = {}) {
+    if (!result || typeof result !== "object") {
+      return false;
+    }
+    const normalizedProductId = String(productId || result.id || "").trim();
+    if (!normalizedProductId) {
+      return false;
+    }
+    const existingIndex = state.products.findIndex((product) => String(product?.id || "").trim() === normalizedProductId);
+    if (existingIndex >= 0) {
+      state.products = state.products.map((product, index) =>
+        index === existingIndex ? { ...product, ...result } : product
+      );
+      syncProductFeedCounts();
+      return true;
+    }
+    if (options.insert === true) {
+      state.products = sortProductsNewestFirst([{ ...result, id: normalizedProductId }, ...state.products]);
+      syncProductFeedCounts(1);
+      return true;
+    }
+    return false;
+  }
+
+  function removeProductMutationResult(productId) {
+    const normalizedProductId = String(productId || "").trim();
+    if (!normalizedProductId) {
+      return false;
+    }
+    const previousLength = state.products.length;
+    state.products = state.products.filter((product) => String(product?.id || "").trim() !== normalizedProductId);
+    if (state.products.length === previousLength) {
+      return false;
+    }
+    syncProductFeedCounts(-1);
+    return true;
+  }
+
   function normalizePaginationCursor(value) {
     return String(value || "").trim();
   }
@@ -3677,22 +3728,19 @@
     async createProduct(product) {
       assertSellerAccess();
       const result = await state.adapter.createProduct(product);
-      state.products = sortProductsNewestFirst(await state.adapter.loadProducts());
-      setFullProductFeedPagination(state.products);
+      mergeProductMutationResult(result?.id, result, { insert: true });
       return result;
     },
     async updateProduct(productId, payload) {
       assertSellerAccess();
       const result = await state.adapter.updateProduct(productId, payload);
-      state.products = sortProductsNewestFirst(await state.adapter.loadProducts());
-      setFullProductFeedPagination(state.products);
+      mergeProductMutationResult(productId, result);
       return result;
     },
     async deleteProduct(productId) {
       assertSellerAccess();
       const result = await state.adapter.deleteProduct(productId);
-      state.products = sortProductsNewestFirst(await state.adapter.loadProducts());
-      setFullProductFeedPagination(state.products);
+      removeProductMutationResult(productId);
       return result;
     },
     async loadAnalytics() {
@@ -3791,7 +3839,11 @@
     },
     async updateProductAvailability(productId, payload) {
       assertSellerAccess();
-      return state.adapter.updateProductAvailability ? state.adapter.updateProductAvailability(productId, payload) : null;
+      const result = state.adapter.updateProductAvailability
+        ? await state.adapter.updateProductAvailability(productId, payload)
+        : null;
+      mergeProductMutationResult(productId, result);
+      return result;
     },
     async recordDemand(productId, payload = {}) {
       ensureAdapter();
@@ -3852,8 +3904,19 @@
     async moderateUser(username, payload) {
       assertModerationAccess();
       const result = await (state.adapter.moderateUser ? state.adapter.moderateUser(username, payload) : null);
-      state.users = await state.adapter.loadUsers();
-      state.products = await state.adapter.loadProducts();
+      if (result && typeof result === "object") {
+        const normalizedUsername = String(username || result.username || "").trim();
+        state.users = state.users.map((user) =>
+          String(user?.username || "").trim() === normalizedUsername ? { ...user, ...result } : user
+        );
+        if (["banned", "deactivated"].includes(String(result.status || "").trim().toLowerCase())) {
+          const previousLength = state.products.length;
+          state.products = state.products.filter((product) =>
+            String(product?.uploadedBy || "").trim() !== normalizedUsername
+          );
+          syncProductFeedCounts(state.products.length - previousLength);
+        }
+      }
       return result;
     },
     async loadModerationActions() {
@@ -3872,24 +3935,17 @@
     async moderateProduct(productId, payload) {
       assertModerationAccess();
       const result = await state.adapter.moderateProduct(productId, payload);
-      state.products = await state.adapter.loadProducts();
+      mergeProductMutationResult(productId, result);
       return result;
     },
     async likeProduct(productId) {
       const result = await state.adapter.likeProduct(productId);
-      state.products = await state.adapter.loadProducts();
+      mergeProductMutationResult(productId, result);
       return result;
     },
     async trackProductView(productId) {
       const result = await state.adapter.trackProductView(productId);
-      const normalizedProductId = String(productId || "").trim();
-      if (result && typeof result === "object" && normalizedProductId) {
-        state.products = state.products.map((product) =>
-          String(product?.id || "").trim() === normalizedProductId
-            ? { ...product, ...result }
-            : product
-        );
-      }
+      mergeProductMutationResult(productId, result);
       return result;
     },
     async restoreSession() {

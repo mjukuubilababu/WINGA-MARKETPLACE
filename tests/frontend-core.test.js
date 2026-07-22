@@ -2840,10 +2840,35 @@ test("authenticated passive view tracking never reloads or replaces the paginate
 
   assert.ok(trackingSource, "trackProductView state implementation should be present");
   assert.match(trackingSource, /state\.adapter\.trackProductView\(productId\)/);
-  assert.match(trackingSource, /state\.products = state\.products\.map/);
+  assert.match(trackingSource, /mergeProductMutationResult\(productId, result\)/);
   assert.doesNotMatch(trackingSource, /state\.adapter\.loadProducts/);
   assert.doesNotMatch(trackingSource, /applyLoadedProductPageToState/);
   assert.doesNotMatch(trackingSource, /productFeedPagination\s*=/);
+});
+
+test("product mutations patch canonical items without resetting Home pagination", () => {
+  const root = path.resolve(__dirname, "..");
+  const dataSource = fs.readFileSync(path.join(root, "data-service.js"), "utf8");
+  const mutationStart = dataSource.indexOf("function syncProductFeedCounts");
+  const mutationEnd = dataSource.indexOf("function normalizePaginationCursor", mutationStart);
+  const mutationHelpers = mutationStart >= 0 && mutationEnd > mutationStart
+    ? dataSource.slice(mutationStart, mutationEnd)
+    : "";
+  const trackingStart = dataSource.lastIndexOf("async trackProductView(productId) {");
+  const apiStart = dataSource.lastIndexOf("async createProduct(product) {", trackingStart);
+  const apiEnd = dataSource.indexOf("async restoreSession", trackingStart);
+  const apiSource = apiStart >= 0 && apiEnd > apiStart ? dataSource.slice(apiStart, apiEnd) : "";
+
+  assert.match(mutationHelpers, /function mergeProductMutationResult/);
+  assert.match(mutationHelpers, /function removeProductMutationResult/);
+  assert.match(mutationHelpers, /loadedCount:\s*state\.products\.length/);
+  assert.match(apiSource, /mergeProductMutationResult\(result\?\.id, result, \{ insert: true \}\)/);
+  assert.match(apiSource, /mergeProductMutationResult\(productId, result\)/);
+  assert.match(apiSource, /removeProductMutationResult\(productId\)/);
+  assert.match(apiSource, /\["banned", "deactivated"\]\.includes/);
+  assert.doesNotMatch(apiSource, /state\.products = (?:sortProductsNewestFirst\()?await state\.adapter\.loadProducts/);
+  assert.doesNotMatch(apiSource, /state\.users = await state\.adapter\.loadUsers/);
+  assert.doesNotMatch(apiSource, /setFullProductFeedPagination\(state\.products\)/);
 });
 
 test("legacy product gallery escapes user-controlled HTML attributes", () => {
