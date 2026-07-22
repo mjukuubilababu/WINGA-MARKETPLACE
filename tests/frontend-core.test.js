@@ -2829,6 +2829,23 @@ test("authenticated product refresh preserves paginated feed contract", () => {
   assert.match(appSource, /refreshProducts\.call\(window\.WingaDataLayer,\s*\{\s*preserveFeedPagination:\s*true/);
 });
 
+test("authenticated passive view tracking never reloads or replaces the paginated feed", () => {
+  const root = path.resolve(__dirname, "..");
+  const dataSource = fs.readFileSync(path.join(root, "data-service.js"), "utf8");
+  const trackingStart = dataSource.lastIndexOf("async trackProductView(productId) {");
+  const trackingEnd = dataSource.indexOf("async restoreSession", trackingStart);
+  const trackingSource = trackingStart >= 0 && trackingEnd > trackingStart
+    ? dataSource.slice(trackingStart, trackingEnd)
+    : "";
+
+  assert.ok(trackingSource, "trackProductView state implementation should be present");
+  assert.match(trackingSource, /state\.adapter\.trackProductView\(productId\)/);
+  assert.match(trackingSource, /state\.products = state\.products\.map/);
+  assert.doesNotMatch(trackingSource, /state\.adapter\.loadProducts/);
+  assert.doesNotMatch(trackingSource, /applyLoadedProductPageToState/);
+  assert.doesNotMatch(trackingSource, /productFeedPagination\s*=/);
+});
+
 test("legacy product gallery escapes user-controlled HTML attributes", () => {
   const root = path.resolve(__dirname, "..");
   const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");

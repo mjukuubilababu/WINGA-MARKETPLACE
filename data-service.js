@@ -3882,7 +3882,14 @@
     },
     async trackProductView(productId) {
       const result = await state.adapter.trackProductView(productId);
-      state.products = await state.adapter.loadProducts();
+      const normalizedProductId = String(productId || "").trim();
+      if (result && typeof result === "object" && normalizedProductId) {
+        state.products = state.products.map((product) =>
+          String(product?.id || "").trim() === normalizedProductId
+            ? { ...product, ...result }
+            : product
+        );
+      }
       return result;
     },
     async restoreSession() {
