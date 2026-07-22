@@ -31,7 +31,7 @@ test("home feed reserves stable media and deferred section geometry", () => {
   assert.match(gallerySource, /const stableFrameRatio = usesFeedMediaFit\s*\?\s*"4 \/ 5"\s*:\s*"";/);
   assert.match(gallerySource, /const ratioValue = stableRatio \|\| "4 \/ 5";/);
   assert.match(appSource, /window\.WingaModules\?\.marketplace\?\.createGalleryModule/);
-  assert.match(appSource, /window\.requestAnimationFrame\(\(\) => \{\s+onChunk\?\.\(chunk\);/);
+  assert.match(appSource, /window\.requestAnimationFrame\(\(\) => \{\s+try \{\s+onChunk\?\.\(chunk\);/);
   assert.match(styleSource, /#products-container > \.product-card > \.product-card-media,\s*#products-container > \.seller-product-card > \.seller-product-card-media\{\s+aspect-ratio:var\(--fit-media-aspect-ratio, 4 \/ 5\) !important;/);
   assert.match(styleSource, /\.feed-skeleton-card\{[\s\S]*contain:layout paint;[\s\S]*content-visibility:auto;[\s\S]*contain-intrinsic-size:0 620px;/);
   assert.match(styleSource, /\.feed-skeleton-media\{[\s\S]*aspect-ratio:4\/5;[\s\S]*height:auto;/);
@@ -61,6 +61,10 @@ test("home feed reserves stable media and deferred section geometry", () => {
   assert.doesNotMatch(marketplaceUiSource, /shouldUseMobileEndlessHomeFeed && typeof deps\.createContinuousDiscoveryAnchorElement/);
   assert.match(marketplaceUiSource, /if \(typeof deps\.createContinuousDiscoveryAnchorElement === "function"\)/);
   assert.match(appSource, /window\.setTimeout\(\(\) => \{\s+if \(\s+anchor\.isConnected\s+&& currentView === "home"[\s\S]*hydrateContinuousDiscoveryAnchor\(anchor\);/);
+  assert.match(appSource, /async function runContinuousDiscoveryHydrationCycle\(anchor\)/);
+  assert.match(appSource, /captureClientError\("home_continuous_hydration_failed"/);
+  assert.match(appSource, /return new Promise\(\(resolve, reject\) => \{/);
+  assert.match(appSource, /anchor\.before\(fragment\);[\s\S]*catch \(error\) \{\s+reject\(error\);/);
   assert.match(appSource, /const HOME_INFINITE_BACKGROUND_RUNWAY_TARGET_PRODUCTS = 24;/);
   assert.match(appSource, /function ensureHomeBackgroundRunway\(options = \{\}\) \{/);
   assert.match(appSource, /scheduleHomeBackgroundRunwayWarmup\(anchor,[\s\S]*reason: "boot_background_runway"/);

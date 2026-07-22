@@ -4249,30 +4249,38 @@ function insertContinuousNodesInFrames(anchor, nodes = [], options = {}) {
   const queue = Array.isArray(nodes) ? nodes.filter(Boolean) : [];
   const chunkSize = Math.max(1, Number(options.chunkSize || HOME_INFINITE_DOM_INJECT_CHUNK_SIZE));
   const onChunk = typeof options.onChunk === "function" ? options.onChunk : null;
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const injectNextChunk = () => {
-      if (!anchor?.isConnected || !queue.length) {
-        resolve();
-        return;
-      }
-      const chunk = queue.splice(0, chunkSize);
-      const fragment = document.createDocumentFragment();
-      chunk.forEach((node) => {
-        if (node instanceof HTMLElement) {
-          node.style.contentVisibility = "auto";
-          node.style.containIntrinsicSize = "0 480px";
-        }
-        fragment.appendChild(node);
-      });
-      anchor.before(fragment);
-      window.requestAnimationFrame(() => {
-        onChunk?.(chunk);
-        if (!queue.length) {
+      try {
+        if (!anchor?.isConnected || !queue.length) {
           resolve();
           return;
         }
-        window.requestAnimationFrame(injectNextChunk);
-      });
+        const chunk = queue.splice(0, chunkSize);
+        const fragment = document.createDocumentFragment();
+        chunk.forEach((node) => {
+          if (node instanceof HTMLElement) {
+            node.style.contentVisibility = "auto";
+            node.style.containIntrinsicSize = "0 480px";
+          }
+          fragment.appendChild(node);
+        });
+        anchor.before(fragment);
+        window.requestAnimationFrame(() => {
+          try {
+            onChunk?.(chunk);
+            if (!queue.length) {
+              resolve();
+              return;
+            }
+            window.requestAnimationFrame(injectNextChunk);
+          } catch (error) {
+            reject(error);
+          }
+        });
+      } catch (error) {
+        reject(error);
+      }
     };
     window.requestAnimationFrame(injectNextChunk);
   });
@@ -18449,6 +18457,47 @@ function maybeAdvanceBackgroundContinuation() {
 }
 
 async function hydrateContinuousDiscoveryAnchor(anchor) {
+  if (!anchor || homeContinuousDiscoveryRuntime.loading) {
+    return false;
+  }
+  let interrupted = false;
+  try {
+    await runContinuousDiscoveryHydrationCycle(anchor);
+    return true;
+  } catch (error) {
+    interrupted = true;
+    captureClientError("home_continuous_hydration_failed", error, {
+      category: "pagination",
+      batchIndex: Number(homeContinuousDiscoveryRuntime.batchIndex || 0),
+      anchorConnected: Boolean(anchor?.isConnected)
+    });
+    logHomeInfiniteDiagnostic("hydrate_recovered", {
+      batchIndex: Number(homeContinuousDiscoveryRuntime.batchIndex || 0),
+      message: String(error?.message || error || "")
+    });
+    return false;
+  } finally {
+    if (interrupted || homeContinuousDiscoveryRuntime.loading) {
+      homeContinuousDiscoveryRuntime.loading = false;
+      if (anchor?.isConnected && currentView === "home") {
+        scheduleContinuousDiscoveryReobserve(anchor);
+        refreshHomeInfiniteScrollSentinels(productsContainer);
+        window.setTimeout(() => {
+          if (
+            anchor.isConnected
+            && currentView === "home"
+            && !homeContinuousDiscoveryRuntime.loading
+          ) {
+            prepareNextContinuousDiscoveryDescriptor();
+            hydrateContinuousDiscoveryAnchor(anchor);
+          }
+        }, 400);
+      }
+    }
+  }
+}
+
+async function runContinuousDiscoveryHydrationCycle(anchor) {
   if (!anchor || homeContinuousDiscoveryRuntime.loading) {
     return;
   }

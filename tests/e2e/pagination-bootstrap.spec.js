@@ -1014,6 +1014,71 @@ test("Home feed keeps social discovery alive after backend inventory is exhauste
   expect(productRequests).toEqual([1]);
 });
 
+test("Home hydration recovers after a frame insertion failure", async ({ page }) => {
+  const products = createProducts(12);
+  await page.route("**/api/products**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        items: products,
+        nextCursor: getCursor(products[products.length - 1]),
+        hasMore: false,
+        total: products.length,
+        page: 1,
+        limit: 12
+      })
+    });
+  });
+
+  await page.goto("/");
+  await expect.poll(
+    () => page.locator("#products-container .product-card").count(),
+    { timeout: 30000 }
+  ).toBeGreaterThanOrEqual(12);
+  const initialCount = await page.locator("#products-container .product-card").count();
+
+  const recovery = await page.evaluate(async () => {
+    const anchor = document.querySelector("[data-continuous-discovery-anchor='home']");
+    const originalBefore = Element.prototype.before;
+    let failedOnce = false;
+    homeContinuousDiscoveryRuntime.observer?.disconnect?.();
+    homeContinuousDiscoveryRuntime.sentinelObserver?.disconnect?.();
+    homeContinuousDiscoveryRuntime.lastHydrateAt = 0;
+    Element.prototype.before = function (...nodes) {
+      if (this === anchor && !failedOnce) {
+        failedOnce = true;
+        throw new Error("Injected frame insertion failure");
+      }
+      return originalBefore.apply(this, nodes);
+    };
+    try {
+      const result = await hydrateContinuousDiscoveryAnchor(anchor);
+      return {
+        result,
+        failedOnce,
+        loading: homeContinuousDiscoveryRuntime.loading,
+        observer: Boolean(homeContinuousDiscoveryRuntime.sentinelObserver),
+        targets: (homeContinuousDiscoveryRuntime.sentinelTargets || []).filter((target) => target?.isConnected).length
+      };
+    } finally {
+      Element.prototype.before = originalBefore;
+    }
+  });
+
+  expect(recovery).toMatchObject({
+    result: false,
+    failedOnce: true,
+    loading: false,
+    observer: true
+  });
+  expect(recovery.targets).toBeGreaterThan(0);
+  await expect.poll(
+    () => page.locator("#products-container .product-card").count(),
+    { timeout: 30000 }
+  ).toBeGreaterThan(initialCount);
+});
+
 test("empty continuation page with hasMore true is bounded as exhausted", async ({ page }) => {
   const products = createProducts(12);
   const productRequests = [];
