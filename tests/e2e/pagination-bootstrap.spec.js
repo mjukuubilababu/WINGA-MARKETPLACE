@@ -233,6 +233,75 @@ test("backend appended Home page is rendered into the visible feed stream", asyn
   });
 });
 
+test("authenticated refresh preserves loaded Home pages and continuation cursor", async ({ page }) => {
+  const products = createProducts(36);
+
+  await page.route("**/api/products**", async (route) => {
+    const requestUrl = new URL(route.request().url());
+    const limit = Number(requestUrl.searchParams.get("limit") || 12) || 12;
+    const requestedPage = Math.max(1, Number(requestUrl.searchParams.get("page") || 1) || 1);
+    const cursor = String(requestUrl.searchParams.get("cursor") || "");
+    const cursorIndex = cursor
+      ? products.findIndex((product) => getCursor(product) === cursor)
+      : -1;
+    const start = cursorIndex >= 0 ? cursorIndex + 1 : (requestedPage - 1) * limit;
+    const items = products.slice(start, start + limit);
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        items,
+        nextCursor: getCursor(items[items.length - 1]),
+        hasMore: start + items.length < products.length,
+        total: products.length,
+        page: requestedPage,
+        limit
+      })
+    });
+  });
+
+  await page.goto("/");
+  await expect.poll(
+    () => page.evaluate(() => window.WingaDataLayer?.getProducts?.().length || 0),
+    { timeout: 30000 }
+  ).toBeGreaterThanOrEqual(12);
+
+  await page.evaluate(async () => {
+    const pagination = window.WingaDataLayer.getProductFeedPagination();
+    if (Number(pagination.page || 1) < 2) {
+      await window.WingaDataLayer.appendProductsPage();
+    }
+  });
+  const beforeRefresh = await page.evaluate(() => ({
+    count: window.WingaDataLayer.getProducts().length,
+    pagination: window.WingaDataLayer.getProductFeedPagination()
+  }));
+  expect(beforeRefresh.pagination.page).toBeGreaterThanOrEqual(2);
+  expect(beforeRefresh.count).toBeGreaterThanOrEqual(24);
+
+  await page.evaluate(() => window.WingaDataLayer.refreshProducts({
+    preserveFeedPagination: true
+  }));
+  const afterRefresh = await page.evaluate(() => ({
+    count: window.WingaDataLayer.getProducts().length,
+    pagination: window.WingaDataLayer.getProductFeedPagination()
+  }));
+
+  expect(afterRefresh.count).toBeGreaterThanOrEqual(beforeRefresh.count);
+  expect(afterRefresh.pagination.page).toBe(beforeRefresh.pagination.page);
+  expect(afterRefresh.pagination.nextCursor).toBe(beforeRefresh.pagination.nextCursor);
+  expect(afterRefresh.pagination.hasMore).toBe(beforeRefresh.pagination.hasMore);
+  expect(afterRefresh.pagination.loadedCount).toBe(afterRefresh.count);
+
+  if (afterRefresh.pagination.hasMore) {
+    await page.evaluate(() => window.WingaDataLayer.appendProductsPage());
+    await expect.poll(
+      () => page.evaluate(() => window.WingaDataLayer.getProducts().length),
+      { timeout: 30000 }
+    ).toBeGreaterThan(afterRefresh.count);
+  }
+});
+
 test("load-more commits its primary page before background runway prefetch", async ({ page }) => {
   const products = createProducts(36);
   const productRequests = [];

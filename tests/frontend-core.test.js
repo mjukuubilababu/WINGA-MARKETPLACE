@@ -2807,7 +2807,8 @@ test("resolveBootView returns home for valid session and login otherwise", () =>
 test("authenticated product refresh preserves paginated feed contract", () => {
   const root = path.resolve(__dirname, "..");
   const dataSource = fs.readFileSync(path.join(root, "data-service.js"), "utf8");
-  const refreshStart = dataSource.indexOf("async refreshProducts() {");
+  const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
+  const refreshStart = dataSource.indexOf("async refreshProducts(options = {}) {");
   const refreshEnd = dataSource.indexOf("async requestWhatsappChange", refreshStart);
   const refreshProductsSource = refreshStart >= 0 && refreshEnd > refreshStart
     ? dataSource.slice(refreshStart, refreshEnd)
@@ -2817,9 +2818,15 @@ test("authenticated product refresh preserves paginated feed contract", () => {
   assert.match(refreshProductsSource, /typeof state\.adapter\.loadProductsPage === "function"/);
   assert.match(refreshProductsSource, /await state\.adapter\.loadProductsPage\(\{/);
   assert.match(refreshProductsSource, /applyLoadedProductPageToState\(refreshedPage,\s*\{/);
-  assert.match(refreshProductsSource, /replace:\s*true/);
+  assert.match(refreshProductsSource, /preserveFeedPagination/);
+  assert.match(refreshProductsSource, /replace:\s*!preserveFeedPagination/);
+  assert.match(refreshProductsSource, /latestPagination/);
+  assert.match(refreshProductsSource, /continuationPagination/);
+  assert.match(refreshProductsSource, /nextCursor:\s*String\(continuationPagination\.nextCursor/);
+  assert.match(refreshProductsSource, /loadedCount:\s*state\.products\.length/);
   assert.match(refreshProductsSource, /markHydrated:\s*true/);
   assert.doesNotMatch(refreshProductsSource, /setFullProductFeedPagination\(state\.products\);[\s\S]*?loadProductsPage/);
+  assert.match(appSource, /refreshProducts\.call\(window\.WingaDataLayer,\s*\{\s*preserveFeedPagination:\s*true/);
 });
 
 test("legacy product gallery escapes user-controlled HTML attributes", () => {

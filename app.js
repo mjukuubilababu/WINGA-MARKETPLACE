@@ -356,7 +356,9 @@ function refreshProductsAfterAuthChange() {
 
   const refreshToken = ++postAuthProductRefreshToken;
   refreshProductsFromStore();
-  Promise.resolve(refreshProducts.call(window.WingaDataLayer))
+  Promise.resolve(refreshProducts.call(window.WingaDataLayer, {
+    preserveFeedPagination: true
+  }))
     .then(() => {
       if (refreshToken !== postAuthProductRefreshToken || !isAuthenticatedUser()) {
         return;

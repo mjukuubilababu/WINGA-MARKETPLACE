@@ -3570,19 +3570,45 @@
       state.users = await state.adapter.loadUsers();
       return clone(state.users);
     },
-    async refreshProducts() {
+    async refreshProducts(options = {}) {
       ensureAdapter();
       if (typeof state.adapter.loadProductsPage === "function") {
         const config = window.WINGA_CONFIG || {};
+        const preserveFeedPagination = options.preserveFeedPagination === true
+          && Array.isArray(state.products)
+          && state.products.length > 0;
+        const previousPagination = preserveFeedPagination
+          ? clone(state.productFeedPagination || {})
+          : null;
         const refreshedPage = await state.adapter.loadProductsPage({
           limit: getConfiguredFeedPageLimit(config),
           page: 1
         });
+        const latestPagination = preserveFeedPagination
+          ? clone(state.productFeedPagination || {})
+          : null;
+        const continuationPagination = Number(latestPagination?.page || 0) >= Number(previousPagination?.page || 0)
+          ? latestPagination
+          : previousPagination;
         applyLoadedProductPageToState(refreshedPage, {
-          replace: true,
+          replace: !preserveFeedPagination,
           markHydrated: true,
           requestState: "success"
         });
+        if (preserveFeedPagination && continuationPagination) {
+          state.productFeedPagination = {
+            limit: Number(continuationPagination.limit || refreshedPage?.limit || DEFAULT_PRODUCTS_PAGE_LIMIT) || DEFAULT_PRODUCTS_PAGE_LIMIT,
+            page: Number(continuationPagination.page || 1) || 1,
+            nextCursor: String(continuationPagination.nextCursor || ""),
+            hasMore: Boolean(continuationPagination.hasMore),
+            total: Math.max(
+              Number(continuationPagination.total || 0) || 0,
+              Number(refreshedPage?.total || 0) || 0,
+              state.products.length
+            ),
+            loadedCount: state.products.length
+          };
+        }
         resetProductFeedNoProgress();
       } else {
         const nextProducts = await state.adapter.loadProducts();
