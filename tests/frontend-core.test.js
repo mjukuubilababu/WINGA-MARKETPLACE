@@ -2932,6 +2932,10 @@ test("global localization runtime is modular, fail-soft, and off the critical pa
   assert.match(runtimeSource, /Intl\.NumberFormat/);
   assert.match(runtimeSource, /root\.dir = context\.direction === "rtl"/);
   assert.match(serverSource, /url\.pathname === "\/api\/global-context"/);
+  assert.ok(
+    serverSource.indexOf("let store = migrateLegacyStore")
+      < serverSource.indexOf("url.pathname === \"/api/global-context\"")
+  );
   assert.match(serverSource, /public, max-age=300, stale-while-revalidate=3600/);
   assert.match(intelligenceSource, /marketCountry:/);
   assert.match(intelligenceSource, /timezone:/);

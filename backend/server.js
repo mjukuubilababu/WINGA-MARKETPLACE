@@ -5659,22 +5659,6 @@ http.createServer(async (req, res) => {
     return;
   }
 
-  if (req.method === "GET" && url.pathname === "/api/global-context") {
-    const token = readAuthToken(req);
-    const session = findSession(store, token);
-    const user = session
-      ? (store.users || []).find((item) => item.username === session.username)
-      : null;
-    const globalContext = buildRequestGlobalContext(req, {
-      userPreference: user?.localePreference || {}
-    });
-    sendJson(res, 200, globalContext, {
-      "Cache-Control": token ? "private, no-store" : "public, max-age=300, stale-while-revalidate=3600",
-      "Vary": "Accept-Language, CF-IPCountry"
-    });
-    return;
-  }
-
   const originStatus = validateUnsafeApiOrigin(req, url.pathname);
   if (!originStatus.ok) {
     requestMeta.statusCode = 403;
@@ -5757,6 +5741,21 @@ http.createServer(async (req, res) => {
   }
 
   try {
+    if (req.method === "GET" && url.pathname === "/api/global-context") {
+      const token = readAuthToken(req);
+      const session = findSession(store, token);
+      const user = session
+        ? (store.users || []).find((item) => item.username === session.username)
+        : null;
+      const globalContext = buildRequestGlobalContext(req, {
+        userPreference: user?.localePreference || {}
+      });
+      sendJson(res, 200, globalContext, {
+        "Cache-Control": token ? "private, no-store" : "public, max-age=300, stale-while-revalidate=3600",
+        "Vary": "Accept-Language, CF-IPCountry"
+      });
+      return;
+    }
     if ((req.method === "GET" || req.method === "HEAD") && url.pathname === "/__winga-image__") {
       const target = resolveProxyImageTarget(url.searchParams.get("u") || "", req);
       if (!target || !fs.existsSync(target.filePath)) {
