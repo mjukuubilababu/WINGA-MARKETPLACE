@@ -4,6 +4,23 @@
   const DEFAULT_LANGUAGE = "en";
   const CATALOG_BASE_PATH = "/src/localization/catalogs";
   const ALLOWED_ATTRIBUTES = new Set(["aria-label", "placeholder", "title"]);
+  const STATIC_SELECTOR_KEYS = Object.freeze([
+    ["#header-signup-button", "auth.signUp", ""],
+    ["#top-bar-subtitle", "header.discover", ""],
+    ["#filter-price-min", "search.minimumPrice", "placeholder"],
+    ["#filter-price-max", "search.maximumPrice", "placeholder"],
+    ["#filter-location", "search.region", "placeholder"],
+    ['#sort-select option[value="default"]', "search.defaultSort", ""],
+    ['#sort-select option[value="price-asc"]', "search.lowestPrice", ""],
+    ['#sort-select option[value="price-desc"]', "search.highestPrice", ""],
+    ['#sort-select option[value="newest"]', "search.newest", ""],
+    ['#sort-select option[value="popular"]', "search.popular", ""],
+    ["#view-home-back", "nav.backHome", "aria-label"],
+    ["#market-showcase .eyebrow", "marketplace.picks", ""],
+    ["#market-showcase h3", "marketplace.trending", ""],
+    ["#market-showcase .meta-copy", "marketplace.browseHint", ""],
+    ["#cancel-edit-button", "common.cancel", ""]
+  ]);
   const FALLBACK = Object.freeze({ schemaVersion: 1, locale: "sw-TZ", language: "sw", direction: "ltr", currency: "TZS", timezone: "Africa/Dar_es_Salaam", units: "metric", market: { country: "TZ", discoveryPolicy: "local_priority_global_discovery" } });
   function canonical(value = "") { try { return Intl.getCanonicalLocales(String(value || "").replace(/_/g, "-"))[0] || ""; } catch (_error) { return ""; } }
   function read(storage) { try { const value = JSON.parse(storage?.getItem(STORAGE_KEY) || "null"); return value?.schemaVersion === 1 ? value : null; } catch (_error) { return null; } }
@@ -85,7 +102,19 @@
       reportMissingKey(safeKey);
       return String(fallbackText || safeKey);
     }
+    function bindStaticTranslationKeys() {
+      const document = targetWindow.document;
+      if (!document?.querySelector) return;
+      STATIC_SELECTOR_KEYS.forEach(([selector, key, attribute]) => {
+        const node = document.querySelector(selector);
+        if (!node) return;
+        node.setAttribute("data-winga-i18n", key);
+        node.setAttribute("data-winga-i18n-lock", "");
+        if (attribute && ALLOWED_ATTRIBUTES.has(attribute)) node.setAttribute("data-winga-i18n-attr", attribute);
+      });
+    }
     function translateDom(scope = targetWindow.document) {
+      bindStaticTranslationKeys();
       if (!scope?.querySelectorAll) return 0;
       const nodes = Array.from(scope.querySelectorAll("[data-winga-i18n]"));
       nodes.forEach((node) => {

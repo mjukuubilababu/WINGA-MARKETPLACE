@@ -2965,6 +2965,8 @@ test("global translation catalogs are versioned, validated, cached, and fail sof
   assert.match(runtimeSource, /data-winga-i18n-fallback/);
   assert.match(runtimeSource, /ALLOWED_ATTRIBUTES/);
   assert.match(runtimeSource, /MutationObserverCtor/);
+  assert.match(runtimeSource, /STATIC_SELECTOR_KEYS/);
+  assert.match(runtimeSource, /bindStaticTranslationKeys/);
   assert.match(runtimeSource, /closest\?\.\("\[data-winga-i18n-lock\]"/);
   assert.match(runtimeSource, /winga:i18n-missing-key/);
   assert.doesNotMatch(runtimeSource, /console\.(?:log|warn|error)/);
