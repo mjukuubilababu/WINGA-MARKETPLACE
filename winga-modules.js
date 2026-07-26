@@ -3648,8 +3648,11 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         }
         const fallbackText = node.getAttribute("data-winga-i18n-fallback") || "";
         const translated = translate(key, {}, fallbackText);
-        if (attribute && ALLOWED_ATTRIBUTES.has(attribute)) node.setAttribute(attribute, translated);
-        else node.textContent = translated;
+        if (attribute && ALLOWED_ATTRIBUTES.has(attribute)) {
+          if (node.getAttribute(attribute) !== translated) node.setAttribute(attribute, translated);
+        } else if (node.textContent !== translated) {
+          node.textContent = translated;
+        }
       });
       return nodes.length;
     }
@@ -3737,6 +3740,26 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     function formatDate(value, options = {}) { return new Intl.DateTimeFormat(context.locale, { timeZone: context.timezone, ...options }).format(new Date(value)); }
     function subscribe(listener) { if (typeof listener !== "function") return () => {}; listeners.add(listener); return () => listeners.delete(listener); }
     targetWindow.addEventListener?.("languagechange", () => { if (useDeviceLanguage) followDeviceLanguage(); });
+    const MutationObserverCtor = targetWindow.MutationObserver;
+    if (typeof MutationObserverCtor === "function" && targetWindow.document?.documentElement) {
+      const translationObserver = new MutationObserverCtor((records) => {
+        if (!activeCatalogs.length) return;
+        const scopes = new Set();
+        records.forEach((record) => {
+          const element = record.target?.nodeType === 1 ? record.target : record.target?.parentElement;
+          const locked = element?.closest?.("[data-winga-i18n-lock]");
+          if (locked) scopes.add(locked.parentElement || locked);
+        });
+        scopes.forEach((scope) => translateDom(scope));
+      });
+      translationObserver.observe(targetWindow.document.documentElement, {
+        subtree: true,
+        childList: true,
+        characterData: true,
+        attributes: true,
+        attributeFilter: ["aria-label", "placeholder", "title"]
+      });
+    }
     apply();
     scheduleCatalogLoad();
     return Object.freeze({

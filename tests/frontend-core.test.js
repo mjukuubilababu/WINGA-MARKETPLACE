@@ -2964,9 +2964,11 @@ test("global translation catalogs are versioned, validated, cached, and fail sof
   assert.match(runtimeSource, /generation !== catalogGeneration/);
   assert.match(runtimeSource, /data-winga-i18n-fallback/);
   assert.match(runtimeSource, /ALLOWED_ATTRIBUTES/);
+  assert.match(runtimeSource, /MutationObserverCtor/);
+  assert.match(runtimeSource, /closest\?\.\("\[data-winga-i18n-lock\]"/);
   assert.match(runtimeSource, /winga:i18n-missing-key/);
   assert.doesNotMatch(runtimeSource, /console\.(?:log|warn|error)/);
-  assert.match(indexSource, /data-winga-i18n="auth\.login"/);
+  assert.match(indexSource, /data-winga-i18n="auth\.signIn" data-winga-i18n-lock/);
   assert.match(indexSource, /data-winga-i18n="marketplace\.trending"/);
   assert.match(indexSource, /data-winga-i18n-attr="placeholder"/);
   const serviceWorkerSource = fs.readFileSync(path.join(__dirname, "..", "sw.js"), "utf8");
