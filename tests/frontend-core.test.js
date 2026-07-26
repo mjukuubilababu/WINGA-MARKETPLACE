@@ -2929,6 +2929,10 @@ test("global localization runtime is modular, fail-soft, and off the critical pa
   const appSource = fs.readFileSync(path.join(__dirname, "..", "app.js"), "utf8");
   assert.match(runtimeSource, /createRuntime/);
   assert.match(runtimeSource, /languagechange/);
+  assert.match(runtimeSource, /persistRemotePreference/);
+  assert.match(runtimeSource, /savePreference/);
+  assert.match(serverSource, /url\.pathname === "\/api\/users\/me\/locale-preference"/);
+  assert.match(serverSource, /code: "locale_preference_conflict"/);
   assert.match(runtimeSource, /Intl\.NumberFormat/);
   assert.match(runtimeSource, /root\.dir = context\.direction === "rtl"/);
   assert.match(serverSource, /url\.pathname === "\/api\/global-context"/);

@@ -1977,6 +1977,12 @@
       async verifySessionStepUp(password) {
         return getAuthApiClient().verifySessionStepUp(password);
       },
+      async loadLocalePreference() {
+        return getAuthApiClient().loadLocalePreference();
+      },
+      async saveLocalePreference(preference) {
+        return getAuthApiClient().saveLocalePreference(preference);
+      },
       async updateUserPrimaryCategory(username, primaryCategory) {
         return getAuthApiClient().updateUserPrimaryCategory(username, primaryCategory);
       },
@@ -3947,6 +3953,14 @@
       const result = await state.adapter.trackProductView(productId);
       mergeProductMutationResult(productId, result);
       return result;
+    },
+    async loadLocalePreference() {
+      ensureAdapter();
+      return state.adapter.loadLocalePreference ? state.adapter.loadLocalePreference() : null;
+    },
+    async saveLocalePreference(preference = {}) {
+      ensureAdapter();
+      return state.adapter.saveLocalePreference ? state.adapter.saveLocalePreference(preference) : null;
     },
     async restoreSession() {
       return state.adapter.restoreSession();

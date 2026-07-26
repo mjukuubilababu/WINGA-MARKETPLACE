@@ -1,10 +1,12 @@
-﻿const test = require("node:test");
+const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
   buildGlobalContext,
   buildRequestGlobalContext,
   canonicalizeLocale,
-  parseLanguageList
+  parseLanguageList,
+  normalizeUserPreference,
+  validateUserPreference
 } = require("../backend/global-context");
 
 test("explicit language preference wins without coupling language to location", () => {
@@ -62,4 +64,18 @@ test("locale parsing rejects invalid input and deduplicates browser languages", 
   assert.equal(canonicalizeLocale("sw_TZ"), "sw-TZ");
   assert.equal(canonicalizeLocale("not a locale"), "");
   assert.deepEqual(parseLanguageList("sw-TZ, sw-TZ;q=0.9, en-US;q=0.8"), ["sw-TZ", "en-US"]);
+});
+test("locale preferences are validated and preserve optimistic versions", () => {
+  assert.equal(validateUserPreference({ language: "fr-FR", currency: "EUR", timezone: "Europe/Paris", rowVersion: 4 }).ok, true);
+  assert.equal(validateUserPreference({ language: "not a locale" }).ok, false);
+  assert.equal(validateUserPreference({ timezone: "Mars/Olympus" }).ok, false);
+  const preference = normalizeUserPreference({ language: "ar-SA", useDeviceLanguage: false, currency: "sar", rowVersion: 4, updatedAt: "2026-07-26T00:00:00.000Z" });
+  assert.deepEqual(preference, {
+    language: "ar-SA",
+    useDeviceLanguage: false,
+    currency: "SAR",
+    timezone: "",
+    rowVersion: 4,
+    updatedAt: "2026-07-26T00:00:00.000Z"
+  });
 });

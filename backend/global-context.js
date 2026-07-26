@@ -1,4 +1,4 @@
-﻿const PLATFORM_VERSION = "2026-07-26.1";
+const PLATFORM_VERSION = "2026-07-26.1";
 
 const MARKET_PROFILES = Object.freeze({
   TZ: { locale: "sw-TZ", languages: ["sw", "en"], currency: "TZS", timezone: "Africa/Dar_es_Salaam", units: "metric", payments: ["mobile_money", "card", "cash"] },
@@ -64,6 +64,54 @@ function resolveLocation({ headers = {}, locationHint = {}, languageCountry = ""
     confidence: explicit ? 1 : edge ? 0.9 : languageCountry ? 0.45 : 0.25
   };
 }
+function normalizeUserPreference(input = {}, current = {}) {
+  const source = input && typeof input === "object" && !Array.isArray(input) ? input : {};
+  const previous = current && typeof current === "object" && !Array.isArray(current) ? current : {};
+  const language = Object.prototype.hasOwnProperty.call(source, "language")
+    ? canonicalizeLocale(source.language)
+    : canonicalizeLocale(previous.language);
+  const currencyCandidate = clean(
+    Object.prototype.hasOwnProperty.call(source, "currency") ? source.currency : previous.currency,
+    3
+  ).toUpperCase();
+  const timezoneCandidate = clean(
+    Object.prototype.hasOwnProperty.call(source, "timezone") ? source.timezone : previous.timezone,
+    80
+  );
+  let timezone = "";
+  if (timezoneCandidate) {
+    try {
+      new Intl.DateTimeFormat("en-US", { timeZone: timezoneCandidate }).format(new Date(0));
+      timezone = timezoneCandidate;
+    } catch (_error) {
+      timezone = "";
+    }
+  }
+  return {
+    language,
+    useDeviceLanguage: Object.prototype.hasOwnProperty.call(source, "useDeviceLanguage")
+      ? source.useDeviceLanguage === true
+      : previous.useDeviceLanguage !== false,
+    currency: /^[A-Z]{3}$/.test(currencyCandidate) ? currencyCandidate : "",
+    timezone,
+    rowVersion: Math.max(0, Number.parseInt(source.rowVersion ?? previous.rowVersion, 10) || 0),
+    updatedAt: clean(Object.prototype.hasOwnProperty.call(source, "updatedAt") ? source.updatedAt : previous.updatedAt, 40)
+  };
+}
+
+function validateUserPreference(input = {}) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return { ok: false, error: "Preference payload is invalid." };
+  if (Object.prototype.hasOwnProperty.call(input, "language") && input.language && !canonicalizeLocale(input.language)) return { ok: false, error: "Language locale is invalid." };
+  if (Object.prototype.hasOwnProperty.call(input, "useDeviceLanguage") && typeof input.useDeviceLanguage !== "boolean") return { ok: false, error: "Device language preference is invalid." };
+  if (Object.prototype.hasOwnProperty.call(input, "currency") && input.currency && !/^[A-Za-z]{3}$/.test(String(input.currency))) return { ok: false, error: "Currency code is invalid." };
+  if (Object.prototype.hasOwnProperty.call(input, "timezone") && input.timezone) {
+    try { new Intl.DateTimeFormat("en-US", { timeZone: String(input.timezone) }).format(new Date(0)); }
+    catch (_error) { return { ok: false, error: "Timezone is invalid." }; }
+  }
+  if (Object.prototype.hasOwnProperty.call(input, "rowVersion") && (!Number.isInteger(Number(input.rowVersion)) || Number(input.rowVersion) < 0)) return { ok: false, error: "Preference version is invalid." };
+  return { ok: true };
+}
+
 function buildGlobalContext(input = {}) {
   const requestedLanguages = parseLanguageList(input.deviceLanguages?.length ? input.deviceLanguages : input.browserLanguages);
   const languageCountry = inferCountryFromLocale(input.userPreference?.language || requestedLanguages[0]);
@@ -86,10 +134,11 @@ function buildGlobalContext(input = {}) {
     location,
     market: Object.freeze({ country: location.country, languages: market.languages || [languageCode], commerce: { payments: market.payments, delivery: ["local_delivery", "courier", "pickup"] }, discoveryPolicy: "local_priority_global_discovery" }),
     provenance: Object.freeze({ language: language.source, languageConfidence: language.confidence, location: location.source, locationConfidence: location.confidence }),
+    preference: Object.freeze(normalizeUserPreference(input.userPreference || {})),
     privacy: Object.freeze({ precision: location.city ? "city" : location.region ? "region" : "country", storesCoordinates: false, analyticsMode: "aggregate" })
   });
 }
 function buildRequestGlobalContext(req = {}, options = {}) {
   return buildGlobalContext({ headers: req.headers || {}, browserLanguages: getHeader(req.headers, "accept-language"), userPreference: options.userPreference || {}, locationHint: options.locationHint || {} });
 }
-module.exports = { PLATFORM_VERSION, MARKET_PROFILES, buildGlobalContext, buildRequestGlobalContext, canonicalizeLocale, parseLanguageList };
+module.exports = { PLATFORM_VERSION, MARKET_PROFILES, buildGlobalContext, buildRequestGlobalContext, canonicalizeLocale, parseLanguageList, normalizeUserPreference, validateUserPreference };

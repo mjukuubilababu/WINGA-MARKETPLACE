@@ -215,6 +215,23 @@
       });
     }
 
+    async function loadLocalePreference() {
+      requireFetcher();
+      return fetchJson(`${baseUrl}/users/me/locale-preference`, {
+        headers: createAuthHeaders(),
+        cache: "no-store"
+      });
+    }
+
+    async function saveLocalePreference(preference = {}) {
+      requireFetcher();
+      return fetchJson(`${baseUrl}/users/me/locale-preference`, {
+        method: "PATCH",
+        headers: jsonHeaders(),
+        body: JSON.stringify(preference)
+      });
+    }
+
     async function updateUserPrimaryCategory(username, primaryCategory) {
       requireFetcher();
       const normalizedCategory = normalizePrimaryCategoryValue(primaryCategory);
@@ -245,6 +262,8 @@
       loadActiveSessions,
       revokeActiveSession,
       verifySessionStepUp,
+      loadLocalePreference,
+      saveLocalePreference,
       updateUserPrimaryCategory
     };
   }

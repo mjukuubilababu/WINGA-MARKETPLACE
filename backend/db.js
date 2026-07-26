@@ -1832,6 +1832,75 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
     };
   }
 
+  async function readUserLocalePreference(username = "") {
+    const result = await query(
+      `SELECT language,
+              use_device_language AS "useDeviceLanguage",
+              currency,
+              timezone,
+              row_version AS "rowVersion",
+              updated_at AS "updatedAt"
+       FROM user_locale_preferences
+       WHERE username = $1`,
+      [String(username || "")]
+    );
+    const row = result.rows?.[0];
+    return row ? {
+      language: row.language || "",
+      useDeviceLanguage: row.useDeviceLanguage !== false,
+      currency: row.currency || "",
+      timezone: row.timezone || "",
+      rowVersion: Number(row.rowVersion || 0),
+      updatedAt: toISOString(row.updatedAt)
+    } : null;
+  }
+
+  async function saveUserLocalePreference(username = "", preference = {}, options = {}) {
+    const expectedVersion = Math.max(0, Number(options.expectedRowVersion || 0));
+    const result = await query(
+      `INSERT INTO user_locale_preferences (
+         username, language, use_device_language, currency, timezone,
+         row_version, created_at, updated_at
+       ) VALUES ($1, $2, $3, $4, $5, 1, NOW(), NOW())
+       ON CONFLICT (username) DO UPDATE SET
+         language = EXCLUDED.language,
+         use_device_language = EXCLUDED.use_device_language,
+         currency = EXCLUDED.currency,
+         timezone = EXCLUDED.timezone,
+         row_version = user_locale_preferences.row_version + 1,
+         updated_at = NOW()
+       WHERE $6::bigint = 0
+          OR user_locale_preferences.row_version = $6::bigint
+       RETURNING language,
+                 use_device_language AS "useDeviceLanguage",
+                 currency,
+                 timezone,
+                 row_version AS "rowVersion",
+                 updated_at AS "updatedAt"`,
+      [
+        String(username || ""),
+        preference.language || "",
+        preference.useDeviceLanguage !== false,
+        preference.currency || "",
+        preference.timezone || "",
+        expectedVersion
+      ]
+    );
+    const row = result.rows?.[0];
+    return row ? {
+      updated: true,
+      conflict: false,
+      preference: {
+        language: row.language || "",
+        useDeviceLanguage: row.useDeviceLanguage !== false,
+        currency: row.currency || "",
+        timezone: row.timezone || "",
+        rowVersion: Number(row.rowVersion || 0),
+        updatedAt: toISOString(row.updatedAt)
+      }
+    } : { updated: false, conflict: expectedVersion > 0, preference: null };
+  }
+
   async function appendAuditLog(entry) {
     await query(
       "INSERT INTO audit_logs (time, event, entry) VALUES ($1, $2, $3::jsonb)",
@@ -4283,6 +4352,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
     readSellerDemandSummary,
     appendSearchDemandEvents,
     readSearchDemandSummary,
+    readUserLocalePreference,
+    saveUserLocalePreference,
     appendAuditLog,
     readRecentAuditLogs,
     pruneSuspiciousLoginAttempts,

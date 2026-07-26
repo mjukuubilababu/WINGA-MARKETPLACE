@@ -182,6 +182,23 @@ const MIGRATIONS = Object.freeze([
        ON password_recovery_challenges (expires_at)
        WHERE consumed_at IS NULL;`
     ])
+  }),
+  Object.freeze({
+    id: "2026072601_user_locale_preferences",
+    statements: Object.freeze([
+      `CREATE TABLE IF NOT EXISTS user_locale_preferences (
+         username TEXT PRIMARY KEY REFERENCES users(username) ON DELETE CASCADE,
+         language TEXT NOT NULL DEFAULT '',
+         use_device_language BOOLEAN NOT NULL DEFAULT TRUE,
+         currency TEXT NOT NULL DEFAULT '',
+         timezone TEXT NOT NULL DEFAULT '',
+         row_version BIGINT NOT NULL DEFAULT 1,
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+       );`,
+      `CREATE INDEX IF NOT EXISTS idx_user_locale_preferences_updated
+       ON user_locale_preferences (updated_at DESC);`
+    ])
   })
 ]);
 

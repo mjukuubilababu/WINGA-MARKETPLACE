@@ -205,6 +205,11 @@ const {
 } = window.WingaModules.components.ui;
 const { createObservabilityModule } = window.WingaModules.monitoring;
 const globalLocalizationRuntime = window.WingaModules.localization?.createRuntime?.({
+  savePreference: async (preference) => {
+    const save = window.WingaDataLayer?.saveLocalePreference;
+    if (typeof save !== "function" || !window.WingaDataLayer?.getSessionUser?.()) return null;
+    return save.call(window.WingaDataLayer, preference);
+  },
   fetchContext: async () => {
     const response = await fetch("/api/global-context", {
       method: "GET",

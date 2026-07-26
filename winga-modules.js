@@ -910,6 +910,23 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       });
     }
 
+    async function loadLocalePreference() {
+      requireFetcher();
+      return fetchJson(`${baseUrl}/users/me/locale-preference`, {
+        headers: createAuthHeaders(),
+        cache: "no-store"
+      });
+    }
+
+    async function saveLocalePreference(preference = {}) {
+      requireFetcher();
+      return fetchJson(`${baseUrl}/users/me/locale-preference`, {
+        method: "PATCH",
+        headers: jsonHeaders(),
+        body: JSON.stringify(preference)
+      });
+    }
+
     async function updateUserPrimaryCategory(username, primaryCategory) {
       requireFetcher();
       const normalizedCategory = normalizePrimaryCategoryValue(primaryCategory);
@@ -940,6 +957,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       loadActiveSessions,
       revokeActiveSession,
       verifySessionStepUp,
+      loadLocalePreference,
+      saveLocalePreference,
       updateUserPrimaryCategory
     };
   }
@@ -3530,7 +3549,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 
 
 // src/localization/runtime.js
-﻿(() => {
+(() => {
   const STORAGE_KEY = "winga-global-context-v1";
   const FALLBACK = Object.freeze({ schemaVersion: 1, locale: "sw-TZ", language: "sw", direction: "ltr", currency: "TZS", timezone: "Africa/Dar_es_Salaam", units: "metric", market: { country: "TZ", discoveryPolicy: "local_priority_global_discovery" } });
   function canonical(value = "") { try { return Intl.getCanonicalLocales(String(value || "").replace(/_/g, "-"))[0] || ""; } catch (_error) { return ""; } }
@@ -3561,6 +3580,18 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       useDeviceLanguage = context.preference?.useDeviceLanguage !== false;
       emit(reason); return context;
     }
+    async function persistRemotePreference() {
+      if (typeof deps.savePreference !== "function") return null;
+      try {
+        const result = await deps.savePreference({ ...(context.preference || {}) });
+        if (result?.context) return update(result.context, "preference_synced");
+        if (result?.preference) return update({ preference: result.preference }, "preference_synced");
+      } catch (_error) {
+        // Local preference remains active while authenticated sync is unavailable.
+      }
+      return null;
+    }
+
     async function hydrate(fetchContext = deps.fetchContext) {
       if (typeof fetchContext !== "function") { apply(); return context; }
       try { return update(await fetchContext({ deviceLanguages: Array.from(targetWindow.navigator?.languages || []), timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "" }), "remote_hydration"); }
@@ -3568,11 +3599,15 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     }
     function setLanguage(language, options = {}) {
       const locale = canonical(language); if (!locale) throw new TypeError("Unsupported locale.");
-      return update({ locale, preference: { ...(context.preference || {}), language: locale, useDeviceLanguage: options.useDeviceLanguage === true } }, "language_selected");
+      const next = update({ locale, preference: { ...(context.preference || {}), language: locale, useDeviceLanguage: options.useDeviceLanguage === true } }, "language_selected");
+      persistRemotePreference();
+      return next;
     }
     function followDeviceLanguage() {
       const locale = canonical(targetWindow.navigator?.languages?.[0] || targetWindow.navigator?.language); if (!locale) return context;
-      return update({ locale, preference: { ...(context.preference || {}), language: "", useDeviceLanguage: true } }, "device_language_changed");
+      const next = update({ locale, preference: { ...(context.preference || {}), language: "", useDeviceLanguage: true } }, "device_language_changed");
+      persistRemotePreference();
+      return next;
     }
     function formatCurrency(value, options = {}) { return new Intl.NumberFormat(context.locale, { style: "currency", currency: options.currency || context.currency, currencyDisplay: options.currencyDisplay || "symbol", maximumFractionDigits: options.maximumFractionDigits ?? 2 }).format(Number(value || 0)); }
     function formatNumber(value, options = {}) { return new Intl.NumberFormat(context.locale, options).format(Number(value || 0)); }
@@ -3580,7 +3615,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     function subscribe(listener) { if (typeof listener !== "function") return () => {}; listeners.add(listener); return () => listeners.delete(listener); }
     targetWindow.addEventListener?.("languagechange", () => { if (useDeviceLanguage) followDeviceLanguage(); });
     apply();
-    return Object.freeze({ getContext: () => context, hydrate, update, setLanguage, followDeviceLanguage, formatCurrency, formatNumber, formatDate, subscribe });
+    return Object.freeze({ getContext: () => context, hydrate, update, setLanguage, persistRemotePreference, followDeviceLanguage, formatCurrency, formatNumber, formatDate, subscribe });
   }
   window.WingaModules.localization = window.WingaModules.localization || {};
   window.WingaModules.localization.createRuntime = createRuntime;

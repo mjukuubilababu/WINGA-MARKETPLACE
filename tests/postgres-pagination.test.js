@@ -42,6 +42,7 @@ test("PostgreSQL schema migrations are locked, transactional, and versioned", as
   assert.equal(calls.some((call) => call.text === "BEGIN"), true);
   assert.equal(calls.some((call) => call.text.includes("ADD COLUMN IF NOT EXISTS row_version")), true);
   assert.equal(calls.some((call) => call.text.includes("idx_sessions_username_active")), true);
+  assert.equal(calls.some((call) => call.text.includes("CREATE TABLE IF NOT EXISTS user_locale_preferences")), true);
   assert.equal(calls.some((call) => call.text.includes("INSERT INTO schema_migrations")), true);
   assert.equal(calls.some((call) => call.text === "COMMIT"), true);
   assert.equal(calls.some((call) => call.text.includes("pg_advisory_unlock")), true);
@@ -1899,4 +1900,41 @@ test("PostgreSQL search demand persistence stores anonymous events and reads agg
   assert.equal(summary.zeroResultOpportunities[0].opportunity, "high");
   assert.equal(summary.lowSupplyOpportunities[0].supply, "low");
   assert.equal(summary.regionalDemand[0].region, "dar-es-salaam");
+});
+test("PostgreSQL locale preferences use one versioned upsert and detect conflicts", async () => {
+  const calls = [];
+  let conflictMode = false;
+  const queryClient = {
+    async query(text, params = []) {
+      calls.push({ text: String(text), params });
+      if (String(text).includes("SELECT language")) {
+        return { rows: [{ language: "sw-TZ", useDeviceLanguage: false, currency: "TZS", timezone: "Africa/Dar_es_Salaam", rowVersion: 3, updatedAt: "2026-07-26T00:00:00.000Z" }] };
+      }
+      if (String(text).includes("INSERT INTO user_locale_preferences")) {
+        if (conflictMode) return { rows: [], rowCount: 0 };
+        return { rows: [{ language: "fr-FR", useDeviceLanguage: false, currency: "EUR", timezone: "Europe/Paris", rowVersion: 4, updatedAt: "2026-07-26T01:00:00.000Z" }], rowCount: 1 };
+      }
+      return { rows: [], rowCount: 0 };
+    }
+  };
+  const store = createPostgresStore({ databaseUrl: "postgres://test.invalid/winga", queryClient });
+  const current = await store.readUserLocalePreference("buyer");
+  const saved = await store.saveUserLocalePreference("buyer", {
+    language: "fr-FR", useDeviceLanguage: false, currency: "EUR", timezone: "Europe/Paris"
+  }, { expectedRowVersion: 3 });
+  conflictMode = true;
+  const conflict = await store.saveUserLocalePreference("buyer", {
+    language: "ar-SA", useDeviceLanguage: false, currency: "SAR", timezone: "Asia/Riyadh"
+  }, { expectedRowVersion: 3 });
+
+  assert.equal(current.rowVersion, 3);
+  assert.equal(saved.updated, true);
+  assert.equal(saved.preference.rowVersion, 4);
+  assert.equal(conflict.updated, false);
+  assert.equal(conflict.conflict, true);
+  const upsert = calls.find((call) => call.text.includes("INSERT INTO user_locale_preferences"));
+  assert.match(upsert.text, /ON CONFLICT \(username\) DO UPDATE/);
+  assert.match(upsert.text, /user_locale_preferences\.row_version = \$6::bigint/);
+  assert.equal(upsert.params[0], "buyer");
+  assert.equal(upsert.params[5], 3);
 });

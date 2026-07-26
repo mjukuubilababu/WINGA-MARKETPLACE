@@ -8,7 +8,7 @@ const { createPostgresStore } = require("./db");
 const { createIntelligencePlatform } = require("./intelligence-platform");
 const { createDemandService, summarizeDemandEvents } = require("./demand-service");
 const { createSearchDemandService, summarizeSearchDemandEvents } = require("./search-demand-service");
-const { buildRequestGlobalContext } = require("./global-context");
+const { buildRequestGlobalContext, normalizeUserPreference, validateUserPreference } = require("./global-context");
 
 const PORT = process.env.PORT || 3000;
 const DATABASE_URL = process.env.DATABASE_URL || "";
@@ -196,13 +196,15 @@ const RATE_LIMIT_RULES = {
   "/api/client-events": { limit: 20, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/search-demand": { limit: 18, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/users/me/whatsapp/request-change": { limit: 6, windowMs: RATE_LIMIT_WINDOW_MS },
-  "/api/users/me/whatsapp/verify-change": { limit: 12, windowMs: RATE_LIMIT_WINDOW_MS }
+  "/api/users/me/whatsapp/verify-change": { limit: 12, windowMs: RATE_LIMIT_WINDOW_MS },
+  "/api/users/me/locale-preference": { limit: 20, windowMs: RATE_LIMIT_WINDOW_MS }
 };
 const READ_RATE_LIMIT_RULES = {
   "/api/products": { limit: 240, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/bootstrap": { limit: 120, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/auth/session": { limit: 120, windowMs: RATE_LIMIT_WINDOW_MS },
-  "/api/global-context": { limit: 180, windowMs: RATE_LIMIT_WINDOW_MS }
+  "/api/global-context": { limit: 180, windowMs: RATE_LIMIT_WINDOW_MS },
+  "/api/users/me/locale-preference": { limit: 120, windowMs: RATE_LIMIT_WINDOW_MS }
 };
 const rateLimitStore = new Map();
 const suspiciousLoginStore = new Map();
@@ -5747,13 +5749,88 @@ http.createServer(async (req, res) => {
       const user = session
         ? (store.users || []).find((item) => item.username === session.username)
         : null;
-      const globalContext = buildRequestGlobalContext(req, {
-        userPreference: user?.localePreference || {}
-      });
+      let userPreference = user?.localePreference || {};
+      if (user && postgresStore?.readUserLocalePreference) {
+        userPreference = await postgresStore.readUserLocalePreference(user.username) || userPreference;
+      }
+      const globalContext = buildRequestGlobalContext(req, { userPreference });
       sendJson(res, 200, globalContext, {
         "Cache-Control": token ? "private, no-store" : "public, max-age=300, stale-while-revalidate=3600",
         "Vary": "Accept-Language, CF-IPCountry"
       });
+      return;
+    }
+    if ((req.method === "GET" || req.method === "PATCH") && url.pathname === "/api/users/me/locale-preference") {
+      const token = readAuthToken(req);
+      const session = findSession(store, token);
+      const user = ensureMarketplaceUser(store, session, res, { allowStaff: true });
+      if (!user) return;
+      const currentPreference = postgresStore?.readUserLocalePreference
+        ? await postgresStore.readUserLocalePreference(user.username)
+        : (user.localePreference || null);
+      if (req.method === "GET") {
+        const preference = normalizeUserPreference(currentPreference || {});
+        sendJson(res, 200, {
+          preference,
+          context: buildRequestGlobalContext(req, { userPreference: preference })
+        }, { "Cache-Control": "private, no-store" });
+        return;
+      }
+      const payload = await collectBody(req);
+      const validation = validateUserPreference(payload);
+      if (!validation.ok) {
+        sendJson(res, 400, { error: validation.error, code: "invalid_locale_preference" });
+        return;
+      }
+      const preference = normalizeUserPreference(payload, currentPreference || {});
+      let savedPreference = preference;
+      if (postgresStore?.saveUserLocalePreference) {
+        const result = await postgresStore.saveUserLocalePreference(user.username, preference, {
+          expectedRowVersion: preference.rowVersion
+        });
+        if (!result.updated) {
+          const latest = await postgresStore.readUserLocalePreference(user.username);
+          sendJson(res, 409, {
+            error: "Language preference changed on another device.",
+            code: "locale_preference_conflict",
+            preference: latest
+          });
+          return;
+        }
+        savedPreference = result.preference;
+      } else {
+        const currentVersion = Number(currentPreference?.rowVersion || 0);
+        if (preference.rowVersion > 0 && preference.rowVersion !== currentVersion) {
+          sendJson(res, 409, {
+            error: "Language preference changed on another device.",
+            code: "locale_preference_conflict",
+            preference: currentPreference
+          });
+          return;
+        }
+        savedPreference = {
+          ...preference,
+          rowVersion: currentVersion + 1,
+          updatedAt: new Date().toISOString()
+        };
+        const users = (store.users || []).map((item) => item.username === user.username
+          ? { ...item, localePreference: savedPreference }
+          : item);
+        await writeStore({ ...store, users });
+      }
+      await appendAuditLog({
+        time: new Date().toISOString(),
+        ip: clientIp,
+        method: req.method,
+        path: url.pathname,
+        event: "locale_preference_updated",
+        username: user.username,
+        rowVersion: savedPreference.rowVersion
+      });
+      sendJson(res, 200, {
+        preference: savedPreference,
+        context: buildRequestGlobalContext(req, { userPreference: savedPreference })
+      }, { "Cache-Control": "private, no-store" });
       return;
     }
     if ((req.method === "GET" || req.method === "HEAD") && url.pathname === "/__winga-image__") {
