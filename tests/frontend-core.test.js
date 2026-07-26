@@ -2958,7 +2958,14 @@ test("global translation catalogs are versioned, validated, cached, and fail sof
   assert.equal(english.locale, "en");
   assert.equal(swahili.locale, "sw");
   assert.deepEqual(Object.keys(english.messages).sort(), Object.keys(swahili.messages).sort());
+  const french = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "src", "localization", "catalogs", "fr.json"), "utf8"));
+  const arabic = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "src", "localization", "catalogs", "ar.json"), "utf8"));
+  assert.deepEqual(Object.keys(english.messages).sort(), Object.keys(french.messages).sort());
+  assert.deepEqual(Object.keys(english.messages).sort(), Object.keys(arabic.messages).sort());
+  assert.equal(arabic.messages["marketplace.resultsCount"].other.includes("{count}"), true);
   assert.match(runtimeSource, /createFallbackChain/);
+  assert.match(runtimeSource, /Intl\.PluralRules/);
+  assert.match(runtimeSource, /resolveMessage/);
   assert.match(runtimeSource, /Promise\.allSettled/);
   assert.match(runtimeSource, /catalogRequests = new Map/);
   assert.match(runtimeSource, /generation !== catalogGeneration/);

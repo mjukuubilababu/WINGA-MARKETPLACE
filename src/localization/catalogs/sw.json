@@ -25,6 +25,10 @@
     "marketplace.picks": "Chaguo za sokoni",
     "marketplace.trending": "Bidhaa zinazovuma",
     "marketplace.browseHint": "Telezesha kushoto au kulia kuona bidhaa zaidi",
-    "common.cancel": "Ghairi"
+    "common.cancel": "Ghairi",
+    "marketplace.resultsCount": {
+      "one": "Bidhaa {count}",
+      "other": "Bidhaa {count}"
+    }
   }
 }

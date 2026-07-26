@@ -4,7 +4,9 @@ const SHELL_ASSETS = [
   "/manifest.json",
   "/offline.html",
   "/src/localization/catalogs/en.json",
-  "/src/localization/catalogs/sw.json"
+  "/src/localization/catalogs/sw.json",
+  "/src/localization/catalogs/fr.json",
+  "/src/localization/catalogs/ar.json"
 ];
 
 self.addEventListener("install", (event) => {

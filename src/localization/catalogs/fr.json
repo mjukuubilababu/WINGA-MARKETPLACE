@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "version": "2026.07.26.1",
+  "locale": "fr",
+  "messages": {
+    "auth.close": "Fermer l’authentification",
+    "auth.accountRequired": "Vous avez besoin d’un compte pour continuer",
+    "auth.accountPrompt": "Vous avez déjà un compte ? Connectez-vous. Nouveau ici ? Inscrivez-vous.",
+    "auth.signIn": "Se connecter",
+    "auth.signUp": "S’inscrire",
+    "auth.login": "Connexion",
+    "auth.forgotPassword": "Mot de passe oublié ?",
+    "auth.createAccount": "Créer un compte",
+    "auth.showPasswords": "Afficher les mots de passe",
+    "nav.backHome": "Retour à l’accueil",
+    "header.discover": "Découvrez d’abord les produits. Connectez-vous pour acheter, discuter ou vendre.",
+    "search.region": "Lieu ou boutique (facultatif)",
+    "search.minimumPrice": "Prix minimum",
+    "search.maximumPrice": "Prix maximum",
+    "search.defaultSort": "Trier : Par défaut",
+    "search.lowestPrice": "Prix croissant",
+    "search.highestPrice": "Prix décroissant",
+    "search.newest": "Plus récents",
+    "search.popular": "Plus populaires",
+    "marketplace.picks": "Sélection du marché",
+    "marketplace.trending": "Produits tendance",
+    "marketplace.browseHint": "Balayez vers la gauche ou la droite pour voir plus de produits",
+    "common.cancel": "Annuler",
+    "marketplace.resultsCount": {
+      "one": "{count} produit",
+      "other": "{count} produits"
+    }
+  }
+}

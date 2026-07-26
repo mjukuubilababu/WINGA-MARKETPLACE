@@ -42,6 +42,21 @@
       && !Array.isArray(catalog.messages)
     );
   }
+  function resolveMessage(message, variables = {}, locale = DEFAULT_LANGUAGE) {
+    if (typeof message === "string") return message;
+    if (!message || typeof message !== "object" || Array.isArray(message)) return "";
+    const count = Number(variables.count);
+    if (!Number.isFinite(count)) return typeof message.other === "string" ? message.other : "";
+    const exact = message[`=${count}`];
+    if (typeof exact === "string") return exact;
+    let category = "other";
+    try { category = new Intl.PluralRules(locale).select(count); } catch (_error) {}
+    return typeof message[category] === "string"
+      ? message[category]
+      : typeof message.other === "string"
+        ? message.other
+        : "";
+  }
   function interpolate(template, variables = {}) {
     return String(template || "").replace(/\\{([A-Za-z0-9_]+)\\}/g, (match, key) => (
       Object.prototype.hasOwnProperty.call(variables, key) ? String(variables[key]) : match
@@ -96,8 +111,8 @@
       const safeKey = String(key || "").trim();
       if (!safeKey) return String(fallbackText || "");
       for (const catalog of activeCatalogs) {
-        const message = catalog?.messages?.[safeKey];
-        if (typeof message === "string") return interpolate(message, variables);
+        const message = resolveMessage(catalog?.messages?.[safeKey], variables, catalog?.locale || context.locale);
+        if (message) return interpolate(message, variables);
       }
       reportMissingKey(safeKey);
       return String(fallbackText || safeKey);
@@ -261,4 +276,5 @@
   window.WingaModules.localization.createRuntime = createRuntime;
   window.WingaModules.localization.createFallbackChain = createFallbackChain;
   window.WingaModules.localization.isValidCatalog = isValidCatalog;
+  window.WingaModules.localization.resolveMessage = resolveMessage;
 })();

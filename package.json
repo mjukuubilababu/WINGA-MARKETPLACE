@@ -7,7 +7,7 @@
     "verify:worker-performance": "node scripts/verify-worker-performance.js",
     "verify:domain-routing": "node scripts/verify-domain-routing.js",
     "verify:source": "node scripts/verify-source-of-truth.js",
-    "test": "npm run test:frontend && npm run test:integration && npm run test:e2e",
+    "test": "npm run test:localization && npm run test:frontend && npm run test:integration && npm run test:e2e",
     "test:frontend": "node tests/frontend-core.test.js",
     "test:integration": "node --test tests/integration-api.test.js tests/postgres-pagination.test.js tests/global-context.test.js",
     "test:e2e": "playwright test",
@@ -23,7 +23,8 @@
     "worker:intelligence": "node backend/intelligence-queue-worker.js",
     "worker:intelligence:once": "node backend/intelligence-queue-worker.js --once",
     "verify:feed-production": "node scripts/verify-feed-production.js",
-    "test:feed-production": "node tests/frontend-core.test.js && node --test tests/postgres-pagination.test.js && playwright test tests/e2e/pagination-bootstrap.spec.js tests/e2e/cls-hardening.spec.js --reporter=list && playwright test tests/e2e/app.spec.js --grep \"gallery|swipe|edge to edge|installed PWA|browser back from the first product|refreshing a product deep link|logged in sellers can scroll|guest home renders|vertical page scroll\" --reporter=list"
+    "test:feed-production": "node tests/frontend-core.test.js && node --test tests/postgres-pagination.test.js && playwright test tests/e2e/pagination-bootstrap.spec.js tests/e2e/cls-hardening.spec.js --reporter=list && playwright test tests/e2e/app.spec.js --grep \"gallery|swipe|edge to edge|installed PWA|browser back from the first product|refreshing a product deep link|logged in sellers can scroll|guest home renders|vertical page scroll\" --reporter=list",
+    "test:localization": "node scripts/validate-localization-catalogs.js"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2"

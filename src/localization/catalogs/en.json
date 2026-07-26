@@ -25,6 +25,10 @@
     "marketplace.picks": "Marketplace Picks",
     "marketplace.trending": "Trending products",
     "marketplace.browseHint": "Swipe left or right to see more products",
-    "common.cancel": "Cancel"
+    "common.cancel": "Cancel",
+    "marketplace.resultsCount": {
+      "one": "{count} product",
+      "other": "{count} products"
+    }
   }
 }

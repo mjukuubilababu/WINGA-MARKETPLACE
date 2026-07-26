@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "version": "2026.07.26.1",
+  "locale": "ar",
+  "messages": {
+    "auth.close": "إغلاق تسجيل الدخول",
+    "auth.accountRequired": "تحتاج إلى حساب للمتابعة",
+    "auth.accountPrompt": "لديك حساب؟ سجّل الدخول. مستخدم جديد؟ أنشئ حسابًا.",
+    "auth.signIn": "تسجيل الدخول",
+    "auth.signUp": "إنشاء حساب",
+    "auth.login": "تسجيل الدخول",
+    "auth.forgotPassword": "هل نسيت كلمة المرور؟",
+    "auth.createAccount": "إنشاء حساب",
+    "auth.showPasswords": "إظهار كلمات المرور",
+    "nav.backHome": "العودة إلى الرئيسية",
+    "header.discover": "اكتشف المنتجات أولًا. سجّل الدخول عندما تريد الشراء أو الدردشة أو البيع.",
+    "search.region": "الموقع أو المتجر (اختياري)",
+    "search.minimumPrice": "الحد الأدنى للسعر",
+    "search.maximumPrice": "الحد الأقصى للسعر",
+    "search.defaultSort": "الترتيب: الافتراضي",
+    "search.lowestPrice": "السعر من الأقل",
+    "search.highestPrice": "السعر من الأعلى",
+    "search.newest": "الأحدث",
+    "search.popular": "الأكثر شيوعًا",
+    "marketplace.picks": "مختارات السوق",
+    "marketplace.trending": "المنتجات الرائجة",
+    "marketplace.browseHint": "اسحب يمينًا أو يسارًا لرؤية المزيد من المنتجات",
+    "common.cancel": "إلغاء",
+    "marketplace.resultsCount": {
+      "zero": "{count} منتجات",
+      "one": "منتج واحد",
+      "two": "منتجان",
+      "few": "{count} منتجات",
+      "many": "{count} منتجًا",
+      "other": "{count} منتج"
+    }
+  }
+}
