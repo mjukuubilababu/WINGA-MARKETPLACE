@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "version": "2026.07.26.1",
+  "locale": "en",
+  "messages": {
+    "auth.close": "Close authentication",
+    "auth.accountRequired": "You need an account to continue",
+    "auth.accountPrompt": "Already have an account? Sign In. New here? Sign Up.",
+    "auth.signIn": "Sign In",
+    "auth.signUp": "Sign Up",
+    "auth.login": "Login",
+    "auth.forgotPassword": "Forgot password?",
+    "auth.createAccount": "Create account",
+    "auth.showPasswords": "Show Passwords",
+    "nav.backHome": "Back to Home",
+    "header.discover": "Discover products first. Sign in only when you want to buy, chat, or sell.",
+    "search.region": "Location / Shop (optional)",
+    "search.minimumPrice": "Minimum price",
+    "search.maximumPrice": "Maximum price",
+    "search.defaultSort": "Sort: Default",
+    "search.lowestPrice": "Lowest price",
+    "search.highestPrice": "Highest price",
+    "search.newest": "Newest",
+    "search.popular": "Most popular",
+    "marketplace.picks": "Marketplace Picks",
+    "marketplace.trending": "Trending products",
+    "marketplace.browseHint": "Swipe left or right to see more products",
+    "common.cancel": "Cancel"
+  }
+}

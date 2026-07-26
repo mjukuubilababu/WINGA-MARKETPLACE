@@ -1,12 +1,55 @@
 (() => {
   const STORAGE_KEY = "winga-global-context-v1";
+  const CATALOG_SCHEMA_VERSION = 1;
+  const DEFAULT_LANGUAGE = "en";
+  const CATALOG_BASE_PATH = "/src/localization/catalogs";
+  const ALLOWED_ATTRIBUTES = new Set(["aria-label", "placeholder", "title"]);
   const FALLBACK = Object.freeze({ schemaVersion: 1, locale: "sw-TZ", language: "sw", direction: "ltr", currency: "TZS", timezone: "Africa/Dar_es_Salaam", units: "metric", market: { country: "TZ", discoveryPolicy: "local_priority_global_discovery" } });
   function canonical(value = "") { try { return Intl.getCanonicalLocales(String(value || "").replace(/_/g, "-"))[0] || ""; } catch (_error) { return ""; } }
   function read(storage) { try { const value = JSON.parse(storage?.getItem(STORAGE_KEY) || "null"); return value?.schemaVersion === 1 ? value : null; } catch (_error) { return null; } }
+  function languageOf(locale = "") { return canonical(locale).split("-")[0].toLowerCase(); }
+  function createFallbackChain(locale = "") {
+    const normalized = canonical(locale);
+    return Array.from(new Set([normalized, languageOf(normalized), DEFAULT_LANGUAGE].filter(Boolean)));
+  }
+  function isValidCatalog(catalog, requestedLocale = "") {
+    return Boolean(
+      catalog
+      && typeof catalog === "object"
+      && !Array.isArray(catalog)
+      && catalog.schemaVersion === CATALOG_SCHEMA_VERSION
+      && canonical(catalog.locale)
+      && (!languageOf(requestedLocale) || languageOf(catalog.locale) === languageOf(requestedLocale))
+      && catalog.messages
+      && typeof catalog.messages === "object"
+      && !Array.isArray(catalog.messages)
+    );
+  }
+  function interpolate(template, variables = {}) {
+    return String(template || "").replace(/\\{([A-Za-z0-9_]+)\\}/g, (match, key) => (
+      Object.prototype.hasOwnProperty.call(variables, key) ? String(variables[key]) : match
+    ));
+  }
   function createRuntime(deps = {}) {
     const targetWindow = deps.window || window;
     const storage = deps.storage || targetWindow.localStorage;
     const listeners = new Set();
+    const fetchCatalog = deps.fetchCatalog || (async (locale) => {
+      const language = languageOf(locale) || DEFAULT_LANGUAGE;
+      const response = await targetWindow.fetch(`${CATALOG_BASE_PATH}/${encodeURIComponent(language)}.json`, {
+        credentials: "same-origin",
+        cache: "force-cache",
+        headers: { Accept: "application/json" }
+      });
+      if (!response.ok) throw new Error(`Catalog request failed: ${response.status}`);
+      return response.json();
+    });
+    const catalogCache = new Map();
+    const catalogRequests = new Map();
+    const missingKeys = new Set();
+    let activeCatalogs = [];
+    let activeCatalogLocale = "";
+    let catalogGeneration = 0;
     let context = read(storage) || { ...FALLBACK };
     let useDeviceLanguage = context.preference?.useDeviceLanguage !== false;
     function apply() {
@@ -16,6 +59,7 @@
       root.dir = context.direction === "rtl" ? "rtl" : "ltr";
       root.dataset.wingaCountry = context.market?.country || "";
       root.dataset.wingaCurrency = context.currency || "";
+      root.dataset.wingaCatalogLocale = activeCatalogLocale;
     }
     function persist() { try { storage?.setItem(STORAGE_KEY, JSON.stringify(context)); } catch (_error) {} }
     function emit(reason) {
@@ -23,11 +67,90 @@
       listeners.forEach((listener) => { try { listener(context, reason); } catch (_error) {} });
       targetWindow.dispatchEvent?.(new targetWindow.CustomEvent("winga:global-context", { detail: { context, reason } }));
     }
+    function reportMissingKey(key) {
+      const fingerprint = `${context.locale}:${key}`;
+      if (missingKeys.has(fingerprint)) return;
+      missingKeys.add(fingerprint);
+      targetWindow.dispatchEvent?.(new targetWindow.CustomEvent("winga:i18n-missing-key", {
+        detail: { key, locale: context.locale, catalogLocale: activeCatalogLocale }
+      }));
+    }
+    function translate(key, variables = {}, fallbackText = "") {
+      const safeKey = String(key || "").trim();
+      if (!safeKey) return String(fallbackText || "");
+      for (const catalog of activeCatalogs) {
+        const message = catalog?.messages?.[safeKey];
+        if (typeof message === "string") return interpolate(message, variables);
+      }
+      reportMissingKey(safeKey);
+      return String(fallbackText || safeKey);
+    }
+    function translateDom(scope = targetWindow.document) {
+      if (!scope?.querySelectorAll) return 0;
+      const nodes = Array.from(scope.querySelectorAll("[data-winga-i18n]"));
+      nodes.forEach((node) => {
+        const key = node.getAttribute("data-winga-i18n");
+        const attribute = node.getAttribute("data-winga-i18n-attr");
+        if (!node.hasAttribute("data-winga-i18n-fallback")) {
+          const original = attribute && ALLOWED_ATTRIBUTES.has(attribute) ? node.getAttribute(attribute) : node.textContent;
+          node.setAttribute("data-winga-i18n-fallback", String(original || ""));
+        }
+        const fallbackText = node.getAttribute("data-winga-i18n-fallback") || "";
+        const translated = translate(key, {}, fallbackText);
+        if (attribute && ALLOWED_ATTRIBUTES.has(attribute)) node.setAttribute(attribute, translated);
+        else node.textContent = translated;
+      });
+      return nodes.length;
+    }
+    async function loadSingleCatalog(locale) {
+      const language = languageOf(locale);
+      if (!language) return null;
+      if (catalogCache.has(language)) return catalogCache.get(language);
+      if (catalogRequests.has(language)) return catalogRequests.get(language);
+      const request = Promise.resolve(fetchCatalog(language))
+        .then((catalog) => {
+          if (!isValidCatalog(catalog, language)) throw new TypeError(`Invalid ${language} catalog.`);
+          const normalized = Object.freeze({
+            schemaVersion: catalog.schemaVersion,
+            version: String(catalog.version || ""),
+            locale: canonical(catalog.locale),
+            messages: Object.freeze({ ...catalog.messages })
+          });
+          catalogCache.set(language, normalized);
+          return normalized;
+        })
+        .finally(() => catalogRequests.delete(language));
+      catalogRequests.set(language, request);
+      return request;
+    }
+    async function loadCatalog(locale = context.locale) {
+      const generation = ++catalogGeneration;
+      const settled = await Promise.allSettled(createFallbackChain(locale).map(loadSingleCatalog));
+      if (generation !== catalogGeneration) return activeCatalogs;
+      const loaded = settled.filter((result) => result.status === "fulfilled" && result.value).map((result) => result.value);
+      if (!loaded.length) return activeCatalogs;
+      activeCatalogs = loaded;
+      activeCatalogLocale = loaded[0].locale;
+      apply();
+      translateDom();
+      targetWindow.dispatchEvent?.(new targetWindow.CustomEvent("winga:i18n-ready", {
+        detail: { locale: context.locale, catalogLocale: activeCatalogLocale, versions: loaded.map((catalog) => catalog.version).filter(Boolean) }
+      }));
+      return activeCatalogs;
+    }
+    function scheduleCatalogLoad(locale = context.locale) {
+      const run = () => loadCatalog(locale).catch(() => activeCatalogs);
+      if (typeof targetWindow.requestIdleCallback === "function") targetWindow.requestIdleCallback(run, { timeout: 2500 });
+      else targetWindow.setTimeout(run, 0);
+    }
     function update(next = {}, reason = "context_updated") {
+      const previousLocale = context.locale;
       const locale = canonical(next.locale || context.locale) || FALLBACK.locale;
       context = Object.freeze({ ...FALLBACK, ...context, ...next, locale, language: locale.split("-")[0].toLowerCase(), direction: next.direction === "rtl" ? "rtl" : "ltr", market: { ...FALLBACK.market, ...(context.market || {}), ...(next.market || {}) } });
       useDeviceLanguage = context.preference?.useDeviceLanguage !== false;
-      emit(reason); return context;
+      emit(reason);
+      if (locale !== previousLocale || !activeCatalogs.length) scheduleCatalogLoad(locale);
+      return context;
     }
     async function persistRemotePreference() {
       if (typeof deps.savePreference !== "function") return null;
@@ -42,9 +165,9 @@
     }
 
     async function hydrate(fetchContext = deps.fetchContext) {
-      if (typeof fetchContext !== "function") { apply(); return context; }
+      if (typeof fetchContext !== "function") { apply(); scheduleCatalogLoad(); return context; }
       try { return update(await fetchContext({ deviceLanguages: Array.from(targetWindow.navigator?.languages || []), timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "" }), "remote_hydration"); }
-      catch (_error) { apply(); return context; }
+      catch (_error) { apply(); scheduleCatalogLoad(); return context; }
     }
     function setLanguage(language, options = {}) {
       const locale = canonical(language); if (!locale) throw new TypeError("Unsupported locale.");
@@ -64,8 +187,26 @@
     function subscribe(listener) { if (typeof listener !== "function") return () => {}; listeners.add(listener); return () => listeners.delete(listener); }
     targetWindow.addEventListener?.("languagechange", () => { if (useDeviceLanguage) followDeviceLanguage(); });
     apply();
-    return Object.freeze({ getContext: () => context, hydrate, update, setLanguage, persistRemotePreference, followDeviceLanguage, formatCurrency, formatNumber, formatDate, subscribe });
+    scheduleCatalogLoad();
+    return Object.freeze({
+      getContext: () => context,
+      getCatalogLocale: () => activeCatalogLocale,
+      hydrate,
+      update,
+      setLanguage,
+      persistRemotePreference,
+      followDeviceLanguage,
+      loadCatalog,
+      translate,
+      translateDom,
+      formatCurrency,
+      formatNumber,
+      formatDate,
+      subscribe
+    });
   }
   window.WingaModules.localization = window.WingaModules.localization || {};
   window.WingaModules.localization.createRuntime = createRuntime;
+  window.WingaModules.localization.createFallbackChain = createFallbackChain;
+  window.WingaModules.localization.isValidCatalog = isValidCatalog;
 })();

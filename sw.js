@@ -2,7 +2,9 @@ const BUILD_VERSION = "__WINGA_BUILD_VERSION__";
 const CACHE = `winga-shell-v7-${BUILD_VERSION}`;
 const SHELL_ASSETS = [
   "/manifest.json",
-  "/offline.html"
+  "/offline.html",
+  "/src/localization/catalogs/en.json",
+  "/src/localization/catalogs/sw.json"
 ];
 
 self.addEventListener("install", (event) => {
@@ -61,6 +63,26 @@ self.addEventListener("fetch", (event) => {
     return;
   }
   if (url.origin !== self.location.origin) {
+    return;
+  }
+
+  if (url.pathname.startsWith("/src/localization/catalogs/") && url.pathname.endsWith(".json")) {
+    event.respondWith((async () => {
+      const cache = await caches.open(CACHE);
+      const cached = await cache.match(event.request);
+      const refresh = fetch(event.request, { cache: "no-cache" })
+        .then(async (response) => {
+          if (response?.ok && String(response.headers.get("content-type") || "").includes("application/json")) {
+            await cache.put(event.request, response.clone());
+          }
+          return response;
+        });
+      if (cached) {
+        event.waitUntil(refresh.catch(() => undefined));
+        return cached;
+      }
+      return refresh;
+    })());
     return;
   }
 

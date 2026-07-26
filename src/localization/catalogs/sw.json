@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "version": "2026.07.26.1",
+  "locale": "sw",
+  "messages": {
+    "auth.close": "Funga uthibitishaji",
+    "auth.accountRequired": "Unahitaji akaunti ili kuendelea",
+    "auth.accountPrompt": "Una akaunti? Ingia. Ni mgeni? Jisajili.",
+    "auth.signIn": "Ingia",
+    "auth.signUp": "Jisajili",
+    "auth.login": "Ingia",
+    "auth.forgotPassword": "Umesahau nenosiri?",
+    "auth.createAccount": "Tengeneza akaunti",
+    "auth.showPasswords": "Onyesha manenosiri",
+    "nav.backHome": "Rudi nyumbani",
+    "header.discover": "Gundua bidhaa kwanza. Ingia unapotaka kununua, kuzungumza au kuuza.",
+    "search.region": "Eneo au duka (si lazima)",
+    "search.minimumPrice": "Bei ya chini",
+    "search.maximumPrice": "Bei ya juu",
+    "search.defaultSort": "Panga: Chaguo-msingi",
+    "search.lowestPrice": "Bei ya chini kwanza",
+    "search.highestPrice": "Bei ya juu kwanza",
+    "search.newest": "Mpya zaidi",
+    "search.popular": "Maarufu zaidi",
+    "marketplace.picks": "Chaguo za sokoni",
+    "marketplace.trending": "Bidhaa zinazovuma",
+    "marketplace.browseHint": "Telezesha kushoto au kulia kuona bidhaa zaidi",
+    "common.cancel": "Ghairi"
+  }
+}

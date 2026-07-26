@@ -2945,6 +2945,36 @@ test("global localization runtime is modular, fail-soft, and off the critical pa
   assert.match(intelligenceSource, /timezone:/);
   assert.match(appSource, /requestIdleCallback\(hydrate, \{ timeout: 4000 \}\)/);
 });
+
+test("global translation catalogs are versioned, validated, cached, and fail soft", () => {
+  const runtimeSource = fs.readFileSync(path.join(__dirname, "..", "src", "localization", "runtime.js"), "utf8");
+  const indexSource = fs.readFileSync(path.join(__dirname, "..", "index.html"), "utf8");
+  const english = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "src", "localization", "catalogs", "en.json"), "utf8"));
+  const swahili = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "src", "localization", "catalogs", "sw.json"), "utf8"));
+
+  assert.equal(english.schemaVersion, 1);
+  assert.equal(swahili.schemaVersion, 1);
+  assert.match(english.version, /^2026\./);
+  assert.equal(english.locale, "en");
+  assert.equal(swahili.locale, "sw");
+  assert.deepEqual(Object.keys(english.messages).sort(), Object.keys(swahili.messages).sort());
+  assert.match(runtimeSource, /createFallbackChain/);
+  assert.match(runtimeSource, /Promise\.allSettled/);
+  assert.match(runtimeSource, /catalogRequests = new Map/);
+  assert.match(runtimeSource, /generation !== catalogGeneration/);
+  assert.match(runtimeSource, /data-winga-i18n-fallback/);
+  assert.match(runtimeSource, /ALLOWED_ATTRIBUTES/);
+  assert.match(runtimeSource, /winga:i18n-missing-key/);
+  assert.doesNotMatch(runtimeSource, /console\.(?:log|warn|error)/);
+  assert.match(indexSource, /data-winga-i18n="auth\.login"/);
+  assert.match(indexSource, /data-winga-i18n="marketplace\.trending"/);
+  assert.match(indexSource, /data-winga-i18n-attr="placeholder"/);
+  const serviceWorkerSource = fs.readFileSync(path.join(__dirname, "..", "sw.js"), "utf8");
+  assert.match(serviceWorkerSource, /\/src\/localization\/catalogs\/en\.json/);
+  assert.match(serviceWorkerSource, /url\.pathname\.startsWith\("\/src\/localization\/catalogs\/"\)/);
+  assert.match(serviceWorkerSource, /event\.waitUntil\(refresh\.catch/);
+});
+
 test("api writes attach a CSRF token before sending state-changing requests", () => {
   const root = path.resolve(__dirname, "..");
   const dataSource = fs.readFileSync(path.join(root, "data-service.js"), "utf8");
