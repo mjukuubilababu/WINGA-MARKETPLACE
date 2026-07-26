@@ -1344,6 +1344,7 @@
           deps.bindImageFallbacks?.(productsContainer);
           deps.bindProductEngagementSignals?.(productsContainer);
           deps.bindProductMenus?.(productsContainer);
+          deps.reconcileRetainedHomeContinuationLifecycle?.("retained_home_render");
           return;
         }
         productsContainer.replaceChildren();

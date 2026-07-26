@@ -2012,6 +2012,29 @@ function hasRetainedHomeFeedSurface() {
   );
 }
 
+function reconcileRetainedHomeContinuationLifecycle(reason = "home_retained_reconcile") {
+  if (currentView !== "home" || !productsContainer?.isConnected) {
+    return false;
+  }
+
+  let anchor = productsContainer.querySelector("[data-continuous-discovery-anchor='home']");
+  if (!(anchor instanceof Element)) {
+    anchor = createContinuousDiscoveryAnchorElement();
+    if (anchor instanceof Element) {
+      productsContainer.appendChild(anchor);
+    }
+  }
+  if (!(anchor instanceof Element) || !anchor.isConnected) {
+    return false;
+  }
+
+  refreshHomeInfiniteScrollSentinels(productsContainer);
+  if (homeContinuousDiscoveryRuntime.observer) {
+    homeContinuousDiscoveryRuntime.observer.observe(anchor);
+    scheduleContinuousDiscoveryReobserve(anchor);
+  }
+  return Boolean(homeContinuousDiscoveryRuntime.sentinelObserver);
+}
 function resumeRetainedHomeFeedSurface(reason = "home_retained_resume", options = {}) {
   if (!hasRetainedHomeFeedSurface()) {
     return false;
@@ -2034,19 +2057,8 @@ function resumeRetainedHomeFeedSurface(reason = "home_retained_resume", options 
   if (options.prefetch !== false) {
     schedulePredictiveFeedPrefetch(reason);
   }
-  const anchor = productsContainer?.querySelector?.("[data-continuous-discovery-anchor='home']");
-  if (options.resumeContinuation === true && anchor instanceof Element && anchor.isConnected) {
-    homeContinuousDiscoveryRuntime.observer?.observe?.(anchor);
-    refreshHomeInfiniteScrollSentinels(productsContainer);
-    scheduleContinuousDiscoveryReobserve(anchor);
-    scheduleHomeBackgroundRunwayWarmup(anchor, {
-      reason: `${reason}_runway`,
-      delayMs: Math.max(0, Number(options.runwayDelayMs || 0))
-    });
-    scheduleHomeBackgroundHydrationAttempt(anchor, {
-      reason: `${reason}_hydrate`,
-      delays: [0, 240, 900]
-    });
+  if (options.resumeContinuation === true) {
+    reconcileRetainedHomeContinuationLifecycle(reason);
   }
   return true;
 }
@@ -11478,6 +11490,7 @@ const {
   canUseContinuousDiscovery: () => true,
   createContinuousDiscoveryAnchorElement,
   setupContinuousDiscoveryLoading,
+  reconcileRetainedHomeContinuationLifecycle,
   setDeferredRecommendationDescriptors: (descriptors = []) => {
     homeContinuousDiscoveryRuntime.pendingDescriptors = Array.isArray(descriptors)
       ? descriptors
@@ -15211,6 +15224,13 @@ viewHomeBackButton?.addEventListener("click", () => {
     syncHistory: "push"
   });
   renderCurrentView();
+  resumeRetainedHomeFeedSurface("view_home_back_resume", {
+    productLimit: 8,
+    decodeLimit: 3,
+    delayMs: 0,
+    prefetch: false,
+    resumeContinuation: true
+  });
   restoreStoredHomeScrollPosition();
 });
 
@@ -16436,10 +16456,12 @@ registerAppEvent(window, "winga:products-hydrated", (event) => {
   if (canRenderWhileWaitingForDeepLink && currentView !== "profile") {
     if (
       currentView === "home"
+      && Boolean(String(productsContainer?.dataset?.feedRetentionSignature || "").trim())
       && resumeRetainedHomeFeedSurface("products_hydrated_retained", {
         productLimit: 8,
         decodeLimit: 3,
-        delayMs: 0
+        delayMs: 0,
+        resumeContinuation: true
       })
     ) {
       reportBootPhase("feed_retained", {

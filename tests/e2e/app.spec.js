@@ -813,6 +813,38 @@ test("refresh while authenticated keeps in-app header and does not show public a
   await context.close();
 });
 
+test("authenticated Home keeps one continuation lifecycle across direct entry, refresh, and profile return", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure");
+
+  const expectCanonicalHomeContinuation = async () => {
+    await expect(page.locator("#products-container .product-card, #products-container .seller-product-card").first()).toBeVisible({
+      timeout: 30000
+    });
+    await expect.poll(() => page.evaluate(() => ({
+      anchorCount: document.querySelectorAll("[data-continuous-discovery-anchor='home']").length,
+      hasSentinelObserver: Boolean(homeContinuousDiscoveryRuntime?.sentinelObserver),
+      connectedTargets: (homeContinuousDiscoveryRuntime?.sentinelTargets || [])
+        .filter((target) => target?.isConnected).length
+    })), { timeout: 30000 }).toMatchObject({
+      anchorCount: 1,
+      hasSentinelObserver: true,
+      connectedTargets: 3
+    });
+  };
+
+  await page.goto("/");
+  await expectCanonicalHomeContinuation();
+
+  await page.reload();
+  await expectCanonicalHomeContinuation();
+
+  await openHeaderMenuAction(page, "profile");
+  await expect(page.locator("#profile-identity-card")).toBeVisible();
+  await page.locator("#view-home-back").click();
+  await expectCanonicalHomeContinuation();
+
+  await context.close();
+});
 test("browser back from the first product detail returns to the in-app feed without leaving the app shell", async ({ browser }) => {
   const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure");
   await page.goto("/");
