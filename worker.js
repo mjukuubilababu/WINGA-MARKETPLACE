@@ -599,6 +599,7 @@ ${lcpImagePreloadTag}${imageOriginPreconnectTag}  <title>Chap kwa haraka</title>
       <button class="password-toggle password-toggle-standalone" id="password-toggle" type="button">Show Passwords</button>
     </div>
     <button id="auth-button" type="button">Login</button>
+    <span class="toggle-link auth-secondary-link" id="forgot-password-link">Forgot password?</span>
     <span class="toggle-link" id="toggle-link">Tengeneza akaunti</span>
   </div>
   <div class="form-container" id="admin-login-container" style="display:none;">

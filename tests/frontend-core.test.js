@@ -1688,6 +1688,7 @@ test("production CSP is enforced from repo without inline script escape hatches"
   assert.match(workerSource, /script-src-attr 'none'/);
   assert.match(workerSource, /nonce="\$\{escapeHtml\(scriptNonce\)\}"/);
   assert.match(workerSource, /"X-Winga-Worker-Mode": "streaming-shell"/);
+  assert.match(workerSource, /id="forgot-password-link"/);
   assert.match(workerSource, /"X-Winga-Bootstrap-Status": "background-stream"/);
   assert.match(workerSource, /"X-Winga-Bootstrap-Context-Budget": String\(OPTIONAL_BOOTSTRAP_CONTEXT_TIMEOUT_MS\)/);
   assert.match(workerSource, /"Server-Timing": buildWorkerServerTiming/);
