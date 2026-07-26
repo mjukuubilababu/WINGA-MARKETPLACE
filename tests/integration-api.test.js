@@ -1940,7 +1940,20 @@ test("production boot still seeds staff accounts when seed env passwords are bla
     });
     assert.equal(adminLogin.response.status, 200);
     assert.equal(adminLogin.body.role, "admin");
-    assert.match(String(adminLogin.response.headers.get("set-cookie") || ""), /winga_auth=[^;]+; HttpOnly; Path=\/; Max-Age=604800; SameSite=Lax; Priority=High; Secure/);
+    assert.equal(adminLogin.response.headers.get("cache-control"), "no-store");
+    assert.equal(adminLogin.response.headers.get("pragma"), "no-cache");
+    assert.match(String(adminLogin.response.headers.get("set-cookie") || ""), new RegExp("winga_auth=[^;]+; HttpOnly; Path=/; Max-Age=604800; SameSite=Lax; Priority=High; Secure"));
+    const adminAuthToken = getAuthCookieToken(adminLogin.response);
+    const rejectedBearerSession = await productionRequest("/auth/session", {
+      headers: { Authorization: "Bearer " + adminAuthToken }
+    });
+    assert.equal(rejectedBearerSession.response.status, 401);
+    const acceptedCookieSession = await productionRequest("/auth/session", {
+      headers: { Cookie: "winga_auth=" + adminAuthToken }
+    });
+    assert.equal(acceptedCookieSession.response.status, 200);
+    assert.equal(acceptedCookieSession.body.role, "admin");
+    assert.equal(acceptedCookieSession.response.headers.get("cache-control"), "no-store");
 
     const moderatorLogin = await productionRequest("/auth/admin-login", {
       method: "POST",

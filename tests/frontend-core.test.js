@@ -2996,6 +2996,13 @@ test("api writes attach a CSRF token before sending state-changing requests", ()
   assert.match(backendSource, /const RAW_CSRF_SECRET = String\(process\.env\.CSRF_SECRET \|\| ""\)\.trim\(\)/);
   assert.doesNotMatch(backendSource, /process\.env\.CSRF_SECRET\s*\|\|\s*process\.env\.PAYMENT_WEBHOOK_SECRET/);
   assert.match(backendSource, /function validateCsrfRequest\(req, pathname = ""\)/);
+  assert.match(backendSource, /const ALLOW_LEGACY_BEARER_AUTH = NODE_ENV !== "production"/);
+  assert.match(backendSource, /if \(!ALLOW_LEGACY_BEARER_AUTH\) \{\s*return "";\s*\}/);
+  assert.match(backendSource, /const isSensitiveResponse = statusCode >= 400 \|\| hasAuthCredentials \|\| setsCookie/);
+  assert.match(backendSource, /"Cache-Control": isSensitiveResponse \? "no-store" : "no-cache"/);
+  assert.match(backendSource, /function derivePasswordHashAsync\(password, salt\)/);
+  assert.match(backendSource, /password: await createPasswordHashAsync\(payload\.password\)/);
+  assert.match(backendSource, /await verifyPasswordAsync\(payload\.password, user\.password\)/);
   assert.match(backendSource, /function isServerToServerWebhookPath\(pathname = ""\)/);
   assert.match(backendSource, /pathname === "\/api\/payments\/webhook"/);
   assert.match(backendSource, /url\.pathname === "\/api\/auth\/csrf-token"/);

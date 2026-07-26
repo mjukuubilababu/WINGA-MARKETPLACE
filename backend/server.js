@@ -223,6 +223,8 @@ const CONFIGURED_ALLOWED_ORIGINS = String(process.env.ALLOWED_ORIGINS || "")
 const ALLOW_LOCAL_DATA_STORE_IN_PRODUCTION = String(process.env.ALLOW_LOCAL_DATA_STORE_IN_PRODUCTION || "").toLowerCase() === "true";
 const ALLOW_DEFAULT_ORIGIN_FALLBACK = String(process.env.ALLOW_DEFAULT_ORIGIN_FALLBACK || "").toLowerCase() === "true";
 const TRUST_PROXY_HEADERS = String(process.env.TRUST_PROXY_HEADERS || "").toLowerCase() === "true";
+const ALLOW_LEGACY_BEARER_AUTH = NODE_ENV !== "production"
+  && String(process.env.ALLOW_LEGACY_BEARER_AUTH || "true").toLowerCase() !== "false";
 const SAFE_IMAGE_PLACEHOLDER_PATH = "/share-og.svg";
 const DEFAULT_BOOTSTRAP_PRODUCT_LIMIT = 12;
 const MAX_BOOTSTRAP_PRODUCT_LIMIT = 24;
@@ -1353,7 +1355,23 @@ function createPasswordHash(password) {
   const hash = crypto.scryptSync(password, salt, 64).toString("hex");
   return `${HASH_PREFIX}:${salt}:${hash}`;
 }
+function derivePasswordHashAsync(password, salt) {
+  return new Promise((resolve, reject) => {
+    crypto.scrypt(password, salt, 64, (error, derivedKey) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve(derivedKey.toString("hex"));
+    });
+  });
+}
 
+async function createPasswordHashAsync(password) {
+  const salt = crypto.randomBytes(16).toString("hex");
+  const hash = await derivePasswordHashAsync(password, salt);
+  return HASH_PREFIX + ":" + salt + ":" + hash;
+}
 function isPasswordHashed(passwordValue) {
   return typeof passwordValue === "string" && passwordValue.startsWith(`${HASH_PREFIX}:`);
 }
@@ -1378,14 +1396,35 @@ function verifyPassword(password, passwordValue) {
 
   return crypto.timingSafeEqual(storedBuffer, candidateBuffer);
 }
-
+async function verifyPasswordAsync(password, passwordValue) {
+  if (!passwordValue) return false;
+  if (!isPasswordHashed(passwordValue)) {
+    return passwordValue === password;
+  }
+  const [, salt, storedHash] = passwordValue.split(":");
+  if (!salt || !storedHash) return false;
+  const candidateHash = await derivePasswordHashAsync(password, salt);
+  const storedBuffer = Buffer.from(storedHash, "hex");
+  const candidateBuffer = Buffer.from(candidateHash, "hex");
+  return storedBuffer.length === candidateBuffer.length
+    && crypto.timingSafeEqual(storedBuffer, candidateBuffer);
+}
 function sendJson(res, statusCode, data, extraHeaders = {}) {
+  const request = res.__wingaReq;
+  const requestCookies = request ? parseCookies(request) : {};
+  const hasAuthCredentials = Boolean(
+    String(requestCookies[AUTH_COOKIE_NAME] || "").trim()
+    || String(request?.headers?.authorization || "").trim()
+  );
+  const setsCookie = Object.keys(extraHeaders).some((name) => name.toLowerCase() === "set-cookie");
+  const isSensitiveResponse = statusCode >= 400 || hasAuthCredentials || setsCookie;
   res.writeHead(statusCode, buildSecurityHeaders(statusCode, {
     "Content-Type": "application/json",
-    "Cache-Control": statusCode >= 400 ? "no-store" : "no-cache",
+    "Cache-Control": isSensitiveResponse ? "no-store" : "no-cache",
+    ...(isSensitiveResponse ? { "Pragma": "no-cache" } : {}),
     ...extraHeaders,
     ...(res.__wingaMeta?.requestId ? { "X-Request-Id": res.__wingaMeta.requestId } : {})
-  }, res.__wingaReq));
+  }, request));
   res.end(JSON.stringify(data));
 }
 
@@ -2928,6 +2967,9 @@ function readAuthToken(req) {
   const cookieToken = String(parseCookies(req)[AUTH_COOKIE_NAME] || "").trim();
   if (cookieToken) {
     return cookieToken;
+  }
+  if (!ALLOW_LEGACY_BEARER_AUTH) {
+    return "";
   }
   const header = req.headers.authorization || "";
   if (!header.startsWith("Bearer ")) {
@@ -6928,7 +6970,7 @@ http.createServer(async (req, res) => {
         moderatedBy: "",
         updatedAt: new Date().toISOString(),
         createdAt: new Date().toISOString(),
-        password: createPasswordHash(payload.password)
+        password: await createPasswordHashAsync(payload.password)
       };
       const session = createSession(createdUser, req);
       const nextSessions = replaceUserSessions(store, createdUser.username, session);
@@ -7125,7 +7167,7 @@ http.createServer(async (req, res) => {
       const challengeId = sanitizePlainText(payload.challengeId, 120);
       const code = String(payload.code || "").replace(/\D/g, "");
       const codeHash = createAccountRecoveryCodeHash(challengeId, code);
-      const passwordHash = createPasswordHash(String(payload.newPassword || payload.password || ""));
+      const passwordHash = await createPasswordHashAsync(String(payload.newPassword || payload.password || ""));
       let result = null;
       let recoveredUsername = "";
 
@@ -7255,7 +7297,7 @@ http.createServer(async (req, res) => {
         return;
       }
 
-      if (!user || !verifyPassword(payload.password, user.password)) {
+      if (!user || !(await verifyPasswordAsync(payload.password, user.password))) {
         const attempts = await recordSuspiciousLoginFailure(req, normalizedIdentifier, "public");
         recordAuditLog({
           time: new Date().toISOString(),
@@ -7299,7 +7341,7 @@ http.createServer(async (req, res) => {
 
       let upgradedPasswordHash = "";
       if (!isPasswordHashed(user.password)) {
-        upgradedPasswordHash = createPasswordHash(payload.password);
+        upgradedPasswordHash = await createPasswordHashAsync(payload.password);
         users[userIndex] = {
           ...user,
           password: upgradedPasswordHash
@@ -7400,7 +7442,7 @@ http.createServer(async (req, res) => {
         return;
       }
 
-      if (!user || !verifyPassword(payload.password, user.password) || !isStaffRole(user.role)) {
+      if (!user || !(await verifyPasswordAsync(payload.password, user.password)) || !isStaffRole(user.role)) {
         const attempts = await recordSuspiciousLoginFailure(req, normalizedIdentifier, "staff");
         recordAuditLog({
           time: new Date().toISOString(),
@@ -7431,7 +7473,7 @@ http.createServer(async (req, res) => {
 
       let upgradedPasswordHash = "";
       if (!isPasswordHashed(user.password)) {
-        upgradedPasswordHash = createPasswordHash(payload.password);
+        upgradedPasswordHash = await createPasswordHashAsync(payload.password);
         users[userIndex] = {
           ...user,
           password: upgradedPasswordHash
@@ -8021,7 +8063,7 @@ http.createServer(async (req, res) => {
         sendJson(res, 400, { error: "Password inahitajika kuthibitisha session.", code: "password_required" });
         return;
       }
-      if (!verifyPassword(payload.password, user.password)) {
+      if (!(await verifyPasswordAsync(payload.password, user.password))) {
         await appendAuditLog({
           time: new Date().toISOString(),
           ip: clientIp,
