@@ -341,6 +341,15 @@ function createIntelligencePlatform(options = {}) {
         metadata.location
       ), 80),
       deviceType: sanitizeText(pickFirst(metadata.devicetype, inferDeviceType(getHeader(headers, "user-agent"))), 40),
+      marketCountry: sanitizeText(pickFirst(
+        metadata.marketcountry,
+        metadata.country,
+        getHeader(headers, "cf-ipcountry"),
+        getHeader(headers, "x-vercel-ip-country")
+      ), 2).toUpperCase(),
+      language: sanitizeText(pickFirst(metadata.language, getHeader(headers, "accept-language").split(",")[0]), 40),
+      locale: sanitizeText(metadata.locale, 40),
+      timezone: sanitizeText(metadata.timezone, 80),
       appVersion: sanitizeText(pickFirst(metadata.appversion, context.appVersion), 60),
       level: sanitizeText(payload.level, 20),
       category: sanitizeText(payload.category, 40),

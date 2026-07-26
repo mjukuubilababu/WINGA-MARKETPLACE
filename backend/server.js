@@ -8,6 +8,7 @@ const { createPostgresStore } = require("./db");
 const { createIntelligencePlatform } = require("./intelligence-platform");
 const { createDemandService, summarizeDemandEvents } = require("./demand-service");
 const { createSearchDemandService, summarizeSearchDemandEvents } = require("./search-demand-service");
+const { buildRequestGlobalContext } = require("./global-context");
 
 const PORT = process.env.PORT || 3000;
 const DATABASE_URL = process.env.DATABASE_URL || "";
@@ -200,7 +201,8 @@ const RATE_LIMIT_RULES = {
 const READ_RATE_LIMIT_RULES = {
   "/api/products": { limit: 240, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/bootstrap": { limit: 120, windowMs: RATE_LIMIT_WINDOW_MS },
-  "/api/auth/session": { limit: 120, windowMs: RATE_LIMIT_WINDOW_MS }
+  "/api/auth/session": { limit: 120, windowMs: RATE_LIMIT_WINDOW_MS },
+  "/api/global-context": { limit: 180, windowMs: RATE_LIMIT_WINDOW_MS }
 };
 const rateLimitStore = new Map();
 const suspiciousLoginStore = new Map();
@@ -5654,6 +5656,22 @@ http.createServer(async (req, res) => {
         "Set-Cookie": buildCsrfCookieHeader(csrfToken, req)
       }
     );
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/global-context") {
+    const token = readAuthToken(req);
+    const session = findSession(store, token);
+    const user = session
+      ? (store.users || []).find((item) => item.username === session.username)
+      : null;
+    const globalContext = buildRequestGlobalContext(req, {
+      userPreference: user?.localePreference || {}
+    });
+    sendJson(res, 200, globalContext, {
+      "Cache-Control": token ? "private, no-store" : "public, max-age=300, stale-while-revalidate=3600",
+      "Vary": "Accept-Language, CF-IPCountry"
+    });
     return;
   }
 

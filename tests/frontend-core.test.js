@@ -2922,6 +2922,21 @@ test("shared DOM helper blocks unsafe attributes before setAttribute", () => {
   });
 });
 
+test("global localization runtime is modular, fail-soft, and off the critical path", () => {
+  const runtimeSource = fs.readFileSync(path.join(__dirname, "..", "src", "localization", "runtime.js"), "utf8");
+  const serverSource = fs.readFileSync(path.join(__dirname, "..", "backend", "server.js"), "utf8");
+  const intelligenceSource = fs.readFileSync(path.join(__dirname, "..", "backend", "intelligence-platform.js"), "utf8");
+  const appSource = fs.readFileSync(path.join(__dirname, "..", "app.js"), "utf8");
+  assert.match(runtimeSource, /createRuntime/);
+  assert.match(runtimeSource, /languagechange/);
+  assert.match(runtimeSource, /Intl\.NumberFormat/);
+  assert.match(runtimeSource, /root\.dir = context\.direction === "rtl"/);
+  assert.match(serverSource, /url\.pathname === "\/api\/global-context"/);
+  assert.match(serverSource, /public, max-age=300, stale-while-revalidate=3600/);
+  assert.match(intelligenceSource, /marketCountry:/);
+  assert.match(intelligenceSource, /timezone:/);
+  assert.match(appSource, /requestIdleCallback\(hydrate, \{ timeout: 4000 \}\)/);
+});
 test("api writes attach a CSRF token before sending state-changing requests", () => {
   const root = path.resolve(__dirname, "..");
   const dataSource = fs.readFileSync(path.join(root, "data-service.js"), "utf8");

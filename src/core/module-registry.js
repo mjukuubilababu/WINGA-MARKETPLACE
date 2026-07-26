@@ -32,3 +32,4 @@ window.WingaModules.productDetail = window.WingaModules.productDetail || {};
 window.WingaModules.monitoring = window.WingaModules.monitoring || {};
 window.WingaModules.boot = window.WingaModules.boot || {};
 window.WingaModules.notifications = window.WingaModules.notifications || {};
+window.WingaModules.localization = window.WingaModules.localization || {};

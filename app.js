@@ -204,6 +204,32 @@ const {
   sanitizeImageSource
 } = window.WingaModules.components.ui;
 const { createObservabilityModule } = window.WingaModules.monitoring;
+const globalLocalizationRuntime = window.WingaModules.localization?.createRuntime?.({
+  fetchContext: async () => {
+    const response = await fetch("/api/global-context", {
+      method: "GET",
+      credentials: "include",
+      cache: "no-store",
+      headers: { Accept: "application/json" }
+    });
+    if (!response.ok) {
+      throw new Error(`Global context request failed: ${response.status}`);
+    }
+    return response.json();
+  }
+});
+
+function scheduleGlobalContextHydration() {
+  if (!globalLocalizationRuntime?.hydrate) return;
+  const hydrate = () => globalLocalizationRuntime.hydrate();
+  if (typeof window.requestIdleCallback === "function") {
+    window.requestIdleCallback(hydrate, { timeout: 4000 });
+    return;
+  }
+  window.setTimeout(hydrate, 1200);
+}
+
+window.addEventListener("load", scheduleGlobalContextHydration, { once: true });
 
 function isServiceWorkerRecoveryDisabled() {
   return Boolean(window.WINGA_CONFIG?.disableServiceWorker);

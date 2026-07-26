@@ -1842,7 +1842,13 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
   async function appendIntelligenceEvent(event, scores = {}) {
     const metadata = {
       ...(event.metadata || {}),
-      ...(event.quality ? { signalQuality: event.quality } : {})
+      ...(event.quality ? { signalQuality: event.quality } : {}),
+      marketContext: {
+        country: String(event.marketCountry || "").slice(0, 2),
+        language: String(event.language || "").slice(0, 40),
+        locale: String(event.locale || "").slice(0, 40),
+        timezone: String(event.timezone || "").slice(0, 80)
+      }
     };
     await query(
       `INSERT INTO intelligence_events (
