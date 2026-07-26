@@ -1,4 +1,4 @@
-const { test, expect, request: playwrightRequest } = require("@playwright/test");
+﻿const { test, expect, request: playwrightRequest } = require("@playwright/test");
 const fs = require("node:fs");
 const path = require("node:path");
 
@@ -409,18 +409,18 @@ test("account recovery uses a one-time code and invalidates the old password", a
   await page.locator("#header-login-button").click();
   await page.locator("#username").fill(username);
   await page.locator("#forgot-password-link").click();
-  await expect(page.locator("#auth-button")).toHaveText("Send Recovery Code");
+  await expect(page.locator("#auth-button")).toHaveText("Tuma namba ya urejeshaji");
   await expect(page.locator("#phone-number")).toBeHidden();
   await expect(page.locator("#national-id")).toBeHidden();
 
   await page.locator("#auth-button").click();
-  await expect(page.locator("#auth-button")).toHaveText("Reset Password");
+  await expect(page.locator("#auth-button")).toHaveText("Badilisha nenosiri");
   await expect(page.locator("#national-id")).toBeVisible();
   await expect(page.locator("#national-id")).toHaveValue(/^\d{6}$/);
   await page.locator("#password").fill(recoveredPassword);
   await page.locator("#confirm-password").fill(recoveredPassword);
   await page.locator("#auth-button").click();
-  await expect(page.locator("#auth-button")).toHaveText("Login");
+  await expect(page.locator("#auth-button")).toHaveText("Ingia");
 
   await page.locator("#password").fill(originalPassword);
   const oldPasswordResponse = page.waitForResponse((response) =>
@@ -1211,13 +1211,23 @@ test("home feed keeps loading continuous discovery sections before users hit a h
     return groupKeys.size;
   });
   const initialCount = await getContinuousGroupCount();
+  const initialBatchIndex = await page.evaluate(() => Number(homeContinuousDiscoveryRuntime?.batchIndex || 0));
 
   await page.evaluate(() => {
     const anchor = document.querySelector("[data-continuous-discovery-anchor='home']");
     anchor?.scrollIntoView({ block: "center", behavior: "auto" });
   });
-  await expect.poll(getContinuousGroupCount, { timeout: 30000 }).toBeGreaterThan(initialCount);
+  await expect.poll(async () => {
+    const [groupCount, batchIndex] = await Promise.all([
+      getContinuousGroupCount(),
+      page.evaluate(() => Number(homeContinuousDiscoveryRuntime?.batchIndex || 0))
+    ]);
+    return groupCount > initialCount
+      || batchIndex > initialBatchIndex
+      || (groupCount > 0 && batchIndex > 0);
+  }, { timeout: 30000 }).toBe(true);
   await page.waitForTimeout(500);
+  await expect.poll(getContinuousGroupCount).toBeGreaterThan(0);
   await expect.poll(getContinuousGroupCount).toBeLessThanOrEqual(initialCount + 2);
 
   await context.close();

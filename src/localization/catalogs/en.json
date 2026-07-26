@@ -29,6 +29,27 @@
     "marketplace.resultsCount": {
       "one": "{count} product",
       "other": "{count} products"
-    }
+    },
+    "auth.recoverPassword": "Recover Password",
+    "auth.resetPassword": "Reset Password",
+    "auth.sendRecoveryCode": "Send Recovery Code",
+    "auth.backToLogin": "Back to login",
+    "auth.alreadyHaveAccount": "Already have an account? Sign in",
+    "auth.identifierPlaceholder": "Username, full name, or phone number",
+    "auth.shopNamePlaceholder": "Shop name",
+    "auth.recoveryCodePlaceholder": "6-digit recovery code",
+    "auth.loginHelp": "Sign in with your username, full name, or phone number and password. Your session continues until you sign out.",
+    "auth.recoveryVerifyHelp": "Enter the code sent to your verified number and a new password with at least 12 characters.",
+    "auth.recoveryRequestHelp": "Enter your username, full name, or phone number. We will send a one-time code to your verified number.",
+    "auth.signupHelp": "Sign up with your shop name, phone number, and password. Identity verification is available later in Profile.",
+    "auth.staffSessionExpired": "Your staff session has expired. Sign in again to continue.",
+    "admin.login": "Admin Login",
+    "admin.loginHelp": "Buyer and seller accounts should use the marketplace sign-in.",
+    "feed.retry": "Try again",
+    "feed.loading": "Loading products",
+    "feed.slow": "Products are taking longer than expected to load. Please try again.",
+    "product.opening": "Opening the product you selectedâ€¦",
+    "product.openingTitle": "Opening productâ€¦",
+    "session.expired": "Your session has expired. Sign in again to continue."
   }
 }

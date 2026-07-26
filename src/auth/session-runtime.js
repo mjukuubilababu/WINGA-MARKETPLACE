@@ -18,6 +18,7 @@
       reportClientEvent = () => {},
       reportBootPhase = () => {},
       captureClientError = () => {},
+      translate = (_key, _variables, fallbackText) => fallbackText,
       setTimeoutFn = (callback, delay) => window.setTimeout(callback, delay),
       clearTimeoutFn = (id) => window.clearTimeout(id)
     } = deps;
@@ -140,7 +141,7 @@
           if (cachedSession?.username && isStaffRole(cachedSession.role || "") && !isAdminLoginRoute()) {
             showLoggedOutState({
               audience: "admin",
-              message: "Session ya staff imeisha. Ingia tena kuendelea."
+              message: translate("auth.staffSessionExpired", {}, "Session ya staff imeisha. Ingia tena kuendelea.")
             });
           }
           reportClientEvent("warn", "session_restore_failed", "Stored session could not be restored during boot.", {
@@ -162,7 +163,7 @@
           if (cachedSession?.username && isStaffRole(cachedSession.role || "") && !isAdminLoginRoute()) {
             showLoggedOutState({
               audience: "admin",
-              message: "Session ya staff imeisha. Ingia tena kuendelea."
+              message: translate("auth.staffSessionExpired", {}, "Session ya staff imeisha. Ingia tena kuendelea.")
             });
           }
           captureClientError("session_restore_boot_failed", error, {

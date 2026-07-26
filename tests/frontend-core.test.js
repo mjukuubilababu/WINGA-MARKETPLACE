@@ -2966,6 +2966,12 @@ test("global translation catalogs are versioned, validated, cached, and fail sof
   assert.match(runtimeSource, /createFallbackChain/);
   assert.match(runtimeSource, /Intl\.PluralRules/);
   assert.match(runtimeSource, /resolveMessage/);
+  const appSource = fs.readFileSync(path.join(__dirname, "..", "app.js"), "utf8");
+  const sessionSource = fs.readFileSync(path.join(__dirname, "..", "src", "auth", "session-runtime.js"), "utf8");
+  assert.match(appSource, /function translateUi/);
+  assert.match(appSource, /translateUi\("feed\.loading"/);
+  assert.match(appSource, /translateUi\("auth\.recoverPassword"/);
+  assert.match(sessionSource, /translate\("auth\.staffSessionExpired"/);
   assert.match(runtimeSource, /Promise\.allSettled/);
   assert.match(runtimeSource, /catalogRequests = new Map/);
   assert.match(runtimeSource, /generation !== catalogGeneration/);

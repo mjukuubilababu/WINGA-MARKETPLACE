@@ -29,6 +29,27 @@
     "marketplace.resultsCount": {
       "one": "Bidhaa {count}",
       "other": "Bidhaa {count}"
-    }
+    },
+    "auth.recoverPassword": "Rejesha nenosiri",
+    "auth.resetPassword": "Badilisha nenosiri",
+    "auth.sendRecoveryCode": "Tuma namba ya urejeshaji",
+    "auth.backToLogin": "Rudi kwenye kuingia",
+    "auth.alreadyHaveAccount": "Tayari una akaunti? Ingia",
+    "auth.identifierPlaceholder": "Jina la mtumiaji, jina kamili au namba ya simu",
+    "auth.shopNamePlaceholder": "Jina la duka",
+    "auth.recoveryCodePlaceholder": "Namba ya urejeshaji yenye tarakimu 6",
+    "auth.loginHelp": "Ingia kwa jina la mtumiaji, jina kamili au namba ya simu pamoja na nenosiri. Session itaendelea hadi utoke.",
+    "auth.recoveryVerifyHelp": "Weka namba iliyotumwa kwenye simu iliyothibitishwa na nenosiri jipya lenye herufi 12 au zaidi.",
+    "auth.recoveryRequestHelp": "Weka jina la mtumiaji, jina kamili au namba ya simu. Tutatuma namba ya matumizi moja kwenye simu iliyothibitishwa.",
+    "auth.signupHelp": "Jisajili kwa jina la duka, namba ya simu na nenosiri. Uthibitishaji wa utambulisho unapatikana baadaye kwenye Profile.",
+    "auth.staffSessionExpired": "Session ya staff imeisha. Ingia tena kuendelea.",
+    "admin.login": "Kuingia kwa admin",
+    "admin.loginHelp": "Akaunti za wanunuzi na wauzaji zitumie sehemu ya kawaida ya kuingia sokoni.",
+    "feed.retry": "Jaribu tena",
+    "feed.loading": "Inapakia bidhaa",
+    "feed.slow": "Bidhaa zinachukua muda mrefu kupakia. Tafadhali jaribu tena.",
+    "product.opening": "Tunafungua bidhaa uliyochaguaâ€¦",
+    "product.openingTitle": "Tunafungua bidhaaâ€¦",
+    "session.expired": "Session yako imeisha. Ingia tena kuendelea."
   }
 }

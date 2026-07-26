@@ -224,6 +224,10 @@ const globalLocalizationRuntime = window.WingaModules.localization?.createRuntim
   }
 });
 
+function translateUi(key, variables = {}, fallbackText = "") {
+  return globalLocalizationRuntime?.translate?.(key, variables, fallbackText) || String(fallbackText || key || "");
+}
+
 function scheduleGlobalContextHydration() {
   if (!globalLocalizationRuntime?.hydrate) return;
   const hydrate = () => globalLocalizationRuntime.hydrate();
@@ -8397,7 +8401,8 @@ function getAuthSessionRuntimeTools() {
       showLoggedOutState,
       reportClientEvent,
       reportBootPhase,
-      captureClientError
+      captureClientError,
+      translate: translateUi
     });
   }
   return authSessionRuntimeTools;
@@ -13638,7 +13643,7 @@ function hideDeepLinkLoadingOverlay() {
   deepLinkLoadingOverlay = null;
 }
 
-function showDeepLinkLoadingState(message = "Tunafungua bidhaa uliyoifungua...") {
+function showDeepLinkLoadingState(message = translateUi("product.opening", {}, "Tunafungua bidhaa uliyoifungua...")) {
   setDeepLinkLoadingShellVisible(false);
   if (!deepLinkLoadingOverlay) {
     const overlay = document.createElement("div");
@@ -13681,7 +13686,7 @@ function showDeepLinkLoadingState(message = "Tunafungua bidhaa uliyoifungua...")
     badge.textContent = "W";
 
     const title = createElement("h3", {
-      textContent: "Tunaendelea kufungua bidhaa..."
+      textContent: translateUi("product.openingTitle", {}, "Tunaendelea kufungua bidhaa...")
     });
     title.style.cssText = "margin:0 0 8px;font-size:1.05rem;line-height:1.35;";
 
@@ -13701,7 +13706,7 @@ function showDeepLinkLoadingState(message = "Tunafungua bidhaa uliyoifungua...")
   const title = deepLinkLoadingOverlay.querySelector("h3");
   const copy = deepLinkLoadingOverlay.querySelector(".empty-copy");
   if (title) {
-    title.textContent = "Tunaendelea kufungua bidhaa...";
+    title.textContent = translateUi("product.openingTitle", {}, "Tunaendelea kufungua bidhaa...");
   }
   if (copy) {
     copy.textContent = message;
@@ -13785,13 +13790,13 @@ function renderLifecycleFallbackSkeleton(message = "") {
   const copy = feedLoadingState.querySelector(".feed-loading-shell p");
   if (feedLoadingRetryButton) {
     feedLoadingRetryButton.disabled = false;
-    feedLoadingRetryButton.textContent = "Jaribu tena";
+    feedLoadingRetryButton.textContent = translateUi("feed.retry", {}, "Jaribu tena");
   }
   if (title) {
-    title.textContent = "Loading products";
+    title.textContent = translateUi("feed.loading", {}, "Loading products");
   }
   if (copy) {
-    copy.textContent = message || "Products are taking longer than expected to load. Please try again.";
+    copy.textContent = message || translateUi("feed.slow", {}, "Products are taking longer than expected to load. Please try again.");
   }
   setFeedLoadingStateVisible(true);
 }
@@ -13918,7 +13923,7 @@ function retryLifecycleFeedRestore(reason = lifecycleFallbackReason || "lifecycl
     .finally(() => {
       if (feedLoadingRetryButton) {
         feedLoadingRetryButton.disabled = false;
-        feedLoadingRetryButton.textContent = "Jaribu tena";
+        feedLoadingRetryButton.textContent = translateUi("feed.retry", {}, "Jaribu tena");
       }
       ensureProductsForImmediateRender();
       mergeAvailableCategories(inferCategoriesFromData());
@@ -14188,10 +14193,10 @@ function showAdminLoginScreen(options = {}) {
   appContainer.style.display = "none";
   adminLoginContainer.style.display = "block";
   if (adminLoginTitle) {
-    setNodeText(adminLoginTitle, "Admin Login");
+    setNodeText(adminLoginTitle, translateUi("admin.login", {}, "Admin Login"));
   }
   if (adminLoginCopy) {
-    setNodeText(adminLoginCopy, message || "Mteja na muuzaji wa kawaida wanapaswa kutumia login ya kawaida ya marketplace.");
+    setNodeText(adminLoginCopy, message || translateUi("admin.loginHelp", {}, "Mteja na muuzaji wa kawaida wanapaswa kutumia login ya kawaida ya marketplace."));
   }
   if (document.title !== "WINGA Admin Login") {
     document.title = "WINGA Admin Login";
@@ -14248,37 +14253,37 @@ function syncAuthMode() {
   }
   authButton.style.display = "block";
   usernameInput.placeholder = isLogin
-    ? "Username, full name, or phone number"
+    ? translateUi("auth.identifierPlaceholder", {}, "Username, full name, or phone number")
     : isRecoveryMode
-      ? "Username, full name, or phone number"
-      : "Jina la duka";
+      ? translateUi("auth.identifierPlaceholder", {}, "Username, full name, or phone number")
+      : translateUi("auth.shopNamePlaceholder", {}, "Jina la duka");
   usernameInput.autocomplete = isLogin || isRecoveryMode ? "username" : "organization";
   usernameInput.readOnly = isRecoveryVerification;
   phoneNumberInput.autocomplete = isSecuritySignup ? "tel" : "off";
   nationalIdInput.autocomplete = isRecoveryVerification ? "one-time-code" : "off";
   nationalIdInput.inputMode = isRecoveryVerification ? "numeric" : "text";
   nationalIdInput.maxLength = isRecoveryVerification ? 6 : 40;
-  nationalIdInput.placeholder = isRecoveryVerification ? "Recovery code ya tarakimu 6" : "Namba ya kitambulisho cha taifa";
+  nationalIdInput.placeholder = isRecoveryVerification ? translateUi("auth.recoveryCodePlaceholder", {}, "Recovery code ya tarakimu 6") : "Namba ya kitambulisho cha taifa";
   passwordInput.autocomplete = isSecuritySignup || isRecoveryVerification ? "new-password" : "current-password";
   confirmPasswordInput.autocomplete = isSecuritySignup || isRecoveryVerification ? "new-password" : "off";
   sellerIdentityDocumentNumberInput?.setAttribute("autocomplete", "off");
-  setNodeText(formTitle, isRecoveryMode ? "Recover Password" : (isLogin ? "Login" : "Sign Up"));
+  setNodeText(formTitle, isRecoveryMode ? translateUi("auth.recoverPassword", {}, "Recover Password") : (isLogin ? translateUi("auth.login", {}, "Login") : translateUi("auth.signUp", {}, "Sign Up")));
   setNodeText(authButton, isRecoveryMode
-    ? (isRecoveryVerification ? "Reset Password" : "Send Recovery Code")
-    : (isLogin ? "Login" : "Sign Up"));
-  setNodeText(toggleLink, isRecoveryMode ? "Rudi kwenye login" : (isLogin ? "Tengeneza akaunti" : "Tayari una akaunti? Ingia"));
+    ? (isRecoveryVerification ? translateUi("auth.resetPassword", {}, "Reset Password") : translateUi("auth.sendRecoveryCode", {}, "Send Recovery Code"))
+    : (isLogin ? translateUi("auth.login", {}, "Login") : translateUi("auth.signUp", {}, "Sign Up")));
+  setNodeText(toggleLink, isRecoveryMode ? translateUi("auth.backToLogin", {}, "Rudi kwenye login") : (isLogin ? translateUi("auth.createAccount", {}, "Tengeneza akaunti") : translateUi("auth.alreadyHaveAccount", {}, "Tayari una akaunti? Ingia")));
   if (forgotPasswordLink) {
     forgotPasswordLink.style.display = isLogin ? "block" : "none";
   }
 
   if (authCategoryNote) {
     setNodeText(authCategoryNote, isLogin
-      ? "Login tumia username, full name, au namba ya simu pamoja na password. Session itaendelea mpaka ulogout."
+      ? translateUi("auth.loginHelp", {}, "Login tumia username, full name, au namba ya simu pamoja na password. Session itaendelea mpaka ulogout.")
       : isRecoveryMode
         ? (isRecoveryVerification
-          ? "Weka code iliyotumwa kwenye namba iliyothibitishwa na password mpya yenye herufi 12 au zaidi."
-          : "Weka username, full name, au namba ya simu. Tutatuma one-time code kwenye namba iliyothibitishwa bila kukuomba NIDA.")
-        : "Signup sasa ni phone-first. Weka jina la duka, namba ya simu, na password. Verification ya ID itafanyika baadaye kupitia Profile > Get Verified.");
+          ? translateUi("auth.recoveryVerifyHelp", {}, "Weka code iliyotumwa kwenye namba iliyothibitishwa na password mpya yenye herufi 12 au zaidi.")
+          : translateUi("auth.recoveryRequestHelp", {}, "Weka username, full name, au namba ya simu. Tutatuma one-time code kwenye namba iliyothibitishwa bila kukuomba NIDA."))
+        : translateUi("auth.signupHelp", {}, "Signup sasa ni phone-first. Weka jina la duka, namba ya simu, na password. Verification ya ID itafanyika baadaye kupitia Profile > Get Verified."));
   }
 
   if (!isSellerSignup) {
@@ -16593,7 +16598,7 @@ registerAppEvent(window, "winga:session-invalidated", (event) => {
     return;
   }
   isHandlingSessionInvalidation = true;
-  const message = event?.detail?.message || "Session yako imeisha. Ingia tena kuendelea.";
+  const message = event?.detail?.message || translateUi("session.expired", {}, "Session yako imeisha. Ingia tena kuendelea.");
   const nextAudience = isStaffUser() || isAdminLoginRoute() ? "admin" : "public";
   logout();
   showLoggedOutState({

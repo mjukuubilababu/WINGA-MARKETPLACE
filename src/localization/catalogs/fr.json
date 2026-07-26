@@ -29,6 +29,27 @@
     "marketplace.resultsCount": {
       "one": "{count} produit",
       "other": "{count} produits"
-    }
+    },
+    "auth.recoverPassword": "RÃ©cupÃ©rer le mot de passe",
+    "auth.resetPassword": "RÃ©initialiser le mot de passe",
+    "auth.sendRecoveryCode": "Envoyer le code de rÃ©cupÃ©ration",
+    "auth.backToLogin": "Retour Ã  la connexion",
+    "auth.alreadyHaveAccount": "Vous avez dÃ©jÃ  un compte ? Connectez-vous",
+    "auth.identifierPlaceholder": "Nom dâ€™utilisateur, nom complet ou tÃ©lÃ©phone",
+    "auth.shopNamePlaceholder": "Nom de la boutique",
+    "auth.recoveryCodePlaceholder": "Code de rÃ©cupÃ©ration Ã  6 chiffres",
+    "auth.loginHelp": "Connectez-vous avec votre nom dâ€™utilisateur, nom complet ou tÃ©lÃ©phone et votre mot de passe. Votre session reste active jusquâ€™Ã  la dÃ©connexion.",
+    "auth.recoveryVerifyHelp": "Saisissez le code envoyÃ© Ã  votre numÃ©ro vÃ©rifiÃ© et un nouveau mot de passe dâ€™au moins 12 caractÃ¨res.",
+    "auth.recoveryRequestHelp": "Saisissez votre nom dâ€™utilisateur, nom complet ou tÃ©lÃ©phone. Nous enverrons un code unique Ã  votre numÃ©ro vÃ©rifiÃ©.",
+    "auth.signupHelp": "Inscrivez-vous avec le nom de la boutique, le tÃ©lÃ©phone et un mot de passe. La vÃ©rification dâ€™identitÃ© sera disponible dans le profil.",
+    "auth.staffSessionExpired": "Votre session dâ€™Ã©quipe a expirÃ©. Reconnectez-vous pour continuer.",
+    "admin.login": "Connexion administrateur",
+    "admin.loginHelp": "Les acheteurs et vendeurs doivent utiliser la connexion de la place de marchÃ©.",
+    "feed.retry": "RÃ©essayer",
+    "feed.loading": "Chargement des produits",
+    "feed.slow": "Le chargement des produits prend plus de temps que prÃ©vu. Veuillez rÃ©essayer.",
+    "product.opening": "Ouverture du produit sÃ©lectionnÃ©â€¦",
+    "product.openingTitle": "Ouverture du produitâ€¦",
+    "session.expired": "Votre session a expirÃ©. Reconnectez-vous pour continuer."
   }
 }
