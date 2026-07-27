@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2026.07.26.1",
+  "version": "2026.07.27.1",
   "locale": "sw",
   "messages": {
     "auth.close": "Funga uthibitishaji",
@@ -48,8 +48,21 @@
     "feed.retry": "Jaribu tena",
     "feed.loading": "Inapakia bidhaa",
     "feed.slow": "Bidhaa zinachukua muda mrefu kupakia. Tafadhali jaribu tena.",
-    "product.opening": "Tunafungua bidhaa uliyochaguaâ€¦",
-    "product.openingTitle": "Tunafungua bidhaaâ€¦",
-    "session.expired": "Session yako imeisha. Ingia tena kuendelea."
+    "product.opening": "Tunafungua bidhaa uliyochagua…",
+    "product.openingTitle": "Tunafungua bidhaa…",
+    "session.expired": "Session yako imeisha. Ingia tena kuendelea.",
+    "auth.validIdentityImage": "Tafadhali pakia picha halali ya kitambulisho.",
+    "product.sellerOnlyPost": "Akaunti ya mnunuzi haiwezi kupakia bidhaa.",
+    "product.nameRequired": "Weka jina la bidhaa lenye angalau herufi 3.",
+    "product.priceInvalid": "Weka bei sahihi kuanzia TSh 500.",
+    "product.shopRequired": "Weka jina halali la duka.",
+    "product.whatsappRequired": "Weka namba halali ya WhatsApp kabla ya kupakia bidhaa. Wanunuzi wataitumia kuwasiliana nawe.",
+    "product.topCategoryRequired": "Chagua kundi kuu la bidhaa.",
+    "product.subcategoryRequired": "Chagua kundi dogo la bidhaa.",
+    "product.categoryInvalid": "Kundi la bidhaa ulilochagua si sahihi.",
+    "product.imageRequired": "Chagua angalau picha moja ya bidhaa.",
+    "search.imageFailed": "Utafutaji kwa picha haupatikani kwa sasa.",
+    "share.readyTitle": "Tayari kushiriki",
+    "share.readyBody": "Maelezo ya bidhaa yamenakiliwa na yako tayari kushirikiwa."
   }
 }

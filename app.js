@@ -14413,7 +14413,7 @@ sellerIdentityDocumentImageInput?.addEventListener("change", () => {
       setNodeText(sellerIdentityDocumentImageName, "");
     }
     updateSellerIdentityDocumentPreview(null);
-    alert(error.message || "Please upload a valid ID image");
+    alert(error.message || translateUi("auth.validIdentityImage", {}, "Please upload a valid ID image."));
   }
 });
 
@@ -14839,7 +14839,7 @@ uploadButton.addEventListener("click", async () => {
     return;
   }
   if (!canUseSellerFeatures()) {
-    alert("Akaunti ya mteja haiwezi kupost bidhaa.");
+    alert(translateUi("product.sellerOnlyPost", {}, "Akaunti ya mteja haiwezi kupost bidhaa."));
     setCurrentViewState("home");
     renderCurrentView();
     return;
@@ -14856,42 +14856,42 @@ uploadButton.addEventListener("click", async () => {
   const existingProduct = editingProductId ? getProductById(editingProductId) : null;
 
   if (name.length < 3) {
-    alert("Jaza jina la bidhaa lenye angalau herufi 3.");
+    alert(translateUi("product.nameRequired", {}, "Jaza jina la bidhaa lenye angalau herufi 3."));
     return;
   }
 
   if (rawPrice && (Number.isNaN(price) || price < 500 || price > 1000000000)) {
-    alert("Weka bei sahihi kuanzia TSh 500 au zaidi.");
+    alert(translateUi("product.priceInvalid", {}, "Weka bei sahihi kuanzia TSh 500 au zaidi."));
     return;
   }
 
   if (shop.length < 2) {
-    alert("Jaza jina la duka vizuri.");
+    alert(translateUi("product.shopRequired", {}, "Jaza jina la duka vizuri."));
     return;
   }
 
   if (whatsapp.length < 10) {
-    alert("Kabla ya kupost bidhaa, akaunti yako lazima iwe na namba halali ya WhatsApp. Hiyo ndiyo itafunguliwa mteja akibonyeza WhatsApp.");
+    alert(translateUi("product.whatsappRequired", {}, "Kabla ya kupost bidhaa, akaunti yako lazima iwe na namba halali ya WhatsApp."));
     return;
   }
 
   if (!topCategory) {
-    alert("Chagua category kuu ya bidhaa kwanza.");
+    alert(translateUi("product.topCategoryRequired", {}, "Chagua category kuu ya bidhaa kwanza."));
     return;
   }
 
   if (!category) {
-    alert("Chagua subcategory ya bidhaa kwanza.");
+    alert(translateUi("product.subcategoryRequired", {}, "Chagua subcategory ya bidhaa kwanza."));
     return;
   }
 
   if (!isValidProductCategory(category)) {
-    alert("Category ya bidhaa si sahihi.");
+    alert(translateUi("product.categoryInvalid", {}, "Category ya bidhaa si sahihi."));
     return;
   }
 
   if (selectedFiles.length === 0 && !existingProduct) {
-    alert("Chagua picha angalau moja ya bidhaa.");
+    alert(translateUi("product.imageRequired", {}, "Chagua picha angalau moja ya bidhaa."));
     return;
   }
 
@@ -15223,7 +15223,7 @@ searchImageFileInput.addEventListener("change", async () => {
     captureClientError("image_search_failed", error, {
       fileName: file?.name || ""
     });
-    alert(error.message || "Image search imeshindikana.");
+    alert(error.message || translateUi("search.imageFailed", {}, "Image search imeshindikana."));
   } finally {
     searchImageFileInput.value = "";
   }
@@ -20709,8 +20709,8 @@ async function handleShareProduct(product) {
   if (navigator.clipboard && navigator.clipboard.writeText) {
     await navigator.clipboard.writeText(`${shareText} | Link: ${shareUrl}`);
     showInAppNotification({
-      title: "Share ready",
-      body: "Maelezo ya bidhaa yame-copy kwa sharing.",
+      title: translateUi("share.readyTitle", {}, "Share ready"),
+      body: translateUi("share.readyBody", {}, "Maelezo ya bidhaa yamenakiliwa na yako tayari kushirikiwa."),
       variant: "success"
     });
     return;

@@ -2972,6 +2972,10 @@ test("global translation catalogs are versioned, validated, cached, and fail sof
   assert.match(appSource, /function translateUi/);
   assert.match(appSource, /translateUi\("feed\.loading"/);
   assert.match(appSource, /translateUi\("auth\.recoverPassword"/);
+  assert.match(appSource, /translateUi\("product\.sellerOnlyPost"/);
+  assert.match(appSource, /translateUi\("product\.imageRequired"/);
+  assert.match(appSource, /translateUi\("search\.imageFailed"/);
+  assert.match(appSource, /translateUi\("share\.readyTitle"/);
   assert.match(sessionSource, /translate\("auth\.staffSessionExpired"/);
   assert.match(runtimeSource, /Promise\.allSettled/);
   assert.match(runtimeSource, /catalogRequests = new Map/);
@@ -2983,6 +2987,8 @@ test("global translation catalogs are versioned, validated, cached, and fail sof
   assert.match(runtimeSource, /bindStaticTranslationKeys/);
   assert.match(runtimeSource, /closest\?\.\("\[data-winga-i18n-lock\]"/);
   assert.match(runtimeSource, /winga:i18n-missing-key/);
+  const validatorSource = fs.readFileSync(path.join(__dirname, "..", "scripts", "validate-localization-catalogs.js"), "utf8");
+  assert.match(validatorSource, /suspectedMojibake/);
   assert.doesNotMatch(runtimeSource, /console\.(?:log|warn|error)/);
   assert.match(indexSource, /data-winga-i18n="auth\.signIn" data-winga-i18n-lock/);
   assert.match(indexSource, /data-winga-i18n="marketplace\.trending"/);

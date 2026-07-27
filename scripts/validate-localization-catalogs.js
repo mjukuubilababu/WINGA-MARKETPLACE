@@ -8,7 +8,8 @@ const canonical = catalogs.find(({ file }) => file === "en.json").value;
 const canonicalKeys = Object.keys(canonical.messages).sort();
 const placeholderPattern = /\{([A-Za-z0-9_]+)\}/g;
 const unsafeMarkup = /<\/?[A-Za-z][^>]*>/;
-const unsafeControls = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\u202A-\u202E\u2066-\u2069]/;
+const unsafeControls = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\u0080-\u009F\u202A-\u202E\u2066-\u2069]/;
+const suspectedMojibake = /(?:Ã[\u0080-\u00BF]|Â[\u0080-\u00BF]|â(?:€|‚|„|€¦)|[ØÙ][\u0080-\u00BF])/;
 function variants(message) {
   if (typeof message === "string") return [message];
   if (!message || typeof message !== "object" || Array.isArray(message)) throw new Error("Message must be a string or plural object.");
@@ -36,6 +37,7 @@ for (const { file, value } of catalogs) {
       if (!String(text).trim()) throw new Error(`${file}:${key}: empty translation`);
       if (unsafeMarkup.test(text)) throw new Error(`${file}:${key}: HTML is not allowed`);
       if (unsafeControls.test(text)) throw new Error(`${file}:${key}: unsafe control character`);
+      if (suspectedMojibake.test(text)) throw new Error(`${file}:${key}: suspected mojibake encoding`);
     }
   }
 }

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2026.07.26.1",
+  "version": "2026.07.27.1",
   "locale": "en",
   "messages": {
     "auth.close": "Close authentication",
@@ -48,8 +48,21 @@
     "feed.retry": "Try again",
     "feed.loading": "Loading products",
     "feed.slow": "Products are taking longer than expected to load. Please try again.",
-    "product.opening": "Opening the product you selectedâ€¦",
-    "product.openingTitle": "Opening productâ€¦",
-    "session.expired": "Your session has expired. Sign in again to continue."
+    "product.opening": "Opening the product you selected…",
+    "product.openingTitle": "Opening product…",
+    "session.expired": "Your session has expired. Sign in again to continue.",
+    "auth.validIdentityImage": "Please upload a valid ID image.",
+    "product.sellerOnlyPost": "Buyer accounts cannot post products.",
+    "product.nameRequired": "Enter a product name with at least 3 characters.",
+    "product.priceInvalid": "Enter a valid price from TSh 500.",
+    "product.shopRequired": "Enter a valid shop name.",
+    "product.whatsappRequired": "Add a valid WhatsApp number before posting. Buyers will use it to contact you.",
+    "product.topCategoryRequired": "Select a main product category.",
+    "product.subcategoryRequired": "Select a product subcategory.",
+    "product.categoryInvalid": "The selected product category is invalid.",
+    "product.imageRequired": "Select at least one product image.",
+    "search.imageFailed": "Image search is unavailable right now.",
+    "share.readyTitle": "Share ready",
+    "share.readyBody": "Product details were copied and are ready to share."
   }
 }
