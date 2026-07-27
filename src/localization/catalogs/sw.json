@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2026.07.27.1",
+  "version": "2026.07.27.2",
   "locale": "sw",
   "messages": {
     "auth.close": "Funga uthibitishaji",
@@ -63,6 +63,31 @@
     "product.imageRequired": "Chagua angalau picha moja ya bidhaa.",
     "search.imageFailed": "Utafutaji kwa picha haupatikani kwa sasa.",
     "share.readyTitle": "Tayari kushiriki",
-    "share.readyBody": "Maelezo ya bidhaa yamenakiliwa na yako tayari kushirikiwa."
+    "share.readyBody": "Maelezo ya bidhaa yamenakiliwa na yako tayari kushirikiwa.",
+    "common.offline": "Huna intaneti",
+    "order.productUnavailable": "Bidhaa hii haipatikani tena. Ifungue upya.",
+    "order.offlinePending": "Huna intaneti. Namba ya muamala haijatumwa. Itume tena intaneti ikirudi.",
+    "order.offlineBody": "Namba ya muamala imebaki kwenye dirisha hili. Itume tena intaneti ikirudi.",
+    "order.sellerPaymentMissing": "Muuzaji hajaweka namba ya malipo. Mtumie ujumbe kwanza.",
+    "order.referenceInvalid": "Weka namba sahihi ya muamala baada ya kulipa.",
+    "order.submittingTitle": "Bado inatumwa",
+    "order.submittingBody": "Namba hii ya muamala bado inatumwa. Subiri kabla ya kujaribu tena.",
+    "order.alreadySubmittedTitle": "Tayari imetumwa",
+    "order.alreadySubmittedBody": "Namba hii tayari ilitumwa. Subiri muuzaji athibitishe malipo.",
+    "order.sendingReference": "Tunatuma namba yako ya muamala kwa muuzaji.",
+    "order.referenceSubmittedTitle": "Namba ya muamala imetumwa",
+    "order.referenceSubmittedBody": "Oda yako inasubiri uthibitishaji. Muuzaji ataiona baada ya uthibitisho wa malipo.",
+    "order.paymentProofFailedTitle": "Uthibitisho wa malipo haujatumwa",
+    "order.paymentProofFailedBody": "Imeshindikana kutuma namba ya muamala wa malipo.",
+    "purchase.ownProductTitle": "Bidhaa yako",
+    "purchase.ownProductBody": "Hii ni bidhaa yako. Tumia maelezo yake kuangalia taarifa au ujumbe wa wanunuzi.",
+    "purchase.staffRestrictedTitle": "Akaunti ya staff imezuiwa",
+    "purchase.staffRestrictedBody": "Akaunti za staff haziwezi kuweka oda sokoni. Tumia akaunti ya mnunuzi au muuzaji.",
+    "purchase.accountRequiredTitle": "Unahitaji akaunti kununua bidhaa hii",
+    "purchase.accountRequiredBody": "Tayari una akaunti? Ingia. Ni mgeni? Fungua akaunti ya mnunuzi ili kuendelea.",
+    "purchase.negotiatedPriceTitle": "Bei kwa maelewano",
+    "purchase.negotiatedPriceBody": "Bidhaa hii haina bei ya wazi. Zungumza na muuzaji na mkubaliane bei kabla ya kuagiza.",
+    "purchase.paymentNumberMissingTitle": "Namba ya malipo haipatikani",
+    "purchase.paymentNumberMissingBody": "Muuzaji hajaweka namba ya malipo. Mtumie ujumbe kwanza."
   }
 }

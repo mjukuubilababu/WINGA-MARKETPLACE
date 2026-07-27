@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2026.07.27.1",
+  "version": "2026.07.27.2",
   "locale": "fr",
   "messages": {
     "auth.close": "Fermer l’authentification",
@@ -63,6 +63,31 @@
     "product.imageRequired": "Sélectionnez au moins une image du produit.",
     "search.imageFailed": "La recherche par image est indisponible pour le moment.",
     "share.readyTitle": "Prêt à partager",
-    "share.readyBody": "Les informations du produit ont été copiées et sont prêtes à être partagées."
+    "share.readyBody": "Les informations du produit ont été copiées et sont prêtes à être partagées.",
+    "common.offline": "Vous êtes hors ligne",
+    "order.productUnavailable": "Ce produit n’est plus disponible. Ouvrez-le à nouveau.",
+    "order.offlinePending": "Vous êtes hors ligne. La référence n’a pas été envoyée. Renvoyez-la lorsque la connexion revient.",
+    "order.offlineBody": "La référence reste dans cette fenêtre. Renvoyez-la lorsque la connexion revient.",
+    "order.sellerPaymentMissing": "Le vendeur n’a pas ajouté de numéro de paiement. Envoyez-lui d’abord un message.",
+    "order.referenceInvalid": "Saisissez une référence de transaction valide après le paiement.",
+    "order.submittingTitle": "Envoi en cours",
+    "order.submittingBody": "Cette référence est encore en cours d’envoi. Attendez avant de réessayer.",
+    "order.alreadySubmittedTitle": "Déjà envoyée",
+    "order.alreadySubmittedBody": "Cette référence a déjà été envoyée. Attendez la confirmation du vendeur.",
+    "order.sendingReference": "Envoi de votre référence au vendeur.",
+    "order.referenceSubmittedTitle": "Référence envoyée",
+    "order.referenceSubmittedBody": "Votre commande attend une vérification. Le vendeur la verra après validation de la preuve de paiement.",
+    "order.paymentProofFailedTitle": "Échec de la preuve de paiement",
+    "order.paymentProofFailedBody": "Impossible d’envoyer la référence de paiement.",
+    "purchase.ownProductTitle": "Votre produit",
+    "purchase.ownProductBody": "C’est votre produit. Consultez ses informations ou les messages des acheteurs.",
+    "purchase.staffRestrictedTitle": "Compte du personnel limité",
+    "purchase.staffRestrictedBody": "Les comptes du personnel ne peuvent pas passer de commandes. Utilisez un compte acheteur ou vendeur.",
+    "purchase.accountRequiredTitle": "Un compte est nécessaire pour acheter ce produit",
+    "purchase.accountRequiredBody": "Vous avez déjà un compte ? Connectez-vous. Sinon, créez un compte acheteur pour continuer.",
+    "purchase.negotiatedPriceTitle": "Prix à convenir",
+    "purchase.negotiatedPriceBody": "Ce produit n’a pas de prix public. Discutez avec le vendeur avant de commander.",
+    "purchase.paymentNumberMissingTitle": "Numéro de paiement indisponible",
+    "purchase.paymentNumberMissingBody": "Le vendeur n’a pas ajouté de numéro de paiement. Envoyez-lui d’abord un message."
   }
 }

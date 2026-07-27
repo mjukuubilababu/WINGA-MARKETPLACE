@@ -10119,8 +10119,8 @@ function ensurePaymentIntentModal() {
           productId: paymentIntentState.productId || ""
         });
         showInAppNotification({
-          title: "Payment proof failed",
-          body: error.message || "Imeshindikana kutuma reference ya malipo.",
+          title: translateUi("order.paymentProofFailedTitle", {}, "Payment proof failed"),
+          body: error.message || translateUi("order.paymentProofFailedBody", {}, "Imeshindikana kutuma reference ya malipo."),
           variant: "error"
         });
         paymentIntentState.loading = false;
@@ -10293,49 +10293,49 @@ function renderPaymentIntentModal() {
 async function submitPaymentIntentOrder() {
   const product = getProductById(paymentIntentState.productId || "");
   if (!product) {
-    throw new Error("Bidhaa haijapatikana tena. Jaribu kufungua product upya.");
+    throw new Error(translateUi("order.productUnavailable", {}, "Bidhaa haijapatikana tena. Jaribu kufungua product upya."));
   }
   if (typeof navigator !== "undefined" && navigator.onLine === false) {
     paymentIntentState.feedbackTone = "warning";
-    paymentIntentState.feedbackMessage = "Uko offline. Reference haijatumwa bado. Internet ikirudi, bonyeza Submit reference tena.";
+    paymentIntentState.feedbackMessage = translateUi("order.offlinePending", {}, "Uko offline. Reference haijatumwa bado. Internet ikirudi, bonyeza Submit reference tena.");
     renderPaymentIntentModal();
     showInAppNotification({
-      title: "Uko offline",
-      body: "Reference imebaki kwenye dirisha hili. Internet ikirudi, submit tena.",
+      title: translateUi("common.offline", {}, "Uko offline"),
+      body: translateUi("order.offlineBody", {}, "Reference imebaki kwenye dirisha hili. Internet ikirudi, submit tena."),
       variant: "warning"
     });
     return;
   }
   const paymentDetails = getProductPaymentDetails(product);
   if (!paymentDetails.number) {
-    throw new Error("Muuzaji bado hajaweka Lipa namba. Tuma ujumbe kwanza ili akamilishe taarifa za malipo.");
+    throw new Error(translateUi("order.sellerPaymentMissing", {}, "Muuzaji bado hajaweka Lipa namba. Tuma ujumbe kwanza."));
   }
   const input = document.getElementById("payment-intent-transaction-input");
   const transactionId = String(input?.value || paymentIntentState.transactionId || "").trim().toUpperCase();
   if (!isValidTransactionReferenceClient(transactionId)) {
-    throw new Error("Weka transaction reference sahihi baada ya kulipa.");
+    throw new Error(translateUi("order.referenceInvalid", {}, "Weka transaction reference sahihi baada ya kulipa."));
   }
   pruneTimedRegistryEntries(paymentIntentSubmissionRegistry, 20000);
   const submissionKey = createPaymentIntentSubmissionKey(product.id, transactionId);
   const existingSubmission = paymentIntentSubmissionRegistry.get(submissionKey);
   if (existingSubmission?.status === "pending") {
     paymentIntentState.feedbackTone = "info";
-    paymentIntentState.feedbackMessage = "Reference hii bado tunaituma. Subiri kidogo kabla ya kujaribu tena.";
+    paymentIntentState.feedbackMessage = translateUi("order.submittingBody", {}, "Reference hii bado tunaituma. Subiri kidogo kabla ya kujaribu tena.");
     renderPaymentIntentModal();
     showInAppNotification({
-      title: "Still submitting",
-      body: "Reference hii bado tunaituma. Subiri kidogo kabla ya kujaribu tena.",
+      title: translateUi("order.submittingTitle", {}, "Still submitting"),
+      body: translateUi("order.submittingBody", {}, "Reference hii bado tunaituma. Subiri kidogo kabla ya kujaribu tena."),
       variant: "info"
     });
     return;
   }
   if (existingSubmission?.status === "completed" && Date.now() - Number(existingSubmission.updatedAt || 0) < 20000) {
     paymentIntentState.feedbackTone = "success";
-    paymentIntentState.feedbackMessage = "Reference hii tayari ilitumwa. Subiri seller athibitishe malipo.";
+    paymentIntentState.feedbackMessage = translateUi("order.alreadySubmittedBody", {}, "Reference hii tayari ilitumwa. Subiri seller athibitishe malipo.");
     renderPaymentIntentModal();
     showInAppNotification({
-      title: "Already submitted",
-      body: "Reference hii tayari ilitumwa. Subiri seller athibitishe malipo.",
+      title: translateUi("order.alreadySubmittedTitle", {}, "Already submitted"),
+      body: translateUi("order.alreadySubmittedBody", {}, "Reference hii tayari ilitumwa. Subiri seller athibitishe malipo."),
       variant: "info"
     });
     return;
@@ -10343,7 +10343,7 @@ async function submitPaymentIntentOrder() {
   paymentIntentState.loading = true;
   paymentIntentState.transactionId = transactionId;
   paymentIntentState.feedbackTone = "info";
-  paymentIntentState.feedbackMessage = "Tunatuma reference yako kwa seller sasa.";
+  paymentIntentState.feedbackMessage = translateUi("order.sendingReference", {}, "Tunatuma reference yako kwa seller sasa.");
   renderPaymentIntentModal();
   paymentIntentSubmissionRegistry.set(submissionKey, {
     status: "pending",
@@ -10370,8 +10370,8 @@ async function submitPaymentIntentOrder() {
   maybePromptNotificationPermission("order");
   closePaymentIntentModal();
   showInAppNotification({
-    title: "Reference submitted",
-    body: "Order imehifadhiwa pending verification. Seller ataona order hii baada ya payment proof kuhakikiwa.",
+    title: translateUi("order.referenceSubmittedTitle", {}, "Reference submitted"),
+    body: translateUi("order.referenceSubmittedBody", {}, "Order imehifadhiwa pending verification."),
     variant: "success"
   });
   if (currentView === "profile") {
@@ -20357,8 +20357,8 @@ function renderProductGallery(product) {
 function beginPurchaseFlow(product) {
   if (product?.uploadedBy === currentUser) {
     showInAppNotification({
-      title: "Your product",
-      body: "Hii ni bidhaa yako. Tumia detail hii kuangalia taarifa au messages za wanunuzi.",
+      title: translateUi("purchase.ownProductTitle", {}, "Your product"),
+      body: translateUi("purchase.ownProductBody", {}, "Hii ni bidhaa yako."),
       variant: "info"
     });
     return;
@@ -20366,8 +20366,8 @@ function beginPurchaseFlow(product) {
 
   if (isStaffUser()) {
     showInAppNotification({
-      title: "Admin account restricted",
-      body: "Admin au moderator hawawezi kuweka orders za marketplace. Tumia akaunti ya mteja au muuzaji.",
+      title: translateUi("purchase.staffRestrictedTitle", {}, "Staff account restricted"),
+      body: translateUi("purchase.staffRestrictedBody", {}, "Admin au moderator hawawezi kuweka orders za marketplace."),
       variant: "warning"
     });
     return;
@@ -20377,8 +20377,8 @@ function beginPurchaseFlow(product) {
     promptGuestAuth({
       preferredMode: "signup",
       role: "buyer",
-      title: "You need an account to buy this product",
-      message: "Already have an account? Sign In. New here? Sign Up kama mteja ili uendelee na malipo.",
+      title: translateUi("purchase.accountRequiredTitle", {}, "You need an account to buy this product"),
+      message: translateUi("purchase.accountRequiredBody", {}, "Already have an account? Sign In. New here? Sign Up kama mteja."),
       intent: { type: "focus-product", productId: product?.id }
     });
     return;
@@ -20390,8 +20390,8 @@ function beginPurchaseFlow(product) {
 
   if (!hasProductPrice(product.price)) {
     showInAppNotification({
-      title: "Bei kwa maelewano",
-      body: "Bidhaa hii haina bei ya wazi. Chat na muuzaji kwanza mkubaliane bei kabla ya kuweka order.",
+      title: translateUi("purchase.negotiatedPriceTitle", {}, "Bei kwa maelewano"),
+      body: translateUi("purchase.negotiatedPriceBody", {}, "Bidhaa hii haina bei ya wazi. Chat na muuzaji kwanza."),
       variant: "info"
     });
     if (product.uploadedBy !== currentUser) {
@@ -20402,8 +20402,8 @@ function beginPurchaseFlow(product) {
   const paymentDetails = getProductPaymentDetails(product);
   if (!paymentDetails.number) {
     showInAppNotification({
-      title: "Lipa namba haijawekwa",
-      body: "Muuzaji huyu bado hajaweka Lipa namba kwenye profile yake. Tumia Message kwanza.",
+      title: translateUi("purchase.paymentNumberMissingTitle", {}, "Lipa namba haijawekwa"),
+      body: translateUi("purchase.paymentNumberMissingBody", {}, "Muuzaji huyu bado hajaweka Lipa namba. Tumia Message kwanza."),
       variant: "warning"
     });
     if (product.uploadedBy !== currentUser) {

@@ -2976,6 +2976,10 @@ test("global translation catalogs are versioned, validated, cached, and fail sof
   assert.match(appSource, /translateUi\("product\.imageRequired"/);
   assert.match(appSource, /translateUi\("search\.imageFailed"/);
   assert.match(appSource, /translateUi\("share\.readyTitle"/);
+  assert.match(appSource, /translateUi\("order\.referenceSubmittedTitle"/);
+  assert.match(appSource, /translateUi\("order\.alreadySubmittedBody"/);
+  assert.match(appSource, /translateUi\("purchase\.accountRequiredTitle"/);
+  assert.match(appSource, /translateUi\("purchase\.paymentNumberMissingBody"/);
   assert.match(sessionSource, /translate\("auth\.staffSessionExpired"/);
   assert.match(runtimeSource, /Promise\.allSettled/);
   assert.match(runtimeSource, /catalogRequests = new Map/);

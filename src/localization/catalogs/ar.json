@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2026.07.27.1",
+  "version": "2026.07.27.2",
   "locale": "ar",
   "messages": {
     "auth.close": "إغلاق تسجيل الدخول",
@@ -67,6 +67,31 @@
     "product.imageRequired": "اختر صورة واحدة على الأقل للمنتج.",
     "search.imageFailed": "البحث بالصور غير متاح حالياً.",
     "share.readyTitle": "جاهز للمشاركة",
-    "share.readyBody": "تم نسخ تفاصيل المنتج وأصبحت جاهزة للمشاركة."
+    "share.readyBody": "تم نسخ تفاصيل المنتج وأصبحت جاهزة للمشاركة.",
+    "common.offline": "أنت غير متصل بالإنترنت",
+    "order.productUnavailable": "لم يعد هذا المنتج متاحاً. افتح المنتج مرة أخرى.",
+    "order.offlinePending": "أنت غير متصل. لم يتم إرسال مرجع المعاملة. أرسله مجدداً عند عودة الاتصال.",
+    "order.offlineBody": "سيبقى مرجع المعاملة في هذه النافذة. أرسله مجدداً عند عودة الاتصال.",
+    "order.sellerPaymentMissing": "لم يضف البائع رقم دفع. راسل البائع أولاً.",
+    "order.referenceInvalid": "أدخل مرجع معاملة صالحاً بعد الدفع.",
+    "order.submittingTitle": "جارٍ الإرسال",
+    "order.submittingBody": "لا يزال هذا المرجع قيد الإرسال. انتظر قبل المحاولة مجدداً.",
+    "order.alreadySubmittedTitle": "تم الإرسال مسبقاً",
+    "order.alreadySubmittedBody": "تم إرسال هذا المرجع مسبقاً. انتظر تأكيد البائع للدفع.",
+    "order.sendingReference": "جارٍ إرسال مرجع المعاملة إلى البائع.",
+    "order.referenceSubmittedTitle": "تم إرسال المرجع",
+    "order.referenceSubmittedBody": "طلبك بانتظار التحقق. سيراه البائع بعد التحقق من إثبات الدفع.",
+    "order.paymentProofFailedTitle": "فشل إرسال إثبات الدفع",
+    "order.paymentProofFailedBody": "تعذر إرسال مرجع الدفع.",
+    "purchase.ownProductTitle": "منتجك",
+    "purchase.ownProductBody": "هذا منتجك. استخدم تفاصيله لمراجعة المعلومات أو رسائل المشترين.",
+    "purchase.staffRestrictedTitle": "حساب الموظفين مقيّد",
+    "purchase.staffRestrictedBody": "لا يمكن لحسابات الموظفين إنشاء طلبات. استخدم حساب مشتري أو بائع.",
+    "purchase.accountRequiredTitle": "تحتاج إلى حساب لشراء هذا المنتج",
+    "purchase.accountRequiredBody": "لديك حساب؟ سجل الدخول. مستخدم جديد؟ أنشئ حساب مشتري للمتابعة.",
+    "purchase.negotiatedPriceTitle": "السعر بالاتفاق",
+    "purchase.negotiatedPriceBody": "لا يوجد سعر معلن لهذا المنتج. راسل البائع واتفقا على السعر قبل الطلب.",
+    "purchase.paymentNumberMissingTitle": "رقم الدفع غير متاح",
+    "purchase.paymentNumberMissingBody": "لم يضف البائع رقم دفع. راسل البائع أولاً."
   }
 }

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2026.07.27.1",
+  "version": "2026.07.27.2",
   "locale": "en",
   "messages": {
     "auth.close": "Close authentication",
@@ -63,6 +63,31 @@
     "product.imageRequired": "Select at least one product image.",
     "search.imageFailed": "Image search is unavailable right now.",
     "share.readyTitle": "Share ready",
-    "share.readyBody": "Product details were copied and are ready to share."
+    "share.readyBody": "Product details were copied and are ready to share.",
+    "common.offline": "You are offline",
+    "order.productUnavailable": "This product is no longer available. Open the product again.",
+    "order.offlinePending": "You are offline. The reference has not been sent. Submit it again when your connection returns.",
+    "order.offlineBody": "The reference remains in this window. Submit it again when your connection returns.",
+    "order.sellerPaymentMissing": "The seller has not added a payment number. Message the seller first.",
+    "order.referenceInvalid": "Enter a valid transaction reference after payment.",
+    "order.submittingTitle": "Still submitting",
+    "order.submittingBody": "This reference is still being submitted. Wait before trying again.",
+    "order.alreadySubmittedTitle": "Already submitted",
+    "order.alreadySubmittedBody": "This reference was already submitted. Wait for the seller to confirm payment.",
+    "order.sendingReference": "Sending your reference to the seller.",
+    "order.referenceSubmittedTitle": "Reference submitted",
+    "order.referenceSubmittedBody": "Your order is pending verification. The seller will see it after the payment proof is verified.",
+    "order.paymentProofFailedTitle": "Payment proof failed",
+    "order.paymentProofFailedBody": "We could not submit the payment reference.",
+    "purchase.ownProductTitle": "Your product",
+    "purchase.ownProductBody": "This is your product. Use its details to review information or buyer messages.",
+    "purchase.staffRestrictedTitle": "Staff account restricted",
+    "purchase.staffRestrictedBody": "Staff accounts cannot place marketplace orders. Use a buyer or seller account.",
+    "purchase.accountRequiredTitle": "You need an account to buy this product",
+    "purchase.accountRequiredBody": "Already have an account? Sign in. New here? Create a buyer account to continue.",
+    "purchase.negotiatedPriceTitle": "Price by agreement",
+    "purchase.negotiatedPriceBody": "This product has no public price. Message the seller and agree on a price before ordering.",
+    "purchase.paymentNumberMissingTitle": "Payment number unavailable",
+    "purchase.paymentNumberMissingBody": "The seller has not added a payment number. Message the seller first."
   }
 }
