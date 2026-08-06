@@ -4410,10 +4410,10 @@ function ensureHomeFeedLoadMoreStatus() {
     }),
     createElement("button", {
       className: "home-feed-load-more-retry",
-      textContent: "Jaribu tena",
+      textContent: translateUi("feed.loadMoreRetry", {}, "Jaribu tena"),
       attributes: {
         type: "button",
-        "aria-label": "Jaribu kupakia bidhaa zaidi"
+        "aria-label": translateUi("feed.loadMoreRetryAria", {}, "Jaribu kupakia bidhaa zaidi")
       }
     })
   );
@@ -4462,14 +4462,14 @@ function setHomeFeedLoadMoreState(nextState, details = {}) {
   }
   if (state === "loading") {
     copy.textContent = Number(details.attempt || 1) > 1
-      ? "Muunganisho umesita, tunajaribu tena..."
-      : "Inapakia bidhaa zaidi...";
+      ? translateUi("feed.loadMoreConnectionRetry", {}, "Muunganisho umesita, tunajaribu tena...")
+      : translateUi("feed.loadMoreLoading", {}, "Inapakia bidhaa zaidi...");
   } else if (state === "error") {
-    copy.textContent = "Bidhaa zaidi hazikupatikana kwa sasa. Bidhaa ulizoona zimehifadhiwa.";
+    copy.textContent = translateUi("feed.loadMoreUnavailable", {}, "Bidhaa zaidi hazikupatikana kwa sasa. Bidhaa ulizoona zimehifadhiwa.");
   } else if (state === "success-empty") {
     copy.textContent = details.hasMore === false
-      ? "Bidhaa zote mpya zimepakiwa. Endelea kuona mapendekezo."
-      : "Hakuna bidhaa mpya katika sehemu hii.";
+      ? translateUi("feed.loadMoreExhausted", {}, "Bidhaa zote mpya zimepakiwa. Endelea kuona mapendekezo.")
+      : translateUi("feed.loadMoreEmpty", {}, "Hakuna bidhaa mpya katika sehemu hii.");
   } else {
     copy.textContent = "";
   }
@@ -13925,7 +13925,7 @@ function retryLifecycleFeedRestore(reason = lifecycleFallbackReason || "lifecycl
   }
   if (feedLoadingRetryButton) {
     feedLoadingRetryButton.disabled = true;
-    feedLoadingRetryButton.textContent = "Inajaribu tena...";
+    feedLoadingRetryButton.textContent = translateUi("feed.loadMoreRetrying", {}, "Inajaribu tena...");
   }
   Promise.resolve(window.WingaDataLayer?.refreshProducts?.())
     .catch((error) => {

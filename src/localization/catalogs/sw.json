@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2026.08.06.8",
+  "version": "2026.08.06.9",
   "locale": "sw",
   "messages": {
     "auth.close": "Funga uthibitishaji",
@@ -328,6 +328,14 @@
     "language.updateFailedBody": "Hatujaweza kubadilisha lugha ya app kwa sasa.",
     "notification.openHelpAction": "Fungua msaada wa arifa",
     "notification.profileEnabledBody": "Arifa zimewashwa. Utapata taarifa za ujumbe, oda na shughuli muhimu.",
-    "notification.profileBlockedBody": "Browser imezuia arifa. Unaweza kuziruhusu kwenye mipangilio ya browser."
+    "notification.profileBlockedBody": "Browser imezuia arifa. Unaweza kuziruhusu kwenye mipangilio ya browser.",
+    "feed.loadMoreRetry": "Jaribu tena",
+    "feed.loadMoreRetryAria": "Jaribu kupakia bidhaa zaidi",
+    "feed.loadMoreRetrying": "Inajaribu tena...",
+    "feed.loadMoreConnectionRetry": "Muunganisho umesita, tunajaribu tena...",
+    "feed.loadMoreLoading": "Inapakia bidhaa zaidi...",
+    "feed.loadMoreUnavailable": "Bidhaa zaidi hazikupatikana kwa sasa. Bidhaa ulizoona zimehifadhiwa.",
+    "feed.loadMoreExhausted": "Bidhaa zote mpya zimepakiwa. Endelea kuona mapendekezo.",
+    "feed.loadMoreEmpty": "Hakuna bidhaa mpya katika sehemu hii."
   }
 }

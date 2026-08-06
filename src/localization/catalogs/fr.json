@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2026.08.06.8",
+  "version": "2026.08.06.9",
   "locale": "fr",
   "messages": {
     "auth.close": "Fermer l’authentification",
@@ -328,6 +328,14 @@
     "language.updateFailedBody": "Impossible de changer la langue pour le moment.",
     "notification.openHelpAction": "Ouvrir l'aide des notifications",
     "notification.profileEnabledBody": "Les notifications sont activees pour les messages, commandes et activites importantes.",
-    "notification.profileBlockedBody": "Votre navigateur a bloque les notifications. Autorisez-les dans ses parametres."
+    "notification.profileBlockedBody": "Votre navigateur a bloque les notifications. Autorisez-les dans ses parametres.",
+    "feed.loadMoreRetry": "Réessayer",
+    "feed.loadMoreRetryAria": "Réessayer de charger plus de produits",
+    "feed.loadMoreRetrying": "Nouvelle tentative...",
+    "feed.loadMoreConnectionRetry": "Connexion interrompue, nouvelle tentative...",
+    "feed.loadMoreLoading": "Chargement de produits supplémentaires...",
+    "feed.loadMoreUnavailable": "Aucun autre produit ne se trouve disponible pour le moment. Les produits déjà vus sont conservés.",
+    "feed.loadMoreExhausted": "Tous les nouveaux produits sont chargés. Continuez à explorer les recommandations.",
+    "feed.loadMoreEmpty": "Aucun nouveau produit dans cette section."
   }
 }

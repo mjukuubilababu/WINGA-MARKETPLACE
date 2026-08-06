@@ -1,21 +1,9 @@
 {
   "schemaVersion": 1,
   "policy": "Existing debt may decrease only. New or modified user-visible literals must use localization keys.",
-  "count": 382,
-  "digest": "6ce1ba13290afe90212122819816e998be8b175cb6f84d64a03dd7e922bc2fbc",
+  "count": 378,
+  "digest": "371cf54987c66ab8b698a2fe773a2f2c7520030930a8a9c64affd56b9953a03c",
   "entries": [
-    {
-      "signature": "app.js|accessible-name|Jaribu kupakia bidhaa zaidi",
-      "count": 1
-    },
-    {
-      "signature": "app.js|dom-assignment|Bidhaa zaidi hazikupatikana kwa sasa. Bidhaa ulizoona zimehifadhiwa.",
-      "count": 1
-    },
-    {
-      "signature": "app.js|dom-assignment|Inajaribu tena...",
-      "count": 1
-    },
     {
       "signature": "app.js|property|${createdCategory.label} imeongezwa kwenye Vitu Used.",
       "count": 1
@@ -226,10 +214,6 @@
     },
     {
       "signature": "app.js|property|Jaribu ku-refresh ukurasa. Ikiwa tatizo linaendelea, kagua provider ya storage/API au environment config.",
-      "count": 1
-    },
-    {
-      "signature": "app.js|property|Jaribu tena",
       "count": 1
     },
     {
