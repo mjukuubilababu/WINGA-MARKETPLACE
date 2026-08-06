@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2026.08.06.2",
+  "version": "2026.08.06.3",
   "locale": "ar",
   "messages": {
     "auth.close": "إغلاق تسجيل الدخول",
@@ -147,6 +147,24 @@
     "chat.refreshFailedTitle": "فشل التحديث",
     "chat.refreshFailedBody": "تعذر تحديث الرسائل.",
     "chat.notificationFailedTitle": "فشل فتح الإشعار",
-    "chat.notificationFailedBody": "تعذر فتح الإشعار."
+    "chat.notificationFailedBody": "تعذر فتح الإشعار.",
+    "order.paymentRejectedSuccess": "تم رفض إثبات الدفع وإغلاق الطلب.",
+    "order.cancelledSuccess": "تم إلغاء الطلب.",
+    "order.paidSuccess": "تم تأكيد الدفع. سيرى المشتري التحديث فوراً.",
+    "order.confirmedSuccess": "أكد البائع الطلب.",
+    "order.completedSuccess": "اكتمل الطلب.",
+    "order.cancellingStatus": "جارٍ إغلاق هذا الطلب.",
+    "order.verifyingPaymentStatus": "جارٍ التحقق من إثبات الدفع.",
+    "order.confirmingStatus": "جارٍ تأكيد الطلب للمشتري.",
+    "order.completingStatus": "جارٍ إكمال الطلب.",
+    "order.updatedTitle": "تم تحديث الطلب",
+    "order.updateFailedTitle": "فشل تحديث الطلب",
+    "order.updateFailedBody": "تعذر تحديث حالة الطلب.",
+    "product.soldOutConfirm": "هل أنت متأكد أن هذا المنتج نفد ويجب وضع علامة نفاد المخزون عليه؟",
+    "product.soldOutPending": "جارٍ وضع علامة نفاد المخزون.",
+    "product.soldOutSuccess": "تم وضع علامة نفاد المخزون على المنتج.",
+    "product.updatedTitle": "تم تحديث المنتج",
+    "product.soldOutFailedTitle": "فشل تحديث نفاد المخزون",
+    "product.soldOutFailedBody": "تعذر وضع علامة نفاد المخزون على المنتج."
   }
 }

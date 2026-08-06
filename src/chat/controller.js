@@ -724,22 +724,24 @@
             return;
           }
           const successMessage = status === "cancelled"
-            ? (isRejectPayment ? "Payment proof imekataliwa na order imefungwa." : "Request/order imecanceliwa.")
+            ? (isRejectPayment
+              ? t("order.paymentRejectedSuccess", "Payment proof imekataliwa na order imefungwa.")
+              : t("order.cancelledSuccess", "Request/order imecanceliwa."))
             : status === "paid"
-              ? "Payment imethibitishwa. Buyer ataona update hii mara moja."
+              ? t("order.paidSuccess", "Payment imethibitishwa. Buyer ataona update hii mara moja.")
               : status === "confirmed"
-                ? "Seller amejibu na kuthibitisha order."
-                : "Order imewekwa completed.";
+                ? t("order.confirmedSuccess", "Seller amejibu na kuthibitisha order.")
+                : t("order.completedSuccess", "Order imewekwa completed.");
           try {
             deps.setOrderActionStatus?.(orderId, {
               tone: "info",
               message: status === "cancelled"
-                ? "Tunafunga order hii sasa."
+                ? t("order.cancellingStatus", "Tunafunga order hii sasa.")
                 : status === "paid"
-                  ? "Tunathibitisha payment proof sasa."
+                  ? t("order.verifyingPaymentStatus", "Tunathibitisha payment proof sasa.")
                   : status === "confirmed"
-                    ? "Tunathibitisha order kwa buyer sasa."
-                    : "Tunamark order hii completed sasa."
+                    ? t("order.confirmingStatus", "Tunathibitisha order kwa buyer sasa.")
+                    : t("order.completingStatus", "Tunamark order hii completed sasa.")
             });
             deps.renderProfile?.();
             await deps.dataLayer.updateOrderStatus(orderId, { status });
@@ -748,7 +750,7 @@
               message: successMessage
             });
             deps.showInAppNotification?.({
-              title: "Order updated",
+              title: t("order.updatedTitle", "Order updated"),
               body: successMessage,
               variant: "success"
             });
@@ -756,15 +758,15 @@
           } catch (error) {
             deps.setOrderActionStatus?.(orderId, {
               tone: "error",
-              message: error.message || "Imeshindikana kubadilisha status ya order."
+              message: error.message || t("order.updateFailedBody", "Imeshindikana kubadilisha status ya order.")
             });
             deps.captureError?.("order_status_update_failed", error, {
               orderId,
               status
             });
             deps.showInAppNotification?.({
-              title: "Order update failed",
-              body: error.message || "Imeshindikana kubadilisha status ya order.",
+              title: t("order.updateFailedTitle", "Order update failed"),
+              body: error.message || t("order.updateFailedBody", "Imeshindikana kubadilisha status ya order."),
               variant: "error"
             });
             deps.renderProfile?.();
@@ -773,41 +775,41 @@
 
       bindClickOnce("[data-product-soldout]", "ProductSoldOut", async (button) => {
           const productId = button.dataset.productSoldout;
-          if (deps.confirmAction && !deps.confirmAction("Una uhakika bidhaa hii imeisha na unataka kuiweka sold out?")) {
+          if (deps.confirmAction && !deps.confirmAction(t("product.soldOutConfirm", "Una uhakika bidhaa hii imeisha na unataka kuiweka sold out?"))) {
             return;
           }
           try {
             deps.setProductActionStatus?.(productId, {
               tone: "info",
-              message: "Tunaweka bidhaa hii sold out sasa."
+              message: t("product.soldOutPending", "Tunaweka bidhaa hii sold out sasa.")
             });
             deps.renderProfile?.();
             await deps.dataLayer.updateProductAvailability(productId, { availability: "sold_out" });
             deps.setProductActionStatus?.(productId, {
               tone: "success",
-              message: "Bidhaa imewekwa sold out."
+              message: t("product.soldOutSuccess", "Bidhaa imewekwa sold out.")
             });
             deps.refreshProductsFromStore();
             deps.reportEvent?.("info", "product_marked_sold_out", "Seller marked product as sold out.", {
               productId
             });
             deps.showInAppNotification?.({
-              title: "Product updated",
-              body: "Bidhaa imewekwa sold out.",
+              title: t("product.updatedTitle", "Product updated"),
+              body: t("product.soldOutSuccess", "Bidhaa imewekwa sold out."),
               variant: "success"
             });
             deps.renderProfile();
           } catch (error) {
             deps.setProductActionStatus?.(productId, {
               tone: "error",
-              message: error.message || "Imeshindikana kuweka sold out."
+              message: error.message || t("product.soldOutFailedBody", "Imeshindikana kuweka sold out.")
             });
             deps.captureError?.("product_sold_out_failed", error, {
               productId
             });
             deps.showInAppNotification?.({
-              title: "Sold out update failed",
-              body: error.message || "Imeshindikana kuweka sold out.",
+              title: t("product.soldOutFailedTitle", "Sold out update failed"),
+              body: error.message || t("product.soldOutFailedBody", "Imeshindikana kuweka sold out."),
               variant: "error"
             });
             deps.renderProfile?.();

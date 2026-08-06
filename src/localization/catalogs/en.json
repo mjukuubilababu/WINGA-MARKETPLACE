@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2026.08.06.2",
+  "version": "2026.08.06.3",
   "locale": "en",
   "messages": {
     "auth.close": "Close authentication",
@@ -143,6 +143,24 @@
     "chat.refreshFailedTitle": "Refresh failed",
     "chat.refreshFailedBody": "We could not refresh messages.",
     "chat.notificationFailedTitle": "Notification failed",
-    "chat.notificationFailedBody": "We could not open the notification."
+    "chat.notificationFailedBody": "We could not open the notification.",
+    "order.paymentRejectedSuccess": "The payment proof was rejected and the order was closed.",
+    "order.cancelledSuccess": "The order was cancelled.",
+    "order.paidSuccess": "Payment was confirmed. The buyer will see this update immediately.",
+    "order.confirmedSuccess": "The seller confirmed the order.",
+    "order.completedSuccess": "The order was completed.",
+    "order.cancellingStatus": "Closing this order.",
+    "order.verifyingPaymentStatus": "Verifying the payment proof.",
+    "order.confirmingStatus": "Confirming the order for the buyer.",
+    "order.completingStatus": "Completing this order.",
+    "order.updatedTitle": "Order updated",
+    "order.updateFailedTitle": "Order update failed",
+    "order.updateFailedBody": "We could not update the order status.",
+    "product.soldOutConfirm": "Are you sure this product is out of stock and should be marked sold out?",
+    "product.soldOutPending": "Marking this product as sold out.",
+    "product.soldOutSuccess": "The product was marked sold out.",
+    "product.updatedTitle": "Product updated",
+    "product.soldOutFailedTitle": "Sold-out update failed",
+    "product.soldOutFailedBody": "We could not mark the product sold out."
   }
 }

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2026.08.06.2",
+  "version": "2026.08.06.3",
   "locale": "sw",
   "messages": {
     "auth.close": "Funga uthibitishaji",
@@ -143,6 +143,24 @@
     "chat.refreshFailedTitle": "Kusasisha kumeshindikana",
     "chat.refreshFailedBody": "Imeshindikana kusasisha ujumbe.",
     "chat.notificationFailedTitle": "Notification haijafunguka",
-    "chat.notificationFailedBody": "Imeshindikana kufungua notification."
+    "chat.notificationFailedBody": "Imeshindikana kufungua notification.",
+    "order.paymentRejectedSuccess": "Uthibitisho wa malipo umekataliwa na oda imefungwa.",
+    "order.cancelledSuccess": "Oda imeghairiwa.",
+    "order.paidSuccess": "Malipo yamethibitishwa. Mnunuzi ataona taarifa hii mara moja.",
+    "order.confirmedSuccess": "Muuzaji amethibitisha oda.",
+    "order.completedSuccess": "Oda imekamilika.",
+    "order.cancellingStatus": "Tunafunga oda hii.",
+    "order.verifyingPaymentStatus": "Tunathibitisha uthibitisho wa malipo.",
+    "order.confirmingStatus": "Tunathibitisha oda kwa mnunuzi.",
+    "order.completingStatus": "Tunakamilisha oda hii.",
+    "order.updatedTitle": "Oda imesasishwa",
+    "order.updateFailedTitle": "Kusasisha oda kumeshindikana",
+    "order.updateFailedBody": "Imeshindikana kubadilisha hali ya oda.",
+    "product.soldOutConfirm": "Una uhakika bidhaa hii imeisha na unataka kuiweka kuwa imeuzwa yote?",
+    "product.soldOutPending": "Tunaweka bidhaa hii kuwa imeuzwa yote.",
+    "product.soldOutSuccess": "Bidhaa imewekwa kuwa imeuzwa yote.",
+    "product.updatedTitle": "Bidhaa imesasishwa",
+    "product.soldOutFailedTitle": "Kusasisha sold out kumeshindikana",
+    "product.soldOutFailedBody": "Imeshindikana kuweka bidhaa kuwa imeuzwa yote."
   }
 }

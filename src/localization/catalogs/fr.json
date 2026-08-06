@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2026.08.06.2",
+  "version": "2026.08.06.3",
   "locale": "fr",
   "messages": {
     "auth.close": "Fermer l’authentification",
@@ -143,6 +143,24 @@
     "chat.refreshFailedTitle": "Échec de l’actualisation",
     "chat.refreshFailedBody": "Impossible d’actualiser les messages.",
     "chat.notificationFailedTitle": "Échec de la notification",
-    "chat.notificationFailedBody": "Impossible d’ouvrir la notification."
+    "chat.notificationFailedBody": "Impossible d’ouvrir la notification.",
+    "order.paymentRejectedSuccess": "La preuve de paiement a été refusée et la commande a été fermée.",
+    "order.cancelledSuccess": "La commande a été annulée.",
+    "order.paidSuccess": "Le paiement a été confirmé. L’acheteur verra immédiatement la mise à jour.",
+    "order.confirmedSuccess": "Le vendeur a confirmé la commande.",
+    "order.completedSuccess": "La commande est terminée.",
+    "order.cancellingStatus": "Fermeture de cette commande.",
+    "order.verifyingPaymentStatus": "Vérification de la preuve de paiement.",
+    "order.confirmingStatus": "Confirmation de la commande pour l’acheteur.",
+    "order.completingStatus": "Finalisation de cette commande.",
+    "order.updatedTitle": "Commande mise à jour",
+    "order.updateFailedTitle": "Échec de la mise à jour",
+    "order.updateFailedBody": "Impossible de modifier le statut de la commande.",
+    "product.soldOutConfirm": "Confirmez-vous que ce produit est épuisé ?",
+    "product.soldOutPending": "Marquage du produit comme épuisé.",
+    "product.soldOutSuccess": "Le produit a été marqué comme épuisé.",
+    "product.updatedTitle": "Produit mis à jour",
+    "product.soldOutFailedTitle": "Échec de la mise à jour du stock",
+    "product.soldOutFailedBody": "Impossible de marquer le produit comme épuisé."
   }
 }
