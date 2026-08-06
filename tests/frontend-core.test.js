@@ -2949,6 +2949,8 @@ test("global localization runtime is modular, fail-soft, and off the critical pa
   assert.match(serverSource, /code: "locale_preference_conflict"/);
   assert.match(runtimeSource, /Intl\.NumberFormat/);
   assert.match(runtimeSource, /root\.dir = context\.direction === "rtl"/);
+  assert.match(runtimeSource, /directionOf\(locale\)/);
+  assert.match(runtimeSource, /direction: directionOf\(locale\)/);
   assert.match(serverSource, /url\.pathname === "\/api\/global-context"/);
   assert.ok(
     serverSource.indexOf("let store = migrateLegacyStore")
@@ -3007,6 +3009,10 @@ test("global translation catalogs are versioned, validated, cached, and fail sof
   const profileControllerSource = fs.readFileSync(path.join(__dirname, "..", "src", "profile", "controller.js"), "utf8");
   assert.match(profileControllerSource, /profile\.paymentNumberRequiredTitle/);
   assert.match(profileControllerSource, /session\.revokeFailedBody/);
+  const profileUiSource = fs.readFileSync(path.join(__dirname, "..", "src", "profile", "ui.js"), "utf8");
+  assert.match(profileUiSource, /data-profile-language-select/);
+  assert.match(profileControllerSource, /setLocalizationLanguage/);
+  assert.match(appSource, /getLocalizationContext: \(\) => globalLocalizationRuntime/);
   assert.match(profileControllerSource, /typeof deps\.translate === "function"/);
   assert.match(sessionSource, /translate\("auth\.staffSessionExpired"/);
   assert.match(runtimeSource, /Promise\.allSettled/);

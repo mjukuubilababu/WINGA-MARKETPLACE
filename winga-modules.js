@@ -3581,6 +3581,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
   function canonical(value = "") { try { return Intl.getCanonicalLocales(String(value || "").replace(/_/g, "-"))[0] || ""; } catch (_error) { return ""; } }
   function read(storage) { try { const value = JSON.parse(storage?.getItem(STORAGE_KEY) || "null"); return value?.schemaVersion === 1 ? value : null; } catch (_error) { return null; } }
   function languageOf(locale = "") { return canonical(locale).split("-")[0].toLowerCase(); }
+  function directionOf(locale = "") { return new Set(["ar", "fa", "he", "ur"]).has(languageOf(locale)) ? "rtl" : "ltr"; }
   function createFallbackChain(locale = "") {
     const normalized = canonical(locale);
     return Array.from(new Set([normalized, languageOf(normalized), DEFAULT_LANGUAGE].filter(Boolean)));
@@ -3774,13 +3775,13 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     }
     function setLanguage(language, options = {}) {
       const locale = canonical(language); if (!locale) throw new TypeError("Unsupported locale.");
-      const next = update({ locale, preference: { ...(context.preference || {}), language: locale, useDeviceLanguage: options.useDeviceLanguage === true } }, "language_selected");
+      const next = update({ locale, direction: directionOf(locale), preference: { ...(context.preference || {}), language: locale, useDeviceLanguage: options.useDeviceLanguage === true } }, "language_selected");
       persistRemotePreference();
       return next;
     }
     function followDeviceLanguage() {
       const locale = canonical(targetWindow.navigator?.languages?.[0] || targetWindow.navigator?.language); if (!locale) return context;
-      const next = update({ locale, preference: { ...(context.preference || {}), language: "", useDeviceLanguage: true } }, "device_language_changed");
+      const next = update({ locale, direction: directionOf(locale), preference: { ...(context.preference || {}), language: "", useDeviceLanguage: true } }, "device_language_changed");
       persistRemotePreference();
       return next;
     }
@@ -3833,6 +3834,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
   window.WingaModules.localization.createFallbackChain = createFallbackChain;
   window.WingaModules.localization.isValidCatalog = isValidCatalog;
   window.WingaModules.localization.resolveMessage = resolveMessage;
+  window.WingaModules.localization.directionOf = directionOf;
 })();
 
 
@@ -16145,6 +16147,10 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 // src/profile/ui.js
 (() => {
   function createProfileUiModule(deps) {
+    const translate = typeof deps.translate === "function"
+      ? deps.translate
+      : (_key, _variables, fallbackText = "") => String(fallbackText || "");
+    const t = (key, fallbackText = "", variables = {}) => translate(key, variables, fallbackText);
     function appendRenderable(target, value) {
       if (!value) {
         return;
@@ -17011,30 +17017,61 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           textContent: "Ukihitaji kutoka kwenye account yako, bonyeza hapa chini."
         })
       );
+      const localizationContext = deps.getLocalizationContext?.() || {};
+      const preferredLanguage = localizationContext.preference?.useDeviceLanguage !== false
+        ? "device"
+        : String(localizationContext.preference?.language || localizationContext.locale || "en").split("-")[0].toLowerCase();
+      const languageCard = deps.createElement("div", { className: "profile-notification-settings profile-language-settings" });
+      const languageSelect = deps.createElement("select", {
+        className: "auth-input",
+        attributes: {
+          id: "profile-language-select",
+          "data-profile-language-select": "true",
+          "aria-label": t("language.selectorLabel", "App language")
+        }
+      });
+      [
+        ["device", t("language.device", "Device language")],
+        ["en", "English"],
+        ["sw", "Kiswahili"],
+        ["fr", "Français"],
+        ["ar", "العربية"]
+      ].forEach(([value, label]) => {
+        const option = deps.createElement("option", { textContent: label, attributes: { value } });
+        if (value === preferredLanguage) option.selected = true;
+        languageSelect.appendChild(option);
+      });
+      languageCard.append(
+        deps.createElement("label", { className: "auth-label", textContent: t("language.selectorTitle", "Language"), attributes: { for: "profile-language-select" } }),
+        deps.createElement("p", { className: "auth-note", textContent: t("language.selectorBody", "Choose the language Winga uses on this device.") }),
+        languageSelect
+      );
+      actionsCard.appendChild(languageCard);
+
       const browserPermission = typeof Notification !== "undefined" ? Notification.permission : "unsupported";
       const notificationStatus = browserPermission === "granted" || notificationPermissionState?.status === "allowed"
-        ? "Enabled"
+        ? t("notification.statusEnabled", "Enabled")
         : browserPermission === "denied" || notificationPermissionState?.status === "denied"
-          ? "Blocked"
+          ? t("notification.statusBlocked", "Blocked")
           : notificationPermissionState?.status === "dismissed"
-            ? "Paused"
-            : "Not enabled";
+            ? t("notification.statusPaused", "Paused")
+            : t("notification.statusNotEnabled", "Not enabled");
       const notificationsEnabled = browserPermission === "granted" || notificationPermissionState?.status === "allowed";
       const notificationActionLabel = notificationsEnabled
-        ? "Notifications enabled"
+        ? t("notification.enabledAction", "Notifications enabled")
         : browserPermission === "denied" || notificationPermissionState?.status === "denied"
-          ? "Open notifications help"
-          : "Enable notifications";
+          ? t("notification.openHelpAction", "Open notifications help")
+          : t("notification.enableAction", "Enable notifications");
       const notificationCopy = browserPermission === "granted" || notificationPermissionState?.status === "allowed"
-        ? "Notifications are on. You will get alerts for messages, orders, and important activity."
+        ? t("notification.profileEnabledBody", "Notifications are on. You will get alerts for messages, orders, and important activity.")
         : browserPermission === "denied" || notificationPermissionState?.status === "denied"
-          ? "Browser imezima notifications. Unaweza kujaribu tena au kubadili browser settings."
-          : "Turn on notifications so you do not miss new messages, order updates, and important activity.";
+          ? t("notification.profileBlockedBody", "Browser imezima notifications. Unaweza kujaribu tena au kubadili browser settings.")
+          : t("notification.promptBody", "Turn on notifications so you do not miss new messages, order updates, and important activity.");
       const notificationCard = deps.createElement("div", {
         className: "profile-notification-settings"
       });
       notificationCard.append(
-        deps.createElement("p", { className: "auth-label", textContent: "Notifications" }),
+        deps.createElement("p", { className: "auth-label", textContent: t("notification.eyebrow", "Notifications") }),
         deps.createElement("p", { className: "auth-note", textContent: notificationCopy }),
         deps.createElement("div", {
           className: "profile-notification-row"
@@ -17758,6 +17795,35 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       const profileDiv = deps.getOrCreateProfileDiv();
       if (!profileDiv) {
         return;
+      }
+      if (profileDiv.dataset.profileLanguageBound !== "true") {
+        profileDiv.dataset.profileLanguageBound = "true";
+        profileDiv.addEventListener("change", async (event) => {
+          const selector = event.target?.closest?.("[data-profile-language-select]");
+          if (!selector) return;
+          const selected = String(selector.value || "device").trim().toLowerCase();
+          selector.disabled = true;
+          try {
+            const context = selected === "device"
+              ? deps.followDeviceLanguage?.()
+              : deps.setLocalizationLanguage?.(selected, { useDeviceLanguage: false });
+            await deps.loadLocalizationCatalog?.(context?.locale || selected);
+            deps.showInAppNotification?.({
+              title: t("language.updatedTitle", "Language updated"),
+              body: t("language.updatedBody", "Winga will use your selected language on this device."),
+              variant: "success"
+            });
+            deps.renderCurrentView?.();
+          } catch (error) {
+            deps.captureError?.("profile_language_change_failed", error, { selected });
+            selector.disabled = false;
+            deps.showInAppNotification?.({
+              title: t("language.updateFailedTitle", "Language update failed"),
+              body: error.message || t("language.updateFailedBody", "We could not change the app language right now."),
+              variant: "error"
+            });
+          }
+        });
       }
       if (profileDiv.dataset.profileActionBound !== "true") {
         profileDiv.dataset.profileActionBound = "true";

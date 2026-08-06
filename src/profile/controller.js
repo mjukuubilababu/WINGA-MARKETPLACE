@@ -561,6 +561,35 @@
       if (!profileDiv) {
         return;
       }
+      if (profileDiv.dataset.profileLanguageBound !== "true") {
+        profileDiv.dataset.profileLanguageBound = "true";
+        profileDiv.addEventListener("change", async (event) => {
+          const selector = event.target?.closest?.("[data-profile-language-select]");
+          if (!selector) return;
+          const selected = String(selector.value || "device").trim().toLowerCase();
+          selector.disabled = true;
+          try {
+            const context = selected === "device"
+              ? deps.followDeviceLanguage?.()
+              : deps.setLocalizationLanguage?.(selected, { useDeviceLanguage: false });
+            await deps.loadLocalizationCatalog?.(context?.locale || selected);
+            deps.showInAppNotification?.({
+              title: t("language.updatedTitle", "Language updated"),
+              body: t("language.updatedBody", "Winga will use your selected language on this device."),
+              variant: "success"
+            });
+            deps.renderCurrentView?.();
+          } catch (error) {
+            deps.captureError?.("profile_language_change_failed", error, { selected });
+            selector.disabled = false;
+            deps.showInAppNotification?.({
+              title: t("language.updateFailedTitle", "Language update failed"),
+              body: error.message || t("language.updateFailedBody", "We could not change the app language right now."),
+              variant: "error"
+            });
+          }
+        });
+      }
       if (profileDiv.dataset.profileActionBound !== "true") {
         profileDiv.dataset.profileActionBound = "true";
         profileDiv.addEventListener("click", (event) => {

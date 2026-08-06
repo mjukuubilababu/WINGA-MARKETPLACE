@@ -625,6 +625,29 @@ test("buyer-only profile photo upload stays stable and updates the profile avata
   await context.close();
 });
 
+test("profile language selector persists Arabic and applies RTL after refresh", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "buyer_only", "Pass1234!Secure");
+  await page.goto("/");
+  await openHeaderMenuAction(page, "profile");
+
+  const selector = page.locator("#profile-language-select");
+  await expect(selector).toBeVisible();
+  await selector.selectOption("ar");
+  await expect(page.locator("html")).toHaveAttribute("lang", /^ar/);
+  await expect(page.locator("html")).toHaveAttribute("dir", "rtl");
+  await expect(page.locator("#profile-language-select")).toHaveValue("ar");
+
+  await page.reload();
+  await expect(page.locator("html")).toHaveAttribute("lang", /^ar/);
+  await expect(page.locator("html")).toHaveAttribute("dir", "rtl");
+  await openHeaderMenuAction(page, "profile");
+  await expect(page.locator("#profile-language-select")).toHaveValue("ar");
+
+  await page.locator("#profile-language-select").selectOption("device");
+  await expect(page.locator("html")).toHaveAttribute("dir", "ltr");
+  await context.close();
+});
+
 test("seller can change and verify whatsapp number from profile and upload uses the new verified number", async ({ browser }) => {
   const nextWhatsappNumber = `2557${String(Date.now()).slice(-8)}`;
   const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure");

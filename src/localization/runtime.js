@@ -25,6 +25,7 @@
   function canonical(value = "") { try { return Intl.getCanonicalLocales(String(value || "").replace(/_/g, "-"))[0] || ""; } catch (_error) { return ""; } }
   function read(storage) { try { const value = JSON.parse(storage?.getItem(STORAGE_KEY) || "null"); return value?.schemaVersion === 1 ? value : null; } catch (_error) { return null; } }
   function languageOf(locale = "") { return canonical(locale).split("-")[0].toLowerCase(); }
+  function directionOf(locale = "") { return new Set(["ar", "fa", "he", "ur"]).has(languageOf(locale)) ? "rtl" : "ltr"; }
   function createFallbackChain(locale = "") {
     const normalized = canonical(locale);
     return Array.from(new Set([normalized, languageOf(normalized), DEFAULT_LANGUAGE].filter(Boolean)));
@@ -218,13 +219,13 @@
     }
     function setLanguage(language, options = {}) {
       const locale = canonical(language); if (!locale) throw new TypeError("Unsupported locale.");
-      const next = update({ locale, preference: { ...(context.preference || {}), language: locale, useDeviceLanguage: options.useDeviceLanguage === true } }, "language_selected");
+      const next = update({ locale, direction: directionOf(locale), preference: { ...(context.preference || {}), language: locale, useDeviceLanguage: options.useDeviceLanguage === true } }, "language_selected");
       persistRemotePreference();
       return next;
     }
     function followDeviceLanguage() {
       const locale = canonical(targetWindow.navigator?.languages?.[0] || targetWindow.navigator?.language); if (!locale) return context;
-      const next = update({ locale, preference: { ...(context.preference || {}), language: "", useDeviceLanguage: true } }, "device_language_changed");
+      const next = update({ locale, direction: directionOf(locale), preference: { ...(context.preference || {}), language: "", useDeviceLanguage: true } }, "device_language_changed");
       persistRemotePreference();
       return next;
     }
@@ -277,4 +278,5 @@
   window.WingaModules.localization.createFallbackChain = createFallbackChain;
   window.WingaModules.localization.isValidCatalog = isValidCatalog;
   window.WingaModules.localization.resolveMessage = resolveMessage;
+  window.WingaModules.localization.directionOf = directionOf;
 })();

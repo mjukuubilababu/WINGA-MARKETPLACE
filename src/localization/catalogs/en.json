@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2026.08.06.7",
+  "version": "2026.08.06.8",
   "locale": "en",
   "messages": {
     "auth.close": "Close authentication",
@@ -317,6 +317,17 @@
     "admin.promotionReviewFailedTitle": "Promotion review failed",
     "admin.promotionReviewFailedBody": "We could not review the promotion.",
     "admin.partialDataTitle": "Some admin data is unavailable",
-    "admin.partialDataBody": "The panel opened safely, but some admin data could not be loaded."
+    "admin.partialDataBody": "The panel opened safely, but some admin data could not be loaded.",
+    "language.selectorLabel": "App language",
+    "language.selectorTitle": "Language",
+    "language.selectorBody": "Choose the language Winga uses on this device.",
+    "language.device": "Device language",
+    "language.updatedTitle": "Language updated",
+    "language.updatedBody": "Winga will use your selected language on this device.",
+    "language.updateFailedTitle": "Language update failed",
+    "language.updateFailedBody": "We could not change the app language right now.",
+    "notification.openHelpAction": "Open notifications help",
+    "notification.profileEnabledBody": "Notifications are on. You will get alerts for messages, orders, and important activity.",
+    "notification.profileBlockedBody": "Your browser blocked notifications. You can allow them in browser settings."
   }
 }

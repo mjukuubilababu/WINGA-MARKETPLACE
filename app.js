@@ -10987,6 +10987,8 @@ const {
   createSessionSecuritySectionElement
 } = window.WingaModules.profile.createProfileUiModule({
   createElement,
+  translate: translateUi,
+  getLocalizationContext: () => globalLocalizationRuntime?.getContext?.() || null,
   createSectionHeading,
   createFragmentFromMarkup,
   createElementFromMarkup,
@@ -11153,6 +11155,10 @@ const {
   renderHeaderUserMenu,
   showInAppNotification,
   translate: translateUi,
+  getLocalizationContext: () => globalLocalizationRuntime?.getContext?.() || null,
+  setLocalizationLanguage: (...args) => globalLocalizationRuntime?.setLanguage?.(...args),
+  followDeviceLanguage: () => globalLocalizationRuntime?.followDeviceLanguage?.(),
+  loadLocalizationCatalog: (locale) => globalLocalizationRuntime?.loadCatalog?.(locale),
   confirmAction,
   dataLayer: window.WingaDataLayer,
   reportEvent: (...args) => reportClientEvent(...args),

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2026.08.06.7",
+  "version": "2026.08.06.8",
   "locale": "sw",
   "messages": {
     "auth.close": "Funga uthibitishaji",
@@ -317,6 +317,17 @@
     "admin.promotionReviewFailedTitle": "Ukaguzi wa promosheni umeshindikana",
     "admin.promotionReviewFailedBody": "Hatujaweza kukagua promosheni.",
     "admin.partialDataTitle": "Baadhi ya data ya admin haipatikani",
-    "admin.partialDataBody": "Paneli imefunguka salama, lakini baadhi ya data ya admin haijapakiwa."
+    "admin.partialDataBody": "Paneli imefunguka salama, lakini baadhi ya data ya admin haijapakiwa.",
+    "language.selectorLabel": "Lugha ya app",
+    "language.selectorTitle": "Lugha",
+    "language.selectorBody": "Chagua lugha ambayo Winga itatumia kwenye kifaa hiki.",
+    "language.device": "Lugha ya kifaa",
+    "language.updatedTitle": "Lugha imesasishwa",
+    "language.updatedBody": "Winga itatumia lugha uliyochagua kwenye kifaa hiki.",
+    "language.updateFailedTitle": "Kubadilisha lugha kumeshindikana",
+    "language.updateFailedBody": "Hatujaweza kubadilisha lugha ya app kwa sasa.",
+    "notification.openHelpAction": "Fungua msaada wa arifa",
+    "notification.profileEnabledBody": "Arifa zimewashwa. Utapata taarifa za ujumbe, oda na shughuli muhimu.",
+    "notification.profileBlockedBody": "Browser imezuia arifa. Unaweza kuziruhusu kwenye mipangilio ya browser."
   }
 }

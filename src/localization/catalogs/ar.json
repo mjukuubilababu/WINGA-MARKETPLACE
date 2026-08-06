@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2026.08.06.7",
+  "version": "2026.08.06.8",
   "locale": "ar",
   "messages": {
     "auth.close": "إغلاق تسجيل الدخول",
@@ -321,6 +321,17 @@
     "admin.promotionReviewFailedTitle": "فشلت مراجعة الترويج",
     "admin.promotionReviewFailedBody": "تعذرت مراجعة الترويج.",
     "admin.partialDataTitle": "بعض بيانات الإدارة غير متاحة",
-    "admin.partialDataBody": "فتحت اللوحة بأمان، لكن تعذر تحميل بعض بيانات الإدارة."
+    "admin.partialDataBody": "فتحت اللوحة بأمان، لكن تعذر تحميل بعض بيانات الإدارة.",
+    "language.selectorLabel": "لغة التطبيق",
+    "language.selectorTitle": "اللغة",
+    "language.selectorBody": "اختر اللغة التي يستخدمها Winga على هذا الجهاز.",
+    "language.device": "لغة الجهاز",
+    "language.updatedTitle": "تم تحديث اللغة",
+    "language.updatedBody": "سيستخدم Winga اللغة التي اخترتها على هذا الجهاز.",
+    "language.updateFailedTitle": "فشل تغيير اللغة",
+    "language.updateFailedBody": "تعذر تغيير لغة التطبيق الآن.",
+    "notification.openHelpAction": "فتح مساعدة الإشعارات",
+    "notification.profileEnabledBody": "الإشعارات مفعلة للرسائل والطلبات والأنشطة المهمة.",
+    "notification.profileBlockedBody": "حظر المتصفح الإشعارات. يمكنك السماح بها من إعداداته."
   }
 }

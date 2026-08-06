@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2026.08.06.7",
+  "version": "2026.08.06.8",
   "locale": "fr",
   "messages": {
     "auth.close": "Fermer l’authentification",
@@ -317,6 +317,17 @@
     "admin.promotionReviewFailedTitle": "Echec de l'examen de la promotion",
     "admin.promotionReviewFailedBody": "Impossible d'examiner la promotion.",
     "admin.partialDataTitle": "Certaines donnees administrateur sont indisponibles",
-    "admin.partialDataBody": "Le panneau s'est ouvert en securite, mais certaines donnees n'ont pas pu etre chargees."
+    "admin.partialDataBody": "Le panneau s'est ouvert en securite, mais certaines donnees n'ont pas pu etre chargees.",
+    "language.selectorLabel": "Langue de l'application",
+    "language.selectorTitle": "Langue",
+    "language.selectorBody": "Choisissez la langue utilisee par Winga sur cet appareil.",
+    "language.device": "Langue de l'appareil",
+    "language.updatedTitle": "Langue mise a jour",
+    "language.updatedBody": "Winga utilisera la langue choisie sur cet appareil.",
+    "language.updateFailedTitle": "Echec du changement de langue",
+    "language.updateFailedBody": "Impossible de changer la langue pour le moment.",
+    "notification.openHelpAction": "Ouvrir l'aide des notifications",
+    "notification.profileEnabledBody": "Les notifications sont activees pour les messages, commandes et activites importantes.",
+    "notification.profileBlockedBody": "Votre navigateur a bloque les notifications. Autorisez-les dans ses parametres."
   }
 }

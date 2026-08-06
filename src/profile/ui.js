@@ -1,5 +1,9 @@
 (() => {
   function createProfileUiModule(deps) {
+    const translate = typeof deps.translate === "function"
+      ? deps.translate
+      : (_key, _variables, fallbackText = "") => String(fallbackText || "");
+    const t = (key, fallbackText = "", variables = {}) => translate(key, variables, fallbackText);
     function appendRenderable(target, value) {
       if (!value) {
         return;
@@ -866,30 +870,61 @@
           textContent: "Ukihitaji kutoka kwenye account yako, bonyeza hapa chini."
         })
       );
+      const localizationContext = deps.getLocalizationContext?.() || {};
+      const preferredLanguage = localizationContext.preference?.useDeviceLanguage !== false
+        ? "device"
+        : String(localizationContext.preference?.language || localizationContext.locale || "en").split("-")[0].toLowerCase();
+      const languageCard = deps.createElement("div", { className: "profile-notification-settings profile-language-settings" });
+      const languageSelect = deps.createElement("select", {
+        className: "auth-input",
+        attributes: {
+          id: "profile-language-select",
+          "data-profile-language-select": "true",
+          "aria-label": t("language.selectorLabel", "App language")
+        }
+      });
+      [
+        ["device", t("language.device", "Device language")],
+        ["en", "English"],
+        ["sw", "Kiswahili"],
+        ["fr", "Français"],
+        ["ar", "العربية"]
+      ].forEach(([value, label]) => {
+        const option = deps.createElement("option", { textContent: label, attributes: { value } });
+        if (value === preferredLanguage) option.selected = true;
+        languageSelect.appendChild(option);
+      });
+      languageCard.append(
+        deps.createElement("label", { className: "auth-label", textContent: t("language.selectorTitle", "Language"), attributes: { for: "profile-language-select" } }),
+        deps.createElement("p", { className: "auth-note", textContent: t("language.selectorBody", "Choose the language Winga uses on this device.") }),
+        languageSelect
+      );
+      actionsCard.appendChild(languageCard);
+
       const browserPermission = typeof Notification !== "undefined" ? Notification.permission : "unsupported";
       const notificationStatus = browserPermission === "granted" || notificationPermissionState?.status === "allowed"
-        ? "Enabled"
+        ? t("notification.statusEnabled", "Enabled")
         : browserPermission === "denied" || notificationPermissionState?.status === "denied"
-          ? "Blocked"
+          ? t("notification.statusBlocked", "Blocked")
           : notificationPermissionState?.status === "dismissed"
-            ? "Paused"
-            : "Not enabled";
+            ? t("notification.statusPaused", "Paused")
+            : t("notification.statusNotEnabled", "Not enabled");
       const notificationsEnabled = browserPermission === "granted" || notificationPermissionState?.status === "allowed";
       const notificationActionLabel = notificationsEnabled
-        ? "Notifications enabled"
+        ? t("notification.enabledAction", "Notifications enabled")
         : browserPermission === "denied" || notificationPermissionState?.status === "denied"
-          ? "Open notifications help"
-          : "Enable notifications";
+          ? t("notification.openHelpAction", "Open notifications help")
+          : t("notification.enableAction", "Enable notifications");
       const notificationCopy = browserPermission === "granted" || notificationPermissionState?.status === "allowed"
-        ? "Notifications are on. You will get alerts for messages, orders, and important activity."
+        ? t("notification.profileEnabledBody", "Notifications are on. You will get alerts for messages, orders, and important activity.")
         : browserPermission === "denied" || notificationPermissionState?.status === "denied"
-          ? "Browser imezima notifications. Unaweza kujaribu tena au kubadili browser settings."
-          : "Turn on notifications so you do not miss new messages, order updates, and important activity.";
+          ? t("notification.profileBlockedBody", "Browser imezima notifications. Unaweza kujaribu tena au kubadili browser settings.")
+          : t("notification.promptBody", "Turn on notifications so you do not miss new messages, order updates, and important activity.");
       const notificationCard = deps.createElement("div", {
         className: "profile-notification-settings"
       });
       notificationCard.append(
-        deps.createElement("p", { className: "auth-label", textContent: "Notifications" }),
+        deps.createElement("p", { className: "auth-label", textContent: t("notification.eyebrow", "Notifications") }),
         deps.createElement("p", { className: "auth-note", textContent: notificationCopy }),
         deps.createElement("div", {
           className: "profile-notification-row"
