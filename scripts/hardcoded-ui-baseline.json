@@ -1,0 +1,1424 @@
+{
+  "schemaVersion": 1,
+  "policy": "Existing debt may decrease only. New or modified user-visible literals must use localization keys.",
+  "count": 382,
+  "digest": "6ce1ba13290afe90212122819816e998be8b175cb6f84d64a03dd7e922bc2fbc",
+  "entries": [
+    {
+      "signature": "app.js|accessible-name|Jaribu kupakia bidhaa zaidi",
+      "count": 1
+    },
+    {
+      "signature": "app.js|dom-assignment|Bidhaa zaidi hazikupatikana kwa sasa. Bidhaa ulizoona zimehifadhiwa.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|dom-assignment|Inajaribu tena...",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|${createdCategory.label} imeongezwa kwenye Vitu Used.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|${formatProductPrice(product.price)}${product.shop ?",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|${getUserDisplayName(username)} bado hana approved product ya kufungua.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|${getUserDisplayName(username)} bado hana bidhaa approved ya kushare kwa sasa.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|${primaryReason}. ${latestProduct.name} sasa ipo live.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|${product.name} sasa iko live. Fungua uione kabla haijaondoka.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|${product.shop}${product.category ?",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|${sellerName} ameweka bidhaa mpya",
+      "count": 2
+    },
+    {
+      "signature": "app.js|property|${sellerName} link ime-copy tayari kwa sharing.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|${sellerName} on Winga",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|${title} link ime-copy tayari kwa sharing.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|${title} on Winga",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Account created",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Admin access granted",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Admin access only",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Admin au moderator wanapaswa kuingia kupitia route ya admin login pekee.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Admin login failed",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Admin login required",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Admin view failed",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Akaunti imetengenezwa lakini haikuingia moja kwa moja. Login sasa kuendelea.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Akaunti imeundwa. Unaingia moja kwa moja.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|App haikuweza kuanza vizuri.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|As long as you keep scrolling, Winga keeps pulling more active listings into the feed.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Bei si sahihi",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Bidhaa halisi. Maongezi ya haraka. Muonekano wa uhakika.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Bidhaa hii haina picha salama za kuunda repost mpya.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Bidhaa hii haipo tena au link imebadilika. Tumerudisha home salama.",
+      "count": 2
+    },
+    {
+      "signature": "app.js|property|Bidhaa hii haiwezi kurepostiwa kwa akaunti yako sasa hivi.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Bidhaa kutoka maduka tofauti",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Bidhaa zinazoongea vizuri bila kelele",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Bidhaa zinazovuma Kariakoo leo",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Buyer access needed",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Cancel",
+      "count": 2
+    },
+    {
+      "signature": "app.js|property|Chagua category kuu",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Chagua subcategory ya bidhaa",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Chat zenye queue zitasubiri. Upload na payment submit vinahitaji internet irudi kwanza.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Collection share ready",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Commercially boosted items selected without breaking discovery flow.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Create an account or sign in to continue",
+      "count": 5
+    },
+    {
+      "signature": "app.js|property|Delete failed",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Draft restored",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Draft ya bidhaa imehifadhiwa. Internet ikirudi, bonyeza tena kupost.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Error: ${message}",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Following sellers is available on buyer-enabled accounts only.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Fresh listings from active sellers",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Fresh picks from shops you chose to keep up with",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Hakiki jina la mpokeaji, lipa kiasi kilichoonyeshwa, kisha weka reference ya malipo hapa ndani.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|High-intent products moving through the marketplace right now.",
+      "count": 2
+    },
+    {
+      "signature": "app.js|property|Image Search",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Image selection failed",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Internet imerudi",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Jaribu jina lingine la bidhaa au duka.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Jaribu ku-refresh ukurasa. Ikiwa tatizo linaendelea, kagua provider ya storage/API au environment config.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Jaribu tena",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Jaza identifier na password ya admin au moderator.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Karibu sokoni kwa utulivu na pace ya Kariakoo.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Karibu tena",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Kiasi: ${formatProductPrice(product.price)}",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Kulitokea tatizo wakati wa kuhakiki taarifa zako. Tafadhali jaribu tena.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Lipa kwanza, kisha weka receipt au transaction reference ili order ihifadhiwe pending verification.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Login needed",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Marketplace momentum keeps discovery moving.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Message seller",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Mitupio na classic za kurudi kwenye rada yako",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Mobile Money checkout",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|More market picks keep coming",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|More products from different sellers keep loading",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|More products from the market",
+      "count": 3
+    },
+    {
+      "signature": "app.js|property|Most viewed and most interacted products",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Muonekano safi, mazungumzo ya haraka, na marketplace yenye ladha ya Kariakoo.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|New from sellers you follow",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|New stock appears as you keep scrolling.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|No live product yet",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|No results found",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Nothing to share yet",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Offline actions synced",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Ondoa",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Paid visibility items are placed earlier so buyers notice them faster.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Password updated",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Password yako imebadilishwa. Ingia tena kutumia password mpya.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Picha zako zinaingia mbele kwa utulivu",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Picks zenye movement kubwa zaidi kwenye views, requests na mazungumzo ya sasa.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Picks zenye style nzuri zinazostahili kuangaliwa tena huku ukisubiri arrivals mpya.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Popular products buyers search for most",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Popular products from active sellers",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Product context ya promotion haikupatikana. Refresh home feed ujaribu tena.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Product deleted",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Product not found",
+      "count": 2
+    },
+    {
+      "signature": "app.js|property|Product reposted",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Product save failed",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Products close to the one you just explored.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Promoted products in the spotlight",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Promoted products worth a look",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Promotion unavailable",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Provider: ${provider}",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Quick actions",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Recovery code requested",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Recovery failed",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Recovery unavailable",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Refresh App",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Report seller",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Repost failed",
+      "count": 2
+    },
+    {
+      "signature": "app.js|property|Repost unavailable",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Reservation window: 24 hours pending verification",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Route hii ni ya admin au moderator pekee.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Safety check before you pay",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Search, categories na discovery sasa vinaelekea zaidi kwenye intent ya watu halisi sokoni.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Seller share ready",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Session ya admin haijaendelea kwa sababu admin surface imekosa kufunguka vizuri.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Sign in to follow sellers",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Sign up failed",
+      "count": 2
+    },
+    {
+      "signature": "app.js|property|Startup Error",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Subcategory failed",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Subcategory ready",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Submit payment reference",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Suggestions refreshed as you continue browsing",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Tembea kushoto au kulia kuona zaidi",
+      "count": 2
+    },
+    {
+      "signature": "app.js|property|TSh ${formatNumber(option.amount)}",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Tumerudisha bidhaa uliyoanza kuandaa ili uendelee ulipoishia.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Tumia reference ya malipo uliyopewa na M-Pesa, Airtel Money, Tigo Pesa, au HaloPesa.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Tunaendelea kusync actions zilizokuwa zinasubiri.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Ukiona taarifa hazilingani au seller anakushinikiza ulipie sehemu nyingine, tumia report seller kwanza.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Ukisha-upload bidhaa, hero inaanza kukuonyesha kwa mwonekano wa premium na wa haraka.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Uko offline",
+      "count": 2
+    },
+    {
+      "signature": "app.js|property|Use admin access route",
+      "count": 2
+    },
+    {
+      "signature": "app.js|property|Utafutaji unaohisi wa kweli",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Weka bei sahihi kuanzia TSh 500 au zaidi.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Weka receipt au transaction reference",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Welcome to Winga",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Winga keeps discovery alive even when fresh stock is limited.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Winga keeps discovery moving with fresh angles from active listings.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Winga keeps loading fresh listings as you scroll.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Winga keeps putting new stock in front of you first.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|Winga keeps the main feed moving with active listings from different sellers.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|property|You need an account to continue",
+      "count": 3
+    },
+    {
+      "signature": "app.js|user-error|${label} inahitajika.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|user-error|Andika category mpya iliyo sahihi.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|user-error|Browser hii imeshindwa kuandaa picha kwa upload.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|user-error|Category hii inatumia subcategories zilizowekwa tayari.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|user-error|Chagua picha zisizozidi ${MAX_UPLOAD_IMAGES}.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|user-error|Global context request failed: ${response.status}",
+      "count": 1
+    },
+    {
+      "signature": "app.js|user-error|Hakuna picha iliyochaguliwa.",
+      "count": 2
+    },
+    {
+      "signature": "app.js|user-error|Home feed load was cancelled.",
+      "count": 3
+    },
+    {
+      "signature": "app.js|user-error|Home feed pagination failed.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|user-error|ID image must be ${MAX_IMAGE_SIZE_MB}MB or below.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|user-error|Imeshindikana kufungua picha uliyochagua.",
+      "count": 3
+    },
+    {
+      "signature": "app.js|user-error|Imeshindikana kusoma picha uliyochagua.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|user-error|Invalid file type",
+      "count": 1
+    },
+    {
+      "signature": "app.js|user-error|Kila picha inapaswa kuwa ${MAX_IMAGE_SIZE_MB}MB au chini.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|user-error|Picha haikusomeka vizuri.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|user-error|Picha hii ni nzito sana kwa upload salama. Jaribu JPG/PNG au punguza ukubwa wa picha.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|user-error|Picha ya ${index + 1} ni kubwa sana kwa server. Punguza ukubwa wake au jaribu JPG/PNG.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|user-error|Picha ya HEIC/HEIF haikuweza kubadilishwa kwenye format inayotumika hapa. Jaribu JPG au PNG.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|user-error|Please upload your ID image",
+      "count": 3
+    },
+    {
+      "signature": "app.js|user-error|Recovery challenge haikupatikana. Jaribu tena.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|user-error|Staff account attempted public auth flow.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|user-error|Subcategory inapaswa kuwa kati ya herufi 2 hadi 40.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|user-error|Tumia picha za JPG, PNG, WEBP, GIF au HEIC/HEIF.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|user-error|Unable to decode image into memory cache.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|user-error|Upload hii ni kubwa sana kwa server kwa sasa. Punguza idadi ya picha au tumia picha ndogo kidogo.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|user-error|Winga app events module is required before app boot.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|user-error|Winga auth session runtime module is required before app boot.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|user-error|Winga boot lifecycle module is required before app boot.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|user-error|Winga marketplace image loader module is required before app boot.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|user-error|Winga notification permission module is required before app boot.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|user-error|Winga PWA lifecycle module is required before app boot.",
+      "count": 1
+    },
+    {
+      "signature": "src/admin/controller.js|confirmation|Una uhakika unataka ku-deactivate user ${username}?",
+      "count": 1
+    },
+    {
+      "signature": "src/admin/controller.js|confirmation|Una uhakika unataka kubadilisha ${username} kuwa buyer?",
+      "count": 1
+    },
+    {
+      "signature": "src/admin/controller.js|confirmation|Una uhakika unataka kubadilisha ${username} kuwa seller?",
+      "count": 1
+    },
+    {
+      "signature": "src/admin/controller.js|confirmation|Una uhakika unataka kuban user ${username}? Hii ni hatua nzito.",
+      "count": 1
+    },
+    {
+      "signature": "src/admin/controller.js|confirmation|Una uhakika unataka kufuta akaunti ya ${username}? Hii itazima sessions na moderation itaandikwa.",
+      "count": 1
+    },
+    {
+      "signature": "src/admin/controller.js|confirmation|Una uhakika unataka kukataa verification ya ${username}?",
+      "count": 1
+    },
+    {
+      "signature": "src/admin/controller.js|confirmation|Una uhakika unataka kurudisha access ya user ${username}?",
+      "count": 1
+    },
+    {
+      "signature": "src/admin/controller.js|confirmation|Una uhakika unataka kususpend user ${username}?",
+      "count": 1
+    },
+    {
+      "signature": "src/admin/controller.js|confirmation|Una uhakika unataka kuthibitisha seller ${username}?",
+      "count": 1
+    },
+    {
+      "signature": "src/admin/controller.js|property|@${user.username} | ${deps.getRoleLabel?.(user.role) || user.role}",
+      "count": 1
+    },
+    {
+      "signature": "src/admin/controller.js|property|${deps.getPromotionLabel?.(promotion.type) || promotion.type} | ${promotion.productId}",
+      "count": 1
+    },
+    {
+      "signature": "src/admin/controller.js|property|Admin",
+      "count": 2
+    },
+    {
+      "signature": "src/admin/controller.js|property|Admin Console",
+      "count": 1
+    },
+    {
+      "signature": "src/admin/controller.js|property|Andika moderation note",
+      "count": 1
+    },
+    {
+      "signature": "src/admin/controller.js|property|Andika review note",
+      "count": 1
+    },
+    {
+      "signature": "src/admin/controller.js|property|Control hero visibility, splash visibility, session expiry na cache policy.",
+      "count": 1
+    },
+    {
+      "signature": "src/admin/controller.js|property|Conversation ${thread.conversationId}",
+      "count": 1
+    },
+    {
+      "signature": "src/admin/controller.js|property|Deep Link",
+      "count": 1
+    },
+    {
+      "signature": "src/admin/controller.js|property|Eleza sababu ya kufungua fraud review hii",
+      "count": 1
+    },
+    {
+      "signature": "src/admin/controller.js|property|Enter a reason before loading sensitive fraud-review details. Every access is audited.",
+      "count": 1
+    },
+    {
+      "signature": "src/admin/controller.js|property|Fraud Review",
+      "count": 1
+    },
+    {
+      "signature": "src/admin/controller.js|property|Message Evidence Access",
+      "count": 1
+    },
+    {
+      "signature": "src/admin/controller.js|property|Message Moderation",
+      "count": 1
+    },
+    {
+      "signature": "src/admin/controller.js|property|Note ya moderation au verification",
+      "count": 1
+    },
+    {
+      "signature": "src/admin/controller.js|property|Open Link",
+      "count": 1
+    },
+    {
+      "signature": "src/admin/controller.js|property|Reason ya ku-open message content (report/dispute reference)",
+      "count": 1
+    },
+    {
+      "signature": "src/admin/controller.js|property|Search",
+      "count": 1
+    },
+    {
+      "signature": "src/admin/controller.js|property|Section unavailable",
+      "count": 1
+    },
+    {
+      "signature": "src/admin/controller.js|property|Seller, product, or reference",
+      "count": 1
+    },
+    {
+      "signature": "src/admin/controller.js|property|Status filter",
+      "count": 1
+    },
+    {
+      "signature": "src/admin/controller.js|property|System Settings",
+      "count": 1
+    },
+    {
+      "signature": "src/admin/controller.js|user-error|Some admin datasets failed to load.",
+      "count": 1
+    },
+    {
+      "signature": "src/auth/session-runtime.js|property|Admin access only",
+      "count": 1
+    },
+    {
+      "signature": "src/auth/session-runtime.js|property|Route hii ni ya admin au moderator pekee.",
+      "count": 1
+    },
+    {
+      "signature": "src/categories/ui.js|accessible-name|Browse categories",
+      "count": 1
+    },
+    {
+      "signature": "src/categories/ui.js|accessible-name|Funga categories",
+      "count": 1
+    },
+    {
+      "signature": "src/categories/ui.js|accessible-name|Main categories",
+      "count": 1
+    },
+    {
+      "signature": "src/categories/ui.js|accessible-name|Rudi categories kuu",
+      "count": 1
+    },
+    {
+      "signature": "src/categories/ui.js|accessible-name|Subcategories",
+      "count": 1
+    },
+    {
+      "signature": "src/categories/ui.js|property|\\u00D7",
+      "count": 1
+    },
+    {
+      "signature": "src/categories/ui.js|property|\\u2039",
+      "count": 1
+    },
+    {
+      "signature": "src/categories/ui.js|property|\\u203A",
+      "count": 1
+    },
+    {
+      "signature": "src/chat/ui.js|accessible-name|Close chat",
+      "count": 1
+    },
+    {
+      "signature": "src/chat/ui.js|property|\\u00D7",
+      "count": 1
+    },
+    {
+      "signature": "src/marketplace/market-intelligence.js|property|${categoryOpportunities[0].category} demand is growing",
+      "count": 1
+    },
+    {
+      "signature": "src/marketplace/market-intelligence.js|property|${searchDemand.trendingSearches[0].query || searchDemand.trendingSearches[0].queryKey} searches are rising",
+      "count": 1
+    },
+    {
+      "signature": "src/marketplace/market-intelligence.js|property|${searchDemand.zeroResultOpportunities[0].query || searchDemand.zeroResultOpportunities[0].queryKey} has demand but no supply",
+      "count": 1
+    },
+    {
+      "signature": "src/marketplace/market-intelligence.js|property|Consider stocking ${zeroResult.query || zeroResult.queryKey}",
+      "count": 1
+    },
+    {
+      "signature": "src/marketplace/market-intelligence.js|property|Keep ${size.size} sizes available",
+      "count": 1
+    },
+    {
+      "signature": "src/marketplace/market-intelligence.js|property|Prioritize ${color.color} variants",
+      "count": 1
+    },
+    {
+      "signature": "src/marketplace/market-intelligence.js|property|Source products for ${lowSupply.query || lowSupply.queryKey}",
+      "count": 1
+    },
+    {
+      "signature": "src/marketplace/market-intelligence.js|property|Stock more ${category.category}",
+      "count": 1
+    },
+    {
+      "signature": "src/marketplace/market-intelligence.js|property|Watch demand in ${region.region}",
+      "count": 1
+    },
+    {
+      "signature": "src/marketplace/search-demand-intelligence.js|property|${item.query || item.queryKey} demand is rising${item.location ?",
+      "count": 1
+    },
+    {
+      "signature": "src/marketplace/ui.js|accessible-name|Verified seller",
+      "count": 1
+    },
+    {
+      "signature": "src/marketplace/ui.js|property|${Math.min(product.images.length, 9)}/5",
+      "count": 1
+    },
+    {
+      "signature": "src/marketplace/ui.js|property|1/${images.length}",
+      "count": 1
+    },
+    {
+      "signature": "src/marketplace/ui.js|property|Bidhaa kutoka maduka tofauti",
+      "count": 1
+    },
+    {
+      "signature": "src/marketplace/ui.js|property|Loading more products for you",
+      "count": 1
+    },
+    {
+      "signature": "src/marketplace/ui.js|property|Promote",
+      "count": 1
+    },
+    {
+      "signature": "src/marketplace/ui.js|property|See more",
+      "count": 1
+    },
+    {
+      "signature": "src/marketplace/ui.js|property|Share",
+      "count": 1
+    },
+    {
+      "signature": "src/marketplace/ui.js|property|SOLD OUT",
+      "count": 1
+    },
+    {
+      "signature": "src/marketplace/ui.js|property|Suggestions based on the current catalog",
+      "count": 1
+    },
+    {
+      "signature": "src/marketplace/ui.js|property|Tembea kushoto au kulia kuona zaidi",
+      "count": 1
+    },
+    {
+      "signature": "src/marketplace/ui.js|property|Verified seller",
+      "count": 1
+    },
+    {
+      "signature": "src/marketplace/ui.js|property|You need an account to continue",
+      "count": 1
+    },
+    {
+      "signature": "src/navigation/controller.js|property|You need an account to continue",
+      "count": 1
+    },
+    {
+      "signature": "src/product-detail/controller.js|property|Asante. Review yako imeongezwa kwenye bidhaa hii.",
+      "count": 1
+    },
+    {
+      "signature": "src/product-detail/controller.js|property|Copy failed",
+      "count": 1
+    },
+    {
+      "signature": "src/product-detail/controller.js|property|Deep link copied",
+      "count": 1
+    },
+    {
+      "signature": "src/product-detail/controller.js|property|Demand failed",
+      "count": 1
+    },
+    {
+      "signature": "src/product-detail/controller.js|property|Fresh listings from active sellers",
+      "count": 1
+    },
+    {
+      "signature": "src/product-detail/controller.js|property|Keep browsing this seller first",
+      "count": 1
+    },
+    {
+      "signature": "src/product-detail/controller.js|property|Keep Exploring",
+      "count": 1
+    },
+    {
+      "signature": "src/product-detail/controller.js|property|Keep exploring similar products",
+      "count": 1
+    },
+    {
+      "signature": "src/product-detail/controller.js|property|More products are being refreshed",
+      "count": 1
+    },
+    {
+      "signature": "src/product-detail/controller.js|property|More products from Winga",
+      "count": 1
+    },
+    {
+      "signature": "src/product-detail/controller.js|property|Popular products buyers search for most",
+      "count": 1
+    },
+    {
+      "signature": "src/product-detail/controller.js|property|Product deep link ime-copy tayari.",
+      "count": 1
+    },
+    {
+      "signature": "src/product-detail/controller.js|property|Promoted products you may also like",
+      "count": 1
+    },
+    {
+      "signature": "src/product-detail/controller.js|property|Review failed",
+      "count": 1
+    },
+    {
+      "signature": "src/product-detail/controller.js|property|Review inahitaji maoni mafupi yenye maana.",
+      "count": 1
+    },
+    {
+      "signature": "src/product-detail/controller.js|property|Review needed",
+      "count": 1
+    },
+    {
+      "signature": "src/product-detail/controller.js|property|Review sent",
+      "count": 1
+    },
+    {
+      "signature": "src/product-detail/controller.js|property|Winga continues with more items from the same seller before widening discovery.",
+      "count": 1
+    },
+    {
+      "signature": "src/product-detail/controller.js|property|Winga has shown the unique continuation picks available for this product right now.",
+      "count": 1
+    },
+    {
+      "signature": "src/product-detail/ui.js|accessible-name|Go back from product detail",
+      "count": 1
+    },
+    {
+      "signature": "src/product-detail/ui.js|accessible-name|Go home from product detail",
+      "count": 1
+    },
+    {
+      "signature": "src/product-detail/ui.js|property|\\u2190",
+      "count": 1
+    },
+    {
+      "signature": "src/product-detail/ui.js|property|Admin Deep Link",
+      "count": 1
+    },
+    {
+      "signature": "src/product-detail/ui.js|property|Bidhaa nyingine kutoka kwa ${safeSellerName}",
+      "count": 1
+    },
+    {
+      "signature": "src/product-detail/ui.js|property|Copy Deep Link",
+      "count": 1
+    },
+    {
+      "signature": "src/product-detail/ui.js|property|Demand Intelligence",
+      "count": 1
+    },
+    {
+      "signature": "src/product-detail/ui.js|property|Home",
+      "count": 1
+    },
+    {
+      "signature": "src/product-detail/ui.js|property|More products are lining up below",
+      "count": 1
+    },
+    {
+      "signature": "src/product-detail/ui.js|property|Muuzaji: ${safeSellerName}",
+      "count": 1
+    },
+    {
+      "signature": "src/product-detail/ui.js|property|Open Link",
+      "count": 1
+    },
+    {
+      "signature": "src/product-detail/ui.js|property|See more",
+      "count": 1
+    },
+    {
+      "signature": "src/product-detail/ui.js|property|Share this exact product route",
+      "count": 1
+    },
+    {
+      "signature": "src/product-detail/ui.js|property|SOLD OUT",
+      "count": 1
+    },
+    {
+      "signature": "src/product-detail/ui.js|property|Winga is loading more",
+      "count": 1
+    },
+    {
+      "signature": "src/product-detail/ui.js|property|Would you like this product to come back?",
+      "count": 1
+    },
+    {
+      "signature": "src/product-detail/ui.js|property|You keep getting more from this seller first, then wider marketplace picks follow.",
+      "count": 1
+    },
+    {
+      "signature": "src/product-detail/ui.js|property|Your signal helps sellers restock and helps Winga recommend better alternatives.",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/controller.js|accessible-name|Back to profile",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/controller.js|confirmation|Revoke this device session?",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/controller.js|dom-assignment|Inapakia...",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/controller.js|dom-assignment|Jaribu tena",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/controller.js|property|Back to profile",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/controller.js|property|Hakuna active sessions zilizopatikana.",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/controller.js|property|Last seen: ${formatSessionDate(session.lastSeenAt || session.createdAt)}",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/controller.js|property|Pakia bidhaa zaidi",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/controller.js|property|Revoke session",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/controller.js|property|Risk: ${riskLevel}${session.stepUpVerifiedAt ?",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/controller.js|property|Session list haikupatikana sasa. Jaribu tena baadaye.",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/controller.js|user-error|Akaunti yako haikupatikana tena. Ingia upya kabla ya kujaribu tena.",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/controller.js|user-error|Promotion plan opener haipo kwa sasa.",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/controller.js|user-error|Seller upgrade haikufaulu.",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/ui.js|accessible-name|Manage post",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/ui.js|property|${roleLabel} account",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/ui.js|property|${userProfile.sellerStats.trustScore}/100",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/ui.js|property|Account",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/ui.js|property|Active",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/ui.js|property|Active sessions",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/ui.js|property|Become Seller",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/ui.js|property|Bidhaa zako zote",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/ui.js|property|Cancel",
+      "count": 3
+    },
+    {
+      "signature": "src/profile/ui.js|property|Download",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/ui.js|property|e.g. wanawake, vifaa, michezo",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/ui.js|property|Edit",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/ui.js|property|Edit Lipa Details",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/ui.js|property|Edit WhatsApp Number",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/ui.js|property|Get Verified",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/ui.js|property|Grow your visibility",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/ui.js|property|Hakikisha jina la duka na namba ya simu ni sahihi kabla ya kuendelea.",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/ui.js|property|Hakuna bidhaa uliyonunua bado.",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/ui.js|property|Hakuna order ya kuuza bado.",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/ui.js|property|Hakuna promotion requests bado.",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/ui.js|property|Hii ndiyo namba itakayotumika kwenye WhatsApp na contact zote za bidhaa zako.",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/ui.js|property|Jina la duka",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/ui.js|property|Jina la mpokeaji",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/ui.js|property|Loading active sessions...",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/ui.js|property|Logout",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/ui.js|property|Maelekezo mafupi kwa buyer, kwa mfano tuma reference baada ya kulipa",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/ui.js|property|My Requests (${requestCount})",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/ui.js|property|Namba mpya ya WhatsApp",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/ui.js|property|Namba ya simu",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/ui.js|property|Namba ya simu ya akaunti",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/ui.js|property|Nimenunua",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/ui.js|property|Password",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/ui.js|property|Primary category",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/ui.js|property|Profile photo ni optional. Ukikosa, initials zitaendelea kuonekana.",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/ui.js|property|Promote",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/ui.js|property|Promotion status",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/ui.js|property|Provider mfano M-Pesa, Airtel Money",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/ui.js|property|Save Lipa Details",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/ui.js|property|Save Number",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/ui.js|property|Share",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/ui.js|property|Signals buyers see before they decide to message or buy.",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/ui.js|property|Sold out",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/ui.js|property|Thibitisha session",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/ui.js|property|Trust profile",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/ui.js|property|TSh ${deps.formatNumber(amount)}${hasSchedule ?",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/ui.js|property|Tumeona mazingira mapya kwenye session yako. Weka password ili kuthibitisha kabla ya actions nyeti.",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/ui.js|property|Ukihitaji kutoka kwenye account yako, bonyeza hapa chini.",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/ui.js|property|Ununuzi na Mauzo",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/ui.js|property|Upload Profile Photo",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/ui.js|property|Verify session",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/ui.js|property|Wameninunulia",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/ui.js|property|Weka jina la duka",
+      "count": 1
+    },
+    {
+      "signature": "src/profile/ui.js|property|Weka Lipa namba",
+      "count": 1
+    },
+    {
+      "signature": "src/requests/request-box.js|confirmation|Una uhakika unataka kuondoa bidhaa zote kwenye My Requests?",
+      "count": 1
+    },
+    {
+      "signature": "src/requests/request-box.js|property|${deps.getCategoryLabel(item.category)} | ${deps.formatProductPrice(item.price)}",
+      "count": 1
+    },
+    {
+      "signature": "src/requests/request-box.js|property|Clear Selected Items",
+      "count": 1
+    },
+    {
+      "signature": "src/requests/request-box.js|property|Hakuna bidhaa kwenye My Requests bado. Tumia My Request kwenye bidhaa uzikusanye hapa.",
+      "count": 1
+    },
+    {
+      "signature": "src/requests/request-box.js|property|Mfano: Naomba kujua availability, size au final price.",
+      "count": 1
+    },
+    {
+      "signature": "src/requests/request-box.js|property|Open request chats",
+      "count": 1
+    },
+    {
+      "signature": "src/requests/request-box.js|property|Qty",
+      "count": 1
+    },
+    {
+      "signature": "src/requests/request-box.js|property|Remove",
+      "count": 1
+    },
+    {
+      "signature": "src/requests/request-box.js|property|Request sent.",
+      "count": 1
+    },
+    {
+      "signature": "src/requests/request-box.js|property|Requests queued",
+      "count": 1
+    },
+    {
+      "signature": "src/requests/request-box.js|property|Selected items to send to sellers",
+      "count": 1
+    },
+    {
+      "signature": "src/requests/request-box.js|property|Ujumbe wa mteja",
+      "count": 1
+    },
+    {
+      "signature": "src/requests/request-box.js|property|You need a customer account to save requests",
+      "count": 1
+    }
+  ]
+}

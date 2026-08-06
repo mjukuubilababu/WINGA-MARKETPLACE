@@ -2965,11 +2965,17 @@ test("global localization runtime is modular, fail-soft, and off the critical pa
 test("global translation catalogs are versioned, validated, cached, and fail soft", () => {
   const runtimeSource = fs.readFileSync(path.join(__dirname, "..", "src", "localization", "runtime.js"), "utf8");
   const indexSource = fs.readFileSync(path.join(__dirname, "..", "index.html"), "utf8");
+  const hardcodedGateSource = fs.readFileSync(path.join(__dirname, "..", "scripts", "check-hardcoded-ui-strings.js"), "utf8");
+  const hardcodedBaseline = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "scripts", "hardcoded-ui-baseline.json"), "utf8"));
   const english = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "src", "localization", "catalogs", "en.json"), "utf8"));
   const swahili = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "src", "localization", "catalogs", "sw.json"), "utf8"));
 
   assert.equal(english.schemaVersion, 1);
   assert.equal(swahili.schemaVersion, 1);
+  assert.match(hardcodedGateSource, /New or modified hard-coded user-visible strings detected/);
+  assert.match(hardcodedGateSource, /Existing debt may decrease only/);
+  assert.equal(hardcodedBaseline.schemaVersion, 1);
+  assert.ok(Number.isInteger(hardcodedBaseline.count));
   assert.match(english.version, /^2026\./);
   assert.equal(english.locale, "en");
   assert.equal(swahili.locale, "sw");
