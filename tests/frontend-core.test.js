@@ -1880,6 +1880,7 @@ test("backend intelligence uses durable queue hooks when PostgreSQL is available
   const root = path.resolve(__dirname, "..");
   const serverSource = fs.readFileSync(path.join(root, "backend", "server.js"), "utf8");
   const adminControllerSource = fs.readFileSync(path.join(root, "src", "admin", "controller.js"), "utf8");
+  const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
   const monitorSource = fs.readFileSync(path.join(root, "scripts", "check-intelligence-health.js"), "utf8");
   const workflowSource = fs.readFileSync(path.join(root, ".github", "workflows", "intelligence-health.yml"), "utf8");
   const dbSource = fs.readFileSync(path.join(root, "backend", "db.js"), "utf8");
@@ -2043,6 +2044,10 @@ test("backend intelligence uses durable queue hooks when PostgreSQL is available
   assert.match(runbookSource, /Incident Severity And Response/);
   assert.match(runbookSource, /First-response checklist/);
   assert.match(adminControllerSource, /function buildOpsSignalLines/);
+  assert.match(adminControllerSource, /admin\.promotionApprovedTitle/);
+  assert.match(adminControllerSource, /admin\.partialDataBody/);
+  assert.match(appSource, /promotion\.choosePlanTitle/);
+  assert.match(appSource, /promotion\.submittedBody/);
   assert.match(adminControllerSource, /Intelligence queue:/);
   assert.match(adminControllerSource, /Queue counts:/);
   assert.match(adminControllerSource, /Daily snapshots:/);

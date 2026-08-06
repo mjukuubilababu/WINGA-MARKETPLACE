@@ -1,5 +1,9 @@
 (() => {
   function createAdminControllerModule(deps) {
+    const translate = typeof deps.translate === "function"
+      ? deps.translate
+      : (_key, _variables, fallbackText = "") => String(fallbackText || "");
+    const t = (key, fallbackText = "", variables = {}) => translate(key, variables, fallbackText);
     let renderSequence = 0;
     let latestUsers = [];
     let investigationState = {
@@ -1514,8 +1518,8 @@
       await deps.dataLayer.moderateUser(username, payload);
       deps.refreshProductsFromStore?.();
       deps.showInAppNotification?.({
-        title: "User updated",
-        body: `User ${username} amehifadhiwa kwenye moderation.`,
+        title: t("admin.userUpdatedTitle", "User updated"),
+        body: t("admin.userUpdatedBody", `User ${username} amehifadhiwa kwenye moderation.`, { username }),
         variant: "success"
       });
       deps.reportEvent?.("info", "admin_user_moderated", "Staff updated a user moderation state.", {
@@ -1532,7 +1536,7 @@
       if (!productId || !status) {
         return;
       }
-      if (status === "rejected" && deps.confirmAction && !deps.confirmAction("Una uhakika unataka kukataa bidhaa hii?")) {
+      if (status === "rejected" && deps.confirmAction && !deps.confirmAction(t("admin.rejectProductConfirm", "Una uhakika unataka kukataa bidhaa hii?"))) {
         return;
       }
       await deps.dataLayer.moderateProduct(productId, {
@@ -1541,8 +1545,10 @@
       });
       deps.refreshProductsFromStore?.();
       deps.showInAppNotification?.({
-        title: "Product updated",
-        body: `Bidhaa ${status === "approved" ? "imekubaliwa" : "imekataliwa"} kwenye moderation.`,
+        title: t("admin.productUpdatedTitle", "Product updated"),
+        body: status === "approved"
+          ? t("admin.productApprovedBody", "Bidhaa imekubaliwa kwenye moderation.")
+          : t("admin.productRejectedBody", "Bidhaa imekataliwa kwenye moderation."),
         variant: "success"
       });
       deps.reportEvent?.("info", "admin_product_moderated", "Staff moderated a product.", {
@@ -1564,8 +1570,8 @@
         reviewNote: note || (status === "resolved" ? "Resolved by staff." : "Reviewed by staff.")
       });
       deps.showInAppNotification?.({
-        title: "Report updated",
-        body: `Report imewekwa kwenye status ya ${status}.`,
+        title: t("admin.reportUpdatedTitle", "Report updated"),
+        body: t("admin.reportUpdatedBody", `Report imewekwa kwenye status ya ${status}.`, { status }),
         variant: "success"
       });
       deps.reportEvent?.("info", "admin_report_reviewed", "Staff reviewed a report.", {
@@ -1597,8 +1603,8 @@
           fallback.remove();
         }
         deps.showInAppNotification?.({
-          title: "Deep link copied",
-          body: "Product deep link ime-copy tayari.",
+          title: t("admin.deepLinkCopiedTitle", "Deep link copied"),
+          body: t("admin.deepLinkCopiedBody", "Product deep link ime-copy tayari."),
           variant: "success"
         });
         deps.reportEvent?.("info", "admin_product_deep_link_copied", "Admin copied a product deep link.", {
@@ -1610,8 +1616,8 @@
           productId
         });
         deps.showInAppNotification?.({
-          title: "Copy failed",
-          body: error.message || "Imeshindikana ku-copy deep link.",
+          title: t("admin.copyFailedTitle", "Copy failed"),
+          body: error.message || t("admin.copyFailedBody", "Imeshindikana ku-copy deep link."),
           variant: "error"
         });
       }
@@ -1622,13 +1628,13 @@
       if (!promotionId) {
         return;
       }
-      if (deps.confirmAction && !deps.confirmAction("Una uhakika unataka kuzima promotion hii?")) {
+      if (deps.confirmAction && !deps.confirmAction(t("admin.disablePromotionConfirm", "Una uhakika unataka kuzima promotion hii?"))) {
         return;
       }
       await deps.dataLayer.disablePromotion(promotionId);
       deps.showInAppNotification?.({
-        title: "Promotion disabled",
-        body: "Promotion imezimwa.",
+        title: t("admin.promotionDisabledTitle", "Promotion disabled"),
+        body: t("admin.promotionDisabledBody", "Promotion imezimwa."),
         variant: "success"
       });
       deps.reportEvent?.("info", "admin_promotion_disabled", "Admin disabled a promotion.", {
@@ -1643,15 +1649,17 @@
       if (!promotionId || !status) {
         return;
       }
-      if (status === "rejected" && deps.confirmAction && !deps.confirmAction("Una uhakika unataka kukataa promotion hii?")) {
+      if (status === "rejected" && deps.confirmAction && !deps.confirmAction(t("admin.rejectPromotionConfirm", "Una uhakika unataka kukataa promotion hii?"))) {
         return;
       }
       const result = await deps.dataLayer.reviewPromotion(promotionId, { status });
       deps.showInAppNotification?.({
-        title: status === "active" ? "Promotion approved" : "Promotion rejected",
+        title: status === "active"
+          ? t("admin.promotionApprovedTitle", "Promotion approved")
+          : t("admin.promotionRejectedTitle", "Promotion rejected"),
         body: status === "active"
-          ? "Promotion imekubaliwa na sasa inaweza kuonekana kwenye discovery."
-          : "Promotion imekataliwa. Seller anaweza kutuma tena akiwa tayari.",
+          ? t("admin.promotionApprovedBody", "Promotion imekubaliwa na sasa inaweza kuonekana kwenye discovery.")
+          : t("admin.promotionRejectedBody", "Promotion imekataliwa. Seller anaweza kutuma tena akiwa tayari."),
         variant: "success"
       });
       deps.reportEvent?.("info", status === "active" ? "admin_promotion_approved" : "admin_promotion_rejected", "Admin reviewed a promotion.", {
@@ -1870,8 +1878,8 @@
         };
         deps.applyAppSettings?.(updated);
         deps.showInAppNotification?.({
-          title: "Settings saved",
-          body: "System settings zimehifadhiwa.",
+          title: t("admin.settingsSavedTitle", "Settings saved"),
+          body: t("admin.settingsSavedBody", "System settings zimehifadhiwa."),
           variant: "success"
         });
         deps.reportEvent?.("info", "admin_settings_updated", "Admin updated system settings.", {
@@ -1885,8 +1893,8 @@
           error: error.message || "Imeshindikana kuhifadhi settings."
         };
         deps.showInAppNotification?.({
-          title: "Settings save failed",
-          body: error.message || "Imeshindikana kuhifadhi settings.",
+          title: t("admin.settingsSaveFailedTitle", "Settings save failed"),
+          body: error.message || t("admin.settingsSaveFailedBody", "Imeshindikana kuhifadhi settings."),
           variant: "error"
         });
       }
@@ -1922,8 +1930,8 @@
               action: button.dataset.adminUserAction || ""
             });
             deps.showInAppNotification?.({
-              title: "User update failed",
-              body: error.message || "Imeshindikana kuhifadhi moderation ya user.",
+              title: t("admin.userUpdateFailedTitle", "User update failed"),
+              body: error.message || t("admin.userUpdateFailedBody", "Imeshindikana kuhifadhi moderation ya user."),
               variant: "error"
             });
           } finally {
@@ -1950,8 +1958,8 @@
               conversationId: button.dataset.adminMessageReviewSubmit || ""
             });
             deps.showInAppNotification?.({
-              title: "Message review failed",
-              body: error.message || "Imeshindikana kufungua message content.",
+              title: t("admin.messageReviewFailedTitle", "Message review failed"),
+              body: error.message || t("admin.messageReviewFailedBody", "Imeshindikana kufungua message content."),
               variant: "error"
             });
           } finally {
@@ -1972,8 +1980,8 @@
               status: button.dataset.adminProductAction || ""
             });
             deps.showInAppNotification?.({
-              title: "Product moderation failed",
-              body: error.message || "Imeshindikana kuhifadhi moderation ya bidhaa.",
+              title: t("admin.productModerationFailedTitle", "Product moderation failed"),
+              body: error.message || t("admin.productModerationFailedBody", "Imeshindikana kuhifadhi moderation ya bidhaa."),
               variant: "error"
             });
           } finally {
@@ -1994,8 +2002,8 @@
               status: button.dataset.adminReportAction || ""
             });
             deps.showInAppNotification?.({
-              title: "Report update failed",
-              body: error.message || "Imeshindikana kusasisha report.",
+              title: t("admin.reportUpdateFailedTitle", "Report update failed"),
+              body: error.message || t("admin.reportUpdateFailedBody", "Imeshindikana kusasisha report."),
               variant: "error"
             });
           } finally {
@@ -2031,8 +2039,8 @@
               promotionId: button.dataset.adminPromotionDisable || ""
             });
             deps.showInAppNotification?.({
-              title: "Promotion update failed",
-              body: error.message || "Imeshindikana kuzima promotion.",
+              title: t("admin.promotionUpdateFailedTitle", "Promotion update failed"),
+              body: error.message || t("admin.promotionUpdateFailedBody", "Imeshindikana kuzima promotion."),
               variant: "error"
             });
           } finally {
@@ -2053,8 +2061,8 @@
               status: button.dataset.adminPromotionStatus || ""
             });
             deps.showInAppNotification?.({
-              title: "Promotion review failed",
-              body: error.message || "Imeshindikana kureview promotion.",
+              title: t("admin.promotionReviewFailedTitle", "Promotion review failed"),
+              body: error.message || t("admin.promotionReviewFailedBody", "Imeshindikana kureview promotion."),
               variant: "error"
             });
           } finally {
@@ -2314,8 +2322,8 @@
           failedLoads: failedLoads.join(",")
         });
         deps.showInAppNotification?.({
-          title: "Admin data partial",
-          body: "Baadhi ya admin data haijafunguka kikamilifu, lakini panel imefunguliwa.",
+          title: t("admin.partialDataTitle", "Admin data partial"),
+          body: t("admin.partialDataBody", "Baadhi ya admin data haijafunguka kikamilifu, lakini panel imefunguliwa."),
           variant: "warning"
         });
       }

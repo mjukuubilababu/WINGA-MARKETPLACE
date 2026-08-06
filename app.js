@@ -7434,7 +7434,7 @@ function openMediaActionSheet(product, options = {}) {
   const copy = createElement("div", { className: "media-action-copy" });
   copy.append(
     createElement("p", { className: "media-action-kicker eyebrow", textContent: "Quick actions" }),
-    createElement("h3", { textContent: product.name || "Product", attributes: { id: "media-action-title" } }),
+    createElement("h3", { textContent: product.name || translateUi("common.product", {}, "Product"), attributes: { id: "media-action-title" } }),
     createElement("p", {
       className: "media-action-subtitle",
       textContent: `${formatProductPrice(product.price)}${product.shop ? ` • ${product.shop}` : ""}`
@@ -9740,7 +9740,7 @@ function ensurePromotionIntentModal() {
   root.innerHTML = `
     <div class="promotion-intent-backdrop" data-close-promotion-intent="true"></div>
     <div class="promotion-intent-dialog panel" role="dialog" aria-modal="true" aria-labelledby="promotion-intent-title">
-      <button class="promotion-intent-close" type="button" aria-label="Close promotion flow" data-close-promotion-intent="true">&times;</button>
+      <button class="promotion-intent-close" type="button" aria-label="${escapeHtml(translateUi("promotion.closeFlowLabel", {}, "Close promotion flow"))}" data-close-promotion-intent="true">&times;</button>
       <div class="promotion-intent-body" data-promotion-intent-body="true"></div>
     </div>
   `;
@@ -9764,8 +9764,8 @@ function ensurePromotionIntentModal() {
           type: promotionIntentState.selectedType || ""
         });
         showInAppNotification({
-          title: "Promotion failed",
-          body: error.message || "Imeshindikana kutuma request ya promotion.",
+          title: translateUi("promotion.submitFailedTitle", {}, "Promotion failed"),
+          body: error.message || translateUi("promotion.submitFailedBody", {}, "Imeshindikana kutuma request ya promotion."),
           variant: "error"
         });
         promotionIntentState.loading = false;
@@ -9855,8 +9855,8 @@ function openPromotionFromTrigger(trigger) {
   const product = promotionContext.product;
   if (!product) {
     showInAppNotification({
-      title: "Promotion unavailable",
-      body: "Product context ya promotion haikupatikana. Refresh home feed ujaribu tena.",
+      title: translateUi("promotion.unavailableTitle", {}, "Promotion unavailable"),
+      body: translateUi("promotion.productContextMissingBody", {}, "Product context ya promotion haikupatikana. Refresh home feed ujaribu tena."),
       variant: "warning"
     });
     return false;
@@ -9877,13 +9877,13 @@ function renderPromotionIntentModal() {
   }
   if (!product) {
     promotionIntentState.feedbackTone = "error";
-    promotionIntentState.feedbackMessage = "Promotion plan haikuweza kufunguka kwa sababu context ya bidhaa imepotea. Refresh home feed kisha ujaribu tena.";
+    promotionIntentState.feedbackMessage = translateUi("promotion.contextLostBody", {}, "Promotion plan haikuweza kufunguka kwa sababu context ya bidhaa imepotea. Refresh home feed kisha ujaribu tena.");
     const wrapper = createElement("div", { className: "promotion-intent-shell" });
     const actions = createElement("div", { className: "payment-intent-actions" });
     wrapper.append(
-      createElement("p", { className: "eyebrow", textContent: "Promotion request" }),
+      createElement("p", { className: "eyebrow", textContent: translateUi("promotion.requestEyebrow", {}, "Promotion request") }),
       createElement("h3", {
-        textContent: "Promotion unavailable",
+        textContent: translateUi("promotion.unavailableTitle", {}, "Promotion unavailable"),
         attributes: { id: "promotion-intent-title" }
       }),
       createElement("p", {
@@ -9894,7 +9894,7 @@ function renderPromotionIntentModal() {
     );
     actions.appendChild(createElement("button", {
       className: "action-btn action-btn-secondary",
-      textContent: "Close",
+      textContent: translateUi("common.close", {}, "Close"),
       attributes: {
         type: "button",
         "data-close-promotion-intent": "true"
@@ -9910,14 +9910,14 @@ function renderPromotionIntentModal() {
   const paymentContact = getPromotionPaymentContact(product);
   const wrapper = createElement("div", { className: "promotion-intent-shell" });
   wrapper.append(
-    createElement("p", { className: "eyebrow", textContent: "Visibility plan" }),
+    createElement("p", { className: "eyebrow", textContent: translateUi("promotion.visibilityPlanEyebrow", {}, "Visibility plan") }),
     createElement("h3", {
-      textContent: "Choose visibility plan",
+      textContent: translateUi("promotion.choosePlanTitle", {}, "Choose visibility plan"),
       attributes: { id: "promotion-intent-title" }
     }),
     createElement("p", {
       className: "product-meta",
-      textContent: "Chagua siku za tangazo, kisha weka reference ya malipo ili admin aapprove tangazo lako."
+      textContent: translateUi("promotion.choosePlanBody", {}, "Chagua siku za tangazo, kisha weka reference ya malipo ili admin aapprove tangazo lako.")
     })
   );
 
@@ -9933,7 +9933,7 @@ function renderPromotionIntentModal() {
     button.append(
       createElement("strong", { textContent: option.label }),
       createElement("span", { textContent: `TSh ${formatNumber(option.amount)}` }),
-      createElement("small", { textContent: `${option.durationDays} day${option.durationDays === 1 ? "" : "s"}` })
+      createElement("small", { textContent: translateUi("promotion.durationDays", { count: option.durationDays }, `${option.durationDays} day${option.durationDays === 1 ? "" : "s"}`) })
     );
     packageGrid.appendChild(button);
   });
@@ -9941,25 +9941,25 @@ function renderPromotionIntentModal() {
   const summary = createElement("div", { className: "payment-intent-summary" });
   summary.append(
     createElement("strong", { textContent: product.name || "Product" }),
-    createElement("p", { className: "product-meta", textContent: `Plan: ${selectedOption?.label || "1 day visibility"}` }),
-    createElement("p", { className: "product-meta", textContent: `Amount: TSh ${formatNumber(selectedOption?.amount || 0)}` }),
-    createElement("p", { className: "product-meta", textContent: `Duration: ${selectedOption?.durationDays || 0} day${selectedOption?.durationDays === 1 ? "" : "s"}` }),
-    createElement("p", { className: "product-meta", textContent: `Payment contact: ${paymentContact || "Haijawekwa"}` }),
-    createElement("p", { className: "product-meta", textContent: "Baada ya kutuma reference, tangazo litaenda kwa admin approval." })
+    createElement("p", { className: "product-meta", textContent: translateUi("promotion.planSummary", { plan: selectedOption?.label || translateUi("promotion.oneDayVisibility", {}, "1 day visibility") }, `Plan: ${selectedOption?.label || "1 day visibility"}`) }),
+    createElement("p", { className: "product-meta", textContent: translateUi("promotion.amountSummary", { amount: `TSh ${formatNumber(selectedOption?.amount || 0)}` }, `Amount: TSh ${formatNumber(selectedOption?.amount || 0)}`) }),
+    createElement("p", { className: "product-meta", textContent: translateUi("promotion.durationSummary", { count: selectedOption?.durationDays || 0 }, `Duration: ${selectedOption?.durationDays || 0} day${selectedOption?.durationDays === 1 ? "" : "s"}`) }),
+    createElement("p", { className: "product-meta", textContent: translateUi("promotion.paymentContactSummary", { contact: paymentContact || translateUi("common.notSet", {}, "Haijawekwa") }, `Payment contact: ${paymentContact || "Haijawekwa"}`) }),
+    createElement("p", { className: "product-meta", textContent: translateUi("promotion.adminApprovalNote", {}, "Baada ya kutuma reference, tangazo litaenda kwa admin approval.") })
   );
 
   const guidance = createElement("div", { className: "payment-safety-card" });
   guidance.append(
-    createElement("strong", { textContent: "Manual verification for now" }),
+    createElement("strong", { textContent: translateUi("promotion.manualVerificationTitle", {}, "Manual verification for now") }),
     createElement("p", {
       className: "product-meta",
-      textContent: "Flow hii inakusanya visibility plan na payment reference ndani ya app. Admin ata-review kabla ya kuactivate tangazo."
+      textContent: translateUi("promotion.manualVerificationBody", {}, "Flow hii inakusanya visibility plan na payment reference ndani ya app. Admin ata-review kabla ya kuactivate tangazo.")
     }),
     createElement("p", {
       className: "product-meta",
       textContent: paymentContact
-        ? "Tumia reference ya malipo halisi uliyopewa kwenye route ya sasa ya promotion."
-        : "Kagua namba ya simu ya seller kwenye profile yako kwanza kabla ya kuendelea."
+        ? translateUi("promotion.useRealReference", {}, "Tumia reference ya malipo halisi uliyopewa kwenye route ya sasa ya promotion.")
+        : translateUi("promotion.checkSellerPhone", {}, "Kagua namba ya simu ya seller kwenye profile yako kwanza kabla ya kuendelea.")
     })
   );
 
@@ -9968,7 +9968,7 @@ function renderPromotionIntentModal() {
       id: "promotion-intent-transaction-input",
       type: "text",
       maxlength: "80",
-      placeholder: "Weka payment reference ya tangazo",
+      placeholder: translateUi("promotion.referencePlaceholder", {}, "Weka payment reference ya tangazo"),
       value: promotionIntentState.transactionId || "",
       autocomplete: "off",
       autocapitalize: "characters"
@@ -9976,13 +9976,13 @@ function renderPromotionIntentModal() {
   });
   const note = createElement("p", {
     className: "auth-note",
-    textContent: "Mfano: M-Pesa code, Airtel Money code, Tigo Pesa code, au receipt reference nyingine halali."
+    textContent: translateUi("promotion.referenceExample", {}, "Mfano: M-Pesa code, Airtel Money code, Tigo Pesa code, au receipt reference nyingine halali.")
   });
 
   const networkMessage = typeof navigator !== "undefined" && navigator.onLine === false
-    ? "Uko offline kwa sasa. Hifadhi reference hii, halafu submit internet ikirudi."
+    ? translateUi("promotion.offlineStatus", {}, "Uko offline kwa sasa. Hifadhi reference hii, halafu submit internet ikirudi.")
     : promotionIntentState.loading
-      ? "Tunatuma request yako ya promotion sasa. Usifunge dirisha hili."
+      ? translateUi("promotion.submittingStatus", {}, "Tunatuma request yako ya promotion sasa. Usifunge dirisha hili.")
       : promotionIntentState.feedbackMessage;
   const networkTone = typeof navigator !== "undefined" && navigator.onLine === false
     ? "warning"
@@ -9999,7 +9999,9 @@ function renderPromotionIntentModal() {
   const actions = createElement("div", { className: "payment-intent-actions" });
   const submitButton = createElement("button", {
     className: "action-btn buy-btn",
-    textContent: promotionIntentState.loading ? "Submitting..." : "Send to admin",
+    textContent: promotionIntentState.loading
+      ? translateUi("promotion.submittingAction", {}, "Submitting...")
+      : translateUi("promotion.sendToAdminAction", {}, "Send to admin"),
     attributes: {
       type: "button",
       "data-submit-promotion-intent": "true"
@@ -10033,20 +10035,20 @@ function renderPromotionIntentModal() {
 async function submitPromotionIntent() {
   const product = getPromotionIntentProduct();
   if (!product) {
-    throw new Error("Bidhaa haijapatikana tena. Refresh home feed kisha ujaribu tena.");
+    throw new Error(translateUi("promotion.productMissingError", {}, "Bidhaa haijapatikana tena. Refresh home feed kisha ujaribu tena."));
   }
   const selectedType = String(promotionIntentState.selectedType || "").trim();
   const selectedOption = getPromotionOption(selectedType);
   if (!selectedOption) {
-    throw new Error("Chagua package ya promotion kwanza.");
+    throw new Error(translateUi("promotion.choosePackageError", {}, "Chagua package ya promotion kwanza."));
   }
   if (typeof navigator !== "undefined" && navigator.onLine === false) {
     promotionIntentState.feedbackTone = "warning";
-    promotionIntentState.feedbackMessage = "Uko offline. Promotion request haijatumwa bado. Internet ikirudi, bonyeza Submit promotion tena.";
+    promotionIntentState.feedbackMessage = translateUi("promotion.offlineFeedback", {}, "Uko offline. Promotion request haijatumwa bado. Internet ikirudi, bonyeza Submit promotion tena.");
     renderPromotionIntentModal();
     showInAppNotification({
-      title: "Uko offline",
-      body: "Promotion request imebaki hapa. Internet ikirudi, submit tena.",
+      title: translateUi("common.offline", {}, "Uko offline"),
+      body: translateUi("promotion.offlineBody", {}, "Promotion request imebaki hapa. Internet ikirudi, submit tena."),
       variant: "warning"
     });
     return;
@@ -10054,13 +10056,13 @@ async function submitPromotionIntent() {
   const input = document.getElementById("promotion-intent-transaction-input");
   const transactionId = String(input?.value || promotionIntentState.transactionId || "").trim().toUpperCase();
   if (!isValidTransactionReferenceClient(transactionId)) {
-    throw new Error("Weka transaction reference sahihi ya promotion.");
+    throw new Error(translateUi("promotion.invalidReferenceError", {}, "Weka transaction reference sahihi ya promotion."));
   }
 
   promotionIntentState.loading = true;
   promotionIntentState.transactionId = transactionId;
   promotionIntentState.feedbackTone = "info";
-  promotionIntentState.feedbackMessage = "Tunatuma request yako ya promotion sasa.";
+  promotionIntentState.feedbackMessage = translateUi("promotion.sendingFeedback", {}, "Tunatuma request yako ya promotion sasa.");
   renderPromotionIntentModal();
 
   await window.WingaDataLayer.createPromotion({
@@ -10074,8 +10076,8 @@ async function submitPromotionIntent() {
     type: selectedType
   });
   showInAppNotification({
-    title: "Promotion submitted",
-    body: "Promotion imewasilishwa. Utaiona ikishaingia active au ikireviewiwa.",
+    title: translateUi("promotion.submittedTitle", {}, "Promotion submitted"),
+    body: translateUi("promotion.submittedBody", {}, "Promotion imewasilishwa. Utaiona ikishaingia active au ikireviewiwa."),
     variant: "success"
   });
   closePromotionIntentModal();
@@ -10968,6 +10970,7 @@ const { renderAdminView: renderAdminViewFromController } = window.WingaModules.a
   dataLayer: window.WingaDataLayer,
   applyAppSettings,
   showInAppNotification,
+  translate: translateUi,
   confirmAction,
   reportEvent: (...args) => reportClientEvent(...args),
   captureError: (...args) => captureClientError(...args)
@@ -20436,10 +20439,10 @@ function openPromotionIntentModal(product, options = {}) {
   const ownerMatches = String(product.uploadedBy || "").trim() === String(currentUser || "").trim();
   if (!hasSellerAccess || (!ownerMatches && !trustedAuthorized)) {
     showInAppNotification({
-      title: "Promotion unavailable",
+      title: translateUi("promotion.unavailableTitle", {}, "Promotion unavailable"),
       body: !hasSellerAccess
-        ? "Ingia kama seller ili ufungue visibility plans za tangazo hili."
-        : "Promotion hii inapatikana kwa muuzaji wa bidhaa hii tu.",
+        ? translateUi("promotion.sellerAccessBody", {}, "Ingia kama seller ili ufungue visibility plans za tangazo hili.")
+        : translateUi("promotion.ownerOnlyBody", {}, "Promotion hii inapatikana kwa muuzaji wa bidhaa hii tu."),
       variant: "warning"
     });
     return;
@@ -20464,8 +20467,8 @@ window.__wingaOpenPromotionFromTrigger = (trigger) => {
       productId: String(trigger?.dataset?.promoteProduct || "").trim()
     });
     showInAppNotification({
-      title: "Promotion failed to open",
-      body: error.message || "Imeshindikana kufungua visibility plan. Jaribu tena.",
+      title: translateUi("promotion.openFailedTitle", {}, "Promotion failed to open"),
+      body: error.message || translateUi("promotion.openFailedBody", {}, "Imeshindikana kufungua visibility plan. Jaribu tena."),
       variant: "error"
     });
     return false;
