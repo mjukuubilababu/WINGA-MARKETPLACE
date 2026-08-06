@@ -3296,6 +3296,18 @@ test("backend search demand service keeps search intelligence anonymous and aggr
   assert.equal(summary.mostSearchedColors[0].color, "white");
 });
 
+test("localized upload errors preserve independent auth fallback scope", () => {
+  const appSource = fs.readFileSync(path.join(__dirname, "..", "app.js"), "utf8");
+  const authStart = appSource.indexOf("function getFriendlyAuthErrorMessage(");
+  const authEnd = appSource.indexOf("function isAdminLoginRoute()", authStart);
+  const authSection = appSource.slice(authStart, authEnd);
+  assert.ok(authStart >= 0 && authEnd > authStart);
+  assert.doesNotMatch(authSection, /resolvedFallbackMessage/);
+  assert.match(authSection, /return message \|\| fallbackMessage/);
+  assert.match(appSource, /translateUi\("upload\.friendlyNetwork"/);
+  assert.match(appSource, /const resolvedFallbackMessage = fallbackMessage \|\| translateUi\("upload\.failed"/);
+});
+
 (async () => {
   let passed = 0;
   for (const entry of tests) {

@@ -2345,13 +2345,13 @@ function updateSellerIdentityDocumentPreview(file = null) {
 
 function validateSellerIdentityImageFile(file) {
   if (!file) {
-    throw new Error("Please upload your ID image");
+    throw new Error(translateUi("upload.identityRequired", {}, "Please upload your ID image."));
   }
   if (!isAllowedImageFile(file)) {
-    throw new Error("Invalid file type");
+    throw new Error(translateUi("upload.invalidImageType", {}, "Choose a valid image file."));
   }
   if (file.size > MAX_IMAGE_SIZE_BYTES) {
-    throw new Error(`ID image must be ${MAX_IMAGE_SIZE_MB}MB or below.`);
+    throw new Error(translateUi("upload.identityMaxSize", { size: MAX_IMAGE_SIZE_MB }, `ID image must be ${MAX_IMAGE_SIZE_MB}MB or below.`));
   }
 }
 
@@ -2455,23 +2455,24 @@ function isHeicLikeFile(file) {
 
 function validateImageFiles(files) {
   if (files.length > MAX_UPLOAD_IMAGES) {
-    throw new Error(`Chagua picha zisizozidi ${MAX_UPLOAD_IMAGES}.`);
+    throw new Error(translateUi("upload.maxImages", { count: MAX_UPLOAD_IMAGES }, `Chagua picha zisizozidi ${MAX_UPLOAD_IMAGES}.`));
   }
 
   files.forEach((file) => {
     if (!isAllowedImageFile(file)) {
-      throw new Error("Tumia picha za JPG, PNG, WEBP, GIF au HEIC/HEIF.");
+      throw new Error(translateUi("upload.supportedTypes", {}, "Tumia picha za JPG, PNG, WEBP, GIF au HEIC/HEIF."));
     }
 
     if (file.size > MAX_IMAGE_SIZE_BYTES) {
-      throw new Error(`Kila picha inapaswa kuwa ${MAX_IMAGE_SIZE_MB}MB au chini.`);
+      throw new Error(translateUi("upload.eachImageMaxSize", { size: MAX_IMAGE_SIZE_MB }, `Kila picha inapaswa kuwa ${MAX_IMAGE_SIZE_MB}MB au chini.`));
     }
   });
 }
 
-function validateSingleImageFile(file, label = "Picha") {
+function validateSingleImageFile(file, label = "") {
   if (!file) {
-    throw new Error(`${label} inahitajika.`);
+    const resolvedLabel = label || translateUi("upload.imageLabel", {}, "Picha");
+    throw new Error(translateUi("upload.requiredImage", { label: resolvedLabel }, `${resolvedLabel} inahitajika.`));
   }
   validateImageFiles([file]);
 }
@@ -2489,7 +2490,7 @@ function arrayBufferToBase64(buffer) {
 function readRawFileAsDataUrlWithReader(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    const fail = () => reject(new Error("Imeshindikana kusoma picha uliyochagua."));
+    const fail = () => reject(new Error(translateUi("upload.readFailed", {}, "Imeshindikana kusoma picha uliyochagua.")));
     reader.onloadend = () => {
       if (reader.error) {
         fail();
@@ -2510,7 +2511,7 @@ function readRawFileAsDataUrlWithReader(file) {
 
 async function readRawFileAsDataUrl(file) {
   if (!file) {
-    throw new Error("Hakuna picha iliyochaguliwa.");
+    throw new Error(translateUi("upload.noImageSelected", {}, "Hakuna picha iliyochaguliwa."));
   }
   if (typeof file.arrayBuffer === "function" && typeof window.btoa === "function") {
     try {
@@ -2540,7 +2541,7 @@ function loadImageElementFromFile(file) {
     };
     image.onerror = () => {
       URL.revokeObjectURL(objectUrl);
-      reject(new Error("Imeshindikana kufungua picha uliyochagua."));
+      reject(new Error(translateUi("upload.openFailed", {}, "Imeshindikana kufungua picha uliyochagua.")));
     };
     image.src = objectUrl;
   });
@@ -2549,7 +2550,7 @@ function loadImageElementFromFile(file) {
 function waitForImageElementReady(image) {
   return new Promise((resolve, reject) => {
     if (!image) {
-      reject(new Error("Imeshindikana kufungua picha uliyochagua."));
+      reject(new Error(translateUi("upload.openFailed", {}, "Imeshindikana kufungua picha uliyochagua.")));
       return;
     }
     if ((image.complete && (image.naturalWidth || image.width))) {
@@ -2557,7 +2558,7 @@ function waitForImageElementReady(image) {
       return;
     }
     const handleLoad = () => resolve(image);
-    const handleError = () => reject(new Error("Imeshindikana kufungua picha uliyochagua."));
+    const handleError = () => reject(new Error(translateUi("upload.openFailed", {}, "Imeshindikana kufungua picha uliyochagua.")));
     image.addEventListener("load", handleLoad, { once: true });
     image.addEventListener("error", handleError, { once: true });
   });
@@ -2629,7 +2630,7 @@ function optimizeLoadedImageAsDataUrl(image, options = {}, file = null) {
   const canvas = document.createElement("canvas");
   const context = canvas.getContext("2d", { alpha: true });
   if (!context) {
-    throw new Error("Browser hii imeshindwa kuandaa picha kwa upload.");
+    throw new Error(translateUi("upload.browserProcessingFailed", {}, "Browser hii imeshindwa kuandaa picha kwa upload."));
   }
   let width = Math.max(1, Math.round((image.naturalWidth || image.width || 1) * initialScale));
   let height = Math.max(1, Math.round((image.naturalHeight || image.height || 1) * initialScale));
@@ -2672,7 +2673,7 @@ function optimizeLoadedImageAsDataUrl(image, options = {}, file = null) {
 
 async function optimizeImageFileAsDataUrl(file, options = {}) {
   if (!file) {
-    throw new Error("Hakuna picha iliyochaguliwa.");
+    throw new Error(translateUi("upload.noImageSelected", {}, "Hakuna picha iliyochaguliwa."));
   }
   if (file.type === "image/gif") {
     return readRawFileAsDataUrl(file);
@@ -2707,9 +2708,9 @@ function waitForNextPaint() {
 
 function readSellerSignupIdentityImage(file) {
   if (!file) {
-    throw new Error("Please upload your ID image");
+    throw new Error(translateUi("upload.identityRequired", {}, "Please upload your ID image."));
   }
-  validateSingleImageFile(file, "ID image");
+  validateSingleImageFile(file, translateUi("upload.identityLabel", {}, "ID image"));
   const provider = getActiveDataProvider();
   const shouldUseFastRawRead = !isHeicLikeFile(file)
     && provider !== "local"
@@ -2721,7 +2722,7 @@ function readSellerSignupIdentityImage(file) {
   return withOperationTimeout(
     readOperation,
     SIGNUP_DOCUMENT_PREP_TIMEOUT_MS,
-    "Preparing your ID image took too long. Please try a smaller JPG or PNG."
+    translateUi("upload.identityTimeout", {}, "Preparing your ID image took too long. Please try a smaller JPG or PNG.")
   );
 }
 
@@ -2804,7 +2805,7 @@ function primeSellerSignupIdentityImage(file) {
 
 function resolveSellerSignupIdentityImage(file) {
   if (!file) {
-    throw new Error("Please upload your ID image");
+    throw new Error(translateUi("upload.identityRequired", {}, "Please upload your ID image."));
   }
   const immediatePreviewResult = getImmediateSellerIdentityPreviewDataUrl(file);
   if (immediatePreviewResult) {
@@ -2818,7 +2819,7 @@ function resolveSellerSignupIdentityImage(file) {
     return withOperationTimeout(
       Promise.resolve(sellerIdentityPreparedPromise),
       SIGNUP_DOCUMENT_PREP_TIMEOUT_MS,
-      "Preparing your ID image took too long. Please try a smaller JPG or PNG."
+      translateUi("upload.identityTimeout", {}, "Preparing your ID image took too long. Please try a smaller JPG or PNG.")
     );
   }
   return readPreparedSellerIdentityImageFromPreview(file);
@@ -2827,7 +2828,7 @@ function resolveSellerSignupIdentityImage(file) {
 function readFileAsDataUrl(file, options = {}) {
   return optimizeImageFileAsDataUrl(file, options).catch(async (error) => {
     if (isHeicLikeFile(file)) {
-      throw new Error("Picha ya HEIC/HEIF haikuweza kubadilishwa kwenye format inayotumika hapa. Jaribu JPG au PNG.");
+      throw new Error(translateUi("upload.heicConversionFailed", {}, "Picha ya HEIC/HEIF haikuweza kubadilishwa hapa. Jaribu JPG au PNG."));
     }
     const provider = getActiveDataProvider();
     if (provider === "local" || provider === "mock") {
@@ -2836,7 +2837,7 @@ function readFileAsDataUrl(file, options = {}) {
     const purpose = String(options?.purpose || "generic").trim().toLowerCase();
     const fallbackDataUrl = await readRawFileAsDataUrl(file);
     if (purpose === "product" && estimateDataUrlBytes(fallbackDataUrl) > MAX_API_PRODUCT_IMAGE_BYTES) {
-      throw new Error("Picha hii ni nzito sana kwa upload salama. Jaribu JPG/PNG au punguza ukubwa wa picha.");
+      throw new Error(translateUi("upload.imageTooLarge", {}, "Picha hii ni kubwa sana kwa upload salama. Jaribu JPG/PNG au punguza ukubwa wake."));
     }
     return fallbackDataUrl;
   });
@@ -2861,33 +2862,34 @@ function ensureSafeProductUploadPayload(productPayload) {
       return;
     }
     if (estimateDataUrlBytes(imageValue) > MAX_API_PRODUCT_IMAGE_BYTES) {
-      throw new Error(`Picha ya ${index + 1} ni kubwa sana kwa server. Punguza ukubwa wake au jaribu JPG/PNG.`);
+      throw new Error(translateUi("upload.indexedImageTooLarge", { index: index + 1 }, `Picha ya ${index + 1} ni kubwa sana kwa server. Punguza ukubwa wake au jaribu JPG/PNG.`));
     }
   });
   const payloadBytes = estimateSerializedPayloadBytes(productPayload);
   if (payloadBytes > MAX_API_PRODUCT_REQUEST_BYTES) {
-    throw new Error("Upload hii ni kubwa sana kwa server kwa sasa. Punguza idadi ya picha au tumia picha ndogo kidogo.");
+    throw new Error(translateUi("upload.payloadTooLarge", {}, "Upload hii ni kubwa sana kwa server. Tumia picha chache au ndogo zaidi."));
   }
 }
 
-function getFriendlyProductUploadErrorMessage(error, fallbackMessage = "Imeshindikana kupost bidhaa.") {
+function getFriendlyProductUploadErrorMessage(error, fallbackMessage = "") {
+  const resolvedFallbackMessage = fallbackMessage || translateUi("upload.failed", {}, "Imeshindikana kupakia bidhaa.");
   const status = Number(error?.status || 0);
   const code = String(error?.code || "").toLowerCase();
   const message = String(error?.message || "").trim();
   const normalizedMessage = message.toLowerCase();
   if (status === 413 || code === "http_413" || normalizedMessage.includes("kubwa sana") || normalizedMessage.includes("payload_too_large")) {
-    return "Picha au upload yote ni kubwa sana kwa server. Punguza ukubwa wa picha au idadi yake kisha jaribu tena.";
+    return translateUi("upload.friendlyTooLarge", {}, "Picha au upload yote ni kubwa sana kwa server. Punguza ukubwa au idadi ya picha kisha ujaribu tena.");
   }
   if (status === 429 || normalizedMessage.includes("majaribio ni mengi")) {
-    return "Majaribio ni mengi sana kwa sasa. Subiri kidogo kisha ujaribu tena.";
+    return translateUi("upload.friendlyRateLimited", {}, "Majaribio ni mengi sana kwa sasa. Subiri kidogo kisha ujaribu tena.");
   }
   if (error?.retryable || code === "timeout" || code === "network" || normalizedMessage.includes("network") || normalizedMessage.includes("took too long")) {
-    return "Upload imechelewa au internet imekatika kidogo. Bonyeza tena kujaribu mara moja baada ya connection kutulia.";
+    return translateUi("upload.friendlyNetwork", {}, "Upload imechelewa au intaneti imekatika. Jaribu tena baada ya muunganisho kutulia.");
   }
   if (status >= 500 || normalizedMessage.includes("hitilafu ya mfumo") || normalizedMessage.includes("server")) {
-    return "Server imepata hitilafu wakati wa kusindika upload. Jaribu tena baada ya muda mfupi.";
+    return translateUi("upload.friendlyServer", {}, "Server imepata hitilafu wakati wa kushughulikia upload. Jaribu tena baada ya muda mfupi.");
   }
-  return message || fallbackMessage;
+  return message || resolvedFallbackMessage;
 }
 
 function normalizeProductLookupKey(value) {

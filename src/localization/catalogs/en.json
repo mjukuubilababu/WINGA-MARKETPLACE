@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2026.08.06.10",
+  "version": "2026.08.06.11",
   "locale": "en",
   "messages": {
     "auth.close": "Close authentication",
@@ -363,6 +363,29 @@
     "follow.followedTitle": "Seller followed",
     "follow.unfollowedTitle": "Seller unfollowed",
     "follow.followedBody": "{seller} will be easier to find on your return visits.",
-    "follow.unfollowedBody": "{seller} was removed from your followed sellers."
+    "follow.unfollowedBody": "{seller} was removed from your followed sellers.",
+    "upload.identityRequired": "Please upload your ID image.",
+    "upload.invalidImageType": "Choose a valid image file.",
+    "upload.identityMaxSize": "The ID image must be {size} MB or smaller.",
+    "upload.maxImages": "Choose no more than {count} images.",
+    "upload.supportedTypes": "Use a JPG, PNG, WEBP, GIF, HEIC, or HEIF image.",
+    "upload.eachImageMaxSize": "Each image must be {size} MB or smaller.",
+    "upload.imageLabel": "Image",
+    "upload.identityLabel": "ID image",
+    "upload.requiredImage": "{label} is required.",
+    "upload.readFailed": "We could not read the selected image.",
+    "upload.noImageSelected": "No image was selected.",
+    "upload.openFailed": "We could not open the selected image.",
+    "upload.browserProcessingFailed": "This browser could not prepare the image for upload.",
+    "upload.identityTimeout": "Preparing your ID image took too long. Try a smaller JPG or PNG.",
+    "upload.heicConversionFailed": "The HEIC or HEIF image could not be converted here. Try a JPG or PNG.",
+    "upload.imageTooLarge": "This image is too large for a safe upload. Try a JPG or PNG, or reduce its size.",
+    "upload.indexedImageTooLarge": "Image {index} is too large for the server. Reduce its size or try a JPG or PNG.",
+    "upload.payloadTooLarge": "This upload is too large for the server. Use fewer or smaller images.",
+    "upload.failed": "We could not publish the product.",
+    "upload.friendlyTooLarge": "The images or complete upload are too large for the server. Reduce their size or count and try again.",
+    "upload.friendlyRateLimited": "There are too many attempts right now. Wait briefly and try again.",
+    "upload.friendlyNetwork": "The upload took too long or the connection was interrupted. Try again after the connection stabilizes.",
+    "upload.friendlyServer": "The server encountered an error while processing the upload. Try again shortly."
   }
 }

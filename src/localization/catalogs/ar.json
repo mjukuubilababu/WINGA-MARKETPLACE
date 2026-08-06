@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2026.08.06.10",
+  "version": "2026.08.06.11",
   "locale": "ar",
   "messages": {
     "auth.close": "إغلاق تسجيل الدخول",
@@ -367,6 +367,29 @@
     "follow.followedTitle": "تمت متابعة البائع",
     "follow.unfollowedTitle": "تم إلغاء متابعة البائع",
     "follow.followedBody": "سيكون العثور على {seller} أسهل عند زياراتك القادمة.",
-    "follow.unfollowedBody": "تمت إزالة {seller} من البائعين الذين تتابعهم."
+    "follow.unfollowedBody": "تمت إزالة {seller} من البائعين الذين تتابعهم.",
+    "upload.identityRequired": "يرجى تحميل صورة الهوية.",
+    "upload.invalidImageType": "اختر ملف صورة صالحًا.",
+    "upload.identityMaxSize": "يجب ألا يتجاوز حجم صورة الهوية {size} ميغابايت.",
+    "upload.maxImages": "اختر ما لا يزيد على {count} صور.",
+    "upload.supportedTypes": "استخدم صورة بصيغة JPG أو PNG أو WEBP أو GIF أو HEIC أو HEIF.",
+    "upload.eachImageMaxSize": "يجب ألا يتجاوز حجم كل صورة {size} ميغابايت.",
+    "upload.imageLabel": "الصورة",
+    "upload.identityLabel": "صورة الهوية",
+    "upload.requiredImage": "يلزم توفير {label}.",
+    "upload.readFailed": "تعذرت قراءة الصورة المحددة.",
+    "upload.noImageSelected": "لم يتم تحديد صورة.",
+    "upload.openFailed": "تعذر فتح الصورة المحددة.",
+    "upload.browserProcessingFailed": "تعذر على هذا المتصفح تجهيز الصورة للتحميل.",
+    "upload.identityTimeout": "استغرق تجهيز صورة الهوية وقتًا طويلًا. جرّب صورة JPG أو PNG أصغر.",
+    "upload.heicConversionFailed": "تعذر تحويل صورة HEIC أو HEIF هنا. جرّب صورة JPG أو PNG.",
+    "upload.imageTooLarge": "هذه الصورة كبيرة جدًا للتحميل الآمن. جرّب صورة JPG أو PNG أو قلّل حجمها.",
+    "upload.indexedImageTooLarge": "الصورة رقم {index} كبيرة جدًا للخادم. قلّل حجمها أو جرّب صورة JPG أو PNG.",
+    "upload.payloadTooLarge": "هذا التحميل كبير جدًا للخادم. استخدم صورًا أقل أو أصغر.",
+    "upload.failed": "تعذر نشر المنتج.",
+    "upload.friendlyTooLarge": "الصور أو التحميل الكامل كبير جدًا للخادم. قلّل الحجم أو العدد ثم حاول مرة أخرى.",
+    "upload.friendlyRateLimited": "هناك محاولات كثيرة الآن. انتظر قليلًا ثم حاول مرة أخرى.",
+    "upload.friendlyNetwork": "استغرق التحميل وقتًا طويلًا أو انقطع الاتصال. حاول مرة أخرى بعد استقرار الاتصال.",
+    "upload.friendlyServer": "واجه الخادم خطأ أثناء معالجة التحميل. حاول مرة أخرى بعد قليل."
   }
 }

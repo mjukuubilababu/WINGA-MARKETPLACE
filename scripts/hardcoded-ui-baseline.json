@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "policy": "Existing debt may decrease only. New or modified user-visible literals must use localization keys.",
-  "count": 375,
-  "digest": "b7a50e6442b49251c4722e2c331db1b874d6757bbd08ab62fce7449bbed129c8",
+  "count": 355,
+  "digest": "77a2b93076114657537ef13df88b5cd58e11f0efc1bd1e3c7642f682612d65ee",
   "entries": [
     {
       "signature": "app.js|property|${createdCategory.label} imeongezwa kwenye Vitu Used.",
@@ -529,15 +529,7 @@
       "count": 3
     },
     {
-      "signature": "app.js|user-error|${label} inahitajika.",
-      "count": 1
-    },
-    {
       "signature": "app.js|user-error|Andika category mpya iliyo sahihi.",
-      "count": 1
-    },
-    {
-      "signature": "app.js|user-error|Browser hii imeshindwa kuandaa picha kwa upload.",
       "count": 1
     },
     {
@@ -545,16 +537,8 @@
       "count": 1
     },
     {
-      "signature": "app.js|user-error|Chagua picha zisizozidi ${MAX_UPLOAD_IMAGES}.",
-      "count": 1
-    },
-    {
       "signature": "app.js|user-error|Global context request failed: ${response.status}",
       "count": 1
-    },
-    {
-      "signature": "app.js|user-error|Hakuna picha iliyochaguliwa.",
-      "count": 2
     },
     {
       "signature": "app.js|user-error|Home feed load was cancelled.",
@@ -565,44 +549,8 @@
       "count": 1
     },
     {
-      "signature": "app.js|user-error|ID image must be ${MAX_IMAGE_SIZE_MB}MB or below.",
-      "count": 1
-    },
-    {
-      "signature": "app.js|user-error|Imeshindikana kufungua picha uliyochagua.",
-      "count": 3
-    },
-    {
-      "signature": "app.js|user-error|Imeshindikana kusoma picha uliyochagua.",
-      "count": 1
-    },
-    {
-      "signature": "app.js|user-error|Invalid file type",
-      "count": 1
-    },
-    {
-      "signature": "app.js|user-error|Kila picha inapaswa kuwa ${MAX_IMAGE_SIZE_MB}MB au chini.",
-      "count": 1
-    },
-    {
       "signature": "app.js|user-error|Picha haikusomeka vizuri.",
       "count": 1
-    },
-    {
-      "signature": "app.js|user-error|Picha hii ni nzito sana kwa upload salama. Jaribu JPG/PNG au punguza ukubwa wa picha.",
-      "count": 1
-    },
-    {
-      "signature": "app.js|user-error|Picha ya ${index + 1} ni kubwa sana kwa server. Punguza ukubwa wake au jaribu JPG/PNG.",
-      "count": 1
-    },
-    {
-      "signature": "app.js|user-error|Picha ya HEIC/HEIF haikuweza kubadilishwa kwenye format inayotumika hapa. Jaribu JPG au PNG.",
-      "count": 1
-    },
-    {
-      "signature": "app.js|user-error|Please upload your ID image",
-      "count": 3
     },
     {
       "signature": "app.js|user-error|Recovery challenge haikupatikana. Jaribu tena.",
@@ -617,15 +565,7 @@
       "count": 1
     },
     {
-      "signature": "app.js|user-error|Tumia picha za JPG, PNG, WEBP, GIF au HEIC/HEIF.",
-      "count": 1
-    },
-    {
       "signature": "app.js|user-error|Unable to decode image into memory cache.",
-      "count": 1
-    },
-    {
-      "signature": "app.js|user-error|Upload hii ni kubwa sana kwa server kwa sasa. Punguza idadi ya picha au tumia picha ndogo kidogo.",
       "count": 1
     },
     {

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2026.08.06.10",
+  "version": "2026.08.06.11",
   "locale": "fr",
   "messages": {
     "auth.close": "Fermer l’authentification",
@@ -363,6 +363,29 @@
     "follow.followedTitle": "Vendeur suivi",
     "follow.unfollowedTitle": "Vendeur non suivi",
     "follow.followedBody": "{seller} sera plus facile à retrouver lors de vos prochaines visites.",
-    "follow.unfollowedBody": "{seller} a été retiré de vos vendeurs suivis."
+    "follow.unfollowedBody": "{seller} a été retiré de vos vendeurs suivis.",
+    "upload.identityRequired": "Veuillez importer une image de votre pièce d’identité.",
+    "upload.invalidImageType": "Choisissez un fichier image valide.",
+    "upload.identityMaxSize": "L’image d’identité doit faire au maximum {size} Mo.",
+    "upload.maxImages": "Choisissez au maximum {count} images.",
+    "upload.supportedTypes": "Utilisez une image JPG, PNG, WEBP, GIF, HEIC ou HEIF.",
+    "upload.eachImageMaxSize": "Chaque image doit faire au maximum {size} Mo.",
+    "upload.imageLabel": "Image",
+    "upload.identityLabel": "Image d’identité",
+    "upload.requiredImage": "{label} est requise.",
+    "upload.readFailed": "Impossible de lire l’image sélectionnée.",
+    "upload.noImageSelected": "Aucune image n’a été sélectionnée.",
+    "upload.openFailed": "Impossible d’ouvrir l’image sélectionnée.",
+    "upload.browserProcessingFailed": "Ce navigateur n’a pas pu préparer l’image pour l’envoi.",
+    "upload.identityTimeout": "La préparation de l’image d’identité a pris trop de temps. Essayez un fichier JPG ou PNG plus petit.",
+    "upload.heicConversionFailed": "L’image HEIC ou HEIF n’a pas pu être convertie ici. Essayez un fichier JPG ou PNG.",
+    "upload.imageTooLarge": "Cette image est trop volumineuse pour un envoi sûr. Essayez un fichier JPG ou PNG, ou réduisez sa taille.",
+    "upload.indexedImageTooLarge": "L’image {index} est trop volumineuse pour le serveur. Réduisez sa taille ou essayez un fichier JPG ou PNG.",
+    "upload.payloadTooLarge": "Cet envoi est trop volumineux pour le serveur. Utilisez moins d’images ou des images plus petites.",
+    "upload.failed": "Impossible de publier le produit.",
+    "upload.friendlyTooLarge": "Les images ou l’envoi complet sont trop volumineux pour le serveur. Réduisez leur taille ou leur nombre, puis réessayez.",
+    "upload.friendlyRateLimited": "Il y a trop de tentatives actuellement. Patientez un instant puis réessayez.",
+    "upload.friendlyNetwork": "L’envoi a pris trop de temps ou la connexion a été interrompue. Réessayez lorsque la connexion est stable.",
+    "upload.friendlyServer": "Le serveur a rencontré une erreur pendant le traitement de l’envoi. Réessayez dans un instant."
   }
 }
