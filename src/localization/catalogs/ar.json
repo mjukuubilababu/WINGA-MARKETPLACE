@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2026.08.06.3",
+  "version": "2026.08.06.4",
   "locale": "ar",
   "messages": {
     "auth.close": "إغلاق تسجيل الدخول",
@@ -165,6 +165,31 @@
     "product.soldOutSuccess": "تم وضع علامة نفاد المخزون على المنتج.",
     "product.updatedTitle": "تم تحديث المنتج",
     "product.soldOutFailedTitle": "فشل تحديث نفاد المخزون",
-    "product.soldOutFailedBody": "تعذر وضع علامة نفاد المخزون على المنتج."
+    "product.soldOutFailedBody": "تعذر وضع علامة نفاد المخزون على المنتج.",
+    "common.updateFailed": "فشل التحديث",
+    "profile.phoneRequiredTitle": "رقم الهاتف مطلوب",
+    "profile.phoneRequiredBody": "أدخل رقم واتساب صالحاً من 10 إلى 15 رقماً.",
+    "profile.noChangesTitle": "لا توجد تغييرات",
+    "profile.noChangesBody": "الرقم الجديد مطابق للرقم الحالي.",
+    "profile.phoneUpdatedTitle": "تم تحديث الرقم",
+    "profile.phoneUpdatedBody": "تم حفظ رقم واتساب وتحديثه فوراً.",
+    "profile.phoneUpdateFailedBody": "تعذر حفظ رقم واتساب.",
+    "profile.paymentNumberRequiredTitle": "رقم الدفع مطلوب",
+    "profile.paymentNumberRequiredBody": "أدخل رقم دفع صالحاً من 8 إلى 20 رقماً.",
+    "profile.recipientRequiredTitle": "اسم المستلم مطلوب",
+    "profile.recipientRequiredBody": "أدخل اسم مستلم الدفعة.",
+    "profile.paymentSavedTitle": "تم حفظ بيانات الدفع",
+    "profile.paymentSavedBody": "يمكن للمشترين الآن رؤية رقم الدفع في تفاصيل المنتج والمحادثة.",
+    "profile.paymentSaveFailedBody": "تعذر حفظ بيانات الدفع.",
+    "session.passwordRequiredTitle": "كلمة المرور مطلوبة",
+    "session.passwordRequiredBody": "أدخل كلمة المرور للتحقق من هذه الجلسة.",
+    "session.verifiedTitle": "تم التحقق من الجلسة",
+    "session.verifiedBody": "اكتمل فحص الأمان.",
+    "session.verificationFailedTitle": "فشل التحقق",
+    "session.verificationFailedBody": "تعذر التحقق من كلمة المرور.",
+    "session.revokedTitle": "تم إلغاء الجلسة",
+    "session.revokedBody": "تم إغلاق جلسة الجهاز.",
+    "session.revokeFailedTitle": "فشل إلغاء الجلسة",
+    "session.revokeFailedBody": "تعذر إغلاق الجلسة."
   }
 }

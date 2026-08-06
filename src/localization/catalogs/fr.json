@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2026.08.06.3",
+  "version": "2026.08.06.4",
   "locale": "fr",
   "messages": {
     "auth.close": "Fermer l’authentification",
@@ -161,6 +161,31 @@
     "product.soldOutSuccess": "Le produit a été marqué comme épuisé.",
     "product.updatedTitle": "Produit mis à jour",
     "product.soldOutFailedTitle": "Échec de la mise à jour du stock",
-    "product.soldOutFailedBody": "Impossible de marquer le produit comme épuisé."
+    "product.soldOutFailedBody": "Impossible de marquer le produit comme épuisé.",
+    "common.updateFailed": "Échec de la mise à jour",
+    "profile.phoneRequiredTitle": "Numéro de téléphone requis",
+    "profile.phoneRequiredBody": "Saisissez un numéro WhatsApp valide de 10 à 15 chiffres.",
+    "profile.noChangesTitle": "Aucune modification",
+    "profile.noChangesBody": "Le nouveau numéro est identique au numéro actuel.",
+    "profile.phoneUpdatedTitle": "Numéro mis à jour",
+    "profile.phoneUpdatedBody": "Votre numéro WhatsApp a été enregistré et mis à jour immédiatement.",
+    "profile.phoneUpdateFailedBody": "Impossible d’enregistrer votre numéro WhatsApp.",
+    "profile.paymentNumberRequiredTitle": "Numéro de paiement requis",
+    "profile.paymentNumberRequiredBody": "Saisissez un numéro de paiement valide de 8 à 20 chiffres.",
+    "profile.recipientRequiredTitle": "Bénéficiaire requis",
+    "profile.recipientRequiredBody": "Saisissez le nom du bénéficiaire du paiement.",
+    "profile.paymentSavedTitle": "Informations de paiement enregistrées",
+    "profile.paymentSavedBody": "Les acheteurs peuvent maintenant voir votre numéro dans les produits et le chat.",
+    "profile.paymentSaveFailedBody": "Impossible d’enregistrer vos informations de paiement.",
+    "session.passwordRequiredTitle": "Mot de passe requis",
+    "session.passwordRequiredBody": "Saisissez votre mot de passe pour vérifier cette session.",
+    "session.verifiedTitle": "Session vérifiée",
+    "session.verifiedBody": "Le contrôle de sécurité est terminé.",
+    "session.verificationFailedTitle": "Échec de la vérification",
+    "session.verificationFailedBody": "Le mot de passe n’a pas pu être vérifié.",
+    "session.revokedTitle": "Session révoquée",
+    "session.revokedBody": "La session de l’appareil a été fermée.",
+    "session.revokeFailedTitle": "Échec de la révocation",
+    "session.revokeFailedBody": "La session n’a pas pu être fermée."
   }
 }

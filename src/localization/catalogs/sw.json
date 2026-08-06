@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2026.08.06.3",
+  "version": "2026.08.06.4",
   "locale": "sw",
   "messages": {
     "auth.close": "Funga uthibitishaji",
@@ -161,6 +161,31 @@
     "product.soldOutSuccess": "Bidhaa imewekwa kuwa imeuzwa yote.",
     "product.updatedTitle": "Bidhaa imesasishwa",
     "product.soldOutFailedTitle": "Kusasisha sold out kumeshindikana",
-    "product.soldOutFailedBody": "Imeshindikana kuweka bidhaa kuwa imeuzwa yote."
+    "product.soldOutFailedBody": "Imeshindikana kuweka bidhaa kuwa imeuzwa yote.",
+    "common.updateFailed": "Kusasisha kumeshindikana",
+    "profile.phoneRequiredTitle": "Namba ya simu inahitajika",
+    "profile.phoneRequiredBody": "Weka namba halali ya WhatsApp yenye tarakimu 10 hadi 15.",
+    "profile.noChangesTitle": "Hakuna mabadiliko",
+    "profile.noChangesBody": "Namba mpya ni sawa na namba ya sasa.",
+    "profile.phoneUpdatedTitle": "Namba imesasishwa",
+    "profile.phoneUpdatedBody": "Namba yako ya WhatsApp imehifadhiwa na kusasishwa mara moja.",
+    "profile.phoneUpdateFailedBody": "Imeshindikana kuhifadhi namba yako ya WhatsApp.",
+    "profile.paymentNumberRequiredTitle": "Namba ya malipo inahitajika",
+    "profile.paymentNumberRequiredBody": "Weka namba halali ya malipo yenye tarakimu 8 hadi 20.",
+    "profile.recipientRequiredTitle": "Jina la mpokeaji linahitajika",
+    "profile.recipientRequiredBody": "Weka jina la mpokeaji wa malipo.",
+    "profile.paymentSavedTitle": "Taarifa za malipo zimehifadhiwa",
+    "profile.paymentSavedBody": "Wanunuzi sasa wanaweza kuona namba yako ya malipo kwenye bidhaa na chat.",
+    "profile.paymentSaveFailedBody": "Imeshindikana kuhifadhi taarifa za malipo.",
+    "session.passwordRequiredTitle": "Nenosiri linahitajika",
+    "session.passwordRequiredBody": "Weka nenosiri lako kuthibitisha session hii.",
+    "session.verifiedTitle": "Session imethibitishwa",
+    "session.verifiedBody": "Ukaguzi wa usalama umekamilika.",
+    "session.verificationFailedTitle": "Uthibitishaji umeshindikana",
+    "session.verificationFailedBody": "Nenosiri halikuweza kuthibitishwa.",
+    "session.revokedTitle": "Session imefungwa",
+    "session.revokedBody": "Session ya kifaa imefungwa.",
+    "session.revokeFailedTitle": "Kufunga session kumeshindikana",
+    "session.revokeFailedBody": "Session haikuweza kufungwa."
   }
 }

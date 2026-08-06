@@ -2991,6 +2991,10 @@ test("global translation catalogs are versioned, validated, cached, and fail sof
   assert.match(chatControllerSource, /order\.paymentRejectedSuccess/);
   assert.match(chatControllerSource, /product\.soldOutConfirm/);
   assert.match(chatControllerSource, /typeof deps\.translate === "function"/);
+  const profileControllerSource = fs.readFileSync(path.join(__dirname, "..", "src", "profile", "controller.js"), "utf8");
+  assert.match(profileControllerSource, /profile\.paymentNumberRequiredTitle/);
+  assert.match(profileControllerSource, /session\.revokeFailedBody/);
+  assert.match(profileControllerSource, /typeof deps\.translate === "function"/);
   assert.match(sessionSource, /translate\("auth\.staffSessionExpired"/);
   assert.match(runtimeSource, /Promise\.allSettled/);
   assert.match(runtimeSource, /catalogRequests = new Map/);

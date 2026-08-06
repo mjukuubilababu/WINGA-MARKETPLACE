@@ -11148,6 +11148,7 @@ const {
   saveSessionUser: () => saveSessionUser(currentSession),
   renderHeaderUserMenu,
   showInAppNotification,
+  translate: translateUi,
   confirmAction,
   dataLayer: window.WingaDataLayer,
   reportEvent: (...args) => reportClientEvent(...args),

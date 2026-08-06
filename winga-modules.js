@@ -17188,6 +17188,10 @@ window.WingaModules.localization = window.WingaModules.localization || {};
   function createProfileControllerModule(deps) {
     let renderSequence = 0;
     const sellerProductPagination = new Map();
+    const translate = typeof deps.translate === "function"
+      ? deps.translate
+      : (_key, _variables, fallbackText = "") => String(fallbackText || "");
+    const t = (key, fallbackText = "", variables = {}) => translate(key, variables, fallbackText);
 
     function isRenderActive(sequence) {
       if (sequence !== renderSequence) {
@@ -17234,8 +17238,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           const nextWhatsappNumber = deps.normalizePhoneNumber?.(input?.value || "") || "";
           if (!/^\d{10,15}$/.test(nextWhatsappNumber)) {
             deps.showInAppNotification?.({
-              title: "Phone number required",
-              body: "Weka namba ya WhatsApp sahihi yenye tarakimu 10 hadi 15.",
+              title: t("profile.phoneRequiredTitle", "Phone number required"),
+              body: t("profile.phoneRequiredBody", "Weka namba ya WhatsApp sahihi yenye tarakimu 10 hadi 15."),
               variant: "warning"
             });
             return;
@@ -17246,8 +17250,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           ) || "";
           if (nextWhatsappNumber === currentPhone && nextWhatsappNumber === deps.normalizePhoneNumber?.(deps.getCurrentSession?.()?.whatsappNumber || "")) {
             deps.showInAppNotification?.({
-              title: "No changes",
-              body: "Namba mpya ni sawa na ile ya sasa.",
+              title: t("profile.noChangesTitle", "No changes"),
+              body: t("profile.noChangesBody", "Namba mpya ni sawa na ile ya sasa."),
               variant: "info"
             });
             return;
@@ -17272,8 +17276,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             deps.refreshProductsFromStore?.();
             deps.renderCurrentView?.();
             deps.showInAppNotification?.({
-              title: "Number updated",
-              body: "Namba yako ya WhatsApp imehifadhiwa na imesasishwa papo hapo.",
+              title: t("profile.phoneUpdatedTitle", "Number updated"),
+              body: t("profile.phoneUpdatedBody", "Namba yako ya WhatsApp imehifadhiwa na imesasishwa papo hapo."),
               variant: "success"
             });
             renderProfile();
@@ -17282,8 +17286,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
               user: deps.getCurrentUser()
             });
             deps.showInAppNotification?.({
-              title: "Update failed",
-              body: error.message || "Imeshindikana kuhifadhi namba ya WhatsApp.",
+              title: t("common.updateFailed", "Update failed"),
+              body: error.message || t("profile.phoneUpdateFailedBody", "Imeshindikana kuhifadhi namba ya WhatsApp."),
               variant: "error"
             });
           } finally {
@@ -17384,8 +17388,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           if (!paymentNumber || !/^\d{8,20}$/.test(paymentNumber)) {
             setPaymentStatus("error", "Weka Lipa namba sahihi yenye tarakimu 8 hadi 20.");
             deps.showInAppNotification?.({
-              title: "Lipa namba required",
-              body: "Weka Lipa namba sahihi yenye tarakimu 8 hadi 20.",
+              title: t("profile.paymentNumberRequiredTitle", "Lipa namba required"),
+              body: t("profile.paymentNumberRequiredBody", "Weka Lipa namba sahihi yenye tarakimu 8 hadi 20."),
               variant: "warning"
             });
             return;
@@ -17394,8 +17398,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           if (!paymentRecipientName || paymentRecipientName.length < 2) {
             setPaymentStatus("error", "Weka jina la mpokeaji wa malipo.");
             deps.showInAppNotification?.({
-              title: "Recipient required",
-              body: "Weka jina la mpokeaji wa malipo.",
+              title: t("profile.recipientRequiredTitle", "Recipient required"),
+              body: t("profile.recipientRequiredBody", "Weka jina la mpokeaji wa malipo."),
               variant: "warning"
             });
             return;
@@ -17421,8 +17425,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             deps.renderHeaderUserMenu();
             deps.renderCurrentView?.();
             deps.showInAppNotification?.({
-              title: "Lipa details saved",
-              body: "Buyer sasa ataona Lipa namba yako kwenye product detail na chat flow.",
+              title: t("profile.paymentSavedTitle", "Lipa details saved"),
+              body: t("profile.paymentSavedBody", "Buyer sasa ataona Lipa namba yako kwenye product detail na chat flow."),
               variant: "success"
             });
             renderProfile();
@@ -17432,8 +17436,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
               user: deps.getCurrentUser()
             });
             deps.showInAppNotification?.({
-              title: "Update failed",
-              body: error.message || "Imeshindikana kuhifadhi Lipa details.",
+              title: t("common.updateFailed", "Update failed"),
+              body: error.message || t("profile.paymentSaveFailedBody", "Imeshindikana kuhifadhi Lipa details."),
               variant: "error"
             });
           } finally {
@@ -17532,8 +17536,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           const password = String(input?.value || "");
           if (!password) {
             deps.showInAppNotification?.({
-              title: "Password required",
-              body: "Weka password kuthibitisha session.",
+              title: t("session.passwordRequiredTitle", "Password required"),
+              body: t("session.passwordRequiredBody", "Weka password kuthibitisha session."),
               variant: "warning"
             });
             return;
@@ -17543,16 +17547,16 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           try {
             await deps.dataLayer.verifySessionStepUp(password);
             deps.showInAppNotification?.({
-              title: "Session verified",
-              body: "Security check imekamilika.",
+              title: t("session.verifiedTitle", "Session verified"),
+              body: t("session.verifiedBody", "Security check imekamilika."),
               variant: "success"
             });
             input.value = "";
             await loadProfileSessionSecurity(sequence);
           } catch (error) {
             deps.showInAppNotification?.({
-              title: "Verification failed",
-              body: error.message || "Password haikuthibitishwa.",
+              title: t("session.verificationFailedTitle", "Verification failed"),
+              body: error.message || t("session.verificationFailedBody", "Password haikuthibitishwa."),
               variant: "error"
             });
           } finally {
@@ -17580,16 +17584,16 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           try {
             await deps.dataLayer.revokeActiveSession(sessionId);
             deps.showInAppNotification?.({
-              title: "Session revoked",
-              body: "Device session imefungwa.",
+              title: t("session.revokedTitle", "Session revoked"),
+              body: t("session.revokedBody", "Device session imefungwa."),
               variant: "success"
             });
             await loadProfileSessionSecurity(sequence);
           } catch (error) {
             target.disabled = false;
             deps.showInAppNotification?.({
-              title: "Revoke failed",
-              body: error.message || "Session haikuweza kufungwa.",
+              title: t("session.revokeFailedTitle", "Revoke failed"),
+              body: error.message || t("session.revokeFailedBody", "Session haikuweza kufungwa."),
               variant: "error"
             });
           }

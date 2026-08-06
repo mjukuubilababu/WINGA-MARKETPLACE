@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2026.08.06.3",
+  "version": "2026.08.06.4",
   "locale": "en",
   "messages": {
     "auth.close": "Close authentication",
@@ -161,6 +161,31 @@
     "product.soldOutSuccess": "The product was marked sold out.",
     "product.updatedTitle": "Product updated",
     "product.soldOutFailedTitle": "Sold-out update failed",
-    "product.soldOutFailedBody": "We could not mark the product sold out."
+    "product.soldOutFailedBody": "We could not mark the product sold out.",
+    "common.updateFailed": "Update failed",
+    "profile.phoneRequiredTitle": "Phone number required",
+    "profile.phoneRequiredBody": "Enter a valid WhatsApp number with 10 to 15 digits.",
+    "profile.noChangesTitle": "No changes",
+    "profile.noChangesBody": "The new number is the same as the current number.",
+    "profile.phoneUpdatedTitle": "Number updated",
+    "profile.phoneUpdatedBody": "Your WhatsApp number was saved and updated immediately.",
+    "profile.phoneUpdateFailedBody": "We could not save your WhatsApp number.",
+    "profile.paymentNumberRequiredTitle": "Payment number required",
+    "profile.paymentNumberRequiredBody": "Enter a valid payment number with 8 to 20 digits.",
+    "profile.recipientRequiredTitle": "Recipient required",
+    "profile.recipientRequiredBody": "Enter the payment recipient name.",
+    "profile.paymentSavedTitle": "Payment details saved",
+    "profile.paymentSavedBody": "Buyers can now see your payment number in product details and chat.",
+    "profile.paymentSaveFailedBody": "We could not save your payment details.",
+    "session.passwordRequiredTitle": "Password required",
+    "session.passwordRequiredBody": "Enter your password to verify this session.",
+    "session.verifiedTitle": "Session verified",
+    "session.verifiedBody": "The security check is complete.",
+    "session.verificationFailedTitle": "Verification failed",
+    "session.verificationFailedBody": "The password could not be verified.",
+    "session.revokedTitle": "Session revoked",
+    "session.revokedBody": "The device session was closed.",
+    "session.revokeFailedTitle": "Revoke failed",
+    "session.revokeFailedBody": "The session could not be closed."
   }
 }
