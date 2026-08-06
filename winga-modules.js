@@ -17619,8 +17619,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 
       if (fullName.length < 3) {
         deps.showInAppNotification?.({
-          title: "Store name required",
-          body: "Jina la duka linahitajika kabla ya kuendelea.",
+          title: t("profile.storeNameRequiredTitle", "Store name required"),
+          body: t("profile.storeNameRequiredBody", "Jina la duka linahitajika kabla ya kuendelea."),
           variant: "warning"
         });
         return;
@@ -17628,8 +17628,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 
       if (!phoneNumber) {
         deps.showInAppNotification?.({
-          title: "Phone required",
-          body: "Weka namba ya simu kabla ya kuendelea.",
+          title: t("profile.sellerPhoneRequiredTitle", "Phone required"),
+          body: t("profile.sellerPhoneRequiredBody", "Weka namba ya simu kabla ya kuendelea."),
           variant: "warning"
         });
         return;
@@ -17637,8 +17637,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 
       if (!/^\+?[0-9][0-9\s-]{7,19}$/.test(phoneNumber)) {
         deps.showInAppNotification?.({
-          title: "Phone required",
-          body: "Weka namba ya simu sahihi.",
+          title: t("profile.sellerPhoneRequiredTitle", "Phone required"),
+          body: t("profile.sellerPhoneInvalidBody", "Weka namba ya simu sahihi."),
           variant: "warning"
         });
         return;
@@ -17646,8 +17646,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 
       if (primaryCategory && primaryCategory.length < 2) {
         deps.showInAppNotification?.({
-          title: "Category required",
-          body: "Category ya seller si sahihi.",
+          title: t("profile.sellerCategoryRequiredTitle", "Category required"),
+          body: t("profile.sellerCategoryRequiredBody", "Category ya seller si sahihi."),
           variant: "warning"
         });
         return;
@@ -17673,8 +17673,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         deps.saveSessionUser();
         deps.renderHeaderUserMenu();
         deps.showInAppNotification?.({
-          title: "Seller upgrade complete",
-          body: "Akaunti yako sasa ni seller. Bila kutoka profile, unaweza kuanza kuuza.",
+          title: t("profile.sellerUpgradeCompleteTitle", "Seller upgrade complete"),
+          body: t("profile.sellerUpgradeCompleteBody", "Akaunti yako sasa ni seller. Bila kutoka profile, unaweza kuanza kuuza."),
           variant: "success"
         });
         deps.renderCurrentView?.();
@@ -17683,8 +17683,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           user: deps.getCurrentUser()
         });
         deps.showInAppNotification?.({
-          title: "Seller upgrade failed",
-          body: error.message || "Imeshindikana kuupgrade account kwa sasa.",
+          title: t("profile.sellerUpgradeFailedTitle", "Seller upgrade failed"),
+          body: error.message || t("profile.sellerUpgradeFailedBody", "Imeshindikana kuupgrade account kwa sasa."),
           variant: "error"
         });
       } finally {
@@ -17828,7 +17828,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           }
           deps.validateSingleImageFile(file, "Profile photo");
           if (statusNode) {
-            statusNode.textContent = "Tunapakia profile photo...";
+            statusNode.textContent = t("profile.photoUploadingStatus", "Tunapakia profile photo...");
           }
           const profileImage = await deps.readFileAsDataUrl(file, { purpose: "profile" });
           const updatedUser = await deps.dataLayer.updateUserProfile({ profileImage });
@@ -17839,11 +17839,11 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           deps.saveSessionUser();
           deps.renderHeaderUserMenu();
           if (statusNode) {
-            statusNode.textContent = "Profile photo imehifadhiwa.";
+            statusNode.textContent = t("profile.photoSavedStatus", "Profile photo imehifadhiwa.");
           }
           deps.showInAppNotification?.({
-            title: "Profile photo updated",
-            body: "Picha yako mpya imehifadhiwa.",
+            title: t("profile.photoUpdatedTitle", "Profile photo updated"),
+            body: t("profile.photoUpdatedBody", "Picha yako mpya imehifadhiwa."),
             variant: "success",
             durationMs: 3200
           });
@@ -17853,11 +17853,11 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             user: deps.getCurrentUser()
           });
           if (statusNode) {
-            statusNode.textContent = "Profile photo ni optional. Ukikosa, initials zitaendelea kuonekana.";
+            statusNode.textContent = t("profile.photoOptionalStatus", "Profile photo ni optional. Ukikosa, initials zitaendelea kuonekana.");
           }
           deps.showInAppNotification?.({
-            title: "Profile photo failed",
-            body: error.message || "Imeshindikana kuhifadhi profile photo.",
+            title: t("profile.photoFailedTitle", "Profile photo failed"),
+            body: error.message || t("profile.photoFailedBody", "Imeshindikana kuhifadhi profile photo."),
             variant: "error"
           });
         } finally {
@@ -17948,8 +17948,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             });
             deps.renderAnalyticsPanel(null, "Performance Yako", "Muhtasari wa catalog yako");
             deps.showInAppNotification?.({
-              title: "Analytics unavailable",
-              body: "Performance yako haijapatikana kwa sasa. Tunaonyesha fallback salama.",
+              title: t("profile.analyticsUnavailableTitle", "Analytics unavailable"),
+              body: t("profile.analyticsUnavailableBody", "Performance yako haijapatikana kwa sasa. Tunaonyesha fallback salama."),
               variant: "warning",
               durationMs: 4200
             });
@@ -17976,8 +17976,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           document.getElementById("profile-orders-panel")?.replaceWith(deps.createOrdersContainerFromState());
           deps.bindMessageActions(profileDiv);
           deps.showInAppNotification?.({
-            title: "Orders unavailable",
-            body: "Orders hazikupatikana kwa sasa. Jaribu tena baada ya muda mfupi.",
+            title: t("profile.ordersUnavailableTitle", "Orders unavailable"),
+            body: t("profile.ordersUnavailableBody", "Orders hazikupatikana kwa sasa. Jaribu tena baada ya muda mfupi."),
             variant: "warning",
             durationMs: 4200
           });
@@ -18005,8 +18005,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           deps.syncActiveChatContext();
           deps.replaceMessagesPanel(profileDiv);
           deps.showInAppNotification?.({
-            title: "Messages unavailable",
-            body: "Inbox haikuweza ku-refresh kwa sasa.",
+            title: t("profile.messagesUnavailableTitle", "Messages unavailable"),
+            body: t("profile.messagesUnavailableBody", "Inbox haikuweza ku-refresh kwa sasa."),
             variant: "warning",
             durationMs: 4200
           });
@@ -18034,8 +18034,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           document.getElementById("profile-notifications-panel")?.replaceWith(deps.createNotificationsContainerFromState());
           deps.bindMessageActions(profileDiv);
           deps.showInAppNotification?.({
-            title: "Notifications unavailable",
-            body: "Notifications hazikupatikana kwa sasa.",
+            title: t("profile.notificationsUnavailableTitle", "Notifications unavailable"),
+            body: t("profile.notificationsUnavailableBody", "Notifications hazikupatikana kwa sasa."),
             variant: "warning",
             durationMs: 4200
           });
@@ -18281,8 +18281,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             : deps.getProducts().find((item) => item.id === productId);
           if (!product) {
             deps.showInAppNotification?.({
-              title: "Promotion unavailable",
-              body: "Bidhaa hii haikupatikana tena. Refresh profile yako ujaribu tena.",
+              title: t("promotion.unavailableTitle", "Promotion unavailable"),
+              body: t("promotion.productUnavailableBody", "Bidhaa hii haikupatikana tena. Refresh profile yako ujaribu tena."),
               variant: "warning"
             });
             return;
@@ -18298,8 +18298,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
               productId: product.id
             });
             deps.showInAppNotification?.({
-              title: "Promotion failed to open",
-              body: error.message || "Imeshindikana kufungua promotion plan. Jaribu tena.",
+              title: t("promotion.openFailedTitle", "Promotion failed to open"),
+              body: error.message || t("promotion.openFailedBody", "Imeshindikana kufungua promotion plan. Jaribu tena."),
               variant: "error"
             });
           }

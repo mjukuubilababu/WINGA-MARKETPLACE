@@ -3186,6 +3186,28 @@ test("account recovery relay queues signed OTP delivery without joining the fron
   assert.doesNotMatch(relayConfig, /name = "mkubwa"/);
 });
 
+test("global profile recovery and seller states use complete locale catalogs", () => {
+  const root = path.resolve(__dirname, "..");
+  const languages = ["en", "sw", "fr", "ar"];
+  const requiredKeys = [
+    "profile.storeNameRequiredTitle",
+    "profile.sellerUpgradeCompleteTitle",
+    "profile.photoUpdatedTitle",
+    "profile.analyticsUnavailableTitle",
+    "profile.ordersUnavailableTitle",
+    "profile.messagesUnavailableTitle",
+    "profile.notificationsUnavailableTitle",
+    "promotion.unavailableTitle",
+    "promotion.openFailedTitle"
+  ];
+  const controllerSource = fs.readFileSync(path.join(root, "src", "profile", "controller.js"), "utf8");
+  for (const language of languages) {
+    const catalog = JSON.parse(fs.readFileSync(path.join(root, "src", "localization", "catalogs", language + ".json"), "utf8"));
+    for (const key of requiredKeys) assert.equal(typeof catalog.messages[key], "string", language + " missing " + key);
+  }
+  for (const key of requiredKeys) assert.match(controllerSource, new RegExp(key.replace(/[.]/g, "\\.")));
+});
+
 test("browser session state does not persist or propagate auth tokens", () => {
   const root = path.resolve(__dirname, "..");
   const dataSource = fs.readFileSync(path.join(root, "data-service.js"), "utf8");
