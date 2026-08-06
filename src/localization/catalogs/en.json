@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2026.07.27.2",
+  "version": "2026.08.06.1",
   "locale": "en",
   "messages": {
     "auth.close": "Close authentication",
@@ -88,6 +88,30 @@
     "purchase.negotiatedPriceTitle": "Price by agreement",
     "purchase.negotiatedPriceBody": "This product has no public price. Message the seller and agree on a price before ordering.",
     "purchase.paymentNumberMissingTitle": "Payment number unavailable",
-    "purchase.paymentNumberMissingBody": "The seller has not added a payment number. Message the seller first."
+    "purchase.paymentNumberMissingBody": "The seller has not added a payment number. Message the seller first.",
+    "trust.close": "Close report flow",
+    "trust.heading": "Trust & Safety",
+    "trust.reportListing": "Report this listing",
+    "trust.reviewHelp": "Help Winga review suspicious marketplace behavior.",
+    "trust.detailsPlaceholder": "Share short details to help us review this safely.",
+    "trust.submitting": "Submitting...",
+    "trust.submit": "Submit report",
+    "trust.reportFailedTitle": "Report failed",
+    "trust.reportFailedBody": "We could not submit your report right now.",
+    "trust.reportSubmittedTitle": "Report submitted",
+    "trust.reportSubmittedBody": "Thank you. The Winga team will review this report safely.",
+    "trust.signInTitle": "Sign in to report safely",
+    "trust.signInBody": "Create or sign in to an account so Winga can review safety reports properly.",
+    "trust.buyerAccessTitle": "Buyer access needed",
+    "trust.buyerAccessBody": "Reporting is available on buyer-enabled accounts only.",
+    "trust.reportProduct": "Report this product",
+    "trust.reportProductSubtitle": "Help Winga review {seller}'s listing safely.",
+    "trust.reportSeller": "Report this seller",
+    "trust.reportSellerSubtitle": "Winga will review this seller account for fraud, abuse, or misleading behavior.",
+    "trust.reason.fakeItem": "Fake or misleading item",
+    "trust.reason.unsafe": "Unsafe or suspicious",
+    "trust.reason.wrongPhotos": "Wrong photos or details",
+    "trust.reason.abuse": "Abuse or harassment",
+    "trust.reason.other": "Other concern"
   }
 }

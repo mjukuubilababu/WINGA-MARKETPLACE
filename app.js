@@ -9584,11 +9584,11 @@ async function handleShareCollection(options = {}) {
 }
 
 const TRUST_REPORT_REASON_OPTIONS = [
-  { id: "fake_item", label: "Fake or misleading item" },
-  { id: "unsafe", label: "Unsafe or suspicious" },
-  { id: "wrong_photos", label: "Wrong photos or details" },
-  { id: "abuse", label: "Abuse or harassment" },
-  { id: "other", label: "Other concern" }
+  { id: "fake_item", canonicalLabel: "Fake or misleading item", translationKey: "trust.reason.fakeItem" },
+  { id: "unsafe", canonicalLabel: "Unsafe or suspicious", translationKey: "trust.reason.unsafe" },
+  { id: "wrong_photos", canonicalLabel: "Wrong photos or details", translationKey: "trust.reason.wrongPhotos" },
+  { id: "abuse", canonicalLabel: "Abuse or harassment", translationKey: "trust.reason.abuse" },
+  { id: "other", canonicalLabel: "Other concern", translationKey: "trust.reason.other" }
 ];
 
 let trustReportState = {
@@ -9647,7 +9647,7 @@ function ensureTrustReportModal() {
   root.innerHTML = `
     <div class="trust-report-backdrop" data-close-trust-report="true"></div>
     <div class="trust-report-dialog panel" role="dialog" aria-modal="true" aria-labelledby="trust-report-title">
-      <button class="trust-report-close" type="button" aria-label="Close report flow" data-close-trust-report="true">&times;</button>
+      <button class="trust-report-close" type="button" aria-label="${escapeHtml(translateUi("trust.close", {}, "Close report flow"))}" data-close-trust-report="true">&times;</button>
       <div class="trust-report-body" data-trust-report-body="true"></div>
     </div>
   `;
@@ -9670,8 +9670,8 @@ function ensureTrustReportModal() {
           targetProductId: trustReportState.targetProductId
         });
         showInAppNotification({
-          title: "Report failed",
-          body: error.message || "Imeshindikana kutuma report yako kwa sasa.",
+          title: translateUi("trust.reportFailedTitle", {}, "Report failed"),
+          body: error.message || translateUi("trust.reportFailedBody", {}, "Imeshindikana kutuma report yako kwa sasa."),
           variant: "error"
         });
         trustReportState.loading = false;
@@ -10387,14 +10387,14 @@ function renderTrustReportModal() {
   }
   const wrapper = createElement("div", { className: "trust-report-shell" });
   wrapper.append(
-    createElement("p", { className: "eyebrow", textContent: "Trust & Safety" }),
+    createElement("p", { className: "eyebrow", textContent: translateUi("trust.heading", {}, "Trust & Safety") }),
     createElement("h3", {
-      textContent: trustReportState.title || "Report this listing",
+      textContent: trustReportState.title || translateUi("trust.reportListing", {}, "Report this listing"),
       attributes: { id: "trust-report-title" }
     }),
     createElement("p", {
       className: "product-meta",
-      textContent: trustReportState.subtitle || "Help Winga review suspicious marketplace behavior."
+      textContent: trustReportState.subtitle || translateUi("trust.reviewHelp", {}, "Help Winga review suspicious marketplace behavior.")
     })
   );
 
@@ -10402,7 +10402,7 @@ function renderTrustReportModal() {
   TRUST_REPORT_REASON_OPTIONS.forEach((option) => {
     reasons.appendChild(createElement("button", {
       className: `trust-report-reason-chip${trustReportState.reason === option.id ? " active" : ""}`,
-      textContent: option.label,
+      textContent: translateUi(option.translationKey, {}, option.canonicalLabel),
       attributes: {
         type: "button",
         "data-trust-report-reason": option.id
@@ -10416,14 +10416,16 @@ function renderTrustReportModal() {
       id: "trust-report-description",
       rows: "4",
       maxlength: "500",
-      placeholder: "Share short details to help review this safely."
+      placeholder: translateUi("trust.detailsPlaceholder", {}, "Share short details to help review this safely.")
     }
   });
 
   const footer = createElement("div", { className: "trust-report-actions" });
   const submitButton = createElement("button", {
     className: "action-btn buy-btn",
-    textContent: trustReportState.loading ? "Submitting..." : "Submit report",
+    textContent: trustReportState.loading
+      ? translateUi("trust.submitting", {}, "Submitting...")
+      : translateUi("trust.submit", {}, "Submit report"),
     attributes: {
       type: "button",
       "data-submit-trust-report": "true"
@@ -10437,7 +10439,7 @@ function renderTrustReportModal() {
     submitButton,
     createElement("button", {
       className: "action-btn action-btn-secondary",
-      textContent: "Cancel",
+      textContent: translateUi("common.cancel", {}, "Cancel"),
       attributes: {
         type: "button",
         "data-close-trust-report": "true"
@@ -10462,12 +10464,12 @@ async function submitTrustReport() {
     targetType: trustReportState.targetType,
     targetUserId: trustReportState.targetType === "user" ? trustReportState.targetUserId : "",
     targetProductId: trustReportState.targetType === "product" ? trustReportState.targetProductId : "",
-    reason: chosenReason?.label || "Other concern",
+    reason: chosenReason?.canonicalLabel || "Other concern",
     description: description || "User submitted a trust and safety report."
   });
   showInAppNotification({
-    title: "Report submitted",
-    body: "Asante. Winga team ita-review report hii kwa usalama.",
+    title: translateUi("trust.reportSubmittedTitle", {}, "Report submitted"),
+    body: translateUi("trust.reportSubmittedBody", {}, "Asante. Winga team ita-review report hii kwa usalama."),
     variant: "success"
   });
   closeTrustReportModal();
@@ -10478,15 +10480,15 @@ function openTrustReportModal(config = {}) {
     promptGuestAuth({
       preferredMode: "signup",
       role: "buyer",
-      title: "Sign in to report safely",
-      message: "Open an account first so Winga can track and review safety reports properly."
+      title: translateUi("trust.signInTitle", {}, "Sign in to report safely"),
+      message: translateUi("trust.signInBody", {}, "Open an account first so Winga can review safety reports properly.")
     });
     return;
   }
   if (!canUseBuyerFeatures()) {
     showInAppNotification({
-      title: "Buyer access needed",
-      body: "Reporting is available on buyer-enabled accounts only.",
+      title: translateUi("trust.buyerAccessTitle", {}, "Buyer access needed"),
+      body: translateUi("trust.buyerAccessBody", {}, "Reporting is available on buyer-enabled accounts only."),
       variant: "warning"
     });
     return;
@@ -10496,8 +10498,8 @@ function openTrustReportModal(config = {}) {
     targetUserId: config.targetUserId || "",
     targetProductId: config.targetProductId || "",
     reason: "fake_item",
-    title: config.title || "Report this listing",
-    subtitle: config.subtitle || "Tell Winga what looks unsafe or misleading.",
+    title: config.title || translateUi("trust.reportListing", {}, "Report this listing"),
+    subtitle: config.subtitle || translateUi("trust.reviewHelp", {}, "Tell Winga what looks unsafe or misleading."),
     loading: false
   };
   renderTrustReportModal();
@@ -10648,8 +10650,8 @@ function bindTrustReportEntryActions() {
       openTrustReportModal({
         targetType: "product",
         targetProductId: product.id,
-        title: "Report this product",
-        subtitle: `Help Winga review ${getUserDisplayName(product.uploadedBy, { fallback: product.shop || product.uploadedBy || "this seller" })}'s listing safely.`
+        title: translateUi("trust.reportProduct", {}, "Report this product"),
+        subtitle: translateUi("trust.reportProductSubtitle", { seller: getUserDisplayName(product.uploadedBy, { fallback: product.shop || product.uploadedBy || "this seller" }) }, "Help Winga review this listing safely.")
       });
       return;
     }
@@ -10667,8 +10669,8 @@ function bindTrustReportEntryActions() {
         targetType: "user",
         targetUserId: username,
         targetProductId: productContext,
-        title: "Report this seller",
-        subtitle: `Winga will review the seller account for fraud, abuse, or misleading behavior.`
+        title: translateUi("trust.reportSeller", {}, "Report this seller"),
+        subtitle: translateUi("trust.reportSellerSubtitle", {}, "Winga will review the seller account for fraud, abuse, or misleading behavior.")
       });
     }
   }, true);

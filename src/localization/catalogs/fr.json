@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2026.07.27.2",
+  "version": "2026.08.06.1",
   "locale": "fr",
   "messages": {
     "auth.close": "Fermer l’authentification",
@@ -88,6 +88,30 @@
     "purchase.negotiatedPriceTitle": "Prix à convenir",
     "purchase.negotiatedPriceBody": "Ce produit n’a pas de prix public. Discutez avec le vendeur avant de commander.",
     "purchase.paymentNumberMissingTitle": "Numéro de paiement indisponible",
-    "purchase.paymentNumberMissingBody": "Le vendeur n’a pas ajouté de numéro de paiement. Envoyez-lui d’abord un message."
+    "purchase.paymentNumberMissingBody": "Le vendeur n’a pas ajouté de numéro de paiement. Envoyez-lui d’abord un message.",
+    "trust.close": "Fermer le signalement",
+    "trust.heading": "Confiance et sécurité",
+    "trust.reportListing": "Signaler cette annonce",
+    "trust.reviewHelp": "Aidez Winga à examiner un comportement suspect sur la marketplace.",
+    "trust.detailsPlaceholder": "Ajoutez quelques détails pour faciliter un examen sûr.",
+    "trust.submitting": "Envoi en cours...",
+    "trust.submit": "Envoyer le signalement",
+    "trust.reportFailedTitle": "Échec du signalement",
+    "trust.reportFailedBody": "Impossible d’envoyer votre signalement pour le moment.",
+    "trust.reportSubmittedTitle": "Signalement envoyé",
+    "trust.reportSubmittedBody": "Merci. L’équipe Winga examinera ce signalement en toute sécurité.",
+    "trust.signInTitle": "Connectez-vous pour signaler en toute sécurité",
+    "trust.signInBody": "Créez un compte ou connectez-vous afin que Winga puisse traiter correctement les signalements.",
+    "trust.buyerAccessTitle": "Accès acheteur nécessaire",
+    "trust.buyerAccessBody": "Le signalement est réservé aux comptes autorisés à acheter.",
+    "trust.reportProduct": "Signaler ce produit",
+    "trust.reportProductSubtitle": "Aidez Winga à examiner en toute sécurité l’annonce de {seller}.",
+    "trust.reportSeller": "Signaler ce vendeur",
+    "trust.reportSellerSubtitle": "Winga examinera ce compte pour fraude, abus ou comportement trompeur.",
+    "trust.reason.fakeItem": "Article faux ou trompeur",
+    "trust.reason.unsafe": "Dangereux ou suspect",
+    "trust.reason.wrongPhotos": "Photos ou informations incorrectes",
+    "trust.reason.abuse": "Abus ou harcèlement",
+    "trust.reason.other": "Autre problème"
   }
 }

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2026.07.27.2",
+  "version": "2026.08.06.1",
   "locale": "sw",
   "messages": {
     "auth.close": "Funga uthibitishaji",
@@ -88,6 +88,30 @@
     "purchase.negotiatedPriceTitle": "Bei kwa maelewano",
     "purchase.negotiatedPriceBody": "Bidhaa hii haina bei ya wazi. Zungumza na muuzaji na mkubaliane bei kabla ya kuagiza.",
     "purchase.paymentNumberMissingTitle": "Namba ya malipo haipatikani",
-    "purchase.paymentNumberMissingBody": "Muuzaji hajaweka namba ya malipo. Mtumie ujumbe kwanza."
+    "purchase.paymentNumberMissingBody": "Muuzaji hajaweka namba ya malipo. Mtumie ujumbe kwanza.",
+    "trust.close": "Funga sehemu ya kuripoti",
+    "trust.heading": "Uaminifu na Usalama",
+    "trust.reportListing": "Ripoti tangazo hili",
+    "trust.reviewHelp": "Saidia Winga kuchunguza tabia inayotia shaka sokoni.",
+    "trust.detailsPlaceholder": "Eleza kwa kifupi ili tusaidike kuchunguza kwa usalama.",
+    "trust.submitting": "Inatuma...",
+    "trust.submit": "Tuma ripoti",
+    "trust.reportFailedTitle": "Ripoti haijatumwa",
+    "trust.reportFailedBody": "Imeshindikana kutuma ripoti yako kwa sasa.",
+    "trust.reportSubmittedTitle": "Ripoti imetumwa",
+    "trust.reportSubmittedBody": "Asante. Timu ya Winga itaichunguza ripoti hii kwa usalama.",
+    "trust.signInTitle": "Ingia ili kuripoti kwa usalama",
+    "trust.signInBody": "Fungua akaunti au ingia ili Winga iweze kuchunguza ripoti za usalama ipasavyo.",
+    "trust.buyerAccessTitle": "Ufikiaji wa mnunuzi unahitajika",
+    "trust.buyerAccessBody": "Kuripoti kunapatikana kwa akaunti zenye uwezo wa kununua pekee.",
+    "trust.reportProduct": "Ripoti bidhaa hii",
+    "trust.reportProductSubtitle": "Saidia Winga kuchunguza tangazo la {seller} kwa usalama.",
+    "trust.reportSeller": "Ripoti muuzaji huyu",
+    "trust.reportSellerSubtitle": "Winga itachunguza akaunti hii kwa udanganyifu, unyanyasaji au taarifa za kupotosha.",
+    "trust.reason.fakeItem": "Bidhaa bandia au inayopotosha",
+    "trust.reason.unsafe": "Isiyo salama au inayotia shaka",
+    "trust.reason.wrongPhotos": "Picha au maelezo yasiyo sahihi",
+    "trust.reason.abuse": "Unyanyasaji au lugha ya kuudhi",
+    "trust.reason.other": "Tatizo jingine"
   }
 }

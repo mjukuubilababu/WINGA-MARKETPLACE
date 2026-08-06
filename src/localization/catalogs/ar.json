@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2026.07.27.2",
+  "version": "2026.08.06.1",
   "locale": "ar",
   "messages": {
     "auth.close": "إغلاق تسجيل الدخول",
@@ -92,6 +92,30 @@
     "purchase.negotiatedPriceTitle": "السعر بالاتفاق",
     "purchase.negotiatedPriceBody": "لا يوجد سعر معلن لهذا المنتج. راسل البائع واتفقا على السعر قبل الطلب.",
     "purchase.paymentNumberMissingTitle": "رقم الدفع غير متاح",
-    "purchase.paymentNumberMissingBody": "لم يضف البائع رقم دفع. راسل البائع أولاً."
+    "purchase.paymentNumberMissingBody": "لم يضف البائع رقم دفع. راسل البائع أولاً.",
+    "trust.close": "إغلاق نافذة الإبلاغ",
+    "trust.heading": "الثقة والسلامة",
+    "trust.reportListing": "الإبلاغ عن هذا الإعلان",
+    "trust.reviewHelp": "ساعد Winga في مراجعة السلوك المشبوه في السوق.",
+    "trust.detailsPlaceholder": "أضف تفاصيل مختصرة للمساعدة في المراجعة الآمنة.",
+    "trust.submitting": "جارٍ الإرسال...",
+    "trust.submit": "إرسال البلاغ",
+    "trust.reportFailedTitle": "فشل إرسال البلاغ",
+    "trust.reportFailedBody": "تعذر إرسال بلاغك حالياً.",
+    "trust.reportSubmittedTitle": "تم إرسال البلاغ",
+    "trust.reportSubmittedBody": "شكراً لك. سيراجع فريق Winga هذا البلاغ بأمان.",
+    "trust.signInTitle": "سجل الدخول للإبلاغ بأمان",
+    "trust.signInBody": "أنشئ حساباً أو سجل الدخول حتى تتمكن Winga من مراجعة بلاغات السلامة بشكل صحيح.",
+    "trust.buyerAccessTitle": "يلزم حساب مشتري",
+    "trust.buyerAccessBody": "الإبلاغ متاح فقط للحسابات المسموح لها بالشراء.",
+    "trust.reportProduct": "الإبلاغ عن هذا المنتج",
+    "trust.reportProductSubtitle": "ساعد Winga في مراجعة إعلان {seller} بأمان.",
+    "trust.reportSeller": "الإبلاغ عن هذا البائع",
+    "trust.reportSellerSubtitle": "ستراجع Winga هذا الحساب بحثاً عن الاحتيال أو الإساءة أو التضليل.",
+    "trust.reason.fakeItem": "منتج مزيف أو مضلل",
+    "trust.reason.unsafe": "غير آمن أو مشبوه",
+    "trust.reason.wrongPhotos": "صور أو تفاصيل غير صحيحة",
+    "trust.reason.abuse": "إساءة أو تحرش",
+    "trust.reason.other": "مشكلة أخرى"
   }
 }

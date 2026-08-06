@@ -1511,7 +1511,7 @@ test("buyer can report a product from the trust panel without breaking browsing 
   await modal.locator("#trust-report-description").fill("Photos and details do not match what a buyer would expect.");
   await modal.locator("[data-submit-trust-report='true']").click();
 
-  await expect(page.locator("#notification-toast-root")).toContainText("Report submitted");
+  await expect(page.locator("#notification-toast-root")).toContainText(/Report submitted|Ripoti imetumwa/);
   await expect(page.locator("#product-detail-modal")).toBeVisible();
 
   await context.close();
