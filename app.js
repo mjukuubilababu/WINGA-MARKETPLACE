@@ -7159,10 +7159,12 @@ function ensureMediaActionSheetRoot() {
       const nowSaved = toggleSavedProduct(product.id);
       showInAppNotification({
         type: "info",
-        title: nowSaved ? "Imehifadhiwa kwenye Favorites" : "Imeondolewa kwenye Favorites",
+        title: nowSaved
+          ? translateUi("favorite.savedTitle", {}, "Imehifadhiwa kwenye Favorites")
+          : translateUi("favorite.removedTitle", {}, "Imeondolewa kwenye Favorites"),
         body: nowSaved
-          ? `${product.name} sasa ipo tayari kwenye saved picks zako.`
-          : `${product.name} imeondolewa kwenye saved picks zako.`,
+          ? translateUi("favorite.savedBody", { product: product.name }, `${product.name} sasa ipo kwenye bidhaa ulizohifadhi.`)
+          : translateUi("favorite.removedBody", { product: product.name }, `${product.name} imeondolewa kwenye bidhaa ulizohifadhi.`),
         variant: "success",
         durationMs: 2800,
         haptic: nowSaved
@@ -7209,9 +7211,29 @@ function closeMediaActionSheet() {
   syncBodyScrollLockState();
 }
 
+function syncImageLightboxTranslations(root) {
+  if (!root) return;
+  root.querySelector(".image-lightbox-close")?.setAttribute("aria-label", translateUi("gallery.close", {}, "Close image preview"));
+  root.querySelector(".image-lightbox-prev")?.setAttribute("aria-label", translateUi("gallery.previous", {}, "Previous image"));
+  root.querySelector(".image-lightbox-next")?.setAttribute("aria-label", translateUi("gallery.next", {}, "Next image"));
+  const preview = root.querySelector("#image-lightbox-preview");
+  if (preview && !imageLightboxState.alt) preview.alt = translateUi("gallery.preview", {}, "Image preview");
+  const labels = {
+    save: isProductSaved(imageLightboxState.productId) ? translateUi("gallery.saved", {}, "Saved") : translateUi("gallery.save", {}, "Save"),
+    share: translateUi("gallery.share", {}, "Share"),
+    download: translateUi("gallery.download", {}, "Download"),
+    open: translateUi("gallery.openProduct", {}, "Open product")
+  };
+  Object.entries(labels).forEach(([action, label]) => {
+    const button = root.querySelector(`[data-image-lightbox-action='${action}']`);
+    if (button) button.textContent = label;
+  });
+}
+
 function ensureImageLightboxRoot() {
   let root = document.getElementById("image-lightbox");
   if (root) {
+    syncImageLightboxTranslations(root);
     return root;
   }
 
@@ -7220,22 +7242,23 @@ function ensureImageLightboxRoot() {
   root.innerHTML = `
     <div class="image-lightbox-backdrop" data-close-image-lightbox="true"></div>
     <div class="image-lightbox-dialog" role="dialog" aria-modal="true" aria-labelledby="image-lightbox-title">
-      <button class="image-lightbox-close" type="button" aria-label="Close image preview" data-close-image-lightbox="true">&times;</button>
-      <button class="image-lightbox-nav image-lightbox-prev" type="button" aria-label="Previous image" data-image-lightbox-nav="-1">&#10094;</button>
-      <button class="image-lightbox-nav image-lightbox-next" type="button" aria-label="Next image" data-image-lightbox-nav="1">&#10095;</button>
+      <button class="image-lightbox-close" type="button" aria-label="${escapeHtml(translateUi("gallery.close", {}, "Close image preview"))}" data-close-image-lightbox="true">&times;</button>
+      <button class="image-lightbox-nav image-lightbox-prev" type="button" aria-label="${escapeHtml(translateUi("gallery.previous", {}, "Previous image"))}" data-image-lightbox-nav="-1">&#10094;</button>
+      <button class="image-lightbox-nav image-lightbox-next" type="button" aria-label="${escapeHtml(translateUi("gallery.next", {}, "Next image"))}" data-image-lightbox-nav="1">&#10095;</button>
       <div class="image-lightbox-media">
-        <img id="image-lightbox-preview" alt="Image preview" loading="lazy">
+        <img id="image-lightbox-preview" alt="${escapeHtml(translateUi("gallery.preview", {}, "Image preview"))}" loading="lazy">
       </div>
       <p id="image-lightbox-title" class="image-lightbox-caption"></p>
       <div class="image-lightbox-actions" data-image-lightbox-actions hidden>
-        <button class="image-lightbox-action" type="button" data-image-lightbox-action="save">Save</button>
-        <button class="image-lightbox-action" type="button" data-image-lightbox-action="share">Share</button>
-        <button class="image-lightbox-action" type="button" data-image-lightbox-action="download">Download</button>
-        <button class="image-lightbox-action image-lightbox-action-primary" type="button" data-image-lightbox-action="open">Open product</button>
+        <button class="image-lightbox-action" type="button" data-image-lightbox-action="save">${escapeHtml(translateUi("gallery.save", {}, "Save"))}</button>
+        <button class="image-lightbox-action" type="button" data-image-lightbox-action="share">${escapeHtml(translateUi("gallery.share", {}, "Share"))}</button>
+        <button class="image-lightbox-action" type="button" data-image-lightbox-action="download">${escapeHtml(translateUi("gallery.download", {}, "Download"))}</button>
+        <button class="image-lightbox-action image-lightbox-action-primary" type="button" data-image-lightbox-action="open">${escapeHtml(translateUi("gallery.openProduct", {}, "Open product"))}</button>
       </div>
     </div>
   `;
   document.body.appendChild(root);
+  syncImageLightboxTranslations(root);
 
   root.addEventListener("click", (event) => {
     if (event.target.closest("[data-close-image-lightbox='true']")) {
@@ -7264,14 +7287,18 @@ function ensureImageLightboxRoot() {
     const activeSource = imageLightboxState.source || sanitizeImageSource(product.image || "", "");
     if (action === "save") {
       const nowSaved = toggleSavedProduct(product.id);
-      actionButton.textContent = nowSaved ? "Saved" : "Save";
+      actionButton.textContent = nowSaved
+        ? translateUi("gallery.saved", {}, "Saved")
+        : translateUi("gallery.save", {}, "Save");
       actionButton.classList.toggle("is-active", nowSaved);
       showInAppNotification({
         type: "info",
-        title: nowSaved ? "Imehifadhiwa kwenye Favorites" : "Imeondolewa kwenye Favorites",
+        title: nowSaved
+          ? translateUi("favorite.savedTitle", {}, "Imehifadhiwa kwenye Favorites")
+          : translateUi("favorite.removedTitle", {}, "Imeondolewa kwenye Favorites"),
         body: nowSaved
-          ? `${product.name} sasa ipo tayari kwenye saved picks zako.`
-          : `${product.name} imeondolewa kwenye saved picks zako.`,
+          ? translateUi("favorite.savedBody", { product: product.name }, `${product.name} sasa ipo kwenye bidhaa ulizohifadhi.`)
+          : translateUi("favorite.removedBody", { product: product.name }, `${product.name} imeondolewa kwenye bidhaa ulizohifadhi.`),
         variant: "success",
         durationMs: 2400,
         haptic: nowSaved
@@ -7326,7 +7353,7 @@ function syncImageLightboxView() {
   }
 
   preview.src = activeImage;
-  preview.alt = imageLightboxState.alt || "Image preview";
+  preview.alt = imageLightboxState.alt || translateUi("gallery.preview", {}, "Image preview");
   preview.dataset.zoomSrc = activeImage;
   imageLightboxState.source = activeImage;
   caption.textContent = images.length > 1
@@ -7346,12 +7373,14 @@ function syncImageLightboxView() {
   const saveButton = actions.querySelector("[data-image-lightbox-action='save']");
   if (saveButton) {
     const saved = isProductSaved(product.id);
-    saveButton.textContent = saved ? "Saved" : "Save";
+    saveButton.textContent = saved
+      ? translateUi("gallery.saved", {}, "Saved")
+      : translateUi("gallery.save", {}, "Save");
     saveButton.classList.toggle("is-active", saved);
   }
 }
 
-function openImageLightbox(source = "", alt = "Image preview", images = [], context = {}) {
+function openImageLightbox(source = "", alt = "", images = [], context = {}) {
   if (document.body.classList.contains("auth-modal-open")) {
     return;
   }
@@ -7368,7 +7397,7 @@ function openImageLightbox(source = "", alt = "Image preview", images = [], cont
     ? Math.max(0, Math.min(Number(context.startIndex), Math.max(0, resolvedImages.length - 1)))
     : resolvedImages.findIndex((item) => item === resolvedSource);
   imageLightboxState.index = Math.max(0, preferredIndex);
-  imageLightboxState.alt = alt || "Image preview";
+  imageLightboxState.alt = alt || translateUi("gallery.preview", {}, "Image preview");
   imageLightboxState.productId = context.productId || "";
   imageLightboxState.source = resolvedSource;
   imageLightboxState.surface = context.surface || "";
@@ -10534,14 +10563,18 @@ function bindTrustReportEntryActions() {
         return;
       }
       const nowLiked = toggleSavedProduct(productId);
-      likeProductButton.textContent = nowLiked ? "♥ Like" : "♡ Like";
+      likeProductButton.textContent = nowLiked
+        ? translateUi("favorite.likeActive", {}, "\u2665 Like")
+        : translateUi("favorite.likeInactive", {}, "\u2661 Like");
       likeProductButton.classList.toggle("is-active", nowLiked);
       showInAppNotification({
         type: "info",
-        title: nowLiked ? "Imehifadhiwa kwenye Favorites" : "Imeondolewa kwenye Favorites",
+        title: nowLiked
+          ? translateUi("favorite.savedTitle", {}, "Imehifadhiwa kwenye Favorites")
+          : translateUi("favorite.removedTitle", {}, "Imeondolewa kwenye Favorites"),
         body: nowLiked
-          ? "Bidhaa hii itabaki karibu kwa return visits zako."
-          : "Bidhaa hii imeondolewa kwenye favorites zako.",
+          ? translateUi("favorite.productSavedBody", {}, "Bidhaa hii itabaki karibu utakaporudi.")
+          : translateUi("favorite.productRemovedBody", {}, "Bidhaa hii imeondolewa kwenye vipendwa vyako."),
         variant: "success",
         durationMs: 2200
       });
@@ -10556,15 +10589,15 @@ function bindTrustReportEntryActions() {
         promptGuestAuth({
           preferredMode: "signup",
           role: "buyer",
-          title: "Sign in to follow sellers",
-          message: "Create an account first so Winga can save your followed sellers safely."
+          title: translateUi("follow.authTitle", {}, "Sign in to follow sellers"),
+          message: translateUi("follow.authBody", {}, "Create an account first so Winga can save your followed sellers safely.")
         });
         return;
       }
       if (!canUseBuyerFeatures()) {
         showInAppNotification({
-          title: "Buyer access needed",
-          body: "Following sellers is available on buyer-enabled accounts only.",
+          title: translateUi("follow.buyerAccessTitle", {}, "Buyer access needed"),
+          body: translateUi("follow.buyerAccessBody", {}, "Following sellers is available on buyer-enabled accounts only."),
           variant: "warning"
         });
         return;
@@ -10574,16 +10607,20 @@ function bindTrustReportEntryActions() {
         return;
       }
       const nowFollowing = toggleFollowSeller(username);
-      followSellerButton.textContent = nowFollowing ? "Following" : "Follow";
+      followSellerButton.textContent = nowFollowing
+        ? translateUi("follow.active", {}, "Following")
+        : translateUi("follow.inactive", {}, "Follow");
       followSellerButton.classList.toggle("is-active", nowFollowing);
       noteSellerInterest(username, nowFollowing ? 20 : 4, {
         signalType: "message"
       });
       showInAppNotification({
-        title: nowFollowing ? "Seller followed" : "Seller unfollowed",
+        title: nowFollowing
+          ? translateUi("follow.followedTitle", {}, "Seller followed")
+          : translateUi("follow.unfollowedTitle", {}, "Seller unfollowed"),
         body: nowFollowing
-          ? `${getUserDisplayName(username)} ataonekana kwa urahisi kwenye return visits zako.`
-          : `${getUserDisplayName(username)} ameondolewa kwenye followed sellers zako.`,
+          ? translateUi("follow.followedBody", { seller: getUserDisplayName(username) }, `${getUserDisplayName(username)} atakuwa rahisi kumpata utakaporudi.`)
+          : translateUi("follow.unfollowedBody", { seller: getUserDisplayName(username) }, `${getUserDisplayName(username)} ameondolewa kwenye wauzaji unaowafuata.`),
         variant: "success",
         durationMs: 2400
       });

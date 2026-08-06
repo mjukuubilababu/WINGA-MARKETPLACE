@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2026.08.06.9",
+  "version": "2026.08.06.10",
   "locale": "ar",
   "messages": {
     "auth.close": "إغلاق تسجيل الدخول",
@@ -340,6 +340,33 @@
     "feed.loadMoreLoading": "جارٍ تحميل المزيد من المنتجات...",
     "feed.loadMoreUnavailable": "لا تتوفر منتجات إضافية الآن. تم الاحتفاظ بالمنتجات التي شاهدتها.",
     "feed.loadMoreExhausted": "تم تحميل جميع المنتجات الجديدة. واصل استكشاف التوصيات.",
-    "feed.loadMoreEmpty": "لا توجد منتجات جديدة في هذا القسم."
+    "feed.loadMoreEmpty": "لا توجد منتجات جديدة في هذا القسم.",
+    "gallery.close": "إغلاق معاينة الصورة",
+    "gallery.previous": "الصورة السابقة",
+    "gallery.next": "الصورة التالية",
+    "gallery.preview": "معاينة الصورة",
+    "gallery.save": "حفظ",
+    "gallery.saved": "تم الحفظ",
+    "gallery.share": "مشاركة",
+    "gallery.download": "تنزيل",
+    "gallery.openProduct": "فتح المنتج",
+    "favorite.savedTitle": "تم الحفظ في المفضلة",
+    "favorite.removedTitle": "تمت الإزالة من المفضلة",
+    "favorite.savedBody": "أصبح {product} متاحًا الآن ضمن اختياراتك المحفوظة.",
+    "favorite.removedBody": "تمت إزالة {product} من اختياراتك المحفوظة.",
+    "favorite.likeActive": "♥ إعجاب",
+    "favorite.likeInactive": "♡ إعجاب",
+    "favorite.productSavedBody": "سيبقى هذا المنتج قريبًا عند زياراتك القادمة.",
+    "favorite.productRemovedBody": "تمت إزالة هذا المنتج من مفضلتك.",
+    "follow.authTitle": "سجّل الدخول لمتابعة البائعين",
+    "follow.authBody": "أنشئ حسابًا أولًا ليحفظ Winga البائعين الذين تتابعهم بأمان.",
+    "follow.buyerAccessTitle": "يلزم وصول المشتري",
+    "follow.buyerAccessBody": "متابعة البائعين متاحة فقط للحسابات التي تدعم ميزات المشتري.",
+    "follow.active": "تتابع",
+    "follow.inactive": "متابعة",
+    "follow.followedTitle": "تمت متابعة البائع",
+    "follow.unfollowedTitle": "تم إلغاء متابعة البائع",
+    "follow.followedBody": "سيكون العثور على {seller} أسهل عند زياراتك القادمة.",
+    "follow.unfollowedBody": "تمت إزالة {seller} من البائعين الذين تتابعهم."
   }
 }

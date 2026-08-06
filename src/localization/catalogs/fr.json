@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2026.08.06.9",
+  "version": "2026.08.06.10",
   "locale": "fr",
   "messages": {
     "auth.close": "Fermer l’authentification",
@@ -336,6 +336,33 @@
     "feed.loadMoreLoading": "Chargement de produits supplémentaires...",
     "feed.loadMoreUnavailable": "Aucun autre produit ne se trouve disponible pour le moment. Les produits déjà vus sont conservés.",
     "feed.loadMoreExhausted": "Tous les nouveaux produits sont chargés. Continuez à explorer les recommandations.",
-    "feed.loadMoreEmpty": "Aucun nouveau produit dans cette section."
+    "feed.loadMoreEmpty": "Aucun nouveau produit dans cette section.",
+    "gallery.close": "Fermer l’aperçu de l’image",
+    "gallery.previous": "Image précédente",
+    "gallery.next": "Image suivante",
+    "gallery.preview": "Aperçu de l’image",
+    "gallery.save": "Enregistrer",
+    "gallery.saved": "Enregistré",
+    "gallery.share": "Partager",
+    "gallery.download": "Télécharger",
+    "gallery.openProduct": "Ouvrir le produit",
+    "favorite.savedTitle": "Ajouté aux favoris",
+    "favorite.removedTitle": "Retiré des favoris",
+    "favorite.savedBody": "{product} est maintenant disponible dans vos sélections enregistrées.",
+    "favorite.removedBody": "{product} a été retiré de vos sélections enregistrées.",
+    "favorite.likeActive": "♥ J’aime",
+    "favorite.likeInactive": "♡ J’aime",
+    "favorite.productSavedBody": "Ce produit restera accessible lors de vos prochaines visites.",
+    "favorite.productRemovedBody": "Ce produit a été retiré de vos favoris.",
+    "follow.authTitle": "Connectez-vous pour suivre des vendeurs",
+    "follow.authBody": "Créez d’abord un compte afin que Winga enregistre vos vendeurs suivis en toute sécurité.",
+    "follow.buyerAccessTitle": "Accès acheteur requis",
+    "follow.buyerAccessBody": "Le suivi des vendeurs est réservé aux comptes avec accès acheteur.",
+    "follow.active": "Suivi",
+    "follow.inactive": "Suivre",
+    "follow.followedTitle": "Vendeur suivi",
+    "follow.unfollowedTitle": "Vendeur non suivi",
+    "follow.followedBody": "{seller} sera plus facile à retrouver lors de vos prochaines visites.",
+    "follow.unfollowedBody": "{seller} a été retiré de vos vendeurs suivis."
   }
 }

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2026.08.06.9",
+  "version": "2026.08.06.10",
   "locale": "en",
   "messages": {
     "auth.close": "Close authentication",
@@ -336,6 +336,33 @@
     "feed.loadMoreLoading": "Loading more products...",
     "feed.loadMoreUnavailable": "More products are unavailable right now. Products you saw are preserved.",
     "feed.loadMoreExhausted": "All new products are loaded. Keep exploring recommendations.",
-    "feed.loadMoreEmpty": "No new products in this section."
+    "feed.loadMoreEmpty": "No new products in this section.",
+    "gallery.close": "Close image preview",
+    "gallery.previous": "Previous image",
+    "gallery.next": "Next image",
+    "gallery.preview": "Image preview",
+    "gallery.save": "Save",
+    "gallery.saved": "Saved",
+    "gallery.share": "Share",
+    "gallery.download": "Download",
+    "gallery.openProduct": "Open product",
+    "favorite.savedTitle": "Saved to Favorites",
+    "favorite.removedTitle": "Removed from Favorites",
+    "favorite.savedBody": "{product} is now ready in your saved picks.",
+    "favorite.removedBody": "{product} was removed from your saved picks.",
+    "favorite.likeActive": "♥ Like",
+    "favorite.likeInactive": "♡ Like",
+    "favorite.productSavedBody": "This product will stay close for your return visits.",
+    "favorite.productRemovedBody": "This product was removed from your favorites.",
+    "follow.authTitle": "Sign in to follow sellers",
+    "follow.authBody": "Create an account first so Winga can save your followed sellers safely.",
+    "follow.buyerAccessTitle": "Buyer access needed",
+    "follow.buyerAccessBody": "Following sellers is available on buyer-enabled accounts only.",
+    "follow.active": "Following",
+    "follow.inactive": "Follow",
+    "follow.followedTitle": "Seller followed",
+    "follow.unfollowedTitle": "Seller unfollowed",
+    "follow.followedBody": "{seller} will be easier to find on your return visits.",
+    "follow.unfollowedBody": "{seller} was removed from your followed sellers."
   }
 }

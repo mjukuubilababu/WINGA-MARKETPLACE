@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2026.08.06.9",
+  "version": "2026.08.06.10",
   "locale": "sw",
   "messages": {
     "auth.close": "Funga uthibitishaji",
@@ -336,6 +336,33 @@
     "feed.loadMoreLoading": "Inapakia bidhaa zaidi...",
     "feed.loadMoreUnavailable": "Bidhaa zaidi hazikupatikana kwa sasa. Bidhaa ulizoona zimehifadhiwa.",
     "feed.loadMoreExhausted": "Bidhaa zote mpya zimepakiwa. Endelea kuona mapendekezo.",
-    "feed.loadMoreEmpty": "Hakuna bidhaa mpya katika sehemu hii."
+    "feed.loadMoreEmpty": "Hakuna bidhaa mpya katika sehemu hii.",
+    "gallery.close": "Funga picha",
+    "gallery.previous": "Picha iliyotangulia",
+    "gallery.next": "Picha inayofuata",
+    "gallery.preview": "Mwonekano wa picha",
+    "gallery.save": "Hifadhi",
+    "gallery.saved": "Imehifadhiwa",
+    "gallery.share": "Shiriki",
+    "gallery.download": "Pakua",
+    "gallery.openProduct": "Fungua bidhaa",
+    "favorite.savedTitle": "Imehifadhiwa kwenye Vipendwa",
+    "favorite.removedTitle": "Imeondolewa kwenye Vipendwa",
+    "favorite.savedBody": "{product} sasa ipo kwenye bidhaa ulizohifadhi.",
+    "favorite.removedBody": "{product} imeondolewa kwenye bidhaa ulizohifadhi.",
+    "favorite.likeActive": "♥ Penda",
+    "favorite.likeInactive": "♡ Penda",
+    "favorite.productSavedBody": "Bidhaa hii itabaki karibu utakaporudi.",
+    "favorite.productRemovedBody": "Bidhaa hii imeondolewa kwenye vipendwa vyako.",
+    "follow.authTitle": "Ingia ili kufuata wauzaji",
+    "follow.authBody": "Fungua akaunti kwanza ili Winga ihifadhi wauzaji unaowafuata kwa usalama.",
+    "follow.buyerAccessTitle": "Ufikiaji wa mnunuzi unahitajika",
+    "follow.buyerAccessBody": "Kufuata wauzaji kunapatikana kwa akaunti zenye uwezo wa mnunuzi pekee.",
+    "follow.active": "Unafuata",
+    "follow.inactive": "Fuata",
+    "follow.followedTitle": "Umemfuata muuzaji",
+    "follow.unfollowedTitle": "Umeacha kumfuata muuzaji",
+    "follow.followedBody": "{seller} atakuwa rahisi kumpata utakaporudi.",
+    "follow.unfollowedBody": "{seller} ameondolewa kwenye wauzaji unaowafuata."
   }
 }

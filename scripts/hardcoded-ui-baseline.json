@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "policy": "Existing debt may decrease only. New or modified user-visible literals must use localization keys.",
-  "count": 378,
-  "digest": "371cf54987c66ab8b698a2fe773a2f2c7520030930a8a9c64affd56b9953a03c",
+  "count": 375,
+  "digest": "b7a50e6442b49251c4722e2c331db1b874d6757bbd08ab62fce7449bbed129c8",
   "entries": [
     {
       "signature": "app.js|property|${createdCategory.label} imeongezwa kwenye Vitu Used.",
@@ -129,10 +129,6 @@
       "count": 1
     },
     {
-      "signature": "app.js|property|Buyer access needed",
-      "count": 1
-    },
-    {
       "signature": "app.js|property|Cancel",
       "count": 2
     },
@@ -174,10 +170,6 @@
     },
     {
       "signature": "app.js|property|Error: ${message}",
-      "count": 1
-    },
-    {
-      "signature": "app.js|property|Following sellers is available on buyer-enabled accounts only.",
       "count": 1
     },
     {
@@ -434,10 +426,6 @@
     },
     {
       "signature": "app.js|property|Session ya admin haijaendelea kwa sababu admin surface imekosa kufunguka vizuri.",
-      "count": 1
-    },
-    {
-      "signature": "app.js|property|Sign in to follow sellers",
       "count": 1
     },
     {
