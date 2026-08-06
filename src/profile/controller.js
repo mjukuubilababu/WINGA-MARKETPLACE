@@ -595,8 +595,8 @@
             event.preventDefault();
             event.stopPropagation();
             deps.openNotificationPermissionPrompt?.("profile", {
-              title: "Keep your Winga activity in sync",
-              body: "Turn on notifications so you do not miss new messages, order updates, and important activity."
+              title: t("notification.profilePromptTitle", "Keep your Winga activity in sync"),
+              body: t("notification.promptBody", "Turn on notifications so you do not miss new messages, order updates, and important activity.")
             });
             return;
           }

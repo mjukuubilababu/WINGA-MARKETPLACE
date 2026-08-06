@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2026.08.06.5",
+  "version": "2026.08.06.6",
   "locale": "ar",
   "messages": {
     "auth.close": "إغلاق تسجيل الدخول",
@@ -220,6 +220,30 @@
     "promotion.openFailedBody": "تعذر فتح خطة الترويج. حاول مجددا.",
     "profile.photoUploadingStatus": "جار رفع صورة الملف الشخصي...",
     "profile.photoSavedStatus": "تم حفظ صورة الملف الشخصي.",
-    "profile.photoOptionalStatus": "صورة الملف الشخصي اختيارية. ستظل الأحرف الأولى من اسمك ظاهرة بدون صورة."
+    "profile.photoOptionalStatus": "صورة الملف الشخصي اختيارية. ستظل الأحرف الأولى من اسمك ظاهرة بدون صورة.",
+    "notification.statusEnabled": "مفعلة",
+    "notification.statusBlocked": "محظورة",
+    "notification.statusPaused": "متوقفة مؤقتا",
+    "notification.statusUnsupported": "غير مدعومة",
+    "notification.statusNotEnabled": "غير مفعلة",
+    "notification.blockedPromptBody": "حظر المتصفح الإشعارات. اسمح بها من إعدادات المتصفح للمتابعة.",
+    "notification.promptBody": "فعل الإشعارات حتى لا تفوتك الرسائل الجديدة وتحديثات الطلبات والأنشطة المهمة.",
+    "notification.promptTitle": "ابق على اطلاع مع Winga",
+    "notification.profilePromptTitle": "حافظ على مزامنة نشاطك في Winga",
+    "notification.openSettings": "فتح إعدادات المتصفح",
+    "notification.enabledAction": "الإشعارات مفعلة",
+    "notification.enableAction": "تفعيل الإشعارات",
+    "notification.profileNote": "يمكنك تغيير هذا لاحقا من الملف الشخصي.",
+    "notification.maybeLaterAction": "ربما لاحقا",
+    "notification.eyebrow": "الإشعارات",
+    "notification.enabledTitle": "تم تفعيل الإشعارات",
+    "notification.enabledBody": "سيرسل Winga تحديثات الرسائل والطلبات والأنشطة المهمة.",
+    "notification.offTitle": "الإشعارات متوقفة",
+    "notification.deniedBody": "حظر المتصفح الإشعارات. يمكنك تفعيلها من إعدادات المتصفح.",
+    "notification.dismissedBody": "تم إيقاف الإشعارات مؤقتا. يمكنك تفعيلها لاحقا.",
+    "notification.unavailableTitle": "الإشعارات غير متاحة",
+    "notification.unavailableBody": "تعذر طلب إذن الإشعارات الآن.",
+    "notification.maybeLaterTitle": "ربما لاحقا",
+    "notification.maybeLaterBody": "لن نطلب منك ذلك مرة أخرى الآن. يمكنك تفعيل الإشعارات لاحقا من الملف الشخصي."
   }
 }

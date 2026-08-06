@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2026.08.06.5",
+  "version": "2026.08.06.6",
   "locale": "sw",
   "messages": {
     "auth.close": "Funga uthibitishaji",
@@ -216,6 +216,30 @@
     "promotion.openFailedBody": "Hatujaweza kufungua mpango wa promosheni. Jaribu tena.",
     "profile.photoUploadingStatus": "Tunapakia picha ya wasifu...",
     "profile.photoSavedStatus": "Picha ya wasifu imehifadhiwa.",
-    "profile.photoOptionalStatus": "Picha ya wasifu si lazima. Herufi za jina lako zitaendelea kuonekana bila picha."
+    "profile.photoOptionalStatus": "Picha ya wasifu si lazima. Herufi za jina lako zitaendelea kuonekana bila picha.",
+    "notification.statusEnabled": "Zimewashwa",
+    "notification.statusBlocked": "Zimezuiwa",
+    "notification.statusPaused": "Zimesitishwa",
+    "notification.statusUnsupported": "Hazitumiki kwenye kifaa hiki",
+    "notification.statusNotEnabled": "Hazijawashwa",
+    "notification.blockedPromptBody": "Browser yako imezuia arifa. Ziruhusu kwenye mipangilio ya browser ili kuendelea.",
+    "notification.promptBody": "Washa arifa ili usikose ujumbe mpya, taarifa za oda na shughuli muhimu.",
+    "notification.promptTitle": "Endelea kupata taarifa za Winga",
+    "notification.profilePromptTitle": "Endelea kusawazisha shughuli zako za Winga",
+    "notification.openSettings": "Fungua mipangilio ya browser",
+    "notification.enabledAction": "Arifa zimewashwa",
+    "notification.enableAction": "Washa arifa",
+    "notification.profileNote": "Unaweza kubadilisha hii baadaye kwenye Wasifu.",
+    "notification.maybeLaterAction": "Labda baadaye",
+    "notification.eyebrow": "Arifa",
+    "notification.enabledTitle": "Arifa zimewashwa",
+    "notification.enabledBody": "Winga itakutumia taarifa za ujumbe, oda na shughuli muhimu.",
+    "notification.offTitle": "Arifa zimezimwa",
+    "notification.deniedBody": "Browser imezuia arifa. Unaweza kuziwasha kwenye mipangilio ya browser.",
+    "notification.dismissedBody": "Umesitisha arifa kwa sasa. Unaweza kuziwasha baadaye.",
+    "notification.unavailableTitle": "Arifa hazipatikani",
+    "notification.unavailableBody": "Hatujaweza kuomba ruhusa ya arifa kwa sasa.",
+    "notification.maybeLaterTitle": "Labda baadaye",
+    "notification.maybeLaterBody": "Hatutakuuliza tena sasa. Unaweza kuwasha arifa baadaye kutoka kwenye Wasifu."
   }
 }

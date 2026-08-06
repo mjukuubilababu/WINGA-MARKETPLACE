@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2026.08.06.5",
+  "version": "2026.08.06.6",
   "locale": "fr",
   "messages": {
     "auth.close": "Fermer l’authentification",
@@ -216,6 +216,30 @@
     "promotion.openFailedBody": "Impossible d'ouvrir le plan de promotion. Reessayez.",
     "profile.photoUploadingStatus": "Importation de la photo de profil...",
     "profile.photoSavedStatus": "Photo de profil enregistree.",
-    "profile.photoOptionalStatus": "La photo de profil est facultative. Vos initiales restent visibles sans photo."
+    "profile.photoOptionalStatus": "La photo de profil est facultative. Vos initiales restent visibles sans photo.",
+    "notification.statusEnabled": "Activees",
+    "notification.statusBlocked": "Bloquees",
+    "notification.statusPaused": "En pause",
+    "notification.statusUnsupported": "Non prises en charge",
+    "notification.statusNotEnabled": "Non activees",
+    "notification.blockedPromptBody": "Votre navigateur a bloque les notifications. Autorisez-les dans ses parametres pour continuer.",
+    "notification.promptBody": "Activez les notifications pour ne manquer aucun message, suivi de commande ou activite importante.",
+    "notification.promptTitle": "Restez informe avec Winga",
+    "notification.profilePromptTitle": "Gardez votre activite Winga synchronisee",
+    "notification.openSettings": "Ouvrir les parametres du navigateur",
+    "notification.enabledAction": "Notifications activees",
+    "notification.enableAction": "Activer les notifications",
+    "notification.profileNote": "Vous pourrez modifier ce choix plus tard dans votre profil.",
+    "notification.maybeLaterAction": "Plus tard",
+    "notification.eyebrow": "Notifications",
+    "notification.enabledTitle": "Notifications activees",
+    "notification.enabledBody": "Winga vous informera des messages, commandes et activites importantes.",
+    "notification.offTitle": "Notifications desactivees",
+    "notification.deniedBody": "Votre navigateur a bloque les notifications. Vous pouvez les activer dans ses parametres.",
+    "notification.dismissedBody": "Les notifications sont en pause. Vous pourrez les activer plus tard.",
+    "notification.unavailableTitle": "Notifications indisponibles",
+    "notification.unavailableBody": "Impossible de demander l'autorisation des notifications pour le moment.",
+    "notification.maybeLaterTitle": "Plus tard",
+    "notification.maybeLaterBody": "Nous ne vous solliciterons plus maintenant. Vous pourrez les activer depuis votre profil."
   }
 }

@@ -1706,6 +1706,7 @@ function getNotificationPermissionTools() {
       showInAppNotification,
       renderCurrentView,
       reportClientEvent,
+      translate: translateUi,
       storageKey: NOTIFICATION_PERMISSION_STATE_KEY,
       promptCooldownMs: NOTIFICATION_PERMISSION_PROMPT_COOLDOWN_MS,
       allowedTriggers: NOTIFICATION_PERMISSION_TRIGGERS

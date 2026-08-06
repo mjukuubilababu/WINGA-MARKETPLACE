@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2026.08.06.5",
+  "version": "2026.08.06.6",
   "locale": "en",
   "messages": {
     "auth.close": "Close authentication",
@@ -216,6 +216,30 @@
     "promotion.openFailedBody": "We could not open the promotion plan. Try again.",
     "profile.photoUploadingStatus": "Uploading profile photo...",
     "profile.photoSavedStatus": "Profile photo saved.",
-    "profile.photoOptionalStatus": "A profile photo is optional. Your initials remain visible without one."
+    "profile.photoOptionalStatus": "A profile photo is optional. Your initials remain visible without one.",
+    "notification.statusEnabled": "Enabled",
+    "notification.statusBlocked": "Blocked",
+    "notification.statusPaused": "Paused",
+    "notification.statusUnsupported": "Unsupported",
+    "notification.statusNotEnabled": "Not enabled",
+    "notification.blockedPromptBody": "Your browser has blocked notifications. Allow them in browser settings to continue.",
+    "notification.promptBody": "Turn on notifications so you do not miss new messages, order updates, and important activity.",
+    "notification.promptTitle": "Stay updated with Winga",
+    "notification.profilePromptTitle": "Keep your Winga activity in sync",
+    "notification.openSettings": "Open browser settings",
+    "notification.enabledAction": "Notifications enabled",
+    "notification.enableAction": "Enable notifications",
+    "notification.profileNote": "You can change this later in Profile.",
+    "notification.maybeLaterAction": "Maybe later",
+    "notification.eyebrow": "Notifications",
+    "notification.enabledTitle": "Notifications enabled",
+    "notification.enabledBody": "Winga will send updates about messages, orders, and important activity.",
+    "notification.offTitle": "Notifications off",
+    "notification.deniedBody": "Your browser blocked notifications. You can enable them in browser settings.",
+    "notification.dismissedBody": "Notifications are paused. You can enable them later.",
+    "notification.unavailableTitle": "Notifications unavailable",
+    "notification.unavailableBody": "We could not request notification permission right now.",
+    "notification.maybeLaterTitle": "Maybe later",
+    "notification.maybeLaterBody": "We will not prompt you again now. You can enable notifications later from Profile."
   }
 }

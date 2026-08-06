@@ -1281,7 +1281,11 @@ test("notification permission module owns prompt state and cooldown logic", () =
     },
     showInAppNotification: (notification) => notifications.push(notification),
     renderCurrentView: () => events.push("render"),
-    reportClientEvent: (...args) => events.push(args)
+    reportClientEvent: (...args) => events.push(args),
+    translate: (key, _variables, fallbackText) => ({
+      "notification.statusEnabled": "Localized enabled",
+      "notification.promptTitle": "Localized prompt"
+    })[key] || fallbackText
   });
 
   assert.equal(module.normalizeNotificationPermissionStatus("bad"), "not_asked");
@@ -1296,9 +1300,13 @@ test("notification permission module owns prompt state and cooldown logic", () =
     assert.equal(permissionResult, "granted");
     module.updateNotificationPermissionState({ status: "allowed" });
     assert.equal(module.getNotificationPermissionState().status, "allowed");
+    assert.equal(module.getNotificationPermissionStatusLabel(), "Localized enabled");
     assert.match(registrySource, /window\.WingaModules\.notifications = window\.WingaModules\.notifications \|\| \{\};/);
     assert.match(source, /window\.WingaModules\.notifications\.createNotificationPermissionModule = createNotificationPermissionModule;/);
     assert.match(appSource, /window\.WingaModules\?\.notifications\?\.createNotificationPermissionModule/);
+    assert.match(appSource, /translate: translateUi/);
+    assert.match(source, /notification\.blockedPromptBody/);
+    assert.match(source, /notification\.maybeLaterBody/);
     assert.match(appSource, /function maybePromptNotificationPermission\(trigger = "message", options = \{\}\) \{\s+return getNotificationPermissionTools\(\)\.maybePromptNotificationPermission\(trigger, options\);/);
     assert.ok(
       buildSource.indexOf('"src/notifications/permission.js"') < buildSource.indexOf('"src/monitoring/performance.js"'),

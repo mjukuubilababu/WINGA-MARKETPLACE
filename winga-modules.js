@@ -3184,6 +3184,10 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     const showInAppNotification = typeof deps.showInAppNotification === "function" ? deps.showInAppNotification : () => {};
     const renderCurrentView = typeof deps.renderCurrentView === "function" ? deps.renderCurrentView : () => {};
     const reportClientEvent = typeof deps.reportClientEvent === "function" ? deps.reportClientEvent : () => {};
+    const translate = typeof deps.translate === "function"
+      ? deps.translate
+      : (_key, _variables, fallbackText = "") => String(fallbackText || "");
+    const t = (key, fallbackText = "", variables = {}) => translate(key, variables, fallbackText);
     const storageKey = String(deps.storageKey || "winga-notification-permission-state");
     const promptCooldownMs = Math.max(0, Number(deps.promptCooldownMs || 12 * 60 * 60 * 1000) || 0);
     const allowedTriggers = new Set(Array.from(deps.allowedTriggers || ["message", "reply", "request", "order", "profile"]).map((trigger) => String(trigger || "").trim()).filter(Boolean));
@@ -3283,18 +3287,18 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     function getNotificationPermissionStatusLabel(state = notificationPermissionState) {
       const browserPermission = getBrowserPermission();
       if (browserPermission === "granted" || state.status === "allowed") {
-        return "Enabled";
+        return t("notification.statusEnabled", "Enabled");
       }
       if (browserPermission === "denied" || state.status === "denied") {
-        return "Blocked";
+        return t("notification.statusBlocked", "Blocked");
       }
       if (state.status === "dismissed") {
-        return "Paused";
+        return t("notification.statusPaused", "Paused");
       }
       if (browserPermission === "unsupported") {
-        return "Unsupported";
+        return t("notification.statusUnsupported", "Unsupported");
       }
-      return "Not enabled";
+      return t("notification.statusNotEnabled", "Not enabled");
     }
 
     function shouldShowNotificationPermissionPrompt(trigger = "", { allowDenied = false } = {}) {
@@ -3367,10 +3371,10 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       const hasBlockedPermission = getBrowserPermission() === "denied";
       const body = options.body || (
         hasBlockedPermission
-          ? "Browser yako tayari imezima notifications. Unaweza kujaribu tena au kuruhusu notifications kupitia browser settings."
-          : "Turn on notifications so you do not miss new messages, order updates, and important activity."
+          ? t("notification.blockedPromptBody", "Browser yako tayari imezima notifications. Unaweza kujaribu tena au kuruhusu notifications kupitia browser settings.")
+          : t("notification.promptBody", "Turn on notifications so you do not miss new messages, order updates, and important activity.")
       );
-      const title = options.title || "Stay updated with Winga";
+      const title = options.title || t("notification.promptTitle", "Stay updated with Winga");
       return { title, body };
     }
 
@@ -3395,10 +3399,10 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       const statusLabel = getNotificationPermissionStatusLabel(state);
       const canRequestNow = browserPermission !== "unsupported" && browserPermission !== "granted";
       const buttonLabel = browserPermission === "denied"
-        ? "Open browser settings"
+        ? t("notification.openSettings", "Open browser settings")
         : browserPermission === "granted"
-          ? "Notifications enabled"
-          : "Enable notifications";
+          ? t("notification.enabledAction", "Notifications enabled")
+          : t("notification.enableAction", "Enable notifications");
 
       const prompt = createElement("section", {
         className: "notification-permission-prompt",
@@ -3411,7 +3415,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       const metaRow = createElement("div", { className: "notification-permission-meta" });
       metaRow.append(
         createElement("span", { className: "status-pill", textContent: statusLabel }),
-        createElement("span", { className: "notification-permission-note", textContent: "You can change this later in Profile." })
+        createElement("span", { className: "notification-permission-note", textContent: t("notification.profileNote", "You can change this later in Profile.") })
       );
       const actionsRow = createElement("div", { className: "notification-permission-actions" });
       actionsRow.append(
@@ -3425,7 +3429,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         }),
         createElement("button", {
           className: "action-btn action-btn-secondary",
-          textContent: "Maybe later",
+          textContent: t("notification.maybeLaterAction", "Maybe later"),
           attributes: {
             type: "button",
             "data-notification-permission-later": "true"
@@ -3433,7 +3437,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         })
       );
       prompt.append(
-        createElement("p", { className: "notification-permission-eyebrow", textContent: "Notifications" }),
+        createElement("p", { className: "notification-permission-eyebrow", textContent: t("notification.eyebrow", "Notifications") }),
         createElement("strong", { textContent: title }),
         createElement("p", { className: "notification-permission-copy", textContent: body }),
         metaRow,
@@ -3459,8 +3463,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
               lastDecisionAt: Date.now()
             });
             showInAppNotification({
-              title: "Notifications enabled",
-              body: "Winga itakutumia updates za messages, orders, na activity muhimu.",
+              title: t("notification.enabledTitle", "Notifications enabled"),
+              body: t("notification.enabledBody", "Winga itakutumia updates za messages, orders, na activity muhimu."),
               variant: "success"
             });
             closeNotificationPermissionPrompt();
@@ -3472,10 +3476,10 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             lastDecisionAt: Date.now()
           });
           showInAppNotification({
-            title: "Notifications off",
+            title: t("notification.offTitle", "Notifications off"),
             body: permission === "denied"
-              ? "Browser imezima notifications. Unaweza kuzi-enable tena kwenye browser settings."
-              : "Umeacha notifications kwa sasa. Unaweza kuziwasha tena baadaye.",
+              ? t("notification.deniedBody", "Browser imezima notifications. Unaweza kuzi-enable tena kwenye browser settings.")
+              : t("notification.dismissedBody", "Umeacha notifications kwa sasa. Unaweza kuziwasha tena baadaye."),
             variant: "info"
           });
           closeNotificationPermissionPrompt();
@@ -3483,8 +3487,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         } catch (error) {
           closeNotificationPermissionPrompt();
           showInAppNotification({
-            title: "Notifications unavailable",
-            body: error.message || "Imeshindikana kuomba notifications kwa sasa.",
+            title: t("notification.unavailableTitle", "Notifications unavailable"),
+            body: error.message || t("notification.unavailableBody", "Imeshindikana kuomba notifications kwa sasa."),
             variant: "warning"
           });
         }
@@ -3499,8 +3503,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         });
         closeNotificationPermissionPrompt();
         showInAppNotification({
-          title: "Maybe later",
-          body: "Hatutakusumbua sasa. Unaweza kuziwasha from Profile later.",
+          title: t("notification.maybeLaterTitle", "Maybe later"),
+          body: t("notification.maybeLaterBody", "Hatutakusumbua sasa. Unaweza kuziwasha from Profile later."),
           variant: "info"
         });
         renderCurrentView();
@@ -17781,8 +17785,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             event.preventDefault();
             event.stopPropagation();
             deps.openNotificationPermissionPrompt?.("profile", {
-              title: "Keep your Winga activity in sync",
-              body: "Turn on notifications so you do not miss new messages, order updates, and important activity."
+              title: t("notification.profilePromptTitle", "Keep your Winga activity in sync"),
+              body: t("notification.promptBody", "Turn on notifications so you do not miss new messages, order updates, and important activity.")
             });
             return;
           }
