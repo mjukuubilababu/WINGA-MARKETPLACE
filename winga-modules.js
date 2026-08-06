@@ -12569,6 +12569,10 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 (() => {
   function createChatControllerModule(deps) {
     const recentSubmissionRegistry = new Map();
+    const translate = typeof deps.translate === "function"
+      ? deps.translate
+      : (_key, _variables, fallbackText = "") => String(fallbackText || "");
+    const t = (key, fallbackText = "", variables = {}) => translate(key, variables, fallbackText);
 
     function pruneRecentSubmissionRegistry(maxAgeMs = 15000) {
       const now = Date.now();
@@ -12597,7 +12601,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       const existing = recentSubmissionRegistry.get(sendKey);
       if (existing?.status === "pending") {
         deps.showInAppNotification?.({
-          title: "Sending...",
+          title: t("chat.sendingTitle", "Sending..."),
           body: duplicateCopy.pending,
           variant: "info"
         });
@@ -12605,7 +12609,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       }
       if (existing?.status === "completed" && Date.now() - Number(existing.updatedAt || 0) < 20000) {
         deps.showInAppNotification?.({
-          title: "Already sent",
+          title: t("chat.alreadySentTitle", "Already sent"),
           body: duplicateCopy.completed,
           variant: "info"
         });
@@ -12647,8 +12651,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         deps.refreshNotificationsState()
       ]);
       deps.showInAppNotification?.({
-        title: "Phone shared",
-        body: "Muuzaji huyu sasa ataweza kuona namba yako ndani ya mazungumzo haya.",
+        title: t("chat.phoneSharedTitle", "Phone shared"),
+        body: t("chat.phoneSharedBody", "Muuzaji huyu sasa ataweza kuona namba yako ndani ya mazungumzo haya."),
         variant: "success"
       });
     }
@@ -12798,8 +12802,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             receiverId: deps.getActiveChatContext?.()?.withUser || ""
           });
           deps.showInAppNotification?.({
-            title: "Sharing failed",
-            body: error.message || "Imeshindikana kushare namba yako kwa sasa.",
+            title: t("chat.sharingFailedTitle", "Sharing failed"),
+            body: error.message || t("chat.sharingFailedBody", "Imeshindikana kushare namba yako kwa sasa."),
             variant: "error"
           });
         }
@@ -12848,8 +12852,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             } else if (navigator.clipboard?.writeText) {
               await navigator.clipboard.writeText(shareText);
               deps.showInAppNotification?.({
-                title: "Copied",
-                body: "Ujumbe umewekwa kwenye clipboard.",
+                title: t("chat.copiedTitle", "Copied"),
+                body: t("chat.copiedBody", "Ujumbe umewekwa kwenye clipboard."),
                 variant: "success"
               });
             }
@@ -12894,8 +12898,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
               messageId: button.dataset.messageDelete
             });
             deps.showInAppNotification?.({
-              title: "Delete failed",
-              body: error.message || "Imeshindikana kufuta ujumbe.",
+              title: t("chat.deleteFailedTitle", "Delete failed"),
+              body: error.message || t("chat.deleteFailedBody", "Imeshindikana kufuta ujumbe."),
               variant: "error"
             });
           }
@@ -12916,7 +12920,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           const sendKey = createMessageSubmissionKey(activeChatContext, message, productItems);
           deps.setChatComposeStatus?.("context", {
             tone: "info",
-            message: "Tunatuma ujumbe wako sasa."
+            message: t("chat.sendingStatus", "Tunatuma ujumbe wako sasa.")
           });
           const sendResult = await runRetrySafeMessageSend(sendKey, () => deps.dataLayer.sendMessage({
             receiverId: activeChatContext.withUser,
@@ -12927,15 +12931,15 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             productItems,
             replyToMessageId: deps.getActiveChatReplyMessageId()
           }), {
-            pending: "Ujumbe huu bado unatoka. Subiri kidogo kabla ya kubonyeza tena.",
-            completed: "Ujumbe huu tayari umetumwa. Angalia mazungumzo kabla ya kutuma tena."
+            pending: t("chat.duplicatePending", "Ujumbe huu bado unatoka. Subiri kidogo kabla ya kubonyeza tena."),
+            completed: t("chat.duplicateCompleted", "Ujumbe huu tayari umetumwa. Angalia mazungumzo kabla ya kutuma tena.")
           });
           if (sendResult?.skipped) {
             deps.setChatComposeStatus?.("context", {
               tone: "info",
               message: sendResult.reason === "completed"
-                ? "Ujumbe huu tayari umetumwa. Angalia mazungumzo kwanza."
-                : "Ujumbe huu bado unatoka. Subiri kidogo kabla ya kutuma tena."
+                ? t("chat.duplicateCompleted", "Ujumbe huu tayari umetumwa. Angalia mazungumzo kwanza.")
+                : t("chat.duplicatePending", "Ujumbe huu bado unatoka. Subiri kidogo kabla ya kutuma tena.")
             });
             replaceContextChatModal();
             return;
@@ -12949,17 +12953,17 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           if (sendResult?.isQueued) {
             deps.setChatComposeStatus?.("context", {
               tone: "warning",
-              message: "Uko offline. Ujumbe umehifadhiwa na utatumwa internet ikirudi."
+              message: t("chat.offlineSavedStatus", "Uko offline. Ujumbe umehifadhiwa na utatumwa internet ikirudi.")
             });
             deps.showInAppNotification?.({
-              title: "Ujumbe umehifadhiwa",
-              body: "Uko offline. Tutautuma internet ikirudi.",
+              title: t("chat.offlineSavedTitle", "Ujumbe umehifadhiwa"),
+              body: t("chat.offlineSavedBody", "Uko offline. Tutautuma internet ikirudi."),
               variant: "info"
             });
           } else {
             deps.setChatComposeStatus?.("context", {
               tone: "success",
-              message: "Ujumbe umetumwa vizuri."
+              message: t("chat.sentStatus", "Ujumbe umetumwa vizuri.")
             });
           }
           deps.maybePromptNotificationPermission?.("message");
@@ -12967,14 +12971,14 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         } catch (error) {
           deps.setChatComposeStatus?.("context", {
             tone: "error",
-            message: error.message || "Imeshindikana kutuma ujumbe."
+            message: error.message || t("chat.failedBody", "Imeshindikana kutuma ujumbe.")
           });
           deps.captureError?.("context_message_send_failed", error, {
             receiverId: activeChatContext?.withUser || ""
           });
           deps.showInAppNotification?.({
-            title: "Message failed",
-            body: error.message || "Imeshindikana kutuma ujumbe.",
+            title: t("chat.failedTitle", "Message failed"),
+            body: error.message || t("chat.failedBody", "Imeshindikana kutuma ujumbe."),
             variant: "error"
           });
         }
@@ -13059,8 +13063,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         deps.promptGuestAuth({
           preferredMode: "signup",
           role: "buyer",
-          title: "You need an account to message the seller",
-          message: "Already have an account? Sign In. New here? Sign Up as a buyer to start chatting.",
+          title: t("chat.accountRequiredTitle", "You need an account to message the seller"),
+          message: t("chat.accountRequiredBody", "Already have an account? Sign In. New here? Sign Up as a buyer to start chatting."),
           intent: {
             type: "open-chat",
             productId: product?.id || ""
@@ -13070,8 +13074,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       }
       if (!deps.canUseBuyerFeatures?.()) {
         deps.showInAppNotification?.({
-          title: "Admin account restricted",
-          body: "Admin au moderator hawawezi kufungua buyer chat ya marketplace.",
+          title: t("chat.staffRestrictedTitle", "Staff account restricted"),
+          body: t("chat.staffRestrictedBody", "Admin au moderator hawawezi kufungua buyer chat ya marketplace."),
           variant: "warning"
         });
         return;
@@ -13103,8 +13107,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           productId: product?.id || ""
         });
         deps.showInAppNotification?.({
-          title: "Chat unavailable",
-          body: "Imeshindikana kufungua chat kwa sasa.",
+          title: t("chat.unavailableTitle", "Chat unavailable"),
+          body: t("chat.unavailableBody", "Imeshindikana kufungua chat kwa sasa."),
           variant: "error"
         });
       });
@@ -13167,8 +13171,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 
       if (!matchingSummary) {
         deps.showInAppNotification?.({
-          title: "No messages yet",
-          body: "Hakuna mazungumzo ya bidhaa hii bado. Utaona inbox yako ya messages hapa.",
+          title: t("chat.noMessagesTitle", "No messages yet"),
+          body: t("chat.noMessagesBody", "Hakuna mazungumzo ya bidhaa hii bado. Utaona inbox yako ya messages hapa."),
           variant: "info"
         });
       }
@@ -13424,8 +13428,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             user: deps.getCurrentUser?.() || ""
           });
           deps.showInAppNotification?.({
-            title: "Refresh failed",
-            body: error.message || "Imeshindikana ku-refresh messages.",
+            title: t("chat.refreshFailedTitle", "Refresh failed"),
+            body: error.message || t("chat.refreshFailedBody", "Imeshindikana ku-refresh messages."),
             variant: "warning"
           });
         }
@@ -13461,8 +13465,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             receiverId: deps.getActiveChatContext?.()?.withUser || ""
           });
           deps.showInAppNotification?.({
-            title: "Sharing failed",
-            body: error.message || "Imeshindikana kushare namba yako kwa sasa.",
+            title: t("chat.sharingFailedTitle", "Sharing failed"),
+            body: error.message || t("chat.sharingFailedBody", "Imeshindikana kushare namba yako kwa sasa."),
             variant: "error"
           });
         }
@@ -13482,8 +13486,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
               notificationId: button.dataset.notificationId
             });
             deps.showInAppNotification?.({
-              title: "Notification failed",
-              body: error.message || "Imeshindikana kufungua notification.",
+              title: t("chat.notificationFailedTitle", "Notification failed"),
+              body: error.message || t("chat.notificationFailedBody", "Imeshindikana kufungua notification."),
               variant: "error"
             });
           }
@@ -13501,7 +13505,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           const sendKey = createMessageSubmissionKey(activeChatContext, message, []);
           deps.setChatComposeStatus?.("profile", {
             tone: "info",
-            message: "Tunatuma ujumbe wako sasa."
+            message: t("chat.sendingStatus", "Tunatuma ujumbe wako sasa.")
           });
           const sendResult = await runRetrySafeMessageSend(sendKey, () => deps.dataLayer.sendMessage({
             receiverId: activeChatContext.withUser,
@@ -13509,15 +13513,15 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             productName: activeChatContext.productName || "",
             message
           }), {
-            pending: "Ujumbe huu bado unatoka. Subiri kidogo kabla ya kubonyeza tena.",
-            completed: "Ujumbe huu tayari umetumwa. Angalia thread kabla ya kutuma tena."
+            pending: t("chat.duplicatePending", "Ujumbe huu bado unatoka. Subiri kidogo kabla ya kubonyeza tena."),
+            completed: t("chat.duplicateCompleted", "Ujumbe huu tayari umetumwa. Angalia thread kabla ya kutuma tena.")
           });
           if (sendResult?.skipped) {
             deps.setChatComposeStatus?.("profile", {
               tone: "info",
               message: sendResult.reason === "completed"
-                ? "Ujumbe huu tayari umetumwa. Angalia thread kwanza."
-                : "Ujumbe huu bado unatoka. Subiri kidogo kabla ya kutuma tena."
+                ? t("chat.duplicateCompleted", "Ujumbe huu tayari umetumwa. Angalia thread kwanza.")
+                : t("chat.duplicatePending", "Ujumbe huu bado unatoka. Subiri kidogo kabla ya kutuma tena.")
             });
             deps.replaceMessagesPanel(scope);
             return;
@@ -13531,17 +13535,17 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           if (sendResult?.isQueued) {
             deps.setChatComposeStatus?.("profile", {
               tone: "warning",
-              message: "Uko offline. Ujumbe umehifadhiwa na utatumwa internet ikirudi."
+              message: t("chat.offlineSavedStatus", "Uko offline. Ujumbe umehifadhiwa na utatumwa internet ikirudi.")
             });
             deps.showInAppNotification?.({
-              title: "Ujumbe umehifadhiwa",
-              body: "Uko offline. Tutautuma internet ikirudi.",
+              title: t("chat.offlineSavedTitle", "Ujumbe umehifadhiwa"),
+              body: t("chat.offlineSavedBody", "Uko offline. Tutautuma internet ikirudi."),
               variant: "info"
             });
           } else {
             deps.setChatComposeStatus?.("profile", {
               tone: "success",
-              message: "Ujumbe umetumwa vizuri."
+              message: t("chat.sentStatus", "Ujumbe umetumwa vizuri.")
             });
           }
           deps.maybePromptNotificationPermission?.("message");
@@ -13550,14 +13554,14 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         } catch (error) {
           deps.setChatComposeStatus?.("profile", {
             tone: "error",
-            message: error.message || "Imeshindikana kutuma ujumbe."
+            message: error.message || t("chat.failedBody", "Imeshindikana kutuma ujumbe.")
           });
           deps.captureError?.("profile_message_send_failed", error, {
             receiverId: activeChatContext?.withUser || ""
           });
           deps.showInAppNotification?.({
-            title: "Message failed",
-            body: error.message || "Imeshindikana kutuma ujumbe.",
+            title: t("chat.failedTitle", "Message failed"),
+            body: error.message || t("chat.failedBody", "Imeshindikana kutuma ujumbe."),
             variant: "error"
           });
         }
