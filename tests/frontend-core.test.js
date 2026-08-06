@@ -2984,6 +2984,11 @@ test("global translation catalogs are versioned, validated, cached, and fail sof
   assert.match(appSource, /translateUi\(option\.translationKey/);
   assert.match(appSource, /canonicalLabel: "Fake or misleading item"/);
   assert.match(appSource, /reason: chosenReason\?\.canonicalLabel/);
+  const chatControllerSource = fs.readFileSync(path.join(__dirname, "..", "src", "chat", "controller.js"), "utf8");
+  assert.match(appSource, /translate: translateUi/);
+  assert.match(chatControllerSource, /chat\.duplicatePending/);
+  assert.match(chatControllerSource, /chat\.offlineSavedStatus/);
+  assert.match(chatControllerSource, /typeof deps\.translate === "function"/);
   assert.match(sessionSource, /translate\("auth\.staffSessionExpired"/);
   assert.match(runtimeSource, /Promise\.allSettled/);
   assert.match(runtimeSource, /catalogRequests = new Map/);

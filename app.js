@@ -10769,6 +10769,7 @@ const {
   renderProfile,
   refreshProductsFromStore,
   showInAppNotification,
+  translate: translateUi,
   reportEvent: (...args) => reportClientEvent(...args),
   captureError: (...args) => captureClientError(...args),
   getUserDisplayName,
