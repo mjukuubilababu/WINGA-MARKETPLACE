@@ -592,6 +592,58 @@ test("feed intelligence ranks home feed without mutating pagination products", (
   assert.match(appSource, /intelligenceEngine\.rankHomeFeed\(visibleList, getHomeFeedIntelligenceContext\(visibleList\)\)/);
 });
 
+test("feed intelligence rewards higher intelligenceScore without penalizing zero score", () => {
+  const root = path.resolve(__dirname, "..");
+  const styleSource = fs.readFileSync(path.join(root, "src", "marketplace", "style-intelligence.js"), "utf8");
+  const sellerQualitySource = fs.readFileSync(path.join(root, "src", "marketplace", "seller-quality-intelligence.js"), "utf8");
+  const searchDemandSource = fs.readFileSync(path.join(root, "src", "marketplace", "search-demand-intelligence.js"), "utf8");
+  const marketSource = fs.readFileSync(path.join(root, "src", "marketplace", "market-intelligence.js"), "utf8");
+  const source = fs.readFileSync(path.join(root, "src", "marketplace", "feed-intelligence.js"), "utf8");
+  const context = vm.createContext({
+    window: { WingaModules: { marketplace: {} } },
+    Date
+  });
+  vm.runInContext(styleSource, context);
+  vm.runInContext(sellerQualitySource, context);
+  vm.runInContext(searchDemandSource, context);
+  vm.runInContext(marketSource, context);
+  vm.runInContext(source, context);
+  const engine = context.window.WingaModules.marketplace.createFeedIntelligence({
+    getEngagementScore: (product) => Number(product.views || 0) + Number(product.likes || 0) * 3,
+    config: {
+      freshTopSlots: 0,
+      maxIntelligenceBoost: 120,
+      intelligenceScoreSaturation: 100
+    }
+  });
+  const now = new Date("2026-07-04T10:00:00.000Z").getTime();
+  const sharedProduct = {
+    uploadedBy: "seller-a",
+    category: "fashion-dress",
+    createdAt: "2026-07-01T10:00:00.000Z",
+    views: 20,
+    likes: 2
+  };
+  const products = [
+    { ...sharedProduct, id: "zero-score", intelligenceScore: 0 },
+    { ...sharedProduct, id: "high-score", intelligenceScore: 90 },
+    { ...sharedProduct, id: "missing-score" }
+  ];
+  const ranked = engine.rankHomeFeed(products, { now });
+  const zeroScore = engine.scoreProduct(products[0], {}, now);
+  const missingScore = engine.scoreProduct(products[2], {}, now);
+  const saturatedScore = engine.scoreProduct({ ...sharedProduct, id: "saturated-score", intelligenceScore: 500 }, {}, now);
+
+  assert.equal(ranked.indexOf(products[1]) < ranked.indexOf(products[0]), true);
+  assert.equal(ranked.includes(products[0]), true);
+  assert.equal(ranked.includes(products[2]), true);
+  assert.equal(zeroScore.totalScore >= 0, true);
+  assert.equal(missingScore.totalScore >= 0, true);
+  assert.equal(zeroScore.score.intelligence, 0);
+  assert.equal(missingScore.score.intelligence, 0);
+  assert.equal(saturatedScore.score.intelligence, 120);
+});
+
 test("product detail continuation uses backend-backed endless feed state and feed media fit", () => {
   const root = path.resolve(__dirname, "..");
   const controllerSource = fs.readFileSync(path.join(root, "src", "product-detail", "controller.js"), "utf8");
