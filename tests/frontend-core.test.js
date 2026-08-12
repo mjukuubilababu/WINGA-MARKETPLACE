@@ -1679,16 +1679,16 @@ test("production CSP is enforced from repo without inline script escape hatches"
   assert.match(workerSource, /hardenResponseHeaders\(await env\.ASSETS\.fetch\(request\), env\)/);
   assert.match(workerSource, /hardenResponseHeaders\(await proxyToOrigin\(request, env\), env\)/);
   assert.match(workerSource, /let cachedAssetBuildVersion = "00000000000000";/);
-  assert.match(workerSource, /function resolveAssetBuildVersion\(env\)/);
-  assert.match(workerSource, /ctx\.waitUntil\(refreshAssetBuildVersion\(env\)\);/);
+  assert.match(workerSource, /async function resolveAssetBuildVersion\(env\)/);
+  assert.match(workerSource, /const buildVersion = await resolveAssetBuildVersion\(env\);/);
+  assert.match(workerSource, /env\.ASSETS\.fetch\(new Request\("https:\/\/wingamarket\.com\/build-version\.json"\)\)/);
   assert.match(workerSource, /const OPTIONAL_BOOTSTRAP_CONTEXT_TIMEOUT_MS = 220;/);
   assert.match(workerSource, /const streamTask = \(async \(\) => \{/);
   assert.match(workerSource, /ctx\.waitUntil\(streamTask\.catch\(\(\) => \{\}\)\);/);
   assert.match(workerSource, /withTimeoutValue\(\s*fetchUsers\(origin, headers, OPTIONAL_BOOTSTRAP_CONTEXT_TIMEOUT_MS\)/);
   assert.match(workerSource, /withTimeoutValue\(\s*fetchSession\(origin, headers, OPTIONAL_BOOTSTRAP_CONTEXT_TIMEOUT_MS\)/);
   assert.match(workerSource, /status: users\.length \|\| session \? "loaded" : "loaded-products-first"/);
-  assert.match(workerSource, /env\.ASSETS\.fetch\(new Request\("https:\/\/wingamarket\.com\/build-version\.json"\)\)/);
-  assert.doesNotMatch(workerSource, /const buildVersion = await resolveAssetBuildVersion\(env\)/);
+
   assert.match(workerSource, /<meta name="winga-build" content="\$\{escapeHtml\(buildVersion\)\}">/);
   assert.match(workerSource, /data-winga-build-version/);
   assert.match(workerSource, /\/style\.css\$\{assetVersionQuery\}/);

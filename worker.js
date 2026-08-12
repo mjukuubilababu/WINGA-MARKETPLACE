@@ -133,7 +133,7 @@ async function streamFeedPage(request, env, ctx) {
   const origin = getOriginBaseUrl(env);
   const scriptNonce = createCspNonce();
   const styleNonce = createCspNonce();
-  const buildVersion = resolveAssetBuildVersion(env);
+  const buildVersion = await resolveAssetBuildVersion(env);
   const bootstrapPromise = fetchBootstrapContext(origin, request);
   const preloadProductsPromise = fetchPreloadProductPage(origin, request);
   let lcpPreloadStatus = cachedLcpImageUrl ? "memory-hit" : "cache-miss-background-refresh";
@@ -145,7 +145,6 @@ async function streamFeedPage(request, env, ctx) {
   const preloadLinkHeader = buildImagePreloadLinkHeaderFromUrl(lcpImageUrl);
   const shellReadyMs = Math.max(0, getWorkerNow() - shellStartedAt);
 
-  ctx.waitUntil(refreshAssetBuildVersion(env));
   ctx.waitUntil(refreshCachedLcpImageUrl(preloadProductsPromise));
 
   const streamTask = (async () => {
@@ -236,16 +235,7 @@ function createCspNonce() {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-function resolveAssetBuildVersion(env) {
-  const configuredVersion = String(env?.BUILD_VERSION || env?.WINGA_BUILD_VERSION || "").trim();
-  if (/^\d{14}$/.test(configuredVersion)) {
-    cachedAssetBuildVersion = configuredVersion;
-    return configuredVersion;
-  }
-  return cachedAssetBuildVersion;
-}
-
-async function refreshAssetBuildVersion(env) {
+async function resolveAssetBuildVersion(env) {
   if (env?.ASSETS?.fetch) {
     try {
       const response = await env.ASSETS.fetch(new Request("https://wingamarket.com/build-version.json"));
@@ -253,11 +243,17 @@ async function refreshAssetBuildVersion(env) {
       const version = String(payload?.version || "").trim();
       if (response.ok && /^\d{14}$/.test(version)) {
         cachedAssetBuildVersion = version;
+        return cachedAssetBuildVersion;
       }
     } catch (_error) {
-      // Build version refresh is best-effort and must never block the HTML shell.
+      // Fall through to the deployment binding when the asset manifest is unavailable.
     }
   }
+  const configuredVersion = String(env?.BUILD_VERSION || env?.WINGA_BUILD_VERSION || "").trim();
+  if (/^\d{14}$/.test(configuredVersion)) {
+    cachedAssetBuildVersion = configuredVersion;
+  }
+  return cachedAssetBuildVersion;
 }
 
 function buildWorkerServerTiming(options = {}) {
