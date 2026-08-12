@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "policy": "Existing debt may decrease only. New or modified user-visible literals must use localization keys.",
-  "count": 148,
-  "digest": "7e855f9f3317b5745bd793daab1b4f489d311d86e7d8c607b90d147ed0e7bb76",
+  "count": 132,
+  "digest": "940322e4eb1302575107bf448a087320dc17593208f885a27daa0baa63b7f1f1",
   "entries": [
     {
       "signature": "app.js|property|${createdCategory.label} imeongezwa kwenye Vitu Used.",
@@ -109,10 +109,6 @@
       "count": 1
     },
     {
-      "signature": "app.js|property|Create an account or sign in to continue",
-      "count": 5
-    },
-    {
       "signature": "app.js|property|Delete failed",
       "count": 1
     },
@@ -154,10 +150,6 @@
     },
     {
       "signature": "app.js|property|Karibu tena",
-      "count": 1
-    },
-    {
-      "signature": "app.js|property|Login needed",
       "count": 1
     },
     {
@@ -357,10 +349,6 @@
       "count": 1
     },
     {
-      "signature": "app.js|property|You need an account to continue",
-      "count": 3
-    },
-    {
       "signature": "app.js|user-error|Andika category mpya iliyo sahihi.",
       "count": 1
     },
@@ -429,26 +417,6 @@
       "count": 1
     },
     {
-      "signature": "src/categories/ui.js|accessible-name|Browse categories",
-      "count": 1
-    },
-    {
-      "signature": "src/categories/ui.js|accessible-name|Funga categories",
-      "count": 1
-    },
-    {
-      "signature": "src/categories/ui.js|accessible-name|Main categories",
-      "count": 1
-    },
-    {
-      "signature": "src/categories/ui.js|accessible-name|Rudi categories kuu",
-      "count": 1
-    },
-    {
-      "signature": "src/categories/ui.js|accessible-name|Subcategories",
-      "count": 1
-    },
-    {
       "signature": "src/categories/ui.js|property|\\u00D7",
       "count": 1
     },
@@ -458,10 +426,6 @@
     },
     {
       "signature": "src/categories/ui.js|property|\\u203A",
-      "count": 1
-    },
-    {
-      "signature": "src/chat/ui.js|accessible-name|Close chat",
       "count": 1
     },
     {
@@ -514,10 +478,6 @@
     },
     {
       "signature": "src/marketplace/ui.js|property|1/${images.length}",
-      "count": 1
-    },
-    {
-      "signature": "src/navigation/controller.js|property|You need an account to continue",
       "count": 1
     },
     {

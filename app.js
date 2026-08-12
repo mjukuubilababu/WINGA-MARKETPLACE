@@ -3878,8 +3878,8 @@ function showAuthGatePrompt(options = {}) {
     return;
   }
 
-  setNodeText(authGateTitle, options.title || "You need an account to continue");
-  setNodeText(authGateCopy, options.message || "Already have an account? Sign In. New here? Sign Up.");
+  setNodeText(authGateTitle, options.title || translateUi("auth.accountRequired", {}, "You need an account to continue"));
+  setNodeText(authGateCopy, options.message || translateUi("auth.accountPrompt", {}, "Already have an account? Sign In. New here? Sign Up."));
   authGatePrompt.style.display = "block";
 }
 
@@ -3925,8 +3925,8 @@ function promptGuestAuth(options = {}) {
   openAuthModal(options.preferredMode || "signup", {
     gated: true,
     role: options.role || "buyer",
-    title: options.title || "You need an account to continue",
-    message: options.message || "Already have an account? Sign In. New here? Sign Up."
+    title: options.title || translateUi("auth.accountRequired", {}, "You need an account to continue"),
+    message: options.message || translateUi("auth.accountPrompt", {}, "Already have an account? Sign In. New here? Sign Up.")
   });
 }
 
@@ -5957,8 +5957,8 @@ function openProductWhatsappFromCard(productId) {
     promptGuestAuth?.({
       preferredMode: "signup",
       role: "buyer",
-      title: "You need an account to continue",
-      message: "Sign up or log in to continue with WhatsApp on this product.",
+      title: translateUi("auth.accountRequired", {}, "You need an account to continue"),
+      message: translateUi("auth.whatsappPrompt", {}, "Sign up or log in to continue with WhatsApp on this product."),
       intent: { type: "open-whatsapp", productId }
     });
     return;
@@ -8581,7 +8581,7 @@ function showLoggedOutState(options = {}) {
   syncBodyScrollLockState();
   if (message) {
     showInAppNotification({
-      title: "Login needed",
+      title: translateUi("auth.loginNeeded", {}, "Login needed"),
       body: message,
       variant: "warning"
     });
@@ -10697,7 +10697,8 @@ const {
   getMessageProductItems,
   getReplyPreviewMessage,
   getCurrentUser: () => currentUser,
-  getUserDisplayName
+  getUserDisplayName,
+  translate: translateUi
 });
 
 const {
@@ -11243,6 +11244,7 @@ const {
   renderHeaderUserMenu,
   toggleHeaderUserMenu,
   getCurrentSession: () => currentSession,
+  translate: translateUi,
   reportEvent: (...args) => reportClientEvent(...args),
   openProfileSection,
   isStaffUser,
@@ -11337,6 +11339,7 @@ const { renderFilterCategories } = window.WingaModules.categories.createCategori
   createResponsiveImage,
   createProgressiveImage,
   getImageFallbackDataUri,
+  translate: translateUi,
   getAvailableTopCategories: () => availableTopCategories,
   getSelectedCategory: () => selectedCategory,
   getExpandedBrowseCategory: () => expandedBrowseCategory,
@@ -15025,8 +15028,8 @@ searchToggleButton.addEventListener("click", () => {
     promptGuestAuth({
       preferredMode: "signup",
       role: "buyer",
-      title: "Create an account or sign in to continue",
-      message: "Search and advanced filters are available for members."
+      title: translateUi("auth.searchAccountRequired", {}, "Create an account or sign in to continue"),
+      message: translateUi("auth.searchMembersOnly", {}, "Search and advanced filters are available for members.")
     });
     return;
   }
@@ -15050,8 +15053,8 @@ bindSearchInputHandlers(searchInput);
       promptGuestAuth({
         preferredMode: "signup",
         role: "buyer",
-        title: "Create an account or sign in to continue",
-        message: "Search and advanced filters are available for members."
+        title: translateUi("auth.searchAccountRequired", {}, "Create an account or sign in to continue"),
+        message: translateUi("auth.searchMembersOnly", {}, "Search and advanced filters are available for members.")
       });
       return;
     }
@@ -15065,8 +15068,8 @@ bindSearchInputHandlers(searchInput);
       promptGuestAuth({
         preferredMode: "signup",
         role: "buyer",
-        title: "Create an account or sign in to continue",
-        message: "Search and advanced filters are available for members."
+        title: translateUi("auth.searchAccountRequired", {}, "Create an account or sign in to continue"),
+        message: translateUi("auth.searchMembersOnly", {}, "Search and advanced filters are available for members.")
       });
       return;
     }
@@ -15594,8 +15597,8 @@ function bindSearchInputHandlers(node) {
       promptGuestAuth({
         preferredMode: "signup",
         role: "buyer",
-        title: "Create an account or sign in to continue",
-        message: "Search and advanced filters are available for members."
+        title: translateUi("auth.searchAccountRequired", {}, "Create an account or sign in to continue"),
+        message: translateUi("auth.searchMembersOnly", {}, "Search and advanced filters are available for members.")
       });
       return;
     }
@@ -15612,8 +15615,8 @@ function bindSearchInputHandlers(node) {
       promptGuestAuth({
         preferredMode: "signup",
         role: "buyer",
-        title: "Create an account or sign in to continue",
-        message: "Search and advanced filters are available for members."
+        title: translateUi("auth.searchAccountRequired", {}, "Create an account or sign in to continue"),
+        message: translateUi("auth.searchMembersOnly", {}, "Search and advanced filters are available for members.")
       });
       node.blur();
       return;
@@ -19440,8 +19443,8 @@ function bindShowcaseCardClicks(scope) {
         promptGuestAuth?.({
           preferredMode: "signup",
           role: "buyer",
-          title: "You need an account to continue",
-          message: "Sign up or log in to open product details and other marketplace actions.",
+          title: translateUi("auth.accountRequired", {}, "You need an account to continue"),
+          message: translateUi("auth.productAccessPrompt", {}, "Sign up or log in to open product details and other marketplace actions."),
           intent: { type: "focus-product", productId, initialImageIndex }
         });
         return;
@@ -19635,8 +19638,8 @@ function enhanceShowcaseTracks(scope = document) {
         promptGuestAuth({
           preferredMode: "signup",
           role: "buyer",
-          title: "You need an account to continue",
-          message: "Sign up or log in to open product details and other marketplace actions.",
+          title: translateUi("auth.accountRequired", {}, "You need an account to continue"),
+          message: translateUi("auth.productAccessPrompt", {}, "Sign up or log in to open product details and other marketplace actions."),
           intent: { type: "focus-product", productId, initialImageIndex }
         });
         return;

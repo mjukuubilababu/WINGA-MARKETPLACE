@@ -1,5 +1,6 @@
 (() => {
   function createNavigationControllerModule(deps) {
+    const t = (key, fallback, variables = {}) => deps.translate?.(key, variables, fallback) || fallback;
     function bindHeaderEntryActions() {
       deps.getHeaderLoginButton?.()?.addEventListener("click", () => {
         deps.clearPendingGuestIntent();
@@ -314,8 +315,8 @@
             deps.promptGuestAuth?.({
               preferredMode: "signup",
               role: "buyer",
-              title: "You need an account to continue",
-              message: "Sign up or log in to open product details and other marketplace actions.",
+              title: t("auth.accountRequired", "You need an account to continue"),
+              message: t("auth.productAccessPrompt", "Sign up or log in to open product details and other marketplace actions."),
               intent: { type: "focus-product", productId }
             });
             return;

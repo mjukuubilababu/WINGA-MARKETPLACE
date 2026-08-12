@@ -735,6 +735,20 @@
     "admin.promotionsEmpty": "Hakuna promosheni za kusimamia.",
     "admin.promotionsFilterEmpty": "Hakuna promosheni zinazolingana na kichujio hiki.",
     "admin.promotionsTitle": "Promosheni",
-    "admin.promotionsBody": "Udhibiti wa promosheni kwa wasimamizi pekee."
+    "admin.promotionsBody": "Udhibiti wa promosheni kwa wasimamizi pekee.",
+    "auth.productAccessPrompt": "Jisajili au ingia ili kufungua maelezo ya bidhaa na vitendo vingine vya sokoni.",
+    "auth.loginNeeded": "Ingia kwanza",
+    "auth.searchAccountRequired": "Fungua akaunti au ingia ili kuendelea",
+    "auth.searchMembersOnly": "Utafutaji na vichujio vya kina vinapatikana kwa wanachama.",
+    "auth.whatsappPrompt": "Jisajili au ingia ili kuendelea na WhatsApp kwa bidhaa hii.",
+    "categories.browseAria": "Vinjari kategoria",
+    "categories.closeAria": "Funga kategoria",
+    "categories.mainAria": "Kategoria kuu",
+    "categories.all": "Zote",
+    "categories.subcategoriesAria": "Kategoria ndogo",
+    "categories.backToMainAria": "Rudi kwenye kategoria kuu",
+    "categories.subcategories": "Kategoria ndogo",
+    "categories.viewAll": "Tazama {category} zote",
+    "chat.closeAria": "Funga mazungumzo"
   }
 }

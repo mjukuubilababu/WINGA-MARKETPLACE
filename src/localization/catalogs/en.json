@@ -735,6 +735,20 @@
     "admin.promotionsEmpty": "There are no promotions to manage.",
     "admin.promotionsFilterEmpty": "There are no promotions matching this filter.",
     "admin.promotionsTitle": "Promotions",
-    "admin.promotionsBody": "Admin-only promotion controls."
+    "admin.promotionsBody": "Admin-only promotion controls.",
+    "auth.productAccessPrompt": "Sign up or log in to open product details and other marketplace actions.",
+    "auth.loginNeeded": "Login needed",
+    "auth.searchAccountRequired": "Create an account or sign in to continue",
+    "auth.searchMembersOnly": "Search and advanced filters are available for members.",
+    "auth.whatsappPrompt": "Sign up or log in to continue with WhatsApp on this product.",
+    "categories.browseAria": "Browse categories",
+    "categories.closeAria": "Close categories",
+    "categories.mainAria": "Main categories",
+    "categories.all": "All",
+    "categories.subcategoriesAria": "Subcategories",
+    "categories.backToMainAria": "Back to main categories",
+    "categories.subcategories": "Subcategories",
+    "categories.viewAll": "View all {category}",
+    "chat.closeAria": "Close chat"
   }
 }

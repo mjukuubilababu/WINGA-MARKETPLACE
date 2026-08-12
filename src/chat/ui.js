@@ -1,5 +1,6 @@
 (() => {
   function createChatUiModule(deps) {
+    const t = (key, fallback, variables = {}) => deps.translate?.(key, variables, fallback) || fallback;
     function createElementFromMarkup(markup) {
       return deps.createElementFromMarkup(markup);
     }
@@ -279,7 +280,7 @@
           textContent: "\u00D7",
           attributes: {
             type: "button",
-            "aria-label": "Close chat",
+            "aria-label": t("chat.closeAria", "Close chat"),
             "data-close-context-chat": "true"
           }
         }),

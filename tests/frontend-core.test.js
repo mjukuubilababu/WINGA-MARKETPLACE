@@ -3372,6 +3372,9 @@ test("localized auth and recovery preserve security and password contracts", () 
   assert.match(appSource, /translateUi\("auth\.recoveryChallengeMissing"/);
   assert.match(appSource, /translateUi\("auth\.recoveryCompleteFailed"/);
   assert.match(appSource, /completePasswordRecovery\(\{/);
+  assert.match(appSource, /auth\.searchAccountRequired/);
+  assert.match(appSource, /auth\.productAccessPrompt/);
+  assert.match(appSource, /auth\.whatsappPrompt/);
   assert.match(appSource, /cancelPendingSessionRestore\("public_signup_started"\)/);
 });
 
@@ -3459,6 +3462,23 @@ test("localized marketplace cards preserve feed and gallery contracts", () => {
   assert.match(appSource, /translate: translateUi/);
 });
 
+test("localized category and chat accessibility labels preserve interaction contracts", () => {
+  const root = path.resolve(__dirname, "..");
+  const categorySource = fs.readFileSync(path.join(root, "src", "categories", "ui.js"), "utf8");
+  const chatSource = fs.readFileSync(path.join(root, "src", "chat", "ui.js"), "utf8");
+  const navigationSource = fs.readFileSync(path.join(root, "src", "navigation", "controller.js"), "utf8");
+  const requiredKeys = ["categories.browseAria", "categories.closeAria", "categories.backToMainAria", "categories.viewAll", "chat.closeAria", "auth.productAccessPrompt"];
+  for (const locale of ["en", "sw", "fr", "ar"]) {
+    const catalog = JSON.parse(fs.readFileSync(path.join(root, "src", "localization", "catalogs", `${locale}.json`), "utf8"));
+    requiredKeys.forEach((key) => assert.equal(typeof catalog.messages[key], "string", `${locale} missing ${key}`));
+  }
+  assert.match(categorySource, /deps\.translate/);
+  assert.match(categorySource, /data-mobile-category-back/);
+  assert.match(chatSource, /chat\.closeAria/);
+  assert.match(chatSource, /data-close-context-chat/);
+  assert.match(navigationSource, /auth\.productAccessPrompt/);
+  assert.match(navigationSource, /intent: \{ type: "focus-product", productId \}/);
+});
 test("localized profile surfaces preserve account and commerce contracts", () => {
   const uiSource = fs.readFileSync(path.join(__dirname, "..", "src", "profile", "ui.js"), "utf8");
   const controllerSource = fs.readFileSync(path.join(__dirname, "..", "src", "profile", "controller.js"), "utf8");

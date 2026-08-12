@@ -4960,6 +4960,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 // src/categories/ui.js
 (() => {
   function createCategoriesUiModule(deps) {
+    const t = (key, fallback, variables = {}) => deps.translate?.(key, variables, fallback) || fallback;
       const {
        createElement,
        createCategoryButton,
@@ -5093,7 +5094,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       const layout = createElement("section", {
         className: "mobile-category-sheet",
         attributes: {
-          "aria-label": "Browse categories",
+          "aria-label": t("categories.browseAria", "Browse categories"),
           "data-mobile-category-depth": isSubcategoryScreen ? "subcategories" : "categories"
         }
       });
@@ -5105,7 +5106,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           textContent: "\u00D7",
           attributes: {
             type: "button",
-            "aria-label": "Funga categories",
+            "aria-label": t("categories.closeAria", "Close categories"),
             "data-close-mobile-categories": "true"
           }
         })
@@ -5117,13 +5118,13 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 
       const mainScreen = createElement("section", {
         className: "mobile-category-screen mobile-category-screen-main",
-        attributes: { "aria-label": "Main categories" }
+        attributes: { "aria-label": t("categories.mainAria", "Main categories") }
       });
       const mainList = createElement("div", { className: "mobile-category-list" });
 
       const allItem = createElement("div", { className: "category-item category-item-static" });
       allItem.appendChild(createMobileCategoryRow({
-        label: "Zote",
+        label: t("categories.all", "All"),
         value: "all",
         isActive: selectedCategory === "all"
       }));
@@ -5148,7 +5149,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 
       const subScreen = createElement("section", {
         className: "mobile-category-screen mobile-category-screen-sub",
-        attributes: { "aria-label": "Subcategories" }
+        attributes: { "aria-label": t("categories.subcategoriesAria", "Subcategories") }
       });
       const subScreenHeader = createElement("div", { className: "mobile-subcategory-header" });
       subScreenHeader.append(
@@ -5157,13 +5158,13 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           textContent: "\u2039",
           attributes: {
             type: "button",
-            "aria-label": "Rudi categories kuu",
+            "aria-label": t("categories.backToMainAria", "Back to main categories"),
             "data-mobile-category-back": "true"
           }
         }),
         createElement("div", {
           className: "mobile-subcategory-heading",
-          textContent: activeTopCategory ? deps.getCategoryLabel(activeTopCategory) : "Subcategories"
+          textContent: activeTopCategory ? deps.getCategoryLabel(activeTopCategory) : t("categories.subcategories", "Subcategories")
         })
       );
       subScreen.appendChild(subScreenHeader);
@@ -5173,7 +5174,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       });
       if (activeTopCategory) {
         subcategoryList.appendChild(createMobileCategoryRow({
-          label: `View all ${deps.getCategoryLabel(activeTopCategory)}`,
+          label: t("categories.viewAll", "View all {category}", { category: deps.getCategoryLabel(activeTopCategory) }),
           value: activeTopCategory,
           isActive: selectedCategory === activeTopCategory,
           isSubcategory: true,
@@ -5267,7 +5268,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       const desktopRoot = createElement("div", { className: "category-top-row" });
       const allItem = createElement("div", { className: "category-item category-item-static" });
       allItem.appendChild(createCategoryButton({
-        label: "Zote",
+        label: t("categories.all", "All"),
         value: "all",
         isActive: selectedCategory === "all"
       }));
@@ -5301,6 +5302,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 // src/navigation/controller.js
 (() => {
   function createNavigationControllerModule(deps) {
+    const t = (key, fallback, variables = {}) => deps.translate?.(key, variables, fallback) || fallback;
     function bindHeaderEntryActions() {
       deps.getHeaderLoginButton?.()?.addEventListener("click", () => {
         deps.clearPendingGuestIntent();
@@ -5615,8 +5617,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             deps.promptGuestAuth?.({
               preferredMode: "signup",
               role: "buyer",
-              title: "You need an account to continue",
-              message: "Sign up or log in to open product details and other marketplace actions.",
+              title: t("auth.accountRequired", "You need an account to continue"),
+              message: t("auth.productAccessPrompt", "Sign up or log in to open product details and other marketplace actions."),
               intent: { type: "focus-product", productId }
             });
             return;
@@ -12249,6 +12251,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 // src/chat/ui.js
 (() => {
   function createChatUiModule(deps) {
+    const t = (key, fallback, variables = {}) => deps.translate?.(key, variables, fallback) || fallback;
     function createElementFromMarkup(markup) {
       return deps.createElementFromMarkup(markup);
     }
@@ -12528,7 +12531,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           textContent: "\u00D7",
           attributes: {
             type: "button",
-            "aria-label": "Close chat",
+            "aria-label": t("chat.closeAria", "Close chat"),
             "data-close-context-chat": "true"
           }
         }),

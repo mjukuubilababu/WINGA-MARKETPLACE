@@ -739,6 +739,20 @@
     "admin.promotionsEmpty": "لا توجد عروض ترويجية لإدارتها.",
     "admin.promotionsFilterEmpty": "لا توجد عروض ترويجية تطابق هذا الفلتر.",
     "admin.promotionsTitle": "العروض الترويجية",
-    "admin.promotionsBody": "عناصر التحكم في الترويج للمسؤولين فقط."
+    "admin.promotionsBody": "عناصر التحكم في الترويج للمسؤولين فقط.",
+    "auth.productAccessPrompt": "أنشئ حسابا أو سجل الدخول لفتح تفاصيل المنتج وإجراءات السوق الأخرى.",
+    "auth.loginNeeded": "تسجيل الدخول مطلوب",
+    "auth.searchAccountRequired": "أنشئ حسابا أو سجل الدخول للمتابعة",
+    "auth.searchMembersOnly": "البحث والفلاتر المتقدمة متاحة للأعضاء.",
+    "auth.whatsappPrompt": "أنشئ حسابا أو سجل الدخول للمتابعة عبر واتساب لهذا المنتج.",
+    "categories.browseAria": "تصفح الفئات",
+    "categories.closeAria": "إغلاق الفئات",
+    "categories.mainAria": "الفئات الرئيسية",
+    "categories.all": "الكل",
+    "categories.subcategoriesAria": "الفئات الفرعية",
+    "categories.backToMainAria": "العودة إلى الفئات الرئيسية",
+    "categories.subcategories": "الفئات الفرعية",
+    "categories.viewAll": "عرض كل {category}",
+    "chat.closeAria": "إغلاق المحادثة"
   }
 }

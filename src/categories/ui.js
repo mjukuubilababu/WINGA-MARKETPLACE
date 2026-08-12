@@ -1,5 +1,6 @@
 (() => {
   function createCategoriesUiModule(deps) {
+    const t = (key, fallback, variables = {}) => deps.translate?.(key, variables, fallback) || fallback;
       const {
        createElement,
        createCategoryButton,
@@ -133,7 +134,7 @@
       const layout = createElement("section", {
         className: "mobile-category-sheet",
         attributes: {
-          "aria-label": "Browse categories",
+          "aria-label": t("categories.browseAria", "Browse categories"),
           "data-mobile-category-depth": isSubcategoryScreen ? "subcategories" : "categories"
         }
       });
@@ -145,7 +146,7 @@
           textContent: "\u00D7",
           attributes: {
             type: "button",
-            "aria-label": "Funga categories",
+            "aria-label": t("categories.closeAria", "Close categories"),
             "data-close-mobile-categories": "true"
           }
         })
@@ -157,13 +158,13 @@
 
       const mainScreen = createElement("section", {
         className: "mobile-category-screen mobile-category-screen-main",
-        attributes: { "aria-label": "Main categories" }
+        attributes: { "aria-label": t("categories.mainAria", "Main categories") }
       });
       const mainList = createElement("div", { className: "mobile-category-list" });
 
       const allItem = createElement("div", { className: "category-item category-item-static" });
       allItem.appendChild(createMobileCategoryRow({
-        label: "Zote",
+        label: t("categories.all", "All"),
         value: "all",
         isActive: selectedCategory === "all"
       }));
@@ -188,7 +189,7 @@
 
       const subScreen = createElement("section", {
         className: "mobile-category-screen mobile-category-screen-sub",
-        attributes: { "aria-label": "Subcategories" }
+        attributes: { "aria-label": t("categories.subcategoriesAria", "Subcategories") }
       });
       const subScreenHeader = createElement("div", { className: "mobile-subcategory-header" });
       subScreenHeader.append(
@@ -197,13 +198,13 @@
           textContent: "\u2039",
           attributes: {
             type: "button",
-            "aria-label": "Rudi categories kuu",
+            "aria-label": t("categories.backToMainAria", "Back to main categories"),
             "data-mobile-category-back": "true"
           }
         }),
         createElement("div", {
           className: "mobile-subcategory-heading",
-          textContent: activeTopCategory ? deps.getCategoryLabel(activeTopCategory) : "Subcategories"
+          textContent: activeTopCategory ? deps.getCategoryLabel(activeTopCategory) : t("categories.subcategories", "Subcategories")
         })
       );
       subScreen.appendChild(subScreenHeader);
@@ -213,7 +214,7 @@
       });
       if (activeTopCategory) {
         subcategoryList.appendChild(createMobileCategoryRow({
-          label: `View all ${deps.getCategoryLabel(activeTopCategory)}`,
+          label: t("categories.viewAll", "View all {category}", { category: deps.getCategoryLabel(activeTopCategory) }),
           value: activeTopCategory,
           isActive: selectedCategory === activeTopCategory,
           isSubcategory: true,
@@ -307,7 +308,7 @@
       const desktopRoot = createElement("div", { className: "category-top-row" });
       const allItem = createElement("div", { className: "category-item category-item-static" });
       allItem.appendChild(createCategoryButton({
-        label: "Zote",
+        label: t("categories.all", "All"),
         value: "all",
         isActive: selectedCategory === "all"
       }));

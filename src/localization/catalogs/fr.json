@@ -735,6 +735,20 @@
     "admin.promotionsEmpty": "Aucune promotion à gérer.",
     "admin.promotionsFilterEmpty": "Aucune promotion ne correspond à ce filtre.",
     "admin.promotionsTitle": "Promotions",
-    "admin.promotionsBody": "Contrôles des promotions réservés aux administrateurs."
+    "admin.promotionsBody": "Contrôles des promotions réservés aux administrateurs.",
+    "auth.productAccessPrompt": "Inscrivez-vous ou connectez-vous pour ouvrir les détails du produit et les autres actions de la marketplace.",
+    "auth.loginNeeded": "Connexion requise",
+    "auth.searchAccountRequired": "Créez un compte ou connectez-vous pour continuer",
+    "auth.searchMembersOnly": "La recherche et les filtres avancés sont réservés aux membres.",
+    "auth.whatsappPrompt": "Inscrivez-vous ou connectez-vous pour continuer avec WhatsApp sur ce produit.",
+    "categories.browseAria": "Parcourir les catégories",
+    "categories.closeAria": "Fermer les catégories",
+    "categories.mainAria": "Catégories principales",
+    "categories.all": "Toutes",
+    "categories.subcategoriesAria": "Sous-catégories",
+    "categories.backToMainAria": "Retour aux catégories principales",
+    "categories.subcategories": "Sous-catégories",
+    "categories.viewAll": "Voir toute la catégorie {category}",
+    "chat.closeAria": "Fermer la discussion"
   }
 }
