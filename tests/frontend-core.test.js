@@ -3308,6 +3308,21 @@ test("localized upload errors preserve independent auth fallback scope", () => {
   assert.match(appSource, /const resolvedFallbackMessage = fallbackMessage \|\| translateUi\("upload\.failed"/);
 });
 
+test("localized auth and recovery preserve security and password contracts", () => {
+  const appSource = fs.readFileSync(path.join(__dirname, "..", "app.js"), "utf8");
+  const authStart = appSource.indexOf("function getFriendlyAuthErrorMessage(");
+  const authEnd = appSource.indexOf("function isAdminLoginRoute()", authStart);
+  const authSection = appSource.slice(authStart, authEnd);
+  assert.ok(authStart >= 0 && authEnd > authStart);
+  assert.match(authSection, /status === 401 \|\| status === 403/);
+  assert.match(authSection, /return message \|\| fallbackMessage/);
+  assert.match(appSource, /translateUi\("auth\.passwordMinLength", \{ min: passwordMinLength \}/);
+  assert.match(appSource, /translateUi\("auth\.recoveryChallengeMissing"/);
+  assert.match(appSource, /translateUi\("auth\.recoveryCompleteFailed"/);
+  assert.match(appSource, /completePasswordRecovery\(\{/);
+  assert.match(appSource, /cancelPendingSessionRestore\("public_signup_started"\)/);
+});
+
 (async () => {
   let passed = 0;
   for (const entry of tests) {

@@ -2405,32 +2405,32 @@ function validateAuthSignupInput() {
   const passwordMinLength = getAuthPasswordMinLength();
 
   if (!displayName) {
-    return "Weka jina la duka.";
+    return translateUi("auth.shopNameRequired", {}, "Weka jina la duka.");
   }
 
   if (!phoneNumber || !password || !confirmPassword) {
-    return "Jaza jina la duka, namba ya simu, password, na confirm password.";
+    return translateUi("auth.signupFieldsRequired", {}, "Weka jina la duka, namba ya simu, nenosiri na uthibitisho wake.");
   }
 
   if (!isValidPhoneNumber(phoneNumber)) {
-    return "Weka namba ya simu ya WhatsApp sahihi yenye tarakimu 10 hadi 15.";
+    return translateUi("auth.phoneInvalid", {}, "Weka namba halali ya WhatsApp yenye tarakimu 10 hadi 15.");
   }
 
   if (displayName.length > 120) {
-    return "Jina la kuonekana ni refu sana.";
+    return translateUi("auth.displayNameTooLong", {}, "Jina la kuonekana ni refu sana.");
   }
 
   if (password.length < passwordMinLength) {
-    return `Password inapaswa kuwa angalau herufi ${passwordMinLength}.`;
+    return translateUi("auth.passwordMinLength", { min: passwordMinLength }, `Nenosiri lazima liwe na angalau herufi ${passwordMinLength}.`);
   }
 
   if (password !== confirmPassword) {
-    return "Password na confirm password hazifanani.";
+    return translateUi("auth.passwordMismatch", {}, "Manenosiri hayafanani.");
   }
 
   const duplicatePhone = getUsersByPhoneNumber(phoneNumber).find((user) => String(user.phoneNumber || "") === phoneNumber);
   if (duplicatePhone) {
-    return "Namba hiyo ya simu tayari imesajiliwa.";
+    return translateUi("auth.phoneAlreadyRegistered", {}, "Namba hiyo ya simu tayari imesajiliwa.");
   }
 
   return "";
@@ -13612,13 +13612,13 @@ function getFriendlyAuthErrorMessage(error, fallbackMessage) {
   const message = String(error?.message || "").trim();
   const normalizedMessage = message.toLowerCase();
   if (status === 429 || normalizedMessage.includes("too many")) {
-    return "Majaribio ni mengi sana kwa sasa. Subiri kidogo kisha jaribu tena.";
+    return translateUi("auth.tooManyAttempts", {}, "Majaribio ni mengi sana kwa sasa. Subiri kidogo kisha ujaribu tena.");
   }
   if (error?.retryable || code === "timeout" || code === "network" || normalizedMessage.includes("took too long") || normalizedMessage.includes("failed to fetch") || normalizedMessage.includes("network")) {
-    return "Network issue au server imechelewa kujibu. Hakikisha internet iko sawa kisha bonyeza tena kujaribu.";
+    return translateUi("auth.networkError", {}, "Mtandao au server imechelewa kujibu. Hakikisha intaneti iko sawa kisha ujaribu tena.");
   }
   if (status >= 500 || normalizedMessage.includes("system error") || normalizedMessage.includes("itilafu ya mfumo")) {
-    return "Server ina tatizo kwa sasa. Jaribu tena baada ya muda mfupi.";
+    return translateUi("auth.serverError", {}, "Server haipatikani kwa sasa. Jaribu tena baada ya muda mfupi.");
   }
   if (status === 401 || status === 403) {
     return message || fallbackMessage;
@@ -14667,7 +14667,7 @@ authButton.addEventListener("click", async () => {
   if (isLogin) {
     if (!username || !password) {
       releasePublicAuthPendingState();
-      alert("Jaza identifier na password.");
+      alert(translateUi("auth.loginFieldsRequired", {}, "Weka kitambulisho cha akaunti na nenosiri."));
       return;
     }
 
@@ -14679,13 +14679,13 @@ authButton.addEventListener("click", async () => {
           username: user.username
         });
         showInAppNotification({
-          title: "Use admin access route",
-          body: "Admin au moderator wanapaswa kuingia kupitia route ya admin login pekee.",
+          title: translateUi("auth.staffRouteTitle", {}, "Use the staff access route"),
+          body: translateUi("auth.staffRouteBody", {}, "Admin na moderator lazima waingie kupitia njia maalumu ya staff."),
           variant: "warning"
         });
         setAdminLoginRouteActive(true);
         showAdminLoginScreen({
-          message: "Admin au moderator wanapaswa kuingia kupitia route hii ya staff access."
+          message: translateUi("auth.staffRouteBody", {}, "Admin na moderator lazima waingie kupitia njia maalumu ya staff.")
         });
         releasePublicAuthPendingState();
         return;
@@ -14696,14 +14696,14 @@ authButton.addEventListener("click", async () => {
         deferRender: true
       });
     } catch (error) {
-      const errorMessage = getFriendlyAuthErrorMessage(error, "Taarifa za login si sahihi. Hakikisha identifier na password yako ni sahihi.");
+      const errorMessage = getFriendlyAuthErrorMessage(error, translateUi("auth.loginInvalid", {}, "Taarifa za kuingia si sahihi. Hakikisha kitambulisho na nenosiri ni sahihi."));
       if (/admin login route|admin au moderator/i.test(errorMessage)) {
         setAdminLoginRouteActive(true);
         showAdminLoginScreen({
-          message: "Admin au moderator wanapaswa kuingia kupitia route hii ya staff access."
+          message: translateUi("auth.staffRouteBody", {}, "Admin na moderator lazima waingie kupitia njia maalumu ya staff.")
         });
         showInAppNotification({
-          title: "Use admin access route",
+          title: translateUi("auth.staffRouteTitle", {}, "Use the staff access route"),
           body: errorMessage,
           variant: "warning"
         });
@@ -14721,7 +14721,7 @@ authButton.addEventListener("click", async () => {
     if (passwordRecoveryStep === "request") {
       if (!username) {
         releasePublicAuthPendingState();
-        alert("Weka username, full name, au namba ya simu ya account.");
+        alert(translateUi("auth.recoveryIdentifierRequired", {}, "Weka jina la mtumiaji, jina kamili au namba ya simu ya akaunti."));
         return;
       }
       try {
@@ -14731,21 +14731,21 @@ authButton.addEventListener("click", async () => {
         });
         passwordRecoveryChallengeId = String(recoveryRequest?.challengeId || "");
         if (!passwordRecoveryChallengeId) {
-          throw new Error("Recovery challenge haikupatikana. Jaribu tena.");
+          throw new Error(translateUi("auth.recoveryChallengeMissing", {}, "Hatua ya urejeshaji haikuanzishwa. Jaribu tena."));
         }
         passwordRecoveryStep = "verify";
         nationalIdInput.value = String(recoveryRequest?.previewCode || "");
         syncAuthMode();
         showInAppNotification({
-          title: "Recovery code requested",
-          body: recoveryRequest?.message || "Kama account inaruhusiwa, code imetumwa kwenye namba iliyothibitishwa.",
+          title: translateUi("auth.recoveryRequestedTitle", {}, "Recovery code requested"),
+          body: recoveryRequest?.message || translateUi("auth.recoveryRequestedBody", {}, "Ikiwa akaunti inaruhusiwa, namba imetumwa kwenye simu iliyothibitishwa."),
           variant: "success"
         });
         nationalIdInput.focus();
       } catch (error) {
         showInAppNotification({
-          title: "Recovery unavailable",
-          body: getFriendlyAuthErrorMessage(error, "Imeshindikana kuomba recovery code kwa sasa."),
+          title: translateUi("auth.recoveryUnavailableTitle", {}, "Recovery unavailable"),
+          body: getFriendlyAuthErrorMessage(error, translateUi("auth.recoveryRequestFailed", {}, "Imeshindikana kuomba namba ya urejeshaji kwa sasa.")),
           variant: "error"
         });
       } finally {
@@ -14759,22 +14759,22 @@ authButton.addEventListener("click", async () => {
 
     if (!passwordRecoveryChallengeId || !recoveryCode || !password || !confirmPassword) {
       releasePublicAuthPendingState();
-      alert("Weka recovery code, password mpya, na confirm password.");
+      alert(translateUi("auth.recoveryFieldsRequired", {}, "Weka namba ya urejeshaji, nenosiri jipya na uthibitisho wake."));
       return;
     }
     if (!/^\d{6}$/.test(recoveryCode)) {
       releasePublicAuthPendingState();
-      alert("Recovery code inapaswa kuwa na tarakimu 6.");
+      alert(translateUi("auth.recoveryCodeInvalid", {}, "Namba ya urejeshaji lazima iwe na tarakimu 6."));
       return;
     }
     if (password.length < passwordMinLength) {
       releasePublicAuthPendingState();
-      alert(`Password inapaswa kuwa angalau herufi ${passwordMinLength}.`);
+      alert(translateUi("auth.passwordMinLength", { min: passwordMinLength }, `Nenosiri lazima liwe na angalau herufi ${passwordMinLength}.`));
       return;
     }
     if (password !== confirmPassword) {
       releasePublicAuthPendingState();
-      alert("Password na confirm password hazifanani.");
+      alert(translateUi("auth.passwordMismatch", {}, "Manenosiri hayafanani."));
       return;
     }
 
@@ -14785,15 +14785,15 @@ authButton.addEventListener("click", async () => {
         newPassword: password
       });
       showInAppNotification({
-        title: "Password updated",
-        body: "Password yako imebadilishwa. Ingia tena kutumia password mpya.",
+        title: translateUi("auth.passwordUpdatedTitle", {}, "Password updated"),
+        body: translateUi("auth.passwordUpdatedBody", {}, "Nenosiri limebadilishwa. Ingia tena kwa nenosiri jipya."),
         variant: "success"
       });
       switchToLoginMode(username);
     } catch (error) {
       showInAppNotification({
-        title: "Recovery failed",
-        body: getFriendlyAuthErrorMessage(error, "Imeshindikana kubadilisha password kwa sasa."),
+        title: translateUi("auth.recoveryFailedTitle", {}, "Recovery failed"),
+        body: getFriendlyAuthErrorMessage(error, translateUi("auth.recoveryCompleteFailed", {}, "Imeshindikana kubadilisha nenosiri kwa sasa.")),
         variant: "error"
       });
     } finally {
@@ -14811,8 +14811,8 @@ authButton.addEventListener("click", async () => {
       role: selectedAuthRole
     });
     showInAppNotification({
-      title: "Sign up failed",
-      body: "Kulitokea tatizo wakati wa kuhakiki taarifa zako. Tafadhali jaribu tena.",
+      title: translateUi("auth.signupFailedTitle", {}, "Sign up failed"),
+      body: translateUi("auth.signupValidationFailed", {}, "Imeshindikana kuhakiki taarifa zako. Tafadhali jaribu tena."),
       variant: "error"
     });
     return;
@@ -14840,14 +14840,14 @@ authButton.addEventListener("click", async () => {
     releasePublicAuthPendingState();
     publicAuthTransitionPending = true;
     setAuthInteractionPending("public", true, {
-      buttonText: "Inaingia...",
-      noteText: "Akaunti imeundwa. Tunaingia sasa..."
+      buttonText: translateUi("auth.signingIn", {}, "Inaingia..."),
+      noteText: translateUi("auth.accountCreatedSigningIn", {}, "Akaunti imeundwa. Tunaingia sasa...")
     });
     await waitForNextPaint();
     try {
       showInAppNotification({
-        title: "Welcome to Winga",
-        body: "Akaunti imeundwa. Unaingia moja kwa moja.",
+        title: translateUi("auth.welcomeTitle", {}, "Welcome to Winga"),
+        body: translateUi("auth.welcomeBody", {}, "Akaunti imeundwa. Unaingia moja kwa moja."),
         variant: "success"
       });
       authSignupStep = 1;
@@ -14868,8 +14868,8 @@ authButton.addEventListener("click", async () => {
       releasePublicAuthPendingState();
       switchToLoginMode(user?.username || phoneNumber);
       showInAppNotification({
-        title: "Account created",
-        body: "Akaunti imetengenezwa lakini haikuingia moja kwa moja. Login sasa kuendelea.",
+        title: translateUi("auth.accountCreatedTitle", {}, "Account created"),
+        body: translateUi("auth.accountCreatedLoginBody", {}, "Akaunti imeundwa lakini haikuingia moja kwa moja. Ingia sasa kuendelea."),
         variant: "warning"
       });
       return;
@@ -14877,8 +14877,8 @@ authButton.addEventListener("click", async () => {
   } catch (error) {
     publicAuthTransitionPending = false;
     showInAppNotification({
-      title: "Sign up failed",
-      body: getFriendlyAuthErrorMessage(error, "Imeshindikana kusajili akaunti."),
+      title: translateUi("auth.signupFailedTitle", {}, "Sign up failed"),
+      body: getFriendlyAuthErrorMessage(error, translateUi("auth.signupFailedBody", {}, "Imeshindikana kutengeneza akaunti.")),
       variant: "error"
     });
   } finally {

@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "policy": "Existing debt may decrease only. New or modified user-visible literals must use localization keys.",
-  "count": 355,
-  "digest": "77a2b93076114657537ef13df88b5cd58e11f0efc1bd1e3c7642f682612d65ee",
+  "count": 339,
+  "digest": "dded1486ea6fc02609daf25fb84b89771443ad4cd606adb93c7f5ebf72400c1c",
   "entries": [
     {
       "signature": "app.js|property|${createdCategory.label} imeongezwa kwenye Vitu Used.",
@@ -53,19 +53,11 @@
       "count": 1
     },
     {
-      "signature": "app.js|property|Account created",
-      "count": 1
-    },
-    {
       "signature": "app.js|property|Admin access granted",
       "count": 1
     },
     {
       "signature": "app.js|property|Admin access only",
-      "count": 1
-    },
-    {
-      "signature": "app.js|property|Admin au moderator wanapaswa kuingia kupitia route ya admin login pekee.",
       "count": 1
     },
     {
@@ -78,14 +70,6 @@
     },
     {
       "signature": "app.js|property|Admin view failed",
-      "count": 1
-    },
-    {
-      "signature": "app.js|property|Akaunti imetengenezwa lakini haikuingia moja kwa moja. Login sasa kuendelea.",
-      "count": 1
-    },
-    {
-      "signature": "app.js|property|Akaunti imeundwa. Unaingia moja kwa moja.",
       "count": 1
     },
     {
@@ -225,10 +209,6 @@
       "count": 1
     },
     {
-      "signature": "app.js|property|Kulitokea tatizo wakati wa kuhakiki taarifa zako. Tafadhali jaribu tena.",
-      "count": 1
-    },
-    {
       "signature": "app.js|property|Lipa kwanza, kisha weka receipt au transaction reference ili order ihifadhiwe pending verification.",
       "count": 1
     },
@@ -305,14 +285,6 @@
       "count": 1
     },
     {
-      "signature": "app.js|property|Password updated",
-      "count": 1
-    },
-    {
-      "signature": "app.js|property|Password yako imebadilishwa. Ingia tena kutumia password mpya.",
-      "count": 1
-    },
-    {
       "signature": "app.js|property|Picha zako zinaingia mbele kwa utulivu",
       "count": 1
     },
@@ -377,18 +349,6 @@
       "count": 1
     },
     {
-      "signature": "app.js|property|Recovery code requested",
-      "count": 1
-    },
-    {
-      "signature": "app.js|property|Recovery failed",
-      "count": 1
-    },
-    {
-      "signature": "app.js|property|Recovery unavailable",
-      "count": 1
-    },
-    {
       "signature": "app.js|property|Refresh App",
       "count": 1
     },
@@ -427,10 +387,6 @@
     {
       "signature": "app.js|property|Session ya admin haijaendelea kwa sababu admin surface imekosa kufunguka vizuri.",
       "count": 1
-    },
-    {
-      "signature": "app.js|property|Sign up failed",
-      "count": 2
     },
     {
       "signature": "app.js|property|Startup Error",
@@ -485,10 +441,6 @@
       "count": 2
     },
     {
-      "signature": "app.js|property|Use admin access route",
-      "count": 2
-    },
-    {
       "signature": "app.js|property|Utafutaji unaohisi wa kweli",
       "count": 1
     },
@@ -498,10 +450,6 @@
     },
     {
       "signature": "app.js|property|Weka receipt au transaction reference",
-      "count": 1
-    },
-    {
-      "signature": "app.js|property|Welcome to Winga",
       "count": 1
     },
     {
@@ -550,10 +498,6 @@
     },
     {
       "signature": "app.js|user-error|Picha haikusomeka vizuri.",
-      "count": 1
-    },
-    {
-      "signature": "app.js|user-error|Recovery challenge haikupatikana. Jaribu tena.",
       "count": 1
     },
     {
