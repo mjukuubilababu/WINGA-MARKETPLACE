@@ -18499,6 +18499,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 // src/product-detail/ui.js
 (() => {
   function createProductDetailUiModule(deps) {
+    const t = (key, fallbackText = "", variables = {}) => deps.translate?.(key, variables, fallbackText) || fallbackText;
     function ensureProductDetailModal() {
       let modal = document.getElementById("product-detail-modal");
       if (modal) {
@@ -18524,7 +18525,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         textContent: "\u2190",
         attributes: {
           type: "button",
-          "aria-label": "Go back from product detail",
+          "aria-label": t("detail.backAria", "Go back from product detail"),
           "data-close-product-detail": "true"
         }
       }));
@@ -18557,8 +18558,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         : `${window.location.origin}/product/${encodeURIComponent(String(product.id || "").trim())}`;
       const panel = deps.createElement("div", { className: "product-detail-deep-link panel" });
       panel.append(
-        deps.createElement("p", { className: "eyebrow", textContent: "Admin Deep Link" }),
-        deps.createElement("strong", { textContent: "Share this exact product route" }),
+        deps.createElement("p", { className: "eyebrow", textContent: t("detail.adminDeepLink", "Admin Deep Link") }),
+        deps.createElement("strong", { textContent: t("detail.shareExactRoute", "Share this exact product route") }),
         deps.createElement("code", {
           className: "product-detail-deep-link-value",
           textContent: deepLink
@@ -18568,7 +18569,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       actions.append(
         deps.createElement("button", {
           className: "action-btn action-btn-secondary",
-          textContent: "Copy Deep Link",
+          textContent: t("detail.copyDeepLink", "Copy Deep Link"),
           attributes: {
             type: "button",
             "data-copy-product-deep-link": deepLink
@@ -18576,7 +18577,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         }),
         deps.createElement("a", {
           className: "action-btn",
-          textContent: "Open Link",
+          textContent: t("detail.openLink", "Open Link"),
           attributes: {
             href: deepLink,
             target: "_blank",
@@ -18594,14 +18595,14 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       }
       const panel = deps.createElement("section", { className: "sold-out-demand-panel" });
       panel.append(
-        deps.createElement("p", { className: "eyebrow", textContent: "Demand Intelligence" }),
-        deps.createElement("h4", { textContent: "Would you like this product to come back?" })
+        deps.createElement("p", { className: "eyebrow", textContent: t("demand.heading", "Demand Intelligence") }),
+        deps.createElement("h4", { textContent: t("demand.returnQuestion", "Would you like this product to come back?") })
       );
       const actions = deps.createElement("div", { className: "sold-out-demand-actions" });
       [
-        ["notify_when_available", "Notify me when available"],
-        ["want_back", "I want this product back"],
-        ["show_similar", "Show me similar products"]
+        ["notify_when_available", t("demand.notifyAvailable", "Notify me when available")],
+        ["want_back", t("demand.wantBack", "I want this product back")],
+        ["show_similar", t("demand.showSimilar", "Show me similar products")]
       ].forEach(([action, label]) => {
         actions.appendChild(deps.createElement("button", {
           className: "action-btn action-btn-secondary demand-action-btn",
@@ -18616,7 +18617,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       panel.appendChild(actions);
       panel.appendChild(deps.createElement("p", {
         className: "meta-copy",
-        textContent: "Your signal helps sellers restock and helps Winga recommend better alternatives."
+        textContent: t("demand.signalHelp", "Your signal helps sellers restock and helps Winga recommend better alternatives.")
       }));
       return panel;
     }
@@ -18627,7 +18628,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       }
       media.appendChild(deps.createElement("span", {
         className: "sold-out-ribbon",
-        textContent: "SOLD OUT"
+        textContent: t("product.soldOut", "SOLD OUT")
       }));
     }
 
@@ -18647,7 +18648,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         wrapper.classList.add("is-collapsed");
         const toggle = deps.createElement("button", {
           className: "product-caption-toggle",
-          textContent: "See more",
+          textContent: t("common.seeMore", "See more"),
           attributes: {
             type: "button",
             "data-product-caption-toggle": "true",
@@ -18659,7 +18660,9 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           event.stopPropagation();
           const isExpanded = wrapper.classList.toggle("is-expanded");
           wrapper.classList.toggle("is-collapsed", !isExpanded);
-          toggle.textContent = isExpanded ? "See less" : "See more";
+          toggle.textContent = isExpanded
+            ? t("common.seeLess", "See less")
+            : t("common.seeMore", "See more");
           toggle.setAttribute("aria-expanded", String(isExpanded));
         });
         wrapper.appendChild(toggle);
@@ -18710,7 +18713,9 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         sellerCopy,
         deps.createElement("span", {
           className: "product-seller-badge",
-          textContent: sellerUser?.verifiedSeller ? "Verified" : "Seller"
+          textContent: sellerUser?.verifiedSeller
+            ? t("seller.verified", "Verified")
+            : t("seller.label", "Seller")
         })
       );
       return sellerRow;
@@ -18766,7 +18771,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         body.appendChild(captionBlock);
       }
       body.appendChild(deps.createFragmentFromMarkup(
-        deps.renderProductActionGroup(item, { requestLabel: "My Request" })
+        deps.renderProductActionGroup(item, { requestLabel: t("request.myRequest", "My Request") })
       ));
       card.append(media, body);
       return card;
@@ -18931,7 +18936,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           attributes: { id: "product-detail-title" }
         }),
         deps.createElement("p", { className: "product-detail-category", textContent: safeCategoryLabel }),
-        deps.createElement("p", { className: "product-detail-seller", textContent: `Muuzaji: ${safeSellerName}` })
+        deps.createElement("p", { className: "product-detail-seller", textContent: t("detail.sellerLabel", "Seller: {seller}", { seller: safeSellerName }) })
       );
       const trustBadges = deps.renderMarketplaceTrustBadges?.(product);
       if (trustBadges) {
@@ -18957,7 +18962,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       const actionsMarkup = deps.renderProductActionGroup?.(product, {
         extraClass: "product-detail-actions",
         includeBuyButton: true,
-        buyLabel: "Lipa"
+        buyLabel: t("commerce.pay", "Pay")
       });
       if (actionsMarkup) {
         copy.appendChild(deps.createFragmentFromMarkup(actionsMarkup));
@@ -18968,7 +18973,10 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       }
 
       const reviewsPanel = deps.createElement("section", { className: "product-detail-reviews-panel" });
-      reviewsPanel.appendChild(createDetailSectionHeading("Ratings & Reviews", "Trust from real buyers"));
+      reviewsPanel.appendChild(createDetailSectionHeading(
+        t("review.heading", "Ratings & Reviews"),
+        t("review.trustTitle", "Trust from real buyers")
+      ));
       [reviewFormMarkup, reviewListMarkup].filter(Boolean).forEach((markup) => {
         reviewsPanel.appendChild(deps.createFragmentFromMarkup(markup));
       });
@@ -18979,8 +18987,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 
       if (otherProducts.length) {
         const section = createDetailShowcaseSectionElement({
-          eyebrow: "Bidhaa Zaidi Kutoka Kwa Muuzaji",
-          title: `Bidhaa nyingine kutoka kwa ${safeSellerName}`,
+          eyebrow: t("detail.moreFromSellerEyebrow", "More From This Seller"),
+          title: t("detail.moreFromSeller", "More products from {seller}", { seller: safeSellerName }),
           items: otherProducts
         });
         if (section) {
@@ -19015,11 +19023,11 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           }
         });
         anchor.append(
-          deps.createElement("p", { className: "eyebrow", textContent: "Winga is loading more" }),
-          deps.createElement("strong", { textContent: "More products are lining up below" }),
+          deps.createElement("p", { className: "eyebrow", textContent: t("detail.loadingEyebrow", "Winga is loading more") }),
+          deps.createElement("strong", { textContent: t("detail.loadingTitle", "More products are lining up below") }),
           deps.createElement("p", {
             className: "product-meta",
-            textContent: "You keep getting more from this seller first, then wider marketplace picks follow."
+            textContent: t("detail.loadingBody", "You keep getting more from this seller first, then wider marketplace picks follow.")
           })
         );
         wrapper.appendChild(anchor);
@@ -19028,10 +19036,10 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       if (showFloatingHomeAction) {
         wrapper.appendChild(deps.createElement("button", {
           className: `product-detail-home-fab product-detail-home-fab-${floatingHomeVariant === "light" ? "light" : "dark"}`,
-          textContent: "Home",
+          textContent: t("common.home", "Home"),
           attributes: {
             type: "button",
-            "aria-label": "Go home from product detail",
+            "aria-label": t("detail.homeAria", "Go home from product detail"),
             "data-product-detail-home": "true"
           }
         }));
@@ -19054,6 +19062,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 // src/product-detail/controller.js
 (() => {
   function createProductDetailControllerModule(deps) {
+    const t = (key, fallbackText = "", variables = {}) => deps.translate?.(key, variables, fallbackText) || fallbackText;
     let detailNavState = {
       rootScrollY: 0,
       rootProductId: "",
@@ -19356,7 +19365,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         return null;
       }
       return deps.createDetailShowcaseSectionElement?.({
-        eyebrow: descriptor.eyebrow || "Keep Exploring",
+        eyebrow: descriptor.eyebrow || t("detail.keepExploring", "Keep Exploring"),
         title: descriptor.title || `More products ${index}`,
         items: descriptor.items,
         attributes: {
@@ -19377,11 +19386,11 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           deps.createElement("div", {
             className: "section-heading",
             children: [
-              deps.createElement("span", { className: "eyebrow", textContent: "Keep Exploring" }),
-              deps.createElement("h3", { textContent: "More products are being refreshed" }),
+              deps.createElement("span", { className: "eyebrow", textContent: t("detail.keepExploring", "Keep Exploring") }),
+              deps.createElement("h3", { textContent: t("detail.refreshingTitle", "More products are being refreshed") }),
               deps.createElement("p", {
                 className: "product-meta",
-                textContent: "Winga has shown the unique continuation picks available for this product right now."
+                textContent: t("detail.exhaustedBody", "Winga has shown the unique continuation picks available for this product right now.")
               })
             ]
           })
@@ -19427,9 +19436,9 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       return sellerFirstItems.length
         ? {
           kind: "same-seller",
-          eyebrow: "More From This Seller",
-          title: "Keep browsing this seller first",
-          subtitle: "Winga continues with more items from the same seller before widening discovery.",
+          eyebrow: t("detail.moreFromSellerEyebrow", "More From This Seller"),
+          title: t("detail.sameSellerTitle", "Keep browsing this seller first"),
+          subtitle: t("detail.sameSellerBody", "Winga continues with more items from the same seller before widening discovery."),
           items: sellerFirstItems
         }
         : deps.getContinuousDiscoveryDescriptor?.({
@@ -19481,8 +19490,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       return items.length
         ? {
           kind: "relaxed-discovery",
-          eyebrow: "Keep Exploring",
-          title: "More products from Winga",
+          eyebrow: t("detail.keepExploring", "Keep Exploring"),
+          title: t("detail.moreFromWinga", "More products from Winga"),
           items
         }
         : null;
@@ -19848,10 +19857,12 @@ window.WingaModules.localization = window.WingaModules.localization || {};
               size: selectedSize
             });
             deps.showInAppNotification?.({
-              title: action === "show_similar" ? "Similar products" : "Demand recorded",
+              title: action === "show_similar"
+                ? t("demand.similarTitle", "Similar products")
+                : t("demand.recordedTitle", "Demand recorded"),
               body: action === "show_similar"
-                ? "Tutatumia signal hii kukuonyesha bidhaa zinazofanana."
-                : "Asante. Seller ataona interest hii kwenye demand analytics.",
+                ? t("demand.similarRecordedBody", "We will use this signal to show you similar products.")
+                : t("demand.recordedBody", "Thank you. The seller will see this interest in demand analytics."),
               variant: "success"
             });
             if (action === "show_similar") {
@@ -19866,8 +19877,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
               demandAction: action
             });
             deps.showInAppNotification?.({
-              title: "Demand failed",
-              body: error.message || "Imeshindikana kuhifadhi demand signal.",
+              title: t("demand.failedTitle", "Demand failed"),
+              body: error.message || t("demand.failedBody", "Unable to save the demand signal."),
               variant: "error"
             });
             button.disabled = false;
@@ -19897,8 +19908,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         const draft = deps.getProductDetailReviewDraft(product.id);
         if (!draft.comment || draft.comment.trim().length < 3) {
           deps.showInAppNotification?.({
-            title: "Review needed",
-            body: "Review inahitaji maoni mafupi yenye maana.",
+            title: t("review.neededTitle", "Review needed"),
+            body: t("review.neededBody", "Please add a short, meaningful review."),
             variant: "warning"
           });
           return;
@@ -19920,8 +19931,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             rating: Number(draft.rating || 5)
           });
           deps.showInAppNotification?.({
-            title: "Review sent",
-            body: "Asante. Review yako imeongezwa kwenye bidhaa hii.",
+            title: t("review.sentTitle", "Review sent"),
+            body: t("review.sentBody", "Thank you. Your review has been added to this product."),
             variant: "success"
           });
           openProductDetailModal(product.id, {
@@ -19932,8 +19943,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             productId: product.id
           });
           deps.showInAppNotification?.({
-            title: "Review failed",
-            body: error.message || "Imeshindikana kutuma review.",
+            title: t("review.failedTitle", "Review failed"),
+            body: error.message || t("review.failedBody", "Unable to submit the review."),
             variant: "error"
           });
         }
@@ -19983,8 +19994,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
               fallback.remove();
             }
             deps.showInAppNotification?.({
-              title: "Deep link copied",
-              body: "Product deep link ime-copy tayari.",
+              title: t("detail.deepLinkCopiedTitle", "Deep link copied"),
+              body: t("detail.deepLinkCopiedBody", "The product deep link has been copied."),
               variant: "success"
             });
           } catch (error) {
@@ -19992,8 +20003,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
               productId: product?.id || ""
             });
             deps.showInAppNotification?.({
-              title: "Copy failed",
-              body: error.message || "Imeshindikana ku-copy deep link.",
+              title: t("detail.copyFailedTitle", "Copy failed"),
+              body: error.message || t("detail.copyFailedBody", "Unable to copy the deep link."),
               variant: "error"
             });
           }
@@ -20105,24 +20116,24 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       const shownProductIds = new Set([product.id, ...otherProducts.map((item) => item.id)]);
       const continuationSections = [];
       appendContinuationSection(continuationSections, shownProductIds, {
-        eyebrow: "Related Products",
-        title: "Keep exploring similar products",
+        eyebrow: t("detail.relatedProducts", "Related Products"),
+        title: t("detail.similarTitle", "Keep exploring similar products"),
         items: deps.getDiscoveryRelatedProducts(product, {
           limit: 8,
           excludeIds: shownProductIds
         })
       });
       appendContinuationSection(continuationSections, shownProductIds, {
-        eyebrow: "Most Searched",
-        title: "Popular products buyers search for most",
+        eyebrow: t("detail.mostSearched", "Most Searched"),
+        title: t("detail.mostSearchedTitle", "Popular products buyers search for most"),
         items: deps.getMostSearchedProducts(product, {
           limit: 8,
           excludeIds: shownProductIds
         })
       });
       appendContinuationSection(continuationSections, shownProductIds, {
-        eyebrow: "New Products",
-        title: "Fresh listings from active sellers",
+        eyebrow: t("detail.newProducts", "New Products"),
+        title: t("detail.freshListingsTitle", "Fresh listings from active sellers"),
         items: deps.getNewestProducts({
           limit: 8,
           excludeIds: shownProductIds,
@@ -20130,8 +20141,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         })
       });
       appendContinuationSection(continuationSections, shownProductIds, {
-        eyebrow: "Sponsored Picks",
-        title: "Promoted products you may also like",
+        eyebrow: t("detail.sponsoredPicks", "Sponsored Picks"),
+        title: t("detail.sponsoredTitle", "Promoted products you may also like"),
         sponsored: true,
         items: deps.getDiscoverySponsoredProducts(product, {
           limit: 4,

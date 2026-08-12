@@ -1,5 +1,6 @@
 (() => {
   function createProductDetailControllerModule(deps) {
+    const t = (key, fallbackText = "", variables = {}) => deps.translate?.(key, variables, fallbackText) || fallbackText;
     let detailNavState = {
       rootScrollY: 0,
       rootProductId: "",
@@ -302,7 +303,7 @@
         return null;
       }
       return deps.createDetailShowcaseSectionElement?.({
-        eyebrow: descriptor.eyebrow || "Keep Exploring",
+        eyebrow: descriptor.eyebrow || t("detail.keepExploring", "Keep Exploring"),
         title: descriptor.title || `More products ${index}`,
         items: descriptor.items,
         attributes: {
@@ -323,11 +324,11 @@
           deps.createElement("div", {
             className: "section-heading",
             children: [
-              deps.createElement("span", { className: "eyebrow", textContent: "Keep Exploring" }),
-              deps.createElement("h3", { textContent: "More products are being refreshed" }),
+              deps.createElement("span", { className: "eyebrow", textContent: t("detail.keepExploring", "Keep Exploring") }),
+              deps.createElement("h3", { textContent: t("detail.refreshingTitle", "More products are being refreshed") }),
               deps.createElement("p", {
                 className: "product-meta",
-                textContent: "Winga has shown the unique continuation picks available for this product right now."
+                textContent: t("detail.exhaustedBody", "Winga has shown the unique continuation picks available for this product right now.")
               })
             ]
           })
@@ -373,9 +374,9 @@
       return sellerFirstItems.length
         ? {
           kind: "same-seller",
-          eyebrow: "More From This Seller",
-          title: "Keep browsing this seller first",
-          subtitle: "Winga continues with more items from the same seller before widening discovery.",
+          eyebrow: t("detail.moreFromSellerEyebrow", "More From This Seller"),
+          title: t("detail.sameSellerTitle", "Keep browsing this seller first"),
+          subtitle: t("detail.sameSellerBody", "Winga continues with more items from the same seller before widening discovery."),
           items: sellerFirstItems
         }
         : deps.getContinuousDiscoveryDescriptor?.({
@@ -427,8 +428,8 @@
       return items.length
         ? {
           kind: "relaxed-discovery",
-          eyebrow: "Keep Exploring",
-          title: "More products from Winga",
+          eyebrow: t("detail.keepExploring", "Keep Exploring"),
+          title: t("detail.moreFromWinga", "More products from Winga"),
           items
         }
         : null;
@@ -794,10 +795,12 @@
               size: selectedSize
             });
             deps.showInAppNotification?.({
-              title: action === "show_similar" ? "Similar products" : "Demand recorded",
+              title: action === "show_similar"
+                ? t("demand.similarTitle", "Similar products")
+                : t("demand.recordedTitle", "Demand recorded"),
               body: action === "show_similar"
-                ? "Tutatumia signal hii kukuonyesha bidhaa zinazofanana."
-                : "Asante. Seller ataona interest hii kwenye demand analytics.",
+                ? t("demand.similarRecordedBody", "We will use this signal to show you similar products.")
+                : t("demand.recordedBody", "Thank you. The seller will see this interest in demand analytics."),
               variant: "success"
             });
             if (action === "show_similar") {
@@ -812,8 +815,8 @@
               demandAction: action
             });
             deps.showInAppNotification?.({
-              title: "Demand failed",
-              body: error.message || "Imeshindikana kuhifadhi demand signal.",
+              title: t("demand.failedTitle", "Demand failed"),
+              body: error.message || t("demand.failedBody", "Unable to save the demand signal."),
               variant: "error"
             });
             button.disabled = false;
@@ -843,8 +846,8 @@
         const draft = deps.getProductDetailReviewDraft(product.id);
         if (!draft.comment || draft.comment.trim().length < 3) {
           deps.showInAppNotification?.({
-            title: "Review needed",
-            body: "Review inahitaji maoni mafupi yenye maana.",
+            title: t("review.neededTitle", "Review needed"),
+            body: t("review.neededBody", "Please add a short, meaningful review."),
             variant: "warning"
           });
           return;
@@ -866,8 +869,8 @@
             rating: Number(draft.rating || 5)
           });
           deps.showInAppNotification?.({
-            title: "Review sent",
-            body: "Asante. Review yako imeongezwa kwenye bidhaa hii.",
+            title: t("review.sentTitle", "Review sent"),
+            body: t("review.sentBody", "Thank you. Your review has been added to this product."),
             variant: "success"
           });
           openProductDetailModal(product.id, {
@@ -878,8 +881,8 @@
             productId: product.id
           });
           deps.showInAppNotification?.({
-            title: "Review failed",
-            body: error.message || "Imeshindikana kutuma review.",
+            title: t("review.failedTitle", "Review failed"),
+            body: error.message || t("review.failedBody", "Unable to submit the review."),
             variant: "error"
           });
         }
@@ -929,8 +932,8 @@
               fallback.remove();
             }
             deps.showInAppNotification?.({
-              title: "Deep link copied",
-              body: "Product deep link ime-copy tayari.",
+              title: t("detail.deepLinkCopiedTitle", "Deep link copied"),
+              body: t("detail.deepLinkCopiedBody", "The product deep link has been copied."),
               variant: "success"
             });
           } catch (error) {
@@ -938,8 +941,8 @@
               productId: product?.id || ""
             });
             deps.showInAppNotification?.({
-              title: "Copy failed",
-              body: error.message || "Imeshindikana ku-copy deep link.",
+              title: t("detail.copyFailedTitle", "Copy failed"),
+              body: error.message || t("detail.copyFailedBody", "Unable to copy the deep link."),
               variant: "error"
             });
           }
@@ -1051,24 +1054,24 @@
       const shownProductIds = new Set([product.id, ...otherProducts.map((item) => item.id)]);
       const continuationSections = [];
       appendContinuationSection(continuationSections, shownProductIds, {
-        eyebrow: "Related Products",
-        title: "Keep exploring similar products",
+        eyebrow: t("detail.relatedProducts", "Related Products"),
+        title: t("detail.similarTitle", "Keep exploring similar products"),
         items: deps.getDiscoveryRelatedProducts(product, {
           limit: 8,
           excludeIds: shownProductIds
         })
       });
       appendContinuationSection(continuationSections, shownProductIds, {
-        eyebrow: "Most Searched",
-        title: "Popular products buyers search for most",
+        eyebrow: t("detail.mostSearched", "Most Searched"),
+        title: t("detail.mostSearchedTitle", "Popular products buyers search for most"),
         items: deps.getMostSearchedProducts(product, {
           limit: 8,
           excludeIds: shownProductIds
         })
       });
       appendContinuationSection(continuationSections, shownProductIds, {
-        eyebrow: "New Products",
-        title: "Fresh listings from active sellers",
+        eyebrow: t("detail.newProducts", "New Products"),
+        title: t("detail.freshListingsTitle", "Fresh listings from active sellers"),
         items: deps.getNewestProducts({
           limit: 8,
           excludeIds: shownProductIds,
@@ -1076,8 +1079,8 @@
         })
       });
       appendContinuationSection(continuationSections, shownProductIds, {
-        eyebrow: "Sponsored Picks",
-        title: "Promoted products you may also like",
+        eyebrow: t("detail.sponsoredPicks", "Sponsored Picks"),
+        title: t("detail.sponsoredTitle", "Promoted products you may also like"),
         sponsored: true,
         items: deps.getDiscoverySponsoredProducts(product, {
           limit: 4,

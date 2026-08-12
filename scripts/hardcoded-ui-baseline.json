@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "policy": "Existing debt may decrease only. New or modified user-visible literals must use localization keys.",
-  "count": 262,
-  "digest": "eb44d188c1219fdacf6b9942ab0c99c8c9b837974de0b52a2ff19f5fbfc4fa85",
+  "count": 226,
+  "digest": "753aec7f5840a75b807255b3a56124bc8fbd958a5e13589275cee27b700469b5",
   "entries": [
     {
       "signature": "app.js|property|${createdCategory.label} imeongezwa kwenye Vitu Used.",
@@ -565,151 +565,7 @@
       "count": 1
     },
     {
-      "signature": "src/product-detail/controller.js|property|Asante. Review yako imeongezwa kwenye bidhaa hii.",
-      "count": 1
-    },
-    {
-      "signature": "src/product-detail/controller.js|property|Copy failed",
-      "count": 1
-    },
-    {
-      "signature": "src/product-detail/controller.js|property|Deep link copied",
-      "count": 1
-    },
-    {
-      "signature": "src/product-detail/controller.js|property|Demand failed",
-      "count": 1
-    },
-    {
-      "signature": "src/product-detail/controller.js|property|Fresh listings from active sellers",
-      "count": 1
-    },
-    {
-      "signature": "src/product-detail/controller.js|property|Keep browsing this seller first",
-      "count": 1
-    },
-    {
-      "signature": "src/product-detail/controller.js|property|Keep Exploring",
-      "count": 1
-    },
-    {
-      "signature": "src/product-detail/controller.js|property|Keep exploring similar products",
-      "count": 1
-    },
-    {
-      "signature": "src/product-detail/controller.js|property|More products are being refreshed",
-      "count": 1
-    },
-    {
-      "signature": "src/product-detail/controller.js|property|More products from Winga",
-      "count": 1
-    },
-    {
-      "signature": "src/product-detail/controller.js|property|Popular products buyers search for most",
-      "count": 1
-    },
-    {
-      "signature": "src/product-detail/controller.js|property|Product deep link ime-copy tayari.",
-      "count": 1
-    },
-    {
-      "signature": "src/product-detail/controller.js|property|Promoted products you may also like",
-      "count": 1
-    },
-    {
-      "signature": "src/product-detail/controller.js|property|Review failed",
-      "count": 1
-    },
-    {
-      "signature": "src/product-detail/controller.js|property|Review inahitaji maoni mafupi yenye maana.",
-      "count": 1
-    },
-    {
-      "signature": "src/product-detail/controller.js|property|Review needed",
-      "count": 1
-    },
-    {
-      "signature": "src/product-detail/controller.js|property|Review sent",
-      "count": 1
-    },
-    {
-      "signature": "src/product-detail/controller.js|property|Winga continues with more items from the same seller before widening discovery.",
-      "count": 1
-    },
-    {
-      "signature": "src/product-detail/controller.js|property|Winga has shown the unique continuation picks available for this product right now.",
-      "count": 1
-    },
-    {
-      "signature": "src/product-detail/ui.js|accessible-name|Go back from product detail",
-      "count": 1
-    },
-    {
-      "signature": "src/product-detail/ui.js|accessible-name|Go home from product detail",
-      "count": 1
-    },
-    {
       "signature": "src/product-detail/ui.js|property|\\u2190",
-      "count": 1
-    },
-    {
-      "signature": "src/product-detail/ui.js|property|Admin Deep Link",
-      "count": 1
-    },
-    {
-      "signature": "src/product-detail/ui.js|property|Bidhaa nyingine kutoka kwa ${safeSellerName}",
-      "count": 1
-    },
-    {
-      "signature": "src/product-detail/ui.js|property|Copy Deep Link",
-      "count": 1
-    },
-    {
-      "signature": "src/product-detail/ui.js|property|Demand Intelligence",
-      "count": 1
-    },
-    {
-      "signature": "src/product-detail/ui.js|property|Home",
-      "count": 1
-    },
-    {
-      "signature": "src/product-detail/ui.js|property|More products are lining up below",
-      "count": 1
-    },
-    {
-      "signature": "src/product-detail/ui.js|property|Muuzaji: ${safeSellerName}",
-      "count": 1
-    },
-    {
-      "signature": "src/product-detail/ui.js|property|Open Link",
-      "count": 1
-    },
-    {
-      "signature": "src/product-detail/ui.js|property|See more",
-      "count": 1
-    },
-    {
-      "signature": "src/product-detail/ui.js|property|Share this exact product route",
-      "count": 1
-    },
-    {
-      "signature": "src/product-detail/ui.js|property|SOLD OUT",
-      "count": 1
-    },
-    {
-      "signature": "src/product-detail/ui.js|property|Winga is loading more",
-      "count": 1
-    },
-    {
-      "signature": "src/product-detail/ui.js|property|Would you like this product to come back?",
-      "count": 1
-    },
-    {
-      "signature": "src/product-detail/ui.js|property|You keep getting more from this seller first, then wider marketplace picks follow.",
-      "count": 1
-    },
-    {
-      "signature": "src/product-detail/ui.js|property|Your signal helps sellers restock and helps Winga recommend better alternatives.",
       "count": 1
     },
     {

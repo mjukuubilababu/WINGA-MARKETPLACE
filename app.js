@@ -11114,6 +11114,7 @@ const {
   createProductDetailContentElement,
   createDetailShowcaseSectionElement
 } = window.WingaModules.productDetail.createProductDetailUiModule({
+  translate: translateUi,
   createElement,
   createFragmentFromMarkup,
   createProgressiveImage,
@@ -11145,6 +11146,7 @@ const {
   openProductDetailModal: openProductDetailModalFromController,
   refreshActiveProductDetail
 } = window.WingaModules.productDetail.createProductDetailControllerModule({
+  translate: translateUi,
   createElement,
   createSectionHeading,
   createFragmentFromMarkup,

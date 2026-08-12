@@ -1,5 +1,6 @@
 (() => {
   function createProductDetailUiModule(deps) {
+    const t = (key, fallbackText = "", variables = {}) => deps.translate?.(key, variables, fallbackText) || fallbackText;
     function ensureProductDetailModal() {
       let modal = document.getElementById("product-detail-modal");
       if (modal) {
@@ -25,7 +26,7 @@
         textContent: "\u2190",
         attributes: {
           type: "button",
-          "aria-label": "Go back from product detail",
+          "aria-label": t("detail.backAria", "Go back from product detail"),
           "data-close-product-detail": "true"
         }
       }));
@@ -58,8 +59,8 @@
         : `${window.location.origin}/product/${encodeURIComponent(String(product.id || "").trim())}`;
       const panel = deps.createElement("div", { className: "product-detail-deep-link panel" });
       panel.append(
-        deps.createElement("p", { className: "eyebrow", textContent: "Admin Deep Link" }),
-        deps.createElement("strong", { textContent: "Share this exact product route" }),
+        deps.createElement("p", { className: "eyebrow", textContent: t("detail.adminDeepLink", "Admin Deep Link") }),
+        deps.createElement("strong", { textContent: t("detail.shareExactRoute", "Share this exact product route") }),
         deps.createElement("code", {
           className: "product-detail-deep-link-value",
           textContent: deepLink
@@ -69,7 +70,7 @@
       actions.append(
         deps.createElement("button", {
           className: "action-btn action-btn-secondary",
-          textContent: "Copy Deep Link",
+          textContent: t("detail.copyDeepLink", "Copy Deep Link"),
           attributes: {
             type: "button",
             "data-copy-product-deep-link": deepLink
@@ -77,7 +78,7 @@
         }),
         deps.createElement("a", {
           className: "action-btn",
-          textContent: "Open Link",
+          textContent: t("detail.openLink", "Open Link"),
           attributes: {
             href: deepLink,
             target: "_blank",
@@ -95,14 +96,14 @@
       }
       const panel = deps.createElement("section", { className: "sold-out-demand-panel" });
       panel.append(
-        deps.createElement("p", { className: "eyebrow", textContent: "Demand Intelligence" }),
-        deps.createElement("h4", { textContent: "Would you like this product to come back?" })
+        deps.createElement("p", { className: "eyebrow", textContent: t("demand.heading", "Demand Intelligence") }),
+        deps.createElement("h4", { textContent: t("demand.returnQuestion", "Would you like this product to come back?") })
       );
       const actions = deps.createElement("div", { className: "sold-out-demand-actions" });
       [
-        ["notify_when_available", "Notify me when available"],
-        ["want_back", "I want this product back"],
-        ["show_similar", "Show me similar products"]
+        ["notify_when_available", t("demand.notifyAvailable", "Notify me when available")],
+        ["want_back", t("demand.wantBack", "I want this product back")],
+        ["show_similar", t("demand.showSimilar", "Show me similar products")]
       ].forEach(([action, label]) => {
         actions.appendChild(deps.createElement("button", {
           className: "action-btn action-btn-secondary demand-action-btn",
@@ -117,7 +118,7 @@
       panel.appendChild(actions);
       panel.appendChild(deps.createElement("p", {
         className: "meta-copy",
-        textContent: "Your signal helps sellers restock and helps Winga recommend better alternatives."
+        textContent: t("demand.signalHelp", "Your signal helps sellers restock and helps Winga recommend better alternatives.")
       }));
       return panel;
     }
@@ -128,7 +129,7 @@
       }
       media.appendChild(deps.createElement("span", {
         className: "sold-out-ribbon",
-        textContent: "SOLD OUT"
+        textContent: t("product.soldOut", "SOLD OUT")
       }));
     }
 
@@ -148,7 +149,7 @@
         wrapper.classList.add("is-collapsed");
         const toggle = deps.createElement("button", {
           className: "product-caption-toggle",
-          textContent: "See more",
+          textContent: t("common.seeMore", "See more"),
           attributes: {
             type: "button",
             "data-product-caption-toggle": "true",
@@ -160,7 +161,9 @@
           event.stopPropagation();
           const isExpanded = wrapper.classList.toggle("is-expanded");
           wrapper.classList.toggle("is-collapsed", !isExpanded);
-          toggle.textContent = isExpanded ? "See less" : "See more";
+          toggle.textContent = isExpanded
+            ? t("common.seeLess", "See less")
+            : t("common.seeMore", "See more");
           toggle.setAttribute("aria-expanded", String(isExpanded));
         });
         wrapper.appendChild(toggle);
@@ -211,7 +214,9 @@
         sellerCopy,
         deps.createElement("span", {
           className: "product-seller-badge",
-          textContent: sellerUser?.verifiedSeller ? "Verified" : "Seller"
+          textContent: sellerUser?.verifiedSeller
+            ? t("seller.verified", "Verified")
+            : t("seller.label", "Seller")
         })
       );
       return sellerRow;
@@ -267,7 +272,7 @@
         body.appendChild(captionBlock);
       }
       body.appendChild(deps.createFragmentFromMarkup(
-        deps.renderProductActionGroup(item, { requestLabel: "My Request" })
+        deps.renderProductActionGroup(item, { requestLabel: t("request.myRequest", "My Request") })
       ));
       card.append(media, body);
       return card;
@@ -432,7 +437,7 @@
           attributes: { id: "product-detail-title" }
         }),
         deps.createElement("p", { className: "product-detail-category", textContent: safeCategoryLabel }),
-        deps.createElement("p", { className: "product-detail-seller", textContent: `Muuzaji: ${safeSellerName}` })
+        deps.createElement("p", { className: "product-detail-seller", textContent: t("detail.sellerLabel", "Seller: {seller}", { seller: safeSellerName }) })
       );
       const trustBadges = deps.renderMarketplaceTrustBadges?.(product);
       if (trustBadges) {
@@ -458,7 +463,7 @@
       const actionsMarkup = deps.renderProductActionGroup?.(product, {
         extraClass: "product-detail-actions",
         includeBuyButton: true,
-        buyLabel: "Lipa"
+        buyLabel: t("commerce.pay", "Pay")
       });
       if (actionsMarkup) {
         copy.appendChild(deps.createFragmentFromMarkup(actionsMarkup));
@@ -469,7 +474,10 @@
       }
 
       const reviewsPanel = deps.createElement("section", { className: "product-detail-reviews-panel" });
-      reviewsPanel.appendChild(createDetailSectionHeading("Ratings & Reviews", "Trust from real buyers"));
+      reviewsPanel.appendChild(createDetailSectionHeading(
+        t("review.heading", "Ratings & Reviews"),
+        t("review.trustTitle", "Trust from real buyers")
+      ));
       [reviewFormMarkup, reviewListMarkup].filter(Boolean).forEach((markup) => {
         reviewsPanel.appendChild(deps.createFragmentFromMarkup(markup));
       });
@@ -480,8 +488,8 @@
 
       if (otherProducts.length) {
         const section = createDetailShowcaseSectionElement({
-          eyebrow: "Bidhaa Zaidi Kutoka Kwa Muuzaji",
-          title: `Bidhaa nyingine kutoka kwa ${safeSellerName}`,
+          eyebrow: t("detail.moreFromSellerEyebrow", "More From This Seller"),
+          title: t("detail.moreFromSeller", "More products from {seller}", { seller: safeSellerName }),
           items: otherProducts
         });
         if (section) {
@@ -516,11 +524,11 @@
           }
         });
         anchor.append(
-          deps.createElement("p", { className: "eyebrow", textContent: "Winga is loading more" }),
-          deps.createElement("strong", { textContent: "More products are lining up below" }),
+          deps.createElement("p", { className: "eyebrow", textContent: t("detail.loadingEyebrow", "Winga is loading more") }),
+          deps.createElement("strong", { textContent: t("detail.loadingTitle", "More products are lining up below") }),
           deps.createElement("p", {
             className: "product-meta",
-            textContent: "You keep getting more from this seller first, then wider marketplace picks follow."
+            textContent: t("detail.loadingBody", "You keep getting more from this seller first, then wider marketplace picks follow.")
           })
         );
         wrapper.appendChild(anchor);
@@ -529,10 +537,10 @@
       if (showFloatingHomeAction) {
         wrapper.appendChild(deps.createElement("button", {
           className: `product-detail-home-fab product-detail-home-fab-${floatingHomeVariant === "light" ? "light" : "dark"}`,
-          textContent: "Home",
+          textContent: t("common.home", "Home"),
           attributes: {
             type: "button",
-            "aria-label": "Go home from product detail",
+            "aria-label": t("detail.homeAria", "Go home from product detail"),
             "data-product-detail-home": "true"
           }
         }));

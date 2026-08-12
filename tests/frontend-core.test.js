@@ -3380,6 +3380,24 @@ test("localized request box preserves buyer gating and message delivery", () => 
   assert.match(source, /data-request-send/);
   assert.match(appSource, /createRequestBoxModule\(\{[\s\S]*translate: translateUi/);
 });
+test("localized product detail preserves continuation, gallery, demand, and review contracts", () => {
+  const uiSource = fs.readFileSync(path.join(__dirname, "..", "src", "product-detail", "ui.js"), "utf8");
+  const controllerSource = fs.readFileSync(path.join(__dirname, "..", "src", "product-detail", "controller.js"), "utf8");
+  const appSource = fs.readFileSync(path.join(__dirname, "..", "app.js"), "utf8");
+  assert.match(uiSource, /detail\.backAria/);
+  assert.match(uiSource, /demand\.notifyAvailable/);
+  assert.match(uiSource, /data-demand-action/);
+  assert.match(uiSource, /renderFeedGalleryMarkup/);
+  assert.match(uiSource, /data-product-detail-continuous-anchor/);
+  assert.match(controllerSource, /review\.sentTitle/);
+  assert.match(controllerSource, /loadDetailContinuationProducts/);
+  assert.match(controllerSource, /detailContinuousRuntime\.observer\.observe/);
+  assert.match(controllerSource, /deps\.dataLayer\.recordDemand/);
+  assert.match(controllerSource, /deps\.dataLayer\.createReview/);
+  assert.match(appSource, /createProductDetailUiModule\(\{[\s\S]*?translate: translateUi/);
+  assert.match(appSource, /createProductDetailControllerModule\(\{[\s\S]*?translate: translateUi/);
+});
+
 (async () => {
   let passed = 0;
   for (const entry of tests) {
