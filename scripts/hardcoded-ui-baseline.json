@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "policy": "Existing debt may decrease only. New or modified user-visible literals must use localization keys.",
-  "count": 95,
-  "digest": "ce12714a0f35667e3beb3eca0f3d8786526af07b5537b7af4ce4578a434ec3e3",
+  "count": 85,
+  "digest": "b977d21400806be78753f0dd09c2d6f1c56bc2f2c3d222b544ad7f13a8879f3c",
   "entries": [
     {
       "signature": "app.js|property|${createdCategory.label} imeongezwa kwenye Vitu Used.",
@@ -89,18 +89,6 @@
       "count": 1
     },
     {
-      "signature": "app.js|property|Chagua category kuu",
-      "count": 1
-    },
-    {
-      "signature": "app.js|property|Chagua subcategory ya bidhaa",
-      "count": 1
-    },
-    {
-      "signature": "app.js|property|Collection share ready",
-      "count": 1
-    },
-    {
       "signature": "app.js|property|Commercially boosted items selected without breaking discovery flow.",
       "count": 1
     },
@@ -126,10 +114,6 @@
     },
     {
       "signature": "app.js|property|Image Search",
-      "count": 1
-    },
-    {
-      "signature": "app.js|property|Image selection failed",
       "count": 1
     },
     {
@@ -217,10 +201,6 @@
       "count": 1
     },
     {
-      "signature": "app.js|property|Popular products buyers search for most",
-      "count": 1
-    },
-    {
       "signature": "app.js|property|Popular products from active sellers",
       "count": 1
     },
@@ -245,14 +225,6 @@
       "count": 1
     },
     {
-      "signature": "app.js|property|Products close to the one you just explored.",
-      "count": 1
-    },
-    {
-      "signature": "app.js|property|Promoted products in the spotlight",
-      "count": 1
-    },
-    {
       "signature": "app.js|property|Promoted products worth a look",
       "count": 1
     },
@@ -270,10 +242,6 @@
     },
     {
       "signature": "app.js|property|Search, categories na discovery sasa vinaelekea zaidi kwenye intent ya watu halisi sokoni.",
-      "count": 1
-    },
-    {
-      "signature": "app.js|property|Seller share ready",
       "count": 1
     },
     {
@@ -309,10 +277,6 @@
       "count": 1
     },
     {
-      "signature": "app.js|property|Weka bei sahihi kuanzia TSh 500 au zaidi.",
-      "count": 1
-    },
-    {
       "signature": "app.js|property|Winga keeps discovery alive even when fresh stock is limited.",
       "count": 1
     },
@@ -342,10 +306,6 @@
     },
     {
       "signature": "app.js|user-error|Home feed load was cancelled.",
-      "count": 1
-    },
-    {
-      "signature": "app.js|user-error|Picha haikusomeka vizuri.",
       "count": 1
     },
     {

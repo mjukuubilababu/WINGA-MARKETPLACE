@@ -9478,7 +9478,7 @@ async function handleShareSellerShop(username) {
   if (navigator.clipboard?.writeText) {
     await navigator.clipboard.writeText(`${shareText} | Link: ${shareUrl}`);
     showInAppNotification({
-      title: "Seller share ready",
+      title: translateUi("share.readyTitle", {}, "Share ready"),
       body: `${sellerName} link ime-copy tayari kwa sharing.`,
       variant: "success"
     });
@@ -9607,7 +9607,7 @@ async function handleShareCollection(options = {}) {
   if (navigator.clipboard?.writeText) {
     await navigator.clipboard.writeText(`${shareText} | Link: ${shareUrl}`);
     showInAppNotification({
-      title: "Collection share ready",
+      title: translateUi("share.readyTitle", {}, "Share ready"),
       body: `${title} link ime-copy tayari kwa sharing.`,
       variant: "success"
     });
@@ -15012,7 +15012,7 @@ productImageFileInput.addEventListener("change", async () => {
     uiRuntimeState.productUploadStatusTone = "error";
     setUploadFormStatus("error", error.message || "Picha ulizochagua si sahihi.");
     showInAppNotification({
-      title: "Image selection failed",
+      title: translateUi("search.imageFailed", {}, "Image search is unavailable right now."),
       body: error.message || "Picha ulizochagua si sahihi.",
       variant: "error"
     });
@@ -15680,7 +15680,7 @@ function loadImageFromSource(source) {
     const image = new Image();
     image.crossOrigin = "anonymous";
     image.onload = () => resolve(image);
-    image.onerror = () => reject(new Error("Picha haikusomeka vizuri."));
+    image.onerror = () => reject(new Error(translateUi("upload.readFailed", {}, "We could not read the selected image.")));
     image.src = source;
   });
 }
@@ -15928,7 +15928,7 @@ function renderUploadCategoryOptions() {
   const selectedTopValue = currentTopValue || inferTopCategoryValue(currentValue) || "";
 
   productCategoryTopInput.replaceChildren(
-    createElement("option", { textContent: "Chagua category kuu", attributes: { value: "" } }),
+    createElement("option", { textContent: translateUi("product.topCategoryRequired", {}, "Select a main product category."), attributes: { value: "" } }),
     ...DEFAULT_TOP_CATEGORIES.map((category) =>
       createElement("option", {
         textContent: category.label,
@@ -15943,7 +15943,7 @@ function renderUploadCategoryOptions() {
   const subcategories = getSelectableSubcategoriesForTopCategory(productCategoryTopInput.value);
   const hasCurrentLegacyValue = currentValue && !subcategories.some((category) => category.value === currentValue);
   productCategoryInput.replaceChildren(
-    createElement("option", { textContent: "Chagua subcategory ya bidhaa", attributes: { value: "" } }),
+    createElement("option", { textContent: translateUi("product.subcategoryRequired", {}, "Select a product subcategory."), attributes: { value: "" } }),
     ...subcategories.map((category) =>
       createElement("option", {
         textContent: category.label,
@@ -18039,8 +18039,8 @@ function getContinuousDiscoveryDescriptor(options = {}) {
   if (batchIndex === 0 && sponsoredItems.length >= 1) {
     return {
       kind: "sponsored",
-      eyebrow: "Sponsored Picks",
-      title: "Promoted products in the spotlight",
+      eyebrow: translateUi("detail.sponsoredPicks", {}, "Sponsored Picks"),
+      title: translateUi("detail.sponsoredTitle", {}, "Promoted products you may also like"),
       subtitle: "Paid visibility items are placed earlier so buyers notice them faster.",
       sponsored: true,
       items: sponsoredItems
@@ -18056,7 +18056,7 @@ function getContinuousDiscoveryDescriptor(options = {}) {
   if (freshNewItems.length >= minimumBatchSize || (freshNewItems.length > 0 && batchIndex === 0)) {
     return {
       kind: "fresh",
-      eyebrow: "New Products",
+      eyebrow: translateUi("detail.newProducts", {}, "New Products"),
       title: translateUi("detail.freshListingsTitle", {}, "Fresh listings from active sellers"),
       subtitle: "Winga keeps putting new stock in front of you first.",
       items: freshNewItems.slice(0, 8)
@@ -18072,9 +18072,9 @@ function getContinuousDiscoveryDescriptor(options = {}) {
   if (relatedItems.length >= minimumBatchSize) {
     return {
       kind: "related",
-      eyebrow: "Related Products",
+      eyebrow: translateUi("detail.relatedProducts", {}, "Related Products"),
       title: preferredSeed ? `Still more around ${getCategoryLabel(preferredSeed.category)}` : "Still more to explore",
-      subtitle: "Products close to the one you just explored.",
+      subtitle: translateUi("detail.similarTitle", {}, "Keep exploring similar products"),
       items: relatedItems
     };
   }
@@ -18087,8 +18087,8 @@ function getContinuousDiscoveryDescriptor(options = {}) {
   if (mostSearchedItems.length >= minimumBatchSize) {
     return {
       kind: "most-searched",
-      eyebrow: "Most Searched",
-      title: "Popular products buyers search for most",
+      eyebrow: translateUi("detail.mostSearched", {}, "Most Searched"),
+      title: translateUi("detail.mostSearchedTitle", {}, "Popular products buyers search for most"),
       subtitle: "High-intent products moving through the marketplace right now.",
       items: mostSearchedItems
     };
@@ -18097,7 +18097,7 @@ function getContinuousDiscoveryDescriptor(options = {}) {
   if (sponsoredItems.length >= 1) {
     return {
       kind: "sponsored",
-      eyebrow: "Sponsored Picks",
+      eyebrow: translateUi("detail.sponsoredPicks", {}, "Sponsored Picks"),
       title: "Promoted products worth a look",
       subtitle: "Commercially boosted items selected without breaking discovery flow.",
       sponsored: true,
@@ -18171,7 +18171,7 @@ function getContinuousDiscoveryDescriptor(options = {}) {
       return {
         kind: "stream",
         source: "recycled-discovery",
-        eyebrow: "Keep Exploring",
+        eyebrow: translateUi("detail.keepExploring", {}, "Keep Exploring"),
         title: "More market picks keep coming",
         subtitle: "Winga keeps discovery moving with fresh angles from active listings.",
         items: recycledItemsWithVariants
@@ -20478,7 +20478,7 @@ async function repostProductAsSeller(sourceProduct) {
   if (!Number.isFinite(normalizedPrice) || normalizedPrice < 500 || normalizedPrice > 1000000000) {
     showInAppNotification({
       title: "Bei si sahihi",
-      body: "Weka bei sahihi kuanzia TSh 500 au zaidi.",
+      body: translateUi("product.priceInvalid", {}, "Enter a valid price from TSh 500."),
       variant: "warning"
     });
     return;
