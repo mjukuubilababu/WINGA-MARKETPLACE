@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "policy": "Existing debt may decrease only. New or modified user-visible literals must use localization keys.",
-  "count": 319,
-  "digest": "49199f63d59f54da6b4181889cc6f35ac1acaf35fd9fbdf85fb4b16e63edc31b",
+  "count": 287,
+  "digest": "42b66184059af91e8feac7da7e10495787b4ad0fbb78a3a9da455d0bfba347c9",
   "entries": [
     {
       "signature": "app.js|property|${createdCategory.label} imeongezwa kwenye Vitu Used.",
@@ -466,130 +466,6 @@
     },
     {
       "signature": "app.js|user-error|Winga PWA lifecycle module is required before app boot.",
-      "count": 1
-    },
-    {
-      "signature": "src/admin/controller.js|confirmation|Una uhakika unataka ku-deactivate user ${username}?",
-      "count": 1
-    },
-    {
-      "signature": "src/admin/controller.js|confirmation|Una uhakika unataka kubadilisha ${username} kuwa buyer?",
-      "count": 1
-    },
-    {
-      "signature": "src/admin/controller.js|confirmation|Una uhakika unataka kubadilisha ${username} kuwa seller?",
-      "count": 1
-    },
-    {
-      "signature": "src/admin/controller.js|confirmation|Una uhakika unataka kuban user ${username}? Hii ni hatua nzito.",
-      "count": 1
-    },
-    {
-      "signature": "src/admin/controller.js|confirmation|Una uhakika unataka kufuta akaunti ya ${username}? Hii itazima sessions na moderation itaandikwa.",
-      "count": 1
-    },
-    {
-      "signature": "src/admin/controller.js|confirmation|Una uhakika unataka kukataa verification ya ${username}?",
-      "count": 1
-    },
-    {
-      "signature": "src/admin/controller.js|confirmation|Una uhakika unataka kurudisha access ya user ${username}?",
-      "count": 1
-    },
-    {
-      "signature": "src/admin/controller.js|confirmation|Una uhakika unataka kususpend user ${username}?",
-      "count": 1
-    },
-    {
-      "signature": "src/admin/controller.js|confirmation|Una uhakika unataka kuthibitisha seller ${username}?",
-      "count": 1
-    },
-    {
-      "signature": "src/admin/controller.js|property|@${user.username} | ${deps.getRoleLabel?.(user.role) || user.role}",
-      "count": 1
-    },
-    {
-      "signature": "src/admin/controller.js|property|${deps.getPromotionLabel?.(promotion.type) || promotion.type} | ${promotion.productId}",
-      "count": 1
-    },
-    {
-      "signature": "src/admin/controller.js|property|Admin",
-      "count": 2
-    },
-    {
-      "signature": "src/admin/controller.js|property|Admin Console",
-      "count": 1
-    },
-    {
-      "signature": "src/admin/controller.js|property|Andika moderation note",
-      "count": 1
-    },
-    {
-      "signature": "src/admin/controller.js|property|Andika review note",
-      "count": 1
-    },
-    {
-      "signature": "src/admin/controller.js|property|Control hero visibility, splash visibility, session expiry na cache policy.",
-      "count": 1
-    },
-    {
-      "signature": "src/admin/controller.js|property|Conversation ${thread.conversationId}",
-      "count": 1
-    },
-    {
-      "signature": "src/admin/controller.js|property|Deep Link",
-      "count": 1
-    },
-    {
-      "signature": "src/admin/controller.js|property|Eleza sababu ya kufungua fraud review hii",
-      "count": 1
-    },
-    {
-      "signature": "src/admin/controller.js|property|Enter a reason before loading sensitive fraud-review details. Every access is audited.",
-      "count": 1
-    },
-    {
-      "signature": "src/admin/controller.js|property|Fraud Review",
-      "count": 1
-    },
-    {
-      "signature": "src/admin/controller.js|property|Message Evidence Access",
-      "count": 1
-    },
-    {
-      "signature": "src/admin/controller.js|property|Message Moderation",
-      "count": 1
-    },
-    {
-      "signature": "src/admin/controller.js|property|Note ya moderation au verification",
-      "count": 1
-    },
-    {
-      "signature": "src/admin/controller.js|property|Open Link",
-      "count": 1
-    },
-    {
-      "signature": "src/admin/controller.js|property|Reason ya ku-open message content (report/dispute reference)",
-      "count": 1
-    },
-    {
-      "signature": "src/admin/controller.js|property|Search",
-      "count": 1
-    },
-    {
-      "signature": "src/admin/controller.js|property|Section unavailable",
-      "count": 1
-    },
-    {
-      "signature": "src/admin/controller.js|property|Seller, product, or reference",
-      "count": 1
-    },
-    {
-      "signature": "src/admin/controller.js|property|Status filter",
-      "count": 1
-    },
-    {
-      "signature": "src/admin/controller.js|property|System Settings",
       "count": 1
     },
     {

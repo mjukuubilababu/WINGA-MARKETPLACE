@@ -82,11 +82,11 @@
         className: "admin-deep-link-value",
         textContent: buildProductDeepLink(product.id)
       });
-      const copyButton = createActionButton("Copy Deep Link", {
+      const copyButton = createActionButton(t("admin.copyDeepLinkAction", "Copy Deep Link"), {
         adminDeepLinkCopy: product.id
       }, "button action-btn action-btn-secondary");
       deepLinkRow.append(
-        deps.createElement("strong", { textContent: "Deep Link" }),
+        deps.createElement("strong", { textContent: t("admin.deepLinkLabel", "Deep Link") }),
         deepLinkValue,
         copyButton
       );
@@ -111,12 +111,12 @@
       );
       const actions = deps.createElement("div", { className: "moderation-actions admin-deep-link-actions" });
       actions.append(
-        createActionButton("Copy Deep Link", {
+        createActionButton(t("admin.copyDeepLinkAction", "Copy Deep Link"), {
           adminDeepLinkCopy: product.id
         }, "button action-btn action-btn-secondary"),
         deps.createElement("a", {
           className: "button action-btn",
-          textContent: "Open Link",
+          textContent: t("admin.openLinkAction", "Open Link"),
           attributes: {
             href: deepLink,
             target: "_blank",
@@ -149,12 +149,12 @@
     function createLoadIssueState(message) {
       const wrapper = deps.createElement("div", { className: "empty-state" });
       wrapper.append(
-        deps.createElement("strong", { textContent: "Section unavailable" }),
+        deps.createElement("strong", { textContent: t("admin.sectionUnavailableTitle", "Section unavailable") }),
         deps.createElement("p", {
           className: "empty-copy",
-          textContent: message || "Section hii haikuweza kupakia kwa sasa. Jaribu tena."
+          textContent: message || t("admin.sectionUnavailableBody", "Section hii haikuweza kupakia kwa sasa. Jaribu tena.")
         }),
-        createActionButton("Retry", {
+        createActionButton(t("admin.retryAction", "Retry"), {
           adminRefresh: "true"
         }, "button")
       );
@@ -166,18 +166,18 @@
       const row = deps.createElement("div", { className: "section-heading" });
       const copy = deps.createElement("div");
       copy.append(
-        deps.createElement("p", { className: "eyebrow", textContent: "Admin" }),
-        deps.createElement("h3", { textContent: "Admin Console" }),
+        deps.createElement("p", { className: "eyebrow", textContent: t("admin.eyebrow", "Admin") }),
+        deps.createElement("h3", { textContent: t("admin.consoleTitle", "Admin Console") }),
         deps.createElement("p", {
           className: "meta-copy",
           textContent: state.hasAnyLoadError
-            ? "Baadhi ya admin data imekosa kupakia. Unaweza kuretry bila kuondoka kwenye panel."
-            : "Usimamizi wa marketplace, moderation, na ops signals."
+            ? t("admin.consolePartialBody", "Baadhi ya admin data imekosa kupakia. Unaweza kuretry bila kuondoka kwenye panel.")
+            : t("admin.consoleBody", "Usimamizi wa marketplace, moderation, na ops signals.")
         })
       );
       row.appendChild(copy);
       const actions = deps.createElement("div", { className: "moderation-actions" });
-      actions.appendChild(createActionButton("Refresh Admin", {
+      actions.appendChild(createActionButton(t("admin.refreshAction", "Refresh Admin"), {
         adminRefresh: "true"
       }));
       row.appendChild(actions);
@@ -341,14 +341,14 @@
       const header = deps.createElement("div", { className: "admin-investigation-header" });
       const copy = deps.createElement("div");
       copy.append(
-        deps.createElement("p", { className: "eyebrow", textContent: "Message Moderation" }),
+        deps.createElement("p", { className: "eyebrow", textContent: t("admin.messageModerationTitle", "Message Moderation") }),
         deps.createElement("h3", {
           attributes: { id: "admin-message-review-title" },
           textContent: `${thread.senderName || thread.senderId || "-"} → ${thread.receiverName || thread.receiverId || "-"}`
         }),
         deps.createElement("p", {
           className: "meta-copy",
-          textContent: `Conversation ${thread.conversationId}`
+          textContent: t("admin.conversationLabel", "Conversation {id}", { id: thread.conversationId })
         })
       );
       const statusGroup = deps.createElement("div", { className: "trust-badges" });
@@ -359,7 +359,7 @@
       const reasonField = deps.createElement("textarea", {
         attributes: {
           "data-admin-message-review-reason": "true",
-          placeholder: "Reason ya ku-open message content (report/dispute reference)"
+          placeholder: t("admin.messageReviewReasonPlaceholder", "Reason ya ku-open message content (report/dispute reference)")
         }
       });
       reasonField.value = messageReviewState.reason || "";
@@ -376,7 +376,7 @@
       }
       reasonActions.append(
         openButton,
-        createActionButton("Close", {
+        createActionButton(t("admin.closeAction", "Close"), {
           closeAdminMessageReview: "true"
         }, "button button-secondary")
       );
@@ -521,31 +521,31 @@
         return true;
       }
       if (action === "verify") {
-        return deps.confirmAction(`Una uhakika unataka kuthibitisha seller ${username}?`);
+        return deps.confirmAction(t("admin.verifySellerConfirm", "Una uhakika unataka kuthibitisha seller {username}?", { username }));
       }
       if (action === "activate") {
-        return deps.confirmAction(`Una uhakika unataka kurudisha access ya user ${username}?`);
+        return deps.confirmAction(t("admin.activateUserConfirm", "Una uhakika unataka kurudisha access ya user {username}?", { username }));
       }
       if (action === "rejectVerification") {
-        return deps.confirmAction(`Una uhakika unataka kukataa verification ya ${username}?`);
+        return deps.confirmAction(t("admin.rejectVerificationConfirm", "Una uhakika unataka kukataa verification ya {username}?", { username }));
       }
       if (action === "suspend") {
-        return deps.confirmAction(`Una uhakika unataka kususpend user ${username}?`);
+        return deps.confirmAction(t("admin.suspendUserConfirm", "Una uhakika unataka kususpend user {username}?", { username }));
       }
       if (action === "ban") {
-        return deps.confirmAction(`Una uhakika unataka kuban user ${username}? Hii ni hatua nzito.`);
+        return deps.confirmAction(t("admin.banUserConfirm", "Una uhakika unataka kuban user {username}? Hii ni hatua nzito.", { username }));
       }
       if (action === "deactivate") {
-        return deps.confirmAction(`Una uhakika unataka ku-deactivate user ${username}?`);
+        return deps.confirmAction(t("admin.deactivateUserConfirm", "Una uhakika unataka ku-deactivate user {username}?", { username }));
       }
       if (action === "delete") {
-        return deps.confirmAction(`Una uhakika unataka kufuta akaunti ya ${username}? Hii itazima sessions na moderation itaandikwa.`);
+        return deps.confirmAction(t("admin.deleteUserConfirm", "Una uhakika unataka kufuta akaunti ya {username}? Hii itazima sessions na moderation itaandikwa.", { username }));
       }
       if (action === "makeSeller") {
-        return deps.confirmAction(`Una uhakika unataka kubadilisha ${username} kuwa seller?`);
+        return deps.confirmAction(t("admin.makeSellerConfirm", "Una uhakika unataka kubadilisha {username} kuwa seller?", { username }));
       }
       if (action === "makeBuyer") {
-        return deps.confirmAction(`Una uhakika unataka kubadilisha ${username} kuwa buyer?`);
+        return deps.confirmAction(t("admin.makeBuyerConfirm", "Una uhakika unataka kubadilisha {username} kuwa buyer?", { username }));
       }
       return true;
     }
@@ -684,14 +684,14 @@
       const header = deps.createElement("div", { className: "admin-investigation-header" });
       const copy = deps.createElement("div");
       copy.append(
-        deps.createElement("p", { className: "eyebrow", textContent: "Fraud Review" }),
+        deps.createElement("p", { className: "eyebrow", textContent: t("admin.fraudReviewTitle", "Fraud Review") }),
         deps.createElement("h3", {
           attributes: { id: "admin-investigation-title" },
           textContent: user.fullName || user.username
         }),
         deps.createElement("p", {
           className: "meta-copy",
-          textContent: `@${user.username} | ${deps.getRoleLabel?.(user.role) || user.role}`
+          textContent: t("admin.userMeta", "@{username} | {role}", { username: user.username, role: deps.getRoleLabel?.(user.role) || user.role })
         })
       );
       const statusGroup = deps.createElement("div", { className: "trust-badges" });
@@ -711,14 +711,14 @@
       const reasonField = deps.createElement("textarea", {
         attributes: {
           "data-admin-investigation-reason": "true",
-          placeholder: "Eleza sababu ya kufungua fraud review hii"
+          placeholder: t("admin.fraudReviewReasonPlaceholder", "Eleza sababu ya kufungua fraud review hii")
         }
       });
       reasonField.value = investigationState.reason || "";
 
       const reasonActions = deps.createElement("div", { className: "moderation-actions" });
       const loadButton = createActionButton(
-        investigationState.loading ? "Inafungua..." : "Open Fraud Review",
+        investigationState.loading ? t("admin.openingAction", "Inafungua...") : t("admin.openFraudReviewAction", "Open Fraud Review"),
         { adminInvestigationSubmit: user.username },
         "button"
       );
@@ -728,7 +728,7 @@
       }
       reasonActions.append(
         loadButton,
-        createActionButton("Close", {
+        createActionButton(t("admin.closeAction", "Close"), {
           closeAdminInvestigation: "true"
         }, "button button-secondary")
       );
@@ -737,7 +737,7 @@
       reasonPanel.append(
         deps.createElement("p", {
           className: "meta-copy",
-          textContent: "Enter a reason before loading sensitive fraud-review details. Every access is audited."
+          textContent: t("admin.fraudReviewReasonHelp", "Enter a reason before loading sensitive fraud-review details. Every access is audited.")
         }),
         reasonField,
         reasonActions
@@ -754,7 +754,7 @@
       if (detail) {
         const policy = deps.createElement("div", { className: "admin-investigation-policy panel" });
         policy.append(
-          deps.createElement("strong", { textContent: "Message Evidence Access" }),
+          deps.createElement("strong", { textContent: t("admin.messageEvidenceAccessTitle", "Message Evidence Access") }),
           deps.createElement("p", {
             className: "product-meta",
             textContent: detail.fraudReview?.policy || "Direct private messages are restricted."
@@ -843,7 +843,7 @@
       const left = deps.createElement("div");
       left.append(
         deps.createElement("strong", { textContent: user.fullName || user.username }),
-        createMetaCopy(`@${user.username} | ${deps.getRoleLabel?.(user.role) || user.role}`)
+        createMetaCopy(t("admin.userMeta", "@{username} | {role}", { username: user.username, role: deps.getRoleLabel?.(user.role) || user.role }))
       );
       const statusGroup = deps.createElement("div", { className: "trust-badges" });
       statusGroup.appendChild(deps.createStatusPill(user.status || "active", mapStatusClass(user.status)));
@@ -858,7 +858,7 @@
       const moderationNote = deps.createElement("textarea", {
         attributes: {
           "data-admin-user-note": user.username,
-          placeholder: "Note ya moderation au verification"
+          placeholder: t("admin.userModerationNotePlaceholder", "Note ya moderation au verification")
         }
       });
       moderationNote.value = user.moderationNote || "";
@@ -945,7 +945,7 @@
       const noteInput = deps.createElement("textarea", {
         attributes: {
           "data-admin-product-note": product.id,
-          placeholder: "Andika moderation note"
+          placeholder: t("admin.productModerationNotePlaceholder", "Andika moderation note")
         }
       });
       noteInput.value = product.moderationNote || "";
@@ -1012,7 +1012,7 @@
       const noteInput = deps.createElement("textarea", {
         attributes: {
           "data-admin-report-note": report.id,
-          placeholder: "Andika review note"
+          placeholder: t("admin.reviewNotePlaceholder", "Andika review note")
         }
       });
       noteInput.value = report.reviewNote || "";
@@ -1048,7 +1048,7 @@
         }
       });
       card.append(
-        deps.createElement("strong", { textContent: `${deps.getPromotionLabel?.(promotion.type) || promotion.type} | ${promotion.productId}` }),
+        deps.createElement("strong", { textContent: t("admin.promotionMeta", "{type} | {productId}", { type: deps.getPromotionLabel?.(promotion.type) || promotion.type, productId: promotion.productId }) }),
         createMetaCopy(`Muuzaji: ${promotion.sellerUsername || "-"}`),
         createMetaCopy(`Transaction: ${promotion.transactionReference || "-"}`),
         createMetaCopy(`Amount: TSh ${deps.formatNumber ? deps.formatNumber(promotion.amountPaid || 0) : (promotion.amountPaid || 0)}`),
@@ -1251,7 +1251,7 @@
       const wrapper = deps.createElement("div", { className: "moderation-actions" });
       const label = deps.createElement("label", {
         className: "product-meta",
-        textContent: "Status filter"
+        textContent: t("admin.statusFilterLabel", "Status filter")
       });
       const select = deps.createElement("select", {
         attributes: {
@@ -1283,13 +1283,13 @@
       const wrapper = deps.createElement("div", { className: "moderation-actions" });
       const label = deps.createElement("label", {
         className: "product-meta",
-        textContent: "Search"
+        textContent: t("admin.searchLabel", "Search")
       });
       const input = deps.createElement("input", {
         attributes: {
           type: "search",
           value: promotionSearchState || "",
-          placeholder: "Seller, product, or reference",
+          placeholder: t("admin.promotionSearchPlaceholder", "Seller, product, or reference"),
           "data-admin-promotion-search": "true",
           autocomplete: "off"
         }
@@ -1303,11 +1303,11 @@
       const heading = deps.createElement("div", { className: "section-heading" });
       const copy = deps.createElement("div");
       copy.append(
-        deps.createElement("p", { className: "eyebrow", textContent: "Admin" }),
-        deps.createElement("h3", { textContent: "System Settings" }),
+        deps.createElement("p", { className: "eyebrow", textContent: t("admin.eyebrow", "Admin") }),
+        deps.createElement("h3", { textContent: t("admin.systemSettingsTitle", "System Settings") }),
         deps.createElement("p", {
           className: "meta-copy",
-          textContent: "Control hero visibility, splash visibility, session expiry na cache policy."
+          textContent: t("admin.systemSettingsBody", "Control hero visibility, splash visibility, session expiry na cache policy.")
         })
       );
       heading.appendChild(copy);
@@ -2111,6 +2111,17 @@
       return result.status === "fulfilled" ? result.value : fallback;
     }
 
+    function dedupeAdminRecords(items, getIdentity) {
+      const seen = new Set();
+      return (Array.isArray(items) ? items : []).filter((item, index) => {
+        const identity = String(getIdentity?.(item) || "").trim();
+        const key = identity || "anonymous:" + index;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    }
+
     function nextFrame() {
       return new Promise((resolve) => {
         window.requestAnimationFrame(() => resolve());
@@ -2333,14 +2344,14 @@
         : "Moderator anaona muhtasari wa moderation.");
 
       const state = {
-        users: Array.isArray(users) ? users : [],
-        pendingProducts: Array.isArray(pendingProducts) ? pendingProducts : [],
-        openReports: Array.isArray(openReports) ? openReports : [],
-        promotions: Array.isArray(promotions) ? promotions : [],
-        orders: Array.isArray(orders) ? orders : [],
-        payments: Array.isArray(payments) ? payments : [],
-        moderationActions: Array.isArray(moderationActions) ? moderationActions : [],
-        adminMessages: Array.isArray(adminMessages) ? adminMessages : [],
+        users: dedupeAdminRecords(users, (item) => item?.username || item?.id),
+        pendingProducts: dedupeAdminRecords(pendingProducts, (item) => item?.id),
+        openReports: dedupeAdminRecords(openReports, (item) => item?.id),
+        promotions: dedupeAdminRecords(promotions, (item) => item?.id),
+        orders: dedupeAdminRecords(orders, (item) => item?.id),
+        payments: dedupeAdminRecords(payments, (item) => item?.id),
+        moderationActions: dedupeAdminRecords(moderationActions, (item) => item?.id),
+        adminMessages: dedupeAdminRecords(adminMessages, (item) => item?.conversationId || item?.id),
         adminSettings: adminSettings || null,
         opsSummary,
         hasAnyLoadError: failedLoads.length > 0,

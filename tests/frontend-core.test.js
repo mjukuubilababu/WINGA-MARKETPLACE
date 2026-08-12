@@ -3338,6 +3338,21 @@ test("localized admin and recovery states preserve access and recovery contracts
   assert.match(sessionSource, /isAdminLoginRoute\(\) && !isStaffRole\(session\.role\)/);
 });
 
+
+test("localized admin operations preserve audited moderation controls", () => {
+  const source = fs.readFileSync(path.join(__dirname, "..", "src", "admin", "controller.js"), "utf8");
+  assert.match(source, /admin\.verifySellerConfirm/);
+  assert.match(source, /admin\.banUserConfirm/);
+  assert.match(source, /admin\.deleteUserConfirm/);
+  assert.match(source, /admin\.fraudReviewReasonHelp/);
+  assert.match(source, /admin\.messageEvidenceAccessTitle/);
+  assert.match(source, /deps\.confirmAction\(t\(/);
+  assert.match(source, /data-admin-investigation-reason/);
+  assert.match(source, /data-admin-message-review-reason/);
+  assert.match(source, /dedupeAdminRecords\(pendingProducts, \(item\) => item\?\.id\)/);
+  assert.match(source, /captureError\?\.\("admin_surface_partial_load_failed"/);
+});
+
 (async () => {
   let passed = 0;
   for (const entry of tests) {
