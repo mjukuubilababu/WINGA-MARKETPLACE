@@ -5068,7 +5068,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       if (showChevron) {
         row.appendChild(createElement("span", {
           className: "mobile-category-row-chevron",
-          textContent: "\u203A",
+          textContent: "\u203A", // i18n-gate: allow -- internal diagnostic or language-neutral display
           attributes: { "aria-hidden": "true" }
         }));
       }
@@ -5103,7 +5103,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       header.append(
         createElement("button", {
           className: "mobile-category-close",
-          textContent: "\u00D7",
+          textContent: "\u00D7", // i18n-gate: allow -- internal diagnostic or language-neutral display
           attributes: {
             type: "button",
             "aria-label": t("categories.closeAria", "Close categories"),
@@ -5155,7 +5155,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       subScreenHeader.append(
         createElement("button", {
           className: "mobile-category-back",
-          textContent: "\u2039",
+          textContent: "\u2039", // i18n-gate: allow -- internal diagnostic or language-neutral display
           attributes: {
             type: "button",
             "aria-label": t("categories.backToMainAria", "Back to main categories"),
@@ -9835,7 +9835,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         wrapper.appendChild(createElement("span", {
           className: "feed-gallery-count-badge",
           attributes: { "data-feed-gallery-count": "true" },
-          textContent: `1/${images.length}`
+          textContent: `1/${images.length}` // i18n-gate: allow -- internal diagnostic or language-neutral display
         }));
       }
       return wrapper;
@@ -10405,7 +10405,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       if (Array.isArray(product.images) && product.images.length > 1) {
         media.appendChild(createElement("span", {
           className: "feed-gallery-count-badge product-gallery-count-badge",
-          textContent: `${Math.min(product.images.length, 9)}/5`
+          textContent: `${Math.min(product.images.length, 9)}/5` // i18n-gate: allow -- internal diagnostic or language-neutral display
         }));
       }
       card.appendChild(media);
@@ -12532,7 +12532,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       dialog.append(
         deps.createElement("button", {
           className: "context-chat-close",
-          textContent: "\u00D7",
+          textContent: "\u00D7", // i18n-gate: allow -- internal diagnostic or language-neutral display
           attributes: {
             type: "button",
             "aria-label": t("chat.closeAria", "Close chat"),
@@ -16190,7 +16190,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       const failedLoads = ["analytics", "users", "products", "reports", "promotions", "orders", "payments", "moderationActions", "opsSummary", "adminMessages", "adminSettings"]
         .filter((_, index) => results[index] && results[index].status === "rejected");
       if (failedLoads.length) {
-        deps.captureError?.("admin_surface_partial_load_failed", new Error("Some admin datasets failed to load."), {
+        deps.captureError?.("admin_surface_partial_load_failed", new Error("Some admin datasets failed to load."), { // i18n-gate: allow -- internal diagnostic or language-neutral display
           failedLoads: failedLoads.join(",")
         });
         deps.showInAppNotification?.({
@@ -16419,7 +16419,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           trustLine.append(t("profile.trustLabel", "Trust: "));
           trustLine.appendChild(deps.createElement("span", {
             className: "status-pill approved",
-            textContent: `${userProfile.sellerStats.trustScore}/100`
+            textContent: `${userProfile.sellerStats.trustScore}/100` // i18n-gate: allow -- internal diagnostic or language-neutral display
           }));
           trustLine.append(` ${userProfile.sellerStats.trustTier || "Seller"}`);
           copy.appendChild(trustLine);
@@ -16981,7 +16981,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           deps.createElement("strong", { textContent: `${promotion.productName || promotion.productId || t("common.product", "Product")} | ${promotion.label || promotion.type}` }),
           deps.createStatusPill(status, statusClass),
           deps.createElement("small", {
-            textContent: `TSh ${deps.formatNumber(amount)}${hasSchedule ? ` | ${formatLocaleDate(startDate)} - ${formatLocaleDate(endDate)}` : ""}`
+            textContent: `TSh ${deps.formatNumber(amount)}${hasSchedule ? ` | ${formatLocaleDate(startDate)} - ${formatLocaleDate(endDate)}` : ""}` // i18n-gate: allow -- internal diagnostic or language-neutral display
           }),
           deps.createElement("p", {
             className: "product-meta",
@@ -18568,7 +18568,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       });
       topbar.appendChild(deps.createElement("button", {
         className: "product-detail-back",
-        textContent: "\u2190",
+        textContent: "\u2190", // i18n-gate: allow -- internal diagnostic or language-neutral display
         attributes: {
           type: "button",
           "aria-label": t("detail.backAria", "Go back from product detail"),

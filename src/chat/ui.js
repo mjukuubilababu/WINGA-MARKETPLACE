@@ -277,7 +277,7 @@
       dialog.append(
         deps.createElement("button", {
           className: "context-chat-close",
-          textContent: "\u00D7",
+          textContent: "\u00D7", // i18n-gate: allow -- internal diagnostic or language-neutral display
           attributes: {
             type: "button",
             "aria-label": t("chat.closeAria", "Close chat"),

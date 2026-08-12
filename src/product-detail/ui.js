@@ -23,7 +23,7 @@
       });
       topbar.appendChild(deps.createElement("button", {
         className: "product-detail-back",
-        textContent: "\u2190",
+        textContent: "\u2190", // i18n-gate: allow -- internal diagnostic or language-neutral display
         attributes: {
           type: "button",
           "aria-label": t("detail.backAria", "Go back from product detail"),

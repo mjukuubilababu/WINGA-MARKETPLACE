@@ -108,7 +108,7 @@
       if (showChevron) {
         row.appendChild(createElement("span", {
           className: "mobile-category-row-chevron",
-          textContent: "\u203A",
+          textContent: "\u203A", // i18n-gate: allow -- internal diagnostic or language-neutral display
           attributes: { "aria-hidden": "true" }
         }));
       }
@@ -143,7 +143,7 @@
       header.append(
         createElement("button", {
           className: "mobile-category-close",
-          textContent: "\u00D7",
+          textContent: "\u00D7", // i18n-gate: allow -- internal diagnostic or language-neutral display
           attributes: {
             type: "button",
             "aria-label": t("categories.closeAria", "Close categories"),
@@ -195,7 +195,7 @@
       subScreenHeader.append(
         createElement("button", {
           className: "mobile-category-back",
-          textContent: "\u2039",
+          textContent: "\u2039", // i18n-gate: allow -- internal diagnostic or language-neutral display
           attributes: {
             type: "button",
             "aria-label": t("categories.backToMainAria", "Back to main categories"),

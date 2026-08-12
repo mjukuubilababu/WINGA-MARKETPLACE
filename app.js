@@ -218,7 +218,7 @@ const globalLocalizationRuntime = window.WingaModules.localization?.createRuntim
       headers: { Accept: "application/json" }
     });
     if (!response.ok) {
-      throw new Error(`Global context request failed: ${response.status}`);
+      throw new Error(`Global context request failed: ${response.status}`); // i18n-gate: allow -- internal diagnostic or language-neutral display
     }
     return response.json();
   }
@@ -246,7 +246,7 @@ function isServiceWorkerRecoveryDisabled() {
 
 const createMarketplaceImageLoaderModule = window.WingaModules.marketplace.createImageLoaderModule;
 if (typeof createMarketplaceImageLoaderModule !== "function") {
-  throw new Error("Winga marketplace image loader module is required before app boot.");
+  throw new Error("Winga marketplace image loader module is required before app boot."); // i18n-gate: allow -- internal diagnostic or language-neutral display
 }
 
 const marketplaceImageLoader = createMarketplaceImageLoaderModule({
@@ -1651,7 +1651,7 @@ function getBootLifecycleTools() {
   if (!bootLifecycleTools) {
     const factory = window.WingaModules?.boot?.createLifecycleModule;
     if (typeof factory !== "function") {
-      throw new Error("Winga boot lifecycle module is required before app boot.");
+      throw new Error("Winga boot lifecycle module is required before app boot."); // i18n-gate: allow -- internal diagnostic or language-neutral display
     }
     bootLifecycleTools = factory({
       getState: () => lifecycleRuntimeState,
@@ -1665,7 +1665,7 @@ function getPwaLifecycleTools() {
   if (!pwaLifecycleTools) {
     const factory = window.WingaModules?.boot?.createPwaLifecycleModule;
     if (typeof factory !== "function") {
-      throw new Error("Winga PWA lifecycle module is required before app boot.");
+      throw new Error("Winga PWA lifecycle module is required before app boot."); // i18n-gate: allow -- internal diagnostic or language-neutral display
     }
     pwaLifecycleTools = factory({
       getWindow: () => window,
@@ -1698,7 +1698,7 @@ function getNotificationPermissionTools() {
   if (!notificationPermissionTools) {
     const factory = window.WingaModules?.notifications?.createNotificationPermissionModule;
     if (typeof factory !== "function") {
-      throw new Error("Winga notification permission module is required before app boot.");
+      throw new Error("Winga notification permission module is required before app boot."); // i18n-gate: allow -- internal diagnostic or language-neutral display
     }
     notificationPermissionTools = factory({
       getWindow: () => window,
@@ -1720,7 +1720,7 @@ function getAppEventsTools() {
   if (!appEventsTools) {
     const factory = window.WingaModules?.app?.createAppEventsModule;
     if (typeof factory !== "function") {
-      throw new Error("Winga app events module is required before app boot.");
+      throw new Error("Winga app events module is required before app boot."); // i18n-gate: allow -- internal diagnostic or language-neutral display
     }
     appEventsTools = factory({
       reportDuplicate: (key) => reportClientEvent("warn", "app_event_duplicate_registration", "Duplicate app event registration ignored.", {
@@ -3254,7 +3254,7 @@ function cacheDecodedFeedImageSource(src = "", options = {}) {
     image.onerror = (error) => {
       decodedFeedImageCache.delete(safeSrc);
       failedDecodedFeedImageCache.set(safeSrc, Date.now());
-      reject(error || new Error("Unable to decode image into memory cache."));
+      reject(error || new Error("Unable to decode image into memory cache.")); // i18n-gate: allow -- internal diagnostic or language-neutral display
     };
   });
 
@@ -4366,7 +4366,7 @@ function isAbortedHomeFeedLoad(error, signal = null) {
 
 function waitForHomeFeedRetry(delayMs, signal = null) {
   if (signal?.aborted) {
-    return Promise.reject(Object.assign(new Error("Home feed load was cancelled."), {
+    return Promise.reject(Object.assign(new Error("Home feed load was cancelled."), { // i18n-gate: allow -- internal diagnostic or language-neutral display
       name: "AbortError",
       code: "aborted"
     }));
@@ -4508,7 +4508,7 @@ async function loadHomeFeedPageWithRetry(loadPage, options = {}) {
   for (let attempt = 1; attempt <= HOME_LOAD_MORE_MAX_ATTEMPTS; attempt += 1) {
     const previousErrorWasRetryableHttp = Number(lastError?.status || 0) >= 500;
     if (signal?.aborted && !previousErrorWasRetryableHttp) {
-      throw Object.assign(new Error("Home feed load was cancelled."), {
+      throw Object.assign(new Error("Home feed load was cancelled."), { // i18n-gate: allow -- internal diagnostic or language-neutral display
         name: "AbortError",
         code: "aborted"
       });
@@ -4537,7 +4537,7 @@ async function loadHomeFeedPageWithRetry(loadPage, options = {}) {
       await waitForHomeFeedRetry(delayMs, currentErrorWasRetryableHttp ? null : signal);
     }
   }
-  throw lastError || new Error("Home feed pagination failed.");
+  throw lastError || new Error("Home feed pagination failed."); // i18n-gate: allow -- internal diagnostic or language-neutral display
 }
 
 function silentlyRefreshInfiniteFeedSource(options = {}) {
@@ -7778,7 +7778,7 @@ function showFatalStartupState(error) {
   meta.append(
     createElement("div", {
       className: "fatal-startup-meta-line",
-      textContent: `Provider: ${provider}`
+      textContent: translateUi("order.providerLabel", { provider }, `Provider: ${provider}`)
     }),
     createElement("div", {
       className: "fatal-startup-meta-line",
@@ -8416,7 +8416,7 @@ function getAuthSessionRuntimeTools() {
   if (!authSessionRuntimeTools) {
     const factory = window.WingaModules?.auth?.createSessionRuntimeModule;
     if (typeof factory !== "function") {
-      throw new Error("Winga auth session runtime module is required before app boot.");
+      throw new Error("Winga auth session runtime module is required before app boot."); // i18n-gate: allow -- internal diagnostic or language-neutral display
     }
     authSessionRuntimeTools = factory({
       bootTimeoutMs: SESSION_RESTORE_BOOT_TIMEOUT_MS,
@@ -9648,7 +9648,7 @@ let paymentIntentUiTools = null;
 function getPaymentIntentUiTools() {
   if (!paymentIntentUiTools) {
     const factory = window.WingaModules?.commerce?.createPaymentIntentUiModule;
-    if (typeof factory !== "function") throw new Error("Winga payment intent UI module is required before app boot.");
+    if (typeof factory !== "function") throw new Error("Winga payment intent UI module is required before app boot."); // i18n-gate: allow -- internal diagnostic or language-neutral display
     paymentIntentUiTools = factory({ createElement, translate: translateUi, formatProductPrice, getNavigator: () => navigator });
   }
   return paymentIntentUiTools;
@@ -10058,7 +10058,7 @@ function renderPromotionIntentModal() {
     submitButton,
     createElement("button", {
       className: "action-btn action-btn-secondary",
-      textContent: "Cancel",
+      textContent: translateUi("common.cancel", {}, "Cancel"),
       attributes: {
         type: "button",
         "data-close-promotion-intent": "true"
@@ -14585,7 +14585,7 @@ authButton.addEventListener("click", async () => {
       cancelPendingSessionRestore("public_login_started");
       const user = await window.WingaDataLayer.login({ identifier: username, username, password });
       if (isStaffRole(user.role)) {
-        captureClientError("staff_login_via_public_auth_blocked", new Error("Staff account attempted public auth flow."), {
+        captureClientError("staff_login_via_public_auth_blocked", new Error("Staff account attempted public auth flow."), { // i18n-gate: allow -- internal diagnostic or language-neutral display
           username: user.username
         });
         showInAppNotification({
@@ -15107,7 +15107,7 @@ registerAppEvent(document, "click", (event) => {
       openPromotionIntentModal(product, { trustedAuthorized: promotionContext.trustedAuthorized, trigger: promoteTrigger });
     } else {
       showInAppNotification({
-        title: "Promotion unavailable",
+        title: translateUi("promotion.unavailableTitle", {}, "Promotion unavailable"),
         body: "Product context ya promotion haikupatikana. Refresh home feed ujaribu tena.",
         variant: "warning"
       });
@@ -18057,7 +18057,7 @@ function getContinuousDiscoveryDescriptor(options = {}) {
     return {
       kind: "fresh",
       eyebrow: "New Products",
-      title: "Fresh listings from active sellers",
+      title: translateUi("detail.freshListingsTitle", {}, "Fresh listings from active sellers"),
       subtitle: "Winga keeps putting new stock in front of you first.",
       items: freshNewItems.slice(0, 8)
     };

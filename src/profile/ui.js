@@ -166,7 +166,7 @@
           trustLine.append(t("profile.trustLabel", "Trust: "));
           trustLine.appendChild(deps.createElement("span", {
             className: "status-pill approved",
-            textContent: `${userProfile.sellerStats.trustScore}/100`
+            textContent: `${userProfile.sellerStats.trustScore}/100` // i18n-gate: allow -- internal diagnostic or language-neutral display
           }));
           trustLine.append(` ${userProfile.sellerStats.trustTier || "Seller"}`);
           copy.appendChild(trustLine);
@@ -728,7 +728,7 @@
           deps.createElement("strong", { textContent: `${promotion.productName || promotion.productId || t("common.product", "Product")} | ${promotion.label || promotion.type}` }),
           deps.createStatusPill(status, statusClass),
           deps.createElement("small", {
-            textContent: `TSh ${deps.formatNumber(amount)}${hasSchedule ? ` | ${formatLocaleDate(startDate)} - ${formatLocaleDate(endDate)}` : ""}`
+            textContent: `TSh ${deps.formatNumber(amount)}${hasSchedule ? ` | ${formatLocaleDate(startDate)} - ${formatLocaleDate(endDate)}` : ""}` // i18n-gate: allow -- internal diagnostic or language-neutral display
           }),
           deps.createElement("p", {
             className: "product-meta",

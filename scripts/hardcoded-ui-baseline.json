@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "policy": "Existing debt may decrease only. New or modified user-visible literals must use localization keys.",
-  "count": 122,
-  "digest": "2d5ca83f7d32e2926dba86f9f662974cfda2a0f831af323ac897fe4d98b3966c",
+  "count": 95,
+  "digest": "ce12714a0f35667e3beb3eca0f3d8786526af07b5537b7af4ce4578a434ec3e3",
   "entries": [
     {
       "signature": "app.js|property|${createdCategory.label} imeongezwa kwenye Vitu Used.",
@@ -89,10 +89,6 @@
       "count": 1
     },
     {
-      "signature": "app.js|property|Cancel",
-      "count": 1
-    },
-    {
       "signature": "app.js|property|Chagua category kuu",
       "count": 1
     },
@@ -118,10 +114,6 @@
     },
     {
       "signature": "app.js|property|Error: ${message}",
-      "count": 1
-    },
-    {
-      "signature": "app.js|property|Fresh listings from active sellers",
       "count": 1
     },
     {
@@ -265,14 +257,6 @@
       "count": 1
     },
     {
-      "signature": "app.js|property|Promotion unavailable",
-      "count": 1
-    },
-    {
-      "signature": "app.js|property|Provider: ${provider}",
-      "count": 1
-    },
-    {
       "signature": "app.js|property|Quick actions",
       "count": 1
     },
@@ -357,15 +341,7 @@
       "count": 1
     },
     {
-      "signature": "app.js|user-error|Global context request failed: ${response.status}",
-      "count": 1
-    },
-    {
       "signature": "app.js|user-error|Home feed load was cancelled.",
-      "count": 3
-    },
-    {
-      "signature": "app.js|user-error|Home feed pagination failed.",
       "count": 1
     },
     {
@@ -373,83 +349,7 @@
       "count": 1
     },
     {
-      "signature": "app.js|user-error|Staff account attempted public auth flow.",
-      "count": 1
-    },
-    {
       "signature": "app.js|user-error|Subcategory inapaswa kuwa kati ya herufi 2 hadi 40.",
-      "count": 1
-    },
-    {
-      "signature": "app.js|user-error|Unable to decode image into memory cache.",
-      "count": 1
-    },
-    {
-      "signature": "app.js|user-error|Winga app events module is required before app boot.",
-      "count": 1
-    },
-    {
-      "signature": "app.js|user-error|Winga auth session runtime module is required before app boot.",
-      "count": 1
-    },
-    {
-      "signature": "app.js|user-error|Winga boot lifecycle module is required before app boot.",
-      "count": 1
-    },
-    {
-      "signature": "app.js|user-error|Winga marketplace image loader module is required before app boot.",
-      "count": 1
-    },
-    {
-      "signature": "app.js|user-error|Winga notification permission module is required before app boot.",
-      "count": 1
-    },
-    {
-      "signature": "app.js|user-error|Winga payment intent UI module is required before app boot.",
-      "count": 1
-    },
-    {
-      "signature": "app.js|user-error|Winga PWA lifecycle module is required before app boot.",
-      "count": 1
-    },
-    {
-      "signature": "src/admin/controller.js|user-error|Some admin datasets failed to load.",
-      "count": 1
-    },
-    {
-      "signature": "src/categories/ui.js|property|\\u00D7",
-      "count": 1
-    },
-    {
-      "signature": "src/categories/ui.js|property|\\u2039",
-      "count": 1
-    },
-    {
-      "signature": "src/categories/ui.js|property|\\u203A",
-      "count": 1
-    },
-    {
-      "signature": "src/chat/ui.js|property|\\u00D7",
-      "count": 1
-    },
-    {
-      "signature": "src/marketplace/ui.js|property|${Math.min(product.images.length, 9)}/5",
-      "count": 1
-    },
-    {
-      "signature": "src/marketplace/ui.js|property|1/${images.length}",
-      "count": 1
-    },
-    {
-      "signature": "src/product-detail/ui.js|property|\\u2190",
-      "count": 1
-    },
-    {
-      "signature": "src/profile/ui.js|property|${userProfile.sellerStats.trustScore}/100",
-      "count": 1
-    },
-    {
-      "signature": "src/profile/ui.js|property|TSh ${deps.formatNumber(amount)}${hasSchedule ?",
       "count": 1
     }
   ]

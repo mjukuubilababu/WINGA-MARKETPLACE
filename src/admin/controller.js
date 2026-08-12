@@ -2329,7 +2329,7 @@
       const failedLoads = ["analytics", "users", "products", "reports", "promotions", "orders", "payments", "moderationActions", "opsSummary", "adminMessages", "adminSettings"]
         .filter((_, index) => results[index] && results[index].status === "rejected");
       if (failedLoads.length) {
-        deps.captureError?.("admin_surface_partial_load_failed", new Error("Some admin datasets failed to load."), {
+        deps.captureError?.("admin_surface_partial_load_failed", new Error("Some admin datasets failed to load."), { // i18n-gate: allow -- internal diagnostic or language-neutral display
           failedLoads: failedLoads.join(",")
         });
         deps.showInAppNotification?.({

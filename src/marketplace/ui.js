@@ -354,7 +354,7 @@
         wrapper.appendChild(createElement("span", {
           className: "feed-gallery-count-badge",
           attributes: { "data-feed-gallery-count": "true" },
-          textContent: `1/${images.length}`
+          textContent: `1/${images.length}` // i18n-gate: allow -- internal diagnostic or language-neutral display
         }));
       }
       return wrapper;
@@ -924,7 +924,7 @@
       if (Array.isArray(product.images) && product.images.length > 1) {
         media.appendChild(createElement("span", {
           className: "feed-gallery-count-badge product-gallery-count-badge",
-          textContent: `${Math.min(product.images.length, 9)}/5`
+          textContent: `${Math.min(product.images.length, 9)}/5` // i18n-gate: allow -- internal diagnostic or language-neutral display
         }));
       }
       card.appendChild(media);
