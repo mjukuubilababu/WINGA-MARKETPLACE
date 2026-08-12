@@ -3369,6 +3369,17 @@ test("payment intent UI is modular and preserves commerce submission ownership",
   assert.ok(buildSource.indexOf('"src/commerce/payment-intent-ui.js"') < buildSource.indexOf('"src/chat/ui.js"'));
 });
 
+test("localized request box preserves buyer gating and message delivery", () => {
+  const source = fs.readFileSync(path.join(__dirname, "..", "src", "requests", "request-box.js"), "utf8");
+  const appSource = fs.readFileSync(path.join(__dirname, "..", "app.js"), "utf8");
+  assert.match(source, /requests\.accountRequiredTitle/);
+  assert.match(source, /requests\.clearConfirm/);
+  assert.match(source, /requests\.queuedTitle/);
+  assert.match(source, /deps\.sendMessage\(\{/);
+  assert.match(source, /messageType: group\.items\.length > 1/);
+  assert.match(source, /data-request-send/);
+  assert.match(appSource, /createRequestBoxModule\(\{[\s\S]*translate: translateUi/);
+});
 (async () => {
   let passed = 0;
   for (const entry of tests) {

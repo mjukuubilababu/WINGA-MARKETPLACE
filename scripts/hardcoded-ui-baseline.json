@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "policy": "Existing debt may decrease only. New or modified user-visible literals must use localization keys.",
-  "count": 275,
-  "digest": "83fbfc34916baf9c370465edb015606f28b87566563774415eaf2aef8352e4fc",
+  "count": 262,
+  "digest": "eb44d188c1219fdacf6b9942ab0c99c8c9b837974de0b52a2ff19f5fbfc4fa85",
   "entries": [
     {
       "signature": "app.js|property|${createdCategory.label} imeongezwa kwenye Vitu Used.",
@@ -978,58 +978,6 @@
     },
     {
       "signature": "src/profile/ui.js|property|Weka Lipa namba",
-      "count": 1
-    },
-    {
-      "signature": "src/requests/request-box.js|confirmation|Una uhakika unataka kuondoa bidhaa zote kwenye My Requests?",
-      "count": 1
-    },
-    {
-      "signature": "src/requests/request-box.js|property|${deps.getCategoryLabel(item.category)} | ${deps.formatProductPrice(item.price)}",
-      "count": 1
-    },
-    {
-      "signature": "src/requests/request-box.js|property|Clear Selected Items",
-      "count": 1
-    },
-    {
-      "signature": "src/requests/request-box.js|property|Hakuna bidhaa kwenye My Requests bado. Tumia My Request kwenye bidhaa uzikusanye hapa.",
-      "count": 1
-    },
-    {
-      "signature": "src/requests/request-box.js|property|Mfano: Naomba kujua availability, size au final price.",
-      "count": 1
-    },
-    {
-      "signature": "src/requests/request-box.js|property|Open request chats",
-      "count": 1
-    },
-    {
-      "signature": "src/requests/request-box.js|property|Qty",
-      "count": 1
-    },
-    {
-      "signature": "src/requests/request-box.js|property|Remove",
-      "count": 1
-    },
-    {
-      "signature": "src/requests/request-box.js|property|Request sent.",
-      "count": 1
-    },
-    {
-      "signature": "src/requests/request-box.js|property|Requests queued",
-      "count": 1
-    },
-    {
-      "signature": "src/requests/request-box.js|property|Selected items to send to sellers",
-      "count": 1
-    },
-    {
-      "signature": "src/requests/request-box.js|property|Ujumbe wa mteja",
-      "count": 1
-    },
-    {
-      "signature": "src/requests/request-box.js|property|You need a customer account to save requests",
       "count": 1
     }
   ]

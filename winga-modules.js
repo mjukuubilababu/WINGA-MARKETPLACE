@@ -11218,6 +11218,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 // src/requests/request-box.js
 (() => {
   function createRequestBoxModule(deps) {
+    const t = (key, fallbackText = "", variables = {}) => deps.translate?.(key, variables, fallbackText) || fallbackText;
     const state = {
       items: [],
       sellerNotes: {},
@@ -11500,7 +11501,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         deps.promptGuestAuth({
           preferredMode: "signup",
           role: "buyer",
-          title: "You need a customer account to save requests",
+          title: t("requests.accountRequiredTitle", "You need a customer account to save requests"),
           message: "Sign in or sign up as a mteja to collect products from different sellers.",
           intent: {
             type: "add-request",
@@ -11555,7 +11556,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     }
 
     function clearRequestBox(options = {}) {
-      if (state.items.length && deps.confirmAction && !deps.confirmAction("Una uhakika unataka kuondoa bidhaa zote kwenye My Requests?")) {
+      if (state.items.length && deps.confirmAction && !deps.confirmAction(t("requests.clearConfirm", "Una uhakika unataka kuondoa bidhaa zote kwenye My Requests?"))) {
         return;
       }
       clearSessionState();
@@ -11691,7 +11692,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           );
         } else if (queuedSellerIds.length) {
           deps.showInAppNotification?.({
-            title: "Requests queued",
+            title: t("requests.queuedTitle", "Requests queued"),
             body: `${queuedSellerIds.length} request${queuedSellerIds.length === 1 ? "" : "s"} zitaenda internet ikirudi.`,
             variant: "info"
           });
@@ -11713,20 +11714,20 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       });
       section.appendChild(deps.createSectionHeading({
         eyebrow: "My Requests",
-        title: "Selected items to send to sellers",
+        title: t("requests.sectionTitle", "Selected items to send to sellers"),
         meta: `${totalItems} item${totalItems === 1 ? "" : "s"} | ${groups.length} seller${groups.length === 1 ? "" : "s"}`
       }));
 
       if (state.lastSentSummary) {
         const success = deps.createElement("div", { className: "request-box-success" });
         success.append(
-          deps.createElement("strong", { textContent: "Request sent." }),
+          deps.createElement("strong", { textContent: t("requests.sentTitle", "Request sent.") }),
           deps.createElement("span", {
             textContent: `${state.lastSentSummary.itemsCount} item${state.lastSentSummary.itemsCount === 1 ? "" : "s"} zimeenda kwa ${state.lastSentSummary.sellersCount} seller${state.lastSentSummary.sellersCount === 1 ? "" : "s"}. Sasa endelea na chat au subiri majibu yao.`
           }),
           deps.createElement("button", {
             className: "action-btn buy-btn",
-            textContent: "Open request chats",
+            textContent: t("requests.openChatsAction", "Open request chats"),
             attributes: {
               type: "button",
               "data-open-request-messages": "true"
@@ -11739,7 +11740,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       if (!groups.length) {
         section.appendChild(deps.createElement("p", {
           className: "empty-copy",
-          textContent: "Hakuna bidhaa kwenye My Requests bado. Tumia My Request kwenye bidhaa uzikusanye hapa."
+          textContent: t("requests.emptyBody", "Hakuna bidhaa kwenye My Requests bado. Tumia My Request kwenye bidhaa uzikusanye hapa.")
         }));
         return section;
       }
@@ -11772,12 +11773,12 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           copy.append(
             deps.createElement("span", { textContent: item.productName }),
             deps.createElement("small", {
-              textContent: `${deps.getCategoryLabel(item.category)} | ${deps.formatProductPrice(item.price)}`
+              textContent: t("requests.itemMeta", "{category} | {price}", { category: deps.getCategoryLabel(item.category), price: deps.formatProductPrice(item.price) })
             })
           );
           const qtyField = deps.createElement("label", { className: "request-qty-field" });
           qtyField.append(
-            deps.createElement("span", { textContent: "Qty" }),
+            deps.createElement("span", { textContent: t("requests.quantityLabel", "Qty") }),
             deps.createElement("input", {
               attributes: {
                 type: "number",
@@ -11794,7 +11795,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             qtyField,
             deps.createElement("button", {
               className: "action-btn delete-btn",
-              textContent: "Remove",
+              textContent: t("requests.removeAction", "Remove"),
               attributes: {
                 type: "button",
                 "data-request-remove": item.productId
@@ -11811,12 +11812,12 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           attributes: {
             rows: "2",
             maxlength: "240",
-            placeholder: "Mfano: Naomba kujua availability, size au final price.",
+            placeholder: t("requests.notePlaceholder", "Mfano: Naomba kujua availability, size au final price."),
             "data-request-note": group.sellerId
           }
         });
         noteField.append(
-          deps.createElement("span", { textContent: "Ujumbe wa mteja" }),
+          deps.createElement("span", { textContent: t("requests.buyerMessageLabel", "Ujumbe wa mteja") }),
           textarea
         );
         card.appendChild(noteField);
@@ -11828,7 +11829,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       actions.append(
         deps.createElement("button", {
           className: "action-btn action-btn-secondary",
-          textContent: "Clear Selected Items",
+          textContent: t("requests.clearAction", "Clear Selected Items"),
           attributes: {
             type: "button",
             "data-request-clear": "true"

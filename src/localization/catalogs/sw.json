@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2026.08.12.4",
+  "version": "2026.08.12.5",
   "locale": "sw",
   "messages": {
     "auth.close": "Funga uthibitishaji",
@@ -506,6 +506,19 @@
     "order.submitting": "Inatuma...",
     "order.submitReferenceAction": "Tuma reference",
     "order.messageSeller": "Tuma ujumbe kwa seller",
-    "order.referenceProviderHelp": "Tumia reference uliyopewa na mtoa huduma wako wa Mobile Money."
+    "order.referenceProviderHelp": "Tumia reference uliyopewa na mtoa huduma wako wa Mobile Money.",
+    "requests.accountRequiredTitle": "Unahitaji akaunti ya mteja kuhifadhi requests",
+    "requests.clearConfirm": "Uondoe bidhaa zote kwenye My Requests?",
+    "requests.queuedTitle": "Requests zimewekwa kwenye queue",
+    "requests.sectionTitle": "Bidhaa ulizochagua kutuma kwa wauzaji",
+    "requests.sentTitle": "Request imetumwa.",
+    "requests.openChatsAction": "Fungua request chats",
+    "requests.emptyBody": "Hakuna bidhaa kwenye My Requests bado. Tumia My Request kwenye bidhaa uzikusanye hapa.",
+    "requests.itemMeta": "{category} | {price}",
+    "requests.quantityLabel": "Idadi",
+    "requests.removeAction": "Ondoa",
+    "requests.notePlaceholder": "Mfano: Inapatikana, ina size yangu, au bei ya mwisho ni ipi?",
+    "requests.buyerMessageLabel": "Ujumbe wa mteja",
+    "requests.clearAction": "Ondoa bidhaa ulizochagua"
   }
 }

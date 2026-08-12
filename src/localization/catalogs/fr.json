@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2026.08.12.4",
+  "version": "2026.08.12.5",
   "locale": "fr",
   "messages": {
     "auth.close": "Fermer l’authentification",
@@ -506,6 +506,19 @@
     "order.submitting": "Envoi...",
     "order.submitReferenceAction": "Envoyer la référence",
     "order.messageSeller": "Contacter le vendeur",
-    "order.referenceProviderHelp": "Utilisez la référence fournie par votre opérateur Mobile Money."
+    "order.referenceProviderHelp": "Utilisez la référence fournie par votre opérateur Mobile Money.",
+    "requests.accountRequiredTitle": "Un compte acheteur est nécessaire pour enregistrer les demandes",
+    "requests.clearConfirm": "Supprimer tous les produits de Mes demandes ?",
+    "requests.queuedTitle": "Demandes mises en attente",
+    "requests.sectionTitle": "Articles sélectionnés à envoyer aux vendeurs",
+    "requests.sentTitle": "Demande envoyée.",
+    "requests.openChatsAction": "Ouvrir les conversations",
+    "requests.emptyBody": "Mes demandes est vide. Utilisez Ma demande sur un produit pour l’ajouter ici.",
+    "requests.itemMeta": "{category} | {price}",
+    "requests.quantityLabel": "Qté",
+    "requests.removeAction": "Retirer",
+    "requests.notePlaceholder": "Exemple : disponibilité, taille ou prix final ?",
+    "requests.buyerMessageLabel": "Message de l’acheteur",
+    "requests.clearAction": "Effacer la sélection"
   }
 }

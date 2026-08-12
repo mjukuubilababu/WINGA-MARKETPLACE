@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2026.08.12.4",
+  "version": "2026.08.12.5",
   "locale": "ar",
   "messages": {
     "auth.close": "إغلاق تسجيل الدخول",
@@ -510,6 +510,19 @@
     "order.submitting": "جارٍ الإرسال...",
     "order.submitReferenceAction": "إرسال المرجع",
     "order.messageSeller": "مراسلة البائع",
-    "order.referenceProviderHelp": "استخدم مرجع الدفع الذي قدمه مزود الأموال المحمولة."
+    "order.referenceProviderHelp": "استخدم مرجع الدفع الذي قدمه مزود الأموال المحمولة.",
+    "requests.accountRequiredTitle": "تحتاج إلى حساب مشترٍ لحفظ الطلبات",
+    "requests.clearConfirm": "هل تريد إزالة جميع المنتجات من طلباتي؟",
+    "requests.queuedTitle": "تمت إضافة الطلبات إلى قائمة الانتظار",
+    "requests.sectionTitle": "العناصر المحددة لإرسالها إلى البائعين",
+    "requests.sentTitle": "تم إرسال الطلب.",
+    "requests.openChatsAction": "فتح محادثات الطلبات",
+    "requests.emptyBody": "لا توجد منتجات في طلباتي. استخدم زر طلبي على المنتجات لإضافتها هنا.",
+    "requests.itemMeta": "{category} | {price}",
+    "requests.quantityLabel": "الكمية",
+    "requests.removeAction": "إزالة",
+    "requests.notePlaceholder": "مثال: هل المنتج متاح أو بمقاسي أو ما السعر النهائي؟",
+    "requests.buyerMessageLabel": "رسالة المشتري",
+    "requests.clearAction": "مسح العناصر المحددة"
   }
 }

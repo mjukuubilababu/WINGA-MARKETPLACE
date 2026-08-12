@@ -5751,6 +5751,7 @@ const {
   clearSessionState: clearRequestBoxSessionState,
   getLastSentRequestSummary
 } = window.WingaModules.requests.createRequestBoxModule({
+  translate: translateUi,
   createElement,
   createSectionHeading,
   confirmAction,

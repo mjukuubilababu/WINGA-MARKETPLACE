@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2026.08.12.4",
+  "version": "2026.08.12.5",
   "locale": "en",
   "messages": {
     "auth.close": "Close authentication",
@@ -506,6 +506,19 @@
     "order.submitting": "Submitting...",
     "order.submitReferenceAction": "Submit reference",
     "order.messageSeller": "Message seller",
-    "order.referenceProviderHelp": "Use the payment reference supplied by your mobile money provider."
+    "order.referenceProviderHelp": "Use the payment reference supplied by your mobile money provider.",
+    "requests.accountRequiredTitle": "You need a buyer account to save requests",
+    "requests.clearConfirm": "Remove all products from My Requests?",
+    "requests.queuedTitle": "Requests queued",
+    "requests.sectionTitle": "Selected items to send to sellers",
+    "requests.sentTitle": "Request sent.",
+    "requests.openChatsAction": "Open request chats",
+    "requests.emptyBody": "My Requests is empty. Use My Request on products to collect them here.",
+    "requests.itemMeta": "{category} | {price}",
+    "requests.quantityLabel": "Qty",
+    "requests.removeAction": "Remove",
+    "requests.notePlaceholder": "Example: Is this available, in my size, or at a final price?",
+    "requests.buyerMessageLabel": "Buyer message",
+    "requests.clearAction": "Clear selected items"
   }
 }
