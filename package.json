@@ -26,7 +26,9 @@
     "test:feed-production": "node tests/frontend-core.test.js && node --test tests/postgres-pagination.test.js && playwright test tests/e2e/pagination-bootstrap.spec.js tests/e2e/cls-hardening.spec.js --reporter=list && playwright test tests/e2e/app.spec.js --grep \"gallery|swipe|edge to edge|installed PWA|browser back from the first product|refreshing a product deep link|logged in sellers can scroll|guest home renders|vertical page scroll\" --reporter=list",
     "test:localization": "node scripts/validate-localization-catalogs.js && node scripts/check-hardcoded-ui-strings.js",
     "test:i18n-gate": "node scripts/check-hardcoded-ui-strings.js",
-    "update:i18n-baseline": "node scripts/check-hardcoded-ui-strings.js --update-baseline"
+    "update:i18n-baseline": "node scripts/check-hardcoded-ui-strings.js --update-baseline",
+    "verify:modules-sync": "node scripts/verify-modules-sync.js",
+    "test:ci": "npm run verify:modules-sync && npm test"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2"

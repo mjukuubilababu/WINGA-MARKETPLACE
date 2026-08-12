@@ -8243,6 +8243,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       maxPersonalizationBudget: 420,
       maxMarketDemandBudget: 360,
       maxEngagementBudget: 240,
+      maxIntelligenceBoost: 120,
+      intelligenceScoreSaturation: 100,
       ...deps.config
     };
     let lazyStyleEngine = deps.styleEngine || null;
@@ -8332,6 +8334,13 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           + (toFiniteNumber(product?.messages, 0) * 5)
           + (toFiniteNumber(product?.orders, 0) * 6)
         );
+    }
+
+    function getIntelligenceScoreBonus(product) {
+      const score = Math.max(0, toFiniteNumber(product?.intelligenceScore, 0));
+      const saturation = Math.max(1, toFiniteNumber(config.intelligenceScoreSaturation, 100));
+      const normalizedScore = clamp(score / saturation, 0, 1);
+      return normalizedScore * Math.max(0, toFiniteNumber(config.maxIntelligenceBoost, 0));
     }
 
     function getRecommendationScore(product, context) {
@@ -8441,6 +8450,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         sellerQuality: getSellerQualityScore(product, context),
         market: getMarketScore(product, context),
         demand: getDemandScore(product),
+        intelligence: getIntelligenceScoreBonus(product),
         trending: Math.min(220, engagement * 1.35),
         recommendation: getRecommendationScore(product, context),
         style: getStyleScore(product, context),
@@ -8457,7 +8467,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         ),
         trustAndQuality: clamp(rawScore.sellerQuality, 0, config.maxSellerQualityBoost),
         marketDemand: clamp(rawScore.market + rawScore.demand + rawScore.variant, 0, config.maxMarketDemandBudget),
-        engagement: clamp(rawScore.trending + rawScore.engagement, 0, config.maxEngagementBudget)
+        engagement: clamp(rawScore.trending + rawScore.engagement, 0, config.maxEngagementBudget),
+        intelligence: clamp(rawScore.intelligence, 0, config.maxIntelligenceBoost)
       };
       const availabilityPenalty = product?.availability === "sold_out" ? config.soldOutPenalty : 0;
       return {

@@ -1505,7 +1505,7 @@ test("seller profile and product detail show clean trust indicators", async ({ b
   await page.locator("[data-header-menu-action='profile']").click();
   const trustBlock = page.locator("#profile-identity-card .profile-trust-block");
   await expect(trustBlock).toBeVisible();
-  await expect(trustBlock).toContainText("Trust profile");
+  await expect(trustBlock).toContainText(/Trust profile|Wasifu wa uaminifu/);
   await expect(trustBlock).toContainText(/Member since|Verified seller|WhatsApp verified/);
 
   await page.locator("#view-home-back").click();
@@ -1551,7 +1551,7 @@ test("product detail keeps same-seller continuation and broader discovery surfac
   await expect(continuationSections.first()).toBeVisible();
   await expect(page.locator("#product-detail-modal [data-product-detail-feed-stack]").first()).toBeVisible();
   await expect(page.locator(detailContinuationCardSelector).first()).toBeVisible();
-  await expect(page.locator("#product-detail-modal")).toContainText("Related Products");
+  await expect(page.locator("#product-detail-modal")).toContainText(/Related Products|Bidhaa Zinazohusiana/);
   await expect(continuationSections).toHaveCount(2);
 
   await page.locator(detailContinuationCardSelector).first().click();
@@ -1794,7 +1794,7 @@ test("admin can open a reasoned fraud review from a user card", async ({ browser
   await modal.locator("[data-admin-investigation-reason='true']").fill("Fraud review for suspicious account behavior.");
   await modal.locator("[data-admin-investigation-submit='buyer_seller']").click();
 
-  await expect(modal).toContainText("Message Evidence Access");
+  await expect(modal).toContainText(/Message Evidence Access|Ufikiaji wa ushahidi wa ujumbe/);
   await expect(modal).toContainText("Direct private messages");
   await expect(modal).toContainText("Login & Account Activity");
 

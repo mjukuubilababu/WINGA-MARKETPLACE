@@ -86,6 +86,9 @@ function normalizeProductRow(row) {
     likes: Number(row.likes || 0),
     views: Number(row.views || 0),
     viewedBy: parseJson(row.viewedBy, []),
+    intelligenceScore: Number(row.intelligenceScore || 0),
+    intelligenceSignals: parseJson(row.intelligenceSignals, {}),
+    sellerIntelligenceScore: Number(row.sellerIntelligenceScore || 0),
     demandSummary: hasDemandSummary
       ? {
         totalDemand,
@@ -1779,6 +1782,9 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
         p.likes,
         p.views,
         p.viewed_by AS "viewedBy",
+        COALESCE(pis.score, 0)::float8 AS "intelligenceScore",
+        COALESCE(pis.signals, '{}'::jsonb) AS "intelligenceSignals",
+        COALESCE(sis.score, 0)::float8 AS "sellerIntelligenceScore",
         COALESCE(pds.total_demand, 0)::int AS "demandTotalDemand",
         COALESCE(pds.waiting_users, 0)::int AS "demandWaitingUsers",
         COALESCE(pds.restock_interest, 0)::int AS "demandRestockInterest",
@@ -1789,6 +1795,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
         pds.last_demand_at AS "demandLastDemandAt"
       FROM products p
       LEFT JOIN product_demand_summaries pds ON pds.product_id = p.id
+      LEFT JOIN product_intelligence_scores pis ON pis.product_id = p.id
+      LEFT JOIN seller_intelligence_scores sis ON sis.seller_id = p.uploaded_by
       ${itemWhereSql}
       ORDER BY p.created_at DESC, p.id DESC
       LIMIT $${itemParams.length + 1}
