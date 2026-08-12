@@ -6172,8 +6172,8 @@ function syncNetworkStatusBanner(options = {}) {
   uiRuntimeState.lastKnownOnlineState = online;
   if (!online) {
     showNetworkStatusBanner({
-      title: "Uko offline",
-      body: "Chat zenye queue zitasubiri. Upload na payment submit vinahitaji internet irudi kwanza.",
+      title: translateUi("network.offlineTitle", {}, "Uko offline"),
+      body: translateUi("network.offlineQueuedBody", {}, "Chat zenye queue zitasubiri. Upload na payment submit vinahitaji internet irudi kwanza."),
       variant: "warning",
       persistent: true
     });
@@ -6181,8 +6181,8 @@ function syncNetworkStatusBanner(options = {}) {
   }
   if (options.justReconnected) {
     showNetworkStatusBanner({
-      title: "Internet imerudi",
-      body: "Tunaendelea kusync actions zilizokuwa zinasubiri.",
+      title: translateUi("network.restoredTitle", {}, "Internet imerudi"),
+      body: translateUi("network.restoredBody", {}, "Tunaendelea kusync actions zilizokuwa zinasubiri."),
       variant: "success",
       durationMs: 2800
     });
@@ -7764,11 +7764,11 @@ function showFatalStartupState(error) {
   const panel = createElement("section", { className: "fatal-startup-card panel" });
   const copy = createElement("div", { className: "fatal-startup-copy" });
   copy.append(
-    createElement("p", { className: "eyebrow", textContent: "Startup Error" }),
-    createElement("h2", { textContent: "App haikuweza kuanza vizuri." }),
+    createElement("p", { className: "eyebrow", textContent: translateUi("startup.errorEyebrow", {}, "Startup Error") }),
+    createElement("h2", { textContent: translateUi("startup.errorTitle", {}, "App haikuweza kuanza vizuri.") }),
     createElement("p", {
       className: "empty-copy",
-      textContent: "Jaribu ku-refresh ukurasa. Ikiwa tatizo linaendelea, kagua provider ya storage/API au environment config."
+      textContent: translateUi("startup.errorBody", {}, "Jaribu ku-refresh ukurasa. Ikiwa tatizo linaendelea, kagua provider ya storage/API au environment config.")
     })
   );
 
@@ -7787,7 +7787,7 @@ function showFatalStartupState(error) {
   const actions = createElement("div", { className: "fatal-startup-actions" });
   const reloadButton = createElement("button", {
     className: "button",
-    textContent: "Refresh App",
+    textContent: translateUi("startup.refreshAction", {}, "Refresh App"),
     attributes: { type: "button" }
   });
   reloadButton.addEventListener("click", () => window.location.reload());
@@ -8568,7 +8568,7 @@ function showLoggedOutState(options = {}) {
   if (audience === "admin") {
     setAdminLoginRouteActive(true, { replace: true });
     showAdminLoginScreen({
-      message: message || "Session ya staff imeisha. Ingia tena kuendelea."
+      message: message || translateUi("auth.staffSessionExpired", {}, "Session ya staff imeisha. Ingia tena kuendelea.")
     });
     return;
   }
@@ -8598,10 +8598,10 @@ function setAuthInteractionPending(kind, pending, options = {}) {
     if (adminLoginPasswordInput) adminLoginPasswordInput.disabled = isPending;
     if (adminLoginButton) {
       adminLoginButton.disabled = isPending;
-      setNodeText(adminLoginButton, isPending ? "Ingia..." : "Admin Login");
+      setNodeText(adminLoginButton, isPending ? translateUi("admin.signingIn", {}, "Ingia...") : translateUi("admin.loginAction", {}, "Admin Login"));
     }
     if (adminLoginCopy && isPending) {
-      setNodeText(adminLoginCopy, "Tunaangalia staff access yako...");
+      setNodeText(adminLoginCopy, translateUi("admin.checkingAccess", {}, "Tunaangalia staff access yako..."));
     }
     return;
   }
@@ -14394,7 +14394,7 @@ forgotPasswordLink?.addEventListener("click", () => {
 staffAccessButton?.addEventListener("click", () => {
   setAdminLoginRouteActive(true);
   showAdminLoginScreen({
-    message: "Tumia admin au moderator account kuingia kwenye staff access."
+    message: translateUi("admin.staffAccessPrompt", {}, "Tumia admin au moderator account kuingia kwenye staff access.")
   });
 });
 
@@ -14491,8 +14491,8 @@ adminLoginButton?.addEventListener("click", async () => {
   const password = adminLoginPasswordInput?.value.trim() || "";
   if (!identifier || !password) {
     showInAppNotification({
-      title: "Admin login required",
-      body: "Jaza identifier na password ya admin au moderator.",
+      title: translateUi("admin.loginRequiredTitle", {}, "Admin login required"),
+      body: translateUi("admin.loginRequiredBody", {}, "Jaza identifier na password ya admin au moderator."),
       variant: "warning"
     });
     return;
@@ -14510,12 +14510,12 @@ adminLoginButton?.addEventListener("click", async () => {
       identifier
     });
     showInAppNotification({
-      title: "Admin login failed",
+      title: translateUi("admin.loginFailedTitle", {}, "Admin login failed"),
       body: errorMessage,
       variant: "error"
     });
     showAdminLoginScreen({
-      message: "Tumia admin au moderator account halali. Mteja na muuzaji wa kawaida wanapaswa kutumia login ya kawaida."
+      message: translateUi("admin.invalidAccountBody", {}, "Tumia admin au moderator account halali. Mteja na muuzaji wa kawaida wanapaswa kutumia login ya kawaida.")
     });
     adminAuthRequestPending = false;
     setAuthInteractionPending("admin", false);
@@ -14534,10 +14534,10 @@ adminLoginButton?.addEventListener("click", async () => {
       skipMarketplaceBootstrap: true
     });
     showInAppNotification({
-      title: "Admin access granted",
+      title: translateUi("admin.accessGrantedTitle", {}, "Admin access granted"),
       body: isStaffRole(user.role) && user.role === "moderator"
-        ? "Moderator session imefunguliwa."
-        : "Admin session imefunguliwa.",
+        ? translateUi("admin.moderatorSessionOpened", {}, "Moderator session imefunguliwa.")
+        : translateUi("admin.sessionOpened", {}, "Admin session imefunguliwa."),
       variant: "success"
     });
   } catch (error) {
@@ -14549,11 +14549,11 @@ adminLoginButton?.addEventListener("click", async () => {
     applySessionState(null);
     setAdminLoginRouteActive(true, { replace: true });
     showAdminLoginScreen({
-      message: "Admin account imethibitishwa lakini admin surface imeshindwa kufunguka. Jaribu tena."
+      message: translateUi("admin.surfaceOpenFailed", {}, "Admin account imethibitishwa lakini admin surface imeshindwa kufunguka. Jaribu tena.")
     });
     showInAppNotification({
-      title: "Admin view failed",
-      body: "Session ya admin haijaendelea kwa sababu admin surface imekosa kufunguka vizuri.",
+      title: translateUi("admin.viewFailedTitle", {}, "Admin view failed"),
+      body: translateUi("admin.viewFailedBody", {}, "Session ya admin haijaendelea kwa sababu admin surface imekosa kufunguka vizuri."),
       variant: "error"
     });
   } finally {
@@ -15026,10 +15026,10 @@ uploadButton.addEventListener("click", async () => {
     }
     if (typeof navigator !== "undefined" && navigator.onLine === false) {
       uiRuntimeState.productUploadStatusTone = "warning";
-      setUploadFormStatus("warning", "Uko offline. Draft ya bidhaa imehifadhiwa. Internet ikirudi, bonyeza tena kupost.");
+      setUploadFormStatus("warning", translateUi("upload.offlineDraftBody", {}, "Uko offline. Draft ya bidhaa imehifadhiwa. Internet ikirudi, bonyeza tena kupost."));
       showInAppNotification({
-        title: "Uko offline",
-        body: "Draft ya bidhaa imehifadhiwa. Internet ikirudi, bonyeza tena kupost.",
+        title: translateUi("network.offlineTitle", {}, "Uko offline"),
+        body: translateUi("upload.offlineDraftBody", {}, "Draft ya bidhaa imehifadhiwa. Internet ikirudi, bonyeza tena kupost."),
         variant: "warning"
       });
       saveProductUploadDraft();
@@ -20784,8 +20784,8 @@ function handleAccessRouteChange() {
     if (isAuthenticatedUser()) {
       setAdminLoginRouteActive(false, { replace: true });
       showInAppNotification({
-        title: "Admin access only",
-        body: "Route hii ni ya admin au moderator pekee.",
+        title: translateUi("admin.accessOnlyTitle", {}, "Admin access only"),
+        body: translateUi("admin.accessOnlyBody", {}, "Route hii ni ya admin au moderator pekee."),
         variant: "warning"
       });
       appContainer.style.display = "block";

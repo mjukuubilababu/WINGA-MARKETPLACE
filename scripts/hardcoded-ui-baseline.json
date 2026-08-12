@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "policy": "Existing debt may decrease only. New or modified user-visible literals must use localization keys.",
-  "count": 339,
-  "digest": "dded1486ea6fc02609daf25fb84b89771443ad4cd606adb93c7f5ebf72400c1c",
+  "count": 319,
+  "digest": "49199f63d59f54da6b4181889cc6f35ac1acaf35fd9fbdf85fb4b16e63edc31b",
   "entries": [
     {
       "signature": "app.js|property|${createdCategory.label} imeongezwa kwenye Vitu Used.",
@@ -50,30 +50,6 @@
     },
     {
       "signature": "app.js|property|${title} on Winga",
-      "count": 1
-    },
-    {
-      "signature": "app.js|property|Admin access granted",
-      "count": 1
-    },
-    {
-      "signature": "app.js|property|Admin access only",
-      "count": 1
-    },
-    {
-      "signature": "app.js|property|Admin login failed",
-      "count": 1
-    },
-    {
-      "signature": "app.js|property|Admin login required",
-      "count": 1
-    },
-    {
-      "signature": "app.js|property|Admin view failed",
-      "count": 1
-    },
-    {
-      "signature": "app.js|property|App haikuweza kuanza vizuri.",
       "count": 1
     },
     {
@@ -125,10 +101,6 @@
       "count": 1
     },
     {
-      "signature": "app.js|property|Chat zenye queue zitasubiri. Upload na payment submit vinahitaji internet irudi kwanza.",
-      "count": 1
-    },
-    {
       "signature": "app.js|property|Collection share ready",
       "count": 1
     },
@@ -146,10 +118,6 @@
     },
     {
       "signature": "app.js|property|Draft restored",
-      "count": 1
-    },
-    {
-      "signature": "app.js|property|Draft ya bidhaa imehifadhiwa. Internet ikirudi, bonyeza tena kupost.",
       "count": 1
     },
     {
@@ -181,19 +149,7 @@
       "count": 1
     },
     {
-      "signature": "app.js|property|Internet imerudi",
-      "count": 1
-    },
-    {
       "signature": "app.js|property|Jaribu jina lingine la bidhaa au duka.",
-      "count": 1
-    },
-    {
-      "signature": "app.js|property|Jaribu ku-refresh ukurasa. Ikiwa tatizo linaendelea, kagua provider ya storage/API au environment config.",
-      "count": 1
-    },
-    {
-      "signature": "app.js|property|Jaza identifier na password ya admin au moderator.",
       "count": 1
     },
     {
@@ -349,10 +305,6 @@
       "count": 1
     },
     {
-      "signature": "app.js|property|Refresh App",
-      "count": 1
-    },
-    {
       "signature": "app.js|property|Report seller",
       "count": 1
     },
@@ -369,10 +321,6 @@
       "count": 1
     },
     {
-      "signature": "app.js|property|Route hii ni ya admin au moderator pekee.",
-      "count": 1
-    },
-    {
       "signature": "app.js|property|Safety check before you pay",
       "count": 1
     },
@@ -382,14 +330,6 @@
     },
     {
       "signature": "app.js|property|Seller share ready",
-      "count": 1
-    },
-    {
-      "signature": "app.js|property|Session ya admin haijaendelea kwa sababu admin surface imekosa kufunguka vizuri.",
-      "count": 1
-    },
-    {
-      "signature": "app.js|property|Startup Error",
       "count": 1
     },
     {
@@ -425,20 +365,12 @@
       "count": 1
     },
     {
-      "signature": "app.js|property|Tunaendelea kusync actions zilizokuwa zinasubiri.",
-      "count": 1
-    },
-    {
       "signature": "app.js|property|Ukiona taarifa hazilingani au seller anakushinikiza ulipie sehemu nyingine, tumia report seller kwanza.",
       "count": 1
     },
     {
       "signature": "app.js|property|Ukisha-upload bidhaa, hero inaanza kukuonyesha kwa mwonekano wa premium na wa haraka.",
       "count": 1
-    },
-    {
-      "signature": "app.js|property|Uko offline",
-      "count": 2
     },
     {
       "signature": "app.js|property|Utafutaji unaohisi wa kweli",
@@ -662,14 +594,6 @@
     },
     {
       "signature": "src/admin/controller.js|user-error|Some admin datasets failed to load.",
-      "count": 1
-    },
-    {
-      "signature": "src/auth/session-runtime.js|property|Admin access only",
-      "count": 1
-    },
-    {
-      "signature": "src/auth/session-runtime.js|property|Route hii ni ya admin au moderator pekee.",
       "count": 1
     },
     {

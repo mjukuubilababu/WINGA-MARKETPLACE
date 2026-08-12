@@ -103,8 +103,8 @@
             if (isAdminLoginRoute() && !isStaffRole(session.role)) {
               setAdminLoginRouteActive(false, { replace: true });
               showInAppNotification({
-                title: "Admin access only",
-                body: "Route hii ni ya admin au moderator pekee.",
+                title: translate("admin.accessOnlyTitle", {}, "Admin access only"),
+                body: translate("admin.accessOnlyBody", {}, "Route hii ni ya admin au moderator pekee."),
                 variant: "warning"
               });
             }

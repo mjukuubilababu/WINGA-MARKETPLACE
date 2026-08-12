@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2026.08.12.1",
+  "version": "2026.08.12.2",
   "locale": "en",
   "messages": {
     "auth.close": "Close authentication",
@@ -421,6 +421,31 @@
     "auth.welcomeTitle": "Welcome to Winga",
     "auth.welcomeBody": "Your account was created. You are being signed in automatically.",
     "auth.accountCreatedTitle": "Account created",
-    "auth.accountCreatedLoginBody": "Your account was created, but automatic sign-in did not finish. Sign in to continue."
+    "auth.accountCreatedLoginBody": "Your account was created, but automatic sign-in did not finish. Sign in to continue.",
+    "network.offlineTitle": "You are offline",
+    "network.offlineQueuedBody": "Queued chats will wait. Uploads and payment submissions need an internet connection.",
+    "network.restoredTitle": "You are back online",
+    "network.restoredBody": "We are syncing actions that were waiting.",
+    "startup.errorEyebrow": "Startup error",
+    "startup.errorTitle": "Winga could not start correctly.",
+    "startup.errorBody": "Refresh the page. If the problem continues, check the storage/API provider or environment configuration.",
+    "startup.refreshAction": "Refresh Winga",
+    "admin.accessOnlyTitle": "Staff access only",
+    "admin.accessOnlyBody": "This route is only available to administrators and moderators.",
+    "admin.signingIn": "Signing in...",
+    "admin.loginAction": "Staff sign in",
+    "admin.checkingAccess": "Checking your staff access...",
+    "admin.staffAccessPrompt": "Use an administrator or moderator account to access staff tools.",
+    "admin.loginRequiredTitle": "Staff sign-in required",
+    "admin.loginRequiredBody": "Enter the identifier and password for an administrator or moderator.",
+    "admin.loginFailedTitle": "Staff sign-in failed",
+    "admin.invalidAccountBody": "Use a valid administrator or moderator account. Buyers and sellers should use regular sign in.",
+    "admin.accessGrantedTitle": "Staff access granted",
+    "admin.moderatorSessionOpened": "Moderator session opened.",
+    "admin.sessionOpened": "Administrator session opened.",
+    "admin.surfaceOpenFailed": "The account was verified, but staff tools could not open. Try again.",
+    "admin.viewFailedTitle": "Staff view failed",
+    "admin.viewFailedBody": "The session was stopped because staff tools did not open correctly.",
+    "upload.offlineDraftBody": "Your product draft was saved offline. Post it again when the internet connection returns."
   }
 }

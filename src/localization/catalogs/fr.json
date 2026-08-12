@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2026.08.12.1",
+  "version": "2026.08.12.2",
   "locale": "fr",
   "messages": {
     "auth.close": "Fermer l’authentification",
@@ -421,6 +421,31 @@
     "auth.welcomeTitle": "Bienvenue sur Winga",
     "auth.welcomeBody": "Votre compte a été créé. La connexion est automatique.",
     "auth.accountCreatedTitle": "Compte créé",
-    "auth.accountCreatedLoginBody": "Votre compte a été créé, mais la connexion automatique n’a pas abouti. Connectez-vous pour continuer."
+    "auth.accountCreatedLoginBody": "Votre compte a été créé, mais la connexion automatique n’a pas abouti. Connectez-vous pour continuer.",
+    "network.offlineTitle": "Vous êtes hors ligne",
+    "network.offlineQueuedBody": "Les conversations en attente patienteront. Les téléversements et paiements nécessitent une connexion Internet.",
+    "network.restoredTitle": "Connexion rétablie",
+    "network.restoredBody": "Nous synchronisons les actions en attente.",
+    "startup.errorEyebrow": "Erreur de démarrage",
+    "startup.errorTitle": "Winga n’a pas pu démarrer correctement.",
+    "startup.errorBody": "Actualisez la page. Si le problème persiste, vérifiez le fournisseur de stockage/API ou la configuration de l’environnement.",
+    "startup.refreshAction": "Actualiser Winga",
+    "admin.accessOnlyTitle": "Accès réservé au personnel",
+    "admin.accessOnlyBody": "Cette route est réservée aux administrateurs et modérateurs.",
+    "admin.signingIn": "Connexion...",
+    "admin.loginAction": "Connexion du personnel",
+    "admin.checkingAccess": "Vérification de votre accès personnel...",
+    "admin.staffAccessPrompt": "Utilisez un compte administrateur ou modérateur pour accéder aux outils du personnel.",
+    "admin.loginRequiredTitle": "Connexion du personnel requise",
+    "admin.loginRequiredBody": "Saisissez l’identifiant et le mot de passe d’un administrateur ou modérateur.",
+    "admin.loginFailedTitle": "Échec de la connexion du personnel",
+    "admin.invalidAccountBody": "Utilisez un compte administrateur ou modérateur valide. Les acheteurs et vendeurs doivent utiliser la connexion normale.",
+    "admin.accessGrantedTitle": "Accès personnel accordé",
+    "admin.moderatorSessionOpened": "Session de modérateur ouverte.",
+    "admin.sessionOpened": "Session administrateur ouverte.",
+    "admin.surfaceOpenFailed": "Le compte a été vérifié, mais les outils du personnel n’ont pas pu s’ouvrir. Réessayez.",
+    "admin.viewFailedTitle": "Échec de la vue du personnel",
+    "admin.viewFailedBody": "La session a été arrêtée car les outils du personnel ne se sont pas ouverts correctement.",
+    "upload.offlineDraftBody": "Le brouillon du produit a été enregistré hors ligne. Publiez-le à nouveau lorsque la connexion Internet revient."
   }
 }

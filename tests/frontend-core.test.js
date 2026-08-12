@@ -3323,6 +3323,21 @@ test("localized auth and recovery preserve security and password contracts", () 
   assert.match(appSource, /cancelPendingSessionRestore\("public_signup_started"\)/);
 });
 
+
+test("localized admin and recovery states preserve access and recovery contracts", () => {
+  const appSource = fs.readFileSync(path.join(__dirname, "..", "app.js"), "utf8");
+  const sessionSource = fs.readFileSync(path.join(__dirname, "..", "src", "auth", "session-runtime.js"), "utf8");
+  assert.match(appSource, /translateUi\("startup\.refreshAction"/);
+  assert.match(appSource, /reloadButton\.addEventListener\("click", \(\) => window\.location\.reload\(\)\)/);
+  assert.match(appSource, /translateUi\("upload\.offlineDraftBody"/);
+  assert.match(appSource, /saveProductUploadDraft\(\);/);
+  assert.match(appSource, /translateUi\("admin\.loginRequiredTitle"/);
+  assert.match(appSource, /window\.WingaDataLayer\.adminLogin/);
+  assert.match(appSource, /isStaffRole\(user\.role\)/);
+  assert.match(sessionSource, /translate\("admin\.accessOnlyTitle"/);
+  assert.match(sessionSource, /isAdminLoginRoute\(\) && !isStaffRole\(session\.role\)/);
+});
+
 (async () => {
   let passed = 0;
   for (const entry of tests) {

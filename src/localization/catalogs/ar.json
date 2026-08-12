@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2026.08.12.1",
+  "version": "2026.08.12.2",
   "locale": "ar",
   "messages": {
     "auth.close": "إغلاق تسجيل الدخول",
@@ -425,6 +425,31 @@
     "auth.welcomeTitle": "مرحبًا بك في Winga",
     "auth.welcomeBody": "تم إنشاء حسابك. يجري تسجيل دخولك تلقائيًا.",
     "auth.accountCreatedTitle": "تم إنشاء الحساب",
-    "auth.accountCreatedLoginBody": "تم إنشاء حسابك، لكن تسجيل الدخول التلقائي لم يكتمل. سجّل الدخول للمتابعة."
+    "auth.accountCreatedLoginBody": "تم إنشاء حسابك، لكن تسجيل الدخول التلقائي لم يكتمل. سجّل الدخول للمتابعة.",
+    "network.offlineTitle": "أنت غير متصل",
+    "network.offlineQueuedBody": "ستنتظر المحادثات الموضوعة في قائمة الانتظار. تتطلب عمليات الرفع وإرسال الدفع اتصالاً بالإنترنت.",
+    "network.restoredTitle": "عاد الاتصال بالإنترنت",
+    "network.restoredBody": "نعمل على مزامنة الإجراءات التي كانت قيد الانتظار.",
+    "startup.errorEyebrow": "خطأ في بدء التشغيل",
+    "startup.errorTitle": "تعذر تشغيل Winga بشكل صحيح.",
+    "startup.errorBody": "حدّث الصفحة. إذا استمرت المشكلة، فتحقق من مزود التخزين أو API أو إعدادات البيئة.",
+    "startup.refreshAction": "تحديث Winga",
+    "admin.accessOnlyTitle": "للموظفين فقط",
+    "admin.accessOnlyBody": "هذا المسار متاح للمشرفين ومديري النظام فقط.",
+    "admin.signingIn": "جارٍ تسجيل الدخول...",
+    "admin.loginAction": "دخول الموظفين",
+    "admin.checkingAccess": "جارٍ التحقق من صلاحية وصول الموظف...",
+    "admin.staffAccessPrompt": "استخدم حساب مدير نظام أو مشرف للوصول إلى أدوات الموظفين.",
+    "admin.loginRequiredTitle": "يلزم تسجيل دخول الموظف",
+    "admin.loginRequiredBody": "أدخل المعرّف وكلمة المرور لمدير النظام أو المشرف.",
+    "admin.loginFailedTitle": "فشل تسجيل دخول الموظف",
+    "admin.invalidAccountBody": "استخدم حساب مدير نظام أو مشرف صالحًا. على المشترين والبائعين استخدام تسجيل الدخول العادي.",
+    "admin.accessGrantedTitle": "تم منح وصول الموظف",
+    "admin.moderatorSessionOpened": "تم فتح جلسة المشرف.",
+    "admin.sessionOpened": "تم فتح جلسة مدير النظام.",
+    "admin.surfaceOpenFailed": "تم التحقق من الحساب، لكن تعذر فتح أدوات الموظفين. حاول مجددًا.",
+    "admin.viewFailedTitle": "فشل عرض الموظفين",
+    "admin.viewFailedBody": "تم إيقاف الجلسة لأن أدوات الموظفين لم تُفتح بشكل صحيح.",
+    "upload.offlineDraftBody": "تم حفظ مسودة المنتج دون اتصال. أعد نشرها عند عودة الاتصال بالإنترنت."
   }
 }

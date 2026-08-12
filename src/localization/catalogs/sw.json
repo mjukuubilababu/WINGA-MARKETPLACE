@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2026.08.12.1",
+  "version": "2026.08.12.2",
   "locale": "sw",
   "messages": {
     "auth.close": "Funga uthibitishaji",
@@ -421,6 +421,31 @@
     "auth.welcomeTitle": "Karibu Winga",
     "auth.welcomeBody": "Akaunti imeundwa. Unaingia moja kwa moja.",
     "auth.accountCreatedTitle": "Akaunti imeundwa",
-    "auth.accountCreatedLoginBody": "Akaunti imeundwa lakini haikuingia moja kwa moja. Ingia sasa kuendelea."
+    "auth.accountCreatedLoginBody": "Akaunti imeundwa lakini haikuingia moja kwa moja. Ingia sasa kuendelea.",
+    "network.offlineTitle": "Uko offline",
+    "network.offlineQueuedBody": "Chat zenye queue zitasubiri. Upload na payment submit vinahitaji internet irudi kwanza.",
+    "network.restoredTitle": "Internet imerudi",
+    "network.restoredBody": "Tunaendelea kusawazisha matendo yaliyokuwa yanasubiri.",
+    "startup.errorEyebrow": "Hitilafu ya kuanzisha",
+    "startup.errorTitle": "Winga haikuweza kuanza vizuri.",
+    "startup.errorBody": "Onyesha upya ukurasa. Tatizo likiendelea, kagua provider ya storage/API au mipangilio ya mazingira.",
+    "startup.refreshAction": "Onyesha Winga upya",
+    "admin.accessOnlyTitle": "Staff pekee",
+    "admin.accessOnlyBody": "Njia hii ni ya admin au moderator pekee.",
+    "admin.signingIn": "Inaingia...",
+    "admin.loginAction": "Staff ingia",
+    "admin.checkingAccess": "Tunaangalia ruhusa yako ya staff...",
+    "admin.staffAccessPrompt": "Tumia akaunti ya admin au moderator kuingia kwenye staff access.",
+    "admin.loginRequiredTitle": "Staff lazima aingie",
+    "admin.loginRequiredBody": "Jaza kitambulisho na nenosiri la admin au moderator.",
+    "admin.loginFailedTitle": "Staff login imeshindwa",
+    "admin.invalidAccountBody": "Tumia akaunti halali ya admin au moderator. Wanunuzi na wauzaji watumie login ya kawaida.",
+    "admin.accessGrantedTitle": "Staff access imeruhusiwa",
+    "admin.moderatorSessionOpened": "Session ya moderator imefunguliwa.",
+    "admin.sessionOpened": "Session ya admin imefunguliwa.",
+    "admin.surfaceOpenFailed": "Akaunti imethibitishwa lakini staff tools hazikufunguka. Jaribu tena.",
+    "admin.viewFailedTitle": "Staff view imeshindwa",
+    "admin.viewFailedBody": "Session imesimamishwa kwa sababu staff tools hazikufunguka vizuri.",
+    "upload.offlineDraftBody": "Draft ya bidhaa imehifadhiwa offline. Internet ikirudi, bonyeza tena kupost."
   }
 }
