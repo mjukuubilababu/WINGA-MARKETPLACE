@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2026.08.12.8",
+  "version": "2026.08.12.9",
   "locale": "en",
   "messages": {
     "auth.close": "Close authentication",
@@ -668,6 +668,34 @@
     "session.verifyAction": "Verify session",
     "session.loading": "Loading active sessions...",
     "session.riskVerified": "Risk: {risk} | verified {date}",
-    "session.risk": "Risk: {risk}"
+    "session.risk": "Risk: {risk}",
+    "profile.sellerRegistrationTitle": "Seller Registration",
+    "profile.sellerUpgradeEyebrow": "Seller upgrade",
+    "profile.sellerUpgradeMeta": "Store name and phone number",
+    "profile.openSellerForm": "Open seller form",
+    "profile.sellerUpgradeGuidance": "Add your store name and phone number. Your account remains open while the role changes.",
+    "profile.paymentSavingStatus": "Saving your payment details. Keep this section open.",
+    "profile.paymentSavedStatus": "Payment details saved. Buyers can now see them in the payment flow.",
+    "session.revokeConfirm": "Revoke this device session?",
+    "profile.photoField": "Profile photo",
+    "profile.accountMissingError": "Your account is no longer available. Sign in again before retrying.",
+    "profile.performanceTitle": "Your performance",
+    "profile.catalogSummary": "Your catalog summary",
+    "profile.buyerAccountMeta": "Your buyer account",
+    "profile.sellerBuyerAccountMeta": "Seller account with buyer access",
+    "profile.manageAccountMeta": "Manage your account",
+    "profile.unreadStat": "Unread",
+    "profile.messagesStat": "Messages",
+    "profile.renderFailed": "Profile encountered a temporary error. Refresh or try again.",
+    "profile.renderFailedShort": "Profile encountered a temporary error.",
+    "profile.buyerEmpty": "Your buyer account is ready. Browse, search, message sellers, pay, order, review, and report unsafe listings.",
+    "profile.sellerEmpty": "No posts yet. Go to Upload to start building your profile catalog.",
+    "profile.catalogEmpty": "You have not posted products yet. Go to Upload to start your catalog.",
+    "profile.buyerResultsMeta": "Your orders, notifications, messages, and buyer activity appear here.",
+    "profile.sellerResultsMeta": "Your buyer activity, seller catalog, and performance appear here.",
+    "profile.catalogResultsMeta": "Your products and their performance appear here.",
+    "common.tryAgain": "Try again",
+    "profile.productCount": "{count} products",
+    "profile.manageProductsMeta": "Manage all your products here."
   }
 }

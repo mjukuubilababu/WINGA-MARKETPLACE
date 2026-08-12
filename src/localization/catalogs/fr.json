@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2026.08.12.8",
+  "version": "2026.08.12.9",
   "locale": "fr",
   "messages": {
     "auth.close": "Fermer l’authentification",
@@ -668,6 +668,34 @@
     "session.verifyAction": "Verifier la session",
     "session.loading": "Chargement des sessions actives...",
     "session.riskVerified": "Risque : {risk} | verifie {date}",
-    "session.risk": "Risque : {risk}"
+    "session.risk": "Risque : {risk}",
+    "profile.sellerRegistrationTitle": "Inscription vendeur",
+    "profile.sellerUpgradeEyebrow": "Passer en compte vendeur",
+    "profile.sellerUpgradeMeta": "Nom de boutique et numero de telephone",
+    "profile.openSellerForm": "Ouvrir le formulaire vendeur",
+    "profile.sellerUpgradeGuidance": "Add your store name and phone number. Your account remains open while the role changes.",
+    "profile.paymentSavingStatus": "Enregistrement de vos informations de paiement.",
+    "profile.paymentSavedStatus": "Payment details saved. Buyers can now see them in the payment flow.",
+    "session.revokeConfirm": "Revoquer la session de cet appareil ?",
+    "profile.photoField": "Photo de profil",
+    "profile.accountMissingError": "Your account is no longer available. Sign in again before retrying.",
+    "profile.performanceTitle": "Vos performances",
+    "profile.catalogSummary": "Resume de votre catalogue",
+    "profile.buyerAccountMeta": "Votre compte acheteur",
+    "profile.sellerBuyerAccountMeta": "Compte vendeur avec acces acheteur",
+    "profile.manageAccountMeta": "Gerer votre compte",
+    "profile.unreadStat": "Non lus",
+    "profile.messagesStat": "Messages",
+    "profile.renderFailed": "Une erreur temporaire affecte le profil. Actualisez ou reessayez.",
+    "profile.renderFailedShort": "Une erreur temporaire affecte le profil.",
+    "profile.buyerEmpty": "Votre compte acheteur est pret. Parcourez, recherchez, contactez, payez, commandez et signalez en securite.",
+    "profile.sellerEmpty": "Aucune publication. Utilisez Ajouter pour creer votre catalogue.",
+    "profile.catalogEmpty": "Vous n'avez encore publie aucun produit.",
+    "profile.buyerResultsMeta": "Vos commandes, notifications, messages et activites apparaissent ici.",
+    "profile.sellerResultsMeta": "Vos activites, votre catalogue vendeur et vos performances apparaissent ici.",
+    "profile.catalogResultsMeta": "Vos produits et leurs performances apparaissent ici.",
+    "common.tryAgain": "Reessayer",
+    "profile.productCount": "{count} produits",
+    "profile.manageProductsMeta": "Gerez tous vos produits ici."
   }
 }

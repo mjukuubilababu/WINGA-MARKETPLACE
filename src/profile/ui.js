@@ -417,12 +417,12 @@
         return null;
       }
 
-      const sectionTitle = "Seller Registration";
-      const sectionEyebrow = "Seller upgrade";
-      const sectionMeta = "Jina la duka na namba ya simu";
-      const buttonLabel = "Open seller form";
-      const submitLabel = "Become Seller";
-      const guidanceCopy = "Jaza jina la duka na namba ya simu. Akaunti yako itaendelea kubaki wazi wakati role inabadilika.";
+      const sectionTitle = t("profile.sellerRegistrationTitle", "Seller Registration");
+      const sectionEyebrow = t("profile.sellerUpgradeEyebrow", "Seller upgrade");
+      const sectionMeta = t("profile.sellerUpgradeMeta", "Store name and phone number");
+      const buttonLabel = t("profile.openSellerForm", "Open seller form");
+      const submitLabel = t("profile.becomeSeller", "Become Seller");
+      const guidanceCopy = t("profile.sellerUpgradeGuidance", "Add your store name and phone number. Your account remains open while the role changes.");
 
       const section = deps.createElement("section", {
         className: "panel profile-seller-upgrade-panel",

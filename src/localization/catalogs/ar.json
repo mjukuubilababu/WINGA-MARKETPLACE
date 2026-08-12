@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2026.08.12.8",
+  "version": "2026.08.12.9",
   "locale": "ar",
   "messages": {
     "auth.close": "إغلاق تسجيل الدخول",
@@ -672,6 +672,34 @@
     "session.verifyAction": "التحقق من الجلسة",
     "session.loading": "جار تحميل الجلسات النشطة...",
     "session.riskVerified": "المخاطر: {risk} | تم التحقق {date}",
-    "session.risk": "المخاطر: {risk}"
+    "session.risk": "المخاطر: {risk}",
+    "profile.sellerRegistrationTitle": "تسجيل البائع",
+    "profile.sellerUpgradeEyebrow": "الترقية إلى بائع",
+    "profile.sellerUpgradeMeta": "اسم المتجر ورقم الهاتف",
+    "profile.openSellerForm": "فتح نموذج البائع",
+    "profile.sellerUpgradeGuidance": "أضف اسم متجرك ورقم هاتفك. سيبقى حسابك مفتوحا أثناء تغيير الدور.",
+    "profile.paymentSavingStatus": "جار حفظ بيانات الدفع. اترك هذا القسم مفتوحا.",
+    "profile.paymentSavedStatus": "تم حفظ بيانات الدفع. يمكن للمشترين رؤيتها الآن أثناء الدفع.",
+    "session.revokeConfirm": "هل تريد إلغاء جلسة هذا الجهاز؟",
+    "profile.photoField": "صورة الملف الشخصي",
+    "profile.accountMissingError": "لم يعد حسابك متاحا. سجل الدخول مجددا قبل إعادة المحاولة.",
+    "profile.performanceTitle": "أداؤك",
+    "profile.catalogSummary": "ملخص الكتالوج",
+    "profile.buyerAccountMeta": "حساب المشتري الخاص بك",
+    "profile.sellerBuyerAccountMeta": "حساب بائع بصلاحيات المشتري",
+    "profile.manageAccountMeta": "إدارة حسابك",
+    "profile.unreadStat": "غير مقروء",
+    "profile.messagesStat": "الرسائل",
+    "profile.renderFailed": "حدث خطأ مؤقت في الملف الشخصي. حدث الصفحة أو حاول مجددا.",
+    "profile.renderFailedShort": "حدث خطأ مؤقت في الملف الشخصي.",
+    "profile.buyerEmpty": "حساب المشتري جاهز. تصفح وابحث وراسل وادفع واطلب وراجع وأبلغ عن القوائم غير الآمنة.",
+    "profile.sellerEmpty": "لا توجد منشورات بعد. انتقل إلى الرفع لبدء إنشاء كتالوج ملفك الشخصي.",
+    "profile.catalogEmpty": "لم تنشر منتجات بعد. انتقل إلى الرفع لبدء كتالوجك.",
+    "profile.buyerResultsMeta": "تظهر طلباتك وإشعاراتك ورسائلك ونشاط المشتري هنا.",
+    "profile.sellerResultsMeta": "يظهر نشاط الشراء وكتالوج البائع والأداء هنا.",
+    "profile.catalogResultsMeta": "تظهر منتجاتك وأداؤها هنا.",
+    "common.tryAgain": "حاول مجددا",
+    "profile.productCount": "{count} منتجات",
+    "profile.manageProductsMeta": "أدر كل منتجاتك هنا."
   }
 }

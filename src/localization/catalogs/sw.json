@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2026.08.12.8",
+  "version": "2026.08.12.9",
   "locale": "sw",
   "messages": {
     "auth.close": "Funga uthibitishaji",
@@ -668,6 +668,34 @@
     "session.verifyAction": "Thibitisha session",
     "session.loading": "Inapakia session hai...",
     "session.riskVerified": "Hatari: {risk} | imethibitishwa {date}",
-    "session.risk": "Hatari: {risk}"
+    "session.risk": "Hatari: {risk}",
+    "profile.sellerRegistrationTitle": "Usajili wa Muuzaji",
+    "profile.sellerUpgradeEyebrow": "Boresha kuwa muuzaji",
+    "profile.sellerUpgradeMeta": "Jina la duka na namba ya simu",
+    "profile.openSellerForm": "Fungua fomu ya muuzaji",
+    "profile.sellerUpgradeGuidance": "Weka jina la duka na namba ya simu. Akaunti yako itaendelea kuwa wazi wakati role inabadilika.",
+    "profile.paymentSavingStatus": "Tunahifadhi taarifa za malipo. Usifunge sehemu hii.",
+    "profile.paymentSavedStatus": "Taarifa za malipo zimehifadhiwa. Wanunuzi sasa wataziona kwenye malipo.",
+    "session.revokeConfirm": "Unataka kufunga session ya kifaa hiki?",
+    "profile.photoField": "Picha ya wasifu",
+    "profile.accountMissingError": "Akaunti yako haipatikani tena. Ingia upya kabla ya kujaribu.",
+    "profile.performanceTitle": "Utendaji wako",
+    "profile.catalogSummary": "Muhtasari wa katalogi yako",
+    "profile.buyerAccountMeta": "Akaunti yako ya mnunuzi",
+    "profile.sellerBuyerAccountMeta": "Akaunti ya muuzaji yenye uwezo wa mnunuzi",
+    "profile.manageAccountMeta": "Simamia akaunti yako",
+    "profile.unreadStat": "Hazijasomwa",
+    "profile.messagesStat": "Ujumbe",
+    "profile.renderFailed": "Wasifu umepata hitilafu ya muda. Refresh au jaribu tena.",
+    "profile.renderFailedShort": "Wasifu umepata hitilafu ya muda.",
+    "profile.buyerEmpty": "Akaunti yako ya mnunuzi iko tayari. Vinjari, tafuta, tuma ujumbe, lipa, agiza, kagua na ripoti bidhaa zisizo salama.",
+    "profile.sellerEmpty": "Bado hakuna bidhaa. Nenda Pakia kuanza kujenga katalogi ya wasifu.",
+    "profile.catalogEmpty": "Bado hujaweka bidhaa. Nenda Pakia kuanza katalogi yako.",
+    "profile.buyerResultsMeta": "Oda, arifa, ujumbe na shughuli zako za ununuzi zinaonekana hapa.",
+    "profile.sellerResultsMeta": "Shughuli za ununuzi, katalogi ya muuzaji na utendaji vinaonekana hapa.",
+    "profile.catalogResultsMeta": "Bidhaa zako na utendaji wake vinaonekana hapa.",
+    "common.tryAgain": "Jaribu tena",
+    "profile.productCount": "Bidhaa {count}",
+    "profile.manageProductsMeta": "Simamia bidhaa zako zote hapa."
   }
 }

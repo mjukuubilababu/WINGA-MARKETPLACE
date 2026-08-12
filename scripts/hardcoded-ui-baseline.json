@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "policy": "Existing debt may decrease only. New or modified user-visible literals must use localization keys.",
-  "count": 164,
-  "digest": "5d4a462ea91743332d061a9afdcd2a8a26b60baccdec8daf9c3c40803ba2dacb",
+  "count": 159,
+  "digest": "e151ef7362ca908beb611823071133d8ccc96d46a66291e66d4ecca53c58731b",
   "entries": [
     {
       "signature": "app.js|property|${createdCategory.label} imeongezwa kwenye Vitu Used.",
@@ -566,26 +566,6 @@
     },
     {
       "signature": "src/product-detail/ui.js|property|\\u2190",
-      "count": 1
-    },
-    {
-      "signature": "src/profile/controller.js|confirmation|Revoke this device session?",
-      "count": 1
-    },
-    {
-      "signature": "src/profile/controller.js|dom-assignment|Jaribu tena",
-      "count": 1
-    },
-    {
-      "signature": "src/profile/controller.js|user-error|Akaunti yako haikupatikana tena. Ingia upya kabla ya kujaribu tena.",
-      "count": 1
-    },
-    {
-      "signature": "src/profile/controller.js|user-error|Promotion plan opener haipo kwa sasa.",
-      "count": 1
-    },
-    {
-      "signature": "src/profile/controller.js|user-error|Seller upgrade haikufaulu.",
       "count": 1
     },
     {

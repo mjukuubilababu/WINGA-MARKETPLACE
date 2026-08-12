@@ -16641,12 +16641,12 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         return null;
       }
 
-      const sectionTitle = "Seller Registration";
-      const sectionEyebrow = "Seller upgrade";
-      const sectionMeta = "Jina la duka na namba ya simu";
-      const buttonLabel = "Open seller form";
-      const submitLabel = "Become Seller";
-      const guidanceCopy = "Jaza jina la duka na namba ya simu. Akaunti yako itaendelea kubaki wazi wakati role inabadilika.";
+      const sectionTitle = t("profile.sellerRegistrationTitle", "Seller Registration");
+      const sectionEyebrow = t("profile.sellerUpgradeEyebrow", "Seller upgrade");
+      const sectionMeta = t("profile.sellerUpgradeMeta", "Store name and phone number");
+      const buttonLabel = t("profile.openSellerForm", "Open seller form");
+      const submitLabel = t("profile.becomeSeller", "Become Seller");
+      const guidanceCopy = t("profile.sellerUpgradeGuidance", "Add your store name and phone number. Your account remains open while the role changes.");
 
       const section = deps.createElement("section", {
         className: "panel profile-seller-upgrade-panel",
@@ -17510,14 +17510,14 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       if (saveButton && saveButton.dataset.bound !== "true") {
         saveButton.dataset.bound = "true";
         saveButton.addEventListener("click", async () => {
-          setPaymentStatus("info", "Tunatunza Lipa details zako sasa. Usifunge sehemu hii.");
+          setPaymentStatus("info", t("profile.paymentSavingStatus", "Saving your payment details. Keep this section open."));
           const paymentProvider = String(providerInput?.value || "").trim().toLowerCase();
           const paymentNumber = deps.normalizePhoneNumber?.(numberInput?.value || "") || "";
           const paymentRecipientName = String(recipientInput?.value || deps.getCurrentDisplayName?.() || "").trim();
           const paymentInstructions = String(instructionsInput?.value || "").trim();
 
           if (!paymentNumber || !/^\d{8,20}$/.test(paymentNumber)) {
-            setPaymentStatus("error", "Weka Lipa namba sahihi yenye tarakimu 8 hadi 20.");
+            setPaymentStatus("error", t("profile.paymentNumberRequiredBody", "Enter a valid payment number with 8 to 20 digits."));
             deps.showInAppNotification?.({
               title: t("profile.paymentNumberRequiredTitle", "Lipa namba required"),
               body: t("profile.paymentNumberRequiredBody", "Weka Lipa namba sahihi yenye tarakimu 8 hadi 20."),
@@ -17527,7 +17527,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           }
 
           if (!paymentRecipientName || paymentRecipientName.length < 2) {
-            setPaymentStatus("error", "Weka jina la mpokeaji wa malipo.");
+            setPaymentStatus("error", t("profile.recipientRequiredBody", "Enter the payment recipient name."));
             deps.showInAppNotification?.({
               title: t("profile.recipientRequiredTitle", "Recipient required"),
               body: t("profile.recipientRequiredBody", "Weka jina la mpokeaji wa malipo."),
@@ -17544,7 +17544,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
               paymentRecipientName,
               paymentInstructions
             });
-            setPaymentStatus("success", "Lipa details zimehifadhiwa. Buyer sasa ataona taarifa hizi kwenye flow ya malipo.");
+            setPaymentStatus("success", t("profile.paymentSavedStatus", "Payment details saved. Buyers can now see them in the payment flow."));
             deps.mergeSessionState({
               ...updatedUser,
               paymentProvider,
@@ -17562,7 +17562,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             });
             renderProfile();
           } catch (error) {
-            setPaymentStatus("error", error.message || "Imeshindikana kuhifadhi Lipa details.");
+            setPaymentStatus("error", error.message || t("profile.paymentSaveFailedBody", "We could not save your payment details."));
             deps.captureError?.("profile_payment_update_failed", error, {
               user: deps.getCurrentUser()
             });
@@ -17711,7 +17711,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           }
           const sessionId = target.dataset.revokeSession || "";
           const confirmed = typeof deps.confirmAction === "function"
-            ? await deps.confirmAction("Revoke this device session?")
+            ? await deps.confirmAction(t("session.revokeConfirm", "Revoke this device session?"))
             : true;
           if (!confirmed) {
             return;
@@ -17803,7 +17803,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           primaryCategory,
         });
         if (!updatedSession?.username) {
-          throw new Error("Seller upgrade haikufaulu.");
+          throw new Error(t("profile.sellerUpgradeFailedBody", "We could not upgrade your account right now."));
         }
         deps.mergeSessionState(updatedSession);
         deps.saveSessionUser();
@@ -17991,14 +17991,14 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           if (activeInput) {
             activeInput.disabled = true;
           }
-          deps.validateSingleImageFile(file, "Profile photo");
+          deps.validateSingleImageFile(file, t("profile.photoField", "Profile photo"));
           if (statusNode) {
             statusNode.textContent = t("profile.photoUploadingStatus", "Tunapakia profile photo...");
           }
           const profileImage = await deps.readFileAsDataUrl(file, { purpose: "profile" });
           const updatedUser = await deps.dataLayer.updateUserProfile({ profileImage });
           if (!updatedUser?.username) {
-            throw new Error("Akaunti yako haikupatikana tena. Ingia upya kabla ya kujaribu tena.");
+            throw new Error(t("profile.accountMissingError", "Your account is no longer available. Sign in again before retrying."));
           }
           deps.mergeSessionState({ ...updatedUser, profileImage: updatedUser.profileImage || profileImage });
           deps.saveSessionUser();
@@ -18102,7 +18102,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             if (!isRenderActive(sequence)) {
               return;
             }
-            deps.renderAnalyticsPanel(analytics, "Performance Yako", "Muhtasari wa catalog yako");
+            deps.renderAnalyticsPanel(analytics, t("profile.performanceTitle", "Your performance"), t("profile.catalogSummary", "Your catalog summary"));
           })
           .catch((error) => {
             if (!isRenderActive(sequence)) {
@@ -18111,7 +18111,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             deps.captureError?.("profile_analytics_load_failed", error, {
               user: currentUser
             });
-            deps.renderAnalyticsPanel(null, "Performance Yako", "Muhtasari wa catalog yako");
+            deps.renderAnalyticsPanel(null, t("profile.performanceTitle", "Your performance"), t("profile.catalogSummary", "Your catalog summary"));
             deps.showInAppNotification?.({
               title: t("profile.analyticsUnavailableTitle", "Analytics unavailable"),
               body: t("profile.analyticsUnavailableBody", "Performance yako haijapatikana kwa sasa. Tunaonyesha fallback salama."),
@@ -18229,21 +18229,25 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         profileDiv.dataset.activeSection = activeSection;
         profileDiv.replaceChildren(deps.createProfileShellElement({
           displayName: deps.getCurrentDisplayName(),
-          accountMeta: `${isBuyerOnly ? "Akaunti yako ya mteja" : deps.canUseSellerFeatures() ? "Akaunti ya muuzaji yenye access ya mteja" : "Simamia akaunti yako"}${safeProfileStatus && safeProfileStatus !== "active" ? ` | ${safeProfileStatus}` : ""}`,
+          accountMeta: `${isBuyerOnly
+            ? t("profile.buyerAccountMeta", "Your buyer account")
+            : deps.canUseSellerFeatures()
+              ? t("profile.sellerBuyerAccountMeta", "Seller account with buyer access")
+              : t("profile.manageAccountMeta", "Manage your account")}${safeProfileStatus && safeProfileStatus !== "active" ? ` | ${safeProfileStatus}` : ""}`,
           stats: [
             {
               value: userProducts.length,
-              label: "Products",
+              label: t("profile.productsEyebrow", "Products"),
               action: "products"
             },
             {
               value: totalUnreadMessages,
-              label: "Unread",
+              label: t("profile.unreadStat", "Unread"),
               action: "unread"
             },
             {
               value: conversationCount,
-              label: "Messages",
+              label: t("profile.messagesStat", "Messages"),
               action: "messages"
             }
           ],
@@ -18300,8 +18304,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           user: currentUser
         });
         const fallback = deps.createEmptyState
-          ? deps.createEmptyState("Profile ilipata hitilafu ya muda. Refresh ukurasa au jaribu tena.")
-          : document.createTextNode("Profile ilipata hitilafu ya muda.");
+          ? deps.createEmptyState(t("profile.renderFailed", "Profile encountered a temporary error. Refresh or try again."))
+          : document.createTextNode(t("profile.renderFailedShort", "Profile encountered a temporary error."));
         profileDiv.replaceChildren(fallback);
         profileDiv.style.display = "block";
         return;
@@ -18318,10 +18322,10 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         deps.setEmptyCopy(
           container,
           isBuyerOnly
-            ? "Akaunti ya buyer iko tayari. Endelea kuvinjari bidhaa, kutafuta bidhaa, ku-chat na sellers, kufanya malipo, kuweka orders, ku-review, na kureport listings zisizo salama."
+            ? t("profile.buyerEmpty", "Your buyer account is ready. Browse, search, message sellers, pay, order, review, and report unsafe listings.")
             : deps.canUseSellerFeatures()
-              ? "No posts yet. Ukihitaji kuongeza bidhaa, nenda Upload uanze kujenga profile grid yako."
-              : "Hujapost bidhaa bado. Nenda Upload uanze kuweka catalog yako."
+              ? t("profile.sellerEmpty", "No posts yet. Go to Upload to start building your profile catalog.")
+              : t("profile.catalogEmpty", "You have not posted products yet. Go to Upload to start your catalog.")
         );
         profileDiv.querySelector("#profile-logout-button")?.addEventListener("click", deps.logout);
         bindProfileIdentityActions();
@@ -18329,12 +18333,12 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         deps.bindMessageActions(profileDiv);
         profileDiv.style.display = "block";
         deps.setResultsMeta(
-          "Profile",
+          t("profile.heading", "Profile"),
           isBuyerOnly
-            ? "Hapa utaona orders, notifications, messages, na shughuli zako kama buyer."
+            ? t("profile.buyerResultsMeta", "Your orders, notifications, messages, and buyer activity appear here.")
             : deps.canUseSellerFeatures()
-              ? "Hapa utaona buyer activities zako pamoja na seller catalog na performance yake."
-              : "Hapa utaona bidhaa zako na performance yake."
+              ? t("profile.sellerResultsMeta", "Your buyer activity, seller catalog, and performance appear here.")
+              : t("profile.catalogResultsMeta", "Your products and their performance appear here.")
         );
         return;
       }
@@ -18412,7 +18416,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
               user: currentUser
             });
             loadMoreButton.disabled = false;
-            loadMoreButton.textContent = "Jaribu tena";
+            loadMoreButton.textContent = t("common.tryAgain", "Try again");
           }
         });
         container.appendChild(loadMoreButton);
@@ -18455,7 +18459,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 
           try {
             if (typeof deps.openPromotionIntentModal !== "function") {
-              throw new Error("Promotion plan opener haipo kwa sasa.");
+              throw new Error(t("promotion.openFailedBody", "We could not open the promotion plan. Try again."));
             }
             deps.openPromotionIntentModal(product);
           } catch (error) {
@@ -18493,7 +18497,10 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       deps.bindMessageActions(profileDiv);
 
       profileDiv.style.display = "block";
-      deps.setResultsMeta(`${userProducts.length} bidhaa zako`, "Hapa unasimamia bidhaa zako zote.");
+      deps.setResultsMeta(
+        t("profile.productCount", "{count} products", { count: userProducts.length }),
+        t("profile.manageProductsMeta", "Manage all your products here.")
+      );
     }
 
     return {
