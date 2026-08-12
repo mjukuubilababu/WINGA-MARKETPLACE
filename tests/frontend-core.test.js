@@ -3353,6 +3353,22 @@ test("localized admin operations preserve audited moderation controls", () => {
   assert.match(source, /captureError\?\.\("admin_surface_partial_load_failed"/);
 });
 
+
+test("payment intent UI is modular and preserves commerce submission ownership", () => {
+  const registry = fs.readFileSync(path.join(__dirname, "..", "src", "core", "module-registry.js"), "utf8");
+  const moduleSource = fs.readFileSync(path.join(__dirname, "..", "src", "commerce", "payment-intent-ui.js"), "utf8");
+  const appSource = fs.readFileSync(path.join(__dirname, "..", "app.js"), "utf8");
+  const buildSource = fs.readFileSync(path.join(__dirname, "..", "scripts", "build-vercel-static.js"), "utf8");
+  assert.match(registry, /WingaModules.commerce/);
+  assert.match(moduleSource, /createPaymentIntentContent/);
+  assert.match(moduleSource, /order.safetyTitle/);
+  assert.match(appSource, /createPaymentIntentUiModule/);
+  assert.match(appSource, /WingaDataLayer.createOrder/);
+  assert.match(appSource, /paymentIntentSubmissionRegistry/);
+  assert.ok(buildSource.indexOf('"src/products/actions.js"') < buildSource.indexOf('"src/commerce/payment-intent-ui.js"'));
+  assert.ok(buildSource.indexOf('"src/commerce/payment-intent-ui.js"') < buildSource.indexOf('"src/chat/ui.js"'));
+});
+
 (async () => {
   let passed = 0;
   for (const entry of tests) {

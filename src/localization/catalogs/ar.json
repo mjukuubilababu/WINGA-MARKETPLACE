@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2026.08.12.3",
+  "version": "2026.08.12.4",
   "locale": "ar",
   "messages": {
     "auth.close": "إغلاق تسجيل الدخول",
@@ -110,7 +110,7 @@
     "trust.buyerAccessBody": "الإبلاغ متاح فقط للحسابات المسموح لها بالشراء.",
     "trust.reportProduct": "الإبلاغ عن هذا المنتج",
     "trust.reportProductSubtitle": "ساعد Winga في مراجعة إعلان {seller} بأمان.",
-    "trust.reportSeller": "الإبلاغ عن هذا البائع",
+    "trust.reportSeller": "الإبلاغ عن البائع",
     "trust.reportSellerSubtitle": "ستراجع Winga هذا الحساب بحثاً عن الاحتيال أو الإساءة أو التضليل.",
     "trust.reason.fakeItem": "منتج مزيف أو مضلل",
     "trust.reason.unsafe": "غير آمن أو مشبوه",
@@ -490,6 +490,26 @@
     "admin.deactivateUserConfirm": "هل تريد تعطيل المستخدم {username}؟",
     "admin.deleteUserConfirm": "هل تريد حذف حساب {username}؟ سيتم إلغاء الجلسات وتدقيق الإجراء.",
     "admin.makeSellerConfirm": "هل تريد تحويل {username} إلى بائع؟",
-    "admin.makeBuyerConfirm": "هل تريد تحويل {username} إلى مشترٍ؟"
+    "admin.makeBuyerConfirm": "هل تريد تحويل {username} إلى مشترٍ؟",
+    "order.checkoutEyebrow": "الدفع عبر الأموال المحمولة",
+    "order.submitReferenceTitle": "إرسال مرجع الدفع",
+    "order.submitReferenceHelp": "ادفع أولاً، ثم أدخل الإيصال أو مرجع المعاملة لحفظ الطلب بانتظار التحقق.",
+    "order.amountLabel": "المبلغ: {amount}",
+    "order.paymentNumberLabel": "رقم الدفع: {number}",
+    "order.recipientLabel": "المستلم: {recipient}",
+    "order.providerLabel": "المزود: {provider}",
+    "order.mobileMoney": "الأموال المحمولة",
+    "order.sellerFallback": "البائع",
+    "order.reservationWindow": "مدة الحجز: 24 ساعة بانتظار التحقق",
+    "order.safetyTitle": "تحقق من الأمان قبل الدفع",
+    "order.safetyVerifyBody": "تحقق من اسم المستلم والمبلغ، ثم أدخل مرجع الدفع هنا.",
+    "order.safetyReportBody": "إذا لم تتطابق التفاصيل أو ضغط عليك البائع للدفع خارجيًا، فأبلغ عنه أولاً.",
+    "order.referencePlaceholder": "أدخل الإيصال أو مرجع المعاملة",
+    "order.offlineKeepReference": "أنت غير متصل. احتفظ بهذا المرجع وأرسله عند عودة الإنترنت.",
+    "order.sendingKeepOpen": "نعمل على إرسال المرجع. أبقِ هذه النافذة مفتوحة.",
+    "order.submitting": "جارٍ الإرسال...",
+    "order.submitReferenceAction": "إرسال المرجع",
+    "order.messageSeller": "مراسلة البائع",
+    "order.referenceProviderHelp": "استخدم مرجع الدفع الذي قدمه مزود الأموال المحمولة."
   }
 }

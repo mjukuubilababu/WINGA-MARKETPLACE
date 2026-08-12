@@ -9641,6 +9641,16 @@ let paymentIntentState = {
   feedbackMessage: ""
 };
 const paymentIntentSubmissionRegistry = new Map();
+let paymentIntentUiTools = null;
+
+function getPaymentIntentUiTools() {
+  if (!paymentIntentUiTools) {
+    const factory = window.WingaModules?.commerce?.createPaymentIntentUiModule;
+    if (typeof factory !== "function") throw new Error("Winga payment intent UI module is required before app boot.");
+    paymentIntentUiTools = factory({ createElement, translate: translateUi, formatProductPrice, getNavigator: () => navigator });
+  }
+  return paymentIntentUiTools;
+}
 
 let promotionIntentState = {
   productId: "",
@@ -10198,124 +10208,16 @@ function renderPaymentIntentModal() {
     return;
   }
   const paymentDetails = getProductPaymentDetails(product);
-
-  const wrapper = createElement("div", { className: "payment-intent-shell" });
-  wrapper.append(
-    createElement("p", { className: "eyebrow", textContent: "Mobile Money checkout" }),
-    createElement("h3", {
-      textContent: "Submit payment reference",
-      attributes: { id: "payment-intent-title" }
-    }),
-    createElement("p", {
-      className: "product-meta",
-      textContent: "Lipa kwanza, kisha weka receipt au transaction reference ili order ihifadhiwe pending verification."
-    })
-  );
-
-  const summary = createElement("div", { className: "payment-intent-summary" });
-  summary.append(
-    createElement("strong", { textContent: product.name || "Product" }),
-    createElement("p", { className: "product-meta", textContent: `Kiasi: ${formatProductPrice(product.price)}` }),
-    createElement("p", { className: "product-meta", textContent: `Lipa namba: ${paymentDetails.number || "Haijawekwa"}` }),
-    createElement("p", { className: "product-meta", textContent: `Mpokeaji: ${paymentDetails.recipientName || "Muuzaji huyu"}` }),
-    createElement("p", { className: "product-meta", textContent: `Mtandao: ${paymentDetails.provider ? paymentDetails.provider.replace(/_/g, " ").toUpperCase() : "Mobile Money"}` }),
-    createElement("p", { className: "product-meta", textContent: "Reservation window: 24 hours pending verification" })
-  );
-  if (paymentDetails.instructions) {
-    summary.append(
-      createElement("p", {
-        className: "auth-note",
-        textContent: paymentDetails.instructions
-      })
-    );
-  }
-  const safetyCard = createElement("div", { className: "payment-safety-card" });
-  safetyCard.append(
-    createElement("strong", { textContent: "Safety check before you pay" }),
-    createElement("p", {
-      className: "product-meta",
-      textContent: "Hakiki jina la mpokeaji, lipa kiasi kilichoonyeshwa, kisha weka reference ya malipo hapa ndani."
-    }),
-    createElement("p", {
-      className: "product-meta",
-      textContent: "Ukiona taarifa hazilingani au seller anakushinikiza ulipie sehemu nyingine, tumia report seller kwanza."
-    })
-  );
-
-  const input = createElement("input", {
-    attributes: {
-      id: "payment-intent-transaction-input",
-      type: "text",
-      maxlength: "80",
-      placeholder: "Weka receipt au transaction reference",
-      value: paymentIntentState.transactionId || "",
-      autocomplete: "off",
-      autocapitalize: "characters"
-    }
+  const content = getPaymentIntentUiTools().createPaymentIntentContent({
+    product,
+    paymentDetails,
+    state: paymentIntentState
   });
-  const note = createElement("p", {
-    className: "auth-note",
-    textContent: "Tumia reference ya malipo uliyopewa na M-Pesa, Airtel Money, Tigo Pesa, au HaloPesa."
-  });
-  const networkMessage = typeof navigator !== "undefined" && navigator.onLine === false
-    ? "Uko offline kwa sasa. Hifadhi reference hii kisha submit internet ikirudi."
-    : paymentIntentState.loading
-      ? "Tunatuma reference yako sasa. Usifunge dirisha hili."
-      : paymentIntentState.feedbackMessage;
-  const networkTone = typeof navigator !== "undefined" && navigator.onLine === false
-    ? "warning"
-    : paymentIntentState.loading
-      ? "info"
-      : (paymentIntentState.feedbackTone || "");
-  if (networkMessage) {
-    wrapper.appendChild(createElement("p", {
-      className: `payment-intent-status${networkTone ? ` is-${networkTone}` : ""}`,
-      textContent: networkMessage
-    }));
+  if (!content) {
+    closePaymentIntentModal();
+    return;
   }
-  const actions = createElement("div", { className: "payment-intent-actions" });
-  const submitButton = createElement("button", {
-    className: "action-btn buy-btn",
-    textContent: paymentIntentState.loading ? "Submitting..." : "Submit reference",
-    attributes: {
-      type: "button",
-      "data-submit-payment-intent": "true"
-    }
-  });
-  if (paymentIntentState.loading) {
-    submitButton.disabled = true;
-    input.disabled = true;
-  }
-  actions.append(
-    submitButton,
-    createElement("button", {
-      className: "action-btn action-btn-secondary",
-      textContent: "Report seller",
-      attributes: {
-        type: "button",
-        "data-report-seller": product.uploadedBy || "",
-        "data-report-product-context": product.id || ""
-      }
-    }),
-    createElement("button", {
-      className: "action-btn action-btn-secondary",
-      textContent: "Message seller",
-      attributes: {
-        type: "button",
-        "data-payment-open-chat": "true"
-      }
-    }),
-    createElement("button", {
-      className: "action-btn action-btn-secondary",
-      textContent: "Cancel",
-      attributes: {
-        type: "button",
-        "data-close-payment-intent": "true"
-      }
-    })
-  );
-
-  wrapper.append(summary, safetyCard, input, note, actions);
+  const { wrapper, input } = content;
   body.replaceChildren(wrapper);
   root.hidden = false;
   root.classList.add("open");

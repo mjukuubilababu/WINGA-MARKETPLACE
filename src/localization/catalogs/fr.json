@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2026.08.12.3",
+  "version": "2026.08.12.4",
   "locale": "fr",
   "messages": {
     "auth.close": "Fermer l’authentification",
@@ -106,7 +106,7 @@
     "trust.buyerAccessBody": "Le signalement est réservé aux comptes autorisés à acheter.",
     "trust.reportProduct": "Signaler ce produit",
     "trust.reportProductSubtitle": "Aidez Winga à examiner en toute sécurité l’annonce de {seller}.",
-    "trust.reportSeller": "Signaler ce vendeur",
+    "trust.reportSeller": "Signaler le vendeur",
     "trust.reportSellerSubtitle": "Winga examinera ce compte pour fraude, abus ou comportement trompeur.",
     "trust.reason.fakeItem": "Article faux ou trompeur",
     "trust.reason.unsafe": "Dangereux ou suspect",
@@ -486,6 +486,26 @@
     "admin.deactivateUserConfirm": "Désactiver {username} ?",
     "admin.deleteUserConfirm": "Supprimer le compte de {username} ? Les sessions seront révoquées et l’action auditée.",
     "admin.makeSellerConfirm": "Changer {username} en vendeur ?",
-    "admin.makeBuyerConfirm": "Changer {username} en acheteur ?"
+    "admin.makeBuyerConfirm": "Changer {username} en acheteur ?",
+    "order.checkoutEyebrow": "Paiement Mobile Money",
+    "order.submitReferenceTitle": "Envoyer la référence de paiement",
+    "order.submitReferenceHelp": "Payez d’abord, puis saisissez le reçu ou la référence afin que la commande soit conservée pour vérification.",
+    "order.amountLabel": "Montant : {amount}",
+    "order.paymentNumberLabel": "Numéro de paiement : {number}",
+    "order.recipientLabel": "Bénéficiaire : {recipient}",
+    "order.providerLabel": "Opérateur : {provider}",
+    "order.mobileMoney": "Mobile Money",
+    "order.sellerFallback": "Vendeur",
+    "order.reservationWindow": "Réservation : 24 heures en attente de vérification",
+    "order.safetyTitle": "Vérification de sécurité avant paiement",
+    "order.safetyVerifyBody": "Vérifiez le bénéficiaire et le montant, puis saisissez la référence ici.",
+    "order.safetyReportBody": "Si les informations diffèrent ou si le vendeur exige un paiement externe, signalez-le d’abord.",
+    "order.referencePlaceholder": "Saisissez le reçu ou la référence",
+    "order.offlineKeepReference": "Vous êtes hors ligne. Conservez cette référence et envoyez-la au retour de la connexion.",
+    "order.sendingKeepOpen": "Nous envoyons votre référence. Gardez cette fenêtre ouverte.",
+    "order.submitting": "Envoi...",
+    "order.submitReferenceAction": "Envoyer la référence",
+    "order.messageSeller": "Contacter le vendeur",
+    "order.referenceProviderHelp": "Utilisez la référence fournie par votre opérateur Mobile Money."
   }
 }

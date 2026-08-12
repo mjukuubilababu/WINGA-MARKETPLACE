@@ -119,6 +119,7 @@ const bundledModuleSources = [
   "src/reviews/reviews.js",
   "src/requests/request-box.js",
   "src/products/actions.js",
+  "src/commerce/payment-intent-ui.js",
   "src/chat/ui.js",
   "src/chat/controller.js",
   "src/admin/ui.js",

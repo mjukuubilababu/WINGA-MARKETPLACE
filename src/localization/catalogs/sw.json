@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2026.08.12.3",
+  "version": "2026.08.12.4",
   "locale": "sw",
   "messages": {
     "auth.close": "Funga uthibitishaji",
@@ -106,7 +106,7 @@
     "trust.buyerAccessBody": "Kuripoti kunapatikana kwa akaunti zenye uwezo wa kununua pekee.",
     "trust.reportProduct": "Ripoti bidhaa hii",
     "trust.reportProductSubtitle": "Saidia Winga kuchunguza tangazo la {seller} kwa usalama.",
-    "trust.reportSeller": "Ripoti muuzaji huyu",
+    "trust.reportSeller": "Report seller",
     "trust.reportSellerSubtitle": "Winga itachunguza akaunti hii kwa udanganyifu, unyanyasaji au taarifa za kupotosha.",
     "trust.reason.fakeItem": "Bidhaa bandia au inayopotosha",
     "trust.reason.unsafe": "Isiyo salama au inayotia shaka",
@@ -486,6 +486,26 @@
     "admin.deactivateUserConfirm": "Udeactivate user {username}?",
     "admin.deleteUserConfirm": "Ufute akaunti ya {username}? Sessions zitazimwa na hatua itaandikwa kwenye audit.",
     "admin.makeSellerConfirm": "Ubadilishe {username} kuwa seller?",
-    "admin.makeBuyerConfirm": "Ubadilishe {username} kuwa buyer?"
+    "admin.makeBuyerConfirm": "Ubadilishe {username} kuwa buyer?",
+    "order.checkoutEyebrow": "Malipo ya Mobile Money",
+    "order.submitReferenceTitle": "Tuma reference ya malipo",
+    "order.submitReferenceHelp": "Lipa kwanza, kisha weka receipt au transaction reference ili order ihifadhiwe kwa uthibitisho.",
+    "order.amountLabel": "Kiasi: {amount}",
+    "order.paymentNumberLabel": "Lipa namba: {number}",
+    "order.recipientLabel": "Mpokeaji: {recipient}",
+    "order.providerLabel": "Mtandao: {provider}",
+    "order.mobileMoney": "Mobile Money",
+    "order.sellerFallback": "Muuzaji",
+    "order.reservationWindow": "Muda wa reservation: saa 24 ikisubiri uthibitisho",
+    "order.safetyTitle": "Kagua usalama kabla ya kulipa",
+    "order.safetyVerifyBody": "Hakiki jina la mpokeaji na kiasi, kisha weka reference ya malipo hapa.",
+    "order.safetyReportBody": "Taarifa zisipolingana au seller akushinikize kulipa nje, report seller kwanza.",
+    "order.referencePlaceholder": "Weka receipt au transaction reference",
+    "order.offlineKeepReference": "Uko offline. Hifadhi reference hii na uitume internet ikirudi.",
+    "order.sendingKeepOpen": "Tunatuma reference yako. Usifunge dirisha hili.",
+    "order.submitting": "Inatuma...",
+    "order.submitReferenceAction": "Tuma reference",
+    "order.messageSeller": "Tuma ujumbe kwa seller",
+    "order.referenceProviderHelp": "Tumia reference uliyopewa na mtoa huduma wako wa Mobile Money."
   }
 }

@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "policy": "Existing debt may decrease only. New or modified user-visible literals must use localization keys.",
-  "count": 287,
-  "digest": "42b66184059af91e8feac7da7e10495787b4ad0fbb78a3a9da455d0bfba347c9",
+  "count": 275,
+  "digest": "83fbfc34916baf9c370465edb015606f28b87566563774415eaf2aef8352e4fc",
   "entries": [
     {
       "signature": "app.js|property|${createdCategory.label} imeongezwa kwenye Vitu Used.",
@@ -90,7 +90,7 @@
     },
     {
       "signature": "app.js|property|Cancel",
-      "count": 2
+      "count": 1
     },
     {
       "signature": "app.js|property|Chagua category kuu",
@@ -133,10 +133,6 @@
       "count": 1
     },
     {
-      "signature": "app.js|property|Hakiki jina la mpokeaji, lipa kiasi kilichoonyeshwa, kisha weka reference ya malipo hapa ndani.",
-      "count": 1
-    },
-    {
       "signature": "app.js|property|High-intent products moving through the marketplace right now.",
       "count": 2
     },
@@ -161,14 +157,6 @@
       "count": 1
     },
     {
-      "signature": "app.js|property|Kiasi: ${formatProductPrice(product.price)}",
-      "count": 1
-    },
-    {
-      "signature": "app.js|property|Lipa kwanza, kisha weka receipt au transaction reference ili order ihifadhiwe pending verification.",
-      "count": 1
-    },
-    {
       "signature": "app.js|property|Login needed",
       "count": 1
     },
@@ -177,15 +165,7 @@
       "count": 1
     },
     {
-      "signature": "app.js|property|Message seller",
-      "count": 1
-    },
-    {
       "signature": "app.js|property|Mitupio na classic za kurudi kwenye rada yako",
-      "count": 1
-    },
-    {
-      "signature": "app.js|property|Mobile Money checkout",
       "count": 1
     },
     {
@@ -305,23 +285,11 @@
       "count": 1
     },
     {
-      "signature": "app.js|property|Report seller",
-      "count": 1
-    },
-    {
       "signature": "app.js|property|Repost failed",
       "count": 2
     },
     {
       "signature": "app.js|property|Repost unavailable",
-      "count": 1
-    },
-    {
-      "signature": "app.js|property|Reservation window: 24 hours pending verification",
-      "count": 1
-    },
-    {
-      "signature": "app.js|property|Safety check before you pay",
       "count": 1
     },
     {
@@ -341,10 +309,6 @@
       "count": 1
     },
     {
-      "signature": "app.js|property|Submit payment reference",
-      "count": 1
-    },
-    {
       "signature": "app.js|property|Suggestions refreshed as you continue browsing",
       "count": 1
     },
@@ -361,14 +325,6 @@
       "count": 1
     },
     {
-      "signature": "app.js|property|Tumia reference ya malipo uliyopewa na M-Pesa, Airtel Money, Tigo Pesa, au HaloPesa.",
-      "count": 1
-    },
-    {
-      "signature": "app.js|property|Ukiona taarifa hazilingani au seller anakushinikiza ulipie sehemu nyingine, tumia report seller kwanza.",
-      "count": 1
-    },
-    {
       "signature": "app.js|property|Ukisha-upload bidhaa, hero inaanza kukuonyesha kwa mwonekano wa premium na wa haraka.",
       "count": 1
     },
@@ -378,10 +334,6 @@
     },
     {
       "signature": "app.js|property|Weka bei sahihi kuanzia TSh 500 au zaidi.",
-      "count": 1
-    },
-    {
-      "signature": "app.js|property|Weka receipt au transaction reference",
       "count": 1
     },
     {
@@ -462,6 +414,10 @@
     },
     {
       "signature": "app.js|user-error|Winga notification permission module is required before app boot.",
+      "count": 1
+    },
+    {
+      "signature": "app.js|user-error|Winga payment intent UI module is required before app boot.",
       "count": 1
     },
     {

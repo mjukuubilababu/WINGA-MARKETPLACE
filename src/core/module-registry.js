@@ -16,6 +16,7 @@ window.WingaModules.api.settingsTools = window.WingaModules.api.settingsTools ||
 window.WingaModules.api.storageTools = window.WingaModules.api.storageTools || {};
 window.WingaModules.api.offlineQueue = window.WingaModules.api.offlineQueue || {};
 window.WingaModules.auth = window.WingaModules.auth || {};
+window.WingaModules.commerce = window.WingaModules.commerce || {};
 window.WingaModules.promotions = window.WingaModules.promotions || {};
 window.WingaModules.marketplace = window.WingaModules.marketplace || {};
 window.WingaModules.hero = window.WingaModules.hero || {};

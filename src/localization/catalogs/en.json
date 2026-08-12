@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2026.08.12.3",
+  "version": "2026.08.12.4",
   "locale": "en",
   "messages": {
     "auth.close": "Close authentication",
@@ -106,7 +106,7 @@
     "trust.buyerAccessBody": "Reporting is available on buyer-enabled accounts only.",
     "trust.reportProduct": "Report this product",
     "trust.reportProductSubtitle": "Help Winga review {seller}'s listing safely.",
-    "trust.reportSeller": "Report this seller",
+    "trust.reportSeller": "Report seller",
     "trust.reportSellerSubtitle": "Winga will review this seller account for fraud, abuse, or misleading behavior.",
     "trust.reason.fakeItem": "Fake or misleading item",
     "trust.reason.unsafe": "Unsafe or suspicious",
@@ -486,6 +486,26 @@
     "admin.deactivateUserConfirm": "Deactivate user {username}?",
     "admin.deleteUserConfirm": "Delete {username}'s account? Sessions will be revoked and the moderation action audited.",
     "admin.makeSellerConfirm": "Change {username} to a seller?",
-    "admin.makeBuyerConfirm": "Change {username} to a buyer?"
+    "admin.makeBuyerConfirm": "Change {username} to a buyer?",
+    "order.checkoutEyebrow": "Mobile Money checkout",
+    "order.submitReferenceTitle": "Submit payment reference",
+    "order.submitReferenceHelp": "Pay first, then enter the receipt or transaction reference so the order can be held for verification.",
+    "order.amountLabel": "Amount: {amount}",
+    "order.paymentNumberLabel": "Payment number: {number}",
+    "order.recipientLabel": "Recipient: {recipient}",
+    "order.providerLabel": "Provider: {provider}",
+    "order.mobileMoney": "Mobile Money",
+    "order.sellerFallback": "Seller",
+    "order.reservationWindow": "Reservation window: 24 hours pending verification",
+    "order.safetyTitle": "Safety check before you pay",
+    "order.safetyVerifyBody": "Verify the recipient name and amount, then enter the payment reference here.",
+    "order.safetyReportBody": "If details do not match or the seller pressures you to pay elsewhere, report the seller first.",
+    "order.referencePlaceholder": "Enter receipt or transaction reference",
+    "order.offlineKeepReference": "You are offline. Keep this reference and submit when the internet returns.",
+    "order.sendingKeepOpen": "We are sending your reference. Keep this window open.",
+    "order.submitting": "Submitting...",
+    "order.submitReferenceAction": "Submit reference",
+    "order.messageSeller": "Message seller",
+    "order.referenceProviderHelp": "Use the payment reference supplied by your mobile money provider."
   }
 }
