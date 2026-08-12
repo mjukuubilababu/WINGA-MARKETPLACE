@@ -7476,6 +7476,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 // src/marketplace/search-demand-intelligence.js
 (() => {
   function createSearchDemandIntelligence(deps = {}) {
+    const t = (key, fallback, variables = {}) => deps.translate?.(key, variables, fallback) || fallback;
     const config = {
       maxEvents: 800,
       maxAggregates: 80,
@@ -7747,7 +7748,9 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         .filter((item) => toFiniteNumber(item.searches, 0) >= config.notifyThreshold || toFiniteNumber(item.score, 0) >= config.notifyThreshold)
         .slice(0, 12)
         .map((item) => ({
-          title: `${item.query || item.queryKey} demand is rising${item.location ? ` in ${item.location}` : ""}`,
+          title: item.location
+            ? t("searchDemand.demandRisingInLocation", "{query} demand is rising in {location}", { query: item.query || item.queryKey, location: item.location })
+            : t("searchDemand.demandRising", "{query} demand is rising", { query: item.query || item.queryKey }),
           query: item.query || item.queryKey,
           category: item.category || "",
           location: item.location || "",
@@ -7783,6 +7786,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 // src/marketplace/market-intelligence.js
 (() => {
   function createMarketIntelligence(deps = {}) {
+    const t = (key, fallback, variables = {}) => deps.translate?.(key, variables, fallback) || fallback;
     const config = {
       maxInsightItems: 12,
       maxMarketBoost: 190,
@@ -8105,32 +8109,32 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       if (category) {
         recommendations.push({
           type: "category",
-          title: `Stock more ${category.category}`,
-          reason: "Category demand is rising across searches, demand requests, and product momentum.",
+          title: t("marketIntelligence.stockMore", "Stock more {category}", { category: category.category }),
+          reason: t("marketIntelligence.categoryDemandReason", "Category demand is rising across searches, demand requests, and product momentum."),
           score: category.score
         });
       }
       if (color) {
         recommendations.push({
           type: "color",
-          title: `Prioritize ${color.color} variants`,
-          reason: "Color demand is visible in sold-out demand and product interest.",
+          title: t("marketIntelligence.prioritizeVariants", "Prioritize {color} variants", { color: color.color }),
+          reason: t("marketIntelligence.colorDemandReason", "Color demand is visible in sold-out demand and product interest."),
           score: color.score
         });
       }
       if (size) {
         recommendations.push({
           type: "size",
-          title: `Keep ${size.size} sizes available`,
-          reason: "Size demand is concentrated enough to guide restocking.",
+          title: t("marketIntelligence.keepSizesAvailable", "Keep {size} sizes available", { size: size.size }),
+          reason: t("marketIntelligence.sizeDemandReason", "Size demand is concentrated enough to guide restocking."),
           score: size.score
         });
       }
       if (region) {
         recommendations.push({
           type: "region",
-          title: `Watch demand in ${region.region}`,
-          reason: "Regional demand is concentrated and can improve seller targeting.",
+          title: t("marketIntelligence.watchRegionalDemand", "Watch demand in {region}", { region: region.region }),
+          reason: t("marketIntelligence.regionalDemandReason", "Regional demand is concentrated and can improve seller targeting."),
           score: region.score
         });
       }
@@ -8138,8 +8142,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       if (lowSupply) {
         recommendations.push({
           type: "search_low_supply",
-          title: `Source products for ${lowSupply.query || lowSupply.queryKey}`,
-          reason: "Buyers are searching but supply is low.",
+          title: t("marketIntelligence.sourceProducts", "Source products for {query}", { query: lowSupply.query || lowSupply.queryKey }),
+          reason: t("marketIntelligence.lowSupplyReason", "Buyers are searching but supply is low."),
           score: lowSupply.score
         });
       }
@@ -8147,8 +8151,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       if (zeroResult) {
         recommendations.push({
           type: "zero_result",
-          title: `Consider stocking ${zeroResult.query || zeroResult.queryKey}`,
-          reason: "Searches are returning zero results, which indicates unmet demand.",
+          title: t("marketIntelligence.considerStocking", "Consider stocking {query}", { query: zeroResult.query || zeroResult.queryKey }),
+          reason: t("marketIntelligence.zeroResultReason", "Searches are returning zero results, which indicates unmet demand."),
           score: zeroResult.score
         });
       }
@@ -8160,35 +8164,35 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       if (risingDemandProducts?.[0]) {
         alerts.push({
           type: "rising_demand",
-          title: `${risingDemandProducts[0].productName || "A product"} is gaining demand`,
+          title: t("marketIntelligence.productDemandRising", "{product} is gaining demand", { product: risingDemandProducts[0].productName || t("marketIntelligence.genericProduct", "A product") }),
           score: risingDemandProducts[0].score
         });
       }
       if (likelySellOutProducts?.[0]) {
         alerts.push({
           type: "sellout_risk",
-          title: `${likelySellOutProducts[0].productName || "A product"} may sell out soon`,
+          title: t("marketIntelligence.maySellOutSoon", "{product} may sell out soon", { product: likelySellOutProducts[0].productName || t("marketIntelligence.genericProduct", "A product") }),
           score: likelySellOutProducts[0].sellOutRisk
         });
       }
       if (categoryOpportunities?.[0]) {
         alerts.push({
           type: "category_growth",
-          title: `${categoryOpportunities[0].category} demand is growing`,
+          title: t("marketIntelligence.categoryDemandGrowing", "{category} demand is growing", { category: categoryOpportunities[0].category }),
           score: categoryOpportunities[0].score
         });
       }
       if (searchDemand.trendingSearches?.[0]) {
         alerts.push({
           type: "search_demand",
-          title: `${searchDemand.trendingSearches[0].query || searchDemand.trendingSearches[0].queryKey} searches are rising`,
+          title: t("marketIntelligence.searchesRising", "{query} searches are rising", { query: searchDemand.trendingSearches[0].query || searchDemand.trendingSearches[0].queryKey }),
           score: searchDemand.trendingSearches[0].score
         });
       }
       if (searchDemand.zeroResultOpportunities?.[0]) {
         alerts.push({
           type: "zero_result_opportunity",
-          title: `${searchDemand.zeroResultOpportunities[0].query || searchDemand.zeroResultOpportunities[0].queryKey} has demand but no supply`,
+          title: t("marketIntelligence.demandWithoutSupply", "{query} has demand but no supply", { query: searchDemand.zeroResultOpportunities[0].query || searchDemand.zeroResultOpportunities[0].queryKey }),
           score: searchDemand.zeroResultOpportunities[0].score
         });
       }

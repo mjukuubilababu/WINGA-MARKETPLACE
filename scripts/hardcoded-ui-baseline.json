@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "policy": "Existing debt may decrease only. New or modified user-visible literals must use localization keys.",
-  "count": 132,
-  "digest": "940322e4eb1302575107bf448a087320dc17593208f885a27daa0baa63b7f1f1",
+  "count": 122,
+  "digest": "2d5ca83f7d32e2926dba86f9f662974cfda2a0f831af323ac897fe4d98b3966c",
   "entries": [
     {
       "signature": "app.js|property|${createdCategory.label} imeongezwa kwenye Vitu Used.",
@@ -430,46 +430,6 @@
     },
     {
       "signature": "src/chat/ui.js|property|\\u00D7",
-      "count": 1
-    },
-    {
-      "signature": "src/marketplace/market-intelligence.js|property|${categoryOpportunities[0].category} demand is growing",
-      "count": 1
-    },
-    {
-      "signature": "src/marketplace/market-intelligence.js|property|${searchDemand.trendingSearches[0].query || searchDemand.trendingSearches[0].queryKey} searches are rising",
-      "count": 1
-    },
-    {
-      "signature": "src/marketplace/market-intelligence.js|property|${searchDemand.zeroResultOpportunities[0].query || searchDemand.zeroResultOpportunities[0].queryKey} has demand but no supply",
-      "count": 1
-    },
-    {
-      "signature": "src/marketplace/market-intelligence.js|property|Consider stocking ${zeroResult.query || zeroResult.queryKey}",
-      "count": 1
-    },
-    {
-      "signature": "src/marketplace/market-intelligence.js|property|Keep ${size.size} sizes available",
-      "count": 1
-    },
-    {
-      "signature": "src/marketplace/market-intelligence.js|property|Prioritize ${color.color} variants",
-      "count": 1
-    },
-    {
-      "signature": "src/marketplace/market-intelligence.js|property|Source products for ${lowSupply.query || lowSupply.queryKey}",
-      "count": 1
-    },
-    {
-      "signature": "src/marketplace/market-intelligence.js|property|Stock more ${category.category}",
-      "count": 1
-    },
-    {
-      "signature": "src/marketplace/market-intelligence.js|property|Watch demand in ${region.region}",
-      "count": 1
-    },
-    {
-      "signature": "src/marketplace/search-demand-intelligence.js|property|${item.query || item.queryKey} demand is rising${item.location ?",
       "count": 1
     },
     {

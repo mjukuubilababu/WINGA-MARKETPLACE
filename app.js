@@ -791,7 +791,8 @@ function getMarketIntelligenceEngine() {
     return null;
   }
   marketIntelligenceEngine = factory({
-    inferTopCategoryValue
+    inferTopCategoryValue,
+    translate: translateUi
   });
   return marketIntelligenceEngine;
 }
@@ -804,7 +805,7 @@ function getSearchDemandIntelligenceEngine() {
   if (typeof factory !== "function") {
     return null;
   }
-  searchDemandIntelligenceEngine = factory();
+  searchDemandIntelligenceEngine = factory({ translate: translateUi });
   return searchDemandIntelligenceEngine;
 }
 

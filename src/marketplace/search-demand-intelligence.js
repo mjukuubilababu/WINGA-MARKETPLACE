@@ -1,5 +1,6 @@
 (() => {
   function createSearchDemandIntelligence(deps = {}) {
+    const t = (key, fallback, variables = {}) => deps.translate?.(key, variables, fallback) || fallback;
     const config = {
       maxEvents: 800,
       maxAggregates: 80,
@@ -271,7 +272,9 @@
         .filter((item) => toFiniteNumber(item.searches, 0) >= config.notifyThreshold || toFiniteNumber(item.score, 0) >= config.notifyThreshold)
         .slice(0, 12)
         .map((item) => ({
-          title: `${item.query || item.queryKey} demand is rising${item.location ? ` in ${item.location}` : ""}`,
+          title: item.location
+            ? t("searchDemand.demandRisingInLocation", "{query} demand is rising in {location}", { query: item.query || item.queryKey, location: item.location })
+            : t("searchDemand.demandRising", "{query} demand is rising", { query: item.query || item.queryKey }),
           query: item.query || item.queryKey,
           category: item.category || "",
           location: item.location || "",
