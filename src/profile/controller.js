@@ -302,7 +302,9 @@
           }),
           deps.createElement("p", {
             className: "product-meta",
-            textContent: `Risk: ${riskLevel}${session.stepUpVerifiedAt ? ` | verified ${formatSessionDate(session.stepUpVerifiedAt)}` : ""}`
+            textContent: session.stepUpVerifiedAt
+              ? t("session.riskVerified", "Risk: {risk} | verified {date}", { risk: riskLevel, date: formatSessionDate(session.stepUpVerifiedAt) })
+              : t("session.risk", "Risk: {risk}", { risk: riskLevel })
           })
         );
         if (!session.current) {

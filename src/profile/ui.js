@@ -4,6 +4,9 @@
       ? deps.translate
       : (_key, _variables, fallbackText = "") => String(fallbackText || "");
     const t = (key, fallbackText = "", variables = {}) => translate(key, variables, fallbackText);
+    const formatLocaleDateTime = (value) => new Date(value).toLocaleString(deps.getLocalizationContext?.().locale || "en");
+    const formatLocaleDate = (value) => new Date(value).toLocaleDateString(deps.getLocalizationContext?.().locale || "en");
+
     function appendRenderable(target, value) {
       if (!value) {
         return;
@@ -337,7 +340,7 @@
           }),
           deps.createElement("button", {
             className: "action-btn action-btn-secondary",
-            textContent: "Cancel",
+            textContent: t("common.cancel", "Cancel"),
             attributes: {
               type: "button",
               id: "profile-payment-cancel-button"
@@ -514,7 +517,7 @@
         }),
         deps.createElement("button", {
           className: "action-btn action-btn-secondary",
-          textContent: "Cancel",
+          textContent: t("common.cancel", "Cancel"),
           attributes: {
             type: "button",
             "data-close-seller-upgrade": "true"
@@ -535,7 +538,7 @@
       const statusRow = deps.createElement("div", { className: "trust-badges" });
       statusRow.append(
         deps.createStatusPill(lifecycle.label || deps.getStatusLabel(order.status), lifecycle.tone || (order.status === "delivered" ? "approved" : order.status === "cancelled" ? "rejected" : order.status === "confirmed" ? "pending" : "")),
-        deps.createStatusPill(`Payment: ${deps.getPaymentStatusLabel(order.paymentStatus)}`, order.paymentStatus === "paid" ? "approved" : order.paymentStatus === "failed" ? "rejected" : "")
+        deps.createStatusPill(t("orders.paymentStatus", "Payment: {status}", { status: deps.getPaymentStatusLabel(order.paymentStatus) }), order.paymentStatus === "paid" ? "approved" : order.paymentStatus === "failed" ? "rejected" : "")
       );
       line.append(
         deps.createElement("span", { textContent: order.productName || "" }),
@@ -552,14 +555,16 @@
       }
       if (order.paymentDate) {
         line.appendChild(deps.createElement("small", {
-          textContent: `${order.paymentStatus === "paid" ? "Paid at" : "Submitted at"}: ${new Date(order.paymentDate).toLocaleString("sw-TZ")}`
+          textContent: order.paymentStatus === "paid"
+            ? t("orders.paidAt", "Paid at: {date}", { date: formatLocaleDateTime(order.paymentDate) })
+            : t("orders.submittedAt", "Submitted at: {date}", { date: formatLocaleDateTime(order.paymentDate) })
         }));
       }
       if (order.transactionId || order.paymentProvider || order.paymentPhoneNumber) {
         const paymentFacts = [
-          order.transactionId ? `Reference: ${order.transactionId}` : "",
-          order.paymentProvider ? `Provider: ${String(order.paymentProvider).replace(/_/g, " ").toUpperCase()}` : "",
-          order.paymentPhoneNumber ? `Lipa: ${order.paymentPhoneNumber}` : ""
+          order.transactionId ? t("orders.reference", "Reference: {value}", { value: order.transactionId }) : "",
+          order.paymentProvider ? t("orders.provider", "Provider: {value}", { value: String(order.paymentProvider).replace(/_/g, " ").toUpperCase() }) : "",
+          order.paymentPhoneNumber ? t("orders.paymentNumber", "Payment number: {value}", { value: order.paymentPhoneNumber }) : ""
         ].filter(Boolean);
         if (paymentFacts.length) {
           line.appendChild(deps.createElement("small", {
@@ -571,7 +576,7 @@
       if (order.status === "placed" && order.paymentStatus === "pending" && order.reserveExpiresAt) {
         line.appendChild(deps.createElement("small", {
           className: "meta-copy",
-          textContent: `Reserved pending verification until ${new Date(order.reserveExpiresAt).toLocaleString("sw-TZ")}`
+          textContent: t("orders.reservedUntil", "Reserved pending verification until {date}", { date: formatLocaleDateTime(order.reserveExpiresAt) })
         }));
       }
       const progressLabel = deps.getOrderProgressLabel?.(order);
@@ -594,7 +599,7 @@
       if (reviewAction?.productId) {
         actions.appendChild(deps.createElement("button", {
           className: "action-btn action-btn-secondary",
-          textContent: reviewAction.label || "Review product",
+          textContent: reviewAction.label || t("review.productAction", "Review product"),
           attributes: {
             type: "button",
             "data-order-review-product": reviewAction.productId
@@ -612,31 +617,31 @@
         attributes: { id: "profile-orders-panel" }
       });
       section.appendChild(deps.createSectionHeading({
-        eyebrow: "Orders",
-        title: "Ununuzi na Mauzo",
-        meta: `${purchases.length} nimenunua | ${sales.length} wameninunulia`
+        eyebrow: t("orders.eyebrow", "Orders"),
+        title: t("orders.title", "Purchases and sales"),
+        meta: t("orders.summary", "{purchases} purchased | {sales} sold", { purchases: purchases.length, sales: sales.length })
       }));
 
       const grid = deps.createElement("div", { className: "orders-grid" });
       const purchaseCard = deps.createElement("div", { className: "orders-card" });
-      purchaseCard.appendChild(deps.createElement("strong", { textContent: "Nimenunua" }));
+      purchaseCard.appendChild(deps.createElement("strong", { textContent: t("orders.purchases", "Purchased") }));
       if (purchases.length) {
         purchases.forEach((order) => purchaseCard.appendChild(createOrderLineElement(order)));
       } else {
         purchaseCard.appendChild(deps.createElement("p", {
           className: "empty-copy",
-          textContent: "Hakuna bidhaa uliyonunua bado."
+          textContent: t("orders.noPurchases", "You have not purchased any products yet.")
         }));
       }
 
       const salesCard = deps.createElement("div", { className: "orders-card" });
-      salesCard.appendChild(deps.createElement("strong", { textContent: "Wameninunulia" }));
+      salesCard.appendChild(deps.createElement("strong", { textContent: t("orders.sales", "Sold") }));
       if (sales.length) {
         sales.forEach((order) => salesCard.appendChild(createOrderLineElement(order)));
       } else {
         salesCard.appendChild(deps.createElement("p", {
           className: "empty-copy",
-          textContent: "Hakuna order ya kuuza bado."
+          textContent: t("orders.noSales", "You do not have any sales orders yet.")
         }));
       }
 
@@ -657,7 +662,7 @@
       card.append(
         deps.createElement("strong", { textContent: option.label }),
         deps.createElement("small", {
-          textContent: `TSh ${deps.formatNumber(option.amount)} | ${option.durationDays} day${option.durationDays === 1 ? "" : "s"}`
+          textContent: t("promotion.priceDuration", "TSh {amount} | {count} days", { amount: deps.formatNumber(option.amount), count: option.durationDays })
         }),
         deps.createElement("p", {
           className: "product-meta",
@@ -675,9 +680,9 @@
         attributes: { id: "profile-promotion-panel" }
       });
       section.appendChild(deps.createSectionHeading({
-        eyebrow: "Promotions",
-        title: "Grow your visibility",
-        meta: `${context.activePromotionsCount || 0} active promotion${context.activePromotionsCount === 1 ? "" : "s"}`
+        eyebrow: t("promotion.eyebrow", "Promotions"),
+        title: t("promotion.growVisibility", "Grow your visibility"),
+        meta: t("promotion.activeCount", "{count} active promotions", { count: context.activePromotionsCount || 0 })
       }));
 
       const grid = deps.createElement("div", { className: "orders-grid promotion-guide-grid" });
@@ -697,15 +702,15 @@
       });
       const promotions = Array.isArray(context.promotions) ? context.promotions : [];
       section.appendChild(deps.createSectionHeading({
-        eyebrow: "Promotions",
-        title: "Promotion status",
-        meta: `${promotions.length} record${promotions.length === 1 ? "" : "s"}`
+        eyebrow: t("promotion.eyebrow", "Promotions"),
+        title: t("promotion.statusTitle", "Promotion status"),
+        meta: t("promotion.recordCount", "{count} records", { count: promotions.length })
       }));
 
       if (!promotions.length) {
         section.appendChild(deps.createElement("p", {
           className: "empty-copy",
-          textContent: "Hakuna promotion requests bado."
+          textContent: t("promotion.empty", "There are no promotion requests yet.")
         }));
         return section;
       }
@@ -720,14 +725,14 @@
         const endDate = promotion?.endDate ? new Date(promotion.endDate) : null;
         const hasSchedule = startDate instanceof Date && !Number.isNaN(startDate.getTime()) && endDate instanceof Date && !Number.isNaN(endDate.getTime());
         card.append(
-          deps.createElement("strong", { textContent: `${promotion.productName || promotion.productId || "Product"} | ${promotion.label || promotion.type}` }),
+          deps.createElement("strong", { textContent: `${promotion.productName || promotion.productId || t("common.product", "Product")} | ${promotion.label || promotion.type}` }),
           deps.createStatusPill(status, statusClass),
           deps.createElement("small", {
-            textContent: `TSh ${deps.formatNumber(amount)}${hasSchedule ? ` | ${startDate.toLocaleDateString()} - ${endDate.toLocaleDateString()}` : ""}`
+            textContent: `TSh ${deps.formatNumber(amount)}${hasSchedule ? ` | ${formatLocaleDate(startDate)} - ${formatLocaleDate(endDate)}` : ""}`
           }),
           deps.createElement("p", {
             className: "product-meta",
-            textContent: `Reference: ${promotion.transactionReference || "-"}`
+            textContent: t("orders.reference", "Reference: {value}", { value: promotion.transactionReference || "-" })
           })
         );
         list.appendChild(card);
@@ -744,21 +749,21 @@
       });
       const riskLevel = String(security.riskLevel || "low").trim().toLowerCase();
       section.appendChild(deps.createSectionHeading({
-        eyebrow: "Security",
-        title: "Active sessions",
+        eyebrow: t("session.securityEyebrow", "Security"),
+        title: t("session.activeTitle", "Active sessions"),
         meta: riskLevel === "high"
-          ? "Security check needed"
+          ? t("session.checkNeeded", "Security check needed")
           : riskLevel === "medium"
-            ? "Session watch active"
-            : "Session health looks normal"
+            ? t("session.watchActive", "Session watch active")
+            : t("session.healthNormal", "Session health looks normal")
       }));
       if (security.requiresStepUp) {
         const alert = deps.createElement("div", { className: "orders-card profile-session-alert" });
         alert.append(
-          deps.createElement("strong", { textContent: "Thibitisha session" }),
+          deps.createElement("strong", { textContent: t("session.verifyTitle", "Verify session") }),
           deps.createElement("p", {
             className: "product-meta",
-            textContent: "Tumeona mazingira mapya kwenye session yako. Weka password ili kuthibitisha kabla ya actions nyeti."
+            textContent: t("session.stepUpBody", "We detected a new session environment. Enter your password before sensitive actions.")
           })
         );
         const form = deps.createElement("form", {
@@ -772,12 +777,12 @@
               id: "profile-session-stepup-password",
               type: "password",
               autocomplete: "current-password",
-              placeholder: "Password"
+              placeholder: t("auth.password", "Password")
             }
           }),
           deps.createElement("button", {
             className: "action-btn buy-btn",
-            textContent: "Verify session",
+            textContent: t("session.verifyAction", "Verify session"),
             attributes: { type: "submit" }
           })
         );
@@ -790,7 +795,7 @@
       });
       list.appendChild(deps.createElement("p", {
         className: "empty-copy",
-        textContent: "Loading active sessions..."
+        textContent: t("session.loading", "Loading active sessions...")
       }));
       section.appendChild(list);
       return section;

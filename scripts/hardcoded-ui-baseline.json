@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "policy": "Existing debt may decrease only. New or modified user-visible literals must use localization keys.",
-  "count": 181,
-  "digest": "2588f0d233d4cda539a727e286a8317194195001581bb014084c58748baed750",
+  "count": 164,
+  "digest": "5d4a462ea91743332d061a9afdcd2a8a26b60baccdec8daf9c3c40803ba2dacb",
   "entries": [
     {
       "signature": "app.js|property|${createdCategory.label} imeongezwa kwenye Vitu Used.",
@@ -577,10 +577,6 @@
       "count": 1
     },
     {
-      "signature": "src/profile/controller.js|property|Risk: ${riskLevel}${session.stepUpVerifiedAt ?",
-      "count": 1
-    },
-    {
       "signature": "src/profile/controller.js|user-error|Akaunti yako haikupatikana tena. Ingia upya kabla ya kujaribu tena.",
       "count": 1
     },
@@ -597,67 +593,7 @@
       "count": 1
     },
     {
-      "signature": "src/profile/ui.js|property|Active sessions",
-      "count": 1
-    },
-    {
-      "signature": "src/profile/ui.js|property|Cancel",
-      "count": 2
-    },
-    {
-      "signature": "src/profile/ui.js|property|Grow your visibility",
-      "count": 1
-    },
-    {
-      "signature": "src/profile/ui.js|property|Hakuna bidhaa uliyonunua bado.",
-      "count": 1
-    },
-    {
-      "signature": "src/profile/ui.js|property|Hakuna order ya kuuza bado.",
-      "count": 1
-    },
-    {
-      "signature": "src/profile/ui.js|property|Hakuna promotion requests bado.",
-      "count": 1
-    },
-    {
-      "signature": "src/profile/ui.js|property|Loading active sessions...",
-      "count": 1
-    },
-    {
-      "signature": "src/profile/ui.js|property|Nimenunua",
-      "count": 1
-    },
-    {
-      "signature": "src/profile/ui.js|property|Password",
-      "count": 1
-    },
-    {
-      "signature": "src/profile/ui.js|property|Promotion status",
-      "count": 1
-    },
-    {
-      "signature": "src/profile/ui.js|property|Thibitisha session",
-      "count": 1
-    },
-    {
       "signature": "src/profile/ui.js|property|TSh ${deps.formatNumber(amount)}${hasSchedule ?",
-      "count": 1
-    },
-    {
-      "signature": "src/profile/ui.js|property|Tumeona mazingira mapya kwenye session yako. Weka password ili kuthibitisha kabla ya actions nyeti.",
-      "count": 1
-    },
-    {
-      "signature": "src/profile/ui.js|property|Ununuzi na Mauzo",
-      "count": 1
-    },
-    {
-      "signature": "src/profile/ui.js|property|Verify session",
-      "count": 1
-    },
-    {
-      "signature": "src/profile/ui.js|property|Wameninunulia",
       "count": 1
     }
   ]
