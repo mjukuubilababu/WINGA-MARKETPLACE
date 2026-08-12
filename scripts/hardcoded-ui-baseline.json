@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "policy": "Existing debt may decrease only. New or modified user-visible literals must use localization keys.",
-  "count": 226,
-  "digest": "753aec7f5840a75b807255b3a56124bc8fbd958a5e13589275cee27b700469b5",
+  "count": 181,
+  "digest": "2588f0d233d4cda539a727e286a8317194195001581bb014084c58748baed750",
   "entries": [
     {
       "signature": "app.js|property|${createdCategory.label} imeongezwa kwenye Vitu Used.",
@@ -569,15 +569,7 @@
       "count": 1
     },
     {
-      "signature": "src/profile/controller.js|accessible-name|Back to profile",
-      "count": 1
-    },
-    {
       "signature": "src/profile/controller.js|confirmation|Revoke this device session?",
-      "count": 1
-    },
-    {
-      "signature": "src/profile/controller.js|dom-assignment|Inapakia...",
       "count": 1
     },
     {
@@ -585,31 +577,7 @@
       "count": 1
     },
     {
-      "signature": "src/profile/controller.js|property|Back to profile",
-      "count": 1
-    },
-    {
-      "signature": "src/profile/controller.js|property|Hakuna active sessions zilizopatikana.",
-      "count": 1
-    },
-    {
-      "signature": "src/profile/controller.js|property|Last seen: ${formatSessionDate(session.lastSeenAt || session.createdAt)}",
-      "count": 1
-    },
-    {
-      "signature": "src/profile/controller.js|property|Pakia bidhaa zaidi",
-      "count": 1
-    },
-    {
-      "signature": "src/profile/controller.js|property|Revoke session",
-      "count": 1
-    },
-    {
       "signature": "src/profile/controller.js|property|Risk: ${riskLevel}${session.stepUpVerifiedAt ?",
-      "count": 1
-    },
-    {
-      "signature": "src/profile/controller.js|property|Session list haikupatikana sasa. Jaribu tena baadaye.",
       "count": 1
     },
     {
@@ -625,23 +593,7 @@
       "count": 1
     },
     {
-      "signature": "src/profile/ui.js|accessible-name|Manage post",
-      "count": 1
-    },
-    {
-      "signature": "src/profile/ui.js|property|${roleLabel} account",
-      "count": 1
-    },
-    {
       "signature": "src/profile/ui.js|property|${userProfile.sellerStats.trustScore}/100",
-      "count": 1
-    },
-    {
-      "signature": "src/profile/ui.js|property|Account",
-      "count": 1
-    },
-    {
-      "signature": "src/profile/ui.js|property|Active",
       "count": 1
     },
     {
@@ -649,47 +601,11 @@
       "count": 1
     },
     {
-      "signature": "src/profile/ui.js|property|Become Seller",
-      "count": 1
-    },
-    {
-      "signature": "src/profile/ui.js|property|Bidhaa zako zote",
-      "count": 1
-    },
-    {
       "signature": "src/profile/ui.js|property|Cancel",
-      "count": 3
-    },
-    {
-      "signature": "src/profile/ui.js|property|Download",
-      "count": 1
-    },
-    {
-      "signature": "src/profile/ui.js|property|e.g. wanawake, vifaa, michezo",
-      "count": 1
-    },
-    {
-      "signature": "src/profile/ui.js|property|Edit",
-      "count": 1
-    },
-    {
-      "signature": "src/profile/ui.js|property|Edit Lipa Details",
-      "count": 1
-    },
-    {
-      "signature": "src/profile/ui.js|property|Edit WhatsApp Number",
-      "count": 1
-    },
-    {
-      "signature": "src/profile/ui.js|property|Get Verified",
-      "count": 1
+      "count": 2
     },
     {
       "signature": "src/profile/ui.js|property|Grow your visibility",
-      "count": 1
-    },
-    {
-      "signature": "src/profile/ui.js|property|Hakikisha jina la duka na namba ya simu ni sahihi kabla ya kuendelea.",
       "count": 1
     },
     {
@@ -705,43 +621,7 @@
       "count": 1
     },
     {
-      "signature": "src/profile/ui.js|property|Hii ndiyo namba itakayotumika kwenye WhatsApp na contact zote za bidhaa zako.",
-      "count": 1
-    },
-    {
-      "signature": "src/profile/ui.js|property|Jina la duka",
-      "count": 1
-    },
-    {
-      "signature": "src/profile/ui.js|property|Jina la mpokeaji",
-      "count": 1
-    },
-    {
       "signature": "src/profile/ui.js|property|Loading active sessions...",
-      "count": 1
-    },
-    {
-      "signature": "src/profile/ui.js|property|Logout",
-      "count": 1
-    },
-    {
-      "signature": "src/profile/ui.js|property|Maelekezo mafupi kwa buyer, kwa mfano tuma reference baada ya kulipa",
-      "count": 1
-    },
-    {
-      "signature": "src/profile/ui.js|property|My Requests (${requestCount})",
-      "count": 1
-    },
-    {
-      "signature": "src/profile/ui.js|property|Namba mpya ya WhatsApp",
-      "count": 1
-    },
-    {
-      "signature": "src/profile/ui.js|property|Namba ya simu",
-      "count": 1
-    },
-    {
-      "signature": "src/profile/ui.js|property|Namba ya simu ya akaunti",
       "count": 1
     },
     {
@@ -753,51 +633,11 @@
       "count": 1
     },
     {
-      "signature": "src/profile/ui.js|property|Primary category",
-      "count": 1
-    },
-    {
-      "signature": "src/profile/ui.js|property|Profile photo ni optional. Ukikosa, initials zitaendelea kuonekana.",
-      "count": 1
-    },
-    {
-      "signature": "src/profile/ui.js|property|Promote",
-      "count": 1
-    },
-    {
       "signature": "src/profile/ui.js|property|Promotion status",
       "count": 1
     },
     {
-      "signature": "src/profile/ui.js|property|Provider mfano M-Pesa, Airtel Money",
-      "count": 1
-    },
-    {
-      "signature": "src/profile/ui.js|property|Save Lipa Details",
-      "count": 1
-    },
-    {
-      "signature": "src/profile/ui.js|property|Save Number",
-      "count": 1
-    },
-    {
-      "signature": "src/profile/ui.js|property|Share",
-      "count": 1
-    },
-    {
-      "signature": "src/profile/ui.js|property|Signals buyers see before they decide to message or buy.",
-      "count": 1
-    },
-    {
-      "signature": "src/profile/ui.js|property|Sold out",
-      "count": 1
-    },
-    {
       "signature": "src/profile/ui.js|property|Thibitisha session",
-      "count": 1
-    },
-    {
-      "signature": "src/profile/ui.js|property|Trust profile",
       "count": 1
     },
     {
@@ -809,15 +649,7 @@
       "count": 1
     },
     {
-      "signature": "src/profile/ui.js|property|Ukihitaji kutoka kwenye account yako, bonyeza hapa chini.",
-      "count": 1
-    },
-    {
       "signature": "src/profile/ui.js|property|Ununuzi na Mauzo",
-      "count": 1
-    },
-    {
-      "signature": "src/profile/ui.js|property|Upload Profile Photo",
       "count": 1
     },
     {
@@ -826,14 +658,6 @@
     },
     {
       "signature": "src/profile/ui.js|property|Wameninunulia",
-      "count": 1
-    },
-    {
-      "signature": "src/profile/ui.js|property|Weka jina la duka",
-      "count": 1
-    },
-    {
-      "signature": "src/profile/ui.js|property|Weka Lipa namba",
       "count": 1
     }
   ]

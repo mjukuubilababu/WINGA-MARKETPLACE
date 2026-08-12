@@ -16267,7 +16267,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         textContent: "⋯",
         attributes: {
           type: "button",
-          "aria-label": "Manage post",
+          "aria-label": t("profile.managePost", "Manage post"),
           "data-menu-toggle": product.id
         }
       }));
@@ -16280,12 +16280,12 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       popup.append(
         deps.createElement("button", {
           className: "product-menu-item edit-btn",
-          textContent: "Edit",
+          textContent: t("common.edit", "Edit"),
           attributes: { type: "button", "data-id": product.id }
         }),
         deps.createElement("button", {
           className: "product-menu-item delete-btn",
-          textContent: "Delete",
+          textContent: t("common.delete", "Delete"),
           attributes: { type: "button", "data-id": product.id }
         })
       );
@@ -16293,7 +16293,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       if (product.status === "approved") {
         popup.appendChild(deps.createElement("button", {
           className: "product-menu-item",
-          textContent: "Promote",
+          textContent: t("common.promote", "Promote"),
           attributes: { type: "button", "data-promote-product": product.id }
         }));
       }
@@ -16301,7 +16301,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       if (product.status === "approved" && product.availability !== "sold_out") {
         popup.appendChild(deps.createElement("button", {
           className: "product-menu-item",
-          textContent: "Sold out",
+          textContent: t("product.soldOut", "Sold out"),
           attributes: { type: "button", "data-product-soldout": product.id }
         }));
       }
@@ -16309,12 +16309,12 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       popup.append(
         deps.createElement("button", {
           className: "product-menu-item",
-          textContent: "Share",
+          textContent: t("common.share", "Share"),
           attributes: { type: "button", "data-menu-action": "share", "data-id": product.id }
         }),
         deps.createElement("button", {
           className: "product-menu-item",
-          textContent: "Download",
+          textContent: t("common.download", "Download"),
           attributes: { type: "button", "data-menu-action": "download", "data-id": product.id }
         })
       );
@@ -16338,14 +16338,14 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         avatar.appendChild(deps.createProgressiveImage
           ? deps.createProgressiveImage({
             src: deps.sanitizeImageSource(profileImage, ""),
-            alt: `${displayName} profile photo`,
+            alt: t("profile.photoAlt", "{name} profile photo", { name: displayName }),
             className: "profile-identity-image",
             fallbackSrc: deps.getImageFallbackDataUri?.("WINGA") || "",
             placeholderSrc: deps.getImageFallbackDataUri?.("W") || "",
             attributes: {
               loading: "eager",
               "data-zoom-src": deps.sanitizeImageSource(profileImage, ""),
-              "data-zoom-alt": `${displayName} profile photo`
+              "data-zoom-alt": t("profile.photoAlt", "{name} profile photo", { name: displayName })
             }
           })
           : deps.createElement("img", {
@@ -16371,12 +16371,12 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         deps.createElement("strong", { textContent: displayName }),
         deps.createElement("p", {
           className: "product-meta",
-          textContent: `${roleLabel} account`
+          textContent: t("profile.roleAccount", "{role} account", { role: roleLabel })
         })
       );
       if (userProfile?.role === "seller") {
         const verificationLine = deps.createElement("p", { className: "product-meta" });
-        verificationLine.append("Verification: ");
+        verificationLine.append(t("profile.verificationLabel", "Verification: "));
         verificationLine.appendChild(deps.createElement("span", {
           className: `status-pill ${verificationStatus === "verified" ? "approved" : verificationStatus === "rejected" ? "rejected" : "pending"}`,
           textContent: deps.getVerificationStatusLabel(verificationStatus)
@@ -16384,7 +16384,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         copy.appendChild(verificationLine);
         if (userProfile?.sellerStats?.trustScore) {
           const trustLine = deps.createElement("p", { className: "product-meta" });
-          trustLine.append("Trust: ");
+          trustLine.append(t("profile.trustLabel", "Trust: "));
           trustLine.appendChild(deps.createElement("span", {
             className: "status-pill approved",
             textContent: `${userProfile.sellerStats.trustScore}/100`
@@ -16395,7 +16395,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         if (Number(userProfile?.sellerStats?.repeatBuyers || 0) > 0) {
           copy.appendChild(deps.createElement("p", {
             className: "product-meta",
-            textContent: `${userProfile.sellerStats.repeatBuyers} repeat buyer${Number(userProfile.sellerStats.repeatBuyers) === 1 ? "" : "s"}`
+            textContent: t("profile.repeatBuyers", "{count} repeat buyers", { count: userProfile.sellerStats.repeatBuyers })
           }));
         }
       }
@@ -16404,23 +16404,23 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         attributes: { id: "profile-whatsapp-block" }
       });
       const whatsappMeta = deps.createElement("p", { className: "product-meta" });
-      whatsappMeta.append("WhatsApp: ");
+      whatsappMeta.append(t("profile.whatsappLabel", "WhatsApp: "));
       whatsappMeta.appendChild(deps.createElement("strong", {
-        textContent: context.whatsappNumber || "Haijawekwa"
+        textContent: context.whatsappNumber || t("common.notSet", "Not set")
       }));
       whatsappMeta.append(" ");
       whatsappMeta.appendChild(deps.createElement("span", {
         className: "status-pill approved",
-        textContent: "Active"
+        textContent: t("common.active", "Active")
       }));
       whatsappWrap.appendChild(whatsappMeta);
       whatsappWrap.appendChild(deps.createElement("p", {
         className: "auth-note",
-        textContent: "Hii ndiyo namba itakayotumika kwenye WhatsApp na contact zote za bidhaa zako."
+        textContent: t("profile.whatsappHelp", "This number is used for WhatsApp and product contacts.")
       }));
       whatsappWrap.appendChild(deps.createElement("button", {
         className: "action-btn action-btn-secondary",
-        textContent: "Edit WhatsApp Number",
+        textContent: t("profile.editWhatsapp", "Edit WhatsApp Number"),
         attributes: {
           type: "button",
           id: "profile-whatsapp-change-toggle"
@@ -16438,7 +16438,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           attributes: {
             id: "profile-whatsapp-input",
             type: "tel",
-            placeholder: "Namba mpya ya WhatsApp",
+            placeholder: t("profile.whatsappPlaceholder", "New WhatsApp number"),
             value: context.whatsappNumber || context.phoneNumber || ""
           }
         }),
@@ -16449,7 +16449,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       whatsappForm.querySelector(".profile-whatsapp-form-actions")?.append(
         deps.createElement("button", {
           className: "action-btn buy-btn",
-          textContent: "Save Number",
+          textContent: t("profile.saveNumber", "Save Number"),
           attributes: {
             type: "button",
             id: "profile-whatsapp-save-button"
@@ -16457,7 +16457,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         }),
         deps.createElement("button", {
           className: "action-btn action-btn-secondary",
-          textContent: "Cancel",
+          textContent: t("common.cancel", "Cancel"),
           attributes: {
             type: "button",
             id: "profile-whatsapp-cancel-button"
@@ -16473,21 +16473,21 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           attributes: { id: "profile-payment-block" }
         });
         const paymentMeta = deps.createElement("p", { className: "product-meta" });
-        paymentMeta.append("Lipa namba: ");
+        paymentMeta.append(t("profile.paymentNumberLabel", "Payment number: "));
         paymentMeta.appendChild(deps.createElement("strong", {
-          textContent: context.paymentNumber || "Haijawekwa"
+          textContent: context.paymentNumber || t("common.notSet", "Not set")
         }));
         paymentMeta.append(" ");
         paymentMeta.appendChild(deps.createElement("span", {
           className: `status-pill ${context.paymentNumber ? "approved" : ""}`,
-          textContent: context.paymentNumber ? "Ready" : "Pending"
+          textContent: context.paymentNumber ? t("common.ready", "Ready") : t("common.pending", "Pending")
         }));
         paymentWrap.appendChild(paymentMeta);
         paymentWrap.appendChild(deps.createElement("p", {
           className: "auth-note",
           textContent: context.paymentRecipientName
             ? `Mpokeaji: ${context.paymentRecipientName}${context.paymentProvider ? ` | Mtandao: ${String(context.paymentProvider).replace(/_/g, " ").toUpperCase()}` : ""}`
-            : "Weka Lipa namba yako ili buyer aone analipa kwa nani."
+            : t("profile.paymentHelp", "Add your payment number so buyers know who they are paying.")
         }));
         if (context.paymentInstructions) {
           paymentWrap.appendChild(deps.createElement("p", {
@@ -16497,7 +16497,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         }
         paymentWrap.appendChild(deps.createElement("button", {
           className: "action-btn action-btn-secondary",
-          textContent: "Edit Lipa Details",
+          textContent: t("profile.editPayment", "Edit payment details"),
           attributes: {
             type: "button",
             id: "profile-payment-change-toggle"
@@ -16516,7 +16516,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
               id: "profile-payment-provider-input",
               type: "text",
               maxlength: "40",
-              placeholder: "Provider mfano M-Pesa, Airtel Money",
+              placeholder: t("profile.providerPlaceholder", "Provider, for example M-Pesa or Airtel Money"),
               value: context.paymentProvider || ""
             }
           }),
@@ -16524,7 +16524,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             attributes: {
               id: "profile-payment-number-input",
               type: "tel",
-              placeholder: "Weka Lipa namba",
+              placeholder: t("profile.paymentNumberPlaceholder", "Enter payment number"),
               value: context.paymentNumber || ""
             }
           }),
@@ -16533,7 +16533,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
               id: "profile-payment-recipient-input",
               type: "text",
               maxlength: "120",
-              placeholder: "Jina la mpokeaji",
+              placeholder: t("profile.recipientPlaceholder", "Recipient name"),
               value: context.paymentRecipientName || context.displayName || ""
             }
           }),
@@ -16542,7 +16542,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
               id: "profile-payment-instructions-input",
               rows: "3",
               maxlength: "240",
-              placeholder: "Maelekezo mafupi kwa buyer, kwa mfano tuma reference baada ya kulipa"
+              placeholder: t("profile.paymentInstructionsPlaceholder", "Short payment instructions for the buyer")
             },
             textContent: context.paymentInstructions || ""
           }),
@@ -16553,7 +16553,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         paymentForm.querySelector(".profile-whatsapp-form-actions")?.append(
           deps.createElement("button", {
             className: "action-btn buy-btn",
-            textContent: "Save Lipa Details",
+            textContent: t("profile.savePayment", "Save payment details"),
             attributes: {
               type: "button",
               id: "profile-payment-save-button"
@@ -16574,10 +16574,10 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       if (userProfile?.role === "seller") {
         const trustBlock = deps.createElement("div", { className: "profile-trust-block" });
         trustBlock.append(
-          deps.createElement("strong", { textContent: "Trust profile" }),
+          deps.createElement("strong", { textContent: t("profile.trustProfile", "Trust profile") }),
           deps.createElement("p", {
             className: "auth-note",
-            textContent: "Signals buyers see before they decide to message or buy."
+            textContent: t("profile.trustHelp", "Signals buyers see before they decide to message or buy.")
           })
         );
 
@@ -16610,7 +16610,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       copy.append(
         deps.createElement("label", {
           className: "upload-btn auth-upload-btn profile-photo-label",
-          textContent: "Upload Profile Photo",
+          textContent: t("profile.uploadPhoto", "Upload Profile Photo"),
           attributes: { for: "profile-photo-input" }
         }),
         deps.createElement("input", {
@@ -16623,7 +16623,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         }),
         deps.createElement("p", {
           className: "auth-note",
-          textContent: "Profile photo ni optional. Ukikosa, initials zitaendelea kuonekana.",
+          textContent: t("profile.photoOptionalStatus", "A profile photo is optional. Your initials remain visible without one."),
           attributes: { id: "profile-photo-status" }
         })
       );
@@ -16681,46 +16681,46 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       form.append(
         deps.createElement("label", {
           className: "auth-label",
-          textContent: "Jina la duka"
+          textContent: t("profile.storeName", "Store name")
         }),
         deps.createElement("input", {
           attributes: {
             id: "profile-seller-upgrade-full-name",
             type: "text",
             maxlength: "120",
-            placeholder: "Weka jina la duka",
+            placeholder: t("profile.storeNamePlaceholder", "Enter store name"),
             value: context.fullName || context.displayName || ""
           }
         }),
         deps.createElement("label", {
           className: "auth-label",
-          textContent: "Namba ya simu"
+          textContent: t("profile.phoneNumber", "Phone number")
         }),
         deps.createElement("input", {
           attributes: {
             id: "profile-seller-upgrade-phone-number",
             type: "tel",
             maxlength: "20",
-            placeholder: "Namba ya simu ya akaunti",
+            placeholder: t("profile.phonePlaceholder", "Account phone number"),
             value: context.phoneNumber || context.whatsappNumber || ""
           }
         }),
         deps.createElement("label", {
           className: "auth-label",
-          textContent: "Primary category"
+          textContent: t("profile.primaryCategory", "Primary category")
         }),
         deps.createElement("input", {
           attributes: {
             id: "profile-seller-upgrade-category",
             type: "text",
             maxlength: "60",
-            placeholder: "e.g. wanawake, vifaa, michezo",
+            placeholder: t("profile.categoryPlaceholder", "For example women, equipment, sports"),
             value: context.primaryCategory || ""
           }
         }),
         deps.createElement("p", {
           className: "auth-note",
-          textContent: "Hakikisha jina la duka na namba ya simu ni sahihi kabla ya kuendelea."
+          textContent: t("profile.sellerUpgradeCheck", "Confirm the store name and phone number before continuing.")
         }),
         deps.createElement("div", {
           className: "profile-seller-upgrade-actions"
@@ -17042,7 +17042,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 
       const fragment = document.createDocumentFragment();
       fragment.appendChild(deps.createSectionHeading({
-        eyebrow: "Profile",
+        eyebrow: t("profile.heading", "Profile"),
         title: displayName || "",
         meta: accountMeta || ""
       }));
@@ -17075,8 +17075,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         attributes: { id: "profile-products-panel" }
       });
       productsPanel.appendChild(deps.createSectionHeading({
-        eyebrow: "Products",
-        title: "Bidhaa zako zote"
+        eyebrow: t("profile.productsEyebrow", "Products"),
+        title: t("profile.productsTitle", "All your products")
       }));
       productsPanel.appendChild(deps.createElement("div", {
         className: "profile-product-grid",
@@ -17088,10 +17088,10 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         attributes: { id: "profile-actions-card" }
       });
       actionsCard.append(
-        deps.createElement("p", { className: "auth-label", textContent: "Account" }),
+        deps.createElement("p", { className: "auth-label", textContent: t("profile.account", "Account") }),
         deps.createElement("p", {
           className: "auth-note",
-          textContent: "Ukihitaji kutoka kwenye account yako, bonyeza hapa chini."
+          textContent: t("profile.logoutHelp", "Use the button below when you need to sign out of your account.")
         })
       );
       const localizationContext = deps.getLocalizationContext?.() || {};
@@ -17174,7 +17174,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       if (hasBuyerAccess) {
         actionsCard.appendChild(deps.createElement("button", {
           className: "action-btn action-btn-secondary",
-          textContent: `My Requests (${requestCount})`,
+          textContent: t("profile.myRequests", "My Requests ({count})", { count: requestCount }),
           attributes: {
             type: "button",
             "data-open-request-box": "true"
@@ -17184,7 +17184,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       if (canGetVerified) {
         actionsCard.appendChild(deps.createElement("button", {
           className: "action-btn buy-btn",
-          textContent: "Get Verified",
+          textContent: t("profile.getVerified", "Get Verified"),
           attributes: {
             type: "button",
             "data-open-seller-upgrade": "true"
@@ -17194,7 +17194,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       if (context.canUpgradeToSeller) {
         actionsCard.appendChild(deps.createElement("button", {
           className: "action-btn buy-btn",
-          textContent: "Become Seller",
+          textContent: t("profile.becomeSeller", "Become Seller"),
           attributes: {
             type: "button",
             "data-open-seller-upgrade": "true"
@@ -17202,7 +17202,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         }));
       }
       actionsCard.appendChild(deps.createElement("button", {
-        textContent: "Logout",
+        textContent: t("auth.logout", "Logout"),
         attributes: {
           id: "profile-logout-button",
           type: "button"
@@ -17596,18 +17596,21 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       if (!sessions.length) {
         list.appendChild(deps.createElement("p", {
           className: "empty-copy",
-          textContent: "Hakuna active sessions zilizopatikana."
+          textContent: t("session.empty", "No active sessions were found.")
         }));
         return;
       }
       sessions.forEach((session) => {
         const card = deps.createElement("div", { className: "orders-card profile-session-card" });
         const riskLevel = String(session.riskLevel || "low").toLowerCase();
-        const title = `${session.current ? "Current device" : "Other device"} | ${session.deviceType || "unknown"}`;
+        const title = t("session.deviceTitle", "{deviceState} | {deviceType}", {
+          deviceState: session.current ? t("session.currentDevice", "Current device") : t("session.otherDevice", "Other device"),
+          deviceType: session.deviceType || t("common.unknown", "unknown")
+        });
         card.append(
           deps.createElement("strong", { textContent: title }),
           deps.createElement("small", {
-            textContent: `Last seen: ${formatSessionDate(session.lastSeenAt || session.createdAt)}`
+            textContent: t("session.lastSeen", "Last seen: {date}", { date: formatSessionDate(session.lastSeenAt || session.createdAt) })
           }),
           deps.createElement("p", {
             className: "product-meta",
@@ -17617,7 +17620,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         if (!session.current) {
           card.appendChild(deps.createElement("button", {
             className: "action-btn action-btn-secondary",
-            textContent: "Revoke session",
+            textContent: t("session.revokeAction", "Revoke session"),
             attributes: {
               type: "button",
               "data-revoke-session": session.sessionId
@@ -17646,7 +17649,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         if (isRenderActive(sequence)) {
           list.replaceChildren(deps.createElement("p", {
             className: "empty-copy",
-            textContent: "Session list haikupatikana sasa. Jaribu tena baadaye."
+            textContent: t("session.listUnavailable", "The session list is unavailable. Try again later.")
           }));
         }
       }
@@ -18277,11 +18280,11 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         if (activeSection === "profile-messages-panel") {
           profileDiv.appendChild(deps.createElement("button", {
             className: "profile-messages-fab message-panel-close",
-            textContent: "Back to profile",
+            textContent: t("profile.backAction", "Back to profile"),
             attributes: {
               type: "button",
               "data-close-profile-messages": "true",
-              "aria-label": "Back to profile"
+              "aria-label": t("profile.backAction", "Back to profile")
             }
           }));
         }
@@ -18377,7 +18380,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       if (sellerPage?.hasMore && typeof deps.hydrateSellerProducts === "function") {
         const loadMoreButton = deps.createElement("button", {
           className: "action-btn profile-products-load-more",
-          textContent: "Pakia bidhaa zaidi",
+          textContent: t("profile.loadMoreProducts", "Load more products"),
           attributes: {
             type: "button",
             "data-profile-products-load-more": "true"
@@ -18385,7 +18388,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         });
         loadMoreButton.addEventListener("click", async () => {
           loadMoreButton.disabled = true;
-          loadMoreButton.textContent = "Inapakia...";
+          loadMoreButton.textContent = t("common.loading", "Loading...");
           try {
             const page = await deps.hydrateSellerProducts(currentUser, { append: true });
             sellerProductPagination.set(currentUser, {

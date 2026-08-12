@@ -284,18 +284,21 @@
       if (!sessions.length) {
         list.appendChild(deps.createElement("p", {
           className: "empty-copy",
-          textContent: "Hakuna active sessions zilizopatikana."
+          textContent: t("session.empty", "No active sessions were found.")
         }));
         return;
       }
       sessions.forEach((session) => {
         const card = deps.createElement("div", { className: "orders-card profile-session-card" });
         const riskLevel = String(session.riskLevel || "low").toLowerCase();
-        const title = `${session.current ? "Current device" : "Other device"} | ${session.deviceType || "unknown"}`;
+        const title = t("session.deviceTitle", "{deviceState} | {deviceType}", {
+          deviceState: session.current ? t("session.currentDevice", "Current device") : t("session.otherDevice", "Other device"),
+          deviceType: session.deviceType || t("common.unknown", "unknown")
+        });
         card.append(
           deps.createElement("strong", { textContent: title }),
           deps.createElement("small", {
-            textContent: `Last seen: ${formatSessionDate(session.lastSeenAt || session.createdAt)}`
+            textContent: t("session.lastSeen", "Last seen: {date}", { date: formatSessionDate(session.lastSeenAt || session.createdAt) })
           }),
           deps.createElement("p", {
             className: "product-meta",
@@ -305,7 +308,7 @@
         if (!session.current) {
           card.appendChild(deps.createElement("button", {
             className: "action-btn action-btn-secondary",
-            textContent: "Revoke session",
+            textContent: t("session.revokeAction", "Revoke session"),
             attributes: {
               type: "button",
               "data-revoke-session": session.sessionId
@@ -334,7 +337,7 @@
         if (isRenderActive(sequence)) {
           list.replaceChildren(deps.createElement("p", {
             className: "empty-copy",
-            textContent: "Session list haikupatikana sasa. Jaribu tena baadaye."
+            textContent: t("session.listUnavailable", "The session list is unavailable. Try again later.")
           }));
         }
       }
@@ -965,11 +968,11 @@
         if (activeSection === "profile-messages-panel") {
           profileDiv.appendChild(deps.createElement("button", {
             className: "profile-messages-fab message-panel-close",
-            textContent: "Back to profile",
+            textContent: t("profile.backAction", "Back to profile"),
             attributes: {
               type: "button",
               "data-close-profile-messages": "true",
-              "aria-label": "Back to profile"
+              "aria-label": t("profile.backAction", "Back to profile")
             }
           }));
         }
@@ -1065,7 +1068,7 @@
       if (sellerPage?.hasMore && typeof deps.hydrateSellerProducts === "function") {
         const loadMoreButton = deps.createElement("button", {
           className: "action-btn profile-products-load-more",
-          textContent: "Pakia bidhaa zaidi",
+          textContent: t("profile.loadMoreProducts", "Load more products"),
           attributes: {
             type: "button",
             "data-profile-products-load-more": "true"
@@ -1073,7 +1076,7 @@
         });
         loadMoreButton.addEventListener("click", async () => {
           loadMoreButton.disabled = true;
-          loadMoreButton.textContent = "Inapakia...";
+          loadMoreButton.textContent = t("common.loading", "Loading...");
           try {
             const page = await deps.hydrateSellerProducts(currentUser, { append: true });
             sellerProductPagination.set(currentUser, {

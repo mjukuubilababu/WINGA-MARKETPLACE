@@ -10963,7 +10963,7 @@ const {
     }
     return {
       productId: product.id,
-      label: "Review product"
+      label: translateUi("review.productAction", {}, "Review product")
     };
   },
   getProductActionStatus: (productId) => {
