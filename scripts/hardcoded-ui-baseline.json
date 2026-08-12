@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "policy": "Existing debt may decrease only. New or modified user-visible literals must use localization keys.",
-  "count": 159,
-  "digest": "e151ef7362ca908beb611823071133d8ccc96d46a66291e66d4ecca53c58731b",
+  "count": 148,
+  "digest": "7e855f9f3317b5745bd793daab1b4f489d311d86e7d8c607b90d147ed0e7bb76",
   "entries": [
     {
       "signature": "app.js|property|${createdCategory.label} imeongezwa kwenye Vitu Used.",
@@ -509,55 +509,11 @@
       "count": 1
     },
     {
-      "signature": "src/marketplace/ui.js|accessible-name|Verified seller",
-      "count": 1
-    },
-    {
       "signature": "src/marketplace/ui.js|property|${Math.min(product.images.length, 9)}/5",
       "count": 1
     },
     {
       "signature": "src/marketplace/ui.js|property|1/${images.length}",
-      "count": 1
-    },
-    {
-      "signature": "src/marketplace/ui.js|property|Bidhaa kutoka maduka tofauti",
-      "count": 1
-    },
-    {
-      "signature": "src/marketplace/ui.js|property|Loading more products for you",
-      "count": 1
-    },
-    {
-      "signature": "src/marketplace/ui.js|property|Promote",
-      "count": 1
-    },
-    {
-      "signature": "src/marketplace/ui.js|property|See more",
-      "count": 1
-    },
-    {
-      "signature": "src/marketplace/ui.js|property|Share",
-      "count": 1
-    },
-    {
-      "signature": "src/marketplace/ui.js|property|SOLD OUT",
-      "count": 1
-    },
-    {
-      "signature": "src/marketplace/ui.js|property|Suggestions based on the current catalog",
-      "count": 1
-    },
-    {
-      "signature": "src/marketplace/ui.js|property|Tembea kushoto au kulia kuona zaidi",
-      "count": 1
-    },
-    {
-      "signature": "src/marketplace/ui.js|property|Verified seller",
-      "count": 1
-    },
-    {
-      "signature": "src/marketplace/ui.js|property|You need an account to continue",
       "count": 1
     },
     {

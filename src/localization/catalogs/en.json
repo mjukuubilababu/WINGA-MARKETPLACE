@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2026.08.12.9",
+  "version": "2026.08.12.10",
   "locale": "en",
   "messages": {
     "auth.close": "Close authentication",
@@ -696,6 +696,22 @@
     "profile.catalogResultsMeta": "Your products and their performance appear here.",
     "common.tryAgain": "Try again",
     "profile.productCount": "{count} products",
-    "profile.manageProductsMeta": "Manage all your products here."
+    "profile.manageProductsMeta": "Manage all your products here.",
+    "seller.verifiedSeller": "Verified seller",
+    "marketplace.productAuthBody": "Sign up or log in to open product details and other marketplace actions.",
+    "marketplace.moreToExplore": "More To Explore",
+    "marketplace.loadingMore": "Loading more products for you",
+    "marketplace.keepScrolling": "Keep scrolling to discover more",
+    "marketplace.catalogSuggestions": "Suggestions based on the current catalog",
+    "marketplace.basedOnViewed": "Based on what you viewed",
+    "marketplace.moreInCategory": "More in {category}",
+    "marketplace.similarPicks": "Similar picks",
+    "marketplace.mostTrending": "Most trending",
+    "marketplace.mostViewed": "Most viewed and most interacted",
+    "marketplace.mostCasual": "Most casual",
+    "marketplace.refreshedSuggestions": "Suggestions refreshed as you continue browsing",
+    "marketplace.recommendedForYou": "Recommended for you",
+    "marketplace.freshPicks": "Fresh marketplace picks",
+    "marketplace.differentShops": "Products from different shops"
   }
 }

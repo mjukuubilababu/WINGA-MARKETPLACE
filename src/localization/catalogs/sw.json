@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2026.08.12.9",
+  "version": "2026.08.12.10",
   "locale": "sw",
   "messages": {
     "auth.close": "Funga uthibitishaji",
@@ -696,6 +696,22 @@
     "profile.catalogResultsMeta": "Bidhaa zako na utendaji wake vinaonekana hapa.",
     "common.tryAgain": "Jaribu tena",
     "profile.productCount": "Bidhaa {count}",
-    "profile.manageProductsMeta": "Simamia bidhaa zako zote hapa."
+    "profile.manageProductsMeta": "Simamia bidhaa zako zote hapa.",
+    "seller.verifiedSeller": "Muuzaji aliyethibitishwa",
+    "marketplace.productAuthBody": "Jisajili au ingia ili kufungua maelezo ya bidhaa na vitendo vingine vya soko.",
+    "marketplace.moreToExplore": "Zaidi za Kugundua",
+    "marketplace.loadingMore": "Tunapakia bidhaa zaidi kwa ajili yako",
+    "marketplace.keepScrolling": "Endelea kusogeza ili kugundua zaidi",
+    "marketplace.catalogSuggestions": "Mapendekezo kulingana na katalogi ya sasa",
+    "marketplace.basedOnViewed": "Kulingana na ulivyoangalia",
+    "marketplace.moreInCategory": "Zaidi katika {category}",
+    "marketplace.similarPicks": "Chaguo zinazofanana",
+    "marketplace.mostTrending": "Zinazovuma zaidi",
+    "marketplace.mostViewed": "Zilizoangaliwa na kushirikishwa zaidi",
+    "marketplace.mostCasual": "Chaguo rahisi zaidi",
+    "marketplace.refreshedSuggestions": "Mapendekezo husasishwa unapoendelea kuvinjari",
+    "marketplace.recommendedForYou": "Imependekezwa kwako",
+    "marketplace.freshPicks": "Chaguo mpya za sokoni",
+    "marketplace.differentShops": "Bidhaa kutoka maduka tofauti"
   }
 }

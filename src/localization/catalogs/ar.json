@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2026.08.12.9",
+  "version": "2026.08.12.10",
   "locale": "ar",
   "messages": {
     "auth.close": "إغلاق تسجيل الدخول",
@@ -700,6 +700,22 @@
     "profile.catalogResultsMeta": "تظهر منتجاتك وأداؤها هنا.",
     "common.tryAgain": "حاول مجددا",
     "profile.productCount": "{count} منتجات",
-    "profile.manageProductsMeta": "أدر كل منتجاتك هنا."
+    "profile.manageProductsMeta": "أدر كل منتجاتك هنا.",
+    "seller.verifiedSeller": "بائع موثوق",
+    "marketplace.productAuthBody": "سجل أو ادخل لفتح تفاصيل المنتج وإجراءات السوق الأخرى.",
+    "marketplace.moreToExplore": "المزيد للاستكشاف",
+    "marketplace.loadingMore": "جار تحميل المزيد من المنتجات لك",
+    "marketplace.keepScrolling": "واصل التمرير لاكتشاف المزيد",
+    "marketplace.catalogSuggestions": "اقتراحات بناء على الكتالوج الحالي",
+    "marketplace.basedOnViewed": "بناء على ما شاهدته",
+    "marketplace.moreInCategory": "المزيد في {category}",
+    "marketplace.similarPicks": "اختيارات مشابهة",
+    "marketplace.mostTrending": "الأكثر رواجا",
+    "marketplace.mostViewed": "الأكثر مشاهدة وتفاعلا",
+    "marketplace.mostCasual": "اختيارات يومية",
+    "marketplace.refreshedSuggestions": "تتجدد الاقتراحات أثناء التصفح",
+    "marketplace.recommendedForYou": "موصى به لك",
+    "marketplace.freshPicks": "اختيارات جديدة من السوق",
+    "marketplace.differentShops": "منتجات من متاجر مختلفة"
   }
 }

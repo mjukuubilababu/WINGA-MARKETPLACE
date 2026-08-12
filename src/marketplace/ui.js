@@ -7,6 +7,9 @@
       createProgressiveImage = createResponsiveImage,
       createStatusPill
     } = deps;
+    const t = (key, fallbackText, variables = {}) => typeof deps.translate === "function"
+      ? deps.translate(key, variables, fallbackText)
+      : String(fallbackText || key || "");
 
     function createElementFromMarkup(markup) {
       return deps.createElementFromMarkup(markup);
@@ -358,7 +361,7 @@
     }
 
     function getProductSellerLabel(product) {
-      return String(product?.shop || product?.uploadedBy || "Seller").trim();
+      return String(product?.shop || product?.uploadedBy || t("seller.label", "Seller")).trim();
     }
 
     function getSellerAvatarFallback(product) {
@@ -406,8 +409,8 @@
           className: "product-seller-avatar-verified-badge",
           textContent: "✓",
           attributes: {
-            "aria-label": "Verified seller",
-            title: "Verified seller"
+            "aria-label": t("seller.verifiedSeller", "Verified seller"),
+            title: t("seller.verifiedSeller", "Verified seller")
           }
         }));
       }
@@ -420,7 +423,9 @@
       const badgeRow = createElement("div", { className: "product-seller-badge-row product-seller-inline-actions" });
       badgeRow.appendChild(createElement("button", {
         className: `product-seller-inline-action product-seller-like-chip${productLiked ? " is-active" : ""}`,
-        textContent: productLiked ? "♥ Like" : "♡ Like",
+        textContent: productLiked
+            ? t("favorite.likeActive", "♥ Like")
+            : t("favorite.likeInactive", "♡ Like"),
         attributes: {
           type: "button",
           "data-like-product": product.id || ""
@@ -429,7 +434,9 @@
       if (canFollowSeller) {
         const followButton = createElement("button", {
           className: "product-seller-inline-action",
-          textContent: deps.isSellerFollowed?.(product.uploadedBy) ? "Following" : "Follow",
+          textContent: deps.isSellerFollowed?.(product.uploadedBy)
+            ? t("follow.active", "Following")
+            : t("follow.inactive", "Follow"),
           attributes: {
             type: "button",
             "data-follow-seller": product.uploadedBy || ""
@@ -443,7 +450,7 @@
       if (canShareSeller) {
         badgeRow.appendChild(createElement("button", {
           className: "product-seller-inline-action",
-          textContent: "Share",
+          textContent: t("common.share", "Share"),
           attributes: {
             type: "button",
             "data-share-seller-shop": product.uploadedBy || ""
@@ -453,7 +460,7 @@
       if (isOwnerSeller) {
         const promoteButton = createElement("button", {
           className: "product-seller-inline-action product-seller-promote-chip",
-          textContent: "Promote",
+          textContent: t("common.promote", "Promote"),
           attributes: {
             type: "button",
             "data-promote-product": product.id,
@@ -757,8 +764,8 @@
           deps.promptGuestAuth?.({
             preferredMode: "signup",
             role: "buyer",
-            title: "You need an account to continue",
-            message: "Sign up or log in to open product details and other marketplace actions.",
+            title: t("auth.accountRequired", "You need an account to continue"),
+            message: t("marketplace.productAuthBody", "Sign up or log in to open product details and other marketplace actions."),
             intent: { type: "focus-product", productId, initialImageIndex }
           });
           return;
@@ -806,7 +813,7 @@
         wrapper.classList.add("is-collapsed");
         const toggle = createElement("button", {
           className: "product-caption-toggle",
-          textContent: "See more",
+          textContent: t("common.seeMore", "See more"),
           attributes: {
             type: "button",
             "data-product-caption-toggle": "true",
@@ -818,7 +825,9 @@
           event.stopPropagation();
           const isExpanded = wrapper.classList.toggle("is-expanded");
           wrapper.classList.toggle("is-collapsed", !isExpanded);
-          toggle.textContent = isExpanded ? "See less" : "See more";
+          toggle.textContent = isExpanded
+            ? t("common.seeLess", "See less")
+            : t("common.seeMore", "See more");
           toggle.setAttribute("aria-expanded", String(isExpanded));
         });
         wrapper.appendChild(toggle);
@@ -833,7 +842,7 @@
       }
       media.appendChild(createElement("span", {
         className: "sold-out-ribbon",
-        textContent: "SOLD OUT"
+        textContent: t("product.soldOut", "SOLD OUT")
       }));
     }
 
@@ -1105,9 +1114,9 @@
         attributes: { "data-dynamic-showcase-placeholder": index }
       });
       section.appendChild(deps.createSectionHeading({
-        eyebrow: "More To Explore",
-        title: "Loading more products for you",
-        meta: "Keep scrolling to discover more"
+        eyebrow: t("marketplace.moreToExplore", "More To Explore"),
+        title: t("marketplace.loadingMore", "Loading more products for you"),
+        meta: t("marketplace.keepScrolling", "Keep scrolling to discover more")
       }));
       return section;
     }
@@ -1127,7 +1136,7 @@
       const sectionHeading = deps.createSectionHeading({
         eyebrow: title,
         title: subtitle,
-        meta: "Suggestions based on the current catalog"
+        meta: t("marketplace.catalogSuggestions", "Suggestions based on the current catalog")
       });
       section.appendChild(sectionHeading);
       const track = createElement("div", { className: "showcase-track" });
@@ -1157,7 +1166,7 @@
         minBatchIndex,
         eyebrow: title,
         title: subtitle,
-        subtitle: "Suggestions based on the current catalog",
+        subtitle: t("marketplace.catalogSuggestions", "Suggestions based on the current catalog"),
         items: safeItems
       };
     }
@@ -1208,28 +1217,30 @@
       const trending = deps.getTrendingProducts?.(8) || [];
 
       pushDescriptor(createRecommendationDescriptor(
-        "Based on what you viewed",
-        seedProduct ? `More in ${deps.getCategoryLabel(seedProduct.category)}` : "Similar picks",
+        t("marketplace.basedOnViewed", "Based on what you viewed"),
+        seedProduct
+          ? t("marketplace.moreInCategory", "More in {category}", { category: deps.getCategoryLabel(seedProduct.category) })
+          : t("marketplace.similarPicks", "Similar picks"),
         related,
         "related"
       ));
       pushDescriptor(createRecommendationDescriptor(
-        "Most trending",
-        "Most viewed and most interacted",
+        t("marketplace.mostTrending", "Most trending"),
+        t("marketplace.mostViewed", "Most viewed and most interacted"),
         trending,
         "trending"
       ));
       pushDescriptor(createRecommendationDescriptor(
-        "Most casual",
-        "Suggestions refreshed as you continue browsing",
+        t("marketplace.mostCasual", "Most casual"),
+        t("marketplace.refreshedSuggestions", "Suggestions refreshed as you continue browsing"),
         youMayLike,
         "you-may-like"
       ));
 
       if (!queue.length && safeList.length) {
         pushDescriptor(createRecommendationDescriptor(
-          "Recommended for you",
-          "Fresh marketplace picks",
+          t("marketplace.recommendedForYou", "Recommended for you"),
+          t("marketplace.freshPicks", "Fresh marketplace picks"),
           safeList.slice(0, 6),
           "catalog-fallback"
         ));
@@ -1251,9 +1262,9 @@
       }
       return [{
         kind: "legacy-showcase",
-        heading: "Marketplace Picks",
-        title: "Bidhaa kutoka maduka tofauti",
-        subtitle: "Tembea kushoto au kulia kuona zaidi",
+        heading: t("marketplace.picks", "Marketplace Picks"),
+        title: t("marketplace.differentShops", "Products from different shops"),
+        subtitle: t("marketplace.browseHint", "Swipe left or right to see more products"),
         items: safeItems
       }];
     }

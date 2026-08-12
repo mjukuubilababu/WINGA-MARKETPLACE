@@ -11425,6 +11425,7 @@ const {
   createResponsiveImage,
   createProgressiveImage,
   createStatusPill,
+  translate: translateUi,
   getImageFallbackDataUri,
   preloadImageSource,
   getProductsContainer: () => productsContainer,

@@ -3380,6 +3380,19 @@ test("localized request box preserves buyer gating and message delivery", () => 
   assert.match(source, /data-request-send/);
   assert.match(appSource, /createRequestBoxModule\(\{[\s\S]*translate: translateUi/);
 });
+test("localized marketplace cards preserve feed and gallery contracts", () => {
+  const uiSource = fs.readFileSync(path.join(__dirname, "..", "src", "marketplace", "ui.js"), "utf8");
+  const appSource = fs.readFileSync(path.join(__dirname, "..", "app.js"), "utf8");
+  assert.match(uiSource, /deps\.translate/);
+  assert.match(uiSource, /seller\.verifiedSeller/);
+  assert.match(uiSource, /favorite\.likeActive/);
+  assert.match(uiSource, /product\.soldOut/);
+  assert.match(uiSource, /marketplace\.catalogSuggestions/);
+  assert.match(uiSource, /data-feed-gallery-track/);
+  assert.match(uiSource, /data-promote-product/);
+  assert.match(appSource, /translate: translateUi/);
+});
+
 test("localized profile surfaces preserve account and commerce contracts", () => {
   const uiSource = fs.readFileSync(path.join(__dirname, "..", "src", "profile", "ui.js"), "utf8");
   const controllerSource = fs.readFileSync(path.join(__dirname, "..", "src", "profile", "controller.js"), "utf8");
