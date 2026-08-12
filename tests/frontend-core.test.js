@@ -3405,6 +3405,20 @@ test("localized admin operations preserve audited moderation controls", () => {
   assert.match(source, /captureError\?\.\("admin_surface_partial_load_failed"/);
 });
 
+test("localized admin promotions preserve moderation actions in every locale", () => {
+  const root = path.resolve(__dirname, "..");
+  const source = fs.readFileSync(path.join(root, "src", "admin", "controller.js"), "utf8");
+  const requiredKeys = ["admin.promotionSeller", "admin.approvePromotionAction", "admin.promotionCountTotal", "admin.statusAll", "admin.promotionsLoadFailed", "admin.promotionsFilterEmpty", "admin.promotionsTitle"];
+  for (const locale of ["en", "sw", "fr", "ar"]) {
+    const catalog = JSON.parse(fs.readFileSync(path.join(root, "src", "localization", "catalogs", `${locale}.json`), "utf8"));
+    requiredKeys.forEach((key) => assert.equal(typeof catalog.messages[key], "string", `${locale} missing ${key}`));
+  }
+  requiredKeys.forEach((key) => assert.match(source, new RegExp(key.replace(/[.]/g, "\\."))));
+  assert.match(source, /adminPromotionReview: promotion\.id/);
+  assert.match(source, /adminPromotionStatus: "active"/);
+  assert.match(source, /adminPromotionDisable: promotion\.id/);
+});
+
 
 test("payment intent UI is modular and preserves commerce submission ownership", () => {
   const registry = fs.readFileSync(path.join(__dirname, "..", "src", "core", "module-registry.js"), "utf8");

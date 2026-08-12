@@ -1049,27 +1049,27 @@
       });
       card.append(
         deps.createElement("strong", { textContent: t("admin.promotionMeta", "{type} | {productId}", { type: deps.getPromotionLabel?.(promotion.type) || promotion.type, productId: promotion.productId }) }),
-        createMetaCopy(`Muuzaji: ${promotion.sellerUsername || "-"}`),
-        createMetaCopy(`Transaction: ${promotion.transactionReference || "-"}`),
-        createMetaCopy(`Amount: TSh ${deps.formatNumber ? deps.formatNumber(promotion.amountPaid || 0) : (promotion.amountPaid || 0)}`),
+        createMetaCopy(t("admin.promotionSeller", "Seller: {value}", { value: promotion.sellerUsername || "-" })),
+        createMetaCopy(t("admin.promotionTransaction", "Transaction: {value}", { value: promotion.transactionReference || "-" })),
+        createMetaCopy(t("admin.promotionAmount", "Amount: TSh {value}", { value: deps.formatNumber ? deps.formatNumber(promotion.amountPaid || 0) : (promotion.amountPaid || 0) })),
         deps.createStatusPill(promotion.status || "pending", mapStatusClass(promotion.status))
       );
       if (deps.isAdminUser?.()) {
         const actions = deps.createElement("div", { className: "moderation-actions" });
         if (promotion.status === "pending") {
           actions.append(
-            createActionButton("Approve Promotion", {
+            createActionButton(t("admin.approvePromotionAction", "Approve Promotion"), {
               adminPromotionReview: promotion.id,
               adminPromotionStatus: "active"
             }),
-            createActionButton("Reject Promotion", {
+            createActionButton(t("admin.rejectPromotionAction", "Reject Promotion"), {
               adminPromotionReview: promotion.id,
               adminPromotionStatus: "rejected"
             }, "button action-btn action-btn-secondary")
           );
         }
         if (promotion.status !== "disabled" && promotion.status !== "expired" && promotion.status !== "rejected") {
-          actions.appendChild(createActionButton("Disable Promotion", {
+          actions.appendChild(createActionButton(t("admin.disablePromotionAction", "Disable Promotion"), {
             adminPromotionDisable: promotion.id
           }));
         }
@@ -1188,12 +1188,12 @@
 
       const strip = deps.createElement("div", { className: "analytics-list" });
       [
-        `Total: ${counts.total}`,
-        `Pending: ${counts.pending}`,
-        `Active: ${counts.active}`,
-        `Rejected: ${counts.rejected}`,
-        `Expired: ${counts.expired}`,
-        `Disabled: ${counts.disabled}`
+        t("admin.promotionCountTotal", "Total: {count}", { count: counts.total }),
+        t("admin.promotionCountPending", "Pending: {count}", { count: counts.pending }),
+        t("admin.promotionCountActive", "Active: {count}", { count: counts.active }),
+        t("admin.promotionCountRejected", "Rejected: {count}", { count: counts.rejected }),
+        t("admin.promotionCountExpired", "Expired: {count}", { count: counts.expired }),
+        t("admin.promotionCountDisabled", "Disabled: {count}", { count: counts.disabled })
       ].forEach((entry) => {
         strip.appendChild(deps.createElement("div", {
           className: "analytics-list-item",
@@ -1259,12 +1259,12 @@
         }
       });
       [
-        ["all", "All"],
-        ["pending", "Pending"],
-        ["active", "Active"],
-        ["rejected", "Rejected"],
-        ["expired", "Expired"],
-        ["disabled", "Disabled"]
+        ["all", t("admin.statusAll", "All")],
+        ["pending", t("admin.statusPending", "Pending")],
+        ["active", t("admin.statusActive", "Active")],
+        ["rejected", t("admin.statusRejected", "Rejected")],
+        ["expired", t("admin.statusExpired", "Expired")],
+        ["disabled", t("admin.statusDisabled", "Disabled")]
       ].forEach(([value, text]) => {
         const option = deps.createElement("option", {
           textContent: text,
@@ -1436,15 +1436,15 @@
         promotionsBody.appendChild(createPromotionSearchControl());
         const visiblePromotions = getFilteredPromotions(state.promotions);
         if (state.loadErrors.promotions) {
-          promotionsBody.appendChild(createLoadIssueState("Promotions data haikupatikana kwa sasa."));
+          promotionsBody.appendChild(createLoadIssueState(t("admin.promotionsLoadFailed", "Promotions are unavailable right now.")));
         } else if (!state.promotions.length) {
-          promotionsBody.appendChild(deps.createEmptyState("Hakuna promotions za kusimamia."));
+          promotionsBody.appendChild(deps.createEmptyState(t("admin.promotionsEmpty", "There are no promotions to manage.")));
         } else if (!visiblePromotions.length) {
-          promotionsBody.appendChild(deps.createEmptyState("Hakuna promotions kwenye filter hiyo kwa sasa."));
+          promotionsBody.appendChild(deps.createEmptyState(t("admin.promotionsFilterEmpty", "There are no promotions matching this filter.")));
         } else {
           visiblePromotions.forEach((promotion) => promotionsBody.appendChild(createPromotionCard(promotion)));
         }
-        wrapper.appendChild(createSection("Promotions", "Admin-only promotion controls.", promotionsBody));
+        wrapper.appendChild(createSection(t("admin.promotionsTitle", "Promotions"), t("admin.promotionsBody", "Admin-only promotion controls."), promotionsBody));
 
         wrapper.appendChild(state.loadErrors.orders
           ? createSection("Recent Orders", "Mwonekano wa orders za marketplace.", createLoadIssueState("Orders data haikupatikana kwa sasa."))
@@ -2215,15 +2215,15 @@
         promotionsBody.appendChild(createPromotionSearchControl());
         const visiblePromotions = getFilteredPromotions(state.promotions);
         if (state.loadErrors.promotions) {
-          promotionsBody.appendChild(createLoadIssueState("Promotions data haikupatikana kwa sasa."));
+          promotionsBody.appendChild(createLoadIssueState(t("admin.promotionsLoadFailed", "Promotions are unavailable right now.")));
         } else if (!state.promotions.length) {
-          promotionsBody.appendChild(deps.createEmptyState("Hakuna promotions za kusimamia."));
+          promotionsBody.appendChild(deps.createEmptyState(t("admin.promotionsEmpty", "There are no promotions to manage.")));
         } else if (!visiblePromotions.length) {
-          promotionsBody.appendChild(deps.createEmptyState("Hakuna promotions kwenye filter hiyo kwa sasa."));
+          promotionsBody.appendChild(deps.createEmptyState(t("admin.promotionsFilterEmpty", "There are no promotions matching this filter.")));
         } else {
           await appendItemsInChunks(promotionsBody, visiblePromotions, (promotion) => createPromotionCard(promotion), 10);
         }
-        wrapper.appendChild(createSection("Promotions", "Admin-only promotion controls.", promotionsBody));
+        wrapper.appendChild(createSection(t("admin.promotionsTitle", "Promotions"), t("admin.promotionsBody", "Admin-only promotion controls."), promotionsBody));
         await nextFrame();
 
         wrapper.appendChild(state.loadErrors.orders
