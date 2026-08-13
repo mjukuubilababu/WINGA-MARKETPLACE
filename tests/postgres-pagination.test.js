@@ -647,6 +647,93 @@ test("PostgreSQL order transition rejects stale state without partial writes", a
   assert.equal(calls.some((call) => call.text.includes("UPDATE products")), false);
 });
 
+test("PostgreSQL late payment after cancellation is retained for reconciliation without resurrecting commerce state", async () => {
+  const calls = [];
+  const client = {
+    async query(text, params = []) {
+      const sql = String(text);
+      calls.push({ text: sql, params });
+      if (sql.includes("FROM payments") && sql.includes("FOR UPDATE")) {
+        return { rows: [{ id: "payment-late", orderId: "order-cancelled", paymentStatus: "cancelled" }], rowCount: 1 };
+      }
+      if (sql.includes("FROM orders WHERE id") && sql.includes("FOR UPDATE")) {
+        return { rows: [{ id: "order-cancelled", productId: "product-released", status: "cancelled", paymentStatus: "cancelled" }], rowCount: 1 };
+      }
+      return { rows: [], rowCount: 1 };
+    },
+    release() {}
+  };
+  const store = createPostgresStore({
+    databaseUrl: "postgres://test.invalid/winga",
+    queryClient: { query: client.query.bind(client), connect: async () => client }
+  });
+
+  const result = await store.applyPaymentResult("order-cancelled", "", "paid", { providerEventId: "late-event" });
+
+  assert.equal(result.updated, false);
+  assert.equal(result.reconciliationRequired, true);
+  assert.equal(result.code, "late_payment_requires_reconciliation");
+  assert.match(calls[3].text, /raw_gateway_response/);
+  assert.match(calls[4].text, /payment_intent_status = 'reconciliation_required'/);
+  assert.equal(calls.some((call) => /SET payment_status = \$2/.test(call.text)), false);
+  assert.equal(calls.some((call) => call.text.includes("UPDATE products")), false);
+  assert.equal(calls.at(-1).text, "COMMIT");
+});
+
+test("PostgreSQL reservation expiry is idempotent when no stale reservations remain", async () => {
+  const calls = [];
+  const client = {
+    async query(text, params = []) {
+      calls.push({ text: String(text), params });
+      return { rows: [], rowCount: 0 };
+    },
+    release() {}
+  };
+  const store = createPostgresStore({
+    databaseUrl: "postgres://test.invalid/winga",
+    queryClient: { query: client.query.bind(client), connect: async () => client }
+  });
+
+  const result = await store.expireCommerceReservations({ now: "2026-08-13T12:00:00.000Z" });
+
+  assert.deepEqual(result, { expired: 0, releasedProducts: 0, hasMore: false });
+  assert.equal(calls.filter((call) => call.text.startsWith("UPDATE ")).length, 0);
+  assert.equal(calls.at(-1).text, "COMMIT");
+});
+test("PostgreSQL reservation expiry cancels stale commerce state and safely releases inventory", async () => {
+  const calls = [];
+  const client = {
+    async query(text, params = []) {
+      const sql = String(text);
+      calls.push({ text: sql, params });
+      if (sql.includes("FROM orders") && sql.includes("FOR UPDATE SKIP LOCKED")) {
+        return { rows: [{ id: "expired-order", productId: "expired-product" }], rowCount: 1 };
+      }
+      if (sql.includes("UPDATE orders") && sql.includes("payment_intent_status = 'expired'")) {
+        return { rows: [{ id: "expired-order", productId: "expired-product" }], rowCount: 1 };
+      }
+      return { rows: [], rowCount: 1 };
+    },
+    release() {}
+  };
+  const store = createPostgresStore({
+    databaseUrl: "postgres://test.invalid/winga",
+    queryClient: { query: client.query.bind(client), connect: async () => client }
+  });
+
+  const result = await store.expireCommerceReservations({
+    now: "2026-08-13T12:00:00.000Z",
+    batchSize: 100
+  });
+
+  assert.deepEqual(result, { expired: 1, releasedProducts: 1, hasMore: false });
+  assert.match(calls[1].text, /FOR UPDATE SKIP LOCKED/);
+  assert.match(calls[2].text, /FROM products.*FOR UPDATE/s);
+  assert.match(calls[3].text, /status = 'cancelled'/);
+  assert.match(calls[4].text, /UPDATE payments/);
+  assert.match(calls[5].text, /NOT EXISTS/);
+  assert.equal(calls.at(-1).text, "COMMIT");
+});
 test("PostgreSQL message send serializes conversation pressure and commits notification atomically", async () => {
   const calls = [];
   const client = {

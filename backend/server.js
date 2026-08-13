@@ -176,6 +176,10 @@ const MAX_BACKUP_FILES = 5;
 const RATE_LIMIT_WINDOW_MS = 60 * 1000;
 const RATE_LIMIT_MAX_BUCKETS = 5000;
 const BUYER_CANCEL_WINDOW_MS = 48 * 60 * 60 * 1000;
+const COMMERCE_RESERVATION_SWEEP_INTERVAL_MS = Math.max(30 * 1000, Math.min(Number(process.env.COMMERCE_RESERVATION_SWEEP_INTERVAL_MS || 5 * 60 * 1000) || 5 * 60 * 1000, 60 * 60 * 1000));
+const COMMERCE_RESERVATION_SWEEP_BATCH_SIZE = Math.max(1, Math.min(500, Number(process.env.COMMERCE_RESERVATION_SWEEP_BATCH_SIZE || 100) || 100));
+let commerceReservationSweepTimer = null;
+let commerceReservationSweepRunning = false;
 const MIN_PASSWORD_LENGTH = 12;
 const WHATSAPP_VERIFICATION_CODE_TTL_MS = 10 * 60 * 1000;
 const WHATSAPP_VERIFICATION_PREVIEW_MODE = NODE_ENV !== "production";
@@ -1080,6 +1084,40 @@ async function processIntelligenceQueueOnce(options = {}) {
   }
 }
 
+async function sweepExpiredCommerceReservations() {
+  if (commerceReservationSweepRunning || !postgresStore?.expireCommerceReservations) return;
+  commerceReservationSweepRunning = true;
+  try {
+    let hasMore = true;
+    let batches = 0;
+    let expired = 0;
+    let releasedProducts = 0;
+    while (hasMore && batches < 10) {
+      const result = await postgresStore.expireCommerceReservations({
+        now: new Date().toISOString(),
+        batchSize: COMMERCE_RESERVATION_SWEEP_BATCH_SIZE
+      });
+      batches += 1;
+      expired += Number(result?.expired || 0);
+      releasedProducts += Number(result?.releasedProducts || 0);
+      hasMore = Boolean(result?.hasMore);
+    }
+    if (expired > 0) {
+      logStructuredEvent("info", "commerce_reservations_expired", { expired, releasedProducts, batches });
+    }
+  } catch (error) {
+    safeConsole("error", "Commerce reservation sweep failed", error?.message || error);
+  } finally {
+    commerceReservationSweepRunning = false;
+  }
+}
+
+function startCommerceReservationSweeper() {
+  if (!postgresStore?.expireCommerceReservations || commerceReservationSweepTimer) return;
+  sweepExpiredCommerceReservations();
+  commerceReservationSweepTimer = setInterval(sweepExpiredCommerceReservations, COMMERCE_RESERVATION_SWEEP_INTERVAL_MS);
+  commerceReservationSweepTimer.unref?.();
+}
 function startIntelligenceQueueWorker() {
   if (!INTELLIGENCE_QUEUE_EMBEDDED_WORKER_ENABLED || !postgresStore?.claimIntelligenceQueueBatch || intelligenceQueueWorkerTimer) {
     return;
@@ -2383,7 +2421,7 @@ function normalizeOrderRecord(order) {
     || (normalizedStatus === "placed" && normalizedPaymentStatus === "pending"
       ? new Date(new Date(createdAt).getTime() + (24 * 60 * 60 * 1000)).toISOString()
       : "");
-  const paymentIntentStatus = ["submitted", "verified", "cancelled"].includes(String(order.paymentIntentStatus || "").toLowerCase())
+  const paymentIntentStatus = ["submitted", "verified", "cancelled", "expired", "reconciliation_required"].includes(String(order.paymentIntentStatus || "").toLowerCase())
     ? String(order.paymentIntentStatus || "").toLowerCase()
     : (normalizedStatus === "cancelled" || normalizedPaymentStatus === "failed" || normalizedPaymentStatus === "cancelled"
       ? "cancelled"
@@ -4918,6 +4956,20 @@ function updateOrderAndPaymentFromPaymentResult(store, orderId, paymentStatus, c
   }
 
   const normalizedPaymentStatus = isValidPaymentStatus(paymentStatus) ? paymentStatus : "pending";
+  const requiresReconciliation = normalizedPaymentStatus === "paid"
+    && (existingOrder.status === "cancelled" || ["failed", "cancelled"].includes(existingPayment.paymentStatus));
+  if (requiresReconciliation) {
+    const now = new Date().toISOString();
+    return {
+      ...store,
+      orders: (store.orders || []).map((order) => order.id === orderId
+        ? normalizeOrderRecord({ ...order, paymentIntentStatus: "reconciliation_required", updatedAt: now })
+        : normalizeOrderRecord(order)),
+      payments: (store.payments || []).map((payment) => payment.orderId === orderId
+        ? normalizePaymentRecord({ ...payment, rawGatewayResponse: context.rawGatewayResponse || payment.rawGatewayResponse, updatedAt: now })
+        : normalizePaymentRecord(payment))
+    };
+  }
   let nextOrderStatus = existingOrder.status;
   if (normalizedPaymentStatus === "paid") {
     nextOrderStatus = "paid";
@@ -10213,6 +10265,25 @@ http.createServer(async (req, res) => {
           paymentStatus,
           rawGatewayResponse
         );
+        if (paymentResult.reconciliationRequired) {
+          await appendAuditLog({
+            time: new Date().toISOString(),
+            ip: clientIp,
+            method: req.method,
+            path: url.pathname,
+            event: "late_payment_reconciliation_required",
+            orderId: paymentResult.orderId,
+            paymentStatus
+          });
+          sendJson(res, 202, {
+            ok: true,
+            orderId: paymentResult.orderId,
+            paymentStatus,
+            reconciliationRequired: true,
+            code: paymentResult.code
+          });
+          return;
+        }
         if (!paymentResult.updated) {
           const isStateConflict = paymentResult.code === "payment_state_conflict";
           sendJson(res, isStateConflict ? 409 : 404, {
@@ -10832,6 +10903,7 @@ http.createServer(async (req, res) => {
   try {
     await initializeStoreAtBoot();
     startIntelligenceQueueWorker();
+    startCommerceReservationSweeper();
     console.log(`WINGA backend running on http://localhost:${PORT}${postgresStore ? " (PostgreSQL mode)" : " (File mode)"}`);
   } catch (error) {
     console.error("[WINGA] failed to initialize backend", {

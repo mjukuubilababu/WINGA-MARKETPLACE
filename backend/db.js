@@ -2630,6 +2630,33 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
           orderStatus: order.status
         };
       }
+      const requiresReconciliation = paymentStatus === "paid"
+        && (order.status === "cancelled" || ["failed", "cancelled"].includes(payment.paymentStatus));
+      if (requiresReconciliation) {
+        const now = new Date().toISOString();
+        await client.query(
+          `UPDATE payments
+           SET raw_gateway_response = COALESCE($2::jsonb, raw_gateway_response),
+               updated_at = $3, row_version = row_version + 1
+           WHERE id = $1`,
+          [payment.id, rawGatewayResponse == null ? null : stringifyJson(rawGatewayResponse, null), now]
+        );
+        await client.query(
+          `UPDATE orders
+           SET payment_intent_status = 'reconciliation_required',
+               updated_at = $2, row_version = row_version + 1
+           WHERE id = $1`,
+          [order.id, now]
+        );
+        return {
+          updated: false,
+          reconciliationRequired: true,
+          code: "late_payment_requires_reconciliation",
+          orderId: order.id,
+          paymentStatus: payment.paymentStatus,
+          orderStatus: order.status
+        };
+      }
       if (payment.paymentStatus === "paid" || ["confirmed", "delivered"].includes(order.status)) {
         return {
           updated: false,
@@ -2704,6 +2731,79 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
     });
   }
 
+  async function expireCommerceReservations(options = {}) {
+    const batchSize = Math.max(1, Math.min(500, Number(options.batchSize || 100) || 100));
+    const now = options.now ? new Date(options.now) : new Date();
+    if (!Number.isFinite(now.getTime())) throw new Error("Invalid commerce reservation expiry time.");
+
+    return withTransaction(async (client) => {
+      const expiredResult = await client.query(
+        `SELECT id, product_id AS "productId"
+         FROM orders
+         WHERE status = 'placed'
+           AND payment_status = 'pending'
+           AND reserve_expires_at IS NOT NULL
+           AND reserve_expires_at <= $1
+         ORDER BY reserve_expires_at ASC, id ASC
+         LIMIT $2
+         FOR UPDATE SKIP LOCKED`,
+        [now.toISOString(), batchSize]
+      );
+      const expiredOrders = expiredResult.rows || [];
+      if (!expiredOrders.length) return { expired: 0, releasedProducts: 0, hasMore: false };
+
+      const orderIds = expiredOrders.map((order) => order.id);
+      const productIds = [...new Set(expiredOrders.map((order) => order.productId).filter(Boolean))];
+      if (productIds.length) {
+        await client.query(
+          "SELECT id FROM products WHERE id = ANY($1::text[]) ORDER BY id FOR UPDATE",
+          [productIds]
+        );
+      }
+      const cancelledResult = await client.query(
+        `UPDATE orders
+         SET status = 'cancelled', payment_status = 'cancelled',
+             payment_intent_status = 'expired', reserve_expires_at = NULL,
+             updated_at = $2, row_version = row_version + 1
+         WHERE id = ANY($1::text[])
+           AND status = 'placed' AND payment_status = 'pending'
+         RETURNING id, product_id AS "productId"`,
+        [orderIds, now.toISOString()]
+      );
+      const cancelledOrders = cancelledResult.rows || [];
+      const cancelledIds = cancelledOrders.map((order) => order.id);
+      const cancelledProductIds = [...new Set(cancelledOrders.map((order) => order.productId).filter(Boolean))];
+      if (cancelledIds.length) {
+        await client.query(
+          `UPDATE payments
+           SET payment_status = 'cancelled', updated_at = $2,
+               row_version = row_version + 1
+           WHERE order_id = ANY($1::text[]) AND payment_status = 'pending'`,
+          [cancelledIds, now.toISOString()]
+        );
+      }
+      const releasedResult = cancelledProductIds.length
+        ? await client.query(
+          `UPDATE products p
+           SET availability = 'available', updated_at = $2,
+               row_version = row_version + 1
+           WHERE p.id = ANY($1::text[])
+             AND p.availability = 'reserved'
+             AND NOT EXISTS (
+               SELECT 1 FROM orders active
+               WHERE active.product_id = p.id
+                 AND active.status IN ('placed', 'paid', 'confirmed')
+             )`,
+          [cancelledProductIds, now.toISOString()]
+        )
+        : { rowCount: 0 };
+      return {
+        expired: cancelledOrders.length,
+        releasedProducts: Number(releasedResult.rowCount || 0),
+        hasMore: expiredOrders.length === batchSize
+      };
+    });
+  }
   async function createMessageWithNotification(message = {}, notification = null, options = {}) {
     return withTransaction(async (client) => {
       const participantKey = [message.senderId, message.receiverId].sort().join(":");
@@ -4318,6 +4418,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
     createCommerceOrder,
     applyPaymentResult,
     transitionCommerceOrder,
+    expireCommerceReservations,
     createMessageWithNotification,
     deleteMessage,
     markConversationRead,
