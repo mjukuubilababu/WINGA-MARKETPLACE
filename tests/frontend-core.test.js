@@ -3028,6 +3028,9 @@ test("global translation catalogs are versioned, validated, cached, and fail sof
   assert.match(hardcodedGateSource, /Existing debt may decrease only/);
   assert.equal(hardcodedBaseline.schemaVersion, 1);
   assert.ok(Number.isInteger(hardcodedBaseline.count));
+  assert.equal(hardcodedBaseline.count, 0);
+  assert.deepEqual(hardcodedBaseline.entries, []);
+  assert.match(hardcodedGateSource, /heading\|eyebrow\|label\|helpText/);
   assert.match(english.version, /^2026\./);
   assert.equal(english.locale, "en");
   assert.equal(swahili.locale, "sw");

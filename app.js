@@ -3804,7 +3804,7 @@ function getOrderLifecycleMeta(order) {
     ? AppCore.getOrderLifecycleMeta(order)
     : {
       id: "request_sent",
-      label: "Request sent",
+      label: translateUi("ui.label.a73f99f6bfc8", {}, "Request sent"),
       detail: "Winga itaonyesha hatua ya request hapa.",
       tone: "pending"
     };
@@ -4366,7 +4366,7 @@ function isAbortedHomeFeedLoad(error, signal = null) {
 
 function waitForHomeFeedRetry(delayMs, signal = null) {
   if (signal?.aborted) {
-    return Promise.reject(Object.assign(new Error("Home feed load was cancelled."), { // i18n-gate: allow -- internal diagnostic or language-neutral display
+    return Promise.reject(Object.assign(new Error(translateUi("legacy.app.8b2f44a9706d", {}, "Home feed load was cancelled.")), { // i18n-gate: allow -- internal diagnostic or language-neutral display
       name: "AbortError",
       code: "aborted"
     }));
@@ -4378,7 +4378,7 @@ function waitForHomeFeedRetry(delayMs, signal = null) {
     }, Math.max(0, Number(delayMs || 0)));
     const handleAbort = () => {
       window.clearTimeout(timerId);
-      reject(Object.assign(new Error("Home feed load was cancelled."), {
+      reject(Object.assign(new Error(translateUi("legacy.app.8b2f44a9706d", {}, "Home feed load was cancelled.")), {
         name: "AbortError",
         code: "aborted"
       }));
@@ -4508,7 +4508,7 @@ async function loadHomeFeedPageWithRetry(loadPage, options = {}) {
   for (let attempt = 1; attempt <= HOME_LOAD_MORE_MAX_ATTEMPTS; attempt += 1) {
     const previousErrorWasRetryableHttp = Number(lastError?.status || 0) >= 500;
     if (signal?.aborted && !previousErrorWasRetryableHttp) {
-      throw Object.assign(new Error("Home feed load was cancelled."), { // i18n-gate: allow -- internal diagnostic or language-neutral display
+      throw Object.assign(new Error(translateUi("legacy.app.8b2f44a9706d", {}, "Home feed load was cancelled.")), { // i18n-gate: allow -- internal diagnostic or language-neutral display
         name: "AbortError",
         code: "aborted"
       });
@@ -4778,9 +4778,9 @@ function enqueueBackendContinuationDescriptor(appendedProducts = [], options = {
   const descriptor = {
     kind: "stream",
     source: "backend-pagination",
-    eyebrow: "Marketplace Stream",
-    title: "More products from the market",
-    subtitle: "Winga keeps loading fresh listings as you scroll.",
+    eyebrow: translateUi("ui.label.b17aee369b9a", {}, "Marketplace Stream"),
+    title: translateUi("legacy.app.53acf28a6b62", {}, "More products from the market"),
+    subtitle: translateUi("legacy.app.deb983d938f9", {}, "Winga keeps loading fresh listings as you scroll."),
     minBatchIndex: Number(homeContinuousDiscoveryRuntime.batchIndex || 0),
     items
   };
@@ -5292,7 +5292,7 @@ function getHeaderMenuItems() {
   if (isStaffUser()) {
     return [
       { action: "admin", label: getAdminNavLabel() },
-      { action: "logout", label: "Logout", danger: true }
+      { action: "logout", label: translateUi("auth.logout", {}, "Logout"), danger: true }
     ];
   }
 
@@ -5300,9 +5300,9 @@ function getHeaderMenuItems() {
   const unreadNotifications = getUnreadNotifications().length;
   const items = [
     ...(isStandaloneDisplayMode() ? [] : [{ action: "install", label: getPwaInstallButtonLabel() }]),
-    { action: "profile", label: "Profile" },
+    { action: "profile", label: translateUi("profile.heading", {}, "Profile") },
     { action: "orders", label: isBuyerUser() ? "My Orders" : "Orders" },
-    { action: "messages", label: `Messages${unreadMessages ? ` (${Math.min(unreadMessages, 99)}${unreadMessages > 99 ? "+" : ""})` : ""}` }
+    { action: "messages", label: translateUi("nav.messagesWithCount", { countSuffix: unreadMessages ? ` (${Math.min(unreadMessages, 99)}${unreadMessages > 99 ? "+" : ""})` : "" }, `Messages${unreadMessages ? ` (${Math.min(unreadMessages, 99)}${unreadMessages > 99 ? "+" : ""})` : ""}`) }
   ];
 
   if (unreadNotifications) {
@@ -5313,7 +5313,7 @@ function getHeaderMenuItems() {
     items.push({ action: "admin", label: getAdminNavLabel() });
   }
 
-  items.push({ action: "logout", label: "Logout", danger: true });
+  items.push({ action: "logout", label: translateUi("auth.logout", {}, "Logout"), danger: true });
   return items;
 }
 
@@ -6715,8 +6715,8 @@ function restoreProductUploadDraft(options = {}) {
   productUploadDraftRuntimeState.restoredKey = storageKey;
   setUploadFormStatus("success", "Draft imerudi. Endelea ulipoishia kisha bonyeza post ukiwa tayari.");
   showInAppNotification({
-    title: "Draft restored",
-    body: "Tumerudisha bidhaa uliyoanza kuandaa ili uendelee ulipoishia.",
+    title: translateUi("legacy.app.b22e11b3de90", {}, "Draft restored"),
+    body: translateUi("legacy.app.e307b5e3e379", {}, "Tumerudisha bidhaa uliyoanza kuandaa ili uendelee ulipoishia."),
     variant: "success"
   });
   return true;
@@ -6903,8 +6903,8 @@ function getFollowedSellerActivityNotifications() {
         userId: currentUser,
         type: "message",
         variant: "info",
-        title: `${sellerName} ameweka bidhaa mpya`,
-        body: `${product.name} sasa iko live. Fungua uione kabla haijaondoka.`,
+        title: translateUi("notification.newProductTitle", { seller: sellerName }, `${sellerName} ameweka bidhaa mpya`),
+        body: translateUi("notification.newProductLive", { product: product.name }, `${product.name} sasa iko live. Fungua uione kabla haijaondoka.`),
         createdAt: product.createdAt || product.timestamp || new Date().toISOString(),
         isRead: readIds.has(notificationId),
         productId: product.id,
@@ -7033,8 +7033,8 @@ function getAffinitySellerActivityNotifications() {
         userId: currentUser,
         type: "message",
         variant: "info",
-        title: `${sellerName} ameweka bidhaa mpya`,
-        body: `${primaryReason}. ${latestProduct.name} sasa ipo live.`,
+        title: translateUi("notification.newProductTitle", { seller: sellerName }, `${sellerName} ameweka bidhaa mpya`),
+        body: translateUi("notification.newProductReason", { reason: primaryReason, product: latestProduct.name }, `${primaryReason}. ${latestProduct.name} sasa ipo live.`),
         createdAt: latestProduct.createdAt || latestProduct.updatedAt || new Date().toISOString(),
         isRead: readIds.has(notificationId),
         productId: latestProduct.id,
@@ -7466,20 +7466,20 @@ function openMediaActionSheet(product, options = {}) {
 
   const copy = createElement("div", { className: "media-action-copy" });
   copy.append(
-    createElement("p", { className: "media-action-kicker eyebrow", textContent: "Quick actions" }),
+    createElement("p", { className: "media-action-kicker eyebrow", textContent: translateUi("legacy.app.1810407f5ab7", {}, "Quick actions") }),
     createElement("h3", { textContent: product.name || translateUi("common.product", {}, "Product"), attributes: { id: "media-action-title" } }),
     createElement("p", {
       className: "media-action-subtitle",
-      textContent: `${formatProductPrice(product.price)}${product.shop ? ` • ${product.shop}` : ""}`
+      textContent: translateUi("product.priceWithShop", { price: formatProductPrice(product.price), shopSuffix: product.shop ? ` • ${product.shop}` : "" }, `${formatProductPrice(product.price)}${product.shop ? ` • ${product.shop}` : ""}`)
     })
   );
 
   const actions = createElement("div", { className: "media-action-buttons" });
   [
     { action: "save", label: saved ? "Remove saved" : "Save" },
-    { action: "share", label: "Share" },
-    { action: "download", label: "Download" },
-    { action: "open", label: "Open product" }
+    { action: "share", label: translateUi("common.share", {}, "Share") },
+    { action: "download", label: translateUi("common.download", {}, "Download") },
+    { action: "open", label: translateUi("ui.label.2147b4d78f0d", {}, "Open product") }
   ].forEach((item) => {
     actions.appendChild(createElement("button", {
       className: `media-action-btn${item.action === "save" && saved ? " is-active" : ""}`,
@@ -7782,7 +7782,7 @@ function showFatalStartupState(error) {
     }),
     createElement("div", {
       className: "fatal-startup-meta-line",
-      textContent: `Error: ${message}`
+      textContent: translateUi("common.errorMessage", { message }, `Error: ${message}`)
     })
   );
 
@@ -8853,7 +8853,7 @@ function getConversationCommerceSnapshot(context = null) {
   if (!withUser) {
     return {
       stage: "conversation",
-      label: "Conversation",
+      label: translateUi("ui.label.ccca18175753", {}, "Conversation"),
       tone: "",
       productId: context?.productId || chatUiState.activeContext?.productId || "",
       productName: context?.productName || chatUiState.activeContext?.productName || ""
@@ -8884,16 +8884,16 @@ function getConversationCommerceSnapshot(context = null) {
   const latestOrder = relevantOrders[0] || null;
 
   if (latestOrder?.status === "delivered") {
-    return { stage: "completed", label: "Completed", tone: "approved", productId: anchorProductId, productName };
+    return { stage: "completed", label: translateUi("ui.label.22a970d2e5b1", {}, "Completed"), tone: "approved", productId: anchorProductId, productName };
   }
   if (latestOrder?.status === "confirmed") {
-    return { stage: "confirmed", label: "Order confirmed", tone: "approved", productId: anchorProductId, productName };
+    return { stage: "confirmed", label: translateUi("ui.label.582ee1e295c2", {}, "Order confirmed"), tone: "approved", productId: anchorProductId, productName };
   }
   if (latestOrder?.status === "paid") {
-    return { stage: "paid", label: "Payment sent", tone: "pending", productId: anchorProductId, productName };
+    return { stage: "paid", label: translateUi("ui.label.2bc4ef41a577", {}, "Payment sent"), tone: "pending", productId: anchorProductId, productName };
   }
   if (latestOrder?.status === "placed") {
-    return { stage: "pending_verification", label: "Pending verification", tone: "pending", productId: anchorProductId, productName };
+    return { stage: "pending_verification", label: translateUi("ui.label.417a6b7e1904", {}, "Pending verification"), tone: "pending", productId: anchorProductId, productName };
   }
 
   const latestInquiry = relevantMessages.find((message) =>
@@ -8902,12 +8902,12 @@ function getConversationCommerceSnapshot(context = null) {
     || (Array.isArray(message.productItems) && message.productItems.length)
   );
   if (latestInquiry) {
-    return { stage: "inquiry", label: "Product inquiry", tone: "", productId: anchorProductId, productName };
+    return { stage: "inquiry", label: translateUi("ui.label.9c69f38150e5", {}, "Product inquiry"), tone: "", productId: anchorProductId, productName };
   }
 
   return {
     stage: "conversation",
-    label: "Conversation",
+    label: translateUi("ui.label.ccca18175753", {}, "Conversation"),
     tone: "",
     productId: anchorProductId,
     productName
@@ -9223,7 +9223,7 @@ function getConversationRelationshipMemory(context = null) {
 
   if (outgoingOrders.length > 1 || outgoingCompleted > 0) {
     return {
-      label: "Repeat buyer",
+      label: translateUi("ui.label.595d5a62b127", {}, "Repeat buyer"),
       detail: outgoingCompleted > 0
         ? `${outgoingCompleted} completed order${outgoingCompleted === 1 ? "" : "s"} with you`
         : `${outgoingOrders.length} orders in this relationship`,
@@ -9243,7 +9243,7 @@ function getConversationRelationshipMemory(context = null) {
 
   if (sharedMessages.length >= 3) {
     return {
-      label: "Conversation history",
+      label: translateUi("ui.label.80c250f3db4a", {}, "Conversation history"),
       detail: `${sharedMessages.length} messages exchanged already`,
       tone: ""
     };
@@ -9447,8 +9447,8 @@ async function handleShareSellerShop(username) {
   const latestProduct = getLatestApprovedSellerProduct(username);
   if (!latestProduct) {
     showInAppNotification({
-      title: "Nothing to share yet",
-      body: `${getUserDisplayName(username)} bado hana bidhaa approved ya kushare kwa sasa.`,
+      title: translateUi("legacy.app.a2fe6e84e2a8", {}, "Nothing to share yet"),
+      body: translateUi("share.noApprovedProduct", { seller: getUserDisplayName(username) }, `${getUserDisplayName(username)} bado hana bidhaa approved ya kushare kwa sasa.`),
       variant: "warning"
     });
     return;
@@ -9463,7 +9463,7 @@ async function handleShareSellerShop(username) {
   if (navigator.share) {
     try {
       await navigator.share({
-        title: `${sellerName} on Winga`,
+        title: translateUi("share.sellerTitle", { seller: sellerName }, `${sellerName} on Winga`),
         text: shareText,
         url: shareUrl
       });
@@ -9479,7 +9479,7 @@ async function handleShareSellerShop(username) {
     await navigator.clipboard.writeText(`${shareText} | Link: ${shareUrl}`);
     showInAppNotification({
       title: translateUi("share.readyTitle", {}, "Share ready"),
-      body: `${sellerName} link ime-copy tayari kwa sharing.`,
+      body: translateUi("share.linkCopied", { name: sellerName }, `${sellerName} link ime-copy tayari kwa sharing.`),
       variant: "success"
     });
     return;
@@ -9592,7 +9592,7 @@ async function handleShareCollection(options = {}) {
   if (navigator.share) {
     try {
       await navigator.share({
-        title: `${title} on Winga`,
+        title: translateUi("share.sellerTitle", { seller: title }, `${title} on Winga`),
         text: shareText,
         url: shareUrl
       });
@@ -9608,7 +9608,7 @@ async function handleShareCollection(options = {}) {
     await navigator.clipboard.writeText(`${shareText} | Link: ${shareUrl}`);
     showInAppNotification({
       title: translateUi("share.readyTitle", {}, "Share ready"),
-      body: `${title} link ime-copy tayari kwa sharing.`,
+      body: translateUi("share.linkCopied", { name: title }, `${title} link ime-copy tayari kwa sharing.`),
       variant: "success"
     });
     return;
@@ -9899,7 +9899,7 @@ function openPromotionFromTrigger(trigger) {
   if (!product) {
     showInAppNotification({
       title: translateUi("promotion.unavailableTitle", {}, "Promotion unavailable"),
-      body: translateUi("promotion.productContextMissingBody", {}, "Product context ya promotion haikupatikana. Refresh home feed ujaribu tena."),
+      body: translateUi("promotion.productContextMissingBody", {}, translateUi("legacy.app.bfa5ff43dee0", {}, "Product context ya promotion haikupatikana. Refresh home feed ujaribu tena.")),
       variant: "warning"
     });
     return false;
@@ -9975,7 +9975,7 @@ function renderPromotionIntentModal() {
     });
     button.append(
       createElement("strong", { textContent: option.label }),
-      createElement("span", { textContent: `TSh ${formatNumber(option.amount)}` }),
+      createElement("span", { textContent: translateUi("promotion.priceOption", { amount: formatNumber(option.amount) }, `TSh ${formatNumber(option.amount)}`) }),
       createElement("small", { textContent: translateUi("promotion.durationDays", { count: option.durationDays }, `${option.durationDays} day${option.durationDays === 1 ? "" : "s"}`) })
     );
     packageGrid.appendChild(button);
@@ -10544,8 +10544,8 @@ function bindTrustReportEntryActions() {
       const latestProduct = getLatestApprovedSellerProduct(username);
       if (!latestProduct) {
         showInAppNotification({
-          title: "No live product yet",
-          body: `${getUserDisplayName(username)} bado hana approved product ya kufungua.`,
+          title: translateUi("legacy.app.efc1704c790a", {}, "No live product yet"),
+          body: translateUi("profile.noApprovedProduct", { seller: getUserDisplayName(username) }, `${getUserDisplayName(username)} bado hana approved product ya kufungua.`),
           variant: "warning"
         });
         return;
@@ -11656,20 +11656,20 @@ const DEMO_SLIDES = [
   {
     image: "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1600 700'><defs><linearGradient id='g1' x1='0' x2='1' y1='0' y2='1'><stop stop-color='%23c65a1e'/><stop offset='1' stop-color='%237a3110'/></linearGradient></defs><rect width='1600' height='700' fill='url(%23g1)'/><circle cx='1320' cy='140' r='180' fill='rgba(255,255,255,0.16)'/><circle cx='240' cy='620' r='220' fill='rgba(255,255,255,0.08)'/><text x='100' y='230' fill='white' font-size='84' font-family='Segoe UI, Arial'>WINGA Demo</text><text x='100' y='330' fill='white' font-size='46' font-family='Segoe UI, Arial'>Upload bidhaa. Pata wateja. Chat WhatsApp.</text></svg>",
     kicker: "Winga signature",
-    title: "Bidhaa zinazoongea vizuri bila kelele",
-    subtitle: "Muonekano safi, mazungumzo ya haraka, na marketplace yenye ladha ya Kariakoo."
+    title: translateUi("legacy.app.18710ce04f55", {}, "Bidhaa zinazoongea vizuri bila kelele"),
+    subtitle: translateUi("legacy.app.32b8ea289ee5", {}, "Muonekano safi, mazungumzo ya haraka, na marketplace yenye ladha ya Kariakoo.")
   },
   {
     image: "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1600 700'><defs><linearGradient id='g2' x1='0' x2='1' y1='0' y2='1'><stop stop-color='%231f1a17'/><stop offset='1' stop-color='%23c65a1e'/></linearGradient></defs><rect width='1600' height='700' fill='url(%23g2)'/><rect x='130' y='120' width='260' height='340' rx='26' fill='rgba(255,255,255,0.16)'/><rect x='430' y='160' width='290' height='290' rx='26' fill='rgba(255,255,255,0.14)'/><rect x='770' y='100' width='300' height='380' rx='26' fill='rgba(255,255,255,0.18)'/><rect x='1110' y='150' width='240' height='300' rx='26' fill='rgba(255,255,255,0.14)'/><text x='120' y='585' fill='white' font-size='78' font-family='Segoe UI, Arial'>Catalog yako inaweza kuonekana hivi</text></svg>",
     kicker: "Discovery",
-    title: "Utafutaji unaohisi wa kweli",
-    subtitle: "Search, categories na discovery sasa vinaelekea zaidi kwenye intent ya watu halisi sokoni."
+    title: translateUi("legacy.app.9f9927efa266", {}, "Utafutaji unaohisi wa kweli"),
+    subtitle: translateUi("legacy.app.9de40b0e3a22", {}, "Search, categories na discovery sasa vinaelekea zaidi kwenye intent ya watu halisi sokoni.")
   },
   {
     image: "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1600 700'><defs><linearGradient id='g3' x1='0' x2='1' y1='0' y2='1'><stop stop-color='%23f2c29b'/><stop offset='1' stop-color='%23c65a1e'/></linearGradient></defs><rect width='1600' height='700' fill='url(%23g3)'/><rect x='180' y='120' width='1240' height='430' rx='34' fill='rgba(255,255,255,0.18)'/><text x='250' y='270' fill='white' font-size='88' font-family='Segoe UI, Arial'>Ongeza picha zako mwenyewe</text><text x='250' y='370' fill='white' font-size='48' font-family='Segoe UI, Arial'>Ukisha-upload bidhaa, slideshow itaanza kutumia picha zako moja kwa moja.</text></svg>",
     kicker: "Seller spotlight",
-    title: "Picha zako zinaingia mbele kwa utulivu",
-    subtitle: "Ukisha-upload bidhaa, hero inaanza kukuonyesha kwa mwonekano wa premium na wa haraka."
+    title: translateUi("legacy.app.bc5380c7eafc", {}, "Picha zako zinaingia mbele kwa utulivu"),
+    subtitle: translateUi("legacy.app.efe8f41c3711", {}, "Ukisha-upload bidhaa, hero inaanza kukuonyesha kwa mwonekano wa premium na wa haraka.")
   }
 ];
 
@@ -14029,8 +14029,8 @@ function tryOpenPendingDeepLinkProductRoute() {
     renderCurrentView();
     suppressInitialProductHomeRender = false;
     showInAppNotification({
-      title: "Product not found",
-      body: "Bidhaa hii haipo tena au link imebadilika. Tumerudisha home salama.",
+      title: translateUi("legacy.app.388851df8554", {}, "Product not found"),
+      body: translateUi("legacy.app.96d5b7c827d3", {}, "Bidhaa hii haipo tena au link imebadilika. Tumerudisha home salama."),
       variant: "warning"
     });
     return false;
@@ -14104,8 +14104,8 @@ function openDeepLinkedProductRouteIfNeeded(options = {}) {
     renderCurrentView();
     suppressInitialProductHomeRender = false;
     showInAppNotification({
-      title: "Product not found",
-      body: "Bidhaa hii haipo tena au link imebadilika. Tumerudisha home salama.",
+      title: translateUi("legacy.app.388851df8554", {}, "Product not found"),
+      body: translateUi("legacy.app.96d5b7c827d3", {}, "Bidhaa hii haipo tena au link imebadilika. Tumerudisha home salama."),
       variant: "warning"
     });
     return false;
@@ -14490,13 +14490,13 @@ uploadCustomCategoryAddButton.addEventListener("click", async () => {
     productCategoryInput.value = createdCategory.value;
     uploadCustomCategoryInput.value = createdCategory.label;
     showInAppNotification({
-      title: "Subcategory ready",
-      body: `${createdCategory.label} imeongezwa kwenye Vitu Used.`,
+      title: translateUi("legacy.app.36f7bfa20534", {}, "Subcategory ready"),
+      body: translateUi("category.usedItemAdded", { category: createdCategory.label }, `${createdCategory.label} imeongezwa kwenye Vitu Used.`),
       variant: "success"
     });
   } catch (error) {
     showInAppNotification({
-      title: "Subcategory failed",
+      title: translateUi("legacy.app.95701993e70d", {}, "Subcategory failed"),
       body: error.message || "Imeshindikana kuongeza subcategory ya Vitu Used.",
       variant: "error"
     });
@@ -14966,7 +14966,7 @@ uploadButton.addEventListener("click", async () => {
       editingProductId: editingProductId || ""
     });
     showInAppNotification({
-      title: "Product save failed",
+      title: translateUi("legacy.app.15f0b7524329", {}, "Product save failed"),
       body: getFriendlyProductUploadErrorMessage(error),
       variant: "error"
     });
@@ -15108,7 +15108,7 @@ registerAppEvent(document, "click", (event) => {
     } else {
       showInAppNotification({
         title: translateUi("promotion.unavailableTitle", {}, "Promotion unavailable"),
-        body: "Product context ya promotion haikupatikana. Refresh home feed ujaribu tena.",
+        body: translateUi("legacy.app.bfa5ff43dee0", {}, "Product context ya promotion haikupatikana. Refresh home feed ujaribu tena."),
         variant: "warning"
       });
     }
@@ -15981,10 +15981,10 @@ async function createCustomCategory(label, options = {}) {
     ? options.topValue
     : "";
   if (!selectedTopValue || !supportsFlexibleSubcategory(selectedTopValue)) {
-    throw new Error("Category hii inatumia subcategories zilizowekwa tayari.");
+    throw new Error(translateUi("legacy.app.f5f2eeda28a2", {}, "Category hii inatumia subcategories zilizowekwa tayari."));
   }
   if (safeLabel.length < 2 || safeLabel.length > 40) {
-    throw new Error("Subcategory inapaswa kuwa kati ya herufi 2 hadi 40.");
+    throw new Error(translateUi("legacy.app.eadedc222d38", {}, "Subcategory inapaswa kuwa kati ya herufi 2 hadi 40."));
   }
   const customSlug = slugifyCategoryLabel(safeLabel);
   const maxCustomSlugLength = selectedTopValue
@@ -16001,7 +16001,7 @@ async function createCustomCategory(label, options = {}) {
   }
   const normalized = normalizeCategoryEntry({ value: safeValue, label: safeLabel, topValue: selectedTopValue });
   if (!normalized || normalized.value === "other" || normalized.label.length < 2) {
-    throw new Error("Andika category mpya iliyo sahihi.");
+    throw new Error(translateUi("legacy.app.e2fdc71f3a2f", {}, "Andika category mpya iliyo sahihi."));
   }
 
   if (currentSession?.username) {
@@ -16031,14 +16031,14 @@ function renderImageSearchPreview() {
     }
   });
   const copy = createElement("div", { className: "search-image-copy" });
-  copy.appendChild(createElement("strong", { textContent: "Image Search" }));
+  copy.appendChild(createElement("strong", { textContent: translateUi("legacy.app.b2d469b6f049", {}, "Image Search") }));
   copy.appendChild(createElement("span", { textContent: searchRuntimeState.activeImageSearch.name }));
   const clearButton = createElement("button", {
     attributes: {
       id: "clear-image-search-preview",
       type: "button"
     },
-    textContent: "Ondoa"
+    textContent: translateUi("legacy.app.5c197f6ba356", {}, "Ondoa")
   });
   pill.append(image, copy, clearButton);
   searchImagePreview.replaceChildren(pill);
@@ -16519,7 +16519,7 @@ registerAppEvent(window, "winga:offline-actions-flushed", async (event) => {
   if (flushedCount > 0) {
     applyOfflineQueueFlushHints(flushedCount, remainingCount);
     showInAppNotification({
-      title: "Offline actions synced",
+      title: translateUi("legacy.app.d6beef00db57", {}, "Offline actions synced"),
       body: remainingCount > 0
         ? `${flushedCount} action${flushedCount === 1 ? "" : "s"} zimetumwa, ${remainingCount} zinasubiri.`
         : `${flushedCount} action${flushedCount === 1 ? "" : "s"} zimetumwa vizuri.`,
@@ -16745,8 +16745,8 @@ function renderSearchDropdown(filteredProducts, options = {}) {
   const items = getSearchDropdownProducts(filteredProducts);
   if (items.length === 0) {
     const emptyState = createElement("div", { className: "search-dropdown-empty" });
-    emptyState.appendChild(createElement("strong", { textContent: "No results found" }));
-    emptyState.appendChild(createElement("span", { textContent: "Jaribu jina lingine la bidhaa au duka." }));
+    emptyState.appendChild(createElement("strong", { textContent: translateUi("legacy.app.7d7e36058609", {}, "No results found") }));
+    emptyState.appendChild(createElement("span", { textContent: translateUi("legacy.app.e75e20e08eea", {}, "Jaribu jina lingine la bidhaa au duka.") }));
     searchDropdown.replaceChildren(emptyState);
     searchDropdown.classList.add("open");
     return;
@@ -16776,7 +16776,7 @@ function renderSearchDropdown(filteredProducts, options = {}) {
     const copy = createElement("span", { className: "search-result-copy" });
     copy.appendChild(createElement("strong", { textContent: product.name }));
     copy.appendChild(createElement("span", {
-      textContent: `${product.shop}${product.category ? ` | ${getCategoryLabel(product.category)}` : ""}`
+      textContent: translateUi("product.shopWithCategory", { shop: product.shop, categorySuffix: product.category ? ` | ${getCategoryLabel(product.category)}` : "" }, `${product.shop}${product.category ? ` | ${getCategoryLabel(product.category)}` : ""}`)
     }));
     const price = createElement("span", {
       className: "search-result-price",
@@ -17026,18 +17026,18 @@ function getBehaviorShowcaseDescriptor(sectionIndex = 0, excludeIds = new Set())
 
   if (followedSellerItems.length >= 3) {
     return {
-      heading: "Following",
-      title: "New from sellers you follow",
-      subtitle: "Fresh picks from shops you chose to keep up with",
+      heading: translateUi("ui.label.344b4271ca01", {}, "Following"),
+      title: translateUi("legacy.app.03830d7752a0", {}, "New from sellers you follow"),
+      subtitle: translateUi("legacy.app.3651f3202799", {}, "Fresh picks from shops you chose to keep up with"),
       items: followedSellerItems
     };
   }
 
   if (!items.length) {
     return {
-      heading: "Marketplace Picks",
-      title: "Bidhaa kutoka maduka tofauti",
-      subtitle: "Tembea kushoto au kulia kuona zaidi",
+      heading: translateUi("ui.label.29e5c02b1c58", {}, "Marketplace Picks"),
+      title: translateUi("legacy.app.362fc3f26104", {}, "Bidhaa kutoka maduka tofauti"),
+      subtitle: translateUi("legacy.app.8b2054e6f72c", {}, "Tembea kushoto au kulia kuona zaidi"),
       items: getDiverseShowcaseProducts(12, sectionIndex * 2)
     };
   }
@@ -17048,9 +17048,9 @@ function getBehaviorShowcaseDescriptor(sectionIndex = 0, excludeIds = new Set())
       const seedProduct = getRecommendationSeed(getFilteredProducts());
       const alternateDescriptors = [
         {
-          heading: "New Products",
+          heading: translateUi("detail.newProducts", {}, "New Products"),
           title: topCategory ? `Fresh in ${getCategoryLabel(topCategory)}` : "Fresh listings from active sellers",
-          subtitle: "New stock appears as you keep scrolling.",
+          subtitle: translateUi("legacy.app.15fce315f16f", {}, "New stock appears as you keep scrolling."),
           items: getNewestProducts({
             limit: 12,
             excludeIds,
@@ -17059,9 +17059,9 @@ function getBehaviorShowcaseDescriptor(sectionIndex = 0, excludeIds = new Set())
           })
         },
         {
-          heading: "Most Searched",
+          heading: translateUi("detail.mostSearched", {}, "Most Searched"),
           title: topCategory ? `Popular in ${getCategoryLabel(topCategory)}` : "Popular products buyers search for most",
-          subtitle: "High-intent products moving through the marketplace right now.",
+          subtitle: translateUi("legacy.app.ed635bb3bd4e", {}, "High-intent products moving through the marketplace right now."),
           items: getMostSearchedProducts(seedProduct, {
             limit: 12,
             excludeIds,
@@ -17069,9 +17069,9 @@ function getBehaviorShowcaseDescriptor(sectionIndex = 0, excludeIds = new Set())
           })
         },
         {
-          heading: "Trending",
-          title: "Most viewed and most interacted products",
-          subtitle: "Marketplace momentum keeps discovery moving.",
+          heading: translateUi("ui.label.5e1a0ebc939d", {}, "Trending"),
+          title: translateUi("legacy.app.15795818c84c", {}, "Most viewed and most interacted products"),
+          subtitle: translateUi("legacy.app.0ec19d088726", {}, "Marketplace momentum keeps discovery moving."),
           items: getTrendingProducts(12, excludeIds, baseProducts)
         }
       ];
@@ -17081,17 +17081,17 @@ function getBehaviorShowcaseDescriptor(sectionIndex = 0, excludeIds = new Set())
       }
     }
     return {
-      heading: sectionIndex === 0 ? "Marketplace Picks" : "Based on Your Interest",
+      heading: sectionIndex === 0 ? translateUi("ui.label.29e5c02b1c58", {}, "Marketplace Picks") : "Based on Your Interest",
       title: topCategory ? `More in ${getCategoryLabel(topCategory)}` : "Products related to your recent activity",
-      subtitle: "Suggestions refreshed as you continue browsing",
+      subtitle: translateUi("legacy.app.06d89489fc5a", {}, "Suggestions refreshed as you continue browsing"),
       items
     };
   }
 
   return {
-    heading: sectionIndex % 2 === 0 ? "Trending" : "Marketplace Picks",
-    title: "Popular products from active sellers",
-    subtitle: "Tembea kushoto au kulia kuona zaidi",
+    heading: sectionIndex % 2 === 0 ? translateUi("ui.label.5e1a0ebc939d", {}, "Trending") : translateUi("ui.label.29e5c02b1c58", {}, "Marketplace Picks"),
+    title: translateUi("legacy.app.87be44e5decf", {}, "Popular products from active sellers"),
+    subtitle: translateUi("legacy.app.8b2054e6f72c", {}, "Tembea kushoto au kulia kuona zaidi"),
     items
   };
 }
@@ -18029,9 +18029,9 @@ function getContinuousDiscoveryDescriptor(options = {}) {
   if (shouldPreferMarketplaceStream && streamItems.length >= minimumBatchSize) {
     return {
       kind: "stream",
-      eyebrow: "Marketplace Stream",
-      title: "More products from different sellers keep loading",
-      subtitle: "As long as you keep scrolling, Winga keeps pulling more active listings into the feed.",
+      eyebrow: translateUi("ui.label.b17aee369b9a", {}, "Marketplace Stream"),
+      title: translateUi("legacy.app.2faead996123", {}, "More products from different sellers keep loading"),
+      subtitle: translateUi("legacy.app.179ae11e0dba", {}, "As long as you keep scrolling, Winga keeps pulling more active listings into the feed."),
       items: streamItemsWithVariants
     };
   }
@@ -18041,7 +18041,7 @@ function getContinuousDiscoveryDescriptor(options = {}) {
       kind: "sponsored",
       eyebrow: translateUi("detail.sponsoredPicks", {}, "Sponsored Picks"),
       title: translateUi("detail.sponsoredTitle", {}, "Promoted products you may also like"),
-      subtitle: "Paid visibility items are placed earlier so buyers notice them faster.",
+      subtitle: translateUi("legacy.app.862edc755967", {}, "Paid visibility items are placed earlier so buyers notice them faster."),
       sponsored: true,
       items: sponsoredItems
     };
@@ -18056,9 +18056,9 @@ function getContinuousDiscoveryDescriptor(options = {}) {
   if (freshNewItems.length >= minimumBatchSize || (freshNewItems.length > 0 && batchIndex === 0)) {
     return {
       kind: "fresh",
-      eyebrow: translateUi("detail.newProducts", {}, "New Products"),
+      eyebrow: translateUi("detail.newProducts", {}, translateUi("detail.newProducts", {}, "New Products")),
       title: translateUi("detail.freshListingsTitle", {}, "Fresh listings from active sellers"),
-      subtitle: "Winga keeps putting new stock in front of you first.",
+      subtitle: translateUi("legacy.app.4a9e0ed55a77", {}, "Winga keeps putting new stock in front of you first."),
       items: freshNewItems.slice(0, 8)
     };
   }
@@ -18087,9 +18087,9 @@ function getContinuousDiscoveryDescriptor(options = {}) {
   if (mostSearchedItems.length >= minimumBatchSize) {
     return {
       kind: "most-searched",
-      eyebrow: translateUi("detail.mostSearched", {}, "Most Searched"),
+      eyebrow: translateUi("detail.mostSearched", {}, translateUi("detail.mostSearched", {}, "Most Searched")),
       title: translateUi("detail.mostSearchedTitle", {}, "Popular products buyers search for most"),
-      subtitle: "High-intent products moving through the marketplace right now.",
+      subtitle: translateUi("legacy.app.ed635bb3bd4e", {}, "High-intent products moving through the marketplace right now."),
       items: mostSearchedItems
     };
   }
@@ -18098,8 +18098,8 @@ function getContinuousDiscoveryDescriptor(options = {}) {
     return {
       kind: "sponsored",
       eyebrow: translateUi("detail.sponsoredPicks", {}, "Sponsored Picks"),
-      title: "Promoted products worth a look",
-      subtitle: "Commercially boosted items selected without breaking discovery flow.",
+      title: translateUi("legacy.app.76eef4bfb6db", {}, "Promoted products worth a look"),
+      subtitle: translateUi("legacy.app.c71f8b3ee712", {}, "Commercially boosted items selected without breaking discovery flow."),
       sponsored: true,
       items: sponsoredItems
     };
@@ -18115,9 +18115,9 @@ function getContinuousDiscoveryDescriptor(options = {}) {
   if (staleViewedItems.length) {
     return {
       kind: "stale-viewed",
-      eyebrow: "Vaa Pendeza",
-      title: "Mitupio na classic za kurudi kwenye rada yako",
-      subtitle: "Picks zenye style nzuri zinazostahili kuangaliwa tena huku ukisubiri arrivals mpya.",
+      eyebrow: translateUi("ui.label.1911ff50be5f", {}, "Vaa Pendeza"),
+      title: translateUi("legacy.app.ff686cf3a0f5", {}, "Mitupio na classic za kurudi kwenye rada yako"),
+      subtitle: translateUi("legacy.app.0d657b795b8b", {}, "Picks zenye style nzuri zinazostahili kuangaliwa tena huku ukisubiri arrivals mpya."),
       items: staleViewedItems
     };
   }
@@ -18130,18 +18130,18 @@ function getContinuousDiscoveryDescriptor(options = {}) {
   if (streamItems.length) {
     return {
       kind: "stream",
-      eyebrow: "Marketplace Stream",
-      title: "More products from the market",
-      subtitle: "Winga keeps the main feed moving with active listings from different sellers.",
+      eyebrow: translateUi("ui.label.b17aee369b9a", {}, "Marketplace Stream"),
+      title: translateUi("legacy.app.53acf28a6b62", {}, "More products from the market"),
+      subtitle: translateUi("legacy.app.bdd1772bb845", {}, "Winga keeps the main feed moving with active listings from different sellers."),
       items: streamItemsWithVariants.slice(0, streamItems.length + HOME_VARIANT_MAX_PER_BATCH)
     };
   }
   if (fallbackItems.length) {
     return {
       kind: "trending-fallback",
-      eyebrow: "Marketplace Picks",
-      title: "More products from the market",
-      subtitle: "Winga keeps discovery alive even when fresh stock is limited.",
+      eyebrow: translateUi("ui.label.29e5c02b1c58", {}, "Marketplace Picks"),
+      title: translateUi("legacy.app.53acf28a6b62", {}, "More products from the market"),
+      subtitle: translateUi("legacy.app.437987c70e48", {}, "Winga keeps discovery alive even when fresh stock is limited."),
       items: fallbackItems
     };
   }
@@ -18172,8 +18172,8 @@ function getContinuousDiscoveryDescriptor(options = {}) {
         kind: "stream",
         source: "recycled-discovery",
         eyebrow: translateUi("detail.keepExploring", {}, "Keep Exploring"),
-        title: "More market picks keep coming",
-        subtitle: "Winga keeps discovery moving with fresh angles from active listings.",
+        title: translateUi("legacy.app.18d51d0e27f5", {}, "More market picks keep coming"),
+        subtitle: translateUi("legacy.app.45130a822ad3", {}, "Winga keeps discovery moving with fresh angles from active listings."),
         items: recycledItemsWithVariants
       };
     }
@@ -19114,8 +19114,8 @@ function buildTrendingKariakooSlide() {
   return {
     image: getMarketplacePrimaryImage(lead, { allowOwnerVisibility: true }),
     kicker: "Trending Kariakoo",
-    title: "Bidhaa zinazovuma Kariakoo leo",
-    subtitle: "Picks zenye movement kubwa zaidi kwenye views, requests na mazungumzo ya sasa.",
+    title: translateUi("legacy.app.4ab7075d6b8c", {}, "Bidhaa zinazovuma Kariakoo leo"),
+    subtitle: translateUi("legacy.app.a629e6a91355", {}, "Picks zenye movement kubwa zaidi kwenye views, requests na mazungumzo ya sasa."),
     highlights: trending.slice(0, 4).map((item) => `${item.name} · ${formatProductPrice(item.price)}`)
   };
 }
@@ -19158,19 +19158,19 @@ function getSellerPromotionStatusMeta(product) {
       ? Math.max(0, Math.ceil((endTime - Date.now()) / (24 * 60 * 60 * 1000)))
       : 0;
     return {
-      label: "Active",
+      label: translateUi("common.active", {}, "Active"),
       className: "approved",
       detail: daysLeft > 0 ? `${daysLeft} day${daysLeft === 1 ? "" : "s"} left` : "Ends today"
     };
   }
   if (status === "pending") {
-    return { label: "Pending", className: "pending", detail: "Waiting for admin" };
+    return { label: translateUi("common.pending", {}, "Pending"), className: "pending", detail: "Waiting for admin" };
   }
   if (status === "rejected") {
-    return { label: "Rejected", className: "rejected", detail: "Needs a new request" };
+    return { label: translateUi("ui.label.aea4a04a8042", {}, "Rejected"), className: "rejected", detail: "Needs a new request" };
   }
   if (status === "expired") {
-    return { label: "Expired", className: "pending", detail: "Promotion ended" };
+    return { label: translateUi("ui.label.424a2551d356", {}, "Expired"), className: "pending", detail: "Promotion ended" };
   }
   return null;
 }
@@ -20129,7 +20129,7 @@ function deleteProduct(productId) {
         productId
       });
       showInAppNotification({
-        title: "Product deleted",
+        title: translateUi("legacy.app.83d34c3fdc8d", {}, "Product deleted"),
         body: `"${product.name}" imeondolewa kwenye catalog yako.`,
         variant: "success"
       });
@@ -20140,7 +20140,7 @@ function deleteProduct(productId) {
         productId
       });
       showInAppNotification({
-        title: "Delete failed",
+        title: translateUi("legacy.app.8727e2ba364c", {}, "Delete failed"),
         body: error.message || "Imeshindikana kufuta bidhaa.",
         variant: "error"
       });
@@ -20247,11 +20247,11 @@ function showWelcomePopup() {
   const popupShell = createElement("div", { className: "welcome-shell" });
   const welcomeName = getCurrentUserDisplayName();
   popupShell.append(
-    createElement("p", { className: "welcome-kicker eyebrow", textContent: "Karibu tena" }),
+    createElement("p", { className: "welcome-kicker eyebrow", textContent: translateUi("legacy.app.f7dcfce95923", {}, "Karibu tena") }),
     createElement("p", { className: "welcome-user", textContent: welcomeName }),
     createElement("h2", { textContent: "WINGA" }),
-    createElement("p", { className: "welcome-tagline", textContent: "Bidhaa halisi. Maongezi ya haraka. Muonekano wa uhakika." }),
-    createElement("p", { className: "welcome-note", textContent: "Karibu sokoni kwa utulivu na pace ya Kariakoo." })
+    createElement("p", { className: "welcome-tagline", textContent: translateUi("legacy.app.079d0afbeeb1", {}, "Bidhaa halisi. Maongezi ya haraka. Muonekano wa uhakika.") }),
+    createElement("p", { className: "welcome-note", textContent: translateUi("legacy.app.4f1aaff965c6", {}, "Karibu sokoni kwa utulivu na pace ya Kariakoo.") })
   );
   popup.appendChild(popupShell);
   document.body.appendChild(popup);
@@ -20455,8 +20455,8 @@ function getPreferredSellerShopName() {
 async function repostProductAsSeller(sourceProduct) {
   if (!canRepostProductAsSeller(sourceProduct)) {
     showInAppNotification({
-      title: "Repost unavailable",
-      body: "Bidhaa hii haiwezi kurepostiwa kwa akaunti yako sasa hivi.",
+      title: translateUi("legacy.app.c1e00803fb34", {}, "Repost unavailable"),
+      body: translateUi("legacy.app.adecdaf16f7b", {}, "Bidhaa hii haiwezi kurepostiwa kwa akaunti yako sasa hivi."),
       variant: "warning"
     });
     return;
@@ -20477,7 +20477,7 @@ async function repostProductAsSeller(sourceProduct) {
   const normalizedPrice = Number(String(nextPriceInput || "").replace(/,/g, "").trim());
   if (!Number.isFinite(normalizedPrice) || normalizedPrice < 500 || normalizedPrice > 1000000000) {
     showInAppNotification({
-      title: "Bei si sahihi",
+      title: translateUi("legacy.app.1490cf1981dc", {}, "Bei si sahihi"),
       body: translateUi("product.priceInvalid", {}, "Enter a valid price from TSh 500."),
       variant: "warning"
     });
@@ -20489,8 +20489,8 @@ async function repostProductAsSeller(sourceProduct) {
     : [sourceProduct.image].filter(Boolean);
   if (!sourceImages.length) {
     showInAppNotification({
-      title: "Repost failed",
-      body: "Bidhaa hii haina picha salama za kuunda repost mpya.",
+      title: translateUi("legacy.app.677902418889", {}, "Repost failed"),
+      body: translateUi("legacy.app.5e4364396db6", {}, "Bidhaa hii haina picha salama za kuunda repost mpya."),
       variant: "error"
     });
     return;
@@ -20546,7 +20546,7 @@ async function repostProductAsSeller(sourceProduct) {
       originalSellerId: repostPayload.originalSellerId
     });
     showInAppNotification({
-      title: "Product reposted",
+      title: translateUi("legacy.app.534dab8869f7", {}, "Product reposted"),
       body: `"${sourceProduct.name}" imeongezwa kwenye listings zako kwa bei mpya.`,
       variant: "success"
     });
@@ -20555,7 +20555,7 @@ async function repostProductAsSeller(sourceProduct) {
       sourceProductId: sourceProduct.id
     });
     showInAppNotification({
-      title: "Repost failed",
+      title: translateUi("legacy.app.677902418889", {}, "Repost failed"),
       body: error.message || "Imeshindikana kuunda repost ya bidhaa hii.",
       variant: "error"
     });

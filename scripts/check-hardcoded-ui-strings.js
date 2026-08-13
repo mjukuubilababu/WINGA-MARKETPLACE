@@ -5,7 +5,7 @@ const root = path.join(__dirname, "..");
 const baselinePath = path.join(__dirname, "hardcoded-ui-baseline.json");
 const scanRoots = ["app.js", "src/admin", "src/auth", "src/categories", "src/chat", "src/marketplace", "src/navigation", "src/notifications", "src/product-detail", "src/products", "src/profile", "src/requests", "src/reviews"];
 const patterns = [
-  ["property", /\b(?:title|subtitle|body|textContent|placeholder)\s*:\s*(["'`])([^"'`]+)\1/g],
+  ["property", /\b(?:title|subtitle|heading|eyebrow|label|helpText|body|textContent|placeholder)\s*:\s*(["'`])([^"'`]+)\1/g],
   ["accessible-name", /["'](?:aria-label|title)["']\s*:\s*(["'`])([^"'`]+)\1/g],
   ["dom-assignment", /\.textContent\s*=\s*(["'`])([^"'`]+)\1/g],
   ["confirmation", /\b(?:confirm|confirmAction)\s*\(\s*(["'`])([^"'`]+)\1/g],

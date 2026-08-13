@@ -495,7 +495,7 @@
         attributes: { id: "profile-request-box-panel" }
       });
       section.appendChild(deps.createSectionHeading({
-        eyebrow: "My Requests",
+        eyebrow: t("ui.label.fb26df3279cc", "My Requests"),
         title: t("requests.sectionTitle", "Selected items to send to sellers"),
         meta: `${totalItems} item${totalItems === 1 ? "" : "s"} | ${groups.length} seller${groups.length === 1 ? "" : "s"}`
       }));

@@ -136,7 +136,7 @@
         }
       });
       section.appendChild(deps.createSectionHeading({
-        eyebrow: "Admin",
+        eyebrow: t("ui.label.c1c224b03cd9", "Admin"),
         title,
         meta
       }));
@@ -166,7 +166,7 @@
       const row = deps.createElement("div", { className: "section-heading" });
       const copy = deps.createElement("div");
       copy.append(
-        deps.createElement("p", { className: "eyebrow", textContent: t("admin.eyebrow", "Admin") }),
+        deps.createElement("p", { className: "eyebrow", textContent: t("admin.eyebrow", t("ui.label.c1c224b03cd9", "Admin")) }),
         deps.createElement("h3", { textContent: t("admin.consoleTitle", "Admin Console") }),
         deps.createElement("p", {
           className: "meta-copy",
@@ -1303,7 +1303,7 @@
       const heading = deps.createElement("div", { className: "section-heading" });
       const copy = deps.createElement("div");
       copy.append(
-        deps.createElement("p", { className: "eyebrow", textContent: t("admin.eyebrow", "Admin") }),
+        deps.createElement("p", { className: "eyebrow", textContent: t("admin.eyebrow", t("ui.label.c1c224b03cd9", "Admin")) }),
         deps.createElement("h3", { textContent: t("admin.systemSettingsTitle", "System Settings") }),
         deps.createElement("p", {
           className: "meta-copy",
@@ -1817,9 +1817,9 @@
         }
       });
       [
-        { value: "balanced", label: "Balanced" },
-        { value: "cache-first", label: "Cache first" },
-        { value: "network-first", label: "Network first" }
+        { value: "balanced", label: t("ui.label.5386ea5db81c", "Balanced") },
+        { value: "cache-first", label: t("ui.label.5572b20ec42a", "Cache first") },
+        { value: "network-first", label: t("ui.label.7c19abb4fcd3", "Network first") }
       ].forEach((option) => {
         const opt = deps.createElement("option", {
           attributes: {

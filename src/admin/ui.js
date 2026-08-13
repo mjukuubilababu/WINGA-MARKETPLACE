@@ -1,5 +1,6 @@
 (() => {
   function createAdminUiModule(deps) {
+    const t = (key, fallbackText = "", variables = {}) => deps.translate?.(key, variables, fallbackText) || fallbackText;
     function createAnalyticsCard(label, value) {
       const card = deps.createElement("div", { className: "analytics-card" });
       card.append(
@@ -26,7 +27,7 @@
 
       const nodes = [
         deps.createSectionHeading({
-          eyebrow: "Analytics",
+          eyebrow: t("ui.label.94c116ee118a", "Analytics"),
           title: heading || "",
           meta: subtitle || ""
         })
