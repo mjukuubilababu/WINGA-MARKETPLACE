@@ -1801,6 +1801,7 @@ test("production builds expose one verifiable app version", () => {
   const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
   const buildSource = fs.readFileSync(path.join(root, "scripts", "build-vercel-static.js"), "utf8");
   const verifySource = fs.readFileSync(path.join(root, "scripts", "verify-production-shell.js"), "utf8");
+  const workerSource = fs.readFileSync(path.join(root, "worker.js"), "utf8");
 
   assert.match(appSource, /window\.WINGA_BUILD_VERSION = APP_BOOT_BUILD_VERSION/);
   assert.match(appSource, /data-winga-build-version/);
@@ -1811,6 +1812,10 @@ test("production builds expose one verifiable app version", () => {
   assert.match(verifySource, /extractBuildVersionFromHtml/);
   assert.match(verifySource, /extractServiceWorkerVersion/);
   assert.match(verifySource, /Production build versions do not match/);
+  assert.match(workerSource, /url\.pathname === "\/build-version\.json"/);
+  assert.match(workerSource, /normalizedPath === "\/index\.html"/);
+  assert.match(workerSource, /source: "worker-deployment-binding"/);
+  assert.match(workerSource, /const configuredVersion = getConfiguredBuildVersion\(env\);\s+if \(configuredVersion\)/);
 });
 
 test("backend intelligence platform normalizes canonical marketplace events", async () => {

@@ -23,6 +23,10 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
+if (url.pathname === "/build-version.json") {
+      return buildVersionManifestResponse(env);
+    }
+
     if (isAppShellRoute(url.pathname)) {
       return streamFeedPage(request, env, ctx);
     }
@@ -63,6 +67,7 @@ export default {
 function isAppShellRoute(pathname = "/") {
   const normalizedPath = String(pathname || "/").trim();
   return normalizedPath === "/"
+    || normalizedPath === "/index.html"
     || normalizedPath === "/feed"
     || /^\/product\/[^/]+\/?$/i.test(normalizedPath);
 }
@@ -235,7 +240,28 @@ function createCspNonce() {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
+function getConfiguredBuildVersion(env) {
+  const configuredVersion = String(env?.BUILD_VERSION || env?.WINGA_BUILD_VERSION || "").trim();
+  return /^\d{14}$/.test(configuredVersion) ? configuredVersion : "";
+}
+
+function buildVersionManifestResponse(env) {
+  const version = getConfiguredBuildVersion(env) || cachedAssetBuildVersion;
+  return new Response(JSON.stringify({ version, source: "worker-deployment-binding" }, null, 2), {
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff"
+    }
+  });
+}
+
 async function resolveAssetBuildVersion(env) {
+  const configuredVersion = getConfiguredBuildVersion(env);
+  if (configuredVersion) {
+    cachedAssetBuildVersion = configuredVersion;
+    return cachedAssetBuildVersion;
+  }
   if (env?.ASSETS?.fetch) {
     try {
       const response = await env.ASSETS.fetch(new Request("https://wingamarket.com/build-version.json"));
@@ -248,10 +274,6 @@ async function resolveAssetBuildVersion(env) {
     } catch (_error) {
       // Fall through to the deployment binding when the asset manifest is unavailable.
     }
-  }
-  const configuredVersion = String(env?.BUILD_VERSION || env?.WINGA_BUILD_VERSION || "").trim();
-  if (/^\d{14}$/.test(configuredVersion)) {
-    cachedAssetBuildVersion = configuredVersion;
   }
   return cachedAssetBuildVersion;
 }
