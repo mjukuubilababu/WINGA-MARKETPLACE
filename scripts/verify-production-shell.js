@@ -188,7 +188,7 @@ function assertBuildVersionJson(route, bodyText, headers) {
   if (!payload?.version || !/^\d{14}$/.test(String(payload.version))) {
     throw new Error(`${route} is missing a concrete version.`);
   }
-  if (payload.source !== "build-vercel-static") {
+  if (!["build-vercel-static", "worker-deployment-binding"].includes(payload.source)) {
     throw new Error(`${route} has an unexpected source marker.`);
   }
 }

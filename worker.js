@@ -24,7 +24,7 @@ export default {
     const url = new URL(request.url);
 
 if (url.pathname === "/build-version.json") {
-      return buildVersionManifestResponse(env);
+      return hardenResponseHeaders(buildVersionManifestResponse(env), env);
     }
 
     if (isAppShellRoute(url.pathname)) {
