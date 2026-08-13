@@ -1802,6 +1802,7 @@ test("production builds expose one verifiable app version", () => {
   const buildSource = fs.readFileSync(path.join(root, "scripts", "build-vercel-static.js"), "utf8");
   const verifySource = fs.readFileSync(path.join(root, "scripts", "verify-production-shell.js"), "utf8");
   const workerSource = fs.readFileSync(path.join(root, "worker.js"), "utf8");
+  const workerConfigSource = fs.readFileSync(path.join(root, "wrangler.toml"), "utf8");
 
   assert.match(appSource, /window\.WINGA_BUILD_VERSION = APP_BOOT_BUILD_VERSION/);
   assert.match(appSource, /data-winga-build-version/);
@@ -1813,6 +1814,7 @@ test("production builds expose one verifiable app version", () => {
   assert.match(verifySource, /extractServiceWorkerVersion/);
   assert.match(verifySource, /Production build versions do not match/);
   assert.match(workerSource, /url\.pathname === "\/build-version\.json"/);
+  assert.match(workerConfigSource, /run_worker_first = \[[^\]]*"\/index\.html"[^\]]*"\/build-version\.json"/);
   assert.match(workerSource, /normalizedPath === "\/index\.html"/);
   assert.match(workerSource, /source: "worker-deployment-binding"/);
   assert.match(workerSource, /const configuredVersion = getConfiguredBuildVersion\(env\);\s+if \(configuredVersion\)/);
@@ -2218,7 +2220,7 @@ test("production frontend routes same-domain API requests to the backend origin"
   assert.match(apiProxySource, /MAX_PROXY_BODY_BYTES = 20 \* 1024 \* 1024/);
   assert.match(apiProxySource, /HOP_BY_HOP_HEADERS/);
   assert.match(apiProxySource, /headers\["x-winga-proxy"\] = "vercel-api"/);
-  assert.match(wranglerSource, /run_worker_first = \["\/", "\/feed", "\/product\/\*", "\/api\/\*", "\/uploads\/\*"\]/);
+  assert.match(wranglerSource, /run_worker_first = \["\/", "\/index\.html", "\/build-version\.json", "\/feed", "\/product\/\*", "\/api\/\*", "\/uploads\/\*"\]/);
   assert.match(workerSource, /function isAppShellRoute\(pathname = "\/"\)/);
 });
 
