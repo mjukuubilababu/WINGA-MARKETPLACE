@@ -1148,6 +1148,7 @@ async function dispatchPaymentRefund(job) {
     orderId: job.orderId,
     paymentId: job.paymentId,
     transactionReference: job.transactionReference || "",
+    providerTransactionId: job.requestPayload?.providerTransactionId || "",
     paymentProvider: job.paymentProvider || "",
     amount: Number(job.amount || 0)
   });

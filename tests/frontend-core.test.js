@@ -3523,6 +3523,29 @@ test("localized product detail preserves continuation, gallery, demand, and revi
   assert.match(appSource, /createProductDetailControllerModule\(\{[\s\S]*?translate: translateUi/);
 });
 
+test("payment refund adapter preserves signed durable provider orchestration", () => {
+  const root = path.resolve(__dirname, "..");
+  const source = fs.readFileSync(path.join(root, "cloudflare", "payment-refund-adapter.js"), "utf8");
+  const config = fs.readFileSync(path.join(root, "wrangler.payment-refund.jsonc"), "utf8");
+  const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+
+  assert.match(source, /class RefundCoordinator extends DurableObject/);
+  assert.match(source, /env\.REFUND_COORDINATOR\.idFromName\(payload\.idempotencyKey\)/);
+  assert.match(source, /X-Winga-Refund-Signature/);
+  assert.match(source, /flutterwave-signature/);
+  assert.match(source, /verifyHmacHex/);
+  assert.match(source, /verifyHmacBase64/);
+  assert.match(source, /timingSafeEqual/);
+  assert.match(source, /MAX_BODY_BYTES = 32 \* 1024/);
+  assert.match(source, /setAlarm\(Date\.now\(\) \+ POLL_INTERVAL_MS\)/);
+  assert.match(source, /status: uncertain \? "submission_unknown" : "retryable"/);
+  assert.match(source, /base \+ "\/transactions\/"/);
+  assert.match(source, /base \+ "\/refunds\/"/);
+  assert.match(config, /"name": "winga-payment-refund-adapter"/);
+  assert.match(config, /"name": "REFUND_COORDINATOR"/);
+  assert.match(config, /"new_sqlite_classes": \["RefundCoordinator"\]/);
+  assert.equal(packageJson.scripts["deploy:worker:payment-refund"], "npx wrangler deploy --config wrangler.payment-refund.jsonc");
+});
 (async () => {
   let passed = 0;
   for (const entry of tests) {

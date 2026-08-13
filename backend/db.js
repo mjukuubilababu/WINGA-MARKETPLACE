@@ -2891,7 +2891,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
         `SELECT prc.id, prc.order_id AS "orderId", prc.payment_id AS "paymentId",
                 prc.transaction_reference AS "transactionReference", prc.amount::float8 AS amount,
                 prc.status, prc.row_version AS "rowVersion",
-                COALESCE(pay.payment_provider, '') AS "paymentProvider"
+                COALESCE(pay.payment_provider, '') AS "paymentProvider",
+                pay.raw_gateway_response AS "rawGatewayResponse"
          FROM payment_reconciliation_cases prc
          LEFT JOIN payments pay ON pay.id = prc.payment_id
          WHERE prc.id = $1 FOR UPDATE OF prc`,
@@ -2940,12 +2941,27 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
       let refundRequestId = "";
       if (transition.status === "refund_pending") {
         refundRequestId = `refund:${current.id}`;
+        const rawGatewayResponse = parseJson(current.rawGatewayResponse, {});
+        const providerTransactionId = String(
+          rawGatewayResponse?.charge_id
+          || rawGatewayResponse?.chargeId
+          || rawGatewayResponse?.transaction_id
+          || rawGatewayResponse?.transactionId
+          || rawGatewayResponse?.data?.charge_id
+          || rawGatewayResponse?.data?.chargeId
+          || rawGatewayResponse?.data?.transaction_id
+          || rawGatewayResponse?.data?.transactionId
+          || rawGatewayResponse?.data?.id
+          || rawGatewayResponse?.id
+          || ""
+        ).trim().slice(0, 160);
         const requestPayload = {
           schemaVersion: 1,
           reconciliationCaseId: current.id,
           orderId: current.orderId,
           paymentId: current.paymentId,
           transactionReference: current.transactionReference || "",
+          providerTransactionId,
           paymentProvider: current.paymentProvider || "",
           amount: Number(current.amount || 0)
         };

@@ -15,6 +15,7 @@
     "deploy:worker:intelligence": "npx wrangler deploy --config wrangler.intelligence.toml",
     "deploy:worker:session-security": "npx wrangler deploy --config wrangler.session-security.toml",
     "deploy:worker:account-recovery": "npx wrangler deploy --config wrangler.account-recovery.toml",
+    "deploy:worker:payment-refund": "npx wrangler deploy --config wrangler.payment-refund.jsonc",
     "verify:frontend-worker-routing": "node scripts/verify-domain-routing.js --runtime=worker",
     "monitor:intelligence": "node scripts/check-intelligence-health.js",
     "ops:intelligence:list": "node scripts/intelligence-ops.js list",

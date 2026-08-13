@@ -1,0 +1,40 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "winga-payment-refund-adapter",
+  "main": "./cloudflare/payment-refund-adapter.js",
+  "compatibility_date": "2026-08-13",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "vars": {
+    "ADAPTER_PUBLIC_URL": "https://winga-payment-refund-adapter.willardmmbando.workers.dev",
+    "WINGA_REFUND_CALLBACK_URL": "https://winga-pflp.onrender.com/api/payments/refunds/webhook",
+    "FLUTTERWAVE_API_BASE_URL": "https://api.flutterwave.com/v3"
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "REFUND_COORDINATOR",
+        "class_name": "RefundCoordinator"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["RefundCoordinator"]
+    }
+  ],
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 0.1,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 0.1,
+      "invocation_logs": true
+    },
+    "traces": {
+      "enabled": true,
+      "head_sampling_rate": 0.05
+    }
+  }
+}

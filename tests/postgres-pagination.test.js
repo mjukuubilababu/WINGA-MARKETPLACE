@@ -2114,7 +2114,8 @@ test("PostgreSQL refund request atomically creates an idempotent provider outbox
       if (sql.includes("FROM payment_reconciliation_cases prc") && sql.includes("FOR UPDATE OF prc")) {
         return { rows: [{
           id: "late_payment:pay-1", orderId: "order-1", paymentId: "pay-1",
-          transactionReference: "TX-1", amount: 25000, paymentProvider: "mpesa",
+          transactionReference: "TX-1", amount: 25000, paymentProvider: "flutterwave",
+          rawGatewayResponse: { data: { id: 88442211 } },
           status: "in_review", rowVersion: 7
         }], rowCount: 1 };
       }
@@ -2145,6 +2146,7 @@ test("PostgreSQL refund request atomically creates an idempotent provider outbox
   assert.ok(outboxCall);
   assert.match(outboxCall.text, /ON CONFLICT \(idempotency_key\) DO NOTHING/);
   assert.equal(outboxCall.params[7], "refund:late_payment:pay-1");
+  assert.equal(JSON.parse(outboxCall.params[8]).providerTransactionId, "88442211");
   assert.equal(calls.at(-1).text, "COMMIT");
 });
 
