@@ -9265,6 +9265,105 @@ http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === "GET" && url.pathname === "/api/admin/payment-reconciliations") {
+      const session = findSession(store, readAuthToken(req));
+      if (!session) {
+        await denyJson(res, 401, "Session imeisha au si sahihi.", {
+          ip: clientIp, method: req.method, path: url.pathname,
+          event: "payment_reconciliation_list_denied", reason: "missing_or_invalid_session"
+        });
+        return;
+      }
+      if (!isAdminSession(session)) {
+        await denyJson(res, 403, "Hii area ni ya admin tu.", {
+          ip: clientIp, method: req.method, path: url.pathname,
+          event: "payment_reconciliation_list_denied", username: session.username,
+          reason: "insufficient_role"
+        });
+        return;
+      }
+      if (!postgresStore?.readPaymentReconciliationPage) {
+        sendJson(res, 503, { error: "Payment reconciliation store haipatikani.", code: "reconciliation_store_unavailable" });
+        return;
+      }
+      const status = sanitizePlainText(url.searchParams.get("status") || "", 40).toLowerCase();
+      const allowedStatuses = ["", "open", "in_review", "refund_pending", "resolved", "rejected"];
+      if (!allowedStatuses.includes(status)) {
+        sendJson(res, 400, { error: "Reconciliation status si sahihi." });
+        return;
+      }
+      const page = await postgresStore.readPaymentReconciliationPage({
+        status,
+        cursor: url.searchParams.get("cursor") || "",
+        limit: url.searchParams.get("limit") || 25
+      });
+      sendJson(res, 200, page);
+      return;
+    }
+
+    if (req.method === "PATCH" && /^\/api\/admin\/payment-reconciliations\/[^/]+$/.test(url.pathname)) {
+      const session = findSession(store, readAuthToken(req));
+      if (!session) {
+        await denyJson(res, 401, "Session imeisha au si sahihi.", {
+          ip: clientIp, method: req.method, path: url.pathname,
+          event: "payment_reconciliation_update_denied", reason: "missing_or_invalid_session"
+        });
+        return;
+      }
+      if (!isAdminSession(session)) {
+        await denyJson(res, 403, "Hii area ni ya admin tu.", {
+          ip: clientIp, method: req.method, path: url.pathname,
+          event: "payment_reconciliation_update_denied", username: session.username,
+          reason: "insufficient_role"
+        });
+        return;
+      }
+      if (!postgresStore?.transitionPaymentReconciliationCase) {
+        sendJson(res, 503, { error: "Payment reconciliation store haipatikani.", code: "reconciliation_store_unavailable" });
+        return;
+      }
+      const caseId = sanitizePlainText(decodeURIComponent(url.pathname.split("/")[4] || ""), 120);
+      const payload = await collectBody(req);
+      const action = sanitizePlainText(payload?.action || "", 40).toLowerCase();
+      const note = sanitizePlainText(payload?.note || "", 500);
+      const outcome = sanitizePlainText(payload?.outcome || "", 60).toLowerCase();
+      const expectedVersion = Number.parseInt(payload?.expectedVersion, 10);
+      const transitions = {
+        start_review: "in_review",
+        request_refund: "refund_pending",
+        resolve: "resolved",
+        reject: "rejected"
+      };
+      const nextStatus = transitions[action] || "";
+      const allowedOutcomes = ["", "refunded", "manual_adjustment", "no_action", "duplicate_callback"];
+      if (!caseId || !nextStatus || !note || !Number.isFinite(expectedVersion) || expectedVersion < 1
+        || !allowedOutcomes.includes(outcome) || (action === "resolve" && !outcome)) {
+        sendJson(res, 400, { error: "Payment reconciliation action si sahihi." });
+        return;
+      }
+      const result = await postgresStore.transitionPaymentReconciliationCase(caseId, {
+        status: nextStatus,
+        actor: session.username,
+        expectedVersion,
+        resolution: { action, outcome, note }
+      });
+      if (!result.updated) {
+        const conflict = ["reconciliation_version_conflict", "reconciliation_state_conflict"].includes(result.code);
+        sendJson(res, conflict ? 409 : 404, {
+          error: conflict ? "Reconciliation case imebadilika; refresh kabla ya kuendelea." : "Reconciliation case haijapatikana.",
+          code: result.code,
+          currentVersion: result.currentVersion || 0
+        });
+        return;
+      }
+      await appendAuditLog({
+        time: new Date().toISOString(), ip: clientIp, method: req.method, path: url.pathname,
+        event: "payment_reconciliation_updated", username: session.username,
+        caseId, action, outcome, nextStatus, expectedVersion
+      });
+      sendJson(res, 200, result.item);
+      return;
+    }
     if (req.method === "PATCH" && /^\/api\/admin\/reports\/[^/]+$/.test(url.pathname)) {
       const token = readAuthToken(req);
       const session = findSession(store, token);

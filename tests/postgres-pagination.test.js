@@ -673,13 +673,92 @@ test("PostgreSQL late payment after cancellation is retained for reconciliation 
   assert.equal(result.updated, false);
   assert.equal(result.reconciliationRequired, true);
   assert.equal(result.code, "late_payment_requires_reconciliation");
-  assert.match(calls[3].text, /raw_gateway_response/);
-  assert.match(calls[4].text, /payment_intent_status = 'reconciliation_required'/);
+  assert.match(calls[3].text, /INSERT INTO payment_reconciliation_cases/);
+  assert.match(calls[4].text, /raw_gateway_response/);
+  assert.match(calls[5].text, /payment_intent_status = 'reconciliation_required'/);
   assert.equal(calls.some((call) => /SET payment_status = \$2/.test(call.text)), false);
   assert.equal(calls.some((call) => call.text.includes("UPDATE products")), false);
   assert.equal(calls.at(-1).text, "COMMIT");
 });
 
+test("PostgreSQL payment reconciliation listing is cursor bounded and returns normalized cases", async () => {
+  const rows = [1, 2, 3].map((index) => ({
+    id: `case-${index}`,
+    orderId: `order-${index}`,
+    paymentId: `payment-${index}`,
+    status: "open",
+    amount: "1200.50",
+    evidence: { callbackCount: index },
+    resolution: {},
+    updatedAt: new Date(`2026-08-13T12:0${4 - index}:00.000Z`),
+    createdAt: new Date("2026-08-13T11:00:00.000Z"),
+    rowVersion: "1"
+  }));
+  const calls = [];
+  const store = createPostgresStore({
+    databaseUrl: "postgres://test.invalid/winga",
+    queryClient: {
+      async query(text, params = []) {
+        calls.push({ text: String(text), params });
+        return { rows, rowCount: rows.length };
+      }
+    }
+  });
+
+  const page = await store.readPaymentReconciliationPage({ status: "open", limit: 2 });
+
+  assert.equal(page.items.length, 2);
+  assert.equal(page.hasMore, true);
+  assert.equal(page.items[0].amount, 1200.5);
+  assert.equal(page.items[0].rowVersion, 1);
+  assert.equal(page.nextCursor, "2026-08-13T12:02:00.000Z|case-2");
+  assert.match(calls[0].text, /ORDER BY updated_at DESC, id DESC/);
+  assert.deepEqual(calls[0].params, ["open", 3]);
+});
+
+test("PostgreSQL payment reconciliation transition locks the case and enforces row version", async () => {
+  const calls = [];
+  const client = {
+    async query(text, params = []) {
+      const sql = String(text);
+      calls.push({ text: sql, params });
+      if (sql.includes("FROM payment_reconciliation_cases") && sql.includes("FOR UPDATE")) {
+        return { rows: [{ id: "late_payment:pay-1", status: "open", rowVersion: 4 }], rowCount: 1 };
+      }
+      if (sql.includes("UPDATE payment_reconciliation_cases")) {
+        return {
+          rows: [{
+            id: "late_payment:pay-1", orderId: "order-1", paymentId: "pay-1",
+            status: "in_review", assignedTo: "admin", resolution: { note: "Reviewing" },
+            resolvedBy: "", resolvedAt: null, updatedAt: new Date("2026-08-13T12:00:00.000Z"), rowVersion: 5
+          }],
+          rowCount: 1
+        };
+      }
+      return { rows: [], rowCount: 0 };
+    },
+    release() {}
+  };
+  const store = createPostgresStore({
+    databaseUrl: "postgres://test.invalid/winga",
+    queryClient: { query: client.query.bind(client), connect: async () => client }
+  });
+
+  const conflict = await store.transitionPaymentReconciliationCase("late_payment:pay-1", {
+    status: "in_review", actor: "admin", expectedVersion: 3, resolution: { note: "Reviewing" }
+  });
+  assert.equal(conflict.code, "reconciliation_version_conflict");
+  assert.equal(calls.some((call) => call.text.includes("UPDATE payment_reconciliation_cases")), false);
+
+  calls.length = 0;
+  const updated = await store.transitionPaymentReconciliationCase("late_payment:pay-1", {
+    status: "in_review", actor: "admin", expectedVersion: 4, resolution: { note: "Reviewing" }
+  });
+  assert.equal(updated.updated, true);
+  assert.equal(updated.item.rowVersion, 5);
+  assert.match(calls[2].text, /row_version = row_version \+ 1/);
+  assert.equal(calls.at(-1).text, "COMMIT");
+});
 test("PostgreSQL reservation expiry is idempotent when no stale reservations remain", async () => {
   const calls = [];
   const client = {

@@ -1446,6 +1446,27 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       return Array.isArray(data) ? data : [];
     }
 
+    async function loadPaymentReconciliations(filters = {}) {
+      requireFetcher();
+      const suffix = buildQuery(filters, ["status", "cursor", "limit"]);
+      const data = await fetchJson(`${baseUrl}/admin/payment-reconciliations${suffix}`, {
+        headers: authHeaders()
+      });
+      return {
+        items: Array.isArray(data?.items) ? data.items : [],
+        hasMore: Boolean(data?.hasMore),
+        nextCursor: String(data?.nextCursor || "")
+      };
+    }
+
+    async function updatePaymentReconciliation(caseId, payload = {}) {
+      requireFetcher();
+      return fetchJson(`${baseUrl}/admin/payment-reconciliations/${encodeURIComponent(caseId)}`, {
+        method: "PATCH",
+        headers: jsonHeaders(),
+        body: JSON.stringify(payload || {})
+      });
+    }
     async function createReport(payload) {
       requireFetcher();
       return fetchJson(`${baseUrl}/reports`, {
@@ -1540,6 +1561,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       loadAdminProducts,
       loadAdminOrders,
       loadAdminPayments,
+      loadPaymentReconciliations,
+      updatePaymentReconciliation,
       createReport,
       loadAdminReports,
       reviewReport,

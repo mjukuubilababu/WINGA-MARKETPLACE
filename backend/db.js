@@ -2604,7 +2604,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
   async function applyPaymentResult(orderId, transactionReference, paymentStatus, rawGatewayResponse = null) {
     return withTransaction(async (client) => {
       const paymentResult = await client.query(
-        `SELECT id, order_id AS "orderId", payment_status AS "paymentStatus"
+        `SELECT id, order_id AS "orderId", payment_status AS "paymentStatus",
+                transaction_reference AS "transactionReference", amount_paid::float8 AS "amountPaid"
          FROM payments
          WHERE ($1 <> '' AND order_id = $1)
             OR ($1 = '' AND transaction_reference = $2)
@@ -2634,6 +2635,29 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
         && (order.status === "cancelled" || ["failed", "cancelled"].includes(payment.paymentStatus));
       if (requiresReconciliation) {
         const now = new Date().toISOString();
+        await client.query(
+          `INSERT INTO payment_reconciliation_cases (
+             id, order_id, payment_id, transaction_reference, case_type, status,
+             incoming_payment_status, amount, evidence, created_at, updated_at, row_version
+           ) VALUES ($1, $2, $3, $4, 'late_payment', 'open', $5, $6, $7::jsonb, $8, $8, 1)
+           ON CONFLICT (id) DO UPDATE SET
+             evidence = payment_reconciliation_cases.evidence || EXCLUDED.evidence ||
+               jsonb_build_object(
+                 'callbackCount', COALESCE((payment_reconciliation_cases.evidence->>'callbackCount')::int, 1) + 1
+               ),
+             updated_at = EXCLUDED.updated_at,
+             row_version = payment_reconciliation_cases.row_version + 1`,
+          [
+            `late_payment:${payment.id}`,
+            order.id,
+            payment.id,
+            payment.transactionReference || transactionReference || "",
+            paymentStatus,
+            Number(payment.amountPaid || 0),
+            stringifyJson({ callbackCount: 1, lastPayload: rawGatewayResponse || {}, receivedAt: now }, {}),
+            now
+          ]
+        );
         await client.query(
           `UPDATE payments
            SET raw_gateway_response = COALESCE($2::jsonb, raw_gateway_response),
@@ -2801,6 +2825,105 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
         expired: cancelledOrders.length,
         releasedProducts: Number(releasedResult.rowCount || 0),
         hasMore: expiredOrders.length === batchSize
+      };
+    });
+  }
+  async function readPaymentReconciliationPage(options = {}) {
+    const limit = Math.max(1, Math.min(100, Number.parseInt(options.limit, 10) || 25));
+    const status = String(options.status || "").trim();
+    const cursor = parseProductCursor(options.cursor);
+    const params = [];
+    const filters = [];
+    if (status) {
+      params.push(status);
+      filters.push(`status = $${params.length}`);
+    }
+    if (cursor) {
+      params.push(cursor.createdAt, cursor.id);
+      filters.push(`(updated_at, id) < ($${params.length - 1}::timestamptz, $${params.length}::text)`);
+    }
+    params.push(limit + 1);
+    const result = await query(
+      `SELECT id, order_id AS "orderId", payment_id AS "paymentId",
+              transaction_reference AS "transactionReference", case_type AS "caseType",
+              status, incoming_payment_status AS "incomingPaymentStatus", amount::float8 AS amount,
+              evidence, resolution, assigned_to AS "assignedTo", resolved_by AS "resolvedBy",
+              resolved_at AS "resolvedAt", created_at AS "createdAt", updated_at AS "updatedAt",
+              row_version AS "rowVersion"
+       FROM payment_reconciliation_cases
+       ${filters.length ? `WHERE ${filters.join(" AND ")}` : ""}
+       ORDER BY updated_at DESC, id DESC
+       LIMIT $${params.length}`,
+      params
+    );
+    const rows = result.rows || [];
+    const hasMore = rows.length > limit;
+    const items = rows.slice(0, limit).map((row) => ({
+      ...row,
+      amount: Number(row.amount || 0),
+      evidence: parseJson(row.evidence, {}),
+      resolution: parseJson(row.resolution, {}),
+      resolvedAt: toISOString(row.resolvedAt),
+      createdAt: toISOString(row.createdAt),
+      updatedAt: toISOString(row.updatedAt),
+      rowVersion: Number(row.rowVersion || 1)
+    }));
+    const lastItem = items[items.length - 1];
+    return {
+      items,
+      hasMore,
+      nextCursor: hasMore && lastItem?.updatedAt && lastItem?.id ? `${lastItem.updatedAt}|${lastItem.id}` : ""
+    };
+  }
+
+  async function transitionPaymentReconciliationCase(caseId, transition = {}) {
+    return withTransaction(async (client) => {
+      const currentResult = await client.query(
+        `SELECT id, status, row_version AS "rowVersion"
+         FROM payment_reconciliation_cases WHERE id = $1 FOR UPDATE`,
+        [caseId]
+      );
+      const current = currentResult.rows?.[0];
+      if (!current) return { updated: false, code: "reconciliation_not_found" };
+      const expectedVersion = Number(transition.expectedVersion || 0);
+      if (expectedVersion > 0 && Number(current.rowVersion || 0) !== expectedVersion) {
+        return { updated: false, code: "reconciliation_version_conflict", currentVersion: Number(current.rowVersion || 0) };
+      }
+      const now = new Date().toISOString();
+      const terminal = ["resolved", "rejected"].includes(transition.status);
+      const updatedResult = await client.query(
+        `UPDATE payment_reconciliation_cases
+         SET status = $2, assigned_to = $3, resolution = $4::jsonb,
+             resolved_by = CASE WHEN $5::boolean THEN $3 ELSE '' END,
+             resolved_at = CASE WHEN $5::boolean THEN $6::timestamptz ELSE NULL END,
+             updated_at = $6, row_version = row_version + 1
+         WHERE id = $1 AND status = $7 AND row_version = $8
+         RETURNING id, order_id AS "orderId", payment_id AS "paymentId", status,
+                   assigned_to AS "assignedTo", resolution, resolved_by AS "resolvedBy",
+                   resolved_at AS "resolvedAt", updated_at AS "updatedAt", row_version AS "rowVersion"`,
+        [
+          caseId,
+          transition.status,
+          transition.actor || "",
+          stringifyJson(transition.resolution, {}),
+          terminal,
+          now,
+          current.status,
+          Number(current.rowVersion || 1)
+        ]
+      );
+      const updated = updatedResult.rows?.[0];
+      if (!updated) return { updated: false, code: "reconciliation_state_conflict" };
+      return {
+        updated: true,
+        code: "",
+        item: {
+          ...updated,
+          resolution: parseJson(updated.resolution, {}),
+          resolvedAt: toISOString(updated.resolvedAt),
+          updatedAt: toISOString(updated.updatedAt),
+          rowVersion: Number(updated.rowVersion || 1)
+        }
       };
     });
   }
@@ -4419,6 +4542,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
     applyPaymentResult,
     transitionCommerceOrder,
     expireCommerceReservations,
+    readPaymentReconciliationPage,
+    transitionPaymentReconciliationCase,
     createMessageWithNotification,
     deleteMessage,
     markConversationRead,

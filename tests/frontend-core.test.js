@@ -916,6 +916,8 @@ test("remote admin API client owns moderation reports and ops endpoints", () => 
   assert.match(moduleSource, /async function loadAdminUsers\(\)/);
   assert.match(moduleSource, /async function loadAdminProducts\(status = ""\)/);
   assert.match(moduleSource, /async function loadAdminOrders\(filters = \{\}\)/);
+  assert.match(moduleSource, /async function loadPaymentReconciliations\(filters = \{\}\)/);
+  assert.match(moduleSource, /async function updatePaymentReconciliation\(caseId, payload = \{\}\)/);
   assert.match(moduleSource, /async function createReport\(payload\)/);
   assert.match(moduleSource, /async function reviewReport\(reportId, payload\)/);
   assert.match(moduleSource, /async function updateAdminSettings\(payload\)/);
@@ -924,6 +926,8 @@ test("remote admin API client owns moderation reports and ops endpoints", () => 
   assert.match(moduleSource, /async function loadModerationActions\(\)/);
   assert.match(dataSource, /window\.WingaModules\?\.api\?\.admin\?\.createAdminApiClient/);
   assert.match(dataSource, /async loadAdminUsers\(\) \{\s+return getAdminApiClient\(\)\.loadAdminUsers\(\);/);
+  assert.match(dataSource, /async loadPaymentReconciliations\(filters = \{\}\) \{\s+return getAdminApiClient\(\)\.loadPaymentReconciliations\(filters\);/);
+  assert.match(dataSource, /async updatePaymentReconciliation\(caseId, payload = \{\}\) \{\s+return getAdminApiClient\(\)\.updatePaymentReconciliation\(caseId, payload\);/);
   assert.match(dataSource, /async moderateUser\(username, payload\) \{\s+return getAdminApiClient\(\)\.moderateUser\(username, payload\);/);
   assert.ok(buildSource.indexOf('"src/api/commerce-client.js"') < buildSource.indexOf('"src/api/admin-client.js"'));
   assert.ok(buildSource.indexOf('"src/api/admin-client.js"') < buildSource.indexOf('"src/config/categories.js"'));

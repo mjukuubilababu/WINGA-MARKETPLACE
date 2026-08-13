@@ -199,6 +199,33 @@ const MIGRATIONS = Object.freeze([
       `CREATE INDEX IF NOT EXISTS idx_user_locale_preferences_updated
        ON user_locale_preferences (updated_at DESC);`
     ])
+  }),
+  Object.freeze({
+    id: "2026081301_payment_reconciliation_cases",
+    statements: Object.freeze([
+      `CREATE TABLE IF NOT EXISTS payment_reconciliation_cases (
+         id TEXT PRIMARY KEY,
+         order_id TEXT NOT NULL,
+         payment_id TEXT NOT NULL,
+         transaction_reference TEXT NOT NULL DEFAULT '',
+         case_type TEXT NOT NULL,
+         status TEXT NOT NULL DEFAULT 'open',
+         incoming_payment_status TEXT NOT NULL DEFAULT '',
+         amount NUMERIC(14, 2) NOT NULL DEFAULT 0,
+         evidence JSONB NOT NULL DEFAULT '{}'::jsonb,
+         resolution JSONB NOT NULL DEFAULT '{}'::jsonb,
+         assigned_to TEXT NOT NULL DEFAULT '',
+         resolved_by TEXT NOT NULL DEFAULT '',
+         resolved_at TIMESTAMPTZ NULL,
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         row_version BIGINT NOT NULL DEFAULT 1
+       );`,
+      `CREATE INDEX IF NOT EXISTS idx_payment_reconciliation_status_updated
+       ON payment_reconciliation_cases (status, updated_at DESC, id DESC);`,
+      `CREATE INDEX IF NOT EXISTS idx_payment_reconciliation_order
+       ON payment_reconciliation_cases (order_id, created_at DESC);`
+    ])
   })
 ]);
 

@@ -1198,8 +1198,14 @@
       async loadAdminOrders() {
         return [];
       },
-      async loadAdminPayments() {
+async loadAdminPayments() {
         return [];
+      },
+      async loadPaymentReconciliations() {
+        return { items: [], hasMore: false, nextCursor: "" };
+      },
+      async updatePaymentReconciliation() {
+        throw new Error("Payment reconciliation inapatikana kwenye PostgreSQL API mode tu.");
       },
       async createReport() {
         throw new Error("Reporting inapatikana kwenye API mode tu.");
@@ -1518,8 +1524,14 @@
       async loadAdminProducts(status) {
         return local.loadAdminProducts(status);
       },
-      async loadAdminPayments(filters) {
+async loadAdminPayments(filters) {
         return local.loadAdminPayments(filters);
+      },
+      async loadPaymentReconciliations(filters) {
+        return local.loadPaymentReconciliations(filters);
+      },
+      async updatePaymentReconciliation(caseId, payload) {
+        return local.updatePaymentReconciliation(caseId, payload);
       },
       async createReport(payload) {
         return local.createReport(payload);
@@ -2081,8 +2093,14 @@
       async loadAdminOrders(filters = {}) {
         return getAdminApiClient().loadAdminOrders(filters);
       },
-      async loadAdminPayments(filters = {}) {
+async loadAdminPayments(filters = {}) {
         return getAdminApiClient().loadAdminPayments(filters);
+      },
+      async loadPaymentReconciliations(filters = {}) {
+        return getAdminApiClient().loadPaymentReconciliations(filters);
+      },
+      async updatePaymentReconciliation(caseId, payload = {}) {
+        return getAdminApiClient().updatePaymentReconciliation(caseId, payload);
       },
       async createReport(payload) {
         return getAdminApiClient().createReport(payload);
@@ -2751,8 +2769,14 @@
       async loadAdminOrders() {
         return [];
       },
-      async loadAdminPayments() {
+async loadAdminPayments() {
         return [];
+      },
+      async loadPaymentReconciliations() {
+        return { items: [], hasMore: false, nextCursor: "" };
+      },
+      async updatePaymentReconciliation() {
+        throw new Error("Payment reconciliation inapatikana kwenye PostgreSQL API mode tu.");
       },
       async createReport() {
         throw new Error("Reporting inapatikana kwenye API mode tu.");
@@ -3867,9 +3891,22 @@
       assertAdminAccess();
       return state.adapter.loadAdminOrders ? state.adapter.loadAdminOrders(filters) : [];
     },
-    async loadAdminPayments(filters) {
+async loadAdminPayments(filters) {
       assertAdminAccess();
       return state.adapter.loadAdminPayments ? state.adapter.loadAdminPayments(filters) : [];
+    },
+    async loadPaymentReconciliations(filters = {}) {
+      assertAdminAccess();
+      return state.adapter.loadPaymentReconciliations
+        ? state.adapter.loadPaymentReconciliations(filters)
+        : { items: [], hasMore: false, nextCursor: "" };
+    },
+    async updatePaymentReconciliation(caseId, payload = {}) {
+      assertAdminAccess();
+      if (!state.adapter.updatePaymentReconciliation) {
+        throw new Error("Payment reconciliation adapter haipatikani.");
+      }
+      return state.adapter.updatePaymentReconciliation(caseId, payload);
     },
     async loadAdminSettings() {
       assertAdminAccess();
