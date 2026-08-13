@@ -2836,23 +2836,30 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
     const filters = [];
     if (status) {
       params.push(status);
-      filters.push(`status = $${params.length}`);
+      filters.push(`prc.status = $${params.length}`);
     }
     if (cursor) {
       params.push(cursor.createdAt, cursor.id);
-      filters.push(`(updated_at, id) < ($${params.length - 1}::timestamptz, $${params.length}::text)`);
+      filters.push(`(prc.updated_at, prc.id) < ($${params.length - 1}::timestamptz, $${params.length}::text)`);
     }
     params.push(limit + 1);
     const result = await query(
-      `SELECT id, order_id AS "orderId", payment_id AS "paymentId",
-              transaction_reference AS "transactionReference", case_type AS "caseType",
-              status, incoming_payment_status AS "incomingPaymentStatus", amount::float8 AS amount,
-              evidence, resolution, assigned_to AS "assignedTo", resolved_by AS "resolvedBy",
-              resolved_at AS "resolvedAt", created_at AS "createdAt", updated_at AS "updatedAt",
-              row_version AS "rowVersion"
-       FROM payment_reconciliation_cases
+      `SELECT prc.id, prc.order_id AS "orderId", prc.payment_id AS "paymentId",
+              prc.transaction_reference AS "transactionReference", prc.case_type AS "caseType",
+              prc.status, prc.incoming_payment_status AS "incomingPaymentStatus", prc.amount::float8 AS amount,
+              prc.evidence, prc.resolution, prc.assigned_to AS "assignedTo", prc.resolved_by AS "resolvedBy",
+              prc.resolved_at AS "resolvedAt", prc.created_at AS "createdAt", prc.updated_at AS "updatedAt",
+              prc.row_version AS "rowVersion", refund.id AS "refundRequestId",
+              COALESCE(refund.status, '') AS "refundStatus",
+              COALESCE(refund.attempts, 0)::int AS "refundAttempts",
+              COALESCE(refund.max_attempts, 0)::int AS "refundMaxAttempts",
+              COALESCE(refund.provider_refund_id, '') AS "providerRefundId",
+              COALESCE(refund.last_error, '') AS "refundLastError",
+              refund.next_attempt_at AS "refundNextAttemptAt"
+       FROM payment_reconciliation_cases prc
+       LEFT JOIN payment_refund_outbox refund ON refund.reconciliation_case_id = prc.id
        ${filters.length ? `WHERE ${filters.join(" AND ")}` : ""}
-       ORDER BY updated_at DESC, id DESC
+       ORDER BY prc.updated_at DESC, prc.id DESC
        LIMIT $${params.length}`,
       params
     );
@@ -2866,6 +2873,9 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
       resolvedAt: toISOString(row.resolvedAt),
       createdAt: toISOString(row.createdAt),
       updatedAt: toISOString(row.updatedAt),
+      refundAttempts: Number(row.refundAttempts || 0),
+      refundMaxAttempts: Number(row.refundMaxAttempts || 0),
+      refundNextAttemptAt: toISOString(row.refundNextAttemptAt),
       rowVersion: Number(row.rowVersion || 1)
     }));
     const lastItem = items[items.length - 1];
@@ -2875,12 +2885,16 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
       nextCursor: hasMore && lastItem?.updatedAt && lastItem?.id ? `${lastItem.updatedAt}|${lastItem.id}` : ""
     };
   }
-
   async function transitionPaymentReconciliationCase(caseId, transition = {}) {
     return withTransaction(async (client) => {
       const currentResult = await client.query(
-        `SELECT id, status, row_version AS "rowVersion"
-         FROM payment_reconciliation_cases WHERE id = $1 FOR UPDATE`,
+        `SELECT prc.id, prc.order_id AS "orderId", prc.payment_id AS "paymentId",
+                prc.transaction_reference AS "transactionReference", prc.amount::float8 AS amount,
+                prc.status, prc.row_version AS "rowVersion",
+                COALESCE(pay.payment_provider, '') AS "paymentProvider"
+         FROM payment_reconciliation_cases prc
+         LEFT JOIN payments pay ON pay.id = prc.payment_id
+         WHERE prc.id = $1 FOR UPDATE OF prc`,
         [caseId]
       );
       const current = currentResult.rows?.[0];
@@ -2888,6 +2902,14 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
       const expectedVersion = Number(transition.expectedVersion || 0);
       if (expectedVersion > 0 && Number(current.rowVersion || 0) !== expectedVersion) {
         return { updated: false, code: "reconciliation_version_conflict", currentVersion: Number(current.rowVersion || 0) };
+      }
+      const allowedTransitions = {
+        open: new Set(["in_review", "refund_pending", "rejected"]),
+        in_review: new Set(["refund_pending", "resolved", "rejected"]),
+        refund_pending: new Set(["resolved", "rejected"])
+      };
+      if (!allowedTransitions[current.status]?.has(transition.status)) {
+        return { updated: false, code: "reconciliation_transition_invalid", currentVersion: Number(current.rowVersion || 0) };
       }
       const now = new Date().toISOString();
       const terminal = ["resolved", "rejected"].includes(transition.status);
@@ -2914,17 +2936,156 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
       );
       const updated = updatedResult.rows?.[0];
       if (!updated) return { updated: false, code: "reconciliation_state_conflict" };
+
+      let refundRequestId = "";
+      if (transition.status === "refund_pending") {
+        refundRequestId = `refund:${current.id}`;
+        const requestPayload = {
+          schemaVersion: 1,
+          reconciliationCaseId: current.id,
+          orderId: current.orderId,
+          paymentId: current.paymentId,
+          transactionReference: current.transactionReference || "",
+          paymentProvider: current.paymentProvider || "",
+          amount: Number(current.amount || 0)
+        };
+        await client.query(
+          `INSERT INTO payment_refund_outbox (
+             id, reconciliation_case_id, order_id, payment_id, transaction_reference,
+             payment_provider, amount, status, idempotency_key, request_payload,
+             created_at, updated_at
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', $8, $9::jsonb, $10, $10)
+           ON CONFLICT (idempotency_key) DO NOTHING`,
+          [
+            refundRequestId, current.id, current.orderId, current.paymentId,
+            current.transactionReference || "", current.paymentProvider || "",
+            Number(current.amount || 0), refundRequestId,
+            stringifyJson(requestPayload, {}), now
+          ]
+        );
+      }
+
       return {
         updated: true,
         code: "",
         item: {
           ...updated,
+          refundRequestId,
           resolution: parseJson(updated.resolution, {}),
           resolvedAt: toISOString(updated.resolvedAt),
           updatedAt: toISOString(updated.updatedAt),
           rowVersion: Number(updated.rowVersion || 1)
         }
       };
+    });
+  }
+
+  async function claimPaymentRefundBatch(options = {}) {
+    const limit = Math.max(1, Math.min(100, Number(options.limit || 20) || 20));
+    const workerId = String(options.workerId || "refund-worker").slice(0, 120);
+    const result = await query(
+      `WITH ready AS (
+         SELECT id FROM payment_refund_outbox
+         WHERE ((status IN ('pending', 'failed', 'submitted') AND attempts < max_attempts AND next_attempt_at <= NOW())
+            OR (status = 'processing' AND processing_started_at < NOW() - INTERVAL '15 minutes'))
+         ORDER BY next_attempt_at ASC, created_at ASC, id ASC
+         FOR UPDATE SKIP LOCKED
+         LIMIT $1
+       )
+       UPDATE payment_refund_outbox outbox
+       SET status = 'processing', processing_started_at = NOW(), updated_at = NOW(),
+           attempts = attempts + 1, row_version = row_version + 1,
+           provider_response = outbox.provider_response || jsonb_build_object('lastWorkerId', $2::text)
+       FROM ready WHERE outbox.id = ready.id
+       RETURNING outbox.id, outbox.reconciliation_case_id AS "reconciliationCaseId",
+                 outbox.order_id AS "orderId", outbox.payment_id AS "paymentId",
+                 outbox.transaction_reference AS "transactionReference",
+                 outbox.payment_provider AS "paymentProvider", outbox.amount::float8 AS amount,
+                 outbox.idempotency_key AS "idempotencyKey", outbox.request_payload AS "requestPayload",
+                 outbox.attempts, outbox.max_attempts AS "maxAttempts"`,
+      [limit, workerId]
+    );
+    return (result.rows || []).map((row) => ({
+      ...row,
+      amount: Number(row.amount || 0),
+      attempts: Number(row.attempts || 0),
+      maxAttempts: Number(row.maxAttempts || 8),
+      requestPayload: parseJson(row.requestPayload, {})
+    }));
+  }
+
+  async function completePaymentRefundDelivery(refundId, outcome = {}) {
+    const submitted = outcome.submitted === true;
+    const attempts = Math.max(1, Number(outcome.attempts || 1));
+    const maxAttempts = Math.max(attempts, Number(outcome.maxAttempts || 8));
+    const terminal = !submitted && attempts >= maxAttempts;
+    const confirmationTimedOut = submitted && attempts >= maxAttempts;
+    const retrySeconds = Math.min(6 * 60 * 60, Math.max(15, 15 * (2 ** Math.min(attempts - 1, 10))));
+    const result = await query(
+      `UPDATE payment_refund_outbox
+       SET status = $2,
+           provider_refund_id = CASE WHEN $3 <> '' THEN $3 ELSE provider_refund_id END,
+           provider_response = $4::jsonb,
+           last_error = $5,
+           next_attempt_at = CASE
+             WHEN $2 = 'failed' THEN NOW() + ($6::int * INTERVAL '1 second')
+             WHEN $2 = 'submitted' THEN NOW() + INTERVAL '15 minutes'
+             ELSE next_attempt_at END,
+           processing_started_at = NULL, updated_at = NOW(), row_version = row_version + 1
+       WHERE id = $1 AND status = 'processing'
+       RETURNING id, status, attempts, max_attempts AS "maxAttempts", next_attempt_at AS "nextAttemptAt"`,
+      [
+        refundId,
+        confirmationTimedOut ? "confirmation_timeout" : (submitted ? "submitted" : (terminal ? "dead" : "failed")),
+        String(outcome.providerRefundId || "").slice(0, 160),
+        stringifyJson(outcome.providerResponse, {}),
+        String(outcome.error || "").slice(0, 500),
+        retrySeconds
+      ]
+    );
+    const row = result.rows?.[0];
+    return row ? { ...row, nextAttemptAt: toISOString(row.nextAttemptAt) } : null;
+  }
+
+  async function applyPaymentRefundResult(idempotencyKey, result = {}) {
+    return withTransaction(async (client) => {
+      const refundResult = await client.query(
+        `SELECT id, reconciliation_case_id AS "reconciliationCaseId", status
+         FROM payment_refund_outbox WHERE idempotency_key = $1 FOR UPDATE`,
+        [idempotencyKey]
+      );
+      const refund = refundResult.rows?.[0];
+      if (!refund) return { updated: false, code: "refund_not_found" };
+      if (refund.status === "confirmed") return { updated: true, duplicate: true, code: "" };
+      const confirmed = result.status === "confirmed";
+      await client.query(
+        `UPDATE payment_refund_outbox
+         SET status = $2, provider_refund_id = $3, provider_response = $4::jsonb,
+             last_error = $5, processing_started_at = NULL,
+             next_attempt_at = CASE WHEN $2 = 'failed' THEN NOW() ELSE next_attempt_at END,
+             updated_at = NOW(), row_version = row_version + 1
+         WHERE id = $1`,
+        [
+          refund.id, confirmed ? "confirmed" : "failed",
+          String(result.providerRefundId || "").slice(0, 160),
+          stringifyJson(result.providerResponse, {}),
+          confirmed ? "" : String(result.error || "Provider rejected refund").slice(0, 500)
+        ]
+      );
+      if (confirmed) {
+        await client.query(
+          `UPDATE payment_reconciliation_cases
+           SET status = 'resolved', resolution = resolution || $2::jsonb,
+               resolved_by = 'payment_provider', resolved_at = NOW(), updated_at = NOW(),
+               row_version = row_version + 1
+           WHERE id = $1 AND status = 'refund_pending'`,
+          [
+            refund.reconciliationCaseId,
+            stringifyJson({ outcome: "refunded", providerRefundId: result.providerRefundId || "", confirmedAt: new Date().toISOString() }, {})
+          ]
+        );
+      }
+      return { updated: true, duplicate: false, code: "", confirmed };
     });
   }
   async function createMessageWithNotification(message = {}, notification = null, options = {}) {
@@ -4544,6 +4705,9 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
     expireCommerceReservations,
     readPaymentReconciliationPage,
     transitionPaymentReconciliationCase,
+    claimPaymentRefundBatch,
+    completePaymentRefundDelivery,
+    applyPaymentRefundResult,
     createMessageWithNotification,
     deleteMessage,
     markConversationRead,

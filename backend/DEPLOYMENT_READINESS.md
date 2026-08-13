@@ -9,6 +9,8 @@
 - `TRUST_PROXY_HEADERS=true` only when the backend is actually behind a trusted reverse proxy that sets `X-Forwarded-For` correctly
 - `CSRF_SECRET` must be a high-entropy secret with at least 32 characters and must be separate from admin, session, and webhook secrets
 - `PAYMENT_WEBHOOK_SECRET` should be configured for signed payment callbacks
+- Automated refunds require `PAYMENT_REFUND_WEBHOOK_URL`, `PAYMENT_REFUND_WEBHOOK_SECRET`, and a distinct `PAYMENT_REFUND_CALLBACK_SECRET`
+- The refund provider must honor `Idempotency-Key`, verify `X-Winga-Refund-Signature`, and sign callbacks to `/api/payments/refunds/webhook`; an accepted request remains `submitted` until a confirmed callback arrives
 - `ACCOUNT_RECOVERY_SECRET` must be a separate high-entropy secret with at least 32 characters
 - `ACCOUNT_RECOVERY_DELIVERY_WEBHOOK_URL` and `ACCOUNT_RECOVERY_DELIVERY_WEBHOOK_SECRET` must point to the approved SMS delivery adapter; production never returns OTP codes to the browser
 - `ALLOW_LOCAL_DATA_STORE_IN_PRODUCTION=false`

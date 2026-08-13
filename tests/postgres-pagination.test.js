@@ -712,7 +712,8 @@ test("PostgreSQL payment reconciliation listing is cursor bounded and returns no
   assert.equal(page.items[0].amount, 1200.5);
   assert.equal(page.items[0].rowVersion, 1);
   assert.equal(page.nextCursor, "2026-08-13T12:02:00.000Z|case-2");
-  assert.match(calls[0].text, /ORDER BY updated_at DESC, id DESC/);
+  assert.match(calls[0].text, /LEFT JOIN payment_refund_outbox/);
+  assert.match(calls[0].text, /ORDER BY prc.updated_at DESC, prc.id DESC/);
   assert.deepEqual(calls[0].params, ["open", 3]);
 });
 
@@ -2103,4 +2104,129 @@ test("PostgreSQL locale preferences use one versioned upsert and detect conflict
   assert.match(upsert.text, /user_locale_preferences\.row_version = \$6::bigint/);
   assert.equal(upsert.params[0], "buyer");
   assert.equal(upsert.params[5], 3);
+});
+test("PostgreSQL refund request atomically creates an idempotent provider outbox job", async () => {
+  const calls = [];
+  const client = {
+    async query(text, params = []) {
+      const sql = String(text);
+      calls.push({ text: sql, params });
+      if (sql.includes("FROM payment_reconciliation_cases prc") && sql.includes("FOR UPDATE OF prc")) {
+        return { rows: [{
+          id: "late_payment:pay-1", orderId: "order-1", paymentId: "pay-1",
+          transactionReference: "TX-1", amount: 25000, paymentProvider: "mpesa",
+          status: "in_review", rowVersion: 7
+        }], rowCount: 1 };
+      }
+      if (sql.includes("UPDATE payment_reconciliation_cases")) {
+        return { rows: [{
+          id: "late_payment:pay-1", orderId: "order-1", paymentId: "pay-1",
+          status: "refund_pending", assignedTo: "admin", resolution: { action: "request_refund" },
+          resolvedBy: "", resolvedAt: null, updatedAt: new Date("2026-08-13T20:00:00.000Z"), rowVersion: 8
+        }], rowCount: 1 };
+      }
+      return { rows: [], rowCount: sql.includes("INSERT INTO payment_refund_outbox") ? 1 : 0 };
+    },
+    release() {}
+  };
+  const store = createPostgresStore({
+    databaseUrl: "postgres://test.invalid/winga",
+    queryClient: { query: client.query.bind(client), connect: async () => client }
+  });
+
+  const result = await store.transitionPaymentReconciliationCase("late_payment:pay-1", {
+    status: "refund_pending", actor: "admin", expectedVersion: 7,
+    resolution: { action: "request_refund", note: "Return late payment" }
+  });
+
+  assert.equal(result.updated, true);
+  assert.equal(result.item.refundRequestId, "refund:late_payment:pay-1");
+  const outboxCall = calls.find((call) => call.text.includes("INSERT INTO payment_refund_outbox"));
+  assert.ok(outboxCall);
+  assert.match(outboxCall.text, /ON CONFLICT \(idempotency_key\) DO NOTHING/);
+  assert.equal(outboxCall.params[7], "refund:late_payment:pay-1");
+  assert.equal(calls.at(-1).text, "COMMIT");
+});
+
+test("PostgreSQL refund worker claims ready and stale jobs without cross-worker duplication", async () => {
+  const calls = [];
+  const queryClient = {
+    async query(text, params = []) {
+      calls.push({ text: String(text), params });
+      return { rows: [{
+        id: "refund:case-1", reconciliationCaseId: "case-1", orderId: "order-1",
+        paymentId: "pay-1", transactionReference: "TX-1", paymentProvider: "mpesa",
+        amount: "25000.00", idempotencyKey: "refund:case-1",
+        requestPayload: { schemaVersion: 1 }, attempts: 2, maxAttempts: 8
+      }] };
+    }
+  };
+  const store = createPostgresStore({ databaseUrl: "postgres://test.invalid/winga", queryClient });
+  const jobs = await store.claimPaymentRefundBatch({ limit: 20, workerId: "instance-a" });
+
+  assert.equal(jobs.length, 1);
+  assert.equal(jobs[0].amount, 25000);
+  assert.equal(jobs[0].attempts, 2);
+  assert.match(calls[0].text, /FOR UPDATE SKIP LOCKED/);
+  assert.match(calls[0].text, /status = 'processing'.*processing_started_at/s);
+  assert.match(calls[0].text, /processing_started_at < NOW\(\) - INTERVAL '15 minutes'/);
+  assert.deepEqual(calls[0].params, [20, "instance-a"]);
+});
+
+test("PostgreSQL refund delivery uses bounded retry and never equates submission with confirmation", async () => {
+  const calls = [];
+  const queryClient = {
+    async query(text, params = []) {
+      calls.push({ text: String(text), params });
+      return { rows: [{ id: params[0], status: params[1], attempts: 3, maxAttempts: 8, nextAttemptAt: new Date("2026-08-13T20:15:00.000Z") }] };
+    }
+  };
+  const store = createPostgresStore({ databaseUrl: "postgres://test.invalid/winga", queryClient });
+  const submitted = await store.completePaymentRefundDelivery("refund:case-1", {
+    submitted: true, providerRefundId: "provider-1", providerResponse: { accepted: true }, attempts: 3, maxAttempts: 8
+  });
+  const failed = await store.completePaymentRefundDelivery("refund:case-2", {
+    submitted: false, error: "timeout", attempts: 3, maxAttempts: 8
+  });
+  const confirmationTimedOut = await store.completePaymentRefundDelivery("refund:case-3", {
+    submitted: true, providerRefundId: "provider-3", attempts: 8, maxAttempts: 8
+  });
+
+  assert.equal(submitted.status, "submitted");
+  assert.equal(failed.status, "failed");
+  assert.equal(confirmationTimedOut.status, "confirmation_timeout");
+  assert.match(calls[0].text, /WHEN \$2 = 'submitted' THEN NOW\(\) \+ INTERVAL '15 minutes'/);
+  assert.equal(calls[1].params[5], 60);
+  assert.equal(calls.some((call) => call.text.includes("UPDATE payment_reconciliation_cases")), false);
+});
+
+test("PostgreSQL confirmed refund callback resolves reconciliation exactly once", async () => {
+  const calls = [];
+  const client = {
+    async query(text, params = []) {
+      const sql = String(text);
+      calls.push({ text: sql, params });
+      if (sql.includes("FROM payment_refund_outbox") && sql.includes("FOR UPDATE")) {
+        return { rows: [{ id: "refund:case-1", reconciliationCaseId: "case-1", status: "submitted" }], rowCount: 1 };
+      }
+      return { rows: [], rowCount: 1 };
+    },
+    release() {}
+  };
+  const store = createPostgresStore({
+    databaseUrl: "postgres://test.invalid/winga",
+    queryClient: { query: client.query.bind(client), connect: async () => client }
+  });
+
+  const result = await store.applyPaymentRefundResult("refund:case-1", {
+    status: "confirmed", providerRefundId: "provider-refund-1", providerResponse: { status: "confirmed" }
+  });
+
+  assert.equal(result.updated, true);
+  assert.equal(result.confirmed, true);
+  const caseUpdate = calls.find((call) => call.text.includes("UPDATE payment_reconciliation_cases"));
+  assert.ok(caseUpdate);
+  assert.match(caseUpdate.text, /status = 'resolved'/);
+  assert.match(caseUpdate.params[1], /"outcome":"refunded"/);
+  assert.equal(calls.at(-1).text, "COMMIT");
 });

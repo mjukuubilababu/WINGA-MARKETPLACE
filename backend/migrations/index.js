@@ -226,6 +226,38 @@ const MIGRATIONS = Object.freeze([
       `CREATE INDEX IF NOT EXISTS idx_payment_reconciliation_order
        ON payment_reconciliation_cases (order_id, created_at DESC);`
     ])
+  }),
+  Object.freeze({
+    id: "2026081302_payment_refund_outbox",
+    statements: Object.freeze([
+      `CREATE TABLE IF NOT EXISTS payment_refund_outbox (
+         id TEXT PRIMARY KEY,
+         reconciliation_case_id TEXT NOT NULL REFERENCES payment_reconciliation_cases(id) ON DELETE RESTRICT,
+         order_id TEXT NOT NULL,
+         payment_id TEXT NOT NULL,
+         transaction_reference TEXT NOT NULL DEFAULT '',
+         payment_provider TEXT NOT NULL DEFAULT '',
+         amount NUMERIC(14, 2) NOT NULL DEFAULT 0,
+         status TEXT NOT NULL DEFAULT 'pending',
+         idempotency_key TEXT NOT NULL UNIQUE,
+         attempts INTEGER NOT NULL DEFAULT 0,
+         max_attempts INTEGER NOT NULL DEFAULT 8,
+         next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         processing_started_at TIMESTAMPTZ NULL,
+         provider_refund_id TEXT NOT NULL DEFAULT '',
+         request_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+         provider_response JSONB NOT NULL DEFAULT '{}'::jsonb,
+         last_error TEXT NOT NULL DEFAULT '',
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         row_version BIGINT NOT NULL DEFAULT 1
+       );`,
+      `CREATE INDEX IF NOT EXISTS idx_payment_refund_outbox_ready
+       ON payment_refund_outbox (next_attempt_at ASC, created_at ASC, id ASC)
+       WHERE status IN ('pending', 'failed', 'submitted', 'processing');`,
+      `CREATE INDEX IF NOT EXISTS idx_payment_refund_outbox_case
+       ON payment_refund_outbox (reconciliation_case_id, created_at DESC);`
+    ])
   })
 ]);
 

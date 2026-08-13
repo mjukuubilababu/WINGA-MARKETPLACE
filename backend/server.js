@@ -31,6 +31,9 @@ const APP_BUILD_VERSION_MATCH = APP_HTML_TEMPLATE.match(/<meta name="winga-build
 const APP_BUILD_VERSION = APP_BUILD_VERSION_MATCH?.[1] || "";
 const NODE_ENV = process.env.NODE_ENV || "development";
 const PAYMENT_WEBHOOK_SECRET = String(process.env.PAYMENT_WEBHOOK_SECRET || "").trim();
+const PAYMENT_REFUND_WEBHOOK_URL = String(process.env.PAYMENT_REFUND_WEBHOOK_URL || "").trim();
+const PAYMENT_REFUND_WEBHOOK_SECRET = String(process.env.PAYMENT_REFUND_WEBHOOK_SECRET || "").trim();
+const PAYMENT_REFUND_CALLBACK_SECRET = String(process.env.PAYMENT_REFUND_CALLBACK_SECRET || "").trim();
 const QUEUE_WEBHOOK_SECRET = String(process.env.QUEUE_WEBHOOK_SECRET || "").trim();
 const ALLOW_UNVERIFIED_MANUAL_PAYMENTS = String(process.env.ALLOW_UNVERIFIED_MANUAL_PAYMENTS || "").toLowerCase() === "true";
 const HASH_PREFIX = "scrypt";
@@ -180,6 +183,11 @@ const COMMERCE_RESERVATION_SWEEP_INTERVAL_MS = Math.max(30 * 1000, Math.min(Numb
 const COMMERCE_RESERVATION_SWEEP_BATCH_SIZE = Math.max(1, Math.min(500, Number(process.env.COMMERCE_RESERVATION_SWEEP_BATCH_SIZE || 100) || 100));
 let commerceReservationSweepTimer = null;
 let commerceReservationSweepRunning = false;
+const PAYMENT_REFUND_SWEEP_INTERVAL_MS = Math.max(15 * 1000, Math.min(Number(process.env.PAYMENT_REFUND_SWEEP_INTERVAL_MS || 60 * 1000) || 60 * 1000, 30 * 60 * 1000));
+const PAYMENT_REFUND_SWEEP_BATCH_SIZE = Math.max(1, Math.min(100, Number(process.env.PAYMENT_REFUND_SWEEP_BATCH_SIZE || 20) || 20));
+const PAYMENT_REFUND_WORKER_ID = `${process.env.RENDER_INSTANCE_ID || process.pid}:refunds`;
+let paymentRefundSweepTimer = null;
+let paymentRefundSweepRunning = false;
 const MIN_PASSWORD_LENGTH = 12;
 const WHATSAPP_VERIFICATION_CODE_TTL_MS = 10 * 60 * 1000;
 const WHATSAPP_VERIFICATION_PREVIEW_MODE = NODE_ENV !== "production";
@@ -282,6 +290,19 @@ function validateRuntimeConfiguration() {
     }
     if (!PAYMENT_WEBHOOK_SECRET && !ALLOW_UNVERIFIED_MANUAL_PAYMENTS) {
       errors.push("PAYMENT_WEBHOOK_SECRET is required in production unless ALLOW_UNVERIFIED_MANUAL_PAYMENTS=true is explicitly allowed.");
+    }
+    if (!PAYMENT_REFUND_WEBHOOK_URL || !PAYMENT_REFUND_WEBHOOK_SECRET || !PAYMENT_REFUND_CALLBACK_SECRET) {
+      warnings.push("Automated payment refunds are disabled until refund webhook URL, delivery secret, and callback secret are configured.");
+    } else if (!/^https:\/\//i.test(PAYMENT_REFUND_WEBHOOK_URL)) {
+      errors.push("PAYMENT_REFUND_WEBHOOK_URL must use HTTPS in production.");
+    }
+    if (PAYMENT_REFUND_WEBHOOK_URL && PAYMENT_REFUND_WEBHOOK_SECRET && PAYMENT_REFUND_CALLBACK_SECRET) {
+      if (PAYMENT_REFUND_WEBHOOK_SECRET.length < 32 || PAYMENT_REFUND_CALLBACK_SECRET.length < 32) {
+        errors.push("Payment refund delivery and callback secrets must each be at least 32 characters in production.");
+      }
+      if (PAYMENT_REFUND_WEBHOOK_SECRET === PAYMENT_REFUND_CALLBACK_SECRET) {
+        errors.push("Payment refund delivery and callback secrets must be distinct.");
+      }
     }
     if (!RAW_CSRF_SECRET) {
       errors.push("CSRF_SECRET is required in production. Set a high-entropy secret that is separate from admin, session, and webhook secrets.");
@@ -1112,6 +1133,131 @@ async function sweepExpiredCommerceReservations() {
   }
 }
 
+function createPaymentRefundSignature(timestamp, body) {
+  return crypto.createHmac("sha256", PAYMENT_REFUND_WEBHOOK_SECRET)
+    .update(`${timestamp}.${body}`)
+    .digest("hex");
+}
+
+async function dispatchPaymentRefund(job) {
+  const body = JSON.stringify({
+    version: "payment-refund-v1",
+    idempotencyKey: job.idempotencyKey,
+    refundId: job.id,
+    reconciliationCaseId: job.reconciliationCaseId,
+    orderId: job.orderId,
+    paymentId: job.paymentId,
+    transactionReference: job.transactionReference || "",
+    paymentProvider: job.paymentProvider || "",
+    amount: Number(job.amount || 0)
+  });
+  const timestamp = String(Math.floor(Date.now() / 1000));
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10000);
+  try {
+    const response = await fetch(PAYMENT_REFUND_WEBHOOK_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Idempotency-Key": job.idempotencyKey,
+        "X-Winga-Refund-Timestamp": timestamp,
+        "X-Winga-Refund-Signature": `sha256=${createPaymentRefundSignature(timestamp, body)}`,
+        "User-Agent": "winga-payment-refund-worker/1"
+      },
+      body,
+      signal: controller.signal
+    });
+    const responseText = (await response.text()).slice(0, 8192);
+    let providerResponse = {};
+    try {
+      providerResponse = responseText ? JSON.parse(responseText) : {};
+    } catch {
+      providerResponse = { responseText };
+    }
+    if (!response.ok) {
+      throw new Error(`Refund provider returned HTTP ${response.status}`);
+    }
+    return {
+      submitted: true,
+      providerRefundId: String(providerResponse.providerRefundId || providerResponse.refundId || "").slice(0, 160),
+      providerResponse
+    };
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function processPaymentRefundsOnce() {
+  if (paymentRefundSweepRunning || !postgresStore?.claimPaymentRefundBatch
+    || !PAYMENT_REFUND_WEBHOOK_URL || !PAYMENT_REFUND_WEBHOOK_SECRET || typeof fetch !== "function") {
+    return;
+  }
+  paymentRefundSweepRunning = true;
+  try {
+    const jobs = await postgresStore.claimPaymentRefundBatch({
+      limit: PAYMENT_REFUND_SWEEP_BATCH_SIZE,
+      workerId: PAYMENT_REFUND_WORKER_ID
+    });
+    for (const job of jobs) {
+      try {
+        const outcome = await dispatchPaymentRefund(job);
+        await postgresStore.completePaymentRefundDelivery(job.id, {
+          ...outcome,
+          attempts: job.attempts,
+          maxAttempts: job.maxAttempts
+        });
+        logStructuredEvent("info", "payment_refund_submitted", {
+          refundId: job.id,
+          reconciliationCaseId: job.reconciliationCaseId,
+          attempt: job.attempts
+        });
+      } catch (error) {
+        await postgresStore.completePaymentRefundDelivery(job.id, {
+          submitted: false,
+          attempts: job.attempts,
+          maxAttempts: job.maxAttempts,
+          error: String(error?.message || error || "Refund delivery failed").slice(0, 500)
+        });
+        safeConsole("error", "Payment refund delivery failed", {
+          refundId: job.id,
+          attempt: job.attempts,
+          error: String(error?.message || error || "unknown").slice(0, 160)
+        });
+      }
+    }
+  } catch (error) {
+    safeConsole("error", "Payment refund sweep failed", error?.message || error);
+  } finally {
+    paymentRefundSweepRunning = false;
+  }
+}
+
+function startPaymentRefundSweeper() {
+  if (!postgresStore?.claimPaymentRefundBatch || paymentRefundSweepTimer
+    || !PAYMENT_REFUND_WEBHOOK_URL || !PAYMENT_REFUND_WEBHOOK_SECRET) return;
+  processPaymentRefundsOnce();
+  paymentRefundSweepTimer = setInterval(processPaymentRefundsOnce, PAYMENT_REFUND_SWEEP_INTERVAL_MS);
+  paymentRefundSweepTimer.unref?.();
+}
+
+function isValidPaymentRefundCallback(req, payload) {
+  if (!PAYMENT_REFUND_CALLBACK_SECRET) return false;
+  const timestamp = String(req.headers["x-winga-refund-timestamp"] || "").trim();
+  const signature = String(req.headers["x-winga-refund-signature"] || "").trim().replace(/^sha256=/i, "");
+  const timestampSeconds = Number(timestamp);
+  if (!timestamp || !signature || !Number.isFinite(timestampSeconds)
+    || Math.abs(Math.floor(Date.now() / 1000) - timestampSeconds) > 300) return false;
+  const signedPayload = [
+    timestamp,
+    String(payload?.idempotencyKey || ""),
+    String(payload?.status || ""),
+    String(payload?.providerRefundId || "")
+  ].join(".");
+  const expected = crypto.createHmac("sha256", PAYMENT_REFUND_CALLBACK_SECRET)
+    .update(signedPayload)
+    .digest("hex");
+  return timingSafeStringEqual(signature, expected);
+}
 function startCommerceReservationSweeper() {
   if (!postgresStore?.expireCommerceReservations || commerceReservationSweepTimer) return;
   sweepExpiredCommerceReservations();
@@ -2982,7 +3128,7 @@ function isCsrfProtectedMethod(method = "GET") {
 }
 
 function isServerToServerWebhookPath(pathname = "") {
-  return pathname === "/api/payments/webhook" || pathname === "/api/intelligence/queue-events";
+  return pathname === "/api/payments/webhook" || pathname === "/api/payments/refunds/webhook" || pathname === "/api/intelligence/queue-events";
 }
 
 function isCsrfExemptPath(pathname = "") {
@@ -9337,8 +9483,13 @@ http.createServer(async (req, res) => {
       const nextStatus = transitions[action] || "";
       const allowedOutcomes = ["", "refunded", "manual_adjustment", "no_action", "duplicate_callback"];
       if (!caseId || !nextStatus || !note || !Number.isFinite(expectedVersion) || expectedVersion < 1
-        || !allowedOutcomes.includes(outcome) || (action === "resolve" && !outcome)) {
+        || !allowedOutcomes.includes(outcome) || (action === "resolve" && !outcome)
+        || (action === "resolve" && outcome === "refunded")) {
         sendJson(res, 400, { error: "Payment reconciliation action si sahihi." });
+        return;
+      }
+      if (action === "request_refund" && (!PAYMENT_REFUND_WEBHOOK_URL || !PAYMENT_REFUND_WEBHOOK_SECRET || !PAYMENT_REFUND_CALLBACK_SECRET)) {
+        sendJson(res, 503, { error: "Automated refund provider haijasanidiwa.", code: "refund_provider_unavailable" });
         return;
       }
       const result = await postgresStore.transitionPaymentReconciliationCase(caseId, {
@@ -9348,7 +9499,7 @@ http.createServer(async (req, res) => {
         resolution: { action, outcome, note }
       });
       if (!result.updated) {
-        const conflict = ["reconciliation_version_conflict", "reconciliation_state_conflict"].includes(result.code);
+        const conflict = ["reconciliation_version_conflict", "reconciliation_state_conflict", "reconciliation_transition_invalid"].includes(result.code);
         sendJson(res, conflict ? 409 : 404, {
           error: conflict ? "Reconciliation case imebadilika; refresh kabla ya kuendelea." : "Reconciliation case haijapatikana.",
           code: result.code,
@@ -10318,6 +10469,45 @@ http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === "POST" && url.pathname === "/api/payments/refunds/webhook") {
+      if (!postgresStore?.applyPaymentRefundResult || !PAYMENT_REFUND_CALLBACK_SECRET) {
+        sendJson(res, 503, { error: "Refund callback haijasanidiwa.", code: "refund_callback_unavailable" });
+        return;
+      }
+      const payload = await collectBody(req);
+      const idempotencyKey = sanitizePlainText(payload?.idempotencyKey, 160);
+      const status = sanitizePlainText(payload?.status, 30).toLowerCase();
+      const providerRefundId = sanitizePlainText(payload?.providerRefundId, 160);
+      if (!idempotencyKey || !["confirmed", "failed"].includes(status) || !isValidPaymentRefundCallback(req, payload)) {
+        await denyJson(res, 401, "Refund callback signature si sahihi.", {
+          ip: clientIp, method: req.method, path: url.pathname,
+          event: "payment_refund_callback_denied", reason: "invalid_signature_or_payload"
+        });
+        return;
+      }
+      const result = await postgresStore.applyPaymentRefundResult(idempotencyKey, {
+        status,
+        providerRefundId,
+        error: sanitizePlainText(payload?.error, 500),
+        providerResponse: {
+          status,
+          providerRefundId,
+          providerReference: sanitizePlainText(payload?.providerReference, 160),
+          receivedAt: new Date().toISOString()
+        }
+      });
+      if (!result.updated) {
+        sendJson(res, 404, { error: "Refund request haijapatikana.", code: result.code });
+        return;
+      }
+      await appendAuditLog({
+        time: new Date().toISOString(), ip: clientIp, method: req.method, path: url.pathname,
+        event: status === "confirmed" ? "payment_refund_confirmed" : "payment_refund_failed",
+        idempotencyKey, providerRefundId, duplicate: Boolean(result.duplicate)
+      });
+      sendJson(res, 200, { ok: true, duplicate: Boolean(result.duplicate), confirmed: Boolean(result.confirmed) });
+      return;
+    }
     if (req.method === "POST" && url.pathname === "/api/payments/webhook") {
       if (PAYMENT_WEBHOOK_SECRET) {
         const incomingSecret = readWebhookSecret(req);
@@ -11003,6 +11193,7 @@ http.createServer(async (req, res) => {
     await initializeStoreAtBoot();
     startIntelligenceQueueWorker();
     startCommerceReservationSweeper();
+    startPaymentRefundSweeper();
     console.log(`WINGA backend running on http://localhost:${PORT}${postgresStore ? " (PostgreSQL mode)" : " (File mode)"}`);
   } catch (error) {
     console.error("[WINGA] failed to initialize backend", {
