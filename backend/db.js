@@ -272,6 +272,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
         product_name TEXT NOT NULL,
         product_image TEXT NOT NULL DEFAULT '',
         price NUMERIC(14, 2) NOT NULL,
+        currency TEXT NOT NULL DEFAULT 'TZS',
         buyer_username TEXT NOT NULL,
         seller_username TEXT NOT NULL,
         shop TEXT NOT NULL DEFAULT '',
@@ -300,6 +301,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
           order_id TEXT NOT NULL,
           buyer_username TEXT NOT NULL,
         amount_paid NUMERIC(14, 2) NOT NULL,
+        currency TEXT NOT NULL DEFAULT 'TZS',
         payment_method TEXT NOT NULL DEFAULT 'mobile_money',
         transaction_reference TEXT NOT NULL DEFAULT '',
         receipt_number TEXT NOT NULL DEFAULT '',
@@ -1463,6 +1465,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
           product_name AS "productName",
           product_image AS "productImage",
           price::float8 AS price,
+          currency,
           buyer_username AS "buyerUsername",
           seller_username AS "sellerUsername",
           shop,
@@ -1491,6 +1494,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
             order_id AS "orderId",
           buyer_username AS "buyerUsername",
           amount_paid::float8 AS "amountPaid",
+          currency,
           payment_method AS "paymentMethod",
           transaction_reference AS "transactionReference",
           receipt_number AS "receiptNumber",
@@ -2601,11 +2605,12 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
     });
   }
 
-  async function applyPaymentResult(orderId, transactionReference, paymentStatus, rawGatewayResponse = null) {
+  async function applyPaymentResult(orderId, transactionReference, paymentStatus, rawGatewayResponse = null, context = {}) {
     return withTransaction(async (client) => {
       const paymentResult = await client.query(
         `SELECT id, order_id AS "orderId", payment_status AS "paymentStatus",
-                transaction_reference AS "transactionReference", amount_paid::float8 AS "amountPaid"
+                transaction_reference AS "transactionReference", amount_paid::float8 AS "amountPaid",
+                currency
          FROM payments
          WHERE ($1 <> '' AND order_id = $1)
             OR ($1 = '' AND transaction_reference = $2)
@@ -2614,6 +2619,15 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
       );
       const payment = paymentResult.rows?.[0];
       if (!payment) return { updated: false, code: "payment_not_found" };
+      if (transactionReference && transactionReference !== payment.transactionReference) {
+        return { updated: false, code: "payment_reference_mismatch", orderId: payment.orderId };
+      }
+      if (Number.isFinite(Number(context.amount)) && Number(context.amount) > 0 && Number(context.amount) !== Number(payment.amountPaid || 0)) {
+        return { updated: false, code: "payment_amount_mismatch", orderId: payment.orderId };
+      }
+      if (context.currency && String(context.currency).toUpperCase() !== String(payment.currency || "TZS").toUpperCase()) {
+        return { updated: false, code: "payment_currency_mismatch", orderId: payment.orderId };
+      }
       const orderResult = await client.query(
         `SELECT id, product_id AS "productId", status, payment_status AS "paymentStatus"
          FROM orders WHERE id = $1 FOR UPDATE`,
@@ -2621,6 +2635,49 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
       );
       const order = orderResult.rows?.[0];
       if (!order) return { updated: false, code: "order_not_found" };
+      const eventId = String(context.eventId || "").trim().slice(0, 160);
+      if (eventId) {
+        const eventClaim = await client.query(
+          `INSERT INTO payment_webhook_events (
+             event_id, payment_id, order_id, transaction_reference, payment_status,
+             amount, currency, payload_hash, received_at
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+           ON CONFLICT (event_id) DO NOTHING
+           RETURNING event_id`,
+          [
+            eventId, payment.id, order.id, payment.transactionReference || "", paymentStatus,
+            context.amount != null && Number.isFinite(Number(context.amount)) ? Number(context.amount) : Number(payment.amountPaid || 0),
+            String(context.currency || payment.currency || "TZS").toUpperCase(),
+            String(context.payloadHash || "").slice(0, 64)
+          ]
+        );
+        if (!eventClaim.rowCount) {
+          const duplicateEventResult = await client.query(
+            `SELECT payment_id AS "paymentId", order_id AS "orderId",
+                    payment_status AS "paymentStatus", payload_hash AS "payloadHash"
+             FROM payment_webhook_events WHERE event_id = $1`,
+            [eventId]
+          );
+          const duplicateEvent = duplicateEventResult.rows?.[0];
+          const sameEvent = duplicateEvent
+            && duplicateEvent.paymentId === payment.id
+            && duplicateEvent.orderId === order.id
+            && duplicateEvent.paymentStatus === paymentStatus
+            && duplicateEvent.payloadHash === String(context.payloadHash || "").slice(0, 64);
+          if (!sameEvent) {
+            return { updated: false, code: "payment_event_conflict", orderId: order.id };
+          }
+          return {
+            updated: true,
+            duplicate: true,
+            idempotent: true,
+            code: "",
+            orderId: order.id,
+            paymentStatus: payment.paymentStatus,
+            orderStatus: order.status
+          };
+        }
+      }
       if (payment.paymentStatus === paymentStatus) {
         return {
           updated: true,

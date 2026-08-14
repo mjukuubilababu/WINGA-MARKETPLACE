@@ -31,6 +31,7 @@ const APP_BUILD_VERSION_MATCH = APP_HTML_TEMPLATE.match(/<meta name="winga-build
 const APP_BUILD_VERSION = APP_BUILD_VERSION_MATCH?.[1] || "";
 const NODE_ENV = process.env.NODE_ENV || "development";
 const PAYMENT_WEBHOOK_SECRET = String(process.env.PAYMENT_WEBHOOK_SECRET || "").trim();
+const PAYMENT_WEBHOOK_MAX_AGE_SECONDS = 300;
 const PAYMENT_REFUND_WEBHOOK_URL = String(process.env.PAYMENT_REFUND_WEBHOOK_URL || "").trim();
 const PAYMENT_REFUND_WEBHOOK_SECRET = String(process.env.PAYMENT_REFUND_WEBHOOK_SECRET || "").trim();
 const PAYMENT_REFUND_CALLBACK_SECRET = String(process.env.PAYMENT_REFUND_CALLBACK_SECRET || "").trim();
@@ -290,6 +291,8 @@ function validateRuntimeConfiguration() {
     }
     if (!PAYMENT_WEBHOOK_SECRET && !ALLOW_UNVERIFIED_MANUAL_PAYMENTS) {
       errors.push("PAYMENT_WEBHOOK_SECRET is required in production unless ALLOW_UNVERIFIED_MANUAL_PAYMENTS=true is explicitly allowed.");
+    } else if (PAYMENT_WEBHOOK_SECRET && PAYMENT_WEBHOOK_SECRET.length < 32) {
+      errors.push("PAYMENT_WEBHOOK_SECRET must be at least 32 characters in production.");
     }
     if (!PAYMENT_REFUND_WEBHOOK_URL || !PAYMENT_REFUND_WEBHOOK_SECRET || !PAYMENT_REFUND_CALLBACK_SECRET) {
       warnings.push("Automated payment refunds are disabled until refund webhook URL, delivery secret, and callback secret are configured.");
@@ -2403,6 +2406,24 @@ function readWebhookSecret(req) {
   return String(req.headers["x-webhook-secret"] || "").trim();
 }
 
+function verifyPaymentWebhookRequest(req, rawBody = "") {
+  if (!PAYMENT_WEBHOOK_SECRET) {
+    return NODE_ENV !== "production" && ALLOW_UNVERIFIED_MANUAL_PAYMENTS;
+  }
+  const timestamp = String(req.headers["x-winga-payment-timestamp"] || "").trim();
+  const signature = String(req.headers["x-winga-payment-signature"] || "").trim().replace(/^sha256=/i, "");
+  const timestampSeconds = Number(timestamp);
+  const fresh = Number.isFinite(timestampSeconds)
+    && Math.abs(Math.floor(Date.now() / 1000) - timestampSeconds) <= PAYMENT_WEBHOOK_MAX_AGE_SECONDS;
+  if (fresh && /^[0-9a-f]{64}$/i.test(signature)) {
+    const expected = crypto.createHmac("sha256", PAYMENT_WEBHOOK_SECRET)
+      .update(`${timestamp}.${rawBody}`)
+      .digest("hex");
+    return timingSafeStringEqual(expected, signature);
+  }
+  return NODE_ENV !== "production" && timingSafeStringEqual(readWebhookSecret(req), PAYMENT_WEBHOOK_SECRET);
+}
+
 function createSession(user, req = null) {
   const now = Date.now();
   const nowIso = new Date(now).toISOString();
@@ -2587,6 +2608,7 @@ function normalizeOrderRecord(order) {
     paymentMethod: sanitizePlainText(order.paymentMethod || "mobile_money", 40).toLowerCase() || "mobile_money",
     paymentPhoneNumber: String(order.paymentPhoneNumber || "").replace(/\D/g, "").slice(0, 20),
     paymentProvider: sanitizePlainText(order.paymentProvider || "", 40).toLowerCase(),
+    currency: sanitizePlainText(order.currency || "TZS", 3).toUpperCase() || "TZS",
     paymentRecipientName: sanitizePlainText(order.paymentRecipientName || order.sellerUsername || "", 120),
     paymentInstructions: sanitizePlainText(order.paymentInstructions || "", 240),
     transactionId: sanitizePlainText(order.transactionId, 80).toUpperCase(),
@@ -2620,6 +2642,7 @@ function normalizePaymentRecord(payment) {
     orderId: sanitizePlainText(payment.orderId, 80),
     buyerUsername: normalizeIdentifier(payment.buyerUsername, 40),
     amountPaid: Number(payment.amountPaid || 0),
+    currency: sanitizePlainText(payment.currency || "TZS", 3).toUpperCase() || "TZS",
     paymentMethod: sanitizePlainText(payment.paymentMethod || "mobile_money", 40).toLowerCase() || "mobile_money",
     paymentProvider: sanitizePlainText(payment.paymentProvider || "", 40).toLowerCase(),
     paymentNumber: String(payment.paymentNumber || "").replace(/\D/g, "").slice(0, 20),
@@ -5260,7 +5283,7 @@ function evaluateClientEventIngestion(payload = {}, req, session) {
   };
 }
 
-function collectBody(req) {
+function collectBody(req, options = {}) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     let totalBytes = 0;
@@ -5312,7 +5335,7 @@ function collectBody(req) {
         const parsedBody = raw ? JSON.parse(raw) : null;
         settled = true;
         cleanup();
-        resolve(parsedBody);
+        resolve(options.includeRaw ? { payload: parsedBody, raw } : parsedBody);
       } catch (error) {
         error.code = "INVALID_JSON";
         error.status = 400;
@@ -10366,6 +10389,7 @@ http.createServer(async (req, res) => {
         productName: product.name,
         productImage: product.image || "",
         price: productPrice,
+        currency: "TZS",
         buyerUsername: session.username,
         sellerUsername: product.uploadedBy,
         shop: product.shop || "",
@@ -10390,6 +10414,7 @@ http.createServer(async (req, res) => {
         orderId: order.id,
         buyerUsername: session.username,
         amountPaid: productPrice,
+        currency: "TZS",
         paymentMethod: "mobile_money",
         paymentProvider,
         paymentNumber,
@@ -10510,23 +10535,35 @@ http.createServer(async (req, res) => {
       return;
     }
     if (req.method === "POST" && url.pathname === "/api/payments/webhook") {
-      if (PAYMENT_WEBHOOK_SECRET) {
-        const incomingSecret = readWebhookSecret(req);
-        if (incomingSecret !== PAYMENT_WEBHOOK_SECRET) {
-          await denyJson(res, 401, "Webhook signature si sahihi.", {
-            ip: clientIp,
-            method: req.method,
-            path: url.pathname,
-            event: "payment_webhook_denied",
-            reason: "invalid_secret"
-          });
-          return;
-        }
+      const envelope = await collectBody(req, { includeRaw: true });
+      const payload = envelope.payload;
+      if (!verifyPaymentWebhookRequest(req, envelope.raw)) {
+        await denyJson(res, 401, "Webhook signature si sahihi.", {
+          ip: clientIp,
+          method: req.method,
+          path: url.pathname,
+          event: "payment_webhook_denied",
+          reason: "invalid_signature"
+        });
+        return;
       }
-      const payload = await collectBody(req);
       const orderId = sanitizePlainText(payload?.orderId, 80);
       const transactionReference = sanitizePlainText(payload?.transactionReference, 80).toUpperCase();
       const paymentStatus = typeof payload?.paymentStatus === "string" ? payload.paymentStatus.trim() : "";
+      const payloadEventId = sanitizePlainText(payload?.eventId, 160);
+      const headerEventId = sanitizePlainText(req.headers["x-winga-payment-event-id"], 160);
+      if (payloadEventId && headerEventId && payloadEventId !== headerEventId) {
+        sendJson(res, 400, { error: "Webhook event ID hailingani.", code: "payment_event_id_mismatch" });
+        return;
+      }
+      const suppliedEventId = payloadEventId || headerEventId;
+      const eventId = suppliedEventId || `legacy:${crypto.createHash("sha256").update(envelope.raw).digest("hex")}`;
+      const eventAmount = Number(payload?.amount);
+      const eventCurrency = sanitizePlainText(payload?.currency, 3).toUpperCase();
+      if (NODE_ENV === "production" && (!suppliedEventId || !Number.isFinite(eventAmount) || eventAmount <= 0 || !eventCurrency)) {
+        sendJson(res, 400, { error: "Webhook eventId, amount na currency zinahitajika production.", code: "payment_event_contract_invalid" });
+        return;
+      }
 
       let matchedOrderId = orderId;
       if (!matchedOrderId && transactionReference) {
@@ -10545,15 +10582,36 @@ http.createServer(async (req, res) => {
         return;
       }
 
+      if (transactionReference && transactionReference !== existingPayment.transactionReference && transactionReference !== existingPayment.receiptNumber) {
+        sendJson(res, 409, { error: "Transaction reference hailingani na payment.", code: "payment_reference_mismatch" });
+        return;
+      }
+      if (Number.isFinite(eventAmount) && eventAmount > 0 && Number(existingPayment.amountPaid || 0) !== eventAmount) {
+        sendJson(res, 409, { error: "Payment amount hailingani na order.", code: "payment_amount_mismatch" });
+        return;
+      }
+      if (eventCurrency && eventCurrency !== String(existingPayment.currency || "TZS").toUpperCase()) {
+        sendJson(res, 409, { error: "Payment currency hailingani na order.", code: "payment_currency_mismatch" });
+        return;
+      }
+
       const rawGatewayResponse = payload?.rawGatewayResponse && typeof payload.rawGatewayResponse === "object"
         ? payload.rawGatewayResponse
         : null;
+      const paymentEventContext = {
+        eventId,
+        amount: Number.isFinite(eventAmount) && eventAmount > 0 ? eventAmount : null,
+        currency: eventCurrency || "",
+        payloadHash: crypto.createHash("sha256").update(envelope.raw).digest("hex")
+      };
+      let duplicatePaymentEvent = false;
       if (postgresStore?.applyPaymentResult) {
         const paymentResult = await postgresStore.applyPaymentResult(
           matchedOrderId,
           transactionReference,
           paymentStatus,
-          rawGatewayResponse
+          rawGatewayResponse,
+          paymentEventContext
         );
         if (paymentResult.reconciliationRequired) {
           await appendAuditLog({
@@ -10575,7 +10633,7 @@ http.createServer(async (req, res) => {
           return;
         }
         if (!paymentResult.updated) {
-          const isStateConflict = paymentResult.code === "payment_state_conflict";
+          const isStateConflict = ["payment_state_conflict", "payment_reference_mismatch", "payment_amount_mismatch", "payment_currency_mismatch", "payment_event_conflict"].includes(paymentResult.code);
           sendJson(res, isStateConflict ? 409 : 404, {
             error: isStateConflict
               ? "Payment iliyothibitishwa haiwezi kushushwa na callback ya zamani."
@@ -10585,6 +10643,7 @@ http.createServer(async (req, res) => {
           return;
         }
         matchedOrderId = paymentResult.orderId;
+        duplicatePaymentEvent = Boolean(paymentResult.duplicate);
       } else {
         const nextStore = updateOrderAndPaymentFromPaymentResult(store, matchedOrderId, paymentStatus, {
           rawGatewayResponse
@@ -10598,9 +10657,11 @@ http.createServer(async (req, res) => {
         path: url.pathname,
         event: "payment_webhook_processed",
         orderId: matchedOrderId,
-        paymentStatus
+        paymentStatus,
+        eventId,
+        duplicate: duplicatePaymentEvent
       });
-      sendJson(res, 202, { ok: true, orderId: matchedOrderId, paymentStatus });
+      sendJson(res, 202, { ok: true, orderId: matchedOrderId, paymentStatus, eventId, duplicate: duplicatePaymentEvent });
       return;
     }
 

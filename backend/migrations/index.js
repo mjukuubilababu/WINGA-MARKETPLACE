@@ -258,6 +258,28 @@ const MIGRATIONS = Object.freeze([
       `CREATE INDEX IF NOT EXISTS idx_payment_refund_outbox_case
        ON payment_refund_outbox (reconciliation_case_id, created_at DESC);`
     ])
+  }),
+  Object.freeze({
+    id: "2026081401_payment_confirmation_hardening",
+    statements: Object.freeze([
+      `ALTER TABLE orders ADD COLUMN IF NOT EXISTS currency TEXT NOT NULL DEFAULT 'TZS';`,
+      `ALTER TABLE payments ADD COLUMN IF NOT EXISTS currency TEXT NOT NULL DEFAULT 'TZS';`,
+      `CREATE TABLE IF NOT EXISTS payment_webhook_events (
+         event_id TEXT PRIMARY KEY,
+         payment_id TEXT NOT NULL,
+         order_id TEXT NOT NULL,
+         transaction_reference TEXT NOT NULL DEFAULT '',
+         payment_status TEXT NOT NULL,
+         amount NUMERIC(14, 2) NOT NULL,
+         currency TEXT NOT NULL DEFAULT 'TZS',
+         payload_hash TEXT NOT NULL DEFAULT '',
+         received_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+       );`,
+      `CREATE INDEX IF NOT EXISTS idx_payment_webhook_events_received
+       ON payment_webhook_events (received_at DESC);`,
+      `CREATE INDEX IF NOT EXISTS idx_payment_webhook_events_payment
+       ON payment_webhook_events (payment_id, received_at DESC);`
+    ])
   })
 ]);
 

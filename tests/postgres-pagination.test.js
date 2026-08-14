@@ -591,6 +591,62 @@ test("PostgreSQL payment webhook updates payment, order, and inventory in one lo
   assert.equal(calls.at(-1).text, "COMMIT");
 });
 
+test("PostgreSQL payment webhook dedupes identical provider events and rejects payload conflicts", async () => {
+  function createEventStore(existingPayloadHash) {
+    const calls = [];
+    const client = {
+      async query(text, params = []) {
+        const sql = String(text);
+        calls.push({ text: sql, params });
+        if (sql.includes("FROM payments") && sql.includes("FOR UPDATE")) {
+          return { rows: [{
+            id: "pay-event", orderId: "order-event", paymentStatus: "pending",
+            transactionReference: "TX-EVENT", amountPaid: 25000, currency: "TZS"
+          }], rowCount: 1 };
+        }
+        if (sql.includes("FROM orders WHERE id") && sql.includes("FOR UPDATE")) {
+          return { rows: [{ id: "order-event", productId: "product-event", status: "placed", paymentStatus: "pending" }], rowCount: 1 };
+        }
+        if (sql.includes("INSERT INTO payment_webhook_events")) {
+          return { rows: [], rowCount: 0 };
+        }
+        if (sql.includes("FROM payment_webhook_events WHERE event_id")) {
+          return { rows: [{
+            paymentId: "pay-event", orderId: "order-event", paymentStatus: "paid",
+            payloadHash: existingPayloadHash
+          }], rowCount: 1 };
+        }
+        return { rows: [], rowCount: 1 };
+      },
+      release() {}
+    };
+    return {
+      calls,
+      store: createPostgresStore({
+        databaseUrl: "postgres://test.invalid/winga",
+        queryClient: { query: client.query.bind(client), connect: async () => client }
+      })
+    };
+  }
+
+  const matching = createEventStore("payload-hash-1");
+  const replay = await matching.store.applyPaymentResult(
+    "order-event", "TX-EVENT", "paid", { provider: "gateway" },
+    { eventId: "provider-event-1", amount: 25000, currency: "TZS", payloadHash: "payload-hash-1" }
+  );
+  assert.equal(replay.updated, true);
+  assert.equal(replay.duplicate, true);
+  assert.equal(matching.calls.some((call) => call.text.includes("UPDATE payments")), false);
+
+  const conflicting = createEventStore("different-payload-hash");
+  const conflict = await conflicting.store.applyPaymentResult(
+    "order-event", "TX-EVENT", "paid", { provider: "gateway" },
+    { eventId: "provider-event-1", amount: 25000, currency: "TZS", payloadHash: "payload-hash-1" }
+  );
+  assert.equal(conflict.updated, false);
+  assert.equal(conflict.code, "payment_event_conflict");
+  assert.equal(conflicting.calls.some((call) => call.text.includes("UPDATE payments")), false);
+});
 test("PostgreSQL payment state machine rejects stale callbacks after payment is final", async () => {
   const calls = [];
   const client = {

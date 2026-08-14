@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
+const crypto = require("node:crypto");
 
 const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "winga-api-test-"));
 const port = 43000 + Math.floor(Math.random() * 1000);
@@ -1465,21 +1466,68 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   });
   assert.equal(adminOrderAttempt.response.status, 403);
 
+  const paymentWebhookTimestamp = String(Math.floor(Date.now() / 1000));
+  const paymentWebhookBody = JSON.stringify({
+    eventId: "payment-event-txn-1001-paid",
+    orderId,
+    transactionReference: "TXN-1001",
+    paymentStatus: "paid",
+    amount: 25000,
+    currency: "TZS"
+  });
+  const paymentWebhookSignature = crypto.createHmac("sha256", "integration-webhook-secret")
+    .update(`${paymentWebhookTimestamp}.${paymentWebhookBody}`)
+    .digest("hex");
+  const rejectedPaymentWebhook = await request("/payments/webhook", {
+    method: "POST",
+    skipCsrf: true,
+    headers: {
+      "Content-Type": "application/json",
+      "X-Winga-Payment-Timestamp": paymentWebhookTimestamp,
+      "X-Winga-Payment-Signature": "sha256=" + "0".repeat(64),
+      "X-Winga-Payment-Event-Id": "payment-event-txn-1001-paid"
+    },
+    body: paymentWebhookBody
+  });
+  assert.equal(rejectedPaymentWebhook.response.status, 401);
+  const wrongAmountWebhookBody = JSON.stringify({
+    eventId: "payment-event-txn-1001-wrong-amount",
+    orderId,
+    transactionReference: "TXN-1001",
+    paymentStatus: "paid",
+    amount: 1,
+    currency: "TZS"
+  });
+  const wrongAmountWebhookSignature = crypto.createHmac("sha256", "integration-webhook-secret")
+    .update(`${paymentWebhookTimestamp}.${wrongAmountWebhookBody}`)
+    .digest("hex");
+  const wrongAmountPaymentWebhook = await request("/payments/webhook", {
+    method: "POST",
+    skipCsrf: true,
+    headers: {
+      "Content-Type": "application/json",
+      "X-Winga-Payment-Timestamp": paymentWebhookTimestamp,
+      "X-Winga-Payment-Signature": `sha256=${wrongAmountWebhookSignature}`,
+      "X-Winga-Payment-Event-Id": "payment-event-txn-1001-wrong-amount"
+    },
+    body: wrongAmountWebhookBody
+  });
+  assert.equal(wrongAmountPaymentWebhook.response.status, 409);
+  assert.equal(wrongAmountPaymentWebhook.body.code, "payment_amount_mismatch");
   const paymentWebhook = await request("/payments/webhook", {
     method: "POST",
     skipCsrf: true,
     headers: {
       "Content-Type": "application/json",
-      "X-Winga-Webhook-Secret": "integration-webhook-secret"
+      "X-Winga-Payment-Timestamp": paymentWebhookTimestamp,
+      "X-Winga-Payment-Signature": `sha256=${paymentWebhookSignature}`,
+      "X-Winga-Payment-Event-Id": "payment-event-txn-1001-paid"
     },
-    body: JSON.stringify({
-      orderId,
-      transactionReference: "TXN-1001",
-      paymentStatus: "paid"
-    })
+    body: paymentWebhookBody
   });
   assert.equal(paymentWebhook.response.status, 202);
   assert.equal(paymentWebhook.body.paymentStatus, "paid");
+  assert.equal(paymentWebhook.body.eventId, "payment-event-txn-1001-paid");
   const sellerOrdersBeforePhoneShare = await request("/orders/mine", {
     headers: { Authorization: `Bearer ${sellerToken}` }
   });
