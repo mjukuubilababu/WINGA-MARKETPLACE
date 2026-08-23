@@ -289,6 +289,16 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
         payment_instructions TEXT NOT NULL DEFAULT '',
         payment_intent_status TEXT NOT NULL DEFAULT 'submitted',
         reserve_expires_at TIMESTAMPTZ NULL,
+        confirmed_at TIMESTAMPTZ NULL,
+        processing_at TIMESTAMPTZ NULL,
+        shipped_at TIMESTAMPTZ NULL,
+        delivery_confirm_by TIMESTAMPTZ NULL,
+        dispute_window_ends_at TIMESTAMPTZ NULL,
+        disputed_at TIMESTAMPTZ NULL,
+        dispute_reason TEXT NOT NULL DEFAULT '',
+        delivered_at TIMESTAMPTZ NULL,
+        cancelled_at TIMESTAMPTZ NULL,
+        cancellation_reason TEXT NOT NULL DEFAULT '',
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         created_at TIMESTAMPTZ NOT NULL,
         row_version BIGINT NOT NULL DEFAULT 1
@@ -1482,6 +1492,16 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
           payment_instructions AS "paymentInstructions",
           payment_intent_status AS "paymentIntentStatus",
           reserve_expires_at AS "reserveExpiresAt",
+          confirmed_at AS "confirmedAt",
+          processing_at AS "processingAt",
+          shipped_at AS "shippedAt",
+          delivery_confirm_by AS "deliveryConfirmBy",
+          dispute_window_ends_at AS "disputeWindowEndsAt",
+          disputed_at AS "disputedAt",
+          dispute_reason AS "disputeReason",
+          delivered_at AS "deliveredAt",
+          cancelled_at AS "cancelledAt",
+          cancellation_reason AS "cancellationReason",
           updated_at AS "updatedAt",
           row_version AS "rowVersion",
           created_at AS "createdAt"
@@ -2532,7 +2552,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
       const activeOrderResult = await client.query(
         `SELECT 1 FROM orders
          WHERE product_id = $1 AND buyer_username = $2
-           AND status IN ('placed', 'paid', 'confirmed')
+           AND status IN ('placed', 'paid', 'confirmed', 'processing', 'shipped', 'disputed')
          LIMIT 1`,
         [order.productId, order.buyerUsername]
       );
@@ -2738,7 +2758,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
           orderStatus: order.status
         };
       }
-      if (payment.paymentStatus === "paid" || ["confirmed", "delivered"].includes(order.status)) {
+      if (payment.paymentStatus === "paid" || ["confirmed", "processing", "shipped", "delivered", "disputed"].includes(order.status)) {
         return {
           updated: false,
           code: "payment_state_conflict",
@@ -2779,24 +2799,73 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
     });
   }
 
-  async function transitionCommerceOrder(currentOrder = {}, nextOrder = {}, nextPayment = {}, availability, notification = null) {
+  async function transitionCommerceOrder(currentOrder = {}, nextOrder = {}, nextPayment = {}, availability, notification = null, context = {}) {
     return withTransaction(async (client) => {
+      const expectedVersion = Math.max(1, Number(context.expectedVersion || currentOrder.rowVersion || 1) || 1);
+      const idempotencyKey = String(context.idempotencyKey || `${currentOrder.id}:${expectedVersion}:${nextOrder.status}`).slice(0, 180);
+      const claimed = await client.query(
+        `INSERT INTO order_lifecycle_events (
+           event_key, order_id, from_status, to_status, actor_username, actor_role, reason, metadata
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
+         ON CONFLICT (event_key) DO NOTHING RETURNING event_key`,
+        [idempotencyKey, currentOrder.id, currentOrder.status, nextOrder.status,
+          context.actorUsername || "", context.actorRole || "", context.reason || "", stringifyJson(context.metadata, {})]
+      );
+      if (!claimed.rowCount) {
+        const existing = await client.query(
+          `SELECT order_id AS "orderId", from_status AS "fromStatus", to_status AS "toStatus"
+           FROM order_lifecycle_events WHERE event_key = $1`,
+          [idempotencyKey]
+        );
+        const event = existing.rows?.[0];
+        if (event?.orderId === currentOrder.id && event?.fromStatus === currentOrder.status && event?.toStatus === nextOrder.status) {
+          return { updated: true, duplicate: true, rowVersion: expectedVersion };
+        }
+        return { updated: false, conflict: true, code: "order_event_conflict" };
+      }
       const result = await client.query(
         `UPDATE orders
          SET status = $4, payment_status = $5, payment_confirmed_at = $6,
              payment_confirmed_by = $7, payment_intent_status = $8,
-             reserve_expires_at = $9, updated_at = NOW(), row_version = row_version + 1
-         WHERE id = $1 AND status = $2 AND payment_status = $3
+             reserve_expires_at = $9, confirmed_at = $10, processing_at = $11,
+              shipped_at = $12, delivery_confirm_by = $13, dispute_window_ends_at = $14,
+              disputed_at = $15, dispute_reason = $16, delivered_at = $17,
+              cancelled_at = $18, cancellation_reason = $19,
+              updated_at = NOW(), row_version = row_version + 1
+         WHERE id = $1 AND status = $2 AND payment_status = $3 AND row_version = $20
          RETURNING product_id AS "productId", row_version AS "rowVersion"`,
         [
           currentOrder.id, currentOrder.status, currentOrder.paymentStatus,
           nextOrder.status, nextOrder.paymentStatus, nextOrder.paymentConfirmedAt || null,
           nextOrder.paymentConfirmedBy || "", nextOrder.paymentIntentStatus || "submitted",
-          nextOrder.reserveExpiresAt || null
+          nextOrder.reserveExpiresAt || null, nextOrder.confirmedAt || null,
+          nextOrder.processingAt || null, nextOrder.shippedAt || null,
+          nextOrder.deliveryConfirmBy || null, nextOrder.disputeWindowEndsAt || null,
+          nextOrder.disputedAt || null, nextOrder.disputeReason || "", nextOrder.deliveredAt || null,
+          nextOrder.cancelledAt || null, nextOrder.cancellationReason || "", expectedVersion
         ]
       );
       const row = result.rows?.[0];
-      if (!row) return { updated: false, conflict: true };
+      if (!row) {
+        await client.query("DELETE FROM order_lifecycle_events WHERE event_key = $1", [idempotencyKey]);
+        return { updated: false, conflict: true, code: "order_state_conflict" };
+      }
+      if (nextOrder.status === "disputed") {
+        await client.query(
+          `INSERT INTO payment_reconciliation_cases (
+             id, order_id, payment_id, transaction_reference, case_type, status,
+             incoming_payment_status, amount, evidence, created_at, updated_at, row_version
+           )
+           SELECT $1, o.id, p.id, p.transaction_reference, 'order_dispute', 'open',
+                  p.payment_status, p.amount_paid, $2::jsonb, NOW(), NOW(), 1
+           FROM orders o JOIN payments p ON p.order_id = o.id
+           WHERE o.id = $3
+           ON CONFLICT (id) DO UPDATE SET
+             evidence = payment_reconciliation_cases.evidence || EXCLUDED.evidence,
+             updated_at = NOW(), row_version = payment_reconciliation_cases.row_version + 1`,
+          [`order_dispute:${currentOrder.id}`, stringifyJson({ reason: nextOrder.disputeReason || "", openedBy: context.actorUsername || "" }, {}), currentOrder.id]
+        );
+      }
       await client.query(
         `UPDATE payments SET payment_status = $2, updated_at = NOW(), row_version = row_version + 1
          WHERE order_id = $1`,
@@ -2873,7 +2942,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
              AND NOT EXISTS (
                SELECT 1 FROM orders active
                WHERE active.product_id = p.id
-                 AND active.status IN ('placed', 'paid', 'confirmed')
+                 AND active.status IN ('placed', 'paid', 'confirmed', 'processing', 'shipped', 'disputed')
              )`,
           [cancelledProductIds, now.toISOString()]
         )
@@ -2885,6 +2954,50 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
       };
     });
   }
+  async function autoCompleteShippedOrders(options = {}) {
+    const batchSize = Math.max(1, Math.min(500, Number(options.batchSize || 100) || 100));
+    const disputeWindowSeconds = Math.max(86400, Math.min(Number(options.disputeWindowSeconds || 172800) || 172800, 1209600));
+    return withTransaction(async (client) => {
+      const due = await client.query(
+        `SELECT id, product_id AS "productId", product_name AS "productName", buyer_username AS "buyerUsername", seller_username AS "sellerUsername"
+         FROM orders WHERE status = 'shipped' AND payment_status = 'paid'
+           AND delivery_confirm_by IS NOT NULL AND delivery_confirm_by <= NOW()
+         ORDER BY delivery_confirm_by ASC, id ASC LIMIT $1 FOR UPDATE SKIP LOCKED`,
+        [batchSize]
+      );
+      if (!due.rowCount) return { completed: 0, hasMore: false };
+      const now = new Date().toISOString();
+      for (const order of due.rows) {
+        await client.query(
+          `UPDATE orders SET status = 'delivered', delivery_confirm_by = NULL, delivered_at = $2,
+             dispute_window_ends_at = $2::timestamptz + ($3 * INTERVAL '1 second'),
+             updated_at = $2, row_version = row_version + 1
+           WHERE id = $1 AND status = 'shipped'`,
+          [order.id, now, disputeWindowSeconds]
+        );
+        await client.query(
+          `UPDATE products SET availability = 'sold_out', updated_at = $2, row_version = row_version + 1 WHERE id = $1`,
+          [order.productId, now]
+        );
+        await client.query(
+          `INSERT INTO order_lifecycle_events (event_key, order_id, from_status, to_status, actor_username, actor_role, reason, metadata)
+           VALUES ($1, $2, 'shipped', 'delivered', 'system', 'system', 'delivery_confirmation_timeout', $3::jsonb)
+           ON CONFLICT (event_key) DO NOTHING`,
+          [`auto-delivery:${order.id}`, order.id, stringifyJson({ automatic: true }, {})]
+        );
+        for (const recipient of [order.buyerUsername, order.sellerUsername].filter(Boolean)) {
+          await insertNotificationRow(client, {
+            id: `auto-delivery:${order.id}:${recipient}`, userId: recipient, type: "order", conversationId: order.id,
+            title: `Order ya ${order.productName || "bidhaa"} imekamilishwa`,
+            body: "Dirisha la kuthibitisha delivery limeisha. Buyer bado anaweza kufungua dispute ndani ya dirisha lililowekwa.",
+            isRead: false, createdAt: now
+          });
+        }
+      }
+      return { completed: due.rows.length, hasMore: due.rows.length === batchSize };
+    });
+  }
+
   async function readPaymentReconciliationPage(options = {}) {
     const limit = Math.max(1, Math.min(100, Number.parseInt(options.limit, 10) || 25));
     const status = String(options.status || "").trim();
@@ -3123,7 +3236,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
   async function applyPaymentRefundResult(idempotencyKey, result = {}) {
     return withTransaction(async (client) => {
       const refundResult = await client.query(
-        `SELECT id, reconciliation_case_id AS "reconciliationCaseId", status
+        `SELECT id, reconciliation_case_id AS "reconciliationCaseId", order_id AS "orderId", payment_id AS "paymentId", status
          FROM payment_refund_outbox WHERE idempotency_key = $1 FOR UPDATE`,
         [idempotencyKey]
       );
@@ -3156,6 +3269,17 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
             refund.reconciliationCaseId,
             stringifyJson({ outcome: "refunded", providerRefundId: result.providerRefundId || "", confirmedAt: new Date().toISOString() }, {})
           ]
+        );
+        await client.query(
+          `UPDATE payments SET payment_status = 'refunded', updated_at = NOW(), row_version = row_version + 1
+           WHERE id = $1 AND payment_status = 'paid'`,
+          [refund.paymentId]
+        );
+        await client.query(
+          `UPDATE orders SET status = 'cancelled', payment_status = 'refunded', payment_intent_status = 'cancelled',
+             cancelled_at = NOW(), cancellation_reason = 'provider_refund_confirmed', updated_at = NOW(), row_version = row_version + 1
+           WHERE id = $1 AND status = 'disputed'`,
+          [refund.orderId]
         );
       }
       return { updated: true, duplicate: false, code: "", confirmed };
@@ -4776,6 +4900,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
     applyPaymentResult,
     transitionCommerceOrder,
     expireCommerceReservations,
+    autoCompleteShippedOrders,
     readPaymentReconciliationPage,
     transitionPaymentReconciliationCase,
     claimPaymentRefundBatch,

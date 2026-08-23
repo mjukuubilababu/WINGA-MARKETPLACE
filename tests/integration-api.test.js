@@ -1597,6 +1597,22 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
     true
   );
 
+  const sellerStartProcessing = await request(`/orders/${orderId}/status`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${sellerToken}` },
+    body: JSON.stringify({ status: "processing" })
+  });
+  assert.equal(sellerStartProcessing.response.status, 200);
+  assert.equal(sellerStartProcessing.body.status, "processing");
+
+  const sellerMarkShipped = await request(`/orders/${orderId}/status`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${sellerToken}` },
+    body: JSON.stringify({ status: "shipped" })
+  });
+  assert.equal(sellerMarkShipped.response.status, 200);
+  assert.equal(sellerMarkShipped.body.status, "shipped");
+
   const buyerReceive = await request(`/orders/${orderId}/status`, {
     method: "PATCH",
     headers: {

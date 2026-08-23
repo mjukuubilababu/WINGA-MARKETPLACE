@@ -280,6 +280,36 @@ const MIGRATIONS = Object.freeze([
       `CREATE INDEX IF NOT EXISTS idx_payment_webhook_events_payment
        ON payment_webhook_events (payment_id, received_at DESC);`
     ])
+  }),
+  Object.freeze({
+    id: "2026081402_commerce_order_lifecycle",
+    statements: Object.freeze([
+      `ALTER TABLE orders ADD COLUMN IF NOT EXISTS confirmed_at TIMESTAMPTZ NULL;`,
+      `ALTER TABLE orders ADD COLUMN IF NOT EXISTS processing_at TIMESTAMPTZ NULL;`,
+      `ALTER TABLE orders ADD COLUMN IF NOT EXISTS shipped_at TIMESTAMPTZ NULL;`,
+      `ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_confirm_by TIMESTAMPTZ NULL;`,
+      `ALTER TABLE orders ADD COLUMN IF NOT EXISTS dispute_window_ends_at TIMESTAMPTZ NULL;`,
+      `ALTER TABLE orders ADD COLUMN IF NOT EXISTS disputed_at TIMESTAMPTZ NULL;`,
+      `ALTER TABLE orders ADD COLUMN IF NOT EXISTS dispute_reason TEXT NOT NULL DEFAULT '';`,
+      `ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivered_at TIMESTAMPTZ NULL;`,
+      `ALTER TABLE orders ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMPTZ NULL;`,
+      `ALTER TABLE orders ADD COLUMN IF NOT EXISTS cancellation_reason TEXT NOT NULL DEFAULT '';`,
+      `CREATE TABLE IF NOT EXISTS order_lifecycle_events (
+         event_key TEXT PRIMARY KEY,
+         order_id TEXT NOT NULL,
+         from_status TEXT NOT NULL,
+         to_status TEXT NOT NULL,
+         actor_username TEXT NOT NULL DEFAULT '',
+         actor_role TEXT NOT NULL DEFAULT '',
+         reason TEXT NOT NULL DEFAULT '',
+         metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+       );`,
+      `CREATE INDEX IF NOT EXISTS idx_order_lifecycle_events_order
+       ON order_lifecycle_events (order_id, created_at DESC);`,
+      `CREATE INDEX IF NOT EXISTS idx_orders_delivery_confirmation
+       ON orders (delivery_confirm_by, id) WHERE status = 'shipped';`
+    ])
   })
 ]);
 

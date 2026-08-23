@@ -2834,12 +2834,17 @@ test("getOrderActionState enforces seller confirm, buyer receipt, and 48h cancel
     sellerUsername: "seller-b",
     createdAt: new Date(now).toISOString()
   };
+  const processing = { ...confirmed, status: "processing" };
+  const shipped = { ...confirmed, status: "shipped", deliveryConfirmBy: new Date(now + 60_000).toISOString() };
 
   assert.deepEqual(getOrderActionState(paid, "seller-b", now), {
     canVerifyPayment: false,
     canRejectPayment: false,
     canConfirm: true,
+    canStartProcessing: false,
+    canMarkShipped: false,
     canConfirmReceived: false,
+    canDispute: false,
     canCancel: false
   });
 
@@ -2847,7 +2852,10 @@ test("getOrderActionState enforces seller confirm, buyer receipt, and 48h cancel
     canVerifyPayment: false,
     canRejectPayment: false,
     canConfirm: false,
+    canStartProcessing: false,
+    canMarkShipped: false,
     canConfirmReceived: false,
+    canDispute: false,
     canCancel: true
   });
 
@@ -2855,15 +2863,23 @@ test("getOrderActionState enforces seller confirm, buyer receipt, and 48h cancel
     canVerifyPayment: true,
     canRejectPayment: true,
     canConfirm: false,
+    canStartProcessing: false,
+    canMarkShipped: false,
     canConfirmReceived: false,
+    canDispute: false,
     canCancel: false
   });
 
-  assert.deepEqual(getOrderActionState(confirmed, "buyer-a", now), {
+  assert.equal(getOrderActionState(confirmed, "seller-b", now).canStartProcessing, true);
+  assert.equal(getOrderActionState(processing, "seller-b", now).canMarkShipped, true);
+  assert.deepEqual(getOrderActionState(shipped, "buyer-a", now), {
     canVerifyPayment: false,
     canRejectPayment: false,
     canConfirm: false,
+    canStartProcessing: false,
+    canMarkShipped: false,
     canConfirmReceived: true,
+    canDispute: true,
     canCancel: false
   });
 });
@@ -2872,7 +2888,10 @@ test("getOrderLifecycleMeta maps order states to a clear buyer-seller journey", 
   assert.equal(getOrderLifecycleMeta({ status: "placed", paymentStatus: "pending" }).id, "pending_verification");
   assert.equal(getOrderLifecycleMeta({ status: "paid", paymentStatus: "paid" }).id, "seller_reviewing");
   assert.equal(getOrderLifecycleMeta({ status: "confirmed", paymentStatus: "paid" }).id, "agreed");
+  assert.equal(getOrderLifecycleMeta({ status: "processing", paymentStatus: "paid" }).id, "processing");
+  assert.equal(getOrderLifecycleMeta({ status: "shipped", paymentStatus: "paid" }).id, "shipped");
   assert.equal(getOrderLifecycleMeta({ status: "delivered", paymentStatus: "paid" }).id, "completed");
+  assert.equal(getOrderLifecycleMeta({ status: "disputed", paymentStatus: "paid" }).id, "disputed");
   assert.equal(getOrderLifecycleMeta({ status: "cancelled", paymentStatus: "pending" }).id, "cancelled");
 });
 

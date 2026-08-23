@@ -698,11 +698,71 @@ test("PostgreSQL order transition rejects stale state without partial writes", a
     "reserved"
   );
 
-  assert.deepEqual(result, { updated: false, conflict: true });
+  assert.deepEqual(result, { updated: false, conflict: true, code: "order_state_conflict" });
+  assert.equal(calls.some((call) => call.text.includes("DELETE FROM order_lifecycle_events")), true);
   assert.equal(calls.some((call) => call.text.includes("UPDATE payments")), false);
   assert.equal(calls.some((call) => call.text.includes("UPDATE products")), false);
 });
 
+test("PostgreSQL disputed transition opens reconciliation without releasing inventory", async () => {
+  const calls = [];
+  const client = {
+    async query(text, params = []) {
+      const sql = String(text);
+      calls.push({ text: sql, params });
+      if (sql.includes("UPDATE orders") && sql.includes("RETURNING product_id")) {
+        return { rows: [{ productId: "product-disputed", rowVersion: 8 }], rowCount: 1 };
+      }
+      return { rows: [], rowCount: 1 };
+    },
+    release() {}
+  };
+  const store = createPostgresStore({
+    databaseUrl: "postgres://test.invalid/winga",
+    queryClient: { query: client.query.bind(client), connect: async () => client }
+  });
+
+  const result = await store.transitionCommerceOrder(
+    { id: "order-disputed", status: "shipped", paymentStatus: "paid", rowVersion: 7 },
+    { status: "disputed", paymentStatus: "paid", disputedAt: "2026-08-23T12:00:00.000Z", disputeReason: "Package arrived damaged" },
+    { paymentStatus: "paid" },
+    "reserved",
+    { id: "notification-dispute", userId: "seller", title: "Dispute", body: "Review required" },
+    { actorUsername: "buyer", actorRole: "buyer", expectedVersion: 7, idempotencyKey: "order-disputed:7:disputed" }
+  );
+
+  assert.deepEqual(result, { updated: true, conflict: false, rowVersion: 8 });
+  assert.equal(calls.some((call) => call.text.includes("case_type, status") && call.text.includes("'order_dispute', 'open'")), true);
+  assert.equal(calls.some((call) => call.text.includes("UPDATE products SET availability = $2") && call.params[1] === "reserved"), true);
+  assert.equal(calls.some((call) => call.text.includes("INSERT INTO notifications")), true);
+  assert.equal(calls.at(-1).text, "COMMIT");
+});
+
+test("PostgreSQL auto delivery completes due shipped orders with lifecycle and notifications atomically", async () => {
+  const calls = [];
+  const client = {
+    async query(text, params = []) {
+      const sql = String(text);
+      calls.push({ text: sql, params });
+      if (sql.includes("FROM orders WHERE status = 'shipped'")) {
+        return { rows: [{ id: "order-due", productId: "product-due", productName: "Dress", buyerUsername: "buyer", sellerUsername: "seller" }], rowCount: 1 };
+      }
+      return { rows: [], rowCount: 1 };
+    },
+    release() {}
+  };
+  const store = createPostgresStore({
+    databaseUrl: "postgres://test.invalid/winga",
+    queryClient: { query: client.query.bind(client), connect: async () => client }
+  });
+
+  const result = await store.autoCompleteShippedOrders({ batchSize: 10, disputeWindowSeconds: 172800 });
+
+  assert.deepEqual(result, { completed: 1, hasMore: false });
+  assert.equal(calls.some((call) => call.text.includes("status = 'delivered'")), true);
+  assert.equal(calls.some((call) => call.text.includes("INSERT INTO order_lifecycle_events")), true);
+  assert.equal(calls.filter((call) => call.text.includes("INSERT INTO notifications")).length, 2);
+});
 test("PostgreSQL late payment after cancellation is retained for reconciliation without resurrecting commerce state", async () => {
   const calls = [];
   const client = {
@@ -2265,7 +2325,16 @@ test("PostgreSQL confirmed refund callback resolves reconciliation exactly once"
       const sql = String(text);
       calls.push({ text: sql, params });
       if (sql.includes("FROM payment_refund_outbox") && sql.includes("FOR UPDATE")) {
-        return { rows: [{ id: "refund:case-1", reconciliationCaseId: "case-1", status: "submitted" }], rowCount: 1 };
+        return {
+          rows: [{
+            id: "refund:case-1",
+            reconciliationCaseId: "case-1",
+            orderId: "order-1",
+            paymentId: "payment-1",
+            status: "submitted"
+          }],
+          rowCount: 1
+        };
       }
       return { rows: [], rowCount: 1 };
     },
@@ -2286,5 +2355,11 @@ test("PostgreSQL confirmed refund callback resolves reconciliation exactly once"
   assert.ok(caseUpdate);
   assert.match(caseUpdate.text, /status = 'resolved'/);
   assert.match(caseUpdate.params[1], /"outcome":"refunded"/);
+  const paymentUpdate = calls.find((call) => call.text.includes("UPDATE payments SET payment_status = 'refunded'"));
+  assert.ok(paymentUpdate);
+  assert.deepEqual(paymentUpdate.params, ["payment-1"]);
+  const orderUpdate = calls.find((call) => call.text.includes("UPDATE orders SET status = 'cancelled', payment_status = 'refunded'"));
+  assert.ok(orderUpdate);
+  assert.deepEqual(orderUpdate.params, ["order-1"]);
   assert.equal(calls.at(-1).text, "COMMIT");
 });

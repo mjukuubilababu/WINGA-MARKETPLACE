@@ -333,12 +333,13 @@
 
 function getOrderActionState(order, currentUser, now = Date.now(), buyerCancelWindowMs = 48 * 60 * 60 * 1000) {
     if (!order || !currentUser) {
-      return { canVerifyPayment: false, canRejectPayment: false, canConfirm: false, canConfirmReceived: false, canCancel: false };
+      return { canVerifyPayment: false, canRejectPayment: false, canConfirm: false, canStartProcessing: false, canMarkShipped: false, canConfirmReceived: false, canDispute: false, canCancel: false };
     }
 
     const createdAt = new Date(order.createdAt || 0).getTime();
     const isBuyer = order.buyerUsername === currentUser;
     const isSeller = order.sellerUsername === currentUser;
+    const disputeDeadline = new Date(order.disputeWindowEndsAt || order.deliveryConfirmBy || 0).getTime();
     const pendingVerification = order.status === "placed"
       && (order.paymentStatus || "pending") === "pending"
       && (order.paymentIntentStatus || "submitted") === "submitted";
@@ -347,7 +348,11 @@ function getOrderActionState(order, currentUser, now = Date.now(), buyerCancelWi
       canVerifyPayment: isSeller && pendingVerification,
       canRejectPayment: isSeller && pendingVerification,
       canConfirm: isSeller && order.status === "paid" && order.paymentStatus === "paid",
-      canConfirmReceived: isBuyer && order.status === "confirmed",
+      canStartProcessing: isSeller && order.status === "confirmed" && order.paymentStatus === "paid",
+      canMarkShipped: isSeller && order.status === "processing" && order.paymentStatus === "paid",
+      canConfirmReceived: isBuyer && order.status === "shipped" && order.paymentStatus === "paid",
+      canDispute: isBuyer && ["shipped", "delivered"].includes(order.status) && order.paymentStatus === "paid"
+        && Number.isFinite(disputeDeadline) && now <= disputeDeadline,
       canCancel: isBuyer && order.status === "placed" && (order.paymentStatus || "pending") === "pending" && now - createdAt >= buyerCancelWindowMs
   };
 }
@@ -371,6 +376,10 @@ function getOrderActionState(order, currentUser, now = Date.now(), buyerCancelWi
       };
     }
 
+    if (order.status === "disputed") {
+      return { id: "disputed", label: "Disputed", detail: "Order imesimamishwa kwa uchunguzi na haiwezi kufungwa kimya kimya.", tone: "rejected" };
+    }
+
     if (order.status === "delivered") {
       return {
         id: "completed",
@@ -378,6 +387,14 @@ function getOrderActionState(order, currentUser, now = Date.now(), buyerCancelWi
         detail: "Buyer amethibitisha kupokea mzigo, hivyo order imekamilika.",
         tone: "approved"
       };
+    }
+
+    if (order.status === "shipped") {
+      return { id: "shipped", label: "Shipped", detail: "Seller amesafirisha order. Buyer atathibitisha baada ya kuipokea.", tone: "approved" };
+    }
+
+    if (order.status === "processing") {
+      return { id: "processing", label: "Processing", detail: "Seller anaandaa bidhaa kwa usafirishaji.", tone: "pending" };
     }
 
     if (order.status === "confirmed") {

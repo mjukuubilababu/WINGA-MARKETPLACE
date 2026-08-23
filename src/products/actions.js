@@ -63,7 +63,12 @@
           canVerifyPayment: order.sellerUsername === currentUser && order.status === "placed" && (order.paymentStatus || "pending") === "pending",
           canRejectPayment: order.sellerUsername === currentUser && order.status === "placed" && (order.paymentStatus || "pending") === "pending",
           canConfirm: order.sellerUsername === currentUser && order.status === "paid" && order.paymentStatus === "paid",
-          canConfirmReceived: order.buyerUsername === currentUser && order.status === "confirmed",
+          canStartProcessing: order.sellerUsername === currentUser && order.status === "confirmed" && order.paymentStatus === "paid",
+          canMarkShipped: order.sellerUsername === currentUser && order.status === "processing" && order.paymentStatus === "paid",
+          canConfirmReceived: order.buyerUsername === currentUser && order.status === "shipped" && order.paymentStatus === "paid",
+          canDispute: order.buyerUsername === currentUser && ["shipped", "delivered"].includes(order.status)
+            && order.paymentStatus === "paid"
+            && Date.now() <= new Date(order.disputeWindowEndsAt || order.deliveryConfirmBy || 0).getTime(),
           canCancel: order.buyerUsername === currentUser && order.status === "placed"
             && (Date.now() - new Date(order.createdAt || 0).getTime() >= buyerCancelWindowMs)
         };
@@ -81,8 +86,20 @@
         actions.push(`<button class="action-btn buy-btn" type="button" data-order-action="confirmed" data-order-id="${order.id}">Respond & Confirm</button>`);
       }
 
+      if (state.canStartProcessing) {
+        actions.push(`<button class="action-btn buy-btn" type="button" data-order-action="processing" data-order-id="${order.id}">Start Processing</button>`);
+      }
+
+      if (state.canMarkShipped) {
+        actions.push(`<button class="action-btn buy-btn" type="button" data-order-action="shipped" data-order-id="${order.id}">Mark Shipped</button>`);
+      }
+
       if (state.canConfirmReceived) {
         actions.push(`<button class="action-btn buy-btn" type="button" data-order-action="delivered" data-order-id="${order.id}">Mark Completed</button>`);
+      }
+
+      if (state.canDispute) {
+        actions.push(`<button class="action-btn delete-btn" type="button" data-order-action="disputed" data-order-id="${order.id}">Report Delivery Issue</button>`);
       }
 
       if (state.canCancel) {
@@ -106,7 +123,16 @@
         return "Request sent. Order inasubiri hatua inayofuata ya verification au majibu ya seller.";
       }
       if (order.status === "confirmed") {
-        return "Seller responded and confirmed the order. Buyer anasubiri kupokea mzigo na kumark completed.";
+        return "Seller confirmed the order. Hatua inayofuata ni kuandaa bidhaa.";
+      }
+      if (order.status === "processing") {
+        return "Seller anaandaa bidhaa kwa usafirishaji.";
+      }
+      if (order.status === "shipped") {
+        return "Order imesafirishwa. Buyer atathibitisha baada ya kuipokea.";
+      }
+      if (order.status === "disputed") {
+        return "Order imesimamishwa kwa uchunguzi. Winga itahifadhi historia na payment state hadi dispute iamuliwe.";
       }
       if (order.status === "delivered") {
         return "Order completed. Buyer anaweza sasa kuacha review ya bidhaa na huduma ya seller.";

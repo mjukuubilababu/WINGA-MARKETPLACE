@@ -718,6 +718,13 @@
           const orderId = button.dataset.orderId;
           const status = button.dataset.orderAction;
           const isRejectPayment = button.dataset.orderRejectPayment === "true";
+          const disputeReason = status === "disputed" && typeof window.prompt === "function"
+            ? String(window.prompt(t("order.disputePrompt", "Describe the delivery issue"), "") || "").trim()
+            : "";
+          if (status === "disputed" && disputeReason.length < 10) {
+            deps.showInAppNotification?.({ title: t("order.disputeReasonTitle", "More detail is required"), body: t("order.disputeReasonBody", "Describe the issue using at least 10 characters."), variant: "warning" });
+            return;
+          }
           if (status === "cancelled" && deps.confirmAction && !deps.confirmAction(isRejectPayment
             ? "Una uhakika unataka kukataa payment proof hii? Order itafungwa."
             : "Una uhakika unataka kufuta order hii?")) {
@@ -731,7 +738,11 @@
               ? t("order.paidSuccess", "Payment imethibitishwa. Buyer ataona update hii mara moja.")
               : status === "confirmed"
                 ? t("order.confirmedSuccess", "Seller amejibu na kuthibitisha order.")
-                : t("order.completedSuccess", "Order imewekwa completed.");
+                : status === "processing"
+                  ? t("order.processingSuccess", "Order imeingia kwenye maandalizi.")
+                  : status === "shipped"
+                    ? t("order.shippedSuccess", "Order imemarkiwa kuwa imesafirishwa.")
+                    : t("order.completedSuccess", "Order imewekwa completed.");
           try {
             deps.setOrderActionStatus?.(orderId, {
               tone: "info",
@@ -741,10 +752,14 @@
                   ? t("order.verifyingPaymentStatus", "Tunathibitisha payment proof sasa.")
                   : status === "confirmed"
                     ? t("order.confirmingStatus", "Tunathibitisha order kwa buyer sasa.")
-                    : t("order.completingStatus", "Tunamark order hii completed sasa.")
+                    : status === "processing"
+                      ? t("order.processingStatus", "Tunaweka order kwenye maandalizi sasa.")
+                      : status === "shipped"
+                        ? t("order.shippingStatus", "Tunathibitisha kuwa order imesafirishwa.")
+                        : t("order.completingStatus", "Tunamark order hii completed sasa.")
             });
             deps.renderProfile?.();
-            await deps.dataLayer.updateOrderStatus(orderId, { status });
+            await deps.dataLayer.updateOrderStatus(orderId, { status, reason: disputeReason || undefined });
             deps.setOrderActionStatus?.(orderId, {
               tone: "success",
               message: successMessage

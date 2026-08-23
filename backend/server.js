@@ -150,8 +150,8 @@ const DEFAULT_CATEGORIES = [
 ];
 const ALLOWED_ROLES = ["buyer", "seller", "admin", "moderator"];
 const ALLOWED_PRODUCT_STATUSES = ["pending", "approved", "rejected"];
-const ALLOWED_ORDER_STATUSES = ["placed", "paid", "confirmed", "delivered", "cancelled"];
-const ALLOWED_PAYMENT_STATUSES = ["pending", "paid", "failed", "cancelled"];
+const ALLOWED_ORDER_STATUSES = ["placed", "paid", "confirmed", "processing", "shipped", "delivered", "disputed", "cancelled"];
+const ALLOWED_PAYMENT_STATUSES = ["pending", "paid", "failed", "cancelled", "refunded"];
 const ALLOWED_USER_STATUSES = ["active", "suspended", "banned", "flagged", "deactivated"];
 const ALLOWED_REPORT_STATUSES = ["open", "reviewed", "resolved"];
 const ALLOWED_REPORT_TARGETS = ["user", "product"];
@@ -180,6 +180,8 @@ const MAX_BACKUP_FILES = 5;
 const RATE_LIMIT_WINDOW_MS = 60 * 1000;
 const RATE_LIMIT_MAX_BUCKETS = 5000;
 const BUYER_CANCEL_WINDOW_MS = 48 * 60 * 60 * 1000;
+const DELIVERY_CONFIRM_WINDOW_MS = Math.max(24 * 60 * 60 * 1000, Math.min(Number(process.env.DELIVERY_CONFIRM_WINDOW_MS || 7 * 24 * 60 * 60 * 1000) || 7 * 24 * 60 * 60 * 1000, 30 * 24 * 60 * 60 * 1000));
+const DELIVERY_DISPUTE_WINDOW_MS = Math.max(24 * 60 * 60 * 1000, Math.min(Number(process.env.DELIVERY_DISPUTE_WINDOW_MS || 48 * 60 * 60 * 1000) || 48 * 60 * 60 * 1000, 14 * 24 * 60 * 60 * 1000));
 const COMMERCE_RESERVATION_SWEEP_INTERVAL_MS = Math.max(30 * 1000, Math.min(Number(process.env.COMMERCE_RESERVATION_SWEEP_INTERVAL_MS || 5 * 60 * 1000) || 5 * 60 * 1000, 60 * 60 * 1000));
 const COMMERCE_RESERVATION_SWEEP_BATCH_SIZE = Math.max(1, Math.min(500, Number(process.env.COMMERCE_RESERVATION_SWEEP_BATCH_SIZE || 100) || 100));
 let commerceReservationSweepTimer = null;
@@ -1128,6 +1130,21 @@ async function sweepExpiredCommerceReservations() {
     }
     if (expired > 0) {
       logStructuredEvent("info", "commerce_reservations_expired", { expired, releasedProducts, batches });
+    }
+    if (postgresStore?.autoCompleteShippedOrders) {
+      let deliveryHasMore = true;
+      let completed = 0;
+      let deliveryBatches = 0;
+      while (deliveryHasMore && deliveryBatches < 10) {
+        const result = await postgresStore.autoCompleteShippedOrders({
+          batchSize: COMMERCE_RESERVATION_SWEEP_BATCH_SIZE,
+          disputeWindowSeconds: Math.floor(DELIVERY_DISPUTE_WINDOW_MS / 1000)
+        });
+        completed += Number(result?.completed || 0);
+        deliveryHasMore = Boolean(result?.hasMore);
+        deliveryBatches += 1;
+      }
+      if (completed > 0) logStructuredEvent("info", "commerce_deliveries_auto_completed", { completed, batches: deliveryBatches });
     }
   } catch (error) {
     safeConsole("error", "Commerce reservation sweep failed", error?.message || error);
@@ -2583,7 +2600,7 @@ function normalizeOrderRecord(order) {
   const normalizedStatus = isValidOrderStatus(order.status) ? order.status : "placed";
   const normalizedPaymentStatus = isValidPaymentStatus(order.paymentStatus)
     ? order.paymentStatus
-    : ((normalizedStatus === "paid" || normalizedStatus === "confirmed" || normalizedStatus === "delivered") ? "paid" : "pending");
+    : (["paid", "confirmed", "processing", "shipped", "delivered", "disputed"].includes(normalizedStatus) ? "paid" : "pending");
   const createdAt = order.createdAt || new Date().toISOString();
   const reserveExpiresAt = order.reserveExpiresAt
     || (normalizedStatus === "placed" && normalizedPaymentStatus === "pending"
@@ -2617,6 +2634,17 @@ function normalizeOrderRecord(order) {
     paymentConfirmedBy: normalizeIdentifier(order.paymentConfirmedBy, 40),
     paymentIntentStatus,
     reserveExpiresAt,
+    confirmedAt: order.confirmedAt || "",
+    processingAt: order.processingAt || "",
+    shippedAt: order.shippedAt || "",
+    deliveryConfirmBy: order.deliveryConfirmBy || "",
+    disputeWindowEndsAt: order.disputeWindowEndsAt || "",
+    disputedAt: order.disputedAt || "",
+    disputeReason: sanitizePlainText(order.disputeReason || "", 500),
+    deliveredAt: order.deliveredAt || "",
+    cancelledAt: order.cancelledAt || "",
+    cancellationReason: sanitizePlainText(order.cancellationReason || "", 240),
+    rowVersion: Math.max(1, Number(order.rowVersion || 1) || 1),
     createdAt
   };
 }
@@ -2629,7 +2657,7 @@ function deriveProductAvailabilityFromOrders(orders, productId) {
   if (productOrders.some((order) => order.status === "delivered")) {
     return "sold_out";
   }
-  if (productOrders.some((order) => ["placed", "paid", "confirmed"].includes(order.status))) {
+  if (productOrders.some((order) => ["placed", "paid", "confirmed", "processing", "shipped", "disputed"].includes(order.status))) {
     return "reserved";
   }
   return "available";
@@ -2748,7 +2776,16 @@ function buildOrderNotification({ recipientId, actorUsername, order, stage }) {
     body = `${safeActor || "Muuzaji"} hakuweza kuthibitisha malipo ya order hii. Fungua chat au jaribu tena ukiwa na reference sahihi.`;
   } else if (stage === "confirmed") {
     title = `Muuzaji amethibitisha ${productLabel}`;
-    body = "Kuna update mpya kwenye order yako. Angalia status ya delivery au maelekezo ya muuzaji.";
+    body = "Order imethibitishwa na sasa itaingia kwenye maandalizi ya usafirishaji.";
+  } else if (stage === "processing") {
+    title = `${productLabel} inaandaliwa`;
+    body = "Muuzaji ameanza kuandaa order yako kwa usafirishaji.";
+  } else if (stage === "shipped") {
+    title = `${productLabel} imesafirishwa`;
+    body = "Order imesafirishwa. Buyer atathibitisha baada ya kuipokea.";
+  } else if (stage === "disputed") {
+    title = `Dispute imefunguliwa kwa ${productLabel}`;
+    body = "Order imesimamishwa kwa uchunguzi. Malipo na historia vitaendelea kulindwa hadi dispute iamuliwe.";
   } else if (stage === "delivered") {
     title = `Order ya ${productLabel} imekamilika`;
     body = `${safeActor || "Mnunuzi"} amethibitisha kupokea bidhaa hii.`;
@@ -2763,7 +2800,7 @@ function buildOrderNotification({ recipientId, actorUsername, order, stage }) {
     conversationId: safeOrder.id,
     title,
     body,
-    variant: stage === "cancelled" || stage === "payment_rejected" ? "warning" : "success",
+    variant: stage === "cancelled" || stage === "payment_rejected" || stage === "disputed" ? "warning" : "success",
     isRead: false,
     createdAt: new Date().toISOString()
   });
@@ -3864,7 +3901,7 @@ function migrateLegacyStore(store) {
       paymentMethod: order.paymentMethod || "mobile_money",
       transactionReference: order.transactionId,
       receiptNumber: order.transactionId,
-      paymentStatus: order.paymentStatus || (order.status === "paid" || order.status === "confirmed" || order.status === "delivered" ? "paid" : "pending"),
+      paymentStatus: order.paymentStatus || (["paid", "confirmed", "processing", "shipped", "delivered", "disputed"].includes(order.status) ? "paid" : "pending"),
       payerDetails: {},
       rawGatewayResponse: null,
       createdAt: order.paymentSubmittedAt || order.createdAt,
@@ -4479,7 +4516,7 @@ function buildAnalytics(store, username = "", isAdmin = false) {
       .filter(Boolean)
   );
   const sellerOrders = isAdmin ? orders : orders.filter((order) => order.sellerUsername === username);
-  const openOrders = sellerOrders.filter((order) => ["placed", "paid", "confirmed"].includes(order.status)).length;
+  const openOrders = sellerOrders.filter((order) => ["placed", "paid", "confirmed", "processing", "shipped", "disputed"].includes(order.status)).length;
   const completedOrders = sellerOrders.filter((order) => order.status === "delivered").length;
   const repeatBuyers = Object.values(
     sellerOrders.reduce((accumulator, order) => {
@@ -5106,8 +5143,22 @@ function canUpdateOrderStatus(order, session, nextStatus) {
     return isSeller && order.status === "paid" && order.paymentStatus === "paid";
   }
 
+  if (nextStatus === "processing") {
+    return isSeller && order.status === "confirmed" && order.paymentStatus === "paid";
+  }
+
+  if (nextStatus === "shipped") {
+    return isSeller && order.status === "processing" && order.paymentStatus === "paid";
+  }
+
   if (nextStatus === "delivered") {
-    return isBuyer && order.status === "confirmed";
+    return isBuyer && order.status === "shipped" && order.paymentStatus === "paid";
+  }
+
+  if (nextStatus === "disputed") {
+    const deadline = new Date(order.disputeWindowEndsAt || order.deliveryConfirmBy || 0).getTime();
+    return isBuyer && ["shipped", "delivered"].includes(order.status)
+      && order.paymentStatus === "paid" && Number.isFinite(deadline) && Date.now() <= deadline;
   }
 
   if (nextStatus === "cancelled") {
@@ -6740,15 +6791,16 @@ http.createServer(async (req, res) => {
         updatedBy: session.username
       });
 
-      store = {
+      const nextStore = {
         ...store,
         settings: nextSettings
       };
       if (postgresStore?.saveAppSettings) {
         await postgresStore.saveAppSettings(nextSettings);
       } else {
-        await writeStore(store);
+        await writeStore(nextStore);
       }
+      store = nextStore;
       await appendAuditLog({
         time: new Date().toISOString(),
         ip: clientIp,
@@ -10348,7 +10400,7 @@ http.createServer(async (req, res) => {
       const hasActiveOrder = (store.orders || []).some((order) =>
         order.productId === product.id
         && order.buyerUsername === session.username
-        && (order.status === "placed" || order.status === "paid" || order.status === "confirmed")
+        && ["placed", "paid", "confirmed", "processing", "shipped", "disputed"].includes(order.status)
       );
       if (hasActiveOrder) {
         sendJson(res, 409, { error: "Tayari una order inayoendelea kwa bidhaa hii." });
@@ -10452,7 +10504,7 @@ http.createServer(async (req, res) => {
           ? { ...item, availability: "reserved", updatedAt: now }
           : item
       );
-      store = { ...store, orders, payments, products, notifications };
+      const nextStore = { ...store, orders, payments, products, notifications };
       if (postgresStore?.createCommerceOrder) {
         const commerceResult = await postgresStore.createCommerceOrder(order, payment, sellerNotification);
         if (!commerceResult.created) {
@@ -10470,8 +10522,9 @@ http.createServer(async (req, res) => {
           return;
         }
       } else {
-        await writeStore(store);
+        await writeStore(nextStore);
       }
+      store = nextStore;
       await appendAuditLog({
         time: new Date().toISOString(),
         ip: clientIp,
@@ -10787,6 +10840,12 @@ http.createServer(async (req, res) => {
           : existingOrder.paymentIntentStatus;
       const paymentConfirmedAt = nextStatus === "paid" ? new Date().toISOString() : existingOrder.paymentConfirmedAt;
       const paymentConfirmedBy = nextStatus === "paid" ? session.username : existingOrder.paymentConfirmedBy;
+      const transitionTime = new Date().toISOString();
+
+      if (nextStatus === "disputed" && sanitizePlainText(payload?.reason || "", 500).length < 10) {
+        sendJson(res, 400, { error: "Eleza tatizo la order kwa herufi angalau 10.", code: "dispute_reason_required" });
+        return;
+      }
 
       const updatedOrder = normalizeOrderRecord({
         ...existingOrder,
@@ -10795,7 +10854,23 @@ http.createServer(async (req, res) => {
         paymentIntentStatus,
         paymentConfirmedAt,
         paymentConfirmedBy,
-        reserveExpiresAt: nextStatus === "placed" ? existingOrder.reserveExpiresAt : ""
+        reserveExpiresAt: nextStatus === "placed" ? existingOrder.reserveExpiresAt : "",
+        confirmedAt: nextStatus === "confirmed" ? transitionTime : existingOrder.confirmedAt,
+        processingAt: nextStatus === "processing" ? transitionTime : existingOrder.processingAt,
+        shippedAt: nextStatus === "shipped" ? transitionTime : existingOrder.shippedAt,
+        deliveryConfirmBy: nextStatus === "shipped"
+          ? new Date(Date.now() + DELIVERY_CONFIRM_WINDOW_MS).toISOString()
+          : (nextStatus === "delivered" ? "" : existingOrder.deliveryConfirmBy),
+        disputeWindowEndsAt: nextStatus === "delivered"
+          ? new Date(Date.now() + DELIVERY_DISPUTE_WINDOW_MS).toISOString()
+          : existingOrder.disputeWindowEndsAt,
+        disputedAt: nextStatus === "disputed" ? transitionTime : existingOrder.disputedAt,
+        disputeReason: nextStatus === "disputed" ? sanitizePlainText(payload?.reason || "", 500) : existingOrder.disputeReason,
+        deliveredAt: nextStatus === "delivered" ? transitionTime : existingOrder.deliveredAt,
+        cancelledAt: nextStatus === "cancelled" ? transitionTime : existingOrder.cancelledAt,
+        cancellationReason: nextStatus === "cancelled"
+          ? sanitizePlainText(payload?.reason || (sellerRejectingPendingPayment ? "payment_rejected" : "buyer_cancelled"), 240)
+          : existingOrder.cancellationReason
       });
 
       const orders = (store.orders || []).map((order) =>
@@ -10828,14 +10903,21 @@ http.createServer(async (req, res) => {
           ? { ...item, availability: nextAvailability, updatedAt: new Date().toISOString() }
           : item
       );
-      store = { ...store, orders, payments, products, notifications };
+      const nextStore = { ...store, orders, payments, products, notifications };
       if (postgresStore?.transitionCommerceOrder) {
         const transitionResult = await postgresStore.transitionCommerceOrder(
           existingOrder,
           updatedOrder,
           { paymentStatus },
           nextAvailability,
-          orderNotification
+          orderNotification,
+          {
+            actorUsername: session.username,
+            actorRole: session.role || "",
+            reason: updatedOrder.disputeReason || updatedOrder.cancellationReason || "",
+            idempotencyKey: sanitizePlainText(payload?.idempotencyKey || `${orderId}:${existingOrder.rowVersion}:${nextStatus}`, 180),
+            expectedVersion: Number(payload?.expectedVersion || existingOrder.rowVersion || 1)
+          }
         );
         if (!transitionResult.updated) {
           sendJson(res, 409, {
@@ -10846,8 +10928,9 @@ http.createServer(async (req, res) => {
         }
         updatedOrder.rowVersion = transitionResult.rowVersion;
       } else {
-        await writeStore(store);
+        await writeStore(nextStore);
       }
+      store = nextStore;
       await appendAuditLog({
         time: new Date().toISOString(),
         ip: clientIp,
