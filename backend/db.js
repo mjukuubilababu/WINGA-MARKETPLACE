@@ -1,6 +1,12 @@
 const { Pool } = require("pg");
 const { runSchemaMigrations } = require("./migrations");
 
+const ALL_TABLE_KEYS = Object.freeze([
+  "categories", "users", "products", "sessions", "orders", "payments", "messages",
+  "notifications", "promotions", "reviews", "reports", "moderationActions", "settings"
+]);
+const EMPTY_QUERY_RESULT = Object.freeze({ rows: [] });
+
 function stringifyJson(value, fallback = []) {
   return JSON.stringify(value ?? fallback);
 }
@@ -1364,17 +1370,19 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
     }
   }
 
-  async function readStore() {
+  async function readStore(tables = ALL_TABLE_KEYS) {
+    const requestedTables = Array.isArray(tables) ? tables : ALL_TABLE_KEYS;
+    const selectedTables = new Set(requestedTables.filter((tableKey) => ALL_TABLE_KEYS.includes(tableKey)));
       const [categoriesResult, usersResult, productsResult, sessionsResult, ordersResult, paymentsResult, messagesResult, notificationsResult, promotionsResult, reviewsResult, reportsResult, moderationActionsResult, settingsResult] = await Promise.all([
-      query(`
+      (selectedTables.has("categories") ? query(`
         SELECT
           value,
           label,
           created_at AS "createdAt"
         FROM categories
         ORDER BY created_at ASC
-      `),
-      query(`
+      `) : EMPTY_QUERY_RESULT),
+      (selectedTables.has("users") ? query(`
         SELECT
           username,
           full_name AS "fullName",
@@ -1412,8 +1420,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
           row_version AS "rowVersion"
         FROM users
         ORDER BY created_at ASC
-      `),
-      query(`
+      `) : EMPTY_QUERY_RESULT),
+      (selectedTables.has("products") ? query(`
         SELECT
           id,
           name,
@@ -1442,8 +1450,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
           row_version AS "rowVersion"
         FROM products
         ORDER BY created_at DESC, id DESC
-      `),
-      query(`
+      `) : EMPTY_QUERY_RESULT),
+      (selectedTables.has("sessions") ? query(`
         SELECT
           token,
           session_id AS "sessionId",
@@ -1467,8 +1475,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
           expires_at AS "expiresAt"
         FROM sessions
         ORDER BY last_seen_at DESC, expires_at DESC
-      `),
-      query(`
+      `) : EMPTY_QUERY_RESULT),
+      (selectedTables.has("orders") ? query(`
         SELECT
           id,
           product_id AS "productId",
@@ -1507,8 +1515,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
           created_at AS "createdAt"
         FROM orders
         ORDER BY created_at DESC
-      `),
-        query(`
+      `) : EMPTY_QUERY_RESULT),
+        (selectedTables.has("payments") ? query(`
           SELECT
             id,
             order_id AS "orderId",
@@ -1530,8 +1538,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
           updated_at AS "updatedAt"
           FROM payments
           ORDER BY created_at DESC
-        `),
-        query(`
+        `) : EMPTY_QUERY_RESULT),
+        (selectedTables.has("messages") ? query(`
           SELECT
             id,
             sender_id AS "senderId",
@@ -1553,8 +1561,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
             row_version AS "rowVersion"
           FROM messages
           ORDER BY timestamp ASC
-        `),
-        query(`
+        `) : EMPTY_QUERY_RESULT),
+        (selectedTables.has("notifications") ? query(`
           SELECT
             id,
             user_id AS "userId",
@@ -1569,8 +1577,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
             row_version AS "rowVersion"
           FROM notifications
           ORDER BY created_at DESC
-        `),
-        query(`
+        `) : EMPTY_QUERY_RESULT),
+        (selectedTables.has("promotions") ? query(`
           SELECT
             id,
             product_id AS "productId",
@@ -1592,8 +1600,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
             disabled_by AS "disabledBy"
           FROM promotions
           ORDER BY created_at DESC
-        `),
-        query(`
+        `) : EMPTY_QUERY_RESULT),
+        (selectedTables.has("reviews") ? query(`
           SELECT
             id,
             user_id AS "userId",
@@ -1605,8 +1613,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
             date
           FROM reviews
           ORDER BY date DESC
-        `),
-        query(`
+        `) : EMPTY_QUERY_RESULT),
+        (selectedTables.has("reports") ? query(`
           SELECT
             id,
           target_type AS "targetType",
@@ -1622,8 +1630,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
           updated_at AS "updatedAt"
         FROM reports
         ORDER BY created_at DESC
-      `),
-      query(`
+      `) : EMPTY_QUERY_RESULT),
+      (selectedTables.has("moderationActions") ? query(`
         SELECT
           id,
           admin_username AS "adminUsername",
@@ -1635,8 +1643,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
           created_at AS "createdAt"
         FROM moderation_actions
         ORDER BY created_at DESC
-      `),
-      query(`
+      `) : EMPTY_QUERY_RESULT),
+      (selectedTables.has("settings") ? query(`
         SELECT
           settings,
           updated_at AS "updatedAt",
@@ -1644,7 +1652,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
         FROM app_settings
         ORDER BY id ASC
         LIMIT 1
-      `)
+      `) : EMPTY_QUERY_RESULT)
     ]);
 
     return {

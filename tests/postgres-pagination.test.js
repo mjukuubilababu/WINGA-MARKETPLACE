@@ -87,6 +87,36 @@ test("PostgreSQL fresh bootstrap binds every persisted user column", async () =>
   assert.equal(calls.at(-1).text, "COMMIT");
 });
 
+test("PostgreSQL readStore skips unrequested tables while preserving the complete store shape", async () => {
+  const calls = [];
+  const queryClient = {
+    async query(text) {
+      const sql = String(text);
+      calls.push(sql);
+      if (sql.includes("FROM users")) {
+        return { rows: [{ username: "buyer-one", sharedPhoneViewerIds: "[]" }] };
+      }
+      if (sql.includes("FROM sessions")) {
+        return { rows: [{ token: "session-token", username: "buyer-one", expiresAt: Date.now() + 60000 }] };
+      }
+      throw new Error(`Unexpected table query: ${sql}`);
+    }
+  };
+  const store = createPostgresStore({ databaseUrl: "postgres://test.invalid/winga", queryClient });
+
+  const result = await store.readStore(["users", "sessions", "unknown-table"]);
+
+  assert.equal(calls.length, 2);
+  assert.equal(calls.some((sql) => sql.includes("FROM users")), true);
+  assert.equal(calls.some((sql) => sql.includes("FROM sessions")), true);
+  assert.equal(result.users.length, 1);
+  assert.equal(result.sessions.length, 1);
+  for (const key of ["categories", "products", "orders", "payments", "messages", "notifications", "promotions", "reviews", "reports", "moderationActions"]) {
+    assert.deepEqual(result[key], []);
+  }
+  assert.deepEqual(result.settings, {});
+});
+
 test("PostgreSQL product actions update one row atomically", async () => {
   const calls = [];
   const queryClient = {

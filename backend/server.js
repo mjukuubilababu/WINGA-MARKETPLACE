@@ -214,6 +214,9 @@ const RATE_LIMIT_RULES = {
   "/api/users/me/whatsapp/verify-change": { limit: 12, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/users/me/locale-preference": { limit: 20, windowMs: RATE_LIMIT_WINDOW_MS }
 };
+const STORE_TABLE_COUNT = 13;
+const PRODUCT_LIST_STORE_TABLES = Object.freeze(["users", "sessions"]);
+
 const READ_RATE_LIMIT_RULES = {
   "/api/products": { limit: 240, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/bootstrap": { limit: 120, windowMs: RATE_LIMIT_WINDOW_MS },
@@ -888,9 +891,9 @@ async function readRecentAuditEntries(limit = 50) {
   }).filter(Boolean);
 }
 
-async function readStore() {
+async function readStore(tables) {
   if (postgresStore) {
-    return postgresStore.readStore();
+    return postgresStore.readStore(tables);
   }
   return readLegacyStore();
 }
@@ -5979,15 +5982,25 @@ http.createServer(async (req, res) => {
     || url.pathname === "/api/auth/signup"
     || url.pathname === "/api/auth/admin-login"
     || url.pathname === "/api/auth/session";
+  const requestedStoreTables = postgresStore && req.method === "GET" && url.pathname === "/api/products"
+    ? PRODUCT_LIST_STORE_TABLES
+    : undefined;
+  const storeTablesRequested = requestedStoreTables?.length || STORE_TABLE_COUNT;
+  const storeTablesSkipped = requestedStoreTables ? STORE_TABLE_COUNT - storeTablesRequested : 0;
   if (shouldLogRouteMemory) {
-    logRouteMemoryStage(requestMeta, "before_read_store");
+    logRouteMemoryStage(requestMeta, "before_read_store", {
+      storeTablesRequested,
+      storeTablesSkipped
+    });
   }
-  let store = migrateLegacyStore(cleanupSessions(await readStore())).store;
+  let store = migrateLegacyStore(cleanupSessions(await readStore(requestedStoreTables))).store;
   if (shouldLogRouteMemory) {
     logRouteMemoryStage(requestMeta, "after_read_store", {
       users: Array.isArray(store?.users) ? store.users.length : 0,
       products: Array.isArray(store?.products) ? store.products.length : 0,
-      sessions: Array.isArray(store?.sessions) ? store.sessions.length : 0
+      sessions: Array.isArray(store?.sessions) ? store.sessions.length : 0,
+      storeTablesRequested,
+      storeTablesSkipped
     });
   }
   const clientIp = getClientIp(req);
