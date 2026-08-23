@@ -116,6 +116,7 @@ test.before(async () => {
       NODE_ENV: "test",
       WINGA_DATA_DIR: path.join(tempRoot, "data"),
       WINGA_UPLOADS_DIR: path.join(tempRoot, "uploads"),
+      R2_ACCOUNT_ID: "",
       ALLOWED_ORIGINS: "http://localhost:3000,https://wingamarket.com",
       PAYMENT_WEBHOOK_SECRET: "integration-webhook-secret",
       OPS_HEALTH_TOKEN: "integration-ops-health-token",

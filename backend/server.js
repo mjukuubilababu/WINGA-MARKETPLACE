@@ -9,6 +9,7 @@ const { createIntelligencePlatform } = require("./intelligence-platform");
 const { createDemandService, summarizeDemandEvents } = require("./demand-service");
 const { createSearchDemandService, summarizeSearchDemandEvents } = require("./search-demand-service");
 const { buildRequestGlobalContext, normalizeUserPreference, validateUserPreference } = require("./global-context");
+const { isR2StorageEnabled, uploadImageToR2 } = require("./storage-r2");
 
 const PORT = process.env.PORT || 3000;
 const DATABASE_URL = process.env.DATABASE_URL || "";
@@ -1946,7 +1947,7 @@ function getCspHeader(req) {
     "form-action 'self'",
     "frame-ancestors 'none'",
     "object-src 'none'",
-    "img-src 'self' data: blob: https://wingamarket.com",
+    "img-src 'self' data: blob: https://media.wingamarket.com https://wingamarket.com",
     "font-src 'self' data:",
     "media-src 'self' data: blob:",
     "script-src 'self'",
@@ -3661,6 +3662,35 @@ function saveDataUrlImage(value) {
   return `/uploads/${fileName}`;
 }
 
+async function persistIncomingProductImages(product) {
+  if (!isR2StorageEnabled()) return product;
+
+  const persistedValues = new Map();
+  const persistValue = async (value) => {
+    if (typeof value !== "string" || !value.startsWith("data:image/")) return value;
+    if (!persistedValues.has(value)) {
+      persistedValues.set(value, (async () => {
+        const parsedImage = parseDataImageValue(value);
+        if (!parsedImage || !imageBufferMatchesMime(parsedImage.buffer, parsedImage.mimeType)) {
+          throw new Error("Aina ya picha haijaruhusiwa.");
+        }
+        const extension = getMimeExtension(parsedImage.mimeType);
+        if (!extension) throw new Error("Aina ya picha haijaruhusiwa.");
+        const fileName = `${Date.now()}-${crypto.randomBytes(8).toString("hex")}${extension}`;
+        return uploadImageToR2(parsedImage.buffer, `products/${fileName}`, {
+          contentType: parsedImage.mimeType
+        });
+      })());
+    }
+    return persistedValues.get(value);
+  };
+
+  return {
+    ...product,
+    images: Array.isArray(product.images) ? await Promise.all(product.images.map(persistValue)) : product.images,
+    image: await persistValue(product.image)
+  };
+}
 function buildPersistentImageArchive(value) {
   return "";
 }
@@ -11038,8 +11068,9 @@ http.createServer(async (req, res) => {
         }
       }
 
+      const storedCandidatePayload = await persistIncomingProductImages(candidatePayload);
       const normalizedProduct = normalizeProductRecord(normalizeProductImages({
-        ...candidatePayload,
+        ...storedCandidatePayload,
         shop: typeof candidatePayload.shop === "string" && candidatePayload.shop.trim() ? candidatePayload.shop.trim() : sellerUser.username,
         status: "approved",
         moderationNote: "",
@@ -11187,8 +11218,9 @@ http.createServer(async (req, res) => {
         return;
       }
 
+      const storedCandidateProduct = await persistIncomingProductImages(candidateProduct);
       const updatedProduct = normalizeProductRecord(normalizeProductImages({
-        ...candidateProduct,
+        ...storedCandidateProduct,
         status: existingProduct.status === "rejected" ? "pending" : existingProduct.status,
         moderationNote: existingProduct.status === "rejected"
           ? "Re-submitted after seller update."

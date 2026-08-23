@@ -227,3 +227,26 @@ The promotion system is now functional and commercially useful at the current st
 ## Recommendation
 
 The recommended path is to start with manual mobile money confirmation and simple seller-managed delivery, then upgrade the payment and delivery stack later as the platform grows and transaction volume justifies deeper integrations.
+
+## R2 Setup (optional)
+
+Cloudflare R2 can store newly uploaded product images outside the backend filesystem. This is optional: when `R2_ACCOUNT_ID` is absent, WINGA keeps the existing disk behavior and writes images to `backend/uploads` (or `WINGA_UPLOADS_DIR`).
+
+1. Create an R2 bucket in Cloudflare, for example `winga-product-images`.
+2. Create an R2 API token scoped to Object Read & Write for that bucket.
+3. Connect `media.wingamarket.com` as the bucket custom domain. The production CSP permits this exact image origin.
+4. Add all of these environment variables to the Render backend service:
+
+```text
+R2_ACCOUNT_ID=<cloudflare-account-id>
+R2_ACCESS_KEY_ID=<r2-api-token-access-key-id>
+R2_SECRET_ACCESS_KEY=<r2-api-token-secret-access-key>
+R2_BUCKET_NAME=winga-product-images
+R2_PUBLIC_URL_BASE=https://media.wingamarket.com
+```
+
+5. Redeploy the Render backend and upload a test product image. New product image URLs should begin with `R2_PUBLIC_URL_BASE`.
+
+Do not set only part of the R2 configuration. Once `R2_ACCOUNT_ID` is present, startup traffic that uploads an image will reject incomplete credentials instead of silently writing to the wrong storage system. Existing `/uploads/*` image references remain readable and are not migrated automatically.
+
+Cloudflare uses the S3-compatible endpoint `https://<ACCOUNT_ID>.r2.cloudflarestorage.com`; WINGA configures this internally through the AWS SDK for JavaScript v3.

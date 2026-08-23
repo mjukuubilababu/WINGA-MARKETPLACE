@@ -305,7 +305,7 @@ function buildContentSecurityPolicy(options = {}) {
     "form-action 'self'",
     "frame-ancestors 'none'",
     "object-src 'none'",
-    `img-src 'self' data: blob: ${origin} https://wingamarket.com`,
+    `img-src 'self' data: blob: ${origin} https://media.wingamarket.com https://wingamarket.com`,
     "font-src 'self' data:",
     `media-src 'self' data: blob: ${origin}`,
     `connect-src 'self' ${origin} https://wingamarket.com https://cloudflareinsights.com https://static.cloudflareinsights.com`,
