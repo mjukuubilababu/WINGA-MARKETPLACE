@@ -1513,3 +1513,22 @@ test("duplicate continuation page with unchanged cursor cannot loop forever", as
   await page.waitForTimeout(250);
   expect(productRequests).toHaveLength(2);
 });
+
+test("initial product failure shows a retryable error instead of an endless loading shell", async ({ page }) => {
+  const products = createProducts(12);
+  let allowSuccess = false;
+  await page.route("**/api/products**", async (route) => {
+    if (!allowSuccess) {
+      await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "temporary outage" }) });
+      return;
+    }
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ items: products, hasMore: false, nextCursor: "", total: products.length, page: 1, limit: 12 }) });
+  });
+  await page.goto("/");
+  await expect(page.locator("#initial-products-error-state")).toBeVisible({ timeout: 30000 });
+  await expect(page.locator("#feed-loading-state")).toBeHidden();
+  allowSuccess = true;
+  await page.locator("#initial-products-error-retry").click();
+  await expect(page.locator("#products-container .product-card").first()).toBeVisible({ timeout: 30000 });
+  await expect(page.locator("#initial-products-error-state")).toBeHidden();
+});

@@ -48,6 +48,8 @@
                      "feed.retry":  "Try again",
                      "feed.loading":  "Loading products",
                      "feed.slow":  "Products are taking longer than expected to load. Please try again.",
+                     "feed.errorTitle":  "Products could not load",
+                     "feed.errorCopy":  "Check your connection and try again.",
                      "product.opening":  "Opening the product you selected…",
                      "product.openingTitle":  "Opening product…",
                      "session.expired":  "Your session has expired. Sign in again to continue.",

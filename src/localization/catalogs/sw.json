@@ -48,6 +48,8 @@
                      "feed.retry":  "Jaribu tena",
                      "feed.loading":  "Inapakia bidhaa",
                      "feed.slow":  "Bidhaa zinachukua muda mrefu kupakia. Tafadhali jaribu tena.",
+                     "feed.errorTitle":  "Bidhaa hazikuweza kupakia",
+                     "feed.errorCopy":  "Angalia intaneti yako kisha ujaribu tena.",
                      "product.opening":  "Tunafungua bidhaa uliyochagua…",
                      "product.openingTitle":  "Tunafungua bidhaa…",
                      "session.expired":  "Session yako imeisha. Ingia tena kuendelea.",

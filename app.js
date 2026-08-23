@@ -12019,9 +12019,11 @@ let lifecycleFallbackActive = false;
 let lifecycleFallbackReason = "";
 let publicAuthSlowTimer = null;
 let productHydrationStatus = "idle";
+let initialProductsRetryPending = false;
 const ADMIN_LOGIN_HASH = "#/admin-login";
 
 function getInitialProductsRequestState() {
+  if (initialProductsRetryPending) return "loading";
   const requestState = String(window.WingaDataLayer?.getInitialProductsRequestState?.() || "").trim().toLowerCase();
   if (requestState === "success" || requestState === "error" || requestState === "loading") {
     return requestState;
@@ -12119,6 +12121,10 @@ const cancelEditButton = document.getElementById("cancel-edit-button");
 const emptyState = document.getElementById("empty-state");
 const feedLoadingState = document.getElementById("feed-loading-state");
 const feedLoadingRetryButton = document.getElementById("feed-loading-retry-button");
+const initialProductsErrorState = document.getElementById("initial-products-error-state");
+const initialProductsErrorTitle = document.getElementById("initial-products-error-title");
+const initialProductsErrorCopy = document.getElementById("initial-products-error-copy");
+const initialProductsErrorRetryButton = document.getElementById("initial-products-error-retry");
 const analyticsPanel = document.getElementById("analytics-panel");
 const adminPanel = document.getElementById("admin-panel");
 
@@ -13689,6 +13695,39 @@ function setFeedLoadingStateVisible(visible) {
   feedLoadingState.style.display = visible ? "grid" : "none";
 }
 
+function setInitialProductsErrorStateVisible(visible) {
+  if (!initialProductsErrorState) return;
+  initialProductsErrorState.style.display = visible ? "grid" : "none";
+  if (!visible) return;
+  initialProductsErrorTitle.textContent = translateUi("feed.errorTitle", {}, "Products could not load");
+  initialProductsErrorCopy.textContent = translateUi("feed.errorCopy", {}, "Check your connection and try again.");
+  initialProductsErrorRetryButton.textContent = initialProductsRetryPending
+    ? translateUi("feed.loadMoreRetrying", {}, "Trying again...")
+    : translateUi("feed.retry", {}, "Try again");
+  initialProductsErrorRetryButton.disabled = initialProductsRetryPending;
+}
+
+async function retryInitialProductsBootstrap() {
+  if (initialProductsRetryPending) return;
+  initialProductsRetryPending = true;
+  productHydrationStatus = "loading";
+  renderCurrentView({ reason: "initial_products_retry_started", force: true });
+  try {
+    await window.WingaDataLayer?.refreshProducts?.({ preserveFeedPagination: false });
+    productHydrationStatus = "loaded";
+    refreshProductsFromStore();
+    mergeAvailableCategories(inferCategoriesFromData());
+    refreshCategoryUI();
+    reportClientEvent("info", "initial_products_retry_succeeded", "Initial product retry succeeded.", { category: "marketplace" });
+  } catch (error) {
+    productHydrationStatus = "failed";
+    captureClientError("initial_products_retry_failed", error, { category: "marketplace", alertSeverity: "medium" });
+  } finally {
+    initialProductsRetryPending = false;
+    renderCurrentView({ reason: "initial_products_retry_finished", force: true });
+  }
+}
+
 function getStartupFeedSkeletonCount() {
   const viewportWidth = getViewportWidth();
   if (viewportWidth >= 960) {
@@ -13733,6 +13772,7 @@ function hasVisibleStartupSurface(options = {}) {
     || uploadForm?.style.display === "block"
     || adminPanel?.style.display === "block"
     || emptyState?.style.display === "block"
+    || initialProductsErrorState?.style.display === "grid"
     || (includeFeedLoading && feedLoadingState?.style.display === "grid")
   );
 }
@@ -16584,6 +16624,11 @@ feedLoadingRetryButton?.addEventListener("click", () => {
       window.location.reload();
     }
   }, 1800);
+});
+
+initialProductsErrorRetryButton?.addEventListener("click", () => {
+  reportClientEvent("info", "initial_products_retry_clicked", "User retried initial products loading.", { category: "marketplace" });
+  retryInitialProductsBootstrap();
 });
 
 registerAppEvent(window, "popstate", (event) => {
@@ -19856,6 +19901,7 @@ function renderCurrentView(options = {}) {
         productsContainer.style.display = "grid";
         emptyState.style.display = "none";
         setFeedLoadingStateVisible(false);
+        setInitialProductsErrorStateVisible(false);
         uploadForm.style.display = "none";
         analyticsPanel.style.display = "none";
         adminPanel.style.display = "none";
@@ -19892,11 +19938,17 @@ function renderCurrentView(options = {}) {
       && filteredProducts.length === 0
       && initialProductsLoading
       && !lifecycleFallbackActive;
+    const shouldShowInitialProductsError = !isProfile
+      && !isUpload
+      && !isAdminView
+      && filteredProducts.length === 0
+      && initialProductsFailed;
     const shouldShowFeedLoading = !isProfile
       && !isUpload
       && !isAdminView
       && filteredProducts.length === 0
-      && (lifecycleFallbackActive || initialProductsFailed);
+      && lifecycleFallbackActive
+      && !shouldShowInitialProductsError;
     syncHeroPanelPosition(isProfile, isUpload);
 
     searchBox.style.display = isProfile || isUpload || isAdminView ? "none" : "grid";
@@ -19913,10 +19965,10 @@ function renderCurrentView(options = {}) {
     productsSummary?.classList.toggle("search-priority-summary", searchPriorityMode);
     updateMarketplaceActionChrome();
     scheduleChromeOffsetSync();
-    categories.style.display = isProfile || isAdminView || searchPriorityMode || shouldShowFeedLoading ? "none" : "grid";
+    categories.style.display = isProfile || isAdminView || searchPriorityMode || shouldShowFeedLoading || shouldShowInitialProductsError ? "none" : "grid";
     heroPanel.style.display = "none";
     marketShowcase.style.display = "none";
-    productsContainer.style.display = isProfile || isAdminView || shouldShowFeedLoading ? "none" : "grid";
+    productsContainer.style.display = isProfile || isAdminView || shouldShowFeedLoading || shouldShowInitialProductsError ? "none" : "grid";
     emptyState.style.display = !isProfile
       && !isAdminView
       && filteredProducts.length === 0
@@ -19925,6 +19977,7 @@ function renderCurrentView(options = {}) {
       ? "block"
       : "none";
     setFeedLoadingStateVisible(shouldShowFeedLoading);
+    setInitialProductsErrorStateVisible(shouldShowInitialProductsError);
     uploadForm.style.display = isUpload || editingProductId ? "block" : "none";
     analyticsPanel.style.display = isAdminView || (isProfile && canUseSellerFeatures()) ? "block" : "none";
     adminPanel.style.display = isAdminView ? "block" : "none";
@@ -19946,7 +19999,7 @@ function renderCurrentView(options = {}) {
       return;
     }
 
-    if (shouldShowFeedLoading) {
+    if (shouldShowFeedLoading || shouldShowInitialProductsError) {
       updateResultsMeta(0);
       renderSearchDropdown([], { isProfile, isUpload, isAdminView });
       return;
@@ -22254,13 +22307,3 @@ bootApp().catch((error) => {
   });
   showFatalStartupState(error);
 });
-
-
-
-
-
-
-
-
-
-

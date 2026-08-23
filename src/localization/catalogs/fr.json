@@ -48,6 +48,8 @@
                      "feed.retry":  "Réessayer",
                      "feed.loading":  "Chargement des produits",
                      "feed.slow":  "Le chargement des produits prend plus de temps que prévu. Veuillez réessayer.",
+                     "feed.errorTitle":  "Impossible de charger les produits",
+                     "feed.errorCopy":  "Vérifiez votre connexion, puis réessayez.",
                      "product.opening":  "Ouverture du produit sélectionné…",
                      "product.openingTitle":  "Ouverture du produit…",
                      "session.expired":  "Votre session a expiré. Reconnectez-vous pour continuer.",

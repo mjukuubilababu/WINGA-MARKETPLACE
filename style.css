@@ -2198,7 +2198,8 @@ img[data-zoom-src]{
 #analytics-panel,
 #admin-panel,
 #empty-state,
-#feed-loading-state{
+#feed-loading-state,
+#initial-products-error-state{
   padding:18px;
 }
 
@@ -2211,7 +2212,8 @@ img[data-zoom-src]{
   padding-bottom:calc(var(--app-bottom-offset, 16px) + 40px);
 }
 
-#feed-loading-state{
+#feed-loading-state,
+#initial-products-error-state{
   display:none;
   align-items:center;
   justify-content:center;
@@ -2227,6 +2229,13 @@ img[data-zoom-src]{
   margin:0 auto;
 }
 
+.initial-products-error-shell{
+  min-height:220px;
+}
+
+.initial-products-error-shell h3{
+  color:var(--text-primary);
+}
 .feed-loading-spinner{
   width:56px;
   height:56px;
