@@ -110,10 +110,16 @@ function normalizeProductRow(row) {
   };
 }
 
+function resolveDatabasePoolMax(value = process.env.DB_POOL_MAX) {
+  const parsedValue = Number.parseInt(value, 10);
+  return Number.isFinite(parsedValue) && parsedValue > 0 ? parsedValue : 20;
+}
+
 function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
   const pool = queryClient || new Pool({
     connectionString: databaseUrl,
-    ssl: ssl ? { rejectUnauthorized: false } : false
+    ssl: ssl ? { rejectUnauthorized: false } : false,
+    max: resolveDatabasePoolMax()
   });
 
   async function query(text, params = []) {
@@ -4971,5 +4977,6 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
 }
 
 module.exports = {
-  createPostgresStore
+  createPostgresStore,
+  resolveDatabasePoolMax
 };

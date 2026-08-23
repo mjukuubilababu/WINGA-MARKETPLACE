@@ -1,7 +1,15 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { createPostgresStore } = require("../backend/db");
+const { createPostgresStore, resolveDatabasePoolMax } = require("../backend/db");
 const { MIGRATIONS, runSchemaMigrations } = require("../backend/migrations");
+
+test("PostgreSQL pool max uses a safe default and accepts positive environment overrides", () => {
+  assert.equal(resolveDatabasePoolMax(undefined), 20);
+  assert.equal(resolveDatabasePoolMax("40"), 40);
+  assert.equal(resolveDatabasePoolMax("0"), 20);
+  assert.equal(resolveDatabasePoolMax("-5"), 20);
+  assert.equal(resolveDatabasePoolMax("invalid"), 20);
+});
 
 test("PostgreSQL schema migrations are locked, transactional, and versioned", async () => {
   const calls = [];
