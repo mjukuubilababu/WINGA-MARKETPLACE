@@ -1,4 +1,4 @@
-const { Pool } = require("pg");
+const { Client, Pool } = require("pg");
 const { runSchemaMigrations } = require("./migrations");
 
 const ALL_TABLE_KEYS = Object.freeze([
@@ -115,13 +115,19 @@ function resolveDatabasePoolMax(value = process.env.DB_POOL_MAX) {
   return Number.isFinite(parsedValue) && parsedValue > 0 ? parsedValue : 20;
 }
 
-function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
+function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, listenClientFactory = null }) {
   const pool = queryClient || new Pool({
     connectionString: databaseUrl,
     ssl: ssl ? { rejectUnauthorized: false } : false,
     max: resolveDatabasePoolMax()
   });
 
+  const messageSubscriptions = new Set();
+
+  function createMessageListenClient() {
+    if (typeof listenClientFactory === "function") return listenClientFactory();
+    return new Client({ connectionString: databaseUrl, ssl: ssl ? { rejectUnauthorized: false } : false, application_name: "winga-message-listener" });
+  }
   async function query(text, params = []) {
     return pool.query(text, params);
   }
@@ -3353,10 +3359,59 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
           [message.senderId, options.sharePhoneWith]
         );
       }
+      const liveEvent = { version: 1, eventId: `message:${message.id}`, message, notification, sharePhoneWith: options.sharePhoneWith || "" };
+      let livePayload = JSON.stringify(liveEvent);
+      if (Buffer.byteLength(livePayload, "utf8") > 7800) livePayload = JSON.stringify({ ...liveEvent, message: { ...message, productItems: [] } });
+      await client.query("SELECT pg_notify('winga_messages', $1)", [livePayload]);
       return { created: true, code: "" };
     });
   }
 
+  function subscribeToMessageEvents(callback, options = {}) {
+    if (typeof callback !== "function") throw new TypeError("Message event callback is required.");
+    const state = { client: null, timer: null, stopped: false, attempts: 0, connecting: false };
+    const baseDelayMs = Math.max(50, Number(options.baseDelayMs || 1000));
+    const maxDelayMs = Math.max(baseDelayMs, Number(options.maxDelayMs || 30000));
+    const closeClient = async () => {
+      const client = state.client;
+      state.client = null;
+      if (!client) return;
+      client.removeAllListeners?.();
+      try { await client.end?.(); } catch (_error) {}
+    };
+    let connect;
+    const scheduleReconnect = async () => {
+      if (state.stopped || state.timer) return;
+      await closeClient();
+      const delay = Math.min(maxDelayMs, baseDelayMs * (2 ** Math.min(state.attempts++, 5)));
+      state.timer = setTimeout(() => { state.timer = null; connect().catch(() => scheduleReconnect()); }, delay);
+      state.timer.unref?.();
+    };
+    connect = async () => {
+      if (state.stopped || state.connecting) return;
+      state.connecting = true;
+      try {
+        const client = await createMessageListenClient();
+        state.client = client;
+        client.on("notification", (event) => {
+          if (event?.channel !== "winga_messages" || !event.payload) return;
+          try { Promise.resolve(callback(JSON.parse(event.payload))).catch(() => {}); } catch (_error) {}
+        });
+        client.on("error", () => scheduleReconnect());
+        client.on("end", () => scheduleReconnect());
+        await client.connect?.();
+        await client.query("LISTEN winga_messages");
+        state.attempts = 0;
+      } catch (error) {
+        await scheduleReconnect();
+        throw error;
+      } finally { state.connecting = false; }
+    };
+    const subscription = { ready: null, async close() { state.stopped = true; if (state.timer) clearTimeout(state.timer); state.timer = null; await closeClient(); messageSubscriptions.delete(subscription); } };
+    messageSubscriptions.add(subscription);
+    subscription.ready = connect();
+    return subscription;
+  }
   async function deleteMessage(messageId, senderId) {
     const result = await query(
       "DELETE FROM messages WHERE id = $1 AND sender_id = $2",
@@ -4895,6 +4950,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
   }
 
   async function close() {
+    await Promise.all(Array.from(messageSubscriptions, (subscription) => subscription.close()));
     if (!queryClient && typeof pool.end === "function") {
       await pool.end();
     }
@@ -4921,6 +4977,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null }) {
     completePaymentRefundDelivery,
     applyPaymentRefundResult,
     createMessageWithNotification,
+    subscribeToMessageEvents,
     deleteMessage,
     markConversationRead,
     markNotificationRead,

@@ -2401,3 +2401,42 @@ test("PostgreSQL confirmed refund callback resolves reconciliation exactly once"
   assert.deepEqual(orderUpdate.params, ["order-1"]);
   assert.equal(calls.at(-1).text, "COMMIT");
 });
+
+test("PostgreSQL message events publish after persistence and reach a dedicated listener", async () => {
+  const { EventEmitter } = require("node:events");
+  const calls = [];
+  const queryClient = {
+    async connect() { return this; },
+    async query(text, params = []) {
+      calls.push({ text: String(text), params });
+      if (String(text).includes("COUNT(*)::int")) return { rows: [{ burstCount: 0, duplicate: false }], rowCount: 1 };
+      return { rows: [], rowCount: 1 };
+    },
+    release() {}
+  };
+  const listener = new EventEmitter();
+  listener.connect = async () => {};
+  listener.query = async (text) => { calls.push({ text: String(text), params: [] }); return { rows: [] }; };
+  listener.end = async () => {};
+  const store = createPostgresStore({
+    databaseUrl: "postgres://test.invalid/winga",
+    queryClient,
+    listenClientFactory: () => listener
+  });
+  const received = [];
+  const subscription = store.subscribeToMessageEvents((event) => received.push(event));
+  await subscription.ready;
+  assert.equal(calls.some((call) => call.text === "LISTEN winga_messages"), true);
+
+  const message = { id: "message-live-1", senderId: "seller", receiverId: "buyer", message: "Hello", productItems: [], createdAt: new Date().toISOString() };
+  const notification = { id: "notification-live-1", userId: "buyer", messageId: message.id };
+  const result = await store.createMessageWithNotification(message, notification);
+  assert.equal(result.created, true);
+  const notifyCall = calls.find((call) => call.text.includes("pg_notify('winga_messages'"));
+  assert.ok(notifyCall);
+  listener.emit("notification", { channel: "winga_messages", payload: notifyCall.params[0] });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(received[0].message.id, message.id);
+  await store.close();
+  assert.equal(listener.listenerCount("notification"), 0);
+});

@@ -233,6 +233,7 @@ const CLIENT_EVENT_BOT_DROP_ENABLED = String(process.env.CLIENT_EVENT_BOT_DROP_E
 const recentClientEventDedupeKeys = new Map();
 const AUTOMATION_USER_AGENT_PATTERN = /\b(bot|crawler|spider|scraper|curl|wget|python-requests|httpclient|headlesschrome|phantomjs|selenium|playwright)\b/i;
 const liveClients = new Map();
+let messageEventSubscription = null;
 const postgresStore = DATABASE_URL
   ? createPostgresStore({
     databaseUrl: DATABASE_URL,
@@ -5123,6 +5124,18 @@ function emitLiveEvent(username, eventName, payload) {
   });
 }
 
+function deliverPostgresMessageEvent(event) {
+  const message = normalizeMessageRecord(event?.message || {});
+  const notification = event?.notification ? normalizeNotificationRecord(event.notification) : null;
+  if (!message.id || !message.senderId || !message.receiverId) return;
+  emitLiveEvent(message.senderId, "message", { message });
+  emitLiveEvent(message.receiverId, "message", { message });
+  if (notification?.userId) emitLiveEvent(notification.userId, "notification", { notification });
+  if (event.sharePhoneWith) {
+    emitLiveEvent(message.senderId, "users", { reason: "contact_share", username: message.senderId });
+    emitLiveEvent(message.receiverId, "users", { reason: "contact_share", username: message.senderId });
+  }
+}
 function ensureMarketplaceUser(store, session, res, options = {}) {
   if (!session) {
     sendJson(res, 401, { error: "Session imeisha au si sahihi." });
@@ -9198,12 +9211,14 @@ http.createServer(async (req, res) => {
           receiverId: normalizedPayload.receiverId,
           productId: normalizedPayload.productId || ""
         });
-        emitLiveEvent(sender.username, "message", { message: nextMessage });
-        emitLiveEvent(normalizedPayload.receiverId, "message", { message: nextMessage });
-        emitLiveEvent(normalizedPayload.receiverId, "notification", { notification });
-        if (nextMessage.messageType === "contact_share") {
-          emitLiveEvent(sender.username, "users", { reason: "contact_share", username: sender.username });
-          emitLiveEvent(normalizedPayload.receiverId, "users", { reason: "contact_share", username: sender.username });
+        if (!postgresStore) {
+          emitLiveEvent(sender.username, "message", { message: nextMessage });
+          emitLiveEvent(normalizedPayload.receiverId, "message", { message: nextMessage });
+          emitLiveEvent(normalizedPayload.receiverId, "notification", { notification });
+          if (nextMessage.messageType === "contact_share") {
+            emitLiveEvent(sender.username, "users", { reason: "contact_share", username: sender.username });
+            emitLiveEvent(normalizedPayload.receiverId, "users", { reason: "contact_share", username: sender.username });
+          }
         }
         sendJson(res, 200, nextMessage);
         return;
@@ -11381,6 +11396,12 @@ http.createServer(async (req, res) => {
 }).listen(PORT, async () => {
   try {
     await initializeStoreAtBoot();
+    if (postgresStore?.subscribeToMessageEvents) {
+      messageEventSubscription = postgresStore.subscribeToMessageEvents(deliverPostgresMessageEvent);
+      messageEventSubscription.ready.catch((error) => {
+        safeConsole("warn", "PostgreSQL message listener is reconnecting", error?.message || error);
+      });
+    }
     startIntelligenceQueueWorker();
     startCommerceReservationSweeper();
     startPaymentRefundSweeper();
