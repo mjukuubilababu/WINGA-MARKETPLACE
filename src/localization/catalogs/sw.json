@@ -448,6 +448,7 @@
                      "admin.surfaceOpenFailed":  "Akaunti imethibitishwa lakini staff tools hazikufunguka. Jaribu tena.",
                      "admin.viewFailedTitle":  "Staff view imeshindwa",
                      "admin.viewFailedBody":  "Session imesimamishwa kwa sababu staff tools hazikufunguka vizuri.",
+                     "upload.optimizingAndSaving":  "Picha zako zimeandaliwa. Tunaziboresha na kuhifadhi bidhaa sasa.",
                      "upload.offlineDraftBody":  "Draft ya bidhaa imehifadhiwa offline. Internet ikirudi, bonyeza tena kupost.",
                      "admin.eyebrow":  "Admin",
                      "admin.copyDeepLinkAction":  "Nakili deep link",

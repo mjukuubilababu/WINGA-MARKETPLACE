@@ -162,7 +162,7 @@ let allowHomeFeedRankingDuringBootRender = false;
 let postPaintHomeFeedRankingScheduled = false;
 let postPaintPublicChromeRefreshScheduled = false;
 const MAX_UPLOAD_IMAGES = 5;
-const MAX_IMAGE_SIZE_MB = 25;
+const MAX_IMAGE_SIZE_MB = 8;
 const MAX_IMAGE_SIZE_BYTES = MAX_IMAGE_SIZE_MB * 1024 * 1024;
 const MAX_API_PRODUCT_IMAGE_BYTES = 5 * 1024 * 1024;
 const MAX_API_PRODUCT_REQUEST_BYTES = 14 * 1024 * 1024;
@@ -14996,7 +14996,7 @@ uploadButton.addEventListener("click", async () => {
       productUploadDraftRuntimeState.preparedImages = images.slice();
       saveProductUploadDraft();
       uiRuntimeState.productUploadStatusTone = "info";
-      setUploadFormStatus("info", "Picha zako zimeandaliwa. Tunahifadhi bidhaa sasa.");
+      setUploadFormStatus("info", translateUi("upload.optimizingAndSaving", {}, "Picha zako zimeandaliwa. Tunaziboresha na kuhifadhi bidhaa sasa."));
       await finalizeSave(images);
       return;
     }

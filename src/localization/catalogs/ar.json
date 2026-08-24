@@ -452,6 +452,7 @@
                      "admin.surfaceOpenFailed":  "تم التحقق من الحساب، لكن تعذر فتح أدوات الموظفين. حاول مجددًا.",
                      "admin.viewFailedTitle":  "فشل عرض الموظفين",
                      "admin.viewFailedBody":  "تم إيقاف الجلسة لأن أدوات الموظفين لم تُفتح بشكل صحيح.",
+                     "upload.optimizingAndSaving":  "صورك جاهزة. نقوم الآن بتحسينها وحفظ المنتج.",
                      "upload.offlineDraftBody":  "تم حفظ مسودة المنتج دون اتصال. أعد نشرها عند عودة الاتصال بالإنترنت.",
                      "admin.eyebrow":  "الإدارة",
                      "admin.copyDeepLinkAction":  "نسخ الرابط المباشر",

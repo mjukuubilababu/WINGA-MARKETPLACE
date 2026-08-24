@@ -448,6 +448,7 @@
                      "admin.surfaceOpenFailed":  "Le compte a été vérifié, mais les outils du personnel n’ont pas pu s’ouvrir. Réessayez.",
                      "admin.viewFailedTitle":  "Échec de la vue du personnel",
                      "admin.viewFailedBody":  "La session a été arrêtée car les outils du personnel ne se sont pas ouverts correctement.",
+                     "upload.optimizingAndSaving":  "Vos images sont prêtes. Nous les optimisons et enregistrons le produit.",
                      "upload.offlineDraftBody":  "Le brouillon du produit a été enregistré hors ligne. Publiez-le à nouveau lorsque la connexion Internet revient.",
                      "admin.eyebrow":  "Administration",
                      "admin.copyDeepLinkAction":  "Copier le lien direct",

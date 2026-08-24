@@ -5,7 +5,7 @@ const path = require("node:path");
 const apiBaseUrl = "http://127.0.0.1:43080/api";
 const seedSessionsPath = path.join(__dirname, ".seed-sessions.json");
 const tinyPngBuffer = Buffer.from(
-  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jk4cAAAAASUVORK5CYII=",
+  "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADklEQVQImWP4DwUMMAYAj4IP8cvlVgcAAAAASUVORK5CYII=",
   "base64"
 );
 const detailContinuationCardSelector = "#product-detail-modal [data-product-detail-feed-stack] > .product-card[data-open-product]";
@@ -321,6 +321,7 @@ test("closed mobile category sheet does not sit on top of the logged-in home fee
 
   await page.goto("/");
   await expect(page.locator("#mobile-category-shell")).not.toHaveClass(/open/);
+  await expect(page.locator("#products-container .product-card").first()).toBeVisible({ timeout: 30000 });
   await page.evaluate(() => window.scrollTo(0, 900));
 
   const hit = await page.evaluate(() => {

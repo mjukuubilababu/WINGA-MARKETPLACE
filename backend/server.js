@@ -10,6 +10,7 @@ const { createDemandService, summarizeDemandEvents } = require("./demand-service
 const { createSearchDemandService, summarizeSearchDemandEvents } = require("./search-demand-service");
 const { buildRequestGlobalContext, normalizeUserPreference, validateUserPreference } = require("./global-context");
 const { isR2StorageEnabled, uploadImageToR2 } = require("./storage-r2");
+const { MAX_PRODUCT_IMAGE_BYTES, createProductImageVariants } = require("./image-processing");
 
 const PORT = process.env.PORT || 3000;
 const DATABASE_URL = process.env.DATABASE_URL || "";
@@ -172,8 +173,8 @@ const PROMOTION_CONFIG = {
   pin_top: { amount: 12000, durationDays: 2, label: "Pin To Top" }
 };
 const MAX_IMAGE_COUNT = 5;
-const MAX_IMAGE_SIZE_MB = 6;
-const MAX_IMAGE_BINARY_BYTES = MAX_IMAGE_SIZE_MB * 1024 * 1024;
+const MAX_IMAGE_SIZE_MB = 8;
+const MAX_IMAGE_BINARY_BYTES = MAX_PRODUCT_IMAGE_BYTES;
 const MAX_DATA_URL_LENGTH = Math.ceil(MAX_IMAGE_BINARY_BYTES * 1.37) + 256;
 const ALLOWED_DATA_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
 const MAX_REQUEST_BODY_BYTES = 16 * 1024 * 1024;
@@ -3664,8 +3665,6 @@ function saveDataUrlImage(value) {
 }
 
 async function persistIncomingProductImages(product) {
-  if (!isR2StorageEnabled()) return product;
-
   const persistedValues = new Map();
   const persistValue = async (value) => {
     if (typeof value !== "string" || !value.startsWith("data:image/")) return value;
@@ -3675,23 +3674,45 @@ async function persistIncomingProductImages(product) {
         if (!parsedImage || !imageBufferMatchesMime(parsedImage.buffer, parsedImage.mimeType)) {
           throw new Error("Aina ya picha haijaruhusiwa.");
         }
-        const extension = getMimeExtension(parsedImage.mimeType);
-        if (!extension) throw new Error("Aina ya picha haijaruhusiwa.");
-        const fileName = `${Date.now()}-${crypto.randomBytes(8).toString("hex")}${extension}`;
-        return uploadImageToR2(parsedImage.buffer, `products/${fileName}`, {
-          contentType: parsedImage.mimeType
-        });
+        let processed;
+        try {
+          processed = await createProductImageVariants(parsedImage.buffer);
+        } catch (error) {
+          const invalidImageError = new Error("Picha haiwezi kusomwa au kuboreshwa kwa usalama.");
+          invalidImageError.code = "INVALID_PRODUCT_IMAGE";
+          throw invalidImageError;
+        }
+        const stem = `${Date.now()}-${crypto.randomBytes(8).toString("hex")}`;
+        const storedVariants = await Promise.all(processed.variants.map(async (variant) => {
+          const fileName = `${stem}-${variant.width}.webp`;
+          if (isR2StorageEnabled()) {
+            return uploadImageToR2(variant.buffer, `products/${fileName}`, {
+              contentType: variant.contentType
+            });
+          }
+          await fs.promises.writeFile(path.join(UPLOADS_DIR, fileName), variant.buffer);
+          return `/uploads/${fileName}`;
+        }));
+        return storedVariants[storedVariants.length - 1];
       })());
     }
     return persistedValues.get(value);
   };
 
+  const images = [];
+  if (Array.isArray(product.images)) {
+    for (const value of product.images) {
+      images.push(await persistValue(value));
+    }
+  }
+
   return {
     ...product,
-    images: Array.isArray(product.images) ? await Promise.all(product.images.map(persistValue)) : product.images,
+    images: Array.isArray(product.images) ? images : product.images,
     image: await persistValue(product.image)
   };
 }
+
 function buildPersistentImageArchive(value) {
   return "";
 }
@@ -11354,6 +11375,24 @@ http.createServer(async (req, res) => {
         memory: getMemoryUsageSnapshot()
       });
       sendJson(res, 413, { error: "Data uliyotuma ni kubwa sana. Punguza picha au ukubwa wa request." });
+      return;
+    }
+
+    if (error?.code === "INVALID_PRODUCT_IMAGE") {
+      requestMeta.statusCode = 400;
+      logStructuredEvent("warn", "route_error", {
+        requestId: requestMeta.requestId,
+        route: requestMeta.route,
+        method: requestMeta.method,
+        durationMs: Date.now() - requestMeta.startedAt,
+        cfRay: requestMeta.cfRay || "",
+        error: "INVALID_PRODUCT_IMAGE",
+        memory: getMemoryUsageSnapshot()
+      });
+      sendJson(res, 400, {
+        error: "Picha haiwezi kusomwa au kuboreshwa kwa usalama.",
+        code: "invalid_product_image"
+      });
       return;
     }
 

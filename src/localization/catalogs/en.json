@@ -448,6 +448,7 @@
                      "admin.surfaceOpenFailed":  "The account was verified, but staff tools could not open. Try again.",
                      "admin.viewFailedTitle":  "Staff view failed",
                      "admin.viewFailedBody":  "The session was stopped because staff tools did not open correctly.",
+                     "upload.optimizingAndSaving":  "Your images are ready. We are optimizing them and saving the product now.",
                      "upload.offlineDraftBody":  "Your product draft was saved offline. Post it again when the internet connection returns.",
                      "admin.eyebrow":  "Admin",
                      "admin.copyDeepLinkAction":  "Copy deep link",

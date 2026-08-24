@@ -5,6 +5,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
 const crypto = require("node:crypto");
+const sharp = require("sharp");
 
 const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "winga-api-test-"));
 const port = 43000 + Math.floor(Math.random() * 1000);
@@ -166,7 +167,15 @@ test("ops intelligence recovery endpoints require token and fail closed without 
 });
 
 test("critical seller, buyer, session, moderation, and monitoring flows work together", async () => {
-  const tinyImage = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jk4cAAAAASUVORK5CYII=";
+  const tinyImageBuffer = await sharp({
+    create: {
+      width: 2,
+      height: 2,
+      channels: 4,
+      background: { r: 255, g: 255, b: 255, alpha: 1 }
+    }
+  }).png().toBuffer();
+  const tinyImage = `data:image/png;base64,${tinyImageBuffer.toString("base64")}`;
   const csrfResponse = await request("/auth/csrf-token");
   assert.equal(csrfResponse.response.status, 200);
   assert.ok(csrfResponse.body.csrfToken);
@@ -519,7 +528,11 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   });
   assert.equal(productCreate.response.status, 200);
   assert.equal(productCreate.body.status, "approved");
-  assert.match(productCreate.body.image, /^\/uploads\//);
+  assert.match(productCreate.body.image, /^\/uploads\/.*-1080\.webp$/);
+  const canonicalImageName = path.basename(productCreate.body.image);
+  const imageStem = canonicalImageName.replace(/-1080\.webp$/, "");
+  assert.equal(fs.existsSync(path.join(tempRoot, "uploads", `${imageStem}-320.webp`)), true);
+  assert.equal(fs.existsSync(path.join(tempRoot, "uploads", `${imageStem}-640.webp`)), true);
 
   const bodylessProductView = await request("/products/product-test-001/view", {
     method: "POST",

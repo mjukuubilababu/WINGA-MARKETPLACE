@@ -10,7 +10,14 @@ const backendPort = 43080;
 const rootDir = path.resolve(__dirname, "..", "..");
 const seedSessionsPath = path.join(__dirname, ".seed-sessions.json");
 const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "winga-e2e-"));
-const tinyImage = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jk4cAAAAASUVORK5CYII=";
+const galleryImages = [
+  "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADklEQVQImWP4DwUMMAYAj4IP8cvlVgcAAAAASUVORK5CYII=",
+  "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAEUlEQVQImWP4z8DwH4QZYAwAR8oH+Xm0fdIAAAAASUVORK5CYII=",
+  "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADklEQVQImWNg+A+FMAYAQ84H+QDi4rkAAAAASUVORK5CYII=",
+  "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAEElEQVQImWNgYPj/H4KhDAA/0gf5WPNCXwAAAABJRU5ErkJggg==",
+  "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAEUlEQVQImWP4f4LhPwgzwBgAZXoLGdY7rqkAAAAASUVORK5CYII="
+].map((value) => `data:image/png;base64,${value}`);
+const tinyImage = galleryImages[0];
 const promoReference = `E2E-PROMO-${Date.now()}`;
 
 let backendProcess = null;
@@ -285,7 +292,7 @@ async function seedMarketplace() {
   seededSessions.admin = adminSession.body;
 
   const catalog = [
-    { id: "e2e-prod-1", name: "Sneaker Classic", price: 32000, category: "viatu-sneakers", seller: "market_seller", getAuthCookie: () => sellerSession.body?.authCookie, refreshAuth: refreshSellerSession, phone: "255700111222", shop: "Market Seller Shop", images: [tinyImage, tinyImage, tinyImage, tinyImage, tinyImage] },
+    { id: "e2e-prod-1", name: "Sneaker Classic", price: 32000, category: "viatu-sneakers", seller: "market_seller", getAuthCookie: () => sellerSession.body?.authCookie, refreshAuth: refreshSellerSession, phone: "255700111222", shop: "Market Seller Shop", images: galleryImages },
     { id: "e2e-prod-delete", name: "Delete Me Listing", price: 35000, category: "viatu-sneakers", seller: "market_seller", getAuthCookie: () => sellerSession.body?.authCookie, refreshAuth: refreshSellerSession, phone: "255700111222", shop: "Market Seller Shop" },
     { id: "e2e-prod-2", name: "Dress Elegant", price: 54000, category: "wanawake-magauni", seller: "market_seller", getAuthCookie: () => sellerSession.body?.authCookie, refreshAuth: refreshSellerSession, phone: "255700111222", shop: "Market Seller Shop" },
     { id: "e2e-prod-3", name: "Shirt Premium", price: 27000, category: "wanaume-mashati", seller: "market_seller", getAuthCookie: () => sellerSession.body?.authCookie, refreshAuth: refreshSellerSession, phone: "255700111222", shop: "Market Seller Shop" },
