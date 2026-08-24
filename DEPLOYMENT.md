@@ -250,3 +250,54 @@ R2_PUBLIC_URL_BASE=https://media.wingamarket.com
 Do not set only part of the R2 configuration. Once `R2_ACCOUNT_ID` is present, startup traffic that uploads an image will reject incomplete credentials instead of silently writing to the wrong storage system. Existing `/uploads/*` image references remain readable and are not migrated automatically.
 
 Cloudflare uses the S3-compatible endpoint `https://<ACCOUNT_ID>.r2.cloudflarestorage.com`; WINGA configures this internally through the AWS SDK for JavaScript v3.
+
+## Staging load tests with k6
+
+WINGA keeps load testing outside npm dependencies. Install the current k6 CLI separately using the official Grafana package for your operating system. On Windows, either package-manager command can be used:
+
+```powershell
+winget install --id GrafanaLabs.k6 --exact
+# or
+choco install k6
+```
+
+Run load tests against an isolated staging backend and staging database. Never point them at `wingamarket.com` during routine development. Both scripts block the production hostname unless `ALLOW_PRODUCTION_LOAD_TEST=true` is deliberately supplied.
+
+Guest feed pagination test:
+
+```powershell
+$env:BASE_URL="https://staging-api.example.com"
+k6 run tests/load/feed-smoke.js
+```
+
+The feed scenario ramps through 10, 50, and 100 concurrent virtual users for two minutes each. Every iteration requests page one, waits two to four seconds to model reading/scrolling, and follows `nextCursor` into the continuation page.
+
+Authenticated login and message testing requires isolated staging accounts. Do not use real customer credentials. Each JSON entry needs a sender account and a different existing receiver:
+
+```powershell
+$env:BASE_URL="https://staging-api.example.com"
+$env:REQUEST_ORIGIN="https://staging.wingamarket.com"
+$env:AUTH_ACCOUNTS_JSON='[{"username":"load_buyer_001","password":"staging-secret","receiverId":"load_seller_001"},{"username":"load_buyer_002","password":"staging-secret","receiverId":"load_seller_002"}]'
+k6 run tests/load/auth-flow.js
+```
+
+Use enough sender accounts for the intended concurrency. Reusing one account across many VUs measures session caps and abuse controls rather than normal marketplace throughput. The auth test reports HTTP 429 responses separately as `winga_throttled_requests`; a high value means rate limiting or message anti-spam activated before application capacity was reached.
+
+For a short local validation against a disposable backend, start the same real backend used by integration testing and lower the stages from the command line:
+
+```powershell
+$env:BASE_URL="http://127.0.0.1:3000"
+k6 run --stage 10s:1 --stage 20s:2 --stage 10s:0 tests/load/feed-smoke.js
+```
+
+Before increasing traffic, watch all of the following together:
+
+- `http_req_duration` and scenario-specific latency trends; target feed p95 below 1 second and authenticated writes p95 below 1.2 seconds.
+- `winga_feed_errors`, `winga_auth_errors`, and `winga_message_errors`; sustained rates above 1% block a release.
+- Requests per second and `winga_feed_pages`/`winga_messages_sent` to identify the last stable throughput level.
+- `winga_throttled_requests`; distinguish expected protection from database or application failure.
+- Render CPU, memory, event-loop responsiveness, restarts, and instance count.
+- PostgreSQL active/waiting connections, pool saturation, lock waits, slow queries, CPU, I/O, and connection-limit headroom.
+- Queue/LISTEN-NOTIFY health and background job lag while authenticated message traffic is running.
+
+Save the k6 JSON summary and infrastructure graphs for every baseline run. Stop the test if error rate rises, PostgreSQL approaches its connection limit, lock waits grow continuously, or staging starts restarting. Increase one ramp level at a time after the previous level remains stable.
