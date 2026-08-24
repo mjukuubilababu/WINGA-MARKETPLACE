@@ -2354,6 +2354,21 @@ test("worker emits one matching LCP image preload in the response header and HTM
   assert.match(html, /<link rel="preconnect" href="https:\/\/winga-pflp\.onrender\.com" crossorigin>/);
   assert.equal((html.match(/rel="preload" as="image"/g) || []).length, 1);
 
+  const productOg = context.buildProductOpenGraphOverrides({
+    items: [{ id: "shared-product", name: "Gauni & Viatu", images: ["/uploads/shared.jpg"] }]
+  }, "shared-product", "https://wingamarket.com/product/shared-product");
+  const productHtml = context.buildDocumentShellStart({ ogOverrides: productOg });
+  assert.match(productHtml, /<meta property="og:title" content="Gauni &amp; Viatu">/);
+  assert.match(productHtml, /<meta property="og:image" content="https:\/\/wingamarket\.com\/uploads\/shared\.jpg">/);
+  assert.match(productHtml, /<meta property="og:url" content="https:\/\/wingamarket\.com\/product\/shared-product">/);
+  assert.match(productHtml, /<meta name="twitter:title" content="Gauni &amp; Viatu">/);
+
+  const missingProductHtml = context.buildDocumentShellStart({
+    ogOverrides: context.buildProductOpenGraphOverrides({ items: [] }, "missing", "https://wingamarket.com/product/missing")
+  });
+  assert.match(missingProductHtml, /<meta property="og:title" content="NUNUA KWA WAUZAJI WALIOTHIBITISHWA">/);
+  assert.match(missingProductHtml, /<meta property="og:url" content="https:\/\/wingamarket\.com\/">/);
+
   const firstCardHtml = context.buildDiscoveryProductCardHtml(product, 0, {
     usersById: {},
     session: null

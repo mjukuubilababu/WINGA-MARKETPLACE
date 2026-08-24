@@ -13692,12 +13692,16 @@ function setFeedLoadingStateVisible(visible) {
   if (!feedLoadingState) {
     return;
   }
-  feedLoadingState.style.display = visible ? "grid" : "none";
+  const initialErrorVisible = initialProductsErrorState?.style.display === "grid";
+  feedLoadingState.style.display = visible && !initialErrorVisible ? "grid" : "none";
 }
 
 function setInitialProductsErrorStateVisible(visible) {
   if (!initialProductsErrorState) return;
   initialProductsErrorState.style.display = visible ? "grid" : "none";
+  if (visible) {
+    setFeedLoadingStateVisible(false);
+  }
   if (!visible) return;
   initialProductsErrorTitle.textContent = translateUi("feed.errorTitle", {}, "Products could not load");
   initialProductsErrorCopy.textContent = translateUi("feed.errorCopy", {}, "Check your connection and try again.");
@@ -16476,6 +16480,9 @@ registerAppEvent(window, "winga:products-hydrated", (event) => {
   }
   refreshProductsFromStore();
   auditHydratedDataIntegrity("products_hydrated");
+  if (productHydrationStatus === "query-appended") {
+    return;
+  }
   if (shouldDeferBootRenderForPendingStaffSession()) {
     return;
   }

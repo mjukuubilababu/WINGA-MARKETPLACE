@@ -1061,6 +1061,7 @@ test("mobile header auto-hide does not reflow the feed container while users scr
   const hiddenPaddingTop = await page.locator("#app-container").evaluate((element) => window.getComputedStyle(element).paddingTop);
 
   await page.evaluate(() => window.scrollTo(0, 32));
+  await expect.poll(async () => page.evaluate(() => window.scrollY)).toBeLessThanOrEqual(72);
   await expect.poll(async () => page.evaluate(() => document.body.classList.contains("mobile-header-hidden"))).toBe(false);
   const restoredPaddingTop = await page.locator("#app-container").evaluate((element) => window.getComputedStyle(element).paddingTop);
 

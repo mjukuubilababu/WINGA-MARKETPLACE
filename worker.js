@@ -140,6 +140,9 @@ async function streamFeedPage(request, env, ctx) {
   const styleNonce = createCspNonce();
   const buildVersion = await resolveAssetBuildVersion(env);
   const bootstrapPromise = fetchBootstrapContext(origin, request);
+  const productRouteId = getProductRouteId(new URL(request.url).pathname);
+  const productRouteBootstrap = productRouteId ? await bootstrapPromise : null;
+  const ogOverrides = buildProductOpenGraphOverrides(productRouteBootstrap, productRouteId, request.url);
   const preloadProductsPromise = fetchPreloadProductPage(origin, request);
   let lcpPreloadStatus = cachedLcpImageUrl ? "memory-hit" : "cache-miss-background-refresh";
   let lcpImageUrl = cachedLcpImageUrl || "";
@@ -154,10 +157,10 @@ async function streamFeedPage(request, env, ctx) {
 
   const streamTask = (async () => {
     try {
-      await write(buildDocumentShellStart({ lcpImageUrl, origin, styleNonce, buildVersion }));
+      await write(buildDocumentShellStart({ lcpImageUrl, origin, styleNonce, buildVersion, ogOverrides }));
       await write(buildFeedSkeletonChunk());
 
-      const bootstrap = await bootstrapPromise;
+      const bootstrap = productRouteBootstrap || await bootstrapPromise;
       const cardsHtml = bootstrap.items.map((product, index) => buildDiscoveryProductCardHtml(product, index, bootstrap)).join("");
 
       await write(`
@@ -223,6 +226,41 @@ async function streamFeedPage(request, env, ctx) {
       ...(preloadLinkHeader ? { Link: preloadLinkHeader } : {})
     }
   });
+}
+
+function getProductRouteId(pathname = "") {
+  const match = String(pathname || "").match(/^\/product\/([^/]+)\/?$/i);
+  if (!match) return "";
+  try {
+    return decodeURIComponent(match[1] || "").trim();
+  } catch (_error) {
+    return "";
+  }
+}
+
+function buildProductOpenGraphOverrides(bootstrap, productId = "", requestUrl = "") {
+  const product = Array.isArray(bootstrap?.items)
+    ? bootstrap.items.find((item) => String(item?.id || "") === String(productId || ""))
+    : null;
+  if (!product) return {};
+  const imageCandidate = Array.isArray(product.images) ? product.images[0] : product.image;
+  const imageValue = imageCandidate && typeof imageCandidate === "object"
+    ? imageCandidate.url || imageCandidate.src || imageCandidate.image || ""
+    : imageCandidate;
+  return {
+    title: String(product.name || "").trim(),
+    image: resolveOpenGraphUrl(imageValue, requestUrl),
+    url: resolveOpenGraphUrl(requestUrl, requestUrl)
+  };
+}
+
+function resolveOpenGraphUrl(value = "", baseUrl = "") {
+  try {
+    const resolved = new URL(String(value || "").trim(), String(baseUrl || "https://wingamarket.com/")).href;
+    return /^https:\/\//i.test(resolved) ? resolved : "";
+  } catch (_error) {
+    return "";
+  }
 }
 
 function getWorkerNow() {
@@ -509,6 +547,11 @@ function buildDocumentShellStart(options = {}) {
   const assetOrigin = String(options?.origin || "").trim();
   const styleNonce = String(options?.styleNonce || "").trim();
   const buildVersion = String(options?.buildVersion || "00000000000000").trim();
+  const ogOverrides = options?.ogOverrides && typeof options.ogOverrides === "object" ? options.ogOverrides : {};
+  const ogTitle = String(ogOverrides.title || "NUNUA KWA WAUZAJI WALIOTHIBITISHWA").trim();
+  const ogDescription = String(ogOverrides.description || "Social commerce PWA for Tanzania").trim();
+  const ogImage = String(ogOverrides.image || "https://wingamarket.com/winga-icon-512-v3.png").trim();
+  const ogUrl = String(ogOverrides.url || "https://wingamarket.com/").trim();
   const assetVersionQuery = /^\d{14}$/.test(buildVersion) ? `?v=${buildVersion}` : "";
   const styleNonceAttribute = styleNonce ? ` nonce="${escapeHtml(styleNonce)}"` : "";
   const lcpImagePreloadTag = lcpImageUrl
@@ -530,18 +573,18 @@ function buildDocumentShellStart(options = {}) {
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Winga">
   <meta property="og:type" content="website">
-  <meta property="og:title" content="NUNUA KWA WAUZAJI WALIOTHIBITISHWA">
-  <meta property="og:description" content="Social commerce PWA for Tanzania">
-  <meta property="og:image" content="https://wingamarket.com/winga-icon-512-v3.png">
-  <meta property="og:url" content="https://wingamarket.com/">
+  <meta property="og:title" content="${escapeHtml(ogTitle)}">
+  <meta property="og:description" content="${escapeHtml(ogDescription)}">
+  <meta property="og:image" content="${escapeHtml(ogImage)}">
+  <meta property="og:url" content="${escapeHtml(ogUrl)}">
   <meta property="og:site_name" content="Winga">
   <meta property="al:ios:url" content="winga://home">
   <meta property="al:android:url" content="winga://home">
-  <meta property="al:web:url" content="https://wingamarket.com/">
+  <meta property="al:web:url" content="${escapeHtml(ogUrl)}">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="NUNUA KWA WAUZAJI WALIOTHIBITISHWA">
-  <meta name="twitter:description" content="Social commerce PWA for Tanzania">
-  <meta name="twitter:image" content="https://wingamarket.com/winga-icon-512-v3.png">
+  <meta name="twitter:title" content="${escapeHtml(ogTitle)}">
+  <meta name="twitter:description" content="${escapeHtml(ogDescription)}">
+  <meta name="twitter:image" content="${escapeHtml(ogImage)}">
   <link rel="manifest" href="/manifest-v4.webmanifest">
   <link rel="icon" href="/winga-icon-192-v3.png" type="image/png" sizes="192x192">
   <link rel="apple-touch-icon" href="/apple-touch-icon-v3.png">
