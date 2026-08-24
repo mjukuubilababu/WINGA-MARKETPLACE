@@ -1768,15 +1768,12 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, lis
     const searchQuery = String(options.query || "").trim().slice(0, 120);
     const category = String(options.category || "").trim().slice(0, 80);
     const seller = String(options.seller || "").trim().slice(0, 80);
+    let searchParamIndex = 0;
 
     if (searchQuery) {
-      filterParams.push(`%${searchQuery}%`);
-      filterParts.push(`(
-        name ILIKE $${filterParams.length}
-        OR shop ILIKE $${filterParams.length}
-        OR uploaded_by ILIKE $${filterParams.length}
-        OR category ILIKE $${filterParams.length}
-      )`);
+      filterParams.push(searchQuery);
+      searchParamIndex = filterParams.length;
+      filterParts.push(`p.search_vector @@ plainto_tsquery('simple', $${searchParamIndex})`);
     }
     if (category && category !== "all") {
       filterParams.push(category, `${category}-%`);
@@ -1794,7 +1791,23 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, lis
 
     if (cursor) {
       itemParams.push(cursor.createdAt, cursor.id);
-      itemWhereParts.push(`(created_at, id) < ($${itemParams.length - 1}::timestamptz, $${itemParams.length}::text)`);
+      if (searchParamIndex) {
+        itemWhereParts.push(`(
+          ts_rank_cd(p.search_vector, plainto_tsquery('simple', $${searchParamIndex})),
+          p.created_at,
+          p.id
+        ) < (
+          COALESCE((
+            SELECT ts_rank_cd(cursor_product.search_vector, plainto_tsquery('simple', $${searchParamIndex}))
+            FROM products cursor_product
+            WHERE cursor_product.id = $${itemParams.length}::text
+          ), 0),
+          $${itemParams.length - 1}::timestamptz,
+          $${itemParams.length}::text
+        )`);
+      } else {
+        itemWhereParts.push("(created_at, id) < ($" + (itemParams.length - 1) + "::timestamptz, $" + itemParams.length + "::text)");
+      }
     }
 
     const itemWhereSql = itemWhereParts.length ? `WHERE ${itemWhereParts.join(" AND ")}` : "";
@@ -1826,6 +1839,9 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, lis
         p.likes,
         p.views,
         p.viewed_by AS "viewedBy",
+        ${searchParamIndex
+          ? `ts_rank_cd(p.search_vector, plainto_tsquery('simple', $${searchParamIndex}))::float8`
+          : "0::float8"} AS "searchRank",
         COALESCE(pis.score, 0)::float8 AS "intelligenceScore",
         COALESCE(pis.signals, '{}'::jsonb) AS "intelligenceSignals",
         COALESCE(sis.score, 0)::float8 AS "sellerIntelligenceScore",
@@ -1842,7 +1858,9 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, lis
       LEFT JOIN product_intelligence_scores pis ON pis.product_id = p.id
       LEFT JOIN seller_intelligence_scores sis ON sis.seller_id = p.uploaded_by
       ${itemWhereSql}
-      ORDER BY p.created_at DESC, p.id DESC
+      ORDER BY ${searchParamIndex
+        ? `"searchRank" DESC, p.created_at DESC, p.id DESC`
+        : "p.created_at DESC, p.id DESC"}
       LIMIT $${itemParams.length + 1}
     `;
     if (!cursor) {

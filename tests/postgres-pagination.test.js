@@ -1600,16 +1600,19 @@ test("product query filters share stable count predicates without cursor leakage
     seller: "seller-one"
   });
 
-  const itemsCall = calls.find((call) => call.text.includes("ORDER BY p.created_at DESC, p.id DESC"));
+  const itemsCall = calls.find((call) => call.text.includes('ORDER BY "searchRank" DESC, p.created_at DESC, p.id DESC'));
   const countCall = calls.find((call) => call.text.includes("COUNT(*)"));
 
-  assert.match(itemsCall.text, /name ILIKE \$1/);
+  assert.match(itemsCall.text, /p\.search_vector @@ plainto_tsquery\('simple', \$1\)/);
+  assert.match(itemsCall.text, /ts_rank_cd\(p\.search_vector, plainto_tsquery\('simple', \$1\)\)::float8 AS "searchRank"/);
+  assert.match(itemsCall.text, /ORDER BY "searchRank" DESC, p\.created_at DESC, p\.id DESC/);
   assert.match(itemsCall.text, /category = \$2 OR category LIKE \$3/);
   assert.match(itemsCall.text, /uploaded_by = \$4/);
-  assert.match(itemsCall.text, /\(created_at, id\) < \(\$5::timestamptz, \$6::text\)/);
+  assert.match(itemsCall.text, /cursor_product\.id = \$6::text/);
+  assert.match(itemsCall.text, /\$5::timestamptz,\s+\$6::text/);
   assert.match(itemsCall.text, /LIMIT \$7/);
   assert.deepEqual(itemsCall.params, [
-    "%simu%",
+    "simu",
     "electronics",
     "electronics-%",
     "seller-one",
@@ -1619,11 +1622,22 @@ test("product query filters share stable count predicates without cursor leakage
   ]);
   assert.doesNotMatch(countCall.text, /\(created_at, id\) </);
   assert.deepEqual(countCall.params, [
-    "%simu%",
+    "simu",
     "electronics",
     "electronics-%",
     "seller-one"
   ]);
+});
+
+test("PostgreSQL product full-text search migration maintains a weighted GIN-indexed vector", () => {
+  const migration = MIGRATIONS.find((candidate) => candidate.id === "2026082401_product_full_text_search");
+
+  assert.ok(migration);
+  const sql = migration.statements.join("\n");
+  assert.match(sql, /ADD COLUMN IF NOT EXISTS search_vector tsvector/);
+  assert.match(sql, /CREATE OR REPLACE FUNCTION winga_products_search_vector_update\(\)/);
+  assert.match(sql, /BEFORE INSERT OR UPDATE OF name, category, shop, uploaded_by/);
+  assert.match(sql, /CREATE INDEX IF NOT EXISTS idx_products_search\s+ON products USING GIN \(search_vector\)/);
 });
 
 test("PostgreSQL API rate limiter uses atomic shared buckets", async () => {

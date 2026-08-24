@@ -310,6 +310,41 @@ const MIGRATIONS = Object.freeze([
       `CREATE INDEX IF NOT EXISTS idx_orders_delivery_confirmation
        ON orders (delivery_confirm_by, id) WHERE status = 'shipped';`
     ])
+  }),
+  Object.freeze({
+    id: "2026082401_product_full_text_search",
+    statements: Object.freeze([
+      `ALTER TABLE products
+       ADD COLUMN IF NOT EXISTS search_vector tsvector;`,
+      `CREATE OR REPLACE FUNCTION winga_products_search_vector_update()
+       RETURNS trigger
+       LANGUAGE plpgsql
+       AS $function$
+       BEGIN
+         NEW.search_vector :=
+           setweight(to_tsvector('simple', COALESCE(NEW.name, '')), 'A') ||
+           setweight(to_tsvector('simple', COALESCE(NEW.category, '')), 'B') ||
+           setweight(to_tsvector('simple', COALESCE(NEW.shop, '')), 'B') ||
+           setweight(to_tsvector('simple', COALESCE(NEW.uploaded_by, '')), 'C');
+         RETURN NEW;
+       END;
+       $function$;`,
+      `UPDATE products
+       SET search_vector =
+         setweight(to_tsvector('simple', COALESCE(name, '')), 'A') ||
+         setweight(to_tsvector('simple', COALESCE(category, '')), 'B') ||
+         setweight(to_tsvector('simple', COALESCE(shop, '')), 'B') ||
+         setweight(to_tsvector('simple', COALESCE(uploaded_by, '')), 'C')
+       WHERE search_vector IS NULL;`,
+      `DROP TRIGGER IF EXISTS trg_products_search_vector_update ON products;`,
+      `CREATE TRIGGER trg_products_search_vector_update
+       BEFORE INSERT OR UPDATE OF name, category, shop, uploaded_by
+       ON products
+       FOR EACH ROW
+       EXECUTE FUNCTION winga_products_search_vector_update();`,
+      `CREATE INDEX IF NOT EXISTS idx_products_search
+       ON products USING GIN (search_vector);`
+    ])
   })
 ]);
 
