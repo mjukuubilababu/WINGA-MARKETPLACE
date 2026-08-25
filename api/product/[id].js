@@ -1,6 +1,5 @@
 const fs = require("fs");
 const path = require("path");
-const { formatPrice } = require("../../backend/global-context");
 
 function escapeHtml(value) {
   return String(value || "")
@@ -75,6 +74,16 @@ function getTitle(product) {
   return name || "Winga product";
 }
 
+function formatSharePrice(amount) {
+  return new Intl.NumberFormat("sw-TZ", {
+    style: "currency",
+    currency: "TZS",
+    currencyDisplay: "narrowSymbol",
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0
+  }).format(Number(amount || 0));
+}
+
 function getDescription(product) {
   const caption = sanitizePlainText(product?.description || product?.caption || "", 180);
   if (caption) {
@@ -87,7 +96,7 @@ function getDescription(product) {
 
   if (category) parts.push(category);
   if (Number.isFinite(price) && price > 0) {
-    parts.push(`Bei ${formatPrice(price, { locale: "sw-TZ", currencyCode: "TZS" })}`);
+    parts.push(`Bei ${formatSharePrice(price)}`);
   }
 
   return parts.length ? parts.join(" · ") : "Tazama bidhaa hii kwenye Winga.";
