@@ -2902,8 +2902,34 @@ function normalizeProductLookupKey(value) {
     .trim();
 }
 
-function formatNumber(value) {
-  return new Intl.NumberFormat("sw-TZ").format(value);
+function getActiveCurrencyContext() {
+  return globalLocalizationRuntime?.getContext?.() || {
+    locale: "sw-TZ",
+    currency: "TZS",
+    currencyCode: "TZS",
+    currencySymbol: "TSh"
+  };
+}
+
+function formatNumber(value, options = {}) {
+  return globalLocalizationRuntime?.formatNumber?.(value, options)
+    || new Intl.NumberFormat("sw-TZ", options).format(Number(value || 0));
+}
+
+function formatPrice(amount, currencyContext = getActiveCurrencyContext(), options = {}) {
+  const formatter = globalLocalizationRuntime?.formatPrice;
+  if (typeof formatter === "function") {
+    return formatter(amount, currencyContext, options);
+  }
+  const currency = String(currencyContext?.currencyCode || currencyContext?.currency || "TZS").toUpperCase();
+  const locale = String(currencyContext?.locale || "sw-TZ");
+  return new Intl.NumberFormat(locale, {
+    style: "currency",
+    currency: /^[A-Z]{3}$/.test(currency) ? currency : "TZS",
+    currencyDisplay: "narrowSymbol",
+    minimumFractionDigits: 0,
+    maximumFractionDigits: options.maximumFractionDigits ?? 0
+  }).format(Number(amount || 0));
 }
 
 function normalizeOptionalPrice(value) {
@@ -2937,7 +2963,7 @@ function formatProductPrice(value, options = {}) {
   if (normalized === null) {
     return fallback;
   }
-  return includeCurrency ? `TSh ${formatNumber(normalized)}` : formatNumber(normalized);
+  return includeCurrency ? formatPrice(normalized, options.currencyContext || getActiveCurrencyContext(), options) : formatNumber(normalized);
 }
 
 function compareProductsByPrice(first, second, direction = "asc") {
@@ -9975,7 +10001,7 @@ function renderPromotionIntentModal() {
     });
     button.append(
       createElement("strong", { textContent: option.label }),
-      createElement("span", { textContent: translateUi("promotion.priceOption", { amount: formatNumber(option.amount) }, `TSh ${formatNumber(option.amount)}`) }),
+      createElement("span", { textContent: translateUi("promotion.priceOption", { amount: formatProductPrice(option.amount) }, formatProductPrice(option.amount)) }),
       createElement("small", { textContent: translateUi("promotion.durationDays", { count: option.durationDays }, `${option.durationDays} day${option.durationDays === 1 ? "" : "s"}`) })
     );
     packageGrid.appendChild(button);
@@ -9985,7 +10011,7 @@ function renderPromotionIntentModal() {
   summary.append(
     createElement("strong", { textContent: product.name || "Product" }),
     createElement("p", { className: "product-meta", textContent: translateUi("promotion.planSummary", { plan: selectedOption?.label || translateUi("promotion.oneDayVisibility", {}, "1 day visibility") }, `Plan: ${selectedOption?.label || "1 day visibility"}`) }),
-    createElement("p", { className: "product-meta", textContent: translateUi("promotion.amountSummary", { amount: `TSh ${formatNumber(selectedOption?.amount || 0)}` }, `Amount: TSh ${formatNumber(selectedOption?.amount || 0)}`) }),
+    createElement("p", { className: "product-meta", textContent: translateUi("promotion.amountSummary", { amount: formatProductPrice(selectedOption?.amount || 0) }, `Amount: ${formatProductPrice(selectedOption?.amount || 0)}`) }),
     createElement("p", { className: "product-meta", textContent: translateUi("promotion.durationSummary", { count: selectedOption?.durationDays || 0 }, `Duration: ${selectedOption?.durationDays || 0} day${selectedOption?.durationDays === 1 ? "" : "s"}`) }),
     createElement("p", { className: "product-meta", textContent: translateUi("promotion.paymentContactSummary", { contact: paymentContact || translateUi("common.notSet", {}, "Haijawekwa") }, `Payment contact: ${paymentContact || "Haijawekwa"}`) }),
     createElement("p", { className: "product-meta", textContent: translateUi("promotion.adminApprovalNote", {}, "Baada ya kutuma reference, tangazo litaenda kwa admin approval.") })
@@ -10903,6 +10929,7 @@ const { renderAdminView: renderAdminViewFromController } = window.WingaModules.a
   getRoleLabel,
   getPromotionLabel,
   formatNumber,
+  formatPrice,
   formatProductPrice,
   getProductDetailPath,
   getAdminPanel: () => adminPanel,
@@ -10946,6 +10973,7 @@ const {
   preloadImageSource,
   renderProductGallery,
   formatNumber,
+  formatPrice,
   formatProductPrice,
   getStatusLabel,
   getPaymentStatusLabel,
@@ -14868,7 +14896,7 @@ uploadButton.addEventListener("click", async () => {
   }
 
   if (rawPrice && (Number.isNaN(price) || price < 500 || price > 1000000000)) {
-    alert(translateUi("product.priceInvalid", {}, "Weka bei sahihi kuanzia TSh 500 au zaidi."));
+    alert(translateUi("product.priceInvalid", { minimum: formatProductPrice(500) }, `Weka bei sahihi kuanzia ${formatProductPrice(500)} au zaidi.`));
     return;
   }
 
@@ -20538,7 +20566,7 @@ async function repostProductAsSeller(sourceProduct) {
   if (!Number.isFinite(normalizedPrice) || normalizedPrice < 500 || normalizedPrice > 1000000000) {
     showInAppNotification({
       title: translateUi("legacy.app.1490cf1981dc", {}, "Bei si sahihi"),
-      body: translateUi("product.priceInvalid", {}, "Enter a valid price from TSh 500."),
+      body: translateUi("product.priceInvalid", { minimum: formatProductPrice(500) }, `Enter a valid price from ${formatProductPrice(500)}.`),
       variant: "warning"
     });
     return;

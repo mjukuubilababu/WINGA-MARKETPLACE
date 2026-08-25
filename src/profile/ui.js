@@ -662,7 +662,7 @@
       card.append(
         deps.createElement("strong", { textContent: option.label }),
         deps.createElement("small", {
-          textContent: t("promotion.priceDuration", "TSh {amount} | {count} days", { amount: deps.formatNumber(option.amount), count: option.durationDays })
+          textContent: t("promotion.priceDuration", "{amount} | {count} days", { amount: deps.formatPrice(option.amount), count: option.durationDays })
         }),
         deps.createElement("p", {
           className: "product-meta",
@@ -728,7 +728,7 @@
           deps.createElement("strong", { textContent: `${promotion.productName || promotion.productId || t("common.product", "Product")} | ${promotion.label || promotion.type}` }),
           deps.createStatusPill(status, statusClass),
           deps.createElement("small", {
-            textContent: `TSh ${deps.formatNumber(amount)}${hasSchedule ? ` | ${formatLocaleDate(startDate)} - ${formatLocaleDate(endDate)}` : ""}` // i18n-gate: allow -- internal diagnostic or language-neutral display
+            textContent: `${deps.formatPrice(amount)}${hasSchedule ? ` | ${formatLocaleDate(startDate)} - ${formatLocaleDate(endDate)}` : ""}` // i18n-gate: allow -- internal diagnostic or language-neutral display
           }),
           deps.createElement("p", {
             className: "product-meta",

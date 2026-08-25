@@ -14,6 +14,40 @@ const MARKET_PROFILES = Object.freeze({
 });
 const LANGUAGE_REGION_FALLBACKS = Object.freeze({ sw: "TZ", rw: "RW", fr: "FR", ar: "SA", hi: "IN", en: "US" });
 const RTL_LANGUAGES = new Set(["ar", "fa", "he", "ur"]);
+const CURRENCY_SYMBOL_OVERRIDES = Object.freeze({ TZS: "TSh", KES: "KSh", UGX: "USh", RWF: "RF" });
+
+function resolveCurrencySymbol(currencyCode = "TZS", locale = "sw-TZ") {
+  const code = clean(currencyCode, 3).toUpperCase();
+  if (CURRENCY_SYMBOL_OVERRIDES[code]) return CURRENCY_SYMBOL_OVERRIDES[code];
+  try {
+    const part = new Intl.NumberFormat(canonicalizeLocale(locale) || "en-US", {
+      style: "currency",
+      currency: /^[A-Z]{3}$/.test(code) ? code : "TZS",
+      currencyDisplay: "narrowSymbol"
+    }).formatToParts(0).find((entry) => entry.type === "currency");
+    return clean(part?.value || code || "TSh", 12);
+  } catch (_error) {
+    return code || "TSh";
+  }
+}
+function formatPrice(amount, currencyContext = {}) {
+  const numericValue = Number(amount);
+  const code = clean(currencyContext.currencyCode || currencyContext.currency || "TZS", 3).toUpperCase();
+  const currency = /^[A-Z]{3}$/.test(code) ? code : "TZS";
+  const locale = canonicalizeLocale(currencyContext.locale || "sw-TZ") || "sw-TZ";
+  const maximumFractionDigits = new Set(["TZS", "KES", "UGX", "RWF"]).has(currency) ? 0 : 2;
+  try {
+    return new Intl.NumberFormat(locale, {
+      style: "currency",
+      currency,
+      currencyDisplay: "narrowSymbol",
+      minimumFractionDigits: 0,
+      maximumFractionDigits
+    }).format(Number.isFinite(numericValue) ? numericValue : 0);
+  } catch (_error) {
+    return `${resolveCurrencySymbol(currency, locale)} ${new Intl.NumberFormat("sw-TZ", { maximumFractionDigits }).format(Number.isFinite(numericValue) ? numericValue : 0)}`;
+  }
+}
 
 function clean(value, maxLength = 120) {
   return String(value || "").replace(/[\u0000-\u001f\u007f]/g, " ").trim().slice(0, maxLength);
@@ -129,6 +163,8 @@ function buildGlobalContext(input = {}) {
     requestedLanguages,
     direction: RTL_LANGUAGES.has(languageCode) ? "rtl" : "ltr",
     currency: /^[A-Z]{3}$/.test(requestedCurrency) ? requestedCurrency : "USD",
+    currencyCode: /^[A-Z]{3}$/.test(requestedCurrency) ? requestedCurrency : "USD",
+    currencySymbol: resolveCurrencySymbol(/^[A-Z]{3}$/.test(requestedCurrency) ? requestedCurrency : "USD", locale),
     timezone: clean(input.userPreference?.timezone || market.timezone || "UTC", 80),
     units: market.units || "metric",
     location,
@@ -141,4 +177,4 @@ function buildGlobalContext(input = {}) {
 function buildRequestGlobalContext(req = {}, options = {}) {
   return buildGlobalContext({ headers: req.headers || {}, browserLanguages: getHeader(req.headers, "accept-language"), userPreference: options.userPreference || {}, locationHint: options.locationHint || {} });
 }
-module.exports = { PLATFORM_VERSION, MARKET_PROFILES, buildGlobalContext, buildRequestGlobalContext, canonicalizeLocale, parseLanguageList, normalizeUserPreference, validateUserPreference };
+module.exports = { PLATFORM_VERSION, MARKET_PROFILES, buildGlobalContext, buildRequestGlobalContext, canonicalizeLocale, parseLanguageList, normalizeUserPreference, validateUserPreference, resolveCurrencySymbol, formatPrice };

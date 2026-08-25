@@ -6,7 +6,9 @@ const {
   canonicalizeLocale,
   parseLanguageList,
   normalizeUserPreference,
-  validateUserPreference
+  validateUserPreference,
+  resolveCurrencySymbol,
+  formatPrice
 } = require("../backend/global-context");
 
 test("explicit language preference wins without coupling language to location", () => {
@@ -19,6 +21,8 @@ test("explicit language preference wins without coupling language to location", 
   assert.equal(context.language, "fr");
   assert.equal(context.market.country, "TZ");
   assert.equal(context.currency, "TZS");
+  assert.equal(context.currencyCode, "TZS");
+  assert.equal(context.currencySymbol, "TSh");
   assert.equal(context.provenance.language, "user");
   assert.equal(context.provenance.location, "edge");
 });
@@ -78,4 +82,10 @@ test("locale preferences are validated and preserve optimistic versions", () => 
     rowVersion: 4,
     updatedAt: "2026-07-26T00:00:00.000Z"
   });
+});
+test("currency context exposes stable symbols and formats market prices", () => {
+  assert.equal(resolveCurrencySymbol("TZS", "sw-TZ"), "TSh");
+  assert.equal(resolveCurrencySymbol("USD", "en-US"), "$");
+  assert.match(formatPrice(25000, { locale: "sw-TZ", currencyCode: "TZS" }), /^TSh\s?25,000$/);
+  assert.equal(formatPrice(25, { locale: "en-US", currencyCode: "USD" }), "$25");
 });

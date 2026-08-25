@@ -8,7 +8,7 @@ const { createPostgresStore } = require("./db");
 const { createIntelligencePlatform } = require("./intelligence-platform");
 const { createDemandService, summarizeDemandEvents } = require("./demand-service");
 const { createSearchDemandService, summarizeSearchDemandEvents } = require("./search-demand-service");
-const { buildRequestGlobalContext, normalizeUserPreference, validateUserPreference } = require("./global-context");
+const { buildRequestGlobalContext, normalizeUserPreference, validateUserPreference, formatPrice } = require("./global-context");
 const { isR2StorageEnabled, uploadImageToR2 } = require("./storage-r2");
 const { MAX_PRODUCT_IMAGE_BYTES, createProductImageVariants } = require("./image-processing");
 
@@ -1822,7 +1822,7 @@ function getProductShareDescription(product) {
   const price = normalizeOptionalPrice(product?.price);
 
   if (category) parts.push(category);
-  if (price != null) parts.push(`Bei TSh ${new Intl.NumberFormat("en-US").format(price)}`);
+  if (price != null) parts.push(`Bei ${formatPrice(price, { locale: "sw-TZ", currencyCode: "TZS" })}`);
 
   if (parts.length) {
     return parts.join(" · ");

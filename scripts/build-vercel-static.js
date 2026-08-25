@@ -2,6 +2,7 @@ const crypto = require("crypto");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const { formatPrice } = require("../backend/global-context");
 
 const rootDir = path.resolve(__dirname, "..");
 const outputDir = path.join(rootDir, "public");
@@ -405,7 +406,7 @@ function getProductShareDescription(product) {
 
   if (category) parts.push(category);
   if (Number.isFinite(price) && price > 0) {
-    parts.push(`Bei TSh ${new Intl.NumberFormat("en-US").format(price)}`);
+    parts.push(`Bei ${formatPrice(price, { locale: "sw-TZ", currencyCode: "TZS" })}`);
   }
 
   return parts.length ? parts.join(" · ") : "Tazama bidhaa hii kwenye Winga.";

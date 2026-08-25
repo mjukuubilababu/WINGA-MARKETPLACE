@@ -3601,7 +3601,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     ["#market-showcase .meta-copy", "marketplace.browseHint", ""],
     ["#cancel-edit-button", "common.cancel", ""]
   ]);
-  const FALLBACK = Object.freeze({ schemaVersion: 1, locale: "sw-TZ", language: "sw", direction: "ltr", currency: "TZS", timezone: "Africa/Dar_es_Salaam", units: "metric", market: { country: "TZ", discoveryPolicy: "local_priority_global_discovery" } });
+  const FALLBACK = Object.freeze({ schemaVersion: 1, locale: "sw-TZ", language: "sw", direction: "ltr", currency: "TZS", currencyCode: "TZS", currencySymbol: "TSh", timezone: "Africa/Dar_es_Salaam", units: "metric", market: { country: "TZ", discoveryPolicy: "local_priority_global_discovery" } });
   function canonical(value = "") { try { return Intl.getCanonicalLocales(String(value || "").replace(/_/g, "-"))[0] || ""; } catch (_error) { return ""; } }
   function read(storage) { try { const value = JSON.parse(storage?.getItem(STORAGE_KEY) || "null"); return value?.schemaVersion === 1 ? value : null; } catch (_error) { return null; } }
   function languageOf(locale = "") { return canonical(locale).split("-")[0].toLowerCase(); }
@@ -3809,7 +3809,32 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       persistRemotePreference();
       return next;
     }
-    function formatCurrency(value, options = {}) { return new Intl.NumberFormat(context.locale, { style: "currency", currency: options.currency || context.currency, currencyDisplay: options.currencyDisplay || "symbol", maximumFractionDigits: options.maximumFractionDigits ?? 2 }).format(Number(value || 0)); }
+    function formatCurrency(value, options = {}) {
+      const numericValue = Number(value);
+      const currency = String(options.currency || context.currencyCode || context.currency || FALLBACK.currencyCode).toUpperCase();
+      const locale = canonical(options.locale || context.locale) || FALLBACK.locale;
+      const maximumFractionDigits = options.maximumFractionDigits ?? (new Set(["TZS", "KES", "UGX", "RWF"]).has(currency) ? 0 : 2);
+      try {
+        return new Intl.NumberFormat(locale, {
+          style: "currency",
+          currency: /^[A-Z]{3}$/.test(currency) ? currency : FALLBACK.currencyCode,
+          currencyDisplay: options.currencyDisplay || "narrowSymbol",
+          minimumFractionDigits: options.minimumFractionDigits ?? 0,
+          maximumFractionDigits
+        }).format(Number.isFinite(numericValue) ? numericValue : 0);
+      } catch (_error) {
+        const symbol = String(context.currencySymbol || FALLBACK.currencySymbol);
+        return `${symbol} ${new Intl.NumberFormat(FALLBACK.locale, { maximumFractionDigits }).format(Number.isFinite(numericValue) ? numericValue : 0)}`;
+      }
+    }
+    function formatPrice(value, currencyContext = {}, options = {}) {
+      const source = currencyContext && typeof currencyContext === "object" ? currencyContext : {};
+      return formatCurrency(value, {
+        ...options,
+        locale: source.locale || options.locale,
+        currency: source.currencyCode || source.currency || options.currency
+      });
+    }
     function formatNumber(value, options = {}) { return new Intl.NumberFormat(context.locale, options).format(Number(value || 0)); }
     function formatDate(value, options = {}) { return new Intl.DateTimeFormat(context.locale, { timeZone: context.timezone, ...options }).format(new Date(value)); }
     function subscribe(listener) { if (typeof listener !== "function") return () => {}; listeners.add(listener); return () => listeners.delete(listener); }
@@ -3848,6 +3873,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       translate,
       translateDom,
       formatCurrency,
+      formatPrice,
       formatNumber,
       formatDate,
       subscribe
@@ -14977,7 +15003,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         deps.createElement("strong", { textContent: t("admin.promotionMeta", "{type} | {productId}", { type: deps.getPromotionLabel?.(promotion.type) || promotion.type, productId: promotion.productId }) }),
         createMetaCopy(t("admin.promotionSeller", "Seller: {value}", { value: promotion.sellerUsername || "-" })),
         createMetaCopy(t("admin.promotionTransaction", "Transaction: {value}", { value: promotion.transactionReference || "-" })),
-        createMetaCopy(t("admin.promotionAmount", "Amount: TSh {value}", { value: deps.formatNumber ? deps.formatNumber(promotion.amountPaid || 0) : (promotion.amountPaid || 0) })),
+        createMetaCopy(t("admin.promotionAmount", "Amount: {value}", { value: deps.formatPrice ? deps.formatPrice(promotion.amountPaid || 0) : (promotion.amountPaid || 0) })),
         deps.createStatusPill(promotion.status || "pending", mapStatusClass(promotion.status))
       );
       if (deps.isAdminUser?.()) {
@@ -16980,7 +17006,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       card.append(
         deps.createElement("strong", { textContent: option.label }),
         deps.createElement("small", {
-          textContent: t("promotion.priceDuration", "TSh {amount} | {count} days", { amount: deps.formatNumber(option.amount), count: option.durationDays })
+          textContent: t("promotion.priceDuration", "{amount} | {count} days", { amount: deps.formatPrice(option.amount), count: option.durationDays })
         }),
         deps.createElement("p", {
           className: "product-meta",
@@ -17046,7 +17072,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           deps.createElement("strong", { textContent: `${promotion.productName || promotion.productId || t("common.product", "Product")} | ${promotion.label || promotion.type}` }),
           deps.createStatusPill(status, statusClass),
           deps.createElement("small", {
-            textContent: `TSh ${deps.formatNumber(amount)}${hasSchedule ? ` | ${formatLocaleDate(startDate)} - ${formatLocaleDate(endDate)}` : ""}` // i18n-gate: allow -- internal diagnostic or language-neutral display
+            textContent: `${deps.formatPrice(amount)}${hasSchedule ? ` | ${formatLocaleDate(startDate)} - ${formatLocaleDate(endDate)}` : ""}` // i18n-gate: allow -- internal diagnostic or language-neutral display
           }),
           deps.createElement("p", {
             className: "product-meta",

@@ -1051,7 +1051,7 @@
         deps.createElement("strong", { textContent: t("admin.promotionMeta", "{type} | {productId}", { type: deps.getPromotionLabel?.(promotion.type) || promotion.type, productId: promotion.productId }) }),
         createMetaCopy(t("admin.promotionSeller", "Seller: {value}", { value: promotion.sellerUsername || "-" })),
         createMetaCopy(t("admin.promotionTransaction", "Transaction: {value}", { value: promotion.transactionReference || "-" })),
-        createMetaCopy(t("admin.promotionAmount", "Amount: TSh {value}", { value: deps.formatNumber ? deps.formatNumber(promotion.amountPaid || 0) : (promotion.amountPaid || 0) })),
+        createMetaCopy(t("admin.promotionAmount", "Amount: {value}", { value: deps.formatPrice ? deps.formatPrice(promotion.amountPaid || 0) : (promotion.amountPaid || 0) })),
         deps.createStatusPill(promotion.status || "pending", mapStatusClass(promotion.status))
       );
       if (deps.isAdminUser?.()) {

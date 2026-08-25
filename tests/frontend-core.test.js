@@ -3045,6 +3045,9 @@ test("global localization runtime is modular, fail-soft, and off the critical pa
   assert.match(serverSource, /url\.pathname === "\/api\/users\/me\/locale-preference"/);
   assert.match(serverSource, /code: "locale_preference_conflict"/);
   assert.match(runtimeSource, /Intl\.NumberFormat/);
+  assert.match(runtimeSource, /function formatPrice\(value, currencyContext/);
+  assert.match(appSource, /function formatPrice\(amount, currencyContext/);
+  assert.doesNotMatch(appSource, /`TSh \$\{/);
   assert.match(runtimeSource, /root\.dir = context\.direction === "rtl"/);
   assert.match(runtimeSource, /directionOf\(locale\)/);
   assert.match(runtimeSource, /direction: directionOf\(locale\)/);

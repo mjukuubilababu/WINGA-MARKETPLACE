@@ -758,7 +758,7 @@ ${lcpImagePreloadTag}${imageOriginPreconnectTag}  <title>Chap kwa haraka</title>
         <button id="cancel-edit-button" type="button">Cancel</button>
       </div>
       <input type="text" id="product-name" placeholder="Jina la bidhaa" required>
-      <input type="number" id="product-price" placeholder="Bei (TSh) - optional">
+      <input type="number" id="product-price" placeholder="Bei - optional">
       <input type="text" id="product-shop" placeholder="Jina la duka" required>
       <input type="text" id="product-whatsapp" placeholder="Namba ya WhatsApp ya mawasiliano" required readonly>
       <p class="auth-note" id="product-whatsapp-note">Tunatumia namba ya WhatsApp ya account yako moja kwa moja kwenye bidhaa hii. Ukiitaka kubadilisha, tumia sehemu ya Profile kuthibitisha namba mpya.</p>

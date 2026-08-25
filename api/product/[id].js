@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const { formatPrice } = require("../../backend/global-context");
 
 function escapeHtml(value) {
   return String(value || "")
@@ -86,7 +87,7 @@ function getDescription(product) {
 
   if (category) parts.push(category);
   if (Number.isFinite(price) && price > 0) {
-    parts.push(`Bei TSh ${new Intl.NumberFormat("en-US").format(price)}`);
+    parts.push(`Bei ${formatPrice(price, { locale: "sw-TZ", currencyCode: "TZS" })}`);
   }
 
   return parts.length ? parts.join(" · ") : "Tazama bidhaa hii kwenye Winga.";
