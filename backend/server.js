@@ -11,6 +11,7 @@ const { createSearchDemandService, summarizeSearchDemandEvents } = require("./se
 const { buildRequestGlobalContext, normalizeUserPreference, validateUserPreference, formatPrice } = require("./global-context");
 const { isR2StorageEnabled, uploadImageToR2 } = require("./storage-r2");
 const { MAX_PRODUCT_IMAGE_BYTES, createProductImageVariants } = require("./image-processing");
+const { getOrSetCache } = require("./cache");
 
 const PORT = process.env.PORT || 3000;
 const DATABASE_URL = process.env.DATABASE_URL || "";
@@ -254,6 +255,7 @@ const SAFE_IMAGE_PLACEHOLDER_PATH = "/share-og.svg";
 const DEFAULT_BOOTSTRAP_PRODUCT_LIMIT = 12;
 const MAX_BOOTSTRAP_PRODUCT_LIMIT = 24;
 const MAX_API_PRODUCT_LIMIT = 50;
+const PUBLIC_PRODUCT_CACHE_TTL_SECONDS = Math.max(15, Math.min(Number(process.env.PRODUCT_FEED_CACHE_TTL_SECONDS || 20) || 20, 30));
 const AUTH_COOKIE_NAME = "winga_auth";
 const CSRF_COOKIE_NAME = "winga_csrf";
 const CSRF_TOKEN_TTL_MS = 2 * 60 * 60 * 1000;
@@ -7210,7 +7212,7 @@ http.createServer(async (req, res) => {
       });
 
       if (postgresStore?.readProductsPage) {
-        const pageData = await postgresStore.readProductsPage({
+        const readProductPage = () => postgresStore.readProductsPage({
           limit: pageLimit,
           page: safePage,
           cursor: requestedCursor,
@@ -7221,6 +7223,17 @@ http.createServer(async (req, res) => {
           viewerUsername: viewer?.username || "",
           isStaffViewer
         });
+        const publicCacheKey = `products:v1:${crypto.createHash("sha256").update(JSON.stringify({
+          limit: pageLimit,
+          page: safePage,
+          cursor: requestedCursor,
+          query: requestedQuery,
+          category: requestedCategory,
+          seller: requestedSeller
+        })).digest("hex")}`;
+        const pageData = token
+          ? await readProductPage()
+          : await getOrSetCache(publicCacheKey, PUBLIC_PRODUCT_CACHE_TTL_SECONDS, readProductPage);
         const visibleProducts = (Array.isArray(pageData.items) ? pageData.items : [])
           .map((product) => sanitizeVisibleProduct(product, viewer, store))
           .filter(Boolean);
