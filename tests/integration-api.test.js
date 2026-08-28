@@ -136,6 +136,25 @@ test.after(() => {
   fs.rmSync(tempRoot, { recursive: true, force: true });
 });
 
+test("ops read replica health requires authorization and exposes no database details", async () => {
+  const denied = await fetch(`${baseUrl}/ops/database/read-replica-health`);
+  const deniedBody = await denied.json();
+  assert.equal(denied.status, 401);
+  assert.equal(deniedBody.ok, false);
+
+  const unavailable = await fetch(`${baseUrl}/ops/database/read-replica-health`, {
+    headers: {
+      "X-Ops-Health-Token": "integration-ops-health-token"
+    }
+  });
+  const unavailableBody = await unavailable.json();
+  assert.equal(unavailable.status, 503);
+  assert.equal(unavailableBody.ok, false);
+  assert.equal(unavailableBody.readiness, "unavailable");
+  assert.equal(unavailable.headers.get("cache-control"), "no-store");
+  assert.equal(JSON.stringify(unavailableBody).includes("DATABASE_URL"), false);
+});
+
 test("ops intelligence recovery endpoints require token and fail closed without durable queue", async () => {
   const denied = await fetch(`${baseUrl}/ops/intelligence/queue-items`);
   const deniedBody = await denied.json();

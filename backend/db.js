@@ -131,6 +131,19 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     : pool);
   const ownsReadPool = Boolean(!readQueryClient && readPool !== pool);
   let readReplicaRetryAt = 0;
+  const readReplicaMetrics = {
+    attempts: 0,
+    successes: 0,
+    failures: 0,
+    fallbackReads: 0,
+    cooldownFallbackReads: 0,
+    lastLatencyMs: 0,
+    averageLatencyMs: 0,
+    maxLatencyMs: 0,
+    lastSuccessAt: "",
+    lastFailureAt: "",
+    lastFailureCode: ""
+  };
 
   const messageSubscriptions = new Set();
 
@@ -143,16 +156,62 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
   }
 
   async function readQuery(text, params = []) {
-    if (readPool === pool || Date.now() < readReplicaRetryAt) {
+    if (readPool === pool) {
       return pool.query(text, params);
     }
+    if (Date.now() < readReplicaRetryAt) {
+      readReplicaMetrics.fallbackReads += 1;
+      readReplicaMetrics.cooldownFallbackReads += 1;
+      return pool.query(text, params);
+    }
+    const startedAt = Date.now();
+    readReplicaMetrics.attempts += 1;
     try {
-      return await readPool.query(text, params);
+      const result = await readPool.query(text, params);
+      const latencyMs = Math.max(0, Date.now() - startedAt);
+      readReplicaMetrics.successes += 1;
+      readReplicaMetrics.lastLatencyMs = latencyMs;
+      readReplicaMetrics.averageLatencyMs = readReplicaMetrics.successes === 1
+        ? latencyMs
+        : Math.round(((readReplicaMetrics.averageLatencyMs * (readReplicaMetrics.successes - 1)) + latencyMs) / readReplicaMetrics.successes);
+      readReplicaMetrics.maxLatencyMs = Math.max(readReplicaMetrics.maxLatencyMs, latencyMs);
+      readReplicaMetrics.lastSuccessAt = new Date().toISOString();
+      return result;
     } catch (error) {
+      readReplicaMetrics.failures += 1;
+      readReplicaMetrics.fallbackReads += 1;
+      readReplicaMetrics.lastFailureAt = new Date().toISOString();
+      readReplicaMetrics.lastFailureCode = String(error?.code || "read_replica_error").slice(0, 80);
       readReplicaRetryAt = Date.now() + 30000;
       console.warn("[WINGA] Read replica unavailable; falling back to primary for 30 seconds.", error?.message || error);
       return pool.query(text, params);
     }
+  }
+
+  function getReadReplicaHealth() {
+    const configured = Boolean(replicaUrl || readQueryClient);
+    const enabled = readPool !== pool;
+    const cooldownRemainingMs = Math.max(0, readReplicaRetryAt - Date.now());
+    const status = !configured
+      ? "disabled"
+      : (!enabled
+        ? "unavailable"
+        : (cooldownRemainingMs > 0 ? "degraded" : (readReplicaMetrics.successes > 0 ? "ready" : "warming")));
+    return {
+      schemaVersion: "read-replica-health-v1",
+      privacy: "ops-aggregate-only",
+      configured,
+      enabled,
+      status,
+      cooldownActive: cooldownRemainingMs > 0,
+      cooldownRemainingMs,
+      metrics: { ...readReplicaMetrics },
+      pool: enabled ? {
+        totalConnections: Number(readPool.totalCount || 0),
+        idleConnections: Number(readPool.idleCount || 0),
+        waitingClients: Number(readPool.waitingCount || 0)
+      } : null
+    };
   }
 
   function buildProductVisibilityClause({ viewerUsername = "", isStaffViewer = false } = {}) {
@@ -5005,6 +5064,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     init,
     readStore,
     readProductsPage,
+    getReadReplicaHealth,
     recordProductAction,
     createProduct,
     updateProduct,

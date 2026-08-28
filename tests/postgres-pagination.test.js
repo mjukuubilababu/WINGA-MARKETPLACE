@@ -2491,6 +2491,12 @@ test("PostgreSQL read replica serves public catalog reads while strong reads sta
   await store.readProductsPage({ limit: 12 });
   assert.equal(replicaCalls.length, 2);
   assert.equal(primaryCalls.length, 0);
+  const healthyReplica = store.getReadReplicaHealth();
+  assert.equal(healthyReplica.status, "ready");
+  assert.equal(healthyReplica.metrics.attempts, 4);
+  assert.equal(healthyReplica.metrics.successes, 4);
+  assert.equal(healthyReplica.metrics.failures, 0);
+  assert.equal(JSON.stringify(healthyReplica).includes("replica.invalid"), false);
 
   primaryCalls.length = 0;
   replicaCalls.length = 0;
@@ -2532,4 +2538,10 @@ test("PostgreSQL read replica fails open to primary without interrupting public 
 
   assert.equal(primaryCalls.length, 2);
   assert.equal(warnings.some((message) => message.includes("Read replica unavailable")), true);
+  const degradedReplica = store.getReadReplicaHealth();
+  assert.equal(degradedReplica.status, "degraded");
+  assert.equal(degradedReplica.cooldownActive, true);
+  assert.equal(degradedReplica.metrics.failures, 2);
+  assert.equal(degradedReplica.metrics.fallbackReads, 2);
+  assert.equal(degradedReplica.metrics.lastFailureCode, "read_replica_error");
 });

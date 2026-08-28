@@ -5805,6 +5805,54 @@ http.createServer(async (req, res) => {
     return;
   }
 
+  if (req.method === "GET" && url.pathname === "/api/ops/database/read-replica-health") {
+    if (!isValidOpsHealthToken(req)) {
+      requestMeta.statusCode = OPS_HEALTH_TOKEN ? 401 : 503;
+      logRouteSummary(requestMeta, { lightweight: true, auth: "ops_read_replica_health_denied" });
+      sendJson(res, OPS_HEALTH_TOKEN ? 401 : 503, {
+        ok: false,
+        error: OPS_HEALTH_TOKEN ? "Unauthorized" : "OPS_HEALTH_TOKEN is not configured."
+      }, {
+        "Cache-Control": "no-store"
+      });
+      return;
+    }
+    if (!postgresStore?.getReadReplicaHealth) {
+      requestMeta.statusCode = 503;
+      logRouteSummary(requestMeta, { lightweight: true, readiness: "unavailable" });
+      sendJson(res, 503, {
+        ok: false,
+        readiness: "unavailable",
+        error: "PostgreSQL read replica health is unavailable."
+      }, {
+        "Cache-Control": "no-store"
+      });
+      return;
+    }
+    const health = postgresStore.getReadReplicaHealth();
+    const readiness = health.status === "ready"
+      ? "ready"
+      : (health.status === "warming" ? "warming" : (health.status === "disabled" ? "disabled" : "degraded"));
+    const statusCode = readiness === "degraded" ? 503 : 200;
+    requestMeta.statusCode = statusCode;
+    logRouteSummary(requestMeta, {
+      lightweight: true,
+      readiness,
+      replicaConfigured: health.configured,
+      replicaEnabled: health.enabled,
+      replicaFallbackReads: health.metrics?.fallbackReads || 0
+    });
+    sendJson(res, statusCode, {
+      ok: readiness === "ready" || readiness === "warming",
+      readiness,
+      time: new Date().toISOString(),
+      health
+    }, {
+      "Cache-Control": "no-store"
+    });
+    return;
+  }
+
   if (req.method === "GET" && url.pathname === "/api/ops/intelligence/queue-health") {
     if (!isValidOpsHealthToken(req)) {
       requestMeta.statusCode = OPS_HEALTH_TOKEN ? 401 : 503;
