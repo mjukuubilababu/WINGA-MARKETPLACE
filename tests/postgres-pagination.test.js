@@ -2454,3 +2454,82 @@ test("PostgreSQL message events publish after persistence and reach a dedicated 
   await store.close();
   assert.equal(listener.listenerCount("notification"), 0);
 });
+
+test("PostgreSQL read replica serves public catalog reads while strong reads stay primary", async () => {
+  const primaryCalls = [];
+  const replicaCalls = [];
+  const primary = {
+    async query(text, params = []) {
+      const sql = String(text);
+      primaryCalls.push({ text: sql, params });
+      if (sql.includes("COUNT(*)")) return { rows: [{ total: 0 }] };
+      if (sql.includes("FROM users")) return { rows: [{ username: "buyer-one", sharedPhoneViewerIds: [] }] };
+      return { rows: [], rowCount: 0 };
+    }
+  };
+  const replica = {
+    async query(text, params = []) {
+      replicaCalls.push({ text: String(text), params });
+      if (String(text).includes("COUNT(*)")) return { rows: [{ total: 0 }] };
+      return { rows: [], rowCount: 0 };
+    }
+  };
+  const store = createPostgresStore({
+    databaseUrl: "postgres://primary.invalid/winga",
+    queryClient: primary,
+    readQueryClient: replica,
+    readReplicaDatabaseUrl: "postgres://replica.invalid/winga"
+  });
+
+  await store.readStore(["categories", "products", "users"]);
+  assert.equal(replicaCalls.some((call) => call.text.includes("FROM categories")), true);
+  assert.equal(replicaCalls.some((call) => call.text.includes("FROM products")), true);
+  assert.equal(primaryCalls.some((call) => call.text.includes("FROM users")), true);
+
+  primaryCalls.length = 0;
+  replicaCalls.length = 0;
+  await store.readProductsPage({ limit: 12 });
+  assert.equal(replicaCalls.length, 2);
+  assert.equal(primaryCalls.length, 0);
+
+  primaryCalls.length = 0;
+  replicaCalls.length = 0;
+  await store.readProductsPage({ limit: 12, usePrimary: true, viewerUsername: "buyer-one" });
+  assert.equal(primaryCalls.length, 2);
+  assert.equal(replicaCalls.length, 0);
+});
+test("PostgreSQL read replica fails open to primary without interrupting public pagination", async () => {
+  const primaryCalls = [];
+  const primary = {
+    async query(text, params = []) {
+      const sql = String(text);
+      primaryCalls.push({ text: sql, params });
+      if (sql.includes("COUNT(*)")) return { rows: [{ total: 0 }] };
+      return { rows: [], rowCount: 0 };
+    }
+  };
+  const replica = {
+    async query() {
+      throw new Error("replica unavailable");
+    }
+  };
+  const store = createPostgresStore({
+    databaseUrl: "postgres://primary.invalid/winga",
+    queryClient: primary,
+    readQueryClient: replica
+  });
+
+  const originalWarn = console.warn;
+  const warnings = [];
+  console.warn = (...args) => warnings.push(args.join(" "));
+  try {
+    const page = await store.readProductsPage({ limit: 12 });
+    assert.deepEqual(page.items, []);
+    assert.equal(page.hasMore, false);
+  } finally {
+    console.warn = originalWarn;
+  }
+
+  assert.equal(primaryCalls.length, 2);
+  assert.equal(warnings.some((message) => message.includes("Read replica unavailable")), true);
+});

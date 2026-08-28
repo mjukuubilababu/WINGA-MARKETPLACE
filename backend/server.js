@@ -7221,7 +7221,8 @@ http.createServer(async (req, res) => {
           seller: requestedSeller,
           maxLimit: MAX_API_PRODUCT_LIMIT,
           viewerUsername: viewer?.username || "",
-          isStaffViewer
+          isStaffViewer,
+          usePrimary: Boolean(viewer)
         });
         const publicCacheKey = `products:v1:${crypto.createHash("sha256").update(JSON.stringify({
           limit: pageLimit,

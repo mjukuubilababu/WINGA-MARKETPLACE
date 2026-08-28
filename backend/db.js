@@ -115,12 +115,22 @@ function resolveDatabasePoolMax(value = process.env.DB_POOL_MAX) {
   return Number.isFinite(parsedValue) && parsedValue > 0 ? parsedValue : 20;
 }
 
-function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, listenClientFactory = null }) {
+function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, readQueryClient = null, readReplicaDatabaseUrl = process.env.READ_REPLICA_DATABASE_URL || "", listenClientFactory = null }) {
   const pool = queryClient || new Pool({
     connectionString: databaseUrl,
     ssl: ssl ? { rejectUnauthorized: false } : false,
     max: resolveDatabasePoolMax()
   });
+  const replicaUrl = String(readReplicaDatabaseUrl || "").trim();
+  const readPool = readQueryClient || (!queryClient && replicaUrl
+    ? new Pool({
+      connectionString: replicaUrl,
+      ssl: ssl ? { rejectUnauthorized: false } : false,
+      max: resolveDatabasePoolMax(process.env.READ_DB_POOL_MAX || process.env.DB_POOL_MAX)
+    })
+    : pool);
+  const ownsReadPool = Boolean(!readQueryClient && readPool !== pool);
+  let readReplicaRetryAt = 0;
 
   const messageSubscriptions = new Set();
 
@@ -130,6 +140,19 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, lis
   }
   async function query(text, params = []) {
     return pool.query(text, params);
+  }
+
+  async function readQuery(text, params = []) {
+    if (readPool === pool || Date.now() < readReplicaRetryAt) {
+      return pool.query(text, params);
+    }
+    try {
+      return await readPool.query(text, params);
+    } catch (error) {
+      readReplicaRetryAt = Date.now() + 30000;
+      console.warn("[WINGA] Read replica unavailable; falling back to primary for 30 seconds.", error?.message || error);
+      return pool.query(text, params);
+    }
   }
 
   function buildProductVisibilityClause({ viewerUsername = "", isStaffViewer = false } = {}) {
@@ -1386,7 +1409,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, lis
     const requestedTables = Array.isArray(tables) ? tables : ALL_TABLE_KEYS;
     const selectedTables = new Set(requestedTables.filter((tableKey) => ALL_TABLE_KEYS.includes(tableKey)));
       const [categoriesResult, usersResult, productsResult, sessionsResult, ordersResult, paymentsResult, messagesResult, notificationsResult, promotionsResult, reviewsResult, reportsResult, moderationActionsResult, settingsResult] = await Promise.all([
-      (selectedTables.has("categories") ? query(`
+      (selectedTables.has("categories") ? readQuery(`
         SELECT
           value,
           label,
@@ -1433,7 +1456,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, lis
         FROM users
         ORDER BY created_at ASC
       `) : EMPTY_QUERY_RESULT),
-      (selectedTables.has("products") ? query(`
+      (selectedTables.has("products") ? readQuery(`
         SELECT
           id,
           name,
@@ -1876,9 +1899,10 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, lis
       ${countWhereSql}
     `;
 
+    const productQuery = options.usePrimary ? query : readQuery;
     const [itemsResult, countResult] = await Promise.all([
-      query(itemsSql, itemParams),
-      query(countSql, countParams)
+      productQuery(itemsSql, itemParams),
+      productQuery(countSql, countParams)
     ]);
 
     const rawItems = Array.isArray(itemsResult.rows) ? itemsResult.rows : [];
@@ -4969,6 +4993,9 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, lis
 
   async function close() {
     await Promise.all(Array.from(messageSubscriptions, (subscription) => subscription.close()));
+    if (ownsReadPool && typeof readPool.end === "function") {
+      await readPool.end();
+    }
     if (!queryClient && typeof pool.end === "function") {
       await pool.end();
     }
