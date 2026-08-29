@@ -2545,3 +2545,56 @@ test("PostgreSQL read replica fails open to primary without interrupting public 
   assert.equal(degradedReplica.metrics.fallbackReads, 2);
   assert.equal(degradedReplica.metrics.lastFailureCode, "read_replica_error");
 });
+test("PostgreSQL database health reports slow queries and live pool saturation without SQL details", async () => {
+  const primary = {
+    totalCount: 20,
+    idleCount: 0,
+    waitingCount: 2,
+    async query(text) {
+      await new Promise((resolve) => setTimeout(resolve, 110));
+      if (String(text).includes("COUNT(*)")) return { rows: [{ total: 0 }] };
+      return { rows: [], rowCount: 0 };
+    }
+  };
+  const store = createPostgresStore({
+    databaseUrl: "postgres://primary.invalid/winga",
+    queryClient: primary,
+    slowQueryThreshold: 100
+  });
+
+  await store.readProductsPage({ limit: 12, usePrimary: true });
+  const health = store.getDatabaseHealth();
+  assert.equal(health.status, "degraded");
+  assert.equal(health.slowQueryThresholdMs, 100);
+  assert.equal(health.primary.pool.saturated, true);
+  assert.equal(health.primary.pool.waitingClients, 2);
+  assert.equal(health.primary.metrics.queries, 2);
+  assert.equal(health.primary.metrics.slowQueries, 2);
+  assert.equal(JSON.stringify(health).includes("SELECT"), false);
+  assert.equal(JSON.stringify(health).includes("primary.invalid"), false);
+});
+test("PostgreSQL read replica pool errors activate primary fallback without crashing", () => {
+  const { EventEmitter } = require("node:events");
+  const replica = new EventEmitter();
+  replica.query = async () => ({ rows: [], rowCount: 0 });
+  const primary = { query: async () => ({ rows: [], rowCount: 0 }) };
+  const store = createPostgresStore({
+    databaseUrl: "postgres://primary.invalid/winga",
+    queryClient: primary,
+    readQueryClient: replica
+  });
+  const originalError = console.error;
+  console.error = () => {};
+  try {
+    const poolError = new Error("replica idle connection failed");
+    poolError.code = "ECONNRESET";
+    replica.emit("error", poolError);
+  } finally {
+    console.error = originalError;
+  }
+  const health = store.getReadReplicaHealth();
+  assert.equal(health.status, "degraded");
+  assert.equal(health.cooldownActive, true);
+  assert.equal(health.metrics.poolErrors, 1);
+  assert.equal(health.metrics.lastPoolErrorCode, "ECONNRESET");
+});

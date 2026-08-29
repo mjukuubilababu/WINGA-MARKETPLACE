@@ -115,7 +115,12 @@ function resolveDatabasePoolMax(value = process.env.DB_POOL_MAX) {
   return Number.isFinite(parsedValue) && parsedValue > 0 ? parsedValue : 20;
 }
 
-function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, readQueryClient = null, readReplicaDatabaseUrl = process.env.READ_REPLICA_DATABASE_URL || "", listenClientFactory = null }) {
+function resolveSlowQueryThreshold(value = process.env.DB_SLOW_QUERY_MS) {
+  const parsedValue = Number.parseInt(value, 10);
+  return Number.isFinite(parsedValue) ? Math.min(60000, Math.max(100, parsedValue)) : 1000;
+}
+
+function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, readQueryClient = null, readReplicaDatabaseUrl = process.env.READ_REPLICA_DATABASE_URL || "", slowQueryThreshold = process.env.DB_SLOW_QUERY_MS, listenClientFactory = null }) {
   const pool = queryClient || new Pool({
     connectionString: databaseUrl,
     ssl: ssl ? { rejectUnauthorized: false } : false,
@@ -130,19 +135,51 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     })
     : pool);
   const ownsReadPool = Boolean(!readQueryClient && readPool !== pool);
+  const primaryPoolMax = resolveDatabasePoolMax();
+  const readPoolMax = resolveDatabasePoolMax(process.env.READ_DB_POOL_MAX || process.env.DB_POOL_MAX);
+  const slowQueryThresholdMs = resolveSlowQueryThreshold(slowQueryThreshold);
   let readReplicaRetryAt = 0;
+  const primaryDatabaseMetrics = {
+    queries: 0,
+    queryErrors: 0,
+    slowQueries: 0,
+    lastQueryLatencyMs: 0,
+    averageQueryLatencyMs: 0,
+    maxQueryLatencyMs: 0,
+    lastSlowQueryAt: "",
+    lastQueryErrorAt: "",
+    lastQueryErrorCode: "",
+    transactions: 0,
+    transactionErrors: 0,
+    slowTransactions: 0,
+    lastTransactionDurationMs: 0,
+    maxTransactionDurationMs: 0,
+    lastSlowTransactionAt: "",
+    connectionAcquisitions: 0,
+    connectionWaits: 0,
+    lastConnectionWaitMs: 0,
+    maxConnectionWaitMs: 0,
+    poolErrors: 0,
+    lastPoolErrorAt: "",
+    lastPoolErrorCode: ""
+  };
   const readReplicaMetrics = {
     attempts: 0,
     successes: 0,
     failures: 0,
+    slowQueries: 0,
     fallbackReads: 0,
     cooldownFallbackReads: 0,
     lastLatencyMs: 0,
     averageLatencyMs: 0,
     maxLatencyMs: 0,
     lastSuccessAt: "",
+    lastSlowQueryAt: "",
     lastFailureAt: "",
-    lastFailureCode: ""
+    lastFailureCode: "",
+    poolErrors: 0,
+    lastPoolErrorAt: "",
+    lastPoolErrorCode: ""
   };
 
   const messageSubscriptions = new Set();
@@ -151,8 +188,54 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     if (typeof listenClientFactory === "function") return listenClientFactory();
     return new Client({ connectionString: databaseUrl, ssl: ssl ? { rejectUnauthorized: false } : false, application_name: "winga-message-listener" });
   }
+  function updateLatencyMetrics(metrics, latencyMs, prefix) {
+    const countKey = prefix === "query" ? "queries" : "successes";
+    const averageKey = prefix === "query" ? "averageQueryLatencyMs" : "averageLatencyMs";
+    const lastKey = prefix === "query" ? "lastQueryLatencyMs" : "lastLatencyMs";
+    const maxKey = prefix === "query" ? "maxQueryLatencyMs" : "maxLatencyMs";
+    metrics[lastKey] = latencyMs;
+    metrics[averageKey] = metrics[countKey] === 1
+      ? latencyMs
+      : Math.round((metrics[averageKey] * 0.9) + (latencyMs * 0.1));
+    metrics[maxKey] = Math.max(metrics[maxKey], latencyMs);
+  }
+
   async function query(text, params = []) {
-    return pool.query(text, params);
+    const startedAt = Date.now();
+    primaryDatabaseMetrics.queries += 1;
+    try {
+      const result = await pool.query(text, params);
+      const latencyMs = Math.max(0, Date.now() - startedAt);
+      updateLatencyMetrics(primaryDatabaseMetrics, latencyMs, "query");
+      if (latencyMs >= slowQueryThresholdMs) {
+        primaryDatabaseMetrics.slowQueries += 1;
+        primaryDatabaseMetrics.lastSlowQueryAt = new Date().toISOString();
+      }
+      return result;
+    } catch (error) {
+      primaryDatabaseMetrics.queryErrors += 1;
+      primaryDatabaseMetrics.lastQueryErrorAt = new Date().toISOString();
+      primaryDatabaseMetrics.lastQueryErrorCode = String(error?.code || "database_query_error").slice(0, 80);
+      throw error;
+    }
+  }
+
+  if (typeof pool.on === "function") {
+    pool.on("error", (error) => {
+      primaryDatabaseMetrics.poolErrors += 1;
+      primaryDatabaseMetrics.lastPoolErrorAt = new Date().toISOString();
+      primaryDatabaseMetrics.lastPoolErrorCode = String(error?.code || "database_pool_error").slice(0, 80);
+      console.error("[WINGA] PostgreSQL primary pool error.", error?.message || error);
+    });
+  }
+  if (readPool !== pool && typeof readPool.on === "function") {
+    readPool.on("error", (error) => {
+      readReplicaMetrics.poolErrors += 1;
+      readReplicaMetrics.lastPoolErrorAt = new Date().toISOString();
+      readReplicaMetrics.lastPoolErrorCode = String(error?.code || "read_replica_pool_error").slice(0, 80);
+      readReplicaRetryAt = Date.now() + 30000;
+      console.error("[WINGA] PostgreSQL read replica pool error; primary fallback active for 30 seconds.", error?.message || error);
+    });
   }
 
   async function readQuery(text, params = []) {
@@ -170,12 +253,12 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       const result = await readPool.query(text, params);
       const latencyMs = Math.max(0, Date.now() - startedAt);
       readReplicaMetrics.successes += 1;
-      readReplicaMetrics.lastLatencyMs = latencyMs;
-      readReplicaMetrics.averageLatencyMs = readReplicaMetrics.successes === 1
-        ? latencyMs
-        : Math.round(((readReplicaMetrics.averageLatencyMs * (readReplicaMetrics.successes - 1)) + latencyMs) / readReplicaMetrics.successes);
-      readReplicaMetrics.maxLatencyMs = Math.max(readReplicaMetrics.maxLatencyMs, latencyMs);
+      updateLatencyMetrics(readReplicaMetrics, latencyMs, "replica");
       readReplicaMetrics.lastSuccessAt = new Date().toISOString();
+      if (latencyMs >= slowQueryThresholdMs) {
+        readReplicaMetrics.slowQueries += 1;
+        readReplicaMetrics.lastSlowQueryAt = readReplicaMetrics.lastSuccessAt;
+      }
       return result;
     } catch (error) {
       readReplicaMetrics.failures += 1;
@@ -207,10 +290,38 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       cooldownRemainingMs,
       metrics: { ...readReplicaMetrics },
       pool: enabled ? {
+        maxConnections: readPoolMax,
         totalConnections: Number(readPool.totalCount || 0),
         idleConnections: Number(readPool.idleCount || 0),
-        waitingClients: Number(readPool.waitingCount || 0)
+        waitingClients: Number(readPool.waitingCount || 0),
+        utilizationPercent: Math.round((Number(readPool.totalCount || 0) / Math.max(1, readPoolMax)) * 100)
       } : null
+    };
+  }
+
+  function getDatabaseHealth() {
+    const totalConnections = Number(pool.totalCount || 0);
+    const idleConnections = Number(pool.idleCount || 0);
+    const waitingClients = Number(pool.waitingCount || 0);
+    const utilizationPercent = Math.round((totalConnections / Math.max(1, primaryPoolMax)) * 100);
+    const saturated = waitingClients > 0 || (totalConnections >= primaryPoolMax && idleConnections === 0);
+    return {
+      schemaVersion: "database-health-v1",
+      privacy: "ops-aggregate-only",
+      status: saturated ? "degraded" : "ready",
+      slowQueryThresholdMs,
+      primary: {
+        pool: {
+          maxConnections: primaryPoolMax,
+          totalConnections,
+          idleConnections,
+          waitingClients,
+          utilizationPercent,
+          saturated
+        },
+        metrics: { ...primaryDatabaseMetrics }
+      },
+      replica: getReadReplicaHealth()
     };
   }
 
@@ -4030,17 +4141,42 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
   }
 
   async function withTransaction(work) {
+    const transactionStartedAt = Date.now();
     const ownsClient = typeof pool.connect === "function";
-    const client = ownsClient ? await pool.connect() : pool;
+    let client = pool;
+    if (ownsClient) {
+      const acquireStartedAt = Date.now();
+      try {
+        client = await pool.connect();
+      } catch (error) {
+        primaryDatabaseMetrics.transactionErrors += 1;
+        throw error;
+      } finally {
+        const waitMs = Math.max(0, Date.now() - acquireStartedAt);
+        primaryDatabaseMetrics.connectionAcquisitions += 1;
+        primaryDatabaseMetrics.lastConnectionWaitMs = waitMs;
+        primaryDatabaseMetrics.maxConnectionWaitMs = Math.max(primaryDatabaseMetrics.maxConnectionWaitMs, waitMs);
+        if (waitMs >= 10) primaryDatabaseMetrics.connectionWaits += 1;
+      }
+    }
+    primaryDatabaseMetrics.transactions += 1;
     try {
       await client.query("BEGIN");
       const result = await work(client);
       await client.query("COMMIT");
       return result;
     } catch (error) {
+      primaryDatabaseMetrics.transactionErrors += 1;
       await client.query("ROLLBACK");
       throw error;
     } finally {
+      const durationMs = Math.max(0, Date.now() - transactionStartedAt);
+      primaryDatabaseMetrics.lastTransactionDurationMs = durationMs;
+      primaryDatabaseMetrics.maxTransactionDurationMs = Math.max(primaryDatabaseMetrics.maxTransactionDurationMs, durationMs);
+      if (durationMs >= slowQueryThresholdMs) {
+        primaryDatabaseMetrics.slowTransactions += 1;
+        primaryDatabaseMetrics.lastSlowTransactionAt = new Date().toISOString();
+      }
       if (ownsClient && typeof client.release === "function") {
         client.release();
       }
@@ -5065,6 +5201,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     readStore,
     readProductsPage,
     getReadReplicaHealth,
+    getDatabaseHealth,
     recordProductAction,
     createProduct,
     updateProduct,

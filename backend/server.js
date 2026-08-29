@@ -5805,6 +5805,52 @@ http.createServer(async (req, res) => {
     return;
   }
 
+  if (req.method === "GET" && url.pathname === "/api/ops/database/health") {
+    if (!isValidOpsHealthToken(req)) {
+      requestMeta.statusCode = OPS_HEALTH_TOKEN ? 401 : 503;
+      logRouteSummary(requestMeta, { lightweight: true, auth: "ops_database_health_denied" });
+      sendJson(res, OPS_HEALTH_TOKEN ? 401 : 503, {
+        ok: false,
+        error: OPS_HEALTH_TOKEN ? "Unauthorized" : "OPS_HEALTH_TOKEN is not configured."
+      }, {
+        "Cache-Control": "no-store"
+      });
+      return;
+    }
+    if (!postgresStore?.getDatabaseHealth) {
+      requestMeta.statusCode = 503;
+      logRouteSummary(requestMeta, { lightweight: true, readiness: "unavailable" });
+      sendJson(res, 503, {
+        ok: false,
+        readiness: "unavailable",
+        error: "PostgreSQL health metrics are unavailable."
+      }, {
+        "Cache-Control": "no-store"
+      });
+      return;
+    }
+    const health = postgresStore.getDatabaseHealth();
+    const statusCode = health.status === "degraded" ? 503 : 200;
+    requestMeta.statusCode = statusCode;
+    logRouteSummary(requestMeta, {
+      lightweight: true,
+      readiness: health.status,
+      primaryPoolUtilizationPercent: health.primary?.pool?.utilizationPercent || 0,
+      primaryWaitingClients: health.primary?.pool?.waitingClients || 0,
+      primarySlowQueries: health.primary?.metrics?.slowQueries || 0,
+      primarySlowTransactions: health.primary?.metrics?.slowTransactions || 0
+    });
+    sendJson(res, statusCode, {
+      ok: health.status === "ready",
+      readiness: health.status,
+      time: new Date().toISOString(),
+      health
+    }, {
+      "Cache-Control": "no-store"
+    });
+    return;
+  }
+
   if (req.method === "GET" && url.pathname === "/api/ops/database/read-replica-health") {
     if (!isValidOpsHealthToken(req)) {
       requestMeta.statusCode = OPS_HEALTH_TOKEN ? 401 : 503;
