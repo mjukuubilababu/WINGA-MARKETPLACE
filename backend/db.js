@@ -120,7 +120,7 @@ function resolveSlowQueryThreshold(value = process.env.DB_SLOW_QUERY_MS) {
   return Number.isFinite(parsedValue) ? Math.min(60000, Math.max(100, parsedValue)) : 1000;
 }
 
-function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, readQueryClient = null, readReplicaDatabaseUrl = process.env.READ_REPLICA_DATABASE_URL || "", slowQueryThreshold = process.env.DB_SLOW_QUERY_MS, listenClientFactory = null }) {
+function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, readQueryClient = null, readReplicaDatabaseUrl = process.env.READ_REPLICA_DATABASE_URL || "", slowQueryThreshold = process.env.DB_SLOW_QUERY_MS, readRetryDelayMs = process.env.DB_READ_RETRY_DELAY_MS, listenClientFactory = null }) {
   const pool = queryClient || new Pool({
     connectionString: databaseUrl,
     ssl: ssl ? { rejectUnauthorized: false } : false,
@@ -138,6 +138,10 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
   const primaryPoolMax = resolveDatabasePoolMax();
   const readPoolMax = resolveDatabasePoolMax(process.env.READ_DB_POOL_MAX || process.env.DB_POOL_MAX);
   const slowQueryThresholdMs = resolveSlowQueryThreshold(slowQueryThreshold);
+  const parsedReadRetryDelayMs = Number.parseInt(readRetryDelayMs, 10);
+  const primaryReadRetryDelayMs = Number.isFinite(parsedReadRetryDelayMs)
+    ? Math.min(500, Math.max(0, parsedReadRetryDelayMs))
+    : 75;
   let readReplicaRetryAt = 0;
   const primaryDatabaseMetrics = {
     queries: 0,
@@ -161,7 +165,10 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     maxConnectionWaitMs: 0,
     poolErrors: 0,
     lastPoolErrorAt: "",
-    lastPoolErrorCode: ""
+    lastPoolErrorCode: "",
+    transientReadRetries: 0,
+    transientReadRetrySuccesses: 0,
+    transientReadRetryFailures: 0
   };
   const readReplicaMetrics = {
     attempts: 0,
@@ -220,6 +227,39 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     }
   }
 
+  function isTransientDatabaseConnectionError(error) {
+    const code = String(error?.code || "").toUpperCase();
+    if (new Set([
+      "08000", "08001", "08003", "08004", "08006", "08007", "08P01",
+      "57P01", "57P02", "57P03", "ECONNRESET", "ECONNREFUSED", "ETIMEDOUT",
+      "EPIPE", "ENETDOWN", "ENETUNREACH", "EHOSTUNREACH"
+    ]).has(code)) {
+      return true;
+    }
+    return /connection (?:terminated|closed|reset)|server closed the connection|terminating connection due to administrator command/i
+      .test(String(error?.message || ""));
+  }
+
+  async function queryPrimaryRead(text, params = []) {
+    try {
+      return await query(text, params);
+    } catch (error) {
+      if (!isTransientDatabaseConnectionError(error)) throw error;
+      primaryDatabaseMetrics.transientReadRetries += 1;
+      if (primaryReadRetryDelayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, primaryReadRetryDelayMs));
+      }
+      try {
+        const result = await query(text, params);
+        primaryDatabaseMetrics.transientReadRetrySuccesses += 1;
+        return result;
+      } catch (retryError) {
+        primaryDatabaseMetrics.transientReadRetryFailures += 1;
+        throw retryError;
+      }
+    }
+  }
+
   if (typeof pool.on === "function") {
     pool.on("error", (error) => {
       primaryDatabaseMetrics.poolErrors += 1;
@@ -240,12 +280,12 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
 
   async function readQuery(text, params = []) {
     if (readPool === pool) {
-      return pool.query(text, params);
+      return queryPrimaryRead(text, params);
     }
     if (Date.now() < readReplicaRetryAt) {
       readReplicaMetrics.fallbackReads += 1;
       readReplicaMetrics.cooldownFallbackReads += 1;
-      return pool.query(text, params);
+      return queryPrimaryRead(text, params);
     }
     const startedAt = Date.now();
     readReplicaMetrics.attempts += 1;
@@ -267,7 +307,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       readReplicaMetrics.lastFailureCode = String(error?.code || "read_replica_error").slice(0, 80);
       readReplicaRetryAt = Date.now() + 30000;
       console.warn("[WINGA] Read replica unavailable; falling back to primary for 30 seconds.", error?.message || error);
-      return pool.query(text, params);
+      return queryPrimaryRead(text, params);
     }
   }
 
@@ -2069,7 +2109,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       ${countWhereSql}
     `;
 
-    const productQuery = options.usePrimary ? query : readQuery;
+    const productQuery = options.usePrimary ? queryPrimaryRead : readQuery;
     const [itemsResult, countResult] = await Promise.all([
       productQuery(itemsSql, itemParams),
       productQuery(countSql, countParams)

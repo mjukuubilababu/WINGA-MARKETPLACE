@@ -11,6 +11,59 @@ test("PostgreSQL pool max uses a safe default and accepts positive environment o
   assert.equal(resolveDatabasePoolMax("invalid"), 20);
 });
 
+test("PostgreSQL catalog reads retry one transient primary failover error", async () => {
+  const attemptsByQuery = new Map();
+  const queryClient = {
+    async query(text) {
+      const sql = String(text);
+      const attempts = (attemptsByQuery.get(sql) || 0) + 1;
+      attemptsByQuery.set(sql, attempts);
+      if (attempts === 1) {
+        const error = new Error("terminating connection due to administrator command");
+        error.code = "57P01";
+        throw error;
+      }
+      if (sql.includes("COUNT(*)")) return { rows: [{ total: 0 }] };
+      return { rows: [], rowCount: 0 };
+    }
+  };
+  const store = createPostgresStore({
+    databaseUrl: "postgres://primary.invalid/winga",
+    queryClient,
+    readRetryDelayMs: 0
+  });
+
+  const page = await store.readProductsPage({ limit: 12, usePrimary: true });
+  assert.deepEqual(page.items, []);
+  assert.equal(page.hasMore, false);
+  assert.equal(Array.from(attemptsByQuery.values()).every((attempts) => attempts === 2), true);
+  const health = store.getDatabaseHealth();
+  assert.equal(health.primary.metrics.transientReadRetries, 2);
+  assert.equal(health.primary.metrics.transientReadRetrySuccesses, 2);
+  assert.equal(health.primary.metrics.transientReadRetryFailures, 0);
+});
+
+test("PostgreSQL catalog reads do not retry non-transient query failures", async () => {
+  let attempts = 0;
+  const queryClient = {
+    async query() {
+      attempts += 1;
+      const error = new Error("invalid catalog query");
+      error.code = "42601";
+      throw error;
+    }
+  };
+  const store = createPostgresStore({
+    databaseUrl: "postgres://primary.invalid/winga",
+    queryClient,
+    readRetryDelayMs: 0
+  });
+
+  await assert.rejects(store.readStore(["categories"]), /invalid catalog query/);
+  assert.equal(attempts, 1);
+  const health = store.getDatabaseHealth();
+  assert.equal(health.primary.metrics.transientReadRetries, 0);
+});
 test("PostgreSQL schema migrations are locked, transactional, and versioned", async () => {
   const calls = [];
   let released = false;
