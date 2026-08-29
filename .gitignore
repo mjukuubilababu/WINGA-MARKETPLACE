@@ -40,3 +40,4 @@ scripts/prod-statecheck-*.js
 Microsoft/
 .vercel
 .env*.local
+.ops-state/

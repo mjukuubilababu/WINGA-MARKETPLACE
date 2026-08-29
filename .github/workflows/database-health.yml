@@ -1,0 +1,49 @@
+name: Winga Database Health
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/10 * * * *"
+
+concurrency:
+  group: winga-database-health
+  cancel-in-progress: true
+
+jobs:
+  database-health:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    env:
+      OPS_HEALTH_TOKEN: ${{ secrets.OPS_HEALTH_TOKEN }}
+      DATABASE_ALERT_WEBHOOK_URL: ${{ secrets.DATABASE_ALERT_WEBHOOK_URL }}
+      DATABASE_HEALTH_URL: https://winga-pflp.onrender.com/api/ops/database/health
+      DATABASE_HEALTH_TIMEOUT_MS: "15000"
+      DB_ALERT_REMINDER_COOLDOWN_MS: "3600000"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - name: Restore alert state
+        uses: actions/cache/restore@v4
+        with:
+          path: .ops-state/database-health.json
+          key: winga-database-health-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: winga-database-health-
+      - name: Run database health monitor
+        id: database-health
+        continue-on-error: true
+        run: npm run monitor:database
+      - name: Persist alert state
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .ops-state/database-health.json
+          key: winga-database-health-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Enforce database health gate
+        if: steps.database-health.outcome != 'success'
+        run: exit 1
