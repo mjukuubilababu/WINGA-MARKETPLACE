@@ -11,7 +11,7 @@ const { createSearchDemandService, summarizeSearchDemandEvents } = require("./se
 const { buildRequestGlobalContext, normalizeUserPreference, validateUserPreference, formatPrice } = require("./global-context");
 const { isR2StorageEnabled, uploadImageToR2 } = require("./storage-r2");
 const { MAX_PRODUCT_IMAGE_BYTES, createProductImageVariants } = require("./image-processing");
-const { getOrSetCache } = require("./cache");
+const { getOrSetCache, closeCache } = require("./cache");
 
 const PORT = process.env.PORT || 3000;
 const DATABASE_URL = process.env.DATABASE_URL || "";
@@ -182,6 +182,14 @@ const MAX_REQUEST_BODY_BYTES = 16 * 1024 * 1024;
 const MAX_BACKUP_FILES = 5;
 const RATE_LIMIT_WINDOW_MS = 60 * 1000;
 const RATE_LIMIT_MAX_BUCKETS = 5000;
+const SHUTDOWN_GRACE_MS = Math.max(5000, Math.min(Number(process.env.SHUTDOWN_GRACE_MS || 25000) || 25000, 29000));
+const serverLifecycle = {
+  phase: "starting",
+  startedAt: new Date().toISOString(),
+  readyAt: "",
+  drainingAt: ""
+};
+let shutdownPromise = null;
 const BUYER_CANCEL_WINDOW_MS = 48 * 60 * 60 * 1000;
 const DELIVERY_CONFIRM_WINDOW_MS = Math.max(24 * 60 * 60 * 1000, Math.min(Number(process.env.DELIVERY_CONFIRM_WINDOW_MS || 7 * 24 * 60 * 60 * 1000) || 7 * 24 * 60 * 60 * 1000, 30 * 24 * 60 * 60 * 1000));
 const DELIVERY_DISPUTE_WINDOW_MS = Math.max(24 * 60 * 60 * 1000, Math.min(Number(process.env.DELIVERY_DISPUTE_WINDOW_MS || 48 * 60 * 60 * 1000) || 48 * 60 * 60 * 1000, 14 * 24 * 60 * 60 * 1000));
@@ -1269,6 +1277,13 @@ function startPaymentRefundSweeper() {
   paymentRefundSweepTimer.unref?.();
 }
 
+function stopPaymentRefundSweeper() {
+  if (paymentRefundSweepTimer) {
+    clearInterval(paymentRefundSweepTimer);
+    paymentRefundSweepTimer = null;
+  }
+}
+
 function isValidPaymentRefundCallback(req, payload) {
   if (!PAYMENT_REFUND_CALLBACK_SECRET) return false;
   const timestamp = String(req.headers["x-winga-refund-timestamp"] || "").trim();
@@ -1293,6 +1308,13 @@ function startCommerceReservationSweeper() {
   commerceReservationSweepTimer = setInterval(sweepExpiredCommerceReservations, COMMERCE_RESERVATION_SWEEP_INTERVAL_MS);
   commerceReservationSweepTimer.unref?.();
 }
+function stopCommerceReservationSweeper() {
+  if (commerceReservationSweepTimer) {
+    clearInterval(commerceReservationSweepTimer);
+    commerceReservationSweepTimer = null;
+  }
+}
+
 function startIntelligenceQueueWorker() {
   if (!INTELLIGENCE_QUEUE_EMBEDDED_WORKER_ENABLED || !postgresStore?.claimIntelligenceQueueBatch || intelligenceQueueWorkerTimer) {
     return;
@@ -5758,7 +5780,7 @@ async function clearSuspiciousLoginFailures(req, identifier = "", scope = "publi
   suspiciousLoginStore.delete(key);
 }
 
-http.createServer(async (req, res) => {
+const server = http.createServer(async (req, res) => {
   res.__wingaReq = req;
   const requestMeta = {
     requestId: createRequestId(),
@@ -5779,28 +5801,55 @@ http.createServer(async (req, res) => {
   requestMeta.route = url.pathname;
 
   if (req.method === "GET" && url.pathname === "/health") {
-    requestMeta.statusCode = 200;
-    logRouteSummary(requestMeta, { lightweight: true });
-    sendJson(res, 200, {
-      ok: true,
+    const ready = serverLifecycle.phase === "ready";
+    requestMeta.statusCode = ready ? 200 : 503;
+    logRouteSummary(requestMeta, { lightweight: true, readiness: serverLifecycle.phase });
+    sendJson(res, requestMeta.statusCode, {
+      ok: ready,
+      readiness: ready ? "ready" : "unavailable",
+      phase: serverLifecycle.phase,
       time: new Date().toISOString(),
       environment: NODE_ENV
+    }, {
+      "Cache-Control": "no-store"
     });
     return;
   }
 
   if (req.method === "GET" && url.pathname === "/api/health") {
-    requestMeta.statusCode = 200;
+    const ready = serverLifecycle.phase === "ready";
+    requestMeta.statusCode = ready ? 200 : 503;
     logRouteSummary(requestMeta, {
       lightweight: true,
+      readiness: serverLifecycle.phase,
       storageMode: runtimeConfiguration.storageMode
     });
-    sendJson(res, 200, {
-      ok: true,
+    sendJson(res, requestMeta.statusCode, {
+      ok: ready,
+      readiness: ready ? "ready" : "unavailable",
+      phase: serverLifecycle.phase,
       time: new Date().toISOString(),
       environment: NODE_ENV,
       storageMode: runtimeConfiguration.storageMode,
       configWarningsCount: runtimeConfiguration.warnings.length
+    }, {
+      "Cache-Control": "no-store"
+    });
+    return;
+  }
+
+  if (serverLifecycle.phase !== "ready") {
+    requestMeta.statusCode = 503;
+    logRouteSummary(requestMeta, { lightweight: true, readiness: serverLifecycle.phase });
+    sendJson(res, 503, {
+      ok: false,
+      error: "Service unavailable",
+      readiness: "unavailable",
+      phase: serverLifecycle.phase
+    }, {
+      "Cache-Control": "no-store",
+      "Retry-After": "1",
+      "Connection": "close"
     });
     return;
   }
@@ -11540,9 +11589,71 @@ http.createServer(async (req, res) => {
     safeConsole("error", "Unhandled server error", error?.message || error);
     sendJson(res, 500, { error: "Hitilafu ya mfumo imetokea. Jaribu tena." });
   }
-}).listen(PORT, async () => {
+});
+
+function waitForServerClose() {
+  return new Promise((resolve) => {
+    server.close(() => resolve());
+  });
+}
+
+async function waitForBackgroundWork(deadline) {
+  while (Date.now() < deadline
+    && (commerceReservationSweepRunning || paymentRefundSweepRunning || intelligenceQueueWorkerRunning)) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+}
+
+function shutdownServer(signal = "SIGTERM") {
+  if (shutdownPromise) return shutdownPromise;
+  serverLifecycle.phase = "draining";
+  serverLifecycle.drainingAt = new Date().toISOString();
+  stopIntelligenceQueueWorker();
+  stopCommerceReservationSweeper();
+  stopPaymentRefundSweeper();
+
+  shutdownPromise = (async () => {
+    const deadline = Date.now() + SHUTDOWN_GRACE_MS;
+    logStructuredEvent("info", "server_shutdown_started", { signal, graceMs: SHUTDOWN_GRACE_MS });
+    const closePromise = waitForServerClose();
+    await Promise.race([
+      Promise.all([closePromise, waitForBackgroundWork(deadline)]),
+      new Promise((resolve) => setTimeout(resolve, SHUTDOWN_GRACE_MS))
+    ]);
+    server.closeIdleConnections?.();
+    if (Date.now() >= deadline) server.closeAllConnections?.();
+    await Promise.allSettled([
+      Promise.resolve(closeCache?.()),
+      Promise.resolve(postgresStore?.close?.())
+    ]);
+    serverLifecycle.phase = "stopped";
+    logStructuredEvent("info", "server_shutdown_completed", { signal });
+  })().catch((error) => {
+    serverLifecycle.phase = "failed";
+    safeConsole("error", "Graceful shutdown failed", error?.message || error);
+    process.exitCode = 1;
+  });
+  return shutdownPromise;
+}
+
+process.once("SIGTERM", () => {
+  shutdownServer("SIGTERM").finally(() => process.exit(process.exitCode || 0));
+});
+process.once("SIGINT", () => {
+  shutdownServer("SIGINT").finally(() => process.exit(process.exitCode || 0));
+});
+if (NODE_ENV === "test" && typeof process.send === "function") {
+  process.on("message", (message) => {
+    if (message === "winga:test:shutdown") {
+      shutdownServer("TEST").finally(() => process.exit(process.exitCode || 0));
+    }
+  });
+}
+
+server.listen(PORT, async () => {
   try {
     await initializeStoreAtBoot();
+    if (serverLifecycle.phase === "draining") return;
     if (postgresStore?.subscribeToMessageEvents) {
       messageEventSubscription = postgresStore.subscribeToMessageEvents(deliverPostgresMessageEvent);
       messageEventSubscription.ready.catch((error) => {
@@ -11552,8 +11663,11 @@ http.createServer(async (req, res) => {
     startIntelligenceQueueWorker();
     startCommerceReservationSweeper();
     startPaymentRefundSweeper();
+    serverLifecycle.phase = "ready";
+    serverLifecycle.readyAt = new Date().toISOString();
     console.log(`WINGA backend running on http://localhost:${PORT}${postgresStore ? " (PostgreSQL mode)" : " (File mode)"}`);
   } catch (error) {
+    serverLifecycle.phase = "failed";
     console.error("[WINGA] failed to initialize backend", {
       message: error?.message || String(error),
       stack: error?.stack || ""
