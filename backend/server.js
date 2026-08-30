@@ -18,6 +18,7 @@ const {
   readCloudflareStreamConfig,
   verifyCloudflareStreamWebhook
 } = require("./cloudflare-stream");
+const { isVideoSafetyConfigured, readVideoSafetyConfig } = require("./video-safety");
 const { getOrSetCache, closeCache } = require("./cache");
 
 const PORT = process.env.PORT || 3000;
@@ -44,6 +45,8 @@ const PAYMENT_WEBHOOK_SECRET = String(process.env.PAYMENT_WEBHOOK_SECRET || "").
 const PAYMENT_WEBHOOK_MAX_AGE_SECONDS = 300;
 const CLOUDFLARE_STREAM_CONFIG = readCloudflareStreamConfig();
 const CLOUDFLARE_STREAM_CLIENT = createCloudflareStreamClient({ config: CLOUDFLARE_STREAM_CONFIG });
+const VIDEO_SAFETY_CONFIG = readVideoSafetyConfig();
+const VIDEO_SAFETY_ENABLED = isVideoSafetyConfigured(VIDEO_SAFETY_CONFIG);
 const PAYMENT_REFUND_WEBHOOK_URL = String(process.env.PAYMENT_REFUND_WEBHOOK_URL || "").trim();
 const PAYMENT_REFUND_WEBHOOK_SECRET = String(process.env.PAYMENT_REFUND_WEBHOOK_SECRET || "").trim();
 const PAYMENT_REFUND_CALLBACK_SECRET = String(process.env.PAYMENT_REFUND_CALLBACK_SECRET || "").trim();
@@ -356,7 +359,13 @@ function validateRuntimeConfiguration() {
     if (!CLOUDFLARE_STREAM_CLIENT.isConfigured() || !CLOUDFLARE_STREAM_CONFIG.webhookSecret || !CLOUDFLARE_STREAM_CONFIG.customerCode) {
       warnings.push("Video uploads are disabled until Cloudflare Stream configuration is complete.");
     }
-    if (String(process.env.AUTH_COOKIE_SAMESITE || "").trim().toLowerCase() === "none" && !TRUST_PROXY_HEADERS) {
+    const hasAnyVideoSafetySetting = Boolean(
+      VIDEO_SAFETY_CONFIG.scanUrl || VIDEO_SAFETY_CONFIG.callbackUrl
+      || VIDEO_SAFETY_CONFIG.deliverySecret || VIDEO_SAFETY_CONFIG.callbackSecret
+    );
+    if (hasAnyVideoSafetySetting && !VIDEO_SAFETY_ENABLED) {
+      warnings.push("Automated video safety is disabled because its HTTPS URLs or distinct 32-character secrets are incomplete.");
+    }    if (String(process.env.AUTH_COOKIE_SAMESITE || "").trim().toLowerCase() === "none" && !TRUST_PROXY_HEADERS) {
       warnings.push("AUTH_COOKIE_SAMESITE=None is enabled. Only use this for an intentional cross-site frontend/API deployment with HTTPS.");
     }
   } else {

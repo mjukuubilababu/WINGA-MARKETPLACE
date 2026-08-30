@@ -10,7 +10,7 @@
     "verify:source": "node scripts/verify-source-of-truth.js",
     "test": "npm run test:localization && npm run test:frontend && npm run test:integration && npm run test:e2e",
     "test:frontend": "node tests/frontend-core.test.js",
-    "test:integration": "node --test tests/integration-api.test.js tests/postgres-pagination.test.js tests/global-context.test.js tests/r2-storage.test.js tests/image-processing.test.js tests/product-media.test.js tests/cloudflare-stream.test.js tests/cache.test.js tests/database-health-monitor.test.js tests/database-recovery.test.js tests/server-lifecycle.test.js tests/video-health-monitor.test.js",
+    "test:integration": "node --test tests/integration-api.test.js tests/postgres-pagination.test.js tests/global-context.test.js tests/r2-storage.test.js tests/image-processing.test.js tests/product-media.test.js tests/cloudflare-stream.test.js tests/video-safety.test.js tests/cache.test.js tests/database-health-monitor.test.js tests/database-recovery.test.js tests/server-lifecycle.test.js tests/video-health-monitor.test.js",
     "test:e2e": "playwright test",
     "deploy:worker:frontend": "npm run build:vercel && npx wrangler deploy --config wrangler.toml",
     "deploy:worker:intelligence": "npx wrangler deploy --config wrangler.intelligence.toml",
