@@ -12167,6 +12167,11 @@ const uploadCustomCategoryWrap = document.getElementById("upload-custom-category
 const uploadCustomCategoryInput = document.getElementById("upload-custom-category-input");
 const uploadCustomCategoryAddButton = document.getElementById("upload-custom-category-add");
 const productImageFileInput = document.getElementById("product-image-file");
+const productVideoFileInput = document.getElementById("product-video-file");
+const productVideoStatus = document.getElementById("product-video-status");
+const productVideoProgress = document.getElementById("product-video-progress");
+const productVideoStatusCopy = document.getElementById("product-video-status-copy");
+const productVideoRemoveButton = document.getElementById("product-video-remove");
 const previewList = document.getElementById("image-preview-list");
 const uploadButton = document.getElementById("upload-button");
 
@@ -12916,6 +12921,11 @@ const productUploadDraftRuntimeState = {
   saveTimer: 0,
   lastSavedAt: 0,
   restoredKey: ""
+};const productVideoUploadState = {
+  controller: null,
+  mediaItem: null,
+  phase: "idle",
+  progress: 0
 };
 let currentReviews = [];
 let reviewSummaries = {};
@@ -14869,6 +14879,64 @@ authButton.addEventListener("click", async () => {
   }
 });
 
+function renderProductVideoUploadState() {
+  if (!productVideoStatus) return;
+  const phase = productVideoUploadState.phase;
+  productVideoStatus.hidden = phase === "idle";
+  productVideoProgress.value = Math.max(0, Math.min(100, Number(productVideoUploadState.progress || 0)));
+  const labels = {
+    preparing: "Tunatayarisha video...",
+    uploading: `Video inapakiwa ${productVideoProgress.value}%`,
+    processing: "Video inachakatwa kwa ubora wa feed...",
+    ready: "Video iko tayari kuambatanishwa na bidhaa.",
+    error: "Video haikukamilika. Chagua tena ili kujaribu upya."
+  };
+  productVideoStatusCopy.textContent = labels[phase] || "";
+  productVideoRemoveButton.hidden = phase === "idle";
+}
+
+function resetProductVideoUpload(options = {}) {
+  productVideoUploadState.controller?.cancel?.();
+  productVideoUploadState.mediaItem = null;
+  productVideoUploadState.phase = "idle";
+  productVideoUploadState.progress = 0;
+  if (options.clearInput !== false && productVideoFileInput) productVideoFileInput.value = "";
+  renderProductVideoUploadState();
+}
+
+function getProductVideoUploadController() {
+  if (!productVideoUploadState.controller) {
+    const factory = window.WingaModules?.marketplace?.createVideoUploadController;
+    if (typeof factory !== "function") throw new Error(translateUi("upload.failed", {}, "Video upload is unavailable."));
+    productVideoUploadState.controller = factory({
+      requestVideoUpload: (file) => window.WingaDataLayer.requestVideoUpload(file),
+      readVideoUploadStatus: (providerId) => window.WingaDataLayer.readVideoUploadStatus(providerId)
+    });
+  }
+  return productVideoUploadState.controller;
+}
+
+async function startProductVideoUpload(file) {
+  resetProductVideoUpload({ clearInput: false });
+  productVideoUploadState.phase = "preparing";
+  renderProductVideoUploadState();
+  try {
+    productVideoUploadState.mediaItem = await getProductVideoUploadController().start(file, {
+      onState(state) {
+        productVideoUploadState.phase = state.phase;
+        productVideoUploadState.progress = state.progress;
+        if (state.mediaItem) productVideoUploadState.mediaItem = state.mediaItem;
+        renderProductVideoUploadState();
+      }
+    });
+  } catch (error) {
+    if (error?.code === "video_upload_cancelled") return;
+    productVideoUploadState.phase = "error";
+    productVideoUploadState.progress = 0;
+    renderProductVideoUploadState();
+    captureClientError("product_video_upload_failed", error, { category: "media" });
+  }
+}
 uploadButton.addEventListener("click", async () => {
   if (uiRuntimeState.productUploadInFlight) {
     return;
@@ -14889,6 +14957,14 @@ uploadButton.addEventListener("click", async () => {
   const category = productCategoryInput.value;
   const selectedFiles = Array.from(productImageFileInput.files || []);
   const existingProduct = editingProductId ? getProductById(editingProductId) : null;
+  if (["preparing", "uploading", "processing"].includes(productVideoUploadState.phase)) {
+    setUploadFormStatus("warning", "Subiri video ikamilike kuchakatwa kabla ya kuhifadhi bidhaa.");
+    return;
+  }
+  if (productVideoUploadState.phase === "error") {
+    setUploadFormStatus("error", "Ondoa video iliyoshindwa au chagua video nyingine kabla ya kuhifadhi.");
+    return;
+  }
 
   if (name.length < 3) {
     alert(translateUi("product.nameRequired", {}, "Jaza jina la bidhaa lenye angalau herufi 3."));
@@ -14955,6 +15031,12 @@ uploadButton.addEventListener("click", async () => {
       fitMode: getSelectedProductFitMode(),
       image: safeImages[0] || "",
       images: safeImages,
+      mediaItems: [
+        ...safeImages.map((url, position) => ({ type: "image", status: "ready", url, position })),
+        ...(productVideoUploadState.mediaItem
+          ? [{ ...productVideoUploadState.mediaItem, position: safeImages.length }]
+          : [])
+      ],
       imageAspectRatios,
       imageSignature,
       uploadedBy: currentUser,
@@ -15096,6 +15178,19 @@ productImageFileInput.addEventListener("change", async () => {
   }
 });
 
+productVideoFileInput?.addEventListener("change", () => {
+  const file = productVideoFileInput.files?.[0] || null;
+  if (!file) {
+    resetProductVideoUpload();
+    return;
+  }
+  startProductVideoUpload(file);
+});
+
+productVideoRemoveButton?.addEventListener("click", () => {
+  resetProductVideoUpload();
+  setUploadFormStatus("", "");
+});
 searchToggleButton.addEventListener("click", () => {
   if (!isAuthenticatedUser()) {
     promptGuestAuth({
@@ -20191,6 +20286,14 @@ function startEditProduct(productId) {
   uploadCustomCategoryInput.value = "";
   renderPreviewImages(product.images || [product.image]);
   productImageFileInput.value = "";
+  const existingVideo = Array.isArray(product.mediaItems)
+    ? product.mediaItems.find((item) => item?.type === "video" && item?.status === "ready")
+    : null;
+  productVideoUploadState.mediaItem = existingVideo ? { ...existingVideo } : null;
+  productVideoUploadState.phase = existingVideo ? "ready" : "idle";
+  productVideoUploadState.progress = existingVideo ? 100 : 0;
+  if (productVideoFileInput) productVideoFileInput.value = "";
+  renderProductVideoUploadState();
   setSelectedProductFitMode(product.fitMode || "cover");
 
   setCurrentViewState("upload", {
@@ -20249,6 +20352,7 @@ function clearUploadForm() {
   uploadCustomCategoryWrap.style.display = "none";
   uploadCustomCategoryInput.value = "";
   productImageFileInput.value = "";
+  resetProductVideoUpload();
   productUploadDraftRuntimeState.preparedImages = [];
   previewList.replaceChildren();
   previewList.style.display = "none";

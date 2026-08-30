@@ -225,6 +225,15 @@
 <label for="product-image-file" class="upload-btn">Chagua Picha Moja au Nyingi</label>
 <input type="file" id="product-image-file" accept="image/*" multiple>
 <div id="image-preview-list"></div>
+<div class="product-video-upload">
+<label for="product-video-file" class="upload-btn upload-btn-secondary">Chagua Video (optional)</label>
+<input type="file" id="product-video-file" accept="video/mp4,video/quicktime,video/webm,video/x-matroska">
+<div id="product-video-status" class="product-video-status" hidden aria-live="polite">
+<progress id="product-video-progress" max="100" value="0"></progress>
+<span id="product-video-status-copy"></span>
+<button id="product-video-remove" type="button">Ondoa video</button>
+</div>
+</div>
 <button id="upload-button" type="button">Ongeza Bidhaa</button>
 </div>
 <section id="analytics-panel" class="panel" style="display:none;"></section>
