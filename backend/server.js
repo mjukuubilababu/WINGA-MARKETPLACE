@@ -24,6 +24,7 @@ const {
   readVideoSafetyConfig,
   verifyVideoSafetyResult
 } = require("./video-safety");
+const { createVideoSafetyDispatcher } = require("./video-safety-dispatcher");
 const { getOrSetCache, closeCache } = require("./cache");
 
 const PORT = process.env.PORT || 3000;
@@ -223,8 +224,12 @@ const VIDEO_CLEANUP_SWEEP_INTERVAL_MS = Math.max(60 * 1000, Math.min(Number(proc
 const VIDEO_CLEANUP_SWEEP_BATCH_SIZE = Math.max(1, Math.min(100, Number(process.env.VIDEO_CLEANUP_SWEEP_BATCH_SIZE || 25) || 25));
 const VIDEO_FAILED_RETENTION_DAYS = Math.max(1, Math.min(365, Number(process.env.VIDEO_FAILED_RETENTION_DAYS || 7) || 7));
 const VIDEO_CLEANUP_RETRY_SECONDS = Math.max(60, Math.min(86400, Number(process.env.VIDEO_CLEANUP_RETRY_SECONDS || 3600) || 3600));
+const VIDEO_SAFETY_DISPATCH_INTERVAL_MS = Math.max(5000, Math.min(Number(process.env.VIDEO_SAFETY_DISPATCH_INTERVAL_MS || 30000) || 30000, 30 * 60 * 1000));
+const VIDEO_SAFETY_DISPATCH_BATCH_SIZE = Math.max(1, Math.min(100, Number(process.env.VIDEO_SAFETY_DISPATCH_BATCH_SIZE || 10) || 10));
+const VIDEO_SAFETY_DISPATCH_TIMEOUT_MS = Math.max(1000, Math.min(60000, Number(process.env.VIDEO_SAFETY_DISPATCH_TIMEOUT_MS || 10000) || 10000));
 let videoCleanupSweepTimer = null;
 let videoCleanupSweepRunning = false;
+let videoSafetyDispatcher = null;
 const MIN_PASSWORD_LENGTH = 12;
 const WHATSAPP_VERIFICATION_CODE_TTL_MS = 10 * 60 * 1000;
 const WHATSAPP_VERIFICATION_PREVIEW_MODE = NODE_ENV !== "production";
@@ -506,6 +511,17 @@ function logStructuredEvent(level, event, detail = {}) {
   }
   console.log(line);
 }
+
+videoSafetyDispatcher = createVideoSafetyDispatcher({
+  store: postgresStore,
+  streamClient: CLOUDFLARE_STREAM_CLIENT,
+  config: VIDEO_SAFETY_CONFIG,
+  workerId: `${process.env.RENDER_INSTANCE_ID || process.pid}:video-safety`,
+  intervalMs: VIDEO_SAFETY_DISPATCH_INTERVAL_MS,
+  batchSize: VIDEO_SAFETY_DISPATCH_BATCH_SIZE,
+  requestTimeoutMs: VIDEO_SAFETY_DISPATCH_TIMEOUT_MS,
+  logger: logStructuredEvent
+});
 
 function logRouteSummary(meta, extra = {}) {
   logStructuredEvent("info", "route_summary", {
@@ -12090,7 +12106,8 @@ function waitForServerClose() {
 
 async function waitForBackgroundWork(deadline) {
   while (Date.now() < deadline
-    && (commerceReservationSweepRunning || paymentRefundSweepRunning || videoCleanupSweepRunning || intelligenceQueueWorkerRunning)) {
+    && (commerceReservationSweepRunning || paymentRefundSweepRunning || videoCleanupSweepRunning
+      || videoSafetyDispatcher?.isRunning?.() || intelligenceQueueWorkerRunning)) {
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
 }
@@ -12104,6 +12121,7 @@ function shutdownServer(signal = "SIGTERM") {
   stopPaymentRefundSweeper();
   stopVideoCleanupSweeper();
 
+  videoSafetyDispatcher?.stop?.();
   shutdownPromise = (async () => {
     const deadline = Date.now() + SHUTDOWN_GRACE_MS;
     logStructuredEvent("info", "server_shutdown_started", { signal, graceMs: SHUTDOWN_GRACE_MS });
@@ -12156,6 +12174,7 @@ server.listen(PORT, async () => {
     startCommerceReservationSweeper();
     startPaymentRefundSweeper();
     startVideoCleanupSweeper();
+    videoSafetyDispatcher?.start?.();
     serverLifecycle.phase = "ready";
     serverLifecycle.readyAt = new Date().toISOString();
     console.log(`WINGA backend running on http://localhost:${PORT}${postgresStore ? " (PostgreSQL mode)" : " (File mode)"}`);
