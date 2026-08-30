@@ -1,5 +1,5 @@
 (() => {
-  const DEFAULT_MIN_BYTES = 1024 * 1024;
+  const DEFAULT_MIN_BYTES = 1;
   const DEFAULT_MAX_BYTES = 5 * 1024 * 1024 * 1024;
   const DEFAULT_TUS_CHUNK_BYTES = 20 * 1024 * 1024;
   const VIDEO_EXTENSIONS = new Set(["mp4", "m4v", "mkv", "mov", "avi", "flv", "ts", "mts", "m2ts", "m2p", "m2v", "mxf", "lxf", "gxf", "3gp", "3g2", "webm", "mpg", "mpeg"]);
@@ -25,12 +25,12 @@
       const fileName = String(file?.name || "").trim();
       const extension = String(fileName.split(".").pop() || "").toLowerCase();
       const contentType = String(file?.type || "").trim().toLowerCase();
-      if (!file || !VIDEO_EXTENSIONS.has(extension) || (contentType && !VIDEO_TYPES.has(contentType))) {
+      if (!file || !VIDEO_EXTENSIONS.has(extension) || (contentType && !contentType.startsWith("video/") && !VIDEO_TYPES.has(contentType))) {
         throw fail("Select a supported video file.", "invalid_video_type");
       }
       const size = Number(file.size);
       if (!Number.isSafeInteger(size) || size < minBytes || size > maxBytes) {
-        throw fail("The video must be between 1 MB and 5 GB.", "invalid_video_size");
+        throw fail("The video must not be empty or larger than 5 GB.", "invalid_video_size");
       }
       return file;
     }

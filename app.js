@@ -14941,6 +14941,15 @@ function applyProductVideoUploadState(state = {}) {
   renderProductVideoUploadState();
 }
 
+function getFriendlyProductVideoUploadError(error) {
+  const code = String(error?.code || "").trim();
+  if (code === "invalid_video_type" || code === "invalid_video_upload") return translateUi("upload.videoInvalidType", {}, "Chagua video halali kutoka gallery au WhatsApp.");
+  if (code === "invalid_video_size") return translateUi("upload.videoInvalidSize", {}, "Video haiwezi kuwa tupu au kuzidi GB 5.");
+  if (["video_upload_network_error", "video_upload_timeout"].includes(code)) return translateUi("upload.videoNetwork", {}, "Intaneti imekatika wakati wa kupakia video. Jaribu tena.");
+  if (code === "video_processing_timeout") return translateUi("upload.videoProcessing", {}, "Video bado inachakatwa. Bonyeza Angalia tena.");
+  if (["video_provider_failed", "stream_provider_error", "stream_invalid_provider_response", "video_binary_upload_failed"].includes(code)) return translateUi("upload.videoProvider", {}, "Huduma ya video haijakamilisha upload. Jaribu tena baada ya muda mfupi.");
+  return translateUi("upload.videoFailed", {}, "Video haikukamilika. Chagua tena ili kujaribu upya.");
+}
 async function startProductVideoUpload(file) {
   const startedAt = getPerfNow();
   resetProductVideoUpload({ clearInput: false });
@@ -14961,8 +14970,8 @@ async function startProductVideoUpload(file) {
     productVideoUploadState.providerId = String(error?.providerId || productVideoUploadState.providerId || "");
     productVideoUploadState.retryable = Boolean(error?.retryable && productVideoUploadState.providerId);
     productVideoUploadState.errorMessage = productVideoUploadState.retryable
-      ? "Video bado haijathibitishwa. Bonyeza Angalia tena bila kuipakia upya."
-      : "Video haikukamilika. Chagua video tena ili kujaribu upya.";
+      ? translateUi("upload.videoProcessing", {}, "Video bado inachakatwa. Bonyeza Angalia tena.")
+      : getFriendlyProductVideoUploadError(error);
     renderProductVideoUploadState();
     captureClientError("product_video_upload_failed", error, {
       category: "media",

@@ -11109,14 +11109,14 @@ const server = http.createServer(async (req, res) => {
       const extension = String(fileName.split(".").pop() || "").toLowerCase();
       const allowedExtensions = new Set(["mp4", "m4v", "mkv", "mov", "avi", "flv", "ts", "mts", "m2ts", "m2p", "m2v", "mxf", "lxf", "gxf", "3gp", "3g2", "webm", "mpg", "mpeg"]);
       const allowedContentTypes = new Set(["video/mp4", "video/x-m4v", "video/quicktime", "video/webm", "video/x-matroska", "video/x-msvideo", "video/x-flv", "video/mp2t", "video/mpeg", "video/3gpp", "video/3gpp2", "application/mxf", "application/octet-stream"]);
-      const minimumVideoBytes = 1024 * 1024;
+      const minimumVideoBytes = 1;
       const maximumVideoBytes = 5 * 1024 * 1024 * 1024;
-      if (!fileName || !allowedExtensions.has(extension) || !allowedContentTypes.has(contentType || "application/octet-stream")) {
+      if (!fileName || !allowedExtensions.has(extension) || (Boolean(contentType) && !contentType.startsWith("video/") && !allowedContentTypes.has(contentType))) {
         sendJson(res, 400, { error: "Aina ya video si sahihi.", code: "invalid_video_upload" });
         return;
       }
       if (!Number.isSafeInteger(fileSize) || fileSize < minimumVideoBytes || fileSize > maximumVideoBytes) {
-        sendJson(res, 413, { error: "Video lazima iwe kati ya MB 1 na GB 5.", code: "invalid_video_size" });
+        sendJson(res, 413, { error: "Video lazima isiwe tupu wala kuzidi GB 5.", code: "invalid_video_size" });
         return;
       }
       const uploadId = `video-upload-${crypto.randomUUID()}`;

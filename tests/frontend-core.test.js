@@ -898,7 +898,7 @@ test("video upload controller validates, uploads, polls, and exposes only ready 
   assert.match(source, /provider: "cloudflare-stream"/);
   assert.match(buildSource, /"src\/marketplace\/video-upload\.js"/);
 });
-test("video upload policy accepts broad Stream formats from 1 MB through 5 GB", () => {
+test("video upload policy accepts social video formats from any non-empty size through 5 GB", () => {
   const root = path.resolve(__dirname, "..");
   const source = fs.readFileSync(path.join(root, "src", "marketplace", "video-upload.js"), "utf8");
   const context = vm.createContext({
@@ -908,10 +908,11 @@ test("video upload policy accepts broad Stream formats from 1 MB through 5 GB", 
   });
   vm.runInContext(source, context);
   const controller = context.window.WingaModules.marketplace.createVideoUploadController();
-  assert.equal(controller.validateFile({ name: "clip.avi", type: "video/x-msvideo", size: 1024 * 1024 }).name, "clip.avi");
+  assert.equal(controller.validateFile({ name: "clip.avi", type: "video/x-msvideo", size: 32 * 1024 }).name, "clip.avi");
+  assert.equal(controller.validateFile({ name: "whatsapp.mp4", type: "video/vnd.whatsapp", size: 512 * 1024 }).name, "whatsapp.mp4");
   assert.equal(controller.validateFile({ name: "archive.mxf", type: "", size: 5 * 1024 * 1024 * 1024 }).name, "archive.mxf");
-  assert.throws(() => controller.validateFile({ name: "tiny.mp4", type: "video/mp4", size: 1024 * 1024 - 1 }), /between 1 MB and 5 GB/);
-  assert.throws(() => controller.validateFile({ name: "oversize.mp4", type: "video/mp4", size: 5 * 1024 * 1024 * 1024 + 1 }), /between 1 MB and 5 GB/);
+  assert.throws(() => controller.validateFile({ name: "empty.mp4", type: "video/mp4", size: 0 }), /must not be empty/);
+  assert.throws(() => controller.validateFile({ name: "oversize.mp4", type: "video/mp4", size: 5 * 1024 * 1024 * 1024 + 1 }), /must not be empty/);
   assert.throws(() => controller.validateFile({ name: "payload.exe", type: "video/mp4", size: 2 * 1024 * 1024 }), /supported video file/);
 });
 test("video upload controller sends resumable TUS chunks with monotonic offsets", async () => {
