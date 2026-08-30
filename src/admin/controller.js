@@ -962,6 +962,8 @@
         })
       );
 
+      const videoItem = (Array.isArray(product.mediaItems) ? product.mediaItems : [])
+        .find((item) => item?.type === "video" && item?.providerId);
       const deepLinkRow = createDeepLinkRow(product);
 
       card.append(
@@ -971,6 +973,22 @@
         createMetaCopy(`Price: ${deps.formatProductPrice(product.price)}`),
         deps.createStatusPill(product.status || "pending", mapStatusClass(product.status))
       );
+      if (videoItem) {
+        card.append(
+          createMetaCopy(`Video: ${videoItem.status || "unknown"} | ${Math.max(0, Math.round(Number(videoItem.duration || 0)))}s`),
+          deps.createStatusPill(`video ${videoItem.status || "unknown"}`, mapStatusClass(videoItem.status))
+        );
+        const poster = deps.sanitizeImageSource(videoItem.posterUrl || videoItem.thumbnailUrl || "", "");
+        if (poster) {
+          card.appendChild(deps.createResponsiveImage({
+            src: poster,
+            alt: `${product.name || product.id} video poster`,
+            fallbackSrc: deps.getImageFallbackDataUri("VIDEO"),
+            className: "admin-verification-image",
+            attributes: { loading: "lazy", decoding: "async" }
+          }));
+        }
+      }
       if (deepLinkRow) {
         card.appendChild(deepLinkRow);
       }

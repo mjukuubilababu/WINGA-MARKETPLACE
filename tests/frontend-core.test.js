@@ -890,6 +890,61 @@ test("video upload controller validates, uploads, polls, and exposes only ready 
   assert.match(source, /provider: "cloudflare-stream"/);
   assert.match(buildSource, /"src\/marketplace\/video-upload\.js"/);
 });
+test("video upload processing can resume without uploading the binary twice", async () => {
+  const root = path.resolve(__dirname, "..");
+  const source = fs.readFileSync(path.join(root, "src", "marketplace", "video-upload.js"), "utf8");
+  const context = vm.createContext({
+    window: { WingaModules: {} },
+    XMLHttpRequest: function XMLHttpRequest() {},
+    FormData: function FormData() {}
+  });
+  vm.runInContext(source, context);
+  const createController = context.window.WingaModules.marketplace.createVideoUploadController;
+  let statusReads = 0;
+  const states = [];
+  const controller = createController({
+    readVideoUploadStatus: async () => {
+      statusReads += 1;
+      return statusReads === 1
+        ? { status: "processing" }
+        : { status: "ready", posterUrl: "https://video.example/poster.jpg", duration: 12 };
+    },
+    delay: async () => {},
+    maxPollAttempts: 2
+  });
+
+  const mediaItem = await controller.resume("provider-video-1", {
+    onState: (state) => states.push(state)
+  });
+
+  assert.equal(statusReads, 2);
+  assert.equal(mediaItem.providerId, "provider-video-1");
+  assert.equal(mediaItem.status, "ready");
+  assert.equal(states.at(-1).phase, "ready");
+  assert.equal(states.at(-1).resumed, true);
+
+  const transientController = createController({
+    readVideoUploadStatus: async () => { throw new Error("temporary network failure"); },
+    maxPollAttempts: 1
+  });
+  await assert.rejects(
+    () => transientController.resume("provider-video-2"),
+    (error) => error.retryable === true && error.providerId === "provider-video-2"
+  );
+});
+
+test("admin product moderation exposes attached video evidence", () => {
+  const root = path.resolve(__dirname, "..");
+  const source = fs.readFileSync(path.join(root, "src", "admin", "controller.js"), "utf8");
+  const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
+  const htmlSource = fs.readFileSync(path.join(root, "index.html"), "utf8");
+
+  assert.match(source, /find\(\(item\) => item\?\.type === "video" && item\?\.providerId\)/);
+  assert.match(source, /Video: \$\{videoItem\.status/);
+  assert.match(source, /videoItem\.posterUrl \|\| videoItem\.thumbnailUrl/);
+  assert.match(appSource, /resumeProductVideoProcessing/);
+  assert.match(htmlSource, /id="product-video-retry"/);
+});
 test("remote product actions API client owns product writes and demand signals", () => {
   const root = path.resolve(__dirname, "..");
   const dataSource = fs.readFileSync(path.join(root, "data-service.js"), "utf8");

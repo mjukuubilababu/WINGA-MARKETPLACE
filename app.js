@@ -12171,6 +12171,7 @@ const productVideoFileInput = document.getElementById("product-video-file");
 const productVideoStatus = document.getElementById("product-video-status");
 const productVideoProgress = document.getElementById("product-video-progress");
 const productVideoStatusCopy = document.getElementById("product-video-status-copy");
+const productVideoRetryButton = document.getElementById("product-video-retry");
 const productVideoRemoveButton = document.getElementById("product-video-remove");
 const previewList = document.getElementById("image-preview-list");
 const uploadButton = document.getElementById("upload-button");
@@ -12925,7 +12926,10 @@ const productUploadDraftRuntimeState = {
   controller: null,
   mediaItem: null,
   phase: "idle",
-  progress: 0
+  progress: 0,
+  providerId: "",
+  retryable: false,
+  errorMessage: ""
 };
 let currentReviews = [];
 let reviewSummaries = {};
@@ -14890,9 +14894,13 @@ function renderProductVideoUploadState() {
     uploading: `Video inapakiwa ${productVideoProgress.value}%`,
     processing: "Video inachakatwa kwa ubora wa feed...",
     ready: "Video iko tayari kuambatanishwa na bidhaa.",
-    error: "Video haikukamilika. Chagua tena ili kujaribu upya."
+    error: productVideoUploadState.errorMessage || "Video haikukamilika. Chagua tena ili kujaribu upya."
   };
   productVideoStatusCopy.textContent = labels[phase] || "";
+  if (productVideoRetryButton) {
+    productVideoRetryButton.hidden = !(phase === "error" && productVideoUploadState.retryable && productVideoUploadState.providerId);
+    productVideoRetryButton.disabled = phase === "processing";
+  }
   productVideoRemoveButton.hidden = phase === "idle";
 }
 
@@ -14901,6 +14909,9 @@ function resetProductVideoUpload(options = {}) {
   productVideoUploadState.mediaItem = null;
   productVideoUploadState.phase = "idle";
   productVideoUploadState.progress = 0;
+  productVideoUploadState.providerId = "";
+  productVideoUploadState.retryable = false;
+  productVideoUploadState.errorMessage = "";
   if (options.clearInput !== false && productVideoFileInput) productVideoFileInput.value = "";
   renderProductVideoUploadState();
 }
@@ -14917,6 +14928,18 @@ function getProductVideoUploadController() {
   return productVideoUploadState.controller;
 }
 
+function applyProductVideoUploadState(state = {}) {
+  productVideoUploadState.phase = state.phase || productVideoUploadState.phase;
+  productVideoUploadState.progress = Number(state.progress ?? productVideoUploadState.progress) || 0;
+  if (state.providerId) productVideoUploadState.providerId = String(state.providerId);
+  if (state.mediaItem) {
+    productVideoUploadState.mediaItem = state.mediaItem;
+    productVideoUploadState.retryable = false;
+    productVideoUploadState.errorMessage = "";
+  }
+  renderProductVideoUploadState();
+}
+
 async function startProductVideoUpload(file) {
   const startedAt = getPerfNow();
   resetProductVideoUpload({ clearInput: false });
@@ -14924,12 +14947,7 @@ async function startProductVideoUpload(file) {
   renderProductVideoUploadState();
   try {
     productVideoUploadState.mediaItem = await getProductVideoUploadController().start(file, {
-      onState(state) {
-        productVideoUploadState.phase = state.phase;
-        productVideoUploadState.progress = state.progress;
-        if (state.mediaItem) productVideoUploadState.mediaItem = state.mediaItem;
-        renderProductVideoUploadState();
-      }
+      onState: applyProductVideoUploadState
     });
     reportClientEvent("info", "product_video_upload_ready", "Product video upload completed.", {
       category: "media",
@@ -14939,11 +14957,42 @@ async function startProductVideoUpload(file) {
     if (error?.code === "video_upload_cancelled") return;
     productVideoUploadState.phase = "error";
     productVideoUploadState.progress = 0;
+    productVideoUploadState.providerId = String(error?.providerId || productVideoUploadState.providerId || "");
+    productVideoUploadState.retryable = Boolean(error?.retryable && productVideoUploadState.providerId);
+    productVideoUploadState.errorMessage = productVideoUploadState.retryable
+      ? "Video bado haijathibitishwa. Bonyeza Angalia tena bila kuipakia upya."
+      : "Video haikukamilika. Chagua video tena ili kujaribu upya.";
     renderProductVideoUploadState();
     captureClientError("product_video_upload_failed", error, {
       category: "media",
+      retryable: productVideoUploadState.retryable,
       latencyMs: Math.max(0, Math.round(getPerfNow() - startedAt))
     });
+  }
+}
+
+async function resumeProductVideoProcessing() {
+  const providerId = String(productVideoUploadState.providerId || "");
+  if (!providerId || !productVideoUploadState.retryable) return;
+  productVideoUploadState.phase = "processing";
+  productVideoUploadState.errorMessage = "";
+  renderProductVideoUploadState();
+  try {
+    productVideoUploadState.mediaItem = await getProductVideoUploadController().resume(providerId, {
+      onState: applyProductVideoUploadState
+    });
+    reportClientEvent("info", "product_video_processing_recovered", "Product video processing recovered without re-upload.", {
+      category: "media"
+    });
+  } catch (error) {
+    if (error?.code === "video_upload_cancelled") return;
+    productVideoUploadState.phase = "error";
+    productVideoUploadState.retryable = Boolean(error?.retryable);
+    productVideoUploadState.errorMessage = productVideoUploadState.retryable
+      ? "Video bado inachakatwa. Unaweza kuangalia tena baada ya muda mfupi."
+      : "Video imeshindwa kuchakatwa. Chagua video nyingine.";
+    renderProductVideoUploadState();
+    captureClientError("product_video_processing_retry_failed", error, { category: "media" });
   }
 }
 uploadButton.addEventListener("click", async () => {
@@ -15196,6 +15245,9 @@ productVideoFileInput?.addEventListener("change", () => {
   startProductVideoUpload(file);
 });
 
+productVideoRetryButton?.addEventListener("click", () => {
+  resumeProductVideoProcessing();
+});
 productVideoRemoveButton?.addEventListener("click", () => {
   resetProductVideoUpload();
   setUploadFormStatus("", "");
@@ -20325,6 +20377,9 @@ function startEditProduct(productId) {
   productVideoUploadState.mediaItem = existingVideo ? { ...existingVideo } : null;
   productVideoUploadState.phase = existingVideo ? "ready" : "idle";
   productVideoUploadState.progress = existingVideo ? 100 : 0;
+  productVideoUploadState.providerId = String(existingVideo?.providerId || "");
+  productVideoUploadState.retryable = false;
+  productVideoUploadState.errorMessage = "";
   if (productVideoFileInput) productVideoFileInput.value = "";
   renderProductVideoUploadState();
   setSelectedProductFitMode(product.fitMode || "cover");

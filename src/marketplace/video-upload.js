@@ -32,13 +32,37 @@
     async function waitUntilReady(providerId, token, onState) {
       for (let attempt = 0; attempt < maxPollAttempts; attempt += 1) {
         if (token !== generation) throw fail("Video upload was cancelled.", "video_upload_cancelled");
-        const video = await readStatus(providerId); const status = String(video?.status || "").toLowerCase();
+        let video;
+        try {
+          video = await readStatus(providerId);
+        } catch (error) {
+          error.providerId = providerId;
+          error.retryable = true;
+          throw error;
+        }
+        const status = String(video?.status || "").toLowerCase();
         notify(onState, { phase: "processing", progress: 100, providerId, status, attempt: attempt + 1 });
         if (status === "ready") return video;
         if (["failed", "error"].includes(status)) throw fail(video?.errorMessage || "Video processing failed.", video?.errorCode || "video_processing_failed");
         if (attempt + 1 < maxPollAttempts) await delay(pollIntervalMs);
       }
-      throw fail("Video is still processing. Retry the status check.", "video_processing_timeout");
+      throw Object.assign(fail("Video is still processing. Retry the status check.", "video_processing_timeout"), {
+        providerId,
+        retryable: true
+      });
+    }
+    function createMediaItem(video = {}, providerId = "") {
+      return { type: "video", provider: "cloudflare-stream", providerId, status: "ready", posterUrl: String(video.posterUrl || ""), thumbnailUrl: String(video.posterUrl || ""), duration: Number(video.duration || 0), width: Number(video.width || 0), height: Number(video.height || 0) };
+    }
+    async function resume(providerId, options = {}) {
+      const safeProviderId = String(providerId || "").trim();
+      if (!safeProviderId || typeof readStatus !== "function") throw fail("Video processing status is unavailable.", "video_status_unavailable");
+      cancel(); const token = generation;
+      notify(options.onState, { phase: "processing", progress: 100, providerId: safeProviderId, resumed: true });
+      const video = await waitUntilReady(safeProviderId, token, options.onState);
+      const mediaItem = createMediaItem(video, safeProviderId);
+      notify(options.onState, { phase: "ready", progress: 100, providerId: safeProviderId, mediaItem, resumed: true });
+      return mediaItem;
     }
     async function start(file, options = {}) {
       validateFile(file);
@@ -47,11 +71,11 @@
       const intent = await requestIntent(file); if (token !== generation) throw fail("Video upload was cancelled.", "video_upload_cancelled");
       await uploadBinary(intent.uploadUrl, file, token, options.onState);
       const video = await waitUntilReady(intent.providerId, token, options.onState);
-      const mediaItem = { type: "video", provider: "cloudflare-stream", providerId: intent.providerId, status: "ready", posterUrl: String(video.posterUrl || ""), thumbnailUrl: String(video.posterUrl || ""), duration: Number(video.duration || 0), width: Number(video.width || 0), height: Number(video.height || 0) };
+      const mediaItem = createMediaItem(video, intent.providerId);
       notify(options.onState, { phase: "ready", progress: 100, providerId: intent.providerId, mediaItem }); return mediaItem;
     }
     function cancel() { generation += 1; if (activeXhr) activeXhr.abort(); activeXhr = null; }
-    return { cancel, start, validateFile };
+    return { cancel, resume, start, validateFile };
   }
   window.WingaModules = window.WingaModules || {}; window.WingaModules.marketplace = window.WingaModules.marketplace || {}; window.WingaModules.marketplace.createVideoUploadController = createVideoUploadController;
 })();
