@@ -1,0 +1,53 @@
+const assert = require("node:assert/strict");
+const crypto = require("crypto");
+const test = require("node:test");
+const { createCloudflareStreamClient, normalizeStreamVideo, readCloudflareStreamConfig, verifyCloudflareStreamWebhook } = require("../backend/cloudflare-stream");
+
+test("Stream direct upload is private, origin-bound, short-lived, and never exposes the API token", async () => {
+  const calls = [];
+  const client = createCloudflareStreamClient({
+    config: readCloudflareStreamConfig({ CLOUDFLARE_STREAM_ACCOUNT_ID: "account-123", CLOUDFLARE_STREAM_API_TOKEN: "stream-secret-token", CLOUDFLARE_STREAM_ALLOWED_ORIGINS: "wingamarket.com,www.wingamarket.com", CLOUDFLARE_STREAM_MAX_DURATION_SECONDS: "75" }),
+    fetchImpl: async (url, init) => { calls.push({ url, init }); return { ok: true, status: 200, json: async () => ({ success: true, result: { uid: "stream-video-123", uploadURL: "https://upload.videodelivery.net/once" } }) }; }
+  });
+  const result = await client.createDirectUpload({ creator: "seller-one", uploadId: "upload-one", fileName: "dress.mov", contentType: "video/quicktime" });
+  const body = JSON.parse(calls[0].init.body);
+  assert.equal(result.providerId, "stream-video-123");
+  assert.equal(result.maxDurationSeconds, 75);
+  assert.equal(body.requireSignedURLs, true);
+  assert.deepEqual(body.allowedOrigins, ["wingamarket.com", "www.wingamarket.com"]);
+  assert.equal(body.meta.uploadId, "upload-one");
+  assert.equal(JSON.stringify(result).includes("stream-secret-token"), false);
+});
+
+test("Stream webhook verification rejects tampering and replayed signatures", () => {
+  const secret = "stream-webhook-secret-at-least-32-characters";
+  const rawBody = '{"uid":"stream-video-123","readyToStream":true}';
+  const nowSeconds = 1788089000;
+  const signature = crypto.createHmac("sha256", secret).update(`${nowSeconds}.${rawBody}`).digest("hex");
+  const header = `time=${nowSeconds},sig1=${signature}`;
+  assert.equal(verifyCloudflareStreamWebhook(rawBody, header, secret, { nowSeconds }).ok, true);
+  assert.equal(verifyCloudflareStreamWebhook(`${rawBody} `, header, secret, { nowSeconds }).reason, "signature_mismatch");
+  assert.equal(verifyCloudflareStreamWebhook(rawBody, header, secret, { nowSeconds: nowSeconds + 301 }).reason, "stale_signature");
+});
+
+test("Stream video normalization exposes playback only after encoding is ready", () => {
+  const processing = normalizeStreamVideo({ uid: "video-one", readyToStream: false, status: { state: "inprogress" }, playback: { hls: "https://invalid/private.m3u8" } });
+  const ready = normalizeStreamVideo({ uid: "video-one", creator: "seller-one", duration: 12.5, readyToStream: true, status: { state: "ready" }, playback: { hls: "https://video.example/manifest.m3u8" }, thumbnail: "https://video.example/thumb.jpg" });
+  assert.equal(processing.status, "processing");
+  assert.equal(processing.hlsUrl, "");
+  assert.equal(ready.status, "ready");
+  assert.equal(ready.duration, 12.5);
+});
+
+test("Stream signed playback tokens are short-lived and non-downloadable", async () => {
+  let requestBody;
+  const client = createCloudflareStreamClient({
+    config: readCloudflareStreamConfig({ CLOUDFLARE_STREAM_ACCOUNT_ID: "account-123", CLOUDFLARE_STREAM_API_TOKEN: "secret", CLOUDFLARE_STREAM_CUSTOMER_CODE: "customer-code", CLOUDFLARE_STREAM_PLAYBACK_TOKEN_TTL_SECONDS: "600" }),
+    fetchImpl: async (_url, init) => { requestBody = JSON.parse(init.body); return { ok: true, status: 200, json: async () => ({ success: true, result: { token: "signed.playback.token" } }) }; }
+  });
+  const result = await client.createPlaybackToken("stream-video-123");
+  assert.equal(result.token, "signed.playback.token");
+  assert.equal(result.expiresInSeconds, 600);
+  assert.equal(requestBody.downloadable, false);
+  assert.ok(requestBody.exp > Math.floor(Date.now() / 1000));
+});
