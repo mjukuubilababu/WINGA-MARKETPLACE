@@ -5320,17 +5320,19 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
          COUNT(*) FILTER (WHERE status = 'uploading')::int AS uploading,
          COUNT(*) FILTER (WHERE status = 'processing')::int AS processing,
          COUNT(*) FILTER (WHERE status = 'ready')::int AS ready,
+         COUNT(*) FILTER (WHERE status = 'cleanup_pending')::int AS "cleanupPending",
          COUNT(*) FILTER (WHERE status = 'failed')::int AS failed,
          COUNT(*) FILTER (
-           WHERE status = 'failed' AND updated_at >= NOW() - INTERVAL '24 hours'
+           WHERE status IN ('failed', 'cleanup_failed') AND updated_at >= NOW() - INTERVAL '24 hours'
          )::int AS "failedRecent",
+         COUNT(*) FILTER (WHERE status = 'cleanup_failed')::int AS "cleanupFailed",
          COUNT(*) FILTER (WHERE status = 'ready' AND product_id IS NULL)::int AS "readyUnclaimed",
          COUNT(*) FILTER (
-           WHERE status IN ('uploading', 'processing')
+           WHERE status IN ('uploading', 'processing', 'cleanup_pending')
              AND updated_at < NOW() - ($1::int * INTERVAL '1 second')
          )::int AS stalled,
          COALESCE(EXTRACT(EPOCH FROM (NOW() - MIN(updated_at))) FILTER (
-           WHERE status IN ('uploading', 'processing')
+           WHERE status IN ('uploading', 'processing', 'cleanup_pending')
          ), 0)::float8 AS "oldestPendingAgeSeconds",
          COALESCE(AVG(EXTRACT(EPOCH FROM (updated_at - created_at))) FILTER (
            WHERE status = 'ready'
@@ -5345,14 +5347,69 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       uploading: Number(row.uploading || 0),
       processing: Number(row.processing || 0),
       ready: Number(row.ready || 0),
+      cleanupPending: Number(row.cleanupPending || 0),
       failed: Number(row.failed || 0),
       failedRecent: Number(row.failedRecent || 0),
+      cleanupFailed: Number(row.cleanupFailed || 0),
       readyUnclaimed: Number(row.readyUnclaimed || 0),
       stalled: Number(row.stalled || 0),
       oldestPendingAgeSeconds: Math.max(0, Number(row.oldestPendingAgeSeconds || 0)),
       averageReadyLatencySeconds: Math.max(0, Number(row.averageReadyLatencySeconds || 0)),
       lastChangedAt: row.lastChangedAt || null
     };
+  }
+  async function claimVideoCleanupBatch(options = {}) {
+    const limit = Math.max(1, Math.min(Number(options.limit || 25) || 25, 100));
+    const failedRetentionDays = Math.max(1, Math.min(Number(options.failedRetentionDays || 7) || 7, 365));
+    const retryAfterSeconds = Math.max(60, Math.min(Number(options.retryAfterSeconds || 3600) || 3600, 86400));
+    return withTransaction(async (client) => {
+      const result = await client.query(
+        `WITH candidates AS (
+           SELECT provider_id
+           FROM video_upload_intents
+           WHERE COALESCE(product_id, '') = ''
+             AND (
+               (status IN ('uploading', 'processing') AND upload_expires_at < NOW())
+               OR (status = 'failed' AND updated_at < NOW() - ($1::int * INTERVAL '1 day'))
+               OR (status IN ('cleanup_failed', 'cleanup_pending') AND updated_at < NOW() - ($2::int * INTERVAL '1 second'))
+             )
+           ORDER BY updated_at ASC, provider_id ASC
+           LIMIT $3
+           FOR UPDATE SKIP LOCKED
+         )
+         UPDATE video_upload_intents vui
+         SET status = 'cleanup_pending', updated_at = NOW(), row_version = row_version + 1
+         FROM candidates
+         WHERE vui.provider_id = candidates.provider_id
+           AND COALESCE(vui.product_id, '') = ''
+         RETURNING vui.provider_id AS "providerId", vui.status,
+           vui.updated_at AS "updatedAt", vui.row_version AS "rowVersion"`,
+        [failedRetentionDays, retryAfterSeconds, limit]
+      );
+      return result.rows || [];
+    });
+  }
+
+  async function completeVideoCleanup(providerId, outcome = {}) {
+    const safeProviderId = String(providerId || '');
+    if (outcome.deleted === true) {
+      const result = await query(
+        `DELETE FROM video_upload_intents
+         WHERE provider_id = $1 AND status = 'cleanup_pending'
+           AND COALESCE(product_id, '') = ''`,
+        [safeProviderId]
+      );
+      return { deleted: Number(result.rowCount || 0) > 0, retryScheduled: false };
+    }
+    const result = await query(
+      `UPDATE video_upload_intents
+       SET status = 'cleanup_failed', error_code = 'provider_cleanup_failed',
+         error_message = $2, updated_at = NOW(), row_version = row_version + 1
+       WHERE provider_id = $1 AND status = 'cleanup_pending'
+         AND COALESCE(product_id, '') = ''`,
+      [safeProviderId, String(outcome.error || 'Video provider cleanup failed.').slice(0, 500)]
+    );
+    return { deleted: false, retryScheduled: Number(result.rowCount || 0) > 0 };
   }
   async function applyVideoUploadWebhook(video = {}) {
     const result = await query(
@@ -5478,6 +5535,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     readVideoUploadIntent,
     readPlayableVideo,
     readVideoPipelineHealth,
+    claimVideoCleanupBatch,
+    completeVideoCleanup,
     applyVideoUploadWebhook,
     close
   };

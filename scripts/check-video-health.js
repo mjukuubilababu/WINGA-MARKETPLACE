@@ -22,6 +22,8 @@ function normalizeResult(response, body = {}) {
       ready: Number(health.ready || 0),
       failed: Number(health.failed || 0),
       failedRecent: Number(health.failedRecent || 0),
+      cleanupPending: Number(health.cleanupPending || 0),
+      cleanupFailed: Number(health.cleanupFailed || 0),
       readyUnclaimed: Number(health.readyUnclaimed || 0),
       stalled: Number(health.stalled || 0),
       oldestPendingAgeSeconds: Number(health.oldestPendingAgeSeconds || 0),

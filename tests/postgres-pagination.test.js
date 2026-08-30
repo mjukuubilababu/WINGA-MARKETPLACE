@@ -2729,7 +2729,7 @@ test("PostgreSQL video pipeline health is durable, aggregate-only, and threshold
       calls.push({ text: String(text), params });
       return {
         rows: [{
-          total: 40, uploading: 2, processing: 3, ready: 30, failed: 5, failedRecent: 2, failedRecent: 2,
+          total: 40, uploading: 2, processing: 3, ready: 30, cleanupPending: 1, failed: 5, failedRecent: 2, cleanupFailed: 1, failedRecent: 2,
           readyUnclaimed: 4, stalled: 1, oldestPendingAgeSeconds: 1200.5,
           averageReadyLatencySeconds: 42.25, lastChangedAt: "2026-08-30T15:00:00.000Z"
         }],
@@ -2741,7 +2741,7 @@ test("PostgreSQL video pipeline health is durable, aggregate-only, and threshold
   const health = await store.readVideoPipelineHealth({ processingAgeSeconds: 600 });
 
   assert.deepEqual(health, {
-    total: 40, uploading: 2, processing: 3, ready: 30, failed: 5, failedRecent: 2,
+    total: 40, uploading: 2, processing: 3, ready: 30, cleanupPending: 1, failed: 5, failedRecent: 2, cleanupFailed: 1,
     readyUnclaimed: 4, stalled: 1, oldestPendingAgeSeconds: 1200.5,
     averageReadyLatencySeconds: 42.25, lastChangedAt: "2026-08-30T15:00:00.000Z"
   });
@@ -2749,6 +2749,40 @@ test("PostgreSQL video pipeline health is durable, aggregate-only, and threshold
   assert.match(calls[0].text, /updated_at < NOW\(\) - \(\$1::int \* INTERVAL '1 second'\)/);
   assert.deepEqual(calls[0].params, [600]);
   assert.doesNotMatch(calls[0].text, /provider_id|seller_id|upload_id/);
+});
+test("PostgreSQL video cleanup claims are multi-instance safe and never delete claimed media", async () => {
+  const calls = [];
+  const client = {
+    async query(text, params = []) {
+      const sql = String(text);
+      calls.push({ text: sql, params });
+      if (sql.includes("RETURNING vui.provider_id")) {
+        return { rows: [{ providerId: "stream-orphan-1", status: "cleanup_pending", rowVersion: 2 }], rowCount: 1 };
+      }
+      if (sql.includes("DELETE FROM video_upload_intents")) return { rows: [], rowCount: 1 };
+      if (sql.includes("provider_cleanup_failed")) return { rows: [], rowCount: 1 };
+      return { rows: [], rowCount: 0 };
+    },
+    release() {}
+  };
+  const store = createPostgresStore({
+    databaseUrl: "postgres://primary.invalid/winga",
+    queryClient: { query: client.query.bind(client), connect: async () => client }
+  });
+
+  const claimed = await store.claimVideoCleanupBatch({ limit: 10, failedRetentionDays: 5, retryAfterSeconds: 120 });
+  const completed = await store.completeVideoCleanup("stream-orphan-1", { deleted: true });
+  const retry = await store.completeVideoCleanup("stream-orphan-2", { deleted: false, error: "provider unavailable" });
+
+  assert.equal(claimed.length, 1);
+  const claimCall = calls.find((call) => call.text.includes("FOR UPDATE SKIP LOCKED"));
+  assert.ok(claimCall);
+  assert.match(claimCall.text, /COALESCE\(product_id, ''\) = ''/);
+  assert.match(claimCall.text, /status IN \('cleanup_failed', 'cleanup_pending'\)/);
+  assert.deepEqual(claimCall.params, [5, 120, 10]);
+  assert.equal(completed.deleted, true);
+  assert.equal(retry.retryScheduled, true);
+  assert.match(calls.find((call) => call.text.includes("DELETE FROM video_upload_intents")).text, /status = 'cleanup_pending'/);
 });
 test("PostgreSQL product create atomically claims only a ready seller-owned video", async () => {
   const calls = [];

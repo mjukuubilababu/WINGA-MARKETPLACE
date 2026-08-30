@@ -222,6 +222,9 @@ test("marketplace gallery adds one secure ready video slide without collapsing p
   assert.doesNotMatch(playbackSource, /emitMetric\([^\n]+providerId/);
   assert.match(serverSource, /\/api\/ops\/media\/videos\/health/);
   assert.match(serverSource, /readVideoPipelineHealth/);
+  assert.match(serverSource, /startVideoCleanupSweeper/);
+  assert.match(serverSource, /stopVideoCleanupSweeper/);
+  assert.match(serverSource, /videoCleanupSweepRunning/);
 });
 test("style intelligence builds private aggregate buyer profiles and bounded product scores", () => {
   const root = path.resolve(__dirname, "..");

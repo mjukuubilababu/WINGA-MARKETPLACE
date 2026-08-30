@@ -211,6 +211,12 @@ const PAYMENT_REFUND_SWEEP_BATCH_SIZE = Math.max(1, Math.min(100, Number(process
 const PAYMENT_REFUND_WORKER_ID = `${process.env.RENDER_INSTANCE_ID || process.pid}:refunds`;
 let paymentRefundSweepTimer = null;
 let paymentRefundSweepRunning = false;
+const VIDEO_CLEANUP_SWEEP_INTERVAL_MS = Math.max(60 * 1000, Math.min(Number(process.env.VIDEO_CLEANUP_SWEEP_INTERVAL_MS || 10 * 60 * 1000) || 10 * 60 * 1000, 24 * 60 * 60 * 1000));
+const VIDEO_CLEANUP_SWEEP_BATCH_SIZE = Math.max(1, Math.min(100, Number(process.env.VIDEO_CLEANUP_SWEEP_BATCH_SIZE || 25) || 25));
+const VIDEO_FAILED_RETENTION_DAYS = Math.max(1, Math.min(365, Number(process.env.VIDEO_FAILED_RETENTION_DAYS || 7) || 7));
+const VIDEO_CLEANUP_RETRY_SECONDS = Math.max(60, Math.min(86400, Number(process.env.VIDEO_CLEANUP_RETRY_SECONDS || 3600) || 3600));
+let videoCleanupSweepTimer = null;
+let videoCleanupSweepRunning = false;
 const MIN_PASSWORD_LENGTH = 12;
 const WHATSAPP_VERIFICATION_CODE_TTL_MS = 10 * 60 * 1000;
 const WHATSAPP_VERIFICATION_PREVIEW_MODE = NODE_ENV !== "production";
@@ -1315,6 +1321,66 @@ function isValidPaymentRefundCallback(req, payload) {
     .update(signedPayload)
     .digest("hex");
   return timingSafeStringEqual(signature, expected);
+}
+async function processVideoCleanupOnce() {
+  if (videoCleanupSweepRunning || !postgresStore?.claimVideoCleanupBatch
+    || !postgresStore?.completeVideoCleanup || !CLOUDFLARE_STREAM_CLIENT.isConfigured()) return;
+  videoCleanupSweepRunning = true;
+  let claimed = 0;
+  let deleted = 0;
+  let failed = 0;
+  try {
+    const jobs = await postgresStore.claimVideoCleanupBatch({
+      limit: VIDEO_CLEANUP_SWEEP_BATCH_SIZE,
+      failedRetentionDays: VIDEO_FAILED_RETENTION_DAYS,
+      retryAfterSeconds: VIDEO_CLEANUP_RETRY_SECONDS
+    });
+    claimed = jobs.length;
+    for (const job of jobs) {
+      try {
+        await CLOUDFLARE_STREAM_CLIENT.deleteVideo(job.providerId);
+        await postgresStore.completeVideoCleanup(job.providerId, { deleted: true });
+        deleted += 1;
+      } catch (error) {
+        if (Number(error?.status || 0) === 404) {
+          await postgresStore.completeVideoCleanup(job.providerId, { deleted: true });
+          deleted += 1;
+          continue;
+        }
+        await postgresStore.completeVideoCleanup(job.providerId, {
+          deleted: false,
+          error: String(error?.message || error || "Video cleanup failed.").slice(0, 500)
+        });
+        failed += 1;
+      }
+    }
+    if (claimed > 0) {
+      logStructuredEvent(failed > 0 ? "warn" : "info", "video_cleanup_batch_completed", {
+        claimed,
+        deleted,
+        failed
+      });
+    }
+  } catch (error) {
+    safeConsole("error", "Video cleanup sweep failed", String(error?.message || error || "unknown").slice(0, 160));
+  } finally {
+    videoCleanupSweepRunning = false;
+  }
+}
+
+function startVideoCleanupSweeper() {
+  if (videoCleanupSweepTimer || !postgresStore?.claimVideoCleanupBatch
+    || !CLOUDFLARE_STREAM_CLIENT.isConfigured()) return;
+  void processVideoCleanupOnce();
+  videoCleanupSweepTimer = setInterval(processVideoCleanupOnce, VIDEO_CLEANUP_SWEEP_INTERVAL_MS);
+  videoCleanupSweepTimer.unref?.();
+}
+
+function stopVideoCleanupSweeper() {
+  if (videoCleanupSweepTimer) {
+    clearInterval(videoCleanupSweepTimer);
+    videoCleanupSweepTimer = null;
+  }
 }
 function startCommerceReservationSweeper() {
   if (!postgresStore?.expireCommerceReservations || commerceReservationSweepTimer) return;
@@ -11847,7 +11913,7 @@ function waitForServerClose() {
 
 async function waitForBackgroundWork(deadline) {
   while (Date.now() < deadline
-    && (commerceReservationSweepRunning || paymentRefundSweepRunning || intelligenceQueueWorkerRunning)) {
+    && (commerceReservationSweepRunning || paymentRefundSweepRunning || videoCleanupSweepRunning || intelligenceQueueWorkerRunning)) {
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
 }
@@ -11859,6 +11925,7 @@ function shutdownServer(signal = "SIGTERM") {
   stopIntelligenceQueueWorker();
   stopCommerceReservationSweeper();
   stopPaymentRefundSweeper();
+  stopVideoCleanupSweeper();
 
   shutdownPromise = (async () => {
     const deadline = Date.now() + SHUTDOWN_GRACE_MS;
@@ -11911,6 +11978,7 @@ server.listen(PORT, async () => {
     startIntelligenceQueueWorker();
     startCommerceReservationSweeper();
     startPaymentRefundSweeper();
+    startVideoCleanupSweeper();
     serverLifecycle.phase = "ready";
     serverLifecycle.readyAt = new Date().toISOString();
     console.log(`WINGA backend running on http://localhost:${PORT}${postgresStore ? " (PostgreSQL mode)" : " (File mode)"}`);
