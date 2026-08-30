@@ -35,7 +35,9 @@
         headers: jsonHeaders(),
         body: JSON.stringify({
           fileName: String(file.name || "").trim(),
-          contentType: String(file.type || "").trim().toLowerCase()
+          contentType: String(file.type || "").trim().toLowerCase(),
+          fileSize: Number(file.size || 0),
+          uploadProtocol: "tus"
         }),
         timeoutMs: productUploadTimeoutMs
       });

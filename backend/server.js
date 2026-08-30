@@ -11105,15 +11105,25 @@ const server = http.createServer(async (req, res) => {
       const payload = await collectBody(req);
       const fileName = sanitizePlainText(payload?.fileName, 180);
       const contentType = sanitizePlainText(payload?.contentType, 120).toLowerCase();
-      if (!fileName || !["video/mp4", "video/quicktime", "video/webm", "video/x-matroska"].includes(contentType)) {
+      const fileSize = Number(payload?.fileSize || 0);
+      const extension = String(fileName.split(".").pop() || "").toLowerCase();
+      const allowedExtensions = new Set(["mp4", "m4v", "mkv", "mov", "avi", "flv", "ts", "mts", "m2ts", "m2p", "m2v", "mxf", "lxf", "gxf", "3gp", "3g2", "webm", "mpg", "mpeg"]);
+      const allowedContentTypes = new Set(["video/mp4", "video/x-m4v", "video/quicktime", "video/webm", "video/x-matroska", "video/x-msvideo", "video/x-flv", "video/mp2t", "video/mpeg", "video/3gpp", "video/3gpp2", "application/mxf", "application/octet-stream"]);
+      const minimumVideoBytes = 1024 * 1024;
+      const maximumVideoBytes = 5 * 1024 * 1024 * 1024;
+      if (!fileName || !allowedExtensions.has(extension) || !allowedContentTypes.has(contentType || "application/octet-stream")) {
         sendJson(res, 400, { error: "Aina ya video si sahihi.", code: "invalid_video_upload" });
+        return;
+      }
+      if (!Number.isSafeInteger(fileSize) || fileSize < minimumVideoBytes || fileSize > maximumVideoBytes) {
+        sendJson(res, 413, { error: "Video lazima iwe kati ya MB 1 na GB 5.", code: "invalid_video_size" });
         return;
       }
       const uploadId = `video-upload-${crypto.randomUUID()}`;
       let directUpload = null;
       try {
-        directUpload = await CLOUDFLARE_STREAM_CLIENT.createDirectUpload({
-          creator: seller.username, uploadId, fileName, contentType
+        directUpload = await CLOUDFLARE_STREAM_CLIENT.createResumableUpload({
+          creator: seller.username, uploadId, fileName, contentType, fileSize
         });
         const intent = await postgresStore.createVideoUploadIntent({
           providerId: directUpload.providerId, sellerId: seller.username,
@@ -11130,7 +11140,8 @@ const server = http.createServer(async (req, res) => {
         });
         sendJson(res, 201, {
           uploadId, providerId: directUpload.providerId, uploadUrl: directUpload.uploadUrl,
-          expiresAt: directUpload.expiresAt, maxDurationSeconds: directUpload.maxDurationSeconds
+          expiresAt: directUpload.expiresAt, maxDurationSeconds: directUpload.maxDurationSeconds,
+          uploadProtocol: directUpload.uploadProtocol
         }, { "Cache-Control": "private, no-store" });
       } catch (error) {
         if (directUpload?.providerId) await CLOUDFLARE_STREAM_CLIENT.deleteVideo(directUpload.providerId).catch(() => {});

@@ -1,7 +1,7 @@
 const crypto = require("crypto");
 
 const API_BASE = "https://api.cloudflare.com/client/v4";
-const DEFAULT_MAX_DURATION_SECONDS = 90;
+const DEFAULT_MAX_DURATION_SECONDS = 36000;
 const DEFAULT_WEBHOOK_MAX_AGE_SECONDS = 300;
 
 function cleanText(value, maxLength = 500) { return String(value || "").trim().slice(0, maxLength); }
@@ -106,6 +106,46 @@ function createCloudflareStreamClient(options = {}) {
     }
     return { providerId, uploadUrl, expiresAt, maxDurationSeconds: config.maxDurationSeconds };
   }
+  function encodeTusMetadata(value) {
+    return Buffer.from(String(value || ""), "utf8").toString("base64");
+  }
+  async function createResumableUpload(input = {}) {
+    if (!isCloudflareStreamConfigured(config)) {
+      const error = new Error("Cloudflare Stream is not configured."); error.code = "stream_not_configured"; throw error;
+    }
+    const creator = cleanText(input.creator, 64);
+    const uploadLength = Number(input.fileSize);
+    if (!creator) throw new TypeError("A creator identifier is required.");
+    if (!Number.isSafeInteger(uploadLength) || uploadLength <= 0) throw new TypeError("A valid upload length is required.");
+    const expiresAt = new Date(Date.now() + config.uploadTtlSeconds * 1000).toISOString();
+    const metadata = [
+      ["name", cleanText(input.fileName, 180)],
+      ["filetype", cleanText(input.contentType, 120)],
+      ["maxdurationseconds", String(config.maxDurationSeconds)],
+      ["expiry", expiresAt],
+      ["requiresignedurls", ""],
+      ["allowedorigins", JSON.stringify(config.allowedOrigins)],
+      ["uploadid", cleanText(input.uploadId, 80)],
+      ["source", "winga-product-upload"]
+    ].map(([key, value]) => value ? `${key} ${encodeTusMetadata(value)}` : key).join(",");
+    const response = await fetchImpl(`${API_BASE}/accounts/${encodeURIComponent(config.accountId)}/stream?direct_user=true`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${config.apiToken}`,
+        "Tus-Resumable": "1.0.0",
+        "Upload-Length": String(uploadLength),
+        "Upload-Creator": creator,
+        "Upload-Metadata": metadata
+      }
+    });
+    const uploadUrl = cleanText(response.headers?.get?.("location"), 4096);
+    const providerId = cleanText(response.headers?.get?.("stream-media-id"), 64);
+    if (!response.ok || !/^https:\/\//i.test(uploadUrl) || !providerId) {
+      const error = new Error("Cloudflare Stream returned an incomplete resumable upload.");
+      error.code = "stream_invalid_provider_response"; error.status = response.status; throw error;
+    }
+    return { providerId, uploadUrl, uploadProtocol: "tus", expiresAt, maxDurationSeconds: config.maxDurationSeconds };
+  }
   async function deleteVideo(providerId) {
     const safeId = cleanText(providerId, 64);
     if (!/^[a-zA-Z0-9_-]{8,64}$/.test(safeId)) return false;
@@ -122,6 +162,6 @@ function createCloudflareStreamClient(options = {}) {
     if (!token) { const error = new Error("Cloudflare Stream returned no playback token."); error.code = "stream_invalid_provider_response"; throw error; }
     return { token, expiresInSeconds: config.playbackTokenTtlSeconds, customerCode: config.customerCode };
   }
-  return { config: { ...config, apiToken: "", webhookSecret: "" }, createDirectUpload, createPlaybackToken, deleteVideo, isConfigured: () => isCloudflareStreamConfigured(config) };
+  return { config: { ...config, apiToken: "", webhookSecret: "" }, createDirectUpload, createResumableUpload, createPlaybackToken, deleteVideo, isConfigured: () => isCloudflareStreamConfigured(config) };
 }
 module.exports = { DEFAULT_MAX_DURATION_SECONDS, createCloudflareStreamClient, isCloudflareStreamConfigured, normalizeStreamVideo, parseWebhookSignature, readCloudflareStreamConfig, verifyCloudflareStreamWebhook };

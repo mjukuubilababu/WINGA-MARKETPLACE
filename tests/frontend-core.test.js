@@ -898,6 +898,72 @@ test("video upload controller validates, uploads, polls, and exposes only ready 
   assert.match(source, /provider: "cloudflare-stream"/);
   assert.match(buildSource, /"src\/marketplace\/video-upload\.js"/);
 });
+test("video upload policy accepts broad Stream formats from 1 MB through 5 GB", () => {
+  const root = path.resolve(__dirname, "..");
+  const source = fs.readFileSync(path.join(root, "src", "marketplace", "video-upload.js"), "utf8");
+  const context = vm.createContext({
+    window: { WingaModules: {} },
+    XMLHttpRequest: function XMLHttpRequest() {},
+    FormData: function FormData() {}
+  });
+  vm.runInContext(source, context);
+  const controller = context.window.WingaModules.marketplace.createVideoUploadController();
+  assert.equal(controller.validateFile({ name: "clip.avi", type: "video/x-msvideo", size: 1024 * 1024 }).name, "clip.avi");
+  assert.equal(controller.validateFile({ name: "archive.mxf", type: "", size: 5 * 1024 * 1024 * 1024 }).name, "archive.mxf");
+  assert.throws(() => controller.validateFile({ name: "tiny.mp4", type: "video/mp4", size: 1024 * 1024 - 1 }), /between 1 MB and 5 GB/);
+  assert.throws(() => controller.validateFile({ name: "oversize.mp4", type: "video/mp4", size: 5 * 1024 * 1024 * 1024 + 1 }), /between 1 MB and 5 GB/);
+  assert.throws(() => controller.validateFile({ name: "payload.exe", type: "video/mp4", size: 2 * 1024 * 1024 }), /supported video file/);
+});
+test("video upload controller sends resumable TUS chunks with monotonic offsets", async () => {
+  const root = path.resolve(__dirname, "..");
+  const source = fs.readFileSync(path.join(root, "src", "marketplace", "video-upload.js"), "utf8");
+  const requests = [];
+  class FakeXhr {
+    constructor() {
+      this.status = 204;
+      this.headers = {};
+      this.listeners = {};
+      this.upload = { addEventListener: () => {} };
+    }
+    open(method, url) { this.method = method; this.url = url; }
+    setRequestHeader(name, value) { this.headers[name] = value; }
+    addEventListener(name, listener) { this.listeners[name] = listener; }
+    getResponseHeader(name) { return name === "Upload-Offset" ? String(this.nextOffset || 0) : null; }
+    send(body) {
+      this.nextOffset = Number(this.headers["Upload-Offset"] || 0) + Number(body?.size || 0);
+      requests.push({ method: this.method, headers: { ...this.headers }, size: Number(body?.size || 0) });
+      queueMicrotask(() => this.listeners.load());
+    }
+    abort() { this.listeners.abort?.(); }
+  }
+  const context = vm.createContext({
+    window: { WingaModules: {} },
+    XMLHttpRequest: FakeXhr,
+    FormData: function FormData() {},
+    queueMicrotask
+  });
+  vm.runInContext(source, context);
+  const fileSize = 6 * 1024 * 1024;
+  const controller = context.window.WingaModules.marketplace.createVideoUploadController({
+    requestVideoUpload: async () => ({ uploadProtocol: "tus", uploadUrl: "https://upload.example/tus", providerId: "provider-tus-1" }),
+    readVideoUploadStatus: async () => ({ status: "ready", posterUrl: "https://video.example/poster.jpg" }),
+    createXhr: () => new FakeXhr(),
+    chunkBytes: 5 * 1024 * 1024
+  });
+  const media = await controller.start({
+    name: "large.mp4",
+    type: "video/mp4",
+    size: fileSize,
+    slice: (start, end) => ({ size: end - start })
+  });
+  const patches = requests.filter((request) => request.method === "PATCH");
+  assert.equal(patches.length, 2);
+  assert.equal(patches[0].headers["Upload-Offset"], "0");
+  assert.equal(patches[1].headers["Upload-Offset"], String(5 * 1024 * 1024));
+  assert.equal(patches[0].headers["Tus-Resumable"], "1.0.0");
+  assert.equal(patches[0].headers["Content-Type"], "application/offset+octet-stream");
+  assert.equal(media.providerId, "provider-tus-1");
+});
 test("video upload processing can resume without uploading the binary twice", async () => {
   const root = path.resolve(__dirname, "..");
   const source = fs.readFileSync(path.join(root, "src", "marketplace", "video-upload.js"), "utf8");
@@ -964,6 +1030,8 @@ test("remote product actions API client owns product writes and demand signals",
   assert.match(moduleSource, /window\.WingaModules\.api\.productActions\.createProductsApiClient = createProductsApiClient;/);
   assert.match(moduleSource, /async function requestVideoUpload\(file = \{\}\)/);
   assert.match(moduleSource, /\/media\/videos\/direct-upload/);
+  assert.match(moduleSource, /fileSize: Number\(file\.size \|\| 0\)/);
+  assert.match(moduleSource, /uploadProtocol: "tus"/);
   assert.match(moduleSource, /async function readVideoUploadStatus\(providerId\)/);
   assert.match(dataSource, /async requestVideoUpload\(file\)/);
   assert.match(dataSource, /async readVideoUploadStatus\(providerId\)/);  assert.match(moduleSource, /async function createProduct\(product\)/);

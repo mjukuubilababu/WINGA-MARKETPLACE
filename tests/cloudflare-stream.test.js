@@ -51,3 +51,42 @@ test("Stream signed playback tokens are short-lived and non-downloadable", async
   assert.equal(requestBody.downloadable, false);
   assert.ok(requestBody.exp > Math.floor(Date.now() / 1000));
 });
+
+test("Stream resumable upload provisions a private direct-user TUS endpoint", async () => {
+  const calls = [];
+  const headers = new Map([
+    ["location", "https://upload.videodelivery.net/tus-upload-one"],
+    ["stream-media-id", "stream-video-tus-123"]
+  ]);
+  const client = createCloudflareStreamClient({
+    config: readCloudflareStreamConfig({
+      CLOUDFLARE_STREAM_ACCOUNT_ID: "account-123",
+      CLOUDFLARE_STREAM_API_TOKEN: "stream-secret-token",
+      CLOUDFLARE_STREAM_ALLOWED_ORIGINS: "wingamarket.com",
+      CLOUDFLARE_STREAM_MAX_DURATION_SECONDS: "36000"
+    }),
+    fetchImpl: async (url, init) => {
+      calls.push({ url, init });
+      return { ok: true, status: 201, headers: { get: (name) => headers.get(String(name).toLowerCase()) || null } };
+    }
+  });
+
+  const result = await client.createResumableUpload({
+    creator: "seller-one",
+    uploadId: "upload-tus-one",
+    fileName: "long-video.avi",
+    contentType: "video/x-msvideo",
+    fileSize: 5 * 1024 * 1024 * 1024
+  });
+
+  assert.equal(calls[0].url.endsWith("/stream?direct_user=true"), true);
+  assert.equal(calls[0].init.headers["Tus-Resumable"], "1.0.0");
+  assert.equal(calls[0].init.headers["Upload-Length"], String(5 * 1024 * 1024 * 1024));
+  assert.equal(calls[0].init.headers.Authorization, "Bearer stream-secret-token");
+  assert.match(calls[0].init.headers["Upload-Metadata"], /maxdurationseconds/);
+  assert.match(calls[0].init.headers["Upload-Metadata"], /requiresignedurls/);
+  assert.equal(result.uploadProtocol, "tus");
+  assert.equal(result.providerId, "stream-video-tus-123");
+  assert.equal(result.maxDurationSeconds, 36000);
+  assert.equal(JSON.stringify(result).includes("stream-secret-token"), false);
+});
