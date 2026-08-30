@@ -1,0 +1,20 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "winga-video-safety-adapter",
+  "main": "./cloudflare/video-safety-adapter.js",
+  "compatibility_date": "2026-08-30",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "vars": {
+    "ADAPTER_PUBLIC_URL": "https://winga-video-safety-adapter.willardmmbando.workers.dev",
+    "HIVE_API_URL": "https://api.hivemoderation.com/api/v2/task/async",
+    "WINGA_VIDEO_SAFETY_RESULT_URL": "https://wingamarket.com/api/media/videos/safety-results",
+    "MEDIA_HOST_ALLOWLIST": ".videodelivery.net,.cloudflarestream.com"
+  },
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 0.1,
+    "logs": { "enabled": true, "head_sampling_rate": 0.1, "invocation_logs": true },
+    "traces": { "enabled": true, "head_sampling_rate": 0.05 }
+  }
+}
