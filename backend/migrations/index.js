@@ -408,6 +408,38 @@ const MIGRATIONS = Object.freeze([
        ON video_upload_intents (moderation_status, updated_at ASC)
        WHERE product_id <> '' AND status = 'ready';`
     ])
+  }),
+  Object.freeze({
+    id: "2026083005_video_safety_outbox",
+    statements: Object.freeze([
+      `ALTER TABLE video_upload_intents ADD COLUMN IF NOT EXISTS safety_status TEXT NOT NULL DEFAULT 'not_configured';`,
+      `ALTER TABLE video_upload_intents ADD COLUMN IF NOT EXISTS safety_score DOUBLE PRECISION NOT NULL DEFAULT 0;`,
+      `ALTER TABLE video_upload_intents ADD COLUMN IF NOT EXISTS safety_labels JSONB NOT NULL DEFAULT '[]'::jsonb;`,
+      `ALTER TABLE video_upload_intents ADD COLUMN IF NOT EXISTS safety_scores JSONB NOT NULL DEFAULT '{}'::jsonb;`,
+      `ALTER TABLE video_upload_intents ADD COLUMN IF NOT EXISTS safety_provider TEXT NOT NULL DEFAULT '';`,
+      `ALTER TABLE video_upload_intents ADD COLUMN IF NOT EXISTS safety_model_version TEXT NOT NULL DEFAULT '';`,
+      `ALTER TABLE video_upload_intents ADD COLUMN IF NOT EXISTS safety_result_id TEXT NOT NULL DEFAULT '';`,
+      `ALTER TABLE video_upload_intents ADD COLUMN IF NOT EXISTS safety_checked_at TIMESTAMPTZ;`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_video_safety_result_id ON video_upload_intents (safety_result_id) WHERE safety_result_id <> '';`,
+      `CREATE TABLE IF NOT EXISTS video_safety_jobs (
+         provider_id TEXT PRIMARY KEY REFERENCES video_upload_intents(provider_id) ON DELETE CASCADE,
+         idempotency_key TEXT NOT NULL UNIQUE,
+         status TEXT NOT NULL DEFAULT 'pending',
+         attempts INTEGER NOT NULL DEFAULT 0,
+         max_attempts INTEGER NOT NULL DEFAULT 6,
+         next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         locked_by TEXT NOT NULL DEFAULT '',
+         locked_at TIMESTAMPTZ,
+         last_error TEXT NOT NULL DEFAULT '',
+         submitted_at TIMESTAMPTZ,
+         completed_at TIMESTAMPTZ,
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+       );`,
+      `CREATE INDEX IF NOT EXISTS idx_video_safety_jobs_ready
+       ON video_safety_jobs (next_attempt_at ASC, created_at ASC)
+       WHERE status IN ('pending', 'retry', 'processing');`
+    ])
   })
 ]);
 

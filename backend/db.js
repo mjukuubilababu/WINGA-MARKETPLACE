@@ -5289,6 +5289,10 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       `SELECT provider_id AS "providerId", seller_id AS "sellerId", upload_id AS "uploadId",
          status, moderation_status AS "moderationStatus", moderation_note AS "moderationNote",
          moderated_at AS "moderatedAt", moderated_by AS "moderatedBy",
+         safety_status AS "safetyStatus", safety_score::float8 AS "safetyScore",
+         safety_labels AS "safetyLabels", safety_scores AS "safetyScores",
+         safety_provider AS "safetyProvider", safety_model_version AS "safetyModelVersion",
+         safety_checked_at AS "safetyCheckedAt",
          upload_expires_at AS "uploadExpiresAt", duration, width, height,
          poster_url AS "posterUrl", hls_url AS "hlsUrl", dash_url AS "dashUrl",
          error_code AS "errorCode", error_message AS "errorMessage",
@@ -5305,6 +5309,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     const result = await query(
       `SELECT vui.provider_id AS "providerId", vui.seller_id AS "sellerId",
          vui.status, vui.moderation_status AS "moderationStatus",
+         vui.safety_status AS "safetyStatus", vui.safety_score::float8 AS "safetyScore",
          vui.product_id AS "productId", vui.claimed_at AS "claimedAt",
          p.status AS "productStatus"
        FROM video_upload_intents vui
@@ -5323,7 +5328,11 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       `SELECT vui.provider_id AS "providerId", vui.seller_id AS "sellerId",
          vui.product_id AS "productId", vui.status, vui.moderation_status AS "moderationStatus",
          vui.moderation_note AS "moderationNote", vui.moderated_at AS "moderatedAt",
-         vui.moderated_by AS "moderatedBy", vui.duration, vui.width, vui.height,
+         vui.moderated_by AS "moderatedBy", vui.safety_status AS "safetyStatus",
+         vui.safety_score::float8 AS "safetyScore", vui.safety_labels AS "safetyLabels",
+         vui.safety_scores AS "safetyScores", vui.safety_provider AS "safetyProvider",
+         vui.safety_model_version AS "safetyModelVersion", vui.safety_checked_at AS "safetyCheckedAt",
+         vui.duration, vui.width, vui.height,
          vui.poster_url AS "posterUrl", vui.created_at AS "createdAt", vui.updated_at AS "updatedAt",
          p.name AS "productName", p.shop, p.category
        FROM video_upload_intents vui
@@ -5367,6 +5376,95 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       );
       await insertNotificationRow(client, notification ? { ...notification, userId: row.sellerId } : null);
       return { updated: true, code: "", productId: row.productId, sellerId: row.sellerId, rowVersion: Number(row.rowVersion || 0) };
+    });
+  }
+  async function enqueueVideoSafetyJob(providerId, options = {}) {
+    const maxAttempts = Math.max(1, Math.min(Number(options.maxAttempts || 6) || 6, 20));
+    return withTransaction(async (client) => {
+      const result = await client.query(
+        `INSERT INTO video_safety_jobs (provider_id, idempotency_key, status, max_attempts, next_attempt_at)
+         SELECT provider_id, 'video-safety:' || provider_id, 'pending', $2, NOW()
+         FROM video_upload_intents
+         WHERE provider_id = $1 AND status = 'ready'
+         ON CONFLICT (provider_id) DO NOTHING
+         RETURNING provider_id AS "providerId", idempotency_key AS "idempotencyKey"`,
+        [String(providerId || ""), maxAttempts]
+      );
+      if (result.rowCount) {
+        await client.query(
+          `UPDATE video_upload_intents SET safety_status = 'pending', updated_at = NOW(), row_version = row_version + 1
+           WHERE provider_id = $1 AND safety_status = 'not_configured'`,
+          [String(providerId || "")]
+        );
+      }
+      return result.rows[0] || null;
+    });
+  }
+
+  async function claimVideoSafetyBatch(options = {}) {
+    const limit = Math.max(1, Math.min(Number(options.limit || 20) || 20, 100));
+    const workerId = String(options.workerId || "video-safety-worker").slice(0, 120);
+    const result = await withTransaction(async (client) => client.query(
+      `WITH candidates AS (
+         SELECT provider_id FROM video_safety_jobs
+         WHERE (status IN ('pending', 'retry') AND next_attempt_at <= NOW())
+            OR (status = 'processing' AND locked_at < NOW() - INTERVAL '10 minutes')
+         ORDER BY next_attempt_at ASC, created_at ASC
+         FOR UPDATE SKIP LOCKED LIMIT $1
+       )
+       UPDATE video_safety_jobs jobs
+       SET status = 'processing', attempts = jobs.attempts + 1,
+         locked_by = $2, locked_at = NOW(), updated_at = NOW()
+       FROM candidates WHERE jobs.provider_id = candidates.provider_id
+       RETURNING jobs.provider_id AS "providerId", jobs.idempotency_key AS "idempotencyKey",
+         jobs.attempts, jobs.max_attempts AS "maxAttempts"`,
+      [limit, workerId]
+    ));
+    return result.rows || [];
+  }
+
+  async function completeVideoSafetyDelivery(providerId, outcome = {}) {
+    const submitted = outcome.submitted === true;
+    const attempts = Math.max(1, Number(outcome.attempts || 1) || 1);
+    const maxAttempts = Math.max(1, Number(outcome.maxAttempts || 6) || 6);
+    const dead = !submitted && attempts >= maxAttempts;
+    const retrySeconds = Math.min(3600, Math.max(30, 30 * (2 ** Math.min(attempts - 1, 7))));
+    const result = await query(
+      `UPDATE video_safety_jobs SET status = $2,
+         submitted_at = CASE WHEN $3::boolean THEN NOW() ELSE submitted_at END,
+         next_attempt_at = CASE WHEN $3::boolean OR $2 = 'dead' THEN next_attempt_at ELSE NOW() + ($4::int * INTERVAL '1 second') END,
+         locked_by = '', locked_at = NULL, last_error = $5, updated_at = NOW()
+       WHERE provider_id = $1 AND status = 'processing'
+       RETURNING provider_id AS "providerId", status, attempts`,
+      [String(providerId || ""), submitted ? "submitted" : (dead ? "dead" : "retry"), submitted, retrySeconds, String(outcome.error || "").slice(0, 500)]
+    );
+    return result.rows[0] || null;
+  }
+
+  async function applyVideoSafetyResult(result = {}) {
+    const providerId = String(result.providerId || "");
+    const resultId = String(result.resultId || "");
+    if (!providerId || !resultId) return { updated: false, code: "invalid_result" };
+    return withTransaction(async (client) => {
+      const updated = await client.query(
+        `UPDATE video_upload_intents SET safety_status = $2, safety_score = $3,
+           safety_labels = $4::jsonb, safety_scores = $5::jsonb, safety_provider = $6,
+           safety_model_version = $7, safety_result_id = $8, safety_checked_at = $9::timestamptz,
+           updated_at = NOW(), row_version = row_version + 1
+         WHERE provider_id = $1 AND (safety_result_id = '' OR safety_result_id = $8)
+         RETURNING provider_id AS "providerId", product_id AS "productId", seller_id AS "sellerId"`,
+        [providerId, result.verdict, Number(result.riskScore || 0), stringifyJson(result.labels, []),
+          stringifyJson(result.scores, {}), result.provider || "", result.modelVersion || "",
+          resultId, result.checkedAt || new Date().toISOString()]
+      );
+      const row = updated.rows[0];
+      if (!row) return { updated: false, code: "not_found_or_conflict" };
+      await client.query(
+        `UPDATE video_safety_jobs SET status = 'completed', completed_at = NOW(),
+           locked_by = '', locked_at = NULL, updated_at = NOW() WHERE provider_id = $1`,
+        [providerId]
+      );
+      return { updated: true, code: "", ...row };
     });
   }
   async function readVideoPipelineHealth(options = {}) {
@@ -5593,6 +5691,10 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     readPlayableVideo,
     listVideoModerationQueue,
     moderateProductVideo,
+    enqueueVideoSafetyJob,
+    claimVideoSafetyBatch,
+    completeVideoSafetyDelivery,
+    applyVideoSafetyResult,
     readVideoPipelineHealth,
     claimVideoCleanupBatch,
     completeVideoCleanup,

@@ -2760,6 +2760,54 @@ test("PostgreSQL video moderation queue and decision are bounded and atomic", as
   assert.ok(calls.some((call) => call.text === "COMMIT"));
   assert.match(calls.find((call) => call.text.includes("jsonb_array_elements")).text, /moderationStatus/);
 });
+test("PostgreSQL video safety outbox is durable, bounded, and multi-instance safe", async () => {
+  const calls = [];
+  const client = {
+    async query(text, params = []) {
+      const sql = String(text);
+      calls.push({ text: sql, params });
+      if (sql.includes("INSERT INTO video_safety_jobs")) {
+        return { rows: [{ providerId: "stream-safety-1", idempotencyKey: "video-safety:stream-safety-1" }], rowCount: 1 };
+      }
+      if (sql.includes("WITH candidates AS")) {
+        return { rows: [{ providerId: "stream-safety-1", idempotencyKey: "video-safety:stream-safety-1", attempts: 1, maxAttempts: 6 }], rowCount: 1 };
+      }
+      if (sql.includes("safety_status = $2")) {
+        return { rows: [{ providerId: "stream-safety-1", productId: "product-1", sellerId: "seller-one" }], rowCount: 1 };
+      }
+      return { rows: [], rowCount: 1 };
+    },
+    release() {}
+  };
+  const store = createPostgresStore({
+    databaseUrl: "postgres://primary.invalid/winga",
+    queryClient: { query: client.query.bind(client), connect: async () => client }
+  });
+
+  const queued = await store.enqueueVideoSafetyJob("stream-safety-1", { maxAttempts: 99 });
+  const claimed = await store.claimVideoSafetyBatch({ limit: 500, workerId: "instance-a" });
+  await store.completeVideoSafetyDelivery("stream-safety-1", { submitted: false, attempts: 1, maxAttempts: 6, error: "timeout" });
+  const applied = await store.applyVideoSafetyResult({
+    providerId: "stream-safety-1", resultId: "result-1", verdict: "safe", riskScore: 0.1,
+    labels: ["commerce"], scores: { commerce: 0.1 }, provider: "scanner", modelVersion: "v1",
+    checkedAt: "2026-08-30T16:00:00.000Z"
+  });
+
+  assert.equal(queued.providerId, "stream-safety-1");
+  assert.equal(claimed.length, 1);
+  assert.equal(applied.updated, true);
+  assert.deepEqual(await store.applyVideoSafetyResult({ providerId: "stream-safety-1" }), { updated: false, code: "invalid_result" });
+  const enqueueCall = calls.find((call) => call.text.includes("INSERT INTO video_safety_jobs"));
+  assert.deepEqual(enqueueCall.params, ["stream-safety-1", 20]);
+  const claimCall = calls.find((call) => call.text.includes("WITH candidates AS"));
+  assert.deepEqual(claimCall.params, [100, "instance-a"]);
+  assert.match(claimCall.text, /FOR UPDATE SKIP LOCKED/);
+  assert.match(claimCall.text, /locked_at < NOW\(\) - INTERVAL '10 minutes'/);
+  assert.ok(calls.some((call) => call.text.includes("status = 'completed'")));
+  assert.ok(calls.some((call) => call.text === "BEGIN"));
+  assert.ok(calls.some((call) => call.text === "COMMIT"));
+  assert.ok(MIGRATIONS.some((migration) => migration.id === "2026083005_video_safety_outbox"));
+});
 test("PostgreSQL video pipeline health is durable, aggregate-only, and threshold aware", async () => {
   const calls = [];
   const queryClient = {
