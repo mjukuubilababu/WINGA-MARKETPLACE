@@ -2651,3 +2651,51 @@ test("PostgreSQL read replica pool errors activate primary fallback without cras
   assert.equal(health.metrics.poolErrors, 1);
   assert.equal(health.metrics.lastPoolErrorCode, "ECONNRESET");
 });
+
+test("PostgreSQL video upload intents preserve owner scope and webhook state", async () => {
+  const calls = [];
+  const queryClient = {
+    async query(text, params = []) {
+      const sql = String(text);
+      calls.push({ text: sql, params });
+      if (sql.includes("INSERT INTO video_upload_intents")) {
+        return { rows: [{ providerId: params[0], sellerId: params[1], uploadId: params[2], status: "uploading", rowVersion: 1 }], rowCount: 1 };
+      }
+      if (sql.includes("SELECT provider_id") && sql.includes("video_upload_intents")) {
+        return { rows: [{ providerId: params[0], sellerId: params[1], status: "uploading", rowVersion: 1 }], rowCount: 1 };
+      }
+      if (sql.includes("UPDATE video_upload_intents")) {
+        return { rows: [{ providerId: params[0], sellerId: "seller-one", status: params[1], rowVersion: 2 }], rowCount: 1 };
+      }
+      return { rows: [], rowCount: 0 };
+    }
+  };
+  const store = createPostgresStore({ databaseUrl: "postgres://primary.invalid/winga", queryClient });
+  const created = await store.createVideoUploadIntent({
+    providerId: "stream-video-123",
+    sellerId: "seller-one",
+    uploadId: "upload-one",
+    uploadExpiresAt: "2026-08-30T12:00:00.000Z"
+  });
+  const owned = await store.readVideoUploadIntent("stream-video-123", "seller-one");
+  const updated = await store.applyVideoUploadWebhook({
+    providerId: "stream-video-123",
+    status: "ready",
+    duration: 12.5,
+    width: 1080,
+    height: 1920,
+    posterUrl: "https://video.example/thumb.jpg",
+    hlsUrl: "https://video.example/manifest.m3u8",
+    providerPayload: { readyToStream: true }
+  });
+
+  assert.equal(created.status, "uploading");
+  assert.equal(owned.sellerId, "seller-one");
+  assert.equal(updated.status, "ready");
+  const ownerRead = calls.find((call) => call.text.includes("SELECT provider_id") && call.text.includes("video_upload_intents"));
+  assert.match(ownerRead.text, /seller_id = \$2/);
+  assert.deepEqual(ownerRead.params, ["stream-video-123", "seller-one"]);
+  const webhookUpdate = calls.find((call) => call.text.includes("UPDATE video_upload_intents"));
+  assert.equal(webhookUpdate.params[1], "ready");
+  assert.equal(JSON.parse(webhookUpdate.params[10]).readyToStream, true);
+});

@@ -5228,6 +5228,58 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     return { pruned: Number(result.rowCount || 0) };
   }
 
+  async function createVideoUploadIntent(intent = {}) {
+    const result = await query(
+      `INSERT INTO video_upload_intents (
+         provider_id, seller_id, upload_id, status, upload_expires_at, created_at, updated_at
+       ) VALUES ($1, $2, $3, 'uploading', $4, NOW(), NOW())
+       ON CONFLICT (provider_id) DO NOTHING
+       RETURNING provider_id AS "providerId", seller_id AS "sellerId", upload_id AS "uploadId",
+         status, upload_expires_at AS "uploadExpiresAt", row_version AS "rowVersion"`,
+      [intent.providerId, intent.sellerId, intent.uploadId, intent.uploadExpiresAt]
+    );
+    return result.rows[0] || null;
+  }
+
+  async function readVideoUploadIntent(providerId, sellerId = "") {
+    const params = [String(providerId || "")];
+    const ownerClause = sellerId ? " AND seller_id = $2" : "";
+    if (sellerId) params.push(String(sellerId));
+    const result = await query(
+      `SELECT provider_id AS "providerId", seller_id AS "sellerId", upload_id AS "uploadId",
+         status, upload_expires_at AS "uploadExpiresAt", duration, width, height,
+         poster_url AS "posterUrl", hls_url AS "hlsUrl", dash_url AS "dashUrl",
+         error_code AS "errorCode", error_message AS "errorMessage",
+         created_at AS "createdAt", updated_at AS "updatedAt", row_version AS "rowVersion"
+       FROM video_upload_intents
+       WHERE provider_id = $1${ownerClause}
+       LIMIT 1`,
+      params
+    );
+    return result.rows[0] || null;
+  }
+
+  async function applyVideoUploadWebhook(video = {}) {
+    const result = await query(
+      `UPDATE video_upload_intents
+       SET status = $2, duration = $3, width = $4, height = $5,
+         poster_url = $6, hls_url = $7, dash_url = $8,
+         error_code = $9, error_message = $10, provider_payload = $11::jsonb,
+         updated_at = NOW(), row_version = row_version + 1
+       WHERE provider_id = $1
+       RETURNING provider_id AS "providerId", seller_id AS "sellerId", upload_id AS "uploadId",
+         status, duration, width, height, poster_url AS "posterUrl",
+         hls_url AS "hlsUrl", dash_url AS "dashUrl", error_code AS "errorCode",
+         error_message AS "errorMessage", updated_at AS "updatedAt", row_version AS "rowVersion"`,
+      [
+        video.providerId, video.status, Number(video.duration || 0), Number(video.width || 0),
+        Number(video.height || 0), video.posterUrl || "", video.hlsUrl || "", video.dashUrl || "",
+        video.errorCode || "", video.errorMessage || "", stringifyJson(video.providerPayload, {})
+      ]
+    );
+    return result.rows[0] || null;
+  }
+
   async function init(getLegacyStore) {
     await runSchemaMigrations({
       pool,
@@ -5327,6 +5379,9 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     clearSuspiciousLoginAttempts,
     recordApiRateLimitHit,
     pruneApiRateLimitBuckets,
+    createVideoUploadIntent,
+    readVideoUploadIntent,
+    applyVideoUploadWebhook,
     close
   };
 }

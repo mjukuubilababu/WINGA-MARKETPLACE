@@ -352,6 +352,34 @@ const MIGRATIONS = Object.freeze([
       `ALTER TABLE products
        ADD COLUMN IF NOT EXISTS media_items JSONB NOT NULL DEFAULT '[]'::jsonb;`
     ])
+  }),
+  Object.freeze({
+    id: "2026083002_video_upload_intents",
+    statements: Object.freeze([
+      `CREATE TABLE IF NOT EXISTS video_upload_intents (
+         provider_id TEXT PRIMARY KEY,
+         seller_id TEXT NOT NULL,
+         upload_id TEXT NOT NULL UNIQUE,
+         status TEXT NOT NULL DEFAULT 'uploading',
+         upload_expires_at TIMESTAMPTZ NOT NULL,
+         duration DOUBLE PRECISION NOT NULL DEFAULT 0,
+         width INTEGER NOT NULL DEFAULT 0,
+         height INTEGER NOT NULL DEFAULT 0,
+         poster_url TEXT NOT NULL DEFAULT '',
+         hls_url TEXT NOT NULL DEFAULT '',
+         dash_url TEXT NOT NULL DEFAULT '',
+         error_code TEXT NOT NULL DEFAULT '',
+         error_message TEXT NOT NULL DEFAULT '',
+         provider_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         row_version BIGINT NOT NULL DEFAULT 1
+       );`,
+      `CREATE INDEX IF NOT EXISTS idx_video_upload_intents_seller_updated
+       ON video_upload_intents (seller_id, updated_at DESC);`,
+      `CREATE INDEX IF NOT EXISTS idx_video_upload_intents_status_expiry
+       ON video_upload_intents (status, upload_expires_at);`
+    ])
   })
 ]);
 
