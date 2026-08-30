@@ -2838,6 +2838,9 @@ test("PostgreSQL video pipeline health is durable, aggregate-only, and threshold
   assert.match(calls[0].text, /COUNT\(\*\) FILTER \(WHERE status = 'processing'\)/);
   assert.match(calls[0].text, /updated_at < NOW\(\) - \(\$1::int \* INTERVAL '1 second'\)/);
   assert.match(calls[0].text, /jsonb_build_object/);
+  assert.doesNotMatch(calls[0].text, /EXTRACT\([^\n]+MIN\([^\n]+\)\) FILTER/);
+  assert.match(calls[0].text, /MIN\(updated_at\) FILTER/);
+  assert.match(calls[0].text, /MIN\(created_at\) FILTER/);
   assert.equal((calls[0].text.match(/FROM video_safety_jobs/g) || []).length, 1);
   assert.match(calls[0].text, /AS "safetyQueue"/);
   assert.deepEqual(calls[0].params, [600]);

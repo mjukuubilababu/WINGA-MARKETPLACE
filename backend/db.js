@@ -5486,9 +5486,9 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
            WHERE status IN ('uploading', 'processing', 'cleanup_pending')
              AND updated_at < NOW() - ($1::int * INTERVAL '1 second')
          )::int AS stalled,
-         COALESCE(EXTRACT(EPOCH FROM (NOW() - MIN(updated_at))) FILTER (
+         COALESCE(EXTRACT(EPOCH FROM (NOW() - (MIN(updated_at) FILTER (
            WHERE status IN ('uploading', 'processing', 'cleanup_pending')
-         ), 0)::float8 AS "oldestPendingAgeSeconds",
+         )))), 0)::float8 AS "oldestPendingAgeSeconds",
          COALESCE(AVG(EXTRACT(EPOCH FROM (updated_at - created_at))) FILTER (
            WHERE status = 'ready'
          ), 0)::float8 AS "averageReadyLatencySeconds",
@@ -5503,9 +5503,9 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
            'stalled', COUNT(*) FILTER (
              WHERE status = 'processing' AND locked_at < NOW() - ($1::int * INTERVAL '1 second')
            ),
-           'oldestPendingAgeSeconds', COALESCE(EXTRACT(EPOCH FROM (NOW() - MIN(created_at))) FILTER (
+           'oldestPendingAgeSeconds', COALESCE(EXTRACT(EPOCH FROM (NOW() - (MIN(created_at) FILTER (
              WHERE status IN ('pending', 'retry', 'processing')
-           ), 0)
+           )))), 0)
          ) FROM video_safety_jobs), '{}'::jsonb) AS "safetyQueue"
        FROM video_upload_intents`,
       [processingAgeSeconds]
