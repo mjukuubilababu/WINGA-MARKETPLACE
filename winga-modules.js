@@ -1002,6 +1002,26 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       };
     }
 
+    async function requestVideoUpload(file = {}) {
+      requireFetcher();
+      return fetchJson(`${baseUrl}/media/videos/direct-upload`, {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: JSON.stringify({
+          fileName: String(file.name || "").trim(),
+          contentType: String(file.type || "").trim().toLowerCase()
+        }),
+        timeoutMs: productUploadTimeoutMs
+      });
+    }
+
+    async function readVideoUploadStatus(providerId) {
+      requireFetcher();
+      return fetchJson(`${baseUrl}/media/videos/${encodeURIComponent(String(providerId || "").trim())}`, {
+        headers: authHeaders(),
+        timeoutMs: productUploadTimeoutMs
+      });
+    }
     async function createProduct(product) {
       requireFetcher();
       const result = await fetchJson(`${baseUrl}/products`, {
@@ -1082,6 +1102,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     }
 
     return {
+      requestVideoUpload,
+      readVideoUploadStatus,
       createProduct,
       updateProduct,
       deleteProduct,

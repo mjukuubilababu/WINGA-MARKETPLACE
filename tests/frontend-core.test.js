@@ -839,7 +839,11 @@ test("remote product actions API client owns product writes and demand signals",
 
   assert.match(registrySource, /window\.WingaModules\.api\.productActions = window\.WingaModules\.api\.productActions \|\| \{\};/);
   assert.match(moduleSource, /window\.WingaModules\.api\.productActions\.createProductsApiClient = createProductsApiClient;/);
-  assert.match(moduleSource, /async function createProduct\(product\)/);
+  assert.match(moduleSource, /async function requestVideoUpload\(file = \{\}\)/);
+  assert.match(moduleSource, /\/media\/videos\/direct-upload/);
+  assert.match(moduleSource, /async function readVideoUploadStatus\(providerId\)/);
+  assert.match(dataSource, /async requestVideoUpload\(file\)/);
+  assert.match(dataSource, /async readVideoUploadStatus\(providerId\)/);  assert.match(moduleSource, /async function createProduct\(product\)/);
   assert.match(moduleSource, /async function updateProduct\(productId, payload\)/);
   assert.match(moduleSource, /async function deleteProduct\(productId\)/);
   assert.match(moduleSource, /async function updateProductAvailability\(productId, payload\)/);

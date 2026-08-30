@@ -2032,6 +2032,12 @@ async loadAdminPayments(filters) {
           body: JSON.stringify(category)
         });
       },
+      async requestVideoUpload(file) {
+        return getProductsApiClient().requestVideoUpload(file);
+      },
+      async readVideoUploadStatus(providerId) {
+        return getProductsApiClient().readVideoUploadStatus(providerId);
+      },
       async createProduct(product) {
         return getProductsApiClient().createProduct(product);
       },
@@ -3778,6 +3784,24 @@ async loadAdminPayments() {
       const result = await state.adapter.addCategory(category);
       state.categories = state.adapter.loadCategories ? await state.adapter.loadCategories() : state.categories;
       return result;
+    },
+    async requestVideoUpload(file) {
+      assertSellerAccess();
+      if (typeof state.adapter.requestVideoUpload !== "function") {
+        const error = new Error("Video upload is unavailable in this runtime.");
+        error.code = "video_upload_unavailable";
+        throw error;
+      }
+      return state.adapter.requestVideoUpload(file);
+    },
+    async readVideoUploadStatus(providerId) {
+      assertSellerAccess();
+      if (typeof state.adapter.readVideoUploadStatus !== "function") {
+        const error = new Error("Video status is unavailable in this runtime.");
+        error.code = "video_upload_unavailable";
+        throw error;
+      }
+      return state.adapter.readVideoUploadStatus(providerId);
     },
     async createProduct(product) {
       assertSellerAccess();
