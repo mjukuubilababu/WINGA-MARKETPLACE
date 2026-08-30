@@ -380,6 +380,18 @@ const MIGRATIONS = Object.freeze([
       `CREATE INDEX IF NOT EXISTS idx_video_upload_intents_status_expiry
        ON video_upload_intents (status, upload_expires_at);`
     ])
+  }),
+  Object.freeze({
+    id: "2026083003_video_upload_product_claims",
+    statements: Object.freeze([
+      `ALTER TABLE video_upload_intents
+       ADD COLUMN IF NOT EXISTS product_id TEXT NOT NULL DEFAULT '';`,
+      `ALTER TABLE video_upload_intents
+       ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMPTZ;`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_video_upload_intents_product_claim
+       ON video_upload_intents (product_id)
+       WHERE product_id <> '';`
+    ])
   })
 ]);
 

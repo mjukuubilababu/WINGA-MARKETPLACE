@@ -2729,9 +2729,46 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     );
   }
 
+  function getProductVideoProviderIds(product = {}) {
+    return normalizeProductMediaItems(product)
+      .filter((item) => item.type === "video")
+      .map((item) => String(item.providerId || "").trim())
+      .filter(Boolean);
+  }
+
+  async function claimProductVideos(client, product = {}) {
+    const providerIds = getProductVideoProviderIds(product);
+    for (const providerId of providerIds) {
+      const claim = await client.query(
+        `UPDATE video_upload_intents
+         SET product_id = $3, claimed_at = COALESCE(claimed_at, NOW()),
+           updated_at = NOW(), row_version = row_version + 1
+         WHERE provider_id = $1 AND seller_id = $2 AND status = 'ready'
+           AND (product_id = '' OR product_id = $3)
+         RETURNING provider_id`,
+        [providerId, product.uploadedBy, product.id]
+      );
+      if (!claim.rowCount) {
+        const error = new Error("Video is not ready, is owned by another seller, or is already attached.");
+        error.code = "VIDEO_CLAIM_REJECTED";
+        throw error;
+      }
+    }
+  }
+
+  async function releaseRemovedProductVideos(client, productId, retainedProviderIds = []) {
+    await client.query(
+      `UPDATE video_upload_intents
+       SET product_id = '', claimed_at = NULL, updated_at = NOW(), row_version = row_version + 1
+       WHERE product_id = $1 AND NOT (provider_id = ANY($2::text[]))`,
+      [productId, retainedProviderIds]
+    );
+  }
+
   async function createProduct(product = {}) {
     return withTransaction(async (client) => {
       await upsertProductCategory(client, product);
+      await claimProductVideos(client, product);
       const values = getProductWriteValues(product);
       const result = await client.query(
         `INSERT INTO products (
@@ -2770,9 +2807,12 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
          RETURNING row_version AS "rowVersion"`,
         [productId, ownerUsername, ...values, expectedVersion]
       );
-      return result.rowCount
-        ? { updated: true, conflict: false, rowVersion: Number(result.rows?.[0]?.rowVersion || 0) }
-        : { updated: false, conflict: expectedVersion > 0, rowVersion: 0 };
+      if (!result.rowCount) {
+        return { updated: false, conflict: expectedVersion > 0, rowVersion: 0 };
+      }
+      await claimProductVideos(client, { ...product, id: productId, uploadedBy: ownerUsername });
+      await releaseRemovedProductVideos(client, productId, getProductVideoProviderIds(product));
+      return { updated: true, conflict: false, rowVersion: Number(result.rows?.[0]?.rowVersion || 0) };
     });
   }
 

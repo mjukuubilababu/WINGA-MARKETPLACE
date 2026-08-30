@@ -2699,3 +2699,85 @@ test("PostgreSQL video upload intents preserve owner scope and webhook state", a
   assert.equal(webhookUpdate.params[1], "ready");
   assert.equal(JSON.parse(webhookUpdate.params[10]).readyToStream, true);
 });
+test("PostgreSQL product create atomically claims only a ready seller-owned video", async () => {
+  const calls = [];
+  const client = {
+    async query(text, params = []) {
+      const sql = String(text);
+      calls.push({ text: sql, params });
+      if (sql.includes("UPDATE video_upload_intents")) {
+        return { rows: [{ provider_id: params[0] }], rowCount: 1 };
+      }
+      if (sql.includes("INSERT INTO products")) {
+        return { rows: [{ rowVersion: 1 }], rowCount: 1 };
+      }
+      return { rows: [], rowCount: 1 };
+    },
+    release() {}
+  };
+  const store = createPostgresStore({
+    databaseUrl: "postgres://test.invalid/winga",
+    queryClient: { query: client.query.bind(client), connect: async () => client }
+  });
+
+  const result = await store.createProduct({
+    id: "product-video-1",
+    name: "Video dress",
+    price: 25000,
+    shop: "Seller",
+    uploadedBy: "seller-one",
+    category: "fashion",
+    image: "https://example.com/dress.jpg",
+    images: ["https://example.com/dress.jpg"],
+    mediaItems: [
+      { type: "image", url: "https://example.com/dress.jpg" },
+      { type: "video", provider: "cloudflare-stream", providerId: "stream-video-ready", status: "ready" }
+    ]
+  });
+
+  assert.deepEqual(result, { created: true, rowVersion: 1 });
+  const claimIndex = calls.findIndex((call) => call.text.includes("UPDATE video_upload_intents"));
+  const insertIndex = calls.findIndex((call) => call.text.includes("INSERT INTO products"));
+  assert.equal(calls[0].text, "BEGIN");
+  assert.ok(claimIndex > 0 && claimIndex < insertIndex);
+  assert.match(calls[claimIndex].text, /seller_id = \$2 AND status = 'ready'/);
+  assert.deepEqual(calls[claimIndex].params, ["stream-video-ready", "seller-one", "product-video-1"]);
+  assert.equal(calls.at(-1).text, "COMMIT");
+});
+
+test("PostgreSQL product create rolls back when video claim is rejected", async () => {
+  const calls = [];
+  const client = {
+    async query(text, params = []) {
+      const sql = String(text);
+      calls.push({ text: sql, params });
+      if (sql.includes("UPDATE video_upload_intents")) {
+        return { rows: [], rowCount: 0 };
+      }
+      return { rows: [], rowCount: 1 };
+    },
+    release() {}
+  };
+  const store = createPostgresStore({
+    databaseUrl: "postgres://test.invalid/winga",
+    queryClient: { query: client.query.bind(client), connect: async () => client }
+  });
+
+  await assert.rejects(
+    store.createProduct({
+      id: "product-video-rejected",
+      name: "Rejected video dress",
+      uploadedBy: "seller-one",
+      category: "fashion",
+      images: ["https://example.com/dress.jpg"],
+      mediaItems: [
+        { type: "image", url: "https://example.com/dress.jpg" },
+        { type: "video", provider: "cloudflare-stream", providerId: "stream-video-other-owner", status: "ready" }
+      ]
+    }),
+    (error) => error?.code === "VIDEO_CLAIM_REJECTED"
+  );
+
+  assert.equal(calls.some((call) => call.text.includes("INSERT INTO products")), false);
+  assert.equal(calls.at(-1).text, "ROLLBACK");
+});

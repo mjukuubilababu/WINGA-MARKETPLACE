@@ -4801,8 +4801,18 @@ function validateProductPayload(payload) {
   if (!isValidCategory(payload.category)) {
     return "Category ya bidhaa si sahihi.";
   }
-  if (Array.isArray(payload.mediaItems) && payload.mediaItems.some((item) => String(item?.type || "").toLowerCase() === "video")) {
-    return "Video upload haijawashwa bado.";
+  const videoItems = Array.isArray(payload.mediaItems)
+    ? payload.mediaItems.filter((item) => String(item?.type || "").toLowerCase() === "video")
+    : [];
+  if (videoItems.length > 1) {
+    return "Bidhaa inaweza kuwa na video moja tu.";
+  }
+  if (videoItems.some((item) =>
+    String(item?.provider || "").toLowerCase() !== "cloudflare-stream"
+    || !/^[A-Za-z0-9_-]{8,128}$/.test(String(item?.providerId || ""))
+    || /^(?:data|blob):/i.test(String(item?.url || ""))
+  )) {
+    return "Video ya bidhaa si sahihi.";
   }
   if (!Array.isArray(payload.images) || payload.images.length === 0 || payload.images.length > MAX_IMAGE_COUNT) {
     return "Idadi ya picha si sahihi.";
@@ -11426,8 +11436,19 @@ const server = http.createServer(async (req, res) => {
         imageCount: Array.isArray(normalizedProduct.images) ? normalizedProduct.images.length : 0
       });
       if (postgresStore?.createProduct) {
-        const createResult = await postgresStore.createProduct(normalizedProduct);
-        normalizedProduct.rowVersion = createResult.rowVersion;
+        try {
+          const createResult = await postgresStore.createProduct(normalizedProduct);
+          normalizedProduct.rowVersion = createResult.rowVersion;
+        } catch (error) {
+          if (error?.code === "VIDEO_CLAIM_REJECTED") {
+            sendJson(res, 409, {
+              error: "Video haijawa tayari, si yako, au tayari imeunganishwa na bidhaa nyingine.",
+              code: "video_claim_rejected"
+            });
+            return;
+          }
+          throw error;
+        }
       } else {
         const products = [normalizedProduct, ...(store.products || [])];
         await writeStore({
@@ -11577,12 +11598,24 @@ const server = http.createServer(async (req, res) => {
         item.id === productId ? updatedProduct : item
       );
       if (postgresStore?.updateProduct) {
-        const updateResult = await postgresStore.updateProduct(
-          productId,
-          sellerUser.username,
-          updatedProduct,
-          { expectedRowVersion: Number(existingProduct.rowVersion || 0) }
-        );
+        let updateResult;
+        try {
+          updateResult = await postgresStore.updateProduct(
+            productId,
+            sellerUser.username,
+            updatedProduct,
+            { expectedRowVersion: Number(existingProduct.rowVersion || 0) }
+          );
+        } catch (error) {
+          if (error?.code === "VIDEO_CLAIM_REJECTED") {
+            sendJson(res, 409, {
+              error: "Video haijawa tayari, si yako, au tayari imeunganishwa na bidhaa nyingine.",
+              code: "video_claim_rejected"
+            });
+            return;
+          }
+          throw error;
+        }
         if (!updateResult.updated) {
           sendJson(res, 409, {
             error: updateResult.conflict
