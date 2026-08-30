@@ -11,6 +11,7 @@ const { createSearchDemandService, summarizeSearchDemandEvents } = require("./se
 const { buildRequestGlobalContext, normalizeUserPreference, validateUserPreference, formatPrice } = require("./global-context");
 const { isR2StorageEnabled, uploadImageToR2 } = require("./storage-r2");
 const { MAX_PRODUCT_IMAGE_BYTES, createProductImageVariants } = require("./image-processing");
+const { normalizeProductMediaItems } = require("./product-media");
 const { getOrSetCache, closeCache } = require("./cache");
 
 const PORT = process.env.PORT || 3000;
@@ -2319,6 +2320,14 @@ function sanitizeVisibleProduct(product, viewer = null, storeRef = null) {
     ...normalizedProduct,
     image: deliveredPrimaryImage || deliveredImages[0] || "",
     images: deliveredImages.length ? deliveredImages : [deliveredPrimaryImage].filter(Boolean),
+    mediaItems: normalizeProductMediaItems(normalizedProduct).map((item) => item.type === "image"
+      ? {
+        ...item,
+        url: resolveProductImageForDelivery(item.url, "", allowPlaceholder),
+        posterUrl: resolveProductImageForDelivery(item.posterUrl, "", allowPlaceholder),
+        thumbnailUrl: resolveProductImageForDelivery(item.thumbnailUrl, "", allowPlaceholder)
+      }
+      : item),
     whatsapp: normalizedProduct.whatsapp || String(owner?.whatsappNumber || owner?.phoneNumber || "").replace(/\D/g, "").slice(0, 20),
     demandSummary
   };
@@ -2366,6 +2375,7 @@ function toProductListItem(product) {
     price: Number(product.price || 0),
     image: product.image || "",
     images: Array.isArray(product.images) ? product.images : [],
+    mediaItems: normalizeProductMediaItems(product),
     shop: product.shop || "",
     category: product.category || "",
     uploadedBy: product.uploadedBy || "",
@@ -2598,6 +2608,7 @@ function normalizeProductRecord(product) {
     ? "reposted"
     : "original";
   const fitMode = String(product.fitMode || "").trim().toLowerCase() === "contain" ? "contain" : "cover";
+  const mediaItems = normalizeProductMediaItems(product);
   return {
     ...product,
     name: sanitizePlainText(product.name, 120),
@@ -2621,6 +2632,7 @@ function normalizeProductRecord(product) {
     resalePrice: derivedResoldStatus === "reposted" ? (normalizedResalePrice ?? normalizeOptionalPrice(product.price)) : null,
     resoldStatus: derivedResoldStatus,
     fitMode,
+    mediaItems,
     createdAt: product.createdAt || now,
     updatedAt: product.updatedAt || now
   };
@@ -3730,10 +3742,12 @@ async function persistIncomingProductImages(product) {
     }
   }
 
+  const image = await persistValue(product.image);
   return {
     ...product,
     images: Array.isArray(product.images) ? images : product.images,
-    image: await persistValue(product.image)
+    image,
+    mediaItems: normalizeProductMediaItems({ image, images, mediaItems: [] })
   };
 }
 
@@ -3843,6 +3857,7 @@ function normalizeProductImages(product) {
     ...product,
     images,
     image: images[0] || normalizeStoredImageReference(product.image) || "",
+    mediaItems: normalizeProductMediaItems({ ...product, images, image: images[0] || product.image || "" }),
     imageArchives: [],
     imageFallbackEligible
   };
@@ -4770,6 +4785,9 @@ function validateProductPayload(payload) {
   }
   if (!isValidCategory(payload.category)) {
     return "Category ya bidhaa si sahihi.";
+  }
+  if (Array.isArray(payload.mediaItems) && payload.mediaItems.some((item) => String(item?.type || "").toLowerCase() === "video")) {
+    return "Video upload haijawashwa bado.";
   }
   if (!Array.isArray(payload.images) || payload.images.length === 0 || payload.images.length > MAX_IMAGE_COUNT) {
     return "Idadi ya picha si sahihi.";

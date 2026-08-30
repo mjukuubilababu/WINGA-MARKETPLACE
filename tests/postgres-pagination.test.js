@@ -517,10 +517,10 @@ test("PostgreSQL product update enforces owner and optimistic row version", asyn
   assert.deepEqual(result, { updated: true, conflict: false, rowVersion: 8 });
   const update = calls.find((call) => call.text.includes("UPDATE products"));
   assert.match(update.text, /uploaded_by = \$2/);
-  assert.match(update.text, /row_version = \$26::bigint/);
+  assert.match(update.text, /row_version = \$27::bigint/);
   assert.equal(update.params[0], "product-row-2");
   assert.equal(update.params[1], "seller-two");
-  assert.equal(update.params[25], 7);
+  assert.equal(update.params[26], 7);
 });
 
 test("PostgreSQL product moderation and seller notification commit atomically", async () => {

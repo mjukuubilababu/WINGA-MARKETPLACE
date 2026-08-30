@@ -345,6 +345,13 @@ const MIGRATIONS = Object.freeze([
       `CREATE INDEX IF NOT EXISTS idx_products_search
        ON products USING GIN (search_vector);`
     ])
+  }),
+  Object.freeze({
+    id: "2026083001_product_media_items",
+    statements: Object.freeze([
+      `ALTER TABLE products
+       ADD COLUMN IF NOT EXISTS media_items JSONB NOT NULL DEFAULT '[]'::jsonb;`
+    ])
   })
 ]);
 

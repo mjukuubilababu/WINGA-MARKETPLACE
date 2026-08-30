@@ -567,7 +567,15 @@
     return {
       ...product,
       image: resolveImage(product.image),
-      images: Array.isArray(product.images) ? product.images.map(resolveImage) : []
+      images: Array.isArray(product.images) ? product.images.map(resolveImage) : [],
+      mediaItems: Array.isArray(product.mediaItems) ? product.mediaItems.map((item) => item?.type === "image"
+        ? {
+          ...item,
+          url: resolveImage(item.url),
+          posterUrl: resolveImage(item.posterUrl),
+          thumbnailUrl: resolveImage(item.thumbnailUrl)
+        }
+        : item) : []
     };
   }
 
@@ -1648,7 +1656,15 @@ async loadAdminPayments(filters) {
       return {
         ...product,
         image: resolveImage(product.image),
-        images: Array.isArray(product.images) ? product.images.map(resolveImage) : []
+        images: Array.isArray(product.images) ? product.images.map(resolveImage) : [],
+        mediaItems: Array.isArray(product.mediaItems) ? product.mediaItems.map((item) => item?.type === "image"
+          ? {
+            ...item,
+            url: resolveImage(item.url),
+            posterUrl: resolveImage(item.posterUrl),
+            thumbnailUrl: resolveImage(item.thumbnailUrl)
+          }
+          : item) : []
       };
     }
 
@@ -1680,6 +1696,14 @@ async loadAdminPayments(filters) {
         ...product,
         image: normalizeImageForPersistence(product.image),
         images: Array.isArray(product.images) ? product.images.map(normalizeImageForPersistence) : [],
+        mediaItems: Array.isArray(product.mediaItems) ? product.mediaItems.map((item) => item?.type === "image"
+          ? {
+            ...item,
+            url: normalizeImageForPersistence(item.url),
+            posterUrl: normalizeImageForPersistence(item.posterUrl),
+            thumbnailUrl: normalizeImageForPersistence(item.thumbnailUrl)
+          }
+          : item) : [],
         fitMode
       };
     }

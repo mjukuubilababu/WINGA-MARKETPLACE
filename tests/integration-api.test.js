@@ -560,6 +560,11 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   assert.equal(productCreate.response.status, 200);
   assert.equal(productCreate.body.status, "approved");
   assert.match(productCreate.body.image, /^\/uploads\/.*-1080\.webp$/);
+  assert.equal(Array.isArray(productCreate.body.mediaItems), true);
+  assert.equal(productCreate.body.mediaItems.length, 1);
+  assert.equal(productCreate.body.mediaItems[0].type, "image");
+  assert.equal(productCreate.body.mediaItems[0].status, "ready");
+  assert.equal(productCreate.body.mediaItems[0].url, productCreate.body.image);
   const canonicalImageName = path.basename(productCreate.body.image);
   const imageStem = canonicalImageName.replace(/-1080\.webp$/, "");
   assert.equal(fs.existsSync(path.join(tempRoot, "uploads", `${imageStem}-320.webp`)), true);

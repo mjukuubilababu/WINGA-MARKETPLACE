@@ -1,5 +1,6 @@
 const { Client, Pool } = require("pg");
 const { runSchemaMigrations } = require("./migrations");
+const { normalizeProductMediaItems } = require("./product-media");
 
 const ALL_TABLE_KEYS = Object.freeze([
   "categories", "users", "products", "sessions", "orders", "payments", "messages",
@@ -75,6 +76,11 @@ function normalizeProductRow(row) {
     whatsapp: row.whatsapp || "",
     image: row.image || "",
     images: parseJson(row.images, []),
+    mediaItems: normalizeProductMediaItems({
+      image: row.image || "",
+      images: parseJson(row.images, []),
+      mediaItems: parseJson(row.mediaItems, [])
+    }),
     uploadedBy: row.uploadedBy || "",
     category: row.category || "",
     status: row.status || "",
@@ -444,6 +450,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
         whatsapp TEXT NOT NULL,
         image TEXT NOT NULL,
         images JSONB NOT NULL DEFAULT '[]'::jsonb,
+        media_items JSONB NOT NULL DEFAULT '[]'::jsonb,
         uploaded_by TEXT NOT NULL,
         category TEXT NOT NULL,
         status TEXT NOT NULL,
@@ -1300,12 +1307,12 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
             id, name, price, shop, whatsapp, image, images, uploaded_by, category,
             status, availability, moderation_note, moderated_at, moderated_by, original_product_id, original_seller_id,
             reseller_id, resale_price, resold_status, created_at, updated_at,
-            likes, views, viewed_by
+            likes, views, viewed_by, media_items
           ) VALUES (
             $1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9,
             $10, $11, $12, $13, $14, $15, $16,
             $17, $18, $19, $20, $21,
-            $22, $23, $24::jsonb
+            $22, $23, $24::jsonb, $25::jsonb
           )`,
           [
             product.id,
@@ -1331,7 +1338,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
             product.updatedAt || new Date().toISOString(),
             Number(product.likes || 0),
             Number(product.views || 0),
-            stringifyJson(product.viewedBy, [])
+            stringifyJson(product.viewedBy, []),
+            stringifyJson(normalizeProductMediaItems(product), [])
           ]
         );
       }
@@ -1675,6 +1683,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
           whatsapp,
           image,
           images,
+          media_items AS "mediaItems",
           uploaded_by AS "uploadedBy",
           category,
           status,
@@ -1918,6 +1927,11 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       products: productsResult.rows.map((row) => ({
         ...row,
         images: parseJson(row.images, []),
+        mediaItems: normalizeProductMediaItems({
+          image: row.image || "",
+          images: parseJson(row.images, []),
+          mediaItems: parseJson(row.mediaItems, [])
+        }),
         viewedBy: parseJson(row.viewedBy, []),
         createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : "",
         updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : "",
@@ -2055,6 +2069,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
         p.whatsapp,
         p.image,
         p.images,
+        p.media_items AS "mediaItems",
         p.uploaded_by AS "uploadedBy",
         p.category,
         p.status,
@@ -2698,7 +2713,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       product.updatedAt || new Date().toISOString(),
       Number(product.likes || 0),
       Number(product.views || 0),
-      stringifyJson(product.viewedBy, [])
+      stringifyJson(product.viewedBy, []),
+      stringifyJson(normalizeProductMediaItems(product), [])
     ];
   }
 
@@ -2722,11 +2738,11 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
            id, name, price, shop, whatsapp, image, images, uploaded_by, category,
            status, availability, moderation_note, moderated_at, moderated_by,
            original_product_id, original_seller_id, reseller_id, resale_price,
-           resold_status, created_at, updated_at, likes, views, viewed_by, row_version
+           resold_status, created_at, updated_at, likes, views, viewed_by, media_items, row_version
          ) VALUES (
            $1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9,
            $10, $11, $12, $13, $14, $15, $16, $17, $18,
-           $19, $20, $21, $22, $23, $24::jsonb, 1
+           $19, $20, $21, $22, $23, $24::jsonb, $25::jsonb, 1
          )
          RETURNING row_version AS "rowVersion"`,
         [product.id, ...values]
@@ -2748,9 +2764,9 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
              moderated_by = $15, original_product_id = $16, original_seller_id = $17,
              reseller_id = $18, resale_price = $19, resold_status = $20,
              created_at = $21, updated_at = $22, likes = $23, views = $24,
-             viewed_by = $25::jsonb, row_version = row_version + 1
+             viewed_by = $25::jsonb, media_items = $26::jsonb, row_version = row_version + 1
          WHERE id = $1 AND uploaded_by = $2
-           AND ($26::bigint = 0 OR row_version = $26::bigint)
+           AND ($27::bigint = 0 OR row_version = $27::bigint)
          RETURNING row_version AS "rowVersion"`,
         [productId, ownerUsername, ...values, expectedVersion]
       );
