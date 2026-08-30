@@ -538,6 +538,17 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   assert.equal(sellerTwoSignup.response.status, 200);
   const sellerTwoToken = getAuthCookieToken(sellerTwoSignup.response);
 
+  const unavailableVideoUpload = await request("/media/videos/direct-upload", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${sellerToken}`
+    },
+    body: JSON.stringify({ fileName: "product.mp4", contentType: "video/mp4" })
+  });
+  assert.equal(unavailableVideoUpload.response.status, 503);
+  assert.equal(unavailableVideoUpload.body.code, "video_upload_unavailable");
+
   const productCreate = await request("/products", {
     method: "POST",
     headers: {

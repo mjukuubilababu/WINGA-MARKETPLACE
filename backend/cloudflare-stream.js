@@ -106,6 +106,12 @@ function createCloudflareStreamClient(options = {}) {
     }
     return { providerId, uploadUrl, expiresAt, maxDurationSeconds: config.maxDurationSeconds };
   }
+  async function deleteVideo(providerId) {
+    const safeId = cleanText(providerId, 64);
+    if (!/^[a-zA-Z0-9_-]{8,64}$/.test(safeId)) return false;
+    await request(`/${encodeURIComponent(safeId)}`, { method: "DELETE" });
+    return true;
+  }
   async function createPlaybackToken(providerId) {
     const safeId = cleanText(providerId, 64);
     if (!/^[a-zA-Z0-9_-]{8,64}$/.test(safeId)) throw new TypeError("A valid Stream video identifier is required.");
@@ -116,6 +122,6 @@ function createCloudflareStreamClient(options = {}) {
     if (!token) { const error = new Error("Cloudflare Stream returned no playback token."); error.code = "stream_invalid_provider_response"; throw error; }
     return { token, expiresInSeconds: config.playbackTokenTtlSeconds, customerCode: config.customerCode };
   }
-  return { config: { ...config, apiToken: "", webhookSecret: "" }, createDirectUpload, createPlaybackToken, isConfigured: () => isCloudflareStreamConfigured(config) };
+  return { config: { ...config, apiToken: "", webhookSecret: "" }, createDirectUpload, createPlaybackToken, deleteVideo, isConfigured: () => isCloudflareStreamConfigured(config) };
 }
 module.exports = { DEFAULT_MAX_DURATION_SECONDS, createCloudflareStreamClient, isCloudflareStreamConfigured, normalizeStreamVideo, parseWebhookSignature, readCloudflareStreamConfig, verifyCloudflareStreamWebhook };

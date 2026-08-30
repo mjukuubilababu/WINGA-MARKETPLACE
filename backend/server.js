@@ -12,6 +12,12 @@ const { buildRequestGlobalContext, normalizeUserPreference, validateUserPreferen
 const { isR2StorageEnabled, uploadImageToR2 } = require("./storage-r2");
 const { MAX_PRODUCT_IMAGE_BYTES, createProductImageVariants } = require("./image-processing");
 const { normalizeProductMediaItems } = require("./product-media");
+const {
+  createCloudflareStreamClient,
+  normalizeStreamVideo,
+  readCloudflareStreamConfig,
+  verifyCloudflareStreamWebhook
+} = require("./cloudflare-stream");
 const { getOrSetCache, closeCache } = require("./cache");
 
 const PORT = process.env.PORT || 3000;
@@ -36,6 +42,8 @@ const APP_BUILD_VERSION = APP_BUILD_VERSION_MATCH?.[1] || "";
 const NODE_ENV = process.env.NODE_ENV || "development";
 const PAYMENT_WEBHOOK_SECRET = String(process.env.PAYMENT_WEBHOOK_SECRET || "").trim();
 const PAYMENT_WEBHOOK_MAX_AGE_SECONDS = 300;
+const CLOUDFLARE_STREAM_CONFIG = readCloudflareStreamConfig();
+const CLOUDFLARE_STREAM_CLIENT = createCloudflareStreamClient({ config: CLOUDFLARE_STREAM_CONFIG });
 const PAYMENT_REFUND_WEBHOOK_URL = String(process.env.PAYMENT_REFUND_WEBHOOK_URL || "").trim();
 const PAYMENT_REFUND_WEBHOOK_SECRET = String(process.env.PAYMENT_REFUND_WEBHOOK_SECRET || "").trim();
 const PAYMENT_REFUND_CALLBACK_SECRET = String(process.env.PAYMENT_REFUND_CALLBACK_SECRET || "").trim();
@@ -224,7 +232,8 @@ const RATE_LIMIT_RULES = {
   "/api/search-demand": { limit: 18, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/users/me/whatsapp/request-change": { limit: 6, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/users/me/whatsapp/verify-change": { limit: 12, windowMs: RATE_LIMIT_WINDOW_MS },
-  "/api/users/me/locale-preference": { limit: 20, windowMs: RATE_LIMIT_WINDOW_MS }
+  "/api/users/me/locale-preference": { limit: 20, windowMs: RATE_LIMIT_WINDOW_MS },
+  "/api/media/videos/direct-upload": { limit: 6, windowMs: 15 * 60 * 1000 }
 };
 const STORE_TABLE_COUNT = 13;
 const PRODUCT_LIST_STORE_TABLES = Object.freeze(["users", "sessions"]);
@@ -336,6 +345,9 @@ function validateRuntimeConfiguration() {
     }
     if (!ACCOUNT_RECOVERY_DELIVERY_WEBHOOK_URL || !ACCOUNT_RECOVERY_DELIVERY_WEBHOOK_SECRET) {
       warnings.push("Account recovery delivery is disabled until its webhook URL and secret are configured.");
+    }
+    if (!CLOUDFLARE_STREAM_CLIENT.isConfigured() || !CLOUDFLARE_STREAM_CONFIG.webhookSecret || !CLOUDFLARE_STREAM_CONFIG.customerCode) {
+      warnings.push("Video uploads are disabled until Cloudflare Stream configuration is complete.");
     }
     if (String(process.env.AUTH_COOKIE_SAMESITE || "").trim().toLowerCase() === "none" && !TRUST_PROXY_HEADERS) {
       warnings.push("AUTH_COOKIE_SAMESITE=None is enabled. Only use this for an intentional cross-site frontend/API deployment with HTTPS.");
@@ -3231,7 +3243,10 @@ function isCsrfProtectedMethod(method = "GET") {
 }
 
 function isServerToServerWebhookPath(pathname = "") {
-  return pathname === "/api/payments/webhook" || pathname === "/api/payments/refunds/webhook" || pathname === "/api/intelligence/queue-events";
+  return pathname === "/api/payments/webhook"
+    || pathname === "/api/payments/refunds/webhook"
+    || pathname === "/api/intelligence/queue-events"
+    || pathname === "/api/media/videos/webhook";
 }
 
 function isCsrfExemptPath(pathname = "") {
@@ -10799,6 +10814,120 @@ const server = http.createServer(async (req, res) => {
         paymentDate: payment.createdAt,
         payerDetails: payment.payerDetails
       });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/media/videos/direct-upload") {
+      const session = findSession(store, readAuthToken(req));
+      const seller = ensureMarketplaceUser(store, session, res);
+      if (!seller) return;
+      if (!canPostProducts(seller.role)) {
+        sendJson(res, 403, { error: "Akaunti hii haiwezi kupakia video.", code: "video_upload_forbidden" });
+        return;
+      }
+      if (!postgresStore?.createVideoUploadIntent || !CLOUDFLARE_STREAM_CLIENT.isConfigured()) {
+        sendJson(res, 503, { error: "Video upload bado haijasanidiwa.", code: "video_upload_unavailable" });
+        return;
+      }
+      const payload = await collectBody(req);
+      const fileName = sanitizePlainText(payload?.fileName, 180);
+      const contentType = sanitizePlainText(payload?.contentType, 120).toLowerCase();
+      if (!fileName || !["video/mp4", "video/quicktime", "video/webm", "video/x-matroska"].includes(contentType)) {
+        sendJson(res, 400, { error: "Aina ya video si sahihi.", code: "invalid_video_upload" });
+        return;
+      }
+      const uploadId = `video-upload-${crypto.randomUUID()}`;
+      let directUpload = null;
+      try {
+        directUpload = await CLOUDFLARE_STREAM_CLIENT.createDirectUpload({
+          creator: seller.username, uploadId, fileName, contentType
+        });
+        const intent = await postgresStore.createVideoUploadIntent({
+          providerId: directUpload.providerId, sellerId: seller.username,
+          uploadId, uploadExpiresAt: directUpload.expiresAt
+        });
+        if (!intent) {
+          await CLOUDFLARE_STREAM_CLIENT.deleteVideo(directUpload.providerId).catch(() => {});
+          sendJson(res, 409, { error: "Video upload conflict. Jaribu tena.", code: "video_upload_conflict" });
+          return;
+        }
+        await appendAuditLog({
+          time: new Date().toISOString(), ip: clientIp, method: req.method, path: url.pathname,
+          event: "video_upload_created", username: seller.username, uploadId, providerId: directUpload.providerId
+        });
+        sendJson(res, 201, {
+          uploadId, providerId: directUpload.providerId, uploadUrl: directUpload.uploadUrl,
+          expiresAt: directUpload.expiresAt, maxDurationSeconds: directUpload.maxDurationSeconds
+        }, { "Cache-Control": "private, no-store" });
+      } catch (error) {
+        if (directUpload?.providerId) await CLOUDFLARE_STREAM_CLIENT.deleteVideo(directUpload.providerId).catch(() => {});
+        sendJson(res, 502, { error: "Video provider haikupatikana. Jaribu tena.", code: error?.code || "video_provider_failed" });
+      }
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/media/videos/webhook") {
+      if (!postgresStore?.applyVideoUploadWebhook || !CLOUDFLARE_STREAM_CONFIG.webhookSecret) {
+        sendJson(res, 503, { error: "Video webhook haijasanidiwa.", code: "video_webhook_unavailable" });
+        return;
+      }
+      const envelope = await collectBody(req, { includeRaw: true });
+      const verification = verifyCloudflareStreamWebhook(
+        envelope.raw, req.headers["webhook-signature"], CLOUDFLARE_STREAM_CONFIG.webhookSecret
+      );
+      if (!verification.ok) {
+        await denyJson(res, 401, "Video webhook signature si sahihi.", {
+          ip: clientIp, method: req.method, path: url.pathname,
+          event: "video_webhook_denied", reason: verification.reason
+        });
+        return;
+      }
+      const video = normalizeStreamVideo(envelope.payload);
+      if (!video.providerId) {
+        sendJson(res, 400, { error: "Video webhook payload si sahihi.", code: "invalid_video_webhook" });
+        return;
+      }
+      const updated = await postgresStore.applyVideoUploadWebhook({
+        ...video,
+        providerPayload: { readyToStream: video.readyToStream, status: video.status, receivedAt: new Date().toISOString() }
+      });
+      sendJson(res, updated ? 200 : 202, { ok: true, matched: Boolean(updated), status: video.status });
+      return;
+    }
+
+    const videoStatusMatch = url.pathname.match(/^\/api\/media\/videos\/([a-zA-Z0-9_-]{8,64})$/);
+    if (req.method === "GET" && videoStatusMatch) {
+      const session = findSession(store, readAuthToken(req));
+      const seller = ensureMarketplaceUser(store, session, res);
+      if (!seller) return;
+      const intent = await postgresStore?.readVideoUploadIntent?.(videoStatusMatch[1], seller.username);
+      if (!intent) {
+        sendJson(res, 404, { error: "Video upload haijapatikana.", code: "video_upload_not_found" });
+        return;
+      }
+      sendJson(res, 200, intent, { "Cache-Control": "private, no-store" });
+      return;
+    }
+
+    const videoPlaybackMatch = url.pathname.match(/^\/api\/media\/videos\/([a-zA-Z0-9_-]{8,64})\/playback-token$/);
+    if (req.method === "POST" && videoPlaybackMatch) {
+      const session = findSession(store, readAuthToken(req));
+      const seller = ensureMarketplaceUser(store, session, res);
+      if (!seller) return;
+      const intent = await postgresStore?.readVideoUploadIntent?.(videoPlaybackMatch[1], seller.username);
+      if (!intent || intent.status !== "ready") {
+        sendJson(res, intent ? 409 : 404, {
+          error: intent ? "Video bado haijawa tayari." : "Video haijapatikana.",
+          code: intent ? "video_not_ready" : "video_upload_not_found"
+        });
+        return;
+      }
+      try {
+        const playback = await CLOUDFLARE_STREAM_CLIENT.createPlaybackToken(intent.providerId);
+        sendJson(res, 200, playback, { "Cache-Control": "private, no-store" });
+      } catch (error) {
+        sendJson(res, 502, { error: "Playback token haikupatikana.", code: error?.code || "video_playback_failed" });
+      }
       return;
     }
 
