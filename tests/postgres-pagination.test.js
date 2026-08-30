@@ -2722,6 +2722,44 @@ test("PostgreSQL playable video lookup preserves public product visibility conte
   assert.match(calls[0].text, /LEFT JOIN products p ON p\.id = vui\.product_id/);
   assert.deepEqual(calls[0].params, ["stream-video-123"]);
 });
+test("PostgreSQL video moderation queue and decision are bounded and atomic", async () => {
+  const calls = [];
+  const client = {
+    async query(text, params = []) {
+      const sql = String(text);
+      calls.push({ text: sql, params });
+      if (sql.includes("FROM video_upload_intents vui") && sql.includes("moderation_status = $1")) {
+        return { rows: [{ providerId: "stream-review-1", moderationStatus: "pending", productId: "product-1" }], rowCount: 1 };
+      }
+      if (sql.includes("UPDATE video_upload_intents") && sql.includes("moderation_status = $2")) {
+        return { rows: [{ productId: "product-1", sellerId: "seller-one", rowVersion: 2 }], rowCount: 1 };
+      }
+      if (sql.includes("UPDATE products") && sql.includes("jsonb_array_elements")) return { rows: [], rowCount: 1 };
+      return { rows: [], rowCount: 1 };
+    },
+    release() {}
+  };
+  const store = createPostgresStore({
+    databaseUrl: "postgres://primary.invalid/winga",
+    queryClient: { query: client.query.bind(client), connect: async () => client }
+  });
+
+  const queue = await store.listVideoModerationQueue({ status: "pending", limit: 200 });
+  const result = await store.moderateProductVideo("stream-review-1", {
+    status: "approved", note: "reviewed", moderatedBy: "moderator"
+  });
+
+  assert.equal(queue.length, 1);
+  assert.equal(result.updated, true);
+  const queueCall = calls.find((call) => call.text.includes("moderation_status = $1"));
+  assert.deepEqual(queueCall.params, ["pending", 100]);
+  assert.match(queueCall.text, /LEFT JOIN products p ON p\.id = vui\.product_id/);
+  const decisionCall = calls.find((call) => call.text.includes("moderation_status = $2"));
+  assert.deepEqual(decisionCall.params, ["stream-review-1", "approved", "reviewed", "moderator"]);
+  assert.ok(calls.some((call) => call.text === "BEGIN"));
+  assert.ok(calls.some((call) => call.text === "COMMIT"));
+  assert.match(calls.find((call) => call.text.includes("jsonb_array_elements")).text, /moderationStatus/);
+});
 test("PostgreSQL video pipeline health is durable, aggregate-only, and threshold aware", async () => {
   const calls = [];
   const queryClient = {

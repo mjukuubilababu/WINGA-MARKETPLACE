@@ -69,6 +69,7 @@
       const videoItems = (Array.isArray(product?.mediaItems) ? product.mediaItems : [])
         .filter((item) => item?.type === "video"
           && item?.status === "ready"
+          && (!item?.moderationStatus || item.moderationStatus === "approved")
           && item?.provider === "cloudflare-stream"
           && /^[a-zA-Z0-9_-]{8,64}$/.test(String(item?.providerId || "").trim()))
         .slice(0, 1);

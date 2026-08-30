@@ -43,6 +43,11 @@ function normalizeMediaItem(item = {}, fallbackPosition = 0) {
   return {
     type,
     status,
+    moderationStatus: type === "video"
+      ? (["pending", "approved", "rejected"].includes(cleanText(item.moderationStatus, 24).toLowerCase())
+        ? cleanText(item.moderationStatus, 24).toLowerCase()
+        : "approved")
+      : "approved",
     url,
     posterUrl: cleanText(item.posterUrl, 4096),
     thumbnailUrl: cleanText(item.thumbnailUrl, 4096),

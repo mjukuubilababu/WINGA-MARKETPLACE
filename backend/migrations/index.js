@@ -392,6 +392,22 @@ const MIGRATIONS = Object.freeze([
        ON video_upload_intents (product_id)
        WHERE product_id <> '';`
     ])
+  }),
+  Object.freeze({
+    id: "2026083004_video_moderation_lifecycle",
+    statements: Object.freeze([
+      `ALTER TABLE video_upload_intents
+       ADD COLUMN IF NOT EXISTS moderation_status TEXT NOT NULL DEFAULT 'approved';`,
+      `ALTER TABLE video_upload_intents
+       ADD COLUMN IF NOT EXISTS moderation_note TEXT NOT NULL DEFAULT '';`,
+      `ALTER TABLE video_upload_intents
+       ADD COLUMN IF NOT EXISTS moderated_at TIMESTAMPTZ;`,
+      `ALTER TABLE video_upload_intents
+       ADD COLUMN IF NOT EXISTS moderated_by TEXT NOT NULL DEFAULT '';`,
+      `CREATE INDEX IF NOT EXISTS idx_video_upload_intents_moderation_queue
+       ON video_upload_intents (moderation_status, updated_at ASC)
+       WHERE product_id <> '' AND status = 'ready';`
+    ])
   })
 ]);
 

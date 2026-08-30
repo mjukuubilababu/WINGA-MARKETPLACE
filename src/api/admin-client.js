@@ -60,6 +60,22 @@
       return Array.isArray(data) ? data.map(resolveProductImages) : [];
     }
 
+    async function loadAdminVideos(status = "pending") {
+      requireFetcher();
+      const data = await fetchJson(`${baseUrl}/admin/media/videos?status=${encodeURIComponent(status)}&limit=50`, {
+        headers: authHeaders()
+      });
+      return Array.isArray(data?.items) ? data.items : [];
+    }
+
+    async function moderateAdminVideo(providerId, payload = {}) {
+      requireFetcher();
+      return fetchJson(`${baseUrl}/admin/media/videos/${encodeURIComponent(providerId)}`, {
+        method: "PATCH",
+        headers: jsonHeaders(),
+        body: JSON.stringify(payload)
+      });
+    }
     async function loadAdminOrders(filters = {}) {
       requireFetcher();
       const suffix = buildQuery(filters, ["paymentStatus", "status"]);
@@ -191,6 +207,8 @@
       loadAdminOpsSummary,
       loadAdminUsers,
       loadAdminProducts,
+      loadAdminVideos,
+      moderateAdminVideo,
       loadAdminOrders,
       loadAdminPayments,
       loadPaymentReconciliations,

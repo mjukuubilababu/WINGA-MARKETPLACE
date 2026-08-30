@@ -5271,8 +5271,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
   async function createVideoUploadIntent(intent = {}) {
     const result = await query(
       `INSERT INTO video_upload_intents (
-         provider_id, seller_id, upload_id, status, upload_expires_at, created_at, updated_at
-       ) VALUES ($1, $2, $3, 'uploading', $4, NOW(), NOW())
+         provider_id, seller_id, upload_id, status, moderation_status, upload_expires_at, created_at, updated_at
+       ) VALUES ($1, $2, $3, 'uploading', 'pending', $4, NOW(), NOW())
        ON CONFLICT (provider_id) DO NOTHING
        RETURNING provider_id AS "providerId", seller_id AS "sellerId", upload_id AS "uploadId",
          status, upload_expires_at AS "uploadExpiresAt", row_version AS "rowVersion"`,
@@ -5287,7 +5287,9 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     if (sellerId) params.push(String(sellerId));
     const result = await query(
       `SELECT provider_id AS "providerId", seller_id AS "sellerId", upload_id AS "uploadId",
-         status, upload_expires_at AS "uploadExpiresAt", duration, width, height,
+         status, moderation_status AS "moderationStatus", moderation_note AS "moderationNote",
+         moderated_at AS "moderatedAt", moderated_by AS "moderatedBy",
+         upload_expires_at AS "uploadExpiresAt", duration, width, height,
          poster_url AS "posterUrl", hls_url AS "hlsUrl", dash_url AS "dashUrl",
          error_code AS "errorCode", error_message AS "errorMessage",
          created_at AS "createdAt", updated_at AS "updatedAt", row_version AS "rowVersion"
@@ -5302,7 +5304,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
   async function readPlayableVideo(providerId) {
     const result = await query(
       `SELECT vui.provider_id AS "providerId", vui.seller_id AS "sellerId",
-         vui.status, vui.product_id AS "productId", vui.claimed_at AS "claimedAt",
+         vui.status, vui.moderation_status AS "moderationStatus",
+         vui.product_id AS "productId", vui.claimed_at AS "claimedAt",
          p.status AS "productStatus"
        FROM video_upload_intents vui
        LEFT JOIN products p ON p.id = vui.product_id
@@ -5311,6 +5314,60 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       [String(providerId || "")]
     );
     return result.rows[0] || null;
+  }
+  async function listVideoModerationQueue(options = {}) {
+    const requestedStatus = String(options.status || "pending");
+    const status = ["pending", "approved", "rejected"].includes(requestedStatus) ? requestedStatus : "pending";
+    const limit = Math.max(1, Math.min(Number(options.limit || 50) || 50, 100));
+    const result = await query(
+      `SELECT vui.provider_id AS "providerId", vui.seller_id AS "sellerId",
+         vui.product_id AS "productId", vui.status, vui.moderation_status AS "moderationStatus",
+         vui.moderation_note AS "moderationNote", vui.moderated_at AS "moderatedAt",
+         vui.moderated_by AS "moderatedBy", vui.duration, vui.width, vui.height,
+         vui.poster_url AS "posterUrl", vui.created_at AS "createdAt", vui.updated_at AS "updatedAt",
+         p.name AS "productName", p.shop, p.category
+       FROM video_upload_intents vui
+       LEFT JOIN products p ON p.id = vui.product_id
+       WHERE vui.status = 'ready' AND vui.product_id <> '' AND vui.moderation_status = $1
+       ORDER BY vui.updated_at ASC, vui.provider_id ASC
+       LIMIT $2`,
+      [status, limit]
+    );
+    return result.rows || [];
+  }
+
+  async function moderateProductVideo(providerId, moderation = {}, notification = null) {
+    const status = ["approved", "rejected"].includes(String(moderation.status || ""))
+      ? String(moderation.status) : "";
+    if (!status) return { updated: false, code: "invalid_status" };
+    return withTransaction(async (client) => {
+      const result = await client.query(
+        `UPDATE video_upload_intents
+         SET moderation_status = $2, moderation_note = $3, moderated_at = NOW(),
+           moderated_by = $4, updated_at = NOW(), row_version = row_version + 1
+         WHERE provider_id = $1 AND status = 'ready' AND product_id <> ''
+         RETURNING product_id AS "productId", seller_id AS "sellerId", row_version AS "rowVersion"`,
+        [String(providerId || ""), status, String(moderation.note || "").slice(0, 500), String(moderation.moderatedBy || "")]
+      );
+      const row = result.rows?.[0];
+      if (!row) return { updated: false, code: "not_found" };
+      await client.query(
+        `UPDATE products
+         SET media_items = COALESCE((
+           SELECT jsonb_agg(
+             CASE WHEN item->>'type' = 'video' AND item->>'providerId' = $1
+               THEN jsonb_set(item, '{moderationStatus}', to_jsonb($2::text), true)
+               ELSE item END
+             ORDER BY ordinal
+           )
+           FROM jsonb_array_elements(media_items) WITH ORDINALITY AS entries(item, ordinal)
+         ), '[]'::jsonb), updated_at = NOW(), row_version = row_version + 1
+         WHERE id = $3`,
+        [String(providerId || ""), status, row.productId]
+      );
+      await insertNotificationRow(client, notification ? { ...notification, userId: row.sellerId } : null);
+      return { updated: true, code: "", productId: row.productId, sellerId: row.sellerId, rowVersion: Number(row.rowVersion || 0) };
+    });
   }
   async function readVideoPipelineHealth(options = {}) {
     const processingAgeSeconds = Math.max(60, Math.min(Number(options.processingAgeSeconds || 900) || 900, 86400));
@@ -5534,6 +5591,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     createVideoUploadIntent,
     readVideoUploadIntent,
     readPlayableVideo,
+    listVideoModerationQueue,
+    moderateProductVideo,
     readVideoPipelineHealth,
     claimVideoCleanupBatch,
     completeVideoCleanup,

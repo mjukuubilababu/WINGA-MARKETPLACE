@@ -61,3 +61,14 @@ test("canonical product media rejects embedded video bytes and keeps failed meta
   assert.equal(mediaItems[0].status, "failed");
   assert.equal(JSON.stringify(mediaItems).includes("data:video"), false);
 });
+test("video moderation defaults legacy media to approved and preserves explicit pending state", () => {
+  const legacy = normalizeProductMediaItems({
+    mediaItems: [{ type: "video", providerId: "legacy-video", status: "ready" }]
+  });
+  const pending = normalizeProductMediaItems({
+    mediaItems: [{ type: "video", providerId: "new-video", status: "ready", moderationStatus: "pending" }]
+  });
+
+  assert.equal(legacy[0].moderationStatus, "approved");
+  assert.equal(pending[0].moderationStatus, "pending");
+});

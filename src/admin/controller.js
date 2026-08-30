@@ -1020,6 +1020,41 @@
       return card;
     }
 
+    function createVideoModerationCard(video) {
+      const card = deps.createElement("article", {
+        className: "moderation-card",
+        attributes: { "data-admin-video-card": video.providerId }
+      });
+      card.append(
+        deps.createElement("strong", { textContent: video.productName || video.productId || "Product video" }),
+        createMetaCopy(`${video.shop || video.sellerId || "-"} | ${deps.getCategoryLabel?.(video.category) || video.category || "-"}`),
+        createMetaCopy(`Seller: ${video.sellerId || "-"} | Duration: ${Math.max(0, Math.round(Number(video.duration || 0)))}s`),
+        deps.createStatusPill(`video ${video.moderationStatus || "pending"}`, mapStatusClass(video.moderationStatus))
+      );
+      const poster = deps.sanitizeImageSource(video.posterUrl || "", "");
+      if (poster) {
+        card.appendChild(deps.createResponsiveImage({
+          src: poster,
+          alt: `${video.productName || video.productId || "Product"} video poster`,
+          fallbackSrc: deps.getImageFallbackDataUri("VIDEO"),
+          className: "admin-verification-image",
+          attributes: { loading: "lazy", decoding: "async" }
+        }));
+      }
+      const note = deps.createElement("textarea", {
+        attributes: {
+          "data-admin-video-note": video.providerId,
+          placeholder: t("admin.videoModerationReasonPlaceholder", "Reason required when rejecting video")
+        }
+      });
+      const actions = deps.createElement("div", { className: "moderation-actions" });
+      actions.append(
+        createActionButton(t("admin.videoApproveAction", "Approve Video"), { adminVideoAction: "approved", videoProviderId: video.providerId }),
+        createActionButton(t("admin.videoRejectAction", "Reject Video"), { adminVideoAction: "rejected", videoProviderId: video.providerId }, "button button-danger")
+      );
+      card.append(note, actions);
+      return card;
+    }
     function createReportCard(report) {
       const card = deps.createElement("article", {
         className: "moderation-card",
@@ -1436,6 +1471,19 @@
         state.pendingProducts.forEach((product) => pendingProductsBody.appendChild(createProductCard(product)));
       }
       wrapper.appendChild(createSection("Pending Products", "Approve au reject catalog entries zinazongoja review.", pendingProductsBody));
+      const pendingVideosBody = deps.createElement("div", { className: "moderation-list" });
+      if (state.loadErrors.videos) {
+        pendingVideosBody.appendChild(createLoadIssueState(t("admin.videoModerationLoadFailed", "Pending videos are unavailable right now.")));
+      } else if (!state.pendingVideos.length) {
+        pendingVideosBody.appendChild(deps.createEmptyState(t("admin.videoModerationEmpty", "There are no pending videos.")));
+      } else {
+        state.pendingVideos.forEach((video) => pendingVideosBody.appendChild(createVideoModerationCard(video)));
+      }
+      wrapper.appendChild(createSection(
+        t("admin.videoModerationTitle", "Pending Videos"),
+        t("admin.videoModerationBody", "Review product videos without hiding the product image listing."),
+        pendingVideosBody
+      ));
 
       const reportsBody = deps.createElement("div", { className: "moderation-list" });
       if (state.loadErrors.reports) {
@@ -1576,6 +1624,25 @@
       renderAdminView();
     }
 
+    async function handleVideoAction(button) {
+      const providerId = button.dataset.videoProviderId || "";
+      const status = button.dataset.adminVideoAction || "";
+      const note = readScopedTextarea(button.closest("[data-admin-video-card]"), `[data-admin-video-note="${providerId}"]`);
+      if (!providerId || !["approved", "rejected"].includes(status)) return;
+      if (status === "rejected" && !note) {
+        throw new Error(t("admin.videoModerationReasonRequired", "A moderation reason is required when rejecting a video.")); // i18n-gate: allow -- internal diagnostic or language-neutral display
+      }
+      await deps.dataLayer.moderateAdminVideo(providerId, { status, moderationNote: note });
+      deps.showInAppNotification?.({
+        title: status === "approved"
+          ? t("admin.videoApprovedTitle", "Video approved")
+          : t("admin.videoRejectedTitle", "Video rejected"),
+        body: t("admin.videoModerationSavedBody", "Video moderation decision was saved and the seller was notified."),
+        variant: "success"
+      });
+      deps.reportEvent?.("info", "admin_product_video_moderated", "Staff moderated a product video.", { providerId, status });
+      renderAdminView();
+    }
     async function handleReportAction(button) {
       const reportId = button.dataset.reportId || "";
       const status = button.dataset.adminReportAction || "";
@@ -2008,6 +2075,23 @@
         });
       });
 
+      panel.querySelectorAll("[data-admin-video-action]").forEach((button) => {
+        button.addEventListener("click", async () => {
+          const scope = button.closest("[data-admin-video-card]");
+          toggleScopedBusyState(scope, true);
+          try {
+            await handleVideoAction(button);
+          } catch (error) {
+            deps.captureError?.("admin_video_moderation_failed", error, {
+              providerId: button.dataset.videoProviderId || "",
+              status: button.dataset.adminVideoAction || ""
+            });
+            deps.showInAppNotification?.({ title: t("admin.videoModerationFailedTitle", "Video moderation failed"), body: error.message, variant: "error" });
+          } finally {
+            toggleScopedBusyState(scope, false);
+          }
+        });
+      });
       panel.querySelectorAll("[data-admin-report-action]").forEach((button) => {
         button.addEventListener("click", async () => {
           const scope = button.closest("[data-admin-report-card]");
@@ -2201,6 +2285,19 @@
         await appendItemsInChunks(pendingProductsBody, state.pendingProducts, (product) => createProductCard(product), 10);
       }
       wrapper.appendChild(createSection("Pending Products", "Approve au reject catalog entries zinazongoja review.", pendingProductsBody));
+      const pendingVideosBody = deps.createElement("div", { className: "moderation-list" });
+      if (state.loadErrors.videos) {
+        pendingVideosBody.appendChild(createLoadIssueState(t("admin.videoModerationLoadFailed", "Pending videos are unavailable right now.")));
+      } else if (!state.pendingVideos.length) {
+        pendingVideosBody.appendChild(deps.createEmptyState(t("admin.videoModerationEmpty", "There are no pending videos.")));
+      } else {
+        state.pendingVideos.forEach((video) => pendingVideosBody.appendChild(createVideoModerationCard(video)));
+      }
+      wrapper.appendChild(createSection(
+        t("admin.videoModerationTitle", "Pending Videos"),
+        t("admin.videoModerationBody", "Review product videos without hiding the product image listing."),
+        pendingVideosBody
+      ));
       await nextFrame();
 
       const reportsBody = deps.createElement("div", { className: "moderation-list" });
@@ -2312,7 +2409,8 @@
         deps.dataLayer.loadAnalytics(),
         deps.dataLayer.loadAdminUsers(),
         deps.dataLayer.loadAdminProducts("pending"),
-        deps.dataLayer.loadAdminReports({ status: "open" })
+        deps.dataLayer.loadAdminReports({ status: "open" }),
+        deps.dataLayer.loadAdminVideos("pending")
       ];
 
       if (deps.isAdminUser?.()) {
@@ -2336,15 +2434,16 @@
       const users = getSettledValue(results[1], []);
       const pendingProducts = getSettledValue(results[2], []);
       const openReports = getSettledValue(results[3], []);
-      const promotions = deps.isAdminUser?.() ? getSettledValue(results[4], []) : [];
-      const orders = deps.isAdminUser?.() ? getSettledValue(results[5], []) : [];
-      const payments = deps.isAdminUser?.() ? getSettledValue(results[6], []) : [];
-      const moderationActions = deps.isAdminUser?.() ? getSettledValue(results[7], []) : [];
-      const opsSummary = deps.isAdminUser?.() ? getSettledValue(results[8], null) : null;
-      const adminMessages = deps.isAdminUser?.() ? getSettledValue(results[9], []) : [];
-      const adminSettings = deps.isAdminUser?.() ? getSettledValue(results[10], null) : null;
+      const pendingVideos = getSettledValue(results[4], []);
+      const promotions = deps.isAdminUser?.() ? getSettledValue(results[5], []) : [];
+      const orders = deps.isAdminUser?.() ? getSettledValue(results[6], []) : [];
+      const payments = deps.isAdminUser?.() ? getSettledValue(results[7], []) : [];
+      const moderationActions = deps.isAdminUser?.() ? getSettledValue(results[8], []) : [];
+      const opsSummary = deps.isAdminUser?.() ? getSettledValue(results[9], null) : null;
+      const adminMessages = deps.isAdminUser?.() ? getSettledValue(results[10], []) : [];
+      const adminSettings = deps.isAdminUser?.() ? getSettledValue(results[11], null) : null;
 
-      const failedLoads = ["analytics", "users", "products", "reports", "promotions", "orders", "payments", "moderationActions", "opsSummary", "adminMessages", "adminSettings"]
+      const failedLoads = ["analytics", "users", "products", "reports", "videos", "promotions", "orders", "payments", "moderationActions", "opsSummary", "adminMessages", "adminSettings"]
         .filter((_, index) => results[index] && results[index].status === "rejected");
       if (failedLoads.length) {
         deps.captureError?.("admin_surface_partial_load_failed", new Error("Some admin datasets failed to load."), { // i18n-gate: allow -- internal diagnostic or language-neutral display
@@ -2364,6 +2463,7 @@
       const state = {
         users: dedupeAdminRecords(users, (item) => item?.username || item?.id),
         pendingProducts: dedupeAdminRecords(pendingProducts, (item) => item?.id),
+        pendingVideos: dedupeAdminRecords(pendingVideos, (item) => item?.providerId),
         openReports: dedupeAdminRecords(openReports, (item) => item?.id),
         promotions: dedupeAdminRecords(promotions, (item) => item?.id),
         orders: dedupeAdminRecords(orders, (item) => item?.id),
@@ -2377,6 +2477,7 @@
           analytics: failedLoads.includes("analytics"),
           users: failedLoads.includes("users"),
           products: failedLoads.includes("products"),
+          videos: failedLoads.includes("videos"),
           reports: failedLoads.includes("reports"),
           promotions: failedLoads.includes("promotions"),
           orders: failedLoads.includes("orders"),

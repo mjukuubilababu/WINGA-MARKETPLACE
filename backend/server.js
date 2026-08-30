@@ -4841,6 +4841,21 @@ async function buildOpsSummary() {
   };
 }
 
+function applyVideoModerationPolicy(mediaItems = [], existingMediaItems = []) {
+  const existingByProvider = new Map(
+    (Array.isArray(existingMediaItems) ? existingMediaItems : [])
+      .filter((item) => item?.type === "video" && item?.providerId)
+      .map((item) => [String(item.providerId), item])
+  );
+  return (Array.isArray(mediaItems) ? mediaItems : []).map((item) => {
+    if (item?.type !== "video" || !item?.providerId) return item;
+    const existing = existingByProvider.get(String(item.providerId));
+    return {
+      ...item,
+      moderationStatus: existing ? String(existing.moderationStatus || "approved") : "pending"
+    };
+  });
+}
 function validateProductPayload(payload) {
   if (!payload || !isNonEmptyString(payload.id, 8, 80)) {
     return "ID ya bidhaa si sahihi.";
@@ -9998,6 +10013,89 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, 200, result.item);
       return;
     }
+    if (req.method === "GET" && url.pathname === "/api/admin/media/videos") {
+      const session = findSession(store, readAuthToken(req));
+      if (!session) {
+        await denyJson(res, 401, "Session imeisha au si sahihi.", {
+          ip: clientIp, method: req.method, path: url.pathname,
+          event: "video_moderation_list_denied", reason: "missing_or_invalid_session"
+        });
+        return;
+      }
+      if (!canModerateSession(session)) {
+        await denyJson(res, 403, "Hii area ni ya admin au moderator tu.", {
+          ip: clientIp, method: req.method, path: url.pathname,
+          event: "video_moderation_list_denied", username: session.username, reason: "insufficient_role"
+        });
+        return;
+      }
+      if (!postgresStore?.listVideoModerationQueue) {
+        sendJson(res, 503, { error: "Video moderation store haipatikani.", code: "video_moderation_unavailable" });
+        return;
+      }
+      const status = sanitizePlainText(url.searchParams.get("status") || "pending", 24).toLowerCase();
+      if (!["pending", "approved", "rejected"].includes(status)) {
+        sendJson(res, 400, { error: "Video moderation status si sahihi." });
+        return;
+      }
+      const items = await postgresStore.listVideoModerationQueue({ status, limit: url.searchParams.get("limit") || 50 });
+      sendJson(res, 200, { items, status, limit: Math.min(100, Math.max(1, Number(url.searchParams.get("limit") || 50) || 50)) });
+      return;
+    }
+
+    if (req.method === "PATCH" && /^\/api\/admin\/media\/videos\/[^/]+$/.test(url.pathname)) {
+      const session = findSession(store, readAuthToken(req));
+      if (!session) {
+        await denyJson(res, 401, "Session imeisha au si sahihi.", {
+          ip: clientIp, method: req.method, path: url.pathname,
+          event: "video_moderation_denied", reason: "missing_or_invalid_session"
+        });
+        return;
+      }
+      if (!canModerateSession(session)) {
+        await denyJson(res, 403, "Hii area ni ya admin au moderator tu.", {
+          ip: clientIp, method: req.method, path: url.pathname,
+          event: "video_moderation_denied", username: session.username, reason: "insufficient_role"
+        });
+        return;
+      }
+      if (!postgresStore?.moderateProductVideo) {
+        sendJson(res, 503, { error: "Video moderation store haipatikani.", code: "video_moderation_unavailable" });
+        return;
+      }
+      const providerId = sanitizePlainText(decodeURIComponent(url.pathname.split("/")[5] || ""), 200);
+      const payload = await collectBody(req);
+      const status = sanitizePlainText(payload?.status || "", 24).toLowerCase();
+      const note = sanitizePlainText(payload?.moderationNote || "", 500);
+      if (!providerId || !["approved", "rejected"].includes(status) || (status === "rejected" && !note)) {
+        sendJson(res, 400, { error: "Video moderation action si sahihi." });
+        return;
+      }
+      const notification = normalizeNotificationRecord({
+        id: `notification-${crypto.randomUUID()}`,
+        type: "message",
+        variant: status === "approved" ? "success" : "warning",
+        title: status === "approved" ? "Video imekubaliwa" : "Video imekataliwa",
+        body: status === "approved" ? "Video ya bidhaa yako imekubaliwa." : `Video ya bidhaa yako imekataliwa. Sababu: ${note}`,
+        isRead: false,
+        createdAt: new Date().toISOString()
+      });
+      const result = await postgresStore.moderateProductVideo(providerId, {
+        status, note, moderatedBy: session.username
+      }, notification);
+      if (!result.updated) {
+        sendJson(res, result.code === "invalid_status" ? 400 : 404, { error: "Video haijapatikana kwa moderation.", code: result.code });
+        return;
+      }
+      await appendAuditLog({
+        time: new Date().toISOString(), ip: clientIp, method: req.method, path: url.pathname,
+        event: "product_video_moderated", username: session.username,
+        providerId, productId: result.productId, status
+      });
+      emitLiveEvent(result.sellerId, "notification", { notification: { ...notification, userId: result.sellerId } });
+      sendJson(res, 200, { ...result, providerId, status, moderationNote: note });
+      return;
+    }
     if (req.method === "PATCH" && /^\/api\/admin\/reports\/[^/]+$/.test(url.pathname)) {
       const token = readAuthToken(req);
       const session = findSession(store, token);
@@ -11057,6 +11155,7 @@ const server = http.createServer(async (req, res) => {
         intent?.status === "ready"
         && intent?.productId
         && intent?.claimedAt
+        && intent?.moderationStatus === "approved"
         && intent?.productStatus === "approved"
       );
       if (!intent || intent.status !== "ready" || (!isOwner && !isPublicProductVideo)) {
@@ -11555,6 +11654,7 @@ const server = http.createServer(async (req, res) => {
       const storedCandidatePayload = await persistIncomingProductImages(candidatePayload);
       const normalizedProduct = normalizeProductRecord(normalizeProductImages({
         ...storedCandidatePayload,
+        mediaItems: applyVideoModerationPolicy(storedCandidatePayload.mediaItems),
         shop: typeof candidatePayload.shop === "string" && candidatePayload.shop.trim() ? candidatePayload.shop.trim() : sellerUser.username,
         status: "approved",
         moderationNote: "",
@@ -11716,6 +11816,7 @@ const server = http.createServer(async (req, res) => {
       const storedCandidateProduct = await persistIncomingProductImages(candidateProduct);
       const updatedProduct = normalizeProductRecord(normalizeProductImages({
         ...storedCandidateProduct,
+        mediaItems: applyVideoModerationPolicy(storedCandidateProduct.mediaItems, existingProduct.mediaItems),
         status: existingProduct.status === "rejected" ? "pending" : existingProduct.status,
         moderationNote: existingProduct.status === "rejected"
           ? "Re-submitted after seller update."

@@ -2122,7 +2122,12 @@ async loadAdminPayments(filters) {
       async loadAdminProducts(status = "") {
         return getAdminApiClient().loadAdminProducts(status);
       },
-      async loadAdminOrders(filters = {}) {
+      async loadAdminVideos(status = "pending") {
+        return getAdminApiClient().loadAdminVideos(status);
+      },
+      async moderateAdminVideo(providerId, payload = {}) {
+        return getAdminApiClient().moderateAdminVideo(providerId, payload);
+      },      async loadAdminOrders(filters = {}) {
         return getAdminApiClient().loadAdminOrders(filters);
       },
 async loadAdminPayments(filters = {}) {
@@ -3945,7 +3950,14 @@ async loadAdminPayments() {
       assertModerationAccess();
       return state.adapter.loadAdminProducts ? state.adapter.loadAdminProducts(status) : [];
     },
-    async loadAdminOrders(filters) {
+    async loadAdminVideos(status = "pending") {
+      assertModerationAccess();
+      return state.adapter.loadAdminVideos ? state.adapter.loadAdminVideos(status) : [];
+    },
+    async moderateAdminVideo(providerId, payload = {}) {
+      assertModerationAccess();
+      return state.adapter.moderateAdminVideo ? state.adapter.moderateAdminVideo(providerId, payload) : null;
+    },    async loadAdminOrders(filters) {
       assertAdminAccess();
       return state.adapter.loadAdminOrders ? state.adapter.loadAdminOrders(filters) : [];
     },

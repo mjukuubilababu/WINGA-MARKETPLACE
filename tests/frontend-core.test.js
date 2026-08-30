@@ -199,7 +199,7 @@ test("marketplace gallery adds one secure ready video slide without collapsing p
     mediaItems: [
       { type: "image", status: "ready", url: "front.jpg" },
       { type: "image", status: "ready", url: "back.jpg" },
-      { type: "video", status: "ready", provider: "cloudflare-stream", providerId: "stream-video-ready" }
+      { type: "video", status: "ready", moderationStatus: "approved", provider: "cloudflare-stream", providerId: "stream-video-ready" }
     ]
   };
   const originalImages = product.images.slice();
@@ -209,6 +209,14 @@ test("marketplace gallery adds one secure ready video slide without collapsing p
   assert.match(html, /data-feed-gallery-total="3"/);
   assert.equal((html.match(/data-feed-gallery-slide=/g) || []).length, 3);
   assert.match(html, /data-video-provider-id="stream-video-ready"/);
+  const pendingHtml = gallery.renderFeedGalleryMarkup({
+    ...product,
+    mediaItems: product.mediaItems.map((item) => item.type === "video"
+      ? { ...item, moderationStatus: "pending" }
+      : item)
+  }, "feed");
+  assert.doesNotMatch(pendingHtml, /data-video-provider-id/);
+  assert.match(pendingHtml, /data-feed-gallery-total="2"/);
   assert.match(playbackSource, /new targetWindow\.IntersectionObserver/);
   assert.match(playbackSource, /tokenCache\.size > maxCachedTokens/);
   assert.match(playbackSource, /cloudflarestream\.com\/\$\{encodeURIComponent\(token\)\}\/iframe/);
@@ -974,6 +982,26 @@ test("remote product actions API client owns product writes and demand signals",
   assert.ok(buildSource.indexOf('"src/api/products-client.js"') < buildSource.indexOf('"src/config/categories.js"'));
 });
 
+test("video moderation is staff-scoped, durable, and backward compatible", () => {
+  const root = path.resolve(__dirname, "..");
+  const serverSource = fs.readFileSync(path.join(root, "backend", "server.js"), "utf8");
+  const dbSource = fs.readFileSync(path.join(root, "backend", "db.js"), "utf8");
+  const migrationSource = fs.readFileSync(path.join(root, "backend", "migrations", "index.js"), "utf8");
+  const adminClientSource = fs.readFileSync(path.join(root, "src", "api", "admin-client.js"), "utf8");
+  const adminControllerSource = fs.readFileSync(path.join(root, "src", "admin", "controller.js"), "utf8");
+
+  assert.match(migrationSource, /2026083004_video_moderation_lifecycle/);
+  assert.match(migrationSource, /moderation_status TEXT NOT NULL DEFAULT 'approved'/);
+  assert.match(dbSource, /'uploading', 'pending'/);
+  assert.match(dbSource, /FOR UPDATE|UPDATE video_upload_intents/);
+  assert.match(serverSource, /intent\?\.moderationStatus === "approved"/);
+  assert.match(serverSource, /canModerateSession\(session\)/);
+  assert.match(serverSource, /event: "product_video_moderated"/);
+  assert.match(adminClientSource, /async function loadAdminVideos/);
+  assert.match(adminClientSource, /async function moderateAdminVideo/);
+  assert.match(adminControllerSource, /data-admin-video-action/);
+  assert.match(adminControllerSource, /loadAdminVideos\("pending"\)/);
+});
 test("remote communications API client owns messages notifications and realtime stream", () => {
   const root = path.resolve(__dirname, "..");
   const dataSource = fs.readFileSync(path.join(root, "data-service.js"), "utf8");
