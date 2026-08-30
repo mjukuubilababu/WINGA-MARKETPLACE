@@ -2722,6 +2722,34 @@ test("PostgreSQL playable video lookup preserves public product visibility conte
   assert.match(calls[0].text, /LEFT JOIN products p ON p\.id = vui\.product_id/);
   assert.deepEqual(calls[0].params, ["stream-video-123"]);
 });
+test("PostgreSQL video pipeline health is durable, aggregate-only, and threshold aware", async () => {
+  const calls = [];
+  const queryClient = {
+    async query(text, params = []) {
+      calls.push({ text: String(text), params });
+      return {
+        rows: [{
+          total: 40, uploading: 2, processing: 3, ready: 30, failed: 5, failedRecent: 2, failedRecent: 2,
+          readyUnclaimed: 4, stalled: 1, oldestPendingAgeSeconds: 1200.5,
+          averageReadyLatencySeconds: 42.25, lastChangedAt: "2026-08-30T15:00:00.000Z"
+        }],
+        rowCount: 1
+      };
+    }
+  };
+  const store = createPostgresStore({ databaseUrl: "postgres://primary.invalid/winga", queryClient });
+  const health = await store.readVideoPipelineHealth({ processingAgeSeconds: 600 });
+
+  assert.deepEqual(health, {
+    total: 40, uploading: 2, processing: 3, ready: 30, failed: 5, failedRecent: 2,
+    readyUnclaimed: 4, stalled: 1, oldestPendingAgeSeconds: 1200.5,
+    averageReadyLatencySeconds: 42.25, lastChangedAt: "2026-08-30T15:00:00.000Z"
+  });
+  assert.match(calls[0].text, /COUNT\(\*\) FILTER \(WHERE status = 'processing'\)/);
+  assert.match(calls[0].text, /updated_at < NOW\(\) - \(\$1::int \* INTERVAL '1 second'\)/);
+  assert.deepEqual(calls[0].params, [600]);
+  assert.doesNotMatch(calls[0].text, /provider_id|seller_id|upload_id/);
+});
 test("PostgreSQL product create atomically claims only a ready seller-owned video", async () => {
   const calls = [];
   const client = {

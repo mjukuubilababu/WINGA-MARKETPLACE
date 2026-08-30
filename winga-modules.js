@@ -9652,6 +9652,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     const requestPlaybackToken = typeof deps.requestPlaybackToken === "function" ? deps.requestPlaybackToken : null;
     const targetWindow = deps.windowObject || window;
     const targetDocument = deps.documentObject || document;
+    const reportMetric = typeof deps.reportMetric === "function" ? deps.reportMetric : () => {};
     const tokenCache = new Map();
     const stateByNode = new WeakMap();
     const maxCachedTokens = Math.max(8, Number(deps.maxCachedTokens || 64));
@@ -9694,14 +9695,22 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 
     async function getPlaybackToken(providerId) {
       const cached = getCachedToken(providerId);
-      if (cached) return cached;
+      if (cached) return { payload: cached, cached: true };
       if (typeof requestPlaybackToken !== "function") {
         const error = new Error("Video playback is unavailable."); // i18n-gate: allow -- internal diagnostic or language-neutral display
         error.code = "video_playback_unavailable";
         throw error;
       }
       const payload = await requestPlaybackToken(providerId);
-      return cacheToken(providerId, payload);
+      return { payload: cacheToken(providerId, payload), cached: false };
+    }
+
+    function emitMetric(event, detail = {}) {
+      try {
+        reportMetric(event, Object.freeze({ ...detail }));
+      } catch (_error) {
+        // Playback telemetry must never affect media or feed behavior.
+      }
     }
 
     function releaseNode(node, options = {}) {
@@ -9732,12 +9741,14 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       state.loading = true;
       state.generation += 1;
       const generation = state.generation;
+      const startedAt = Date.now();
       if (state.releaseTimer) targetWindow.clearTimeout(state.releaseTimer);
       node.classList.add("is-loading");
       node.classList.remove("has-playback-error");
       node.setAttribute("aria-busy", "true");
       try {
-        const playback = await getPlaybackToken(providerId);
+        const tokenResult = await getPlaybackToken(providerId);
+        const playback = tokenResult.payload;
         if (state.generation !== generation || !node.isConnected) return;
         const customerCode = normalizeCustomerCode(playback?.customerCode);
         const token = String(playback?.token || "").trim();
@@ -9754,8 +9765,20 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         iframe.referrerPolicy = "strict-origin-when-cross-origin";
         node.appendChild(iframe);
         node.classList.add("is-playing");
-      } catch (_error) {
-        if (state.generation === generation) node.classList.add("has-playback-error");
+        emitMetric("video_playback_started", {
+          latencyMs: Math.max(0, Date.now() - startedAt),
+          tokenCached: tokenResult.cached,
+          autoplay: options.autoplay !== false,
+          saveData: isSaveDataEnabled()
+        });
+      } catch (error) {
+        if (state.generation === generation) {
+          node.classList.add("has-playback-error");
+          emitMetric("video_playback_failed", {
+            latencyMs: Math.max(0, Date.now() - startedAt),
+            code: String(error?.code || "video_playback_failed").slice(0, 80)
+          });
+        }
       } finally {
         if (state.generation === generation) {
           state.loading = false;

@@ -5312,6 +5312,48 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     );
     return result.rows[0] || null;
   }
+  async function readVideoPipelineHealth(options = {}) {
+    const processingAgeSeconds = Math.max(60, Math.min(Number(options.processingAgeSeconds || 900) || 900, 86400));
+    const result = await query(
+      `SELECT
+         COUNT(*)::int AS total,
+         COUNT(*) FILTER (WHERE status = 'uploading')::int AS uploading,
+         COUNT(*) FILTER (WHERE status = 'processing')::int AS processing,
+         COUNT(*) FILTER (WHERE status = 'ready')::int AS ready,
+         COUNT(*) FILTER (WHERE status = 'failed')::int AS failed,
+         COUNT(*) FILTER (
+           WHERE status = 'failed' AND updated_at >= NOW() - INTERVAL '24 hours'
+         )::int AS "failedRecent",
+         COUNT(*) FILTER (WHERE status = 'ready' AND product_id IS NULL)::int AS "readyUnclaimed",
+         COUNT(*) FILTER (
+           WHERE status IN ('uploading', 'processing')
+             AND updated_at < NOW() - ($1::int * INTERVAL '1 second')
+         )::int AS stalled,
+         COALESCE(EXTRACT(EPOCH FROM (NOW() - MIN(updated_at))) FILTER (
+           WHERE status IN ('uploading', 'processing')
+         ), 0)::float8 AS "oldestPendingAgeSeconds",
+         COALESCE(AVG(EXTRACT(EPOCH FROM (updated_at - created_at))) FILTER (
+           WHERE status = 'ready'
+         ), 0)::float8 AS "averageReadyLatencySeconds",
+         COALESCE(MAX(updated_at), TO_TIMESTAMP(0)) AS "lastChangedAt"
+       FROM video_upload_intents`,
+      [processingAgeSeconds]
+    );
+    const row = result.rows[0] || {};
+    return {
+      total: Number(row.total || 0),
+      uploading: Number(row.uploading || 0),
+      processing: Number(row.processing || 0),
+      ready: Number(row.ready || 0),
+      failed: Number(row.failed || 0),
+      failedRecent: Number(row.failedRecent || 0),
+      readyUnclaimed: Number(row.readyUnclaimed || 0),
+      stalled: Number(row.stalled || 0),
+      oldestPendingAgeSeconds: Math.max(0, Number(row.oldestPendingAgeSeconds || 0)),
+      averageReadyLatencySeconds: Math.max(0, Number(row.averageReadyLatencySeconds || 0)),
+      lastChangedAt: row.lastChangedAt || null
+    };
+  }
   async function applyVideoUploadWebhook(video = {}) {
     const result = await query(
       `UPDATE video_upload_intents
@@ -5435,6 +5477,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     createVideoUploadIntent,
     readVideoUploadIntent,
     readPlayableVideo,
+    readVideoPipelineHealth,
     applyVideoUploadWebhook,
     close
   };

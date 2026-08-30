@@ -1,0 +1,30 @@
+name: Winga Video Pipeline Health
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/10 * * * *"
+
+concurrency:
+  group: winga-video-pipeline-health
+  cancel-in-progress: true
+
+jobs:
+  video-health:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+    env:
+      OPS_HEALTH_TOKEN: ${{ secrets.OPS_HEALTH_TOKEN }}
+      VIDEO_HEALTH_URL: https://winga-pflp.onrender.com/api/ops/media/videos/health
+      VIDEO_HEALTH_TIMEOUT_MS: "15000"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - name: Enforce video pipeline health gate
+        run: npm run monitor:video

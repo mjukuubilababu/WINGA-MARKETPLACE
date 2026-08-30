@@ -14918,6 +14918,7 @@ function getProductVideoUploadController() {
 }
 
 async function startProductVideoUpload(file) {
+  const startedAt = getPerfNow();
   resetProductVideoUpload({ clearInput: false });
   productVideoUploadState.phase = "preparing";
   renderProductVideoUploadState();
@@ -14930,12 +14931,19 @@ async function startProductVideoUpload(file) {
         renderProductVideoUploadState();
       }
     });
+    reportClientEvent("info", "product_video_upload_ready", "Product video upload completed.", {
+      category: "media",
+      latencyMs: Math.max(0, Math.round(getPerfNow() - startedAt))
+    });
   } catch (error) {
     if (error?.code === "video_upload_cancelled") return;
     productVideoUploadState.phase = "error";
     productVideoUploadState.progress = 0;
     renderProductVideoUploadState();
-    captureClientError("product_video_upload_failed", error, { category: "media" });
+    captureClientError("product_video_upload_failed", error, {
+      category: "media",
+      latencyMs: Math.max(0, Math.round(getPerfNow() - startedAt))
+    });
   }
 }
 uploadButton.addEventListener("click", async () => {
@@ -16566,15 +16574,17 @@ function logout() {
 registerAppEvent(window, "winga:api-metric", (event) => {
   const detail = event?.detail || {};
   const endpoint = String(detail.endpoint || "");
-  if (!endpoint.includes("/auth/")) {
-    return;
-  }
+  const isAuthMetric = endpoint.includes("/auth/");
+  const isVideoMetric = endpoint.includes("/media/videos/");
+  if (!isAuthMetric && !isVideoMetric) return;
   const latencyMs = Number(detail.latencyMs || 0);
-  if (detail.ok && latencyMs < 1500) {
-    return;
-  }
+  const healthyThresholdMs = isVideoMetric ? 1200 : 1500;
+  if (detail.ok && latencyMs < healthyThresholdMs) return;
   window.setTimeout(() => {
-    reportClientEvent(detail.ok ? "info" : "warn", "auth_api_latency", "Auth API latency metric captured.", {
+    reportClientEvent(detail.ok ? "info" : "warn", isVideoMetric ? "video_api_latency" : "auth_api_latency", isVideoMetric
+      ? "Video API latency metric captured."
+      : "Auth API latency metric captured.", {
+      category: isVideoMetric ? "media" : "auth",
       endpoint,
       status: Number(detail.status || 0),
       code: String(detail.code || ""),
@@ -16582,7 +16592,7 @@ registerAppEvent(window, "winga:api-metric", (event) => {
       latencyMs: Math.round(latencyMs)
     });
   }, 0);
-}, undefined, "window:winga-api-metric:auth-latency");
+}, undefined, "window:winga-api-metric:critical-latency");
 
 registerAppEvent(window, "winga:products-hydrated", (event) => {
   const detail = event?.detail || {};
@@ -19449,7 +19459,13 @@ function getMarketplaceVideoPlaybackTools() {
       ? factory({
         requestPlaybackToken: (providerId) => window.WingaDataLayer?.requestVideoPlayback?.(providerId),
         windowObject: window,
-        documentObject: document
+        documentObject: document,
+        reportMetric: (event, detail) => reportClientEvent(
+          event === "video_playback_failed" ? "warn" : "info",
+          event,
+          "Video playback lifecycle metric captured.",
+          { category: "media", ...detail }
+        )
       })
       : {};
   }

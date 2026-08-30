@@ -216,6 +216,12 @@ test("marketplace gallery adds one secure ready video slide without collapsing p
   assert.match(buildSource, /"src\/marketplace\/video-playback\.js"/);
   assert.match(serverSource, /SESSION_ONLY_STORE_TABLES/);
   assert.match(serverSource, /key: "\/api\/media\/videos\/:providerId\/playback-token"/);
+  assert.match(playbackSource, /reportMetric\(event, Object\.freeze\(\{ \.\.\.detail \}\)\)/);
+  assert.match(playbackSource, /video_playback_started/);
+  assert.match(playbackSource, /video_playback_failed/);
+  assert.doesNotMatch(playbackSource, /emitMetric\([^\n]+providerId/);
+  assert.match(serverSource, /\/api\/ops\/media\/videos\/health/);
+  assert.match(serverSource, /readVideoPipelineHealth/);
 });
 test("style intelligence builds private aggregate buyer profiles and bounded product scores", () => {
   const root = path.resolve(__dirname, "..");

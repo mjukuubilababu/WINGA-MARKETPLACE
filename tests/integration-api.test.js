@@ -165,7 +165,16 @@ test("ops read replica health requires authorization and exposes no database det
   assert.equal(databaseUnavailable.status, 503);
   assert.equal(databaseUnavailableBody.readiness, "unavailable");
   assert.equal(databaseUnavailable.headers.get("cache-control"), "no-store");
-});
+
+  const videoHealthDenied = await fetch(`${baseUrl}/ops/media/videos/health`);
+  assert.equal(videoHealthDenied.status, 401);
+  const videoHealthUnavailable = await fetch(`${baseUrl}/ops/media/videos/health`, {
+    headers: { "X-Ops-Health-Token": "integration-ops-health-token" }
+  });
+  const videoHealthUnavailableBody = await videoHealthUnavailable.json();
+  assert.equal(videoHealthUnavailable.status, 503);
+  assert.equal(videoHealthUnavailableBody.readiness, "unavailable");
+  assert.equal(videoHealthUnavailable.headers.get("cache-control"), "no-store");});
 
 test("ops intelligence recovery endpoints require token and fail closed without durable queue", async () => {
   const denied = await fetch(`${baseUrl}/ops/intelligence/queue-items`);

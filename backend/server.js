@@ -5998,6 +5998,57 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (req.method === "GET" && url.pathname === "/api/ops/media/videos/health") {
+    if (!isValidOpsHealthToken(req)) {
+      requestMeta.statusCode = OPS_HEALTH_TOKEN ? 401 : 503;
+      logRouteSummary(requestMeta, { lightweight: true, auth: "ops_video_health_denied" });
+      sendJson(res, requestMeta.statusCode, {
+        ok: false,
+        error: OPS_HEALTH_TOKEN ? "Unauthorized" : "OPS_HEALTH_TOKEN is not configured."
+      }, { "Cache-Control": "no-store" });
+      return;
+    }
+    if (!postgresStore?.readVideoPipelineHealth) {
+      requestMeta.statusCode = 503;
+      sendJson(res, 503, {
+        ok: false,
+        readiness: "unavailable",
+        error: "Video pipeline health is unavailable."
+      }, { "Cache-Control": "no-store" });
+      return;
+    }
+    const processingAgeSeconds = Math.max(60, Math.min(
+      Number(process.env.VIDEO_PROCESSING_STALL_SECONDS || 900) || 900,
+      86400
+    ));
+    const failedThreshold = Math.max(1, Math.min(
+      Number(process.env.VIDEO_FAILED_ALERT_THRESHOLD || 25) || 25,
+      100000
+    ));
+    const health = await postgresStore.readVideoPipelineHealth({ processingAgeSeconds });
+    const alerts = [];
+    if (health.stalled > 0) alerts.push("stalled_video_processing");
+    if (health.failedRecent >= failedThreshold) alerts.push("video_failure_threshold_exceeded");
+    const readiness = alerts.length ? "degraded" : "ready";
+    const statusCode = readiness === "degraded" ? 503 : 200;
+    requestMeta.statusCode = statusCode;
+    logRouteSummary(requestMeta, {
+      lightweight: true,
+      readiness,
+      videoPending: health.uploading + health.processing,
+      videoStalled: health.stalled,
+      videoFailedRecent: health.failedRecent
+    });
+    sendJson(res, statusCode, {
+      ok: readiness === "ready",
+      readiness,
+      time: new Date().toISOString(),
+      health,
+      alerts,
+      thresholds: { processingAgeSeconds, failed: failedThreshold }
+    }, { "Cache-Control": "no-store" });
+    return;
+  }
   if (req.method === "GET" && url.pathname === "/api/ops/intelligence/queue-health") {
     if (!isValidOpsHealthToken(req)) {
       requestMeta.statusCode = OPS_HEALTH_TOKEN ? 401 : 503;
