@@ -18,7 +18,12 @@ const {
   readCloudflareStreamConfig,
   verifyCloudflareStreamWebhook
 } = require("./cloudflare-stream");
-const { isVideoSafetyConfigured, readVideoSafetyConfig } = require("./video-safety");
+const {
+  isVideoSafetyConfigured,
+  normalizeVideoSafetyResult,
+  readVideoSafetyConfig,
+  verifyVideoSafetyResult
+} = require("./video-safety");
 const { getOrSetCache, closeCache } = require("./cache");
 
 const PORT = process.env.PORT || 3000;
@@ -3322,7 +3327,8 @@ function isServerToServerWebhookPath(pathname = "") {
   return pathname === "/api/payments/webhook"
     || pathname === "/api/payments/refunds/webhook"
     || pathname === "/api/intelligence/queue-events"
-    || pathname === "/api/media/videos/webhook";
+    || pathname === "/api/media/videos/webhook"
+    || pathname === "/api/media/videos/safety-results";
 }
 
 function isCsrfExemptPath(pathname = "") {
@@ -11137,6 +11143,44 @@ const server = http.createServer(async (req, res) => {
         providerPayload: { readyToStream: video.readyToStream, status: video.status, receivedAt: new Date().toISOString() }
       });
       sendJson(res, updated ? 200 : 202, { ok: true, matched: Boolean(updated), status: video.status });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/media/videos/safety-results") {
+      const envelope = await collectBody(req, { includeRaw: true });
+      const verification = verifyVideoSafetyResult(
+        envelope.raw,
+        req.headers,
+        VIDEO_SAFETY_CONFIG.callbackSecret,
+        { maxAgeSeconds: VIDEO_SAFETY_CONFIG.maxAgeSeconds }
+      );
+      if (!verification.ok) {
+        await denyJson(res, 401, "Video safety signature si sahihi.", {
+          ip: clientIp, method: req.method, path: url.pathname,
+          event: "video_safety_result_denied", reason: verification.reason
+        });
+        return;
+      }
+      if (!VIDEO_SAFETY_ENABLED || !postgresStore?.applyVideoSafetyResult) {
+        sendJson(res, 503, { ok: false, code: "video_safety_unavailable" });
+        return;
+      }
+      const result = normalizeVideoSafetyResult(envelope.payload);
+      if (!result.providerId || !result.resultId) {
+        sendJson(res, 400, { ok: false, code: "invalid_video_safety_result" });
+        return;
+      }
+      const applied = await postgresStore.applyVideoSafetyResult(result);
+      if (!applied.updated) {
+        sendJson(res, applied.code === "invalid_result" ? 400 : 409, { ok: false, code: applied.code || "video_safety_result_conflict" });
+        return;
+      }
+      await appendAuditLog({
+        time: new Date().toISOString(), ip: clientIp, method: req.method, path: url.pathname,
+        event: "video_safety_result_applied", targetProductId: applied.productId || "",
+        reason: result.verdict
+      }).catch(() => {});
+      sendJson(res, 200, { ok: true, matched: true, status: result.verdict });
       return;
     }
 

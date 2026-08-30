@@ -6,6 +6,7 @@ const path = require("node:path");
 const { spawn } = require("node:child_process");
 const crypto = require("node:crypto");
 const sharp = require("sharp");
+const { signVideoSafetyPayload } = require("../backend/video-safety");
 
 const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "winga-api-test-"));
 const port = 43000 + Math.floor(Math.random() * 1000);
@@ -121,6 +122,10 @@ test.before(async () => {
       ALLOWED_ORIGINS: "http://localhost:3000,https://wingamarket.com",
       PAYMENT_WEBHOOK_SECRET: "integration-webhook-secret",
       OPS_HEALTH_TOKEN: "integration-ops-health-token",
+      VIDEO_SAFETY_SCAN_WEBHOOK_URL: "https://scanner.example/scan",
+      VIDEO_SAFETY_SCAN_WEBHOOK_SECRET: "integration-video-delivery-secret-0001",
+      VIDEO_SAFETY_RESULT_WEBHOOK_SECRET: "integration-video-callback-secret-0001",
+      VIDEO_SAFETY_RESULT_CALLBACK_URL: "https://wingamarket.com/api/media/videos/safety-results",
       DATABASE_URL: ""
     },
     stdio: "ignore"
@@ -175,6 +180,41 @@ test("ops read replica health requires authorization and exposes no database det
   assert.equal(videoHealthUnavailable.status, 503);
   assert.equal(videoHealthUnavailableBody.readiness, "unavailable");
   assert.equal(videoHealthUnavailable.headers.get("cache-control"), "no-store");});
+
+test("signed video safety callbacks reject tampering and fail closed without durable storage", async () => {
+  const rawBody = JSON.stringify({
+    providerId: "stream-safety-integration",
+    resultId: "result-safety-integration",
+    verdict: "safe",
+    riskScore: 0.05
+  });
+  const timestamp = String(Math.floor(Date.now() / 1000));
+  const denied = await fetch(`${baseUrl}/media/videos/safety-results`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Winga-Video-Safety-Timestamp": timestamp,
+      "X-Winga-Video-Safety-Signature": "0".repeat(64)
+    },
+    body: rawBody
+  });
+  assert.equal(denied.status, 401);
+
+  const signature = signVideoSafetyPayload(timestamp, rawBody, "integration-video-callback-secret-0001");
+  const unavailable = await fetch(`${baseUrl}/media/videos/safety-results`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Winga-Video-Safety-Timestamp": timestamp,
+      "X-Winga-Video-Safety-Signature": signature
+    },
+    body: rawBody
+  });
+  const unavailableBody = await unavailable.json();
+  assert.equal(unavailable.status, 503);
+  assert.equal(unavailableBody.code, "video_safety_unavailable");
+  assert.equal(unavailable.headers.get("cache-control"), "no-store");
+});
 
 test("ops intelligence recovery endpoints require token and fail closed without durable queue", async () => {
   const denied = await fetch(`${baseUrl}/ops/intelligence/queue-items`);
