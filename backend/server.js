@@ -11151,6 +11151,12 @@ const server = http.createServer(async (req, res) => {
       const intent = await postgresStore?.readPlayableVideo?.(videoPlaybackMatch[1]);
       const viewerUsername = String(session?.username || "").trim();
       const isOwner = Boolean(viewerUsername && intent?.sellerId === viewerUsername);
+      const isStaffPreview = Boolean(
+        canModerateSession(session)
+        && intent?.status === "ready"
+        && intent?.productId
+        && intent?.claimedAt
+      );
       const isPublicProductVideo = Boolean(
         intent?.status === "ready"
         && intent?.productId
@@ -11158,7 +11164,7 @@ const server = http.createServer(async (req, res) => {
         && intent?.moderationStatus === "approved"
         && intent?.productStatus === "approved"
       );
-      if (!intent || intent.status !== "ready" || (!isOwner && !isPublicProductVideo)) {
+      if (!intent || intent.status !== "ready" || (!isOwner && !isStaffPreview && !isPublicProductVideo)) {
         sendJson(res, 404, {
           error: "Video haijapatikana.",
           code: "video_playback_not_found"
@@ -11167,6 +11173,14 @@ const server = http.createServer(async (req, res) => {
       }
       try {
         const playback = await CLOUDFLARE_STREAM_CLIENT.createPlaybackToken(intent.providerId);
+        if (isStaffPreview && !isOwner && !isPublicProductVideo) {
+          await appendAuditLog({
+            time: new Date().toISOString(), ip: clientIp, method: req.method, path: url.pathname,
+            event: "product_video_review_opened", username: session.username,
+            providerId: intent.providerId, productId: intent.productId,
+            moderationStatus: intent.moderationStatus || "pending"
+          });
+        }
         sendJson(res, 200, playback, { "Cache-Control": "private, no-store" });
       } catch (error) {
         sendJson(res, 502, { error: "Playback token haikupatikana.", code: error?.code || "video_playback_failed" });

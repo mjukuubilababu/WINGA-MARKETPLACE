@@ -286,6 +286,7 @@
                      "promotion.submittedBody":  "تم إرسال الترويج وسيظهر بعد التفعيل أو المراجعة.",
                      "promotion.sellerAccessBody":  "سجل الدخول بحساب بائع لفتح خطط الظهور.",
                      "promotion.ownerOnlyBody":  "يمكن للبائع مالك هذا المنتج فقط الترويج له.",
+                     "admin.videoPreviewAction":  "معاينة الفيديو للمراجعة",
                      "admin.videoModerationReasonPlaceholder":  "يلزم سبب عند رفض الفيديو",
                      "admin.videoApproveAction":  "الموافقة على الفيديو",
                      "admin.videoRejectAction":  "رفض الفيديو",

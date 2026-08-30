@@ -282,6 +282,7 @@
                      "promotion.submittedBody":  "Promosheni yako imetumwa. Itaonekana baada ya kuwashwa au kukaguliwa.",
                      "promotion.sellerAccessBody":  "Ingia kwa akaunti ya muuzaji kufungua mipango ya kuonekana.",
                      "promotion.ownerOnlyBody":  "Muuzaji anayemiliki bidhaa hii pekee ndiye anayeweza kuitangaza.",
+                     "admin.videoPreviewAction":  "Cheza video kwa ukaguzi",
                      "admin.videoModerationReasonPlaceholder":  "Sababu inahitajika unapokataa video",
                      "admin.videoApproveAction":  "Kubali Video",
                      "admin.videoRejectAction":  "Kataa Video",

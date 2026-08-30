@@ -997,9 +997,13 @@ test("video moderation is staff-scoped, durable, and backward compatible", () =>
   assert.match(serverSource, /intent\?\.moderationStatus === "approved"/);
   assert.match(serverSource, /canModerateSession\(session\)/);
   assert.match(serverSource, /event: "product_video_moderated"/);
+  assert.match(serverSource, /const isStaffPreview = Boolean\(/);
+  assert.match(serverSource, /event: "product_video_review_opened"/);
   assert.match(adminClientSource, /async function loadAdminVideos/);
   assert.match(adminClientSource, /async function moderateAdminVideo/);
   assert.match(adminControllerSource, /data-admin-video-action/);
+  assert.match(adminControllerSource, /"data-video-playback": "true"/);
+  assert.match(adminControllerSource, /deps\.bindMediaInteractions\?\.\(panel\)/);
   assert.match(adminControllerSource, /loadAdminVideos\("pending"\)/);
 });
 test("remote communications API client owns messages notifications and realtime stream", () => {

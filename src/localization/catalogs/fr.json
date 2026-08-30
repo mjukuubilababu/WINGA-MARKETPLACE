@@ -282,6 +282,7 @@
                      "promotion.submittedBody":  "Votre promotion a ete envoyee. Elle apparaitra apres activation ou verification.",
                      "promotion.sellerAccessBody":  "Connectez-vous avec un compte vendeur pour ouvrir les plans de visibilite.",
                      "promotion.ownerOnlyBody":  "Seul le vendeur proprietaire de ce produit peut le promouvoir.",
+                     "admin.videoPreviewAction":  "Previsualiser la video pour moderation",
                      "admin.videoModerationReasonPlaceholder":  "Un motif est requis pour refuser la video",
                      "admin.videoApproveAction":  "Approuver la video",
                      "admin.videoRejectAction":  "Refuser la video",

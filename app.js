@@ -10944,7 +10944,8 @@ const { renderAdminView: renderAdminViewFromController } = window.WingaModules.a
   translate: translateUi,
   confirmAction,
   reportEvent: (...args) => reportClientEvent(...args),
-  captureError: (...args) => captureClientError(...args)
+  captureError: (...args) => captureClientError(...args),
+  bindMediaInteractions: (scope) => bindFeedGalleryInteractions(scope)
 });
 
 const {

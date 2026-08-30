@@ -1033,13 +1033,29 @@
       );
       const poster = deps.sanitizeImageSource(video.posterUrl || "", "");
       if (poster) {
-        card.appendChild(deps.createResponsiveImage({
+        const preview = deps.createElement("div", {
+          className: "feed-video-playback admin-video-preview",
+          attributes: {
+            role: "button",
+            tabindex: "0",
+            "aria-label": t("admin.videoPreviewAction", "Preview video for moderation"),
+            "data-video-playback": "true",
+            "data-video-provider-id": video.providerId,
+            "data-video-title": video.productName || video.productId || "Product video"
+          }
+        });
+        preview.appendChild(deps.createResponsiveImage({
           src: poster,
           alt: `${video.productName || video.productId || "Product"} video poster`,
           fallbackSrc: deps.getImageFallbackDataUri("VIDEO"),
-          className: "admin-verification-image",
+          className: "admin-verification-image feed-video-poster",
           attributes: { loading: "lazy", decoding: "async" }
         }));
+        preview.appendChild(deps.createElement("span", {
+          className: "feed-video-play-icon",
+          attributes: { "aria-hidden": "true" }
+        }));
+        card.appendChild(preview);
       }
       const note = deps.createElement("textarea", {
         attributes: {
@@ -2499,6 +2515,7 @@
       const body = await createAdminBody(state);
       panel.replaceChildren(body);
       bindAdminActions(panel);
+      deps.bindMediaInteractions?.(panel);
     }
 
     return { renderAdminView };

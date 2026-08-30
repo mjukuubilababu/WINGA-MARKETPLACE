@@ -282,6 +282,7 @@
                      "promotion.submittedBody":  "Your promotion was submitted. It will appear after activation or review.",
                      "promotion.sellerAccessBody":  "Sign in with a seller account to open visibility plans.",
                      "promotion.ownerOnlyBody":  "Only the seller who owns this product can promote it.",
+                     "admin.videoPreviewAction":  "Preview video for moderation",
                      "admin.videoModerationReasonPlaceholder":  "Reason required when rejecting video",
                      "admin.videoApproveAction":  "Approve Video",
                      "admin.videoRejectAction":  "Reject Video",
