@@ -237,6 +237,7 @@ const RATE_LIMIT_RULES = {
 };
 const STORE_TABLE_COUNT = 13;
 const PRODUCT_LIST_STORE_TABLES = Object.freeze(["users", "sessions"]);
+const SESSION_ONLY_STORE_TABLES = Object.freeze(["sessions"]);
 
 const READ_RATE_LIMIT_RULES = {
   "/api/products": { limit: 240, windowMs: RATE_LIMIT_WINDOW_MS },
@@ -1995,10 +1996,10 @@ function getCspHeader(req) {
     "style-src 'self'",
     "style-src-elem 'self' 'unsafe-inline'",
     "style-src-attr 'unsafe-inline'",
-    `connect-src ${allowedOrigins.join(" ")}`,
+    `connect-src ${allowedOrigins.join(" ")} https://*.cloudflarestream.com https://*.videodelivery.net`,
     "worker-src 'self'",
     "manifest-src 'self'",
-    "frame-src 'none'",
+    "frame-src https://*.cloudflarestream.com https://*.videodelivery.net",
     "upgrade-insecure-requests"
   ].join("; ");
 }
@@ -5669,7 +5670,13 @@ function getRateLimitRule(pathname, method = "GET") {
       key: "/api/admin/promotions/:id/review"
     };
   }
-  if (/^\/api\/notifications\/[^/]+\/read$/.test(pathname)) {
+  if (/^\/api\/media\/videos\/[^/]+\/playback-token$/.test(pathname) && normalizedMethod === "POST") {
+    return {
+      limit: 120,
+      windowMs: RATE_LIMIT_WINDOW_MS,
+      key: "/api/media/videos/:providerId/playback-token"
+    };
+  }  if (/^\/api\/notifications\/[^/]+\/read$/.test(pathname)) {
     return {
       limit: 40,
       windowMs: RATE_LIMIT_WINDOW_MS,
@@ -6234,8 +6241,12 @@ const server = http.createServer(async (req, res) => {
     || url.pathname === "/api/auth/signup"
     || url.pathname === "/api/auth/admin-login"
     || url.pathname === "/api/auth/session";
-  const requestedStoreTables = postgresStore && req.method === "GET" && url.pathname === "/api/products"
-    ? PRODUCT_LIST_STORE_TABLES
+  const isVideoPlaybackRequest = req.method === "POST"
+    && /^\/api\/media\/videos\/[^/]+\/playback-token$/.test(url.pathname);
+  const requestedStoreTables = postgresStore
+    ? (req.method === "GET" && url.pathname === "/api/products"
+      ? PRODUCT_LIST_STORE_TABLES
+      : (isVideoPlaybackRequest ? SESSION_ONLY_STORE_TABLES : undefined))
     : undefined;
   const storeTablesRequested = requestedStoreTables?.length || STORE_TABLE_COUNT;
   const storeTablesSkipped = requestedStoreTables ? STORE_TABLE_COUNT - storeTablesRequested : 0;
@@ -10922,14 +10933,20 @@ const server = http.createServer(async (req, res) => {
     const videoPlaybackMatch = url.pathname.match(/^\/api\/media\/videos\/([a-zA-Z0-9_-]{8,64})\/playback-token$/);
     if (req.method === "POST" && videoPlaybackMatch) {
       const session = findSession(store, readAuthToken(req));
-      const seller = ensureMarketplaceUser(store, session, res);
-      if (!seller) return;
-      const intent = await postgresStore?.readVideoUploadIntent?.(videoPlaybackMatch[1], seller.username);
-      if (!intent || intent.status !== "ready") {
-        sendJson(res, intent ? 409 : 404, {
-          error: intent ? "Video bado haijawa tayari." : "Video haijapatikana.",
-          code: intent ? "video_not_ready" : "video_upload_not_found"
-        });
+      const intent = await postgresStore?.readPlayableVideo?.(videoPlaybackMatch[1]);
+      const viewerUsername = String(session?.username || "").trim();
+      const isOwner = Boolean(viewerUsername && intent?.sellerId === viewerUsername);
+      const isPublicProductVideo = Boolean(
+        intent?.status === "ready"
+        && intent?.productId
+        && intent?.claimedAt
+        && intent?.productStatus === "approved"
+      );
+      if (!intent || intent.status !== "ready" || (!isOwner && !isPublicProductVideo)) {
+        sendJson(res, 404, {
+          error: "Video haijapatikana.",
+          code: "video_playback_not_found"
+        }, { "Cache-Control": "private, no-store" });
         return;
       }
       try {

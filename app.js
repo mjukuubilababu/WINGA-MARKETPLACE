@@ -12939,6 +12939,7 @@ let buyerSellerAffinity = {};
 let productEngagementObserver = null;
 const productCardEngagementState = new WeakMap();
 let marketplaceGalleryTools = null;
+let marketplaceVideoPlaybackTools = null;
 let marketplaceContinuationTools = null;
 let marketplaceVariantTools = null;
 let recentCategorySelections = [];
@@ -19433,13 +19434,27 @@ function getMarketplaceGalleryTools() {
         getProductCardForEngagement,
         normalizeProductIdValue,
         noteProductEngagementSignal,
-        variationSwipeWeight: SELLER_INTEREST_SIGNAL_WEIGHTS.variation_swipe
+        variationSwipeWeight: SELLER_INTEREST_SIGNAL_WEIGHTS.variation_swipe,
+        translateUi
       })
       : {};
   }
   return marketplaceGalleryTools;
 }
 
+function getMarketplaceVideoPlaybackTools() {
+  if (!marketplaceVideoPlaybackTools) {
+    const factory = window.WingaModules?.marketplace?.createVideoPlaybackController;
+    marketplaceVideoPlaybackTools = typeof factory === "function"
+      ? factory({
+        requestPlaybackToken: (providerId) => window.WingaDataLayer?.requestVideoPlayback?.(providerId),
+        windowObject: window,
+        documentObject: document
+      })
+      : {};
+  }
+  return marketplaceVideoPlaybackTools;
+}
 function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
   return getMarketplaceGalleryTools().renderFeedGalleryMarkup?.(product, surface, options) || "";
 }
@@ -19449,6 +19464,7 @@ function getProductCardForEngagement(node) {
 }
 
 function disposeFeedGalleryBinding(carousel) {
+  getMarketplaceVideoPlaybackTools().dispose?.(carousel);
   getMarketplaceGalleryTools().disposeFeedGalleryBinding?.(carousel);
 }
 
@@ -19580,6 +19596,7 @@ function bindProductEngagementSignals(scope = document) {
 
 function bindFeedGalleryInteractions(scope = document) {
   getMarketplaceGalleryTools().bindFeedGalleryInteractions?.(scope);
+  getMarketplaceVideoPlaybackTools().bind?.(scope);
 }
 
 function bindShowcaseCardClicks(scope) {

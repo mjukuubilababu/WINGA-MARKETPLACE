@@ -20,7 +20,8 @@
       getProductCardForEngagement = (node) => node?.closest?.(".product-card[data-open-product], .showcase-card[data-open-product], .seller-product-card[data-open-product], [data-product-card][data-open-product]"),
       normalizeProductIdValue = (value) => String(value || "").trim(),
       noteProductEngagementSignal = () => {},
-      variationSwipeWeight = 12
+      variationSwipeWeight = 12,
+      translateUi = (_key, _variables, fallbackText) => String(fallbackText || "")
     } = deps;
 
     function renderFallbackImageMarkup({
@@ -65,7 +66,14 @@
     function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
       const safeImages = getRenderableMarketplaceImages(product);
       const images = safeImages.length > 0 ? safeImages : [getImageFallbackDataUri("WINGA")];
-      const total = images.length;
+      const videoItems = (Array.isArray(product?.mediaItems) ? product.mediaItems : [])
+        .filter((item) => item?.type === "video"
+          && item?.status === "ready"
+          && item?.provider === "cloudflare-stream"
+          && /^[a-zA-Z0-9_-]{8,64}$/.test(String(item?.providerId || "").trim()))
+        .slice(0, 1);
+      const imageTotal = images.length;
+      const total = imageTotal + videoItems.length;
       const isVariantEntry = isVariantFeedEntry(product);
       const requestedInitialIndex = Number(
         options?.initialImageIndex
@@ -74,8 +82,8 @@
           : (product?.feedInitialImageIndex ?? product?.visibleImageIndex))
         ?? 0
       );
-      const initialImageIndex = total > 1
-        ? Math.max(0, Math.min(total - 1, Number.isFinite(requestedInitialIndex) ? requestedInitialIndex : 0))
+      const initialImageIndex = imageTotal > 1
+        ? Math.max(0, Math.min(imageTotal - 1, Number.isFinite(requestedInitialIndex) ? requestedInitialIndex : 0))
         : 0;
       const currentLabel = total > 1 ? `${initialImageIndex + 1}/${total}` : "";
       const priorityLimit = Math.max(0, Number(options?.priorityCount ?? 0) || 0);
@@ -132,7 +140,7 @@
           </div>
         `;
       }
-      const slides = images.map((src, index) => {
+      const imageSlides = images.map((src, index) => {
         const safeSrc = sanitizeImageSource(String(src || "").trim(), getImageFallbackDataUri("WINGA"));
         return `
           <div class="feed-gallery-carousel-slide feed-gallery-tile" data-feed-gallery-slide="${index}">
@@ -160,6 +168,26 @@
           </div>
         `;
       }).join("");
+      const playbackLabel = translateUi("video.playProduct", {}, "Play product video");
+      const videoPoster = sanitizeImageSource(String(images[0] || "").trim(), getImageFallbackDataUri("WINGA"));
+      const videoSlides = videoItems.map((item, videoIndex) => `
+        <div class="feed-gallery-carousel-slide feed-gallery-tile feed-video-slide"
+          data-feed-gallery-slide="${imageTotal + videoIndex}"
+          data-feed-video-slide="true">
+          <div class="feed-video-playback"
+            data-video-playback="true"
+            data-video-provider-id="${escapeHtml(String(item.providerId || "").trim())}"
+            data-video-title="${escapeHtml(product?.name || playbackLabel)}"
+            role="button"
+            tabindex="0"
+            aria-label="${escapeHtml(playbackLabel)}"
+            aria-busy="false">
+            <img class="feed-video-poster" src="${escapeHtml(videoPoster)}" alt="" loading="lazy" decoding="async" draggable="false">
+            <span class="feed-video-play-icon" aria-hidden="true"></span>
+          </div>
+        </div>
+      `).join("");
+      const slides = `${imageSlides}${videoSlides}`;
 
       return `
         <div class="product-gallery media-gallery feed-gallery-preview feed-gallery-carousel fit-mode-${escapeHtml(fitMode)}"

@@ -2038,6 +2038,9 @@ async loadAdminPayments(filters) {
       async readVideoUploadStatus(providerId) {
         return getProductsApiClient().readVideoUploadStatus(providerId);
       },
+      async requestVideoPlayback(providerId) {
+        return getProductsApiClient().requestVideoPlayback(providerId);
+      },
       async createProduct(product) {
         return getProductsApiClient().createProduct(product);
       },
@@ -2046,8 +2049,7 @@ async loadAdminPayments(filters) {
       },
       async deleteProduct(productId) {
         return getProductsApiClient().deleteProduct(productId);
-      },
-        async loadAnalytics() {
+      },        async loadAnalytics() {
           return fetchJson(`${baseUrl}/analytics/summary`, {
             headers: {
               ...createAuthHeaders()
@@ -3802,6 +3804,14 @@ async loadAdminPayments() {
         throw error;
       }
       return state.adapter.readVideoUploadStatus(providerId);
+    },
+    async requestVideoPlayback(providerId) {
+      if (typeof state.adapter.requestVideoPlayback !== "function") {
+        const error = new Error("Video playback is unavailable in this runtime.");
+        error.code = "video_playback_unavailable";
+        throw error;
+      }
+      return state.adapter.requestVideoPlayback(providerId);
     },
     async createProduct(product) {
       assertSellerAccess();

@@ -5299,6 +5299,19 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     return result.rows[0] || null;
   }
 
+  async function readPlayableVideo(providerId) {
+    const result = await query(
+      `SELECT vui.provider_id AS "providerId", vui.seller_id AS "sellerId",
+         vui.status, vui.product_id AS "productId", vui.claimed_at AS "claimedAt",
+         p.status AS "productStatus"
+       FROM video_upload_intents vui
+       LEFT JOIN products p ON p.id = vui.product_id
+       WHERE vui.provider_id = $1
+       LIMIT 1`,
+      [String(providerId || "")]
+    );
+    return result.rows[0] || null;
+  }
   async function applyVideoUploadWebhook(video = {}) {
     const result = await query(
       `UPDATE video_upload_intents
@@ -5421,6 +5434,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     pruneApiRateLimitBuckets,
     createVideoUploadIntent,
     readVideoUploadIntent,
+    readPlayableVideo,
     applyVideoUploadWebhook,
     close
   };

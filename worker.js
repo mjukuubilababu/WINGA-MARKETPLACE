@@ -346,7 +346,7 @@ function buildContentSecurityPolicy(options = {}) {
     `img-src 'self' data: blob: ${origin} https://media.wingamarket.com https://wingamarket.com`,
     "font-src 'self' data:",
     `media-src 'self' data: blob: ${origin}`,
-    `connect-src 'self' ${origin} https://wingamarket.com https://cloudflareinsights.com https://static.cloudflareinsights.com`,
+    `connect-src 'self' ${origin} https://wingamarket.com https://cloudflareinsights.com https://static.cloudflareinsights.com https://*.cloudflarestream.com https://*.videodelivery.net`,
     `script-src ${scriptSources.join(" ")}`,
     `script-src-elem ${scriptSources.join(" ")}`,
     "script-src-attr 'none'",
@@ -355,7 +355,7 @@ function buildContentSecurityPolicy(options = {}) {
     "style-src-attr 'unsafe-inline'",
     "worker-src 'self'",
     "manifest-src 'self'",
-    "frame-src 'none'",
+    "frame-src https://*.cloudflarestream.com https://*.videodelivery.net",
     "upgrade-insecure-requests"
   ].join("; ");
 }

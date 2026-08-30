@@ -116,6 +116,7 @@ const bundledModuleSources = [
   "src/marketplace/discovery.js",
   "src/marketplace/image-loader.js",
   "src/marketplace/video-upload.js",
+  "src/marketplace/video-playback.js",
   "src/marketplace/ui.js",
   "src/reviews/reviews.js",
   "src/requests/request-box.js",

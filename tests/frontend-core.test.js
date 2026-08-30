@@ -175,9 +175,48 @@ test("marketplace gallery module preserves feed carousel markup contract", () =>
   assert.match(source, /track\.scrollLeft = pointerStartScrollLeft - deltaX/);
   assert.match(source, /if \(!isDetailCarousel\) \{\s+snapToNearestSlide\("auto"\);/);
   assert.match(source, /noteProductEngagementSignal\(productId, "variation_swipe", variationSwipeWeight\)/);
-  assert.match(appSource, /function bindFeedGalleryInteractions\(scope = document\) \{\s+getMarketplaceGalleryTools\(\)\.bindFeedGalleryInteractions\?\.\(scope\);\s+\}/);
+  assert.match(appSource, /function bindFeedGalleryInteractions\(scope = document\) \{\s+getMarketplaceGalleryTools\(\)\.bindFeedGalleryInteractions\?\.\(scope\);\s+getMarketplaceVideoPlaybackTools\(\)\.bind\?\.\(scope\);\s+\}/);
 });
 
+test("marketplace gallery adds one secure ready video slide without collapsing product images", () => {
+  const root = path.resolve(__dirname, "..");
+  const gallerySource = fs.readFileSync(path.join(root, "src", "marketplace", "gallery.js"), "utf8");
+  const playbackSource = fs.readFileSync(path.join(root, "src", "marketplace", "video-playback.js"), "utf8");
+  const buildSource = fs.readFileSync(path.join(root, "scripts", "build-vercel-static.js"), "utf8");
+  const serverSource = fs.readFileSync(path.join(root, "backend", "server.js"), "utf8");
+  const context = vm.createContext({ window: { WingaModules: { marketplace: {} } } });
+  vm.runInContext(gallerySource, context);
+  const gallery = context.window.WingaModules.marketplace.createGalleryModule({
+    getRenderableMarketplaceImages: (product) => product.images.slice(),
+    getImageFallbackDataUri: () => "fallback.jpg",
+    sanitizeImageSource: (value, fallback = "") => String(value || fallback),
+    escapeHtml: (value) => String(value || "").replace(/"/g, "&quot;"),
+    translateUi: (_key, _variables, fallback) => fallback
+  });
+  const product = {
+    name: "Video dress",
+    images: ["front.jpg", "back.jpg"],
+    mediaItems: [
+      { type: "image", status: "ready", url: "front.jpg" },
+      { type: "image", status: "ready", url: "back.jpg" },
+      { type: "video", status: "ready", provider: "cloudflare-stream", providerId: "stream-video-ready" }
+    ]
+  };
+  const originalImages = product.images.slice();
+  const html = gallery.renderFeedGalleryMarkup(product, "feed");
+
+  assert.deepEqual(product.images, originalImages);
+  assert.match(html, /data-feed-gallery-total="3"/);
+  assert.equal((html.match(/data-feed-gallery-slide=/g) || []).length, 3);
+  assert.match(html, /data-video-provider-id="stream-video-ready"/);
+  assert.match(playbackSource, /new targetWindow\.IntersectionObserver/);
+  assert.match(playbackSource, /tokenCache\.size > maxCachedTokens/);
+  assert.match(playbackSource, /cloudflarestream\.com\/\$\{encodeURIComponent\(token\)\}\/iframe/);
+  assert.match(playbackSource, /querySelector\("iframe\[data-stream-player\]"\)\?\.remove\(\)/);
+  assert.match(buildSource, /"src\/marketplace\/video-playback\.js"/);
+  assert.match(serverSource, /SESSION_ONLY_STORE_TABLES/);
+  assert.match(serverSource, /key: "\/api\/media\/videos\/:providerId\/playback-token"/);
+});
 test("style intelligence builds private aggregate buyer profiles and bounded product scores", () => {
   const root = path.resolve(__dirname, "..");
   const source = fs.readFileSync(path.join(root, "src", "marketplace", "style-intelligence.js"), "utf8");

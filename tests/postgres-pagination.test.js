@@ -2699,6 +2699,29 @@ test("PostgreSQL video upload intents preserve owner scope and webhook state", a
   assert.equal(webhookUpdate.params[1], "ready");
   assert.equal(JSON.parse(webhookUpdate.params[10]).readyToStream, true);
 });
+test("PostgreSQL playable video lookup preserves public product visibility context", async () => {
+  const calls = [];
+  const queryClient = {
+    async query(text, params = []) {
+      calls.push({ text: String(text), params });
+      return {
+        rows: [{
+          providerId: params[0], sellerId: "seller-one", status: "ready",
+          productId: "product-video-1", claimedAt: "2026-08-30T12:00:00.000Z",
+          productStatus: "approved"
+        }],
+        rowCount: 1
+      };
+    }
+  };
+  const store = createPostgresStore({ databaseUrl: "postgres://primary.invalid/winga", queryClient });
+  const playable = await store.readPlayableVideo("stream-video-123");
+
+  assert.equal(playable.productStatus, "approved");
+  assert.equal(playable.productId, "product-video-1");
+  assert.match(calls[0].text, /LEFT JOIN products p ON p\.id = vui\.product_id/);
+  assert.deepEqual(calls[0].params, ["stream-video-123"]);
+});
 test("PostgreSQL product create atomically claims only a ready seller-owned video", async () => {
   const calls = [];
   const client = {
