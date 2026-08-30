@@ -2504,6 +2504,11 @@ test("worker emits one matching LCP image preload in the response header and HTM
   assert.match(html, /<link rel="preload" as="image" href="\/second\.jpg" fetchpriority="high">/);
   assert.match(html, /<link rel="preconnect" href="https:\/\/winga-pflp\.onrender\.com" crossorigin>/);
   assert.equal((html.match(/rel="preload" as="image"/g) || []).length, 1);
+  assert.match(html, /id="product-video-file"/);
+  assert.match(html, /id="product-video-status"/);
+  assert.match(html, /id="product-video-progress"/);
+  assert.match(html, /id="product-video-retry"/);
+  assert.match(html, /id="product-video-remove"/);
 
   const productOg = context.buildProductOpenGraphOverrides({
     items: [{ id: "shared-product", name: "Gauni & Viatu", images: ["/uploads/shared.jpg"] }]

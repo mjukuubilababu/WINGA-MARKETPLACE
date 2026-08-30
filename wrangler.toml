@@ -12,7 +12,7 @@ run_worker_first = ["/", "/index.html", "/build-version.json", "/feed", "/produc
 [vars]
 ORIGIN = "https://winga-pflp.onrender.com"
 ORIGIN_BASE_URL = "https://winga-pflp.onrender.com"
-WINGA_BUILD_VERSION = "20260830184427"
+WINGA_BUILD_VERSION = "20260830184725"
 
 [[routes]]
 pattern = "wingamarket.com/*"
