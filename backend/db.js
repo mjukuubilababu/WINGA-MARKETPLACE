@@ -5492,11 +5492,26 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
          COALESCE(AVG(EXTRACT(EPOCH FROM (updated_at - created_at))) FILTER (
            WHERE status = 'ready'
          ), 0)::float8 AS "averageReadyLatencySeconds",
-         COALESCE(MAX(updated_at), TO_TIMESTAMP(0)) AS "lastChangedAt"
+         COALESCE(MAX(updated_at), TO_TIMESTAMP(0)) AS "lastChangedAt",
+         COALESCE((SELECT jsonb_build_object(
+           'pending', COUNT(*) FILTER (WHERE status = 'pending'),
+           'processing', COUNT(*) FILTER (WHERE status = 'processing'),
+           'retry', COUNT(*) FILTER (WHERE status = 'retry'),
+           'submitted', COUNT(*) FILTER (WHERE status = 'submitted'),
+           'completed', COUNT(*) FILTER (WHERE status = 'completed'),
+           'dead', COUNT(*) FILTER (WHERE status = 'dead'),
+           'stalled', COUNT(*) FILTER (
+             WHERE status = 'processing' AND locked_at < NOW() - ($1::int * INTERVAL '1 second')
+           ),
+           'oldestPendingAgeSeconds', COALESCE(EXTRACT(EPOCH FROM (NOW() - MIN(created_at))) FILTER (
+             WHERE status IN ('pending', 'retry', 'processing')
+           ), 0)
+         ) FROM video_safety_jobs), '{}'::jsonb) AS "safetyQueue"
        FROM video_upload_intents`,
       [processingAgeSeconds]
     );
     const row = result.rows[0] || {};
+    const safetyQueue = row.safetyQueue && typeof row.safetyQueue === "object" ? row.safetyQueue : {};
     return {
       total: Number(row.total || 0),
       uploading: Number(row.uploading || 0),
@@ -5510,7 +5525,15 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       stalled: Number(row.stalled || 0),
       oldestPendingAgeSeconds: Math.max(0, Number(row.oldestPendingAgeSeconds || 0)),
       averageReadyLatencySeconds: Math.max(0, Number(row.averageReadyLatencySeconds || 0)),
-      lastChangedAt: row.lastChangedAt || null
+      lastChangedAt: row.lastChangedAt || null,
+      safetyPending: Number(safetyQueue.pending || 0),
+      safetyProcessing: Number(safetyQueue.processing || 0),
+      safetyRetry: Number(safetyQueue.retry || 0),
+      safetySubmitted: Number(safetyQueue.submitted || 0),
+      safetyCompleted: Number(safetyQueue.completed || 0),
+      safetyDead: Number(safetyQueue.dead || 0),
+      safetyStalled: Number(safetyQueue.stalled || 0),
+      oldestSafetyPendingAgeSeconds: Math.max(0, Number(safetyQueue.oldestPendingAgeSeconds || 0))
     };
   }
   async function claimVideoCleanupBatch(options = {}) {

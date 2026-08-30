@@ -2817,7 +2817,9 @@ test("PostgreSQL video pipeline health is durable, aggregate-only, and threshold
         rows: [{
           total: 40, uploading: 2, processing: 3, ready: 30, cleanupPending: 1, failed: 5, failedRecent: 2, cleanupFailed: 1, failedRecent: 2,
           readyUnclaimed: 4, stalled: 1, oldestPendingAgeSeconds: 1200.5,
-          averageReadyLatencySeconds: 42.25, lastChangedAt: "2026-08-30T15:00:00.000Z"
+          averageReadyLatencySeconds: 42.25, lastChangedAt: "2026-08-30T15:00:00.000Z",
+          safetyQueue: { pending: 3, processing: 1, retry: 2, submitted: 4,
+            completed: 18, dead: 1, stalled: 1, oldestPendingAgeSeconds: 700.5 }
         }],
         rowCount: 1
       };
@@ -2829,10 +2831,15 @@ test("PostgreSQL video pipeline health is durable, aggregate-only, and threshold
   assert.deepEqual(health, {
     total: 40, uploading: 2, processing: 3, ready: 30, cleanupPending: 1, failed: 5, failedRecent: 2, cleanupFailed: 1,
     readyUnclaimed: 4, stalled: 1, oldestPendingAgeSeconds: 1200.5,
-    averageReadyLatencySeconds: 42.25, lastChangedAt: "2026-08-30T15:00:00.000Z"
+    averageReadyLatencySeconds: 42.25, lastChangedAt: "2026-08-30T15:00:00.000Z",
+    safetyPending: 3, safetyProcessing: 1, safetyRetry: 2, safetySubmitted: 4,
+    safetyCompleted: 18, safetyDead: 1, safetyStalled: 1, oldestSafetyPendingAgeSeconds: 700.5
   });
   assert.match(calls[0].text, /COUNT\(\*\) FILTER \(WHERE status = 'processing'\)/);
   assert.match(calls[0].text, /updated_at < NOW\(\) - \(\$1::int \* INTERVAL '1 second'\)/);
+  assert.match(calls[0].text, /jsonb_build_object/);
+  assert.equal((calls[0].text.match(/FROM video_safety_jobs/g) || []).length, 1);
+  assert.match(calls[0].text, /AS "safetyQueue"/);
   assert.deepEqual(calls[0].params, [600]);
   assert.doesNotMatch(calls[0].text, /provider_id|seller_id|upload_id/);
 });

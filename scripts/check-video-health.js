@@ -27,7 +27,15 @@ function normalizeResult(response, body = {}) {
       readyUnclaimed: Number(health.readyUnclaimed || 0),
       stalled: Number(health.stalled || 0),
       oldestPendingAgeSeconds: Number(health.oldestPendingAgeSeconds || 0),
-      averageReadyLatencySeconds: Number(health.averageReadyLatencySeconds || 0)
+      averageReadyLatencySeconds: Number(health.averageReadyLatencySeconds || 0),
+      safetyPending: Number(health.safetyPending || 0),
+      safetyProcessing: Number(health.safetyProcessing || 0),
+      safetyRetry: Number(health.safetyRetry || 0),
+      safetySubmitted: Number(health.safetySubmitted || 0),
+      safetyCompleted: Number(health.safetyCompleted || 0),
+      safetyDead: Number(health.safetyDead || 0),
+      safetyStalled: Number(health.safetyStalled || 0),
+      oldestSafetyPendingAgeSeconds: Number(health.oldestSafetyPendingAgeSeconds || 0)
     }
   };
 }

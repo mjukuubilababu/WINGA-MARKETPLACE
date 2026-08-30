@@ -12,12 +12,17 @@ test("video health monitor exposes aggregate-only pipeline status", () => {
       total: 12, uploading: 1, processing: 2, ready: 8, failed: 1, failedRecent: 1,
       readyUnclaimed: 2, stalled: 0, oldestPendingAgeSeconds: 80,
       averageReadyLatencySeconds: 34,
+      safetyPending: 3, safetyProcessing: 1, safetyRetry: 2, safetySubmitted: 4,
+      safetyCompleted: 20, safetyDead: 0, safetyStalled: 0, oldestSafetyPendingAgeSeconds: 95,
       providerId: "must-not-leak",
       sellerId: "must-not-leak"
     }
   });
   assert.equal(result.ok, true);
   assert.equal(result.health.processing, 2);
+  assert.equal(result.health.safetyPending, 3);
+  assert.equal(result.health.safetyRetry, 2);
+  assert.equal(result.health.oldestSafetyPendingAgeSeconds, 95);
   assert.equal(JSON.stringify(result).includes("must-not-leak"), false);
 });
 

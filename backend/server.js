@@ -6121,10 +6121,16 @@ const server = http.createServer(async (req, res) => {
       Number(process.env.VIDEO_FAILED_ALERT_THRESHOLD || 25) || 25,
       100000
     ));
+    const safetyDeadThreshold = Math.max(1, Math.min(
+      Number(process.env.VIDEO_SAFETY_DEAD_ALERT_THRESHOLD || 1) || 1,
+      100000
+    ));
     const health = await postgresStore.readVideoPipelineHealth({ processingAgeSeconds });
     const alerts = [];
     if (health.stalled > 0) alerts.push("stalled_video_processing");
     if (health.failedRecent >= failedThreshold) alerts.push("video_failure_threshold_exceeded");
+    if (health.safetyStalled > 0) alerts.push("stalled_video_safety");
+    if (health.safetyDead >= safetyDeadThreshold) alerts.push("video_safety_dead_letter_threshold_exceeded");
     const readiness = alerts.length ? "degraded" : "ready";
     const statusCode = readiness === "degraded" ? 503 : 200;
     requestMeta.statusCode = statusCode;
@@ -6141,7 +6147,7 @@ const server = http.createServer(async (req, res) => {
       time: new Date().toISOString(),
       health,
       alerts,
-      thresholds: { processingAgeSeconds, failed: failedThreshold }
+      thresholds: { processingAgeSeconds, failed: failedThreshold, safetyDead: safetyDeadThreshold }
     }, { "Cache-Control": "no-store" });
     return;
   }
@@ -11142,6 +11148,9 @@ const server = http.createServer(async (req, res) => {
         ...video,
         providerPayload: { readyToStream: video.readyToStream, status: video.status, receivedAt: new Date().toISOString() }
       });
+      if (updated && video.status === "ready" && VIDEO_SAFETY_ENABLED && postgresStore.enqueueVideoSafetyJob) {
+        await postgresStore.enqueueVideoSafetyJob(video.providerId, { maxAttempts: VIDEO_SAFETY_CONFIG.maxAttempts });
+      }
       sendJson(res, updated ? 200 : 202, { ok: true, matched: Boolean(updated), status: video.status });
       return;
     }
