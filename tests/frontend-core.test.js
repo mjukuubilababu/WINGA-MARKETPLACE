@@ -830,6 +830,18 @@ test("remote auth API client owns session restore and credentialed auth writes",
   assert.ok(buildSource.indexOf('"src/api/auth-client.js"') < buildSource.indexOf('"src/config/categories.js"'));
 });
 
+test("video upload controller validates, uploads, polls, and exposes only ready media", () => {
+  const root = path.resolve(__dirname, "..");
+  const source = fs.readFileSync(path.join(root, "src", "marketplace", "video-upload.js"), "utf8");
+  const buildSource = fs.readFileSync(path.join(root, "scripts", "build-vercel-static.js"), "utf8");
+  assert.match(source, /createVideoUploadController/);
+  assert.match(source, /body\.append\("file", file, file\.name\)/);
+  assert.match(source, /maxPollAttempts/);
+  assert.match(source, /status === "ready"/);
+  assert.match(source, /video_upload_cancelled/);
+  assert.match(source, /provider: "cloudflare-stream"/);
+  assert.match(buildSource, /"src\/marketplace\/video-upload\.js"/);
+});
 test("remote product actions API client owns product writes and demand signals", () => {
   const root = path.resolve(__dirname, "..");
   const dataSource = fs.readFileSync(path.join(root, "data-service.js"), "utf8");
