@@ -1031,6 +1031,7 @@ test("admin product moderation exposes attached video evidence", () => {
 test("remote product actions API client owns product writes and demand signals", () => {
   const root = path.resolve(__dirname, "..");
   const dataSource = fs.readFileSync(path.join(root, "data-service.js"), "utf8");
+  const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
   const moduleSource = fs.readFileSync(path.join(root, "src", "api", "products-client.js"), "utf8");
   const registrySource = fs.readFileSync(path.join(root, "src", "core", "module-registry.js"), "utf8");
   const buildSource = fs.readFileSync(path.join(root, "scripts", "build-vercel-static.js"), "utf8");
@@ -1045,7 +1046,10 @@ test("remote product actions API client owns product writes and demand signals",
   assert.match(moduleSource, /productUploadTimeoutMs \|\| 180000/);
   assert.match(moduleSource, /async function readVideoUploadStatus\(providerId\)/);
   assert.match(dataSource, /async requestVideoUpload\(file\)/);
-  assert.match(dataSource, /async readVideoUploadStatus\(providerId\)/);  assert.match(moduleSource, /async function createProduct\(product\)/);
+  assert.match(dataSource, /async readVideoUploadStatus\(providerId\)/);
+  assert.match(appSource, /product_primary_category_sync_failed/);
+  assert.match(appSource, /Promise\.resolve\(window\.WingaDataLayer\.updateUserPrimaryCategory\(currentUser, primaryCategory\)\)/);
+  assert.match(moduleSource, /async function createProduct\(product\)/);
   assert.match(moduleSource, /async function updateProduct\(productId, payload\)/);
   assert.match(moduleSource, /async function deleteProduct\(productId\)/);
   assert.match(moduleSource, /async function updateProductAvailability\(productId, payload\)/);

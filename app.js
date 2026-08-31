@@ -15128,7 +15128,11 @@ uploadButton.addEventListener("click", async () => {
 
     refreshProductsFromStore();
     const primaryCategory = inferTopCategoryValue(category) || category;
-    await window.WingaDataLayer.updateUserPrimaryCategory(currentUser, primaryCategory);
+    Promise.resolve(window.WingaDataLayer.updateUserPrimaryCategory(currentUser, primaryCategory))
+      .catch((error) => captureClientError("product_primary_category_sync_failed", error, {
+        category: primaryCategory,
+        productId: productPayload.id
+      }));
     clearProductUploadDraft();
     clearUploadForm();
     applySelectedCategory(primaryCategory);
