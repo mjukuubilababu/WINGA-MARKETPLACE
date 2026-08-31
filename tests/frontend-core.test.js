@@ -222,6 +222,17 @@ test("marketplace gallery adds one secure ready video slide without collapsing p
   assert.match(videoOnlyHtml, /data-video-provider-id="stream-video-only"/);
   assert.match(videoOnlyHtml, /src="video-poster.jpg"/);
   assert.doesNotMatch(videoOnlyHtml, /class="feed-gallery-image/);
+  const privatePosterHtml = gallery.renderFeedGalleryMarkup({
+    name: "Private Stream poster",
+    images: [],
+    mediaItems: [{
+      type: "video", status: "ready", moderationStatus: "approved",
+      provider: "cloudflare-stream", providerId: "stream-video-private",
+      posterUrl: "https://customer-example.cloudflarestream.com/stream-video-private/thumbnails/thumbnail.jpg"
+    }]
+  }, "feed");
+  assert.doesNotMatch(privatePosterHtml, /customer-example\.cloudflarestream\.com/);
+  assert.match(privatePosterHtml, /src="fallback.jpg"/);
   const directPublishHtml = gallery.renderFeedGalleryMarkup({
     ...product,
     mediaItems: product.mediaItems.map((item) => item.type === "video"
@@ -232,8 +243,12 @@ test("marketplace gallery adds one secure ready video slide without collapsing p
   assert.match(directPublishHtml, /data-feed-gallery-total="3"/);
   assert.match(playbackSource, /new targetWindow\.IntersectionObserver/);
   assert.match(playbackSource, /tokenCache\.size > maxCachedTokens/);
-  assert.match(playbackSource, /cloudflarestream\.com\/\$\{encodeURIComponent\(token\)\}\/iframe/);
-  assert.match(playbackSource, /querySelector\("iframe\[data-stream-player\]"\)\?\.remove\(\)/);
+  assert.match(playbackSource, /\/manifest\/video\.m3u8/);
+  assert.match(playbackSource, /vendor\/hls\.light\.min\.js/);
+  assert.match(playbackSource, /video\.canPlayType\?\.\("application\/vnd\.apple\.mpegurl"\)/);
+  assert.match(playbackSource, /new Hls\(\{/);
+  assert.match(playbackSource, /state\.hls\.destroy/);
+  assert.match(buildSource, /node_modules\/hls\.js\/dist\/hls\.light\.min\.js/);
   assert.match(buildSource, /"src\/marketplace\/video-playback\.js"/);
   assert.match(serverSource, /SESSION_ONLY_STORE_TABLES/);
   assert.match(serverSource, /key: "\/api\/media\/videos\/:providerId\/playback-token"/);

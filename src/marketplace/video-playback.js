@@ -1,4 +1,44 @@
 (() => {
+  let hlsRuntimePromise = null;
+
+  function loadHlsRuntime(targetWindow, targetDocument) {
+    if (targetWindow.Hls?.isSupported?.()) return Promise.resolve(targetWindow.Hls);
+    if (hlsRuntimePromise) return hlsRuntimePromise;
+    hlsRuntimePromise = new Promise((resolve, reject) => {
+      const existing = targetDocument.querySelector?.("script[data-winga-hls-runtime]");
+      const script = existing || targetDocument.createElement("script");
+      const timeoutId = targetWindow.setTimeout(() => {
+        hlsRuntimePromise = null;
+        reject(Object.assign(new Error("HLS playback runtime timed out."), { code: "video_hls_runtime_timeout" }));
+      }, 15000);
+      const settle = (callback) => {
+        targetWindow.clearTimeout(timeoutId);
+        callback();
+      };
+      script.onload = () => settle(() => {
+        if (targetWindow.Hls?.isSupported?.()) {
+          resolve(targetWindow.Hls);
+          return;
+        }
+        hlsRuntimePromise = null;
+        reject(Object.assign(new Error("HLS playback is not supported on this device."), { code: "video_hls_unsupported" }));
+      });
+      script.onerror = () => settle(() => {
+        hlsRuntimePromise = null;
+        script.remove?.();
+        reject(Object.assign(new Error("HLS playback runtime could not load."), { code: "video_hls_runtime_failed" }));
+      });
+      if (!existing) {
+        const buildVersion = String(targetWindow.WINGA_BUILD_VERSION || "").trim();
+        script.src = `/vendor/hls.light.min.js${buildVersion ? `?v=${encodeURIComponent(buildVersion)}` : ""}`;
+        script.async = true;
+        script.dataset.wingaHlsRuntime = "true";
+        targetDocument.head.appendChild(script);
+      }
+    });
+    return hlsRuntimePromise;
+  }
+
   function createVideoPlaybackController(deps = {}) {
     const requestPlaybackToken = typeof deps.requestPlaybackToken === "function" ? deps.requestPlaybackToken : null;
     const targetWindow = deps.windowObject || window;
@@ -68,7 +108,15 @@
       const state = stateByNode.get(node);
       if (state?.releaseTimer) targetWindow.clearTimeout(state.releaseTimer);
       if (state) state.generation += 1;
-      node.querySelector("iframe[data-stream-player]")?.remove();
+      if (state?.hls) {
+        state.hls.destroy?.();
+        state.hls = null;
+      }
+      const player = node.querySelector("[data-stream-player]");
+      if (player?.pause) player.pause();
+      player?.removeAttribute?.("src");
+      player?.load?.();
+      player?.remove?.();
       node.classList.remove("is-playing", "is-loading", "has-playback-error");
       node.setAttribute("aria-busy", "false");
       if (options.forget === true) {
@@ -86,7 +134,7 @@
 
     async function activateNode(node, options = {}) {
       const providerId = String(node.dataset.videoProviderId || "").trim();
-      if (!/^[a-zA-Z0-9_-]{8,64}$/.test(providerId) || node.querySelector("iframe[data-stream-player]")) return;
+      if (!/^[a-zA-Z0-9_-]{8,64}$/.test(providerId) || node.querySelector("[data-stream-player]")) return;
       const state = stateByNode.get(node);
       if (!state || state.loading) return;
       state.loading = true;
@@ -104,17 +152,54 @@
         const customerCode = normalizeCustomerCode(playback?.customerCode);
         const token = String(playback?.token || "").trim();
         if (!/^[a-z0-9-]{4,80}$/.test(customerCode) || !token) throw new Error("Invalid video playback response."); // i18n-gate: allow -- internal diagnostic or language-neutral display
-        const query = new URLSearchParams({ muted: "true", controls: "true", preload: "metadata" });
-        if (options.autoplay !== false) query.set("autoplay", "true");
-        const iframe = targetDocument.createElement("iframe");
-        iframe.dataset.streamPlayer = "true";
-        iframe.className = "feed-video-player";
-        iframe.src = `https://customer-${customerCode}.cloudflarestream.com/${encodeURIComponent(token)}/iframe?${query.toString()}`;
-        iframe.title = String(node.dataset.videoTitle || "Product video");
-        iframe.allow = "accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture";
-        iframe.allowFullscreen = true;
-        iframe.referrerPolicy = "strict-origin-when-cross-origin";
-        node.appendChild(iframe);
+        const signedAssetRoot = `https://customer-${customerCode}.cloudflarestream.com/${encodeURIComponent(token)}`;
+        const hlsUrl = `${signedAssetRoot}/manifest/video.m3u8`;
+        const video = targetDocument.createElement("video");
+        video.dataset.streamPlayer = "true";
+        video.className = "feed-video-player";
+        video.title = String(node.dataset.videoTitle || "Product video");
+        video.controls = true;
+        video.muted = true;
+        video.playsInline = true;
+        video.preload = "metadata";
+        video.crossOrigin = "anonymous";
+        video.poster = `${signedAssetRoot}/thumbnails/thumbnail.jpg`;
+        video.setAttribute("controls", "");
+        video.setAttribute("playsinline", "");
+        node.appendChild(video);
+        const playWhenReady = () => {
+          if (options.autoplay !== false && state.generation === generation && node.isConnected) {
+            void video.play().catch(() => undefined);
+          }
+        };
+        if (video.canPlayType?.("application/vnd.apple.mpegurl")) {
+          video.src = hlsUrl;
+          video.addEventListener("loadedmetadata", playWhenReady, { once: true });
+        } else {
+          const Hls = await loadHlsRuntime(targetWindow, targetDocument);
+          if (state.generation !== generation || !node.isConnected) return;
+          const hls = new Hls({
+            enableWorker: false,
+            lowLatencyMode: false,
+            capLevelToPlayerSize: true,
+            backBufferLength: 30,
+            maxBufferLength: 30
+          });
+          state.hls = hls;
+          hls.on(Hls.Events.ERROR, (_event, detail) => {
+            if (!detail?.fatal || state.hls !== hls) return;
+            node.classList.add("has-playback-error");
+            emitMetric("video_playback_failed", {
+              latencyMs: Math.max(0, Date.now() - startedAt),
+              code: String(detail.type || detail.details || "video_hls_fatal").slice(0, 80)
+            });
+            hls.destroy();
+            state.hls = null;
+          });
+          hls.on(Hls.Events.MANIFEST_PARSED, playWhenReady);
+          hls.loadSource(hlsUrl);
+          hls.attachMedia(video);
+        }
         node.classList.add("is-playing");
         emitMetric("video_playback_started", {
           latencyMs: Math.max(0, Date.now() - startedAt),
@@ -129,6 +214,9 @@
             latencyMs: Math.max(0, Date.now() - startedAt),
             code: String(error?.code || "video_playback_failed").slice(0, 80)
           });
+          state.hls?.destroy?.();
+          state.hls = null;
+          node.querySelector("[data-stream-player]")?.remove?.();
         }
       } finally {
         if (state.generation === generation) {
@@ -158,7 +246,7 @@
       nodes.forEach((node) => {
         if (node.dataset.videoPlaybackBound === "true") return;
         node.dataset.videoPlaybackBound = "true";
-        stateByNode.set(node, { generation: 0, loading: false, releaseTimer: 0 });
+        stateByNode.set(node, { generation: 0, loading: false, releaseTimer: 0, hls: null });
         const activateFromUser = (event) => {
           if (event.type === "keydown" && !["Enter", " "].includes(event.key)) return;
           event.preventDefault();

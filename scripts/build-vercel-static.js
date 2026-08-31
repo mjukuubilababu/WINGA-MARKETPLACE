@@ -67,7 +67,8 @@ const fileCopies = [
   ["app-core.js", "app-core.js"],
   ["data-service.js", "data-service.js"],
   ["mock-data.js", "mock-data.js"],
-  ["winga-config.js", "winga-config.js"]
+  ["winga-config.js", "winga-config.js"],
+  ["node_modules/hls.js/dist/hls.light.min.js", "vendor/hls.light.min.js"]
 ];
 
 const bundledModuleSources = [
@@ -918,6 +919,7 @@ function verifyDistContents() {
     "winga-config.js",
     "winga-modules.js",
     "build-version.json",
+    path.join("vendor", "hls.light.min.js"),
     path.join("src", "core", "module-registry.js")
   ];
 
