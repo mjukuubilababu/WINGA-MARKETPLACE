@@ -9907,14 +9907,27 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 
     async function getPlaybackToken(providerId) {
       const cached = getCachedToken(providerId);
-      if (cached) return { payload: cached, cached: true };
+      if (cached) return { payload: cached, cached: true, prefetched: false };
+
+      const prefetchMap = targetWindow.__WINGA_BIG_PIPE_VIDEO_TOKEN_PROMISES__;
+      if (prefetchMap && typeof prefetchMap.get === "function") {
+        const prefetchedPromise = prefetchMap.get(providerId);
+        if (prefetchedPromise) {
+          prefetchMap.delete?.(providerId);
+          const prefetchedPayload = await prefetchedPromise;
+          if (prefetchedPayload?.token) {
+            return { payload: cacheToken(providerId, prefetchedPayload), cached: false, prefetched: true };
+          }
+        }
+      }
+
       if (typeof requestPlaybackToken !== "function") {
         const error = new Error("Video playback is unavailable."); // i18n-gate: allow -- internal diagnostic or language-neutral display
         error.code = "video_playback_unavailable";
         throw error;
       }
       const payload = await requestPlaybackToken(providerId);
-      return { payload: cacheToken(providerId, payload), cached: false };
+      return { payload: cacheToken(providerId, payload), cached: false, prefetched: false };
     }
 
     function emitMetric(event, detail = {}) {
@@ -10044,7 +10057,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           emitMetric("video_playback_ready", {
             latencyMs: Math.max(0, Date.now() - startedAt),
             tokenCached: tokenResult.cached,
-            prewarmed: options.prewarm === true
+            prewarmed: options.prewarm === true,
+            bigPipePrefetched: tokenResult.prefetched === true
           });
           playWhenReady();
         };

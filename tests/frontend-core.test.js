@@ -273,6 +273,9 @@ test("marketplace gallery adds one secure ready video slide without collapsing p
   assert.equal(workerSource.includes("function getReadyStreamVideoItems(product)"), true);
   assert.equal(workerSource.includes('data-video-prewarm="true"'), true);
   assert.equal(workerSource.includes("const slidesMarkup ="), true);
+  assert.equal(workerSource.includes("__WINGA_BIG_PIPE_VIDEO_TOKEN_PROMISES__"), true);
+  assert.equal(workerSource.includes('slice(0, 2)'), true);
+  assert.equal(workerSource.includes('X-CSRF-Token'), true);
   assert.match(playbackSource, /video_playback_failed/);
   assert.doesNotMatch(playbackSource, /emitMetric\([^\n]+providerId/);
   assert.match(serverSource, /\/api\/ops\/media\/videos\/health/);
@@ -281,7 +284,7 @@ test("marketplace gallery adds one secure ready video slide without collapsing p
   assert.match(serverSource, /stopVideoCleanupSweeper/);
   assert.match(serverSource, /videoCleanupSweepRunning/);
 });
-test("video prewarm keeps the poster until the first decoded frame and reuses the ready player", async () => {
+test("video prewarm consumes the BigPipe token and keeps the poster until the first decoded frame", async () => {
   const root = path.resolve(__dirname, "..");
   const playbackSource = fs.readFileSync(path.join(root, "src", "marketplace", "video-playback.js"), "utf8");
   const observers = [];
@@ -385,6 +388,9 @@ test("video prewarm keeps the poster until the first decoded frame and reuses th
     IntersectionObserver: FakeIntersectionObserver,
     navigator: { connection: { saveData: false } },
     WINGA_BUILD_VERSION: "test",
+    __WINGA_BIG_PIPE_VIDEO_TOKEN_PROMISES__: new Map([
+      ["stream-video-prewarm", Promise.resolve({ customerCode: "example", token: "signed-token", expiresInSeconds: 300 })]
+    ]),
     setTimeout,
     clearTimeout
   };
@@ -409,7 +415,7 @@ test("video prewarm keeps the poster until the first decoded frame and reuses th
   await new Promise((resolve) => setTimeout(resolve, 0));
   await new Promise((resolve) => setTimeout(resolve, 0));
 
-  assert.equal(tokenRequests, 1);
+  assert.equal(tokenRequests, 0);
   assert.match(loadedSource, /\/manifest\/video\.m3u8$/);
   assert.equal(node.classList.contains("is-ready"), false);
   assert.equal(playCalls, 0);
@@ -425,7 +431,7 @@ test("video prewarm keeps the poster until the first decoded frame and reuses th
   await new Promise((resolve) => setTimeout(resolve, 0));
 
   assert.equal(playCalls, 1);
-  assert.equal(tokenRequests, 1);
+  assert.equal(tokenRequests, 0);
 });
 
 test("style intelligence builds private aggregate buyer profiles and bounded product scores", () => {

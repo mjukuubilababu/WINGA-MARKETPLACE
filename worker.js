@@ -162,6 +162,9 @@ async function streamFeedPage(request, env, ctx) {
 
       const bootstrap = productRouteBootstrap || await bootstrapPromise;
       const cardsHtml = bootstrap.items.map((product, index) => buildDiscoveryProductCardHtml(product, index, bootstrap)).join("");
+      const initialVideoProviderIds = Array.from(new Set(
+        bootstrap.items.slice(0, 4).flatMap((product) => getReadyStreamVideoItems(product).map((item) => item.providerId))
+      )).slice(0, 2);
 
       await write(`
         <script nonce="${escapeHtml(scriptNonce)}">
@@ -170,6 +173,41 @@ async function streamFeedPage(request, env, ctx) {
           window.__WINGA_BIG_PIPE_INITIAL_USERS__ = ${serializeForInlineScript(bootstrap.users)};
           window.__WINGA_BIG_PIPE_INITIAL_SESSION__ = ${serializeForInlineScript(bootstrap.session)};
           window.__WINGA_BIG_PIPE_INITIAL_IMAGE_URLS__ = ${serializeForInlineScript(extractAllImageUrls(bootstrap.items, bootstrap.usersById))};
+          window.__WINGA_BIG_PIPE_INITIAL_VIDEO_PROVIDER_IDS__ = ${serializeForInlineScript(initialVideoProviderIds)};
+          window.__WINGA_BIG_PIPE_VIDEO_TOKEN_PROMISES__ = new Map();
+          const initialVideoProviderIds = window.__WINGA_BIG_PIPE_INITIAL_VIDEO_PROVIDER_IDS__;
+          const saveDataEnabled = Boolean(navigator.connection?.saveData);
+          if (initialVideoProviderIds.length > 0 && !saveDataEnabled) {
+            const hlsPreload = document.createElement("link");
+            hlsPreload.rel = "preload";
+            hlsPreload.as = "script";
+            hlsPreload.href = "/vendor/hls.light.min.js?v=${escapeHtml(buildVersion)}";
+            hlsPreload.fetchPriority = "low";
+            document.head.appendChild(hlsPreload);
+            const csrfPromise = fetch("/api/auth/csrf-token", {
+              credentials: "include",
+              cache: "no-store",
+              headers: { "Accept": "application/json" }
+            }).then((response) => response.ok ? response.json() : null)
+              .then((payload) => String(payload?.csrfToken || "").trim());
+            initialVideoProviderIds.forEach((providerId) => {
+              const tokenPromise = csrfPromise.then((csrfToken) => {
+                if (!csrfToken) return null;
+                return fetch("/api/media/videos/" + encodeURIComponent(providerId) + "/playback-token", {
+                  method: "POST",
+                  credentials: "include",
+                  cache: "no-store",
+                  headers: {
+                    "Accept": "application/json",
+                    "Content-Type": "application/json",
+                    "X-CSRF-Token": csrfToken
+                  },
+                  body: "{}"
+                }).then((response) => response.ok ? response.json() : null);
+              }).catch(() => null);
+              window.__WINGA_BIG_PIPE_VIDEO_TOKEN_PROMISES__.set(providerId, tokenPromise);
+            });
+          }
           window.__WINGA_BIG_PIPE_BOOTSTRAPPED__ = true;
           window.__WINGA_BIG_PIPE_BOOTSTRAP_STATUS__ = ${serializeForInlineScript(bootstrap.status)};
           document.querySelectorAll("[data-feed-skeleton-card='true']").forEach((node) => node.remove());
