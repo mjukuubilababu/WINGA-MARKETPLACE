@@ -4559,6 +4559,220 @@ test("localized product detail preserves continuation, gallery, demand, and revi
   assert.match(appSource, /createProductDetailControllerModule\(\{[\s\S]*?translate: translateUi/);
 });
 
+test("video playback emits bounded lifecycle intelligence without exposing provider identity", async () => {
+  const root = path.resolve(__dirname, "..");
+  const source = fs.readFileSync(path.join(root, "src", "marketplace", "video-playback.js"), "utf8");
+  const observers = [];
+  const metrics = [];
+  let player = null;
+  let clock = 1000;
+
+  class FakeIntersectionObserver {
+    constructor(callback, options) {
+      this.callback = callback;
+      this.options = options;
+      observers.push(this);
+    }
+    observe() {}
+    unobserve() {}
+  }
+
+  class FakeHls {
+    static Events = { ERROR: "error", MANIFEST_PARSED: "manifest", LEVELS_UPDATED: "levels" };
+    static isSupported() { return true; }
+    constructor() { this.handlers = new Map(); this.levels = [{ bitrate: 400000 }]; }
+    on(type, handler) { this.handlers.set(type, handler); }
+    loadSource() {}
+    attachMedia() { this.handlers.get(FakeHls.Events.MANIFEST_PARSED)?.(); }
+    destroy() {}
+  }
+
+  function createVideo() {
+    const listeners = new Map();
+    return {
+      dataset: {},
+      paused: true,
+      readyState: 4,
+      muted: true,
+      volume: 1,
+      currentTime: 0,
+      duration: 10,
+      setAttribute: () => {},
+      removeAttribute: () => {},
+      load: () => {},
+      addEventListener(type, handler, options = {}) {
+        const handlers = listeners.get(type) || [];
+        handlers.push({ handler, once: options?.once === true });
+        listeners.set(type, handlers);
+      },
+      dispatch(type) {
+        const handlers = (listeners.get(type) || []).slice();
+        handlers.forEach((entry) => entry.handler());
+        listeners.set(type, handlers.filter((entry) => !entry.once));
+      },
+      play() {
+        this.paused = false;
+        this.dispatch("play");
+        this.dispatch("playing");
+        return Promise.resolve();
+      },
+      pause() {
+        if (this.paused) return;
+        this.paused = true;
+        this.dispatch("pause");
+      },
+      remove() { player = null; }
+    };
+  }
+
+  const card = { dataset: { openProduct: "product-video-observed" } };
+  const classes = new Set();
+  const node = {
+    dataset: { videoProviderId: "private-provider-id", videoTitle: "Observed video" },
+    isConnected: true,
+    classList: {
+      add: (...names) => names.forEach((name) => classes.add(name)),
+      remove: (...names) => names.forEach((name) => classes.delete(name)),
+      toggle(name, force) { if (force) classes.add(name); else classes.delete(name); },
+      contains: (name) => classes.has(name)
+    },
+    setAttribute: () => {},
+    matches: () => false,
+    querySelector: (selector) => selector === "[data-stream-player]" ? player : null,
+    appendChild(value) { player = value; },
+    closest: () => card,
+    addEventListener: () => {},
+    removeEventListener: () => {}
+  };
+  const targetDocument = {
+    visibilityState: "visible",
+    querySelector: () => null,
+    querySelectorAll: () => [node],
+    createElement: () => createVideo(),
+    addEventListener: () => {},
+    head: { appendChild: () => {} }
+  };
+  const targetWindow = {
+    WingaModules: { marketplace: {} },
+    Hls: FakeHls,
+    IntersectionObserver: FakeIntersectionObserver,
+    navigator: { onLine: true, connection: { saveData: false, effectiveType: "4g", downlink: 10, rtt: 40, addEventListener() {} } },
+    innerHeight: 800,
+    WINGA_BUILD_VERSION: "test",
+    addEventListener: () => {},
+    setTimeout,
+    clearTimeout
+  };
+  vm.runInContext(source, vm.createContext({ window: targetWindow }));
+  const controller = targetWindow.WingaModules.marketplace.createVideoPlaybackController({
+    requestPlaybackToken: async () => ({ customerCode: "example", token: "signed-playback-token", expiresInSeconds: 300 }),
+    reportMetric: (event, detail) => metrics.push({ event, detail }),
+    now: () => clock,
+    windowObject: targetWindow,
+    documentObject: targetDocument
+  });
+
+  controller.bind(targetDocument);
+  const playbackObserver = observers.find((entry) => Array.isArray(entry.options.threshold) && entry.options.threshold.includes(0.55));
+  const visibleEntry = {
+    target: node,
+    isIntersecting: true,
+    intersectionRatio: 0.9,
+    boundingClientRect: { top: 100, height: 500 },
+    rootBounds: { top: 0, height: 800 }
+  };
+  playbackObserver.callback([visibleEntry]);
+  playbackObserver.callback([visibleEntry]);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.ok(player);
+  assert.equal(metrics.filter((entry) => entry.event === "video_impression").length, 1);
+  assert.equal(metrics.filter((entry) => entry.event === "video_playback_started").length, 1);
+  assert.equal(metrics.find((entry) => entry.event === "video_impression").detail.productId, "product-video-observed");
+
+  clock = 2000;
+  player.dispatch("waiting");
+  clock = 2500;
+  player.dispatch("playing");
+  player.currentTime = 9.6;
+  player.dispatch("timeupdate");
+  player.dispatch("timeupdate");
+  player.currentTime = 0.2;
+  player.dispatch("timeupdate");
+  player.muted = false;
+  player.dispatch("volumechange");
+  player.muted = true;
+  player.dispatch("volumechange");
+
+  clock = 3500;
+  player.pause();
+  clock = 4000;
+  await player.play();
+  clock = 5000;
+  controller.releaseNode(node);
+
+  assert.equal(metrics.filter((entry) => entry.event === "video_complete").length, 1);
+  assert.equal(metrics.filter((entry) => entry.event === "video_replay").length, 1);
+  assert.equal(metrics.filter((entry) => entry.event === "video_unmute").length, 1);
+  assert.equal(metrics.filter((entry) => entry.event === "video_mute").length, 1);
+  assert.equal(metrics.filter((entry) => entry.event === "video_playback_paused").length, 1);
+  assert.equal(metrics.filter((entry) => entry.event === "video_resume").length, 1);
+  const summaries = metrics.filter((entry) => entry.event === "video_playback_summary");
+  assert.equal(summaries.length, 1);
+  assert.equal(summaries[0].detail.watchedMs, 3000);
+  assert.equal(summaries[0].detail.bufferedMs, 500);
+  assert.equal(summaries[0].detail.bufferRatio, 0.143);
+  assert.equal(metrics.every((entry) => !("providerId" in entry.detail)), true);
+});
+
+test("backend intelligence maps video lifecycle sources into bounded canonical signals", async () => {
+  const root = path.resolve(__dirname, "..");
+  const { createIntelligencePlatform, PRODUCT_SIGNAL_WEIGHTS } = require(path.join(root, "backend", "intelligence-platform.js"));
+  const persisted = [];
+  const platform = createIntelligencePlatform({
+    appendEvent: async () => {},
+    persistEvent: async (event, scores) => persisted.push({ event, scores }),
+    now: () => new Date("2026-09-01T09:00:00.000Z"),
+    logger: { warn() {} }
+  });
+  const context = {
+    session: { username: "buyer_video" },
+    req: { headers: { "user-agent": "Mozilla/5.0 (Linux; Android 14)", "cf-ipcountry": "TZ" } },
+    store: { products: [{ id: "product-video-1", uploadedBy: "seller_video" }] }
+  };
+
+  const playEvent = await platform.ingestClientEvent({
+    level: "info",
+    event: "video_playback_started",
+    fingerprint: "video:video_playback_started",
+    context: { productId: "product-video-1", surface: "home-feed", watchedMs: 1200 }
+  }, context);
+  const pauseEvent = await platform.ingestClientEvent({
+    level: "info",
+    event: "video_playback_paused",
+    fingerprint: "video:video_playback_paused",
+    context: { productId: "product-video-1", surface: "home-feed", watchedMs: 2200 }
+  }, context);
+  const completionEvent = await platform.ingestClientEvent({
+    level: "info",
+    event: "video_complete",
+    fingerprint: "video:video_complete",
+    context: { productId: "product-video-1", surface: "home-feed", watchedMs: 8000 }
+  }, context);
+
+  assert.equal(playEvent.eventType, "video_play");
+  assert.equal(pauseEvent.eventType, "video_pause");
+  assert.equal(completionEvent.eventType, "video_complete");
+  assert.equal(playEvent.quality.known, true);
+  assert.equal(playEvent.quality.scoreableProduct, true);
+  assert.equal(pauseEvent.quality.known, true);
+  assert.equal(PRODUCT_SIGNAL_WEIGHTS.video_complete, 2);
+  assert.equal(platform.getProductScore("product-video-1").score, 2.75);
+  await platform.drainForTests();
+  assert.equal(persisted.length, 3);
+  assert.equal(persisted.every((entry) => entry.event.productId === "product-video-1"), true);
+});
 test("payment refund adapter preserves signed durable provider orchestration", () => {
   const root = path.resolve(__dirname, "..");
   const source = fs.readFileSync(path.join(root, "cloudflare", "payment-refund-adapter.js"), "utf8");

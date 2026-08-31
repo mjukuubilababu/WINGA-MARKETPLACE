@@ -26,7 +26,17 @@ const PRODUCT_SIGNAL_WEIGHTS = Object.freeze({
   product_deleted: -4,
   promotion_started: 5,
   promotion_ended: -1,
-  notification_clicked: 2
+  notification_clicked: 2,
+  video_impression: 0.25,
+  video_play: 0.75,
+  video_resume: 0.15,
+  video_complete: 2,
+  video_replay: 1,
+  video_pause: 0,
+  video_mute: 0,
+  video_unmute: 0,
+  video_error: 0,
+  video_watch_summary: 0
 });
 
 const SELLER_SIGNAL_WEIGHTS = Object.freeze({
@@ -44,7 +54,17 @@ const SELLER_SIGNAL_WEIGHTS = Object.freeze({
   product_uploaded: 1,
   product_edited: 0.5,
   promotion_started: 1.5,
-  notification_clicked: 0.5
+  notification_clicked: 0.5,
+  video_impression: 0.1,
+  video_play: 0.3,
+  video_resume: 0.05,
+  video_complete: 0.8,
+  video_replay: 0.4,
+  video_pause: 0,
+  video_mute: 0,
+  video_unmute: 0,
+  video_error: 0,
+  video_watch_summary: 0
 });
 
 const KNOWN_EVENT_TYPES = new Set([
@@ -69,7 +89,11 @@ const EVENT_ALIASES = Object.freeze({
   message_seller_opened: "conversation_signal",
   message_seller_missing_product: "conversation_signal",
   chat_runtime_failed: "conversation_signal",
-  notification_clicked: "notification_clicked"
+  notification_clicked: "notification_clicked",
+  video_playback_started: "video_play",
+  video_playback_paused: "video_pause",
+  video_playback_failed: "video_error",
+  video_playback_summary: "video_watch_summary"
 });
 
 function sanitizeText(value, maxLength = 120) {

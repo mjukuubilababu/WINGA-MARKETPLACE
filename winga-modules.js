@@ -9857,6 +9857,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     const targetWindow = deps.windowObject || window;
     const targetDocument = deps.documentObject || document;
     const reportMetric = typeof deps.reportMetric === "function" ? deps.reportMetric : () => {};
+    const metricNow = typeof deps.now === "function" ? deps.now : () => Date.now();
     const translateUi = typeof deps.translateUi === "function" ? deps.translateUi : (_key, _variables, fallback) => String(fallback || "");
     const tokenCache = new Map();
     const stateByNode = new WeakMap();
@@ -10045,6 +10046,56 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       }
     }
 
+    function getMetricContext(node, state, detail = {}) {
+      const card = node?.closest?.("[data-open-product], [data-product-card]");
+      const productId = String(card?.dataset?.openProduct || card?.dataset?.productCard || "").trim().slice(0, 100);
+      const event = String(detail.event || "lifecycle").slice(0, 80);
+      return {
+        ...detail,
+        ...(productId ? { productId, fingerprint: `video:${event}`.slice(0, 120) } : {}),
+        profile: String(state?.playbackProfile || detail.profile || "balanced")
+      };
+    }
+
+    function emitVideoMetric(node, state, event, detail = {}) {
+      emitMetric(event, getMetricContext(node, state, { ...detail, event }));
+    }
+
+    function closeWatchSegment(state, timestamp = metricNow()) {
+      if (!state?.watchStartedAt) return;
+      state.watchedMs += Math.max(0, timestamp - state.watchStartedAt);
+      state.watchStartedAt = 0;
+    }
+
+    function closeBufferSegment(state, timestamp = metricNow()) {
+      if (!state?.bufferStartedAt) return 0;
+      const bufferingMs = Math.max(0, timestamp - state.bufferStartedAt);
+      state.bufferedMs += bufferingMs;
+      state.bufferStartedAt = 0;
+      return bufferingMs;
+    }
+
+    function emitPlaybackSummary(node, state, reason = "release") {
+      if (!state || state.summaryGeneration === state.generation) return;
+      const timestamp = metricNow();
+      closeWatchSegment(state, timestamp);
+      closeBufferSegment(state, timestamp);
+      const watchedMs = Math.max(0, Math.round(Number(state.watchedMs || 0)));
+      const bufferedMs = Math.max(0, Math.round(Number(state.bufferedMs || 0)));
+      if (watchedMs <= 0 && bufferedMs <= 0 && Number(state.playCount || 0) <= 0) return;
+      state.summaryGeneration = state.generation;
+      const observedMs = watchedMs + bufferedMs;
+      emitVideoMetric(node, state, "video_playback_summary", {
+        reason: String(reason || "release").slice(0, 40),
+        watchedMs,
+        bufferedMs,
+        bufferRatio: observedMs > 0 ? Math.round((bufferedMs / observedMs) * 1000) / 1000 : 0,
+        playCount: Math.max(0, Number(state.playCount || 0)),
+        completionCount: Math.max(0, Number(state.completionCount || 0)),
+        replayCount: Math.max(0, Number(state.replayCount || 0))
+      });
+    }
+
     function settleReadyState(state) {
       state?.resolveReady?.();
       if (state) {
@@ -10071,8 +10122,9 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       node.classList.add("has-playback-error");
       node.classList.remove("is-ready", "is-playing", "is-loading", "is-buffering", "is-prewarming");
       node.setAttribute("aria-busy", "false");
-      emitMetric("video_playback_failed", {
-        latencyMs: Math.max(0, Date.now() - Number(context.startedAt || Date.now())),
+      emitPlaybackSummary(node, state, "error");
+      emitVideoMetric(node, state, "video_playback_failed", {
+        latencyMs: Math.max(0, metricNow() - Number(context.startedAt || metricNow())),
         code: String(context.code || "video_playback_failed").slice(0, 80),
         profile: String(state.playbackProfile || "balanced"),
         retryOnOnline: state.awaitingNetwork
@@ -10109,11 +10161,11 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       if (nextAttempt > attemptLimit) return false;
 
       state[attemptsKey] = nextAttempt;
-      state.recoveryStartedAt = Date.now();
+      state.recoveryStartedAt = metricNow();
       clearRecoveryTimer(state);
       const delayMs = Math.min(4000, recoveryBaseDelayMs * (2 ** (nextAttempt - 1)));
       node.classList.add("is-buffering");
-      emitMetric("video_playback_recovery_attempt", {
+      emitVideoMetric(node, state, "video_playback_recovery_attempt", {
         type: networkError ? "network" : "media",
         attempt: nextAttempt,
         delayMs,
@@ -10144,6 +10196,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       const state = stateByNode.get(node);
       if (state?.releaseTimer) targetWindow.clearTimeout(state.releaseTimer);
       clearRecoveryTimer(state);
+      emitPlaybackSummary(node, state, String(options.reason || (options.forget === true ? "dispose" : "release")));
       if (activeNode === node) activeNode = null;
       if (options.forget === true && userPauseLockNode === node) userPauseLockNode = null;
       if (state) {
@@ -10159,6 +10212,15 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         state.mediaRecoveryAttempts = 0;
         state.recoveryStartedAt = 0;
         state.bufferStartedAt = 0;
+        state.watchStartedAt = 0;
+        state.watchedMs = 0;
+        state.bufferedMs = 0;
+        state.playCount = 0;
+        state.completionCount = 0;
+        state.replayCount = 0;
+        state.pendingPlaybackCycle = false;
+        state.completionReportedForLoop = false;
+        state.lastCurrentTime = 0;
         settleReadyState(state);
       }
       if (state?.hls) {
@@ -10391,11 +10453,20 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       state.awaitingNetwork = false;
       state.pauseReason = "";
       state.generation += 1;
+      state.watchStartedAt = 0;
+      state.watchedMs = 0;
+      state.bufferedMs = 0;
+      state.playCount = 0;
+      state.completionCount = 0;
+      state.replayCount = 0;
+      state.pendingPlaybackCycle = false;
+      state.completionReportedForLoop = false;
+      state.lastCurrentTime = 0;
       const generation = state.generation;
-      const startedAt = Date.now();
+      const startedAt = metricNow();
       const playbackProfile = getPlaybackProfile();
       state.playbackProfile = playbackProfile.name;
-      emitMetric("video_playback_profile_selected", {
+      emitVideoMetric(node, state, "video_playback_profile_selected", {
         profile: playbackProfile.name,
         prewarmed: options.prewarm === true,
         saveData: isSaveDataEnabled()
@@ -10452,8 +10523,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           node.classList.remove("is-loading", "is-buffering", "is-prewarming", "has-playback-error");
           node.setAttribute("aria-busy", "false");
           settleReadyState(state);
-          emitMetric("video_playback_ready", {
-            latencyMs: Math.max(0, Date.now() - startedAt),
+          emitVideoMetric(node, state, "video_playback_ready", {
+            latencyMs: Math.max(0, metricNow() - startedAt),
             tokenCached: tokenResult.cached,
             prewarmed: options.prewarm === true,
             bigPipePrefetched: tokenResult.prefetched === true,
@@ -10463,19 +10534,31 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         };
         const reportPlaybackStarted = () => {
           revealFirstFrame();
+          const timestamp = metricNow();
           state.hasPlayed = true;
           node.classList.add("is-playing");
           node.classList.remove("is-buffering");
-          if (state.bufferStartedAt) {
-            emitMetric("video_playback_buffer_recovered", {
-              bufferingMs: Math.max(0, Date.now() - state.bufferStartedAt),
+          const bufferingMs = closeBufferSegment(state, timestamp);
+          if (bufferingMs > 0) {
+            emitVideoMetric(node, state, "video_playback_buffer_recovered", {
+              bufferingMs,
               profile: playbackProfile.name
             });
-            state.bufferStartedAt = 0;
+          }
+          if (!state.watchStartedAt) state.watchStartedAt = timestamp;
+          if (state.pendingPlaybackCycle) {
+            state.playCount += 1;
+            if (state.playCount > 1) {
+              emitVideoMetric(node, state, "video_resume", {
+                autoplay: state.autoplayRequested,
+                playCount: state.playCount
+              });
+            }
+            state.pendingPlaybackCycle = false;
           }
           if (state.recoveryStartedAt) {
-            emitMetric("video_playback_recovery_succeeded", {
-              latencyMs: Math.max(0, Date.now() - state.recoveryStartedAt),
+            emitVideoMetric(node, state, "video_playback_recovery_succeeded", {
+              latencyMs: Math.max(0, timestamp - state.recoveryStartedAt),
               profile: playbackProfile.name
             });
             state.recoveryStartedAt = 0;
@@ -10484,8 +10567,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           }
           if (playbackStartedReported) return;
           playbackStartedReported = true;
-          emitMetric("video_playback_started", {
-            latencyMs: Math.max(0, Date.now() - startedAt),
+          emitVideoMetric(node, state, "video_playback_started", {
+            latencyMs: Math.max(0, timestamp - startedAt),
             tokenCached: tokenResult.cached,
             autoplay: state.autoplayRequested,
             saveData: isSaveDataEnabled(),
@@ -10495,6 +10578,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         const handlePlay = () => {
           if (state.generation !== generation || !node.isConnected) return;
           state.userPaused = false;
+          state.pendingPlaybackCycle = true;
           if (userPauseLockNode === node) userPauseLockNode = null;
           claimActiveNode(node);
         };
@@ -10502,25 +10586,74 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           const pauseReason = state.pauseReason;
           state.pauseReason = "";
           node.classList.remove("is-playing", "is-buffering");
-          if (state.generation !== generation || pauseReason) return;
+          if (state.generation !== generation) return;
+          const timestamp = metricNow();
+          closeWatchSegment(state, timestamp);
+          closeBufferSegment(state, timestamp);
+          emitVideoMetric(node, state, "video_playback_paused", {
+            manualIntent: !pauseReason,
+            reason: pauseReason || "user",
+            watchedMs: Math.max(0, Math.round(Number(state.watchedMs || 0)))
+          });
+          if (pauseReason) return;
           state.userPaused = true;
           state.autoplayRequested = false;
           userPauseLockNode = node;
           if (activeNode === node) activeNode = null;
-          emitMetric("video_playback_paused", { manualIntent: true });
           reconcileActivePlayback();
         };
         const handleWaiting = () => {
           if (activeNode !== node || state.userPaused) return;
-          if (!state.bufferStartedAt) state.bufferStartedAt = Date.now();
+          const timestamp = metricNow();
+          closeWatchSegment(state, timestamp);
+          if (!state.bufferStartedAt) state.bufferStartedAt = timestamp;
           node.classList.add("is-buffering");
         };
+        const reportCompletion = () => {
+          if (state.completionReportedForLoop) return;
+          state.completionReportedForLoop = true;
+          state.completionCount += 1;
+          emitVideoMetric(node, state, "video_complete", {
+            completionCount: state.completionCount,
+            watchedMs: Math.max(0, Math.round(Number(state.watchedMs || 0) + (state.watchStartedAt ? metricNow() - state.watchStartedAt : 0)))
+          });
+        };
+        const handleTimeUpdate = () => {
+          if (state.generation !== generation || !node.isConnected) return;
+          const currentTime = Math.max(0, Number(video.currentTime || 0));
+          const duration = Math.max(0, Number(video.duration || 0));
+          if (!Number.isFinite(duration) || duration <= 0) return;
+          const wrapped = state.lastCurrentTime >= duration * 0.85 && currentTime <= duration * 0.15;
+          if (wrapped) {
+            reportCompletion();
+            state.replayCount += 1;
+            emitVideoMetric(node, state, "video_replay", { replayCount: state.replayCount });
+            state.completionReportedForLoop = false;
+          } else if (currentTime >= duration * 0.95) {
+            reportCompletion();
+          }
+          state.lastCurrentTime = currentTime;
+        };
+        const handleEnded = () => {
+          closeWatchSegment(state, metricNow());
+          reportCompletion();
+        };
+        const handleVolumeChange = () => {
+          const muted = Boolean(video.muted || Number(video.volume || 0) === 0);
+          if (muted === state.lastMuted) return;
+          state.lastMuted = muted;
+          emitVideoMetric(node, state, muted ? "video_mute" : "video_unmute", {});
+        };
+        state.lastMuted = Boolean(video.muted || Number(video.volume || 0) === 0);
         video.addEventListener("loadeddata", revealFirstFrame, { once: true });
         video.addEventListener("canplay", revealFirstFrame, { once: true });
         video.addEventListener("play", handlePlay);
         video.addEventListener("playing", reportPlaybackStarted);
         video.addEventListener("pause", handlePause);
         video.addEventListener("waiting", handleWaiting);
+        video.addEventListener("timeupdate", handleTimeUpdate);
+        video.addEventListener("ended", handleEnded);
+        video.addEventListener("volumechange", handleVolumeChange);
 
         const Hls = await loadHlsRuntime(targetWindow, targetDocument, translateUi);
         if (state.generation !== generation || !node.isConnected) return;
@@ -10575,10 +10708,10 @@ window.WingaModules.localization = window.WingaModules.localization || {};
               return;
             }
             state.networkRecoveryAttempts = nextAttempt;
-            state.recoveryStartedAt = Date.now();
+            state.recoveryStartedAt = metricNow();
             clearRecoveryTimer(state);
             const delayMs = Math.min(4000, recoveryBaseDelayMs * (2 ** (nextAttempt - 1)));
-            emitMetric("video_playback_recovery_attempt", {
+            emitVideoMetric(node, state, "video_playback_recovery_attempt", {
               type: "native_network",
               attempt: nextAttempt,
               delayMs,
@@ -10674,6 +10807,12 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           if (!state) return;
           state.intersectionRatio = entry.isIntersecting ? Math.max(0, Number(entry.intersectionRatio || 0)) : 0;
           state.inPlaybackViewport = entry.isIntersecting && state.intersectionRatio >= 0.55;
+          if (state.inPlaybackViewport && !state.impressionReported) {
+            state.impressionReported = true;
+            emitVideoMetric(entry.target, state, "video_impression", {
+              intersectionRatio: Math.round(state.intersectionRatio * 100) / 100
+            });
+          }
           const rect = entry.boundingClientRect;
           const rootBounds = entry.rootBounds;
           const viewportCenter = rootBounds
@@ -10728,7 +10867,19 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           mediaRecoveryAttempts: 0,
           awaitingNetwork: false,
           playbackProfile: "",
-          prewarmTarget: null
+          prewarmTarget: null,
+          impressionReported: false,
+          watchStartedAt: 0,
+          watchedMs: 0,
+          bufferedMs: 0,
+          playCount: 0,
+          completionCount: 0,
+          replayCount: 0,
+          pendingPlaybackCycle: false,
+          completionReportedForLoop: false,
+          lastCurrentTime: 0,
+          lastMuted: true,
+          summaryGeneration: -1
         });
 
         boundNodes.add(node);
