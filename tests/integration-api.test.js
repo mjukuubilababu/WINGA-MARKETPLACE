@@ -823,13 +823,6 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
       category: "viatu",
       images: [tinyImage],
       image: tinyImage,
-      mediaItems: [
-        { type: "image", status: "ready", url: tinyImage, position: 0 },
-        {
-          type: "video", status: "ready", provider: "cloudflare-stream",
-          providerId: "stream-integration-video-001", posterUrl: "", position: 1
-        }
-      ],
       imageSignature: "0101010101010101010101010101010101010101010101010101010101010101"
     })
   });
@@ -852,13 +845,6 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
       category: "viatu",
       images: [tinyImage],
       image: tinyImage,
-      mediaItems: [
-        { type: "image", status: "ready", url: tinyImage, position: 0 },
-        {
-          type: "video", status: "ready", provider: "cloudflare-stream",
-          providerId: "stream-integration-video-001", posterUrl: "", position: 1
-        }
-      ],
       imageSignature: "0101010101010101010101010101010101010101010101010101010101010101"
     })
   });
@@ -880,13 +866,6 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
       category: "viatu",
       images: [tinyImage],
       image: tinyImage,
-      mediaItems: [
-        { type: "image", status: "ready", url: tinyImage, position: 0 },
-        {
-          type: "video", status: "ready", provider: "cloudflare-stream",
-          providerId: "stream-integration-video-001", posterUrl: "", position: 1
-        }
-      ],
       imageSignature: "0101010101010101010101010101010101010101010101010101010101010101"
     })
   });
@@ -907,13 +886,6 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
       category: "viatu",
       images: [tinyImage],
       image: tinyImage,
-      mediaItems: [
-        { type: "image", status: "ready", url: tinyImage, position: 0 },
-        {
-          type: "video", status: "ready", provider: "cloudflare-stream",
-          providerId: "stream-integration-video-001", posterUrl: "", position: 1
-        }
-      ],
       imageSignature: "0101010101010101010101010101010101010101010101010101010101010101"
     })
   });
@@ -936,13 +908,6 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
       category: "viatu",
       images: [tinyImage],
       image: tinyImage,
-      mediaItems: [
-        { type: "image", status: "ready", url: tinyImage, position: 0 },
-        {
-          type: "video", status: "ready", provider: "cloudflare-stream",
-          providerId: "stream-integration-video-001", posterUrl: "", position: 1
-        }
-      ],
       imageSignature: "0101010101010101010101010101010101010101010101010101010101010101"
     })
   });
@@ -994,13 +959,6 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
       category: "viatu",
       images: [tinyImage],
       image: tinyImage,
-      mediaItems: [
-        { type: "image", status: "ready", url: tinyImage, position: 0 },
-        {
-          type: "video", status: "ready", provider: "cloudflare-stream",
-          providerId: "stream-integration-video-001", posterUrl: "", position: 1
-        }
-      ],
       imageSignature: "0101010101010101010101010101010101010101010101010101010101010101"
     })
   });
@@ -1036,13 +994,6 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
       category: "vitu-used-simu",
       images: [tinyImage],
       image: tinyImage,
-      mediaItems: [
-        { type: "image", status: "ready", url: tinyImage, position: 0 },
-        {
-          type: "video", status: "ready", provider: "cloudflare-stream",
-          providerId: "stream-integration-video-001", posterUrl: "", position: 1
-        }
-      ],
       imageSignature: "0101010101010101010101010101010101010101010101010101010101010101"
     })
   });
@@ -1361,13 +1312,6 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
       category: "viatu",
       images: [tinyImage],
       image: tinyImage,
-      mediaItems: [
-        { type: "image", status: "ready", url: tinyImage, position: 0 },
-        {
-          type: "video", status: "ready", provider: "cloudflare-stream",
-          providerId: "stream-integration-video-001", posterUrl: "", position: 1
-        }
-      ],
       imageSignature: "0101010101010101010101010101010101010101010101010101010101010101",
       originalProductId: "product-test-001",
       originalSellerId: "seller_one",
