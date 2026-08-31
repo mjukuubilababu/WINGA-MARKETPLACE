@@ -1633,7 +1633,7 @@ async loadAdminPayments(filters) {
     const sessionAdapter = createLocalAdapter();
     const localFallbackAdapter = createLocalAdapter();
     const enableLocalCacheFallback = shouldUseApiLocalCacheFallback(config || {});
-    const productUploadTimeoutMs = Number((config && config.productUploadTimeoutMs) || 45000);
+    const productUploadTimeoutMs = Number((config && config.productUploadTimeoutMs) || 180000);
     let authApiClient = null;
     let productsApiClient = null;
     let communicationsApiClient = null;

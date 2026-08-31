@@ -896,6 +896,9 @@ test("video upload controller validates, uploads, polls, and exposes only ready 
   assert.match(source, /status === "ready"/);
   assert.match(source, /video_upload_cancelled/);
   assert.match(source, /provider: "cloudflare-stream"/);
+  assert.match(source, /DEFAULT_TUS_CHUNK_BYTES = 5 \* 1024 \* 1024/);
+  assert.match(source, /\[0, 1000, 3000, 5000, 10000, 20000, 30000\]/);
+  assert.match(source, /xhr\.timeout = 10 \* 60 \* 1000/);
   assert.match(source, /durationSeconds = await readDuration/);
   const serverSource = fs.readFileSync(path.join(root, "backend", "server.js"), "utf8");
   assert.match(serverSource, /fileSize > 200 \* 1024 \* 1024/);
@@ -1039,6 +1042,7 @@ test("remote product actions API client owns product writes and demand signals",
   assert.match(moduleSource, /fileSize: Number\(file\.size \|\| 0\)/);
   assert.match(moduleSource, /durationSeconds: Math\.max\(0, Number\(file\.durationSeconds \|\| 0\) \|\| 0\)/);
   assert.match(moduleSource, /uploadProtocol: "tus"/);
+  assert.match(moduleSource, /productUploadTimeoutMs \|\| 180000/);
   assert.match(moduleSource, /async function readVideoUploadStatus\(providerId\)/);
   assert.match(dataSource, /async requestVideoUpload\(file\)/);
   assert.match(dataSource, /async readVideoUploadStatus\(providerId\)/);  assert.match(moduleSource, /async function createProduct\(product\)/);

@@ -1,7 +1,7 @@
 (() => {
   const DEFAULT_MIN_BYTES = 1;
   const DEFAULT_MAX_BYTES = 5 * 1024 * 1024 * 1024;
-  const DEFAULT_TUS_CHUNK_BYTES = 20 * 1024 * 1024;
+  const DEFAULT_TUS_CHUNK_BYTES = 5 * 1024 * 1024;
   const VIDEO_EXTENSIONS = new Set(["mp4", "m4v", "mkv", "mov", "avi", "flv", "ts", "mts", "m2ts", "m2p", "m2v", "mxf", "lxf", "gxf", "3gp", "3g2", "webm", "mpg", "mpeg"]);
   const VIDEO_TYPES = new Set(["video/mp4", "video/x-m4v", "video/quicktime", "video/webm", "video/x-matroska", "video/x-msvideo", "video/x-flv", "video/mp2t", "video/mpeg", "video/3gpp", "video/3gpp2", "application/mxf", "application/octet-stream"]);
 
@@ -15,7 +15,7 @@
     const maxBytes = Math.max(minBytes, Number(deps.maxBytes || DEFAULT_MAX_BYTES));
     const requestedChunkBytes = Math.max(5 * 1024 * 1024, Math.min(200 * 1024 * 1024, Number(deps.chunkBytes || DEFAULT_TUS_CHUNK_BYTES)));
     const chunkBytes = Math.floor(requestedChunkBytes / (256 * 1024)) * (256 * 1024);
-    const retryDelays = Array.isArray(deps.retryDelays) ? deps.retryDelays : [0, 1000, 3000, 5000, 10000];
+    const retryDelays = Array.isArray(deps.retryDelays) ? deps.retryDelays : [0, 1000, 3000, 5000, 10000, 20000, 30000];
     const pollIntervalMs = Math.max(500, Number(deps.pollIntervalMs || 2500));
     const maxPollAttempts = Math.max(1, Number(deps.maxPollAttempts || 120));
     let generation = 0;
@@ -65,7 +65,7 @@
         const xhr = createXhr();
         activeXhr = xhr;
         xhr.open(method, url, true);
-        xhr.timeout = 5 * 60 * 1000;
+        xhr.timeout = 10 * 60 * 1000;
         for (const [name, value] of Object.entries(headers || {})) xhr.setRequestHeader?.(name, value);
         xhr.upload?.addEventListener("progress", (event) => {
           if (token === generation && event.lengthComputable && typeof onProgress === "function") onProgress(event.loaded, event.total);

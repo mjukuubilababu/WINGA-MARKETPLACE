@@ -22,7 +22,7 @@ const WINGA_DEFAULT_CONFIG = {
   clearLegacyLocalDataOnBoot: false,
   authRequestTimeoutMs: 18000,
   sessionRestoreTimeoutMs: 8000,
-  productUploadTimeoutMs: 45000,
+  productUploadTimeoutMs: 180000,
   apiBaseUrl: WINGA_IS_FILE_MODE
     ? "http://localhost:3000/api"
     : WINGA_IS_LOCAL_WEB

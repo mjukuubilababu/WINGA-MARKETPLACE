@@ -7,7 +7,7 @@
     const getAnonymousDemandSessionId = typeof deps.getAnonymousDemandSessionId === "function"
       ? deps.getAnonymousDemandSessionId
       : () => "";
-    const productUploadTimeoutMs = Number(deps.productUploadTimeoutMs || 45000);
+    const productUploadTimeoutMs = Number(deps.productUploadTimeoutMs || 180000);
 
     function requireFetcher() {
       if (typeof fetchJson !== "function") {
