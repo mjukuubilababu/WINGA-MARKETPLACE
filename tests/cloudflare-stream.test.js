@@ -1,7 +1,7 @@
 const assert = require("node:assert/strict");
 const crypto = require("crypto");
 const test = require("node:test");
-const { createCloudflareStreamClient, normalizeStreamVideo, readCloudflareStreamConfig, verifyCloudflareStreamWebhook } = require("../backend/cloudflare-stream");
+const { createCloudflareStreamClient, extractStreamCustomerCode, normalizeStreamVideo, readCloudflareStreamConfig, verifyCloudflareStreamWebhook } = require("../backend/cloudflare-stream");
 
 test("Stream direct upload is private, origin-bound, short-lived, and never exposes the API token", async () => {
   const calls = [];
@@ -51,6 +51,18 @@ test("Stream signed playback tokens are short-lived and non-downloadable", async
   assert.equal(result.expiresInSeconds, 600);
   assert.equal(requestBody.downloadable, false);
   assert.ok(requestBody.exp > Math.floor(Date.now() / 1000));
+});
+
+test("Stream signed playback derives customer code from trusted provider URLs", async () => {
+  const client = createCloudflareStreamClient({
+    config: readCloudflareStreamConfig({ CLOUDFLARE_STREAM_ACCOUNT_ID: "account-123", CLOUDFLARE_STREAM_API_TOKEN: "secret" }),
+    fetchImpl: async () => ({ ok: true, status: 200, json: async () => ({ success: true, result: { token: "signed.playback.token" } }) })
+  });
+  const result = await client.createPlaybackToken("stream-video-123", {
+    hlsUrl: "https://customer-abcd1234.cloudflarestream.com/stream-video-123/manifest/video.m3u8"
+  });
+  assert.equal(extractStreamCustomerCode("https://customer-abcd1234.cloudflarestream.com/video/iframe"), "abcd1234");
+  assert.equal(result.customerCode, "abcd1234");
 });
 
 test("Stream resumable upload provisions a private direct-user TUS endpoint", async () => {

@@ -359,7 +359,7 @@
       const layout = deps.createElement("div", { className: "product-detail-layout" });
       const hasReadyProductVideo = (Array.isArray(product.mediaItems) ? product.mediaItems : []).some((item) => item?.type === "video"
         && item?.status === "ready"
-        && (!item?.moderationStatus || item.moderationStatus === "approved"));
+        && item?.moderationStatus !== "rejected");
       const useFeedCarousel = typeof deps.renderFeedGalleryMarkup === "function"
         && (detailImages.length > 1 || hasReadyProductVideo);
       const media = deps.createElement("div", {

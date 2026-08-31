@@ -11931,7 +11931,7 @@ function clearBrokenMarketplaceImage(productId, imageSource = "") {
 function getReadyProductVideoItem(product) {
   return (Array.isArray(product?.mediaItems) ? product.mediaItems : []).find((item) => item?.type === "video"
     && item?.status === "ready"
-    && (!item?.moderationStatus || item.moderationStatus === "approved")
+    && item?.moderationStatus !== "rejected"
     && item?.provider === "cloudflare-stream"
     && /^[A-Za-z0-9_-]{8,128}$/.test(String(item?.providerId || ""))) || null;
 }

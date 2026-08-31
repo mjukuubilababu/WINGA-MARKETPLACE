@@ -2690,6 +2690,7 @@ test("PostgreSQL video upload intents preserve owner scope and webhook state", a
   });
 
   assert.equal(created.status, "uploading");
+  assert.match(calls.find((call) => call.text.includes("INSERT INTO video_upload_intents")).text, /'uploading', 'approved'/);
   assert.equal(owned.sellerId, "seller-one");
   assert.equal(updated.status, "ready");
   const ownerRead = calls.find((call) => call.text.includes("SELECT provider_id") && call.text.includes("video_upload_intents"));
@@ -2720,6 +2721,7 @@ test("PostgreSQL playable video lookup preserves public product visibility conte
   assert.equal(playable.productStatus, "approved");
   assert.equal(playable.productId, "product-video-1");
   assert.match(calls[0].text, /LEFT JOIN products p ON p\.id = vui\.product_id/);
+  assert.match(calls[0].text, /poster_url AS "posterUrl"/);
   assert.deepEqual(calls[0].params, ["stream-video-123"]);
 });
 test("PostgreSQL video moderation queue and decision are bounded and atomic", async () => {
@@ -2812,6 +2814,7 @@ test("PostgreSQL video safety outbox is durable, bounded, and multi-instance saf
   assert.ok(calls.some((call) => call.text === "COMMIT"));
   assert.ok(MIGRATIONS.some((migration) => migration.id === "2026083005_video_safety_outbox"));
   assert.ok(MIGRATIONS.some((migration) => migration.id === "2026083101_video_direct_publish_reconciliation"));
+  assert.ok(MIGRATIONS.some((migration) => migration.id === "2026083102_video_direct_publish_default"));
 });
 test("PostgreSQL video safety only hides explicitly blocked videos", async () => {
   for (const [verdict, expectedModeration] of [["review", "approved"], ["error", "approved"], ["blocked", "rejected"]]) {

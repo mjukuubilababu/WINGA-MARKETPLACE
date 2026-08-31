@@ -222,14 +222,14 @@ test("marketplace gallery adds one secure ready video slide without collapsing p
   assert.match(videoOnlyHtml, /data-video-provider-id="stream-video-only"/);
   assert.match(videoOnlyHtml, /src="video-poster.jpg"/);
   assert.doesNotMatch(videoOnlyHtml, /class="feed-gallery-image/);
-  const pendingHtml = gallery.renderFeedGalleryMarkup({
+  const directPublishHtml = gallery.renderFeedGalleryMarkup({
     ...product,
     mediaItems: product.mediaItems.map((item) => item.type === "video"
       ? { ...item, moderationStatus: "pending" }
       : item)
   }, "feed");
-  assert.doesNotMatch(pendingHtml, /data-video-provider-id/);
-  assert.match(pendingHtml, /data-feed-gallery-total="2"/);
+  assert.match(directPublishHtml, /data-video-provider-id="stream-video-ready"/);
+  assert.match(directPublishHtml, /data-feed-gallery-total="3"/);
   assert.match(playbackSource, /new targetWindow\.IntersectionObserver/);
   assert.match(playbackSource, /tokenCache\.size > maxCachedTokens/);
   assert.match(playbackSource, /cloudflarestream\.com\/\$\{encodeURIComponent\(token\)\}\/iframe/);
@@ -1087,10 +1087,11 @@ test("video moderation is staff-scoped, durable, and backward compatible", () =>
   const adminControllerSource = fs.readFileSync(path.join(root, "src", "admin", "controller.js"), "utf8");
 
   assert.match(migrationSource, /2026083004_video_moderation_lifecycle/);
+  assert.match(migrationSource, /2026083102_video_direct_publish_default/);
   assert.match(migrationSource, /moderation_status TEXT NOT NULL DEFAULT 'approved'/);
-  assert.match(dbSource, /'uploading', 'pending'/);
+  assert.match(dbSource, /'uploading', 'approved'/);
   assert.match(dbSource, /FOR UPDATE|UPDATE video_upload_intents/);
-  assert.match(serverSource, /intent\?\.moderationStatus === "approved"/);
+  assert.match(serverSource, /const isSafetyBlocked = intent\?\.moderationStatus === "rejected" \|\| intent\?\.safetyStatus === "blocked"/);
   assert.match(serverSource, /canModerateSession\(session\)/);
   assert.match(serverSource, /event: "product_video_moderated"/);
   assert.match(serverSource, /const isStaffPreview = Boolean\(/);

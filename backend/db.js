@@ -5288,7 +5288,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     const result = await query(
       `INSERT INTO video_upload_intents (
          provider_id, seller_id, upload_id, status, moderation_status, upload_expires_at, created_at, updated_at
-       ) VALUES ($1, $2, $3, 'uploading', 'pending', $4, NOW(), NOW())
+       ) VALUES ($1, $2, $3, 'uploading', 'approved', $4, NOW(), NOW())
        ON CONFLICT (provider_id) DO NOTHING
        RETURNING provider_id AS "providerId", seller_id AS "sellerId", upload_id AS "uploadId",
          status, upload_expires_at AS "uploadExpiresAt", row_version AS "rowVersion"`,
@@ -5327,6 +5327,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
          vui.status, vui.moderation_status AS "moderationStatus",
          vui.safety_status AS "safetyStatus", vui.safety_score::float8 AS "safetyScore",
          vui.product_id AS "productId", vui.claimed_at AS "claimedAt",
+         vui.poster_url AS "posterUrl", vui.hls_url AS "hlsUrl", vui.dash_url AS "dashUrl",
          p.status AS "productStatus"
        FROM video_upload_intents vui
        LEFT JOIN products p ON p.id = vui.product_id

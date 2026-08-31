@@ -2442,7 +2442,7 @@ function sanitizeVisibleProduct(product, viewer = null, storeRef = null) {
   };
   const hasPublicReadyVideo = safeProduct.mediaItems.some((item) => item.type === "video"
     && item.status === "ready"
-    && (!item.moderationStatus || item.moderationStatus === "approved")
+    && item.moderationStatus !== "rejected"
     && item.provider === "cloudflare-stream"
     && /^[A-Za-z0-9_-]{8,128}$/.test(String(item.providerId || "")));
   if (!safeProduct.image && (!Array.isArray(safeProduct.images) || safeProduct.images.length === 0) && !hasPublicReadyVideo && !canSeeModerationData) {
@@ -11291,11 +11291,12 @@ const server = http.createServer(async (req, res) => {
         && intent?.productId
         && intent?.claimedAt
       );
+      const isSafetyBlocked = intent?.moderationStatus === "rejected" || intent?.safetyStatus === "blocked";
       const isPublicProductVideo = Boolean(
         intent?.status === "ready"
         && intent?.productId
         && intent?.claimedAt
-        && intent?.moderationStatus === "approved"
+        && !isSafetyBlocked
         && intent?.productStatus === "approved"
       );
       if (!intent || intent.status !== "ready" || (!isOwner && !isStaffPreview && !isPublicProductVideo)) {
@@ -11306,7 +11307,11 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       try {
-        const playback = await CLOUDFLARE_STREAM_CLIENT.createPlaybackToken(intent.providerId);
+        const playback = await CLOUDFLARE_STREAM_CLIENT.createPlaybackToken(intent.providerId, {
+          posterUrl: intent.posterUrl,
+          hlsUrl: intent.hlsUrl,
+          dashUrl: intent.dashUrl
+        });
         if (isStaffPreview && !isOwner && !isPublicProductVideo) {
           await appendAuditLog({
             time: new Date().toISOString(), ip: clientIp, method: req.method, path: url.pathname,

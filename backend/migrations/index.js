@@ -467,7 +467,31 @@ const MIGRATIONS = Object.freeze([
        WHERE p.id = reconciled.id AND p.media_items IS DISTINCT FROM reconciled.media_items;`
     ])
   })
-]);
+,
+  Object.freeze({
+    id: "2026083102_video_direct_publish_default",
+    statements: Object.freeze([
+      `ALTER TABLE video_upload_intents ALTER COLUMN moderation_status SET DEFAULT 'approved';`,
+      `UPDATE video_upload_intents
+       SET moderation_status = 'approved', updated_at = NOW(), row_version = row_version + 1
+       WHERE moderation_status = 'pending' AND safety_status <> 'blocked';`,
+      `UPDATE products p
+       SET media_items = reconciled.media_items, updated_at = NOW(), row_version = p.row_version + 1
+       FROM (
+         SELECT p2.id, jsonb_agg(
+           CASE WHEN item->>'type' = 'video' AND vui.provider_id IS NOT NULL
+             THEN jsonb_set(item, '{moderationStatus}', to_jsonb(vui.moderation_status), true)
+             ELSE item END
+           ORDER BY ordinal
+         ) AS media_items
+         FROM products p2
+         CROSS JOIN LATERAL jsonb_array_elements(p2.media_items) WITH ORDINALITY AS entries(item, ordinal)
+         LEFT JOIN video_upload_intents vui ON vui.provider_id = item->>'providerId'
+         GROUP BY p2.id
+       ) AS reconciled
+       WHERE p.id = reconciled.id AND p.media_items IS DISTINCT FROM reconciled.media_items;`
+    ])
+  })]);
 
 async function runSchemaMigrations({ pool, logger = console, beforeMigrations = null } = {}) {
   if (!pool || typeof pool.query !== "function") {
