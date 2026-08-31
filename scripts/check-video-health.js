@@ -35,7 +35,18 @@ function normalizeResult(response, body = {}) {
       safetyCompleted: Number(health.safetyCompleted || 0),
       safetyDead: Number(health.safetyDead || 0),
       safetyStalled: Number(health.safetyStalled || 0),
-      oldestSafetyPendingAgeSeconds: Number(health.oldestSafetyPendingAgeSeconds || 0)
+      oldestSafetyPendingAgeSeconds: Number(health.oldestSafetyPendingAgeSeconds || 0),
+      playbackWindowHours: Number(health.playbackWindowHours || 24),
+      playbackImpressions: Number(health.playbackImpressions || 0),
+      playbackPlays: Number(health.playbackPlays || 0),
+      playbackCompletions: Number(health.playbackCompletions || 0),
+      playbackErrors: Number(health.playbackErrors || 0),
+      playbackSummaries: Number(health.playbackSummaries || 0),
+      playbackCommerceActions: Number(health.playbackCommerceActions || 0),
+      playbackErrorRate: Number(health.playbackErrorRate || 0),
+      playbackCompletionRate: Number(health.playbackCompletionRate || 0),
+      averagePlaybackBufferRatio: Number(health.averagePlaybackBufferRatio || 0),
+      averagePlaybackWatchMs: Number(health.averagePlaybackWatchMs || 0)
     }
   };
 }

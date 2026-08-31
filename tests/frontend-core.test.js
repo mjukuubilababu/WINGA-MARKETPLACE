@@ -4564,6 +4564,7 @@ test("video playback emits bounded lifecycle intelligence without exposing provi
   const source = fs.readFileSync(path.join(root, "src", "marketplace", "video-playback.js"), "utf8");
   const observers = [];
   const metrics = [];
+  const documentListeners = new Map();
   let player = null;
   let clock = 1000;
 
@@ -4625,7 +4626,15 @@ test("video playback emits bounded lifecycle intelligence without exposing provi
     };
   }
 
-  const card = { dataset: { openProduct: "product-video-observed" } };
+  const card = {
+    dataset: { openProduct: "product-video-observed" },
+    querySelector(selector) {
+      return selector.includes("data-video-playback-engaged")
+        && node.dataset.videoPlaybackEngaged === "true"
+        ? node
+        : null;
+    }
+  };
   const classes = new Set();
   const node = {
     dataset: { videoProviderId: "private-provider-id", videoTitle: "Observed video" },
@@ -4649,7 +4658,7 @@ test("video playback emits bounded lifecycle intelligence without exposing provi
     querySelector: () => null,
     querySelectorAll: () => [node],
     createElement: () => createVideo(),
-    addEventListener: () => {},
+    addEventListener(type, handler) { documentListeners.set(type, handler); },
     head: { appendChild: () => {} }
   };
   const targetWindow = {
@@ -4673,6 +4682,20 @@ test("video playback emits bounded lifecycle intelligence without exposing provi
   });
 
   controller.bind(targetDocument);
+  const commerceClick = documentListeners.get("click");
+  assert.equal(typeof commerceClick, "function");
+  const createCommerceTarget = (selector = "", options = {}) => ({
+    classList: { contains: (name) => name === "is-active" && options.active === true },
+    getAttribute: (name) => name === "aria-pressed" && options.active === true ? "true" : "false",
+    closest(query) {
+      if (query === "[data-open-product], [data-product-card]") return card;
+      if (!selector) return null;
+      return query.split(",").map((entry) => entry.trim()).includes(selector) ? this : null;
+    }
+  });
+  commerceClick({ target: createCommerceTarget("[data-buy-product]") });
+  assert.equal(metrics.some((entry) => entry.event === "video_buy_click"), false);
+
   const playbackObserver = observers.find((entry) => Array.isArray(entry.options.threshold) && entry.options.threshold.includes(0.55));
   const visibleEntry = {
     target: node,
@@ -4690,6 +4713,20 @@ test("video playback emits bounded lifecycle intelligence without exposing provi
   assert.equal(metrics.filter((entry) => entry.event === "video_impression").length, 1);
   assert.equal(metrics.filter((entry) => entry.event === "video_playback_started").length, 1);
   assert.equal(metrics.find((entry) => entry.event === "video_impression").detail.productId, "product-video-observed");
+
+  commerceClick({ target: createCommerceTarget("[data-buy-product]") });
+  commerceClick({ target: createCommerceTarget("[data-chat-product]") });
+  commerceClick({ target: createCommerceTarget("[data-like-product]") });
+  commerceClick({ target: createCommerceTarget("[data-like-product]", { active: true }) });
+  commerceClick({ target: createCommerceTarget("[data-share-seller-shop]") });
+  commerceClick({ target: createCommerceTarget() });
+  const commerceEvents = metrics.filter((entry) => [
+    "video_buy_click", "video_message_seller", "video_save", "video_share", "video_product_click"
+  ].includes(entry.event));
+  assert.deepEqual(commerceEvents.map((entry) => entry.event), [
+    "video_buy_click", "video_message_seller", "video_save", "video_share", "video_product_click"
+  ]);
+  assert.equal(commerceEvents.every((entry) => entry.detail.productId === "product-video-observed"), true);
 
   clock = 2000;
   player.dispatch("waiting");
@@ -4760,17 +4797,26 @@ test("backend intelligence maps video lifecycle sources into bounded canonical s
     fingerprint: "video:video_complete",
     context: { productId: "product-video-1", surface: "home-feed", watchedMs: 8000 }
   }, context);
+  const buyEvent = await platform.ingestClientEvent({
+    level: "info",
+    event: "video_buy_click",
+    fingerprint: "video:video_buy_click",
+    context: { productId: "product-video-1", surface: "product_card" }
+  }, context);
 
   assert.equal(playEvent.eventType, "video_play");
   assert.equal(pauseEvent.eventType, "video_pause");
   assert.equal(completionEvent.eventType, "video_complete");
+  assert.equal(buyEvent.eventType, "video_buy_click");
   assert.equal(playEvent.quality.known, true);
   assert.equal(playEvent.quality.scoreableProduct, true);
   assert.equal(pauseEvent.quality.known, true);
   assert.equal(PRODUCT_SIGNAL_WEIGHTS.video_complete, 2);
-  assert.equal(platform.getProductScore("product-video-1").score, 2.75);
+  assert.equal(PRODUCT_SIGNAL_WEIGHTS.video_buy_click, 1.5);
+  assert.equal(PRODUCT_SIGNAL_WEIGHTS.video_save, 1);
+  assert.equal(platform.getProductScore("product-video-1").score, 4.25);
   await platform.drainForTests();
-  assert.equal(persisted.length, 3);
+  assert.equal(persisted.length, 4);
   assert.equal(persisted.every((entry) => entry.event.productId === "product-video-1"), true);
 });
 test("payment refund adapter preserves signed durable provider orchestration", () => {

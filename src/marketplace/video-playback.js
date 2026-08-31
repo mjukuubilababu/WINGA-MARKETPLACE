@@ -67,6 +67,7 @@
     let userPauseLockNode = null;
     let visibilityHandlerInstalled = false;
     let networkHandlersInstalled = false;
+    let commerceHandlerInstalled = false;
     const dominanceSwitchDelta = Math.max(0.05, Math.min(0.3, Number(deps.dominanceSwitchDelta || 0.12)));
 
     const playbackProfiles = Object.freeze({
@@ -248,6 +249,41 @@
       emitMetric(event, getMetricContext(node, state, { ...detail, event }));
     }
 
+    function getVideoCommerceAction(target) {
+      if (!target?.closest) return "";
+      if (target.closest("[data-buy-product]")) return "video_buy_click";
+      if (target.closest("[data-chat-product], [data-open-product-whatsapp]")) return "video_message_seller";
+      const saveButton = target.closest("[data-like-product]");
+      if (saveButton) {
+        const alreadySaved = saveButton.classList?.contains?.("is-active")
+          || saveButton.getAttribute?.("aria-pressed") === "true";
+        return alreadySaved ? "" : "video_save";
+      }
+      if (target.closest("[data-share-seller-shop]")) return "video_share";
+      if (target.closest(
+        ".product-menu, .product-menu-popup, .product-menu-toggle, [data-menu-toggle], [data-menu-popup], [data-product-caption-toggle], [data-request-product], [data-chat-product], [data-open-own-messages], [data-open-product-whatsapp], [data-buy-product], [data-detail-repost], [data-promote-product], [data-follow-seller], [data-share-seller-shop], [data-like-product], [data-video-playback], [data-stream-player], .product-actions, .showcase-actions, .seller-product-actions, .product-seller-inline-actions"
+      )) return "";
+      return "video_product_click";
+    }
+
+    function handleVideoCommerceClick(event) {
+      const target = event?.target;
+      const card = target?.closest?.("[data-open-product], [data-product-card]");
+      if (!card) return;
+      const node = card.querySelector?.('[data-video-playback][data-video-playback-engaged="true"]');
+      const state = node ? stateByNode.get(node) : null;
+      if (!node || !state?.hasPlayed) return;
+      const action = getVideoCommerceAction(target);
+      if (!action) return;
+      emitVideoMetric(node, state, action, { surface: "product_card" });
+    }
+
+    function installCommerceAttributionHandler() {
+      if (commerceHandlerInstalled || !targetDocument.addEventListener) return;
+      targetDocument.addEventListener("click", handleVideoCommerceClick, true);
+      commerceHandlerInstalled = true;
+    }
+
     function closeWatchSegment(state, timestamp = metricNow()) {
       if (!state?.watchStartedAt) return;
       state.watchedMs += Math.max(0, timestamp - state.watchStartedAt);
@@ -410,6 +446,7 @@
         state.lastCurrentTime = 0;
         settleReadyState(state);
       }
+      delete node.dataset.videoPlaybackEngaged;
       if (state?.hls) {
         state.hls.destroy?.();
         state.hls = null;
@@ -723,6 +760,7 @@
           revealFirstFrame();
           const timestamp = metricNow();
           state.hasPlayed = true;
+          node.dataset.videoPlaybackEngaged = "true";
           node.classList.add("is-playing");
           node.classList.remove("is-buffering");
           const bufferingMs = closeBufferSegment(state, timestamp);
@@ -1025,6 +1063,7 @@
         visibilityHandlerInstalled = true;
       }
       installNetworkHandlers();
+      installCommerceAttributionHandler();
       const nodes = Array.from(scope?.querySelectorAll?.("[data-video-playback]") || []);
       nodes.forEach((node) => {
         if (node.dataset.videoPlaybackBound === "true") return;

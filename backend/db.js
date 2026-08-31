@@ -5547,12 +5547,51 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
            'oldestPendingAgeSeconds', COALESCE(EXTRACT(EPOCH FROM (NOW() - (MIN(created_at) FILTER (
              WHERE status IN ('pending', 'retry', 'processing')
            )))), 0)
-         ) FROM video_safety_jobs), '{}'::jsonb) AS "safetyQueue"
+         ) FROM video_safety_jobs), '{}'::jsonb) AS "safetyQueue",
+         COALESCE((SELECT jsonb_build_object(
+           'windowHours', 24,
+           'impressions', COUNT(*) FILTER (WHERE event_type = 'video_impression'),
+           'plays', COUNT(*) FILTER (WHERE event_type = 'video_play'),
+           'completions', COUNT(*) FILTER (WHERE event_type = 'video_complete'),
+           'errors', COUNT(*) FILTER (WHERE event_type = 'video_error'),
+           'summaries', COUNT(*) FILTER (WHERE event_type = 'video_watch_summary'),
+           'commerceActions', COUNT(*) FILTER (WHERE event_type IN (
+             'video_product_click', 'video_message_seller', 'video_buy_click', 'video_share', 'video_save'
+           )),
+           'averageBufferRatio', COALESCE(AVG(
+             CASE WHEN event_type = 'video_watch_summary'
+               AND COALESCE(metadata->>'bufferratio', '') ~ '^[0-9]+([.][0-9]+)?$'
+               THEN (metadata->>'bufferratio')::float8 END
+           ), 0),
+           'averageWatchMs', COALESCE(AVG(
+             CASE WHEN event_type = 'video_watch_summary'
+               AND COALESCE(metadata->>'watchedms', '') ~ '^[0-9]+([.][0-9]+)?$'
+               THEN (metadata->>'watchedms')::float8 END
+           ), 0)
+         )
+         FROM intelligence_events
+         WHERE happened_at >= NOW() - INTERVAL '24 hours'
+           AND event_type IN (
+             'video_impression', 'video_play', 'video_complete', 'video_error',
+             'video_watch_summary', 'video_product_click', 'video_message_seller',
+             'video_buy_click', 'video_share', 'video_save'
+           )), '{}'::jsonb) AS playback
        FROM video_upload_intents`,
       [processingAgeSeconds]
     );
     const row = result.rows[0] || {};
     const safetyQueue = row.safetyQueue && typeof row.safetyQueue === "object" ? row.safetyQueue : {};
+    const playback = row.playback && typeof row.playback === "object" ? row.playback : {};
+    const playbackPlays = Math.max(0, Number(playback.plays || 0));
+    const playbackErrors = Math.max(0, Number(playback.errors || 0));
+    const playbackCompletions = Math.max(0, Number(playback.completions || 0));
+    const playbackAttempts = playbackPlays + playbackErrors;
+    const playbackErrorRate = playbackAttempts > 0
+      ? Math.round(Math.min(1, playbackErrors / playbackAttempts) * 10000) / 10000
+      : 0;
+    const playbackCompletionRate = playbackPlays > 0
+      ? Math.round(Math.min(1, playbackCompletions / playbackPlays) * 10000) / 10000
+      : 0;
     return {
       total: Number(row.total || 0),
       uploading: Number(row.uploading || 0),
@@ -5574,7 +5613,18 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       safetyCompleted: Number(safetyQueue.completed || 0),
       safetyDead: Number(safetyQueue.dead || 0),
       safetyStalled: Number(safetyQueue.stalled || 0),
-      oldestSafetyPendingAgeSeconds: Math.max(0, Number(safetyQueue.oldestPendingAgeSeconds || 0))
+      oldestSafetyPendingAgeSeconds: Math.max(0, Number(safetyQueue.oldestPendingAgeSeconds || 0)),
+      playbackWindowHours: Math.max(1, Number(playback.windowHours || 24)),
+      playbackImpressions: Math.max(0, Number(playback.impressions || 0)),
+      playbackPlays,
+      playbackCompletions,
+      playbackErrors,
+      playbackSummaries: Math.max(0, Number(playback.summaries || 0)),
+      playbackCommerceActions: Math.max(0, Number(playback.commerceActions || 0)),
+      playbackErrorRate,
+      playbackCompletionRate,
+      averagePlaybackBufferRatio: Math.max(0, Math.min(1, Number(playback.averageBufferRatio || 0))),
+      averagePlaybackWatchMs: Math.max(0, Number(playback.averageWatchMs || 0))
     };
   }
   async function claimVideoCleanupBatch(options = {}) {

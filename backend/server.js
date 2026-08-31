@@ -6164,12 +6164,37 @@ const server = http.createServer(async (req, res) => {
       Number(process.env.VIDEO_SAFETY_DEAD_ALERT_THRESHOLD || 1) || 1,
       100000
     ));
+    const playbackMinSampleSize = Math.max(5, Math.min(
+      Number(process.env.VIDEO_PLAYBACK_MIN_SAMPLE_SIZE || 20) || 20,
+      1000000
+    ));
+    const playbackErrorRateThreshold = Math.max(0.01, Math.min(
+      Number(process.env.VIDEO_PLAYBACK_ERROR_RATE_THRESHOLD || 0.1) || 0.1,
+      1
+    ));
+    const playbackBufferRatioThreshold = Math.max(0.01, Math.min(
+      Number(process.env.VIDEO_PLAYBACK_BUFFER_RATIO_THRESHOLD || 0.2) || 0.2,
+      1
+    ));
     const health = await postgresStore.readVideoPipelineHealth({ processingAgeSeconds });
     const alerts = [];
     if (health.stalled > 0) alerts.push("stalled_video_processing");
     if (health.failedRecent >= failedThreshold) alerts.push("video_failure_threshold_exceeded");
     if (health.safetyStalled > 0) alerts.push("stalled_video_safety");
     if (health.safetyDead >= safetyDeadThreshold) alerts.push("video_safety_dead_letter_threshold_exceeded");
+    const playbackAttempts = health.playbackPlays + health.playbackErrors;
+    if (
+      playbackAttempts >= playbackMinSampleSize
+      && health.playbackErrorRate >= playbackErrorRateThreshold
+    ) {
+      alerts.push("video_playback_error_rate_exceeded");
+    }
+    if (
+      health.playbackSummaries >= playbackMinSampleSize
+      && health.averagePlaybackBufferRatio >= playbackBufferRatioThreshold
+    ) {
+      alerts.push("video_playback_buffer_ratio_exceeded");
+    }
     const readiness = alerts.length ? "degraded" : "ready";
     const statusCode = readiness === "degraded" ? 503 : 200;
     requestMeta.statusCode = statusCode;
@@ -6178,7 +6203,10 @@ const server = http.createServer(async (req, res) => {
       readiness,
       videoPending: health.uploading + health.processing,
       videoStalled: health.stalled,
-      videoFailedRecent: health.failedRecent
+      videoFailedRecent: health.failedRecent,
+      videoPlaybackAttempts: playbackAttempts,
+      videoPlaybackErrorRate: health.playbackErrorRate,
+      videoPlaybackBufferRatio: health.averagePlaybackBufferRatio
     });
     sendJson(res, statusCode, {
       ok: readiness === "ready",
@@ -6186,7 +6214,14 @@ const server = http.createServer(async (req, res) => {
       time: new Date().toISOString(),
       health,
       alerts,
-      thresholds: { processingAgeSeconds, failed: failedThreshold, safetyDead: safetyDeadThreshold }
+      thresholds: {
+        processingAgeSeconds,
+        failed: failedThreshold,
+        safetyDead: safetyDeadThreshold,
+        playbackMinSampleSize,
+        playbackErrorRate: playbackErrorRateThreshold,
+        playbackBufferRatio: playbackBufferRatioThreshold
+      }
     }, { "Cache-Control": "no-store" });
     return;
   }
