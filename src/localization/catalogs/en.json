@@ -1,6 +1,6 @@
 {
     "schemaVersion":  1,
-    "version":  "2026.08.12.10",
+    "version":  "2026.09.01.1",
     "locale":  "en",
     "messages":  {
                      "auth.close":  "Close authentication",
@@ -873,6 +873,15 @@
                      "video.playbackRuntimeTimeout":  "Video playback took too long to start.",
                      "video.playbackUnsupported":  "Video playback is not supported on this device.",
                      "video.playbackRuntimeFailed":  "Video playback could not start.",
+                     "analytics.videoProducts":  "Video products",
+                     "analytics.videoPlays":  "Video plays",
+                     "analytics.videoCompletionRate":  "Completion rate",
+                     "analytics.videoAssistedActions":  "Video-assisted actions",
+                     "analytics.topVideoPerformance":  "Top video performance",
+                     "analytics.noVideoActivity":  "No video activity yet.",
+                     "analytics.videoPlaysShort":  "plays",
+                     "analytics.videoCompleteShort":  "complete",
+                     "analytics.videoActionsShort":  "actions",
                      "nav.messagesWithCount":  "Messages{countSuffix}"
                  }
 }

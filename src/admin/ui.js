@@ -61,6 +61,23 @@
           createAnalyticsCard("Restock interest", deps.formatNumber(data.demand?.restockInterest || 0))
         );
       }
+      const videoData = data.video && typeof data.video === "object" ? data.video : {};
+      const hasVideoAnalytics = !deps.isAdminUser() && (
+        Number(videoData.totalVideoProducts || 0) > 0
+        || Number(videoData.plays || 0) > 0
+        || Number(videoData.videoAssistedActions || 0) > 0
+      );
+      if (hasVideoAnalytics) {
+        const completionPercent = Math.round(
+          Math.max(0, Math.min(1, Number(videoData.completionRate || 0))) * 100
+        );
+        grid.append(
+          createAnalyticsCard(t("analytics.videoProducts", "Video products"), deps.formatNumber(videoData.totalVideoProducts || 0)),
+          createAnalyticsCard(t("analytics.videoPlays", "Video plays"), deps.formatNumber(videoData.plays || 0)),
+          createAnalyticsCard(t("analytics.videoCompletionRate", "Completion rate"), String(completionPercent) + "%"),
+          createAnalyticsCard(t("analytics.videoAssistedActions", "Video-assisted actions"), deps.formatNumber(videoData.videoAssistedActions || 0))
+        );
+      }
       const marketData = data.market || {};
       const searchDemandData = data.searchDemand || marketData.searchDemand || {};
 
@@ -74,6 +91,22 @@
         (data.recentProducts || []).map((item) => `${item.name} - ${deps.getStatusLabel(item.status)}`).join(" | ") || "Hakuna bidhaa za kuonyesha."
       ));
       if (!deps.isAdminUser()) {
+        if (hasVideoAnalytics) {
+          list.appendChild(createAnalyticsListItem(
+            t("analytics.topVideoPerformance", "Top video performance"),
+            (videoData.topVideos || [])
+              .map((item) => {
+                const completionPercent = Math.round(
+                  Math.max(0, Math.min(1, Number(item.completionRate || 0))) * 100
+                );
+                return String(item.productName || item.productId || "")
+                  + " - " + deps.formatNumber(item.plays || 0) + " " + t("analytics.videoPlaysShort", "plays")
+                  + " | " + String(completionPercent) + "% " + t("analytics.videoCompleteShort", "complete")
+                  + " | " + deps.formatNumber(item.videoAssistedActions || 0) + " " + t("analytics.videoActionsShort", "actions");
+              })
+              .join(" | ") || t("analytics.noVideoActivity", "No video activity yet.")
+          ));
+        }
         list.appendChild(createAnalyticsListItem(
           "Conversation funnel",
           `${deps.formatNumber(data.conversationThreads || 0)} threads | ${deps.formatNumber(data.openOrders || 0)} active orders | ${deps.formatNumber(data.conversionRate || 0)}% conversion`

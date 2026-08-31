@@ -1,6 +1,6 @@
 {
     "schemaVersion":  1,
-    "version":  "2026.08.12.10",
+    "version":  "2026.09.01.1",
     "locale":  "sw",
     "messages":  {
                      "auth.close":  "Funga uthibitishaji",
@@ -873,6 +873,15 @@
                      "video.playbackRuntimeTimeout":  "Video imechukua muda mrefu kuanza kucheza.",
                      "video.playbackUnsupported":  "Kifaa hiki hakiwezi kucheza video hii.",
                      "video.playbackRuntimeFailed":  "Video haikuweza kuanza kucheza.",
+                     "analytics.videoProducts":  "Bidhaa za video",
+                     "analytics.videoPlays":  "Video zilizochezwa",
+                     "analytics.videoCompletionRate":  "Kiwango cha kukamilisha",
+                     "analytics.videoAssistedActions":  "Vitendo vilivyosaidiwa na video",
+                     "analytics.topVideoPerformance":  "Video zenye utendaji bora",
+                     "analytics.noVideoActivity":  "Bado hakuna shughuli za video.",
+                     "analytics.videoPlaysShort":  "kuchezwa",
+                     "analytics.videoCompleteShort":  "kukamilika",
+                     "analytics.videoActionsShort":  "vitendo",
                      "nav.messagesWithCount":  "Ujumbe{countSuffix}"
                  }
 }

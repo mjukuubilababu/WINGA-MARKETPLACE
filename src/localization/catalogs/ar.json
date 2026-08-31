@@ -1,6 +1,6 @@
 {
     "schemaVersion":  1,
-    "version":  "2026.08.12.10",
+    "version":  "2026.09.01.1",
     "locale":  "ar",
     "messages":  {
                      "auth.close":  "إغلاق تسجيل الدخول",
@@ -877,6 +877,15 @@
                      "video.playbackRuntimeTimeout":  "استغرق تشغيل الفيديو وقتًا طويلًا.",
                      "video.playbackUnsupported":  "هذا الجهاز لا يدعم تشغيل هذا الفيديو.",
                      "video.playbackRuntimeFailed":  "تعذر بدء تشغيل الفيديو.",
+                     "analytics.videoProducts":  "منتجات الفيديو",
+                     "analytics.videoPlays":  "مرات تشغيل الفيديو",
+                     "analytics.videoCompletionRate":  "معدل الإكمال",
+                     "analytics.videoAssistedActions":  "الإجراءات المدعومة بالفيديو",
+                     "analytics.topVideoPerformance":  "أفضل أداء للفيديو",
+                     "analytics.noVideoActivity":  "لا يوجد نشاط فيديو بعد.",
+                     "analytics.videoPlaysShort":  "تشغيلات",
+                     "analytics.videoCompleteShort":  "مكتمل",
+                     "analytics.videoActionsShort":  "إجراءات",
                      "nav.messagesWithCount":  "الرسائل{countSuffix}"
                  }
 }

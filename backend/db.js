@@ -5043,6 +5043,166 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     }));
   }
 
+  async function readSellerVideoAnalytics(sellerId = "", options = {}) {
+    const safeSellerId = String(sellerId || "").trim().slice(0, 80);
+    const windowDays = Math.max(1, Math.min(Number(options.windowDays || 30) || 30, 90));
+    const limit = Math.max(1, Math.min(Number(options.limit || 5) || 5, 20));
+    const emptySummary = {
+      privacy: "seller-scoped-aggregate-only",
+      windowDays,
+      totalVideoProducts: 0,
+      videoProductsWithActivity: 0,
+      impressions: 0,
+      plays: 0,
+      completions: 0,
+      errors: 0,
+      summaries: 0,
+      videoAssistedActions: 0,
+      completionRate: 0,
+      errorRate: 0,
+      averageBufferRatio: 0,
+      averageWatchMs: 0,
+      lastEventAt: "",
+      topVideos: []
+    };
+    if (!safeSellerId) {
+      return emptySummary;
+    }
+
+    const result = await query(
+      `WITH seller_videos AS (
+         SELECT p.id AS product_id, p.name AS product_name
+         FROM products p
+         WHERE p.uploaded_by = $1
+           AND p.media_items @> '[{"type":"video"}]'::jsonb
+       ),
+       rollups AS (
+         SELECT
+           sv.product_id,
+           sv.product_name,
+           COUNT(ie.event_id)::int AS event_count,
+           COUNT(*) FILTER (WHERE ie.event_type = 'video_impression')::int AS impressions,
+           COUNT(*) FILTER (WHERE ie.event_type = 'video_play')::int AS plays,
+           COUNT(*) FILTER (WHERE ie.event_type = 'video_complete')::int AS completions,
+           COUNT(*) FILTER (WHERE ie.event_type = 'video_error')::int AS errors,
+           COUNT(*) FILTER (WHERE ie.event_type = 'video_watch_summary')::int AS summaries,
+           COUNT(*) FILTER (WHERE ie.event_type IN (
+             'video_product_click', 'video_message_seller', 'video_buy_click', 'video_share', 'video_save'
+           ))::int AS commerce_actions,
+           COALESCE(SUM(CASE WHEN ie.event_type = 'video_watch_summary'
+             AND COALESCE(ie.metadata->>'bufferratio', '') ~ '^[0-9]+([.][0-9]+)?$'
+             THEN (ie.metadata->>'bufferratio')::float8 ELSE 0 END), 0)::float8 AS buffer_ratio_sum,
+           COUNT(*) FILTER (WHERE ie.event_type = 'video_watch_summary'
+             AND COALESCE(ie.metadata->>'bufferratio', '') ~ '^[0-9]+([.][0-9]+)?$')::int AS buffer_samples,
+           COALESCE(SUM(CASE WHEN ie.event_type = 'video_watch_summary'
+             AND COALESCE(ie.metadata->>'watchedms', '') ~ '^[0-9]+([.][0-9]+)?$'
+             THEN (ie.metadata->>'watchedms')::float8 ELSE 0 END), 0)::float8 AS watch_ms_sum,
+           COUNT(*) FILTER (WHERE ie.event_type = 'video_watch_summary'
+             AND COALESCE(ie.metadata->>'watchedms', '') ~ '^[0-9]+([.][0-9]+)?$')::int AS watch_samples,
+           MAX(ie.happened_at) AS last_event_at
+         FROM seller_videos sv
+         LEFT JOIN intelligence_events ie
+           ON ie.product_id = sv.product_id
+          AND ie.happened_at >= NOW() - ($2::int * INTERVAL '1 day')
+          AND ie.event_type IN (
+            'video_impression', 'video_play', 'video_complete', 'video_error',
+            'video_watch_summary', 'video_product_click', 'video_message_seller',
+            'video_buy_click', 'video_share', 'video_save'
+          )
+          AND COALESCE(ie.metadata->'signalQuality'->>'known', 'true') = 'true'
+         GROUP BY sv.product_id, sv.product_name
+       ),
+       ranked AS (
+         SELECT
+           rollups.*,
+           GREATEST(0,
+             completions * 3 + commerce_actions * 4 + plays * 0.25
+             + impressions * 0.05 - errors * 2
+           )::float8 AS performance_score,
+           ROW_NUMBER() OVER (
+             ORDER BY
+               (event_count > 0) DESC,
+               GREATEST(0,
+                 completions * 3 + commerce_actions * 4 + plays * 0.25
+                 + impressions * 0.05 - errors * 2
+               ) DESC,
+               last_event_at DESC NULLS LAST,
+               product_id ASC
+           ) AS activity_rank
+         FROM rollups
+       )
+       SELECT
+         COUNT(*)::int AS "totalVideoProducts",
+         COUNT(*) FILTER (WHERE event_count > 0)::int AS "videoProductsWithActivity",
+         COALESCE(SUM(impressions), 0)::int AS impressions,
+         COALESCE(SUM(plays), 0)::int AS plays,
+         COALESCE(SUM(completions), 0)::int AS completions,
+         COALESCE(SUM(errors), 0)::int AS errors,
+         COALESCE(SUM(summaries), 0)::int AS summaries,
+         COALESCE(SUM(commerce_actions), 0)::int AS "videoAssistedActions",
+         COALESCE(SUM(buffer_ratio_sum) / NULLIF(SUM(buffer_samples), 0), 0)::float8 AS "averageBufferRatio",
+         COALESCE(SUM(watch_ms_sum) / NULLIF(SUM(watch_samples), 0), 0)::float8 AS "averageWatchMs",
+         MAX(last_event_at) AS "lastEventAt",
+         COALESCE(jsonb_agg(
+           jsonb_build_object(
+             'productId', product_id,
+             'productName', product_name,
+             'impressions', impressions,
+             'plays', plays,
+             'completions', completions,
+             'errors', errors,
+             'videoAssistedActions', commerce_actions,
+             'completionRate', CASE WHEN plays > 0 THEN LEAST(1, completions::float8 / plays) ELSE 0 END,
+             'errorRate', CASE WHEN plays + errors > 0 THEN LEAST(1, errors::float8 / (plays + errors)) ELSE 0 END,
+             'averageBufferRatio', CASE WHEN buffer_samples > 0 THEN buffer_ratio_sum / buffer_samples ELSE 0 END,
+             'averageWatchMs', CASE WHEN watch_samples > 0 THEN watch_ms_sum / watch_samples ELSE 0 END,
+             'performanceScore', performance_score,
+             'lastEventAt', last_event_at
+           ) ORDER BY performance_score DESC, last_event_at DESC NULLS LAST, product_id ASC
+         ) FILTER (WHERE event_count > 0 AND activity_rank <= $3), '[]'::jsonb) AS "topVideos"
+       FROM ranked`,
+      [safeSellerId, windowDays, limit]
+    );
+    const row = result.rows?.[0] || {};
+    const plays = Math.max(0, Number(row.plays || 0));
+    const completions = Math.max(0, Number(row.completions || 0));
+    const errors = Math.max(0, Number(row.errors || 0));
+    const attempts = plays + errors;
+    const normalizeRate = (value) => Math.round(Math.max(0, Math.min(1, Number(value || 0))) * 10000) / 10000;
+    const topVideos = Array.isArray(row.topVideos) ? row.topVideos.slice(0, limit).map((item) => ({
+      productId: String(item.productId || ""),
+      productName: String(item.productName || ""),
+      impressions: Math.max(0, Number(item.impressions || 0)),
+      plays: Math.max(0, Number(item.plays || 0)),
+      completions: Math.max(0, Number(item.completions || 0)),
+      errors: Math.max(0, Number(item.errors || 0)),
+      videoAssistedActions: Math.max(0, Number(item.videoAssistedActions || 0)),
+      completionRate: normalizeRate(item.completionRate),
+      errorRate: normalizeRate(item.errorRate),
+      averageBufferRatio: normalizeRate(item.averageBufferRatio),
+      averageWatchMs: Math.max(0, Math.round(Number(item.averageWatchMs || 0))),
+      performanceScore: Math.max(0, Math.round(Number(item.performanceScore || 0) * 100) / 100),
+      lastEventAt: toISOString(item.lastEventAt)
+    })) : [];
+
+    return {
+      ...emptySummary,
+      totalVideoProducts: Math.max(0, Number(row.totalVideoProducts || 0)),
+      videoProductsWithActivity: Math.max(0, Number(row.videoProductsWithActivity || 0)),
+      impressions: Math.max(0, Number(row.impressions || 0)),
+      plays,
+      completions,
+      errors,
+      summaries: Math.max(0, Number(row.summaries || 0)),
+      videoAssistedActions: Math.max(0, Number(row.videoAssistedActions || 0)),
+      completionRate: normalizeRate(plays > 0 ? completions / plays : 0),
+      errorRate: normalizeRate(attempts > 0 ? errors / attempts : 0),
+      averageBufferRatio: normalizeRate(row.averageBufferRatio),
+      averageWatchMs: Math.max(0, Math.round(Number(row.averageWatchMs || 0))),
+      lastEventAt: toISOString(row.lastEventAt),
+      topVideos
+    };
+  }
   async function appendSearchDemandEvents(events = []) {
     const sourceEvents = Array.isArray(events) ? events.slice(0, 25) : [];
     let inserted = 0;
@@ -5788,6 +5948,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     readIntelligenceSummary,
     appendDemandEvent,
     readSellerDemandSummary,
+    readSellerVideoAnalytics,
     appendSearchDemandEvents,
     readSearchDemandSummary,
     readUserLocalePreference,

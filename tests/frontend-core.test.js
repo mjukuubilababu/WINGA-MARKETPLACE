@@ -4243,6 +4243,7 @@ test("api writes attach a CSRF token before sending state-changing requests", ()
   assert.match(backendSource, /const RATE_LIMIT_MAX_BUCKETS = 5000/);
   assert.match(backendSource, /const READ_RATE_LIMIT_RULES = \{/);
   assert.match(backendSource, /"\/api\/products": \{ limit: 240, windowMs: RATE_LIMIT_WINDOW_MS \}/);
+  assert.match(backendSource, /"\/api\/analytics\/summary": \{ limit: 30, windowMs: RATE_LIMIT_WINDOW_MS \}/);
   assert.match(backendSource, /function pruneRateLimitStore\(now = Date\.now\(\)\)/);
   assert.match(backendSource, /function getRateLimitRule\(pathname, method = "GET"\)/);
   assert.match(backendSource, /normalizedMethod === "GET" && READ_RATE_LIMIT_RULES\[pathname\]/);
@@ -4818,6 +4819,93 @@ test("backend intelligence maps video lifecycle sources into bounded canonical s
   await platform.drainForTests();
   assert.equal(persisted.length, 4);
   assert.equal(persisted.every((entry) => entry.event.productId === "product-video-1"), true);
+});
+test("seller analytics renders aggregate video intelligence without viewer identity", () => {
+  const root = path.resolve(__dirname, "..");
+  const source = fs.readFileSync(path.join(root, "src", "admin", "ui.js"), "utf8");
+  const context = {
+    window: {
+      WingaModules: {
+        admin: {}
+      }
+    }
+  };
+  vm.createContext(context);
+  vm.runInContext(source, context);
+
+  function createNode(tag, properties = {}) {
+    return {
+      tag,
+      ...properties,
+      children: [],
+      append(...children) {
+        this.children.push(...children);
+      },
+      appendChild(child) {
+        this.children.push(child);
+        return child;
+      },
+      replaceChildren(...children) {
+        this.children = children;
+      }
+    };
+  }
+
+  const panel = createNode("section");
+  const module = context.window.WingaModules.admin.createAdminUiModule({
+    createElement: createNode,
+    createSectionHeading: (properties) => createNode("heading", properties),
+    createEmptyState: (textContent) => createNode("empty", { textContent }),
+    getAnalyticsPanel: () => panel,
+    formatNumber: (value) => String(value),
+    getCategoryLabel: (value) => String(value),
+    getStatusLabel: (value) => String(value),
+    isAdminUser: () => false,
+    translate: (key) => key
+  });
+
+  module.renderAnalyticsPanel({
+    totalProducts: 1,
+    approvedProducts: 1,
+    pendingProducts: 0,
+    rejectedProducts: 0,
+    totalViews: 10,
+    totalLikes: 2,
+    demand: {},
+    market: {},
+    searchDemand: {},
+    topCategories: [],
+    recentProducts: [],
+    video: {
+      privacy: "seller-scoped-aggregate-only",
+      totalVideoProducts: 1,
+      plays: 42,
+      completionRate: 0.75,
+      videoAssistedActions: 6,
+      topVideos: [{
+        productId: "video-product-1",
+        productName: "Runway dress",
+        plays: 42,
+        completionRate: 0.75,
+        videoAssistedActions: 6,
+        buyerId: "buyer-secret"
+      }]
+    }
+  }, "Performance", "Catalog");
+
+  const grid = panel.children.find((node) => node.className === "analytics-grid");
+  const labels = grid.children.map((card) => card.children[0]?.textContent);
+  assert.equal(labels.includes("analytics.videoProducts"), true);
+  assert.equal(labels.includes("analytics.videoPlays"), true);
+  assert.equal(labels.includes("analytics.videoCompletionRate"), true);
+  assert.equal(labels.includes("analytics.videoAssistedActions"), true);
+
+  const list = panel.children.find((node) => node.className === "analytics-list");
+  const topVideoItem = list.children.find((item) => item.children[0]?.textContent === "analytics.topVideoPerformance");
+  assert.ok(topVideoItem);
+  assert.match(topVideoItem.children[1].textContent, /Runway dress - 42 analytics\.videoPlaysShort/);
+  assert.match(topVideoItem.children[1].textContent, /75% analytics\.videoCompleteShort/);
+  assert.equal(JSON.stringify(panel).includes("buyer-secret"), false);
 });
 test("payment refund adapter preserves signed durable provider orchestration", () => {
   const root = path.resolve(__dirname, "..");

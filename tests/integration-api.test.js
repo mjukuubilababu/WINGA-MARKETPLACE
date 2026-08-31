@@ -1867,6 +1867,10 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   assert.equal(sellerDemandAnalytics.response.status, 200);
   assert.equal(sellerDemandAnalytics.body.demand.waitingUsers >= 1, true);
   assert.equal(sellerDemandAnalytics.body.demand.mostRequestedProducts.some((item) => item.productId === "product-test-001"), true);
+  assert.equal(sellerDemandAnalytics.body.video.privacy, "seller-scoped-aggregate-only");
+  assert.equal(typeof sellerDemandAnalytics.body.video.plays, "number");
+  assert.equal(JSON.stringify(sellerDemandAnalytics.body.video).includes("buyerId"), false);
+  assert.equal(JSON.stringify(sellerDemandAnalytics.body.video).includes("sessionId"), false);
   assert.equal(sellerDemandAnalytics.body.searchDemand.privacy, "anonymous-aggregate-only");
   assert.equal(sellerDemandAnalytics.body.searchDemand.trendingSearches.some((item) => item.queryKey === "white-dress"), true);
 

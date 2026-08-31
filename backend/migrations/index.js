@@ -491,6 +491,16 @@ const MIGRATIONS = Object.freeze([
        ) AS reconciled
        WHERE p.id = reconciled.id AND p.media_items IS DISTINCT FROM reconciled.media_items;`
     ])
+  }),
+  Object.freeze({
+    id: "2026090101_seller_video_analytics_indexes",
+    statements: Object.freeze([
+      `CREATE INDEX IF NOT EXISTS idx_products_seller_created
+       ON products (uploaded_by, created_at DESC, id DESC);`,
+      `CREATE INDEX IF NOT EXISTS idx_products_seller_video_created
+       ON products (uploaded_by, created_at DESC, id DESC)
+       WHERE media_items @> '[{"type":"video"}]'::jsonb;`
+    ])
   })]);
 
 async function runSchemaMigrations({ pool, logger = console, beforeMigrations = null } = {}) {

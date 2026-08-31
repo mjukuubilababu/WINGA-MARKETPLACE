@@ -263,7 +263,8 @@ const READ_RATE_LIMIT_RULES = {
   "/api/bootstrap": { limit: 120, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/auth/session": { limit: 120, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/global-context": { limit: 180, windowMs: RATE_LIMIT_WINDOW_MS },
-  "/api/users/me/locale-preference": { limit: 120, windowMs: RATE_LIMIT_WINDOW_MS }
+  "/api/users/me/locale-preference": { limit: 120, windowMs: RATE_LIMIT_WINDOW_MS },
+  "/api/analytics/summary": { limit: 30, windowMs: RATE_LIMIT_WINDOW_MS }
 };
 const rateLimitStore = new Map();
 const suspiciousLoginStore = new Map();
@@ -4712,6 +4713,26 @@ function buildDemandAnalytics(store, username = "", isAdmin = false) {
   };
 }
 
+function buildEmptySellerVideoAnalytics(windowDays = 30) {
+  return {
+    privacy: "seller-scoped-aggregate-only",
+    windowDays,
+    totalVideoProducts: 0,
+    videoProductsWithActivity: 0,
+    impressions: 0,
+    plays: 0,
+    completions: 0,
+    errors: 0,
+    summaries: 0,
+    videoAssistedActions: 0,
+    completionRate: 0,
+    errorRate: 0,
+    averageBufferRatio: 0,
+    averageWatchMs: 0,
+    lastEventAt: "",
+    topVideos: []
+  };
+}
 function buildAnalytics(store, username = "", isAdmin = false) {
   const products = Array.isArray(store.products) ? store.products : [];
   const visibleProducts = isAdmin ? products : products.filter((product) => product.uploadedBy === username);
@@ -4777,6 +4798,7 @@ function buildAnalytics(store, username = "", isAdmin = false) {
     trustScore: sellerStats?.trustScore || 0,
     trustTier: sellerStats?.trustTier || "",
     demand,
+    video: !isAdmin && username ? buildEmptySellerVideoAnalytics() : undefined,
     openReports: (store.reports || []).filter((report) => report.status === "open").length,
     topCategories: Object.entries(
       visibleProducts.reduce((accumulator, product) => {
@@ -9866,6 +9888,19 @@ const server = http.createServer(async (req, res) => {
           };
         } catch (error) {
           analytics.demand = analytics.demand || { error: "unavailable" };
+        }
+      }
+      if (!isAdminSession(session) && postgresStore?.readSellerVideoAnalytics) {
+        try {
+          analytics.video = await postgresStore.readSellerVideoAnalytics(user.username, {
+            windowDays: 30,
+            limit: 5
+          });
+        } catch (error) {
+          analytics.video = {
+            ...(analytics.video || buildEmptySellerVideoAnalytics()),
+            error: "unavailable"
+          };
         }
       }
       try {

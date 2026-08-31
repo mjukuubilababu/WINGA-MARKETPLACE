@@ -104,6 +104,7 @@ test("PostgreSQL schema migrations are locked, transactional, and versioned", as
   assert.equal(calls.some((call) => call.text.includes("ADD COLUMN IF NOT EXISTS row_version")), true);
   assert.equal(calls.some((call) => call.text.includes("idx_sessions_username_active")), true);
   assert.equal(calls.some((call) => call.text.includes("CREATE TABLE IF NOT EXISTS user_locale_preferences")), true);
+  assert.equal(calls.some((call) => call.text.includes("idx_products_seller_video_created")), true);
   assert.equal(calls.some((call) => call.text.includes("INSERT INTO schema_migrations")), true);
   assert.equal(calls.some((call) => call.text === "COMMIT"), true);
   assert.equal(calls.some((call) => call.text.includes("pg_advisory_unlock")), true);
@@ -2202,6 +2203,79 @@ test("PostgreSQL demand persistence dedupes events and refreshes seller summarie
   assert.deepEqual(calls.at(-1).params, ["seller-1", 5]);
 });
 
+test("PostgreSQL seller video analytics are ownership-scoped, bounded, and aggregate-only", async () => {
+  const calls = [];
+  const queryClient = {
+    async query(text, params = []) {
+      calls.push({ text: String(text), params });
+      return {
+        rows: [{
+          totalVideoProducts: 4,
+          videoProductsWithActivity: 2,
+          impressions: 100,
+          plays: 80,
+          completions: 60,
+          errors: 20,
+          summaries: 70,
+          videoAssistedActions: 14,
+          averageBufferRatio: 0.18,
+          averageWatchMs: 6400.4,
+          lastEventAt: new Date("2026-08-31T20:00:00.000Z"),
+          topVideos: [{
+            productId: "video-product-1",
+            productName: "Runway dress",
+            impressions: 70,
+            plays: 50,
+            completions: 40,
+            errors: 5,
+            videoAssistedActions: 9,
+            completionRate: 1.5,
+            errorRate: -0.2,
+            averageBufferRatio: 1.4,
+            averageWatchMs: 6400.4,
+            performanceScore: 45.678,
+            lastEventAt: new Date("2026-08-31T20:00:00.000Z")
+          }]
+        }],
+        rowCount: 1
+      };
+    }
+  };
+  const store = createPostgresStore({
+    databaseUrl: "postgres://test.invalid/winga",
+    queryClient
+  });
+
+  const summary = await store.readSellerVideoAnalytics(" seller-video ", {
+    windowDays: 365,
+    limit: 100
+  });
+
+  assert.equal(summary.privacy, "seller-scoped-aggregate-only");
+  assert.equal(summary.windowDays, 90);
+  assert.equal(summary.totalVideoProducts, 4);
+  assert.equal(summary.videoProductsWithActivity, 2);
+  assert.equal(summary.completionRate, 0.75);
+  assert.equal(summary.errorRate, 0.2);
+  assert.equal(summary.averageWatchMs, 6400);
+  assert.equal(summary.topVideos[0].completionRate, 1);
+  assert.equal(summary.topVideos[0].errorRate, 0);
+  assert.equal(summary.topVideos[0].averageBufferRatio, 1);
+  assert.equal(summary.topVideos[0].performanceScore, 45.68);
+  assert.deepEqual(calls[0].params, ["seller-video", 90, 20]);
+  assert.match(calls[0].text, /p\.uploaded_by = \$1/);
+  assert.match(calls[0].text, /media_items @> /);
+  assert.match(calls[0].text, /LEFT JOIN intelligence_events ie/);
+  assert.match(calls[0].text, /ie\.product_id = sv\.product_id/);
+  assert.match(calls[0].text, /activity_rank <= \$3/);
+  assert.match(calls[0].text, /signalQuality/);
+  assert.doesNotMatch(calls[0].text, /buyer_id|session_id|provider_id/);
+
+  const empty = await store.readSellerVideoAnalytics("", { windowDays: 7 });
+  assert.equal(empty.totalVideoProducts, 0);
+  assert.equal(empty.privacy, "seller-scoped-aggregate-only");
+  assert.equal(calls.length, 1);
+});
 test("PostgreSQL search demand persistence stores anonymous events and reads aggregate opportunities", async () => {
   const calls = [];
   const queryClient = {

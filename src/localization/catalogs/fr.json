@@ -1,6 +1,6 @@
 {
     "schemaVersion":  1,
-    "version":  "2026.08.12.10",
+    "version":  "2026.09.01.1",
     "locale":  "fr",
     "messages":  {
                      "auth.close":  "Fermer l’authentification",
@@ -873,6 +873,15 @@
                      "video.playbackRuntimeTimeout":  "La lecture de la vidéo a mis trop de temps à démarrer.",
                      "video.playbackUnsupported":  "Cet appareil ne prend pas en charge la lecture de cette vidéo.",
                      "video.playbackRuntimeFailed":  "La lecture de la vidéo n'a pas pu démarrer.",
+                     "analytics.videoProducts":  "Produits vidéo",
+                     "analytics.videoPlays":  "Lectures vidéo",
+                     "analytics.videoCompletionRate":  "Taux de complétion",
+                     "analytics.videoAssistedActions":  "Actions assistées par vidéo",
+                     "analytics.topVideoPerformance":  "Meilleures performances vidéo",
+                     "analytics.noVideoActivity":  "Aucune activité vidéo pour le moment.",
+                     "analytics.videoPlaysShort":  "lectures",
+                     "analytics.videoCompleteShort":  "terminé",
+                     "analytics.videoActionsShort":  "actions",
                      "nav.messagesWithCount":  "Messages{countSuffix}"
                  }
 }
