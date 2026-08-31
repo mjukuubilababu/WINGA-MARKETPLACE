@@ -88,6 +88,8 @@ function createCloudflareStreamClient(options = {}) {
   const config = options.config || readCloudflareStreamConfig(options.env);
   const fetchImpl = options.fetchImpl || globalThis.fetch;
   if (typeof fetchImpl !== "function") throw new TypeError("Cloudflare Stream client requires fetch.");
+  const signedPlaybackPolicyCache = new Map();
+  const signedPlaybackPolicyTtlMs = 6 * 60 * 60 * 1000;
   async function request(pathname, init = {}) {
     if (!isCloudflareStreamConfigured(config)) {
       const error = new Error("Cloudflare Stream is not configured."); error.code = "stream_not_configured"; throw error;
@@ -175,15 +177,38 @@ function createCloudflareStreamClient(options = {}) {
     }
     return { providerId, uploadUrl, uploadProtocol: "tus", expiresAt, maxDurationSeconds };
   }
+  async function ensureSignedPlaybackPolicy(providerId) {
+    const now = Date.now();
+    const cached = signedPlaybackPolicyCache.get(providerId);
+    if (cached && cached.expiresAt > now) return cached.task;
+    signedPlaybackPolicyCache.delete(providerId);
+    const task = request(`/${encodeURIComponent(providerId)}`, {
+      method: "POST",
+      body: JSON.stringify({ allowedOrigins: config.allowedOrigins, requireSignedURLs: true })
+    }).then(() => true).catch((error) => {
+      signedPlaybackPolicyCache.delete(providerId);
+      throw error;
+    });
+    signedPlaybackPolicyCache.set(providerId, {
+      task,
+      expiresAt: now + signedPlaybackPolicyTtlMs
+    });
+    while (signedPlaybackPolicyCache.size > 2048) {
+      signedPlaybackPolicyCache.delete(signedPlaybackPolicyCache.keys().next().value);
+    }
+    return task;
+  }
   async function deleteVideo(providerId) {
     const safeId = cleanText(providerId, 64);
     if (!/^[a-zA-Z0-9_-]{8,64}$/.test(safeId)) return false;
     await request(`/${encodeURIComponent(safeId)}`, { method: "DELETE" });
+    signedPlaybackPolicyCache.delete(safeId);
     return true;
   }
   async function createPlaybackToken(providerId, options = {}) {
     const safeId = cleanText(providerId, 64);
     if (!/^[a-zA-Z0-9_-]{8,64}$/.test(safeId)) throw new TypeError("A valid Stream video identifier is required.");
+    await ensureSignedPlaybackPolicy(safeId);
     const result = await request(`/${encodeURIComponent(safeId)}/token`, {
       method: "POST", body: JSON.stringify({ exp: Math.floor(Date.now() / 1000) + config.playbackTokenTtlSeconds, downloadable: false })
     });

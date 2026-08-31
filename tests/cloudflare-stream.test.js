@@ -42,14 +42,18 @@ test("Stream video normalization exposes playback only after encoding is ready",
 
 test("Stream signed playback tokens are short-lived and non-downloadable", async () => {
   let requestBody;
+  const calls = [];
   const client = createCloudflareStreamClient({
     config: readCloudflareStreamConfig({ CLOUDFLARE_STREAM_ACCOUNT_ID: "account-123", CLOUDFLARE_STREAM_API_TOKEN: "secret", CLOUDFLARE_STREAM_CUSTOMER_CODE: "customer-code", CLOUDFLARE_STREAM_PLAYBACK_TOKEN_TTL_SECONDS: "600" }),
-    fetchImpl: async (_url, init) => { requestBody = JSON.parse(init.body); return { ok: true, status: 200, json: async () => ({ success: true, result: { token: "signed.playback.token" } }) }; }
+    fetchImpl: async (url, init) => { calls.push({ url, init }); requestBody = JSON.parse(init.body); return { ok: true, status: 200, json: async () => ({ success: true, result: { token: "signed.playback.token" } }) }; }
   });
   const result = await client.createPlaybackToken("stream-video-123");
   assert.equal(result.token, "signed.playback.token");
   assert.equal(result.expiresInSeconds, 600);
   assert.equal(requestBody.downloadable, false);
+  assert.equal(calls.length, 2);
+  assert.deepEqual(JSON.parse(calls[0].init.body).allowedOrigins, ["wingamarket.com", "www.wingamarket.com"]);
+  assert.equal(JSON.parse(calls[0].init.body).requireSignedURLs, true);
   assert.ok(requestBody.exp > Math.floor(Date.now() / 1000));
 });
 
