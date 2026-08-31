@@ -896,6 +896,10 @@ test("video upload controller validates, uploads, polls, and exposes only ready 
   assert.match(source, /status === "ready"/);
   assert.match(source, /video_upload_cancelled/);
   assert.match(source, /provider: "cloudflare-stream"/);
+  const serverSource = fs.readFileSync(path.join(root, "backend", "server.js"), "utf8");
+  assert.match(serverSource, /fileSize > 200 \* 1024 \* 1024/);
+  assert.match(serverSource, /createDirectUpload/);
+  assert.match(serverSource, /video_upload_tus_fallback/);
   assert.match(buildSource, /"src\/marketplace\/video-upload\.js"/);
 });
 test("video upload policy accepts social video formats from any non-empty size through 5 GB", () => {
@@ -3389,6 +3393,7 @@ test("api writes attach a CSRF token before sending state-changing requests", ()
   assert.doesNotMatch(dataSource, /stillStoredSession\?\.token/);
   assert.match(apiRuntimeSource, /headers\.set\("X-CSRF-Token", await fetchCsrfTokenForRequest\(url\)\)/);
   assert.match(apiRuntimeSource, /response\.status === 403 && errorCode === "csrf_failed" && !hasRetriedCsrf/);
+  assert.match(apiRuntimeSource, /code: errorCode \|\| `http_\$\{response\.status\}`/);
   assert.match(dataSource, /window\.WingaModules\?\.api\?\.createApiRuntime/);
   assert.match(dataSource, /function fetchJson\(url, options\) \{\s+return getApiRuntimeTools\(\)\.fetchJson\(url, options\);/);
   assert.ok(buildSource.indexOf('"src/api/runtime.js"') < buildSource.indexOf('"src/config/categories.js"'));

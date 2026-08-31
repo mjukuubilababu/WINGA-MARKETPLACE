@@ -11122,9 +11122,23 @@ const server = http.createServer(async (req, res) => {
       const uploadId = `video-upload-${crypto.randomUUID()}`;
       let directUpload = null;
       try {
-        directUpload = await CLOUDFLARE_STREAM_CLIENT.createResumableUpload({
-          creator: seller.username, uploadId, fileName, contentType, fileSize
-        });
+        try {
+          directUpload = await CLOUDFLARE_STREAM_CLIENT.createResumableUpload({
+            creator: seller.username, uploadId, fileName, contentType, fileSize
+          });
+        } catch (tusError) {
+          if (fileSize > 200 * 1024 * 1024) throw tusError;
+          directUpload = await CLOUDFLARE_STREAM_CLIENT.createDirectUpload({
+            creator: seller.username, uploadId, fileName, contentType
+          });
+          directUpload.uploadProtocol = "basic";
+          await appendAuditLog({
+            time: new Date().toISOString(), ip: clientIp, method: req.method, path: url.pathname,
+            event: "video_upload_tus_fallback", username: seller.username,
+            uploadId, providerId: directUpload.providerId,
+            reason: sanitizePlainText(tusError?.code || `http_${tusError?.status || 0}`, 80)
+          });
+        }
         const intent = await postgresStore.createVideoUploadIntent({
           providerId: directUpload.providerId, sellerId: seller.username,
           uploadId, uploadExpiresAt: directUpload.expiresAt

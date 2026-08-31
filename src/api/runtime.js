@@ -252,11 +252,11 @@
           endpoint: endpointLabel,
           ok: false,
           status: response.status,
-          code: `http_${response.status}`,
+          code: errorCode || `http_${response.status}`,
           latencyMs
         });
         throw createRequestError(errorMessage, {
-          code: `http_${response.status}`,
+          code: errorCode || `http_${response.status}`,
           status: response.status,
           retryable: response.status === 408 || response.status === 429 || response.status >= 500,
           endpoint: endpointLabel,

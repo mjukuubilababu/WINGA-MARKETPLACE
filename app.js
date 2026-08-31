@@ -14945,9 +14945,13 @@ function getFriendlyProductVideoUploadError(error) {
   const code = String(error?.code || "").trim();
   if (code === "invalid_video_type" || code === "invalid_video_upload") return translateUi("upload.videoInvalidType", {}, "Chagua video halali kutoka gallery au WhatsApp.");
   if (code === "invalid_video_size") return translateUi("upload.videoInvalidSize", {}, "Video haiwezi kuwa tupu au kuzidi GB 5.");
-  if (["video_upload_network_error", "video_upload_timeout"].includes(code)) return translateUi("upload.videoNetwork", {}, "Intaneti imekatika wakati wa kupakia video. Jaribu tena.");
+  if (["video_upload_network_error", "video_upload_timeout", "network", "timeout"].includes(code)) return translateUi("upload.videoNetwork", {}, "Intaneti imekatika wakati wa kupakia video. Jaribu tena.");
   if (code === "video_processing_timeout") return translateUi("upload.videoProcessing", {}, "Video bado inachakatwa. Bonyeza Angalia tena.");
-  if (["video_provider_failed", "stream_provider_error", "stream_invalid_provider_response", "video_binary_upload_failed"].includes(code)) return translateUi("upload.videoProvider", {}, "Huduma ya video haijakamilisha upload. Jaribu tena baada ya muda mfupi.");
+  if (["video_provider_failed", "stream_provider_error", "stream_invalid_provider_response", "video_binary_upload_failed", "video_upload_unavailable", "http_502", "http_503"].includes(code)) return translateUi("upload.videoProvider", {}, "Huduma ya video haijakamilisha upload. Jaribu tena baada ya muda mfupi.");
+  if (code === "http_413") return translateUi("upload.videoInvalidSize", {}, "Video haiwezi kuwa tupu au kuzidi GB 5.");
+  if (code === "http_400") return translateUi("upload.videoInvalidType", {}, "Chagua video halali kutoka gallery au WhatsApp.");
+  const safeMessage = String(error?.message || "").trim();
+  if (safeMessage && safeMessage.length <= 200 && !/^request failed:/i.test(safeMessage)) return safeMessage;
   return translateUi("upload.videoFailed", {}, "Video haikukamilika. Chagua tena ili kujaribu upya.");
 }
 async function startProductVideoUpload(file) {
