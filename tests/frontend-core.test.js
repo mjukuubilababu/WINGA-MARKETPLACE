@@ -1956,6 +1956,8 @@ test("production CSP is enforced from repo without inline script escape hatches"
   assert.match(csp, /script-src 'self' https:\/\/static\.cloudflareinsights\.com/);
   assert.match(csp, /script-src-attr 'none'/);
   assert.match(csp, /style-src-attr 'unsafe-inline'/);
+  assert.match(csp, /img-src[^;]*\*\.cloudflarestream\.com/);
+  assert.match(csp, /media-src[^;]*\*\.cloudflarestream\.com/);
   assert.doesNotMatch(csp, /unsafe-eval/);
   assert.doesNotMatch(csp, /script-src[^;]*unsafe-inline/);
   assert.doesNotMatch(csp, /\*\.onrender\.com/);

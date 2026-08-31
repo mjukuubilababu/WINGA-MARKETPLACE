@@ -2,7 +2,7 @@
   let hlsRuntimePromise = null;
 
   function loadHlsRuntime(targetWindow, targetDocument) {
-    if (targetWindow.Hls?.isSupported?.()) return Promise.resolve(targetWindow.Hls);
+    if (targetWindow.Hls) return Promise.resolve(targetWindow.Hls);
     if (hlsRuntimePromise) return hlsRuntimePromise;
     hlsRuntimePromise = new Promise((resolve, reject) => {
       const existing = targetDocument.querySelector?.("script[data-winga-hls-runtime]");
@@ -16,7 +16,7 @@
         callback();
       };
       script.onload = () => settle(() => {
-        if (targetWindow.Hls?.isSupported?.()) {
+        if (targetWindow.Hls) {
           resolve(targetWindow.Hls);
           return;
         }
@@ -172,12 +172,9 @@
             void video.play().catch(() => undefined);
           }
         };
-        if (video.canPlayType?.("application/vnd.apple.mpegurl")) {
-          video.src = hlsUrl;
-          video.addEventListener("loadedmetadata", playWhenReady, { once: true });
-        } else {
-          const Hls = await loadHlsRuntime(targetWindow, targetDocument);
-          if (state.generation !== generation || !node.isConnected) return;
+        const Hls = await loadHlsRuntime(targetWindow, targetDocument);
+        if (state.generation !== generation || !node.isConnected) return;
+        if (Hls.isSupported?.()) {
           const hls = new Hls({
             enableWorker: false,
             lowLatencyMode: false,
@@ -199,6 +196,11 @@
           hls.on(Hls.Events.MANIFEST_PARSED, playWhenReady);
           hls.loadSource(hlsUrl);
           hls.attachMedia(video);
+        } else if (video.canPlayType?.("application/vnd.apple.mpegurl")) {
+          video.src = hlsUrl;
+          video.addEventListener("loadedmetadata", playWhenReady, { once: true });
+        } else {
+          throw Object.assign(new Error("HLS playback is not supported on this device."), { code: "video_hls_unsupported" });
         }
         node.classList.add("is-playing");
         emitMetric("video_playback_started", {
