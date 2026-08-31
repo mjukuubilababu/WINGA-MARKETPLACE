@@ -184,6 +184,8 @@ test("marketplace gallery adds one secure ready video slide without collapsing p
   const playbackSource = fs.readFileSync(path.join(root, "src", "marketplace", "video-playback.js"), "utf8");
   const buildSource = fs.readFileSync(path.join(root, "scripts", "build-vercel-static.js"), "utf8");
   const serverSource = fs.readFileSync(path.join(root, "backend", "server.js"), "utf8");
+  const workerSource = fs.readFileSync(path.join(root, "worker.js"), "utf8");
+  const styleSource = fs.readFileSync(path.join(root, "style.css"), "utf8");
   const context = vm.createContext({ window: { WingaModules: { marketplace: {} } } });
   vm.runInContext(gallerySource, context);
   const gallery = context.window.WingaModules.marketplace.createGalleryModule({
@@ -232,7 +234,8 @@ test("marketplace gallery adds one secure ready video slide without collapsing p
     }]
   }, "feed");
   assert.doesNotMatch(privatePosterHtml, /customer-example\.cloudflarestream\.com/);
-  assert.match(privatePosterHtml, /src="fallback.jpg"/);
+  assert.match(privatePosterHtml, /feed-video-poster-empty/);
+  assert.doesNotMatch(privatePosterHtml, /src="fallback.jpg"/);
   const directPublishHtml = gallery.renderFeedGalleryMarkup({
     ...product,
     mediaItems: product.mediaItems.map((item) => item.type === "video"
@@ -254,6 +257,22 @@ test("marketplace gallery adds one secure ready video slide without collapsing p
   assert.match(serverSource, /key: "\/api\/media\/videos\/:providerId\/playback-token"/);
   assert.match(playbackSource, /reportMetric\(event, Object\.freeze\(\{ \.\.\.detail \}\)\)/);
   assert.match(playbackSource, /video_playback_started/);
+  assert.equal(playbackSource.includes("maxConcurrentPrewarms"), true);
+  assert.equal(playbackSource.includes("prewarmRootMargin"), true);
+  assert.equal(playbackSource.includes('node.closest?.(".product-card, .seller-product-card, [data-product-card], [data-feed-gallery-carousel]")'), true);
+  assert.equal(playbackSource.includes("activateNode(node, { autoplay: false, prewarm: true })"), true);
+  assert.equal(playbackSource.includes('video.addEventListener("loadeddata", revealFirstFrame'), true);
+  assert.equal(playbackSource.includes('node.classList.add("is-ready", "is-playing")'), true);
+  const playerCssStart = styleSource.indexOf(".feed-video-player{");
+  const playerCss = styleSource.slice(playerCssStart, styleSource.indexOf("@media (prefers-reduced-motion:reduce)", playerCssStart));
+  assert.equal(playerCss.includes("visibility:hidden;"), true);
+  assert.equal(playerCss.includes("opacity:0;"), true);
+  assert.equal(playerCss.includes(".feed-video-playback.is-ready .feed-video-player{"), true);
+  assert.equal(playerCss.includes("visibility:visible;"), true);
+  assert.equal(playerCss.includes("opacity:1;"), true);
+  assert.equal(workerSource.includes("function getReadyStreamVideoItems(product)"), true);
+  assert.equal(workerSource.includes('data-video-prewarm="true"'), true);
+  assert.equal(workerSource.includes("const slidesMarkup ="), true);
   assert.match(playbackSource, /video_playback_failed/);
   assert.doesNotMatch(playbackSource, /emitMetric\([^\n]+providerId/);
   assert.match(serverSource, /\/api\/ops\/media\/videos\/health/);
@@ -262,6 +281,153 @@ test("marketplace gallery adds one secure ready video slide without collapsing p
   assert.match(serverSource, /stopVideoCleanupSweeper/);
   assert.match(serverSource, /videoCleanupSweepRunning/);
 });
+test("video prewarm keeps the poster until the first decoded frame and reuses the ready player", async () => {
+  const root = path.resolve(__dirname, "..");
+  const playbackSource = fs.readFileSync(path.join(root, "src", "marketplace", "video-playback.js"), "utf8");
+  const observers = [];
+  let player = null;
+  let playCalls = 0;
+  let tokenRequests = 0;
+  let loadedSource = "";
+  const videoListeners = new Map();
+  const video = {
+    dataset: {},
+    readyState: 0,
+    setAttribute: () => {},
+    addEventListener(type, handler) {
+      const handlers = videoListeners.get(type) || [];
+      handlers.push(handler);
+      videoListeners.set(type, handlers);
+    },
+    dispatch(type) {
+      (videoListeners.get(type) || []).slice().forEach((handler) => handler());
+    },
+    play() {
+      playCalls += 1;
+      return Promise.resolve();
+    },
+    pause: () => {},
+    removeAttribute: () => {},
+    load: () => {},
+    remove() {
+      player = null;
+    }
+  };
+  class FakeIntersectionObserver {
+    constructor(callback, options) {
+      this.callback = callback;
+      this.options = options;
+      this.targets = new Set();
+      observers.push(this);
+    }
+    observe(target) {
+      this.targets.add(target);
+    }
+    unobserve(target) {
+      this.targets.delete(target);
+    }
+  }
+  class FakeHls {
+    static Events = { ERROR: "error", MANIFEST_PARSED: "manifest" };
+    static isSupported() {
+      return true;
+    }
+    constructor() {
+      this.handlers = new Map();
+    }
+    on(type, handler) {
+      this.handlers.set(type, handler);
+    }
+    loadSource(source) {
+      loadedSource = source;
+    }
+    attachMedia() {
+      this.handlers.get(FakeHls.Events.MANIFEST_PARSED)?.();
+    }
+    destroy() {}
+  }
+  const classes = new Set();
+  const card = {};
+  const node = {
+    dataset: { videoProviderId: "stream-video-prewarm", videoTitle: "Video" },
+    isConnected: true,
+    classList: {
+      add: (...names) => names.forEach((name) => classes.add(name)),
+      remove: (...names) => names.forEach((name) => classes.delete(name)),
+      toggle(name, force) {
+        if (force) classes.add(name);
+        else classes.delete(name);
+      },
+      contains: (name) => classes.has(name)
+    },
+    setAttribute: () => {},
+    querySelector: (selector) => selector === "[data-stream-player]" ? player : null,
+    appendChild(value) {
+      player = value;
+    },
+    closest: () => card,
+    addEventListener: () => {},
+    removeEventListener: () => {}
+  };
+  const targetDocument = {
+    visibilityState: "visible",
+    querySelector: () => null,
+    querySelectorAll: () => [node],
+    createElement: (tagName) => {
+      assert.equal(tagName, "video");
+      return video;
+    },
+    head: { appendChild: () => {} }
+  };
+  const targetWindow = {
+    WingaModules: { marketplace: {} },
+    Hls: FakeHls,
+    IntersectionObserver: FakeIntersectionObserver,
+    navigator: { connection: { saveData: false } },
+    WINGA_BUILD_VERSION: "test",
+    setTimeout,
+    clearTimeout
+  };
+  const context = vm.createContext({ window: targetWindow });
+  vm.runInContext(playbackSource, context);
+  const controller = targetWindow.WingaModules.marketplace.createVideoPlaybackController({
+    requestPlaybackToken: async () => {
+      tokenRequests += 1;
+      return { customerCode: "example", token: "signed-token", expiresInSeconds: 300 };
+    },
+    windowObject: targetWindow,
+    documentObject: targetDocument
+  });
+
+  controller.bind(targetDocument);
+  const prewarmObserver = observers.find((entry) => entry.options.rootMargin === "900px 0px");
+  const playbackObserver = observers.find((entry) => Array.isArray(entry.options.threshold) && entry.options.threshold.includes(0.55));
+  assert.ok(prewarmObserver);
+  assert.ok(playbackObserver);
+
+  prewarmObserver.callback([{ target: card, isIntersecting: true, intersectionRatio: 1 }]);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.equal(tokenRequests, 1);
+  assert.match(loadedSource, /\/manifest\/video\.m3u8$/);
+  assert.equal(node.classList.contains("is-ready"), false);
+  assert.equal(playCalls, 0);
+
+  video.readyState = 3;
+  video.dispatch("loadeddata");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.equal(node.classList.contains("is-ready"), true);
+  assert.equal(playCalls, 0);
+
+  playbackObserver.callback([{ target: node, isIntersecting: true, intersectionRatio: 0.85 }]);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.equal(playCalls, 1);
+  assert.equal(tokenRequests, 1);
+});
+
 test("style intelligence builds private aggregate buyer profiles and bounded product scores", () => {
   const root = path.resolve(__dirname, "..");
   const source = fs.readFileSync(path.join(root, "src", "marketplace", "style-intelligence.js"), "utf8");

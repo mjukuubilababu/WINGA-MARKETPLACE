@@ -175,20 +175,24 @@
       const videoSlides = videoItems.map((item, videoIndex) => {
         const providerPoster = String(item.posterUrl || item.thumbnailUrl || "").trim();
         const isPrivateStreamPoster = /(?:cloudflarestream\.com|videodelivery\.net)/i.test(providerPoster);
-        const videoPoster = sanitizeImageSource(String(images[0] || (isPrivateStreamPoster ? "" : providerPoster)).trim(), getImageFallbackDataUri("WINGA"));
+        const videoPoster = sanitizeImageSource(String(images[0] || (isPrivateStreamPoster ? "" : providerPoster)).trim(), "");
+        const posterMarkup = videoPoster
+          ? `<img class="feed-video-poster" src="${escapeHtml(videoPoster)}" alt="" loading="eager" decoding="async" draggable="false">`
+          : `<span class="feed-video-poster feed-video-poster-empty" aria-hidden="true"></span>`;
         return `
         <div class="feed-gallery-carousel-slide feed-gallery-tile feed-video-slide"
           data-feed-gallery-slide="${imageTotal + videoIndex}"
           data-feed-video-slide="true">
           <div class="feed-video-playback"
             data-video-playback="true"
+            data-video-prewarm="true"
             data-video-provider-id="${escapeHtml(String(item.providerId || "").trim())}"
             data-video-title="${escapeHtml(product?.name || playbackLabel)}"
             role="button"
             tabindex="0"
             aria-label="${escapeHtml(playbackLabel)}"
             aria-busy="false">
-            <img class="feed-video-poster" src="${escapeHtml(videoPoster)}" alt="" loading="lazy" decoding="async" draggable="false">
+            ${posterMarkup}
             <span class="feed-video-play-icon" aria-hidden="true"></span>
           </div>
         </div>

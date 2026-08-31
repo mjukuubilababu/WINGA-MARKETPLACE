@@ -1040,22 +1040,38 @@ function renderProductActionGroup(product, context, options = {}) {
   return actions.length ? `<div class="${groupClass}" data-action-count="${actionCount}">${actions.join("")}</div>` : "";
 }
 
+function getReadyStreamVideoItems(product) {
+  return (Array.isArray(product?.mediaItems) ? product.mediaItems : [])
+    .filter((item) => item?.type === "video"
+      && item?.status === "ready"
+      && item?.moderationStatus !== "rejected"
+      && item?.provider === "cloudflare-stream"
+      && /^[a-zA-Z0-9_-]{8,64}$/.test(String(item?.providerId || "").trim()))
+    .slice(0, 1);
+}
+
 function renderFeedGalleryMarkup(product, options = {}) {
-  const images = getRenderableMarketplaceImages(product);
-  const total = images.length;
+  const videoItems = getReadyStreamVideoItems(product);
+  const productImages = dedupeUrls((Array.isArray(product?.images) ? product.images : [])
+    .map((image) => toEdgeImageUrl(String(image || "").trim()))
+    .filter(Boolean));
+  const images = productImages.length > 0
+    ? productImages
+    : (videoItems.length > 0 ? [] : ["/winga-icon.svg"]);
+  const imageTotal = images.length;
+  const total = imageTotal + videoItems.length;
   const requestedInitialImageIndex = Number(
     product?.feedInitialImageIndex
     ?? product?.visibleImageIndex
     ?? product?.variantDisplayIndex
     ?? 0
   );
-  const initialImageIndex = Math.max(
-    0,
-    Math.min(total - 1, Number.isFinite(requestedInitialImageIndex) ? requestedInitialImageIndex : 0)
-  );
+  const initialImageIndex = imageTotal > 1
+    ? Math.max(0, Math.min(imageTotal - 1, Number.isFinite(requestedInitialImageIndex) ? requestedInitialImageIndex : 0))
+    : 0;
   const stableFrameRatio = "4 / 5";
   const fitMode = "cover";
-  const slidesMarkup = images.map((imageSrc, index) => {
+  const imageSlidesMarkup = images.map((imageSrc, index) => {
     const safeSrc = escapeHtml(imageSrc);
     const isInitialImage = index === initialImageIndex;
     const shouldLoadEagerly = isInitialImage && Boolean(options.eager);
@@ -1079,13 +1095,40 @@ function renderFeedGalleryMarkup(product, options = {}) {
             data-feed-gallery-image-src="${safeSrc}"
             data-fallback-src="/winga-icon.svg"
             data-direct-visibility="true"
-            ${index !== initialImageIndex ? `style="display:none"` : ""}
           >
         </span>
       </div>
     `;
   }).join("");
 
+  const videoSlidesMarkup = videoItems.map((item, videoIndex) => {
+    const providerPoster = String(item.posterUrl || item.thumbnailUrl || "").trim();
+    const isPrivateStreamPoster = /(?:cloudflarestream\.com|videodelivery\.net)/i.test(providerPoster);
+    const videoPoster = String(images[0] || (isPrivateStreamPoster ? "" : providerPoster)).trim();
+    const posterMarkup = videoPoster
+      ? `<img class="feed-video-poster" src="${escapeHtml(toEdgeImageUrl(videoPoster))}" alt="" loading="eager" decoding="async" draggable="false">`
+      : `<span class="feed-video-poster feed-video-poster-empty" aria-hidden="true"></span>`;
+    return `
+      <div class="feed-gallery-carousel-slide feed-gallery-tile feed-video-slide"
+        data-feed-gallery-slide="${imageTotal + videoIndex}"
+        data-feed-video-slide="true">
+        <div class="feed-video-playback"
+          data-video-playback="true"
+          data-video-prewarm="true"
+          data-video-provider-id="${escapeHtml(String(item.providerId || "").trim())}"
+          data-video-title="${escapeHtml(product?.name || "Product video")}"
+          role="button"
+          tabindex="0"
+          aria-label="Play product video"
+          aria-busy="false">
+          ${posterMarkup}
+          <span class="feed-video-play-icon" aria-hidden="true"></span>
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  const slidesMarkup = `${imageSlidesMarkup}${videoSlidesMarkup}`;
   return `
     <div class="product-gallery media-gallery feed-gallery-preview feed-gallery-carousel fit-mode-${fitMode}"
       data-feed-gallery-carousel="true"
@@ -1104,7 +1147,6 @@ function renderFeedGalleryMarkup(product, options = {}) {
     </div>
   `;
 }
-
 function normalizeProductCollection(payload) {
   const source = Array.isArray(payload)
     ? payload
@@ -1261,7 +1303,8 @@ function normalizeProductForStream(product, options = {}) {
   const chosenVariant = variantCount > 0 ? variants[chosenVariantIndex] : null;
   const hasChosenVariantImages = Boolean(chosenVariant?.images?.length);
   const displayImages = dedupeUrls(hasChosenVariantImages ? chosenVariant.images : dedupedBaseImages);
-  const images = displayImages.length ? displayImages : ["/winga-icon.svg"];
+  const hasReadyStreamVideo = getReadyStreamVideoItems(product).length > 0;
+  const images = displayImages.length ? displayImages : (hasReadyStreamVideo ? [] : ["/winga-icon.svg"]);
   const baseAspectRatios = normalizeImageAspectRatios(product.imageAspectRatios, dedupedBaseImages.length);
   const selectedAspectRatios = hasChosenVariantImages
     ? normalizeImageAspectRatios(chosenVariant?.imageAspectRatios, images.length)
@@ -1287,7 +1330,7 @@ function normalizeProductForStream(product, options = {}) {
     likes: Number(product.likes || 0),
     isLiked: Boolean(product.isLiked || product.liked),
     images,
-    image: images[0] || "/winga-icon.svg",
+    image: images[0] || "",
     productImages: dedupedBaseImages,
     imageAspectRatios: selectedAspectRatios,
     variants,

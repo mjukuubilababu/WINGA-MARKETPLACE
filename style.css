@@ -10694,9 +10694,14 @@ button:hover,
 }
 
 .feed-video-poster{
+  z-index:1;
   display:block;
   object-fit:cover;
   object-position:center;
+  background:#000;
+}
+
+.feed-video-poster-empty{
   background:#000;
 }
 
@@ -10728,19 +10733,25 @@ button:hover,
   opacity:.55;
 }
 
-.feed-video-playback.is-playing .feed-video-poster,
-.feed-video-playback.is-playing .feed-video-play-icon{
+.feed-video-playback.is-ready .feed-video-poster,
+.feed-video-playback.is-ready .feed-video-play-icon{
   visibility:hidden;
 }
 
 .feed-video-player{
   z-index:2;
   display:block;
+  visibility:hidden;
+  opacity:0;
   background:#000;
   object-fit:contain;
   object-position:center;
 }
 
+.feed-video-playback.is-ready .feed-video-player{
+  visibility:visible;
+  opacity:1;
+}
 @media (prefers-reduced-motion:reduce){
   .feed-video-playback *{
     transition:none !important;

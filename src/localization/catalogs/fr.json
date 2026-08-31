@@ -870,6 +870,9 @@
                      "ui.label.a73f99f6bfc8":  "Demande envoyée",
                      "ui.label.5e1a0ebc939d":  "Tendance",
                      "ui.label.1911ff50be5f":  "Portez du plaisir",
+                     "video.playbackRuntimeTimeout":  "La lecture de la vidéo a mis trop de temps à démarrer.",
+                     "video.playbackUnsupported":  "Cet appareil ne prend pas en charge la lecture de cette vidéo.",
+                     "video.playbackRuntimeFailed":  "La lecture de la vidéo n'a pas pu démarrer.",
                      "nav.messagesWithCount":  "Messages{countSuffix}"
                  }
 }

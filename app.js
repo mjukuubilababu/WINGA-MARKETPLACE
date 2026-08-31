@@ -19568,6 +19568,7 @@ function getMarketplaceVideoPlaybackTools() {
         requestPlaybackToken: (providerId) => window.WingaDataLayer?.requestVideoPlayback?.(providerId),
         windowObject: window,
         documentObject: document,
+        translateUi,
         reportMetric: (event, detail) => reportClientEvent(
           event === "video_playback_failed" ? "warn" : "info",
           event,
