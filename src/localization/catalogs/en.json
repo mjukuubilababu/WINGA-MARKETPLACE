@@ -62,7 +62,7 @@
                      "product.topCategoryRequired":  "Select a main product category.",
                      "product.subcategoryRequired":  "Select a product subcategory.",
                      "product.categoryInvalid":  "The selected product category is invalid.",
-                     "product.imageRequired":  "Select at least one product image.",
+                     "product.imageRequired":  "Select at least one product image or video.",
                      "search.imageFailed":  "Image search is unavailable right now.",
                      "share.readyTitle":  "Share ready",
                      "share.readyBody":  "Product details were copied and are ready to share.",

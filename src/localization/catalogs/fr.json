@@ -62,7 +62,7 @@
                      "product.topCategoryRequired":  "Sélectionnez une catégorie principale.",
                      "product.subcategoryRequired":  "Sélectionnez une sous-catégorie.",
                      "product.categoryInvalid":  "La catégorie sélectionnée n’est pas valide.",
-                     "product.imageRequired":  "Sélectionnez au moins une image du produit.",
+                     "product.imageRequired":  "Sélectionnez au moins une image ou vidéo du produit.",
                      "search.imageFailed":  "La recherche par image est indisponible pour le moment.",
                      "share.readyTitle":  "Prêt à partager",
                      "share.readyBody":  "Les informations du produit ont été copiées et sont prêtes à être partagées.",

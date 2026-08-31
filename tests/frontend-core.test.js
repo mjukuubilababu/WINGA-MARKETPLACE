@@ -3351,6 +3351,8 @@ test("global translation catalogs are versioned, validated, cached, and fail sof
   assert.match(appSource, /translateUi\("auth\.recoverPassword"/);
   assert.match(appSource, /translateUi\("product\.sellerOnlyPost"/);
   assert.match(appSource, /translateUi\("product\.imageRequired"/);
+  assert.match(appSource, /const existingImages = existingProduct\s*\?\s*\(existingProduct\.images \|\| \[existingProduct\.image\]\.filter\(Boolean\)\)\s*:\s*\[\]/);
+  assert.match(appSource, /preparedImages\.length === selectedFiles\.length/);
   assert.match(appSource, /translateUi\("search\.imageFailed"/);
   assert.match(appSource, /translateUi\("share\.readyTitle"/);
   assert.match(appSource, /translateUi\("order\.referenceSubmittedTitle"/);

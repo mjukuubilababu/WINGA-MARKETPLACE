@@ -15190,7 +15190,12 @@ uploadButton.addEventListener("click", async () => {
     saveProductUploadDraft();
     if (selectedFiles.length > 0) {
       validateImageFiles(selectedFiles);
-      const images = await readFilesAsDataUrls(selectedFiles);
+      const preparedImages = Array.isArray(productUploadDraftRuntimeState.preparedImages)
+        ? productUploadDraftRuntimeState.preparedImages.filter((value) => typeof value === "string" && value.startsWith("data:image/"))
+        : [];
+      const images = preparedImages.length === selectedFiles.length
+        ? preparedImages.slice()
+        : await readFilesAsDataUrls(selectedFiles);
       productUploadDraftRuntimeState.preparedImages = images.slice();
       saveProductUploadDraft();
       uiRuntimeState.productUploadStatusTone = "info";
@@ -15199,7 +15204,10 @@ uploadButton.addEventListener("click", async () => {
       return;
     }
 
-    await finalizeSave(existingProduct.images || [existingProduct.image].filter(Boolean));
+    const existingImages = existingProduct
+      ? (existingProduct.images || [existingProduct.image].filter(Boolean))
+      : [];
+    await finalizeSave(existingImages);
   } catch (error) {
     saveProductUploadDraft();
     uiRuntimeState.productUploadStatusTone = "error";

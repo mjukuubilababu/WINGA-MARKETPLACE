@@ -66,7 +66,7 @@
                      "product.topCategoryRequired":  "اختر الفئة الرئيسية للمنتج.",
                      "product.subcategoryRequired":  "اختر فئة فرعية للمنتج.",
                      "product.categoryInvalid":  "فئة المنتج المحددة غير صالحة.",
-                     "product.imageRequired":  "اختر صورة واحدة على الأقل للمنتج.",
+                     "product.imageRequired":  "اختر صورة أو مقطع فيديو واحدًا على الأقل للمنتج.",
                      "search.imageFailed":  "البحث بالصور غير متاح حالياً.",
                      "share.readyTitle":  "جاهز للمشاركة",
                      "share.readyBody":  "تم نسخ تفاصيل المنتج وأصبحت جاهزة للمشاركة.",
