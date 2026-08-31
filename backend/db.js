@@ -2738,6 +2738,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
 
   async function claimProductVideos(client, product = {}) {
     const providerIds = getProductVideoProviderIds(product);
+    const moderationStatuses = new Map();
     for (const providerId of providerIds) {
       const claim = await client.query(
         `UPDATE video_upload_intents
@@ -2745,7 +2746,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
            updated_at = NOW(), row_version = row_version + 1
          WHERE provider_id = $1 AND seller_id = $2 AND status = 'ready'
            AND (product_id = '' OR product_id = $3)
-         RETURNING provider_id`,
+         RETURNING provider_id, moderation_status AS "moderationStatus"`,
         [providerId, product.uploadedBy, product.id]
       );
       if (!claim.rowCount) {
@@ -2753,9 +2754,22 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
         error.code = "VIDEO_CLAIM_REJECTED";
         throw error;
       }
+      moderationStatuses.set(providerId, String(claim.rows?.[0]?.moderationStatus || "approved"));
     }
+    return moderationStatuses;
   }
 
+  function applyClaimedVideoModeration(product = {}, moderationStatuses = new Map()) {
+    if (!moderationStatuses.size) return product;
+    return {
+      ...product,
+      mediaItems: normalizeProductMediaItems(product).map((item) => (
+        item.type === "video" && moderationStatuses.has(item.providerId)
+          ? { ...item, moderationStatus: moderationStatuses.get(item.providerId) }
+          : item
+      ))
+    };
+  }
   async function releaseRemovedProductVideos(client, productId, retainedProviderIds = []) {
     await client.query(
       `UPDATE video_upload_intents
@@ -2768,8 +2782,9 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
   async function createProduct(product = {}) {
     return withTransaction(async (client) => {
       await upsertProductCategory(client, product);
-      await claimProductVideos(client, product);
-      const values = getProductWriteValues(product);
+      const moderationStatuses = await claimProductVideos(client, product);
+      const productForWrite = applyClaimedVideoModeration(product, moderationStatuses);
+      const values = getProductWriteValues(productForWrite);
       const result = await client.query(
         `INSERT INTO products (
            id, name, price, shop, whatsapp, image, images, uploaded_by, category,
@@ -2791,7 +2806,9 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
   async function updateProduct(productId, ownerUsername, product = {}, options = {}) {
     return withTransaction(async (client) => {
       await upsertProductCategory(client, product);
-      const values = getProductWriteValues(product);
+      const moderationStatuses = await claimProductVideos(client, { ...product, id: productId, uploadedBy: ownerUsername });
+      const productForWrite = applyClaimedVideoModeration(product, moderationStatuses);
+      const values = getProductWriteValues(productForWrite);
       const expectedVersion = Number(options.expectedRowVersion || 0);
       const result = await client.query(
         `UPDATE products
@@ -2810,7 +2827,6 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       if (!result.rowCount) {
         return { updated: false, conflict: expectedVersion > 0, rowVersion: 0 };
       }
-      await claimProductVideos(client, { ...product, id: productId, uploadedBy: ownerUsername });
       await releaseRemovedProductVideos(client, productId, getProductVideoProviderIds(product));
       return { updated: true, conflict: false, rowVersion: Number(result.rows?.[0]?.rowVersion || 0) };
     });
@@ -5445,20 +5461,44 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     const providerId = String(result.providerId || "");
     const resultId = String(result.resultId || "");
     if (!providerId || !resultId) return { updated: false, code: "invalid_result" };
+    const verdict = ["safe", "review", "blocked", "error"].includes(String(result.verdict || ""))
+      ? String(result.verdict) : "error";
+    const moderationStatus = verdict === "blocked" ? "rejected" : "approved";
     return withTransaction(async (client) => {
       const updated = await client.query(
         `UPDATE video_upload_intents SET safety_status = $2, safety_score = $3,
            safety_labels = $4::jsonb, safety_scores = $5::jsonb, safety_provider = $6,
            safety_model_version = $7, safety_result_id = $8, safety_checked_at = $9::timestamptz,
+           moderation_status = $10,
+           moderation_note = CASE WHEN $10 = 'rejected' THEN 'Automated safety policy blocked this video.' ELSE moderation_note END,
+           moderated_at = CASE WHEN $10 IN ('approved', 'rejected') THEN NOW() ELSE moderated_at END,
+           moderated_by = CASE WHEN $10 IN ('approved', 'rejected') THEN 'video-safety' ELSE moderated_by END,
            updated_at = NOW(), row_version = row_version + 1
          WHERE provider_id = $1 AND (safety_result_id = '' OR safety_result_id = $8)
-         RETURNING provider_id AS "providerId", product_id AS "productId", seller_id AS "sellerId"`,
-        [providerId, result.verdict, Number(result.riskScore || 0), stringifyJson(result.labels, []),
+         RETURNING provider_id AS "providerId", product_id AS "productId", seller_id AS "sellerId",
+           moderation_status AS "moderationStatus"`,
+        [providerId, verdict, Number(result.riskScore || 0), stringifyJson(result.labels, []),
           stringifyJson(result.scores, {}), result.provider || "", result.modelVersion || "",
-          resultId, result.checkedAt || new Date().toISOString()]
+          resultId, result.checkedAt || new Date().toISOString(), moderationStatus]
       );
       const row = updated.rows[0];
       if (!row) return { updated: false, code: "not_found_or_conflict" };
+      if (row.productId) {
+        await client.query(
+          `UPDATE products
+           SET media_items = COALESCE((
+             SELECT jsonb_agg(
+               CASE WHEN item->>'type' = 'video' AND item->>'providerId' = $1
+                 THEN jsonb_set(item, '{moderationStatus}', to_jsonb($2::text), true)
+                 ELSE item END
+               ORDER BY ordinal
+             )
+             FROM jsonb_array_elements(media_items) WITH ORDINALITY AS entries(item, ordinal)
+           ), '[]'::jsonb), updated_at = NOW(), row_version = row_version + 1
+           WHERE id = $3`,
+          [providerId, moderationStatus, row.productId]
+        );
+      }
       await client.query(
         `UPDATE video_safety_jobs SET status = 'completed', completed_at = NOW(),
            locked_by = '', locked_at = NULL, updated_at = NOW() WHERE provider_id = $1`,

@@ -4883,7 +4883,7 @@ function applyVideoModerationPolicy(mediaItems = [], existingMediaItems = []) {
     const existing = existingByProvider.get(String(item.providerId));
     return {
       ...item,
-      moderationStatus: existing ? String(existing.moderationStatus || "approved") : "pending"
+      moderationStatus: existing ? String(existing.moderationStatus || "approved") : "approved"
     };
   });
 }
@@ -11289,7 +11289,7 @@ const server = http.createServer(async (req, res) => {
             time: new Date().toISOString(), ip: clientIp, method: req.method, path: url.pathname,
             event: "product_video_review_opened", username: session.username,
             providerId: intent.providerId, productId: intent.productId,
-            moderationStatus: intent.moderationStatus || "pending"
+            moderationStatus: intent.moderationStatus || "approved"
           });
         }
         sendJson(res, 200, playback, { "Cache-Control": "private, no-store" });

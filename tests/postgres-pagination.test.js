@@ -2773,7 +2773,7 @@ test("PostgreSQL video safety outbox is durable, bounded, and multi-instance saf
         return { rows: [{ providerId: "stream-safety-1", idempotencyKey: "video-safety:stream-safety-1", attempts: 1, maxAttempts: 6 }], rowCount: 1 };
       }
       if (sql.includes("safety_status = $2")) {
-        return { rows: [{ providerId: "stream-safety-1", productId: "product-1", sellerId: "seller-one" }], rowCount: 1 };
+        return { rows: [{ providerId: "stream-safety-1", productId: "product-1", sellerId: "seller-one", moderationStatus: params[9] }], rowCount: 1 };
       }
       return { rows: [], rowCount: 1 };
     },
@@ -2803,10 +2803,50 @@ test("PostgreSQL video safety outbox is durable, bounded, and multi-instance saf
   assert.deepEqual(claimCall.params, [100, "instance-a"]);
   assert.match(claimCall.text, /FOR UPDATE SKIP LOCKED/);
   assert.match(claimCall.text, /locked_at < NOW\(\) - INTERVAL '10 minutes'/);
+  const safetyResultCall = calls.find((call) => call.text.includes("safety_status = $2"));
+  assert.equal(safetyResultCall.params[9], "approved");
+  assert.ok(calls.some((call) => call.text.includes("UPDATE products") && call.text.includes("moderationStatus")));
+  assert.equal(applied.moderationStatus, "approved");
   assert.ok(calls.some((call) => call.text.includes("status = 'completed'")));
   assert.ok(calls.some((call) => call.text === "BEGIN"));
   assert.ok(calls.some((call) => call.text === "COMMIT"));
   assert.ok(MIGRATIONS.some((migration) => migration.id === "2026083005_video_safety_outbox"));
+  assert.ok(MIGRATIONS.some((migration) => migration.id === "2026083101_video_direct_publish_reconciliation"));
+});
+test("PostgreSQL video safety only hides explicitly blocked videos", async () => {
+  for (const [verdict, expectedModeration] of [["review", "approved"], ["error", "approved"], ["blocked", "rejected"]]) {
+    const calls = [];
+    const client = {
+      async query(text, params = []) {
+        const sql = String(text);
+        calls.push({ text: sql, params });
+        if (sql.includes("safety_status = $2")) {
+          return {
+            rows: [{ providerId: `stream-${verdict}`, productId: "product-1", sellerId: "seller-one", moderationStatus: params[9] }],
+            rowCount: 1
+          };
+        }
+        return { rows: [], rowCount: 1 };
+      },
+      release() {}
+    };
+    const store = createPostgresStore({
+      databaseUrl: "postgres://primary.invalid/winga",
+      queryClient: { query: client.query.bind(client), connect: async () => client }
+    });
+
+    const applied = await store.applyVideoSafetyResult({
+      providerId: `stream-${verdict}`, resultId: `result-${verdict}`, verdict,
+      riskScore: verdict === "blocked" ? 1 : 0.5
+    });
+
+    assert.equal(applied.moderationStatus, expectedModeration);
+    const intentUpdate = calls.find((call) => call.text.includes("safety_status = $2"));
+    assert.equal(intentUpdate.params[9], expectedModeration);
+    const productUpdate = calls.find((call) => call.text.includes("UPDATE products"));
+    assert.deepEqual(productUpdate.params, [`stream-${verdict}`, expectedModeration, "product-1"]);
+    assert.equal(calls.at(-1).text, "COMMIT");
+  }
 });
 test("PostgreSQL video pipeline health is durable, aggregate-only, and threshold aware", async () => {
   const calls = [];
@@ -2923,6 +2963,9 @@ test("PostgreSQL product create atomically claims only a ready seller-owned vide
   assert.ok(claimIndex > 0 && claimIndex < insertIndex);
   assert.match(calls[claimIndex].text, /seller_id = \$2 AND status = 'ready'/);
   assert.deepEqual(calls[claimIndex].params, ["stream-video-ready", "seller-one", "product-video-1"]);
+  const productInsert = calls[insertIndex];
+  const storedMediaItems = JSON.parse(productInsert.params.at(-1));
+  assert.equal(storedMediaItems.find((item) => item.type === "video").moderationStatus, "approved");
   assert.equal(calls.at(-1).text, "COMMIT");
 });
 
