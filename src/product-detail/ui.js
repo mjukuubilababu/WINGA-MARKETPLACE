@@ -357,7 +357,11 @@
         }
       });
       const layout = deps.createElement("div", { className: "product-detail-layout" });
-      const useFeedCarousel = detailImages.length > 1 && typeof deps.renderFeedGalleryMarkup === "function";
+      const hasReadyProductVideo = (Array.isArray(product.mediaItems) ? product.mediaItems : []).some((item) => item?.type === "video"
+        && item?.status === "ready"
+        && (!item?.moderationStatus || item.moderationStatus === "approved"));
+      const useFeedCarousel = typeof deps.renderFeedGalleryMarkup === "function"
+        && (detailImages.length > 1 || hasReadyProductVideo);
       const media = deps.createElement("div", {
         className: `product-detail-media fit-mode-${fitMode}${detailImages.length > 1 && !useFeedCarousel ? " has-media-stack" : ""}`,
         attributes: {

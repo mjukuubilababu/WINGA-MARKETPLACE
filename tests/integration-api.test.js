@@ -639,6 +639,34 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   const imageStem = canonicalImageName.replace(/-1080\.webp$/, "");
   assert.equal(fs.existsSync(path.join(tempRoot, "uploads", `${imageStem}-320.webp`)), true);
   assert.equal(fs.existsSync(path.join(tempRoot, "uploads", `${imageStem}-640.webp`)), true);
+  const videoOnlyCreate = await request("/products", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${sellerToken}`
+    },
+    body: JSON.stringify({
+      id: "product-video-only-001",
+      name: "Video Product",
+      price: 30000,
+      shop: "Seller One Shop",
+      whatsapp: "255700111111",
+      uploadedBy: "seller_one",
+      category: "viatu",
+      images: [],
+      image: "",
+      mediaItems: [{
+        type: "video", status: "ready", provider: "cloudflare-stream",
+        providerId: "stream-video-only-001", posterUrl: "https://videodelivery.net/poster.jpg", position: 0
+      }]
+    })
+  });
+  assert.equal(videoOnlyCreate.response.status, 200);
+  assert.equal(videoOnlyCreate.body.images.length, 0);
+  assert.equal(videoOnlyCreate.body.image, "");
+  assert.equal(videoOnlyCreate.body.mediaItems.length, 1);
+  assert.equal(videoOnlyCreate.body.mediaItems[0].type, "video");
+  assert.equal(videoOnlyCreate.body.status, "approved");
 
   const bodylessProductView = await request("/products/product-test-001/view", {
     method: "POST",

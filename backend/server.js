@@ -2440,7 +2440,12 @@ function sanitizeVisibleProduct(product, viewer = null, storeRef = null) {
     whatsapp: normalizedProduct.whatsapp || String(owner?.whatsappNumber || owner?.phoneNumber || "").replace(/\D/g, "").slice(0, 20),
     demandSummary
   };
-  if (!safeProduct.image && (!Array.isArray(safeProduct.images) || safeProduct.images.length === 0) && !canSeeModerationData) {
+  const hasPublicReadyVideo = safeProduct.mediaItems.some((item) => item.type === "video"
+    && item.status === "ready"
+    && (!item.moderationStatus || item.moderationStatus === "approved")
+    && item.provider === "cloudflare-stream"
+    && /^[A-Za-z0-9_-]{8,128}$/.test(String(item.providerId || "")));
+  if (!safeProduct.image && (!Array.isArray(safeProduct.images) || safeProduct.images.length === 0) && !hasPublicReadyVideo && !canSeeModerationData) {
     return null;
   }
   if (!canSeeModerationData) {
@@ -4941,13 +4946,17 @@ function validateProductPayload(payload) {
   )) {
     return "Video ya bidhaa si sahihi.";
   }
-  if (!Array.isArray(payload.images) || payload.images.length === 0 || payload.images.length > MAX_IMAGE_COUNT) {
+  const imageItems = Array.isArray(payload.images) ? payload.images : [];
+  if (imageItems.length > MAX_IMAGE_COUNT) {
     return "Idadi ya picha si sahihi.";
   }
-  if (!payload.images.every(isValidImageValue)) {
+  if (imageItems.length === 0 && videoItems.length === 0) {
+    return "Chagua picha au video ya bidhaa.";
+  }
+  if (!imageItems.every(isValidImageValue)) {
     return "Moja ya picha si sahihi au ni kubwa sana.";
   }
-  if (!isValidImageValue(payload.image || "")) {
+  if (imageItems.length > 0 && !isValidImageValue(payload.image || imageItems[0] || "")) {
     return "Picha kuu si sahihi.";
   }
   if (payload.imageSignature && !/^[01]{64}$/.test(payload.imageSignature)) {

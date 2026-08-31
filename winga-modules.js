@@ -6468,7 +6468,6 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 
     function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
       const safeImages = getRenderableMarketplaceImages(product);
-      const images = safeImages.length > 0 ? safeImages : [getImageFallbackDataUri("WINGA")];
       const videoItems = (Array.isArray(product?.mediaItems) ? product.mediaItems : [])
         .filter((item) => item?.type === "video"
           && item?.status === "ready"
@@ -6476,6 +6475,9 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           && item?.provider === "cloudflare-stream"
           && /^[a-zA-Z0-9_-]{8,64}$/.test(String(item?.providerId || "").trim()))
         .slice(0, 1);
+      const images = safeImages.length > 0
+        ? safeImages
+        : (videoItems.length > 0 ? [] : [getImageFallbackDataUri("WINGA")]);
       const imageTotal = images.length;
       const total = imageTotal + videoItems.length;
       const isVariantEntry = isVariantFeedEntry(product);
@@ -6573,8 +6575,9 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         `;
       }).join("");
       const playbackLabel = translateUi("video.playProduct", {}, "Play product video");
-      const videoPoster = sanitizeImageSource(String(images[0] || "").trim(), getImageFallbackDataUri("WINGA"));
-      const videoSlides = videoItems.map((item, videoIndex) => `
+      const videoSlides = videoItems.map((item, videoIndex) => {
+        const videoPoster = sanitizeImageSource(String(item.posterUrl || item.thumbnailUrl || images[0] || "").trim(), getImageFallbackDataUri("WINGA"));
+        return `
         <div class="feed-gallery-carousel-slide feed-gallery-tile feed-video-slide"
           data-feed-gallery-slide="${imageTotal + videoIndex}"
           data-feed-video-slide="true">
@@ -6590,7 +6593,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             <span class="feed-video-play-icon" aria-hidden="true"></span>
           </div>
         </div>
-      `).join("");
+      `;
+      }).join("");
       const slides = `${imageSlides}${videoSlides}`;
 
       return `
@@ -19598,7 +19602,11 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         }
       });
       const layout = deps.createElement("div", { className: "product-detail-layout" });
-      const useFeedCarousel = detailImages.length > 1 && typeof deps.renderFeedGalleryMarkup === "function";
+      const hasReadyProductVideo = (Array.isArray(product.mediaItems) ? product.mediaItems : []).some((item) => item?.type === "video"
+        && item?.status === "ready"
+        && (!item?.moderationStatus || item.moderationStatus === "approved"));
+      const useFeedCarousel = typeof deps.renderFeedGalleryMarkup === "function"
+        && (detailImages.length > 1 || hasReadyProductVideo);
       const media = deps.createElement("div", {
         className: `product-detail-media fit-mode-${fitMode}${detailImages.length > 1 && !useFeedCarousel ? " has-media-stack" : ""}`,
         attributes: {

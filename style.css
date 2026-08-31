@@ -3001,8 +3001,7 @@ img[data-zoom-src]{
   margin-top:10px;
 }
 
-#product-image-file,
-#product-video-file{
+#product-image-file{
   display:none;
 }
 

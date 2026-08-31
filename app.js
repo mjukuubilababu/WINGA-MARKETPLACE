@@ -11928,10 +11928,18 @@ function clearBrokenMarketplaceImage(productId, imageSource = "") {
   }
 }
 
+function getReadyProductVideoItem(product) {
+  return (Array.isArray(product?.mediaItems) ? product.mediaItems : []).find((item) => item?.type === "video"
+    && item?.status === "ready"
+    && (!item?.moderationStatus || item.moderationStatus === "approved")
+    && item?.provider === "cloudflare-stream"
+    && /^[A-Za-z0-9_-]{8,128}$/.test(String(item?.providerId || ""))) || null;
+}
+
 function getRenderableMarketplaceImages(product, options = {}) {
   const images = getFeedRenderableImages(product);
   if (!images.length) {
-    return [getImageFallbackDataUri("WINGA")];
+    return getReadyProductVideoItem(product) ? [] : [getImageFallbackDataUri("WINGA")];
   }
   // Keep the card/media visible everywhere. Broken image telemetry still drives
   // fallback handling, but it should not remove products from discovery/detail.
@@ -11939,11 +11947,13 @@ function getRenderableMarketplaceImages(product, options = {}) {
 }
 
 function hasRenderableMarketplaceImage(product, options = {}) {
-  return getRenderableMarketplaceImages(product, options).length > 0;
+  return getRenderableMarketplaceImages(product, options).length > 0 || Boolean(getReadyProductVideoItem(product));
 }
 
 function getMarketplacePrimaryImage(product, options = {}) {
-  return getRenderableMarketplaceImages(product, options)[0] || "";
+  const image = getRenderableMarketplaceImages(product, options)[0] || "";
+  const video = getReadyProductVideoItem(product);
+  return image || video?.posterUrl || video?.thumbnailUrl || "";
 }
 
 function normalizeProductFitMode(value) {
@@ -12168,7 +12178,7 @@ const uploadCustomCategoryWrap = document.getElementById("upload-custom-category
 const uploadCustomCategoryInput = document.getElementById("upload-custom-category-input");
 const uploadCustomCategoryAddButton = document.getElementById("upload-custom-category-add");
 const productImageFileInput = document.getElementById("product-image-file");
-const productVideoFileInput = document.getElementById("product-video-file");
+
 const productVideoStatus = document.getElementById("product-video-status");
 const productVideoProgress = document.getElementById("product-video-progress");
 const productVideoStatusCopy = document.getElementById("product-video-status-copy");
@@ -14913,7 +14923,7 @@ function resetProductVideoUpload(options = {}) {
   productVideoUploadState.providerId = "";
   productVideoUploadState.retryable = false;
   productVideoUploadState.errorMessage = "";
-  if (options.clearInput !== false && productVideoFileInput) productVideoFileInput.value = "";
+
   renderProductVideoUploadState();
 }
 
@@ -15027,7 +15037,8 @@ uploadButton.addEventListener("click", async () => {
   const whatsapp = getCurrentWhatsappNumber();
   const topCategory = productCategoryTopInput.value;
   const category = productCategoryInput.value;
-  const selectedFiles = Array.from(productImageFileInput.files || []);
+  const selectedMediaFiles = Array.from(productImageFileInput.files || []);
+  const selectedFiles = selectedMediaFiles.filter((file) => !isProductVideoFile(file));
   const existingProduct = editingProductId ? getProductById(editingProductId) : null;
   if (["preparing", "uploading", "processing"].includes(productVideoUploadState.phase)) {
     setUploadFormStatus("warning", "Subiri video ikamilike kuchakatwa kabla ya kuhifadhi bidhaa.");
@@ -15073,8 +15084,9 @@ uploadButton.addEventListener("click", async () => {
     return;
   }
 
-  if (selectedFiles.length === 0 && !existingProduct) {
-    alert(translateUi("product.imageRequired", {}, "Chagua picha angalau moja ya bidhaa."));
+  const hasReadyVideo = Boolean(productVideoUploadState.mediaItem?.type === "video" && productVideoUploadState.mediaItem?.status === "ready");
+  if (selectedFiles.length === 0 && !hasReadyVideo && !existingProduct) {
+    alert(translateUi("product.imageRequired", {}, "Chagua picha au video ya bidhaa."));
     return;
   }
 
@@ -15217,13 +15229,40 @@ cancelEditButton.addEventListener("click", () => {
   renderCurrentView();
 });
 
+const PRODUCT_VIDEO_FILE_EXTENSIONS = new Set(["mp4", "m4v", "mkv", "mov", "avi", "flv", "ts", "mts", "m2ts", "m2p", "m2v", "mxf", "lxf", "gxf", "3gp", "3g2", "webm", "mpg", "mpeg"]);
+function isProductVideoFile(file) {
+  const contentType = String(file?.type || "").trim().toLowerCase();
+  const extension = String(file?.name || "").split(".").pop().toLowerCase();
+  return contentType.startsWith("video/") || PRODUCT_VIDEO_FILE_EXTENSIONS.has(extension);
+}
+
 productImageFileInput.addEventListener("change", async () => {
   if ((uiRuntimeState.productUploadStatusTone || "") !== "info") {
     setUploadFormStatus("", "");
     uiRuntimeState.productUploadStatusTone = "";
   }
-  const files = Array.from(productImageFileInput.files || []);
-  if (files.length === 0) {
+  const mediaFiles = Array.from(productImageFileInput.files || []);
+  if (mediaFiles.length === 0) return;
+
+  const videoFiles = mediaFiles.filter(isProductVideoFile);
+  const imageFiles = mediaFiles.filter((file) => !isProductVideoFile(file));
+  if (videoFiles.length > 1) {
+    setUploadFormStatus("error", "Chagua video moja tu kwa kila post.");
+    productImageFileInput.value = "";
+    return;
+  }
+
+  if (currentView !== "upload") {
+    setCurrentViewState("upload", { syncHistory: "push" });
+    renderCurrentView();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  if (videoFiles[0]) {
+    startProductVideoUpload(videoFiles[0]);
+  }
+
+  if (imageFiles.length === 0) {
     productUploadDraftRuntimeState.preparedImages = [];
     previewList.replaceChildren();
     previewList.style.display = "none";
@@ -15234,16 +15273,16 @@ productImageFileInput.addEventListener("change", async () => {
   try {
     previewList.replaceChildren();
     previewList.style.display = "none";
-    validateImageFiles(files);
-    const preparedImages = await renderPreviewFiles(files);
+    validateImageFiles(imageFiles);
+    const preparedImages = await renderPreviewFiles(imageFiles);
     productUploadDraftRuntimeState.preparedImages = preparedImages.slice();
     scheduleProductUploadDraftSave(0);
   } catch (error) {
     uiRuntimeState.productUploadStatusTone = "error";
-    setUploadFormStatus("error", error.message || "Picha ulizochagua si sahihi.");
+    setUploadFormStatus("error", error.message || "Media uliyochagua si sahihi.");
     showInAppNotification({
-      title: translateUi("search.imageFailed", {}, "Image search is unavailable right now."),
-      body: error.message || "Picha ulizochagua si sahihi.",
+      title: translateUi("search.imageFailed", {}, "Media haiwezi kutayarishwa sasa."),
+      body: error.message || "Media uliyochagua si sahihi.",
       variant: "error"
     });
     productUploadDraftRuntimeState.preparedImages = [];
@@ -15252,15 +15291,6 @@ productImageFileInput.addEventListener("change", async () => {
     previewList.style.display = "none";
     scheduleProductUploadDraftSave(0);
   }
-});
-
-productVideoFileInput?.addEventListener("change", () => {
-  const file = productVideoFileInput.files?.[0] || null;
-  if (!file) {
-    resetProductVideoUpload();
-    return;
-  }
-  startProductVideoUpload(file);
 });
 
 productVideoRetryButton?.addEventListener("click", () => {
@@ -15451,11 +15481,11 @@ postProductFab?.addEventListener("click", () => {
   if (!editingProductId) {
     clearUploadForm();
   }
-  setCurrentViewState("upload", {
-    syncHistory: "push"
-  });
+  setCurrentViewState("upload", { syncHistory: "push" });
   renderCurrentView();
   window.scrollTo({ top: 0, behavior: "smooth" });
+  productImageFileInput.value = "";
+  productImageFileInput.click();
 });
 
 viewHomeBackButton?.addEventListener("click", () => {
@@ -20398,7 +20428,7 @@ function startEditProduct(productId) {
   productVideoUploadState.providerId = String(existingVideo?.providerId || "");
   productVideoUploadState.retryable = false;
   productVideoUploadState.errorMessage = "";
-  if (productVideoFileInput) productVideoFileInput.value = "";
+
   renderProductVideoUploadState();
   setSelectedProductFitMode(product.fitMode || "cover");
 

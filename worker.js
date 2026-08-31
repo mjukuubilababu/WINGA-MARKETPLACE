@@ -782,13 +782,11 @@ ${lcpImagePreloadTag}${imageOriginPreconnectTag}  <title>Chap kwa haraka</title>
         <input type="text" id="upload-custom-category-input" placeholder="Andika category mpya">
         <button id="upload-custom-category-add" type="button">Ongeza Category</button>
       </div>
-      <p id="upload-guidelines">Pakia picha hadi 5, kila moja isiwe zaidi ya 3MB, na ziwe JPG, PNG, WEBP au GIF.</p>
-      <label for="product-image-file" class="upload-btn">Chagua Picha Moja au Nyingi</label>
-      <input type="file" id="product-image-file" accept="image/*" multiple>
+      <p id="upload-guidelines">Chagua picha, video, au vyote. Unaweza kuweka hadi picha 5 na video 1.</p>
+      <label for="product-image-file" class="upload-btn">Chagua Picha au Video</label>
+      <input type="file" id="product-image-file" accept="image/*,video/*,.mp4,.m4v,.mkv,.mov,.avi,.flv,.ts,.mts,.m2ts,.m2p,.m2v,.mxf,.lxf,.gxf,.3gp,.3g2,.webm,.mpg,.mpeg" multiple>
       <div id="image-preview-list"></div>
       <div class="product-video-upload">
-        <label for="product-video-file" class="upload-btn upload-btn-secondary">Chagua Video (optional)</label>
-        <input type="file" id="product-video-file" accept=".mp4,.m4v,.mkv,.mov,.avi,.flv,.ts,.mts,.m2ts,.m2p,.m2v,.mxf,.lxf,.gxf,.3gp,.3g2,.webm,.mpg,.mpeg,video/*">
         <div id="product-video-status" class="product-video-status" hidden aria-live="polite">
           <progress id="product-video-progress" max="100" value="0"></progress>
           <span id="product-video-status-copy"></span>

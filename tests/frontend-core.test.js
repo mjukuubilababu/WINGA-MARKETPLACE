@@ -209,6 +209,19 @@ test("marketplace gallery adds one secure ready video slide without collapsing p
   assert.match(html, /data-feed-gallery-total="3"/);
   assert.equal((html.match(/data-feed-gallery-slide=/g) || []).length, 3);
   assert.match(html, /data-video-provider-id="stream-video-ready"/);
+  const videoOnlyHtml = gallery.renderFeedGalleryMarkup({
+    name: "Video only",
+    images: [],
+    mediaItems: [{
+      type: "video", status: "ready", moderationStatus: "approved",
+      provider: "cloudflare-stream", providerId: "stream-video-only", posterUrl: "video-poster.jpg"
+    }]
+  }, "feed");
+  assert.match(videoOnlyHtml, /data-feed-gallery-total="1"/);
+  assert.equal((videoOnlyHtml.match(/data-feed-gallery-slide=/g) || []).length, 1);
+  assert.match(videoOnlyHtml, /data-video-provider-id="stream-video-only"/);
+  assert.match(videoOnlyHtml, /src="video-poster.jpg"/);
+  assert.doesNotMatch(videoOnlyHtml, /class="feed-gallery-image/);
   const pendingHtml = gallery.renderFeedGalleryMarkup({
     ...product,
     mediaItems: product.mediaItems.map((item) => item.type === "video"
@@ -2587,7 +2600,8 @@ test("worker emits one matching LCP image preload in the response header and HTM
   assert.match(html, /<link rel="preload" as="image" href="\/second\.jpg" fetchpriority="high">/);
   assert.match(html, /<link rel="preconnect" href="https:\/\/winga-pflp\.onrender\.com" crossorigin>/);
   assert.equal((html.match(/rel="preload" as="image"/g) || []).length, 1);
-  assert.match(html, /id="product-video-file"/);
+  assert.match(html, /id="product-image-file"[^>]*accept="image\/\*,video\/\*/);
+  assert.doesNotMatch(html, /id="product-video-file"/);
   assert.match(html, /id="product-video-status"/);
   assert.match(html, /id="product-video-progress"/);
   assert.match(html, /id="product-video-retry"/);
