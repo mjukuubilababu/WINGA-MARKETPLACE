@@ -49,6 +49,7 @@
     const stateByNode = new WeakMap();
     const prewarmNodesByTarget = new WeakMap();
     const prewarmQueue = [];
+    const boundNodes = new Set();
     const maxCachedTokens = Math.max(8, Number(deps.maxCachedTokens || 64));
     const releaseDelayMs = Math.max(250, Number(deps.releaseDelayMs || 1500));
     const tokenSafetyMs = Math.max(10000, Number(deps.tokenSafetyMs || 30000));
@@ -58,6 +59,10 @@
     let activePrewarms = 0;
     let observer = null;
     let prewarmObserver = null;
+    let activeNode = null;
+    let userPauseLockNode = null;
+    let visibilityHandlerInstalled = false;
+    const dominanceSwitchDelta = Math.max(0.05, Math.min(0.3, Number(deps.dominanceSwitchDelta || 0.12)));
 
     function isSaveDataEnabled() {
       return Boolean(targetWindow.navigator?.connection?.saveData);
@@ -136,10 +141,14 @@
     function releaseNode(node, options = {}) {
       const state = stateByNode.get(node);
       if (state?.releaseTimer) targetWindow.clearTimeout(state.releaseTimer);
+      if (activeNode === node) activeNode = null;
+      if (options.forget === true && userPauseLockNode === node) userPauseLockNode = null;
       if (state) {
         state.generation += 1;
         state.loading = false;
         state.ready = false;
+        state.failed = false;
+        state.hasPlayed = false;
         state.autoplayRequested = false;
         state.prewarmQueued = false;
         settleReadyState(state);
@@ -149,7 +158,12 @@
         state.hls = null;
       }
       const player = node.querySelector("[data-stream-player]");
-      if (player?.pause) player.pause();
+      if (player?.pause && !player.paused) {
+        if (state) state.pauseReason = "release";
+        player.pause();
+      } else if (state) {
+        state.pauseReason = "";
+      }
       player?.removeAttribute?.("src");
       player?.load?.();
       player?.remove?.();
@@ -177,16 +191,118 @@
       }
     }
 
+    function pauseNode(node, reason = "programmatic") {
+      const state = stateByNode.get(node);
+      if (!state) return;
+      state.autoplayRequested = false;
+      node.classList.remove("is-playing");
+      const player = node.querySelector("[data-stream-player]");
+      if (!player?.pause) return;
+      if (player.paused) return;
+      state.pauseReason = reason;
+      player.pause();
+    }
+
+    function relinquishActiveNode(reason = "out_of_view") {
+      const previousNode = activeNode;
+      activeNode = null;
+      if (previousNode) pauseNode(previousNode, reason);
+    }
+
+    function claimActiveNode(node) {
+      if (!node || activeNode === node) return;
+      const previousNode = activeNode;
+      activeNode = node;
+      if (previousNode) pauseNode(previousNode, "superseded");
+    }
+
+    function selectDominantNode() {
+      let candidate = null;
+      let candidateState = null;
+      boundNodes.forEach((node) => {
+        const state = stateByNode.get(node);
+        if (!node.isConnected || !state?.inPlaybackViewport || state.userPaused || state.failed) return;
+        if (
+          !candidateState
+          || state.intersectionRatio > candidateState.intersectionRatio
+          || (state.intersectionRatio === candidateState.intersectionRatio && state.viewportDistance < candidateState.viewportDistance)
+        ) {
+          candidate = node;
+          candidateState = state;
+        }
+      });
+
+      const currentState = activeNode ? stateByNode.get(activeNode) : null;
+      if (
+        activeNode?.isConnected
+        && currentState?.inPlaybackViewport
+        && !currentState.userPaused
+        && !currentState.failed
+        && candidateState
+        && currentState.intersectionRatio + dominanceSwitchDelta >= candidateState.intersectionRatio
+      ) {
+        return activeNode;
+      }
+      return candidate;
+    }
+
+    function reconcileActivePlayback() {
+      if (targetDocument.visibilityState === "hidden") {
+        relinquishActiveNode("document_hidden");
+        return;
+      }
+      const pauseLockState = userPauseLockNode ? stateByNode.get(userPauseLockNode) : null;
+      if (userPauseLockNode?.isConnected && pauseLockState?.inPlaybackViewport) {
+        relinquishActiveNode("manual_pause_lock");
+        return;
+      }
+      if (userPauseLockNode && (!userPauseLockNode.isConnected || !pauseLockState?.inPlaybackViewport)) {
+        userPauseLockNode = null;
+      }
+      const candidate = selectDominantNode();
+      if (!candidate) {
+        relinquishActiveNode("out_of_view");
+        return;
+      }
+      const state = stateByNode.get(candidate);
+      if (!state || state.userPaused || state.failed) return;
+      claimActiveNode(candidate);
+      state.autoplayRequested = true;
+      void activateNode(candidate, { autoplay: true });
+    }
+
+    function handleVisibilityChange() {
+      reconcileActivePlayback();
+    }
+
     async function activateNode(node, options = {}) {
       const providerId = String(node.dataset.videoProviderId || "").trim();
       if (!/^[a-zA-Z0-9_-]{8,64}$/.test(providerId)) return;
       const state = stateByNode.get(node);
       if (!state) return;
-      if (options.autoplay !== false) state.autoplayRequested = true;
+      if (options.userInitiated === true) {
+        state.userPaused = false;
+        state.failed = false;
+        if (userPauseLockNode === node) userPauseLockNode = null;
+      }
+      if (options.autoplay !== false) {
+        if (state.userPaused || state.failed) return state.readyPromise;
+        claimActiveNode(node);
+        state.autoplayRequested = true;
+      }
       if (state.releaseTimer) targetWindow.clearTimeout(state.releaseTimer);
       const existingPlayer = node.querySelector("[data-stream-player]");
       if (existingPlayer) {
-        if (state.autoplayRequested && state.ready) requestPlayerPlay(existingPlayer);
+        if (state.autoplayRequested && state.ready && activeNode === node && !state.userPaused) {
+          if (state.hasPlayed && existingPlayer.paused && !state.pauseReason) {
+            state.userPaused = true;
+            state.autoplayRequested = false;
+            userPauseLockNode = node;
+            activeNode = null;
+            return state.readyPromise;
+          }
+          requestPlayerPlay(existingPlayer);
+        }
         return state.readyPromise;
       }
       if (state.loading) return state.readyPromise;
@@ -220,6 +336,7 @@
         video.title = String(node.dataset.videoTitle || "Product video");
         video.controls = true;
         video.muted = true;
+        video.loop = true;
         video.playsInline = true;
         video.preload = options.prewarm === true ? "auto" : "metadata";
         video.crossOrigin = "anonymous";
@@ -230,14 +347,20 @@
 
         let playbackStartedReported = false;
         const playWhenReady = () => {
-          if (state.autoplayRequested && state.generation === generation && node.isConnected) {
+          if (
+            state.autoplayRequested
+            && !state.userPaused
+            && activeNode === node
+            && state.generation === generation
+            && node.isConnected
+          ) {
             requestPlayerPlay(video);
           }
         };
         const revealFirstFrame = () => {
           if (state.generation !== generation || !node.isConnected || state.ready) return;
           state.ready = true;
-          node.classList.add("is-ready", "is-playing");
+          node.classList.add("is-ready");
           node.classList.remove("is-loading", "is-buffering", "is-prewarming", "has-playback-error");
           node.setAttribute("aria-busy", "false");
           settleReadyState(state);
@@ -251,6 +374,15 @@
         };
         const reportPlaybackStarted = () => {
           revealFirstFrame();
+          state.hasPlayed = true;
+          node.classList.add("is-playing");
+          node.classList.remove("is-buffering");
+          if (state.bufferStartedAt) {
+            emitMetric("video_playback_buffer_recovered", {
+              bufferingMs: Math.max(0, Date.now() - state.bufferStartedAt)
+            });
+            state.bufferStartedAt = 0;
+          }
           if (playbackStartedReported) return;
           playbackStartedReported = true;
           emitMetric("video_playback_started", {
@@ -260,9 +392,35 @@
             saveData: isSaveDataEnabled()
           });
         };
+        const handlePlay = () => {
+          if (state.generation !== generation || !node.isConnected) return;
+          state.userPaused = false;
+          if (userPauseLockNode === node) userPauseLockNode = null;
+          claimActiveNode(node);
+        };
+        const handlePause = () => {
+          const pauseReason = state.pauseReason;
+          state.pauseReason = "";
+          node.classList.remove("is-playing", "is-buffering");
+          if (state.generation !== generation || pauseReason) return;
+          state.userPaused = true;
+          state.autoplayRequested = false;
+          userPauseLockNode = node;
+          if (activeNode === node) activeNode = null;
+          emitMetric("video_playback_paused", { manualIntent: true });
+          reconcileActivePlayback();
+        };
+        const handleWaiting = () => {
+          if (activeNode !== node || state.userPaused) return;
+          if (!state.bufferStartedAt) state.bufferStartedAt = Date.now();
+          node.classList.add("is-buffering");
+        };
         video.addEventListener("loadeddata", revealFirstFrame, { once: true });
         video.addEventListener("canplay", revealFirstFrame, { once: true });
-        video.addEventListener("playing", reportPlaybackStarted, { once: true });
+        video.addEventListener("play", handlePlay);
+        video.addEventListener("playing", reportPlaybackStarted);
+        video.addEventListener("pause", handlePause);
+        video.addEventListener("waiting", handleWaiting);
 
         const Hls = await loadHlsRuntime(targetWindow, targetDocument, translateUi);
         if (state.generation !== generation || !node.isConnected) return;
@@ -278,16 +436,25 @@
           state.hls = hls;
           hls.on(Hls.Events.ERROR, (_event, detail) => {
             if (!detail?.fatal || state.hls !== hls) return;
+            state.failed = true;
+            state.ready = false;
+            state.loading = false;
+            state.autoplayRequested = false;
+            if (activeNode === node) activeNode = null;
             node.classList.add("has-playback-error");
-            node.classList.remove("is-loading", "is-buffering", "is-prewarming");
+            node.classList.remove("is-ready", "is-playing", "is-loading", "is-buffering", "is-prewarming");
             node.setAttribute("aria-busy", "false");
             emitMetric("video_playback_failed", {
               latencyMs: Math.max(0, Date.now() - startedAt),
               code: String(detail.type || detail.details || "video_hls_fatal").slice(0, 80)
             });
+            state.pauseReason = "playback_error";
+            if (!video.paused) video.pause();
             hls.destroy();
             state.hls = null;
+            video.remove();
             settleReadyState(state);
+            reconcileActivePlayback();
           });
           hls.on(Hls.Events.MANIFEST_PARSED, playWhenReady);
           hls.loadSource(hlsUrl);
@@ -300,8 +467,13 @@
         }
       } catch (error) {
         if (state.generation === generation) {
+          state.failed = true;
+          state.ready = false;
+          state.autoplayRequested = false;
+          if (activeNode === node) activeNode = null;
           node.classList.add("has-playback-error");
-          node.classList.remove("is-buffering", "is-prewarming");
+          node.classList.remove("is-ready", "is-playing", "is-buffering", "is-prewarming");
+          node.setAttribute("aria-busy", "false");
           emitMetric("video_playback_failed", {
             latencyMs: Math.max(0, Date.now() - startedAt),
             code: String(error?.code || "video_playback_failed").slice(0, 80)
@@ -310,19 +482,20 @@
           state.hls = null;
           node.querySelector("[data-stream-player]")?.remove?.();
           settleReadyState(state);
+          reconcileActivePlayback();
         }
       } finally {
         if (state.generation === generation) {
           state.loading = false;
           node.classList.remove("is-loading");
-          node.setAttribute("aria-busy", state.ready ? "false" : "true");
+          node.setAttribute("aria-busy", state.ready || state.failed ? "false" : "true");
         }
       }
     }
 
     async function prewarmNode(node) {
       const state = stateByNode.get(node);
-      if (!state || !node.isConnected || !state.nearViewport || isSaveDataEnabled()) return;
+      if (!state || state.failed || !node.isConnected || !state.nearViewport || isSaveDataEnabled()) return;
       await activateNode(node, { autoplay: false, prewarm: true });
       const latestState = stateByNode.get(node);
       if (!latestState?.readyPromise || latestState.ready) return;
@@ -338,7 +511,7 @@
         const state = stateByNode.get(node);
         if (!state) continue;
         state.prewarmQueued = false;
-        if (!node.isConnected || !state.nearViewport || state.ready || node.querySelector("[data-stream-player]")) continue;
+        if (!node.isConnected || !state.nearViewport || state.ready || state.failed || node.querySelector("[data-stream-player]")) continue;
         activePrewarms += 1;
         void prewarmNode(node).finally(() => {
           activePrewarms = Math.max(0, activePrewarms - 1);
@@ -349,7 +522,7 @@
 
     function enqueuePrewarm(node) {
       const state = stateByNode.get(node);
-      if (!state || state.prewarmQueued || state.loading || state.ready || node.querySelector("[data-stream-player]")) return;
+      if (!state || state.prewarmQueued || state.loading || state.ready || state.failed || node.querySelector("[data-stream-player]")) return;
       state.prewarmQueued = true;
       prewarmQueue.push(node);
       drainPrewarmQueue();
@@ -380,19 +553,33 @@
       observer = new targetWindow.IntersectionObserver((entries) => {
         entries.forEach((entry) => {
           const state = stateByNode.get(entry.target);
-          if (entry.isIntersecting && entry.intersectionRatio >= 0.55) {
-            if (state) state.inPlaybackViewport = true;
-            if (!isSaveDataEnabled() && targetDocument.visibilityState !== "hidden") void activateNode(entry.target, { autoplay: true });
-            return;
-          }
-          if (state) state.inPlaybackViewport = false;
-          if (!state?.nearViewport) scheduleRelease(entry.target);
+          if (!state) return;
+          state.intersectionRatio = entry.isIntersecting ? Math.max(0, Number(entry.intersectionRatio || 0)) : 0;
+          state.inPlaybackViewport = entry.isIntersecting && state.intersectionRatio >= 0.55;
+          const rect = entry.boundingClientRect;
+          const rootBounds = entry.rootBounds;
+          const viewportCenter = rootBounds
+            ? Number(rootBounds.top || 0) + (Number(rootBounds.height || 0) / 2)
+            : Number(targetWindow.innerHeight || 0) / 2;
+          state.viewportDistance = rect
+            ? Math.abs((Number(rect.top || 0) + (Number(rect.height || 0) / 2)) - viewportCenter)
+            : Number.MAX_SAFE_INTEGER;
+          if (!state.inPlaybackViewport && !state.nearViewport) scheduleRelease(entry.target);
         });
+        if (isSaveDataEnabled()) {
+          relinquishActiveNode("save_data");
+          return;
+        }
+        reconcileActivePlayback();
       }, { threshold: [0, 0.55, 0.85], rootMargin: "120px 0px" });
       return observer;
     }
 
     function bind(scope = targetDocument) {
+      if (!visibilityHandlerInstalled && targetDocument.addEventListener) {
+        targetDocument.addEventListener("visibilitychange", handleVisibilityChange);
+        visibilityHandlerInstalled = true;
+      }
       const nodes = Array.from(scope?.querySelectorAll?.("[data-video-playback]") || []);
       nodes.forEach((node) => {
         if (node.dataset.videoPlaybackBound === "true") return;
@@ -401,6 +588,10 @@
           generation: 0,
           loading: false,
           ready: false,
+          failed: false,
+          hasPlayed: false,
+          userPaused: false,
+          pauseReason: "",
           autoplayRequested: false,
           releaseTimer: 0,
           hls: null,
@@ -409,8 +600,13 @@
           prewarmQueued: false,
           nearViewport: false,
           inPlaybackViewport: false,
+          intersectionRatio: 0,
+          viewportDistance: Number.MAX_SAFE_INTEGER,
+          bufferStartedAt: 0,
           prewarmTarget: null
         });
+
+        boundNodes.add(node);
 
         const prewarmTarget = node.closest?.(".product-card, .seller-product-card, [data-product-card], [data-feed-gallery-carousel]") || node;
         const targetNodes = prewarmNodesByTarget.get(prewarmTarget) || new Set();
@@ -419,10 +615,11 @@
         stateByNode.get(node).prewarmTarget = prewarmTarget;
 
         const activateFromUser = (event) => {
+          if (event.target?.matches?.("[data-stream-player]")) return;
           if (event.type === "keydown" && !["Enter", " "].includes(event.key)) return;
           event.preventDefault();
           event.stopPropagation();
-          void activateNode(node, { autoplay: true });
+          void activateNode(node, { autoplay: true, userInitiated: true });
         };
         node.addEventListener("click", activateFromUser);
         node.addEventListener("keydown", activateFromUser);
@@ -430,6 +627,7 @@
           node.removeEventListener("click", activateFromUser);
           node.removeEventListener("keydown", activateFromUser);
           observer?.unobserve?.(node);
+          boundNodes.delete(node);
           const state = stateByNode.get(node);
           const target = state?.prewarmTarget;
           const targetNodes = target ? prewarmNodesByTarget.get(target) : null;
@@ -440,6 +638,7 @@
           }
           releaseNode(node, { forget: true });
           node.__wingaVideoCleanup = null;
+          reconcileActivePlayback();
         };
         getObserver()?.observe?.(node);
         getPrewarmObserver()?.observe?.(prewarmTarget);

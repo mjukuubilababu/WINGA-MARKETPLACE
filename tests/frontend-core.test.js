@@ -262,7 +262,11 @@ test("marketplace gallery adds one secure ready video slide without collapsing p
   assert.equal(playbackSource.includes('node.closest?.(".product-card, .seller-product-card, [data-product-card], [data-feed-gallery-carousel]")'), true);
   assert.equal(playbackSource.includes("activateNode(node, { autoplay: false, prewarm: true })"), true);
   assert.equal(playbackSource.includes('video.addEventListener("loadeddata", revealFirstFrame'), true);
-  assert.equal(playbackSource.includes('node.classList.add("is-ready", "is-playing")'), true);
+  assert.equal(playbackSource.includes('node.classList.add("is-ready")'), true);
+  assert.equal(playbackSource.includes('node.classList.add("is-playing")'), true);
+  assert.equal(playbackSource.includes("selectDominantNode"), true);
+  assert.equal(playbackSource.includes("userPauseLockNode"), true);
+  assert.equal(playbackSource.includes("dominanceSwitchDelta"), true);
   const playerCssStart = styleSource.indexOf(".feed-video-player{");
   const playerCss = styleSource.slice(playerCssStart, styleSource.indexOf("@media (prefers-reduced-motion:reduce)", playerCssStart));
   assert.equal(playerCss.includes("visibility:hidden;"), true);
@@ -434,6 +438,191 @@ test("video prewarm consumes the BigPipe token and keeps the poster until the fi
   assert.equal(tokenRequests, 0);
 });
 
+test("video playback coordinator keeps one active video and honors manual pause", async () => {
+  const root = path.resolve(__dirname, "..");
+  const playbackSource = fs.readFileSync(path.join(root, "src", "marketplace", "video-playback.js"), "utf8");
+  const observers = [];
+  const visibilityListeners = [];
+  const playersByNode = new Map();
+
+  class FakeIntersectionObserver {
+    constructor(callback, options) {
+      this.callback = callback;
+      this.options = options;
+      this.targets = new Set();
+      observers.push(this);
+    }
+    observe(target) { this.targets.add(target); }
+    unobserve(target) { this.targets.delete(target); }
+  }
+
+  function createFakeVideo() {
+    const listeners = new Map();
+    const video = {
+      dataset: {},
+      paused: true,
+      readyState: 4,
+      playCalls: 0,
+      pauseCalls: 0,
+      ownerNode: null,
+      setAttribute: () => {},
+      removeAttribute: () => {},
+      load: () => {},
+      addEventListener(type, handler, options = {}) {
+        const handlers = listeners.get(type) || [];
+        handlers.push({ handler, once: options?.once === true });
+        listeners.set(type, handlers);
+      },
+      dispatch(type) {
+        const handlers = (listeners.get(type) || []).slice();
+        handlers.forEach((entry) => entry.handler());
+        listeners.set(type, handlers.filter((entry) => !entry.once));
+      },
+      play() {
+        this.playCalls += 1;
+        this.paused = false;
+        this.dispatch("play");
+        this.dispatch("playing");
+        return Promise.resolve();
+      },
+      pause() {
+        if (this.paused) return;
+        this.pauseCalls += 1;
+        this.paused = true;
+        setTimeout(() => this.dispatch("pause"), 0);
+      },
+      remove() {
+        if (this.ownerNode) playersByNode.delete(this.ownerNode);
+      }
+    };
+    return video;
+  }
+
+  class FakeHls {
+    static Events = { ERROR: "error", MANIFEST_PARSED: "manifest" };
+    static isSupported() { return true; }
+    constructor() { this.handlers = new Map(); }
+    on(type, handler) { this.handlers.set(type, handler); }
+    loadSource() {}
+    attachMedia() { this.handlers.get(FakeHls.Events.MANIFEST_PARSED)?.(); }
+    destroy() {}
+  }
+
+  function createNode(providerId, card) {
+    const classes = new Set();
+    const listeners = new Map();
+    const node = {
+      dataset: { videoProviderId: providerId, videoTitle: providerId },
+      isConnected: true,
+      classList: {
+        add: (...names) => names.forEach((name) => classes.add(name)),
+        remove: (...names) => names.forEach((name) => classes.delete(name)),
+        toggle(name, force) { if (force) classes.add(name); else classes.delete(name); },
+        contains: (name) => classes.has(name)
+      },
+      setAttribute: () => {},
+      matches: () => false,
+      querySelector: (selector) => selector === "[data-stream-player]" ? playersByNode.get(node) || null : null,
+      appendChild(player) {
+        player.ownerNode = node;
+        playersByNode.set(node, player);
+      },
+      closest: () => card,
+      addEventListener(type, handler) { listeners.set(type, handler); },
+      removeEventListener(type) { listeners.delete(type); }
+    };
+    return node;
+  }
+
+  const cardOne = {};
+  const cardTwo = {};
+  const nodeOne = createNode("stream-video-one", cardOne);
+  const nodeTwo = createNode("stream-video-two", cardTwo);
+  const targetDocument = {
+    visibilityState: "visible",
+    querySelector: () => null,
+    querySelectorAll: () => [nodeOne, nodeTwo],
+    createElement: (tagName) => {
+      assert.equal(tagName, "video");
+      return createFakeVideo();
+    },
+    addEventListener(type, handler) {
+      if (type === "visibilitychange") visibilityListeners.push(handler);
+    },
+    head: { appendChild: () => {} }
+  };
+  const targetWindow = {
+    WingaModules: { marketplace: {} },
+    Hls: FakeHls,
+    IntersectionObserver: FakeIntersectionObserver,
+    navigator: { connection: { saveData: false } },
+    innerHeight: 800,
+    WINGA_BUILD_VERSION: "test",
+    setTimeout,
+    clearTimeout
+  };
+  const context = vm.createContext({ window: targetWindow });
+  vm.runInContext(playbackSource, context);
+  const controller = targetWindow.WingaModules.marketplace.createVideoPlaybackController({
+    requestPlaybackToken: async (providerId) => ({ customerCode: "example", token: `${providerId}-signed-token`, expiresInSeconds: 300 }),
+    windowObject: targetWindow,
+    documentObject: targetDocument
+  });
+
+  controller.bind(targetDocument);
+  const playbackObserver = observers.find((entry) => Array.isArray(entry.options.threshold) && entry.options.threshold.includes(0.55));
+  assert.ok(playbackObserver);
+  assert.equal(visibilityListeners.length, 1);
+
+  const rootBounds = { top: 0, height: 800 };
+  playbackObserver.callback([
+    { target: nodeOne, isIntersecting: true, intersectionRatio: 0.85, boundingClientRect: { top: 100, height: 420 }, rootBounds },
+    { target: nodeTwo, isIntersecting: true, intersectionRatio: 0.60, boundingClientRect: { top: 480, height: 420 }, rootBounds }
+  ]);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  const playerOne = playersByNode.get(nodeOne);
+  assert.ok(playerOne);
+  assert.equal(playerOne.paused, false);
+  assert.equal(playersByNode.has(nodeTwo), false);
+
+  playbackObserver.callback([
+    { target: nodeOne, isIntersecting: true, intersectionRatio: 0.56, boundingClientRect: { top: -140, height: 420 }, rootBounds },
+    { target: nodeTwo, isIntersecting: true, intersectionRatio: 0.90, boundingClientRect: { top: 200, height: 420 }, rootBounds }
+  ]);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  const playerTwo = playersByNode.get(nodeTwo);
+  assert.ok(playerTwo);
+  assert.equal(playerOne.paused, true);
+  assert.equal(playerOne.pauseCalls, 1);
+  assert.equal(playerTwo.paused, false);
+  assert.equal([playerOne, playerTwo].filter((player) => !player.paused).length, 1);
+
+  playerTwo.pause();
+  playbackObserver.callback([
+    { target: nodeOne, isIntersecting: true, intersectionRatio: 0.56, boundingClientRect: { top: -140, height: 420 }, rootBounds },
+    { target: nodeTwo, isIntersecting: true, intersectionRatio: 0.90, boundingClientRect: { top: 200, height: 420 }, rootBounds }
+  ]);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(playerTwo.paused, true);
+  assert.equal(playerOne.paused, true);
+
+  await playerTwo.play();
+  assert.equal(playerTwo.paused, false);
+  assert.equal(playerOne.paused, true);
+
+  targetDocument.visibilityState = "hidden";
+  visibilityListeners[0]();
+  assert.equal(playerTwo.paused, true);
+  targetDocument.visibilityState = "visible";
+  visibilityListeners[0]();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(playerTwo.paused, false);
+  assert.equal([playerOne, playerTwo].filter((player) => !player.paused).length, 1);
+});
 test("style intelligence builds private aggregate buyer profiles and bounded product scores", () => {
   const root = path.resolve(__dirname, "..");
   const source = fs.readFileSync(path.join(root, "src", "marketplace", "style-intelligence.js"), "utf8");
