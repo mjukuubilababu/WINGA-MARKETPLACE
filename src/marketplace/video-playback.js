@@ -56,16 +56,118 @@
     const maxConcurrentPrewarms = Math.max(1, Math.min(4, Number(deps.maxConcurrentPrewarms || 2)));
     const prewarmTimeoutMs = Math.max(3000, Number(deps.prewarmTimeoutMs || 12000));
     const prewarmRootMargin = String(deps.prewarmRootMargin || "900px 0px");
+    const maxNetworkRecoveries = Math.max(0, Math.min(3, Number(deps.maxNetworkRecoveries ?? 2)));
+    const maxMediaRecoveries = Math.max(0, Math.min(2, Number(deps.maxMediaRecoveries ?? 1)));
+    const recoveryBaseDelayMs = Math.max(100, Number(deps.recoveryBaseDelayMs || 750));
     let activePrewarms = 0;
     let observer = null;
     let prewarmObserver = null;
     let activeNode = null;
     let userPauseLockNode = null;
     let visibilityHandlerInstalled = false;
+    let networkHandlersInstalled = false;
     const dominanceSwitchDelta = Math.max(0.05, Math.min(0.3, Number(deps.dominanceSwitchDelta || 0.12)));
+
+    const playbackProfiles = Object.freeze({
+      constrained: Object.freeze({
+        name: "constrained",
+        startLevel: 0,
+        maxAutoBitrate: 900000,
+        abrEwmaDefaultEstimate: 500000,
+        backBufferLength: 4,
+        maxBufferLength: 8,
+        maxMaxBufferLength: 12
+      }),
+      balanced: Object.freeze({
+        name: "balanced",
+        startLevel: -1,
+        maxAutoBitrate: 2800000,
+        abrEwmaDefaultEstimate: 1500000,
+        backBufferLength: 10,
+        maxBufferLength: 15,
+        maxMaxBufferLength: 24
+      }),
+      fast: Object.freeze({
+        name: "fast",
+        startLevel: -1,
+        maxAutoBitrate: Number.POSITIVE_INFINITY,
+        abrEwmaDefaultEstimate: 3000000,
+        backBufferLength: 15,
+        maxBufferLength: 20,
+        maxMaxBufferLength: 30
+      })
+    });
 
     function isSaveDataEnabled() {
       return Boolean(targetWindow.navigator?.connection?.saveData);
+    }
+
+    function isNetworkOnline() {
+      return targetWindow.navigator?.onLine !== false;
+    }
+
+    function getPlaybackProfile() {
+      const navigatorObject = targetWindow.navigator || {};
+      const connection = navigatorObject.connection || navigatorObject.mozConnection || navigatorObject.webkitConnection || null;
+      const effectiveType = String(connection?.effectiveType || "").trim().toLowerCase();
+      const downlink = Number(connection?.downlink || 0);
+      const rtt = Number(connection?.rtt || 0);
+      const deviceMemory = Number(navigatorObject.deviceMemory || 0);
+      const hardwareConcurrency = Number(navigatorObject.hardwareConcurrency || 0);
+      const constrainedNetwork = ["slow-2g", "2g"].includes(effectiveType)
+        || (downlink > 0 && downlink < 1)
+        || rtt >= 500;
+      const constrainedDevice = (deviceMemory > 0 && deviceMemory <= 2)
+        || (hardwareConcurrency > 0 && hardwareConcurrency <= 2);
+      if (isSaveDataEnabled() || constrainedNetwork || constrainedDevice) return playbackProfiles.constrained;
+      const balancedNetwork = effectiveType === "3g"
+        || (downlink > 0 && downlink < 3)
+        || rtt >= 250;
+      const balancedDevice = (deviceMemory > 0 && deviceMemory <= 4)
+        || (hardwareConcurrency > 0 && hardwareConcurrency <= 4);
+      if (balancedNetwork || balancedDevice || !effectiveType) return playbackProfiles.balanced;
+      return playbackProfiles.fast;
+    }
+
+    function shouldPrewarmVideo() {
+      return isNetworkOnline() && !isSaveDataEnabled() && getPlaybackProfile().name !== "constrained";
+    }
+
+    function getPrewarmLimit() {
+      const profileName = getPlaybackProfile().name;
+      if (!shouldPrewarmVideo()) return 0;
+      if (profileName === "balanced") return Math.min(1, maxConcurrentPrewarms);
+      return maxConcurrentPrewarms;
+    }
+
+    function getHlsConfig(profile, options = {}) {
+      const prewarm = options.prewarm === true;
+      return {
+        enableWorker: false,
+        lowLatencyMode: false,
+        capLevelToPlayerSize: true,
+        startLevel: profile.startLevel,
+        abrEwmaDefaultEstimate: profile.abrEwmaDefaultEstimate,
+        backBufferLength: prewarm ? 0 : profile.backBufferLength,
+        maxBufferLength: prewarm ? Math.min(4, profile.maxBufferLength) : profile.maxBufferLength,
+        maxMaxBufferLength: prewarm ? Math.min(6, profile.maxMaxBufferLength) : profile.maxMaxBufferLength
+      };
+    }
+
+    function applyHlsBandwidthCap(hls, profile) {
+      if (!hls) return;
+      if (!Number.isFinite(profile.maxAutoBitrate)) {
+        hls.autoLevelCapping = -1;
+        return;
+      }
+      const levels = Array.isArray(hls.levels) ? hls.levels : [];
+      if (levels.length === 0) return;
+      let cappedLevel = 0;
+      levels.forEach((level, index) => {
+        const bitrate = Number(level?.bitrate || level?.maxBitrate || 0);
+        if (bitrate > 0 && bitrate <= profile.maxAutoBitrate) cappedLevel = index;
+      });
+      hls.autoLevelCapping = cappedLevel;
     }
 
     function normalizeCustomerCode(value) {
@@ -138,9 +240,97 @@
       }
     }
 
+    function clearRecoveryTimer(state) {
+      if (!state?.recoveryTimer) return;
+      targetWindow.clearTimeout(state.recoveryTimer);
+      state.recoveryTimer = 0;
+    }
+
+    function markPlaybackFailed(node, state, context = {}) {
+      if (!state || state.generation !== context.generation) return;
+      clearRecoveryTimer(state);
+      state.failed = true;
+      state.ready = false;
+      state.loading = false;
+      state.autoplayRequested = false;
+      state.awaitingNetwork = context.retryOnOnline === true;
+      if (activeNode === node) activeNode = null;
+      node.classList.add("has-playback-error");
+      node.classList.remove("is-ready", "is-playing", "is-loading", "is-buffering", "is-prewarming");
+      node.setAttribute("aria-busy", "false");
+      emitMetric("video_playback_failed", {
+        latencyMs: Math.max(0, Date.now() - Number(context.startedAt || Date.now())),
+        code: String(context.code || "video_playback_failed").slice(0, 80),
+        profile: String(state.playbackProfile || "balanced"),
+        retryOnOnline: state.awaitingNetwork
+      });
+      const player = node.querySelector("[data-stream-player]");
+      state.pauseReason = "playback_error";
+      if (player?.pause && !player.paused) player.pause();
+      state.hls?.destroy?.();
+      state.hls = null;
+      player?.remove?.();
+      settleReadyState(state);
+      reconcileActivePlayback();
+    }
+
+    function scheduleHlsRecovery(node, state, hls, video, detail, context = {}) {
+      const Hls = context.Hls;
+      const errorType = String(detail?.type || "");
+      const networkError = errorType === String(Hls?.ErrorTypes?.NETWORK_ERROR || "networkError");
+      const mediaError = errorType === String(Hls?.ErrorTypes?.MEDIA_ERROR || "mediaError");
+      if (!networkError && !mediaError) return false;
+
+      if (networkError && !isNetworkOnline()) {
+        markPlaybackFailed(node, state, {
+          ...context,
+          code: detail?.details || "video_network_offline",
+          retryOnOnline: true
+        });
+        return true;
+      }
+
+      const attemptsKey = networkError ? "networkRecoveryAttempts" : "mediaRecoveryAttempts";
+      const attemptLimit = networkError ? maxNetworkRecoveries : maxMediaRecoveries;
+      const nextAttempt = Number(state[attemptsKey] || 0) + 1;
+      if (nextAttempt > attemptLimit) return false;
+
+      state[attemptsKey] = nextAttempt;
+      state.recoveryStartedAt = Date.now();
+      clearRecoveryTimer(state);
+      const delayMs = Math.min(4000, recoveryBaseDelayMs * (2 ** (nextAttempt - 1)));
+      node.classList.add("is-buffering");
+      emitMetric("video_playback_recovery_attempt", {
+        type: networkError ? "network" : "media",
+        attempt: nextAttempt,
+        delayMs,
+        profile: String(state.playbackProfile || "balanced")
+      });
+      state.recoveryTimer = targetWindow.setTimeout(() => {
+        state.recoveryTimer = 0;
+        if (state.generation !== context.generation || state.hls !== hls || !node.isConnected) return;
+        try {
+          if (mediaError) {
+            hls.recoverMediaError?.();
+            return;
+          }
+          if (/manifest/i.test(String(detail?.details || ""))) hls.loadSource?.(context.hlsUrl);
+          else hls.startLoad?.(-1);
+        } catch (error) {
+          markPlaybackFailed(node, state, {
+            ...context,
+            code: error?.code || "video_recovery_failed",
+            retryOnOnline: !isNetworkOnline()
+          });
+        }
+      }, delayMs);
+      return true;
+    }
+
     function releaseNode(node, options = {}) {
       const state = stateByNode.get(node);
       if (state?.releaseTimer) targetWindow.clearTimeout(state.releaseTimer);
+      clearRecoveryTimer(state);
       if (activeNode === node) activeNode = null;
       if (options.forget === true && userPauseLockNode === node) userPauseLockNode = null;
       if (state) {
@@ -151,6 +341,11 @@
         state.hasPlayed = false;
         state.autoplayRequested = false;
         state.prewarmQueued = false;
+        state.awaitingNetwork = false;
+        state.networkRecoveryAttempts = 0;
+        state.mediaRecoveryAttempts = 0;
+        state.recoveryStartedAt = 0;
+        state.bufferStartedAt = 0;
         settleReadyState(state);
       }
       if (state?.hls) {
@@ -251,6 +446,14 @@
         relinquishActiveNode("document_hidden");
         return;
       }
+      if (!isNetworkOnline()) {
+        relinquishActiveNode("network_offline");
+        return;
+      }
+      if (isSaveDataEnabled()) {
+        relinquishActiveNode("save_data");
+        return;
+      }
       const pauseLockState = userPauseLockNode ? stateByNode.get(userPauseLockNode) : null;
       if (userPauseLockNode?.isConnected && pauseLockState?.inPlaybackViewport) {
         relinquishActiveNode("manual_pause_lock");
@@ -275,6 +478,65 @@
       reconcileActivePlayback();
     }
 
+    function releaseMountedPlayersForNetwork(awaitOnline = false) {
+      boundNodes.forEach((node) => {
+        if (!node.querySelector?.("[data-stream-player]")) return;
+        releaseNode(node);
+        const state = stateByNode.get(node);
+        if (state) state.awaitingNetwork = awaitOnline;
+      });
+    }
+
+    function handleOnline() {
+      boundNodes.forEach((node) => {
+        const state = stateByNode.get(node);
+        if (!state?.awaitingNetwork) return;
+        state.awaitingNetwork = false;
+        state.failed = false;
+        node.classList.remove("has-playback-error");
+      });
+      drainPrewarmQueue();
+      reconcileActivePlayback();
+    }
+
+    function handleOffline() {
+      relinquishActiveNode("network_offline");
+      releaseMountedPlayersForNetwork(true);
+    }
+
+    function handleConnectionChange() {
+      if (!isNetworkOnline()) {
+        handleOffline();
+        return;
+      }
+      if (isSaveDataEnabled()) {
+        relinquishActiveNode("save_data");
+        releaseMountedPlayersForNetwork(false);
+        return;
+      }
+      const profile = getPlaybackProfile();
+      boundNodes.forEach((node) => {
+        const state = stateByNode.get(node);
+        if (!state?.hls) return;
+        state.playbackProfile = profile.name;
+        Object.assign(state.hls.config || {}, getHlsConfig(profile, { prewarm: node.classList.contains?.("is-prewarming") }));
+        applyHlsBandwidthCap(state.hls, profile);
+      });
+      drainPrewarmQueue();
+      reconcileActivePlayback();
+    }
+
+    function installNetworkHandlers() {
+      if (networkHandlersInstalled) return;
+      targetWindow.addEventListener?.("online", handleOnline);
+      targetWindow.addEventListener?.("offline", handleOffline);
+      const connection = targetWindow.navigator?.connection
+        || targetWindow.navigator?.mozConnection
+        || targetWindow.navigator?.webkitConnection;
+      connection?.addEventListener?.("change", handleConnectionChange);
+      networkHandlersInstalled = true;
+    }
+
     async function activateNode(node, options = {}) {
       const providerId = String(node.dataset.videoProviderId || "").trim();
       if (!/^[a-zA-Z0-9_-]{8,64}$/.test(providerId)) return;
@@ -283,10 +545,13 @@
       if (options.userInitiated === true) {
         state.userPaused = false;
         state.failed = false;
+        state.awaitingNetwork = false;
         if (userPauseLockNode === node) userPauseLockNode = null;
       }
+      if (options.prewarm === true && !shouldPrewarmVideo()) return state.readyPromise;
       if (options.autoplay !== false) {
         if (state.userPaused || state.failed) return state.readyPromise;
+        if (options.userInitiated !== true && (!isNetworkOnline() || isSaveDataEnabled())) return state.readyPromise;
         claimActiveNode(node);
         state.autoplayRequested = true;
       }
@@ -309,9 +574,19 @@
 
       state.loading = true;
       state.ready = false;
+      state.failed = false;
+      state.awaitingNetwork = false;
+      state.pauseReason = "";
       state.generation += 1;
       const generation = state.generation;
       const startedAt = Date.now();
+      const playbackProfile = getPlaybackProfile();
+      state.playbackProfile = playbackProfile.name;
+      emitMetric("video_playback_profile_selected", {
+        profile: playbackProfile.name,
+        prewarmed: options.prewarm === true,
+        saveData: isSaveDataEnabled()
+      });
       state.readyPromise = new Promise((resolve) => {
         state.resolveReady = resolve;
       });
@@ -338,7 +613,7 @@
         video.muted = true;
         video.loop = true;
         video.playsInline = true;
-        video.preload = options.prewarm === true ? "auto" : "metadata";
+        video.preload = "metadata";
         video.crossOrigin = "anonymous";
         video.poster = `${signedAssetRoot}/thumbnails/thumbnail.jpg`;
         video.setAttribute("controls", "");
@@ -368,7 +643,8 @@
             latencyMs: Math.max(0, Date.now() - startedAt),
             tokenCached: tokenResult.cached,
             prewarmed: options.prewarm === true,
-            bigPipePrefetched: tokenResult.prefetched === true
+            bigPipePrefetched: tokenResult.prefetched === true,
+            profile: playbackProfile.name
           });
           playWhenReady();
         };
@@ -379,9 +655,19 @@
           node.classList.remove("is-buffering");
           if (state.bufferStartedAt) {
             emitMetric("video_playback_buffer_recovered", {
-              bufferingMs: Math.max(0, Date.now() - state.bufferStartedAt)
+              bufferingMs: Math.max(0, Date.now() - state.bufferStartedAt),
+              profile: playbackProfile.name
             });
             state.bufferStartedAt = 0;
+          }
+          if (state.recoveryStartedAt) {
+            emitMetric("video_playback_recovery_succeeded", {
+              latencyMs: Math.max(0, Date.now() - state.recoveryStartedAt),
+              profile: playbackProfile.name
+            });
+            state.recoveryStartedAt = 0;
+            state.networkRecoveryAttempts = 0;
+            state.mediaRecoveryAttempts = 0;
           }
           if (playbackStartedReported) return;
           playbackStartedReported = true;
@@ -389,7 +675,8 @@
             latencyMs: Math.max(0, Date.now() - startedAt),
             tokenCached: tokenResult.cached,
             autoplay: state.autoplayRequested,
-            saveData: isSaveDataEnabled()
+            saveData: isSaveDataEnabled(),
+            profile: playbackProfile.name
           });
         };
         const handlePlay = () => {
@@ -425,65 +712,82 @@
         const Hls = await loadHlsRuntime(targetWindow, targetDocument, translateUi);
         if (state.generation !== generation || !node.isConnected) return;
         if (Hls.isSupported?.()) {
-          const hls = new Hls({
-            enableWorker: false,
-            lowLatencyMode: false,
-            capLevelToPlayerSize: true,
-            backBufferLength: 20,
-            maxBufferLength: 20,
-            maxMaxBufferLength: 30
-          });
+          const hls = new Hls(getHlsConfig(playbackProfile, options));
           state.hls = hls;
+          const applyCurrentProfile = () => applyHlsBandwidthCap(hls, getPlaybackProfile());
           hls.on(Hls.Events.ERROR, (_event, detail) => {
             if (!detail?.fatal || state.hls !== hls) return;
-            state.failed = true;
-            state.ready = false;
-            state.loading = false;
-            state.autoplayRequested = false;
-            if (activeNode === node) activeNode = null;
-            node.classList.add("has-playback-error");
-            node.classList.remove("is-ready", "is-playing", "is-loading", "is-buffering", "is-prewarming");
-            node.setAttribute("aria-busy", "false");
-            emitMetric("video_playback_failed", {
-              latencyMs: Math.max(0, Date.now() - startedAt),
-              code: String(detail.type || detail.details || "video_hls_fatal").slice(0, 80)
+            const recoveryScheduled = scheduleHlsRecovery(node, state, hls, video, detail, {
+              Hls,
+              generation,
+              startedAt,
+              hlsUrl
             });
-            state.pauseReason = "playback_error";
-            if (!video.paused) video.pause();
-            hls.destroy();
-            state.hls = null;
-            video.remove();
-            settleReadyState(state);
-            reconcileActivePlayback();
+            if (recoveryScheduled) return;
+            markPlaybackFailed(node, state, {
+              generation,
+              startedAt,
+              code: detail.details || detail.type || "video_hls_fatal",
+              retryOnOnline: !isNetworkOnline()
+            });
           });
-          hls.on(Hls.Events.MANIFEST_PARSED, playWhenReady);
+          hls.on(Hls.Events.MANIFEST_PARSED, () => {
+            applyCurrentProfile();
+            playWhenReady();
+          });
+          if (Hls.Events.LEVELS_UPDATED) hls.on(Hls.Events.LEVELS_UPDATED, applyCurrentProfile);
           hls.loadSource(hlsUrl);
           hls.attachMedia(video);
         } else if (video.canPlayType?.("application/vnd.apple.mpegurl")) {
           video.src = hlsUrl;
           video.addEventListener("loadedmetadata", playWhenReady, { once: true });
+          video.addEventListener("error", () => {
+            if (state.generation !== generation || state.hls || state.failed) return;
+            if (!isNetworkOnline()) {
+              markPlaybackFailed(node, state, {
+                generation,
+                startedAt,
+                code: "video_native_network_offline",
+                retryOnOnline: true
+              });
+              return;
+            }
+            const nextAttempt = Number(state.networkRecoveryAttempts || 0) + 1;
+            if (nextAttempt > maxNetworkRecoveries) {
+              markPlaybackFailed(node, state, {
+                generation,
+                startedAt,
+                code: "video_native_playback_failed"
+              });
+              return;
+            }
+            state.networkRecoveryAttempts = nextAttempt;
+            state.recoveryStartedAt = Date.now();
+            clearRecoveryTimer(state);
+            const delayMs = Math.min(4000, recoveryBaseDelayMs * (2 ** (nextAttempt - 1)));
+            emitMetric("video_playback_recovery_attempt", {
+              type: "native_network",
+              attempt: nextAttempt,
+              delayMs,
+              profile: playbackProfile.name
+            });
+            state.recoveryTimer = targetWindow.setTimeout(() => {
+              state.recoveryTimer = 0;
+              if (state.generation !== generation || !node.isConnected || state.failed) return;
+              video.load?.();
+              playWhenReady();
+            }, delayMs);
+          });
         } else {
           throw Object.assign(new Error(translateUi("video.playbackUnsupported", {}, "Video playback is not supported on this device.")), { code: "video_hls_unsupported" });
         }
       } catch (error) {
-        if (state.generation === generation) {
-          state.failed = true;
-          state.ready = false;
-          state.autoplayRequested = false;
-          if (activeNode === node) activeNode = null;
-          node.classList.add("has-playback-error");
-          node.classList.remove("is-ready", "is-playing", "is-buffering", "is-prewarming");
-          node.setAttribute("aria-busy", "false");
-          emitMetric("video_playback_failed", {
-            latencyMs: Math.max(0, Date.now() - startedAt),
-            code: String(error?.code || "video_playback_failed").slice(0, 80)
-          });
-          state.hls?.destroy?.();
-          state.hls = null;
-          node.querySelector("[data-stream-player]")?.remove?.();
-          settleReadyState(state);
-          reconcileActivePlayback();
-        }
+        markPlaybackFailed(node, state, {
+          generation,
+          startedAt,
+          code: error?.code || "video_playback_failed",
+          retryOnOnline: !isNetworkOnline()
+        });
       } finally {
         if (state.generation === generation) {
           state.loading = false;
@@ -495,7 +799,7 @@
 
     async function prewarmNode(node) {
       const state = stateByNode.get(node);
-      if (!state || state.failed || !node.isConnected || !state.nearViewport || isSaveDataEnabled()) return;
+      if (!state || state.failed || !node.isConnected || !state.nearViewport || !shouldPrewarmVideo()) return;
       await activateNode(node, { autoplay: false, prewarm: true });
       const latestState = stateByNode.get(node);
       if (!latestState?.readyPromise || latestState.ready) return;
@@ -506,7 +810,8 @@
     }
 
     function drainPrewarmQueue() {
-      while (activePrewarms < maxConcurrentPrewarms && prewarmQueue.length > 0) {
+      const prewarmLimit = getPrewarmLimit();
+      while (activePrewarms < prewarmLimit && prewarmQueue.length > 0) {
         const node = prewarmQueue.shift();
         const state = stateByNode.get(node);
         if (!state) continue;
@@ -522,7 +827,7 @@
 
     function enqueuePrewarm(node) {
       const state = stateByNode.get(node);
-      if (!state || state.prewarmQueued || state.loading || state.ready || state.failed || node.querySelector("[data-stream-player]")) return;
+      if (!shouldPrewarmVideo() || !state || state.prewarmQueued || state.loading || state.ready || state.failed || node.querySelector("[data-stream-player]")) return;
       state.prewarmQueued = true;
       prewarmQueue.push(node);
       drainPrewarmQueue();
@@ -538,7 +843,7 @@
             if (!state) return;
             state.nearViewport = entry.isIntersecting;
             if (entry.isIntersecting) {
-              if (targetDocument.visibilityState !== "hidden" && !isSaveDataEnabled()) enqueuePrewarm(node);
+              if (targetDocument.visibilityState !== "hidden" && shouldPrewarmVideo()) enqueuePrewarm(node);
               return;
             }
             if (!state.inPlaybackViewport) scheduleRelease(node);
@@ -580,6 +885,7 @@
         targetDocument.addEventListener("visibilitychange", handleVisibilityChange);
         visibilityHandlerInstalled = true;
       }
+      installNetworkHandlers();
       const nodes = Array.from(scope?.querySelectorAll?.("[data-video-playback]") || []);
       nodes.forEach((node) => {
         if (node.dataset.videoPlaybackBound === "true") return;
@@ -603,6 +909,12 @@
           intersectionRatio: 0,
           viewportDistance: Number.MAX_SAFE_INTEGER,
           bufferStartedAt: 0,
+          recoveryTimer: 0,
+          recoveryStartedAt: 0,
+          networkRecoveryAttempts: 0,
+          mediaRecoveryAttempts: 0,
+          awaitingNetwork: false,
+          playbackProfile: "",
           prewarmTarget: null
         });
 
@@ -652,7 +964,7 @@
       nodes.forEach((node) => node.__wingaVideoCleanup?.());
     }
 
-    return { bind, dispose, activateNode, prewarmNode, releaseNode };
+    return { bind, dispose, activateNode, prewarmNode, releaseNode, getPlaybackProfile };
   }
 
   window.WingaModules = window.WingaModules || {};

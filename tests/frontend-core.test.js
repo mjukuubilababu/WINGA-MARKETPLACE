@@ -249,7 +249,7 @@ test("marketplace gallery adds one secure ready video slide without collapsing p
   assert.match(playbackSource, /\/manifest\/video\.m3u8/);
   assert.match(playbackSource, /vendor\/hls\.light\.min\.js/);
   assert.match(playbackSource, /video\.canPlayType\?\.\("application\/vnd\.apple\.mpegurl"\)/);
-  assert.match(playbackSource, /new Hls\(\{/);
+  assert.match(playbackSource, /new Hls\(getHlsConfig\(playbackProfile, options\)\)/);
   assert.match(playbackSource, /state\.hls\.destroy/);
   assert.match(buildSource, /node_modules\/hls\.js\/dist\/hls\.light\.min\.js/);
   assert.match(buildSource, /"src\/marketplace\/video-playback\.js"/);
@@ -267,6 +267,10 @@ test("marketplace gallery adds one secure ready video slide without collapsing p
   assert.equal(playbackSource.includes("selectDominantNode"), true);
   assert.equal(playbackSource.includes("userPauseLockNode"), true);
   assert.equal(playbackSource.includes("dominanceSwitchDelta"), true);
+  assert.equal(playbackSource.includes("getPlaybackProfile"), true);
+  assert.equal(playbackSource.includes("abrEwmaDefaultEstimate"), true);
+  assert.equal(playbackSource.includes("video_playback_recovery_attempt"), true);
+  assert.equal(playbackSource.includes("maxNetworkRecoveries"), true);
   const playerCssStart = styleSource.indexOf(".feed-video-player{");
   const playerCss = styleSource.slice(playerCssStart, styleSource.indexOf("@media (prefers-reduced-motion:reduce)", playerCssStart));
   assert.equal(playerCss.includes("visibility:hidden;"), true);
@@ -622,6 +626,366 @@ test("video playback coordinator keeps one active video and honors manual pause"
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(playerTwo.paused, false);
   assert.equal([playerOne, playerTwo].filter((player) => !player.paused).length, 1);
+});
+test("video playback adapts to constrained devices and bounds fatal recovery", async () => {
+  const root = path.resolve(__dirname, "..");
+  const playbackSource = fs.readFileSync(path.join(root, "src", "marketplace", "video-playback.js"), "utf8");
+  const observers = [];
+  const metrics = [];
+  let player = null;
+  let hlsInstance = null;
+
+  class FakeIntersectionObserver {
+    constructor(callback, options) {
+      this.callback = callback;
+      this.options = options;
+      observers.push(this);
+    }
+    observe() {}
+    unobserve() {}
+  }
+
+  const videoListeners = new Map();
+  const video = {
+    dataset: {},
+    paused: true,
+    readyState: 4,
+    setAttribute: () => {},
+    removeAttribute: () => {},
+    load: () => {},
+    addEventListener(type, handler, options = {}) {
+      const handlers = videoListeners.get(type) || [];
+      handlers.push({ handler, once: options?.once === true });
+      videoListeners.set(type, handlers);
+    },
+    dispatch(type) {
+      const handlers = (videoListeners.get(type) || []).slice();
+      handlers.forEach((entry) => entry.handler());
+      videoListeners.set(type, handlers.filter((entry) => !entry.once));
+    },
+    play() {
+      this.paused = false;
+      this.dispatch("play");
+      this.dispatch("playing");
+      return Promise.resolve();
+    },
+    pause() {
+      if (this.paused) return;
+      this.paused = true;
+      this.dispatch("pause");
+    },
+    remove() {
+      player = null;
+    }
+  };
+
+  class FakeHls {
+    static Events = { ERROR: "error", MANIFEST_PARSED: "manifest", LEVELS_UPDATED: "levels" };
+    static ErrorTypes = { NETWORK_ERROR: "networkError", MEDIA_ERROR: "mediaError" };
+    static isSupported() { return true; }
+    constructor(config) {
+      this.config = config;
+      this.handlers = new Map();
+      this.levels = [
+        { bitrate: 300000 },
+        { bitrate: 800000 },
+        { bitrate: 1600000 }
+      ];
+      this.autoLevelCapping = -1;
+      this.startLoadCalls = 0;
+      this.recoverMediaErrorCalls = 0;
+      this.destroyed = false;
+      hlsInstance = this;
+    }
+    on(type, handler) { this.handlers.set(type, handler); }
+    loadSource() {}
+    attachMedia() { this.handlers.get(FakeHls.Events.MANIFEST_PARSED)?.(); }
+    startLoad() { this.startLoadCalls += 1; }
+    recoverMediaError() { this.recoverMediaErrorCalls += 1; }
+    destroy() { this.destroyed = true; }
+    emitError(detail) { this.handlers.get(FakeHls.Events.ERROR)?.("error", detail); }
+  }
+
+  const classes = new Set();
+  const card = {};
+  const node = {
+    dataset: { videoProviderId: "stream-adaptive-video", videoTitle: "Adaptive video" },
+    isConnected: true,
+    classList: {
+      add: (...names) => names.forEach((name) => classes.add(name)),
+      remove: (...names) => names.forEach((name) => classes.delete(name)),
+      toggle(name, force) { if (force) classes.add(name); else classes.delete(name); },
+      contains: (name) => classes.has(name)
+    },
+    setAttribute: () => {},
+    matches: () => false,
+    querySelector: (selector) => selector === "[data-stream-player]" ? player : null,
+    appendChild(value) { player = value; },
+    closest: () => card,
+    addEventListener: () => {},
+    removeEventListener: () => {}
+  };
+  const connection = {
+    saveData: false,
+    effectiveType: "2g",
+    downlink: 0.6,
+    rtt: 650,
+    addEventListener: () => {}
+  };
+  const targetDocument = {
+    visibilityState: "visible",
+    querySelector: () => null,
+    querySelectorAll: () => [node],
+    createElement: () => video,
+    addEventListener: () => {},
+    head: { appendChild: () => {} }
+  };
+  const targetWindow = {
+    WingaModules: { marketplace: {} },
+    Hls: FakeHls,
+    IntersectionObserver: FakeIntersectionObserver,
+    navigator: {
+      onLine: true,
+      connection,
+      deviceMemory: 2,
+      hardwareConcurrency: 2
+    },
+    innerHeight: 800,
+    WINGA_BUILD_VERSION: "test",
+    addEventListener: () => {},
+    setTimeout,
+    clearTimeout
+  };
+  const context = vm.createContext({ window: targetWindow });
+  vm.runInContext(playbackSource, context);
+  const controller = targetWindow.WingaModules.marketplace.createVideoPlaybackController({
+    requestPlaybackToken: async () => ({ customerCode: "example", token: "adaptive-signed-token", expiresInSeconds: 300 }),
+    reportMetric: (event, detail) => metrics.push({ event, detail }),
+    maxNetworkRecoveries: 1,
+    maxMediaRecoveries: 1,
+    recoveryBaseDelayMs: 100,
+    windowObject: targetWindow,
+    documentObject: targetDocument
+  });
+
+  controller.bind(targetDocument);
+  assert.equal(controller.getPlaybackProfile().name, "constrained");
+  const playbackObserver = observers.find((entry) => Array.isArray(entry.options.threshold) && entry.options.threshold.includes(0.55));
+  assert.ok(playbackObserver);
+  playbackObserver.callback([{
+    target: node,
+    isIntersecting: true,
+    intersectionRatio: 0.9,
+    boundingClientRect: { top: 100, height: 500 },
+    rootBounds: { top: 0, height: 800 }
+  }]);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.ok(hlsInstance);
+  assert.equal(hlsInstance.config.startLevel, 0);
+  assert.equal(hlsInstance.config.maxBufferLength, 8);
+  assert.equal(hlsInstance.config.maxMaxBufferLength, 12);
+  assert.equal(hlsInstance.autoLevelCapping, 1);
+  assert.equal(player, video);
+  assert.equal(video.paused, false);
+
+  hlsInstance.emitError({ fatal: true, type: FakeHls.ErrorTypes.MEDIA_ERROR, details: "bufferAppendingError" });
+  await new Promise((resolve) => setTimeout(resolve, 130));
+  assert.equal(hlsInstance.recoverMediaErrorCalls, 1);
+  assert.equal(player, video);
+
+  hlsInstance.emitError({ fatal: true, type: FakeHls.ErrorTypes.NETWORK_ERROR, details: "fragLoadError" });
+  await new Promise((resolve) => setTimeout(resolve, 130));
+  assert.equal(hlsInstance.startLoadCalls, 1);
+  assert.equal(player, video);
+
+  hlsInstance.emitError({ fatal: true, type: FakeHls.ErrorTypes.NETWORK_ERROR, details: "fragLoadError" });
+  assert.equal(hlsInstance.destroyed, true);
+  assert.equal(player, null);
+  assert.equal(node.isConnected, true);
+  assert.equal(classes.has("has-playback-error"), true);
+  assert.equal(metrics.filter((entry) => entry.event === "video_playback_recovery_attempt").length, 2);
+  assert.equal(metrics.filter((entry) => entry.event === "video_playback_failed").length, 1);
+});
+test("video playback releases resources offline and resumes after network recovery", async () => {
+  const root = path.resolve(__dirname, "..");
+  const playbackSource = fs.readFileSync(path.join(root, "src", "marketplace", "video-playback.js"), "utf8");
+  const observers = [];
+  const windowListeners = new Map();
+  let connectionChange = null;
+  let player = null;
+  let hlsCreations = 0;
+
+  class FakeIntersectionObserver {
+    constructor(callback, options) {
+      this.callback = callback;
+      this.options = options;
+      observers.push(this);
+    }
+    observe() {}
+    unobserve() {}
+  }
+
+  function createVideo() {
+    const listeners = new Map();
+    return {
+      dataset: {},
+      paused: true,
+      readyState: 4,
+      setAttribute: () => {},
+      removeAttribute: () => {},
+      load: () => {},
+      addEventListener(type, handler, options = {}) {
+        const handlers = listeners.get(type) || [];
+        handlers.push({ handler, once: options?.once === true });
+        listeners.set(type, handlers);
+      },
+      dispatch(type) {
+        const handlers = (listeners.get(type) || []).slice();
+        handlers.forEach((entry) => entry.handler());
+        listeners.set(type, handlers.filter((entry) => !entry.once));
+      },
+      play() {
+        this.paused = false;
+        this.dispatch("play");
+        this.dispatch("playing");
+        return Promise.resolve();
+      },
+      pause() {
+        if (this.paused) return;
+        this.paused = true;
+        this.dispatch("pause");
+      },
+      remove() {
+        if (player === this) player = null;
+      }
+    };
+  }
+
+  class FakeHls {
+    static Events = { ERROR: "error", MANIFEST_PARSED: "manifest", LEVELS_UPDATED: "levels" };
+    static ErrorTypes = { NETWORK_ERROR: "networkError", MEDIA_ERROR: "mediaError" };
+    static isSupported() { return true; }
+    constructor(config) {
+      this.config = config;
+      this.handlers = new Map();
+      this.levels = [{ bitrate: 400000 }, { bitrate: 1800000 }];
+      hlsCreations += 1;
+    }
+    on(type, handler) { this.handlers.set(type, handler); }
+    loadSource() {}
+    attachMedia() { this.handlers.get(FakeHls.Events.MANIFEST_PARSED)?.(); }
+    destroy() {}
+  }
+
+  const classes = new Set();
+  const card = {};
+  const node = {
+    dataset: { videoProviderId: "stream-network-lifecycle", videoTitle: "Network lifecycle video" },
+    isConnected: true,
+    classList: {
+      add: (...names) => names.forEach((name) => classes.add(name)),
+      remove: (...names) => names.forEach((name) => classes.delete(name)),
+      toggle(name, force) { if (force) classes.add(name); else classes.delete(name); },
+      contains: (name) => classes.has(name)
+    },
+    setAttribute: () => {},
+    matches: () => false,
+    querySelector: (selector) => selector === "[data-stream-player]" ? player : null,
+    appendChild(value) { player = value; },
+    closest: () => card,
+    addEventListener: () => {},
+    removeEventListener: () => {}
+  };
+  const connection = {
+    saveData: false,
+    effectiveType: "4g",
+    downlink: 10,
+    rtt: 50,
+    addEventListener(type, handler) {
+      if (type === "change") connectionChange = handler;
+    }
+  };
+  const navigatorObject = {
+    onLine: true,
+    connection,
+    deviceMemory: 8,
+    hardwareConcurrency: 8
+  };
+  const targetDocument = {
+    visibilityState: "visible",
+    querySelector: () => null,
+    querySelectorAll: () => [node],
+    createElement: () => createVideo(),
+    addEventListener: () => {},
+    head: { appendChild: () => {} }
+  };
+  const targetWindow = {
+    WingaModules: { marketplace: {} },
+    Hls: FakeHls,
+    IntersectionObserver: FakeIntersectionObserver,
+    navigator: navigatorObject,
+    innerHeight: 800,
+    WINGA_BUILD_VERSION: "test",
+    addEventListener(type, handler) { windowListeners.set(type, handler); },
+    setTimeout,
+    clearTimeout
+  };
+  const context = vm.createContext({ window: targetWindow });
+  vm.runInContext(playbackSource, context);
+  const controller = targetWindow.WingaModules.marketplace.createVideoPlaybackController({
+    requestPlaybackToken: async () => ({ customerCode: "example", token: "network-lifecycle-token", expiresInSeconds: 300 }),
+    windowObject: targetWindow,
+    documentObject: targetDocument
+  });
+
+  controller.bind(targetDocument);
+  const playbackObserver = observers.find((entry) => Array.isArray(entry.options.threshold) && entry.options.threshold.includes(0.55));
+  playbackObserver.callback([{
+    target: node,
+    isIntersecting: true,
+    intersectionRatio: 0.9,
+    boundingClientRect: { top: 120, height: 480 },
+    rootBounds: { top: 0, height: 800 }
+  }]);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.equal(controller.getPlaybackProfile().name, "fast");
+  assert.equal(hlsCreations, 1);
+  assert.equal(player?.paused, false);
+
+  navigatorObject.onLine = false;
+  windowListeners.get("offline")();
+  assert.equal(player, null);
+
+  navigatorObject.onLine = true;
+  windowListeners.get("online")();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(hlsCreations, 2);
+  assert.equal(player?.paused, false);
+
+  connection.saveData = true;
+  connectionChange();
+  assert.equal(player, null);
+  playbackObserver.callback([{
+    target: node,
+    isIntersecting: true,
+    intersectionRatio: 0.9,
+    boundingClientRect: { top: 120, height: 480 },
+    rootBounds: { top: 0, height: 800 }
+  }]);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(player, null);
+
+  connection.saveData = false;
+  connectionChange();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(hlsCreations, 3);
+  assert.equal(player?.paused, false);
 });
 test("style intelligence builds private aggregate buyer profiles and bounded product scores", () => {
   const root = path.resolve(__dirname, "..");
