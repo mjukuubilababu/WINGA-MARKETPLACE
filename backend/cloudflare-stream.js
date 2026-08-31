@@ -83,18 +83,27 @@ function createCloudflareStreamClient(options = {}) {
     const body = await response.json().catch(() => null);
     if (!response.ok || body?.success !== true) {
       const error = new Error(cleanText(body?.errors?.[0]?.message, 300) || "Cloudflare Stream request failed.");
-      error.code = "stream_provider_error"; error.status = response.status; throw error;
+      error.code = "stream_provider_error";
+      error.status = response.status;
+      error.providerCode = cleanText(body?.errors?.[0]?.code, 80);
+      throw error;
     }
     return body.result || {};
+  }
+  function resolveMaxDurationSeconds(input = {}) {
+    const measuredDuration = Number(input.durationSeconds);
+    if (!Number.isFinite(measuredDuration) || measuredDuration <= 0) return config.maxDurationSeconds;
+    return Math.min(config.maxDurationSeconds, Math.max(1, Math.ceil(measuredDuration) + 60));
   }
   async function createDirectUpload(input = {}) {
     const creator = cleanText(input.creator, 64);
     if (!creator) throw new TypeError("A creator identifier is required.");
     const expiresAt = new Date(Date.now() + config.uploadTtlSeconds * 1000).toISOString();
+    const maxDurationSeconds = resolveMaxDurationSeconds(input);
     const result = await request("/direct_upload", {
       method: "POST", headers: { "Upload-Creator": creator },
       body: JSON.stringify({
-        maxDurationSeconds: config.maxDurationSeconds, allowedOrigins: config.allowedOrigins, creator, expiry: expiresAt,
+        maxDurationSeconds, allowedOrigins: config.allowedOrigins, creator, expiry: expiresAt,
         requireSignedURLs: true, thumbnailTimestampPct: 0.15,
         meta: { source: "winga-product-upload", uploadId: cleanText(input.uploadId, 80), fileName: cleanText(input.fileName, 180), contentType: cleanText(input.contentType, 120) }
       })
@@ -104,7 +113,7 @@ function createCloudflareStreamClient(options = {}) {
     if (!providerId || !/^https:\/\//i.test(uploadUrl)) {
       const error = new Error("Cloudflare Stream returned an incomplete direct upload."); error.code = "stream_invalid_provider_response"; throw error;
     }
-    return { providerId, uploadUrl, expiresAt, maxDurationSeconds: config.maxDurationSeconds };
+    return { providerId, uploadUrl, expiresAt, maxDurationSeconds };
   }
   function encodeTusMetadata(value) {
     return Buffer.from(String(value || ""), "utf8").toString("base64");
@@ -118,10 +127,11 @@ function createCloudflareStreamClient(options = {}) {
     if (!creator) throw new TypeError("A creator identifier is required.");
     if (!Number.isSafeInteger(uploadLength) || uploadLength <= 0) throw new TypeError("A valid upload length is required.");
     const expiresAt = new Date(Date.now() + config.uploadTtlSeconds * 1000).toISOString();
+    const maxDurationSeconds = resolveMaxDurationSeconds(input);
     const metadata = [
       ["name", cleanText(input.fileName, 180)],
       ["filetype", cleanText(input.contentType, 120)],
-      ["maxdurationseconds", String(config.maxDurationSeconds)],
+      ["maxdurationseconds", String(maxDurationSeconds)],
       ["expiry", expiresAt],
       ["requiresignedurls", ""],
       ["allowedorigins", JSON.stringify(config.allowedOrigins)],
@@ -141,10 +151,14 @@ function createCloudflareStreamClient(options = {}) {
     const uploadUrl = cleanText(response.headers?.get?.("location"), 4096);
     const providerId = cleanText(response.headers?.get?.("stream-media-id"), 64);
     if (!response.ok || !/^https:\/\//i.test(uploadUrl) || !providerId) {
-      const error = new Error("Cloudflare Stream returned an incomplete resumable upload.");
-      error.code = "stream_invalid_provider_response"; error.status = response.status; throw error;
+      const body = await response.json?.().catch(() => null);
+      const error = new Error(cleanText(body?.errors?.[0]?.message, 300) || "Cloudflare Stream returned an incomplete resumable upload.");
+      error.code = response.ok ? "stream_invalid_provider_response" : "stream_provider_error";
+      error.status = response.status;
+      error.providerCode = cleanText(body?.errors?.[0]?.code, 80);
+      throw error;
     }
-    return { providerId, uploadUrl, uploadProtocol: "tus", expiresAt, maxDurationSeconds: config.maxDurationSeconds };
+    return { providerId, uploadUrl, uploadProtocol: "tus", expiresAt, maxDurationSeconds };
   }
   async function deleteVideo(providerId) {
     const safeId = cleanText(providerId, 64);

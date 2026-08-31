@@ -9,10 +9,11 @@ test("Stream direct upload is private, origin-bound, short-lived, and never expo
     config: readCloudflareStreamConfig({ CLOUDFLARE_STREAM_ACCOUNT_ID: "account-123", CLOUDFLARE_STREAM_API_TOKEN: "stream-secret-token", CLOUDFLARE_STREAM_ALLOWED_ORIGINS: "wingamarket.com,www.wingamarket.com", CLOUDFLARE_STREAM_MAX_DURATION_SECONDS: "75" }),
     fetchImpl: async (url, init) => { calls.push({ url, init }); return { ok: true, status: 200, json: async () => ({ success: true, result: { uid: "stream-video-123", uploadURL: "https://upload.videodelivery.net/once" } }) }; }
   });
-  const result = await client.createDirectUpload({ creator: "seller-one", uploadId: "upload-one", fileName: "dress.mov", contentType: "video/quicktime" });
+  const result = await client.createDirectUpload({ creator: "seller-one", uploadId: "upload-one", fileName: "dress.mov", contentType: "video/quicktime", durationSeconds: 12.4 });
   const body = JSON.parse(calls[0].init.body);
   assert.equal(result.providerId, "stream-video-123");
-  assert.equal(result.maxDurationSeconds, 75);
+  assert.equal(result.maxDurationSeconds, 73);
+  assert.equal(body.maxDurationSeconds, 73);
   assert.equal(body.requireSignedURLs, true);
   assert.deepEqual(body.allowedOrigins, ["wingamarket.com", "www.wingamarket.com"]);
   assert.equal(body.meta.uploadId, "upload-one");
@@ -89,4 +90,20 @@ test("Stream resumable upload provisions a private direct-user TUS endpoint", as
   assert.equal(result.providerId, "stream-video-tus-123");
   assert.equal(result.maxDurationSeconds, 36000);
   assert.equal(JSON.stringify(result).includes("stream-secret-token"), false);
+});
+test("Stream upload duration reservation is measured, buffered, and capped", async () => {
+  const bodies = [];
+  const client = createCloudflareStreamClient({
+    config: readCloudflareStreamConfig({ CLOUDFLARE_STREAM_ACCOUNT_ID: "account-123", CLOUDFLARE_STREAM_API_TOKEN: "secret", CLOUDFLARE_STREAM_MAX_DURATION_SECONDS: "36000" }),
+    fetchImpl: async (_url, init) => {
+      bodies.push(JSON.parse(init.body));
+      return { ok: true, status: 200, json: async () => ({ success: true, result: { uid: "stream-video-duration", uploadURL: "https://upload.videodelivery.net/duration" } }) };
+    }
+  });
+  const measured = await client.createDirectUpload({ creator: "seller-one", durationSeconds: 30.2 });
+  const capped = await client.createDirectUpload({ creator: "seller-one", durationSeconds: 50000 });
+  assert.equal(measured.maxDurationSeconds, 91);
+  assert.equal(bodies[0].maxDurationSeconds, 91);
+  assert.equal(capped.maxDurationSeconds, 36000);
+  assert.equal(bodies[1].maxDurationSeconds, 36000);
 });

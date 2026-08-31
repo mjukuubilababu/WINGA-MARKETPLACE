@@ -37,6 +37,7 @@
           fileName: String(file.name || "").trim(),
           contentType: String(file.type || "").trim().toLowerCase(),
           fileSize: Number(file.size || 0),
+          durationSeconds: Math.max(0, Number(file.durationSeconds || 0) || 0),
           uploadProtocol: "tus"
         }),
         timeoutMs: productUploadTimeoutMs

@@ -9,6 +9,7 @@
     const requestIntent = deps.requestVideoUpload;
     const readStatus = deps.readVideoUploadStatus;
     const createXhr = deps.createXhr || (() => new XMLHttpRequest());
+    const readDuration = deps.readDuration || readVideoDuration;
     const delay = deps.delay || ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
     const minBytes = Math.max(1, Number(deps.minBytes || DEFAULT_MIN_BYTES));
     const maxBytes = Math.max(minBytes, Number(deps.maxBytes || DEFAULT_MAX_BYTES));
@@ -21,6 +22,30 @@
     let activeXhr = null;
 
     function fail(message, code) { return Object.assign(new Error(message), { code }); }
+    function readVideoDuration(file) {
+      if (typeof document === "undefined" || typeof URL === "undefined" || typeof URL.createObjectURL !== "function") return Promise.resolve(0);
+      return new Promise((resolve) => {
+        const video = document.createElement("video");
+        const objectUrl = URL.createObjectURL(file);
+        let settled = false;
+        let timeoutId = 0;
+        const finish = (value = 0) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timeoutId);
+          video.removeAttribute("src");
+          video.load?.();
+          URL.revokeObjectURL(objectUrl);
+          resolve(Number.isFinite(Number(value)) && Number(value) > 0 ? Number(value) : 0);
+        };
+        timeoutId = setTimeout(() => finish(0), 8000);
+        video.preload = "metadata";
+        video.muted = true;
+        video.addEventListener("loadedmetadata", () => finish(video.duration), { once: true });
+        video.addEventListener("error", () => finish(0), { once: true });
+        video.src = objectUrl;
+      });
+    }
     function validateFile(file) {
       const fileName = String(file?.name || "").trim();
       const extension = String(fileName.split(".").pop() || "").toLowerCase();
@@ -144,7 +169,8 @@
       validateFile(file);
       if (typeof requestIntent !== "function" || typeof readStatus !== "function") throw fail("Video upload is unavailable.", "video_upload_unavailable");
       cancel(); const token = generation; notify(options.onState, { phase: "preparing", progress: 0 });
-      const intent = await requestIntent(file);
+      const durationSeconds = await readDuration(file).catch(() => 0);
+      const intent = await requestIntent({ name: file.name, type: file.type, size: file.size, durationSeconds });
       if (token !== generation) throw fail("Video upload was cancelled.", "video_upload_cancelled");
       if (String(intent.uploadProtocol || "").toLowerCase() === "tus") await uploadTus(intent.uploadUrl, file, token, options.onState);
       else await uploadBinary(intent.uploadUrl, file, token, options.onState);

@@ -11106,6 +11106,7 @@ const server = http.createServer(async (req, res) => {
       const fileName = sanitizePlainText(payload?.fileName, 180);
       const contentType = sanitizePlainText(payload?.contentType, 120).toLowerCase();
       const fileSize = Number(payload?.fileSize || 0);
+      const durationSeconds = Number(payload?.durationSeconds || 0);
       const extension = String(fileName.split(".").pop() || "").toLowerCase();
       const allowedExtensions = new Set(["mp4", "m4v", "mkv", "mov", "avi", "flv", "ts", "mts", "m2ts", "m2p", "m2v", "mxf", "lxf", "gxf", "3gp", "3g2", "webm", "mpg", "mpeg"]);
       const allowedContentTypes = new Set(["video/mp4", "video/x-m4v", "video/quicktime", "video/webm", "video/x-matroska", "video/x-msvideo", "video/x-flv", "video/mp2t", "video/mpeg", "video/3gpp", "video/3gpp2", "application/mxf", "application/octet-stream"]);
@@ -11124,12 +11125,12 @@ const server = http.createServer(async (req, res) => {
       try {
         try {
           directUpload = await CLOUDFLARE_STREAM_CLIENT.createResumableUpload({
-            creator: seller.username, uploadId, fileName, contentType, fileSize
+            creator: seller.username, uploadId, fileName, contentType, fileSize, durationSeconds
           });
         } catch (tusError) {
           if (fileSize > 200 * 1024 * 1024) throw tusError;
           directUpload = await CLOUDFLARE_STREAM_CLIENT.createDirectUpload({
-            creator: seller.username, uploadId, fileName, contentType
+            creator: seller.username, uploadId, fileName, contentType, durationSeconds
           });
           directUpload.uploadProtocol = "basic";
           await appendAuditLog({
@@ -11159,6 +11160,13 @@ const server = http.createServer(async (req, res) => {
         }, { "Cache-Control": "private, no-store" });
       } catch (error) {
         if (directUpload?.providerId) await CLOUDFLARE_STREAM_CLIENT.deleteVideo(directUpload.providerId).catch(() => {});
+        await appendAuditLog({
+          time: new Date().toISOString(), ip: clientIp, method: req.method, path: url.pathname,
+          event: "video_upload_provider_failed", username: seller.username, uploadId,
+          reason: sanitizePlainText(error?.code || "video_provider_failed", 80),
+          providerStatus: Number(error?.status || 0),
+          providerCode: sanitizePlainText(error?.providerCode || "", 80)
+        });
         sendJson(res, 502, { error: "Video provider haikupatikana. Jaribu tena.", code: error?.code || "video_provider_failed" });
       }
       return;
