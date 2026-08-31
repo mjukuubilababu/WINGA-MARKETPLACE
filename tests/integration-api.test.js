@@ -417,6 +417,35 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   const sellerToken = getAuthCookieToken(sellerSignup.response);
   const sellerUsername = sellerSignup.body.username;
 
+  let queryTokenStreamResponse = null;
+  const queryTokenStreamController = new AbortController();
+  const queryTokenStreamTimeout = setTimeout(() => queryTokenStreamController.abort(), 2000);
+  try {
+    queryTokenStreamResponse = await fetch(
+      `${baseUrl}/messages/stream?token=${encodeURIComponent(sellerToken)}`,
+      { signal: queryTokenStreamController.signal }
+    );
+    assert.equal(queryTokenStreamResponse.status, 401);
+  } finally {
+    clearTimeout(queryTokenStreamTimeout);
+    await queryTokenStreamResponse?.body?.cancel().catch(() => {});
+  }
+
+  let cookieStreamResponse = null;
+  const cookieStreamController = new AbortController();
+  const cookieStreamTimeout = setTimeout(() => cookieStreamController.abort(), 2000);
+  try {
+    cookieStreamResponse = await fetch(`${baseUrl}/messages/stream`, {
+      headers: { Cookie: getAuthCookieHeader(sellerSignup.response) },
+      signal: cookieStreamController.signal
+    });
+    assert.equal(cookieStreamResponse.status, 200);
+    assert.match(cookieStreamResponse.headers.get("content-type") || "", /text\/event-stream/);
+  } finally {
+    clearTimeout(cookieStreamTimeout);
+    await cookieStreamResponse?.body?.cancel().catch(() => {});
+  }
+
   const legacyPrimaryCategoryUpdate = await request("/users/primary-category", {
     method: "PATCH",
     headers: {
@@ -635,6 +664,33 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   assert.equal(productCreate.body.mediaItems[1].type, "video");
   assert.equal(productCreate.body.mediaItems[1].providerId, "stream-integration-video-001");
   assert.equal(productCreate.body.mediaItems[1].moderationStatus, "approved");
+
+  const crossAccountProductUpdate = await request("/products/product-test-001", {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${sellerTwoToken}`
+    },
+    body: JSON.stringify({ price: 1 })
+  });
+  assert.equal(crossAccountProductUpdate.response.status, 403);
+
+  const crossAccountProductAvailability = await request("/products/product-test-001/availability", {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${sellerTwoToken}`
+    },
+    body: JSON.stringify({ availability: "sold_out" })
+  });
+  assert.equal(crossAccountProductAvailability.response.status, 403);
+
+  const crossAccountProductDelete = await request("/products/product-test-001", {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${sellerTwoToken}` }
+  });
+  assert.equal(crossAccountProductDelete.response.status, 403);
+
   const canonicalImageName = path.basename(productCreate.body.image);
   const imageStem = canonicalImageName.replace(/-1080\.webp$/, "");
   assert.equal(fs.existsSync(path.join(tempRoot, "uploads", `${imageStem}-320.webp`)), true);
@@ -1007,6 +1063,19 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   assert.equal(usedSubcategoryCreate.response.status, 200);
   assert.equal(usedSubcategoryCreate.body.value, "vitu-used-simu");
 
+  const buyerCategoryCreateAttempt = await request("/categories", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${buyerToken}`
+    },
+    body: JSON.stringify({
+      value: "buyer-taxonomy-injection",
+      label: "Buyer Taxonomy Injection"
+    })
+  });
+  assert.equal(buyerCategoryCreateAttempt.response.status, 403);
+
   const usedCategoryProduct = await request("/products", {
     method: "POST",
     headers: {
@@ -1167,6 +1236,11 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   });
   assert.equal(moderatorLogin.response.status, 200);
   const moderatorToken = getAuthCookieToken(moderatorLogin.response);
+
+  const moderatorSessionsList = await request("/admin/sessions?username=seller_one", {
+    headers: { Authorization: `Bearer ${moderatorToken}` }
+  });
+  assert.equal(moderatorSessionsList.response.status, 403);
 
   const adminSessions = await request("/admin/sessions?username=seller_one", {
     headers: { Authorization: `Bearer ${adminToken}` }

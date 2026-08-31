@@ -6778,7 +6778,9 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === "GET" && url.pathname === "/api/messages/stream") {
-      const token = readAuthToken(req) || sanitizePlainText(url.searchParams.get("token") || "", 120);
+      // SSE uses the same HttpOnly session cookie as every other browser route.
+      // Tokens in URLs leak through history, access logs, and intermediary tooling.
+      const token = readAuthToken(req);
       const session = findSession(store, token);
       const user = ensureMarketplaceUser(store, session, res);
       if (!user) {
@@ -6868,8 +6870,8 @@ const server = http.createServer(async (req, res) => {
         });
         return;
       }
-      if (!canModerateSession(session)) {
-        await denyJson(res, 403, "Hii area ni ya admin au moderator tu.", {
+      if (!isAdminSession(session)) {
+        await denyJson(res, 403, "Hii area ni ya admin tu.", {
           ip: clientIp,
           method: req.method,
           path: url.pathname,
@@ -10966,7 +10968,19 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/api/categories") {
       const token = readAuthToken(req);
       const session = findSession(store, token);
-      if (!ensureMarketplaceUser(store, session, res)) {
+      const seller = ensureMarketplaceUser(store, session, res);
+      if (!seller) {
+        return;
+      }
+      if (!canPostProducts(seller.role)) {
+        await denyJson(res, 403, "Seller pekee ndiye anaweza kuongeza category ya bidhaa.", {
+          ip: clientIp,
+          method: req.method,
+          path: url.pathname,
+          event: "category_create_denied",
+          username: seller.username,
+          reason: "insufficient_role"
+        });
         return;
       }
 
