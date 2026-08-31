@@ -3856,11 +3856,25 @@ async function persistIncomingProductImages(product) {
   }
 
   const image = await persistValue(product.image);
+  const mediaItems = [];
+  for (const item of normalizeProductMediaItems(product)) {
+    if (item.type !== "image") {
+      mediaItems.push(item);
+      continue;
+    }
+    const persistedUrl = await persistValue(item.url);
+    mediaItems.push({
+      ...item,
+      url: persistedUrl,
+      posterUrl: item.posterUrl ? await persistValue(item.posterUrl) : "",
+      thumbnailUrl: item.thumbnailUrl ? await persistValue(item.thumbnailUrl) : persistedUrl
+    });
+  }
   return {
     ...product,
     images: Array.isArray(product.images) ? images : product.images,
     image,
-    mediaItems: normalizeProductMediaItems({ image, images, mediaItems: [] })
+    mediaItems: normalizeProductMediaItems({ image, images, mediaItems })
   };
 }
 

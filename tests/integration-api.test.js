@@ -614,6 +614,13 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
       category: "viatu",
       images: [tinyImage],
       image: tinyImage,
+      mediaItems: [
+        { type: "image", status: "ready", url: tinyImage, position: 0 },
+        {
+          type: "video", status: "ready", provider: "cloudflare-stream",
+          providerId: "stream-integration-video-001", posterUrl: "", position: 1
+        }
+      ],
       imageSignature: "0101010101010101010101010101010101010101010101010101010101010101"
     })
   });
@@ -621,10 +628,13 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   assert.equal(productCreate.body.status, "approved");
   assert.match(productCreate.body.image, /^\/uploads\/.*-1080\.webp$/);
   assert.equal(Array.isArray(productCreate.body.mediaItems), true);
-  assert.equal(productCreate.body.mediaItems.length, 1);
+  assert.equal(productCreate.body.mediaItems.length, 2);
   assert.equal(productCreate.body.mediaItems[0].type, "image");
   assert.equal(productCreate.body.mediaItems[0].status, "ready");
   assert.equal(productCreate.body.mediaItems[0].url, productCreate.body.image);
+  assert.equal(productCreate.body.mediaItems[1].type, "video");
+  assert.equal(productCreate.body.mediaItems[1].providerId, "stream-integration-video-001");
+  assert.equal(productCreate.body.mediaItems[1].moderationStatus, "approved");
   const canonicalImageName = path.basename(productCreate.body.image);
   const imageStem = canonicalImageName.replace(/-1080\.webp$/, "");
   assert.equal(fs.existsSync(path.join(tempRoot, "uploads", `${imageStem}-320.webp`)), true);
@@ -813,6 +823,13 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
       category: "viatu",
       images: [tinyImage],
       image: tinyImage,
+      mediaItems: [
+        { type: "image", status: "ready", url: tinyImage, position: 0 },
+        {
+          type: "video", status: "ready", provider: "cloudflare-stream",
+          providerId: "stream-integration-video-001", posterUrl: "", position: 1
+        }
+      ],
       imageSignature: "0101010101010101010101010101010101010101010101010101010101010101"
     })
   });
@@ -835,6 +852,13 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
       category: "viatu",
       images: [tinyImage],
       image: tinyImage,
+      mediaItems: [
+        { type: "image", status: "ready", url: tinyImage, position: 0 },
+        {
+          type: "video", status: "ready", provider: "cloudflare-stream",
+          providerId: "stream-integration-video-001", posterUrl: "", position: 1
+        }
+      ],
       imageSignature: "0101010101010101010101010101010101010101010101010101010101010101"
     })
   });
@@ -856,6 +880,13 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
       category: "viatu",
       images: [tinyImage],
       image: tinyImage,
+      mediaItems: [
+        { type: "image", status: "ready", url: tinyImage, position: 0 },
+        {
+          type: "video", status: "ready", provider: "cloudflare-stream",
+          providerId: "stream-integration-video-001", posterUrl: "", position: 1
+        }
+      ],
       imageSignature: "0101010101010101010101010101010101010101010101010101010101010101"
     })
   });
@@ -876,6 +907,13 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
       category: "viatu",
       images: [tinyImage],
       image: tinyImage,
+      mediaItems: [
+        { type: "image", status: "ready", url: tinyImage, position: 0 },
+        {
+          type: "video", status: "ready", provider: "cloudflare-stream",
+          providerId: "stream-integration-video-001", posterUrl: "", position: 1
+        }
+      ],
       imageSignature: "0101010101010101010101010101010101010101010101010101010101010101"
     })
   });
@@ -898,6 +936,13 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
       category: "viatu",
       images: [tinyImage],
       image: tinyImage,
+      mediaItems: [
+        { type: "image", status: "ready", url: tinyImage, position: 0 },
+        {
+          type: "video", status: "ready", provider: "cloudflare-stream",
+          providerId: "stream-integration-video-001", posterUrl: "", position: 1
+        }
+      ],
       imageSignature: "0101010101010101010101010101010101010101010101010101010101010101"
     })
   });
@@ -949,6 +994,13 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
       category: "viatu",
       images: [tinyImage],
       image: tinyImage,
+      mediaItems: [
+        { type: "image", status: "ready", url: tinyImage, position: 0 },
+        {
+          type: "video", status: "ready", provider: "cloudflare-stream",
+          providerId: "stream-integration-video-001", posterUrl: "", position: 1
+        }
+      ],
       imageSignature: "0101010101010101010101010101010101010101010101010101010101010101"
     })
   });
@@ -984,6 +1036,13 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
       category: "vitu-used-simu",
       images: [tinyImage],
       image: tinyImage,
+      mediaItems: [
+        { type: "image", status: "ready", url: tinyImage, position: 0 },
+        {
+          type: "video", status: "ready", provider: "cloudflare-stream",
+          providerId: "stream-integration-video-001", posterUrl: "", position: 1
+        }
+      ],
       imageSignature: "0101010101010101010101010101010101010101010101010101010101010101"
     })
   });
@@ -1302,6 +1361,13 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
       category: "viatu",
       images: [tinyImage],
       image: tinyImage,
+      mediaItems: [
+        { type: "image", status: "ready", url: tinyImage, position: 0 },
+        {
+          type: "video", status: "ready", provider: "cloudflare-stream",
+          providerId: "stream-integration-video-001", posterUrl: "", position: 1
+        }
+      ],
       imageSignature: "0101010101010101010101010101010101010101010101010101010101010101",
       originalProductId: "product-test-001",
       originalSellerId: "seller_one",
