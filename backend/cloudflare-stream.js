@@ -29,12 +29,38 @@ function extractStreamCustomerCode(...values) {
   return "";
 }
 
+function parseSigningJwk(value) {
+  const source = cleanText(value, 16384);
+  if (!source) return null;
+  const candidates = [source];
+  try {
+    candidates.push(Buffer.from(source, "base64").toString("utf8"));
+  } catch (_error) {
+    // The environment value may already be raw JWK JSON.
+  }
+  for (const candidate of candidates) {
+    try {
+      const jwk = JSON.parse(candidate);
+      if (jwk?.kty === "RSA" && jwk.n && jwk.e && jwk.d) return jwk;
+    } catch (_error) {
+      // Try the next supported representation.
+    }
+  }
+  return null;
+}
+
+function encodeJwtPart(value) {
+  return Buffer.from(JSON.stringify(value), "utf8").toString("base64url");
+}
+
 function readCloudflareStreamConfig(env = process.env) {
   return {
     accountId: cleanText(env.CLOUDFLARE_STREAM_ACCOUNT_ID, 64),
     apiToken: cleanText(env.CLOUDFLARE_STREAM_API_TOKEN, 512),
     webhookSecret: cleanText(env.CLOUDFLARE_STREAM_WEBHOOK_SECRET, 512),
     customerCode: cleanText(env.CLOUDFLARE_STREAM_CUSTOMER_CODE, 128),
+    signingKeyId: cleanText(env.CLOUDFLARE_STREAM_SIGNING_KEY_ID, 128),
+    signingJwk: cleanText(env.CLOUDFLARE_STREAM_SIGNING_JWK, 16384),
     allowedOrigins: normalizeAllowedOrigins(cleanText(env.CLOUDFLARE_STREAM_ALLOWED_ORIGINS || "wingamarket.com,www.wingamarket.com", 2048).split(",")),
     maxDurationSeconds: clampInteger(env.CLOUDFLARE_STREAM_MAX_DURATION_SECONDS, 1, 36000, DEFAULT_MAX_DURATION_SECONDS),
     uploadTtlSeconds: clampInteger(env.CLOUDFLARE_STREAM_UPLOAD_TTL_SECONDS, 60, 3600, 900),
@@ -88,6 +114,16 @@ function createCloudflareStreamClient(options = {}) {
   const config = options.config || readCloudflareStreamConfig(options.env);
   const fetchImpl = options.fetchImpl || globalThis.fetch;
   if (typeof fetchImpl !== "function") throw new TypeError("Cloudflare Stream client requires fetch.");
+  const hasLocalSigningMaterial = Boolean(config.signingKeyId || config.signingJwk);
+  const signingJwk = parseSigningJwk(config.signingJwk);
+  let localSigningKey = null;
+  if (config.signingKeyId && signingJwk) {
+    try {
+      localSigningKey = crypto.createPrivateKey({ key: signingJwk, format: "jwk" });
+    } catch (_error) {
+      localSigningKey = null;
+    }
+  }
   const signedPlaybackPolicyCache = new Map();
   const signedPlaybackPolicyTtlMs = 6 * 60 * 60 * 1000;
   async function request(pathname, init = {}) {
@@ -209,19 +245,42 @@ function createCloudflareStreamClient(options = {}) {
     const safeId = cleanText(providerId, 64);
     if (!/^[a-zA-Z0-9_-]{8,64}$/.test(safeId)) throw new TypeError("A valid Stream video identifier is required.");
     await ensureSignedPlaybackPolicy(safeId);
-    const result = await request(`/${encodeURIComponent(safeId)}/token`, {
-      method: "POST", body: JSON.stringify({ exp: Math.floor(Date.now() / 1000) + config.playbackTokenTtlSeconds, downloadable: false })
-    });
-    const token = cleanText(result.token, 8192);
-    if (!token) { const error = new Error("Cloudflare Stream returned no playback token."); error.code = "stream_invalid_provider_response"; throw error; }
     const customerCode = config.customerCode || extractStreamCustomerCode(options.posterUrl, options.hlsUrl, options.dashUrl);
     if (!customerCode) {
       const error = new Error("Cloudflare Stream customer code is unavailable.");
       error.code = "stream_customer_code_missing";
       throw error;
     }
-    return { token, expiresInSeconds: config.playbackTokenTtlSeconds, customerCode };
+    if (hasLocalSigningMaterial) {
+      if (!config.signingKeyId || !localSigningKey) {
+        const error = new Error("Cloudflare Stream local signing key is invalid or incomplete.");
+        error.code = "stream_signing_key_invalid";
+        throw error;
+      }
+      const nowSeconds = Math.floor(Date.now() / 1000);
+      const header = { alg: "RS256", kid: config.signingKeyId };
+      const payload = {
+        sub: safeId,
+        kid: config.signingKeyId,
+        exp: nowSeconds + config.playbackTokenTtlSeconds,
+        nbf: Math.max(0, nowSeconds - 5)
+      };
+      const unsignedToken = `${encodeJwtPart(header)}.${encodeJwtPart(payload)}`;
+      const signature = crypto.sign("RSA-SHA256", Buffer.from(unsignedToken, "utf8"), localSigningKey).toString("base64url");
+      return {
+        token: `${unsignedToken}.${signature}`,
+        expiresInSeconds: config.playbackTokenTtlSeconds,
+        customerCode,
+        signingMode: "local"
+      };
+    }
+    const result = await request(`/${encodeURIComponent(safeId)}/token`, {
+      method: "POST", body: JSON.stringify({ exp: Math.floor(Date.now() / 1000) + config.playbackTokenTtlSeconds, downloadable: false })
+    });
+    const token = cleanText(result.token, 8192);
+    if (!token) { const error = new Error("Cloudflare Stream returned no playback token."); error.code = "stream_invalid_provider_response"; throw error; }
+    return { token, expiresInSeconds: config.playbackTokenTtlSeconds, customerCode, signingMode: "api" };
   }
-  return { config: { ...config, apiToken: "", webhookSecret: "" }, createDirectUpload, createResumableUpload, createPlaybackToken, deleteVideo, isConfigured: () => isCloudflareStreamConfigured(config) };
+  return { config: { ...config, apiToken: "", webhookSecret: "", signingJwk: "" }, createDirectUpload, createResumableUpload, createPlaybackToken, deleteVideo, isConfigured: () => isCloudflareStreamConfigured(config) };
 }
 module.exports = { DEFAULT_MAX_DURATION_SECONDS, createCloudflareStreamClient, extractStreamCustomerCode, isCloudflareStreamConfigured, normalizeStreamVideo, parseWebhookSignature, readCloudflareStreamConfig, verifyCloudflareStreamWebhook };

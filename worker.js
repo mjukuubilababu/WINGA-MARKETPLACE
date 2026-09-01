@@ -178,6 +178,38 @@ async function streamFeedPage(request, env, ctx) {
           const initialVideoProviderIds = window.__WINGA_BIG_PIPE_INITIAL_VIDEO_PROVIDER_IDS__;
           const saveDataEnabled = Boolean(navigator.connection?.saveData);
           if (initialVideoProviderIds.length > 0 && !saveDataEnabled) {
+            const applySignedVideoPoster = (providerId, payload) => {
+              const customerCode = String(payload?.customerCode || "")
+                .trim()
+                .toLowerCase()
+                .replace(/^customer-/, "")
+                .replace(/\.cloudflarestream\.com$/, "");
+              const token = String(payload?.token || "").trim();
+              if (!/^[a-z0-9-]{4,80}$/.test(customerCode) || !token) return;
+              const posterUrl = "https://customer-" + customerCode
+                + ".cloudflarestream.com/" + encodeURIComponent(token)
+                + "/thumbnails/thumbnail.jpg";
+              const installPoster = () => {
+                let installed = false;
+                document.querySelectorAll("[data-video-playback]").forEach((node) => {
+                  if (node.dataset.videoProviderId !== providerId) return;
+                  const placeholder = node.querySelector(".feed-video-poster-empty");
+                  if (!placeholder) return;
+                  const poster = document.createElement("img");
+                  poster.className = "feed-video-poster";
+                  poster.src = posterUrl;
+                  poster.alt = "";
+                  poster.loading = "eager";
+                  poster.decoding = "async";
+                  poster.draggable = false;
+                  placeholder.replaceWith(poster);
+                  node.dataset.videoPosterReady = "true";
+                  installed = true;
+                });
+                return installed;
+              };
+              if (!installPoster()) requestAnimationFrame(installPoster);
+            };
             const hlsPreload = document.createElement("link");
             hlsPreload.rel = "preload";
             hlsPreload.as = "script";
@@ -203,7 +235,11 @@ async function streamFeedPage(request, env, ctx) {
                     "X-CSRF-Token": csrfToken
                   },
                   body: "{}"
-                }).then((response) => response.ok ? response.json() : null);
+                }).then((response) => response.ok ? response.json() : null)
+                  .then((payload) => {
+                    if (payload?.token) applySignedVideoPoster(providerId, payload);
+                    return payload;
+                  });
               }).catch(() => null);
               window.__WINGA_BIG_PIPE_VIDEO_TOKEN_PROMISES__.set(providerId, tokenPromise);
             });

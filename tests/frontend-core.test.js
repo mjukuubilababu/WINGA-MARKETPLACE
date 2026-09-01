@@ -284,6 +284,9 @@ test("marketplace gallery adds one secure ready video slide without collapsing p
   assert.equal(workerSource.includes("__WINGA_BIG_PIPE_VIDEO_TOKEN_PROMISES__"), true);
   assert.equal(workerSource.includes('slice(0, 2)'), true);
   assert.equal(workerSource.includes('X-CSRF-Token'), true);
+  assert.equal(workerSource.includes('applySignedVideoPoster'), true);
+  assert.equal(workerSource.includes('node.dataset.videoPosterReady = "true"'), true);
+  assert.equal(workerSource.includes('node.querySelector(".feed-video-poster-empty")'), true);
   assert.match(playbackSource, /video_playback_failed/);
   assert.doesNotMatch(playbackSource, /emitMetric\([^\n]+providerId/);
   assert.match(serverSource, /\/api\/ops\/media\/videos\/health/);

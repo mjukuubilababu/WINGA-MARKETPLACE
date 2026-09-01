@@ -69,6 +69,53 @@ test("Stream signed playback derives customer code from trusted provider URLs", 
   assert.equal(result.customerCode, "abcd1234");
 });
 
+test("Stream local signing scales playback tokens without a per-view token API call", async () => {
+  const { privateKey, publicKey } = crypto.generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const signingJwk = Buffer.from(JSON.stringify(privateKey.export({ format: "jwk" })), "utf8").toString("base64");
+  const calls = [];
+  const client = createCloudflareStreamClient({
+    config: readCloudflareStreamConfig({
+      CLOUDFLARE_STREAM_ACCOUNT_ID: "account-123",
+      CLOUDFLARE_STREAM_API_TOKEN: "secret",
+      CLOUDFLARE_STREAM_CUSTOMER_CODE: "customer-code",
+      CLOUDFLARE_STREAM_PLAYBACK_TOKEN_TTL_SECONDS: "600",
+      CLOUDFLARE_STREAM_SIGNING_KEY_ID: "stream-key-123",
+      CLOUDFLARE_STREAM_SIGNING_JWK: signingJwk
+    }),
+    fetchImpl: async (url, init) => {
+      calls.push({ url, init });
+      assert.equal(url.endsWith("/token"), false);
+      return { ok: true, status: 200, json: async () => ({ success: true, result: {} }) };
+    }
+  });
+
+  const result = await client.createPlaybackToken("stream-video-123");
+  const [encodedHeader, encodedPayload, signature] = result.token.split(".");
+  const header = JSON.parse(Buffer.from(encodedHeader, "base64url").toString("utf8"));
+  const payload = JSON.parse(Buffer.from(encodedPayload, "base64url").toString("utf8"));
+
+  assert.equal(result.signingMode, "local");
+  assert.equal(header.alg, "RS256");
+  assert.equal(header.kid, "stream-key-123");
+  assert.equal(payload.sub, "stream-video-123");
+  assert.equal(payload.exp - payload.nbf >= 600, true);
+  assert.equal(crypto.verify("RSA-SHA256", Buffer.from(`${encodedHeader}.${encodedPayload}`, "utf8"), publicKey, Buffer.from(signature, "base64url")), true);
+  assert.equal(calls.length, 1);
+  assert.equal(client.config.signingJwk, "");
+});
+
+test("Stream local signing fails closed when signing material is incomplete", async () => {
+  const client = createCloudflareStreamClient({
+    config: readCloudflareStreamConfig({
+      CLOUDFLARE_STREAM_ACCOUNT_ID: "account-123",
+      CLOUDFLARE_STREAM_API_TOKEN: "secret",
+      CLOUDFLARE_STREAM_CUSTOMER_CODE: "customer-code",
+      CLOUDFLARE_STREAM_SIGNING_KEY_ID: "stream-key-123"
+    }),
+    fetchImpl: async () => ({ ok: true, status: 200, json: async () => ({ success: true, result: {} }) })
+  });
+  await assert.rejects(() => client.createPlaybackToken("stream-video-123"), { code: "stream_signing_key_invalid" });
+});
 test("Stream resumable upload provisions a private direct-user TUS endpoint", async () => {
   const calls = [];
   const headers = new Map([
