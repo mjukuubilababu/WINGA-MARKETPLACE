@@ -229,6 +229,8 @@ const VIDEO_CLEANUP_RETRY_SECONDS = Math.max(60, Math.min(86400, Number(process.
 const VIDEO_SAFETY_DISPATCH_INTERVAL_MS = Math.max(5000, Math.min(Number(process.env.VIDEO_SAFETY_DISPATCH_INTERVAL_MS || 30000) || 30000, 30 * 60 * 1000));
 const VIDEO_SAFETY_DISPATCH_BATCH_SIZE = Math.max(1, Math.min(100, Number(process.env.VIDEO_SAFETY_DISPATCH_BATCH_SIZE || 10) || 10));
 const VIDEO_SAFETY_DISPATCH_TIMEOUT_MS = Math.max(1000, Math.min(60000, Number(process.env.VIDEO_SAFETY_DISPATCH_TIMEOUT_MS || 10000) || 10000));
+const VIDEO_COMMERCE_ATTRIBUTION_WINDOW_HOURS = Math.max(1, Math.min(168, Number(process.env.VIDEO_COMMERCE_ATTRIBUTION_WINDOW_HOURS || 24) || 24));
+const VIDEO_MEANINGFUL_WATCH_MS = Math.max(1000, Math.min(60000, Number(process.env.VIDEO_MEANINGFUL_WATCH_MS || 3000) || 3000));
 let videoCleanupSweepTimer = null;
 let videoCleanupSweepRunning = false;
 let videoSafetyDispatcher = null;
@@ -998,6 +1000,53 @@ const intelligencePlatform = createIntelligencePlatform({
   },
   logger: console
 });
+
+function scheduleVideoPurchaseConversionAttribution({ req, session, product, orderId = "" } = {}) {
+  const buyerId = sanitizePlainText(session?.username || "", 80);
+  const productId = sanitizePlainText(product?.id || "", 100);
+  const safeOrderId = sanitizePlainText(orderId, 100);
+  if (!buyerId || !productId || !postgresStore?.hasRecentVideoCommerceAttribution) {
+    return false;
+  }
+
+  const requestHeaders = { ...(req?.headers || {}) };
+  const productSnapshot = {
+    id: productId,
+    uploadedBy: sanitizePlainText(product?.uploadedBy || "", 80)
+  };
+  setImmediate(() => {
+    Promise.resolve(postgresStore.hasRecentVideoCommerceAttribution(buyerId, productId, {
+      windowHours: VIDEO_COMMERCE_ATTRIBUTION_WINDOW_HOURS,
+      meaningfulWatchMs: VIDEO_MEANINGFUL_WATCH_MS
+    })).then((attributed) => {
+      if (!attributed) return null;
+      return intelligencePlatform.ingestClientEvent({
+        level: "info",
+        event: "video_purchase_conversion",
+        category: "commerce",
+        message: "Successful order was attributed to recent meaningful video engagement.",
+        fingerprint: `video:purchase:${safeOrderId || productId}`.slice(0, 120),
+        context: {
+          productId,
+          sellerId: productSnapshot.uploadedBy,
+          orderId: safeOrderId,
+          surface: "checkout",
+          attributionWindowHours: VIDEO_COMMERCE_ATTRIBUTION_WINDOW_HOURS,
+          meaningfulWatchMs: VIDEO_MEANINGFUL_WATCH_MS,
+          attributionModel: "server_verified_recent_video_v1"
+        }
+      }, {
+        req: { headers: requestHeaders },
+        session: { username: buyerId },
+        store: { products: [productSnapshot] },
+        appVersion: APP_BUILD_VERSION
+      });
+    }).catch((error) => {
+      console.warn("[WINGA] Video purchase attribution failed open.", error);
+    });
+  });
+  return true;
+}
 
 const demandService = createDemandService();
 const searchDemandService = createSearchDemandService();
@@ -4937,8 +4986,19 @@ function buildEmptySellerVideoAnalytics(windowDays = 30) {
     completions: 0,
     errors: 0,
     summaries: 0,
+    meaningfulWatchMs: VIDEO_MEANINGFUL_WATCH_MS,
+    meaningfulWatches: 0,
+    replays: 0,
     videoAssistedActions: 0,
+    productClicks: 0,
+    sellerMessages: 0,
+    buyIntents: 0,
+    purchaseConversions: 0,
+    saves: 0,
+    shares: 0,
     completionRate: 0,
+    productClickRate: 0,
+    purchaseConversionRate: 0,
     errorRate: 0,
     averageBufferRatio: 0,
     averageWatchMs: 0,
@@ -10211,7 +10271,8 @@ const server = http.createServer(async (req, res) => {
         try {
           analytics.video = await postgresStore.readSellerVideoAnalytics(user.username, {
             windowDays: 30,
-            limit: 5
+            limit: 5,
+            meaningfulWatchMs: VIDEO_MEANINGFUL_WATCH_MS
           });
         } catch (error) {
           analytics.video = {
@@ -11996,6 +12057,16 @@ const server = http.createServer(async (req, res) => {
         duplicate: duplicatePaymentEvent
       });
       sendJson(res, 202, { ok: true, orderId: matchedOrderId, paymentStatus, eventId, duplicate: duplicatePaymentEvent });
+      if (paymentStatus === "paid" && !duplicatePaymentEvent) {
+        const paidOrder = getOrderById(store, matchedOrderId);
+        const paidProduct = paidOrder ? getProductById(store, paidOrder.productId) : null;
+        scheduleVideoPurchaseConversionAttribution({
+          req,
+          session: { username: paidOrder?.buyerUsername || "" },
+          product: paidProduct,
+          orderId: matchedOrderId
+        });
+      }
       return;
     }
 
@@ -12225,6 +12296,14 @@ const server = http.createServer(async (req, res) => {
       });
       emitLiveEvent(notificationRecipient, "notification", { notification: orderNotification });
       sendJson(res, 200, updatedOrder);
+      if (nextStatus === "paid") {
+        scheduleVideoPurchaseConversionAttribution({
+          req,
+          session: { username: existingOrder.buyerUsername || "" },
+          product: getProductById(store, existingOrder.productId),
+          orderId
+        });
+      }
       return;
     }
 

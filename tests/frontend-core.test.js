@@ -4852,7 +4852,7 @@ test("video playback emits bounded lifecycle intelligence without exposing provi
 
 test("backend intelligence maps video lifecycle sources into bounded canonical signals", async () => {
   const root = path.resolve(__dirname, "..");
-  const { createIntelligencePlatform, PRODUCT_SIGNAL_WEIGHTS } = require(path.join(root, "backend", "intelligence-platform.js"));
+  const { createIntelligencePlatform, PRODUCT_SIGNAL_WEIGHTS, SELLER_SIGNAL_WEIGHTS } = require(path.join(root, "backend", "intelligence-platform.js"));
   const persisted = [];
   const platform = createIntelligencePlatform({
     appendEvent: async () => {},
@@ -4890,21 +4890,61 @@ test("backend intelligence maps video lifecycle sources into bounded canonical s
     fingerprint: "video:video_buy_click",
     context: { productId: "product-video-1", surface: "product_card" }
   }, context);
+  const purchaseConversionEvent = await platform.ingestClientEvent({
+    level: "info",
+    event: "video_purchase_conversion",
+    fingerprint: "video:video_purchase_conversion",
+    context: { productId: "product-video-1", surface: "checkout" }
+  }, context);
 
   assert.equal(playEvent.eventType, "video_play");
   assert.equal(pauseEvent.eventType, "video_pause");
   assert.equal(completionEvent.eventType, "video_complete");
   assert.equal(buyEvent.eventType, "video_buy_click");
+  assert.equal(purchaseConversionEvent.eventType, "video_purchase_conversion");
+  assert.equal(purchaseConversionEvent.quality.known, true);
   assert.equal(playEvent.quality.known, true);
   assert.equal(playEvent.quality.scoreableProduct, true);
   assert.equal(pauseEvent.quality.known, true);
   assert.equal(PRODUCT_SIGNAL_WEIGHTS.video_complete, 2);
   assert.equal(PRODUCT_SIGNAL_WEIGHTS.video_buy_click, 1.5);
   assert.equal(PRODUCT_SIGNAL_WEIGHTS.video_save, 1);
+  assert.equal(PRODUCT_SIGNAL_WEIGHTS.video_purchase_conversion, 0);
+  assert.equal(SELLER_SIGNAL_WEIGHTS.video_purchase_conversion, 0);
   assert.equal(platform.getProductScore("product-video-1").score, 4.25);
   await platform.drainForTests();
-  assert.equal(persisted.length, 4);
+  assert.equal(persisted.length, 5);
   assert.equal(persisted.every((entry) => entry.event.productId === "product-video-1"), true);
+});
+test("verified payments schedule fail-open video conversion attribution after commerce responses", () => {
+  const root = path.resolve(__dirname, "..");
+  const source = fs.readFileSync(path.join(root, "backend", "server.js"), "utf8");
+  const helperStart = source.indexOf("function scheduleVideoPurchaseConversionAttribution");
+  const helperEnd = source.indexOf("const demandService = createDemandService();", helperStart);
+  const orderStart = source.indexOf('event: "order_created"');
+  const orderEnd = source.indexOf('url.pathname === "/api/media/videos/direct-upload"', orderStart);
+  const webhookStart = source.indexOf('url.pathname === "/api/payments/webhook"');
+  const webhookEnd = source.indexOf('if (req.method === "PATCH" && /^\\/api\\/products', webhookStart);
+  const transitionStart = source.indexOf('/^\\/api\\/orders\\/[^/]+\\/status$/.test(url.pathname)');
+  const transitionEnd = source.indexOf('url.pathname === "/api/products"', transitionStart);
+  assert.ok(helperStart >= 0 && helperEnd > helperStart);
+  assert.ok(orderStart >= 0 && orderEnd > orderStart);
+  assert.ok(webhookStart >= 0 && webhookEnd > webhookStart);
+  assert.ok(transitionStart >= 0 && transitionEnd > transitionStart);
+  const helperSource = source.slice(helperStart, helperEnd);
+  const orderSource = source.slice(orderStart, orderEnd);
+  const webhookSource = source.slice(webhookStart, webhookEnd);
+  const transitionSource = source.slice(transitionStart, transitionEnd);
+  assert.match(helperSource, /hasRecentVideoCommerceAttribution/);
+  assert.match(helperSource, /setImmediate/);
+  assert.match(helperSource, /video_purchase_conversion/);
+  assert.match(helperSource, /server_verified_recent_video_v1/);
+  assert.match(helperSource, /failed open/);
+  assert.doesNotMatch(orderSource, /scheduleVideoPurchaseConversionAttribution/);
+  assert.match(webhookSource, /paymentStatus === "paid" && !duplicatePaymentEvent/);
+  assert.ok(webhookSource.indexOf("sendJson(res, 202") < webhookSource.indexOf("scheduleVideoPurchaseConversionAttribution"));
+  assert.match(transitionSource, /nextStatus === "paid"/);
+  assert.ok(transitionSource.lastIndexOf("sendJson(res, 200") < transitionSource.indexOf("scheduleVideoPurchaseConversionAttribution"));
 });
 test("seller analytics renders aggregate video intelligence without viewer identity", () => {
   const root = path.resolve(__dirname, "..");

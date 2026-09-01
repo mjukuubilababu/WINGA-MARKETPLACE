@@ -1886,6 +1886,14 @@ test("PostgreSQL intelligence init creates time-only indexes for global raw even
   assert.match(source, /CREATE INDEX IF NOT EXISTS idx_search_demand_events_happened_at\s+ON search_demand_events \(happened_at DESC\)/);
 });
 
+test("PostgreSQL intelligence init indexes recent buyer-product attribution across durable stages", () => {
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const source = fs.readFileSync(path.join(__dirname, "..", "backend", "db.js"), "utf8");
+
+  assert.match(source, /CREATE INDEX IF NOT EXISTS idx_intelligence_events_buyer_product_time\s+ON intelligence_events \(buyer_id, product_id, happened_at DESC\)\s+WHERE buyer_id <> '' AND product_id <> ''/);
+  assert.match(source, /CREATE INDEX IF NOT EXISTS idx_intelligence_queue_buyer_product_time\s+ON intelligence_event_queue \(\s*\(event_payload->>'buyerId'\), \(event_payload->>'productId'\), created_at DESC\s*\)\s+WHERE status IN \('pending', 'processing', 'failed'\)/);
+});
 test("PostgreSQL intelligence init creates partial indexes for global queue health", () => {
   const fs = require("node:fs");
   const path = require("node:path");
@@ -2215,9 +2223,17 @@ test("PostgreSQL seller video analytics are ownership-scoped, bounded, and aggre
           impressions: 100,
           plays: 80,
           completions: 60,
+          meaningfulWatches: 55,
+          replays: 8,
           errors: 20,
           summaries: 70,
-          videoAssistedActions: 14,
+          videoAssistedActions: 34,
+          productClicks: 12,
+          sellerMessages: 4,
+          buyIntents: 6,
+          purchaseConversions: 3,
+          saves: 5,
+          shares: 4,
           averageBufferRatio: 0.18,
           averageWatchMs: 6400.4,
           lastEventAt: new Date("2026-08-31T20:00:00.000Z"),
@@ -2227,9 +2243,19 @@ test("PostgreSQL seller video analytics are ownership-scoped, bounded, and aggre
             impressions: 70,
             plays: 50,
             completions: 40,
+            meaningfulWatches: 35,
+            replays: 5,
             errors: 5,
-            videoAssistedActions: 9,
+            videoAssistedActions: 21,
+            productClicks: 8,
+            sellerMessages: 2,
+            buyIntents: 4,
+            purchaseConversions: 2,
+            saves: 3,
+            shares: 2,
             completionRate: 1.5,
+            productClickRate: 1.4,
+            purchaseConversionRate: -0.2,
             errorRate: -0.2,
             averageBufferRatio: 1.4,
             averageWatchMs: 6400.4,
@@ -2253,27 +2279,77 @@ test("PostgreSQL seller video analytics are ownership-scoped, bounded, and aggre
 
   assert.equal(summary.privacy, "seller-scoped-aggregate-only");
   assert.equal(summary.windowDays, 90);
+  assert.equal(summary.meaningfulWatchMs, 3000);
   assert.equal(summary.totalVideoProducts, 4);
   assert.equal(summary.videoProductsWithActivity, 2);
+  assert.equal(summary.meaningfulWatches, 55);
+  assert.equal(summary.replays, 8);
+  assert.equal(summary.productClicks, 12);
+  assert.equal(summary.sellerMessages, 4);
+  assert.equal(summary.buyIntents, 6);
+  assert.equal(summary.purchaseConversions, 3);
+  assert.equal(summary.saves, 5);
+  assert.equal(summary.shares, 4);
   assert.equal(summary.completionRate, 0.75);
+  assert.equal(summary.productClickRate, 0.15);
+  assert.equal(summary.purchaseConversionRate, 0.0545);
   assert.equal(summary.errorRate, 0.2);
   assert.equal(summary.averageWatchMs, 6400);
   assert.equal(summary.topVideos[0].completionRate, 1);
+  assert.equal(summary.topVideos[0].productClickRate, 1);
+  assert.equal(summary.topVideos[0].purchaseConversionRate, 0);
   assert.equal(summary.topVideos[0].errorRate, 0);
   assert.equal(summary.topVideos[0].averageBufferRatio, 1);
   assert.equal(summary.topVideos[0].performanceScore, 45.68);
-  assert.deepEqual(calls[0].params, ["seller-video", 90, 20]);
+  assert.equal(summary.topVideos[0].purchaseConversions, 2);
+  assert.deepEqual(calls[0].params, ["seller-video", 90, 20, 3000]);
   assert.match(calls[0].text, /p\.uploaded_by = \$1/);
   assert.match(calls[0].text, /media_items @> /);
   assert.match(calls[0].text, /LEFT JOIN intelligence_events ie/);
   assert.match(calls[0].text, /ie\.product_id = sv\.product_id/);
   assert.match(calls[0].text, /activity_rank <= \$3/);
+  assert.match(calls[0].text, /watchedms/);
+  assert.match(calls[0].text, />= \$4/);
+  assert.match(calls[0].text, /video_purchase_conversion/);
   assert.match(calls[0].text, /signalQuality/);
   assert.doesNotMatch(calls[0].text, /buyer_id|session_id|provider_id/);
 
   const empty = await store.readSellerVideoAnalytics("", { windowDays: 7 });
   assert.equal(empty.totalVideoProducts, 0);
+  assert.equal(empty.meaningfulWatchMs, 3000);
   assert.equal(empty.privacy, "seller-scoped-aggregate-only");
+  assert.equal(calls.length, 1);
+});
+
+test("PostgreSQL video commerce attribution survives queue lag and requires meaningful buyer evidence", async () => {
+  const calls = [];
+  const queryClient = {
+    async query(text, params = []) {
+      calls.push({ text: String(text), params });
+      return { rows: [{ attributed: true }], rowCount: 1 };
+    }
+  };
+  const store = createPostgresStore({
+    databaseUrl: "postgres://test.invalid/winga",
+    queryClient
+  });
+
+  const attributed = await store.hasRecentVideoCommerceAttribution(" buyer-video ", " product-video ", {
+    windowHours: 999,
+    meaningfulWatchMs: 999999
+  });
+
+  assert.equal(attributed, true);
+  assert.deepEqual(calls[0].params, ["buyer-video", "product-video", 168, 60000]);
+  assert.match(calls[0].text, /FROM intelligence_events/);
+  assert.match(calls[0].text, /FROM intelligence_event_queue/);
+  assert.match(calls[0].text, /status IN \('pending', 'processing', 'failed'\)/);
+  assert.match(calls[0].text, /event_payload->>'buyerId'/);
+  assert.match(calls[0].text, /event_payload->>'productId'/);
+  assert.match(calls[0].text, /video_buy_click/);
+  assert.match(calls[0].text, /video_watch_summary/);
+  assert.match(calls[0].text, /watchedms/);
+  assert.equal(await store.hasRecentVideoCommerceAttribution("", "product-video"), false);
   assert.equal(calls.length, 1);
 });
 test("PostgreSQL search demand persistence stores anonymous events and reads aggregate opportunities", async () => {

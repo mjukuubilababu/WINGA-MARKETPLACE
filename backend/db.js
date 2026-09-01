@@ -905,6 +905,18 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       ON intelligence_events (product_id, happened_at DESC);
     `);
     await query(`
+      CREATE INDEX IF NOT EXISTS idx_intelligence_events_buyer_product_time
+      ON intelligence_events (buyer_id, product_id, happened_at DESC)
+      WHERE buyer_id <> '' AND product_id <> '';
+    `);
+    await query(`
+      CREATE INDEX IF NOT EXISTS idx_intelligence_queue_buyer_product_time
+      ON intelligence_event_queue (
+        (event_payload->>'buyerId'), (event_payload->>'productId'), created_at DESC
+      )
+      WHERE status IN ('pending', 'processing', 'failed');
+    `);
+    await query(`
       CREATE INDEX IF NOT EXISTS idx_intelligence_events_seller_time
       ON intelligence_events (seller_id, happened_at DESC);
     `);
@@ -5043,22 +5055,76 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     }));
   }
 
+  async function hasRecentVideoCommerceAttribution(buyerId = "", productId = "", options = {}) {
+    const safeBuyerId = String(buyerId || "").trim().slice(0, 80);
+    const safeProductId = String(productId || "").trim().slice(0, 100);
+    const windowHours = Math.max(1, Math.min(Number(options.windowHours || 24) || 24, 168));
+    const meaningfulWatchMs = Math.max(1000, Math.min(Number(options.meaningfulWatchMs || 3000) || 3000, 60000));
+    if (!safeBuyerId || !safeProductId) return false;
+
+    const result = await query(
+      `SELECT EXISTS (
+         SELECT 1
+         FROM (
+           SELECT event_type, metadata, happened_at
+           FROM intelligence_events
+           WHERE buyer_id = $1
+             AND product_id = $2
+             AND happened_at >= NOW() - ($3::int * INTERVAL '1 hour')
+           UNION ALL
+           SELECT
+             event_payload->>'eventType' AS event_type,
+             COALESCE(event_payload->'metadata', '{}'::jsonb) AS metadata,
+             created_at AS happened_at
+           FROM intelligence_event_queue
+           WHERE status IN ('pending', 'processing', 'failed')
+             AND event_payload->>'buyerId' = $1
+             AND event_payload->>'productId' = $2
+             AND created_at >= NOW() - ($3::int * INTERVAL '1 hour')
+         ) recent_video_events
+         WHERE event_type IN (
+           'video_complete', 'video_replay', 'video_product_click',
+           'video_message_seller', 'video_buy_click'
+         )
+            OR (
+              event_type = 'video_watch_summary'
+              AND COALESCE(metadata->>'watchedms', '') ~ '^[0-9]+([.][0-9]+)?$'
+              AND (metadata->>'watchedms')::float8 >= $4
+            )
+       ) AS attributed`,
+      [safeBuyerId, safeProductId, windowHours, meaningfulWatchMs]
+    );
+    return result.rows?.[0]?.attributed === true;
+  }
+
   async function readSellerVideoAnalytics(sellerId = "", options = {}) {
     const safeSellerId = String(sellerId || "").trim().slice(0, 80);
     const windowDays = Math.max(1, Math.min(Number(options.windowDays || 30) || 30, 90));
     const limit = Math.max(1, Math.min(Number(options.limit || 5) || 5, 20));
+    const meaningfulWatchMs = Math.max(1000, Math.min(Number(options.meaningfulWatchMs || 3000) || 3000, 60000));
     const emptySummary = {
       privacy: "seller-scoped-aggregate-only",
       windowDays,
+      meaningfulWatchMs,
       totalVideoProducts: 0,
       videoProductsWithActivity: 0,
       impressions: 0,
       plays: 0,
       completions: 0,
+      meaningfulWatches: 0,
+      replays: 0,
       errors: 0,
       summaries: 0,
       videoAssistedActions: 0,
+      productClicks: 0,
+      sellerMessages: 0,
+      buyIntents: 0,
+      purchaseConversions: 0,
+      saves: 0,
+      shares: 0,
       completionRate: 0,
+      productClickRate: 0,
+      purchaseConversionRate: 0,
       errorRate: 0,
       averageBufferRatio: 0,
       averageWatchMs: 0,
@@ -5084,10 +5150,21 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
            COUNT(*) FILTER (WHERE ie.event_type = 'video_impression')::int AS impressions,
            COUNT(*) FILTER (WHERE ie.event_type = 'video_play')::int AS plays,
            COUNT(*) FILTER (WHERE ie.event_type = 'video_complete')::int AS completions,
+           COUNT(*) FILTER (WHERE ie.event_type = 'video_replay')::int AS replays,
            COUNT(*) FILTER (WHERE ie.event_type = 'video_error')::int AS errors,
            COUNT(*) FILTER (WHERE ie.event_type = 'video_watch_summary')::int AS summaries,
+           COUNT(*) FILTER (WHERE ie.event_type = 'video_watch_summary'
+             AND COALESCE(ie.metadata->>'watchedms', '') ~ '^[0-9]+([.][0-9]+)?$'
+             AND (ie.metadata->>'watchedms')::float8 >= $4)::int AS meaningful_watches,
+           COUNT(*) FILTER (WHERE ie.event_type = 'video_product_click')::int AS product_clicks,
+           COUNT(*) FILTER (WHERE ie.event_type = 'video_message_seller')::int AS seller_messages,
+           COUNT(*) FILTER (WHERE ie.event_type = 'video_buy_click')::int AS buy_intents,
+           COUNT(*) FILTER (WHERE ie.event_type = 'video_purchase_conversion')::int AS purchase_conversions,
+           COUNT(*) FILTER (WHERE ie.event_type = 'video_save')::int AS saves,
+           COUNT(*) FILTER (WHERE ie.event_type = 'video_share')::int AS shares,
            COUNT(*) FILTER (WHERE ie.event_type IN (
-             'video_product_click', 'video_message_seller', 'video_buy_click', 'video_share', 'video_save'
+             'video_product_click', 'video_message_seller', 'video_buy_click',
+             'video_purchase_conversion', 'video_share', 'video_save'
            ))::int AS commerce_actions,
            COALESCE(SUM(CASE WHEN ie.event_type = 'video_watch_summary'
              AND COALESCE(ie.metadata->>'bufferratio', '') ~ '^[0-9]+([.][0-9]+)?$'
@@ -5105,9 +5182,9 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
            ON ie.product_id = sv.product_id
           AND ie.happened_at >= NOW() - ($2::int * INTERVAL '1 day')
           AND ie.event_type IN (
-            'video_impression', 'video_play', 'video_complete', 'video_error',
+            'video_impression', 'video_play', 'video_complete', 'video_replay', 'video_error',
             'video_watch_summary', 'video_product_click', 'video_message_seller',
-            'video_buy_click', 'video_share', 'video_save'
+            'video_buy_click', 'video_purchase_conversion', 'video_share', 'video_save'
           )
           AND COALESCE(ie.metadata->'signalQuality'->>'known', 'true') = 'true'
          GROUP BY sv.product_id, sv.product_name
@@ -5137,9 +5214,17 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
          COALESCE(SUM(impressions), 0)::int AS impressions,
          COALESCE(SUM(plays), 0)::int AS plays,
          COALESCE(SUM(completions), 0)::int AS completions,
+         COALESCE(SUM(meaningful_watches), 0)::int AS "meaningfulWatches",
+         COALESCE(SUM(replays), 0)::int AS replays,
          COALESCE(SUM(errors), 0)::int AS errors,
          COALESCE(SUM(summaries), 0)::int AS summaries,
          COALESCE(SUM(commerce_actions), 0)::int AS "videoAssistedActions",
+         COALESCE(SUM(product_clicks), 0)::int AS "productClicks",
+         COALESCE(SUM(seller_messages), 0)::int AS "sellerMessages",
+         COALESCE(SUM(buy_intents), 0)::int AS "buyIntents",
+         COALESCE(SUM(purchase_conversions), 0)::int AS "purchaseConversions",
+         COALESCE(SUM(saves), 0)::int AS saves,
+         COALESCE(SUM(shares), 0)::int AS shares,
          COALESCE(SUM(buffer_ratio_sum) / NULLIF(SUM(buffer_samples), 0), 0)::float8 AS "averageBufferRatio",
          COALESCE(SUM(watch_ms_sum) / NULLIF(SUM(watch_samples), 0), 0)::float8 AS "averageWatchMs",
          MAX(last_event_at) AS "lastEventAt",
@@ -5150,9 +5235,19 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
              'impressions', impressions,
              'plays', plays,
              'completions', completions,
+             'meaningfulWatches', meaningful_watches,
+             'replays', replays,
              'errors', errors,
              'videoAssistedActions', commerce_actions,
+             'productClicks', product_clicks,
+             'sellerMessages', seller_messages,
+             'buyIntents', buy_intents,
+             'purchaseConversions', purchase_conversions,
+             'saves', saves,
+             'shares', shares,
              'completionRate', CASE WHEN plays > 0 THEN LEAST(1, completions::float8 / plays) ELSE 0 END,
+             'productClickRate', CASE WHEN plays > 0 THEN LEAST(1, product_clicks::float8 / plays) ELSE 0 END,
+             'purchaseConversionRate', CASE WHEN meaningful_watches > 0 THEN LEAST(1, purchase_conversions::float8 / meaningful_watches) ELSE 0 END,
              'errorRate', CASE WHEN plays + errors > 0 THEN LEAST(1, errors::float8 / (plays + errors)) ELSE 0 END,
              'averageBufferRatio', CASE WHEN buffer_samples > 0 THEN buffer_ratio_sum / buffer_samples ELSE 0 END,
              'averageWatchMs', CASE WHEN watch_samples > 0 THEN watch_ms_sum / watch_samples ELSE 0 END,
@@ -5161,12 +5256,15 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
            ) ORDER BY performance_score DESC, last_event_at DESC NULLS LAST, product_id ASC
          ) FILTER (WHERE event_count > 0 AND activity_rank <= $3), '[]'::jsonb) AS "topVideos"
        FROM ranked`,
-      [safeSellerId, windowDays, limit]
+      [safeSellerId, windowDays, limit, meaningfulWatchMs]
     );
     const row = result.rows?.[0] || {};
     const plays = Math.max(0, Number(row.plays || 0));
     const completions = Math.max(0, Number(row.completions || 0));
     const errors = Math.max(0, Number(row.errors || 0));
+    const meaningfulWatches = Math.max(0, Number(row.meaningfulWatches || 0));
+    const productClicks = Math.max(0, Number(row.productClicks || 0));
+    const purchaseConversions = Math.max(0, Number(row.purchaseConversions || 0));
     const attempts = plays + errors;
     const normalizeRate = (value) => Math.round(Math.max(0, Math.min(1, Number(value || 0))) * 10000) / 10000;
     const topVideos = Array.isArray(row.topVideos) ? row.topVideos.slice(0, limit).map((item) => ({
@@ -5175,9 +5273,19 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       impressions: Math.max(0, Number(item.impressions || 0)),
       plays: Math.max(0, Number(item.plays || 0)),
       completions: Math.max(0, Number(item.completions || 0)),
+      meaningfulWatches: Math.max(0, Number(item.meaningfulWatches || 0)),
+      replays: Math.max(0, Number(item.replays || 0)),
       errors: Math.max(0, Number(item.errors || 0)),
       videoAssistedActions: Math.max(0, Number(item.videoAssistedActions || 0)),
+      productClicks: Math.max(0, Number(item.productClicks || 0)),
+      sellerMessages: Math.max(0, Number(item.sellerMessages || 0)),
+      buyIntents: Math.max(0, Number(item.buyIntents || 0)),
+      purchaseConversions: Math.max(0, Number(item.purchaseConversions || 0)),
+      saves: Math.max(0, Number(item.saves || 0)),
+      shares: Math.max(0, Number(item.shares || 0)),
       completionRate: normalizeRate(item.completionRate),
+      productClickRate: normalizeRate(item.productClickRate),
+      purchaseConversionRate: normalizeRate(item.purchaseConversionRate),
       errorRate: normalizeRate(item.errorRate),
       averageBufferRatio: normalizeRate(item.averageBufferRatio),
       averageWatchMs: Math.max(0, Math.round(Number(item.averageWatchMs || 0))),
@@ -5192,10 +5300,20 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       impressions: Math.max(0, Number(row.impressions || 0)),
       plays,
       completions,
+      meaningfulWatches,
+      replays: Math.max(0, Number(row.replays || 0)),
       errors,
       summaries: Math.max(0, Number(row.summaries || 0)),
       videoAssistedActions: Math.max(0, Number(row.videoAssistedActions || 0)),
+      productClicks,
+      sellerMessages: Math.max(0, Number(row.sellerMessages || 0)),
+      buyIntents: Math.max(0, Number(row.buyIntents || 0)),
+      purchaseConversions,
+      saves: Math.max(0, Number(row.saves || 0)),
+      shares: Math.max(0, Number(row.shares || 0)),
       completionRate: normalizeRate(plays > 0 ? completions / plays : 0),
+      productClickRate: normalizeRate(plays > 0 ? productClicks / plays : 0),
+      purchaseConversionRate: normalizeRate(meaningfulWatches > 0 ? purchaseConversions / meaningfulWatches : 0),
       errorRate: normalizeRate(attempts > 0 ? errors / attempts : 0),
       averageBufferRatio: normalizeRate(row.averageBufferRatio),
       averageWatchMs: Math.max(0, Math.round(Number(row.averageWatchMs || 0))),
@@ -5722,7 +5840,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
            'errors', COUNT(*) FILTER (WHERE event_type = 'video_error'),
            'summaries', COUNT(*) FILTER (WHERE event_type = 'video_watch_summary'),
            'commerceActions', COUNT(*) FILTER (WHERE event_type IN (
-             'video_product_click', 'video_message_seller', 'video_buy_click', 'video_share', 'video_save'
+             'video_product_click', 'video_message_seller', 'video_buy_click', 'video_purchase_conversion', 'video_share', 'video_save'
            )),
            'averageStartLatencyMs', COALESCE(AVG(
              CASE WHEN event_type = 'video_play'
@@ -5753,7 +5871,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
              'video_impression', 'video_play', 'video_pause', 'video_resume', 'video_replay',
              'video_complete', 'video_mute', 'video_unmute', 'video_error',
              'video_watch_summary', 'video_product_click', 'video_message_seller',
-             'video_buy_click', 'video_share', 'video_save'
+             'video_buy_click', 'video_purchase_conversion', 'video_share', 'video_save'
            )), '{}'::jsonb) AS playback
        FROM video_upload_intents`,
       [processingAgeSeconds]
@@ -5994,6 +6112,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     readIntelligenceSummary,
     appendDemandEvent,
     readSellerDemandSummary,
+    hasRecentVideoCommerceAttribution,
     readSellerVideoAnalytics,
     appendSearchDemandEvents,
     readSearchDemandSummary,
