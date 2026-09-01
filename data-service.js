@@ -2041,6 +2041,9 @@ async loadAdminPayments(filters) {
       async requestVideoPlayback(providerId) {
         return getProductsApiClient().requestVideoPlayback(providerId);
       },
+      async readVideoCaptions(providerId) {
+        return getProductsApiClient().readVideoCaptions(providerId);
+      },
       async createProduct(product) {
         return getProductsApiClient().createProduct(product);
       },
@@ -3817,6 +3820,10 @@ async loadAdminPayments() {
         throw error;
       }
       return state.adapter.requestVideoPlayback(providerId);
+    },
+    async readVideoCaptions(providerId) {
+      if (typeof state.adapter.readVideoCaptions !== "function") return { items: [] };
+      return state.adapter.readVideoCaptions(providerId);
     },
     async createProduct(product) {
       assertSellerAccess();

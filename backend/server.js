@@ -1809,6 +1809,16 @@ function sendHtml(res, statusCode, html, req = null, extraHeaders = {}) {
   res.end(html);
 }
 
+function sendWebVtt(res, statusCode, body, req = null, extraHeaders = {}) {
+  res.writeHead(statusCode, buildSecurityHeaders(statusCode, {
+    "Content-Type": "text/vtt; charset=UTF-8",
+    "Cache-Control": "private, max-age=300",
+    "X-Content-Type-Options": "nosniff",
+    ...extraHeaders
+  }, req));
+  res.end(String(body || ""));
+}
+
 function escapeHtml(value) {
   return String(value || "")
     .replace(/&/g, "&amp;")
@@ -3312,6 +3322,31 @@ function isStaffRole(role) {
 function canModerateSession(session) {
   return (session?.role === "admin" || session?.role === "moderator")
     && !isRestrictedUserStatus(session?.status);
+}
+
+function getPlayableVideoAccess(intent, session) {
+  const viewerUsername = String(session?.username || "").trim();
+  const isOwner = Boolean(viewerUsername && intent?.sellerId === viewerUsername);
+  const isStaffPreview = Boolean(
+    canModerateSession(session)
+    && intent?.status === "ready"
+    && intent?.productId
+    && intent?.claimedAt
+  );
+  const isSafetyBlocked = intent?.moderationStatus === "rejected" || intent?.safetyStatus === "blocked";
+  const isPublicProductVideo = Boolean(
+    intent?.status === "ready"
+    && intent?.productId
+    && intent?.claimedAt
+    && !isSafetyBlocked
+    && intent?.productStatus === "approved"
+  );
+  return {
+    isOwner,
+    isStaffPreview,
+    isPublicProductVideo,
+    allowed: Boolean(intent?.status === "ready" && (isOwner || isStaffPreview || isPublicProductVideo))
+  };
 }
 
 function isRestrictedUserStatus(status) {
@@ -6011,7 +6046,15 @@ function getRateLimitRule(pathname, method = "GET") {
       windowMs: RATE_LIMIT_WINDOW_MS,
       key: "/api/media/videos/:providerId/playback-token"
     };
-  }  if (/^\/api\/notifications\/[^/]+\/read$/.test(pathname)) {
+  }
+  if (normalizedMethod === "GET" && /^\/api\/media\/videos\/[^/]+\/captions(?:\/[^/]+[.]vtt)?$/.test(pathname)) {
+    return {
+      limit: 240,
+      windowMs: RATE_LIMIT_WINDOW_MS,
+      key: "/api/media/videos/:providerId/captions"
+    };
+  }
+  if (/^\/api\/notifications\/[^/]+\/read$/.test(pathname)) {
     return {
       limit: 40,
       windowMs: RATE_LIMIT_WINDOW_MS,
@@ -11616,27 +11659,55 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    const videoCaptionListMatch = url.pathname.match(/^\/api\/media\/videos\/([a-zA-Z0-9_-]{8,64})\/captions$/);
+    if (req.method === "GET" && videoCaptionListMatch) {
+      const session = findSession(store, readAuthToken(req));
+      const intent = await postgresStore?.readPlayableVideo?.(videoCaptionListMatch[1]);
+      const access = getPlayableVideoAccess(intent, session);
+      if (!intent || !access.allowed) {
+        sendJson(res, 404, { error: "Video haijapatikana.", code: "video_playback_not_found" }, { "Cache-Control": "private, no-store" });
+        return;
+      }
+      try {
+        const captions = await CLOUDFLARE_STREAM_CLIENT.listCaptions(intent.providerId);
+        const items = captions.map((caption) => ({
+          ...caption,
+          src: `/api/media/videos/${encodeURIComponent(intent.providerId)}/captions/${encodeURIComponent(caption.language)}.vtt`
+        }));
+        sendJson(res, 200, { items }, { "Cache-Control": "private, max-age=300" });
+      } catch (error) {
+        sendJson(res, 502, { error: "Captions hazikupatikana.", code: error?.code || "video_captions_failed" });
+      }
+      return;
+    }
+
+    const videoCaptionVttMatch = url.pathname.match(/^\/api\/media\/videos\/([a-zA-Z0-9_-]{8,64})\/captions\/([A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8}){0,8})[.]vtt$/);
+    if (req.method === "GET" && videoCaptionVttMatch) {
+      const session = findSession(store, readAuthToken(req));
+      const intent = await postgresStore?.readPlayableVideo?.(videoCaptionVttMatch[1]);
+      const access = getPlayableVideoAccess(intent, session);
+      if (!intent || !access.allowed) {
+        sendJson(res, 404, { error: "Video haijapatikana.", code: "video_playback_not_found" }, { "Cache-Control": "private, no-store" });
+        return;
+      }
+      try {
+        const body = await CLOUDFLARE_STREAM_CLIENT.readCaptionVtt(intent.providerId, videoCaptionVttMatch[2]);
+        sendWebVtt(res, 200, body, req);
+      } catch (error) {
+        sendJson(res, error?.code === "stream_caption_not_found" ? 404 : 502, {
+          error: "Caption haijapatikana.",
+          code: error?.code || "video_caption_failed"
+        });
+      }
+      return;
+    }
+
     const videoPlaybackMatch = url.pathname.match(/^\/api\/media\/videos\/([a-zA-Z0-9_-]{8,64})\/playback-token$/);
     if (req.method === "POST" && videoPlaybackMatch) {
       const session = findSession(store, readAuthToken(req));
       const intent = await postgresStore?.readPlayableVideo?.(videoPlaybackMatch[1]);
-      const viewerUsername = String(session?.username || "").trim();
-      const isOwner = Boolean(viewerUsername && intent?.sellerId === viewerUsername);
-      const isStaffPreview = Boolean(
-        canModerateSession(session)
-        && intent?.status === "ready"
-        && intent?.productId
-        && intent?.claimedAt
-      );
-      const isSafetyBlocked = intent?.moderationStatus === "rejected" || intent?.safetyStatus === "blocked";
-      const isPublicProductVideo = Boolean(
-        intent?.status === "ready"
-        && intent?.productId
-        && intent?.claimedAt
-        && !isSafetyBlocked
-        && intent?.productStatus === "approved"
-      );
-      if (!intent || intent.status !== "ready" || (!isOwner && !isStaffPreview && !isPublicProductVideo)) {
+      const { isOwner, isStaffPreview, isPublicProductVideo, allowed } = getPlayableVideoAccess(intent, session);
+      if (!intent || !allowed) {
         sendJson(res, 404, {
           error: "Video haijapatikana.",
           code: "video_playback_not_found"

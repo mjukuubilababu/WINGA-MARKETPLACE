@@ -879,6 +879,8 @@
                      "ui.label.a73f99f6bfc8":  "Ombi limetumwa",
                      "ui.label.5e1a0ebc939d":  "Zinazovuma",
                      "ui.label.1911ff50be5f":  "Vaa Pendeza",
+                     "video.playProduct":  "Cheza video ya bidhaa",
+                     "video.playerLabel":  "Video ya bidhaa: {title}",
                      "video.playbackRuntimeTimeout":  "Video imechukua muda mrefu kuanza kucheza.",
                      "video.playbackUnsupported":  "Kifaa hiki hakiwezi kucheza video hii.",
                      "video.playbackRuntimeFailed":  "Video haikuweza kuanza kucheza.",

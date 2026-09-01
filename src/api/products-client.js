@@ -60,6 +60,13 @@
         timeoutMs: productUploadTimeoutMs
       });
     }
+    async function readVideoCaptions(providerId) {
+      requireFetcher();
+      return fetchJson(`${baseUrl}/media/videos/${encodeURIComponent(String(providerId || "").trim())}/captions`, {
+        headers: authHeaders(),
+        timeoutMs: 15000
+      });
+    }
     async function createProduct(product) {
       requireFetcher();
       const result = await fetchJson(`${baseUrl}/products`, {
@@ -143,6 +150,7 @@
       requestVideoUpload,
       readVideoUploadStatus,
       requestVideoPlayback,
+      readVideoCaptions,
       createProduct,
       updateProduct,
       deleteProduct,

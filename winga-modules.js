@@ -1034,6 +1034,13 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         timeoutMs: productUploadTimeoutMs
       });
     }
+    async function readVideoCaptions(providerId) {
+      requireFetcher();
+      return fetchJson(`${baseUrl}/media/videos/${encodeURIComponent(String(providerId || "").trim())}/captions`, {
+        headers: authHeaders(),
+        timeoutMs: 15000
+      });
+    }
     async function createProduct(product) {
       requireFetcher();
       const result = await fetchJson(`${baseUrl}/products`, {
@@ -1117,6 +1124,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       requestVideoUpload,
       readVideoUploadStatus,
       requestVideoPlayback,
+      readVideoCaptions,
       createProduct,
       updateProduct,
       deleteProduct,
@@ -9854,12 +9862,14 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 
   function createVideoPlaybackController(deps = {}) {
     const requestPlaybackToken = typeof deps.requestPlaybackToken === "function" ? deps.requestPlaybackToken : null;
+    const requestCaptions = typeof deps.requestCaptions === "function" ? deps.requestCaptions : null;
     const targetWindow = deps.windowObject || window;
     const targetDocument = deps.documentObject || document;
     const reportMetric = typeof deps.reportMetric === "function" ? deps.reportMetric : () => {};
     const metricNow = typeof deps.now === "function" ? deps.now : () => Date.now();
     const translateUi = typeof deps.translateUi === "function" ? deps.translateUi : (_key, _variables, fallback) => String(fallback || "");
     const tokenCache = new Map();
+    const captionCache = new Map();
     const stateByNode = new WeakMap();
     const prewarmNodesByTarget = new WeakMap();
     const prewarmQueue = [];
@@ -9881,7 +9891,9 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     let visibilityHandlerInstalled = false;
     let networkHandlersInstalled = false;
     let commerceHandlerInstalled = false;
+    let reducedMotionHandlerInstalled = false;
     const dominanceSwitchDelta = Math.max(0.05, Math.min(0.3, Number(deps.dominanceSwitchDelta || 0.12)));
+    const reducedMotionQuery = targetWindow.matchMedia?.("(prefers-reduced-motion: reduce)") || null;
 
     const playbackProfiles = Object.freeze({
       constrained: Object.freeze({
@@ -9942,6 +9954,10 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         || (hardwareConcurrency > 0 && hardwareConcurrency <= 4);
       if (balancedNetwork || balancedDevice || !effectiveType) return playbackProfiles.balanced;
       return playbackProfiles.fast;
+    }
+
+    function isReducedMotionEnabled() {
+      return Boolean(reducedMotionQuery?.matches);
     }
 
     function shouldPrewarmVideo() {
@@ -10037,6 +10053,83 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       }
       const payload = await requestPlaybackToken(providerId);
       return { payload: cacheToken(providerId, payload), cached: false, prefetched: false };
+    }
+
+    function normalizeCaptionItems(payload, providerId) {
+      const expectedPrefix = `/api/media/videos/${encodeURIComponent(providerId)}/captions/`;
+      const seen = new Set();
+      return (Array.isArray(payload?.items) ? payload.items : [])
+        .map((item) => {
+          const language = String(item?.language || "").trim();
+          const src = String(item?.src || "").trim();
+          if (!/^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8}){0,8}$/.test(language)
+            || !src.startsWith(expectedPrefix)
+            || !src.endsWith(".vtt")
+            || seen.has(language.toLowerCase())) return null;
+          seen.add(language.toLowerCase());
+          return {
+            language,
+            label: String(item?.label || language).trim().slice(0, 80),
+            src,
+            generated: item?.generated === true
+          };
+        })
+        .filter(Boolean)
+        .slice(0, 20);
+    }
+
+    async function getCaptionItems(providerId) {
+      if (!requestCaptions) return [];
+      const cached = captionCache.get(providerId);
+      if (cached) return cached;
+      const task = Promise.resolve(requestCaptions(providerId))
+        .then((payload) => {
+          const items = normalizeCaptionItems(payload, providerId);
+          captionCache.set(providerId, Promise.resolve(items));
+          return items;
+        })
+        .catch(() => {
+          captionCache.delete(providerId);
+          return [];
+        });
+      captionCache.set(providerId, task);
+      while (captionCache.size > maxCachedTokens) captionCache.delete(captionCache.keys().next().value);
+      return task;
+    }
+
+    function getPreferredCaptionLanguage() {
+      return String(targetDocument.documentElement?.lang || targetWindow.navigator?.language || "").trim().toLowerCase();
+    }
+
+    function attachCaptionTracks(video, node, state, providerId, generation) {
+      if (!requestCaptions) return;
+      void getCaptionItems(providerId).then((items) => {
+        if (!items.length || state.generation !== generation || !node.isConnected
+          || node.querySelector?.("[data-stream-player]") !== video) return;
+        const preferredLanguage = getPreferredCaptionLanguage();
+        let defaultIndex = items.findIndex((item) => {
+          const language = item.language.toLowerCase();
+          return language === preferredLanguage || language.split("-")[0] === preferredLanguage.split("-")[0];
+        });
+        if (defaultIndex < 0) defaultIndex = 0;
+        items.forEach((item, index) => {
+          const track = targetDocument.createElement("track");
+          track.kind = "captions";
+          track.srclang = item.language;
+          track.label = item.label;
+          track.src = item.src;
+          track.default = index === defaultIndex;
+          track.dataset.wingaCaptionTrack = "true";
+          video.appendChild(track);
+          if (track.default) {
+            track.addEventListener?.("load", () => {
+              if (track.track) track.track.mode = "showing";
+            }, { once: true });
+          }
+        });
+        node.dataset.videoCaptionsAvailable = String(items.length);
+        emitVideoMetric(node, state, "video_captions_ready", { count: items.length });
+      });
     }
 
     function emitMetric(event, detail = {}) {
@@ -10146,6 +10239,22 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       state.recoveryTimer = 0;
     }
 
+    function setIdleVideoSemantics(node, state) {
+      const label = String(state?.playLabel || translateUi("video.playProduct", {}, "Play product video"));
+      node.setAttribute?.("role", "button");
+      node.setAttribute?.("tabindex", "0");
+      node.setAttribute?.("aria-label", label);
+    }
+
+    function setActiveVideoSemantics(node, state, video) {
+      const title = String(node.dataset.videoTitle || "").trim();
+      const label = translateUi("video.playerLabel", { title }, title ? `Product video: ${title}` : "Product video");
+      node.setAttribute?.("role", "group");
+      node.removeAttribute?.("tabindex");
+      node.setAttribute?.("aria-label", label);
+      video.setAttribute?.("aria-label", label);
+    }
+
     function markPlaybackFailed(node, state, context = {}) {
       if (!state || state.generation !== context.generation) return;
       clearRecoveryTimer(state);
@@ -10171,6 +10280,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       state.hls?.destroy?.();
       state.hls = null;
       player?.remove?.();
+      setIdleVideoSemantics(node, state);
       settleReadyState(state);
       reconcileActivePlayback();
     }
@@ -10242,6 +10352,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         state.failed = false;
         state.hasPlayed = false;
         state.autoplayRequested = false;
+        state.userInitiatedPlayback = false;
         state.prewarmQueued = false;
         state.awaitingNetwork = false;
         state.networkRecoveryAttempts = 0;
@@ -10274,6 +10385,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       player?.removeAttribute?.("src");
       player?.load?.();
       player?.remove?.();
+      setIdleVideoSemantics(node, state);
+      delete node.dataset.videoCaptionsAvailable;
       node.classList.remove("is-playing", "is-ready", "is-loading", "is-buffering", "is-prewarming", "has-playback-error");
       node.setAttribute("aria-busy", "false");
       if (options.forget === true) {
@@ -10290,8 +10403,9 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     }
 
     function requestPlayerPlay(player) {
+      if (!player || player.paused === false) return;
       try {
-        const playPromise = player?.play?.();
+        const playPromise = player.play?.();
         playPromise?.catch?.(() => undefined);
       } catch (_error) {
         // Autoplay can be declined by the browser without breaking manual playback.
@@ -10356,6 +10470,12 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     function reconcileActivePlayback() {
       if (targetDocument.visibilityState === "hidden") {
         relinquishActiveNode("document_hidden");
+        return;
+      }
+      if (isReducedMotionEnabled()) {
+        const activeState = activeNode ? stateByNode.get(activeNode) : null;
+        if (activeNode?.isConnected && activeState?.inPlaybackViewport && activeState.userInitiatedPlayback) return;
+        relinquishActiveNode("reduced_motion");
         return;
       }
       if (!isNetworkOnline()) {
@@ -10458,6 +10578,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         state.userPaused = false;
         state.failed = false;
         state.awaitingNetwork = false;
+        state.userInitiatedPlayback = true;
         if (userPauseLockNode === node) userPauseLockNode = null;
       }
       if (options.prewarm === true && !shouldPrewarmVideo()) return state.readyPromise;
@@ -10539,7 +10660,9 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         video.poster = `${signedAssetRoot}/thumbnails/thumbnail.jpg`;
         video.setAttribute("controls", "");
         video.setAttribute("playsinline", "");
+        setActiveVideoSemantics(node, state, video);
         node.appendChild(video);
+        attachCaptionTracks(video, node, state, providerId, generation);
 
         let playbackStartedReported = false;
         const playWhenReady = () => {
@@ -10616,6 +10739,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         const handlePlay = () => {
           if (state.generation !== generation || !node.isConnected) return;
           state.userPaused = false;
+          if (isReducedMotionEnabled()) state.userInitiatedPlayback = true;
           state.pendingPlaybackCycle = true;
           if (userPauseLockNode === node) userPauseLockNode = null;
           claimActiveNode(node);
@@ -10636,6 +10760,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           if (pauseReason) return;
           state.userPaused = true;
           state.autoplayRequested = false;
+          state.userInitiatedPlayback = false;
           userPauseLockNode = node;
           if (activeNode === node) activeNode = null;
           reconcileActivePlayback();
@@ -10875,6 +11000,10 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         targetDocument.addEventListener("visibilitychange", handleVisibilityChange);
         visibilityHandlerInstalled = true;
       }
+      if (!reducedMotionHandlerInstalled && reducedMotionQuery?.addEventListener) {
+        reducedMotionQuery.addEventListener("change", reconcileActivePlayback);
+        reducedMotionHandlerInstalled = true;
+      }
       installNetworkHandlers();
       installCommerceAttributionHandler();
       const nodes = Array.from(scope?.querySelectorAll?.("[data-video-playback]") || []);
@@ -10888,8 +11017,10 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           failed: false,
           hasPlayed: false,
           userPaused: false,
+          userInitiatedPlayback: false,
           pauseReason: "",
           autoplayRequested: false,
+          playLabel: String(node.getAttribute?.("aria-label") || translateUi("video.playProduct", {}, "Play product video")),
           releaseTimer: 0,
           hls: null,
           readyPromise: null,
@@ -10921,6 +11052,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           summaryGeneration: -1
         });
 
+        setIdleVideoSemantics(node, stateByNode.get(node));
         boundNodes.add(node);
 
         const prewarmTarget = node.closest?.(".product-card, .seller-product-card, [data-product-card], [data-feed-gallery-carousel]") || node;

@@ -170,3 +170,52 @@ test("Stream upload duration reservation is measured, buffered, and capped", asy
   assert.equal(capped.maxDurationSeconds, 36000);
   assert.equal(bodies[1].maxDurationSeconds, 36000);
 });
+
+test("Stream captions are normalized, cached, and served only as valid WebVTT", async () => {
+  const calls = [];
+  const client = createCloudflareStreamClient({
+    config: readCloudflareStreamConfig({
+      CLOUDFLARE_STREAM_ACCOUNT_ID: "account-123",
+      CLOUDFLARE_STREAM_API_TOKEN: "stream-secret-token"
+    }),
+    fetchImpl: async (url, init) => {
+      calls.push({ url, init });
+      if (url.endsWith("/captions")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ success: true, result: [
+            { language: "sw", label: "Kiswahili", status: "ready", generated: false },
+            { language: "en-GB", label: "British English", status: "ready", generated: true },
+            { language: "fr", label: "Français", status: "inprogress", generated: true },
+            { language: "../bad", label: "Bad", status: "ready" }
+          ] })
+        };
+      }
+      return { ok: true, status: 200, text: async () => "WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nKaribu Winga.\n" };
+    }
+  });
+
+  const first = await client.listCaptions("stream-video-123");
+  const second = await client.listCaptions("stream-video-123");
+  const vtt = await client.readCaptionVtt("stream-video-123", "sw");
+
+  assert.deepEqual(first.map((item) => item.language), ["sw", "en-GB"]);
+  assert.deepEqual(second, first);
+  assert.equal(calls.filter((call) => call.url.endsWith("/captions")).length, 1);
+  assert.equal(vtt.startsWith("WEBVTT"), true);
+  assert.equal(calls.at(-1).init.headers.Authorization, "Bearer stream-secret-token");
+  assert.equal(calls.at(-1).init.headers.Accept, "text/vtt");
+
+  const invalidClient = createCloudflareStreamClient({
+    config: readCloudflareStreamConfig({
+      CLOUDFLARE_STREAM_ACCOUNT_ID: "account-123",
+      CLOUDFLARE_STREAM_API_TOKEN: "stream-secret-token"
+    }),
+    fetchImpl: async () => ({ ok: true, status: 200, text: async () => "not-vtt" })
+  });
+  await assert.rejects(
+    () => invalidClient.readCaptionVtt("stream-video-123", "sw"),
+    { code: "stream_invalid_caption_response" }
+  );
+});

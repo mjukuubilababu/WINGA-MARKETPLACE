@@ -3,6 +3,8 @@ const crypto = require("crypto");
 const API_BASE = "https://api.cloudflare.com/client/v4";
 const DEFAULT_MAX_DURATION_SECONDS = 36000;
 const DEFAULT_WEBHOOK_MAX_AGE_SECONDS = 300;
+const CAPTION_LIST_CACHE_TTL_MS = 5 * 60 * 1000;
+const MAX_CAPTION_LIST_CACHE_ENTRIES = 2048;
 
 function cleanText(value, maxLength = 500) { return String(value || "").trim().slice(0, maxLength); }
 function clampInteger(value, minimum, maximum, fallback) {
@@ -13,6 +15,21 @@ function normalizeAllowedOrigins(origins = []) {
   return Array.from(new Set((Array.isArray(origins) ? origins : [origins])
     .map((origin) => cleanText(origin, 255).toLowerCase())
     .filter((origin) => /^(?:\*\.)?[a-z0-9.-]+$/i.test(origin)))).slice(0, 10);
+}
+function normalizeCaptionLanguage(value) {
+  const language = cleanText(value, 35);
+  return /^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8}){0,8}$/.test(language) ? language : "";
+}
+function normalizeCaptionTrack(value = {}) {
+  const language = normalizeCaptionLanguage(value.language);
+  const status = cleanText(value.status, 24).toLowerCase();
+  if (!language || status !== "ready") return null;
+  return {
+    language,
+    label: cleanText(value.label || language, 80),
+    status: "ready",
+    generated: value.generated === true
+  };
 }
 function extractStreamCustomerCode(...values) {
   for (const value of values) {
@@ -125,6 +142,7 @@ function createCloudflareStreamClient(options = {}) {
     }
   }
   const signedPlaybackPolicyCache = new Map();
+  const captionListCache = new Map();
   const signedPlaybackPolicyTtlMs = 6 * 60 * 60 * 1000;
   async function request(pathname, init = {}) {
     if (!isCloudflareStreamConfigured(config)) {
@@ -239,7 +257,50 @@ function createCloudflareStreamClient(options = {}) {
     if (!/^[a-zA-Z0-9_-]{8,64}$/.test(safeId)) return false;
     await request(`/${encodeURIComponent(safeId)}`, { method: "DELETE" });
     signedPlaybackPolicyCache.delete(safeId);
+    captionListCache.delete(safeId);
     return true;
+  }
+  async function listCaptions(providerId) {
+    const safeId = cleanText(providerId, 64);
+    if (!/^[a-zA-Z0-9_-]{8,64}$/.test(safeId)) throw new TypeError("A valid Stream video identifier is required.");
+    const now = Date.now();
+    const cached = captionListCache.get(safeId);
+    if (cached && cached.expiresAt > now) return cached.items.map((item) => ({ ...item }));
+    captionListCache.delete(safeId);
+    const result = await request(`/${encodeURIComponent(safeId)}/captions`);
+    const items = (Array.isArray(result) ? result : [])
+      .map(normalizeCaptionTrack)
+      .filter(Boolean)
+      .slice(0, 20);
+    captionListCache.set(safeId, { items, expiresAt: now + CAPTION_LIST_CACHE_TTL_MS });
+    while (captionListCache.size > MAX_CAPTION_LIST_CACHE_ENTRIES) {
+      captionListCache.delete(captionListCache.keys().next().value);
+    }
+    return items.map((item) => ({ ...item }));
+  }
+  async function readCaptionVtt(providerId, language) {
+    const safeId = cleanText(providerId, 64);
+    const safeLanguage = normalizeCaptionLanguage(language);
+    if (!/^[a-zA-Z0-9_-]{8,64}$/.test(safeId) || !safeLanguage) {
+      throw new TypeError("A valid Stream video identifier and caption language are required.");
+    }
+    const response = await fetchImpl(
+      `${API_BASE}/accounts/${encodeURIComponent(config.accountId)}/stream/${encodeURIComponent(safeId)}/captions/${encodeURIComponent(safeLanguage)}/vtt`,
+      { headers: { Authorization: `Bearer ${config.apiToken}`, Accept: "text/vtt" } }
+    );
+    if (!response.ok) {
+      const error = new Error("Cloudflare Stream caption request failed.");
+      error.code = response.status === 404 ? "stream_caption_not_found" : "stream_provider_error";
+      error.status = response.status;
+      throw error;
+    }
+    const vtt = String(await response.text());
+    if (!/^WEBVTT(?:\s|$)/.test(vtt.slice(0, 64))) {
+      const error = new Error("Cloudflare Stream returned an invalid caption file.");
+      error.code = "stream_invalid_caption_response";
+      throw error;
+    }
+    return vtt;
   }
   async function createPlaybackToken(providerId, options = {}) {
     const safeId = cleanText(providerId, 64);
@@ -281,6 +342,6 @@ function createCloudflareStreamClient(options = {}) {
     if (!token) { const error = new Error("Cloudflare Stream returned no playback token."); error.code = "stream_invalid_provider_response"; throw error; }
     return { token, expiresInSeconds: config.playbackTokenTtlSeconds, customerCode, signingMode: "api" };
   }
-  return { config: { ...config, apiToken: "", webhookSecret: "", signingJwk: "" }, createDirectUpload, createResumableUpload, createPlaybackToken, deleteVideo, isConfigured: () => isCloudflareStreamConfigured(config) };
+  return { config: { ...config, apiToken: "", webhookSecret: "", signingJwk: "" }, createDirectUpload, createResumableUpload, createPlaybackToken, deleteVideo, listCaptions, readCaptionVtt, isConfigured: () => isCloudflareStreamConfigured(config) };
 }
-module.exports = { DEFAULT_MAX_DURATION_SECONDS, createCloudflareStreamClient, extractStreamCustomerCode, isCloudflareStreamConfigured, normalizeStreamVideo, parseWebhookSignature, readCloudflareStreamConfig, verifyCloudflareStreamWebhook };
+module.exports = { DEFAULT_MAX_DURATION_SECONDS, createCloudflareStreamClient, extractStreamCustomerCode, isCloudflareStreamConfigured, normalizeCaptionTrack, normalizeStreamVideo, parseWebhookSignature, readCloudflareStreamConfig, verifyCloudflareStreamWebhook };

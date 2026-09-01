@@ -879,6 +879,8 @@
                      "ui.label.a73f99f6bfc8":  "Request sent",
                      "ui.label.5e1a0ebc939d":  "Trending",
                      "ui.label.1911ff50be5f":  "Wear Fun",
+                     "video.playProduct":  "Play product video",
+                     "video.playerLabel":  "Product video: {title}",
                      "video.playbackRuntimeTimeout":  "Video playback took too long to start.",
                      "video.playbackUnsupported":  "Video playback is not supported on this device.",
                      "video.playbackRuntimeFailed":  "Video playback could not start.",

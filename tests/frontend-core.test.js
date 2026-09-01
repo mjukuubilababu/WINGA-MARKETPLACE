@@ -4967,3 +4967,170 @@ test("payment refund adapter preserves signed durable provider orchestration", (
 
   console.log(`Frontend core tests passed: ${passed}/${tests.length}`);
 })();
+
+test("video captions load without blocking playback and reduced motion requires user intent", async () => {
+  const root = path.resolve(__dirname, "..");
+  const playbackSource = fs.readFileSync(path.join(root, "src", "marketplace", "video-playback.js"), "utf8");
+  const observers = [];
+  const nodeListeners = new Map();
+  const nodeAttributes = new Map([
+    ["role", "button"],
+    ["tabindex", "0"],
+    ["aria-label", "Play product video"]
+  ]);
+  const videoAttributes = new Map();
+  const captionTracks = [];
+  let player = null;
+  let captionRequests = 0;
+  let playCalls = 0;
+
+  class FakeIntersectionObserver {
+    constructor(callback, options) {
+      this.callback = callback;
+      this.options = options;
+      observers.push(this);
+    }
+    observe() {}
+    unobserve() {}
+  }
+
+  const videoListeners = new Map();
+  const video = {
+    dataset: {},
+    paused: true,
+    readyState: 4,
+    muted: true,
+    volume: 1,
+    setAttribute(name, value) { videoAttributes.set(name, String(value)); },
+    removeAttribute: () => {},
+    addEventListener(type, handler, options = {}) {
+      const handlers = videoListeners.get(type) || [];
+      handlers.push({ handler, once: options?.once === true });
+      videoListeners.set(type, handlers);
+    },
+    dispatch(type) {
+      const handlers = (videoListeners.get(type) || []).slice();
+      handlers.forEach((entry) => entry.handler());
+      videoListeners.set(type, handlers.filter((entry) => !entry.once));
+    },
+    appendChild(track) { captionTracks.push(track); },
+    play() {
+      playCalls += 1;
+      this.paused = false;
+      this.dispatch("play");
+      this.dispatch("playing");
+      return Promise.resolve();
+    },
+    pause() {
+      if (this.paused) return;
+      this.paused = true;
+      this.dispatch("pause");
+    },
+    load: () => {},
+    remove() { player = null; }
+  };
+
+  class FakeHls {
+    static Events = { ERROR: "error", MANIFEST_PARSED: "manifest" };
+    static isSupported() { return true; }
+    constructor() { this.handlers = new Map(); this.levels = []; }
+    on(type, handler) { this.handlers.set(type, handler); }
+    loadSource() {}
+    attachMedia(media) {
+      queueMicrotask(() => {
+        media.dispatch("loadeddata");
+        this.handlers.get(FakeHls.Events.MANIFEST_PARSED)?.();
+      });
+    }
+    destroy() {}
+  }
+
+  const card = {};
+  const node = {
+    dataset: { videoProviderId: "stream-caption-ready", videoTitle: "Nguo mpya" },
+    isConnected: true,
+    classList: { add: () => {}, remove: () => {}, toggle: () => {}, contains: () => false },
+    setAttribute(name, value) { nodeAttributes.set(name, String(value)); },
+    getAttribute(name) { return nodeAttributes.get(name) || null; },
+    removeAttribute(name) { nodeAttributes.delete(name); },
+    matches: () => false,
+    querySelector: (selector) => selector === "[data-stream-player]" ? player : null,
+    appendChild(value) { player = value; },
+    closest: () => card,
+    addEventListener(type, handler) { nodeListeners.set(type, handler); },
+    removeEventListener(type) { nodeListeners.delete(type); }
+  };
+  const reducedMotionQuery = {
+    matches: true,
+    addEventListener: () => {}
+  };
+  const targetDocument = {
+    visibilityState: "visible",
+    documentElement: { lang: "sw" },
+    querySelector: () => null,
+    querySelectorAll: () => [node],
+    createElement(tagName) {
+      if (tagName === "video") return video;
+      assert.equal(tagName, "track");
+      return { dataset: {}, addEventListener: () => {}, track: { mode: "disabled" } };
+    },
+    addEventListener: () => {},
+    head: { appendChild: () => {} }
+  };
+  const targetWindow = {
+    WingaModules: { marketplace: {} },
+    Hls: FakeHls,
+    IntersectionObserver: FakeIntersectionObserver,
+    navigator: { onLine: true, language: "en", connection: { saveData: false } },
+    matchMedia: () => reducedMotionQuery,
+    innerHeight: 800,
+    addEventListener: () => {},
+    setTimeout,
+    clearTimeout
+  };
+  const context = vm.createContext({ window: targetWindow });
+  vm.runInContext(playbackSource, context);
+  const controller = targetWindow.WingaModules.marketplace.createVideoPlaybackController({
+    requestPlaybackToken: async () => ({ customerCode: "example", token: "caption-token", expiresInSeconds: 300 }),
+    requestCaptions: async () => {
+      captionRequests += 1;
+      return { items: [{ language: "sw", label: "Kiswahili", status: "ready", src: "/api/media/videos/stream-caption-ready/captions/sw.vtt" }] };
+    },
+    translateUi: (key, variables, fallback) => key === "video.playerLabel" ? `Video ya bidhaa: ${variables.title}` : fallback,
+    windowObject: targetWindow,
+    documentObject: targetDocument
+  });
+
+  controller.bind(targetDocument);
+  const playbackObserver = observers.find((entry) => Array.isArray(entry.options.threshold) && entry.options.threshold.includes(0.55));
+  playbackObserver.callback([{
+    target: node,
+    isIntersecting: true,
+    intersectionRatio: 0.9,
+    boundingClientRect: { top: 100, height: 500 },
+    rootBounds: { top: 0, height: 800 }
+  }]);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(player, null);
+  assert.equal(playCalls, 0);
+
+  nodeListeners.get("click")({
+    type: "click",
+    target: { matches: () => false },
+    preventDefault: () => {},
+    stopPropagation: () => {}
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.equal(player, video);
+  assert.equal(playCalls, 1);
+  assert.equal(captionRequests, 1);
+  assert.equal(captionTracks.length, 1);
+  assert.equal(captionTracks[0].kind, "captions");
+  assert.equal(captionTracks[0].srclang, "sw");
+  assert.equal(captionTracks[0].default, true);
+  assert.equal(nodeAttributes.get("role"), "group");
+  assert.equal(nodeAttributes.has("tabindex"), false);
+  assert.equal(videoAttributes.get("aria-label"), "Video ya bidhaa: Nguo mpya");
+});

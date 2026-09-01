@@ -19566,6 +19566,7 @@ function getMarketplaceVideoPlaybackTools() {
     marketplaceVideoPlaybackTools = typeof factory === "function"
       ? factory({
         requestPlaybackToken: (providerId) => window.WingaDataLayer?.requestVideoPlayback?.(providerId),
+        requestCaptions: (providerId) => window.WingaDataLayer?.readVideoCaptions?.(providerId),
         windowObject: window,
         documentObject: document,
         translateUi,

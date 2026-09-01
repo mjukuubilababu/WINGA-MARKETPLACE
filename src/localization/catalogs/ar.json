@@ -883,6 +883,8 @@
                      "ui.label.a73f99f6bfc8":  "تم إرسال الطلب",
                      "ui.label.5e1a0ebc939d":  "تتجه",
                      "ui.label.1911ff50be5f":  "متعة الارتداء",
+                     "video.playProduct":  "تشغيل فيديو المنتج",
+                     "video.playerLabel":  "فيديو المنتج: {title}",
                      "video.playbackRuntimeTimeout":  "استغرق تشغيل الفيديو وقتًا طويلًا.",
                      "video.playbackUnsupported":  "هذا الجهاز لا يدعم تشغيل هذا الفيديو.",
                      "video.playbackRuntimeFailed":  "تعذر بدء تشغيل الفيديو.",
