@@ -294,13 +294,53 @@ async function seedMarketplace() {
   const catalog = [
     { id: "e2e-prod-1", name: "Sneaker Classic", price: 32000, category: "viatu-sneakers", seller: "market_seller", getAuthCookie: () => sellerSession.body?.authCookie, refreshAuth: refreshSellerSession, phone: "255700111222", shop: "Market Seller Shop", images: galleryImages },
     { id: "e2e-prod-delete", name: "Delete Me Listing", price: 35000, category: "viatu-sneakers", seller: "market_seller", getAuthCookie: () => sellerSession.body?.authCookie, refreshAuth: refreshSellerSession, phone: "255700111222", shop: "Market Seller Shop" },
-    { id: "e2e-prod-2", name: "Dress Elegant", price: 54000, category: "wanawake-magauni", seller: "market_seller", getAuthCookie: () => sellerSession.body?.authCookie, refreshAuth: refreshSellerSession, phone: "255700111222", shop: "Market Seller Shop" },
+    {
+      id: "e2e-prod-2",
+      name: "Dress Elegant",
+      price: 54000,
+      category: "wanawake-magauni",
+      seller: "market_seller",
+      getAuthCookie: () => sellerSession.body?.authCookie,
+      refreshAuth: refreshSellerSession,
+      phone: "255700111222",
+      shop: "Market Seller Shop",
+      images: [tinyImage],
+      image: tinyImage,
+      mediaItems: [
+        { type: "image", status: "ready", url: tinyImage, width: 720, height: 900, position: 0 },
+        {
+          type: "video", status: "ready", moderationStatus: "approved",
+          provider: "cloudflare-stream", providerId: "e2e-stream-mixed-video-001",
+          posterUrl: tinyImage, thumbnailUrl: tinyImage,
+          width: 720, height: 1280, duration: 18, position: 1
+        }
+      ]
+    },
     { id: "e2e-prod-3", name: "Shirt Premium", price: 27000, category: "wanaume-mashati", seller: "market_seller", getAuthCookie: () => sellerSession.body?.authCookie, refreshAuth: refreshSellerSession, phone: "255700111222", shop: "Market Seller Shop" },
     { id: "e2e-prod-4", name: "Bag Travel Pro", price: 61000, category: "accessories-mabegi", seller: "buyer_seller", getAuthCookie: () => buyerSellerSession.body?.authCookie, refreshAuth: refreshBuyerSellerSession, phone: "255700111221", shop: "Buyer Seller Shop" },
-    { id: "e2e-prod-5", name: "Phone Smart X", price: 420000, category: "electronics-simu", seller: "buyer_seller", getAuthCookie: () => buyerSellerSession.body?.authCookie, refreshAuth: refreshBuyerSellerSession, phone: "255700111221", shop: "Buyer Seller Shop" },
+    {
+      id: "e2e-prod-5",
+      name: "Phone Smart X",
+      price: 420000,
+      category: "electronics-simu",
+      seller: "buyer_seller",
+      getAuthCookie: () => buyerSellerSession.body?.authCookie,
+      refreshAuth: refreshBuyerSellerSession,
+      phone: "255700111221",
+      shop: "Buyer Seller Shop",
+      images: [],
+      image: "",
+      mediaItems: [{
+        type: "video", status: "ready", moderationStatus: "approved",
+        provider: "cloudflare-stream", providerId: "e2e-stream-video-only-001",
+        posterUrl: tinyImage, thumbnailUrl: tinyImage,
+        width: 720, height: 1280, duration: 24, position: 0
+      }]
+    },
     { id: "e2e-prod-broken", name: "Broken Feed Listing", price: 39000, category: "wanaume-tshirts", seller: "market_seller", getAuthCookie: () => sellerSession.body?.authCookie, refreshAuth: refreshSellerSession, phone: "255700111222", shop: "Market Seller Shop", images: ["/uploads/does-not-exist-e2e.png"], image: "/uploads/does-not-exist-e2e.png" },
     { id: "e2e-prod-pending", name: "Pending Showcase Bag", price: 46000, category: "accessories-mabegi", seller: "market_seller", getAuthCookie: () => sellerSession.body?.authCookie, refreshAuth: refreshSellerSession, phone: "255700111222", shop: "Market Seller Shop", approve: false },
     { id: "e2e-prod-pending-2", name: "Pending Office Shoes", price: 51000, category: "viatu-boots", seller: "market_seller", getAuthCookie: () => sellerSession.body?.authCookie, refreshAuth: refreshSellerSession, phone: "255700111222", shop: "Market Seller Shop", approve: false }
+
   ];
 
   for (const item of catalog) {
@@ -320,8 +360,9 @@ async function seedMarketplace() {
           whatsapp: item.phone,
           uploadedBy: item.seller,
           category: item.category,
-          images: Array.isArray(item.images) && item.images.length ? item.images : [tinyImage],
-          image: item.image || tinyImage,
+          images: Array.isArray(item.images) ? item.images : [tinyImage],
+          image: item.image !== undefined ? item.image : tinyImage,
+          ...(Array.isArray(item.mediaItems) ? { mediaItems: item.mediaItems } : {}),
           imageSignature: "0101010101010101010101010101010101010101010101010101010101010101"
         })
       }),
