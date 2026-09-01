@@ -4295,6 +4295,7 @@ test("account recovery relay queues signed OTP delivery without joining the fron
   const relaySource = fs.readFileSync(path.join(root, "cloudflare", "account-recovery-relay.js"), "utf8");
   const relayConfig = fs.readFileSync(path.join(root, "wrangler.account-recovery.toml"), "utf8");
   const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+  const backendSource = fs.readFileSync(path.join(root, "backend", "server.js"), "utf8");
 
   assert.match(relayConfig, /name = "winga-account-recovery-relay"/);
   assert.match(relayConfig, /main = "\.\/cloudflare\/account-recovery-relay\.js"/);
@@ -4307,6 +4308,10 @@ test("account recovery relay queues signed OTP delivery without joining the fron
   assert.match(relaySource, /ACCOUNT_RECOVERY_DEDUPE/);
   assert.match(relaySource, /account-verification-code-v1/);
   assert.match(relaySource, /phone_change/);
+  assert.match(backendSource, /CF-Access-Client-Id/);
+  assert.match(backendSource, /CF-Access-Client-Secret/);
+  assert.match(backendSource, /contentType\.includes\("application\/json"\)/);
+  assert.match(backendSource, /relayPayload\?\.ok === true/);
   assert.match(relaySource, /Idempotency-Key/);
   assert.match(relaySource, /message\.retry\(\{ delaySeconds: 30 \}\)/);
   assert.match(relaySource, /event\.suppress/);

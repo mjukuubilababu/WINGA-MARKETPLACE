@@ -72,6 +72,8 @@ const SESSION_SECURITY_NOTIFICATION_WEBHOOK_SECRET = String(process.env.SESSION_
 const ACCOUNT_RECOVERY_SECRET = String(process.env.ACCOUNT_RECOVERY_SECRET || "").trim();
 const ACCOUNT_RECOVERY_DELIVERY_WEBHOOK_URL = String(process.env.ACCOUNT_RECOVERY_DELIVERY_WEBHOOK_URL || "").trim();
 const ACCOUNT_RECOVERY_DELIVERY_WEBHOOK_SECRET = String(process.env.ACCOUNT_RECOVERY_DELIVERY_WEBHOOK_SECRET || "").trim();
+const ACCOUNT_RECOVERY_CF_ACCESS_CLIENT_ID = String(process.env.ACCOUNT_RECOVERY_CF_ACCESS_CLIENT_ID || "").trim();
+const ACCOUNT_RECOVERY_CF_ACCESS_CLIENT_SECRET = String(process.env.ACCOUNT_RECOVERY_CF_ACCESS_CLIENT_SECRET || "").trim();
 const ACCOUNT_RECOVERY_CODE_TTL_MS = 10 * 60 * 1000;
 const ACCOUNT_RECOVERY_MAX_ATTEMPTS = 5;
 const ADMIN_SEED_USERNAME = String(process.env.ADMIN_SEED_USERNAME || "admin").trim();
@@ -367,6 +369,9 @@ function validateRuntimeConfiguration() {
     }
     if (!ACCOUNT_RECOVERY_DELIVERY_WEBHOOK_URL || !ACCOUNT_RECOVERY_DELIVERY_WEBHOOK_SECRET) {
       warnings.push("Account recovery delivery is disabled until its webhook URL and secret are configured.");
+    }
+    if (Boolean(ACCOUNT_RECOVERY_CF_ACCESS_CLIENT_ID) !== Boolean(ACCOUNT_RECOVERY_CF_ACCESS_CLIENT_SECRET)) {
+      warnings.push("Account recovery Cloudflare Access service-token configuration is incomplete.");
     }
     if (!CLOUDFLARE_STREAM_CLIENT.isConfigured() || !CLOUDFLARE_STREAM_CONFIG.webhookSecret || !CLOUDFLARE_STREAM_CONFIG.customerCode) {
       warnings.push("Video uploads are disabled until Cloudflare Stream configuration is complete.");
@@ -3077,7 +3082,8 @@ function isAccountRecoveryReady() {
   }
   return hasSigningSecret
     && Boolean(ACCOUNT_RECOVERY_DELIVERY_WEBHOOK_URL)
-    && Boolean(ACCOUNT_RECOVERY_DELIVERY_WEBHOOK_SECRET);
+    && Boolean(ACCOUNT_RECOVERY_DELIVERY_WEBHOOK_SECRET)
+    && Boolean(ACCOUNT_RECOVERY_CF_ACCESS_CLIENT_ID) === Boolean(ACCOUNT_RECOVERY_CF_ACCESS_CLIENT_SECRET);
 }
 
 function createAccountRecoveryCodeHash(challengeId, code) {
@@ -3119,6 +3125,35 @@ function parsePendingWhatsappCodeHash(value) {
   };
 }
 
+function buildAccountRecoveryRelayHeaders(userAgent) {
+  const headers = {
+    "Content-Type": "application/json",
+    "X-Winga-Recovery-Secret": ACCOUNT_RECOVERY_DELIVERY_WEBHOOK_SECRET,
+    "User-Agent": userAgent
+  };
+  if (ACCOUNT_RECOVERY_CF_ACCESS_CLIENT_ID && ACCOUNT_RECOVERY_CF_ACCESS_CLIENT_SECRET) {
+    headers["CF-Access-Client-Id"] = ACCOUNT_RECOVERY_CF_ACCESS_CLIENT_ID;
+    headers["CF-Access-Client-Secret"] = ACCOUNT_RECOVERY_CF_ACCESS_CLIENT_SECRET;
+  }
+  return headers;
+}
+
+async function isAccountRecoveryRelayAccepted(response) {
+  if (!response?.ok) {
+    return false;
+  }
+  const contentType = String(response.headers?.get?.("content-type") || "").toLowerCase();
+  if (!contentType.includes("application/json")) {
+    return false;
+  }
+  try {
+    const relayPayload = await response.json();
+    return relayPayload?.ok === true
+      && (relayPayload.accepted === true || relayPayload.deduped === true || relayPayload.queued === true);
+  } catch {
+    return false;
+  }
+}
 async function dispatchAccountRecoveryCode({ challengeId, username, destination, code, expiresAt, suppress = false }) {
   if (NODE_ENV !== "production" && !ACCOUNT_RECOVERY_DELIVERY_WEBHOOK_URL) {
     return { delivered: true, mode: "preview" };
@@ -3132,11 +3167,7 @@ async function dispatchAccountRecoveryCode({ challengeId, username, destination,
   try {
     const response = await fetch(ACCOUNT_RECOVERY_DELIVERY_WEBHOOK_URL, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Winga-Recovery-Secret": ACCOUNT_RECOVERY_DELIVERY_WEBHOOK_SECRET,
-        "User-Agent": "winga-account-recovery"
-      },
+      headers: buildAccountRecoveryRelayHeaders("winga-account-recovery"),
       body: JSON.stringify({
         version: "account-recovery-code-v1",
         challengeId,
@@ -3149,7 +3180,8 @@ async function dispatchAccountRecoveryCode({ challengeId, username, destination,
       }),
       signal: controller.signal
     });
-    return { delivered: response.ok, mode: response.ok ? "queued" : "relay_error" };
+    const accepted = await isAccountRecoveryRelayAccepted(response);
+    return { delivered: accepted, mode: accepted ? "queued" : "relay_error" };
   } catch (error) {
     console.warn("[WINGA] Account recovery relay request failed.", {
       error: String(error?.message || error || "unknown").slice(0, 160)
@@ -3173,11 +3205,7 @@ async function dispatchWhatsappVerificationCode({ challengeId, username, destina
   try {
     const response = await fetch(ACCOUNT_RECOVERY_DELIVERY_WEBHOOK_URL, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Winga-Recovery-Secret": ACCOUNT_RECOVERY_DELIVERY_WEBHOOK_SECRET,
-        "User-Agent": "winga-phone-verification"
-      },
+      headers: buildAccountRecoveryRelayHeaders("winga-phone-verification"),
       body: JSON.stringify({
         version: "account-verification-code-v1",
         challengeId,
@@ -3191,7 +3219,8 @@ async function dispatchWhatsappVerificationCode({ challengeId, username, destina
       }),
       signal: controller.signal
     });
-    return { delivered: response.ok, mode: response.ok ? "queued" : "relay_error" };
+    const accepted = await isAccountRecoveryRelayAccepted(response);
+    return { delivered: accepted, mode: accepted ? "queued" : "relay_error" };
   } catch (error) {
     console.warn("[WINGA] Phone verification relay request failed.", {
       error: String(error?.message || error || "unknown").slice(0, 160)

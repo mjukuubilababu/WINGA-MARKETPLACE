@@ -13,6 +13,7 @@
 - The refund provider must honor `Idempotency-Key`, verify `X-Winga-Refund-Signature`, and sign callbacks to `/api/payments/refunds/webhook`; an accepted request remains `submitted` until a confirmed callback arrives
 - `ACCOUNT_RECOVERY_SECRET` must be a separate high-entropy secret with at least 32 characters
 - `ACCOUNT_RECOVERY_DELIVERY_WEBHOOK_URL` and `ACCOUNT_RECOVERY_DELIVERY_WEBHOOK_SECRET` must point to the approved SMS delivery adapter; production never returns OTP codes to the browser
+- If the SMS relay is protected by Cloudflare Access, configure a service token as ACCOUNT_RECOVERY_CF_ACCESS_CLIENT_ID and ACCOUNT_RECOVERY_CF_ACCESS_CLIENT_SECRET; the backend rejects HTML/interstitial responses and accepts only a JSON queue acknowledgment
 - `ALLOW_LOCAL_DATA_STORE_IN_PRODUCTION=false`
 - `ALLOW_DEFAULT_ORIGIN_FALLBACK=false`
 - `ALLOW_UNVERIFIED_MANUAL_PAYMENTS=false` unless you are intentionally operating a manual-payment workflow and have accepted that risk
