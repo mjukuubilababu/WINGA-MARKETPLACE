@@ -2932,13 +2932,15 @@ test("PostgreSQL video pipeline health is durable, aggregate-only, and threshold
       calls.push({ text: String(text), params });
       return {
         rows: [{
-          total: 40, uploading: 2, processing: 3, ready: 30, cleanupPending: 1, failed: 5, failedRecent: 2, cleanupFailed: 1, failedRecent: 2,
+          total: 40, uploading: 2, processing: 3, ready: 30, readyWithoutPoster: 2, cleanupPending: 1, failed: 5, failedRecent: 2, cleanupFailed: 1,
           readyUnclaimed: 4, stalled: 1, oldestPendingAgeSeconds: 1200.5,
           averageReadyLatencySeconds: 42.25, lastChangedAt: "2026-08-30T15:00:00.000Z",
           safetyQueue: { pending: 3, processing: 1, retry: 2, submitted: 4,
             completed: 18, dead: 1, stalled: 1, oldestPendingAgeSeconds: 700.5 },
-          playback: { windowHours: 24, impressions: 100, plays: 80, completions: 50,
-            errors: 5, summaries: 75, commerceActions: 12,
+          playback: { windowHours: 24, impressions: 100, plays: 80, pauses: 25, resumes: 18,
+            replays: 6, mutes: 12, unmutes: 9, completions: 50, errors: 5, summaries: 75,
+            commerceActions: 12, averageStartLatencyMs: 420, p95StartLatencyMs: 1100,
+            tokenCacheHits: 60, prewarmedPlays: 40, bigPipePrefetchedPlays: 20,
             averageBufferRatio: 0.125, averageWatchMs: 6500 }
         }],
         rowCount: 1
@@ -2949,16 +2951,19 @@ test("PostgreSQL video pipeline health is durable, aggregate-only, and threshold
   const health = await store.readVideoPipelineHealth({ processingAgeSeconds: 600 });
 
   assert.deepEqual(health, {
-    total: 40, uploading: 2, processing: 3, ready: 30, cleanupPending: 1, failed: 5, failedRecent: 2, cleanupFailed: 1,
+    total: 40, uploading: 2, processing: 3, ready: 30, readyWithoutPoster: 2, cleanupPending: 1, failed: 5, failedRecent: 2, cleanupFailed: 1,
     readyUnclaimed: 4, stalled: 1, oldestPendingAgeSeconds: 1200.5,
-    averageReadyLatencySeconds: 42.25, lastChangedAt: "2026-08-30T15:00:00.000Z",
+    averageReadyLatencySeconds: 42.25, transcodeFailureRate: 0.1429, posterFailureRate: 0.0667,
+    lastChangedAt: "2026-08-30T15:00:00.000Z",
     safetyPending: 3, safetyProcessing: 1, safetyRetry: 2, safetySubmitted: 4,
     safetyCompleted: 18, safetyDead: 1, safetyStalled: 1, oldestSafetyPendingAgeSeconds: 700.5,
     playbackWindowHours: 24, playbackImpressions: 100, playbackPlays: 80,
+    playbackPauses: 25, playbackResumes: 18, playbackReplays: 6, playbackMutes: 12, playbackUnmutes: 9,
     playbackCompletions: 50, playbackErrors: 5, playbackSummaries: 75,
-    playbackCommerceActions: 12, playbackErrorRate: 0.0588,
-    playbackCompletionRate: 0.625, averagePlaybackBufferRatio: 0.125,
-    averagePlaybackWatchMs: 6500
+    playbackCommerceActions: 12, playbackErrorRate: 0.0588, playbackCompletionRate: 0.625,
+    averagePlaybackStartLatencyMs: 420, p95PlaybackStartLatencyMs: 1100,
+    playbackTokenCacheHitRate: 0.75, playbackPrewarmHitRate: 0.5, playbackBigPipePrefetchHitRate: 0.25,
+    averagePlaybackBufferRatio: 0.125, averagePlaybackWatchMs: 6500
   });
   assert.match(calls[0].text, /COUNT\(\*\) FILTER \(WHERE status = 'processing'\)/);
   assert.match(calls[0].text, /updated_at < NOW\(\) - \(\$1::int \* INTERVAL '1 second'\)/);
@@ -2972,6 +2977,10 @@ test("PostgreSQL video pipeline health is durable, aggregate-only, and threshold
   assert.equal(calls[0].text.includes("happened_at >= NOW() - INTERVAL '24 hours'"), true);
   assert.match(calls[0].text, /'video_buy_click'/);
   assert.match(calls[0].text, /metadata->>'bufferratio'/);
+  assert.match(calls[0].text, /metadata->>'latencyms'/);
+  assert.match(calls[0].text, /PERCENTILE_CONT/);
+  assert.match(calls[0].text, /metadata->>'tokencached'/);
+  assert.match(calls[0].text, /COALESCE\(poster_url, ''\) = ''/);
   assert.deepEqual(calls[0].params, [600]);
   assert.doesNotMatch(calls[0].text, /provider_id|seller_id|upload_id/);
 });

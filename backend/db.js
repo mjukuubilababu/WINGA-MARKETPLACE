@@ -5676,6 +5676,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
          COUNT(*) FILTER (WHERE status = 'uploading')::int AS uploading,
          COUNT(*) FILTER (WHERE status = 'processing')::int AS processing,
          COUNT(*) FILTER (WHERE status = 'ready')::int AS ready,
+         COUNT(*) FILTER (WHERE status = 'ready' AND COALESCE(poster_url, '') = '')::int AS "readyWithoutPoster",
          COUNT(*) FILTER (WHERE status = 'cleanup_pending')::int AS "cleanupPending",
          COUNT(*) FILTER (WHERE status = 'failed')::int AS failed,
          COUNT(*) FILTER (
@@ -5712,12 +5713,29 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
            'windowHours', 24,
            'impressions', COUNT(*) FILTER (WHERE event_type = 'video_impression'),
            'plays', COUNT(*) FILTER (WHERE event_type = 'video_play'),
+           'pauses', COUNT(*) FILTER (WHERE event_type = 'video_pause'),
+           'resumes', COUNT(*) FILTER (WHERE event_type = 'video_resume'),
+           'replays', COUNT(*) FILTER (WHERE event_type = 'video_replay'),
+           'mutes', COUNT(*) FILTER (WHERE event_type = 'video_mute'),
+           'unmutes', COUNT(*) FILTER (WHERE event_type = 'video_unmute'),
            'completions', COUNT(*) FILTER (WHERE event_type = 'video_complete'),
            'errors', COUNT(*) FILTER (WHERE event_type = 'video_error'),
            'summaries', COUNT(*) FILTER (WHERE event_type = 'video_watch_summary'),
            'commerceActions', COUNT(*) FILTER (WHERE event_type IN (
              'video_product_click', 'video_message_seller', 'video_buy_click', 'video_share', 'video_save'
            )),
+           'averageStartLatencyMs', COALESCE(AVG(
+             CASE WHEN event_type = 'video_play'
+               AND COALESCE(metadata->>'latencyms', '') ~ '^[0-9]+([.][0-9]+)?$'
+               THEN (metadata->>'latencyms')::float8 END
+           ), 0),
+           'p95StartLatencyMs', COALESCE(PERCENTILE_CONT(0.95) WITHIN GROUP (
+             ORDER BY (metadata->>'latencyms')::float8
+           ) FILTER (WHERE event_type = 'video_play'
+             AND COALESCE(metadata->>'latencyms', '') ~ '^[0-9]+([.][0-9]+)?$'), 0),
+           'tokenCacheHits', COUNT(*) FILTER (WHERE event_type = 'video_play' AND metadata->>'tokencached' = 'true'),
+           'prewarmedPlays', COUNT(*) FILTER (WHERE event_type = 'video_play' AND metadata->>'prewarmed' = 'true'),
+           'bigPipePrefetchedPlays', COUNT(*) FILTER (WHERE event_type = 'video_play' AND metadata->>'bigpipeprefetched' = 'true'),
            'averageBufferRatio', COALESCE(AVG(
              CASE WHEN event_type = 'video_watch_summary'
                AND COALESCE(metadata->>'bufferratio', '') ~ '^[0-9]+([.][0-9]+)?$'
@@ -5732,7 +5750,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
          FROM intelligence_events
          WHERE happened_at >= NOW() - INTERVAL '24 hours'
            AND event_type IN (
-             'video_impression', 'video_play', 'video_complete', 'video_error',
+             'video_impression', 'video_play', 'video_pause', 'video_resume', 'video_replay',
+             'video_complete', 'video_mute', 'video_unmute', 'video_error',
              'video_watch_summary', 'video_product_click', 'video_message_seller',
              'video_buy_click', 'video_share', 'video_save'
            )), '{}'::jsonb) AS playback
@@ -5746,6 +5765,10 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     const playbackErrors = Math.max(0, Number(playback.errors || 0));
     const playbackCompletions = Math.max(0, Number(playback.completions || 0));
     const playbackAttempts = playbackPlays + playbackErrors;
+    const ready = Math.max(0, Number(row.ready || 0));
+    const failed = Math.max(0, Number(row.failed || 0));
+    const readyWithoutPoster = Math.max(0, Number(row.readyWithoutPoster || 0));
+    const terminalTranscodes = ready + failed;
     const playbackErrorRate = playbackAttempts > 0
       ? Math.round(Math.min(1, playbackErrors / playbackAttempts) * 10000) / 10000
       : 0;
@@ -5756,15 +5779,22 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       total: Number(row.total || 0),
       uploading: Number(row.uploading || 0),
       processing: Number(row.processing || 0),
-      ready: Number(row.ready || 0),
+      ready,
+      readyWithoutPoster,
       cleanupPending: Number(row.cleanupPending || 0),
-      failed: Number(row.failed || 0),
+      failed,
       failedRecent: Number(row.failedRecent || 0),
       cleanupFailed: Number(row.cleanupFailed || 0),
       readyUnclaimed: Number(row.readyUnclaimed || 0),
       stalled: Number(row.stalled || 0),
       oldestPendingAgeSeconds: Math.max(0, Number(row.oldestPendingAgeSeconds || 0)),
       averageReadyLatencySeconds: Math.max(0, Number(row.averageReadyLatencySeconds || 0)),
+      transcodeFailureRate: terminalTranscodes > 0
+        ? Math.round(Math.min(1, failed / terminalTranscodes) * 10000) / 10000
+        : 0,
+      posterFailureRate: ready > 0
+        ? Math.round(Math.min(1, readyWithoutPoster / ready) * 10000) / 10000
+        : 0,
       lastChangedAt: row.lastChangedAt || null,
       safetyPending: Number(safetyQueue.pending || 0),
       safetyProcessing: Number(safetyQueue.processing || 0),
@@ -5777,12 +5807,28 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       playbackWindowHours: Math.max(1, Number(playback.windowHours || 24)),
       playbackImpressions: Math.max(0, Number(playback.impressions || 0)),
       playbackPlays,
+      playbackPauses: Math.max(0, Number(playback.pauses || 0)),
+      playbackResumes: Math.max(0, Number(playback.resumes || 0)),
+      playbackReplays: Math.max(0, Number(playback.replays || 0)),
+      playbackMutes: Math.max(0, Number(playback.mutes || 0)),
+      playbackUnmutes: Math.max(0, Number(playback.unmutes || 0)),
       playbackCompletions,
       playbackErrors,
       playbackSummaries: Math.max(0, Number(playback.summaries || 0)),
       playbackCommerceActions: Math.max(0, Number(playback.commerceActions || 0)),
       playbackErrorRate,
       playbackCompletionRate,
+      averagePlaybackStartLatencyMs: Math.max(0, Number(playback.averageStartLatencyMs || 0)),
+      p95PlaybackStartLatencyMs: Math.max(0, Number(playback.p95StartLatencyMs || 0)),
+      playbackTokenCacheHitRate: playbackPlays > 0
+        ? Math.round(Math.min(1, Number(playback.tokenCacheHits || 0) / playbackPlays) * 10000) / 10000
+        : 0,
+      playbackPrewarmHitRate: playbackPlays > 0
+        ? Math.round(Math.min(1, Number(playback.prewarmedPlays || 0) / playbackPlays) * 10000) / 10000
+        : 0,
+      playbackBigPipePrefetchHitRate: playbackPlays > 0
+        ? Math.round(Math.min(1, Number(playback.bigPipePrefetchedPlays || 0) / playbackPlays) * 10000) / 10000
+        : 0,
       averagePlaybackBufferRatio: Math.max(0, Math.min(1, Number(playback.averageBufferRatio || 0))),
       averagePlaybackWatchMs: Math.max(0, Number(playback.averageWatchMs || 0))
     };

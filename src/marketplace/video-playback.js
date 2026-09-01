@@ -910,6 +910,8 @@
           emitVideoMetric(node, state, "video_playback_started", {
             latencyMs: Math.max(0, timestamp - startedAt),
             tokenCached: tokenResult.cached,
+            prewarmed: options.prewarm === true,
+            bigPipePrefetched: tokenResult.prefetched === true,
             autoplay: state.autoplayRequested,
             saveData: isSaveDataEnabled(),
             profile: playbackProfile.name

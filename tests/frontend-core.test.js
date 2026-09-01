@@ -2128,6 +2128,67 @@ test("remote intelligence API client owns fail-soft telemetry and search demand 
   assert.ok(buildSource.indexOf('"src/api/intelligence-client.js"') < buildSource.indexOf('"src/config/categories.js"'));
 });
 
+test("intelligence client batches video telemetry without blocking marketplace work", async () => {
+  const root = path.resolve(__dirname, "..");
+  const moduleSource = fs.readFileSync(path.join(root, "src", "api", "intelligence-client.js"), "utf8");
+  const scheduled = [];
+  const lifecycleHandlers = new Map();
+  const requests = [];
+  let failNextRequest = false;
+  const context = vm.createContext({
+    window: { WingaModules: { api: { intelligence: {} } } }
+  });
+  vm.runInContext(moduleSource, context);
+  const client = context.window.WingaModules.api.intelligence.createIntelligenceApiClient({
+    baseUrl: "/api",
+    fetchJson: async (url, options) => {
+      requests.push({ url, options });
+      if (failNextRequest) {
+        failNextRequest = false;
+        throw new Error("telemetry unavailable");
+      }
+      return { ok: true };
+    },
+    getConfig: () => ({ enableClientEventLogging: true }),
+    schedule: (callback) => {
+      scheduled.push(callback);
+      return callback;
+    },
+    cancelSchedule: (callback) => {
+      const index = scheduled.indexOf(callback);
+      if (index >= 0) scheduled.splice(index, 1);
+    },
+    lifecycleTarget: {
+      addEventListener: (name, handler) => lifecycleHandlers.set(name, handler)
+    },
+    maxClientEventBatchSize: 2,
+    maxBufferedClientEvents: 4,
+    clientEventFlushDelayMs: 500
+  });
+
+  await client.logClientEvent({ level: "info", event: "video_impression" });
+  assert.equal(requests.length, 0);
+  assert.equal(scheduled.length, 1);
+
+  await client.logClientEvent({ level: "info", event: "video_play" });
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].url, "/api/client-events");
+  assert.equal(JSON.parse(requests[0].options.body).events.length, 2);
+  assert.equal(requests[0].options.keepalive, false);
+
+  await client.logClientEvent({ level: "info", event: "video_pause" });
+  await client.flushClientEvents({ keepalive: true });
+  assert.equal(requests.length, 2);
+  assert.equal(JSON.parse(requests[1].options.body).events[0].event, "video_pause");
+  assert.equal(requests[1].options.keepalive, true);
+  assert.equal(typeof lifecycleHandlers.get("pagehide"), "function");
+
+  failNextRequest = true;
+  const failOpenResult = await client.logClientEvent({ level: "error", event: "video_error" });
+  assert.equal(failOpenResult, null);
+  assert.equal(requests.length, 3);
+});
+
 test("boot lifecycle module owns lifecycle epoch and boot target helpers", () => {
   const root = path.resolve(__dirname, "..");
   const lifecycleSource = fs.readFileSync(path.join(root, "src", "boot", "lifecycle.js"), "utf8");
@@ -4734,6 +4795,10 @@ test("video playback emits bounded lifecycle intelligence without exposing provi
   assert.ok(player);
   assert.equal(metrics.filter((entry) => entry.event === "video_impression").length, 1);
   assert.equal(metrics.filter((entry) => entry.event === "video_playback_started").length, 1);
+  const playbackStartedMetric = metrics.find((entry) => entry.event === "video_playback_started");
+  assert.equal(playbackStartedMetric.detail.tokenCached, false);
+  assert.equal(playbackStartedMetric.detail.prewarmed, false);
+  assert.equal(playbackStartedMetric.detail.bigPipePrefetched, false);
   assert.equal(metrics.find((entry) => entry.event === "video_impression").detail.productId, "product-video-observed");
 
   commerceClick({ target: createCommerceTarget("[data-buy-product]") });

@@ -1509,6 +1509,42 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   assert.equal(duplicateClientAlertEvent.body.accepted, false);
   assert.equal(duplicateClientAlertEvent.body.reason, "duplicate_event");
 
+  const videoTelemetryBatch = await request("/client-events", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: "Bearer " + buyerToken
+    },
+    body: JSON.stringify({
+      events: [{
+        level: "info",
+        event: "video_impression",
+        message: "Video entered the Home viewport.",
+        category: "media",
+        fingerprint: "video:impression:batch",
+        context: {
+          surface: "home_feed",
+          productId: "product-test-001"
+        }
+      }, {
+        level: "info",
+        event: "video_playback_started",
+        message: "Video playback started.",
+        category: "media",
+        fingerprint: "video:play:batch",
+        context: {
+          surface: "home_feed",
+          productId: "product-test-001",
+          latencyMs: 420,
+          tokenCached: true
+        }
+      }]
+    })
+  });
+  assert.equal(videoTelemetryBatch.response.status, 202);
+  assert.equal(videoTelemetryBatch.body.accepted, 2);
+  assert.equal(videoTelemetryBatch.body.dropped, 0);
+
   const adminOpsSummaryAfterClientAlert = await request("/admin/ops/summary", {
     headers: { Authorization: `Bearer ${adminToken}` }
   });

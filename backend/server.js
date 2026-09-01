@@ -6419,12 +6419,51 @@ const server = http.createServer(async (req, res) => {
       Number(process.env.VIDEO_PLAYBACK_BUFFER_RATIO_THRESHOLD || 0.2) || 0.2,
       1
     ));
+    const playbackStartLatencyThresholdMs = Math.max(250, Math.min(
+      Number(process.env.VIDEO_PLAYBACK_START_LATENCY_THRESHOLD_MS || 2500) || 2500,
+      60000
+    ));
+    const pipelineMinSampleSize = Math.max(5, Math.min(
+      Number(process.env.VIDEO_PIPELINE_MIN_SAMPLE_SIZE || 20) || 20,
+      1000000
+    ));
+    const transcodeFailureRateThreshold = Math.max(0.01, Math.min(
+      Number(process.env.VIDEO_TRANSCODE_FAILURE_RATE_THRESHOLD || 0.1) || 0.1,
+      1
+    ));
+    const posterFailureRateThreshold = Math.max(0.01, Math.min(
+      Number(process.env.VIDEO_POSTER_FAILURE_RATE_THRESHOLD || 0.02) || 0.02,
+      1
+    ));
+    const processingLatencyThresholdSeconds = Math.max(30, Math.min(
+      Number(process.env.VIDEO_PROCESSING_LATENCY_THRESHOLD_SECONDS || 600) || 600,
+      86400
+    ));
     const health = await postgresStore.readVideoPipelineHealth({ processingAgeSeconds });
     const alerts = [];
     if (health.stalled > 0) alerts.push("stalled_video_processing");
     if (health.failedRecent >= failedThreshold) alerts.push("video_failure_threshold_exceeded");
     if (health.safetyStalled > 0) alerts.push("stalled_video_safety");
     if (health.safetyDead >= safetyDeadThreshold) alerts.push("video_safety_dead_letter_threshold_exceeded");
+    const terminalTranscodes = health.ready + health.failed;
+    if (
+      terminalTranscodes >= pipelineMinSampleSize
+      && health.transcodeFailureRate >= transcodeFailureRateThreshold
+    ) {
+      alerts.push("video_transcode_failure_rate_exceeded");
+    }
+    if (
+      health.ready >= pipelineMinSampleSize
+      && health.posterFailureRate >= posterFailureRateThreshold
+    ) {
+      alerts.push("video_poster_failure_rate_exceeded");
+    }
+    if (
+      health.ready >= pipelineMinSampleSize
+      && health.averageReadyLatencySeconds >= processingLatencyThresholdSeconds
+    ) {
+      alerts.push("video_processing_latency_exceeded");
+    }
     const playbackAttempts = health.playbackPlays + health.playbackErrors;
     if (
       playbackAttempts >= playbackMinSampleSize
@@ -6438,6 +6477,12 @@ const server = http.createServer(async (req, res) => {
     ) {
       alerts.push("video_playback_buffer_ratio_exceeded");
     }
+    if (
+      health.playbackPlays >= playbackMinSampleSize
+      && health.p95PlaybackStartLatencyMs >= playbackStartLatencyThresholdMs
+    ) {
+      alerts.push("video_playback_start_latency_exceeded");
+    }
     const readiness = alerts.length ? "degraded" : "ready";
     const statusCode = readiness === "degraded" ? 503 : 200;
     requestMeta.statusCode = statusCode;
@@ -6447,9 +6492,13 @@ const server = http.createServer(async (req, res) => {
       videoPending: health.uploading + health.processing,
       videoStalled: health.stalled,
       videoFailedRecent: health.failedRecent,
+      videoTranscodeFailureRate: health.transcodeFailureRate,
+      videoPosterFailureRate: health.posterFailureRate,
+      videoProcessingLatencySeconds: health.averageReadyLatencySeconds,
       videoPlaybackAttempts: playbackAttempts,
       videoPlaybackErrorRate: health.playbackErrorRate,
-      videoPlaybackBufferRatio: health.averagePlaybackBufferRatio
+      videoPlaybackBufferRatio: health.averagePlaybackBufferRatio,
+      videoPlaybackP95StartLatencyMs: health.p95PlaybackStartLatencyMs
     });
     sendJson(res, statusCode, {
       ok: readiness === "ready",
@@ -6461,9 +6510,14 @@ const server = http.createServer(async (req, res) => {
         processingAgeSeconds,
         failed: failedThreshold,
         safetyDead: safetyDeadThreshold,
+        pipelineMinSampleSize,
+        transcodeFailureRate: transcodeFailureRateThreshold,
+        posterFailureRate: posterFailureRateThreshold,
+        processingLatencySeconds: processingLatencyThresholdSeconds,
         playbackMinSampleSize,
         playbackErrorRate: playbackErrorRateThreshold,
-        playbackBufferRatio: playbackBufferRatioThreshold
+        playbackBufferRatio: playbackBufferRatioThreshold,
+        playbackStartLatencyMs: playbackStartLatencyThresholdMs
       }
     }, { "Cache-Control": "no-store" });
     return;
@@ -8672,15 +8726,83 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/api/client-events") {
       const token = readAuthToken(req);
       const session = token ? findSession(store, token) : null;
-      const payload = await collectBody(req);
-      const validationError = validateClientEventPayload(payload);
-      if (validationError) {
-        sendJson(res, 400, { error: validationError });
+      const envelope = await collectBody(req);
+      const isBatch = Array.isArray(envelope?.events);
+      const payloads = isBatch ? envelope.events.slice(0, 25) : [envelope];
+      if (!payloads.length) {
+        sendJson(res, 400, { error: "Client event batch haina events." });
+        return;
+      }
+      const invalidIndex = payloads.findIndex((payload) => Boolean(validateClientEventPayload(payload)));
+      if (invalidIndex >= 0) {
+        sendJson(res, 400, {
+          error: validateClientEventPayload(payloads[invalidIndex]),
+          index: invalidIndex
+        });
         return;
       }
 
-      const ingestionDecision = evaluateClientEventIngestion(payload, req, session);
-      if (!ingestionDecision.accepted) {
+      let acceptedCount = 0;
+      let droppedCount = 0;
+      const droppedReasons = {};
+      for (const payload of payloads) {
+        const ingestionDecision = evaluateClientEventIngestion(payload, req, session);
+        if (!ingestionDecision.accepted) {
+          droppedCount += 1;
+          droppedReasons[ingestionDecision.reason] = Number(droppedReasons[ingestionDecision.reason] || 0) + 1;
+          continue;
+        }
+        acceptedCount += 1;
+        intelligencePlatform.ingestClientEvent(payload, {
+          req,
+          session,
+          store,
+          appVersion: APP_BUILD_VERSION
+        }).catch((error) => {
+          console.warn("[WINGA] Intelligence ingestion failed.", error);
+        });
+        if (!isBatch || payload.level !== "info") {
+          await appendAuditLog({
+            time: new Date().toISOString(),
+            ip: clientIp,
+            path: url.pathname,
+            event: sanitizePlainText(payload.event, 80),
+            level: payload.level,
+            message: sanitizePlainText(payload.message || "", 300),
+            username: session?.username || "",
+            category: sanitizePlainText(payload.category || "", 40).toLowerCase(),
+            alertSeverity: sanitizePlainText(payload.alertSeverity || "", 20).toLowerCase(),
+            fingerprint: sanitizePlainText(payload.fingerprint || "", 120),
+            context: payload.context && typeof payload.context === "object" && !Array.isArray(payload.context)
+              ? Object.fromEntries(
+                  Object.entries(payload.context)
+                    .slice(0, 10)
+                    .map(([key, value]) => [sanitizePlainText(key, 40), sanitizePlainText(value, 120)])
+                )
+              : {}
+          });
+        }
+      }
+
+      if (isBatch) {
+        await appendAuditLog({
+          time: new Date().toISOString(),
+          ip: clientIp,
+          path: url.pathname,
+          event: "client_event_batch_received",
+          level: "info",
+          message: "Bounded client telemetry batch received.",
+          username: session?.username || "",
+          category: "observability",
+          alertSeverity: "low",
+          context: {
+            batchSize: payloads.length,
+            acceptedCount,
+            droppedCount
+          }
+        });
+      } else if (droppedCount > 0) {
+        const reason = Object.keys(droppedReasons)[0] || "dropped";
         await appendAuditLog({
           time: new Date().toISOString(),
           ip: clientIp,
@@ -8689,53 +8811,25 @@ const server = http.createServer(async (req, res) => {
           level: "info",
           message: "Client event dropped before intelligence ingestion.",
           username: session?.username || "",
-          category: sanitizePlainText(payload.category || "", 40).toLowerCase(),
+          category: sanitizePlainText(payloads[0].category || "", 40).toLowerCase(),
           alertSeverity: "low",
-          fingerprint: sanitizePlainText(payload.fingerprint || "", 120),
+          fingerprint: sanitizePlainText(payloads[0].fingerprint || "", 120),
           context: {
-            reason: ingestionDecision.reason,
-            event: ingestionDecision.eventName
+            reason,
+            event: normalizeClientEventName(payloads[0].event)
           }
         });
-        sendJson(res, 202, {
-          ok: true,
-          accepted: false,
-          reason: ingestionDecision.reason
-        });
-        return;
       }
 
-      await appendAuditLog({
-        time: new Date().toISOString(),
-        ip: clientIp,
-        path: url.pathname,
-        event: sanitizePlainText(payload.event, 80),
-        level: payload.level,
-        message: sanitizePlainText(payload.message || "", 300),
-        username: session?.username || "",
-        category: sanitizePlainText(payload.category || "", 40).toLowerCase(),
-        alertSeverity: sanitizePlainText(payload.alertSeverity || "", 20).toLowerCase(),
-        fingerprint: sanitizePlainText(payload.fingerprint || "", 120),
-        context: payload.context && typeof payload.context === "object" && !Array.isArray(payload.context)
-          ? Object.fromEntries(
-              Object.entries(payload.context)
-                .slice(0, 10)
-                .map(([key, value]) => [sanitizePlainText(key, 40), sanitizePlainText(value, 120)])
-            )
-          : {}
-      });
-      intelligencePlatform.ingestClientEvent(payload, {
-        req,
-        session,
-        store,
-        appVersion: APP_BUILD_VERSION
-      }).catch((error) => {
-        console.warn("[WINGA] Intelligence ingestion failed.", error);
-      });
-      sendJson(res, 202, { ok: true, accepted: true });
+      sendJson(res, 202, isBatch
+        ? { ok: true, accepted: acceptedCount, dropped: droppedCount, reasons: droppedReasons }
+        : {
+            ok: true,
+            accepted: acceptedCount === 1,
+            reason: acceptedCount === 1 ? "accepted" : (Object.keys(droppedReasons)[0] || "dropped")
+          });
       return;
     }
-
     if (req.method === "POST" && url.pathname === "/api/intelligence/queue-events") {
       const providedSecret = String(req.headers["x-winga-queue-secret"] || "").trim();
       if (!QUEUE_WEBHOOK_SECRET || !providedSecret || !timingSafeStringEqual(providedSecret, QUEUE_WEBHOOK_SECRET)) {
