@@ -658,8 +658,8 @@ test("seller can change and verify whatsapp number from profile and upload uses 
   await expect(page.locator("#profile-identity-card")).toBeVisible();
   await expect(page.locator("#profile-whatsapp-block")).toContainText(/WhatsApp:\s*\d{10,15}/);
 
-  const profileUpdatePromise = page.waitForResponse((response) =>
-    response.url().includes("/users/me/profile") && response.request().method() === "PATCH"
+  const challengePromise = page.waitForResponse((response) =>
+    response.url().includes("/users/me/whatsapp/request-change") && response.request().method() === "POST"
   );
 
   await page.locator("#profile-whatsapp-change-toggle").click();
@@ -667,7 +667,17 @@ test("seller can change and verify whatsapp number from profile and upload uses 
   await page.locator("#profile-whatsapp-input").fill(nextWhatsappNumber);
   await expect(page.locator("#profile-whatsapp-save-button")).toBeVisible();
   await page.locator("#profile-whatsapp-save-button").dispatchEvent("click");
-  await profileUpdatePromise;
+  const challengeResponse = await challengePromise;
+  expect(challengeResponse.status()).toBe(202);
+
+  await expect(page.locator("#profile-whatsapp-verification-form")).toBeVisible();
+  await expect(page.locator("#profile-whatsapp-code-input")).toHaveValue(/^\d{6}$/);
+  const verificationPromise = page.waitForResponse((response) =>
+    response.url().includes("/users/me/whatsapp/verify-change") && response.request().method() === "POST"
+  );
+  await page.locator("#profile-whatsapp-verify-button").click();
+  const verificationResponse = await verificationPromise;
+  expect(verificationResponse.status()).toBe(200);
 
   await expect(page.locator("#profile-whatsapp-block")).toContainText(nextWhatsappNumber);
   await expect(page.locator("#profile-whatsapp-block")).toContainText("Active");

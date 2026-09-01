@@ -28,7 +28,9 @@ async function handleRequest(request, env) {
     }, status.ready ? 200 : 503);
   }
 
-  if (request.method !== "POST" || url.pathname !== "/v1/recovery/deliver") {
+  const isDeliveryRoute = request.method === "POST"
+    && (url.pathname === "/v1/recovery/deliver" || url.pathname === "/v1/verification/deliver");
+  if (!isDeliveryRoute) {
     return json({ ok: false, error: "not_found" }, 404);
   }
   if (!isJsonRequest(request)) {
@@ -57,7 +59,7 @@ async function handleRequest(request, env) {
     return json({ ok: false, error: validationError }, 400);
   }
 
-  const ingressKey = `recovery-ingress:${event.challengeId}`;
+  const ingressKey = `verification-ingress:${event.purpose}:${event.challengeId}`;
   if (await hasDedupeKey(env, ingressKey)) {
     return json({ ok: true, accepted: false, deduped: true }, 202);
   }
@@ -92,7 +94,7 @@ async function processQueueBatch(batch, env) {
         continue;
       }
 
-      const deliveryKey = `recovery-delivered:${event.challengeId}`;
+      const deliveryKey = `verification-delivered:${event.purpose}:${event.challengeId}`;
       if (await hasDedupeKey(env, deliveryKey)) {
         logEvent("recovery_event_deduped", event);
         message.ack();
@@ -128,10 +130,12 @@ async function sendSmsProviderEvent(event, env) {
         version: "winga-sms-v1",
         idempotencyKey: event.challengeId,
         to: event.destination,
-        message: `${env.APP_NAME || "Winga"}: recovery code yako ni ${event.code}. Itaisha baada ya dakika 10. Usimpe mtu mwingine code hii.`,
+        message: event.purpose === "phone_change"
+          ? `${env.APP_NAME || "Winga"}: code ya kuthibitisha namba yako ni ${event.code}. Itaisha baada ya dakika 10. Usimpe mtu mwingine code hii.`
+          : `${env.APP_NAME || "Winga"}: recovery code yako ni ${event.code}. Itaisha baada ya dakika 10. Usimpe mtu mwingine code hii.`,
         expiresAt: event.expiresAt,
         metadata: {
-          purpose: "account_recovery",
+          purpose: event.purpose,
           challengeId: event.challengeId
         }
       }),
@@ -161,8 +165,12 @@ async function isAuthorized(request, env) {
 
 function normalizeRecoveryEvent(input) {
   const source = input && typeof input === "object" && !Array.isArray(input) ? input : {};
+  const version = sanitize(source.version || "", 40);
   return {
-    version: sanitize(source.version || "", 40),
+    version,
+    purpose: version === "account-verification-code-v1"
+      ? "phone_change"
+      : "account_recovery",
     challengeId: sanitize(source.challengeId || "", 120),
     userId: sanitize(source.userId || "", 80),
     destination: String(source.destination || "").replace(/\D/g, "").slice(0, 20),
@@ -173,8 +181,11 @@ function normalizeRecoveryEvent(input) {
 }
 
 function validateRecoveryEvent(event) {
-  if (event.version !== "account-recovery-code-v1") return "unsupported_version";
-  if (!/^recovery-[0-9a-f-]{36}$/i.test(event.challengeId)) return "invalid_challenge";
+  const isRecovery = event.version === "account-recovery-code-v1";
+  const isPhoneVerification = event.version === "account-verification-code-v1";
+  if (!isRecovery && !isPhoneVerification) return "unsupported_version";
+  if (isRecovery && !/^recovery-[0-9a-f-]{36}$/i.test(event.challengeId)) return "invalid_challenge";
+  if (isPhoneVerification && !/^verification-[0-9a-f-]{36}$/i.test(event.challengeId)) return "invalid_challenge";
   if (!event.userId) return "invalid_user";
   if (!event.suppress && !/^\d{8,20}$/.test(event.destination)) return "invalid_destination";
   if (!/^\d{6}$/.test(event.code)) return "invalid_code";
@@ -186,7 +197,7 @@ function validateRecoveryEvent(event) {
 async function consumeDestinationRateLimit(event, env) {
   const destinationHash = await sha256Hex(event.destination);
   const bucket = Math.floor(Date.now() / (RATE_LIMIT_WINDOW_SECONDS * 1000));
-  const key = `recovery-rate:${destinationHash}:${bucket}`;
+  const key = `verification-rate:${event.purpose}:${destinationHash}:${bucket}`;
   const current = Number(await env.ACCOUNT_RECOVERY_DEDUPE.get(key) || 0);
   if (current >= MAX_DELIVERY_ATTEMPTS_PER_DESTINATION) {
     return false;

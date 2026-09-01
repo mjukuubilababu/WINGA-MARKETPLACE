@@ -18207,6 +18207,42 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       );
       whatsappWrap.appendChild(whatsappForm);
 
+      const pendingWhatsappNumber = String(context.pendingWhatsappNumber || "").replace(/\D/g, "").slice(0, 20);
+      if (pendingWhatsappNumber) {
+        const verificationForm = deps.createElement("div", {
+          className: "profile-whatsapp-form",
+          attributes: { id: "profile-whatsapp-verification-form" }
+        });
+        verificationForm.append(
+          deps.createElement("p", {
+            className: "auth-note",
+            textContent: t("profile.whatsappCodeSentBody", "Enter the 6-digit code sent to {number}.", {
+              number: pendingWhatsappNumber
+            })
+          }),
+          deps.createElement("input", {
+            attributes: {
+              id: "profile-whatsapp-code-input",
+              type: "text",
+              inputmode: "numeric",
+              autocomplete: "one-time-code",
+              maxlength: "6",
+              pattern: "[0-9]{6}",
+              placeholder: t("profile.whatsappCodePlaceholder", "6-digit verification code")
+            }
+          }),
+          deps.createElement("button", {
+            className: "action-btn buy-btn",
+            textContent: t("profile.verifyWhatsapp", "Verify Number"),
+            attributes: {
+              type: "button",
+              id: "profile-whatsapp-verify-button"
+            }
+          })
+        );
+        whatsappWrap.appendChild(verificationForm);
+      }
+
       let paymentWrap = null;
       if (userProfile?.role === "seller") {
         paymentWrap = deps.createElement("div", {
@@ -19056,6 +19092,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 (() => {
   function createProfileControllerModule(deps) {
     let renderSequence = 0;
+    let whatsappPreviewCode = "";
     const sellerProductPagination = new Map();
     const translate = typeof deps.translate === "function"
       ? deps.translate
@@ -19107,6 +19144,12 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       const input = document.getElementById("profile-whatsapp-input");
       const saveButton = document.getElementById("profile-whatsapp-save-button");
       const cancelButton = document.getElementById("profile-whatsapp-cancel-button");
+      const codeInput = document.getElementById("profile-whatsapp-code-input");
+      const verifyButton = document.getElementById("profile-whatsapp-verify-button");
+
+      if (codeInput && whatsappPreviewCode && !codeInput.value) {
+        codeInput.value = whatsappPreviewCode;
+      }
 
       if (toggleButton && toggleButton.dataset.bound !== "true") {
         toggleButton.dataset.bound = "true";
@@ -19157,25 +19200,20 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 
           saveButton.disabled = true;
           try {
-            const updatedUser = await deps.dataLayer.updateUserProfile({
-              phoneNumber: nextWhatsappNumber,
+            const challenge = await deps.dataLayer.requestWhatsappChange({
               whatsappNumber: nextWhatsappNumber
             });
+            whatsappPreviewCode = String(challenge?.previewCode || "").replace(/\D/g, "").slice(0, 6);
             deps.mergeSessionState({
-              ...updatedUser,
-              phoneNumber: nextWhatsappNumber,
-              whatsappNumber: nextWhatsappNumber,
-              whatsappVerificationStatus: "verified",
-              pendingWhatsappNumber: "",
-              pendingWhatsappExpiresAt: ""
+              pendingWhatsappNumber: challenge?.pendingWhatsappNumber || nextWhatsappNumber,
+              pendingWhatsappExpiresAt: challenge?.expiresAt || ""
             });
             deps.saveSessionUser();
-            deps.renderHeaderUserMenu();
-            deps.refreshProductsFromStore?.();
-            deps.renderCurrentView?.();
             deps.showInAppNotification?.({
-              title: t("profile.phoneUpdatedTitle", "Number updated"),
-              body: t("profile.phoneUpdatedBody", "Namba yako ya WhatsApp imehifadhiwa na imesasishwa papo hapo."),
+              title: t("profile.whatsappCodeSentTitle", "Verification code sent"),
+              body: t("profile.whatsappCodeSentBody", "Enter the 6-digit code sent to {number}.", {
+                number: nextWhatsappNumber
+              }),
               variant: "success"
             });
             renderProfile();
@@ -19196,8 +19234,56 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           }
         });
       }
-    }
 
+      if (verifyButton && verifyButton.dataset.bound !== "true") {
+        verifyButton.dataset.bound = "true";
+        verifyButton.addEventListener("click", async () => {
+          const code = String(codeInput?.value || "").replace(/\D/g, "").slice(0, 6);
+          if (!/^\d{6}$/.test(code)) {
+            deps.showInAppNotification?.({
+              title: t("profile.whatsappCodeRequiredTitle", "Verification code required"),
+              body: t("profile.whatsappCodeRequiredBody", "Enter the 6-digit code sent to your new number."),
+              variant: "warning"
+            });
+            return;
+          }
+
+          verifyButton.disabled = true;
+          try {
+            const updatedUser = await deps.dataLayer.verifyWhatsappChange({ code });
+            whatsappPreviewCode = "";
+            deps.mergeSessionState({
+              ...updatedUser,
+              pendingWhatsappNumber: "",
+              pendingWhatsappExpiresAt: ""
+            });
+            deps.saveSessionUser();
+            deps.renderHeaderUserMenu();
+            deps.refreshProductsFromStore?.();
+            deps.showInAppNotification?.({
+              title: t("profile.phoneUpdatedTitle", "Number updated"),
+              body: t("profile.phoneVerifiedBody", "Your new WhatsApp number is verified and active."),
+              variant: "success"
+            });
+            renderProfile();
+          } catch (error) {
+            if (handleSensitiveStepUpRequired(error)) {
+              return;
+            }
+            deps.captureError?.("profile_whatsapp_verification_failed", error, {
+              user: deps.getCurrentUser()
+            });
+            deps.showInAppNotification?.({
+              title: t("profile.whatsappVerificationFailedTitle", "Verification failed"),
+              body: error.message || t("profile.whatsappVerificationFailedBody", "The code could not be verified."),
+              variant: "error"
+            });
+          } finally {
+            verifyButton.disabled = false;
+          }
+        });
+      }
+    }
     function bindPaymentDetailsActions() {
       const toggleButton = document.getElementById("profile-payment-change-toggle");
       const form = document.getElementById("profile-payment-change-form");
@@ -20042,6 +20128,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             whatsappNumber: userProfile?.whatsappNumber || userProfile?.phoneNumber || "",
             phoneNumber: userProfile?.phoneNumber || userProfile?.whatsappNumber || "",
             whatsappVerificationStatus: userProfile?.whatsappVerificationStatus || "verified",
+            pendingWhatsappNumber: deps.getCurrentSession?.()?.pendingWhatsappNumber || userProfile?.pendingWhatsappNumber || "",
+            pendingWhatsappExpiresAt: deps.getCurrentSession?.()?.pendingWhatsappExpiresAt || userProfile?.pendingWhatsappExpiresAt || "",
             paymentProvider: userProfile?.paymentProvider || "",
             paymentNumber: userProfile?.paymentNumber || "",
             paymentRecipientName: userProfile?.paymentRecipientName || userProfile?.fullName || deps.getCurrentDisplayName(),

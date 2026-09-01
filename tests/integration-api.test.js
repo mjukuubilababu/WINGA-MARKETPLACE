@@ -1012,7 +1012,7 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   assert.equal(forcedWhatsappUpdate.response.status, 200);
   assert.equal(forcedWhatsappUpdate.body.whatsapp, "255700111111");
 
-  const whatsappUpdate = await request("/users/me/profile", {
+  const directWhatsappUpdate = await request("/users/me/profile", {
     method: "PATCH",
     headers: {
       "Content-Type": "application/json",
@@ -1022,11 +1022,83 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
       whatsappNumber: "255700333333"
     })
   });
+  assert.equal(directWhatsappUpdate.response.status, 409);
+  assert.equal(directWhatsappUpdate.body.code, "phone_verification_required");
+
+  const whatsappChallenge = await request("/users/me/whatsapp/request-change", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${sellerToken}`
+    },
+    body: JSON.stringify({ whatsappNumber: "255700333333" })
+  });
+  assert.equal(whatsappChallenge.response.status, 202);
+  assert.equal(whatsappChallenge.body.verificationRequired, true);
+  assert.equal(whatsappChallenge.body.pendingWhatsappNumber, "255700333333");
+  assert.match(whatsappChallenge.body.previewCode, /^\d{6}$/);
+
+  const invalidWhatsappVerification = await request("/users/me/whatsapp/verify-change", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${sellerToken}`
+    },
+    body: JSON.stringify({
+      code: whatsappChallenge.body.previewCode === "000000" ? "000001" : "000000"
+    })
+  });
+  assert.equal(invalidWhatsappVerification.response.status, 401);
+  assert.equal(invalidWhatsappVerification.body.code, "invalid_verification_code");
+  assert.equal(invalidWhatsappVerification.body.attemptsRemaining, 4);
+
+  const whatsappUpdate = await request("/users/me/whatsapp/verify-change", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${sellerToken}`
+    },
+    body: JSON.stringify({ code: whatsappChallenge.body.previewCode })
+  });
   assert.equal(whatsappUpdate.response.status, 200);
   assert.equal(whatsappUpdate.body.whatsappNumber, "255700333333");
   assert.equal(whatsappUpdate.body.phoneNumber, "255700333333");
   assert.equal(whatsappUpdate.body.whatsappVerificationStatus, "verified");
+  assert.equal(whatsappUpdate.body.pendingWhatsappNumber, "");
 
+  const lockedWhatsappChallenge = await request("/users/me/whatsapp/request-change", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${sellerToken}`
+    },
+    body: JSON.stringify({ whatsappNumber: "255700333334" })
+  });
+  assert.equal(lockedWhatsappChallenge.response.status, 202);
+  const rejectedWhatsappCode = lockedWhatsappChallenge.body.previewCode === "111111" ? "222222" : "111111";
+  for (let attempt = 1; attempt <= 5; attempt += 1) {
+    const rejectedAttempt = await request("/users/me/whatsapp/verify-change", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${sellerToken}`
+      },
+      body: JSON.stringify({ code: rejectedWhatsappCode })
+    });
+    assert.equal(rejectedAttempt.response.status, attempt === 5 ? 423 : 401);
+    assert.equal(rejectedAttempt.body.attemptsRemaining, Math.max(0, 5 - attempt));
+  }
+
+  const lockedWhatsappVerification = await request("/users/me/whatsapp/verify-change", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${sellerToken}`
+    },
+    body: JSON.stringify({ code: lockedWhatsappChallenge.body.previewCode })
+  });
+  assert.equal(lockedWhatsappVerification.response.status, 409);
+  assert.equal(lockedWhatsappVerification.body.code, "phone_challenge_missing");
   const productAfterWhatsappVerify = await request("/products", {
     method: "POST",
     headers: {

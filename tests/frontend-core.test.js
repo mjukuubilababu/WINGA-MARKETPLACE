@@ -4305,6 +4305,8 @@ test("account recovery relay queues signed OTP delivery without joining the fron
   assert.match(relaySource, /crypto\.subtle\.timingSafeEqual/);
   assert.match(relaySource, /ACCOUNT_RECOVERY_QUEUE\.send/);
   assert.match(relaySource, /ACCOUNT_RECOVERY_DEDUPE/);
+  assert.match(relaySource, /account-verification-code-v1/);
+  assert.match(relaySource, /phone_change/);
   assert.match(relaySource, /Idempotency-Key/);
   assert.match(relaySource, /message\.retry\(\{ delaySeconds: 30 \}\)/);
   assert.match(relaySource, /event\.suppress/);
@@ -4325,15 +4327,26 @@ test("global profile recovery and seller states use complete locale catalogs", (
     "profile.ordersUnavailableTitle",
     "profile.messagesUnavailableTitle",
     "profile.notificationsUnavailableTitle",
+    "profile.whatsappCodeSentTitle",
+    "profile.whatsappCodeSentBody",
+    "profile.whatsappCodePlaceholder",
+    "profile.verifyWhatsapp",
+    "profile.whatsappCodeRequiredTitle",
+    "profile.whatsappCodeRequiredBody",
+    "profile.phoneVerifiedBody",
+    "profile.whatsappVerificationFailedTitle",
+    "profile.whatsappVerificationFailedBody",
     "promotion.unavailableTitle",
     "promotion.openFailedTitle"
   ];
   const controllerSource = fs.readFileSync(path.join(root, "src", "profile", "controller.js"), "utf8");
+  const uiSource = fs.readFileSync(path.join(root, "src", "profile", "ui.js"), "utf8");
+  const profileSource = controllerSource + "\n" + uiSource;
   for (const language of languages) {
     const catalog = JSON.parse(fs.readFileSync(path.join(root, "src", "localization", "catalogs", language + ".json"), "utf8"));
     for (const key of requiredKeys) assert.equal(typeof catalog.messages[key], "string", language + " missing " + key);
   }
-  for (const key of requiredKeys) assert.match(controllerSource, new RegExp(key.replace(/[.]/g, "\\.")));
+  for (const key of requiredKeys) assert.match(profileSource, new RegExp(key.replace(/[.]/g, "\\.")));
 });
 
 test("browser session state does not persist or propagate auth tokens", () => {

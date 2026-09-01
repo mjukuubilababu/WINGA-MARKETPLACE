@@ -245,6 +245,42 @@
       );
       whatsappWrap.appendChild(whatsappForm);
 
+      const pendingWhatsappNumber = String(context.pendingWhatsappNumber || "").replace(/\D/g, "").slice(0, 20);
+      if (pendingWhatsappNumber) {
+        const verificationForm = deps.createElement("div", {
+          className: "profile-whatsapp-form",
+          attributes: { id: "profile-whatsapp-verification-form" }
+        });
+        verificationForm.append(
+          deps.createElement("p", {
+            className: "auth-note",
+            textContent: t("profile.whatsappCodeSentBody", "Enter the 6-digit code sent to {number}.", {
+              number: pendingWhatsappNumber
+            })
+          }),
+          deps.createElement("input", {
+            attributes: {
+              id: "profile-whatsapp-code-input",
+              type: "text",
+              inputmode: "numeric",
+              autocomplete: "one-time-code",
+              maxlength: "6",
+              pattern: "[0-9]{6}",
+              placeholder: t("profile.whatsappCodePlaceholder", "6-digit verification code")
+            }
+          }),
+          deps.createElement("button", {
+            className: "action-btn buy-btn",
+            textContent: t("profile.verifyWhatsapp", "Verify Number"),
+            attributes: {
+              type: "button",
+              id: "profile-whatsapp-verify-button"
+            }
+          })
+        );
+        whatsappWrap.appendChild(verificationForm);
+      }
+
       let paymentWrap = null;
       if (userProfile?.role === "seller") {
         paymentWrap = deps.createElement("div", {
