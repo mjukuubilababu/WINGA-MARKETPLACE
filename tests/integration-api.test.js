@@ -1207,6 +1207,66 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   assert.equal(currentSelfRevoke.response.status, 400);
   assert.equal(currentSelfRevoke.body.code, "cannot_revoke_current_session");
 
+  const testStorePath = path.join(tempRoot, "data", "store.json");
+  const staleSessionStore = JSON.parse(fs.readFileSync(testStorePath, "utf8"));
+  const staleSellerSession = staleSessionStore.sessions.find((item) => item.token === sellerToken);
+  assert.ok(staleSellerSession, "seller session must exist before testing sensitive-action freshness");
+  staleSellerSession.stepUpVerifiedAt = new Date(Date.now() - (31 * 60 * 1000)).toISOString();
+  const staleUpgradeBuyerSession = staleSessionStore.sessions.find((item) => item.token === buyerToken);
+  assert.ok(staleUpgradeBuyerSession, "buyer session must exist before testing seller-upgrade freshness");
+  staleUpgradeBuyerSession.stepUpVerifiedAt = new Date(Date.now() - (31 * 60 * 1000)).toISOString();
+  fs.writeFileSync(testStorePath, JSON.stringify(staleSessionStore, null, 2));
+
+  const staleSensitivePaymentUpdate = await request("/users/me/profile", {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${sellerToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      paymentProvider: "mpesa",
+      paymentNumber: "255700444444",
+      paymentRecipientName: "Seller One"
+    })
+  });
+  assert.equal(staleSensitivePaymentUpdate.response.status, 403);
+  assert.equal(staleSensitivePaymentUpdate.body.code, "step_up_required");
+  assert.equal(staleSensitivePaymentUpdate.body.action, "payment_destination_change");
+  assert.equal(staleSensitivePaymentUpdate.body.security.requiresStepUp, true);
+  assert.equal(staleSensitivePaymentUpdate.body.security.stepUpFresh, false);
+
+  const staleSensitivePhoneUpdate = await request("/users/me/profile", {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${sellerToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ whatsappNumber: "255700555555" })
+  });
+  assert.equal(staleSensitivePhoneUpdate.response.status, 403);
+  assert.equal(staleSensitivePhoneUpdate.body.code, "step_up_required");
+  assert.equal(staleSensitivePhoneUpdate.body.action, "phone_change");
+
+  const staleSellerUpgrade = await request("/users/me/upgrade-to-seller", {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${buyerToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      fullName: "Upgrade Authorization Buyer",
+      phoneNumber: "255700333333",
+      primaryCategory: "sketi"
+    })
+  });
+  assert.equal(staleSellerUpgrade.response.status, 403);
+  assert.equal(staleSellerUpgrade.body.code, "step_up_required");
+  assert.equal(staleSellerUpgrade.body.action, "seller_upgrade");
+  const refreshedUpgradeBuyerSession = await request("/auth/step-up", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${buyerToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ password: "Recovered1234" })
+  });
+  assert.equal(refreshedUpgradeBuyerSession.response.status, 200);
+
+  const staleNonSensitivePhotoUpdate = await request("/users/me/profile", {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${sellerToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ profileImage: tinyImage })
+  });
+  assert.equal(staleNonSensitivePhotoUpdate.response.status, 200);
+
   const failedStepUp = await request("/auth/step-up", {
     method: "POST",
     headers: { Authorization: `Bearer ${sellerToken}`, "Content-Type": "application/json" },
@@ -1225,6 +1285,30 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   assert.equal(successfulStepUp.body.security.requiresStepUp, false);
   assert.equal(successfulStepUp.body.security.version, "session-security-v1");
   assert.equal(successfulStepUp.body.security.policy.mfa.supportedMethods.includes("totp_ready"), true);
+
+  const steppedUpPaymentUpdate = await request("/users/me/profile", {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${sellerToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      paymentProvider: "mpesa",
+      paymentNumber: "255700444444",
+      paymentRecipientName: "Seller One"
+    })
+  });
+  assert.equal(steppedUpPaymentUpdate.response.status, 200);
+  assert.equal(steppedUpPaymentUpdate.body.paymentNumber, "255700444444");
+
+  const sensitiveActionAudit = await request("/auth/sessions", {
+    headers: { Authorization: `Bearer ${sellerToken}` }
+  });
+  assert.equal(sensitiveActionAudit.response.status, 200);
+  assert.equal(
+    sensitiveActionAudit.body.auditTrail.some((entry) =>
+      entry.event === "sensitive_action_step_up_required"
+      && entry.reason === "payment_destination_change"
+    ),
+    true
+  );
 
   const moderatorLogin = await request("/auth/admin-login", {
     method: "POST",

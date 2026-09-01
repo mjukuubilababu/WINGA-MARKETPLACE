@@ -17,6 +17,35 @@
       return true;
     }
 
+    function handleSensitiveStepUpRequired(error) {
+      if (error?.code !== "step_up_required") {
+        return false;
+      }
+      const currentSession = deps.getCurrentSession?.() || {};
+      deps.mergeSessionState?.({
+        security: {
+          ...(currentSession.security || {}),
+          requiresStepUp: true,
+          stepUpFresh: false
+        }
+      });
+      deps.saveSessionUser?.();
+      deps.showInAppNotification?.({
+        title: t("session.verifyTitle", "Verify session"),
+        body: error.message || t("session.stepUpBody", "We detected a new session environment. Enter your password before sensitive actions."),
+        variant: "warning"
+      });
+      deps.renderCurrentView?.();
+      setTimeout(() => {
+        document.getElementById("profile-session-security-panel")?.scrollIntoView?.({
+          behavior: "smooth",
+          block: "start"
+        });
+        document.getElementById("profile-session-stepup-password")?.focus?.();
+      }, 0);
+      return true;
+    }
+
     function bindWhatsappNumberActions() {
       const toggleButton = document.getElementById("profile-whatsapp-change-toggle");
       const form = document.getElementById("profile-whatsapp-change-form");
@@ -96,6 +125,9 @@
             });
             renderProfile();
           } catch (error) {
+            if (handleSensitiveStepUpRequired(error)) {
+              return;
+            }
             deps.captureError?.("profile_whatsapp_update_failed", error, {
               user: deps.getCurrentUser()
             });
@@ -245,6 +277,9 @@
             });
             renderProfile();
           } catch (error) {
+            if (handleSensitiveStepUpRequired(error)) {
+              return;
+            }
             setPaymentStatus("error", error.message || t("profile.paymentSaveFailedBody", "We could not save your payment details."));
             deps.captureError?.("profile_payment_update_failed", error, {
               user: deps.getCurrentUser()
@@ -364,14 +399,21 @@
           const button = form.querySelector("button");
           if (button) button.disabled = true;
           try {
-            await deps.dataLayer.verifySessionStepUp(password);
+            const stepUpResult = await deps.dataLayer.verifySessionStepUp(password);
+            deps.mergeSessionState?.({
+              security: stepUpResult?.security || {
+                requiresStepUp: false,
+                stepUpFresh: true
+              }
+            });
+            deps.saveSessionUser?.();
             deps.showInAppNotification?.({
               title: t("session.verifiedTitle", "Session verified"),
               body: t("session.verifiedBody", "Security check imekamilika."),
               variant: "success"
             });
             input.value = "";
-            await loadProfileSessionSecurity(sequence);
+            deps.renderCurrentView?.();
           } catch (error) {
             deps.showInAppNotification?.({
               title: t("session.verificationFailedTitle", "Verification failed"),
@@ -498,6 +540,9 @@
         });
         deps.renderCurrentView?.();
       } catch (error) {
+        if (handleSensitiveStepUpRequired(error)) {
+          return;
+        }
         deps.captureError?.("seller_upgrade_failed", error, {
           user: deps.getCurrentUser()
         });

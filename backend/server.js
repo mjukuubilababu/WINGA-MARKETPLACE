@@ -3583,6 +3583,7 @@ async function buildSessionAuditTrail(username = "", options = {}) {
     "session_context_step_up_required",
     "session_step_up_failed",
     "session_step_up_success",
+    "sensitive_action_step_up_required",
     "self_session_revoked",
     "admin_session_revoked",
     "logout_success"
@@ -3645,6 +3646,44 @@ function buildSessionSecurityPayload(session = {}, req = null) {
     rotationIntervalSeconds: Math.floor(SESSION_ROTATION_INTERVAL_MS / 1000),
     policy: buildSessionPolicyPayload()
   };
+}
+
+async function requireFreshStepUpForSensitiveAction({ session, user, req, res, clientIp, action }) {
+  if (isSessionStepUpFresh(session)) {
+    return true;
+  }
+  const security = {
+    ...buildSessionSecurityPayload(session, req),
+    requiresStepUp: true,
+    stepUpFresh: false
+  };
+  await appendAuditLog({
+    time: new Date().toISOString(),
+    ip: clientIp,
+    method: req.method,
+    path: req.url || "",
+    event: "sensitive_action_step_up_required",
+    username: user.username,
+    sessionId: session.sessionId,
+    reason: action
+  });
+  dispatchSessionSecurityEvent(buildExternalSessionSecurityEvent({
+    event: "sensitive_action_step_up_required",
+    userId: user.username,
+    session,
+    req,
+    risk: security,
+    metadata: { action }
+  }));
+  sendJson(res, 403, {
+    error: "Thibitisha session yako kwa password kabla ya kubadilisha taarifa nyeti za akaunti.",
+    code: "step_up_required",
+    action,
+    security
+  }, {
+    "Cache-Control": "no-store"
+  });
+  return false;
 }
 
 function getProductIdFromPath(pathname) {
@@ -10469,6 +10508,11 @@ const server = http.createServer(async (req, res) => {
       if (!user) {
         return;
       }
+      if (!await requireFreshStepUpForSensitiveAction({
+        session, user, req, res, clientIp, action: "whatsapp_change"
+      })) {
+        return;
+      }
 
       const payload = await collectBody(req);
       const nextWhatsappNumber = String(payload?.whatsappNumber || payload?.phoneNumber || "").replace(/\D/g, "").slice(0, 20);
@@ -10567,6 +10611,11 @@ const server = http.createServer(async (req, res) => {
       const session = findSession(store, token);
       const user = ensureMarketplaceUser(store, session, res);
       if (!user) {
+        return;
+      }
+      if (!await requireFreshStepUpForSensitiveAction({
+        session, user, req, res, clientIp, action: "whatsapp_change"
+      })) {
         return;
       }
 
@@ -10683,6 +10732,16 @@ const server = http.createServer(async (req, res) => {
         || Object.prototype.hasOwnProperty.call(payload, "paymentNumber")
         || Object.prototype.hasOwnProperty.call(payload, "paymentRecipientName")
         || Object.prototype.hasOwnProperty.call(payload, "paymentInstructions");
+      if ((hasPhoneUpdate || hasPaymentUpdate) && !await requireFreshStepUpForSensitiveAction({
+        session,
+        user,
+        req,
+        res,
+        clientIp,
+        action: hasPaymentUpdate ? "payment_destination_change" : "phone_change"
+      })) {
+        return;
+      }
       if (!hasProfileImage && !hasPhoneUpdate && !hasPaymentUpdate) {
         sendJson(res, 400, { error: "Hakuna data ya kubadili profile." });
         return;
@@ -10862,6 +10921,11 @@ const server = http.createServer(async (req, res) => {
 
       if (user.role !== "buyer" && user.role !== "seller") {
         sendJson(res, 400, { error: "Seller verification inaruhusiwa kwa buyer au seller accounts tu." });
+        return;
+      }
+      if (!await requireFreshStepUpForSensitiveAction({
+        session, user, req, res, clientIp, action: "seller_upgrade"
+      })) {
         return;
       }
 
