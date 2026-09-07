@@ -597,6 +597,24 @@ function sanitizePlainText(value, maxLength = 120) {
     .slice(0, maxLength);
 }
 
+function normalizeVideoUploadIdempotencyKey(value) {
+  const key = String(value || "").trim();
+  return /^[A-Za-z0-9][A-Za-z0-9._:-]{15,159}$/.test(key) ? key : "";
+}
+
+function buildVideoUploadOperationId(sellerId, idempotencyKey) {
+  const digest = crypto.createHash("sha256")
+    .update(`${String(sellerId || "")}\0${String(idempotencyKey || "")}`)
+    .digest("hex")
+    .slice(0, 48);
+  return `video-upload-${digest}`;
+}
+
+function buildVideoUploadRequestFingerprint({ fileName, contentType, fileSize } = {}) {
+  return crypto.createHash("sha256")
+    .update([String(fileName || "").toLowerCase(), String(contentType || "").toLowerCase(), String(fileSize || 0)].join("\n"))
+    .digest("hex");
+}
 function normalizeIdentifier(value, maxLength = 40) {
   return sanitizePlainText(value, maxLength).toLowerCase();
 }
@@ -11623,7 +11641,7 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 403, { error: "Akaunti hii haiwezi kupakia video.", code: "video_upload_forbidden" });
         return;
       }
-      if (!postgresStore?.createVideoUploadIntent || !CLOUDFLARE_STREAM_CLIENT.isConfigured()) {
+      if (!postgresStore?.createVideoUploadIntent || !postgresStore?.readVideoUploadIntentByUploadId || !CLOUDFLARE_STREAM_CLIENT.isConfigured()) {
         sendJson(res, 503, { error: "Video upload bado haijasanidiwa.", code: "video_upload_unavailable" });
         return;
       }
@@ -11645,7 +11663,63 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 413, { error: "Video lazima isiwe tupu wala kuzidi GB 5.", code: "invalid_video_size" });
         return;
       }
-      const uploadId = `video-upload-${crypto.randomUUID()}`;
+      const headerIdempotencyKey = String(req.headers["idempotency-key"] || "").trim();
+      const bodyIdempotencyKey = String(payload?.idempotencyKey || "").trim();
+      if (headerIdempotencyKey && bodyIdempotencyKey && headerIdempotencyKey !== bodyIdempotencyKey) {
+        sendJson(res, 400, { error: "Video upload request key si sahihi.", code: "video_upload_idempotency_mismatch" });
+        return;
+      }
+      const suppliedIdempotencyKey = headerIdempotencyKey || bodyIdempotencyKey;
+      const idempotencyKey = suppliedIdempotencyKey
+        ? normalizeVideoUploadIdempotencyKey(suppliedIdempotencyKey)
+        : crypto.randomUUID();
+      if (!idempotencyKey) {
+        sendJson(res, 400, { error: "Video upload request key si sahihi.", code: "invalid_video_upload_idempotency_key" });
+        return;
+      }
+      const uploadId = buildVideoUploadOperationId(seller.username, idempotencyKey);
+      const requestFingerprint = buildVideoUploadRequestFingerprint({ fileName, contentType, fileSize });
+      const sendIntent = (intent, statusCode, duplicate) => {
+        const intentStatus = String(intent?.status || "uploading").toLowerCase();
+        sendJson(res, statusCode, {
+          uploadId: intent.uploadId || uploadId,
+          providerId: intent.providerId,
+          uploadUrl: intentStatus === "uploading" ? String(intent.uploadUrl || "") : "",
+          expiresAt: intent.uploadExpiresAt || intent.expiresAt,
+          maxDurationSeconds: Math.max(0, Number(intent.maxDurationSeconds || 0) || 0),
+          uploadProtocol: String(intent.uploadProtocol || ""),
+          status: intentStatus,
+          duplicate: Boolean(duplicate)
+        }, { "Cache-Control": "private, no-store" });
+      };
+      const validateReplay = (intent) => {
+        if (!intent) return "missing";
+        if (intent.requestFingerprint && intent.requestFingerprint !== requestFingerprint) return "conflict";
+        const intentStatus = String(intent.status || "").toLowerCase();
+        const expiresAt = Date.parse(intent.uploadExpiresAt || "");
+        if (intentStatus === "uploading" && (!intent.uploadUrl || (Number.isFinite(expiresAt) && expiresAt <= Date.now()))) return "expired";
+        if (!["uploading", "processing", "ready", "failed"].includes(intentStatus)) return "expired";
+        return "valid";
+      };
+      const existingIntent = await postgresStore.readVideoUploadIntentByUploadId(uploadId, seller.username);
+      const existingState = validateReplay(existingIntent);
+      if (existingState === "conflict") {
+        sendJson(res, 409, { error: "Request key hii tayari imetumika kwa video nyingine.", code: "video_upload_idempotency_conflict" });
+        return;
+      }
+      if (existingState === "expired") {
+        sendJson(res, 409, { error: "Video upload hii imeisha muda. Anza upload mpya.", code: "video_upload_intent_expired" });
+        return;
+      }
+      if (existingState === "valid") {
+        await appendAuditLog({
+          time: new Date().toISOString(), ip: clientIp, method: req.method, path: url.pathname,
+          event: "video_upload_replayed", username: seller.username,
+          uploadId, providerId: existingIntent.providerId
+        });
+        sendIntent(existingIntent, 200, true);
+        return;
+      }
       let directUpload = null;
       try {
         try {
@@ -11668,22 +11742,28 @@ const server = http.createServer(async (req, res) => {
         const intent = await postgresStore.createVideoUploadIntent({
           providerId: directUpload.providerId, sellerId: seller.username,
           uploadId, uploadExpiresAt: directUpload.expiresAt,
-          mimeType: contentType, sourceSizeBytes: fileSize
+          mimeType: contentType, sourceSizeBytes: fileSize,
+          uploadUrl: directUpload.uploadUrl, uploadProtocol: directUpload.uploadProtocol,
+          maxDurationSeconds: directUpload.maxDurationSeconds,
+          requestFingerprint
         });
         if (!intent) {
           await CLOUDFLARE_STREAM_CLIENT.deleteVideo(directUpload.providerId).catch(() => {});
-          sendJson(res, 409, { error: "Video upload conflict. Jaribu tena.", code: "video_upload_conflict" });
+          directUpload = null;
+          const winner = await postgresStore.readVideoUploadIntentByUploadId(uploadId, seller.username);
+          const winnerState = validateReplay(winner);
+          if (winnerState === "valid") {
+            sendIntent(winner, 200, true);
+            return;
+          }
+          sendJson(res, 409, { error: "Video upload conflict. Jaribu tena.", code: winnerState === "expired" ? "video_upload_intent_expired" : "video_upload_conflict" });
           return;
         }
         await appendAuditLog({
           time: new Date().toISOString(), ip: clientIp, method: req.method, path: url.pathname,
           event: "video_upload_created", username: seller.username, uploadId, providerId: directUpload.providerId
         });
-        sendJson(res, 201, {
-          uploadId, providerId: directUpload.providerId, uploadUrl: directUpload.uploadUrl,
-          expiresAt: directUpload.expiresAt, maxDurationSeconds: directUpload.maxDurationSeconds,
-          uploadProtocol: directUpload.uploadProtocol
-        }, { "Cache-Control": "private, no-store" });
+        sendIntent(intent, 201, false);
       } catch (error) {
         if (directUpload?.providerId) await CLOUDFLARE_STREAM_CLIENT.deleteVideo(directUpload.providerId).catch(() => {});
         await appendAuditLog({
@@ -11697,7 +11777,6 @@ const server = http.createServer(async (req, res) => {
       }
       return;
     }
-
     if (req.method === "POST" && url.pathname === "/api/media/videos/webhook") {
       if (!postgresStore?.applyVideoUploadWebhook || !CLOUDFLARE_STREAM_CONFIG.webhookSecret) {
         sendJson(res, 503, { error: "Video webhook haijasanidiwa.", code: "video_webhook_unavailable" });

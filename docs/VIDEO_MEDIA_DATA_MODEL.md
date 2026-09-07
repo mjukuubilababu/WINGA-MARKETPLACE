@@ -43,3 +43,25 @@ Existing fields remain valid:
 - `providerId` remains the playback identity;
 - HLS/DASH playback remains provider-managed;
 - image-only and legacy Products continue to normalize without a video record.
+
+## Upload Request Idempotency
+
+Each browser upload operation owns one opaque idempotency key. The API hashes that key with the authenticated seller identity to produce a deterministic `upload_id`; the raw key is not persisted. A retry with the same seller, key, and file fingerprint replays the existing short-lived provider intent instead of allocating another Stream asset. Reusing a key for different file metadata fails with a conflict.
+
+Only the owner-scoped upload path can read the stored provider write URL. The URL is never included in Product or Feed records and is cleared when processing reaches `ready` or `failed`. Interrupted TUS uploads query the provider offset before sending another chunk.
+
+## Production Test Matrix
+
+The executable Phase 38 matrix is distributed by subsystem so one optional failure cannot conceal another:
+
+| Area | Automated evidence |
+| --- | --- |
+| Upload validation, provider policy, TUS chunks, interruption, retry, and duplicate request | `tests/cloudflare-stream.test.js`, `tests/frontend-core.test.js`, `tests/postgres-pagination.test.js` |
+| Authentication and role denial | `tests/integration-api.test.js`, `tests/frontend-core.test.js` |
+| Processing success/failure, retry leases, duplicate jobs, cleanup, restart, and horizontal workers | `tests/postgres-pagination.test.js`, `tests/video-safety-dispatcher.test.js`, `tests/video-background-worker.test.js` |
+| Image-only, video-only, mixed media, appended pages, and endless pagination | `tests/frontend-core.test.js`, `tests/e2e/video-feed.spec.js`, `tests/e2e/pagination-bootstrap.spec.js` |
+| Muted autoplay, one active player, pause/resume, mute, visibility, completion, and failure isolation | `tests/frontend-core.test.js`, `tests/e2e/video-feed.spec.js` |
+| Guest, authenticated, refresh, product/profile navigation, and back restoration | `tests/e2e/video-feed.spec.js`, `tests/e2e/app.spec.js` |
+| Slow/offline media, constrained devices, rapid visibility changes, memory bounds, and CDN failure | `tests/frontend-core.test.js`, `tests/e2e/video-feed.spec.js`, `tests/video-health-monitor.test.js` |
+
+The release gate is `npm run test:ci`. Production deployment additionally requires the live domain-routing and shell verifiers. A real Stream upload smoke test remains an infrastructure check because CI must not create billable provider media or depend on provider availability.

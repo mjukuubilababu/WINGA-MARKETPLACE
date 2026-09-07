@@ -576,6 +576,33 @@ const MIGRATIONS = Object.freeze([
       `CREATE INDEX IF NOT EXISTS idx_video_worker_heartbeats_last_seen
        ON video_worker_heartbeats (last_seen_at DESC);`
     ])
+  }),
+  Object.freeze({
+    id: "2026090802_video_upload_idempotency",
+    statements: Object.freeze([
+      `ALTER TABLE video_upload_intents
+       ADD COLUMN IF NOT EXISTS upload_url TEXT NOT NULL DEFAULT '';`,
+      `ALTER TABLE video_upload_intents
+       ADD COLUMN IF NOT EXISTS upload_protocol TEXT NOT NULL DEFAULT '';`,
+      `ALTER TABLE video_upload_intents
+       ADD COLUMN IF NOT EXISTS max_duration_seconds INTEGER NOT NULL DEFAULT 0;`,
+      `ALTER TABLE video_upload_intents
+       ADD COLUMN IF NOT EXISTS request_fingerprint TEXT NOT NULL DEFAULT '';`,
+      `ALTER TABLE video_upload_intents
+       DROP CONSTRAINT IF EXISTS chk_video_upload_protocol;`,
+      `ALTER TABLE video_upload_intents
+       ADD CONSTRAINT chk_video_upload_protocol
+       CHECK (upload_protocol IN ('', 'basic', 'tus')) NOT VALID;`,
+      `ALTER TABLE video_upload_intents
+       VALIDATE CONSTRAINT chk_video_upload_protocol;`,
+      `ALTER TABLE video_upload_intents
+       DROP CONSTRAINT IF EXISTS chk_video_max_duration_seconds;`,
+      `ALTER TABLE video_upload_intents
+       ADD CONSTRAINT chk_video_max_duration_seconds
+       CHECK (max_duration_seconds >= 0) NOT VALID;`,
+      `ALTER TABLE video_upload_intents
+       VALIDATE CONSTRAINT chk_video_max_duration_seconds;`
+    ])
   })]);
 
 async function runSchemaMigrations({ pool, logger = console, beforeMigrations = null } = {}) {

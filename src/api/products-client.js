@@ -30,20 +30,24 @@
 
     async function requestVideoUpload(file = {}) {
       requireFetcher();
+      const idempotencyKey = String(file.idempotencyKey || "").trim();
       return fetchJson(`${baseUrl}/media/videos/direct-upload`, {
         method: "POST",
-        headers: jsonHeaders(),
+        headers: {
+          ...jsonHeaders(),
+          ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {})
+        },
         body: JSON.stringify({
           fileName: String(file.name || "").trim(),
           contentType: String(file.type || "").trim().toLowerCase(),
           fileSize: Number(file.size || 0),
           durationSeconds: Math.max(0, Number(file.durationSeconds || 0) || 0),
-          uploadProtocol: "tus"
+          uploadProtocol: "tus",
+          ...(idempotencyKey ? { idempotencyKey } : {})
         }),
         timeoutMs: productUploadTimeoutMs
       });
     }
-
     async function readVideoUploadStatus(providerId) {
       requireFetcher();
       return fetchJson(`${baseUrl}/media/videos/${encodeURIComponent(String(providerId || "").trim())}`, {

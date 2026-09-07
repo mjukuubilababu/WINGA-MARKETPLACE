@@ -1004,20 +1004,24 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 
     async function requestVideoUpload(file = {}) {
       requireFetcher();
+      const idempotencyKey = String(file.idempotencyKey || "").trim();
       return fetchJson(`${baseUrl}/media/videos/direct-upload`, {
         method: "POST",
-        headers: jsonHeaders(),
+        headers: {
+          ...jsonHeaders(),
+          ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {})
+        },
         body: JSON.stringify({
           fileName: String(file.name || "").trim(),
           contentType: String(file.type || "").trim().toLowerCase(),
           fileSize: Number(file.size || 0),
           durationSeconds: Math.max(0, Number(file.durationSeconds || 0) || 0),
-          uploadProtocol: "tus"
+          uploadProtocol: "tus",
+          ...(idempotencyKey ? { idempotencyKey } : {})
         }),
         timeoutMs: productUploadTimeoutMs
       });
     }
-
     async function readVideoUploadStatus(providerId) {
       requireFetcher();
       return fetchJson(`${baseUrl}/media/videos/${encodeURIComponent(String(providerId || "").trim())}`, {
@@ -9697,6 +9701,22 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     const maxPollAttempts = Math.max(1, Number(deps.maxPollAttempts || 120));
     let generation = 0;
     let activeXhr = null;
+    let activeOperation = null;
+
+    function createOperationKey() {
+      if (typeof deps.createOperationKey === "function") return String(deps.createOperationKey() || "").trim();
+      if (globalThis.crypto?.randomUUID) return `video-${globalThis.crypto.randomUUID()}`;
+      return `video-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
+    }
+    function getFileFingerprint(file) {
+      return [String(file?.name || ""), String(file?.type || ""), Number(file?.size || 0), Number(file?.lastModified || 0)].join("|");
+    }
+    function getOrCreateOperation(file) {
+      const fingerprint = getFileFingerprint(file);
+      if (activeOperation?.fingerprint === fingerprint) return activeOperation;
+      activeOperation = { fingerprint, idempotencyKey: createOperationKey() };
+      return activeOperation;
+    }
 
     function fail(message, code) { return Object.assign(new Error(message), { code }); }
     function readVideoDuration(file) {
@@ -9767,8 +9787,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       if (!Number.isSafeInteger(offset) || offset < 0) throw fail("Video upload resume offset is invalid.", "video_upload_offset_invalid");
       return offset;
     }
-    async function uploadTus(uploadUrl, file, token, onState) {
-      let offset = 0;
+    async function uploadTus(uploadUrl, file, token, onState, resumeFromProvider = false) {
+      let offset = resumeFromProvider ? await readTusOffset(uploadUrl, token) : 0;
       while (offset < file.size) {
         if (token !== generation) throw fail("Video upload was cancelled.", "video_upload_cancelled");
         let completed = false;
@@ -9843,7 +9863,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     async function resume(providerId, options = {}) {
       const safeProviderId = String(providerId || "").trim();
       if (!safeProviderId || typeof readStatus !== "function") throw fail("Video processing status is unavailable.", "video_status_unavailable");
-      cancel(); const token = generation;
+      cancel(true); const token = generation;
       notify(options.onState, { phase: "processing", progress: 100, providerId: safeProviderId, resumed: true });
       const video = await waitUntilReady(safeProviderId, token, options.onState);
       const mediaItem = createMediaItem(video, safeProviderId);
@@ -9853,18 +9873,48 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     async function start(file, options = {}) {
       validateFile(file);
       if (typeof requestIntent !== "function" || typeof readStatus !== "function") throw fail("Video upload is unavailable.", "video_upload_unavailable");
-      cancel(); const token = generation; notify(options.onState, { phase: "preparing", progress: 0 });
-      const durationSeconds = await readDuration(file).catch(() => 0);
-      const intent = await requestIntent({ name: file.name, type: file.type, size: file.size, durationSeconds });
-      if (token !== generation) throw fail("Video upload was cancelled.", "video_upload_cancelled");
-      if (String(intent.uploadProtocol || "").toLowerCase() === "tus") await uploadTus(intent.uploadUrl, file, token, options.onState);
-      else await uploadBinary(intent.uploadUrl, file, token, options.onState);
-      const video = await waitUntilReady(intent.providerId, token, options.onState);
-      const mediaItem = createMediaItem(video, intent.providerId);
-      notify(options.onState, { phase: "ready", progress: 100, providerId: intent.providerId, mediaItem });
-      return mediaItem;
+      cancel(true); const token = generation; notify(options.onState, { phase: "preparing", progress: 0 });
+      const operation = getOrCreateOperation(file);
+      let uploadProtocol = "";
+      let binaryStarted = false;
+      try {
+        const durationSeconds = await readDuration(file).catch(() => 0);
+        const intent = await requestIntent({
+          name: file.name, type: file.type, size: file.size, durationSeconds,
+          idempotencyKey: operation.idempotencyKey
+        });
+        if (token !== generation) throw fail("Video upload was cancelled.", "video_upload_cancelled");
+        const intentStatus = String(intent?.status || "uploading").toLowerCase();
+        uploadProtocol = String(intent?.uploadProtocol || "").toLowerCase();
+        if (["failed", "error"].includes(intentStatus)) throw fail("Video processing failed.", "video_processing_failed");
+        if (intentStatus === "uploading") {
+          if (!intent?.uploadUrl) throw fail("Video upload link is unavailable. Start a new upload.", "video_upload_intent_expired");
+          binaryStarted = true;
+          if (uploadProtocol === "tus") {
+            await uploadTus(intent.uploadUrl, file, token, options.onState, Boolean(intent.duplicate));
+          } else {
+            await uploadBinary(intent.uploadUrl, file, token, options.onState);
+          }
+        }
+        const video = await waitUntilReady(intent.providerId, token, options.onState);
+        const mediaItem = createMediaItem(video, intent.providerId);
+        activeOperation = null;
+        notify(options.onState, { phase: "ready", progress: 100, providerId: intent.providerId, mediaItem });
+        return mediaItem;
+      } catch (error) {
+        if ((uploadProtocol === "basic" && binaryStarted)
+          || ["video_processing_failed", "video_upload_intent_expired", "video_upload_idempotency_conflict"].includes(String(error?.code || ""))) {
+          activeOperation = null;
+        }
+        throw error;
+      }
     }
-    function cancel() { generation += 1; if (activeXhr) activeXhr.abort(); activeXhr = null; }
+    function cancel(preserveOperation = false) {
+      generation += 1;
+      if (activeXhr) activeXhr.abort();
+      activeXhr = null;
+      if (!preserveOperation) activeOperation = null;
+    }
     return { cancel, resume, start, validateFile };
   }
   window.WingaModules = window.WingaModules || {};

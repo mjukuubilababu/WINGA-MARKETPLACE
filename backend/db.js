@@ -5594,20 +5594,27 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     const result = await query(
       `INSERT INTO video_upload_intents (
          provider_id, seller_id, upload_id, status, moderation_status, upload_expires_at,
-         mime_type, source_size_bytes, created_at, updated_at
-       ) VALUES ($1, $2, $3, 'uploading', 'approved', $4, $5, $6, NOW(), NOW())
-       ON CONFLICT (provider_id) DO NOTHING
+         mime_type, source_size_bytes, upload_url, upload_protocol, max_duration_seconds,
+         request_fingerprint, created_at, updated_at
+       ) VALUES ($1, $2, $3, 'uploading', 'approved', $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())
+       ON CONFLICT DO NOTHING
        RETURNING provider_id AS "providerId", seller_id AS "sellerId", upload_id AS "uploadId",
          status, status AS "processingStatus", provider_id AS "mediaId", provider_id AS "storageKey",
          mime_type AS "mimeType", source_size_bytes::float8 AS "sourceSizeBytes",
+         upload_url AS "uploadUrl", upload_protocol AS "uploadProtocol",
+         max_duration_seconds AS "maxDurationSeconds", request_fingerprint AS "requestFingerprint",
          upload_expires_at AS "uploadExpiresAt", row_version AS "rowVersion"`,
       [intent.providerId, intent.sellerId, intent.uploadId, intent.uploadExpiresAt,
         String(intent.mimeType || "").trim().toLowerCase().slice(0, 120),
-        Math.max(0, Math.trunc(Number(intent.sourceSizeBytes || 0) || 0))]
+        Math.max(0, Math.trunc(Number(intent.sourceSizeBytes || 0) || 0)),
+        String(intent.uploadUrl || "").trim().slice(0, 4096),
+        ["basic", "tus"].includes(String(intent.uploadProtocol || "").trim().toLowerCase())
+          ? String(intent.uploadProtocol).trim().toLowerCase() : "",
+        Math.max(0, Math.trunc(Number(intent.maxDurationSeconds || 0) || 0)),
+        String(intent.requestFingerprint || "").trim().slice(0, 64)]
     );
     return result.rows[0] || null;
   }
-
   async function readVideoUploadIntent(providerId, sellerId = "") {
     const params = [String(providerId || "")];
     const ownerClause = sellerId ? " AND seller_id = $2" : "";
@@ -5635,6 +5642,25 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     return result.rows[0] || null;
   }
 
+  async function readVideoUploadIntentByUploadId(uploadId, sellerId) {
+    const safeUploadId = String(uploadId || "").trim();
+    const safeSellerId = String(sellerId || "").trim();
+    if (!safeUploadId || !safeSellerId) return null;
+    const result = await query(
+      `SELECT provider_id AS "providerId", seller_id AS "sellerId", upload_id AS "uploadId",
+         status, status AS "processingStatus", provider_id AS "mediaId", provider_id AS "storageKey",
+         mime_type AS "mimeType", source_size_bytes::float8 AS "sourceSizeBytes",
+         upload_url AS "uploadUrl", upload_protocol AS "uploadProtocol",
+         max_duration_seconds AS "maxDurationSeconds", request_fingerprint AS "requestFingerprint",
+         upload_expires_at AS "uploadExpiresAt", created_at AS "createdAt",
+         updated_at AS "updatedAt", row_version AS "rowVersion"
+       FROM video_upload_intents
+       WHERE upload_id = $1 AND seller_id = $2
+       LIMIT 1`,
+      [safeUploadId, safeSellerId]
+    );
+    return result.rows[0] || null;
+  }
   async function readPlayableVideo(providerId) {
     const result = await query(
       `SELECT vui.provider_id AS "providerId", vui.seller_id AS "sellerId",
@@ -6176,6 +6202,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     const updated = await query(
       `UPDATE video_upload_intents
        SET status = $2,
+         upload_url = CASE WHEN $2 IN ('ready', 'failed') THEN '' ELSE upload_url END,
          duration = CASE WHEN $3::float8 > 0 THEN $3::float8 ELSE duration END,
          width = CASE WHEN $4::int > 0 THEN $4::int ELSE width END,
          height = CASE WHEN $5::int > 0 THEN $5::int ELSE height END,
@@ -6205,6 +6232,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
            OR ($2 <> 'ready' AND NULLIF($10, '') IS NOT NULL AND error_code IS DISTINCT FROM $10)
            OR ($2 <> 'ready' AND NULLIF($11, '') IS NOT NULL AND error_message IS DISTINCT FROM $11)
            OR ($2 = 'ready' AND (error_code <> '' OR error_message <> ''))
+           OR ($2 IN ('ready', 'failed') AND upload_url <> '')
            OR provider_payload IS DISTINCT FROM provider_payload || $12::jsonb
          )
        RETURNING provider_id AS "providerId", seller_id AS "sellerId", upload_id AS "uploadId",
@@ -6343,6 +6371,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     pruneApiRateLimitBuckets,
     createVideoUploadIntent,
     readVideoUploadIntent,
+    readVideoUploadIntentByUploadId,
     readPlayableVideo,
     listVideoModerationQueue,
     moderateProductVideo,

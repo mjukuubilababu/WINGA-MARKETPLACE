@@ -2838,9 +2838,14 @@ test("PostgreSQL video upload intents preserve owner scope and webhook state", a
     uploadId: "upload-one",
     uploadExpiresAt: "2026-08-30T12:00:00.000Z",
     mimeType: "video/mp4",
-    sourceSizeBytes: 7340032
+    sourceSizeBytes: 7340032,
+    uploadUrl: "https://upload.example/tus",
+    uploadProtocol: "tus",
+    maxDurationSeconds: 600,
+    requestFingerprint: "a".repeat(64)
   });
   const owned = await store.readVideoUploadIntent("stream-video-123", "seller-one");
+  const replay = await store.readVideoUploadIntentByUploadId("upload-one", "seller-one");
   const updated = await store.applyVideoUploadWebhook({
     providerId: "stream-video-123",
     status: "ready",
@@ -2856,18 +2861,36 @@ test("PostgreSQL video upload intents preserve owner scope and webhook state", a
   assert.equal(created.status, "uploading");
   const intentInsert = calls.find((call) => call.text.includes("INSERT INTO video_upload_intents"));
   assert.match(intentInsert.text, /'uploading', 'approved'/);
-  assert.match(intentInsert.text, /mime_type, source_size_bytes/);
-  assert.deepEqual(intentInsert.params.slice(4), ["video/mp4", 7340032]);
+  assert.match(intentInsert.text, /mime_type, source_size_bytes, upload_url, upload_protocol/);
+  assert.match(intentInsert.text, /ON CONFLICT DO NOTHING/);
+  assert.deepEqual(intentInsert.params.slice(4), [
+    "video/mp4", 7340032, "https://upload.example/tus", "tus", 600, "a".repeat(64)
+  ]);
   assert.equal(owned.sellerId, "seller-one");
+  assert.equal(replay.sellerId, "seller-one");
   assert.equal(updated.status, "ready");
-  const ownerRead = calls.find((call) => call.text.includes("SELECT provider_id") && call.text.includes("video_upload_intents"));
-  assert.match(ownerRead.text, /seller_id = \$2/);
-  assert.deepEqual(ownerRead.params, ["stream-video-123", "seller-one"]);
+  const ownerReads = calls.filter((call) => call.text.includes("SELECT provider_id") && call.text.includes("video_upload_intents"));
+  assert.match(ownerReads[0].text, /seller_id = \$2/);
+  assert.deepEqual(ownerReads[0].params, ["stream-video-123", "seller-one"]);
+  assert.match(ownerReads[1].text, /upload_id = \$1 AND seller_id = \$2/);
+  assert.deepEqual(ownerReads[1].params, ["upload-one", "seller-one"]);
   const webhookUpdate = calls.find((call) => call.text.includes("UPDATE video_upload_intents"));
   assert.equal(webhookUpdate.params[1], "ready");
   assert.equal(webhookUpdate.params[8], "video/mp4");
   assert.equal(JSON.parse(webhookUpdate.params[11]).readyToStream, true);
   assert.match(webhookUpdate.text, /AS "aspectRatio"/);
+  assert.match(webhookUpdate.text, /upload_url = CASE WHEN \$2 IN \('ready', 'failed'\) THEN ''/);
+});
+test("video upload idempotency migration stores only bounded replay metadata", () => {
+  const migration = MIGRATIONS.find((candidate) => candidate.id === "2026090802_video_upload_idempotency");
+  assert.ok(migration);
+  const sql = migration.statements.join("\n");
+  assert.match(sql, /upload_url TEXT NOT NULL DEFAULT ''/);
+  assert.match(sql, /upload_protocol TEXT NOT NULL DEFAULT ''/);
+  assert.match(sql, /max_duration_seconds INTEGER NOT NULL DEFAULT 0/);
+  assert.match(sql, /request_fingerprint TEXT NOT NULL DEFAULT ''/);
+  assert.match(sql, /CHECK \(upload_protocol IN \('', 'basic', 'tus'\)\)/);
+  assert.match(sql, /CHECK \(max_duration_seconds >= 0\)/);
 });
 test("PostgreSQL video webhook retries are monotonic, idempotent, and preserve renditions", async () => {
   const calls = [];

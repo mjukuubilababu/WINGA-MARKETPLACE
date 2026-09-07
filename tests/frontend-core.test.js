@@ -1644,6 +1644,48 @@ test("remote auth API client owns session restore and credentialed auth writes",
   assert.ok(buildSource.indexOf('"src/api/auth-client.js"') < buildSource.indexOf('"src/config/categories.js"'));
 });
 
+test("video upload API client sends one idempotency key in the header and body", async () => {
+  const root = path.resolve(__dirname, "..");
+  const source = fs.readFileSync(path.join(root, "src", "api", "products-client.js"), "utf8");
+  const context = vm.createContext({ window: { WingaModules: {} } });
+  vm.runInContext(source, context);
+  let captured = null;
+  const client = context.window.WingaModules.api.productActions.createProductsApiClient({
+    baseUrl: "/api",
+    createAuthHeaders: () => ({ "X-Test-Auth": "present" }),
+    fetchJson: async (url, options) => {
+      captured = { url, options };
+      return { ok: true };
+    }
+  });
+  const idempotencyKey = "video-operation-1234567890";
+  await client.requestVideoUpload({
+    name: "social.mp4", type: "video/mp4", size: 1048576,
+    durationSeconds: 12, idempotencyKey
+  });
+
+  assert.equal(captured.url, "/api/media/videos/direct-upload");
+  assert.equal(captured.options.headers["Idempotency-Key"], idempotencyKey);
+  assert.equal(captured.options.headers["X-Test-Auth"], "present");
+  assert.equal(JSON.parse(captured.options.body).idempotencyKey, idempotencyKey);
+});
+
+test("direct video upload route replays seller-scoped requests before creating provider media", () => {
+  const root = path.resolve(__dirname, "..");
+  const serverSource = fs.readFileSync(path.join(root, "backend", "server.js"), "utf8");
+  const routeStart = serverSource.indexOf('url.pathname === "/api/media/videos/direct-upload"');
+  const routeEnd = serverSource.indexOf('url.pathname === "/api/media/videos/webhook"', routeStart);
+  const routeSource = serverSource.slice(routeStart, routeEnd);
+
+  assert.match(serverSource, /function normalizeVideoUploadIdempotencyKey/);
+  assert.match(serverSource, /buildVideoUploadOperationId\(seller\.username, idempotencyKey\)/);
+  assert.match(routeSource, /req\.headers\["idempotency-key"\]/);
+  assert.ok(routeSource.indexOf("readVideoUploadIntentByUploadId") < routeSource.indexOf("createResumableUpload"));
+  assert.match(routeSource, /video_upload_idempotency_conflict/);
+  assert.match(routeSource, /const winner = await postgresStore\.readVideoUploadIntentByUploadId/);
+  assert.match(routeSource, /directUpload = null/);
+  assert.match(routeSource, /event: "video_upload_replayed"/);
+});
 test("video upload controller validates, uploads, polls, and exposes only ready media", () => {
   const root = path.resolve(__dirname, "..");
   const source = fs.readFileSync(path.join(root, "src", "marketplace", "video-upload.js"), "utf8");
@@ -1732,6 +1774,66 @@ test("video upload controller sends resumable TUS chunks with monotonic offsets"
   assert.equal(media.providerId, "provider-tus-1");
   assert.equal(media.aspectRatio, 1080 / 1920);
   assert.equal(media.mimeType, "video/mp4");
+});
+test("video upload retry reuses its operation key and resumes duplicate TUS intent", async () => {
+  const root = path.resolve(__dirname, "..");
+  const source = fs.readFileSync(path.join(root, "src", "marketplace", "video-upload.js"), "utf8");
+  const requests = [];
+  class FakeXhr {
+    constructor() {
+      this.status = 204;
+      this.headers = {};
+      this.listeners = {};
+      this.upload = { addEventListener: () => {} };
+    }
+    open(method, url) { this.method = method; this.url = url; }
+    setRequestHeader(name, value) { this.headers[name] = value; }
+    addEventListener(name, listener) { this.listeners[name] = listener; }
+    getResponseHeader(name) { return name === "Upload-Offset" ? String(this.nextOffset || 0) : null; }
+    send(body) {
+      this.nextOffset = Number(this.headers["Upload-Offset"] || 0) + Number(body?.size || 0);
+      requests.push({ method: this.method, headers: { ...this.headers } });
+      queueMicrotask(() => this.listeners.load());
+    }
+    abort() { this.listeners.abort?.(); }
+  }
+  const context = vm.createContext({
+    window: { WingaModules: {} }, XMLHttpRequest: FakeXhr,
+    FormData: function FormData() {}, queueMicrotask
+  });
+  vm.runInContext(source, context);
+  const intentRequests = [];
+  const controller = context.window.WingaModules.marketplace.createVideoUploadController({
+    createOperationKey: () => "video-operation-stable-123456",
+    requestVideoUpload: async (payload) => {
+      intentRequests.push(payload);
+      if (intentRequests.length === 1) throw new Error("response lost after request");
+      return {
+        uploadProtocol: "tus", uploadUrl: "https://upload.example/tus",
+        providerId: "provider-tus-replay", status: "uploading", duplicate: true
+      };
+    },
+    readVideoUploadStatus: async () => ({
+      status: "ready", posterUrl: "https://video.example/poster.jpg",
+      width: 1080, height: 1920, mimeType: "video/mp4"
+    }),
+    createXhr: () => new FakeXhr(),
+    readDuration: async () => 12
+  });
+  const file = {
+    name: "retry.mp4", type: "video/mp4", size: 1024 * 1024, lastModified: 42,
+    slice: (start, end) => ({ size: end - start })
+  };
+
+  await assert.rejects(() => controller.start(file), /response lost/);
+  const media = await controller.start(file);
+
+  assert.equal(intentRequests.length, 2);
+  assert.equal(intentRequests[0].idempotencyKey, "video-operation-stable-123456");
+  assert.equal(intentRequests[1].idempotencyKey, intentRequests[0].idempotencyKey);
+  assert.equal(requests[0].method, "HEAD");
+  assert.equal(requests[1].method, "PATCH");
+  assert.equal(media.providerId, "provider-tus-replay");
 });
 test("video upload processing can resume without uploading the binary twice", async () => {
   const root = path.resolve(__dirname, "..");
