@@ -3050,11 +3050,11 @@ test("PostgreSQL video pipeline health is durable, aggregate-only, and threshold
   const health = await store.readVideoPipelineHealth({ processingAgeSeconds: 600 });
 
   assert.deepEqual(health, {
-    total: 40, uploading: 2, processing: 3, ready: 30, readyWithoutPoster: 2, cleanupPending: 1, cleanupDead: 1, cleanupStalled: 1, failed: 5, failedRecent: 2, cleanupFailed: 1,
+    total: 40, uploading: 2, processing: 3, processingQueueDepth: 5, ready: 30, readyWithoutPoster: 2, cleanupPending: 1, cleanupQueueDepth: 2, cleanupDead: 1, cleanupStalled: 1, failed: 5, failedRecent: 2, cleanupFailed: 1,
     readyUnclaimed: 4, stalled: 1, oldestPendingAgeSeconds: 1200.5,
     averageReadyLatencySeconds: 42.25, transcodeFailureRate: 0.1429, posterFailureRate: 0.0667,
     lastChangedAt: "2026-08-30T15:00:00.000Z",
-    safetyPending: 3, safetyProcessing: 1, safetyRetry: 2, safetySubmitted: 4,
+    safetyPending: 3, safetyProcessing: 1, safetyRetry: 2, safetyQueueDepth: 6, safetySubmitted: 4,
     safetyCompleted: 18, safetyDead: 1, safetyStalled: 1, oldestSafetyPendingAgeSeconds: 700.5,
     activeVideoWorkers: 2, staleVideoWorkers: 1, lastVideoWorkerHeartbeatAt: "2026-08-30T15:59:50.000Z",
     playbackWindowHours: 24, playbackImpressions: 100, playbackPlays: 80,

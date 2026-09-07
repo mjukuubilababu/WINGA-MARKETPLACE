@@ -64,3 +64,59 @@ test("video safety dispatcher returns failures to durable retry state", async ()
   assert.equal(completions[0].outcome.attempts, 2);
   assert.match(completions[0].outcome.error, /provider unavailable/);
 });
+test("video safety dispatcher bounds downstream concurrency during queue pressure", async () => {
+  const jobs = Array.from({ length: 8 }, (_, index) => {
+    const providerId = `stream-pressure-${index}`;
+    return {
+      providerId,
+      idempotencyKey: `video-safety:${providerId}`,
+      attempts: 1,
+      maxAttempts: 6,
+      lockedBy: "pressure-worker"
+    };
+  });
+  let activeRequests = 0;
+  let peakRequests = 0;
+  let completed = 0;
+  const dispatcher = createVideoSafetyDispatcher({
+    workerId: "pressure-worker",
+    batchSize: 100,
+    concurrency: 3,
+    store: {
+      async claimVideoSafetyBatch(options) {
+        assert.equal(options.limit, 100);
+        return jobs;
+      },
+      async completeVideoSafetyDelivery(_providerId, outcome) {
+        assert.equal(outcome.workerId, "pressure-worker");
+        completed += 1;
+        return { status: "submitted" };
+      }
+    },
+    streamClient: {
+      isConfigured: () => true,
+      async createPlaybackToken() {
+        return { customerCode: "examplecode", token: "private.playback.token" };
+      }
+    },
+    config: {
+      scanUrl: "https://scanner.example/scan",
+      deliverySecret: "video-safety-delivery-secret-32-characters-minimum"
+    },
+    fetchImpl: async () => {
+      activeRequests += 1;
+      peakRequests = Math.max(peakRequests, activeRequests);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      activeRequests -= 1;
+      return new Response(JSON.stringify({ submitted: true }), { status: 202 });
+    }
+  });
+
+  const result = await dispatcher.processOnce();
+
+  assert.equal(dispatcher.concurrency, 3);
+  assert.equal(result.claimed, 8);
+  assert.equal(result.submitted, 8);
+  assert.equal(completed, 8);
+  assert.equal(peakRequests, 3);
+});

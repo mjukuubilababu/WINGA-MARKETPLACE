@@ -44,13 +44,21 @@ function createVideoBackgroundWorker(options = {}) {
   const cleanupIntervalMs = clampInteger(options.cleanupIntervalMs, 60000, 24 * 60 * 60 * 1000, 10 * 60 * 1000);
   const heartbeatIntervalMs = clampInteger(options.heartbeatIntervalMs, 5000, 60000, 15000);
   const shutdownGraceMs = clampInteger(options.shutdownGraceMs, 1000, 120000, 25000);
+  const safetyBatchSize = clampInteger(options.safetyBatchSize, 1, 100, 10);
+  const safetyConcurrency = clampInteger(options.safetyConcurrency, 1, 10, 3);
+  const maxSafetyBatchesPerTick = clampInteger(options.maxSafetyBatchesPerTick, 1, 20, 4);
+  const tickBudgetMs = clampInteger(options.tickBudgetMs, 5000, 120000, 25000);
+  const batchYieldMs = clampInteger(options.batchYieldMs, 0, 1000, 25);
+  const pressureIntervalMs = clampInteger(options.pressureIntervalMs, 250, 5000, 1000);
+  const pollJitterMs = clampInteger(options.pollJitterMs, 0, 10000, 500);
   const safetyDispatcher = options.safetyDispatcher || createVideoSafetyDispatcher({
     store,
     streamClient,
     config: safetyConfig,
     workerId: `${workerId}:safety`,
     intervalMs,
-    batchSize: options.safetyBatchSize,
+    batchSize: safetyBatchSize,
+    concurrency: safetyConcurrency,
     requestTimeoutMs: options.safetyRequestTimeoutMs,
     leaseSeconds: options.safetyLeaseSeconds,
     logger
@@ -78,7 +86,9 @@ function createVideoBackgroundWorker(options = {}) {
     completed: 0,
     failed: 0,
     dead: 0,
-    leaseLost: 0
+    leaseLost: 0,
+    safetyBatches: 0,
+    saturatedTicks: 0
   };
   let timer = null;
   let heartbeatTimer = null;
@@ -97,6 +107,13 @@ function createVideoBackgroundWorker(options = {}) {
       failed: state.failed,
       dead: state.dead,
       leaseLost: state.leaseLost,
+      safetyBatches: state.safetyBatches,
+      saturatedTicks: state.saturatedTicks,
+      safetyConcurrency,
+      maxSafetyBatchesPerTick,
+      tickBudgetMs,
+      pressureIntervalMs,
+      pollJitterMs,
       lastSuccessAt: state.lastSuccessAt,
       lastFailureAt: state.lastFailureAt
     };
@@ -107,6 +124,38 @@ function createVideoBackgroundWorker(options = {}) {
     return store.heartbeatVideoWorker(workerId, heartbeatPayload(status));
   }
 
+  async function drainSafetyQueue() {
+    const totals = {
+      claimed: 0,
+      submitted: 0,
+      failed: 0,
+      leaseLost: 0,
+      batches: 0,
+      saturated: false,
+      budgetExhausted: false
+    };
+    const deadline = Date.now() + tickBudgetMs;
+    while (totals.batches < maxSafetyBatchesPerTick) {
+      const batch = await safetyDispatcher.processOnce();
+      totals.batches += 1;
+      totals.claimed += Number(batch?.claimed || 0);
+      totals.submitted += Number(batch?.submitted || 0);
+      totals.failed += Number(batch?.failed || 0);
+      totals.leaseLost += Number(batch?.leaseLost || 0);
+      if (Number(batch?.claimed || 0) < safetyBatchSize) break;
+      if (Date.now() >= deadline) {
+        totals.budgetExhausted = true;
+        break;
+      }
+      if (totals.batches < maxSafetyBatchesPerTick && batchYieldMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, batchYieldMs));
+      }
+    }
+    totals.saturated = totals.batches >= maxSafetyBatchesPerTick
+      && totals.claimed >= safetyBatchSize * totals.batches;
+    return totals;
+  }
+
   async function processOnce(options = {}) {
     if (running || stopping) return { skipped: true, safety: null, cleanup: null };
     running = true;
@@ -114,7 +163,7 @@ function createVideoBackgroundWorker(options = {}) {
     state.lastTickAt = new Date().toISOString();
     try {
       await heartbeat("processing");
-      const safety = await safetyDispatcher.processOnce();
+      const safety = await drainSafetyQueue();
       const now = Date.now();
       const cleanupDue = options.forceCleanup === true || !state.lastCleanupAt
         || now - state.lastCleanupAt >= cleanupIntervalMs;
@@ -125,6 +174,8 @@ function createVideoBackgroundWorker(options = {}) {
       state.failed += Number(safety?.failed || 0) + Number(cleanup?.failed || 0);
       state.dead += Number(cleanup?.dead || 0);
       state.leaseLost += Number(safety?.leaseLost || 0) + Number(cleanup?.leaseLost || 0);
+      state.safetyBatches += Number(safety?.batches || 0);
+      if (safety?.saturated || safety?.budgetExhausted) state.saturatedTicks += 1;
       state.lastSuccessAt = new Date().toISOString();
       await heartbeat("idle");
       if (Number(safety?.claimed || 0) + Number(cleanup?.claimed || 0) > 0) {
@@ -151,6 +202,20 @@ function createVideoBackgroundWorker(options = {}) {
     }
   }
 
+  function scheduleNextTick(delayMs = intervalMs) {
+    if (stopping) return;
+    const jitterMs = pollJitterMs > 0 ? Math.floor(Math.random() * (pollJitterMs + 1)) : 0;
+    timer = setTimeout(() => {
+      timer = null;
+      processOnce().then((result) => {
+        const underPressure = Boolean(result?.safety?.saturated || result?.safety?.budgetExhausted);
+        scheduleNextTick(underPressure ? pressureIntervalMs : intervalMs);
+      }).catch(() => {
+        scheduleNextTick(intervalMs);
+      });
+    }, delayMs + jitterMs);
+  }
+
   async function start(options = {}) {
     if (startPromise) return startPromise;
     startPromise = (async () => {
@@ -160,19 +225,25 @@ function createVideoBackgroundWorker(options = {}) {
       await store.init();
       state.startedAt = new Date().toISOString();
       await heartbeat("starting");
-      await processOnce({ forceCleanup: true });
-      if (options.runOnce === true) return;
-      timer = setInterval(() => {
-        processOnce().catch(() => {});
-      }, intervalMs);
-      heartbeatTimer = setInterval(() => {
-        heartbeat(running ? "processing" : "idle").catch((error) => {
-          logger("warn", "video_worker_heartbeat_failed", {
-            workerId,
-            error: cleanText(error?.message || error || "Heartbeat failed", 300)
+      if (options.runOnce !== true) {
+        heartbeatTimer = setInterval(() => {
+          heartbeat(running ? "processing" : "idle").catch((error) => {
+            logger("warn", "video_worker_heartbeat_failed", {
+              workerId,
+              error: cleanText(error?.message || error || "Heartbeat failed", 300)
+            });
           });
-        });
-      }, heartbeatIntervalMs);
+        }, heartbeatIntervalMs);
+      }
+      try {
+        await processOnce({ forceCleanup: true });
+      } catch (error) {
+        if (heartbeatTimer) clearInterval(heartbeatTimer);
+        heartbeatTimer = null;
+        throw error;
+      }
+      if (options.runOnce === true) return;
+      scheduleNextTick(intervalMs);
     })();
     return startPromise;
   }
@@ -224,8 +295,14 @@ async function main() {
     heartbeatIntervalMs: process.env.VIDEO_WORKER_HEARTBEAT_INTERVAL_MS,
     shutdownGraceMs: process.env.SHUTDOWN_GRACE_MS,
     safetyBatchSize: process.env.VIDEO_SAFETY_DISPATCH_BATCH_SIZE,
+    safetyConcurrency: process.env.VIDEO_SAFETY_DISPATCH_CONCURRENCY,
     safetyRequestTimeoutMs: process.env.VIDEO_SAFETY_DISPATCH_TIMEOUT_MS,
     safetyLeaseSeconds: process.env.VIDEO_SAFETY_LEASE_SECONDS,
+    maxSafetyBatchesPerTick: process.env.VIDEO_WORKER_MAX_SAFETY_BATCHES_PER_TICK,
+    tickBudgetMs: process.env.VIDEO_WORKER_TICK_BUDGET_MS,
+    batchYieldMs: process.env.VIDEO_WORKER_BATCH_YIELD_MS,
+    pressureIntervalMs: process.env.VIDEO_WORKER_PRESSURE_INTERVAL_MS,
+    pollJitterMs: process.env.VIDEO_WORKER_POLL_JITTER_MS,
     cleanupBatchSize: process.env.VIDEO_CLEANUP_SWEEP_BATCH_SIZE,
     failedRetentionDays: process.env.VIDEO_FAILED_RETENTION_DAYS,
     cleanupRetrySeconds: process.env.VIDEO_CLEANUP_RETRY_SECONDS,

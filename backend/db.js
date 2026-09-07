@@ -5948,6 +5948,13 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     const playbackErrors = Math.max(0, Number(playback.errors || 0));
     const playbackCompletions = Math.max(0, Number(playback.completions || 0));
     const playbackAttempts = playbackPlays + playbackErrors;
+    const uploading = Math.max(0, Number(row.uploading || 0));
+    const processing = Math.max(0, Number(row.processing || 0));
+    const cleanupPending = Math.max(0, Number(row.cleanupPending || 0));
+    const cleanupFailed = Math.max(0, Number(row.cleanupFailed || 0));
+    const safetyPending = Math.max(0, Number(safetyQueue.pending || 0));
+    const safetyProcessing = Math.max(0, Number(safetyQueue.processing || 0));
+    const safetyRetry = Math.max(0, Number(safetyQueue.retry || 0));
     const ready = Math.max(0, Number(row.ready || 0));
     const failed = Math.max(0, Number(row.failed || 0));
     const readyWithoutPoster = Math.max(0, Number(row.readyWithoutPoster || 0));
@@ -5960,16 +5967,18 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       : 0;
     return {
       total: Number(row.total || 0),
-      uploading: Number(row.uploading || 0),
-      processing: Number(row.processing || 0),
+      uploading,
+      processing,
+      processingQueueDepth: uploading + processing,
       ready,
       readyWithoutPoster,
-      cleanupPending: Number(row.cleanupPending || 0),
+      cleanupPending,
+      cleanupQueueDepth: cleanupPending + cleanupFailed,
       cleanupDead: Number(row.cleanupDead || 0),
       cleanupStalled: Number(row.cleanupStalled || 0),
       failed,
       failedRecent: Number(row.failedRecent || 0),
-      cleanupFailed: Number(row.cleanupFailed || 0),
+      cleanupFailed,
       readyUnclaimed: Number(row.readyUnclaimed || 0),
       stalled: Number(row.stalled || 0),
       oldestPendingAgeSeconds: Math.max(0, Number(row.oldestPendingAgeSeconds || 0)),
@@ -5981,9 +5990,10 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
         ? Math.round(Math.min(1, readyWithoutPoster / ready) * 10000) / 10000
         : 0,
       lastChangedAt: row.lastChangedAt || null,
-      safetyPending: Number(safetyQueue.pending || 0),
-      safetyProcessing: Number(safetyQueue.processing || 0),
-      safetyRetry: Number(safetyQueue.retry || 0),
+      safetyPending,
+      safetyProcessing,
+      safetyRetry,
+      safetyQueueDepth: safetyPending + safetyProcessing + safetyRetry,
       safetySubmitted: Number(safetyQueue.submitted || 0),
       safetyCompleted: Number(safetyQueue.completed || 0),
       safetyDead: Number(safetyQueue.dead || 0),

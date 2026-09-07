@@ -1050,6 +1050,10 @@ test("Home feed load-more retries transient failures and keeps existing products
     () => page.evaluate(() => window.WingaDataLayer?.getProducts?.().length || 0),
     { timeout: 30000 }
   ).toBe(12);
+  await expect.poll(
+    () => page.evaluate(() => !postPaintHomeFeedRankingScheduled && !uiRuntimeState.isRenderingView),
+    { timeout: 30000 }
+  ).toBe(true);
 
   const loaded = await page.evaluate(() => window.silentlyRefreshInfiniteFeedSource({
     force: true,
@@ -1098,6 +1102,10 @@ test("leaving Home cancels an in-flight load-more request", async ({ page }) => 
     () => page.evaluate(() => window.WingaDataLayer?.getProducts?.().length || 0),
     { timeout: 30000 }
   ).toBe(12);
+  await expect.poll(
+    () => page.evaluate(() => !postPaintHomeFeedRankingScheduled && !uiRuntimeState.isRenderingView),
+    { timeout: 30000 }
+  ).toBe(true);
 
   const result = await page.evaluate(async () => {
     const loadPromise = window.silentlyRefreshInfiniteFeedSource({
@@ -1156,6 +1164,10 @@ test("exhausted load-more retries expose a recoverable inline error state", asyn
     () => page.evaluate(() => window.WingaDataLayer?.getProducts?.().length || 0),
     { timeout: 30000 }
   ).toBe(12);
+  await expect.poll(
+    () => page.evaluate(() => !postPaintHomeFeedRankingScheduled && !uiRuntimeState.isRenderingView),
+    { timeout: 30000 }
+  ).toBe(true);
 
   const result = await page.evaluate(async () => {
     if (homeContinuousDiscoveryRuntime.backgroundRunwayTimer) {

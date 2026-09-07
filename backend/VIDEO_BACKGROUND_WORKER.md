@@ -40,8 +40,14 @@ Recommended production variables:
 VIDEO_BACKGROUND_INTERVAL_MS=30000
 VIDEO_WORKER_HEARTBEAT_INTERVAL_MS=15000
 VIDEO_SAFETY_DISPATCH_BATCH_SIZE=10
+VIDEO_SAFETY_DISPATCH_CONCURRENCY=3
 VIDEO_SAFETY_DISPATCH_TIMEOUT_MS=10000
 VIDEO_SAFETY_LEASE_SECONDS=600
+VIDEO_WORKER_MAX_SAFETY_BATCHES_PER_TICK=4
+VIDEO_WORKER_TICK_BUDGET_MS=25000
+VIDEO_WORKER_BATCH_YIELD_MS=25
+VIDEO_WORKER_PRESSURE_INTERVAL_MS=1000
+VIDEO_WORKER_POLL_JITTER_MS=500
 VIDEO_CLEANUP_SWEEP_INTERVAL_MS=600000
 VIDEO_CLEANUP_SWEEP_BATCH_SIZE=25
 VIDEO_CLEANUP_LEASE_SECONDS=600
@@ -60,6 +66,21 @@ VIDEO_CLEANUP_RETRY_SECONDS=3600
 5. Increase the Render Background Worker instance count to add capacity. No API or Product contract changes are required.
 
 Set `VIDEO_WORKER_MIN_ACTIVE` on the API service to the minimum fleet size expected by operations. Keep `VIDEO_WORKER_HEARTBEAT_MAX_AGE_SECONDS` above at least two heartbeat intervals.
+
+## Backpressure
+
+Each worker claims at most `VIDEO_SAFETY_DISPATCH_BATCH_SIZE` rows at once, sends at most `VIDEO_SAFETY_DISPATCH_CONCURRENCY` scans concurrently, and drains only a bounded number of batches within a bounded tick budget. Jobs beyond that budget remain durable in PostgreSQL for this or another worker. No API request waits for this drain loop.
+
+Configure these API-service alert thresholds for the expected fleet and provider plan:
+
+```text
+VIDEO_PROCESSING_QUEUE_DEPTH_ALERT_THRESHOLD=10000
+VIDEO_SAFETY_QUEUE_DEPTH_ALERT_THRESHOLD=1000
+VIDEO_SAFETY_QUEUE_AGE_ALERT_SECONDS=300
+VIDEO_CLEANUP_QUEUE_DEPTH_ALERT_THRESHOLD=1000
+```
+
+A sustained `video_safety_queue_depth_exceeded`, `video_safety_queue_age_exceeded`, or saturated-worker heartbeat means capacity should be increased or provider throttling investigated. Scale worker instances before increasing per-instance concurrency beyond the downstream safety provider's documented quota.
 
 ## Failure behavior
 

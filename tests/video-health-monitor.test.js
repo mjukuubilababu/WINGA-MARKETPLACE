@@ -11,10 +11,10 @@ test("video health monitor exposes aggregate-only pipeline status", () => {
     readiness: "ready",
     alerts: [],
     health: {
-      total: 12, uploading: 1, processing: 2, ready: 8, readyWithoutPoster: 1, failed: 1, failedRecent: 1, cleanupDead: 1, cleanupStalled: 2,
+      total: 12, uploading: 1, processing: 2, processingQueueDepth: 3, ready: 8, readyWithoutPoster: 1, failed: 1, failedRecent: 1, cleanupQueueDepth: 4, cleanupDead: 1, cleanupStalled: 2,
       readyUnclaimed: 2, stalled: 0, oldestPendingAgeSeconds: 80,
       averageReadyLatencySeconds: 34, transcodeFailureRate: 0.1111, posterFailureRate: 0.125,
-      safetyPending: 3, safetyProcessing: 1, safetyRetry: 2, safetySubmitted: 4,
+      safetyPending: 3, safetyProcessing: 1, safetyRetry: 2, safetyQueueDepth: 6, safetySubmitted: 4,
       safetyCompleted: 20, safetyDead: 0, safetyStalled: 0, oldestSafetyPendingAgeSeconds: 95,
       activeVideoWorkers: 3, staleVideoWorkers: 1, lastVideoWorkerHeartbeatAt: "2026-09-08T10:00:00.000Z",
       playbackWindowHours: 24, playbackImpressions: 120, playbackPlays: 80,
@@ -33,8 +33,11 @@ test("video health monitor exposes aggregate-only pipeline status", () => {
   });
   assert.equal(result.ok, true);
   assert.equal(result.health.processing, 2);
+  assert.equal(result.health.processingQueueDepth, 3);
+  assert.equal(result.health.cleanupQueueDepth, 4);
   assert.equal(result.health.safetyPending, 3);
   assert.equal(result.health.safetyRetry, 2);
+  assert.equal(result.health.safetyQueueDepth, 6);
   assert.equal(result.health.cleanupDead, 1);
   assert.equal(result.health.cleanupStalled, 2);
   assert.equal(result.health.activeVideoWorkers, 3);
@@ -67,6 +70,10 @@ test("video health alerts require meaningful playback samples", () => {
   assert.equal(source.includes("video_playback_start_latency_exceeded"), true);
   assert.equal(source.includes("video_worker_capacity_below_minimum"), true);
   assert.equal(source.includes("video_cleanup_dead_letter_threshold_exceeded"), true);
+  assert.equal(source.includes("video_processing_queue_depth_exceeded"), true);
+  assert.equal(source.includes("video_safety_queue_depth_exceeded"), true);
+  assert.equal(source.includes("video_safety_queue_age_exceeded"), true);
+  assert.equal(source.includes("video_cleanup_queue_depth_exceeded"), true);
 });
 test("video health monitor fails closed for degraded HTTP responses", () => {
   const result = normalizeResult({ ok: false, status: 503 }, {

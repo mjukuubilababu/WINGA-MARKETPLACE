@@ -6427,6 +6427,22 @@ const server = http.createServer(async (req, res) => {
       Number(process.env.VIDEO_WORKER_MIN_ACTIVE || 1) || 1,
       100
     ));
+    const processingQueueDepthThreshold = Math.max(100, Math.min(
+      Number(process.env.VIDEO_PROCESSING_QUEUE_DEPTH_ALERT_THRESHOLD || 10000) || 10000,
+      10000000
+    ));
+    const safetyQueueDepthThreshold = Math.max(100, Math.min(
+      Number(process.env.VIDEO_SAFETY_QUEUE_DEPTH_ALERT_THRESHOLD || 1000) || 1000,
+      10000000
+    ));
+    const safetyQueueAgeThresholdSeconds = Math.max(60, Math.min(
+      Number(process.env.VIDEO_SAFETY_QUEUE_AGE_ALERT_SECONDS || 300) || 300,
+      86400
+    ));
+    const cleanupQueueDepthThreshold = Math.max(100, Math.min(
+      Number(process.env.VIDEO_CLEANUP_QUEUE_DEPTH_ALERT_THRESHOLD || 1000) || 1000,
+      10000000
+    ));
     const health = await postgresStore.readVideoPipelineHealth({
       processingAgeSeconds,
       workerHeartbeatAgeSeconds
@@ -6436,6 +6452,12 @@ const server = http.createServer(async (req, res) => {
     if (health.cleanupStalled > 0) alerts.push("stalled_video_cleanup");
     if (health.cleanupDead > 0) alerts.push("video_cleanup_dead_letter_threshold_exceeded");
     if (health.activeVideoWorkers < minimumActiveWorkers) alerts.push("video_worker_capacity_below_minimum");
+    if (health.processingQueueDepth >= processingQueueDepthThreshold) alerts.push("video_processing_queue_depth_exceeded");
+    if (health.safetyQueueDepth >= safetyQueueDepthThreshold) alerts.push("video_safety_queue_depth_exceeded");
+    if (health.safetyQueueDepth > 0 && health.oldestSafetyPendingAgeSeconds >= safetyQueueAgeThresholdSeconds) {
+      alerts.push("video_safety_queue_age_exceeded");
+    }
+    if (health.cleanupQueueDepth >= cleanupQueueDepthThreshold) alerts.push("video_cleanup_queue_depth_exceeded");
     if (health.failedRecent >= failedThreshold) alerts.push("video_failure_threshold_exceeded");
     if (health.safetyStalled > 0) alerts.push("stalled_video_safety");
     if (health.safetyDead >= safetyDeadThreshold) alerts.push("video_safety_dead_letter_threshold_exceeded");
@@ -6484,6 +6506,9 @@ const server = http.createServer(async (req, res) => {
       lightweight: true,
       readiness,
       videoPending: health.uploading + health.processing,
+      videoProcessingQueueDepth: health.processingQueueDepth,
+      videoSafetyQueueDepth: health.safetyQueueDepth,
+      videoCleanupQueueDepth: health.cleanupQueueDepth,
       videoStalled: health.stalled,
       videoFailedRecent: health.failedRecent,
       videoActiveWorkers: health.activeVideoWorkers,
@@ -6506,6 +6531,10 @@ const server = http.createServer(async (req, res) => {
         processingAgeSeconds,
         workerHeartbeatAgeSeconds,
         minimumActiveWorkers,
+        processingQueueDepth: processingQueueDepthThreshold,
+        safetyQueueDepth: safetyQueueDepthThreshold,
+        safetyQueueAgeSeconds: safetyQueueAgeThresholdSeconds,
+        cleanupQueueDepth: cleanupQueueDepthThreshold,
         failed: failedThreshold,
         safetyDead: safetyDeadThreshold,
         pipelineMinSampleSize,

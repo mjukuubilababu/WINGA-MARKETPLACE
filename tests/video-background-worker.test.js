@@ -136,3 +136,44 @@ test("main API owns video HTTP contracts but not video background processors", (
   assert.match(workerSource, /createVideoCleanupProcessor/);
   assert.match(workerSource, /heartbeatVideoWorker/);
 });
+test("video worker drains a burst adaptively without unbounded queue reads", async () => {
+  let safetyCalls = 0;
+  const worker = createVideoBackgroundWorker({
+    workerId: "burst-worker",
+    safetyBatchSize: 2,
+    safetyConcurrency: 3,
+    maxSafetyBatchesPerTick: 3,
+    tickBudgetMs: 120000,
+    batchYieldMs: 0,
+    store: {
+      async heartbeatVideoWorker() { return {}; },
+      async removeVideoWorkerHeartbeat() { return { removed: true }; },
+      async close() {}
+    },
+    streamClient: {},
+    safetyDispatcher: {
+      isConfigured: () => true,
+      async processOnce() {
+        safetyCalls += 1;
+        return { claimed: 2, submitted: 2, failed: 0, leaseLost: 0 };
+      },
+      stop() {}
+    },
+    cleanupProcessor: {
+      isConfigured: () => true,
+      async processOnce() { return { claimed: 0, deleted: 0, failed: 0, dead: 0, leaseLost: 0 }; },
+      stop() {}
+    },
+    logger: () => {}
+  });
+
+  const result = await worker.processOnce({ forceCleanup: true });
+  await worker.stop("test");
+
+  assert.equal(safetyCalls, 3);
+  assert.equal(result.safety.claimed, 6);
+  assert.equal(result.safety.batches, 3);
+  assert.equal(result.safety.saturated, true);
+  assert.equal(result.safety.budgetExhausted, false);
+  assert.equal(worker.state.saturatedTicks, 1);
+});
