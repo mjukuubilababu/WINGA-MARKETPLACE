@@ -21,9 +21,10 @@ function createVideoSafetyDispatcher(options = {}) {
   const intervalMs = clampInteger(options.intervalMs, 5000, 30 * 60 * 1000, 30000);
   const batchSize = clampInteger(options.batchSize, 1, 100, 10);
   const requestTimeoutMs = clampInteger(options.requestTimeoutMs, 1000, 60000, 10000);
+  const leaseSeconds = clampInteger(options.leaseSeconds, 30, 3600, 600);
   let timer = null;
   let running = false;
-  let stopped = true;
+  let stopped = false;
 
   function isConfigured() {
     return Boolean(store?.claimVideoSafetyBatch && store?.completeVideoSafetyDelivery
@@ -80,25 +81,33 @@ function createVideoSafetyDispatcher(options = {}) {
   }
 
   async function processOnce() {
-    if (running || stopped || !isConfigured()) return { claimed: 0, submitted: 0, failed: 0 };
+    if (running || stopped || !isConfigured()) return { claimed: 0, submitted: 0, failed: 0, leaseLost: 0 };
     running = true;
-    const totals = { claimed: 0, submitted: 0, failed: 0 };
+    const totals = { claimed: 0, submitted: 0, failed: 0, leaseLost: 0 };
     try {
-      const jobs = await store.claimVideoSafetyBatch({ limit: batchSize, workerId });
+      const jobs = await store.claimVideoSafetyBatch({ limit: batchSize, workerId, leaseSeconds });
       totals.claimed = jobs.length;
       for (const job of jobs) {
         try {
           const outcome = await dispatch(job);
-          await store.completeVideoSafetyDelivery(job.providerId, { ...outcome, attempts: job.attempts, maxAttempts: job.maxAttempts });
-          totals.submitted += 1;
+          const completion = await store.completeVideoSafetyDelivery(job.providerId, {
+            ...outcome,
+            attempts: job.attempts,
+            maxAttempts: job.maxAttempts,
+            workerId: cleanText(job.lockedBy || workerId, 120)
+          });
+          if (completion === null) totals.leaseLost += 1;
+          else totals.submitted += 1;
         } catch (error) {
-          await store.completeVideoSafetyDelivery(job.providerId, {
+          const completion = await store.completeVideoSafetyDelivery(job.providerId, {
             submitted: false,
             attempts: job.attempts,
             maxAttempts: job.maxAttempts,
-            error: cleanText(error?.message || error || "Video safety delivery failed.", 500)
+            error: cleanText(error?.message || error || "Video safety delivery failed.", 500),
+            workerId: cleanText(job.lockedBy || workerId, 120)
           });
-          totals.failed += 1;
+          if (completion === null) totals.leaseLost += 1;
+          else totals.failed += 1;
         }
       }
       if (totals.claimed > 0) logger(totals.failed > 0 ? "warn" : "info", "video_safety_delivery_batch", totals);

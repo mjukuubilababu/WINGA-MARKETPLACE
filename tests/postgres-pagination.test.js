@@ -107,6 +107,8 @@ test("PostgreSQL schema migrations are locked, transactional, and versioned", as
   assert.equal(calls.some((call) => call.text.includes("idx_products_seller_video_created")), true);
   assert.equal(calls.some((call) => call.text.includes("fk_video_upload_intents_product")), true);
   assert.equal(calls.some((call) => call.text.includes("source_size_bytes")), true);
+  assert.equal(calls.some((call) => call.text.includes("video_worker_heartbeats")), true);
+  assert.equal(calls.some((call) => call.text.includes("cleanup_max_attempts")), true);
   assert.equal(calls.some((call) => call.text.includes("INSERT INTO schema_migrations")), true);
   assert.equal(calls.some((call) => call.text === "COMMIT"), true);
   assert.equal(calls.some((call) => call.text.includes("pg_advisory_unlock")), true);
@@ -2938,8 +2940,8 @@ test("PostgreSQL video safety outbox is durable, bounded, and multi-instance saf
       if (sql.includes("INSERT INTO video_safety_jobs")) {
         return { rows: [{ providerId: "stream-safety-1", idempotencyKey: "video-safety:stream-safety-1" }], rowCount: 1 };
       }
-      if (sql.includes("WITH candidates AS")) {
-        return { rows: [{ providerId: "stream-safety-1", idempotencyKey: "video-safety:stream-safety-1", attempts: 1, maxAttempts: 6 }], rowCount: 1 };
+      if (sql.includes("candidates AS")) {
+        return { rows: [{ providerId: "stream-safety-1", idempotencyKey: "video-safety:stream-safety-1", attempts: 1, maxAttempts: 6, lockedBy: "instance-a" }], rowCount: 1 };
       }
       if (sql.includes("safety_status = $2")) {
         return { rows: [{ providerId: "stream-safety-1", productId: "product-1", sellerId: "seller-one", moderationStatus: params[9] }], rowCount: 1 };
@@ -2955,7 +2957,7 @@ test("PostgreSQL video safety outbox is durable, bounded, and multi-instance saf
 
   const queued = await store.enqueueVideoSafetyJob("stream-safety-1", { maxAttempts: 99 });
   const claimed = await store.claimVideoSafetyBatch({ limit: 500, workerId: "instance-a" });
-  await store.completeVideoSafetyDelivery("stream-safety-1", { submitted: false, attempts: 1, maxAttempts: 6, error: "timeout" });
+  await store.completeVideoSafetyDelivery("stream-safety-1", { submitted: false, attempts: 1, maxAttempts: 6, workerId: "instance-a", error: "timeout" });
   const applied = await store.applyVideoSafetyResult({
     providerId: "stream-safety-1", resultId: "result-1", verdict: "safe", riskScore: 0.1,
     labels: ["commerce"], scores: { commerce: 0.1 }, provider: "scanner", modelVersion: "v1",
@@ -2968,10 +2970,13 @@ test("PostgreSQL video safety outbox is durable, bounded, and multi-instance saf
   assert.deepEqual(await store.applyVideoSafetyResult({ providerId: "stream-safety-1" }), { updated: false, code: "invalid_result" });
   const enqueueCall = calls.find((call) => call.text.includes("INSERT INTO video_safety_jobs"));
   assert.deepEqual(enqueueCall.params, ["stream-safety-1", 20]);
-  const claimCall = calls.find((call) => call.text.includes("WITH candidates AS"));
-  assert.deepEqual(claimCall.params, [100, "instance-a"]);
+  const claimCall = calls.find((call) => call.text.includes("candidates AS"));
+  assert.deepEqual(claimCall.params, [100, "instance-a", 600]);
   assert.match(claimCall.text, /FOR UPDATE SKIP LOCKED/);
-  assert.match(claimCall.text, /locked_at < NOW\(\) - INTERVAL '10 minutes'/);
+  assert.match(claimCall.text, /attempts < max_attempts/);
+  assert.match(claimCall.text, /locked_by AS "lockedBy"/);
+  const deliveryCall = calls.find((call) => call.text.includes("WHERE provider_id = $1 AND status = 'processing'"));
+  assert.deepEqual(deliveryCall.params.slice(0, 2), ["stream-safety-1", "instance-a"]);
   const safetyResultCall = calls.find((call) => call.text.includes("safety_status = $2"));
   assert.equal(safetyResultCall.params[9], "approved");
   assert.ok(calls.some((call) => call.text.includes("UPDATE products") && call.text.includes("moderationStatus")));
@@ -3025,11 +3030,12 @@ test("PostgreSQL video pipeline health is durable, aggregate-only, and threshold
       calls.push({ text: String(text), params });
       return {
         rows: [{
-          total: 40, uploading: 2, processing: 3, ready: 30, readyWithoutPoster: 2, cleanupPending: 1, failed: 5, failedRecent: 2, cleanupFailed: 1,
+          total: 40, uploading: 2, processing: 3, ready: 30, readyWithoutPoster: 2, cleanupPending: 1, cleanupDead: 1, cleanupStalled: 1, failed: 5, failedRecent: 2, cleanupFailed: 1,
           readyUnclaimed: 4, stalled: 1, oldestPendingAgeSeconds: 1200.5,
           averageReadyLatencySeconds: 42.25, lastChangedAt: "2026-08-30T15:00:00.000Z",
           safetyQueue: { pending: 3, processing: 1, retry: 2, submitted: 4,
             completed: 18, dead: 1, stalled: 1, oldestPendingAgeSeconds: 700.5 },
+          workerFleet: { active: 2, stale: 1, lastSeenAt: "2026-08-30T15:59:50.000Z" },
           playback: { windowHours: 24, impressions: 100, plays: 80, pauses: 25, resumes: 18,
             replays: 6, mutes: 12, unmutes: 9, completions: 50, errors: 5, summaries: 75,
             commerceActions: 12, averageStartLatencyMs: 420, p95StartLatencyMs: 1100,
@@ -3044,12 +3050,13 @@ test("PostgreSQL video pipeline health is durable, aggregate-only, and threshold
   const health = await store.readVideoPipelineHealth({ processingAgeSeconds: 600 });
 
   assert.deepEqual(health, {
-    total: 40, uploading: 2, processing: 3, ready: 30, readyWithoutPoster: 2, cleanupPending: 1, failed: 5, failedRecent: 2, cleanupFailed: 1,
+    total: 40, uploading: 2, processing: 3, ready: 30, readyWithoutPoster: 2, cleanupPending: 1, cleanupDead: 1, cleanupStalled: 1, failed: 5, failedRecent: 2, cleanupFailed: 1,
     readyUnclaimed: 4, stalled: 1, oldestPendingAgeSeconds: 1200.5,
     averageReadyLatencySeconds: 42.25, transcodeFailureRate: 0.1429, posterFailureRate: 0.0667,
     lastChangedAt: "2026-08-30T15:00:00.000Z",
     safetyPending: 3, safetyProcessing: 1, safetyRetry: 2, safetySubmitted: 4,
     safetyCompleted: 18, safetyDead: 1, safetyStalled: 1, oldestSafetyPendingAgeSeconds: 700.5,
+    activeVideoWorkers: 2, staleVideoWorkers: 1, lastVideoWorkerHeartbeatAt: "2026-08-30T15:59:50.000Z",
     playbackWindowHours: 24, playbackImpressions: 100, playbackPlays: 80,
     playbackPauses: 25, playbackResumes: 18, playbackReplays: 6, playbackMutes: 12, playbackUnmutes: 9,
     playbackCompletions: 50, playbackErrors: 5, playbackSummaries: 75,
@@ -3074,7 +3081,7 @@ test("PostgreSQL video pipeline health is durable, aggregate-only, and threshold
   assert.match(calls[0].text, /PERCENTILE_CONT/);
   assert.match(calls[0].text, /metadata->>'tokencached'/);
   assert.match(calls[0].text, /COALESCE\(poster_url, ''\) = ''/);
-  assert.deepEqual(calls[0].params, [600]);
+  assert.deepEqual(calls[0].params, [600, 60]);
   assert.doesNotMatch(calls[0].text, /provider_id|seller_id|upload_id/);
 });
 test("PostgreSQL video cleanup claims are multi-instance safe and never delete claimed media", async () => {
@@ -3084,10 +3091,10 @@ test("PostgreSQL video cleanup claims are multi-instance safe and never delete c
       const sql = String(text);
       calls.push({ text: sql, params });
       if (sql.includes("RETURNING vui.provider_id")) {
-        return { rows: [{ providerId: "stream-orphan-1", status: "cleanup_pending", rowVersion: 2 }], rowCount: 1 };
+        return { rows: [{ providerId: "stream-orphan-1", status: "cleanup_pending", attempts: 1, maxAttempts: 8, lockedBy: "cleanup-worker-a", rowVersion: 2 }], rowCount: 1 };
       }
       if (sql.includes("DELETE FROM video_upload_intents")) return { rows: [], rowCount: 1 };
-      if (sql.includes("provider_cleanup_failed")) return { rows: [], rowCount: 1 };
+      if (sql.includes("provider_cleanup_failed")) return { rows: [{ status: "cleanup_failed" }], rowCount: 1 };
       return { rows: [], rowCount: 0 };
     },
     release() {}
@@ -3097,19 +3104,43 @@ test("PostgreSQL video cleanup claims are multi-instance safe and never delete c
     queryClient: { query: client.query.bind(client), connect: async () => client }
   });
 
-  const claimed = await store.claimVideoCleanupBatch({ limit: 10, failedRetentionDays: 5, retryAfterSeconds: 120 });
-  const completed = await store.completeVideoCleanup("stream-orphan-1", { deleted: true });
-  const retry = await store.completeVideoCleanup("stream-orphan-2", { deleted: false, error: "provider unavailable" });
+  const claimed = await store.claimVideoCleanupBatch({ limit: 10, failedRetentionDays: 5, retryAfterSeconds: 120, workerId: "cleanup-worker-a" });
+  const completed = await store.completeVideoCleanup("stream-orphan-1", { deleted: true, workerId: "cleanup-worker-a" });
+  const retry = await store.completeVideoCleanup("stream-orphan-2", { deleted: false, workerId: "cleanup-worker-a", error: "provider unavailable" });
 
   assert.equal(claimed.length, 1);
   const claimCall = calls.find((call) => call.text.includes("FOR UPDATE SKIP LOCKED"));
   assert.ok(claimCall);
   assert.match(claimCall.text, /product_id IS NULL/);
-  assert.match(claimCall.text, /status IN \('cleanup_failed', 'cleanup_pending'\)/);
-  assert.deepEqual(claimCall.params, [5, 120, 10]);
+  assert.match(claimCall.text, /cleanup_attempts < cleanup_max_attempts/);
+  assert.match(claimCall.text, /cleanup_locked_by = \$4/);
+  assert.deepEqual(claimCall.params, [5, 120, 10, "cleanup-worker-a", 600, 8]);
   assert.equal(completed.deleted, true);
   assert.equal(retry.retryScheduled, true);
   assert.match(calls.find((call) => call.text.includes("DELETE FROM video_upload_intents")).text, /status = 'cleanup_pending'/);
+});
+test("PostgreSQL video worker heartbeats expose aggregate capacity without request data", async () => {
+  const calls = [];
+  const store = createPostgresStore({
+    databaseUrl: "postgres://primary.invalid/winga",
+    queryClient: {
+      async query(text, params = []) {
+        calls.push({ text: String(text), params });
+        return { rows: [{ workerId: params[0], status: params[1] || "idle" }], rowCount: 1 };
+      }
+    }
+  });
+
+  await store.heartbeatVideoWorker("video-worker-a", {
+    status: "idle", claimed: 12, completed: 10, failed: 2
+  });
+  const removed = await store.removeVideoWorkerHeartbeat("video-worker-a");
+
+  assert.equal(removed.removed, true);
+  assert.match(calls[0].text, /ON CONFLICT \(worker_id\) DO UPDATE/);
+  assert.deepEqual(calls[0].params.slice(0, 2), ["video-worker-a", "idle"]);
+  assert.deepEqual(JSON.parse(calls[0].params[2]), { claimed: 12, completed: 10, failed: 2 });
+  assert.match(calls[1].text, /DELETE FROM video_worker_heartbeats WHERE worker_id = \$1/);
 });
 test("PostgreSQL product create atomically claims only a ready seller-owned video", async () => {
   const calls = [];

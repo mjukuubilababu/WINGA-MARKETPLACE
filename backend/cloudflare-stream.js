@@ -256,10 +256,10 @@ function createCloudflareStreamClient(options = {}) {
     }
     return task;
   }
-  async function deleteVideo(providerId) {
+  async function deleteVideo(providerId, options = {}) {
     const safeId = cleanText(providerId, 64);
     if (!/^[a-zA-Z0-9_-]{8,64}$/.test(safeId)) return false;
-    await request(`/${encodeURIComponent(safeId)}`, { method: "DELETE" });
+    await request(`/${encodeURIComponent(safeId)}`, { method: "DELETE", signal: options.signal });
     signedPlaybackPolicyCache.delete(safeId);
     captionListCache.delete(safeId);
     return true;

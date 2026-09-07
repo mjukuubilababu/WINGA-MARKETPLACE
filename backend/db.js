@@ -5735,11 +5735,22 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
   async function claimVideoSafetyBatch(options = {}) {
     const limit = Math.max(1, Math.min(Number(options.limit || 20) || 20, 100));
     const workerId = String(options.workerId || "video-safety-worker").slice(0, 120);
+    const leaseSeconds = Math.max(30, Math.min(Number(options.leaseSeconds || 600) || 600, 3600));
     const result = await withTransaction(async (client) => client.query(
-      `WITH candidates AS (
+      `WITH stale_dead AS (
+         UPDATE video_safety_jobs
+         SET status = 'dead', locked_by = '', locked_at = NULL,
+           last_error = CASE WHEN last_error = '' THEN 'worker_lease_exhausted' ELSE last_error END,
+           updated_at = NOW()
+         WHERE status = 'processing' AND attempts >= max_attempts
+           AND locked_at < NOW() - ($3::int * INTERVAL '1 second')
+         RETURNING provider_id
+       ), candidates AS (
          SELECT provider_id FROM video_safety_jobs
-         WHERE (status IN ('pending', 'retry') AND next_attempt_at <= NOW())
-            OR (status = 'processing' AND locked_at < NOW() - INTERVAL '10 minutes')
+         WHERE attempts < max_attempts AND (
+           (status IN ('pending', 'retry') AND next_attempt_at <= NOW())
+           OR (status = 'processing' AND locked_at < NOW() - ($3::int * INTERVAL '1 second'))
+         )
          ORDER BY next_attempt_at ASC, created_at ASC
          FOR UPDATE SKIP LOCKED LIMIT $1
        )
@@ -5748,8 +5759,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
          locked_by = $2, locked_at = NOW(), updated_at = NOW()
        FROM candidates WHERE jobs.provider_id = candidates.provider_id
        RETURNING jobs.provider_id AS "providerId", jobs.idempotency_key AS "idempotencyKey",
-         jobs.attempts, jobs.max_attempts AS "maxAttempts"`,
-      [limit, workerId]
+         jobs.attempts, jobs.max_attempts AS "maxAttempts", jobs.locked_by AS "lockedBy"`,
+      [limit, workerId, leaseSeconds]
     ));
     return result.rows || [];
   }
@@ -5757,21 +5768,22 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
   async function completeVideoSafetyDelivery(providerId, outcome = {}) {
     const submitted = outcome.submitted === true;
     const attempts = Math.max(1, Number(outcome.attempts || 1) || 1);
-    const maxAttempts = Math.max(1, Number(outcome.maxAttempts || 6) || 6);
-    const dead = !submitted && attempts >= maxAttempts;
     const retrySeconds = Math.min(3600, Math.max(30, 30 * (2 ** Math.min(attempts - 1, 7))));
+    const workerId = String(outcome.workerId || "").slice(0, 120);
     const result = await query(
-      `UPDATE video_safety_jobs SET status = $2,
+      `UPDATE video_safety_jobs SET
+         status = CASE WHEN $3::boolean THEN 'submitted'
+           WHEN attempts >= max_attempts THEN 'dead' ELSE 'retry' END,
          submitted_at = CASE WHEN $3::boolean THEN NOW() ELSE submitted_at END,
-         next_attempt_at = CASE WHEN $3::boolean OR $2 = 'dead' THEN next_attempt_at ELSE NOW() + ($4::int * INTERVAL '1 second') END,
+         next_attempt_at = CASE WHEN $3::boolean OR attempts >= max_attempts
+           THEN next_attempt_at ELSE NOW() + ($4::int * INTERVAL '1 second') END,
          locked_by = '', locked_at = NULL, last_error = $5, updated_at = NOW()
-       WHERE provider_id = $1 AND status = 'processing'
+       WHERE provider_id = $1 AND status = 'processing' AND locked_by = $2
        RETURNING provider_id AS "providerId", status, attempts`,
-      [String(providerId || ""), submitted ? "submitted" : (dead ? "dead" : "retry"), submitted, retrySeconds, String(outcome.error || "").slice(0, 500)]
+      [String(providerId || ""), workerId, submitted, retrySeconds, String(outcome.error || "").slice(0, 500)]
     );
     return result.rows[0] || null;
   }
-
   async function applyVideoSafetyResult(result = {}) {
     const providerId = String(result.providerId || "");
     const resultId = String(result.resultId || "");
@@ -5824,6 +5836,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
   }
   async function readVideoPipelineHealth(options = {}) {
     const processingAgeSeconds = Math.max(60, Math.min(Number(options.processingAgeSeconds || 900) || 900, 86400));
+    const workerHeartbeatAgeSeconds = Math.max(15, Math.min(Number(options.workerHeartbeatAgeSeconds || 60) || 60, 600));
     const result = await query(
       `SELECT
          COUNT(*)::int AS total,
@@ -5832,9 +5845,15 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
          COUNT(*) FILTER (WHERE status = 'ready')::int AS ready,
          COUNT(*) FILTER (WHERE status = 'ready' AND COALESCE(poster_url, '') = '')::int AS "readyWithoutPoster",
          COUNT(*) FILTER (WHERE status = 'cleanup_pending')::int AS "cleanupPending",
+         COUNT(*) FILTER (WHERE status = 'cleanup_dead')::int AS "cleanupDead",
+         COUNT(*) FILTER (
+           WHERE status = 'cleanup_pending' AND (
+             cleanup_locked_at IS NULL OR cleanup_locked_at < NOW() - ($2::int * INTERVAL '1 second')
+           )
+         )::int AS "cleanupStalled",
          COUNT(*) FILTER (WHERE status = 'failed')::int AS failed,
          COUNT(*) FILTER (
-           WHERE status IN ('failed', 'cleanup_failed') AND updated_at >= NOW() - INTERVAL '24 hours'
+           WHERE status IN ('failed', 'cleanup_failed', 'cleanup_dead') AND updated_at >= NOW() - INTERVAL '24 hours'
          )::int AS "failedRecent",
          COUNT(*) FILTER (WHERE status = 'cleanup_failed')::int AS "cleanupFailed",
          COUNT(*) FILTER (WHERE status = 'ready' AND product_id IS NULL)::int AS "readyUnclaimed",
@@ -5863,6 +5882,15 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
              WHERE status IN ('pending', 'retry', 'processing')
            )))), 0)
          ) FROM video_safety_jobs), '{}'::jsonb) AS "safetyQueue",
+         COALESCE((SELECT jsonb_build_object(
+           'active', COUNT(*) FILTER (
+             WHERE last_seen_at >= NOW() - ($2::int * INTERVAL '1 second')
+           ),
+           'stale', COUNT(*) FILTER (
+             WHERE last_seen_at < NOW() - ($2::int * INTERVAL '1 second')
+           ),
+           'lastSeenAt', MAX(last_seen_at)
+         ) FROM video_worker_heartbeats), '{}'::jsonb) AS "workerFleet",
          COALESCE((SELECT jsonb_build_object(
            'windowHours', 24,
            'impressions', COUNT(*) FILTER (WHERE event_type = 'video_impression'),
@@ -5910,11 +5938,12 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
              'video_buy_click', 'video_purchase_conversion', 'video_share', 'video_save'
            )), '{}'::jsonb) AS playback
        FROM video_upload_intents`,
-      [processingAgeSeconds]
+      [processingAgeSeconds, workerHeartbeatAgeSeconds]
     );
     const row = result.rows[0] || {};
     const safetyQueue = row.safetyQueue && typeof row.safetyQueue === "object" ? row.safetyQueue : {};
     const playback = row.playback && typeof row.playback === "object" ? row.playback : {};
+    const workerFleet = row.workerFleet && typeof row.workerFleet === "object" ? row.workerFleet : {};
     const playbackPlays = Math.max(0, Number(playback.plays || 0));
     const playbackErrors = Math.max(0, Number(playback.errors || 0));
     const playbackCompletions = Math.max(0, Number(playback.completions || 0));
@@ -5936,6 +5965,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       ready,
       readyWithoutPoster,
       cleanupPending: Number(row.cleanupPending || 0),
+      cleanupDead: Number(row.cleanupDead || 0),
+      cleanupStalled: Number(row.cleanupStalled || 0),
       failed,
       failedRecent: Number(row.failedRecent || 0),
       cleanupFailed: Number(row.cleanupFailed || 0),
@@ -5958,6 +5989,9 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       safetyDead: Number(safetyQueue.dead || 0),
       safetyStalled: Number(safetyQueue.stalled || 0),
       oldestSafetyPendingAgeSeconds: Math.max(0, Number(safetyQueue.oldestPendingAgeSeconds || 0)),
+      activeVideoWorkers: Math.max(0, Number(workerFleet.active || 0)),
+      staleVideoWorkers: Math.max(0, Number(workerFleet.stale || 0)),
+      lastVideoWorkerHeartbeatAt: workerFleet.lastSeenAt || null,
       playbackWindowHours: Math.max(1, Number(playback.windowHours || 24)),
       playbackImpressions: Math.max(0, Number(playback.impressions || 0)),
       playbackPlays,
@@ -5990,55 +6024,112 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
   async function claimVideoCleanupBatch(options = {}) {
     const limit = Math.max(1, Math.min(Number(options.limit || 25) || 25, 100));
     const failedRetentionDays = Math.max(1, Math.min(Number(options.failedRetentionDays || 7) || 7, 365));
-    const retryAfterSeconds = Math.max(60, Math.min(Number(options.retryAfterSeconds || 3600) || 3600, 86400));
+    const retryAfterSeconds = Math.max(30, Math.min(Number(options.retryAfterSeconds || 3600) || 3600, 86400));
+    const leaseSeconds = Math.max(30, Math.min(Number(options.leaseSeconds || 600) || 600, 3600));
+    const maxAttempts = Math.max(1, Math.min(Number(options.maxAttempts || 8) || 8, 20));
+    const workerId = String(options.workerId || "video-cleanup-worker").slice(0, 120);
     return withTransaction(async (client) => {
       const result = await client.query(
-        `WITH candidates AS (
+        `WITH stale_dead AS (
+           UPDATE video_upload_intents
+           SET status = 'cleanup_dead', cleanup_locked_by = '', cleanup_locked_at = NULL,
+             error_code = 'provider_cleanup_exhausted', updated_at = NOW(), row_version = row_version + 1
+           WHERE product_id IS NULL AND status = 'cleanup_pending'
+             AND cleanup_attempts >= cleanup_max_attempts
+             AND (cleanup_locked_at IS NULL OR cleanup_locked_at < NOW() - ($5::int * INTERVAL '1 second'))
+           RETURNING provider_id
+         ), candidates AS (
            SELECT provider_id
            FROM video_upload_intents
-           WHERE product_id IS NULL
+           WHERE product_id IS NULL AND cleanup_attempts < cleanup_max_attempts
              AND (
                (status IN ('uploading', 'processing') AND upload_expires_at < NOW())
                OR (status = 'failed' AND updated_at < NOW() - ($1::int * INTERVAL '1 day'))
-               OR (status IN ('cleanup_failed', 'cleanup_pending') AND updated_at < NOW() - ($2::int * INTERVAL '1 second'))
+               OR (status = 'cleanup_failed' AND updated_at < NOW() - ($2::int * INTERVAL '1 second'))
+               OR (status = 'cleanup_pending' AND (
+                 cleanup_locked_at IS NULL OR cleanup_locked_at < NOW() - ($5::int * INTERVAL '1 second')
+               ))
              )
            ORDER BY updated_at ASC, provider_id ASC
            LIMIT $3
            FOR UPDATE SKIP LOCKED
          )
          UPDATE video_upload_intents vui
-         SET status = 'cleanup_pending', updated_at = NOW(), row_version = row_version + 1
+         SET status = 'cleanup_pending',
+           cleanup_max_attempts = CASE WHEN cleanup_attempts = 0 THEN $6 ELSE cleanup_max_attempts END,
+           cleanup_attempts = cleanup_attempts + 1,
+           cleanup_locked_by = $4, cleanup_locked_at = NOW(),
+           updated_at = NOW(), row_version = row_version + 1
          FROM candidates
          WHERE vui.provider_id = candidates.provider_id
            AND vui.product_id IS NULL
          RETURNING vui.provider_id AS "providerId", vui.status,
-           vui.updated_at AS "updatedAt", vui.row_version AS "rowVersion"`,
-        [failedRetentionDays, retryAfterSeconds, limit]
+           vui.cleanup_attempts AS attempts, vui.cleanup_max_attempts AS "maxAttempts",
+           vui.cleanup_locked_by AS "lockedBy", vui.updated_at AS "updatedAt",
+           vui.row_version AS "rowVersion"`,
+        [failedRetentionDays, retryAfterSeconds, limit, workerId, leaseSeconds, maxAttempts]
       );
       return result.rows || [];
     });
   }
 
   async function completeVideoCleanup(providerId, outcome = {}) {
-    const safeProviderId = String(providerId || '');
+    const safeProviderId = String(providerId || "");
+    const workerId = String(outcome.workerId || "").slice(0, 120);
     if (outcome.deleted === true) {
       const result = await query(
         `DELETE FROM video_upload_intents
          WHERE provider_id = $1 AND status = 'cleanup_pending'
-           AND product_id IS NULL`,
-        [safeProviderId]
+           AND product_id IS NULL AND cleanup_locked_by = $2`,
+        [safeProviderId, workerId]
       );
-      return { deleted: Number(result.rowCount || 0) > 0, retryScheduled: false };
+      return { deleted: Number(result.rowCount || 0) > 0, retryScheduled: false, dead: false };
     }
     const result = await query(
       `UPDATE video_upload_intents
-       SET status = 'cleanup_failed', error_code = 'provider_cleanup_failed',
-         error_message = $2, updated_at = NOW(), row_version = row_version + 1
+       SET status = CASE WHEN cleanup_attempts >= cleanup_max_attempts
+           THEN 'cleanup_dead' ELSE 'cleanup_failed' END,
+         error_code = CASE WHEN cleanup_attempts >= cleanup_max_attempts
+           THEN 'provider_cleanup_exhausted' ELSE 'provider_cleanup_failed' END,
+         error_message = $3, cleanup_locked_by = '', cleanup_locked_at = NULL,
+         updated_at = NOW(), row_version = row_version + 1
        WHERE provider_id = $1 AND status = 'cleanup_pending'
-         AND product_id IS NULL`,
-      [safeProviderId, String(outcome.error || 'Video provider cleanup failed.').slice(0, 500)]
+         AND product_id IS NULL AND cleanup_locked_by = $2
+       RETURNING status`,
+      [safeProviderId, workerId, String(outcome.error || "Video provider cleanup failed.").slice(0, 500)]
     );
-    return { deleted: false, retryScheduled: Number(result.rowCount || 0) > 0 };
+    const status = String(result.rows?.[0]?.status || "");
+    return {
+      deleted: false,
+      retryScheduled: status === "cleanup_failed",
+      dead: status === "cleanup_dead"
+    };
+  }
+
+  async function heartbeatVideoWorker(workerId, metrics = {}) {
+    const safeWorkerId = String(workerId || "").trim().slice(0, 120);
+    if (!safeWorkerId) throw new TypeError("A video worker ID is required.");
+    const status = String(metrics.status || "idle").trim().toLowerCase().slice(0, 24);
+    const safeMetrics = { ...metrics };
+    delete safeMetrics.status;
+    const result = await query(
+      `INSERT INTO video_worker_heartbeats (worker_id, status, metrics, started_at, last_seen_at)
+       VALUES ($1, $2, $3::jsonb, NOW(), NOW())
+       ON CONFLICT (worker_id) DO UPDATE SET
+         status = EXCLUDED.status, metrics = EXCLUDED.metrics, last_seen_at = NOW()
+       RETURNING worker_id AS "workerId", status, started_at AS "startedAt",
+         last_seen_at AS "lastSeenAt"`,
+      [safeWorkerId, status || "idle", stringifyJson(safeMetrics, {})]
+    );
+    return result.rows[0] || null;
+  }
+
+  async function removeVideoWorkerHeartbeat(workerId) {
+    const result = await query(
+      "DELETE FROM video_worker_heartbeats WHERE worker_id = $1",
+      [String(workerId || "").trim().slice(0, 120)]
+    );
+    return { removed: Number(result.rowCount || 0) > 0 };
   }
   async function applyVideoUploadWebhook(video = {}) {
     const result = await query(
@@ -6179,6 +6270,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     readVideoPipelineHealth,
     claimVideoCleanupBatch,
     completeVideoCleanup,
+    heartbeatVideoWorker,
+    removeVideoWorkerHeartbeat,
     applyVideoUploadWebhook,
     close
   };

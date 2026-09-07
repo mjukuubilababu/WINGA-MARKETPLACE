@@ -184,6 +184,7 @@ test("marketplace gallery adds one secure ready video slide without collapsing p
   const playbackSource = fs.readFileSync(path.join(root, "src", "marketplace", "video-playback.js"), "utf8");
   const buildSource = fs.readFileSync(path.join(root, "scripts", "build-vercel-static.js"), "utf8");
   const serverSource = fs.readFileSync(path.join(root, "backend", "server.js"), "utf8");
+  const videoWorkerSource = fs.readFileSync(path.join(root, "backend", "video-background-worker.js"), "utf8");
   const workerSource = fs.readFileSync(path.join(root, "worker.js"), "utf8");
   const styleSource = fs.readFileSync(path.join(root, "style.css"), "utf8");
   const context = vm.createContext({ window: { WingaModules: { marketplace: {} } } });
@@ -291,9 +292,10 @@ test("marketplace gallery adds one secure ready video slide without collapsing p
   assert.doesNotMatch(playbackSource, /emitMetric\([^\n]+providerId/);
   assert.match(serverSource, /\/api\/ops\/media\/videos\/health/);
   assert.match(serverSource, /readVideoPipelineHealth/);
-  assert.match(serverSource, /startVideoCleanupSweeper/);
-  assert.match(serverSource, /stopVideoCleanupSweeper/);
-  assert.match(serverSource, /videoCleanupSweepRunning/);
+  assert.doesNotMatch(serverSource, /startVideoCleanupSweeper/);
+  assert.doesNotMatch(serverSource, /createVideoSafetyDispatcher/);
+  assert.match(videoWorkerSource, /createVideoCleanupProcessor/);
+  assert.match(videoWorkerSource, /createVideoSafetyDispatcher/);
 });
 test("video prewarm consumes the BigPipe token and keeps the poster until the first decoded frame", async () => {
   const root = path.resolve(__dirname, "..");

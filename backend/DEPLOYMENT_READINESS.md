@@ -33,6 +33,7 @@
 - Production startup fails if payment-webhook signing is not configured and unverified manual payment capture was not explicitly allowed.
 - Account recovery fails closed with HTTP 503 until its signing secret and delivery webhook are configured.
 - Payment submission through `/api/orders` should remain `pending` until a verified payment callback or explicit reconciliation marks it paid.
+- Video safety dispatch and abandoned-upload cleanup run only in `npm run worker:video`; production must have at least one independently scalable Background Worker.
 
 ## Operational endpoints to verify
 

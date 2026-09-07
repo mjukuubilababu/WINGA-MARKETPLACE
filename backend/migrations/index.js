@@ -540,6 +540,42 @@ const MIGRATIONS = Object.freeze([
       `ALTER TABLE video_upload_intents
        VALIDATE CONSTRAINT chk_video_upload_source_size;`
     ])
+  }),
+  Object.freeze({
+    id: "2026090801_video_worker_horizontal_scale",
+    statements: Object.freeze([
+      `ALTER TABLE video_upload_intents
+       ADD COLUMN IF NOT EXISTS cleanup_attempts INTEGER NOT NULL DEFAULT 0;`,
+      `ALTER TABLE video_upload_intents
+       ADD COLUMN IF NOT EXISTS cleanup_max_attempts INTEGER NOT NULL DEFAULT 8;`,
+      `ALTER TABLE video_upload_intents
+       ADD COLUMN IF NOT EXISTS cleanup_locked_by TEXT NOT NULL DEFAULT '';`,
+      `ALTER TABLE video_upload_intents
+       ADD COLUMN IF NOT EXISTS cleanup_locked_at TIMESTAMPTZ;`,
+      `UPDATE video_upload_intents
+       SET status = 'cleanup_failed', cleanup_locked_by = '', cleanup_locked_at = NULL
+       WHERE status = 'cleanup_pending';`,
+      `ALTER TABLE video_upload_intents
+       DROP CONSTRAINT IF EXISTS chk_video_cleanup_attempts;`,
+      `ALTER TABLE video_upload_intents
+       ADD CONSTRAINT chk_video_cleanup_attempts
+       CHECK (cleanup_attempts >= 0 AND cleanup_max_attempts BETWEEN 1 AND 20) NOT VALID;`,
+      `ALTER TABLE video_upload_intents
+       VALIDATE CONSTRAINT chk_video_cleanup_attempts;`,
+      `CREATE INDEX IF NOT EXISTS idx_video_cleanup_claim_ready
+       ON video_upload_intents (updated_at ASC, provider_id ASC)
+       WHERE product_id IS NULL
+         AND status IN ('uploading', 'processing', 'failed', 'cleanup_failed', 'cleanup_pending');`,
+      `CREATE TABLE IF NOT EXISTS video_worker_heartbeats (
+         worker_id TEXT PRIMARY KEY,
+         status TEXT NOT NULL DEFAULT 'starting',
+         metrics JSONB NOT NULL DEFAULT '{}'::jsonb,
+         started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+       );`,
+      `CREATE INDEX IF NOT EXISTS idx_video_worker_heartbeats_last_seen
+       ON video_worker_heartbeats (last_seen_at DESC);`
+    ])
   })]);
 
 async function runSchemaMigrations({ pool, logger = console, beforeMigrations = null } = {}) {
