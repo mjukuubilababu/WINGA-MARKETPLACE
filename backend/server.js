@@ -11721,12 +11721,19 @@ const server = http.createServer(async (req, res) => {
       }
       const updated = await postgresStore.applyVideoUploadWebhook({
         ...video,
-        providerPayload: { readyToStream: video.readyToStream, status: video.status, receivedAt: new Date().toISOString() }
+        providerPayload: { readyToStream: video.readyToStream, status: video.status }
       });
       if (updated && video.status === "ready" && VIDEO_SAFETY_ENABLED && postgresStore.enqueueVideoSafetyJob) {
         await postgresStore.enqueueVideoSafetyJob(video.providerId, { maxAttempts: VIDEO_SAFETY_CONFIG.maxAttempts });
       }
-      sendJson(res, updated ? 200 : 202, { ok: true, matched: Boolean(updated), status: video.status });
+      sendJson(res, updated ? 200 : 202, {
+        ok: true,
+        matched: Boolean(updated),
+        status: updated?.status || video.status,
+        applied: Boolean(updated?.applied),
+        duplicate: Boolean(updated?.duplicate),
+        stale: Boolean(updated?.stale)
+      });
       return;
     }
 
@@ -11755,6 +11762,10 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       const applied = await postgresStore.applyVideoSafetyResult(result);
+      if (applied.duplicate) {
+        sendJson(res, 200, { ok: true, matched: true, status: result.verdict, duplicate: true });
+        return;
+      }
       if (!applied.updated) {
         sendJson(res, applied.code === "invalid_result" ? 400 : 409, { ok: false, code: applied.code || "video_safety_result_conflict" });
         return;

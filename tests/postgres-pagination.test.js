@@ -2822,7 +2822,7 @@ test("PostgreSQL video upload intents preserve owner scope and webhook state", a
       if (sql.includes("INSERT INTO video_upload_intents")) {
         return { rows: [{ providerId: params[0], sellerId: params[1], uploadId: params[2], status: "uploading", rowVersion: 1 }], rowCount: 1 };
       }
-      if (sql.includes("SELECT provider_id") && sql.includes("video_upload_intents")) {
+      if (sql.trimStart().startsWith("SELECT provider_id") && sql.includes("video_upload_intents")) {
         return { rows: [{ providerId: params[0], sellerId: params[1], status: "uploading", rowVersion: 1 }], rowCount: 1 };
       }
       if (sql.includes("UPDATE video_upload_intents")) {
@@ -2868,6 +2868,71 @@ test("PostgreSQL video upload intents preserve owner scope and webhook state", a
   assert.equal(webhookUpdate.params[8], "video/mp4");
   assert.equal(JSON.parse(webhookUpdate.params[11]).readyToStream, true);
   assert.match(webhookUpdate.text, /AS "aspectRatio"/);
+});
+test("PostgreSQL video webhook retries are monotonic, idempotent, and preserve renditions", async () => {
+  const calls = [];
+  let updateAttempt = 0;
+  const canonicalReady = {
+    providerId: "stream-retry-1", status: "ready", posterUrl: "https://video.example/poster.jpg",
+    hlsUrl: "https://video.example/video.m3u8", dashUrl: "https://video.example/video.mpd",
+    rowVersion: 2
+  };
+  const queryClient = {
+    async query(text, params = []) {
+      const sql = String(text);
+      calls.push({ text: sql, params });
+      if (sql.startsWith("UPDATE video_upload_intents")) {
+        updateAttempt += 1;
+        if (updateAttempt === 1) return { rows: [canonicalReady], rowCount: 1 };
+        if (updateAttempt === 4) {
+          return { rows: [{ ...canonicalReady, posterUrl: "https://video.example/poster-v2.jpg", rowVersion: 3 }], rowCount: 1 };
+        }
+        return { rows: [], rowCount: 0 };
+      }
+      if (sql.startsWith("SELECT provider_id")) {
+        return { rows: [canonicalReady], rowCount: 1 };
+      }
+      return { rows: [], rowCount: 0 };
+    }
+  };
+  const store = createPostgresStore({ databaseUrl: "postgres://primary.invalid/winga", queryClient });
+  const readyPayload = {
+    providerId: "stream-retry-1", status: "ready", duration: 10, width: 1080, height: 1920,
+    posterUrl: "https://video.example/poster.jpg", hlsUrl: "https://video.example/video.m3u8",
+    dashUrl: "https://video.example/video.mpd", providerPayload: { readyToStream: true, status: "ready" }
+  };
+
+  const first = await store.applyVideoUploadWebhook(readyPayload);
+  const duplicate = await store.applyVideoUploadWebhook(readyPayload);
+  const stale = await store.applyVideoUploadWebhook({
+    providerId: "stream-retry-1", status: "processing", posterUrl: "", hlsUrl: "", dashUrl: "",
+    providerPayload: { readyToStream: false, status: "processing" }
+  });
+  const enriched = await store.applyVideoUploadWebhook({
+    ...readyPayload, posterUrl: "https://video.example/poster-v2.jpg"
+  });
+
+  assert.equal(first.applied, true);
+  assert.equal(duplicate.duplicate, true);
+  assert.equal(duplicate.rowVersion, 2);
+  assert.equal(stale.stale, true);
+  assert.equal(stale.status, "ready");
+  assert.equal(stale.posterUrl, "https://video.example/poster.jpg");
+  assert.equal(enriched.applied, true);
+  assert.equal(enriched.rowVersion, 3);
+  const updateSql = calls[0].text;
+  assert.match(updateSql, /status IN \('uploading', 'processing'\)/);
+  assert.match(updateSql, /\(status = 'ready' AND \$2 = 'ready'\)/);
+  assert.match(updateSql, /poster_url = COALESCE\(NULLIF\(\$6, ''\), poster_url\)/);
+  assert.match(updateSql, /hls_url = COALESCE\(NULLIF\(\$7, ''\), hls_url\)/);
+  assert.match(updateSql, /dash_url = COALESCE\(NULLIF\(\$8, ''\), dash_url\)/);
+  assert.match(updateSql, /provider_payload = provider_payload \|\| \$12::jsonb/);
+  const updateCalls = calls.filter((call) => call.text.startsWith("UPDATE video_upload_intents"));
+  assert.equal(updateCalls.length, 4);
+  assert.equal(updateCalls[2].params[5], "");
+  assert.equal(updateCalls[2].params[6], "");
+  assert.equal(updateCalls[2].params[7], "");
+  assert.equal(calls.filter((call) => call.text.startsWith("SELECT provider_id")).length, 2);
 });
 test("PostgreSQL playable video lookup preserves public product visibility context", async () => {
   const calls = [];
@@ -2987,6 +3052,53 @@ test("PostgreSQL video safety outbox is durable, bounded, and multi-instance saf
   assert.ok(MIGRATIONS.some((migration) => migration.id === "2026083005_video_safety_outbox"));
   assert.ok(MIGRATIONS.some((migration) => migration.id === "2026083101_video_direct_publish_reconciliation"));
   assert.ok(MIGRATIONS.some((migration) => migration.id === "2026083102_video_direct_publish_default"));
+});
+test("PostgreSQL duplicate video safety callbacks do not replay product or job updates", async () => {
+  const calls = [];
+  let resultStored = false;
+  const client = {
+    async query(text, params = []) {
+      const sql = String(text);
+      calls.push({ text: sql, params });
+      if (sql.includes("UPDATE video_upload_intents SET safety_status")) {
+        if (resultStored) return { rows: [], rowCount: 0 };
+        resultStored = true;
+        return {
+          rows: [{ providerId: "stream-safety-idempotent", productId: "product-1",
+            sellerId: "seller-one", moderationStatus: "approved" }],
+          rowCount: 1
+        };
+      }
+      if (sql.includes('SELECT safety_result_id AS "resultId"')) {
+        return { rows: [{ resultId: "result-idempotent-1" }], rowCount: 1 };
+      }
+      return { rows: [], rowCount: 1 };
+    },
+    release() {}
+  };
+  const store = createPostgresStore({
+    databaseUrl: "postgres://primary.invalid/winga",
+    queryClient: { query: client.query.bind(client), connect: async () => client }
+  });
+  const payload = {
+    providerId: "stream-safety-idempotent", resultId: "result-idempotent-1",
+    verdict: "safe", riskScore: 0.1, labels: [], scores: {}, provider: "scanner",
+    modelVersion: "v1", checkedAt: "2026-08-30T16:00:00.000Z"
+  };
+
+  const first = await store.applyVideoSafetyResult(payload);
+  const duplicate = await store.applyVideoSafetyResult(payload);
+
+  assert.equal(first.updated, true);
+  assert.equal(first.duplicate, false);
+  assert.equal(duplicate.updated, false);
+  assert.equal(duplicate.duplicate, true);
+  assert.equal(duplicate.code, "duplicate");
+  assert.equal(calls.filter((call) => call.text.includes("UPDATE products")).length, 1);
+  assert.equal(calls.filter((call) => call.text.includes("UPDATE video_safety_jobs")).length, 1);
+  const safetyUpdates = calls.filter((call) => call.text.includes("UPDATE video_upload_intents SET safety_status"));
+  assert.equal(safetyUpdates.length, 2);
+  assert.match(safetyUpdates[0].text, /WHERE provider_id = \$1 AND safety_result_id = ''/);
 });
 test("PostgreSQL video safety only hides explicitly blocked videos", async () => {
   for (const [verdict, expectedModeration] of [["review", "approved"], ["error", "approved"], ["blocked", "rejected"]]) {

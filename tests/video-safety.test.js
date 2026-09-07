@@ -1,5 +1,7 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
+const fs = require("node:fs");
+const path = require("node:path");
 const {
   isVideoSafetyConfigured,
   normalizeVideoSafetyResult,
@@ -54,4 +56,20 @@ test("video safety normalization bounds untrusted provider evidence", () => {
   assert.deepEqual(result.labels, ["violence", "spam"]);
   assert.deepEqual(result.scores, { violence: 1, spam: 0 });
   assert.equal(normalizeVideoSafetyResult({ verdict: "unexpected" }).verdict, "error");
+});
+test("video webhook routes acknowledge retries without volatile writes or duplicate audits", () => {
+  const source = fs.readFileSync(path.join(__dirname, "..", "backend", "server.js"), "utf8");
+  const streamStart = source.indexOf('url.pathname === "/api/media/videos/webhook"');
+  const safetyStart = source.indexOf('url.pathname === "/api/media/videos/safety-results"');
+  const safetyEnd = source.indexOf("const videoStatusMatch", safetyStart);
+  assert.ok(streamStart > 0 && safetyStart > streamStart && safetyEnd > safetyStart);
+  const streamRoute = source.slice(streamStart, safetyStart);
+  const safetyRoute = source.slice(safetyStart, safetyEnd);
+
+  assert.doesNotMatch(streamRoute, /receivedAt/);
+  assert.match(streamRoute, /applied: Boolean\(updated\?\.applied\)/);
+  assert.match(streamRoute, /duplicate: Boolean\(updated\?\.duplicate\)/);
+  assert.match(streamRoute, /stale: Boolean\(updated\?\.stale\)/);
+  assert.ok(safetyRoute.indexOf("if (applied.duplicate)") < safetyRoute.indexOf('event: "video_safety_result_applied"'));
+  assert.match(safetyRoute, /duplicate: true/);
 });

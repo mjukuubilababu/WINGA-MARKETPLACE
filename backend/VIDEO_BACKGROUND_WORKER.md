@@ -82,6 +82,12 @@ VIDEO_CLEANUP_QUEUE_DEPTH_ALERT_THRESHOLD=1000
 
 A sustained `video_safety_queue_depth_exceeded`, `video_safety_queue_age_exceeded`, or saturated-worker heartbeat means capacity should be increased or provider throttling investigated. Scale worker instances before increasing per-instance concurrency beyond the downstream safety provider's documented quota.
 
+## Retry and idempotency
+
+A Stream webhook update is monotonic. Uploading and processing may advance to a terminal state, while ready and failed cannot regress because of a late provider event. Empty retry fields never erase a persisted poster or HLS/DASH rendition. An identical webhook is acknowledged without changing row_version; a later same-state webhook may still enrich a missing or changed provider URL.
+
+Safety callbacks use the provider result ID as the durable idempotency boundary. The first valid result updates the upload, product media, and safety job in one transaction. An exact retry returns success without repeating those writes or appending another applied-result audit. A different result for an already-decided video is a conflict and requires operator investigation.
+
 ## Failure behavior
 
 A worker crash leaves its lease in PostgreSQL. Another worker reclaims safety or cleanup work after the bounded lease expires. A stale worker cannot complete a reclaimed job because completion is scoped to `locked_by`. Cloudflare deletion treats HTTP 404 as success, making repeated cleanup safe.

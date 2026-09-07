@@ -5791,48 +5791,70 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     const verdict = ["safe", "review", "blocked", "error"].includes(String(result.verdict || ""))
       ? String(result.verdict) : "error";
     const moderationStatus = verdict === "blocked" ? "rejected" : "approved";
-    return withTransaction(async (client) => {
-      const updated = await client.query(
-        `UPDATE video_upload_intents SET safety_status = $2, safety_score = $3,
-           safety_labels = $4::jsonb, safety_scores = $5::jsonb, safety_provider = $6,
-           safety_model_version = $7, safety_result_id = $8, safety_checked_at = $9::timestamptz,
-           moderation_status = $10,
-           moderation_note = CASE WHEN $10 = 'rejected' THEN 'Automated safety policy blocked this video.' ELSE moderation_note END,
-           moderated_at = CASE WHEN $10 IN ('approved', 'rejected') THEN NOW() ELSE moderated_at END,
-           moderated_by = CASE WHEN $10 IN ('approved', 'rejected') THEN 'video-safety' ELSE moderated_by END,
-           updated_at = NOW(), row_version = row_version + 1
-         WHERE provider_id = $1 AND (safety_result_id = '' OR safety_result_id = $8)
-         RETURNING provider_id AS "providerId", product_id AS "productId", seller_id AS "sellerId",
-           moderation_status AS "moderationStatus"`,
-        [providerId, verdict, Number(result.riskScore || 0), stringifyJson(result.labels, []),
-          stringifyJson(result.scores, {}), result.provider || "", result.modelVersion || "",
-          resultId, result.checkedAt || new Date().toISOString(), moderationStatus]
-      );
-      const row = updated.rows[0];
-      if (!row) return { updated: false, code: "not_found_or_conflict" };
-      if (row.productId) {
-        await client.query(
-          `UPDATE products
-           SET media_items = COALESCE((
-             SELECT jsonb_agg(
-               CASE WHEN item->>'type' = 'video' AND item->>'providerId' = $1
-                 THEN jsonb_set(item, '{moderationStatus}', to_jsonb($2::text), true)
-                 ELSE item END
-               ORDER BY ordinal
-             )
-             FROM jsonb_array_elements(media_items) WITH ORDINALITY AS entries(item, ordinal)
-           ), '[]'::jsonb), updated_at = NOW(), row_version = row_version + 1
-           WHERE id = $3`,
-          [providerId, moderationStatus, row.productId]
+    try {
+      return await withTransaction(async (client) => {
+        const updated = await client.query(
+          `UPDATE video_upload_intents SET safety_status = $2, safety_score = $3,
+             safety_labels = $4::jsonb, safety_scores = $5::jsonb, safety_provider = $6,
+             safety_model_version = $7, safety_result_id = $8, safety_checked_at = $9::timestamptz,
+             moderation_status = $10,
+             moderation_note = CASE WHEN $10 = 'rejected' THEN 'Automated safety policy blocked this video.' ELSE moderation_note END,
+             moderated_at = CASE WHEN $10 IN ('approved', 'rejected') THEN NOW() ELSE moderated_at END,
+             moderated_by = CASE WHEN $10 IN ('approved', 'rejected') THEN 'video-safety' ELSE moderated_by END,
+             updated_at = NOW(), row_version = row_version + 1
+           WHERE provider_id = $1 AND safety_result_id = ''
+           RETURNING provider_id AS "providerId", product_id AS "productId", seller_id AS "sellerId",
+             moderation_status AS "moderationStatus"`,
+          [providerId, verdict, Number(result.riskScore || 0), stringifyJson(result.labels, []),
+            stringifyJson(result.scores, {}), result.provider || "", result.modelVersion || "",
+            resultId, result.checkedAt || new Date().toISOString(), moderationStatus]
         );
+        const row = updated.rows[0];
+        if (!row) {
+          const existing = await client.query(
+            `SELECT safety_result_id AS "resultId" FROM video_upload_intents
+             WHERE provider_id = $1 LIMIT 1`,
+            [providerId]
+          );
+          const currentResultId = String(existing.rows?.[0]?.resultId || "");
+          if (currentResultId && currentResultId === resultId) {
+            return { updated: false, duplicate: true, code: "duplicate" };
+          }
+          return {
+            updated: false,
+            duplicate: false,
+            code: currentResultId ? "result_conflict" : "not_found"
+          };
+        }
+        if (row.productId) {
+          await client.query(
+            `UPDATE products
+             SET media_items = COALESCE((
+               SELECT jsonb_agg(
+                 CASE WHEN item->>'type' = 'video' AND item->>'providerId' = $1
+                   THEN jsonb_set(item, '{moderationStatus}', to_jsonb($2::text), true)
+                   ELSE item END
+                 ORDER BY ordinal
+               )
+               FROM jsonb_array_elements(media_items) WITH ORDINALITY AS entries(item, ordinal)
+             ), '[]'::jsonb), updated_at = NOW(), row_version = row_version + 1
+             WHERE id = $3`,
+            [providerId, moderationStatus, row.productId]
+          );
+        }
+        await client.query(
+          `UPDATE video_safety_jobs SET status = 'completed', completed_at = NOW(),
+             locked_by = '', locked_at = NULL, updated_at = NOW() WHERE provider_id = $1`,
+          [providerId]
+        );
+        return { updated: true, duplicate: false, code: "", ...row };
+      });
+    } catch (error) {
+      if (String(error?.code || "") === "23505") {
+        return { updated: false, duplicate: false, code: "result_conflict" };
       }
-      await client.query(
-        `UPDATE video_safety_jobs SET status = 'completed', completed_at = NOW(),
-           locked_by = '', locked_at = NULL, updated_at = NOW() WHERE provider_id = $1`,
-        [providerId]
-      );
-      return { updated: true, code: "", ...row };
-    });
+      throw error;
+    }
   }
   async function readVideoPipelineHealth(options = {}) {
     const processingAgeSeconds = Math.max(60, Math.min(Number(options.processingAgeSeconds || 900) || 900, 86400));
@@ -6142,14 +6164,49 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     return { removed: Number(result.rowCount || 0) > 0 };
   }
   async function applyVideoUploadWebhook(video = {}) {
-    const result = await query(
+    const providerId = String(video.providerId || "");
+    const incomingStatus = ["processing", "ready", "failed"].includes(String(video.status || ""))
+      ? String(video.status) : "processing";
+    const params = [
+      providerId, incomingStatus, Number(video.duration || 0), Number(video.width || 0),
+      Number(video.height || 0), video.posterUrl || "", video.hlsUrl || "", video.dashUrl || "",
+      String(video.mimeType || "").trim().toLowerCase().slice(0, 120),
+      video.errorCode || "", video.errorMessage || "", stringifyJson(video.providerPayload, {})
+    ];
+    const updated = await query(
       `UPDATE video_upload_intents
-       SET status = $2, duration = $3, width = $4, height = $5,
-         poster_url = $6, hls_url = $7, dash_url = $8,
+       SET status = $2,
+         duration = CASE WHEN $3::float8 > 0 THEN $3::float8 ELSE duration END,
+         width = CASE WHEN $4::int > 0 THEN $4::int ELSE width END,
+         height = CASE WHEN $5::int > 0 THEN $5::int ELSE height END,
+         poster_url = COALESCE(NULLIF($6, ''), poster_url),
+         hls_url = COALESCE(NULLIF($7, ''), hls_url),
+         dash_url = COALESCE(NULLIF($8, ''), dash_url),
          mime_type = COALESCE(NULLIF($9, ''), mime_type),
-         error_code = $10, error_message = $11, provider_payload = $12::jsonb,
+         error_code = CASE WHEN $2 = 'ready' THEN '' ELSE COALESCE(NULLIF($10, ''), error_code) END,
+         error_message = CASE WHEN $2 = 'ready' THEN '' ELSE COALESCE(NULLIF($11, ''), error_message) END,
+         provider_payload = provider_payload || $12::jsonb,
          updated_at = NOW(), row_version = row_version + 1
        WHERE provider_id = $1
+         AND (
+           (status IN ('uploading', 'processing') AND $2 IN ('processing', 'ready', 'failed'))
+           OR (status = 'ready' AND $2 = 'ready')
+           OR (status = 'failed' AND $2 = 'failed')
+         )
+         AND (
+           status IS DISTINCT FROM $2
+           OR ($3::float8 > 0 AND duration IS DISTINCT FROM $3::float8)
+           OR ($4::int > 0 AND width IS DISTINCT FROM $4::int)
+           OR ($5::int > 0 AND height IS DISTINCT FROM $5::int)
+           OR (NULLIF($6, '') IS NOT NULL AND poster_url IS DISTINCT FROM $6)
+           OR (NULLIF($7, '') IS NOT NULL AND hls_url IS DISTINCT FROM $7)
+           OR (NULLIF($8, '') IS NOT NULL AND dash_url IS DISTINCT FROM $8)
+           OR (NULLIF($9, '') IS NOT NULL AND mime_type IS DISTINCT FROM $9)
+           OR ($2 <> 'ready' AND NULLIF($10, '') IS NOT NULL AND error_code IS DISTINCT FROM $10)
+           OR ($2 <> 'ready' AND NULLIF($11, '') IS NOT NULL AND error_message IS DISTINCT FROM $11)
+           OR ($2 = 'ready' AND (error_code <> '' OR error_message <> ''))
+           OR provider_payload IS DISTINCT FROM provider_payload || $12::jsonb
+         )
        RETURNING provider_id AS "providerId", seller_id AS "sellerId", upload_id AS "uploadId",
          status, status AS "processingStatus", provider_id AS "mediaId", provider_id AS "storageKey",
          duration, width, height,
@@ -6157,14 +6214,30 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
          mime_type AS "mimeType", source_size_bytes::float8 AS "sourceSizeBytes", poster_url AS "posterUrl",
          hls_url AS "hlsUrl", dash_url AS "dashUrl", error_code AS "errorCode",
          error_message AS "errorMessage", updated_at AS "updatedAt", row_version AS "rowVersion"`,
-      [
-        video.providerId, video.status, Number(video.duration || 0), Number(video.width || 0),
-        Number(video.height || 0), video.posterUrl || "", video.hlsUrl || "", video.dashUrl || "",
-        String(video.mimeType || "").trim().toLowerCase().slice(0, 120),
-        video.errorCode || "", video.errorMessage || "", stringifyJson(video.providerPayload, {})
-      ]
+      params
     );
-    return result.rows[0] || null;
+    if (updated.rows[0]) {
+      return { ...updated.rows[0], applied: true, duplicate: false, stale: false };
+    }
+    const current = await query(
+      `SELECT provider_id AS "providerId", seller_id AS "sellerId", upload_id AS "uploadId",
+         status, status AS "processingStatus", provider_id AS "mediaId", provider_id AS "storageKey",
+         duration, width, height,
+         CASE WHEN height > 0 THEN width::float8 / height::float8 ELSE 0::float8 END AS "aspectRatio",
+         mime_type AS "mimeType", source_size_bytes::float8 AS "sourceSizeBytes", poster_url AS "posterUrl",
+         hls_url AS "hlsUrl", dash_url AS "dashUrl", error_code AS "errorCode",
+         error_message AS "errorMessage", updated_at AS "updatedAt", row_version AS "rowVersion"
+       FROM video_upload_intents WHERE provider_id = $1 LIMIT 1`,
+      [providerId]
+    );
+    const row = current.rows[0];
+    if (!row) return null;
+    return {
+      ...row,
+      applied: false,
+      duplicate: row.status === incomingStatus,
+      stale: row.status !== incomingStatus
+    };
   }
 
   async function init(getLegacyStore) {
