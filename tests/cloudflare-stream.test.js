@@ -33,11 +33,13 @@ test("Stream webhook verification rejects tampering and replayed signatures", ()
 
 test("Stream video normalization exposes playback only after encoding is ready", () => {
   const processing = normalizeStreamVideo({ uid: "video-one", readyToStream: false, status: { state: "inprogress" }, playback: { hls: "https://invalid/private.m3u8" } });
-  const ready = normalizeStreamVideo({ uid: "video-one", creator: "seller-one", duration: 12.5, readyToStream: true, status: { state: "ready" }, playback: { hls: "https://video.example/manifest.m3u8" }, thumbnail: "https://video.example/thumb.jpg" });
+  const ready = normalizeStreamVideo({ uid: "video-one", creator: "seller-one", duration: 12.5, readyToStream: true, status: { state: "ready" }, input: { width: 1080, height: 1920 }, meta: { contentType: "VIDEO/MP4" }, playback: { hls: "https://video.example/manifest.m3u8" }, thumbnail: "https://video.example/thumb.jpg" });
   assert.equal(processing.status, "processing");
   assert.equal(processing.hlsUrl, "");
   assert.equal(ready.status, "ready");
   assert.equal(ready.duration, 12.5);
+  assert.equal(ready.aspectRatio, 1080 / 1920);
+  assert.equal(ready.mimeType, "video/mp4");
 });
 
 test("Stream signed playback tokens are short-lived and non-downloadable", async () => {

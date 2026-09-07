@@ -153,7 +153,15 @@
       throw Object.assign(fail("Video is still processing. Retry the status check.", "video_processing_timeout"), { providerId, retryable: true });
     }
     function createMediaItem(video = {}, providerId = "") {
-      return { type: "video", provider: "cloudflare-stream", providerId, status: "ready", posterUrl: String(video.posterUrl || ""), thumbnailUrl: String(video.posterUrl || ""), duration: Number(video.duration || 0), width: Number(video.width || 0), height: Number(video.height || 0) };
+      const width = Math.max(0, Number(video.width || 0) || 0);
+      const height = Math.max(0, Number(video.height || 0) || 0);
+      return {
+        type: "video", provider: "cloudflare-stream", providerId, status: "ready",
+        posterUrl: String(video.posterUrl || ""), thumbnailUrl: String(video.posterUrl || ""),
+        duration: Math.max(0, Number(video.duration || 0) || 0), width, height,
+        aspectRatio: Math.max(0, Number(video.aspectRatio || 0) || (width > 0 && height > 0 ? width / height : 0)),
+        mimeType: String(video.mimeType || "").trim().toLowerCase()
+      };
     }
     async function resume(providerId, options = {}) {
       const safeProviderId = String(providerId || "").trim();

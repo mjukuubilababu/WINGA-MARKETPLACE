@@ -501,6 +501,45 @@ const MIGRATIONS = Object.freeze([
        ON products (uploaded_by, created_at DESC, id DESC)
        WHERE media_items @> '[{"type":"video"}]'::jsonb;`
     ])
+  }),
+  Object.freeze({
+    id: "2026090701_video_media_metadata_contract",
+    statements: Object.freeze([
+      `ALTER TABLE video_upload_intents
+       ADD COLUMN IF NOT EXISTS mime_type TEXT NOT NULL DEFAULT '';`,
+      `ALTER TABLE video_upload_intents
+       ADD COLUMN IF NOT EXISTS source_size_bytes BIGINT NOT NULL DEFAULT 0;`,
+      `ALTER TABLE video_upload_intents
+       ALTER COLUMN product_id DROP DEFAULT;`,
+      `ALTER TABLE video_upload_intents
+       ALTER COLUMN product_id DROP NOT NULL;`,
+      `UPDATE video_upload_intents
+       SET product_id = NULL, claimed_at = NULL
+       WHERE product_id = '';`,
+      `UPDATE video_upload_intents vui
+       SET product_id = NULL, claimed_at = NULL
+       WHERE product_id IS NOT NULL
+         AND NOT EXISTS (SELECT 1 FROM products p WHERE p.id = vui.product_id);`,
+      `DROP INDEX IF EXISTS idx_video_upload_intents_product_claim;`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_video_upload_intents_product_claim
+       ON video_upload_intents (product_id)
+       WHERE product_id IS NOT NULL;`,
+      `ALTER TABLE video_upload_intents
+       DROP CONSTRAINT IF EXISTS fk_video_upload_intents_product;`,
+      `ALTER TABLE video_upload_intents
+       ADD CONSTRAINT fk_video_upload_intents_product
+       FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE SET NULL
+       DEFERRABLE INITIALLY DEFERRED NOT VALID;`,
+      `ALTER TABLE video_upload_intents
+       VALIDATE CONSTRAINT fk_video_upload_intents_product;`,
+      `ALTER TABLE video_upload_intents
+       DROP CONSTRAINT IF EXISTS chk_video_upload_source_size;`,
+      `ALTER TABLE video_upload_intents
+       ADD CONSTRAINT chk_video_upload_source_size
+       CHECK (source_size_bytes >= 0) NOT VALID;`,
+      `ALTER TABLE video_upload_intents
+       VALIDATE CONSTRAINT chk_video_upload_source_size;`
+    ])
   })]);
 
 async function runSchemaMigrations({ pool, logger = console, beforeMigrations = null } = {}) {

@@ -105,6 +105,8 @@ test("PostgreSQL schema migrations are locked, transactional, and versioned", as
   assert.equal(calls.some((call) => call.text.includes("idx_sessions_username_active")), true);
   assert.equal(calls.some((call) => call.text.includes("CREATE TABLE IF NOT EXISTS user_locale_preferences")), true);
   assert.equal(calls.some((call) => call.text.includes("idx_products_seller_video_created")), true);
+  assert.equal(calls.some((call) => call.text.includes("fk_video_upload_intents_product")), true);
+  assert.equal(calls.some((call) => call.text.includes("source_size_bytes")), true);
   assert.equal(calls.some((call) => call.text.includes("INSERT INTO schema_migrations")), true);
   assert.equal(calls.some((call) => call.text === "COMMIT"), true);
   assert.equal(calls.some((call) => call.text.includes("pg_advisory_unlock")), true);
@@ -558,22 +560,29 @@ test("PostgreSQL product moderation and seller notification commit atomically", 
   assert.equal(calls[3].text, "COMMIT");
 });
 
-test("PostgreSQL product delete is owner-scoped", async () => {
+test("PostgreSQL product delete is owner-scoped and releases claimed video metadata", async () => {
   const calls = [];
+  const client = {
+    async query(text, params = []) {
+      calls.push({ text: String(text), params });
+      return { rows: [{ id: params[0] }], rowCount: 1 };
+    },
+    release() {}
+  };
   const store = createPostgresStore({
     databaseUrl: "postgres://test.invalid/winga",
-    queryClient: {
-      async query(text, params = []) {
-        calls.push({ text: String(text), params });
-        return { rows: [], rowCount: 1 };
-      }
-    }
+    queryClient: { query: client.query.bind(client), connect: async () => client }
   });
 
   const result = await store.deleteProduct("product-row-4", "seller-four");
   assert.deepEqual(result, { deleted: true });
-  assert.match(calls[0].text, /DELETE FROM products WHERE id = \$1 AND uploaded_by = \$2/);
-  assert.deepEqual(calls[0].params, ["product-row-4", "seller-four"]);
+  assert.equal(calls[0].text, "BEGIN");
+  assert.match(calls[1].text, /SELECT id FROM products WHERE id = \$1 AND uploaded_by = \$2 FOR UPDATE/);
+  assert.match(calls[2].text, /UPDATE video_upload_intents/);
+  assert.match(calls[2].text, /SET product_id = NULL, claimed_at = NULL/);
+  assert.match(calls[3].text, /DELETE FROM products WHERE id = \$1 AND uploaded_by = \$2/);
+  assert.deepEqual(calls[3].params, ["product-row-4", "seller-four"]);
+  assert.equal(calls[4].text, "COMMIT");
 });
 
 test("PostgreSQL commerce order locks inventory and commits receipt, order, payment, and notification atomically", async () => {
@@ -2825,7 +2834,9 @@ test("PostgreSQL video upload intents preserve owner scope and webhook state", a
     providerId: "stream-video-123",
     sellerId: "seller-one",
     uploadId: "upload-one",
-    uploadExpiresAt: "2026-08-30T12:00:00.000Z"
+    uploadExpiresAt: "2026-08-30T12:00:00.000Z",
+    mimeType: "video/mp4",
+    sourceSizeBytes: 7340032
   });
   const owned = await store.readVideoUploadIntent("stream-video-123", "seller-one");
   const updated = await store.applyVideoUploadWebhook({
@@ -2834,13 +2845,17 @@ test("PostgreSQL video upload intents preserve owner scope and webhook state", a
     duration: 12.5,
     width: 1080,
     height: 1920,
+    mimeType: "video/mp4",
     posterUrl: "https://video.example/thumb.jpg",
     hlsUrl: "https://video.example/manifest.m3u8",
     providerPayload: { readyToStream: true }
   });
 
   assert.equal(created.status, "uploading");
-  assert.match(calls.find((call) => call.text.includes("INSERT INTO video_upload_intents")).text, /'uploading', 'approved'/);
+  const intentInsert = calls.find((call) => call.text.includes("INSERT INTO video_upload_intents"));
+  assert.match(intentInsert.text, /'uploading', 'approved'/);
+  assert.match(intentInsert.text, /mime_type, source_size_bytes/);
+  assert.deepEqual(intentInsert.params.slice(4), ["video/mp4", 7340032]);
   assert.equal(owned.sellerId, "seller-one");
   assert.equal(updated.status, "ready");
   const ownerRead = calls.find((call) => call.text.includes("SELECT provider_id") && call.text.includes("video_upload_intents"));
@@ -2848,7 +2863,9 @@ test("PostgreSQL video upload intents preserve owner scope and webhook state", a
   assert.deepEqual(ownerRead.params, ["stream-video-123", "seller-one"]);
   const webhookUpdate = calls.find((call) => call.text.includes("UPDATE video_upload_intents"));
   assert.equal(webhookUpdate.params[1], "ready");
-  assert.equal(JSON.parse(webhookUpdate.params[10]).readyToStream, true);
+  assert.equal(webhookUpdate.params[8], "video/mp4");
+  assert.equal(JSON.parse(webhookUpdate.params[11]).readyToStream, true);
+  assert.match(webhookUpdate.text, /AS "aspectRatio"/);
 });
 test("PostgreSQL playable video lookup preserves public product visibility context", async () => {
   const calls = [];
@@ -3087,7 +3104,7 @@ test("PostgreSQL video cleanup claims are multi-instance safe and never delete c
   assert.equal(claimed.length, 1);
   const claimCall = calls.find((call) => call.text.includes("FOR UPDATE SKIP LOCKED"));
   assert.ok(claimCall);
-  assert.match(claimCall.text, /COALESCE\(product_id, ''\) = ''/);
+  assert.match(claimCall.text, /product_id IS NULL/);
   assert.match(claimCall.text, /status IN \('cleanup_failed', 'cleanup_pending'\)/);
   assert.deepEqual(claimCall.params, [5, 120, 10]);
   assert.equal(completed.deleted, true);
@@ -3101,7 +3118,7 @@ test("PostgreSQL product create atomically claims only a ready seller-owned vide
       const sql = String(text);
       calls.push({ text: sql, params });
       if (sql.includes("UPDATE video_upload_intents")) {
-        return { rows: [{ provider_id: params[0] }], rowCount: 1 };
+        return { rows: [{ providerId: params[0], status: "ready", moderationStatus: "approved", posterUrl: "https://video.example/poster.jpg", duration: 14, width: 1080, height: 1920, mimeType: "video/mp4" }], rowCount: 1 };
       }
       if (sql.includes("INSERT INTO products")) {
         return { rows: [{ rowVersion: 1 }], rowCount: 1 };
@@ -3139,7 +3156,11 @@ test("PostgreSQL product create atomically claims only a ready seller-owned vide
   assert.deepEqual(calls[claimIndex].params, ["stream-video-ready", "seller-one", "product-video-1"]);
   const productInsert = calls[insertIndex];
   const storedMediaItems = JSON.parse(productInsert.params.at(-1));
-  assert.equal(storedMediaItems.find((item) => item.type === "video").moderationStatus, "approved");
+  const storedVideo = storedMediaItems.find((item) => item.type === "video");
+  assert.equal(storedVideo.moderationStatus, "approved");
+  assert.equal(storedVideo.posterUrl, "https://video.example/poster.jpg");
+  assert.equal(storedVideo.aspectRatio, 1080 / 1920);
+  assert.equal(storedVideo.mimeType, "video/mp4");
   assert.equal(calls.at(-1).text, "COMMIT");
 });
 

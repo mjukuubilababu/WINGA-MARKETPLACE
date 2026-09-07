@@ -11700,7 +11700,8 @@ const server = http.createServer(async (req, res) => {
         }
         const intent = await postgresStore.createVideoUploadIntent({
           providerId: directUpload.providerId, sellerId: seller.username,
-          uploadId, uploadExpiresAt: directUpload.expiresAt
+          uploadId, uploadExpiresAt: directUpload.expiresAt,
+          mimeType: contentType, sourceSizeBytes: fileSize
         });
         if (!intent) {
           await CLOUDFLARE_STREAM_CLIENT.deleteVideo(directUpload.providerId).catch(() => {});

@@ -47,6 +47,23 @@ test("canonical product media allows five images and one metadata-only video", (
   assert.deepEqual(mediaItems.map((item) => item.position), [0, 1, 2, 3, 4, 5]);
 });
 
+test("canonical video media derives aspect ratio and preserves normalized MIME metadata", () => {
+  const [video] = normalizeProductMediaItems({
+    mediaItems: [{
+      type: "video",
+      provider: "cloudflare-stream",
+      providerId: "stream-metadata",
+      status: "ready",
+      width: 1080,
+      height: 1920,
+      contentType: "VIDEO/MP4"
+    }]
+  });
+
+  assert.equal(video.aspectRatio, 1080 / 1920);
+  assert.equal(video.mimeType, "video/mp4");
+  assert.equal(video.position, 0);
+});
 test("canonical product media rejects embedded video bytes and keeps failed metadata", () => {
   const mediaItems = normalizeProductMediaItems({
     image: "/uploads/fallback.webp",

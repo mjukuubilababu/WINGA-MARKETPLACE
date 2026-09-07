@@ -2750,15 +2750,17 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
 
   async function claimProductVideos(client, product = {}) {
     const providerIds = getProductVideoProviderIds(product);
-    const moderationStatuses = new Map();
+    const claimedVideos = new Map();
     for (const providerId of providerIds) {
       const claim = await client.query(
         `UPDATE video_upload_intents
-         SET product_id = $3, claimed_at = COALESCE(claimed_at, NOW()),
-           updated_at = NOW(), row_version = row_version + 1
+         SET claimed_at = CASE WHEN product_id IS NULL THEN NOW() ELSE claimed_at END,
+           product_id = $3, updated_at = NOW(), row_version = row_version + 1
          WHERE provider_id = $1 AND seller_id = $2 AND status = 'ready'
-           AND (product_id = '' OR product_id = $3)
-         RETURNING provider_id, moderation_status AS "moderationStatus"`,
+           AND (product_id IS NULL OR product_id = $3)
+         RETURNING provider_id AS "providerId", status,
+           moderation_status AS "moderationStatus", poster_url AS "posterUrl",
+           duration, width, height, mime_type AS "mimeType"`,
         [providerId, product.uploadedBy, product.id]
       );
       if (!claim.rowCount) {
@@ -2766,18 +2768,31 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
         error.code = "VIDEO_CLAIM_REJECTED";
         throw error;
       }
-      moderationStatuses.set(providerId, String(claim.rows?.[0]?.moderationStatus || "approved"));
+      const row = claim.rows?.[0] || {};
+      const width = Math.max(0, Number(row.width || 0) || 0);
+      const height = Math.max(0, Number(row.height || 0) || 0);
+      claimedVideos.set(providerId, {
+        status: String(row.status || "ready"),
+        moderationStatus: String(row.moderationStatus || "approved"),
+        posterUrl: String(row.posterUrl || ""),
+        thumbnailUrl: String(row.posterUrl || ""),
+        duration: Math.max(0, Number(row.duration || 0) || 0),
+        width,
+        height,
+        aspectRatio: width > 0 && height > 0 ? width / height : 0,
+        mimeType: String(row.mimeType || "").trim().toLowerCase()
+      });
     }
-    return moderationStatuses;
+    return claimedVideos;
   }
 
-  function applyClaimedVideoModeration(product = {}, moderationStatuses = new Map()) {
-    if (!moderationStatuses.size) return product;
+  function applyClaimedVideoMetadata(product = {}, claimedVideos = new Map()) {
+    if (!claimedVideos.size) return product;
     return {
       ...product,
       mediaItems: normalizeProductMediaItems(product).map((item) => (
-        item.type === "video" && moderationStatuses.has(item.providerId)
-          ? { ...item, moderationStatus: moderationStatuses.get(item.providerId) }
+        item.type === "video" && claimedVideos.has(item.providerId)
+          ? { ...item, ...claimedVideos.get(item.providerId) }
           : item
       ))
     };
@@ -2785,7 +2800,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
   async function releaseRemovedProductVideos(client, productId, retainedProviderIds = []) {
     await client.query(
       `UPDATE video_upload_intents
-       SET product_id = '', claimed_at = NULL, updated_at = NOW(), row_version = row_version + 1
+       SET product_id = NULL, claimed_at = NULL, updated_at = NOW(), row_version = row_version + 1
        WHERE product_id = $1 AND NOT (provider_id = ANY($2::text[]))`,
       [productId, retainedProviderIds]
     );
@@ -2794,8 +2809,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
   async function createProduct(product = {}) {
     return withTransaction(async (client) => {
       await upsertProductCategory(client, product);
-      const moderationStatuses = await claimProductVideos(client, product);
-      const productForWrite = applyClaimedVideoModeration(product, moderationStatuses);
+      const claimedVideos = await claimProductVideos(client, product);
+      const productForWrite = applyClaimedVideoMetadata(product, claimedVideos);
       const values = getProductWriteValues(productForWrite);
       const result = await client.query(
         `INSERT INTO products (
@@ -2818,8 +2833,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
   async function updateProduct(productId, ownerUsername, product = {}, options = {}) {
     return withTransaction(async (client) => {
       await upsertProductCategory(client, product);
-      const moderationStatuses = await claimProductVideos(client, { ...product, id: productId, uploadedBy: ownerUsername });
-      const productForWrite = applyClaimedVideoModeration(product, moderationStatuses);
+      const claimedVideos = await claimProductVideos(client, { ...product, id: productId, uploadedBy: ownerUsername });
+      const productForWrite = applyClaimedVideoMetadata(product, claimedVideos);
       const values = getProductWriteValues(productForWrite);
       const expectedVersion = Number(options.expectedRowVersion || 0);
       const result = await client.query(
@@ -2845,11 +2860,24 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
   }
 
   async function deleteProduct(productId, ownerUsername) {
-    const result = await query(
-      "DELETE FROM products WHERE id = $1 AND uploaded_by = $2",
-      [productId, ownerUsername]
-    );
-    return { deleted: Number(result.rowCount || 0) > 0 };
+    return withTransaction(async (client) => {
+      const owned = await client.query(
+        "SELECT id FROM products WHERE id = $1 AND uploaded_by = $2 FOR UPDATE",
+        [productId, ownerUsername]
+      );
+      if (!owned.rowCount) return { deleted: false };
+      await client.query(
+        `UPDATE video_upload_intents
+         SET product_id = NULL, claimed_at = NULL, updated_at = NOW(), row_version = row_version + 1
+         WHERE product_id = $1`,
+        [productId]
+      );
+      const result = await client.query(
+        "DELETE FROM products WHERE id = $1 AND uploaded_by = $2",
+        [productId, ownerUsername]
+      );
+      return { deleted: Number(result.rowCount || 0) > 0 };
+    });
   }
 
   async function setProductAvailability(productId, ownerUsername, availability) {
@@ -5565,12 +5593,17 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
   async function createVideoUploadIntent(intent = {}) {
     const result = await query(
       `INSERT INTO video_upload_intents (
-         provider_id, seller_id, upload_id, status, moderation_status, upload_expires_at, created_at, updated_at
-       ) VALUES ($1, $2, $3, 'uploading', 'approved', $4, NOW(), NOW())
+         provider_id, seller_id, upload_id, status, moderation_status, upload_expires_at,
+         mime_type, source_size_bytes, created_at, updated_at
+       ) VALUES ($1, $2, $3, 'uploading', 'approved', $4, $5, $6, NOW(), NOW())
        ON CONFLICT (provider_id) DO NOTHING
        RETURNING provider_id AS "providerId", seller_id AS "sellerId", upload_id AS "uploadId",
-         status, upload_expires_at AS "uploadExpiresAt", row_version AS "rowVersion"`,
-      [intent.providerId, intent.sellerId, intent.uploadId, intent.uploadExpiresAt]
+         status, status AS "processingStatus", provider_id AS "mediaId", provider_id AS "storageKey",
+         mime_type AS "mimeType", source_size_bytes::float8 AS "sourceSizeBytes",
+         upload_expires_at AS "uploadExpiresAt", row_version AS "rowVersion"`,
+      [intent.providerId, intent.sellerId, intent.uploadId, intent.uploadExpiresAt,
+        String(intent.mimeType || "").trim().toLowerCase().slice(0, 120),
+        Math.max(0, Math.trunc(Number(intent.sourceSizeBytes || 0) || 0))]
     );
     return result.rows[0] || null;
   }
@@ -5587,7 +5620,10 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
          safety_labels AS "safetyLabels", safety_scores AS "safetyScores",
          safety_provider AS "safetyProvider", safety_model_version AS "safetyModelVersion",
          safety_checked_at AS "safetyCheckedAt",
+         status AS "processingStatus", provider_id AS "mediaId", provider_id AS "storageKey",
          upload_expires_at AS "uploadExpiresAt", duration, width, height,
+         CASE WHEN height > 0 THEN width::float8 / height::float8 ELSE 0::float8 END AS "aspectRatio",
+         mime_type AS "mimeType", source_size_bytes::float8 AS "sourceSizeBytes",
          poster_url AS "posterUrl", hls_url AS "hlsUrl", dash_url AS "dashUrl",
          error_code AS "errorCode", error_message AS "errorMessage",
          created_at AS "createdAt", updated_at AS "updatedAt", row_version AS "rowVersion"
@@ -5632,7 +5668,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
          p.name AS "productName", p.shop, p.category
        FROM video_upload_intents vui
        LEFT JOIN products p ON p.id = vui.product_id
-       WHERE vui.status = 'ready' AND vui.product_id <> '' AND vui.moderation_status = $1
+       WHERE vui.status = 'ready' AND vui.product_id IS NOT NULL AND vui.moderation_status = $1
        ORDER BY vui.updated_at ASC, vui.provider_id ASC
        LIMIT $2`,
       [status, limit]
@@ -5649,7 +5685,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
         `UPDATE video_upload_intents
          SET moderation_status = $2, moderation_note = $3, moderated_at = NOW(),
            moderated_by = $4, updated_at = NOW(), row_version = row_version + 1
-         WHERE provider_id = $1 AND status = 'ready' AND product_id <> ''
+         WHERE provider_id = $1 AND status = 'ready' AND product_id IS NOT NULL
          RETURNING product_id AS "productId", seller_id AS "sellerId", row_version AS "rowVersion"`,
         [String(providerId || ""), status, String(moderation.note || "").slice(0, 500), String(moderation.moderatedBy || "")]
       );
@@ -5960,7 +5996,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
         `WITH candidates AS (
            SELECT provider_id
            FROM video_upload_intents
-           WHERE COALESCE(product_id, '') = ''
+           WHERE product_id IS NULL
              AND (
                (status IN ('uploading', 'processing') AND upload_expires_at < NOW())
                OR (status = 'failed' AND updated_at < NOW() - ($1::int * INTERVAL '1 day'))
@@ -5974,7 +6010,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
          SET status = 'cleanup_pending', updated_at = NOW(), row_version = row_version + 1
          FROM candidates
          WHERE vui.provider_id = candidates.provider_id
-           AND COALESCE(vui.product_id, '') = ''
+           AND vui.product_id IS NULL
          RETURNING vui.provider_id AS "providerId", vui.status,
            vui.updated_at AS "updatedAt", vui.row_version AS "rowVersion"`,
         [failedRetentionDays, retryAfterSeconds, limit]
@@ -5989,7 +6025,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       const result = await query(
         `DELETE FROM video_upload_intents
          WHERE provider_id = $1 AND status = 'cleanup_pending'
-           AND COALESCE(product_id, '') = ''`,
+           AND product_id IS NULL`,
         [safeProviderId]
       );
       return { deleted: Number(result.rowCount || 0) > 0, retryScheduled: false };
@@ -5999,7 +6035,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
        SET status = 'cleanup_failed', error_code = 'provider_cleanup_failed',
          error_message = $2, updated_at = NOW(), row_version = row_version + 1
        WHERE provider_id = $1 AND status = 'cleanup_pending'
-         AND COALESCE(product_id, '') = ''`,
+         AND product_id IS NULL`,
       [safeProviderId, String(outcome.error || 'Video provider cleanup failed.').slice(0, 500)]
     );
     return { deleted: false, retryScheduled: Number(result.rowCount || 0) > 0 };
@@ -6009,16 +6045,21 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       `UPDATE video_upload_intents
        SET status = $2, duration = $3, width = $4, height = $5,
          poster_url = $6, hls_url = $7, dash_url = $8,
-         error_code = $9, error_message = $10, provider_payload = $11::jsonb,
+         mime_type = COALESCE(NULLIF($9, ''), mime_type),
+         error_code = $10, error_message = $11, provider_payload = $12::jsonb,
          updated_at = NOW(), row_version = row_version + 1
        WHERE provider_id = $1
        RETURNING provider_id AS "providerId", seller_id AS "sellerId", upload_id AS "uploadId",
-         status, duration, width, height, poster_url AS "posterUrl",
+         status, status AS "processingStatus", provider_id AS "mediaId", provider_id AS "storageKey",
+         duration, width, height,
+         CASE WHEN height > 0 THEN width::float8 / height::float8 ELSE 0::float8 END AS "aspectRatio",
+         mime_type AS "mimeType", source_size_bytes::float8 AS "sourceSizeBytes", poster_url AS "posterUrl",
          hls_url AS "hlsUrl", dash_url AS "dashUrl", error_code AS "errorCode",
          error_message AS "errorMessage", updated_at AS "updatedAt", row_version AS "rowVersion"`,
       [
         video.providerId, video.status, Number(video.duration || 0), Number(video.width || 0),
         Number(video.height || 0), video.posterUrl || "", video.hlsUrl || "", video.dashUrl || "",
+        String(video.mimeType || "").trim().toLowerCase().slice(0, 120),
         video.errorCode || "", video.errorMessage || "", stringifyJson(video.providerPayload, {})
       ]
     );

@@ -113,12 +113,16 @@ function verifyCloudflareStreamWebhook(rawBody, signatureHeader, secret, options
 function normalizeStreamVideo(payload = {}) {
   const state = cleanText(payload?.status?.state, 32).toLowerCase();
   const ready = payload.readyToStream === true && state === "ready";
+  const width = Math.max(0, Number(payload.input?.width || payload.width || 0) || 0);
+  const height = Math.max(0, Number(payload.input?.height || payload.height || 0) || 0);
   return {
     providerId: cleanText(payload.uid, 64), creator: cleanText(payload.creator, 64),
     status: ready ? "ready" : (state === "error" ? "failed" : "processing"), readyToStream: ready,
     duration: Math.max(0, Number(payload.duration || 0) || 0),
-    width: Math.max(0, Number(payload.input?.width || payload.width || 0) || 0),
-    height: Math.max(0, Number(payload.input?.height || payload.height || 0) || 0),
+    width,
+    height,
+    aspectRatio: width > 0 && height > 0 ? width / height : 0,
+    mimeType: cleanText(payload?.meta?.contentType || payload?.input?.type, 120).toLowerCase(),
     posterUrl: cleanText(payload.thumbnail, 4096),
     hlsUrl: ready ? cleanText(payload.playback?.hls, 4096) : "",
     dashUrl: ready ? cleanText(payload.playback?.dash, 4096) : "",

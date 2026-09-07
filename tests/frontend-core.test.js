@@ -1711,7 +1711,7 @@ test("video upload controller sends resumable TUS chunks with monotonic offsets"
   const fileSize = 6 * 1024 * 1024;
   const controller = context.window.WingaModules.marketplace.createVideoUploadController({
     requestVideoUpload: async () => ({ uploadProtocol: "tus", uploadUrl: "https://upload.example/tus", providerId: "provider-tus-1" }),
-    readVideoUploadStatus: async () => ({ status: "ready", posterUrl: "https://video.example/poster.jpg" }),
+    readVideoUploadStatus: async () => ({ status: "ready", posterUrl: "https://video.example/poster.jpg", width: 1080, height: 1920, mimeType: "video/mp4" }),
     createXhr: () => new FakeXhr(),
     chunkBytes: 5 * 1024 * 1024
   });
@@ -1728,6 +1728,8 @@ test("video upload controller sends resumable TUS chunks with monotonic offsets"
   assert.equal(patches[0].headers["Tus-Resumable"], "1.0.0");
   assert.equal(patches[0].headers["Content-Type"], "application/offset+octet-stream");
   assert.equal(media.providerId, "provider-tus-1");
+  assert.equal(media.aspectRatio, 1080 / 1920);
+  assert.equal(media.mimeType, "video/mp4");
 });
 test("video upload processing can resume without uploading the binary twice", async () => {
   const root = path.resolve(__dirname, "..");

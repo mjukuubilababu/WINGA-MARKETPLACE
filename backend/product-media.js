@@ -13,6 +13,14 @@ function cleanNonNegativeNumber(value) {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
 }
 
+function deriveAspectRatio(width, height, explicitValue = 0) {
+  const explicitRatio = cleanNonNegativeNumber(explicitValue);
+  if (explicitRatio > 0) return explicitRatio;
+  const safeWidth = cleanNonNegativeNumber(width);
+  const safeHeight = cleanNonNegativeNumber(height);
+  return safeWidth > 0 && safeHeight > 0 ? safeWidth / safeHeight : 0;
+}
+
 function deriveMediaItemsFromLegacy(product = {}) {
   const legacyImages = Array.isArray(product.images) && product.images.length ? product.images : [product.image];
   const seen = new Set();
@@ -22,7 +30,8 @@ function deriveMediaItemsFromLegacy(product = {}) {
     .slice(0, MAX_PRODUCT_IMAGE_ITEMS)
     .map((url, position) => ({
       type: "image", status: "ready", url, posterUrl: "", thumbnailUrl: url,
-      provider: "winga", providerId: "", width: 0, height: 0, duration: 0, position
+      provider: "winga", providerId: "", width: 0, height: 0, aspectRatio: 0,
+      duration: 0, mimeType: "", position
     }));
 }
 
@@ -40,6 +49,8 @@ function normalizeMediaItem(item = {}, fallbackPosition = 0) {
   if (type === "video" && /^(?:data|blob):/i.test(url)) return null;
   if (type === "video" && !url && !providerId) return null;
   const requestedPosition = Number(item.position);
+  const width = cleanNonNegativeNumber(item.width);
+  const height = cleanNonNegativeNumber(item.height);
   return {
     type,
     status,
@@ -53,9 +64,11 @@ function normalizeMediaItem(item = {}, fallbackPosition = 0) {
     thumbnailUrl: cleanText(item.thumbnailUrl, 4096),
     provider: cleanText(item.provider, 40),
     providerId,
-    width: cleanNonNegativeNumber(item.width),
-    height: cleanNonNegativeNumber(item.height),
+    width,
+    height,
+    aspectRatio: deriveAspectRatio(width, height, item.aspectRatio),
     duration: cleanNonNegativeNumber(item.duration),
+    mimeType: cleanText(item.mimeType || item.contentType, 120).toLowerCase(),
     position: Number.isInteger(requestedPosition) && requestedPosition >= 0
       ? requestedPosition
       : Math.max(0, Number(fallbackPosition || 0))
