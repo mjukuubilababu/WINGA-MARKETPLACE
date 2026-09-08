@@ -6470,6 +6470,9 @@ const server = http.createServer(async (req, res) => {
     if (health.cleanupStalled > 0) alerts.push("stalled_video_cleanup");
     if (health.cleanupDead > 0) alerts.push("video_cleanup_dead_letter_threshold_exceeded");
     if (health.activeVideoWorkers < minimumActiveWorkers) alerts.push("video_worker_capacity_below_minimum");
+    if (health.safetyQueueDepth > 0 && health.activeVideoSafetyWorkers < minimumActiveWorkers) {
+      alerts.push("video_safety_worker_capacity_below_minimum");
+    }
     if (health.processingQueueDepth >= processingQueueDepthThreshold) alerts.push("video_processing_queue_depth_exceeded");
     if (health.safetyQueueDepth >= safetyQueueDepthThreshold) alerts.push("video_safety_queue_depth_exceeded");
     if (health.safetyQueueDepth > 0 && health.oldestSafetyPendingAgeSeconds >= safetyQueueAgeThresholdSeconds) {

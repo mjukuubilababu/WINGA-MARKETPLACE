@@ -16,7 +16,8 @@ test("video health monitor exposes aggregate-only pipeline status", () => {
       averageReadyLatencySeconds: 34, transcodeFailureRate: 0.1111, posterFailureRate: 0.125,
       safetyPending: 3, safetyProcessing: 1, safetyRetry: 2, safetyQueueDepth: 6, safetySubmitted: 4,
       safetyCompleted: 20, safetyDead: 0, safetyStalled: 0, oldestSafetyPendingAgeSeconds: 95,
-      activeVideoWorkers: 3, staleVideoWorkers: 1, lastVideoWorkerHeartbeatAt: "2026-09-08T10:00:00.000Z",
+      activeVideoWorkers: 3, activeVideoSafetyWorkers: 2, activeVideoCleanupWorkers: 3,
+      staleVideoWorkers: 1, lastVideoWorkerHeartbeatAt: "2026-09-08T10:00:00.000Z",
       playbackWindowHours: 24, playbackImpressions: 120, playbackPlays: 80,
       playbackPauses: 21, playbackResumes: 17, playbackReplays: 5,
       playbackMutes: 11, playbackUnmutes: 7,
@@ -41,6 +42,8 @@ test("video health monitor exposes aggregate-only pipeline status", () => {
   assert.equal(result.health.cleanupDead, 1);
   assert.equal(result.health.cleanupStalled, 2);
   assert.equal(result.health.activeVideoWorkers, 3);
+  assert.equal(result.health.activeVideoSafetyWorkers, 2);
+  assert.equal(result.health.activeVideoCleanupWorkers, 3);
   assert.equal(result.health.staleVideoWorkers, 1);
   assert.equal(result.health.oldestSafetyPendingAgeSeconds, 95);
   assert.equal(result.health.playbackPlays, 80);
@@ -69,6 +72,7 @@ test("video health alerts require meaningful playback samples", () => {
   assert.equal(source.includes("video_poster_failure_rate_exceeded"), true);
   assert.equal(source.includes("video_playback_start_latency_exceeded"), true);
   assert.equal(source.includes("video_worker_capacity_below_minimum"), true);
+  assert.equal(source.includes("video_safety_worker_capacity_below_minimum"), true);
   assert.equal(source.includes("video_cleanup_dead_letter_threshold_exceeded"), true);
   assert.equal(source.includes("video_processing_queue_depth_exceeded"), true);
   assert.equal(source.includes("video_safety_queue_depth_exceeded"), true);

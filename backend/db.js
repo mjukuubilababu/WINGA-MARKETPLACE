@@ -5982,6 +5982,14 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
            'active', COUNT(*) FILTER (
              WHERE last_seen_at >= NOW() - ($2::int * INTERVAL '1 second')
            ),
+           'safetyConfigured', COUNT(*) FILTER (
+             WHERE last_seen_at >= NOW() - ($2::int * INTERVAL '1 second')
+               AND metrics->>'safetyConfigured' = 'true'
+           ),
+           'cleanupConfigured', COUNT(*) FILTER (
+             WHERE last_seen_at >= NOW() - ($2::int * INTERVAL '1 second')
+               AND metrics->>'cleanupConfigured' = 'true'
+           ),
            'stale', COUNT(*) FILTER (
              WHERE last_seen_at < NOW() - ($2::int * INTERVAL '1 second')
            ),
@@ -6096,6 +6104,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       safetyStalled: Number(safetyQueue.stalled || 0),
       oldestSafetyPendingAgeSeconds: Math.max(0, Number(safetyQueue.oldestPendingAgeSeconds || 0)),
       activeVideoWorkers: Math.max(0, Number(workerFleet.active || 0)),
+      activeVideoSafetyWorkers: Math.max(0, Number(workerFleet.safetyConfigured || 0)),
+      activeVideoCleanupWorkers: Math.max(0, Number(workerFleet.cleanupConfigured || 0)),
       staleVideoWorkers: Math.max(0, Number(workerFleet.stale || 0)),
       lastVideoWorkerHeartbeatAt: workerFleet.lastSeenAt || null,
       playbackWindowHours: Math.max(1, Number(playback.windowHours || 24)),

@@ -45,6 +45,8 @@ function normalizeResult(response, body = {}) {
       safetyStalled: Number(health.safetyStalled || 0),
       oldestSafetyPendingAgeSeconds: Number(health.oldestSafetyPendingAgeSeconds || 0),
       activeVideoWorkers: Number(health.activeVideoWorkers || 0),
+      activeVideoSafetyWorkers: Number(health.activeVideoSafetyWorkers || 0),
+      activeVideoCleanupWorkers: Number(health.activeVideoCleanupWorkers || 0),
       staleVideoWorkers: Number(health.staleVideoWorkers || 0),
       lastVideoWorkerHeartbeatAt: health.lastVideoWorkerHeartbeatAt || null,
       playbackWindowHours: Number(health.playbackWindowHours || 24),

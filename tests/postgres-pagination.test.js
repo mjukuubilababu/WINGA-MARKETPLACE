@@ -3199,7 +3199,7 @@ test("PostgreSQL video pipeline health is durable, aggregate-only, and threshold
           averageReadyLatencySeconds: 42.25, lastChangedAt: "2026-08-30T15:00:00.000Z",
           safetyQueue: { pending: 3, processing: 1, retry: 2, submitted: 4,
             completed: 18, dead: 1, stalled: 1, oldestPendingAgeSeconds: 700.5 },
-          workerFleet: { active: 2, stale: 1, lastSeenAt: "2026-08-30T15:59:50.000Z" },
+          workerFleet: { active: 2, safetyConfigured: 1, cleanupConfigured: 2, stale: 1, lastSeenAt: "2026-08-30T15:59:50.000Z" },
           playback: { windowHours: 24, impressions: 100, plays: 80, pauses: 25, resumes: 18,
             replays: 6, mutes: 12, unmutes: 9, completions: 50, errors: 5, summaries: 75,
             commerceActions: 12, averageStartLatencyMs: 420, p95StartLatencyMs: 1100,
@@ -3220,7 +3220,8 @@ test("PostgreSQL video pipeline health is durable, aggregate-only, and threshold
     lastChangedAt: "2026-08-30T15:00:00.000Z",
     safetyPending: 3, safetyProcessing: 1, safetyRetry: 2, safetyQueueDepth: 6, safetySubmitted: 4,
     safetyCompleted: 18, safetyDead: 1, safetyStalled: 1, oldestSafetyPendingAgeSeconds: 700.5,
-    activeVideoWorkers: 2, staleVideoWorkers: 1, lastVideoWorkerHeartbeatAt: "2026-08-30T15:59:50.000Z",
+    activeVideoWorkers: 2, activeVideoSafetyWorkers: 1, activeVideoCleanupWorkers: 2,
+    staleVideoWorkers: 1, lastVideoWorkerHeartbeatAt: "2026-08-30T15:59:50.000Z",
     playbackWindowHours: 24, playbackImpressions: 100, playbackPlays: 80,
     playbackPauses: 25, playbackResumes: 18, playbackReplays: 6, playbackMutes: 12, playbackUnmutes: 9,
     playbackCompletions: 50, playbackErrors: 5, playbackSummaries: 75,
@@ -3237,6 +3238,8 @@ test("PostgreSQL video pipeline health is durable, aggregate-only, and threshold
   assert.match(calls[0].text, /MIN\(created_at\) FILTER/);
   assert.equal((calls[0].text.match(/FROM video_safety_jobs/g) || []).length, 1);
   assert.match(calls[0].text, /AS "safetyQueue"/);
+  assert.match(calls[0].text, /metrics->>'safetyConfigured' = 'true'/);
+  assert.match(calls[0].text, /metrics->>'cleanupConfigured' = 'true'/);
   assert.match(calls[0].text, /FROM intelligence_events/);
   assert.equal(calls[0].text.includes("happened_at >= NOW() - INTERVAL '24 hours'"), true);
   assert.match(calls[0].text, /'video_buy_click'/);
