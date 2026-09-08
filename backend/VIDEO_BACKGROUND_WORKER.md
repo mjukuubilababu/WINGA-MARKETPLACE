@@ -94,6 +94,22 @@ A worker crash leaves its lease in PostgreSQL. Another worker reclaims safety or
 
 The marketplace remains available if the worker fleet is down: upload, feed, search, checkout, and playback routes continue serving. The ops video-health endpoint becomes degraded so the outage is visible before the backlog grows silently.
 
+## Dead-letter recovery
+
+Use the recovery endpoint only after the provider URL and matching scan/result secrets have been verified on the API, background worker, and safety adapter. It is protected by `OPS_HEALTH_TOKEN`, requires an explicit confirmation phrase, records an audit event, and never runs on the marketplace request path.
+
+Retry one job first:
+
+```bash
+curl -sS -X POST \
+  "https://winga-pflp.onrender.com/api/ops/media/videos/recover" \
+  -H "X-Ops-Health-Token: $OPS_HEALTH_TOKEN" \
+  -H "Content-Type: application/json" \
+  --data '{"confirmation":"recover-video-operations","retryDeadLimit":1,"pruneStaleWorkers":true,"staleWorkerAgeSeconds":60,"staleWorkerLimit":100}'
+```
+
+Wait for the worker to process the canary, then run `npm run monitor:video`. Continue only when `safetySubmitted` or `safetyCompleted` increases and there is no new retry job. Retry the remaining dead letters with `retryDeadLimit` capped at `100`, monitor each batch, and stop if failures or queue age increase. Stale heartbeat pruning deletes only workers whose last heartbeat is older than the supplied threshold; it does not stop or modify an active worker.
+
 ## One-shot verification
 
 Use this only for deployment verification or controlled maintenance:

@@ -3076,6 +3076,35 @@ test("PostgreSQL video safety outbox is durable, bounded, and multi-instance saf
   assert.ok(MIGRATIONS.some((migration) => migration.id === "2026083101_video_direct_publish_reconciliation"));
   assert.ok(MIGRATIONS.some((migration) => migration.id === "2026083102_video_direct_publish_default"));
 });
+test("PostgreSQL video ops recovery is bounded and concurrency safe", async () => {
+  const calls = [];
+  const queryClient = {
+    async query(text, params = []) {
+      const sql = String(text);
+      calls.push({ text: sql, params });
+      if (sql.includes("UPDATE video_safety_jobs jobs")) return { rows: [{ providerId: "video-1" }, { providerId: "video-2" }], rowCount: 2 };
+      if (sql.includes("DELETE FROM video_worker_heartbeats")) return { rows: [{ workerId: "stale-1" }], rowCount: 1 };
+      return { rows: [], rowCount: 0 };
+    }
+  };
+  const store = createPostgresStore({ databaseUrl: "postgres://primary.invalid/winga", queryClient });
+
+  const safety = await store.retryDeadVideoSafetyJobs({ limit: 500 });
+  const workers = await store.pruneStaleVideoWorkerHeartbeats({ olderThanSeconds: 1, limit: 5000 });
+
+  assert.deepEqual(safety, { retried: 2, requested: 100 });
+  assert.deepEqual(workers, { pruned: 1, olderThanSeconds: 60, requested: 1000 });
+  const retryCall = calls.find((call) => call.text.includes("UPDATE video_safety_jobs jobs"));
+  assert.deepEqual(retryCall.params, [100]);
+  assert.match(retryCall.text, /status = 'dead'/);
+  assert.match(retryCall.text, /FOR UPDATE SKIP LOCKED/);
+  assert.match(retryCall.text, /SET status = 'retry', attempts = 0/);
+  assert.match(retryCall.text, /ops_retry_after_configuration_fix/);
+  const pruneCall = calls.find((call) => call.text.includes("DELETE FROM video_worker_heartbeats"));
+  assert.deepEqual(pruneCall.params, [60, 1000]);
+  assert.match(pruneCall.text, /FOR UPDATE SKIP LOCKED/);
+  assert.equal((pruneCall.text.match(/last_seen_at </g) || []).length, 2);
+});
 test("PostgreSQL duplicate video safety callbacks do not replay product or job updates", async () => {
   const calls = [];
   let resultStored = false;

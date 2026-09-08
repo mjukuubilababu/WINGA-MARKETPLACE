@@ -5810,6 +5810,54 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     );
     return result.rows[0] || null;
   }
+
+  async function retryDeadVideoSafetyJobs(options = {}) {
+    const limit = Math.max(1, Math.min(Math.trunc(Number(options.limit || 1) || 1), 100));
+    const result = await query(
+      `WITH candidates AS (
+         SELECT provider_id
+         FROM video_safety_jobs
+         WHERE status = 'dead'
+         ORDER BY updated_at ASC, provider_id ASC
+         FOR UPDATE SKIP LOCKED
+         LIMIT $1
+       )
+       UPDATE video_safety_jobs jobs
+       SET status = 'retry', attempts = 0, next_attempt_at = NOW(),
+         locked_by = '', locked_at = NULL,
+         last_error = LEFT('ops_retry_after_configuration_fix; previous=' ||
+           COALESCE(NULLIF(jobs.last_error, ''), 'none'), 500),
+         updated_at = NOW()
+       FROM candidates
+       WHERE jobs.provider_id = candidates.provider_id AND jobs.status = 'dead'
+       RETURNING jobs.provider_id AS "providerId"`,
+      [limit]
+    );
+    return { retried: Number(result.rowCount || 0), requested: limit };
+  }
+
+  async function pruneStaleVideoWorkerHeartbeats(options = {}) {
+    const olderThanSeconds = Math.max(60, Math.min(Math.trunc(Number(options.olderThanSeconds || 300) || 300), 86400));
+    const limit = Math.max(1, Math.min(Math.trunc(Number(options.limit || 100) || 100), 1000));
+    const result = await query(
+      `WITH stale AS (
+         SELECT worker_id
+         FROM video_worker_heartbeats
+         WHERE last_seen_at < NOW() - ($1::int * INTERVAL '1 second')
+         ORDER BY last_seen_at ASC, worker_id ASC
+         FOR UPDATE SKIP LOCKED
+         LIMIT $2
+       )
+       DELETE FROM video_worker_heartbeats heartbeats
+       USING stale
+       WHERE heartbeats.worker_id = stale.worker_id
+         AND heartbeats.last_seen_at < NOW() - ($1::int * INTERVAL '1 second')
+       RETURNING heartbeats.worker_id AS "workerId"`,
+      [olderThanSeconds, limit]
+    );
+    return { pruned: Number(result.rowCount || 0), olderThanSeconds, requested: limit };
+  }
+
   async function applyVideoSafetyResult(result = {}) {
     const providerId = String(result.providerId || "");
     const resultId = String(result.resultId || "");
@@ -6378,12 +6426,14 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     enqueueVideoSafetyJob,
     claimVideoSafetyBatch,
     completeVideoSafetyDelivery,
+    retryDeadVideoSafetyJobs,
     applyVideoSafetyResult,
     readVideoPipelineHealth,
     claimVideoCleanupBatch,
     completeVideoCleanup,
     heartbeatVideoWorker,
     removeVideoWorkerHeartbeat,
+    pruneStaleVideoWorkerHeartbeats,
     applyVideoUploadWebhook,
     close
   };

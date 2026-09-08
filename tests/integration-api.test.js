@@ -179,7 +179,27 @@ test("ops read replica health requires authorization and exposes no database det
   const videoHealthUnavailableBody = await videoHealthUnavailable.json();
   assert.equal(videoHealthUnavailable.status, 503);
   assert.equal(videoHealthUnavailableBody.readiness, "unavailable");
-  assert.equal(videoHealthUnavailable.headers.get("cache-control"), "no-store");});
+  assert.equal(videoHealthUnavailable.headers.get("cache-control"), "no-store");
+
+  const videoRecoveryDenied = await fetch(`${baseUrl}/ops/media/videos/recover`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ confirmation: "recover-video-operations", retryDeadLimit: 1 })
+  });
+  assert.equal(videoRecoveryDenied.status, 401);
+  const videoRecoveryUnavailable = await fetch(`${baseUrl}/ops/media/videos/recover`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Ops-Health-Token": "integration-ops-health-token"
+    },
+    body: JSON.stringify({ confirmation: "recover-video-operations", retryDeadLimit: 1 })
+  });
+  const videoRecoveryUnavailableBody = await videoRecoveryUnavailable.json();
+  assert.equal(videoRecoveryUnavailable.status, 503);
+  assert.equal(videoRecoveryUnavailableBody.ok, false);
+  assert.equal(videoRecoveryUnavailable.headers.get("cache-control"), "no-store");
+});
 
 test("signed video safety callbacks reject tampering and fail closed without durable storage", async () => {
   const rawBody = JSON.stringify({

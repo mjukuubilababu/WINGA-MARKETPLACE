@@ -6567,6 +6567,81 @@ const server = http.createServer(async (req, res) => {
     }, { "Cache-Control": "no-store" });
     return;
   }
+  if (req.method === "POST" && url.pathname === "/api/ops/media/videos/recover") {
+    if (!isValidOpsHealthToken(req)) {
+      requestMeta.statusCode = OPS_HEALTH_TOKEN ? 401 : 503;
+      logRouteSummary(requestMeta, { lightweight: true, auth: "ops_video_recovery_denied" });
+      sendJson(res, requestMeta.statusCode, {
+        ok: false,
+        error: OPS_HEALTH_TOKEN ? "Unauthorized" : "OPS_HEALTH_TOKEN is not configured."
+      }, { "Cache-Control": "no-store" });
+      return;
+    }
+    if (!postgresStore?.retryDeadVideoSafetyJobs || !postgresStore?.pruneStaleVideoWorkerHeartbeats) {
+      requestMeta.statusCode = 503;
+      sendJson(res, 503, {
+        ok: false,
+        error: "Video operations recovery is unavailable."
+      }, { "Cache-Control": "no-store" });
+      return;
+    }
+    const payload = await collectBody(req);
+    if (String(payload?.confirmation || "") !== "recover-video-operations") {
+      requestMeta.statusCode = 400;
+      sendJson(res, 400, {
+        ok: false,
+        error: "A valid recovery confirmation is required."
+      }, { "Cache-Control": "no-store" });
+      return;
+    }
+    const retryDeadLimit = Math.max(0, Math.min(Number.parseInt(payload?.retryDeadLimit, 10) || 0, 100));
+    const pruneStaleWorkers = payload?.pruneStaleWorkers === true;
+    const staleWorkerAgeSeconds = Math.max(60, Math.min(Number.parseInt(payload?.staleWorkerAgeSeconds, 10) || 300, 86400));
+    const staleWorkerLimit = Math.max(1, Math.min(Number.parseInt(payload?.staleWorkerLimit, 10) || 100, 1000));
+    if (!retryDeadLimit && !pruneStaleWorkers) {
+      requestMeta.statusCode = 400;
+      sendJson(res, 400, {
+        ok: false,
+        error: "At least one bounded recovery action is required."
+      }, { "Cache-Control": "no-store" });
+      return;
+    }
+    const safety = retryDeadLimit
+      ? await postgresStore.retryDeadVideoSafetyJobs({ limit: retryDeadLimit })
+      : { retried: 0, requested: 0 };
+    const workers = pruneStaleWorkers
+      ? await postgresStore.pruneStaleVideoWorkerHeartbeats({
+        olderThanSeconds: staleWorkerAgeSeconds,
+        limit: staleWorkerLimit
+      })
+      : { pruned: 0, olderThanSeconds: staleWorkerAgeSeconds, requested: 0 };
+    const result = { safety, workers };
+    await appendAuditLog({
+      time: new Date().toISOString(),
+      ip: clientIp,
+      method: req.method,
+      path: url.pathname,
+      event: "ops_token_video_recovery",
+      username: "ops-token",
+      statusCode: 200,
+      requestId: requestMeta.requestId,
+      details: result
+    });
+    requestMeta.statusCode = 200;
+    logRouteSummary(requestMeta, {
+      lightweight: true,
+      event: "ops_video_recovery",
+      videoSafetyRetried: safety.retried,
+      videoWorkersPruned: workers.pruned
+    });
+    sendJson(res, 200, {
+      ok: true,
+      privacy: "ops-aggregate-only",
+      criticalPath: false,
+      ...result
+    }, { "Cache-Control": "no-store" });
+    return;
+  }
   if (req.method === "GET" && url.pathname === "/api/ops/intelligence/queue-health") {
     if (!isValidOpsHealthToken(req)) {
       requestMeta.statusCode = OPS_HEALTH_TOKEN ? 401 : 503;
