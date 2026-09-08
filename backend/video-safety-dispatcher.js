@@ -30,6 +30,7 @@ function createVideoSafetyDispatcher(options = {}) {
   function isConfigured() {
     return Boolean(store?.claimVideoSafetyBatch && store?.completeVideoSafetyDelivery
       && streamClient?.isConfigured?.() && streamClient?.createPlaybackToken
+      && cleanText(streamClient?.config?.customerCode, 128)
       && /^https:\/\//i.test(cleanText(config.scanUrl, 2048))
       && cleanText(config.deliverySecret, 512).length >= 32
       && typeof fetchImpl === "function");

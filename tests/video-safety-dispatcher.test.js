@@ -10,6 +10,26 @@ async function waitFor(predicate, timeoutMs = 1000) {
   while (!predicate() && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 5));
 }
 
+test("video safety dispatcher requires the Stream customer code before claiming jobs", () => {
+  const dispatcher = createVideoSafetyDispatcher({
+    store: {
+      async claimVideoSafetyBatch() { return []; },
+      async completeVideoSafetyDelivery() { return null; }
+    },
+    streamClient: {
+      config: { customerCode: "" },
+      isConfigured: () => true,
+      async createPlaybackToken() { return { customerCode: "", token: "token" }; }
+    },
+    config: {
+      scanUrl: "https://scanner.example/scan",
+      deliverySecret: "video-safety-delivery-secret-32-characters-minimum"
+    }
+  });
+
+  assert.equal(dispatcher.isConfigured(), false);
+});
+
 test("video safety dispatcher submits private signed media without exposing provider credentials", async () => {
   const completions = [];
   let request;
@@ -20,6 +40,7 @@ test("video safety dispatcher submits private signed media without exposing prov
       async completeVideoSafetyDelivery(providerId, outcome) { completions.push({ providerId, outcome }); }
     },
     streamClient: {
+      config: { customerCode: "examplecode" },
       isConfigured: () => true,
       async createPlaybackToken() { return { customerCode: "examplecode", token: "private.playback.token" }; }
     },
@@ -52,7 +73,7 @@ test("video safety dispatcher returns failures to durable retry state", async ()
       async claimVideoSafetyBatch() { return [{ providerId: "stream-video-456", idempotencyKey: "video-safety:stream-video-456", attempts: 2, maxAttempts: 6 }]; },
       async completeVideoSafetyDelivery(providerId, outcome) { completions.push({ providerId, outcome }); }
     },
-    streamClient: { isConfigured: () => true, async createPlaybackToken() { throw new Error("provider unavailable"); } },
+    streamClient: { config: { customerCode: "examplecode" }, isConfigured: () => true, async createPlaybackToken() { throw new Error("provider unavailable"); } },
     config: { scanUrl: "https://scanner.example/scan", deliverySecret: "video-safety-delivery-secret-32-characters-minimum" },
     fetchImpl: async () => { throw new Error("must not fetch"); }
   });
@@ -94,6 +115,7 @@ test("video safety dispatcher bounds downstream concurrency during queue pressur
       }
     },
     streamClient: {
+      config: { customerCode: "examplecode" },
       isConfigured: () => true,
       async createPlaybackToken() {
         return { customerCode: "examplecode", token: "private.playback.token" };
