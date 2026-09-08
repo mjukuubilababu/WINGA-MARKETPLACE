@@ -88,7 +88,8 @@ function createVideoBackgroundWorker(options = {}) {
     dead: 0,
     leaseLost: 0,
     safetyBatches: 0,
-    saturatedTicks: 0
+    saturatedTicks: 0,
+    lastSafetyFailureCode: ""
   };
   let timer = null;
   let heartbeatTimer = null;
@@ -114,6 +115,7 @@ function createVideoBackgroundWorker(options = {}) {
       tickBudgetMs,
       pressureIntervalMs,
       pollJitterMs,
+      lastSafetyFailureCode: state.lastSafetyFailureCode,
       lastSuccessAt: state.lastSuccessAt,
       lastFailureAt: state.lastFailureAt
     };
@@ -175,6 +177,8 @@ function createVideoBackgroundWorker(options = {}) {
       state.dead += Number(cleanup?.dead || 0);
       state.leaseLost += Number(safety?.leaseLost || 0) + Number(cleanup?.leaseLost || 0);
       state.safetyBatches += Number(safety?.batches || 0);
+      const safetyFailureCodes = Object.keys(safety?.failureCodes || {}).sort();
+      state.lastSafetyFailureCode = safetyFailureCodes[0] || "";
       if (safety?.saturated || safety?.budgetExhausted) state.saturatedTicks += 1;
       state.lastSuccessAt = new Date().toISOString();
       await heartbeat("idle");

@@ -5976,7 +5976,9 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
            ),
            'oldestPendingAgeSeconds', COALESCE(EXTRACT(EPOCH FROM (NOW() - (MIN(created_at) FILTER (
              WHERE status IN ('pending', 'retry', 'processing')
-           )))), 0)
+           )))), 0),
+           'latestFailure', COALESCE((ARRAY_AGG(NULLIF(last_error, '') ORDER BY updated_at DESC)
+             FILTER (WHERE status IN ('retry', 'dead') AND COALESCE(last_error, '') <> ''))[1], '')
          ) FROM video_safety_jobs), '{}'::jsonb) AS "safetyQueue",
          COALESCE((SELECT jsonb_build_object(
            'active', COUNT(*) FILTER (
@@ -6059,6 +6061,18 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     const safetyPending = Math.max(0, Number(safetyQueue.pending || 0));
     const safetyProcessing = Math.max(0, Number(safetyQueue.processing || 0));
     const safetyRetry = Math.max(0, Number(safetyQueue.retry || 0));
+    const latestSafetyFailure = String(safetyQueue.latestFailure || "").toLowerCase();
+    const knownSafetyFailureCodes = [
+      "stream_signing_key_invalid", "stream_customer_code_missing", "stream_invalid_provider_response",
+      "stream_not_configured", "stream_provider_auth_rejected", "stream_video_not_found",
+      "stream_provider_rate_limited", "stream_provider_unavailable", "stream_provider_request_rejected",
+      "adapter_timeout", "adapter_signature_rejected", "adapter_payload_rejected", "adapter_rate_limited",
+      "adapter_provider_unavailable", "adapter_network_error", "hive_provider_auth_rejected",
+      "hive_provider_rate_limited", "hive_provider_unavailable", "hive_provider_request_rejected",
+      "video_safety_delivery_failed"
+    ];
+    const safetyLastFailureCode = knownSafetyFailureCodes.find((code) => latestSafetyFailure.includes(code))
+      || (latestSafetyFailure.includes("cloudflare stream") ? "stream_provider_request_rejected" : "");
     const ready = Math.max(0, Number(row.ready || 0));
     const failed = Math.max(0, Number(row.failed || 0));
     const readyWithoutPoster = Math.max(0, Number(row.readyWithoutPoster || 0));
@@ -6102,6 +6116,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       safetyCompleted: Number(safetyQueue.completed || 0),
       safetyDead: Number(safetyQueue.dead || 0),
       safetyStalled: Number(safetyQueue.stalled || 0),
+      safetyLastFailureCode,
       oldestSafetyPendingAgeSeconds: Math.max(0, Number(safetyQueue.oldestPendingAgeSeconds || 0)),
       activeVideoWorkers: Math.max(0, Number(workerFleet.active || 0)),
       activeVideoSafetyWorkers: Math.max(0, Number(workerFleet.safetyConfigured || 0)),

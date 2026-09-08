@@ -2,7 +2,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { createVideoSafetyDispatcher } = require("../backend/video-safety-dispatcher");
+const { classifyVideoSafetyDeliveryError, createVideoSafetyDispatcher } = require("../backend/video-safety-dispatcher");
 const { verifyVideoSafetyResult } = require("../backend/video-safety");
 
 async function waitFor(predicate, timeoutMs = 1000) {
@@ -83,7 +83,57 @@ test("video safety dispatcher returns failures to durable retry state", async ()
 
   assert.equal(completions[0].outcome.submitted, false);
   assert.equal(completions[0].outcome.attempts, 2);
-  assert.match(completions[0].outcome.error, /provider unavailable/);
+  assert.match(completions[0].outcome.error, /^video_safety_delivery_failed:provider unavailable/);
+});
+test("video safety dispatcher reports bounded operational failure codes", () => {
+  assert.equal(classifyVideoSafetyDeliveryError(Object.assign(new Error("denied"), { code: "stream_provider_error", status: 403 })), "stream_provider_auth_rejected");
+  assert.equal(classifyVideoSafetyDeliveryError(Object.assign(new Error("denied"), { code: "video_safety_provider_rejected", status: 502, providerStatus: 403 })), "hive_provider_auth_rejected");
+  assert.equal(classifyVideoSafetyDeliveryError(Object.assign(new Error("missing"), { code: "stream_signing_key_invalid" })), "stream_signing_key_invalid");
+  assert.equal(classifyVideoSafetyDeliveryError(new Error("Video safety adapter rejected delivery with HTTP 502.")), "adapter_provider_unavailable");
+  assert.equal(classifyVideoSafetyDeliveryError(Object.assign(new Error("aborted"), { name: "AbortError" })), "adapter_timeout");
+});
+test("video safety dispatcher preserves a bounded Hive rejection reason", async () => {
+  const completions = [];
+  const dispatcher = createVideoSafetyDispatcher({
+    workerId: "hive-rejection-worker",
+    store: {
+      async claimVideoSafetyBatch() {
+        return [{
+          providerId: "stream-video-hive",
+          idempotencyKey: "video-safety:stream-video-hive",
+          attempts: 1,
+          maxAttempts: 6,
+          lockedBy: "hive-rejection-worker"
+        }];
+      },
+      async completeVideoSafetyDelivery(providerId, outcome) {
+        completions.push({ providerId, outcome });
+        return { status: "retry" };
+      }
+    },
+    streamClient: {
+      config: { customerCode: "examplecode" },
+      isConfigured: () => true,
+      async createPlaybackToken() {
+        return { customerCode: "examplecode", token: "private.playback.token" };
+      }
+    },
+    config: {
+      scanUrl: "https://scanner.example/scan",
+      deliverySecret: "video-safety-delivery-secret-32-characters-minimum"
+    },
+    fetchImpl: async () => new Response(JSON.stringify({
+      ok: false,
+      error: "provider_rejected",
+      providerStatus: 403
+    }), { status: 502 })
+  });
+
+  const result = await dispatcher.processOnce();
+
+  assert.equal(result.failed, 1);
+  assert.equal(result.failureCodes.hive_provider_auth_rejected, 1);
+  assert.match(completions[0].outcome.error, /^hive_provider_auth_rejected:/);
 });
 test("video safety dispatcher bounds downstream concurrency during queue pressure", async () => {
   const jobs = Array.from({ length: 8 }, (_, index) => {

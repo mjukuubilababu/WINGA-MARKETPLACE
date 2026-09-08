@@ -43,6 +43,7 @@ function normalizeResult(response, body = {}) {
       safetyCompleted: Number(health.safetyCompleted || 0),
       safetyDead: Number(health.safetyDead || 0),
       safetyStalled: Number(health.safetyStalled || 0),
+      safetyLastFailureCode: String(health.safetyLastFailureCode || "").slice(0, 80),
       oldestSafetyPendingAgeSeconds: Number(health.oldestSafetyPendingAgeSeconds || 0),
       activeVideoWorkers: Number(health.activeVideoWorkers || 0),
       activeVideoSafetyWorkers: Number(health.activeVideoSafetyWorkers || 0),
