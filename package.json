@@ -34,6 +34,7 @@
     "verify:modules-sync": "node scripts/verify-modules-sync.js",
     "test:ci": "npm run verify:modules-sync && npm test",
     "monitor:video": "node scripts/check-video-health.js",
+    "verify:video-production": "node scripts/verify-video-production.js",
     "worker:video": "node backend/video-background-worker.js",
     "worker:video:once": "node backend/video-background-worker.js --once"
   },

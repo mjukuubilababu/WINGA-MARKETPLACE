@@ -245,3 +245,28 @@ test("video playback failure preserves the poster, commerce card, and scrolling 
   await expect(page.locator("#products-container .product-card").first()).toBeAttached();
   await context.close();
 });
+
+test("deep feed releases off-screen video players while retaining the product card and poster", async ({ browser }) => {
+  const { context, page } = await createVideoPage(browser);
+  await page.goto("/");
+  const card = await loadContinuationCard(page, "Phone Smart X");
+  const playback = card.locator("[data-video-provider-id=\"" + videoOnlyProviderId + "\"]");
+
+  await expect(playback.locator("video[data-stream-player]")).toBeAttached({ timeout: 15000 });
+  await expect(playback).toHaveClass(/is-playing/);
+
+  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+  await expect.poll(
+    async () => playback.evaluate((node) => node.getBoundingClientRect().bottom),
+    { timeout: 10000 }
+  ).toBeLessThan(-900);
+  await expect.poll(
+    async () => playback.locator("video[data-stream-player]").count(),
+    { timeout: 10000 }
+  ).toBe(0);
+
+  await expect(card).toBeAttached();
+  await expect(playback.locator(".feed-video-poster")).toBeAttached();
+  await expect(page.locator("video[data-stream-player]")).toHaveCount(0);
+  await context.close();
+});
