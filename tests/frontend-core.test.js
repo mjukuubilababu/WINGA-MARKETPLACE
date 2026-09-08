@@ -1612,6 +1612,37 @@ test("auth session runtime module owns restore token and reporting", async () =>
   );
 });
 
+test("auth permissions reject stale roles until the session identity matches", () => {
+  const root = path.resolve(__dirname, "..");
+  const source = fs.readFileSync(path.join(root, "src", "auth", "permissions.js"), "utf8");
+  const context = vm.createContext({
+    window: { WingaModules: { auth: {} } }
+  });
+  vm.runInContext(source, context);
+
+  let currentUser = "new-user";
+  let currentSession = { username: "old-user", role: "seller" };
+  const permissions = context.window.WingaModules.auth.createPermissionsHelpers({
+    getCurrentSession: () => currentSession,
+    getCurrentUser: () => currentUser,
+    getCurrentView: () => "home",
+    getMarketplaceUser: (username) => ({ username, role: "buyer" })
+  });
+
+  assert.equal(permissions.isAuthenticatedUser(), false);
+  assert.equal(permissions.isSellerUser(), false);
+  assert.equal(permissions.canUseSellerFeatures(), false);
+
+  currentUser = "old-user";
+  assert.equal(permissions.isAuthenticatedUser(), true);
+  assert.equal(permissions.isSellerUser(), true);
+  assert.equal(permissions.canUseSellerFeatures(), true);
+
+  currentSession = { username: "old-user", role: "" };
+  assert.equal(permissions.isBuyerUser(), true);
+  assert.equal(permissions.canUseBuyerFeatures(), true);
+});
+
 test("remote auth API client owns session restore and credentialed auth writes", () => {
   const root = path.resolve(__dirname, "..");
   const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");

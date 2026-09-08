@@ -2636,12 +2636,12 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 
     function getResolvedRole() {
       const session = getCurrentSession?.();
+      if (!hasValidSessionIdentity(session)) {
+        return "";
+      }
       const sessionRole = normalizeRole(session?.role);
       if (sessionRole) {
         return sessionRole;
-      }
-      if (!hasValidSessionIdentity(session)) {
-        return "";
       }
       const marketplaceRole = normalizeRole(getMarketplaceUser?.(getCurrentUsername())?.role);
       return marketplaceRole;
