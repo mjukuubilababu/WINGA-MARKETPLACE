@@ -634,6 +634,18 @@ function syncWorkerBuildVersionConfig() {
   }
 }
 
+function syncWorkerPhotoReelShell() {
+  const html = fs.readFileSync(path.join(rootDir, "index.html"), "utf8").replace(/\r\n/g, "\n");
+  const fragments = [...html.matchAll(/<details id="product-photo-reel"[^>]*>[\s\S]*?<\/details>/g)];
+  if (fragments.length !== 1) throw new Error("index.html must contain one canonical photo reel editor.");
+  const workerPath = path.join(rootDir, "worker.js");
+  const source = fs.readFileSync(workerPath, "utf8");
+  const marker = /^const PHOTO_REEL_EDITOR_HTML = [^\r\n]*;\r?$/gm;
+  if ([...source.matchAll(marker)].length !== 1) throw new Error("Worker photo reel shell marker is missing or duplicated.");
+  const next = source.replace(marker, () => `const PHOTO_REEL_EDITOR_HTML = ${JSON.stringify(fragments[0][0])};`);
+  if (next !== source) writeTextFileWithRetry(workerPath, next);
+}
+
 function writeFrontendModuleBundle(targetPath) {
   writeTextFileWithRetry(targetPath, buildFrontendModuleBundle());
 }
@@ -783,7 +795,7 @@ function hasGeneratedProductSharePages() {
   });
 }
 
-function loadProductsForPrerender() {
+function loadLocalProductsForPrerender() {
   const storePath = path.join(rootDir, "backend", "data", "store.json");
   if (!fs.existsSync(storePath)) {
     return [];
@@ -819,7 +831,7 @@ async function fetchProductsForPrerenderFromApi(apiBaseUrl) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 15000);
   try {
-    const response = await fetch(`${safeBaseUrl}/products`, {
+    const response = await fetch(`${safeBaseUrl}/products?limit=12&page=1`, {
       method: "GET",
       headers: {
         Accept: "application/json"
@@ -827,14 +839,18 @@ async function fetchProductsForPrerenderFromApi(apiBaseUrl) {
       signal: controller.signal
     });
     if (!response.ok) {
+      await response.body?.cancel();
       return [];
     }
     const payload = await response.json();
     if (Array.isArray(payload)) {
-      return payload.filter(Boolean);
+      return payload.filter(Boolean).slice(0, 50);
+    }
+    if (payload && Array.isArray(payload.items)) {
+      return payload.items.filter(Boolean).slice(0, 50);
     }
     if (payload && Array.isArray(payload.products)) {
-      return payload.products.filter(Boolean);
+      return payload.products.filter(Boolean).slice(0, 50);
     }
     return [];
   } catch (error) {
@@ -858,7 +874,7 @@ async function loadProductsForPrerender() {
     }
   }
 
-  return normalizeProductList(loadProductsForPrerender());
+  return normalizeProductList(loadLocalProductsForPrerender());
 }
 
 async function generateProductSharePages(baseHtml, origin) {
@@ -944,6 +960,7 @@ async function main() {
   requiredRootFiles.forEach(assertPathExists);
   assertPathExists("src");
   syncRootFrontendModuleBundle();
+  syncWorkerPhotoReelShell();
 
   const generatedAssetBackup = backupGeneratedPublicAssets();
   ensureCleanDir(outputDir);
@@ -977,10 +994,7 @@ async function main() {
 }
 
 main()
-  .then(() => {
-    process.exit(0);
-  })
   .catch((error) => {
     console.error(error);
-    process.exit(1);
+    process.exitCode = 1;
   });

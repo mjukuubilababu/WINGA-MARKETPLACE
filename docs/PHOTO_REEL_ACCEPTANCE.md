@@ -9,6 +9,7 @@ has an optional, collapsed photo-to-reel editor. The existing Post action still
 opens the unified device media picker. Ordinary image-only, video-only and mixed
 posts use their existing upload and save paths. No feed ranking, pagination,
 playback, moderation, database or Worker routing implementation is changed.
+The Worker upload shell includes the same reel fragment generated from index.html.
 
 ## Data Flow
 
@@ -57,17 +58,37 @@ reordering, preview-before-upload, TUS binary transfer, image-first product save
 cancellation, navigation reset, desktop/mobile and editor RTL layout.
 Provider endpoints in this browser test are intercepted: it is not proof of a
 live Cloudflare Stream encode or a successful Hive moderation callback.
+Additional tests compare the Worker-rendered fragment byte-for-byte with the
+canonical index and exercise the editor in the Worker-rendered upload form.
 
 `npm run test:ci` includes the new tests and existing feed/gallery/auth/backend
 regressions. Localization uses the existing four catalogs and hard-coded gate.
 
-Final local gate: PASS, with 107 frontend-core checks, 7 reel unit tests,
+Initial local gate: PASS, with 107 frontend-core checks, 7 reel unit tests,
 154 integration tests and 100 browser tests. All 61 bundled modules are in sync;
 all four catalogs contain 915 keys; the hard-coded UI gate reports zero debt.
 An initial run failed the seller-query pagination fixture: its broad listing
 mock also accepted passive-view writes. The fixture now handles only listing
 GETs, leaving the complete pagination-state equality assertion unchanged.
 No production pagination code was modified to make the test pass.
+
+Live verification then caught a separate shell gap: the Worker has its own
+upload form, so updating static index.html alone did not expose the editor on
+BigPipe routes. Build-time synchronization now copies the canonical reel
+fragment into a generated Worker constant, without a new request on first paint.
+The live shell verifier also requires the editor. Build completion uses natural
+process shutdown instead of forced process.exit, which caused a Windows libuv
+assertion after successful asset writes in this environment.
+That investigation also exposed two same-named prerender loaders: on API failure,
+the asynchronous loader called itself instead of the local-store fallback. The
+local helper now has a distinct name, API requests explicitly request page one
+with limit 12, and paginated items are accepted. A failure-path regression test
+proves one failed request returns to the local fallback without recursion.
+
+Final local gate after the shell/build corrections: PASS, with 107 frontend-core
+checks, 9 unit tests, 154 integration tests and 101 browser tests (4.6 minutes).
+The Worker-shell test uses the real fixture API through a test transport proxy;
+it does not disable browser security or change application seller permissions.
 
 ## Remaining External Acceptance
 

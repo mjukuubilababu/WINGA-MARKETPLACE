@@ -2,9 +2,10 @@ const { test, expect } = require("@playwright/test");
 const fs = require("node:fs");
 const path = require("node:path");
 const sharp = require("sharp");
+const vm = require("node:vm");
 const baseUrl = "http://127.0.0.1:43080/api";
 
-async function sellerPage(browser, viewport = { width: 390, height: 844 }, unsupported = false) {
+async function sellerPage(browser, viewport = { width: 390, height: 844 }, unsupported = false, streamed = false) {
   const context = await browser.newContext({ viewport });
   const session = JSON.parse(fs.readFileSync(path.join(__dirname, ".seed-sessions.json"), "utf8")).buyer_seller;
   await context.addCookies([{ name: "winga_auth", value: session.authCookie, url: "http://127.0.0.1:43080", httpOnly: true, sameSite: "Lax" }]);
@@ -15,7 +16,36 @@ async function sellerPage(browser, viewport = { width: 390, height: 844 }, unsup
     if (unsupported) window.MediaRecorder = undefined;
   }, { session: storedSession, baseUrl, unsupported });
   const page = await context.newPage();
+  if (streamed) {
+    // A fulfilled document has no loopback address-space metadata in Chromium.
+    // Proxy transport to the real fixture API, as the production Worker does.
+    await context.route("http://127.0.0.1:43080/**", async route => {
+      if (new URL(route.request().url()).pathname === "/api/messages/stream") {
+        return route.fulfill({ status: 204 });
+      }
+      await route.fulfill({ response: await route.fetch() });
+    });
+    const source = fs.readFileSync(path.join(__dirname, "../../worker.js"), "utf8");
+    const worker = vm.createContext({ TextEncoder, URL });
+    vm.runInContext(source.replace("export default", "const worker ="), worker);
+    const initialPage = await (await context.request.get(baseUrl + "/products?limit=12&page=1")).json();
+    const initialUsers = await (await context.request.get(baseUrl + "/users")).json();
+    const initialSession = await (await context.request.get(baseUrl + "/auth/session")).json();
+    const bootstrap = {
+      __WINGA_BIG_PIPE_INITIAL_PRODUCTS__: initialPage.items,
+      __WINGA_BIG_PIPE_INITIAL_PAGE__: initialPage,
+      __WINGA_BIG_PIPE_INITIAL_USERS__: initialUsers,
+      __WINGA_BIG_PIPE_INITIAL_SESSION__: initialSession,
+      __WINGA_BIG_PIPE_BOOTSTRAPPED__: true,
+      __WINGA_BIG_PIPE_BOOTSTRAP_STATUS__: "ready"
+    };
+    const shell = vm.runInContext("buildDocumentShellStart()", worker)
+      + "<script>Object.assign(window," + JSON.stringify(bootstrap).replace(/</g, "\\u003c") + ");</script>"
+      + vm.runInContext("buildDocumentShellEnd()", worker);
+    await page.route("http://127.0.0.1:4173/", route => route.fulfill({ contentType: "text/html", body: shell }));
+  }
   await page.goto("/");
+  await page.waitForFunction(() => typeof canUseSellerFeatures === "function" && canUseSellerFeatures());
   await page.locator("#post-product-fab").click();
   await expect(page.locator("#upload-form")).toBeVisible();
   return { context, page };
@@ -162,5 +192,17 @@ test("unsupported reel generation leaves the ordinary photo picker usable", asyn
   await expect(page.locator("[data-reel-create]")).toBeDisabled();
   await page.locator("#product-image-file").setInputFiles((await photos())[0]);
   await expect(page.locator("#image-preview-list img")).toHaveCount(1);
+  await context.close();
+});
+
+test("seller reel editor is initialized in the Worker-rendered upload form", async ({ browser }) => {
+  const { context, page } = await sellerPage(browser, { width: 390, height: 844 }, false, true);
+  await page.locator("#product-photo-reel summary").click();
+  await page.locator("[data-reel-input]").setInputFiles(await photos());
+  await expect(page.locator("[data-reel-list] li")).toHaveCount(3);
+  await page.locator("[data-reel-create]").click();
+  await expect(page.locator("[data-reel-use]")).toBeVisible({ timeout: 20000 });
+  await expect(page.locator("[data-reel-preview]")).toBeVisible();
+  await context.unrouteAll({ behavior: "ignoreErrors" });
   await context.close();
 });

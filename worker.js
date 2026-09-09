@@ -1,4 +1,6 @@
 const ORIGIN_BASE_URL = "https://winga-pflp.onrender.com";
+// Generated from index.html by build-vercel-static.js; do not edit this fragment.
+const PHOTO_REEL_EDITOR_HTML = "<details id=\"product-photo-reel\" class=\"photo-reel\">\n<summary data-winga-i18n=\"reel.title\" data-winga-i18n-lock>Create reel from photos</summary>\n<fieldset data-reel-settings>\n<label class=\"photo-reel-picker\">\n<span data-winga-i18n=\"reel.choose\" data-winga-i18n-lock>Add photos</span>\n<input data-reel-input type=\"file\" accept=\"image/jpeg,image/png,image/webp,image/gif\" multiple>\n</label>\n<label class=\"photo-reel-duration\">\n<span data-winga-i18n=\"reel.duration\" data-winga-i18n-lock>Seconds per photo</span>\n<select data-reel-seconds><option value=\"2\">2</option><option value=\"3\">3</option></select>\n</label>\n</fieldset>\n<ol data-reel-list class=\"photo-reel-list\"></ol>\n<canvas data-reel-canvas class=\"photo-reel-preview\" width=\"720\" height=\"1280\" hidden></canvas>\n<video data-reel-preview class=\"photo-reel-preview\" controls muted playsinline preload=\"metadata\" hidden data-winga-i18n=\"reel.preview\" data-winga-i18n-attr=\"aria-label\" data-winga-i18n-lock aria-label=\"Reel preview\"></video>\n<p data-reel-status role=\"status\" aria-live=\"polite\" data-winga-i18n-lock></p>\n<progress data-reel-progress max=\"100\" value=\"0\" hidden data-winga-i18n=\"reel.progress\" data-winga-i18n-attr=\"aria-label\" data-winga-i18n-lock aria-label=\"Reel creation progress\"></progress>\n<div class=\"photo-reel-actions\">\n<button data-reel-create type=\"button\" disabled data-winga-i18n=\"reel.create\" data-winga-i18n-lock>Create reel</button>\n<button data-reel-cancel type=\"button\" hidden data-winga-i18n=\"common.cancel\" data-winga-i18n-lock>Cancel</button>\n<button data-reel-use type=\"button\" hidden data-winga-i18n=\"reel.use\" data-winga-i18n-lock>Use reel</button>\n</div>\n</details>";
 /*
  * WINGA BOOT OWNERSHIP
  * 1. Cloudflare Worker owns first paint: inline splash, skeleton shell, streamed first feed batch.
@@ -860,6 +862,7 @@ ${lcpImagePreloadTag}${imageOriginPreconnectTag}  <title>Chap kwa haraka</title>
       <label for="product-image-file" class="upload-btn">Chagua Picha au Video</label>
       <input type="file" id="product-image-file" accept="image/*,video/*,.mp4,.m4v,.mkv,.mov,.avi,.flv,.ts,.mts,.m2ts,.m2p,.m2v,.mxf,.lxf,.gxf,.3gp,.3g2,.webm,.mpg,.mpeg" multiple>
       <div id="image-preview-list"></div>
+      ${PHOTO_REEL_EDITOR_HTML}
       <div class="product-video-upload">
         <div id="product-video-status" class="product-video-status" hidden aria-live="polite">
           <progress id="product-video-progress" max="100" value="0"></progress>

@@ -7,6 +7,23 @@ const { File, Blob } = require("node:buffer");
 const source = fs.readFileSync(path.join(__dirname, "../src/marketplace/photo-reel.js"), "utf8");
 const photos = () => [0, 1, 2].map((n) => new File(["photo"], n + ".png", { type: "image/png" }));
 
+test("BigPipe shell renders the exact photo reel editor from canonical index.html", () => {
+  const root = path.join(__dirname, "..");
+  const html = fs.readFileSync(path.join(root, "index.html"), "utf8").replace(/\r\n/g, "\n");
+  const worker = fs.readFileSync(path.join(root, "worker.js"), "utf8");
+  const context = vm.createContext({ TextEncoder, URL });
+  vm.runInContext(worker.replace("export default", "const worker ="), context);
+  const shell = vm.runInContext("buildDocumentShellStart()", context);
+  const fragment = /<details id="product-photo-reel"[^>]*>[\s\S]*?<\/details>/g;
+  const expected = [...html.matchAll(fragment)];
+  const actual = [...shell.matchAll(fragment)];
+  assert.equal(expected.length, 1);
+  assert.equal(actual.length, 1);
+  assert.equal(actual[0][0], expected[0][0]);
+  assert.ok(shell.indexOf('id="image-preview-list"') < actual[0].index);
+  assert.ok(shell.indexOf('class="product-video-upload"') > actual[0].index);
+});
+
 function harness({ outputBytes = 12, empty = false, codec = "video/webm;codecs=vp8" } = {}) {
   const frames = new Map();
   const stats = { stoppedTracks: 0, openImages: 0, maxImages: 0, imageOrder: [], listeners: 0 };
@@ -68,6 +85,32 @@ function harness({ outputBytes = 12, empty = false, codec = "video/webm;codecs=v
     frameCount: () => frames.size
   };
 }
+
+test("build prerender reads bounded paginated items and does not recurse on API failure", async () => {
+  const source = fs.readFileSync(path.join(__dirname, "../scripts/build-vercel-static.js"), "utf8");
+  const helpers = source.slice(source.indexOf("function loadLocalProductsForPrerender()"), source.indexOf("async function generateProductSharePages"));
+  let calls = 0;
+  const context = vm.createContext({
+    rootDir: "/fixture", fs: { existsSync: () => false }, path,
+    process: { env: {} }, AbortController, setTimeout, clearTimeout,
+    fetch: async (url) => {
+      calls++;
+      assert.match(url, /products\?limit=12&page=1$/);
+      return { ok: true, json: async () => ({ items: [{ id: "p1" }], hasMore: true }) };
+    }
+  });
+  vm.runInContext(helpers, context);
+  const products = await vm.runInContext("loadProductsForPrerender()", context);
+  assert.equal(products.length, 1);
+  assert.equal(products[0].id, "p1");
+  assert.equal(calls, 1);
+  let cancelled = 0;
+  context.fetch = async () => { calls++; return { ok: false, body: { cancel: async () => cancelled++ } }; };
+  const fallback = await vm.runInContext("loadProductsForPrerender()", context);
+  assert.equal(fallback.length, 0);
+  assert.equal(calls, 2);
+  assert.equal(cancelled, 1);
+});
 
 test("reel input limits reject invalid files without silently truncating selection", () => {
   const { tools } = harness();

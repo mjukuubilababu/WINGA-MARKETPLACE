@@ -56,6 +56,9 @@ function assertHtml(route, bodyText) {
   if (!/id="app-container"/i.test(normalized)) {
     throw new Error(`${route} is missing #app-container.`);
   }
+  if (!/id="product-photo-reel"/i.test(normalized)) {
+    throw new Error(`${route} is missing the canonical photo reel editor.`);
+  }
   if (!/id="boot-overlay"/i.test(normalized)) {
     throw new Error(`${route} is missing #boot-overlay.`);
   }
