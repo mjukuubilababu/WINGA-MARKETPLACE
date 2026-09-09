@@ -1,6 +1,7 @@
 const ORIGIN_BASE_URL = "https://winga-pflp.onrender.com";
-// Generated from index.html by build-vercel-static.js; do not edit this fragment.
-const PHOTO_REEL_EDITOR_HTML = "<section id=\"product-photo-reel\" class=\"photo-reel\">\n<button data-reel-create type=\"button\" data-winga-i18n=\"reel.create\" data-winga-i18n-lock>Create reel</button>\n<input data-reel-input type=\"file\" accept=\"image/jpeg,image/png,image/webp,image/gif\" multiple hidden>\n<dialog data-reel-dialog class=\"photo-reel-dialog\" aria-labelledby=\"photo-reel-status\">\n<span data-reel-spinner class=\"photo-reel-spinner\" aria-hidden=\"true\" hidden></span>\n<p id=\"photo-reel-status\" data-reel-status role=\"status\" aria-live=\"polite\" data-winga-i18n-lock></p>\n<div class=\"photo-reel-actions\">\n<button data-reel-retry type=\"button\" hidden data-winga-i18n=\"reel.retry\" data-winga-i18n-lock>Try again</button>\n<button data-reel-cancel type=\"button\" data-winga-i18n=\"common.cancel\" data-winga-i18n-lock>Cancel</button>\n</div>\n</dialog>\n</section>";
+// Creation fragments are generated from index.html by build-vercel-static.js.
+const CREATION_FORM_HTML = "<div id=\"upload-form\" class=\"panel creation-form\">\n<div class=\"creation-toolbar\">\n<button id=\"creation-back\" type=\"button\" class=\"creation-icon-button\" aria-label=\"Back\" data-winga-i18n=\"creation.back\" data-winga-i18n-attr=\"aria-label\" data-winga-i18n-lock><img src=\"/icons/create/arrow-left.svg\" width=\"24\" height=\"24\" alt=\"\"></button>\n<h3 id=\"upload-title\" data-winga-i18n-lock>New post</h3>\n<button id=\"cancel-edit-button\" type=\"button\" data-winga-i18n=\"common.cancel\" data-winga-i18n-lock>Cancel</button>\n</div>\n<div class=\"creation-account\">\n<img id=\"creation-avatar\" width=\"48\" height=\"48\" alt=\"\" hidden>\n<span id=\"creation-avatar-fallback\" aria-hidden=\"true\"></span>\n<strong id=\"creation-account-name\" data-winga-i18n-lock></strong>\n</div>\n<div data-creation-compose>\n<textarea id=\"product-name\" rows=\"5\" maxlength=\"120\" placeholder=\"Write something...\" aria-label=\"Post text\" data-winga-i18n=\"creation.caption\" data-winga-i18n-attr=\"placeholder\" data-winga-i18n-lock required></textarea>\n<input type=\"file\" id=\"product-image-file\" accept=\"image/*,video/*,.mp4,.m4v,.mkv,.mov,.avi,.flv,.ts,.mts,.m2ts,.m2p,.m2v,.mxf,.lxf,.gxf,.3gp,.3g2,.webm,.mpg,.mpeg\" multiple>\n<div id=\"image-preview-list\"></div>\n<div class=\"product-video-upload\">\n<div id=\"product-video-status\" class=\"product-video-status\" hidden aria-live=\"polite\">\n<progress id=\"product-video-progress\" max=\"100\" value=\"0\"></progress>\n<span id=\"product-video-status-copy\"></span>\n<button id=\"product-video-retry\" type=\"button\" hidden>Angalia tena</button>\n<button id=\"product-video-remove\" type=\"button\">Ondoa video</button>\n</div>\n</div>\n<button id=\"creation-pick-media\" class=\"creation-action-row\" type=\"button\"><img src=\"/icons/create/images.svg\" width=\"26\" height=\"26\" alt=\"\"><span data-winga-i18n=\"creation.photoVideo\" data-winga-i18n-lock>Photo/video</span></button>\n<p id=\"upload-guidelines\">Chagua picha, video, au vyote. Unaweza kuweka hadi picha 5 na video 1.</p>\n<button id=\"creation-next\" type=\"button\" disabled data-winga-i18n=\"creation.next\" data-winga-i18n-lock>Next</button>\n</div>\n<div data-creation-details hidden>\n<input type=\"number\" id=\"product-price\" placeholder=\"Bei - optional\">\n<input type=\"text\" id=\"product-shop\" placeholder=\"Jina la duka\" required>\n<input type=\"text\" id=\"product-whatsapp\" placeholder=\"Namba ya WhatsApp ya mawasiliano\" required readonly>\n<p class=\"auth-note\" id=\"product-whatsapp-note\">Tunatumia namba ya WhatsApp ya account yako moja kwa moja kwenye bidhaa hii. Ukiitaka kubadilisha, tumia sehemu ya Profile kuthibitisha namba mpya.</p>\n<div class=\"product-fit-mode-wrap\">\n<p class=\"upload-copy-label\">Post Fit Toggle</p>\n<div class=\"product-fit-mode-toggle\" role=\"radiogroup\" aria-label=\"Post Fit Toggle\">\n<label class=\"product-fit-mode-option\">\n<input type=\"radio\" name=\"product-fit-mode\" value=\"cover\" checked>\n<span>Crop to Square</span>\n</label>\n<label class=\"product-fit-mode-option\">\n<input type=\"radio\" name=\"product-fit-mode\" value=\"contain\">\n<span>Fit to Frame</span>\n</label>\n</div>\n<p class=\"auth-note\">Crop keeps the feed uniform. Fit shows the full image with a natural frame.</p>\n</div>\n<select id=\"product-category-top\" required></select>\n<select id=\"product-category\" required></select>\n<div id=\"upload-custom-category-wrap\" class=\"custom-category-wrap\" style=\"display:none;\">\n<input type=\"text\" id=\"upload-custom-category-input\" placeholder=\"Andika category mpya\">\n<button id=\"upload-custom-category-add\" type=\"button\">Ongeza Category</button>\n</div>\n<button id=\"upload-button\" type=\"button\" data-winga-i18n=\"creation.publish\" data-winga-i18n-lock>Post</button>\n</div>\n<section id=\"product-photo-reel\" class=\"photo-reel\">\n<button data-reel-create type=\"button\" hidden data-winga-i18n=\"reel.create\" data-winga-i18n-lock>Create reel</button>\n<input data-reel-input type=\"file\" accept=\"image/jpeg,image/png,image/webp,image/gif\" multiple hidden>\n<dialog data-reel-dialog class=\"photo-reel-dialog\" aria-labelledby=\"photo-reel-status\">\n<span data-reel-spinner class=\"photo-reel-spinner\" aria-hidden=\"true\" hidden></span>\n<p id=\"photo-reel-status\" data-reel-status role=\"status\" aria-live=\"polite\" data-winga-i18n-lock></p>\n<div class=\"photo-reel-actions\">\n<button data-reel-retry type=\"button\" hidden data-winga-i18n=\"reel.retry\" data-winga-i18n-lock>Try again</button>\n<button data-reel-cancel type=\"button\" data-winga-i18n=\"common.cancel\" data-winga-i18n-lock>Cancel</button>\n</div>\n</dialog>\n</section>\n</div>";
+const CREATION_ENTRY_HTML = "<button id=\"post-product-fab\" type=\"button\" aria-label=\"Create new content\" title=\"Create new content\" aria-haspopup=\"dialog\" aria-controls=\"creation-menu\" aria-expanded=\"false\" data-winga-i18n=\"creation.title\" data-winga-i18n-attr=\"aria-label\" data-winga-i18n-lock>\n<img src=\"/icons/create/plus.svg\" width=\"32\" height=\"32\" alt=\"\">\n</button>\n<dialog id=\"creation-menu\" aria-labelledby=\"creation-menu-title\">\n<div class=\"creation-menu-heading\"><h3 id=\"creation-menu-title\" data-winga-i18n=\"creation.title\" data-winga-i18n-lock>Create new content</h3><button data-creation-close class=\"creation-icon-button\" type=\"button\" aria-label=\"Close\" data-winga-i18n=\"creation.close\" data-winga-i18n-attr=\"aria-label\" data-winga-i18n-lock><img src=\"/icons/create/x.svg\" width=\"24\" height=\"24\" alt=\"\"></button></div>\n<button data-creation-action=\"post\" type=\"button\"><img src=\"/icons/create/newspaper.svg\" width=\"26\" height=\"26\" alt=\"\"><span data-winga-i18n=\"creation.post\" data-winga-i18n-lock>Post</span></button>\n<button data-creation-action=\"reel\" type=\"button\"><img src=\"/icons/create/clapperboard.svg\" width=\"26\" height=\"26\" alt=\"\"><span data-winga-i18n=\"creation.reel\" data-winga-i18n-lock>Reel</span></button>\n<button data-creation-action=\"media\" type=\"button\"><img src=\"/icons/create/images.svg\" width=\"26\" height=\"26\" alt=\"\"><span data-winga-i18n=\"creation.media\" data-winga-i18n-lock>Media</span></button>\n<button data-creation-action=\"story\" type=\"button\" disabled><img src=\"/icons/create/circle-plus.svg\" width=\"26\" height=\"26\" alt=\"\"><span data-winga-i18n=\"creation.story\" data-winga-i18n-lock>Story</span><small data-winga-i18n=\"creation.soon\" data-winga-i18n-lock>Coming soon</small></button>\n<button data-creation-action=\"live\" type=\"button\" disabled><img src=\"/icons/create/video.svg\" width=\"26\" height=\"26\" alt=\"\"><span data-winga-i18n=\"creation.live\" data-winga-i18n-lock>Live</span><small data-winga-i18n=\"creation.soon\" data-winga-i18n-lock>Coming soon</small></button>\n</dialog>";
 /*
  * WINGA BOOT OWNERSHIP
  * 1. Cloudflare Worker owns first paint: inline splash, skeleton shell, streamed first feed batch.
@@ -825,54 +826,7 @@ ${lcpImagePreloadTag}${imageOriginPreconnectTag}  <title>Chap kwa haraka</title>
       </div>
       <div id="showcase-track" class="showcase-track"></div>
     </section>
-    <div id="upload-form" class="panel">
-      <div class="section-heading">
-        <div>
-          <p class="eyebrow">Upload bidhaa</p>
-          <h3 id="upload-title">Ongeza Bidhaa</h3>
-        </div>
-        <button id="cancel-edit-button" type="button">Cancel</button>
-      </div>
-      <input type="text" id="product-name" placeholder="Jina la bidhaa" required>
-      <input type="number" id="product-price" placeholder="Bei - optional">
-      <input type="text" id="product-shop" placeholder="Jina la duka" required>
-      <input type="text" id="product-whatsapp" placeholder="Namba ya WhatsApp ya mawasiliano" required readonly>
-      <p class="auth-note" id="product-whatsapp-note">Tunatumia namba ya WhatsApp ya account yako moja kwa moja kwenye bidhaa hii. Ukiitaka kubadilisha, tumia sehemu ya Profile kuthibitisha namba mpya.</p>
-      <div class="product-fit-mode-wrap">
-        <p class="upload-copy-label">Post Fit Toggle</p>
-        <div class="product-fit-mode-toggle" role="radiogroup" aria-label="Post Fit Toggle">
-          <label class="product-fit-mode-option">
-            <input type="radio" name="product-fit-mode" value="cover" checked>
-            <span>Crop to Square</span>
-          </label>
-          <label class="product-fit-mode-option">
-            <input type="radio" name="product-fit-mode" value="contain">
-            <span>Fit to Frame</span>
-          </label>
-        </div>
-        <p class="auth-note">Crop keeps the feed uniform. Fit shows the full image with a natural frame.</p>
-      </div>
-      <select id="product-category-top" required></select>
-      <select id="product-category" required></select>
-      <div id="upload-custom-category-wrap" class="custom-category-wrap" style="display:none;">
-        <input type="text" id="upload-custom-category-input" placeholder="Andika category mpya">
-        <button id="upload-custom-category-add" type="button">Ongeza Category</button>
-      </div>
-      <p id="upload-guidelines">Chagua picha, video, au vyote. Unaweza kuweka hadi picha 5 na video 1.</p>
-      <label for="product-image-file" class="upload-btn">Chagua Picha au Video</label>
-      <input type="file" id="product-image-file" accept="image/*,video/*,.mp4,.m4v,.mkv,.mov,.avi,.flv,.ts,.mts,.m2ts,.m2p,.m2v,.mxf,.lxf,.gxf,.3gp,.3g2,.webm,.mpg,.mpeg" multiple>
-      <div id="image-preview-list"></div>
-      ${PHOTO_REEL_EDITOR_HTML}
-      <div class="product-video-upload">
-        <div id="product-video-status" class="product-video-status" hidden aria-live="polite">
-          <progress id="product-video-progress" max="100" value="0"></progress>
-          <span id="product-video-status-copy"></span>
-          <button id="product-video-retry" type="button" hidden>Angalia tena</button>
-          <button id="product-video-remove" type="button">Ondoa video</button>
-        </div>
-      </div>
-      <button id="upload-button" type="button">Ongeza Bidhaa</button>
-    </div>
+    ${CREATION_FORM_HTML}
     <section id="analytics-panel" class="panel" style="display:none;"></section>
     <section id="admin-panel" class="panel" style="display:none;"></section>
     <div id="products-container">`;
@@ -919,10 +873,7 @@ function buildDocumentShellEnd(options = {}) {
       <button class="nav-item" type="button" data-view="profile"><span class="nav-icon">&#128100;</span><span>Profile</span></button>
       <button class="nav-item" id="admin-nav-item" type="button" data-view="admin" style="display:none;"><span class="nav-icon">&#128737;&#65039;</span><span>Admin</span></button>
     </footer>
-    <button id="post-product-fab" type="button" aria-label="Post product">
-      <span class="fab-icon">&#128221;</span>
-      <span class="fab-label">Post</span>
-    </button>
+    ${CREATION_ENTRY_HTML}
     <footer id="public-footer" class="panel" style="display:none;">
       <div class="public-footer-grid">
         <div>

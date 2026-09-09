@@ -72,14 +72,15 @@
       showDialog();
       setMessage(COPY[error?.code] ? error.code : "reel.publishFailed");
     };
-    create.addEventListener("click", () => {
+    function openGallery() {
       if (publisher.isBusy() || pickerOpen || !deps.canUse()) return;
       if (!generator.isSupported()) { showError({ code: "reel.unsupported" }); return; }
       // Stay in the click gesture so mobile browsers open the native gallery.
       input.value = "";
       pickerOpen = true;
       try { input.click(); } catch (error) { pickerOpen = false; showError(error); }
-    });
+    }
+    create.addEventListener("click", openGallery);
     input.addEventListener("cancel", () => { pickerOpen = false; });
     input.addEventListener("change", () => {
       pickerOpen = false;
@@ -101,7 +102,7 @@
     }
     target.addEventListener("pagehide", reset);
     target.addEventListener("winga:global-context", () => setMessage(messageKey));
-    return { reset, isBusy: publisher.isBusy };
+    return { reset, isBusy: publisher.isBusy, openGallery };
   }
   window.WingaModules.marketplace.createPhotoReelEditor = createPhotoReelEditor;
 })();

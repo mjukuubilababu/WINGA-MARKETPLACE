@@ -163,7 +163,26 @@ test("BigPipe shell renders the exact photo reel editor from canonical index.htm
   assert.equal(actual.length, 1);
   assert.equal(actual[0][0], expected[0][0]);
   assert.ok(shell.indexOf('id="image-preview-list"') < actual[0].index);
-  assert.ok(shell.indexOf('class="product-video-upload"') > actual[0].index);
+  assert.ok(shell.indexOf('class="product-video-upload"') < actual[0].index);
+});
+
+test("Worker creation menu and full composer match the canonical source with unique upload controls", () => {
+  const root = path.join(__dirname, "..");
+  const html = fs.readFileSync(path.join(root, "index.html"), "utf8").replace(/\r\n/g, "\n");
+  const worker = vm.createContext({ TextEncoder, URL });
+  vm.runInContext(fs.readFileSync(path.join(root, "worker.js"), "utf8").replace("export default", "const worker ="), worker);
+  const shell = vm.runInContext("buildDocumentShellStart() + buildDocumentShellEnd()", worker);
+  for (const part of ["FORM", "ENTRY"]) {
+    const expected = html.match(new RegExp(`<!-- WINGA_CREATION_${part}_START -->([\\s\\S]*?)<!-- WINGA_CREATION_${part}_END -->`))[1].trim();
+    assert.equal(vm.runInContext(`CREATION_${part}_HTML`, worker), expected);
+    assert.ok(shell.includes(expected));
+  }
+  for (const id of ["upload-form", "product-name", "product-image-file", "upload-button", "creation-menu", "post-product-fab"]) {
+    assert.equal([...shell.matchAll(new RegExp(`id="${id}"`, "g"))].length, 1);
+  }
+  for (const icon of ["plus", "newspaper", "clapperboard", "images", "circle-plus", "video", "arrow-left", "x"]) {
+    assert.ok(fs.readFileSync(path.join(root, "public/icons/create", icon + ".svg"), "utf8").includes("<svg"));
+  }
 });
 
 function harness({ outputBytes = 12, empty = false, codec = "video/webm;codecs=vp8" } = {}) {

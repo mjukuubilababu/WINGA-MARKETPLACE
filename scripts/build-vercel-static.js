@@ -68,7 +68,10 @@ const fileCopies = [
   ["data-service.js", "data-service.js"],
   ["mock-data.js", "mock-data.js"],
   ["winga-config.js", "winga-config.js"],
-  ["node_modules/hls.js/dist/hls.light.min.js", "vendor/hls.light.min.js"]
+  ["node_modules/hls.js/dist/hls.light.min.js", "vendor/hls.light.min.js"],
+  ["node_modules/lucide-static/LICENSE", "icons/create/LICENSE"],
+  ...["plus", "newspaper", "clapperboard", "images", "circle-plus", "video", "arrow-left", "x"]
+    .map(name => [`node_modules/lucide-static/icons/${name}.svg`, `icons/create/${name}.svg`])
 ];
 
 const bundledModuleSources = [
@@ -125,6 +128,7 @@ const bundledModuleSources = [
   "src/reviews/reviews.js",
   "src/requests/request-box.js",
   "src/products/actions.js",
+  "src/products/creation.js",
   "src/commerce/payment-intent-ui.js",
   "src/chat/ui.js",
   "src/chat/controller.js",
@@ -635,15 +639,18 @@ function syncWorkerBuildVersionConfig() {
   }
 }
 
-function syncWorkerPhotoReelShell() {
+function syncWorkerCreationShell() {
   const html = fs.readFileSync(path.join(rootDir, "index.html"), "utf8").replace(/\r\n/g, "\n");
-  const fragments = [...html.matchAll(/<section id="product-photo-reel"[^>]*>[\s\S]*?<\/section>/g)];
-  if (fragments.length !== 1) throw new Error("index.html must contain one canonical photo reel editor.");
   const workerPath = path.join(rootDir, "worker.js");
   const source = fs.readFileSync(workerPath, "utf8");
-  const marker = /^const PHOTO_REEL_EDITOR_HTML = [^\r\n]*;\r?$/gm;
-  if ([...source.matchAll(marker)].length !== 1) throw new Error("Worker photo reel shell marker is missing or duplicated.");
-  const next = source.replace(marker, () => `const PHOTO_REEL_EDITOR_HTML = ${JSON.stringify(fragments[0][0])};`);
+  let next = source;
+  for (const part of ["FORM", "ENTRY"]) {
+    const fragments = [...html.matchAll(new RegExp(`<!-- WINGA_CREATION_${part}_START -->([\\s\\S]*?)<!-- WINGA_CREATION_${part}_END -->`, "g"))];
+    if (fragments.length !== 1) throw new Error(`index.html must contain one canonical creation ${part}.`);
+    const marker = new RegExp(`^const CREATION_${part}_HTML = [^\\r\\n]*;\\r?$`, "gm");
+    if ([...next.matchAll(marker)].length !== 1) throw new Error(`Worker creation ${part} marker is missing or duplicated.`);
+    next = next.replace(marker, () => `const CREATION_${part}_HTML = ${JSON.stringify(fragments[0][1].trim())};`);
+  }
   if (next !== source) writeTextFileWithRetry(workerPath, next);
 }
 
@@ -961,7 +968,7 @@ async function main() {
   requiredRootFiles.forEach(assertPathExists);
   assertPathExists("src");
   syncRootFrontendModuleBundle();
-  syncWorkerPhotoReelShell();
+  syncWorkerCreationShell();
 
   const generatedAssetBackup = backupGeneratedPublicAssets();
   ensureCleanDir(outputDir);

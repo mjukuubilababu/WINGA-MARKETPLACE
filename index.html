@@ -188,15 +188,35 @@
 </div>
 <div id="showcase-track" class="showcase-track"></div>
 </section>
-<div id="upload-form" class="panel">
-<div class="section-heading">
-<div>
-<p class="eyebrow">Upload bidhaa</p>
-<h3 id="upload-title">Ongeza Bidhaa</h3>
-</div>
+<!-- WINGA_CREATION_FORM_START -->
+<div id="upload-form" class="panel creation-form">
+<div class="creation-toolbar">
+<button id="creation-back" type="button" class="creation-icon-button" aria-label="Back" data-winga-i18n="creation.back" data-winga-i18n-attr="aria-label" data-winga-i18n-lock><img src="/icons/create/arrow-left.svg" width="24" height="24" alt=""></button>
+<h3 id="upload-title" data-winga-i18n-lock>New post</h3>
 <button id="cancel-edit-button" type="button" data-winga-i18n="common.cancel" data-winga-i18n-lock>Cancel</button>
 </div>
-<input type="text" id="product-name" placeholder="Jina la bidhaa" required>
+<div class="creation-account">
+<img id="creation-avatar" width="48" height="48" alt="" hidden>
+<span id="creation-avatar-fallback" aria-hidden="true"></span>
+<strong id="creation-account-name" data-winga-i18n-lock></strong>
+</div>
+<div data-creation-compose>
+<textarea id="product-name" rows="5" maxlength="120" placeholder="Write something..." aria-label="Post text" data-winga-i18n="creation.caption" data-winga-i18n-attr="placeholder" data-winga-i18n-lock required></textarea>
+<input type="file" id="product-image-file" accept="image/*,video/*,.mp4,.m4v,.mkv,.mov,.avi,.flv,.ts,.mts,.m2ts,.m2p,.m2v,.mxf,.lxf,.gxf,.3gp,.3g2,.webm,.mpg,.mpeg" multiple>
+<div id="image-preview-list"></div>
+<div class="product-video-upload">
+<div id="product-video-status" class="product-video-status" hidden aria-live="polite">
+<progress id="product-video-progress" max="100" value="0"></progress>
+<span id="product-video-status-copy"></span>
+<button id="product-video-retry" type="button" hidden>Angalia tena</button>
+<button id="product-video-remove" type="button">Ondoa video</button>
+</div>
+</div>
+<button id="creation-pick-media" class="creation-action-row" type="button"><img src="/icons/create/images.svg" width="26" height="26" alt=""><span data-winga-i18n="creation.photoVideo" data-winga-i18n-lock>Photo/video</span></button>
+<p id="upload-guidelines">Chagua picha, video, au vyote. Unaweza kuweka hadi picha 5 na video 1.</p>
+<button id="creation-next" type="button" disabled data-winga-i18n="creation.next" data-winga-i18n-lock>Next</button>
+</div>
+<div data-creation-details hidden>
 <input type="number" id="product-price" placeholder="Bei - optional">
 <input type="text" id="product-shop" placeholder="Jina la duka" required>
 <input type="text" id="product-whatsapp" placeholder="Namba ya WhatsApp ya mawasiliano" required readonly>
@@ -221,12 +241,10 @@
 <input type="text" id="upload-custom-category-input" placeholder="Andika category mpya">
 <button id="upload-custom-category-add" type="button">Ongeza Category</button>
 </div>
-<p id="upload-guidelines">Chagua picha, video, au vyote. Unaweza kuweka hadi picha 5 na video 1.</p>
-<label for="product-image-file" class="upload-btn">Chagua Picha au Video</label>
-<input type="file" id="product-image-file" accept="image/*,video/*,.mp4,.m4v,.mkv,.mov,.avi,.flv,.ts,.mts,.m2ts,.m2p,.m2v,.mxf,.lxf,.gxf,.3gp,.3g2,.webm,.mpg,.mpeg" multiple>
-<div id="image-preview-list"></div>
+<button id="upload-button" type="button" data-winga-i18n="creation.publish" data-winga-i18n-lock>Post</button>
+</div>
 <section id="product-photo-reel" class="photo-reel">
-<button data-reel-create type="button" data-winga-i18n="reel.create" data-winga-i18n-lock>Create reel</button>
+<button data-reel-create type="button" hidden data-winga-i18n="reel.create" data-winga-i18n-lock>Create reel</button>
 <input data-reel-input type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple hidden>
 <dialog data-reel-dialog class="photo-reel-dialog" aria-labelledby="photo-reel-status">
 <span data-reel-spinner class="photo-reel-spinner" aria-hidden="true" hidden></span>
@@ -237,16 +255,8 @@
 </div>
 </dialog>
 </section>
-<div class="product-video-upload">
-<div id="product-video-status" class="product-video-status" hidden aria-live="polite">
-<progress id="product-video-progress" max="100" value="0"></progress>
-<span id="product-video-status-copy"></span>
-<button id="product-video-retry" type="button" hidden>Angalia tena</button>
-<button id="product-video-remove" type="button">Ondoa video</button>
 </div>
-</div>
-<button id="upload-button" type="button">Ongeza Bidhaa</button>
-</div>
+<!-- WINGA_CREATION_FORM_END -->
 <section id="analytics-panel" class="panel" style="display:none;"></section>
 <section id="admin-panel" class="panel" style="display:none;"></section>
 <div id="products-container"></div>
@@ -275,10 +285,19 @@
 <button class="nav-item" type="button" data-view="profile"><span class="nav-icon">&#128100;</span><span>Profile</span></button>
 <button class="nav-item" id="admin-nav-item" type="button" data-view="admin" style="display:none;"><span class="nav-icon">&#128737;&#65039;</span><span>Admin</span></button>
 </footer>
-<button id="post-product-fab" type="button" aria-label="Post product">
-<span class="fab-icon">&#128221;</span>
-<span class="fab-label">Post</span>
+<!-- WINGA_CREATION_ENTRY_START -->
+<button id="post-product-fab" type="button" aria-label="Create new content" title="Create new content" aria-haspopup="dialog" aria-controls="creation-menu" aria-expanded="false" data-winga-i18n="creation.title" data-winga-i18n-attr="aria-label" data-winga-i18n-lock>
+<img src="/icons/create/plus.svg" width="32" height="32" alt="">
 </button>
+<dialog id="creation-menu" aria-labelledby="creation-menu-title">
+<div class="creation-menu-heading"><h3 id="creation-menu-title" data-winga-i18n="creation.title" data-winga-i18n-lock>Create new content</h3><button data-creation-close class="creation-icon-button" type="button" aria-label="Close" data-winga-i18n="creation.close" data-winga-i18n-attr="aria-label" data-winga-i18n-lock><img src="/icons/create/x.svg" width="24" height="24" alt=""></button></div>
+<button data-creation-action="post" type="button"><img src="/icons/create/newspaper.svg" width="26" height="26" alt=""><span data-winga-i18n="creation.post" data-winga-i18n-lock>Post</span></button>
+<button data-creation-action="reel" type="button"><img src="/icons/create/clapperboard.svg" width="26" height="26" alt=""><span data-winga-i18n="creation.reel" data-winga-i18n-lock>Reel</span></button>
+<button data-creation-action="media" type="button"><img src="/icons/create/images.svg" width="26" height="26" alt=""><span data-winga-i18n="creation.media" data-winga-i18n-lock>Media</span></button>
+<button data-creation-action="story" type="button" disabled><img src="/icons/create/circle-plus.svg" width="26" height="26" alt=""><span data-winga-i18n="creation.story" data-winga-i18n-lock>Story</span><small data-winga-i18n="creation.soon" data-winga-i18n-lock>Coming soon</small></button>
+<button data-creation-action="live" type="button" disabled><img src="/icons/create/video.svg" width="26" height="26" alt=""><span data-winga-i18n="creation.live" data-winga-i18n-lock>Live</span><small data-winga-i18n="creation.soon" data-winga-i18n-lock>Coming soon</small></button>
+</dialog>
+<!-- WINGA_CREATION_ENTRY_END -->
 <footer id="public-footer" class="panel" style="display:none;">
 <div class="public-footer-grid">
 <div>

@@ -690,6 +690,7 @@ test("seller can change and verify whatsapp number from profile and upload uses 
 
   await page.locator("#view-home-back").click();
   await page.locator("#post-product-fab").click();
+  await page.locator('[data-creation-action="post"]').click();
   await expect(page.locator("#product-whatsapp")).toHaveValue(nextWhatsappNumber);
 
   await context.close();
@@ -704,12 +705,14 @@ test("seller-capable home feed hides the normal footer nav and shows the floatin
   await expect(postFab).toBeVisible();
 
   await postFab.click();
+  await expect(page.locator("#creation-menu")).toBeVisible();
+  await page.locator('[data-creation-action="post"]').click();
   await expect(page.locator("#upload-form")).toBeVisible();
   await expect(page.locator("#product-whatsapp")).toHaveValue(/^\d{12}$/);
   await expect(page.locator("#product-whatsapp")).toHaveAttribute("readonly", "");
   await expect(page.locator("#product-whatsapp-note")).toContainText("namba ya WhatsApp ya account yako");
-  await expect(page.locator("#view-home-back")).toBeVisible();
-  await page.locator("#view-home-back").click();
+  await expect(page.locator("#creation-back")).toBeVisible();
+  await page.locator("#creation-back").click();
   await expect(page.locator("#upload-form")).not.toBeVisible();
   await expect(page.locator("#products-container .product-card").first()).toBeVisible();
 
@@ -752,16 +755,18 @@ test("seller can post without price and sees negotiation fallback in product man
   );
 
   await page.locator("#post-product-fab").click();
+  await page.locator('[data-creation-action="post"]').click();
   await page.locator("#product-name").fill("Bidhaa ya maelewano");
-  await page.locator("#product-price").fill("");
-  await page.locator("#product-shop").fill("Buyer Seller Shop");
-  await page.locator("#product-category-top").selectOption("viatu");
-  await page.locator("#product-category").selectOption("viatu-sneakers");
   await page.locator("#product-image-file").setInputFiles({
     name: "negotiable-product.png",
     mimeType: "image/png",
     buffer: tinyPngBuffer
   });
+  await page.locator("#creation-next").click();
+  await page.locator("#product-price").fill("");
+  await page.locator("#product-shop").fill("Buyer Seller Shop");
+  await page.locator("#product-category-top").selectOption("viatu");
+  await page.locator("#product-category").selectOption("viatu-sneakers");
   await page.locator("#upload-button").click();
 
   const postResponse = await postResponsePromise;

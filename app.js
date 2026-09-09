@@ -1,5 +1,6 @@
 const USERS_KEY = "winga-users";
 let productPhotoReelEditor = null;
+let productCreationController = null;
 const PRODUCTS_KEY = "winga-products";
 const SESSION_KEY = "winga-current-user";
 const APP_VIEW_KEY = "winga-app-view";
@@ -1567,6 +1568,7 @@ function setCurrentViewState(nextView, options = {}) {
   cancelStaleProductQuerySurfaces(nextView);
   if (currentView === "upload" && nextView !== "upload") productPhotoReelEditor?.reset();
   currentView = nextView;
+  productCreationController?.onViewChange(nextView);
   if (syncNav) {
     setActiveNav(currentView);
   }
@@ -15510,22 +15512,25 @@ searchImageFileInput.addEventListener("change", async () => {
 
 bindPrimaryNav();
 
-postProductFab?.addEventListener("click", () => {
-  if (!canUseSellerFeatures() || isStaffUser()) {
-    return;
-  }
-  reportClientEvent("info", "post_product_fab_clicked", "Seller opened upload flow from floating action button.", {
-    category: "app",
-    view: currentView
-  });
-  if (!editingProductId) {
-    clearUploadForm();
-  }
-  setCurrentViewState("upload", { syncHistory: "push" });
-  renderCurrentView();
-  window.scrollTo({ top: 0, behavior: "smooth" });
-  productImageFileInput.value = "";
-  productImageFileInput.click();
+productCreationController = window.WingaModules.products.createProductCreationController({
+  translate: translateUi,
+  canUse: () => canUseSellerFeatures() && !isStaffUser(),
+  isBusy: () => Boolean(uiRuntimeState.productUploadInFlight || productPhotoReelEditor?.isBusy()),
+  getView: () => currentView,
+  isEditing: () => Boolean(editingProductId),
+  getAccount: () => ({ name: currentUser || "", image: sanitizeImageSource(getCurrentProfileImage(), "") }),
+  hasMedia: () => Boolean(productImageFileInput.files?.length || editingProductId
+    || productUploadDraftRuntimeState.preparedImages?.length || productVideoUploadState.mediaItem),
+  openReel: () => productPhotoReelEditor.openGallery(),
+  enterUpload: () => {
+    if (editingProductId) clearUploadForm();
+    if (!productShopInput.value) productShopInput.value = currentUser;
+    productWhatsappInput.value = getCurrentWhatsappNumber();
+    setCurrentViewState("upload", { syncHistory: "push" });
+    renderCurrentView({ force: true, reason: "creation_menu" });
+    window.scrollTo({ top: 0, behavior: "auto" });
+  },
+  goHome: () => viewHomeBackButton.click()
 });
 
 viewHomeBackButton?.addEventListener("click", () => {
@@ -20284,6 +20289,7 @@ function renderCurrentView(options = {}) {
     setFeedLoadingStateVisible(shouldShowFeedLoading);
     setInitialProductsErrorStateVisible(shouldShowInitialProductsError);
     uploadForm.style.display = isUpload || editingProductId ? "block" : "none";
+    productCreationController?.sync();
     analyticsPanel.style.display = isAdminView || (isProfile && canUseSellerFeatures()) ? "block" : "none";
     adminPanel.style.display = isAdminView ? "block" : "none";
     syncBodyScrollLockState();
@@ -20367,7 +20373,7 @@ function renderCurrentView(options = {}) {
 
     if (isUpload && !editingProductId) {
       restoreProductUploadDraft();
-      productNameInput.focus();
+      productCreationController?.sync();
     }
   } catch (error) {
     bumpRuntimeDiagnostic("renderCurrentViewErrorCount");
@@ -20519,6 +20525,7 @@ function deleteProduct(productId) {
 
 function clearUploadForm() {
   productPhotoReelEditor?.reset();
+  productCreationController?.reset();
   editingProductId = null;
   setNodeText(uploadTitle, "Ongeza Bidhaa");
   cancelEditButton.style.display = "none";

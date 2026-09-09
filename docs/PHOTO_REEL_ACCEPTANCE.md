@@ -6,8 +6,9 @@ Date: 2026-09-09
 
 Create reel -> native photo gallery -> select photos -> Creating reel spinner
 -> automatically published Home post. No preview, reorder settings, Use reel,
-product metadata form or second save click. The existing seller upload surface
-contains the Create reel button; this change does not redesign navigation.
+product metadata form or second save click. The seller's plus button now opens
+the creation menu; its Reel action opens the gallery directly. See
+CREATION_FLOW_ACCEPTANCE.md for the new menu and ordinary post composer.
 
 Ordinary image-only, video-only and mixed product posting keep their existing
 paths, full image arrays and image-first ordering. Creating a reel does not copy
@@ -29,7 +30,7 @@ moderation and Worker routing are not modified.
 `src/marketplace/photo-reel-publisher.js` owns the automatic job and retries.
 `src/marketplace/photo-reel-ui.js` owns the native picker and localized dialog.
 `app.js` connects account identity, existing APIs and normal Home navigation.
-`index.html` is authoritative; the build copies its reel fragment into the
+`index.html` is authoritative; the build copies its full creation form into the
 Worker shell and bundles all three modules. No runtime shell fetch is added.
 
 ## Resource and Failure Policy

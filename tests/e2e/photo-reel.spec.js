@@ -41,6 +41,7 @@ async function sellerPage(browser, viewport = { width: 390, height: 844 }, unsup
   await page.goto("/");
   await page.waitForFunction(() => typeof canUseSellerFeatures === "function" && canUseSellerFeatures());
   await page.locator("#post-product-fab").click();
+  await page.locator('[data-creation-action="post"]').click();
   await expect(page.locator("#upload-form")).toBeVisible();
   return { context, page };
 }
@@ -86,8 +87,10 @@ async function capturePublish(context, lostResponse = false) {
 }
 
 async function selectReelPhotos(page, images) {
+  await page.locator("#creation-back").click();
+  await page.locator("#post-product-fab").click();
   const chooserEvent = page.waitForEvent("filechooser");
-  await page.locator("[data-reel-create]").click();
+  await page.locator('[data-creation-action="reel"]').click();
   const chooser = await chooserEvent;
   expect(chooser.isMultiple()).toBe(true);
   await chooser.setFiles(images);
@@ -179,7 +182,9 @@ test("automatic reel creation can be cancelled and its spinner fits desktop and 
 
 test("unsupported reel generation leaves ordinary photo posting usable", async ({ browser }) => {
   const { context, page } = await sellerPage(browser, { width: 390, height: 844 }, true);
-  await page.locator("[data-reel-create]").click();
+  await page.locator("#creation-back").click();
+  await page.locator("#post-product-fab").click();
+  await page.locator('[data-creation-action="reel"]').click();
   await expect(page.locator("[data-reel-status]")).not.toBeEmpty();
   await expect(page.locator("[data-reel-spinner]")).not.toBeVisible();
   await page.locator("[data-reel-cancel]").click();

@@ -52,7 +52,9 @@ function createStaticServer() {
       if (pathname === "/" || !path.extname(pathname)) {
         pathname = "/index.html";
       }
-      const resolvedPath = path.resolve(rootDir, `.${pathname}`);
+      // Creation icons are packaged by the production build, not source modules.
+      const assetRoot = pathname.startsWith("/icons/create/") ? path.join(rootDir, "public") : rootDir;
+      const resolvedPath = path.resolve(assetRoot, `.${pathname}`);
       if (!resolvedPath.startsWith(rootDir)) {
         res.writeHead(403);
         res.end("Forbidden");
