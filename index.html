@@ -225,6 +225,29 @@
 <label for="product-image-file" class="upload-btn">Chagua Picha au Video</label>
 <input type="file" id="product-image-file" accept="image/*,video/*,.mp4,.m4v,.mkv,.mov,.avi,.flv,.ts,.mts,.m2ts,.m2p,.m2v,.mxf,.lxf,.gxf,.3gp,.3g2,.webm,.mpg,.mpeg" multiple>
 <div id="image-preview-list"></div>
+<details id="product-photo-reel" class="photo-reel">
+<summary data-winga-i18n="reel.title" data-winga-i18n-lock>Create reel from photos</summary>
+<fieldset data-reel-settings>
+<label class="photo-reel-picker">
+<span data-winga-i18n="reel.choose" data-winga-i18n-lock>Add photos</span>
+<input data-reel-input type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple>
+</label>
+<label class="photo-reel-duration">
+<span data-winga-i18n="reel.duration" data-winga-i18n-lock>Seconds per photo</span>
+<select data-reel-seconds><option value="2">2</option><option value="3">3</option></select>
+</label>
+</fieldset>
+<ol data-reel-list class="photo-reel-list"></ol>
+<canvas data-reel-canvas class="photo-reel-preview" width="720" height="1280" hidden></canvas>
+<video data-reel-preview class="photo-reel-preview" controls muted playsinline preload="metadata" hidden data-winga-i18n="reel.preview" data-winga-i18n-attr="aria-label" data-winga-i18n-lock aria-label="Reel preview"></video>
+<p data-reel-status role="status" aria-live="polite" data-winga-i18n-lock></p>
+<progress data-reel-progress max="100" value="0" hidden data-winga-i18n="reel.progress" data-winga-i18n-attr="aria-label" data-winga-i18n-lock aria-label="Reel creation progress"></progress>
+<div class="photo-reel-actions">
+<button data-reel-create type="button" disabled data-winga-i18n="reel.create" data-winga-i18n-lock>Create reel</button>
+<button data-reel-cancel type="button" hidden data-winga-i18n="common.cancel" data-winga-i18n-lock>Cancel</button>
+<button data-reel-use type="button" hidden data-winga-i18n="reel.use" data-winga-i18n-lock>Use reel</button>
+</div>
+</details>
 <div class="product-video-upload">
 <div id="product-video-status" class="product-video-status" hidden aria-live="polite">
 <progress id="product-video-progress" max="100" value="0"></progress>

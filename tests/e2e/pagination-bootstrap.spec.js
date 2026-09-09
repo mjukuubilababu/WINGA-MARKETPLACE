@@ -707,6 +707,8 @@ test("queryProductsPage hydrates seller and category results without replacing H
     const requestUrl = new URL(route.request().url());
     requests.push(requestUrl.search);
     const isQuery = requestUrl.searchParams.get("seller") === "seller-query";
+    // This listing fixture must not acknowledge passive view writes as product data.
+    if (requestUrl.pathname !== "/api/products" || route.request().method() !== "GET") return route.continue();
     const items = isQuery ? [queryProduct] : products;
     await route.fulfill({
       status: 200,

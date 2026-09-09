@@ -9923,6 +9923,452 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 })();
 
 
+// src/marketplace/photo-reel.js
+(() => {
+  const MIME_TYPES = ["video/webm;codecs=vp8", "video/mp4", "video/webm"];
+  const WIDTH = 720;
+  const HEIGHT = 1280;
+  const FPS = 24;
+  const fail = (code) => Object.assign(new Error(code), { code });
+
+  function getMimeType(target) {
+    if (!target.HTMLCanvasElement?.prototype?.captureStream || !target.MediaRecorder?.isTypeSupported) return "";
+    return MIME_TYPES.find((type) => target.MediaRecorder.isTypeSupported(type)) || "";
+  }
+
+  function validatePhotoReelFiles(files, minimum = 3) {
+    const list = Array.from(files || []);
+    if (list.length < minimum || list.length > 10) throw fail("reel.count");
+    let total = 0;
+    for (const file of list) {
+      if (!/^image\/(jpeg|png|webp|gif)$/i.test(file?.type || "")) throw fail("reel.imageType");
+      if (!Number.isSafeInteger(file.size) || file.size < 1 || file.size > 10 * 1024 * 1024) throw fail("reel.imageSize");
+      total += file.size;
+    }
+    if (total > 60 * 1024 * 1024) throw fail("reel.totalSize");
+    return list;
+  }
+
+  function drawContained(context, image, opacity = 1) {
+    const scale = Math.min(WIDTH / image.width, HEIGHT / image.height);
+    const w = image.width * scale;
+    const h = image.height * scale;
+    context.globalAlpha = opacity;
+    context.drawImage(image, (WIDTH - w) / 2, (HEIGHT - h) / 2, w, h);
+    context.globalAlpha = 1;
+  }
+
+  async function decodePhotoReelImage(file, target = window, maxWidth = WIDTH, maxHeight = HEIGHT) {
+    let source;
+    let url = "";
+    try {
+      if (typeof target.createImageBitmap === "function") {
+        source = await target.createImageBitmap(file);
+      } else {
+        source = new target.Image();
+        url = target.URL.createObjectURL(file);
+        await new Promise((resolve, reject) => {
+          const timeout = target.setTimeout(() => reject(fail("reel.imageDecode")), 10000);
+          source.onload = () => { target.clearTimeout(timeout); resolve(); };
+          source.onerror = () => { target.clearTimeout(timeout); reject(fail("reel.imageDecode")); };
+          source.src = url;
+        });
+      }
+      const w = source.naturalWidth || source.width;
+      const h = source.naturalHeight || source.height;
+      if (!w || !h || w * h > 40000000) throw fail("reel.imageSize");
+      const ratio = Math.min(1, maxWidth / w, maxHeight / h);
+      const canvas = target.document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(w * ratio));
+      canvas.height = Math.max(1, Math.round(h * ratio));
+      const context = canvas.getContext("2d", { alpha: false });
+      if (!context) throw fail("reel.unsupported");
+      context.fillStyle = "#111111";
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(source, 0, 0, canvas.width, canvas.height);
+      return { source: canvas, close() { canvas.width = 1; canvas.height = 1; } };
+    } catch (error) {
+      throw error?.code ? error : fail("reel.imageDecode");
+    } finally {
+      source?.close?.();
+      if (url) { source.src = ""; target.URL.revokeObjectURL(url); }
+    }
+  }
+
+  function createPhotoReelGenerator(deps = {}) {
+    const target = deps.window || window;
+    const decode = deps.decodeImage || ((file) => decodePhotoReelImage(file, target));
+    let active = null;
+    function cancel(code = "reel.cancelled") { active?.abort(code); }
+
+    async function generate(files, options = {}) {
+      const list = validatePhotoReelFiles(files);
+      const mimeType = getMimeType(target);
+      if (!mimeType) throw fail("reel.unsupported");
+      if (target.document.hidden) throw fail("reel.interrupted");
+      cancel();
+      const seconds = Number(options.seconds) === 3 ? 3 : 2;
+      const canvas = options.canvas || target.document.createElement("canvas");
+      canvas.width = WIDTH;
+      canvas.height = HEIGHT;
+      const context = canvas.getContext("2d", { alpha: false });
+      if (!context) throw fail("reel.unsupported");
+      const reducedMotion = Boolean(target.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches);
+      const images = new Set();
+      const chunks = [];
+      let stream;
+      let recorder;
+      let raf = 0;
+      let timeout = 0;
+      let totalBytes = 0;
+      let rejected;
+      let settled = false;
+      let failure = null;
+      const operation = { abort(code) { if (!failure && !settled) { failure = fail(code); rejected?.(failure); } } };
+      active = operation;
+      const interrupted = () => { if (target.document.hidden) operation.abort("reel.interrupted"); };
+      const pageLeft = () => operation.abort("reel.interrupted");
+      target.document.addEventListener("visibilitychange", interrupted);
+      target.addEventListener("pagehide", pageLeft);
+      async function load(index) {
+        if (index >= list.length) return null;
+        const result = await decode(list[index]);
+        if (failure || settled) { result.close(); throw failure || fail("reel.cancelled"); }
+        images.add(result);
+        return result;
+      }
+      const release = (image) => { if (image) { images.delete(image); image.close(); } };
+      try {
+        return await new Promise((resolve, reject) => {
+          rejected = reject;
+          timeout = target.setTimeout(() => operation.abort("reel.interrupted"), (list.length * seconds + 20) * 1000);
+          (async () => {
+            let current = await load(0);
+            let next = await load(1);
+            if (failure) throw failure;
+            context.fillStyle = "#111111";
+            context.fillRect(0, 0, WIDTH, HEIGHT);
+            drawContained(context, current.source);
+            stream = canvas.captureStream(FPS);
+            recorder = new target.MediaRecorder(stream, { mimeType, videoBitsPerSecond: 2000000 });
+            recorder.ondataavailable = (event) => {
+              if (failure || settled || !event.data?.size) return;
+              totalBytes += event.data.size;
+              if (totalBytes > 32 * 1024 * 1024) { operation.abort("reel.outputSize"); return; }
+              chunks.push(event.data);
+            };
+            recorder.onerror = () => operation.abort("reel.failed");
+            recorder.onstop = () => {
+              if (failure || settled) return;
+              if (!totalBytes) { operation.abort("reel.failed"); return; }
+              const type = (recorder.mimeType || mimeType).split(";")[0];
+              const extension = type === "video/mp4" ? "mp4" : "webm";
+              const file = new target.File(chunks, "winga-reel-" + Date.now() + "." + extension, { type });
+              settled = true;
+              resolve(file);
+            };
+            let index = 0;
+            let startedAt = target.performance.now();
+            let lastFrameAt = -Infinity;
+            let lastProgress = -1;
+            const frame = (now) => {
+              if (failure || settled) return;
+              try {
+                if (now - lastFrameAt < 1000 / FPS) { raf = target.requestAnimationFrame(frame); return; }
+                lastFrameAt = now;
+                if (now - startedAt >= seconds * 1000) {
+                  if (index === list.length - 1) { recorder.stop(); return; }
+                  // A slow decode must not silently omit a selected photo.
+                  if (!next) { operation.abort("reel.imageDecode"); return; }
+                  release(current);
+                  current = next;
+                  next = null;
+                  index += 1;
+                  startedAt = now;
+                  load(index + 1).then((image) => { next = image; }).catch((error) => operation.abort(error.code || "reel.imageDecode"));
+                }
+                context.fillStyle = "#111111";
+                context.fillRect(0, 0, WIDTH, HEIGHT);
+                drawContained(context, current.source);
+                const progressInPhoto = Math.max(0, (now - startedAt) / (seconds * 1000));
+                if (next && !reducedMotion) {
+                  const fade = Math.max(0, (progressInPhoto - 0.85) / 0.15);
+                  if (fade > 0) drawContained(context, next.source, Math.min(1, fade));
+                }
+                const progress = Math.min(99, Math.floor(((index + progressInPhoto) / list.length) * 100));
+                if (progress !== lastProgress) { lastProgress = progress; options.onProgress?.(progress); }
+                raf = target.requestAnimationFrame(frame);
+              } catch (_error) { operation.abort("reel.failed"); }
+            };
+            recorder.start(250);
+            raf = target.requestAnimationFrame(frame);
+          })().catch((error) => operation.abort(error.code || "reel.failed"));
+        });
+      } finally {
+        settled = true;
+        target.clearTimeout(timeout);
+        target.cancelAnimationFrame(raf);
+        target.document.removeEventListener("visibilitychange", interrupted);
+        target.removeEventListener("pagehide", pageLeft);
+        if (recorder) {
+          recorder.ondataavailable = null; recorder.onerror = null; recorder.onstop = null;
+          if (recorder.state !== "inactive") { try { recorder.stop(); } catch (_error) {} }
+        }
+        stream?.getTracks().forEach((track) => track.stop());
+        images.forEach(release);
+        chunks.length = 0;
+        if (active === operation) active = null;
+      }
+    }
+    return { generate, cancel, isSupported: () => Boolean(getMimeType(target)) };
+  }
+  window.WingaModules = window.WingaModules || {};
+  Object.assign(window.WingaModules.marketplace = window.WingaModules.marketplace || {}, {
+    createPhotoReelGenerator, validatePhotoReelFiles, decodePhotoReelImage
+  });
+})();
+
+
+// src/marketplace/photo-reel-ui.js
+(() => {
+  const COPY = {
+    "reel.unsupported": "This browser cannot create reels. You can still upload photos or a video.",
+    "reel.count": "Choose 3 to 10 photos for your reel.",
+    "reel.imageType": "Choose JPG, PNG, WebP or GIF photos.",
+    "reel.imageSize": "Each photo must be under 10 MB and 40 megapixels.",
+    "reel.totalSize": "Choose photos totaling no more than 60 MB.",
+    "reel.imageDecode": "A photo could not be opened. Remove it or choose another photo.",
+    "reel.outputSize": "The reel is too large. Try fewer photos.",
+    "reel.failed": "The reel could not be created. Please try again.",
+    "reel.interrupted": "Reel creation stopped when you left this screen. Please try again.",
+    "reel.cancelled": "Reel creation cancelled.",
+    "reel.preparing": "Preparing photos...",
+    "reel.creating": "Creating reel...",
+    "reel.ready": "Your reel is ready to preview.",
+    "reel.uploading": "Uploading reel...",
+    "reel.uploadFailed": "The reel was not attached. Try again or check the video upload status.",
+    "reel.replaceVideo": "Replace the video currently attached to this post with this reel?",
+    "reel.moveEarlier": "Move photo earlier",
+    "reel.moveLater": "Move photo later",
+    "reel.removePhoto": "Remove photo"
+  };
+
+  function createPhotoReelEditor(deps = {}) {
+    const root = deps.root;
+    if (!root) return { reset() {}, isBusy: () => false };
+    const target = deps.window || window;
+    const document = target.document;
+    const tools = target.WingaModules.marketplace;
+    const generator = tools.createPhotoReelGenerator({ window: target });
+    const t = (key) => deps.translate(key, {}, COPY[key] || key);
+    const find = (name) => root.querySelector("[data-reel-" + name + "]");
+    const input = find("input");
+    const list = find("list");
+    const settings = find("settings");
+    const seconds = find("seconds");
+    const status = find("status");
+    const progress = find("progress");
+    const canvas = find("canvas");
+    const preview = find("preview");
+    const create = find("create");
+    const cancel = find("cancel");
+    const use = find("use");
+    let entries = [];
+    let file = null;
+    let previewUrl = "";
+    let busy = false;
+    let epoch = 0;
+    let messageKey = "";
+    const setStatus = (key) => { messageKey = key; status.textContent = key ? t(key) : ""; };
+
+    function clearPreview() {
+      file = null;
+      preview.pause();
+      preview.removeAttribute("src");
+      preview.load();
+      preview.hidden = true;
+      if (previewUrl) target.URL.revokeObjectURL(previewUrl);
+      previewUrl = "";
+      use.hidden = true;
+    }
+    function setBusy(value) {
+      busy = value;
+      settings.disabled = value || !generator.isSupported();
+      list.querySelectorAll("button").forEach((button) => { button.disabled = value; });
+      create.disabled = value || entries.length < 3 || !generator.isSupported();
+      cancel.hidden = !value;
+      progress.hidden = !value;
+      use.disabled = value;
+    }
+    function invalidate() {
+      epoch += 1;
+      generator.cancel();
+      clearPreview();
+      canvas.hidden = true;
+      canvas.width = 1;
+      canvas.height = 1;
+      setBusy(false);
+    }
+    function renderList() {
+      list.replaceChildren();
+      entries.forEach((entry, index) => {
+        const item = document.createElement("li");
+        const image = document.createElement("img");
+        image.src = entry.url;
+        image.alt = entry.file.name;
+        image.width = 160;
+        image.height = 160;
+        const controls = document.createElement("div");
+        const position = document.createElement("span");
+        position.textContent = String(index + 1);
+        controls.append(position);
+        const button = (symbol, key, action, disabled = false) => {
+          const node = document.createElement("button");
+          node.type = "button";
+          node.textContent = symbol;
+          node.title = t(key);
+          node.setAttribute("aria-label", t(key));
+          node.disabled = disabled || busy;
+          node.addEventListener("click", action);
+          controls.append(node);
+        };
+        const move = (offset) => {
+          invalidate();
+          [entries[index], entries[index + offset]] = [entries[index + offset], entries[index]];
+          renderList();
+          list.children[index + offset]?.querySelector("button:not(:disabled)")?.focus();
+        };
+        button("\u2190", "reel.moveEarlier", () => move(-1), index === 0);
+        button("\u2192", "reel.moveLater", () => move(1), index === entries.length - 1);
+        button("\u00d7", "reel.removePhoto", () => {
+          invalidate();
+          target.URL.revokeObjectURL(entry.url);
+          entries.splice(index, 1);
+          renderList();
+          input.focus();
+        });
+        item.append(image, controls);
+        list.append(item);
+      });
+      create.disabled = busy || entries.length < 3 || !generator.isSupported();
+    }
+
+    async function selectFiles(files) {
+      if (!deps.canUse() || busy) return;
+      let candidates;
+      try {
+        candidates = tools.validatePhotoReelFiles([...entries.map((entry) => entry.file), ...Array.from(files || [])], 1);
+      } catch (error) { setStatus(error.code || "reel.failed"); return; }
+      const additions = candidates.slice(entries.length);
+      if (!additions.length) return;
+      invalidate();
+      const token = epoch;
+      const prepared = [];
+      setBusy(true);
+      setStatus("reel.preparing");
+      try {
+        for (const selected of additions) {
+          const decoded = await tools.decodePhotoReelImage(selected, target, 160, 160);
+          let blob;
+          try {
+            if (token !== epoch) return;
+            blob = await new Promise((resolve) => decoded.source.toBlob(resolve, "image/jpeg", 0.8));
+          } finally { decoded.close(); }
+          if (token !== epoch) return;
+          if (!blob) throw Object.assign(new Error(t("reel.imageDecode")), { code: "reel.imageDecode" });
+          prepared.push({ file: selected, url: target.URL.createObjectURL(blob) });
+        }
+        entries.push(...prepared);
+        prepared.length = 0;
+        renderList();
+        setStatus(entries.length < 3 ? "reel.count" : "");
+      } catch (error) {
+        if (token === epoch) setStatus(COPY[error.code] ? error.code : "reel.failed");
+      } finally {
+        prepared.forEach((entry) => target.URL.revokeObjectURL(entry.url));
+        if (token === epoch) { setBusy(false); renderList(); }
+      }
+    }
+
+    input.addEventListener("change", () => {
+      const files = Array.from(input.files || []);
+      input.value = "";
+      selectFiles(files);
+    });
+    root.addEventListener("toggle", () => {
+      if (!root.open) { invalidate(); renderList(); return; }
+      if (!generator.isSupported()) { setStatus("reel.unsupported"); setBusy(false); return; }
+      if (!entries.length) selectFiles(deps.getInitialFiles?.() || []);
+    });
+    seconds.addEventListener("change", () => { invalidate(); setStatus(""); renderList(); });
+    cancel.addEventListener("click", () => {
+      invalidate();
+      setStatus("reel.cancelled");
+      renderList();
+    });
+    create.addEventListener("click", async () => {
+      if (busy || !deps.canUse()) return;
+      invalidate();
+      const token = epoch;
+      setBusy(true);
+      setStatus("reel.creating");
+      canvas.hidden = false;
+      progress.value = 0;
+      try {
+        const generated = await generator.generate(entries.map((entry) => entry.file), {
+          seconds: Number(seconds.value), canvas,
+          onProgress(value) { if (epoch === token) progress.value = value; }
+        });
+        if (token !== epoch) return;
+        file = generated;
+        previewUrl = target.URL.createObjectURL(file);
+        preview.src = previewUrl;
+        preview.hidden = false;
+        use.hidden = false;
+        setStatus("reel.ready");
+      } catch (error) {
+        if (token === epoch) setStatus(COPY[error.code] ? error.code : "reel.failed");
+      } finally {
+        if (token === epoch) { canvas.hidden = true; setBusy(false); renderList(); }
+      }
+    });
+    use.addEventListener("click", async () => {
+      if (!file || busy || !deps.canUse()) return;
+      if (deps.hasVideo?.() && !deps.confirm(t("reel.replaceVideo"))) return;
+      const token = epoch;
+      preview.pause();
+      setBusy(true);
+      cancel.hidden = true;
+      setStatus("reel.uploading");
+      try {
+        const accepted = await deps.accept(file);
+        if (token !== epoch) return;
+        if (accepted) reset();
+        else setStatus("reel.uploadFailed");
+      } catch (_error) {
+        if (token === epoch) setStatus("reel.uploadFailed");
+      } finally {
+        if (token === epoch) { setBusy(false); renderList(); }
+      }
+    });
+    function reset() {
+      invalidate();
+      entries.forEach((entry) => target.URL.revokeObjectURL(entry.url));
+      entries = [];
+      input.value = "";
+      root.open = false;
+      setStatus("");
+      renderList();
+    }
+    target.addEventListener("pagehide", reset);
+    target.addEventListener("winga:global-context", () => { setStatus(messageKey); renderList(); });
+    setBusy(false);
+    return { reset, isBusy: () => busy };
+  }
+  window.WingaModules.marketplace.createPhotoReelEditor = createPhotoReelEditor;
+})();
+
+
 // src/marketplace/video-playback.js
 (() => {
   let hlsRuntimePromise = null;

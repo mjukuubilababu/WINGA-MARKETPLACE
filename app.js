@@ -1,4 +1,5 @@
 const USERS_KEY = "winga-users";
+let productPhotoReelEditor = null;
 const PRODUCTS_KEY = "winga-products";
 const SESSION_KEY = "winga-current-user";
 const APP_VIEW_KEY = "winga-app-view";
@@ -1564,6 +1565,7 @@ function setCurrentViewState(nextView, options = {}) {
     cancelHomeFeedLoadMore("view_changed");
   }
   cancelStaleProductQuerySurfaces(nextView);
+  if (currentView === "upload" && nextView !== "upload") productPhotoReelEditor?.reset();
   currentView = nextView;
   if (syncNav) {
     setActiveNav(currentView);
@@ -14977,6 +14979,7 @@ async function startProductVideoUpload(file) {
       category: "media",
       latencyMs: Math.max(0, Math.round(getPerfNow() - startedAt))
     });
+    return true;
   } catch (error) {
     if (error?.code === "video_upload_cancelled") return;
     productVideoUploadState.phase = "error";
@@ -14992,6 +14995,7 @@ async function startProductVideoUpload(file) {
       retryable: productVideoUploadState.retryable,
       latencyMs: Math.max(0, Math.round(getPerfNow() - startedAt))
     });
+    return false;
   }
 }
 
@@ -15040,6 +15044,10 @@ uploadButton.addEventListener("click", async () => {
   const selectedMediaFiles = Array.from(productImageFileInput.files || []);
   const selectedFiles = selectedMediaFiles.filter((file) => !isProductVideoFile(file));
   const existingProduct = editingProductId ? getProductById(editingProductId) : null;
+  if (productPhotoReelEditor?.isBusy()) {
+    setUploadFormStatus("warning", translateUi("reel.wait", {}, "Finish or cancel reel creation before saving the post."));
+    return;
+  }
   if (["preparing", "uploading", "processing"].includes(productVideoUploadState.phase)) {
     setUploadFormStatus("warning", "Subiri video ikamilike kuchakatwa kabla ya kuhifadhi bidhaa.");
     return;
@@ -15251,6 +15259,7 @@ productImageFileInput.addEventListener("change", async () => {
   }
   const mediaFiles = Array.from(productImageFileInput.files || []);
   if (mediaFiles.length === 0) return;
+  productPhotoReelEditor?.reset();
 
   const videoFiles = mediaFiles.filter(isProductVideoFile);
   const imageFiles = mediaFiles.filter((file) => !isProductVideoFile(file));
@@ -15303,6 +15312,15 @@ productImageFileInput.addEventListener("change", async () => {
 
 productVideoRetryButton?.addEventListener("click", () => {
   resumeProductVideoProcessing();
+});
+productPhotoReelEditor = window.WingaModules.marketplace.createPhotoReelEditor({
+  root: document.getElementById("product-photo-reel"),
+  translate: translateUi,
+  canUse: () => canUseSellerFeatures() && currentView === "upload" && !uiRuntimeState.productUploadInFlight,
+  getInitialFiles: () => Array.from(productImageFileInput.files || []).filter((file) => !isProductVideoFile(file)),
+  hasVideo: () => productVideoUploadState.phase !== "idle",
+  confirm: confirmAction,
+  accept: startProductVideoUpload
 });
 productVideoRemoveButton?.addEventListener("click", () => {
   resetProductVideoUpload();
@@ -20411,6 +20429,7 @@ function startEditProduct(productId) {
   if (!product) {
     return;
   }
+  productPhotoReelEditor?.reset();
 
   editingProductId = productId;
   clearProductUploadDraft({ username: currentUser });
@@ -20485,6 +20504,7 @@ function deleteProduct(productId) {
 }
 
 function clearUploadForm() {
+  productPhotoReelEditor?.reset();
   editingProductId = null;
   setNodeText(uploadTitle, "Ongeza Bidhaa");
   cancelEditButton.style.display = "none";
