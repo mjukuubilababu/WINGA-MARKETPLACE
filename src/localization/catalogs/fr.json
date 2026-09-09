@@ -1,6 +1,6 @@
 {
     "schemaVersion":  1,
-    "version":  "2026.09.09.1",
+    "version":  "2026.09.09.2",
     "locale":  "fr",
     "messages":  {
                      "reel.title": "Créer un reel à partir de photos",
@@ -9,6 +9,10 @@
                      "reel.preview": "Aperçu du reel",
                      "reel.progress": "Progression de la création du reel",
                      "reel.create": "Créer le reel",
+                     "reel.retry": "Réessayer",
+                     "reel.posted": "Reel publié",
+                     "reel.accountRequired": "Connectez-vous à un compte vendeur avec un numéro de contact valide pour publier votre reel.",
+                     "reel.publishFailed": "Votre reel n'a pas pu être publié. Réessayez.",
                      "reel.use": "Utiliser le reel",
                      "reel.wait": "Terminez ou annulez la création du reel avant de publier.",
                      "reel.unsupported": "Ce navigateur ne peut pas créer de reels. Vous pouvez toujours importer des photos ou une vidéo.",

@@ -1,6 +1,6 @@
 {
     "schemaVersion":  1,
-    "version":  "2026.09.09.1",
+    "version":  "2026.09.09.2",
     "locale":  "sw",
     "messages":  {
                      "reel.title": "Tengeneza reel kutoka picha",
@@ -9,6 +9,10 @@
                      "reel.preview": "Hakiki reel",
                      "reel.progress": "Maendeleo ya kutengeneza reel",
                      "reel.create": "Tengeneza reel",
+                     "reel.retry": "Jaribu tena",
+                     "reel.posted": "Reel imechapishwa",
+                     "reel.accountRequired": "Ingia kwenye akaunti ya muuzaji yenye namba halali ya mawasiliano ili kuchapisha reel.",
+                     "reel.publishFailed": "Reel yako haijachapishwa. Jaribu tena.",
                      "reel.use": "Tumia reel",
                      "reel.wait": "Maliza au sitisha kutengeneza reel kabla ya kuhifadhi post.",
                      "reel.unsupported": "Browser hii haiwezi kutengeneza reel. Bado unaweza kupakia picha au video.",

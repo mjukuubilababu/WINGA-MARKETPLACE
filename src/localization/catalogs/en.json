@@ -1,6 +1,6 @@
 {
     "schemaVersion":  1,
-    "version":  "2026.09.09.1",
+    "version":  "2026.09.09.2",
     "locale":  "en",
     "messages":  {
                      "reel.title": "Create reel from photos",
@@ -9,6 +9,10 @@
                      "reel.preview": "Reel preview",
                      "reel.progress": "Reel creation progress",
                      "reel.create": "Create reel",
+                     "reel.retry": "Try again",
+                     "reel.posted": "Reel posted",
+                     "reel.accountRequired": "Sign in to a seller account with a valid contact number to post your reel.",
+                     "reel.publishFailed": "Your reel could not be posted. Please try again.",
                      "reel.use": "Use reel",
                      "reel.wait": "Finish or cancel reel creation before saving the post.",
                      "reel.unsupported": "This browser cannot create reels. You can still upload photos or a video.",

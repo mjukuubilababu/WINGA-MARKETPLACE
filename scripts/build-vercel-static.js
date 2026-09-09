@@ -118,6 +118,7 @@ const bundledModuleSources = [
   "src/marketplace/image-loader.js",
   "src/marketplace/video-upload.js",
   "src/marketplace/photo-reel.js",
+  "src/marketplace/photo-reel-publisher.js",
   "src/marketplace/photo-reel-ui.js",
   "src/marketplace/video-playback.js",
   "src/marketplace/ui.js",
@@ -636,7 +637,7 @@ function syncWorkerBuildVersionConfig() {
 
 function syncWorkerPhotoReelShell() {
   const html = fs.readFileSync(path.join(rootDir, "index.html"), "utf8").replace(/\r\n/g, "\n");
-  const fragments = [...html.matchAll(/<details id="product-photo-reel"[^>]*>[\s\S]*?<\/details>/g)];
+  const fragments = [...html.matchAll(/<section id="product-photo-reel"[^>]*>[\s\S]*?<\/section>/g)];
   if (fragments.length !== 1) throw new Error("index.html must contain one canonical photo reel editor.");
   const workerPath = path.join(rootDir, "worker.js");
   const source = fs.readFileSync(workerPath, "utf8");

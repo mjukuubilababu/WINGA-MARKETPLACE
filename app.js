@@ -15317,10 +15317,24 @@ productPhotoReelEditor = window.WingaModules.marketplace.createPhotoReelEditor({
   root: document.getElementById("product-photo-reel"),
   translate: translateUi,
   canUse: () => canUseSellerFeatures() && currentView === "upload" && !uiRuntimeState.productUploadInFlight,
-  getInitialFiles: () => Array.from(productImageFileInput.files || []).filter((file) => !isProductVideoFile(file)),
-  hasVideo: () => productVideoUploadState.phase !== "idle",
-  confirm: confirmAction,
-  accept: startProductVideoUpload
+  getOwner: () => currentUser,
+  getContext: () => ({ uploadedBy: currentUser, whatsapp: getCurrentWhatsappNumber() }),
+  createId,
+  requestVideoUpload: (file) => window.WingaDataLayer.requestVideoUpload(file),
+  readVideoUploadStatus: (id) => window.WingaDataLayer.readVideoUploadStatus(id),
+  publish: (payload) => window.WingaDataLayer.createProduct(payload),
+  findPublished: async (payload) => {
+    const page = await window.WingaDataLayer.queryProductsPage({ seller: payload.uploadedBy, category: "reels", limit: 50, page: 1 });
+    return page.items.find((item) => item.id === payload.id) || null;
+  },
+  onPublished: () => {
+    refreshProductsFromStore();
+    resetHomeBrowseState();
+    setCurrentViewState("home");
+    renderCurrentView({ force: true, reason: "photo_reel_published" });
+    window.scrollTo({ top: 0, behavior: "auto" });
+    showInAppNotification({ title: translateUi("reel.posted", {}, "Reel posted"), variant: "success" });
+  }
 });
 productVideoRemoveButton?.addEventListener("click", () => {
   resetProductVideoUpload();

@@ -7,6 +7,148 @@ const { File, Blob } = require("node:buffer");
 const source = fs.readFileSync(path.join(__dirname, "../src/marketplace/photo-reel.js"), "utf8");
 const photos = () => [0, 1, 2].map((n) => new File(["photo"], n + ".png", { type: "image/png" }));
 
+function publisherHarness(overrides = {}) {
+  const stats = { generated: 0, uploaded: 0, resumed: 0, published: [], completed: [], states: [] };
+  const media = { type: "video", status: "ready", providerId: "provider-reel-123" };
+  let owner = "reel_seller";
+  const deps = {
+    generator: { generate: async () => { stats.generated++; return new File(["reel"], "reel.webm", { type: "video/webm" }); }, cancel() {} },
+    uploader: { start: async () => { stats.uploaded++; return media; }, resume: async () => { stats.resumed++; return media; }, cancel() {} },
+    validate: files => Array.from(files), canUse: () => true, getOwner: () => owner,
+    getContext: () => ({ uploadedBy: owner, whatsapp: "255712345678" }), createId: () => "product-reel-fixed-id",
+    publish: async payload => { stats.published.push(JSON.parse(JSON.stringify(payload))); return payload; },
+    findPublished: async () => null, onPublished: result => stats.completed.push(result),
+    onState: state => stats.states.push(state), ...overrides
+  };
+  const context = vm.createContext({ window: { WingaModules: { marketplace: {} } } });
+  vm.runInContext(fs.readFileSync(path.join(__dirname, "../src/marketplace/photo-reel-publisher.js"), "utf8"), context);
+  return { publisher: context.window.WingaModules.marketplace.createPhotoReelPublisher(deps), stats, deps, media,
+    setOwner: value => { owner = value; } };
+}
+
+test("photo selection automatically generates, uploads and publishes one reel-only post", async () => {
+  const { publisher, stats } = publisherHarness();
+  await publisher.start(photos());
+  assert.equal(stats.generated, 1);
+  assert.equal(stats.uploaded, 1);
+  assert.equal(stats.published.length, 1);
+  assert.equal(stats.completed.length, 1);
+  assert.equal(stats.published[0].name, "Reel");
+  assert.equal(stats.published[0].price, null);
+  assert.equal(stats.published[0].category, "reels");
+  assert.deepEqual(stats.published[0].images, []);
+  assert.equal(stats.published[0].mediaItems.length, 1);
+  assert.equal(publisher.isBusy(), false);
+});
+
+test("double selection cannot start a second concurrent reel job", async () => {
+  const h = publisherHarness();
+  let finish;
+  h.deps.generator.generate = () => new Promise(resolve => { finish = resolve; });
+  const first = h.publisher.start(photos());
+  await h.publisher.start(photos());
+  assert.equal(h.publisher.isBusy(), true);
+  finish(new File(["reel"], "reel.webm"));
+  await first;
+  assert.equal(h.stats.published.length, 1);
+});
+
+test("invalid account contact fails before encoding, upload or publication", () => {
+  const h = publisherHarness({ getContext: () => ({ uploadedBy: "reel_seller", whatsapp: "" }) });
+  assert.throws(() => h.publisher.start(photos()), { code: "reel.accountRequired" });
+  assert.equal(h.stats.generated, 0);
+  assert.equal(h.stats.uploaded, 0);
+  assert.equal(h.stats.published.length, 0);
+});
+
+test("invalid ready media is discarded and cannot bypass validation on retry", async () => {
+  const h = publisherHarness();
+  let attempts = 0;
+  h.deps.uploader.start = async () => ++attempts === 1 ? { type: "video", status: "processing" } : h.media;
+  await h.publisher.start(photos());
+  assert.equal(h.stats.published.length, 0);
+  await h.publisher.retry();
+  assert.equal(attempts, 2);
+  assert.equal(h.stats.generated, 1);
+  assert.equal(h.stats.published[0].mediaItems[0].providerId, h.media.providerId);
+});
+
+test("reel processing retry resumes the same provider without regenerating or uploading bytes again", async () => {
+  const h = publisherHarness();
+  h.deps.uploader.start = async () => { h.stats.uploaded++; throw Object.assign(new Error(), { providerId: "provider-reel-123", retryable: true }); };
+  await h.publisher.start(photos());
+  assert.equal(h.publisher.canRetry(), true);
+  await h.publisher.retry();
+  assert.equal(h.stats.generated, 1);
+  assert.equal(h.stats.uploaded, 1);
+  assert.equal(h.stats.resumed, 1);
+  assert.equal(h.stats.published.length, 1);
+});
+
+test("uncertain product save is reconciled without a duplicate reel post", async () => {
+  let stored;
+  let writes = 0;
+  const h = publisherHarness({
+    publish: async payload => { writes++; stored = payload; throw Object.assign(new Error(), { code: "network" }); },
+    findPublished: async () => stored
+  });
+  await h.publisher.start(photos());
+  assert.equal(writes, 1);
+  assert.equal(h.stats.completed.length, 1);
+  assert.equal(h.publisher.canRetry(), false);
+});
+
+test("failed reel publication retains its product ID and ready video for retry", async () => {
+  const ids = [];
+  const h = publisherHarness({ publish: async payload => {
+    ids.push(payload.id);
+    if (ids.length === 1) throw new Error("temporary failure");
+    return payload;
+  } });
+  await h.publisher.start(photos());
+  await h.publisher.retry();
+  assert.deepEqual(ids, ["product-reel-fixed-id", "product-reel-fixed-id"]);
+  assert.equal(h.stats.generated, 1);
+  assert.equal(h.stats.uploaded, 1);
+  assert.equal(h.stats.completed.length, 1);
+});
+
+test("cancelled reel generation never uploads or publishes after async completion", async () => {
+  let finish;
+  const h = publisherHarness();
+  h.deps.generator.generate = () => new Promise(resolve => { finish = resolve; });
+  const pending = h.publisher.start(photos());
+  assert.equal(h.publisher.cancel(), true);
+  finish(new File(["reel"], "reel.webm"));
+  await pending;
+  assert.equal(h.stats.uploaded, 0);
+  assert.equal(h.stats.published.length, 0);
+});
+
+test("account change while uploading prevents publishing a reel under another session", async () => {
+  const h = publisherHarness();
+  h.deps.uploader.start = async () => { h.setOwner("another_seller"); return h.media; };
+  await h.publisher.start(photos());
+  assert.equal(h.stats.published.length, 0);
+  assert.equal(h.stats.completed.length, 0);
+  assert.equal(h.publisher.canRetry(), false);
+});
+
+test("publication already in flight cannot claim to be cancelled or start a duplicate", async () => {
+  let finish;
+  let started;
+  const writing = new Promise(resolve => { started = resolve; });
+  const h = publisherHarness({ publish: payload => { started(); return new Promise(resolve => { finish = () => resolve(payload); }); } });
+  const pending = h.publisher.start(photos());
+  await writing;
+  assert.equal(h.publisher.cancel(), false);
+  assert.equal(h.publisher.isBusy(), true);
+  await h.publisher.start(photos());
+  finish();
+  await pending;
+  assert.equal(h.stats.completed.length, 1);
+});
+
 test("BigPipe shell renders the exact photo reel editor from canonical index.html", () => {
   const root = path.join(__dirname, "..");
   const html = fs.readFileSync(path.join(root, "index.html"), "utf8").replace(/\r\n/g, "\n");
@@ -14,7 +156,7 @@ test("BigPipe shell renders the exact photo reel editor from canonical index.htm
   const context = vm.createContext({ TextEncoder, URL });
   vm.runInContext(worker.replace("export default", "const worker ="), context);
   const shell = vm.runInContext("buildDocumentShellStart()", context);
-  const fragment = /<details id="product-photo-reel"[^>]*>[\s\S]*?<\/details>/g;
+  const fragment = /<section id="product-photo-reel"[^>]*>[\s\S]*?<\/section>/g;
   const expected = [...html.matchAll(fragment)];
   const actual = [...shell.matchAll(fragment)];
   assert.equal(expected.length, 1);

@@ -10129,6 +10129,136 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 })();
 
 
+// src/marketplace/photo-reel-publisher.js
+(() => {
+  const fail = (code) => Object.assign(new Error(code), { code });
+
+  function createPhotoReelPublisher(deps) {
+    let job = null;
+    let busy = false;
+    const emit = (phase, error = "") => {
+      if (job) job.phase = phase;
+      deps.onState?.({ phase, error, busy, canCancel: busy && phase !== "publishing" });
+    };
+    const isCurrent = (operation) => job === operation && deps.canUse()
+      && deps.getOwner() === operation.payload.uploadedBy;
+    const requireCurrent = (operation) => {
+      if (!isCurrent(operation)) throw fail("reel.interrupted");
+    };
+    const matches = (result, operation) => result?.id === operation.payload.id
+      && result.uploadedBy === operation.payload.uploadedBy
+      && result.mediaItems?.some(item => item.type === "video" && item.providerId === operation.media?.providerId);
+
+    async function findPublished(operation) {
+      const found = await deps.findPublished(operation.payload);
+      if (!found) return null;
+      if (!matches(found, operation)) throw fail("reel.publishConflict");
+      return found;
+    }
+
+    async function run(operation) {
+      if (busy || job !== operation) return;
+      busy = true;
+      try {
+        requireCurrent(operation);
+        if (!operation.file) {
+          emit("creating");
+          operation.file = await deps.generator.generate(operation.photos, { seconds: 2 });
+          operation.file.reelDurationSeconds = operation.photos.length * 2;
+          operation.photos = [];
+        }
+        requireCurrent(operation);
+        if (!operation.media) {
+          emit("uploading");
+          const options = { onState(state) {
+            if (job === operation && state.phase === "processing") emit("processing");
+          } };
+          try {
+            operation.media = operation.providerId
+              ? await deps.uploader.resume(operation.providerId, options)
+              : await deps.uploader.start(operation.file, options);
+          } catch (error) {
+            if (error?.providerId && error.retryable) operation.providerId = error.providerId;
+            throw error;
+          }
+          if (operation.media?.type !== "video" || operation.media.status !== "ready" || !operation.media.providerId) {
+            operation.media = null;
+            throw fail("reel.publishFailed");
+          }
+          operation.payload.mediaItems = [{ ...operation.media, position: 0 }];
+        }
+        requireCurrent(operation);
+        emit("publishing");
+        // Reconcile an uncertain response before retrying the same product ID.
+        let result = operation.attempted ? await findPublished(operation) : null;
+        requireCurrent(operation);
+        if (!result) {
+          operation.attempted = true;
+          try {
+            result = await deps.publish(operation.payload);
+            if (!matches(result, operation)) throw fail("reel.publishFailed");
+          } catch (error) {
+            if (!isCurrent(operation)) throw error;
+            result = await findPublished(operation).catch(() => null);
+            if (!result) throw error;
+          }
+        }
+        if (job !== operation) return;
+        const notifyOwner = isCurrent(operation);
+        job = null;
+        busy = false;
+        emit("done");
+        if (notifyOwner) deps.onPublished?.(result);
+        return result;
+      } catch (error) {
+        if (job !== operation) return;
+        busy = false;
+        if (!isCurrent(operation)) {
+          job = null;
+          emit("error", "reel.interrupted");
+          return;
+        }
+        emit("error", error?.code || "reel.publishFailed");
+      } finally {
+        if (job === operation) busy = false;
+      }
+    }
+
+    function start(files) {
+      if (busy) return Promise.resolve();
+      if (!deps.canUse()) throw fail("reel.accountRequired");
+      const photos = deps.validate(files);
+      const context = deps.getContext();
+      if (!context?.uploadedBy || context.uploadedBy !== deps.getOwner()) throw fail("reel.accountRequired");
+      if (!/^\d{10,15}$/.test(context.whatsapp || "")) throw fail("reel.accountRequired");
+      deps.uploader.cancel();
+      job = {
+        photos, file: null, media: null, providerId: "", attempted: false, phase: "creating",
+        payload: {
+          id: deps.createId(), name: "Reel", price: null, shop: context.uploadedBy,
+          whatsapp: context.whatsapp, uploadedBy: context.uploadedBy, category: "reels",
+          image: "", images: [], mediaItems: [], imageAspectRatios: [], imageSignature: "",
+          fitMode: "contain", status: "approved", likes: 0, views: 0, viewedBy: []
+        }
+      };
+      return run(job);
+    }
+    function cancel() {
+      if (job?.phase === "publishing" && busy) return false;
+      job = null;
+      busy = false;
+      deps.generator.cancel();
+      deps.uploader.cancel();
+      emit("idle");
+      return true;
+    }
+    return { start, retry: () => job ? run(job) : Promise.resolve(), cancel,
+      isBusy: () => busy, canRetry: () => Boolean(job && !busy) };
+  }
+  window.WingaModules.marketplace.createPhotoReelPublisher = createPhotoReelPublisher;
+})();
+
+
 // src/marketplace/photo-reel-ui.js
 (() => {
   const COPY = {
@@ -10137,233 +10267,103 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     "reel.imageType": "Choose JPG, PNG, WebP or GIF photos.",
     "reel.imageSize": "Each photo must be under 10 MB and 40 megapixels.",
     "reel.totalSize": "Choose photos totaling no more than 60 MB.",
-    "reel.imageDecode": "A photo could not be opened. Remove it or choose another photo.",
+    "reel.imageDecode": "A photo could not be opened. Choose another photo.",
     "reel.outputSize": "The reel is too large. Try fewer photos.",
     "reel.failed": "The reel could not be created. Please try again.",
-    "reel.interrupted": "Reel creation stopped when you left this screen. Please try again.",
-    "reel.cancelled": "Reel creation cancelled.",
-    "reel.preparing": "Preparing photos...",
+    "reel.interrupted": "Reel creation was interrupted. Please try again.",
+    "reel.accountRequired": "Sign in to a seller account with a valid contact number to post your reel.",
     "reel.creating": "Creating reel...",
-    "reel.ready": "Your reel is ready to preview.",
-    "reel.uploading": "Uploading reel...",
-    "reel.uploadFailed": "The reel was not attached. Try again or check the video upload status.",
-    "reel.replaceVideo": "Replace the video currently attached to this post with this reel?",
-    "reel.moveEarlier": "Move photo earlier",
-    "reel.moveLater": "Move photo later",
-    "reel.removePhoto": "Remove photo"
+    "reel.publishFailed": "Your reel could not be posted. Please try again."
   };
 
   function createPhotoReelEditor(deps = {}) {
     const root = deps.root;
     if (!root) return { reset() {}, isBusy: () => false };
     const target = deps.window || window;
-    const document = target.document;
     const tools = target.WingaModules.marketplace;
-    const generator = tools.createPhotoReelGenerator({ window: target });
     const t = (key) => deps.translate(key, {}, COPY[key] || key);
     const find = (name) => root.querySelector("[data-reel-" + name + "]");
     const input = find("input");
-    const list = find("list");
-    const settings = find("settings");
-    const seconds = find("seconds");
-    const status = find("status");
-    const progress = find("progress");
-    const canvas = find("canvas");
-    const preview = find("preview");
     const create = find("create");
+    const dialog = find("dialog");
+    const status = find("status");
+    const spinner = find("spinner");
+    const retry = find("retry");
     const cancel = find("cancel");
-    const use = find("use");
-    let entries = [];
-    let file = null;
-    let previewUrl = "";
-    let busy = false;
-    let epoch = 0;
+    const generator = tools.createPhotoReelGenerator({ window: target });
     let messageKey = "";
-    const setStatus = (key) => { messageKey = key; status.textContent = key ? t(key) : ""; };
-
-    function clearPreview() {
-      file = null;
-      preview.pause();
-      preview.removeAttribute("src");
-      preview.load();
-      preview.hidden = true;
-      if (previewUrl) target.URL.revokeObjectURL(previewUrl);
-      previewUrl = "";
-      use.hidden = true;
-    }
-    function setBusy(value) {
-      busy = value;
-      settings.disabled = value || !generator.isSupported();
-      list.querySelectorAll("button").forEach((button) => { button.disabled = value; });
-      create.disabled = value || entries.length < 3 || !generator.isSupported();
-      cancel.hidden = !value;
-      progress.hidden = !value;
-      use.disabled = value;
-    }
-    function invalidate() {
-      epoch += 1;
-      generator.cancel();
-      clearPreview();
-      canvas.hidden = true;
-      canvas.width = 1;
-      canvas.height = 1;
-      setBusy(false);
-    }
-    function renderList() {
-      list.replaceChildren();
-      entries.forEach((entry, index) => {
-        const item = document.createElement("li");
-        const image = document.createElement("img");
-        image.src = entry.url;
-        image.alt = entry.file.name;
-        image.width = 160;
-        image.height = 160;
-        const controls = document.createElement("div");
-        const position = document.createElement("span");
-        position.textContent = String(index + 1);
-        controls.append(position);
-        const button = (symbol, key, action, disabled = false) => {
-          const node = document.createElement("button");
-          node.type = "button";
-          node.textContent = symbol;
-          node.title = t(key);
-          node.setAttribute("aria-label", t(key));
-          node.disabled = disabled || busy;
-          node.addEventListener("click", action);
-          controls.append(node);
-        };
-        const move = (offset) => {
-          invalidate();
-          [entries[index], entries[index + offset]] = [entries[index + offset], entries[index]];
-          renderList();
-          list.children[index + offset]?.querySelector("button:not(:disabled)")?.focus();
-        };
-        button("\u2190", "reel.moveEarlier", () => move(-1), index === 0);
-        button("\u2192", "reel.moveLater", () => move(1), index === entries.length - 1);
-        button("\u00d7", "reel.removePhoto", () => {
-          invalidate();
-          target.URL.revokeObjectURL(entry.url);
-          entries.splice(index, 1);
-          renderList();
-          input.focus();
-        });
-        item.append(image, controls);
-        list.append(item);
-      });
-      create.disabled = busy || entries.length < 3 || !generator.isSupported();
-    }
-
-    async function selectFiles(files) {
-      if (!deps.canUse() || busy) return;
-      let candidates;
-      try {
-        candidates = tools.validatePhotoReelFiles([...entries.map((entry) => entry.file), ...Array.from(files || [])], 1);
-      } catch (error) { setStatus(error.code || "reel.failed"); return; }
-      const additions = candidates.slice(entries.length);
-      if (!additions.length) return;
-      invalidate();
-      const token = epoch;
-      const prepared = [];
-      setBusy(true);
-      setStatus("reel.preparing");
-      try {
-        for (const selected of additions) {
-          const decoded = await tools.decodePhotoReelImage(selected, target, 160, 160);
-          let blob;
-          try {
-            if (token !== epoch) return;
-            blob = await new Promise((resolve) => decoded.source.toBlob(resolve, "image/jpeg", 0.8));
-          } finally { decoded.close(); }
-          if (token !== epoch) return;
-          if (!blob) throw Object.assign(new Error(t("reel.imageDecode")), { code: "reel.imageDecode" });
-          prepared.push({ file: selected, url: target.URL.createObjectURL(blob) });
-        }
-        entries.push(...prepared);
-        prepared.length = 0;
-        renderList();
-        setStatus(entries.length < 3 ? "reel.count" : "");
-      } catch (error) {
-        if (token === epoch) setStatus(COPY[error.code] ? error.code : "reel.failed");
-      } finally {
-        prepared.forEach((entry) => target.URL.revokeObjectURL(entry.url));
-        if (token === epoch) { setBusy(false); renderList(); }
-      }
-    }
-
+    let publishing = false;
+    let pickerOpen = false;
+    const showDialog = () => { if (!dialog.open) dialog.showModal(); };
+    const closeDialog = () => { if (dialog.open) dialog.close(); };
+    const beforeUnload = (event) => { event.preventDefault(); event.returnValue = ""; };
+    const setMessage = (key) => { messageKey = key; status.textContent = key ? t(key) : ""; };
+    const publisher = tools.createPhotoReelPublisher({
+      generator,
+      uploader: tools.createVideoUploadController({
+        readDuration: (file) => Promise.resolve(file.reelDurationSeconds || 0),
+        requestVideoUpload: deps.requestVideoUpload,
+        readVideoUploadStatus: deps.readVideoUploadStatus
+      }),
+      validate: tools.validatePhotoReelFiles,
+      canUse: deps.canUse, getOwner: deps.getOwner, getContext: deps.getContext,
+      createId: deps.createId, publish: deps.publish, findPublished: deps.findPublished,
+      onState(state) {
+        publishing = state.busy && state.phase === "publishing";
+        create.disabled = state.busy;
+        spinner.hidden = !state.busy;
+        dialog.setAttribute("aria-busy", String(state.busy));
+        cancel.disabled = publishing;
+        retry.hidden = state.phase !== "error" || !publisher.canRetry();
+        target.removeEventListener("beforeunload", beforeUnload);
+        if (state.busy) {
+          target.addEventListener("beforeunload", beforeUnload);
+          showDialog();
+          setMessage("reel.creating");
+        } else if (state.phase === "error") {
+          showDialog();
+          setMessage(COPY[state.error] ? state.error : "reel.publishFailed");
+        } else { closeDialog(); setMessage(""); }
+      },
+      onPublished: deps.onPublished
+    });
+    const showError = (error) => {
+      spinner.hidden = true;
+      retry.hidden = true;
+      cancel.disabled = false;
+      showDialog();
+      setMessage(COPY[error?.code] ? error.code : "reel.publishFailed");
+    };
+    create.addEventListener("click", () => {
+      if (publisher.isBusy() || pickerOpen || !deps.canUse()) return;
+      if (!generator.isSupported()) { showError({ code: "reel.unsupported" }); return; }
+      // Stay in the click gesture so mobile browsers open the native gallery.
+      input.value = "";
+      pickerOpen = true;
+      try { input.click(); } catch (error) { pickerOpen = false; showError(error); }
+    });
+    input.addEventListener("cancel", () => { pickerOpen = false; });
     input.addEventListener("change", () => {
+      pickerOpen = false;
       const files = Array.from(input.files || []);
       input.value = "";
-      selectFiles(files);
+      if (!files.length) return;
+      try { Promise.resolve(publisher.start(files)).catch(showError); }
+      catch (error) { showError(error); }
     });
-    root.addEventListener("toggle", () => {
-      if (!root.open) { invalidate(); renderList(); return; }
-      if (!generator.isSupported()) { setStatus("reel.unsupported"); setBusy(false); return; }
-      if (!entries.length) selectFiles(deps.getInitialFiles?.() || []);
-    });
-    seconds.addEventListener("change", () => { invalidate(); setStatus(""); renderList(); });
-    cancel.addEventListener("click", () => {
-      invalidate();
-      setStatus("reel.cancelled");
-      renderList();
-    });
-    create.addEventListener("click", async () => {
-      if (busy || !deps.canUse()) return;
-      invalidate();
-      const token = epoch;
-      setBusy(true);
-      setStatus("reel.creating");
-      canvas.hidden = false;
-      progress.value = 0;
-      try {
-        const generated = await generator.generate(entries.map((entry) => entry.file), {
-          seconds: Number(seconds.value), canvas,
-          onProgress(value) { if (epoch === token) progress.value = value; }
-        });
-        if (token !== epoch) return;
-        file = generated;
-        previewUrl = target.URL.createObjectURL(file);
-        preview.src = previewUrl;
-        preview.hidden = false;
-        use.hidden = false;
-        setStatus("reel.ready");
-      } catch (error) {
-        if (token === epoch) setStatus(COPY[error.code] ? error.code : "reel.failed");
-      } finally {
-        if (token === epoch) { canvas.hidden = true; setBusy(false); renderList(); }
-      }
-    });
-    use.addEventListener("click", async () => {
-      if (!file || busy || !deps.canUse()) return;
-      if (deps.hasVideo?.() && !deps.confirm(t("reel.replaceVideo"))) return;
-      const token = epoch;
-      preview.pause();
-      setBusy(true);
-      cancel.hidden = true;
-      setStatus("reel.uploading");
-      try {
-        const accepted = await deps.accept(file);
-        if (token !== epoch) return;
-        if (accepted) reset();
-        else setStatus("reel.uploadFailed");
-      } catch (_error) {
-        if (token === epoch) setStatus("reel.uploadFailed");
-      } finally {
-        if (token === epoch) { setBusy(false); renderList(); }
-      }
+    retry.addEventListener("click", () => { void publisher.retry(); });
+    cancel.addEventListener("click", () => { if (!publishing) publisher.cancel(); });
+    dialog.addEventListener("cancel", (event) => {
+      event.preventDefault();
+      if (!publishing) publisher.cancel();
     });
     function reset() {
-      invalidate();
-      entries.forEach((entry) => target.URL.revokeObjectURL(entry.url));
-      entries = [];
-      input.value = "";
-      root.open = false;
-      setStatus("");
-      renderList();
+      pickerOpen = false;
+      publisher.cancel();
     }
     target.addEventListener("pagehide", reset);
-    target.addEventListener("winga:global-context", () => { setStatus(messageKey); renderList(); });
-    setBusy(false);
-    return { reset, isBusy: () => busy };
+    target.addEventListener("winga:global-context", () => setMessage(messageKey));
+    return { reset, isBusy: publisher.isBusy };
   }
   window.WingaModules.marketplace.createPhotoReelEditor = createPhotoReelEditor;
 })();
