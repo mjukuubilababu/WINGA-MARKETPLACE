@@ -80,6 +80,7 @@
         return result;
       } catch (error) {
         if (job !== operation) return;
+        try { deps.onError?.(error, { phase: operation.phase }); } catch (_reportError) { /* Reporting must not block recovery. */ }
         busy = false;
         if (!isCurrent(operation)) {
           job = null;

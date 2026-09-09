@@ -2888,11 +2888,11 @@ function getFriendlyProductUploadErrorMessage(error, fallbackMessage = "") {
   if (status === 429 || normalizedMessage.includes("majaribio ni mengi")) {
     return translateUi("upload.friendlyRateLimited", {}, "Majaribio ni mengi sana kwa sasa. Subiri kidogo kisha ujaribu tena.");
   }
-  if (error?.retryable || code === "timeout" || code === "network" || normalizedMessage.includes("network") || normalizedMessage.includes("took too long")) {
-    return translateUi("upload.friendlyNetwork", {}, "Upload imechelewa au intaneti imekatika. Jaribu tena baada ya muunganisho kutulia.");
-  }
   if (status >= 500 || normalizedMessage.includes("hitilafu ya mfumo") || normalizedMessage.includes("server")) {
     return translateUi("upload.friendlyServer", {}, "Server imepata hitilafu wakati wa kushughulikia upload. Jaribu tena baada ya muda mfupi.");
+  }
+  if (code === "timeout" || code === "network" || status === 408 || normalizedMessage.includes("network") || normalizedMessage.includes("took too long")) {
+    return translateUi("upload.friendlyNetwork", {}, "Upload imechelewa au intaneti imekatika. Jaribu tena baada ya muunganisho kutulia.");
   }
   return message || resolvedFallbackMessage;
 }
@@ -15325,6 +15325,7 @@ productPhotoReelEditor = window.WingaModules.marketplace.createPhotoReelEditor({
   requestVideoUpload: (file) => window.WingaDataLayer.requestVideoUpload(file),
   readVideoUploadStatus: (id) => window.WingaDataLayer.readVideoUploadStatus(id),
   publish: (payload) => window.WingaDataLayer.createProduct(payload),
+  onError: (error, context) => captureClientError("photo_reel_publish_failed", error, context),
   findPublished: async (payload) => {
     const page = await window.WingaDataLayer.queryProductsPage({ seller: payload.uploadedBy, category: "reels", limit: 50, page: 1 });
     return page.items.find((item) => item.id === payload.id) || null;
@@ -15524,6 +15525,8 @@ productCreationController = window.WingaModules.products.createProductCreationCo
   openReel: () => productPhotoReelEditor.openGallery(),
   enterUpload: () => {
     if (editingProductId) clearUploadForm();
+    setUploadFormStatus("", "");
+    uiRuntimeState.productUploadStatusTone = "";
     if (!productShopInput.value) productShopInput.value = currentUser;
     productWhatsappInput.value = getCurrentWhatsappNumber();
     setCurrentViewState("upload", { syncHistory: "push" });

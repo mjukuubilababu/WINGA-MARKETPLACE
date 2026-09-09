@@ -113,6 +113,24 @@ test("failed reel publication retains its product ID and ready video for retry",
   assert.equal(h.stats.completed.length, 1);
 });
 
+test("reel failure reporting preserves publishing stage and cannot break retry", async () => {
+  const reports = [];
+  let attempts = 0;
+  const failure = Object.assign(new Error("Service unavailable"), { code: "http_503", status: 503 });
+  const h = publisherHarness({
+    publish: async payload => { if (++attempts === 1) throw failure; return payload; },
+    onError: (error, context) => { reports.push({ error, phase: context.phase }); throw new Error("Reporter unavailable"); }
+  });
+  await h.publisher.start(photos());
+  assert.equal(reports[0].error, failure);
+  assert.equal(reports[0].phase, "publishing");
+  assert.equal(h.publisher.canRetry(), true);
+  await h.publisher.retry();
+  assert.equal(h.stats.completed.length, 1);
+  assert.equal(h.stats.generated, 1);
+  assert.equal(h.stats.uploaded, 1);
+});
+
 test("cancelled reel generation never uploads or publishes after async completion", async () => {
   let finish;
   const h = publisherHarness();

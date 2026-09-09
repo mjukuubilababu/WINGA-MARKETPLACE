@@ -71,6 +71,31 @@ test("Photo/video opens one native picker and Next preserves media and details t
   await context.close();
 });
 
+test("posting a server failure retains the draft and does not blame the network", async ({ browser }) => {
+  const { context, page } = await seller(browser);
+  await page.evaluate(async () => { await globalLocalizationRuntime.setLanguage("en"); await globalLocalizationRuntime.loadCatalog("en"); });
+  await context.route("**/api/products", async route => {
+    if (route.request().method() !== "POST") return route.continue();
+    await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "Service unavailable" }) });
+  });
+  await page.locator("#post-product-fab").click();
+  await page.locator('[data-creation-action="post"]').click();
+  await page.locator("#product-name").fill("Keep my draft");
+  const buffer = await sharp({ create: { width: 40, height: 40, channels: 3, background: "#327855" } }).png().toBuffer();
+  await page.locator("#product-image-file").setInputFiles({ name: "photo.png", mimeType: "image/png", buffer });
+  await expect(page.locator("#image-preview-list img")).toHaveCount(1);
+  await page.locator("#creation-next").click();
+  await page.locator("#product-category-top").selectOption("viatu");
+  await page.locator("#product-category").selectOption("viatu-sneakers");
+  await page.locator("#upload-button").click();
+  await expect(page.locator("#upload-form")).toContainText("The server encountered an error while processing the upload. Try again shortly.");
+  await expect(page.locator("#upload-form")).not.toContainText("connection was interrupted");
+  await page.locator("#creation-back").click();
+  await expect(page.locator("#product-name")).toHaveValue("Keep my draft");
+  await expect(page.locator("#image-preview-list img")).toHaveCount(1);
+  await context.close();
+});
+
 test("Media menu opens the existing mixed picker directly and menu Escape restores focus", async ({ browser }) => {
   const { context, page } = await seller(browser);
   const fab = page.locator("#post-product-fab");

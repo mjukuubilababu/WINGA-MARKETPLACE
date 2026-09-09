@@ -59,7 +59,7 @@
         : "";
   }
   function interpolate(template, variables = {}) {
-    return String(template || "").replace(/\\{([A-Za-z0-9_]+)\\}/g, (match, key) => (
+    return String(template || "").replace(/\{([A-Za-z0-9_]+)\}/g, (match, key) => (
       Object.prototype.hasOwnProperty.call(variables, key) ? String(variables[key]) : match
     ));
   }

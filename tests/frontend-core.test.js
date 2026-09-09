@@ -4259,6 +4259,34 @@ test("global localization runtime is modular, fail-soft, and off the critical pa
   assert.match(appSource, /requestIdleCallback\(hydrate, \{ timeout: 4000 \}\)/);
 });
 
+test("translation runtime interpolates upload counts in every supported catalog", async () => {
+  const source = fs.readFileSync(path.join(__dirname, "../src/localization/runtime.js"), "utf8");
+  const target = { WingaModules: {}, setTimeout() {}, localStorage: { getItem: () => null, setItem() {} } };
+  vm.runInNewContext(source, { window: target, Intl });
+  const runtime = target.WingaModules.localization.createRuntime({ window: target,
+    fetchCatalog: async locale => JSON.parse(fs.readFileSync(path.join(__dirname, "../src/localization/catalogs", locale + ".json"), "utf8")) });
+  for (const locale of ["en", "sw", "fr", "ar"]) {
+    await runtime.loadCatalog(locale);
+    const message = runtime.translate("upload.maxImages", { count: 5 });
+    assert.equal(message.includes("{count}"), false, locale);
+    assert.equal(message.includes("5"), true, locale);
+  }
+});
+
+test("upload errors distinguish retryable server failures from network timeouts", () => {
+  const source = fs.readFileSync(path.join(__dirname, "../app.js"), "utf8");
+  const scope = { translateUi: key => key };
+  vm.createContext(scope);
+  vm.runInContext(source.slice(source.indexOf("function getFriendlyProductUploadErrorMessage("), source.indexOf("function normalizeProductLookupKey(")), scope);
+  const explain = scope.getFriendlyProductUploadErrorMessage;
+  assert.equal(explain({ status: 500, code: "http_500", retryable: true }), "upload.friendlyServer");
+  assert.equal(explain({ status: 503, code: "http_503", retryable: true }), "upload.friendlyServer");
+  assert.equal(explain({ status: 429, retryable: true }), "upload.friendlyRateLimited");
+  assert.equal(explain({ code: "timeout", retryable: true }), "upload.friendlyNetwork");
+  assert.equal(explain({ code: "network", retryable: true }), "upload.friendlyNetwork");
+  assert.equal(explain({ status: 400, message: "Invalid category" }), "Invalid category");
+});
+
 test("global translation catalogs are versioned, validated, cached, and fail soft", () => {
   const runtimeSource = fs.readFileSync(path.join(__dirname, "..", "src", "localization", "runtime.js"), "utf8");
   const indexSource = fs.readFileSync(path.join(__dirname, "..", "index.html"), "utf8");

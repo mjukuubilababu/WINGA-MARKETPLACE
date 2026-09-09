@@ -3751,7 +3751,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         : "";
   }
   function interpolate(template, variables = {}) {
-    return String(template || "").replace(/\\{([A-Za-z0-9_]+)\\}/g, (match, key) => (
+    return String(template || "").replace(/\{([A-Za-z0-9_]+)\}/g, (match, key) => (
       Object.prototype.hasOwnProperty.call(variables, key) ? String(variables[key]) : match
     ));
   }
@@ -10212,6 +10212,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         return result;
       } catch (error) {
         if (job !== operation) return;
+        try { deps.onError?.(error, { phase: operation.phase }); } catch (_reportError) { /* Reporting must not block recovery. */ }
         busy = false;
         if (!isCurrent(operation)) {
           job = null;
@@ -10273,7 +10274,10 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     "reel.interrupted": "Reel creation was interrupted. Please try again.",
     "reel.accountRequired": "Sign in to a seller account with a valid contact number to post your reel.",
     "reel.creating": "Creating reel...",
-    "reel.publishFailed": "Your reel could not be posted. Please try again."
+    "reel.publishFailed": "Your reel could not be posted. Please try again.",
+    "upload.friendlyServer": "The server could not process your upload. Please try again shortly.",
+    "upload.friendlyNetwork": "The upload took too long or the connection was interrupted. Try again after the connection stabilizes.",
+    "upload.friendlyRateLimited": "Too many attempts. Please wait a moment and try again."
   };
 
   function createPhotoReelEditor(deps = {}) {
@@ -10282,6 +10286,11 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     const target = deps.window || window;
     const tools = target.WingaModules.marketplace;
     const t = (key) => deps.translate(key, {}, COPY[key] || key);
+    const errorKey = (code) => COPY[code] ? code
+      : /^http_5\d\d$/.test(code || "") ? "upload.friendlyServer"
+      : code === "http_429" ? "upload.friendlyRateLimited"
+      : ["timeout", "network", "video_upload_timeout", "video_upload_network_error"].includes(code) ? "upload.friendlyNetwork"
+      : "reel.publishFailed";
     const find = (name) => root.querySelector("[data-reel-" + name + "]");
     const input = find("input");
     const create = find("create");
@@ -10308,6 +10317,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       validate: tools.validatePhotoReelFiles,
       canUse: deps.canUse, getOwner: deps.getOwner, getContext: deps.getContext,
       createId: deps.createId, publish: deps.publish, findPublished: deps.findPublished,
+      onError: deps.onError,
       onState(state) {
         publishing = state.busy && state.phase === "publishing";
         create.disabled = state.busy;
@@ -10322,7 +10332,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           setMessage("reel.creating");
         } else if (state.phase === "error") {
           showDialog();
-          setMessage(COPY[state.error] ? state.error : "reel.publishFailed");
+          setMessage(errorKey(state.error));
         } else { closeDialog(); setMessage(""); }
       },
       onPublished: deps.onPublished
@@ -10332,7 +10342,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       retry.hidden = true;
       cancel.disabled = false;
       showDialog();
-      setMessage(COPY[error?.code] ? error.code : "reel.publishFailed");
+      setMessage(errorKey(error?.code));
     };
     function openGallery() {
       if (publisher.isBusy() || pickerOpen || !deps.canUse()) return;
@@ -10364,6 +10374,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     }
     target.addEventListener("pagehide", reset);
     target.addEventListener("winga:global-context", () => setMessage(messageKey));
+    target.addEventListener("winga:i18n-ready", () => setMessage(messageKey));
     return { reset, isBusy: publisher.isBusy, openGallery };
   }
   window.WingaModules.marketplace.createPhotoReelEditor = createPhotoReelEditor;
