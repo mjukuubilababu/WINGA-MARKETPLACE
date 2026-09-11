@@ -268,6 +268,11 @@ test("mobile utility menu stays separate while bottom Categories opens the categ
   await utilityTrigger.click();
   await expect(page.locator("#header-user-dropdown")).toBeVisible();
   await expect(page.locator("#mobile-category-menu")).not.toBeVisible();
+  await expect(page.locator("[data-header-menu-action='orders']")).toBeVisible();
+  await expect(page.locator("[data-header-menu-action='seller-center']")).toBeVisible();
+  await expect(page.locator("[data-header-menu-action='seller-insights']")).toBeVisible();
+  await expect(page.locator("[data-header-menu-action='promotions']")).toBeVisible();
+  await expect(page.locator("[data-header-menu-action='settings']")).toBeVisible();
   await utilityTrigger.click();
 
   const categoryTrigger = page.locator("#mobile-categories-nav");
@@ -297,6 +302,28 @@ test("mobile utility menu stays separate while bottom Categories opens the categ
 
   await page.mouse.click(12, 12);
   await expect(menu).not.toBeVisible();
+
+  await context.close();
+});
+
+test("mobile utility menu exposes account tools without leaking seller capabilities to buyers", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "buyer_only", "Pass1234!Secure", {
+    viewport: { width: 390, height: 844 },
+    isMobile: true
+  });
+
+  await page.goto("/");
+  await page.locator("#mobile-category-button").click();
+  const menu = page.locator("#header-user-dropdown");
+  await expect(menu).toBeVisible();
+  await expect(menu.locator("[data-header-menu-action='orders']")).toBeVisible();
+  await expect(menu.locator("[data-header-menu-action='notifications']")).toBeVisible();
+  await expect(menu.locator("[data-header-menu-action='settings']")).toBeVisible();
+  await expect(menu.locator("[data-menu-capability='seller']")).toHaveCount(0);
+
+  await menu.locator("[data-header-menu-action='settings']").click();
+  await expect(page.locator("#profile-actions-card")).toBeVisible();
+  await expect(page.locator("#profile-language-select")).toBeVisible();
 
   await context.close();
 });

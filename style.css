@@ -10944,6 +10944,10 @@ body.creation-view #top-bar,body.creation-view #categories,body.creation-view #p
     left:max(10px, env(safe-area-inset-left));
     right:auto;
     width:min(300px, calc(100vw - 20px));
+    max-height:calc(100dvh - max(76px, env(safe-area-inset-top)) - max(18px, env(safe-area-inset-bottom)));
+    overflow-y:auto;
+    overscroll-behavior:contain;
+    scrollbar-gutter:stable;
   }
 
   #header-search-area{

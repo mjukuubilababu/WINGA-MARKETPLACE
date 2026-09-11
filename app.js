@@ -5335,21 +5335,55 @@ function getHeaderMenuItems() {
 
   const unreadMessages = getTotalUnreadMessages();
   const unreadNotifications = getUnreadNotifications().length;
+  const countSuffix = (count) => count ? ` (${Math.min(count, 99)}${count > 99 ? "+" : ""})` : "";
+  const hasSavedIntent = canUseBuyerFeatures()
+    && (ensureSavedProductIdsLoaded().size > 0 || ensureFollowedSellerIdsLoaded().size > 0);
   const items = [
     ...(isStandaloneDisplayMode() ? [] : [{ action: "install", label: getPwaInstallButtonLabel() }]),
     { action: "profile", label: translateUi("profile.heading", {}, "Profile") },
-    { action: "orders", label: isBuyerUser() ? "My Orders" : "Orders" },
+    { action: "orders", label: translateUi("menu.orders", {}, "My Orders"), capability: "buyer" },
     { action: "messages", label: translateUi("nav.messagesWithCount", { countSuffix: unreadMessages ? ` (${Math.min(unreadMessages, 99)}${unreadMessages > 99 ? "+" : ""})` : "" }, `Messages${unreadMessages ? ` (${Math.min(unreadMessages, 99)}${unreadMessages > 99 ? "+" : ""})` : ""}`) }
   ];
 
-  if (unreadNotifications) {
-    items.push({ action: "notifications", label: `Notifications (${Math.min(unreadNotifications, 99)}${unreadNotifications > 99 ? "+" : ""})` });
+  items.push({
+    action: "notifications",
+    label: translateUi("menu.notifications", { countSuffix: countSuffix(unreadNotifications) }, `Notifications${countSuffix(unreadNotifications)}`),
+    capability: "account"
+  });
+
+  if (hasSavedIntent) {
+    items.push({
+      action: "saved-following",
+      label: translateUi("menu.savedFollowing", {}, "Saved & Following"),
+      capability: "buyer"
+    });
   }
 
-  if (isStaffUser()) {
-    items.push({ action: "admin", label: getAdminNavLabel() });
+  if (canUseSellerFeatures()) {
+    items.push(
+      {
+        action: "seller-center",
+        label: translateUi("menu.sellerCenter", {}, "Seller Center"),
+        capability: "seller"
+      },
+      {
+        action: "seller-insights",
+        label: translateUi("menu.demandAnalytics", {}, "Demand & Analytics"),
+        capability: "seller"
+      },
+      {
+        action: "promotions",
+        label: translateUi("menu.promotions", {}, "Promotions"),
+        capability: "seller"
+      }
+    );
   }
 
+  items.push({
+    action: "settings",
+    label: translateUi("menu.settings", {}, "Settings"),
+    capability: "account"
+  });
   items.push({ action: "logout", label: translateUi("auth.logout", {}, "Logout"), danger: true });
   return items;
 }
@@ -5404,7 +5438,8 @@ function renderHeaderUserMenu() {
         className: `header-user-menu-item${item.danger ? " danger" : ""}`,
         attributes: {
           type: "button",
-          "data-header-menu-action": item.action
+          "data-header-menu-action": item.action,
+          ...(item.capability ? { "data-menu-capability": item.capability } : {})
         }
       });
       button.appendChild(createElement("span", { textContent: item.label }));
