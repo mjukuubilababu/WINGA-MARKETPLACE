@@ -72,7 +72,7 @@ const fileCopies = [
   ["node_modules/lucide-static/LICENSE", "icons/create/LICENSE"],
   ...["plus", "newspaper", "clapperboard", "images", "circle-plus", "video", "arrow-left", "x"]
     .map(name => [`node_modules/lucide-static/icons/${name}.svg`, `icons/create/${name}.svg`]),
-  ...["menu", "house", "layout-grid", "compass", "message-circle", "plus", "sparkles", "clapperboard", "tag"]
+  ...["menu", "house", "layout-grid", "compass", "message-circle", "plus", "sparkles", "clapperboard", "tag", "store"]
     .map(name => [`node_modules/lucide-static/icons/${name}.svg`, `icons/navigation/${name}.svg`])
 ];
 

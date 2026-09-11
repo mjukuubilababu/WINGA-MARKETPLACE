@@ -11721,7 +11721,7 @@ function isRestorableView(view, session) {
     return true;
   }
 
-  if (view === "offers") {
+  if (view === "offers" || view === "shops") {
     return Boolean(session?.username) && session?.role !== "admin" && session?.role !== "moderator";
   }
 
@@ -15503,8 +15503,11 @@ function handleMobileShellAction(action = "", options = {}) {
     toggleMobileCategoryMenu(true);
     return;
   }
-  if (safeAction === "offers") {
-    if (!getActiveOfferProducts().length) {
+  if (safeAction === "offers" || safeAction === "shops") {
+    const destinationProducts = safeAction === "offers"
+      ? getActiveOfferProducts()
+      : getShopDiscoveryProducts();
+    if (!destinationProducts.length) {
       syncQuickDiscoveryRail();
       return;
     }
@@ -15512,11 +15515,11 @@ function handleMobileShellAction(action = "", options = {}) {
     toggleHeaderUserMenu(false);
     resetHomeBrowseState();
     setMobileShellActive("discover");
-    setCurrentViewState("offers", { syncHistory: "push" });
+    setCurrentViewState(safeAction, { syncHistory: "push" });
     renderFilterCategories();
     renderCurrentView({
       force: true,
-      reason: "quick_discovery_offers"
+      reason: `quick_discovery_${safeAction}`
     });
     window.scrollTo({ top: 0, behavior: "smooth" });
     return;
@@ -15577,6 +15580,20 @@ function getActiveOfferProducts(sourceProducts = products) {
   );
 }
 
+function getShopDiscoveryProducts(sourceProducts = products) {
+  const selected = [];
+  const seenSellerIds = new Set();
+  (Array.isArray(sourceProducts) ? sourceProducts : []).forEach((product) => {
+    const sellerId = String(product?.uploadedBy || "").trim();
+    if (!sellerId || seenSellerIds.has(sellerId) || !shouldRenderMarketplaceProduct(product)) {
+      return;
+    }
+    seenSellerIds.add(sellerId);
+    selected.push(product);
+  });
+  return selected;
+}
+
 function syncQuickDiscoveryRail() {
   if (!quickDiscoveryRail) return;
   const config = window.WINGA_CONFIG && typeof window.WINGA_CONFIG === "object"
@@ -15587,13 +15604,15 @@ function syncQuickDiscoveryRail() {
     && !Array.isArray(config.quickDiscoveryEntries)
       ? config.quickDiscoveryEntries
       : {};
-  const supportedActions = new Set(["create", "new", "reels", "offers"]);
+  const supportedActions = new Set(["create", "new", "reels", "offers", "shops"]);
   const hasActiveOffers = isAuthenticatedUser() && getActiveOfferProducts().length > 0;
+  const hasActiveShops = isAuthenticatedUser() && getShopDiscoveryProducts().length > 0;
   let visibleCount = 0;
 
   quickDiscoveryRail.querySelectorAll("[data-discovery-action]").forEach((button) => {
     const action = String(button.dataset.discoveryAction || "").trim().toLowerCase();
-    const hasDestination = action !== "offers" || hasActiveOffers;
+    const hasDestination = (action !== "offers" || hasActiveOffers)
+      && (action !== "shops" || hasActiveShops);
     const isEnabled = supportedActions.has(action)
       && configuredEntries[action] !== false
       && hasDestination;
@@ -20472,7 +20491,7 @@ function renderCurrentView(options = {}) {
       }
     }
     const filteredProducts = getFilteredProducts();
-    const isOffersView = currentView === "offers";
+    const isQuickDiscoveryView = currentView === "offers" || currentView === "shops";
     const isProfile = currentView === "profile";
     const isUpload = currentView === "upload" && canUseSellerFeatures();
     const isAdminView = currentView === "admin" && isStaffUser();
@@ -20516,7 +20535,7 @@ function renderCurrentView(options = {}) {
     syncQuickDiscoveryRail();
     updateMarketplaceActionChrome();
     scheduleChromeOffsetSync();
-    categories.style.display = isOffersView || isProfile || isAdminView || searchPriorityMode || shouldShowFeedLoading || shouldShowInitialProductsError ? "none" : "grid";
+    categories.style.display = isQuickDiscoveryView || isProfile || isAdminView || searchPriorityMode || shouldShowFeedLoading || shouldShowInitialProductsError ? "none" : "grid";
     heroPanel.style.display = "none";
     marketShowcase.style.display = "none";
     productsContainer.style.display = isProfile || isAdminView || shouldShowFeedLoading || shouldShowInitialProductsError ? "none" : "grid";
@@ -20815,6 +20834,15 @@ function getFilteredProducts() {
     });
 
   const filtered = applyProductFilters(baseList.filter((product) => shouldRenderMarketplaceProduct(product)));
+  if (currentView === "shops") {
+    const rankedShopProducts = rankProductsForSurface(filtered, {
+      surface: "seller_discovery",
+      limit: filtered.length,
+      selectedCategory,
+      searchTerms: rankingSearchTerms
+    });
+    return getShopDiscoveryProducts(rankedShopProducts);
+  }
   if (currentView === "offers") {
     const offerProducts = getActiveOfferProducts(filtered);
     return prioritizeSellerMarketplaceMix(rankProductsForSurface(offerProducts, {
@@ -20857,7 +20885,7 @@ function updateResultsMeta(listLength) {
 function setActiveNav(view) {
   const inferredAction = view === "upload"
     ? "sell"
-    : view === "offers"
+    : (view === "offers" || view === "shops")
       ? "discover"
     : view === "profile" && profileRuntimeState.activeSection === "profile-messages-panel"
       ? "inbox"

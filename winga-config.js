@@ -29,7 +29,7 @@ const WINGA_DEFAULT_CONFIG = {
     new: true,
     reels: true,
     live: false,
-    shops: false,
+    shops: true,
     offers: true
   },
   apiBaseUrl: WINGA_IS_FILE_MODE

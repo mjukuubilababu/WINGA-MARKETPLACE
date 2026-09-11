@@ -337,7 +337,7 @@ test("mobile shell exposes five real destinations and reuses Inbox and Sell flow
   await page.goto("/");
   await expect(page.locator("#bottom-nav")).toBeVisible();
   await expect(page.locator("#bottom-nav [data-shell-action]")).toHaveCount(5);
-  await expect(page.locator("#quick-discovery-rail [data-discovery-action]:visible")).toHaveCount(3);
+  await expect(page.locator("#quick-discovery-rail [data-discovery-action]:visible")).toHaveCount(4);
   await expect(page.locator("#post-product-fab")).not.toBeVisible();
 
   await page.locator("#bottom-nav [data-shell-action='discover']").click();
@@ -369,7 +369,8 @@ test("quick discovery flags hide unavailable entries without blocking Home", asy
       quickDiscoveryEntries: {
         create: true,
         new: true,
-        reels: false
+        reels: false,
+        shops: false
       }
     };
   });
@@ -438,6 +439,52 @@ test("Quick Discovery Offers isolates promoted products and restores the retaine
     view: "offers",
     hasObserver: false
   });
+
+  await page.locator("#view-home-back").click();
+  await expect(page.locator("#products-container .product-card").first()).toBeVisible();
+  await expect.poll(() => page.evaluate(() => ({
+    view: currentView,
+    hasObserver: Boolean(homeContinuousDiscoveryRuntime?.sentinelObserver)
+  })), { timeout: 30000 }).toEqual({
+    view: "home",
+    hasObserver: true
+  });
+
+  await context.close();
+});
+test("Quick Discovery Shops shows one ranked product per seller and restores Home", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure", {
+    viewport: { width: 390, height: 844 },
+    isMobile: true
+  });
+
+  await page.goto("/");
+  const shopsButton = page.locator("#quick-discovery-rail [data-discovery-action='shops']");
+  await expect(shopsButton).toBeVisible({ timeout: 30000 });
+  await shopsButton.click();
+
+  await expect(page.locator("#view-home-back")).toBeVisible();
+  await expect(page.locator("#quick-discovery-rail")).toBeHidden();
+  await expect(page.locator("#products-container [data-open-product]").first()).toBeVisible();
+  await expect(page.locator("#bottom-nav [data-shell-action='discover']")).toHaveClass(/active/);
+  const shopsState = await page.evaluate(() => {
+    const productIds = Array.from(document.querySelectorAll("#products-container [data-open-product]"))
+      .map((card) => String(card.getAttribute("data-open-product") || ""))
+      .filter(Boolean);
+    const sellerIds = productIds
+      .map((productId) => products.find((product) => product.id === productId)?.uploadedBy || "")
+      .filter(Boolean);
+    return {
+      view: currentView,
+      cardCount: productIds.length,
+      sellerCount: new Set(sellerIds).size,
+      hasObserver: Boolean(homeContinuousDiscoveryRuntime?.sentinelObserver)
+    };
+  });
+  expect(shopsState.view).toBe("shops");
+  expect(shopsState.cardCount).toBeGreaterThan(0);
+  expect(shopsState.sellerCount).toBe(shopsState.cardCount);
+  expect(shopsState.hasObserver).toBe(false);
 
   await page.locator("#view-home-back").click();
   await expect(page.locator("#products-container .product-card").first()).toBeVisible();

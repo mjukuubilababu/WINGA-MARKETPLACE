@@ -71,6 +71,7 @@
                      "shell.new":  "New",
                      "shell.reels":  "Reels",
                      "shell.offers":  "Offers",
+                     "shell.shops":  "Shops",
                      "menu.orders":  "My Orders",
                      "menu.notifications":  "Notifications{countSuffix}",
                      "menu.savedFollowing":  "Saved & Following",
