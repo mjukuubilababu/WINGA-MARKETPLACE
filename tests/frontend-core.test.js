@@ -2393,6 +2393,79 @@ test("boot lifecycle module owns lifecycle epoch and boot target helpers", () =>
   );
 });
 
+test("mobile navigation chrome reports stable transitions and preserves safe-area geometry", () => {
+  const root = path.resolve(__dirname, "..");
+  const source = fs.readFileSync(path.join(root, "src", "navigation", "chrome.js"), "utf8");
+  const styleSource = fs.readFileSync(path.join(root, "style.css"), "utf8");
+  const classes = new Set();
+  const attributes = new Map();
+  const events = [];
+  const element = {
+    style: { display: "block" },
+    setAttribute(name, value) { attributes.set(name, value); }
+  };
+  const targetWindow = {
+    innerWidth: 390,
+    scrollY: 200,
+    visualViewport: null,
+    WingaModules: { navigation: {} },
+    addEventListener() {}
+  };
+  const context = vm.createContext({
+    window: targetWindow,
+    document: {
+      body: {
+        classList: {
+          contains(name) { return classes.has(name); },
+          toggle(name, enabled) { enabled ? classes.add(name) : classes.delete(name); }
+        }
+      }
+    },
+    requestAnimationFrame(callback) { callback(); return 1; },
+    cancelAnimationFrame() {}
+  });
+  vm.runInContext(source, context);
+  const uiState = { mobileHeaderHidden: false };
+  const chrome = targetWindow.WingaModules.navigation.createNavigationChromeModule({
+    isAuthenticatedUser: () => true,
+    canUseSellerFeatures: () => false,
+    isStaffUser: () => false,
+    getCurrentView: () => "home",
+    getEditingProductId: () => "",
+    getAppContainer: () => element,
+    getTopBar: () => element,
+    getBottomNav: () => element,
+    getPostProductFab: () => null,
+    getViewHomeBackButton: () => null,
+    getAuthContainer: () => ({ style: { display: "none" } }),
+    getUiRuntimeState: () => uiState,
+    getSearchRuntimeState: () => ({ isMobileSearchOpen: false, isMobileCategoryOpen: false }),
+    getProfileRuntimeState: () => ({ isHeaderUserMenuOpen: false }),
+    getChatUiState: () => ({ isContextOpen: false }),
+    reportEvent: (_level, eventName) => events.push(eventName)
+  });
+
+  chrome.setMobileHeaderHidden(true);
+  chrome.setMobileHeaderHidden(true, { force: true });
+  uiState.mobileHeaderLastScrollY = 720;
+  uiState.mobileHeaderLastToggleY = 720;
+  targetWindow.scrollY = 716;
+  chrome.syncMobileHeaderVisibility();
+  assert.equal(uiState.mobileHeaderHidden, true, "tiny upward movement must not reveal mobile chrome");
+  targetWindow.scrollY = 724;
+  chrome.syncMobileHeaderVisibility();
+  assert.equal(uiState.mobileHeaderHidden, true, "rapid direction reversal must keep mobile chrome stable");
+  targetWindow.scrollY = 712;
+  chrome.syncMobileHeaderVisibility();
+  assert.equal(uiState.mobileHeaderHidden, false, "an intentional upward movement must reveal mobile chrome");
+  chrome.setMobileHeaderHidden(false);
+
+  assert.deepEqual(events, ["header_hidden_on_scroll", "header_restored_on_scroll"]);
+  assert.equal(attributes.get("data-mobile-header-state"), "visible");
+  assert.equal(attributes.get("data-mobile-nav-state"), "visible");
+  assert.match(styleSource, /#bottom-nav\{[\s\S]*padding:7px max\(4px, env\(safe-area-inset-right\)\) max\(7px, env\(safe-area-inset-bottom\)\) max\(4px, env\(safe-area-inset-left\)\);/);
+  assert.match(styleSource, /body\.mobile-bottom-nav-hidden #bottom-nav,[\s\S]*transform:translateY\(calc\(100% \+ env\(safe-area-inset-bottom\)\)\);/);
+});
 test("app boot helpers avoid duplicate hoisted declarations", () => {
   const root = path.resolve(__dirname, "..");
   const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");

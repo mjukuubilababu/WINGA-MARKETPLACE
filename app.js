@@ -11398,7 +11398,8 @@ const appChrome = window.WingaModules.navigation.createNavigationChromeModule({
   getUiRuntimeState: () => uiRuntimeState,
   getSearchRuntimeState: () => searchRuntimeState,
   getProfileRuntimeState: () => profileRuntimeState,
-  getChatUiState: () => chatUiState
+  getChatUiState: () => chatUiState,
+  reportEvent: (...args) => reportClientEvent(...args)
 });
 
 const { renderSlideshow } = window.WingaModules.hero.createHeroUiModule({

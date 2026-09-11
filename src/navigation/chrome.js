@@ -79,6 +79,7 @@
     function setMobileHeaderHidden(hidden, options = {}) {
       const uiState = deps.getUiRuntimeState();
       const nextHidden = Boolean(hidden) && isMobileHeaderAutoHideEnabled();
+      const wasHidden = Boolean(uiState.mobileHeaderHidden);
       if (uiState.mobileHeaderHidden === nextHidden && !options.force) {
         return;
       }
@@ -88,6 +89,14 @@
       document.body.classList.toggle("mobile-bottom-nav-hidden", nextHidden);
       deps.getTopBar()?.setAttribute("data-mobile-header-state", nextHidden ? "hidden" : "visible");
       deps.getBottomNav()?.setAttribute("data-mobile-nav-state", nextHidden ? "hidden" : "visible");
+      if (wasHidden !== nextHidden) {
+        deps.reportEvent?.(
+          "info",
+          nextHidden ? "header_hidden_on_scroll" : "header_restored_on_scroll",
+          nextHidden ? "Mobile navigation chrome hidden on downward scroll." : "Mobile navigation chrome restored on upward scroll.",
+          { category: "navigation", view: deps.getCurrentView() }
+        );
+      }
     }
 
     function syncMobileHeaderVisibility(force = false) {
@@ -118,9 +127,16 @@
         return;
       }
 
-      if (uiState.mobileHeaderHidden && (pendingDirection < 0 || delta < 0)) {
-        uiState.mobileHeaderLastToggleY = currentScrollY;
-        setMobileHeaderHidden(false);
+      if (uiState.mobileHeaderHidden) {
+        if (pendingDirection > 0 || delta > 0) {
+          uiState.mobileHeaderLastToggleY = currentScrollY;
+          return;
+        }
+        if ((pendingDirection < 0 || delta < 0)
+          && (uiState.mobileHeaderLastToggleY || currentScrollY) - currentScrollY >= movementThreshold) {
+          uiState.mobileHeaderLastToggleY = currentScrollY;
+          setMobileHeaderHidden(false);
+        }
         return;
       }
 

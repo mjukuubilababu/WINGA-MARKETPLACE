@@ -1308,6 +1308,20 @@ test("desktop header remains stable and does not enter the mobile auto-hide stat
   await context.close();
 });
 
+test("tablet keeps desktop chrome semantics without a mobile bottom-nav overlay", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure", {
+    viewport: { width: 768, height: 1024 }
+  });
+  await page.goto("/");
+
+  await expect(page.locator("#products-container .product-card").first()).toBeVisible();
+  await expect(page.locator("#bottom-nav")).not.toBeVisible();
+  await page.evaluate(() => window.scrollTo(0, 720));
+  await expect.poll(async () => page.evaluate(() => document.body.classList.contains("mobile-header-hidden"))).toBe(false);
+  await expect(page.locator("#top-bar")).toBeVisible();
+
+  await context.close();
+});
 test("vertical page scroll still works while the pointer is over horizontal media", async ({ browser }) => {
   const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure", {
     viewport: { width: 1280, height: 900 }
