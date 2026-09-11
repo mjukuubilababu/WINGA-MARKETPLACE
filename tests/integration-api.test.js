@@ -1437,6 +1437,28 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   });
   assert.equal(moderatorSessionRevoke.response.status, 403);
 
+  const staleAdminStore = JSON.parse(fs.readFileSync(testStorePath, "utf8"));
+  const staleAdminSession = staleAdminStore.sessions.find((item) => item.token === adminToken);
+  assert.ok(staleAdminSession, "admin session must exist before testing privileged-action freshness");
+  staleAdminSession.stepUpVerifiedAt = new Date(Date.now() - (31 * 60 * 1000)).toISOString();
+  fs.writeFileSync(testStorePath, JSON.stringify(staleAdminStore, null, 2));
+
+  const staleAdminSessionRevoke = await request(`/admin/sessions/${encodeURIComponent(revocableSellerSession.sessionId)}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${adminToken}` }
+  });
+  assert.equal(staleAdminSessionRevoke.response.status, 403);
+  assert.equal(staleAdminSessionRevoke.body.code, "step_up_required");
+  assert.equal(staleAdminSessionRevoke.body.action, "admin_session_revoke");
+
+  const refreshedAdminSession = await request("/auth/step-up", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${adminToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ password: "Admin1234" })
+  });
+  assert.equal(refreshedAdminSession.response.status, 200);
+  assert.equal(refreshedAdminSession.body.security.stepUpFresh, true);
+
   const adminSessionRevoke = await request(`/admin/sessions/${encodeURIComponent(revocableSellerSession.sessionId)}`, {
     method: "DELETE",
     headers: { Authorization: `Bearer ${adminToken}` }

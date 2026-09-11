@@ -7322,6 +7322,17 @@ const server = http.createServer(async (req, res) => {
         });
         return;
       }
+      const adminUser = getUserByUsername(store, session.username);
+      if (!adminUser || !await requireFreshStepUpForSensitiveAction({
+        session,
+        user: adminUser,
+        req,
+        res,
+        clientIp,
+        action: "admin_session_revoke"
+      })) {
+        return;
+      }
       const targetSessionId = sanitizePlainText(decodeURIComponent(revokeSessionMatch[1] || ""), 80);
       const targetSession = (store.sessions || []).find((item) => item.sessionId === targetSessionId);
       if (!targetSession) {
