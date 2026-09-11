@@ -70,6 +70,7 @@
                      "shell.my":  "Mon espace",
                      "shell.new":  "Nouveautés",
                      "shell.reels":  "Reels",
+                     "shell.offers":  "Offres",
                      "menu.orders":  "Mes commandes",
                      "menu.notifications":  "Notifications{countSuffix}",
                      "menu.savedFollowing":  "Enregistrés et suivis",

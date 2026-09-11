@@ -36,7 +36,7 @@
       return getViewportWidth() <= 720
         && deps.getAppContainer()?.style.display !== "none"
         && !deps.isStaffUser()
-        && ["home", "profile", "upload"].includes(deps.getCurrentView())
+        && ["home", "offers", "profile", "upload"].includes(deps.getCurrentView())
         && !document.body.classList.contains("product-detail-open");
     }
 
@@ -58,7 +58,7 @@
         return false;
       }
       const currentView = deps.getCurrentView();
-      return currentView === "profile" || currentView === "upload" || currentView === "admin";
+      return currentView === "offers" || currentView === "profile" || currentView === "upload" || currentView === "admin";
     }
 
     function isMobileHeaderAutoHideEnabled() {

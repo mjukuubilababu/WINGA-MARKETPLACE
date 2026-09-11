@@ -337,7 +337,7 @@ test("mobile shell exposes five real destinations and reuses Inbox and Sell flow
   await page.goto("/");
   await expect(page.locator("#bottom-nav")).toBeVisible();
   await expect(page.locator("#bottom-nav [data-shell-action]")).toHaveCount(5);
-  await expect(page.locator("#quick-discovery-rail [data-discovery-action]")).toHaveCount(3);
+  await expect(page.locator("#quick-discovery-rail [data-discovery-action]:visible")).toHaveCount(3);
   await expect(page.locator("#post-product-fab")).not.toBeVisible();
 
   await page.locator("#bottom-nav [data-shell-action='discover']").click();
@@ -383,6 +383,74 @@ test("quick discovery flags hide unavailable entries without blocking Home", asy
   await context.close();
 });
 
+test("Quick Discovery Offers isolates promoted products and restores the retained Home feed", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure", {
+    viewport: { width: 390, height: 844 },
+    isMobile: true
+  });
+  const offerProductId = "quick-discovery-offer-product";
+
+  await page.route("**/api/products?**", async (route) => {
+    const response = await route.fetch();
+    const payload = await response.json();
+    if (Array.isArray(payload.items) && payload.items.length) {
+      payload.items[0] = {
+        ...payload.items[0],
+        id: offerProductId,
+        name: "Quick Discovery Offer"
+      };
+    }
+    await route.fulfill({
+      response,
+      contentType: "application/json",
+      body: JSON.stringify(payload)
+    });
+  });
+  await page.route("**/api/promotions", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify([{
+        id: "quick-discovery-promotion",
+        productId: offerProductId,
+        type: "featured",
+        status: "active",
+        paymentStatus: "paid",
+        startDate: new Date(Date.now() - 60_000).toISOString(),
+        endDate: new Date(Date.now() + 86_400_000).toISOString(),
+        amountPaid: 100
+      }])
+    });
+  });
+
+  await page.goto("/");
+  const offersButton = page.locator("#quick-discovery-rail [data-discovery-action='offers']");
+  await expect(offersButton).toBeVisible({ timeout: 30000 });
+  await offersButton.click();
+
+  await expect(page.locator("#view-home-back")).toBeVisible();
+  await expect(page.locator("#quick-discovery-rail")).toBeHidden();
+  await expect(page.locator(`#products-container [data-open-product='${offerProductId}']`)).toBeVisible();
+  await expect.poll(() => page.evaluate(() => ({
+    view: currentView,
+    hasObserver: Boolean(homeContinuousDiscoveryRuntime?.sentinelObserver)
+  }))).toEqual({
+    view: "offers",
+    hasObserver: false
+  });
+
+  await page.locator("#view-home-back").click();
+  await expect(page.locator("#products-container .product-card").first()).toBeVisible();
+  await expect.poll(() => page.evaluate(() => ({
+    view: currentView,
+    hasObserver: Boolean(homeContinuousDiscoveryRuntime?.sentinelObserver)
+  })), { timeout: 30000 }).toEqual({
+    view: "home",
+    hasObserver: true
+  });
+
+  await context.close();
+});
 test("mobile search handles broad intent without breaking home flow", async ({ browser }) => {
   const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure", {
     viewport: { width: 390, height: 844 },

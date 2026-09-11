@@ -30,7 +30,7 @@ const WINGA_DEFAULT_CONFIG = {
     reels: true,
     live: false,
     shops: false,
-    offers: false
+    offers: true
   },
   apiBaseUrl: WINGA_IS_FILE_MODE
     ? "http://localhost:3000/api"

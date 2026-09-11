@@ -8788,11 +8788,15 @@ async function refreshNotificationsState() {
 async function refreshPromotionsState() {
   if (!currentUser) {
     currentPromotions = [];
+    syncQuickDiscoveryRail();
     return;
   }
   try {
     currentPromotions = await window.WingaDataLayer.loadPromotions();
+    syncQuickDiscoveryRail();
   } catch (error) {
+    currentPromotions = [];
+    syncQuickDiscoveryRail();
     captureClientError("promotions_refresh_failed", error, {
       user: currentUser
     });
@@ -11715,6 +11719,10 @@ function isRestorableView(view, session) {
   }
   if (view === "home") {
     return true;
+  }
+
+  if (view === "offers") {
+    return Boolean(session?.username) && session?.role !== "admin" && session?.role !== "moderator";
   }
 
   if (view === "profile") {
@@ -15495,6 +15503,24 @@ function handleMobileShellAction(action = "", options = {}) {
     toggleMobileCategoryMenu(true);
     return;
   }
+  if (safeAction === "offers") {
+    if (!getActiveOfferProducts().length) {
+      syncQuickDiscoveryRail();
+      return;
+    }
+    closeMobileCategoryMenu();
+    toggleHeaderUserMenu(false);
+    resetHomeBrowseState();
+    setMobileShellActive("discover");
+    setCurrentViewState("offers", { syncHistory: "push" });
+    renderFilterCategories();
+    renderCurrentView({
+      force: true,
+      reason: "quick_discovery_offers"
+    });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    return;
+  }
   if (safeAction === "discover" || safeAction === "new" || safeAction === "reels") {
     closeMobileCategoryMenu();
     toggleHeaderUserMenu(false);
@@ -15539,6 +15565,18 @@ function handleMobileShellAction(action = "", options = {}) {
   }
 }
 
+function getActiveOfferProducts(sourceProducts = products) {
+  const activeProductIds = new Set(
+    getActivePromotions()
+      .map((promotion) => String(promotion?.productId || "").trim())
+      .filter(Boolean)
+  );
+  return (Array.isArray(sourceProducts) ? sourceProducts : []).filter((product) =>
+    activeProductIds.has(String(product?.id || "").trim())
+    && shouldRenderMarketplaceProduct(product)
+  );
+}
+
 function syncQuickDiscoveryRail() {
   if (!quickDiscoveryRail) return;
   const config = window.WINGA_CONFIG && typeof window.WINGA_CONFIG === "object"
@@ -15549,12 +15587,16 @@ function syncQuickDiscoveryRail() {
     && !Array.isArray(config.quickDiscoveryEntries)
       ? config.quickDiscoveryEntries
       : {};
-  const supportedActions = new Set(["create", "new", "reels"]);
+  const supportedActions = new Set(["create", "new", "reels", "offers"]);
+  const hasActiveOffers = isAuthenticatedUser() && getActiveOfferProducts().length > 0;
   let visibleCount = 0;
 
   quickDiscoveryRail.querySelectorAll("[data-discovery-action]").forEach((button) => {
     const action = String(button.dataset.discoveryAction || "").trim().toLowerCase();
-    const isEnabled = supportedActions.has(action) && configuredEntries[action] !== false;
+    const hasDestination = action !== "offers" || hasActiveOffers;
+    const isEnabled = supportedActions.has(action)
+      && configuredEntries[action] !== false
+      && hasDestination;
     button.hidden = !isEnabled;
     button.disabled = !isEnabled;
     button.setAttribute("aria-hidden", String(!isEnabled));
@@ -20430,6 +20472,7 @@ function renderCurrentView(options = {}) {
       }
     }
     const filteredProducts = getFilteredProducts();
+    const isOffersView = currentView === "offers";
     const isProfile = currentView === "profile";
     const isUpload = currentView === "upload" && canUseSellerFeatures();
     const isAdminView = currentView === "admin" && isStaffUser();
@@ -20470,9 +20513,10 @@ function renderCurrentView(options = {}) {
     renderImageSearchPreview();
     appContainer.classList.toggle("search-priority-mode", searchPriorityMode);
     productsSummary?.classList.toggle("search-priority-summary", searchPriorityMode);
+    syncQuickDiscoveryRail();
     updateMarketplaceActionChrome();
     scheduleChromeOffsetSync();
-    categories.style.display = isProfile || isAdminView || searchPriorityMode || shouldShowFeedLoading || shouldShowInitialProductsError ? "none" : "grid";
+    categories.style.display = isOffersView || isProfile || isAdminView || searchPriorityMode || shouldShowFeedLoading || shouldShowInitialProductsError ? "none" : "grid";
     heroPanel.style.display = "none";
     marketShowcase.style.display = "none";
     productsContainer.style.display = isProfile || isAdminView || shouldShowFeedLoading || shouldShowInitialProductsError ? "none" : "grid";
@@ -20771,6 +20815,15 @@ function getFilteredProducts() {
     });
 
   const filtered = applyProductFilters(baseList.filter((product) => shouldRenderMarketplaceProduct(product)));
+  if (currentView === "offers") {
+    const offerProducts = getActiveOfferProducts(filtered);
+    return prioritizeSellerMarketplaceMix(rankProductsForSurface(offerProducts, {
+      surface: "sponsored",
+      limit: offerProducts.length,
+      selectedCategory,
+      searchTerms: rankingSearchTerms
+    }));
+  }
   if (searchInput?.value?.trim() || searchRuntimeState.activeImageSearch?.signature) {
     recordSearchDemandSignal({
       query: searchInput?.value || "",
@@ -20804,6 +20857,8 @@ function updateResultsMeta(listLength) {
 function setActiveNav(view) {
   const inferredAction = view === "upload"
     ? "sell"
+    : view === "offers"
+      ? "discover"
     : view === "profile" && profileRuntimeState.activeSection === "profile-messages-panel"
       ? "inbox"
       : view === "home" && ["home", "categories", "discover", "sell"].includes(uiRuntimeState.activeMobileNav)
