@@ -10564,6 +10564,17 @@ const server = http.createServer(async (req, res) => {
         });
         return;
       }
+      const adminUser = getUserByUsername(store, session.username);
+      if (!adminUser || !await requireFreshStepUpForSensitiveAction({
+        session,
+        user: adminUser,
+        req,
+        res,
+        clientIp,
+        action: "admin_payment_reconciliation_update"
+      })) {
+        return;
+      }
       if (!postgresStore?.transitionPaymentReconciliationCase) {
         sendJson(res, 503, { error: "Payment reconciliation store haipatikani.", code: "reconciliation_store_unavailable" });
         return;

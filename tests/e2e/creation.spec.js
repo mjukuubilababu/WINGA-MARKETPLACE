@@ -15,8 +15,8 @@ async function openCreationMenu(page) {
   return trigger;
 }
 
-async function seller(browser, viewport = { width: 390, height: 844 }) {
-  const context = await browser.newContext({ viewport });
+async function seller(browser, viewport = { width: 390, height: 844 }, contextOptions = {}) {
+  const context = await browser.newContext({ viewport, ...contextOptions });
   const { authCookie, ...session } = JSON.parse(fs.readFileSync(path.join(__dirname, ".seed-sessions.json"), "utf8")).buyer_seller;
   await context.addCookies([{ name: "winga_auth", value: authCookie, url: "http://127.0.0.1:43080", httpOnly: true, sameSite: "Lax" }]);
   await context.addInitScript(session => {
@@ -81,7 +81,7 @@ test("Photo/video opens one native picker and Next preserves media and details t
 });
 
 test("posting a server failure retains the draft and does not blame the network", async ({ browser }) => {
-  const { context, page } = await seller(browser);
+  const { context, page } = await seller(browser, { width: 390, height: 844 }, { serviceWorkers: "block" });
   await page.evaluate(async () => { await globalLocalizationRuntime.setLanguage("en"); await globalLocalizationRuntime.loadCatalog("en"); });
   await context.route("**/api/products", async route => {
     if (route.request().method() !== "POST") return route.continue();

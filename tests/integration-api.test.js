@@ -1471,6 +1471,42 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   });
   assert.equal(revokedSellerSession.response.status, 401);
 
+  const staleReconciliationStore = JSON.parse(fs.readFileSync(testStorePath, "utf8"));
+  const staleReconciliationAdminSession = staleReconciliationStore.sessions.find((item) => item.token === adminToken);
+  assert.ok(staleReconciliationAdminSession, "admin session must exist before testing reconciliation freshness");
+  staleReconciliationAdminSession.stepUpVerifiedAt = new Date(Date.now() - (31 * 60 * 1000)).toISOString();
+  fs.writeFileSync(testStorePath, JSON.stringify(staleReconciliationStore, null, 2));
+
+  const reconciliationPayload = {
+    action: "start_review",
+    note: "Integration test reconciliation review",
+    expectedVersion: 1
+  };
+  const staleReconciliationUpdate = await request("/admin/payment-reconciliations/integration-case", {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${adminToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify(reconciliationPayload)
+  });
+  assert.equal(staleReconciliationUpdate.response.status, 403);
+  assert.equal(staleReconciliationUpdate.body.code, "step_up_required");
+  assert.equal(staleReconciliationUpdate.body.action, "admin_payment_reconciliation_update");
+
+  const refreshedReconciliationAdminSession = await request("/auth/step-up", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${adminToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ password: "Admin1234" })
+  });
+  assert.equal(refreshedReconciliationAdminSession.response.status, 200);
+  assert.equal(refreshedReconciliationAdminSession.body.security.stepUpFresh, true);
+
+  const reconciliationStoreReached = await request("/admin/payment-reconciliations/integration-case", {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${adminToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify(reconciliationPayload)
+  });
+  assert.equal(reconciliationStoreReached.response.status, 503);
+  assert.equal(reconciliationStoreReached.body.code, "reconciliation_store_unavailable");
+
   const adminOpsSummary = await request("/admin/ops/summary", {
     headers: { Authorization: `Bearer ${adminToken}` }
   });
