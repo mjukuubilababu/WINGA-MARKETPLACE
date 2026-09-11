@@ -23,6 +23,15 @@ const WINGA_DEFAULT_CONFIG = {
   authRequestTimeoutMs: 18000,
   sessionRestoreTimeoutMs: 8000,
   productUploadTimeoutMs: 180000,
+  quickDiscoveryRail: true,
+  quickDiscoveryEntries: {
+    create: true,
+    new: true,
+    reels: true,
+    live: false,
+    shops: false,
+    offers: false
+  },
   apiBaseUrl: WINGA_IS_FILE_MODE
     ? "http://localhost:3000/api"
     : WINGA_IS_LOCAL_WEB
@@ -42,5 +51,15 @@ window.WINGA_CONFIG = {
   firebase: {
     ...WINGA_DEFAULT_CONFIG.firebase,
     ...(WINGA_CONFIG_OVERRIDE.firebase || {})
+  },
+  quickDiscoveryEntries: {
+    ...WINGA_DEFAULT_CONFIG.quickDiscoveryEntries,
+    ...(
+      WINGA_CONFIG_OVERRIDE.quickDiscoveryEntries
+      && typeof WINGA_CONFIG_OVERRIDE.quickDiscoveryEntries === "object"
+      && !Array.isArray(WINGA_CONFIG_OVERRIDE.quickDiscoveryEntries)
+        ? WINGA_CONFIG_OVERRIDE.quickDiscoveryEntries
+        : {}
+    )
   }
 };

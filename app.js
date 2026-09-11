@@ -15472,11 +15472,17 @@ function openShellHome(options = {}) {
   }
 }
 
-function handleMobileShellAction(action = "") {
+function handleMobileShellAction(action = "", options = {}) {
   const safeAction = String(action || "").trim().toLowerCase();
   if (!safeAction) return;
-  reportClientEvent("info", `nav_${safeAction}_clicked`, "Mobile shell action selected.", {
+  const eventSource = String(options.source || "navigation").trim().toLowerCase();
+  const eventName = eventSource === "quick_discovery"
+    ? "discovery_strip_item_clicked"
+    : `nav_${safeAction}_clicked`;
+  reportClientEvent("info", eventName, "Mobile shell action selected.", {
     category: "navigation",
+    action: safeAction,
+    source: eventSource,
     role: currentSession?.role || "guest"
   });
 
@@ -15533,6 +15539,37 @@ function handleMobileShellAction(action = "") {
   }
 }
 
+function syncQuickDiscoveryRail() {
+  if (!quickDiscoveryRail) return;
+  const config = window.WINGA_CONFIG && typeof window.WINGA_CONFIG === "object"
+    ? window.WINGA_CONFIG
+    : {};
+  const configuredEntries = config.quickDiscoveryEntries
+    && typeof config.quickDiscoveryEntries === "object"
+    && !Array.isArray(config.quickDiscoveryEntries)
+      ? config.quickDiscoveryEntries
+      : {};
+  const supportedActions = new Set(["create", "new", "reels"]);
+  let visibleCount = 0;
+
+  quickDiscoveryRail.querySelectorAll("[data-discovery-action]").forEach((button) => {
+    const action = String(button.dataset.discoveryAction || "").trim().toLowerCase();
+    const isEnabled = supportedActions.has(action) && configuredEntries[action] !== false;
+    button.hidden = !isEnabled;
+    button.disabled = !isEnabled;
+    button.setAttribute("aria-hidden", String(!isEnabled));
+    button.style.display = isEnabled ? "" : "none";
+    if (isEnabled) visibleCount += 1;
+  });
+
+  const isRailEnabled = config.quickDiscoveryRail !== false && visibleCount > 0;
+  quickDiscoveryRail.hidden = !isRailEnabled;
+  quickDiscoveryRail.setAttribute("aria-hidden", String(!isRailEnabled));
+  quickDiscoveryRail.style.display = isRailEnabled ? "" : "none";
+}
+
+syncQuickDiscoveryRail();
+
 mobileCategoryButton?.addEventListener("click", (event) => {
   event.preventDefault();
   event.stopPropagation();
@@ -15547,8 +15584,11 @@ mobileCategoryButton?.addEventListener("click", (event) => {
 });
 
 quickDiscoveryRail?.addEventListener("click", (event) => {
-  const action = event.target.closest?.("[data-discovery-action]")?.dataset.discoveryAction;
-  if (action) handleMobileShellAction(action);
+  const trigger = event.target.closest?.("[data-discovery-action]");
+  const action = trigger?.dataset.discoveryAction;
+  if (action && !trigger.disabled && !trigger.hidden) {
+    handleMobileShellAction(action, { source: "quick_discovery" });
+  }
 });
 
 registerAppEvent(document, "pointerdown", (event) => {

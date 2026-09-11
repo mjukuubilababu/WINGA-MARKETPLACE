@@ -358,6 +358,31 @@ test("mobile shell exposes five real destinations and reuses Inbox and Sell flow
   await context.close();
 });
 
+test("quick discovery flags hide unavailable entries without blocking Home", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure", {
+    viewport: { width: 390, height: 844 },
+    isMobile: true
+  });
+  await context.addInitScript(() => {
+    window.__WINGA_CONFIG_OVERRIDE__ = {
+      ...(window.__WINGA_CONFIG_OVERRIDE__ || {}),
+      quickDiscoveryEntries: {
+        create: true,
+        new: true,
+        reels: false
+      }
+    };
+  });
+
+  await page.goto("/");
+  await expect(page.locator("#quick-discovery-rail")).toBeVisible();
+  await expect(page.locator("#quick-discovery-rail [data-discovery-action]:visible")).toHaveCount(2);
+  await expect(page.locator("#quick-discovery-rail [data-discovery-action='reels']")).toBeHidden();
+  await expect(page.locator("#products-container .product-card").first()).toBeVisible();
+
+  await context.close();
+});
+
 test("mobile search handles broad intent without breaking home flow", async ({ browser }) => {
   const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure", {
     viewport: { width: 390, height: 844 },
