@@ -7876,6 +7876,26 @@ const server = http.createServer(async (req, res) => {
       const requestedVerificationUpdate = Boolean(payload.verificationStatus) || typeof payload.verifiedSeller === "boolean";
       const requestedRoleChange = typeof payload.role === "string" && payload.role.trim() && payload.role.trim().toLowerCase() !== targetUser.role;
       const requestedDelete = payload.deleteUser === true;
+      const requiresAdminStepUp = isAdminSession(session)
+        && (requestedStatusChange || requestedRoleChange || requestedDelete);
+      if (requiresAdminStepUp) {
+        const adminUser = getUserByUsername(store, session.username);
+        const sensitiveAction = requestedDelete
+          ? "admin_user_delete"
+          : requestedRoleChange
+            ? "admin_user_role_change"
+            : "admin_user_status_change";
+        if (!adminUser || !await requireFreshStepUpForSensitiveAction({
+          session,
+          user: adminUser,
+          req,
+          res,
+          clientIp,
+          action: sensitiveAction
+        })) {
+          return;
+        }
+      }
       if (requestedVerificationUpdate && targetUser.role !== "seller") {
         sendJson(res, 400, { error: "Verification review inaruhusiwa kwa seller accounts tu." });
         return;

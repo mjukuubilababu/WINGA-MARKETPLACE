@@ -2336,6 +2336,36 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   });
   assert.equal(moderatorBanAttempt.response.status, 403);
 
+  const staleAdminModerationStore = JSON.parse(fs.readFileSync(testStorePath, "utf8"));
+  const staleAdminModerationSession = staleAdminModerationStore.sessions.find((item) => item.token === adminToken);
+  assert.ok(staleAdminModerationSession, "admin session must exist before testing account moderation freshness");
+  staleAdminModerationSession.stepUpVerifiedAt = new Date(Date.now() - (31 * 60 * 1000)).toISOString();
+  fs.writeFileSync(testStorePath, JSON.stringify(staleAdminModerationStore, null, 2));
+
+  const staleAdminBanAttempt = await request(`/admin/users/${encodeURIComponent(buyerUsername)}/moderation`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminToken}`
+    },
+    body: JSON.stringify({
+      status: "banned",
+      reason: "fraud review",
+      note: "Integration test stale admin block"
+    })
+  });
+  assert.equal(staleAdminBanAttempt.response.status, 403);
+  assert.equal(staleAdminBanAttempt.body.code, "step_up_required");
+  assert.equal(staleAdminBanAttempt.body.action, "admin_user_status_change");
+
+  const refreshedAdminModerationSession = await request("/auth/step-up", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${adminToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ password: "Admin1234" })
+  });
+  assert.equal(refreshedAdminModerationSession.response.status, 200);
+  assert.equal(refreshedAdminModerationSession.body.security.stepUpFresh, true);
+
   const banBuyer = await request(`/admin/users/${encodeURIComponent(buyerUsername)}/moderation`, {
     method: "PATCH",
     headers: {
