@@ -9,6 +9,7 @@
         mobileHeaderLastScrollY: 0,
         mobileHeaderLastToggleY: 0,
         mobileHeaderHidden: false,
+        activeMobileNav: "home",
         mobileHeaderScrollFrame: 0,
         lastScrollActivityAt: 0,
         homeScrollSaveFrame: 0,

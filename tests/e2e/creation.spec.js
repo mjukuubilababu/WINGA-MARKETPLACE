@@ -3,6 +3,18 @@ const fs = require("node:fs");
 const path = require("node:path");
 const sharp = require("sharp");
 
+async function getCreationTrigger(page) {
+  const mobileSell = page.locator("#bottom-nav [data-shell-action='sell']");
+  return await mobileSell.isVisible() ? mobileSell : page.locator("#post-product-fab");
+}
+
+async function openCreationMenu(page) {
+  const trigger = await getCreationTrigger(page);
+  await expect(trigger).toBeVisible();
+  await trigger.click();
+  return trigger;
+}
+
 async function seller(browser, viewport = { width: 390, height: 844 }) {
   const context = await browser.newContext({ viewport });
   const { authCookie, ...session } = JSON.parse(fs.readFileSync(path.join(__dirname, ".seed-sessions.json"), "utf8")).buyer_seller;
@@ -13,17 +25,14 @@ async function seller(browser, viewport = { width: 390, height: 844 }) {
   }, session);
   const page = await context.newPage();
   await page.goto("/");
-  await expect(page.locator("#post-product-fab")).toBeVisible();
+  await expect(await getCreationTrigger(page)).toBeVisible();
   return { context, page };
 }
 
 test("plus opens the creation menu, Post opens a clean composer and Back restores Home", async ({ browser }, info) => {
   const { context, page } = await seller(browser);
   let pickers = 0; page.on("filechooser", () => { pickers++; });
-  const fab = page.locator("#post-product-fab");
-  await expect(fab).toHaveCSS("background-color", "rgb(8, 125, 187)");
-  await fab.click();
-  await expect(fab).toHaveAttribute("aria-expanded", "true");
+  const trigger = await openCreationMenu(page);
   await expect(page.locator("#creation-menu")).toBeVisible();
   await expect(page.locator("#creation-menu [data-creation-action]")).toHaveCount(5);
   await expect(page.locator('[data-creation-action="story"]')).toBeDisabled();
@@ -40,13 +49,13 @@ test("plus opens the creation menu, Post opens a clean composer and Back restore
   await page.screenshot({ path: info.outputPath("new-post-mobile.png") });
   await page.locator("#creation-back").click();
   await expect(page.locator("#products-container .product-card").first()).toBeVisible();
-  await expect(fab).toBeVisible();
+  await expect(trigger).toBeVisible();
   await context.close();
 });
 
 test("Photo/video opens one native picker and Next preserves media and details through Back", async ({ browser }) => {
   const { context, page } = await seller(browser);
-  await page.locator("#post-product-fab").click();
+  await openCreationMenu(page);
   await page.locator('[data-creation-action="post"]').click();
   await page.locator("#product-name").fill("My new shoes");
   const fileChooser = page.waitForEvent("filechooser");
@@ -78,7 +87,7 @@ test("posting a server failure retains the draft and does not blame the network"
     if (route.request().method() !== "POST") return route.continue();
     await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "Service unavailable" }) });
   });
-  await page.locator("#post-product-fab").click();
+  await openCreationMenu(page);
   await page.locator('[data-creation-action="post"]').click();
   await page.locator("#product-name").fill("Keep my draft");
   const buffer = await sharp({ create: { width: 40, height: 40, channels: 3, background: "#327855" } }).png().toBuffer();
@@ -98,12 +107,10 @@ test("posting a server failure retains the draft and does not blame the network"
 
 test("Media menu opens the existing mixed picker directly and menu Escape restores focus", async ({ browser }) => {
   const { context, page } = await seller(browser);
-  const fab = page.locator("#post-product-fab");
-  await fab.click();
+  const trigger = await openCreationMenu(page);
   await page.keyboard.press("Escape");
-  await expect(fab).toBeFocused();
-  await expect(fab).toHaveAttribute("aria-expanded", "false");
-  await fab.click();
+  await expect(trigger).toBeFocused();
+  await openCreationMenu(page);
   const fileChooser = page.waitForEvent("filechooser");
   await page.locator('[data-creation-action="media"]').click();
   const picker = await fileChooser;
@@ -139,7 +146,7 @@ test("existing edit controller keeps media and details editable and cancel retur
 
 test("creation menu and composer fit desktop and Arabic narrow screens with loaded icons", async ({ browser }, info) => {
   const { context, page } = await seller(browser, { width: 1280, height: 900 });
-  await page.locator("#post-product-fab").click();
+  await openCreationMenu(page);
   await page.screenshot({ path: info.outputPath("creation-menu-desktop.png") });
   await page.locator('[data-creation-action="post"]').click();
   await page.screenshot({ path: info.outputPath("new-post-desktop.png") });
@@ -152,7 +159,7 @@ test("creation menu and composer fit desktop and Arabic narrow screens with load
   expect(bounds.x + bounds.width).toBeLessThanOrEqual(320);
   await page.screenshot({ path: info.outputPath("new-post-arabic.png") });
   await page.locator("#creation-back").click();
-  await page.locator("#post-product-fab").click();
+  await openCreationMenu(page);
   await expect(page.locator("#creation-menu-title")).toHaveText("إنشاء محتوى جديد");
   await expect.poll(() => page.locator('#creation-menu img').evaluateAll(images => images.every(img => img.complete && img.naturalWidth > 0))).toBe(true);
   const metrics = await page.locator("#creation-menu").evaluate(el => ({ scroll: el.scrollWidth, width: el.clientWidth, right: el.getBoundingClientRect().right }));

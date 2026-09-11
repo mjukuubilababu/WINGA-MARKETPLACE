@@ -15,6 +15,7 @@
       deps.getHeaderUserTrigger?.()?.addEventListener("click", (event) => {
         event.preventDefault();
         event.stopPropagation();
+        deps.setHeaderMenuAnchor?.("profile");
         deps.renderHeaderUserMenu();
         deps.toggleHeaderUserMenu();
       });
@@ -139,7 +140,13 @@
 
     function bindPrimaryNav() {
       Array.from(deps.getNavItems?.() || []).forEach((item) => {
-        item.addEventListener("click", () => {
+        item.addEventListener("click", (event) => {
+          const shellAction = String(item.dataset.shellAction || "").trim();
+          if (shellAction) {
+            event.preventDefault();
+            deps.handleShellAction?.(shellAction, item);
+            return;
+          }
           const targetView = item.dataset.view;
           if (!deps.canAccessView(targetView)) {
             alert(deps.getAccessDeniedMessage(targetView));

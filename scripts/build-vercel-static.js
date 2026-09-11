@@ -71,7 +71,9 @@ const fileCopies = [
   ["node_modules/hls.js/dist/hls.light.min.js", "vendor/hls.light.min.js"],
   ["node_modules/lucide-static/LICENSE", "icons/create/LICENSE"],
   ...["plus", "newspaper", "clapperboard", "images", "circle-plus", "video", "arrow-left", "x"]
-    .map(name => [`node_modules/lucide-static/icons/${name}.svg`, `icons/create/${name}.svg`])
+    .map(name => [`node_modules/lucide-static/icons/${name}.svg`, `icons/create/${name}.svg`]),
+  ...["menu", "house", "layout-grid", "compass", "message-circle", "plus", "sparkles", "clapperboard"]
+    .map(name => [`node_modules/lucide-static/icons/${name}.svg`, `icons/navigation/${name}.svg`])
 ];
 
 const bundledModuleSources = [

@@ -256,16 +256,23 @@ test("broken-image products disappear from public feed but remain visible to the
   await context.close();
 });
 
-test("mobile category trigger opens sheet, drills into subcategories, and closes cleanly", async ({ browser }) => {
+test("mobile utility menu stays separate while bottom Categories opens the category sheet", async ({ browser }) => {
   const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure", {
     viewport: { width: 390, height: 844 },
     isMobile: true
   });
 
   await page.goto("/");
-  const trigger = page.locator("#mobile-category-button");
-  await expect(trigger).toBeVisible();
-  await trigger.click();
+  const utilityTrigger = page.locator("#mobile-category-button");
+  await expect(utilityTrigger).toBeVisible();
+  await utilityTrigger.click();
+  await expect(page.locator("#header-user-dropdown")).toBeVisible();
+  await expect(page.locator("#mobile-category-menu")).not.toBeVisible();
+  await utilityTrigger.click();
+
+  const categoryTrigger = page.locator("#mobile-categories-nav");
+  await expect(categoryTrigger).toBeVisible();
+  await categoryTrigger.click();
 
   const menu = page.locator("#mobile-category-menu");
   await expect(menu).toBeVisible();
@@ -273,7 +280,7 @@ test("mobile category trigger opens sheet, drills into subcategories, and closes
   const menuBox = await menu.boundingBox();
   expect(menuBox).not.toBeNull();
   expect(Math.round(menuBox.width)).toBeGreaterThanOrEqual(388);
-  expect(Math.round(menuBox.height)).toBeGreaterThan(640);
+  expect(Math.round(menuBox.height)).toBeGreaterThan(500);
   await expect(menu.locator(".mobile-main-category-row .mobile-category-row-chevron").first()).toBeVisible();
 
   const firstDrillCategory = menu.locator(".mobile-main-category-row").nth(1);
@@ -290,6 +297,36 @@ test("mobile category trigger opens sheet, drills into subcategories, and closes
 
   await page.mouse.click(12, 12);
   await expect(menu).not.toBeVisible();
+
+  await context.close();
+});
+
+test("mobile shell exposes five real destinations and reuses Inbox and Sell flows", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure", {
+    viewport: { width: 390, height: 844 },
+    isMobile: true
+  });
+
+  await page.goto("/");
+  await expect(page.locator("#bottom-nav")).toBeVisible();
+  await expect(page.locator("#bottom-nav [data-shell-action]")).toHaveCount(5);
+  await expect(page.locator("#quick-discovery-rail [data-discovery-action]")).toHaveCount(3);
+  await expect(page.locator("#post-product-fab")).not.toBeVisible();
+
+  await page.locator("#bottom-nav [data-shell-action='discover']").click();
+  await expect(page.locator("#sort-select")).toHaveValue("popular");
+  await expect(page.locator("#products-container .product-card").first()).toBeVisible();
+
+  await page.locator("#bottom-nav [data-shell-action='inbox']").click();
+  await expect(page.locator("#profile-messages-panel")).toBeVisible();
+  await expect(page.locator("#bottom-nav [data-shell-action='inbox']")).toHaveClass(/active/);
+
+  await page.locator("#bottom-nav [data-shell-action='home']").click();
+  await expect(page.locator("#products-container .product-card").first()).toBeVisible();
+  await expect(page.locator("#bottom-nav [data-shell-action='home']")).toHaveClass(/active/);
+
+  await page.locator("#bottom-nav [data-shell-action='sell']").click();
+  await expect(page.locator("#creation-menu")).toBeVisible();
 
   await context.close();
 });
@@ -1052,9 +1089,13 @@ test("mobile header hides on downward scroll, reappears on upward scroll, and st
 
   await page.evaluate(() => window.scrollTo(0, 720));
   await expect.poll(async () => page.evaluate(() => document.body.classList.contains("mobile-header-hidden"))).toBe(true);
+  await expect.poll(async () => page.evaluate(() => document.body.classList.contains("mobile-bottom-nav-hidden"))).toBe(true);
+  await expect(page.locator("#bottom-nav")).toHaveAttribute("data-mobile-nav-state", "hidden");
 
   await page.evaluate(() => window.scrollTo(0, 712));
   await expect.poll(async () => page.evaluate(() => document.body.classList.contains("mobile-header-hidden"))).toBe(false);
+  await expect.poll(async () => page.evaluate(() => document.body.classList.contains("mobile-bottom-nav-hidden"))).toBe(false);
+  await expect(page.locator("#bottom-nav")).toHaveAttribute("data-mobile-nav-state", "visible");
 
   await page.evaluate(() => window.scrollTo(0, 24));
   await expect.poll(async () => page.evaluate(() => document.body.classList.contains("mobile-header-hidden"))).toBe(false);
@@ -1736,7 +1777,7 @@ test("admin login route opens the admin surface without exposing admin in normal
   await page.click("#admin-login-button");
 
   await expect(page.locator("#admin-panel")).toBeVisible();
-  await expect(page.locator("#admin-nav-item")).toBeVisible();
+  await expect(page.locator("#bottom-nav")).not.toBeVisible();
   await expect(page.locator("[data-header-menu-action='profile']")).toHaveCount(0);
 
   await context.close();

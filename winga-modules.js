@@ -2466,6 +2466,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         mobileHeaderLastScrollY: 0,
         mobileHeaderLastToggleY: 0,
         mobileHeaderHidden: false,
+        activeMobileNav: "home",
         mobileHeaderScrollFrame: 0,
         lastScrollActivityAt: 0,
         homeScrollSaveFrame: 0,
@@ -5478,6 +5479,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       deps.getHeaderUserTrigger?.()?.addEventListener("click", (event) => {
         event.preventDefault();
         event.stopPropagation();
+        deps.setHeaderMenuAnchor?.("profile");
         deps.renderHeaderUserMenu();
         deps.toggleHeaderUserMenu();
       });
@@ -5602,7 +5604,13 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 
     function bindPrimaryNav() {
       Array.from(deps.getNavItems?.() || []).forEach((item) => {
-        item.addEventListener("click", () => {
+        item.addEventListener("click", (event) => {
+          const shellAction = String(item.dataset.shellAction || "").trim();
+          if (shellAction) {
+            event.preventDefault();
+            deps.handleShellAction?.(shellAction, item);
+            return;
+          }
           const targetView = item.dataset.view;
           if (!deps.canAccessView(targetView)) {
             alert(deps.getAccessDeniedMessage(targetView));
@@ -5841,26 +5849,18 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     }
 
     function shouldShowBottomNav() {
-      if (!deps.isAuthenticatedUser()) {
-        return false;
-      }
-      if (deps.canUseSellerFeatures() && !deps.isStaffUser()) {
-        return false;
-      }
-      if (deps.isBuyerUser() && !deps.canUseSellerFeatures()) {
-        return false;
-      }
-      if (!deps.isStaffUser() && deps.getCurrentView() === "home") {
-        return false;
-      }
-      return true;
+      return getViewportWidth() <= 720
+        && deps.getAppContainer()?.style.display !== "none"
+        && !deps.isStaffUser()
+        && ["home", "profile", "upload"].includes(deps.getCurrentView())
+        && !document.body.classList.contains("product-detail-open");
     }
 
     function shouldShowPostProductFab() {
       if (!deps.isAuthenticatedUser() || deps.isStaffUser() || !deps.canUseSellerFeatures()) {
         return false;
       }
-      if (deps.getCurrentView() !== "home" || deps.getEditingProductId()) {
+      if (getViewportWidth() <= 720 || deps.getCurrentView() !== "home" || deps.getEditingProductId()) {
         return false;
       }
       return !document.body.classList.contains("product-detail-open");
@@ -5901,7 +5901,9 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 
       uiState.mobileHeaderHidden = nextHidden;
       document.body.classList.toggle("mobile-header-hidden", nextHidden);
+      document.body.classList.toggle("mobile-bottom-nav-hidden", nextHidden);
       deps.getTopBar()?.setAttribute("data-mobile-header-state", nextHidden ? "hidden" : "visible");
+      deps.getBottomNav()?.setAttribute("data-mobile-nav-state", nextHidden ? "hidden" : "visible");
     }
 
     function syncMobileHeaderVisibility(force = false) {
@@ -5981,11 +5983,17 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 
     function updateMarketplaceActionChrome() {
       const bottomNav = deps.getBottomNav();
+      const quickDiscoveryRail = deps.getQuickDiscoveryRail?.();
       const postProductFab = deps.getPostProductFab();
       const viewHomeBackButton = deps.getViewHomeBackButton();
 
       if (bottomNav) {
         bottomNav.style.display = shouldShowBottomNav() ? "grid" : "none";
+      }
+      if (quickDiscoveryRail) {
+        quickDiscoveryRail.style.display = getViewportWidth() <= 720 && deps.getCurrentView() === "home"
+          ? "flex"
+          : "none";
       }
       if (postProductFab) {
         postProductFab.style.display = shouldShowPostProductFab() ? "inline-flex" : "none";

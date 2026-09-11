@@ -760,6 +760,10 @@ ${lcpImagePreloadTag}${imageOriginPreconnectTag}  <title>Chap kwa haraka</title>
   </div>
   <div id="app-container" style="display:none;">
     <header id="top-bar" class="panel">
+      <div id="mobile-category-shell">
+        <button id="mobile-category-button" type="button" aria-label="Open account and business menu" aria-controls="header-user-dropdown" aria-expanded="false" data-winga-i18n="shell.utilityMenu" data-winga-i18n-attr="aria-label" data-winga-i18n-lock><img src="/icons/navigation/menu.svg" width="26" height="26" alt=""></button>
+        <div id="mobile-category-menu" class="panel"></div>
+      </div>
       <div id="header-brand">
         <h2 id="header-brand-title">WINGA</h2>
         <p id="top-bar-subtitle"><span>Discover</span> products first. Sign in only when you want to <span>buy</span>, <span>chat</span>, or <span>sell</span>.</p>
@@ -793,10 +797,6 @@ ${lcpImagePreloadTag}${imageOriginPreconnectTag}  <title>Chap kwa haraka</title>
           <div id="search-dropdown" aria-live="polite"></div>
         </div>
       </div>
-      <div id="mobile-category-shell">
-        <button id="mobile-category-button" type="button" aria-label="Fungua categories" aria-expanded="false">&#9776;</button>
-        <div id="mobile-category-menu" class="panel"></div>
-      </div>
       <div id="header-user-menu" style="display:none;">
         <button id="header-user-trigger" type="button" aria-expanded="false" aria-label="Open account menu">
           <img id="header-user-avatar-image" alt="Profile avatar" style="display:none;">
@@ -805,6 +805,11 @@ ${lcpImagePreloadTag}${imageOriginPreconnectTag}  <title>Chap kwa haraka</title>
         </button>
         <div id="header-user-dropdown" class="panel" style="display:none;"></div>
       </div>
+      <nav id="quick-discovery-rail" aria-label="Quick discovery" data-winga-i18n="shell.quickDiscovery" data-winga-i18n-attr="aria-label" data-winga-i18n-lock>
+        <button type="button" data-discovery-action="create"><span class="quick-discovery-media"><img src="/icons/navigation/plus.svg" width="28" height="28" alt=""></span><span data-winga-i18n="shell.my" data-winga-i18n-lock>My</span></button>
+        <button type="button" data-discovery-action="new"><span class="quick-discovery-media"><img src="/icons/navigation/sparkles.svg" width="28" height="28" alt=""></span><span data-winga-i18n="shell.new" data-winga-i18n-lock>New</span></button>
+        <button type="button" data-discovery-action="reels"><span class="quick-discovery-media"><img src="/icons/navigation/clapperboard.svg" width="28" height="28" alt=""></span><span data-winga-i18n="shell.reels" data-winga-i18n-lock>Reels</span></button>
+      </nav>
     </header>
     <button id="view-home-back" type="button" aria-label="Rudi home">&#8592;</button>
     <div id="categories" class="panel"></div>
@@ -868,10 +873,11 @@ function buildDocumentShellEnd(options = {}) {
       </div>
     </div>
     <footer id="bottom-nav">
-      <button class="nav-item active" type="button" data-view="home"><span class="nav-icon">&#127968;</span><span>Home</span></button>
-      <button class="nav-item" type="button" data-view="upload"><span class="nav-icon">&#11014;&#65039;</span><span>Upload</span></button>
-      <button class="nav-item" type="button" data-view="profile"><span class="nav-icon">&#128100;</span><span>Profile</span></button>
-      <button class="nav-item" id="admin-nav-item" type="button" data-view="admin" style="display:none;"><span class="nav-icon">&#128737;&#65039;</span><span>Admin</span></button>
+      <button class="nav-item active" type="button" data-shell-action="home" aria-current="page"><img class="nav-icon" src="/icons/navigation/house.svg" width="25" height="25" alt=""><span data-winga-i18n="nav.home" data-winga-i18n-lock>Home</span></button>
+      <button class="nav-item" id="mobile-categories-nav" type="button" data-shell-action="categories" aria-controls="mobile-category-menu" aria-expanded="false"><img class="nav-icon" src="/icons/navigation/layout-grid.svg" width="25" height="25" alt=""><span data-winga-i18n="nav.categories" data-winga-i18n-lock>Categories</span></button>
+      <button class="nav-item" type="button" data-shell-action="discover"><img class="nav-icon" src="/icons/navigation/compass.svg" width="25" height="25" alt=""><span data-winga-i18n="nav.discover" data-winga-i18n-lock>Discover</span></button>
+      <button class="nav-item" type="button" data-shell-action="inbox"><img class="nav-icon" src="/icons/navigation/message-circle.svg" width="25" height="25" alt=""><span data-winga-i18n="nav.inbox" data-winga-i18n-lock>Inbox</span></button>
+      <button class="nav-item nav-item-sell" type="button" data-shell-action="sell" aria-haspopup="dialog" aria-controls="creation-menu"><span class="nav-sell-icon"><img class="nav-icon" src="/icons/navigation/plus.svg" width="27" height="27" alt=""></span><span data-winga-i18n="nav.sell" data-winga-i18n-lock>Sell</span></button>
     </footer>
     ${CREATION_ENTRY_HTML}
     <footer id="public-footer" class="panel" style="display:none;">

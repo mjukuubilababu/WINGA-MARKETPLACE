@@ -1888,13 +1888,18 @@ function hydrateSharedCollectionIntentState(username = currentUser) {
 }
 
 function closeMobileCategoryMenu() {
+  const wasCategoryNavigationActive = uiRuntimeState.activeMobileNav === "categories";
   searchRuntimeState.isMobileCategoryOpen = false;
   searchRuntimeState.mobileCategoryTopValue = "";
   mobileCategoryShell?.classList.remove("open");
-  mobileCategoryButton?.setAttribute("aria-expanded", "false");
+  mobileCategoriesNav?.setAttribute("aria-expanded", "false");
   document.body.classList.remove("mobile-category-sheet-open");
   syncMobileHeaderVisibility(true);
   syncBodyScrollLockState();
+  if (wasCategoryNavigationActive) {
+    uiRuntimeState.activeMobileNav = "home";
+    setActiveNav(currentView);
+  }
 }
 
 function closePinnedDesktopCategoryMenu(options = {}) {
@@ -1919,7 +1924,7 @@ function toggleMobileCategoryMenu(forceState) {
     renderFilterCategories();
   }
   mobileCategoryShell?.classList.toggle("open", searchRuntimeState.isMobileCategoryOpen);
-  mobileCategoryButton?.setAttribute("aria-expanded", String(searchRuntimeState.isMobileCategoryOpen));
+  mobileCategoriesNav?.setAttribute("aria-expanded", String(searchRuntimeState.isMobileCategoryOpen));
   syncMobileHeaderVisibility(true);
   syncMobileCategorySheetOffset();
   syncBodyScrollLockState();
@@ -2121,6 +2126,7 @@ function resetTransientChromeState() {
   searchBox?.classList.remove("mobile-open");
   mobileCategoryShell?.classList.remove("open");
   mobileCategoryButton?.setAttribute("aria-expanded", "false");
+  mobileCategoriesNav?.setAttribute("aria-expanded", "false");
   pinnedDesktopCategory = "";
   toggleHeaderUserMenu(false);
   document.body.classList.remove(
@@ -2130,7 +2136,8 @@ function resetTransientChromeState() {
     "context-chat-open",
     "media-action-sheet-open",
     "image-lightbox-open",
-    "mobile-header-hidden"
+    "mobile-header-hidden",
+    "mobile-bottom-nav-hidden"
   );
   setMobileHeaderHidden(false, { force: true });
   syncMobileHeaderVisibility(true);
@@ -5355,6 +5362,7 @@ function toggleHeaderUserMenu(forceState) {
   profileRuntimeState.isHeaderUserMenuOpen = typeof forceState === "boolean" ? forceState : !profileRuntimeState.isHeaderUserMenuOpen;
   headerUserMenu.classList.toggle("open", profileRuntimeState.isHeaderUserMenuOpen);
   headerUserTrigger.setAttribute("aria-expanded", String(profileRuntimeState.isHeaderUserMenuOpen));
+  mobileCategoryButton?.setAttribute("aria-expanded", String(profileRuntimeState.isHeaderUserMenuOpen));
   headerUserDropdown.style.display = profileRuntimeState.isHeaderUserMenuOpen ? "block" : "none";
   syncMobileHeaderVisibility(true);
 }
@@ -5368,6 +5376,7 @@ function renderHeaderUserMenu() {
     profileRuntimeState.isHeaderUserMenuOpen = false;
     headerUserMenu.classList.remove("open");
     headerUserTrigger.setAttribute("aria-expanded", "false");
+    mobileCategoryButton?.setAttribute("aria-expanded", "false");
     headerUserDropdown.style.display = "none";
     return;
   }
@@ -11290,6 +11299,8 @@ const {
   getAuthGateMessage: () => authGateCopy?.innerText || "",
   canAccessView,
   getAccessDeniedMessage,
+  handleShellAction: (action) => handleMobileShellAction(action),
+  setHeaderMenuAnchor: (anchor) => headerUserMenu?.setAttribute("data-menu-anchor", anchor || "profile"),
   closeMobileSearch: () => {
     searchRuntimeState.isMobileSearchOpen = false;
     searchBox.classList.remove("mobile-open");
@@ -11341,6 +11352,7 @@ const appChrome = window.WingaModules.navigation.createNavigationChromeModule({
   getAppContainer: () => appContainer,
   getTopBar: () => topBar,
   getBottomNav: () => bottomNav,
+  getQuickDiscoveryRail: () => quickDiscoveryRail,
   getPostProductFab: () => postProductFab,
   getViewHomeBackButton: () => viewHomeBackButton,
   getAuthContainer: () => authContainer,
@@ -12202,6 +12214,8 @@ const categories = document.getElementById("categories");
 const mobileCategoryShell = document.getElementById("mobile-category-shell");
 const mobileCategoryButton = document.getElementById("mobile-category-button");
 const mobileCategoryMenu = document.getElementById("mobile-category-menu");
+const mobileCategoriesNav = document.getElementById("mobile-categories-nav");
+const quickDiscoveryRail = document.getElementById("quick-discovery-rail");
 const navItems = document.querySelectorAll(".nav-item");
 const slidesTrack = document.getElementById("slides-track");
 const slideDots = document.getElementById("slide-dots");
@@ -15399,9 +15413,107 @@ bindSearchInputHandlers(searchInput);
   });
 });
 
+function setMobileShellActive(action = "home") {
+  uiRuntimeState.activeMobileNav = String(action || "home");
+  setActiveNav(currentView);
+}
+
+function openShellHome(options = {}) {
+  const alreadyHome = currentView === "home" && !document.body.classList.contains("product-detail-open");
+  closeMobileCategoryMenu();
+  toggleHeaderUserMenu(false);
+  setMobileShellActive(options.action || "home");
+  if (!alreadyHome) {
+    setCurrentViewState("home", { syncHistory: "push" });
+    renderCurrentView();
+    resumeRetainedHomeFeedSurface("mobile_shell_home_resume", {
+      productLimit: 8,
+      decodeLimit: 3,
+      delayMs: 0,
+      prefetch: false,
+      resumeContinuation: true
+    });
+    restoreStoredHomeScrollPosition();
+  }
+}
+
+function handleMobileShellAction(action = "") {
+  const safeAction = String(action || "").trim().toLowerCase();
+  if (!safeAction) return;
+  reportClientEvent("info", `nav_${safeAction}_clicked`, "Mobile shell action selected.", {
+    category: "navigation",
+    role: currentSession?.role || "guest"
+  });
+
+  if (safeAction === "home") {
+    openShellHome({ action: "home" });
+    return;
+  }
+  if (safeAction === "categories") {
+    openShellHome({ action: "categories" });
+    toggleMobileCategoryMenu(true);
+    return;
+  }
+  if (safeAction === "discover" || safeAction === "new" || safeAction === "reels") {
+    closeMobileCategoryMenu();
+    toggleHeaderUserMenu(false);
+    resetHomeBrowseState();
+    if (safeAction === "discover") sortSelect.value = "popular";
+    if (safeAction === "new") sortSelect.value = "newest";
+    if (safeAction === "reels") {
+      setCategorySelectionState("reels", { expandedBrowseCategory: "" });
+    }
+    setMobileShellActive(safeAction === "discover" ? "discover" : "home");
+    setCurrentViewState("home", { syncHistory: "push" });
+    renderFilterCategories();
+    renderCurrentView();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    return;
+  }
+  if (safeAction === "inbox") {
+    if (!isAuthenticatedUser()) {
+      promptGuestAuth({ preferredMode: "login", role: "buyer" });
+      return;
+    }
+    setMobileShellActive("inbox");
+    openProfileSection("profile-messages-panel");
+    return;
+  }
+  if (safeAction === "sell" || safeAction === "create") {
+    if (isAuthenticatedUser() && !canUseSellerFeatures() && !isStaffUser()) {
+      setMobileShellActive("");
+      openProfileSection("profile-seller-upgrade-panel");
+      return;
+    }
+    if (!isAuthenticatedUser() || isStaffUser()) {
+      promptGuestAuth({
+        preferredMode: "login",
+        role: "seller",
+        title: translateUi("auth.accountRequired", {}, "You need a seller account to continue")
+      });
+      return;
+    }
+    setMobileShellActive("sell");
+    productCreationController?.openMenu();
+  }
+}
+
 mobileCategoryButton?.addEventListener("click", (event) => {
+  event.preventDefault();
   event.stopPropagation();
-  toggleMobileCategoryMenu();
+  if (!isAuthenticatedUser()) {
+    promptGuestAuth({ preferredMode: "login", role: "buyer" });
+    return;
+  }
+  closeMobileCategoryMenu();
+  headerUserMenu?.setAttribute("data-menu-anchor", "utility");
+  renderHeaderUserMenu();
+  toggleHeaderUserMenu();
+});
+
+quickDiscoveryRail?.addEventListener("click", (event) => {
+  const action = event.target.closest?.("[data-discovery-action]")?.dataset.discoveryAction;
+  if (action) handleMobileShellAction(action);
 });
 
 registerAppEvent(document, "pointerdown", (event) => {
@@ -15409,6 +15521,9 @@ registerAppEvent(document, "pointerdown", (event) => {
     return;
   }
   if (mobileCategoryShell?.contains(event.target)) {
+    return;
+  }
+  if (mobileCategoriesNav?.contains(event.target)) {
     return;
   }
   closeMobileCategoryMenu();
@@ -15434,7 +15549,7 @@ registerAppEvent(document, "click", (event) => {
     return;
   }
 
-  if (!mobileCategoryShell?.contains(event.target)) {
+  if (!mobileCategoryShell?.contains(event.target) && !mobileCategoriesNav?.contains(event.target)) {
     closeMobileCategoryMenu();
   }
 
@@ -16531,8 +16646,10 @@ function loginSuccess(username, preferredCategory = "", sessionData = null, opti
   hideAuthGatePrompt();
   appContainer.style.display = "block";
   setDeepLinkLoadingShellVisible(true);
-  adminNavItem.style.display = isStaffUser() ? "inline-flex" : "none";
-  setAdminNavLabel(adminNavItem, getAdminNavLabel());
+  if (adminNavItem) {
+    adminNavItem.style.display = isStaffUser() ? "inline-flex" : "none";
+    setAdminNavLabel(adminNavItem, getAdminNavLabel());
+  }
   const storedCategory = restoreView && !isStaffUser() && storedViewState?.username === username && storedViewState?.selectedCategory
     ? getRestorableCategory(storedViewState.selectedCategory)
     : "all";
@@ -16692,8 +16809,10 @@ function logout() {
   document.body.classList.remove("auth-modal-open");
   hideAdminLoginScreen();
   appContainer.style.display = "block";
-  adminNavItem.style.display = "none";
-  setAdminNavLabel(adminNavItem, "Admin");
+  if (adminNavItem) {
+    adminNavItem.style.display = "none";
+    setAdminNavLabel(adminNavItem, "Admin");
+  }
   usernameInput.value = "";
   phoneNumberInput.value = "";
   nationalIdInput.value = "";
@@ -20608,13 +20727,20 @@ function updateResultsMeta(listLength) {
 }
 
 function setActiveNav(view) {
+  const inferredAction = view === "upload"
+    ? "sell"
+    : view === "profile" && profileRuntimeState.activeSection === "profile-messages-panel"
+      ? "inbox"
+      : view === "home" && ["home", "categories", "discover", "sell"].includes(uiRuntimeState.activeMobileNav)
+        ? uiRuntimeState.activeMobileNav
+        : "";
   navItems.forEach((item) => {
-    const targetView = item.dataset.view;
-    const shouldHide = (targetView === "upload" && !canUseSellerFeatures())
-      || (targetView === "profile" && isStaffUser())
-      || (targetView === "admin" && !isStaffUser());
-    item.style.display = shouldHide ? "none" : "";
-    item.classList.toggle("active", item.dataset.view === view);
+    const action = String(item.dataset.shellAction || "");
+    const isActive = Boolean(action && action === inferredAction);
+    item.style.display = "";
+    item.classList.toggle("active", isActive);
+    if (isActive) item.setAttribute("aria-current", "page");
+    else item.removeAttribute("aria-current");
   });
 }
 

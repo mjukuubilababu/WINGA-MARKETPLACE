@@ -5,6 +5,13 @@ const sharp = require("sharp");
 const vm = require("node:vm");
 const baseUrl = "http://127.0.0.1:43080/api";
 
+async function openCreationMenu(page) {
+  const mobileSell = page.locator("#bottom-nav [data-shell-action='sell']");
+  const trigger = await mobileSell.isVisible() ? mobileSell : page.locator("#post-product-fab");
+  await expect(trigger).toBeVisible();
+  await trigger.click();
+}
+
 async function sellerPage(browser, viewport = { width: 390, height: 844 }, unsupported = false, streamed = false) {
   const context = await browser.newContext({ viewport });
   const session = JSON.parse(fs.readFileSync(path.join(__dirname, ".seed-sessions.json"), "utf8")).buyer_seller;
@@ -40,7 +47,7 @@ async function sellerPage(browser, viewport = { width: 390, height: 844 }, unsup
   }
   await page.goto("/");
   await page.waitForFunction(() => typeof canUseSellerFeatures === "function" && canUseSellerFeatures());
-  await page.locator("#post-product-fab").click();
+  await openCreationMenu(page);
   await page.locator('[data-creation-action="post"]').click();
   await expect(page.locator("#upload-form")).toBeVisible();
   return { context, page };
@@ -88,7 +95,7 @@ async function capturePublish(context, lostResponse = false) {
 
 async function selectReelPhotos(page, images) {
   await page.locator("#creation-back").click();
-  await page.locator("#post-product-fab").click();
+  await openCreationMenu(page);
   const chooserEvent = page.waitForEvent("filechooser");
   await page.locator('[data-creation-action="reel"]').click();
   const chooser = await chooserEvent;
@@ -183,7 +190,7 @@ test("automatic reel creation can be cancelled and its spinner fits desktop and 
 test("unsupported reel generation leaves ordinary photo posting usable", async ({ browser }) => {
   const { context, page } = await sellerPage(browser, { width: 390, height: 844 }, true);
   await page.locator("#creation-back").click();
-  await page.locator("#post-product-fab").click();
+  await openCreationMenu(page);
   await page.locator('[data-creation-action="reel"]').click();
   await expect(page.locator("[data-reel-status]")).not.toBeEmpty();
   await expect(page.locator("[data-reel-spinner]")).not.toBeVisible();

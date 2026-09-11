@@ -33,26 +33,18 @@
     }
 
     function shouldShowBottomNav() {
-      if (!deps.isAuthenticatedUser()) {
-        return false;
-      }
-      if (deps.canUseSellerFeatures() && !deps.isStaffUser()) {
-        return false;
-      }
-      if (deps.isBuyerUser() && !deps.canUseSellerFeatures()) {
-        return false;
-      }
-      if (!deps.isStaffUser() && deps.getCurrentView() === "home") {
-        return false;
-      }
-      return true;
+      return getViewportWidth() <= 720
+        && deps.getAppContainer()?.style.display !== "none"
+        && !deps.isStaffUser()
+        && ["home", "profile", "upload"].includes(deps.getCurrentView())
+        && !document.body.classList.contains("product-detail-open");
     }
 
     function shouldShowPostProductFab() {
       if (!deps.isAuthenticatedUser() || deps.isStaffUser() || !deps.canUseSellerFeatures()) {
         return false;
       }
-      if (deps.getCurrentView() !== "home" || deps.getEditingProductId()) {
+      if (getViewportWidth() <= 720 || deps.getCurrentView() !== "home" || deps.getEditingProductId()) {
         return false;
       }
       return !document.body.classList.contains("product-detail-open");
@@ -93,7 +85,9 @@
 
       uiState.mobileHeaderHidden = nextHidden;
       document.body.classList.toggle("mobile-header-hidden", nextHidden);
+      document.body.classList.toggle("mobile-bottom-nav-hidden", nextHidden);
       deps.getTopBar()?.setAttribute("data-mobile-header-state", nextHidden ? "hidden" : "visible");
+      deps.getBottomNav()?.setAttribute("data-mobile-nav-state", nextHidden ? "hidden" : "visible");
     }
 
     function syncMobileHeaderVisibility(force = false) {
@@ -173,11 +167,17 @@
 
     function updateMarketplaceActionChrome() {
       const bottomNav = deps.getBottomNav();
+      const quickDiscoveryRail = deps.getQuickDiscoveryRail?.();
       const postProductFab = deps.getPostProductFab();
       const viewHomeBackButton = deps.getViewHomeBackButton();
 
       if (bottomNav) {
         bottomNav.style.display = shouldShowBottomNav() ? "grid" : "none";
+      }
+      if (quickDiscoveryRail) {
+        quickDiscoveryRail.style.display = getViewportWidth() <= 720 && deps.getCurrentView() === "home"
+          ? "flex"
+          : "none";
       }
       if (postProductFab) {
         postProductFab.style.display = shouldShowPostProductFab() ? "inline-flex" : "none";
