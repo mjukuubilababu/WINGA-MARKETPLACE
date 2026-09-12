@@ -183,7 +183,10 @@ test("guest feed video is edge to edge, muted, bounded to one player, and keeps 
       documentWidth: document.documentElement.scrollWidth,
       playerObjectFit: player ? getComputedStyle(player).objectFit : "",
       playbackMaxWidth: getComputedStyle(node).maxWidth,
-      playbackPaddingInline: `${getComputedStyle(node).paddingLeft} ${getComputedStyle(node).paddingRight}`
+      playbackPaddingInline: `${getComputedStyle(node).paddingLeft} ${getComputedStyle(node).paddingRight}`,
+      renderedAspectRatio: rect.width / rect.height,
+      galleryAspectRatio: node.closest("[data-feed-gallery-carousel]")?.getAttribute("data-feed-gallery-stable-ratio") || "",
+      mediaAspectRatio: Number.parseFloat(node.closest(".product-card-media")?.style.aspectRatio || "0")
     };
   });
   expect(state.width).toBeGreaterThanOrEqual(state.viewportWidth - 1);
@@ -192,6 +195,10 @@ test("guest feed video is edge to edge, muted, bounded to one player, and keeps 
   expect(state.muted).toBe(true);
   expect(state.playsInline).toBe(true);
   expect(state.playerObjectFit).toBe("contain");
+  expect(state.galleryAspectRatio).toBe("0.5625");
+  expect(state.mediaAspectRatio).toBeCloseTo(0.5625, 4);
+  expect(state.renderedAspectRatio).toBeGreaterThan(0.55);
+  expect(state.renderedAspectRatio).toBeLessThan(0.575);
   expect(state.playbackMaxWidth).toBe("100%");
   expect(state.playbackPaddingInline).toBe("0px 0px");
   expect(state.activePlayers).toBeLessThanOrEqual(1);

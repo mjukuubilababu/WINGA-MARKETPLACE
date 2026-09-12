@@ -11552,6 +11552,7 @@ const {
   canUseSellerFeatures,
   promptGuestAuth,
   renderFeedGalleryMarkup,
+  getStableFeedMediaRatio,
   bindFeedGalleryInteractions,
   bindImageFallbacks,
   bindProductEngagementSignals,
@@ -19985,6 +19986,10 @@ function getMarketplaceVideoPlaybackTools() {
 }
 function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
   return getMarketplaceGalleryTools().renderFeedGalleryMarkup?.(product, surface, options) || "";
+}
+
+function getStableFeedMediaRatio(product, surface = "feed") {
+  return getMarketplaceGalleryTools().getStableFeedMediaRatio?.(product, surface) || "4 / 5";
 }
 
 function getProductCardForEngagement(node) {

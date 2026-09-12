@@ -6551,15 +6551,37 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       `;
     }
 
-    function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
-      const safeImages = getRenderableMarketplaceImages(product);
-      const videoItems = (Array.isArray(product?.mediaItems) ? product.mediaItems : [])
+    function getReadyStreamVideoItems(product) {
+      return (Array.isArray(product?.mediaItems) ? product.mediaItems : [])
         .filter((item) => item?.type === "video"
           && item?.status === "ready"
           && item?.moderationStatus !== "rejected"
           && item?.provider === "cloudflare-stream"
           && /^[a-zA-Z0-9_-]{8,64}$/.test(String(item?.providerId || "").trim()))
         .slice(0, 1);
+    }
+
+    function getStableFeedMediaRatioFromItems(images, videoItems, usesFeedMediaFit) {
+      if (!usesFeedMediaFit) return "";
+      if (images.length !== 0 || videoItems.length !== 1) return "4 / 5";
+      const video = videoItems[0];
+      const width = Math.max(0, Number(video?.width || 0) || 0);
+      const height = Math.max(0, Number(video?.height || 0) || 0);
+      const ratio = Math.max(0, Number(video?.aspectRatio || 0) || (width > 0 && height > 0 ? width / height : 0));
+      if (!Number.isFinite(ratio) || ratio < 0.5 || ratio > 2) return "4 / 5";
+      return String(Number(ratio.toFixed(6)));
+    }
+
+    function getStableFeedMediaRatio(product, surface = "feed") {
+      const normalizedSurface = String(surface || "").trim().toLowerCase() || "feed";
+      const usesFeedMediaFit = normalizedSurface === "feed" || normalizedSurface === "detail-continuation";
+      const images = getRenderableMarketplaceImages(product);
+      return getStableFeedMediaRatioFromItems(images, getReadyStreamVideoItems(product), usesFeedMediaFit);
+    }
+
+    function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
+      const safeImages = getRenderableMarketplaceImages(product);
+      const videoItems = getReadyStreamVideoItems(product);
       const images = safeImages.length > 0
         ? safeImages
         : (videoItems.length > 0 ? [] : [getImageFallbackDataUri("WINGA")]);
@@ -6591,9 +6613,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         : (isDetailContinuationSurface
           ? "contain"
           : normalizeProductFitMode(options?.fitMode || getProductFitMode(product)));
-      const stableFrameRatio = usesFeedMediaFit
-        ? "4 / 5"
-        : "";
+      const stableFrameRatio = getStableFeedMediaRatioFromItems(images, videoItems, usesFeedMediaFit);
       if (options?.preload && typeof preloadImageSource === "function") {
         images.slice(0, Math.min(images.length, 1, priorityLimit)).forEach((src, index) => {
           preloadImageSource(src, {
@@ -7088,6 +7108,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 
     return {
       renderFeedGalleryMarkup,
+      getStableFeedMediaRatio,
       disposeFeedGalleryBinding,
       bindFeedGalleryInteractions
     };
@@ -12611,9 +12632,15 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         : null;
       const variantColor = String(product?.variantColor || selectedVariant?.color || selectedVariant?.name || "").trim();
       const storedAspectRatio = Number(product?.imageAspectRatios?.[stableInitialImageIndex] || 0);
-      const stableMediaRatio = Number.isFinite(storedAspectRatio) && storedAspectRatio > 0.2 && storedAspectRatio < 5
-        ? String(Number(storedAspectRatio.toFixed(6)))
-        : "4 / 5";
+      const hasRenderableImages = (deps.getRenderableMarketplaceImages?.(product) || []).length > 0;
+      const videoOnlyRatio = !hasRenderableImages && typeof deps.getStableFeedMediaRatio === "function"
+        ? deps.getStableFeedMediaRatio(product, options.gallerySurface || "feed")
+        : "";
+      const stableMediaRatio = videoOnlyRatio || (
+        Number.isFinite(storedAspectRatio) && storedAspectRatio > 0.2 && storedAspectRatio < 5
+          ? String(Number(storedAspectRatio.toFixed(6)))
+          : "4 / 5"
+      );
       const media = createElement("div", { className: "product-card-media" });
       media.style.setProperty("--fit-media-aspect-ratio", stableMediaRatio);
       media.style.aspectRatio = stableMediaRatio;

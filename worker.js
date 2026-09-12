@@ -969,7 +969,7 @@ function buildDiscoveryProductCardHtml(product, index, context) {
   });
   const requestedInitialIndex = Number(product?.feedInitialImageIndex ?? product?.visibleImageIndex ?? 0);
   const initialImageIndex = Number.isFinite(requestedInitialIndex) ? Math.max(0, requestedInitialIndex) : 0;
-  const stableMediaRatio = "4 / 5";
+  const stableMediaRatio = getStableFeedMediaRatio(product);
 
   return `
     <article class="seller-product-card${Array.isArray(product.images) && product.images.length > 1 ? " has-gallery-count-badge" : ""}" data-open-product="${escapeHtml(product.id)}" data-open-image-index="${escapeHtml(product.feedInitialImageIndex || 0)}" data-feed-entry-key="product:${escapeHtml(product.id)}" data-feed-entry-type="product" data-feed-sequence-index="${index + 1}" data-variant-display-index="${escapeHtml(product.variantDisplayIndex || 0)}"${product.selectedVariantIndex != null && Number.isFinite(Number(product.selectedVariantIndex)) ? ` data-selected-variant-index="${escapeHtml(product.selectedVariantIndex)}"` : ""}>
@@ -1086,6 +1086,20 @@ function getReadyStreamVideoItems(product) {
     .slice(0, 1);
 }
 
+function getStableFeedMediaRatio(product) {
+  const videos = getReadyStreamVideoItems(product);
+  const images = dedupeUrls((Array.isArray(product?.images) ? product.images : [])
+    .map((image) => String(image || "").trim())
+    .filter(Boolean));
+  if (images.length !== 0 || videos.length !== 1) return "4 / 5";
+  const video = videos[0];
+  const width = Math.max(0, Number(video?.width || 0) || 0);
+  const height = Math.max(0, Number(video?.height || 0) || 0);
+  const ratio = Math.max(0, Number(video?.aspectRatio || 0) || (width > 0 && height > 0 ? width / height : 0));
+  if (!Number.isFinite(ratio) || ratio < 0.5 || ratio > 2) return "4 / 5";
+  return String(Number(ratio.toFixed(6)));
+}
+
 function renderFeedGalleryMarkup(product, options = {}) {
   const videoItems = getReadyStreamVideoItems(product);
   const productImages = dedupeUrls((Array.isArray(product?.images) ? product.images : [])
@@ -1105,7 +1119,7 @@ function renderFeedGalleryMarkup(product, options = {}) {
   const initialImageIndex = imageTotal > 1
     ? Math.max(0, Math.min(imageTotal - 1, Number.isFinite(requestedInitialImageIndex) ? requestedInitialImageIndex : 0))
     : 0;
-  const stableFrameRatio = "4 / 5";
+  const stableFrameRatio = getStableFeedMediaRatio(product);
   const fitMode = "cover";
   const imageSlidesMarkup = images.map((imageSrc, index) => {
     const safeSrc = escapeHtml(imageSrc);

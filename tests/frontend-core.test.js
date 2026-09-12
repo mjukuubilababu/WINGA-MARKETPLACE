@@ -28,7 +28,8 @@ test("home feed reserves stable media and deferred section geometry", () => {
 
   assert.match(buildSource, /"src\/marketplace\/gallery\.js"/);
   assert.match(gallerySource, /window\.WingaModules\.marketplace\.createGalleryModule = createGalleryModule;/);
-  assert.match(gallerySource, /const stableFrameRatio = usesFeedMediaFit\s*\?\s*"4 \/ 5"\s*:\s*"";/);
+  assert.match(gallerySource, /const stableFrameRatio = getStableFeedMediaRatioFromItems\(images, videoItems, usesFeedMediaFit\);/);
+  assert.match(gallerySource, /if \(images.length !== 0 \|\| videoItems.length !== 1\) return "4 \/ 5";/);
   assert.match(gallerySource, /const ratioValue = stableRatio \|\| "4 \/ 5";/);
   assert.match(appSource, /window\.WingaModules\?\.marketplace\?\.createGalleryModule/);
   assert.match(appSource, /window\.requestAnimationFrame\(\(\) => \{\s+try \{\s+onChunk\?\.\(chunk\);/);
@@ -219,13 +220,25 @@ test("marketplace gallery adds one secure ready video slide without collapsing p
     images: [],
     mediaItems: [{
       type: "video", status: "ready", moderationStatus: "approved",
-      provider: "cloudflare-stream", providerId: "stream-video-only", posterUrl: "video-poster.jpg"
+      provider: "cloudflare-stream", providerId: "stream-video-only", posterUrl: "video-poster.jpg",
+      width: 720, height: 1280, aspectRatio: 0.5625
     }]
   }, "feed");
   assert.match(videoOnlyHtml, /data-feed-gallery-total="1"/);
   assert.equal((videoOnlyHtml.match(/data-feed-gallery-slide=/g) || []).length, 1);
   assert.match(videoOnlyHtml, /data-video-provider-id="stream-video-only"/);
   assert.match(videoOnlyHtml, /data-video-content-type="video"/);
+  assert.match(videoOnlyHtml, /data-feed-gallery-stable-ratio="0.5625"/);
+  assert.match(videoOnlyHtml, /--fit-media-aspect-ratio:0.5625/);
+  assert.equal(gallery.getStableFeedMediaRatio({
+    images: [],
+    mediaItems: [{
+      type: "video", status: "ready", moderationStatus: "approved",
+      provider: "cloudflare-stream", providerId: "stream-video-only",
+      width: 720, height: 1280, aspectRatio: 0.5625
+    }]
+  }, "feed"), "0.5625");
+  assert.equal(gallery.getStableFeedMediaRatio(product, "feed"), "4 / 5");
   assert.match(videoOnlyHtml, /src="video-poster.jpg"/);
   assert.doesNotMatch(videoOnlyHtml, /class="feed-gallery-image/);
   const privatePosterHtml = gallery.renderFeedGalleryMarkup({
@@ -259,6 +272,8 @@ test("marketplace gallery adds one secure ready video slide without collapsing p
   assert.match(buildSource, /"src\/marketplace\/video-playback\.js"/);
   assert.match(serverSource, /SESSION_ONLY_STORE_TABLES/);
   assert.match(serverSource, /key: "\/api\/media\/videos\/:providerId\/playback-token"/);
+  assert.match(workerSource, /const stableFrameRatio = getStableFeedMediaRatio\(product\);/);
+  assert.match(workerSource, /const stableMediaRatio = getStableFeedMediaRatio\(product\);/);
   assert.match(playbackSource, /reportMetric\(event, Object\.freeze\(\{ \.\.\.detail \}\)\)/);
   assert.match(playbackSource, /video_playback_started/);
   assert.equal(playbackSource.includes("maxConcurrentPrewarms"), true);

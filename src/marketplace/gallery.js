@@ -63,15 +63,37 @@
       `;
     }
 
-    function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
-      const safeImages = getRenderableMarketplaceImages(product);
-      const videoItems = (Array.isArray(product?.mediaItems) ? product.mediaItems : [])
+    function getReadyStreamVideoItems(product) {
+      return (Array.isArray(product?.mediaItems) ? product.mediaItems : [])
         .filter((item) => item?.type === "video"
           && item?.status === "ready"
           && item?.moderationStatus !== "rejected"
           && item?.provider === "cloudflare-stream"
           && /^[a-zA-Z0-9_-]{8,64}$/.test(String(item?.providerId || "").trim()))
         .slice(0, 1);
+    }
+
+    function getStableFeedMediaRatioFromItems(images, videoItems, usesFeedMediaFit) {
+      if (!usesFeedMediaFit) return "";
+      if (images.length !== 0 || videoItems.length !== 1) return "4 / 5";
+      const video = videoItems[0];
+      const width = Math.max(0, Number(video?.width || 0) || 0);
+      const height = Math.max(0, Number(video?.height || 0) || 0);
+      const ratio = Math.max(0, Number(video?.aspectRatio || 0) || (width > 0 && height > 0 ? width / height : 0));
+      if (!Number.isFinite(ratio) || ratio < 0.5 || ratio > 2) return "4 / 5";
+      return String(Number(ratio.toFixed(6)));
+    }
+
+    function getStableFeedMediaRatio(product, surface = "feed") {
+      const normalizedSurface = String(surface || "").trim().toLowerCase() || "feed";
+      const usesFeedMediaFit = normalizedSurface === "feed" || normalizedSurface === "detail-continuation";
+      const images = getRenderableMarketplaceImages(product);
+      return getStableFeedMediaRatioFromItems(images, getReadyStreamVideoItems(product), usesFeedMediaFit);
+    }
+
+    function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
+      const safeImages = getRenderableMarketplaceImages(product);
+      const videoItems = getReadyStreamVideoItems(product);
       const images = safeImages.length > 0
         ? safeImages
         : (videoItems.length > 0 ? [] : [getImageFallbackDataUri("WINGA")]);
@@ -103,9 +125,7 @@
         : (isDetailContinuationSurface
           ? "contain"
           : normalizeProductFitMode(options?.fitMode || getProductFitMode(product)));
-      const stableFrameRatio = usesFeedMediaFit
-        ? "4 / 5"
-        : "";
+      const stableFrameRatio = getStableFeedMediaRatioFromItems(images, videoItems, usesFeedMediaFit);
       if (options?.preload && typeof preloadImageSource === "function") {
         images.slice(0, Math.min(images.length, 1, priorityLimit)).forEach((src, index) => {
           preloadImageSource(src, {
@@ -600,6 +620,7 @@
 
     return {
       renderFeedGalleryMarkup,
+      getStableFeedMediaRatio,
       disposeFeedGalleryBinding,
       bindFeedGalleryInteractions
     };
