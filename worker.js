@@ -1086,6 +1086,13 @@ function getReadyStreamVideoItems(product) {
     .slice(0, 1);
 }
 
+function getBoundedImageAspectRatio(product, index = 0) {
+  const imageRatio = Number(product?.imageAspectRatios?.[index] || 0);
+  return Number.isFinite(imageRatio) && imageRatio > 0.2 && imageRatio < 5
+    ? Number(imageRatio.toFixed(6))
+    : 0;
+}
+
 function getStableFeedMediaRatio(product) {
   const videos = getReadyStreamVideoItems(product);
   const images = dedupeUrls((Array.isArray(product?.images) ? product.images : [])
@@ -1094,9 +1101,9 @@ function getStableFeedMediaRatio(product) {
   if (images.length > 0) {
     const requestedIndex = Number(product?.feedInitialImageIndex ?? product?.visibleImageIndex ?? product?.variantDisplayIndex ?? 0);
     const index = Math.max(0, Math.min(images.length - 1, Number.isFinite(requestedIndex) ? requestedIndex : 0));
-    const imageRatio = Number(product?.imageAspectRatios?.[index] || 0);
-    return Number.isFinite(imageRatio) && imageRatio > 0.2 && imageRatio < 5
-      ? String(Number(imageRatio.toFixed(6)))
+    const imageRatio = getBoundedImageAspectRatio(product, index);
+    return imageRatio > 0
+      ? String(imageRatio)
       : "4 / 5";
   }
   if (videos.length !== 1) return "4 / 5";
@@ -1131,11 +1138,14 @@ function renderFeedGalleryMarkup(product, options = {}) {
   const fitMode = "contain";
   const imageSlidesMarkup = images.map((imageSrc, index) => {
     const safeSrc = escapeHtml(imageSrc);
+    const imageAspectRatio = getBoundedImageAspectRatio(product, index);
     const isInitialImage = index === initialImageIndex;
     const shouldLoadEagerly = isInitialImage && Boolean(options.eager);
     const isLcpPriorityImage = isInitialImage && Boolean(options.priority);
     return `
-      <div class="feed-gallery-carousel-slide" data-feed-gallery-slide="${index}">
+      <div class="feed-gallery-carousel-slide"
+        data-feed-gallery-slide="${index}"
+        ${imageAspectRatio > 0 ? `data-feed-gallery-image-ratio="${escapeHtml(String(imageAspectRatio))}"` : ""}>
         <span class="progressive-image-shell fit-mode-${fitMode} is-loaded">
           <img
             src="${safeSrc}"

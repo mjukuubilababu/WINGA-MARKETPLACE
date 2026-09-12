@@ -6561,13 +6561,20 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         .slice(0, 1);
     }
 
+    function getBoundedImageAspectRatio(product, index = 0) {
+      const imageRatio = Number(product?.imageAspectRatios?.[index] || 0);
+      return Number.isFinite(imageRatio) && imageRatio > 0.2 && imageRatio < 5
+        ? Number(imageRatio.toFixed(6))
+        : 0;
+    }
+
     function getStableFeedMediaRatioFromItems(product, images, videoItems, usesFeedMediaFit, initialImageIndex = 0) {
       if (!usesFeedMediaFit) return "";
       if (images.length > 0) {
         const index = Math.max(0, Math.min(images.length - 1, Number(initialImageIndex || 0) || 0));
-        const imageRatio = Number(product?.imageAspectRatios?.[index] || 0);
-        return Number.isFinite(imageRatio) && imageRatio > 0.2 && imageRatio < 5
-          ? String(Number(imageRatio.toFixed(6)))
+        const imageRatio = getBoundedImageAspectRatio(product, index);
+        return imageRatio > 0
+          ? String(imageRatio)
           : "4 / 5";
       }
       if (videoItems.length !== 1) return "4 / 5";
@@ -6666,8 +6673,11 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       }
       const imageSlides = images.map((src, index) => {
         const safeSrc = sanitizeImageSource(String(src || "").trim(), getImageFallbackDataUri("WINGA"));
+        const imageAspectRatio = getBoundedImageAspectRatio(product, index);
         return `
-          <div class="feed-gallery-carousel-slide feed-gallery-tile" data-feed-gallery-slide="${index}">
+          <div class="feed-gallery-carousel-slide feed-gallery-tile"
+            data-feed-gallery-slide="${index}"
+            ${imageAspectRatio > 0 ? `data-feed-gallery-image-ratio="${escapeHtml(String(imageAspectRatio))}"` : ""}>
             ${renderFallbackImageMarkup({
               src: safeSrc,
               alt: `${product?.name || product?.shop || "Product image"} ${index + 1}`,
@@ -6795,6 +6805,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         let suppressClickUntil = 0;
         let resizeObserver = null;
         let initSyncTimer = 0;
+        let settledRatioTimer = 0;
         let lastTrackedIndex = 0;
         let variationSignalCount = 0;
         const initialGalleryIndex = Math.max(
@@ -6850,7 +6861,12 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             ).trim().toLowerCase() === "contain" ? "contain" : "cover";
             const authorityImage = carousel.querySelector('[data-feed-gallery-primary="true"]')
               || carousel.querySelector('[data-feed-gallery-slide="0"] .feed-gallery-image-social');
-            const ratioValue = stableRatio || "4 / 5";
+            const activeRatio = String(
+              carousel.dataset.feedGalleryActiveRatio
+              || preview.dataset.feedGalleryActiveRatio
+              || ""
+            ).trim();
+            const ratioValue = activeRatio || stableRatio || "4 / 5";
             preview.dataset.fitMode = stableFitMode;
             carousel.dataset.fitMode = stableFitMode;
             preview.dataset.feedGalleryStableRatio = ratioValue;
@@ -6923,6 +6939,51 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             badge.textContent = nextLabel;
           }
           return currentIndex;
+        };
+
+        const syncSettledFeedAspectRatio = () => {
+          if (String(carousel.dataset.feedGallerySurface || "").trim().toLowerCase() !== "feed") {
+            return;
+          }
+          const total = Math.max(1, Number(carousel.dataset.feedGalleryTotal || track.querySelectorAll("[data-feed-gallery-slide]").length || 1));
+          const width = Math.max(1, track.clientWidth || carousel.clientWidth || 1);
+          const currentIndex = Math.min(total - 1, Math.max(0, Math.round(track.scrollLeft / width)));
+          const currentSlide = carousel.querySelector(`[data-feed-gallery-slide="${currentIndex}"]`);
+          const currentImage = currentSlide?.querySelector?.(".feed-gallery-image-social");
+          let imageRatio = Number(currentSlide?.dataset.feedGalleryImageRatio || 0);
+          if (!Number.isFinite(imageRatio) || imageRatio <= 0.2 || imageRatio >= 5) {
+            const naturalWidth = Number(currentImage?.naturalWidth || 0);
+            const naturalHeight = Number(currentImage?.naturalHeight || 0);
+            imageRatio = naturalWidth > 0 && naturalHeight > 0 ? naturalWidth / naturalHeight : 0;
+          }
+          if (!Number.isFinite(imageRatio) || imageRatio <= 0.2 || imageRatio >= 5) {
+            if (currentImage && currentImage.dataset.feedGalleryRatioLoadBound !== "true") {
+              currentImage.dataset.feedGalleryRatioLoadBound = "true";
+              currentImage.addEventListener("load", () => {
+                delete currentImage.dataset.feedGalleryRatioLoadBound;
+                syncSettledFeedAspectRatio();
+              }, { once: true, ...(listenerOptions || {}) });
+            }
+            return;
+          }
+          const ratioValue = String(Number(imageRatio.toFixed(6)));
+          currentSlide.dataset.feedGalleryImageRatio = ratioValue;
+          if (carousel.dataset.feedGalleryActiveRatio === ratioValue) {
+            return;
+          }
+          carousel.dataset.feedGalleryActiveRatio = ratioValue;
+          preview.dataset.feedGalleryActiveRatio = ratioValue;
+          syncAspectRatio();
+        };
+
+        const scheduleSettledFeedAspectRatio = () => {
+          if (settledRatioTimer) {
+            window.clearTimeout(settledRatioTimer);
+          }
+          settledRatioTimer = window.setTimeout(() => {
+            settledRatioTimer = 0;
+            syncSettledFeedAspectRatio();
+          }, 120);
         };
 
         const recordVariationInterestIfNeeded = (currentIndex) => {
@@ -7000,6 +7061,10 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             window.clearTimeout(initSyncTimer);
             initSyncTimer = 0;
           }
+          if (settledRatioTimer) {
+            window.clearTimeout(settledRatioTimer);
+            settledRatioTimer = 0;
+          }
           if (resizeObserver) {
             resizeObserver.disconnect();
             resizeObserver = null;
@@ -7009,9 +7074,13 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         };
         carousel.__wingaCleanup = cleanup;
 
-        track.addEventListener("scroll", scheduleSync, { passive: true, ...(listenerOptions || {}) });
-        track.addEventListener("touchend", scheduleSync, { passive: true, ...(listenerOptions || {}) });
-        track.addEventListener("touchcancel", scheduleSync, { passive: true, ...(listenerOptions || {}) });
+        const handleTrackScroll = () => {
+          scheduleSync();
+          scheduleSettledFeedAspectRatio();
+        };
+        track.addEventListener("scroll", handleTrackScroll, { passive: true, ...(listenerOptions || {}) });
+        track.addEventListener("touchend", scheduleSettledFeedAspectRatio, { passive: true, ...(listenerOptions || {}) });
+        track.addEventListener("touchcancel", scheduleSettledFeedAspectRatio, { passive: true, ...(listenerOptions || {}) });
         track.addEventListener("click", (event) => {
           if (suppressClickUntil && Date.now() < suppressClickUntil) {
             event.preventDefault();
@@ -7099,6 +7168,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             clearDragState();
             settleDetailCarousel();
             scheduleSync();
+            scheduleSettledFeedAspectRatio();
           }, listenerOptions);
 
           track.addEventListener("pointercancel", (event) => {
@@ -7108,12 +7178,14 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             clearDragState();
             settleDetailCarousel();
             scheduleSync();
+            scheduleSettledFeedAspectRatio();
           }, listenerOptions);
 
           track.addEventListener("lostpointercapture", () => {
             clearDragState();
             settleDetailCarousel();
             scheduleSync();
+            scheduleSettledFeedAspectRatio();
           }, listenerOptions);
         }
       });

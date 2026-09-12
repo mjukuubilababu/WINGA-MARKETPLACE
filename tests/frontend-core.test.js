@@ -30,8 +30,13 @@ test("home feed reserves stable media and deferred section geometry", () => {
   assert.match(gallerySource, /window\.WingaModules\.marketplace\.createGalleryModule = createGalleryModule;/);
   assert.match(gallerySource, /const stableFrameRatio = getStableFeedMediaRatioFromItems\(product, images, videoItems, usesFeedMediaFit, initialImageIndex\);/);
   assert.match(gallerySource, /if \(images\.length > 0\) \{/);
-  assert.match(gallerySource, /const imageRatio = Number\(product\?\.imageAspectRatios\?\.\[index\] \|\| 0\);/);
-  assert.match(gallerySource, /const ratioValue = stableRatio \|\| "4 \/ 5";/);
+  assert.match(gallerySource, /function getBoundedImageAspectRatio\(product, index = 0\)/);
+  assert.match(gallerySource, /data-feed-gallery-image-ratio=/);
+  assert.match(gallerySource, /const ratioValue = activeRatio \|\| stableRatio \|\| "4 \/ 5";/);
+  assert.match(gallerySource, /const syncSettledFeedAspectRatio = \(\) => \{/);
+  assert.match(gallerySource, /imageRatio = naturalWidth > 0 && naturalHeight > 0 \? naturalWidth \/ naturalHeight : 0;/);
+  assert.match(gallerySource, /currentImage\.addEventListener\("load", \(\) => \{/);
+  assert.match(gallerySource, /\}, 120\);/);
   assert.match(appSource, /window\.WingaModules\?\.marketplace\?\.createGalleryModule/);
   assert.match(appSource, /window\.requestAnimationFrame\(\(\) => \{\s+try \{\s+onChunk\?\.\(chunk\);/);
   assert.match(styleSource, /#products-container > \.product-card > \.product-card-media,\s*#products-container > \.seller-product-card > \.seller-product-card-media\{\s+aspect-ratio:var\(--fit-media-aspect-ratio, 4 \/ 5\) !important;/);
@@ -166,6 +171,8 @@ test("marketplace gallery module preserves feed carousel markup contract", () =>
   assert.match(html, /data-feed-gallery-current="2"/);
   assert.match(html, /data-feed-gallery-initial-index="1"/);
   assert.match(html, /data-feed-gallery-stable-ratio="0\.7"/);
+  assert.match(html, /data-feed-gallery-image-ratio="0\.8"/);
+  assert.match(html, /data-feed-gallery-image-ratio="0\.7"/);
   assert.match(html, /data-fit-mode="contain"/);
   assert.match(html, /data-direct-visibility="true"/);
   assert.match(html, /fetchpriority="high"/);

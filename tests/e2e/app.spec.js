@@ -1995,6 +1995,42 @@ test("home feed multi-image posts preserve every swipe slide and open the full g
   galleryGeometry.slideWidths.forEach((width) => expect(Math.abs(width - galleryGeometry.clientWidth)).toBeLessThanOrEqual(1));
   expect(galleryGeometry.scrollWidth).toBeLessThanOrEqual((galleryGeometry.clientWidth * 5) + 2);
 
+  const feedGallery = multiImageCard.locator("[data-feed-gallery-carousel=\"true\"]");
+  await feedGallery.evaluate((gallery) => {
+    const track = gallery.querySelector("[data-feed-gallery-track]");
+    const slides = gallery.querySelectorAll("[data-feed-gallery-slide]");
+    slides[0].dataset.feedGalleryImageRatio = "0.8";
+    slides[1].dataset.feedGalleryImageRatio = "0.5";
+    gallery.dataset.feedGalleryStableRatio = "0.8";
+    gallery.dataset.feedGalleryActiveRatio = "0.8";
+    track.scrollLeft = track.clientWidth;
+    track.dispatchEvent(new Event("scroll"));
+  });
+  await expect.poll(async () => feedGallery.evaluate((gallery) => ({
+    activeRatio: gallery.dataset.feedGalleryActiveRatio,
+    frameRatio: getComputedStyle(gallery.closest(".product-card-media")).aspectRatio,
+    current: gallery.dataset.feedGalleryCurrent
+  }))).toEqual({
+    activeRatio: "0.5",
+    frameRatio: "0.5 / 1",
+    current: "2"
+  });
+
+  await feedGallery.evaluate((gallery) => {
+    const track = gallery.querySelector("[data-feed-gallery-track]");
+    const thirdSlide = gallery.querySelector('[data-feed-gallery-slide="2"]');
+    delete thirdSlide.dataset.feedGalleryImageRatio;
+    track.scrollLeft = track.clientWidth * 2;
+    track.dispatchEvent(new Event("scroll"));
+  });
+  await expect.poll(async () => feedGallery.evaluate((gallery) => ({
+    activeRatio: gallery.dataset.feedGalleryActiveRatio,
+    current: gallery.dataset.feedGalleryCurrent
+  }))).toEqual({
+    activeRatio: "1",
+    current: "3"
+  });
+
   await multiImageCard.click();
   await expect(page.locator("#product-detail-modal")).toBeVisible();
   const detailGallery = page.locator("#product-detail-modal [data-feed-gallery-surface='detail']").first();
