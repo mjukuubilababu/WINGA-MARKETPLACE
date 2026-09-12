@@ -91,8 +91,14 @@ test("Stream signed playback tokens are short-lived and non-downloadable", async
     config: readCloudflareStreamConfig({ CLOUDFLARE_STREAM_ACCOUNT_ID: "account-123", CLOUDFLARE_STREAM_API_TOKEN: "secret", CLOUDFLARE_STREAM_CUSTOMER_CODE: "customer-code", CLOUDFLARE_STREAM_PLAYBACK_TOKEN_TTL_SECONDS: "600" }),
     fetchImpl: async (url, init) => { calls.push({ url, init }); requestBody = JSON.parse(init.body); return { ok: true, status: 200, json: async () => ({ success: true, result: { token: "signed.playback.token" } }) }; }
   });
-  const result = await client.createPlaybackToken("stream-video-123");
+  const [result, coalesced] = await Promise.all([
+    client.createPlaybackToken("stream-video-123"),
+    client.createPlaybackToken("stream-video-123")
+  ]);
+  const cached = await client.createPlaybackToken("stream-video-123");
   assert.equal(result.token, "signed.playback.token");
+  assert.equal(coalesced.token, result.token);
+  assert.equal(cached.cacheHit, true);
   assert.equal(result.expiresInSeconds, 600);
   assert.equal(requestBody.downloadable, false);
   assert.equal(calls.length, 2);
@@ -133,7 +139,11 @@ test("Stream local signing scales playback tokens without a per-view token API c
     }
   });
 
-  const result = await client.createPlaybackToken("stream-video-123");
+  const [result, coalesced] = await Promise.all([
+    client.createPlaybackToken("stream-video-123"),
+    client.createPlaybackToken("stream-video-123")
+  ]);
+  const cached = await client.createPlaybackToken("stream-video-123");
   const [encodedHeader, encodedPayload, signature] = result.token.split(".");
   const header = JSON.parse(Buffer.from(encodedHeader, "base64url").toString("utf8"));
   const payload = JSON.parse(Buffer.from(encodedPayload, "base64url").toString("utf8"));

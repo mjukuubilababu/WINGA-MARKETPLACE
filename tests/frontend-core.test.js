@@ -286,6 +286,10 @@ test("marketplace gallery adds one secure ready video slide without collapsing p
   assert.match(playbackSource, /video_playback_started/);
   assert.equal(playbackSource.includes("maxConcurrentPrewarms"), true);
   assert.equal(playbackSource.includes("prewarmRootMargin"), true);
+  assert.equal(playbackSource.includes('prewarmRootMargin || "1800px 0px"'), true);
+  assert.equal(playbackSource.includes('profileName === "balanced") return Math.min(2, maxConcurrentPrewarms)'), true);
+  assert.equal(playbackSource.includes('video.preload = options.prewarm === true ? "auto" : "metadata"'), true);
+  assert.equal(playbackSource.includes("void loadHlsRuntime(targetWindow, targetDocument, translateUi).catch(() => {})"), true);
   assert.equal(playbackSource.includes('node.closest?.(".product-card, .seller-product-card, [data-product-card], [data-feed-gallery-carousel]")'), true);
   assert.equal(playbackSource.includes("activateNode(node, { autoplay: false, prewarm: true })"), true);
   assert.equal(playbackSource.includes('video.addEventListener("loadeddata", revealFirstFrame'), true);
@@ -312,7 +316,8 @@ test("marketplace gallery adds one secure ready video slide without collapsing p
   assert.equal(workerSource.includes('data-video-content-type="${escapeHtml(videoContentType)}"'), true);
   assert.equal(workerSource.includes("const slidesMarkup ="), true);
   assert.equal(workerSource.includes("__WINGA_BIG_PIPE_VIDEO_TOKEN_PROMISES__"), true);
-  assert.equal(workerSource.includes('slice(0, 2)'), true);
+  assert.equal(workerSource.includes('slice(0, 3)'), true);
+  assert.equal(workerSource.includes('hlsPreload.fetchPriority = "high"'), true);
   assert.equal(workerSource.includes('X-CSRF-Token'), true);
   assert.equal(workerSource.includes('applySignedVideoPoster'), true);
   assert.equal(workerSource.includes('node.dataset.videoPosterReady = "true"'), true);
@@ -448,7 +453,7 @@ test("video prewarm consumes the BigPipe token and keeps the poster until the fi
   });
 
   controller.bind(targetDocument);
-  const prewarmObserver = observers.find((entry) => entry.options.rootMargin === "900px 0px");
+  const prewarmObserver = observers.find((entry) => entry.options.rootMargin === "1800px 0px");
   const playbackObserver = observers.find((entry) => Array.isArray(entry.options.threshold) && entry.options.threshold.includes(0.55));
   assert.ok(prewarmObserver);
   assert.ok(playbackObserver);

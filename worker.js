@@ -167,7 +167,7 @@ async function streamFeedPage(request, env, ctx) {
       const cardsHtml = bootstrap.items.map((product, index) => buildDiscoveryProductCardHtml(product, index, bootstrap)).join("");
       const initialVideoProviderIds = Array.from(new Set(
         bootstrap.items.slice(0, 4).flatMap((product) => getReadyStreamVideoItems(product).map((item) => item.providerId))
-      )).slice(0, 2);
+      )).slice(0, 3);
 
       await write(`
         <script nonce="${escapeHtml(scriptNonce)}">
@@ -217,7 +217,7 @@ async function streamFeedPage(request, env, ctx) {
             hlsPreload.rel = "preload";
             hlsPreload.as = "script";
             hlsPreload.href = "/vendor/hls.light.min.js?v=${escapeHtml(buildVersion)}";
-            hlsPreload.fetchPriority = "low";
+            hlsPreload.fetchPriority = "high";
             document.head.appendChild(hlsPreload);
             const csrfPromise = fetch("/api/auth/csrf-token", {
               credentials: "include",

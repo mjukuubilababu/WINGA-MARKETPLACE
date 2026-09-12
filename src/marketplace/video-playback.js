@@ -58,7 +58,7 @@
     const tokenSafetyMs = Math.max(10000, Number(deps.tokenSafetyMs || 30000));
     const maxConcurrentPrewarms = Math.max(1, Math.min(4, Number(deps.maxConcurrentPrewarms || 2)));
     const prewarmTimeoutMs = Math.max(3000, Number(deps.prewarmTimeoutMs || 12000));
-    const prewarmRootMargin = String(deps.prewarmRootMargin || "900px 0px");
+    const prewarmRootMargin = String(deps.prewarmRootMargin || "1800px 0px");
     const maxNetworkRecoveries = Math.max(0, Math.min(3, Number(deps.maxNetworkRecoveries ?? 2)));
     const maxMediaRecoveries = Math.max(0, Math.min(2, Number(deps.maxMediaRecoveries ?? 1)));
     const recoveryBaseDelayMs = Math.max(100, Number(deps.recoveryBaseDelayMs || 750));
@@ -146,7 +146,7 @@
     function getPrewarmLimit() {
       const profileName = getPlaybackProfile().name;
       if (!shouldPrewarmVideo()) return 0;
-      if (profileName === "balanced") return Math.min(1, maxConcurrentPrewarms);
+      if (profileName === "balanced") return Math.min(2, maxConcurrentPrewarms);
       return maxConcurrentPrewarms;
     }
 
@@ -836,7 +836,7 @@
         video.muted = true;
         video.loop = true;
         video.playsInline = true;
-        video.preload = "metadata";
+        video.preload = options.prewarm === true ? "auto" : "metadata";
         video.crossOrigin = "anonymous";
         video.poster = `${signedAssetRoot}/thumbnails/thumbnail.jpg`;
         video.setAttribute("controls", "");
@@ -1190,6 +1190,9 @@
       installNetworkHandlers();
       installCommerceAttributionHandler();
       const nodes = Array.from(scope?.querySelectorAll?.("[data-video-playback]") || []);
+      if (nodes.length > 0 && shouldPrewarmVideo()) {
+        void loadHlsRuntime(targetWindow, targetDocument, translateUi).catch(() => {});
+      }
       nodes.forEach((node) => {
         if (node.dataset.videoPlaybackBound === "true") return;
         node.dataset.videoPlaybackBound = "true";

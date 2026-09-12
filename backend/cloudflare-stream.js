@@ -147,9 +147,11 @@ function createCloudflareStreamClient(options = {}) {
     }
   }
   const signedPlaybackPolicyCache = new Map();
+  const playbackTokenCache = new Map();
   const captionListCache = new Map();
   const videoDetailsCache = new Map();
   const signedPlaybackPolicyTtlMs = 6 * 60 * 60 * 1000;
+  const playbackTokenCacheTtlMs = Math.max(10, config.playbackTokenTtlSeconds - 30) * 1000;
   async function request(pathname, init = {}) {
     if (!isCloudflareStreamConfigured(config)) {
       const error = new Error("Cloudflare Stream is not configured."); error.code = "stream_not_configured"; throw error;
@@ -290,6 +292,7 @@ function createCloudflareStreamClient(options = {}) {
     if (!/^[a-zA-Z0-9_-]{8,64}$/.test(safeId)) return false;
     await request(`/${encodeURIComponent(safeId)}`, { method: "DELETE", signal: options.signal });
     signedPlaybackPolicyCache.delete(safeId);
+    playbackTokenCache.delete(safeId);
     captionListCache.delete(safeId);
     return true;
   }
@@ -335,7 +338,7 @@ function createCloudflareStreamClient(options = {}) {
     }
     return vtt;
   }
-  async function createPlaybackToken(providerId, options = {}) {
+  async function issuePlaybackToken(providerId, options = {}) {
     const safeId = cleanText(providerId, 64);
     if (!/^[a-zA-Z0-9_-]{8,64}$/.test(safeId)) throw new TypeError("A valid Stream video identifier is required.");
     await ensureSignedPlaybackPolicy(safeId);
@@ -375,6 +378,24 @@ function createCloudflareStreamClient(options = {}) {
     if (!token) { const error = new Error("Cloudflare Stream returned no playback token."); error.code = "stream_invalid_provider_response"; throw error; }
     return { token, expiresInSeconds: config.playbackTokenTtlSeconds, customerCode, signingMode: "api" };
   }
+  async function createPlaybackToken(providerId, options = {}) {
+    const safeId = cleanText(providerId, 64);
+    if (!/^[a-zA-Z0-9_-]{8,64}$/.test(safeId)) throw new TypeError("A valid Stream video identifier is required.");
+    const now = Date.now();
+    const cached = playbackTokenCache.get(safeId);
+    if (cached && cached.expiresAt > now) {
+      return { ...(await cached.task), cacheHit: true };
+    }
+    playbackTokenCache.delete(safeId);
+    const task = issuePlaybackToken(safeId, options).catch((error) => {
+      playbackTokenCache.delete(safeId);
+      throw error;
+    });
+    playbackTokenCache.set(safeId, { task, expiresAt: now + playbackTokenCacheTtlMs });
+    while (playbackTokenCache.size > 2048) playbackTokenCache.delete(playbackTokenCache.keys().next().value);
+    return { ...(await task), cacheHit: false };
+  }
+
   return { config: { ...config, apiToken: "", webhookSecret: "", signingJwk: "" }, createDirectUpload, createResumableUpload, readVideoDetails, createPlaybackToken, deleteVideo, listCaptions, readCaptionVtt, isConfigured: () => isCloudflareStreamConfigured(config) };
 }
 module.exports = { DEFAULT_MAX_DURATION_SECONDS, createCloudflareStreamClient, extractStreamCustomerCode, isCloudflareStreamConfigured, normalizeCaptionTrack, normalizeStreamVideo, parseWebhookSignature, readCloudflareStreamConfig, verifyCloudflareStreamWebhook };
