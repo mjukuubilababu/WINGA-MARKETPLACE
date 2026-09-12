@@ -6561,9 +6561,16 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         .slice(0, 1);
     }
 
-    function getStableFeedMediaRatioFromItems(images, videoItems, usesFeedMediaFit) {
+    function getStableFeedMediaRatioFromItems(product, images, videoItems, usesFeedMediaFit, initialImageIndex = 0) {
       if (!usesFeedMediaFit) return "";
-      if (images.length !== 0 || videoItems.length !== 1) return "4 / 5";
+      if (images.length > 0) {
+        const index = Math.max(0, Math.min(images.length - 1, Number(initialImageIndex || 0) || 0));
+        const imageRatio = Number(product?.imageAspectRatios?.[index] || 0);
+        return Number.isFinite(imageRatio) && imageRatio > 0.2 && imageRatio < 5
+          ? String(Number(imageRatio.toFixed(6)))
+          : "4 / 5";
+      }
+      if (videoItems.length !== 1) return "4 / 5";
       const video = videoItems[0];
       const width = Math.max(0, Number(video?.width || 0) || 0);
       const height = Math.max(0, Number(video?.height || 0) || 0);
@@ -6576,9 +6583,15 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       const normalizedSurface = String(surface || "").trim().toLowerCase() || "feed";
       const usesFeedMediaFit = normalizedSurface === "feed" || normalizedSurface === "detail-continuation";
       const images = getRenderableMarketplaceImages(product);
-      return getStableFeedMediaRatioFromItems(images, getReadyStreamVideoItems(product), usesFeedMediaFit);
+      const requestedIndex = Number(product?.feedInitialImageIndex ?? product?.visibleImageIndex ?? product?.variantDisplayIndex ?? 0);
+      return getStableFeedMediaRatioFromItems(
+        product,
+        images,
+        getReadyStreamVideoItems(product),
+        usesFeedMediaFit,
+        Number.isFinite(requestedIndex) ? requestedIndex : 0
+      );
     }
-
     function renderFeedGalleryMarkup(product, surface = "feed", options = {}) {
       const safeImages = getRenderableMarketplaceImages(product);
       const videoItems = getReadyStreamVideoItems(product);
@@ -6609,11 +6622,11 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       const useCarouselSurface = isFeedSurface || isDetailSurface || isDetailContinuationSurface;
       const usesFeedMediaFit = isFeedSurface || isDetailContinuationSurface;
       const fitMode = isFeedSurface
-        ? "cover"
+        ? "contain"
         : (isDetailContinuationSurface
           ? "contain"
           : normalizeProductFitMode(options?.fitMode || getProductFitMode(product)));
-      const stableFrameRatio = getStableFeedMediaRatioFromItems(images, videoItems, usesFeedMediaFit);
+      const stableFrameRatio = getStableFeedMediaRatioFromItems(product, images, videoItems, usesFeedMediaFit, initialImageIndex);
       if (options?.preload && typeof preloadImageSource === "function") {
         images.slice(0, Math.min(images.length, 1, priorityLimit)).forEach((src, index) => {
           preloadImageSource(src, {
@@ -12632,11 +12645,10 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         : null;
       const variantColor = String(product?.variantColor || selectedVariant?.color || selectedVariant?.name || "").trim();
       const storedAspectRatio = Number(product?.imageAspectRatios?.[stableInitialImageIndex] || 0);
-      const hasRenderableImages = (deps.getRenderableMarketplaceImages?.(product) || []).length > 0;
-      const videoOnlyRatio = !hasRenderableImages && typeof deps.getStableFeedMediaRatio === "function"
+      const canonicalFeedRatio = typeof deps.getStableFeedMediaRatio === "function"
         ? deps.getStableFeedMediaRatio(product, options.gallerySurface || "feed")
         : "";
-      const stableMediaRatio = videoOnlyRatio || (
+      const stableMediaRatio = canonicalFeedRatio || (
         Number.isFinite(storedAspectRatio) && storedAspectRatio > 0.2 && storedAspectRatio < 5
           ? String(Number(storedAspectRatio.toFixed(6)))
           : "4 / 5"

@@ -903,11 +903,10 @@
         : null;
       const variantColor = String(product?.variantColor || selectedVariant?.color || selectedVariant?.name || "").trim();
       const storedAspectRatio = Number(product?.imageAspectRatios?.[stableInitialImageIndex] || 0);
-      const hasRenderableImages = (deps.getRenderableMarketplaceImages?.(product) || []).length > 0;
-      const videoOnlyRatio = !hasRenderableImages && typeof deps.getStableFeedMediaRatio === "function"
+      const canonicalFeedRatio = typeof deps.getStableFeedMediaRatio === "function"
         ? deps.getStableFeedMediaRatio(product, options.gallerySurface || "feed")
         : "";
-      const stableMediaRatio = videoOnlyRatio || (
+      const stableMediaRatio = canonicalFeedRatio || (
         Number.isFinite(storedAspectRatio) && storedAspectRatio > 0.2 && storedAspectRatio < 5
           ? String(Number(storedAspectRatio.toFixed(6)))
           : "4 / 5"

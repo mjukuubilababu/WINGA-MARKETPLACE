@@ -1604,12 +1604,12 @@ test("mobile home product media remains edge to edge", async ({ browser }) => {
   });
   await page.goto("/");
   await expect(page.locator("#products-container .product-card").first()).toBeVisible({ timeout: 30000 });
-  await expect(page.locator("#products-container .product-card-media img, #products-container .seller-product-card-media img").first()).toBeVisible({ timeout: 30000 });
+  await expect(page.locator("#products-container .feed-gallery-image-social").first()).toBeVisible({ timeout: 30000 });
 
   const geometry = await page.evaluate(() => {
-    const card = document.querySelector("#products-container > .product-card, #products-container > .seller-product-card");
-    const media = card?.querySelector(".product-card-media, .seller-product-card-media");
-    const image = media?.querySelector("img");
+    const image = document.querySelector("#products-container .feed-gallery-image-social");
+    const media = image?.closest(".product-card-media, .seller-product-card-media");
+    const card = image?.closest("#products-container > .product-card, #products-container > .seller-product-card");
     const read = (element) => {
       const rect = element?.getBoundingClientRect();
       return rect ? { left: rect.left, right: rect.right, width: rect.width } : null;
@@ -1623,6 +1623,12 @@ test("mobile home product media remains edge to edge", async ({ browser }) => {
       card: read(card),
       media: read(media),
       image: read(image),
+      imageObjectFit: image ? getComputedStyle(image).objectFit : "",
+      stableRatio: Number(media?.querySelector("[data-feed-gallery-stable-ratio]")?.getAttribute("data-feed-gallery-stable-ratio") || 0),
+      renderedRatio: (() => {
+        const rect = media?.getBoundingClientRect();
+        return rect?.height ? rect.width / rect.height : 0;
+      })(),
       mediaSurfaces: Array.from(document.querySelectorAll("#products-container > .product-card, #products-container > .seller-product-card"))
         .slice(0, 6)
         .map((cardNode) => {
@@ -1663,6 +1669,10 @@ test("mobile home product media remains edge to edge", async ({ browser }) => {
   expect(geometry.media.left).toBeLessThanOrEqual(1);
   expect(Math.abs(geometry.media.right - geometry.viewportWidth)).toBeLessThanOrEqual(1);
   expect(geometry.image.width).toBeGreaterThanOrEqual(geometry.viewportWidth - 1);
+  expect(geometry.imageObjectFit).toBe("contain");
+  if (geometry.stableRatio > 0) {
+    expect(Math.abs(geometry.renderedRatio - geometry.stableRatio)).toBeLessThan(0.01);
+  }
   expect(geometry.scrollbarWidth).toBe(0);
   expect(geometry.bodyOverflowY).not.toBe("hidden");
   for (const surface of geometry.mediaSurfaces) {
@@ -1969,7 +1979,21 @@ test("home feed multi-image posts preserve every swipe slide and open the full g
 
   const multiImageCard = page.locator("#products-container .product-card", { hasText: "Sneaker Classic" }).first();
   await expect(multiImageCard).toBeVisible();
-  await expect(multiImageCard.locator(".feed-gallery-tile")).toHaveCount(5);
+  const tiles = multiImageCard.locator(".feed-gallery-tile");
+  await expect(tiles).toHaveCount(5);
+  const galleryGeometry = await multiImageCard.locator("[data-feed-gallery-carousel=\"true\"]").evaluate((gallery) => {
+    const track = gallery.querySelector("[data-feed-gallery-track]");
+    const slides = Array.from(gallery.querySelectorAll(".feed-gallery-tile"));
+    return {
+      fitModes: slides.map((slide) => getComputedStyle(slide.querySelector("img")).objectFit),
+      slideWidths: slides.map((slide) => Math.round(slide.getBoundingClientRect().width)),
+      clientWidth: Math.round(track?.clientWidth || 0),
+      scrollWidth: Math.round(track?.scrollWidth || 0)
+    };
+  });
+  expect(galleryGeometry.fitModes).toEqual(["contain", "contain", "contain", "contain", "contain"]);
+  galleryGeometry.slideWidths.forEach((width) => expect(Math.abs(width - galleryGeometry.clientWidth)).toBeLessThanOrEqual(1));
+  expect(galleryGeometry.scrollWidth).toBeLessThanOrEqual((galleryGeometry.clientWidth * 5) + 2);
 
   await multiImageCard.click();
   await expect(page.locator("#product-detail-modal")).toBeVisible();

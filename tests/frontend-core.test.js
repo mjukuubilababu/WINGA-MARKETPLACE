@@ -28,8 +28,9 @@ test("home feed reserves stable media and deferred section geometry", () => {
 
   assert.match(buildSource, /"src\/marketplace\/gallery\.js"/);
   assert.match(gallerySource, /window\.WingaModules\.marketplace\.createGalleryModule = createGalleryModule;/);
-  assert.match(gallerySource, /const stableFrameRatio = getStableFeedMediaRatioFromItems\(images, videoItems, usesFeedMediaFit\);/);
-  assert.match(gallerySource, /if \(images.length !== 0 \|\| videoItems.length !== 1\) return "4 \/ 5";/);
+  assert.match(gallerySource, /const stableFrameRatio = getStableFeedMediaRatioFromItems\(product, images, videoItems, usesFeedMediaFit, initialImageIndex\);/);
+  assert.match(gallerySource, /if \(images\.length > 0\) \{/);
+  assert.match(gallerySource, /const imageRatio = Number\(product\?\.imageAspectRatios\?\.\[index\] \|\| 0\);/);
   assert.match(gallerySource, /const ratioValue = stableRatio \|\| "4 \/ 5";/);
   assert.match(appSource, /window\.WingaModules\?\.marketplace\?\.createGalleryModule/);
   assert.match(appSource, /window\.requestAnimationFrame\(\(\) => \{\s+try \{\s+onChunk\?\.\(chunk\);/);
@@ -51,7 +52,7 @@ test("home feed reserves stable media and deferred section geometry", () => {
   assert.doesNotMatch(styleSource, /@media \(max-width:780px\)\{[\s\S]*html,\s*body\{[^}]*overflow-y:hidden;/);
   assert.doesNotMatch(styleSource, /body\[data-layout-mode="standalone-mobile"\] #market-showcase,\s*body\[data-layout-mode="standalone-mobile"\] #products-container/);
   assert.match(styleSource, /body\[data-layout-mode="standalone-mobile"\] #products-container\[data-layout-mode="standalone-mobile"\]\{[\s\S]*width:var\(--winga-viewport-width, 100dvw\);[\s\S]*transform:translateX\(-50%\);/);
-  assert.match(styleSource, /#products-container \.progressive-image-shell \.progressive-image-full\{[\s\S]*object-fit:cover !important;/);
+  assert.match(styleSource, /#products-container \.progressive-image-shell \.progressive-image-full\{[\s\S]*object-fit:contain !important;/);
   assert.match(styleSource, /#products-container \.feed-gallery-carousel-track\{[\s\S]*overflow-x:auto !important;[\s\S]*scroll-snap-type:x mandatory !important;[\s\S]*scroll-behavior:auto !important;/);
   assert.match(styleSource, /#products-container \.feed-gallery-carousel-track \.feed-gallery-tile,[\s\S]*#products-container \.feed-gallery-carousel-track \.progressive-image-full\{[\s\S]*touch-action:pan-x pan-y !important;/);
   const marketplaceUiSource = fs.readFileSync(path.join(root, "src", "marketplace", "ui.js"), "utf8");
@@ -164,8 +165,8 @@ test("marketplace gallery module preserves feed carousel markup contract", () =>
   assert.match(html, /data-feed-gallery-carousel="true"/);
   assert.match(html, /data-feed-gallery-current="2"/);
   assert.match(html, /data-feed-gallery-initial-index="1"/);
-  assert.match(html, /data-feed-gallery-stable-ratio="4 \/ 5"/);
-  assert.match(html, /data-fit-mode="cover"/);
+  assert.match(html, /data-feed-gallery-stable-ratio="0\.7"/);
+  assert.match(html, /data-fit-mode="contain"/);
   assert.match(html, /data-direct-visibility="true"/);
   assert.match(html, /fetchpriority="high"/);
   assert.match(html, /progressive-image-shell[^"]*is-loaded/);
@@ -1501,7 +1502,7 @@ test("product detail continuation uses backend-backed endless feed state and fee
   assert.match(appSource, /surface: `detail-continuation-category:\$\{product\.id\}`/);
   assert.match(appSource, /surface: `detail-continuation-general:\$\{product\.id\}`/);
   assert.match(gallerySource, /const usesFeedMediaFit = isFeedSurface \|\| isDetailContinuationSurface;/);
-  assert.match(gallerySource, /isFeedSurface\s+\?\s+"cover"/);
+  assert.match(gallerySource, /isFeedSurface\s+\?\s+"contain"/);
   assert.match(gallerySource, /isDetailContinuationSurface\s+\?\s+"contain"/);
   assert.match(styleSource, /\.feed-gallery-preview\[data-feed-gallery-surface="detail-continuation"\] \.feed-gallery-carousel-track,[\s\S]*height:100% !important;/);
   assert.match(styleSource, /\.feed-gallery-preview\[data-feed-gallery-surface="detail-continuation"\] \.feed-gallery-carousel-slide,[\s\S]*min-height:100% !important;/);
@@ -3568,7 +3569,7 @@ test("worker cycles production image arrays without dropping gallery images", ()
   assert.match(secondCardHtml, /data-feed-gallery-initial-index="1"/);
   assert.match(secondCardHtml, /data-feed-gallery-current="2"/);
   assert.match(secondCardHtml, /data-feed-gallery-stable-ratio="4 \/ 5"/);
-  assert.match(secondCardHtml, /data-fit-mode="cover"/);
+  assert.match(secondCardHtml, /data-fit-mode="contain"/);
 
   const soldOutHtml = context.buildDiscoveryProductCardHtml({
     ...normalized[0],
@@ -3720,9 +3721,9 @@ test("worker preserves stored image ratios while using fixed CLS-safe feed media
 
   assert.equal(normalized.feedInitialImageIndex, 1);
   assert.deepEqual(Array.from(normalized.imageAspectRatios), [0.665, 1.5]);
-  assert.match(html, /data-feed-gallery-stable-ratio="4 \/ 5"/);
-  assert.match(html, /data-fit-mode="cover"/);
-  assert.match(html, /aspect-ratio:4 \/ 5/);
+  assert.match(html, /data-feed-gallery-stable-ratio="1\.5"/);
+  assert.match(html, /data-fit-mode="contain"/);
+  assert.match(html, /aspect-ratio:1\.5/);
 });
 
 test("worker selects structured variants and falls back when a variant has no images", () => {

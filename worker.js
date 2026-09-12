@@ -1091,7 +1091,15 @@ function getStableFeedMediaRatio(product) {
   const images = dedupeUrls((Array.isArray(product?.images) ? product.images : [])
     .map((image) => String(image || "").trim())
     .filter(Boolean));
-  if (images.length !== 0 || videos.length !== 1) return "4 / 5";
+  if (images.length > 0) {
+    const requestedIndex = Number(product?.feedInitialImageIndex ?? product?.visibleImageIndex ?? product?.variantDisplayIndex ?? 0);
+    const index = Math.max(0, Math.min(images.length - 1, Number.isFinite(requestedIndex) ? requestedIndex : 0));
+    const imageRatio = Number(product?.imageAspectRatios?.[index] || 0);
+    return Number.isFinite(imageRatio) && imageRatio > 0.2 && imageRatio < 5
+      ? String(Number(imageRatio.toFixed(6)))
+      : "4 / 5";
+  }
+  if (videos.length !== 1) return "4 / 5";
   const video = videos[0];
   const width = Math.max(0, Number(video?.width || 0) || 0);
   const height = Math.max(0, Number(video?.height || 0) || 0);
@@ -1120,7 +1128,7 @@ function renderFeedGalleryMarkup(product, options = {}) {
     ? Math.max(0, Math.min(imageTotal - 1, Number.isFinite(requestedInitialImageIndex) ? requestedInitialImageIndex : 0))
     : 0;
   const stableFrameRatio = getStableFeedMediaRatio(product);
-  const fitMode = "cover";
+  const fitMode = "contain";
   const imageSlidesMarkup = images.map((imageSrc, index) => {
     const safeSrc = escapeHtml(imageSrc);
     const isInitialImage = index === initialImageIndex;
