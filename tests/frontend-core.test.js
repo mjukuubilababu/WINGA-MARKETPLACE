@@ -32,6 +32,7 @@ test("home feed reserves stable media and deferred section geometry", () => {
   assert.match(gallerySource, /if \(images\.length > 0\) \{/);
   assert.match(gallerySource, /function getBoundedImageAspectRatio\(product, index = 0\)/);
   assert.match(gallerySource, /data-feed-gallery-image-ratio=/);
+  assert.match(gallerySource, /data-feed-gallery-primary-slide=/);
   assert.match(gallerySource, /const ratioValue = stableRatio \|\| "4 \/ 5";/);
   assert.match(gallerySource, /const syncStableFeedAspectRatio = \(\) => \{/);
   assert.match(gallerySource, /imageRatio = naturalWidth > 0 && naturalHeight > 0 \? naturalWidth \/ naturalHeight : 0;/);
@@ -63,6 +64,7 @@ test("home feed reserves stable media and deferred section geometry", () => {
   assert.match(styleSource, /#products-container \.progressive-image-shell \.progressive-image-full\{[\s\S]*object-fit:contain !important;/);
   assert.match(styleSource, /#products-container \.feed-gallery-carousel-track\{[\s\S]*overflow-x:auto !important;[\s\S]*scroll-snap-type:x mandatory !important;[\s\S]*scroll-behavior:auto !important;/);
   assert.match(styleSource, /#products-container \.feed-gallery-carousel-track \.feed-gallery-tile,[\s\S]*#products-container \.feed-gallery-carousel-track \.progressive-image-full\{[\s\S]*touch-action:pan-x pan-y !important;/);
+  assert.match(styleSource, /data-feed-gallery-surface="feed"\]\[data-fit-mode="contain"\][\s\S]*data-feed-gallery-primary-slide="false"\][\s\S]*\.progressive-image-full\.feed-gallery-image-social\{[\s\S]*top:50% !important;[\s\S]*width:100% !important;[\s\S]*height:auto !important;[\s\S]*transform:translateY\(-50%\) translateZ\(0\) !important;/);
   const marketplaceUiSource = fs.readFileSync(path.join(root, "src", "marketplace", "ui.js"), "utf8");
   assert.match(marketplaceUiSource, /\? safeImages\.slice\(\)/);
   assert.doesNotMatch(marketplaceUiSource, /safeImages\.slice\(0,\s*FEED_GALLERY_IMAGE_LIMIT\)/);

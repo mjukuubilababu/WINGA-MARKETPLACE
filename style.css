@@ -11126,3 +11126,24 @@ body.creation-view #top-bar,body.creation-view #categories,body.creation-view #p
     transition:none !important;
   }
 }
+
+/* Feed slides always own the full card width; ratio differences settle vertically. */
+#products-container .feed-gallery-preview[data-feed-gallery-surface="feed"][data-fit-mode="contain"]
+  .feed-gallery-carousel-slide[data-feed-gallery-primary-slide="false"]
+  .progressive-image-full.feed-gallery-image-social{
+  position:absolute !important;
+  top:50% !important;
+  right:auto !important;
+  bottom:auto !important;
+  left:0 !important;
+  width:100% !important;
+  min-width:100% !important;
+  max-width:100% !important;
+  height:auto !important;
+  min-height:0 !important;
+  max-height:none !important;
+  object-fit:contain !important;
+  object-position:center center !important;
+  margin:0 !important;
+  transform:translateY(-50%) translateZ(0) !important;
+}

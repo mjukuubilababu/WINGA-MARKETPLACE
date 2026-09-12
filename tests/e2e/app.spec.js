@@ -2028,6 +2028,22 @@ test("home feed multi-image posts preserve every swipe slide and open the full g
     current: "2"
   });
 
+  const secondSlideFit = await feedGallery.evaluate((gallery) => {
+    const frameRect = gallery.closest(".product-card-media").getBoundingClientRect();
+    const imageRect = gallery.querySelector('[data-feed-gallery-slide="1"] .feed-gallery-image-social').getBoundingClientRect();
+    return {
+      leftGap: imageRect.left - frameRect.left,
+      rightGap: frameRect.right - imageRect.right,
+      topGap: imageRect.top - frameRect.top,
+      bottomGap: frameRect.bottom - imageRect.bottom
+    };
+  });
+  expect(Math.abs(secondSlideFit.leftGap)).toBeLessThanOrEqual(1);
+  expect(Math.abs(secondSlideFit.rightGap)).toBeLessThanOrEqual(1);
+  expect(secondSlideFit.topGap).toBeGreaterThan(1);
+  expect(secondSlideFit.bottomGap).toBeGreaterThan(1);
+  expect(Math.abs(secondSlideFit.topGap - secondSlideFit.bottomGap)).toBeLessThanOrEqual(1);
+
   await feedGallery.evaluate((gallery) => {
     const track = gallery.querySelector("[data-feed-gallery-track]");
     const thirdSlide = gallery.querySelector('[data-feed-gallery-slide="2"]');

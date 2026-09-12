@@ -189,6 +189,7 @@
         return `
           <div class="feed-gallery-carousel-slide feed-gallery-tile"
             data-feed-gallery-slide="${index}"
+            data-feed-gallery-primary-slide="${index === initialImageIndex ? "true" : "false"}"
             ${imageAspectRatio > 0 ? `data-feed-gallery-image-ratio="${escapeHtml(String(imageAspectRatio))}"` : ""}>
             ${renderFallbackImageMarkup({
               src: safeSrc,
