@@ -5438,6 +5438,11 @@ test("feed modules enforce contract, dedupe, sponsorship, frequency caps, and fa
   const uiSource = fs.readFileSync(path.join(root, "src", "marketplace", "ui.js"), "utf8");
   assert.match(uiSource, /feedModuleProductIds\.has\(product\?\.id\)/);
   assert.match(uiSource, /module_impression/);
+  assert.match(uiSource, /const protectedVerticalProductIds = safeList\s+\.filter\(\(product\) => product\?\.id && product\.id !== reservedModuleCandidateId\)\s+\.map\(\(product\) => product\.id\);/);
+  assert.match(uiSource, /function getShowcaseMediaCandidates\(product\)/);
+  assert.match(uiSource, /data-showcase-candidate-managed/);
+  assert.match(uiSource, /if \(section && !section\.querySelector\("\.showcase-card"\)\) \{\s+section\.remove\(\);/);
+  assert.match(uiSource, /if \(Date\.now\(\) - startedAt >= maxWaitMs\) \{\s+section\.remove\(\);/);
   assert.doesNotMatch(uiSource, /intelligentFeedEnabled && !shouldUseMobileEndlessHomeFeed/);
 });
 

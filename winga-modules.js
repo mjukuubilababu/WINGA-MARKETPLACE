@@ -12598,58 +12598,74 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       return sellerRow;
     }
 
-    function createShowcasePreviewMediaElement(product) {
+    function getShowcaseMediaCandidates(product) {
+      const generatedFallbacks = new Set([
+        deps.getImageFallbackDataUri("WINGA"),
+        deps.getImageFallbackDataUri("W")
+      ].filter(Boolean));
+      const imageCandidates = typeof deps.getRenderableMarketplaceImages === "function"
+        ? deps.getRenderableMarketplaceImages(product, {
+            allowOwnerVisibility: product?.uploadedBy === deps.getCurrentUser?.()
+          })
+        : [product?.image, ...(Array.isArray(product?.images) ? product.images : [])];
+      const videoPosterCandidates = (Array.isArray(product?.mediaItems) ? product.mediaItems : [])
+        .filter((item) => item?.type === "video" && item?.status === "ready" && item?.moderationStatus !== "rejected")
+        .flatMap((item) => [item.posterUrl, item.thumbnailUrl]);
+      return Array.from(new Set([...imageCandidates, ...videoPosterCandidates]
+        .map((value) => String(value || "").trim())
+        .filter((value) => value && !generatedFallbacks.has(value))));
+    }
+
+    function createShowcasePreviewMediaElement(product, options = {}) {
       const fitMode = String(product.fitMode || "").trim().toLowerCase() === "contain" ? "contain" : "cover";
-      const media = createElement("div", { className: `product-card-media showcase-media fit-mode-${fitMode}`, attributes: { "data-fit-mode": fitMode } });
-      const fallbackSrc = deps.getMarketplacePrimaryImage
-        ? deps.getMarketplacePrimaryImage(product, {
-            allowOwnerVisibility: product.uploadedBy === deps.getCurrentUser?.()
-          })
-        : deps.sanitizeImageSource(product.image || (Array.isArray(product.images) ? product.images[0] : ""), deps.getImageFallbackDataUri("WINGA"));
-      media.dataset.showcaseFallbackSrc = fallbackSrc || "";
+      const candidates = getShowcaseMediaCandidates(product);
+      if (!candidates.length) {
+        return null;
+      }
+      const media = createElement("div", {
+        className: `product-card-media showcase-media fit-mode-${fitMode}`,
+        attributes: {
+          "data-fit-mode": fitMode,
+          "data-showcase-candidate-managed": "true"
+        }
+      });
       media.dataset.showcaseFallbackAlt = product.name || "Product image";
-      const primaryImage = deps.getMarketplacePrimaryImage
-        ? deps.getMarketplacePrimaryImage(product, {
-            allowOwnerVisibility: product.uploadedBy === deps.getCurrentUser?.()
-          })
-        : deps.sanitizeImageSource(product.image || (Array.isArray(product.images) ? product.images[0] : ""), deps.getImageFallbackDataUri("WINGA"));
-      media.appendChild(createProgressiveImage({
-        src: primaryImage,
+      const image = createResponsiveImage({
+        src: candidates[0],
         alt: product.name || "Product image",
-        fallbackSrc: deps.getImageFallbackDataUri("WINGA"),
-        placeholderSrc: deps.getImageFallbackDataUri("W"),
-        className: "showcase-preview-image",
-        fitMode,
+        className: options.intelligent ? "showcase-preview-image intelligent-feed-image" : "showcase-preview-image",
         attributes: {
           "data-marketplace-scroll-image": "true",
           "data-preserve-image-ratio": "true",
           "data-direct-visibility": "true",
-          "data-fallback-src": deps.getImageFallbackDataUri("WINGA")
+          "data-disable-image-zoom": "true",
+          ...(options.priority ? { "data-image-priority": "feed-primary" } : {})
         }
-      }));
+      });
+      let candidateIndex = 0;
+      image.addEventListener("error", () => {
+        candidateIndex += 1;
+        if (candidateIndex < candidates.length) {
+          image.src = candidates[candidateIndex];
+          return;
+        }
+        const card = media.closest(".showcase-card");
+        const section = card?.closest(".showcase-inline");
+        card?.remove();
+        if (section && !section.querySelector(".showcase-card")) {
+          section.remove();
+        }
+      });
+      media.appendChild(image);
       return media;
     }
 
-    function createIntelligentPreviewMediaElement(product) {
-      const fitMode = String(product.fitMode || "").trim().toLowerCase() === "contain" ? "contain" : "cover";
-      const primaryImage = deps.getMarketplacePrimaryImage
-        ? deps.getMarketplacePrimaryImage(product, {
-            allowOwnerVisibility: product.uploadedBy === deps.getCurrentUser?.()
-          })
-        : deps.sanitizeImageSource(product.image || (Array.isArray(product.images) ? product.images[0] : ""), deps.getImageFallbackDataUri("WINGA"));
-      const media = createElement("div", {
-        className: `product-card-media showcase-media intelligent-feed-media fit-mode-${fitMode}`,
-        attributes: { "data-fit-mode": fitMode }
+    function createIntelligentPreviewMediaElement(product, options = {}) {
+      const media = createShowcasePreviewMediaElement(product, {
+        ...options,
+        intelligent: true
       });
-      media.appendChild(createResponsiveImage({
-        src: primaryImage,
-        alt: product.name || "Product image",
-        className: "intelligent-feed-image",
-        fallbackSrc: deps.getImageFallbackDataUri("WINGA"),
-        attributes: {
-          "data-disable-image-zoom": "true"
-        }
-      }));
+      media?.classList.add("intelligent-feed-media");
       return media;
     }
 
@@ -12666,7 +12682,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         Boolean(
           image
           && String(image.currentSrc || image.src || "").trim()
-          && (Number(image.naturalWidth || 0) > 0 || Number(image.clientWidth || 0) > 32)
+          && Number(image.naturalWidth || 0) > 0 && Number(image.naturalHeight || 0) > 0
         )
       );
     }
@@ -12697,8 +12713,12 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           delete section.dataset.mobileSectionRevealScheduled;
           return;
         }
-        if (hasHealthyShowcaseMedia(section) || Date.now() - startedAt >= maxWaitMs) {
+        if (hasHealthyShowcaseMedia(section)) {
           clearMobileShowcaseSectionPending(section);
+          return;
+        }
+        if (Date.now() - startedAt >= maxWaitMs) {
+          section.remove();
           return;
         }
         window.setTimeout(attemptReveal, pollMs);
@@ -12774,7 +12794,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             return Boolean(
               image
               && String(image.currentSrc || image.src || "").trim()
-              && (Number(image.naturalWidth || 0) > 0 || Number(image.clientWidth || 0) > 32)
+              && Number(image.naturalWidth || 0) > 0 && Number(image.naturalHeight || 0) > 0
             );
           }).length;
           if (healthyCardCount > 0) {
@@ -13086,7 +13106,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       return stack;
     }
 
-    function createShowcaseProductCardElement(product) {
+    function createShowcaseProductCardElement(product, options = {}) {
       const card = createElement("article", {
         className: "product-card showcase-card",
         attributes: {
@@ -13100,7 +13120,10 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       if (Array.isArray(product.images) && product.images.length > 1) {
         card.classList.add("has-gallery-count-badge");
       }
-      const media = createShowcasePreviewMediaElement(product);
+      const media = createShowcasePreviewMediaElement(product, options);
+      if (!media) {
+        return null;
+      }
       appendSoldOutRibbon(media, product);
       const body = createElement("div", { className: "product-content product-content-simple product-content-social showcase-body" });
       const overflowMenuMarkup = deps.renderProductOverflowMenu?.(product, { overlay: true });
@@ -13123,7 +13146,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       return card;
     }
 
-    function createIntelligentFeedCardElement(product) {
+    function createIntelligentFeedCardElement(product, options = {}) {
       const card = createElement("article", {
         className: "product-card showcase-card intelligent-feed-card",
         attributes: {
@@ -13137,7 +13160,10 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       if (Array.isArray(product.images) && product.images.length > 1) {
         card.classList.add("has-gallery-count-badge");
       }
-      const media = createIntelligentPreviewMediaElement(product);
+      const media = createIntelligentPreviewMediaElement(product, options);
+      if (!media) {
+        return null;
+      }
       appendSoldOutRibbon(media, product);
       const body = createElement("div", {
         className: "product-content product-content-simple product-content-social showcase-body intelligent-feed-body"
@@ -13172,10 +13198,6 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         className: "showcase-inline panel recommendation-strip intelligent-feed-section",
         attributes: { "data-recommendation-type": type }
       });
-      if (isMobileShowcaseQueueViewport()) {
-        section.classList.add("showcase-inline-pending");
-        section.setAttribute("data-mobile-section-pending", "true");
-      }
       const sectionHeading = deps.createSectionHeading({
         eyebrow: eyebrow || "For you",
         title: title || "Products picked for you",
@@ -13183,7 +13205,15 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       });
       section.appendChild(sectionHeading);
       const track = createElement("div", { className: "showcase-track intelligent-feed-track" });
-      items.forEach((product) => track.appendChild(createIntelligentFeedCardElement(product)));
+      items.forEach((product, index) => {
+        const card = createIntelligentFeedCardElement(product, { priority: index < 2 });
+        if (card) {
+          track.appendChild(card);
+        }
+      });
+      if (!track.childElementCount) {
+        return null;
+      }
       section.appendChild(track);
       return section;
     }
@@ -13196,10 +13226,6 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         className: "showcase-inline panel",
         attributes: { "data-inline-showcase-section": index }
       });
-      if (isMobileShowcaseQueueViewport()) {
-        section.classList.add("showcase-inline-pending");
-        section.setAttribute("data-mobile-section-pending", "true");
-      }
       const sectionHeading = deps.createSectionHeading({
         eyebrow: heading,
         title,
@@ -13207,7 +13233,15 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       });
       section.appendChild(sectionHeading);
       const track = createElement("div", { className: "showcase-track" });
-      items.forEach((product) => track.appendChild(createShowcaseProductCardElement(product)));
+      items.forEach((product, itemIndex) => {
+        const card = createShowcaseProductCardElement(product, { priority: itemIndex < 2 });
+        if (card) {
+          track.appendChild(card);
+        }
+      });
+      if (!track.childElementCount) {
+        return null;
+      }
       section.appendChild(track);
       return section;
     }
@@ -13217,8 +13251,11 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         return;
       }
       const fragment = document.createDocumentFragment();
-      (Array.isArray(items) ? items : []).forEach((product) => {
-        fragment.appendChild(createShowcaseProductCardElement(product));
+      (Array.isArray(items) ? items : []).forEach((product, index) => {
+        const card = createShowcaseProductCardElement(product, { priority: index < 2 });
+        if (card) {
+          fragment.appendChild(card);
+        }
       });
       track.replaceChildren(fragment);
     }
@@ -13244,10 +13281,6 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         className: "showcase-inline panel recommendation-strip",
         attributes: { "data-recommendation-type": type }
       });
-      if (isMobileShowcaseQueueViewport()) {
-        section.classList.add("showcase-inline-pending");
-        section.setAttribute("data-mobile-section-pending", "true");
-      }
       const sectionHeading = deps.createSectionHeading({
         eyebrow: title,
         title: subtitle,
@@ -13255,7 +13288,15 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       });
       section.appendChild(sectionHeading);
       const track = createElement("div", { className: "showcase-track" });
-      items.forEach((product) => track.appendChild(createShowcaseProductCardElement(product)));
+      items.forEach((product, itemIndex) => {
+        const card = createShowcaseProductCardElement(product, { priority: itemIndex < 2 });
+        if (card) {
+          track.appendChild(card);
+        }
+      });
+      if (!track.childElementCount) {
+        return null;
+      }
       section.appendChild(track);
       return section;
     }
@@ -13446,10 +13487,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         const safeList = shouldUseMobileEndlessHomeFeed
           ? sourceList.slice(0, Math.min(MOBILE_HOME_INITIAL_FEED_LIMIT, sourceList.length))
           : sourceList;
-        const protectedVerticalCount = Math.min(
-          FEED_MODULE_FIRST_PLACEMENT,
-          Math.max(3, safeList.length - 3)
-        );
+
         const currentUsername = String(deps.getCurrentUser?.()?.username || deps.getCurrentUser?.() || "").trim();
         const reservedModuleCandidateId = safeList.find((product) =>
           product?.id
@@ -13458,7 +13496,6 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         )?.id || "";
         const protectedVerticalProductIds = safeList
           .filter((product) => product?.id && product.id !== reservedModuleCandidateId)
-          .slice(0, protectedVerticalCount)
           .map((product) => product.id);
         combinedSectionQueue = intelligentFeedEnabled && feedModuleComposer
           ? feedModuleComposer.compose({

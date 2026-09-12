@@ -1341,7 +1341,8 @@ test("Home feed keeps social discovery alive after backend inventory is exhauste
     };
   });
 
-  expect(summary.count).toBeGreaterThan(initialCount);
+  expect(summary.count).toBeGreaterThan(products.length);
+  expect(summary.count).toBeGreaterThanOrEqual(initialCount);
   expect(summary.runtimeBatchIndex).toBeGreaterThanOrEqual(2);
   expect(summary.duplicateKeys).toEqual([]);
   expect(summary.pagination).toMatchObject({

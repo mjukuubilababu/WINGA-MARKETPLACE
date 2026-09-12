@@ -1537,7 +1537,25 @@ test("signed-in home keeps lower rows visible without the hero", async ({ browse
   const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure");
   await page.goto("/");
 
-  await expect(page.locator(".showcase-inline, [data-recommendation-type]").first()).toBeVisible();
+  const firstShowcaseRow = page.locator("#products-container > .showcase-inline, #products-container > [data-recommendation-type]").first();
+  await expect(firstShowcaseRow).toBeVisible();
+  await expect.poll(() => firstShowcaseRow.locator(".showcase-card img").first().evaluate((image) =>
+    Number(image.naturalWidth || 0) > 0 && Number(image.naturalHeight || 0) > 0
+  )).toBe(true);
+
+  const rowHealth = await page.evaluate(() => {
+    const rows = Array.from(document.querySelectorAll("#products-container > .showcase-inline"));
+    return {
+      adjacentRows: rows.filter((row) => row.previousElementSibling?.matches?.(".showcase-inline")).length,
+      generatedPlaceholders: rows.flatMap((row) => Array.from(row.querySelectorAll(".showcase-card img")))
+        .filter((image) => String(image.currentSrc || image.src || "").startsWith("data:image/"))
+        .length
+    };
+  });
+  expect(rowHealth).toEqual({
+    adjacentRows: 0,
+    generatedPlaceholders: 0
+  });
 
   await context.close();
 });
