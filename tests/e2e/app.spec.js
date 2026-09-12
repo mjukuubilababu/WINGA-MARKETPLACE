@@ -2006,6 +2006,18 @@ test("home feed multi-image posts preserve every swipe slide and open the full g
     track.scrollLeft = track.clientWidth;
     track.dispatchEvent(new Event("scroll"));
   });
+  const firstSwipeFrame = await feedGallery.evaluate((gallery) => new Promise((resolve) => {
+    window.requestAnimationFrame(() => resolve({
+      activeRatio: gallery.dataset.feedGalleryActiveRatio,
+      frameRatio: getComputedStyle(gallery.closest(".product-card-media")).aspectRatio,
+      current: gallery.dataset.feedGalleryCurrent
+    }));
+  }));
+  expect(firstSwipeFrame).toEqual({
+    activeRatio: "0.5",
+    frameRatio: "0.5 / 1",
+    current: "2"
+  });
   await expect.poll(async () => feedGallery.evaluate((gallery) => ({
     activeRatio: gallery.dataset.feedGalleryActiveRatio,
     frameRatio: getComputedStyle(gallery.closest(".product-card-media")).aspectRatio,

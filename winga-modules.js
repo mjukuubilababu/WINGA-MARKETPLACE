@@ -7003,13 +7003,17 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           return currentIndex;
         };
 
-        const syncSettledFeedAspectRatio = () => {
+        const syncSettledFeedAspectRatio = (requestedIndex = null) => {
           if (String(carousel.dataset.feedGallerySurface || "").trim().toLowerCase() !== "feed") {
             return;
           }
           const total = Math.max(1, Number(carousel.dataset.feedGalleryTotal || track.querySelectorAll("[data-feed-gallery-slide]").length || 1));
           const width = Math.max(1, track.clientWidth || carousel.clientWidth || 1);
-          const currentIndex = Math.min(total - 1, Math.max(0, Math.round(track.scrollLeft / width)));
+          const measuredIndex = Math.round(track.scrollLeft / width);
+          const currentIndex = Math.min(total - 1, Math.max(
+            0,
+            Number.isInteger(requestedIndex) ? requestedIndex : measuredIndex
+          ));
           const currentSlide = carousel.querySelector(`[data-feed-gallery-slide="${currentIndex}"]`);
           const currentImage = currentSlide?.querySelector?.(".feed-gallery-image-social");
           let imageRatio = Number(currentSlide?.dataset.feedGalleryImageRatio || 0);
@@ -7109,6 +7113,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           rafId = window.requestAnimationFrame(() => {
             rafId = 0;
             const currentIndex = syncBadge();
+            syncSettledFeedAspectRatio(currentIndex);
             recordVariationInterestIfNeeded(currentIndex);
             syncAspectRatio();
           });

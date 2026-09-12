@@ -33,7 +33,7 @@ test("home feed reserves stable media and deferred section geometry", () => {
   assert.match(gallerySource, /function getBoundedImageAspectRatio\(product, index = 0\)/);
   assert.match(gallerySource, /data-feed-gallery-image-ratio=/);
   assert.match(gallerySource, /const ratioValue = activeRatio \|\| stableRatio \|\| "4 \/ 5";/);
-  assert.match(gallerySource, /const syncSettledFeedAspectRatio = \(\) => \{/);
+  assert.match(gallerySource, /const syncSettledFeedAspectRatio = \(requestedIndex = null\) => \{/);
   assert.match(gallerySource, /imageRatio = naturalWidth > 0 && naturalHeight > 0 \? naturalWidth \/ naturalHeight : 0;/);
   assert.match(gallerySource, /currentImage\.addEventListener\("load", \(\) => \{/);
   assert.match(gallerySource, /firstImage\.addEventListener\("load", \(\) => \{\s+syncAspectRatio\(\);\s+syncSettledFeedAspectRatio\(\);/);
