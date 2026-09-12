@@ -198,6 +198,7 @@ test("marketplace gallery adds one secure ready video slide without collapsing p
   });
   const product = {
     name: "Video dress",
+    category: "reels",
     images: ["front.jpg", "back.jpg"],
     mediaItems: [
       { type: "image", status: "ready", url: "front.jpg" },
@@ -212,6 +213,7 @@ test("marketplace gallery adds one secure ready video slide without collapsing p
   assert.match(html, /data-feed-gallery-total="3"/);
   assert.equal((html.match(/data-feed-gallery-slide=/g) || []).length, 3);
   assert.match(html, /data-video-provider-id="stream-video-ready"/);
+  assert.match(html, /data-video-content-type="reel"/);
   const videoOnlyHtml = gallery.renderFeedGalleryMarkup({
     name: "Video only",
     images: [],
@@ -223,6 +225,7 @@ test("marketplace gallery adds one secure ready video slide without collapsing p
   assert.match(videoOnlyHtml, /data-feed-gallery-total="1"/);
   assert.equal((videoOnlyHtml.match(/data-feed-gallery-slide=/g) || []).length, 1);
   assert.match(videoOnlyHtml, /data-video-provider-id="stream-video-only"/);
+  assert.match(videoOnlyHtml, /data-video-content-type="video"/);
   assert.match(videoOnlyHtml, /src="video-poster.jpg"/);
   assert.doesNotMatch(videoOnlyHtml, /class="feed-gallery-image/);
   const privatePosterHtml = gallery.renderFeedGalleryMarkup({
@@ -279,8 +282,11 @@ test("marketplace gallery adds one secure ready video slide without collapsing p
   assert.equal(playerCss.includes(".feed-video-playback.is-ready .feed-video-player{"), true);
   assert.equal(playerCss.includes("visibility:visible;"), true);
   assert.equal(playerCss.includes("opacity:1;"), true);
+  assert.match(styleSource, /\.feed-video-slide,\s*\.feed-video-playback\{[\s\S]*?width:100%;[\s\S]*?max-width:100%;[\s\S]*?margin:0;[\s\S]*?padding:0;/);
+  assert.match(playerCss, /\.feed-video-player\{[\s\S]*?width:100%;[\s\S]*?height:100%;[\s\S]*?object-fit:contain;/);
   assert.equal(workerSource.includes("function getReadyStreamVideoItems(product)"), true);
   assert.equal(workerSource.includes('data-video-prewarm="true"'), true);
+  assert.equal(workerSource.includes('data-video-content-type="${escapeHtml(videoContentType)}"'), true);
   assert.equal(workerSource.includes("const slidesMarkup ="), true);
   assert.equal(workerSource.includes("__WINGA_BIG_PIPE_VIDEO_TOKEN_PROMISES__"), true);
   assert.equal(workerSource.includes('slice(0, 2)'), true);
@@ -4208,6 +4214,17 @@ test("authenticated product refresh preserves paginated feed contract", () => {
   assert.match(refreshProductsSource, /markHydrated:\s*true/);
   assert.doesNotMatch(refreshProductsSource, /setFullProductFeedPagination\(state\.products\);[\s\S]*?loadProductsPage/);
   assert.match(appSource, /refreshProducts\.call\(window\.WingaDataLayer,\s*\{\s*preserveFeedPagination:\s*true/);
+  const homeActionStart = appSource.indexOf("const HOME_TAB_TOP_THRESHOLD");
+  const homeActionEnd = appSource.indexOf("function handleMobileShellAction", homeActionStart);
+  const homeActionSource = appSource.slice(homeActionStart, homeActionEnd);
+  assert.equal((appSource.match(/function openShellHome\(/g) || []).length, 1);
+  assert.match(homeActionSource, /HOME_TAB_TOP_THRESHOLD = 72/);
+  assert.match(homeActionSource, /Array\.from\(navItems \|\| \[\]\)/);
+  assert.match(homeActionSource, /home_tab_navigate/);
+  assert.match(homeActionSource, /home_tab_scroll_to_top/);
+  assert.match(homeActionSource, /home_tab_refresh/);
+  assert.doesNotMatch(homeActionSource, /window\.location\.reload/);
+  assert.doesNotMatch(homeActionSource, /resetHomeBrowseState\(\)/);
 });
 
 test("authenticated passive view tracking never reloads or replaces the paginated feed", () => {
@@ -4958,7 +4975,7 @@ test("video playback emits bounded lifecycle intelligence without exposing provi
   };
   const classes = new Set();
   const node = {
-    dataset: { videoProviderId: "private-provider-id", videoTitle: "Observed video" },
+    dataset: { videoProviderId: "private-provider-id", videoTitle: "Observed video", videoContentType: "reel" },
     isConnected: true,
     classList: {
       add: (...names) => names.forEach((name) => classes.add(name)),
@@ -5037,6 +5054,7 @@ test("video playback emits bounded lifecycle intelligence without exposing provi
   assert.equal(playbackStartedMetric.detail.tokenCached, false);
   assert.equal(playbackStartedMetric.detail.prewarmed, false);
   assert.equal(playbackStartedMetric.detail.bigPipePrefetched, false);
+  assert.equal(playbackStartedMetric.detail.contentType, "reel");
   assert.equal(metrics.find((entry) => entry.event === "video_impression").detail.productId, "product-video-observed");
 
   commerceClick({ target: createCommerceTarget("[data-buy-product]") });

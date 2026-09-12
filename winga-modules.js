@@ -6660,6 +6660,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         `;
       }).join("");
       const playbackLabel = translateUi("video.playProduct", {}, "Play product video");
+      const videoContentType = String(product?.category || "").trim().toLowerCase() === "reels" ? "reel" : "video";
       const videoSlides = videoItems.map((item, videoIndex) => {
         const providerPoster = String(item.posterUrl || item.thumbnailUrl || "").trim();
         const isPrivateStreamPoster = /(?:cloudflarestream\.com|videodelivery\.net)/i.test(providerPoster);
@@ -6674,6 +6675,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           <div class="feed-video-playback"
             data-video-playback="true"
             data-video-prewarm="true"
+            data-video-content-type="${escapeHtml(videoContentType)}"
             data-video-provider-id="${escapeHtml(String(item.providerId || "").trim())}"
             data-video-title="${escapeHtml(product?.name || playbackLabel)}"
             role="button"
@@ -10733,10 +10735,12 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       const card = node?.closest?.("[data-open-product], [data-product-card]");
       const productId = String(card?.dataset?.openProduct || card?.dataset?.productCard || "").trim().slice(0, 100);
       const event = String(detail.event || "lifecycle").slice(0, 80);
+      const contentType = String(node?.dataset?.videoContentType || "video").trim().toLowerCase() === "reel" ? "reel" : "video";
       return {
         ...detail,
         ...(productId ? { productId, fingerprint: `video:${event}`.slice(0, 120) } : {}),
-        profile: String(state?.playbackProfile || detail.profile || "balanced")
+        profile: String(state?.playbackProfile || detail.profile || "balanced"),
+        contentType
       };
     }
 

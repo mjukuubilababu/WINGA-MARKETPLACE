@@ -180,7 +180,10 @@ test("guest feed video is edge to edge, muted, bounded to one player, and keeps 
       muted: Boolean(player?.muted),
       playsInline: Boolean(player?.playsInline),
       activePlayers: document.querySelectorAll("[data-video-playback].is-playing").length,
-      documentWidth: document.documentElement.scrollWidth
+      documentWidth: document.documentElement.scrollWidth,
+      playerObjectFit: player ? getComputedStyle(player).objectFit : "",
+      playbackMaxWidth: getComputedStyle(node).maxWidth,
+      playbackPaddingInline: `${getComputedStyle(node).paddingLeft} ${getComputedStyle(node).paddingRight}`
     };
   });
   expect(state.width).toBeGreaterThanOrEqual(state.viewportWidth - 1);
@@ -188,6 +191,9 @@ test("guest feed video is edge to edge, muted, bounded to one player, and keeps 
   expect(state.documentWidth).toBeLessThanOrEqual(state.viewportWidth + 1);
   expect(state.muted).toBe(true);
   expect(state.playsInline).toBe(true);
+  expect(state.playerObjectFit).toBe("contain");
+  expect(state.playbackMaxWidth).toBe("100%");
+  expect(state.playbackPaddingInline).toBe("0px 0px");
   expect(state.activePlayers).toBeLessThanOrEqual(1);
 
   await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));

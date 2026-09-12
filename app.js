@@ -15462,12 +15462,104 @@ function setMobileShellActive(action = "home") {
   setActiveNav(currentView);
 }
 
+const HOME_TAB_TOP_THRESHOLD = 72;
+let homeTabRefreshPromise = null;
+
+function getHomeTabScrollTop() {
+  return Math.max(
+    0,
+    Number(window.scrollY || window.pageYOffset || document.documentElement?.scrollTop || 0) || 0
+  );
+}
+
+function setHomeTabRefreshPending(isPending) {
+  Array.from(navItems || [])
+    .filter((item) => String(item?.dataset?.shellAction || "") === "home")
+    .forEach((item) => {
+      item.classList.toggle("is-refreshing", Boolean(isPending));
+      item.setAttribute("aria-busy", isPending ? "true" : "false");
+    });
+}
+
+function scrollHomeToTopFromTab() {
+  if (uiRuntimeState.homeScrollRestoreFrame) {
+    cancelAnimationFrame(uiRuntimeState.homeScrollRestoreFrame);
+    uiRuntimeState.homeScrollRestoreFrame = 0;
+  }
+  uiRuntimeState.homeScrollRestorePending = false;
+  uiRuntimeState.homeScrollRestoreY = 0;
+  clearHomeScrollState();
+  setMobileHeaderHidden(false, { force: true });
+  window.scrollTo({
+    top: 0,
+    left: 0,
+    behavior: window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ? "auto" : "smooth"
+  });
+  window.setTimeout(() => {
+    if (currentView === "home" && getHomeTabScrollTop() <= HOME_TAB_TOP_THRESHOLD) {
+      clearHomeScrollState();
+      setMobileHeaderHidden(false, { force: true });
+    }
+  }, 520);
+}
+
+function refreshHomeFeedFromTab() {
+  if (homeTabRefreshPromise) {
+    return homeTabRefreshPromise;
+  }
+  const refreshProducts = window.WingaDataLayer?.refreshProducts;
+  if (typeof refreshProducts !== "function") {
+    return Promise.resolve(false);
+  }
+
+  setHomeTabRefreshPending(true);
+  reportClientEvent("info", "home_tab_refresh", "Home tab requested a fresh feed page.", {
+    category: "navigation",
+    role: currentSession?.role || "guest"
+  });
+  homeTabRefreshPromise = Promise.resolve(refreshProducts.call(window.WingaDataLayer, {
+    preserveFeedPagination: true
+  }))
+    .then(() => {
+      if (currentView !== "home" || document.body.classList.contains("product-detail-open")) {
+        return false;
+      }
+      refreshProductsFromStore();
+      homeFeedRefreshCursor = saveHomeFeedRefreshCursor(Number(homeFeedRefreshCursor || 0) + 1);
+      renderCurrentView({ force: true, reason: "home_tab_refresh" });
+      reconcileRetainedHomeContinuationLifecycle("home_tab_refresh");
+      setMobileHeaderHidden(false, { force: true });
+      return true;
+    })
+    .catch((error) => {
+      captureClientError("home_tab_refresh_failed", error, {
+        category: "navigation",
+        alertSeverity: "low"
+      });
+      return false;
+    })
+    .finally(() => {
+      setHomeTabRefreshPending(false);
+      homeTabRefreshPromise = null;
+    });
+  return homeTabRefreshPromise;
+}
+
 function openShellHome(options = {}) {
-  const alreadyHome = currentView === "home" && !document.body.classList.contains("product-detail-open");
+  const activeMobileNav = String(uiRuntimeState.activeMobileNav || "").trim();
+  const wasCanonicalHome = currentView === "home"
+    && (!activeMobileNav || activeMobileNav === "home")
+    && !document.body.classList.contains("product-detail-open");
   closeMobileCategoryMenu();
   toggleHeaderUserMenu(false);
   setMobileShellActive(options.action || "home");
-  if (!alreadyHome) {
+
+  if (!wasCanonicalHome) {
+    reportClientEvent("info", "home_tab_navigate", "Home tab restored the retained Home feed.", {
+      category: "navigation",
+      fromView: currentView,
+      role: currentSession?.role || "guest"
+    });
     setCurrentViewState("home", { syncHistory: "push" });
     renderCurrentView();
     resumeRetainedHomeFeedSurface("mobile_shell_home_resume", {
@@ -15478,7 +15570,21 @@ function openShellHome(options = {}) {
       resumeContinuation: true
     });
     restoreStoredHomeScrollPosition();
+    return "navigate";
   }
+
+  if (getHomeTabScrollTop() > HOME_TAB_TOP_THRESHOLD) {
+    reportClientEvent("info", "home_tab_scroll_to_top", "Home tab scrolled the retained feed to the top.", {
+      category: "navigation",
+      scrollTop: Math.round(getHomeTabScrollTop()),
+      role: currentSession?.role || "guest"
+    });
+    scrollHomeToTopFromTab();
+    return "scroll_to_top";
+  }
+
+  refreshHomeFeedFromTab();
+  return "refresh";
 }
 
 function handleMobileShellAction(action = "", options = {}) {

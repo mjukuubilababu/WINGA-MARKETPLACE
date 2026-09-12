@@ -1137,6 +1137,7 @@ function renderFeedGalleryMarkup(product, options = {}) {
     `;
   }).join("");
 
+  const videoContentType = String(product?.category || "").trim().toLowerCase() === "reels" ? "reel" : "video";
   const videoSlidesMarkup = videoItems.map((item, videoIndex) => {
     const providerPoster = String(item.posterUrl || item.thumbnailUrl || "").trim();
     const isPrivateStreamPoster = /(?:cloudflarestream\.com|videodelivery\.net)/i.test(providerPoster);
@@ -1151,6 +1152,7 @@ function renderFeedGalleryMarkup(product, options = {}) {
         <div class="feed-video-playback"
           data-video-playback="true"
           data-video-prewarm="true"
+          data-video-content-type="${escapeHtml(videoContentType)}"
           data-video-provider-id="${escapeHtml(String(item.providerId || "").trim())}"
           data-video-title="${escapeHtml(product?.name || "Product video")}"
           role="button"

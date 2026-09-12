@@ -323,10 +323,12 @@
       const card = node?.closest?.("[data-open-product], [data-product-card]");
       const productId = String(card?.dataset?.openProduct || card?.dataset?.productCard || "").trim().slice(0, 100);
       const event = String(detail.event || "lifecycle").slice(0, 80);
+      const contentType = String(node?.dataset?.videoContentType || "video").trim().toLowerCase() === "reel" ? "reel" : "video";
       return {
         ...detail,
         ...(productId ? { productId, fingerprint: `video:${event}`.slice(0, 120) } : {}),
-        profile: String(state?.playbackProfile || detail.profile || "balanced")
+        profile: String(state?.playbackProfile || detail.profile || "balanced"),
+        contentType
       };
     }
 

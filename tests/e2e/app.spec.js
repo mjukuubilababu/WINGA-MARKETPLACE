@@ -358,6 +358,93 @@ test("mobile shell exposes five real destinations and reuses Inbox and Sell flow
   await context.close();
 });
 
+test("Home tab scrolls, refreshes, and preserves the endless-feed cursor without a hard reload", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure", {
+    viewport: { width: 390, height: 844 },
+    isMobile: true
+  });
+  let documentRequests = 0;
+  page.on("request", (request) => {
+    if (request.resourceType() === "document") documentRequests += 1;
+  });
+  await page.goto("/");
+  await expect(page.locator("#products-container .product-card").first()).toBeVisible();
+
+  const paginationBefore = await page.evaluate(() => window.WingaDataLayer.getProductFeedPagination());
+  await page.evaluate(() => window.scrollTo(0, 900));
+  await expect.poll(async () => page.evaluate(() => document.body.classList.contains("mobile-bottom-nav-hidden"))).toBe(true);
+  await page.evaluate(() => window.scrollTo(0, 820));
+  await expect.poll(async () => page.evaluate(() => window.scrollY)).toBeGreaterThan(72);
+  await expect.poll(async () => page.evaluate(() => document.body.classList.contains("mobile-bottom-nav-hidden"))).toBe(false);
+  await page.evaluate(() => {
+    const dataLayer = window.WingaDataLayer;
+    window.__wingaHomeTabRefreshCalls = 0;
+    dataLayer.refreshProducts = (options) => {
+      window.__wingaHomeTabRefreshCalls += 1;
+      window.__wingaHomeTabRefreshOptions = options;
+      return Promise.resolve();
+    };
+  });
+  await expect(page.locator("#bottom-nav")).toHaveAttribute("data-mobile-nav-state", "visible");
+  await page.locator("#bottom-nav [data-shell-action='home']").click();
+
+  await expect.poll(async () => page.evaluate(() => window.scrollY)).toBeLessThanOrEqual(72);
+  expect(await page.evaluate(() => window.__wingaHomeTabRefreshCalls)).toBe(0);
+  expect(await page.evaluate(() => window.WingaDataLayer.getProductFeedPagination())).toMatchObject({
+    page: paginationBefore.page,
+    nextCursor: paginationBefore.nextCursor,
+    hasMore: paginationBefore.hasMore
+  });
+  await expect(page.locator("#top-bar")).toHaveAttribute("data-mobile-header-state", "visible");
+  await page.waitForTimeout(600);
+  await expect.poll(async () => page.evaluate(() => window.scrollY)).toBeLessThanOrEqual(72);
+  const renderedIdsBeforeRefresh = await page.locator("#products-container [data-open-product]").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-open-product")).filter(Boolean));
+  const duplicatesBeforeRefresh = renderedIdsBeforeRefresh.length - new Set(renderedIdsBeforeRefresh).size;
+  await page.locator("#bottom-nav [data-shell-action='home']").click();
+  await expect.poll(async () => page.evaluate(() => window.__wingaHomeTabRefreshCalls)).toBe(1);
+  expect(await page.evaluate(() => window.__wingaHomeTabRefreshOptions)).toMatchObject({ preserveFeedPagination: true });
+  await expect(page.locator("#bottom-nav [data-shell-action='home']")).toHaveAttribute("aria-busy", "false");
+  expect(documentRequests).toBe(1);
+  expect(await page.evaluate(() => window.WingaDataLayer.getProductFeedPagination())).toMatchObject({
+    page: paginationBefore.page,
+    nextCursor: paginationBefore.nextCursor,
+    hasMore: paginationBefore.hasMore
+  });
+  const renderedIds = await page.locator("#products-container [data-open-product]").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-open-product")).filter(Boolean));
+  const duplicatesAfterRefresh = renderedIds.length - new Set(renderedIds).size;
+  expect(duplicatesAfterRefresh).toBeLessThanOrEqual(duplicatesBeforeRefresh);
+
+  await page.evaluate(() => window.scrollTo(0, 720));
+  await expect.poll(async () => page.evaluate(() => document.body.classList.contains("mobile-header-hidden"))).toBe(true);
+  await context.close();
+});
+
+test("Discover to Home uses navigation before top-level Home refresh", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure", {
+    viewport: { width: 390, height: 844 },
+    isMobile: true
+  });
+  await page.goto("/");
+  await expect(page.locator("#products-container .product-card").first()).toBeVisible();
+  await page.evaluate(() => {
+    const dataLayer = window.WingaDataLayer;
+    window.__wingaHomeTabRefreshCalls = 0;
+    dataLayer.refreshProducts = (options) => {
+      window.__wingaHomeTabRefreshCalls += 1;
+      window.__wingaHomeTabRefreshOptions = options;
+      return Promise.resolve();
+    };
+  });
+
+  await page.locator("#bottom-nav [data-shell-action='discover']").click();
+  await expect(page.locator("#bottom-nav [data-shell-action='discover']")).toHaveClass(/active/);
+  await page.locator("#bottom-nav [data-shell-action='home']").click();
+  await expect(page.locator("#bottom-nav [data-shell-action='home']")).toHaveClass(/active/);
+  await expect(page.locator("#sort-select")).toHaveValue("popular");
+  expect(await page.evaluate(() => window.__wingaHomeTabRefreshCalls)).toBe(0);
+
+  await context.close();
+});
 test("quick discovery flags hide unavailable entries without blocking Home", async ({ browser }) => {
   const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure", {
     viewport: { width: 390, height: 844 },
