@@ -1743,6 +1743,19 @@ test("video upload controller validates, uploads, polls, and exposes only ready 
   assert.match(serverSource, /video_upload_tus_fallback/);
   assert.match(buildSource, /"src\/marketplace\/video-upload\.js"/);
 });
+test("pending Reel status polling reconciles delayed Stream webhooks and preserves actionable errors", () => {
+  const root = path.resolve(__dirname, "..");
+  const serverSource = fs.readFileSync(path.join(root, "backend", "server.js"), "utf8");
+  const streamSource = fs.readFileSync(path.join(root, "backend", "cloudflare-stream.js"), "utf8");
+  const reelSource = fs.readFileSync(path.join(root, "src", "marketplace", "photo-reel-ui.js"), "utf8");
+
+  assert.match(serverSource, /async function reconcilePendingVideoUploadIntent/);
+  assert.match(serverSource, /intent = await reconcilePendingVideoUploadIntent\(intent, seller\.username\)/);
+  assert.match(streamSource, /async function readVideoDetails\(providerId\)/);
+  assert.match(streamSource, /VIDEO_DETAILS_CACHE_TTL_MS = 5000/);
+  assert.match(reelSource, /"video_processing_timeout", "video_binary_upload_failed"/);
+  assert.match(reelSource, /\? "reel\.uploadFailed"/);
+});
 test("video upload policy accepts social video formats from any non-empty size through 5 GB", () => {
   const root = path.resolve(__dirname, "..");
   const source = fs.readFileSync(path.join(root, "src", "marketplace", "video-upload.js"), "utf8");

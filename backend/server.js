@@ -5124,6 +5124,40 @@ async function buildOpsSummary() {
   };
 }
 
+async function reconcilePendingVideoUploadIntent(intent, sellerUsername) {
+  const status = String(intent?.status || "").trim().toLowerCase();
+  if (!intent?.providerId || !["uploading", "processing"].includes(status)) return intent;
+  if (!postgresStore?.applyVideoUploadWebhook || typeof CLOUDFLARE_STREAM_CLIENT.readVideoDetails !== "function") return intent;
+  try {
+    const providerVideo = await CLOUDFLARE_STREAM_CLIENT.readVideoDetails(intent.providerId);
+    if (!providerVideo?.providerId || providerVideo.providerId !== intent.providerId) return intent;
+    const reconciled = await postgresStore.applyVideoUploadWebhook({
+      ...providerVideo,
+      providerPayload: {
+        readyToStream: providerVideo.status === "ready",
+        status: providerVideo.status,
+        source: "authenticated_status_poll"
+      }
+    });
+    if (!reconciled) return intent;
+    if (reconciled.applied && ["ready", "failed"].includes(String(reconciled.status || ""))) {
+      await appendAuditLog({
+        time: new Date().toISOString(),
+        method: "GET",
+        path: "/api/media/videos/:providerId",
+        event: "video_upload_status_reconciled",
+        username: sellerUsername,
+        providerId: intent.providerId,
+        status: reconciled.status
+      }).catch(() => {});
+    }
+    return { ...intent, ...reconciled };
+  } catch (_error) {
+    // Webhooks remain authoritative; provider polling is a bounded recovery path.
+    return intent;
+  }
+}
+
 function applyVideoModerationPolicy(mediaItems = [], existingMediaItems = []) {
   const existingByProvider = new Map(
     (Array.isArray(existingMediaItems) ? existingMediaItems : [])
@@ -11983,11 +12017,12 @@ const server = http.createServer(async (req, res) => {
       const session = findSession(store, readAuthToken(req));
       const seller = ensureMarketplaceUser(store, session, res);
       if (!seller) return;
-      const intent = await postgresStore?.readVideoUploadIntent?.(videoStatusMatch[1], seller.username);
+      let intent = await postgresStore?.readVideoUploadIntent?.(videoStatusMatch[1], seller.username);
       if (!intent) {
         sendJson(res, 404, { error: "Video upload haijapatikana.", code: "video_upload_not_found" });
         return;
       }
+      intent = await reconcilePendingVideoUploadIntent(intent, seller.username);
       sendJson(res, 200, intent, { "Cache-Control": "private, no-store" });
       return;
     }

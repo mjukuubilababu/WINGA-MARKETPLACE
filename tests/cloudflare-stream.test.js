@@ -42,6 +42,48 @@ test("Stream video normalization exposes playback only after encoding is ready",
   assert.equal(ready.mimeType, "video/mp4");
 });
 
+test("Stream video detail polling is normalized and coalesced by a short cache", async () => {
+  const calls = [];
+  const client = createCloudflareStreamClient({
+    config: readCloudflareStreamConfig({
+      CLOUDFLARE_STREAM_ACCOUNT_ID: "account-123",
+      CLOUDFLARE_STREAM_API_TOKEN: "stream-secret-token"
+    }),
+    fetchImpl: async (url, init) => {
+      calls.push({ url, init });
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          success: true,
+          result: {
+            uid: "stream-video-status-123",
+            creator: "seller-one",
+            readyToStream: true,
+            status: { state: "ready" },
+            input: { width: 720, height: 1280 },
+            duration: 6,
+            thumbnail: "https://video.example/thumb.jpg",
+            playback: { hls: "https://video.example/manifest.m3u8" }
+          }
+        })
+      };
+    }
+  });
+
+  const [first, second] = await Promise.all([
+    client.readVideoDetails("stream-video-status-123"),
+    client.readVideoDetails("stream-video-status-123")
+  ]);
+  const third = await client.readVideoDetails("stream-video-status-123");
+
+  assert.equal(first.status, "ready");
+  assert.equal(second.providerId, "stream-video-status-123");
+  assert.equal(third.aspectRatio, 720 / 1280);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].init.headers.Authorization, "Bearer stream-secret-token");
+});
+
 test("Stream signed playback tokens are short-lived and non-downloadable", async () => {
   let requestBody;
   const calls = [];

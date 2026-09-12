@@ -10303,6 +10303,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     "reel.accountRequired": "Sign in to a seller account with a valid contact number to post your reel.",
     "reel.creating": "Creating reel...",
     "reel.publishFailed": "Your reel could not be posted. Please try again.",
+    "reel.uploadFailed": "The reel upload did not finish. Tap Try again to continue it.",
     "upload.friendlyServer": "The server could not process your upload. Please try again shortly.",
     "upload.friendlyNetwork": "The upload took too long or the connection was interrupted. Try again after the connection stabilizes.",
     "upload.friendlyRateLimited": "Too many attempts. Please wait a moment and try again."
@@ -10318,6 +10319,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       : /^http_5\d\d$/.test(code || "") ? "upload.friendlyServer"
       : code === "http_429" ? "upload.friendlyRateLimited"
       : ["timeout", "network", "video_upload_timeout", "video_upload_network_error"].includes(code) ? "upload.friendlyNetwork"
+      : ["video_processing_timeout", "video_binary_upload_failed", "video_processing_failed", "video_claim_rejected", "stream_provider_error", "video_upload_unavailable"].includes(code) ? "reel.uploadFailed"
       : "reel.publishFailed";
     const find = (name) => root.querySelector("[data-reel-" + name + "]");
     const input = find("input");
