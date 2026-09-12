@@ -7159,8 +7159,12 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         if (firstImage) {
           if (firstImage.complete && (firstImage.naturalWidth || firstImage.width) && (firstImage.naturalHeight || firstImage.height)) {
             syncAspectRatio();
+            syncSettledFeedAspectRatio();
           } else {
-            firstImage.addEventListener("load", syncAspectRatio, { once: true, ...(listenerOptions || {}) });
+            firstImage.addEventListener("load", () => {
+              syncAspectRatio();
+              syncSettledFeedAspectRatio();
+            }, { once: true, ...(listenerOptions || {}) });
           }
         }
         initSyncTimer = window.setTimeout(() => {
@@ -7170,6 +7174,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             track.scrollLeft = initialGalleryIndex * width;
           }
           syncAspectRatio();
+          syncSettledFeedAspectRatio();
           lastTrackedIndex = syncBadge();
         }, 0);
 

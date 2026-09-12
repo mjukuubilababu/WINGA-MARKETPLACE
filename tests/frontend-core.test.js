@@ -36,6 +36,9 @@ test("home feed reserves stable media and deferred section geometry", () => {
   assert.match(gallerySource, /const syncSettledFeedAspectRatio = \(\) => \{/);
   assert.match(gallerySource, /imageRatio = naturalWidth > 0 && naturalHeight > 0 \? naturalWidth \/ naturalHeight : 0;/);
   assert.match(gallerySource, /currentImage\.addEventListener\("load", \(\) => \{/);
+  assert.match(gallerySource, /firstImage\.addEventListener\("load", \(\) => \{\s+syncAspectRatio\(\);\s+syncSettledFeedAspectRatio\(\);/);
+  assert.match(gallerySource, /if \(firstImage\.complete[\s\S]*syncAspectRatio\(\);\s+syncSettledFeedAspectRatio\(\);/);
+  assert.match(gallerySource, /initSyncTimer = window\.setTimeout\(\(\) => \{[\s\S]*syncAspectRatio\(\);\s+syncSettledFeedAspectRatio\(\);\s+lastTrackedIndex = syncBadge\(\);/);
   assert.match(gallerySource, /\}, 120\);/);
   assert.match(appSource, /window\.WingaModules\?\.marketplace\?\.createGalleryModule/);
   assert.match(appSource, /window\.requestAnimationFrame\(\(\) => \{\s+try \{\s+onChunk\?\.\(chunk\);/);
