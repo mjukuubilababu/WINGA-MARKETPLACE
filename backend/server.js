@@ -6192,6 +6192,12 @@ function getRateLimitRule(pathname, method = "GET") {
       key: "/api/media/videos/:providerId/captions"
     };
   }
+  if (normalizedMethod === "GET" && (pathname === "/api/social/follows" || /^\/api\/social\/users\/[^/]+$/.test(pathname))) {
+    return { limit: 120, windowMs: RATE_LIMIT_WINDOW_MS, key: "/api/social/read" };
+  }
+  if (/^\/api\/social\/(?:follows|blocks)\/[^/]+$/.test(pathname) || pathname === "/api/social/follows/import") {
+    return { limit: 30, windowMs: RATE_LIMIT_WINDOW_MS, key: "/api/social/write" };
+  }
   if (/^\/api\/notifications\/[^/]+\/read$/.test(pathname)) {
     return {
       limit: 40,
@@ -7167,6 +7173,135 @@ const server = http.createServer(async (req, res) => {
         preference: savedPreference,
         context: buildRequestGlobalContext(req, { userPreference: savedPreference })
       }, { "Cache-Control": "private, no-store" });
+      return;
+    }
+    const socialUserMatch = url.pathname.match(/^\/api\/social\/users\/([^/]+)$/);
+    if (req.method === "GET" && socialUserMatch) {
+      const profileUsername = normalizeIdentifier(decodeURIComponent(socialUserMatch[1] || ""), 40);
+      const token = readAuthToken(req);
+      const session = token ? findSession(store, token) : null;
+      const viewerUsername = session?.username || "";
+      if (!postgresStore?.readUserFollowSummary) {
+        sendJson(res, 503, { error: "Social graph haipatikani kwa sasa.", code: "social_graph_unavailable" });
+        return;
+      }
+      const summary = await postgresStore.readUserFollowSummary(profileUsername, viewerUsername);
+      if (!summary || (summary.blocked && viewerUsername !== profileUsername)) {
+        sendJson(res, 404, { error: "Profile haijapatikana.", code: "social_profile_not_found" });
+        return;
+      }
+      sendJson(res, 200, { profile: summary }, { "Cache-Control": viewerUsername ? "private, no-store" : "public, max-age=30" });
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/social/follows") {
+      const session = findSession(store, readAuthToken(req));
+      const user = ensureMarketplaceUser(store, session, res, { allowStaff: true });
+      if (!user) return;
+      if (!postgresStore?.readUserFollowPage) {
+        sendJson(res, 503, { error: "Social graph haipatikani kwa sasa.", code: "social_graph_unavailable" });
+        return;
+      }
+      const direction = String(url.searchParams.get("direction") || "following").toLowerCase() === "followers" ? "followers" : "following";
+      const limit = Math.max(1, Math.min(Number(url.searchParams.get("limit") || 30) || 30, 100));
+      const rawCursor = String(url.searchParams.get("cursor") || "").trim();
+      const separator = rawCursor.lastIndexOf("|");
+      const cursorTime = separator > 0 ? rawCursor.slice(0, separator) : "";
+      const cursorUsername = separator > 0 ? normalizeIdentifier(rawCursor.slice(separator + 1), 40) : "";
+      if (rawCursor && (separator <= 0 || !cursorUsername || Number.isNaN(new Date(cursorTime).getTime()))) {
+        sendJson(res, 400, { error: "Cursor si sahihi.", code: "invalid_social_cursor" });
+        return;
+      }
+      const page = await postgresStore.readUserFollowPage(user.username, {
+        viewerUsername: user.username,
+        direction,
+        limit,
+        cursorTime,
+        cursorUsername
+      });
+      sendJson(res, 200, page, { "Cache-Control": "private, no-store" });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/social/follows/import") {
+      const session = findSession(store, readAuthToken(req));
+      const user = ensureMarketplaceUser(store, session, res, { allowStaff: true });
+      if (!user) return;
+      if (!postgresStore?.importUserFollows) {
+        sendJson(res, 503, { error: "Social graph haipatikani kwa sasa.", code: "social_graph_unavailable" });
+        return;
+      }
+      const payload = await collectBody(req);
+      const usernames = Array.isArray(payload?.usernames)
+        ? payload.usernames.map((value) => normalizeIdentifier(value, 40)).filter(Boolean).slice(0, 100)
+        : [];
+      const result = await postgresStore.importUserFollows(user.username, usernames);
+      await appendAuditLog({
+        time: new Date().toISOString(), ip: clientIp, method: req.method, path: url.pathname,
+        event: "person_follows_migrated", username: user.username, imported: result.imported
+      });
+      sendJson(res, 200, { ok: true, ...result }, { "Cache-Control": "private, no-store" });
+      return;
+    }
+
+    const socialFollowMatch = url.pathname.match(/^\/api\/social\/follows\/([^/]+)$/);
+    if ((req.method === "PUT" || req.method === "DELETE") && socialFollowMatch) {
+      const session = findSession(store, readAuthToken(req));
+      const user = ensureMarketplaceUser(store, session, res, { allowStaff: true });
+      if (!user) return;
+      if (!postgresStore?.setUserFollow) {
+        sendJson(res, 503, { error: "Social graph haipatikani kwa sasa.", code: "social_graph_unavailable" });
+        return;
+      }
+      const followedUsername = normalizeIdentifier(decodeURIComponent(socialFollowMatch[1] || ""), 40);
+      if (!followedUsername || followedUsername === user.username) {
+        sendJson(res, 400, { error: "Huwezi kujifuata mwenyewe.", code: "invalid_follow" });
+        return;
+      }
+      const following = req.method === "PUT";
+      if (following) await collectBody(req);
+      const result = await postgresStore.setUserFollow(user.username, followedUsername, following);
+      if (!result.updated) {
+        const status = result.code === "user_not_found" ? 404 : (result.code === "follow_blocked" ? 409 : 400);
+        sendJson(res, status, { error: result.code === "follow_blocked" ? "Relationship hii imezuiwa." : "Follow haikukamilika.", code: result.code });
+        return;
+      }
+      await appendAuditLog({
+        time: new Date().toISOString(), ip: clientIp, method: req.method, path: url.pathname,
+        event: following ? "follow_created" : "follow_removed", username: user.username,
+        followedUsername
+      });
+      sendJson(res, 200, { ok: true, followedUsername, ...result }, { "Cache-Control": "private, no-store" });
+      return;
+    }
+
+    const socialBlockMatch = url.pathname.match(/^\/api\/social\/blocks\/([^/]+)$/);
+    if ((req.method === "PUT" || req.method === "DELETE") && socialBlockMatch) {
+      const session = findSession(store, readAuthToken(req));
+      const user = ensureMarketplaceUser(store, session, res, { allowStaff: true });
+      if (!user) return;
+      if (!postgresStore?.setUserBlock) {
+        sendJson(res, 503, { error: "Social graph haipatikani kwa sasa.", code: "social_graph_unavailable" });
+        return;
+      }
+      const blockedUsername = normalizeIdentifier(decodeURIComponent(socialBlockMatch[1] || ""), 40);
+      if (!blockedUsername || blockedUsername === user.username) {
+        sendJson(res, 400, { error: "Huwezi kujizuia mwenyewe.", code: "invalid_block" });
+        return;
+      }
+      const blocked = req.method === "PUT";
+      if (blocked) await collectBody(req);
+      const result = await postgresStore.setUserBlock(user.username, blockedUsername, blocked);
+      if (!result.updated) {
+        sendJson(res, result.code === "user_not_found" ? 404 : 400, { error: "Block haikukamilika.", code: result.code });
+        return;
+      }
+      await appendAuditLog({
+        time: new Date().toISOString(), ip: clientIp, method: req.method, path: url.pathname,
+        event: blocked ? "user_blocked" : "user_unblocked", username: user.username,
+        blockedUsername
+      });
+      sendJson(res, 200, { ok: true, blockedUsername, blocked }, { "Cache-Control": "private, no-store" });
       return;
     }
     if ((req.method === "GET" || req.method === "HEAD") && url.pathname === "/__winga-image__") {

@@ -8,6 +8,7 @@ window.WingaModules.api.feedState = window.WingaModules.api.feedState || {};
 window.WingaModules.api.auth = window.WingaModules.api.auth || {};
 window.WingaModules.api.productActions = window.WingaModules.api.productActions || {};
 window.WingaModules.api.communications = window.WingaModules.api.communications || {};
+window.WingaModules.api.social = window.WingaModules.api.social || {};
 window.WingaModules.api.commerce = window.WingaModules.api.commerce || {};
 window.WingaModules.api.admin = window.WingaModules.api.admin || {};
 window.WingaModules.api.intelligence = window.WingaModules.api.intelligence || {};

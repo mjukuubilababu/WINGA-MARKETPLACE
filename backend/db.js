@@ -6397,6 +6397,193 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     };
   }
 
+  async function readUserFollowSummary(profileUsername = "", viewerUsername = "") {
+    const profile = String(profileUsername || "").trim().slice(0, 40);
+    const viewer = String(viewerUsername || "").trim().slice(0, 40);
+    if (!profile) return null;
+    const result = await query(
+      `SELECT
+         u.username,
+         u.full_name AS "fullName",
+         u.profile_image AS "profileImage",
+         u.role,
+         u.verified_seller AS "verifiedSeller",
+         COUNT(*) FILTER (WHERE outgoing.status = 'active')::int AS "followingCount",
+         (SELECT COUNT(*)::int FROM user_follows incoming
+          WHERE incoming.followed_username = u.username AND incoming.status = 'active') AS "followerCount",
+         EXISTS (
+           SELECT 1 FROM user_follows mine
+           WHERE mine.follower_username = $2 AND mine.followed_username = u.username AND mine.status = 'active'
+         ) AS "viewerFollows",
+         EXISTS (
+           SELECT 1 FROM user_blocks block_edge
+           WHERE (block_edge.blocker_username = $2 AND block_edge.blocked_username = u.username)
+              OR (block_edge.blocker_username = u.username AND block_edge.blocked_username = $2)
+         ) AS "blocked"
+       FROM users u
+       LEFT JOIN user_follows outgoing ON outgoing.follower_username = u.username
+       WHERE u.username = $1 AND u.status = 'active'
+       GROUP BY u.username, u.full_name, u.profile_image, u.role, u.verified_seller`,
+      [profile, viewer]
+    );
+    const row = result.rows?.[0];
+    return row ? {
+      ...row,
+      followingCount: Number(row.followingCount || 0),
+      followerCount: Number(row.followerCount || 0),
+      viewerFollows: Boolean(row.viewerFollows),
+      blocked: Boolean(row.blocked)
+    } : null;
+  }
+
+  async function readUserFollowPage(username = "", options = {}) {
+    const profile = String(username || "").trim().slice(0, 40);
+    const viewer = String(options.viewerUsername || "").trim().slice(0, 40);
+    const direction = String(options.direction || "following").toLowerCase() === "followers" ? "followers" : "following";
+    const limit = Math.max(1, Math.min(Number(options.limit || 30) || 30, 100));
+    const cursorTime = options.cursorTime ? new Date(options.cursorTime) : null;
+    const cursorUsername = String(options.cursorUsername || "").trim().slice(0, 40);
+    if (!profile || (cursorTime && !Number.isFinite(cursorTime.getTime()))) {
+      return { items: [], nextCursor: "", hasMore: false, limit, direction };
+    }
+    const ownerColumn = direction === "followers" ? "followed_username" : "follower_username";
+    const personColumn = direction === "followers" ? "follower_username" : "followed_username";
+    const params = [profile, viewer, limit + 1];
+    let cursorClause = "";
+    if (cursorTime && cursorUsername) {
+      params.push(cursorTime.toISOString(), cursorUsername);
+      cursorClause = `AND (uf.created_at, uf.${personColumn}) < ($4::timestamptz, $5)`;
+    }
+    const result = await query(
+      `SELECT
+         u.username,
+         u.full_name AS "fullName",
+         u.profile_image AS "profileImage",
+         u.role,
+         u.verified_seller AS "verifiedSeller",
+         uf.created_at AS "followedAt"
+       FROM user_follows uf
+       JOIN users u ON u.username = uf.${personColumn}
+       WHERE uf.${ownerColumn} = $1
+         AND uf.status = 'active'
+         AND u.status = 'active'
+         AND NOT EXISTS (
+           SELECT 1 FROM user_blocks block_edge
+           WHERE (block_edge.blocker_username = $2 AND block_edge.blocked_username = u.username)
+              OR (block_edge.blocker_username = u.username AND block_edge.blocked_username = $2)
+         )
+         ${cursorClause}
+       ORDER BY uf.created_at DESC, uf.${personColumn} DESC
+       LIMIT $3`,
+      params
+    );
+    const rows = result.rows || [];
+    const hasMore = rows.length > limit;
+    const items = rows.slice(0, limit).map((row) => ({ ...row, followedAt: toISOString(row.followedAt) }));
+    const tail = items[items.length - 1];
+    return {
+      items,
+      nextCursor: hasMore && tail ? `${tail.followedAt}|${tail.username}` : "",
+      hasMore,
+      limit,
+      direction
+    };
+  }
+
+  async function setUserFollow(followerUsername = "", followedUsername = "", following = true) {
+    const follower = String(followerUsername || "").trim().slice(0, 40);
+    const followed = String(followedUsername || "").trim().slice(0, 40);
+    if (!follower || !followed || follower === followed) return { updated: false, code: "invalid_follow" };
+    return withTransaction(async (client) => {
+      const users = await client.query(
+        `SELECT username FROM users WHERE username = ANY($1::text[]) AND status = 'active'`,
+        [[follower, followed]]
+      );
+      if (users.rowCount !== 2) return { updated: false, code: "user_not_found" };
+      const blocked = await client.query(
+        `SELECT 1 FROM user_blocks
+         WHERE (blocker_username = $1 AND blocked_username = $2)
+            OR (blocker_username = $2 AND blocked_username = $1)
+         LIMIT 1`,
+        [follower, followed]
+      );
+      if (following && blocked.rowCount) return { updated: false, code: "follow_blocked" };
+      const status = following ? "active" : "removed";
+      await client.query(
+        `INSERT INTO user_follows (follower_username, followed_username, status, created_at, updated_at)
+         VALUES ($1, $2, $3, NOW(), NOW())
+         ON CONFLICT (follower_username, followed_username)
+         DO UPDATE SET status = EXCLUDED.status,
+           created_at = CASE WHEN user_follows.status = 'active' THEN user_follows.created_at ELSE NOW() END,
+           updated_at = NOW()`,
+        [follower, followed, status]
+      );
+      const summary = await client.query(
+        `SELECT
+           (SELECT COUNT(*)::int FROM user_follows WHERE followed_username = $1 AND status = 'active') AS "followerCount",
+           (SELECT COUNT(*)::int FROM user_follows WHERE follower_username = $2 AND status = 'active') AS "followingCount"`,
+        [followed, follower]
+      );
+
+      return {
+        updated: true,
+        following,
+        followerCount: Number(summary.rows?.[0]?.followerCount || 0),
+        followingCount: Number(summary.rows?.[0]?.followingCount || 0)
+      };
+    });
+  }
+
+  async function importUserFollows(followerUsername = "", usernames = []) {
+    const follower = String(followerUsername || "").trim().slice(0, 40);
+    const targets = Array.from(new Set((Array.isArray(usernames) ? usernames : [])
+      .map((value) => String(value || "").trim().slice(0, 40))
+      .filter((value) => value && value !== follower))).slice(0, 100);
+    if (!follower || !targets.length) return { imported: 0 };
+    const result = await query(
+      `INSERT INTO user_follows (follower_username, followed_username, status, created_at, updated_at)
+       SELECT $1, candidate.username, 'active', NOW(), NOW()
+       FROM users candidate
+       WHERE candidate.username = ANY($2::text[])
+         AND candidate.status = 'active'
+         AND NOT EXISTS (
+           SELECT 1 FROM user_blocks block_edge
+           WHERE (block_edge.blocker_username = $1 AND block_edge.blocked_username = candidate.username)
+              OR (block_edge.blocker_username = candidate.username AND block_edge.blocked_username = $1)
+         )
+       ON CONFLICT (follower_username, followed_username) DO NOTHING`,
+      [follower, targets]
+    );
+    return { imported: Number(result.rowCount || 0) };
+  }
+  async function setUserBlock(blockerUsername = "", blockedUsername = "", blocked = true) {
+    const blocker = String(blockerUsername || "").trim().slice(0, 40);
+    const target = String(blockedUsername || "").trim().slice(0, 40);
+    if (!blocker || !target || blocker === target) return { updated: false, code: "invalid_block" };
+    return withTransaction(async (client) => {
+      const user = await client.query("SELECT username FROM users WHERE username = $1 AND status = 'active'", [target]);
+      if (!user.rowCount) return { updated: false, code: "user_not_found" };
+      if (blocked) {
+        await client.query(
+          `INSERT INTO user_blocks (blocker_username, blocked_username, created_at)
+           VALUES ($1, $2, NOW()) ON CONFLICT DO NOTHING`,
+          [blocker, target]
+        );
+        await client.query(
+          `UPDATE user_follows SET status = 'removed', updated_at = NOW()
+           WHERE (follower_username = $1 AND followed_username = $2)
+              OR (follower_username = $2 AND followed_username = $1)`,
+          [blocker, target]
+        );
+      } else {
+        await client.query(
+          "DELETE FROM user_blocks WHERE blocker_username = $1 AND blocked_username = $2",
+          [blocker, target]
+        );
+      }
+      return { updated: true, blocked };
+    });
+  }
   async function init(getLegacyStore) {
     await runSchemaMigrations({
       pool,
@@ -6491,6 +6678,11 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     readSearchDemandSummary,
     readUserLocalePreference,
     saveUserLocalePreference,
+    readUserFollowSummary,
+    readUserFollowPage,
+    setUserFollow,
+    importUserFollows,
+    setUserBlock,
     appendAuditLog,
     readRecentAuditLogs,
     pruneSuspiciousLoginAttempts,

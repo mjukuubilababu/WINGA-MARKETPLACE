@@ -104,6 +104,9 @@ test("PostgreSQL schema migrations are locked, transactional, and versioned", as
   assert.equal(calls.some((call) => call.text.includes("ADD COLUMN IF NOT EXISTS row_version")), true);
   assert.equal(calls.some((call) => call.text.includes("idx_sessions_username_active")), true);
   assert.equal(calls.some((call) => call.text.includes("CREATE TABLE IF NOT EXISTS user_locale_preferences")), true);
+  assert.equal(calls.some((call) => call.text.includes("CREATE TABLE IF NOT EXISTS user_follows")), true);
+  assert.equal(calls.some((call) => call.text.includes("idx_user_follows_followers_cursor")), true);
+  assert.equal(calls.some((call) => call.text.includes("CREATE TABLE IF NOT EXISTS user_blocks")), true);
   assert.equal(calls.some((call) => call.text.includes("idx_products_seller_video_created")), true);
   assert.equal(calls.some((call) => call.text.includes("fk_video_upload_intents_product")), true);
   assert.equal(calls.some((call) => call.text.includes("source_size_bytes")), true);
@@ -3442,4 +3445,84 @@ test("PostgreSQL product create rolls back when video claim is rejected", async 
 
   assert.equal(calls.some((call) => call.text.includes("INSERT INTO products")), false);
   assert.equal(calls.at(-1).text, "ROLLBACK");
+});
+
+test("person social graph follow mutation is transactional, idempotent, and actor-scoped", async () => {
+  const calls = [];
+  const client = {
+    async query(text, params = []) {
+      const sql = String(text);
+      calls.push({ text: sql, params });
+      if (sql.includes("SELECT username FROM users WHERE username = ANY")) return { rows: [{ username: "viewer" }, { username: "creator" }], rowCount: 2 };
+      if (sql.includes("SELECT 1 FROM user_blocks")) return { rows: [], rowCount: 0 };
+      if (sql.includes("INSERT INTO user_follows")) return { rows: [], rowCount: 1 };
+      if (sql.includes("AS \"followerCount\"")) return { rows: [{ followerCount: 7, followingCount: 4 }], rowCount: 1 };
+      return { rows: [], rowCount: 0 };
+    },
+    release() {}
+  };
+  const store = createPostgresStore({
+    databaseUrl: "postgres://test.invalid/winga",
+    queryClient: { query: client.query.bind(client), connect: async () => client }
+  });
+
+  assert.deepEqual(await store.setUserFollow("viewer", "viewer", true), { updated: false, code: "invalid_follow" });
+  const result = await store.setUserFollow("viewer", "creator", true);
+  assert.equal(result.updated, true);
+  assert.equal(result.following, true);
+  assert.equal(result.followerCount, 7);
+  assert.equal(result.followingCount, 4);
+  assert.equal(calls.some((call) => call.text === "BEGIN"), true);
+  assert.equal(calls.some((call) => call.text === "COMMIT"), true);
+  const upsert = calls.find((call) => call.text.includes("ON CONFLICT (follower_username, followed_username)"));
+  assert.deepEqual(upsert.params, ["viewer", "creator", "active"]);
+  const summary = calls.find((call) => call.text.includes("AS \"followerCount\""));
+  assert.deepEqual(summary.params, ["creator", "viewer"]);
+});
+
+test("person social graph cursor page is bounded and excludes blocked relationships", async () => {
+  const calls = [];
+  const queryClient = {
+    async query(text, params = []) {
+      calls.push({ text: String(text), params });
+      return {
+        rows: [
+          { username: "person-c", followedAt: "2026-09-12T10:00:00.000Z" },
+          { username: "person-b", followedAt: "2026-09-11T10:00:00.000Z" },
+          { username: "person-a", followedAt: "2026-09-10T10:00:00.000Z" }
+        ],
+        rowCount: 3
+      };
+    }
+  };
+  const store = createPostgresStore({ databaseUrl: "postgres://test.invalid/winga", queryClient });
+  const page = await store.readUserFollowPage("viewer", { viewerUsername: "viewer", direction: "followers", limit: 2 });
+  assert.equal(page.items.length, 2);
+  assert.equal(page.hasMore, true);
+  assert.equal(page.nextCursor, "2026-09-11T10:00:00.000Z|person-b");
+  assert.equal(page.direction, "followers");
+  assert.equal(calls[0].params[2], 3);
+  assert.match(calls[0].text, /NOT EXISTS \(\s*SELECT 1 FROM user_blocks/);
+  assert.match(calls[0].text, /ORDER BY uf\.created_at DESC, uf\.follower_username DESC/);
+});
+
+test("blocking a person removes follow edges in both directions", async () => {
+  const calls = [];
+  const client = {
+    async query(text, params = []) {
+      calls.push({ text: String(text), params });
+      if (String(text).includes("SELECT username FROM users WHERE username = $1")) return { rows: [{ username: "person-b" }], rowCount: 1 };
+      return { rows: [], rowCount: 1 };
+    },
+    release() {}
+  };
+  const store = createPostgresStore({
+    databaseUrl: "postgres://test.invalid/winga",
+    queryClient: { query: client.query.bind(client), connect: async () => client }
+  });
+  const result = await store.setUserBlock("person-a", "person-b", true);
+  assert.deepEqual(result, { updated: true, blocked: true });
+  const followRemoval = calls.find((call) => call.text.includes("UPDATE user_follows SET status = 'removed'"));
+  assert.deepEqual(followRemoval.params, ["person-a", "person-b"]);
+  assert.match(followRemoval.text, /follower_username = \$2 AND followed_username = \$1/);
 });

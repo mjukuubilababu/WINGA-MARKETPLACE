@@ -6935,6 +6935,63 @@ function markFollowedSellerNotificationRead(notificationId) {
   persistFollowedSellerNotificationReadIds();
 }
 
+async function hydrateAuthoritativeFollowState(reason = "session_ready") {
+  const username = String(currentUser || "").trim();
+  if (!username || typeof window.WingaDataLayer?.loadFollows !== "function") return;
+  const localIds = Array.from(ensureFollowedSellerIdsLoaded()).filter(Boolean);
+  const migrationKey = `winga-person-follow-migrated:${username}`;
+  try {
+    if (localIds.length && window.localStorage.getItem(migrationKey) !== "true") {
+      for (let index = 0; index < localIds.length; index += 100) {
+        await window.WingaDataLayer.importLegacyFollows(localIds.slice(index, index + 100));
+      }
+      window.localStorage.setItem(migrationKey, "true");
+    }
+    const followedIds = new Set();
+    let cursor = "";
+    let pageCount = 0;
+    let hasMore = true;
+    while (hasMore && pageCount < 20) {
+      const page = await window.WingaDataLayer.loadFollows({ direction: "following", limit: 100, cursor });
+      (Array.isArray(page?.items) ? page.items : [])
+        .map((item) => String(item?.username || "").trim())
+        .filter(Boolean)
+        .forEach((value) => followedIds.add(value));
+      const nextCursor = String(page?.nextCursor || "").trim();
+      hasMore = Boolean(page?.hasMore && nextCursor && nextCursor !== cursor);
+      cursor = nextCursor;
+      pageCount += 1;
+    }
+    if (String(currentUser || "").trim() !== username) return;
+    followedSellerState.storageKey = getFollowedSellersStorageKey();
+    followedSellerState.ids = followedIds;
+    persistFollowedSellerIds();
+    reportClientEvent("info", "social_graph_hydrated", "Person follow graph synchronized.", {
+      category: "social", reason, count: followedIds.size, pageCount, truncated: hasMore
+    });
+  } catch (error) {
+    captureClientError("social_graph_hydration_failed", error, { category: "social", alertSeverity: "low", reason });
+  }
+}
+
+function syncUserFollowMutation(username, following) {
+  if (!currentUser || typeof window.WingaDataLayer?.setUserFollow !== "function") return;
+  const actor = currentUser;
+  Promise.resolve(window.WingaDataLayer.setUserFollow(username, following))
+    .then(() => reportClientEvent("info", following ? "follow_created" : "follow_removed", "Person follow updated.", {
+      category: "social", followedUsername: username
+    }))
+    .catch((error) => {
+      if (currentUser !== actor) return;
+      const ids = ensureFollowedSellerIdsLoaded();
+      if (following) ids.delete(username); else ids.add(username);
+      persistFollowedSellerIds();
+      captureClientError("social_follow_update_failed", error, {
+        category: "social", alertSeverity: "medium", followedUsername: username, following
+      });
+      requestCurrentSurfaceRefresh("social_follow_rollback", { productLimit: 4, decodeLimit: 1, prefetch: false });
+    });
+}
 function isSellerFollowed(username) {
   return ensureFollowedSellerIdsLoaded().has(String(username || ""));
 }
@@ -6948,10 +7005,12 @@ function toggleFollowSeller(username) {
   if (followedIds.has(safeUsername)) {
     followedIds.delete(safeUsername);
     persistFollowedSellerIds();
+    syncUserFollowMutation(safeUsername, false);
     return false;
   }
   followedIds.add(safeUsername);
   persistFollowedSellerIds();
+  syncUserFollowMutation(safeUsername, true);
   return true;
 }
 
@@ -10583,14 +10642,6 @@ function bindTrustReportEntryActions() {
         });
         return;
       }
-      if (!canUseBuyerFeatures()) {
-        showInAppNotification({
-          title: translateUi("follow.buyerAccessTitle", {}, "Buyer access needed"),
-          body: translateUi("follow.buyerAccessBody", {}, "Following sellers is available on buyer-enabled accounts only."),
-          variant: "warning"
-        });
-        return;
-      }
       const username = followSellerButton.dataset.followSeller || "";
       if (!username) {
         return;
@@ -11541,6 +11592,10 @@ const {
   getMarketplacePrimaryImage,
   getMarketplaceUser,
   getCurrentUser: () => currentUser,
+  createFeedModuleComposer: window.WingaModules.marketplace.createFeedModuleComposer,
+  getFollowedUserIds: () => Array.from(ensureFollowedSellerIdsLoaded()),
+  getCurrentPromotions: () => currentPromotions,
+  getRecentlyViewedProductIds: () => recentlyViewedProductIds.slice(),
   isSellerFollowed,
   isProductSaved,
   getSellerPromotionStatusMeta,
@@ -16889,6 +16944,11 @@ function loginSuccess(username, preferredCategory = "", sessionData = null, opti
     ? forceView
     : (isStaffUser() ? "admin" : "home");
   saveSessionUser(currentSession);
+  if (!isStaffUser()) {
+    scheduleIdleBackgroundWork(() => hydrateAuthoritativeFollowState(
+      restoreView ? "session_restore" : "login"
+    ), 300);
+  }
   authContainer.style.display = "none";
   hideAdminLoginScreen();
   document.body.classList.remove("auth-modal-open");

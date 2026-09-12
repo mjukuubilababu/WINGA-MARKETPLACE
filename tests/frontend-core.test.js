@@ -5353,6 +5353,124 @@ test("payment refund adapter preserves signed durable provider orchestration", (
   assert.match(config, /"new_sqlite_classes": \["RefundCoordinator"\]/);
   assert.equal(packageJson.scripts["deploy:worker:payment-refund"], "npx wrangler deploy --config wrangler.payment-refund.jsonc");
 });
+test("feed modules enforce contract, dedupe, sponsorship, frequency caps, and fail open", () => {
+  const root = path.resolve(__dirname, "..");
+  const source = fs.readFileSync(path.join(root, "src", "marketplace", "feed-modules.js"), "utf8");
+  const buildSource = fs.readFileSync(path.join(root, "scripts", "build-vercel-static.js"), "utf8");
+  const events = [];
+  const context = vm.createContext({
+    window: { WingaModules: { marketplace: {} } },
+    Date,
+    Map,
+    Set
+  });
+  vm.runInContext(source, context);
+  const createProduct = (id, uploadedBy, overrides = {}) => ({
+    id,
+    uploadedBy,
+    name: id,
+    image: `/uploads/${id}.webp`,
+    images: [`/uploads/${id}.webp`],
+    category: "fashion",
+    status: "approved",
+    availability: "available",
+    createdAt: `2026-09-${String(12 - (Number(id.replace(/\D/g, "")) || 0)).padStart(2, "0")}T10:00:00.000Z`,
+    views: 10,
+    likes: 2,
+    ...overrides
+  });
+  const products = Array.from({ length: 20 }, (_, index) => createProduct(`p${index + 1}`, `seller-${(index % 8) + 1}`));
+  products[8].uploadedBy = "followed-person";
+  products[9].uploadedBy = "followed-person";
+  [10, 11].forEach((index) => {
+    products[index].category = "reels";
+    products[index].mediaItems = [{ type: "video", status: "ready", moderationStatus: "approved", provider: "cloudflare-stream", providerId: `stream_video_${index}` }];
+  });
+  const composer = context.window.WingaModules.marketplace.createFeedModuleComposer({
+    config: { maxModules: 4 },
+    reportEvent: (name, payload) => events.push({ name, payload })
+  });
+  const modules = composer.compose({
+    products,
+    verticalProductIds: products.slice(0, 8).map((product) => product.id),
+    followedUsernames: ["followed-person"],
+    promotions: [{ productId: "p20", status: "active", paymentStatus: "paid" }],
+    currentUser: "viewer"
+  });
+  const contractKeys = ["id", "type", "title", "reason", "source", "items", "maxItems", "frequencyCap", "dedupeKey", "priority", "placementRule", "sponsored", "analyticsMetadata"];
+  assert.equal(modules.length >= 3, true);
+  assert.equal(contractKeys.every((key) => Object.prototype.hasOwnProperty.call(modules[0], key)), true);
+  assert.equal(modules.some((module) => module.type === "new-from-following"), true);
+  assert.equal(modules.some((module) => module.type === "trending-reels"), true);
+  const sponsored = modules.find((module) => module.type === "sponsored-shops");
+  assert.equal(Boolean(sponsored?.sponsored), true);
+  assert.equal(sponsored?.title, "Sponsored");
+  const moduleIds = modules.flatMap((module) => module.items.map((product) => product.id));
+  assert.equal(moduleIds.some((id) => products.slice(0, 8).some((product) => product.id === id)), false);
+  assert.equal(new Set(moduleIds).size, moduleIds.length);
+  assert.equal(modules.every((module, index) => module.placementRule.afterItems === 8 + (index * 10)), true);
+  composer.markRendered(modules[0]);
+  const secondComposition = composer.compose({ products, followedUsernames: ["followed-person"] });
+  assert.equal(secondComposition.some((module) => module.dedupeKey === modules[0].dedupeKey), false);
+  const sameSellerComposer = context.window.WingaModules.marketplace.createFeedModuleComposer();
+  const sameSellerModules = sameSellerComposer.compose({
+    products: [
+      createProduct("p101", "candidate-seller"),
+      createProduct("p102", "candidate-seller"),
+      createProduct("p103", "viewer")
+    ],
+    verticalProductIds: ["p101"],
+    currentUser: { username: "viewer" }
+  });
+  const sameSellerShopModule = sameSellerModules.find((module) => module.type === "shops-you-may-like");
+  assert.deepEqual(Array.from(sameSellerShopModule.items, (product) => product.id), ["p102"]);
+  const broken = {};
+  Object.defineProperty(broken, "id", { get() { throw new Error("bad candidate"); } });
+  assert.deepEqual(Array.from(composer.compose({ products: [broken] })), []);
+  assert.equal(events.some((entry) => entry.name === "module_failure"), true);
+  assert.match(source, /window\.WingaModules\.marketplace\.createFeedModuleComposer = createFeedModuleComposer;/);
+  assert.match(buildSource, /"src\/marketplace\/feed-modules\.js"/);
+  const uiSource = fs.readFileSync(path.join(root, "src", "marketplace", "ui.js"), "utf8");
+  assert.match(uiSource, /feedModuleProductIds\.has\(product\?\.id\)/);
+  assert.match(uiSource, /module_impression/);
+  assert.doesNotMatch(uiSource, /intelligentFeedEnabled && !shouldUseMobileEndlessHomeFeed/);
+});
+
+test("social API client preserves cursor paging and person follow mutation semantics", async () => {
+  const root = path.resolve(__dirname, "..");
+  const source = fs.readFileSync(path.join(root, "src", "api", "social-client.js"), "utf8");
+  const requests = [];
+  const context = vm.createContext({
+    window: { WingaModules: { api: {} } },
+    URLSearchParams,
+    encodeURIComponent,
+    Set,
+    JSON
+  });
+  vm.runInContext(source, context);
+  const client = context.window.WingaModules.api.social.createSocialApiClient({
+    baseUrl: "/api/",
+    createAuthHeaders: () => ({ "X-CSRF-Token": "csrf" }),
+    fetchJson: async (url, options = {}) => {
+      requests.push({ url, options });
+      return { ok: true };
+    }
+  });
+  await client.loadFollows({ direction: "followers", limit: 500, cursor: "2026-09-12T10:00:00.000Z|person-b" });
+  await client.setFollow("person/b", true);
+  await client.setFollow("person/b", false);
+  await client.importLegacyFollows(["person-a", "person-a", "person-b"]);
+  await client.setBlock("person-c", true);
+  assert.match(requests[0].url, /direction=followers/);
+  assert.match(requests[0].url, /limit=100/);
+  assert.match(requests[0].url, /cursor=/);
+  assert.equal(requests[1].options.method, "PUT");
+  assert.equal(requests[2].options.method, "DELETE");
+  assert.equal(JSON.parse(requests[3].options.body).usernames.length, 2);
+  assert.equal(requests[4].options.method, "PUT");
+  assert.equal(requests.slice(1).every((request) => request.options.headers["X-CSRF-Token"] === "csrf"), true);
+  assert.match(requests[1].url, /person%2Fb$/);
+});
 (async () => {
   let passed = 0;
   for (const entry of tests) {

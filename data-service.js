@@ -1637,6 +1637,7 @@ async loadAdminPayments(filters) {
     let authApiClient = null;
     let productsApiClient = null;
     let communicationsApiClient = null;
+    let socialApiClient = null;
     let commerceApiClient = null;
     let adminApiClient = null;
     let intelligenceApiClient = null;
@@ -1775,6 +1776,16 @@ async loadAdminPayments(filters) {
       return productsApiClient;
     }
 
+    function getSocialApiClient() {
+      if (!socialApiClient) {
+        const factory = window.WingaModules?.api?.social?.createSocialApiClient;
+        if (typeof factory !== "function") {
+          throw new Error("Winga social API client module is required before data service boot.");
+        }
+        socialApiClient = factory({ baseUrl, fetchJson, createAuthHeaders });
+      }
+      return socialApiClient;
+    }
     function getCommunicationsApiClient() {
       if (!communicationsApiClient) {
         const factory = window.WingaModules?.api?.communications?.createCommunicationsApiClient;
@@ -1859,7 +1870,21 @@ async loadAdminPayments(filters) {
           body: JSON.stringify(users)
         });
       },
-      async loadProducts(options = {}) {
+      async loadFollows(options = {}) {
+        return getSocialApiClient().loadFollows(options);
+      },
+      async loadSocialProfile(username) {
+        return getSocialApiClient().loadSocialProfile(username);
+      },
+      async setUserFollow(username, following) {
+        return getSocialApiClient().setFollow(username, following);
+      },
+      async importLegacyFollows(usernames) {
+        return getSocialApiClient().importLegacyFollows(usernames);
+      },
+      async setUserBlock(username, blocked) {
+        return getSocialApiClient().setBlock(username, blocked);
+      },      async loadProducts(options = {}) {
         const pageWindow = normalizeProductPageWindow({
           limit: options.limit || DEFAULT_PRODUCTS_PAGE_LIMIT,
           page: 1
@@ -3761,7 +3786,34 @@ async loadAdminPayments() {
       state.users = await state.adapter.loadUsers();
       return result;
     },
-    async loadActiveSessions() {
+    async loadFollows(options = {}) {
+      ensureAdapter();
+      return state.adapter.loadFollows
+        ? state.adapter.loadFollows(options)
+        : { items: [], nextCursor: "", hasMore: false, direction: options.direction || "following" };
+    },
+    async loadSocialProfile(username) {
+      ensureAdapter();
+      return state.adapter.loadSocialProfile
+        ? state.adapter.loadSocialProfile(username)
+        : { profile: null };
+    },
+    async setUserFollow(username, following = true) {
+      ensureAdapter();
+      if (!state.adapter.setUserFollow) throw new Error("Social graph requires the production API provider.");
+      return state.adapter.setUserFollow(username, following);
+    },
+    async importLegacyFollows(usernames = []) {
+      ensureAdapter();
+      return state.adapter.importLegacyFollows
+        ? state.adapter.importLegacyFollows(usernames)
+        : { ok: true, imported: 0 };
+    },
+    async setUserBlock(username, blocked = true) {
+      ensureAdapter();
+      if (!state.adapter.setUserBlock) throw new Error("Social graph requires the production API provider.");
+      return state.adapter.setUserBlock(username, blocked);
+    },    async loadActiveSessions() {
       ensureAdapter();
       return state.adapter.loadActiveSessions
         ? state.adapter.loadActiveSessions()

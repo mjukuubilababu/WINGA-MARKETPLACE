@@ -2,6 +2,35 @@ const MIGRATION_LOCK_NAME = "winga_schema_migrations_v1";
 
 const MIGRATIONS = Object.freeze([
   Object.freeze({
+    id: "2026091201_person_social_graph",
+    statements: Object.freeze([
+      `CREATE TABLE IF NOT EXISTS user_follows (
+         follower_username TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
+         followed_username TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
+         status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'removed')),
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         PRIMARY KEY (follower_username, followed_username),
+         CHECK (follower_username <> followed_username)
+       );`,
+      `CREATE INDEX IF NOT EXISTS idx_user_follows_following_cursor
+       ON user_follows (follower_username, created_at DESC, followed_username DESC)
+       WHERE status = 'active';`,
+      `CREATE INDEX IF NOT EXISTS idx_user_follows_followers_cursor
+       ON user_follows (followed_username, created_at DESC, follower_username DESC)
+       WHERE status = 'active';`,
+      `CREATE TABLE IF NOT EXISTS user_blocks (
+         blocker_username TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
+         blocked_username TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         PRIMARY KEY (blocker_username, blocked_username),
+         CHECK (blocker_username <> blocked_username)
+       );`,
+      `CREATE INDEX IF NOT EXISTS idx_user_blocks_blocked
+       ON user_blocks (blocked_username, blocker_username);`
+    ])
+  }),
+  Object.freeze({
     id: "2026071901_product_row_version",
     statements: Object.freeze([
       `ALTER TABLE products

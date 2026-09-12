@@ -3,6 +3,7 @@
     let renderSequence = 0;
     let whatsappPreviewCode = "";
     const sellerProductPagination = new Map();
+    let socialSummaryState = { username: "", status: "idle", profile: null };
     const translate = typeof deps.translate === "function"
       ? deps.translate
       : (_key, _variables, fallbackText = "") => String(fallbackText || "");
@@ -847,6 +848,24 @@
       const hasBuyerAccess = deps.canUseBuyerFeatures();
       const canUpgradeToSeller = userProfile?.role === "buyer";
       const activeSection = deps.getActiveProfileSection?.() || "profile-products-panel";
+      if (socialSummaryState.username !== currentUser) {
+        socialSummaryState = { username: currentUser, status: "idle", profile: null };
+      }
+      if (currentUser && socialSummaryState.status === "idle" && typeof deps.dataLayer?.loadSocialProfile === "function") {
+        socialSummaryState.status = "loading";
+        deps.dataLayer.loadSocialProfile(currentUser)
+          .then((result) => {
+            if (socialSummaryState.username !== currentUser) return;
+            socialSummaryState = { username: currentUser, status: "ready", profile: result?.profile || null };
+            if (isRenderActive(sequence)) renderProfile();
+          })
+          .catch((error) => {
+            if (socialSummaryState.username !== currentUser) return;
+            socialSummaryState = { username: currentUser, status: "error", profile: null };
+            deps.captureError?.("profile_social_summary_load_failed", error, { user: currentUser });
+          });
+      }
+      const socialProfile = socialSummaryState.profile;
 
       if (currentUser && typeof deps.hydrateSellerProducts === "function") {
         deps.hydrateSellerProducts(currentUser)
@@ -1027,7 +1046,16 @@
               value: conversationCount,
               label: t("profile.messagesStat", "Messages"),
               action: "messages"
+            },
+            {
+              value: Number(socialProfile?.followerCount || 0),
+              label: t("profile.followersStat", "Followers")
+            },
+            {
+              value: Number(socialProfile?.followingCount || 0),
+              label: t("profile.followingStat", "Following")
             }
+
           ],
           identityMarkup: deps.createProfileIdentitySectionElement(userProfile, {
             displayName: deps.getCurrentDisplayName(),

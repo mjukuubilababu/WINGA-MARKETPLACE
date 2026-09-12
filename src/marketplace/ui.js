@@ -10,6 +10,45 @@
     const t = (key, fallbackText, variables = {}) => typeof deps.translate === "function"
       ? deps.translate(key, variables, fallbackText)
       : String(fallbackText || key || "");
+    const FEED_MODULE_FIRST_PLACEMENT = 6;
+    const feedModuleComposer = typeof deps.createFeedModuleComposer === "function"
+      ? deps.createFeedModuleComposer({
+          reportEvent: (eventName, payload) => deps.reportShowcaseInstrumentation?.(eventName, payload),
+          translate: (key, variables, fallbackText) => t(key, fallbackText, variables),
+          config: { firstPlacementAfter: FEED_MODULE_FIRST_PLACEMENT }
+        })
+      : null;
+    const boundFeedModuleTracks = new WeakSet();
+
+    function bindFeedModuleAnalytics(scope) {
+      scope?.querySelectorAll?.("[data-feed-module-id]").forEach((section) => {
+        const track = section.querySelector(".showcase-track");
+        if (!track || boundFeedModuleTracks.has(track)) return;
+        boundFeedModuleTracks.add(track);
+        track.addEventListener("click", (event) => {
+          const item = event.target.closest("[data-showcase-id], [data-open-product]");
+          deps.reportShowcaseInstrumentation?.("module_item_click", {
+            moduleId: section.dataset.feedModuleId || "",
+            moduleType: section.dataset.feedModuleType || "",
+            productId: item?.dataset?.showcaseId || item?.dataset?.openProduct || "",
+            sponsored: section.dataset.feedModuleSponsored === "true"
+          });
+        }, { passive: true });
+        let scrollTimer = 0;
+        track.addEventListener("scroll", () => {
+          if (scrollTimer) window.clearTimeout(scrollTimer);
+          scrollTimer = window.setTimeout(() => {
+            const completed = track.scrollLeft + track.clientWidth >= track.scrollWidth - 8;
+            deps.reportShowcaseInstrumentation?.(completed ? "module_completion" : "module_scroll", {
+              moduleId: section.dataset.feedModuleId || "",
+              moduleType: section.dataset.feedModuleType || "",
+              sponsored: section.dataset.feedModuleSponsored === "true"
+            });
+          }, 160);
+        }, { passive: true });
+      });
+    }
+
 
     function createElementFromMarkup(markup) {
       return deps.createElementFromMarkup(markup);
@@ -1311,13 +1350,13 @@
       const intelligentFeedEnabled = currentView === "home";
       const isMobileViewport = layoutMode === "mobile" || layoutMode === "standalone-mobile" || layoutMode === "mobile-desktop-site";
       const shouldUseMobileEndlessHomeFeed = currentView === "home" && isMobileViewport;
-      const shouldInjectInlineShowcases = intelligentFeedEnabled && !shouldUseMobileEndlessHomeFeed;
+      const shouldInjectInlineShowcases = intelligentFeedEnabled;
       const startupPriorityCardCount = isMobileViewport ? 4 : STARTUP_PRIORITY_CARD_COUNT;
       const initialSyncBatchSize = isMobileViewport ? 10 : INITIAL_SYNC_FEED_BATCH_SIZE;
       const bootstrapSyncFeedTargetCount = isMobileViewport ? 14 : BOOTSTRAP_SYNC_FEED_TARGET_COUNT;
       const productsPerRow = shouldInjectInlineShowcases ? (deps.getFeedLayoutColumns?.() || deps.getProductsPerRow()) : 0;
-      const showcaseSpacing = isMobileViewport ? 8 : 10;
-      const showcaseRepeatInterval = isMobileViewport ? 8 : 10;
+      const showcaseSpacing = isMobileViewport ? FEED_MODULE_FIRST_PLACEMENT : 10;
+      const showcaseRepeatInterval = 10;
       const firstShowcaseAfter = shouldInjectInlineShowcases ? showcaseSpacing : Number.POSITIVE_INFINITY;
       const effectiveShowcaseRepeatInterval = shouldInjectInlineShowcases ? showcaseRepeatInterval : Number.POSITIVE_INFINITY;
       let nextShowcaseInsertAt = firstShowcaseAfter;
@@ -1328,13 +1367,7 @@
       const passiveViewLimit = Math.max(4, (deps.getProductsPerRow?.() || 3));
       preloadMarketplaceImages(list);
       const renderToken = ++scheduledFeedRenderState.token;
-      const legacySectionQueue = legacyShowcaseEnabled
-        ? buildLegacyShowcaseQueue(list, usedShowcaseProductIds)
-        : [];
-      const intelligentSectionQueue = intelligentFeedEnabled
-        ? buildHomeIntelligentSectionQueue(list, usedShowcaseProductIds)
-        : [];
-      const combinedSectionQueue = [...legacySectionQueue, ...intelligentSectionQueue];
+      let combinedSectionQueue = [];
       let intelligentSectionIndex = 0;
 
       const startRendering = (resolvedList) => {
@@ -1342,6 +1375,33 @@
         const safeList = shouldUseMobileEndlessHomeFeed
           ? sourceList.slice(0, Math.min(MOBILE_HOME_INITIAL_FEED_LIMIT, sourceList.length))
           : sourceList;
+        const protectedVerticalCount = Math.min(
+          FEED_MODULE_FIRST_PLACEMENT,
+          Math.max(3, safeList.length - 3)
+        );
+        const currentUsername = String(deps.getCurrentUser?.()?.username || deps.getCurrentUser?.() || "").trim();
+        const reservedModuleCandidateId = safeList.find((product) =>
+          product?.id
+          && String(product.uploadedBy || "").trim()
+          && String(product.uploadedBy || "").trim() !== currentUsername
+        )?.id || "";
+        const protectedVerticalProductIds = safeList
+          .filter((product) => product?.id && product.id !== reservedModuleCandidateId)
+          .slice(0, protectedVerticalCount)
+          .map((product) => product.id);
+        combinedSectionQueue = intelligentFeedEnabled && feedModuleComposer
+          ? feedModuleComposer.compose({
+              products: sourceList,
+              verticalProductIds: protectedVerticalProductIds,
+              followedUsernames: deps.getFollowedUserIds?.() || [],
+              promotions: deps.getCurrentPromotions?.() || [],
+              currentUser: deps.getCurrentUser?.(),
+              recentlyViewedIds: deps.getRecentlyViewedProductIds?.() || []
+            })
+          : [];
+        const feedModuleProductIds = new Set(
+          combinedSectionQueue.flatMap((module) => module.items || []).map((product) => product?.id).filter(Boolean)
+        );
         const retentionSignature = buildFeedRetentionSignature(safeList, {
           currentView,
           layoutMode
@@ -1397,16 +1457,20 @@
               descriptor.subtitle
             )
             : createIntelligentSectionElement(
-              descriptor.heading || descriptor.eyebrow,
+              descriptor.sponsored ? t("marketplace.sponsored", "Sponsored") : t("marketplace.forYou", "For you"),
               descriptor.title,
-              descriptor.subtitle,
+              descriptor.reason || descriptor.subtitle,
               safeItems,
               descriptor.kind || descriptor.variant || "intelligent"
             );
           if (!showcaseElement) {
             continue;
           }
-          reportShowcaseInstrumentation(descriptor.kind === "legacy-showcase" ? "legacy_showcase_rendered" : "intelligent_section_rendered", {
+          showcaseElement.dataset.feedModuleId = descriptor.id || "";
+          showcaseElement.dataset.feedModuleType = descriptor.type || descriptor.kind || "";
+          showcaseElement.dataset.feedModuleSponsored = descriptor.sponsored ? "true" : "false";
+          showcaseElement.dataset.feedModuleSource = descriptor.source || "";
+          reportShowcaseInstrumentation("module_impression", {
             sectionIndex: showcaseIndex,
             kind: descriptor.kind || descriptor.heading || descriptor.eyebrow || "section",
             title: descriptor.title || "",
@@ -1415,6 +1479,7 @@
           });
           safeItems.forEach((item) => usedShowcaseProductIds.add(item.id));
           fragment.appendChild(showcaseElement);
+          feedModuleComposer?.markRendered(descriptor);
           deps.prioritizeVisibleFeedMedia?.(showcaseElement, Math.min(6, safeItems.length));
           showcaseIndex += 1;
           insertedInlineShowcase = true;
@@ -1443,15 +1508,16 @@
                 descriptor.subtitle
               )
               : createIntelligentSectionElement(
-                descriptor.heading || descriptor.eyebrow,
-                descriptor.title,
-                descriptor.subtitle,
+                descriptor.sponsored ? t("marketplace.sponsored", "Sponsored") : t("marketplace.forYou", "For you"),
+              descriptor.title,
+              descriptor.reason || descriptor.subtitle,
                 safeItems,
                 descriptor.kind || descriptor.variant || "intelligent"
               );
             if (showcaseElement) {
               safeItems.forEach((item) => usedShowcaseProductIds.add(item.id));
               productsContainer.appendChild(showcaseElement);
+              feedModuleComposer?.markRendered(descriptor);
               deps.prioritizeVisibleFeedMedia?.(showcaseElement, Math.min(6, safeItems.length));
             }
           }
@@ -1466,6 +1532,7 @@
           deps.setupDynamicShowcaseLoading(productsContainer, usedShowcaseProductIds);
         }
         deps.enhanceShowcaseTracks?.(productsContainer);
+        bindFeedModuleAnalytics(productsContainer);
         repairShowcaseMediaVisibility(productsContainer);
         stabilizeMobileShowcaseRows(productsContainer);
         deps.bindFeedGalleryInteractions?.(productsContainer);
@@ -1513,6 +1580,10 @@
         const endIndex = Math.min(safeList.length, startIndex + batchSize);
         for (let index = startIndex; index < endIndex; index += 1) {
           const product = safeList[index];
+          if (feedModuleProductIds.has(product?.id)) {
+            appendShowcaseIfNeeded(fragment, index + 1);
+            continue;
+          }
           if (shouldTrackViews && index < passiveViewLimit && deps.trackView(product)) {
             viewedProductIds.push(product.id);
           }
