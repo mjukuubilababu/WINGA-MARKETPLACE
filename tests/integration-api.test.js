@@ -810,6 +810,36 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   assert.equal(mismatchedImageUpload.response.status, 400);
   assert.match(mismatchedImageUpload.body.error, /picha/i);
 
+  const avifImageBuffer = await sharp({
+    create: {
+      width: 320,
+      height: 480,
+      channels: 3,
+      background: { r: 15, g: 80, b: 140 }
+    }
+  }).avif({ quality: 60 }).toBuffer();
+  const avifDataImage = `data:image/avif;base64,${avifImageBuffer.toString("base64")}`;
+  const avifProductUpload = await request("/products", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${sellerToken}`
+    },
+    body: JSON.stringify({
+      id: "product-test-avif",
+      name: "Kiatu AVIF",
+      price: 25000,
+      shop: "Seller One Shop",
+      whatsapp: "255700111111",
+      uploadedBy: "seller_one",
+      category: "viatu",
+      images: [avifDataImage],
+      image: avifDataImage
+    })
+  });
+  assert.equal(avifProductUpload.response.status, 200);
+  assert.match(avifProductUpload.body.image, /\.webp$/);
+
   const oversizedImage = `data:image/png;base64,${"A".repeat((16 * 1024 * 1024) + 1024)}`;
   const oversizedProductUpload = await request("/products", {
     method: "POST",

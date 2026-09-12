@@ -200,7 +200,7 @@ const MAX_IMAGE_COUNT = 5;
 const MAX_IMAGE_SIZE_MB = 8;
 const MAX_IMAGE_BINARY_BYTES = MAX_PRODUCT_IMAGE_BYTES;
 const MAX_DATA_URL_LENGTH = Math.ceil(MAX_IMAGE_BINARY_BYTES * 1.37) + 256;
-const ALLOWED_DATA_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
+const ALLOWED_DATA_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/avif", "image/gif"]);
 const MAX_REQUEST_BODY_BYTES = 16 * 1024 * 1024;
 const MAX_BACKUP_FILES = 5;
 const RATE_LIMIT_WINDOW_MS = 60 * 1000;
@@ -1927,6 +1927,9 @@ function getOgImageMimeType(imageUrl) {
   }
   if (safeUrl.includes(".webp")) {
     return "image/webp";
+  }
+  if (safeUrl.includes(".avif")) {
+    return "image/avif";
   }
   if (safeUrl.includes(".gif")) {
     return "image/gif";
@@ -3935,6 +3938,13 @@ function imageBufferMatchesMime(buffer, mimeType) {
       return buffer.length >= 6 && (buffer.subarray(0, 6).toString("ascii") === "GIF87a" || buffer.subarray(0, 6).toString("ascii") === "GIF89a");
     case "image/webp":
       return buffer.length >= 12 && buffer.subarray(0, 4).toString("ascii") === "RIFF" && buffer.subarray(8, 12).toString("ascii") === "WEBP";
+    case "image/avif": {
+      if (buffer.length < 16 || buffer.subarray(4, 8).toString("ascii") !== "ftyp") {
+        return false;
+      }
+      const brands = buffer.subarray(8, Math.min(buffer.length, 64)).toString("ascii");
+      return brands.includes("avif") || brands.includes("avis");
+    }
     default:
       return false;
   }
@@ -3965,6 +3975,7 @@ function getMimeExtension(mimeType) {
     "image/jpeg": ".jpg",
     "image/png": ".png",
     "image/webp": ".webp",
+    "image/avif": ".avif",
     "image/gif": ".gif"
   };
   return knownExtensions[mimeType] || "";
@@ -3977,6 +3988,7 @@ function getMimeTypeFromExtension(extension) {
     ".jpeg": "image/jpeg",
     ".png": "image/png",
     ".webp": "image/webp",
+    ".avif": "image/avif",
     ".gif": "image/gif"
   };
   return knownTypes[normalized] || "";
@@ -7186,6 +7198,7 @@ const server = http.createServer(async (req, res) => {
         ".jpeg": "image/jpeg",
         ".png": "image/png",
         ".webp": "image/webp",
+        ".avif": "image/avif",
         ".gif": "image/gif"
       };
 

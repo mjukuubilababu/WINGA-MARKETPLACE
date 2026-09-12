@@ -458,7 +458,7 @@
                      "upload.invalidImageType":  "Choisissez un fichier image valide.",
                      "upload.identityMaxSize":  "L’image d’identité doit faire au maximum {size} Mo.",
                      "upload.maxImages":  "Choisissez au maximum {count} images.",
-                     "upload.supportedTypes":  "Utilisez une image JPG, PNG, WEBP, GIF, HEIC ou HEIF.",
+                     "upload.supportedTypes":  "Utilisez une image JPG, PNG, WEBP, AVIF, GIF, HEIC ou HEIF.",
                      "upload.eachImageMaxSize":  "Chaque image doit faire au maximum {size} Mo.",
                      "upload.imageLabel":  "Image",
                      "upload.identityLabel":  "Image d’identité",

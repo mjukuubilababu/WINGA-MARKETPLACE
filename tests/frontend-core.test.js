@@ -5531,3 +5531,13 @@ test("video captions load without blocking playback and reduced motion requires 
   assert.equal(nodeAttributes.has("tabindex"), false);
   assert.equal(videoAttributes.get("aria-label"), "Video ya bidhaa: Nguo mpya");
 });
+
+test("product photo preparation bounds decoded image memory and accepts AVIF", () => {
+  const root = path.resolve(__dirname, "..");
+  const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
+
+  assert.match(appSource, /"image\/avif"/);
+  assert.match(appSource, /purpose !== "product" && file\.size <= settings\.targetBytes/);
+  assert.doesNotMatch(appSource, /if \(file\.size <= settings\.targetBytes && !isHeicLikeFile\(file\)\)/);
+  assert.match(appSource, /finally \{\s*image\.src = "";\s*\}/);
+});

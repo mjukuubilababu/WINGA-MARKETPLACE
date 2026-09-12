@@ -458,7 +458,7 @@
                      "upload.invalidImageType":  "Choose a valid image file.",
                      "upload.identityMaxSize":  "The ID image must be {size} MB or smaller.",
                      "upload.maxImages":  "Choose no more than {count} images.",
-                     "upload.supportedTypes":  "Use a JPG, PNG, WEBP, GIF, HEIC, or HEIF image.",
+                     "upload.supportedTypes":  "Use a JPG, PNG, WEBP, AVIF, GIF, HEIC, or HEIF image.",
                      "upload.eachImageMaxSize":  "Each image must be {size} MB or smaller.",
                      "upload.imageLabel":  "Image",
                      "upload.identityLabel":  "ID image",

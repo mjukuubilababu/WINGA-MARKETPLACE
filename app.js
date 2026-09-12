@@ -168,8 +168,8 @@ const MAX_IMAGE_SIZE_MB = 8;
 const MAX_IMAGE_SIZE_BYTES = MAX_IMAGE_SIZE_MB * 1024 * 1024;
 const MAX_API_PRODUCT_IMAGE_BYTES = 5 * 1024 * 1024;
 const MAX_API_PRODUCT_REQUEST_BYTES = 14 * 1024 * 1024;
-const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif", "image/heic", "image/heif"];
-const ALLOWED_IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp", ".gif", ".heic", ".heif"];
+const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/avif", "image/gif", "image/heic", "image/heif"];
+const ALLOWED_IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp", ".avif", ".gif", ".heic", ".heif"];
 const PROFILE_IMAGE_TARGET_BYTES = 420 * 1024;
 const PRODUCT_IMAGE_TARGET_BYTES = 850 * 1024;
 const DOCUMENT_IMAGE_TARGET_BYTES = 1100 * 1024;
@@ -2472,7 +2472,7 @@ function validateImageFiles(files) {
 
   files.forEach((file) => {
     if (!isAllowedImageFile(file)) {
-      throw new Error(translateUi("upload.supportedTypes", {}, "Tumia picha za JPG, PNG, WEBP, GIF au HEIC/HEIF."));
+      throw new Error(translateUi("upload.supportedTypes", {}, "Tumia picha za JPG, PNG, WEBP, AVIF, GIF au HEIC/HEIF."));
     }
 
     if (file.size > MAX_IMAGE_SIZE_BYTES) {
@@ -2692,12 +2692,17 @@ async function optimizeImageFileAsDataUrl(file, options = {}) {
   }
 
   const settings = createImageReadOptions(options);
-  if (file.size <= settings.targetBytes && !isHeicLikeFile(file)) {
+  const purpose = String(options?.purpose || "generic").trim().toLowerCase();
+  if (purpose !== "product" && file.size <= settings.targetBytes && !isHeicLikeFile(file)) {
     return readRawFileAsDataUrl(file);
   }
 
   const image = await loadImageElementFromFile(file);
-  return optimizeLoadedImageAsDataUrl(image, options, file);
+  try {
+    return optimizeLoadedImageAsDataUrl(image, options, file);
+  } finally {
+    image.src = "";
+  }
 }
 
 function withOperationTimeout(promise, timeoutMs, message) {

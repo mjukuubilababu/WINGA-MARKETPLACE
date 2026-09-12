@@ -458,7 +458,7 @@
                      "upload.invalidImageType":  "Chagua picha yenye aina sahihi.",
                      "upload.identityMaxSize":  "Picha ya kitambulisho lazima iwe MB {size} au chini.",
                      "upload.maxImages":  "Chagua picha zisizozidi {count}.",
-                     "upload.supportedTypes":  "Tumia picha ya JPG, PNG, WEBP, GIF, HEIC au HEIF.",
+                     "upload.supportedTypes":  "Tumia picha ya JPG, PNG, WEBP, AVIF, GIF, HEIC au HEIF.",
                      "upload.eachImageMaxSize":  "Kila picha lazima iwe MB {size} au chini.",
                      "upload.imageLabel":  "Picha",
                      "upload.identityLabel":  "Picha ya kitambulisho",

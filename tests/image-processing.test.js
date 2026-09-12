@@ -3,7 +3,10 @@ const assert = require("node:assert/strict");
 const sharp = require("sharp");
 const {
   MAX_PRODUCT_IMAGE_BYTES,
+  MAX_PRODUCT_IMAGE_PIXELS,
   PRODUCT_IMAGE_WIDTHS,
+  SHARP_MEMORY_CACHE_MB,
+  SHARP_PROCESSING_CONCURRENCY,
   createProductImageVariants,
   readProductImageMetadata
 } = require("../backend/image-processing");
@@ -66,4 +69,25 @@ test("product image processing rejects input above 8MB", async () => {
     createProductImageVariants(Buffer.alloc(MAX_PRODUCT_IMAGE_BYTES + 1)),
     /8MB upload limit/
   );
+});
+
+
+test("product image processing accepts modern AVIF input within bounded Sharp settings", async () => {
+  const source = await sharp({
+    create: {
+      width: 720,
+      height: 1280,
+      channels: 3,
+      background: { r: 15, g: 80, b: 140 }
+    }
+  }).avif({ quality: 60 }).toBuffer();
+  const result = await createProductImageVariants(source);
+
+  assert.equal(result.source.format, "heif");
+  assert.equal(result.source.width, 720);
+  assert.equal(result.source.height, 1280);
+  assert.ok(result.source.width * result.source.height < MAX_PRODUCT_IMAGE_PIXELS);
+  assert.ok(result.variants.every((variant) => variant.contentType === "image/webp"));
+  assert.ok(SHARP_MEMORY_CACHE_MB >= 8 && SHARP_MEMORY_CACHE_MB <= 128);
+  assert.ok(SHARP_PROCESSING_CONCURRENCY >= 1 && SHARP_PROCESSING_CONCURRENCY <= 4);
 });

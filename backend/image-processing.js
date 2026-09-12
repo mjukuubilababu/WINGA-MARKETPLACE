@@ -4,6 +4,11 @@ const PRODUCT_IMAGE_WIDTHS = Object.freeze([320, 640, 1080]);
 const PRODUCT_IMAGE_WEBP_QUALITY = 75;
 const MAX_PRODUCT_IMAGE_BYTES = 8 * 1024 * 1024;
 const MAX_PRODUCT_IMAGE_PIXELS = 40_000_000;
+const SHARP_MEMORY_CACHE_MB = Math.max(8, Math.min(Number(process.env.SHARP_MEMORY_CACHE_MB || 32) || 32, 128));
+const SHARP_PROCESSING_CONCURRENCY = Math.max(1, Math.min(Number(process.env.SHARP_PROCESSING_CONCURRENCY || 1) || 1, 4));
+
+sharp.cache({ memory: SHARP_MEMORY_CACHE_MB, files: 0, items: 64 });
+sharp.concurrency(SHARP_PROCESSING_CONCURRENCY);
 
 async function createProductImageVariants(buffer, options = {}) {
   if (!Buffer.isBuffer(buffer) || !buffer.length) {
@@ -29,20 +34,21 @@ async function createProductImageVariants(buffer, options = {}) {
     throw new Error("Product image dimensions could not be read.");
   }
 
-  const variants = await Promise.all(widths.map(async (width) => {
+  const variants = [];
+  for (const width of widths) {
     const output = await source
       .clone()
       .resize({ width, withoutEnlargement: true, fit: "inside" })
       .webp({ quality, effort: 4 })
       .toBuffer({ resolveWithObject: true });
-    return {
+    variants.push({
       width,
       actualWidth: output.info.width,
       actualHeight: output.info.height,
       contentType: "image/webp",
       buffer: output.data
-    };
-  }));
+    });
+  }
 
   return {
     source: {
@@ -81,6 +87,9 @@ async function readProductImageMetadata(buffer) {
 
 module.exports = {
   MAX_PRODUCT_IMAGE_BYTES,
+  MAX_PRODUCT_IMAGE_PIXELS,
+  SHARP_MEMORY_CACHE_MB,
+  SHARP_PROCESSING_CONCURRENCY,
   PRODUCT_IMAGE_WEBP_QUALITY,
   PRODUCT_IMAGE_WIDTHS,
   createProductImageVariants,
