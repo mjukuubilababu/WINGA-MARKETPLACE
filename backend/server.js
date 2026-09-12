@@ -10,7 +10,7 @@ const { createDemandService, summarizeDemandEvents } = require("./demand-service
 const { createSearchDemandService, summarizeSearchDemandEvents } = require("./search-demand-service");
 const { buildRequestGlobalContext, normalizeUserPreference, validateUserPreference, formatPrice } = require("./global-context");
 const { isR2StorageEnabled, uploadImageToR2 } = require("./storage-r2");
-const { MAX_PRODUCT_IMAGE_BYTES, createProductImageVariants } = require("./image-processing");
+const { MAX_PRODUCT_IMAGE_BYTES, createProductImageVariants, readProductImageMetadata } = require("./image-processing");
 const { normalizeProductMediaItems } = require("./product-media");
 const {
   createCloudflareStreamClient,
@@ -213,6 +213,13 @@ const serverLifecycle = {
   drainingAt: ""
 };
 let shutdownPromise = null;
+const PRODUCT_IMAGE_METADATA_QUEUE_LIMIT = 100;
+const PRODUCT_IMAGE_METADATA_CONCURRENCY = 2;
+const PRODUCT_IMAGE_METADATA_SEEN_LIMIT = 5000;
+const PRODUCT_IMAGE_METADATA_RETRY_MS = 6 * 60 * 60 * 1000;
+const productImageMetadataQueue = [];
+const productImageMetadataSeen = new Map();
+let productImageMetadataBackfillRunning = false;
 const BUYER_CANCEL_WINDOW_MS = 48 * 60 * 60 * 1000;
 const DELIVERY_CONFIRM_WINDOW_MS = Math.max(24 * 60 * 60 * 1000, Math.min(Number(process.env.DELIVERY_CONFIRM_WINDOW_MS || 7 * 24 * 60 * 60 * 1000) || 7 * 24 * 60 * 60 * 1000, 30 * 24 * 60 * 60 * 1000));
 const DELIVERY_DISPUTE_WINDOW_MS = Math.max(24 * 60 * 60 * 1000, Math.min(Number(process.env.DELIVERY_DISPUTE_WINDOW_MS || 48 * 60 * 60 * 1000) || 48 * 60 * 60 * 1000, 14 * 24 * 60 * 60 * 1000));
@@ -4112,6 +4119,76 @@ function isMissingLocalUploadReference(value) {
   }
   const filePath = getLocalUploadFilePath(normalizedValue);
   return !filePath || !fs.existsSync(filePath);
+}
+
+function pruneProductImageMetadataSeen(now = Date.now()) {
+  for (const [key, recordedAt] of productImageMetadataSeen) {
+    if (productImageMetadataSeen.size <= PRODUCT_IMAGE_METADATA_SEEN_LIMIT
+      && now - recordedAt < PRODUCT_IMAGE_METADATA_RETRY_MS) break;
+    productImageMetadataSeen.delete(key);
+  }
+}
+
+async function enrichStoredProductImageMetadata(job) {
+  const filePath = getLocalUploadFilePath(job.imageUrl);
+  if (!filePath || !filePath.startsWith(UPLOADS_DIR) || !fs.existsSync(filePath)) return false;
+  const stat = await fs.promises.stat(filePath);
+  if (!stat.isFile() || stat.size <= 0 || stat.size > MAX_PRODUCT_IMAGE_BYTES) return false;
+  const metadata = await readProductImageMetadata(await fs.promises.readFile(filePath));
+  const result = await postgresStore.updateProductImageMediaMetadata(job.productId, job.imageUrl, metadata);
+  return Boolean(result?.updated);
+}
+
+async function processProductImageMetadataQueue() {
+  if (productImageMetadataBackfillRunning || serverLifecycle.phase === "draining"
+    || !postgresStore?.updateProductImageMediaMetadata) return;
+  productImageMetadataBackfillRunning = true;
+  let processed = 0;
+  let updated = 0;
+  try {
+    while (productImageMetadataQueue.length && serverLifecycle.phase !== "draining") {
+      const batch = productImageMetadataQueue.splice(0, PRODUCT_IMAGE_METADATA_CONCURRENCY);
+      const results = await Promise.allSettled(batch.map(enrichStoredProductImageMetadata));
+      processed += batch.length;
+      updated += results.filter((result) => result.status === "fulfilled" && result.value).length;
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    if (updated > 0) {
+      logStructuredEvent("info", "product_image_metadata_backfilled", { processed, updated });
+    }
+  } catch (error) {
+    safeConsole("warn", "Product image metadata backfill failed", error?.message || error);
+  } finally {
+    productImageMetadataBackfillRunning = false;
+    if (productImageMetadataQueue.length && serverLifecycle.phase !== "draining") {
+      setImmediate(processProductImageMetadataQueue);
+    }
+  }
+}
+
+function scheduleProductImageMetadataBackfill(products = []) {
+  if (!postgresStore?.updateProductImageMediaMetadata || !Array.isArray(products)) return;
+  const now = Date.now();
+  pruneProductImageMetadataSeen(now);
+  for (const product of products) {
+    const productId = String(product?.id || "").trim();
+    if (!productId) continue;
+    for (const item of normalizeProductMediaItems(product)) {
+      const imageUrl = String(item?.url || "").trim();
+      const aspectRatio = Number(item?.aspectRatio || 0);
+      if (item?.type !== "image" || aspectRatio > 0 || !imageUrl.startsWith("/uploads/")) continue;
+      const key = `${productId}:${imageUrl}`;
+      const lastSeenAt = Number(productImageMetadataSeen.get(key) || 0);
+      if (lastSeenAt && now - lastSeenAt < PRODUCT_IMAGE_METADATA_RETRY_MS) continue;
+      if (productImageMetadataQueue.length >= PRODUCT_IMAGE_METADATA_QUEUE_LIMIT) break;
+      productImageMetadataSeen.set(key, now);
+      productImageMetadataQueue.push({ productId, imageUrl });
+    }
+    if (productImageMetadataQueue.length >= PRODUCT_IMAGE_METADATA_QUEUE_LIMIT) break;
+  }
+  if (productImageMetadataQueue.length && !productImageMetadataBackfillRunning) {
+    setImmediate(processProductImageMetadataQueue);
+  }
 }
 
 function resolveProductImageForDelivery(value, archiveValue, allowPlaceholder = false) {
@@ -8163,6 +8240,7 @@ const server = http.createServer(async (req, res) => {
         const pageData = token
           ? await readProductPage()
           : await getOrSetCache(publicCacheKey, PUBLIC_PRODUCT_CACHE_TTL_SECONDS, readProductPage);
+        scheduleProductImageMetadataBackfill(pageData.items);
         const visibleProducts = (Array.isArray(pageData.items) ? pageData.items : [])
           .map((product) => sanitizeVisibleProduct(product, viewer, store))
           .filter(Boolean);
@@ -12978,7 +13056,7 @@ function waitForServerClose() {
 
 async function waitForBackgroundWork(deadline) {
   while (Date.now() < deadline
-    && (commerceReservationSweepRunning || paymentRefundSweepRunning || intelligenceQueueWorkerRunning)) {
+    && (commerceReservationSweepRunning || paymentRefundSweepRunning || intelligenceQueueWorkerRunning || productImageMetadataBackfillRunning)) {
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
 }
@@ -12990,6 +13068,7 @@ function shutdownServer(signal = "SIGTERM") {
   stopIntelligenceQueueWorker();
   stopCommerceReservationSweeper();
   stopPaymentRefundSweeper();
+  productImageMetadataQueue.length = 0;
   shutdownPromise = (async () => {
     const deadline = Date.now() + SHUTDOWN_GRACE_MS;
     logStructuredEvent("info", "server_shutdown_started", { signal, graceMs: SHUTDOWN_GRACE_MS });

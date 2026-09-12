@@ -55,9 +55,34 @@ async function createProductImageVariants(buffer, options = {}) {
   };
 }
 
+async function readProductImageMetadata(buffer) {
+  if (!Buffer.isBuffer(buffer) || !buffer.length) {
+    throw new TypeError("Product image metadata requires a non-empty Buffer.");
+  }
+  if (buffer.length > MAX_PRODUCT_IMAGE_BYTES) {
+    throw new RangeError("Product image exceeds the 8MB upload limit.");
+  }
+  const metadata = await sharp(buffer, {
+    animated: true,
+    failOn: "error",
+    limitInputPixels: MAX_PRODUCT_IMAGE_PIXELS
+  }).metadata();
+  const width = Math.max(0, Number(metadata.width || 0) || 0);
+  const height = Math.max(0, Number(metadata.height || 0) || 0);
+  if (!width || !height) {
+    throw new Error("Product image dimensions could not be read.");
+  }
+  return {
+    width,
+    height,
+    aspectRatio: Number((width / height).toFixed(6))
+  };
+}
+
 module.exports = {
   MAX_PRODUCT_IMAGE_BYTES,
   PRODUCT_IMAGE_WEBP_QUALITY,
   PRODUCT_IMAGE_WIDTHS,
-  createProductImageVariants
+  createProductImageVariants,
+  readProductImageMetadata
 };

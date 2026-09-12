@@ -4,7 +4,8 @@ const sharp = require("sharp");
 const {
   MAX_PRODUCT_IMAGE_BYTES,
   PRODUCT_IMAGE_WIDTHS,
-  createProductImageVariants
+  createProductImageVariants,
+  readProductImageMetadata
 } = require("../backend/image-processing");
 
 test("product images become bounded WebP derivatives with a 1080 canonical image", async () => {
@@ -41,6 +42,23 @@ test("product image processing never enlarges a small source", async () => {
 
   assert.ok(result.variants.every((variant) => variant.actualWidth === 120));
   assert.ok(result.variants.every((variant) => variant.actualHeight === 80));
+});
+
+test("stored product image metadata preserves the intrinsic display ratio", async () => {
+  const source = await sharp({
+    create: {
+      width: 720,
+      height: 1200,
+      channels: 3,
+      background: { r: 30, g: 90, b: 60 }
+    }
+  }).webp().toBuffer();
+
+  assert.deepEqual(await readProductImageMetadata(source), {
+    width: 720,
+    height: 1200,
+    aspectRatio: 0.6
+  });
 });
 
 test("product image processing rejects input above 8MB", async () => {

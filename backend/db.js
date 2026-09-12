@@ -2872,6 +2872,49 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     });
   }
 
+  async function updateProductImageMediaMetadata(productId, imageUrl, metadata = {}) {
+    const safeProductId = String(productId || "").trim();
+    const safeImageUrl = String(imageUrl || "").trim();
+    const width = Math.max(0, Math.floor(Number(metadata.width || 0) || 0));
+    const height = Math.max(0, Math.floor(Number(metadata.height || 0) || 0));
+    const aspectRatio = Number(metadata.aspectRatio || (width > 0 && height > 0 ? width / height : 0));
+    if (!safeProductId || !safeImageUrl || !width || !height
+      || !Number.isFinite(aspectRatio) || aspectRatio <= 0.2 || aspectRatio >= 5) {
+      return { updated: false, rowVersion: 0 };
+    }
+    const result = await query(
+      `UPDATE products
+       SET media_items = COALESCE((
+         SELECT jsonb_agg(
+           CASE WHEN item->>'type' = 'image'
+             AND item->>'url' = $2
+             AND COALESCE(NULLIF(item->>'aspectRatio', '')::double precision, 0) <= 0
+             THEN item || jsonb_build_object(
+               'width', $3::int,
+               'height', $4::int,
+               'aspectRatio', $5::double precision
+             )
+             ELSE item END
+           ORDER BY ordinal
+         )
+         FROM jsonb_array_elements(media_items) WITH ORDINALITY AS entries(item, ordinal)
+       ), media_items),
+       row_version = row_version + 1
+       WHERE id = $1
+         AND EXISTS (
+           SELECT 1 FROM jsonb_array_elements(media_items) AS entry(item)
+           WHERE item->>'type' = 'image'
+             AND item->>'url' = $2
+             AND COALESCE(NULLIF(item->>'aspectRatio', '')::double precision, 0) <= 0
+         )
+       RETURNING row_version AS "rowVersion"`,
+      [safeProductId, safeImageUrl, width, height, Number(aspectRatio.toFixed(6))]
+    );
+    return result.rowCount
+      ? { updated: true, rowVersion: Number(result.rows?.[0]?.rowVersion || 0) }
+      : { updated: false, rowVersion: 0 };
+  }
+
   async function deleteProduct(productId, ownerUsername) {
     return withTransaction(async (client) => {
       const owned = await client.query(
@@ -6387,6 +6430,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     recordProductAction,
     createProduct,
     updateProduct,
+    updateProductImageMediaMetadata,
     deleteProduct,
     setProductAvailability,
     moderateProduct,

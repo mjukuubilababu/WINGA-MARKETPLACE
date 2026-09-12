@@ -460,6 +460,39 @@ test("PostgreSQL login upgrades password, caps sessions, and notifies atomically
   assert.equal(calls[6].text, "COMMIT");
 });
 
+test("PostgreSQL image metadata repair merges one legacy media item without replacing the product", async () => {
+  const calls = [];
+  const queryClient = {
+    async query(text, params) {
+      calls.push({ text, params });
+      return { rowCount: 1, rows: [{ rowVersion: 4 }] };
+    }
+  };
+  const store = createPostgresStore({
+    databaseUrl: "postgres://test.invalid/winga",
+    queryClient
+  });
+
+  const result = await store.updateProductImageMediaMetadata(
+    "product-legacy-ratio",
+    "/uploads/portrait.webp",
+    { width: 720, height: 1200, aspectRatio: 0.6 }
+  );
+
+  assert.equal(result.updated, true);
+  assert.equal(result.rowVersion, 4);
+  assert.match(calls[0].text, /jsonb_build_object/);
+  assert.match(calls[0].text, /item->>'url' = \$2/);
+  assert.match(calls[0].text, /row_version = row_version \+ 1/);
+  assert.deepEqual(calls[0].params, [
+    "product-legacy-ratio",
+    "/uploads/portrait.webp",
+    720,
+    1200,
+    0.6
+  ]);
+});
+
 test("PostgreSQL product create is transactional and does not rewrite the catalog", async () => {
   const calls = [];
   const client = {
