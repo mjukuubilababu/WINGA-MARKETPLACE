@@ -317,7 +317,6 @@
         let suppressClickUntil = 0;
         let resizeObserver = null;
         let initSyncTimer = 0;
-        let settledRatioTimer = 0;
         let lastTrackedIndex = 0;
         let variationSignalCount = 0;
         const initialGalleryIndex = Math.max(
@@ -373,12 +372,7 @@
             ).trim().toLowerCase() === "contain" ? "contain" : "cover";
             const authorityImage = carousel.querySelector('[data-feed-gallery-primary="true"]')
               || carousel.querySelector('[data-feed-gallery-slide="0"] .feed-gallery-image-social');
-            const activeRatio = String(
-              carousel.dataset.feedGalleryActiveRatio
-              || preview.dataset.feedGalleryActiveRatio
-              || ""
-            ).trim();
-            const ratioValue = activeRatio || stableRatio || "4 / 5";
+            const ratioValue = stableRatio || "4 / 5";
             preview.dataset.fitMode = stableFitMode;
             carousel.dataset.fitMode = stableFitMode;
             preview.dataset.feedGalleryStableRatio = ratioValue;
@@ -453,53 +447,34 @@
           return currentIndex;
         };
 
-        const syncSettledFeedAspectRatio = (requestedIndex = null) => {
-          if (String(carousel.dataset.feedGallerySurface || "").trim().toLowerCase() !== "feed") {
-            return;
-          }
-          const total = Math.max(1, Number(carousel.dataset.feedGalleryTotal || track.querySelectorAll("[data-feed-gallery-slide]").length || 1));
-          const width = Math.max(1, track.clientWidth || carousel.clientWidth || 1);
-          const measuredIndex = Math.round(track.scrollLeft / width);
-          const currentIndex = Math.min(total - 1, Math.max(
-            0,
-            Number.isInteger(requestedIndex) ? requestedIndex : measuredIndex
-          ));
-          const currentSlide = carousel.querySelector(`[data-feed-gallery-slide="${currentIndex}"]`);
-          const currentImage = currentSlide?.querySelector?.(".feed-gallery-image-social");
-          let imageRatio = Number(currentSlide?.dataset.feedGalleryImageRatio || 0);
+        const syncStableFeedAspectRatio = () => {
+          if (String(carousel.dataset.feedGallerySurface || "").trim().toLowerCase() !== "feed") return;
+          const authoritySlide = carousel.querySelector(`[data-feed-gallery-slide="${initialGalleryIndex}"]`)
+            || carousel.querySelector('[data-feed-gallery-slide="0"]');
+          const authorityImage = authoritySlide?.querySelector?.(".feed-gallery-image-social");
+          let imageRatio = Number(authoritySlide?.dataset.feedGalleryImageRatio || 0);
           if (!Number.isFinite(imageRatio) || imageRatio <= 0.2 || imageRatio >= 5) {
-            const naturalWidth = Number(currentImage?.naturalWidth || 0);
-            const naturalHeight = Number(currentImage?.naturalHeight || 0);
+            const naturalWidth = Number(authorityImage?.naturalWidth || 0);
+            const naturalHeight = Number(authorityImage?.naturalHeight || 0);
             imageRatio = naturalWidth > 0 && naturalHeight > 0 ? naturalWidth / naturalHeight : 0;
           }
           if (!Number.isFinite(imageRatio) || imageRatio <= 0.2 || imageRatio >= 5) {
-            if (currentImage && currentImage.dataset.feedGalleryRatioLoadBound !== "true") {
-              currentImage.dataset.feedGalleryRatioLoadBound = "true";
-              currentImage.addEventListener("load", () => {
-                delete currentImage.dataset.feedGalleryRatioLoadBound;
-                syncSettledFeedAspectRatio();
+            if (authorityImage && authorityImage.dataset.feedGalleryRatioLoadBound !== "true") {
+              authorityImage.dataset.feedGalleryRatioLoadBound = "true";
+              authorityImage.addEventListener("load", () => {
+                delete authorityImage.dataset.feedGalleryRatioLoadBound;
+                syncStableFeedAspectRatio();
               }, { once: true, ...(listenerOptions || {}) });
             }
             return;
           }
           const ratioValue = String(Number(imageRatio.toFixed(6)));
-          currentSlide.dataset.feedGalleryImageRatio = ratioValue;
-          if (carousel.dataset.feedGalleryActiveRatio === ratioValue) {
-            return;
-          }
-          carousel.dataset.feedGalleryActiveRatio = ratioValue;
-          preview.dataset.feedGalleryActiveRatio = ratioValue;
+          authoritySlide.dataset.feedGalleryImageRatio = ratioValue;
+          if (carousel.dataset.feedGalleryStableRatio === ratioValue
+            && preview.dataset.feedGalleryStableRatio === ratioValue) return;
+          carousel.dataset.feedGalleryStableRatio = ratioValue;
+          preview.dataset.feedGalleryStableRatio = ratioValue;
           syncAspectRatio();
-        };
-
-        const scheduleSettledFeedAspectRatio = () => {
-          if (settledRatioTimer) {
-            window.clearTimeout(settledRatioTimer);
-          }
-          settledRatioTimer = window.setTimeout(() => {
-            settledRatioTimer = 0;
-            syncSettledFeedAspectRatio();
-          }, 120);
         };
 
         const recordVariationInterestIfNeeded = (currentIndex) => {
@@ -563,7 +538,6 @@
           rafId = window.requestAnimationFrame(() => {
             rafId = 0;
             const currentIndex = syncBadge();
-            syncSettledFeedAspectRatio(currentIndex);
             recordVariationInterestIfNeeded(currentIndex);
             syncAspectRatio();
           });
@@ -578,10 +552,6 @@
             window.clearTimeout(initSyncTimer);
             initSyncTimer = 0;
           }
-          if (settledRatioTimer) {
-            window.clearTimeout(settledRatioTimer);
-            settledRatioTimer = 0;
-          }
           if (resizeObserver) {
             resizeObserver.disconnect();
             resizeObserver = null;
@@ -591,13 +561,9 @@
         };
         carousel.__wingaCleanup = cleanup;
 
-        const handleTrackScroll = () => {
-          scheduleSync();
-          scheduleSettledFeedAspectRatio();
-        };
-        track.addEventListener("scroll", handleTrackScroll, { passive: true, ...(listenerOptions || {}) });
-        track.addEventListener("touchend", scheduleSettledFeedAspectRatio, { passive: true, ...(listenerOptions || {}) });
-        track.addEventListener("touchcancel", scheduleSettledFeedAspectRatio, { passive: true, ...(listenerOptions || {}) });
+        track.addEventListener("scroll", scheduleSync, { passive: true, ...(listenerOptions || {}) });
+        track.addEventListener("touchend", scheduleSync, { passive: true, ...(listenerOptions || {}) });
+        track.addEventListener("touchcancel", scheduleSync, { passive: true, ...(listenerOptions || {}) });
         track.addEventListener("click", (event) => {
           if (suppressClickUntil && Date.now() < suppressClickUntil) {
             event.preventDefault();
@@ -610,15 +576,16 @@
           });
           resizeObserver.observe(carousel);
         }
-        const firstImage = carousel.querySelector(".feed-gallery-carousel-slide .feed-gallery-image-social");
-        if (firstImage) {
-          if (firstImage.complete && (firstImage.naturalWidth || firstImage.width) && (firstImage.naturalHeight || firstImage.height)) {
+        const authorityImage = carousel.querySelector('[data-feed-gallery-primary="true"]')
+          || carousel.querySelector('[data-feed-gallery-slide="0"] .feed-gallery-image-social');
+        if (authorityImage) {
+          if (authorityImage.complete && (authorityImage.naturalWidth || authorityImage.width) && (authorityImage.naturalHeight || authorityImage.height)) {
             syncAspectRatio();
-            syncSettledFeedAspectRatio();
+            syncStableFeedAspectRatio();
           } else {
-            firstImage.addEventListener("load", () => {
+            authorityImage.addEventListener("load", () => {
               syncAspectRatio();
-              syncSettledFeedAspectRatio();
+              syncStableFeedAspectRatio();
             }, { once: true, ...(listenerOptions || {}) });
           }
         }
@@ -629,7 +596,7 @@
             track.scrollLeft = initialGalleryIndex * width;
           }
           syncAspectRatio();
-          syncSettledFeedAspectRatio();
+          syncStableFeedAspectRatio();
           lastTrackedIndex = syncBadge();
         }, 0);
 
@@ -690,7 +657,6 @@
             clearDragState();
             settleDetailCarousel();
             scheduleSync();
-            scheduleSettledFeedAspectRatio();
           }, listenerOptions);
 
           track.addEventListener("pointercancel", (event) => {
@@ -700,14 +666,12 @@
             clearDragState();
             settleDetailCarousel();
             scheduleSync();
-            scheduleSettledFeedAspectRatio();
           }, listenerOptions);
 
           track.addEventListener("lostpointercapture", () => {
             clearDragState();
             settleDetailCarousel();
             scheduleSync();
-            scheduleSettledFeedAspectRatio();
           }, listenerOptions);
         }
       });

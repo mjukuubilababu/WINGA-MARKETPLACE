@@ -2002,29 +2002,29 @@ test("home feed multi-image posts preserve every swipe slide and open the full g
     slides[0].dataset.feedGalleryImageRatio = "0.8";
     slides[1].dataset.feedGalleryImageRatio = "0.5";
     gallery.dataset.feedGalleryStableRatio = "0.8";
-    gallery.dataset.feedGalleryActiveRatio = "0.8";
+    gallery.closest(".product-card-media").style.aspectRatio = "0.8";
     track.scrollLeft = track.clientWidth;
     track.dispatchEvent(new Event("scroll"));
   });
   const firstSwipeFrame = await feedGallery.evaluate((gallery) => new Promise((resolve) => {
     window.requestAnimationFrame(() => resolve({
-      activeRatio: gallery.dataset.feedGalleryActiveRatio,
+      stableRatio: gallery.dataset.feedGalleryStableRatio,
       frameRatio: getComputedStyle(gallery.closest(".product-card-media")).aspectRatio,
       current: gallery.dataset.feedGalleryCurrent
     }));
   }));
   expect(firstSwipeFrame).toEqual({
-    activeRatio: "0.5",
-    frameRatio: "0.5 / 1",
+    stableRatio: "0.8",
+    frameRatio: "0.8 / 1",
     current: "2"
   });
   await expect.poll(async () => feedGallery.evaluate((gallery) => ({
-    activeRatio: gallery.dataset.feedGalleryActiveRatio,
+    stableRatio: gallery.dataset.feedGalleryStableRatio,
     frameRatio: getComputedStyle(gallery.closest(".product-card-media")).aspectRatio,
     current: gallery.dataset.feedGalleryCurrent
   }))).toEqual({
-    activeRatio: "0.5",
-    frameRatio: "0.5 / 1",
+    stableRatio: "0.8",
+    frameRatio: "0.8 / 1",
     current: "2"
   });
 
@@ -2036,13 +2036,14 @@ test("home feed multi-image posts preserve every swipe slide and open the full g
     track.dispatchEvent(new Event("scroll"));
   });
   await expect.poll(async () => feedGallery.evaluate((gallery) => ({
-    activeRatio: gallery.dataset.feedGalleryActiveRatio,
+    stableRatio: gallery.dataset.feedGalleryStableRatio,
+    frameRatio: getComputedStyle(gallery.closest(".product-card-media")).aspectRatio,
     current: gallery.dataset.feedGalleryCurrent
   }))).toEqual({
-    activeRatio: "1",
+    stableRatio: "0.8",
+    frameRatio: "0.8 / 1",
     current: "3"
   });
-
   await multiImageCard.click();
   await expect(page.locator("#product-detail-modal")).toBeVisible();
   const detailGallery = page.locator("#product-detail-modal [data-feed-gallery-surface='detail']").first();
