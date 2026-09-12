@@ -64,6 +64,16 @@ test("canonical video media derives aspect ratio and preserves normalized MIME m
   assert.equal(video.mimeType, "video/mp4");
   assert.equal(video.position, 0);
 });
+
+test("canonical image media carries bounded aspect ratio hints into durable metadata", () => {
+  const mediaItems = normalizeProductMediaItems({
+    images: ["/uploads/portrait.webp", "/uploads/untrusted.webp"],
+    imageAspectRatios: [0.625, 99]
+  });
+
+  assert.equal(mediaItems[0].aspectRatio, 0.625);
+  assert.equal(mediaItems[1].aspectRatio, 0);
+});
 test("canonical product media rejects embedded video bytes and keeps failed metadata", () => {
   const mediaItems = normalizeProductMediaItems({
     image: "/uploads/fallback.webp",

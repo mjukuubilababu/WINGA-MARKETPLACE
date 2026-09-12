@@ -1616,7 +1616,16 @@ test("PostgreSQL product pages expose compact demand summaries for ranking", asy
           name: "Sold out dress",
           createdAt: new Date("2026-06-30T12:00:00.000Z"),
           updatedAt: new Date("2026-06-30T12:00:00.000Z"),
-          images: [],
+          image: "/uploads/dress.webp",
+          images: ["/uploads/dress.webp"],
+          mediaItems: [{
+            type: "image",
+            status: "ready",
+            url: "/uploads/dress.webp",
+            width: 720,
+            height: 1200,
+            aspectRatio: 0.6
+          }],
           demandTotalDemand: 4,
           demandWaitingUsers: 3,
           demandRestockInterest: 2,
@@ -1640,6 +1649,7 @@ test("PostgreSQL product pages expose compact demand summaries for ranking", asy
   assert.equal(page.items[0].demandSummary.restockInterest, 2);
   assert.equal(page.items[0].demandSummary.topColors[0].color, "white");
   assert.equal(page.items[0].demandSummary.lastDemandAt, "2026-06-30T13:00:00.000Z");
+  assert.deepEqual(page.items[0].imageAspectRatios, [0.6]);
 });
 
 test("product query filters share stable count predicates without cursor leakage", async () => {

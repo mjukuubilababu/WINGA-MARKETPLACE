@@ -66,7 +66,8 @@ test("home feed reserves card and recommendation geometry during continuation", 
 
   const beforeDecode = await firstMedia.boundingBox();
   expect(beforeDecode).toBeTruthy();
-  expect(Math.abs((beforeDecode.width / beforeDecode.height) - 0.8)).toBeLessThan(0.03);
+  expect(beforeDecode.width / beforeDecode.height).toBeGreaterThan(0.2);
+  expect(beforeDecode.width / beforeDecode.height).toBeLessThan(5);
 
   await firstMedia.locator("img").first().evaluate((image) => {
     if (image.complete) {

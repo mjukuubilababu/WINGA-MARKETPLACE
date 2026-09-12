@@ -4021,6 +4021,7 @@ function saveDataUrlImage(value) {
 
 async function persistIncomingProductImages(product) {
   const persistedValues = new Map();
+  const persistedMetadata = new Map();
   const persistValue = async (value) => {
     if (typeof value !== "string" || !value.startsWith("data:image/")) return value;
     if (!persistedValues.has(value)) {
@@ -4048,7 +4049,16 @@ async function persistIncomingProductImages(product) {
           await fs.promises.writeFile(path.join(UPLOADS_DIR, fileName), variant.buffer);
           return `/uploads/${fileName}`;
         }));
-        return storedVariants[storedVariants.length - 1];
+        const canonicalUrl = storedVariants[storedVariants.length - 1];
+        const canonical = processed.canonical || {};
+        const width = Math.max(0, Number(canonical.actualWidth || 0) || 0);
+        const height = Math.max(0, Number(canonical.actualHeight || 0) || 0);
+        persistedMetadata.set(value, {
+          width,
+          height,
+          aspectRatio: width > 0 && height > 0 ? Number((width / height).toFixed(6)) : 0
+        });
+        return canonicalUrl;
       })());
     }
     return persistedValues.get(value);
@@ -4068,19 +4078,26 @@ async function persistIncomingProductImages(product) {
       mediaItems.push(item);
       continue;
     }
-    const persistedUrl = await persistValue(item.url);
+    const sourceUrl = item.url;
+    const persistedUrl = await persistValue(sourceUrl);
+    const processedMetadata = persistedMetadata.get(sourceUrl);
     mediaItems.push({
       ...item,
+      ...(processedMetadata || {}),
       url: persistedUrl,
       posterUrl: item.posterUrl ? await persistValue(item.posterUrl) : "",
       thumbnailUrl: item.thumbnailUrl ? await persistValue(item.thumbnailUrl) : persistedUrl
     });
   }
+  const normalizedMediaItems = normalizeProductMediaItems({ ...product, image, images, mediaItems });
   return {
     ...product,
     images: Array.isArray(product.images) ? images : product.images,
     image,
-    mediaItems: normalizeProductMediaItems({ image, images, mediaItems })
+    imageAspectRatios: normalizedMediaItems
+      .filter((item) => item.type === "image")
+      .map((item) => Number(item.aspectRatio || 0)),
+    mediaItems: normalizedMediaItems
   };
 }
 

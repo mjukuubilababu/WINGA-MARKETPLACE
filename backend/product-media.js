@@ -88,14 +88,19 @@ function normalizeProductMediaItems(product = {}) {
   let videoCount = 0;
   for (const item of normalized) {
     if (result.length >= MAX_PRODUCT_MEDIA_ITEMS) break;
+    let normalizedItem = item;
     if (item.type === "image") {
       if (imageCount >= MAX_PRODUCT_IMAGE_ITEMS) continue;
+      const hintedRatio = Number(product?.imageAspectRatios?.[imageCount] || 0);
+      if ((!item.aspectRatio || item.aspectRatio <= 0) && Number.isFinite(hintedRatio) && hintedRatio > 0.2 && hintedRatio < 5) {
+        normalizedItem = { ...item, aspectRatio: Number(hintedRatio.toFixed(6)) };
+      }
       imageCount += 1;
     } else {
       if (videoCount >= MAX_PRODUCT_VIDEO_ITEMS) continue;
       videoCount += 1;
     }
-    result.push({ ...item, position: result.length });
+    result.push({ ...normalizedItem, position: result.length });
   }
   return result.length ? result : deriveMediaItemsFromLegacy(product);
 }

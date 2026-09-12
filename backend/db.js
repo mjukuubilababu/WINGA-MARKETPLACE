@@ -67,6 +67,15 @@ function normalizeProductRow(row) {
   const restockInterest = Number(row.demandRestockInterest || 0);
   const demandScore = Number(row.demandScore || 0);
   const hasDemandSummary = totalDemand > 0 || waitingUsers > 0 || restockInterest > 0 || demandScore > 0;
+  const images = parseJson(row.images, []);
+  const mediaItems = normalizeProductMediaItems({
+    image: row.image || "",
+    images,
+    mediaItems: parseJson(row.mediaItems, [])
+  });
+  const imageAspectRatios = mediaItems
+    .filter((item) => item.type === "image")
+    .map((item) => Number(item.aspectRatio || 0));
 
   return {
     id: row.id || "",
@@ -75,12 +84,9 @@ function normalizeProductRow(row) {
     shop: row.shop || "",
     whatsapp: row.whatsapp || "",
     image: row.image || "",
-    images: parseJson(row.images, []),
-    mediaItems: normalizeProductMediaItems({
-      image: row.image || "",
-      images: parseJson(row.images, []),
-      mediaItems: parseJson(row.mediaItems, [])
-    }),
+    images,
+    imageAspectRatios,
+    mediaItems,
     uploadedBy: row.uploadedBy || "",
     category: row.category || "",
     status: row.status || "",
@@ -1936,19 +1942,26 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
         updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : "",
         createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : ""
       })),
-      products: productsResult.rows.map((row) => ({
-        ...row,
-        images: parseJson(row.images, []),
-        mediaItems: normalizeProductMediaItems({
+      products: productsResult.rows.map((row) => {
+        const images = parseJson(row.images, []);
+        const mediaItems = normalizeProductMediaItems({
           image: row.image || "",
-          images: parseJson(row.images, []),
+          images,
           mediaItems: parseJson(row.mediaItems, [])
-        }),
-        viewedBy: parseJson(row.viewedBy, []),
-        createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : "",
-        updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : "",
-        moderatedAt: row.moderatedAt ? new Date(row.moderatedAt).toISOString() : ""
-      })),
+        });
+        return {
+          ...row,
+          images,
+          imageAspectRatios: mediaItems
+            .filter((item) => item.type === "image")
+            .map((item) => Number(item.aspectRatio || 0)),
+          mediaItems,
+          viewedBy: parseJson(row.viewedBy, []),
+          createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : "",
+          updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : "",
+          moderatedAt: row.moderatedAt ? new Date(row.moderatedAt).toISOString() : ""
+        };
+      }),
       sessions: sessionsResult.rows,
       orders: ordersResult.rows.map((row) => ({
         ...row,

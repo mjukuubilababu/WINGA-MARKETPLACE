@@ -681,6 +681,10 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   assert.equal(productCreate.body.mediaItems[0].type, "image");
   assert.equal(productCreate.body.mediaItems[0].status, "ready");
   assert.equal(productCreate.body.mediaItems[0].url, productCreate.body.image);
+  assert.equal(productCreate.body.mediaItems[0].width, 2);
+  assert.equal(productCreate.body.mediaItems[0].height, 2);
+  assert.equal(productCreate.body.mediaItems[0].aspectRatio, 1);
+  assert.deepEqual(productCreate.body.imageAspectRatios, [1]);
   assert.equal(productCreate.body.mediaItems[1].type, "video");
   assert.equal(productCreate.body.mediaItems[1].providerId, "stream-integration-video-001");
   assert.equal(productCreate.body.mediaItems[1].moderationStatus, "approved");
