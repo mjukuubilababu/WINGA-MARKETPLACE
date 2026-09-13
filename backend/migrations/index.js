@@ -632,6 +632,131 @@ const MIGRATIONS = Object.freeze([
       `ALTER TABLE video_upload_intents
        VALIDATE CONSTRAINT chk_video_max_duration_seconds;`
     ])
+  }),
+  Object.freeze({
+    id: "2026091301_commerce_learning_loop",
+    statements: Object.freeze([
+      `ALTER TABLE demand_events ADD COLUMN IF NOT EXISTS audience_key TEXT NOT NULL DEFAULT '';`,
+      `ALTER TABLE demand_events ADD COLUMN IF NOT EXISTS audience_type TEXT NOT NULL DEFAULT 'session'
+       CHECK (audience_type IN ('user', 'session'));`,
+      `ALTER TABLE search_demand_events ADD COLUMN IF NOT EXISTS audience_key TEXT NOT NULL DEFAULT '';`,
+      `ALTER TABLE search_demand_events ADD COLUMN IF NOT EXISTS audience_type TEXT NOT NULL DEFAULT 'session'
+       CHECK (audience_type IN ('user', 'session'));`,
+      `CREATE INDEX IF NOT EXISTS idx_demand_events_audience_recent
+       ON demand_events (audience_key, created_at DESC) WHERE audience_key <> '';`,
+      `CREATE INDEX IF NOT EXISTS idx_search_demand_audience_recent
+       ON search_demand_events (audience_key, happened_at DESC) WHERE audience_key <> '';`,
+      `CREATE TABLE IF NOT EXISTS commerce_opportunities (
+         opportunity_id TEXT PRIMARY KEY,
+         type TEXT NOT NULL CHECK (type IN ('zero_result', 'low_supply', 'sold_out_restock', 'regional_demand', 'variant_gap', 'category_gap')),
+         source TEXT NOT NULL DEFAULT '',
+         query_key TEXT NOT NULL DEFAULT '',
+         product_id TEXT NOT NULL DEFAULT '',
+         category TEXT NOT NULL DEFAULT '',
+         region TEXT NOT NULL DEFAULT '',
+         color TEXT NOT NULL DEFAULT '',
+         size TEXT NOT NULL DEFAULT '',
+         demand_score DOUBLE PRECISION NOT NULL DEFAULT 0 CHECK (demand_score >= 0),
+         supply_score DOUBLE PRECISION NOT NULL DEFAULT 0 CHECK (supply_score >= 0),
+         evidence_count INTEGER NOT NULL DEFAULT 0 CHECK (evidence_count >= 0),
+         status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'responded', 'dismissed', 'expired')),
+         expires_at TIMESTAMPTZ NOT NULL,
+         metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         row_version BIGINT NOT NULL DEFAULT 1
+       );`,
+      `CREATE INDEX IF NOT EXISTS idx_commerce_opportunities_open_score
+       ON commerce_opportunities (demand_score DESC, created_at DESC, opportunity_id)
+       WHERE status IN ('open', 'responded');`,
+      `CREATE INDEX IF NOT EXISTS idx_commerce_opportunities_product
+       ON commerce_opportunities (product_id, status, expires_at DESC) WHERE product_id <> '';`,
+      `CREATE INDEX IF NOT EXISTS idx_commerce_opportunities_region_category
+       ON commerce_opportunities (region, category, status, demand_score DESC);`,
+      `CREATE TABLE IF NOT EXISTS supply_responses (
+         response_id TEXT PRIMARY KEY,
+         opportunity_id TEXT NOT NULL REFERENCES commerce_opportunities(opportunity_id) ON DELETE RESTRICT,
+         seller_id TEXT NOT NULL REFERENCES users(username) ON DELETE RESTRICT,
+         action_type TEXT NOT NULL CHECK (action_type IN ('restock_product', 'create_product', 'add_variant', 'increase_stock', 'ignore', 'dismiss')),
+         product_id TEXT REFERENCES products(id) ON DELETE SET NULL,
+         variant_id TEXT NOT NULL DEFAULT '',
+         region TEXT NOT NULL DEFAULT '',
+         status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'withdrawn')),
+         metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         row_version BIGINT NOT NULL DEFAULT 1,
+         UNIQUE (opportunity_id, seller_id, action_type, product_id, variant_id)
+       );`,
+      `CREATE INDEX IF NOT EXISTS idx_supply_responses_product_active
+       ON supply_responses (product_id, created_at DESC) WHERE status = 'active';`,
+      `CREATE INDEX IF NOT EXISTS idx_supply_responses_seller_recent
+       ON supply_responses (seller_id, created_at DESC, response_id DESC);`,
+      `CREATE TABLE IF NOT EXISTS rediscovery_eligibility (
+         eligibility_id TEXT PRIMARY KEY,
+         opportunity_id TEXT NOT NULL REFERENCES commerce_opportunities(opportunity_id) ON DELETE CASCADE,
+         supply_response_id TEXT NOT NULL REFERENCES supply_responses(response_id) ON DELETE CASCADE,
+         audience_type TEXT NOT NULL CHECK (audience_type IN ('user', 'session')),
+         audience_key TEXT NOT NULL,
+         product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+         reason_code TEXT NOT NULL,
+         region TEXT NOT NULL DEFAULT '',
+         status TEXT NOT NULL DEFAULT 'eligible' CHECK (status IN ('eligible', 'exposed', 'engaged', 'converted', 'expired')),
+         eligible_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         exposed_at TIMESTAMPTZ,
+         engaged_at TIMESTAMPTZ,
+         expires_at TIMESTAMPTZ NOT NULL,
+         metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+         UNIQUE (supply_response_id, audience_type, audience_key, reason_code)
+       );`,
+      `CREATE INDEX IF NOT EXISTS idx_rediscovery_audience_eligible
+       ON rediscovery_eligibility (audience_type, audience_key, eligible_at DESC)
+       WHERE status = 'eligible';`,
+      `CREATE TABLE IF NOT EXISTS feed_exposures (
+         exposure_id TEXT PRIMARY KEY,
+         audience_type TEXT NOT NULL CHECK (audience_type IN ('user', 'session')),
+         audience_key TEXT NOT NULL,
+         product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+         seller_id TEXT NOT NULL DEFAULT '',
+         module_id TEXT NOT NULL DEFAULT 'home_feed',
+         rank_position INTEGER NOT NULL DEFAULT 0 CHECK (rank_position >= 0),
+         ranking_source TEXT NOT NULL DEFAULT 'organic',
+         reason_codes JSONB NOT NULL DEFAULT '[]'::jsonb,
+         opportunity_id TEXT REFERENCES commerce_opportunities(opportunity_id) ON DELETE SET NULL,
+         supply_response_id TEXT REFERENCES supply_responses(response_id) ON DELETE SET NULL,
+         shown_at TIMESTAMPTZ NOT NULL,
+         region TEXT NOT NULL DEFAULT '',
+         session_id TEXT NOT NULL DEFAULT '',
+         metadata JSONB NOT NULL DEFAULT '{}'::jsonb
+       );`,
+      `CREATE INDEX IF NOT EXISTS idx_feed_exposures_audience_product_recent
+       ON feed_exposures (audience_type, audience_key, product_id, shown_at DESC);`,
+      `CREATE INDEX IF NOT EXISTS idx_feed_exposures_response_recent
+       ON feed_exposures (supply_response_id, shown_at DESC) WHERE supply_response_id IS NOT NULL;`,
+      `CREATE TABLE IF NOT EXISTS feed_exposure_outcomes (
+         outcome_id TEXT PRIMARY KEY,
+         exposure_id TEXT NOT NULL REFERENCES feed_exposures(exposure_id) ON DELETE CASCADE,
+         outcome_type TEXT NOT NULL CHECK (outcome_type IN ('viewed_detail', 'liked', 'saved', 'messaged', 'ordered', 'ignored', 'no_action', 'hidden', 'skipped')),
+         order_id TEXT NOT NULL DEFAULT '',
+         message_id TEXT NOT NULL DEFAULT '',
+         dedupe_key TEXT NOT NULL UNIQUE,
+         metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+         occurred_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+       );`,
+      `CREATE INDEX IF NOT EXISTS idx_feed_exposure_outcomes_exposure_recent
+       ON feed_exposure_outcomes (exposure_id, occurred_at DESC);`,
+      `CREATE TABLE IF NOT EXISTS regional_supply_snapshots (
+         region TEXT NOT NULL,
+         category TEXT NOT NULL,
+         product_count INTEGER NOT NULL DEFAULT 0 CHECK (product_count >= 0),
+         active_seller_count INTEGER NOT NULL DEFAULT 0 CHECK (active_seller_count >= 0),
+         available_inventory_indicator INTEGER NOT NULL DEFAULT 0 CHECK (available_inventory_indicator >= 0),
+         sold_out_count INTEGER NOT NULL DEFAULT 0 CHECK (sold_out_count >= 0),
+         metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         PRIMARY KEY (region, category)
+       );`
+    ])
   })]);
 
 async function runSchemaMigrations({ pool, logger = console, beforeMigrations = null } = {}) {

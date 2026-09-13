@@ -12,6 +12,7 @@ const { buildRequestGlobalContext, normalizeUserPreference, validateUserPreferen
 const { isR2StorageEnabled, uploadImageToR2 } = require("./storage-r2");
 const { MAX_PRODUCT_IMAGE_BYTES, createProductImageVariants, readProductImageMetadata } = require("./image-processing");
 const { normalizeProductMediaItems } = require("./product-media");
+const { buildAudienceKey, buildCommerceOpportunities } = require("./commerce-opportunity");
 const {
   createCloudflareStreamClient,
   normalizeStreamVideo,
@@ -252,6 +253,7 @@ const RATE_LIMIT_RULES = {
   "/api/reports": { limit: 8, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/client-events": { limit: 20, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/search-demand": { limit: 18, windowMs: RATE_LIMIT_WINDOW_MS },
+  "/api/opportunities": { limit: 30, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/users/me/whatsapp/request-change": { limit: 6, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/users/me/whatsapp/verify-change": { limit: 12, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/users/me/locale-preference": { limit: 20, windowMs: RATE_LIMIT_WINDOW_MS },
@@ -267,7 +269,8 @@ const READ_RATE_LIMIT_RULES = {
   "/api/auth/session": { limit: 120, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/global-context": { limit: 180, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/users/me/locale-preference": { limit: 120, windowMs: RATE_LIMIT_WINDOW_MS },
-  "/api/analytics/summary": { limit: 30, windowMs: RATE_LIMIT_WINDOW_MS }
+  "/api/analytics/summary": { limit: 30, windowMs: RATE_LIMIT_WINDOW_MS },
+  "/api/opportunities": { limit: 60, windowMs: RATE_LIMIT_WINDOW_MS }
 };
 const rateLimitStore = new Map();
 const suspiciousLoginStore = new Map();
@@ -307,6 +310,61 @@ const AUTH_COOKIE_SAMESITE = normalizeCookieSameSite(process.env.AUTH_COOKIE_SAM
 const DEVELOPMENT_CSRF_SECRET = "winga-development-csrf-secret";
 const CSRF_SECRET = NODE_ENV === "production" ? RAW_CSRF_SECRET : (RAW_CSRF_SECRET || DEVELOPMENT_CSRF_SECRET);
 let requestSequence = 0;
+let commerceOpportunityRefreshPromise = null;
+let commerceOpportunityLastRefreshAt = 0;
+const COMMERCE_OPPORTUNITY_REFRESH_INTERVAL_MS = 30 * 1000;
+
+function getCommerceAudience(session, anonymousReference = "") {
+  const audienceType = session?.username ? "user" : "session";
+  const reference = session?.username || sanitizePlainText(anonymousReference, 200);
+  const audienceKey = buildAudienceKey(audienceType, reference, CSRF_SECRET);
+  return {
+    audienceType,
+    audienceKey,
+    sessionId: audienceType === "session" ? audienceKey : ""
+  };
+}
+
+function runCommerceLearningTask(label, task) {
+  Promise.resolve().then(task).catch((error) => {
+    console.warn(`[WINGA] Commerce learning ${label} failed open.`, error?.message || error);
+  });
+}
+
+async function refreshCommerceOpportunities(options = {}) {
+  if (!postgresStore?.readCommerceOpportunityCandidates || !postgresStore?.upsertCommerceOpportunities) {
+    return { received: 0, upserted: 0 };
+  }
+  const now = Date.now();
+  if (!options.force && now - commerceOpportunityLastRefreshAt < COMMERCE_OPPORTUNITY_REFRESH_INTERVAL_MS) {
+    return { skipped: true };
+  }
+  if (commerceOpportunityRefreshPromise) return commerceOpportunityRefreshPromise;
+  commerceOpportunityRefreshPromise = (async () => {
+    const candidates = await postgresStore.readCommerceOpportunityCandidates(200);
+    const opportunities = buildCommerceOpportunities(candidates, { now: new Date() });
+    const result = await postgresStore.upsertCommerceOpportunities(opportunities);
+    commerceOpportunityLastRefreshAt = Date.now();
+    return result;
+  })().finally(() => {
+    commerceOpportunityRefreshPromise = null;
+  });
+  return commerceOpportunityRefreshPromise;
+}
+
+function scheduleCommerceOutcomeAttribution({ session, anonymousReference = "", productId = "", outcomeType = "", orderId = "", messageId = "", metadata = {} } = {}) {
+  if (!postgresStore?.attributeFeedExposureOutcome || !productId || !outcomeType) return;
+  const audience = getCommerceAudience(session, anonymousReference);
+  if (!audience.audienceKey) return;
+  runCommerceLearningTask("outcome attribution", () => postgresStore.attributeFeedExposureOutcome({
+    ...audience,
+    productId,
+    outcomeType,
+    orderId,
+    messageId,
+    metadata
+  }));
+}
 
 function normalizeCookieSameSite(value = "Lax") {
   const normalized = String(value || "Lax").trim().toLowerCase();
@@ -9184,14 +9242,40 @@ const server = http.createServer(async (req, res) => {
           continue;
         }
         acceptedCount += 1;
-        intelligencePlatform.ingestClientEvent(payload, {
-          req,
-          session,
-          store,
-          appVersion: APP_BUILD_VERSION
-        }).catch((error) => {
-          console.warn("[WINGA] Intelligence ingestion failed.", error);
-        });
+        const eventName = normalizeClientEventName(payload.event);
+        if (eventName !== "feed_exposure") {
+          intelligencePlatform.ingestClientEvent(payload, {
+            req,
+            session,
+            store,
+            appVersion: APP_BUILD_VERSION
+          }).catch((error) => {
+            console.warn("[WINGA] Intelligence ingestion failed.", error);
+          });
+        }
+        if (eventName === "feed_exposure" && postgresStore?.recordFeedExposure) {
+          const eventContext = payload.context && typeof payload.context === "object" && !Array.isArray(payload.context)
+            ? payload.context
+            : {};
+          const audience = getCommerceAudience(session, eventContext.anonymousId || payload.fingerprint);
+          if (audience.audienceKey) {
+            runCommerceLearningTask("feed exposure", () => postgresStore.recordFeedExposure({
+              ...audience,
+              exposureId: eventContext.exposureId,
+              productId: eventContext.productId || payload.productId,
+              sellerId: eventContext.sellerId || payload.sellerId,
+              moduleId: eventContext.moduleId || "home_feed",
+              rankPosition: eventContext.rankPosition,
+              rankingSource: eventContext.rankingSource || "organic",
+              reasonCodes: eventContext.reasonCodes,
+              opportunityId: eventContext.opportunityId,
+              supplyResponseId: eventContext.supplyResponseId,
+              shownAt: eventContext.shownAt,
+              region: eventContext.region,
+              metadata: { viewportThreshold: eventContext.viewportThreshold || "" }
+            }));
+          }
+        }
         if (!isBatch || payload.level !== "info") {
           await appendAuditLog({
             time: new Date().toISOString(),
@@ -9308,6 +9392,8 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === "POST" && url.pathname === "/api/search-demand") {
+      const token = readAuthToken(req);
+      const session = token ? findSession(store, token) : null;
       const payload = await collectBody(req);
       let events = [];
       try {
@@ -9325,6 +9411,11 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 202, { ok: true, accepted: 0, inserted: 0 });
         return;
       }
+      const rawEvents = Array.isArray(payload?.events) ? payload.events : [];
+      events = events.map((event, index) => ({
+        ...event,
+        ...getCommerceAudience(session, rawEvents[index]?.anonymousId || payload?.anonymousId || "")
+      }));
 
       let inserted = events.length;
       let summary = null;
@@ -9376,12 +9467,13 @@ const server = http.createServer(async (req, res) => {
         }
       }, {
         req,
-        session: null,
+        session,
         store,
         appVersion: APP_BUILD_VERSION
       }).catch((error) => {
         console.warn("[WINGA] Search demand intelligence ingestion failed.", error);
       });
+      runCommerceLearningTask("opportunity refresh", () => refreshCommerceOpportunities());
       sendJson(res, 202, {
         ok: true,
         accepted: events.length,
@@ -9421,6 +9513,7 @@ const server = http.createServer(async (req, res) => {
           clientIp,
           source: "product_detail"
         });
+        Object.assign(demandEvent, getCommerceAudience(session, payload?.anonymousId || payload?.sessionId || ""));
       } catch (error) {
         sendJson(res, 400, { error: error.message || "Demand request si sahihi." });
         return;
@@ -9493,6 +9586,7 @@ const server = http.createServer(async (req, res) => {
       }).catch((error) => {
         console.warn("[WINGA] Demand intelligence ingestion failed.", error);
       });
+      runCommerceLearningTask("opportunity refresh", () => refreshCommerceOpportunities());
       sendJson(res, inserted ? 201 : 200, {
         ok: true,
         inserted,
@@ -10440,6 +10534,15 @@ const server = http.createServer(async (req, res) => {
           receiverId: normalizedPayload.receiverId,
           productId: normalizedPayload.productId || ""
         });
+        if (normalizedPayload.productId) {
+          scheduleCommerceOutcomeAttribution({
+            session,
+            productId: normalizedPayload.productId,
+            outcomeType: "messaged",
+            messageId: nextMessage.id,
+            metadata: { source: "product_message" }
+          });
+        }
         if (!postgresStore) {
           emitLiveEvent(sender.username, "message", { message: nextMessage });
           emitLiveEvent(normalizedPayload.receiverId, "message", { message: nextMessage });
@@ -10602,6 +10705,32 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === "GET" && url.pathname === "/api/opportunities") {
+      const session = findSession(store, readAuthToken(req));
+      const seller = ensureMarketplaceUser(store, session, res);
+      if (!seller) return;
+      if (!canPostProducts(seller.role)) {
+        sendJson(res, 403, { error: "Seller pekee ndiye anaweza kuona opportunities za supply." });
+        return;
+      }
+      if (!postgresStore?.readSellerCommerceOpportunities) {
+        sendJson(res, 200, { items: [], metrics: {}, privacy: "aggregate-only" });
+        return;
+      }
+      try {
+        await refreshCommerceOpportunities({ force: true });
+        const [items, metrics] = await Promise.all([
+          postgresStore.readSellerCommerceOpportunities(seller.username, Number(url.searchParams.get("limit") || 20)),
+          postgresStore.readCommerceLoopMetrics?.(seller.username) || Promise.resolve({})
+        ]);
+        sendJson(res, 200, { items, metrics, privacy: "aggregate-only" });
+      } catch (error) {
+        console.warn("[WINGA] Seller opportunities failed open.", error?.message || error);
+        sendJson(res, 200, { items: [], metrics: {}, privacy: "aggregate-only", unavailable: true });
+      }
+      return;
+    }
+
     if (req.method === "GET" && url.pathname === "/api/analytics/summary") {
       const token = readAuthToken(req);
       const session = findSession(store, token);
@@ -10650,6 +10779,29 @@ const server = http.createServer(async (req, res) => {
             ...(analytics.video || buildEmptySellerVideoAnalytics()),
             error: "unavailable"
           };
+        }
+      }
+      if (!isAdminSession(session) && postgresStore?.readSellerCommerceOpportunities) {
+        try {
+          await refreshCommerceOpportunities({ force: true });
+          analytics.commerceLearning = {
+            opportunities: await postgresStore.readSellerCommerceOpportunities(user.username, 20),
+            metrics: await postgresStore.readCommerceLoopMetrics(user.username),
+            privacy: "aggregate-only"
+          };
+        } catch (error) {
+          analytics.commerceLearning = { opportunities: [], metrics: {}, privacy: "aggregate-only", error: "unavailable" };
+        }
+      }
+      if (isAdminSession(session) && postgresStore?.readRegionalSupplySnapshots) {
+        try {
+          analytics.regionalSupply = await postgresStore.readRegionalSupplySnapshots(100);
+          analytics.commerceLearning = {
+            metrics: await postgresStore.readCommerceLoopMetrics(""),
+            privacy: "aggregate-only"
+          };
+        } catch (error) {
+          analytics.regionalSupply = [];
         }
       }
       try {
@@ -12020,6 +12172,13 @@ const server = http.createServer(async (req, res) => {
         paymentId: payment.id,
         paymentStatus: payment.paymentStatus
       });
+      scheduleCommerceOutcomeAttribution({
+        session,
+        productId: product.id,
+        outcomeType: "ordered",
+        orderId: order.id,
+        metadata: { source: "order_create", paymentStatus: payment.paymentStatus }
+      });
       emitLiveEvent(product.uploadedBy, "notification", { notification: sellerNotification });
       sendJson(res, 200, {
         ...order,
@@ -12537,7 +12696,7 @@ const server = http.createServer(async (req, res) => {
       const productId = decodeURIComponent(url.pathname.split("/")[3] || "");
       const payload = await collectBody(req);
       const nextAvailability = typeof payload?.availability === "string" ? payload.availability.trim() : "";
-      if (nextAvailability !== "sold_out") {
+      if (!["sold_out", "available"].includes(nextAvailability)) {
         sendJson(res, 400, { error: "Availability si sahihi." });
         return;
       }
@@ -12549,12 +12708,17 @@ const server = http.createServer(async (req, res) => {
       }
 
       if (product.uploadedBy !== sellerUser.username) {
-        sendJson(res, 403, { error: "Muuzaji pekee ndiye anaweza kuweka sold out kwa bidhaa yake." });
+        sendJson(res, 403, { error: "Muuzaji pekee ndiye anaweza kubadilisha availability ya bidhaa yake." });
+        return;
+      }
+
+      if (nextAvailability === "available" && product.availability !== "sold_out") {
+        sendJson(res, 409, { error: "Restock inaruhusiwa kwa bidhaa iliyo sold out." });
         return;
       }
 
       const soldOutAt = new Date().toISOString();
-      let soldOutProduct = { ...product, availability: "sold_out", updatedAt: soldOutAt };
+      let soldOutProduct = { ...product, availability: nextAvailability, updatedAt: soldOutAt };
       let products = (store.products || []).map((item) =>
         item.id === productId ? soldOutProduct : item
       );
@@ -12562,7 +12726,7 @@ const server = http.createServer(async (req, res) => {
         const availabilityResult = await postgresStore.setProductAvailability(
           productId,
           sellerUser.username,
-          "sold_out"
+          nextAvailability
         );
         if (!availabilityResult.updated) {
           sendJson(res, 409, { error: "Bidhaa imebadilika. Refresh kisha ujaribu tena." });
@@ -12582,14 +12746,14 @@ const server = http.createServer(async (req, res) => {
         ip: clientIp,
         method: req.method,
         path: url.pathname,
-        event: "product_marked_sold_out",
+        event: nextAvailability === "available" ? "product_restocked" : "product_marked_sold_out",
         username: sellerUser.username,
         productId
       });
       intelligencePlatform.ingestClientEvent({
         level: "info",
-        event: "product_marked_sold_out",
-        message: "Seller marked product as sold out.",
+        event: nextAvailability === "available" ? "product_restocked" : "product_marked_sold_out",
+        message: nextAvailability === "available" ? "Seller restocked a product." : "Seller marked product as sold out.",
         context: {
           productId,
           sellerId: sellerUser.username
@@ -12602,6 +12766,25 @@ const server = http.createServer(async (req, res) => {
       }).catch((error) => {
         console.warn("[WINGA] Sold out intelligence ingestion failed.", error);
       });
+      if (nextAvailability === "available" && postgresStore?.recordSupplyResponse) {
+        try {
+          await refreshCommerceOpportunities();
+          const attribution = await postgresStore.recordSupplyResponse({
+            opportunityId: payload?.opportunityId,
+            sellerId: sellerUser.username,
+            actionType: "restock_product",
+            productId,
+            region: payload?.region,
+            metadata: { source: "availability_transition" }
+          });
+          if (attribution?.linked) {
+            soldOutProduct.opportunityId = attribution.opportunityId;
+            soldOutProduct.supplyResponseId = attribution.responseId;
+          }
+        } catch (error) {
+          console.warn("[WINGA] Restock attribution failed open.", error?.message || error);
+        }
+      }
       sendJson(res, 200, soldOutProduct);
       return;
     }
@@ -12881,6 +13064,25 @@ const server = http.createServer(async (req, res) => {
           products
         });
       }
+      if (postgresStore?.recordSupplyResponse) {
+        try {
+          await refreshCommerceOpportunities();
+          const attribution = await postgresStore.recordSupplyResponse({
+            opportunityId: candidatePayload.opportunityId,
+            sellerId: sellerUser.username,
+            actionType: "create_product",
+            productId: normalizedProduct.id,
+            region: candidatePayload.region,
+            metadata: { source: "product_create" }
+          });
+          if (attribution?.linked) {
+            normalizedProduct.opportunityId = attribution.opportunityId;
+            normalizedProduct.supplyResponseId = attribution.responseId;
+          }
+        } catch (error) {
+          console.warn("[WINGA] Product supply attribution failed open.", error?.message || error);
+        }
+      }
       await appendAuditLog({
         time: new Date().toISOString(),
         ip: clientIp,
@@ -12956,6 +13158,12 @@ const server = http.createServer(async (req, res) => {
         event: action === "like" ? "product_liked" : "product_viewed",
         username: actingUser.username,
         productId
+      });
+      scheduleCommerceOutcomeAttribution({
+        session,
+        productId,
+        outcomeType: action === "like" ? "liked" : "viewed_detail",
+        metadata: { source: "product_action" }
       });
       sendJson(res, 200, updatedProduct);
       return;

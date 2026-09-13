@@ -95,6 +95,7 @@
         clickedProductId: String(input.clickedProductId || "").trim(),
         noClick: Boolean(input.noClick),
         zeroResult: Math.max(0, toFiniteNumber(input.resultCount ?? results.length, 0)) === 0,
+        anonymousId: String(input.anonymousId || "").trim().slice(0, 120),
         anonymous: true
       };
       signal.dedupeKey = [

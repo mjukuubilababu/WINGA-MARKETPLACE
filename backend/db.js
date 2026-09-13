@@ -1,6 +1,15 @@
 const { Client, Pool } = require("pg");
 const { runSchemaMigrations } = require("./migrations");
 const { normalizeProductMediaItems } = require("./product-media");
+const {
+  createEligibilityId,
+  createSupplyResponseId,
+  normalizeExposureOutcome,
+  normalizeFeedExposure,
+  normalizeKey,
+  normalizeSupplyActionType,
+  stableId
+} = require("./commerce-opportunity");
 
 const ALL_TABLE_KEYS = Object.freeze([
   "categories", "users", "products", "sessions", "orders", "payments", "messages",
@@ -107,6 +116,8 @@ function normalizeProductRow(row) {
     intelligenceScore: Number(row.intelligenceScore || 0),
     intelligenceSignals: parseJson(row.intelligenceSignals, {}),
     sellerIntelligenceScore: Number(row.sellerIntelligenceScore || 0),
+    opportunityId: row.opportunityId || "",
+    supplyResponseId: row.supplyResponseId || "",
     demandSummary: hasDemandSummary
       ? {
         totalDemand,
@@ -2118,6 +2129,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
         COALESCE(pis.score, 0)::float8 AS "intelligenceScore",
         COALESCE(pis.signals, '{}'::jsonb) AS "intelligenceSignals",
         COALESCE(sis.score, 0)::float8 AS "sellerIntelligenceScore",
+        COALESCE(attributed_supply.opportunity_id, '') AS "opportunityId",
+        COALESCE(attributed_supply.response_id, '') AS "supplyResponseId",
         COALESCE(pds.total_demand, 0)::int AS "demandTotalDemand",
         COALESCE(pds.waiting_users, 0)::int AS "demandWaitingUsers",
         COALESCE(pds.restock_interest, 0)::int AS "demandRestockInterest",
@@ -2130,6 +2143,13 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       LEFT JOIN product_demand_summaries pds ON pds.product_id = p.id
       LEFT JOIN product_intelligence_scores pis ON pis.product_id = p.id
       LEFT JOIN seller_intelligence_scores sis ON sis.seller_id = p.uploaded_by
+      LEFT JOIN LATERAL (
+        SELECT sr.response_id, sr.opportunity_id
+        FROM supply_responses sr
+        WHERE sr.product_id = p.id AND sr.status = 'active'
+        ORDER BY sr.created_at DESC, sr.response_id DESC
+        LIMIT 1
+      ) attributed_supply ON TRUE
       ${itemWhereSql}
       ORDER BY ${searchParamIndex
         ? `"searchRank" DESC, p.created_at DESC, p.id DESC`
@@ -5075,10 +5095,12 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     const insertResult = await query(
       `INSERT INTO demand_events (
         demand_id, dedupe_key, product_id, seller_id, buyer_id, session_id,
-        action, color, size, country, region, demand_score, metadata, created_at
+        action, color, size, country, region, demand_score, metadata, created_at,
+        audience_type, audience_key
       ) VALUES (
         $1, $2, $3, $4, $5, $6,
-        $7, $8, $9, $10, $11, $12, $13::jsonb, $14::timestamptz
+        $7, $8, $9, $10, $11, $12, $13::jsonb, $14::timestamptz,
+        $15, $16
       )
       ON CONFLICT (dedupe_key) DO NOTHING
       RETURNING demand_id`,
@@ -5096,7 +5118,9 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
         event.region || "",
         Number(event.demandScore || 0),
         JSON.stringify(event.metadata || {}),
-        event.createdAt || new Date().toISOString()
+        event.createdAt || new Date().toISOString(),
+        event.audienceType === "user" ? "user" : "session",
+        String(event.audienceKey || "").slice(0, 64)
       ]
     );
     const inserted = insertResult.rowCount > 0;
@@ -5414,12 +5438,12 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
           event_id, dedupe_key, happened_at, query, query_key, detected_category,
           detected_product_type, detected_color, detected_brand, detected_style,
           price_range, country, region, location, source, result_count,
-          clicked_product_id, no_click, zero_result, metadata
+          clicked_product_id, no_click, zero_result, metadata, audience_type, audience_key
         ) VALUES (
           $1, $2, $3::timestamptz, $4, $5, $6,
           $7, $8, $9, $10,
           $11, $12, $13, $14, $15, $16,
-          $17, $18, $19, $20::jsonb
+          $17, $18, $19, $20::jsonb, $21, $22
         )
         ON CONFLICT (dedupe_key) DO NOTHING`,
         [
@@ -5442,7 +5466,9 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
           event.clickedProductId || "",
           Boolean(event.noClick),
           Boolean(event.zeroResult),
-          JSON.stringify(event.metadata || {})
+          JSON.stringify(event.metadata || {}),
+          event.audienceType === "user" ? "user" : "session",
+          String(event.audienceKey || "").slice(0, 64)
         ]
       );
       inserted += Number(result.rowCount || 0);
@@ -5538,6 +5564,430 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       zeroResultOpportunities: zeroResults.rows.map((row) => ({ query: row.query, queryKey: row.queryKey, category: row.category || "", location: row.location || "", searches: Number(row.searches || 0), opportunity: "high", score: Number(row.searches || 0) })),
       lowSupplyOpportunities: lowSupply.rows.map((row) => ({ query: row.query, queryKey: row.queryKey, category: row.category || "", searches: Number(row.searches || 0), supply: "low", opportunity: Number(row.searches || 0) >= 8 ? "high" : "medium", score: Number(row.searches || 0) }))
     };
+  }
+
+  async function readCommerceOpportunityCandidates(limit = 100) {
+    const safeLimit = Math.max(1, Math.min(Number(limit) || 100, 500));
+    const result = await queryPrimaryRead(
+      `WITH search_gaps AS (
+         SELECT
+           CASE WHEN BOOL_AND(zero_result) THEN 'zero_result' ELSE 'low_supply' END AS type,
+           query_key, MAX(detected_category) AS category,
+           COALESCE(NULLIF(MAX(region), ''), NULLIF(MAX(location), ''), '') AS region,
+           MAX(detected_color) AS color,
+           COUNT(*)::int AS evidence_count,
+           SUM(CASE WHEN happened_at >= NOW() - INTERVAL '7 days' THEN 2 ELSE 1 END)::float8 AS demand_score,
+           MAX(result_count)::float8 AS supply_score
+         FROM search_demand_events
+         WHERE happened_at >= NOW() - INTERVAL '30 days'
+           AND (zero_result IS TRUE OR result_count BETWEEN 1 AND 3)
+         GROUP BY query_key
+       ), sold_out_gaps AS (
+         SELECT 'sold_out_restock'::text AS type, ''::text AS query_key, p.category,
+                COALESCE(NULLIF(MAX(de.region), ''), '') AS region,
+                COALESCE(NULLIF(MAX(de.color), ''), '') AS color,
+                COUNT(de.demand_id)::int AS evidence_count,
+                COALESCE(MAX(pds.demand_score), 0)::float8 AS demand_score,
+                0::float8 AS supply_score,
+                p.id AS product_id,
+                COALESCE(NULLIF(MAX(de.size), ''), '') AS size
+         FROM products p
+         LEFT JOIN product_demand_summaries pds ON pds.product_id = p.id
+         LEFT JOIN demand_events de ON de.product_id = p.id AND de.created_at >= NOW() - INTERVAL '30 days'
+         WHERE p.availability = 'sold_out'
+         GROUP BY p.id, p.category
+       ), regional_gaps AS (
+         SELECT 'regional_demand'::text AS type, ''::text AS query_key,
+                detected_category AS category, COALESCE(NULLIF(region, ''), location) AS region,
+                ''::text AS color, COUNT(*)::int AS evidence_count,
+                COUNT(*)::float8 AS demand_score,
+                MAX(result_count)::float8 AS supply_score
+         FROM search_demand_events
+         WHERE happened_at >= NOW() - INTERVAL '30 days'
+           AND detected_category <> '' AND COALESCE(NULLIF(region, ''), location) <> ''
+         GROUP BY detected_category, COALESCE(NULLIF(region, ''), location)
+       ), variant_gaps AS (
+         SELECT 'variant_gap'::text AS type, ''::text AS query_key, p.category,
+                COALESCE(NULLIF(MAX(de.region), ''), '') AS region,
+                COALESCE(NULLIF(de.color, ''), '') AS color,
+                COUNT(*)::int AS evidence_count,
+                SUM(de.demand_score)::float8 AS demand_score,
+                0::float8 AS supply_score,
+                de.product_id, COALESCE(NULLIF(de.size, ''), '') AS size
+         FROM demand_events de
+         LEFT JOIN products p ON p.id = de.product_id
+         WHERE de.created_at >= NOW() - INTERVAL '30 days' AND (de.color <> '' OR de.size <> '')
+         GROUP BY de.product_id, p.category, de.color, de.size
+       )
+       SELECT type, 'search_gap_aggregate'::text AS source, query_key AS "queryKey",
+              ''::text AS "productId", category, region, color, ''::text AS size,
+              evidence_count AS "evidenceCount", demand_score AS "demandScore",
+              supply_score AS "supplyScore"
+       FROM search_gaps
+       UNION ALL
+       SELECT type, 'sold_out_demand_aggregate', query_key, product_id, category, region, color, size,
+              evidence_count, demand_score, supply_score FROM sold_out_gaps
+       UNION ALL
+       SELECT type, 'regional_search_aggregate', query_key, '', category, region, color, '',
+              evidence_count, demand_score, supply_score FROM regional_gaps
+       UNION ALL
+       SELECT type, 'variant_demand_aggregate', query_key, product_id, category, region, color, size,
+              evidence_count, demand_score, supply_score FROM variant_gaps
+       ORDER BY "demandScore" DESC, "evidenceCount" DESC
+       LIMIT $1`,
+      [safeLimit]
+    );
+    return (result.rows || []).map((row) => ({
+      ...row,
+      evidenceCount: Number(row.evidenceCount || 0),
+      demandScore: Number(row.demandScore || 0),
+      supplyScore: Number(row.supplyScore || 0),
+      metadata: { evidenceSource: row.source || "aggregate", windowDays: 30 }
+    }));
+  }
+
+  async function upsertCommerceOpportunities(opportunities = []) {
+    const source = Array.isArray(opportunities) ? opportunities.slice(0, 500) : [];
+    let upserted = 0;
+    for (const opportunity of source) {
+      const result = await query(
+        `INSERT INTO commerce_opportunities (
+           opportunity_id, type, source, query_key, product_id, category, region, color, size,
+           demand_score, supply_score, evidence_count, status, expires_at, metadata, created_at, updated_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'open', $13::timestamptz, $14::jsonb, $15::timestamptz, NOW())
+         ON CONFLICT (opportunity_id) DO UPDATE SET
+           demand_score = EXCLUDED.demand_score,
+           supply_score = EXCLUDED.supply_score,
+           evidence_count = EXCLUDED.evidence_count,
+           expires_at = EXCLUDED.expires_at,
+           metadata = commerce_opportunities.metadata || EXCLUDED.metadata,
+           status = CASE WHEN commerce_opportunities.status = 'expired' THEN 'open' ELSE commerce_opportunities.status END,
+           updated_at = NOW(), row_version = commerce_opportunities.row_version + 1
+         RETURNING opportunity_id`,
+        [
+          opportunity.opportunityId, opportunity.type, opportunity.source || "commerce_intelligence",
+          opportunity.queryKey || "", opportunity.productId || "", opportunity.category || "",
+          opportunity.region || "", opportunity.color || "", opportunity.size || "",
+          Number(opportunity.demandScore || 0), Number(opportunity.supplyScore || 0),
+          Number(opportunity.evidenceCount || 0), opportunity.expiresAt,
+          JSON.stringify(opportunity.metadata || {}), opportunity.createdAt || new Date().toISOString()
+        ]
+      );
+      upserted += Number(result.rowCount || 0);
+    }
+    await query("UPDATE commerce_opportunities SET status = 'expired', updated_at = NOW(), row_version = row_version + 1 WHERE status IN ('open', 'responded') AND expires_at <= NOW()");
+    return { received: source.length, upserted };
+  }
+
+  async function readSellerCommerceOpportunities(sellerId = "", limit = 20) {
+    const safeSellerId = String(sellerId || "").trim().slice(0, 80);
+    const safeLimit = Math.max(1, Math.min(Number(limit) || 20, 50));
+    if (!safeSellerId) return [];
+    const result = await readQuery(
+      `SELECT o.opportunity_id AS "opportunityId", o.type, o.source, o.query_key AS "queryKey",
+              o.product_id AS "productId", o.category, o.region, o.color, o.size,
+              o.demand_score::float8 AS "demandScore", o.supply_score::float8 AS "supplyScore",
+              o.evidence_count AS "evidenceCount", o.status, o.expires_at AS "expiresAt",
+              COUNT(sr.response_id)::int AS "responseCount",
+              BOOL_OR(sr.seller_id = $1) AS "sellerResponded"
+       FROM commerce_opportunities o
+       LEFT JOIN supply_responses sr ON sr.opportunity_id = o.opportunity_id AND sr.status = 'active'
+       WHERE o.status IN ('open', 'responded') AND o.expires_at > NOW()
+         AND (
+           o.category = '' OR EXISTS (
+             SELECT 1 FROM products seller_product
+             WHERE seller_product.uploaded_by = $1 AND seller_product.category = o.category
+           ) OR EXISTS (
+             SELECT 1 FROM users seller_user
+             WHERE seller_user.username = $1
+               AND (seller_user.primary_category = o.category OR o.category LIKE seller_user.primary_category || '-%')
+           )
+         )
+       GROUP BY o.opportunity_id
+       ORDER BY o.demand_score DESC, o.created_at DESC, o.opportunity_id
+       LIMIT $2`,
+      [safeSellerId, safeLimit]
+    );
+    return (result.rows || []).map((row) => ({
+      ...row,
+      demandScore: Number(row.demandScore || 0),
+      supplyScore: Number(row.supplyScore || 0),
+      evidenceCount: Number(row.evidenceCount || 0),
+      responseCount: Number(row.responseCount || 0),
+      sellerResponded: row.sellerResponded === true,
+      expiresAt: toISOString(row.expiresAt)
+    }));
+  }
+
+  async function refreshRegionalSupplySnapshot(client, region, category) {
+    const safeRegion = normalizeKey(region, 80);
+    const safeCategory = normalizeKey(category, 100);
+    if (!safeRegion || !safeCategory) return null;
+    const result = await client.query(
+      `INSERT INTO regional_supply_snapshots (
+         region, category, product_count, active_seller_count,
+         available_inventory_indicator, sold_out_count, metadata, updated_at
+       )
+       SELECT $1, $2, COUNT(DISTINCT p.id)::int, COUNT(DISTINCT p.uploaded_by)::int,
+              COUNT(DISTINCT p.id) FILTER (WHERE p.availability = 'available')::int,
+              COUNT(DISTINCT p.id) FILTER (WHERE p.availability = 'sold_out')::int,
+              jsonb_build_object('source', 'attributed_supply'), NOW()
+       FROM supply_responses sr
+       LEFT JOIN products p ON p.id = sr.product_id
+       WHERE sr.region = $1 AND p.category = $2 AND sr.status = 'active'
+       ON CONFLICT (region, category) DO UPDATE SET
+         product_count = EXCLUDED.product_count,
+         active_seller_count = EXCLUDED.active_seller_count,
+         available_inventory_indicator = EXCLUDED.available_inventory_indicator,
+         sold_out_count = EXCLUDED.sold_out_count,
+         metadata = EXCLUDED.metadata,
+         updated_at = NOW()
+       RETURNING region, category, product_count AS "productCount",
+                 active_seller_count AS "activeSellerCount",
+                 available_inventory_indicator AS "availableInventoryIndicator",
+                 sold_out_count AS "soldOutCount", updated_at AS "updatedAt"`,
+      [safeRegion, safeCategory]
+    );
+    return result.rows?.[0] || null;
+  }
+
+  async function recordSupplyResponse(input = {}) {
+    const sellerId = String(input.sellerId || "").trim().slice(0, 80);
+    const productId = String(input.productId || "").trim().slice(0, 100);
+    const actionType = normalizeSupplyActionType(input.actionType);
+    const explicitOpportunityId = String(input.opportunityId || "").trim().slice(0, 100);
+    const variantId = String(input.variantId || "").trim().slice(0, 100);
+    if (!sellerId || !productId || !actionType) return { linked: false, code: "invalid_response" };
+    return withTransaction(async (client) => {
+      const productResult = await client.query(
+        `SELECT id, name, category, uploaded_by AS "uploadedBy", availability
+         FROM products WHERE id = $1 AND uploaded_by = $2 FOR UPDATE`,
+        [productId, sellerId]
+      );
+      const product = productResult.rows?.[0];
+      if (!product) return { linked: false, code: "product_not_owned" };
+      const productName = String(product.name || "").toLowerCase();
+      const category = normalizeKey(product.category, 100);
+      const opportunityResult = await client.query(
+        `SELECT * FROM commerce_opportunities o
+         WHERE o.status IN ('open', 'responded') AND o.expires_at > NOW()
+           AND ($1 = '' OR o.opportunity_id = $1)
+           AND (
+             (o.product_id <> '' AND o.product_id = $2)
+             OR (o.category = $3 AND (o.query_key = '' OR $4 LIKE '%' || replace(o.query_key, '-', '%') || '%'))
+           )
+         ORDER BY (o.product_id = $2) DESC, o.demand_score DESC, o.created_at DESC
+         LIMIT 1 FOR UPDATE`,
+        [explicitOpportunityId, productId, category, productName]
+      );
+      const opportunity = opportunityResult.rows?.[0];
+      if (!opportunity) return { linked: false, code: "no_matching_opportunity" };
+      const responseId = createSupplyResponseId(opportunity.opportunity_id, sellerId, actionType, productId, variantId);
+      const responseResult = await client.query(
+        `INSERT INTO supply_responses (
+           response_id, opportunity_id, seller_id, action_type, product_id, variant_id,
+           region, status, metadata, created_at, updated_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', $8::jsonb, NOW(), NOW())
+         ON CONFLICT (opportunity_id, seller_id, action_type, product_id, variant_id) DO UPDATE SET
+           status = 'active', metadata = supply_responses.metadata || EXCLUDED.metadata,
+           updated_at = NOW(), row_version = supply_responses.row_version + 1
+         RETURNING response_id AS "responseId"`,
+        [
+          responseId, opportunity.opportunity_id, sellerId, actionType, productId, variantId,
+          opportunity.region || normalizeKey(input.region, 80),
+          JSON.stringify({ attributionMode: explicitOpportunityId ? "explicit" : "automatic", ...(input.metadata || {}) })
+        ]
+      );
+      await client.query(
+        "UPDATE commerce_opportunities SET status = 'responded', updated_at = NOW(), row_version = row_version + 1 WHERE opportunity_id = $1",
+        [opportunity.opportunity_id]
+      );
+      const audienceResult = await client.query(
+        `SELECT DISTINCT audience_type AS "audienceType", audience_key AS "audienceKey", 'product_demand'::text AS "reasonCode"
+         FROM demand_events de
+         LEFT JOIN products dp ON dp.id = de.product_id
+         WHERE de.audience_key <> '' AND de.created_at >= NOW() - INTERVAL '90 days'
+           AND (de.product_id = NULLIF($1, '') OR (NULLIF($2, '') IS NOT NULL AND dp.category = $2))
+           AND (NULLIF($3, '') IS NULL OR de.region = '' OR de.region = $3)
+         UNION
+         SELECT DISTINCT audience_type, audience_key, 'search_gap'::text
+         FROM search_demand_events se
+         WHERE se.audience_key <> '' AND se.happened_at >= NOW() - INTERVAL '90 days'
+           AND ((NULLIF($4, '') IS NOT NULL AND se.query_key = $4) OR (NULLIF($2, '') IS NOT NULL AND se.detected_category = $2))
+           AND (NULLIF($3, '') IS NULL OR COALESCE(NULLIF(se.region, ''), se.location, '') = '' OR COALESCE(NULLIF(se.region, ''), se.location) = $3)
+         LIMIT 5000`,
+        [opportunity.product_id || productId, opportunity.category || category, opportunity.region || "", opportunity.query_key || ""]
+      );
+      let eligible = 0;
+      for (const audience of audienceResult.rows || []) {
+        const eligibilityId = createEligibilityId(responseId, audience.audienceType, audience.audienceKey, audience.reasonCode);
+        const eligibilityResult = await client.query(
+          `INSERT INTO rediscovery_eligibility (
+             eligibility_id, opportunity_id, supply_response_id, audience_type, audience_key,
+             product_id, reason_code, region, status, eligible_at, expires_at, metadata
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'eligible', NOW(), $9, '{}'::jsonb)
+           ON CONFLICT (supply_response_id, audience_type, audience_key, reason_code) DO NOTHING`,
+          [eligibilityId, opportunity.opportunity_id, responseId, audience.audienceType, audience.audienceKey, productId, audience.reasonCode, opportunity.region || "", opportunity.expires_at]
+        );
+        eligible += Number(eligibilityResult.rowCount || 0);
+      }
+      await refreshRegionalSupplySnapshot(client, opportunity.region || input.region, category);
+      return {
+        linked: true,
+        opportunityId: opportunity.opportunity_id,
+        responseId: responseResult.rows?.[0]?.responseId || responseId,
+        eligibleAudienceCount: eligible
+      };
+    });
+  }
+
+  async function recordFeedExposure(input = {}) {
+    const exposure = normalizeFeedExposure(input);
+    if (!exposure) return { recorded: false, code: "invalid_exposure" };
+    const result = await query(
+      `INSERT INTO feed_exposures (
+         exposure_id, audience_type, audience_key, product_id, seller_id, module_id,
+         rank_position, ranking_source, reason_codes, opportunity_id, supply_response_id,
+         shown_at, region, session_id, metadata
+       ) SELECT $1, $2, $3, p.id, COALESCE(NULLIF($5, ''), p.uploaded_by), $6,
+                $7, $8, $9::jsonb,
+                COALESCE(NULLIF($10, ''), attributed.opportunity_id),
+                COALESCE(NULLIF($11, ''), attributed.response_id),
+                $12::timestamptz, $13, $14, $15::jsonb
+         FROM products p
+         LEFT JOIN LATERAL (
+           SELECT sr.response_id, sr.opportunity_id FROM supply_responses sr
+           WHERE sr.product_id = p.id AND sr.status = 'active'
+           ORDER BY sr.created_at DESC, sr.response_id DESC LIMIT 1
+         ) attributed ON TRUE
+         WHERE p.id = $4
+       ON CONFLICT (exposure_id) DO NOTHING
+       RETURNING exposure_id AS "exposureId", opportunity_id AS "opportunityId",
+                 supply_response_id AS "supplyResponseId"`,
+      [
+        exposure.exposureId, exposure.audienceType, exposure.audienceKey, exposure.productId,
+        exposure.sellerId, exposure.moduleId, exposure.rankPosition, exposure.rankingSource,
+        JSON.stringify(exposure.reasonCodes), exposure.opportunityId || null, exposure.supplyResponseId || null,
+        exposure.shownAt, exposure.region, exposure.sessionId, JSON.stringify(exposure.metadata)
+      ]
+    );
+    const row = result.rows?.[0];
+    if (row?.supplyResponseId) {
+      await query(
+        `UPDATE rediscovery_eligibility SET status = 'exposed', exposed_at = COALESCE(exposed_at, $4::timestamptz)
+         WHERE supply_response_id = $1 AND audience_type = $2 AND audience_key = $3 AND status = 'eligible'`,
+        [row.supplyResponseId, exposure.audienceType, exposure.audienceKey, exposure.shownAt]
+      );
+    }
+    return row ? { recorded: true, ...row } : { recorded: false, code: "duplicate_or_missing_product" };
+  }
+
+  async function attributeFeedExposureOutcome(input = {}) {
+    const outcomeType = normalizeExposureOutcome(input.outcomeType);
+    const audienceType = input.audienceType === "user" ? "user" : "session";
+    const audienceKey = String(input.audienceKey || "").trim().slice(0, 64);
+    const productId = String(input.productId || "").trim().slice(0, 100);
+    if (!outcomeType || !audienceKey || !productId) return { attributed: false, code: "invalid_outcome" };
+    const referenceId = String(input.orderId || input.messageId || input.referenceId || "").trim().slice(0, 100);
+    const recent = await query(
+      `SELECT exposure_id AS "exposureId", supply_response_id AS "supplyResponseId"
+       FROM feed_exposures
+       WHERE audience_type = $1 AND audience_key = $2 AND product_id = $3
+         AND shown_at >= NOW() - INTERVAL '7 days'
+       ORDER BY shown_at DESC LIMIT 1`,
+      [audienceType, audienceKey, productId]
+    );
+    const exposure = recent.rows?.[0];
+    if (!exposure) return { attributed: false, code: "no_recent_exposure" };
+    const dedupeKey = stableId("outcome", [exposure.exposureId, outcomeType, referenceId || "once"]);
+    const outcomeId = stableId("out", [dedupeKey]);
+    const result = await query(
+      `INSERT INTO feed_exposure_outcomes (
+         outcome_id, exposure_id, outcome_type, order_id, message_id, dedupe_key, metadata, occurred_at
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, NOW())
+       ON CONFLICT (dedupe_key) DO NOTHING RETURNING outcome_id AS "outcomeId"`,
+      [outcomeId, exposure.exposureId, outcomeType, input.orderId || "", input.messageId || "", dedupeKey, JSON.stringify(input.metadata || {})]
+    );
+    if (result.rowCount && exposure.supplyResponseId) {
+      await query(
+        `UPDATE rediscovery_eligibility
+         SET status = $4, engaged_at = COALESCE(engaged_at, NOW())
+         WHERE supply_response_id = $1 AND audience_type = $2 AND audience_key = $3
+           AND status IN ('eligible', 'exposed', 'engaged')`,
+        [exposure.supplyResponseId, audienceType, audienceKey, outcomeType === "ordered" ? "converted" : "engaged"]
+      );
+    }
+    return result.rowCount
+      ? { attributed: true, outcomeId, exposureId: exposure.exposureId, supplyResponseId: exposure.supplyResponseId || "" }
+      : { attributed: false, code: "duplicate_outcome", exposureId: exposure.exposureId };
+  }
+
+  async function readCommerceLoopMetrics(sellerId = "") {
+    const safeSellerId = String(sellerId || "").trim().slice(0, 80);
+    const result = await readQuery(
+      `SELECT
+         COUNT(DISTINCT o.opportunity_id)::int AS "opportunitiesCreated",
+         COUNT(DISTINCT o.opportunity_id) FILTER (WHERE sr.response_id IS NOT NULL)::int AS "opportunitiesResponded",
+         COUNT(DISTINCT sr.response_id)::int AS "supplyResponses",
+         COUNT(DISTINCT sr.response_id) FILTER (WHERE sr.product_id IS NOT NULL)::int AS "supplyCreated",
+         COUNT(DISTINCT fe.exposure_id)::int AS exposures,
+         COUNT(DISTINCT feo.exposure_id) FILTER (WHERE feo.outcome_type = 'viewed_detail')::int AS "detailViews",
+         COUNT(DISTINCT feo.exposure_id) FILTER (WHERE feo.outcome_type = 'messaged')::int AS messages,
+         COUNT(DISTINCT feo.exposure_id) FILTER (WHERE feo.outcome_type = 'ordered')::int AS orders,
+         COUNT(DISTINCT re.eligibility_id) FILTER (WHERE o.type = 'sold_out_restock')::int AS "eligibleRequesters",
+         COUNT(DISTINCT re.eligibility_id) FILTER (WHERE o.type = 'sold_out_restock' AND re.status = 'converted')::int AS "requestersSatisfied",
+         COUNT(DISTINCT o.opportunity_id) FILTER (
+           WHERE o.type = 'regional_demand'
+             AND rss.available_inventory_indicator::float8 > o.supply_score
+         )::int AS "regionalGapsReduced"
+       FROM commerce_opportunities o
+       LEFT JOIN supply_responses sr ON sr.opportunity_id = o.opportunity_id AND sr.status = 'active'
+         AND ($1 = '' OR sr.seller_id = $1)
+       LEFT JOIN rediscovery_eligibility re ON re.supply_response_id = sr.response_id
+       LEFT JOIN feed_exposures fe ON fe.supply_response_id = sr.response_id
+       LEFT JOIN feed_exposure_outcomes feo ON feo.exposure_id = fe.exposure_id
+       LEFT JOIN regional_supply_snapshots rss ON rss.region = o.region AND rss.category = o.category
+       WHERE $1 = '' OR EXISTS (
+         SELECT 1 FROM products seller_product
+         WHERE seller_product.uploaded_by = $1
+           AND (o.category = '' OR seller_product.category = o.category)
+       )`,
+      [safeSellerId]
+    );
+    const row = result.rows?.[0] || {};
+    const metrics = Object.fromEntries(Object.entries(row).map(([key, value]) => [key, Number(value || 0)]));
+    const rate = (numerator, denominator) => denominator > 0 ? Math.round((numerator / denominator) * 10000) / 10000 : 0;
+    return {
+      ...metrics,
+      sellerResponseRate: rate(metrics.opportunitiesResponded, metrics.opportunitiesCreated),
+      supplyCreatedRate: rate(metrics.supplyCreated, metrics.supplyResponses),
+      buyerExposureRate: rate(metrics.exposures, metrics.supplyCreated),
+      detailViewRate: rate(metrics.detailViews, metrics.exposures),
+      messageRate: rate(metrics.messages, metrics.exposures),
+      orderRate: rate(metrics.orders, metrics.exposures),
+      requesterSatisfiedRate: rate(metrics.requestersSatisfied, metrics.eligibleRequesters),
+      privacy: "aggregate-only"
+    };
+  }
+
+  async function readRegionalSupplySnapshots(limit = 50) {
+    const safeLimit = Math.max(1, Math.min(Number(limit) || 50, 200));
+    const result = await readQuery(
+      `SELECT region, category, product_count AS "productCount",
+              active_seller_count AS "activeSellerCount",
+              available_inventory_indicator AS "availableInventoryIndicator",
+              sold_out_count AS "soldOutCount", updated_at AS "updatedAt"
+       FROM regional_supply_snapshots ORDER BY updated_at DESC, region, category LIMIT $1`,
+      [safeLimit]
+    );
+    return (result.rows || []).map((row) => ({
+      ...row,
+      productCount: Number(row.productCount || 0),
+      activeSellerCount: Number(row.activeSellerCount || 0),
+      availableInventoryIndicator: Number(row.availableInventoryIndicator || 0),
+      soldOutCount: Number(row.soldOutCount || 0),
+      updatedAt: toISOString(row.updatedAt)
+    }));
   }
 
   async function readRecentAuditLogs(limit = 50) {
@@ -6676,6 +7126,14 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     readSellerVideoAnalytics,
     appendSearchDemandEvents,
     readSearchDemandSummary,
+    readCommerceOpportunityCandidates,
+    upsertCommerceOpportunities,
+    readSellerCommerceOpportunities,
+    recordSupplyResponse,
+    recordFeedExposure,
+    attributeFeedExposureOutcome,
+    readCommerceLoopMetrics,
+    readRegionalSupplySnapshots,
     readUserLocalePreference,
     saveUserLocalePreference,
     readUserFollowSummary,

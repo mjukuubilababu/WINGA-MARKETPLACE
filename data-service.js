@@ -3408,6 +3408,9 @@ async loadAdminPayments() {
     getProducts() {
       return clone(state.products);
     },
+    getAnonymousDemandSessionId() {
+      return getAnonymousDemandSessionId();
+    },
     getProductFeedPagination() {
       return clone(state.productFeedPagination);
     },

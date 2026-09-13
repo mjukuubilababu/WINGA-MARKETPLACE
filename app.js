@@ -948,7 +948,8 @@ function recordSearchDemandSignal(details = {}) {
       resultCount: Number(details.resultCount ?? 0),
       category: selectedCategory !== "all" ? selectedCategory : "",
       filters: getCurrentSearchDemandFilters(),
-      location: String(filterLocationInput?.value || "").trim()
+      location: String(filterLocationInput?.value || "").trim(),
+      anonymousId: window.WingaDataLayer?.getAnonymousDemandSessionId?.() || ""
     });
     if (result?.accepted) {
       marketInsightsCache.key = "";
@@ -20116,7 +20117,8 @@ function getOrCreateProductCardEngagementState(card) {
     visibleSince: 0,
     strongTimer: 0,
     strongRecorded: false,
-    quickRecorded: false
+    quickRecorded: false,
+    exposureRecorded: false
   };
   productCardEngagementState.set(card, nextState);
   return nextState;
@@ -20152,6 +20154,34 @@ function handleProductCardVisibilityChange(card, isVisible) {
       return;
     }
     state.visibleSince = Date.now();
+    if (!state.exposureRecorded) {
+      state.exposureRecorded = true;
+      const product = getProductById(productId);
+      const moduleElement = card.closest?.("[data-feed-module-id]");
+      const feedCards = Array.from(document.querySelectorAll(
+        ".product-card[data-open-product], .showcase-card[data-open-product], .seller-product-card[data-open-product], [data-product-card][data-open-product]"
+      ));
+      const rankPosition = Math.max(1, feedCards.indexOf(card) + 1);
+      const exposureId = typeof window.crypto?.randomUUID === "function"
+        ? `exp_${window.crypto.randomUUID()}`
+        : `exp_${createId()}`;
+      reportClientEvent("info", "feed_exposure", "Product became visible in the marketplace viewport.", {
+        category: "commerce_learning",
+        exposureId,
+        productId,
+        sellerId: product?.uploadedBy || "",
+        moduleId: moduleElement?.dataset?.feedModuleId || "home_feed",
+        rankPosition: String(rankPosition),
+        rankingSource: moduleElement?.dataset?.feedModuleSource || moduleElement?.dataset?.feedModuleType || "organic",
+        reasonCodes: product?.supplyResponseId ? "rediscovery,attributed_supply" : "organic",
+        opportunityId: product?.opportunityId || "",
+        supplyResponseId: product?.supplyResponseId || "",
+        shownAt: new Date().toISOString(),
+        region: String(filterLocationInput?.value || "").trim(),
+        anonymousId: window.WingaDataLayer?.getAnonymousDemandSessionId?.() || "",
+        viewportThreshold: String(PRODUCT_CARD_VISIBILITY_THRESHOLD)
+      });
+    }
     if (!state.strongRecorded) {
       state.strongTimer = window.setTimeout(() => {
         const activeState = productCardEngagementState.get(card);

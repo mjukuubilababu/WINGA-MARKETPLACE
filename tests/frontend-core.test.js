@@ -2317,6 +2317,26 @@ test("remote intelligence API client owns fail-soft telemetry and search demand 
   assert.ok(buildSource.indexOf('"src/api/intelligence-client.js"') < buildSource.indexOf('"src/config/categories.js"'));
 });
 
+test("home feed records one fail-open commerce exposure only after visibility threshold", () => {
+  const root = path.resolve(__dirname, "..");
+  const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
+  const dataSource = fs.readFileSync(path.join(root, "data-service.js"), "utf8");
+  const intelligenceSource = fs.readFileSync(path.join(root, "src", "api", "intelligence-client.js"), "utf8");
+
+  assert.match(appSource, /const PRODUCT_CARD_VISIBILITY_THRESHOLD = 0\.66;/);
+  assert.match(appSource, /exposureRecorded: false/);
+  assert.match(appSource, /if \(!state\.exposureRecorded\) \{\s+state\.exposureRecorded = true;/);
+  assert.match(appSource, /reportClientEvent\("info", "feed_exposure"/);
+  assert.match(appSource, /opportunityId: product\?\.opportunityId \|\| ""/);
+  assert.match(appSource, /supplyResponseId: product\?\.supplyResponseId \|\| ""/);
+  assert.match(appSource, /entry\.isIntersecting && entry\.intersectionRatio >= PRODUCT_CARD_VISIBILITY_THRESHOLD/);
+  assert.match(dataSource, /getAnonymousDemandSessionId\(\) \{/);
+  assert.match(intelligenceSource, /Telemetry must never block the marketplace path/);
+  const serverSource = fs.readFileSync(path.join(root, "backend", "server.js"), "utf8");
+  assert.match(serverSource, /if \(eventName !== "feed_exposure"\) \{\s+intelligencePlatform\.ingestClientEvent/);
+  assert.match(serverSource, /if \(eventName === "feed_exposure" && postgresStore\?\.recordFeedExposure\)/);
+});
+
 test("intelligence client batches video telemetry without blocking marketplace work", async () => {
   const root = path.resolve(__dirname, "..");
   const moduleSource = fs.readFileSync(path.join(root, "src", "api", "intelligence-client.js"), "utf8");

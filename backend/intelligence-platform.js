@@ -42,7 +42,8 @@ const PRODUCT_SIGNAL_WEIGHTS = Object.freeze({
   video_mute: 0,
   video_unmute: 0,
   video_error: 0,
-  video_watch_summary: 0
+  video_watch_summary: 0,
+  feed_exposure: 0
 });
 
 const SELLER_SIGNAL_WEIGHTS = Object.freeze({
@@ -76,7 +77,8 @@ const SELLER_SIGNAL_WEIGHTS = Object.freeze({
   video_mute: 0,
   video_unmute: 0,
   video_error: 0,
-  video_watch_summary: 0
+  video_watch_summary: 0,
+  feed_exposure: 0
 });
 
 const KNOWN_EVENT_TYPES = new Set([
