@@ -19379,13 +19379,15 @@ async function runContinuousDiscoveryHydrationCycle(anchor) {
   }
 
   const batchIndex = homeContinuousDiscoveryRuntime.batchIndex + 1;
+  const renderDescriptorAsStream = descriptor.kind === "stream"
+    || shouldPreferHomeContinuousMarketplaceStream();
   if (Array.isArray(descriptor?.items) && descriptor.items.length) {
     primeIncomingFeedItems(descriptor.items, {
       reason: `continuous_discovery_batch_${batchIndex}_preappend`,
-      productLimit: descriptor.kind === "stream" ? Math.min(descriptor.items.length, 6) : Math.min(descriptor.items.length, 4),
-      decodeLimit: descriptor.kind === "stream" ? Math.min(descriptor.items.length, 4) : Math.min(descriptor.items.length, 2)
+      productLimit: renderDescriptorAsStream ? Math.min(descriptor.items.length, 6) : Math.min(descriptor.items.length, 4),
+      decodeLimit: renderDescriptorAsStream ? Math.min(descriptor.items.length, 4) : Math.min(descriptor.items.length, 2)
     });
-    if (descriptor.kind === "stream") {
+    if (renderDescriptorAsStream) {
       primeVariantInjectionImages(descriptor.items, {
         reason: `continuous_discovery_variant_batch_${batchIndex}_preappend`
       });
@@ -19397,7 +19399,7 @@ async function runContinuousDiscoveryHydrationCycle(anchor) {
     return;
   }
   let insertedNodes = [];
-  if (descriptor.kind === "stream") {
+  if (renderDescriptorAsStream) {
     insertedNodes = createContinuousDiscoveryStreamElements(descriptor, batchIndex, "home");
   } else {
     const section = createContinuousDiscoverySectionElement(
@@ -19426,7 +19428,7 @@ async function runContinuousDiscoveryHydrationCycle(anchor) {
   }
 
   let continuationLeadCardCount = 2;
-  if (descriptor.kind === "stream") {
+  if (renderDescriptorAsStream) {
     continuationLeadCardCount = await prepareContinuationBatchAdmission(insertedNodes, {
       leadCardCount: getAdaptiveContinuationLeadCardCount(),
       maxWaitMs: HOME_CONTINUOUS_BATCH_ADMISSION_MAX_WAIT_MS
@@ -19446,16 +19448,16 @@ async function runContinuousDiscoveryHydrationCycle(anchor) {
     chunkSize: HOME_INFINITE_DOM_INJECT_CHUNK_SIZE,
     onChunk: (chunk) => {
       chunk.forEach((node) => {
-        if (descriptor.kind !== "stream") {
+        if (!renderDescriptorAsStream) {
           enhanceShowcaseTracks(node);
           repairShowcaseMediaVisibility?.(node);
           stabilizeMobileShowcaseRows?.(node);
         }
-        if (descriptor.kind !== "stream") {
+        if (!renderDescriptorAsStream) {
           bindFeedGalleryInteractions(node);
         }
         bindProductEngagementSignals(node);
-        if (descriptor.kind !== "stream") {
+        if (!renderDescriptorAsStream) {
           bindImageFallbacks(node);
         }
         bindProductMenus(node);
@@ -19466,7 +19468,7 @@ async function runContinuousDiscoveryHydrationCycle(anchor) {
     homeContinuousDiscoveryRuntime.loading = false;
     return;
   }
-  if (descriptor.kind === "stream") {
+  if (renderDescriptorAsStream) {
     prioritizeVisibleFeedMedia?.(productsContainer, Math.min(4, insertedNodes.length));
   }
   homeContinuousDiscoveryRuntime.nextFeedSequenceIndex = insertedNodes.reduce((highestSequence, node) => {

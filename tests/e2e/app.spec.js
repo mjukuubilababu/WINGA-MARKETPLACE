@@ -1539,7 +1539,9 @@ test("signed-in home keeps lower rows visible without the hero", async ({ browse
 
   const firstShowcaseRow = page.locator("#products-container > .showcase-inline, #products-container > [data-recommendation-type]").first();
   await expect(firstShowcaseRow).toBeVisible();
-  await expect.poll(() => firstShowcaseRow.locator(".showcase-card img").first().evaluate((image) =>
+  const firstShowcaseImage = firstShowcaseRow.locator(".showcase-card img").first();
+  await firstShowcaseImage.scrollIntoViewIfNeeded();
+  await expect.poll(() => firstShowcaseImage.evaluate((image) =>
     Number(image.naturalWidth || 0) > 0 && Number(image.naturalHeight || 0) > 0
   )).toBe(true);
 
@@ -1561,7 +1563,10 @@ test("signed-in home keeps lower rows visible without the hero", async ({ browse
 });
 
 test("home feed keeps loading continuous discovery sections before users hit a hard end", async ({ browser }) => {
-  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure");
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure", {
+    viewport: { width: 390, height: 844 },
+    isMobile: true
+  });
   await page.goto("/");
 
   await expect(page.locator("[data-continuous-discovery-anchor='home']")).toBeVisible();
@@ -1596,6 +1601,16 @@ test("home feed keeps loading continuous discovery sections before users hit a h
   await page.waitForTimeout(500);
   await expect.poll(getContinuousGroupCount).toBeGreaterThan(0);
   await expect.poll(getContinuousGroupCount).toBeLessThanOrEqual(initialCount + 2);
+
+  const mobilePlacement = await page.evaluate(() => ({
+    adjacentRows: Array.from(document.querySelectorAll("#products-container > .showcase-inline"))
+      .filter((row) => row.previousElementSibling?.matches?.(".showcase-inline")).length,
+    continuationRows: document.querySelectorAll("#products-container > .continuous-discovery-section").length,
+    continuationStreams: document.querySelectorAll("#products-container > [data-continuous-discovery-stream]").length
+  }));
+  expect(mobilePlacement.adjacentRows).toBe(0);
+  expect(mobilePlacement.continuationRows).toBe(0);
+  expect(mobilePlacement.continuationStreams).toBeGreaterThan(0);
 
   await context.close();
 });

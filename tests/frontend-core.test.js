@@ -5444,6 +5444,9 @@ test("feed modules enforce contract, dedupe, sponsorship, frequency caps, and fa
   assert.match(uiSource, /if \(section && !section\.querySelector\("\.showcase-card"\)\) \{\s+section\.remove\(\);/);
   assert.match(uiSource, /if \(Date\.now\(\) - startedAt >= maxWaitMs\) \{\s+section\.remove\(\);/);
   assert.doesNotMatch(uiSource, /intelligentFeedEnabled && !shouldUseMobileEndlessHomeFeed/);
+  const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
+  assert.match(appSource, /const renderDescriptorAsStream = descriptor\.kind === "stream"\s+\|\| shouldPreferHomeContinuousMarketplaceStream\(\);/);
+  assert.match(appSource, /if \(renderDescriptorAsStream\) \{\s+insertedNodes = createContinuousDiscoveryStreamElements/);
 });
 
 test("social API client preserves cursor paging and person follow mutation semantics", async () => {
