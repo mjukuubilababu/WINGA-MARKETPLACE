@@ -1534,7 +1534,10 @@ test("marketplace cards keep verified copy out of compact card surfaces", async 
 });
 
 test("signed-in home keeps lower rows visible without the hero", async ({ browser }) => {
-  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure");
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure", {
+    viewport: { width: 390, height: 844 },
+    isMobile: true
+  });
   await page.goto("/");
 
   const firstShowcaseRow = page.locator("#products-container > .showcase-inline, #products-container > [data-recommendation-type]").first();
@@ -1558,6 +1561,21 @@ test("signed-in home keeps lower rows visible without the hero", async ({ browse
     adjacentRows: 0,
     generatedPlaceholders: 0
   });
+
+  const singleRowGuard = await page.evaluate(() => {
+    const container = document.querySelector("#products-container");
+    const row = container?.querySelector(":scope > .showcase-inline");
+    if (!container || !row) {
+      return { removed: 0, rows: 0 };
+    }
+    container.appendChild(row.cloneNode(true));
+    const removed = enforceSingleMobileHomeHorizontalRow(container);
+    return {
+      removed,
+      rows: container.querySelectorAll(":scope > .showcase-inline").length
+    };
+  });
+  expect(singleRowGuard).toEqual({ removed: 1, rows: 1 });
 
   await context.close();
 });

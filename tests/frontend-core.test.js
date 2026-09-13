@@ -5447,6 +5447,8 @@ test("feed modules enforce contract, dedupe, sponsorship, frequency caps, and fa
   const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
   assert.match(appSource, /const renderDescriptorAsStream = descriptor\.kind === "stream"\s+\|\| shouldPreferHomeContinuousMarketplaceStream\(\);/);
   assert.match(appSource, /if \(renderDescriptorAsStream\) \{\s+insertedNodes = createContinuousDiscoveryStreamElements/);
+  assert.match(appSource, /function enforceSingleMobileHomeHorizontalRow\(scope = productsContainer\)/);
+  assert.match(appSource, /validRows\.slice\(1\)\.forEach\(\(row\) => row\.remove\(\)\)/);
 });
 
 test("social API client preserves cursor paging and person follow mutation semantics", async () => {

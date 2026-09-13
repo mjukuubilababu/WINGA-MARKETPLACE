@@ -11659,6 +11659,7 @@ const {
       if (!container.isConnected) {
         return;
       }
+      enforceSingleMobileHomeHorizontalRow(container);
       scheduleViewportReadyFeedSweep(container, {
         limit: 12
       });
@@ -12709,6 +12710,25 @@ function getRuntimeHealthSnapshot() {
     prefetchQueuePressure: Number(marketplaceScrollPrefetchQueue?.length || 0) >= MARKETPLACE_PREFETCH_QUEUE_PRESSURE_THRESHOLD,
     pendingMediaPressure: getCurrentPendingContinuationMediaCount(document) >= HOME_CONTINUOUS_HARD_PRESSURE_PENDING_MEDIA
   };
+}
+
+function enforceSingleMobileHomeHorizontalRow(scope = productsContainer) {
+  if (currentView !== "home" || getViewportWidth() > 720 || !(scope instanceof Element)) {
+    return 0;
+  }
+  const rows = Array.from(scope.children || [])
+    .filter((node) => node?.matches?.(".showcase-inline"));
+  const validRows = rows.filter((row) => row.querySelector(".showcase-card"));
+  rows.filter((row) => !validRows.includes(row)).forEach((row) => row.remove());
+  validRows.slice(1).forEach((row) => row.remove());
+  const removedCount = rows.length - Math.min(1, validRows.length);
+  if (removedCount > 0) {
+    reportShowcaseInstrumentation("mobile_horizontal_row_deduplicated", {
+      removedCount,
+      retainedCount: validRows.length ? 1 : 0
+    });
+  }
+  return removedCount;
 }
 
 function collectShowcaseRowDiagnostics() {
@@ -19468,6 +19488,7 @@ async function runContinuousDiscoveryHydrationCycle(anchor) {
     homeContinuousDiscoveryRuntime.loading = false;
     return;
   }
+  enforceSingleMobileHomeHorizontalRow(productsContainer);
   if (renderDescriptorAsStream) {
     prioritizeVisibleFeedMedia?.(productsContainer, Math.min(4, insertedNodes.length));
   }
@@ -20275,6 +20296,7 @@ function hydrateDynamicShowcaseSection(placeholder, sectionIndex, usedIds) {
   bindShowcaseCardClicks(nextSection);
   bindImageFallbacks(nextSection);
   bindProductMenus(nextSection);
+  enforceSingleMobileHomeHorizontalRow(productsContainer);
 }
 
 function setupDynamicShowcaseLoading(scope, usedIds = new Set()) {
