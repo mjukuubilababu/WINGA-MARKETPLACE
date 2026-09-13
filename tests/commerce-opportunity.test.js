@@ -240,6 +240,43 @@ test("seller dismissal is private to that seller and does not create supply", as
   assert.equal(calls.some((call) => call.text.includes("UPDATE commerce_opportunities SET status = 'dismissed'")), false, "one seller must not dismiss a global opportunity");
 });
 
+test("commerce exposure rate measures distinct supply reached rather than repeat impressions", async () => {
+  const store = createPostgresStore({
+    databaseUrl: "postgres://test.invalid/winga",
+    queryClient: {
+      async query(sql, params) {
+        assert.deepEqual(params, ["seller-one"]);
+        assert.match(sql, /LEFT JOIN supply_responses sr[\s\S]*?AND sr\.action_type NOT IN \('ignore', 'dismiss'\)/);
+        assert.match(sql, /COUNT\(DISTINCT sr\.response_id\) FILTER \(WHERE sr\.product_id IS NOT NULL AND fe\.exposure_id IS NOT NULL\)::int AS "supplyExposed"/);
+        return { rows: [{ opportunitiesCreated: 4, opportunitiesResponded: 2,
+          supplyResponses: 3, supplyCreated: 3, supplyExposed: 2,
+          exposures: 40, detailViews: 10, messages: 4, orders: 2,
+          eligibleRequesters: 0, requestersSatisfied: 0 }] };
+      }
+    }
+  });
+  const metrics = await store.readCommerceLoopMetrics("seller-one");
+  assert.equal(metrics.buyerExposureRate, 0.6667);
+  assert.equal(metrics.exposures, 40, "repeat impressions remain available as a count");
+  assert.equal(metrics.sellerResponseRate, 0.5);
+  assert.equal(metrics.orderRate, 0.05);
+  assert.equal(metrics.requesterSatisfiedRate, 0);
+});
+
+test("commerce rates stay finite when no opportunities have supply or exposure", async () => {
+  const store = createPostgresStore({
+    databaseUrl: "postgres://test.invalid/winga",
+    queryClient: { async query() { return { rows: [{
+      opportunitiesCreated: 2, opportunitiesResponded: 0, supplyResponses: 0,
+      supplyCreated: 0, supplyExposed: 0, exposures: 0
+    }] }; } }
+  });
+  const metrics = await store.readCommerceLoopMetrics();
+  for (const [key, value] of Object.entries(metrics)) {
+    if (key.endsWith("Rate")) assert.equal(value, 0, key);
+  }
+});
+
 test("commerce learning migration contains durable privacy-safe loop tables", () => {
   const migration = MIGRATIONS.find((item) => item.id === "2026091301_commerce_learning_loop");
   const sql = migration.statements.join("\n");

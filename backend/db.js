@@ -6026,6 +6026,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
          COUNT(DISTINCT o.opportunity_id) FILTER (WHERE sr.response_id IS NOT NULL)::int AS "opportunitiesResponded",
          COUNT(DISTINCT sr.response_id)::int AS "supplyResponses",
          COUNT(DISTINCT sr.response_id) FILTER (WHERE sr.product_id IS NOT NULL)::int AS "supplyCreated",
+         COUNT(DISTINCT sr.response_id) FILTER (WHERE sr.product_id IS NOT NULL AND fe.exposure_id IS NOT NULL)::int AS "supplyExposed",
          COUNT(DISTINCT fe.exposure_id)::int AS exposures,
          COUNT(DISTINCT feo.exposure_id) FILTER (WHERE feo.outcome_type = 'viewed_detail')::int AS "detailViews",
          COUNT(DISTINCT feo.exposure_id) FILTER (WHERE feo.outcome_type = 'messaged')::int AS messages,
@@ -6038,6 +6039,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
          )::int AS "regionalGapsReduced"
        FROM commerce_opportunities o
        LEFT JOIN supply_responses sr ON sr.opportunity_id = o.opportunity_id AND sr.status = 'active'
+         AND sr.action_type NOT IN ('ignore', 'dismiss')
          AND ($1 = '' OR sr.seller_id = $1)
        LEFT JOIN rediscovery_eligibility re ON re.supply_response_id = sr.response_id
        LEFT JOIN feed_exposures fe ON fe.supply_response_id = sr.response_id
@@ -6057,7 +6059,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       ...metrics,
       sellerResponseRate: rate(metrics.opportunitiesResponded, metrics.opportunitiesCreated),
       supplyCreatedRate: rate(metrics.supplyCreated, metrics.supplyResponses),
-      buyerExposureRate: rate(metrics.exposures, metrics.supplyCreated),
+      buyerExposureRate: rate(metrics.supplyExposed, metrics.supplyCreated),
       detailViewRate: rate(metrics.detailViews, metrics.exposures),
       messageRate: rate(metrics.messages, metrics.exposures),
       orderRate: rate(metrics.orders, metrics.exposures),
