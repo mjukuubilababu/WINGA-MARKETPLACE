@@ -1,6 +1,7 @@
 const USERS_KEY = "winga-users";
 let productPhotoReelEditor = null;
 let productCreationController = null;
+let activeSellerOpportunityAttribution = null;
 const PRODUCTS_KEY = "winga-products";
 const SESSION_KEY = "winga-current-user";
 const APP_VIEW_KEY = "winga-app-view";
@@ -1570,7 +1571,10 @@ function setCurrentViewState(nextView, options = {}) {
     cancelHomeFeedLoadMore("view_changed");
   }
   cancelStaleProductQuerySurfaces(nextView);
-  if (currentView === "upload" && nextView !== "upload") productPhotoReelEditor?.reset();
+  if (currentView === "upload" && nextView !== "upload") {
+    productPhotoReelEditor?.reset();
+    activeSellerOpportunityAttribution = null;
+  }
   currentView = nextView;
   productCreationController?.onViewChange(nextView);
   if (syncNav) {
@@ -11071,8 +11075,57 @@ const { renderAnalyticsPanel: renderBaseAnalyticsPanel } = window.WingaModules.a
   formatNumber,
   getCategoryLabel,
   getStatusLabel,
-  isAdminUser
+  isAdminUser,
+  onSellerOpportunityAction: handleSellerOpportunityAction
 });
+
+async function handleSellerOpportunityAction(action, opportunity) {
+  const opportunityId = String(opportunity?.opportunityId || "").trim();
+  if (!opportunityId || !canUseSellerFeatures()) return;
+  if (action === "create") {
+    clearUploadForm();
+    activeSellerOpportunityAttribution = {
+      opportunityId,
+      region: String(opportunity?.region || "").trim(),
+      category: String(opportunity?.category || "").trim(),
+      queryKey: String(opportunity?.queryKey || "").trim()
+    };
+    const suggestedName = activeSellerOpportunityAttribution.queryKey.replace(/-/g, " ").trim();
+    if (suggestedName) productNameInput.value = suggestedName;
+    if (isValidProductCategory(activeSellerOpportunityAttribution.category)) {
+      productCategoryTopInput.value = inferTopCategoryValue(activeSellerOpportunityAttribution.category) || "";
+      renderUploadCategoryOptions();
+      productCategoryInput.value = activeSellerOpportunityAttribution.category;
+    }
+    enterProductUploadView("seller_opportunity");
+    setUploadFormStatus("info", translateUi("commerceOpportunity.attributionNotice", {}, "This post will answer verified buyer demand."));
+    reportClientEvent("info", "seller_opportunity_create_started", "Seller opened product creation from an aggregate opportunity.", {
+      opportunityId
+    });
+    return;
+  }
+  if (action === "dismiss") {
+    try {
+      await window.WingaDataLayer.dismissSellerOpportunity(opportunityId);
+      reportClientEvent("info", "seller_opportunity_dismissed", "Seller dismissed an aggregate supply opportunity.", {
+        opportunityId
+      });
+      showInAppNotification({
+        title: translateUi("commerceOpportunity.dismissedTitle", {}, "Opportunity removed"),
+        body: translateUi("commerceOpportunity.dismissedBody", {}, "We will use this response to improve future seller opportunities."),
+        variant: "success"
+      });
+    } catch (error) {
+      captureClientError("seller_opportunity_dismiss_failed", error, { opportunityId });
+      showInAppNotification({
+        title: translateUi("commerceOpportunity.dismissFailedTitle", {}, "Could not remove opportunity"),
+        body: translateUi("commerceOpportunity.dismissFailedBody", {}, "Please try again without leaving your seller profile."),
+        variant: "error"
+      });
+      throw error;
+    }
+  }
+}
 
 function getSellerMarketInsightsForAnalytics(sellerId = currentUser) {
   const insights = getMarketInsights(products, { scope: "seller_dashboard" });
@@ -15355,6 +15408,10 @@ uploadButton.addEventListener("click", async () => {
       views: existingProduct ? existingProduct.views : 0,
       viewedBy: existingProduct ? existingProduct.viewedBy || [] : []
     };
+    if (!editingProductId && activeSellerOpportunityAttribution?.opportunityId) {
+      productPayload.opportunityId = activeSellerOpportunityAttribution.opportunityId;
+      productPayload.region = activeSellerOpportunityAttribution.region;
+    }
     ensureSafeProductUploadPayload(productPayload);
 
     if (editingProductId) {
@@ -16028,6 +16085,17 @@ searchImageFileInput.addEventListener("change", async () => {
 
 bindPrimaryNav();
 
+function enterProductUploadView(reason = "creation_menu") {
+  if (editingProductId) clearUploadForm();
+  setUploadFormStatus("", "");
+  uiRuntimeState.productUploadStatusTone = "";
+  if (!productShopInput.value) productShopInput.value = currentUser;
+  productWhatsappInput.value = getCurrentWhatsappNumber();
+  setCurrentViewState("upload", { syncHistory: "push" });
+  renderCurrentView({ force: true, reason });
+  window.scrollTo({ top: 0, behavior: "auto" });
+}
+
 productCreationController = window.WingaModules.products.createProductCreationController({
   translate: translateUi,
   canUse: () => canUseSellerFeatures() && !isStaffUser(),
@@ -16038,16 +16106,7 @@ productCreationController = window.WingaModules.products.createProductCreationCo
   hasMedia: () => Boolean(productImageFileInput.files?.length || editingProductId
     || productUploadDraftRuntimeState.preparedImages?.length || productVideoUploadState.mediaItem),
   openReel: () => productPhotoReelEditor.openGallery(),
-  enterUpload: () => {
-    if (editingProductId) clearUploadForm();
-    setUploadFormStatus("", "");
-    uiRuntimeState.productUploadStatusTone = "";
-    if (!productShopInput.value) productShopInput.value = currentUser;
-    productWhatsappInput.value = getCurrentWhatsappNumber();
-    setCurrentViewState("upload", { syncHistory: "push" });
-    renderCurrentView({ force: true, reason: "creation_menu" });
-    window.scrollTo({ top: 0, behavior: "auto" });
-  },
+  enterUpload: () => enterProductUploadView("creation_menu"),
   goHome: () => viewHomeBackButton.click()
 });
 
@@ -21107,6 +21166,7 @@ function clearUploadForm() {
   productPhotoReelEditor?.reset();
   productCreationController?.reset();
   editingProductId = null;
+  activeSellerOpportunityAttribution = null;
   setNodeText(uploadTitle, "Ongeza Bidhaa");
   cancelEditButton.style.display = "none";
   productNameInput.value = "";

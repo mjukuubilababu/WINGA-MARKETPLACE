@@ -971,6 +971,19 @@
                      "analytics.videoPlaysShort":  "plays",
                      "analytics.videoCompleteShort":  "complete",
                      "analytics.videoActionsShort":  "actions",
-                     "nav.messagesWithCount":  "Messages{countSuffix}"
+                     "nav.messagesWithCount":  "Messages{countSuffix}",
+                     "commerceOpportunity.defaultTitle":  "Buyer demand opportunity",
+                     "commerceOpportunity.color":  "Color: {value}",
+                     "commerceOpportunity.size":  "Size: {value}",
+                     "commerceOpportunity.demandEvidence":  "Demand score {score} from {count} signals",
+                     "commerceOpportunity.createSupply":  "Create supply",
+                     "commerceOpportunity.notRelevant":  "Not relevant",
+                     "commerceOpportunity.sectionTitle":  "Supply opportunities",
+                     "commerceOpportunity.sectionBody":  "Verified aggregate buyer demand that matches your catalog.",
+                     "commerceOpportunity.attributionNotice":  "This post will answer verified buyer demand.",
+                     "commerceOpportunity.dismissedTitle":  "Opportunity removed",
+                     "commerceOpportunity.dismissedBody":  "We will use this response to improve future seller opportunities.",
+                     "commerceOpportunity.dismissFailedTitle":  "Could not remove opportunity",
+                     "commerceOpportunity.dismissFailedBody":  "Please try again without leaving your seller profile."
                  }
 }

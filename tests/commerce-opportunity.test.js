@@ -201,6 +201,45 @@ test("white maxi dress Mwanza closes opportunity to attributed order determinist
   assert.equal(calls.some((call) => call.text.includes("LEFT JOIN products dp")), true, "eligibility must preserve sparse product evidence");
 });
 
+test("seller dismissal is private to that seller and does not create supply", async () => {
+  const calls = [];
+  const client = {
+    async query(text, params = []) {
+      const sql = String(text);
+      calls.push({ text: sql, params });
+      if (sql === "BEGIN" || sql === "COMMIT" || sql === "ROLLBACK") return { rows: [], rowCount: 0 };
+      if (sql.includes("SELECT opportunity_id") && sql.includes("FROM commerce_opportunities")) {
+        return { rows: [{ opportunity_id: "opp-private-dismiss" }], rowCount: 1 };
+      }
+      if (sql.includes("INSERT INTO supply_responses")) {
+        return { rows: [{ responseId: "resp-private-dismiss" }], rowCount: 1 };
+      }
+      if (sql.includes('SELECT o.opportunity_id AS "opportunityId"')) {
+        return { rows: [], rowCount: 0 };
+      }
+      return { rows: [], rowCount: 0 };
+    },
+    release() {}
+  };
+  const store = createPostgresStore({
+    databaseUrl: "postgres://test.invalid/winga",
+    queryClient: { query: client.query.bind(client), connect: async () => client }
+  });
+
+  const result = await store.recordSellerOpportunityDecision({
+    sellerId: "seller-one",
+    opportunityId: "opp-private-dismiss",
+    actionType: "dismiss"
+  });
+  await store.readSellerCommerceOpportunities("seller-one", 20);
+
+  assert.equal(result.recorded, true);
+  assert.equal(result.actionType, "dismiss");
+  assert.equal(calls.some((call) => call.text.includes("VALUES ($1, $2, $3, $4, NULL")), true, "dismissal must not claim a product or supply");
+  assert.equal(calls.some((call) => call.text.includes("HAVING NOT COALESCE(BOOL_OR(sr.seller_id = $1")), true, "seller reads must suppress only that seller's dismissed opportunities");
+  assert.equal(calls.some((call) => call.text.includes("UPDATE commerce_opportunities SET status = 'dismissed'")), false, "one seller must not dismiss a global opportunity");
+});
+
 test("commerce learning migration contains durable privacy-safe loop tables", () => {
   const migration = MIGRATIONS.find((item) => item.id === "2026091301_commerce_learning_loop");
   const sql = migration.statements.join("\n");

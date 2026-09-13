@@ -3930,6 +3930,10 @@ function getProductActionMatch(pathname) {
   return pathname.match(/^\/api\/products\/([^/]+)\/(like|view)$/);
 }
 
+function getOpportunityDecisionMatch(pathname) {
+  return pathname.match(/^\/api\/opportunities\/([^/]+)\/decision$/);
+}
+
 function isNonEmptyString(value, min = 1, max = 120) {
   return typeof value === "string" && value.trim().length >= min && value.trim().length <= max;
 }
@@ -6201,6 +6205,12 @@ function getRateLimitRule(pathname, method = "GET") {
     return {
       ...RATE_LIMIT_RULES["/api/products"],
       key: "/api/products"
+    };
+  }
+  if (/^\/api\/opportunities\/[^/]+\/decision$/.test(pathname)) {
+    return {
+      ...RATE_LIMIT_RULES["/api/opportunities"],
+      key: "/api/opportunities/:id/decision"
     };
   }
   if (/^\/api\/admin\/users\/[^/]+\/moderation$/.test(pathname)) {
@@ -10758,6 +10768,49 @@ const server = http.createServer(async (req, res) => {
         console.warn("[WINGA] Seller opportunities failed open.", error?.message || error);
         sendJson(res, 200, { items: [], metrics: {}, privacy: "aggregate-only", unavailable: true });
       }
+      return;
+    }
+
+    if (req.method === "POST" && getOpportunityDecisionMatch(url.pathname)) {
+      const session = findSession(store, readAuthToken(req));
+      const seller = ensureMarketplaceUser(store, session, res);
+      if (!seller) return;
+      if (!canPostProducts(seller.role)) {
+        sendJson(res, 403, { error: "Seller pekee ndiye anaweza kujibu opportunity ya supply." });
+        return;
+      }
+      if (!postgresStore?.recordSellerOpportunityDecision) {
+        sendJson(res, 503, { error: "Opportunity response haipatikani kwa sasa.", code: "opportunity_response_unavailable" });
+        return;
+      }
+      const opportunityId = decodeURIComponent(getOpportunityDecisionMatch(url.pathname)[1] || "").trim().slice(0, 100);
+      const payload = await collectBody(req);
+      const actionType = String(payload?.actionType || "").trim().toLowerCase();
+      if (!opportunityId || !["ignore", "dismiss"].includes(actionType)) {
+        sendJson(res, 400, { error: "Opportunity response si sahihi.", code: "invalid_opportunity_response" });
+        return;
+      }
+      const result = await postgresStore.recordSellerOpportunityDecision({
+        opportunityId,
+        sellerId: seller.username,
+        actionType
+      });
+      if (!result?.recorded) {
+        const status = result?.code === "opportunity_not_found" ? 404 : 400;
+        sendJson(res, status, { error: "Opportunity haijapatikana au imeisha muda.", code: result?.code || "opportunity_response_failed" });
+        return;
+      }
+      await appendAuditLog({
+        time: new Date().toISOString(),
+        ip: clientIp,
+        method: req.method,
+        path: url.pathname,
+        event: "seller_opportunity_decision",
+        username: seller.username,
+        opportunityId,
+        actionType
+      });
+      sendJson(res, 200, result, { "Cache-Control": "private, no-store", "Pragma": "no-cache" });
       return;
     }
 

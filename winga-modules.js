@@ -16570,6 +16570,53 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       return item;
     }
 
+    function createSellerOpportunityItem(opportunity) {
+      const item = deps.createElement("div", { className: "analytics-list-item seller-opportunity-item" });
+      const queryLabel = String(opportunity?.queryKey || "").replace(/-/g, " ").trim();
+      const categoryLabel = opportunity?.category ? deps.getCategoryLabel(opportunity.category) : "";
+      const title = queryLabel || categoryLabel || t("commerceOpportunity.defaultTitle", "Buyer demand opportunity");
+      const context = [
+        categoryLabel,
+        String(opportunity?.region || "").replace(/-/g, " ").trim(),
+        opportunity?.color ? t("commerceOpportunity.color", "Color: {value}", { value: opportunity.color }) : "",
+        opportunity?.size ? t("commerceOpportunity.size", "Size: {value}", { value: opportunity.size }) : ""
+      ].filter(Boolean).join(" | ");
+      const demand = t("commerceOpportunity.demandEvidence", "Demand score {score} from {count} signals", {
+        score: deps.formatNumber(opportunity?.demandScore || 0),
+        count: deps.formatNumber(opportunity?.evidenceCount || 0)
+      });
+      const actions = deps.createElement("div", { className: "product-actions seller-opportunity-actions" });
+      const createButton = deps.createElement("button", {
+        className: "action-btn",
+        textContent: t("commerceOpportunity.createSupply", "Create supply"),
+        attributes: { type: "button" }
+      });
+      const dismissButton = deps.createElement("button", {
+        className: "action-btn action-btn-secondary",
+        textContent: t("commerceOpportunity.notRelevant", "Not relevant"),
+        attributes: { type: "button" }
+      });
+      createButton.addEventListener("click", () => deps.onSellerOpportunityAction?.("create", opportunity));
+      dismissButton.addEventListener("click", async () => {
+        createButton.disabled = true;
+        dismissButton.disabled = true;
+        try {
+          await deps.onSellerOpportunityAction?.("dismiss", opportunity);
+          item.remove();
+        } catch (error) {
+          createButton.disabled = false;
+          dismissButton.disabled = false;
+        }
+      });
+      actions.append(createButton, dismissButton);
+      item.append(
+        deps.createElement("strong", { textContent: title }),
+        deps.createElement("p", { className: "product-meta", textContent: [context, demand].filter(Boolean).join(" | ") }),
+        actions
+      );
+      return item;
+    }
+
     function renderAnalyticsPanel(data, heading, subtitle) {
       const panel = deps.getAnalyticsPanel();
       if (!panel) {
@@ -16631,6 +16678,9 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       }
       const marketData = data.market || {};
       const searchDemandData = data.searchDemand || marketData.searchDemand || {};
+      const sellerOpportunities = Array.isArray(data.commerceLearning?.opportunities)
+        ? data.commerceLearning.opportunities.filter((item) => item && !item.sellerResponded).slice(0, 8)
+        : [];
 
       const list = deps.createElement("div", { className: "analytics-list" });
       list.appendChild(createAnalyticsListItem(
@@ -16642,6 +16692,13 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         (data.recentProducts || []).map((item) => `${item.name} - ${deps.getStatusLabel(item.status)}`).join(" | ") || "Hakuna bidhaa za kuonyesha."
       ));
       if (!deps.isAdminUser()) {
+        if (sellerOpportunities.length) {
+          list.appendChild(createAnalyticsListItem(
+            t("commerceOpportunity.sectionTitle", "Supply opportunities"),
+            t("commerceOpportunity.sectionBody", "Verified aggregate buyer demand that matches your catalog.")
+          ));
+          sellerOpportunities.forEach((opportunity) => list.appendChild(createSellerOpportunityItem(opportunity)));
+        }
         if (hasVideoAnalytics) {
           list.appendChild(createAnalyticsListItem(
             t("analytics.topVideoPerformance", "Top video performance"),

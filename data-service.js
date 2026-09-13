@@ -2093,7 +2093,18 @@ async loadAdminPayments(filters) {
       },
       async deleteProduct(productId) {
         return getProductsApiClient().deleteProduct(productId);
-      },        async loadAnalytics() {
+      },
+      async dismissSellerOpportunity(opportunityId) {
+        return fetchJson(`${baseUrl}/opportunities/${encodeURIComponent(opportunityId)}/decision`, {
+          method: "POST",
+          headers: {
+            ...createAuthHeaders(),
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ actionType: "dismiss" })
+        });
+      },
+      async loadAnalytics() {
           return fetchJson(`${baseUrl}/analytics/summary`, {
             headers: {
               ...createAuthHeaders()
@@ -3918,6 +3929,15 @@ async loadAdminPayments() {
       const result = await state.adapter.deleteProduct(productId);
       removeProductMutationResult(productId);
       return result;
+    },
+    async dismissSellerOpportunity(opportunityId) {
+      assertSellerAccess();
+      if (typeof state.adapter.dismissSellerOpportunity !== "function") {
+        const error = new Error("Seller opportunity actions are unavailable in this runtime.");
+        error.code = "opportunity_action_unavailable";
+        throw error;
+      }
+      return state.adapter.dismissSellerOpportunity(opportunityId);
     },
     async loadAnalytics() {
         return state.adapter.loadAnalytics ? state.adapter.loadAnalytics() : null;

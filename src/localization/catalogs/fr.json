@@ -971,6 +971,19 @@
                      "analytics.videoPlaysShort":  "lectures",
                      "analytics.videoCompleteShort":  "terminé",
                      "analytics.videoActionsShort":  "actions",
-                     "nav.messagesWithCount":  "Messages{countSuffix}"
+                     "nav.messagesWithCount":  "Messages{countSuffix}",
+                     "commerceOpportunity.defaultTitle":  "Opportunité liée à la demande des acheteurs",
+                     "commerceOpportunity.color":  "Couleur : {value}",
+                     "commerceOpportunity.size":  "Taille : {value}",
+                     "commerceOpportunity.demandEvidence":  "Score de demande {score} issu de {count} signaux",
+                     "commerceOpportunity.createSupply":  "Créer une offre",
+                     "commerceOpportunity.notRelevant":  "Non pertinent",
+                     "commerceOpportunity.sectionTitle":  "Opportunités d'offre",
+                     "commerceOpportunity.sectionBody":  "Demande agrégée et vérifiée des acheteurs correspondant à votre catalogue.",
+                     "commerceOpportunity.attributionNotice":  "Cette publication répondra à une demande acheteur vérifiée.",
+                     "commerceOpportunity.dismissedTitle":  "Opportunité supprimée",
+                     "commerceOpportunity.dismissedBody":  "Nous utiliserons cette réponse pour améliorer vos prochaines opportunités.",
+                     "commerceOpportunity.dismissFailedTitle":  "Impossible de supprimer l'opportunité",
+                     "commerceOpportunity.dismissFailedBody":  "Réessayez sans quitter votre profil vendeur."
                  }
 }

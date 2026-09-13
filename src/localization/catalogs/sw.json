@@ -971,6 +971,19 @@
                      "analytics.videoPlaysShort":  "kuchezwa",
                      "analytics.videoCompleteShort":  "kukamilika",
                      "analytics.videoActionsShort":  "vitendo",
-                     "nav.messagesWithCount":  "Ujumbe{countSuffix}"
+                     "nav.messagesWithCount":  "Ujumbe{countSuffix}",
+                     "commerceOpportunity.defaultTitle":  "Fursa ya mahitaji ya wanunuzi",
+                     "commerceOpportunity.color":  "Rangi: {value}",
+                     "commerceOpportunity.size":  "Saizi: {value}",
+                     "commerceOpportunity.demandEvidence":  "Alama ya mahitaji {score} kutoka ishara {count}",
+                     "commerceOpportunity.createSupply":  "Weka bidhaa",
+                     "commerceOpportunity.notRelevant":  "Hainihusu",
+                     "commerceOpportunity.sectionTitle":  "Fursa za bidhaa",
+                     "commerceOpportunity.sectionBody":  "Mahitaji ya pamoja yaliyothibitishwa yanayolingana na bidhaa zako.",
+                     "commerceOpportunity.attributionNotice":  "Post hii itajibu mahitaji yaliyothibitishwa ya wanunuzi.",
+                     "commerceOpportunity.dismissedTitle":  "Fursa imeondolewa",
+                     "commerceOpportunity.dismissedBody":  "Tutatumia jibu hili kuboresha fursa zako zijazo.",
+                     "commerceOpportunity.dismissFailedTitle":  "Fursa haikuondolewa",
+                     "commerceOpportunity.dismissFailedBody":  "Jaribu tena bila kuondoka kwenye profile yako ya seller."
                  }
 }

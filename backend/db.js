@@ -5746,8 +5746,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
               o.product_id AS "productId", o.category, o.region, o.color, o.size,
               o.demand_score::float8 AS "demandScore", o.supply_score::float8 AS "supplyScore",
               o.evidence_count AS "evidenceCount", o.status, o.expires_at AS "expiresAt",
-              COUNT(sr.response_id)::int AS "responseCount",
-              BOOL_OR(sr.seller_id = $1) AS "sellerResponded"
+              COUNT(sr.response_id) FILTER (WHERE sr.action_type NOT IN ('ignore', 'dismiss'))::int AS "responseCount",
+              COALESCE(BOOL_OR(sr.seller_id = $1 AND sr.action_type NOT IN ('ignore', 'dismiss')), false) AS "sellerResponded"
        FROM commerce_opportunities o
        LEFT JOIN supply_responses sr ON sr.opportunity_id = o.opportunity_id AND sr.status = 'active'
        WHERE o.status IN ('open', 'responded') AND o.expires_at > NOW()
@@ -5762,6 +5762,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
            )
          )
        GROUP BY o.opportunity_id
+       HAVING NOT COALESCE(BOOL_OR(sr.seller_id = $1 AND sr.action_type IN ('ignore', 'dismiss')), false)
        ORDER BY o.demand_score DESC, o.created_at DESC, o.opportunity_id
        LIMIT $2`,
       [safeSellerId, safeLimit]
@@ -5775,6 +5776,43 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       sellerResponded: row.sellerResponded === true,
       expiresAt: toISOString(row.expiresAt)
     }));
+  }
+
+  async function recordSellerOpportunityDecision(input = {}) {
+    const sellerId = String(input.sellerId || "").trim().slice(0, 80);
+    const opportunityId = String(input.opportunityId || "").trim().slice(0, 100);
+    const actionType = normalizeSupplyActionType(input.actionType);
+    if (!sellerId || !opportunityId || !["ignore", "dismiss"].includes(actionType)) {
+      return { recorded: false, code: "invalid_decision" };
+    }
+    return withTransaction(async (client) => {
+      const opportunityResult = await client.query(
+        `SELECT opportunity_id
+         FROM commerce_opportunities
+         WHERE opportunity_id = $1 AND status IN ('open', 'responded') AND expires_at > NOW()
+         FOR UPDATE`,
+        [opportunityId]
+      );
+      if (!opportunityResult.rows?.[0]) return { recorded: false, code: "opportunity_not_found" };
+
+      const responseId = createSupplyResponseId(opportunityId, sellerId, actionType);
+      const result = await client.query(
+        `INSERT INTO supply_responses (
+           response_id, opportunity_id, seller_id, action_type, product_id, variant_id,
+           region, status, metadata, created_at, updated_at
+         ) VALUES ($1, $2, $3, $4, NULL, '', '', 'active', '{}'::jsonb, NOW(), NOW())
+         ON CONFLICT (response_id) DO UPDATE SET
+           status = 'active', updated_at = NOW(), row_version = supply_responses.row_version + 1
+         RETURNING response_id AS "responseId"`,
+        [responseId, opportunityId, sellerId, actionType]
+      );
+      return {
+        recorded: true,
+        opportunityId,
+        actionType,
+        responseId: result.rows?.[0]?.responseId || responseId
+      };
+    });
   }
 
   async function refreshRegionalSupplySnapshot(client, region, category) {
@@ -7188,6 +7226,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     readCommerceOpportunityCandidates,
     upsertCommerceOpportunities,
     readSellerCommerceOpportunities,
+    recordSellerOpportunityDecision,
     recordSupplyResponse,
     recordFeedExposure,
     attributeFeedExposureOutcome,

@@ -975,6 +975,19 @@
                      "analytics.videoPlaysShort":  "تشغيلات",
                      "analytics.videoCompleteShort":  "مكتمل",
                      "analytics.videoActionsShort":  "إجراءات",
-                     "nav.messagesWithCount":  "الرسائل{countSuffix}"
+                     "nav.messagesWithCount":  "الرسائل{countSuffix}",
+                     "commerceOpportunity.defaultTitle":  "فرصة طلب من المشترين",
+                     "commerceOpportunity.color":  "اللون: {value}",
+                     "commerceOpportunity.size":  "المقاس: {value}",
+                     "commerceOpportunity.demandEvidence":  "درجة الطلب {score} من {count} إشارات",
+                     "commerceOpportunity.createSupply":  "إنشاء عرض",
+                     "commerceOpportunity.notRelevant":  "غير مناسب",
+                     "commerceOpportunity.sectionTitle":  "فرص العرض",
+                     "commerceOpportunity.sectionBody":  "طلب مجمع وموثوق من المشترين يتوافق مع منتجاتك.",
+                     "commerceOpportunity.attributionNotice":  "سيستجيب هذا المنشور لطلب موثوق من المشترين.",
+                     "commerceOpportunity.dismissedTitle":  "تمت إزالة الفرصة",
+                     "commerceOpportunity.dismissedBody":  "سنستخدم هذه الاستجابة لتحسين فرص البائع المستقبلية.",
+                     "commerceOpportunity.dismissFailedTitle":  "تعذرت إزالة الفرصة",
+                     "commerceOpportunity.dismissFailedBody":  "حاول مرة أخرى دون مغادرة ملف البائع."
                  }
 }

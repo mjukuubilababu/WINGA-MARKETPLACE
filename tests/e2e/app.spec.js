@@ -940,6 +940,58 @@ test("profile language selector persists Arabic and applies RTL after refresh", 
   await context.close();
 });
 
+test("seller opportunity opens attributed creation and supports private dismissal", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure");
+  const opportunity = {
+    opportunityId: "opp-e2e-white-maxi",
+    type: "zero_result",
+    queryKey: "white-maxi-dress",
+    category: "wanawake-magauni",
+    region: "mwanza",
+    demandScore: 9,
+    supplyScore: 0,
+    evidenceCount: 5,
+    sellerResponded: false
+  };
+  let decisionBody = null;
+  await page.route("**/api/analytics/summary", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        totalProducts: 0,
+        commerceLearning: { opportunities: [opportunity], metrics: {}, privacy: "aggregate-only" }
+      })
+    });
+  });
+  await page.route("**/api/opportunities/*/decision", async (route) => {
+    decisionBody = route.request().postDataJSON();
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ recorded: true, opportunityId: opportunity.opportunityId, actionType: "dismiss" })
+    });
+  });
+
+  await page.goto("/");
+  await openHeaderMenuAction(page, "profile");
+  const opportunityCard = page.locator(".seller-opportunity-item", { hasText: "white maxi dress" });
+  await expect(opportunityCard).toBeVisible();
+  await opportunityCard.locator("button").first().click();
+  await expect(page.locator("#upload-form")).toBeVisible();
+  await expect(page.locator("#product-name")).toHaveValue("white maxi dress");
+  await expect(page.locator("#product-category")).toHaveValue("wanawake-magauni");
+
+  await page.locator("#creation-back").click();
+  await openHeaderMenuAction(page, "profile");
+  const dismissCard = page.locator(".seller-opportunity-item", { hasText: "white maxi dress" });
+  await dismissCard.locator("button").nth(1).click();
+  await expect(dismissCard).toHaveCount(0);
+  expect(decisionBody).toEqual({ actionType: "dismiss" });
+
+  await context.close();
+});
+
 test("seller can change and verify whatsapp number from profile and upload uses the new verified number", async ({ browser }) => {
   const nextWhatsappNumber = `2557${String(Date.now()).slice(-8)}`;
   const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure");

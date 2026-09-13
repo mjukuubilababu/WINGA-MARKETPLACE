@@ -2322,6 +2322,7 @@ test("home feed records one fail-open commerce exposure only after visibility th
   const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
   const dataSource = fs.readFileSync(path.join(root, "data-service.js"), "utf8");
   const intelligenceSource = fs.readFileSync(path.join(root, "src", "api", "intelligence-client.js"), "utf8");
+  const analyticsUiSource = fs.readFileSync(path.join(root, "src", "admin", "ui.js"), "utf8");
 
   assert.match(appSource, /const PRODUCT_CARD_VISIBILITY_THRESHOLD = 0\.66;/);
   assert.match(appSource, /exposureRecorded: false/);
@@ -2343,6 +2344,14 @@ test("home feed records one fail-open commerce exposure only after visibility th
   assert.match(serverSource, /if \(eventName === "feed_exposure" && postgresStore\?\.recordFeedExposure\)/);
   assert.match(serverSource, /url\.pathname === "\/api\/feed\/rediscovery"/);
   assert.match(serverSource, /Buyer rediscovery failed open/);
+  assert.match(serverSource, /getOpportunityDecisionMatch\(url\.pathname\)/);
+  assert.match(serverSource, /postgresStore\.recordSellerOpportunityDecision/);
+  assert.match(dataSource, /async dismissSellerOpportunity\(opportunityId\)/);
+  assert.match(dataSource, /actionType: "dismiss"/);
+  assert.match(analyticsUiSource, /commerceOpportunity\.createSupply/);
+  assert.match(analyticsUiSource, /onSellerOpportunityAction\?\.\("create", opportunity\)/);
+  assert.match(appSource, /productPayload\.opportunityId = activeSellerOpportunityAttribution\.opportunityId/);
+  assert.match(appSource, /activeSellerOpportunityAttribution = null/);
 });
 
 test("intelligence client batches video telemetry without blocking marketplace work", async () => {
