@@ -104,6 +104,24 @@ test("white maxi dress Mwanza closes opportunity to attributed order determinist
         eligibilityPersisted = true;
         return { rows: [], rowCount: 1 };
       }
+      if (sql.includes("WITH eligible AS") && sql.includes("FROM rediscovery_eligibility re")) {
+        return { rows: [{
+          id: "product-white-maxi",
+          name: "White maxi dress",
+          uploadedBy: "seller-mwanza",
+          category: "wanawake-magauni",
+          status: "approved",
+          availability: "available",
+          createdAt: "2026-09-13T10:04:00.000Z",
+          updatedAt: "2026-09-13T10:04:00.000Z",
+          opportunityId: opportunity.opportunityId,
+          supplyResponseId: "resp-white-maxi",
+          rediscoveryReasonCodes: ["search_gap"],
+          intelligenceScore: 0,
+          intelligenceSignals: {},
+          sellerIntelligenceScore: 0
+        }], rowCount: 1 };
+      }
       if (sql.includes("INSERT INTO regional_supply_snapshots")) {
         return { rows: [{ region: "mwanza", category: "wanawake-magauni", productCount: 1, activeSellerCount: 1, availableInventoryIndicator: 1, soldOutCount: 0 }], rowCount: 1 };
       }
@@ -156,6 +174,11 @@ test("white maxi dress Mwanza closes opportunity to attributed order determinist
     shownAt: "2026-09-13T10:05:00.000Z",
     region: "Mwanza"
   });
+  const rediscoveryItems = await store.readRediscoveryProducts({
+    audienceType: "session",
+    audienceKey,
+    limit: 8
+  });
   const outcome = await store.attributeFeedExposureOutcome({
     audienceType: "session",
     audienceKey,
@@ -169,6 +192,8 @@ test("white maxi dress Mwanza closes opportunity to attributed order determinist
   assert.equal(sellerOpportunities[0].opportunityId, opportunity.opportunityId, "stage 3: seller must see the eligible aggregate opportunity");
   assert.equal(responsePersisted && response.linked, true, "stage 4-5: matching supply must retain opportunity attribution");
   assert.equal(eligibilityPersisted && response.eligibleAudienceCount, 1, "stage 7: original audience must become rediscovery eligible");
+  assert.equal(rediscoveryItems[0].id, "product-white-maxi", "stage 8: eligible supply must be delivered back to the original audience");
+  assert.deepEqual(rediscoveryItems[0].rediscoveryReasonCodes, ["search_gap"], "rediscovery must preserve its privacy-safe reason code");
   assert.equal(exposurePersisted && exposure.recorded, true, "stage 6-8: feed candidate must be recorded only when shown");
   assert.equal(outcomePersisted && outcome.attributed, true, "stage 9-10: order must attribute to exposure and supply response");
   assert.equal(metrics.orderRate, 1, "closed-loop metrics must report the attributed order");

@@ -790,6 +790,8 @@
                      "profile.followersStat":  "المتابعون",
                      "profile.followingStat":  "يتابع",
                      "feedModule.newFromFollowingTitle":  "جديد من الأشخاص الذين تتابعهم",
+                     "feedModule.rediscoveryTitle":  "متاح لك",
+                     "feedModule.rediscoveryReason":  "عروض جديدة تطابق نشاطك الأخير في السوق",
                      "feedModule.newFromFollowingReason":  "منشورات حديثة من شبكتك",
                      "feedModule.trendingReelsTitle":  "ريلز رائجة",
                      "feedModule.trendingReelsReason":  "مقاطع فيديو شائعة الآن",

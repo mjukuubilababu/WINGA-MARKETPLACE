@@ -2329,12 +2329,20 @@ test("home feed records one fail-open commerce exposure only after visibility th
   assert.match(appSource, /reportClientEvent\("info", "feed_exposure"/);
   assert.match(appSource, /opportunityId: product\?\.opportunityId \|\| ""/);
   assert.match(appSource, /supplyResponseId: product\?\.supplyResponseId \|\| ""/);
+  assert.match(appSource, /function queueBuyerRediscoveryDescriptor\(items, options = \{\}\)/);
+  assert.match(appSource, /source: "commerce-rediscovery"/);
+  assert.match(appSource, /scheduleBuyerRediscoveryHydration\("products_hydrated"\)/);
+  assert.match(dataSource, /async loadRediscoveryProducts\(options = \{\}\) \{\s+ensureAdapter\(\);/);
+  assert.match(dataSource, /\/feed\/rediscovery\?limit=\$\{limit\}/);
+  assert.match(dataSource, /"X-Winga-Audience-Id": getAnonymousDemandSessionId\(\)/);
   assert.match(appSource, /entry\.isIntersecting && entry\.intersectionRatio >= PRODUCT_CARD_VISIBILITY_THRESHOLD/);
   assert.match(dataSource, /getAnonymousDemandSessionId\(\) \{/);
   assert.match(intelligenceSource, /Telemetry must never block the marketplace path/);
   const serverSource = fs.readFileSync(path.join(root, "backend", "server.js"), "utf8");
   assert.match(serverSource, /if \(eventName !== "feed_exposure"\) \{\s+intelligencePlatform\.ingestClientEvent/);
   assert.match(serverSource, /if \(eventName === "feed_exposure" && postgresStore\?\.recordFeedExposure\)/);
+  assert.match(serverSource, /url\.pathname === "\/api\/feed\/rediscovery"/);
+  assert.match(serverSource, /Buyer rediscovery failed open/);
 });
 
 test("intelligence client batches video telemetry without blocking marketplace work", async () => {
@@ -4619,7 +4627,7 @@ test("api writes attach a CSRF token before sending state-changing requests", ()
   assert.match(backendSource, /fetchSite === "cross-site"/);
   assert.match(backendSource, /isServerToServerWebhookPath\(pathname\)/);
   assert.match(backendSource, /code: "origin_not_allowed"/);
-  assert.match(backendSource, /"Access-Control-Allow-Headers"] = "Content-Type, X-CSRF-Token, X-Winga-CSRF-Token"/);
+  assert.match(backendSource, /"Access-Control-Allow-Headers"] = "Content-Type, X-CSRF-Token, X-Winga-CSRF-Token, X-Winga-Audience-Id"/);
   assert.doesNotMatch(backendSource, /"Access-Control-Allow-Headers"] = "Content-Type, Authorization/);
   assert.match(backendSource, /function validateJsonRequestContentType\(req, pathname\)/);
   assert.match(backendSource, /requiresJsonRequestBody\(req, pathname\)/);

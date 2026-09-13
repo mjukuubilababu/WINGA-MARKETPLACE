@@ -245,6 +245,7 @@ const RATE_LIMIT_RULES = {
   "/api/auth/recovery/complete": { limit: 8, windowMs: 15 * 60 * 1000 },
   "/api/auth/recover-password": { limit: 2, windowMs: 15 * 60 * 1000 },
   "/api/products": { limit: 30, windowMs: RATE_LIMIT_WINDOW_MS },
+  "/api/feed/rediscovery": { limit: 30, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/messages": { limit: 24, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/messages/read": { limit: 40, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/orders": { limit: 12, windowMs: RATE_LIMIT_WINDOW_MS },
@@ -265,6 +266,7 @@ const SESSION_ONLY_STORE_TABLES = Object.freeze(["sessions"]);
 
 const READ_RATE_LIMIT_RULES = {
   "/api/products": { limit: 240, windowMs: RATE_LIMIT_WINDOW_MS },
+  "/api/feed/rediscovery": { limit: 120, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/bootstrap": { limit: 120, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/auth/session": { limit: 120, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/global-context": { limit: 180, windowMs: RATE_LIMIT_WINDOW_MS },
@@ -2191,7 +2193,7 @@ function buildSecurityHeaders(statusCode, extraHeaders = {}, req = null) {
     headers["Access-Control-Allow-Origin"] = corsOrigin;
     headers["Vary"] = "Origin";
     headers["Access-Control-Allow-Methods"] = "GET,POST,PUT,PATCH,DELETE,OPTIONS";
-    headers["Access-Control-Allow-Headers"] = "Content-Type, X-CSRF-Token, X-Winga-CSRF-Token";
+    headers["Access-Control-Allow-Headers"] = "Content-Type, X-CSRF-Token, X-Winga-CSRF-Token, X-Winga-Audience-Id";
     headers["Access-Control-Allow-Credentials"] = "true";
   }
 
@@ -8544,6 +8546,34 @@ const server = http.createServer(async (req, res) => {
         hasMore: fallbackPayload.hasMore
       });
       sendJson(res, 200, fallbackPayload);
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/feed/rediscovery") {
+      const token = readAuthToken(req);
+      const session = token ? findSession(store, token) : null;
+      const viewer = session ? getUserByUsername(store, session.username) : null;
+      const anonymousReference = sanitizePlainText(req.headers["x-winga-audience-id"] || "", 200);
+      const audience = getCommerceAudience(session, anonymousReference);
+      const requestedLimit = Number.parseInt(url.searchParams.get("limit"), 10);
+      const limit = Number.isFinite(requestedLimit) && requestedLimit > 0
+        ? Math.min(Math.floor(requestedLimit), 12)
+        : 8;
+      if (!audience.audienceKey || !postgresStore?.readRediscoveryProducts) {
+        sendJson(res, 200, { items: [], privacy: "audience-keyed", unavailable: !postgresStore?.readRediscoveryProducts }, { "Cache-Control": "private, no-store", "Pragma": "no-cache" });
+        return;
+      }
+      try {
+        const items = await postgresStore.readRediscoveryProducts({ ...audience, limit });
+        const visibleItems = (Array.isArray(items) ? items : [])
+          .map((product) => sanitizeVisibleProduct(product, viewer, store))
+          .filter(Boolean);
+        scheduleProductImageMetadataBackfill(visibleItems);
+        sendJson(res, 200, { items: visibleItems, privacy: "audience-keyed" }, { "Cache-Control": "private, no-store", "Pragma": "no-cache" });
+      } catch (error) {
+        console.warn("[WINGA] Buyer rediscovery failed open.", error?.message || error);
+        sendJson(res, 200, { items: [], privacy: "audience-keyed", unavailable: true }, { "Cache-Control": "private, no-store", "Pragma": "no-cache" });
+      }
       return;
     }
 

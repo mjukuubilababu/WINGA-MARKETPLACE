@@ -312,6 +312,9 @@ function normalizeProductsFromStore() {
 
 function rebuildProductIndex() {
   productIndex = new Map(products.map((product) => [product.id, product]));
+  buyerRediscoveryProductIndex.forEach((product, productId) => {
+    if (!productIndex.has(productId)) productIndex.set(productId, product);
+  });
 }
 
 function refreshProductsFromStore() {
@@ -4843,6 +4846,74 @@ function enqueueBackendContinuationDescriptor(appendedProducts = [], options = {
     reason: String(options.reason || "")
   });
   return items.length;
+}
+
+function queueBuyerRediscoveryDescriptor(items, options = {}) {
+  const seenIds = new Set();
+  const eligibleItems = (Array.isArray(items) ? items : []).map(normalizeProduct).filter((product) => {
+    const productId = String(product?.id || "").trim();
+    if (!productId || seenIds.has(productId) || homeContinuousDiscoveryRuntime.usedIds?.has?.(productId)) return false;
+    seenIds.add(productId);
+    const feedEntryKey = buildHomeFeedEntryKey(product, {
+      sequenceIndex: Number(homeContinuousDiscoveryRuntime.nextFeedSequenceIndex || 0) + seenIds.size
+    });
+    return !hasRenderedFeedEntryKey(productsContainer, feedEntryKey);
+  });
+  if (!eligibleItems.length) return 0;
+
+  eligibleItems.forEach((product) => buyerRediscoveryProductIndex.set(product.id, product));
+  rebuildProductIndex();
+  buyerRediscoveryDescriptor = {
+    kind: "rediscovery",
+    source: "commerce-rediscovery",
+    eyebrow: translateUi("marketplace.forYou", {}, "For you"),
+    title: translateUi("feedModule.rediscoveryTitle", {}, "Available for you"),
+    subtitle: translateUi("feedModule.rediscoveryReason", {}, "New supply matching your recent marketplace activity"),
+    minBatchIndex: Math.max(1, Number(homeContinuousDiscoveryRuntime.batchIndex || 0)),
+    items: eligibleItems
+  };
+  homeContinuousDiscoveryRuntime.pendingDescriptors = [
+    buyerRediscoveryDescriptor,
+    ...(Array.isArray(homeContinuousDiscoveryRuntime.pendingDescriptors)
+      ? homeContinuousDiscoveryRuntime.pendingDescriptors
+      : []).filter((entry) => String(entry?.source || "") !== "commerce-rediscovery")
+  ].slice(0, HOME_CONTINUOUS_PENDING_DESCRIPTOR_LIMIT);
+  reportShowcaseInstrumentation("buyer_rediscovery_queued", {
+    itemCount: eligibleItems.length,
+    reason: String(options.reason || "")
+  });
+  return eligibleItems.length;
+}
+
+function scheduleBuyerRediscoveryHydration(reason = "home_hydrated") {
+  const loader = window.WingaDataLayer?.loadRediscoveryProducts;
+  if (typeof loader !== "function" || buyerRediscoveryHydrationPromise) return;
+  const audienceSignature = currentUser
+    ? `user:${String(currentUser.username || currentUser).trim()}`
+    : `session:${window.WingaDataLayer?.getAnonymousDemandSessionId?.() || ""}`;
+  if (!audienceSignature || audienceSignature === "session:" || audienceSignature === buyerRediscoveryAudienceSignature) return;
+  if (buyerRediscoveryAudienceSignature && buyerRediscoveryAudienceSignature !== audienceSignature) {
+    buyerRediscoveryDescriptor = null;
+    buyerRediscoveryProductIndex.clear();
+    rebuildProductIndex();
+  }
+  buyerRediscoveryAudienceSignature = audienceSignature;
+  afterNextPaint(() => {
+    scheduleIdleBackgroundWork(() => {
+      buyerRediscoveryHydrationPromise = Promise.resolve(loader.call(window.WingaDataLayer, { limit: 8 }))
+        .then((loadedItems) => queueBuyerRediscoveryDescriptor(loadedItems, { reason }))
+        .catch((error) => {
+          buyerRediscoveryAudienceSignature = "";
+          captureClientError("buyer_rediscovery_hydration_failed", error, {
+            category: "commerce_learning",
+            alertSeverity: "low"
+          });
+        })
+        .finally(() => {
+          buyerRediscoveryHydrationPromise = null;
+        });
+    }, 1200);
+  });
 }
 
 function refreshHomeBackendRunwayIfNeeded(options = {}) {
@@ -12147,6 +12218,10 @@ const DEFAULT_PRODUCTS = [];
 
 let products = [];
 let productIndex = new Map();
+let buyerRediscoveryProductIndex = new Map();
+let buyerRediscoveryDescriptor = null;
+let buyerRediscoveryHydrationPromise = null;
+let buyerRediscoveryAudienceSignature = "";
 
 let isLogin = true;
 let isPasswordRecovery = false;
@@ -17210,6 +17285,7 @@ registerAppEvent(window, "winga:products-hydrated", (event) => {
     hideLifecycleFallbackShell();
   }
   refreshProductsFromStore();
+  scheduleBuyerRediscoveryHydration("products_hydrated");
   auditHydratedDataIntegrity("products_hydrated");
   if (productHydrationStatus === "query-appended") {
     return;
@@ -19534,6 +19610,9 @@ async function runContinuousDiscoveryHydrationCycle(anchor) {
   );
   homeContinuousDiscoveryRuntime.batchIndex += 1;
   homeContinuousDiscoveryRuntime.lastDescriptorSource = String(descriptor?.source || descriptor?.kind || "generated").trim().toLowerCase();
+  if (homeContinuousDiscoveryRuntime.lastDescriptorSource === "commerce-rediscovery") {
+    buyerRediscoveryDescriptor = null;
+  }
   homeContinuousDiscoveryRuntime.lastHydrateAt = now;
   homeContinuousDiscoveryRuntime.preparedDescriptor = null;
   homeContinuousDiscoveryRuntime.preparedDescriptorBatchIndex = -1;
@@ -19824,11 +19903,19 @@ function setupContinuousDiscoveryLoading(scope, options = {}) {
   }
 
   const initialProductIds = Array.from(options.initialProductIds || options.usedProductIds || []).filter(Boolean);
+  const pendingDescriptors = [
+    ...(Array.isArray(options.pendingDescriptors) ? options.pendingDescriptors : []),
+    ...(buyerRediscoveryDescriptor ? [buyerRediscoveryDescriptor] : [])
+  ].filter((descriptor, index, descriptors) =>
+    Array.isArray(descriptor?.items)
+    && descriptor.items.length
+    && descriptors.findIndex((entry) => String(entry?.source || "") === String(descriptor?.source || "")) === index
+  );
   homeContinuousDiscoveryRuntime = createHomeContinuousDiscoveryRuntime({
     usedIds: new Set(Array.from(options.usedProductIds || []).filter(Boolean)),
     seedProductId: options.seedProduct?.id || "",
     initialProductIds,
-    pendingDescriptors: options.pendingDescriptors,
+    pendingDescriptors,
     loadMoreRequestId: Number(homeContinuousDiscoveryRuntime.loadMoreRequestId || 0)
   });
   bumpMarketplaceImagePrefetchGeneration("continuous_discovery_reset");
@@ -20173,7 +20260,9 @@ function handleProductCardVisibilityChange(card, isVisible) {
         moduleId: moduleElement?.dataset?.feedModuleId || "home_feed",
         rankPosition: String(rankPosition),
         rankingSource: moduleElement?.dataset?.feedModuleSource || moduleElement?.dataset?.feedModuleType || "organic",
-        reasonCodes: product?.supplyResponseId ? "rediscovery,attributed_supply" : "organic",
+        reasonCodes: product?.supplyResponseId
+          ? [...new Set([...(Array.isArray(product.rediscoveryReasonCodes) ? product.rediscoveryReasonCodes : []), "rediscovery", "attributed_supply"])].join(",")
+          : "organic",
         opportunityId: product?.opportunityId || "",
         supplyResponseId: product?.supplyResponseId || "",
         shownAt: new Date().toISOString(),

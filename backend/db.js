@@ -118,6 +118,7 @@ function normalizeProductRow(row) {
     sellerIntelligenceScore: Number(row.sellerIntelligenceScore || 0),
     opportunityId: row.opportunityId || "",
     supplyResponseId: row.supplyResponseId || "",
+    rediscoveryReasonCodes: parseJson(row.rediscoveryReasonCodes, []),
     demandSummary: hasDemandSummary
       ? {
         totalDemand,
@@ -2194,6 +2195,63 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       page,
       limit
     };
+  }
+
+  async function readRediscoveryProducts(options = {}) {
+    const audienceType = options.audienceType === "user" ? "user" : "session";
+    const audienceKey = String(options.audienceKey || "").trim().slice(0, 64);
+    const requestedLimit = Number.parseInt(options.limit, 10);
+    const limit = Number.isFinite(requestedLimit) && requestedLimit > 0
+      ? Math.min(Math.floor(requestedLimit), 12)
+      : 8;
+    if (!/^[a-f0-9]{64}$/i.test(audienceKey)) return [];
+
+    const result = await readQuery(
+      `WITH eligible AS (
+         SELECT DISTINCT ON (re.product_id)
+                re.product_id, re.opportunity_id, re.supply_response_id,
+                re.reason_code, re.eligible_at
+         FROM rediscovery_eligibility re
+         WHERE re.audience_type = $1 AND re.audience_key = $2
+           AND re.status = 'eligible' AND re.expires_at > NOW()
+         ORDER BY re.product_id, re.eligible_at DESC, re.eligibility_id DESC
+       )
+       SELECT
+         p.id, p.name, p.price::float8 AS price, p.shop, p.whatsapp,
+         p.image, p.images, p.media_items AS "mediaItems",
+         p.uploaded_by AS "uploadedBy", p.category, p.status, p.availability,
+         p.moderation_note AS "moderationNote", p.moderated_at AS "moderatedAt",
+         p.moderated_by AS "moderatedBy", p.original_product_id AS "originalProductId",
+         p.original_seller_id AS "originalSellerId", p.reseller_id AS "resellerId",
+         p.resale_price::float8 AS "resalePrice", p.resold_status AS "resoldStatus",
+         p.created_at AS "createdAt", p.updated_at AS "updatedAt",
+         p.likes, p.views, p.viewed_by AS "viewedBy",
+         COALESCE(pis.score, 0)::float8 AS "intelligenceScore",
+         COALESCE(pis.signals, '{}'::jsonb) AS "intelligenceSignals",
+         COALESCE(sis.score, 0)::float8 AS "sellerIntelligenceScore",
+         COALESCE(eligible.opportunity_id, '') AS "opportunityId",
+         COALESCE(eligible.supply_response_id, '') AS "supplyResponseId",
+         jsonb_build_array(COALESCE(eligible.reason_code, 'rediscovery')) AS "rediscoveryReasonCodes",
+         COALESCE(pds.total_demand, 0)::int AS "demandTotalDemand",
+         COALESCE(pds.waiting_users, 0)::int AS "demandWaitingUsers",
+         COALESCE(pds.restock_interest, 0)::int AS "demandRestockInterest",
+         COALESCE(pds.demand_score, 0)::float8 AS "demandScore",
+         COALESCE(pds.action_counts, '{}'::jsonb) AS "demandActionCounts",
+         COALESCE(pds.top_colors, '[]'::jsonb) AS "demandTopColors",
+         COALESCE(pds.top_sizes, '[]'::jsonb) AS "demandTopSizes",
+         pds.last_demand_at AS "demandLastDemandAt"
+       FROM eligible
+       LEFT JOIN products p ON p.id = eligible.product_id
+       LEFT JOIN product_demand_summaries pds ON pds.product_id = p.id
+       LEFT JOIN product_intelligence_scores pis ON pis.product_id = p.id
+       LEFT JOIN seller_intelligence_scores sis ON sis.seller_id = p.uploaded_by
+       WHERE p.id IS NOT NULL AND p.status = 'approved'
+         AND p.availability IN ('available', 'reserved')
+       ORDER BY eligible.eligible_at DESC, p.created_at DESC, p.id DESC
+       LIMIT $3`,
+      [audienceType, audienceKey, limit]
+    );
+    return (result.rows || []).map(normalizeProductRow).filter(Boolean);
   }
 
   async function readUserLocalePreference(username = "") {
@@ -7062,6 +7120,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     init,
     readStore,
     readProductsPage,
+    readRediscoveryProducts,
     getReadReplicaHealth,
     getDatabaseHealth,
     recordProductAction,

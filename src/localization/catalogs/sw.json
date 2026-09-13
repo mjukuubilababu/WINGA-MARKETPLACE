@@ -786,6 +786,8 @@
                      "profile.followersStat":  "Wafuasi",
                      "profile.followingStat":  "Unaowafuata",
                      "feedModule.newFromFollowingTitle":  "Vipya kutoka kwa watu unaowafuata",
+                     "feedModule.rediscoveryTitle":  "Vinapatikana kwa ajili yako",
+                     "feedModule.rediscoveryReason":  "Bidhaa mpya zinazolingana na shughuli zako za hivi karibuni sokoni",
                      "feedModule.newFromFollowingReason":  "Machapisho mapya kutoka kwenye mtandao wako",
                      "feedModule.trendingReelsTitle":  "Reels zinazovuma",
                      "feedModule.trendingReelsReason":  "Video maarufu kwa sasa",

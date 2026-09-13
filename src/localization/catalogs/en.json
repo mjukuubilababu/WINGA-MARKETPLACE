@@ -786,6 +786,8 @@
                      "profile.followersStat":  "Followers",
                      "profile.followingStat":  "Following",
                      "feedModule.newFromFollowingTitle":  "New from people you follow",
+                     "feedModule.rediscoveryTitle":  "Available for you",
+                     "feedModule.rediscoveryReason":  "New supply matching your recent marketplace activity",
                      "feedModule.newFromFollowingReason":  "Fresh posts from your social graph",
                      "feedModule.trendingReelsTitle":  "Trending reels",
                      "feedModule.trendingReelsReason":  "Popular video posts right now",

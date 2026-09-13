@@ -786,6 +786,8 @@
                      "profile.followersStat":  "Abonnes",
                      "profile.followingStat":  "Abonnements",
                      "feedModule.newFromFollowingTitle":  "Nouveautes des personnes suivies",
+                     "feedModule.rediscoveryTitle":  "Disponible pour vous",
+                     "feedModule.rediscoveryReason":  "Nouvelle offre correspondant a votre activite recente sur le marche",
                      "feedModule.newFromFollowingReason":  "Publications recentes de votre reseau",
                      "feedModule.trendingReelsTitle":  "Reels tendance",
                      "feedModule.trendingReelsReason":  "Videos populaires en ce moment",

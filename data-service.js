@@ -1954,6 +1954,22 @@ async loadAdminPayments(filters) {
         }
         return page;
       },
+      async loadRediscoveryProducts(options = {}) {
+        const requestedLimit = Number.parseInt(options.limit, 10);
+        const limit = Number.isFinite(requestedLimit) && requestedLimit > 0
+          ? Math.min(Math.floor(requestedLimit), 12)
+          : 8;
+        const data = await fetchJson(`${baseUrl}/feed/rediscovery?limit=${limit}`, {
+          headers: {
+            ...createAuthHeaders(),
+            "X-Winga-Audience-Id": getAnonymousDemandSessionId()
+          },
+          signal: options.signal
+        });
+        return (Array.isArray(data?.items) ? data.items : [])
+          .filter((product) => product && typeof product === "object")
+          .map(resolveProductImages);
+      },
       async loadCachedProducts() {
         if (!enableLocalCacheFallback) {
           return [];
@@ -3477,6 +3493,11 @@ async loadAdminPayments() {
         };
       }
       return page;
+    },
+    async loadRediscoveryProducts(options = {}) {
+      ensureAdapter();
+      if (typeof state.adapter.loadRediscoveryProducts !== "function") return [];
+      return state.adapter.loadRediscoveryProducts(options);
     },
     async queryProductsPage(options = {}) {
       ensureAdapter();
