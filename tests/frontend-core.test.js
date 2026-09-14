@@ -5732,6 +5732,7 @@ test("social API client preserves cursor paging and person follow mutation seman
   await client.setFollow("person/b", false);
   await client.importLegacyFollows(["person-a", "person-a", "person-b"]);
   await client.setBlock("person-c", true);
+  await client.setContentVisibility("reel", "reel/one", "followers");
   assert.match(requests[0].url, /direction=followers/);
   assert.match(requests[0].url, /limit=100/);
   assert.match(requests[0].url, /cursor=/);
@@ -5742,8 +5743,28 @@ test("social API client preserves cursor paging and person follow mutation seman
   assert.equal(requests[4].options.method, "DELETE");
   assert.equal(JSON.parse(requests[5].options.body).usernames.length, 2);
   assert.equal(requests[6].options.method, "PUT");
+  assert.equal(requests[7].options.method, "PATCH");
+  assert.match(requests[7].url, /social\/content\/reel\/reel%2Fone\/visibility$/);
+  assert.deepEqual(JSON.parse(requests[7].options.body), { visibility: "followers" });
   assert.equal(requests.slice(1).every((request) => request.options.headers["X-CSRF-Token"] === "csrf"), true);
   assert.match(requests[3].url, /person%2Fb$/);
+  await assert.rejects(client.setContentVisibility("message", "message-1", "private"), /Invalid public content type/);
+  await assert.rejects(client.setContentVisibility("product", "product-1", "friends"), /Invalid content visibility/);
+});
+
+test("public content visibility is owner-scoped and protects direct video playback", () => {
+  const root = path.resolve(__dirname, "..");
+  const serverSource = fs.readFileSync(path.join(root, "backend", "server.js"), "utf8");
+  const dataSource = fs.readFileSync(path.join(root, "data-service.js"), "utf8");
+  assert.match(serverSource, /const socialVisibilityMatch = url\.pathname\.match/);
+  assert.match(serverSource, /product\|reel\|review/);
+  assert.match(serverSource, /setPublicContentVisibility\(\s*user\.username/);
+  assert.match(serverSource, /await deleteCachePrefix\("products:v1:"\)/);
+  assert.match(serverSource, /contentVisibility === "followers" && Boolean\(intent\?\.viewerFollowsOwner\)/);
+  assert.match(serverSource, /const visibilityAllowed = !intent\?\.viewerBlocked/);
+  assert.match(serverSource, /readPlayableVideo\?\.\(videoPlaybackMatch\[1\], \{\s*viewerUsername:/);
+  assert.match(dataSource, /async setPublicContentVisibility\(contentType, contentId, visibility\) \{\s*assertPersonAccess\(\)/);
+  assert.match(dataSource, /state\.productQueryCache\.clear\(\)/);
 });
 (async () => {
   let passed = 0;

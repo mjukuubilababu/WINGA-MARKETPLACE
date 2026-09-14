@@ -102,6 +102,9 @@ function normalizeProductRow(row) {
     uploadedBy: row.uploadedBy || "",
     category: row.category || "",
     status: row.status || "",
+    visibility: ["public", "followers", "private"].includes(String(row.visibility || "").toLowerCase())
+      ? String(row.visibility).toLowerCase()
+      : "public",
     availability: row.availability || "available",
     moderationNote: row.moderationNote || "",
     moderatedAt: toISOString(row.moderatedAt),
@@ -396,17 +399,45 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     };
   }
 
-  function buildProductVisibilityClause({ viewerUsername = "", isStaffViewer = false } = {}) {
+  function buildProductVisibilityClause({ viewerUsername = "", isStaffViewer = false, parameterOffset = 0 } = {}) {
     const clauses = [];
     const params = [];
     const safeViewerUsername = String(viewerUsername || "").trim().slice(0, 40);
+    const visibilitySql = `COALESCE((
+      SELECT content_access.visibility
+      FROM public_content_visibility content_access
+      WHERE content_access.content_type = 'product' AND content_access.content_id = p.id
+    ), 'public')`;
 
     if (!isStaffViewer) {
       if (safeViewerUsername) {
         params.push(safeViewerUsername);
-        clauses.push(`(status = 'approved' OR uploaded_by = $${params.length})`);
+        const viewerParam = `$${parameterOffset + params.length}`;
+        clauses.push(`(
+          p.uploaded_by = ${viewerParam}
+          OR (
+            p.status = 'approved'
+            AND NOT EXISTS (
+              SELECT 1 FROM user_blocks visibility_block
+              WHERE (visibility_block.blocker_username = ${viewerParam} AND visibility_block.blocked_username = p.uploaded_by)
+                 OR (visibility_block.blocker_username = p.uploaded_by AND visibility_block.blocked_username = ${viewerParam})
+            )
+            AND (
+              ${visibilitySql} = 'public'
+              OR (
+                ${visibilitySql} = 'followers'
+                AND EXISTS (
+                  SELECT 1 FROM user_follows visibility_follow
+                  WHERE visibility_follow.follower_username = ${viewerParam}
+                    AND visibility_follow.followed_username = p.uploaded_by
+                    AND visibility_follow.status = 'active'
+                )
+              )
+            )
+          )
+        )`);
       } else {
-        clauses.push("status = 'approved'");
+        clauses.push(`p.status = 'approved' AND ${visibilitySql} = 'public'`);
       }
     }
 
@@ -1743,6 +1774,11 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
           image,
           images,
           media_items AS "mediaItems",
+          COALESCE((
+            SELECT content_access.visibility
+            FROM public_content_visibility content_access
+            WHERE content_access.content_type = 'product' AND content_access.content_id = products.id
+          ), 'public') AS visibility,
           uploaded_by AS "uploadedBy",
           category,
           status,
@@ -2136,6 +2172,11 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
         p.image,
         p.images,
         p.media_items AS "mediaItems",
+        COALESCE((
+          SELECT content_access.visibility
+          FROM public_content_visibility content_access
+          WHERE content_access.content_type = 'product' AND content_access.content_id = p.id
+        ), 'public') AS visibility,
         p.uploaded_by AS "uploadedBy",
         p.category,
         p.status,
@@ -2234,6 +2275,12 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       ? Math.min(Math.floor(requestedLimit), 12)
       : 8;
     if (!/^[a-f0-9]{64}$/i.test(audienceKey)) return [];
+    const access = buildProductVisibilityClause({
+      viewerUsername: options.viewerUsername,
+      isStaffViewer: false,
+      parameterOffset: 2
+    });
+    const queryParams = [audienceType, audienceKey, ...access.params, limit];
 
     const result = await readQuery(
       `WITH eligible AS (
@@ -2249,6 +2296,11 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
        SELECT
          p.id, p.name, p.price::float8 AS price, p.shop, p.whatsapp,
          p.image, p.images, p.media_items AS "mediaItems",
+         COALESCE((
+           SELECT content_access.visibility
+           FROM public_content_visibility content_access
+           WHERE content_access.content_type = 'product' AND content_access.content_id = p.id
+         ), 'public') AS visibility,
          p.uploaded_by AS "uploadedBy", p.category, p.status, p.availability,
          p.moderation_note AS "moderationNote", p.moderated_at AS "moderatedAt",
          p.moderated_by AS "moderatedBy", p.original_product_id AS "originalProductId",
@@ -2275,11 +2327,12 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
        LEFT JOIN product_demand_summaries pds ON pds.product_id = p.id
        LEFT JOIN product_intelligence_scores pis ON pis.product_id = p.id
        LEFT JOIN seller_intelligence_scores sis ON sis.seller_id = p.uploaded_by
-       WHERE p.id IS NOT NULL AND p.status = 'approved'
+       WHERE p.id IS NOT NULL
+         AND ${access.clauses.length ? access.clauses.join(" AND ") : "p.status = 'approved'"}
          AND p.availability IN ('available', 'reserved')
        ORDER BY eligible.eligible_at DESC, p.created_at DESC, p.id DESC
-       LIMIT $3`,
-      [audienceType, audienceKey, limit]
+       LIMIT $${queryParams.length}`,
+      queryParams
     );
     return (result.rows || []).map(normalizeProductRow).filter(Boolean);
   }
@@ -2785,6 +2838,26 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     );
   }
 
+  async function upsertContentVisibility(client, contentType, contentId, ownerUsername, visibility) {
+    const safeType = contentType === "review" ? "review" : "product";
+    const safeVisibility = ["public", "followers", "private"].includes(String(visibility || "").toLowerCase())
+      ? String(visibility).toLowerCase()
+      : "public";
+    await client.query(
+      `INSERT INTO public_content_visibility (
+         content_type, content_id, owner_username, visibility, created_at, updated_at, row_version
+       ) VALUES ($1, $2, $3, $4, NOW(), NOW(), 1)
+       ON CONFLICT (content_type, content_id) DO UPDATE SET
+         visibility = EXCLUDED.visibility,
+         updated_at = NOW(),
+         row_version = public_content_visibility.row_version + 1
+       WHERE public_content_visibility.owner_username = EXCLUDED.owner_username
+       RETURNING row_version AS "rowVersion"`,
+      [safeType, String(contentId || ""), String(ownerUsername || ""), safeVisibility]
+    );
+    return safeVisibility;
+  }
+
   function getProductVideoProviderIds(product = {}) {
     return normalizeProductMediaItems(product)
       .filter((item) => item.type === "video")
@@ -2870,6 +2943,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
          RETURNING row_version AS "rowVersion"`,
         [product.id, ...values]
       );
+      await upsertContentVisibility(client, "product", product.id, product.uploadedBy, product.visibility);
       return { created: true, rowVersion: Number(result.rows?.[0]?.rowVersion || 1) };
     });
   }
@@ -2898,6 +2972,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       if (!result.rowCount) {
         return { updated: false, conflict: expectedVersion > 0, rowVersion: 0 };
       }
+      await upsertContentVisibility(client, "product", productId, ownerUsername, product.visibility);
       await releaseRemovedProductVideos(client, productId, getProductVideoProviderIds(product));
       return { updated: true, conflict: false, rowVersion: Number(result.rows?.[0]?.rowVersion || 0) };
     });
@@ -2958,6 +3033,10 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
          SET product_id = NULL, claimed_at = NULL, updated_at = NOW(), row_version = row_version + 1
          WHERE product_id = $1`,
         [productId]
+      );
+      await client.query(
+        "DELETE FROM public_content_visibility WHERE content_type = 'product' AND content_id = $1 AND owner_username = $2",
+        [productId, ownerUsername]
       );
       const result = await client.query(
         "DELETE FROM products WHERE id = $1 AND uploaded_by = $2",
@@ -4359,7 +4438,136 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,1)`,
         [review.id, review.userId, review.productId, review.sellerId || "", Number(review.rating), review.comment, Boolean(review.verifiedBuyer), review.date]
       );
+      await upsertContentVisibility(client, "review", review.id, review.userId, review.visibility);
       return { created: true, code: "" };
+    });
+  }
+
+  async function readProductReviews(productId = "", options = {}) {
+    const safeProductId = String(productId || "").trim().slice(0, 80);
+    const viewer = String(options.viewerUsername || "").trim().slice(0, 40);
+    const isStaffViewer = Boolean(options.isStaffViewer);
+    const params = [safeProductId];
+    let accessSql = "visibility.visibility = 'public'";
+    let productAccessSql = `product.status = 'approved' AND COALESCE((
+      SELECT product_visibility.visibility
+      FROM public_content_visibility product_visibility
+      WHERE product_visibility.content_type = 'product' AND product_visibility.content_id = product.id
+    ), 'public') = 'public'`;
+    if (isStaffViewer) {
+      accessSql = "TRUE";
+      productAccessSql = "TRUE";
+    } else if (viewer) {
+      params.push(viewer);
+      accessSql = `(
+        review.user_id = $2
+        OR (
+          NOT EXISTS (
+            SELECT 1 FROM user_blocks review_block
+            WHERE (review_block.blocker_username = $2 AND review_block.blocked_username = review.user_id)
+               OR (review_block.blocker_username = review.user_id AND review_block.blocked_username = $2)
+          )
+          AND (
+            visibility.visibility = 'public'
+            OR (
+              visibility.visibility = 'followers'
+              AND EXISTS (
+                SELECT 1 FROM user_follows review_follow
+                WHERE review_follow.follower_username = $2
+                  AND review_follow.followed_username = review.user_id
+                  AND review_follow.status = 'active'
+              )
+            )
+          )
+        )
+      )`;
+      productAccessSql = `(
+        product.uploaded_by = $2
+        OR (
+          product.status = 'approved'
+          AND NOT EXISTS (
+            SELECT 1 FROM user_blocks product_block
+            WHERE (product_block.blocker_username = $2 AND product_block.blocked_username = product.uploaded_by)
+               OR (product_block.blocker_username = product.uploaded_by AND product_block.blocked_username = $2)
+          )
+          AND (
+            COALESCE((SELECT visibility FROM public_content_visibility
+                      WHERE content_type = 'product' AND content_id = product.id), 'public') = 'public'
+            OR (
+              COALESCE((SELECT visibility FROM public_content_visibility
+                        WHERE content_type = 'product' AND content_id = product.id), 'public') = 'followers'
+              AND EXISTS (
+                SELECT 1 FROM user_follows product_follow
+                WHERE product_follow.follower_username = $2
+                  AND product_follow.followed_username = product.uploaded_by
+                  AND product_follow.status = 'active'
+              )
+            )
+          )
+        )
+      )`;
+    }
+    const result = await query(
+      `SELECT review.id,
+              review.user_id AS "userId",
+              review.product_id AS "productId",
+              review.seller_id AS "sellerId",
+              review.rating,
+              review.comment,
+              review.verified_buyer AS "verifiedBuyer",
+              review.date,
+              visibility.visibility
+       FROM reviews review
+       JOIN products product ON product.id = review.product_id
+       LEFT JOIN LATERAL (
+         SELECT COALESCE((
+           SELECT stored_visibility.visibility
+           FROM public_content_visibility stored_visibility
+           WHERE stored_visibility.content_type = 'review'
+             AND stored_visibility.content_id = review.id
+         ), 'public') AS visibility
+       ) visibility ON TRUE
+       WHERE review.product_id = $1 AND ${productAccessSql} AND ${accessSql}
+       ORDER BY review.date DESC, review.id DESC
+       LIMIT 100`,
+      params
+    );
+    return result.rows || [];
+  }
+
+  async function setPublicContentVisibility(ownerUsername = "", contentType = "", contentId = "", visibility = "") {
+    const owner = String(ownerUsername || "").trim().slice(0, 40);
+    const requestedType = String(contentType || "").trim().toLowerCase();
+    const storageType = requestedType === "review" ? "review" : "product";
+    const id = String(contentId || "").trim().slice(0, 80);
+    const nextVisibility = String(visibility || "").trim().toLowerCase();
+    if (!owner || !id || !["product", "reel", "review"].includes(requestedType)
+      || !["public", "followers", "private"].includes(nextVisibility)) {
+      return { updated: false, code: "invalid_visibility" };
+    }
+    return withTransaction(async (client) => {
+      let owned;
+      if (storageType === "review") {
+        owned = await client.query(
+          "SELECT id FROM reviews WHERE id = $1 AND user_id = $2 FOR UPDATE",
+          [id, owner]
+        );
+      } else {
+        owned = await client.query(
+          `SELECT id, category, media_items AS "mediaItems"
+           FROM products WHERE id = $1 AND uploaded_by = $2 FOR UPDATE`,
+          [id, owner]
+        );
+        if (owned.rowCount && requestedType === "reel") {
+          const row = owned.rows?.[0] || {};
+          const isReel = String(row.category || "") === "reels"
+            || normalizeProductMediaItems({ mediaItems: parseJson(row.mediaItems, []) }).some((item) => item.type === "video");
+          if (!isReel) return { updated: false, code: "content_type_mismatch" };
+        }
+      }
+      if (!owned.rowCount) return { updated: false, code: "content_not_found" };
+      await upsertContentVisibility(client, storageType, id, owner, nextVisibility);
+      return { updated: true, contentType: requestedType, contentId: id, visibility: nextVisibility };
     });
   }
 
@@ -6592,19 +6800,36 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     );
     return result.rows[0] || null;
   }
-  async function readPlayableVideo(providerId) {
+  async function readPlayableVideo(providerId, options = {}) {
+    const viewerUsername = String(options.viewerUsername || "").trim().slice(0, 40);
     const result = await query(
       `SELECT vui.provider_id AS "providerId", vui.seller_id AS "sellerId",
          vui.status, vui.moderation_status AS "moderationStatus",
          vui.safety_status AS "safetyStatus", vui.safety_score::float8 AS "safetyScore",
          vui.product_id AS "productId", vui.claimed_at AS "claimedAt",
          vui.poster_url AS "posterUrl", vui.hls_url AS "hlsUrl", vui.dash_url AS "dashUrl",
-         p.status AS "productStatus"
+         p.status AS "productStatus",
+         COALESCE((
+           SELECT content_access.visibility
+           FROM public_content_visibility content_access
+           WHERE content_access.content_type = 'product' AND content_access.content_id = p.id
+         ), 'public') AS "contentVisibility",
+         EXISTS (
+           SELECT 1 FROM user_follows playback_follow
+           WHERE playback_follow.follower_username = $2
+             AND playback_follow.followed_username = vui.seller_id
+             AND playback_follow.status = 'active'
+         ) AS "viewerFollowsOwner",
+         EXISTS (
+           SELECT 1 FROM user_blocks playback_block
+           WHERE (playback_block.blocker_username = $2 AND playback_block.blocked_username = vui.seller_id)
+              OR (playback_block.blocker_username = vui.seller_id AND playback_block.blocked_username = $2)
+         ) AS "viewerBlocked"
        FROM video_upload_intents vui
        LEFT JOIN products p ON p.id = vui.product_id
        WHERE vui.provider_id = $1
        LIMIT 1`,
-      [String(providerId || "")]
+      [String(providerId || ""), viewerUsername]
     );
     return result.rows[0] || null;
   }
@@ -7311,12 +7536,51 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
          u.role,
          u.verified_seller AS "verifiedSeller",
          (SELECT COUNT(*)::int FROM products public_product
-          WHERE public_product.uploaded_by = u.username AND public_product.status = 'approved') AS "publicProductCount",
+          WHERE public_product.uploaded_by = u.username AND public_product.status = 'approved'
+            AND (
+              public_product.uploaded_by = $2
+              OR COALESCE((SELECT visibility FROM public_content_visibility
+                           WHERE content_type = 'product' AND content_id = public_product.id), 'public') = 'public'
+              OR (
+                COALESCE((SELECT visibility FROM public_content_visibility
+                          WHERE content_type = 'product' AND content_id = public_product.id), 'public') = 'followers'
+                AND EXISTS (SELECT 1 FROM user_follows profile_follow
+                            WHERE profile_follow.follower_username = $2
+                              AND profile_follow.followed_username = u.username
+                              AND profile_follow.status = 'active')
+              )
+            )) AS "publicProductCount",
          (SELECT COUNT(*)::int FROM products public_reel
           WHERE public_reel.uploaded_by = u.username AND public_reel.status = 'approved'
-            AND (public_reel.category = 'reels' OR public_reel.media_items @> '[{"type":"video"}]'::jsonb)) AS "publicReelCount",
+            AND (public_reel.category = 'reels' OR public_reel.media_items @> '[{"type":"video"}]'::jsonb)
+            AND (
+              public_reel.uploaded_by = $2
+              OR COALESCE((SELECT visibility FROM public_content_visibility
+                           WHERE content_type = 'product' AND content_id = public_reel.id), 'public') = 'public'
+              OR (
+                COALESCE((SELECT visibility FROM public_content_visibility
+                          WHERE content_type = 'product' AND content_id = public_reel.id), 'public') = 'followers'
+                AND EXISTS (SELECT 1 FROM user_follows profile_reel_follow
+                            WHERE profile_reel_follow.follower_username = $2
+                              AND profile_reel_follow.followed_username = u.username
+                              AND profile_reel_follow.status = 'active')
+              )
+            )) AS "publicReelCount",
          (SELECT COUNT(*)::int FROM reviews public_review
-          WHERE public_review.user_id = u.username) AS "publicReviewCount",
+          WHERE public_review.user_id = u.username
+            AND (
+              public_review.user_id = $2
+              OR COALESCE((SELECT visibility FROM public_content_visibility
+                           WHERE content_type = 'review' AND content_id = public_review.id), 'public') = 'public'
+              OR (
+                COALESCE((SELECT visibility FROM public_content_visibility
+                          WHERE content_type = 'review' AND content_id = public_review.id), 'public') = 'followers'
+                AND EXISTS (SELECT 1 FROM user_follows profile_review_follow
+                            WHERE profile_review_follow.follower_username = $2
+                              AND profile_review_follow.followed_username = u.username
+                              AND profile_review_follow.status = 'active')
+              )
+            )) AS "publicReviewCount",
          COUNT(*) FILTER (WHERE outgoing.status = 'active')::int AS "followingCount",
          (SELECT COUNT(*)::int FROM user_follows incoming
           WHERE incoming.followed_username = u.username AND incoming.status = 'active') AS "followerCount",
@@ -7357,12 +7621,18 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
          candidate.role,
          candidate.verified_seller AS "verifiedSeller",
          (SELECT COUNT(*)::int FROM products public_product
-          WHERE public_product.uploaded_by = candidate.username AND public_product.status = 'approved') AS "publicProductCount",
+          WHERE public_product.uploaded_by = candidate.username AND public_product.status = 'approved'
+            AND COALESCE((SELECT visibility FROM public_content_visibility
+                          WHERE content_type = 'product' AND content_id = public_product.id), 'public') = 'public') AS "publicProductCount",
          (SELECT COUNT(*)::int FROM products public_reel
           WHERE public_reel.uploaded_by = candidate.username AND public_reel.status = 'approved'
-            AND (public_reel.category = 'reels' OR public_reel.media_items @> '[{"type":"video"}]'::jsonb)) AS "publicReelCount",
+            AND (public_reel.category = 'reels' OR public_reel.media_items @> '[{"type":"video"}]'::jsonb)
+            AND COALESCE((SELECT visibility FROM public_content_visibility
+                          WHERE content_type = 'product' AND content_id = public_reel.id), 'public') = 'public') AS "publicReelCount",
          (SELECT COUNT(*)::int FROM reviews public_review
-          WHERE public_review.user_id = candidate.username) AS "publicReviewCount",
+          WHERE public_review.user_id = candidate.username
+            AND COALESCE((SELECT visibility FROM public_content_visibility
+                          WHERE content_type = 'review' AND content_id = public_review.id), 'public') = 'public') AS "publicReviewCount",
          (SELECT COUNT(*)::int FROM user_follows incoming
           WHERE incoming.followed_username = candidate.username AND incoming.status = 'active') AS "followerCount",
          (SELECT COUNT(*)::int
@@ -7374,7 +7644,9 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
           FROM products mine_product
           JOIN products candidate_product ON candidate_product.category = mine_product.category
           WHERE mine_product.uploaded_by = $1 AND mine_product.status = 'approved'
-            AND candidate_product.uploaded_by = candidate.username AND candidate_product.status = 'approved') AS "sharedPublicCategoryCount"
+            AND candidate_product.uploaded_by = candidate.username AND candidate_product.status = 'approved'
+            AND COALESCE((SELECT visibility FROM public_content_visibility
+                          WHERE content_type = 'product' AND content_id = candidate_product.id), 'public') = 'public') AS "sharedPublicCategoryCount"
        FROM users candidate
        WHERE candidate.username <> $1
          AND candidate.status = 'active'
@@ -7389,8 +7661,12 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
               OR (block_edge.blocker_username = candidate.username AND block_edge.blocked_username = $1)
          )
          AND (
-           EXISTS (SELECT 1 FROM products p WHERE p.uploaded_by = candidate.username AND p.status = 'approved')
-           OR EXISTS (SELECT 1 FROM reviews r WHERE r.user_id = candidate.username)
+           EXISTS (SELECT 1 FROM products p WHERE p.uploaded_by = candidate.username AND p.status = 'approved'
+             AND COALESCE((SELECT visibility FROM public_content_visibility
+                           WHERE content_type = 'product' AND content_id = p.id), 'public') = 'public')
+           OR EXISTS (SELECT 1 FROM reviews r WHERE r.user_id = candidate.username
+             AND COALESCE((SELECT visibility FROM public_content_visibility
+                           WHERE content_type = 'review' AND content_id = r.id), 'public') = 'public')
            OR EXISTS (SELECT 1 FROM user_follows f WHERE f.followed_username = candidate.username AND f.status = 'active')
          )
        ORDER BY "sharedPublicCategoryCount" DESC, "mutualConnectionCount" DESC,
@@ -7654,6 +7930,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     createPromotion,
     updatePromotion,
     createReview,
+    readProductReviews,
+    setPublicContentVisibility,
     createReport,
     reviewReport,
     replaceSession,

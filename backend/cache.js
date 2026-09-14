@@ -82,13 +82,39 @@ function createCache(options = {}) {
     return request;
   }
 
+  async function deleteCachePrefix(prefix) {
+    if (!redisUrl && !client) return { deleted: 0 };
+    const cachePrefix = `${namespace}:${String(prefix || "")}`;
+    let cursor = "0";
+    let deleted = 0;
+    try {
+      const redisClient = await getClient();
+      do {
+        const result = await redisClient.scan(cursor, "MATCH", `${cachePrefix}*`, "COUNT", 100);
+        cursor = String(result?.[0] || "0");
+        const keys = Array.isArray(result?.[1]) ? result[1] : [];
+        if (keys.length) deleted += Number(await redisClient.del(...keys)) || 0;
+      } while (cursor !== "0");
+      log("delete-prefix", { prefix: cachePrefix, deleted });
+    } catch (error) {
+      warnUnavailable(error);
+    }
+    return { deleted };
+  }
+
   async function close() {
     if (!client) return;
     try { await client.quit?.(); } catch (_error) { client.disconnect?.(); }
   }
 
-  return Object.freeze({ enabled: Boolean(redisUrl || client), getOrSetCache, close });
+  return Object.freeze({ enabled: Boolean(redisUrl || client), getOrSetCache, deleteCachePrefix, close });
 }
 
 const defaultCache = createCache();
-module.exports = { createCache, getOrSetCache: defaultCache.getOrSetCache, closeCache: defaultCache.close, normalizeTtl };
+module.exports = {
+  createCache,
+  getOrSetCache: defaultCache.getOrSetCache,
+  deleteCachePrefix: defaultCache.deleteCachePrefix,
+  closeCache: defaultCache.close,
+  normalizeTtl
+};

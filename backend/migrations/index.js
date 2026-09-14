@@ -2,6 +2,25 @@ const MIGRATION_LOCK_NAME = "winga_schema_migrations_v1";
 
 const MIGRATIONS = Object.freeze([
   Object.freeze({
+    id: "2026091502_public_content_visibility",
+    statements: Object.freeze([
+      `CREATE TABLE IF NOT EXISTS public_content_visibility (
+         content_type TEXT NOT NULL CHECK (content_type IN ('product', 'review')),
+         content_id TEXT NOT NULL,
+         owner_username TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
+         visibility TEXT NOT NULL DEFAULT 'public' CHECK (visibility IN ('public', 'followers', 'private')),
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         row_version BIGINT NOT NULL DEFAULT 1,
+         PRIMARY KEY (content_type, content_id)
+       );`,
+      `CREATE INDEX IF NOT EXISTS idx_public_content_visibility_owner
+       ON public_content_visibility (owner_username, content_type, updated_at DESC);`,
+      `CREATE INDEX IF NOT EXISTS idx_public_content_visibility_access
+       ON public_content_visibility (content_type, visibility, content_id);`
+    ])
+  }),
+  Object.freeze({
     id: "2026091501_person_public_discovery",
     statements: Object.freeze([
       `CREATE INDEX IF NOT EXISTS idx_users_active_created

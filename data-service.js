@@ -1887,7 +1887,11 @@ async loadAdminPayments(filters) {
       },
       async setUserBlock(username, blocked) {
         return getSocialApiClient().setBlock(username, blocked);
-      },      async loadProducts(options = {}) {
+      },
+      async setPublicContentVisibility(contentType, contentId, visibility) {
+        return getSocialApiClient().setContentVisibility(contentType, contentId, visibility);
+      },
+      async loadProducts(options = {}) {
         const pageWindow = normalizeProductPageWindow({
           limit: options.limit || DEFAULT_PRODUCTS_PAGE_LIMIT,
           page: 1
@@ -3866,7 +3870,20 @@ async loadAdminPayments() {
       ensureAdapter();
       if (!state.adapter.setUserBlock) throw new Error("Social graph requires the production API provider.");
       return state.adapter.setUserBlock(username, blocked);
-    },    async loadActiveSessions() {
+    },
+    async setPublicContentVisibility(contentType, contentId, visibility) {
+      assertPersonAccess();
+      ensureAdapter();
+      if (!state.adapter.setPublicContentVisibility) throw new Error("Content visibility requires the production API provider.");
+      const result = await state.adapter.setPublicContentVisibility(contentType, contentId, visibility);
+      const normalizedType = String(contentType || "").toLowerCase();
+      if ((normalizedType === "product" || normalizedType === "reel") && result?.updated) {
+        mergeProductMutationResult(contentId, { visibility: result.visibility });
+        state.productQueryCache.clear();
+      }
+      return result;
+    },
+    async loadActiveSessions() {
       ensureAdapter();
       return state.adapter.loadActiveSessions
         ? state.adapter.loadActiveSessions()

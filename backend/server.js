@@ -25,7 +25,7 @@ const {
   readVideoSafetyConfig,
   verifyVideoSafetyResult
 } = require("./video-safety");
-const { getOrSetCache, closeCache } = require("./cache");
+const { getOrSetCache, deleteCachePrefix, closeCache } = require("./cache");
 
 const PORT = process.env.PORT || 3000;
 const DATABASE_URL = process.env.DATABASE_URL || "";
@@ -183,6 +183,7 @@ const ALLOWED_USER_STATUSES = ["active", "suspended", "banned", "flagged", "deac
 const ALLOWED_REPORT_STATUSES = ["open", "reviewed", "resolved"];
 const ALLOWED_REPORT_TARGETS = ["user", "product"];
 const ALLOWED_NOTIFICATION_TYPES = ["message", "request", "order", "follow"];
+const ALLOWED_CONTENT_VISIBILITY = ["public", "followers", "private"];
 const ALLOWED_PROMOTION_TYPES = ["starter_day", "boost_3day", "growth_7day", "premium_14day", "boost", "featured", "category_boost", "pin_top"];
 const ALLOWED_PROMOTION_STATUSES = ["pending", "active", "rejected", "expired", "disabled"];
 const ALLOWED_IDENTITY_DOCUMENT_TYPES = ["NIDA", "VOTER_ID"];
@@ -2848,6 +2849,9 @@ function normalizeProductRecord(product) {
     whatsapp: String(product.whatsapp || "").replace(/\D/g, "").slice(0, 20),
     uploadedBy: normalizeIdentifier(product.uploadedBy, 40),
     category: sanitizePlainText(product.category, 60).toLowerCase(),
+    visibility: ALLOWED_CONTENT_VISIBILITY.includes(String(product.visibility || "").toLowerCase())
+      ? String(product.visibility).toLowerCase()
+      : "public",
     status: isValidProductStatus(product.status) ? product.status : (hasLegacyModerationFields ? inferredStatus : "approved"),
     availability: product.availability === "sold_out"
       ? "sold_out"
@@ -3332,6 +3336,9 @@ function normalizeReviewRecord(review) {
     sellerId: normalizeIdentifier(review.sellerId || review.uploadedBy, 40),
     rating: Math.max(1, Math.min(5, Number(review.rating || 0))),
     comment: sanitizePlainText(review.comment, 500),
+    visibility: ALLOWED_CONTENT_VISIBILITY.includes(String(review.visibility || "").toLowerCase())
+      ? String(review.visibility).toLowerCase()
+      : "public",
     verifiedBuyer: Boolean(review.verifiedBuyer),
     date: review.date || review.createdAt || now
   };
@@ -3404,12 +3411,20 @@ function getPlayableVideoAccess(intent, session) {
     && intent?.claimedAt
   );
   const isSafetyBlocked = intent?.moderationStatus === "rejected" || intent?.safetyStatus === "blocked";
+  const contentVisibility = ALLOWED_CONTENT_VISIBILITY.includes(String(intent?.contentVisibility || "").toLowerCase())
+    ? String(intent.contentVisibility).toLowerCase()
+    : "public";
+  const visibilityAllowed = !intent?.viewerBlocked && (
+    contentVisibility === "public"
+    || (contentVisibility === "followers" && Boolean(intent?.viewerFollowsOwner))
+  );
   const isPublicProductVideo = Boolean(
     intent?.status === "ready"
     && intent?.productId
     && intent?.claimedAt
     && !isSafetyBlocked
     && intent?.productStatus === "approved"
+    && visibilityAllowed
   );
   return {
     isOwner,
@@ -5051,6 +5066,9 @@ function validateReviewPayload(payload) {
   if (!isNonEmptyString(payload.comment, 3, 500)) {
     return "Review lazima iwe na maoni mafupi yenye maana.";
   }
+  if (payload.visibility && !ALLOWED_CONTENT_VISIBILITY.includes(String(payload.visibility).toLowerCase())) {
+    return "Review visibility si sahihi.";
+  }
   return "";
 }
 
@@ -5382,6 +5400,9 @@ function validateProductPayload(payload) {
   }
   if (!isValidCategory(payload.category)) {
     return "Category ya bidhaa si sahihi.";
+  }
+  if (payload.visibility && !ALLOWED_CONTENT_VISIBILITY.includes(String(payload.visibility).toLowerCase())) {
+    return "Product visibility si sahihi.";
   }
   const videoItems = Array.isArray(payload.mediaItems)
     ? payload.mediaItems.filter((item) => String(item?.type || "").toLowerCase() === "video")
@@ -6280,6 +6301,9 @@ function getRateLimitRule(pathname, method = "GET") {
   }
   if (/^\/api\/social\/(?:follows|blocks)\/[^/]+$/.test(pathname) || pathname === "/api/social/follows/import") {
     return { limit: 30, windowMs: RATE_LIMIT_WINDOW_MS, key: "/api/social/write" };
+  }
+  if (/^\/api\/social\/content\/(?:product|reel|review)\/[^/]+\/visibility$/.test(pathname)) {
+    return { limit: 30, windowMs: RATE_LIMIT_WINDOW_MS, key: "/api/social/content/visibility" };
   }
   if (/^\/api\/notifications\/[^/]+\/read$/.test(pathname)) {
     return {
@@ -7298,6 +7322,46 @@ const server = http.createServer(async (req, res) => {
         event: "suggested_follow_impression", username: user.username, count: suggestions.items.length
       });
       sendJson(res, 200, suggestions, { "Cache-Control": "private, no-store" });
+      return;
+    }
+
+    const socialVisibilityMatch = url.pathname.match(/^\/api\/social\/content\/(product|reel|review)\/([^/]+)\/visibility$/);
+    if (req.method === "PATCH" && socialVisibilityMatch) {
+      const session = findSession(store, readAuthToken(req));
+      const user = ensureMarketplaceUser(store, session, res, { allowStaff: true });
+      if (!user) return;
+      if (!postgresStore?.setPublicContentVisibility) {
+        sendJson(res, 503, { error: "Content visibility haipatikani kwa sasa.", code: "content_visibility_unavailable" });
+        return;
+      }
+      const contentType = socialVisibilityMatch[1];
+      const contentId = sanitizePlainText(decodeURIComponent(socialVisibilityMatch[2] || ""), 80);
+      const payload = await collectBody(req);
+      const visibility = String(payload?.visibility || "").trim().toLowerCase();
+      if (!ALLOWED_CONTENT_VISIBILITY.includes(visibility)) {
+        sendJson(res, 400, { error: "Content visibility si sahihi.", code: "invalid_visibility" });
+        return;
+      }
+      const result = await postgresStore.setPublicContentVisibility(
+        user.username,
+        contentType,
+        contentId,
+        visibility
+      );
+      if (!result.updated) {
+        const status = result.code === "content_not_found" ? 404 : result.code === "content_type_mismatch" ? 409 : 400;
+        sendJson(res, status, { error: "Content visibility haikubadilika.", code: result.code });
+        return;
+      }
+      await appendAuditLog({
+        time: new Date().toISOString(), ip: clientIp, method: req.method, path: url.pathname,
+        event: "content_visibility_changed", username: user.username,
+        contentType, contentId, visibility
+      });
+      if (contentType === "product" || contentType === "reel") {
+        await deleteCachePrefix("products:v1:");
+      }
+      sendJson(res, 200, { ok: true, ...result }, { "Cache-Control": "private, no-store" });
       return;
     }
 
@@ -8624,7 +8688,11 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       try {
-        const items = await postgresStore.readRediscoveryProducts({ ...audience, limit });
+        const items = await postgresStore.readRediscoveryProducts({
+          ...audience,
+          limit,
+          viewerUsername: viewer?.username || ""
+        });
         const visibleItems = (Array.isArray(items) ? items : [])
           .map((product) => sanitizeVisibleProduct(product, viewer, store))
           .filter(Boolean);
@@ -10461,7 +10529,21 @@ const server = http.createServer(async (req, res) => {
 
       if (req.method === "GET" && url.pathname === "/api/reviews") {
         const productId = sanitizePlainText(url.searchParams.get("productId") || "", 80);
-        sendJson(res, 200, buildReviewSummary(store, productId));
+        const token = readAuthToken(req);
+        const session = token ? findSession(store, token) : null;
+        const viewer = session ? getUserByUsername(store, session.username) : null;
+        const reviews = postgresStore?.readProductReviews
+          ? await postgresStore.readProductReviews(productId, {
+            viewerUsername: viewer?.username || "",
+            isStaffViewer: Boolean(viewer && isStaffRole(viewer.role))
+          })
+          : buildReviewSummary(store, productId).reviews;
+        sendJson(
+          res,
+          200,
+          buildReviewSummary({ reviews }, productId),
+          { "Cache-Control": viewer ? "private, no-store" : "public, max-age=30" }
+        );
         return;
       }
 
@@ -12640,7 +12722,9 @@ const server = http.createServer(async (req, res) => {
     const videoCaptionListMatch = url.pathname.match(/^\/api\/media\/videos\/([a-zA-Z0-9_-]{8,64})\/captions$/);
     if (req.method === "GET" && videoCaptionListMatch) {
       const session = findSession(store, readAuthToken(req));
-      const intent = await postgresStore?.readPlayableVideo?.(videoCaptionListMatch[1]);
+      const intent = await postgresStore?.readPlayableVideo?.(videoCaptionListMatch[1], {
+        viewerUsername: session?.username || ""
+      });
       const access = getPlayableVideoAccess(intent, session);
       if (!intent || !access.allowed) {
         sendJson(res, 404, { error: "Video haijapatikana.", code: "video_playback_not_found" }, { "Cache-Control": "private, no-store" });
@@ -12662,7 +12746,9 @@ const server = http.createServer(async (req, res) => {
     const videoCaptionVttMatch = url.pathname.match(/^\/api\/media\/videos\/([a-zA-Z0-9_-]{8,64})\/captions\/([A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8}){0,8})[.]vtt$/);
     if (req.method === "GET" && videoCaptionVttMatch) {
       const session = findSession(store, readAuthToken(req));
-      const intent = await postgresStore?.readPlayableVideo?.(videoCaptionVttMatch[1]);
+      const intent = await postgresStore?.readPlayableVideo?.(videoCaptionVttMatch[1], {
+        viewerUsername: session?.username || ""
+      });
       const access = getPlayableVideoAccess(intent, session);
       if (!intent || !access.allowed) {
         sendJson(res, 404, { error: "Video haijapatikana.", code: "video_playback_not_found" }, { "Cache-Control": "private, no-store" });
@@ -12683,7 +12769,9 @@ const server = http.createServer(async (req, res) => {
     const videoPlaybackMatch = url.pathname.match(/^\/api\/media\/videos\/([a-zA-Z0-9_-]{8,64})\/playback-token$/);
     if (req.method === "POST" && videoPlaybackMatch) {
       const session = findSession(store, readAuthToken(req));
-      const intent = await postgresStore?.readPlayableVideo?.(videoPlaybackMatch[1]);
+      const intent = await postgresStore?.readPlayableVideo?.(videoPlaybackMatch[1], {
+        viewerUsername: session?.username || ""
+      });
       const { isOwner, isStaffPreview, isPublicProductVideo, allowed } = getPlayableVideoAccess(intent, session);
       if (!intent || !allowed) {
         sendJson(res, 404, {

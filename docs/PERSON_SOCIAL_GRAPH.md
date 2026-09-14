@@ -49,9 +49,24 @@ are not read by the suggestion query or returned as reasons.
 Blocked relationships are excluded in both directions. A blocked public profile
 is not returned to the other person.
 
-Content-level PUBLIC, FOLLOWERS, and PRIVATE visibility is not yet a production
-contract. It must be added to each public content model before followers-only
-content can be exposed safely.
+Products, reels, and reviews now share a production visibility contract:
+
+- PUBLIC is visible to guests and signed-in people.
+- FOLLOWERS is visible to the owner and active followers.
+- PRIVATE is visible only to the owner.
+- Staff can inspect content through existing moderation-capable paths.
+- A block in either direction overrides follower access.
+
+Visibility is stored in public_content_visibility. Existing content without a
+policy row remains PUBLIC, so migration does not hide the current catalog.
+Product lists, rediscovery, review reads, profile content counts, follow
+suggestions, video captions, and direct playback-token requests enforce the
+same access rules. Product visibility changes invalidate anonymous feed cache
+variants immediately.
+
+The owner-only API is:
+
+PATCH /api/social/content/:product|reel|review/:id/visibility
 
 ## Suggestion Logic
 
@@ -96,12 +111,14 @@ become a requirement for guest or authenticated feeds.
 
 Automated tests cover self-follow rejection, idempotent mutations, block
 exclusion, cursor bounds, public capability derivation, safe suggestion inputs,
-and client request contracts.
+owner-scoped visibility changes, public/follower/private review reads, direct
+video playback privacy, cache invalidation, and client request contracts.
 
 Remaining work:
 
 - canonical public collections/recommendations and a real curator capability,
-- content-level visibility enforcement for every public content type,
+- visibility support for future collections, recommendations, posts, and shorts
+  once those canonical content models exist,
 - new-reel and new-collection notifications with frequency controls,
 - optional user-facing suggestion surfaces,
 - removal of seller-specific compatibility naming after all callers migrate.

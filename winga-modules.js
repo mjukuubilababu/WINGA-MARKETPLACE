@@ -1345,7 +1345,21 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         ...(blocked ? { body: "{}" } : {})
       });
     }
-    return { loadFollows, loadFollowSuggestions, loadSocialProfile, setFollow, importLegacyFollows, setBlock };
+    async function setContentVisibility(contentType, contentId, visibility) {
+      requireFetcher();
+      const safeType = String(contentType || "").trim().toLowerCase();
+      const safeContentId = String(contentId || "").trim();
+      const safeVisibility = String(visibility || "").trim().toLowerCase();
+      if (!["product", "reel", "review"].includes(safeType)) throw new Error("Invalid public content type.");
+      if (!safeContentId) throw new Error("Content ID is required.");
+      if (!["public", "followers", "private"].includes(safeVisibility)) throw new Error("Invalid content visibility.");
+      return fetchJson(`${baseUrl}/social/content/${safeType}/${encodeURIComponent(safeContentId)}/visibility`, {
+        method: "PATCH",
+        headers: headers(true),
+        body: JSON.stringify({ visibility: safeVisibility })
+      });
+    }
+    return { loadFollows, loadFollowSuggestions, loadSocialProfile, setFollow, importLegacyFollows, setBlock, setContentVisibility };
   }
 
   window.WingaModules = window.WingaModules || {};

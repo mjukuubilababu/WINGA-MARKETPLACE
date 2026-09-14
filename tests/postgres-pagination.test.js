@@ -188,6 +188,40 @@ test("PostgreSQL readStore skips unrequested tables while preserving the complet
   assert.deepEqual(result.settings, {});
 });
 
+test("PostgreSQL product snapshot preserves visibility across ordinary edits", async () => {
+  const calls = [];
+  const store = createPostgresStore({
+    databaseUrl: "postgres://test.invalid/winga",
+    queryClient: {
+      async query(text) {
+        const sql = String(text);
+        calls.push(sql);
+        if (sql.includes("FROM products")) {
+          return {
+            rows: [{
+              id: "private-product",
+              name: "Private product",
+              uploadedBy: "creator",
+              status: "approved",
+              visibility: "private",
+              images: [],
+              mediaItems: [],
+              viewedBy: []
+            }],
+            rowCount: 1
+          };
+        }
+        return { rows: [], rowCount: 0 };
+      }
+    }
+  });
+
+  const result = await store.readStore(["products"]);
+  assert.equal(result.products[0].visibility, "private");
+  assert.match(calls[0], /FROM public_content_visibility content_access/);
+  assert.match(calls[0], /'public'\) AS visibility/);
+});
+
 test("PostgreSQL product actions update one row atomically", async () => {
   const calls = [];
   const queryClient = {
@@ -620,9 +654,11 @@ test("PostgreSQL product delete is owner-scoped and releases claimed video metad
   assert.match(calls[1].text, /SELECT id FROM products WHERE id = \$1 AND uploaded_by = \$2 FOR UPDATE/);
   assert.match(calls[2].text, /UPDATE video_upload_intents/);
   assert.match(calls[2].text, /SET product_id = NULL, claimed_at = NULL/);
-  assert.match(calls[3].text, /DELETE FROM products WHERE id = \$1 AND uploaded_by = \$2/);
+  assert.match(calls[3].text, /DELETE FROM public_content_visibility/);
   assert.deepEqual(calls[3].params, ["product-row-4", "seller-four"]);
-  assert.equal(calls[4].text, "COMMIT");
+  assert.match(calls[4].text, /DELETE FROM products WHERE id = \$1 AND uploaded_by = \$2/);
+  assert.deepEqual(calls[4].params, ["product-row-4", "seller-four"]);
+  assert.equal(calls[5].text, "COMMIT");
 });
 
 test("PostgreSQL commerce order locks inventory and commits receipt, order, payment, and notification atomically", async () => {
@@ -3044,7 +3080,7 @@ test("PostgreSQL video webhook retries are monotonic, idempotent, and preserve r
   assert.equal(updateCalls[2].params[7], "");
   assert.equal(calls.filter((call) => call.text.startsWith("SELECT provider_id")).length, 2);
 });
-test("PostgreSQL playable video lookup preserves public product visibility context", async () => {
+test("PostgreSQL playable video lookup preserves person visibility and block context", async () => {
   const calls = [];
   const queryClient = {
     async query(text, params = []) {
@@ -3060,13 +3096,16 @@ test("PostgreSQL playable video lookup preserves public product visibility conte
     }
   };
   const store = createPostgresStore({ databaseUrl: "postgres://primary.invalid/winga", queryClient });
-  const playable = await store.readPlayableVideo("stream-video-123");
+  const playable = await store.readPlayableVideo("stream-video-123", { viewerUsername: "viewer-one" });
 
   assert.equal(playable.productStatus, "approved");
   assert.equal(playable.productId, "product-video-1");
   assert.match(calls[0].text, /LEFT JOIN products p ON p\.id = vui\.product_id/);
   assert.match(calls[0].text, /poster_url AS "posterUrl"/);
-  assert.deepEqual(calls[0].params, ["stream-video-123"]);
+  assert.match(calls[0].text, /public_content_visibility/);
+  assert.match(calls[0].text, /playback_follow\.status = 'active'/);
+  assert.match(calls[0].text, /FROM user_blocks playback_block/);
+  assert.deepEqual(calls[0].params, ["stream-video-123", "viewer-one"]);
 });
 test("PostgreSQL video moderation queue and decision are bounded and atomic", async () => {
   const calls = [];
@@ -3612,6 +3651,8 @@ test("person profile exposes public multi-capabilities without private behavior"
   assert.equal(profile.viewerFollows, true);
   assert.match(calls[0].text, /public_product\.status = 'approved'/);
   assert.match(calls[0].text, /public_reel\.status = 'approved'/);
+  assert.match(calls[0].text, /public_content_visibility/);
+  assert.match(calls[0].text, /profile_follow\.status = 'active'/);
   assert.doesNotMatch(calls[0].text, /orders|messages|sessions|saved/i);
 });
 
@@ -3662,7 +3703,85 @@ test("person follow suggestions are bounded, block-safe, and based on public act
   assert.match(calls[0].text, /FROM user_blocks block_edge/);
   assert.match(calls[0].text, /block_edge\.blocker_username = candidate\.username/);
   assert.match(calls[0].text, /public_product\.status = 'approved'/);
+  assert.match(calls[0].text, /content_type = 'product'/);
+  assert.match(calls[0].text, /content_type = 'review'/);
+  assert.match(calls[0].text, /visibility[^\n]+public/);
   assert.doesNotMatch(calls[0].text, /orders|messages|sessions|saved/i);
+});
+
+test("public content visibility migration is backward-compatible and indexed", () => {
+  const migration = MIGRATIONS.find((candidate) => candidate.id === "2026091502_public_content_visibility");
+  assert.ok(migration);
+  const sql = migration.statements.join("\n");
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS public_content_visibility/);
+  assert.match(sql, /visibility TEXT NOT NULL DEFAULT 'public'/);
+  assert.match(sql, /CHECK \(visibility IN \('public', 'followers', 'private'\)\)/);
+  assert.match(sql, /PRIMARY KEY \(content_type, content_id\)/);
+  assert.match(sql, /idx_public_content_visibility_owner/);
+  assert.match(sql, /idx_public_content_visibility_access/);
+});
+
+test("product and review visibility changes are owner-scoped and reel-aware", async () => {
+  const calls = [];
+  const client = {
+    async query(text, params = []) {
+      const sql = String(text);
+      calls.push({ text: sql, params });
+      if (sql.includes("FROM products") && sql.includes("FOR UPDATE")) {
+        return { rows: [{ id: params[0], category: "reels", mediaItems: [{ type: "video" }] }], rowCount: 1 };
+      }
+      if (sql.includes("FROM reviews") && sql.includes("FOR UPDATE")) {
+        return { rows: [{ id: params[0] }], rowCount: 1 };
+      }
+      return { rows: [{ rowVersion: 2 }], rowCount: 1 };
+    },
+    release() {}
+  };
+  const store = createPostgresStore({
+    databaseUrl: "postgres://test.invalid/winga",
+    queryClient: { query: client.query.bind(client), connect: async () => client }
+  });
+
+  const reel = await store.setPublicContentVisibility("creator", "reel", "reel-1", "followers");
+  const review = await store.setPublicContentVisibility("creator", "review", "review-1", "private");
+  assert.deepEqual(reel, { updated: true, contentType: "reel", contentId: "reel-1", visibility: "followers" });
+  assert.deepEqual(review, { updated: true, contentType: "review", contentId: "review-1", visibility: "private" });
+  const locks = calls.filter((call) => call.text.includes("FOR UPDATE"));
+  assert.deepEqual(locks[0].params, ["reel-1", "creator"]);
+  assert.deepEqual(locks[1].params, ["review-1", "creator"]);
+  const writes = calls.filter((call) => call.text.includes("INSERT INTO public_content_visibility"));
+  assert.deepEqual(writes[0].params, ["product", "reel-1", "creator", "followers"]);
+  assert.deepEqual(writes[1].params, ["review", "review-1", "creator", "private"]);
+  assert.equal(calls.filter((call) => call.text === "COMMIT").length, 2);
+});
+
+test("review reads enforce public follower owner staff and block visibility in SQL", async () => {
+  const calls = [];
+  const queryClient = {
+    async query(text, params = []) {
+      calls.push({ text: String(text), params });
+      return { rows: [], rowCount: 0 };
+    }
+  };
+  const store = createPostgresStore({ databaseUrl: "postgres://test.invalid/winga", queryClient });
+
+  await store.readProductReviews("product-1");
+  await store.readProductReviews("product-1", { viewerUsername: "viewer" });
+  await store.readProductReviews("product-1", { viewerUsername: "moderator", isStaffViewer: true });
+
+  assert.deepEqual(calls[0].params, ["product-1"]);
+  assert.match(calls[0].text, /JOIN products product ON product\.id = review\.product_id/);
+  assert.match(calls[0].text, /product\.status = 'approved'/);
+  assert.match(calls[0].text, /product_visibility\.content_type = 'product'/);
+  assert.match(calls[0].text, /visibility\.visibility = 'public'/);
+  assert.deepEqual(calls[1].params, ["product-1", "viewer"]);
+  assert.match(calls[1].text, /review\.user_id = \$2/);
+  assert.match(calls[1].text, /review_follow\.status = 'active'/);
+  assert.match(calls[1].text, /FROM user_blocks review_block/);
+  assert.match(calls[1].text, /FROM user_blocks product_block/);
+  assert.match(calls[1].text, /product_follow\.status = 'active'/);
+  assert.deepEqual(calls[2].params, ["product-1"]);
+  assert.match(calls[2].text, /WHERE review\.product_id = \$1 AND TRUE AND TRUE/);
 });
 
 test("person social graph cursor page is bounded and excludes blocked relationships", async () => {
