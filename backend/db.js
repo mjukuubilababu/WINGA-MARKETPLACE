@@ -7843,33 +7843,33 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     let cursorClause = "";
     if (cursorTime && cursorId) {
       params.push(cursorTime.toISOString(), cursorId);
-      cursorClause = "AND (collection.created_at, collection.id) < ($4::timestamptz, $5)";
+      cursorClause = "AND (c.created_at, c.id) < ($4::timestamptz, $5)";
     }
     const collectionAccess = viewer
       ? `(
-          collection.owner_username = $2
+          c.owner_username = $2
           OR (
-            collection.status = 'published'
+            c.status = 'published'
             AND NOT EXISTS (
               SELECT 1 FROM user_blocks collection_block
-              WHERE (collection_block.blocker_username = $2 AND collection_block.blocked_username = collection.owner_username)
-                 OR (collection_block.blocker_username = collection.owner_username AND collection_block.blocked_username = $2)
+              WHERE (collection_block.blocker_username = $2 AND collection_block.blocked_username = c.owner_username)
+                 OR (collection_block.blocker_username = c.owner_username AND collection_block.blocked_username = $2)
             )
             AND (
-              visibility.visibility = 'public'
+              COALESCE(visibility.visibility, 'public') = 'public'
               OR (
-                visibility.visibility = 'followers'
+                COALESCE(visibility.visibility, 'public') = 'followers'
                 AND EXISTS (
                   SELECT 1 FROM user_follows collection_follow
                   WHERE collection_follow.follower_username = $2
-                    AND collection_follow.followed_username = collection.owner_username
+                    AND collection_follow.followed_username = c.owner_username
                     AND collection_follow.status = 'active'
                 )
               )
             )
           )
         )`
-      : "collection.status = 'published' AND visibility.visibility = 'public'";
+      : "c.status = 'published' AND COALESCE(visibility.visibility, 'public') = 'public'";
     const productAccess = viewer
       ? `(
           product.uploaded_by = $2
@@ -7898,29 +7898,24 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       : `COALESCE((SELECT visibility FROM public_content_visibility
                     WHERE content_type = 'product' AND content_id = product.id), 'public') = 'public'`;
     const result = await query(
-      `SELECT collection.id,
-         collection.owner_username AS "ownerUsername",
-         collection.title,
-         collection.description,
-         collection.status,
-         visibility.visibility,
-         collection.created_at AS "createdAt",
-         collection.updated_at AS "updatedAt",
-         collection.published_at AS "publishedAt",
-         collection.row_version AS "rowVersion"
-       FROM public_collections collection
-       LEFT JOIN LATERAL (
-         SELECT COALESCE((
-           SELECT stored_visibility.visibility
-           FROM public_content_visibility stored_visibility
-           WHERE stored_visibility.content_type = 'collection'
-             AND stored_visibility.content_id = collection.id
-         ), 'public') AS visibility
-       ) visibility ON TRUE
-       WHERE collection.owner_username = $1
+      `SELECT c.id,
+         c.owner_username AS "ownerUsername",
+         c.title,
+         c.description,
+         c.status,
+         COALESCE(visibility.visibility, 'public') AS visibility,
+         c.created_at AS "createdAt",
+         c.updated_at AS "updatedAt",
+         c.published_at AS "publishedAt",
+         c.row_version AS "rowVersion"
+       FROM public_collections c
+       LEFT JOIN public_content_visibility visibility
+         ON visibility.content_type = 'collection'
+        AND visibility.content_id = c.id
+       WHERE c.owner_username = $1
          AND ${collectionAccess}
          ${cursorClause}
-       ORDER BY collection.created_at DESC, collection.id DESC
+       ORDER BY c.created_at DESC, c.id DESC
        LIMIT $3`,
       params
     );

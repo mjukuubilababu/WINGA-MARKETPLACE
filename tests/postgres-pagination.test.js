@@ -3756,8 +3756,9 @@ test("public collection pages are cursor bounded and hide inaccessible collectio
   assert.equal(page.hasMore, true);
   assert.equal(page.nextCursor, "2026-09-15T11:00:00.000Z|collection-two");
   assert.deepEqual(calls[0].params, ["curator-one", "viewer", 2]);
-  assert.match(calls[0].text, /collection\.status = 'published'/);
-  assert.match(calls[0].text, /visibility\.visibility = 'followers'/);
+  assert.match(calls[0].text, /c\.status = 'published'/);
+  assert.match(calls[0].text, /COALESCE\(visibility\.visibility, 'public'\) = 'followers'/);
+  assert.match(calls[0].text, /LEFT JOIN public_content_visibility visibility/);
   assert.match(calls[0].text, /FROM user_blocks collection_block/);
   assert.deepEqual(calls[1].params, [["collection-two"], "viewer"]);
   assert.match(calls[1].text, /FROM user_blocks item_block/);
