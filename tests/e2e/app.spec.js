@@ -176,7 +176,7 @@ test("seller Analytics tabs show supplied aggregates without invented growth and
   await openSellerAnalytics(page);
   await expect(page.locator("[data-metric='totalViews'] strong")).toHaveText("116");
   await page.screenshot({ path: "test-results/analytics-mobile-overview.png", fullPage: true });
-  for (const tab of ["products", "customers", "content", "demand", "insights"]) {
+  for (const tab of ["products", "customers", "content", "trends"]) {
     await page.locator("#analytics-tab-" + tab).click();
     await expect(page.locator("#analytics-tab-" + tab)).toHaveAttribute("aria-selected", "true");
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
@@ -185,7 +185,8 @@ test("seller Analytics tabs show supplied aggregates without invented growth and
   await expect(page.locator("[data-metric='completionRate'] strong")).toHaveText("31.58%");
   await expect(page.locator("[data-metric='plays'] strong")).toHaveText("22");
   await page.screenshot({ path: "test-results/analytics-mobile-content.png", fullPage: true });
-  await page.locator("#analytics-tab-demand").click();
+  await page.locator("#analytics-tab-trends").click();
+  await expect(page.locator(".analytics-subtabs button")).toHaveCount(4);
   await expect(page.locator(".analytics-empty").first()).toBeVisible();
   await page.screenshot({ path: "test-results/analytics-mobile-demand.png", fullPage: true });
   await expect(page.locator("#analytics-panel")).not.toContainText("1,248");
@@ -193,6 +194,13 @@ test("seller Analytics tabs show supplied aggregates without invented growth and
   await page.locator("#analytics-tab-overview").focus();
   await page.keyboard.press("ArrowRight");
   await expect(page.locator("#analytics-tab-products")).toHaveAttribute("aria-selected", "true");
+  await page.locator("#analytics-tab-overview").click();
+  await page.locator(".analytics-action-card.purple").click();
+  await expect(page.locator(".analytics-insight-banner")).toBeVisible();
+  await expect(page.locator(".analytics-tabs")).toBeHidden();
+  await page.screenshot({ path: "test-results/analytics-mobile-insights.png", fullPage: true });
+  await page.locator("#analytics-panel .analytics-heading button").first().click();
+  await expect(page.locator("#analytics-tab-overview")).toBeVisible();
   await page.setViewportSize({ width: 320, height: 740 });
   await page.evaluate(() => { document.documentElement.dir = "rtl"; });
   await page.screenshot({ path: "test-results/analytics-mobile-rtl.png", fullPage: true });
@@ -1155,7 +1163,8 @@ test("seller opportunity opens attributed creation and supports private dismissa
   await page.goto("/");
   await page.locator("#mobile-category-button").click();
   await page.locator("[data-header-menu-action='seller-insights']").click();
-  await page.locator("#analytics-tab-demand").click();
+  await page.locator("#analytics-tab-trends").click();
+  await page.locator("#analytics-trend-tab-opportunities").click();
   const opportunityCard = page.locator(".seller-opportunity-item", { hasText: "white maxi dress" });
   await expect(opportunityCard).toBeVisible();
   await opportunityCard.locator("button").first().click();
@@ -1166,7 +1175,8 @@ test("seller opportunity opens attributed creation and supports private dismissa
   await page.locator("#creation-back").click();
   await page.locator("#mobile-category-button").click();
   await page.locator("[data-header-menu-action='seller-insights']").click();
-  await page.locator("#analytics-tab-demand").click();
+  await page.locator("#analytics-tab-trends").click();
+  await page.locator("#analytics-trend-tab-opportunities").click();
   const dismissCard = page.locator(".seller-opportunity-item", { hasText: "white maxi dress" });
   await dismissCard.locator("button").nth(1).click();
   await expect(dismissCard).toHaveCount(0);

@@ -66,7 +66,7 @@
       return item;
     }
 
-    let sellerState = { owner: "", data: null, loading: false, error: false, tab: "overview", sequence: 0 };
+    let sellerState = { owner: "", data: null, loading: false, error: false, tab: "overview", trendTab: "demand", sequence: 0 };
     const el = (tag, className, text, attributes) => deps.createElement(tag, { className, textContent: text, attributes });
     const a = (key, fallback, variables) => t("sellerAnalytics." + key, fallback, variables);
     const count = value => value === undefined || value === null || !Number.isFinite(Number(value))
@@ -86,7 +86,7 @@
 
     function leaveSellerAnalytics() {
       if (!sellerState.owner) return;
-      sellerState = { owner: "", data: null, loading: false, error: false, tab: "overview", sequence: sellerState.sequence + 1 };
+      sellerState = { owner: "", data: null, loading: false, error: false, tab: "overview", trendTab: "demand", sequence: sellerState.sequence + 1 };
       const panel = deps.getAnalyticsPanel();
       panel?.classList.remove("seller-analytics");
       panel?.replaceChildren();
@@ -125,18 +125,24 @@
       if (!panel || !deps.isSellerAnalyticsView?.()) return;
       panel.classList.add("seller-analytics");
       const heading = el("header", "analytics-heading");
+      const backAction = sellerState.tab === "insights"
+        ? () => { sellerState.tab = "overview"; renderSellerDashboard(); }
+        : () => deps.onAnalyticsBack?.();
       heading.append(
-        analyticsButton(t("creation.back", "Back"), () => deps.onAnalyticsBack?.(), "/icons/create/arrow-left.svg"),
-        el("h1", "", t("ui.label.94c116ee118a", "Analytics"))
+        analyticsButton(t("creation.back", "Back"), backAction, "/icons/create/arrow-left.svg"),
+        el("h1", "", sellerState.tab === "insights" ? a("insightsTitle", "Insights & recommendations") : t("ui.label.94c116ee118a", "Analytics"))
       );
-      const refresh = analyticsButton(a("refresh", "Refresh analytics"), () => renderSellerAnalyticsView(true), "/icons/navigation/refresh-cw.svg");
+      const refresh = analyticsButton(a("currentTotals", "Current totals"), () => renderSellerAnalyticsView(true));
+      refresh.classList.add("analytics-period-control");
+      refresh.setAttribute("title", a("refresh", "Refresh analytics"));
+      refresh.append(el("img", "", undefined, { src: "/icons/navigation/refresh-cw.svg", width: 15, height: 15, alt: "" }));
       refresh.disabled = sellerState.loading;
       refresh.classList.toggle("is-loading", sellerState.loading);
       heading.append(refresh);
       const tabs = [
         ["overview", a("overview", "Overview")], ["products", a("products", "Products")],
         ["customers", a("customers", "Customers")], ["content", a("content", "Content")],
-        ["demand", a("demand", "Demand & opportunities")], ["insights", a("insights", "Insights")]
+        ["trends", a("trends", "Trends")]
       ];
       const tablist = el("div", "analytics-tabs", undefined, { role: "tablist", "aria-label": t("ui.label.94c116ee118a", "Analytics") });
       const buttons = tabs.map(([id, label], index) => {
@@ -162,8 +168,11 @@
         return button;
       });
       tablist.append(...buttons);
+      if (sellerState.tab === "insights") tablist.hidden = true;
       const content = el("div", "analytics-content", undefined, {
-        id: "analytics-content", role: "tabpanel", "aria-labelledby": "analytics-tab-" + sellerState.tab
+        id: "analytics-content", role: "tabpanel",
+        ...(sellerState.tab === "insights" ? { "aria-label": a("insightsTitle", "Insights & recommendations") }
+          : { "aria-labelledby": "analytics-tab-" + sellerState.tab })
       });
       const status = el("p", "analytics-status", sellerState.loading ? a("loading", "Loading analytics...") :
         sellerState.error ? a("failed", "Could not refresh analytics. Please try again.") : "", { role: "status" });
@@ -176,16 +185,23 @@
       const search = data.searchDemand || market.searchDemand || {};
       const section = (title, note = "") => {
         const node = el("section", "analytics-section");
-        node.append(el("h2", "", title));
+        const titleRow = el("div", "analytics-section-heading");
+        titleRow.append(el("h2", "", title));
+        node.append(titleRow);
         if (note) node.append(el("p", "analytics-note", note));
         content.append(node);
         return node;
       };
+      const icon = (src, className = "") => el("span", "analytics-symbol " + className, undefined, {
+        role: "img", "aria-hidden": "true", style: `--analytics-icon:url('${src}')`
+      });
+      const decorateHeading = (node, src, className = "") => node.querySelector(".analytics-section-heading")?.prepend(icon(src, className));
       const metrics = (node, items) => {
         const grid = el("div", "analytics-metrics");
-        items.forEach(([key, label, value]) => {
+        items.forEach(([key, label, value, src]) => {
           const metric = createAnalyticsCard(label, value);
           metric.dataset.metric = key;
+          if (src) metric.prepend(icon(src, key));
           grid.append(metric);
         });
         node.append(grid);
@@ -193,7 +209,7 @@
       const list = (node, items, render) => {
         if (!items.length) { node.append(el("p", "analytics-empty", a("empty", "No activity recorded yet."))); return; }
         const group = el("div", "analytics-rows");
-        items.forEach(item => group.append(render(item)));
+        items.forEach((item, index) => group.append(render(item, index)));
         node.append(group);
       };
       const item = (title, evidence, action, id) => {
@@ -206,49 +222,75 @@
           () => deps.onAnalyticsAction?.(action, id)));
         return row;
       };
-      const bars = (node, entries, label, value) => {
+      const bars = (node, entries, label, value, options = {}) => {
         const max = Math.max(1, ...entries.map(entry => Math.max(0, Number(value(entry)) || 0)));
-        list(node, entries, entry => {
+        list(node, entries, (entry, index) => {
           const row = item(label(entry), count(value(entry)));
+          if (options.ranked) row.prepend(el("span", "analytics-rank", String(index + 1)));
           const bar = el("meter", "analytics-bar", undefined, { min: 0, max, value: Math.max(0, Number(value(entry)) || 0), "aria-label": label(entry) });
           row.append(bar);
           return row;
         });
       };
+      const actionCard = (node, title, body, action, src, tone) => {
+        const card = el("button", "analytics-action-card " + tone, undefined, { type: "button" });
+        card.append(icon(src, tone));
+        const copy = el("span", "analytics-action-copy");
+        copy.append(el("strong", "", title), el("small", "", body));
+        card.append(copy, el("span", "analytics-action-arrow", "›", { "aria-hidden": "true" }));
+        card.addEventListener("click", action);
+        node.append(card);
+      };
+      const emptyChart = node => {
+        const chart = el("div", "analytics-trend-chart");
+        chart.append(el("p", "analytics-empty", a("historyUnavailable", "Historical trend data is not available yet.")));
+        node.append(chart);
+      };
       const catalogMetrics = [
-        ["totalProducts", a("totalProducts", "Total products"), count(data.totalProducts)],
-        ["approvedProducts", a("approved", "Approved"), count(data.approvedProducts)],
-        ["pendingProducts", a("pending", "Pending"), count(data.pendingProducts)],
-        ["rejectedProducts", a("rejected", "Rejected"), count(data.rejectedProducts)]
+        ["totalProducts", a("totalProducts", "Total products"), count(data.totalProducts), "/icons/navigation/store.svg"],
+        ["approvedProducts", a("approved", "Approved"), count(data.approvedProducts), "/icons/navigation/chart-column.svg"],
+        ["pendingProducts", a("pending", "Pending"), count(data.pendingProducts), "/icons/navigation/refresh-cw.svg"],
+        ["rejectedProducts", a("rejected", "Rejected"), count(data.rejectedProducts), "/icons/create/x.svg"]
       ];
       if (sellerState.tab === "overview") {
-        const overview = section(a("performance", "Your performance"), a("catalogTotals", "Catalog totals"));
+        const overview = section(a("keyMetrics", "Key metrics"));
+        decorateHeading(overview, "/icons/navigation/chart-column.svg", "blue");
         metrics(overview, [
-          ["totalViews", a("views", "Product views"), count(data.totalViews)],
-          ["totalLikes", a("likes", "Likes"), count(data.totalLikes)],
-          ["newInquiries", a("inquiries", "New inquiries"), count(data.newInquiries)],
-          ["openOrders", a("openOrders", "Open orders"), count(data.openOrders)]
+          ["totalViews", a("views", "Product views"), count(data.totalViews), "/icons/navigation/chart-column.svg"],
+          ["totalLikes", a("likes", "Likes"), count(data.totalLikes), "/icons/navigation/sparkles.svg"],
+          ["newInquiries", a("inquiries", "New inquiries"), count(data.newInquiries), "/icons/navigation/message-circle.svg"],
+          ["openOrders", a("openOrders", "Open orders"), count(data.openOrders), "/icons/navigation/store.svg"]
         ]);
-        bars(section(a("categoryMix", "Products by category")), rows(data.topCategories), e => deps.getCategoryLabel(e.category), e => e.count);
+        const trend = section(a("viewsEngagement", "Views & engagement"));
+        decorateHeading(trend, "/icons/navigation/chart-column.svg", "blue");
+        emptyChart(trend);
+        const categories = section(a("topCategoryPerformance", "Top categories by performance"));
+        decorateHeading(categories, "/icons/navigation/store.svg", "orange");
+        bars(categories, rows(data.topCategories), e => deps.getCategoryLabel(e.category), e => e.count, { ranked: true });
         const actions = section(a("quickActions", "Quick actions"));
-        actions.append(
-          analyticsButton(a("manageProducts", "Manage products"), () => deps.onAnalyticsAction?.("products")),
-          analyticsButton(a("viewInquiries", "View inquiries"), () => deps.onAnalyticsAction?.("messages")),
-          analyticsButton(a("viewOrders", "View orders"), () => deps.onAnalyticsAction?.("orders"))
-        );
+        decorateHeading(actions, "/icons/navigation/sparkles.svg", "orange");
+        const actionGrid = el("div", "analytics-action-grid");
+        actions.append(actionGrid);
+        actionCard(actionGrid, a("manageProducts", "Manage products"), a("manageProductsReason", "Review your catalog and keep stock current."), () => deps.onAnalyticsAction?.("products"), "/icons/navigation/store.svg", "green");
+        actionCard(actionGrid, a("viewInquiries", "View inquiries"), a("viewInquiriesReason", "Reply to new buyer conversations."), () => deps.onAnalyticsAction?.("messages"), "/icons/navigation/message-circle.svg", "blue");
+        actionCard(actionGrid, a("viewInsights", "View insights"), a("viewInsightsReason", "See evidence-based actions for your shop."), () => { sellerState.tab = "insights"; renderSellerDashboard(); }, "/icons/navigation/sparkles.svg", "purple");
       } else if (sellerState.tab === "products") {
-        metrics(section(a("catalogTotals", "Catalog totals")), catalogMetrics);
+        const catalog = section(a("catalogTotals", "Catalog totals"));
+        decorateHeading(catalog, "/icons/navigation/store.svg", "orange");
+        metrics(catalog, catalogMetrics);
         list(section(a("recentProducts", "Recent products")), rows(data.recentProducts),
           e => item(e.name, deps.getStatusLabel(e.status), "product", e.id));
-        bars(section(a("categoryMix", "Products by category")), rows(data.topCategories), e => deps.getCategoryLabel(e.category), e => e.count);
+        bars(section(a("categoryMix", "Products by category")), rows(data.topCategories), e => deps.getCategoryLabel(e.category), e => e.count, { ranked: true });
       } else if (sellerState.tab === "customers") {
-        metrics(section(a("commerce", "Conversations & orders")), [
-          ["conversationThreads", a("threads", "Threads"), count(data.conversationThreads)],
-          ["newInquiries", a("inquiries", "New inquiries"), count(data.newInquiries)],
-          ["openOrders", a("openOrders", "Open orders"), count(data.openOrders)],
-          ["completedOrders", a("completed", "Completed orders"), count(data.completedOrders)],
-          ["repeatBuyers", a("repeatBuyers", "Repeat buyers"), count(data.repeatBuyers)],
-          ["conversionRate", a("conversion", "Conversation conversion"), count(data.conversionRate) + "%"]
+        const commerce = section(a("commerce", "Conversations & orders"));
+        decorateHeading(commerce, "/icons/navigation/message-circle.svg", "purple");
+        metrics(commerce, [
+          ["conversationThreads", a("threads", "Threads"), count(data.conversationThreads), "/icons/navigation/message-circle.svg"],
+          ["newInquiries", a("inquiries", "New inquiries"), count(data.newInquiries), "/icons/navigation/message-circle.svg"],
+          ["openOrders", a("openOrders", "Open orders"), count(data.openOrders), "/icons/navigation/store.svg"],
+          ["completedOrders", a("completed", "Completed orders"), count(data.completedOrders), "/icons/navigation/chart-column.svg"],
+          ["repeatBuyers", a("repeatBuyers", "Repeat buyers"), count(data.repeatBuyers), "/icons/navigation/refresh-cw.svg"],
+          ["conversionRate", a("conversion", "Conversation conversion"), count(data.conversionRate) + "%", "/icons/navigation/chart-column.svg"]
         ]);
         const trust = section(a("trust", "Seller trust"), data.trustTier || "");
         metrics(trust, [["trustScore", a("trustScore", "Trust score"), count(data.trustScore) + "/100"]]);
@@ -256,13 +298,14 @@
           analyticsButton(a("viewOrders", "View orders"), () => deps.onAnalyticsAction?.("orders")));
       } else if (sellerState.tab === "content") {
         const node = section(a("videoPerformance", "Video performance"), video.windowDays ? a("window", "Last {days} days", { days: count(video.windowDays) }) : "");
+        decorateHeading(node, "/icons/navigation/clapperboard.svg", "purple");
         if (video.error) node.append(el("p", "analytics-empty", a("unavailable", "This data is unavailable right now.")));
         else {
           metrics(node, [
-            ["totalVideoProducts", t("analytics.videoProducts", "Video products"), count(video.totalVideoProducts)],
-            ["plays", t("analytics.videoPlays", "Video plays"), count(video.plays)],
-            ["completionRate", t("analytics.videoCompletionRate", "Completion rate"), rate(video.completionRate)],
-            ["videoAssistedActions", t("analytics.videoAssistedActions", "Video-assisted actions"), count(video.videoAssistedActions)]
+            ["totalVideoProducts", t("analytics.videoProducts", "Video products"), count(video.totalVideoProducts), "/icons/navigation/clapperboard.svg"],
+            ["plays", t("analytics.videoPlays", "Video plays"), count(video.plays), "/icons/create/video.svg"],
+            ["completionRate", t("analytics.videoCompletionRate", "Completion rate"), rate(video.completionRate), "/icons/navigation/chart-column.svg"],
+            ["videoAssistedActions", t("analytics.videoAssistedActions", "Video-assisted actions"), count(video.videoAssistedActions), "/icons/navigation/sparkles.svg"]
           ]);
           if (video.measuredPlaySessions !== undefined) node.append(el("p", "analytics-note", a("sessions", "{completed} completed / {measured} measured playback sessions", {
             completed: count(video.completedPlaySessions), measured: count(video.measuredPlaySessions)
@@ -271,14 +314,26 @@
             e => item(e.productName || e.productId, a("videoEvidence", "{plays} plays / {rate} completion / {actions} assisted actions",
               { plays: count(e.plays), rate: rate(e.completionRate), actions: count(e.videoAssistedActions) }), "product", e.productId));
         }
-      } else if (sellerState.tab === "demand") {
+      } else if (sellerState.tab === "trends") {
+        const subTabs = el("div", "analytics-subtabs", undefined, { role: "tablist", "aria-label": a("trends", "Trends") });
+        [["demand", a("demandShort", "Demand")], ["opportunities", a("opportunities", "Opportunities")],
+          ["trending", a("trending", "Trending")], ["regional", a("regional", "Regional")]].forEach(([id, label]) => {
+          const button = analyticsButton(label, () => { sellerState.trendTab = id; renderSellerDashboard(); });
+          button.id = "analytics-trend-tab-" + id;
+          button.setAttribute("aria-selected", String(id === sellerState.trendTab));
+          button.setAttribute("role", "tab");
+          subTabs.append(button);
+        });
+        content.append(subTabs);
+        if (sellerState.trendTab === "demand") {
         const node = section(a("demand", "Demand & opportunities"));
+        decorateHeading(node, "/icons/navigation/sparkles.svg", "orange");
         if (demand.error) node.append(el("p", "analytics-empty", a("unavailable", "This data is unavailable right now.")));
         else {
           metrics(node, [
-            ["totalDemand", a("demandScore", "Demand score"), count(demand.totalDemand)],
-            ["waitingUsers", a("waiting", "Waiting users"), count(demand.waitingUsers)],
-            ["restockInterest", a("restock", "Restock interest"), count(demand.restockInterest)]
+            ["totalDemand", a("demandScore", "Demand score"), count(demand.totalDemand), "/icons/navigation/chart-column.svg"],
+            ["waitingUsers", a("waiting", "Waiting users"), count(demand.waitingUsers), "/icons/navigation/message-circle.svg"],
+            ["restockInterest", a("restock", "Restock interest"), count(demand.restockInterest), "/icons/navigation/refresh-cw.svg"]
           ]);
           list(section(a("requestedProducts", "Most requested products")), rows(demand.mostRequestedProducts),
             e => item(e.productName || e.productId, a("demandEvidence", "Demand score {score} / {waiting} waiting", {
@@ -286,27 +341,46 @@
           bars(section(a("sizes", "Most requested sizes")), rows(demand.mostRequestedSizes), e => e.size, e => e.count);
           bars(section(a("colors", "Most requested colors")), rows(demand.mostRequestedColors), e => e.color, e => e.count);
         }
+        } else if (sellerState.trendTab === "opportunities") {
         const opportunities = section(t("commerceOpportunity.sectionTitle", "Supply opportunities"));
         if (data.commerceLearning?.error) opportunities.append(el("p", "analytics-empty", a("unavailable", "This data is unavailable right now.")));
         else list(opportunities, rows(data.commerceLearning?.opportunities).filter(e => e && !e.sellerResponded).slice(0, 8), createSellerOpportunityItem);
-        if (search.error) {
-          section(a("marketOpportunities", "Market opportunities")).append(el("p", "analytics-empty", a("unavailable", "This data is unavailable right now.")));
-          return;
-        }
         list(section(a("marketOpportunities", "Market opportunities")),
           [...rows(search.zeroResultOpportunities).map(e => ({ ...e, reason: a("zeroResults", "Zero results") })),
             ...rows(search.lowSupplyOpportunities).map(e => ({ ...e, reason: a("lowSupply", "Low supply") }))],
           e => item(e.query || e.queryKey, e.reason));
+        } else if (sellerState.trendTab === "trending") {
+        if (search.error) {
+          section(a("marketOpportunities", "Market opportunities")).append(el("p", "analytics-empty", a("unavailable", "This data is unavailable right now.")));
+          return;
+        }
         bars(section(a("searches", "Trending searches")), rows(search.trendingSearches), e => e.query || e.queryKey, e => e.searches);
-      } else {
-        list(section(a("stocking", "Stocking recommendations")), rows(market.stockingRecommendations).filter(e => e.title && e.reason),
-          e => item(e.title, e.reason, "products"));
-        list(section(a("trends", "Trend alerts")), rows(market.trendAlerts),
+        list(section(a("trendAlerts", "Trend alerts")), rows(market.trendAlerts),
           e => item(e.title, a("score", "Signal score: {score}", { score: count(e.score) })));
-        bars(section(a("categories", "Category opportunities"), a("signalScores", "Signal scores")), rows(market.categoryOpportunities),
-          e => deps.getCategoryLabel(e.category), e => e.score);
-        bars(section(a("regional", "Regional demand"), a("signalScores", "Signal scores")), rows(market.regionalTrends || search.regionalDemand),
-          e => e.region, e => e.score);
+        } else {
+          bars(section(a("regional", "Regional demand"), a("signalScores", "Signal scores")), rows(market.regionalTrends || search.regionalDemand),
+            e => e.region, e => e.score);
+          bars(section(a("categories", "Category opportunities"), a("signalScores", "Signal scores")), rows(market.categoryOpportunities),
+            e => deps.getCategoryLabel(e.category), e => e.score);
+        }
+      } else {
+        const banner = el("section", "analytics-insight-banner");
+        banner.append(icon("/icons/navigation/sparkles.svg", "white"));
+        const bannerCopy = el("div", "");
+        bannerCopy.append(el("h2", "", a("growFaster", "Grow your sales faster")), el("p", "", a("growFasterBody", "Evidence-based recommendations to help you sell more on Winga.")));
+        banner.append(bannerCopy);
+        content.append(banner);
+        const recommendations = rows(market.stockingRecommendations).filter(e => e.title && e.reason);
+        const insightRows = el("section", "analytics-insight-list");
+        if (!recommendations.length) insightRows.append(el("p", "analytics-empty", a("empty", "No activity recorded yet.")));
+        recommendations.forEach((entry, index) => actionCard(insightRows, entry.title, entry.reason,
+          () => deps.onAnalyticsAction?.("products"), index % 2 ? "/icons/navigation/sparkles.svg" : "/icons/navigation/store.svg", index % 2 ? "purple" : "orange"));
+        rows(market.trendAlerts).forEach(entry => actionCard(insightRows, entry.title,
+          a("score", "Signal score: {score}", { score: count(entry.score) }), () => { sellerState.tab = "trends"; sellerState.trendTab = "trending"; renderSellerDashboard(); }, "/icons/navigation/chart-column.svg", "green"));
+        const regions = rows(market.regionalTrends || search.regionalDemand);
+        regions.slice(0, 1).forEach(entry => actionCard(insightRows, a("targetRegion", "Target this region"),
+          `${entry.region} · ${a("score", "Signal score: {score}", { score: count(entry.score) })}`, () => { sellerState.tab = "trends"; sellerState.trendTab = "regional"; renderSellerDashboard(); }, "/icons/navigation/compass.svg", "blue"));
+        content.append(insightRows);
       }
     }
 

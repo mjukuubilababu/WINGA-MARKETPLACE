@@ -18,9 +18,12 @@ into a seller-only endpoint.
 
 ## UI and data
 
-Six tabs organize existing information: Overview, Products, Customers, Content,
-Demand and Insights. Metric cards, category/size/color meters, honest empty
-states and existing action destinations replace a single long summary.
+Five compact tabs organize Overview, Products, Customers, Content and Trends.
+Trends contains Demand, Opportunities, Trending and Regional segments. Overview
+links to a focused Insights and Recommendations screen. Metric cards, a truthful
+trend-data empty panel, ranked categories, category/size/color meters, quick
+actions and evidence rows follow the supplied mobile visual direction without
+copying its sample numbers.
 Recommendations retain their existing reason and opportunity actions retain
 attribution. Refresh failures keep the last successful data. Responses arriving
 after leaving the view or changing the account are ignored.
@@ -54,7 +57,7 @@ coverage. Missing values are unavailable, not fabricated zeros.
 Final npm run test:ci passed: PostgreSQL 24/24, frontend core 122/122,
 photo-reel unit 21/21, integration 172/172 and browser 122/122.
 Module synchronization passed (65 modules). Localization passed (four locales,
-1035 keys each); hard-coded UI debt remains zero. git diff --check passed.
+1052 keys each); hard-coded UI debt remains zero. git diff --check passed.
 Responsive navigation now resynchronizes after viewport-cache refresh, with
 a browser assertion that desktop resizing hides the mobile bottom navigation.
 
@@ -66,14 +69,15 @@ Fixture numbers exist only in tests, not production UI.
 
 Browser captures are in test-results/analytics-mobile-overview.png,
 analytics-mobile-content.png, analytics-mobile-demand.png,
-analytics-mobile-rtl.png and analytics-desktop.png. These are local test
+analytics-mobile-insights.png, analytics-mobile-rtl.png and analytics-desktop.png. These are local test
 captures, not evidence of real production account totals. RTL capture tests
 direction; localization catalogs are separately validated in all four languages.
 
 ## Remaining limitations
 
 The existing API does not supply dashboard-wide historical series, prior-period
-comparisons or revenue. Consequently no fake line chart, revenue, growth or
-7/30/90-day filter is presented. Existing intelligence quality and attribution
+comparisons or revenue. Consequently the reference-style trend area shows an
+honest unavailable state and the header says Current totals; no fake line,
+revenue, growth or 7/30/90-day filter is presented. Existing intelligence quality and attribution
 limitations remain backend concerns, not concealed by this redesign. Production
 account-specific values still require an authenticated seller session to inspect.
