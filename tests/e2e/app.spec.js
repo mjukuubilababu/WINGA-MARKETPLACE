@@ -306,6 +306,33 @@ test("mobile utility menu stays separate while bottom Categories opens the categ
   await context.close();
 });
 
+test("session restore preserves Settings opened before authentication hydration completes", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "buyer_only", "Pass1234!Secure", {
+    viewport: { width: 390, height: 844 }, isMobile: true
+  });
+  let releaseRestore;
+  const restoreGate = new Promise(resolve => { releaseRestore = resolve; });
+  await page.route(`${apiBaseUrl}/auth/session`, async route => {
+    await restoreGate;
+    await route.continue();
+  });
+  try {
+    await page.goto("/");
+    await page.locator("#mobile-category-button").click();
+    await page.locator("[data-header-menu-action='settings']").click();
+    await expect(page.locator("#profile-actions-card")).toBeVisible();
+    expect(await page.evaluate(() => isSessionRestorePending)).toBe(true);
+    releaseRestore();
+    await expect.poll(() => page.evaluate(() => isSessionRestorePending)).toBe(false);
+    await expect(page.locator("#profile-actions-card")).toBeVisible();
+    await expect(page.locator("#profile-language-select")).toBeVisible();
+    expect(await page.evaluate(() => currentView)).toBe("profile");
+  } finally {
+    releaseRestore();
+    await context.close();
+  }
+});
+
 test("mobile utility menu exposes account tools without leaking seller capabilities to buyers", async ({ browser }) => {
   const { context, page } = await createLoggedInPage(browser, "buyer_only", "Pass1234!Secure", {
     viewport: { width: 390, height: 844 },

@@ -18,7 +18,8 @@ const WINGA_DEFAULT_CONFIG = {
   feedPageLimit: 12,
   feedPageLimitMobile: 12,
   feedPageLimitDesktop: 24,
-  enableClientEventLogging: WINGA_IS_FILE_MODE || WINGA_IS_LOCAL_WEB,
+  // Use the bounded telemetry transport on production too; overrides can disable it.
+  enableClientEventLogging: true,
   clearLegacyLocalDataOnBoot: false,
   authRequestTimeoutMs: 18000,
   sessionRestoreTimeoutMs: 8000,

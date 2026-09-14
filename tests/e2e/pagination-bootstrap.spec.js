@@ -1370,52 +1370,42 @@ test("Home hydration recovers after a frame insertion failure", async ({ page })
     });
   });
 
-  await page.goto("/");
-  await expect.poll(
-    () => page.locator("#products-container .product-card").count(),
-    { timeout: 30000 }
-  ).toBeGreaterThanOrEqual(12);
-  const initialCount = await page.locator("#products-container .product-card").count();
-
-  const recovery = await page.evaluate(async () => {
-    const anchor = document.querySelector("[data-continuous-discovery-anchor='home']");
+  // Arm the fault before automatic hydration starts, rather than racing its lock.
+  await page.addInitScript(() => {
     const originalBefore = Element.prototype.before;
-    let failedOnce = false;
-    homeContinuousDiscoveryRuntime.observer?.disconnect?.();
-    homeContinuousDiscoveryRuntime.sentinelObserver?.disconnect?.();
-    homeContinuousDiscoveryRuntime.lastHydrateAt = 0;
+    window.__homeInsertionFault = { injected: false, initialCount: 0 };
     Element.prototype.before = function (...nodes) {
-      if (this === anchor && !failedOnce) {
-        failedOnce = true;
+      if (this.matches("[data-continuous-discovery-anchor='home']")) {
+        window.__homeInsertionFault = {
+          injected: true,
+          initialCount: document.querySelectorAll("#products-container .product-card").length
+        };
+        Element.prototype.before = originalBefore;
         throw new Error("Injected frame insertion failure");
       }
       return originalBefore.apply(this, nodes);
     };
-    try {
-      const result = await hydrateContinuousDiscoveryAnchor(anchor);
-      return {
-        result,
-        failedOnce,
-        loading: homeContinuousDiscoveryRuntime.loading,
-        observer: Boolean(homeContinuousDiscoveryRuntime.sentinelObserver),
-        targets: (homeContinuousDiscoveryRuntime.sentinelTargets || []).filter((target) => target?.isConnected).length
-      };
-    } finally {
-      Element.prototype.before = originalBefore;
-    }
   });
 
-  expect(recovery).toMatchObject({
-    result: false,
-    failedOnce: true,
-    loading: false,
-    observer: true
-  });
-  expect(recovery.targets).toBeGreaterThan(0);
+  await page.goto("/");
   await expect.poll(
-    () => page.locator("#products-container .product-card").count(),
+    () => page.evaluate(() => ({
+      injected: window.__homeInsertionFault.injected,
+      loading: homeContinuousDiscoveryRuntime.loading,
+      observer: Boolean(homeContinuousDiscoveryRuntime.sentinelObserver),
+      connectedTargets: (homeContinuousDiscoveryRuntime.sentinelTargets || []).some(target => target?.isConnected),
+      appended: document.querySelectorAll("#products-container .product-card").length > window.__homeInsertionFault.initialCount,
+      committed: homeContinuousDiscoveryRuntime.batchIndex > 0
+    })),
     { timeout: 30000 }
-  ).toBeGreaterThan(initialCount);
+  ).toEqual({
+    injected: true,
+    loading: false,
+    observer: true,
+    connectedTargets: true,
+    appended: true,
+    committed: true
+  });
 });
 
 test("empty continuation page with hasMore true is bounded as exhausted", async ({ page }) => {

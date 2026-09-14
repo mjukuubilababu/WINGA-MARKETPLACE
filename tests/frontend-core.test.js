@@ -2382,6 +2382,78 @@ test("home feed records one fail-open commerce exposure only after visibility th
   assert.match(appSource, /activeSellerOpportunityAttribution = null/);
 });
 
+test("production configuration delivers batched telemetry and preserves its kill switch", async () => {
+  const root = path.resolve(__dirname, "..");
+  const configSource = fs.readFileSync(path.join(root, "winga-config.js"), "utf8");
+  const moduleSource = fs.readFileSync(path.join(root, "src", "api", "intelligence-client.js"), "utf8");
+  const observabilitySource = fs.readFileSync(path.join(root, "src", "monitoring", "observability.js"), "utf8");
+  for (const hostname of ["wingamarket.com", "www.wingamarket.com", "localhost"]) {
+    const requests = [];
+    const location = { protocol: "https:", hostname };
+    const context = vm.createContext({
+      location, console,
+      window: { location, WingaModules: { monitoring: {} } }
+    });
+    vm.runInContext(configSource, context);
+    vm.runInContext(moduleSource, context);
+    vm.runInContext(observabilitySource, context);
+    const config = context.window.WINGA_CONFIG;
+    assert.equal(config.enableClientEventLogging, true, hostname);
+    if (hostname !== "localhost") assert.equal(config.apiBaseUrl, "/api");
+    const client = context.window.WingaModules.api.intelligence.createIntelligenceApiClient({
+      baseUrl: config.apiBaseUrl,
+      getConfig: () => config,
+      fetchJson: async (url, options) => { requests.push({ url, options }); return { ok: true }; },
+      schedule: () => 1,
+      cancelSchedule: () => {}
+    });
+    const reporter = context.window.WingaModules.monitoring.createObservabilityModule({
+      emitClientEvent: event => client.logClientEvent(event),
+      shouldLogToConsole: () => false
+    });
+    reporter.reportEvent("info", "deep_link_product_opened", "Product opened", { productId: "test-product" });
+    assert.equal(requests.length, 0, "collection must not block on an immediate request");
+    await client.flushClientEvents();
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].url, config.apiBaseUrl + "/client-events");
+    assert.equal(requests[0].options.method, "POST");
+    assert.equal(JSON.parse(requests[0].options.body).events[0].event, "deep_link_product_opened");
+
+    await client.logClientEvent({ level: "info", event: "product_viewed" });
+    config.enableClientEventLogging = false;
+    await client.flushClientEvents();
+    await client.logClientEvent({ level: "error", event: "video_error" });
+    assert.equal(requests.length, 1, "disabling logging drops pending events and prevents new requests");
+    config.enableClientEventLogging = true;
+    await client.flushClientEvents();
+    assert.equal(requests.length, 1, "disabled events are not replayed after re-enabling");
+  }
+  const disabled = vm.createContext({ window: {
+    location: { protocol: "https:", hostname: "wingamarket.com" },
+    __WINGA_CONFIG_OVERRIDE__: { enableClientEventLogging: false }
+  } });
+  vm.runInContext(configSource, disabled);
+  assert.equal(disabled.window.WINGA_CONFIG.enableClientEventLogging, false);
+});
+
+test("production telemetry does not enable noisy Home scroll diagnostics", () => {
+  const source = fs.readFileSync(path.resolve(__dirname, "..", "app.js"), "utf8");
+  const controller = source.match(/function shouldLogHomeInfiniteDiagnostics\(\) \{[\s\S]*?\n\}/)?.[0];
+  assert.ok(controller);
+  for (const [production, debug, enabled, expected] of [
+    [true, false, true, false], [true, true, true, true],
+    [false, false, true, true], [false, true, false, false]
+  ]) {
+    const context = vm.createContext({
+      window: { WINGA_CONFIG: { enableClientEventLogging: enabled } },
+      isProductionClientRuntime: () => production,
+      isExperienceMetricDebugEnabled: () => debug
+    });
+    vm.runInContext(controller, context);
+    assert.equal(vm.runInContext("shouldLogHomeInfiniteDiagnostics()", context), expected);
+  }
+});
+
 test("intelligence client batches video telemetry without blocking marketplace work", async () => {
   const root = path.resolve(__dirname, "..");
   const moduleSource = fs.readFileSync(path.join(root, "src", "api", "intelligence-client.js"), "utf8");
@@ -2783,7 +2855,7 @@ test("home pagination retries safely, cancels stale work, and commits pages tran
   assert.match(appSource, /logHomeInfiniteDiagnostic\("hydrate_gate"/);
   assert.match(appSource, /logHomeInfiniteDiagnostic\("sentinel_trigger"/);
   assert.match(appSource, /logHomeInfiniteDiagnostic\("backend_append_result"/);
-  assert.match(appSource, /return Boolean\(window\.WINGA_CONFIG\?\.enableClientEventLogging\);/);
+  assert.match(appSource, /return Boolean\(window\.WINGA_CONFIG\?\.enableClientEventLogging\)\s*&& \(!isProductionClientRuntime\(\) \|\| isExperienceMetricDebugEnabled\(\)\);/);
   assert.match(buildSource, /"src\/marketplace\/continuation\.js"/);
   assert.match(registrySource, /window\.WingaModules\.api\.products = window\.WingaModules\.api\.products \|\| \{\};/);
   assert.match(registrySource, /window\.WingaModules\.api\.feedState = window\.WingaModules\.api\.feedState \|\| \{\};/);

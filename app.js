@@ -13034,7 +13034,8 @@ function reportShowcaseInstrumentation(eventName, payload = {}) {
 }
 
 function shouldLogHomeInfiniteDiagnostics() {
-  return Boolean(window.WINGA_CONFIG?.enableClientEventLogging);
+  return Boolean(window.WINGA_CONFIG?.enableClientEventLogging)
+    && (!isProductionClientRuntime() || isExperienceMetricDebugEnabled());
 }
 
 function logHomeInfiniteDiagnostic(eventName, payload = {}) {
@@ -17060,6 +17061,12 @@ async function hydrateMissingImageSignatures(productList = products) {
 }
 
 function loginSuccess(username, preferredCategory = "", sessionData = null, options = {}) {
+  const retainedProfileSection = options.restoreView
+    && currentView === "profile"
+    && currentSession?.username === username
+    && !isStaffRole(sessionData?.role || currentSession?.role || "")
+      ? { pending: profileRuntimeState.pendingSection, active: profileRuntimeState.activeSection }
+      : null;
   beginLifecycleEpoch("login_success");
   invalidatePendingSessionRestore();
   const {
@@ -17105,8 +17112,8 @@ function loginSuccess(username, preferredCategory = "", sessionData = null, opti
     currentPromotions = [];
     currentReviews = [];
     reviewSummaries = {};
-    profileRuntimeState.pendingSection = "";
-    profileRuntimeState.activeSection = "profile-products-panel";
+    profileRuntimeState.pendingSection = retainedProfileSection?.pending || "";
+    profileRuntimeState.activeSection = retainedProfileSection?.active || "profile-products-panel";
     chatUiState.activeContext = null;
     chatUiState.profileMessagesMode = "list";
     chatUiState.profileMessagesFilter = "all";
@@ -17139,7 +17146,7 @@ function loginSuccess(username, preferredCategory = "", sessionData = null, opti
   const storedViewState = restoreView ? getStoredAppView() : null;
   const nextView = forceView && isRestorableView(forceView, currentSession)
     ? forceView
-    : (isStaffUser() ? "admin" : "home");
+    : (isStaffUser() ? "admin" : retainedProfileSection ? "profile" : "home");
   saveSessionUser(currentSession);
   if (!isStaffUser()) {
     scheduleIdleBackgroundWork(() => hydrateAuthoritativeFollowState(
