@@ -110,13 +110,13 @@
     }
     function translate(key, variables = {}, fallbackText = "") {
       const safeKey = String(key || "").trim();
-      if (!safeKey) return String(fallbackText || "");
+      if (!safeKey) return interpolate(fallbackText, variables);
       for (const catalog of activeCatalogs) {
         const message = resolveMessage(catalog?.messages?.[safeKey], variables, catalog?.locale || context.locale);
         if (message) return interpolate(message, variables);
       }
       reportMissingKey(safeKey);
-      return String(fallbackText || safeKey);
+      return interpolate(fallbackText || safeKey, variables);
     }
     function bindStaticTranslationKeys() {
       const document = targetWindow.document;

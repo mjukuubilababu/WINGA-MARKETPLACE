@@ -1237,6 +1237,34 @@ test("market intelligence produces regional time-aware demand insights", () => {
   assert.match(source, /window\.WingaModules\.marketplace\.createMarketIntelligence = createMarketIntelligence;/);
 });
 
+test("market analytics interpolates missing catalog titles and never treats shops as regions", () => {
+  const root = path.resolve(__dirname, "..");
+  const targetWindow = {
+    WingaModules: { marketplace: {} },
+    setTimeout() {},
+    dispatchEvent() {},
+    CustomEvent: class { constructor(type, options) { this.type = type; this.detail = options.detail; } }
+  };
+  const context = vm.createContext({ window: targetWindow, Intl, Date });
+  for (const file of ["src/localization/runtime.js", "src/marketplace/market-intelligence.js"]) {
+    vm.runInContext(fs.readFileSync(path.join(root, file), "utf8"), context);
+  }
+  const runtime = targetWindow.WingaModules.localization.createRuntime({ window: targetWindow });
+  const engine = targetWindow.WingaModules.marketplace.createMarketIntelligence({ translate: runtime.translate });
+  const product = { id: "dress", name: "White dress", category: "dresses", shop: "rey", views: 10,
+    demandSummary: { demandScore: 20 } };
+  const unknown = engine.analyzeMarket({ products: [product] });
+  assert.equal(unknown.regionalTrends.length, 0);
+  assert.equal(unknown.productScores.dress.region, "");
+  assert.equal(unknown.stockingRecommendations[0].title, "Stock more dresses");
+  assert.equal(unknown.trendAlerts[0].title, "White dress is gaining demand");
+  const located = engine.analyzeMarket({ products: [{ ...product, location: "Mwanza" }] });
+  assert.equal(located.regionalTrends[0].region, "mwanza");
+  assert.equal(located.stockingRecommendations.find(item => item.type === "region").title, "Watch demand in mwanza");
+  assert.equal(runtime.translate("", { count: 0 }, "Count {count}"), "Count 0");
+  assert.equal(runtime.translate("missing", { value: "$&" }, "Value {value}"), "Value $&");
+});
+
 test("search demand intelligence aggregates anonymous zero-result and low-supply opportunities", () => {
   const root = path.resolve(__dirname, "..");
   const source = fs.readFileSync(path.join(root, "src", "marketplace", "search-demand-intelligence.js"), "utf8");

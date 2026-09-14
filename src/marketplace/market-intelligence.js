@@ -112,7 +112,7 @@
     }
 
     function getRegion(product) {
-      const raw = product?.region || product?.country || product?.location || product?.shop || "";
+      const raw = product?.region || product?.country || product?.location || "";
       return normalizeKey(raw);
     }
 
