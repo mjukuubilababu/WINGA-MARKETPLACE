@@ -9441,6 +9441,7 @@ const server = http.createServer(async (req, res) => {
           req,
           headers: req.headers,
           clientIp,
+          audienceReference: session?.username || "",
           timestamp: new Date().toISOString()
         });
       } catch (error) {
@@ -9475,7 +9476,9 @@ const server = http.createServer(async (req, res) => {
         });
         inserted = nextEvents.length;
         const searchDemandEvents = [...nextEvents, ...existingEvents].slice(0, 5000);
-        summary = summarizeSearchDemandEvents(searchDemandEvents);
+        summary = summarizeSearchDemandEvents(searchDemandEvents, {
+          minimumAudienceCount: 2
+        });
         store = {
           ...store,
           searchDemandEvents,

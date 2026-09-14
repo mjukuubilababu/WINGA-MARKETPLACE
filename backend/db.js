@@ -146,9 +146,11 @@ function resolveSlowQueryThreshold(value = process.env.DB_SLOW_QUERY_MS) {
   return Number.isFinite(parsedValue) ? Math.min(60000, Math.max(100, parsedValue)) : 1000;
 }
 
-function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, readQueryClient = null, readReplicaDatabaseUrl = process.env.READ_REPLICA_DATABASE_URL || "", slowQueryThreshold = process.env.DB_SLOW_QUERY_MS, readRetryDelayMs = process.env.DB_READ_RETRY_DELAY_MS, listenClientFactory = null, commerceRediscoveryControlPercent = process.env.COMMERCE_REDISCOVERY_CONTROL_PERCENT }) {
+function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, readQueryClient = null, readReplicaDatabaseUrl = process.env.READ_REPLICA_DATABASE_URL || "", slowQueryThreshold = process.env.DB_SLOW_QUERY_MS, readRetryDelayMs = process.env.DB_READ_RETRY_DELAY_MS, listenClientFactory = null, commerceRediscoveryControlPercent = process.env.COMMERCE_REDISCOVERY_CONTROL_PERCENT, searchDemandMinimumAudience = process.env.SEARCH_DEMAND_MIN_AUDIENCE }) {
   const requestedCommerceControlPercent = Number(commerceRediscoveryControlPercent ?? 10);
   const safeCommerceControlPercent = Math.min(50, Math.max(0, Number.isFinite(requestedCommerceControlPercent) ? requestedCommerceControlPercent : 10));
+  const requestedSearchDemandMinimumAudience = Number(searchDemandMinimumAudience ?? 2);
+  const safeSearchDemandMinimumAudience = Math.min(20, Math.max(2, Number.isFinite(requestedSearchDemandMinimumAudience) ? Math.round(requestedSearchDemandMinimumAudience) : 2));
   const pool = queryClient || new Pool({
     connectionString: databaseUrl,
     ssl: ssl ? { rejectUnauthorized: false } : false,
@@ -5549,36 +5551,40 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
          FROM search_demand_events
          WHERE happened_at >= NOW() - INTERVAL '30 days'
          GROUP BY query, query_key
+         HAVING COUNT(DISTINCT NULLIF(audience_type || ':' || audience_key, 'session:')) >= $2
          ORDER BY score DESC, searches DESC, query_key ASC
          LIMIT $1`,
-        [safeLimit]
+        [safeLimit, safeSearchDemandMinimumAudience]
       ),
       query(
         `SELECT detected_category AS category, COUNT(*)::int AS searches
          FROM search_demand_events
          WHERE happened_at >= NOW() - INTERVAL '30 days' AND detected_category <> ''
          GROUP BY detected_category
+         HAVING COUNT(DISTINCT NULLIF(audience_type || ':' || audience_key, 'session:')) >= $2
          ORDER BY searches DESC, detected_category ASC
          LIMIT $1`,
-        [safeLimit]
+        [safeLimit, safeSearchDemandMinimumAudience]
       ),
       query(
         `SELECT detected_color AS color, COUNT(*)::int AS searches
          FROM search_demand_events
          WHERE happened_at >= NOW() - INTERVAL '30 days' AND detected_color <> ''
          GROUP BY detected_color
+         HAVING COUNT(DISTINCT NULLIF(audience_type || ':' || audience_key, 'session:')) >= $2
          ORDER BY searches DESC, detected_color ASC
          LIMIT $1`,
-        [safeLimit]
+        [safeLimit, safeSearchDemandMinimumAudience]
       ),
       query(
         `SELECT location AS region, COUNT(*)::int AS searches
          FROM search_demand_events
          WHERE happened_at >= NOW() - INTERVAL '30 days' AND location <> ''
          GROUP BY location
+         HAVING COUNT(DISTINCT NULLIF(audience_type || ':' || audience_key, 'session:')) >= $2
          ORDER BY searches DESC, location ASC
          LIMIT $1`,
-        [safeLimit]
+        [safeLimit, safeSearchDemandMinimumAudience]
       ),
       query(
         `SELECT query, query_key AS "queryKey", MAX(detected_category) AS category, MAX(location) AS location,
@@ -5586,9 +5592,10 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
          FROM search_demand_events
          WHERE happened_at >= NOW() - INTERVAL '30 days' AND zero_result IS TRUE
          GROUP BY query, query_key
+         HAVING COUNT(DISTINCT NULLIF(audience_type || ':' || audience_key, 'session:')) >= $2
          ORDER BY searches DESC, query_key ASC
          LIMIT $1`,
-        [safeLimit]
+        [safeLimit, safeSearchDemandMinimumAudience]
       ),
       query(
         `SELECT query, query_key AS "queryKey", MAX(detected_category) AS category,
@@ -5596,9 +5603,10 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
          FROM search_demand_events
          WHERE happened_at >= NOW() - INTERVAL '30 days' AND zero_result IS FALSE AND result_count BETWEEN 1 AND 3
          GROUP BY query, query_key
+         HAVING COUNT(DISTINCT NULLIF(audience_type || ':' || audience_key, 'session:')) >= $2
          ORDER BY searches DESC, query_key ASC
          LIMIT $1`,
-        [safeLimit]
+        [safeLimit, safeSearchDemandMinimumAudience]
       )
     ]);
 
@@ -5645,6 +5653,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
          WHERE happened_at >= NOW() - INTERVAL '30 days'
            AND (zero_result IS TRUE OR result_count BETWEEN 1 AND 3)
          GROUP BY query_key
+         HAVING COUNT(DISTINCT NULLIF(audience_type || ':' || audience_key, 'session:')) >= $2
        ), sold_out_gaps AS (
          SELECT 'sold_out_restock'::text AS type, ''::text AS query_key, p.category,
                 COALESCE(NULLIF(MAX(de.region), ''), '') AS region,
@@ -5669,6 +5678,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
          WHERE happened_at >= NOW() - INTERVAL '30 days'
            AND detected_category <> '' AND COALESCE(NULLIF(region, ''), location) <> ''
          GROUP BY detected_category, COALESCE(NULLIF(region, ''), location)
+         HAVING COUNT(DISTINCT NULLIF(audience_type || ':' || audience_key, 'session:')) >= $2
        ), variant_gaps AS (
          SELECT 'variant_gap'::text AS type, ''::text AS query_key, p.category,
                 COALESCE(NULLIF(MAX(de.region), ''), '') AS region,
@@ -5698,7 +5708,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
               evidence_count, demand_score, supply_score FROM variant_gaps
        ORDER BY "demandScore" DESC, "evidenceCount" DESC
        LIMIT $1`,
-      [safeLimit]
+      [safeLimit, safeSearchDemandMinimumAudience]
     );
     return (result.rows || []).map((row) => ({
       ...row,

@@ -4847,6 +4847,61 @@ test("backend search demand service keeps search intelligence anonymous and aggr
   assert.equal(summary.mostSearchedColors[0].color, "white");
 });
 
+test("backend search demand summary suppresses single-audience typing prefixes", () => {
+  const { summarizeSearchDemandEvents } = require("../backend/search-demand-service.js");
+  const base = {
+    detectedCategory: "wanawake-suruali",
+    source: "text",
+    resultCount: 0,
+    zeroResult: true,
+    audienceType: "user"
+  };
+  const summary = summarizeSearchDemandEvents([
+    { ...base, query: "sur", queryKey: "sur", audienceKey: "buyer-a" },
+    { ...base, query: "suru", queryKey: "suru", audienceKey: "buyer-a" },
+    { ...base, query: "suruali", queryKey: "suruali", audienceKey: "buyer-a" },
+    { ...base, query: "suruali", queryKey: "suruali", audienceKey: "buyer-b" }
+  ], {
+    minimumAudienceCount: 2
+  });
+
+  assert.deepEqual(summary.trendingSearches.map((item) => item.queryKey), ["suruali"]);
+  assert.deepEqual(summary.zeroResultOpportunities.map((item) => item.queryKey), ["suruali"]);
+  assert.equal(summary.lowSupplyOpportunities.length, 0);
+});
+
+test("backend search demand dedupe separates users sharing one carrier IP", () => {
+  const { normalizeSearchDemandSignal } = require("../backend/search-demand-service.js");
+  const payload = {
+    query: "suruali",
+    source: "text",
+    resultCount: 0
+  };
+  const context = {
+    clientIp: "203.0.113.42",
+    timestamp: "2026-09-14T10:00:00.000Z"
+  };
+  const first = normalizeSearchDemandSignal({ ...payload, anonymousId: "browser-a" }, context);
+  const second = normalizeSearchDemandSignal({ ...payload, anonymousId: "browser-b" }, context);
+
+  assert.notEqual(first.dedupeKey, second.dedupeKey);
+  assert.equal(JSON.stringify(first).includes("browser-a"), false);
+  assert.equal(JSON.stringify(second).includes("203.0.113.42"), false);
+});
+
+test("search demand recording waits for a settled query and flushes before click attribution", () => {
+  const appSource = fs.readFileSync(path.join(__dirname, "..", "app.js"), "utf8");
+  const recordStart = appSource.indexOf("function recordSearchDemandSignal(");
+  const clickStart = appSource.indexOf("function markSearchDemandClick(", recordStart);
+  const section = appSource.slice(recordStart, clickStart + 220);
+
+  assert.ok(recordStart >= 0 && clickStart > recordStart);
+  assert.match(section, /pendingSearchDemandSignal = \{ \.\.\.details, query, source \}/);
+  assert.match(section, /\}, 900\);/);
+  assert.match(section, /String\(searchInput\?\.value \|\| ""\)\.trim\(\) === signal\.query/);
+  assert.match(section, /function markSearchDemandClick\(productId\) \{\s+flushPendingSearchDemandSignal\(\);/);
+});
+
 test("localized upload errors preserve independent auth fallback scope", () => {
   const appSource = fs.readFileSync(path.join(__dirname, "..", "app.js"), "utf8");
   const authStart = appSource.indexOf("function getFriendlyAuthErrorMessage(");

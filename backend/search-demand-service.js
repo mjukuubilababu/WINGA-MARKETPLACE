@@ -119,13 +119,19 @@ function normalizeSearchDemandSignal(payload = {}, context = {}) {
       anonymous: true
     }
   };
-  const ipHash = hashIp(context.clientIp || "");
+  const dedupeReference = sanitizeText(
+    context.audienceReference || payload.anonymousId || context.clientIp || "",
+    200
+  );
+  const audienceHash = hashIp(dedupeReference);
   event.eventId = createEventId(event);
-  event.dedupeKey = createDedupeKey({ ...event, ipHash });
+  event.dedupeKey = createDedupeKey({ ...event, ipHash: audienceHash });
   return event;
 }
 
-function summarizeSearchDemandEvents(events = []) {
+function summarizeSearchDemandEvents(events = [], options = {}) {
+  const requestedMinimumAudience = Number(options.minimumAudienceCount ?? 1);
+  const minimumAudienceCount = Math.min(20, Math.max(1, Number.isFinite(requestedMinimumAudience) ? Math.round(requestedMinimumAudience) : 1));
   const queryMap = new Map();
   const categoryMap = new Map();
   const colorMap = new Map();
@@ -141,10 +147,13 @@ function summarizeSearchDemandEvents(events = []) {
       category: event.detectedCategory || "",
       location: event.location || "",
       count: 0,
-      score: 0
+      score: 0,
+      audiences: new Set()
     };
     current.count += 1;
     current.score += score;
+    const audienceKey = sanitizeText(event.audienceKey || "", 64);
+    if (audienceKey) current.audiences.add(`${event.audienceType === "user" ? "user" : "session"}:${audienceKey}`);
     map.set(safeKey, current);
   };
   (Array.isArray(events) ? events : []).forEach((event) => {
@@ -157,6 +166,7 @@ function summarizeSearchDemandEvents(events = []) {
     if (!event.zeroResult && Number(event.resultCount || 0) <= 3) add(lowSupplyMap, event.queryKey, event, score);
   });
   const compact = (map, mapper) => Array.from(map.values())
+    .filter((entry) => minimumAudienceCount <= 1 || entry.audiences.size >= minimumAudienceCount)
     .sort((first, second) => Number(second.score || 0) - Number(first.score || 0))
     .slice(0, 20)
     .map((entry) => mapper(entry));

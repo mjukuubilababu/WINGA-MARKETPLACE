@@ -737,6 +737,8 @@ let searchDemandCollector = null;
 let searchDemandFlushTimer = null;
 let searchDemandFlushInFlight = false;
 let searchDemandLastFlushedSignature = "";
+let searchDemandCommitTimer = null;
+let pendingSearchDemandSignal = null;
 let marketInsightsCache = {
   key: "",
   updatedAt: 0,
@@ -934,7 +936,7 @@ function getCurrentSearchDemandFilters() {
   };
 }
 
-function recordSearchDemandSignal(details = {}) {
+function commitSearchDemandSignal(details = {}) {
   const collector = getSearchDemandCollector();
   if (!collector || typeof collector.record !== "function") {
     return;
@@ -968,7 +970,47 @@ function recordSearchDemandSignal(details = {}) {
   }
 }
 
+function recordSearchDemandSignal(details = {}) {
+  const query = String(details.query ?? searchInput?.value ?? "").trim();
+  const source = String(details.source || (searchRuntimeState.activeImageSearch?.signature ? "image" : "text")).trim();
+  if (!query && source === "text") {
+    return;
+  }
+  if (searchDemandCommitTimer) {
+    window.clearTimeout(searchDemandCommitTimer);
+    searchDemandCommitTimer = null;
+  }
+  pendingSearchDemandSignal = { ...details, query, source };
+  if (source !== "text") {
+    const signal = pendingSearchDemandSignal;
+    pendingSearchDemandSignal = null;
+    commitSearchDemandSignal(signal);
+    return;
+  }
+  searchDemandCommitTimer = window.setTimeout(() => {
+    searchDemandCommitTimer = null;
+    const signal = pendingSearchDemandSignal;
+    pendingSearchDemandSignal = null;
+    if (signal && String(searchInput?.value || "").trim() === signal.query) {
+      commitSearchDemandSignal(signal);
+    }
+  }, 900);
+}
+
+function flushPendingSearchDemandSignal() {
+  if (searchDemandCommitTimer) {
+    window.clearTimeout(searchDemandCommitTimer);
+    searchDemandCommitTimer = null;
+  }
+  const signal = pendingSearchDemandSignal;
+  pendingSearchDemandSignal = null;
+  if (signal && (signal.source !== "text" || String(searchInput?.value || "").trim() === signal.query)) {
+    commitSearchDemandSignal(signal);
+  }
+}
+
 function markSearchDemandClick(productId) {
+  flushPendingSearchDemandSignal();
   const collector = getSearchDemandCollector();
   const query = String(searchInput?.value || "").trim();
   collector?.markClick?.(productId, query);

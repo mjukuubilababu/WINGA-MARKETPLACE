@@ -1675,6 +1675,7 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
       events: [{
         query: "white dress",
         source: "text",
+        anonymousId: "search-audience-a",
         category: "fashion-dress",
         color: "white",
         resultCount: 0,
@@ -1687,7 +1688,28 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   assert.equal(searchDemandBatch.response.status, 202);
   assert.equal(searchDemandBatch.body.accepted, 1);
   assert.equal(searchDemandBatch.body.summary.privacy, "anonymous-aggregate-only");
-  assert.equal(searchDemandBatch.body.summary.trendingSearches.some((item) => item.queryKey === "white-dress"), true);
+  assert.equal(searchDemandBatch.body.summary.trendingSearches.some((item) => item.queryKey === "white-dress"), false);
+
+  const corroboratedSearchDemandBatch = await request("/search-demand", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      events: [{
+        query: "white dress",
+        source: "text",
+        anonymousId: "search-audience-b",
+        category: "fashion-dress",
+        color: "white",
+        resultCount: 0,
+        zeroResult: true,
+        noClick: true,
+        location: "Dar es Salaam"
+      }]
+    })
+  });
+  assert.equal(corroboratedSearchDemandBatch.response.status, 202);
+  assert.equal(corroboratedSearchDemandBatch.body.accepted, 1);
+  assert.equal(corroboratedSearchDemandBatch.body.summary.trendingSearches.some((item) => item.queryKey === "white-dress"), true);
 
   const moderate = await request("/admin/products/product-test-001/moderate", {
     method: "PATCH",

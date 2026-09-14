@@ -2495,6 +2495,29 @@ test("PostgreSQL search demand persistence stores anonymous events and reads agg
   assert.equal(summary.zeroResultOpportunities[0].opportunity, "high");
   assert.equal(summary.lowSupplyOpportunities[0].supply, "low");
   assert.equal(summary.regionalDemand[0].region, "dar-es-salaam");
+  calls.slice(1).forEach((call) => {
+    assert.deepEqual(call.params, [5, 2]);
+    assert.match(call.text, /HAVING COUNT\(DISTINCT NULLIF\(audience_type \|\| ':' \|\| audience_key, 'session:'\)\) >= \$2/);
+  });
+});
+test("PostgreSQL commerce search opportunities require corroborating audiences", async () => {
+  const calls = [];
+  const store = createPostgresStore({
+    databaseUrl: "postgres://test.invalid/winga",
+    searchDemandMinimumAudience: 3,
+    queryClient: {
+      async query(text, params) {
+        calls.push({ text, params });
+        return { rows: [] };
+      }
+    }
+  });
+
+  const candidates = await store.readCommerceOpportunityCandidates(25);
+
+  assert.deepEqual(candidates, []);
+  assert.deepEqual(calls[0].params, [25, 3]);
+  assert.equal((calls[0].text.match(/HAVING COUNT\(DISTINCT NULLIF\(audience_type \|\| ':' \|\| audience_key, 'session:'\)\) >= \$2/g) || []).length, 2);
 });
 test("PostgreSQL locale preferences use one versioned upsert and detect conflicts", async () => {
   const calls = [];
