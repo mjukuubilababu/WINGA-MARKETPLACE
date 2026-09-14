@@ -106,6 +106,158 @@ async function openHeaderMenuAction(page, action) {
   throw lastError || new Error(`Header action ${action} was not available.`);
 }
 
+async function openSellerAnalytics(page) {
+  await expect(page.locator("#header-user-trigger")).toBeVisible();
+  const action = page.locator("[data-header-menu-action='seller-insights']");
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await page.locator("#mobile-category-button").click();
+    try {
+      await expect(action).toBeVisible({ timeout: 2000 });
+      await action.click({ timeout: 3000 });
+      break;
+    } catch (error) {
+      if (attempt === 2) throw error;
+    }
+  }
+  await expect(page.locator("#analytics-panel.seller-analytics")).toBeVisible();
+}
+
+test("seller Analytics lives only in the utility menu and preserves real API values, history and Profile", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure", { viewport: { width: 390, height: 844 }, isMobile: true });
+  let analyticsRequests = 0;
+  page.on("request", request => { if (request.url().includes("/analytics/summary")) analyticsRequests++; });
+  const errors = [];
+  page.on("pageerror", error => errors.push(error.message));
+  await page.goto("/");
+  await openHeaderMenuAction(page, "profile");
+  await expect(page.locator("#profile-identity-card")).toBeVisible();
+  await expect(page.locator("#analytics-panel")).toBeHidden();
+  expect(analyticsRequests).toBe(0);
+  await page.locator("#header-user-trigger").click();
+  await expect(page.locator("[data-header-menu-action='seller-insights']")).toHaveCount(0);
+  await page.locator("#header-user-trigger").click();
+  const summaryResponse = page.waitForResponse(response => response.url().includes("/analytics/summary") && response.ok());
+  await openSellerAnalytics(page);
+  const summary = await (await summaryResponse).json();
+  await expect(page.locator("[data-metric='totalViews'] strong")).toBeVisible();
+  expect(summary.totalViews).not.toBeUndefined();
+  expect(await page.locator("[data-metric='totalViews'] strong").textContent()).toBe(String(summary.totalViews));
+  await expect(page.locator("#profile-div")).toBeHidden();
+  await expect(page.locator("#bottom-nav")).toBeVisible();
+  expect(await page.evaluate(() => history.state.view)).toBe("analytics");
+  await page.reload();
+  await expect(page.locator("#analytics-panel.seller-analytics")).toBeVisible();
+  await page.locator("#analytics-panel .analytics-heading button").first().click();
+  await expect(page.locator("#profile-identity-card")).toBeVisible();
+  await openSellerAnalytics(page);
+  await page.locator("[data-shell-action='home']").click();
+  await expect(page.locator("#products-container .product-card").first()).toBeVisible();
+  await expect(page.locator("#analytics-panel")).toBeHidden();
+  expect(errors).toEqual([]);
+  await context.close();
+});
+
+test("seller Analytics tabs show supplied aggregates without invented growth and fit mobile, RTL and desktop", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure", { viewport: { width: 390, height: 844 }, isMobile: true });
+  // Contract fixture only; no sample is shipped in the production dashboard.
+  const summary = {
+    totalProducts: 48, approvedProducts: 48, pendingProducts: 0, rejectedProducts: 0,
+    totalViews: 116, totalLikes: 0, conversationThreads: 4, newInquiries: 0,
+    openOrders: 0, completedOrders: 0, repeatBuyers: 0, conversionRate: 0, trustScore: 59, trustTier: "Growing",
+    topCategories: [{ category: "wanawake-magauni", count: 17 }, { category: "reels", count: 5 }],
+    recentProducts: [{ id: "e2e-prod-1", name: "Gallery product", status: "approved" }],
+    demand: { totalDemand: 0, waitingUsers: 0, restockInterest: 0, mostRequestedProducts: [], mostRequestedSizes: [], mostRequestedColors: [] },
+    commerceLearning: { opportunities: [] }, searchDemand: { trendingSearches: [], regionalDemand: [] },
+    video: { windowDays: 30, totalVideoProducts: 13, plays: 22, completionRate: .3158, videoAssistedActions: 0,
+      measuredPlaySessions: 19, completedPlaySessions: 6, topVideos: [{ productId: "e2e-prod-1", productName: "Gallery product", plays: 4, completionRate: .6667, videoAssistedActions: 0 }] }
+  };
+  await page.route("**/api/analytics/summary", route => route.fulfill({ json: summary }));
+  await page.goto("/");
+  await openSellerAnalytics(page);
+  await expect(page.locator("[data-metric='totalViews'] strong")).toHaveText("116");
+  await page.screenshot({ path: "test-results/analytics-mobile-overview.png", fullPage: true });
+  for (const tab of ["products", "customers", "content", "demand", "insights"]) {
+    await page.locator("#analytics-tab-" + tab).click();
+    await expect(page.locator("#analytics-tab-" + tab)).toHaveAttribute("aria-selected", "true");
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
+  }
+  await page.locator("#analytics-tab-content").click();
+  await expect(page.locator("[data-metric='completionRate'] strong")).toHaveText("31.58%");
+  await expect(page.locator("[data-metric='plays'] strong")).toHaveText("22");
+  await page.screenshot({ path: "test-results/analytics-mobile-content.png", fullPage: true });
+  await page.locator("#analytics-tab-demand").click();
+  await expect(page.locator(".analytics-empty").first()).toBeVisible();
+  await page.screenshot({ path: "test-results/analytics-mobile-demand.png", fullPage: true });
+  await expect(page.locator("#analytics-panel")).not.toContainText("1,248");
+  await expect(page.locator("#analytics-panel select")).toHaveCount(0);
+  await page.locator("#analytics-tab-overview").focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(page.locator("#analytics-tab-products")).toHaveAttribute("aria-selected", "true");
+  await page.setViewportSize({ width: 320, height: 740 });
+  await page.evaluate(() => { document.documentElement.dir = "rtl"; });
+  await page.screenshot({ path: "test-results/analytics-mobile-rtl.png", fullPage: true });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.evaluate(() => { document.documentElement.dir = "ltr"; });
+  await expect(page.locator("#bottom-nav")).toBeHidden();
+  await page.locator("#analytics-tab-overview").click();
+  await page.screenshot({ path: "test-results/analytics-desktop.png", fullPage: true });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
+  expect(await page.locator("#analytics-panel img").evaluateAll(images => images.every(img => img.complete && img.naturalWidth > 0))).toBe(true);
+  await context.close();
+});
+
+test("seller Analytics refresh failures retain data and late responses cannot reopen it after navigation", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure", { viewport: { width: 390, height: 844 } });
+  let mode = "success", release;
+  await page.route("**/api/analytics/summary", async route => {
+    if (mode === "error") return route.fulfill({ status: 503, json: { error: "unavailable" } });
+    if (mode === "delayed") await new Promise(resolve => { release = resolve; });
+    await route.fulfill({ json: { totalViews: 116, totalLikes: 0, openOrders: 0, newInquiries: 0 } });
+  });
+  await page.goto("/");
+  await openSellerAnalytics(page);
+  await expect(page.locator("[data-metric='totalViews'] strong")).toHaveText("116");
+  mode = "error";
+  await page.locator("#analytics-panel .analytics-heading button").last().click();
+  await expect(page.locator(".analytics-status")).not.toBeEmpty();
+  await expect(page.locator("#analytics-panel .analytics-heading button").last()).toBeEnabled();
+  await expect(page.locator("[data-metric='totalViews'] strong")).toHaveText("116");
+  mode = "delayed";
+  await page.locator("#analytics-panel .analytics-heading button").last().click();
+  await expect.poll(() => Boolean(release)).toBe(true);
+  await page.locator("[data-shell-action='home']").click();
+  release();
+  await expect(page.locator("#products-container .product-card").first()).toBeVisible();
+  await expect(page.locator("#analytics-panel")).toBeHidden();
+  expect(await page.locator("#analytics-panel").textContent()).toBe("");
+  await context.close();
+});
+
+test("buyer and guest cannot open the seller Analytics screen through restored history", async ({ browser }) => {
+  for (const username of ["buyer_only", ""]) {
+    const { context, page } = username ? await createLoggedInPage(browser, username, "Pass1234!Secure", { viewport: { width: 390, height: 844 } })
+      : await createAnonymousPage(browser, { viewport: { width: 390, height: 844 } });
+    let analyticsRequests = 0;
+    page.on("request", request => { if (request.url().includes("/analytics/summary")) analyticsRequests++; });
+    await page.goto("/");
+    await expect(page.locator("#products-container .product-card").first()).toBeVisible();
+    if (username) {
+      await page.locator("#mobile-category-button").click();
+      await expect(page.locator("[data-header-menu-action='seller-insights']")).toHaveCount(0);
+      await page.locator("#mobile-category-button").click();
+    }
+    await page.evaluate(username => {
+      const state = { wingaAppShell: true, view: "analytics", username };
+      history.replaceState(state, "", location.href);
+      window.dispatchEvent(new PopStateEvent("popstate", { state }));
+    }, username);
+    await expect(page.locator("#analytics-panel")).toBeHidden();
+    expect(analyticsRequests).toBe(0);
+    await context.close();
+  }
+});
+
 test("app load renders marketplace feed, hero, images, and category navigation", async ({ browser }) => {
   const { context, page } = await createAnonymousPage(browser);
   await page.goto("/");
@@ -1001,7 +1153,9 @@ test("seller opportunity opens attributed creation and supports private dismissa
   });
 
   await page.goto("/");
-  await openHeaderMenuAction(page, "profile");
+  await page.locator("#mobile-category-button").click();
+  await page.locator("[data-header-menu-action='seller-insights']").click();
+  await page.locator("#analytics-tab-demand").click();
   const opportunityCard = page.locator(".seller-opportunity-item", { hasText: "white maxi dress" });
   await expect(opportunityCard).toBeVisible();
   await opportunityCard.locator("button").first().click();
@@ -1010,7 +1164,9 @@ test("seller opportunity opens attributed creation and supports private dismissa
   await expect(page.locator("#product-category")).toHaveValue("wanawake-magauni");
 
   await page.locator("#creation-back").click();
-  await openHeaderMenuAction(page, "profile");
+  await page.locator("#mobile-category-button").click();
+  await page.locator("[data-header-menu-action='seller-insights']").click();
+  await page.locator("#analytics-tab-demand").click();
   const dismissCard = page.locator(".seller-opportunity-item", { hasText: "white maxi dress" });
   await dismissCard.locator("button").nth(1).click();
   await expect(dismissCard).toHaveCount(0);

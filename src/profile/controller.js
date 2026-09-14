@@ -893,31 +893,6 @@
           });
       }
 
-      if (deps.canUseSellerFeatures()) {
-        deps.dataLayer.loadAnalytics()
-          .then((analytics) => {
-            if (!isRenderActive(sequence)) {
-              return;
-            }
-            deps.renderAnalyticsPanel(analytics, t("profile.performanceTitle", "Your performance"), t("profile.catalogSummary", "Your catalog summary"));
-          })
-          .catch((error) => {
-            if (!isRenderActive(sequence)) {
-              return;
-            }
-            deps.captureError?.("profile_analytics_load_failed", error, {
-              user: currentUser
-            });
-            deps.renderAnalyticsPanel(null, t("profile.performanceTitle", "Your performance"), t("profile.catalogSummary", "Your catalog summary"));
-            deps.showInAppNotification?.({
-              title: t("profile.analyticsUnavailableTitle", "Analytics unavailable"),
-              body: t("profile.analyticsUnavailableBody", "Performance yako haijapatikana kwa sasa. Tunaonyesha fallback salama."),
-              variant: "warning",
-              durationMs: 4200
-            });
-          });
-      }
-
       deps.dataLayer.loadMyOrders()
         .then((orders) => {
           if (!isRenderActive(sequence)) {

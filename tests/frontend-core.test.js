@@ -4892,7 +4892,13 @@ test("global profile recovery and seller states use complete locale catalogs", (
     const catalog = JSON.parse(fs.readFileSync(path.join(root, "src", "localization", "catalogs", language + ".json"), "utf8"));
     for (const key of requiredKeys) assert.equal(typeof catalog.messages[key], "string", language + " missing " + key);
   }
-  for (const key of requiredKeys) assert.match(profileSource, new RegExp(key.replace(/[.]/g, "\\.")));
+  for (const key of requiredKeys) {
+    const ownerSource = key === "profile.analyticsUnavailableTitle"
+      ? fs.readFileSync(path.join(root, "src", "admin", "ui.js"), "utf8")
+      : profileSource;
+    assert.match(ownerSource, new RegExp(key.replace(/[.]/g, "\\.")));
+  }
+  assert.doesNotMatch(controllerSource, /loadAnalytics\(/, "Profile no longer owns Analytics loading");
 });
 
 test("browser session state does not persist or propagate auth tokens", () => {

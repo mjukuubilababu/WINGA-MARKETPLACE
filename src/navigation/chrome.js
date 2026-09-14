@@ -21,6 +21,7 @@
       viewportWidthFrame = requestAnimationFrame(() => {
         viewportWidthFrame = 0;
         refreshViewportWidthCache();
+        updateMarketplaceActionChrome();
       });
     }
 
@@ -36,7 +37,7 @@
       return getViewportWidth() <= 720
         && deps.getAppContainer()?.style.display !== "none"
         && !deps.isStaffUser()
-        && ["home", "offers", "shops", "profile", "upload"].includes(deps.getCurrentView())
+        && ["home", "offers", "shops", "profile", "upload", "analytics"].includes(deps.getCurrentView())
         && !document.body.classList.contains("product-detail-open");
     }
 

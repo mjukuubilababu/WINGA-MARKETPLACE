@@ -37,13 +37,20 @@
           deps.openProfileSection("");
           return;
         }
+        if (action === "seller-insights") {
+          if (!deps.canAccessView("analytics")) return;
+          deps.toggleHeaderUserMenu(false);
+          deps.setCurrentViewState("analytics", { syncHistory: "push" });
+          deps.renderCurrentView();
+          window.scrollTo({ top: 0, behavior: "auto" });
+          return;
+        }
         const profileTargets = {
           orders: "profile-orders-panel",
           messages: "profile-messages-panel",
           notifications: "profile-notifications-panel",
           "saved-following": "profile-saved-intent-panel",
           "seller-center": "profile-products-panel",
-          "seller-insights": "analytics-panel",
           promotions: "profile-promotions-management-panel",
           settings: "profile-actions-card"
         };

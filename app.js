@@ -1603,6 +1603,7 @@ function getBuyerSellerAffinityEntries() {
 }
 
 function setCurrentViewState(nextView, options = {}) {
+  if (options.syncHistory === "push") pendingAnalyticsRestore = null;
   const {
     syncNav = true,
     persist = true,
@@ -3939,7 +3940,7 @@ function canAccessView(view) {
   if (view === "home" || view === "profile") {
     return true;
   }
-  if (view === "upload") {
+  if (view === "upload" || view === "analytics") {
     return canUseSellerFeatures();
   }
   if (view === "admin") {
@@ -4028,6 +4029,7 @@ function refreshPublicEntryChrome(options = {}) {
   const isGuest = !isAuthenticatedUser();
   const isSessionRestoreUi = isSessionRestorePending && isGuest;
   const isRestrictedView = currentView === "profile"
+    || currentView === "analytics"
     || currentView === "upload"
     || (currentView === "admin" && isStaffUser());
   if (publicHeaderActions) {
@@ -5491,7 +5493,7 @@ function getHeaderMenuItems() {
       },
       {
         action: "seller-insights",
-        label: translateUi("menu.demandAnalytics", {}, "Demand & Analytics"),
+        label: translateUi("ui.label.94c116ee118a", {}, "Analytics"),
         capability: "seller"
       },
       {
@@ -5528,6 +5530,7 @@ function renderHeaderUserMenu() {
   if (!headerUserMenu || !headerUserTrigger || !headerUserDropdown) {
     return;
   }
+  topBar?.classList.toggle("has-business-tools", canUseSellerFeatures());
 
   if (!isAuthenticatedUser()) {
     profileRuntimeState.isHeaderUserMenuOpen = false;
@@ -5556,7 +5559,7 @@ function renderHeaderUserMenu() {
   }
 
   headerUserDropdown.replaceChildren(
-    ...getHeaderMenuItems().map((item) => {
+    ...getHeaderMenuItems().filter((item) => item.action !== "seller-insights" || headerUserMenu.dataset.menuAnchor === "utility").map((item) => {
       const button = createElement("button", {
         className: `header-user-menu-item${item.danger ? " danger" : ""}`,
         attributes: {
@@ -5565,6 +5568,9 @@ function renderHeaderUserMenu() {
           ...(item.capability ? { "data-menu-capability": item.capability } : {})
         }
       });
+      if (item.action === "seller-insights") {
+        button.appendChild(createElement("img", { attributes: { src: "/icons/navigation/chart-column.svg", width: 20, height: 20, alt: "" } }));
+      }
       button.appendChild(createElement("span", { textContent: item.label }));
       return button;
     })
@@ -11109,7 +11115,7 @@ const {
   getCurrentUser: () => currentUser
 });
 
-const { renderAnalyticsPanel: renderBaseAnalyticsPanel } = window.WingaModules.admin.createAdminUiModule({
+const { renderAnalyticsPanel: renderBaseAnalyticsPanel, renderSellerAnalyticsView, leaveSellerAnalytics } = window.WingaModules.admin.createAdminUiModule({
   createElement,
   createSectionHeading,
   createEmptyState,
@@ -11118,6 +11124,21 @@ const { renderAnalyticsPanel: renderBaseAnalyticsPanel } = window.WingaModules.a
   getCategoryLabel,
   getStatusLabel,
   isAdminUser,
+  translate: translateUi,
+  getCurrentUser: () => currentUser,
+  isSellerAnalyticsView: () => currentView === "analytics" && canUseSellerFeatures(),
+  loadAnalytics: () => window.WingaDataLayer.loadAnalytics(),
+  decorateSellerAnalytics: (data) => ({ ...data, market: getSellerMarketInsightsForAnalytics(currentUser) }),
+  onAnalyticsBack: () => {
+    if (window.history.state?.wingaAppShell && window.history.length > 1) window.history.back();
+    else handleMobileShellAction("home");
+  },
+  onAnalyticsAction: (action, id) => {
+    if (!canUseSellerFeatures()) return;
+    if (action === "product") openProductDetailModal(id);
+    else openProfileSection(action === "orders" ? "profile-orders-panel" : action === "messages" ? "profile-messages-panel" : "profile-products-panel");
+  },
+  captureError: (...args) => captureClientError(...args),
   onSellerOpportunityAction: handleSellerOpportunityAction
 });
 
@@ -11944,6 +11965,7 @@ function refreshVisibleRequestButtons(scope = document) {
 }
 
 function isRestorableView(view, session) {
+  if (view === "analytics") return Boolean(session?.username) && session?.role === "seller";
   if (session?.role === "admin" || session?.role === "moderator") {
     return view === "home" || view === "admin";
   }
@@ -12327,6 +12349,8 @@ let currentUser = "";
 let selectedCategory = "all";
 let expandedBrowseCategory = "";
 let currentView = "home";
+let pendingAnalyticsRestore = window.history.state?.wingaAppShell && window.history.state.view === "analytics"
+  ? { username: String(window.history.state.username || "") } : null;
 let homeFeedRefreshCursor = 0;
 let publicAuthRequestPending = false;
 let publicAuthTransitionPending = false;
@@ -14179,6 +14203,7 @@ function renderLifecycleFallbackSkeleton(message = "") {
 
 function shouldKeepStartupFeedLoadingVisible() {
   try {
+    if (currentView === "analytics") return false;
     const isProfile = currentView === "profile";
     const isUpload = currentView === "upload" && canUseSellerFeatures();
     const isAdminView = currentView === "admin" && isStaffUser();
@@ -17144,9 +17169,12 @@ function loginSuccess(username, preferredCategory = "", sessionData = null, opti
     hydrateBuyerSellerAffinityState(username);
   }
   const storedViewState = restoreView ? getStoredAppView() : null;
+  const restoreAnalytics = restoreView && canUseSellerFeatures()
+    && (currentView === "analytics" || pendingAnalyticsRestore?.username === username);
+  pendingAnalyticsRestore = null;
   const nextView = forceView && isRestorableView(forceView, currentSession)
     ? forceView
-    : (isStaffUser() ? "admin" : retainedProfileSection ? "profile" : "home");
+    : (isStaffUser() ? "admin" : retainedProfileSection ? "profile" : restoreAnalytics ? "analytics" : "home");
   saveSessionUser(currentSession);
   if (!isStaffUser()) {
     scheduleIdleBackgroundWork(() => hydrateAuthoritativeFollowState(
@@ -20854,6 +20882,7 @@ function renderCurrentView(options = {}) {
     if (!canAccessView(currentView)) {
       setCurrentViewState("home");
     }
+    if (currentView !== "analytics") leaveSellerAnalytics();
     if (currentView !== "home") {
       disconnectContinuousDiscoveryObserver();
       stopSlideshow();
@@ -20918,6 +20947,21 @@ function renderCurrentView(options = {}) {
         return;
       }
     }
+    if (currentView === "analytics") {
+      [searchBox, searchToggleButton, searchImageButton, categories,
+        heroPanel, marketShowcase, productsContainer, emptyState, uploadForm, adminPanel, profileDiv]
+        .forEach((element) => { if (element) element.style.display = "none"; });
+      setFeedLoadingStateVisible(false);
+      setInitialProductsErrorStateVisible(false);
+      analyticsPanel.style.display = "block";
+      if (mobileCategoryShell) mobileCategoryShell.style.display = "block";
+      syncSearchChromeState();
+      updateMarketplaceActionChrome();
+      scheduleChromeOffsetSync();
+      syncBodyScrollLockState();
+      renderSellerAnalyticsView();
+      return;
+    }
     const filteredProducts = getFilteredProducts();
     const isQuickDiscoveryView = currentView === "offers" || currentView === "shops";
     const isProfile = currentView === "profile";
@@ -20952,7 +20996,7 @@ function renderCurrentView(options = {}) {
     searchToggleButton.style.display = isProfile || isUpload || isAdminView ? "none" : "";
     searchImageButton.style.display = isProfile || isUpload || isAdminView ? "none" : "";
     if (mobileCategoryShell) {
-      mobileCategoryShell.style.display = isProfile || isUpload || isAdminView ? "none" : "";
+      mobileCategoryShell.style.display = canUseSellerFeatures() ? "block" : isProfile || isUpload || isAdminView ? "none" : "";
     }
     syncMobileCategorySheetOffset();
     searchBox.classList.toggle("mobile-open", searchRuntimeState.isMobileSearchOpen);
@@ -20978,7 +21022,7 @@ function renderCurrentView(options = {}) {
     setInitialProductsErrorStateVisible(shouldShowInitialProductsError);
     uploadForm.style.display = isUpload || editingProductId ? "block" : "none";
     productCreationController?.sync();
-    analyticsPanel.style.display = isAdminView || (isProfile && canUseSellerFeatures()) ? "block" : "none";
+    analyticsPanel.style.display = isAdminView ? "block" : "none";
     adminPanel.style.display = isAdminView ? "block" : "none";
     syncBodyScrollLockState();
 
