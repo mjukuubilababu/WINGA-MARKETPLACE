@@ -7242,6 +7242,33 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     };
   }
 
+  function buildPublicPersonCapabilities(row = {}) {
+    const capabilities = [];
+    if (row.role === "buyer") capabilities.push("buyer");
+    if (row.role === "seller" || row.verifiedSeller || Number(row.publicProductCount || 0) > 0) capabilities.push("seller");
+    if (Number(row.publicReelCount || 0) > 0 || Number(row.publicReviewCount || 0) > 0) capabilities.push("creator");
+    return capabilities;
+  }
+
+  function normalizePublicPersonSummary(row = {}) {
+    const publicContent = {
+      products: Math.max(0, Number(row.publicProductCount || 0)),
+      reels: Math.max(0, Number(row.publicReelCount || 0)),
+      reviews: Math.max(0, Number(row.publicReviewCount || 0)),
+      collections: 0,
+      recommendations: 0
+    };
+    return {
+      username: row.username || "",
+      fullName: row.fullName || row.username || "",
+      profileImage: row.profileImage || "",
+      role: row.role || "buyer",
+      verifiedSeller: Boolean(row.verifiedSeller),
+      capabilities: buildPublicPersonCapabilities(row),
+      publicContent
+    };
+  }
+
   async function readUserFollowSummary(profileUsername = "", viewerUsername = "") {
     const profile = String(profileUsername || "").trim().slice(0, 40);
     const viewer = String(viewerUsername || "").trim().slice(0, 40);
@@ -7253,6 +7280,13 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
          u.profile_image AS "profileImage",
          u.role,
          u.verified_seller AS "verifiedSeller",
+         (SELECT COUNT(*)::int FROM products public_product
+          WHERE public_product.uploaded_by = u.username AND public_product.status = 'approved') AS "publicProductCount",
+         (SELECT COUNT(*)::int FROM products public_reel
+          WHERE public_reel.uploaded_by = u.username AND public_reel.status = 'approved'
+            AND (public_reel.category = 'reels' OR public_reel.media_items @> '[{"type":"video"}]'::jsonb)) AS "publicReelCount",
+         (SELECT COUNT(*)::int FROM reviews public_review
+          WHERE public_review.user_id = u.username) AS "publicReviewCount",
          COUNT(*) FILTER (WHERE outgoing.status = 'active')::int AS "followingCount",
          (SELECT COUNT(*)::int FROM user_follows incoming
           WHERE incoming.followed_username = u.username AND incoming.status = 'active') AS "followerCount",
@@ -7273,12 +7307,89 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     );
     const row = result.rows?.[0];
     return row ? {
-      ...row,
+      ...normalizePublicPersonSummary(row),
       followingCount: Number(row.followingCount || 0),
       followerCount: Number(row.followerCount || 0),
       viewerFollows: Boolean(row.viewerFollows),
       blocked: Boolean(row.blocked)
     } : null;
+  }
+
+  async function readUserFollowSuggestions(username = "", options = {}) {
+    const viewer = String(username || "").trim().slice(0, 40);
+    const limit = Math.max(1, Math.min(Number(options.limit || 12) || 12, 30));
+    if (!viewer) return { items: [], limit, privacy: "public-activity-only" };
+    const result = await query(
+      `SELECT
+         candidate.username,
+         candidate.full_name AS "fullName",
+         candidate.profile_image AS "profileImage",
+         candidate.role,
+         candidate.verified_seller AS "verifiedSeller",
+         (SELECT COUNT(*)::int FROM products public_product
+          WHERE public_product.uploaded_by = candidate.username AND public_product.status = 'approved') AS "publicProductCount",
+         (SELECT COUNT(*)::int FROM products public_reel
+          WHERE public_reel.uploaded_by = candidate.username AND public_reel.status = 'approved'
+            AND (public_reel.category = 'reels' OR public_reel.media_items @> '[{"type":"video"}]'::jsonb)) AS "publicReelCount",
+         (SELECT COUNT(*)::int FROM reviews public_review
+          WHERE public_review.user_id = candidate.username) AS "publicReviewCount",
+         (SELECT COUNT(*)::int FROM user_follows incoming
+          WHERE incoming.followed_username = candidate.username AND incoming.status = 'active') AS "followerCount",
+         (SELECT COUNT(*)::int
+          FROM user_follows mine
+          JOIN user_follows theirs ON theirs.followed_username = mine.followed_username
+          WHERE mine.follower_username = $1 AND mine.status = 'active'
+            AND theirs.follower_username = candidate.username AND theirs.status = 'active') AS "mutualConnectionCount",
+         (SELECT COUNT(DISTINCT mine_product.category)::int
+          FROM products mine_product
+          JOIN products candidate_product ON candidate_product.category = mine_product.category
+          WHERE mine_product.uploaded_by = $1 AND mine_product.status = 'approved'
+            AND candidate_product.uploaded_by = candidate.username AND candidate_product.status = 'approved') AS "sharedPublicCategoryCount"
+       FROM users candidate
+       WHERE candidate.username <> $1
+         AND candidate.status = 'active'
+         AND NOT EXISTS (
+           SELECT 1 FROM user_follows existing
+           WHERE existing.follower_username = $1 AND existing.followed_username = candidate.username
+             AND existing.status = 'active'
+         )
+         AND NOT EXISTS (
+           SELECT 1 FROM user_blocks block_edge
+           WHERE (block_edge.blocker_username = $1 AND block_edge.blocked_username = candidate.username)
+              OR (block_edge.blocker_username = candidate.username AND block_edge.blocked_username = $1)
+         )
+         AND (
+           EXISTS (SELECT 1 FROM products p WHERE p.uploaded_by = candidate.username AND p.status = 'approved')
+           OR EXISTS (SELECT 1 FROM reviews r WHERE r.user_id = candidate.username)
+           OR EXISTS (SELECT 1 FROM user_follows f WHERE f.followed_username = candidate.username AND f.status = 'active')
+         )
+       ORDER BY "sharedPublicCategoryCount" DESC, "mutualConnectionCount" DESC,
+         "publicReelCount" DESC, "publicReviewCount" DESC, "followerCount" DESC,
+         candidate.created_at DESC, candidate.username ASC
+       LIMIT $2`,
+      [viewer, limit]
+    );
+    const items = (result.rows || []).map((row) => {
+      const person = normalizePublicPersonSummary(row);
+      const reasonContext = {
+        mutualConnections: Math.max(0, Number(row.mutualConnectionCount || 0)),
+        sharedPublicCategories: Math.max(0, Number(row.sharedPublicCategoryCount || 0)),
+        publicReels: person.publicContent.reels,
+        publicReviews: person.publicContent.reviews,
+        followers: Math.max(0, Number(row.followerCount || 0))
+      };
+      const reasonCode = reasonContext.sharedPublicCategories > 0
+        ? "similar_public_categories"
+        : reasonContext.mutualConnections > 0
+          ? "mutual_public_connections"
+          : reasonContext.publicReels > 0
+            ? "public_creator_activity"
+            : reasonContext.publicReviews > 0
+              ? "public_reviewer_activity"
+              : "public_profile_activity";
+      return { ...person, followerCount: reasonContext.followers, reasonCode, reasonContext };
+    });
+    return { items, limit, privacy: "public-activity-only" };
   }
 
   async function readUserFollowPage(username = "", options = {}) {
@@ -7353,7 +7464,14 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
         [follower, followed]
       );
       if (following && blocked.rowCount) return { updated: false, code: "follow_blocked" };
+      const existing = await client.query(
+        `SELECT status FROM user_follows
+         WHERE follower_username = $1 AND followed_username = $2
+         FOR UPDATE`,
+        [follower, followed]
+      );
       const status = following ? "active" : "removed";
+      const changed = String(existing.rows?.[0]?.status || "") !== status;
       await client.query(
         `INSERT INTO user_follows (follower_username, followed_username, status, created_at, updated_at)
          VALUES ($1, $2, $3, NOW(), NOW())
@@ -7372,6 +7490,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
 
       return {
         updated: true,
+        changed,
         following,
         followerCount: Number(summary.rows?.[0]?.followerCount || 0),
         followingCount: Number(summary.rows?.[0]?.followingCount || 0)
@@ -7538,6 +7657,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     readUserLocalePreference,
     saveUserLocalePreference,
     readUserFollowSummary,
+    readUserFollowSuggestions,
     readUserFollowPage,
     setUserFollow,
     importUserFollows,

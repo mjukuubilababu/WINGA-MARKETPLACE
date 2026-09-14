@@ -19,17 +19,26 @@
       if (String(options.cursor || "").trim()) query.set("cursor", String(options.cursor).trim());
       return fetchJson(`${baseUrl}/social/follows?${query}`, { headers: headers() });
     }
-    async function loadSocialProfile(username) {
+    async function loadFollowSuggestions(options = {}) {
       requireFetcher();
-      return fetchJson(`${baseUrl}/social/users/${encodeURIComponent(String(username || "").trim())}`, { headers: headers() });
+      const query = new URLSearchParams({
+        limit: String(Math.max(1, Math.min(Number(options.limit || 12) || 12, 30)))
+      });
+      return fetchJson(`${baseUrl}/social/suggestions?${query}`, { headers: headers() });
     }
-    async function setFollow(username, following) {
+    async function loadSocialProfile(username, options = {}) {
+      requireFetcher();
+      const source = String(options.source || "").trim() === "follow" ? "?source=follow" : "";
+      return fetchJson(`${baseUrl}/social/users/${encodeURIComponent(String(username || "").trim())}${source}`, { headers: headers() });
+    }
+    async function setFollow(username, following, options = {}) {
       requireFetcher();
       const method = following ? "PUT" : "DELETE";
+      const source = String(options.source || "").trim() === "suggested_follow" ? "suggested_follow" : "";
       return fetchJson(`${baseUrl}/social/follows/${encodeURIComponent(String(username || "").trim())}`, {
         method,
         headers: headers(following),
-        ...(following ? { body: "{}" } : {})
+        ...(following ? { body: JSON.stringify(source ? { source } : {}) } : {})
       });
     }
     async function importLegacyFollows(usernames = []) {
@@ -49,7 +58,7 @@
         ...(blocked ? { body: "{}" } : {})
       });
     }
-    return { loadFollows, loadSocialProfile, setFollow, importLegacyFollows, setBlock };
+    return { loadFollows, loadFollowSuggestions, loadSocialProfile, setFollow, importLegacyFollows, setBlock };
   }
 
   window.WingaModules = window.WingaModules || {};

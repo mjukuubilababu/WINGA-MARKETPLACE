@@ -107,6 +107,8 @@ test("PostgreSQL schema migrations are locked, transactional, and versioned", as
   assert.equal(calls.some((call) => call.text.includes("CREATE TABLE IF NOT EXISTS user_follows")), true);
   assert.equal(calls.some((call) => call.text.includes("idx_user_follows_followers_cursor")), true);
   assert.equal(calls.some((call) => call.text.includes("CREATE TABLE IF NOT EXISTS user_blocks")), true);
+  assert.equal(calls.some((call) => call.text.includes("idx_users_active_created")), true);
+  assert.equal(calls.some((call) => call.text.includes("idx_reviews_author_date")), true);
   assert.equal(calls.some((call) => call.text.includes("idx_products_seller_video_created")), true);
   assert.equal(calls.some((call) => call.text.includes("fk_video_upload_intents_product")), true);
   assert.equal(calls.some((call) => call.text.includes("source_size_bytes")), true);
@@ -3488,13 +3490,22 @@ test("PostgreSQL product create rolls back when video claim is rejected", async 
 
 test("person social graph follow mutation is transactional, idempotent, and actor-scoped", async () => {
   const calls = [];
+  let existingFollowStatus = "";
   const client = {
     async query(text, params = []) {
       const sql = String(text);
       calls.push({ text: sql, params });
       if (sql.includes("SELECT username FROM users WHERE username = ANY")) return { rows: [{ username: "viewer" }, { username: "creator" }], rowCount: 2 };
       if (sql.includes("SELECT 1 FROM user_blocks")) return { rows: [], rowCount: 0 };
-      if (sql.includes("INSERT INTO user_follows")) return { rows: [], rowCount: 1 };
+      if (sql.includes("SELECT status FROM user_follows")) {
+        return existingFollowStatus
+          ? { rows: [{ status: existingFollowStatus }], rowCount: 1 }
+          : { rows: [], rowCount: 0 };
+      }
+      if (sql.includes("INSERT INTO user_follows")) {
+        existingFollowStatus = params[2];
+        return { rows: [], rowCount: 1 };
+      }
       if (sql.includes("AS \"followerCount\"")) return { rows: [{ followerCount: 7, followingCount: 4 }], rowCount: 1 };
       return { rows: [], rowCount: 0 };
     },
@@ -3508,15 +3519,110 @@ test("person social graph follow mutation is transactional, idempotent, and acto
   assert.deepEqual(await store.setUserFollow("viewer", "viewer", true), { updated: false, code: "invalid_follow" });
   const result = await store.setUserFollow("viewer", "creator", true);
   assert.equal(result.updated, true);
+  assert.equal(result.changed, true);
   assert.equal(result.following, true);
   assert.equal(result.followerCount, 7);
   assert.equal(result.followingCount, 4);
+  const retry = await store.setUserFollow("viewer", "creator", true);
+  assert.equal(retry.updated, true);
+  assert.equal(retry.changed, false);
   assert.equal(calls.some((call) => call.text === "BEGIN"), true);
   assert.equal(calls.some((call) => call.text === "COMMIT"), true);
   const upsert = calls.find((call) => call.text.includes("ON CONFLICT (follower_username, followed_username)"));
   assert.deepEqual(upsert.params, ["viewer", "creator", "active"]);
   const summary = calls.find((call) => call.text.includes("AS \"followerCount\""));
   assert.deepEqual(summary.params, ["creator", "viewer"]);
+});
+
+test("person profile exposes public multi-capabilities without private behavior", async () => {
+  const calls = [];
+  const queryClient = {
+    async query(text, params = []) {
+      calls.push({ text: String(text), params });
+      return {
+        rows: [{
+          username: "person-a",
+          fullName: "Person A",
+          profileImage: "/profile-a.jpg",
+          role: "buyer",
+          verifiedSeller: false,
+          publicProductCount: 0,
+          publicReelCount: 2,
+          publicReviewCount: 3,
+          followingCount: 4,
+          followerCount: 5,
+          viewerFollows: true,
+          followsViewer: false,
+          blocked: false
+        }],
+        rowCount: 1
+      };
+    }
+  };
+  const store = createPostgresStore({ databaseUrl: "postgres://test.invalid/winga", queryClient });
+  const profile = await store.readUserFollowSummary("person-a", "viewer");
+  assert.deepEqual(profile.capabilities, ["buyer", "creator"]);
+  assert.deepEqual(profile.publicContent, {
+    products: 0,
+    reels: 2,
+    reviews: 3,
+    collections: 0,
+    recommendations: 0
+  });
+  assert.equal(profile.viewerFollows, true);
+  assert.match(calls[0].text, /public_product\.status = 'approved'/);
+  assert.match(calls[0].text, /public_reel\.status = 'approved'/);
+  assert.doesNotMatch(calls[0].text, /orders|messages|sessions|saved/i);
+});
+
+test("person follow suggestions are bounded, block-safe, and based on public activity", async () => {
+  const calls = [];
+  const queryClient = {
+    async query(text, params = []) {
+      calls.push({ text: String(text), params });
+      return {
+        rows: [
+          {
+            username: "creator-a",
+            fullName: "Creator A",
+            role: "buyer",
+            publicProductCount: 1,
+            publicReelCount: 2,
+            publicReviewCount: 0,
+            followerCount: 7,
+            mutualConnectionCount: 0,
+            sharedPublicCategoryCount: 2
+          },
+          {
+            username: "reviewer-b",
+            fullName: "Reviewer B",
+            role: "seller",
+            publicProductCount: 1,
+            publicReelCount: 0,
+            publicReviewCount: 4,
+            followerCount: 3,
+            mutualConnectionCount: 1,
+            sharedPublicCategoryCount: 0
+          }
+        ],
+        rowCount: 2
+      };
+    }
+  };
+  const store = createPostgresStore({ databaseUrl: "postgres://test.invalid/winga", queryClient });
+  const result = await store.readUserFollowSuggestions("viewer", { limit: 500 });
+  assert.equal(result.limit, 30);
+  assert.equal(result.privacy, "public-activity-only");
+  assert.equal(result.items[0].reasonCode, "similar_public_categories");
+  assert.deepEqual(result.items[0].capabilities, ["buyer", "seller", "creator"]);
+  assert.equal(result.items[1].reasonCode, "mutual_public_connections");
+  assert.deepEqual(calls[0].params, ["viewer", 30]);
+  assert.match(calls[0].text, /candidate\.username <> \$1/);
+  assert.match(calls[0].text, /existing\.status = 'active'/);
+  assert.match(calls[0].text, /FROM user_blocks block_edge/);
+  assert.match(calls[0].text, /block_edge\.blocker_username = candidate\.username/);
+  assert.match(calls[0].text, /public_product\.status = 'approved'/);
+  assert.doesNotMatch(calls[0].text, /orders|messages|sessions|saved/i);
 });
 
 test("person social graph cursor page is bounded and excludes blocked relationships", async () => {

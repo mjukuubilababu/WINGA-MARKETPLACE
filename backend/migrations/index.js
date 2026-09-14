@@ -2,6 +2,16 @@ const MIGRATION_LOCK_NAME = "winga_schema_migrations_v1";
 
 const MIGRATIONS = Object.freeze([
   Object.freeze({
+    id: "2026091501_person_public_discovery",
+    statements: Object.freeze([
+      `CREATE INDEX IF NOT EXISTS idx_users_active_created
+       ON users (created_at DESC, username)
+       WHERE status = 'active';`,
+      `CREATE INDEX IF NOT EXISTS idx_reviews_author_date
+       ON reviews (user_id, date DESC, id DESC);`
+    ])
+  }),
+  Object.freeze({
     id: "2026091201_person_social_graph",
     statements: Object.freeze([
       `CREATE TABLE IF NOT EXISTS user_follows (

@@ -6275,7 +6275,7 @@ function getRateLimitRule(pathname, method = "GET") {
       key: "/api/media/videos/:providerId/captions"
     };
   }
-  if (normalizedMethod === "GET" && (pathname === "/api/social/follows" || /^\/api\/social\/users\/[^/]+$/.test(pathname))) {
+  if (normalizedMethod === "GET" && (pathname === "/api/social/follows" || pathname === "/api/social/suggestions" || /^\/api\/social\/users\/[^/]+$/.test(pathname))) {
     return { limit: 120, windowMs: RATE_LIMIT_WINDOW_MS, key: "/api/social/read" };
   }
   if (/^\/api\/social\/(?:follows|blocks)\/[^/]+$/.test(pathname) || pathname === "/api/social/follows/import") {
@@ -7273,7 +7273,31 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 404, { error: "Profile haijapatikana.", code: "social_profile_not_found" });
         return;
       }
+      if (viewerUsername && url.searchParams.get("source") === "follow") {
+        await appendAuditLog({
+          time: new Date().toISOString(), ip: clientIp, method: req.method, path: url.pathname,
+          event: "profile_from_follow_click", username: viewerUsername, profileUsername
+        });
+      }
       sendJson(res, 200, { profile: summary }, { "Cache-Control": viewerUsername ? "private, no-store" : "public, max-age=30" });
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/social/suggestions") {
+      const session = findSession(store, readAuthToken(req));
+      const user = ensureMarketplaceUser(store, session, res, { allowStaff: true });
+      if (!user) return;
+      if (!postgresStore?.readUserFollowSuggestions) {
+        sendJson(res, 503, { error: "Social graph haipatikani kwa sasa.", code: "social_graph_unavailable" });
+        return;
+      }
+      const limit = Math.max(1, Math.min(Number(url.searchParams.get("limit") || 12) || 12, 30));
+      const suggestions = await postgresStore.readUserFollowSuggestions(user.username, { limit });
+      await appendAuditLog({
+        time: new Date().toISOString(), ip: clientIp, method: req.method, path: url.pathname,
+        event: "suggested_follow_impression", username: user.username, count: suggestions.items.length
+      });
+      sendJson(res, 200, suggestions, { "Cache-Control": "private, no-store" });
       return;
     }
 
@@ -7342,18 +7366,27 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       const following = req.method === "PUT";
-      if (following) await collectBody(req);
+      const payload = following ? await collectBody(req) : {};
+      const source = normalizeIdentifier(payload?.source || "", 40);
       const result = await postgresStore.setUserFollow(user.username, followedUsername, following);
       if (!result.updated) {
         const status = result.code === "user_not_found" ? 404 : (result.code === "follow_blocked" ? 409 : 400);
         sendJson(res, status, { error: result.code === "follow_blocked" ? "Relationship hii imezuiwa." : "Follow haikukamilika.", code: result.code });
         return;
       }
-      await appendAuditLog({
-        time: new Date().toISOString(), ip: clientIp, method: req.method, path: url.pathname,
-        event: following ? "follow_created" : "follow_removed", username: user.username,
-        followedUsername
-      });
+      if (result.changed !== false) {
+        await appendAuditLog({
+          time: new Date().toISOString(), ip: clientIp, method: req.method, path: url.pathname,
+          event: following ? "follow_created" : "follow_removed", username: user.username,
+          followedUsername
+        });
+        if (following && source === "suggested_follow") {
+          await appendAuditLog({
+            time: new Date().toISOString(), ip: clientIp, method: req.method, path: url.pathname,
+            event: "suggested_follow_accept", username: user.username, followedUsername
+          });
+        }
+      }
       sendJson(res, 200, { ok: true, followedUsername, ...result }, { "Cache-Control": "private, no-store" });
       return;
     }

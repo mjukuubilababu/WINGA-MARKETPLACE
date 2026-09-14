@@ -5721,19 +5721,24 @@ test("social API client preserves cursor paging and person follow mutation seman
     }
   });
   await client.loadFollows({ direction: "followers", limit: 500, cursor: "2026-09-12T10:00:00.000Z|person-b" });
-  await client.setFollow("person/b", true);
+  await client.loadFollowSuggestions({ limit: 500 });
+  await client.loadSocialProfile("person/b", { source: "follow" });
+  await client.setFollow("person/b", true, { source: "suggested_follow" });
   await client.setFollow("person/b", false);
   await client.importLegacyFollows(["person-a", "person-a", "person-b"]);
   await client.setBlock("person-c", true);
   assert.match(requests[0].url, /direction=followers/);
   assert.match(requests[0].url, /limit=100/);
   assert.match(requests[0].url, /cursor=/);
-  assert.equal(requests[1].options.method, "PUT");
-  assert.equal(requests[2].options.method, "DELETE");
-  assert.equal(JSON.parse(requests[3].options.body).usernames.length, 2);
-  assert.equal(requests[4].options.method, "PUT");
+  assert.match(requests[1].url, /social\/suggestions\?limit=30/);
+  assert.match(requests[2].url, /person%2Fb\?source=follow$/);
+  assert.equal(requests[3].options.method, "PUT");
+  assert.equal(JSON.parse(requests[3].options.body).source, "suggested_follow");
+  assert.equal(requests[4].options.method, "DELETE");
+  assert.equal(JSON.parse(requests[5].options.body).usernames.length, 2);
+  assert.equal(requests[6].options.method, "PUT");
   assert.equal(requests.slice(1).every((request) => request.options.headers["X-CSRF-Token"] === "csrf"), true);
-  assert.match(requests[1].url, /person%2Fb$/);
+  assert.match(requests[3].url, /person%2Fb$/);
 });
 (async () => {
   let passed = 0;

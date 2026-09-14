@@ -1873,11 +1873,14 @@ async loadAdminPayments(filters) {
       async loadFollows(options = {}) {
         return getSocialApiClient().loadFollows(options);
       },
-      async loadSocialProfile(username) {
-        return getSocialApiClient().loadSocialProfile(username);
+      async loadFollowSuggestions(options = {}) {
+        return getSocialApiClient().loadFollowSuggestions(options);
       },
-      async setUserFollow(username, following) {
-        return getSocialApiClient().setFollow(username, following);
+      async loadSocialProfile(username, options = {}) {
+        return getSocialApiClient().loadSocialProfile(username, options);
+      },
+      async setUserFollow(username, following, options = {}) {
+        return getSocialApiClient().setFollow(username, following, options);
       },
       async importLegacyFollows(usernames) {
         return getSocialApiClient().importLegacyFollows(usernames);
@@ -3829,16 +3832,22 @@ async loadAdminPayments() {
         ? state.adapter.loadFollows(options)
         : { items: [], nextCursor: "", hasMore: false, direction: options.direction || "following" };
     },
-    async loadSocialProfile(username) {
+    async loadFollowSuggestions(options = {}) {
+      ensureAdapter();
+      return state.adapter.loadFollowSuggestions
+        ? state.adapter.loadFollowSuggestions(options)
+        : { items: [], limit: Math.max(1, Math.min(Number(options.limit || 12) || 12, 30)), privacy: "public-activity-only" };
+    },
+    async loadSocialProfile(username, options = {}) {
       ensureAdapter();
       return state.adapter.loadSocialProfile
-        ? state.adapter.loadSocialProfile(username)
+        ? state.adapter.loadSocialProfile(username, options)
         : { profile: null };
     },
-    async setUserFollow(username, following = true) {
+    async setUserFollow(username, following = true, options = {}) {
       ensureAdapter();
       if (!state.adapter.setUserFollow) throw new Error("Social graph requires the production API provider.");
-      return state.adapter.setUserFollow(username, following);
+      return state.adapter.setUserFollow(username, following, options);
     },
     async importLegacyFollows(usernames = []) {
       ensureAdapter();
