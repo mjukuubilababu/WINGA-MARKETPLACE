@@ -1879,6 +1879,18 @@ async loadAdminPayments(filters) {
       async loadSocialProfile(username, options = {}) {
         return getSocialApiClient().loadSocialProfile(username, options);
       },
+      async loadUserCollections(username, options = {}) {
+        return getSocialApiClient().loadUserCollections(username, options);
+      },
+      async createUserCollection(payload = {}) {
+        return getSocialApiClient().createCollection(payload);
+      },
+      async updateUserCollection(collectionId, payload = {}) {
+        return getSocialApiClient().updateCollection(collectionId, payload);
+      },
+      async setUserCollectionItem(collectionId, productId, options = {}) {
+        return getSocialApiClient().setCollectionItem(collectionId, productId, options);
+      },
       async setUserFollow(username, following, options = {}) {
         return getSocialApiClient().setFollow(username, following, options);
       },
@@ -3854,6 +3866,30 @@ async loadAdminPayments() {
       return state.adapter.loadSocialProfile
         ? state.adapter.loadSocialProfile(username, options)
         : { profile: null };
+    },
+    async loadUserCollections(username, options = {}) {
+      ensureAdapter();
+      return state.adapter.loadUserCollections
+        ? state.adapter.loadUserCollections(username, options)
+        : { items: [], nextCursor: "", hasMore: false, limit: options.limit || 12 };
+    },
+    async createUserCollection(payload = {}) {
+      assertPersonAccess();
+      ensureAdapter();
+      if (!state.adapter.createUserCollection) throw new Error("Collections require the production API provider.");
+      return state.adapter.createUserCollection(payload);
+    },
+    async updateUserCollection(collectionId, payload = {}) {
+      assertPersonAccess();
+      ensureAdapter();
+      if (!state.adapter.updateUserCollection) throw new Error("Collections require the production API provider.");
+      return state.adapter.updateUserCollection(collectionId, payload);
+    },
+    async setUserCollectionItem(collectionId, productId, options = {}) {
+      assertPersonAccess();
+      ensureAdapter();
+      if (!state.adapter.setUserCollectionItem) throw new Error("Collections require the production API provider.");
+      return state.adapter.setUserCollectionItem(collectionId, productId, options);
     },
     async setUserFollow(username, following = true, options = {}) {
       ensureAdapter();

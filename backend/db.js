@@ -7562,11 +7562,409 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     };
   }
 
+  function normalizePublicCollectionRow(row = {}) {
+    const parsedItems = parseJson(row.items, []);
+    return {
+      id: row.id || "",
+      ownerUsername: row.ownerUsername || "",
+      title: row.title || "",
+      description: row.description || "",
+      status: row.status || "draft",
+      visibility: ["public", "followers", "private"].includes(String(row.visibility || "").toLowerCase())
+        ? String(row.visibility).toLowerCase()
+        : "public",
+      items: (Array.isArray(parsedItems) ? parsedItems : []).slice(0, 12),
+      itemCount: Math.max(0, Number(row.itemCount || 0)),
+      createdAt: toISOString(row.createdAt),
+      updatedAt: toISOString(row.updatedAt),
+      publishedAt: toISOString(row.publishedAt),
+      rowVersion: Math.max(1, Number(row.rowVersion || 1))
+    };
+  }
+
+  async function createUserCollection(ownerUsername = "", collection = {}) {
+    const owner = String(ownerUsername || "").trim().slice(0, 40);
+    const id = String(collection.id || "").trim().slice(0, 80);
+    const title = String(collection.title || "").trim().slice(0, 120);
+    const description = String(collection.description || "").trim().slice(0, 500);
+    const visibility = ["public", "followers", "private"].includes(String(collection.visibility || "").toLowerCase())
+      ? String(collection.visibility).toLowerCase()
+      : "public";
+    if (!owner || !id || !title) return { created: false, code: "invalid_collection" };
+    return withTransaction(async (client) => {
+      const activeOwner = await client.query(
+        "SELECT 1 FROM users WHERE username = $1 AND status = 'active' LIMIT 1",
+        [owner]
+      );
+      if (!activeOwner.rowCount) return { created: false, code: "owner_not_found" };
+      const inserted = await client.query(
+        `INSERT INTO public_collections (
+           id, owner_username, title, description, status, created_at, updated_at, row_version
+         ) VALUES ($1, $2, $3, $4, 'draft', NOW(), NOW(), 1)
+         ON CONFLICT (id) DO NOTHING
+         RETURNING id, owner_username AS "ownerUsername", title, description, status,
+           created_at AS "createdAt", updated_at AS "updatedAt",
+           published_at AS "publishedAt", row_version AS "rowVersion"`,
+        [id, owner, title, description]
+      );
+      if (!inserted.rowCount) return { created: false, code: "collection_conflict" };
+      await upsertContentVisibility(client, "collection", id, owner, visibility);
+      return {
+        created: true,
+        code: "",
+        collection: normalizePublicCollectionRow({ ...inserted.rows[0], visibility })
+      };
+    });
+  }
+
+  async function setUserCollectionItem(ownerUsername = "", collectionId = "", productId = "", options = {}) {
+    const owner = String(ownerUsername || "").trim().slice(0, 40);
+    const safeCollectionId = String(collectionId || "").trim().slice(0, 80);
+    const safeProductId = String(productId || "").trim().slice(0, 80);
+    const remove = Boolean(options.remove);
+    const position = Math.max(0, Math.min(Number(options.position || 0) || 0, 1000));
+    const note = String(options.note || "").trim().slice(0, 240);
+    if (!owner || !safeCollectionId || !safeProductId) return { updated: false, code: "invalid_collection_item" };
+    return withTransaction(async (client) => {
+      const collectionResult = await client.query(
+        `SELECT id, status FROM public_collections
+         WHERE id = $1 AND owner_username = $2
+         FOR UPDATE`,
+        [safeCollectionId, owner]
+      );
+      if (!collectionResult.rowCount) return { updated: false, code: "collection_not_found" };
+      if (collectionResult.rows[0].status === "archived") return { updated: false, code: "collection_archived" };
+      if (remove) {
+        const removed = await client.query(
+          "DELETE FROM public_collection_items WHERE collection_id = $1 AND product_id = $2",
+          [safeCollectionId, safeProductId]
+        );
+        if (removed.rowCount) {
+          await client.query(
+            "UPDATE public_collections SET updated_at = NOW(), row_version = row_version + 1 WHERE id = $1",
+            [safeCollectionId]
+          );
+        }
+        return { updated: true, changed: Boolean(removed.rowCount), removed: true };
+      }
+      const productResult = await client.query(
+        `SELECT p.id
+         FROM products p
+         WHERE p.id = $1
+           AND p.status = 'approved'
+           AND (
+             p.uploaded_by = $2
+             OR (
+               NOT EXISTS (
+                 SELECT 1 FROM user_blocks collection_block
+                 WHERE (collection_block.blocker_username = $2 AND collection_block.blocked_username = p.uploaded_by)
+                    OR (collection_block.blocker_username = p.uploaded_by AND collection_block.blocked_username = $2)
+               )
+               AND (
+                 COALESCE((SELECT visibility FROM public_content_visibility
+                           WHERE content_type = 'product' AND content_id = p.id), 'public') = 'public'
+                 OR (
+                   COALESCE((SELECT visibility FROM public_content_visibility
+                             WHERE content_type = 'product' AND content_id = p.id), 'public') = 'followers'
+                   AND EXISTS (
+                     SELECT 1 FROM user_follows collection_follow
+                     WHERE collection_follow.follower_username = $2
+                       AND collection_follow.followed_username = p.uploaded_by
+                       AND collection_follow.status = 'active'
+                   )
+                 )
+               )
+             )
+           )
+         LIMIT 1`,
+        [safeProductId, owner]
+      );
+      if (!productResult.rowCount) return { updated: false, code: "product_not_available" };
+      const countResult = await client.query(
+        "SELECT COUNT(*)::int AS count FROM public_collection_items WHERE collection_id = $1",
+        [safeCollectionId]
+      );
+      const existingResult = await client.query(
+        "SELECT 1 FROM public_collection_items WHERE collection_id = $1 AND product_id = $2",
+        [safeCollectionId, safeProductId]
+      );
+      if (!existingResult.rowCount && Number(countResult.rows?.[0]?.count || 0) >= 100) {
+        return { updated: false, code: "collection_item_limit" };
+      }
+      const inserted = await client.query(
+        `INSERT INTO public_collection_items (collection_id, product_id, position, note, added_at)
+         VALUES ($1, $2, $3, $4, NOW())
+         ON CONFLICT (collection_id, product_id)
+         DO UPDATE SET position = EXCLUDED.position, note = EXCLUDED.note
+         RETURNING collection_id AS "collectionId", product_id AS "productId", position, note,
+           added_at AS "addedAt"`,
+        [safeCollectionId, safeProductId, position, note]
+      );
+      await client.query(
+        "UPDATE public_collections SET updated_at = NOW(), row_version = row_version + 1 WHERE id = $1",
+        [safeCollectionId]
+      );
+      return { updated: true, changed: true, removed: false, item: inserted.rows[0] };
+    });
+  }
+
+  async function updateUserCollection(ownerUsername = "", collectionId = "", updates = {}) {
+    const owner = String(ownerUsername || "").trim().slice(0, 40);
+    const id = String(collectionId || "").trim().slice(0, 80);
+    const expectedRowVersion = Math.max(1, Number(updates.expectedRowVersion || 1) || 1);
+    if (!owner || !id) return { updated: false, code: "invalid_collection" };
+    return withTransaction(async (client) => {
+      const currentResult = await client.query(
+        `SELECT id, owner_username AS "ownerUsername", title, description, status,
+           created_at AS "createdAt", updated_at AS "updatedAt",
+           published_at AS "publishedAt", row_version AS "rowVersion"
+         FROM public_collections
+         WHERE id = $1 AND owner_username = $2
+         FOR UPDATE`,
+        [id, owner]
+      );
+      const current = currentResult.rows?.[0];
+      if (!current) return { updated: false, code: "collection_not_found" };
+      if (current.status === "archived" && String(updates.status || "archived").toLowerCase() !== "archived") {
+        return { updated: false, code: "collection_archived", rowVersion: Number(current.rowVersion || 0) };
+      }
+      if (Number(current.rowVersion || 0) !== expectedRowVersion) {
+        return { updated: false, code: "collection_conflict", rowVersion: Number(current.rowVersion || 0) };
+      }
+      const title = updates.title == null ? current.title : String(updates.title || "").trim().slice(0, 120);
+      const description = updates.description == null
+        ? current.description
+        : String(updates.description || "").trim().slice(0, 500);
+      const status = ["draft", "published", "archived"].includes(String(updates.status || "").toLowerCase())
+        ? String(updates.status).toLowerCase()
+        : current.status;
+      const visibility = ["public", "followers", "private"].includes(String(updates.visibility || "").toLowerCase())
+        ? String(updates.visibility).toLowerCase()
+        : null;
+      if (!title) return { updated: false, code: "invalid_collection" };
+      if (status === "published" && current.status !== "published") {
+        const items = await client.query(
+          "SELECT 1 FROM public_collection_items WHERE collection_id = $1 LIMIT 1",
+          [id]
+        );
+        if (!items.rowCount) return { updated: false, code: "empty_collection" };
+      }
+      const updatedResult = await client.query(
+        `UPDATE public_collections SET
+           title = $3,
+           description = $4,
+           status = $5,
+           published_at = CASE
+             WHEN $5 = 'published' AND status <> 'published' THEN NOW()
+             WHEN $5 <> 'published' THEN NULL
+             ELSE published_at
+           END,
+           updated_at = NOW(),
+           row_version = row_version + 1
+         WHERE id = $1 AND owner_username = $2 AND row_version = $6
+         RETURNING id, owner_username AS "ownerUsername", title, description, status,
+           created_at AS "createdAt", updated_at AS "updatedAt",
+           published_at AS "publishedAt", row_version AS "rowVersion"`,
+        [id, owner, title, description, status, expectedRowVersion]
+      );
+      if (!updatedResult.rowCount) return { updated: false, code: "collection_conflict" };
+      const existingVisibility = await client.query(
+        `SELECT visibility FROM public_content_visibility
+         WHERE content_type = 'collection' AND content_id = $1 AND owner_username = $2
+         LIMIT 1`,
+        [id, owner]
+      );
+      const nextVisibility = visibility || existingVisibility.rows?.[0]?.visibility || "public";
+      await upsertContentVisibility(client, "collection", id, owner, nextVisibility);
+      const newlyPublished = current.status !== "published" && status === "published" && nextVisibility !== "private";
+      let followerNotifications = [];
+      if (newlyPublished) {
+        const channelId = `creator:${owner}:collections`;
+        const notifications = await client.query(
+          `WITH eligible_followers AS (
+             SELECT follow.follower_username
+             FROM user_follows follow
+             JOIN users recipient ON recipient.username = follow.follower_username
+             WHERE follow.followed_username = $1
+               AND follow.status = 'active'
+               AND recipient.status = 'active'
+               AND NOT EXISTS (
+                 SELECT 1 FROM user_blocks blocked
+                 WHERE (blocked.blocker_username = follow.follower_username AND blocked.blocked_username = $1)
+                    OR (blocked.blocker_username = $1 AND blocked.blocked_username = follow.follower_username)
+               )
+               AND NOT EXISTS (
+                 SELECT 1 FROM notifications recent
+                 WHERE recent.user_id = follow.follower_username
+                   AND recent.type = 'content'
+                   AND recent.conversation_id = $3
+                   AND recent.created_at > NOW() - INTERVAL '6 hours'
+               )
+             ORDER BY follow.created_at ASC, follow.follower_username ASC
+             LIMIT 100
+           )
+           INSERT INTO notifications (
+             id, user_id, type, message_id, conversation_id, title, body,
+             is_read, read_at, created_at, row_version
+           )
+           SELECT
+             'collection:' || MD5($2 || ':' || eligible.follower_username),
+             eligible.follower_username, 'content', $2, $3,
+             'Collection mpya kutoka ' || $1, $4,
+             FALSE, NULL, NOW(), 1
+           FROM eligible_followers eligible
+           ON CONFLICT (id) DO NOTHING
+           RETURNING id, user_id AS "userId", type, message_id AS "messageId",
+             conversation_id AS "conversationId", title, body, is_read AS "isRead",
+             read_at AS "readAt", created_at AS "createdAt"`,
+          [owner, id, channelId, title]
+        );
+        followerNotifications = notifications.rows || [];
+      }
+      return {
+        updated: true,
+        code: "",
+        collection: normalizePublicCollectionRow({ ...updatedResult.rows[0], visibility: nextVisibility }),
+        followerNotifications
+      };
+    });
+  }
+
+  async function readUserCollectionsPage(profileUsername = "", viewerUsername = "", options = {}) {
+    const profile = String(profileUsername || "").trim().slice(0, 40);
+    const viewer = String(viewerUsername || "").trim().slice(0, 40);
+    const limit = Math.max(1, Math.min(Number(options.limit || 12) || 12, 30));
+    const cursorTime = options.cursorTime ? new Date(options.cursorTime) : null;
+    const cursorId = String(options.cursorId || "").trim().slice(0, 80);
+    if (!profile || (cursorTime && !Number.isFinite(cursorTime.getTime()))) {
+      return { items: [], nextCursor: "", hasMore: false, limit };
+    }
+    const params = [profile, viewer, limit + 1];
+    let cursorClause = "";
+    if (cursorTime && cursorId) {
+      params.push(cursorTime.toISOString(), cursorId);
+      cursorClause = "AND (collection.created_at, collection.id) < ($4::timestamptz, $5)";
+    }
+    const collectionAccess = viewer
+      ? `(
+          collection.owner_username = $2
+          OR (
+            collection.status = 'published'
+            AND NOT EXISTS (
+              SELECT 1 FROM user_blocks collection_block
+              WHERE (collection_block.blocker_username = $2 AND collection_block.blocked_username = collection.owner_username)
+                 OR (collection_block.blocker_username = collection.owner_username AND collection_block.blocked_username = $2)
+            )
+            AND (
+              visibility.visibility = 'public'
+              OR (
+                visibility.visibility = 'followers'
+                AND EXISTS (
+                  SELECT 1 FROM user_follows collection_follow
+                  WHERE collection_follow.follower_username = $2
+                    AND collection_follow.followed_username = collection.owner_username
+                    AND collection_follow.status = 'active'
+                )
+              )
+            )
+          )
+        )`
+      : "collection.status = 'published' AND visibility.visibility = 'public'";
+    const productAccess = viewer
+      ? `(
+          product.uploaded_by = $2
+          OR (
+            NOT EXISTS (
+              SELECT 1 FROM user_blocks item_block
+              WHERE (item_block.blocker_username = $2 AND item_block.blocked_username = product.uploaded_by)
+                 OR (item_block.blocker_username = product.uploaded_by AND item_block.blocked_username = $2)
+            )
+            AND (
+              COALESCE((SELECT visibility FROM public_content_visibility
+                        WHERE content_type = 'product' AND content_id = product.id), 'public') = 'public'
+              OR (
+                COALESCE((SELECT visibility FROM public_content_visibility
+                          WHERE content_type = 'product' AND content_id = product.id), 'public') = 'followers'
+                AND EXISTS (
+                  SELECT 1 FROM user_follows item_follow
+                  WHERE item_follow.follower_username = $2
+                    AND item_follow.followed_username = product.uploaded_by
+                    AND item_follow.status = 'active'
+                )
+              )
+            )
+          )
+        )`
+      : `COALESCE((SELECT visibility FROM public_content_visibility
+                    WHERE content_type = 'product' AND content_id = product.id), 'public') = 'public'`;
+    const result = await query(
+      `SELECT collection.id,
+         collection.owner_username AS "ownerUsername",
+         collection.title,
+         collection.description,
+         collection.status,
+         visibility.visibility,
+         collection.created_at AS "createdAt",
+         collection.updated_at AS "updatedAt",
+         collection.published_at AS "publishedAt",
+         collection.row_version AS "rowVersion",
+         COALESCE(items.visible_count, 0)::int AS "itemCount",
+         COALESCE(items.items, '[]'::jsonb) AS items
+       FROM public_collections collection
+       LEFT JOIN LATERAL (
+         SELECT COALESCE(JSONB_AGG(item_row.payload ORDER BY item_row.position, item_row.added_at, item_row.product_id), '[]'::jsonb) AS items,
+           COUNT(*)::int AS visible_count
+         FROM (
+           SELECT collection_item.position, collection_item.added_at, collection_item.product_id,
+             JSONB_BUILD_OBJECT(
+               'productId', product.id,
+               'name', product.name,
+               'image', product.image,
+               'uploadedBy', product.uploaded_by,
+               'category', product.category,
+               'note', collection_item.note
+             ) AS payload
+           FROM public_collection_items collection_item
+           JOIN products product ON product.id = collection_item.product_id
+           WHERE collection_item.collection_id = collection.id
+             AND product.status = 'approved'
+             AND ${productAccess}
+           ORDER BY collection_item.position, collection_item.added_at, collection_item.product_id
+         ) item_row
+       ) items ON TRUE
+       LEFT JOIN LATERAL (
+         SELECT COALESCE((
+           SELECT stored_visibility.visibility
+           FROM public_content_visibility stored_visibility
+           WHERE stored_visibility.content_type = 'collection'
+             AND stored_visibility.content_id = collection.id
+         ), 'public') AS visibility
+       ) visibility ON TRUE
+       WHERE collection.owner_username = $1
+         AND ${collectionAccess}
+         ${cursorClause}
+       ORDER BY collection.created_at DESC, collection.id DESC
+       LIMIT $3`,
+      params
+    );
+    const rows = result.rows || [];
+    const hasMore = rows.length > limit;
+    const items = rows.slice(0, limit).map(normalizePublicCollectionRow);
+    const tail = items[items.length - 1];
+    return {
+      items,
+      nextCursor: hasMore && tail ? `${tail.createdAt}|${tail.id}` : "",
+      hasMore,
+      limit
+    };
+  }
+
   function buildPublicPersonCapabilities(row = {}) {
     const capabilities = [];
     if (row.role === "buyer") capabilities.push("buyer");
     if (row.role === "seller" || row.verifiedSeller || Number(row.publicProductCount || 0) > 0) capabilities.push("seller");
     if (Number(row.publicReelCount || 0) > 0 || Number(row.publicReviewCount || 0) > 0) capabilities.push("creator");
+    if (Number(row.publicCollectionCount || 0) > 0) capabilities.push("curator");
     return capabilities;
   }
 
@@ -7575,7 +7973,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       products: Math.max(0, Number(row.publicProductCount || 0)),
       reels: Math.max(0, Number(row.publicReelCount || 0)),
       reviews: Math.max(0, Number(row.publicReviewCount || 0)),
-      collections: 0,
+      collections: Math.max(0, Number(row.publicCollectionCount || 0)),
       recommendations: 0
     };
     return {
@@ -7646,6 +8044,26 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
                               AND profile_review_follow.status = 'active')
               )
             )) AS "publicReviewCount",
+         (SELECT COUNT(*)::int FROM public_collections public_collection
+          WHERE public_collection.owner_username = u.username
+            AND (
+              public_collection.owner_username = $2
+              OR (
+                public_collection.status = 'published'
+                AND (
+                  COALESCE((SELECT visibility FROM public_content_visibility
+                            WHERE content_type = 'collection' AND content_id = public_collection.id), 'public') = 'public'
+                  OR (
+                    COALESCE((SELECT visibility FROM public_content_visibility
+                              WHERE content_type = 'collection' AND content_id = public_collection.id), 'public') = 'followers'
+                    AND EXISTS (SELECT 1 FROM user_follows profile_collection_follow
+                                WHERE profile_collection_follow.follower_username = $2
+                                  AND profile_collection_follow.followed_username = u.username
+                                  AND profile_collection_follow.status = 'active')
+                  )
+                )
+              )
+            )) AS "publicCollectionCount",
          COUNT(*) FILTER (WHERE outgoing.status = 'active')::int AS "followingCount",
          (SELECT COUNT(*)::int FROM user_follows incoming
           WHERE incoming.followed_username = u.username AND incoming.status = 'active') AS "followerCount",
@@ -7698,6 +8116,11 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
           WHERE public_review.user_id = candidate.username
             AND COALESCE((SELECT visibility FROM public_content_visibility
                           WHERE content_type = 'review' AND content_id = public_review.id), 'public') = 'public') AS "publicReviewCount",
+         (SELECT COUNT(*)::int FROM public_collections public_collection
+          WHERE public_collection.owner_username = candidate.username
+            AND public_collection.status = 'published'
+            AND COALESCE((SELECT visibility FROM public_content_visibility
+                          WHERE content_type = 'collection' AND content_id = public_collection.id), 'public') = 'public') AS "publicCollectionCount",
          (SELECT COUNT(*)::int FROM user_follows incoming
           WHERE incoming.followed_username = candidate.username AND incoming.status = 'active') AS "followerCount",
          (SELECT COUNT(*)::int
@@ -7732,10 +8155,14 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
            OR EXISTS (SELECT 1 FROM reviews r WHERE r.user_id = candidate.username
              AND COALESCE((SELECT visibility FROM public_content_visibility
                            WHERE content_type = 'review' AND content_id = r.id), 'public') = 'public')
+           OR EXISTS (SELECT 1 FROM public_collections c WHERE c.owner_username = candidate.username
+             AND c.status = 'published'
+             AND COALESCE((SELECT visibility FROM public_content_visibility
+                           WHERE content_type = 'collection' AND content_id = c.id), 'public') = 'public')
            OR EXISTS (SELECT 1 FROM user_follows f WHERE f.followed_username = candidate.username AND f.status = 'active')
          )
        ORDER BY "sharedPublicCategoryCount" DESC, "mutualConnectionCount" DESC,
-         "publicReelCount" DESC, "publicReviewCount" DESC, "followerCount" DESC,
+         "publicCollectionCount" DESC, "publicReelCount" DESC, "publicReviewCount" DESC, "followerCount" DESC,
          candidate.created_at DESC, candidate.username ASC
        LIMIT $2`,
       [viewer, limit]
@@ -7747,6 +8174,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
         sharedPublicCategories: Math.max(0, Number(row.sharedPublicCategoryCount || 0)),
         publicReels: person.publicContent.reels,
         publicReviews: person.publicContent.reviews,
+        publicCollections: person.publicContent.collections,
         followers: Math.max(0, Number(row.followerCount || 0))
       };
       const reasonCode = reasonContext.sharedPublicCategories > 0
@@ -7755,6 +8183,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
           ? "mutual_public_connections"
           : reasonContext.publicReels > 0
             ? "public_creator_activity"
+            : reasonContext.publicCollections > 0
+              ? "public_curator_activity"
             : reasonContext.publicReviews > 0
               ? "public_reviewer_activity"
               : "public_profile_activity";
@@ -8045,6 +8475,10 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     readUserFollowSummary,
     readUserFollowSuggestions,
     readUserFollowPage,
+    createUserCollection,
+    updateUserCollection,
+    setUserCollectionItem,
+    readUserCollectionsPage,
     setUserFollow,
     importUserFollows,
     setUserBlock,

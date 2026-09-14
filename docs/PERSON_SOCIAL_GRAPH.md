@@ -25,9 +25,10 @@ Capabilities are derived only from public evidence:
 - buyer: the current account role is buyer.
 - seller: seller role, verified seller state, or at least one approved product.
 - creator: at least one approved reel/video product or authored public review.
+- curator: at least one published collection visible to the current viewer.
 
-Curator is not inferred because public collections and recommendations do not
-yet have a canonical persisted model.
+Capabilities remain evidence-derived. Publishing a collection does not create a
+separate account or change the compatibility role field.
 
 ## Migration Compatibility
 
@@ -92,6 +93,7 @@ Returned reason codes are safe and explainable:
 - similar_public_categories
 - mutual_public_connections
 - public_creator_activity
+- public_curator_activity
 - public_reviewer_activity
 - public_profile_activity
 
@@ -115,6 +117,38 @@ spam, deterministic notification IDs make retries idempotent, and private Reels
 never notify followers. Successfully committed rows are delivered through the
 same realtime notification channel and remain recoverable from PostgreSQL.
 
+Publishing a non-private collection uses the same durable, block-safe, active
+follower fanout. Draft creation and item edits do not notify. The collection
+channel has its own six-hour creator-to-recipient cooldown and a maximum of 100
+recipients per publication.
+
+## Collections And Recommendations
+
+public_collections is the canonical curator-owned container. Collections move
+through draft, published, and archived states; archived collections are
+terminal. public_collection_items stores unique product references, a bounded
+position, and an optional public recommendation note.
+
+Owners may add at most 100 approved products that they are allowed to view.
+Ownership is enforced server-side in a transaction. Product access is checked
+again whenever a collection is read, so a later block or private product policy
+cannot leak through an older collection reference. Collection responses expose
+at most 12 ordered product previews while returning an accurate visible item
+count.
+
+The canonical API surface is:
+
+- POST /api/social/collections
+- PATCH /api/social/collections/:collectionId
+- PUT /api/social/collections/:collectionId/items/:productId
+- DELETE /api/social/collections/:collectionId/items/:productId
+- GET /api/social/users/:username/collections
+
+Writes require an authenticated person session and CSRF protection. Public
+reads are cursor-bounded; owner reads may include drafts and private
+collections, while other viewers receive only published content allowed by the
+PUBLIC/FOLLOWERS/PRIVATE policy.
+
 ## Feed Integration
 
 The current feed may use followed people as one bounded ranking/candidate signal.
@@ -130,9 +164,8 @@ video playback privacy, cache invalidation, and client request contracts.
 
 Remaining work:
 
-- canonical public collections/recommendations and a real curator capability,
-- visibility support for future collections, recommendations, posts, and shorts
+- user-facing collection creation and profile collection surfaces,
+- visibility support for future posts and shorts
   once those canonical content models exist,
-- new-collection notifications once a canonical collection model exists,
 - optional user-facing suggestion surfaces,
 - removal of seller-specific compatibility naming after all callers migrate.

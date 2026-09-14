@@ -31,6 +31,41 @@
       const source = String(options.source || "").trim() === "follow" ? "?source=follow" : "";
       return fetchJson(`${baseUrl}/social/users/${encodeURIComponent(String(username || "").trim())}${source}`, { headers: headers() });
     }
+    async function loadUserCollections(username, options = {}) {
+      requireFetcher();
+      const query = new URLSearchParams({
+        limit: String(Math.max(1, Math.min(Number(options.limit || 12) || 12, 30)))
+      });
+      if (String(options.cursor || "").trim()) query.set("cursor", String(options.cursor).trim());
+      return fetchJson(`${baseUrl}/social/users/${encodeURIComponent(String(username || "").trim())}/collections?${query}`, {
+        headers: headers()
+      });
+    }
+    async function createCollection(payload = {}) {
+      requireFetcher();
+      return fetchJson(`${baseUrl}/social/collections`, {
+        method: "POST",
+        headers: headers(true),
+        body: JSON.stringify(payload)
+      });
+    }
+    async function updateCollection(collectionId, payload = {}) {
+      requireFetcher();
+      return fetchJson(`${baseUrl}/social/collections/${encodeURIComponent(String(collectionId || "").trim())}`, {
+        method: "PATCH",
+        headers: headers(true),
+        body: JSON.stringify(payload)
+      });
+    }
+    async function setCollectionItem(collectionId, productId, options = {}) {
+      requireFetcher();
+      const remove = Boolean(options.remove);
+      return fetchJson(`${baseUrl}/social/collections/${encodeURIComponent(String(collectionId || "").trim())}/items/${encodeURIComponent(String(productId || "").trim())}`, {
+        method: remove ? "DELETE" : "PUT",
+        headers: headers(!remove),
+        ...(remove ? {} : { body: JSON.stringify({ position: options.position || 0, note: options.note || "" }) })
+      });
+    }
     async function setFollow(username, following, options = {}) {
       requireFetcher();
       const method = following ? "PUT" : "DELETE";
@@ -72,7 +107,19 @@
         body: JSON.stringify({ visibility: safeVisibility })
       });
     }
-    return { loadFollows, loadFollowSuggestions, loadSocialProfile, setFollow, importLegacyFollows, setBlock, setContentVisibility };
+    return {
+      loadFollows,
+      loadFollowSuggestions,
+      loadSocialProfile,
+      loadUserCollections,
+      createCollection,
+      updateCollection,
+      setCollectionItem,
+      setFollow,
+      importLegacyFollows,
+      setBlock,
+      setContentVisibility
+    };
   }
 
   window.WingaModules = window.WingaModules || {};

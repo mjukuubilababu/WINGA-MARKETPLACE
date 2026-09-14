@@ -5739,6 +5739,11 @@ test("social API client preserves cursor paging and person follow mutation seman
   await client.importLegacyFollows(["person-a", "person-a", "person-b"]);
   await client.setBlock("person-c", true);
   await client.setContentVisibility("reel", "reel/one", "followers");
+  await client.loadUserCollections("person/b", { limit: 99, cursor: "2026-09-15T10:00:00.000Z|collection-one" });
+  await client.createCollection({ title: "Wedding looks", visibility: "followers" });
+  await client.updateCollection("collection/one", { expectedRowVersion: 1, status: "published" });
+  await client.setCollectionItem("collection/one", "product/one", { position: 2, note: "Best value" });
+  await client.setCollectionItem("collection/one", "product/one", { remove: true });
   assert.match(requests[0].url, /direction=followers/);
   assert.match(requests[0].url, /limit=100/);
   assert.match(requests[0].url, /cursor=/);
@@ -5752,6 +5757,14 @@ test("social API client preserves cursor paging and person follow mutation seman
   assert.equal(requests[7].options.method, "PATCH");
   assert.match(requests[7].url, /social\/content\/reel\/reel%2Fone\/visibility$/);
   assert.deepEqual(JSON.parse(requests[7].options.body), { visibility: "followers" });
+  assert.match(requests[8].url, /person%2Fb\/collections\?limit=30&cursor=/);
+  assert.equal(requests[9].options.method, "POST");
+  assert.equal(JSON.parse(requests[9].options.body).visibility, "followers");
+  assert.equal(requests[10].options.method, "PATCH");
+  assert.match(requests[10].url, /collections\/collection%2Fone$/);
+  assert.equal(requests[11].options.method, "PUT");
+  assert.deepEqual(JSON.parse(requests[11].options.body), { position: 2, note: "Best value" });
+  assert.equal(requests[12].options.method, "DELETE");
   assert.equal(requests.slice(1).every((request) => request.options.headers["X-CSRF-Token"] === "csrf"), true);
   assert.match(requests[3].url, /person%2Fb$/);
   await assert.rejects(client.setContentVisibility("message", "message-1", "private"), /Invalid public content type/);
@@ -5771,6 +5784,27 @@ test("public content visibility is owner-scoped and protects direct video playba
   assert.match(serverSource, /readPlayableVideo\?\.\(videoPlaybackMatch\[1\], \{\s*viewerUsername:/);
   assert.match(dataSource, /async setPublicContentVisibility\(contentType, contentId, visibility\) \{\s*assertPersonAccess\(\)/);
   assert.match(dataSource, /state\.productQueryCache\.clear\(\)/);
+});
+
+test("public collections are canonical privacy-aware curator content", () => {
+  const root = path.resolve(__dirname, "..");
+  const serverSource = fs.readFileSync(path.join(root, "backend", "server.js"), "utf8");
+  const dbSource = fs.readFileSync(path.join(root, "backend", "db.js"), "utf8");
+  const migrationSource = fs.readFileSync(path.join(root, "backend", "migrations", "index.js"), "utf8");
+  const dataSource = fs.readFileSync(path.join(root, "data-service.js"), "utf8");
+  assert.match(migrationSource, /2026091503_public_collections/);
+  assert.match(migrationSource, /CREATE TABLE IF NOT EXISTS public_collection_items/);
+  assert.match(dbSource, /async function createUserCollection/);
+  assert.match(dbSource, /async function updateUserCollection/);
+  assert.match(dbSource, /async function readUserCollectionsPage/);
+  assert.match(dbSource, /capabilities\.push\("curator"\)/);
+  assert.match(dbSource, /public_curator_activity/);
+  assert.match(serverSource, /collection_created/);
+  assert.match(serverSource, /collection_published/);
+  assert.match(serverSource, /collection_item_added/);
+  assert.match(serverSource, /emitLiveEvent\(notification\.userId, "notification"/);
+  assert.match(dataSource, /async createUserCollection\(payload = \{\}\)/);
+  assert.match(dataSource, /async setUserCollectionItem\(collectionId, productId, options = \{\}\)/);
 });
 (async () => {
   let passed = 0;

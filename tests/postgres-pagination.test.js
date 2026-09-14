@@ -107,6 +107,9 @@ test("PostgreSQL schema migrations are locked, transactional, and versioned", as
   assert.equal(calls.some((call) => call.text.includes("CREATE TABLE IF NOT EXISTS user_follows")), true);
   assert.equal(calls.some((call) => call.text.includes("idx_user_follows_followers_cursor")), true);
   assert.equal(calls.some((call) => call.text.includes("CREATE TABLE IF NOT EXISTS user_blocks")), true);
+  assert.equal(calls.some((call) => call.text.includes("CREATE TABLE IF NOT EXISTS public_collections")), true);
+  assert.equal(calls.some((call) => call.text.includes("CREATE TABLE IF NOT EXISTS public_collection_items")), true);
+  assert.equal(calls.some((call) => call.text.includes("idx_public_collections_published_cursor")), true);
   assert.equal(calls.some((call) => call.text.includes("idx_users_active_created")), true);
   assert.equal(calls.some((call) => call.text.includes("idx_reviews_author_date")), true);
   assert.equal(calls.some((call) => call.text.includes("idx_products_seller_video_created")), true);
@@ -3598,6 +3601,153 @@ test("new reel follower notifications are bounded block-safe and frequency contr
   assert.equal(calls.some((call) => call.text.includes("WITH eligible_followers")), false);
 });
 
+test("public collections are transactional owner-scoped and publish with bounded notifications", async () => {
+  const calls = [];
+  const client = {
+    async query(text, params = []) {
+      const sql = String(text);
+      calls.push({ text: sql, params });
+      if (sql.includes("SELECT 1 FROM users WHERE username")) return { rows: [{ "?column?": 1 }], rowCount: 1 };
+      if (sql.includes("INSERT INTO public_collections")) {
+        return {
+          rows: [{
+            id: params[0], ownerUsername: params[1], title: params[2], description: params[3],
+            status: "draft", createdAt: "2026-09-15T10:00:00.000Z",
+            updatedAt: "2026-09-15T10:00:00.000Z", publishedAt: null, rowVersion: 1
+          }],
+          rowCount: 1
+        };
+      }
+      if (sql.includes("SELECT id, status FROM public_collections")) {
+        return { rows: [{ id: params[0], status: "draft" }], rowCount: 1 };
+      }
+      if (sql.includes("SELECT p.id") && sql.includes("FROM products p")) {
+        return { rows: [{ id: params[0] }], rowCount: 1 };
+      }
+      if (sql.includes("COUNT(*)::int AS count FROM public_collection_items")) {
+        return { rows: [{ count: 0 }], rowCount: 1 };
+      }
+      if (sql.includes("SELECT 1 FROM public_collection_items") && sql.includes("product_id = $2")) {
+        return { rows: [], rowCount: 0 };
+      }
+      if (sql.includes("INSERT INTO public_collection_items")) {
+        return {
+          rows: [{ collectionId: params[0], productId: params[1], position: params[2], note: params[3] }],
+          rowCount: 1
+        };
+      }
+      if (sql.includes("FROM public_collections") && sql.includes("owner_username AS") && sql.includes("FOR UPDATE")) {
+        return {
+          rows: [{
+            id: params[0], ownerUsername: params[1], title: "Wedding looks", description: "",
+            status: "draft", createdAt: "2026-09-15T10:00:00.000Z",
+            updatedAt: "2026-09-15T10:00:00.000Z", publishedAt: null, rowVersion: 2
+          }],
+          rowCount: 1
+        };
+      }
+      if (sql.includes("SELECT 1 FROM public_collection_items") && sql.includes("LIMIT 1")) {
+        return { rows: [{ "?column?": 1 }], rowCount: 1 };
+      }
+      if (sql.includes("UPDATE public_collections SET") && sql.includes("RETURNING id")) {
+        return {
+          rows: [{
+            id: params[0], ownerUsername: params[1], title: params[2], description: params[3],
+            status: params[4], createdAt: "2026-09-15T10:00:00.000Z",
+            updatedAt: "2026-09-15T10:02:00.000Z",
+            publishedAt: "2026-09-15T10:02:00.000Z", rowVersion: 3
+          }],
+          rowCount: 1
+        };
+      }
+      if (sql.includes("SELECT visibility FROM public_content_visibility")) {
+        return { rows: [{ visibility: "followers" }], rowCount: 1 };
+      }
+      if (sql.includes("WITH eligible_followers")) {
+        return {
+          rows: [{
+            id: "collection:notice", userId: "follower-one", type: "content",
+            messageId: "collection-one", conversationId: "creator:curator-one:collections",
+            title: "Collection mpya kutoka curator-one", body: "Wedding looks", isRead: false
+          }],
+          rowCount: 1
+        };
+      }
+      return { rows: [], rowCount: 1 };
+    },
+    release() {}
+  };
+  const store = createPostgresStore({
+    databaseUrl: "postgres://test.invalid/winga",
+    queryClient: { query: client.query.bind(client), connect: async () => client }
+  });
+
+  const created = await store.createUserCollection("curator-one", {
+    id: "collection-one", title: "Wedding looks", visibility: "followers"
+  });
+  assert.equal(created.created, true);
+  assert.equal(created.collection.status, "draft");
+  assert.equal(created.collection.visibility, "followers");
+
+  const item = await store.setUserCollectionItem("curator-one", "collection-one", "product-one", {
+    position: 2, note: "Best value"
+  });
+  assert.equal(item.updated, true);
+  assert.equal(item.item.productId, "product-one");
+
+  const published = await store.updateUserCollection("curator-one", "collection-one", {
+    expectedRowVersion: 2, status: "published"
+  });
+  assert.equal(published.updated, true);
+  assert.equal(published.collection.status, "published");
+  assert.equal(published.followerNotifications.length, 1);
+  const productAccess = calls.find((call) => call.text.includes("FROM products p") && call.text.includes("collection_follow"));
+  assert.match(productAccess.text, /p\.status = 'approved'/);
+  assert.match(productAccess.text, /FROM user_blocks collection_block/);
+  const fanout = calls.find((call) => call.text.includes("WITH eligible_followers"));
+  assert.match(fanout.text, /INTERVAL '6 hours'/);
+  assert.match(fanout.text, /LIMIT 100/);
+  assert.match(fanout.text, /ON CONFLICT \(id\) DO NOTHING/);
+  assert.equal(calls.filter((call) => call.text === "COMMIT").length, 3);
+});
+
+test("public collection pages are cursor bounded and hide inaccessible collection items", async () => {
+  const calls = [];
+  const queryClient = {
+    async query(text, params = []) {
+      calls.push({ text: String(text), params });
+      return {
+        rows: [
+          {
+            id: "collection-two", ownerUsername: "curator-one", title: "Looks two",
+            status: "published", visibility: "public", items: [{ productId: "product-two" }],
+            itemCount: 1, createdAt: "2026-09-15T11:00:00.000Z", rowVersion: 2
+          },
+          {
+            id: "collection-one", ownerUsername: "curator-one", title: "Looks one",
+            status: "published", visibility: "followers", items: [],
+            itemCount: 0, createdAt: "2026-09-15T10:00:00.000Z", rowVersion: 1
+          }
+        ],
+        rowCount: 2
+      };
+    }
+  };
+  const store = createPostgresStore({ databaseUrl: "postgres://test.invalid/winga", queryClient });
+  const page = await store.readUserCollectionsPage("curator-one", "viewer", { limit: 1 });
+  assert.equal(page.items.length, 1);
+  assert.equal(page.hasMore, true);
+  assert.equal(page.nextCursor, "2026-09-15T11:00:00.000Z|collection-two");
+  assert.deepEqual(calls[0].params, ["curator-one", "viewer", 2]);
+  assert.match(calls[0].text, /collection\.status = 'published'/);
+  assert.match(calls[0].text, /visibility\.visibility = 'followers'/);
+  assert.match(calls[0].text, /FROM user_blocks collection_block/);
+  assert.match(calls[0].text, /FROM user_blocks item_block/);
+  assert.match(calls[0].text, /JSONB_AGG\(item_row\.payload/);
+  assert.doesNotMatch(calls[0].text, /ORDER BY collection_item\.position[^;]+LIMIT 12/);
+  assert.doesNotMatch(calls[0].text, /orders|messages|sessions|saved/i);
+});
+
 test("person social graph follow mutation is transactional, idempotent, and actor-scoped", async () => {
   const calls = [];
   let existingFollowStatus = "";
@@ -3699,6 +3849,7 @@ test("person profile exposes public multi-capabilities without private behavior"
           publicProductCount: 0,
           publicReelCount: 2,
           publicReviewCount: 3,
+          publicCollectionCount: 2,
           followingCount: 4,
           followerCount: 5,
           viewerFollows: true,
@@ -3711,17 +3862,18 @@ test("person profile exposes public multi-capabilities without private behavior"
   };
   const store = createPostgresStore({ databaseUrl: "postgres://test.invalid/winga", queryClient });
   const profile = await store.readUserFollowSummary("person-a", "viewer");
-  assert.deepEqual(profile.capabilities, ["buyer", "creator"]);
+  assert.deepEqual(profile.capabilities, ["buyer", "creator", "curator"]);
   assert.deepEqual(profile.publicContent, {
     products: 0,
     reels: 2,
     reviews: 3,
-    collections: 0,
+    collections: 2,
     recommendations: 0
   });
   assert.equal(profile.viewerFollows, true);
   assert.match(calls[0].text, /public_product\.status = 'approved'/);
   assert.match(calls[0].text, /public_reel\.status = 'approved'/);
+  assert.match(calls[0].text, /public_collection\.status = 'published'/);
   assert.match(calls[0].text, /public_content_visibility/);
   assert.match(calls[0].text, /profile_follow\.status = 'active'/);
   assert.doesNotMatch(calls[0].text, /orders|messages|sessions|saved/i);
@@ -3741,6 +3893,7 @@ test("person follow suggestions are bounded, block-safe, and based on public act
             publicProductCount: 1,
             publicReelCount: 2,
             publicReviewCount: 0,
+            publicCollectionCount: 1,
             followerCount: 7,
             mutualConnectionCount: 0,
             sharedPublicCategoryCount: 2
@@ -3752,6 +3905,7 @@ test("person follow suggestions are bounded, block-safe, and based on public act
             publicProductCount: 1,
             publicReelCount: 0,
             publicReviewCount: 4,
+            publicCollectionCount: 0,
             followerCount: 3,
             mutualConnectionCount: 1,
             sharedPublicCategoryCount: 0
@@ -3766,7 +3920,7 @@ test("person follow suggestions are bounded, block-safe, and based on public act
   assert.equal(result.limit, 30);
   assert.equal(result.privacy, "public-activity-only");
   assert.equal(result.items[0].reasonCode, "similar_public_categories");
-  assert.deepEqual(result.items[0].capabilities, ["buyer", "seller", "creator"]);
+  assert.deepEqual(result.items[0].capabilities, ["buyer", "seller", "creator", "curator"]);
   assert.equal(result.items[1].reasonCode, "mutual_public_connections");
   assert.deepEqual(calls[0].params, ["viewer", 30]);
   assert.match(calls[0].text, /candidate\.username <> \$1/);
@@ -3776,6 +3930,7 @@ test("person follow suggestions are bounded, block-safe, and based on public act
   assert.match(calls[0].text, /public_product\.status = 'approved'/);
   assert.match(calls[0].text, /content_type = 'product'/);
   assert.match(calls[0].text, /content_type = 'review'/);
+  assert.match(calls[0].text, /content_type = 'collection'/);
   assert.match(calls[0].text, /visibility[^\n]+public/);
   assert.doesNotMatch(calls[0].text, /orders|messages|sessions|saved/i);
 });

@@ -21,6 +21,47 @@ const MIGRATIONS = Object.freeze([
     ])
   }),
   Object.freeze({
+    id: "2026091503_public_collections",
+    statements: Object.freeze([
+      `ALTER TABLE public_content_visibility
+       DROP CONSTRAINT IF EXISTS public_content_visibility_content_type_check;`,
+      `ALTER TABLE public_content_visibility
+       ADD CONSTRAINT public_content_visibility_content_type_check
+       CHECK (content_type IN ('product', 'review', 'collection')) NOT VALID;`,
+      `ALTER TABLE public_content_visibility
+       VALIDATE CONSTRAINT public_content_visibility_content_type_check;`,
+      `CREATE TABLE IF NOT EXISTS public_collections (
+         id TEXT PRIMARY KEY,
+         owner_username TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
+         title TEXT NOT NULL,
+         description TEXT NOT NULL DEFAULT '',
+         status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'published', 'archived')),
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         published_at TIMESTAMPTZ,
+         row_version BIGINT NOT NULL DEFAULT 1
+       );`,
+      `CREATE INDEX IF NOT EXISTS idx_public_collections_owner_cursor
+       ON public_collections (owner_username, created_at DESC, id DESC)
+       WHERE status <> 'archived';`,
+      `CREATE INDEX IF NOT EXISTS idx_public_collections_published_cursor
+       ON public_collections (published_at DESC, id DESC)
+       WHERE status = 'published';`,
+      `CREATE TABLE IF NOT EXISTS public_collection_items (
+         collection_id TEXT NOT NULL REFERENCES public_collections(id) ON DELETE CASCADE,
+         product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+         position INTEGER NOT NULL DEFAULT 0 CHECK (position >= 0 AND position <= 1000),
+         note TEXT NOT NULL DEFAULT '',
+         added_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         PRIMARY KEY (collection_id, product_id)
+       );`,
+      `CREATE INDEX IF NOT EXISTS idx_public_collection_items_order
+       ON public_collection_items (collection_id, position ASC, added_at ASC, product_id ASC);`,
+      `CREATE INDEX IF NOT EXISTS idx_public_collection_items_product
+       ON public_collection_items (product_id, collection_id);`
+    ])
+  }),
+  Object.freeze({
     id: "2026091501_person_public_discovery",
     statements: Object.freeze([
       `CREATE INDEX IF NOT EXISTS idx_users_active_created

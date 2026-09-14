@@ -6296,7 +6296,7 @@ function getRateLimitRule(pathname, method = "GET") {
       key: "/api/media/videos/:providerId/captions"
     };
   }
-  if (normalizedMethod === "GET" && (pathname === "/api/social/follows" || pathname === "/api/social/suggestions" || /^\/api\/social\/users\/[^/]+$/.test(pathname))) {
+  if (normalizedMethod === "GET" && (pathname === "/api/social/follows" || pathname === "/api/social/suggestions" || /^\/api\/social\/users\/[^/]+(?:\/collections)?$/.test(pathname))) {
     return { limit: 120, windowMs: RATE_LIMIT_WINDOW_MS, key: "/api/social/read" };
   }
   if (/^\/api\/social\/(?:follows|blocks)\/[^/]+$/.test(pathname) || pathname === "/api/social/follows/import") {
@@ -6304,6 +6304,9 @@ function getRateLimitRule(pathname, method = "GET") {
   }
   if (/^\/api\/social\/content\/(?:product|reel|review)\/[^/]+\/visibility$/.test(pathname)) {
     return { limit: 30, windowMs: RATE_LIMIT_WINDOW_MS, key: "/api/social/content/visibility" };
+  }
+  if (pathname === "/api/social/collections" || /^\/api\/social\/collections\/[^/]+(?:\/items\/[^/]+)?$/.test(pathname)) {
+    return { limit: 30, windowMs: RATE_LIMIT_WINDOW_MS, key: "/api/social/collections/write" };
   }
   if (/^\/api\/notifications\/[^/]+\/read$/.test(pathname)) {
     return {
@@ -7282,6 +7285,150 @@ const server = http.createServer(async (req, res) => {
       }, { "Cache-Control": "private, no-store" });
       return;
     }
+    const socialCollectionsReadMatch = url.pathname.match(/^\/api\/social\/users\/([^/]+)\/collections$/);
+    if (req.method === "GET" && socialCollectionsReadMatch) {
+      const profileUsername = normalizeIdentifier(decodeURIComponent(socialCollectionsReadMatch[1] || ""), 40);
+      const token = readAuthToken(req);
+      const session = token ? findSession(store, token) : null;
+      const viewerUsername = session?.username || "";
+      if (!postgresStore?.readUserFollowSummary || !postgresStore?.readUserCollectionsPage) {
+        sendJson(res, 503, { error: "Collections hazipatikani kwa sasa.", code: "collections_unavailable" });
+        return;
+      }
+      const profile = await postgresStore.readUserFollowSummary(profileUsername, viewerUsername);
+      if (!profile || (profile.blocked && viewerUsername !== profileUsername)) {
+        sendJson(res, 404, { error: "Profile haijapatikana.", code: "social_profile_not_found" });
+        return;
+      }
+      const limit = Math.max(1, Math.min(Number(url.searchParams.get("limit") || 12) || 12, 30));
+      const rawCursor = String(url.searchParams.get("cursor") || "").trim();
+      const separator = rawCursor.lastIndexOf("|");
+      const cursorTime = separator > 0 ? rawCursor.slice(0, separator) : "";
+      const cursorId = separator > 0 ? sanitizePlainText(rawCursor.slice(separator + 1), 80) : "";
+      if (rawCursor && (separator <= 0 || !cursorId || Number.isNaN(new Date(cursorTime).getTime()))) {
+        sendJson(res, 400, { error: "Cursor si sahihi.", code: "invalid_collection_cursor" });
+        return;
+      }
+      const page = await postgresStore.readUserCollectionsPage(profileUsername, viewerUsername, {
+        limit, cursorTime, cursorId
+      });
+      sendJson(res, 200, page, { "Cache-Control": viewerUsername ? "private, no-store" : "public, max-age=30" });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/social/collections") {
+      const session = findSession(store, readAuthToken(req));
+      const user = ensureMarketplaceUser(store, session, res, { allowStaff: true });
+      if (!user) return;
+      if (!postgresStore?.createUserCollection) {
+        sendJson(res, 503, { error: "Collections hazipatikani kwa sasa.", code: "collections_unavailable" });
+        return;
+      }
+      const payload = await collectBody(req);
+      const title = sanitizePlainText(payload?.title || "", 120);
+      const description = sanitizePlainText(payload?.description || "", 500);
+      const visibility = String(payload?.visibility || "public").trim().toLowerCase();
+      if (!title || !ALLOWED_CONTENT_VISIBILITY.includes(visibility)) {
+        sendJson(res, 400, { error: "Collection si sahihi.", code: "invalid_collection" });
+        return;
+      }
+      const result = await postgresStore.createUserCollection(user.username, {
+        id: `collection-${crypto.randomUUID()}`,
+        title,
+        description,
+        visibility
+      });
+      if (!result.created) {
+        sendJson(res, result.code === "collection_conflict" ? 409 : 400, { error: "Collection haikutengenezwa.", code: result.code });
+        return;
+      }
+      await appendAuditLog({
+        time: new Date().toISOString(), ip: clientIp, method: req.method, path: url.pathname,
+        event: "collection_created", username: user.username, collectionId: result.collection.id
+      });
+      sendJson(res, 201, result, { "Cache-Control": "private, no-store" });
+      return;
+    }
+
+    const socialCollectionItemMatch = url.pathname.match(/^\/api\/social\/collections\/([^/]+)\/items\/([^/]+)$/);
+    if ((req.method === "PUT" || req.method === "DELETE") && socialCollectionItemMatch) {
+      const session = findSession(store, readAuthToken(req));
+      const user = ensureMarketplaceUser(store, session, res, { allowStaff: true });
+      if (!user) return;
+      if (!postgresStore?.setUserCollectionItem) {
+        sendJson(res, 503, { error: "Collections hazipatikani kwa sasa.", code: "collections_unavailable" });
+        return;
+      }
+      const collectionId = sanitizePlainText(decodeURIComponent(socialCollectionItemMatch[1] || ""), 80);
+      const productId = sanitizePlainText(decodeURIComponent(socialCollectionItemMatch[2] || ""), 80);
+      const payload = req.method === "PUT" ? await collectBody(req) : {};
+      const result = await postgresStore.setUserCollectionItem(user.username, collectionId, productId, {
+        remove: req.method === "DELETE",
+        position: Math.max(0, Math.min(Number(payload?.position || 0) || 0, 1000)),
+        note: sanitizePlainText(payload?.note || "", 240)
+      });
+      if (!result.updated) {
+        const status = result.code === "collection_not_found" || result.code === "product_not_available"
+          ? 404
+          : result.code === "collection_item_limit" || result.code === "collection_archived" ? 409 : 400;
+        sendJson(res, status, { error: "Collection item haikubadilika.", code: result.code });
+        return;
+      }
+      await appendAuditLog({
+        time: new Date().toISOString(), ip: clientIp, method: req.method, path: url.pathname,
+        event: req.method === "DELETE" ? "collection_item_removed" : "collection_item_added",
+        username: user.username, collectionId, productId
+      });
+      sendJson(res, 200, { ok: true, ...result }, { "Cache-Control": "private, no-store" });
+      return;
+    }
+
+    const socialCollectionMatch = url.pathname.match(/^\/api\/social\/collections\/([^/]+)$/);
+    if (req.method === "PATCH" && socialCollectionMatch) {
+      const session = findSession(store, readAuthToken(req));
+      const user = ensureMarketplaceUser(store, session, res, { allowStaff: true });
+      if (!user) return;
+      if (!postgresStore?.updateUserCollection) {
+        sendJson(res, 503, { error: "Collections hazipatikani kwa sasa.", code: "collections_unavailable" });
+        return;
+      }
+      const collectionId = sanitizePlainText(decodeURIComponent(socialCollectionMatch[1] || ""), 80);
+      const payload = await collectBody(req);
+      const hasVisibility = Object.prototype.hasOwnProperty.call(payload || {}, "visibility");
+      const hasStatus = Object.prototype.hasOwnProperty.call(payload || {}, "status");
+      const updates = {
+        expectedRowVersion: Number(payload?.expectedRowVersion || 0),
+        ...(Object.prototype.hasOwnProperty.call(payload || {}, "title") ? { title: sanitizePlainText(payload.title || "", 120) } : {}),
+        ...(Object.prototype.hasOwnProperty.call(payload || {}, "description") ? { description: sanitizePlainText(payload.description || "", 500) } : {}),
+        ...(hasVisibility ? { visibility: String(payload.visibility || "").trim().toLowerCase() } : {}),
+        ...(hasStatus ? { status: String(payload.status || "").trim().toLowerCase() } : {})
+      };
+      if (!Number.isInteger(updates.expectedRowVersion) || updates.expectedRowVersion < 1
+        || (hasVisibility && !ALLOWED_CONTENT_VISIBILITY.includes(updates.visibility))
+        || (hasStatus && !["draft", "published", "archived"].includes(updates.status))) {
+        sendJson(res, 400, { error: "Collection update si sahihi.", code: "invalid_collection" });
+        return;
+      }
+      const result = await postgresStore.updateUserCollection(user.username, collectionId, updates);
+      if (!result.updated) {
+        const status = result.code === "collection_not_found" ? 404
+          : ["collection_conflict", "empty_collection", "collection_archived"].includes(result.code) ? 409 : 400;
+        sendJson(res, status, { error: "Collection haikubadilika.", code: result.code, rowVersion: result.rowVersion || 0 });
+        return;
+      }
+      await appendAuditLog({
+        time: new Date().toISOString(), ip: clientIp, method: req.method, path: url.pathname,
+        event: result.collection.status === "published" ? "collection_published" : "collection_updated",
+        username: user.username, collectionId, status: result.collection.status
+      });
+      (result.followerNotifications || []).map(normalizeNotificationRecord).forEach((notification) => {
+        if (notification.userId) emitLiveEvent(notification.userId, "notification", { notification });
+      });
+      const { followerNotifications: _notifications, ...publicResult } = result;
+      sendJson(res, 200, publicResult, { "Cache-Control": "private, no-store" });
+      return;
+    }
+
     const socialUserMatch = url.pathname.match(/^\/api\/social\/users\/([^/]+)$/);
     if (req.method === "GET" && socialUserMatch) {
       const profileUsername = normalizeIdentifier(decodeURIComponent(socialUserMatch[1] || ""), 40);
