@@ -3372,6 +3372,19 @@ function isAdminSession(session) {
   return session?.role === "admin" && !isRestrictedUserStatus(session?.status);
 }
 
+function getAnalyticsAccessScope(user, session) {
+  if (!user || !session || user.role !== session.role) {
+    return "";
+  }
+  if (user.role === "admin" && isAdminSession(session)) {
+    return "platform";
+  }
+  if (user.role === "seller" && !isRestrictedUserStatus(user.status)) {
+    return "self";
+  }
+  return "";
+}
+
 function isStaffRole(role) {
   return role === "admin" || role === "moderator";
 }
@@ -10825,10 +10838,47 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
-      const analytics = buildAnalytics(store, user.username, isAdminSession(session));
+      const analyticsAccessScope = getAnalyticsAccessScope(user, session);
+      if (!analyticsAccessScope) {
+        await denyJson(res, 403, "Analytics zinapatikana kwa seller au admin tu.", {
+          ip: clientIp,
+          method: req.method,
+          path: url.pathname,
+          event: "analytics_summary_denied",
+          username: user.username,
+          reason: user.role !== session.role ? "session_role_mismatch" : "insufficient_role"
+        });
+        return;
+      }
+
+      const requestedScope = String(url.searchParams.get("scope") || "").trim().toLowerCase();
+      const requestedSeller = String(
+        url.searchParams.get("sellerId")
+        || url.searchParams.get("seller")
+        || url.searchParams.get("username")
+        || ""
+      ).trim();
+      const invalidScope = analyticsAccessScope === "self"
+        ? Boolean((requestedScope && requestedScope !== "self") || (requestedSeller && requestedSeller !== user.username))
+        : Boolean((requestedScope && requestedScope !== "platform") || requestedSeller);
+      if (invalidScope) {
+        await denyJson(res, 403, "Analytics scope uliyoomba hairuhusiwi.", {
+          ip: clientIp,
+          method: req.method,
+          path: url.pathname,
+          event: "analytics_summary_denied",
+          username: user.username,
+          targetUserId: requestedSeller,
+          reason: "invalid_analytics_scope"
+        });
+        return;
+      }
+
+      const isAdminAnalytics = analyticsAccessScope === "platform";
+      const analytics = buildAnalytics(store, user.username, isAdminAnalytics);
       const requestedAnalyticsDays = Number(url.searchParams.get("days") || 30);
       const analyticsWindowDays = [7, 30, 90].includes(requestedAnalyticsDays) ? requestedAnalyticsDays : 30;
-      if (!isAdminSession(session)) {
+      if (!isAdminAnalytics) {
         analytics.timeSeries = {
           schemaVersion: "seller-analytics-time-series-v1",
           privacy: "seller-scoped-aggregate-only",
@@ -10837,7 +10887,7 @@ const server = http.createServer(async (req, res) => {
           error: "unavailable"
         };
       }
-      if (!isAdminSession(session) && postgresStore?.readSellerAnalyticsTimeSeries) {
+      if (!isAdminAnalytics && postgresStore?.readSellerAnalyticsTimeSeries) {
         try {
           analytics.timeSeries = await postgresStore.readSellerAnalyticsTimeSeries(user.username, {
             windowDays: analyticsWindowDays
@@ -10852,7 +10902,7 @@ const server = http.createServer(async (req, res) => {
           };
         }
       }
-      if (!isAdminSession(session) && postgresStore?.readSellerDemandSummary) {
+      if (!isAdminAnalytics && postgresStore?.readSellerDemandSummary) {
         try {
           const demandRows = await postgresStore.readSellerDemandSummary(user.username, 10);
           analytics.demand = {
@@ -10879,7 +10929,7 @@ const server = http.createServer(async (req, res) => {
           analytics.demand = analytics.demand || { error: "unavailable" };
         }
       }
-      if (!isAdminSession(session) && postgresStore?.readSellerVideoAnalytics) {
+      if (!isAdminAnalytics && postgresStore?.readSellerVideoAnalytics) {
         try {
           analytics.video = await postgresStore.readSellerVideoAnalytics(user.username, {
             windowDays: analyticsWindowDays,
@@ -10893,7 +10943,7 @@ const server = http.createServer(async (req, res) => {
           };
         }
       }
-      if (!isAdminSession(session) && postgresStore?.readSellerCommerceOpportunities) {
+      if (!isAdminAnalytics && postgresStore?.readSellerCommerceOpportunities) {
         try {
           await refreshCommerceOpportunities({ force: true });
           analytics.commerceLearning = {
@@ -10907,7 +10957,7 @@ const server = http.createServer(async (req, res) => {
           analytics.commerceLearning = { opportunities: [], metrics: {}, privacy: "aggregate-only", error: "unavailable" };
         }
       }
-      if (isAdminSession(session) && postgresStore?.readRegionalSupplySnapshots) {
+      if (isAdminAnalytics && postgresStore?.readRegionalSupplySnapshots) {
         try {
           analytics.regionalSupply = await postgresStore.readRegionalSupplySnapshots(100);
           analytics.commerceLearning = {
@@ -10936,7 +10986,7 @@ const server = http.createServer(async (req, res) => {
       } catch (error) {
         analytics.searchDemand = { error: "unavailable" };
       }
-      sendJson(res, 200, analytics);
+      sendJson(res, 200, analytics, { "Cache-Control": "private, no-store", "Pragma": "no-cache" });
       return;
     }
 

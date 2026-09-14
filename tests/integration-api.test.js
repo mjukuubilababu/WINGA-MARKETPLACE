@@ -2280,6 +2280,42 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   assert.equal(sellerDemandAnalytics.body.searchDemand.privacy, "anonymous-aggregate-only");
   assert.equal(sellerDemandAnalytics.body.searchDemand.trendingSearches.some((item) => item.queryKey === "white-dress"), true);
 
+  const anonymousAnalytics = await request("/analytics/summary");
+  assert.equal(anonymousAnalytics.response.status, 401);
+
+  const buyerAnalytics = await request("/analytics/summary", {
+    headers: { Authorization: `Bearer ${buyerToken}` }
+  });
+  assert.equal(buyerAnalytics.response.status, 403);
+
+  const moderatorAnalytics = await request("/analytics/summary", {
+    headers: { Authorization: `Bearer ${moderatorToken}` }
+  });
+  assert.equal(moderatorAnalytics.response.status, 403);
+
+  const crossSellerAnalytics = await request("/analytics/summary?sellerId=seller_two", {
+    headers: { Authorization: `Bearer ${sellerToken}` }
+  });
+  assert.equal(crossSellerAnalytics.response.status, 403);
+
+  const sellerSelfAnalytics = await request("/analytics/summary?scope=self&sellerId=seller_one", {
+    headers: { Authorization: `Bearer ${sellerToken}` }
+  });
+  assert.equal(sellerSelfAnalytics.response.status, 200);
+  assert.equal(sellerSelfAnalytics.response.headers.get("cache-control"), "private, no-store");
+
+  const adminAnalytics = await request("/analytics/summary?scope=platform", {
+    headers: { Authorization: `Bearer ${adminToken}` }
+  });
+  assert.equal(adminAnalytics.response.status, 200);
+  assert.equal(adminAnalytics.response.headers.get("cache-control"), "private, no-store");
+  assert.equal(Object.prototype.hasOwnProperty.call(adminAnalytics.body, "timeSeries"), false);
+
+  const adminSellerOverride = await request("/analytics/summary?sellerId=seller_one", {
+    headers: { Authorization: `Bearer ${adminToken}` }
+  });
+  assert.equal(adminSellerOverride.response.status, 403);
+
   const duplicateOrder = await request("/orders", {
     method: "POST",
     headers: {
