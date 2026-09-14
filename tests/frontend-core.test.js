@@ -2066,6 +2066,7 @@ test("video moderation is staff-scoped, durable, and backward compatible", () =>
 test("remote communications API client owns messages notifications and realtime stream", () => {
   const root = path.resolve(__dirname, "..");
   const dataSource = fs.readFileSync(path.join(root, "data-service.js"), "utf8");
+  const serverSource = fs.readFileSync(path.join(root, "backend", "server.js"), "utf8");
   const moduleSource = fs.readFileSync(path.join(root, "src", "api", "communications-client.js"), "utf8");
   const registrySource = fs.readFileSync(path.join(root, "src", "core", "module-registry.js"), "utf8");
   const buildSource = fs.readFileSync(path.join(root, "scripts", "build-vercel-static.js"), "utf8");
@@ -2081,6 +2082,10 @@ test("remote communications API client owns messages notifications and realtime 
   assert.match(moduleSource, /handlers\.onConversationRead\?\.\(parseEvent\(event\)\)/);
   assert.match(dataSource, /window\.WingaModules\?\.api\?\.communications\?\.createCommunicationsApiClient/);
   assert.match(dataSource, /async sendMessage\(payload\) \{\s+return getCommunicationsApiClient\(\)\.sendMessage\(payload\);/);
+  assert.match(dataSource, /async loadNotifications\(\) \{\s+assertPersonAccess\(\);/);
+  assert.match(dataSource, /async markNotificationRead\(notificationId\) \{\s+assertPersonAccess\(\);/);
+  assert.match(serverSource, /postgresStore\?\.readUserNotifications\s+\? await postgresStore\.readUserNotifications\(user\.username, \{ limit: 100 \}\)/);
+  assert.match(serverSource, /ALLOWED_NOTIFICATION_TYPES = \["message", "request", "order", "follow"\]/);
   assert.match(dataSource, /openRealtimeChannel\(handlers = \{\}\) \{\s+return getCommunicationsApiClient\(\)\.openRealtimeChannel\(handlers\);/);
   assert.ok(buildSource.indexOf('"src/api/products-client.js"') < buildSource.indexOf('"src/api/communications-client.js"'));
   assert.ok(buildSource.indexOf('"src/api/communications-client.js"') < buildSource.indexOf('"src/config/categories.js"'));

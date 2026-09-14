@@ -77,6 +77,15 @@ Returned reason codes are safe and explainable:
 Suggestion impressions and accepted suggestions use the existing audit
 infrastructure. Idempotent follow retries do not emit duplicate creation events.
 
+## Notifications
+
+A newly activated follow writes one owner-scoped notification in the same
+database transaction as the follow edge. Its stable relationship identity
+prevents retry spam. Notification reads are PostgreSQL-backed, bounded to 100
+recent rows, private/no-store, and available to every valid person account.
+Realtime delivery uses the existing notification channel; reconnecting clients
+recover the durable row from PostgreSQL.
+
 ## Feed Integration
 
 The current feed may use followed people as one bounded ranking/candidate signal.
@@ -93,6 +102,6 @@ Remaining work:
 
 - canonical public collections/recommendations and a real curator capability,
 - content-level visibility enforcement for every public content type,
-- generic person-content notifications with frequency controls,
+- new-reel and new-collection notifications with frequency controls,
 - optional user-facing suggestion surfaces,
 - removal of seller-specific compatibility naming after all callers migrate.

@@ -182,7 +182,7 @@ const ALLOWED_PAYMENT_STATUSES = ["pending", "paid", "failed", "cancelled", "ref
 const ALLOWED_USER_STATUSES = ["active", "suspended", "banned", "flagged", "deactivated"];
 const ALLOWED_REPORT_STATUSES = ["open", "reviewed", "resolved"];
 const ALLOWED_REPORT_TARGETS = ["user", "product"];
-const ALLOWED_NOTIFICATION_TYPES = ["message", "request", "order"];
+const ALLOWED_NOTIFICATION_TYPES = ["message", "request", "order", "follow"];
 const ALLOWED_PROMOTION_TYPES = ["starter_day", "boost_3day", "growth_7day", "premium_14day", "boost", "featured", "category_boost", "pin_top"];
 const ALLOWED_PROMOTION_STATUSES = ["pending", "active", "rejected", "expired", "disabled"];
 const ALLOWED_IDENTITY_DOCUMENT_TYPES = ["NIDA", "VOTER_ID"];
@@ -7386,8 +7386,12 @@ const server = http.createServer(async (req, res) => {
             event: "suggested_follow_accept", username: user.username, followedUsername
           });
         }
+        if (following && result.notification) {
+          emitLiveEvent(followedUsername, "notification", { notification: result.notification });
+        }
       }
-      sendJson(res, 200, { ok: true, followedUsername, ...result }, { "Cache-Control": "private, no-store" });
+      const { notification: _notification, ...publicResult } = result;
+      sendJson(res, 200, { ok: true, followedUsername, ...publicResult }, { "Cache-Control": "private, no-store" });
       return;
     }
 
@@ -10104,12 +10108,15 @@ const server = http.createServer(async (req, res) => {
       if (req.method === "GET" && url.pathname === "/api/notifications") {
         const token = readAuthToken(req);
         const session = findSession(store, token);
-        const user = ensureMarketplaceUser(store, session, res);
+        const user = ensureMarketplaceUser(store, session, res, { allowStaff: true });
         if (!user) {
           return;
         }
 
-        sendJson(res, 200, buildNotificationsSummary(store, user.username));
+        const notifications = postgresStore?.readUserNotifications
+          ? await postgresStore.readUserNotifications(user.username, { limit: 100 })
+          : buildNotificationsSummary(store, user.username);
+        sendJson(res, 200, notifications, { "Cache-Control": "private, no-store" });
         return;
       }
 
@@ -10238,7 +10245,7 @@ const server = http.createServer(async (req, res) => {
       if (req.method === "PATCH" && /^\/api\/notifications\/[^/]+\/read$/.test(url.pathname)) {
         const token = readAuthToken(req);
         const session = findSession(store, token);
-        const user = ensureMarketplaceUser(store, session, res);
+        const user = ensureMarketplaceUser(store, session, res, { allowStaff: true });
         if (!user) {
           return;
         }
@@ -10259,7 +10266,7 @@ const server = http.createServer(async (req, res) => {
           });
         });
 
-        if (!found) {
+        if (!found && !postgresStore?.markNotificationRead) {
           sendJson(res, 404, { error: "Notification haijapatikana." });
           return;
         }

@@ -3142,6 +3142,13 @@ async loadAdminPayments() {
     }
   }
 
+  function assertPersonAccess() {
+    const role = getCurrentSessionRole();
+    if (!isBuyerCapableRole(role) && !isStaffRole(role)) {
+      throw new Error("Action hii inahitaji account halali.");
+    }
+  }
+
   function assertSellerAccess() {
     if (getCurrentSessionRole() !== "seller") {
       throw new Error("Action hii inahitaji seller account.");
@@ -3992,11 +3999,11 @@ async loadAdminPayments() {
         return state.adapter.markConversationRead ? state.adapter.markConversationRead(payload) : { ok: true };
       },
       async loadNotifications() {
-        assertBuyerCapableAccess();
+        assertPersonAccess();
         return state.adapter.loadNotifications ? state.adapter.loadNotifications() : [];
       },
       async markNotificationRead(notificationId) {
-        assertBuyerCapableAccess();
+        assertPersonAccess();
         return state.adapter.markNotificationRead ? state.adapter.markNotificationRead(notificationId) : { ok: true };
       },
       async loadPromotions() {

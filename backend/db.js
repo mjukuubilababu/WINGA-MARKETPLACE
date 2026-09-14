@@ -3914,6 +3914,36 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       : { updated: false, readAt: "" };
   }
 
+  async function readUserNotifications(userId = "", options = {}) {
+    const username = String(userId || "").trim().slice(0, 40);
+    const limit = Math.max(1, Math.min(Number(options.limit || 100) || 100, 100));
+    if (!username) return [];
+    const result = await query(
+      `SELECT
+         id,
+         user_id AS "userId",
+         type,
+         message_id AS "messageId",
+         conversation_id AS "conversationId",
+         title,
+         body,
+         is_read AS "isRead",
+         read_at AS "readAt",
+         created_at AS "createdAt"
+       FROM notifications
+       WHERE user_id = $1
+       ORDER BY created_at DESC, id DESC
+       LIMIT $2`,
+      [username, limit]
+    );
+    return (result.rows || []).map((row) => ({
+      ...row,
+      isRead: Boolean(row.isRead),
+      readAt: toISOString(row.readAt),
+      createdAt: toISOString(row.createdAt)
+    }));
+  }
+
   async function resetUserPassword(username, passwordHash, options = {}) {
     return withTransaction(async (client) => {
       const expectedVersion = Number(options.expectedRowVersion || 0);
@@ -7481,6 +7511,17 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
            updated_at = NOW()`,
         [follower, followed, status]
       );
+      const notification = changed && following ? {
+        id: stableId("follow", [follower, followed]),
+        userId: followed,
+        type: "follow",
+        title: `${follower} amekufuata`,
+        body: "Anaweza kuona public commerce activity unayoshiriki.",
+        createdAt: new Date().toISOString()
+      } : null;
+      if (notification) {
+        await insertNotificationRow(client, notification);
+      }
       const summary = await client.query(
         `SELECT
            (SELECT COUNT(*)::int FROM user_follows WHERE followed_username = $1 AND status = 'active') AS "followerCount",
@@ -7492,6 +7533,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
         updated: true,
         changed,
         following,
+        notification,
         followerCount: Number(summary.rows?.[0]?.followerCount || 0),
         followingCount: Number(summary.rows?.[0]?.followingCount || 0)
       };
@@ -7600,6 +7642,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     subscribeToMessageEvents,
     deleteMessage,
     markConversationRead,
+    readUserNotifications,
     markNotificationRead,
     resetUserPassword,
     createPasswordRecoveryChallenge,

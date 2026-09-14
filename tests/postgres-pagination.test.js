@@ -3521,17 +3521,57 @@ test("person social graph follow mutation is transactional, idempotent, and acto
   assert.equal(result.updated, true);
   assert.equal(result.changed, true);
   assert.equal(result.following, true);
+  assert.equal(result.notification.userId, "creator");
+  assert.equal(result.notification.type, "follow");
   assert.equal(result.followerCount, 7);
   assert.equal(result.followingCount, 4);
   const retry = await store.setUserFollow("viewer", "creator", true);
   assert.equal(retry.updated, true);
   assert.equal(retry.changed, false);
+  assert.equal(retry.notification, null);
   assert.equal(calls.some((call) => call.text === "BEGIN"), true);
   assert.equal(calls.some((call) => call.text === "COMMIT"), true);
   const upsert = calls.find((call) => call.text.includes("ON CONFLICT (follower_username, followed_username)"));
   assert.deepEqual(upsert.params, ["viewer", "creator", "active"]);
   const summary = calls.find((call) => call.text.includes("AS \"followerCount\""));
   assert.deepEqual(summary.params, ["creator", "viewer"]);
+  const notificationInserts = calls.filter((call) => call.text.includes("INSERT INTO notifications"));
+  assert.equal(notificationInserts.length, 1);
+  assert.equal(notificationInserts[0].params[1], "creator");
+  assert.equal(notificationInserts[0].params[2], "follow");
+});
+
+test("person notifications are database-backed, owner-scoped, and bounded", async () => {
+  const calls = [];
+  const queryClient = {
+    async query(text, params = []) {
+      calls.push({ text: String(text), params });
+      return {
+        rows: [{
+          id: "follow-note",
+          userId: "creator",
+          type: "follow",
+          messageId: "",
+          conversationId: "",
+          title: "viewer amekufuata",
+          body: "Public commerce activity.",
+          isRead: false,
+          readAt: null,
+          createdAt: "2026-09-15T08:00:00.000Z"
+        }],
+        rowCount: 1
+      };
+    }
+  };
+  const store = createPostgresStore({ databaseUrl: "postgres://test.invalid/winga", queryClient });
+  const notifications = await store.readUserNotifications("creator", { limit: 500 });
+  assert.equal(notifications.length, 1);
+  assert.equal(notifications[0].type, "follow");
+  assert.equal(notifications[0].readAt, "");
+  assert.deepEqual(calls[0].params, ["creator", 100]);
+  assert.match(calls[0].text, /WHERE user_id = \$1/);
+  assert.match(calls[0].text, /ORDER BY created_at DESC, id DESC/);
+  assert.match(calls[0].text, /LIMIT \$2/);
 });
 
 test("person profile exposes public multi-capabilities without private behavior", async () => {
