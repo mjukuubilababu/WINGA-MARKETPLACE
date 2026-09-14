@@ -13325,7 +13325,8 @@ const server = http.createServer(async (req, res) => {
         path: url.pathname,
         event: action === "like" ? "product_liked" : "product_viewed",
         username: actingUser.username,
-        productId
+        productId,
+        sellerId: existingProduct.uploadedBy
       });
       scheduleCommerceOutcomeAttribution({
         session,

@@ -2380,6 +2380,16 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
     && entry.reason === "Fraud review after suspicious listing and account audit."
     && entry.actionType === "fraud_review"
   ), true);
+  assert.equal(auditEntries.some((entry) =>
+    entry.event === "product_viewed"
+    && entry.productId === "product-test-001"
+    && entry.sellerId === "seller_one"
+  ), true);
+  assert.equal(auditEntries.some((entry) =>
+    entry.event === "product_liked"
+    && entry.productId === "product-test-001"
+    && entry.sellerId === "seller_one"
+  ), true);
 
   const reportCreate = await request("/reports", {
     method: "POST",

@@ -11,10 +11,10 @@ Profile no longer offer seller Analytics or fetch its summary. Existing Profile
 identity, preferences, products, orders and messages remain unchanged. The
 five-item bottom navigation is retained; Analytics adds no bottom-nav item.
 
-Seller capability checks gate menu visibility and the view. Backend access
-control is unchanged: the existing session-scoped summary route permits
-marketplace users and staff. This UI change does not claim to tighten that API
-into a seller-only endpoint.
+Seller capability checks gate menu visibility and the view. Backend access is
+limited to seller self-aggregates and admin platform aggregates. Buyers,
+moderators, cross-seller selectors and unsupported scope overrides are denied;
+authenticated Analytics responses are private and non-cacheable.
 
 ## UI and data
 
@@ -76,8 +76,9 @@ the rest of the seller summary.
 
 Feature verification passed: PostgreSQL store 93/93, real PostgreSQL commerce
 24/24, frontend core 122/122, photo-reel unit 21/21, integration 173/173 and the
-focused Analytics browser test 1/1. A direct PGlite execution returned seven
-daily points and correctly deduplicated two view retries into one view.
+focused Analytics browser test 1/1. Direct PGlite executions returned seven
+daily points, correctly deduplicated view retries, retained seller attribution
+for a deleted product and excluded a conflicting cross-seller snapshot.
 Module synchronization passed (65 modules). Localization passed (four locales,
 1057 keys each); hard-coded UI debt remains zero. git diff --check passed.
 Responsive navigation now resynchronizes after viewport-cache refresh, with
@@ -102,11 +103,11 @@ direction; localization catalogs are separately validated in all four languages.
 
 ## Remaining limitations
 
-Historical audited product actions currently resolve ownership through products
-that still exist in the seller's catalog; analytics for deleted products is not
-reconstructed. The chart intentionally visualizes views and likes only. Paid
-sales are available in the API foundation but are not combined across currencies
-or presented as a fake single-currency total. Existing intelligence quality and
-attribution limitations remain backend concerns, not concealed by this redesign.
-Production account-specific values still require an authenticated seller session
-to inspect. Seller-only API authorization hardening remains the next security step.
+New audited product actions preserve a trusted seller ownership snapshot, so
+their history remains attributable after a product is deleted. Older events
+without that snapshot retain the existing live-product ownership fallback. The
+chart intentionally visualizes views and likes only. Paid sales are available in
+the API foundation but are not combined across currencies or presented as a fake
+single-currency total. Existing intelligence quality limitations remain backend
+concerns, not concealed by this redesign. Production account-specific values
+still require an authenticated seller session to inspect.

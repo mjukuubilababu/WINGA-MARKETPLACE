@@ -1907,6 +1907,7 @@ test("PostgreSQL intelligence init creates time-only indexes for global raw even
   assert.match(source, /CREATE INDEX IF NOT EXISTS idx_intelligence_events_happened_at\s+ON intelligence_events \(happened_at DESC\)/);
   assert.match(source, /CREATE INDEX IF NOT EXISTS idx_demand_events_created_at\s+ON demand_events \(created_at DESC\)/);
   assert.match(source, /CREATE INDEX IF NOT EXISTS idx_search_demand_events_happened_at\s+ON search_demand_events \(happened_at DESC\)/);
+  assert.match(source, /CREATE INDEX IF NOT EXISTS idx_audit_logs_seller_event_time\s+ON audit_logs \(\(entry->>'sellerId'\), event, time\)/);
 });
 
 test("PostgreSQL intelligence init indexes recent buyer-product attribution across durable stages", () => {
@@ -2379,6 +2380,9 @@ test("PostgreSQL seller analytics time series is scoped, periodized and computes
   assert.deepEqual(calls[0].params, ["seller-one", 7]);
   assert.match(calls[0].text, /MIN\(a\.time\) AS happened_at, 'views' AS metric/);
   assert.match(calls[0].text, /GROUP BY a\.entry->>'productId', a\.entry->>'username'/);
+  assert.match(calls[0].text, /a\.entry->>'sellerId' = \$1/);
+  assert.match(calls[0].text, /COALESCE\(a\.entry->>'sellerId', ''\) = '' AND p\.id IS NOT NULL/);
+  assert.match(calls[0].text, /LEFT JOIN seller_products p ON p\.id = a\.entry->>'productId'/);
   assert.match(calls[0].text, /m\.receiver_id = \$1 AND m\.sender_id <> \$1/);
   assert.match(calls[0].text, /o\.seller_username = \$1/);
   assert.match(calls[0].text, /o\.payment_status = 'paid'/);

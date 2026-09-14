@@ -884,6 +884,10 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       ON audit_logs ((entry->>'productId'), event, time);
     `);
     await query(`
+      CREATE INDEX IF NOT EXISTS idx_audit_logs_seller_event_time
+      ON audit_logs ((entry->>'sellerId'), event, time);
+    `);
+    await query(`
       CREATE INDEX IF NOT EXISTS idx_messages_receiver_time
       ON messages (receiver_id, timestamp);
     `);
@@ -5261,14 +5265,22 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
        audited_product_actions AS (
          SELECT MIN(a.time) AS happened_at, 'views' AS metric
          FROM audit_logs a
-         JOIN seller_products p ON p.id = a.entry->>'productId'
+         LEFT JOIN seller_products p ON p.id = a.entry->>'productId'
          WHERE a.event = 'product_viewed'
+           AND (
+             a.entry->>'sellerId' = $1
+             OR (COALESCE(a.entry->>'sellerId', '') = '' AND p.id IS NOT NULL)
+           )
          GROUP BY a.entry->>'productId', a.entry->>'username'
          UNION ALL
          SELECT a.time, 'likes'
          FROM audit_logs a
-         JOIN seller_products p ON p.id = a.entry->>'productId'
+         LEFT JOIN seller_products p ON p.id = a.entry->>'productId'
          WHERE a.event = 'product_liked'
+           AND (
+             a.entry->>'sellerId' = $1
+             OR (COALESCE(a.entry->>'sellerId', '') = '' AND p.id IS NOT NULL)
+           )
        ),
        activity AS (
          SELECT (a.happened_at AT TIME ZONE 'UTC')::date AS day,
