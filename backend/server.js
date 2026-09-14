@@ -10874,6 +10874,7 @@ const server = http.createServer(async (req, res) => {
             opportunities: await postgresStore.readSellerCommerceOpportunities(user.username, 20),
             metrics: await postgresStore.readCommerceLoopMetrics(user.username),
             experiment: await postgresStore.readCommerceExperimentMetrics?.(user.username),
+            outcomes: await postgresStore.readCommerceOutcomeMetrics?.(user.username),
             privacy: "aggregate-only"
           };
         } catch (error) {
@@ -10886,6 +10887,7 @@ const server = http.createServer(async (req, res) => {
           analytics.commerceLearning = {
             metrics: await postgresStore.readCommerceLoopMetrics(""),
             experiment: await postgresStore.readCommerceExperimentMetrics?.(""),
+            outcomes: await postgresStore.readCommerceOutcomeMetrics?.(""),
             privacy: "aggregate-only"
           };
         } catch (error) {
@@ -12228,7 +12230,9 @@ const server = http.createServer(async (req, res) => {
       );
       const nextStore = { ...store, orders, payments, products, notifications };
       if (postgresStore?.createCommerceOrder) {
-        const commerceResult = await postgresStore.createCommerceOrder(order, payment, sellerNotification);
+        const commerceResult = await postgresStore.createCommerceOrder(order, payment, sellerNotification, {
+          audienceKey: getCommerceAudience(session).audienceKey
+        });
         if (!commerceResult.created) {
           const errors = {
             product_not_found: [404, "Bidhaa haijapatikana."],

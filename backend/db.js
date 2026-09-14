@@ -3060,7 +3060,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     });
   }
 
-  async function createCommerceOrder(order = {}, payment = {}, notification = null) {
+  async function createCommerceOrder(order = {}, payment = {}, notification = null, context = {}) {
     return withTransaction(async (client) => {
       const productResult = await client.query(
         `SELECT id, price::float8 AS price, uploaded_by AS "uploadedBy", status, availability
@@ -3099,10 +3099,11 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
            payment_phone_number, transaction_id, payment_submitted_at,
            payment_confirmed_at, payment_confirmed_by, payment_provider,
            payment_recipient_name, payment_instructions, payment_intent_status,
-           reserve_expires_at, updated_at, created_at, row_version
+           reserve_expires_at, updated_at, created_at, row_version,
+           commerce_audience_key, commerce_measurement_enabled
          ) VALUES (
            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-           $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, 1
+           $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, 1, $24, TRUE
          )`,
         [
           order.id, order.productId, order.productName, order.productImage || "",
@@ -3114,7 +3115,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
           order.paymentProvider || "", order.paymentRecipientName || "",
           order.paymentInstructions || "", order.paymentIntentStatus || "submitted",
           order.reserveExpiresAt || null, order.updatedAt || order.createdAt,
-          order.createdAt || new Date().toISOString()
+          order.createdAt || new Date().toISOString(),
+          /^[a-f0-9]{64}$/.test(String(context.audienceKey || "")) ? context.audienceKey : ""
         ]
       );
       await client.query(
@@ -6098,14 +6100,29 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
                 BOOL_OR(fe.exposure_id IS NOT NULL) AS exposed,
                 BOOL_OR(feo.outcome_type = 'viewed_detail') AS viewed_detail,
                 BOOL_OR(feo.outcome_type = 'messaged') AS messaged,
-                BOOL_OR(feo.outcome_type = 'ordered') AS ordered
+                BOOL_OR(co.outcome_type = 'created') AS ordered,
+                BOOL_OR(co.outcome_type = 'paid') AS paid,
+                BOOL_OR(co.outcome_type = 'delivered') AS delivered,
+                BOOL_OR(co.outcome_type = 'cancelled') AS cancelled,
+                BOOL_OR(co.outcome_type = 'refunded') AS refunded,
+                BOOL_AND(re.assigned_at + INTERVAL '7 days' <= NOW()) AS matured
          FROM rediscovery_eligibility re
          LEFT JOIN supply_responses sr ON sr.response_id = re.supply_response_id
          LEFT JOIN feed_exposures fe ON fe.supply_response_id = re.supply_response_id
            AND fe.audience_type = re.audience_type AND fe.audience_key = re.audience_key
+           AND fe.shown_at >= re.assigned_at AND fe.shown_at < re.assigned_at + INTERVAL '7 days'
          LEFT JOIN feed_exposure_outcomes feo ON feo.exposure_id = fe.exposure_id
+           AND feo.occurred_at >= fe.shown_at AND feo.occurred_at < re.assigned_at + INTERVAL '7 days'
+         LEFT JOIN commerce_order_outcomes co ON co.eligibility_id = re.eligibility_id
+           AND co.experiment_key = re.experiment_key AND co.experiment_arm = re.experiment_arm
+           AND co.audience_key = re.audience_key AND re.audience_type = 'user'
+           AND co.product_id = re.product_id
+           AND co.occurred_at >= co.assigned_at AND co.occurred_at < co.observation_ends_at
          WHERE re.experiment_key = $2
-           AND sr.status = 'active' AND sr.action_type NOT IN ('ignore', 'dismiss')
+           AND re.audience_type = 'user' AND re.audience_key <> ''
+           AND re.assigned_at >= (SELECT applied_at FROM schema_migrations
+             WHERE migration_id = '2026091402_authoritative_commerce_outcomes')
+           AND sr.action_type NOT IN ('ignore', 'dismiss')
            AND ($1 = '' OR sr.seller_id = $1)
          GROUP BY re.experiment_arm, re.audience_type, re.audience_key
        )
@@ -6114,7 +6131,12 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
               COUNT(*) FILTER (WHERE exposed)::int AS "exposedAudience",
               COUNT(*) FILTER (WHERE viewed_detail)::int AS "detailViewAudience",
               COUNT(*) FILTER (WHERE messaged)::int AS "messagedAudience",
-              COUNT(*) FILTER (WHERE ordered)::int AS "orderedAudience"
+              COUNT(*) FILTER (WHERE ordered)::int AS "orderedAudience",
+              COUNT(*) FILTER (WHERE paid)::int AS "paidAudience",
+              COUNT(*) FILTER (WHERE delivered)::int AS "deliveredAudience",
+              COUNT(*) FILTER (WHERE cancelled)::int AS "cancelledAudience",
+              COUNT(*) FILTER (WHERE refunded)::int AS "refundedAudience",
+              COUNT(*) FILTER (WHERE matured)::int AS "maturedAudience"
        FROM audience_cohorts GROUP BY arm ORDER BY arm`,
       [safeSellerId, experimentKey]
     );
@@ -6133,6 +6155,11 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
         detailViewAudience,
         messagedAudience,
         orderedAudience,
+        paidAudience: Number(row.paidAudience || 0),
+        deliveredAudience: Number(row.deliveredAudience || 0),
+        cancelledAudience: Number(row.cancelledAudience || 0),
+        refundedAudience: Number(row.refundedAudience || 0),
+        maturedAudience: Number(row.maturedAudience || 0),
         exposureRate: rate(exposedAudience, assignedAudience),
         detailViewRate: rate(detailViewAudience, assignedAudience),
         messageRate: rate(messagedAudience, assignedAudience),
@@ -6141,8 +6168,10 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     };
     const control = normalizeArm("control");
     const treatment = normalizeArm("treatment");
-    const ready = control.assignedAudience >= minimumSamplePerArm
-      && treatment.assignedAudience >= minimumSamplePerArm;
+    const ready = control.maturedAudience >= minimumSamplePerArm
+      && treatment.maturedAudience >= minimumSamplePerArm
+      && control.maturedAudience === control.assignedAudience
+      && treatment.maturedAudience === treatment.assignedAudience;
     const absoluteOrderLift = ready
       ? Math.round((treatment.orderRate - control.orderRate) * 10000) / 10000
       : null;
@@ -6151,6 +6180,12 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       : null;
     return {
       experimentKey,
+      measurementVersion: "authoritative-commerce-outcomes-v1",
+      audienceCoverage: "authenticated_assignments_after_measurement_started",
+      observationWindowDays: 7,
+      orderOutcome: "created_not_paid",
+      deliveryOutcome: "order_status_not_independent_delivery_verification",
+      causalClaim: false,
       status: ready ? "ready" : "collecting",
       minimumSamplePerArm,
       arms: { control, treatment },
@@ -6158,6 +6193,40 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       relativeOrderLift,
       privacy: "aggregate-only"
     };
+  }
+
+  async function readCommerceOutcomeMetrics(sellerId = "") {
+    const result = await readQuery(
+      `WITH milestones AS (
+         SELECT initial.order_id, initial.eligibility_id,
+                BOOL_OR(outcome.outcome_type = 'paid') AS paid,
+                BOOL_OR(outcome.outcome_type = 'delivered') AS delivered,
+                BOOL_OR(outcome.outcome_type = 'cancelled') AS cancelled,
+                BOOL_OR(outcome.outcome_type = 'refunded') AS refunded
+         FROM commerce_order_outcomes initial
+         LEFT JOIN commerce_order_outcomes outcome ON outcome.order_id = initial.order_id
+         WHERE initial.outcome_type = 'created' AND initial.occurred_at >= NOW() - INTERVAL '30 days'
+           AND ($1 = '' OR initial.seller_id = $1)
+         GROUP BY initial.order_id, initial.eligibility_id
+       )
+       SELECT COUNT(*)::int AS "trackedOrders",
+              COUNT(*) FILTER (WHERE eligibility_id IS NOT NULL)::int AS "experimentLinkedOrders",
+              COUNT(*) FILTER (WHERE paid)::int AS "paidOrders",
+              COUNT(*) FILTER (WHERE delivered)::int AS "deliveredOrders",
+              COUNT(*) FILTER (WHERE cancelled)::int AS "cancelledOrders",
+              COUNT(*) FILTER (WHERE refunded)::int AS "refundedOrders",
+              COUNT(*) FILTER (WHERE paid AND NOT cancelled AND NOT refunded)::int AS "retainedPaidOrders"
+       FROM milestones`,
+      [String(sellerId || "").trim().slice(0, 80)]
+    );
+    const row = result.rows?.[0] || {};
+    const counts = {};
+    for (const key of ["trackedOrders", "experimentLinkedOrders", "paidOrders", "deliveredOrders", "cancelledOrders", "refundedOrders", "retainedPaidOrders"]) {
+      counts[key] = Math.max(0, Number(row[key] || 0));
+    }
+    return { ...counts, version: "authoritative-commerce-outcomes-v1", windowDays: 30,
+      coverage: "orders_created_after_capture_enabled", exposureRequired: false,
+      deliveryOutcome: "order_status_not_independent_delivery_verification", privacy: "aggregate-only" };
   }
 
   async function readRegionalSupplySnapshots(limit = 50) {
@@ -7326,6 +7395,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     attributeFeedExposureOutcome,
     readCommerceLoopMetrics,
     readCommerceExperimentMetrics,
+    readCommerceOutcomeMetrics,
     readRegionalSupplySnapshots,
     readUserLocalePreference,
     saveUserLocalePreference,

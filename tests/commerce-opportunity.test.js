@@ -310,8 +310,8 @@ test("commerce rediscovery returns treatment only and reports sample-gated order
         if (sql.includes("WITH eligible AS")) return { rows: [] };
         if (sql.includes("WITH audience_cohorts AS")) {
           return { rows: [
-            { arm: "control", assignedAudience: 100, exposedAudience: 20, detailViewAudience: 10, messagedAudience: 4, orderedAudience: 2 },
-            { arm: "treatment", assignedAudience: 200, exposedAudience: 140, detailViewAudience: 80, messagedAudience: 30, orderedAudience: 10 }
+            { arm: "control", assignedAudience: 100, maturedAudience: 100, exposedAudience: 20, detailViewAudience: 10, messagedAudience: 4, orderedAudience: 2 },
+            { arm: "treatment", assignedAudience: 200, maturedAudience: 200, exposedAudience: 140, detailViewAudience: 80, messagedAudience: 30, orderedAudience: 10 }
           ] };
         }
         return { rows: [] };
