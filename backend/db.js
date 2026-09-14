@@ -2858,6 +2858,66 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     return safeVisibility;
   }
 
+  async function insertNewReelFollowerNotifications(client, product = {}) {
+    const mediaItems = normalizeProductMediaItems(product);
+    const isReel = String(product.category || "").trim().toLowerCase() === "reels"
+      || mediaItems.some((item) => item.type === "video");
+    const visibility = ["public", "followers", "private"].includes(String(product.visibility || "").toLowerCase())
+      ? String(product.visibility).toLowerCase()
+      : "public";
+    if (!isReel || visibility === "private" || product.status !== "approved" || !product.id || !product.uploadedBy) {
+      return [];
+    }
+    const channelId = `creator:${String(product.uploadedBy).slice(0, 40)}:reels`;
+    const result = await client.query(
+      `WITH eligible_followers AS (
+         SELECT follow.follower_username
+         FROM user_follows follow
+         JOIN users recipient ON recipient.username = follow.follower_username
+         WHERE follow.followed_username = $1
+           AND follow.status = 'active'
+           AND recipient.status = 'active'
+           AND NOT EXISTS (
+             SELECT 1 FROM user_blocks blocked
+             WHERE (blocked.blocker_username = follow.follower_username AND blocked.blocked_username = $1)
+                OR (blocked.blocker_username = $1 AND blocked.blocked_username = follow.follower_username)
+           )
+           AND NOT EXISTS (
+             SELECT 1 FROM notifications recent
+             WHERE recent.user_id = follow.follower_username
+               AND recent.type = 'content'
+               AND recent.conversation_id = $3
+               AND recent.created_at > NOW() - INTERVAL '6 hours'
+           )
+         ORDER BY follow.created_at ASC, follow.follower_username ASC
+         LIMIT 100
+       )
+       INSERT INTO notifications (
+         id, user_id, type, message_id, conversation_id, title, body,
+         is_read, read_at, created_at, row_version
+       )
+       SELECT
+         'reel:' || MD5($2 || ':' || eligible.follower_username),
+         eligible.follower_username,
+         'content',
+         $2,
+         $3,
+         'Reel mpya kutoka ' || $1,
+         $4,
+         FALSE,
+         NULL,
+         NOW(),
+         1
+       FROM eligible_followers eligible
+       ON CONFLICT (id) DO NOTHING
+       RETURNING id, user_id AS "userId", type, message_id AS "messageId",
+         conversation_id AS "conversationId", title, body, is_read AS "isRead",
+         read_at AS "readAt", created_at AS "createdAt"`,
+      [String(product.uploadedBy), String(product.id), channelId, String(product.name || "Reel").slice(0, 120)]
+    );
+    return result.rows || [];
+  }
+
   function getProductVideoProviderIds(product = {}) {
     return normalizeProductMediaItems(product)
       .filter((item) => item.type === "video")
@@ -2944,7 +3004,12 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
         [product.id, ...values]
       );
       await upsertContentVisibility(client, "product", product.id, product.uploadedBy, product.visibility);
-      return { created: true, rowVersion: Number(result.rows?.[0]?.rowVersion || 1) };
+      const followerNotifications = await insertNewReelFollowerNotifications(client, productForWrite);
+      return {
+        created: true,
+        rowVersion: Number(result.rows?.[0]?.rowVersion || 1),
+        followerNotifications
+      };
     });
   }
 

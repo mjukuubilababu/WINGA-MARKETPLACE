@@ -559,7 +559,7 @@ test("PostgreSQL product create is transactional and does not rewrite the catalo
     images: ["https://example.com/dress.jpg"]
   });
 
-  assert.deepEqual(result, { created: true, rowVersion: 1 });
+  assert.deepEqual(result, { created: true, rowVersion: 1, followerNotifications: [] });
   assert.equal(calls[0].text, "BEGIN");
   assert.match(calls[1].text, /INSERT INTO categories/);
   assert.match(calls[2].text, /INSERT INTO products/);
@@ -3473,7 +3473,7 @@ test("PostgreSQL product create atomically claims only a ready seller-owned vide
     ]
   });
 
-  assert.deepEqual(result, { created: true, rowVersion: 1 });
+  assert.deepEqual(result, { created: true, rowVersion: 1, followerNotifications: [] });
   const claimIndex = calls.findIndex((call) => call.text.includes("UPDATE video_upload_intents"));
   const insertIndex = calls.findIndex((call) => call.text.includes("INSERT INTO products"));
   assert.equal(calls[0].text, "BEGIN");
@@ -3525,6 +3525,77 @@ test("PostgreSQL product create rolls back when video claim is rejected", async 
 
   assert.equal(calls.some((call) => call.text.includes("INSERT INTO products")), false);
   assert.equal(calls.at(-1).text, "ROLLBACK");
+});
+
+test("new reel follower notifications are bounded block-safe and frequency controlled", async () => {
+  const calls = [];
+  const client = {
+    async query(text, params = []) {
+      const sql = String(text);
+      calls.push({ text: sql, params });
+      if (sql.includes("UPDATE video_upload_intents")) {
+        return {
+          rows: [{
+            providerId: params[0],
+            status: "ready",
+            moderationStatus: "approved",
+            posterUrl: "https://video.example/poster.jpg"
+          }],
+          rowCount: 1
+        };
+      }
+      if (sql.includes("INSERT INTO products")) return { rows: [{ rowVersion: 1 }], rowCount: 1 };
+      if (sql.includes("WITH eligible_followers")) {
+        return {
+          rows: [{
+            id: "reel:notification",
+            userId: "follower-one",
+            type: "content",
+            messageId: "reel-new-1",
+            conversationId: "creator:creator-one:reels",
+            title: "Reel mpya kutoka creator-one",
+            body: "Summer reel",
+            isRead: false
+          }],
+          rowCount: 1
+        };
+      }
+      return { rows: [], rowCount: 1 };
+    },
+    release() {}
+  };
+  const store = createPostgresStore({
+    databaseUrl: "postgres://test.invalid/winga",
+    queryClient: { query: client.query.bind(client), connect: async () => client }
+  });
+  const product = {
+    id: "reel-new-1",
+    name: "Summer reel",
+    uploadedBy: "creator-one",
+    category: "reels",
+    status: "approved",
+    visibility: "followers",
+    images: [],
+    mediaItems: [{ type: "video", providerId: "stream-reel-new-1", status: "ready" }]
+  };
+
+  const result = await store.createProduct(product);
+  assert.equal(result.followerNotifications.length, 1);
+  assert.equal(result.followerNotifications[0].userId, "follower-one");
+  const fanout = calls.find((call) => call.text.includes("WITH eligible_followers"));
+  assert.ok(fanout);
+  assert.deepEqual(fanout.params, ["creator-one", "reel-new-1", "creator:creator-one:reels", "Summer reel"]);
+  assert.match(fanout.text, /follow\.status = 'active'/);
+  assert.match(fanout.text, /recipient\.status = 'active'/);
+  assert.match(fanout.text, /FROM user_blocks blocked/);
+  assert.match(fanout.text, /recent\.created_at > NOW\(\) - INTERVAL '6 hours'/);
+  assert.match(fanout.text, /LIMIT 100/);
+  assert.match(fanout.text, /ON CONFLICT \(id\) DO NOTHING/);
+
+  calls.length = 0;
+  const privateResult = await store.createProduct({ ...product, id: "reel-private-1", visibility: "private" });
+  assert.deepEqual(privateResult.followerNotifications, []);
+  assert.equal(calls.some((call) => call.text.includes("WITH eligible_followers")), false);
 });
 
 test("person social graph follow mutation is transactional, idempotent, and actor-scoped", async () => {

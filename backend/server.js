@@ -182,7 +182,7 @@ const ALLOWED_PAYMENT_STATUSES = ["pending", "paid", "failed", "cancelled", "ref
 const ALLOWED_USER_STATUSES = ["active", "suspended", "banned", "flagged", "deactivated"];
 const ALLOWED_REPORT_STATUSES = ["open", "reviewed", "resolved"];
 const ALLOWED_REPORT_TARGETS = ["user", "product"];
-const ALLOWED_NOTIFICATION_TYPES = ["message", "request", "order", "follow"];
+const ALLOWED_NOTIFICATION_TYPES = ["message", "request", "order", "follow", "content"];
 const ALLOWED_CONTENT_VISIBILITY = ["public", "followers", "private"];
 const ALLOWED_PROMOTION_TYPES = ["starter_day", "boost_3day", "growth_7day", "premium_14day", "boost", "featured", "category_boost", "pin_top"];
 const ALLOWED_PROMOTION_STATUSES = ["pending", "active", "rejected", "expired", "disabled"];
@@ -13338,10 +13338,14 @@ const server = http.createServer(async (req, res) => {
       logRouteMemoryStage(requestMeta, "after_product_upload_normalize", {
         imageCount: Array.isArray(normalizedProduct.images) ? normalizedProduct.images.length : 0
       });
+      let followerNotifications = [];
       if (postgresStore?.createProduct) {
         try {
           const createResult = await postgresStore.createProduct(normalizedProduct);
           normalizedProduct.rowVersion = createResult.rowVersion;
+          followerNotifications = Array.isArray(createResult.followerNotifications)
+            ? createResult.followerNotifications.map(normalizeNotificationRecord)
+            : [];
         } catch (error) {
           if (error?.code === "VIDEO_CLAIM_REJECTED") {
             sendJson(res, 409, {
@@ -13387,6 +13391,9 @@ const server = http.createServer(async (req, res) => {
         event: "product_created",
         username: sellerUser.username,
         productId: normalizedProduct.id
+      });
+      followerNotifications.forEach((notification) => {
+        if (notification.userId) emitLiveEvent(notification.userId, "notification", { notification });
       });
       requestMeta.statusCode = 200;
       logRouteSummary(requestMeta, {

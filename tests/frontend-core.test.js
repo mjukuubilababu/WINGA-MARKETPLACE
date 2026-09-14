@@ -2085,7 +2085,8 @@ test("remote communications API client owns messages notifications and realtime 
   assert.match(dataSource, /async loadNotifications\(\) \{\s+assertPersonAccess\(\);/);
   assert.match(dataSource, /async markNotificationRead\(notificationId\) \{\s+assertPersonAccess\(\);/);
   assert.match(serverSource, /postgresStore\?\.readUserNotifications\s+\? await postgresStore\.readUserNotifications\(user\.username, \{ limit: 100 \}\)/);
-  assert.match(serverSource, /ALLOWED_NOTIFICATION_TYPES = \["message", "request", "order", "follow"\]/);
+  assert.match(serverSource, /ALLOWED_NOTIFICATION_TYPES = \["message", "request", "order", "follow", "content"\]/);
+  assert.match(serverSource, /followerNotifications\.forEach\(\(notification\) => \{\s+if \(notification\.userId\) emitLiveEvent\(notification\.userId, "notification", \{ notification \}\);/);
   assert.match(dataSource, /openRealtimeChannel\(handlers = \{\}\) \{\s+return getCommunicationsApiClient\(\)\.openRealtimeChannel\(handlers\);/);
   assert.ok(buildSource.indexOf('"src/api/products-client.js"') < buildSource.indexOf('"src/api/communications-client.js"'));
   assert.ok(buildSource.indexOf('"src/api/communications-client.js"') < buildSource.indexOf('"src/config/categories.js"'));

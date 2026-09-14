@@ -101,6 +101,14 @@ recent rows, private/no-store, and available to every valid person account.
 Realtime delivery uses the existing notification channel; reconnecting clients
 recover the durable row from PostgreSQL.
 
+Creating an approved public or followers-only Reel also writes follower
+notifications in the product transaction. Fanout includes only active followers
+with active accounts, excludes blocks in either direction, and is capped at 100
+recipients per Reel. A six-hour creator-to-recipient cooldown prevents burst
+spam, deterministic notification IDs make retries idempotent, and private Reels
+never notify followers. Successfully committed rows are delivered through the
+same realtime notification channel and remain recoverable from PostgreSQL.
+
 ## Feed Integration
 
 The current feed may use followed people as one bounded ranking/candidate signal.
@@ -119,6 +127,6 @@ Remaining work:
 - canonical public collections/recommendations and a real curator capability,
 - visibility support for future collections, recommendations, posts, and shorts
   once those canonical content models exist,
-- new-reel and new-collection notifications with frequency controls,
+- new-collection notifications once a canonical collection model exists,
 - optional user-facing suggestion surfaces,
 - removal of seller-specific compatibility naming after all callers migrate.
