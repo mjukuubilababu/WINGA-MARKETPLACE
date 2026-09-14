@@ -7907,31 +7907,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
          collection.created_at AS "createdAt",
          collection.updated_at AS "updatedAt",
          collection.published_at AS "publishedAt",
-         collection.row_version AS "rowVersion",
-         COALESCE(items.visible_count, 0)::int AS "itemCount",
-         COALESCE(items.items, '[]'::jsonb) AS items
+         collection.row_version AS "rowVersion"
        FROM public_collections collection
-       LEFT JOIN LATERAL (
-         SELECT COALESCE(JSONB_AGG(item_row.payload ORDER BY item_row.position, item_row.added_at, item_row.product_id), '[]'::jsonb) AS items,
-           COUNT(*)::int AS visible_count
-         FROM (
-           SELECT collection_item.position, collection_item.added_at, collection_item.product_id,
-             JSONB_BUILD_OBJECT(
-               'productId', product.id,
-               'name', product.name,
-               'image', product.image,
-               'uploadedBy', product.uploaded_by,
-               'category', product.category,
-               'note', collection_item.note
-             ) AS payload
-           FROM public_collection_items collection_item
-           JOIN products product ON product.id = collection_item.product_id
-           WHERE collection_item.collection_id = collection.id
-             AND product.status = 'approved'
-             AND ${productAccess}
-           ORDER BY collection_item.position, collection_item.added_at, collection_item.product_id
-         ) item_row
-       ) items ON TRUE
        LEFT JOIN LATERAL (
          SELECT COALESCE((
            SELECT stored_visibility.visibility
@@ -7949,7 +7926,50 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     );
     const rows = result.rows || [];
     const hasMore = rows.length > limit;
-    const items = rows.slice(0, limit).map(normalizePublicCollectionRow);
+    const pageRows = rows.slice(0, limit);
+    const collectionIds = pageRows.map((row) => String(row.id || "")).filter(Boolean);
+    const visibleItemsByCollection = new Map();
+    if (collectionIds.length) {
+      const visibleItems = await query(
+        `SELECT collection_item.collection_id AS "collectionId",
+           collection_item.position,
+           collection_item.added_at AS "addedAt",
+           collection_item.product_id AS "productId",
+           product.name,
+           product.image,
+           product.uploaded_by AS "uploadedBy",
+           product.category,
+           collection_item.note
+         FROM public_collection_items collection_item
+         JOIN products product ON product.id = collection_item.product_id
+         WHERE collection_item.collection_id = ANY($1::text[])
+           AND product.status = 'approved'
+           AND ${productAccess}
+         ORDER BY collection_item.collection_id, collection_item.position,
+           collection_item.added_at, collection_item.product_id`,
+        viewer ? [collectionIds, viewer] : [collectionIds]
+      );
+      for (const item of visibleItems.rows || []) {
+        const collectionId = String(item.collectionId || "");
+        const entry = visibleItemsByCollection.get(collectionId) || { count: 0, items: [] };
+        entry.count += 1;
+        if (entry.items.length < 12) {
+          entry.items.push({
+            productId: item.productId || "",
+            name: item.name || "",
+            image: item.image || "",
+            uploadedBy: item.uploadedBy || "",
+            category: item.category || "",
+            note: item.note || ""
+          });
+        }
+        visibleItemsByCollection.set(collectionId, entry);
+      }
+    }
+    const items = pageRows.map((row) => {
+      const visible = visibleItemsByCollection.get(String(row.id || "")) || { count: 0, items: [] };
+      return normalizePublicCollectionRow({ ...row, items: visible.items, itemCount: visible.count });
+    });
     const tail = items[items.length - 1];
     return {
       items,

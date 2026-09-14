@@ -3715,18 +3715,33 @@ test("public collection pages are cursor bounded and hide inaccessible collectio
   const calls = [];
   const queryClient = {
     async query(text, params = []) {
-      calls.push({ text: String(text), params });
+      const sql = String(text);
+      calls.push({ text: sql, params });
+      if (sql.includes("FROM public_collection_items collection_item")) {
+        return {
+          rows: [{
+            collectionId: "collection-two",
+            productId: "product-two",
+            name: "Look",
+            image: "/look.webp",
+            uploadedBy: "seller",
+            category: "style",
+            note: "Recommended"
+          }],
+          rowCount: 1
+        };
+      }
       return {
         rows: [
           {
             id: "collection-two", ownerUsername: "curator-one", title: "Looks two",
-            status: "published", visibility: "public", items: [{ productId: "product-two" }],
-            itemCount: 1, createdAt: "2026-09-15T11:00:00.000Z", rowVersion: 2
+            status: "published", visibility: "public",
+            createdAt: "2026-09-15T11:00:00.000Z", rowVersion: 2
           },
           {
             id: "collection-one", ownerUsername: "curator-one", title: "Looks one",
-            status: "published", visibility: "followers", items: [],
-            itemCount: 0, createdAt: "2026-09-15T10:00:00.000Z", rowVersion: 1
+            status: "published", visibility: "followers",
+            createdAt: "2026-09-15T10:00:00.000Z", rowVersion: 1
           }
         ],
         rowCount: 2
@@ -3736,16 +3751,18 @@ test("public collection pages are cursor bounded and hide inaccessible collectio
   const store = createPostgresStore({ databaseUrl: "postgres://test.invalid/winga", queryClient });
   const page = await store.readUserCollectionsPage("curator-one", "viewer", { limit: 1 });
   assert.equal(page.items.length, 1);
+  assert.equal(page.items[0].itemCount, 1);
+  assert.deepEqual(page.items[0].items.map((item) => item.productId), ["product-two"]);
   assert.equal(page.hasMore, true);
   assert.equal(page.nextCursor, "2026-09-15T11:00:00.000Z|collection-two");
   assert.deepEqual(calls[0].params, ["curator-one", "viewer", 2]);
   assert.match(calls[0].text, /collection\.status = 'published'/);
   assert.match(calls[0].text, /visibility\.visibility = 'followers'/);
   assert.match(calls[0].text, /FROM user_blocks collection_block/);
-  assert.match(calls[0].text, /FROM user_blocks item_block/);
-  assert.match(calls[0].text, /JSONB_AGG\(item_row\.payload/);
-  assert.doesNotMatch(calls[0].text, /ORDER BY collection_item\.position[^;]+LIMIT 12/);
-  assert.doesNotMatch(calls[0].text, /orders|messages|sessions|saved/i);
+  assert.deepEqual(calls[1].params, [["collection-two"], "viewer"]);
+  assert.match(calls[1].text, /FROM user_blocks item_block/);
+  assert.match(calls[1].text, /collection_item\.collection_id = ANY\(\$1::text\[\]\)/);
+  assert.doesNotMatch(calls[1].text, /orders|messages|sessions|saved/i);
 });
 
 test("person social graph follow mutation is transactional, idempotent, and actor-scoped", async () => {
