@@ -5202,6 +5202,9 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     const limit = Math.max(1, Math.min(Number(options.limit || 5) || 5, 20));
     const meaningfulWatchMs = Math.max(1000, Math.min(Number(options.meaningfulWatchMs || 3000) || 3000, 60000));
     const emptySummary = {
+      completionRateVersion: "matched-playback-sessions-v2",
+      measuredPlaySessions: 0,
+      completedPlaySessions: 0,
       privacy: "seller-scoped-aggregate-only",
       windowDays,
       meaningfulWatchMs,
@@ -5241,10 +5244,31 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
          WHERE p.uploaded_by = $1
            AND p.media_items @> '[{"type":"video"}]'::jsonb
        ),
+       playback_sessions AS (
+         SELECT ie.product_id,
+           BOOL_OR(ie.event_type = 'video_play') AS played,
+           BOOL_OR(ie.event_type = 'video_complete') AS completed
+         FROM intelligence_events ie
+         WHERE ie.product_id IN (SELECT product_id FROM seller_videos)
+           AND ie.happened_at >= NOW() - ($2::int * INTERVAL '1 day')
+           AND ie.event_type IN ('video_play', 'video_complete')
+           AND ie.metadata->>'measurementversion' = 'video-session-v2'
+           AND COALESCE(ie.metadata->>'playbacksessionid', '') ~ '^[a-zA-Z0-9_-]{16,80}$'
+           AND COALESCE(ie.metadata->'signalQuality'->>'known', 'true') = 'true'
+         GROUP BY ie.product_id, ie.metadata->>'playbacksessionid'
+       ),
+       session_totals AS (
+         SELECT product_id,
+           COUNT(*) FILTER (WHERE played)::int AS measured_sessions,
+           COUNT(*) FILTER (WHERE played AND completed)::int AS completed_sessions
+         FROM playback_sessions GROUP BY product_id
+       ),
        rollups AS (
          SELECT
            sv.product_id,
            sv.product_name,
+           COALESCE(MAX(st.measured_sessions), 0)::int AS measured_sessions,
+           COALESCE(MAX(st.completed_sessions), 0)::int AS completed_sessions,
            COUNT(ie.event_id)::int AS event_count,
            COUNT(*) FILTER (WHERE ie.event_type = 'video_impression')::int AS impressions,
            COUNT(*) FILTER (WHERE ie.event_type = 'video_play')::int AS plays,
@@ -5277,6 +5301,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
              AND COALESCE(ie.metadata->>'watchedms', '') ~ '^[0-9]+([.][0-9]+)?$')::int AS watch_samples,
            MAX(ie.happened_at) AS last_event_at
          FROM seller_videos sv
+         LEFT JOIN session_totals st ON st.product_id = sv.product_id
          LEFT JOIN intelligence_events ie
            ON ie.product_id = sv.product_id
           AND ie.happened_at >= NOW() - ($2::int * INTERVAL '1 day')
@@ -5310,6 +5335,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
        SELECT
          COUNT(*)::int AS "totalVideoProducts",
          COUNT(*) FILTER (WHERE event_count > 0)::int AS "videoProductsWithActivity",
+         COALESCE(SUM(measured_sessions), 0)::int AS "measuredPlaySessions",
+         COALESCE(SUM(completed_sessions), 0)::int AS "completedPlaySessions",
          COALESCE(SUM(impressions), 0)::int AS impressions,
          COALESCE(SUM(plays), 0)::int AS plays,
          COALESCE(SUM(completions), 0)::int AS completions,
@@ -5344,7 +5371,9 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
              'purchaseConversions', purchase_conversions,
              'saves', saves,
              'shares', shares,
-             'completionRate', CASE WHEN plays > 0 THEN LEAST(1, completions::float8 / plays) ELSE 0 END,
+             'measuredPlaySessions', measured_sessions,
+             'completedPlaySessions', completed_sessions,
+             'completionRate', CASE WHEN measured_sessions > 0 THEN completed_sessions::float8 / measured_sessions ELSE 0 END,
              'productClickRate', CASE WHEN plays > 0 THEN LEAST(1, product_clicks::float8 / plays) ELSE 0 END,
              'purchaseConversionRate', CASE WHEN meaningful_watches > 0 THEN LEAST(1, purchase_conversions::float8 / meaningful_watches) ELSE 0 END,
              'errorRate', CASE WHEN plays + errors > 0 THEN LEAST(1, errors::float8 / (plays + errors)) ELSE 0 END,
@@ -5383,6 +5412,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       saves: Math.max(0, Number(item.saves || 0)),
       shares: Math.max(0, Number(item.shares || 0)),
       completionRate: normalizeRate(item.completionRate),
+      measuredPlaySessions: Math.max(0, Number(item.measuredPlaySessions || 0)),
+      completedPlaySessions: Math.max(0, Number(item.completedPlaySessions || 0)),
       productClickRate: normalizeRate(item.productClickRate),
       purchaseConversionRate: normalizeRate(item.purchaseConversionRate),
       errorRate: normalizeRate(item.errorRate),
@@ -5410,7 +5441,9 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       purchaseConversions,
       saves: Math.max(0, Number(row.saves || 0)),
       shares: Math.max(0, Number(row.shares || 0)),
-      completionRate: normalizeRate(plays > 0 ? completions / plays : 0),
+      measuredPlaySessions: Math.max(0, Number(row.measuredPlaySessions || 0)),
+      completedPlaySessions: Math.max(0, Number(row.completedPlaySessions || 0)),
+      completionRate: normalizeRate(Number(row.measuredPlaySessions) > 0 ? Number(row.completedPlaySessions) / Number(row.measuredPlaySessions) : 0),
       productClickRate: normalizeRate(plays > 0 ? productClicks / plays : 0),
       purchaseConversionRate: normalizeRate(meaningfulWatches > 0 ? purchaseConversions / meaningfulWatches : 0),
       errorRate: normalizeRate(attempts > 0 ? errors / attempts : 0),

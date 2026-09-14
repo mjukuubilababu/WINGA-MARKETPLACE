@@ -1235,22 +1235,23 @@ test("final pagination page exhausts without requesting beyond hasMore false", a
   });
 
   await page.goto("/");
+  // Background runway may commit the next page before a polling sample observes it.
   await expect.poll(
     () => page.evaluate(() => window.WingaDataLayer?.getProducts?.().length || 0),
     { timeout: 30000 }
-  ).toBe(12);
+  ).toBeGreaterThanOrEqual(12);
 
   await page.evaluate(() => window.WingaDataLayer.appendProductsPage({ prefetchNext: true }));
   await expect.poll(
     () => page.evaluate(() => window.WingaDataLayer?.getProducts?.().length || 0),
     { timeout: 30000 }
-  ).toBe(24);
+  ).toBeGreaterThanOrEqual(24);
 
   await page.evaluate(() => window.WingaDataLayer.appendProductsPage({ prefetchNext: true }));
   await expect.poll(
     () => page.evaluate(() => window.WingaDataLayer?.getProducts?.().length || 0),
     { timeout: 30000 }
-  ).toBe(36);
+  ).toBeGreaterThanOrEqual(36);
 
   await page.evaluate(() => window.WingaDataLayer.appendProductsPage({ prefetchNext: true }));
   await expect.poll(

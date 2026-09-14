@@ -355,6 +355,11 @@ function createIntelligencePlatform(options = {}) {
     ), 80);
     const timestamp = now().toISOString();
     const eventType = normalizeEventType(payload.event);
+    const playbackSessionId = metadata.measurementversion === "video-session-v2"
+      && eventType.startsWith("video_")
+      && /^[a-zA-Z0-9_-]{16,80}$/.test(metadata.playbacksessionid || "")
+        ? metadata.playbacksessionid : "";
+    const sessionId = sanitizeText(playbackSessionId || payload.fingerprint || metadata.fingerprint || "", 120);
     const headers = context.req?.headers || {};
     const sessionUser = context.session?.username || "";
 
@@ -373,7 +378,7 @@ function createIntelligencePlatform(options = {}) {
       productId,
       sellerId,
       buyerId: sanitizeText(sessionUser, 80),
-      sessionId: sanitizeText(payload.fingerprint || metadata.fingerprint || "", 120),
+      sessionId,
       feedContext: sanitizeText(pickFirst(metadata.feedcontext, metadata.surface, metadata.route, metadata.view), 80),
       location: sanitizeText(pickFirst(
         getHeader(headers, "cf-ipcountry"),
@@ -401,7 +406,7 @@ function createIntelligencePlatform(options = {}) {
         productId,
         sellerId,
         buyerId: sessionUser,
-        sessionId: payload.fingerprint || metadata.fingerprint || ""
+        sessionId
       }),
       platformVersion: PLATFORM_VERSION
     };

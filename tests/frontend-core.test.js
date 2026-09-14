@@ -2454,6 +2454,45 @@ test("production telemetry does not enable noisy Home scroll diagnostics", () =>
   }
 });
 
+test("video measurement sessions do not suppress adjacent products or replay completions", () => {
+  const root = path.resolve(__dirname, "..");
+  const playback = fs.readFileSync(path.join(root, "src/marketplace/video-playback.js"), "utf8");
+  const start = playback.indexOf("    function getMetricContext(");
+  const end = playback.indexOf("    function emitVideoMetric(", start);
+  assert.ok(start >= 0 && end > start);
+  const delivered = [];
+  let timestamp = 100000;
+  const context = vm.createContext({
+    window: { WingaModules: { monitoring: {} } }, console,
+    targetWindow: { crypto: require("node:crypto") }
+  });
+  vm.runInContext(playback.slice(start, end), context);
+  vm.runInContext(fs.readFileSync(path.join(root, "src/monitoring/observability.js"), "utf8"), context);
+  const reporter = context.window.WingaModules.monitoring.createObservabilityModule({
+    now: () => timestamp, shouldLogToConsole: () => false,
+    emitClientEvent: event => { delivered.push(event); return Promise.resolve(); }
+  });
+  const stateA = {}, stateB = {};
+  const metric = (id, state, event) => context.getMetricContext({
+    dataset: {}, closest: () => ({ dataset: { openProduct: id } })
+  }, state, { event });
+  const send = detail => reporter.reportEvent("info", detail.event, "Video metric", detail);
+  const first = metric("a", stateA, "video_playback_started");
+  send(first);
+  timestamp += 1000;
+  const second = metric("b", stateB, "video_playback_started");
+  send(second);
+  send(metric("b", stateB, "video_complete"));
+  send(metric("b", stateB, "video_complete"));
+  send(first);
+  assert.equal(delivered.length, 4, "distinct playback events survive cooldown; exact retransmission is deduplicated");
+  assert.notEqual(first.playbackSessionId, second.playbackSessionId);
+  assert.equal(delivered[2].context.playbackSessionId, second.playbackSessionId);
+  assert.equal(delivered[3].context.playbackSessionId, second.playbackSessionId);
+  assert.equal(second.measurementVersion, "video-session-v2");
+  assert.notEqual(metric("b", {}, "video_playback_started").playbackSessionId, second.playbackSessionId);
+});
+
 test("intelligence client batches video telemetry without blocking marketplace work", async () => {
   const root = path.resolve(__dirname, "..");
   const moduleSource = fs.readFileSync(path.join(root, "src", "api", "intelligence-client.js"), "utf8");
@@ -5342,6 +5381,14 @@ test("video playback emits bounded lifecycle intelligence without exposing provi
   assert.equal(summaries[0].detail.bufferedMs, 500);
   assert.equal(summaries[0].detail.bufferRatio, 0.143);
   assert.equal(metrics.every((entry) => !("providerId" in entry.detail)), true);
+  const sessionId = playbackStartedMetric.detail.playbackSessionId;
+  assert.match(sessionId, /^[a-zA-Z0-9_-]{16,80}$/);
+  assert.equal(metrics.every(entry => entry.detail.playbackSessionId === sessionId), true);
+  assert.equal(new Set(metrics.map(entry => entry.detail.fingerprint)).size, metrics.length);
+  await controller.activateNode(node, { userInitiated: true });
+  const nextStart = metrics.filter(entry => entry.event === "video_playback_started").at(-1);
+  assert.notEqual(nextStart.detail.playbackSessionId, sessionId);
+  controller.releaseNode(node);
 });
 
 test("backend intelligence maps video lifecycle sources into bounded canonical signals", async () => {
@@ -5364,7 +5411,8 @@ test("backend intelligence maps video lifecycle sources into bounded canonical s
     level: "info",
     event: "video_playback_started",
     fingerprint: "video:video_playback_started",
-    context: { productId: "product-video-1", surface: "home-feed", watchedMs: 1200 }
+    context: { productId: "product-video-1", surface: "home-feed", watchedMs: 1200,
+      playbackSessionId: "session-video-0001", measurementVersion: "video-session-v2" }
   }, context);
   const pauseEvent = await platform.ingestClientEvent({
     level: "info",
@@ -5392,6 +5440,9 @@ test("backend intelligence maps video lifecycle sources into bounded canonical s
   }, context);
 
   assert.equal(playEvent.eventType, "video_play");
+  assert.equal(playEvent.metadata.playbacksessionid, "session-video-0001");
+  assert.equal(playEvent.metadata.measurementversion, "video-session-v2");
+  assert.equal(playEvent.sessionId, "session-video-0001");
   assert.equal(pauseEvent.eventType, "video_pause");
   assert.equal(completionEvent.eventType, "video_complete");
   assert.equal(buyEvent.eventType, "video_buy_click");

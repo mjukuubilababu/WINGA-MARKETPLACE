@@ -323,10 +323,19 @@
       const card = node?.closest?.("[data-open-product], [data-product-card]");
       const productId = String(card?.dataset?.openProduct || card?.dataset?.productCard || "").trim().slice(0, 100);
       const event = String(detail.event || "lifecycle").slice(0, 80);
+      if (state && !state.playbackSessionId) {
+        state.playbackSessionId = targetWindow.crypto?.randomUUID?.()
+          || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
+        state.metricSequence = 0;
+      }
+      const playbackSessionId = state?.playbackSessionId || "";
+      const sequence = state ? ++state.metricSequence : 0;
       const contentType = String(node?.dataset?.videoContentType || "video").trim().toLowerCase() === "reel" ? "reel" : "video";
       return {
         ...detail,
-        ...(productId ? { productId, fingerprint: `video:${event}`.slice(0, 120) } : {}),
+        ...(productId ? { productId, fingerprint: `video:${playbackSessionId}:${sequence}:${event}`.slice(0, 120) } : {}),
+        playbackSessionId,
+        measurementVersion: "video-session-v2",
         profile: String(state?.playbackProfile || detail.profile || "balanced"),
         contentType
       };
@@ -786,6 +795,8 @@
       }
       if (state.loading) return state.readyPromise;
 
+      // A recreated player starts a new measurement session; pause/resume does not.
+      if (state.generation > 0) state.playbackSessionId = "";
       state.loading = true;
       state.ready = false;
       state.failed = false;
@@ -874,6 +885,7 @@
           playWhenReady();
         };
         const reportPlaybackStarted = () => {
+          if (state.generation !== generation || !node.isConnected) return;
           revealFirstFrame();
           const timestamp = metricNow();
           state.hasPlayed = true;
@@ -956,6 +968,7 @@
           node.classList.add("is-buffering");
         };
         const reportCompletion = () => {
+          if (state.generation !== generation || !state.hasPlayed || video.seeking) return;
           if (state.completionReportedForLoop) return;
           state.completionReportedForLoop = true;
           state.completionCount += 1;

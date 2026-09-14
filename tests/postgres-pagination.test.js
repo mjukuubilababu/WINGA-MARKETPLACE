@@ -2246,6 +2246,8 @@ test("PostgreSQL seller video analytics are ownership-scoped, bounded, and aggre
           impressions: 100,
           plays: 80,
           completions: 60,
+          measuredPlaySessions: 40,
+          completedPlaySessions: 20,
           meaningfulWatches: 55,
           replays: 8,
           errors: 20,
@@ -2313,7 +2315,10 @@ test("PostgreSQL seller video analytics are ownership-scoped, bounded, and aggre
   assert.equal(summary.purchaseConversions, 3);
   assert.equal(summary.saves, 5);
   assert.equal(summary.shares, 4);
-  assert.equal(summary.completionRate, 0.75);
+  assert.equal(summary.completionRate, 0.5);
+  assert.equal(summary.measuredPlaySessions, 40);
+  assert.equal(summary.completedPlaySessions, 20);
+  assert.equal(summary.completionRateVersion, "matched-playback-sessions-v2");
   assert.equal(summary.productClickRate, 0.15);
   assert.equal(summary.purchaseConversionRate, 0.0545);
   assert.equal(summary.errorRate, 0.2);

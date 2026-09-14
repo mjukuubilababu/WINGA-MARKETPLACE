@@ -58,6 +58,64 @@ async function score(table = "product_intelligence_scores") {
   return (await db.query(`SELECT * FROM ${table}`)).rows[0];
 }
 
+test("video completion rates match product playback sessions without inventing legacy plays", async () => {
+  await db.exec(`CREATE TEMP TABLE products (id TEXT PRIMARY KEY, name TEXT, uploaded_by TEXT, media_items JSONB);
+    INSERT INTO products VALUES ('p1', 'Video 1', 'seller', '[{"type":"video"}]'),
+      ('p2', 'Video 2', 'seller', '[{"type":"video"}]'),
+      ('other', 'Other seller', 'other', '[{"type":"video"}]');`);
+  try {
+    const entries = [
+      ['p1', 'video_play', 'session-00000001'],
+      ['p1', 'video_play', 'session-00000001'],
+      ['p1', 'video_complete', 'session-00000001'],
+      ['p1', 'video_complete', 'session-00000001'],
+      ['p1', 'video_play', 'session-00000002'],
+      ['p1', 'video_complete', 'session-orphan-01'],
+      ['p1', 'video_complete', ''],
+      ['p2', 'video_complete', 'session-00000002'],
+      ['other', 'video_play', 'session-other-01'],
+      ['other', 'video_complete', 'session-other-01']
+    ];
+    for (const [index, [product, type, session]] of entries.entries()) {
+      await db.query(`INSERT INTO intelligence_events (event_id,event_type,happened_at,product_id,metadata)
+        VALUES ($1,$2,NOW(),$3,$4::jsonb)`, [String(index), type, product,
+        JSON.stringify({ playbacksessionid: session, measurementversion: 'video-session-v2' })]);
+    }
+    const result = await store.readSellerVideoAnalytics('seller');
+    assert.equal(result.totalVideoProducts, 2);
+    assert.equal(result.plays, 3, 'raw event counts remain unchanged');
+    assert.equal(result.completions, 5, 'legacy and unmatched completions remain raw facts');
+    assert.equal(result.measuredPlaySessions, 2);
+    assert.equal(result.completedPlaySessions, 1);
+    assert.equal(result.completionRate, 0.5, 'replays and duplicate starts do not inflate session completion');
+    assert.equal(result.topVideos.find(v => v.productId === 'p2').completionRate, 0);
+    assert.equal(result.completionRateVersion, 'matched-playback-sessions-v2');
+    const empty = await store.readSellerVideoAnalytics('missing');
+    assert.equal(empty.measuredPlaySessions, 0);
+    assert.equal(empty.completionRate, 0);
+  } finally {
+    await db.exec('DROP TABLE products');
+  }
+});
+
+test("guest playback sequences retain one scoring actor across replay events", async () => {
+  const timestamp = new Date();
+  const platform = createIntelligencePlatform({
+    now: () => timestamp,
+    persistEvent: (e, snapshot) => store.appendIntelligenceEvent(e, snapshot), logger: { warn() {} }
+  });
+  for (let i = 0; i < 5; i += 1) {
+    const e = await platform.ingestClientEvent({
+      event: 'video_complete', fingerprint: `video:session-guest-001:${i}:video_complete`,
+      context: { productId: 'product', playbackSessionId: 'session-guest-001', measurementVersion: 'video-session-v2' }
+    }, { store: { products: [{ id: 'product', uploadedBy: 'seller' }] } });
+    assert.equal(e.sessionId, 'session-guest-001');
+  }
+  await platform.drainForTests();
+  assert.equal((await db.query('SELECT * FROM intelligence_events')).rows.length, 5);
+  assert.equal(Number((await score()).score), 6, 'the existing three-contribution cap still applies');
+});
+
 test("separate producers cannot replace totals with their private snapshots", async () => {
   const producers = [1, 2].map(() => createIntelligencePlatform({
     persistEvent: (e, snapshot) => store.appendIntelligenceEvent(e, snapshot), logger: { warn() {} }
