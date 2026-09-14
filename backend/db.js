@@ -7839,29 +7839,40 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     if (!profile || (cursorTime && !Number.isFinite(cursorTime.getTime()))) {
       return { items: [], nextCursor: "", hasMore: false, limit };
     }
-    const params = [profile, viewer, limit + 1];
+    const params = [profile];
+    let viewerParam = "";
+    if (viewer) {
+      params.push(viewer);
+      viewerParam = `$${params.length}`;
+    }
+    const collectionVisibilitySql = `COALESCE((
+      SELECT collection_visibility.visibility
+      FROM public_content_visibility collection_visibility
+      WHERE collection_visibility.content_type = 'collection'
+        AND collection_visibility.content_id = c.id
+    ), 'public')`;
     let cursorClause = "";
     if (cursorTime && cursorId) {
       params.push(cursorTime.toISOString(), cursorId);
-      cursorClause = "AND (c.created_at, c.id) < ($4::timestamptz, $5)";
+      cursorClause = `AND (c.created_at, c.id) < ($${params.length - 1}::timestamptz, $${params.length})`;
     }
     const collectionAccess = viewer
       ? `(
-          c.owner_username = $2
+          c.owner_username = ${viewerParam}
           OR (
             c.status = 'published'
             AND NOT EXISTS (
               SELECT 1 FROM user_blocks collection_block
-              WHERE (collection_block.blocker_username = $2 AND collection_block.blocked_username = c.owner_username)
-                 OR (collection_block.blocker_username = c.owner_username AND collection_block.blocked_username = $2)
+              WHERE (collection_block.blocker_username = ${viewerParam} AND collection_block.blocked_username = c.owner_username)
+                 OR (collection_block.blocker_username = c.owner_username AND collection_block.blocked_username = ${viewerParam})
             )
             AND (
-              COALESCE(visibility.visibility, 'public') = 'public'
+              ${collectionVisibilitySql} = 'public'
               OR (
-                COALESCE(visibility.visibility, 'public') = 'followers'
+                ${collectionVisibilitySql} = 'followers'
                 AND EXISTS (
                   SELECT 1 FROM user_follows collection_follow
-                  WHERE collection_follow.follower_username = $2
+                  WHERE collection_follow.follower_username = ${viewerParam}
                     AND collection_follow.followed_username = c.owner_username
                     AND collection_follow.status = 'active'
                 )
@@ -7869,7 +7880,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
             )
           )
         )`
-      : "c.status = 'published' AND COALESCE(visibility.visibility, 'public') = 'public'";
+      : `c.status = 'published' AND ${collectionVisibilitySql} = 'public'`;
     const productAccess = viewer
       ? `(
           product.uploaded_by = $2
@@ -7897,26 +7908,25 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
         )`
       : `COALESCE((SELECT visibility FROM public_content_visibility
                     WHERE content_type = 'product' AND content_id = product.id), 'public') = 'public'`;
+    params.push(limit + 1);
+    const limitParam = `$${params.length}`;
     const result = await query(
       `SELECT c.id,
          c.owner_username AS "ownerUsername",
          c.title,
          c.description,
          c.status,
-         COALESCE(visibility.visibility, 'public') AS visibility,
+         ${collectionVisibilitySql} AS visibility,
          c.created_at AS "createdAt",
          c.updated_at AS "updatedAt",
          c.published_at AS "publishedAt",
          c.row_version AS "rowVersion"
        FROM public_collections c
-       LEFT JOIN public_content_visibility visibility
-         ON visibility.content_type = 'collection'
-        AND visibility.content_id = c.id
        WHERE c.owner_username = $1
          AND ${collectionAccess}
          ${cursorClause}
        ORDER BY c.created_at DESC, c.id DESC
-       LIMIT $3`,
+       LIMIT ${limitParam}`,
       params
     );
     const rows = result.rows || [];

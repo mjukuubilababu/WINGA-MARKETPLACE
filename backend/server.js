@@ -7287,6 +7287,7 @@ const server = http.createServer(async (req, res) => {
     }
     const socialCollectionsReadMatch = url.pathname.match(/^\/api\/social\/users\/([^/]+)\/collections$/);
     if (req.method === "GET" && socialCollectionsReadMatch) {
+      res.setHeader("X-Winga-Collections-Schema", "public-collections-v1");
       const profileUsername = normalizeIdentifier(decodeURIComponent(socialCollectionsReadMatch[1] || ""), 40);
       const token = readAuthToken(req);
       const session = token ? findSession(store, token) : null;
