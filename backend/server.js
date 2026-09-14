@@ -10826,6 +10826,32 @@ const server = http.createServer(async (req, res) => {
       }
 
       const analytics = buildAnalytics(store, user.username, isAdminSession(session));
+      const requestedAnalyticsDays = Number(url.searchParams.get("days") || 30);
+      const analyticsWindowDays = [7, 30, 90].includes(requestedAnalyticsDays) ? requestedAnalyticsDays : 30;
+      if (!isAdminSession(session)) {
+        analytics.timeSeries = {
+          schemaVersion: "seller-analytics-time-series-v1",
+          privacy: "seller-scoped-aggregate-only",
+          windowDays: analyticsWindowDays,
+          points: [],
+          error: "unavailable"
+        };
+      }
+      if (!isAdminSession(session) && postgresStore?.readSellerAnalyticsTimeSeries) {
+        try {
+          analytics.timeSeries = await postgresStore.readSellerAnalyticsTimeSeries(user.username, {
+            windowDays: analyticsWindowDays
+          });
+        } catch (error) {
+          analytics.timeSeries = {
+            schemaVersion: "seller-analytics-time-series-v1",
+            privacy: "seller-scoped-aggregate-only",
+            windowDays: analyticsWindowDays,
+            points: [],
+            error: "unavailable"
+          };
+        }
+      }
       if (!isAdminSession(session) && postgresStore?.readSellerDemandSummary) {
         try {
           const demandRows = await postgresStore.readSellerDemandSummary(user.username, 10);
@@ -10856,7 +10882,7 @@ const server = http.createServer(async (req, res) => {
       if (!isAdminSession(session) && postgresStore?.readSellerVideoAnalytics) {
         try {
           analytics.video = await postgresStore.readSellerVideoAnalytics(user.username, {
-            windowDays: 30,
+            windowDays: analyticsWindowDays,
             limit: 5,
             meaningfulWatchMs: VIDEO_MEANINGFUL_WATCH_MS
           });

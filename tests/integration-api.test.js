@@ -2261,13 +2261,19 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   assert.equal(duplicateDemandRequest.response.status, 200);
   assert.equal(duplicateDemandRequest.body.inserted, false);
 
-  const sellerDemandAnalytics = await request("/analytics/summary", {
+  const sellerDemandAnalytics = await request("/analytics/summary?days=7", {
     headers: { Authorization: `Bearer ${sellerToken}` }
   });
   assert.equal(sellerDemandAnalytics.response.status, 200);
   assert.equal(sellerDemandAnalytics.body.demand.waitingUsers >= 1, true);
   assert.equal(sellerDemandAnalytics.body.demand.mostRequestedProducts.some((item) => item.productId === "product-test-001"), true);
   assert.equal(sellerDemandAnalytics.body.video.privacy, "seller-scoped-aggregate-only");
+  assert.equal(sellerDemandAnalytics.body.timeSeries.privacy, "seller-scoped-aggregate-only");
+  assert.equal(sellerDemandAnalytics.body.timeSeries.windowDays, 7);
+  assert.equal(Array.isArray(sellerDemandAnalytics.body.timeSeries.points), true);
+  assert.equal(sellerDemandAnalytics.body.timeSeries.points.length, 0);
+  assert.equal(sellerDemandAnalytics.body.timeSeries.error, "unavailable");
+  assert.equal(JSON.stringify(sellerDemandAnalytics.body.timeSeries).includes("buyerId"), false);
   assert.equal(typeof sellerDemandAnalytics.body.video.plays, "number");
   assert.equal(JSON.stringify(sellerDemandAnalytics.body.video).includes("buyerId"), false);
   assert.equal(JSON.stringify(sellerDemandAnalytics.body.video).includes("sessionId"), false);

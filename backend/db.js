@@ -880,6 +880,24 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     `);
 
     await query(`
+      CREATE INDEX IF NOT EXISTS idx_audit_logs_product_event_time
+      ON audit_logs ((entry->>'productId'), event, time);
+    `);
+    await query(`
+      CREATE INDEX IF NOT EXISTS idx_messages_receiver_time
+      ON messages (receiver_id, timestamp);
+    `);
+    await query(`
+      CREATE INDEX IF NOT EXISTS idx_orders_seller_created
+      ON orders (seller_username, created_at);
+    `);
+    await query(`
+      CREATE INDEX IF NOT EXISTS idx_orders_seller_paid_confirmed
+      ON orders (seller_username, payment_confirmed_at)
+      WHERE payment_status = 'paid' AND payment_confirmed_at IS NOT NULL;
+    `);
+
+    await query(`
       CREATE INDEX IF NOT EXISTS idx_intelligence_events_type_time
       ON intelligence_events (event_type, happened_at DESC);
     `);
@@ -5196,6 +5214,155 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     return result.rows?.[0]?.attributed === true;
   }
 
+  async function readSellerAnalyticsTimeSeries(sellerId = "", options = {}) {
+    const safeSellerId = String(sellerId || "").trim().slice(0, 80);
+    const requestedWindow = Number(options.windowDays || 30);
+    const windowDays = [7, 30, 90].includes(requestedWindow) ? requestedWindow : 30;
+    const emptySummary = {
+      schemaVersion: "seller-analytics-time-series-v1",
+      privacy: "seller-scoped-aggregate-only",
+      windowDays,
+      timezone: "UTC",
+      currency: "TZS",
+      points: [],
+      current: { views: 0, likes: 0, inquiries: 0, orders: 0, sales: 0 },
+      previous: { views: 0, likes: 0, inquiries: 0, orders: 0, sales: 0 },
+      growth: { views: 0, likes: 0, inquiries: 0, orders: 0, sales: 0 }
+    };
+    if (!safeSellerId) return emptySummary;
+
+    const result = await query(
+      `WITH bounds AS (
+         SELECT
+           (TIMEZONE('UTC', NOW())::date - ($2::int - 1)) AS current_start,
+           TIMEZONE('UTC', NOW())::date AS current_end,
+           (TIMEZONE('UTC', NOW())::date - (($2::int * 2) - 1)) AS previous_start
+       ),
+       seller_products AS (
+         SELECT id FROM products WHERE uploaded_by = $1
+       ),
+       primary_currency AS (
+         SELECT UPPER(COALESCE(NULLIF(o.currency, ''), 'TZS')) AS currency
+         FROM orders o, bounds b
+         WHERE o.seller_username = $1
+           AND o.payment_status = 'paid'
+           AND o.payment_confirmed_at IS NOT NULL
+           AND (o.payment_confirmed_at AT TIME ZONE 'UTC')::date BETWEEN b.previous_start AND b.current_end
+         GROUP BY UPPER(COALESCE(NULLIF(o.currency, ''), 'TZS'))
+         ORDER BY SUM(o.price) DESC, currency ASC
+         LIMIT 1
+       ),
+       first_inquiries AS (
+         SELECT MIN(COALESCE(m.timestamp, m.created_at)) AS happened_at
+         FROM messages m
+         WHERE m.receiver_id = $1 AND m.sender_id <> $1
+         GROUP BY COALESCE(NULLIF(m.conversation_id, ''), m.sender_id || ':' || COALESCE(m.product_id, ''))
+       ),
+       audited_product_actions AS (
+         SELECT MIN(a.time) AS happened_at, 'views' AS metric
+         FROM audit_logs a
+         JOIN seller_products p ON p.id = a.entry->>'productId'
+         WHERE a.event = 'product_viewed'
+         GROUP BY a.entry->>'productId', a.entry->>'username'
+         UNION ALL
+         SELECT a.time, 'likes'
+         FROM audit_logs a
+         JOIN seller_products p ON p.id = a.entry->>'productId'
+         WHERE a.event = 'product_liked'
+       ),
+       activity AS (
+         SELECT (a.happened_at AT TIME ZONE 'UTC')::date AS day,
+                a.metric,
+                1::numeric AS amount
+         FROM audited_product_actions a CROSS JOIN bounds b
+         WHERE (a.happened_at AT TIME ZONE 'UTC')::date BETWEEN b.previous_start AND b.current_end
+         UNION ALL
+         SELECT (i.happened_at AT TIME ZONE 'UTC')::date, 'inquiries', 1::numeric
+         FROM first_inquiries i CROSS JOIN bounds b
+         WHERE (i.happened_at AT TIME ZONE 'UTC')::date BETWEEN b.previous_start AND b.current_end
+         UNION ALL
+         SELECT (o.created_at AT TIME ZONE 'UTC')::date, 'orders', 1::numeric
+         FROM orders o CROSS JOIN bounds b
+         WHERE o.seller_username = $1
+           AND (o.created_at AT TIME ZONE 'UTC')::date BETWEEN b.previous_start AND b.current_end
+         UNION ALL
+         SELECT (o.payment_confirmed_at AT TIME ZONE 'UTC')::date, 'sales', o.price::numeric
+         FROM orders o CROSS JOIN bounds b
+         WHERE o.seller_username = $1
+           AND o.payment_status = 'paid'
+           AND o.payment_confirmed_at IS NOT NULL
+           AND UPPER(COALESCE(NULLIF(o.currency, ''), 'TZS')) = COALESCE((SELECT currency FROM primary_currency), 'TZS')
+           AND (o.payment_confirmed_at AT TIME ZONE 'UTC')::date BETWEEN b.previous_start AND b.current_end
+       ),
+       days AS (
+         SELECT GENERATE_SERIES(b.current_start, b.current_end, INTERVAL '1 day')::date AS day
+         FROM bounds b
+       ),
+       daily AS (
+         SELECT d.day,
+                COALESCE(SUM(a.amount) FILTER (WHERE a.metric = 'views'), 0)::float8 AS views,
+                COALESCE(SUM(a.amount) FILTER (WHERE a.metric = 'likes'), 0)::float8 AS likes,
+                COALESCE(SUM(a.amount) FILTER (WHERE a.metric = 'inquiries'), 0)::float8 AS inquiries,
+                COALESCE(SUM(a.amount) FILTER (WHERE a.metric = 'orders'), 0)::float8 AS orders,
+                COALESCE(SUM(a.amount) FILTER (WHERE a.metric = 'sales'), 0)::float8 AS sales
+         FROM days d LEFT JOIN activity a ON a.day = d.day
+         GROUP BY d.day
+       ),
+       period_totals AS (
+         SELECT
+           COALESCE(SUM(amount) FILTER (WHERE metric = 'views' AND day < b.current_start), 0)::float8 AS previous_views,
+           COALESCE(SUM(amount) FILTER (WHERE metric = 'likes' AND day < b.current_start), 0)::float8 AS previous_likes,
+           COALESCE(SUM(amount) FILTER (WHERE metric = 'inquiries' AND day < b.current_start), 0)::float8 AS previous_inquiries,
+           COALESCE(SUM(amount) FILTER (WHERE metric = 'orders' AND day < b.current_start), 0)::float8 AS previous_orders,
+           COALESCE(SUM(amount) FILTER (WHERE metric = 'sales' AND day < b.current_start), 0)::float8 AS previous_sales
+         FROM activity CROSS JOIN bounds b
+       )
+       SELECT TO_CHAR(d.day, 'YYYY-MM-DD') AS date,
+              d.views, d.likes, d.inquiries, d.orders, d.sales,
+              COALESCE((SELECT currency FROM primary_currency), 'TZS') AS currency,
+              p.previous_views AS "previousViews",
+              p.previous_likes AS "previousLikes",
+              p.previous_inquiries AS "previousInquiries",
+              p.previous_orders AS "previousOrders",
+              p.previous_sales AS "previousSales"
+       FROM daily d CROSS JOIN period_totals p
+       ORDER BY d.day ASC`,
+      [safeSellerId, windowDays]
+    );
+    const points = (result.rows || []).map((row) => ({
+      date: String(row.date || ""),
+      views: Number(row.views || 0),
+      likes: Number(row.likes || 0),
+      inquiries: Number(row.inquiries || 0),
+      orders: Number(row.orders || 0),
+      sales: Number(row.sales || 0)
+    }));
+    const current = points.reduce((totals, point) => {
+      Object.keys(totals).forEach((key) => { totals[key] += Number(point[key] || 0); });
+      return totals;
+    }, { views: 0, likes: 0, inquiries: 0, orders: 0, sales: 0 });
+    const first = result.rows?.[0] || {};
+    const previous = {
+      views: Number(first.previousViews || 0),
+      likes: Number(first.previousLikes || 0),
+      inquiries: Number(first.previousInquiries || 0),
+      orders: Number(first.previousOrders || 0),
+      sales: Number(first.previousSales || 0)
+    };
+    const growth = Object.fromEntries(Object.keys(current).map((key) => {
+      if (previous[key] === 0) return [key, current[key] === 0 ? 0 : null];
+      return [key, Math.round(((current[key] - previous[key]) / previous[key]) * 10000) / 100];
+    }));
+    return {
+      ...emptySummary,
+      currency: String(first.currency || "TZS").toUpperCase(),
+      points,
+      current,
+      previous,
+      growth
+    };
+  }
+
   async function readSellerVideoAnalytics(sellerId = "", options = {}) {
     const safeSellerId = String(sellerId || "").trim().slice(0, 80);
     const windowDays = Math.max(1, Math.min(Number(options.windowDays || 30) || 30, 90));
@@ -7340,6 +7507,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     readIntelligenceSummary,
     appendDemandEvent,
     readSellerDemandSummary,
+    readSellerAnalyticsTimeSeries,
     hasRecentVideoCommerceAttribution,
     readSellerVideoAnalytics,
     appendSearchDemandEvents,

@@ -5,6 +5,11 @@
     "messages":  {
                      "sellerAnalytics.refresh": "Actualiser les statistiques",
                      "sellerAnalytics.currentTotals": "Totaux actuels",
+                     "sellerAnalytics.period": "Période d’analyse",
+                     "sellerAnalytics.newActivity": "Nouvelle activité",
+                     "sellerAnalytics.versusPrevious": "par rapport à la période précédente",
+                     "sellerAnalytics.chartLabel": "Vues et mentions J’aime quotidiennes des produits",
+                     "sellerAnalytics.orders": "Commandes",
                      "sellerAnalytics.keyMetrics": "Indicateurs clés",
                      "sellerAnalytics.viewsEngagement": "Vues et engagement",
                      "sellerAnalytics.historyUnavailable": "L’historique des tendances n’est pas encore disponible.",

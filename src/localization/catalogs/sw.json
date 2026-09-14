@@ -5,6 +5,11 @@
     "messages":  {
                      "sellerAnalytics.refresh": "Sasisha takwimu",
                      "sellerAnalytics.currentTotals": "Jumla za sasa",
+                     "sellerAnalytics.period": "Kipindi cha takwimu",
+                     "sellerAnalytics.newActivity": "Shughuli mpya",
+                     "sellerAnalytics.versusPrevious": "dhidi ya kipindi kilichopita",
+                     "sellerAnalytics.chartLabel": "Kutazamwa na kupendwa kwa bidhaa kila siku",
+                     "sellerAnalytics.orders": "Oda",
                      "sellerAnalytics.keyMetrics": "Vipimo muhimu",
                      "sellerAnalytics.viewsEngagement": "Kutazamwa na ushiriki",
                      "sellerAnalytics.historyUnavailable": "Historia ya mwenendo bado haipatikani.",

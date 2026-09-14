@@ -5,6 +5,11 @@
     "messages":  {
                      "sellerAnalytics.refresh": "تحديث التحليلات",
                      "sellerAnalytics.currentTotals": "الإجماليات الحالية",
+                     "sellerAnalytics.period": "فترة التحليلات",
+                     "sellerAnalytics.newActivity": "نشاط جديد",
+                     "sellerAnalytics.versusPrevious": "مقارنة بالفترة السابقة",
+                     "sellerAnalytics.chartLabel": "مشاهدات المنتجات والإعجابات اليومية",
+                     "sellerAnalytics.orders": "الطلبات",
                      "sellerAnalytics.keyMetrics": "المؤشرات الرئيسية",
                      "sellerAnalytics.viewsEngagement": "المشاهدات والتفاعل",
                      "sellerAnalytics.historyUnavailable": "بيانات الاتجاه التاريخية غير متاحة بعد.",

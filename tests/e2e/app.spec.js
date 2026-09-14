@@ -168,12 +168,34 @@ test("seller Analytics tabs show supplied aggregates without invented growth and
     recentProducts: [{ id: "e2e-prod-1", name: "Gallery product", status: "approved" }],
     demand: { totalDemand: 0, waitingUsers: 0, restockInterest: 0, mostRequestedProducts: [], mostRequestedSizes: [], mostRequestedColors: [] },
     commerceLearning: { opportunities: [] }, searchDemand: { trendingSearches: [], regionalDemand: [] },
+    timeSeries: {
+      windowDays: 30, privacy: "seller-scoped-aggregate-only", currency: "TZS",
+      points: [
+        { date: "2026-09-12", views: 32, likes: 2, inquiries: 1, orders: 0, sales: 0 },
+        { date: "2026-09-13", views: 39, likes: 3, inquiries: 0, orders: 1, sales: 0 },
+        { date: "2026-09-14", views: 45, likes: 4, inquiries: 2, orders: 1, sales: 25000 }
+      ],
+      current: { views: 116, likes: 9, inquiries: 3, orders: 2, sales: 25000 },
+      previous: { views: 100, likes: 6, inquiries: 2, orders: 1, sales: 0 },
+      growth: { views: 16, likes: 50, inquiries: 50, orders: 100, sales: null }
+    },
     video: { windowDays: 30, totalVideoProducts: 13, plays: 22, completionRate: .3158, videoAssistedActions: 0,
       measuredPlaySessions: 19, completedPlaySessions: 6, topVideos: [{ productId: "e2e-prod-1", productName: "Gallery product", plays: 4, completionRate: .6667, videoAssistedActions: 0 }] }
   };
-  await page.route("**/api/analytics/summary", route => route.fulfill({ json: summary }));
+  const analyticsUrls = [];
+  await page.route("**/api/analytics/summary**", route => {
+    analyticsUrls.push(route.request().url());
+    return route.fulfill({ json: summary });
+  });
   await page.goto("/");
   await openSellerAnalytics(page);
+  await expect(page.locator("[data-metric='totalViews'] strong")).toHaveText("116");
+  await expect(page.locator("[data-metric='totalViews'] .analytics-growth")).toContainText("+16%");
+  await expect(page.locator(".analytics-trend-chart svg")).toBeVisible();
+  await expect(page.locator(".analytics-trend-chart polyline")).toHaveCount(2);
+  await expect(page.locator(".analytics-period-control option")).toHaveCount(3);
+  await page.locator(".analytics-period-control").selectOption("7");
+  await expect.poll(() => analyticsUrls.some(url => url.includes("days=7"))).toBe(true);
   await expect(page.locator("[data-metric='totalViews'] strong")).toHaveText("116");
   await page.screenshot({ path: "test-results/analytics-mobile-overview.png", fullPage: true });
   for (const tab of ["products", "customers", "content", "trends"]) {
@@ -190,7 +212,7 @@ test("seller Analytics tabs show supplied aggregates without invented growth and
   await expect(page.locator(".analytics-empty").first()).toBeVisible();
   await page.screenshot({ path: "test-results/analytics-mobile-demand.png", fullPage: true });
   await expect(page.locator("#analytics-panel")).not.toContainText("1,248");
-  await expect(page.locator("#analytics-panel select")).toHaveCount(0);
+  await expect(page.locator("#analytics-panel select")).toHaveCount(1);
   await page.locator("#analytics-tab-overview").focus();
   await page.keyboard.press("ArrowRight");
   await expect(page.locator("#analytics-tab-products")).toHaveAttribute("aria-selected", "true");
@@ -218,7 +240,7 @@ test("seller Analytics tabs show supplied aggregates without invented growth and
 test("seller Analytics refresh failures retain data and late responses cannot reopen it after navigation", async ({ browser }) => {
   const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure", { viewport: { width: 390, height: 844 } });
   let mode = "success", release;
-  await page.route("**/api/analytics/summary", async route => {
+  await page.route("**/api/analytics/summary**", async route => {
     if (mode === "error") return route.fulfill({ status: 503, json: { error: "unavailable" } });
     if (mode === "delayed") await new Promise(resolve => { release = resolve; });
     await route.fulfill({ json: { totalViews: 116, totalLikes: 0, openOrders: 0, newInquiries: 0 } });
@@ -1141,7 +1163,7 @@ test("seller opportunity opens attributed creation and supports private dismissa
     sellerResponded: false
   };
   let decisionBody = null;
-  await page.route("**/api/analytics/summary", async (route) => {
+  await page.route("**/api/analytics/summary**", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",

@@ -5,6 +5,11 @@
     "messages":  {
                      "sellerAnalytics.refresh": "Refresh analytics",
                      "sellerAnalytics.currentTotals": "Current totals",
+                     "sellerAnalytics.period": "Analytics period",
+                     "sellerAnalytics.newActivity": "New activity",
+                     "sellerAnalytics.versusPrevious": "vs previous period",
+                     "sellerAnalytics.chartLabel": "Daily product views and likes",
+                     "sellerAnalytics.orders": "Orders",
                      "sellerAnalytics.keyMetrics": "Key metrics",
                      "sellerAnalytics.viewsEngagement": "Views & engagement",
                      "sellerAnalytics.historyUnavailable": "Historical trend data is not available yet.",

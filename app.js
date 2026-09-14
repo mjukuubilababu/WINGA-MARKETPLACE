@@ -11127,7 +11127,7 @@ const { renderAnalyticsPanel: renderBaseAnalyticsPanel, renderSellerAnalyticsVie
   translate: translateUi,
   getCurrentUser: () => currentUser,
   isSellerAnalyticsView: () => currentView === "analytics" && canUseSellerFeatures(),
-  loadAnalytics: () => window.WingaDataLayer.loadAnalytics(),
+  loadAnalytics: (options) => window.WingaDataLayer.loadAnalytics(options),
   decorateSellerAnalytics: (data) => ({ ...data, market: getSellerMarketInsightsForAnalytics(currentUser) }),
   onAnalyticsBack: () => {
     if (window.history.state?.wingaAppShell && window.history.length > 1) window.history.back();

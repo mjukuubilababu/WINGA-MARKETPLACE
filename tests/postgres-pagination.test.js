@@ -2349,6 +2349,47 @@ test("PostgreSQL seller video analytics are ownership-scoped, bounded, and aggre
   assert.equal(calls.length, 1);
 });
 
+test("PostgreSQL seller analytics time series is scoped, periodized and computes previous-period growth", async () => {
+  const calls = [];
+  const queryClient = {
+    async query(text, params = []) {
+      calls.push({ text: String(text), params });
+      return {
+        rows: [
+          { date: "2026-09-13", views: 4, likes: 1, inquiries: 1, orders: 0, sales: 0, currency: "TZS",
+            previousViews: 5, previousLikes: 0, previousInquiries: 1, previousOrders: 1, previousSales: 10000 },
+          { date: "2026-09-14", views: 6, likes: 2, inquiries: 0, orders: 2, sales: 25000, currency: "TZS",
+            previousViews: 5, previousLikes: 0, previousInquiries: 1, previousOrders: 1, previousSales: 10000 }
+        ],
+        rowCount: 2
+      };
+    }
+  };
+  const store = createPostgresStore({ databaseUrl: "postgres://test.invalid/winga", queryClient });
+  const summary = await store.readSellerAnalyticsTimeSeries(" seller-one ", { windowDays: 7 });
+
+  assert.equal(summary.schemaVersion, "seller-analytics-time-series-v1");
+  assert.equal(summary.privacy, "seller-scoped-aggregate-only");
+  assert.equal(summary.windowDays, 7);
+  assert.equal(summary.timezone, "UTC");
+  assert.equal(summary.currency, "TZS");
+  assert.deepEqual(summary.current, { views: 10, likes: 3, inquiries: 1, orders: 2, sales: 25000 });
+  assert.deepEqual(summary.previous, { views: 5, likes: 0, inquiries: 1, orders: 1, sales: 10000 });
+  assert.deepEqual(summary.growth, { views: 100, likes: null, inquiries: 0, orders: 100, sales: 150 });
+  assert.deepEqual(calls[0].params, ["seller-one", 7]);
+  assert.match(calls[0].text, /MIN\(a\.time\) AS happened_at, 'views' AS metric/);
+  assert.match(calls[0].text, /GROUP BY a\.entry->>'productId', a\.entry->>'username'/);
+  assert.match(calls[0].text, /m\.receiver_id = \$1 AND m\.sender_id <> \$1/);
+  assert.match(calls[0].text, /o\.seller_username = \$1/);
+  assert.match(calls[0].text, /o\.payment_status = 'paid'/);
+  assert.match(calls[0].text, /payment_confirmed_at/);
+
+  const empty = await store.readSellerAnalyticsTimeSeries("", { windowDays: 90 });
+  assert.equal(empty.windowDays, 90);
+  assert.deepEqual(empty.points, []);
+  assert.equal(calls.length, 1);
+});
+
 test("PostgreSQL video commerce attribution survives queue lag and requires meaningful buyer evidence", async () => {
   const calls = [];
   const queryClient = {

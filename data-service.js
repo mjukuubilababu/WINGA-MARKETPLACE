@@ -2104,8 +2104,10 @@ async loadAdminPayments(filters) {
           body: JSON.stringify({ actionType: "dismiss" })
         });
       },
-      async loadAnalytics() {
-          return fetchJson(`${baseUrl}/analytics/summary`, {
+      async loadAnalytics(options = {}) {
+          const requestedDays = Number(options.windowDays || 30);
+          const windowDays = [7, 30, 90].includes(requestedDays) ? requestedDays : 30;
+          return fetchJson(`${baseUrl}/analytics/summary?days=${windowDays}`, {
             headers: {
               ...createAuthHeaders()
             }
@@ -3939,8 +3941,8 @@ async loadAdminPayments() {
       }
       return state.adapter.dismissSellerOpportunity(opportunityId);
     },
-    async loadAnalytics() {
-        return state.adapter.loadAnalytics ? state.adapter.loadAnalytics() : null;
+    async loadAnalytics(options = {}) {
+        return state.adapter.loadAnalytics ? state.adapter.loadAnalytics(options) : null;
       },
       async loadAppSettings() {
         const settings = state.adapter.loadAppSettings ? await state.adapter.loadAppSettings() : normalizeAppSettings(DEFAULT_APP_SETTINGS);

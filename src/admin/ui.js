@@ -66,7 +66,7 @@
       return item;
     }
 
-    let sellerState = { owner: "", data: null, loading: false, error: false, tab: "overview", trendTab: "demand", sequence: 0 };
+    let sellerState = { owner: "", data: null, loading: false, error: false, tab: "overview", trendTab: "demand", windowDays: 30, sequence: 0 };
     const el = (tag, className, text, attributes) => deps.createElement(tag, { className, textContent: text, attributes });
     const a = (key, fallback, variables) => t("sellerAnalytics." + key, fallback, variables);
     const count = value => value === undefined || value === null || !Number.isFinite(Number(value))
@@ -86,7 +86,7 @@
 
     function leaveSellerAnalytics() {
       if (!sellerState.owner) return;
-      sellerState = { owner: "", data: null, loading: false, error: false, tab: "overview", trendTab: "demand", sequence: sellerState.sequence + 1 };
+      sellerState = { owner: "", data: null, loading: false, error: false, tab: "overview", trendTab: "demand", windowDays: 30, sequence: sellerState.sequence + 1 };
       const panel = deps.getAnalyticsPanel();
       panel?.classList.remove("seller-analytics");
       panel?.replaceChildren();
@@ -103,7 +103,7 @@
         sellerState.loading = true;
         sellerState.error = false;
         const sequence = ++sellerState.sequence;
-        Promise.resolve().then(() => deps.loadAnalytics()).then(data => {
+        Promise.resolve().then(() => deps.loadAnalytics({ windowDays: sellerState.windowDays })).then(data => {
           if (sequence !== sellerState.sequence || owner !== deps.getCurrentUser() || !deps.isSellerAnalyticsView()) return;
           if (!data || typeof data !== "object") throw new Error(t("profile.analyticsUnavailableTitle", "Analytics unavailable"));
           sellerState.data = deps.decorateSellerAnalytics?.(data) || data;
@@ -132,13 +132,24 @@
         analyticsButton(t("creation.back", "Back"), backAction, "/icons/create/arrow-left.svg"),
         el("h1", "", sellerState.tab === "insights" ? a("insightsTitle", "Insights & recommendations") : t("ui.label.94c116ee118a", "Analytics"))
       );
-      const refresh = analyticsButton(a("currentTotals", "Current totals"), () => renderSellerAnalyticsView(true));
-      refresh.classList.add("analytics-period-control");
-      refresh.setAttribute("title", a("refresh", "Refresh analytics"));
-      refresh.append(el("img", "", undefined, { src: "/icons/navigation/refresh-cw.svg", width: 15, height: 15, alt: "" }));
+      const period = el("select", "analytics-period-control", undefined, {
+        "aria-label": a("period", "Analytics period")
+      });
+      [7, 30, 90].forEach(days => {
+        const option = el("option", "", a("window", "Last {days} days", { days }), { value: days });
+        option.selected = days === sellerState.windowDays;
+        period.append(option);
+      });
+      period.disabled = sellerState.loading;
+      period.addEventListener("change", () => {
+        sellerState.windowDays = Number(period.value) || 30;
+        renderSellerAnalyticsView(true);
+      });
+      const refresh = analyticsButton(a("refresh", "Refresh analytics"), () => renderSellerAnalyticsView(true), "/icons/navigation/refresh-cw.svg");
+      refresh.classList.add("analytics-refresh-control");
       refresh.disabled = sellerState.loading;
       refresh.classList.toggle("is-loading", sellerState.loading);
-      heading.append(refresh);
+      heading.append(period, refresh);
       const tabs = [
         ["overview", a("overview", "Overview")], ["products", a("products", "Products")],
         ["customers", a("customers", "Customers")], ["content", a("content", "Content")],
@@ -179,6 +190,11 @@
       panel.replaceChildren(heading, tablist, status, content);
       const data = sellerState.data;
       if (!data) return;
+      const timeSeries = data.timeSeries || {};
+      const timeSeriesPoints = rows(timeSeries.points);
+      const hasTimeSeries = !timeSeries.error && timeSeriesPoints.length > 0;
+      const periodCurrent = hasTimeSeries ? (timeSeries.current || {}) : {};
+      const periodGrowth = hasTimeSeries ? (timeSeries.growth || {}) : {};
       const video = data.video || {};
       const demand = data.demand || {};
       const market = data.market || {};
@@ -196,12 +212,22 @@
         role: "img", "aria-hidden": "true", style: `--analytics-icon:url('${src}')`
       });
       const decorateHeading = (node, src, className = "") => node.querySelector(".analytics-section-heading")?.prepend(icon(src, className));
+      const growthLabel = value => {
+        if (value === null || value === undefined || !Number.isFinite(Number(value))) return a("newActivity", "New activity");
+        const numeric = Math.round(Number(value) * 100) / 100;
+        return `${numeric > 0 ? "+" : ""}${count(numeric)}% ${a("versusPrevious", "vs previous period")}`;
+      };
       const metrics = (node, items) => {
         const grid = el("div", "analytics-metrics");
-        items.forEach(([key, label, value, src]) => {
+        items.forEach(([key, label, value, src, growth]) => {
           const metric = createAnalyticsCard(label, value);
           metric.dataset.metric = key;
           if (src) metric.prepend(icon(src, key));
+          if (growth !== undefined) {
+            const trend = el("small", "analytics-growth", growthLabel(growth));
+            trend.classList.toggle("is-negative", Number(growth) < 0);
+            metric.append(trend);
+          }
           grid.append(metric);
         });
         node.append(grid);
@@ -241,9 +267,39 @@
         card.addEventListener("click", action);
         node.append(card);
       };
-      const emptyChart = node => {
+      const trendChart = node => {
         const chart = el("div", "analytics-trend-chart");
-        chart.append(el("p", "analytics-empty", a("historyUnavailable", "Historical trend data is not available yet.")));
+        if (!hasTimeSeries) {
+          chart.append(el("p", "analytics-empty", a("historyUnavailable", "Historical trend data is not available yet.")));
+          node.append(chart);
+          return;
+        }
+        const width = 600;
+        const height = 180;
+        const inset = 14;
+        const max = Math.max(1, ...timeSeriesPoints.flatMap(point => [Number(point.views || 0), Number(point.likes || 0)]));
+        const pointString = metric => timeSeriesPoints.map((point, index) => {
+          const x = timeSeriesPoints.length === 1 ? width / 2 : inset + (index * (width - inset * 2) / (timeSeriesPoints.length - 1));
+          const y = height - inset - (Math.max(0, Number(point[metric] || 0)) / max) * (height - inset * 2);
+          return `${Math.round(x * 100) / 100},${Math.round(y * 100) / 100}`;
+        }).join(" ");
+        const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+        svg.setAttribute("role", "img");
+        svg.setAttribute("aria-label", a("chartLabel", "Daily product views and likes"));
+        [["views", "analytics-chart-views"], ["likes", "analytics-chart-likes"]].forEach(([metric, className]) => {
+          const line = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
+          line.setAttribute("points", pointString(metric));
+          line.setAttribute("class", className);
+          line.setAttribute("fill", "none");
+          svg.append(line);
+        });
+        const labels = el("div", "analytics-chart-labels");
+        const labelIndexes = Array.from(new Set([0, Math.floor((timeSeriesPoints.length - 1) / 2), timeSeriesPoints.length - 1]));
+        labelIndexes.forEach(index => labels.append(el("span", "", String(timeSeriesPoints[index]?.date || "").slice(5))));
+        const legend = el("div", "analytics-chart-legend");
+        legend.append(el("span", "views", a("views", "Product views")), el("span", "likes", a("likes", "Likes")));
+        chart.append(svg, labels, legend);
         node.append(chart);
       };
       const catalogMetrics = [
@@ -256,14 +312,14 @@
         const overview = section(a("keyMetrics", "Key metrics"));
         decorateHeading(overview, "/icons/navigation/chart-column.svg", "blue");
         metrics(overview, [
-          ["totalViews", a("views", "Product views"), count(data.totalViews), "/icons/navigation/chart-column.svg"],
-          ["totalLikes", a("likes", "Likes"), count(data.totalLikes), "/icons/navigation/sparkles.svg"],
-          ["newInquiries", a("inquiries", "New inquiries"), count(data.newInquiries), "/icons/navigation/message-circle.svg"],
-          ["openOrders", a("openOrders", "Open orders"), count(data.openOrders), "/icons/navigation/store.svg"]
+          ["totalViews", a("views", "Product views"), count(hasTimeSeries ? periodCurrent.views : data.totalViews), "/icons/navigation/chart-column.svg", hasTimeSeries ? periodGrowth.views : undefined],
+          ["totalLikes", a("likes", "Likes"), count(hasTimeSeries ? periodCurrent.likes : data.totalLikes), "/icons/navigation/sparkles.svg", hasTimeSeries ? periodGrowth.likes : undefined],
+          ["newInquiries", a("inquiries", "New inquiries"), count(hasTimeSeries ? periodCurrent.inquiries : data.newInquiries), "/icons/navigation/message-circle.svg", hasTimeSeries ? periodGrowth.inquiries : undefined],
+          ["openOrders", a("orders", "Orders"), count(hasTimeSeries ? periodCurrent.orders : data.openOrders), "/icons/navigation/store.svg", hasTimeSeries ? periodGrowth.orders : undefined]
         ]);
         const trend = section(a("viewsEngagement", "Views & engagement"));
         decorateHeading(trend, "/icons/navigation/chart-column.svg", "blue");
-        emptyChart(trend);
+        trendChart(trend);
         const categories = section(a("topCategoryPerformance", "Top categories by performance"));
         decorateHeading(categories, "/icons/navigation/store.svg", "orange");
         bars(categories, rows(data.topCategories), e => deps.getCategoryLabel(e.category), e => e.count, { ranked: true });
