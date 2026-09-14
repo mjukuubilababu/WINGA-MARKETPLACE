@@ -68,6 +68,12 @@ The owner-only API is:
 
 PATCH /api/social/content/:product|reel|review/:id/visibility
 
+Product and Reel owners can change this policy from the existing post overflow
+menu on Home or Profile. The selector patches the canonical product in memory
+after the server accepts the change, clears stale query cache through the data
+layer, and refreshes the current surface without resetting Home pagination.
+Failures restore the previous selection and leave the post unchanged.
+
 ## Suggestion Logic
 
 GET /api/social/suggestions returns at most 30 people and excludes the viewer,

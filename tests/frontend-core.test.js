@@ -2068,6 +2068,8 @@ test("remote communications API client owns messages notifications and realtime 
   const dataSource = fs.readFileSync(path.join(root, "data-service.js"), "utf8");
   const serverSource = fs.readFileSync(path.join(root, "backend", "server.js"), "utf8");
   const moduleSource = fs.readFileSync(path.join(root, "src", "api", "communications-client.js"), "utf8");
+  const productsActionsSource = fs.readFileSync(path.join(root, "src", "products", "actions.js"), "utf8");
+  const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
   const registrySource = fs.readFileSync(path.join(root, "src", "core", "module-registry.js"), "utf8");
   const buildSource = fs.readFileSync(path.join(root, "scripts", "build-vercel-static.js"), "utf8");
 
@@ -2087,6 +2089,9 @@ test("remote communications API client owns messages notifications and realtime 
   assert.match(serverSource, /postgresStore\?\.readUserNotifications\s+\? await postgresStore\.readUserNotifications\(user\.username, \{ limit: 100 \}\)/);
   assert.match(serverSource, /ALLOWED_NOTIFICATION_TYPES = \["message", "request", "order", "follow", "content"\]/);
   assert.match(serverSource, /followerNotifications\.forEach\(\(notification\) => \{\s+if \(notification\.userId\) emitLiveEvent\(notification\.userId, "notification", \{ notification \}\);/);
+  assert.match(productsActionsSource, /data-content-visibility="\$\{product\.id\}"/);
+  assert.match(appSource, /setPublicContentVisibility\(contentType, product\.id, nextVisibility\)/);
+  assert.match(appSource, /requestCurrentSurfaceRefresh\("content_visibility_updated"/);
   assert.match(dataSource, /openRealtimeChannel\(handlers = \{\}\) \{\s+return getCommunicationsApiClient\(\)\.openRealtimeChannel\(handlers\);/);
   assert.ok(buildSource.indexOf('"src/api/products-client.js"') < buildSource.indexOf('"src/api/communications-client.js"'));
   assert.ok(buildSource.indexOf('"src/api/communications-client.js"') < buildSource.indexOf('"src/config/categories.js"'));

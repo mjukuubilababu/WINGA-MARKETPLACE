@@ -5674,6 +5674,31 @@ body.product-detail-open{
   font-size:0.8rem;
 }
 
+.product-menu-audience{
+  display:grid;
+  gap:4px;
+  min-width:150px;
+  padding:6px 8px;
+  color:var(--muted);
+  font-size:0.72rem;
+  font-weight:700;
+}
+
+.product-menu-visibility{
+  width:100%;
+  min-height:34px;
+  padding:6px 28px 6px 8px;
+  border:1px solid var(--border);
+  border-radius:8px;
+  background:#fff;
+  color:var(--text);
+  font:inherit;
+}
+
+.product-menu-visibility:disabled{
+  opacity:0.65;
+}
+
 .product-menu-item-danger{
   background:#fef2f2;
   color:#b42318;

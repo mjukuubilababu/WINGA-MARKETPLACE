@@ -6199,7 +6199,9 @@ const {
   getOrderActionState: AppCore.getOrderActionState
     ? (...args) => AppCore.getOrderActionState(...args)
     : null,
-  buyerCancelWindowMs: BUYER_CANCEL_WINDOW_MS
+  buyerCancelWindowMs: BUYER_CANCEL_WINDOW_MS,
+  translate: translateUi,
+  escapeHtml
 });
 
 function getConversationSummaries() {
@@ -22879,6 +22881,54 @@ function bindProductMenus(scope) {
     popup.dataset.menuPopupBound = "true";
     popup.addEventListener("click", (event) => {
       event.stopPropagation();
+    });
+  });
+
+  scope.querySelectorAll("[data-content-visibility]").forEach((select) => {
+    if (select.dataset.contentVisibilityBound === "true") {
+      return;
+    }
+    select.dataset.contentVisibilityBound = "true";
+    select.addEventListener("change", async (event) => {
+      event.stopPropagation();
+      const product = getProductById(select.dataset.contentVisibility);
+      const previousVisibility = ["public", "followers", "private"].includes(String(product?.visibility || "").toLowerCase())
+        ? String(product.visibility).toLowerCase()
+        : "public";
+      const nextVisibility = String(select.value || "").toLowerCase();
+      if (!product || !["public", "followers", "private"].includes(nextVisibility) || nextVisibility === previousVisibility) {
+        select.value = previousVisibility;
+        return;
+      }
+      select.disabled = true;
+      try {
+        const contentType = String(product.category || "").toLowerCase() === "reels" ? "reel" : "product";
+        const result = await window.WingaDataLayer.setPublicContentVisibility(contentType, product.id, nextVisibility);
+        product.visibility = result?.visibility || nextVisibility;
+        showInAppNotification({
+          title: translateUi("social.visibilityUpdatedTitle", {}, "Audience updated"),
+          body: translateUi("social.visibilityUpdatedBody", {}, "Your post audience has been updated."),
+          variant: "success",
+          durationMs: 3200
+        });
+        closeMenus();
+        requestCurrentSurfaceRefresh("content_visibility_updated", { productLimit: 4, decodeLimit: 1, prefetch: false });
+      } catch (error) {
+        select.value = previousVisibility;
+        captureClientError("content_visibility_update_failed", error, {
+          category: "social",
+          alertSeverity: "medium",
+          productId: product.id
+        });
+        showInAppNotification({
+          title: translateUi("social.visibilityFailedTitle", {}, "Audience was not updated"),
+          body: translateUi("social.visibilityFailedBody", {}, "Try again after checking your connection."),
+          variant: "warning",
+          durationMs: 4200
+        });
+      } finally {
+        select.disabled = false;
+      }
     });
   });
 

@@ -56,6 +56,35 @@
         attributes: { "data-menu-popup": product.id }
       });
 
+      const visibility = ["public", "followers", "private"].includes(String(product?.visibility || "").toLowerCase())
+        ? String(product.visibility).toLowerCase()
+        : "public";
+      const audience = deps.createElement("label", { className: "product-menu-audience" });
+      audience.appendChild(deps.createElement("span", {
+        textContent: t("social.audience", "Audience")
+      }));
+      const audienceSelect = deps.createElement("select", {
+        className: "product-menu-visibility",
+        attributes: {
+          "data-content-visibility": product.id,
+          "aria-label": t("social.audience", "Audience")
+        }
+      });
+      [
+        ["public", t("social.visibilityPublic", "Public")],
+        ["followers", t("social.visibilityFollowers", "Followers")],
+        ["private", t("social.visibilityPrivate", "Private")]
+      ].forEach(([value, label]) => {
+        const option = deps.createElement("option", {
+          textContent: label,
+          attributes: { value }
+        });
+        option.selected = visibility === value;
+        audienceSelect.appendChild(option);
+      });
+      audience.appendChild(audienceSelect);
+      popup.appendChild(audience);
+
       popup.append(
         deps.createElement("button", {
           className: "product-menu-item edit-btn",

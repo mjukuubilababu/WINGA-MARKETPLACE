@@ -14714,8 +14714,13 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       renderWhatsappChatLink,
       canRepostProduct,
       getOrderActionState,
-      buyerCancelWindowMs
+      buyerCancelWindowMs,
+      translate,
+      escapeHtml
     } = deps;
+
+    const t = (key, fallback) => typeof translate === "function" ? translate(key, {}, fallback) : fallback;
+    const escape = (value) => typeof escapeHtml === "function" ? escapeHtml(String(value || "")) : String(value || "");
 
     function getViewerRole() {
       return String(getCurrentSession?.()?.role || "").trim().toLowerCase();
@@ -14856,10 +14861,23 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       if (!isOwner) {
         return "";
       }
+      const visibility = ["public", "followers", "private"].includes(String(product?.visibility || "").toLowerCase())
+        ? String(product.visibility).toLowerCase()
+        : "public";
+      const visibilityOption = (value, label) =>
+        `<option value="${value}"${visibility === value ? " selected" : ""}>${escape(label)}</option>`;
       return `
         <div class="product-menu${overlay ? " product-menu-overlay" : ""}" data-product-menu="${product.id}">
           <button class="product-menu-toggle" type="button" aria-label="Fungua menu" data-menu-toggle="${product.id}">&#8942;</button>
           <div class="product-menu-popup" data-menu-popup="${product.id}">
+            <label class="product-menu-audience">
+              <span>${escape(t("social.audience", "Audience"))}</span>
+              <select class="product-menu-visibility" data-content-visibility="${product.id}" aria-label="${escape(t("social.audience", "Audience"))}">
+                ${visibilityOption("public", t("social.visibilityPublic", "Public"))}
+                ${visibilityOption("followers", t("social.visibilityFollowers", "Followers"))}
+                ${visibilityOption("private", t("social.visibilityPrivate", "Private"))}
+              </select>
+            </label>
             <button class="product-menu-item" type="button" data-menu-action="share" data-id="${product.id}">Share</button>
             <button class="product-menu-item" type="button" data-menu-action="download" data-id="${product.id}">Download</button>
             <button class="product-menu-item product-menu-item-danger" type="button" data-menu-action="delete" data-id="${product.id}">Delete</button>
@@ -19800,6 +19818,35 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         className: "product-menu-popup profile-product-menu-popup",
         attributes: { "data-menu-popup": product.id }
       });
+
+      const visibility = ["public", "followers", "private"].includes(String(product?.visibility || "").toLowerCase())
+        ? String(product.visibility).toLowerCase()
+        : "public";
+      const audience = deps.createElement("label", { className: "product-menu-audience" });
+      audience.appendChild(deps.createElement("span", {
+        textContent: t("social.audience", "Audience")
+      }));
+      const audienceSelect = deps.createElement("select", {
+        className: "product-menu-visibility",
+        attributes: {
+          "data-content-visibility": product.id,
+          "aria-label": t("social.audience", "Audience")
+        }
+      });
+      [
+        ["public", t("social.visibilityPublic", "Public")],
+        ["followers", t("social.visibilityFollowers", "Followers")],
+        ["private", t("social.visibilityPrivate", "Private")]
+      ].forEach(([value, label]) => {
+        const option = deps.createElement("option", {
+          textContent: label,
+          attributes: { value }
+        });
+        option.selected = visibility === value;
+        audienceSelect.appendChild(option);
+      });
+      audience.appendChild(audienceSelect);
+      popup.appendChild(audience);
 
       popup.append(
         deps.createElement("button", {
