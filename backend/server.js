@@ -10870,6 +10870,7 @@ const server = http.createServer(async (req, res) => {
           analytics.commerceLearning = {
             opportunities: await postgresStore.readSellerCommerceOpportunities(user.username, 20),
             metrics: await postgresStore.readCommerceLoopMetrics(user.username),
+            experiment: await postgresStore.readCommerceExperimentMetrics?.(user.username),
             privacy: "aggregate-only"
           };
         } catch (error) {
@@ -10881,6 +10882,7 @@ const server = http.createServer(async (req, res) => {
           analytics.regionalSupply = await postgresStore.readRegionalSupplySnapshots(100);
           analytics.commerceLearning = {
             metrics: await postgresStore.readCommerceLoopMetrics(""),
+            experiment: await postgresStore.readCommerceExperimentMetrics?.(""),
             privacy: "aggregate-only"
           };
         } catch (error) {

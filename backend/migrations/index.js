@@ -757,6 +757,26 @@ const MIGRATIONS = Object.freeze([
          PRIMARY KEY (region, category)
        );`
     ])
+  }),
+  Object.freeze({
+    id: "2026091401_commerce_rediscovery_experiment",
+    statements: Object.freeze([
+      `ALTER TABLE rediscovery_eligibility
+       ADD COLUMN IF NOT EXISTS experiment_key TEXT NOT NULL DEFAULT 'legacy_unassigned';`,
+      `ALTER TABLE rediscovery_eligibility
+       ADD COLUMN IF NOT EXISTS experiment_arm TEXT NOT NULL DEFAULT 'treatment';`,
+      `ALTER TABLE rediscovery_eligibility
+       ADD COLUMN IF NOT EXISTS assigned_at TIMESTAMPTZ NOT NULL DEFAULT NOW();`,
+      `ALTER TABLE rediscovery_eligibility
+       DROP CONSTRAINT IF EXISTS chk_rediscovery_experiment_arm;`,
+      `ALTER TABLE rediscovery_eligibility
+       ADD CONSTRAINT chk_rediscovery_experiment_arm
+       CHECK (experiment_arm IN ('control', 'treatment')) NOT VALID;`,
+      `ALTER TABLE rediscovery_eligibility
+       VALIDATE CONSTRAINT chk_rediscovery_experiment_arm;`,
+      `CREATE INDEX IF NOT EXISTS idx_rediscovery_experiment_cohort
+       ON rediscovery_eligibility (experiment_key, experiment_arm, assigned_at DESC);`
+    ])
   })]);
 
 async function runSchemaMigrations({ pool, logger = console, beforeMigrations = null } = {}) {

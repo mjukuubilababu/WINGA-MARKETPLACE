@@ -3,6 +3,8 @@ const assert = require("node:assert/strict");
 const { createPostgresStore } = require("../backend/db");
 const { MIGRATIONS } = require("../backend/migrations");
 const {
+  COMMERCE_REDISCOVERY_EXPERIMENT_KEY,
+  assignCommerceExperimentArm,
   buildAudienceKey,
   buildCommerceOpportunities,
   normalizeCommerceOpportunity
@@ -40,6 +42,22 @@ test("commerce audience identity is deterministic, secret-bound, and non-reversi
   assert.notEqual(first, user);
   assert.equal(first.includes("anonymous-device-42"), false);
   assert.equal(first.length, 64);
+});
+
+test("commerce rediscovery experiment assignment is stable and keeps a bounded holdout", () => {
+  const assignments = Array.from({ length: 1000 }, (_, index) => (
+    assignCommerceExperimentArm("session", `audience-${index}`)
+  ));
+  const repeated = assignCommerceExperimentArm("session", "audience-42");
+  assert.deepEqual(repeated, assignCommerceExperimentArm("session", "audience-42"));
+  assert.equal(repeated.experimentKey, COMMERCE_REDISCOVERY_EXPERIMENT_KEY);
+  const controls = assignments.filter((item) => item.arm === "control").length;
+  assert.equal(controls >= 70 && controls <= 130, true, `expected a bounded 10% holdout, received ${controls}/1000`);
+  assert.equal(assignCommerceExperimentArm("session", "audience-42", { controlPercent: 0 }).arm, "treatment");
+  assert.deepEqual(
+    assignCommerceExperimentArm("session", "audience-42", { controlPercent: "invalid" }),
+    assignCommerceExperimentArm("session", "audience-42", { controlPercent: 10 })
+  );
 });
 
 test("white maxi dress Mwanza closes opportunity to attributed order deterministically", async () => {
@@ -192,6 +210,10 @@ test("white maxi dress Mwanza closes opportunity to attributed order determinist
   assert.equal(sellerOpportunities[0].opportunityId, opportunity.opportunityId, "stage 3: seller must see the eligible aggregate opportunity");
   assert.equal(responsePersisted && response.linked, true, "stage 4-5: matching supply must retain opportunity attribution");
   assert.equal(eligibilityPersisted && response.eligibleAudienceCount, 1, "stage 7: original audience must become rediscovery eligible");
+  const eligibilityInsert = calls.find((call) => call.text.includes("INSERT INTO rediscovery_eligibility"));
+  assert.match(eligibilityInsert.text, /experiment_key, experiment_arm, assigned_at/);
+  assert.equal(eligibilityInsert.params[9], COMMERCE_REDISCOVERY_EXPERIMENT_KEY);
+  assert.equal(["control", "treatment"].includes(eligibilityInsert.params[10]), true);
   assert.equal(rediscoveryItems[0].id, "product-white-maxi", "stage 8: eligible supply must be delivered back to the original audience");
   assert.deepEqual(rediscoveryItems[0].rediscoveryReasonCodes, ["search_gap"], "rediscovery must preserve its privacy-safe reason code");
   assert.equal(exposurePersisted && exposure.recorded, true, "stage 6-8: feed candidate must be recorded only when shown");
@@ -277,6 +299,41 @@ test("commerce rates stay finite when no opportunities have supply or exposure",
   }
 });
 
+test("commerce rediscovery returns treatment only and reports sample-gated order lift", async () => {
+  const calls = [];
+  const store = createPostgresStore({
+    databaseUrl: "postgres://test.invalid/winga",
+    queryClient: {
+      async query(text, params) {
+        const sql = String(text);
+        calls.push({ sql, params });
+        if (sql.includes("WITH eligible AS")) return { rows: [] };
+        if (sql.includes("WITH audience_cohorts AS")) {
+          return { rows: [
+            { arm: "control", assignedAudience: 100, exposedAudience: 20, detailViewAudience: 10, messagedAudience: 4, orderedAudience: 2 },
+            { arm: "treatment", assignedAudience: 200, exposedAudience: 140, detailViewAudience: 80, messagedAudience: 30, orderedAudience: 10 }
+          ] };
+        }
+        return { rows: [] };
+      }
+    }
+  });
+  await store.readRediscoveryProducts({ audienceType: "session", audienceKey: "a".repeat(64), limit: 8 });
+  const metrics = await store.readCommerceExperimentMetrics("seller-one", { minimumSamplePerArm: 100 });
+  assert.equal(calls.some((call) => call.sql.includes("re.experiment_arm = 'treatment'")), true);
+  assert.equal(metrics.status, "ready");
+  assert.equal(metrics.arms.control.orderRate, 0.02);
+  assert.equal(metrics.arms.treatment.orderRate, 0.05);
+  assert.equal(metrics.absoluteOrderLift, 0.03);
+  assert.equal(metrics.relativeOrderLift, 1.5);
+  assert.equal(metrics.privacy, "aggregate-only");
+
+  const collecting = await store.readCommerceExperimentMetrics("seller-one", { minimumSamplePerArm: 101 });
+  assert.equal(collecting.status, "collecting");
+  assert.equal(collecting.absoluteOrderLift, null);
+  assert.equal(collecting.relativeOrderLift, null);
+});
+
 test("commerce learning migration contains durable privacy-safe loop tables", () => {
   const migration = MIGRATIONS.find((item) => item.id === "2026091301_commerce_learning_loop");
   const sql = migration.statements.join("\n");
@@ -287,4 +344,9 @@ test("commerce learning migration contains durable privacy-safe loop tables", ()
   assert.match(sql, /CREATE TABLE IF NOT EXISTS feed_exposure_outcomes/);
   assert.match(sql, /CREATE TABLE IF NOT EXISTS regional_supply_snapshots/);
   assert.match(sql, /audience_key TEXT NOT NULL DEFAULT ''/);
+  const experimentMigration = MIGRATIONS.find((item) => item.id === "2026091401_commerce_rediscovery_experiment");
+  const experimentSql = experimentMigration.statements.join("\n");
+  assert.match(experimentSql, /experiment_key TEXT NOT NULL DEFAULT 'legacy_unassigned'/);
+  assert.match(experimentSql, /experiment_arm TEXT NOT NULL DEFAULT 'treatment'/);
+  assert.match(experimentSql, /CHECK \(experiment_arm IN \('control', 'treatment'\)\)/);
 });

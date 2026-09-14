@@ -2,6 +2,8 @@ const { Client, Pool } = require("pg");
 const { runSchemaMigrations } = require("./migrations");
 const { normalizeProductMediaItems } = require("./product-media");
 const {
+  COMMERCE_REDISCOVERY_EXPERIMENT_KEY,
+  assignCommerceExperimentArm,
   createEligibilityId,
   createSupplyResponseId,
   normalizeExposureOutcome,
@@ -144,7 +146,9 @@ function resolveSlowQueryThreshold(value = process.env.DB_SLOW_QUERY_MS) {
   return Number.isFinite(parsedValue) ? Math.min(60000, Math.max(100, parsedValue)) : 1000;
 }
 
-function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, readQueryClient = null, readReplicaDatabaseUrl = process.env.READ_REPLICA_DATABASE_URL || "", slowQueryThreshold = process.env.DB_SLOW_QUERY_MS, readRetryDelayMs = process.env.DB_READ_RETRY_DELAY_MS, listenClientFactory = null }) {
+function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, readQueryClient = null, readReplicaDatabaseUrl = process.env.READ_REPLICA_DATABASE_URL || "", slowQueryThreshold = process.env.DB_SLOW_QUERY_MS, readRetryDelayMs = process.env.DB_READ_RETRY_DELAY_MS, listenClientFactory = null, commerceRediscoveryControlPercent = process.env.COMMERCE_REDISCOVERY_CONTROL_PERCENT }) {
+  const requestedCommerceControlPercent = Number(commerceRediscoveryControlPercent ?? 10);
+  const safeCommerceControlPercent = Math.min(50, Math.max(0, Number.isFinite(requestedCommerceControlPercent) ? requestedCommerceControlPercent : 10));
   const pool = queryClient || new Pool({
     connectionString: databaseUrl,
     ssl: ssl ? { rejectUnauthorized: false } : false,
@@ -2214,6 +2218,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
          FROM rediscovery_eligibility re
          WHERE re.audience_type = $1 AND re.audience_key = $2
            AND re.status = 'eligible' AND re.expires_at > NOW()
+           AND re.experiment_arm = 'treatment'
          ORDER BY re.product_id, re.eligible_at DESC, re.eligibility_id DESC
        )
        SELECT
@@ -5916,14 +5921,19 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       );
       let eligible = 0;
       for (const audience of audienceResult.rows || []) {
+        const experiment = assignCommerceExperimentArm(audience.audienceType, audience.audienceKey, {
+          experimentKey: COMMERCE_REDISCOVERY_EXPERIMENT_KEY,
+          controlPercent: safeCommerceControlPercent
+        });
         const eligibilityId = createEligibilityId(responseId, audience.audienceType, audience.audienceKey, audience.reasonCode);
         const eligibilityResult = await client.query(
           `INSERT INTO rediscovery_eligibility (
              eligibility_id, opportunity_id, supply_response_id, audience_type, audience_key,
-             product_id, reason_code, region, status, eligible_at, expires_at, metadata
-           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'eligible', NOW(), $9, '{}'::jsonb)
+             product_id, reason_code, region, status, eligible_at, expires_at, metadata,
+             experiment_key, experiment_arm, assigned_at
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'eligible', NOW(), $9, '{}'::jsonb, $10, $11, NOW())
            ON CONFLICT (supply_response_id, audience_type, audience_key, reason_code) DO NOTHING`,
-          [eligibilityId, opportunity.opportunity_id, responseId, audience.audienceType, audience.audienceKey, productId, audience.reasonCode, opportunity.region || "", opportunity.expires_at]
+          [eligibilityId, opportunity.opportunity_id, responseId, audience.audienceType, audience.audienceKey, productId, audience.reasonCode, opportunity.region || "", opportunity.expires_at, experiment.experimentKey, experiment.arm]
         );
         eligible += Number(eligibilityResult.rowCount || 0);
       }
@@ -6064,6 +6074,78 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       messageRate: rate(metrics.messages, metrics.exposures),
       orderRate: rate(metrics.orders, metrics.exposures),
       requesterSatisfiedRate: rate(metrics.requestersSatisfied, metrics.eligibleRequesters),
+      privacy: "aggregate-only"
+    };
+  }
+
+  async function readCommerceExperimentMetrics(sellerId = "", options = {}) {
+    const safeSellerId = String(sellerId || "").trim().slice(0, 80);
+    const experimentKey = String(options.experimentKey || COMMERCE_REDISCOVERY_EXPERIMENT_KEY).trim().slice(0, 100);
+    const minimumSamplePerArm = Math.max(20, Math.min(Number(options.minimumSamplePerArm || 100) || 100, 100000));
+    const result = await readQuery(
+      `WITH audience_cohorts AS (
+         SELECT re.experiment_arm AS arm, re.audience_type, re.audience_key,
+                BOOL_OR(fe.exposure_id IS NOT NULL) AS exposed,
+                BOOL_OR(feo.outcome_type = 'viewed_detail') AS viewed_detail,
+                BOOL_OR(feo.outcome_type = 'messaged') AS messaged,
+                BOOL_OR(feo.outcome_type = 'ordered') AS ordered
+         FROM rediscovery_eligibility re
+         LEFT JOIN supply_responses sr ON sr.response_id = re.supply_response_id
+         LEFT JOIN feed_exposures fe ON fe.supply_response_id = re.supply_response_id
+           AND fe.audience_type = re.audience_type AND fe.audience_key = re.audience_key
+         LEFT JOIN feed_exposure_outcomes feo ON feo.exposure_id = fe.exposure_id
+         WHERE re.experiment_key = $2
+           AND sr.status = 'active' AND sr.action_type NOT IN ('ignore', 'dismiss')
+           AND ($1 = '' OR sr.seller_id = $1)
+         GROUP BY re.experiment_arm, re.audience_type, re.audience_key
+       )
+       SELECT arm,
+              COUNT(*)::int AS "assignedAudience",
+              COUNT(*) FILTER (WHERE exposed)::int AS "exposedAudience",
+              COUNT(*) FILTER (WHERE viewed_detail)::int AS "detailViewAudience",
+              COUNT(*) FILTER (WHERE messaged)::int AS "messagedAudience",
+              COUNT(*) FILTER (WHERE ordered)::int AS "orderedAudience"
+       FROM audience_cohorts GROUP BY arm ORDER BY arm`,
+      [safeSellerId, experimentKey]
+    );
+    const rate = (numerator, denominator) => denominator > 0 ? Math.round((numerator / denominator) * 10000) / 10000 : 0;
+    const normalizeArm = (arm) => {
+      const row = (result.rows || []).find((item) => item.arm === arm) || {};
+      const assignedAudience = Number(row.assignedAudience || 0);
+      const exposedAudience = Number(row.exposedAudience || 0);
+      const detailViewAudience = Number(row.detailViewAudience || 0);
+      const messagedAudience = Number(row.messagedAudience || 0);
+      const orderedAudience = Number(row.orderedAudience || 0);
+      return {
+        arm,
+        assignedAudience,
+        exposedAudience,
+        detailViewAudience,
+        messagedAudience,
+        orderedAudience,
+        exposureRate: rate(exposedAudience, assignedAudience),
+        detailViewRate: rate(detailViewAudience, assignedAudience),
+        messageRate: rate(messagedAudience, assignedAudience),
+        orderRate: rate(orderedAudience, assignedAudience)
+      };
+    };
+    const control = normalizeArm("control");
+    const treatment = normalizeArm("treatment");
+    const ready = control.assignedAudience >= minimumSamplePerArm
+      && treatment.assignedAudience >= minimumSamplePerArm;
+    const absoluteOrderLift = ready
+      ? Math.round((treatment.orderRate - control.orderRate) * 10000) / 10000
+      : null;
+    const relativeOrderLift = ready && control.orderRate > 0
+      ? Math.round(((treatment.orderRate - control.orderRate) / control.orderRate) * 10000) / 10000
+      : null;
+    return {
+      experimentKey,
+      status: ready ? "ready" : "collecting",
+      minimumSamplePerArm,
+      arms: { control, treatment },
+      absoluteOrderLift,
+      relativeOrderLift,
       privacy: "aggregate-only"
     };
   }
@@ -7233,6 +7315,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     recordFeedExposure,
     attributeFeedExposureOutcome,
     readCommerceLoopMetrics,
+    readCommerceExperimentMetrics,
     readRegionalSupplySnapshots,
     readUserLocalePreference,
     saveUserLocalePreference,

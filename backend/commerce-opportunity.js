@@ -9,6 +9,7 @@ const SUPPLY_ACTION_TYPES = new Set([
 const EXPOSURE_OUTCOMES = new Set([
   "viewed_detail", "liked", "saved", "messaged", "ordered", "ignored", "no_action", "hidden", "skipped"
 ]);
+const COMMERCE_REDISCOVERY_EXPERIMENT_KEY = "commerce_rediscovery_v1";
 
 function clean(value, limit = 120) {
   return String(value || "").trim().slice(0, limit);
@@ -44,6 +45,22 @@ function buildAudienceKey(audienceType, identifier, secret) {
   const key = clean(secret, 500);
   if (!value || key.length < 16) return "";
   return crypto.createHmac("sha256", key).update(`${type}:${value}`).digest("hex");
+}
+
+function assignCommerceExperimentArm(audienceType, audienceKey, options = {}) {
+  const type = audienceType === "user" ? "user" : "session";
+  const key = clean(audienceKey, 64);
+  const experimentKey = clean(options.experimentKey || COMMERCE_REDISCOVERY_EXPERIMENT_KEY, 100);
+  const requestedControlPercent = Number(options.controlPercent ?? 10);
+  const controlPercent = Math.min(50, Math.max(0, Number.isFinite(requestedControlPercent) ? requestedControlPercent : 10));
+  if (!key || !experimentKey) return { experimentKey: "", arm: "treatment", bucket: 10000 };
+  const digest = crypto.createHash("sha256").update(`${experimentKey}:${type}:${key}`).digest("hex");
+  const bucket = Number.parseInt(digest.slice(0, 8), 16) % 10000;
+  return {
+    experimentKey,
+    arm: bucket < Math.round(controlPercent * 100) ? "control" : "treatment",
+    bucket
+  };
 }
 
 function meetsOpportunityThreshold(candidate = {}) {
@@ -155,6 +172,8 @@ module.exports = {
   OPPORTUNITY_TYPES,
   SUPPLY_ACTION_TYPES,
   EXPOSURE_OUTCOMES,
+  COMMERCE_REDISCOVERY_EXPERIMENT_KEY,
+  assignCommerceExperimentArm,
   buildAudienceKey,
   buildCommerceOpportunities,
   createEligibilityId,
