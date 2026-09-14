@@ -777,7 +777,7 @@ const MIGRATIONS = Object.freeze([
       `CREATE INDEX IF NOT EXISTS idx_rediscovery_experiment_cohort
        ON rediscovery_eligibility (experiment_key, experiment_arm, assigned_at DESC);`
     ])
-  }), require("./commerce-outcomes")]);
+  }), require("./commerce-outcomes"), require("./intelligence-score-durability")]);
 
 async function runSchemaMigrations({ pool, logger = console, beforeMigrations = null } = {}) {
   if (!pool || typeof pool.query !== "function") {

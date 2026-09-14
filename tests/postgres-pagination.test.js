@@ -1795,71 +1795,37 @@ test("PostgreSQL API rate limiter uses atomic shared buckets", async () => {
   ]);
 });
 
-test("PostgreSQL intelligence persistence appends events and upserts score tables", async () => {
+test("PostgreSQL intelligence persistence derives bounded deltas transactionally instead of trusting snapshots", async () => {
   const calls = [];
-  const queryClient = {
-    async query(text, params) {
-      calls.push({ text, params });
-      return { rows: [] };
-    }
-  };
   const store = createPostgresStore({
     databaseUrl: "postgres://test.invalid/winga",
-    queryClient
-  });
-
-  await store.appendIntelligenceEvent({
-    eventId: "intel-test-1",
-    eventType: "product_purchased",
-    sourceEvent: "order_created",
-    timestamp: "2026-06-30T09:00:00.000Z",
-    productId: "product-1",
-    sellerId: "seller-1",
-    buyerId: "buyer-1",
-    sessionId: "session-1",
-    feedContext: "home-feed",
-    location: "TZ",
-    deviceType: "mobile",
-    appVersion: "20260630090000",
-    level: "info",
-    category: "orders",
-    alertSeverity: "low",
-    metadata: { surface: "home-feed" },
-    platformVersion: "2026-06-30.1"
-  }, {
-    productScore: {
-      id: "product-1",
-      score: 12,
-      signals: { product_purchased: 1 },
-      firstSeenAt: "2026-06-30T09:00:00.000Z",
-      lastSeenAt: "2026-06-30T09:00:00.000Z"
-    },
-    sellerScore: {
-      id: "seller-1",
-      score: 5,
-      signals: { product_purchased: 1 },
-      firstSeenAt: "2026-06-30T09:00:00.000Z",
-      lastSeenAt: "2026-06-30T09:00:00.000Z"
+    queryClient: {
+      async query(text, params = []) {
+        calls.push({ text, params });
+        if (text.includes("INSERT INTO intelligence_score_receipts")) return { rows: [{ event_id: "intel-test-1" }] };
+        if (text.includes("INSERT INTO intelligence_score_windows")) return { rows: [{ contributions: 1 }] };
+        return { rows: [] };
+      }
     }
   });
-
-  assert.equal(calls.length, 3);
-  assert.match(calls[0].text, /INSERT INTO intelligence_events/);
-  assert.match(calls[0].text, /ON CONFLICT \(event_id\) DO NOTHING/);
-  assert.deepEqual(calls[0].params.slice(0, 6), [
-    "intel-test-1",
-    "product_purchased",
-    "order_created",
-    "2026-06-30T09:00:00.000Z",
-    "product-1",
-    "seller-1"
-  ]);
-  assert.match(calls[1].text, /INSERT INTO product_intelligence_scores/);
-  assert.match(calls[1].text, /ON CONFLICT \(product_id\) DO UPDATE SET/);
-  assert.equal(calls[1].params[0], "product-1");
-  assert.match(calls[2].text, /INSERT INTO seller_intelligence_scores/);
-  assert.match(calls[2].text, /ON CONFLICT \(seller_id\) DO UPDATE SET/);
-  assert.equal(calls[2].params[0], "seller-1");
+  const timestamp = new Date().toISOString();
+  await store.appendIntelligenceEvent({
+    eventId: "intel-test-1", eventType: "product_viewed", sourceEvent: "product_viewed",
+    timestamp, productId: "product-1", sellerId: "seller-1", buyerId: "buyer-1"
+  }, {
+    productScore: { id: "product-1", score: 999 },
+    sellerScore: { id: "seller-1", score: 999 }
+  });
+  assert.equal(calls[0].text, "BEGIN");
+  assert.equal(calls.at(-1).text, "COMMIT");
+  const raw = calls.find(call => call.text.includes("INSERT INTO intelligence_events"));
+  assert.deepEqual(raw.params.slice(0, 6), ["intel-test-1", "product_viewed", "product_viewed", timestamp, "product-1", "seller-1"]);
+  const product = calls.find(call => call.text.includes("INSERT INTO product_intelligence_scores"));
+  const seller = calls.find(call => call.text.includes("INSERT INTO seller_intelligence_scores"));
+  assert.equal(product.params[1], 1);
+  assert.equal(seller.params[1], 0.4);
+  assert.match(product.text, /score_total = product_intelligence_scores.score_total \+ EXCLUDED.score_total/);
+  assert.match(seller.text, /score_total = seller_intelligence_scores.score_total \+ EXCLUDED.score_total/);
 });
 
 test("PostgreSQL intelligence summary reads dedicated intelligence tables", async () => {

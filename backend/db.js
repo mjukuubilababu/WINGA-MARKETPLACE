@@ -1,5 +1,6 @@
 const { Client, Pool } = require("pg");
 const { runSchemaMigrations } = require("./migrations");
+const { persistIntelligenceEvent, pruneIntelligenceScoreState } = require("./intelligence-score-store");
 const { normalizeProductMediaItems } = require("./product-media");
 const {
   COMMERCE_REDISCOVERY_EXPERIMENT_KEY,
@@ -2337,89 +2338,12 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     );
   }
 
-  async function appendIntelligenceEvent(event, scores = {}) {
-    const metadata = {
-      ...(event.metadata || {}),
-      ...(event.quality ? { signalQuality: event.quality } : {}),
-      marketContext: {
-        country: String(event.marketCountry || "").slice(0, 2),
-        language: String(event.language || "").slice(0, 40),
-        locale: String(event.locale || "").slice(0, 40),
-        timezone: String(event.timezone || "").slice(0, 80)
-      }
-    };
-    await query(
-      `INSERT INTO intelligence_events (
-        event_id, event_type, source_event, happened_at, product_id, seller_id,
-        buyer_id, session_id, feed_context, location, device_type, app_version,
-        level, category, alert_severity, metadata, platform_version
-      ) VALUES (
-        $1, $2, $3, $4::timestamptz, $5, $6, $7, $8, $9, $10, $11, $12,
-        $13, $14, $15, $16::jsonb, $17
-      )
-      ON CONFLICT (event_id) DO NOTHING`,
-      [
-        event.eventId,
-        event.eventType,
-        event.sourceEvent || "",
-        event.timestamp || new Date().toISOString(),
-        event.productId || "",
-        event.sellerId || "",
-        event.buyerId || "",
-        event.sessionId || "",
-        event.feedContext || "",
-        event.location || "",
-        event.deviceType || "",
-        event.appVersion || "",
-        event.level || "",
-        event.category || "",
-        event.alertSeverity || "",
-        JSON.stringify(metadata),
-        event.platformVersion || ""
-      ]
-    );
+  async function appendIntelligenceEvent(event, _legacyScores = {}) {
+    return withTransaction((client) => persistIntelligenceEvent(client, event));
+  }
 
-    if (scores.productScore?.id) {
-      await query(
-        `INSERT INTO product_intelligence_scores (
-          product_id, score, signals, first_seen_at, last_seen_at, updated_at
-        ) VALUES ($1, $2, $3::jsonb, $4::timestamptz, $5::timestamptz, NOW())
-        ON CONFLICT (product_id) DO UPDATE SET
-          score = EXCLUDED.score,
-          signals = EXCLUDED.signals,
-          first_seen_at = LEAST(product_intelligence_scores.first_seen_at, EXCLUDED.first_seen_at),
-          last_seen_at = GREATEST(product_intelligence_scores.last_seen_at, EXCLUDED.last_seen_at),
-          updated_at = NOW()`,
-        [
-          scores.productScore.id,
-          Number(scores.productScore.score || 0),
-          JSON.stringify(scores.productScore.signals || {}),
-          scores.productScore.firstSeenAt || event.timestamp || new Date().toISOString(),
-          scores.productScore.lastSeenAt || event.timestamp || new Date().toISOString()
-        ]
-      );
-    }
-
-    if (scores.sellerScore?.id) {
-      await query(
-        `INSERT INTO seller_intelligence_scores (
-          seller_id, score, signals, first_seen_at, last_seen_at, updated_at
-        ) VALUES ($1, $2, $3::jsonb, $4::timestamptz, $5::timestamptz, NOW())
-        ON CONFLICT (seller_id) DO UPDATE SET
-          score = EXCLUDED.score,
-          signals = EXCLUDED.signals,
-          first_seen_at = LEAST(seller_intelligence_scores.first_seen_at, EXCLUDED.first_seen_at),
-          last_seen_at = GREATEST(seller_intelligence_scores.last_seen_at, EXCLUDED.last_seen_at),
-          updated_at = NOW()`,
-        [
-          scores.sellerScore.id,
-          Number(scores.sellerScore.score || 0),
-          JSON.stringify(scores.sellerScore.signals || {}),
-          scores.sellerScore.firstSeenAt || event.timestamp || new Date().toISOString(),
-          scores.sellerScore.lastSeenAt || event.timestamp || new Date().toISOString()
-        ]
-      );
-    }
+  async function pruneIntelligenceScorePersistence() {
+    return pruneIntelligenceScoreState({ query });
   }
 
   async function enqueueIntelligenceEvent(event, scores = {}) {
@@ -7376,6 +7300,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     recoverStaleIntelligenceQueueJobs,
     pruneCompletedIntelligenceQueueJobs,
     pruneIntelligenceRawEvents,
+    pruneIntelligenceScorePersistence,
     refreshIntelligenceDailySnapshots,
     readIntelligenceSnapshotSummary,
     readIntelligenceSnapshotHealth,

@@ -1,6 +1,6 @@
 const crypto = require("crypto");
 
-const PLATFORM_VERSION = "2026-06-30.1";
+const PLATFORM_VERSION = "2026-09-14.2";
 const MAX_RECENT_EVENTS = 500;
 const MAX_SCORE_ENTRIES = 5000;
 const CONTRIBUTION_WINDOW_MS = 10 * 60 * 1000;
@@ -82,6 +82,8 @@ const SELLER_SIGNAL_WEIGHTS = Object.freeze({
 });
 
 const KNOWN_EVENT_TYPES = new Set([
+  "order_created", "product_save_failed", "promotion_intent_submit_failed",
+  "image_search_failed", "message_seller_missing_product", "chat_runtime_failed",
   ...Object.keys(PRODUCT_SIGNAL_WEIGHTS),
   ...Object.keys(SELLER_SIGNAL_WEIGHTS)
 ]);
@@ -92,17 +94,17 @@ const EVENT_ALIASES = Object.freeze({
   product_reposted: "product_shared",
   product_delete: "product_deleted",
   product_marked_sold_out: "product_sold_out",
-  product_save_failed: "product_edited",
-  order_created: "product_purchased",
+  product_save_failed: "product_save_failed",
+  order_created: "order_created",
   promotion_created: "promotion_started",
-  promotion_intent_submit_failed: "promotion_started",
-  image_search_failed: "image_search",
+  promotion_intent_submit_failed: "promotion_intent_submit_failed",
+  image_search_failed: "image_search_failed",
   search_submitted: "product_searched",
   product_query_surface_hydrated: "product_viewed",
   deep_link_product_opened: "product_opened",
   message_seller_opened: "conversation_signal",
-  message_seller_missing_product: "conversation_signal",
-  chat_runtime_failed: "conversation_signal",
+  message_seller_missing_product: "message_seller_missing_product",
+  chat_runtime_failed: "chat_runtime_failed",
   notification_clicked: "notification_clicked",
   video_playback_started: "video_play",
   video_playback_paused: "video_pause",
@@ -604,5 +606,11 @@ module.exports = {
   PLATFORM_VERSION,
   PRODUCT_SIGNAL_WEIGHTS,
   SELLER_SIGNAL_WEIGHTS,
+  CONTRIBUTION_WINDOW_MS,
+  MAX_CONTRIBUTIONS_PER_WINDOW,
+  normalizeEventType,
+  getSignalQuality,
+  getActorKey,
+  getScoreTargetKey,
   createIntelligencePlatform
 };

@@ -77,6 +77,9 @@ async function runMaintenance() {
       state.rawPruned.demandEvents += Number(rawPrune?.demandEvents || 0);
       state.rawPruned.searchDemandEvents += Number(rawPrune?.searchDemandEvents || 0);
     }
+    if (store.pruneIntelligenceScorePersistence) {
+      await store.pruneIntelligenceScorePersistence();
+    }
     state.lastMaintenanceAt = now;
   }
 }

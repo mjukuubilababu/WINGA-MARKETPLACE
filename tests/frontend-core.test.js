@@ -3215,8 +3215,8 @@ test("backend intelligence platform normalizes canonical marketplace events", as
 
   const event = await platform.ingestClientEvent({
     level: "info",
-    event: "order_created",
-    message: "Buyer created order",
+    event: "product_created",
+    message: "Seller created product",
     category: "orders",
     fingerprint: "buyer-flow",
     context: {
@@ -3230,7 +3230,7 @@ test("backend intelligence platform normalizes canonical marketplace events", as
     store: { products: [{ id: "product-1", uploadedBy: "seller_one" }] }
   });
 
-  assert.equal(event.eventType, "product_purchased");
+  assert.equal(event.eventType, "product_uploaded");
   assert.equal(event.productId, "product-1");
   assert.equal(event.sellerId, "seller_one");
   assert.equal(event.buyerId, "buyer_one");
@@ -3243,8 +3243,8 @@ test("backend intelligence platform normalizes canonical marketplace events", as
   assert.equal(platform.getSummary().queue.enqueued, 1);
   await platform.drainForTests();
   assert.equal(appended[0].event, "intelligence_event");
-  assert.equal(appended[0].eventType, "product_purchased");
-  assert.equal(persisted[0].event.eventType, "product_purchased");
+  assert.equal(appended[0].eventType, "product_uploaded");
+  assert.equal(persisted[0].event.eventType, "product_uploaded");
   assert.equal(persisted[0].scores.productScore.id, "product-1");
   assert.equal(persisted[0].scores.sellerScore.id, "seller_one");
   assert.equal(platform.getSummary().topProducts[0].id, "product-1");
