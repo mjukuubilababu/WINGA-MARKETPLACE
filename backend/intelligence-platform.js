@@ -46,7 +46,8 @@ const PRODUCT_SIGNAL_WEIGHTS = Object.freeze({
   video_unmute: 0,
   video_error: 0,
   video_watch_summary: 0,
-  feed_exposure: 0
+  feed_exposure: 0,
+  recommendation_surfaced: 0
 });
 
 const SELLER_SIGNAL_WEIGHTS = Object.freeze({
@@ -83,7 +84,8 @@ const SELLER_SIGNAL_WEIGHTS = Object.freeze({
   video_unmute: 0,
   video_error: 0,
   video_watch_summary: 0,
-  feed_exposure: 0
+  feed_exposure: 0,
+  recommendation_surfaced: 0
 });
 
 const KNOWN_EVENT_TYPES = new Set([
@@ -146,7 +148,8 @@ const EVENT_CONTRACTS = Object.freeze({
   promotion_requested: { domain: "promotion", entityType: "product", actorType: "person", outcome: "distribution_requested" },
   promotion_ended: { domain: "promotion", entityType: "product", actorType: "person", outcome: "distribution_ended" },
   notification_clicked: { domain: "notification", entityType: "notification", actorType: "person", outcome: "engagement" },
-  feed_exposure: { domain: "ranking", entityType: "product", actorType: "person_or_session", outcome: "exposure" }
+  feed_exposure: { domain: "ranking", entityType: "product", actorType: "person_or_session", outcome: "exposure" },
+  recommendation_surfaced: { domain: "decision", entityType: "product", actorType: "person_or_session", outcome: "executed" }
 });
 
 function getEventContract(eventType = "") {

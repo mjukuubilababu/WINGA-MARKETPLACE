@@ -1477,7 +1477,9 @@ test("feed intelligence ranks home feed without mutating pagination products", (
   assert.match(appSource, /function getHomeFeedStyleProfile\(\)/);
   assert.match(appSource, /function getSellerQualitySnapshot\(username\)/);
   assert.match(appSource, /function getMarketInsights\(productList = products, options = \{\}\)/);
-  assert.match(appSource, /intelligenceEngine\.rankHomeFeed\(visibleList, getHomeFeedIntelligenceContext\(visibleList\)\)/);
+  assert.match(appSource, /function getHomeFeedDecisionAuthority\(\)/);
+  assert.match(appSource, /getHomeFeedIntelligenceEngine\(\)\?\.rankHomeFeed\?\.\(items, context\)/);
+  assert.match(appSource, /decisionAuthority\.rankHomeFeed\(visibleList, getHomeFeedIntelligenceContext\(visibleList\)\)/);
 });
 
 test("feed intelligence rewards higher intelligenceScore without penalizing zero score", () => {

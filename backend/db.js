@@ -2,6 +2,7 @@ const { Client, Pool } = require("pg");
 const { runSchemaMigrations } = require("./migrations");
 const { persistIntelligenceEvent, pruneIntelligenceScoreState } = require("./intelligence-score-store");
 const { normalizeProductMediaItems } = require("./product-media");
+const { executeDecision } = require("./wip-mind");
 const {
   COMMERCE_REDISCOVERY_EXPERIMENT_KEY,
   assignCommerceExperimentArm,
@@ -5185,6 +5186,92 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     });
   }
 
+  async function appendIntelligenceSignals(signals = []) {
+    const rows = (Array.isArray(signals) ? signals : []).filter(signal => signal?.signalId).slice(0, 100);
+    if (!rows.length) return { inserted: 0, intelligenceTypes: [] };
+    const params = [];
+    const values = rows.map((signal, index) => {
+      const offset = index * 17;
+      params.push(
+        String(signal.signalId).slice(0, 100), String(signal.schemaVersion || "").slice(0, 80),
+        String(signal.intelligenceType || "").slice(0, 60), String(signal.intelligenceVersion || "").slice(0, 40),
+        String(signal.subjectType || "").slice(0, 40), String(signal.subjectId || "").slice(0, 120),
+        String(signal.signalName || "").slice(0, 80), stringifyJson(signal.value, 0),
+        Math.max(0, Math.min(1, Number(signal.confidence || 0))), Math.max(1, Number(signal.evidenceCount || 1)),
+        stringifyJson(signal.observedFrom, []), signal.validFrom, signal.validUntil,
+        signal.geographicScope ? stringifyJson(signal.geographicScope, {}) : null,
+        signal.temporalScope ? stringifyJson(signal.temporalScope, {}) : null,
+        String(signal.modelVersion || "").slice(0, 80),
+        JSON.stringify({ ruleVersion: String(signal.ruleVersion || "").slice(0, 80), featureVersion: String(signal.featureVersion || "").slice(0, 80) })
+      );
+      const p = number => `$${offset + number}`;
+      return `(${p(1)},${p(2)},${p(3)},${p(4)},${p(5)},${p(6)},${p(7)},${p(8)}::jsonb,${p(9)},${p(10)},${p(11)}::jsonb,${p(12)},${p(13)},${p(14)}::jsonb,${p(15)}::jsonb,${p(16)},(${p(17)}::jsonb->>'ruleVersion'),(${p(17)}::jsonb->>'featureVersion'),NOW())`;
+    });
+    const inserted = await query(
+      `INSERT INTO intelligence_signals (
+         signal_id,schema_version,intelligence_type,intelligence_version,subject_type,subject_id,
+         signal_name,value,confidence,evidence_count,observed_from,valid_from,valid_until,
+         geographic_scope,temporal_scope,model_version,rule_version,feature_version,created_at
+       ) VALUES ${values.join(",")}
+       ON CONFLICT (signal_id) DO NOTHING
+       RETURNING intelligence_type`,
+      params
+    );
+    const counts = (inserted.rows || []).reduce((result, row) => {
+      const key = String(row.intelligence_type || "");
+      if (key) result.set(key, Number(result.get(key) || 0) + 1);
+      return result;
+    }, new Map());
+    await Promise.all(Array.from(counts.entries()).map(([intelligenceId, count]) => query(
+      `INSERT INTO intelligence_module_health (
+         intelligence_id,status,processed_count,signal_count,last_success_at,updated_at
+       ) VALUES ($1,'healthy',1,$2,NOW(),NOW())
+       ON CONFLICT (intelligence_id) DO UPDATE SET
+         status='healthy',processed_count=intelligence_module_health.processed_count+1,
+         signal_count=intelligence_module_health.signal_count+EXCLUDED.signal_count,
+         last_success_at=NOW(),last_failure_code='',updated_at=NOW()`,
+      [intelligenceId, count]
+    )));
+    return { inserted: Number(inserted.rowCount || 0), intelligenceTypes: Array.from(counts.keys()) };
+  }
+
+  async function recordIntelligenceLearnerFailure(intelligenceId = "", error = null, options = {}) {
+    const safeId = String(intelligenceId || "unknown").trim().toLowerCase().slice(0, 60) || "unknown";
+    const failureCode = String(error?.code || options.failureCode || "learner_failed").trim().slice(0, 80);
+    const circuitSeconds = Math.max(0, Math.min(Number(options.circuitSeconds || 0) || 0, 3600));
+    await query(
+      `INSERT INTO intelligence_module_health (
+         intelligence_id,status,failure_count,circuit_open_until,last_failure_at,last_failure_code,updated_at
+       ) VALUES ($1,$2,1,CASE WHEN $3::int>0 THEN NOW()+($3||' seconds')::interval ELSE NULL END,NOW(),$4,NOW())
+       ON CONFLICT (intelligence_id) DO UPDATE SET
+         status=EXCLUDED.status,failure_count=intelligence_module_health.failure_count+1,
+         circuit_open_until=EXCLUDED.circuit_open_until,last_failure_at=NOW(),
+         last_failure_code=EXCLUDED.last_failure_code,updated_at=NOW()`,
+      [safeId, circuitSeconds > 0 ? "disabled" : "degraded", circuitSeconds, failureCode]
+    );
+    return { recorded: true, intelligenceId: safeId };
+  }
+
+  async function readWipMindHealth() {
+    const result = await readQuery(
+      `SELECT
+         (SELECT COUNT(*)::int FROM intelligence_signals WHERE valid_until>NOW()) AS "activeSignals",
+         (SELECT COUNT(*)::int FROM intelligence_signals WHERE valid_until<=NOW()) AS "staleSignals",
+         (SELECT COUNT(*)::int FROM intelligence_decisions WHERE expires_at>NOW()) AS "activeDecisions",
+         (SELECT COUNT(*)::int FROM intelligence_action_results WHERE status='EXECUTED') AS "executedActions",
+         (SELECT COUNT(*)::int FROM intelligence_action_results WHERE status='FAILED') AS "failedActions",
+         COUNT(*) FILTER (WHERE status='healthy')::int AS "healthyLearners",
+         COUNT(*) FILTER (WHERE status='degraded')::int AS "degradedLearners",
+         COUNT(*) FILTER (WHERE status='disabled' AND circuit_open_until>NOW())::int AS "isolatedLearners",
+         COALESCE(SUM(processed_count),0)::int AS "observationsLearned",
+         COALESCE(SUM(signal_count),0)::int AS "signalsGenerated",
+         COALESCE(SUM(failure_count),0)::int AS "learnerFailures"
+       FROM intelligence_module_health`
+    );
+    const row = result.rows[0] || {};
+    return Object.fromEntries(Object.entries(row).map(([key, value]) => [key, Number(value || 0)]));
+  }
+
   async function refreshIntelligenceDailySnapshots(options = {}) {
     const windowDays = Math.max(1, Math.min(Number(options.windowDays || 14) || 14, 90));
     const retentionDays = Math.max(30, Math.min(Number(options.retentionDays || 1095) || 1095, 3650));
@@ -5546,6 +5633,63 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
            calculated_at=NOW(),expires_at=EXCLUDED.expires_at`,
         [modelVersion]
       );
+      const aggregateSignals = await query(
+        `WITH candidates AS (
+           SELECT 'demand'::text AS intelligence_type,'product'::text AS subject_type,pds.product_id AS subject_id,
+             'demand_evidence'::text AS signal_name,to_jsonb(pds.demand_score) AS value,
+             LEAST(0.95,0.25+LN(1+GREATEST(0,pds.total_demand))/10)::numeric AS confidence,
+             GREATEST(1,pds.total_demand)::int AS evidence_count
+           FROM product_demand_summaries pds WHERE pds.total_demand>0
+           UNION ALL
+           SELECT CASE WHEN ies.entity_type='seller' THEN 'seller_quality' ELSE 'product_quality' END,
+             ies.entity_type,ies.entity_key,ies.entity_type||'_composite_score',to_jsonb(ies.score),
+             LEAST(0.95,0.25+LN(1+GREATEST(0,ies.evidence_count))/10)::numeric,
+             GREATEST(1,ies.evidence_count)::int
+           FROM intelligence_entity_scores ies WHERE ies.expires_at>NOW()
+         )
+         INSERT INTO intelligence_signals (
+           signal_id,schema_version,intelligence_type,intelligence_version,subject_type,subject_id,
+           signal_name,value,confidence,evidence_count,observed_from,valid_from,valid_until,
+           geographic_scope,temporal_scope,model_version,rule_version,feature_version,created_at
+         )
+         SELECT 'sig_'||md5(intelligence_type||':'||subject_type||':'||subject_id||':'||CURRENT_DATE::text),
+           '2026-09-15.wip-signal.v1',intelligence_type,'1.0.0',subject_type,subject_id,signal_name,value,
+           confidence,evidence_count,'[]'::jsonb,NOW(),NOW()+INTERVAL '26 hours',NULL,
+           jsonb_build_object('level','daily','value',CURRENT_DATE),$1,'wip-aggregate-rules-v1',
+           'canonical-commerce-features-v1',NOW()
+         FROM candidates
+         ON CONFLICT (signal_id) DO UPDATE SET value=EXCLUDED.value,confidence=EXCLUDED.confidence,
+           evidence_count=EXCLUDED.evidence_count,valid_from=NOW(),valid_until=EXCLUDED.valid_until,
+           model_version=EXCLUDED.model_version,created_at=NOW()`,
+        [modelVersion]
+      );
+      const consciousDecisions = await query(
+        `INSERT INTO intelligence_decisions (
+           decision_id,schema_version,decision_type,subject_id,target_context,selected_action,priority,
+           contributing_signals,confidence,policy_version,reason_codes,sponsored,created_at,expires_at,idempotency_key
+         )
+         SELECT 'dec_'||md5(r.recommendation_id),'2026-09-15.wip-decision.v1',
+           CASE WHEN r.audience_type='seller' THEN 'SHOW_MARKET_OPPORTUNITY' ELSE 'RECOMMEND_PRODUCT' END,
+           r.entity_key,r.audience_type||'_dashboard',
+           CASE WHEN evidence.signal_count>0 THEN 'SURFACE_RECOMMENDATION' ELSE 'NO_ACTION' END,
+           LEAST(100,GREATEST(0,ROUND(r.score)))::int,evidence.signal_ids,
+           COALESCE(evidence.confidence,0),'wip-conscious-policy-v1',
+           r.reasons||jsonb_build_array('organic_intelligence'),FALSE,NOW(),r.expires_at,
+           'recommendation:'||r.recommendation_id
+         FROM intelligence_recommendations r
+         CROSS JOIN LATERAL (
+           SELECT COUNT(*)::int AS signal_count,COALESCE(jsonb_agg(s.signal_id),'[]'::jsonb) AS signal_ids,
+             COALESCE(AVG(s.confidence),0)::numeric AS confidence
+           FROM intelligence_signals s
+           WHERE s.subject_type=r.entity_type AND s.subject_id=r.entity_key AND s.valid_until>NOW()
+         ) evidence
+         WHERE r.status='active' AND r.expires_at>NOW()
+         ON CONFLICT (decision_id) DO UPDATE SET selected_action=EXCLUDED.selected_action,
+           priority=EXCLUDED.priority,contributing_signals=EXCLUDED.contributing_signals,
+           confidence=EXCLUDED.confidence,policy_version=EXCLUDED.policy_version,
+           reason_codes=EXCLUDED.reason_codes,expires_at=EXCLUDED.expires_at`,
+        []
+      );
       const outputCounts = {
         relationships: Number(productRelationships.rowCount || 0) + Number(categoryRelationships.rowCount || 0) + Number(regionRelationships.rowCount || 0),
         forecasts: Number(forecasts.rowCount || 0),
@@ -5553,6 +5697,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
         buyerRecommendations: Number(buyerRecommendations.rowCount || 0),
         productScores: Number(productScores.rowCount || 0),
         sellerScores: Number(sellerScores.rowCount || 0),
+        signals: Number(aggregateSignals.rowCount || 0),
+        decisions: Number(consciousDecisions.rowCount || 0),
         expiredRecommendations: Number(expired.rowCount || 0)
       };
       await query(
@@ -5579,20 +5725,64 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     const result = await readQuery(
       `SELECT recommendation_id AS "recommendationId", recommendation_type AS "recommendationType",
               entity_type AS "entityType", entity_key AS "entityKey", score::float8, reasons, metadata,
-              model_version AS "modelVersion", generated_at AS "generatedAt", expires_at AS "expiresAt"
-       FROM intelligence_recommendations
-       WHERE audience_type=$1 AND audience_key=$2 AND status='active' AND expires_at > NOW()
-       ORDER BY score DESC, generated_at DESC LIMIT $3`,
+              model_version AS "modelVersion", generated_at AS "generatedAt", r.expires_at AS "expiresAt",
+              d.decision_id AS "decisionId", d.confidence::float8 AS "decisionConfidence",
+              d.policy_version AS "policyVersion", d.reason_codes AS "decisionReasonCodes"
+       FROM intelligence_recommendations r
+       JOIN intelligence_decisions d ON d.idempotency_key='recommendation:'||r.recommendation_id
+         AND d.selected_action='SURFACE_RECOMMENDATION' AND d.expires_at>NOW()
+       JOIN products p ON p.id=r.entity_key AND p.status='approved'
+       WHERE r.audience_type=$1 AND r.audience_key=$2 AND r.status='active' AND r.expires_at > NOW()
+         AND (($1='seller' AND p.uploaded_by=$2) OR ($1='person' AND p.availability='available') OR $1='market')
+       ORDER BY r.score DESC, r.generated_at DESC LIMIT $3`,
       [safeAudienceType, safeAudienceKey, safeLimit]
     );
-    return (result.rows || []).map((row) => ({
+    const recommendations = (result.rows || []).map((row) => ({
       ...row,
       score: Number(row.score || 0),
+      decisionConfidence: Number(row.decisionConfidence || 0),
       reasons: parseJson(row.reasons, []),
       metadata: parseJson(row.metadata, {}),
+      decisionReasonCodes: parseJson(row.decisionReasonCodes, []),
       generatedAt: toISOString(row.generatedAt),
       expiresAt: toISOString(row.expiresAt)
     }));
+    await Promise.all(recommendations.map(async (recommendation) => {
+      const result = executeDecision({
+        decisionId: recommendation.decisionId,
+        selectedAction: "SURFACE_RECOMMENDATION",
+        targetContext: `${safeAudienceType}_dashboard`,
+        expiresAt: recommendation.expiresAt
+      }, { targetExists: true, permissionAllowed: true, policyAllowed: true });
+      const recorded = await query(
+        `INSERT INTO intelligence_action_results (
+           action_id,schema_version,decision_id,status,started_at,completed_at,result_metadata,failure_reason
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8) ON CONFLICT (action_id) DO NOTHING`,
+        [result.actionId,result.schemaVersion,result.decisionId,result.status,result.startedAt,result.completedAt,
+          stringifyJson(result.resultMetadata,{}),result.failureReason]
+      );
+      if (recorded.rowCount) {
+        await enqueueIntelligenceEvent({
+          eventId: `feedback_${result.actionId}`,
+          eventType: "recommendation_surfaced",
+          sourceEvent: "executive_action_result",
+          timestamp: result.completedAt,
+          productId: recommendation.entityKey,
+          sellerId: safeAudienceType === "seller" ? safeAudienceKey : "",
+          buyerId: safeAudienceType === "person" ? safeAudienceKey : "",
+          sessionId: "",
+          feedContext: `${safeAudienceType}_dashboard`,
+          location: "",
+          deviceType: "",
+          appVersion: "",
+          metadata: { decisionId: result.decisionId, actionStatus: result.status },
+          quality: { known: true, scoreableProduct: false, scoreableSeller: false, confidence: 1, reasons: [] },
+          schemaVersion: "2026-09-15.canonical-event.v1",
+          platformVersion: "2026-09-15.1"
+        }, {});
+      }
+    }));
+    return recommendations;
   }
 
   async function readIntelligenceDecisionHealth() {
@@ -9105,6 +9295,9 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     createLoginSession,
     writeStore,
     appendIntelligenceEvent,
+    appendIntelligenceSignals,
+    recordIntelligenceLearnerFailure,
+    readWipMindHealth,
     enqueueIntelligenceEvent,
     claimIntelligenceQueueBatch,
     completeIntelligenceQueueItem,

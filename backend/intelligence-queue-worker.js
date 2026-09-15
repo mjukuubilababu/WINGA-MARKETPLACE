@@ -1,4 +1,5 @@
 const { createPostgresStore } = require("./db");
+const { learnFromObservation } = require("./wip-mind");
 
 const DATABASE_URL = process.env.DATABASE_URL || "";
 const DATABASE_SSL = String(process.env.DATABASE_SSL || "").toLowerCase() === "true";
@@ -29,6 +30,8 @@ const state = {
   running: false,
   processed: 0,
   failed: 0,
+  signalsGenerated: 0,
+  learnerFailures: 0,
   recovered: 0,
   pruned: 0,
   rawPruned: {
@@ -52,6 +55,7 @@ const state = {
   },
   lastMaintenanceAt: 0
 };
+let signalCircuitOpenUntil = 0;
 
 async function runMaintenance() {
   const recovery = await store.recoverStaleIntelligenceQueueJobs({
@@ -117,6 +121,24 @@ async function processOnce() {
     for (const job of jobs) {
       try {
         await store.appendIntelligenceEvent(job.event, job.scores);
+        try {
+          if (Date.now() < signalCircuitOpenUntil) throw Object.assign(new Error("WIP signal circuit is open."), { code: "learner_circuit_open" });
+          const learned = learnFromObservation(job.event);
+          const persisted = await store.appendIntelligenceSignals(learned.signals);
+          state.signalsGenerated += Number(persisted?.inserted || 0);
+        } catch (learnerError) {
+          state.learnerFailures += 1;
+          if (learnerError?.code !== "learner_circuit_open") {
+            signalCircuitOpenUntil = Date.now() + 60_000;
+            await store.recordIntelligenceLearnerFailure?.("wip_signal_pipeline", learnerError, {
+              circuitSeconds: Math.max(1, Math.ceil((signalCircuitOpenUntil - Date.now()) / 1000))
+            }).catch(() => {});
+          }
+          console.warn("[WINGA] WIP learner failed open.", {
+            eventId: job.eventId,
+            code: String(learnerError?.code || "learner_failed").slice(0, 80)
+          });
+        }
         await store.completeIntelligenceQueueItem(job.queueId);
         state.processed += 1;
       } catch (error) {
@@ -139,6 +161,8 @@ async function processOnce() {
         claimed: jobs.length,
         processed: state.processed,
         failed: state.failed,
+        signalsGenerated: state.signalsGenerated,
+        learnerFailures: state.learnerFailures,
         recovered: state.recovered,
         pruned: state.pruned,
         rawPruned: state.rawPruned,

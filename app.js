@@ -729,6 +729,7 @@ function isDemandDiscoveryCandidate(product) {
 }
 
 let homeFeedIntelligenceEngine = null;
+let homeFeedDecisionAuthority = null;
 let homeFeedStyleIntelligenceEngine = null;
 let sellerQualityIntelligenceEngine = null;
 let marketIntelligenceEngine = null;
@@ -872,6 +873,18 @@ async function flushSearchDemandEventsToBackend() {
       scheduleSearchDemandBackendFlush();
     }
   }
+}
+
+function getHomeFeedDecisionAuthority() {
+  if (homeFeedDecisionAuthority) return homeFeedDecisionAuthority;
+  const factory = window.WingaModules?.marketplace?.createDecisionAuthority;
+  if (typeof factory !== "function") return null;
+  homeFeedDecisionAuthority = factory({
+    rankHomeFeed: (items, context) => getHomeFeedIntelligenceEngine()?.rankHomeFeed?.(items, context),
+    deterministicFallback: items => sortProductsNewestFirst(items),
+    onDecisionError: (domain, error) => captureClientError?.("home_feed_decision_failed", error, { category: domain })
+  });
+  return homeFeedDecisionAuthority;
 }
 
 function scheduleSearchDemandBackendFlush() {
@@ -1197,10 +1210,10 @@ function buildBalancedHomeFeed(list = []) {
     return sortProductsNewestFirst(visibleList);
   }
 
-  const intelligenceEngine = getHomeFeedIntelligenceEngine();
-  if (intelligenceEngine && typeof intelligenceEngine.rankHomeFeed === "function") {
+  const decisionAuthority = getHomeFeedDecisionAuthority();
+  if (decisionAuthority && typeof decisionAuthority.rankHomeFeed === "function") {
     try {
-      const ranked = intelligenceEngine.rankHomeFeed(visibleList, getHomeFeedIntelligenceContext(visibleList));
+      const ranked = decisionAuthority.rankHomeFeed(visibleList, getHomeFeedIntelligenceContext(visibleList));
       if (Array.isArray(ranked) && ranked.length === visibleList.length) {
         return ranked;
       }
@@ -19354,7 +19367,7 @@ const {
   getRelatedProducts,
   getDiscoveryRelatedProducts,
   getDiscoverySponsoredProducts,
-  rankProductsForSurface
+  rankProductsForSurface: rankProductsForSurfaceSignals
 } = window.WingaModules.marketplace.createDiscoveryHelpers({
   getProducts: () => products,
   inferTopCategoryValue,
@@ -19383,6 +19396,19 @@ const {
   getCurrentSession: () => currentSession,
   normalizeOptionalPrice
 });
+
+const discoveryDecisionAuthority = window.WingaModules.marketplace.createDecisionAuthority?.({
+  rankSurface: (items, context) => rankProductsForSurfaceSignals(items, context),
+  deterministicFallback: items => sortProductsNewestFirst(items),
+  onDecisionError: (domain, error) => captureClientError?.("discovery_decision_failed", error, { category: domain })
+});
+
+function rankProductsForSurface(sourceProducts, options = {}) {
+  if (discoveryDecisionAuthority?.rankDiscoverySurface) {
+    return discoveryDecisionAuthority.rankDiscoverySurface(sourceProducts, options);
+  }
+  return rankProductsForSurfaceSignals(sourceProducts, options);
+}
 
 function renderDiscoveryProductCards(items, options = {}) {
   const { sponsored = false, priorityCount = 0 } = options;

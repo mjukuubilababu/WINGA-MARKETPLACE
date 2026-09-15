@@ -6,6 +6,7 @@ const fs = require("fs");
 const path = require("path");
 const { createPostgresStore } = require("./db");
 const { createIntelligencePlatform } = require("./intelligence-platform");
+const { learnFromObservation } = require("./wip-mind");
 const { createDemandService, summarizeDemandEvents } = require("./demand-service");
 const { createSearchDemandService, summarizeSearchDemandEvents } = require("./search-demand-service");
 const { buildRequestGlobalContext, normalizeUserPreference, validateUserPreference, formatPrice } = require("./global-context");
@@ -1189,6 +1190,7 @@ const INTELLIGENCE_QUEUE_PROCESSING_AGE_ALERT_SECONDS = Math.max(60, Number(proc
 const OPS_HEALTH_TOKEN = String(process.env.OPS_HEALTH_TOKEN || "").trim();
 let intelligenceQueueWorkerTimer = null;
 let intelligenceQueueWorkerRunning = false;
+let intelligenceSignalCircuitOpenUntil = 0;
 const intelligenceQueueWorkerState = {
   enabled: false,
   embeddedEnabled: INTELLIGENCE_QUEUE_EMBEDDED_WORKER_ENABLED,
@@ -1197,6 +1199,8 @@ const intelligenceQueueWorkerState = {
   batches: 0,
   processed: 0,
   failed: 0,
+  signalsGenerated: 0,
+  learnerFailures: 0,
   recovered: 0,
   pruned: 0,
   rawPruned: {
@@ -1336,6 +1340,20 @@ async function processIntelligenceQueueOnce(options = {}) {
     for (const job of jobs) {
       try {
         await postgresStore.appendIntelligenceEvent(job.event, job.scores);
+        try {
+          if (Date.now() < intelligenceSignalCircuitOpenUntil) throw Object.assign(new Error("WIP signal circuit is open."), { code: "learner_circuit_open" });
+          const learned = learnFromObservation(job.event);
+          const persisted = await postgresStore.appendIntelligenceSignals(learned.signals);
+          intelligenceQueueWorkerState.signalsGenerated += Number(persisted?.inserted || 0);
+        } catch (learnerError) {
+          intelligenceQueueWorkerState.learnerFailures += 1;
+          if (learnerError?.code !== "learner_circuit_open") {
+            intelligenceSignalCircuitOpenUntil = Date.now() + 60_000;
+            await postgresStore.recordIntelligenceLearnerFailure?.("wip_signal_pipeline", learnerError, {
+              circuitSeconds: Math.max(1, Math.ceil((intelligenceSignalCircuitOpenUntil - Date.now()) / 1000))
+            }).catch(() => {});
+          }
+        }
         await postgresStore.completeIntelligenceQueueItem(job.queueId);
         intelligenceQueueWorkerState.processed += 1;
         intelligenceQueueWorkerState.lastSuccessAt = new Date().toISOString();
@@ -1575,7 +1593,7 @@ function stopIntelligenceQueueWorker() {
   intelligenceQueueWorkerState.enabled = false;
 }
 
-function getIntelligenceQueueAlerts(health = {}, snapshotHealth = {}, decisionHealth = {}) {
+function getIntelligenceQueueAlerts(health = {}, snapshotHealth = {}, decisionHealth = {}, wipMindHealth = {}) {
   const alerts = [];
   if (Number(health.dead || 0) >= INTELLIGENCE_QUEUE_DEAD_ALERT_THRESHOLD) {
     alerts.push({
@@ -1687,6 +1705,19 @@ function getIntelligenceQueueAlerts(health = {}, snapshotHealth = {}, decisionHe
       });
     }
   }
+  if (wipMindHealth?.error) {
+    alerts.push({ level: "high", type: "wip_mind_health_unavailable", message: "WIP layer health could not be read." });
+  } else if (Number(wipMindHealth.isolatedLearners || 0) > 0) {
+    alerts.push({
+      level: "high", type: "wip_learner_isolated", message: "One or more WIP learners are isolated by a circuit breaker.",
+      count: Number(wipMindHealth.isolatedLearners || 0)
+    });
+  } else if (Number(wipMindHealth.degradedLearners || 0) > 0) {
+    alerts.push({
+      level: "medium", type: "wip_learner_degraded", message: "One or more WIP learners are degraded.",
+      count: Number(wipMindHealth.degradedLearners || 0)
+    });
+  }
   return alerts;
 }
 
@@ -1725,7 +1756,10 @@ async function buildIntelligenceQueueHealthReport() {
   const decisionHealth = postgresStore?.readIntelligenceDecisionHealth
     ? await postgresStore.readIntelligenceDecisionHealth()
     : { error: "postgres_decision_health_unavailable" };
-  const alerts = getIntelligenceQueueAlerts(health, snapshotHealth, decisionHealth);
+  const wipMindHealth = postgresStore?.readWipMindHealth
+    ? await postgresStore.readWipMindHealth()
+    : { error: "postgres_wip_mind_health_unavailable" };
+  const alerts = getIntelligenceQueueAlerts(health, snapshotHealth, decisionHealth, wipMindHealth);
   return {
     schemaVersion: INTELLIGENCE_HEALTH_SCHEMA_VERSION,
     privacy: "ops-aggregate-only",
@@ -1737,6 +1771,7 @@ async function buildIntelligenceQueueHealthReport() {
     health,
     snapshotHealth,
     decisionHealth,
+    wipMindHealth,
     alerts,
     thresholds: {
       pending: INTELLIGENCE_QUEUE_PENDING_ALERT_THRESHOLD,

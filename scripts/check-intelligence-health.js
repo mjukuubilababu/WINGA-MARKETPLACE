@@ -71,6 +71,19 @@ function sanitizeMonitorPayload(payload = {}) {
       lastFailedAt: String(payload.decisionHealth.lastFailedAt || ""),
       decisionStaleSeconds: Number(payload.thresholds?.decisionStaleSeconds || 0)
     } : null,
+    wipMindHealth: payload.wipMindHealth && typeof payload.wipMindHealth === "object" ? {
+      activeSignals: Number(payload.wipMindHealth.activeSignals || 0),
+      staleSignals: Number(payload.wipMindHealth.staleSignals || 0),
+      activeDecisions: Number(payload.wipMindHealth.activeDecisions || 0),
+      executedActions: Number(payload.wipMindHealth.executedActions || 0),
+      failedActions: Number(payload.wipMindHealth.failedActions || 0),
+      healthyLearners: Number(payload.wipMindHealth.healthyLearners || 0),
+      degradedLearners: Number(payload.wipMindHealth.degradedLearners || 0),
+      isolatedLearners: Number(payload.wipMindHealth.isolatedLearners || 0),
+      observationsLearned: Number(payload.wipMindHealth.observationsLearned || 0),
+      signalsGenerated: Number(payload.wipMindHealth.signalsGenerated || 0),
+      learnerFailures: Number(payload.wipMindHealth.learnerFailures || 0)
+    } : null,
     worker: payload.worker && typeof payload.worker === "object" ? {
       enabled: Boolean(payload.worker.enabled),
       embeddedEnabled: Boolean(payload.worker.embeddedEnabled),
