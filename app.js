@@ -18296,7 +18296,11 @@ function getCategoryPreviewProduct(topValue) {
         return false;
       }
       if (productId) seen.add(productId);
-      return Boolean(String(getMarketplacePrimaryImage(product) || "").trim());
+      const imageSource = String(getMarketplacePrimaryImage(product) || "").trim();
+      if (!imageSource) {
+        return false;
+      }
+      return !productId || !getBrokenMarketplaceImageSet(productId).has(sanitizeImageSource(imageSource, ""));
     })
     .sort((first, second) => String(first?.id || "").localeCompare(String(second?.id || "")));
   if (!candidates.length) {
