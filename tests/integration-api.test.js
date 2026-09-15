@@ -1760,6 +1760,29 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   assert.equal(searchDemandBatch.body.summary.privacy, "anonymous-aggregate-only");
   assert.equal(searchDemandBatch.body.summary.trendingSearches.some((item) => item.queryKey === "white-dress"), false);
 
+  const attributedSearchDemandBatch = await request("/search-demand", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      events: [{
+        query: "white dress",
+        source: "text",
+        anonymousId: "search-audience-a",
+        category: "fashion-dress",
+        color: "white",
+        resultCount: 0,
+        zeroResult: true,
+        clickedProductId: "product-test-001",
+        noClick: false,
+        location: "Dar es Salaam"
+      }]
+    })
+  });
+  assert.equal(attributedSearchDemandBatch.response.status, 202);
+  assert.equal(attributedSearchDemandBatch.body.accepted, 1);
+  assert.equal(attributedSearchDemandBatch.body.inserted, 0);
+  assert.equal(attributedSearchDemandBatch.body.updated, 1);
+
   const corroboratedSearchDemandBatch = await request("/search-demand", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

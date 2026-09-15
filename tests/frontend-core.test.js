@@ -1301,6 +1301,13 @@ test("search demand intelligence aggregates anonymous zero-result and low-supply
     filters: { location: "Dar es Salaam" }
   });
   collector.markClick("shoe-1", "black office shoes");
+  const pendingBeforeSync = collector.getPendingEvents(25);
+  assert.equal(pendingBeforeSync.length, 2);
+  assert.equal(collector.markSynced(pendingBeforeSync.map((event) => event.eventId)), 2);
+  assert.equal(collector.getPendingEvents(25).length, 0);
+  collector.markNoClick("white linen dress");
+  assert.equal(collector.getPendingEvents(25).length, 1);
+  assert.equal(collector.getPendingEvents(25)[0].noClick, true);
   const analytics = engine.aggregate(collector.getEvents(), {
     now: Date.now()
   });
@@ -5039,6 +5046,10 @@ test("search demand recording waits for a settled query and flushes before click
   assert.match(section, /\}, 900\);/);
   assert.match(section, /String\(searchInput\?\.value \|\| ""\)\.trim\(\) === signal\.query/);
   assert.match(section, /function markSearchDemandClick\(productId\) \{\s+flushPendingSearchDemandSignal\(\);/);
+  assert.match(appSource, /collector\?\.getPendingEvents\?\.\(25\)/);
+  assert.match(appSource, /collector\?\.markSynced\?\.\(batch\.map/);
+  assert.match(appSource, /function markActiveSearchDemandNoClick\(\)/);
+  assert.match(appSource, /registerAppEvent\(window, "pagehide", \(\) => \{\s+markActiveSearchDemandNoClick\(\);/);
 });
 
 test("localized upload errors preserve independent auth fallback scope", () => {

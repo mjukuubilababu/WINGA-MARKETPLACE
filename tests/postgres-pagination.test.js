@@ -2627,7 +2627,7 @@ test("PostgreSQL search demand persistence stores anonymous events and reads agg
     async query(text, params) {
       calls.push({ text, params });
       if (text.includes("INSERT INTO search_demand_events")) {
-        return { rowCount: 1, rows: [] };
+        return { rowCount: 1, rows: [{ inserted: true }] };
       }
       if (text.includes("GROUP BY query, query_key") && text.includes("zero_result IS TRUE")) {
         return {
@@ -2697,8 +2697,10 @@ test("PostgreSQL search demand persistence stores anonymous events and reads agg
   const summary = await store.readSearchDemandSummary(5);
 
   assert.equal(insertResult.inserted, 1);
+  assert.equal(insertResult.updated, 0);
   assert.match(calls[0].text, /INSERT INTO search_demand_events/);
-  assert.match(calls[0].text, /ON CONFLICT \(dedupe_key\) DO NOTHING/);
+  assert.match(calls[0].text, /ON CONFLICT \(dedupe_key\) DO UPDATE/);
+  assert.match(calls[0].text, /search_demand_events\.no_click OR EXCLUDED\.no_click/);
   assert.equal(calls[0].params[0], "search-event-1");
   assert.equal(calls[0].params[1], "search-dedupe-1");
   assert.equal(calls[0].params[4], "white-dress");

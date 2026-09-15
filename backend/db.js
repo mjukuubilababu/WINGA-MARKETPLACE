@@ -6070,6 +6070,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
   async function appendSearchDemandEvents(events = []) {
     const sourceEvents = Array.isArray(events) ? events.slice(0, 25) : [];
     let inserted = 0;
+    let updated = 0;
     for (const event of sourceEvents) {
       const result = await query(
         `INSERT INTO search_demand_events (
@@ -6083,7 +6084,16 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
           $11, $12, $13, $14, $15, $16,
           $17, $18, $19, $20::jsonb, $21, $22
         )
-        ON CONFLICT (dedupe_key) DO NOTHING`,
+        ON CONFLICT (dedupe_key) DO UPDATE
+        SET clicked_product_id = CASE
+              WHEN EXCLUDED.clicked_product_id <> '' THEN EXCLUDED.clicked_product_id
+              ELSE search_demand_events.clicked_product_id
+            END,
+            no_click = CASE
+              WHEN EXCLUDED.clicked_product_id <> '' OR search_demand_events.clicked_product_id <> '' THEN FALSE
+              ELSE search_demand_events.no_click OR EXCLUDED.no_click
+            END
+        RETURNING (xmax = 0) AS inserted`,
         [
           event.eventId,
           event.dedupeKey,
@@ -6109,9 +6119,11 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
           String(event.audienceKey || "").slice(0, 64)
         ]
       );
-      inserted += Number(result.rowCount || 0);
+      const wasInserted = result.rows?.[0]?.inserted;
+      inserted += wasInserted === false ? 0 : Number(result.rowCount || 0);
+      updated += wasInserted === false ? Number(result.rowCount || 0) : 0;
     }
-    return { inserted, received: sourceEvents.length };
+    return { inserted, updated, received: sourceEvents.length };
   }
 
   async function readSearchDemandSummary(limit = 10) {

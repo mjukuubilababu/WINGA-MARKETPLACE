@@ -736,8 +736,8 @@ let searchDemandIntelligenceEngine = null;
 let searchDemandCollector = null;
 let searchDemandFlushTimer = null;
 let searchDemandFlushInFlight = false;
-let searchDemandLastFlushedSignature = "";
 let searchDemandCommitTimer = null;
+let searchDemandLastCommittedQuery = "";
 let pendingSearchDemandSignal = null;
 let marketInsightsCache = {
   key: "",
@@ -839,13 +839,6 @@ function persistSearchDemandEvents() {
   }
 }
 
-function getSearchDemandFlushSignature(events = []) {
-  return events
-    .map((event) => String(event?.eventId || event?.dedupeKey || `${event?.queryKey || event?.query || ""}:${event?.timestamp || ""}`))
-    .filter(Boolean)
-    .join("|");
-}
-
 async function flushSearchDemandEventsToBackend() {
   if (searchDemandFlushInFlight || typeof window === "undefined") {
     return;
@@ -855,20 +848,18 @@ async function flushSearchDemandEventsToBackend() {
     return;
   }
   const collector = getSearchDemandCollector();
-  const events = collector?.getEvents?.() || [];
-  const batch = Array.isArray(events) ? events.slice(-25) : [];
+  const batch = collector?.getPendingEvents?.(25) || [];
   if (!batch.length) {
     return;
   }
-  const signature = getSearchDemandFlushSignature(batch);
-  if (signature && signature === searchDemandLastFlushedSignature) {
-    return;
-  }
   searchDemandFlushInFlight = true;
+  let shouldContinue = false;
   try {
     const result = await submit(batch);
     if (result?.ok !== false) {
-      searchDemandLastFlushedSignature = signature;
+      collector?.markSynced?.(batch.map((event) => event?.eventId));
+      persistSearchDemandEvents();
+      shouldContinue = true;
     }
   } catch (error) {
     captureClientError?.("search_demand_flush_failed", error, {
@@ -877,6 +868,9 @@ async function flushSearchDemandEventsToBackend() {
     });
   } finally {
     searchDemandFlushInFlight = false;
+    if (shouldContinue && collector?.getPendingEvents?.(1)?.length) {
+      scheduleSearchDemandBackendFlush();
+    }
   }
 }
 
@@ -947,6 +941,14 @@ function commitSearchDemandSignal(details = {}) {
     return;
   }
   const task = () => {
+    const normalizedQuery = query.toLowerCase().replace(/\s+/g, " ");
+    if (searchDemandLastCommittedQuery && searchDemandLastCommittedQuery !== normalizedQuery) {
+      const previous = collector.markNoClick?.(searchDemandLastCommittedQuery);
+      if (previous) {
+        persistSearchDemandEvents();
+        scheduleSearchDemandBackendFlush();
+      }
+    }
     const result = collector.record({
       query,
       source,
@@ -958,6 +960,7 @@ function commitSearchDemandSignal(details = {}) {
       anonymousId: window.WingaDataLayer?.getAnonymousDemandSessionId?.() || ""
     });
     if (result?.accepted) {
+      searchDemandLastCommittedQuery = normalizedQuery;
       marketInsightsCache.key = "";
       persistSearchDemandEvents();
       scheduleSearchDemandBackendFlush();
@@ -1014,6 +1017,15 @@ function markSearchDemandClick(productId) {
   const collector = getSearchDemandCollector();
   const query = String(searchInput?.value || "").trim();
   collector?.markClick?.(productId, query);
+  persistSearchDemandEvents();
+  scheduleSearchDemandBackendFlush();
+}
+
+function markActiveSearchDemandNoClick() {
+  if (!searchDemandLastCommittedQuery) return;
+  const collector = getSearchDemandCollector();
+  const updated = collector?.markNoClick?.(searchDemandLastCommittedQuery);
+  if (!updated) return;
   persistSearchDemandEvents();
   scheduleSearchDemandBackendFlush();
 }
@@ -17520,6 +17532,7 @@ function handleAppLifecycleChange() {
 
 registerAppEvent(document, "visibilitychange", handleAppLifecycleChange, undefined, "document:visibilitychange:app-lifecycle");
 registerAppEvent(window, "pagehide", () => {
+  markActiveSearchDemandNoClick();
   if (currentView === "home") {
     saveHomeScrollState(window.scrollY || 0);
     cancelHomeFeedLoadMore("pagehide");

@@ -9821,13 +9821,16 @@ const server = http.createServer(async (req, res) => {
       }));
 
       let inserted = events.length;
+      let updated = 0;
       let summary = null;
       if (postgresStore?.appendSearchDemandEvents) {
         const result = await postgresStore.appendSearchDemandEvents(events);
         inserted = Number(result?.inserted || 0);
+        updated = Number(result?.updated || 0);
         summary = postgresStore.readSearchDemandSummary ? await postgresStore.readSearchDemandSummary(10) : null;
       } else {
         const existingEvents = Array.isArray(store.searchDemandEvents) ? store.searchDemandEvents : [];
+        const incomingByKey = new Map(events.map((event) => [event.dedupeKey, event]).filter(([key]) => Boolean(key)));
         const existingKeys = new Set(existingEvents.map((event) => event.dedupeKey).filter(Boolean));
         const nextEvents = [];
         events.forEach((event) => {
@@ -9837,7 +9840,20 @@ const server = http.createServer(async (req, res) => {
           }
         });
         inserted = nextEvents.length;
-        const searchDemandEvents = [...nextEvents, ...existingEvents].slice(0, 5000);
+        const searchDemandEvents = [
+          ...nextEvents,
+          ...existingEvents.map((event) => {
+            const incoming = incomingByKey.get(event.dedupeKey);
+            if (!incoming) return event;
+            updated += 1;
+            const clickedProductId = incoming.clickedProductId || event.clickedProductId || "";
+            return {
+              ...event,
+              clickedProductId,
+              noClick: clickedProductId ? false : Boolean(event.noClick || incoming.noClick)
+            };
+          })
+        ].slice(0, 5000);
         summary = summarizeSearchDemandEvents(searchDemandEvents, {
           minimumAudienceCount: 2
         });
@@ -9856,7 +9872,8 @@ const server = http.createServer(async (req, res) => {
         path: url.pathname,
         event: "search_demand_batch_recorded",
         accepted: events.length,
-        inserted
+        inserted,
+        updated
       });
       intelligencePlatform.ingestClientEvent({
         level: "info",
@@ -9883,6 +9900,7 @@ const server = http.createServer(async (req, res) => {
         ok: true,
         accepted: events.length,
         inserted,
+        updated,
         summary
       });
       return;

@@ -110,7 +110,12 @@
     }
 
     function createCollector(initialState = {}) {
-      let events = Array.isArray(initialState.events) ? initialState.events.slice(-config.maxEvents) : [];
+      let events = Array.isArray(initialState.events)
+        ? initialState.events.slice(-config.maxEvents).map((event) => ({
+            ...event,
+            pendingSync: event?.pendingSync !== false
+          }))
+        : [];
       let recentKeys = new Map();
       let recentSignalTimes = [];
 
@@ -142,7 +147,7 @@
         if (shouldIgnore(signal, now)) {
           return { accepted: false, signal };
         }
-        events = [...events, signal].slice(-config.maxEvents);
+        events = [...events, { ...signal, pendingSync: true }].slice(-config.maxEvents);
         return { accepted: true, signal };
       }
 
@@ -155,7 +160,8 @@
             events[index] = {
               ...event,
               clickedProductId: safeProductId,
-              noClick: false
+              noClick: false,
+              pendingSync: true
             };
             return events[index];
           }
@@ -168,6 +174,7 @@
         const latest = [...events].reverse().find((event) => (!queryKey || event.queryKey === queryKey) && !event.clickedProductId);
         if (!latest) return null;
         latest.noClick = true;
+        latest.pendingSync = true;
         return latest;
       }
 
@@ -175,7 +182,24 @@
         return events.slice();
       }
 
-      return { record, markClick, markNoClick, getEvents };
+      function getPendingEvents(limit = 25) {
+        const safeLimit = Math.max(1, Math.min(Number(limit) || 25, 25));
+        return events.filter((event) => event?.pendingSync !== false).slice(0, safeLimit);
+      }
+
+      function markSynced(eventIds = []) {
+        const ids = new Set((Array.isArray(eventIds) ? eventIds : []).map((eventId) => String(eventId || "")).filter(Boolean));
+        if (!ids.size) return 0;
+        let updated = 0;
+        events = events.map((event) => {
+          if (!ids.has(String(event?.eventId || "")) || event.pendingSync === false) return event;
+          updated += 1;
+          return { ...event, pendingSync: false };
+        });
+        return updated;
+      }
+
+      return { record, markClick, markNoClick, getEvents, getPendingEvents, markSynced };
     }
 
     function addAggregate(map, key, score, extra = {}) {
