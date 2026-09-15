@@ -4530,7 +4530,7 @@ test("app template actions escape data attributes and selector lookups", () => {
   assert.match(appSource, /data-report-product="\$\{safeProductId\}"/);
   assert.match(appSource, /data-report-seller="\$\{safeSellerId\}"/);
   assert.match(appSource, /data-open-saved-product="\$\{escapeHtml\(product\.id \|\| ""\)\}"/);
-  assert.match(appSource, /data-open-followed-seller="\$\{safeSellerUsername\}"/);
+  assert.match(appSource, /data-open-person-profile="\$\{safeSellerUsername\}"/);
   assert.match(appSource, /data-share-seller-shop="\$\{safeSellerUsername\}"/);
   assert.match(appSource, /data-promote-product="\$\{escapeHtml\(product\.id \|\| ""\)\}"/);
   assert.match(appSource, /data-open-product="\$\{safeProductId\}"/);
@@ -5827,6 +5827,23 @@ test("profile collections support create add publish and localized responsive re
   assert.match(uiSource, /collectionsMarkup/);
   assert.match(styleSource, /\.profile-collection-previews/);
   assert.match(styleSource, /@media \(max-width:560px\)/);
+});
+
+test("public person profiles consume privacy-filtered collections without exposing private behavior", () => {
+  const root = path.resolve(__dirname, "..");
+  const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
+  const styleSource = fs.readFileSync(path.join(root, "style.css"), "utf8");
+
+  assert.match(appSource, /function openPersonProfile\(username, options = \{\}\)/);
+  assert.match(appSource, /WingaDataLayer\.loadSocialProfile\(safeUsername/);
+  assert.match(appSource, /WingaDataLayer\.loadUserCollections\(safeUsername, \{ limit: 12 \}\)/);
+  assert.match(appSource, /data-public-collection-product/);
+  assert.match(appSource, /profile_from_follow_click/);
+  assert.match(appSource, /data-open-person-profile=/);
+  assert.doesNotMatch(appSource, /personProfileState\.(purchases|messages|savedItems|browsingHistory)/);
+  assert.match(styleSource, /#person-profile-modal/);
+  assert.match(styleSource, /body\.person-profile-open/);
+  assert.match(styleSource, /\.person-profile-products/);
 });
 (async () => {
   let passed = 0;

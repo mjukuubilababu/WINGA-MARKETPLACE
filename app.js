@@ -2025,6 +2025,12 @@ function syncBodyScrollLockState() {
     imageLightbox
     && imageLightbox.classList.contains("open")
   );
+  const personProfileModal = document.getElementById("person-profile-modal");
+  const isPersonProfileVisible = Boolean(
+    personProfileModal
+    && !personProfileModal.hidden
+    && personProfileModal.classList.contains("open")
+  );
 
   document.body.classList.toggle("mobile-category-sheet-open", isMobileSheetVisible);
   document.body.classList.toggle("auth-modal-open", isAuthModalVisible);
@@ -2034,6 +2040,7 @@ function syncBodyScrollLockState() {
   document.body.classList.toggle("promotion-intent-open", isPromotionIntentVisible);
   document.body.classList.toggle("media-action-sheet-open", isMediaActionSheetVisible);
   document.body.classList.toggle("image-lightbox-open", isImageLightboxVisible);
+  document.body.classList.toggle("person-profile-open", isPersonProfileVisible);
 }
 
 function scheduleHomeScrollRestore(scrollY = null) {
@@ -9664,7 +9671,7 @@ function renderSavedIntentSection() {
         const safeSellerUsername = escapeHtml(seller.username || "");
         return `
           <div class="saved-followed-seller-item">
-            <button class="saved-intent-chip${isSellerFollowed(seller.username) ? " is-active" : ""}" type="button" data-open-followed-seller="${safeSellerUsername}">
+            <button class="saved-intent-chip${isSellerFollowed(seller.username) ? " is-active" : ""}" type="button" data-open-person-profile="${safeSellerUsername}" data-person-profile-source="follow">
               ${escapeHtml(getUserDisplayName(seller.username, { fallback: seller.fullName || seller.username || "Seller" }))}
             </button>
             <small class="product-meta">${escapeHtml(latestProduct?.name || "No approved product yet")}</small>
@@ -9938,6 +9945,223 @@ async function publishProfileCollection(collectionId, rowVersion, button) {
   } finally {
     button.disabled = false;
   }
+}
+
+function ensurePersonProfileModal() {
+  let root = document.getElementById("person-profile-modal");
+  if (root) return root;
+  root = createElement("div", {
+    attributes: {
+      id: "person-profile-modal",
+      hidden: "true"
+    }
+  });
+  root.innerHTML = `
+    <div class="person-profile-backdrop" data-close-person-profile="true"></div>
+    <div class="person-profile-dialog panel" role="dialog" aria-modal="true" aria-labelledby="person-profile-title">
+      <button class="person-profile-close" type="button" aria-label="${escapeHtml(translateUi("personProfile.close", {}, "Close profile"))}" data-close-person-profile="true">&times;</button>
+      <div class="person-profile-body" data-person-profile-body="true"></div>
+    </div>
+  `;
+  root.addEventListener("click", (event) => {
+    if (event.target.closest("[data-close-person-profile='true']")) {
+      closePersonProfileModal();
+      return;
+    }
+    if (event.target.closest("[data-retry-person-profile='true']")) {
+      loadPersonProfile(personProfileState.username, { force: true });
+    }
+  });
+  root.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closePersonProfileModal();
+  });
+  document.body.appendChild(root);
+  return root;
+}
+
+function closePersonProfileModal(options = {}) {
+  const root = document.getElementById("person-profile-modal");
+  if (root) {
+    root.hidden = true;
+    root.classList.remove("open");
+    root.querySelector("[data-person-profile-body='true']")?.replaceChildren();
+  }
+  const returnFocus = personProfileState.returnFocus;
+  personProfileState.requestId += 1;
+  personProfileState.status = "idle";
+  personProfileState.profile = null;
+  personProfileState.collections = [];
+  personProfileState.error = "";
+  personProfileState.returnFocus = null;
+  syncBodyScrollLockState();
+  if (options.restoreFocus !== false && returnFocus?.isConnected) returnFocus.focus();
+}
+
+function renderPersonProfileModal() {
+  const root = ensurePersonProfileModal();
+  const body = root.querySelector("[data-person-profile-body='true']");
+  if (!body) return;
+  if (personProfileState.status === "loading") {
+    body.innerHTML = `
+      <div class="person-profile-status" role="status" aria-live="polite">
+        <span class="feed-loading-spinner" aria-hidden="true"></span>
+        <p>${escapeHtml(translateUi("personProfile.loading", {}, "Loading profile..."))}</p>
+      </div>
+    `;
+  } else if (personProfileState.status === "error") {
+    body.innerHTML = `
+      <div class="person-profile-status" role="alert">
+        <h3 id="person-profile-title">${escapeHtml(translateUi("personProfile.unavailable", {}, "Profile unavailable"))}</h3>
+        <p>${escapeHtml(translateUi("personProfile.unavailableBody", {}, "This profile could not be loaded right now."))}</p>
+        <button class="action-btn action-btn-secondary" type="button" data-retry-person-profile="true">${escapeHtml(translateUi("collections.retry", {}, "Try again"))}</button>
+      </div>
+    `;
+  } else {
+    const profile = personProfileState.profile || {};
+    const displayName = String(profile.fullName || profile.username || personProfileState.username || "").trim();
+    const image = sanitizeImageSource(profile.profileImage || "", "");
+    const avatar = image
+      ? `<img src="${escapeHtml(image)}" alt="" loading="eager" decoding="async">`
+      : `<span>${escapeHtml(getUserInitials(displayName || "W"))}</span>`;
+    const capabilities = (Array.isArray(profile.capabilities) ? profile.capabilities : [])
+      .filter((capability) => ["buyer", "seller", "creator", "curator"].includes(capability))
+      .map((capability) => `<span class="status-pill">${escapeHtml(translateUi(`personProfile.capability.${capability}`, {}, capability))}</span>`)
+      .join("");
+    const content = profile.publicContent || {};
+    const stats = [
+      [profile.followerCount, "personProfile.followers", "Followers"],
+      [profile.followingCount, "personProfile.following", "Following"],
+      [content.products, "personProfile.products", "Products"],
+      [content.reels, "personProfile.reels", "Reels"],
+      [content.collections, "collections.eyebrow", "Collections"]
+    ].map(([value, key, fallback]) => `
+      <div class="person-profile-stat"><strong>${escapeHtml(formatNumber(Math.max(0, Number(value || 0))))}</strong><span>${escapeHtml(translateUi(key, {}, fallback))}</span></div>
+    `).join("");
+    const collectionCards = personProfileState.collections.map((collection) => {
+      const items = (Array.isArray(collection.items) ? collection.items : []).map((item) => {
+        const itemImage = sanitizeImageSource(item.image || "", getImageFallbackDataUri());
+        return `
+          <button class="person-profile-product" type="button" data-public-collection-product="${escapeHtml(item.productId || "")}" data-public-collection-owner="${escapeHtml(item.uploadedBy || profile.username || "")}" aria-label="${escapeHtml(item.name || translateUi("collections.openProduct", {}, "Open product"))}">
+            <img src="${escapeHtml(itemImage)}" alt="" loading="lazy" decoding="async">
+            <span>${escapeHtml(item.name || translateUi("collections.unnamedProduct", {}, "Product"))}</span>
+          </button>
+        `;
+      }).join("");
+      return `
+        <article class="person-profile-collection" data-public-collection="${escapeHtml(collection.id || "")}">
+          <div>
+            <strong>${escapeHtml(collection.title || translateUi("collections.eyebrow", {}, "Collection"))}</strong>
+            <span class="product-meta">${escapeHtml(translateUi("collections.itemCount", { count: Number(collection.itemCount || 0) }, `${Number(collection.itemCount || 0)} products`))}</span>
+          </div>
+          ${collection.description ? `<p class="product-meta">${escapeHtml(collection.description)}</p>` : ""}
+          ${items ? `<div class="person-profile-products">${items}</div>` : ""}
+        </article>
+      `;
+    }).join("");
+    const canFollow = String(profile.username || "") !== String(currentUser || "");
+    const followLabel = isSellerFollowed(profile.username)
+      ? translateUi("follow.active", {}, "Following")
+      : translateUi("follow.inactive", {}, "Follow");
+    body.innerHTML = `
+      <div class="person-profile-shell">
+        <header class="person-profile-header">
+          <div class="person-profile-avatar">${avatar}</div>
+          <div class="person-profile-heading">
+            <p class="eyebrow">${escapeHtml(translateUi("personProfile.eyebrow", {}, "Winga person"))}</p>
+            <h3 id="person-profile-title">${escapeHtml(displayName)}</h3>
+            <span class="product-meta">@${escapeHtml(profile.username || "")}</span>
+          </div>
+          ${canFollow ? `<button class="action-btn action-btn-secondary${isSellerFollowed(profile.username) ? " is-active" : ""}" type="button" data-follow-seller="${escapeHtml(profile.username || "")}">${escapeHtml(followLabel)}</button>` : ""}
+        </header>
+        ${capabilities ? `<div class="person-profile-capabilities">${capabilities}</div>` : ""}
+        <div class="person-profile-stats">${stats}</div>
+        <section class="person-profile-collections">
+          <div class="section-heading"><div><p class="eyebrow">${escapeHtml(translateUi("collections.eyebrow", {}, "Collections"))}</p><h4>${escapeHtml(translateUi("personProfile.publicCollections", {}, "Public picks"))}</h4></div></div>
+          ${collectionCards || `<p class="empty-copy compact">${escapeHtml(translateUi("personProfile.noCollections", {}, "No visible collections yet."))}</p>`}
+        </section>
+      </div>
+    `;
+  }
+  root.hidden = false;
+  root.classList.add("open");
+  syncBodyScrollLockState();
+  if (!root.contains(document.activeElement)) {
+    root.querySelector("[data-close-person-profile='true']")?.focus();
+  }
+}
+
+async function loadPersonProfile(username, options = {}) {
+  const safeUsername = String(username || "").trim();
+  if (!safeUsername || typeof window.WingaDataLayer?.loadSocialProfile !== "function") return;
+  if (safeUsername === String(currentUser || "")) {
+    closePersonProfileModal({ restoreFocus: false });
+    openProfileSection("profile-collections-panel");
+    return;
+  }
+  const requestId = ++personProfileState.requestId;
+  personProfileState.username = safeUsername;
+  personProfileState.status = "loading";
+  personProfileState.error = "";
+  renderPersonProfileModal();
+  try {
+    const [profileResult, collectionPage] = await Promise.all([
+      window.WingaDataLayer.loadSocialProfile(safeUsername, { source: personProfileState.source }),
+      window.WingaDataLayer.loadUserCollections(safeUsername, { limit: 12 })
+    ]);
+    if (requestId !== personProfileState.requestId) return;
+    personProfileState.profile = profileResult?.profile || null;
+    if (!personProfileState.profile) {
+      throw new Error(translateUi("personProfile.missingData", {}, "Public profile data is unavailable."));
+    }
+    if (currentUser && personProfileState.profile.username) {
+      const followedIds = ensureFollowedSellerIdsLoaded();
+      if (personProfileState.profile.viewerFollows) followedIds.add(personProfileState.profile.username);
+      else followedIds.delete(personProfileState.profile.username);
+      persistFollowedSellerIds();
+    }
+    personProfileState.collections = Array.isArray(collectionPage?.items) ? collectionPage.items : [];
+    personProfileState.status = "ready";
+    renderPersonProfileModal();
+  } catch (error) {
+    if (requestId !== personProfileState.requestId) return;
+    personProfileState.status = "error";
+    personProfileState.error = String(error?.message || "");
+    captureClientError("person_profile_load_failed", error, { category: "social", username: safeUsername });
+    renderPersonProfileModal();
+  }
+}
+
+function openPersonProfile(username, options = {}) {
+  const safeUsername = String(username || "").trim();
+  if (!safeUsername) return;
+  personProfileState.source = String(options.source || "").trim();
+  personProfileState.returnFocus = options.trigger instanceof HTMLElement ? options.trigger : document.activeElement;
+  if (personProfileState.source === "follow") {
+    reportClientEvent("info", "profile_from_follow_click", "Public person profile opened from follow context.", {
+      category: "social", profileUsername: safeUsername
+    });
+  }
+  loadPersonProfile(safeUsername);
+}
+
+async function openPublicCollectionProduct(productId, ownerUsername) {
+  const safeProductId = String(productId || "").trim();
+  if (!safeProductId) return;
+  let product = getProductById(safeProductId);
+  if (!product && ownerUsername) {
+    await hydrateSellerProductsForProfile(ownerUsername);
+    product = getProductById(safeProductId);
+  }
+  if (!product) {
+    showInAppNotification({
+      title: translateUi("personProfile.productUnavailable", {}, "Product unavailable"),
+      body: translateUi("personProfile.productUnavailableBody", {}, "This product is not available in the current market view."),
+      variant: "warning"
+    });
+    return;
+  }
+  closePersonProfileModal({ restoreFocus: false });
+  openProductDetailModal(product.id);
 }
 
 function getLatestApprovedSellerProduct(username) {
@@ -10963,6 +11187,30 @@ function bindTrustReportEntryActions() {
     createProfileCollection(form);
   });
   document.addEventListener("click", (event) => {
+    const personProfileButton = event.target.closest("[data-open-person-profile]");
+    if (personProfileButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      openPersonProfile(personProfileButton.dataset.openPersonProfile || "", {
+        source: personProfileButton.dataset.personProfileSource || "product",
+        trigger: personProfileButton
+      });
+      return;
+    }
+
+    const publicCollectionProductButton = event.target.closest("[data-public-collection-product]");
+    if (publicCollectionProductButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      openPublicCollectionProduct(
+        publicCollectionProductButton.dataset.publicCollectionProduct || "",
+        publicCollectionProductButton.dataset.publicCollectionOwner || ""
+      ).catch((error) => captureClientError("public_collection_product_open_failed", error, {
+        category: "social", productId: publicCollectionProductButton.dataset.publicCollectionProduct || ""
+      }));
+      return;
+    }
+
     const retryCollectionsButton = event.target.closest("[data-retry-profile-collections]");
     if (retryCollectionsButton) {
       event.preventDefault();
@@ -11060,6 +11308,17 @@ function bindTrustReportEntryActions() {
         ? translateUi("follow.active", {}, "Following")
         : translateUi("follow.inactive", {}, "Follow");
       followSellerButton.classList.toggle("is-active", nowFollowing);
+      if (followSellerButton.closest("#person-profile-modal") && personProfileState.profile) {
+        const previousFollowing = Boolean(personProfileState.profile.viewerFollows);
+        personProfileState.profile.viewerFollows = nowFollowing;
+        if (previousFollowing !== nowFollowing) {
+          personProfileState.profile.followerCount = Math.max(
+            0,
+            Number(personProfileState.profile.followerCount || 0) + (nowFollowing ? 1 : -1)
+          );
+        }
+        renderPersonProfileModal();
+      }
       noteSellerInterest(username, nowFollowing ? 20 : 4, {
         signalType: "message"
       });
@@ -13552,6 +13811,16 @@ const profileCollectionState = {
   items: [],
   error: "",
   requestId: 0
+};
+const personProfileState = {
+  username: "",
+  source: "",
+  status: "idle",
+  profile: null,
+  collections: [],
+  error: "",
+  requestId: 0,
+  returnFocus: null
 };
 const imageLightboxState = {
   images: [],
@@ -18462,9 +18731,9 @@ function renderDiscoveryProductCards(items, options = {}) {
             ${renderProductOverflowMenu(item, { overlay: true })}
             <div class="product-seller-row">
               <div class="product-seller-avatar">${sellerAvatar}${seller?.verifiedSeller ? `<span class="product-seller-avatar-verified-badge" aria-label="Verified seller" title="Verified seller">✓</span>` : ""}</div>
-              <div class="product-seller-copy">
+              <button class="product-seller-copy product-seller-profile-trigger" type="button" data-open-person-profile="${escapeHtml(item.uploadedBy || "")}" data-person-profile-source="product">
                 <strong class="product-seller-name">${sellerName}</strong>
-              </div>
+              </button>
               <div class="product-seller-badge-row product-seller-inline-actions">
                 ${renderSellerCardInlineActions(item)}
               </div>

@@ -1101,6 +1101,24 @@
                      "collections.publishFailedTitle": "Collection was not published",
                      "collections.remove": "Remove product",
                      "collections.productRemovedTitle": "Product removed",
-                     "collections.removeFailedTitle": "Product was not removed"
+                     "collections.removeFailedTitle": "Product was not removed",
+                     "personProfile.close": "Close profile",
+                     "personProfile.loading": "Loading profile...",
+                     "personProfile.unavailable": "Profile unavailable",
+                     "personProfile.unavailableBody": "This profile could not be loaded right now.",
+                     "personProfile.eyebrow": "Winga person",
+                     "personProfile.capability.buyer": "Buyer",
+                     "personProfile.capability.seller": "Seller",
+                     "personProfile.capability.creator": "Creator",
+                     "personProfile.capability.curator": "Curator",
+                     "personProfile.followers": "Followers",
+                     "personProfile.following": "Following",
+                     "personProfile.products": "Products",
+                     "personProfile.reels": "Reels",
+                     "personProfile.publicCollections": "Public picks",
+                     "personProfile.noCollections": "No visible collections yet.",
+                     "personProfile.productUnavailable": "Product unavailable",
+                     "personProfile.productUnavailableBody": "This product is not available in the current market view.",
+                     "personProfile.missingData": "Public profile data is unavailable."
                  }
 }

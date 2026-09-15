@@ -1101,6 +1101,24 @@
                      "collections.publishFailedTitle": "La collection n'a pas été publiée",
                      "collections.remove": "Retirer le produit",
                      "collections.productRemovedTitle": "Produit retiré",
-                     "collections.removeFailedTitle": "Le produit n'a pas été retiré"
+                     "collections.removeFailedTitle": "Le produit n'a pas été retiré",
+                     "personProfile.close": "Fermer le profil",
+                     "personProfile.loading": "Chargement du profil...",
+                     "personProfile.unavailable": "Profil indisponible",
+                     "personProfile.unavailableBody": "Ce profil ne peut pas être chargé pour le moment.",
+                     "personProfile.eyebrow": "Personne Winga",
+                     "personProfile.capability.buyer": "Acheteur",
+                     "personProfile.capability.seller": "Vendeur",
+                     "personProfile.capability.creator": "Créateur",
+                     "personProfile.capability.curator": "Curateur",
+                     "personProfile.followers": "Abonnés",
+                     "personProfile.following": "Abonnements",
+                     "personProfile.products": "Produits",
+                     "personProfile.reels": "Reels",
+                     "personProfile.publicCollections": "Sélections publiques",
+                     "personProfile.noCollections": "Aucune collection visible pour le moment.",
+                     "personProfile.productUnavailable": "Produit indisponible",
+                     "personProfile.productUnavailableBody": "Ce produit n'est pas disponible dans le marché affiché.",
+                     "personProfile.missingData": "Les données publiques du profil sont indisponibles."
                  }
 }

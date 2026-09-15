@@ -12618,7 +12618,14 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         }));
       }
 
-      const sellerCopy = createElement("div", { className: "product-seller-copy" });
+      const sellerCopy = createElement("button", {
+        className: "product-seller-copy product-seller-profile-trigger",
+        attributes: {
+          type: "button",
+          "data-open-person-profile": product?.uploadedBy || "",
+          "data-person-profile-source": "product"
+        }
+      });
       sellerCopy.append(
         createElement("strong", { className: "product-seller-name", textContent: getProductSellerLabel(product) })
       );
@@ -22472,7 +22479,14 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           .toUpperCase() || "S";
       }
 
-      const sellerCopy = deps.createElement("div", { className: "product-seller-copy" });
+      const sellerCopy = deps.createElement("button", {
+        className: "product-seller-copy product-seller-profile-trigger",
+        attributes: {
+          type: "button",
+          "data-open-person-profile": item?.uploadedBy || "",
+          "data-person-profile-source": "product"
+        }
+      });
       sellerCopy.append(
         deps.createElement("strong", {
           className: "product-seller-name",

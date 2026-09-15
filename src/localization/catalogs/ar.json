@@ -1105,6 +1105,24 @@
                      "collections.publishFailedTitle": "لم يتم نشر المجموعة",
                      "collections.remove": "إزالة المنتج",
                      "collections.productRemovedTitle": "تمت إزالة المنتج",
-                     "collections.removeFailedTitle": "لم تتم إزالة المنتج"
+                     "collections.removeFailedTitle": "لم تتم إزالة المنتج",
+                     "personProfile.close": "إغلاق الملف الشخصي",
+                     "personProfile.loading": "جارٍ تحميل الملف الشخصي...",
+                     "personProfile.unavailable": "الملف الشخصي غير متاح",
+                     "personProfile.unavailableBody": "تعذر تحميل هذا الملف الشخصي الآن.",
+                     "personProfile.eyebrow": "شخص على Winga",
+                     "personProfile.capability.buyer": "مشتري",
+                     "personProfile.capability.seller": "بائع",
+                     "personProfile.capability.creator": "منشئ محتوى",
+                     "personProfile.capability.curator": "منسق",
+                     "personProfile.followers": "المتابعون",
+                     "personProfile.following": "يتابع",
+                     "personProfile.products": "المنتجات",
+                     "personProfile.reels": "ريلز",
+                     "personProfile.publicCollections": "اختيارات عامة",
+                     "personProfile.noCollections": "لا توجد مجموعات مرئية بعد.",
+                     "personProfile.productUnavailable": "المنتج غير متاح",
+                     "personProfile.productUnavailableBody": "هذا المنتج غير متاح في عرض السوق الحالي.",
+                     "personProfile.missingData": "بيانات الملف الشخصي العامة غير متاحة."
                  }
 }

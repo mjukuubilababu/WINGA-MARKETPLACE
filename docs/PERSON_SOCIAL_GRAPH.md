@@ -149,6 +149,9 @@ reads are cursor-bounded; owner reads may include drafts and private
 collections, while other viewers receive only published content allowed by the
 PUBLIC/FOLLOWERS/PRIVATE policy.
 
+Public collection discovery is connected to feed and followed-person profile
+entry points. The backend remains authoritative for visibility and block rules.
+
 ## Feed Integration
 
 The current feed may use followed people as one bounded ranking/candidate signal.
@@ -164,7 +167,6 @@ video playback privacy, cache invalidation, and client request contracts.
 
 Remaining work:
 
-- public collection discovery on another person's profile,
 - visibility support for future posts and shorts
   once those canonical content models exist,
 - optional user-facing suggestion surfaces,

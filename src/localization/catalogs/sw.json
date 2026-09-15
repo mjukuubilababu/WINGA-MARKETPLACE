@@ -1101,6 +1101,24 @@
                      "collections.publishFailedTitle": "Collection haikuchapishwa",
                      "collections.remove": "Ondoa bidhaa",
                      "collections.productRemovedTitle": "Bidhaa imeondolewa",
-                     "collections.removeFailedTitle": "Bidhaa haikuondolewa"
+                     "collections.removeFailedTitle": "Bidhaa haikuondolewa",
+                     "personProfile.close": "Funga profile",
+                     "personProfile.loading": "Tunapakia profile...",
+                     "personProfile.unavailable": "Profile haipatikani",
+                     "personProfile.unavailableBody": "Profile hii haikuweza kupakiwa kwa sasa.",
+                     "personProfile.eyebrow": "Mtu wa Winga",
+                     "personProfile.capability.buyer": "Mnunuzi",
+                     "personProfile.capability.seller": "Muuzaji",
+                     "personProfile.capability.creator": "Creator",
+                     "personProfile.capability.curator": "Curator",
+                     "personProfile.followers": "Followers",
+                     "personProfile.following": "Anafuata",
+                     "personProfile.products": "Bidhaa",
+                     "personProfile.reels": "Reels",
+                     "personProfile.publicCollections": "Chaguo za umma",
+                     "personProfile.noCollections": "Bado hakuna collection unayoruhusiwa kuona.",
+                     "personProfile.productUnavailable": "Bidhaa haipatikani",
+                     "personProfile.productUnavailableBody": "Bidhaa hii haipatikani kwenye soko unaloangalia sasa.",
+                     "personProfile.missingData": "Data ya profile ya umma haipatikani."
                  }
 }
