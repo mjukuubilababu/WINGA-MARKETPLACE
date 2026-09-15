@@ -17223,6 +17223,15 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         metrics(trust, [["trustScore", a("trustScore", "Trust score"), count(data.trustScore) + "/100"]]);
         trust.append(analyticsButton(a("viewInquiries", "View inquiries"), () => deps.onAnalyticsAction?.("messages")),
           analyticsButton(a("viewOrders", "View orders"), () => deps.onAnalyticsAction?.("orders")));
+        if (Number(demand.totalDemand || 0) > 0 || rows(demand.mostRequestedProducts).length) {
+          const unresolved = section(a("unresolvedDemand", "Unresolved customer demand"));
+          metrics(unresolved, [
+            ["customerDemand", a("demandScore", "Demand score"), count(demand.totalDemand), "/icons/navigation/chart-column.svg"],
+            ["customerWaiting", a("waiting", "Waiting users"), count(demand.waitingUsers), "/icons/navigation/message-circle.svg"],
+            ["customerRestock", a("restock", "Restock interest"), count(demand.restockInterest), "/icons/navigation/refresh-cw.svg"]
+          ]);
+          list(unresolved, rows(demand.mostRequestedProducts).slice(0, 3), demandProductItem);
+        }
       } else if (sellerState.tab === "content") {
         const node = section(a("videoPerformance", "Video performance"), video.windowDays ? a("window", "Last {days} days", { days: count(video.windowDays) }) : "");
         decorateHeading(node, "/icons/navigation/clapperboard.svg", "purple");
@@ -17305,6 +17314,15 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           () => deps.onAnalyticsAction?.("products"), index % 2 ? "/icons/navigation/sparkles.svg" : "/icons/navigation/store.svg", index % 2 ? "purple" : "orange"));
         rows(market.trendAlerts).forEach(entry => actionCard(insightRows, entry.title,
           a("score", "Signal score: {score}", { score: count(entry.score) }), () => { sellerState.tab = "trends"; sellerState.trendTab = "trending"; renderSellerDashboard(); }, "/icons/navigation/chart-column.svg", "green"));
+        const videoCommerceActions = Math.max(0, Number(video.videoAssistedActions || 0));
+        const videoProductClicks = Math.max(0, Number(video.productClicks || 0));
+        if (videoCommerceActions > 0 || videoProductClicks > 0) actionCard(insightRows,
+          a("promoteVideoProducts", "Build on effective video content"),
+          a("videoCommerceEvidence", "Video generated {clicks} product opens and {actions} commerce actions.", {
+            clicks: count(videoProductClicks), actions: count(videoCommerceActions)
+          }),
+          () => { sellerState.tab = "content"; renderSellerDashboard(); },
+          "/icons/navigation/clapperboard.svg", "purple");
         const regions = rows(market.regionalTrends || search.regionalDemand);
         regions.slice(0, 1).forEach(entry => actionCard(insightRows, a("targetRegion", "Target this region"),
           `${entry.region} · ${a("score", "Signal score: {score}", { score: count(entry.score) })}`, () => { sellerState.tab = "trends"; sellerState.trendTab = "regional"; renderSellerDashboard(); }, "/icons/navigation/compass.svg", "blue"));

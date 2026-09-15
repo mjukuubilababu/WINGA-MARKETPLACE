@@ -189,7 +189,7 @@ test("seller Analytics tabs show supplied aggregates without invented growth and
       previous: { views: 100, likes: 6, inquiries: 2, orders: 1, sales: 0 },
       growth: { views: 16, likes: 50, inquiries: 50, orders: 100, sales: null }
     },
-    video: { windowDays: 30, totalVideoProducts: 13, plays: 22, completionRate: .3158, videoAssistedActions: 0,
+    video: { windowDays: 30, totalVideoProducts: 13, plays: 22, completionRate: .3158, videoAssistedActions: 2, productClicks: 4,
       measuredPlaySessions: 19, completedPlaySessions: 6, topVideos: [{ productId: "e2e-prod-1", productName: "Gallery product", plays: 4, completionRate: .6667, videoAssistedActions: 0 }] }
   };
   const analyticsUrls = [];
@@ -244,6 +244,7 @@ test("seller Analytics tabs show supplied aggregates without invented growth and
   await page.locator("#analytics-tab-overview").click();
   await page.locator(".analytics-see-all").last().click();
   await expect(page.locator(".analytics-insight-banner")).toBeVisible();
+  await expect(page.locator(".analytics-insight-list")).toContainText(/4 product opens|bidhaa mara 4/);
   await expect(page.locator(".analytics-tabs")).toBeHidden();
   await page.screenshot({ path: "test-results/analytics-mobile-insights.png", fullPage: true });
   await page.locator("#analytics-panel .analytics-heading button").first().click();

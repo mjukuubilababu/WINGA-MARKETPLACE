@@ -6220,5 +6220,7 @@ test("seller analytics dashboard uses real evidence and dedicated subpages", () 
   assert.match(source, /rows\(data\.topProducts\)/);
   assert.match(source, /productDemandSignals/);
   assert.match(source, /productOpportunities/);
+  assert.match(source, /unresolvedDemand/);
+  assert.match(source, /videoCommerceActions > 0 \|\| videoProductClicks > 0/);
   assert.doesNotMatch(source, /1,248|2,840,000|148 requests/);
 });
