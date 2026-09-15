@@ -1116,6 +1116,7 @@ test("PostgreSQL message send serializes conversation pressure and commits notif
     async query(text, params = []) {
       const sql = String(text);
       calls.push({ text: sql, params });
+      if (sql.includes("SELECT 1 FROM user_blocks")) return { rows: [], rowCount: 0 };
       if (sql.includes('AS "burstCount"')) return { rows: [{ burstCount: 1, duplicate: false }], rowCount: 1 };
       return { rows: [], rowCount: 1 };
     },
@@ -1138,8 +1139,8 @@ test("PostgreSQL message send serializes conversation pressure and commits notif
   assert.deepEqual(result, { created: true, code: "" });
   assert.equal(calls[0].text, "BEGIN");
   assert.match(calls[1].text, /pg_advisory_xact_lock/);
-  assert.match(calls[3].text, /INSERT INTO messages/);
-  assert.match(calls[4].text, /INSERT INTO notifications/);
+  assert.match(calls[4].text, /INSERT INTO messages/);
+  assert.match(calls[5].text, /INSERT INTO notifications/);
   assert.equal(calls.at(-1).text, "COMMIT");
 });
 
@@ -1149,6 +1150,7 @@ test("PostgreSQL message send rejects duplicate pressure before inserting rows",
     async query(text, params = []) {
       const sql = String(text);
       calls.push({ text: sql, params });
+      if (sql.includes("SELECT 1 FROM user_blocks")) return { rows: [], rowCount: 0 };
       if (sql.includes('AS "burstCount"')) return { rows: [{ burstCount: 2, duplicate: true }], rowCount: 1 };
       return { rows: [], rowCount: 1 };
     },
@@ -1166,6 +1168,32 @@ test("PostgreSQL message send rejects duplicate pressure before inserting rows",
   assert.deepEqual(result, { created: false, code: "duplicate_message" });
   assert.equal(calls.some((call) => call.text.includes("INSERT INTO messages")), false);
   assert.equal(calls.some((call) => call.text.includes("INSERT INTO notifications")), false);
+});
+
+test("PostgreSQL message send rejects blocked relationships before persistence", async () => {
+  const calls = [];
+  const client = {
+    async query(text, params = []) {
+      const sql = String(text);
+      calls.push({ text: sql, params });
+      if (sql.includes("SELECT 1 FROM user_blocks")) return { rows: [{ value: 1 }], rowCount: 1 };
+      return { rows: [], rowCount: 1 };
+    },
+    release() {}
+  };
+  const store = createPostgresStore({
+    databaseUrl: "postgres://test.invalid/winga",
+    queryClient: { query: client.query.bind(client), connect: async () => client }
+  });
+
+  const result = await store.createMessageWithNotification({
+    id: "msg-blocked", senderId: "person-a", receiverId: "person-b", message: "Hello"
+  });
+
+  assert.deepEqual(result, { created: false, code: "message_blocked" });
+  assert.equal(calls.some((call) => call.text.includes("INSERT INTO messages")), false);
+  assert.equal(calls.some((call) => call.text.includes('AS "burstCount"')), false);
+  assert.equal(calls.at(-1).text, "COMMIT");
 });
 
 test("PostgreSQL conversation read updates only receiver rows and related notifications", async () => {
@@ -2763,6 +2791,7 @@ test("PostgreSQL message events publish after persistence and reach a dedicated 
     async connect() { return this; },
     async query(text, params = []) {
       calls.push({ text: String(text), params });
+      if (String(text).includes("SELECT 1 FROM user_blocks")) return { rows: [], rowCount: 0 };
       if (String(text).includes("COUNT(*)::int")) return { rows: [{ burstCount: 0, duplicate: false }], rowCount: 1 };
       return { rows: [], rowCount: 1 };
     },
@@ -4102,4 +4131,30 @@ test("blocking a person removes follow edges in both directions", async () => {
   const followRemoval = calls.find((call) => call.text.includes("UPDATE user_follows SET status = 'removed'"));
   assert.deepEqual(followRemoval.params, ["person-a", "person-b"]);
   assert.match(followRemoval.text, /follower_username = \$2 AND followed_username = \$1/);
+  const phoneRevocation = calls.find((call) => call.text.includes("shared_phone_viewer_ids = CASE"));
+  assert.deepEqual(phoneRevocation.params, ["person-a", "person-b"]);
+  assert.match(phoneRevocation.text, /shared_phone_viewer_ids/);
+  assert.match(phoneRevocation.text, /jsonb/);
+});
+
+test("PostgreSQL block relationship lookup is symmetric and identifier-only", async () => {
+  const calls = [];
+  const queryClient = {
+    async query(text, params = []) {
+      const sql = String(text);
+      calls.push({ text: sql, params });
+      if (sql.includes("SELECT CASE")) {
+        return { rows: [{ username: "person-b" }, { username: "person-c" }, { username: "person-b" }], rowCount: 3 };
+      }
+      return { rows: [{ value: 1 }], rowCount: 1 };
+    }
+  };
+  const store = createPostgresStore({ databaseUrl: "postgres://test.invalid/winga", queryClient });
+
+  assert.equal(await store.hasUserBlockBetween("person-a", "person-b"), true);
+  assert.deepEqual(await store.readUserBlockRelationships("person-a"), ["person-b", "person-c"]);
+  assert.deepEqual(calls[0].params, ["person-a", "person-b"]);
+  assert.match(calls[0].text, /blocker_username = \$2 AND blocked_username = \$1/);
+  assert.deepEqual(calls[1].params, ["person-a"]);
+  assert.doesNotMatch(calls[1].text, /phone|message|order|payment/i);
 });

@@ -3906,6 +3906,14 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     return withTransaction(async (client) => {
       const participantKey = [message.senderId, message.receiverId].sort().join(":");
       await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`winga-message:${participantKey}`]);
+      const blockResult = await client.query(
+        `SELECT 1 FROM user_blocks
+         WHERE (blocker_username = $1 AND blocked_username = $2)
+            OR (blocker_username = $2 AND blocked_username = $1)
+         LIMIT 1`,
+        [message.senderId, message.receiverId]
+      );
+      if (blockResult.rowCount) return { created: false, code: "message_blocked" };
       const pressureResult = await client.query(
         `SELECT
            COUNT(*)::int AS "burstCount",
@@ -8369,6 +8377,35 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     return { imported: Number(result.rowCount || 0) };
   }
 
+  async function hasUserBlockBetween(firstUsername = "", secondUsername = "") {
+    const first = String(firstUsername || "").trim().slice(0, 40);
+    const second = String(secondUsername || "").trim().slice(0, 40);
+    if (!first || !second || first === second) return false;
+    const result = await query(
+      `SELECT 1 FROM user_blocks
+       WHERE (blocker_username = $1 AND blocked_username = $2)
+          OR (blocker_username = $2 AND blocked_username = $1)
+       LIMIT 1`,
+      [first, second]
+    );
+    return Boolean(result.rowCount);
+  }
+
+  async function readUserBlockRelationships(username = "") {
+    const viewer = String(username || "").trim().slice(0, 40);
+    if (!viewer) return [];
+    const result = await query(
+      `SELECT CASE
+         WHEN blocker_username = $1 THEN blocked_username
+         ELSE blocker_username
+       END AS username
+       FROM user_blocks
+       WHERE blocker_username = $1 OR blocked_username = $1`,
+      [viewer]
+    );
+    return Array.from(new Set((result.rows || []).map((row) => String(row.username || "").trim()).filter(Boolean)));
+  }
+
   async function readUserBlockedPage(blockerUsername = "", options = {}) {
     const blocker = String(blockerUsername || "").trim().slice(0, 40);
     const limit = Math.max(1, Math.min(Number(options.limit || 30) || 30, 100));
@@ -8434,6 +8471,16 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
           `UPDATE user_follows SET status = 'removed', updated_at = NOW()
            WHERE (follower_username = $1 AND followed_username = $2)
               OR (follower_username = $2 AND followed_username = $1)`,
+          [blocker, target]
+        );
+        await client.query(
+          `UPDATE users
+           SET shared_phone_viewer_ids = CASE
+                 WHEN username = $1 THEN COALESCE(shared_phone_viewer_ids, '[]'::jsonb) - $2
+                 ELSE COALESCE(shared_phone_viewer_ids, '[]'::jsonb) - $1
+               END,
+               updated_at = NOW(), row_version = row_version + 1
+           WHERE username = $1 OR username = $2`,
           [blocker, target]
         );
       } else {
@@ -8560,6 +8607,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     readUserFollowSuggestions,
     readUserFollowPage,
     readUserBlockedPage,
+    hasUserBlockBetween,
+    readUserBlockRelationships,
     createUserCollection,
     updateUserCollection,
     setUserCollectionItem,

@@ -2605,7 +2605,7 @@ function paginateProducts(products, options = {}) {
   };
 }
 
-function buildVisibleUsers(store, viewer = null) {
+function buildVisibleUsers(store, viewer = null, blockedUsernames = new Set()) {
   const isStaffViewer = Boolean(viewer && isStaffRole(viewer.role));
   return (store.users || [])
     .filter((user) => {
@@ -2614,6 +2614,9 @@ function buildVisibleUsers(store, viewer = null) {
       }
       if (viewer && user.username === viewer.username) {
         return true;
+      }
+      if (blockedUsernames.has(user.username)) {
+        return false;
       }
       if (user.role === "seller" && !isRestrictedUserStatus(user.status)) {
         return true;
@@ -5510,10 +5513,14 @@ function getPaymentByOrderId(store, orderId) {
   return (store.payments || []).find((payment) => payment.orderId === orderId);
 }
 
-function buildMessagesSummary(store, username) {
+function buildMessagesSummary(store, username, blockedUsernames = new Set()) {
   return (store.messages || [])
     .map(normalizeMessageRecord)
     .filter((message) => message.senderId === username || message.receiverId === username)
+    .filter((message) => {
+      const counterpart = message.senderId === username ? message.receiverId : message.senderId;
+      return !blockedUsernames.has(counterpart);
+    })
     .sort((first, second) => new Date(first.timestamp).getTime() - new Date(second.timestamp).getTime());
 }
 
@@ -7851,7 +7858,10 @@ const server = http.createServer(async (req, res) => {
       const token = readAuthToken(req);
       const session = token ? findSession(store, token) : null;
       const viewer = session ? getUserByUsername(store, session.username) : null;
-      sendJson(res, 200, buildVisibleUsers(store, viewer));
+      const blockedUsernames = viewer && !isStaffRole(viewer.role) && postgresStore?.readUserBlockRelationships
+        ? new Set(await postgresStore.readUserBlockRelationships(viewer.username))
+        : new Set();
+      sendJson(res, 200, buildVisibleUsers(store, viewer, blockedUsernames));
       return;
     }
 
@@ -10275,7 +10285,10 @@ const server = http.createServer(async (req, res) => {
           return;
         }
 
-        sendJson(res, 200, buildMessagesSummary(store, user.username));
+        const blockedUsernames = postgresStore?.readUserBlockRelationships
+          ? new Set(await postgresStore.readUserBlockRelationships(user.username))
+          : new Set();
+        sendJson(res, 200, buildMessagesSummary(store, user.username, blockedUsernames));
         return;
       }
 
@@ -10757,6 +10770,11 @@ const server = http.createServer(async (req, res) => {
           sendJson(res, 403, { error: "Akaunti hiyo haiwezi kupokea chat kwa sasa." });
           return;
         }
+        if (postgresStore?.hasUserBlockBetween
+          && await postgresStore.hasUserBlockBetween(sender.username, receiver.username)) {
+          sendJson(res, 403, { error: "Mazungumzo haya yamezuiwa.", code: "conversation_blocked" });
+          return;
+        }
 
         if (normalizedPayload.messageType === "contact_share") {
           const isPersonToPersonShare = canCreateMarketplaceSupply(sender.role)
@@ -10868,6 +10886,10 @@ const server = http.createServer(async (req, res) => {
             }
           );
           if (!messageResult.created) {
+            if (messageResult.code === "message_blocked") {
+              sendJson(res, 403, { error: "Mazungumzo haya yamezuiwa.", code: "conversation_blocked" });
+              return;
+            }
             const isDuplicate = messageResult.code === "duplicate_message";
             sendJson(res, 429, {
               error: isDuplicate

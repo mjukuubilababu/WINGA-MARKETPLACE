@@ -5850,6 +5850,8 @@ test("public person profiles consume privacy-filtered collections without exposi
   assert.match(appSource, /function blockPersonFromProfile\(button\)/);
   assert.match(appSource, /WingaDataLayer\.setUserBlock\(username, true\)/);
   assert.match(appSource, /followedIds\.delete\(username\)/);
+  assert.match(appSource, /chatUiState\.activeContext\?\.withUser === username/);
+  assert.match(appSource, /Promise\.all\(\[refreshUsersState\(\), refreshMessagesState\(\)\]\)/);
   assert.match(appSource, /await refreshHomeFeedFromTab\(\)/);
   assert.match(appSource, /data-open-person-profile=/);
   assert.doesNotMatch(appSource, /personProfileState\.(purchases|messages|savedItems|browsingHistory)/);
@@ -5883,6 +5885,10 @@ test("Profile manages the signed-in person's blocked list without exposing priva
   assert.match(uiSource, /blockedPeopleMarkup/);
   assert.match(migrationSource, /2026091504_user_blocks_cursor/);
   assert.match(styleSource, /\.profile-blocked-people-section/);
+  assert.match(serverSource, /readUserBlockRelationships\(viewer\.username\)/);
+  assert.match(serverSource, /buildMessagesSummary\(store, user\.username, blockedUsernames\)/);
+  assert.match(serverSource, /hasUserBlockBetween\(sender\.username, receiver\.username\)/);
+  assert.match(serverSource, /code: "conversation_blocked"/);
   assert.doesNotMatch(appSource, /profileBlockedPeopleState\.(purchases|messages|savedItems|browsingHistory)/);
 });
 

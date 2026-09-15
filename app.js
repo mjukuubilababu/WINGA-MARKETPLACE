@@ -10275,6 +10275,7 @@ async function unblockPersonFromProfile(username, button) {
     profileBlockedPeopleState.items = profileBlockedPeopleState.items
       .filter((item) => item?.username !== safeUsername);
     profileBlockedPeopleState.unblockingUsername = "";
+    await Promise.all([refreshUsersState(), refreshMessagesState()]);
     refreshProfileBlockedPeopleSurface();
     void loadProfileFollowSuggestions({ force: true });
     showInAppNotification({
@@ -10597,6 +10598,13 @@ async function blockPersonFromProfile(button) {
     persistFollowedSellerIds();
     profileFollowSuggestionState.items = profileFollowSuggestionState.items
       .filter((person) => String(person?.username || "") !== username);
+    if (chatUiState.activeContext?.withUser === username) {
+      closeContextChatModal();
+      chatUiState.activeContext = null;
+      chatUiState.profileMessagesMode = "list";
+      chatUiState.profileHasSelection = false;
+    }
+    await Promise.all([refreshUsersState(), refreshMessagesState()]);
     closePersonProfileModal({ restoreFocus: false });
     if (currentView === "profile") {
       void loadProfileFollowSuggestions({ force: true });
