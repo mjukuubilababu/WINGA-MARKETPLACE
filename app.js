@@ -10089,6 +10089,12 @@ function ensurePersonProfileModal() {
     }
     if (event.target.closest("[data-retry-person-profile='true']")) {
       loadPersonProfile(personProfileState.username, { force: true });
+      return;
+    }
+    const blockButton = event.target.closest("[data-block-person-profile]");
+    if (blockButton) {
+      void blockPersonFromProfile(blockButton);
+      return;
     }
   });
   root.addEventListener("keydown", (event) => {
@@ -10111,6 +10117,7 @@ function closePersonProfileModal(options = {}) {
   personProfileState.profile = null;
   personProfileState.collections = [];
   personProfileState.error = "";
+  personProfileState.blocking = false;
   personProfileState.returnFocus = null;
   syncBodyScrollLockState();
   if (options.restoreFocus !== false && returnFocus?.isConnected) returnFocus.focus();
@@ -10178,9 +10185,18 @@ function renderPersonProfileModal() {
       `;
     }).join("");
     const canFollow = String(profile.username || "") !== String(currentUser || "");
+    const canBlock = Boolean(isAuthenticatedUser() && canFollow);
     const followLabel = isPersonFollowed(profile.username)
       ? translateUi("follow.active", {}, "Following")
       : translateUi("follow.inactive", {}, "Follow");
+    const relationshipActions = canFollow ? `
+      <div class="person-profile-actions">
+        <button class="action-btn action-btn-secondary${isPersonFollowed(profile.username) ? " is-active" : ""}" type="button" data-follow-person="${escapeHtml(profile.username || "")}">${escapeHtml(followLabel)}</button>
+        ${canBlock ? `<button class="person-profile-block" type="button" data-block-person-profile="${escapeHtml(profile.username || "")}"${personProfileState.blocking ? " disabled" : ""}>${escapeHtml(personProfileState.blocking
+          ? translateUi("personProfile.blocking", {}, "Blocking...")
+          : translateUi("personProfile.block", {}, "Block"))}</button>` : ""}
+      </div>
+    ` : "";
     body.innerHTML = `
       <div class="person-profile-shell">
         <header class="person-profile-header">
@@ -10190,7 +10206,7 @@ function renderPersonProfileModal() {
             <h3 id="person-profile-title">${escapeHtml(displayName)}</h3>
             <span class="product-meta">@${escapeHtml(profile.username || "")}</span>
           </div>
-          ${canFollow ? `<button class="action-btn action-btn-secondary${isPersonFollowed(profile.username) ? " is-active" : ""}" type="button" data-follow-person="${escapeHtml(profile.username || "")}">${escapeHtml(followLabel)}</button>` : ""}
+          ${relationshipActions}
         </header>
         ${capabilities ? `<div class="person-profile-capabilities">${capabilities}</div>` : ""}
         <div class="person-profile-stats">${stats}</div>
@@ -10206,6 +10222,62 @@ function renderPersonProfileModal() {
   syncBodyScrollLockState();
   if (!root.contains(document.activeElement)) {
     root.querySelector("[data-close-person-profile='true']")?.focus();
+  }
+}
+
+async function blockPersonFromProfile(button) {
+  const username = String(button?.dataset?.blockPersonProfile || personProfileState.username || "").trim();
+  if (!username || username === String(currentUser || "") || personProfileState.blocking) return;
+  if (!isAuthenticatedUser()) {
+    promptGuestAuth({
+      preferredMode: "login",
+      title: translateUi("personProfile.blockAuthTitle", {}, "Sign in to block this person")
+    });
+    return;
+  }
+  const displayName = String(personProfileState.profile?.fullName || username).trim();
+  const confirmed = confirmAction(translateUi(
+    "personProfile.blockConfirm",
+    { person: displayName },
+    `Block ${displayName}? You will unfollow each other and their content will no longer appear for you.`
+  ));
+  if (!confirmed) return;
+
+  personProfileState.blocking = true;
+  renderPersonProfileModal();
+  try {
+    await window.WingaDataLayer.setUserBlock(username, true);
+    const followedIds = ensureFollowedSellerIdsLoaded();
+    followedIds.delete(username);
+    persistFollowedSellerIds();
+    profileFollowSuggestionState.items = profileFollowSuggestionState.items
+      .filter((person) => String(person?.username || "") !== username);
+    closePersonProfileModal({ restoreFocus: false });
+    if (currentView === "profile") {
+      loadProfileFollowSuggestions({ force: true });
+      requestCurrentSurfaceRefresh("person_blocked", { productLimit: 4, decodeLimit: 1, prefetch: false });
+    } else if (currentView === "home") {
+      await refreshHomeFeedFromTab();
+    }
+    showInAppNotification({
+      title: translateUi("personProfile.blockedTitle", {}, "Person blocked"),
+      body: translateUi("personProfile.blockedBody", { person: displayName }, `${displayName}'s public activity will no longer appear for you.`),
+      variant: "success",
+      durationMs: 3200
+    });
+  } catch (error) {
+    personProfileState.blocking = false;
+    captureClientError("person_profile_block_failed", error, {
+      category: "social",
+      alertSeverity: "medium",
+      blockedUsername: username
+    });
+    renderPersonProfileModal();
+    showInAppNotification({
+      title: translateUi("personProfile.blockFailedTitle", {}, "Person was not blocked"),
+      body: translateUi("personProfile.blockFailedBody", {}, "Try again after checking your connection."),
+      variant: "error"
+    });
   }
 }
 
@@ -13962,6 +14034,7 @@ const personProfileState = {
   profile: null,
   collections: [],
   error: "",
+  blocking: false,
   requestId: 0,
   returnFocus: null
 };

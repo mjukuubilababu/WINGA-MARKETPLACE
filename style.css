@@ -11223,6 +11223,25 @@ button:hover,
   overflow-wrap:anywhere;
 }
 
+.person-profile-actions{
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+
+.person-profile-block{
+  min-height:40px;
+  padding:8px 10px;
+  border:0;
+  background:transparent;
+  color:#b42318;
+  font-weight:700;
+}
+
+.person-profile-block:disabled{
+  opacity:0.6;
+}
+
 .person-profile-capabilities{
   display:flex;
   flex-wrap:wrap;
@@ -11334,9 +11353,13 @@ button:hover,
     height:52px;
   }
 
-  .person-profile-header > .action-btn{
+  .person-profile-actions{
     grid-column:1 / -1;
     width:100%;
+  }
+
+  .person-profile-actions .action-btn{
+    flex:1;
   }
 
   .person-profile-stats{

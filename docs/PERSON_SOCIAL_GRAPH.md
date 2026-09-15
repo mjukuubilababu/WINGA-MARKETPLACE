@@ -62,7 +62,11 @@ Purchases, messages, saved items, browsing history, and private profile behavior
 are not read by the suggestion query or returned as reasons.
 
 Blocked relationships are excluded in both directions. A blocked public profile
-is not returned to the other person.
+is not returned to the other person. Signed-in people can block another person
+from that person's public profile after confirming the action. The UI then
+removes stale local follow state and refreshes the current social/feed surface;
+the backend remains authoritative for removing both follow directions and
+enforcing content visibility.
 
 Products, reels, and reviews now share a production visibility contract:
 
@@ -187,6 +191,8 @@ owner-scoped visibility changes, public/follower/private review reads, direct
 video playback privacy, cache invalidation, client request contracts, responsive
 Profile suggestion rendering, public profile discovery, accepted-follow source
 attribution, and isolation from concurrent collection workflows.
+Frontend contract coverage also verifies the public-profile Block action, local
+follow-state cleanup, and the non-destructive Home feed refresh path.
 
 Remaining work:
 

@@ -5844,11 +5844,18 @@ test("public person profiles consume privacy-filtered collections without exposi
   assert.match(appSource, /WingaDataLayer\.loadUserCollections\(safeUsername, \{ limit: 12 \}\)/);
   assert.match(appSource, /data-public-collection-product/);
   assert.match(appSource, /profile_from_follow_click/);
+  assert.match(appSource, /data-block-person-profile/);
+  assert.match(appSource, /function blockPersonFromProfile\(button\)/);
+  assert.match(appSource, /WingaDataLayer\.setUserBlock\(username, true\)/);
+  assert.match(appSource, /followedIds\.delete\(username\)/);
+  assert.match(appSource, /await refreshHomeFeedFromTab\(\)/);
   assert.match(appSource, /data-open-person-profile=/);
   assert.doesNotMatch(appSource, /personProfileState\.(purchases|messages|savedItems|browsingHistory)/);
   assert.match(styleSource, /#person-profile-modal/);
   assert.match(styleSource, /body\.person-profile-open/);
   assert.match(styleSource, /\.person-profile-products/);
+  assert.match(styleSource, /\.person-profile-actions/);
+  assert.match(styleSource, /\.person-profile-block/);
 });
 
 test("profile people suggestions use canonical public social graph with attributed follows", () => {
