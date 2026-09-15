@@ -8092,7 +8092,6 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       username: row.username || "",
       fullName: row.fullName || row.username || "",
       profileImage: row.profileImage || "",
-      role: row.role || "buyer",
       verifiedSeller: Boolean(row.verifiedSeller),
       capabilities: buildPublicPersonCapabilities(row),
       publicContent
