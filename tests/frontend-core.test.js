@@ -5855,7 +5855,9 @@ test("profile people suggestions use canonical public social graph with attribut
 
   assert.match(appSource, /function loadProfileFollowSuggestions\(options = \{\}\)/);
   assert.match(appSource, /WingaDataLayer\.loadFollowSuggestions\(\{ limit: 8 \}\)/);
-  assert.match(appSource, /data-follow-source="suggested_follow"/);
+  assert.match(appSource, /data-follow-person=.*data-follow-source="suggested_follow"/);
+  assert.match(appSource, /function isPersonFollowed\(username\)/);
+  assert.match(appSource, /function toggleFollowPerson\(username, options = \{\}\)/);
   assert.match(appSource, /setUserFollow\(username, following, options\)/);
   assert.match(appSource, /data-person-profile-source="follow"/);
   assert.match(appSource, /function refreshProfileFollowSuggestionsSurface\(\)/);

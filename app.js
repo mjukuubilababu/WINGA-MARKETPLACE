@@ -7128,11 +7128,15 @@ function syncUserFollowMutation(username, following, options = {}) {
       requestCurrentSurfaceRefresh("social_follow_rollback", { productLimit: 4, decodeLimit: 1, prefetch: false });
     });
 }
-function isSellerFollowed(username) {
+function isPersonFollowed(username) {
   return ensureFollowedSellerIdsLoaded().has(String(username || ""));
 }
 
-function toggleFollowSeller(username, options = {}) {
+function isSellerFollowed(username) {
+  return isPersonFollowed(username);
+}
+
+function toggleFollowPerson(username, options = {}) {
   const safeUsername = String(username || "").trim();
   if (!safeUsername || safeUsername === currentUser) {
     return false;
@@ -7148,6 +7152,10 @@ function toggleFollowSeller(username, options = {}) {
   persistFollowedSellerIds();
   syncUserFollowMutation(safeUsername, true, options);
   return true;
+}
+
+function toggleFollowSeller(username, options = {}) {
+  return toggleFollowPerson(username, options);
 }
 
 function getFollowedSellerActivityNotifications() {
@@ -9674,13 +9682,13 @@ function renderSavedIntentSection() {
         const safeSellerUsername = escapeHtml(seller.username || "");
         return `
           <div class="saved-followed-seller-item">
-            <button class="saved-intent-chip${isSellerFollowed(seller.username) ? " is-active" : ""}" type="button" data-open-person-profile="${safeSellerUsername}" data-person-profile-source="follow">
+            <button class="saved-intent-chip${isPersonFollowed(seller.username) ? " is-active" : ""}" type="button" data-open-person-profile="${safeSellerUsername}" data-person-profile-source="follow">
               ${escapeHtml(getUserDisplayName(seller.username, { fallback: seller.fullName || seller.username || "Seller" }))}
             </button>
             <small class="product-meta">${escapeHtml(latestProduct?.name || "No approved product yet")}</small>
             <div class="saved-followed-seller-actions">
               <button class="trust-link-btn" type="button" data-share-seller-shop="${safeSellerUsername}">Share seller</button>
-              <button class="trust-link-btn" type="button" data-follow-seller="${safeSellerUsername}">Unfollow</button>
+              <button class="trust-link-btn" type="button" data-follow-person="${safeSellerUsername}">Unfollow</button>
             </div>
           </div>
         `;
@@ -9867,7 +9875,7 @@ function loadProfileFollowSuggestions(options = {}) {
         return profileFollowSuggestionState.items;
       }
       profileFollowSuggestionState.items = (Array.isArray(page?.items) ? page.items : [])
-        .filter((item) => item?.username && item.username !== username && !isSellerFollowed(item.username));
+        .filter((item) => item?.username && item.username !== username && !isPersonFollowed(item.username));
       profileFollowSuggestionState.status = "ready";
       if (currentView === "profile") refreshProfileFollowSuggestionsSurface();
       return profileFollowSuggestionState.items;
@@ -9919,7 +9927,7 @@ function renderProfileFollowSuggestionsSection() {
             <span>${escapeHtml(getProfileFollowSuggestionReason(person))}</span>
           </span>
         </button>
-        <button class="action-btn action-btn-secondary" type="button" data-follow-seller="${escapeHtml(username)}" data-follow-source="suggested_follow">${escapeHtml(translateUi("follow.inactive", {}, "Follow"))}</button>
+        <button class="action-btn action-btn-secondary" type="button" data-follow-person="${escapeHtml(username)}" data-follow-source="suggested_follow">${escapeHtml(translateUi("follow.inactive", {}, "Follow"))}</button>
       </article>
     `;
   }).join("");
@@ -10176,7 +10184,7 @@ function renderPersonProfileModal() {
       `;
     }).join("");
     const canFollow = String(profile.username || "") !== String(currentUser || "");
-    const followLabel = isSellerFollowed(profile.username)
+    const followLabel = isPersonFollowed(profile.username)
       ? translateUi("follow.active", {}, "Following")
       : translateUi("follow.inactive", {}, "Follow");
     body.innerHTML = `
@@ -10188,7 +10196,7 @@ function renderPersonProfileModal() {
             <h3 id="person-profile-title">${escapeHtml(displayName)}</h3>
             <span class="product-meta">@${escapeHtml(profile.username || "")}</span>
           </div>
-          ${canFollow ? `<button class="action-btn action-btn-secondary${isSellerFollowed(profile.username) ? " is-active" : ""}" type="button" data-follow-seller="${escapeHtml(profile.username || "")}">${escapeHtml(followLabel)}</button>` : ""}
+          ${canFollow ? `<button class="action-btn action-btn-secondary${isPersonFollowed(profile.username) ? " is-active" : ""}" type="button" data-follow-person="${escapeHtml(profile.username || "")}">${escapeHtml(followLabel)}</button>` : ""}
         </header>
         ${capabilities ? `<div class="person-profile-capabilities">${capabilities}</div>` : ""}
         <div class="person-profile-stats">${stats}</div>
@@ -11410,30 +11418,30 @@ function bindTrustReportEntryActions() {
       return;
     }
 
-    const followSellerButton = event.target.closest("[data-follow-seller]");
-    if (followSellerButton) {
+    const followPersonButton = event.target.closest("[data-follow-person], [data-follow-seller]");
+    if (followPersonButton) {
       event.preventDefault();
       event.stopPropagation();
       if (!isAuthenticatedUser()) {
         promptGuestAuth({
           preferredMode: "signup",
           role: "buyer",
-          title: translateUi("follow.authTitle", {}, "Sign in to follow sellers"),
-          message: translateUi("follow.authBody", {}, "Create an account first so Winga can save your followed sellers safely.")
+          title: translateUi("follow.authTitle", {}, "Sign in to follow people"),
+          message: translateUi("follow.authBody", {}, "Create an account first so Winga can save the people you follow safely.")
         });
         return;
       }
-      const username = followSellerButton.dataset.followSeller || "";
+      const username = followPersonButton.dataset.followPerson || followPersonButton.dataset.followSeller || "";
       if (!username) {
         return;
       }
-      const followSource = followSellerButton.dataset.followSource || "";
-      const nowFollowing = toggleFollowSeller(username, { source: followSource });
-      followSellerButton.textContent = nowFollowing
+      const followSource = followPersonButton.dataset.followSource || "";
+      const nowFollowing = toggleFollowPerson(username, { source: followSource });
+      followPersonButton.textContent = nowFollowing
         ? translateUi("follow.active", {}, "Following")
         : translateUi("follow.inactive", {}, "Follow");
-      followSellerButton.classList.toggle("is-active", nowFollowing);
-      if (followSellerButton.closest("#person-profile-modal") && personProfileState.profile) {
+      followPersonButton.classList.toggle("is-active", nowFollowing);
+      if (followPersonButton.closest("#person-profile-modal") && personProfileState.profile) {
         const previousFollowing = Boolean(personProfileState.profile.viewerFollows);
         personProfileState.profile.viewerFollows = nowFollowing;
         if (previousFollowing !== nowFollowing) {
@@ -11454,11 +11462,11 @@ function bindTrustReportEntryActions() {
       }
       showInAppNotification({
         title: nowFollowing
-          ? translateUi("follow.followedTitle", {}, "Seller followed")
-          : translateUi("follow.unfollowedTitle", {}, "Seller unfollowed"),
+          ? translateUi("follow.followedTitle", {}, "Person followed")
+          : translateUi("follow.unfollowedTitle", {}, "Person unfollowed"),
         body: nowFollowing
-          ? translateUi("follow.followedBody", { seller: getUserDisplayName(username) }, `${getUserDisplayName(username)} atakuwa rahisi kumpata utakaporudi.`)
-          : translateUi("follow.unfollowedBody", { seller: getUserDisplayName(username) }, `${getUserDisplayName(username)} ameondolewa kwenye wauzaji unaowafuata.`),
+          ? translateUi("follow.followedBody", { person: getUserDisplayName(username) }, `${getUserDisplayName(username)} atakuwa rahisi kumpata utakaporudi.`)
+          : translateUi("follow.unfollowedBody", { person: getUserDisplayName(username) }, `${getUserDisplayName(username)} ameondolewa kwenye watu unaowafuata.`),
         variant: "success",
         durationMs: 2400
       });
@@ -12463,6 +12471,7 @@ const {
   getFollowedUserIds: () => Array.from(ensureFollowedSellerIdsLoaded()),
   getCurrentPromotions: () => currentPromotions,
   getRecentlyViewedProductIds: () => recentlyViewedProductIds.slice(),
+  isPersonFollowed,
   isSellerFollowed,
   isProductSaved,
   getSellerPromotionStatusMeta,
@@ -20942,7 +20951,7 @@ function renderSellerCardInlineActions(product) {
   const liked = isProductSaved(product?.id);
   actions.push(`<button class="product-seller-inline-action product-seller-like-chip${liked ? " is-active" : ""}" type="button" data-like-product="${escapeHtml(String(product?.id || "").trim())}">${liked ? "♥ Like" : "♡ Like"}</button>`);
   if (sellerId !== currentUser && canUseBuyerFeatures()) {
-    actions.push(`<button class="product-seller-inline-action${isSellerFollowed(sellerId) ? " is-active" : ""}" type="button" data-follow-seller="${escapeHtml(sellerId)}">${isSellerFollowed(sellerId) ? "Following" : "Follow"}</button>`);
+    actions.push(`<button class="product-seller-inline-action${isPersonFollowed(sellerId) ? " is-active" : ""}" type="button" data-follow-person="${escapeHtml(sellerId)}">${isPersonFollowed(sellerId) ? "Following" : "Follow"}</button>`);
   }
   actions.push(`<button class="product-seller-inline-action" type="button" data-share-seller-shop="${escapeHtml(sellerId)}">Share</button>`);
   if (currentUser && canUseSellerFeatures() && sellerId === currentUser) {
@@ -21201,7 +21210,7 @@ function bindShowcaseCardClicks(scope) {
       }
         if (
           event.target.closest(
-            ".product-menu, .product-menu-popup, .product-menu-toggle, [data-menu-toggle], [data-menu-popup], [data-product-caption-toggle], [data-request-product], [data-chat-product], [data-open-own-messages], [data-open-product-whatsapp], [data-buy-product], [data-detail-repost], [data-promote-product], [data-follow-seller], [data-share-seller-shop], [data-like-product], .product-actions, .showcase-actions, .seller-product-actions, .product-seller-inline-actions"
+            ".product-menu, .product-menu-popup, .product-menu-toggle, [data-menu-toggle], [data-menu-popup], [data-product-caption-toggle], [data-request-product], [data-chat-product], [data-open-own-messages], [data-open-product-whatsapp], [data-buy-product], [data-detail-repost], [data-promote-product], [data-follow-person], [data-follow-seller], [data-share-seller-shop], [data-like-product], .product-actions, .showcase-actions, .seller-product-actions, .product-seller-inline-actions"
           )
         ) {
         return;
@@ -21380,7 +21389,7 @@ function enhanceShowcaseTracks(scope = document) {
       if (isInteractiveTarget(targetElement)) {
         return;
       }
-      if (targetElement.closest(".product-menu, .product-menu-popup, .product-menu-toggle, [data-menu-toggle], [data-menu-popup], [data-product-caption-toggle], [data-request-product], [data-chat-product], [data-open-own-messages], [data-open-product-whatsapp], [data-buy-product], [data-detail-repost], [data-follow-seller], [data-share-seller-shop], [data-like-product], .product-actions, .showcase-actions, .seller-product-actions, .product-seller-inline-actions")) {
+      if (targetElement.closest(".product-menu, .product-menu-popup, .product-menu-toggle, [data-menu-toggle], [data-menu-popup], [data-product-caption-toggle], [data-request-product], [data-chat-product], [data-open-own-messages], [data-open-product-whatsapp], [data-buy-product], [data-detail-repost], [data-follow-person], [data-follow-seller], [data-share-seller-shop], [data-like-product], .product-actions, .showcase-actions, .seller-product-actions, .product-seller-inline-actions")) {
         return;
       }
 

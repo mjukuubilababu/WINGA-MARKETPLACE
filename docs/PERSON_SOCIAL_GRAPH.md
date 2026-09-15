@@ -37,6 +37,14 @@ adapter imports legacy followed usernames through /api/social/follows/import
 and upserts the same canonical person edge. Existing seller follow behavior
 continues to use the generic graph.
 
+Active Profile, public-person, suggestion, and Home feed controls use the
+person-centered data-follow-person and isPersonFollowed contracts. The event
+delegate still accepts the former data-follow-seller attribute, and the
+isSellerFollowed alias remains available for older generated or cached markup.
+Existing local storage keys and product-ranking field names are intentionally
+unchanged because renaming them would not improve graph semantics and could
+discard useful compatibility data.
+
 The public-discovery migration adds indexes only; it does not rewrite or delete
 social data.
 
@@ -177,5 +185,4 @@ attribution, and isolation from concurrent collection workflows.
 Remaining work:
 
 - visibility support for future posts and shorts
-  once those canonical content models exist,
-- removal of seller-specific compatibility naming after all callers migrate.
+  once those canonical content models exist.

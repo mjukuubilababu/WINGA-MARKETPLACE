@@ -11211,7 +11211,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       }
       if (target.closest("[data-share-seller-shop]")) return "video_share";
       if (target.closest(
-        ".product-menu, .product-menu-popup, .product-menu-toggle, [data-menu-toggle], [data-menu-popup], [data-product-caption-toggle], [data-request-product], [data-chat-product], [data-open-own-messages], [data-open-product-whatsapp], [data-buy-product], [data-detail-repost], [data-promote-product], [data-follow-seller], [data-share-seller-shop], [data-like-product], [data-video-playback], [data-stream-player], .product-actions, .showcase-actions, .seller-product-actions, .product-seller-inline-actions"
+        ".product-menu, .product-menu-popup, .product-menu-toggle, [data-menu-toggle], [data-menu-popup], [data-product-caption-toggle], [data-request-product], [data-chat-product], [data-open-own-messages], [data-open-product-whatsapp], [data-buy-product], [data-detail-repost], [data-promote-product], [data-follow-person], [data-follow-seller], [data-share-seller-shop], [data-like-product], [data-video-playback], [data-stream-player], .product-actions, .showcase-actions, .seller-product-actions, .product-seller-inline-actions"
       )) return "";
       return "video_product_click";
     }
@@ -12644,15 +12644,15 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       if (canFollowSeller) {
         const followButton = createElement("button", {
           className: "product-seller-inline-action",
-          textContent: deps.isSellerFollowed?.(product.uploadedBy)
+          textContent: (deps.isPersonFollowed || deps.isSellerFollowed)?.(product.uploadedBy)
             ? t("follow.active", "Following")
             : t("follow.inactive", "Follow"),
           attributes: {
             type: "button",
-            "data-follow-seller": product.uploadedBy || ""
+            "data-follow-person": product.uploadedBy || ""
           }
         });
-        if (deps.isSellerFollowed?.(product.uploadedBy)) {
+        if ((deps.isPersonFollowed || deps.isSellerFollowed)?.(product.uploadedBy)) {
           followButton.classList.add("is-active");
         }
         badgeRow.appendChild(followButton);
@@ -12980,7 +12980,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         }
         if (
           event.target.closest(
-            ".product-menu, .product-menu-popup, .product-menu-toggle, [data-menu-toggle], [data-menu-popup], [data-product-caption-toggle], [data-request-product], [data-chat-product], [data-open-own-messages], [data-open-product-whatsapp], [data-buy-product], [data-detail-repost], [data-promote-product], [data-follow-seller], [data-share-seller-shop], [data-like-product], .product-actions, .showcase-actions, .seller-product-actions, .product-seller-inline-actions"
+            ".product-menu, .product-menu-popup, .product-menu-toggle, [data-menu-toggle], [data-menu-popup], [data-product-caption-toggle], [data-request-product], [data-chat-product], [data-open-own-messages], [data-open-product-whatsapp], [data-buy-product], [data-detail-repost], [data-promote-product], [data-follow-person], [data-follow-seller], [data-share-seller-shop], [data-like-product], .product-actions, .showcase-actions, .seller-product-actions, .product-seller-inline-actions"
           )
         ) {
           return;

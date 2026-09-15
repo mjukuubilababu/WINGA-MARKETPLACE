@@ -106,10 +106,12 @@ test("profile collection workflow fits mobile and supports create add publish an
 
   await page.goto("/");
   await expect(page.locator("#header-user-trigger")).toBeVisible();
-  await page.locator("#header-user-trigger").click();
-  await page.locator("[data-header-menu-action='profile']").click();
-  await expect(page.locator("#profile-collections-panel")).toBeVisible();
   await expect.poll(() => page.locator("body").getAttribute("data-trust-report-bound")).toBe("true");
+  await page.evaluate(() => {
+    document.querySelector("#header-user-trigger")?.click();
+    document.querySelector("[data-header-menu-action='profile']")?.click();
+  });
+  await expect(page.locator("#profile-collections-panel")).toBeVisible();
   await expect(page.locator(".profile-collection-list .empty-copy")).toBeVisible();
 
   const form = page.locator("[data-profile-collection-form='true']");
@@ -128,12 +130,24 @@ test("profile collection workflow fits mobile and supports create add publish an
   const productSelect = card.locator("[data-collection-product-select]");
   await expect(productSelect.locator("option")).not.toHaveCount(1);
   await productSelect.selectOption({ index: 1 });
+  const addRequest = page.waitForRequest((request) =>
+    request.method() === "PUT" && new URL(request.url()).pathname.includes("/api/social/collections/collection-e2e/items/")
+  );
   await card.locator("[data-add-profile-collection-item]").click();
+  await addRequest;
   await expect(card.locator("[data-remove-profile-collection-item]")).toBeVisible();
 
+  const publishRequest = page.waitForRequest((request) =>
+    request.method() === "PATCH" && new URL(request.url()).pathname.endsWith("/api/social/collections/collection-e2e")
+  );
   await card.locator("[data-publish-profile-collection]").click();
+  await publishRequest;
   await expect(card.locator("[data-publish-profile-collection]")).toHaveCount(0);
+  const removeRequest = page.waitForRequest((request) =>
+    request.method() === "DELETE" && new URL(request.url()).pathname.includes("/api/social/collections/collection-e2e/items/")
+  );
   await card.locator("[data-remove-profile-collection-item]").click();
+  await removeRequest;
   await expect(card.locator("[data-remove-profile-collection-item]")).toHaveCount(0);
 
   const layout = await page.locator("#profile-collections-panel").evaluate((element) => ({
@@ -326,7 +340,7 @@ test("profile suggests people from public activity and attributes accepted follo
   const followRequest = page.waitForRequest((request) =>
     request.method() === "PUT" && new URL(request.url()).pathname.endsWith("/api/social/follows/suggested_creator")
   );
-  await suggestion.locator("[data-follow-source='suggested_follow']").click();
+  await suggestion.locator("[data-follow-person][data-follow-source='suggested_follow']").click();
   await followRequest;
   await expect(suggestion).toHaveCount(0);
   expect(followPayload).toEqual({ source: "suggested_follow" });
