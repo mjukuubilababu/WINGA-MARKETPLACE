@@ -264,28 +264,28 @@ test("seller Analytics refresh failures retain data and late responses cannot re
   await context.close();
 });
 
-test("buyer and guest cannot open the seller Analytics screen through restored history", async ({ browser }) => {
-  for (const username of ["buyer_only", ""]) {
-    const { context, page } = username ? await createLoggedInPage(browser, username, "Pass1234!Secure", { viewport: { width: 390, height: 844 } })
-      : await createAnonymousPage(browser, { viewport: { width: 390, height: 844 } });
-    let analyticsRequests = 0;
-    page.on("request", request => { if (request.url().includes("/analytics/summary")) analyticsRequests++; });
-    await page.goto("/");
-    await expect(page.locator("#products-container .product-card").first()).toBeVisible();
-    if (username) {
-      await page.locator("#mobile-category-button").click();
-      await expect(page.locator("[data-header-menu-action='seller-insights']")).toHaveCount(0);
-      await page.locator("#mobile-category-button").click();
-    }
-    await page.evaluate(username => {
-      const state = { wingaAppShell: true, view: "analytics", username };
-      history.replaceState(state, "", location.href);
-      window.dispatchEvent(new PopStateEvent("popstate", { state }));
-    }, username);
-    await expect(page.locator("#analytics-panel")).toBeHidden();
-    expect(analyticsRequests).toBe(0);
-    await context.close();
-  }
+test("every person account can open self Analytics while guests remain blocked", async ({ browser }) => {
+  const personPage = await createLoggedInPage(browser, "buyer_only", "Pass1234!Secure", { viewport: { width: 390, height: 844 } });
+  await personPage.page.goto("/");
+  await expect(personPage.page.locator("#products-container .product-card").first()).toBeVisible();
+  await personPage.page.locator("#mobile-category-button").click();
+  await expect(personPage.page.locator("[data-header-menu-action='seller-insights']")).toBeVisible();
+  await personPage.page.locator("[data-header-menu-action='seller-insights']").click();
+  await expect(personPage.page.locator("#analytics-panel")).toBeVisible();
+  await personPage.context.close();
+
+  const guestPage = await createAnonymousPage(browser, { viewport: { width: 390, height: 844 } });
+  let analyticsRequests = 0;
+  guestPage.page.on("request", request => { if (request.url().includes("/analytics/summary")) analyticsRequests++; });
+  await guestPage.page.goto("/");
+  await guestPage.page.evaluate(() => {
+    const state = { wingaAppShell: true, view: "analytics", username: "" };
+    history.replaceState(state, "", location.href);
+    window.dispatchEvent(new PopStateEvent("popstate", { state }));
+  });
+  await expect(guestPage.page.locator("#analytics-panel")).toBeHidden();
+  expect(analyticsRequests).toBe(0);
+  await guestPage.context.close();
 });
 
 test("app load renders marketplace feed, hero, images, and category navigation", async ({ browser }) => {
@@ -515,7 +515,7 @@ test("session restore preserves Settings opened before authentication hydration 
   }
 });
 
-test("mobile utility menu exposes account tools without leaking seller capabilities to buyers", async ({ browser }) => {
+test("mobile utility menu exposes buying and selling tools to every person account", async ({ browser }) => {
   const { context, page } = await createLoggedInPage(browser, "buyer_only", "Pass1234!Secure", {
     viewport: { width: 390, height: 844 },
     isMobile: true
@@ -528,7 +528,7 @@ test("mobile utility menu exposes account tools without leaking seller capabilit
   await expect(menu.locator("[data-header-menu-action='orders']")).toBeVisible();
   await expect(menu.locator("[data-header-menu-action='notifications']")).toBeVisible();
   await expect(menu.locator("[data-header-menu-action='settings']")).toBeVisible();
-  await expect(menu.locator("[data-menu-capability='seller']")).toHaveCount(0);
+  await expect(menu.locator("[data-menu-capability='seller']")).not.toHaveCount(0);
 
   await menu.locator("[data-header-menu-action='settings']").click();
   await expect(page.locator("#profile-actions-card")).toBeVisible();
@@ -841,12 +841,12 @@ test("closed mobile category sheet does not sit on top of the logged-in home fee
   await context.close();
 });
 
-test("seller signup completes immediately after account creation without hanging in the auth UI", async ({ browser }) => {
+test("unified account signup completes without buyer or seller selection", async ({ browser }) => {
   const { context, page } = await createAnonymousPage(browser);
   await page.goto("/");
 
   const uniqueSuffix = `${Date.now()}`.slice(-8);
-  const username = `seller_${uniqueSuffix}`;
+  const username = `person_${uniqueSuffix}`;
   const phoneNumber = `2557${uniqueSuffix}`;
   let signupRequests = 0;
 
@@ -858,8 +858,7 @@ test("seller signup completes immediately after account creation without hanging
 
   await page.locator("#header-signup-button").click();
   await expect(page.locator("#auth-container")).toBeVisible();
-  await expect(page.locator("#auth-role-selector")).toBeVisible();
-  await page.locator("#auth-role-seller").click();
+  await expect(page.locator("#auth-role-selector")).toBeHidden();
   await expect(page.locator("#seller-identity-document-type")).toBeHidden();
 
   await page.locator("#username").fill(username);
@@ -895,7 +894,7 @@ test("account recovery uses a one-time code and invalidates the old password", a
   const recoveredPassword = "Recovered1234!Secure";
 
   await page.locator("#header-signup-button").click();
-  await page.locator("#auth-role-buyer").click();
+  await expect(page.locator("#auth-role-selector")).toBeHidden();
   await page.locator("#username").fill(username);
   await page.locator("#phone-number").fill(phoneNumber);
   await page.locator("#password").fill(originalPassword);
@@ -1086,18 +1085,25 @@ test("request box stays empty when the request action is removed from cards", as
   await context.close();
 });
 
-test("buyer-only sessions do not show the bottom footer nav and can still reach profile from the header menu", async ({ browser }) => {
-  const { context, page } = await createLoggedInPage(browser, "buyer_only", "Pass1234!Secure");
+test("legacy buyer sessions receive the unified buy and sell navigation", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "buyer_only", "Pass1234!Secure", {
+    viewport: { width: 390, height: 844 },
+    isMobile: true
+  });
   await page.goto("/");
 
-  await expect(page.locator("#bottom-nav")).not.toBeVisible();
+  await expect(page.locator("#bottom-nav")).toBeVisible();
   await expect(page.locator("#post-product-fab")).not.toBeVisible();
   await expect(page.locator("#products-container .product-card").first()).toBeVisible();
 
+  await page.locator("#bottom-nav [data-shell-action='sell']").click();
+  await expect(page.locator("#creation-menu")).toBeVisible();
+  await page.keyboard.press("Escape");
+
   await openHeaderMenuAction(page, "profile");
   await expect(page.locator("#profile-identity-card")).toBeVisible();
-  await expect(page.locator("#view-home-back")).toBeVisible();
-  await page.locator("#view-home-back").click();
+  await page.locator("#bottom-nav [data-shell-action='home']").click();
+  await expect(page.locator("#products-container .product-card").first()).toBeVisible();
   await expect(page.locator("#hero-panel")).not.toBeVisible();
 
   await context.close();

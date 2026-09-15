@@ -1708,6 +1708,11 @@ test("auth permissions reject stale roles until the session identity matches", (
   currentSession = { username: "old-user", role: "" };
   assert.equal(permissions.isBuyerUser(), true);
   assert.equal(permissions.canUseBuyerFeatures(), true);
+  assert.equal(permissions.canUseSellerFeatures(), true);
+
+  currentSession = { username: "old-user", role: "admin" };
+  assert.equal(permissions.canUseBuyerFeatures(), false);
+  assert.equal(permissions.canUseSellerFeatures(), false);
 });
 
 test("remote auth API client owns session restore and credentialed auth writes", () => {

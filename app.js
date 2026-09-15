@@ -2475,11 +2475,11 @@ function validateAuthSignupInput() {
   const passwordMinLength = getAuthPasswordMinLength();
 
   if (!displayName) {
-    return translateUi("auth.shopNameRequired", {}, "Weka jina la duka.");
+    return translateUi("auth.shopNameRequired", {}, "Weka jina lako.");
   }
 
   if (!phoneNumber || !password || !confirmPassword) {
-    return translateUi("auth.signupFieldsRequired", {}, "Weka jina la duka, namba ya simu, nenosiri na uthibitisho wake.");
+    return translateUi("auth.signupFieldsRequired", {}, "Weka jina lako, namba ya simu, nenosiri na uthibitisho wake.");
   }
 
   if (!isValidPhoneNumber(phoneNumber)) {
@@ -3994,7 +3994,7 @@ function openAuthModal(mode = "login", options = {}) {
   isPasswordRecovery = mode === "recover";
   isLogin = !isPasswordRecovery && mode !== "signup";
   authSignupStep = 1;
-  selectedAuthRole = options.role || "seller";
+  selectedAuthRole = "buyer";
   if (options.prefillIdentifier) {
     usernameInput.value = options.prefillIdentifier;
   }
@@ -5430,8 +5430,7 @@ function resumePendingGuestIntent() {
 function getRoleLabel(role) {
   if (role === "admin") return "Admin";
   if (role === "moderator") return "Moderator";
-  if (role === "buyer") return "Mteja";
-  return "Muuzaji";
+  return "Winga";
 }
 
 function getCurrentDisplayName() {
@@ -5740,11 +5739,8 @@ function getUserDisplayName(username, options = {}) {
   }
 
   const normalizedRole = String(role || sessionMatchesCurrentUser?.role || marketplaceUser?.role || "").toLowerCase();
-  if (normalizedRole === "buyer") {
-    return "Mteja wa Winga";
-  }
-  if (normalizedRole === "seller") {
-    return "Muuzaji wa Winga";
+  if (normalizedRole === "buyer" || normalizedRole === "seller") {
+    return "Mtumiaji wa Winga";
   }
   return "Mtumiaji wa Winga";
 }
@@ -8846,7 +8842,7 @@ function showLoggedOutState(options = {}) {
   syncBodyScrollLockState();
   refreshPublicEntryChrome();
   authSignupStep = 1;
-  selectedAuthRole = "seller";
+  selectedAuthRole = "buyer";
   syncAuthMode();
 
   if (audience === "admin") {
@@ -8925,9 +8921,7 @@ function setAuthInteractionPending(kind, pending, options = {}) {
   }
   if (authCategoryNote && !isLogin && !isPasswordRecovery && isPending) {
     setNodeText(authCategoryNote, noteText || (
-      selectedAuthRole === "seller"
-        ? "Tunatayarisha akaunti yako ya seller. Verification ya ID itafanyika baadaye kwenye Profile > Get Verified."
-        : "Tunatengeneza akaunti yako. Tafadhali subiri kidogo."
+      "Tunatengeneza akaunti yako. Tafadhali subiri kidogo."
     ));
   }
   if (!isPending) {
@@ -12653,10 +12647,12 @@ function refreshVisibleRequestButtons(scope = document) {
 }
 
 function isRestorableView(view, session) {
-  if (view === "analytics") return Boolean(session?.username) && session?.role === "seller";
   if (session?.role === "admin" || session?.role === "moderator") {
     return view === "home" || view === "admin";
   }
+  const isAuthenticatedPerson = Boolean(session?.username)
+    && (session?.role === "buyer" || session?.role === "seller");
+  if (view === "analytics") return isAuthenticatedPerson;
   if (view === "home") {
     return true;
   }
@@ -12666,11 +12662,11 @@ function isRestorableView(view, session) {
   }
 
   if (view === "profile") {
-    return session?.role !== "buyer";
+    return isAuthenticatedPerson;
   }
 
   if (view === "upload") {
-    return session?.role !== "buyer";
+    return isAuthenticatedPerson;
   }
 
   if (view === "admin") {
@@ -13032,7 +13028,7 @@ let isLogin = true;
 let isPasswordRecovery = false;
 let passwordRecoveryStep = "request";
 let passwordRecoveryChallengeId = "";
-let selectedAuthRole = "seller";
+let selectedAuthRole = "buyer";
 let currentUser = "";
 let selectedCategory = "all";
 let expandedBrowseCategory = "";
@@ -15340,7 +15336,7 @@ function syncAuthMode() {
   if (authCategoryStep) {
     authCategoryStep.style.display = "none";
   }
-  authRoleSelector.style.display = isSecuritySignup ? "grid" : "none";
+  authRoleSelector.style.display = "none";
   phoneNumberInput.style.display = isSecuritySignup ? "block" : "none";
   nationalIdInput.style.display = isRecoveryVerification ? "block" : "none";
   const passwordField = passwordInput.closest(".password-field");
@@ -15369,8 +15365,8 @@ function syncAuthMode() {
     ? translateUi("auth.identifierPlaceholder", {}, "Username, full name, or phone number")
     : isRecoveryMode
       ? translateUi("auth.identifierPlaceholder", {}, "Username, full name, or phone number")
-      : translateUi("auth.shopNamePlaceholder", {}, "Jina la duka");
-  usernameInput.autocomplete = isLogin || isRecoveryMode ? "username" : "organization";
+      : translateUi("auth.shopNamePlaceholder", {}, "Jina lako");
+  usernameInput.autocomplete = isLogin || isRecoveryMode ? "username" : "name";
   usernameInput.readOnly = isRecoveryVerification;
   phoneNumberInput.autocomplete = isSecuritySignup ? "tel" : "off";
   nationalIdInput.autocomplete = isRecoveryVerification ? "one-time-code" : "off";
@@ -15396,7 +15392,7 @@ function syncAuthMode() {
         ? (isRecoveryVerification
           ? translateUi("auth.recoveryVerifyHelp", {}, "Weka code iliyotumwa kwenye namba iliyothibitishwa na password mpya yenye herufi 12 au zaidi.")
           : translateUi("auth.recoveryRequestHelp", {}, "Weka username, full name, au namba ya simu. Tutatuma one-time code kwenye namba iliyothibitishwa bila kukuomba NIDA."))
-        : translateUi("auth.signupHelp", {}, "Signup sasa ni phone-first. Weka jina la duka, namba ya simu, na password. Verification ya ID itafanyika baadaye kupitia Profile > Get Verified."));
+        : translateUi("auth.signupHelp", {}, "Tengeneza akaunti moja ya Winga kwa jina lako, namba ya simu na password. Unaweza kununua au kuuza kwa akaunti hii."));
   }
 
   if (!isSellerSignup) {
@@ -15443,7 +15439,7 @@ toggleLink.addEventListener("click", () => {
   isLogin = !isLogin;
   isPasswordRecovery = false;
   authSignupStep = 1;
-  selectedAuthRole = "seller";
+  selectedAuthRole = "buyer";
   syncAuthMode();
 });
 
@@ -16078,7 +16074,7 @@ uploadButton.addEventListener("click", async () => {
     return;
   }
   if (!canUseSellerFeatures()) {
-    alert(translateUi("product.sellerOnlyPost", {}, "Akaunti ya mteja haiwezi kupost bidhaa."));
+    alert(translateUi("product.sellerOnlyPost", {}, "Akaunti hii haiwezi kupost bidhaa."));
     setCurrentViewState("home");
     renderCurrentView();
     return;
@@ -16659,8 +16655,8 @@ function handleMobileShellAction(action = "", options = {}) {
     if (!isAuthenticatedUser() || isStaffUser()) {
       promptGuestAuth({
         preferredMode: "login",
-        role: "seller",
-        title: translateUi("auth.accountRequired", {}, "You need a seller account to continue")
+        role: "buyer",
+        title: translateUi("auth.accountRequired", {}, "You need an account to continue")
       });
       return;
     }
@@ -18072,7 +18068,7 @@ function logout() {
   passwordInput.value = "";
   confirmPasswordInput.value = "";
   authSignupStep = 1;
-  selectedAuthRole = "seller";
+  selectedAuthRole = "buyer";
   clearPendingGuestIntent();
   resetAuthCategorySelection();
   syncAuthMode();

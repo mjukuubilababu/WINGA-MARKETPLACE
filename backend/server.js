@@ -3386,7 +3386,7 @@ function getAnalyticsAccessScope(user, session) {
   if (user.role === "admin" && isAdminSession(session)) {
     return "platform";
   }
-  if (user.role === "seller" && !isRestrictedUserStatus(user.status)) {
+  if ((user.role === "buyer" || user.role === "seller") && !isRestrictedUserStatus(user.status)) {
     return "self";
   }
   return "";
@@ -4971,7 +4971,7 @@ async function buildAdminUserInvestigation(store, user, options = {}) {
 }
 
 function canPostProducts(role) {
-  return role === "seller" || role === "admin" || role === "moderator";
+  return role === "buyer" || role === "seller" || role === "admin" || role === "moderator";
 }
 
 function validateReportPayload(payload) {
@@ -11110,7 +11110,7 @@ const server = http.createServer(async (req, res) => {
 
       const analyticsAccessScope = getAnalyticsAccessScope(user, session);
       if (!analyticsAccessScope) {
-        await denyJson(res, 403, "Analytics zinapatikana kwa seller au admin tu.", {
+        await denyJson(res, 403, "Analytics hazipatikani kwa akaunti hii.", {
           ip: clientIp,
           method: req.method,
           path: url.pathname,
@@ -13432,7 +13432,7 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       if (!canPostProducts(sellerUser.role)) {
-        sendJson(res, 403, { error: "Akaunti ya buyer haiwezi kupost bidhaa." });
+        sendJson(res, 403, { error: "Akaunti hii haiwezi kupost bidhaa." });
         return;
       }
 

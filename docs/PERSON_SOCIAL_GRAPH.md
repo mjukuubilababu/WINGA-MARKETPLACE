@@ -20,6 +20,12 @@ Every account remains a user/person. Buyer, seller, and creator are public
 capabilities, not separate social identities. The compatibility role field is
 retained while public profiles expose a capabilities array.
 
+Buying and selling are available to every authenticated non-staff person.
+The legacy buyer/seller role is retained for stored-data compatibility and
+must not be used as an authorization gate for Sell, product creation, or
+person-scoped analytics. New public signup creates one Winga account without
+asking the person to choose an account type.
+
 Capabilities are derived only from public evidence:
 
 - buyer: the current account role is buyer.

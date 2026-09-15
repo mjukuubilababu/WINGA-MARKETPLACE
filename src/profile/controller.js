@@ -844,9 +844,8 @@
       const safeProfileStatus = normalizedProfileStatus && normalizedProfileStatus !== "null" && normalizedProfileStatus !== "undefined"
         ? normalizedProfileStatus
         : "";
-      const isBuyerOnly = deps.isBuyerUser();
       const hasBuyerAccess = deps.canUseBuyerFeatures();
-      const canUpgradeToSeller = userProfile?.role === "buyer";
+      const canUpgradeToSeller = false;
       const activeSection = deps.getActiveProfileSection?.() || "profile-products-panel";
       if (socialSummaryState.username !== currentUser) {
         socialSummaryState = { username: currentUser, status: "idle", profile: null };
@@ -1001,11 +1000,7 @@
         profileDiv.dataset.activeSection = activeSection;
         profileDiv.replaceChildren(deps.createProfileShellElement({
           displayName: deps.getCurrentDisplayName(),
-          accountMeta: `${isBuyerOnly
-            ? t("profile.buyerAccountMeta", "Your buyer account")
-            : deps.canUseSellerFeatures()
-              ? t("profile.sellerBuyerAccountMeta", "Seller account with buyer access")
-              : t("profile.manageAccountMeta", "Manage your account")}${safeProfileStatus && safeProfileStatus !== "active" ? ` | ${safeProfileStatus}` : ""}`,
+          accountMeta: `${t("profile.manageAccountMeta", "Manage your account")}${safeProfileStatus && safeProfileStatus !== "active" ? ` | ${safeProfileStatus}` : ""}`,
           stats: [
             {
               value: userProducts.length,

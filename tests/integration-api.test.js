@@ -689,6 +689,34 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   assert.equal(productCreate.body.mediaItems[1].providerId, "stream-integration-video-001");
   assert.equal(productCreate.body.mediaItems[1].moderationStatus, "approved");
 
+  const buyerOwnedProductCreate = await request("/products", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${buyerToken}`
+    },
+    body: JSON.stringify({
+      id: "product-buyer-owned-001",
+      name: "Unified Account Product",
+      price: 12000,
+      shop: "Buyer One",
+      whatsapp: "255700222222",
+      uploadedBy: buyerUsername,
+      category: "sketi",
+      images: [tinyImage],
+      image: tinyImage
+    })
+  });
+  assert.equal(buyerOwnedProductCreate.response.status, 200);
+  assert.equal(buyerOwnedProductCreate.body.uploadedBy, buyerUsername);
+  assert.equal(buyerOwnedProductCreate.body.status, "approved");
+
+  const buyerOwnedProductDelete = await request("/products/product-buyer-owned-001", {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${buyerToken}` }
+  });
+  assert.equal(buyerOwnedProductDelete.response.status, 200);
+
   const crossAccountProductUpdate = await request("/products/product-test-001", {
     method: "PATCH",
     headers: {
@@ -1200,7 +1228,7 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
       label: "Buyer Taxonomy Injection"
     })
   });
-  assert.equal(buyerCategoryCreateAttempt.response.status, 403);
+  assert.equal(buyerCategoryCreateAttempt.response.status, 200);
 
   const usedCategoryProduct = await request("/products", {
     method: "POST",
@@ -2286,7 +2314,8 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   const buyerAnalytics = await request("/analytics/summary", {
     headers: { Authorization: `Bearer ${buyerToken}` }
   });
-  assert.equal(buyerAnalytics.response.status, 403);
+  assert.equal(buyerAnalytics.response.status, 200);
+  assert.equal(buyerAnalytics.response.headers.get("cache-control"), "private, no-store");
 
   const moderatorAnalytics = await request("/analytics/summary", {
     headers: { Authorization: `Bearer ${moderatorToken}` }

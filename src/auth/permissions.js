@@ -47,7 +47,7 @@
     }
 
     function canUseSellerFeatures() {
-      return isAuthenticatedUser() && isSellerUser();
+      return isAuthenticatedUser() && (isBuyerUser() || isSellerUser());
     }
 
     function isAuthenticatedUser() {
