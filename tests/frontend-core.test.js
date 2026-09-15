@@ -6088,6 +6088,45 @@ test("profile people suggestions use canonical public social graph with attribut
   assert.match(styleSource, /\.profile-follow-suggestion-list/);
   assert.doesNotMatch(appSource, /profileFollowSuggestionState\.(purchases|messages|savedItems|browsingHistory)/);
 });
+test("visual categories reuse canonical taxonomy with fail-soft localized discovery", () => {
+  const root = path.resolve(__dirname, "..");
+  const source = fs.readFileSync(path.join(root, "src", "categories", "ui.js"), "utf8");
+  const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
+  const styleSource = fs.readFileSync(path.join(root, "style.css"), "utf8");
+
+  assert.match(source, /visual-categories-v2/);
+  assert.match(source, /deps\.getAvailableTopCategories\(\)/);
+  assert.match(source, /category\.visualPriority/);
+  assert.match(source, /category\.featured === true/);
+  assert.match(source, /deps\.getCategoryPreviewProduct\(category\.value\)/);
+  assert.match(source, /data-more-categories-toggle/);
+  assert.match(source, /category_card_impression/);
+  assert.match(source, /category_hero_click/);
+  assert.match(source, /fallbackSrc: visual\.fallback/);
+  assert.match(appSource, /isVisualCategoriesActive:/);
+  assert.match(appSource, /activeMobileNav === "categories"/);
+  assert.match(appSource, /renderFilterCategories\(\);\s+renderCurrentView\(\{ force: true, reason: "visual_categories_open" \}\)/);
+  assert.match(styleSource, /\.visual-category-grid\{[\s\S]*grid-template-columns:repeat\(3, minmax\(0, 1fr\)\)/);
+  assert.match(styleSource, /@media \(max-width:720px\)\{[\s\S]*\.visual-category-grid\{[\s\S]*repeat\(2, minmax\(0, 1fr\)\)/);
+  assert.doesNotMatch(source, /\[\s*["']wanawake["']\s*,\s*["']wanaume["']/);
+
+  for (const locale of ["en", "sw", "fr", "ar"]) {
+    const catalog = JSON.parse(fs.readFileSync(path.join(root, "src", "localization", "catalogs", `${locale}.json`), "utf8"));
+    [
+      "categories.heroTitle",
+      "categories.heroSubtitle",
+      "categories.shopNow",
+      "categories.primaryTitle",
+      "categories.moreTitle",
+      "categories.seeAll",
+      "categories.showLess",
+      "categories.exploreCategory",
+      "categories.cardAria",
+      "categories.imageAlt",
+      "categories.subcategoriesTitle"
+    ].forEach((key) => assert.equal(typeof catalog.messages[key], "string", `${locale} missing ${key}`));
+  }
+});
 (async () => {
   let passed = 0;
   for (const entry of tests) {

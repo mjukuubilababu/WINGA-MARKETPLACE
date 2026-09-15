@@ -12893,6 +12893,9 @@ const { renderFilterCategories } = window.WingaModules.categories.createCategori
   getCategoryPreviewProduct,
   getSubcategoriesForTopCategory,
   getCategoryLabel,
+  isVisualCategoriesActive: () => currentView === "home" && uiRuntimeState.activeMobileNav === "categories",
+  getCategoryHeroCampaign: () => categoryConfig.visualHero || null,
+  reportEvent: (...args) => reportClientEvent(...args),
   getCategoriesTarget: () => categories,
   getMobileCategoryMenu: () => mobileCategoryMenu,
   getMobileCategoryTopValue: () => searchRuntimeState.mobileCategoryTopValue || "",
@@ -17003,6 +17006,7 @@ bindSearchInputHandlers(searchInput);
 
 function setMobileShellActive(action = "home") {
   uiRuntimeState.activeMobileNav = String(action || "home");
+  document.body.classList.toggle("visual-categories-view", uiRuntimeState.activeMobileNav === "categories");
   setActiveNav(currentView);
 }
 
@@ -17097,6 +17101,7 @@ function openShellHome(options = {}) {
   closeMobileCategoryMenu();
   toggleHeaderUserMenu(false);
   setMobileShellActive(options.action || "home");
+  renderFilterCategories();
 
   if (!wasCanonicalHome) {
     reportClientEvent("info", "home_tab_navigate", "Home tab restored the retained Home feed.", {
@@ -17150,8 +17155,14 @@ function handleMobileShellAction(action = "", options = {}) {
     return;
   }
   if (safeAction === "categories") {
-    openShellHome({ action: "categories" });
-    toggleMobileCategoryMenu(true);
+    closeMobileCategoryMenu();
+    toggleHeaderUserMenu(false);
+    setMobileShellActive("categories");
+    setCurrentViewState("home", { syncHistory: currentView === "home" ? "replace" : "push" });
+    renderFilterCategories();
+    renderCurrentView({ force: true, reason: "visual_categories_open" });
+    setMobileHeaderHidden(false, { force: true });
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
     return;
   }
   if (safeAction === "offers" || safeAction === "shops") {

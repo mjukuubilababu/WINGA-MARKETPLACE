@@ -1,4 +1,4 @@
-﻿const { test, expect, request: playwrightRequest } = require("@playwright/test");
+const { test, expect, request: playwrightRequest } = require("@playwright/test");
 const fs = require("node:fs");
 const path = require("node:path");
 
@@ -468,7 +468,7 @@ test("broken-image products disappear from public feed but remain visible to the
   await context.close();
 });
 
-test("mobile utility menu stays separate while bottom Categories opens the category sheet", async ({ browser }) => {
+test("mobile utility menu stays separate while bottom Categories opens visual discovery", async ({ browser }) => {
   const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure", {
     viewport: { width: 390, height: 844 },
     isMobile: true
@@ -491,33 +491,44 @@ test("mobile utility menu stays separate while bottom Categories opens the categ
   await expect(categoryTrigger).toBeVisible();
   await categoryTrigger.click();
 
-  const menu = page.locator("#mobile-category-menu");
-  await expect(menu).toBeVisible();
-  await expect(menu.locator(".mobile-category-sheet")).toBeVisible();
-  const menuBox = await menu.boundingBox();
-  expect(menuBox).not.toBeNull();
-  expect(Math.round(menuBox.width)).toBeGreaterThanOrEqual(388);
-  expect(Math.round(menuBox.height)).toBeGreaterThan(500);
-  await expect(menu.locator(".mobile-main-category-row .mobile-category-row-chevron").first()).toBeVisible();
+  await expect(page.locator("#mobile-category-menu")).not.toBeVisible();
+  await expect(categoryTrigger).toHaveClass(/active/);
+  await expect(page.locator("#categories.visual-categories-active")).toBeVisible();
+  await expect(page.locator(".visual-categories-hero")).toBeVisible();
+  await expect(page.locator(".visual-category-grid .visual-category-card")).toHaveCount(6);
+  await expect(page.locator(".visual-categories-more-heading")).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
 
-  const firstDrillCategory = menu.locator(".mobile-main-category-row").nth(1);
-  await firstDrillCategory.click();
-  await expect(menu.locator("[data-mobile-category-depth='subcategories']")).toBeVisible();
-  await expect(menu.locator(".mobile-subcategory-list .mobile-subcategory-row").first()).toBeVisible();
-  await expect(menu.locator(".mobile-subcategory-list .mobile-category-row-chevron")).toHaveCount(0);
-  const subScreenBox = await menu.locator(".mobile-category-screen-sub").boundingBox();
-  expect(subScreenBox).not.toBeNull();
-  expect(Math.round(subScreenBox.width)).toBeGreaterThanOrEqual(388);
+  const firstCategory = page.locator(".visual-category-grid .visual-category-card").first();
+  const firstCategoryValue = await firstCategory.getAttribute("data-cat");
+  await firstCategory.click();
+  await expect(page.locator(".visual-subcategories")).toBeVisible();
+  await expect(page.locator("#products-container .product-card").first()).toBeVisible({ timeout: 30000 });
+  await expect(firstCategory).toHaveAttribute("data-cat", firstCategoryValue || "wanawake");
 
-  await menu.locator("[data-mobile-category-back='true']").dispatchEvent("click");
-  await expect(menu.locator("[data-mobile-category-depth='categories']")).toBeVisible();
-
-  await page.mouse.click(12, 12);
-  await expect(menu).not.toBeVisible();
-
+  await page.locator("#bottom-nav [data-shell-action='home']").click();
+  await expect(page.locator("#categories")).not.toHaveClass(/visual-categories-active/);
+  await expect(page.locator("#products-container .product-card").first()).toBeVisible({ timeout: 30000 });
   await context.close();
 });
+test("guest can browse Visual Categories without authentication", async ({ browser }) => {
+  const { context, page } = await createAnonymousPage(browser, {
+    viewport: { width: 360, height: 800 },
+    isMobile: true
+  });
 
+  await page.goto("/");
+  await page.locator("#mobile-categories-nav").click();
+  await expect(page.locator("#categories.visual-categories-active")).toBeVisible();
+  await expect(page.locator(".visual-category-grid .visual-category-card")).toHaveCount(6);
+  await expect(page.locator("#search-box")).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
+
+  await page.locator(".visual-category-grid .visual-category-card").first().click();
+  await expect(page.locator(".visual-subcategories")).toBeVisible();
+  await expect(page.locator("#products-container .product-card").first()).toBeVisible({ timeout: 30000 });
+  await context.close();
+});
 test("session restore preserves Settings opened before authentication hydration completes", async ({ browser }) => {
   const { context, page } = await createLoggedInPage(browser, "buyer_only", "Pass1234!Secure", {
     viewport: { width: 390, height: 844 }, isMobile: true

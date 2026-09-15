@@ -1205,6 +1205,17 @@
                      "followSuggestions.reason.creator": "Creates public reels you may like.",
                      "followSuggestions.reason.curator": "Publishes public product collections.",
                      "followSuggestions.reason.reviewer": "Shares public product reviews.",
-                     "followSuggestions.reason.publicActivity": "Active in Winga's public commerce community."
+                     "followSuggestions.reason.publicActivity": "Active in Winga's public commerce community.",
+                     "categories.heroTitle": "Everyday essentials",
+                     "categories.heroSubtitle": "Great products for an easier day",
+                     "categories.shopNow": "Shop now",
+                     "categories.primaryTitle": "Shop by category",
+                     "categories.moreTitle": "More categories",
+                     "categories.seeAll": "See all",
+                     "categories.showLess": "Show less",
+                     "categories.exploreCategory": "Explore {category}",
+                     "categories.cardAria": "{category}, category",
+                     "categories.imageAlt": "{category} category",
+                     "categories.subcategoriesTitle": "Explore {category}"
                  }
 }

@@ -1205,6 +1205,17 @@
                      "followSuggestions.reason.creator": "Crée des reels publics susceptibles de vous plaire.",
                      "followSuggestions.reason.curator": "Publie des collections publiques de produits.",
                      "followSuggestions.reason.reviewer": "Partage des avis publics sur les produits.",
-                     "followSuggestions.reason.publicActivity": "Actif dans la communauté commerciale publique de Winga."
+                     "followSuggestions.reason.publicActivity": "Actif dans la communauté commerciale publique de Winga.",
+                     "categories.heroTitle": "Les essentiels du quotidien",
+                     "categories.heroSubtitle": "De bons produits pour simplifier la vie",
+                     "categories.shopNow": "Acheter",
+                     "categories.primaryTitle": "Acheter par catégorie",
+                     "categories.moreTitle": "Plus de catégories",
+                     "categories.seeAll": "Tout voir",
+                     "categories.showLess": "Voir moins",
+                     "categories.exploreCategory": "Explorer {category}",
+                     "categories.cardAria": "{category}, catégorie",
+                     "categories.imageAlt": "Catégorie {category}",
+                     "categories.subcategoriesTitle": "Explorer {category}"
                  }
 }

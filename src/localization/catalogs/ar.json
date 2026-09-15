@@ -1209,6 +1209,17 @@
                      "followSuggestions.reason.creator": "ينشئ ريلز عامة قد تعجبك.",
                      "followSuggestions.reason.curator": "ينشر مجموعات عامة من المنتجات.",
                      "followSuggestions.reason.reviewer": "يشارك مراجعات عامة للمنتجات.",
-                     "followSuggestions.reason.publicActivity": "نشط في مجتمع التجارة العام على Winga."
+                     "followSuggestions.reason.publicActivity": "نشط في مجتمع التجارة العام على Winga.",
+                     "categories.heroTitle": "أساسيات كل يوم",
+                     "categories.heroSubtitle": "منتجات رائعة ليوم أسهل",
+                     "categories.shopNow": "تسوق الآن",
+                     "categories.primaryTitle": "تسوق حسب الفئة",
+                     "categories.moreTitle": "فئات أخرى",
+                     "categories.seeAll": "عرض الكل",
+                     "categories.showLess": "عرض أقل",
+                     "categories.exploreCategory": "استكشف {category}",
+                     "categories.cardAria": "{category}، فئة",
+                     "categories.imageAlt": "فئة {category}",
+                     "categories.subcategoriesTitle": "استكشف {category}"
                  }
 }

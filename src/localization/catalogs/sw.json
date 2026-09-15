@@ -1205,6 +1205,17 @@
                      "followSuggestions.reason.creator": "Anatengeneza reels za umma unazoweza kupenda.",
                      "followSuggestions.reason.curator": "Anachapisha collections za bidhaa za umma.",
                      "followSuggestions.reason.reviewer": "Anashiriki reviews za bidhaa za umma.",
-                     "followSuggestions.reason.publicActivity": "Anashiriki kwenye commerce community ya umma ya Winga."
+                     "followSuggestions.reason.publicActivity": "Anashiriki kwenye commerce community ya umma ya Winga.",
+                     "categories.heroTitle": "Vitu vya kila siku",
+                     "categories.heroSubtitle": "Bidhaa bora, maisha rahisi",
+                     "categories.shopNow": "Nunua sasa",
+                     "categories.primaryTitle": "Nunua kwa kategoria",
+                     "categories.moreTitle": "Kategoria zaidi",
+                     "categories.seeAll": "Tazama zote",
+                     "categories.showLess": "Onyesha chache",
+                     "categories.exploreCategory": "Vinjari {category}",
+                     "categories.cardAria": "{category}, kategoria",
+                     "categories.imageAlt": "Kategoria ya {category}",
+                     "categories.subcategoriesTitle": "Vinjari {category}"
                  }
 }
