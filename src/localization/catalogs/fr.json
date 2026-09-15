@@ -254,6 +254,8 @@
                      "trust.reportProductSubtitle":  "Aidez Winga à examiner en toute sécurité l’annonce de {seller}.",
                      "trust.reportSeller":  "Signaler le vendeur",
                      "trust.reportSellerSubtitle":  "Winga examinera ce compte pour fraude, abus ou comportement trompeur.",
+                     "trust.reportPerson":  "Signaler la personne",
+                     "trust.reportPersonSubtitle":  "Winga examinera ce compte pour fraude, abus ou comportement trompeur.",
                      "trust.reason.fakeItem":  "Article faux ou trompeur",
                      "trust.reason.unsafe":  "Dangereux ou suspect",
                      "trust.reason.wrongPhotos":  "Photos ou informations incorrectes",

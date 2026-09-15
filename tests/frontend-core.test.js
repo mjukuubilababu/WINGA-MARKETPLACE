@@ -5886,6 +5886,22 @@ test("Profile manages the signed-in person's blocked list without exposing priva
   assert.doesNotMatch(appSource, /profileBlockedPeopleState\.(purchases|messages|savedItems|browsingHistory)/);
 });
 
+test("public person profile reports a generic user through the canonical trust workflow", () => {
+  const root = path.resolve(__dirname, "..");
+  const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
+
+  assert.ok(appSource.includes('data-report-person="${escapeHtml(profile.username || "")}"'));
+  const handlerStart = appSource.indexOf('const personButton = event.target.closest("[data-report-person]")');
+  assert.notEqual(handlerStart, -1);
+  const handlerSource = appSource.slice(handlerStart, handlerStart + 900);
+  assert.ok(handlerSource.includes("closePersonProfileModal({ restoreFocus: false })"));
+  assert.ok(handlerSource.includes('targetType: "user"'));
+  assert.ok(handlerSource.includes("targetUserId: username"));
+  assert.ok(handlerSource.includes('translateUi("trust.reportPerson"'));
+  assert.ok(appSource.includes('targetUserId: trustReportState.targetType === "user" ? trustReportState.targetUserId : ""'));
+  assert.equal(handlerSource.includes("data-report-product-context"), false);
+});
+
 test("Profile follower and following counts open one canonical cursor-paged connections manager", () => {
   const root = path.resolve(__dirname, "..");
   const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");

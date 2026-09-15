@@ -254,6 +254,8 @@
                      "trust.reportProductSubtitle":  "Saidia Winga kuchunguza tangazo la {seller} kwa usalama.",
                      "trust.reportSeller":  "Report seller",
                      "trust.reportSellerSubtitle":  "Winga itachunguza akaunti hii kwa udanganyifu, unyanyasaji au taarifa za kupotosha.",
+                     "trust.reportPerson":  "Ripoti mtu",
+                     "trust.reportPersonSubtitle":  "Winga itachunguza akaunti hii kwa udanganyifu, unyanyasaji au taarifa za kupotosha.",
                      "trust.reason.fakeItem":  "Bidhaa bandia au inayopotosha",
                      "trust.reason.unsafe":  "Isiyo salama au inayotia shaka",
                      "trust.reason.wrongPhotos":  "Picha au maelezo yasiyo sahihi",

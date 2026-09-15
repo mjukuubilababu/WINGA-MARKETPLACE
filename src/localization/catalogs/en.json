@@ -254,6 +254,8 @@
                      "trust.reportProductSubtitle":  "Help Winga review {seller}\u0027s listing safely.",
                      "trust.reportSeller":  "Report seller",
                      "trust.reportSellerSubtitle":  "Winga will review this seller account for fraud, abuse, or misleading behavior.",
+                     "trust.reportPerson":  "Report person",
+                     "trust.reportPersonSubtitle":  "Winga will review this account for fraud, abuse, or misleading behavior.",
                      "trust.reason.fakeItem":  "Fake or misleading item",
                      "trust.reason.unsafe":  "Unsafe or suspicious",
                      "trust.reason.wrongPhotos":  "Wrong photos or details",

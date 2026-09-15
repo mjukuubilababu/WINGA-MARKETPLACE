@@ -258,6 +258,8 @@
                      "trust.reportProductSubtitle":  "ساعد Winga في مراجعة إعلان {seller} بأمان.",
                      "trust.reportSeller":  "الإبلاغ عن البائع",
                      "trust.reportSellerSubtitle":  "ستراجع Winga هذا الحساب بحثاً عن الاحتيال أو الإساءة أو التضليل.",
+                     "trust.reportPerson":  "الإبلاغ عن الشخص",
+                     "trust.reportPersonSubtitle":  "ستراجع Winga هذا الحساب بحثاً عن الاحتيال أو الإساءة أو التضليل.",
                      "trust.reason.fakeItem":  "منتج مزيف أو مضلل",
                      "trust.reason.unsafe":  "غير آمن أو مشبوه",
                      "trust.reason.wrongPhotos":  "صور أو تفاصيل غير صحيحة",

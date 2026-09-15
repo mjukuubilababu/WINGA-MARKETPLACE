@@ -431,6 +431,16 @@ test("Profile lists and unblocks people without overflowing mobile", async ({ br
 test("Profile follower counts open paged connection tabs and reconcile Follow", async ({ browser }) => {
   const { context, page } = await createSellerPage(browser);
   let followerFollowed = false;
+  let profileReportPayload = null;
+
+  await context.route("**/api/reports", async (route) => {
+    profileReportPayload = route.request().postDataJSON();
+    await route.fulfill({
+      status: 201,
+      contentType: "application/json",
+      body: JSON.stringify({ ok: true, id: "report-profile-e2e" })
+    });
+  });
 
   await context.route("**/api/social/follows?*", async (route) => {
     const url = new URL(route.request().url());
@@ -494,8 +504,21 @@ test("Profile follower counts open paged connection tabs and reconcile Follow", 
   await expect(panel.locator("[data-profile-connections-tab='followers']")).toHaveAttribute("aria-selected", "true");
 
   await followerRow.locator("[data-open-person-profile='follower_one']").click();
-  await expect(page.locator("#person-profile-modal")).toContainText("Follower One");
-  await page.locator("[data-close-person-profile='true']").last().click();
+  const personModal = page.locator("#person-profile-modal");
+  await expect(personModal).toContainText("Follower One");
+  await personModal.locator("[data-report-person='follower_one']").click();
+  await expect(personModal).toBeHidden();
+  const reportModal = page.locator("#trust-report-modal");
+  await expect(reportModal).toBeVisible();
+  await reportModal.locator("[data-trust-report-reason='abuse']").click();
+  await reportModal.locator("#trust-report-description").fill("Public profile safety report.");
+  await reportModal.locator("[data-submit-trust-report='true']").click();
+  await expect(reportModal).toBeHidden();
+  expect(profileReportPayload).toMatchObject({
+    targetType: "user",
+    targetUserId: "follower_one",
+    targetProductId: ""
+  });
 
   const followRequest = page.waitForRequest((request) =>
     request.method() === "PUT"

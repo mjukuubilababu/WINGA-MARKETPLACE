@@ -10538,6 +10538,7 @@ function renderPersonProfileModal() {
     const relationshipActions = canFollow ? `
       <div class="person-profile-actions">
         <button class="action-btn action-btn-secondary${isPersonFollowed(profile.username) ? " is-active" : ""}" type="button" data-follow-person="${escapeHtml(profile.username || "")}">${escapeHtml(followLabel)}</button>
+        <button class="action-btn action-btn-secondary" type="button" data-report-person="${escapeHtml(profile.username || "")}">${escapeHtml(translateUi("trust.reportPerson", {}, "Report"))}</button>
         ${canBlock ? `<button class="person-profile-block" type="button" data-block-person-profile="${escapeHtml(profile.username || "")}"${personProfileState.blocking ? " disabled" : ""}>${escapeHtml(personProfileState.blocking
           ? translateUi("personProfile.blocking", {}, "Blocking...")
           : translateUi("personProfile.block", {}, "Block"))}</button>` : ""}
@@ -11998,6 +11999,24 @@ function bindTrustReportEntryActions() {
         targetProductId: product.id,
         title: translateUi("trust.reportProduct", {}, "Report this product"),
         subtitle: translateUi("trust.reportProductSubtitle", { seller: getUserDisplayName(product.uploadedBy, { fallback: product.shop || product.uploadedBy || "this seller" }) }, "Help Winga review this listing safely.")
+      });
+      return;
+    }
+
+    const personButton = event.target.closest("[data-report-person]");
+    if (personButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      const username = String(personButton.dataset.reportPerson || "").trim();
+      if (!username || username === String(currentUser || "")) {
+        return;
+      }
+      closePersonProfileModal({ restoreFocus: false });
+      openTrustReportModal({
+        targetType: "user",
+        targetUserId: username,
+        title: translateUi("trust.reportPerson", {}, "Report this person"),
+        subtitle: translateUi("trust.reportPersonSubtitle", {}, "Winga will review this account for fraud, abuse, or misleading behavior.")
       });
       return;
     }

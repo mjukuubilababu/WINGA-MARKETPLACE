@@ -68,6 +68,11 @@ removes stale local follow state and refreshes the current social/feed surface;
 the backend remains authoritative for removing both follow directions and
 enforcing content visibility.
 
+Every public person profile also exposes a generic Report person action. It
+reuses the existing owner-attributed trust report pipeline with a user target,
+does not require a product context, rejects self-reporting server-side, and
+keeps legacy seller-report entry points compatible.
+
 Profile includes an owner-only Blocked People manager. It reads a cursor-bounded
 page from `GET /api/social/blocks`, returns only public identity fields needed
 to recognize the account, and never reveals people who blocked the viewer.
@@ -209,6 +214,8 @@ follow-state cleanup, the non-destructive Home feed refresh path, owner-only
 blocked-list pagination, and Unblock state reconciliation.
 Connections coverage verifies actionable counts, direction tabs, bounded
 pagination, public-profile entry points, and server-reconciled Follow/Unfollow.
+Public-profile safety coverage verifies that any non-self person can be
+reported through the canonical user-target trust workflow.
 
 Remaining work:
 
