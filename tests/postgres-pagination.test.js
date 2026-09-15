@@ -3616,11 +3616,13 @@ test("new reel follower notifications are bounded block-safe and frequency contr
   assert.equal(result.followerNotifications[0].userId, "follower-one");
   const fanout = calls.find((call) => call.text.includes("WITH eligible_followers"));
   assert.ok(fanout);
-  assert.deepEqual(fanout.params, ["creator-one", "reel-new-1", "creator:creator-one:reels", "Summer reel"]);
+  assert.deepEqual(fanout.params, ["creator-one", "reel-new-1", "creator:creator-one:reels", "Summer reel", 20]);
   assert.match(fanout.text, /follow\.status = 'active'/);
   assert.match(fanout.text, /recipient\.status = 'active'/);
   assert.match(fanout.text, /FROM user_blocks blocked/);
   assert.match(fanout.text, /recent\.created_at > NOW\(\) - INTERVAL '6 hours'/);
+  assert.match(fanout.text, /recipient_recent\.created_at > NOW\(\) - INTERVAL '24 hours'/);
+  assert.match(fanout.text, /\) < \$5/);
   assert.match(fanout.text, /LIMIT 100/);
   assert.match(fanout.text, /ON CONFLICT \(id\) DO NOTHING/);
 
@@ -3734,7 +3736,9 @@ test("public collections are transactional owner-scoped and publish with bounded
   assert.match(productAccess.text, /p\.status = 'approved'/);
   assert.match(productAccess.text, /FROM user_blocks collection_block/);
   const fanout = calls.find((call) => call.text.includes("WITH eligible_followers"));
+  assert.deepEqual(fanout.params, ["curator-one", "collection-one", "creator:curator-one:collections", "Wedding looks", 20]);
   assert.match(fanout.text, /INTERVAL '6 hours'/);
+  assert.match(fanout.text, /recipient_recent\.created_at > NOW\(\) - INTERVAL '24 hours'/);
   assert.match(fanout.text, /LIMIT 100/);
   assert.match(fanout.text, /ON CONFLICT \(id\) DO NOTHING/);
   assert.equal(calls.filter((call) => call.text === "COMMIT").length, 3);

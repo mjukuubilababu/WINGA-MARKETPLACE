@@ -5887,6 +5887,7 @@ test("Profile manages the signed-in person's blocked list without exposing priva
   assert.match(uiSource, /blockedPeopleMarkup/);
   assert.match(migrationSource, /2026091504_user_blocks_cursor/);
   assert.match(migrationSource, /notification-authorization/);
+  assert.match(migrationSource, /social-notification-frequency/);
   assert.match(appSource, /Promise\.all\(\[refreshUsersState\(\), refreshMessagesState\(\), refreshNotificationsState\(\)\]\)/);
   assert.match(styleSource, /\.profile-blocked-people-section/);
   assert.match(serverSource, /readUserBlockRelationships\(viewer\.username\)/);

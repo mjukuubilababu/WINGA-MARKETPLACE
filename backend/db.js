@@ -19,6 +19,7 @@ const ALL_TABLE_KEYS = Object.freeze([
   "notifications", "promotions", "reviews", "reports", "moderationActions", "settings"
 ]);
 const EMPTY_QUERY_RESULT = Object.freeze({ rows: [] });
+const SOCIAL_CONTENT_NOTIFICATION_DAILY_LIMIT = 20;
 
 function stringifyJson(value, fallback = []) {
   return JSON.stringify(value ?? fallback);
@@ -2892,6 +2893,12 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
                AND recent.conversation_id = $3
                AND recent.created_at > NOW() - INTERVAL '6 hours'
            )
+           AND (
+             SELECT COUNT(*) FROM notifications recipient_recent
+             WHERE recipient_recent.user_id = follow.follower_username
+               AND recipient_recent.type = 'content'
+               AND recipient_recent.created_at > NOW() - INTERVAL '24 hours'
+           ) < $5
          ORDER BY follow.created_at ASC, follow.follower_username ASC
          LIMIT 100
        )
@@ -2917,7 +2924,10 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
        RETURNING id, user_id AS "userId", actor_username AS "actorUsername", type, message_id AS "messageId",
          conversation_id AS "conversationId", title, body, is_read AS "isRead",
          read_at AS "readAt", created_at AS "createdAt"`,
-      [String(product.uploadedBy), String(product.id), channelId, String(product.name || "Reel").slice(0, 120)]
+      [
+        String(product.uploadedBy), String(product.id), channelId,
+        String(product.name || "Reel").slice(0, 120), SOCIAL_CONTENT_NOTIFICATION_DAILY_LIMIT
+      ]
     );
     return result.rows || [];
   }
@@ -7824,6 +7834,12 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
                    AND recent.conversation_id = $3
                    AND recent.created_at > NOW() - INTERVAL '6 hours'
                )
+               AND (
+                 SELECT COUNT(*) FROM notifications recipient_recent
+                 WHERE recipient_recent.user_id = follow.follower_username
+                   AND recipient_recent.type = 'content'
+                   AND recipient_recent.created_at > NOW() - INTERVAL '24 hours'
+               ) < $5
              ORDER BY follow.created_at ASC, follow.follower_username ASC
              LIMIT 100
            )
@@ -7841,7 +7857,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
            RETURNING id, user_id AS "userId", actor_username AS "actorUsername", type, message_id AS "messageId",
              conversation_id AS "conversationId", title, body, is_read AS "isRead",
              read_at AS "readAt", created_at AS "createdAt"`,
-          [owner, id, channelId, title]
+          [owner, id, channelId, title, SOCIAL_CONTENT_NOTIFICATION_DAILY_LIMIT]
         );
         followerNotifications = notifications.rows || [];
       }
