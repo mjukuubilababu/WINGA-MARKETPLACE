@@ -239,6 +239,7 @@ async function main() {
     health: body?.health || null,
     snapshotHealth: body?.snapshotHealth || null,
     decisionHealth: body?.decisionHealth || null,
+    wipMindHealth: body?.wipMindHealth || null,
     worker: body?.worker || null
   });
   await maybeSendAlertWebhook(alertWebhookUrl, output);

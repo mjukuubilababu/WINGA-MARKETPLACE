@@ -64,6 +64,20 @@ test("WIP persists traceable decisions and idempotent action outcomes", async ()
   assert.deepEqual(result.rows.map(row => ({ status: row.status, count: Number(row.count) })), [{ status: "EXECUTED", count: 1 }]);
 });
 
+test("WIP runtime counts come from primary storage and expose aggregate dimensions only", async () => {
+  const runtime = await store.readWipRuntimeCounts();
+  assert.equal(runtime.schemaVersion, "2026-09-15.wip-runtime-counts.v1");
+  assert.equal(runtime.privacy, "ops-aggregate-only");
+  assert.equal(runtime.source, "postgres-primary");
+  assert.ok(runtime.signals.total > 0);
+  assert.ok(runtime.decisions.total > 0);
+  assert.equal(runtime.actions.byStatus.EXECUTED, 1);
+  assert.ok(runtime.signals.byIntelligence.some(entry => entry.intelligenceType === "demand"));
+  assert.ok(runtime.decisions.byType.some(entry => entry.decisionType === "RECOMMEND_PRODUCT"));
+  assert.equal(JSON.stringify(runtime).includes("product-1"), false);
+  assert.equal(JSON.stringify(runtime).includes("person-1"), false);
+});
+
 test("learner failure opens an isolated circuit without deleting learned signals", async () => {
   await store.recordIntelligenceLearnerFailure("style", Object.assign(new Error("failed"), { code: "style_timeout" }), { circuitSeconds: 60 });
   const health = await store.readWipMindHealth();

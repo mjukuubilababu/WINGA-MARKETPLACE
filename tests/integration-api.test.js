@@ -159,6 +159,17 @@ test("ops read replica health requires authorization and exposes no database det
   assert.equal(unavailable.headers.get("cache-control"), "no-store");
   assert.equal(JSON.stringify(unavailableBody).includes("DATABASE_URL"), false);
 
+  const wipRuntimeDenied = await fetch(`${baseUrl}/ops/intelligence/wip-runtime`);
+  assert.equal(wipRuntimeDenied.status, 401);
+  const wipRuntimeUnavailable = await fetch(`${baseUrl}/ops/intelligence/wip-runtime`, {
+    headers: { "X-Ops-Health-Token": "integration-ops-health-token" }
+  });
+  const wipRuntimeUnavailableBody = await wipRuntimeUnavailable.json();
+  assert.equal(wipRuntimeUnavailable.status, 503);
+  assert.equal(wipRuntimeUnavailableBody.ok, false);
+  assert.equal(wipRuntimeUnavailable.headers.get("cache-control"), "no-store");
+  assert.equal(JSON.stringify(wipRuntimeUnavailableBody).includes("DATABASE_URL"), false);
+
   const databaseDenied = await fetch(`${baseUrl}/ops/database/health`);
   assert.equal(databaseDenied.status, 401);
   const databaseUnavailable = await fetch(`${baseUrl}/ops/database/health`, {

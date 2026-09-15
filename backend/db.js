@@ -5272,6 +5272,105 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     return Object.fromEntries(Object.entries(row).map(([key, value]) => [key, Number(value || 0)]));
   }
 
+  async function readWipRuntimeCounts() {
+    const [summaryResult, signalResult, decisionResult, actionResult, moduleResult] = await Promise.all([
+      query(
+        `SELECT
+           (SELECT COUNT(*)::int FROM intelligence_signals) AS "totalSignals",
+           (SELECT COUNT(*)::int FROM intelligence_signals WHERE valid_until>NOW()) AS "activeSignals",
+           (SELECT COUNT(*)::int FROM intelligence_signals WHERE valid_until<=NOW()) AS "staleSignals",
+           (SELECT MAX(created_at) FROM intelligence_signals) AS "latestSignalAt",
+           (SELECT COUNT(*)::int FROM intelligence_decisions) AS "totalDecisions",
+           (SELECT COUNT(*)::int FROM intelligence_decisions WHERE expires_at>NOW()) AS "activeDecisions",
+           (SELECT COUNT(*)::int FROM intelligence_decisions WHERE expires_at<=NOW()) AS "expiredDecisions",
+           (SELECT MAX(created_at) FROM intelligence_decisions) AS "latestDecisionAt",
+           (SELECT COUNT(*)::int FROM intelligence_action_results) AS "totalActions",
+           (SELECT MAX(completed_at) FROM intelligence_action_results) AS "latestActionAt"`
+      ),
+      query(
+        `SELECT intelligence_type AS "intelligenceType", COUNT(*)::int AS total,
+                COUNT(*) FILTER (WHERE valid_until>NOW())::int AS active
+         FROM intelligence_signals
+         GROUP BY intelligence_type
+         ORDER BY intelligence_type`
+      ),
+      query(
+        `SELECT decision_type AS "decisionType", COUNT(*)::int AS total,
+                COUNT(*) FILTER (WHERE expires_at>NOW())::int AS active
+         FROM intelligence_decisions
+         GROUP BY decision_type
+         ORDER BY decision_type`
+      ),
+      query(
+        `SELECT
+           COUNT(*) FILTER (WHERE status='EXECUTED')::int AS executed,
+           COUNT(*) FILTER (WHERE status='SKIPPED')::int AS skipped,
+           COUNT(*) FILTER (WHERE status='FAILED')::int AS failed,
+           COUNT(*) FILTER (WHERE status='EXPIRED')::int AS expired,
+           COUNT(*) FILTER (WHERE status='REJECTED_BY_POLICY')::int AS "rejectedByPolicy"
+         FROM intelligence_action_results`
+      ),
+      query(
+        `SELECT intelligence_id AS "intelligenceId", status,
+                processed_count::int AS "processedCount", signal_count::int AS "signalCount",
+                failure_count::int AS "failureCount", circuit_open_until AS "circuitOpenUntil",
+                last_success_at AS "lastSuccessAt", last_failure_at AS "lastFailureAt"
+         FROM intelligence_module_health
+         ORDER BY intelligence_id`
+      )
+    ]);
+    const summary = summaryResult.rows[0] || {};
+    return {
+      schemaVersion: "2026-09-15.wip-runtime-counts.v1",
+      privacy: "ops-aggregate-only",
+      source: "postgres-primary",
+      countedAt: new Date().toISOString(),
+      signals: {
+        total: Number(summary.totalSignals || 0),
+        active: Number(summary.activeSignals || 0),
+        stale: Number(summary.staleSignals || 0),
+        latestAt: toISOString(summary.latestSignalAt),
+        byIntelligence: (signalResult.rows || []).map((row) => ({
+          intelligenceType: row.intelligenceType,
+          total: Number(row.total || 0),
+          active: Number(row.active || 0)
+        }))
+      },
+      decisions: {
+        total: Number(summary.totalDecisions || 0),
+        active: Number(summary.activeDecisions || 0),
+        expired: Number(summary.expiredDecisions || 0),
+        latestAt: toISOString(summary.latestDecisionAt),
+        byType: (decisionResult.rows || []).map((row) => ({
+          decisionType: row.decisionType,
+          total: Number(row.total || 0),
+          active: Number(row.active || 0)
+        }))
+      },
+      actions: {
+        total: Number(summary.totalActions || 0),
+        latestAt: toISOString(summary.latestActionAt),
+        byStatus: {
+          EXECUTED: Number(actionResult.rows?.[0]?.executed || 0),
+          SKIPPED: Number(actionResult.rows?.[0]?.skipped || 0),
+          FAILED: Number(actionResult.rows?.[0]?.failed || 0),
+          EXPIRED: Number(actionResult.rows?.[0]?.expired || 0),
+          REJECTED_BY_POLICY: Number(actionResult.rows?.[0]?.rejectedByPolicy || 0)
+        }
+      },
+      modules: (moduleResult.rows || []).map((row) => ({
+        intelligenceId: row.intelligenceId,
+        status: row.status,
+        processedCount: Number(row.processedCount || 0),
+        signalCount: Number(row.signalCount || 0),
+        failureCount: Number(row.failureCount || 0),
+        circuitOpenUntil: toISOString(row.circuitOpenUntil),
+        lastSuccessAt: toISOString(row.lastSuccessAt),
+        lastFailureAt: toISOString(row.lastFailureAt)
+      }))
+    };
+  }
+
   async function refreshIntelligenceDailySnapshots(options = {}) {
     const windowDays = Math.max(1, Math.min(Number(options.windowDays || 14) || 14, 90));
     const retentionDays = Math.max(30, Math.min(Number(options.retentionDays || 1095) || 1095, 3650));
@@ -9298,6 +9397,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     appendIntelligenceSignals,
     recordIntelligenceLearnerFailure,
     readWipMindHealth,
+    readWipRuntimeCounts,
     enqueueIntelligenceEvent,
     claimIntelligenceQueueBatch,
     completeIntelligenceQueueItem,

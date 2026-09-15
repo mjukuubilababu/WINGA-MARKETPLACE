@@ -7139,6 +7139,47 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (req.method === "GET" && url.pathname === "/api/ops/intelligence/wip-runtime") {
+    if (!isValidOpsHealthToken(req)) {
+      requestMeta.statusCode = OPS_HEALTH_TOKEN ? 401 : 503;
+      logRouteSummary(requestMeta, { lightweight: true, auth: "ops_wip_runtime_denied" });
+      sendJson(res, OPS_HEALTH_TOKEN ? 401 : 503, {
+        ok: false,
+        error: OPS_HEALTH_TOKEN ? "Unauthorized" : "OPS_HEALTH_TOKEN is not configured."
+      }, { "Cache-Control": "no-store" });
+      return;
+    }
+    if (!postgresStore?.readWipRuntimeCounts) {
+      requestMeta.statusCode = 503;
+      sendJson(res, 503, {
+        ok: false,
+        error: "WIP runtime counts are unavailable."
+      }, { "Cache-Control": "no-store" });
+      return;
+    }
+    try {
+      const runtime = await postgresStore.readWipRuntimeCounts();
+      requestMeta.statusCode = 200;
+      logRouteSummary(requestMeta, {
+        lightweight: true,
+        totalSignals: runtime.signals.total,
+        totalDecisions: runtime.decisions.total,
+        totalActions: runtime.actions.total
+      });
+      sendJson(res, 200, { ok: true, criticalPath: false, ...runtime }, { "Cache-Control": "no-store" });
+    } catch (error) {
+      requestMeta.statusCode = 503;
+      logRouteSummary(requestMeta, { lightweight: true, error: "wip_runtime_unavailable" });
+      sendJson(res, 503, {
+        ok: false,
+        privacy: "ops-aggregate-only",
+        criticalPath: false,
+        error: "WIP runtime counts are unavailable."
+      }, { "Cache-Control": "no-store" });
+    }
+    return;
+  }
+
   if (req.method === "GET" && url.pathname === "/api/ops/intelligence/queue-items") {
     if (!isValidOpsHealthToken(req)) {
       requestMeta.statusCode = OPS_HEALTH_TOKEN ? 401 : 503;
