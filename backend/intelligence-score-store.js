@@ -29,6 +29,13 @@ async function persistIntelligenceEvent(client, input) {
   );
   const metadata = {
     ...(event.metadata || {}), signalQuality: quality, scoringVersion: SCORING_VERSION,
+    eventContract: {
+      schemaVersion: String(event.schemaVersion || "").slice(0, 80),
+      domain: String(event.domain || "observability").slice(0, 40),
+      entityType: String(event.entityType || "unknown").slice(0, 40),
+      actorType: String(event.actorType || "person_or_session").slice(0, 40),
+      outcome: String(event.outcome || "observed").slice(0, 60)
+    },
     marketContext: {
       country: String(event.marketCountry || "").slice(0, 2),
       language: String(event.language || "").slice(0, 40),

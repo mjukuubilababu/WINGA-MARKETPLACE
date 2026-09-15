@@ -3343,7 +3343,7 @@ test("production builds expose one verifiable app version", () => {
   assert.match(workerSource, /const configuredVersion = getConfiguredBuildVersion\(env\);\s+if \(configuredVersion\)/);
 });
 
-test("backend intelligence platform normalizes canonical marketplace events", async () => {
+test("backend intelligence platform normalizes and classifies canonical marketplace events", async () => {
   const root = path.resolve(__dirname, "..");
   const { createIntelligencePlatform } = require(path.join(root, "backend", "intelligence-platform.js"));
   const appended = [];
@@ -3373,6 +3373,11 @@ test("backend intelligence platform normalizes canonical marketplace events", as
   });
 
   assert.equal(event.eventType, "product_uploaded");
+  assert.equal(event.schemaVersion, "2026-09-15.canonical-event.v1");
+  assert.equal(event.domain, "supply");
+  assert.equal(event.entityType, "product");
+  assert.equal(event.actorType, "person");
+  assert.equal(event.outcome, "supply_added");
   assert.equal(event.productId, "product-1");
   assert.equal(event.sellerId, "seller_one");
   assert.equal(event.buyerId, "buyer_one");
@@ -3386,11 +3391,35 @@ test("backend intelligence platform normalizes canonical marketplace events", as
   await platform.drainForTests();
   assert.equal(appended[0].event, "intelligence_event");
   assert.equal(appended[0].eventType, "product_uploaded");
+  assert.equal(appended[0].schemaVersion, "2026-09-15.canonical-event.v1");
+  assert.equal(appended[0].domain, "supply");
   assert.equal(persisted[0].event.eventType, "product_uploaded");
   assert.equal(persisted[0].scores.productScore.id, "product-1");
   assert.equal(persisted[0].scores.sellerScore.id, "seller_one");
   assert.equal(platform.getSummary().topProducts[0].id, "product-1");
   assert.equal(platform.getSummary().topSellers[0].id, "seller_one");
+});
+
+test("canonical intelligence event catalog keeps business domains machine-readable", () => {
+  const root = path.resolve(__dirname, "..");
+  const { EVENT_CONTRACTS, getEventContract } = require(path.join(root, "backend", "intelligence-platform.js"));
+  assert.equal(EVENT_CONTRACTS.product_purchased.outcome, "purchase");
+  assert.equal(EVENT_CONTRACTS.demand_requested.domain, "demand");
+  assert.equal(getEventContract("video_complete").domain, "video");
+  assert.equal(getEventContract("unknown_future_event").domain, "observability");
+});
+
+test("authoritative business mutations dispatch intelligence outside their critical path", () => {
+  const root = path.resolve(__dirname, "..");
+  const serverSource = fs.readFileSync(path.join(root, "backend", "server.js"), "utf8");
+  assert.match(serverSource, /function dispatchBusinessIntelligenceEvent/);
+  assert.match(serverSource, /setImmediate\(\(\) => \{/);
+  ["product_uploaded", "product_edited", "product_deleted", "conversation_signal", "order_created", "promotion_started", "promotion_ended", "notification_clicked"].forEach((eventName) => {
+    assert.match(serverSource, new RegExp(`event: [\\\"']${eventName}[\\\"']`));
+  });
+  assert.match(serverSource, /following \? "person_followed" : "person_unfollowed"/);
+  assert.match(serverSource, /nextStatus === "delivered" \? "product_purchased" : "order_status_changed"/);
+  assert.match(serverSource, /Business intelligence event failed open/);
 });
 
 test("backend intelligence scoring caps repeated contributions and preserves noisy history", async () => {

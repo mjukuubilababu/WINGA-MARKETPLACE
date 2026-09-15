@@ -1,6 +1,7 @@
 const crypto = require("crypto");
 
-const PLATFORM_VERSION = "2026-09-14.2";
+const PLATFORM_VERSION = "2026-09-15.1";
+const EVENT_SCHEMA_VERSION = "2026-09-15.canonical-event.v1";
 const MAX_RECENT_EVENTS = 500;
 const MAX_SCORE_ENTRIES = 5000;
 const CONTRIBUTION_WINDOW_MS = 10 * 60 * 1000;
@@ -12,10 +13,12 @@ const PRODUCT_SIGNAL_WEIGHTS = Object.freeze({
   product_opened: 3,
   product_shared: 4,
   product_saved: 5,
+  product_liked: 3,
   product_purchased: 12,
   product_searched: 2,
   image_search: 3,
   seller_followed: 3,
+  person_followed: 3,
   product_swiped: 1,
   product_sold_out: 4,
   demand_requested: 6,
@@ -52,8 +55,10 @@ const SELLER_SIGNAL_WEIGHTS = Object.freeze({
   product_opened: 1,
   product_shared: 1.5,
   product_saved: 2,
+  product_liked: 1.2,
   product_purchased: 5,
   seller_followed: 4,
+  person_followed: 4,
   product_sold_out: 1,
   demand_requested: 1.5,
   product_restocked: 2,
@@ -84,6 +89,7 @@ const SELLER_SIGNAL_WEIGHTS = Object.freeze({
 const KNOWN_EVENT_TYPES = new Set([
   "order_created", "product_save_failed", "promotion_intent_submit_failed",
   "image_search_failed", "message_seller_missing_product", "chat_runtime_failed",
+  "person_unfollowed", "product_unliked", "promotion_requested", "order_status_changed",
   ...Object.keys(PRODUCT_SIGNAL_WEIGHTS),
   ...Object.keys(SELLER_SIGNAL_WEIGHTS)
 ]);
@@ -111,6 +117,46 @@ const EVENT_ALIASES = Object.freeze({
   video_playback_failed: "video_error",
   video_playback_summary: "video_watch_summary"
 });
+
+const EVENT_CONTRACTS = Object.freeze({
+  product_viewed: { domain: "discovery", entityType: "product", actorType: "person_or_session", outcome: "attention" },
+  product_clicked: { domain: "discovery", entityType: "product", actorType: "person_or_session", outcome: "interest" },
+  product_opened: { domain: "discovery", entityType: "product", actorType: "person_or_session", outcome: "detail_view" },
+  product_swiped: { domain: "discovery", entityType: "product", actorType: "person_or_session", outcome: "exploration" },
+  product_searched: { domain: "search", entityType: "query", actorType: "person_or_session", outcome: "demand_signal" },
+  image_search: { domain: "search", entityType: "image_query", actorType: "person_or_session", outcome: "demand_signal" },
+  product_shared: { domain: "engagement", entityType: "product", actorType: "person_or_session", outcome: "advocacy" },
+  product_saved: { domain: "engagement", entityType: "product", actorType: "person", outcome: "consideration" },
+  product_liked: { domain: "engagement", entityType: "product", actorType: "person", outcome: "preference" },
+  product_unliked: { domain: "engagement", entityType: "product", actorType: "person", outcome: "preference_removed" },
+  person_followed: { domain: "social", entityType: "person", actorType: "person", outcome: "follow" },
+  person_unfollowed: { domain: "social", entityType: "person", actorType: "person", outcome: "unfollow" },
+  seller_followed: { domain: "social", entityType: "person", actorType: "person", outcome: "follow" },
+  demand_requested: { domain: "demand", entityType: "product", actorType: "person_or_session", outcome: "unmet_demand" },
+  product_sold_out: { domain: "inventory", entityType: "product", actorType: "person", outcome: "supply_exhausted" },
+  product_restocked: { domain: "inventory", entityType: "product", actorType: "person", outcome: "supply_added" },
+  product_uploaded: { domain: "supply", entityType: "product", actorType: "person", outcome: "supply_added" },
+  product_edited: { domain: "supply", entityType: "product", actorType: "person", outcome: "supply_updated" },
+  product_deleted: { domain: "supply", entityType: "product", actorType: "person", outcome: "supply_removed" },
+  conversation_signal: { domain: "commerce", entityType: "product", actorType: "person", outcome: "seller_contact" },
+  order_created: { domain: "commerce", entityType: "product", actorType: "person", outcome: "order_intent" },
+  order_status_changed: { domain: "commerce", entityType: "product", actorType: "person", outcome: "order_progress" },
+  product_purchased: { domain: "commerce", entityType: "product", actorType: "person", outcome: "purchase" },
+  promotion_started: { domain: "promotion", entityType: "product", actorType: "person", outcome: "distribution_started" },
+  promotion_requested: { domain: "promotion", entityType: "product", actorType: "person", outcome: "distribution_requested" },
+  promotion_ended: { domain: "promotion", entityType: "product", actorType: "person", outcome: "distribution_ended" },
+  notification_clicked: { domain: "notification", entityType: "notification", actorType: "person", outcome: "engagement" },
+  feed_exposure: { domain: "ranking", entityType: "product", actorType: "person_or_session", outcome: "exposure" }
+});
+
+function getEventContract(eventType = "") {
+  const normalized = normalizeEventType(eventType);
+  if (EVENT_CONTRACTS[normalized]) return EVENT_CONTRACTS[normalized];
+  if (normalized.startsWith("video_")) {
+    return { domain: "video", entityType: "product", actorType: "person_or_session", outcome: normalized.slice(6) || "interaction" };
+  }
+  return { domain: "observability", entityType: "unknown", actorType: "person_or_session", outcome: "observed" };
+}
 
 function sanitizeText(value, maxLength = 120) {
   return String(value || "")
@@ -355,6 +401,7 @@ function createIntelligencePlatform(options = {}) {
     ), 80);
     const timestamp = now().toISOString();
     const eventType = normalizeEventType(payload.event);
+    const contract = getEventContract(eventType);
     const playbackSessionId = metadata.measurementversion === "video-session-v2"
       && eventType.startsWith("video_")
       && /^[a-zA-Z0-9_-]{16,80}$/.test(metadata.playbacksessionid || "")
@@ -373,6 +420,11 @@ function createIntelligencePlatform(options = {}) {
         fingerprint: payload.fingerprint
       }),
       eventType,
+      schemaVersion: EVENT_SCHEMA_VERSION,
+      domain: contract.domain,
+      entityType: contract.entityType,
+      actorType: contract.actorType,
+      outcome: contract.outcome,
       sourceEvent: sanitizeText(payload.event, 80),
       timestamp,
       productId,
@@ -462,6 +514,11 @@ function createIntelligencePlatform(options = {}) {
       event: "intelligence_event",
       eventId: event.eventId,
       eventType: event.eventType,
+      schemaVersion: event.schemaVersion,
+      domain: event.domain,
+      entityType: event.entityType,
+      actorType: event.actorType,
+      outcome: event.outcome,
       productId: event.productId,
       sellerId: event.sellerId,
       buyerId: event.buyerId,
@@ -609,11 +666,14 @@ function createIntelligencePlatform(options = {}) {
 
 module.exports = {
   PLATFORM_VERSION,
+  EVENT_SCHEMA_VERSION,
+  EVENT_CONTRACTS,
   PRODUCT_SIGNAL_WEIGHTS,
   SELLER_SIGNAL_WEIGHTS,
   CONTRIBUTION_WINDOW_MS,
   MAX_CONTRIBUTIONS_PER_WINDOW,
   normalizeEventType,
+  getEventContract,
   getSignalQuality,
   getActorKey,
   getScoreTargetKey,

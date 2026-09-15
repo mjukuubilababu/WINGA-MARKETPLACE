@@ -1079,6 +1079,35 @@ const intelligencePlatform = createIntelligencePlatform({
   logger: console
 });
 
+function dispatchBusinessIntelligenceEvent({ event, req, session, product, productId, sellerId, context = {} } = {}) {
+  const resolvedProductId = sanitizePlainText(productId || product?.id || "", 100);
+  const resolvedSellerId = sanitizePlainText(sellerId || product?.uploadedBy || "", 80);
+  setImmediate(() => {
+    intelligencePlatform.ingestClientEvent({
+      level: "info",
+      event,
+      productId: resolvedProductId,
+      sellerId: resolvedSellerId,
+      context: {
+        ...context,
+        productId: resolvedProductId,
+        sellerId: resolvedSellerId,
+        source: "server_business_event"
+      }
+    }, {
+      req,
+      session,
+      store: product ? { products: [product] } : undefined,
+      appVersion: APP_BUILD_VERSION
+    }).catch((error) => {
+      console.warn("[WINGA] Business intelligence event failed open.", {
+        event,
+        message: error?.message || String(error)
+      });
+    });
+  });
+}
+
 function scheduleVideoPurchaseConversionAttribution({ req, session, product, orderId = "" } = {}) {
   const buyerId = sanitizePlainText(session?.username || "", 80);
   const productId = sanitizePlainText(product?.id || "", 100);
@@ -7705,6 +7734,13 @@ const server = http.createServer(async (req, res) => {
         if (following && result.notification) {
           await emitAuthorizedNotification(result.notification);
         }
+        dispatchBusinessIntelligenceEvent({
+          event: following ? "person_followed" : "person_unfollowed",
+          req,
+          session,
+          sellerId: followedUsername,
+          context: { followedUserId: followedUsername, source: source || "organic" }
+        });
       }
       const { notification: _notification, ...publicResult } = result;
       sendJson(res, 200, { ok: true, followedUsername, ...publicResult }, { "Cache-Control": "private, no-store" });
@@ -10632,6 +10668,13 @@ const server = http.createServer(async (req, res) => {
           productId: product.id,
           promotionType: promotion.type
         });
+        dispatchBusinessIntelligenceEvent({
+          event: "promotion_requested",
+          req,
+          session,
+          product,
+          context: { promotionId: promotion.id, promotionType: promotion.type }
+        });
         sendJson(res, 200, promotion);
         return;
       }
@@ -10677,6 +10720,12 @@ const server = http.createServer(async (req, res) => {
           await writeStore(store);
           sendJson(res, 200, { ok: true, readAt: now });
         }
+        dispatchBusinessIntelligenceEvent({
+          event: "notification_clicked",
+          req,
+          session,
+          context: { notificationId }
+        });
         return;
       }
 
@@ -10787,6 +10836,16 @@ const server = http.createServer(async (req, res) => {
           username: session.username,
           promotionId
         });
+        if (requestedStatus === "active") {
+          dispatchBusinessIntelligenceEvent({
+            event: "promotion_started",
+            req,
+            session,
+            productId: nextPromotion?.productId,
+            sellerId: nextPromotion?.sellerUsername,
+            context: { promotionId, promotionType: nextPromotion?.type }
+          });
+        }
         sendJson(res, 200, nextPromotion || { ok: true });
         return;
       }
@@ -10848,6 +10907,15 @@ const server = http.createServer(async (req, res) => {
           event: "promotion_disabled",
           username: session.username,
           promotionId
+        });
+        const disabledPromotion = promotions.find((item) => item.id === promotionId);
+        dispatchBusinessIntelligenceEvent({
+          event: "promotion_ended",
+          req,
+          session,
+          productId: disabledPromotion?.productId,
+          sellerId: disabledPromotion?.sellerUsername,
+          context: { promotionId, reason: "disabled" }
         });
         sendJson(res, 200, { ok: true });
         return;
@@ -11048,6 +11116,14 @@ const server = http.createServer(async (req, res) => {
           username: sender.username,
           receiverId: normalizedPayload.receiverId,
           productId: normalizedPayload.productId || ""
+        });
+        dispatchBusinessIntelligenceEvent({
+          event: "conversation_signal",
+          req,
+          session,
+          productId: normalizedPayload.productId,
+          sellerId: normalizedPayload.receiverId,
+          context: { messageId: nextMessage.id, messageType: nextMessage.messageType }
         });
         if (normalizedPayload.productId) {
           scheduleCommerceOutcomeAttribution({
@@ -12820,6 +12896,13 @@ const server = http.createServer(async (req, res) => {
         paymentId: payment.id,
         paymentStatus: payment.paymentStatus
       });
+      dispatchBusinessIntelligenceEvent({
+        event: "order_created",
+        req,
+        session,
+        product,
+        context: { orderId: order.id, paymentStatus: payment.paymentStatus }
+      });
       scheduleCommerceOutcomeAttribution({
         session,
         productId: product.id,
@@ -13587,6 +13670,14 @@ const server = http.createServer(async (req, res) => {
         status: nextStatus,
         paymentStatus
       });
+      dispatchBusinessIntelligenceEvent({
+        event: nextStatus === "delivered" ? "product_purchased" : "order_status_changed",
+        req,
+        session: { ...session, username: existingOrder.buyerUsername || session.username },
+        product: getProductById(store, existingOrder.productId),
+        sellerId: existingOrder.sellerUsername,
+        context: { orderId, orderStatus: nextStatus, paymentStatus }
+      });
       emitLiveEvent(notificationRecipient, "notification", { notification: orderNotification });
       sendJson(res, 200, updatedOrder);
       if (nextStatus === "paid") {
@@ -13757,6 +13848,13 @@ const server = http.createServer(async (req, res) => {
         username: sellerUser.username,
         productId: normalizedProduct.id
       });
+      dispatchBusinessIntelligenceEvent({
+        event: "product_uploaded",
+        req,
+        session,
+        product: normalizedProduct,
+        context: { category: normalizedProduct.category, availability: normalizedProduct.availability }
+      });
       await emitAuthorizedNotifications(followerNotifications);
       requestMeta.statusCode = 200;
       logRouteSummary(requestMeta, {
@@ -13868,6 +13966,13 @@ const server = http.createServer(async (req, res) => {
             metadata: { source: "product_action" }
           });
         }
+        dispatchBusinessIntelligenceEvent({
+          event: action === "like" ? (resultingLiked ? "product_liked" : "product_unliked") : "product_viewed",
+          req,
+          session,
+          product: existingProduct,
+          context: { action, changed: true }
+        });
       }
       sendJson(res, 200, {
         ...updatedProduct,
@@ -13983,6 +14088,13 @@ const server = http.createServer(async (req, res) => {
         username: sellerUser.username,
         productId
       });
+      dispatchBusinessIntelligenceEvent({
+        event: "product_edited",
+        req,
+        session,
+        product: updatedProduct,
+        context: { category: updatedProduct.category, availability: updatedProduct.availability }
+      });
       requestMeta.statusCode = 200;
       logRouteSummary(requestMeta, {
         productId,
@@ -14033,6 +14145,13 @@ const server = http.createServer(async (req, res) => {
         event: "product_deleted",
         username: sellerUser.username,
         productId
+      });
+      dispatchBusinessIntelligenceEvent({
+        event: "product_deleted",
+        req,
+        session,
+        product: existingProduct,
+        context: { category: existingProduct.category }
       });
       sendJson(res, 200, { ok: true, id: productId });
       return;
