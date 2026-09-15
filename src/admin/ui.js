@@ -381,10 +381,11 @@
           ["summarySales", a("salesCurrency", "Sales ({currency})", { currency: timeSeries.currency || "TZS" }), hasTimeSeries ? count(periodCurrent.sales) : "—", "/icons/navigation/chart-column.svg", hasTimeSeries ? periodGrowth.sales : undefined]
         ]);
         panel.insertBefore(welcome, tablist);
+        const activeGoals = rows(data.commerceGoals);
         const activeOpportunities = rows(data.commerceLearning?.opportunities)
           .filter(entry => entry && !entry.sellerResponded)
           .slice(0, 2);
-        const adaptiveSignals = activeOpportunities.length
+        const adaptiveSignals = activeGoals.length + activeOpportunities.length
           + (Number(data.newInquiries || 0) > 0 ? 1 : 0)
           + (Number(video.videoAssistedActions || 0) > 0 || Number(video.productClicks || 0) > 0 ? 1 : 0);
         if (adaptiveSignals > 0) {
@@ -392,6 +393,30 @@
           const adaptiveHeading = el("div", "analytics-section-heading");
           adaptiveHeading.append(icon("/icons/navigation/sparkles.svg", "orange"), el("h2", "", a("adaptiveNow", "What matters now")));
           adaptive.append(adaptiveHeading);
+          if (activeGoals.length) {
+            const goal = activeGoals[0];
+            adaptive.append(el("h3", "analytics-adaptive-subtitle", a("stillLooking", "Still looking for")));
+            const goalCard = el("div", "analytics-goal-card");
+            goalCard.append(el("strong", "", goal.productName || String(goal.queryKey || "").replace(/-/g, " ")),
+              el("p", "analytics-note", a("goalEvidence", "{matches} available matches found", { matches: count(goal.matchingProducts || 0) })));
+            const goalActions = el("div", "analytics-goal-actions");
+            if (goal.productId) goalActions.append(analyticsButton(a("viewProduct", "View product"), () => deps.onAnalyticsAction?.("product", goal.productId)));
+            const resolveGoal = async (resolution) => {
+              Array.from(goalActions.querySelectorAll("button")).forEach(button => { button.disabled = true; });
+              try {
+                await deps.resolveCommerceGoal?.(goal.goalId, resolution);
+                sellerState.data.commerceGoals = activeGoals.filter(entry => entry.goalId !== goal.goalId);
+                renderSellerDashboard();
+              } catch (error) {
+                deps.captureError?.("commerce_goal_resolution_failed", error, { category: "analytics" });
+                Array.from(goalActions.querySelectorAll("button")).forEach(button => { button.disabled = false; });
+              }
+            };
+            goalActions.append(analyticsButton(a("foundIt", "Found what I needed"), () => resolveGoal("found")),
+              analyticsButton(a("stopLooking", "Stop looking"), () => resolveGoal("stopped")));
+            goalCard.append(goalActions);
+            adaptive.append(goalCard);
+          }
           if (activeOpportunities.length) {
             adaptive.append(el("h3", "analytics-adaptive-subtitle", a("todaysOpportunities", "Today's opportunities")));
             activeOpportunities.forEach(entry => adaptive.append(createSellerOpportunityItem(entry)));

@@ -2145,6 +2145,13 @@ async loadAdminPayments(filters) {
           body: JSON.stringify({ actionType: "dismiss" })
         });
       },
+      async resolveCommerceGoal(goalId, resolution = "stopped") {
+        return fetchJson(`${baseUrl}/commerce/goals/${encodeURIComponent(goalId)}/resolve`, {
+          method: "POST",
+          headers: { ...createAuthHeaders(), "Content-Type": "application/json" },
+          body: JSON.stringify({ resolution })
+        });
+      },
       async loadAnalytics(options = {}) {
           const requestedDays = Number(options.windowDays || 30);
           const windowDays = [7, 30, 90].includes(requestedDays) ? requestedDays : 30;
@@ -4041,7 +4048,10 @@ async loadAdminPayments() {
     },
     async loadAnalytics(options = {}) {
         return state.adapter.loadAnalytics ? state.adapter.loadAnalytics(options) : null;
-      },
+    },
+    async resolveCommerceGoal(goalId, resolution = "stopped") {
+      return state.adapter.resolveCommerceGoal ? state.adapter.resolveCommerceGoal(goalId, resolution) : null;
+    },
       async loadAppSettings() {
         const settings = state.adapter.loadAppSettings ? await state.adapter.loadAppSettings() : normalizeAppSettings(DEFAULT_APP_SETTINGS);
         state.appSettings = normalizeAppSettings(settings || DEFAULT_APP_SETTINGS);

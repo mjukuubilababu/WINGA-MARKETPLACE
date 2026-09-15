@@ -178,6 +178,7 @@ test("seller Analytics tabs show supplied aggregates without invented growth and
       mostRequestedColors: [{ color: "black", count: 2 }]
     },
     commerceLearning: { opportunities: [] }, searchDemand: { trendingSearches: [], regionalDemand: [] },
+    commerceGoals: [{ goalId: "goal-e2e-1", productId: "e2e-prod-1", productName: "Gallery product", status: "looking", matchingProducts: 2 }],
     timeSeries: {
       windowDays: 30, privacy: "seller-scoped-aggregate-only", currency: "TZS",
       points: [
@@ -202,6 +203,7 @@ test("seller Analytics tabs show supplied aggregates without invented growth and
   await expect(page.locator(".analytics-welcome")).toContainText("buyer_seller");
   await expect(page.locator(".analytics-adaptive-layer")).toBeVisible();
   await expect(page.locator(".analytics-adaptive-layer")).toContainText(/content|video|maudhui/i);
+  await expect(page.locator(".analytics-goal-card")).toContainText("Gallery product");
   await expect(page.locator("[data-metric='summarySales'] strong")).toHaveText("25,000");
   await expect(page.locator(".analytics-action-grid .analytics-action-card")).toHaveCount(3);
   await expect(page.locator("[data-metric='totalViews'] strong")).toHaveText("116");

@@ -8452,6 +8452,13 @@ const server = http.createServer(async (req, res) => {
         await writeStore(nextStore);
       }
       store = nextStore;
+      if (nextStatus === "delivered" && postgresStore?.completeCommerceGoalsForOrder) {
+        try {
+          await postgresStore.completeCommerceGoalsForOrder(existingOrder.buyerUsername, existingOrder.productId, orderId);
+        } catch (error) {
+          console.warn("[WINGA] Commerce goal completion failed open.", error?.message || error);
+        }
+      }
       await appendAuditLog({
         time: new Date().toISOString(),
         ip: clientIp,
@@ -9994,6 +10001,20 @@ const server = http.createServer(async (req, res) => {
         await writeStore(store);
       }
       rememberDemandDedupeKey(demandEvent.dedupeKey);
+      let commerceGoal = null;
+      if (session?.username && postgresStore?.upsertCommerceGoal) {
+        commerceGoal = await postgresStore.upsertCommerceGoal({
+          goalId: `goal_${crypto.randomUUID()}`,
+          userId: session.username,
+          productId: demandEvent.productId,
+          queryKey: sanitizePlainText(product.name || "", 120).toLowerCase().replace(/\s+/g, "-"),
+          category: product.category || "",
+          color: demandEvent.color,
+          size: demandEvent.size,
+          region: demandEvent.region,
+          metadata: { source: "sold_out_demand", action: demandEvent.action }
+        });
+      }
 
       await appendAuditLog({
         time: demandEvent.createdAt,
@@ -10042,8 +10063,30 @@ const server = http.createServer(async (req, res) => {
           region: demandEvent.region,
           createdAt: demandEvent.createdAt
         },
-        summary: demandSummary
+        summary: demandSummary,
+        commerceGoal
       });
+      return;
+    }
+
+    if (req.method === "POST" && /^\/api\/commerce\/goals\/[^/]+\/resolve$/.test(url.pathname)) {
+      const session = findSession(store, readAuthToken(req));
+      const user = ensureMarketplaceUser(store, session, res);
+      if (!user) return;
+      if (!postgresStore?.resolveCommerceGoal) {
+        sendJson(res, 503, { error: "Commerce goal haipatikani kwa sasa." });
+        return;
+      }
+      const goalId = decodeURIComponent(url.pathname.split("/")[4] || "").slice(0, 120);
+      const payload = await collectBody(req);
+      const resolution = ["found", "stopped", "completed"].includes(String(payload?.resolution || ""))
+        ? String(payload.resolution) : "stopped";
+      const goal = await postgresStore.resolveCommerceGoal(goalId, user.username, resolution);
+      if (!goal) {
+        sendJson(res, 404, { error: "Commerce goal haijapatikana." });
+        return;
+      }
+      sendJson(res, 200, { ok: true, goal }, { "Cache-Control": "private, no-store" });
       return;
     }
 
@@ -11343,6 +11386,13 @@ const server = http.createServer(async (req, res) => {
           };
         } catch (error) {
           analytics.demand = analytics.demand || { error: "unavailable" };
+        }
+      }
+      if (!isAdminAnalytics && postgresStore?.readCommerceGoals) {
+        try {
+          analytics.commerceGoals = await postgresStore.readCommerceGoals(user.username, 6);
+        } catch (error) {
+          analytics.commerceGoals = [];
         }
       }
       if (!isAdminAnalytics && postgresStore?.readSellerVideoAnalytics) {

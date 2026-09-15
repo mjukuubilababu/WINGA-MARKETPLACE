@@ -5652,6 +5652,57 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     }));
   }
 
+  async function upsertCommerceGoal(input = {}) {
+    const result = await pool.query(
+      `INSERT INTO commerce_goals (goal_id, user_id, product_id, query_key, category, color, size, region, status, metadata)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'looking',$9::jsonb)
+       ON CONFLICT (user_id, product_id, color, size) WHERE status IN ('looking','matched','contacted','ordered')
+       DO UPDATE SET query_key=EXCLUDED.query_key, category=EXCLUDED.category, region=EXCLUDED.region,
+         updated_at=NOW(), row_version=commerce_goals.row_version+1
+       RETURNING goal_id AS "goalId", product_id AS "productId", query_key AS "queryKey", category,
+         color, size, region, status, created_at AS "createdAt", updated_at AS "updatedAt"`,
+      [input.goalId, input.userId, input.productId || null, input.queryKey || "", input.category || "",
+        input.color || "", input.size || "", input.region || "", JSON.stringify(input.metadata || {})]
+    );
+    return result.rows?.[0] || null;
+  }
+
+  async function readCommerceGoals(userId = "", limit = 10) {
+    const result = await readPool.query(
+      `SELECT g.goal_id AS "goalId", g.product_id AS "productId", g.query_key AS "queryKey", g.category,
+              g.color, g.size, g.region, g.status, g.created_at AS "createdAt", g.updated_at AS "updatedAt",
+              p.name AS "productName", p.image AS "productImage", p.availability,
+              COALESCE((SELECT COUNT(*) FROM products m WHERE m.status='approved' AND m.availability='available'
+                AND (m.category=g.category OR m.id=g.product_id)),0)::int AS "matchingProducts"
+       FROM commerce_goals g LEFT JOIN products p ON p.id=g.product_id
+       WHERE g.user_id=$1 AND g.status IN ('looking','matched','contacted','ordered')
+       ORDER BY g.updated_at DESC, g.goal_id DESC LIMIT $2`,
+      [userId, Math.max(1, Math.min(20, Number(limit) || 10))]
+    );
+    return result.rows || [];
+  }
+
+  async function resolveCommerceGoal(goalId = "", userId = "", resolution = "found") {
+    const result = await pool.query(
+      `UPDATE commerce_goals SET status=$3, resolution=$4, resolved_at=NOW(), updated_at=NOW(), row_version=row_version+1
+       WHERE goal_id=$1 AND user_id=$2 AND status IN ('looking','matched','contacted','ordered')
+       RETURNING goal_id AS "goalId", status, resolution, resolved_at AS "resolvedAt"`,
+      [goalId, userId, resolution === "completed" ? "completed" : "stopped", resolution]
+    );
+    return result.rows?.[0] || null;
+  }
+
+  async function completeCommerceGoalsForOrder(userId = "", productId = "", orderId = "") {
+    const result = await pool.query(
+      `UPDATE commerce_goals SET status='completed', resolution='delivered_order', resolved_at=NOW(), updated_at=NOW(),
+         metadata=metadata || jsonb_build_object('orderId',$3::text), row_version=row_version+1
+       WHERE user_id=$1 AND product_id=$2 AND status IN ('looking','matched','contacted','ordered')
+       RETURNING goal_id`,
+      [userId, productId, orderId]
+    );
+    return Number(result.rowCount || 0);
+  }
+
   async function hasRecentVideoCommerceAttribution(buyerId = "", productId = "", options = {}) {
     const safeBuyerId = String(buyerId || "").trim().slice(0, 80);
     const safeProductId = String(productId || "").trim().slice(0, 100);
@@ -8768,6 +8819,10 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     readIntelligenceSummary,
     appendDemandEvent,
     readSellerDemandSummary,
+    upsertCommerceGoal,
+    readCommerceGoals,
+    resolveCommerceGoal,
+    completeCommerceGoalsForOrder,
     readSellerAnalyticsTimeSeries,
     hasRecentVideoCommerceAttribution,
     readSellerVideoAnalytics,
