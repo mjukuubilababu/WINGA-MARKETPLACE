@@ -1349,7 +1349,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       const remove = Boolean(options.remove);
       return fetchJson(`${baseUrl}/social/collections/${encodeURIComponent(String(collectionId || "").trim())}/items/${encodeURIComponent(String(productId || "").trim())}`, {
         method: remove ? "DELETE" : "PUT",
-        headers: headers(!remove),
+        headers: headers(true),
         ...(remove ? {} : { body: JSON.stringify({ position: options.position || 0, note: options.note || "" }) })
       });
     }
@@ -20684,6 +20684,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         identityMarkup,
         sellerUpgradeMarkup,
         savedIntentMarkup,
+        collectionsMarkup,
         promotionsMarkup,
         requestsMarkup,
         ordersMarkup,
@@ -20717,6 +20718,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         identityMarkup,
         sellerUpgradeMarkup,
         savedIntentMarkup,
+        collectionsMarkup,
         promotionsMarkup,
         requestsMarkup,
         ordersMarkup,
@@ -21997,6 +21999,11 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             {
               value: Number(socialProfile?.followingCount || 0),
               label: t("profile.followingStat", "Following")
+            },
+            {
+              value: deps.getProfileCollectionCount?.()
+                ?? Number(socialProfile?.publicContent?.collections || 0),
+              label: t("collections.eyebrow", "Collections")
             }
 
           ],
@@ -22023,6 +22030,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             primaryCategory: userProfile?.primaryCategory || "",
           }),
           savedIntentMarkup: deps.renderSavedIntentSection?.(),
+          collectionsMarkup: deps.renderProfileCollectionsSection?.(),
           promotionsMarkup: deps.createPromotionManagementSectionElement?.({
             canUseSellerFeatures: deps.canUseSellerFeatures(),
             promotions: sellerPromotions

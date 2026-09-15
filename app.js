@@ -9700,6 +9700,246 @@ function renderSavedIntentSection() {
   `;
 }
 
+function getProfileCollectionCandidates() {
+  const candidateIds = new Set([
+    ...Array.from(ensureSavedProductIdsLoaded()),
+    ...products
+      .filter((product) => product?.uploadedBy === currentUser && product?.status === "approved")
+      .map((product) => product.id)
+  ]);
+  return products
+    .filter((product) => candidateIds.has(product?.id) && product?.status === "approved")
+    .slice(0, 60);
+}
+
+function resetProfileCollectionState(username = currentUser) {
+  profileCollectionState.username = String(username || "");
+  profileCollectionState.status = "idle";
+  profileCollectionState.items = [];
+  profileCollectionState.error = "";
+  profileCollectionState.requestId += 1;
+}
+
+function loadProfileCollections(options = {}) {
+  const username = String(currentUser || "").trim();
+  if (!username || typeof window.WingaDataLayer?.loadUserCollections !== "function") {
+    return Promise.resolve([]);
+  }
+  if (profileCollectionState.username !== username) {
+    resetProfileCollectionState(username);
+  }
+  if (!options.force && ["loading", "ready"].includes(profileCollectionState.status)) {
+    return Promise.resolve(profileCollectionState.items);
+  }
+  const requestId = ++profileCollectionState.requestId;
+  profileCollectionState.status = "loading";
+  profileCollectionState.error = "";
+  return window.WingaDataLayer.loadUserCollections(username, { limit: 30 })
+    .then((page) => {
+      if (requestId !== profileCollectionState.requestId || profileCollectionState.username !== username) {
+        return profileCollectionState.items;
+      }
+      profileCollectionState.items = Array.isArray(page?.items) ? page.items : [];
+      profileCollectionState.status = "ready";
+      if (currentView === "profile") renderProfileFromController();
+      return profileCollectionState.items;
+    })
+    .catch((error) => {
+      if (requestId !== profileCollectionState.requestId) return [];
+      profileCollectionState.status = "error";
+      profileCollectionState.error = String(error?.message || "");
+      captureClientError("profile_collections_load_failed", error, { category: "social" });
+      if (currentView === "profile") renderProfileFromController();
+      return [];
+    });
+}
+
+function renderProfileCollectionsSection() {
+  const candidates = getProfileCollectionCandidates();
+  const collectionCards = profileCollectionState.items.map((collection) => {
+    const itemIds = new Set((collection.items || []).map((item) => item.productId).filter(Boolean));
+    const availableOptions = candidates
+      .filter((product) => !itemIds.has(product.id))
+      .map((product) => `<option value="${escapeHtml(product.id || "")}">${escapeHtml(product.name || translateUi("collections.unnamedProduct", {}, "Product"))}</option>`)
+      .join("");
+    const previews = (collection.items || []).map((item) => {
+      const product = getProductById(item.productId) || item;
+      const image = sanitizeImageSource(product.image || "", getImageFallbackDataUri());
+      return `<div class="profile-collection-preview-shell">
+        <button class="profile-collection-preview" type="button" data-open-saved-product="${escapeHtml(item.productId || "")}" aria-label="${escapeHtml(product.name || translateUi("collections.openProduct", {}, "Open product"))}">
+          <img src="${escapeHtml(image)}" alt="" loading="lazy" decoding="async">
+        </button>
+        <button class="profile-collection-remove" type="button" data-remove-profile-collection-item="${escapeHtml(collection.id || "")}" data-product-id="${escapeHtml(item.productId || "")}" aria-label="${escapeHtml(translateUi("collections.remove", {}, "Remove product"))}" title="${escapeHtml(translateUi("collections.remove", {}, "Remove product"))}">&times;</button>
+      </div>`;
+    }).join("");
+    const canPublish = collection.status === "draft" && Number(collection.itemCount || 0) > 0;
+    return `
+      <article class="orders-card profile-collection-card" data-profile-collection="${escapeHtml(collection.id || "")}">
+        <div class="profile-collection-heading">
+          <div>
+            <strong>${escapeHtml(collection.title || "")}</strong>
+            <p class="product-meta">${escapeHtml(translateUi("collections.itemCount", { count: Number(collection.itemCount || 0) }, `${Number(collection.itemCount || 0)} products`))}</p>
+          </div>
+          <span class="status-pill">${escapeHtml(translateUi(`collections.status.${collection.status || "draft"}`, {}, collection.status || "draft"))}</span>
+        </div>
+        ${collection.description ? `<p class="product-meta">${escapeHtml(collection.description)}</p>` : ""}
+        ${previews ? `<div class="profile-collection-previews">${previews}</div>` : ""}
+        ${collection.status !== "archived" && availableOptions ? `
+          <div class="profile-collection-add-row">
+            <select class="auth-input" data-collection-product-select="${escapeHtml(collection.id || "")}" aria-label="${escapeHtml(translateUi("collections.chooseProduct", {}, "Choose product"))}">
+              <option value="">${escapeHtml(translateUi("collections.chooseProduct", {}, "Choose product"))}</option>
+              ${availableOptions}
+            </select>
+            <button class="action-btn action-btn-secondary" type="button" data-add-profile-collection-item="${escapeHtml(collection.id || "")}">${escapeHtml(translateUi("collections.add", {}, "Add"))}</button>
+          </div>
+        ` : ""}
+        ${canPublish ? `<button class="action-btn buy-btn" type="button" data-publish-profile-collection="${escapeHtml(collection.id || "")}" data-row-version="${Number(collection.rowVersion || 1)}">${escapeHtml(translateUi("collections.publish", {}, "Publish"))}</button>` : ""}
+      </article>
+    `;
+  }).join("");
+  const loading = profileCollectionState.status === "loading";
+  const statusMarkup = loading
+    ? `<p class="empty-copy compact">${escapeHtml(translateUi("collections.loading", {}, "Loading collections..."))}</p>`
+    : profileCollectionState.status === "error"
+      ? `<button class="action-btn action-btn-secondary" type="button" data-retry-profile-collections="true">${escapeHtml(translateUi("collections.retry", {}, "Try again"))}</button>`
+      : collectionCards || `<p class="empty-copy compact">${escapeHtml(translateUi("collections.empty", {}, "No collections yet."))}</p>`;
+  return `
+    <section id="profile-collections-panel" class="profile-collections-section">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">${escapeHtml(translateUi("collections.eyebrow", {}, "Collections"))}</p>
+          <h3>${escapeHtml(translateUi("collections.title", {}, "Your public picks"))}</h3>
+        </div>
+      </div>
+      <form class="profile-collection-create" data-profile-collection-form="true">
+        <input class="auth-input" name="title" maxlength="120" required placeholder="${escapeHtml(translateUi("collections.namePlaceholder", {}, "Collection name"))}">
+        <textarea class="auth-input" name="description" maxlength="500" rows="2" placeholder="${escapeHtml(translateUi("collections.descriptionPlaceholder", {}, "Short description"))}"></textarea>
+        <div class="profile-collection-create-actions">
+          <select class="auth-input" name="visibility" aria-label="${escapeHtml(translateUi("social.audience", {}, "Audience"))}">
+            <option value="public">${escapeHtml(translateUi("social.visibilityPublic", {}, "Public"))}</option>
+            <option value="followers">${escapeHtml(translateUi("social.visibilityFollowers", {}, "Followers"))}</option>
+            <option value="private">${escapeHtml(translateUi("social.visibilityPrivate", {}, "Private"))}</option>
+          </select>
+          <button class="action-btn buy-btn" type="submit">${escapeHtml(translateUi("collections.create", {}, "Create"))}</button>
+        </div>
+      </form>
+      ${!candidates.length ? `<p class="product-meta">${escapeHtml(translateUi("collections.noCandidates", {}, "Saved or posted products will appear here."))}</p>` : ""}
+      <div class="profile-collection-list" aria-live="polite">${statusMarkup}</div>
+    </section>
+  `;
+}
+
+async function refreshProfileCollections() {
+  await loadProfileCollections({ force: true });
+}
+
+async function createProfileCollection(form) {
+  const data = new FormData(form);
+  const title = String(data.get("title") || "").trim();
+  if (!title) return;
+  const submit = form.querySelector("button[type='submit']");
+  if (submit) submit.disabled = true;
+  try {
+    await window.WingaDataLayer.createUserCollection({
+      title,
+      description: String(data.get("description") || "").trim(),
+      visibility: String(data.get("visibility") || "public")
+    });
+    form.reset();
+    showInAppNotification({
+      title: translateUi("collections.createdTitle", {}, "Collection created"),
+      body: translateUi("collections.createdBody", {}, "Add products, then publish when it is ready."),
+      variant: "success"
+    });
+    await refreshProfileCollections();
+  } catch (error) {
+    captureClientError("profile_collection_create_failed", error, { category: "social" });
+    showInAppNotification({
+      title: translateUi("collections.createFailedTitle", {}, "Collection was not created"),
+      body: error.message || translateUi("collections.tryAgainBody", {}, "Try again after checking your connection."),
+      variant: "warning"
+    });
+  } finally {
+    if (submit) submit.disabled = false;
+  }
+}
+
+async function addProfileCollectionItem(collectionId, button) {
+  const select = Array.from(document.querySelectorAll("[data-collection-product-select]"))
+    .find((node) => node.dataset.collectionProductSelect === collectionId);
+  const productId = String(select?.value || "").trim();
+  if (!productId) return;
+  button.disabled = true;
+  try {
+    await window.WingaDataLayer.setUserCollectionItem(collectionId, productId, {});
+    showInAppNotification({
+      title: translateUi("collections.productAddedTitle", {}, "Product added"),
+      body: translateUi("collections.productAddedBody", {}, "The collection has been updated."),
+      variant: "success",
+      durationMs: 2400
+    });
+    await refreshProfileCollections();
+  } catch (error) {
+    captureClientError("profile_collection_item_add_failed", error, { category: "social", productId });
+    showInAppNotification({
+      title: translateUi("collections.addFailedTitle", {}, "Product was not added"),
+      body: error.message || translateUi("collections.tryAgainBody", {}, "Try again after checking your connection."),
+      variant: "warning"
+    });
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function removeProfileCollectionItem(collectionId, productId, button) {
+  if (!collectionId || !productId) return;
+  button.disabled = true;
+  try {
+    await window.WingaDataLayer.setUserCollectionItem(collectionId, productId, { remove: true });
+    showInAppNotification({
+      title: translateUi("collections.productRemovedTitle", {}, "Product removed"),
+      body: translateUi("collections.productAddedBody", {}, "The collection has been updated."),
+      variant: "success",
+      durationMs: 2400
+    });
+    await refreshProfileCollections();
+  } catch (error) {
+    captureClientError("profile_collection_item_remove_failed", error, { category: "social", productId });
+    showInAppNotification({
+      title: translateUi("collections.removeFailedTitle", {}, "Product was not removed"),
+      body: error.message || translateUi("collections.tryAgainBody", {}, "Try again after checking your connection."),
+      variant: "warning"
+    });
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function publishProfileCollection(collectionId, rowVersion, button) {
+  button.disabled = true;
+  try {
+    await window.WingaDataLayer.updateUserCollection(collectionId, {
+      expectedRowVersion: Number(rowVersion || 1),
+      status: "published"
+    });
+    showInAppNotification({
+      title: translateUi("collections.publishedTitle", {}, "Collection published"),
+      body: translateUi("collections.publishedBody", {}, "People allowed by its audience can now see it."),
+      variant: "success"
+    });
+    await refreshProfileCollections();
+  } catch (error) {
+    captureClientError("profile_collection_publish_failed", error, { category: "social" });
+    showInAppNotification({
+      title: translateUi("collections.publishFailedTitle", {}, "Collection was not published"),
+      body: error.message || translateUi("collections.tryAgainBody", {}, "Try again after checking your connection."),
+      variant: "warning"
+    });
+  } finally {
+    button.disabled = false;
+  }
+}
+
 function getLatestApprovedSellerProduct(username) {
   const safeUsername = String(username || "").trim();
   if (!safeUsername) {
@@ -10716,7 +10956,50 @@ function bindTrustReportEntryActions() {
     return;
   }
   document.body.dataset.trustReportBound = "true";
+  document.addEventListener("submit", (event) => {
+    const form = event.target?.closest?.("[data-profile-collection-form='true']");
+    if (!form) return;
+    event.preventDefault();
+    createProfileCollection(form);
+  });
   document.addEventListener("click", (event) => {
+    const retryCollectionsButton = event.target.closest("[data-retry-profile-collections]");
+    if (retryCollectionsButton) {
+      event.preventDefault();
+      refreshProfileCollections();
+      return;
+    }
+
+    const addCollectionItemButton = event.target.closest("[data-add-profile-collection-item]");
+    if (addCollectionItemButton) {
+      event.preventDefault();
+      addProfileCollectionItem(addCollectionItemButton.dataset.addProfileCollectionItem || "", addCollectionItemButton);
+      return;
+    }
+
+    const removeCollectionItemButton = event.target.closest("[data-remove-profile-collection-item]");
+    if (removeCollectionItemButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      removeProfileCollectionItem(
+        removeCollectionItemButton.dataset.removeProfileCollectionItem || "",
+        removeCollectionItemButton.dataset.productId || "",
+        removeCollectionItemButton
+      );
+      return;
+    }
+
+    const publishCollectionButton = event.target.closest("[data-publish-profile-collection]");
+    if (publishCollectionButton) {
+      event.preventDefault();
+      publishProfileCollection(
+        publishCollectionButton.dataset.publishProfileCollection || "",
+        publishCollectionButton.dataset.rowVersion || "1",
+        publishCollectionButton
+      );
+      return;
+    }
+
     const savedProductButton = event.target.closest("[data-open-saved-product]");
     if (savedProductButton) {
       event.preventDefault();
@@ -11324,6 +11607,10 @@ const {
   createPromotionManagementSectionElement,
   createSessionSecuritySectionElement,
   renderSavedIntentSection,
+  renderProfileCollectionsSection,
+  getProfileCollectionCount: () => profileCollectionState.status === "ready"
+    ? profileCollectionState.items.length
+    : null,
   createOrdersContainerFromState,
   renderRequestBoxSection,
   renderNotificationsSection,
@@ -13258,6 +13545,13 @@ const followedSellerState = {
 const followedSellerNotificationState = {
   storageKey: "",
   readIds: new Set()
+};
+const profileCollectionState = {
+  username: "",
+  status: "idle",
+  items: [],
+  error: "",
+  requestId: 0
 };
 const imageLightboxState = {
   images: [],
@@ -21167,6 +21461,7 @@ function renderCurrentView(options = {}) {
 }
 
 function renderProfile() {
+  loadProfileCollections();
   return renderProfileFromController();
 }
 

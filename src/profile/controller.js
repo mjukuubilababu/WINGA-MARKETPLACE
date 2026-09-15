@@ -1029,6 +1029,11 @@
             {
               value: Number(socialProfile?.followingCount || 0),
               label: t("profile.followingStat", "Following")
+            },
+            {
+              value: deps.getProfileCollectionCount?.()
+                ?? Number(socialProfile?.publicContent?.collections || 0),
+              label: t("collections.eyebrow", "Collections")
             }
 
           ],
@@ -1055,6 +1060,7 @@
             primaryCategory: userProfile?.primaryCategory || "",
           }),
           savedIntentMarkup: deps.renderSavedIntentSection?.(),
+          collectionsMarkup: deps.renderProfileCollectionsSection?.(),
           promotionsMarkup: deps.createPromotionManagementSectionElement?.({
             canUseSellerFeatures: deps.canUseSellerFeatures(),
             promotions: sellerPromotions

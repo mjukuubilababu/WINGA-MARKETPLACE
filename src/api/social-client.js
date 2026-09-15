@@ -62,7 +62,7 @@
       const remove = Boolean(options.remove);
       return fetchJson(`${baseUrl}/social/collections/${encodeURIComponent(String(collectionId || "").trim())}/items/${encodeURIComponent(String(productId || "").trim())}`, {
         method: remove ? "DELETE" : "PUT",
-        headers: headers(!remove),
+        headers: headers(true),
         ...(remove ? {} : { body: JSON.stringify({ position: options.position || 0, note: options.note || "" }) })
       });
     }

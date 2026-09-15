@@ -5806,6 +5806,28 @@ test("public collections are canonical privacy-aware curator content", () => {
   assert.match(dataSource, /async createUserCollection\(payload = \{\}\)/);
   assert.match(dataSource, /async setUserCollectionItem\(collectionId, productId, options = \{\}\)/);
 });
+
+test("profile collections support create add publish and localized responsive rendering", () => {
+  const root = path.resolve(__dirname, "..");
+  const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
+  const controllerSource = fs.readFileSync(path.join(root, "src", "profile", "controller.js"), "utf8");
+  const uiSource = fs.readFileSync(path.join(root, "src", "profile", "ui.js"), "utf8");
+  const styleSource = fs.readFileSync(path.join(root, "style.css"), "utf8");
+
+  assert.match(appSource, /function loadProfileCollections\(options = \{\}\)/);
+  assert.match(appSource, /WingaDataLayer\.loadUserCollections\(username, \{ limit: 30 \}\)/);
+  assert.match(appSource, /WingaDataLayer\.createUserCollection/);
+  assert.match(appSource, /WingaDataLayer\.setUserCollectionItem/);
+  assert.match(appSource, /function removeProfileCollectionItem/);
+  assert.match(appSource, /WingaDataLayer\.updateUserCollection/);
+  assert.match(appSource, /data-profile-collection-form/);
+  assert.match(appSource, /data-publish-profile-collection/);
+  assert.match(controllerSource, /collectionsMarkup: deps\.renderProfileCollectionsSection/);
+  assert.match(controllerSource, /socialProfile\?\.publicContent\?\.collections/);
+  assert.match(uiSource, /collectionsMarkup/);
+  assert.match(styleSource, /\.profile-collection-previews/);
+  assert.match(styleSource, /@media \(max-width:560px\)/);
+});
 (async () => {
   let passed = 0;
   for (const entry of tests) {

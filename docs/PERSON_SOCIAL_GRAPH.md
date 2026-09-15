@@ -164,7 +164,7 @@ video playback privacy, cache invalidation, and client request contracts.
 
 Remaining work:
 
-- user-facing collection creation and profile collection surfaces,
+- public collection discovery on another person's profile,
 - visibility support for future posts and shorts
   once those canonical content models exist,
 - optional user-facing suggestion surfaces,
