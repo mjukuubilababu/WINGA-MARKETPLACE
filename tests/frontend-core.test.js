@@ -5184,11 +5184,14 @@ test("Winga account identity is person-first while selling remains a capability"
   const root = path.resolve(__dirname, "..");
   const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
   const profileSource = fs.readFileSync(path.join(root, "src", "profile", "ui.js"), "utf8");
+  const profileControllerSource = fs.readFileSync(path.join(root, "src", "profile", "controller.js"), "utf8");
   const adminSource = fs.readFileSync(path.join(root, "src", "admin", "controller.js"), "utf8");
 
   assert.match(appSource, /role: "buyer",/);
   assert.match(profileSource, /profile\.wingaAccount/);
   assert.match(profileSource, /context\.hasSellingActivity/);
+  assert.match(profileControllerSource, /profile\.accountResultsMeta/);
+  assert.equal(profileControllerSource.includes("isBuyerOnly"), false);
   assert.equal(adminSource.includes('adminUserAction: "makeBuyer"'), false);
   assert.equal(adminSource.includes('adminUserAction: "makeSeller"'), false);
 });

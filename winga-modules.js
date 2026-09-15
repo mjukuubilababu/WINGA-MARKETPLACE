@@ -10749,7 +10749,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     "reel.outputSize": "The reel is too large. Try fewer photos.",
     "reel.failed": "The reel could not be created. Please try again.",
     "reel.interrupted": "Reel creation was interrupted. Please try again.",
-    "reel.accountRequired": "Sign in to a seller account with a valid contact number to post your reel.",
+    "reel.accountRequired": "Sign in to your Winga account with a valid contact number to post your reel.",
     "reel.creating": "Creating reel...",
     "reel.publishFailed": "Your reel could not be posted. Please try again.",
     "reel.uploadFailed": "The reel upload did not finish. Tap Try again to continue it.",
@@ -14341,8 +14341,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         deps.promptGuestAuth({
           preferredMode: "signup",
           role: "buyer",
-          title: t("requests.accountRequiredTitle", "You need a customer account to save requests"),
-          message: "Sign in or sign up as a mteja to collect products from different sellers.",
+          title: t("requests.accountRequiredTitle", "You need a Winga account to save requests"),
+          message: "Sign in or create a Winga account to collect products from different sellers.",
           intent: {
             type: "add-request",
             productId: product?.id || ""
@@ -16122,7 +16122,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           preferredMode: "signup",
           role: "buyer",
           title: t("chat.accountRequiredTitle", "You need an account to message the seller"),
-          message: t("chat.accountRequiredBody", "Already have an account? Sign In. New here? Sign Up as a buyer to start chatting."),
+          message: t("chat.accountRequiredBody", "Already have an account? Sign in. New here? Create a Winga account to start chatting."),
           intent: {
             type: "open-chat",
             productId: product?.id || ""
@@ -21543,7 +21543,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       if (primaryCategory && primaryCategory.length < 2) {
         deps.showInAppNotification?.({
           title: t("profile.sellerCategoryRequiredTitle", "Category required"),
-          body: t("profile.sellerCategoryRequiredBody", "Category ya seller si sahihi."),
+          body: t("profile.sellerCategoryRequiredBody", "Selling category si sahihi."),
           variant: "warning"
         });
         return;
@@ -21563,14 +21563,14 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           primaryCategory,
         });
         if (!updatedSession?.username) {
-          throw new Error(t("profile.sellerUpgradeFailedBody", "We could not upgrade your account right now."));
+          throw new Error(t("profile.sellerUpgradeFailedBody", "We could not submit selling verification right now."));
         }
         deps.mergeSessionState(updatedSession);
         deps.saveSessionUser();
         deps.renderHeaderUserMenu();
         deps.showInAppNotification?.({
-          title: t("profile.sellerUpgradeCompleteTitle", "Seller upgrade complete"),
-          body: t("profile.sellerUpgradeCompleteBody", "Akaunti yako sasa ni seller. Bila kutoka profile, unaweza kuanza kuuza."),
+          title: t("profile.sellerUpgradeCompleteTitle", "Verification request submitted"),
+          body: t("profile.sellerUpgradeCompleteBody", "Ombi lako limetumwa. Akaunti yako ya Winga haijabadilika na unaweza kuendelea kuitumia."),
           variant: "success"
         });
         deps.renderCurrentView?.();
@@ -21582,8 +21582,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           user: deps.getCurrentUser()
         });
         deps.showInAppNotification?.({
-          title: t("profile.sellerUpgradeFailedTitle", "Seller upgrade failed"),
-          body: error.message || t("profile.sellerUpgradeFailedBody", "Imeshindikana kuupgrade account kwa sasa."),
+          title: t("profile.sellerUpgradeFailedTitle", "Verification request failed"),
+          body: error.message || t("profile.sellerUpgradeFailedBody", "Imeshindikana kutuma ombi la uthibitisho kwa sasa."),
           variant: "error"
         });
       } finally {
@@ -22104,11 +22104,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       if (userProducts.length === 0) {
         deps.setEmptyCopy(
           container,
-          isBuyerOnly
-            ? t("profile.buyerEmpty", "Your buyer account is ready. Browse, search, message sellers, pay, order, review, and report unsafe listings.")
-            : deps.canUseSellerFeatures()
-              ? t("profile.sellerEmpty", "No posts yet. Go to Upload to start building your profile catalog.")
-              : t("profile.catalogEmpty", "You have not posted products yet. Go to Upload to start your catalog.")
+          t("profile.catalogEmpty", "You have not posted anything yet. Use Sell to add a product, photo, or reel.")
         );
         profileDiv.querySelector("#profile-logout-button")?.addEventListener("click", deps.logout);
         bindProfileIdentityActions();
@@ -22117,11 +22113,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         profileDiv.style.display = "block";
         deps.setResultsMeta(
           t("profile.heading", "Profile"),
-          isBuyerOnly
-            ? t("profile.buyerResultsMeta", "Your orders, notifications, messages, and buyer activity appear here.")
-            : deps.canUseSellerFeatures()
-              ? t("profile.sellerResultsMeta", "Your buyer activity, seller catalog, and performance appear here.")
-              : t("profile.catalogResultsMeta", "Your products and their performance appear here.")
+          t("profile.accountResultsMeta", "Your posts, orders, notifications, messages, and activity appear here.")
         );
         return;
       }

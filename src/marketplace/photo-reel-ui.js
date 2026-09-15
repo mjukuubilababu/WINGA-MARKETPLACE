@@ -9,7 +9,7 @@
     "reel.outputSize": "The reel is too large. Try fewer photos.",
     "reel.failed": "The reel could not be created. Please try again.",
     "reel.interrupted": "Reel creation was interrupted. Please try again.",
-    "reel.accountRequired": "Sign in to a seller account with a valid contact number to post your reel.",
+    "reel.accountRequired": "Sign in to your Winga account with a valid contact number to post your reel.",
     "reel.creating": "Creating reel...",
     "reel.publishFailed": "Your reel could not be posted. Please try again.",
     "reel.uploadFailed": "The reel upload did not finish. Tap Try again to continue it.",

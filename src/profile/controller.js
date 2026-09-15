@@ -559,7 +559,7 @@
       if (primaryCategory && primaryCategory.length < 2) {
         deps.showInAppNotification?.({
           title: t("profile.sellerCategoryRequiredTitle", "Category required"),
-          body: t("profile.sellerCategoryRequiredBody", "Category ya seller si sahihi."),
+          body: t("profile.sellerCategoryRequiredBody", "Selling category si sahihi."),
           variant: "warning"
         });
         return;
@@ -579,14 +579,14 @@
           primaryCategory,
         });
         if (!updatedSession?.username) {
-          throw new Error(t("profile.sellerUpgradeFailedBody", "We could not upgrade your account right now."));
+          throw new Error(t("profile.sellerUpgradeFailedBody", "We could not submit selling verification right now."));
         }
         deps.mergeSessionState(updatedSession);
         deps.saveSessionUser();
         deps.renderHeaderUserMenu();
         deps.showInAppNotification?.({
-          title: t("profile.sellerUpgradeCompleteTitle", "Seller upgrade complete"),
-          body: t("profile.sellerUpgradeCompleteBody", "Akaunti yako sasa ni seller. Bila kutoka profile, unaweza kuanza kuuza."),
+          title: t("profile.sellerUpgradeCompleteTitle", "Verification request submitted"),
+          body: t("profile.sellerUpgradeCompleteBody", "Ombi lako limetumwa. Akaunti yako ya Winga haijabadilika na unaweza kuendelea kuitumia."),
           variant: "success"
         });
         deps.renderCurrentView?.();
@@ -598,8 +598,8 @@
           user: deps.getCurrentUser()
         });
         deps.showInAppNotification?.({
-          title: t("profile.sellerUpgradeFailedTitle", "Seller upgrade failed"),
-          body: error.message || t("profile.sellerUpgradeFailedBody", "Imeshindikana kuupgrade account kwa sasa."),
+          title: t("profile.sellerUpgradeFailedTitle", "Verification request failed"),
+          body: error.message || t("profile.sellerUpgradeFailedBody", "Imeshindikana kutuma ombi la uthibitisho kwa sasa."),
           variant: "error"
         });
       } finally {
@@ -1120,11 +1120,7 @@
       if (userProducts.length === 0) {
         deps.setEmptyCopy(
           container,
-          isBuyerOnly
-            ? t("profile.buyerEmpty", "Your buyer account is ready. Browse, search, message sellers, pay, order, review, and report unsafe listings.")
-            : deps.canUseSellerFeatures()
-              ? t("profile.sellerEmpty", "No posts yet. Go to Upload to start building your profile catalog.")
-              : t("profile.catalogEmpty", "You have not posted products yet. Go to Upload to start your catalog.")
+          t("profile.catalogEmpty", "You have not posted anything yet. Use Sell to add a product, photo, or reel.")
         );
         profileDiv.querySelector("#profile-logout-button")?.addEventListener("click", deps.logout);
         bindProfileIdentityActions();
@@ -1133,11 +1129,7 @@
         profileDiv.style.display = "block";
         deps.setResultsMeta(
           t("profile.heading", "Profile"),
-          isBuyerOnly
-            ? t("profile.buyerResultsMeta", "Your orders, notifications, messages, and buyer activity appear here.")
-            : deps.canUseSellerFeatures()
-              ? t("profile.sellerResultsMeta", "Your buyer activity, seller catalog, and performance appear here.")
-              : t("profile.catalogResultsMeta", "Your products and their performance appear here.")
+          t("profile.accountResultsMeta", "Your posts, orders, notifications, messages, and activity appear here.")
         );
         return;
       }

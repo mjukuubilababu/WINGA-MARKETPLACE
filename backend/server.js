@@ -4734,7 +4734,7 @@ function validateSignupPayload(payload) {
 
 function validateSellerUpgradePayload(payload, user = {}) {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-    return "Taarifa za seller upgrade si sahihi.";
+    return "Taarifa za selling verification si sahihi.";
   }
 
   const fullName = sanitizePlainText(payload.fullName || user.fullName || user.username, 120);
@@ -8956,7 +8956,7 @@ const server = http.createServer(async (req, res) => {
       const rawPayload = await collectBody(req) || {};
       const requestedRole = typeof rawPayload.role === "string" ? rawPayload.role.trim() : "";
       if (requestedRole && requestedRole !== "buyer" && requestedRole !== "seller") {
-        sendJson(res, 403, { error: "Public signup inaruhusu buyer au seller accounts tu." });
+        sendJson(res, 403, { error: "Public signup ni ya Winga account ya kawaida; staff hutumia staff access." });
         return;
       }
       const normalizedRole = "buyer";

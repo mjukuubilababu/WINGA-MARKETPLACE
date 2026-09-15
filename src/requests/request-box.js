@@ -283,8 +283,8 @@
         deps.promptGuestAuth({
           preferredMode: "signup",
           role: "buyer",
-          title: t("requests.accountRequiredTitle", "You need a customer account to save requests"),
-          message: "Sign in or sign up as a mteja to collect products from different sellers.",
+          title: t("requests.accountRequiredTitle", "You need a Winga account to save requests"),
+          message: "Sign in or create a Winga account to collect products from different sellers.",
           intent: {
             type: "add-request",
             productId: product?.id || ""

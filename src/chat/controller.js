@@ -496,7 +496,7 @@
           preferredMode: "signup",
           role: "buyer",
           title: t("chat.accountRequiredTitle", "You need an account to message the seller"),
-          message: t("chat.accountRequiredBody", "Already have an account? Sign In. New here? Sign Up as a buyer to start chatting."),
+          message: t("chat.accountRequiredBody", "Already have an account? Sign in. New here? Create a Winga account to start chatting."),
           intent: {
             type: "open-chat",
             productId: product?.id || ""

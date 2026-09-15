@@ -12033,7 +12033,7 @@ function bindTrustReportEntryActions() {
         targetUserId: username,
         targetProductId: productContext,
         title: translateUi("trust.reportSeller", {}, "Report this seller"),
-        subtitle: translateUi("trust.reportSellerSubtitle", {}, "Winga will review the seller account for fraud, abuse, or misleading behavior.")
+        subtitle: translateUi("trust.reportSellerSubtitle", {}, "Winga will review this public profile for fraud, abuse, or misleading behavior.")
       });
     }
   }, true);
@@ -15812,7 +15812,7 @@ function showAdminLoginScreen(options = {}) {
     setNodeText(adminLoginTitle, translateUi("admin.login", {}, "Admin Login"));
   }
   if (adminLoginCopy) {
-    setNodeText(adminLoginCopy, message || translateUi("admin.loginHelp", {}, "Mteja na muuzaji wa kawaida wanapaswa kutumia login ya kawaida ya marketplace."));
+    setNodeText(adminLoginCopy, message || translateUi("admin.loginHelp", {}, "Watumiaji wa kawaida wa Winga wanapaswa kutumia login ya kawaida ya marketplace."));
   }
   if (document.title !== "WINGA Admin Login") {
     document.title = "WINGA Admin Login";
@@ -16078,7 +16078,7 @@ adminLoginButton?.addEventListener("click", async () => {
       variant: "error"
     });
     showAdminLoginScreen({
-      message: translateUi("admin.invalidAccountBody", {}, "Tumia admin au moderator account halali. Mteja na muuzaji wa kawaida wanapaswa kutumia login ya kawaida.")
+      message: translateUi("admin.invalidAccountBody", {}, "Tumia admin au moderator account halali. Watumiaji wa kawaida wa Winga watumie login ya kawaida.")
     });
     adminAuthRequestPending = false;
     setAuthInteractionPending("admin", false);
@@ -22698,7 +22698,7 @@ function beginPurchaseFlow(product) {
       preferredMode: "signup",
       role: "buyer",
       title: translateUi("purchase.accountRequiredTitle", {}, "You need an account to buy this product"),
-      message: translateUi("purchase.accountRequiredBody", {}, "Already have an account? Sign In. New here? Sign Up kama mteja."),
+      message: translateUi("purchase.accountRequiredBody", {}, "Already have an account? Sign in. New here? Create a Winga account to continue."),
       intent: { type: "focus-product", productId: product?.id }
     });
     return;
@@ -22753,7 +22753,7 @@ function openPromotionIntentModal(product, options = {}) {
     showInAppNotification({
       title: translateUi("promotion.unavailableTitle", {}, "Promotion unavailable"),
       body: !hasSellerAccess
-        ? translateUi("promotion.sellerAccessBody", {}, "Ingia kama seller ili ufungue visibility plans za tangazo hili.")
+        ? translateUi("promotion.sellerAccessBody", {}, "Ingia kwenye akaunti yako ya Winga ili ufungue visibility plans za tangazo hili.")
         : translateUi("promotion.ownerOnlyBody", {}, "Promotion hii inapatikana kwa muuzaji wa bidhaa hii tu."),
       variant: "warning"
     });
