@@ -1690,6 +1690,70 @@ function setCategorySelectionState(categoryValue, options = {}) {
   }
 }
 
+function openVisualCategoryDetail(nextCategory, parentCategory = "") {
+  const safeCategory = String(nextCategory || "all").trim() || "all";
+  if (safeCategory === "all") {
+    setCategorySelectionState("all", {
+      expandedBrowseCategory: "",
+      syncHistory: false
+    });
+    syncAppShellHistoryState({
+      mode: "replace",
+      overrides: {
+        view: "home",
+        selectedCategory: "all",
+        mobileAction: "categories",
+        categorySurface: "root"
+      }
+    });
+  } else {
+    const isReplacingDetail = window.history.state?.wingaAppShell
+      && window.history.state?.mobileAction === "categories"
+      && window.history.state?.categorySurface === "detail";
+    setCategorySelectionState(safeCategory, {
+      expandedBrowseCategory: parentCategory || inferTopCategoryValue(safeCategory),
+      syncHistory: false
+    });
+    syncAppShellHistoryState({
+      mode: isReplacingDetail ? "replace" : "push",
+      overrides: {
+        view: "home",
+        selectedCategory: safeCategory,
+        mobileAction: "categories",
+        categorySurface: "detail"
+      }
+    });
+  }
+  renderFilterCategories();
+  renderCurrentView({ force: true, reason: "visual_category_open" });
+  window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+}
+
+function returnToVisualCategoriesRoot() {
+  const state = window.history.state || {};
+  if (state.wingaAppShell && state.mobileAction === "categories" && state.categorySurface === "detail" && window.history.length > 1) {
+    window.history.back();
+    return;
+  }
+  setCategorySelectionState("all", {
+    expandedBrowseCategory: "",
+    syncHistory: false
+  });
+  setMobileShellActive("categories");
+  syncAppShellHistoryState({
+    mode: "replace",
+    overrides: {
+      view: "home",
+      selectedCategory: "all",
+      mobileAction: "categories",
+      categorySurface: "root"
+    }
+  });
+  renderFilterCategories();
+  renderCurrentView({ force: true, reason: "visual_categories_back" });
+  window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+}
+
 function applySessionState(session) {
   if (!session || typeof session !== "object" || Array.isArray(session)) {
     currentSession = null;
@@ -4121,6 +4185,10 @@ function buildAppShellHistoryState(overrides = {}) {
     selectedCategory: getRestorableCategory(selectedCategory),
     username: currentUser || "",
     role: currentSession?.role || "",
+    mobileAction: currentView === "home" ? String(uiRuntimeState.activeMobileNav || "home") : "",
+    categorySurface: currentView === "home" && uiRuntimeState.activeMobileNav === "categories"
+      ? (selectedCategory === "all" ? "root" : "detail")
+      : "",
     pendingProfileSection: currentView === "profile" ? (profileRuntimeState.pendingSection || "") : "",
     ...overrides
   };
@@ -4142,6 +4210,8 @@ function syncAppShellHistoryState(options = {}) {
     && currentState.selectedCategory === nextState.selectedCategory
     && currentState.username === nextState.username
     && currentState.role === nextState.role
+    && String(currentState.mobileAction || "") === String(nextState.mobileAction || "")
+    && String(currentState.categorySurface || "") === String(nextState.categorySurface || "")
     && String(currentState.pendingProfileSection || "") === String(nextState.pendingProfileSection || "");
   if (stateAlreadySynced) {
     return;
@@ -12908,7 +12978,12 @@ const { renderFilterCategories } = window.WingaModules.categories.createCategori
     searchRuntimeState.mobileCategoryTopValue = "";
     renderFilterCategories();
   },
+  onVisualCategoriesBack: returnToVisualCategoriesRoot,
   onDesktopCategoryClick: ({ nextCategory, isSamePinnedCategory }) => {
+    if (uiRuntimeState.activeMobileNav === "categories") {
+      openVisualCategoryDetail(nextCategory, inferTopCategoryValue(nextCategory));
+      return;
+    }
     pinnedDesktopCategory = isSamePinnedCategory ? "" : nextCategory;
     setCategorySelectionState(nextCategory, {
       expandedBrowseCategory: nextCategory === "all" ? "" : inferTopCategoryValue(nextCategory)
@@ -12942,6 +13017,10 @@ const { renderFilterCategories } = window.WingaModules.categories.createCategori
     renderCurrentView();
   },
   onSubcategorySelect: ({ nextCategory, parentCategory, isMobileScope }) => {
+    if (!isMobileScope && uiRuntimeState.activeMobileNav === "categories") {
+      openVisualCategoryDetail(nextCategory, parentCategory);
+      return;
+    }
     if (!isMobileScope) {
       pinnedDesktopCategory = "";
     }
@@ -13555,6 +13634,10 @@ const DEFAULT_PRODUCTS = [];
 
 let products = [];
 let productIndex = new Map();
+let visualCategoryPreviewProducts = [];
+let visualCategoryPreviewHydrationPromise = null;
+let visualCategoryPreviewHydratedAt = 0;
+let visualCategoryAudienceKey = "";
 let buyerRediscoveryProductIndex = new Map();
 let buyerRediscoveryDescriptor = null;
 let buyerRediscoveryHydrationPromise = null;
@@ -17155,12 +17238,26 @@ function handleMobileShellAction(action = "", options = {}) {
     return;
   }
   if (safeAction === "categories") {
+    const wasCategoriesSurface = currentView === "home"
+      && String(uiRuntimeState.activeMobileNav || "") === "categories";
     closeMobileCategoryMenu();
     toggleHeaderUserMenu(false);
+    setCategorySelectionState("all", {
+      expandedBrowseCategory: "",
+      syncHistory: false
+    });
     setMobileShellActive("categories");
-    setCurrentViewState("home", { syncHistory: currentView === "home" ? "replace" : "push" });
+    setCurrentViewState("home", {
+      syncHistory: wasCategoriesSurface ? "replace" : "push",
+      historyState: {
+        selectedCategory: "all",
+        mobileAction: "categories",
+        categorySurface: "root"
+      }
+    });
     renderFilterCategories();
     renderCurrentView({ force: true, reason: "visual_categories_open" });
+    hydrateVisualCategoryPreviews();
     setMobileHeaderHidden(false, { force: true });
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
     return;
@@ -18142,31 +18239,131 @@ function getSelectableSubcategoriesForTopCategory(topValue) {
   return Array.from(categoryMap.values());
 }
 
+function getVisualCategoryAudienceKey() {
+  if (currentUser) {
+    return "user:" + String(currentUser).trim().toLowerCase();
+  }
+  if (visualCategoryAudienceKey) {
+    return visualCategoryAudienceKey;
+  }
+  try {
+    const storageKey = "winga_visual_category_audience_v1";
+    const stored = String(window.sessionStorage?.getItem(storageKey) || "").trim();
+    if (stored) {
+      visualCategoryAudienceKey = stored;
+      return visualCategoryAudienceKey;
+    }
+    const generated = "guest:" + (window.crypto?.randomUUID?.() || (Date.now() + "-" + Math.random()));
+    window.sessionStorage?.setItem(storageKey, generated);
+    visualCategoryAudienceKey = generated;
+  } catch (error) {
+    visualCategoryAudienceKey = "guest:default";
+  }
+  return visualCategoryAudienceKey;
+}
+
+function getStableVisualCategoryIndex(seed, length) {
+  if (!Number.isFinite(length) || length <= 1) {
+    return 0;
+  }
+  let hash = 2166136261;
+  const input = String(seed || "");
+  for (let index = 0; index < input.length; index += 1) {
+    hash ^= input.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0) % length;
+}
+
 function getCategoryPreviewProduct(topValue) {
   if (!topValue) {
     return null;
   }
 
-  const previewProduct = products.find((product) => {
-    if (inferTopCategoryValue(product?.category) !== topValue) {
-      return false;
-    }
-    const image = getFeedRenderableImages(product)[0]
-      || getReadyProductVideoItem(product)?.posterUrl
-      || getReadyProductVideoItem(product)?.thumbnailUrl
-      || "";
-    return Boolean(String(image || "").trim());
-  });
-  if (!previewProduct) {
+  const seen = new Set();
+  const candidates = [...visualCategoryPreviewProducts, ...products]
+    .filter((product) => {
+      const productId = String(product?.id || product?.productId || product?.slug || "").trim();
+      if ((productId && seen.has(productId)) || inferTopCategoryValue(product?.category) !== topValue) {
+        return false;
+      }
+      if (productId) seen.add(productId);
+      return Boolean(String(getMarketplacePrimaryImage(product) || "").trim());
+    })
+    .sort((first, second) => String(first?.id || "").localeCompare(String(second?.id || "")));
+  if (!candidates.length) {
     return null;
   }
+
+  const rotationDay = Math.floor(Date.now() / 86400000);
+  const selectedIndex = getStableVisualCategoryIndex(
+    getVisualCategoryAudienceKey() + "|" + topValue + "|" + rotationDay,
+    candidates.length
+  );
+  const previewProduct = candidates[selectedIndex];
   return {
     ...previewProduct,
-    image: getFeedRenderableImages(previewProduct)[0]
-      || getReadyProductVideoItem(previewProduct)?.posterUrl
-      || getReadyProductVideoItem(previewProduct)?.thumbnailUrl
-      || ""
+    image: getMarketplacePrimaryImage(previewProduct)
   };
+}
+
+async function hydrateVisualCategoryPreviews(options = {}) {
+  const now = Date.now();
+  if (!options.force && visualCategoryPreviewProducts.length && now - visualCategoryPreviewHydratedAt < 300000) {
+    return visualCategoryPreviewProducts;
+  }
+  if (visualCategoryPreviewHydrationPromise) {
+    return visualCategoryPreviewHydrationPromise;
+  }
+  const queryProductsPage = window.WingaDataLayer?.queryProductsPage;
+  if (typeof queryProductsPage !== "function") {
+    return visualCategoryPreviewProducts;
+  }
+
+  visualCategoryPreviewHydrationPromise = (async () => {
+    const collected = [];
+    let cursor = "";
+    for (let pageNumber = 1; pageNumber <= 3; pageNumber += 1) {
+      const page = await queryProductsPage.call(window.WingaDataLayer, {
+        limit: 24,
+        page: pageNumber,
+        cursor
+      });
+      const pageItems = Array.isArray(page?.items) ? page.items : [];
+      collected.push(...pageItems);
+      cursor = String(page?.nextCursor || "");
+      if (page?.hasMore === false || !pageItems.length) {
+        break;
+      }
+    }
+    const seen = new Set();
+    visualCategoryPreviewProducts = collected
+      .map(normalizeProduct)
+      .filter((product) => {
+        const productId = String(product?.id || product?.productId || product?.slug || "").trim();
+        if ((productId && seen.has(productId)) || !getMarketplacePrimaryImage(product)) {
+          return false;
+        }
+        if (productId) seen.add(productId);
+        return true;
+      });
+    visualCategoryPreviewHydratedAt = Date.now();
+    if (currentView === "home" && uiRuntimeState.activeMobileNav === "categories") {
+      renderFilterCategories();
+    }
+    return visualCategoryPreviewProducts;
+  })()
+    .catch((error) => {
+      captureClientError("visual_category_previews_failed", error, {
+        category: "categories",
+        alertSeverity: "low"
+      });
+      return visualCategoryPreviewProducts;
+    })
+    .finally(() => {
+      visualCategoryPreviewHydrationPromise = null;
+    });
+  return visualCategoryPreviewHydrationPromise;
 }
 
 function inferCategoriesFromData() {
@@ -18887,9 +19084,12 @@ registerAppEvent(window, "popstate", (event) => {
   const targetView = isRestorableView(state.view, currentSession)
     ? state.view
     : (isStaffUser() ? "admin" : "home");
-  const nextCategory = targetView === "home" && isAuthenticatedUser()
+  const nextCategory = targetView === "home"
     ? getRestorableCategory(state.selectedCategory)
     : "all";
+  const nextMobileAction = targetView === "home"
+    ? String(state.mobileAction || "home").trim().toLowerCase()
+    : "";
   const nextPendingProfileSection = targetView === "profile"
     ? String(state.pendingProfileSection || "")
     : "";
@@ -18897,6 +19097,7 @@ registerAppEvent(window, "popstate", (event) => {
 
   if (selectedCategory !== nextCategory) {
     setCategorySelectionState(nextCategory, { persist: false, syncHistory: false });
+    renderFilterCategories();
     shouldRender = true;
   }
 
@@ -18916,6 +19117,11 @@ registerAppEvent(window, "popstate", (event) => {
     shouldRender = true;
   }
 
+  if (String(uiRuntimeState.activeMobileNav || "") !== nextMobileAction) {
+    setMobileShellActive(nextMobileAction);
+    renderFilterCategories();
+    shouldRender = true;
+  }
   if (shouldRender && appContainer?.style.display !== "none") {
     renderCurrentView();
   }

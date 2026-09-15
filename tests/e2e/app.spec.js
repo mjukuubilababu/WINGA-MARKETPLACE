@@ -499,12 +499,16 @@ test("mobile utility menu stays separate while bottom Categories opens visual di
   await expect(page.locator(".visual-categories-more-heading")).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
 
+  await expect.poll(async () => page.locator(".visual-category-image").count()).toBeGreaterThan(0);
   const firstCategory = page.locator(".visual-category-grid .visual-category-card").first();
-  const firstCategoryValue = await firstCategory.getAttribute("data-cat");
   await firstCategory.click();
+  await expect(page.locator(".visual-category-detail-header")).toBeVisible();
   await expect(page.locator(".visual-subcategories")).toBeVisible();
   await expect(page.locator("#products-container .product-card").first()).toBeVisible({ timeout: 30000 });
-  await expect(firstCategory).toHaveAttribute("data-cat", firstCategoryValue || "wanawake");
+
+  await page.goBack();
+  await expect(page.locator(".visual-category-grid .visual-category-card")).toHaveCount(6);
+  await expect(page.locator(".visual-category-detail-header")).toHaveCount(0);
 
   await page.locator("#bottom-nav [data-shell-action='home']").click();
   await expect(page.locator("#categories")).not.toHaveClass(/visual-categories-active/);
@@ -525,8 +529,11 @@ test("guest can browse Visual Categories without authentication", async ({ brows
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
 
   await page.locator(".visual-category-grid .visual-category-card").first().click();
+  await expect(page.locator(".visual-category-detail-back")).toBeVisible();
   await expect(page.locator(".visual-subcategories")).toBeVisible();
   await expect(page.locator("#products-container .product-card").first()).toBeVisible({ timeout: 30000 });
+  await page.locator(".visual-category-detail-back").click();
+  await expect(page.locator(".visual-category-grid .visual-category-card")).toHaveCount(6);
   await context.close();
 });
 test("session restore preserves Settings opened before authentication hydration completes", async ({ browser }) => {

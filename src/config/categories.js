@@ -124,16 +124,16 @@
   ];
 
   const VISUAL_CATEGORY_PRESENTATION = {
-    wanawake: { featured: true, visualPriority: 10, visualSprite: "women" },
-    wanaume: { featured: true, visualPriority: 20, visualSprite: "men" },
-    watoto: { featured: true, visualPriority: 30, visualSprite: "kids" },
-    viatu: { featured: true, visualPriority: 40, visualSprite: "shoes" },
-    sherehe: { featured: true, visualPriority: 50, visualSprite: "celebration" },
-    casual: { featured: true, visualPriority: 60, visualSprite: "casual" },
-    vyombo: { featured: false, visualPriority: 70, visualSprite: "home" },
-    electronics: { featured: false, visualPriority: 80, visualSprite: "electronics" },
-    "vitu-used": { featured: false, visualPriority: 90, visualSprite: "used" },
-    accessories: { featured: false, visualPriority: 100, visualSprite: "accessories" }
+    wanawake: { featured: true, visualPriority: 10 },
+    wanaume: { featured: true, visualPriority: 20 },
+    watoto: { featured: true, visualPriority: 30 },
+    viatu: { featured: true, visualPriority: 40 },
+    sherehe: { featured: true, visualPriority: 50 },
+    casual: { featured: true, visualPriority: 60 },
+    vyombo: { featured: false, visualPriority: 70 },
+    electronics: { featured: false, visualPriority: 80 },
+    "vitu-used": { featured: false, visualPriority: 90 },
+    accessories: { featured: false, visualPriority: 100 }
   };
 
   const visualHero = {
@@ -142,7 +142,6 @@
     subtitle: "",
     destination: "wanawake",
     reason: "configured_default",
-    visualSprite: "everyday"
   };
 
   const DEFAULT_TOP_CATEGORIES = MARKETPLACE_CATEGORY_TREE.map((category) => ({

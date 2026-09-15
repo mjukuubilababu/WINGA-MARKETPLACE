@@ -95,8 +95,7 @@
       const previewProduct = deps.getCategoryPreviewProduct(category.value);
       const previewImage = String(previewProduct?.image || "").trim();
       return {
-        image: previewImage || String(category.imageAsset || "").trim(),
-        sprite: previewImage ? "" : String(category.visualSprite || "").trim(),
+        image: previewImage,
         alt: t("categories.imageAlt", "{category} category", { category: category.label }),
         fallback: deps.getImageFallbackDataUri(String(category.label || "W").slice(0, 1)),
         priority: index < 2
@@ -128,11 +127,6 @@
             "data-disable-image-zoom": "true",
             "data-image-action-surface": "visual_categories"
           }
-        }));
-      } else if (visual.sprite) {
-        media.appendChild(createElement("span", {
-          className: "visual-category-sprite",
-          attributes: { "aria-hidden": "true", "data-visual-sprite": visual.sprite }
         }));
       } else {
         media.appendChild(createElement("span", {
@@ -173,6 +167,50 @@
         className: "visual-categories-v2",
         attributes: { "aria-label": t("categories.browseAria", "Browse categories") }
       });
+      const activeTopCategory = deps.isTopCategoryValue(selectedCategory)
+        ? selectedCategory
+        : deps.inferTopCategoryValue(selectedCategory);
+      if (selectedCategory !== "all" && activeTopCategory) {
+        const activeCategory = categories.find(category => category.value === activeTopCategory);
+        const detailHeader = createElement("div", { className: "visual-category-detail-header" });
+        const detailTitle = createElement("div", { className: "visual-category-detail-title" });
+        detailTitle.append(
+          createElement("span", { textContent: t("categories.primaryTitle", "Shop by category") }),
+          createElement("h2", { textContent: activeCategory?.label || deps.getCategoryLabel(activeTopCategory) })
+        );
+        detailHeader.append(
+          createElement("button", {
+            className: "visual-category-detail-back",
+            textContent: "‹", // i18n-gate: allow -- language-neutral navigation symbol
+            attributes: {
+              type: "button",
+              "aria-label": t("categories.backToMainAria", "Back to main categories"),
+              "data-visual-categories-back": "true"
+            }
+          }),
+          detailTitle
+        );
+        root.appendChild(detailHeader);
+
+        const subcategories = deps.getSubcategoriesForTopCategory(activeTopCategory);
+        if (subcategories.length) {
+          const subcategorySection = createElement("section", { className: "visual-subcategories visual-subcategories-detail" });
+          subcategorySection.appendChild(createElement("h2", {
+            textContent: t("categories.subcategoriesTitle", "Explore {category}", { category: deps.getCategoryLabel(activeTopCategory) })
+          }));
+          const chips = createElement("div", { className: "visual-subcategory-chips" });
+          subcategories.forEach(subcategory => chips.appendChild(createCategoryButton({
+            label: subcategory.label,
+            value: subcategory.value,
+            isActive: selectedCategory === subcategory.value,
+            isSubcategory: true,
+            parentValue: activeTopCategory
+          })));
+          subcategorySection.appendChild(chips);
+          root.appendChild(subcategorySection);
+        }
+        return root;
+      }
       const campaign = deps.getCategoryHeroCampaign?.() || {};
       const heroCategory = categories.find(category => category.value === campaign.destination) || primary[0];
       if (heroCategory && campaign.disabled !== true) {
@@ -200,11 +238,6 @@
             fallbackSrc: visual.fallback,
             placeholderSrc: visual.fallback,
             attributes: { width: "720", height: "280", "data-disable-image-zoom": "true", "data-image-action-surface": "category_hero" }
-          }));
-        } else if (campaign.visualSprite || visual.sprite) {
-          heroMedia.appendChild(createElement("span", {
-            className: "visual-category-sprite visual-categories-hero-sprite",
-            attributes: { "aria-hidden": "true", "data-visual-sprite": campaign.visualSprite || visual.sprite }
           }));
         } else {
           heroMedia.appendChild(createElement("span", { className: "visual-category-fallback", textContent: "W", attributes: { "aria-hidden": "true" } }));
@@ -237,26 +270,6 @@
         root.append(moreHeading, moreGrid);
       }
 
-      const activeTopCategory = deps.isTopCategoryValue(selectedCategory)
-        ? selectedCategory
-        : deps.inferTopCategoryValue(selectedCategory);
-      const subcategories = activeTopCategory ? deps.getSubcategoriesForTopCategory(activeTopCategory) : [];
-      if (activeTopCategory && subcategories.length) {
-        const subcategorySection = createElement("section", { className: "visual-subcategories" });
-        subcategorySection.appendChild(createElement("h2", {
-          textContent: t("categories.subcategoriesTitle", "Explore {category}", { category: deps.getCategoryLabel(activeTopCategory) })
-        }));
-        const chips = createElement("div", { className: "visual-subcategory-chips" });
-        subcategories.forEach(subcategory => chips.appendChild(createCategoryButton({
-          label: subcategory.label,
-          value: subcategory.value,
-          isActive: selectedCategory === subcategory.value,
-          isSubcategory: true,
-          parentValue: activeTopCategory
-        })));
-        subcategorySection.appendChild(chips);
-        root.appendChild(subcategorySection);
-      }
 
       const signature = categories.map(category => category.value).join("|");
       if (signature && signature !== lastVisualImpressionSignature) {
@@ -448,6 +461,14 @@
           event.preventDefault();
           event.stopPropagation();
           deps.onMobileCategoryBack?.();
+        });
+      });
+
+      scope.querySelectorAll("[data-visual-categories-back]").forEach((button) => {
+        button.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          deps.onVisualCategoriesBack?.();
         });
       });
 
