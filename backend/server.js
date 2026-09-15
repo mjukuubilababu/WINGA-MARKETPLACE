@@ -1003,6 +1003,18 @@ async function appendAuditLog(entry) {
   }
 }
 
+async function recordSocialAggregate(eventName, options = {}) {
+  if (!postgresStore?.incrementSocialAnalytics) return;
+  try {
+    await postgresStore.incrementSocialAnalytics(eventName, {
+      source: options.source || "organic",
+      count: options.count || 1
+    });
+  } catch (error) {
+    console.warn("[WINGA] Social aggregate recording failed open.", eventName, error?.message || error);
+  }
+}
+
 async function readRecentAuditEntries(limit = 50) {
   const safeLimit = Math.max(1, Math.min(Number(limit) || 50, 200));
   if (postgresStore?.readRecentAuditLogs) {
@@ -7502,10 +7514,7 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       if (viewerUsername && url.searchParams.get("source") === "follow") {
-        await appendAuditLog({
-          time: new Date().toISOString(), ip: clientIp, method: req.method, path: url.pathname,
-          event: "profile_from_follow_click", username: viewerUsername, profileUsername
-        });
+        await recordSocialAggregate("profile_from_follow_click", { source: "follow" });
       }
       sendJson(res, 200, { profile: summary }, { "Cache-Control": viewerUsername ? "private, no-store" : "public, max-age=30" });
       return;
@@ -7521,9 +7530,9 @@ const server = http.createServer(async (req, res) => {
       }
       const limit = Math.max(1, Math.min(Number(url.searchParams.get("limit") || 12) || 12, 30));
       const suggestions = await postgresStore.readUserFollowSuggestions(user.username, { limit });
-      await appendAuditLog({
-        time: new Date().toISOString(), ip: clientIp, method: req.method, path: url.pathname,
-        event: "suggested_follow_impression", username: user.username, count: suggestions.items.length
+      await recordSocialAggregate("suggested_follow_impression", {
+        source: "profile_suggestions",
+        count: suggestions.items.length
       });
       sendJson(res, 200, suggestions, { "Cache-Control": "private, no-store" });
       return;
@@ -7669,16 +7678,11 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       if (result.changed !== false) {
-        await appendAuditLog({
-          time: new Date().toISOString(), ip: clientIp, method: req.method, path: url.pathname,
-          event: following ? "follow_created" : "follow_removed", username: user.username,
-          followedUsername
+        await recordSocialAggregate(following ? "follow_created" : "follow_removed", {
+          source: source === "suggested_follow" ? "suggested_follow" : "organic"
         });
         if (following && source === "suggested_follow") {
-          await appendAuditLog({
-            time: new Date().toISOString(), ip: clientIp, method: req.method, path: url.pathname,
-            event: "suggested_follow_accept", username: user.username, followedUsername
-          });
+          await recordSocialAggregate("suggested_follow_accept", { source: "profile_suggestions" });
         }
         if (following && result.notification) {
           await emitAuthorizedNotification(result.notification);
@@ -11344,6 +11348,21 @@ const server = http.createServer(async (req, res) => {
           };
         } catch (error) {
           analytics.regionalSupply = [];
+        }
+      }
+      if (isAdminAnalytics && postgresStore?.readSocialAnalyticsSummary) {
+        try {
+          analytics.social = await postgresStore.readSocialAnalyticsSummary({
+            windowDays: analyticsWindowDays
+          });
+        } catch (error) {
+          analytics.social = {
+            schemaVersion: "social-analytics-v1",
+            privacy: "aggregate-only",
+            windowDays: analyticsWindowDays,
+            events: {},
+            error: "unavailable"
+          };
         }
       }
       try {

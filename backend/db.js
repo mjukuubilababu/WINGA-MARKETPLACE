@@ -20,6 +20,13 @@ const ALL_TABLE_KEYS = Object.freeze([
 ]);
 const EMPTY_QUERY_RESULT = Object.freeze({ rows: [] });
 const SOCIAL_CONTENT_NOTIFICATION_DAILY_LIMIT = 20;
+const SOCIAL_ANALYTICS_EVENTS = new Set([
+  "follow_created",
+  "follow_removed",
+  "suggested_follow_impression",
+  "suggested_follow_accept",
+  "profile_from_follow_click"
+]);
 
 function stringifyJson(value, fallback = []) {
   return JSON.stringify(value ?? fallback);
@@ -2415,6 +2422,47 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       "INSERT INTO audit_logs (time, event, entry) VALUES ($1, $2, $3::jsonb)",
       [entry.time || new Date().toISOString(), entry.event || "unknown", JSON.stringify(entry)]
     );
+  }
+
+  async function incrementSocialAnalytics(eventName = "", options = {}) {
+    const safeEventName = String(eventName || "").trim().toLowerCase();
+    if (!SOCIAL_ANALYTICS_EVENTS.has(safeEventName)) {
+      return { recorded: false, code: "unsupported_event" };
+    }
+    const safeSource = String(options.source || "organic")
+      .trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "_").slice(0, 40) || "organic";
+    const safeCount = Math.max(0, Math.min(Number(options.count || 1) || 0, 100));
+    if (!safeCount) return { recorded: false, code: "empty_count" };
+    await query(
+      `INSERT INTO social_analytics_daily (event_date, event_name, source, event_count, updated_at)
+       VALUES (CURRENT_DATE, $1, $2, $3, NOW())
+       ON CONFLICT (event_date, event_name, source) DO UPDATE
+       SET event_count = social_analytics_daily.event_count + EXCLUDED.event_count,
+           updated_at = NOW()`,
+      [safeEventName, safeSource, safeCount]
+    );
+    return { recorded: true, privacy: "aggregate-only" };
+  }
+
+  async function readSocialAnalyticsSummary(options = {}) {
+    const windowDays = Math.max(1, Math.min(Number(options.windowDays || 30) || 30, 365));
+    const result = await query(
+      `SELECT event_name AS "eventName", COALESCE(SUM(event_count), 0)::bigint AS count
+       FROM social_analytics_daily
+       WHERE event_date >= CURRENT_DATE - ($1::int - 1)
+       GROUP BY event_name`,
+      [windowDays]
+    );
+    const events = Object.fromEntries(Array.from(SOCIAL_ANALYTICS_EVENTS, (eventName) => [eventName, 0]));
+    (result.rows || []).forEach((row) => {
+      if (SOCIAL_ANALYTICS_EVENTS.has(row.eventName)) events[row.eventName] = Number(row.count || 0);
+    });
+    return {
+      schemaVersion: "social-analytics-v1",
+      privacy: "aggregate-only",
+      windowDays,
+      events
+    };
   }
 
   async function appendIntelligenceEvent(event, _legacyScores = {}) {
@@ -8649,6 +8697,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     importUserFollows,
     setUserBlock,
     appendAuditLog,
+    incrementSocialAnalytics,
+    readSocialAnalyticsSummary,
     readRecentAuditLogs,
     pruneSuspiciousLoginAttempts,
     readSuspiciousLoginAttempts,

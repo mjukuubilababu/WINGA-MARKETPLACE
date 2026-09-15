@@ -7106,9 +7106,6 @@ function syncUserFollowMutation(username, following, options = {}) {
   const actor = currentUser;
   Promise.resolve(window.WingaDataLayer.setUserFollow(username, following, options))
     .then(() => {
-      reportClientEvent("info", following ? "follow_created" : "follow_removed", "Person follow updated.", {
-        category: "social", followedUsername: username, source: options.source || ""
-      });
       if (options.source === "profile_connections" && currentView === "profile") {
         void loadProfileConnections(profileConnectionsState.direction, { force: true });
       }
@@ -7119,7 +7116,7 @@ function syncUserFollowMutation(username, following, options = {}) {
       if (following) ids.delete(username); else ids.add(username);
       persistFollowedSellerIds();
       captureClientError("social_follow_update_failed", error, {
-        category: "social", alertSeverity: "medium", followedUsername: username, following
+        category: "social", alertSeverity: "medium", action: following ? "follow" : "unfollow"
       });
       if (options.source === "suggested_follow" && currentView === "profile") {
         loadProfileFollowSuggestions({ force: true });
@@ -10681,11 +10678,6 @@ function openPersonProfile(username, options = {}) {
   if (!safeUsername) return;
   personProfileState.source = String(options.source || "").trim();
   personProfileState.returnFocus = options.trigger instanceof HTMLElement ? options.trigger : document.activeElement;
-  if (personProfileState.source === "follow") {
-    reportClientEvent("info", "profile_from_follow_click", "Public person profile opened from follow context.", {
-      category: "social", profileUsername: safeUsername
-    });
-  }
   loadPersonProfile(safeUsername);
 }
 

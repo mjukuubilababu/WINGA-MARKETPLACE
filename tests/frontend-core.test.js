@@ -5193,6 +5193,19 @@ test("Winga account identity is person-first while selling remains a capability"
   assert.equal(adminSource.includes('adminUserAction: "makeSeller"'), false);
 });
 
+test("social graph observability is canonical and aggregate-only", () => {
+  const root = path.resolve(__dirname, "..");
+  const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
+  const serverSource = fs.readFileSync(path.join(root, "backend", "server.js"), "utf8");
+
+  ["follow_created", "follow_removed", "suggested_follow_impression", "suggested_follow_accept", "profile_from_follow_click"]
+    .forEach((eventName) => assert.equal(serverSource.includes(`"${eventName}"`), true));
+  assert.equal((serverSource.match(/recordSocialAggregate\(/g) || []).length >= 5, true);
+  assert.match(serverSource, /readSocialAnalyticsSummary/);
+  assert.equal(appSource.includes("profileUsername: safeUsername"), false);
+  assert.equal(appSource.includes("followedUsername: username"), false);
+});
+
 test("localized product detail preserves continuation, gallery, demand, and review contracts", () => {
   const uiSource = fs.readFileSync(path.join(__dirname, "..", "src", "product-detail", "ui.js"), "utf8");
   const controllerSource = fs.readFileSync(path.join(__dirname, "..", "src", "product-detail", "controller.js"), "utf8");
@@ -5860,7 +5873,8 @@ test("public person profiles consume privacy-filtered collections without exposi
   assert.match(appSource, /WingaDataLayer\.loadSocialProfile\(safeUsername/);
   assert.match(appSource, /WingaDataLayer\.loadUserCollections\(safeUsername, \{ limit: 12 \}\)/);
   assert.match(appSource, /data-public-collection-product/);
-  assert.match(appSource, /profile_from_follow_click/);
+  assert.match(appSource, /loadSocialProfile\(safeUsername, \{ source: personProfileState\.source \}\)/);
+  assert.equal(appSource.includes('profileUsername: safeUsername'), false);
   assert.match(appSource, /data-block-person-profile/);
   assert.match(appSource, /function blockPersonFromProfile\(button\)/);
   assert.match(appSource, /WingaDataLayer\.setUserBlock\(username, true\)/);

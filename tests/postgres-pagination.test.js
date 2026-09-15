@@ -1241,6 +1241,60 @@ test("PostgreSQL notification read is user scoped", async () => {
   assert.deepEqual(calls[0].params.slice(0, 2), ["note-1", "buyer"]);
 });
 
+test("PostgreSQL social analytics increments only aggregate allowlisted counters", async () => {
+  const calls = [];
+  const queryClient = {
+    async query(text, params = []) {
+      calls.push({ text: String(text), params });
+      return { rows: [], rowCount: 1 };
+    }
+  };
+  const store = createPostgresStore({ databaseUrl: "postgres://test.invalid/winga", queryClient });
+  const recorded = await store.incrementSocialAnalytics("follow_created", {
+    source: "Suggested Follow",
+    count: 2
+  });
+  const rejected = await store.incrementSocialAnalytics("private_purchase_follow", {
+    source: "private",
+    count: 1
+  });
+
+  assert.deepEqual(recorded, { recorded: true, privacy: "aggregate-only" });
+  assert.equal(rejected.recorded, false);
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0].params, ["follow_created", "suggested_follow", 2]);
+  assert.match(calls[0].text, /social_analytics_daily/);
+  assert.doesNotMatch(calls[0].text, /username|profile_id|buyer_id|seller_id/i);
+});
+
+test("PostgreSQL social analytics summary is bounded and aggregate-only", async () => {
+  const calls = [];
+  const queryClient = {
+    async query(text, params = []) {
+      calls.push({ text: String(text), params });
+      return { rows: [{ eventName: "follow_created", count: "7" }] };
+    }
+  };
+  const store = createPostgresStore({ databaseUrl: "postgres://test.invalid/winga", queryClient });
+  const summary = await store.readSocialAnalyticsSummary({ windowDays: 900 });
+
+  assert.equal(summary.privacy, "aggregate-only");
+  assert.equal(summary.windowDays, 365);
+  assert.equal(summary.events.follow_created, 7);
+  assert.equal(summary.events.follow_removed, 0);
+  assert.deepEqual(calls[0].params, [365]);
+  assert.doesNotMatch(calls[0].text, /username|profile_id|buyer_id|seller_id/i);
+});
+
+test("social analytics migration stores daily aggregate counters without person identifiers", () => {
+  const migration = MIGRATIONS.find((candidate) => candidate.id === "2026091507_social_analytics_daily");
+  assert.ok(migration);
+  const sql = migration.statements.join("\n");
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS social_analytics_daily/);
+  assert.match(sql, /PRIMARY KEY \(event_date, event_name, source\)/);
+  assert.doesNotMatch(sql, /username|profile_id|buyer_id|seller_id|ip_address/i);
+});
+
 test("PostgreSQL password recovery updates one user and revokes sessions atomically", async () => {
   const calls = [];
   const client = {
