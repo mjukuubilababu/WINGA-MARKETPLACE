@@ -6,6 +6,7 @@ const {
   normalizeObservation,
   learnFromObservation,
   createDecision,
+  evaluateRecommendationPolicy,
   executeDecision
 } = require("../backend/wip-mind");
 
@@ -115,4 +116,29 @@ test("executive mind validates expiry permission target and duplicate execution"
   assert.equal(executeDecision(decision, { permissionAllowed: false }, { now: () => new Date(NOW) }).status, "REJECTED_BY_POLICY");
   assert.equal(executeDecision(decision, { targetExists: false }, { now: () => new Date(NOW) }).status, "FAILED");
   assert.equal(executeDecision({ ...decision, expiresAt: "2026-09-14T18:00:00.000Z" }, {}, { now: () => new Date(NOW) }).status, "EXPIRED");
+});
+
+test("governing policy enforces confidence privacy trust fairness and sponsored disclosure", () => {
+  const base = {
+    audienceType: "seller",
+    entityType: "opportunity",
+    privacy: "aggregate-only",
+    confidence: 0.8,
+    expiresAt: "2026-09-16T18:00:00.000Z",
+    decisionReasonCodes: ["organic_intelligence"]
+  };
+  const approved = evaluateRecommendationPolicy(base, { now: () => new Date(NOW) });
+  assert.equal(approved.policyAllowed, true);
+  assert.deepEqual(approved.reasonCodes, ["governing_policy_approved"]);
+  assert.equal(approved.context.privacy, "aggregate-only");
+  assert.equal(evaluateRecommendationPolicy({ ...base, confidence: 0.1 }, { now: () => new Date(NOW) }).policyAllowed, false);
+  assert.ok(evaluateRecommendationPolicy({ ...base, privacy: "person-scoped" }, { now: () => new Date(NOW) }).reasonCodes.includes("privacy_scope_rejected"));
+  assert.ok(evaluateRecommendationPolicy({ ...base, trustAllowed: false }, { now: () => new Date(NOW) }).reasonCodes.includes("trust_policy_rejected"));
+  assert.ok(evaluateRecommendationPolicy({ ...base, fairnessAllowed: false }, { now: () => new Date(NOW) }).reasonCodes.includes("seller_concentration_limited"));
+  assert.ok(evaluateRecommendationPolicy({ ...base, sponsored: true }, { now: () => new Date(NOW) }).reasonCodes.includes("sponsored_disclosure_missing"));
+  assert.equal(evaluateRecommendationPolicy({
+    ...base,
+    sponsored: true,
+    decisionReasonCodes: ["sponsored_disclosure_required"]
+  }, { now: () => new Date(NOW) }).policyAllowed, true);
 });

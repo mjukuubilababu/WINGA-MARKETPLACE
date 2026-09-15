@@ -4,6 +4,7 @@ const OBSERVATION_SCHEMA_VERSION = "2026-09-15.wip-observation.v1";
 const SIGNAL_SCHEMA_VERSION = "2026-09-15.wip-signal.v1";
 const DECISION_SCHEMA_VERSION = "2026-09-15.wip-decision.v1";
 const ACTION_RESULT_SCHEMA_VERSION = "2026-09-15.wip-action-result.v1";
+const GOVERNING_POLICY_VERSION = "wip-governing-policy-v1";
 const DEFAULT_SIGNAL_TTL_MS = 24 * 60 * 60 * 1000;
 
 const INTELLIGENCE_DEFINITIONS = Object.freeze([
@@ -189,6 +190,69 @@ function createDecision(input = {}, options = {}) {
   });
 }
 
+function evaluateRecommendationPolicy(input = {}, options = {}) {
+  const now = new Date(options.now?.() || new Date());
+  const audienceType = boundedText(input.audienceType, 40).toLowerCase();
+  const entityType = boundedText(input.entityType, 40).toLowerCase();
+  const privacy = boundedText(input.privacy, 60).toLowerCase();
+  const decisionReasonCodes = Array.isArray(input.decisionReasonCodes)
+    ? input.decisionReasonCodes.map(value => boundedText(value, 80)).filter(Boolean)
+    : [];
+  const confidence = clamp(input.confidence, 0, 1);
+  const minimumConfidence = clamp(input.minimumConfidence ?? 0.2, 0, 1);
+  const expiresAt = new Date(input.expiresAt || 0).getTime();
+  const targetExists = input.targetExists !== false;
+  const permissionAllowed = input.permissionAllowed !== false && input.audienceActive !== false;
+  const reasonCodes = [];
+  let policyAllowed = true;
+
+  const allowedPrivacy = audienceType === "seller"
+    ? new Set(["aggregate-only", "seller-scoped-aggregate-only"])
+    : audienceType === "person"
+      ? new Set(["person-scoped", "self-scoped", "public-commerce-entity"])
+      : new Set(["aggregate-only", "public-commerce-entity"]);
+
+  if (!targetExists) reasonCodes.push("target_missing");
+  if (!permissionAllowed) reasonCodes.push("audience_permission_denied");
+  if (!Number.isFinite(expiresAt) || expiresAt <= now.getTime()) reasonCodes.push("decision_expired");
+  if (confidence < minimumConfidence) {
+    policyAllowed = false;
+    reasonCodes.push("insufficient_confidence");
+  }
+  if (!allowedPrivacy.has(privacy)) {
+    policyAllowed = false;
+    reasonCodes.push("privacy_scope_rejected");
+  }
+  if (input.targetEligible === false) {
+    policyAllowed = false;
+    reasonCodes.push("target_not_eligible");
+  }
+  if (input.trustAllowed === false) {
+    policyAllowed = false;
+    reasonCodes.push("trust_policy_rejected");
+  }
+  if (input.fairnessAllowed === false) {
+    policyAllowed = false;
+    reasonCodes.push("seller_concentration_limited");
+  }
+  if (Boolean(input.sponsored) && !decisionReasonCodes.includes("sponsored_disclosure_required")) {
+    policyAllowed = false;
+    reasonCodes.push("sponsored_disclosure_missing");
+  }
+  if (!reasonCodes.length) reasonCodes.push("governing_policy_approved");
+
+  const uniqueReasonCodes = Object.freeze(Array.from(new Set(reasonCodes)));
+  return Object.freeze({
+    policyVersion: GOVERNING_POLICY_VERSION,
+    targetExists,
+    permissionAllowed,
+    policyAllowed,
+    reasonCodes: uniqueReasonCodes,
+    executionKey: `${GOVERNING_POLICY_VERSION}:${uniqueReasonCodes.join(",")}`,
+    context: Object.freeze({ audienceType, entityType, privacy, confidence, minimumConfidence })
+  });
+}
+
 function executeDecision(decision = {}, checks = {}, options = {}) {
   const now = new Date(options.now?.() || new Date());
   const expired = new Date(decision.expiresAt || 0).getTime() <= now.getTime();
@@ -201,13 +265,20 @@ function executeDecision(decision = {}, checks = {}, options = {}) {
   else if (checks.alreadyExecuted === true) status = "SKIPPED";
   const completedAt = now.toISOString();
   return Object.freeze({
-    actionId: stableId("act", `${decision.decisionId}:${decision.selectedAction}`),
+    actionId: stableId("act", `${decision.decisionId}:${decision.selectedAction}:${boundedText(checks.executionKey, 240)}`),
     schemaVersion: ACTION_RESULT_SCHEMA_VERSION,
     decisionId: boundedText(decision.decisionId, 100),
     status,
     startedAt: completedAt,
     completedAt,
-    resultMetadata: Object.freeze({ selectedAction: boundedText(decision.selectedAction, 80), targetContext: boundedText(decision.targetContext, 80) }),
+    resultMetadata: Object.freeze({
+      selectedAction: boundedText(decision.selectedAction, 80),
+      targetContext: boundedText(decision.targetContext, 80),
+      outcomeType: boundedText(checks.outcomeType || "decision_execution", 80),
+      businessOutcome: Boolean(checks.businessOutcome),
+      policyVersion: boundedText(checks.policyVersion, 80),
+      policyReasonCodes: Object.freeze((checks.policyReasonCodes || []).map(value => boundedText(value, 80)).filter(Boolean))
+    }),
     failureReason
   });
 }
@@ -217,11 +288,13 @@ module.exports = {
   SIGNAL_SCHEMA_VERSION,
   DECISION_SCHEMA_VERSION,
   ACTION_RESULT_SCHEMA_VERSION,
+  GOVERNING_POLICY_VERSION,
   INTELLIGENCE_DEFINITIONS,
   DEFAULT_REGISTRY,
   createIntelligenceRegistry,
   normalizeObservation,
   learnFromObservation,
   createDecision,
+  evaluateRecommendationPolicy,
   executeDecision
 };

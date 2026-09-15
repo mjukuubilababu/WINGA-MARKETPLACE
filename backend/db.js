@@ -2,7 +2,7 @@ const { Client, Pool } = require("pg");
 const { runSchemaMigrations } = require("./migrations");
 const { persistIntelligenceEvent, pruneIntelligenceScoreState } = require("./intelligence-score-store");
 const { normalizeProductMediaItems } = require("./product-media");
-const { executeDecision } = require("./wip-mind");
+const { evaluateRecommendationPolicy, executeDecision } = require("./wip-mind");
 const {
   COMMERCE_REDISCOVERY_EXPERIMENT_KEY,
   assignCommerceExperimentArm,
@@ -5871,17 +5871,22 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     const safeAudienceKey = String(audienceKey || "").trim().slice(0, 80);
     const safeLimit = Math.max(1, Math.min(Number(limit || 10) || 10, 50));
     if (!safeAudienceKey) return [];
+    const candidateLimit = Math.min(150, safeLimit * 3);
     const result = await readQuery(
       `SELECT r.recommendation_id AS "recommendationId", r.recommendation_type AS "recommendationType",
               r.entity_type AS "entityType", r.entity_key AS "entityKey", r.score::float8, r.reasons, r.metadata,
               r.model_version AS "modelVersion", r.generated_at AS "generatedAt", r.expires_at AS "expiresAt",
               d.decision_id AS "decisionId", d.confidence::float8 AS "decisionConfidence",
-              d.policy_version AS "policyVersion", d.reason_codes AS "decisionReasonCodes"
+              d.policy_version AS "policyVersion", d.reason_codes AS "decisionReasonCodes", d.sponsored,
+              p.uploaded_by AS "targetSellerId", seller_score.score::float8 AS "targetSellerScore"
         FROM intelligence_recommendations r
         JOIN intelligence_decisions d ON d.idempotency_key='recommendation:'||r.recommendation_id
           AND d.selected_action='SURFACE_RECOMMENDATION' AND d.expires_at>NOW()
         LEFT JOIN products p ON r.entity_type='product' AND p.id=r.entity_key AND p.status='approved'
         LEFT JOIN commerce_opportunities o ON r.entity_type='opportunity' AND o.opportunity_id=r.entity_key
+        LEFT JOIN intelligence_entity_scores seller_score
+          ON p.uploaded_by<>'' AND seller_score.entity_type='seller' AND seller_score.entity_key=p.uploaded_by
+         AND seller_score.expires_at>NOW()
         WHERE r.audience_type=$1 AND r.audience_key=$2 AND r.status='active' AND r.expires_at > NOW()
           AND (
             ($1='seller' AND r.entity_type='product' AND p.uploaded_by=$2)
@@ -5894,25 +5899,53 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
             OR ($1='market' AND r.entity_type='product' AND p.id IS NOT NULL)
           )
        ORDER BY r.score DESC, r.generated_at DESC LIMIT $3`,
-      [safeAudienceType, safeAudienceKey, safeLimit]
+      [safeAudienceType, safeAudienceKey, candidateLimit]
     );
-    const recommendations = (result.rows || []).map((row) => ({
+    const candidates = (result.rows || []).map((row) => ({
       ...row,
       score: Number(row.score || 0),
       decisionConfidence: Number(row.decisionConfidence || 0),
+      targetSellerScore: row.targetSellerScore == null ? null : Number(row.targetSellerScore),
       reasons: parseJson(row.reasons, []),
       metadata: parseJson(row.metadata, {}),
       decisionReasonCodes: parseJson(row.decisionReasonCodes, []),
       generatedAt: toISOString(row.generatedAt),
       expiresAt: toISOString(row.expiresAt)
     }));
-    await Promise.all(recommendations.map(async (recommendation) => {
+    const accepted = [];
+    const sellerCounts = new Map();
+    for (const recommendation of candidates) {
+      const sellerKey = String(recommendation.targetSellerId || "").trim();
+      const sellerCount = Number(sellerCounts.get(sellerKey) || 0);
+      const policy = evaluateRecommendationPolicy({
+        audienceType: safeAudienceType,
+        entityType: recommendation.entityType,
+        privacy: recommendation.metadata?.privacy,
+        confidence: recommendation.decisionConfidence,
+        expiresAt: recommendation.expiresAt,
+        targetExists: true,
+        permissionAllowed: true,
+        targetEligible: true,
+        trustAllowed: recommendation.targetSellerScore == null || recommendation.targetSellerScore >= 10,
+        fairnessAllowed: safeAudienceType !== "person" || !sellerKey || sellerCount < 2,
+        sponsored: recommendation.sponsored,
+        decisionReasonCodes: recommendation.decisionReasonCodes
+      });
       const result = executeDecision({
         decisionId: recommendation.decisionId,
         selectedAction: "SURFACE_RECOMMENDATION",
         targetContext: `${safeAudienceType}_dashboard`,
         expiresAt: recommendation.expiresAt
-      }, { targetExists: true, permissionAllowed: true, policyAllowed: true });
+      }, {
+        targetExists: policy.targetExists,
+        permissionAllowed: policy.permissionAllowed,
+        policyAllowed: policy.policyAllowed,
+        executionKey: policy.executionKey,
+        policyVersion: policy.policyVersion,
+        policyReasonCodes: policy.reasonCodes,
+        outcomeType: "recommendation_delivery",
+        businessOutcome: false
+      });
       const recorded = await query(
         `INSERT INTO intelligence_action_results (
            action_id,schema_version,decision_id,status,started_at,completed_at,result_metadata,failure_reason
@@ -5920,7 +5953,18 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
         [result.actionId,result.schemaVersion,result.decisionId,result.status,result.startedAt,result.completedAt,
           stringifyJson(result.resultMetadata,{}),result.failureReason]
       );
-      if (recorded.rowCount) {
+      if (result.status === "EXECUTED") {
+        if (sellerKey) sellerCounts.set(sellerKey, sellerCount + 1);
+        if (accepted.length < safeLimit) {
+          const { targetSellerId: _targetSellerId, targetSellerScore: _targetSellerScore, ...publicRecommendation } = recommendation;
+          accepted.push({
+            ...publicRecommendation,
+            governingPolicyVersion: policy.policyVersion,
+            governingReasonCodes: policy.reasonCodes
+          });
+        }
+      }
+      if (recorded.rowCount && result.status === "EXECUTED") {
         await enqueueIntelligenceEvent({
           eventId: `feedback_${result.actionId}`,
           eventType: "recommendation_surfaced",
@@ -5937,6 +5981,9 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
           metadata: {
             decisionId: result.decisionId,
             actionStatus: result.status,
+            outcomeType: "recommendation_delivery",
+            businessOutcome: false,
+            policyVersion: policy.policyVersion,
             opportunityId: recommendation.entityType === "opportunity" ? recommendation.entityKey : ""
           },
           quality: { known: true, scoreableProduct: false, scoreableSeller: false, confidence: 1, reasons: [] },
@@ -5944,8 +5991,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
           platformVersion: "2026-09-15.1"
         }, {});
       }
-    }));
-    return recommendations;
+    }
+    return accepted;
   }
 
   async function readIntelligenceDecisionHealth() {

@@ -136,6 +136,10 @@ test("fresh Winga database boots WIP and closes learn decide act with real comme
     assert.equal(opportunityRecommendation.entityKey, "opp-search-white-dress");
     assert.equal(opportunityRecommendation.metadata.privacy, "aggregate-only");
     assert.equal(opportunityRecommendation.policyVersion, "wip-conscious-policy-v1");
+    assert.equal(opportunityRecommendation.governingPolicyVersion, "wip-governing-policy-v1");
+    assert.deepEqual(opportunityRecommendation.governingReasonCodes, ["governing_policy_approved"]);
+    assert.equal(Object.hasOwn(opportunityRecommendation, "targetSellerScore"), false);
+    assert.equal(Object.hasOwn(opportunityRecommendation, "targetSellerId"), false);
     assert.ok(opportunityRecommendation.decisionConfidence > 0);
     const feedbackJobs = await freshStore.claimIntelligenceQueueBatch({ limit: 5, workerId: "wip-feedback-test" });
     assert.equal(feedbackJobs.length, 2);
@@ -150,6 +154,14 @@ test("fresh Winga database boots WIP and closes learn decide act with real comme
     assert.ok(mindHealth.activeSignals >= 2);
     assert.equal(mindHealth.activeDecisions, 2);
     assert.equal(mindHealth.executedActions, 2);
+    const actionSemantics = await freshDb.query(
+      "SELECT result_metadata AS metadata FROM intelligence_action_results WHERE status='EXECUTED'"
+    );
+    actionSemantics.rows.forEach((row) => {
+      assert.equal(row.metadata.outcomeType, "recommendation_delivery");
+      assert.equal(row.metadata.businessOutcome, false);
+      assert.equal(row.metadata.policyVersion, "wip-governing-policy-v1");
+    });
     await freshStore.recordSellerOpportunityDecision({
       sellerId: "seller-1",
       opportunityId: "opp-search-white-dress",
