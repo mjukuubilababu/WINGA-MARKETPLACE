@@ -16405,7 +16405,7 @@ authButton.addEventListener("click", async () => {
       password,
       phoneNumber,
       nationalId: "",
-      role: selectedAuthRole,
+      role: "buyer",
       profileImage: ""
     });
     releasePublicAuthPendingState();

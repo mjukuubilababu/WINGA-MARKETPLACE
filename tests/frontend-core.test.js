@@ -5180,6 +5180,19 @@ test("localized profile surfaces preserve account and commerce contracts", () =>
   assert.match(controllerSource, /updateUserProfile/);
 });
 
+test("Winga account identity is person-first while selling remains a capability", () => {
+  const root = path.resolve(__dirname, "..");
+  const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
+  const profileSource = fs.readFileSync(path.join(root, "src", "profile", "ui.js"), "utf8");
+  const adminSource = fs.readFileSync(path.join(root, "src", "admin", "controller.js"), "utf8");
+
+  assert.match(appSource, /role: "buyer",/);
+  assert.match(profileSource, /profile\.wingaAccount/);
+  assert.match(profileSource, /context\.hasSellingActivity/);
+  assert.equal(adminSource.includes('adminUserAction: "makeBuyer"'), false);
+  assert.equal(adminSource.includes('adminUserAction: "makeSeller"'), false);
+});
+
 test("localized product detail preserves continuation, gallery, demand, and review contracts", () => {
   const uiSource = fs.readFileSync(path.join(__dirname, "..", "src", "product-detail", "ui.js"), "utf8");
   const controllerSource = fs.readFileSync(path.join(__dirname, "..", "src", "product-detail", "controller.js"), "utf8");

@@ -1000,7 +1000,13 @@
             new Date(second?.updatedAt || second?.createdAt || 0).getTime()
             - new Date(first?.updatedAt || first?.createdAt || 0).getTime()
           );
-        const canGetVerified = userProfile?.role === "seller" && !userProfile?.verifiedSeller;
+        const hasSellingActivity = Boolean(
+          userProfile?.hasSellingActivity
+          || userProfile?.verifiedSeller
+          || userProfile?.verificationSubmittedAt
+          || userProducts.length
+        );
+        const canGetVerified = !userProfile?.verifiedSeller && userProfile?.verificationStatus !== "pending";
         profileDiv.dataset.activeSection = activeSection;
         profileDiv.replaceChildren(deps.createProfileShellElement({
           displayName: deps.getCurrentDisplayName(),
@@ -1042,7 +1048,7 @@
             displayName: deps.getCurrentDisplayName(),
             profileImage: deps.getCurrentProfileImage(),
             userInitials: deps.getUserInitials(deps.getCurrentDisplayName()),
-            roleLabel: userProfile?.role ? deps.getRoleLabel(userProfile.role) : "User",
+            hasSellingActivity,
             whatsappNumber: userProfile?.whatsappNumber || userProfile?.phoneNumber || "",
             phoneNumber: userProfile?.phoneNumber || userProfile?.whatsappNumber || "",
             whatsappVerificationStatus: userProfile?.whatsappVerificationStatus || "verified",

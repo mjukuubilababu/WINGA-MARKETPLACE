@@ -8026,8 +8026,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
 
   function buildPublicPersonCapabilities(row = {}) {
     const capabilities = [];
-    if (row.role === "buyer") capabilities.push("buyer");
-    if (row.role === "seller" || row.verifiedSeller || Number(row.publicProductCount || 0) > 0) capabilities.push("seller");
+    if (row.verifiedSeller || Number(row.publicProductCount || 0) > 0) capabilities.push("seller");
     if (Number(row.publicReelCount || 0) > 0 || Number(row.publicReviewCount || 0) > 0) capabilities.push("creator");
     if (Number(row.publicCollectionCount || 0) > 0) capabilities.push("curator");
     return capabilities;

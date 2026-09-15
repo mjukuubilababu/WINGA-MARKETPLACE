@@ -843,11 +843,11 @@
       const left = deps.createElement("div");
       left.append(
         deps.createElement("strong", { textContent: user.fullName || user.username }),
-        createMetaCopy(t("admin.userMeta", "@{username} | {role}", { username: user.username, role: deps.getRoleLabel?.(user.role) || user.role }))
+        createMetaCopy(t("admin.personAccountMeta", "@{username} | Winga account", { username: user.username }))
       );
       const statusGroup = deps.createElement("div", { className: "trust-badges" });
       statusGroup.appendChild(deps.createStatusPill(user.status || "active", mapStatusClass(user.status)));
-      if (user.role === "seller") {
+      if (user.verificationStatus && user.verificationStatus !== "unverified") {
         statusGroup.appendChild(deps.createStatusPill(user.verificationStatus || "pending", mapStatusClass(user.verificationStatus)));
       }
       if (Number(user.suspiciousSignalCount || 0) > 0) {
@@ -864,7 +864,8 @@
       moderationNote.value = user.moderationNote || "";
 
       const actions = deps.createElement("div", { className: "moderation-actions" });
-      const canReviewVerification = user.role === "seller" && user.username !== "admin";
+      const canReviewVerification = user.username !== "admin"
+        && Boolean(user.verificationSubmittedAt || user.verificationStatus === "pending" || user.verifiedSeller);
       if (canReviewVerification && user.verificationStatus !== "verified") {
         actions.appendChild(createActionButton("Thibitisha Muuzaji", {
           adminUserAction: "verify",
@@ -878,17 +879,6 @@
         }));
       }
       if (deps.isAdminUser?.() && user.username !== "admin") {
-        if (user.role === "seller") {
-          actions.appendChild(createActionButton("Make Buyer", {
-            adminUserAction: "makeBuyer",
-            adminUsername: user.username
-          }));
-        } else {
-          actions.appendChild(createActionButton("Make Seller", {
-            adminUserAction: "makeSeller",
-            adminUsername: user.username
-          }));
-        }
         if (user.status !== "active") {
           actions.appendChild(createActionButton("Restore", {
             adminUserAction: "activate",

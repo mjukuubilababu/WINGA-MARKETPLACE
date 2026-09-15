@@ -18141,11 +18141,11 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       const left = deps.createElement("div");
       left.append(
         deps.createElement("strong", { textContent: user.fullName || user.username }),
-        createMetaCopy(t("admin.userMeta", "@{username} | {role}", { username: user.username, role: deps.getRoleLabel?.(user.role) || user.role }))
+        createMetaCopy(t("admin.personAccountMeta", "@{username} | Winga account", { username: user.username }))
       );
       const statusGroup = deps.createElement("div", { className: "trust-badges" });
       statusGroup.appendChild(deps.createStatusPill(user.status || "active", mapStatusClass(user.status)));
-      if (user.role === "seller") {
+      if (user.verificationStatus && user.verificationStatus !== "unverified") {
         statusGroup.appendChild(deps.createStatusPill(user.verificationStatus || "pending", mapStatusClass(user.verificationStatus)));
       }
       if (Number(user.suspiciousSignalCount || 0) > 0) {
@@ -18162,7 +18162,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       moderationNote.value = user.moderationNote || "";
 
       const actions = deps.createElement("div", { className: "moderation-actions" });
-      const canReviewVerification = user.role === "seller" && user.username !== "admin";
+      const canReviewVerification = user.username !== "admin"
+        && Boolean(user.verificationSubmittedAt || user.verificationStatus === "pending" || user.verifiedSeller);
       if (canReviewVerification && user.verificationStatus !== "verified") {
         actions.appendChild(createActionButton("Thibitisha Muuzaji", {
           adminUserAction: "verify",
@@ -18176,17 +18177,6 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         }));
       }
       if (deps.isAdminUser?.() && user.username !== "admin") {
-        if (user.role === "seller") {
-          actions.appendChild(createActionButton("Make Buyer", {
-            adminUserAction: "makeBuyer",
-            adminUsername: user.username
-          }));
-        } else {
-          actions.appendChild(createActionButton("Make Seller", {
-            adminUserAction: "makeSeller",
-            adminUsername: user.username
-          }));
-        }
         if (user.status !== "active") {
           actions.appendChild(createActionButton("Restore", {
             adminUserAction: "activate",
@@ -20005,10 +19995,10 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         deps.createElement("strong", { textContent: displayName }),
         deps.createElement("p", {
           className: "product-meta",
-          textContent: t("profile.roleAccount", "{role} account", { role: roleLabel })
+          textContent: t("profile.wingaAccount", "Winga account")
         })
       );
-      if (userProfile?.role === "seller") {
+      if (context.hasSellingActivity) {
         const verificationLine = deps.createElement("p", { className: "product-meta" });
         verificationLine.append(t("profile.verificationLabel", "Verification: "));
         verificationLine.appendChild(deps.createElement("span", {
@@ -20137,7 +20127,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       }
 
       let paymentWrap = null;
-      if (userProfile?.role === "seller") {
+      {
         paymentWrap = deps.createElement("div", {
           className: "profile-whatsapp-block profile-payment-block",
           attributes: { id: "profile-payment-block" }
@@ -20241,7 +20231,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         paymentWrap.appendChild(paymentForm);
       }
 
-      if (userProfile?.role === "seller") {
+      if (context.hasSellingActivity) {
         const trustBlock = deps.createElement("div", { className: "profile-trust-block" });
         trustBlock.append(
           deps.createElement("strong", { textContent: t("profile.trustProfile", "Trust profile") }),
@@ -20253,7 +20243,9 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 
         const trustFacts = deps.createElement("div", { className: "trust-badges profile-trust-facts" });
         trustFacts.appendChild(deps.createStatusPill(
-          userProfile?.verifiedSeller ? "Verified seller" : "Unverified seller",
+          userProfile?.verifiedSeller
+            ? t("profile.verifiedSelling", "Selling verified")
+            : t("profile.unverifiedSelling", "Selling not verified"),
           userProfile?.verifiedSeller ? "approved" : "pending"
         ));
         if ((context.whatsappVerificationStatus || "verified") === "verified" && (context.whatsappNumber || userProfile?.phoneNumber)) {
@@ -20308,12 +20300,12 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         return null;
       }
 
-      const sectionTitle = t("profile.sellerRegistrationTitle", "Seller Registration");
-      const sectionEyebrow = t("profile.sellerUpgradeEyebrow", "Seller upgrade");
+      const sectionTitle = t("profile.sellerRegistrationTitle", "Selling verification");
+      const sectionEyebrow = t("profile.sellerUpgradeEyebrow", "Selling capability");
       const sectionMeta = t("profile.sellerUpgradeMeta", "Store name and phone number");
-      const buttonLabel = t("profile.openSellerForm", "Open seller form");
-      const submitLabel = t("profile.becomeSeller", "Become Seller");
-      const guidanceCopy = t("profile.sellerUpgradeGuidance", "Add your store name and phone number. Your account remains open while the role changes.");
+      const buttonLabel = t("profile.openSellerForm", "Open verification form");
+      const submitLabel = t("profile.becomeSeller", "Request verification");
+      const guidanceCopy = t("profile.sellerUpgradeGuidance", "Add your selling details. Your Winga account stays the same.");
 
       const section = deps.createElement("section", {
         className: "panel profile-seller-upgrade-panel",
@@ -20874,7 +20866,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       if (context.canUpgradeToSeller) {
         actionsCard.appendChild(deps.createElement("button", {
           className: "action-btn buy-btn",
-          textContent: t("profile.becomeSeller", "Become Seller"),
+          textContent: t("profile.becomeSeller", "Request verification"),
           attributes: {
             type: "button",
             "data-open-seller-upgrade": "true"
@@ -21992,7 +21984,13 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             new Date(second?.updatedAt || second?.createdAt || 0).getTime()
             - new Date(first?.updatedAt || first?.createdAt || 0).getTime()
           );
-        const canGetVerified = userProfile?.role === "seller" && !userProfile?.verifiedSeller;
+        const hasSellingActivity = Boolean(
+          userProfile?.hasSellingActivity
+          || userProfile?.verifiedSeller
+          || userProfile?.verificationSubmittedAt
+          || userProducts.length
+        );
+        const canGetVerified = !userProfile?.verifiedSeller && userProfile?.verificationStatus !== "pending";
         profileDiv.dataset.activeSection = activeSection;
         profileDiv.replaceChildren(deps.createProfileShellElement({
           displayName: deps.getCurrentDisplayName(),
@@ -22034,7 +22032,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             displayName: deps.getCurrentDisplayName(),
             profileImage: deps.getCurrentProfileImage(),
             userInitials: deps.getUserInitials(deps.getCurrentDisplayName()),
-            roleLabel: userProfile?.role ? deps.getRoleLabel(userProfile.role) : "User",
+            hasSellingActivity,
             whatsappNumber: userProfile?.whatsappNumber || userProfile?.phoneNumber || "",
             phoneNumber: userProfile?.phoneNumber || userProfile?.whatsappNumber || "",
             whatsappVerificationStatus: userProfile?.whatsappVerificationStatus || "verified",

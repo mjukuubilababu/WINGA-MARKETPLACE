@@ -2369,8 +2369,17 @@ function buildSellerPublicStats(store, username = "") {
 function sanitizeUser(user, options = {}) {
   const viewer = options.viewer || null;
   const store = options.store || null;
+  const isSelf = Boolean(viewer && viewer.username === user.username);
+  const hasSellingActivity = Boolean(
+    user.verifiedSeller
+    || user.verificationSubmittedAt
+    || (store?.products || []).some((product) =>
+      product.uploadedBy === user.username && product.status !== "rejected"
+    )
+  );
+  const sellingDetailsVisible = isSelf || hasSellingActivity;
   const phoneVisible = canViewerSeeUserPhone(user, viewer);
-  const phoneVisibility = viewer && viewer.username === user.username
+  const phoneVisibility = isSelf
     ? "self"
     : phoneVisible ? "shared" : "private";
   return {
@@ -2387,13 +2396,14 @@ function sanitizeUser(user, options = {}) {
     verifiedSeller: Boolean(user.verifiedSeller),
     verificationStatus: user.verificationStatus || (user.verifiedSeller ? "verified" : "unverified"),
     profileImage: user.profileImage || "",
-    paymentProvider: user.role === "seller" ? (user.paymentProvider || "") : "",
-    paymentNumber: user.role === "seller" ? String(user.paymentNumber || "").replace(/\D/g, "").slice(0, 20) : "",
-    paymentRecipientName: user.role === "seller" ? (user.paymentRecipientName || user.fullName || user.username) : "",
-    paymentInstructions: user.role === "seller" ? (user.paymentInstructions || "") : "",
+    paymentProvider: sellingDetailsVisible ? (user.paymentProvider || "") : "",
+    paymentNumber: sellingDetailsVisible ? String(user.paymentNumber || "").replace(/\D/g, "").slice(0, 20) : "",
+    paymentRecipientName: sellingDetailsVisible ? (user.paymentRecipientName || user.fullName || user.username) : "",
+    paymentInstructions: sellingDetailsVisible ? (user.paymentInstructions || "") : "",
     createdAt: user.createdAt || "",
     phoneVisibility,
-    sellerStats: user.role === "seller" && store ? buildSellerPublicStats(store, user.username) : null,
+    hasSellingActivity,
+    sellerStats: hasSellingActivity && store ? buildSellerPublicStats(store, user.username) : null,
     canReceivePhoneShare: Boolean(
       viewer
       && viewer.username !== user.username
@@ -8579,8 +8589,17 @@ const server = http.createServer(async (req, res) => {
           return;
         }
       }
-      if (requestedVerificationUpdate && targetUser.role !== "seller") {
-        sendJson(res, 400, { error: "Verification review inaruhusiwa kwa seller accounts tu." });
+      if (requestedVerificationUpdate && !canCreateMarketplaceSupply(targetUser.role)) {
+        sendJson(res, 400, { error: "Selling verification review inaruhusiwa kwa Winga accounts tu." });
+        return;
+      }
+      const hasVerificationRequest = Boolean(
+        targetUser.verificationSubmittedAt
+        || targetUser.identityDocumentImage
+        || targetUser.identityDocumentNumber
+      );
+      if (requestedVerificationUpdate && payload.verifiedSeller === true && !hasVerificationRequest) {
+        sendJson(res, 400, { error: "Account hii haijawasilisha selling verification request." });
         return;
       }
       if (!isAdminSession(session) && (requestedStatusChange || requestedRoleChange || requestedDelete)) {
@@ -8936,15 +8955,14 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 403, { error: "Public signup inaruhusu buyer au seller accounts tu." });
         return;
       }
-      const normalizedRole = requestedRole === "buyer" || requestedRole === "seller" ? requestedRole : "seller";
-      const buyerUsername = normalizedRole === "buyer"
-        ? `buyer-${Date.now()}-${crypto.randomBytes(3).toString("hex")}`
-        : rawPayload.username;
+      const normalizedRole = "buyer";
+      const personUsername = sanitizePlainText(rawPayload.username || "", 60)
+        || `person-${Date.now()}-${crypto.randomBytes(3).toString("hex")}`;
       const payload = normalizeUserRecord({
         ...stripSignupCategoryFields(rawPayload),
         primaryCategory: "",
         role: normalizedRole,
-        username: buyerUsername,
+        username: personUsername,
         fullName: rawPayload.fullName || rawPayload.username || ""
       });
       const users = store.users || [];
@@ -8997,9 +9015,8 @@ const server = http.createServer(async (req, res) => {
 
       const normalizedPhone = String(payload.phoneNumber || "").replace(/\D/g, "").slice(0, 20);
       const displayName = sanitizePlainText(payload.fullName || payload.username || "", 120);
-      const generatedUsername = normalizedRole === "buyer"
-        ? `buyer-${normalizedPhone || Date.now()}`
-        : sanitizePlainText(rawPayload.username || "", 60) || `seller-${normalizedPhone || Date.now()}`;
+      const generatedUsername = sanitizePlainText(rawPayload.username || "", 60)
+        || `person-${normalizedPhone || Date.now()}`;
 
       const createdUser = {
         ...payload,
@@ -9011,13 +9028,13 @@ const server = http.createServer(async (req, res) => {
         status: "active",
         moderationReason: "",
         moderationNote: "",
-        verifiedSeller: normalizedRole === "seller",
+        verifiedSeller: false,
         profileImage: payload.profileImage || "",
         identityDocumentType: getNormalizedSignupIdentity(rawPayload).idType || "",
         identityDocumentNumber: normalizedIdentity || "",
         identityDocumentImage: getNormalizedSignupIdentity(rawPayload).idImage || "",
-        verificationStatus: normalizedRole === "seller" ? "verified" : "",
-        verificationSubmittedAt: normalizedRole === "seller" ? new Date().toISOString() : "",
+        verificationStatus: identityProvided ? "pending" : "unverified",
+        verificationSubmittedAt: identityProvided ? new Date().toISOString() : "",
         moderatedAt: "",
         moderatedBy: "",
         updatedAt: new Date().toISOString(),
@@ -12348,7 +12365,7 @@ const server = http.createServer(async (req, res) => {
       }
 
       if (isStaffRole(user.role)) {
-        sendJson(res, 403, { error: "Admin au moderator hawawezi kutumia seller upgrade hii." });
+        sendJson(res, 403, { error: "Admin au moderator hawawezi kutumia selling verification hii." });
         return;
       }
 
@@ -12358,7 +12375,7 @@ const server = http.createServer(async (req, res) => {
       }
 
       if (user.role !== "buyer" && user.role !== "seller") {
-        sendJson(res, 400, { error: "Seller verification inaruhusiwa kwa buyer au seller accounts tu." });
+        sendJson(res, 400, { error: "Selling verification inaruhusiwa kwa Winga accounts tu." });
         return;
       }
       if (!await requireFreshStepUpForSensitiveAction({
@@ -12381,7 +12398,7 @@ const server = http.createServer(async (req, res) => {
       const verifiedPhoneNumber = String(user.whatsappNumber || user.phoneNumber || "").replace(/\D/g, "").slice(0, 20);
       if (user.whatsappVerificationStatus !== "verified" || phoneNumber !== verifiedPhoneNumber) {
         sendJson(res, 409, {
-          error: "Thibitisha namba hii kwenye profile kabla ya kuendelea na seller upgrade.",
+          error: "Thibitisha namba hii kwenye profile kabla ya kuomba selling verification.",
           code: "phone_verification_required"
         });
         return;
@@ -12396,7 +12413,6 @@ const server = http.createServer(async (req, res) => {
       const updatedUser = normalizeUserRecord({
         ...user,
         fullName,
-        role: "seller",
         primaryCategory,
         phoneNumber,
         whatsappNumber: phoneNumber,
@@ -12407,8 +12423,8 @@ const server = http.createServer(async (req, res) => {
         identityDocumentNumber: "",
         identityDocumentImage: "",
         verifiedSeller: false,
-        verificationStatus: "unverified",
-        verificationSubmittedAt: user.verificationSubmittedAt || "",
+        verificationStatus: "pending",
+        verificationSubmittedAt: now,
         updatedAt: now
       });
 

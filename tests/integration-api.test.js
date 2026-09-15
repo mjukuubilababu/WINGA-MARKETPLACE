@@ -428,8 +428,9 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   });
   assert.equal(sellerSignup.response.status, 200);
   assert.equal(sellerSignup.body.username, "seller_one");
-  assert.equal(sellerSignup.body.verificationStatus, "verified");
-  assert.equal(sellerSignup.body.verifiedSeller, true);
+  assert.equal(sellerSignup.body.role, "buyer");
+  assert.equal(sellerSignup.body.verificationStatus, "pending");
+  assert.equal(sellerSignup.body.verifiedSeller, false);
   assert.equal(sellerSignup.body.phoneNumber, "255700111111");
   assert.equal(sellerSignup.body.primaryCategory, "");
   assert.equal(Object.prototype.hasOwnProperty.call(sellerSignup.body, "token"), false);
@@ -2425,7 +2426,7 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   assert.equal(adminUsers.body.some((user) =>
     user.username === "seller_one"
     && user.phoneNumber === "255700333333"
-    && user.verificationStatus === "verified"
+    && user.verificationStatus === "pending"
     && user.hasIdentityDocumentImage === true
     && typeof user.activeSessionCount === "number"
     && typeof user.openReportsCount === "number"
@@ -2443,7 +2444,7 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   });
   assert.equal(adminInvestigation.response.status, 200);
   assert.equal(adminInvestigation.body.profile.username, "seller_one");
-  assert.equal(adminInvestigation.body.identityVerificationStatus, "verified");
+  assert.equal(adminInvestigation.body.identityVerificationStatus, "pending");
   assert.equal(adminInvestigation.body.fraudReview.directMessagesExposed, false);
   assert.equal(adminInvestigation.body.fraudReview.requestedReason, "Fraud review after suspicious listing and account audit.");
 
@@ -2531,7 +2532,7 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   assert.equal(moderatorVerifySeller.body.verificationStatus, "verified");
   assert.equal(moderatorVerifySeller.body.verifiedSeller, true);
 
-  const moderatorVerifyBuyerAttempt = await request(`/admin/users/${encodeURIComponent(buyerUsername)}/moderation`, {
+  const moderatorVerifyPerson = await request(`/admin/users/${encodeURIComponent(buyerUsername)}/moderation`, {
     method: "PATCH",
     headers: {
       "Content-Type": "application/json",
@@ -2540,10 +2541,11 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
     body: JSON.stringify({
       verificationStatus: "verified",
       verifiedSeller: true,
-      note: "should not verify buyer"
+      note: "Moderator verified a Winga person with submitted identity evidence"
     })
   });
-  assert.equal(moderatorVerifyBuyerAttempt.response.status, 400);
+  assert.equal(moderatorVerifyPerson.response.status, 200);
+  assert.equal(moderatorVerifyPerson.body.verifiedSeller, true);
 
   const buyerLogout = await request("/auth/logout", {
     method: "POST",

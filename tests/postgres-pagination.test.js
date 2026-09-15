@@ -3919,7 +3919,7 @@ test("person profile exposes public multi-capabilities without private behavior"
   };
   const store = createPostgresStore({ databaseUrl: "postgres://test.invalid/winga", queryClient });
   const profile = await store.readUserFollowSummary("person-a", "viewer");
-  assert.deepEqual(profile.capabilities, ["buyer", "creator", "curator"]);
+  assert.deepEqual(profile.capabilities, ["creator", "curator"]);
   assert.deepEqual(profile.publicContent, {
     products: 0,
     reels: 2,
@@ -3977,7 +3977,7 @@ test("person follow suggestions are bounded, block-safe, and based on public act
   assert.equal(result.limit, 30);
   assert.equal(result.privacy, "public-activity-only");
   assert.equal(result.items[0].reasonCode, "similar_public_categories");
-  assert.deepEqual(result.items[0].capabilities, ["buyer", "seller", "creator", "curator"]);
+  assert.deepEqual(result.items[0].capabilities, ["seller", "creator", "curator"]);
   assert.equal(result.items[1].reasonCode, "mutual_public_connections");
   assert.deepEqual(calls[0].params, ["viewer", 30]);
   assert.match(calls[0].text, /candidate\.username <> \$1/);
