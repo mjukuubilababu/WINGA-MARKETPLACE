@@ -2234,17 +2234,22 @@ function getSharedPhoneViewerIds(user) {
   return normalizeSharedPhoneViewerIds(user?.sharedPhoneViewerIds);
 }
 
-function hasBuyerSellerRelationship(store, buyerUsername, sellerUsername) {
-  const safeBuyerUsername = normalizeIdentifier(buyerUsername, 40);
-  const safeSellerUsername = normalizeIdentifier(sellerUsername, 40);
-  if (!safeBuyerUsername || !safeSellerUsername) {
+function hasPersonCommerceRelationship(store, firstUsername, secondUsername) {
+  const safeFirstUsername = normalizeIdentifier(firstUsername, 40);
+  const safeSecondUsername = normalizeIdentifier(secondUsername, 40);
+  if (!safeFirstUsername || !safeSecondUsername || safeFirstUsername === safeSecondUsername) {
     return false;
   }
 
   const hasOrderRelationship = (store.orders || []).some((order) => {
     const normalizedOrder = normalizeOrderRecord(order);
-    return normalizedOrder.buyerUsername === safeBuyerUsername
-      && normalizedOrder.sellerUsername === safeSellerUsername;
+    return (
+      normalizedOrder.buyerUsername === safeFirstUsername
+      && normalizedOrder.sellerUsername === safeSecondUsername
+    ) || (
+      normalizedOrder.buyerUsername === safeSecondUsername
+      && normalizedOrder.sellerUsername === safeFirstUsername
+    );
   });
   if (hasOrderRelationship) {
     return true;
@@ -2253,7 +2258,7 @@ function hasBuyerSellerRelationship(store, buyerUsername, sellerUsername) {
   return (store.messages || []).some((message) => {
     const normalizedMessage = normalizeMessageRecord(message);
     const participants = new Set([normalizedMessage.senderId, normalizedMessage.receiverId].filter(Boolean));
-    return participants.has(safeBuyerUsername) && participants.has(safeSellerUsername);
+    return participants.has(safeFirstUsername) && participants.has(safeSecondUsername);
   });
 }
 
@@ -2267,20 +2272,18 @@ function canViewerSeeUserPhone(user, viewer = null) {
   if (isStaffRole(viewer.role) || viewer.username === user.username) {
     return true;
   }
-  if (user.role !== "buyer" || viewer.role !== "seller") {
-    return false;
-  }
   return getSharedPhoneViewerIds(user).includes(viewer.username);
 }
 
-function shouldExposeBuyerRecordToSeller(user, viewer, store) {
+function shouldExposeRelatedPersonRecord(user, viewer, store) {
   return Boolean(
     user
     && viewer
-    && user.role === "buyer"
-    && viewer.role === "seller"
+    && canCreateMarketplaceSupply(user.role)
+    && canCreateMarketplaceSupply(viewer.role)
     && !isRestrictedUserStatus(user.status)
-    && hasBuyerSellerRelationship(store, user.username, viewer.username)
+    && !isRestrictedUserStatus(viewer.status)
+    && hasPersonCommerceRelationship(store, user.username, viewer.username)
   );
 }
 
@@ -2369,16 +2372,14 @@ function sanitizeUser(user, options = {}) {
   const phoneVisible = canViewerSeeUserPhone(user, viewer);
   const phoneVisibility = viewer && viewer.username === user.username
     ? "self"
-    : user.role === "buyer"
-      ? (phoneVisible ? "shared" : "private")
-      : "public";
+    : phoneVisible ? "shared" : "private";
   return {
     username: user.username,
     fullName: user.fullName || user.username,
     primaryCategory: user.primaryCategory || "",
     role: user.role || "seller",
     status: user.status || "active",
-    whatsappNumber: phoneVisible || user.role !== "buyer"
+    whatsappNumber: phoneVisible
       ? String(user.whatsappNumber || user.phoneNumber || "").replace(/\D/g, "").slice(0, 20)
       : "",
     whatsappVerificationStatus: user.whatsappVerificationStatus || "verified",
@@ -2396,9 +2397,11 @@ function sanitizeUser(user, options = {}) {
     canReceivePhoneShare: Boolean(
       viewer
       && viewer.username !== user.username
-      && viewer.role === "buyer"
-      && user.role === "seller"
+      && canCreateMarketplaceSupply(viewer.role)
+      && canCreateMarketplaceSupply(user.role)
+      && !isRestrictedUserStatus(viewer.status)
       && !isRestrictedUserStatus(user.status)
+      && hasPersonCommerceRelationship(store, viewer.username, user.username)
     )
   };
 }
@@ -2615,7 +2618,7 @@ function buildVisibleUsers(store, viewer = null) {
       if (user.role === "seller" && !isRestrictedUserStatus(user.status)) {
         return true;
       }
-      return shouldExposeBuyerRecordToSeller(user, viewer, store);
+      return shouldExposeRelatedPersonRecord(user, viewer, store);
     })
     .map((user) => sanitizeUser(user, { viewer, store }));
 }
@@ -10756,13 +10759,14 @@ const server = http.createServer(async (req, res) => {
         }
 
         if (normalizedPayload.messageType === "contact_share") {
-          const isBuyerSharingToSeller = sender.role === "buyer" && receiver.role === "seller";
-          if (!isBuyerSharingToSeller) {
-            sendJson(res, 403, { error: "Phone sharing inaruhusiwa kutoka kwa buyer kwenda kwa seller tu." });
+          const isPersonToPersonShare = canCreateMarketplaceSupply(sender.role)
+            && canCreateMarketplaceSupply(receiver.role);
+          if (!isPersonToPersonShare) {
+            sendJson(res, 403, { error: "Phone sharing inaruhusiwa kati ya accounts za kawaida tu." });
             return;
           }
-          if (!hasBuyerSellerRelationship(store, sender.username, receiver.username)) {
-            sendJson(res, 403, { error: "Shiriki namba baada ya kuanza mazungumzo au order na seller huyu." });
+          if (!hasPersonCommerceRelationship(store, sender.username, receiver.username)) {
+            sendJson(res, 403, { error: "Shiriki namba baada ya kuanza mazungumzo au order na mtu huyu." });
             return;
           }
           normalizedPayload.message = normalizedPayload.message || "Nimekushirikisha namba yangu kwa mawasiliano ya moja kwa moja.";

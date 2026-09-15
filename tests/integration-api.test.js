@@ -2172,6 +2172,49 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   assert.equal(Boolean(buyerRecordAfterShare), true);
   assert.equal(buyerRecordAfterShare.phoneVisibility, "shared");
   assert.equal(buyerRecordAfterShare.whatsappNumber, "255700222222");
+  const buyerVisibleUsersBeforeSellerShare = await request("/users", {
+    headers: { Authorization: "Bearer " + buyerToken }
+  });
+  assert.equal(buyerVisibleUsersBeforeSellerShare.response.status, 200);
+  const sellerRecordBeforeShare = buyerVisibleUsersBeforeSellerShare.body.find((item) => item.username === "seller_one");
+  assert.equal(Boolean(sellerRecordBeforeShare), true);
+  assert.equal(sellerRecordBeforeShare.phoneVisibility, "private");
+  assert.equal(sellerRecordBeforeShare.whatsappNumber, "");
+  const sellerSharePhone = await request("/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: "Bearer " + sellerToken
+    },
+    body: JSON.stringify({
+      receiverId: buyerUsername,
+      productId: "product-test-001",
+      productName: "Kiatu Safe",
+      messageType: "contact_share"
+    })
+  });
+  assert.equal(sellerSharePhone.response.status, 200);
+  assert.equal(sellerSharePhone.body.messageType, "contact_share");
+  const buyerVisibleUsersAfterSellerShare = await request("/users", {
+    headers: { Authorization: "Bearer " + buyerToken }
+  });
+  assert.equal(buyerVisibleUsersAfterSellerShare.response.status, 200);
+  const sellerRecordAfterShare = buyerVisibleUsersAfterSellerShare.body.find((item) => item.username === "seller_one");
+  assert.equal(Boolean(sellerRecordAfterShare), true);
+  assert.equal(sellerRecordAfterShare.phoneVisibility, "shared");
+  assert.equal(sellerRecordAfterShare.whatsappNumber, "255700333333");
+  const unrelatedPhoneShare = await request("/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: "Bearer " + sellerTwoToken
+    },
+    body: JSON.stringify({
+      receiverId: buyerUsername,
+      messageType: "contact_share"
+    })
+  });
+  assert.equal(unrelatedPhoneShare.response.status, 403);
   const sellerOrdersAfterPhoneShare = await request("/orders/mine", {
     headers: { Authorization: `Bearer ${sellerToken}` }
   });

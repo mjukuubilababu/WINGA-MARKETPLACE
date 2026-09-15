@@ -6090,7 +6090,6 @@ function getChatContactState(context) {
 
   const relatedProduct = context.productId ? getProductById(context.productId) : null;
   const partner = getChatPartnerUser(context);
-  const partnerRole = String(partner?.role || (relatedProduct?.uploadedBy === context.withUser ? "seller" : "")).toLowerCase();
   const productOwnedByPartner = Boolean(relatedProduct && relatedProduct.uploadedBy === context.withUser);
   const whatsapp = normalizeWhatsapp(
     (productOwnedByPartner ? relatedProduct?.whatsapp : "")
@@ -6101,19 +6100,18 @@ function getChatContactState(context) {
   const canSharePhone = Boolean(
     currentUser
     && canUseBuyerFeatures()
-    && String(currentSession?.role || "").toLowerCase() === "buyer"
     && context.withUser !== currentUser
-    && partnerRole === "seller"
+    && partner?.canReceivePhoneShare
     && !whatsapp
   );
 
   let note = "";
   if (whatsapp && phoneVisibility === "shared") {
-    note = "Buyer ameshare namba yake kwenye chat hii. Tumia kwa mawasiliano ya moja kwa moja ukiihitaji.";
+    note = "Mtu huyu ameshare namba yake kwenye chat hii. Tumia kwa mawasiliano ya moja kwa moja ukiihitaji.";
   } else if (canSharePhone) {
-    note = "Mawasiliano yanabaki ndani ya app mpaka ushike namba yako na muuzaji huyu kwa hiari.";
-  } else if (!whatsapp && String(currentSession?.role || "").toLowerCase() === "seller" && partnerRole === "buyer") {
-    note = "Buyer hajashare namba yake bado. Endelea na mawasiliano ndani ya app.";
+    note = "Mawasiliano yanabaki ndani ya app mpaka ushiriki namba yako na mtu huyu kwa hiari.";
+  } else if (!whatsapp && partner) {
+    note = "Mtu huyu hajashare namba yake bado. Endelea na mawasiliano ndani ya app.";
   }
 
   return {
