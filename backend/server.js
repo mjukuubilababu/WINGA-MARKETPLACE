@@ -1172,6 +1172,7 @@ const SEARCH_DEMAND_RAW_EVENT_RETENTION_DAYS = Math.max(7, Math.min(Number(proce
 const INTELLIGENCE_SNAPSHOT_WINDOW_DAYS = Math.max(1, Math.min(Number(process.env.INTELLIGENCE_SNAPSHOT_WINDOW_DAYS || 14) || 14, 90));
 const INTELLIGENCE_SNAPSHOT_RETENTION_DAYS = Math.max(30, Math.min(Number(process.env.INTELLIGENCE_SNAPSHOT_RETENTION_DAYS || 1095) || 1095, 3650));
 const INTELLIGENCE_SNAPSHOT_STALE_SECONDS = Math.max(60 * 60, Math.min(Number(process.env.INTELLIGENCE_SNAPSHOT_STALE_SECONDS || 26 * 60 * 60) || 26 * 60 * 60, 14 * 24 * 60 * 60));
+const INTELLIGENCE_DECISION_STALE_SECONDS = Math.max(60 * 60, Math.min(Number(process.env.INTELLIGENCE_DECISION_STALE_SECONDS || 27 * 60 * 60) || 27 * 60 * 60, 14 * 24 * 60 * 60));
 const INTELLIGENCE_QUEUE_LEGACY_EMBEDDED_ENABLED = String(process.env.INTELLIGENCE_QUEUE_EMBEDDED_WORKER || "true").toLowerCase() !== "false";
 const INTELLIGENCE_QUEUE_PROCESSOR_MODE = normalizeIntelligenceQueueProcessorMode(
   process.env.INTELLIGENCE_QUEUE_PROCESSOR_MODE || (INTELLIGENCE_QUEUE_LEGACY_EMBEDDED_ENABLED ? "primary" : "off")
@@ -1213,7 +1214,9 @@ const intelligenceQueueWorkerState = {
     relationships: 0,
     forecasts: 0,
     sellerRecommendations: 0,
-    buyerRecommendations: 0
+    buyerRecommendations: 0,
+    productScores: 0,
+    sellerScores: 0
   },
   standbySkips: 0,
   standbyFallbackRuns: 0,
@@ -1308,6 +1311,8 @@ async function processIntelligenceQueueOnce(options = {}) {
         intelligenceQueueWorkerState.decisions.forecasts += Number(decisions?.forecasts || 0);
         intelligenceQueueWorkerState.decisions.sellerRecommendations += Number(decisions?.sellerRecommendations || 0);
         intelligenceQueueWorkerState.decisions.buyerRecommendations += Number(decisions?.buyerRecommendations || 0);
+        intelligenceQueueWorkerState.decisions.productScores += Number(decisions?.productScores || 0);
+        intelligenceQueueWorkerState.decisions.sellerScores += Number(decisions?.sellerScores || 0);
       }
       if (postgresStore.pruneIntelligenceRawEvents) {
         const rawPrune = await postgresStore.pruneIntelligenceRawEvents({
@@ -1570,7 +1575,7 @@ function stopIntelligenceQueueWorker() {
   intelligenceQueueWorkerState.enabled = false;
 }
 
-function getIntelligenceQueueAlerts(health = {}, snapshotHealth = {}) {
+function getIntelligenceQueueAlerts(health = {}, snapshotHealth = {}, decisionHealth = {}) {
   const alerts = [];
   if (Number(health.dead || 0) >= INTELLIGENCE_QUEUE_DEAD_ALERT_THRESHOLD) {
     alerts.push({
@@ -1646,6 +1651,42 @@ function getIntelligenceQueueAlerts(health = {}, snapshotHealth = {}) {
       });
     }
   }
+  if (decisionHealth?.error) {
+    alerts.push({
+      level: "high",
+      type: "decision_health_unavailable",
+      message: "Intelligence decision health could not be read."
+    });
+  } else {
+    const lastCompletedAt = Date.parse(String(decisionHealth.lastCompletedAt || ""));
+    const lastFailedAt = Date.parse(String(decisionHealth.lastFailedAt || ""));
+    if (Number.isFinite(lastFailedAt) && (!Number.isFinite(lastCompletedAt) || lastFailedAt > lastCompletedAt)) {
+      alerts.push({
+        level: "high",
+        type: "decision_refresh_failed",
+        message: "The latest intelligence decision refresh failed."
+      });
+    }
+    if (Number.isFinite(lastCompletedAt)) {
+      const ageSeconds = Math.max(0, Math.floor((Date.now() - lastCompletedAt) / 1000));
+      if (ageSeconds >= INTELLIGENCE_DECISION_STALE_SECONDS) {
+        alerts.push({
+          level: "medium",
+          type: "decision_refresh_stale",
+          message: "Intelligence decision outputs are older than the freshness threshold.",
+          ageSeconds
+        });
+      }
+    }
+    if (Number(decisionHealth.staleRecommendations || 0) > 0) {
+      alerts.push({
+        level: "medium",
+        type: "stale_recommendations",
+        message: "Expired intelligence recommendations are awaiting cleanup.",
+        count: Number(decisionHealth.staleRecommendations || 0)
+      });
+    }
+  }
   return alerts;
 }
 
@@ -1684,7 +1725,7 @@ async function buildIntelligenceQueueHealthReport() {
   const decisionHealth = postgresStore?.readIntelligenceDecisionHealth
     ? await postgresStore.readIntelligenceDecisionHealth()
     : { error: "postgres_decision_health_unavailable" };
-  const alerts = getIntelligenceQueueAlerts(health, snapshotHealth);
+  const alerts = getIntelligenceQueueAlerts(health, snapshotHealth, decisionHealth);
   return {
     schemaVersion: INTELLIGENCE_HEALTH_SCHEMA_VERSION,
     privacy: "ops-aggregate-only",
@@ -1713,7 +1754,8 @@ async function buildIntelligenceQueueHealthReport() {
       },
       snapshotWindowDays: INTELLIGENCE_SNAPSHOT_WINDOW_DAYS,
       snapshotRetentionDays: INTELLIGENCE_SNAPSHOT_RETENTION_DAYS,
-      snapshotStaleSeconds: INTELLIGENCE_SNAPSHOT_STALE_SECONDS
+      snapshotStaleSeconds: INTELLIGENCE_SNAPSHOT_STALE_SECONDS,
+      decisionStaleSeconds: INTELLIGENCE_DECISION_STALE_SECONDS
     }
   };
 }

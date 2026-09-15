@@ -17155,12 +17155,17 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           adaptive.append(adaptiveHeading);
           if (activeGoals.length) {
             const goal = activeGoals[0];
+            const goalRecommendation = rows(data.intelligenceRecommendations?.personal)
+              .find(entry => entry?.recommendationType === "similar_available"
+                && entry?.metadata?.goalId === goal.goalId
+                && entry?.entityKey);
             adaptive.append(el("h3", "analytics-adaptive-subtitle", a("stillLooking", "Still looking for")));
             const goalCard = el("div", "analytics-goal-card");
             goalCard.append(el("strong", "", goal.productName || String(goal.queryKey || "").replace(/-/g, " ")),
               el("p", "analytics-note", a("goalEvidence", "{matches} available matches found", { matches: count(goal.matchingProducts || 0) })));
             const goalActions = el("div", "analytics-goal-actions");
-            if (goal.productId) goalActions.append(analyticsButton(a("viewProduct", "View product"), () => deps.onAnalyticsAction?.("product", goal.productId)));
+            const recommendedProductId = goalRecommendation?.entityKey || goal.productId;
+            if (recommendedProductId) goalActions.append(analyticsButton(a("viewProduct", "View product"), () => deps.onAnalyticsAction?.("product", recommendedProductId)));
             const resolveGoal = async (resolution) => {
               Array.from(goalActions.querySelectorAll("button")).forEach(button => { button.disabled = true; });
               try {

@@ -46,7 +46,9 @@ const state = {
     relationships: 0,
     forecasts: 0,
     sellerRecommendations: 0,
-    buyerRecommendations: 0
+    buyerRecommendations: 0,
+    productScores: 0,
+    sellerScores: 0
   },
   lastMaintenanceAt: 0
 };
@@ -81,6 +83,8 @@ async function runMaintenance() {
       state.decisions.forecasts += Number(decisions?.forecasts || 0);
       state.decisions.sellerRecommendations += Number(decisions?.sellerRecommendations || 0);
       state.decisions.buyerRecommendations += Number(decisions?.buyerRecommendations || 0);
+      state.decisions.productScores += Number(decisions?.productScores || 0);
+      state.decisions.sellerScores += Number(decisions?.sellerScores || 0);
     }
     if (store.pruneIntelligenceRawEvents) {
       const rawPrune = await store.pruneIntelligenceRawEvents({

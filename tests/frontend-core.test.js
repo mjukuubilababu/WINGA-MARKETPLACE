@@ -3436,11 +3436,29 @@ test("intelligence decision layer is durable, worker-driven, observable, and fai
   assert.match(dbSource, /async function refreshIntelligenceDecisionOutputs/);
   assert.match(dbSource, /deterministic-commerce-v1/);
   assert.match(dbSource, /active_commerce_goal/);
+  assert.match(dbSource, /JOIN intelligence_relationships supply_edge/);
+  assert.match(dbSource, /knowledge_graph_supplier/);
   assert.match(dbSource, /privacy', 'aggregate-only'/);
   assert.match(workerSource, /refreshIntelligenceDecisionOutputs/);
   assert.match(serverSource, /readIntelligenceDecisionHealth/);
   assert.match(serverSource, /readIntelligenceRecommendations\("person", user\.username/);
   assert.match(analyticsSource, /data\.intelligenceRecommendations\?\.seller/);
+  assert.match(analyticsSource, /data\.intelligenceRecommendations\?\.personal/);
+  assert.match(analyticsSource, /goalRecommendation\?\.entityKey \|\| goal\.productId/);
+});
+
+test("canonical product and seller scores are modular, capped, and feed compatible", () => {
+  const root = path.resolve(__dirname, "..");
+  const migration = require(path.join(root, "backend", "migrations", "intelligence-composite-scores.js"));
+  const dbSource = fs.readFileSync(path.join(root, "backend", "db.js"), "utf8");
+  assert.equal(migration.id, "2026091512_intelligence_composite_scores");
+  assert.equal(migration.statements.some((statement) => statement.includes("CHECK (score BETWEEN 0 AND 100)")), true);
+  ["freshness", "demand", "engagement", "commerce", "seller_quality", "supply_fit", "trust", "communication", "fulfillment", "reputation"].forEach((component) => {
+    assert.match(dbSource, new RegExp(component));
+  });
+  assert.match(dbSource, /COALESCE\(cpis\.score, pis\.score, 0\)/);
+  assert.match(dbSource, /COALESCE\(csis\.score, sis\.score, 0\)/);
+  assert.match(dbSource, /cpis\.expires_at > NOW\(\)/);
 });
 
 test("backend intelligence scoring caps repeated contributions and preserves noisy history", async () => {
@@ -3579,6 +3597,10 @@ test("backend intelligence uses durable queue hooks when PostgreSQL is available
   assert.match(serverSource, /readIntelligenceSnapshotHealth/);
   assert.match(serverSource, /snapshot_missing/);
   assert.match(serverSource, /snapshot_stale/);
+  assert.match(serverSource, /decision_refresh_failed/);
+  assert.match(serverSource, /decision_refresh_stale/);
+  assert.match(serverSource, /stale_recommendations/);
+  assert.match(serverSource, /INTELLIGENCE_DECISION_STALE_SECONDS/);
   assert.match(serverSource, /standbyFallbackRuns/);
   assert.match(serverSource, /rawPruned/);
   assert.match(serverSource, /trendSnapshots: Array\.isArray\(persistent\.trendSnapshots\)/);

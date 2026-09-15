@@ -66,8 +66,10 @@ function sanitizeMonitorPayload(payload = {}) {
       staleRecommendations: Number(payload.decisionHealth.staleRecommendations || 0),
       activeForecasts: Number(payload.decisionHealth.activeForecasts || 0),
       relationships: Number(payload.decisionHealth.relationships || 0),
+      activeEntityScores: Number(payload.decisionHealth.activeEntityScores || 0),
       lastCompletedAt: String(payload.decisionHealth.lastCompletedAt || ""),
-      lastFailedAt: String(payload.decisionHealth.lastFailedAt || "")
+      lastFailedAt: String(payload.decisionHealth.lastFailedAt || ""),
+      decisionStaleSeconds: Number(payload.thresholds?.decisionStaleSeconds || 0)
     } : null,
     worker: payload.worker && typeof payload.worker === "object" ? {
       enabled: Boolean(payload.worker.enabled),

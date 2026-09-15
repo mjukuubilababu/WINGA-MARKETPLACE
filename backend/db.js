@@ -2208,9 +2208,9 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
         ${searchParamIndex
           ? `ts_rank_cd(p.search_vector, plainto_tsquery('simple', $${searchParamIndex}))::float8`
           : "0::float8"} AS "searchRank",
-        COALESCE(pis.score, 0)::float8 AS "intelligenceScore",
+        COALESCE(cpis.score, pis.score, 0)::float8 AS "intelligenceScore",
         COALESCE(pis.signals, '{}'::jsonb) AS "intelligenceSignals",
-        COALESCE(sis.score, 0)::float8 AS "sellerIntelligenceScore",
+        COALESCE(csis.score, sis.score, 0)::float8 AS "sellerIntelligenceScore",
         COALESCE(attributed_supply.opportunity_id, '') AS "opportunityId",
         COALESCE(attributed_supply.response_id, '') AS "supplyResponseId",
         COALESCE(pds.total_demand, 0)::int AS "demandTotalDemand",
@@ -2225,6 +2225,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       LEFT JOIN product_demand_summaries pds ON pds.product_id = p.id
       LEFT JOIN product_intelligence_scores pis ON pis.product_id = p.id
       LEFT JOIN seller_intelligence_scores sis ON sis.seller_id = p.uploaded_by
+      LEFT JOIN intelligence_entity_scores cpis ON cpis.entity_type='product' AND cpis.entity_key=p.id AND cpis.expires_at > NOW()
+      LEFT JOIN intelligence_entity_scores csis ON csis.entity_type='seller' AND csis.entity_key=p.uploaded_by AND csis.expires_at > NOW()
       LEFT JOIN LATERAL (
         SELECT sr.response_id, sr.opportunity_id
         FROM supply_responses sr
@@ -2319,9 +2321,9 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
          p.resale_price::float8 AS "resalePrice", p.resold_status AS "resoldStatus",
          p.created_at AS "createdAt", p.updated_at AS "updatedAt",
          p.likes, p.views, p.viewed_by AS "viewedBy",
-         COALESCE(pis.score, 0)::float8 AS "intelligenceScore",
+         COALESCE(cpis.score, pis.score, 0)::float8 AS "intelligenceScore",
          COALESCE(pis.signals, '{}'::jsonb) AS "intelligenceSignals",
-         COALESCE(sis.score, 0)::float8 AS "sellerIntelligenceScore",
+         COALESCE(csis.score, sis.score, 0)::float8 AS "sellerIntelligenceScore",
          COALESCE(eligible.opportunity_id, '') AS "opportunityId",
          COALESCE(eligible.supply_response_id, '') AS "supplyResponseId",
          jsonb_build_array(COALESCE(eligible.reason_code, 'rediscovery')) AS "rediscoveryReasonCodes",
@@ -2338,6 +2340,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
        LEFT JOIN product_demand_summaries pds ON pds.product_id = p.id
        LEFT JOIN product_intelligence_scores pis ON pis.product_id = p.id
        LEFT JOIN seller_intelligence_scores sis ON sis.seller_id = p.uploaded_by
+       LEFT JOIN intelligence_entity_scores cpis ON cpis.entity_type='product' AND cpis.entity_key=p.id AND cpis.expires_at > NOW()
+       LEFT JOIN intelligence_entity_scores csis ON csis.entity_type='seller' AND csis.entity_key=p.uploaded_by AND csis.expires_at > NOW()
        WHERE p.id IS NOT NULL
          AND ${access.clauses.length ? access.clauses.join(" AND ") : "p.status = 'approved'"}
          AND p.availability IN ('available', 'reserved')
@@ -5435,16 +5439,22 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
          )
          SELECT DISTINCT ON (g.user_id, candidate.id)
            'person_alternative_' || md5(g.user_id || ':' || candidate.id), 'person', g.user_id, 'similar_available',
-           'product', candidate.id, COALESCE(pis.score,0) + 25,
-           jsonb_build_array('active_commerce_goal', 'same_category', 'available_now'),
+           'product', candidate.id, COALESCE(cpis.score,pis.score,0) + 25,
+           jsonb_build_array('active_commerce_goal', 'same_category', 'knowledge_graph_supplier', 'available_now'),
            jsonb_build_object('goalId', g.goal_id, 'sourceProductId', g.product_id, 'category', candidate.category, 'privacy', 'person-scoped'),
            $1, NOW(), NOW()+INTERVAL '26 hours', NOW()
          FROM commerce_goals g
          JOIN products candidate ON candidate.category=g.category AND candidate.status='approved' AND candidate.availability='available'
+         JOIN intelligence_relationships supply_edge
+           ON supply_edge.source_type='category' AND supply_edge.source_key=g.category
+          AND supply_edge.relationship_type='supplied_by' AND supply_edge.target_type='person'
+          AND supply_edge.target_key=candidate.uploaded_by
          LEFT JOIN product_intelligence_scores pis ON pis.product_id=candidate.id
+         LEFT JOIN intelligence_entity_scores cpis
+           ON cpis.entity_type='product' AND cpis.entity_key=candidate.id AND cpis.expires_at > NOW()
          WHERE g.status IN ('looking','matched','contacted','no_match','sellers_alerted','new_supply_found')
            AND candidate.id <> COALESCE(g.product_id,'') AND candidate.uploaded_by <> g.user_id
-         ORDER BY g.user_id, candidate.id, COALESCE(pis.score,0) DESC
+         ORDER BY g.user_id, candidate.id, COALESCE(cpis.score,pis.score,0) DESC
          ON CONFLICT (audience_type, audience_key, recommendation_type, entity_type, entity_key)
          DO UPDATE SET score=EXCLUDED.score, reasons=EXCLUDED.reasons, metadata=EXCLUDED.metadata,
            status='active', model_version=EXCLUDED.model_version, generated_at=NOW(),
@@ -5455,11 +5465,94 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
         `UPDATE intelligence_recommendations SET status='expired', updated_at=NOW()
          WHERE status='active' AND expires_at <= NOW()`
       );
+      const productScores = await query(
+        `WITH order_signals AS (
+           SELECT product_id,
+             COUNT(*)::int AS order_count,
+             COUNT(*) FILTER (WHERE status='delivered')::int AS delivered_count
+           FROM orders WHERE created_at >= NOW()-INTERVAL '90 days' GROUP BY product_id
+         ), category_supply AS (
+           SELECT category, COUNT(*) FILTER (WHERE status='approved' AND availability='available')::int AS available_count
+           FROM products GROUP BY category
+         ), components AS (
+           SELECT p.id,
+             LEAST(20, GREATEST(0, 20-(EXTRACT(EPOCH FROM (NOW()-p.created_at))/86400/3)))::numeric AS freshness,
+             LEAST(25, COALESCE(pds.demand_score,0))::numeric AS demand,
+             LEAST(20, COALESCE(pis.score,0)*0.35 + LN(1+GREATEST(0,p.views))*2 + LN(1+GREATEST(0,p.likes))*3)::numeric AS engagement,
+             LEAST(20, COALESCE(os.order_count,0)*3 + COALESCE(os.delivered_count,0)*5)::numeric AS commerce,
+             LEAST(10, COALESCE(sis.score,0)*0.25)::numeric AS seller_quality,
+             LEAST(5, (CASE WHEN p.availability='available' THEN 2 ELSE 0 END) + 3.0/GREATEST(1,COALESCE(cs.available_count,1)))::numeric AS supply_fit,
+             (COALESCE(p.views,0)+COALESCE(p.likes,0)+COALESCE(pds.total_demand,0)+COALESCE(os.order_count,0))::int AS evidence_count
+           FROM products p
+           LEFT JOIN product_demand_summaries pds ON pds.product_id=p.id
+           LEFT JOIN product_intelligence_scores pis ON pis.product_id=p.id
+           LEFT JOIN seller_intelligence_scores sis ON sis.seller_id=p.uploaded_by
+           LEFT JOIN order_signals os ON os.product_id=p.id
+           LEFT JOIN category_supply cs ON cs.category=p.category
+           WHERE p.status='approved'
+         )
+         INSERT INTO intelligence_entity_scores (entity_type, entity_key, score, components, evidence_count, model_version, calculated_at, expires_at)
+         SELECT 'product', id,
+           LEAST(100, freshness+demand+engagement+commerce+seller_quality+supply_fit),
+           jsonb_build_object('freshness',ROUND(freshness,2),'demand',ROUND(demand,2),'engagement',ROUND(engagement,2),
+             'commerce',ROUND(commerce,2),'sellerQuality',ROUND(seller_quality,2),'supplyFit',ROUND(supply_fit,2)),
+           evidence_count, $1, NOW(), NOW()+INTERVAL '26 hours'
+         FROM components
+         ON CONFLICT (entity_type,entity_key) DO UPDATE SET score=EXCLUDED.score, components=EXCLUDED.components,
+           evidence_count=EXCLUDED.evidence_count, model_version=EXCLUDED.model_version,
+           calculated_at=NOW(), expires_at=EXCLUDED.expires_at`,
+        [modelVersion]
+      );
+      const sellerScores = await query(
+        `WITH seller_products AS (
+           SELECT uploaded_by AS seller_id, COUNT(*)::int AS product_count,
+             COALESCE(SUM(pds.demand_score),0)::numeric AS demand_score,
+             COALESCE(SUM(p.views),0)::int AS views
+           FROM products p LEFT JOIN product_demand_summaries pds ON pds.product_id=p.id
+           WHERE p.status='approved' GROUP BY uploaded_by
+         ), seller_orders AS (
+           SELECT seller_username AS seller_id, COUNT(*)::int AS order_count,
+             COUNT(*) FILTER (WHERE status='delivered')::int AS delivered_count
+           FROM orders WHERE created_at >= NOW()-INTERVAL '90 days' GROUP BY seller_username
+         ), seller_messages AS (
+           SELECT sender_id AS seller_id, COUNT(*)::int AS response_count
+           FROM messages WHERE created_at >= NOW()-INTERVAL '30 days' GROUP BY sender_id
+         ), seller_reviews AS (
+           SELECT p.uploaded_by AS seller_id, COUNT(r.id)::int AS review_count,
+             COALESCE(AVG(r.rating),0)::numeric AS average_rating
+           FROM products p LEFT JOIN reviews r ON r.product_id=p.id GROUP BY p.uploaded_by
+         ), components AS (
+           SELECT sp.seller_id,
+             LEAST(20,COALESCE(sis.score,0)*0.4)::numeric AS trust,
+             LEAST(20,sp.demand_score*0.4)::numeric AS demand,
+             LEAST(15,COALESCE(sm.response_count,0)*1.5)::numeric AS communication,
+             LEAST(20,CASE WHEN COALESCE(so.order_count,0)>0 THEN COALESCE(so.delivered_count,0)::numeric/so.order_count*20 ELSE 0 END)::numeric AS fulfillment,
+             LEAST(15,COALESCE(so.order_count,0)*2)::numeric AS commerce,
+             LEAST(10,COALESCE(sr.average_rating,0)*1.5 + COALESCE(sr.review_count,0)*0.5)::numeric AS reputation,
+             (sp.product_count+sp.views+COALESCE(so.order_count,0)+COALESCE(sm.response_count,0)+COALESCE(sr.review_count,0))::int AS evidence_count
+           FROM seller_products sp
+           LEFT JOIN seller_intelligence_scores sis ON sis.seller_id=sp.seller_id
+           LEFT JOIN seller_orders so ON so.seller_id=sp.seller_id
+           LEFT JOIN seller_messages sm ON sm.seller_id=sp.seller_id
+           LEFT JOIN seller_reviews sr ON sr.seller_id=sp.seller_id
+         )
+         INSERT INTO intelligence_entity_scores (entity_type, entity_key, score, components, evidence_count, model_version, calculated_at, expires_at)
+         SELECT 'seller', seller_id, LEAST(100,trust+demand+communication+fulfillment+commerce+reputation),
+           jsonb_build_object('trust',ROUND(trust,2),'demand',ROUND(demand,2),'communication',ROUND(communication,2),
+             'fulfillment',ROUND(fulfillment,2),'commerce',ROUND(commerce,2),'reputation',ROUND(reputation,2)),
+           evidence_count,$1,NOW(),NOW()+INTERVAL '26 hours' FROM components
+         ON CONFLICT (entity_type,entity_key) DO UPDATE SET score=EXCLUDED.score,components=EXCLUDED.components,
+           evidence_count=EXCLUDED.evidence_count,model_version=EXCLUDED.model_version,
+           calculated_at=NOW(),expires_at=EXCLUDED.expires_at`,
+        [modelVersion]
+      );
       const outputCounts = {
         relationships: Number(productRelationships.rowCount || 0) + Number(categoryRelationships.rowCount || 0) + Number(regionRelationships.rowCount || 0),
         forecasts: Number(forecasts.rowCount || 0),
         sellerRecommendations: Number(sellerRecommendations.rowCount || 0),
         buyerRecommendations: Number(buyerRecommendations.rowCount || 0),
+        productScores: Number(productScores.rowCount || 0),
+        sellerScores: Number(sellerScores.rowCount || 0),
         expiredRecommendations: Number(expired.rowCount || 0)
       };
       await query(
@@ -5509,6 +5602,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
          COUNT(*) FILTER (WHERE status='active' AND expires_at <= NOW())::int AS "staleRecommendations",
          (SELECT COUNT(*)::int FROM intelligence_forecasts WHERE expires_at > NOW()) AS "activeForecasts",
          (SELECT COUNT(*)::int FROM intelligence_relationships) AS relationships,
+         (SELECT COUNT(*)::int FROM intelligence_entity_scores WHERE expires_at > NOW()) AS "activeEntityScores",
          (SELECT MAX(completed_at) FROM intelligence_job_runs WHERE job_type='decision_refresh' AND status='completed') AS "lastCompletedAt",
          (SELECT MAX(started_at) FROM intelligence_job_runs WHERE job_type='decision_refresh' AND status='failed') AS "lastFailedAt"
        FROM intelligence_recommendations`
@@ -5519,6 +5613,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       staleRecommendations: Number(row.staleRecommendations || 0),
       activeForecasts: Number(row.activeForecasts || 0),
       relationships: Number(row.relationships || 0),
+      activeEntityScores: Number(row.activeEntityScores || 0),
       lastCompletedAt: toISOString(row.lastCompletedAt),
       lastFailedAt: toISOString(row.lastFailedAt)
     };
