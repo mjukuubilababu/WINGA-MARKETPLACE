@@ -12117,6 +12117,32 @@ body.visual-categories-view #quick-discovery-rail{
   background:#f2f3f4;
 }
 
+.visual-category-sprite{
+  display:block;
+  width:100%;
+  height:100%;
+  background-color:#f2f3f4;
+  background-image:url("/src/assets/visual-categories-v2.webp");
+  background-repeat:no-repeat;
+  background-size:400% auto;
+}
+
+.visual-category-sprite[data-visual-sprite="women"]{background-position:0 5.556%;}
+.visual-category-sprite[data-visual-sprite="men"]{background-position:33.333% 5.556%;}
+.visual-category-sprite[data-visual-sprite="celebration"]{background-position:66.667% 5.556%;}
+.visual-category-sprite[data-visual-sprite="casual"]{background-position:100% 5.556%;}
+.visual-category-sprite[data-visual-sprite="kids"]{background-position:0 50%;}
+.visual-category-sprite[data-visual-sprite="shoes"]{background-position:33.333% 50%;}
+.visual-category-sprite[data-visual-sprite="home"]{background-position:66.667% 50%;}
+.visual-category-sprite[data-visual-sprite="electronics"]{background-position:100% 50%;}
+.visual-category-sprite[data-visual-sprite="used"]{background-position:0 94.444%;}
+.visual-category-sprite[data-visual-sprite="accessories"]{background-position:33.333% 94.444%;}
+.visual-category-sprite[data-visual-sprite="everyday"]{background-position:66.667% 94.444%;}
+
+.visual-categories-hero-sprite{
+  background-size:auto 300%;
+  background-position:66% 100% !important;
+}
 .visual-category-image,
 .visual-category-fallback{
   display:block;

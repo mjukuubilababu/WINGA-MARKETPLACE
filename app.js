@@ -18147,11 +18147,26 @@ function getCategoryPreviewProduct(topValue) {
     return null;
   }
 
-  return products.find((product) =>
-    inferTopCategoryValue(product?.category) === topValue
-    && typeof product.image === "string"
-    && product.image.trim()
-  ) || null;
+  const previewProduct = products.find((product) => {
+    if (inferTopCategoryValue(product?.category) !== topValue) {
+      return false;
+    }
+    const image = getFeedRenderableImages(product)[0]
+      || getReadyProductVideoItem(product)?.posterUrl
+      || getReadyProductVideoItem(product)?.thumbnailUrl
+      || "";
+    return Boolean(String(image || "").trim());
+  });
+  if (!previewProduct) {
+    return null;
+  }
+  return {
+    ...previewProduct,
+    image: getFeedRenderableImages(previewProduct)[0]
+      || getReadyProductVideoItem(previewProduct)?.posterUrl
+      || getReadyProductVideoItem(previewProduct)?.thumbnailUrl
+      || ""
+  };
 }
 
 function inferCategoriesFromData() {

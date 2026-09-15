@@ -123,9 +123,32 @@
     }
   ];
 
+  const VISUAL_CATEGORY_PRESENTATION = {
+    wanawake: { featured: true, visualPriority: 10, visualSprite: "women" },
+    wanaume: { featured: true, visualPriority: 20, visualSprite: "men" },
+    watoto: { featured: true, visualPriority: 30, visualSprite: "kids" },
+    viatu: { featured: true, visualPriority: 40, visualSprite: "shoes" },
+    sherehe: { featured: true, visualPriority: 50, visualSprite: "celebration" },
+    casual: { featured: true, visualPriority: 60, visualSprite: "casual" },
+    vyombo: { featured: false, visualPriority: 70, visualSprite: "home" },
+    electronics: { featured: false, visualPriority: 80, visualSprite: "electronics" },
+    "vitu-used": { featured: false, visualPriority: 90, visualSprite: "used" },
+    accessories: { featured: false, visualPriority: 100, visualSprite: "accessories" }
+  };
+
+  const visualHero = {
+    heroId: "everyday-shopping-v1",
+    title: "",
+    subtitle: "",
+    destination: "wanawake",
+    reason: "configured_default",
+    visualSprite: "everyday"
+  };
+
   const DEFAULT_TOP_CATEGORIES = MARKETPLACE_CATEGORY_TREE.map((category) => ({
     value: category.value,
-    label: category.label
+    label: category.label,
+    ...(VISUAL_CATEGORY_PRESENTATION[category.value] || {})
   }));
 
   const DEFAULT_PRODUCT_CATEGORIES = MARKETPLACE_CATEGORY_TREE.flatMap((category) =>
@@ -156,6 +179,8 @@
     MARKETPLACE_CATEGORY_TREE,
     DEFAULT_TOP_CATEGORIES,
     DEFAULT_PRODUCT_CATEGORIES,
-    LEGACY_CATEGORY_MAPPINGS
+    LEGACY_CATEGORY_MAPPINGS,
+    VISUAL_CATEGORY_PRESENTATION,
+    visualHero
   };
 })();

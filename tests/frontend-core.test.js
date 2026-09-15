@@ -6093,6 +6093,7 @@ test("visual categories reuse canonical taxonomy with fail-soft localized discov
   const source = fs.readFileSync(path.join(root, "src", "categories", "ui.js"), "utf8");
   const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
   const styleSource = fs.readFileSync(path.join(root, "style.css"), "utf8");
+  const categoryConfigSource = fs.readFileSync(path.join(root, "src", "config", "categories.js"), "utf8");
 
   assert.match(source, /visual-categories-v2/);
   assert.match(source, /deps\.getAvailableTopCategories\(\)/);
@@ -6103,6 +6104,12 @@ test("visual categories reuse canonical taxonomy with fail-soft localized discov
   assert.match(source, /category_card_impression/);
   assert.match(source, /category_hero_click/);
   assert.match(source, /fallbackSrc: visual\.fallback/);
+  assert.match(source, /data-visual-sprite/);
+  assert.match(styleSource, /visual-categories-v2\.webp/);
+  assert.match(styleSource, /background-size:400% auto/);
+  assert.match(categoryConfigSource, /VISUAL_CATEGORY_PRESENTATION/);
+  assert.match(categoryConfigSource, /visualSprite: "everyday"/);
+  assert.equal(fs.existsSync(path.join(root, "src", "assets", "visual-categories-v2.webp")), true);
   assert.match(appSource, /isVisualCategoriesActive:/);
   assert.match(appSource, /activeMobileNav === "categories"/);
   assert.match(appSource, /renderFilterCategories\(\);\s+renderCurrentView\(\{ force: true, reason: "visual_categories_open" \}\)/);

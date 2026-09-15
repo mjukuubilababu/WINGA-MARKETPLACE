@@ -93,8 +93,10 @@
 
     function getCategoryVisual(category, index = 0) {
       const previewProduct = deps.getCategoryPreviewProduct(category.value);
+      const previewImage = String(previewProduct?.image || "").trim();
       return {
-        image: String(previewProduct?.image || "").trim(),
+        image: previewImage || String(category.imageAsset || "").trim(),
+        sprite: previewImage ? "" : String(category.visualSprite || "").trim(),
         alt: t("categories.imageAlt", "{category} category", { category: category.label }),
         fallback: deps.getImageFallbackDataUri(String(category.label || "W").slice(0, 1)),
         priority: index < 2
@@ -126,6 +128,11 @@
             "data-disable-image-zoom": "true",
             "data-image-action-surface": "visual_categories"
           }
+        }));
+      } else if (visual.sprite) {
+        media.appendChild(createElement("span", {
+          className: "visual-category-sprite",
+          attributes: { "aria-hidden": "true", "data-visual-sprite": visual.sprite }
         }));
       } else {
         media.appendChild(createElement("span", {
@@ -193,6 +200,11 @@
             fallbackSrc: visual.fallback,
             placeholderSrc: visual.fallback,
             attributes: { width: "720", height: "280", "data-disable-image-zoom": "true", "data-image-action-surface": "category_hero" }
+          }));
+        } else if (campaign.visualSprite || visual.sprite) {
+          heroMedia.appendChild(createElement("span", {
+            className: "visual-category-sprite visual-categories-hero-sprite",
+            attributes: { "aria-hidden": "true", "data-visual-sprite": campaign.visualSprite || visual.sprite }
           }));
         } else {
           heroMedia.appendChild(createElement("span", { className: "visual-category-fallback", textContent: "W", attributes: { "aria-hidden": "true" } }));

@@ -2493,9 +2493,32 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     }
   ];
 
+  const VISUAL_CATEGORY_PRESENTATION = {
+    wanawake: { featured: true, visualPriority: 10, visualSprite: "women" },
+    wanaume: { featured: true, visualPriority: 20, visualSprite: "men" },
+    watoto: { featured: true, visualPriority: 30, visualSprite: "kids" },
+    viatu: { featured: true, visualPriority: 40, visualSprite: "shoes" },
+    sherehe: { featured: true, visualPriority: 50, visualSprite: "celebration" },
+    casual: { featured: true, visualPriority: 60, visualSprite: "casual" },
+    vyombo: { featured: false, visualPriority: 70, visualSprite: "home" },
+    electronics: { featured: false, visualPriority: 80, visualSprite: "electronics" },
+    "vitu-used": { featured: false, visualPriority: 90, visualSprite: "used" },
+    accessories: { featured: false, visualPriority: 100, visualSprite: "accessories" }
+  };
+
+  const visualHero = {
+    heroId: "everyday-shopping-v1",
+    title: "",
+    subtitle: "",
+    destination: "wanawake",
+    reason: "configured_default",
+    visualSprite: "everyday"
+  };
+
   const DEFAULT_TOP_CATEGORIES = MARKETPLACE_CATEGORY_TREE.map((category) => ({
     value: category.value,
-    label: category.label
+    label: category.label,
+    ...(VISUAL_CATEGORY_PRESENTATION[category.value] || {})
   }));
 
   const DEFAULT_PRODUCT_CATEGORIES = MARKETPLACE_CATEGORY_TREE.flatMap((category) =>
@@ -2526,7 +2549,9 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     MARKETPLACE_CATEGORY_TREE,
     DEFAULT_TOP_CATEGORIES,
     DEFAULT_PRODUCT_CATEGORIES,
-    LEGACY_CATEGORY_MAPPINGS
+    LEGACY_CATEGORY_MAPPINGS,
+    VISUAL_CATEGORY_PRESENTATION,
+    visualHero
   };
 })();
 
@@ -5360,8 +5385,10 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 
     function getCategoryVisual(category, index = 0) {
       const previewProduct = deps.getCategoryPreviewProduct(category.value);
+      const previewImage = String(previewProduct?.image || "").trim();
       return {
-        image: String(previewProduct?.image || "").trim(),
+        image: previewImage || String(category.imageAsset || "").trim(),
+        sprite: previewImage ? "" : String(category.visualSprite || "").trim(),
         alt: t("categories.imageAlt", "{category} category", { category: category.label }),
         fallback: deps.getImageFallbackDataUri(String(category.label || "W").slice(0, 1)),
         priority: index < 2
@@ -5393,6 +5420,11 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             "data-disable-image-zoom": "true",
             "data-image-action-surface": "visual_categories"
           }
+        }));
+      } else if (visual.sprite) {
+        media.appendChild(createElement("span", {
+          className: "visual-category-sprite",
+          attributes: { "aria-hidden": "true", "data-visual-sprite": visual.sprite }
         }));
       } else {
         media.appendChild(createElement("span", {
@@ -5460,6 +5492,11 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             fallbackSrc: visual.fallback,
             placeholderSrc: visual.fallback,
             attributes: { width: "720", height: "280", "data-disable-image-zoom": "true", "data-image-action-surface": "category_hero" }
+          }));
+        } else if (campaign.visualSprite || visual.sprite) {
+          heroMedia.appendChild(createElement("span", {
+            className: "visual-category-sprite visual-categories-hero-sprite",
+            attributes: { "aria-hidden": "true", "data-visual-sprite": campaign.visualSprite || visual.sprite }
           }));
         } else {
           heroMedia.appendChild(createElement("span", { className: "visual-category-fallback", textContent: "W", attributes: { "aria-hidden": "true" } }));
