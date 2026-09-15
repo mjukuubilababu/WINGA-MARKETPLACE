@@ -5252,6 +5252,24 @@ function buildAnalytics(store, username = "", isAdmin = false) {
       .sort((first, second) => second[1] - first[1])
       .slice(0, 5)
       .map(([category, count]) => ({ category, count })),
+    topProducts: visibleProducts
+      .slice()
+      .sort((first, second) => {
+        const engagementDifference = (Number(second.views || 0) + Number(second.likes || 0))
+          - (Number(first.views || 0) + Number(first.likes || 0));
+        if (engagementDifference !== 0) return engagementDifference;
+        return new Date(second.updatedAt || second.createdAt || 0).getTime()
+          - new Date(first.updatedAt || first.createdAt || 0).getTime();
+      })
+      .slice(0, 5)
+      .map((product) => ({
+        id: product.id,
+        name: product.name,
+        category: product.category || "other",
+        status: product.status,
+        views: Number(product.views || 0),
+        likes: Number(product.likes || 0)
+      })),
     recentProducts: visibleProducts
       .slice()
       .sort((first, second) => new Date(second.createdAt || 0).getTime() - new Date(first.createdAt || 0).getTime())

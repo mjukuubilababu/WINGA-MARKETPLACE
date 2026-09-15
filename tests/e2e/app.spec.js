@@ -165,6 +165,7 @@ test("seller Analytics tabs show supplied aggregates without invented growth and
     totalViews: 116, totalLikes: 0, conversationThreads: 4, newInquiries: 0,
     openOrders: 0, completedOrders: 0, repeatBuyers: 0, conversionRate: 0, trustScore: 59, trustTier: "Growing",
     topCategories: [{ category: "wanawake-magauni", count: 17 }, { category: "reels", count: 5 }],
+    topProducts: [{ id: "e2e-prod-1", name: "Gallery product", category: "wanawake-magauni", status: "approved", views: 116, likes: 9 }],
     recentProducts: [{ id: "e2e-prod-1", name: "Gallery product", status: "approved" }],
     demand: {
       totalDemand: 9, waitingUsers: 3, restockInterest: 2,
@@ -213,6 +214,11 @@ test("seller Analytics tabs show supplied aggregates without invented growth and
   for (const tab of ["products", "customers", "content", "trends"]) {
     await page.locator("#analytics-tab-" + tab).click();
     await expect(page.locator("#analytics-tab-" + tab)).toHaveAttribute("aria-selected", "true");
+    if (tab === "products") {
+      await expect(page.locator("[data-metric='productViews'] strong")).toHaveText("116");
+      await expect(page.locator(".analytics-content")).toContainText("Gallery product");
+      await expect(page.locator(".analytics-content")).toContainText(/116 views|Zimetazamwa 116/);
+    }
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
   }
   await page.locator("#analytics-tab-content").click();

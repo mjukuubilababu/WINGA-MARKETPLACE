@@ -303,6 +303,15 @@
         row.append(el("span", "analytics-demand-badge", badgeText));
         return row;
       };
+      const productPerformanceItem = entry => item(
+        entry?.name || entry?.id,
+        a("productEvidence", "{views} views / {likes} likes", {
+          views: count(entry?.views),
+          likes: count(entry?.likes)
+        }),
+        "product",
+        entry?.id
+      );
       const appendSizeShareInsight = (node, entries) => {
         const normalized = entries
           .map(entry => ({ label: String(entry?.size || "").trim(), value: Math.max(0, Number(entry?.count || 0)) }))
@@ -423,7 +432,22 @@
       } else if (sellerState.tab === "products") {
         const catalog = section(a("catalogTotals", "Catalog totals"));
         decorateHeading(catalog, "/icons/navigation/store.svg", "orange");
-        metrics(catalog, catalogMetrics);
+        metrics(catalog, [
+          ...catalogMetrics,
+          ["productViews", a("views", "Product views"), count(data.totalViews), "/icons/navigation/chart-column.svg"],
+          ["productLikes", a("likes", "Likes"), count(data.totalLikes), "/icons/navigation/sparkles.svg"]
+        ]);
+        list(section(a("topProducts", "Top products")), rows(data.topProducts), productPerformanceItem);
+        const productDemand = rows(demand.mostRequestedProducts);
+        if (productDemand.length) {
+          list(section(a("productDemandSignals", "Product demand signals")), productDemand, demandProductItem);
+        }
+        const productOpportunities = rows(data.commerceLearning?.opportunities)
+          .filter(entry => entry && !entry.sellerResponded)
+          .slice(0, 3);
+        if (productOpportunities.length) {
+          list(section(a("productOpportunities", "Supply opportunities")), productOpportunities, createSellerOpportunityItem);
+        }
         list(section(a("recentProducts", "Recent products")), rows(data.recentProducts),
           e => item(e.name, deps.getStatusLabel(e.status), "product", e.id));
         bars(section(a("categoryMix", "Products by category")), rows(data.topCategories), e => deps.getCategoryLabel(e.category), e => e.count, { ranked: true });

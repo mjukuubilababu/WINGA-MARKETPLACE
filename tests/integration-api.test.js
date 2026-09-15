@@ -2433,6 +2433,11 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   assert.equal(JSON.stringify(sellerDemandAnalytics.body.video).includes("sessionId"), false);
   assert.equal(sellerDemandAnalytics.body.searchDemand.privacy, "anonymous-aggregate-only");
   assert.equal(sellerDemandAnalytics.body.searchDemand.trendingSearches.some((item) => item.queryKey === "white-dress"), true);
+  assert.equal(Array.isArray(sellerDemandAnalytics.body.topProducts), true);
+  assert.equal(sellerDemandAnalytics.body.topProducts.some((item) => item.id === "product-test-001"), true);
+  assert.equal(typeof sellerDemandAnalytics.body.topProducts[0].views, "number");
+  assert.equal(typeof sellerDemandAnalytics.body.topProducts[0].likes, "number");
+  assert.equal(Object.prototype.hasOwnProperty.call(sellerDemandAnalytics.body.topProducts[0], "viewedBy"), false);
 
   const anonymousAnalytics = await request("/analytics/summary");
   assert.equal(anonymousAnalytics.response.status, 401);

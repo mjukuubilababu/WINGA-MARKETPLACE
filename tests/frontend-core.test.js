@@ -6217,5 +6217,8 @@ test("seller analytics dashboard uses real evidence and dedicated subpages", () 
   assert.match(source, /const appendSizeShareInsight = \(node, entries\) =>/);
   assert.match(source, /const actionableInquiries = Math\.max/);
   assert.match(source, /productCountBasis/);
+  assert.match(source, /rows\(data\.topProducts\)/);
+  assert.match(source, /productDemandSignals/);
+  assert.match(source, /productOpportunities/);
   assert.doesNotMatch(source, /1,248|2,840,000|148 requests/);
 });
