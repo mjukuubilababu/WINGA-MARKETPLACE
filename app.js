@@ -7107,12 +7107,12 @@ async function hydrateAuthoritativeFollowState(reason = "session_ready") {
   }
 }
 
-function syncUserFollowMutation(username, following) {
+function syncUserFollowMutation(username, following, options = {}) {
   if (!currentUser || typeof window.WingaDataLayer?.setUserFollow !== "function") return;
   const actor = currentUser;
-  Promise.resolve(window.WingaDataLayer.setUserFollow(username, following))
+  Promise.resolve(window.WingaDataLayer.setUserFollow(username, following, options))
     .then(() => reportClientEvent("info", following ? "follow_created" : "follow_removed", "Person follow updated.", {
-      category: "social", followedUsername: username
+      category: "social", followedUsername: username, source: options.source || ""
     }))
     .catch((error) => {
       if (currentUser !== actor) return;
@@ -7122,6 +7122,9 @@ function syncUserFollowMutation(username, following) {
       captureClientError("social_follow_update_failed", error, {
         category: "social", alertSeverity: "medium", followedUsername: username, following
       });
+      if (options.source === "suggested_follow" && currentView === "profile") {
+        loadProfileFollowSuggestions({ force: true });
+      }
       requestCurrentSurfaceRefresh("social_follow_rollback", { productLimit: 4, decodeLimit: 1, prefetch: false });
     });
 }
@@ -7129,7 +7132,7 @@ function isSellerFollowed(username) {
   return ensureFollowedSellerIdsLoaded().has(String(username || ""));
 }
 
-function toggleFollowSeller(username) {
+function toggleFollowSeller(username, options = {}) {
   const safeUsername = String(username || "").trim();
   if (!safeUsername || safeUsername === currentUser) {
     return false;
@@ -7138,12 +7141,12 @@ function toggleFollowSeller(username) {
   if (followedIds.has(safeUsername)) {
     followedIds.delete(safeUsername);
     persistFollowedSellerIds();
-    syncUserFollowMutation(safeUsername, false);
+    syncUserFollowMutation(safeUsername, false, options);
     return false;
   }
   followedIds.add(safeUsername);
   persistFollowedSellerIds();
-  syncUserFollowMutation(safeUsername, true);
+  syncUserFollowMutation(safeUsername, true, options);
   return true;
 }
 
@@ -9836,6 +9839,120 @@ function renderProfileCollectionsSection() {
   `;
 }
 
+function resetProfileFollowSuggestionState(username = currentUser) {
+  profileFollowSuggestionState.username = String(username || "");
+  profileFollowSuggestionState.status = "idle";
+  profileFollowSuggestionState.items = [];
+  profileFollowSuggestionState.error = "";
+  profileFollowSuggestionState.requestId += 1;
+}
+
+function loadProfileFollowSuggestions(options = {}) {
+  const username = String(currentUser || "").trim();
+  if (!username || typeof window.WingaDataLayer?.loadFollowSuggestions !== "function") {
+    return Promise.resolve([]);
+  }
+  if (profileFollowSuggestionState.username !== username) {
+    resetProfileFollowSuggestionState(username);
+  }
+  if (!options.force && ["loading", "ready"].includes(profileFollowSuggestionState.status)) {
+    return Promise.resolve(profileFollowSuggestionState.items);
+  }
+  const requestId = ++profileFollowSuggestionState.requestId;
+  profileFollowSuggestionState.status = "loading";
+  profileFollowSuggestionState.error = "";
+  return window.WingaDataLayer.loadFollowSuggestions({ limit: 8 })
+    .then((page) => {
+      if (requestId !== profileFollowSuggestionState.requestId || profileFollowSuggestionState.username !== username) {
+        return profileFollowSuggestionState.items;
+      }
+      profileFollowSuggestionState.items = (Array.isArray(page?.items) ? page.items : [])
+        .filter((item) => item?.username && item.username !== username && !isSellerFollowed(item.username));
+      profileFollowSuggestionState.status = "ready";
+      if (currentView === "profile") refreshProfileFollowSuggestionsSurface();
+      return profileFollowSuggestionState.items;
+    })
+    .catch((error) => {
+      if (requestId !== profileFollowSuggestionState.requestId) return [];
+      profileFollowSuggestionState.status = "error";
+      profileFollowSuggestionState.error = String(error?.message || "");
+      captureClientError("profile_follow_suggestions_load_failed", error, {
+        category: "social", alertSeverity: "low"
+      });
+      if (currentView === "profile") refreshProfileFollowSuggestionsSurface();
+      return [];
+    });
+}
+
+function getProfileFollowSuggestionReason(item = {}) {
+  const context = item.reasonContext || {};
+  const reasons = {
+    similar_public_categories: ["followSuggestions.reason.similarCategories", "Creates products in {count} categories relevant to your public activity.", context.sharedPublicCategories],
+    mutual_public_connections: ["followSuggestions.reason.mutualConnections", "You share {count} public connections.", context.mutualConnections],
+    public_creator_activity: ["followSuggestions.reason.creator", "Creates public reels you may like.", 0],
+    public_curator_activity: ["followSuggestions.reason.curator", "Publishes public product collections.", 0],
+    public_reviewer_activity: ["followSuggestions.reason.reviewer", "Shares public product reviews.", 0],
+    public_profile_activity: ["followSuggestions.reason.publicActivity", "Active in Winga's public commerce community.", 0]
+  };
+  const [key, fallback, count] = reasons[item.reasonCode] || reasons.public_profile_activity;
+  return translateUi(key, { count: Math.max(0, Number(count || 0)) }, fallback);
+}
+
+function renderProfileFollowSuggestionsSection() {
+  const loading = profileFollowSuggestionState.status === "loading";
+  const rows = profileFollowSuggestionState.items.map((person) => {
+    const username = String(person.username || "").trim();
+    const displayName = String(person.fullName || username).trim();
+    const image = sanitizeImageSource(person.profileImage || "", "");
+    const avatar = image
+      ? `<img src="${escapeHtml(image)}" alt="" loading="lazy" decoding="async">`
+      : `<span>${escapeHtml(getUserInitials(displayName || "W"))}</span>`;
+    const primaryCapability = (Array.isArray(person.capabilities) ? person.capabilities : [])
+      .find((capability) => ["creator", "curator", "seller", "buyer"].includes(capability));
+    return `
+      <article class="profile-follow-suggestion" data-follow-suggestion="${escapeHtml(username)}">
+        <button class="profile-follow-suggestion-person" type="button" data-open-person-profile="${escapeHtml(username)}" data-person-profile-source="follow" aria-label="${escapeHtml(translateUi("followSuggestions.openProfile", { person: displayName }, `Open ${displayName}'s profile`))}">
+          <span class="profile-follow-suggestion-avatar">${avatar}</span>
+          <span class="profile-follow-suggestion-copy">
+            <strong>${escapeHtml(displayName)}</strong>
+            <span class="product-meta">@${escapeHtml(username)}${primaryCapability ? ` · ${escapeHtml(translateUi(`personProfile.capability.${primaryCapability}`, {}, primaryCapability))}` : ""}</span>
+            <span>${escapeHtml(getProfileFollowSuggestionReason(person))}</span>
+          </span>
+        </button>
+        <button class="action-btn action-btn-secondary" type="button" data-follow-seller="${escapeHtml(username)}" data-follow-source="suggested_follow">${escapeHtml(translateUi("follow.inactive", {}, "Follow"))}</button>
+      </article>
+    `;
+  }).join("");
+  const statusMarkup = loading
+    ? `<p class="empty-copy compact">${escapeHtml(translateUi("followSuggestions.loading", {}, "Finding people..."))}</p>`
+    : profileFollowSuggestionState.status === "error"
+      ? `<button class="action-btn action-btn-secondary" type="button" data-retry-follow-suggestions="true">${escapeHtml(translateUi("followSuggestions.retry", {}, "Try again"))}</button>`
+      : rows || `<p class="empty-copy compact">${escapeHtml(translateUi("followSuggestions.empty", {}, "No new people to suggest right now."))}</p>`;
+  return `
+    <section id="profile-follow-suggestions-panel" class="profile-follow-suggestions-section">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">${escapeHtml(translateUi("followSuggestions.eyebrow", {}, "People"))}</p>
+          <h3>${escapeHtml(translateUi("followSuggestions.title", {}, "People to follow"))}</h3>
+        </div>
+      </div>
+      <div class="profile-follow-suggestion-list" aria-live="polite">${statusMarkup}</div>
+    </section>
+  `;
+}
+
+function refreshProfileFollowSuggestionsSurface() {
+  const currentPanel = document.getElementById("profile-follow-suggestions-panel");
+  if (!currentPanel) {
+    renderProfileFromController();
+    return;
+  }
+  const template = document.createElement("template");
+  template.innerHTML = renderProfileFollowSuggestionsSection().trim();
+  const nextPanel = template.content.firstElementChild;
+  if (nextPanel) currentPanel.replaceWith(nextPanel);
+}
+
 async function refreshProfileCollections() {
   await loadProfileCollections({ force: true });
 }
@@ -11218,6 +11335,13 @@ function bindTrustReportEntryActions() {
       return;
     }
 
+    const retryFollowSuggestionsButton = event.target.closest("[data-retry-follow-suggestions]");
+    if (retryFollowSuggestionsButton) {
+      event.preventDefault();
+      loadProfileFollowSuggestions({ force: true });
+      return;
+    }
+
     const addCollectionItemButton = event.target.closest("[data-add-profile-collection-item]");
     if (addCollectionItemButton) {
       event.preventDefault();
@@ -11303,7 +11427,8 @@ function bindTrustReportEntryActions() {
       if (!username) {
         return;
       }
-      const nowFollowing = toggleFollowSeller(username);
+      const followSource = followSellerButton.dataset.followSource || "";
+      const nowFollowing = toggleFollowSeller(username, { source: followSource });
       followSellerButton.textContent = nowFollowing
         ? translateUi("follow.active", {}, "Following")
         : translateUi("follow.inactive", {}, "Follow");
@@ -11322,6 +11447,11 @@ function bindTrustReportEntryActions() {
       noteSellerInterest(username, nowFollowing ? 20 : 4, {
         signalType: "message"
       });
+      if (followSource === "suggested_follow" && nowFollowing) {
+        profileFollowSuggestionState.items = profileFollowSuggestionState.items
+          .filter((person) => person?.username !== username);
+        refreshProfileFollowSuggestionsSurface();
+      }
       showInAppNotification({
         title: nowFollowing
           ? translateUi("follow.followedTitle", {}, "Seller followed")
@@ -11332,7 +11462,7 @@ function bindTrustReportEntryActions() {
         variant: "success",
         durationMs: 2400
       });
-      if (currentView === "profile" && profileDiv?.isConnected) {
+      if (currentView === "profile" && profileDiv?.isConnected && followSource !== "suggested_follow") {
         renderProfile?.();
       }
       return;
@@ -11866,6 +11996,7 @@ const {
   createPromotionManagementSectionElement,
   createSessionSecuritySectionElement,
   renderSavedIntentSection,
+  renderProfileFollowSuggestionsSection,
   renderProfileCollectionsSection,
   getProfileCollectionCount: () => profileCollectionState.status === "ready"
     ? profileCollectionState.items.length
@@ -13806,6 +13937,13 @@ const followedSellerNotificationState = {
   readIds: new Set()
 };
 const profileCollectionState = {
+  username: "",
+  status: "idle",
+  items: [],
+  error: "",
+  requestId: 0
+};
+const profileFollowSuggestionState = {
   username: "",
   status: "idle",
   items: [],
@@ -21731,6 +21869,7 @@ function renderCurrentView(options = {}) {
 
 function renderProfile() {
   loadProfileCollections();
+  loadProfileFollowSuggestions();
   return renderProfileFromController();
 }
 

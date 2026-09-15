@@ -1119,6 +1119,18 @@
                      "personProfile.noCollections": "No visible collections yet.",
                      "personProfile.productUnavailable": "Product unavailable",
                      "personProfile.productUnavailableBody": "This product is not available in the current market view.",
-                     "personProfile.missingData": "Public profile data is unavailable."
+                     "personProfile.missingData": "Public profile data is unavailable.",
+                     "followSuggestions.eyebrow": "People",
+                     "followSuggestions.title": "People to follow",
+                     "followSuggestions.loading": "Finding people...",
+                     "followSuggestions.retry": "Try again",
+                     "followSuggestions.empty": "No new people to suggest right now.",
+                     "followSuggestions.openProfile": "Open {person}'s profile",
+                     "followSuggestions.reason.similarCategories": "Creates products in {count} categories relevant to your public activity.",
+                     "followSuggestions.reason.mutualConnections": "You share {count} public connections.",
+                     "followSuggestions.reason.creator": "Creates public reels you may like.",
+                     "followSuggestions.reason.curator": "Publishes public product collections.",
+                     "followSuggestions.reason.reviewer": "Shares public product reviews.",
+                     "followSuggestions.reason.publicActivity": "Active in Winga's public commerce community."
                  }
 }

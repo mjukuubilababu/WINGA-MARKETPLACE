@@ -5845,6 +5845,26 @@ test("public person profiles consume privacy-filtered collections without exposi
   assert.match(styleSource, /body\.person-profile-open/);
   assert.match(styleSource, /\.person-profile-products/);
 });
+
+test("profile people suggestions use canonical public social graph with attributed follows", () => {
+  const root = path.resolve(__dirname, "..");
+  const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
+  const controllerSource = fs.readFileSync(path.join(root, "src", "profile", "controller.js"), "utf8");
+  const uiSource = fs.readFileSync(path.join(root, "src", "profile", "ui.js"), "utf8");
+  const styleSource = fs.readFileSync(path.join(root, "style.css"), "utf8");
+
+  assert.match(appSource, /function loadProfileFollowSuggestions\(options = \{\}\)/);
+  assert.match(appSource, /WingaDataLayer\.loadFollowSuggestions\(\{ limit: 8 \}\)/);
+  assert.match(appSource, /data-follow-source="suggested_follow"/);
+  assert.match(appSource, /setUserFollow\(username, following, options\)/);
+  assert.match(appSource, /data-person-profile-source="follow"/);
+  assert.match(appSource, /function refreshProfileFollowSuggestionsSurface\(\)/);
+  assert.match(appSource, /currentPanel\.replaceWith\(nextPanel\)/);
+  assert.match(controllerSource, /followSuggestionsMarkup: deps\.renderProfileFollowSuggestionsSection/);
+  assert.match(uiSource, /followSuggestionsMarkup/);
+  assert.match(styleSource, /\.profile-follow-suggestion-list/);
+  assert.doesNotMatch(appSource, /profileFollowSuggestionState\.(purchases|messages|savedItems|browsingHistory)/);
+});
 (async () => {
   let passed = 0;
   for (const entry of tests) {

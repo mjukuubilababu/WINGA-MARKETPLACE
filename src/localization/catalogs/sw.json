@@ -1119,6 +1119,18 @@
                      "personProfile.noCollections": "Bado hakuna collection unayoruhusiwa kuona.",
                      "personProfile.productUnavailable": "Bidhaa haipatikani",
                      "personProfile.productUnavailableBody": "Bidhaa hii haipatikani kwenye soko unaloangalia sasa.",
-                     "personProfile.missingData": "Data ya profile ya umma haipatikani."
+                     "personProfile.missingData": "Data ya profile ya umma haipatikani.",
+                     "followSuggestions.eyebrow": "Watu",
+                     "followSuggestions.title": "Watu wa kufuata",
+                     "followSuggestions.loading": "Tunatafuta watu...",
+                     "followSuggestions.retry": "Jaribu tena",
+                     "followSuggestions.empty": "Hakuna mtu mpya wa kupendekeza kwa sasa.",
+                     "followSuggestions.openProfile": "Fungua profile ya {person}",
+                     "followSuggestions.reason.similarCategories": "Anatengeneza bidhaa kwenye categories {count} zinazohusiana na shughuli zako za umma.",
+                     "followSuggestions.reason.mutualConnections": "Mna connections {count} za umma zinazofanana.",
+                     "followSuggestions.reason.creator": "Anatengeneza reels za umma unazoweza kupenda.",
+                     "followSuggestions.reason.curator": "Anachapisha collections za bidhaa za umma.",
+                     "followSuggestions.reason.reviewer": "Anashiriki reviews za bidhaa za umma.",
+                     "followSuggestions.reason.publicActivity": "Anashiriki kwenye commerce community ya umma ya Winga."
                  }
 }

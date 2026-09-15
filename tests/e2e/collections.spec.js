@@ -242,3 +242,103 @@ test("feed person profile shows only API-visible public collections and opens th
   await expect(page.locator("#product-detail-modal")).toBeVisible();
   await context.close();
 });
+
+test("profile suggests people from public activity and attributes accepted follows", async ({ browser }) => {
+  const { context, page } = await createSellerPage(browser);
+  let followPayload = null;
+
+  await context.route("**/api/social/suggestions?*", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        items: [{
+          username: "suggested_creator",
+          fullName: "Public Creator",
+          profileImage: "",
+          role: "buyer",
+          verifiedSeller: false,
+          capabilities: ["buyer", "creator"],
+          publicContent: { products: 1, reels: 4, reviews: 0, collections: 0 },
+          followerCount: 12,
+          reasonCode: "public_creator_activity",
+          reasonContext: { publicReels: 4 }
+        }],
+        limit: 8,
+        privacy: "public-activity-only"
+      })
+    });
+  });
+
+  await context.route("**/api/social/users/suggested_creator**", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname.endsWith("/collections")) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ items: [], nextCursor: "", hasMore: false, limit: 12 })
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        profile: {
+          username: "suggested_creator",
+          fullName: "Public Creator",
+          profileImage: "",
+          role: "buyer",
+          capabilities: ["buyer", "creator"],
+          publicContent: { products: 1, reels: 4, reviews: 0, collections: 0 },
+          followerCount: 12,
+          followingCount: 2,
+          viewerFollows: false,
+          blocked: false
+        }
+      })
+    });
+  });
+
+  await context.route("**/api/social/follows/suggested_creator", async (route) => {
+    followPayload = route.request().postDataJSON();
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ ok: true, followedUsername: "suggested_creator", following: true })
+    });
+  });
+
+  await page.goto("/");
+  await page.locator("#header-user-trigger").click();
+  await page.locator("[data-header-menu-action='profile']").click();
+
+  const panel = page.locator("#profile-follow-suggestions-panel");
+  const suggestion = panel.locator("[data-follow-suggestion='suggested_creator']");
+  await expect(suggestion).toBeVisible();
+  await expect(suggestion).toContainText("Public Creator");
+
+  await suggestion.locator("[data-open-person-profile]").click();
+  await expect(page.locator("#person-profile-modal")).toHaveClass(/open/);
+  await expect(page.locator("#person-profile-modal")).toContainText("Public Creator");
+  await page.locator("button[data-close-person-profile='true']").click();
+
+  const followRequest = page.waitForRequest((request) =>
+    request.method() === "PUT" && new URL(request.url()).pathname.endsWith("/api/social/follows/suggested_creator")
+  );
+  await suggestion.locator("[data-follow-source='suggested_follow']").click();
+  await followRequest;
+  await expect(suggestion).toHaveCount(0);
+  expect(followPayload).toEqual({ source: "suggested_follow" });
+
+  const layout = await panel.evaluate((element) => ({
+    viewport: document.documentElement.clientWidth,
+    pageScroll: document.documentElement.scrollWidth,
+    left: element.getBoundingClientRect().left,
+    right: element.getBoundingClientRect().right
+  }));
+  expect(layout.pageScroll).toBeLessThanOrEqual(layout.viewport);
+  expect(layout.left).toBeGreaterThanOrEqual(0);
+  expect(layout.right).toBeLessThanOrEqual(layout.viewport);
+  await context.close();
+});

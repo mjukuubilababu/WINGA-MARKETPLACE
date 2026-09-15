@@ -100,6 +100,13 @@ Returned reason codes are safe and explainable:
 Suggestion impressions and accepted suggestions use the existing audit
 infrastructure. Idempotent follow retries do not emit duplicate creation events.
 
+Authenticated profiles consume this API through a bounded People to follow
+section. Each row shows only the public reason returned by the server and opens
+the same public person profile used by feed and collection discovery. Accepting
+a suggestion writes the canonical person follow with suggested_follow source
+attribution. The section updates independently so a delayed suggestion response
+cannot reset collection forms, messages, orders, or other Profile state.
+
 ## Notifications
 
 A newly activated follow writes one owner-scoped notification in the same
@@ -163,11 +170,12 @@ become a requirement for guest or authenticated feeds.
 Automated tests cover self-follow rejection, idempotent mutations, block
 exclusion, cursor bounds, public capability derivation, safe suggestion inputs,
 owner-scoped visibility changes, public/follower/private review reads, direct
-video playback privacy, cache invalidation, and client request contracts.
+video playback privacy, cache invalidation, client request contracts, responsive
+Profile suggestion rendering, public profile discovery, accepted-follow source
+attribution, and isolation from concurrent collection workflows.
 
 Remaining work:
 
 - visibility support for future posts and shorts
   once those canonical content models exist,
-- optional user-facing suggestion surfaces,
 - removal of seller-specific compatibility naming after all callers migrate.

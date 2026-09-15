@@ -1060,6 +1060,7 @@
             primaryCategory: userProfile?.primaryCategory || "",
           }),
           savedIntentMarkup: deps.renderSavedIntentSection?.(),
+          followSuggestionsMarkup: deps.renderProfileFollowSuggestionsSection?.(),
           collectionsMarkup: deps.renderProfileCollectionsSection?.(),
           promotionsMarkup: deps.createPromotionManagementSectionElement?.({
             canUseSellerFeatures: deps.canUseSellerFeatures(),

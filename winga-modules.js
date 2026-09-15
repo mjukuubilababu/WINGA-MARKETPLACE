@@ -20691,6 +20691,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         identityMarkup,
         sellerUpgradeMarkup,
         savedIntentMarkup,
+        followSuggestionsMarkup,
         collectionsMarkup,
         promotionsMarkup,
         requestsMarkup,
@@ -20725,6 +20726,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         identityMarkup,
         sellerUpgradeMarkup,
         savedIntentMarkup,
+        followSuggestionsMarkup,
         collectionsMarkup,
         promotionsMarkup,
         requestsMarkup,
@@ -22037,6 +22039,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             primaryCategory: userProfile?.primaryCategory || "",
           }),
           savedIntentMarkup: deps.renderSavedIntentSection?.(),
+          followSuggestionsMarkup: deps.renderProfileFollowSuggestionsSection?.(),
           collectionsMarkup: deps.renderProfileCollectionsSection?.(),
           promotionsMarkup: deps.createPromotionManagementSectionElement?.({
             canUseSellerFeatures: deps.canUseSellerFeatures(),
