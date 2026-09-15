@@ -786,6 +786,24 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   assert.equal(bodylessProductView.response.status, 200);
   assert.equal(bodylessProductView.body.views, 1);
 
+  const guestProductView = await request("/products/product-test-001/view", {
+    method: "POST",
+    headers: {
+      "X-Winga-Audience-Id": "guest-viewer-one"
+    }
+  });
+  assert.equal(guestProductView.response.status, 200);
+  assert.equal(guestProductView.body.views, 2);
+
+  const duplicateGuestProductView = await request("/products/product-test-001/view", {
+    method: "POST",
+    headers: {
+      "X-Winga-Audience-Id": "guest-viewer-one"
+    }
+  });
+  assert.equal(duplicateGuestProductView.response.status, 200);
+  assert.equal(duplicateGuestProductView.body.views, 2);
+
   const bodylessProductLike = await request("/products/product-test-001/like", {
     method: "POST",
     headers: {

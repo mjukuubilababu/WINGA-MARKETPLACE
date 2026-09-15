@@ -1287,19 +1287,20 @@ async loadAdminPayments() {
       },
       async trackProductView(productId) {
         const session = this.loadSession();
+        const audienceId = session?.username || getAnonymousDemandSessionId();
         const products = await this.loadProducts();
         const nextProducts = products.map((item) => {
           if (item.id !== productId) {
             return item;
           }
           const viewedBy = Array.isArray(item.viewedBy) ? item.viewedBy : [];
-          if (!session?.username || viewedBy.includes(session.username)) {
+          if (!audienceId || viewedBy.includes(audienceId)) {
             return item;
           }
           return {
             ...item,
             views: Number(item.views || 0) + 1,
-            viewedBy: [...viewedBy, session.username]
+            viewedBy: [...viewedBy, audienceId]
           };
         });
         await this.saveProducts(nextProducts);
@@ -2927,19 +2928,20 @@ async loadAdminPayments() {
       },
       async trackProductView(productId) {
         const session = this.loadSession();
+        const audienceId = session?.username || getAnonymousDemandSessionId();
         const products = await this.loadProducts();
         const nextProducts = products.map((item) => {
           if (item.id !== productId) {
             return item;
           }
           const viewedBy = Array.isArray(item.viewedBy) ? item.viewedBy : [];
-          if (!session?.username || viewedBy.includes(session.username)) {
+          if (!audienceId || viewedBy.includes(audienceId)) {
             return item;
           }
           return {
             ...item,
             views: Number(item.views || 0) + 1,
-            viewedBy: [...viewedBy, session.username]
+            viewedBy: [...viewedBy, audienceId]
           };
         });
         await this.saveProducts(nextProducts);

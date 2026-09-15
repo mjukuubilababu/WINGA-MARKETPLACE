@@ -2893,6 +2893,47 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     return formatResult(current.rows?.[0], { changed: false });
   }
 
+  async function recordAnonymousProductView(productId, audienceKey) {
+    const safeProductId = String(productId || "").trim().slice(0, 80);
+    const safeAudienceKey = String(audienceKey || "").trim().slice(0, 64);
+    if (!safeProductId || !safeAudienceKey) return null;
+    return withTransaction(async (client) => {
+      const viewResult = await client.query(
+        `INSERT INTO anonymous_product_views (product_id, audience_key)
+         VALUES ($1, $2)
+         ON CONFLICT (product_id, audience_key) DO NOTHING
+         RETURNING product_id`,
+        [safeProductId, safeAudienceKey]
+      );
+      const changed = Number(viewResult.rowCount || 0) > 0;
+      const productResult = changed
+        ? await client.query(
+            `UPDATE products
+             SET views = views + 1, updated_at = NOW(), row_version = row_version + 1
+             WHERE id = $1
+             RETURNING likes, views, viewed_by AS "viewedBy",
+                       updated_at AS "updatedAt", row_version AS "rowVersion"`,
+            [safeProductId]
+          )
+        : await client.query(
+            `SELECT likes, views, viewed_by AS "viewedBy",
+                    updated_at AS "updatedAt", row_version AS "rowVersion"
+             FROM products WHERE id = $1`,
+            [safeProductId]
+          );
+      const row = productResult.rows?.[0];
+      if (!row) return null;
+      return {
+        likes: Number(row.likes || 0),
+        views: Number(row.views || 0),
+        viewedBy: parseJson(row.viewedBy, []),
+        updatedAt: toISOString(row.updatedAt),
+        rowVersion: Number(row.rowVersion || 0),
+        changed
+      };
+    });
+  }
+
   function getProductWriteValues(product = {}) {
     return [
       product.name,
@@ -8665,6 +8706,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     getReadReplicaHealth,
     getDatabaseHealth,
     recordProductAction,
+    recordAnonymousProductView,
     createProduct,
     updateProduct,
     updateProductImageMediaMetadata,

@@ -22656,7 +22656,7 @@ function showWelcomePopup() {
 
 function trackView(product) {
   if (!currentUser) {
-    return false;
+    return true;
   }
 
   const viewedBy = Array.isArray(product.viewedBy) ? product.viewedBy : [];

@@ -1047,7 +1047,7 @@
 
       deps.noteProductInterest(product.id);
       deps.noteProductDiscovery(product.id);
-      if (!isOwnerView && deps.getCurrentUser?.() && typeof deps.trackProductView === "function") {
+      if (!isOwnerView && typeof deps.trackProductView === "function") {
         Promise.resolve(deps.trackProductView(product.id)).catch((error) => {
           deps.captureError?.("product_detail_view_tracking_failed", error, {
             productId: product.id

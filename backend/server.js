@@ -13701,13 +13701,14 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === "POST" && getProductActionMatch(url.pathname)) {
       const token = readAuthToken(req);
-      const session = findSession(store, token);
-      const actingUser = ensureMarketplaceUser(store, session, res);
-      if (!actingUser) {
+      const session = token ? findSession(store, token) : null;
+      const [, rawProductId, action] = getProductActionMatch(url.pathname);
+      const actingUser = session ? ensureMarketplaceUser(store, session, res) : null;
+      if (session && !actingUser) return;
+      if (action === "like" && !actingUser) {
+        ensureMarketplaceUser(store, session, res);
         return;
       }
-
-      const [, rawProductId, action] = getProductActionMatch(url.pathname);
       const productId = decodeURIComponent(rawProductId);
       const existingProduct = (store.products || []).find((item) => item.id === productId);
 
@@ -13728,11 +13729,20 @@ const server = http.createServer(async (req, res) => {
         : !["false", "0", "no"].includes(String(requestedLikeState).trim().toLowerCase());
       let actionChanged = true;
       let resultingLiked = action === "like" ? desiredLiked : undefined;
+      const anonymousReference = sanitizePlainText(
+        req.headers["x-winga-audience-id"] || req.headers["user-agent"] || "anonymous",
+        200
+      );
 
       if (postgresStore?.recordProductAction) {
-        const actionResult = await postgresStore.recordProductAction(productId, actingUser.username, action, {
-          liked: desiredLiked
-        });
+        const actionResult = action === "view" && !actingUser && postgresStore.recordAnonymousProductView
+          ? await postgresStore.recordAnonymousProductView(
+              productId,
+              getCommerceAudience(null, `${clientIp}:${anonymousReference}`).audienceKey
+            )
+          : await postgresStore.recordProductAction(productId, actingUser.username, action, {
+              liked: desiredLiked
+            });
         if (!actionResult) {
           sendJson(res, 404, { error: "Bidhaa haijapatikana." });
           return;
@@ -13755,9 +13765,10 @@ const server = http.createServer(async (req, res) => {
             : likedBy.filter((username) => username !== actingUser.username);
         }
 
-        if (action === "view" && !updatedProduct.viewedBy.includes(actingUser.username)) {
+        const viewAudienceId = actingUser?.username || `anonymous:${hashSessionContextValue(`${clientIp}:${anonymousReference}`)}`;
+        if (action === "view" && !updatedProduct.viewedBy.includes(viewAudienceId)) {
           updatedProduct.views += 1;
-          updatedProduct.viewedBy = [...updatedProduct.viewedBy, actingUser.username];
+          updatedProduct.viewedBy = [...updatedProduct.viewedBy, viewAudienceId];
         } else if (action === "view") {
           actionChanged = false;
         }
@@ -13776,13 +13787,14 @@ const server = http.createServer(async (req, res) => {
           event: action === "like"
             ? (resultingLiked ? "product_liked" : "product_unliked")
             : "product_viewed",
-          username: actingUser.username,
+          username: actingUser?.username || "",
           productId,
           sellerId: existingProduct.uploadedBy
         });
         if (action !== "like" || resultingLiked) {
           scheduleCommerceOutcomeAttribution({
             session,
+            anonymousReference,
             productId,
             outcomeType: action === "like" ? "liked" : "viewed_detail",
             metadata: { source: "product_action" }

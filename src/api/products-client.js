@@ -145,7 +145,10 @@
       requireFetcher();
       const result = await fetchJson(`${baseUrl}/products/${encodeURIComponent(productId)}/view`, {
         method: "POST",
-        headers: authHeaders()
+        headers: {
+          ...authHeaders(),
+          "X-Winga-Audience-Id": getAnonymousDemandSessionId()
+        }
       });
       return resolveProductImages(result);
     }

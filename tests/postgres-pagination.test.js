@@ -320,6 +320,42 @@ test("PostgreSQL product likes set one person reaction idempotently", async () =
   assert.equal(calls.filter((call) => call.text.includes("UPDATE products")).length, 1);
 });
 
+test("PostgreSQL anonymous product views count one hashed audience once", async () => {
+  const calls = [];
+  let inserted = false;
+  const queryClient = {
+    async query(text, params = []) {
+      const sql = String(text);
+      calls.push({ text: sql, params });
+      if (sql === "BEGIN" || sql === "COMMIT" || sql === "ROLLBACK") return { rows: [], rowCount: 0 };
+      if (sql.includes("INSERT INTO anonymous_product_views")) {
+        if (inserted) return { rows: [], rowCount: 0 };
+        inserted = true;
+        return { rows: [{ product_id: "product-1" }], rowCount: 1 };
+      }
+      return {
+        rows: [{
+          likes: 2,
+          views: 12,
+          viewedBy: [],
+          updatedAt: new Date("2026-09-15T15:30:00.000Z"),
+          rowVersion: 6
+        }],
+        rowCount: 1
+      };
+    }
+  };
+  const store = createPostgresStore({ databaseUrl: "postgres://test.invalid/winga", queryClient });
+
+  const first = await store.recordAnonymousProductView("product-1", "hashed-audience");
+  const duplicate = await store.recordAnonymousProductView("product-1", "hashed-audience");
+
+  assert.equal(first.changed, true);
+  assert.equal(duplicate.changed, false);
+  assert.equal(calls.filter((call) => call.text.includes("SET views = views + 1")).length, 1);
+  assert.deepEqual(calls.find((call) => call.text.includes("INSERT INTO anonymous_product_views")).params, ["product-1", "hashed-audience"]);
+});
+
 test("PostgreSQL session rotation and security notification commit atomically", async () => {
   const calls = [];
   let released = false;
@@ -1360,6 +1396,15 @@ test("product likes migration stores one reaction per person and product", () =>
   assert.match(sql, /PRIMARY KEY \(product_id, user_id\)/);
   assert.match(sql, /REFERENCES products\(id\) ON DELETE CASCADE/);
   assert.match(sql, /REFERENCES users\(username\) ON DELETE CASCADE/);
+});
+
+test("anonymous product views migration stores only hashed audience keys", () => {
+  const migration = MIGRATIONS.find((candidate) => candidate.id === "2026091509_anonymous_product_views");
+  assert.ok(migration);
+  const sql = migration.statements.join("\n");
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS anonymous_product_views/);
+  assert.match(sql, /PRIMARY KEY \(product_id, audience_key\)/);
+  assert.doesNotMatch(sql, /ip_address|user_agent|anonymous_id/i);
 });
 
 test("PostgreSQL password recovery updates one user and revokes sessions atomically", async () => {

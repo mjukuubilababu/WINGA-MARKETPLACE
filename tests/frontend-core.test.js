@@ -2044,9 +2044,11 @@ test("remote product actions API client owns product writes and demand signals",
   assert.match(moduleSource, /async function likeProduct\(productId, liked = true\)/);
   assert.match(moduleSource, /like\?liked=\$\{liked \? "true" : "false"\}/);
   assert.match(moduleSource, /async function trackProductView\(productId\)/);
+  assert.match(moduleSource, /"X-Winga-Audience-Id": getAnonymousDemandSessionId\(\)/);
   assert.match(appSource, /function syncSavedProductLike\(productId, liked\)/);
   assert.match(appSource, /window\.WingaDataLayer\.likeProduct\(productId, liked\)/);
   assert.match(appSource, /product_like_sync_failed/);
+  assert.match(appSource, /function trackView\(product\) \{\s+if \(!currentUser\) \{\s+return true;/);
   assert.match(dataSource, /window\.WingaModules\?\.api\?\.productActions\?\.createProductsApiClient/);
   assert.match(dataSource, /async createProduct\(product\) \{\s+return getProductsApiClient\(\)\.createProduct\(product\);/);
   assert.match(dataSource, /async recordDemand\(productId, payload = \{\}\) \{\s+return getProductsApiClient\(\)\.recordDemand\(productId, payload\);/);
@@ -4493,6 +4495,12 @@ test("authenticated passive view tracking never reloads or replaces the paginate
   assert.doesNotMatch(trackingSource, /state\.adapter\.loadProducts/);
   assert.doesNotMatch(trackingSource, /applyLoadedProductPageToState/);
   assert.doesNotMatch(trackingSource, /productFeedPagination\s*=/);
+  const marketplaceUiSource = fs.readFileSync(path.join(root, "src", "marketplace", "ui.js"), "utf8");
+  assert.match(marketplaceUiSource, /PASSIVE_VIEW_VISIBILITY_THRESHOLD = 0\.55/);
+  assert.match(marketplaceUiSource, /PASSIVE_VIEW_DWELL_MS = 650/);
+  assert.match(marketplaceUiSource, /new window\.IntersectionObserver/);
+  assert.match(marketplaceUiSource, /entry\.intersectionRatio < PASSIVE_VIEW_VISIBILITY_THRESHOLD/);
+  assert.doesNotMatch(marketplaceUiSource, /index < passiveViewLimit && deps\.trackView\(product\)/);
 });
 
 test("product mutations patch canonical items without resetting Home pagination", () => {

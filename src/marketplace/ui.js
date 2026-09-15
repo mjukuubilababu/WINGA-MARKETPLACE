@@ -66,6 +66,11 @@
     let passiveViewedProductTrackingScheduled = false;
     const PASSIVE_VIEW_TRACK_BATCH_SIZE = 1;
     const PASSIVE_VIEW_TRACK_IDLE_DELAY_MS = 700;
+    const PASSIVE_VIEW_VISIBILITY_THRESHOLD = 0.55;
+    const PASSIVE_VIEW_DWELL_MS = 650;
+    let passiveViewObserver = null;
+    const passiveViewDwellTimers = new Map();
+    const passiveViewProductsById = new Map();
     const STARTUP_PRIORITY_CARD_COUNT = 4;
     const INITIAL_SYNC_FEED_BATCH_SIZE = 10;
     const BOOTSTRAP_SYNC_FEED_TARGET_COUNT = 16;
@@ -81,6 +86,11 @@
     const MOBILE_HOME_INITIAL_FEED_LIMIT = 12;
 
     function cancelScheduledFeedRender() {
+      passiveViewObserver?.disconnect?.();
+      passiveViewObserver = null;
+      passiveViewDwellTimers.forEach((timer) => window.clearTimeout(timer));
+      passiveViewDwellTimers.clear();
+      passiveViewProductsById.clear();
       scheduledFeedRenderState.token += 1;
       if (scheduledFeedRenderState.timer) {
         window.clearTimeout(scheduledFeedRenderState.timer);
@@ -121,6 +131,56 @@
               window.setTimeout(() => schedulePassiveViewedProductTracking([]), PASSIVE_VIEW_TRACK_IDLE_DELAY_MS);
             }
           });
+      });
+    }
+
+    function bindPassiveProductViewObserver(container, productList = [], enabled = true) {
+      if (!enabled || !container?.querySelectorAll) return;
+      (Array.isArray(productList) ? productList : []).forEach((product) => {
+        const productId = String(product?.id || "").trim();
+        if (productId) passiveViewProductsById.set(productId, product);
+      });
+      const cards = Array.from(container.querySelectorAll(".product-card[data-open-product], .seller-product-card[data-open-product]"))
+        .filter((card) => !card.dataset.passiveViewObserved && passiveViewProductsById.has(String(card.dataset.openProduct || "").trim()));
+      if (!cards.length) return;
+
+      if (typeof window.IntersectionObserver !== "function") {
+        const fallbackIds = cards.slice(0, Math.max(4, deps.getProductsPerRow?.() || 3)).flatMap((card) => {
+          const product = passiveViewProductsById.get(String(card.dataset.openProduct || "").trim());
+          return product && deps.trackView(product) ? [product.id] : [];
+        });
+        schedulePassiveViewedProductTracking(fallbackIds);
+        return;
+      }
+
+      if (!passiveViewObserver) {
+        passiveViewObserver = new window.IntersectionObserver((entries) => {
+          entries.forEach((entry) => {
+            const card = entry.target;
+            const existingTimer = passiveViewDwellTimers.get(card);
+            if (!entry.isIntersecting || entry.intersectionRatio < PASSIVE_VIEW_VISIBILITY_THRESHOLD) {
+              if (existingTimer) window.clearTimeout(existingTimer);
+              passiveViewDwellTimers.delete(card);
+              return;
+            }
+            if (existingTimer) return;
+            const timer = window.setTimeout(() => {
+              passiveViewDwellTimers.delete(card);
+              passiveViewObserver?.unobserve?.(card);
+              const productId = String(card.dataset.openProduct || "").trim();
+              const product = passiveViewProductsById.get(productId);
+              if (card.isConnected && product && deps.trackView(product)) {
+                schedulePassiveViewedProductTracking([productId]);
+              }
+            }, PASSIVE_VIEW_DWELL_MS);
+            passiveViewDwellTimers.set(card, timer);
+          });
+        }, { threshold: [PASSIVE_VIEW_VISIBILITY_THRESHOLD] });
+      }
+
+      cards.forEach((card) => {
+        card.dataset.passiveViewObserved = "true";
+        passiveViewObserver.observe(card);
       });
     }
 
@@ -1411,8 +1471,6 @@
       let showcaseIndex = 0;
       let insertedInlineShowcase = false;
       const usedShowcaseProductIds = new Set();
-      const viewedProductIds = [];
-      const passiveViewLimit = Math.max(4, (deps.getProductsPerRow?.() || 3));
       preloadMarketplaceImages(list);
       const renderToken = ++scheduledFeedRenderState.token;
       let combinedSectionQueue = [];
@@ -1606,9 +1664,6 @@
             initialProductIds: safeList.map((product) => product.id).filter(Boolean)
           });
         }
-        if (viewedProductIds.length > 0) {
-          schedulePassiveViewedProductTracking(viewedProductIds);
-        }
       };
 
       const renderNextBatch = (startIndex = 0) => {
@@ -1628,9 +1683,6 @@
             appendShowcaseIfNeeded(fragment, index + 1);
             continue;
           }
-          if (shouldTrackViews && index < passiveViewLimit && deps.trackView(product)) {
-            viewedProductIds.push(product.id);
-          }
           const isBatchPriorityCard = shouldUseMobileEndlessHomeFeed
             && startIndex > 0
             && index < startIndex + 2;
@@ -1640,6 +1692,7 @@
           appendShowcaseIfNeeded(fragment, index + 1);
         }
         productsContainer.appendChild(fragment);
+        bindPassiveProductViewObserver(productsContainer, safeList, shouldTrackViews);
         if (startIndex === 0 && currentView === "home") {
           deps.prioritizeVisibleFeedMedia?.(productsContainer, Math.min(startupPriorityCardCount, endIndex));
         }
