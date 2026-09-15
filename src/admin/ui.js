@@ -125,12 +125,18 @@
       if (!panel || !deps.isSellerAnalyticsView?.()) return;
       panel.classList.add("seller-analytics");
       const heading = el("header", "analytics-heading");
-      const backAction = sellerState.tab === "insights"
+      const isSubpage = sellerState.tab === "insights" || sellerState.tab === "demand";
+      const backAction = isSubpage
         ? () => { sellerState.tab = "overview"; renderSellerDashboard(); }
         : () => deps.onAnalyticsBack?.();
+      const headingTitle = sellerState.tab === "insights"
+        ? a("insightsTitle", "Insights & recommendations")
+        : sellerState.tab === "demand"
+          ? a("demand", "Demand & opportunities")
+          : t("ui.label.94c116ee118a", "Analytics");
       heading.append(
         analyticsButton(t("creation.back", "Back"), backAction, "/icons/create/arrow-left.svg"),
-        el("h1", "", sellerState.tab === "insights" ? a("insightsTitle", "Insights & recommendations") : t("ui.label.94c116ee118a", "Analytics"))
+        el("h1", "", headingTitle)
       );
       const period = el("select", "analytics-period-control", undefined, {
         "aria-label": a("period", "Analytics period")
@@ -179,10 +185,10 @@
         return button;
       });
       tablist.append(...buttons);
-      if (sellerState.tab === "insights") tablist.hidden = true;
+      if (isSubpage) tablist.hidden = true;
       const content = el("div", "analytics-content", undefined, {
         id: "analytics-content", role: "tabpanel",
-        ...(sellerState.tab === "insights" ? { "aria-label": a("insightsTitle", "Insights & recommendations") }
+        ...(isSubpage ? { "aria-label": headingTitle }
           : { "aria-labelledby": "analytics-tab-" + sellerState.tab })
       });
       const status = el("p", "analytics-status", sellerState.loading ? a("loading", "Loading analytics...") :
@@ -267,6 +273,49 @@
         card.addEventListener("click", action);
         node.append(card);
       };
+      const demandProductItem = entry => {
+        const demandValue = Math.max(0, Number(entry?.totalDemand || 0));
+        const waiting = Math.max(0, Number(entry?.waitingUsers || 0));
+        const restock = Math.max(0, Number(entry?.restockInterest || 0));
+        const row = item(
+          entry?.productName || entry?.productId,
+          a("demandEvidence", "Demand score {score} / {waiting} waiting", {
+            score: count(entry?.demandScore ?? demandValue),
+            waiting: count(waiting)
+          }),
+          "product",
+          entry?.productId
+        );
+        row.classList.add("analytics-demand-product");
+        const image = deps.createResponsiveImage?.({
+          src: entry?.productImage || "",
+          alt: entry?.productName || "",
+          className: "analytics-demand-image",
+          fallbackSrc: deps.getImageFallbackDataUri?.("W") || "",
+          attributes: { "data-disable-image-zoom": "true" }
+        }) || el("span", "analytics-demand-image analytics-demand-fallback", "W", { "aria-hidden": "true" });
+        const badgeText = waiting > 0
+          ? a("waitingCount", "{count} waiting", { count: count(waiting) })
+          : restock > 0
+            ? a("restockCount", "{count} restock requests", { count: count(restock) })
+            : a("demandScoreValue", "Demand {score}", { score: count(entry?.demandScore ?? demandValue) });
+        row.prepend(image);
+        row.append(el("span", "analytics-demand-badge", badgeText));
+        return row;
+      };
+      const appendSizeShareInsight = (node, entries) => {
+        const normalized = entries
+          .map(entry => ({ label: String(entry?.size || "").trim(), value: Math.max(0, Number(entry?.count || 0)) }))
+          .filter(entry => entry.label && entry.value > 0);
+        const total = normalized.reduce((sum, entry) => sum + entry.value, 0);
+        if (!total) return;
+        const leaders = normalized.slice(0, 2);
+        const share = Math.round((leaders.reduce((sum, entry) => sum + entry.value, 0) / total) * 100);
+        node.append(el("p", "analytics-evidence-strip", a("sizeShare", "{sizes} account for {share}% of recorded size requests", {
+          sizes: leaders.map(entry => entry.label).join(" & "),
+          share
+        })));
+      };
       const trendChart = node => {
         const chart = el("div", "analytics-trend-chart");
         if (!hasTimeSeries) {
@@ -309,6 +358,20 @@
         ["rejectedProducts", a("rejected", "Rejected"), count(data.rejectedProducts), "/icons/create/x.svg"]
       ];
       if (sellerState.tab === "overview") {
+        const welcome = el("section", "analytics-welcome");
+        const welcomeCopy = el("div", "analytics-welcome-copy");
+        welcomeCopy.append(
+          el("h2", "", a("welcome", "Welcome back, {name}", { name: deps.getCurrentDisplayName?.() || sellerState.owner })),
+          el("p", "", a("welcomeBody", "Your business activity at a glance."))
+        );
+        welcome.append(welcomeCopy);
+        metrics(welcome, [
+          ["summaryViews", a("views", "Product views"), count(hasTimeSeries ? periodCurrent.views : data.totalViews), "/icons/navigation/chart-column.svg", hasTimeSeries ? periodGrowth.views : undefined],
+          ["summaryInquiries", a("inquiries", "New inquiries"), count(hasTimeSeries ? periodCurrent.inquiries : data.newInquiries), "/icons/navigation/message-circle.svg", hasTimeSeries ? periodGrowth.inquiries : undefined],
+          ["summaryOrders", a("orders", "Orders"), count(hasTimeSeries ? periodCurrent.orders : data.openOrders), "/icons/navigation/store.svg", hasTimeSeries ? periodGrowth.orders : undefined],
+          ["summarySales", a("salesCurrency", "Sales ({currency})", { currency: timeSeries.currency || "TZS" }), hasTimeSeries ? count(periodCurrent.sales) : "—", "/icons/navigation/chart-column.svg", hasTimeSeries ? periodGrowth.sales : undefined]
+        ]);
+        panel.insertBefore(welcome, tablist);
         const overview = section(a("keyMetrics", "Key metrics"));
         decorateHeading(overview, "/icons/navigation/chart-column.svg", "blue");
         metrics(overview, [
@@ -320,16 +383,43 @@
         const trend = section(a("viewsEngagement", "Views & engagement"));
         decorateHeading(trend, "/icons/navigation/chart-column.svg", "blue");
         trendChart(trend);
-        const categories = section(a("topCategoryPerformance", "Top categories by performance"));
+        const categories = section(a("topCategoryPerformance", "Top categories by performance"), a("productCountBasis", "Ranked by catalog product count."));
         decorateHeading(categories, "/icons/navigation/store.svg", "orange");
+        const demandLink = analyticsButton(a("viewDemand", "Demand & opportunities"), () => {
+          sellerState.tab = "demand";
+          sellerState.trendTab = "demand";
+          renderSellerDashboard();
+        });
+        demandLink.classList.add("analytics-see-all");
+        categories.querySelector(".analytics-section-heading")?.append(demandLink);
         bars(categories, rows(data.topCategories), e => deps.getCategoryLabel(e.category), e => e.count, { ranked: true });
         const actions = section(a("quickActions", "Quick actions"));
         decorateHeading(actions, "/icons/navigation/sparkles.svg", "orange");
+        const insightsLink = analyticsButton(a("viewInsights", "View insights"), () => {
+          sellerState.tab = "insights";
+          renderSellerDashboard();
+        });
+        insightsLink.classList.add("analytics-see-all");
+        actions.querySelector(".analytics-section-heading")?.append(insightsLink);
         const actionGrid = el("div", "analytics-action-grid");
         actions.append(actionGrid);
-        actionCard(actionGrid, a("manageProducts", "Manage products"), a("manageProductsReason", "Review your catalog and keep stock current."), () => deps.onAnalyticsAction?.("products"), "/icons/navigation/store.svg", "green");
-        actionCard(actionGrid, a("viewInquiries", "View inquiries"), a("viewInquiriesReason", "Reply to new buyer conversations."), () => deps.onAnalyticsAction?.("messages"), "/icons/navigation/message-circle.svg", "blue");
-        actionCard(actionGrid, a("viewInsights", "View insights"), a("viewInsightsReason", "See evidence-based actions for your shop."), () => { sellerState.tab = "insights"; renderSellerDashboard(); }, "/icons/navigation/sparkles.svg", "purple");
+        const topCategory = rows(data.topCategories).find(entry => Number(entry?.count || 0) > 0);
+        const actionableInquiries = Math.max(0, Number(hasTimeSeries ? periodCurrent.inquiries : data.newInquiries || 0));
+        if (topCategory) actionCard(actionGrid,
+          a("manageCategory", "Manage {category}", { category: deps.getCategoryLabel(topCategory.category) }),
+          a("manageCategoryReason", "{count} catalog products are in this category.", { count: count(topCategory.count) }),
+          () => deps.onAnalyticsAction?.("products"), "/icons/navigation/store.svg", "green");
+        if (actionableInquiries > 0) actionCard(actionGrid,
+          a("replyToInquiries", "Reply to inquiries"),
+          a("replyToInquiriesReason", "{count} new inquiries are waiting.", { count: count(actionableInquiries) }),
+          () => deps.onAnalyticsAction?.("messages"), "/icons/navigation/message-circle.svg", "blue");
+        const requestedSizes = rows(demand.mostRequestedSizes).filter(entry => Number(entry?.count || 0) > 0);
+        if (requestedSizes.length) actionCard(actionGrid,
+          a("restockSizes", "Review requested sizes"),
+          a("restockSizesReason", "{sizes} lead recorded size requests.", { sizes: requestedSizes.slice(0, 2).map(entry => entry.size).join(" & ") }),
+          () => { sellerState.tab = "demand"; sellerState.trendTab = "demand"; renderSellerDashboard(); },
+          "/icons/navigation/refresh-cw.svg", "orange");
+        if (!actionGrid.childElementCount) actionGrid.append(el("p", "analytics-empty", a("quickActionsEmpty", "No evidence-based action is ready yet.")));
       } else if (sellerState.tab === "products") {
         const catalog = section(a("catalogTotals", "Catalog totals"));
         decorateHeading(catalog, "/icons/navigation/store.svg", "orange");
@@ -370,7 +460,7 @@
             e => item(e.productName || e.productId, a("videoEvidence", "{plays} plays / {rate} completion / {actions} assisted actions",
               { plays: count(e.plays), rate: rate(e.completionRate), actions: count(e.videoAssistedActions) }), "product", e.productId));
         }
-      } else if (sellerState.tab === "trends") {
+      } else if (sellerState.tab === "trends" || sellerState.tab === "demand") {
         const subTabs = el("div", "analytics-subtabs", undefined, { role: "tablist", "aria-label": a("trends", "Trends") });
         [["demand", a("demandShort", "Demand")], ["opportunities", a("opportunities", "Opportunities")],
           ["trending", a("trending", "Trending")], ["regional", a("regional", "Regional")]].forEach(([id, label]) => {
@@ -391,10 +481,11 @@
             ["waitingUsers", a("waiting", "Waiting users"), count(demand.waitingUsers), "/icons/navigation/message-circle.svg"],
             ["restockInterest", a("restock", "Restock interest"), count(demand.restockInterest), "/icons/navigation/refresh-cw.svg"]
           ]);
-          list(section(a("requestedProducts", "Most requested products")), rows(demand.mostRequestedProducts),
-            e => item(e.productName || e.productId, a("demandEvidence", "Demand score {score} / {waiting} waiting", {
-              score: count(e.demandScore ?? e.totalDemand), waiting: count(e.waitingUsers) }), "product", e.productId));
-          bars(section(a("sizes", "Most requested sizes")), rows(demand.mostRequestedSizes), e => e.size, e => e.count);
+          list(section(a("requestedProducts", "Most requested products")), rows(demand.mostRequestedProducts), demandProductItem);
+          const sizeEntries = rows(demand.mostRequestedSizes);
+          const sizeSection = section(a("sizes", "Most requested sizes"));
+          bars(sizeSection, sizeEntries, e => e.size, e => e.count);
+          appendSizeShareInsight(sizeSection, sizeEntries);
           bars(section(a("colors", "Most requested colors")), rows(demand.mostRequestedColors), e => e.color, e => e.count);
         }
         } else if (sellerState.trendTab === "opportunities") {

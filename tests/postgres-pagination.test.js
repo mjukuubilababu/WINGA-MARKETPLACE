@@ -2296,6 +2296,8 @@ test("PostgreSQL demand persistence dedupes events and refreshes seller summarie
   const summaryRow = {
     productId: "product-demand-1",
     sellerId: "seller-1",
+    productName: "Demand product",
+    productImage: "/uploads/demand-product.webp",
     totalDemand: 2,
     waitingUsers: 1,
     restockInterest: 1,
@@ -2354,7 +2356,11 @@ test("PostgreSQL demand persistence dedupes events and refreshes seller summarie
 
   const sellerSummary = await store.readSellerDemandSummary("seller-1", 5);
   assert.equal(sellerSummary[0].sellerId, "seller-1");
+  assert.equal(sellerSummary[0].productName, "Demand product");
+  assert.equal(sellerSummary[0].productImage, "/uploads/demand-product.webp");
   assert.equal(sellerSummary[0].waitingUsers, 1);
+  assert.match(calls.at(-1).text, /LEFT JOIN products product/);
+  assert.match(calls.at(-1).text, /product\.images->>0/);
   assert.deepEqual(calls.at(-1).params, ["seller-1", 5]);
 });
 

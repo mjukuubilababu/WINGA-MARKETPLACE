@@ -166,7 +166,16 @@ test("seller Analytics tabs show supplied aggregates without invented growth and
     openOrders: 0, completedOrders: 0, repeatBuyers: 0, conversionRate: 0, trustScore: 59, trustTier: "Growing",
     topCategories: [{ category: "wanawake-magauni", count: 17 }, { category: "reels", count: 5 }],
     recentProducts: [{ id: "e2e-prod-1", name: "Gallery product", status: "approved" }],
-    demand: { totalDemand: 0, waitingUsers: 0, restockInterest: 0, mostRequestedProducts: [], mostRequestedSizes: [], mostRequestedColors: [] },
+    demand: {
+      totalDemand: 9, waitingUsers: 3, restockInterest: 2,
+      mostRequestedProducts: [{
+        productId: "e2e-prod-1", productName: "Gallery product",
+        productImage: "/icons/navigation/store.svg", totalDemand: 9,
+        waitingUsers: 3, restockInterest: 2, demandScore: 9
+      }],
+      mostRequestedSizes: [{ size: "M", count: 3 }, { size: "L", count: 2 }],
+      mostRequestedColors: [{ color: "black", count: 2 }]
+    },
     commerceLearning: { opportunities: [] }, searchDemand: { trendingSearches: [], regionalDemand: [] },
     timeSeries: {
       windowDays: 30, privacy: "seller-scoped-aggregate-only", currency: "TZS",
@@ -189,6 +198,9 @@ test("seller Analytics tabs show supplied aggregates without invented growth and
   });
   await page.goto("/");
   await openSellerAnalytics(page);
+  await expect(page.locator(".analytics-welcome")).toContainText("buyer_seller");
+  await expect(page.locator("[data-metric='summarySales'] strong")).toHaveText("25,000");
+  await expect(page.locator(".analytics-action-grid .analytics-action-card")).toHaveCount(3);
   await expect(page.locator("[data-metric='totalViews'] strong")).toHaveText("116");
   await expect(page.locator("[data-metric='totalViews'] .analytics-growth")).toContainText("+16%");
   await expect(page.locator(".analytics-trend-chart svg")).toBeVisible();
@@ -209,15 +221,22 @@ test("seller Analytics tabs show supplied aggregates without invented growth and
   await page.screenshot({ path: "test-results/analytics-mobile-content.png", fullPage: true });
   await page.locator("#analytics-tab-trends").click();
   await expect(page.locator(".analytics-subtabs button")).toHaveCount(4);
-  await expect(page.locator(".analytics-empty").first()).toBeVisible();
+  await expect(page.locator(".analytics-demand-product")).toContainText("Gallery product");
+  await expect(page.locator(".analytics-evidence-strip")).toBeVisible();
+  await page.locator("#analytics-tab-overview").click();
+  await page.locator(".analytics-see-all").first().click();
+  await expect(page.locator(".analytics-heading h1")).toContainText(/Demand|Mahitaji/);
+  await expect(page.locator(".analytics-tabs")).toBeHidden();
+  await expect(page.locator(".analytics-demand-product img")).toBeVisible();
   await page.screenshot({ path: "test-results/analytics-mobile-demand.png", fullPage: true });
+  await page.locator("#analytics-panel .analytics-heading button").first().click();
   await expect(page.locator("#analytics-panel")).not.toContainText("1,248");
   await expect(page.locator("#analytics-panel select")).toHaveCount(1);
   await page.locator("#analytics-tab-overview").focus();
   await page.keyboard.press("ArrowRight");
   await expect(page.locator("#analytics-tab-products")).toHaveAttribute("aria-selected", "true");
   await page.locator("#analytics-tab-overview").click();
-  await page.locator(".analytics-action-card.purple").click();
+  await page.locator(".analytics-see-all").last().click();
   await expect(page.locator(".analytics-insight-banner")).toBeVisible();
   await expect(page.locator(".analytics-tabs")).toBeHidden();
   await page.screenshot({ path: "test-results/analytics-mobile-insights.png", fullPage: true });

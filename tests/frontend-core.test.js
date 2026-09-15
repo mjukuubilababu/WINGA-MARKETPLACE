@@ -6184,3 +6184,15 @@ test("product photo preparation bounds decoded image memory and accepts AVIF", (
   assert.doesNotMatch(appSource, /if \(file\.size <= settings\.targetBytes && !isHeicLikeFile\(file\)\)/);
   assert.match(appSource, /finally \{\s*image\.src = "";\s*\}/);
 });
+
+test("seller analytics dashboard uses real evidence and dedicated subpages", () => {
+  const source = fs.readFileSync(path.join(__dirname, "..", "src", "admin", "ui.js"), "utf8");
+
+  assert.match(source, /periodCurrent\.sales/);
+  assert.match(source, /sellerState\.tab === "demand"/);
+  assert.match(source, /const demandProductItem = entry =>/);
+  assert.match(source, /const appendSizeShareInsight = \(node, entries\) =>/);
+  assert.match(source, /const actionableInquiries = Math\.max/);
+  assert.match(source, /productCountBasis/);
+  assert.doesNotMatch(source, /1,248|2,840,000|148 requests/);
+});

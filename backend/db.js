@@ -5534,26 +5534,33 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     }
     const result = await query(
       `SELECT
-         product_id AS "productId",
-         seller_id AS "sellerId",
-         total_demand AS "totalDemand",
-         waiting_users AS "waitingUsers",
-         restock_interest AS "restockInterest",
-         demand_score::float8 AS "demandScore",
-         action_counts AS "actionCounts",
-         top_colors AS "topColors",
-         top_sizes AS "topSizes",
-         first_demand_at AS "firstDemandAt",
-         last_demand_at AS "lastDemandAt",
-         updated_at AS "updatedAt"
-       FROM product_demand_summaries
-       WHERE seller_id = $1
-       ORDER BY demand_score DESC, last_demand_at DESC NULLS LAST
+         summary.product_id AS "productId",
+         summary.seller_id AS "sellerId",
+         product.name AS "productName",
+         COALESCE(NULLIF(product.image, ''), product.images->>0, '') AS "productImage",
+         summary.total_demand AS "totalDemand",
+         summary.waiting_users AS "waitingUsers",
+         summary.restock_interest AS "restockInterest",
+         summary.demand_score::float8 AS "demandScore",
+         summary.action_counts AS "actionCounts",
+         summary.top_colors AS "topColors",
+         summary.top_sizes AS "topSizes",
+         summary.first_demand_at AS "firstDemandAt",
+         summary.last_demand_at AS "lastDemandAt",
+         summary.updated_at AS "updatedAt"
+       FROM product_demand_summaries summary
+       LEFT JOIN products product
+         ON product.id = summary.product_id
+        AND product.uploaded_by = summary.seller_id
+       WHERE summary.seller_id = $1
+       ORDER BY summary.demand_score DESC, summary.last_demand_at DESC NULLS LAST
        LIMIT $2`,
       [safeSellerId, safeLimit]
     );
     return result.rows.map((row) => ({
       ...row,
+      productName: String(row.productName || "").trim(),
+      productImage: String(row.productImage || "").trim(),
       demandScore: Number(row.demandScore || 0),
       firstDemandAt: toISOString(row.firstDemandAt),
       lastDemandAt: toISOString(row.lastDemandAt),
