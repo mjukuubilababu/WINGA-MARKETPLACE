@@ -3762,6 +3762,24 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
            ON CONFLICT (event_key) DO NOTHING`,
           [`auto-delivery:${order.id}`, order.id, stringifyJson({ automatic: true }, {})]
         );
+        await transitionCommerceGoalsWithClient(client, {
+          userId: order.buyerUsername,
+          productId: order.productId,
+          toStatus: "completed",
+          source: "order_auto_delivered",
+          sourceEntityType: "order",
+          sourceEntityKey: order.id,
+          resolution: "delivered_order",
+          metadata: { privacy: "self-scoped", automatic: true }
+        });
+        await attributeIntelligenceDecisionOutcomeWithClient(client, {
+          userId: order.buyerUsername,
+          productId: order.productId,
+          outcomeType: "delivered_order",
+          sourceEntityType: "order",
+          sourceEntityKey: order.id,
+          metadata: { automatic: true }
+        });
         for (const recipient of [order.buyerUsername, order.sellerUsername].filter(Boolean)) {
           await insertNotificationRow(client, {
             id: `auto-delivery:${order.id}:${recipient}`, userId: recipient, type: "order", conversationId: order.id,
@@ -5305,7 +5323,10 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
            (SELECT COUNT(*)::int FROM intelligence_decisions WHERE expires_at<=NOW()) AS "expiredDecisions",
            (SELECT MAX(created_at) FROM intelligence_decisions) AS "latestDecisionAt",
            (SELECT COUNT(*)::int FROM intelligence_action_results) AS "totalActions",
-           (SELECT MAX(completed_at) FROM intelligence_action_results) AS "latestActionAt"`
+           (SELECT MAX(completed_at) FROM intelligence_action_results) AS "latestActionAt",
+           (SELECT COUNT(*)::int FROM intelligence_decision_outcomes) AS "totalDecisionOutcomes",
+           (SELECT COUNT(*)::int FROM intelligence_decision_outcomes WHERE business_outcome=TRUE) AS "businessDecisionOutcomes",
+           (SELECT MAX(occurred_at) FROM intelligence_decision_outcomes) AS "latestDecisionOutcomeAt"`
       ),
       query(
         `SELECT intelligence_type AS "intelligenceType", COUNT(*)::int AS total,
@@ -5341,7 +5362,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     ]);
     const summary = summaryResult.rows[0] || {};
     return {
-      schemaVersion: "2026-09-15.wip-runtime-counts.v1",
+      schemaVersion: "2026-09-16.wip-runtime-counts.v2",
       privacy: "ops-aggregate-only",
       source: "postgres-primary",
       countedAt: new Date().toISOString(),
@@ -5377,6 +5398,12 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
           EXPIRED: Number(actionResult.rows?.[0]?.expired || 0),
           REJECTED_BY_POLICY: Number(actionResult.rows?.[0]?.rejectedByPolicy || 0)
         }
+      },
+      outcomes: {
+        total: Number(summary.totalDecisionOutcomes || 0),
+        businessOutcomes: Number(summary.businessDecisionOutcomes || 0),
+        latestAt: toISOString(summary.latestDecisionOutcomeAt),
+        attributionModel: "last_touch_non_causal"
       },
       modules: (moduleResult.rows || []).map((row) => ({
         intelligenceId: row.intelligenceId,
@@ -6529,6 +6556,14 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       resolution: "delivered_order",
       metadata: { privacy: "self-scoped" }
     });
+    await attributeIntelligenceDecisionOutcome({
+        userId,
+        productId,
+        outcomeType: "delivered_order",
+        sourceEntityType: "order",
+        sourceEntityKey: orderId,
+        metadata: { resolution: "delivered_order" }
+    }).catch(() => ({ attributed: false }));
     return rows.length;
   }
 
@@ -7504,6 +7539,52 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     return row ? { recorded: true, ...row } : { recorded: false, code: "duplicate_or_missing_product" };
   }
 
+  async function attributeIntelligenceDecisionOutcomeWithClient(client, input = {}) {
+    const userId = String(input.userId || "").trim().slice(0, 80);
+    const productId = String(input.productId || "").trim().slice(0, 100);
+    const rawOutcomeType = String(input.outcomeType || "").trim().toLowerCase();
+    const outcomeType = rawOutcomeType === "ordered" ? "order_intent" : rawOutcomeType;
+    const allowedOutcomes = new Set(["viewed_detail", "liked", "messaged", "order_intent", "delivered_order"]);
+    const sourceEntityType = String(input.sourceEntityType || "commerce_event").trim().slice(0, 40);
+    const sourceEntityKey = String(input.sourceEntityKey || "").trim().slice(0, 120);
+    if (!userId || !productId || !sourceEntityKey || !allowedOutcomes.has(outcomeType)) {
+      return { attributed: false, code: "invalid_decision_outcome" };
+    }
+    const occurredAt = toISOString(input.occurredAt) || new Date().toISOString();
+    const candidate = await client.query(
+      `SELECT d.decision_id AS "decisionId", ar.action_id AS "actionId"
+       FROM intelligence_recommendations r
+       JOIN intelligence_decisions d ON d.idempotency_key='recommendation:'||r.recommendation_id
+       JOIN intelligence_action_results ar ON ar.decision_id=d.decision_id AND ar.status='EXECUTED'
+       WHERE r.audience_type='person' AND r.audience_key=$1
+         AND r.entity_type='product' AND r.entity_key=$2
+         AND ar.completed_at <= $3::timestamptz
+         AND ar.completed_at >= $3::timestamptz - INTERVAL '7 days'
+       ORDER BY ar.completed_at DESC, ar.action_id DESC LIMIT 1`,
+      [userId, productId, occurredAt]
+    );
+    const match = candidate.rows?.[0];
+    if (!match) return { attributed: false, code: "no_recent_recommendation_action" };
+    const outcomeId = stableId("decision_outcome", [match.actionId, outcomeType, sourceEntityType, sourceEntityKey]);
+    const businessOutcome = outcomeType === "delivered_order";
+    const result = await client.query(
+      `INSERT INTO intelligence_decision_outcomes (
+         outcome_id,decision_id,action_id,outcome_type,source_entity_type,source_entity_key,
+         attribution_model,business_outcome,metadata,occurred_at
+       ) VALUES ($1,$2,$3,$4,$5,$6,'last_touch_non_causal',$7,$8::jsonb,$9::timestamptz)
+       ON CONFLICT (action_id,outcome_type,source_entity_type,source_entity_key) DO NOTHING
+       RETURNING outcome_id AS "outcomeId"`,
+      [outcomeId, match.decisionId, match.actionId, outcomeType, sourceEntityType, sourceEntityKey,
+        businessOutcome, stringifyJson({ privacy: "aggregate-only", ...(input.metadata || {}) }, {}), occurredAt]
+    );
+    return result.rowCount
+      ? { attributed: true, outcomeId, decisionId: match.decisionId, businessOutcome, attributionModel: "last_touch_non_causal" }
+      : { attributed: false, code: "duplicate_decision_outcome", decisionId: match.decisionId };
+  }
+
+  async function attributeIntelligenceDecisionOutcome(input = {}) {
+    return withTransaction(client => attributeIntelligenceDecisionOutcomeWithClient(client, input));
+  }
   async function attributeFeedExposureOutcome(input = {}) {
     const outcomeType = normalizeExposureOutcome(input.outcomeType);
     const audienceType = input.audienceType === "user" ? "user" : "session";
@@ -9672,6 +9753,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     recordSupplyResponse,
     recordFeedExposure,
     attributeFeedExposureOutcome,
+    attributeIntelligenceDecisionOutcome,
     readCommerceLoopMetrics,
     readCommerceExperimentMetrics,
     readCommerceOutcomeMetrics,

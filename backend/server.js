@@ -360,14 +360,27 @@ function scheduleCommerceOutcomeAttribution({ session, anonymousReference = "", 
   if (!postgresStore?.attributeFeedExposureOutcome || !productId || !outcomeType) return;
   const audience = getCommerceAudience(session, anonymousReference);
   if (!audience.audienceKey) return;
-  runCommerceLearningTask("outcome attribution", () => postgresStore.attributeFeedExposureOutcome({
-    ...audience,
-    productId,
-    outcomeType,
-    orderId,
-    messageId,
-    metadata
-  }));
+  runCommerceLearningTask("outcome attribution", async () => {
+    const tasks = [postgresStore.attributeFeedExposureOutcome({
+      ...audience,
+      productId,
+      outcomeType,
+      orderId,
+      messageId,
+      metadata
+    })];
+    if (session?.username && postgresStore.attributeIntelligenceDecisionOutcome) {
+      tasks.push(postgresStore.attributeIntelligenceDecisionOutcome({
+        userId: session.username,
+        productId,
+        outcomeType,
+        sourceEntityType: orderId ? "order" : (messageId ? "message" : "product_action"),
+        sourceEntityKey: orderId || messageId || `${outcomeType}:${productId}`,
+        metadata
+      }));
+    }
+    await Promise.allSettled(tasks);
+  });
 }
 
 function normalizeCookieSameSite(value = "Lax") {

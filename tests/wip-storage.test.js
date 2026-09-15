@@ -4,13 +4,14 @@ const { PGlite } = require("@electric-sql/pglite");
 const { createPostgresStore } = require("../backend/db");
 const { learnFromObservation, createDecision, executeDecision } = require("../backend/wip-mind");
 const migration = require("../backend/migrations/wip-mind-contracts");
+const outcomeMigration = require("../backend/migrations/intelligence-decision-outcomes");
 
 let db;
 let store;
 
 before(async () => {
   db = new PGlite();
-  for (const statement of migration.statements) await db.exec(statement);
+  for (const statement of [...migration.statements, ...outcomeMigration.statements]) await db.exec(statement);
   store = createPostgresStore({
     databaseUrl: "postgres://isolated/wip",
     queryClient: { query: (sql, params) => db.query(sql, params), connect: async () => ({ query: (sql, params) => db.query(sql, params), release() {} }) }
@@ -66,7 +67,7 @@ test("WIP persists traceable decisions and idempotent action outcomes", async ()
 
 test("WIP runtime counts come from primary storage and expose aggregate dimensions only", async () => {
   const runtime = await store.readWipRuntimeCounts();
-  assert.equal(runtime.schemaVersion, "2026-09-15.wip-runtime-counts.v1");
+  assert.equal(runtime.schemaVersion, "2026-09-16.wip-runtime-counts.v2");
   assert.equal(runtime.privacy, "ops-aggregate-only");
   assert.equal(runtime.source, "postgres-primary");
   assert.ok(runtime.signals.total > 0);
@@ -103,6 +104,26 @@ test("commerce goals preserve a monotonic self-scoped transition history", async
       `INSERT INTO products (id,name,price,shop,whatsapp,image,uploaded_by,category,status,availability,created_at,updated_at)
        VALUES ('dress-1','White dress',50000,'seller-1','255700000002','dress.webp','seller-1','wanawake-magauni','approved','available',NOW(),NOW())`
     );
+    await goalDb.query(
+      `INSERT INTO intelligence_recommendations (
+         recommendation_id,audience_type,audience_key,recommendation_type,entity_type,entity_key,
+         score,reasons,metadata,status,model_version,generated_at,expires_at,updated_at
+       ) VALUES ('rec-buyer-dress','person','buyer-1','similar_available','product','dress-1',
+         90,'["exact_match"]'::jsonb,'{"privacy":"self-scoped"}'::jsonb,'active','test-v1',NOW(),NOW()+INTERVAL '1 day',NOW())`
+    );
+    await goalDb.query(
+      `INSERT INTO intelligence_decisions (
+         decision_id,schema_version,decision_type,subject_id,target_context,selected_action,priority,
+         contributing_signals,confidence,policy_version,reason_codes,sponsored,created_at,expires_at,idempotency_key
+       ) VALUES ('decision-buyer-dress','test-v1','recommendation','buyer-1','person_dashboard',
+         'SURFACE_RECOMMENDATION',90,'[]'::jsonb,0.9,'test-policy','[]'::jsonb,FALSE,NOW(),NOW()+INTERVAL '1 day','recommendation:rec-buyer-dress')`
+    );
+    await goalDb.query(
+      `INSERT INTO intelligence_action_results (
+         action_id,schema_version,decision_id,status,started_at,completed_at,result_metadata,failure_reason
+       ) VALUES ('action-buyer-dress','test-v1','decision-buyer-dress','EXECUTED',NOW(),NOW(),
+         '{"outcomeType":"recommendation_delivery","businessOutcome":false}'::jsonb,'')`
+    );
     const goal = await goalStore.upsertCommerceGoal({
       goalId: "goal-dress-1",
       userId: "buyer-1",
@@ -133,6 +154,16 @@ test("commerce goals preserve a monotonic self-scoped transition history", async
     assert.deepEqual(await goalStore.advanceCommerceGoalsForInteraction({
       userId: "buyer-1", toStatus: "completed", source: "invalid_unscoped_transition"
     }), []);
+    const orderIntent = await goalStore.attributeIntelligenceDecisionOutcome({
+      userId: "buyer-1", productId: "dress-1", outcomeType: "ordered",
+      sourceEntityType: "order", sourceEntityKey: "order-1"
+    });
+    assert.equal(orderIntent.attributed, true);
+    assert.equal(orderIntent.businessOutcome, false);
+    assert.equal((await goalStore.attributeIntelligenceDecisionOutcome({
+      userId: "buyer-1", productId: "dress-1", outcomeType: "ordered",
+      sourceEntityType: "order", sourceEntityKey: "order-1"
+    })).code, "duplicate_decision_outcome");
     assert.equal(await goalStore.completeCommerceGoalsForOrder("buyer-1", "dress-1", "order-1"), 1);
     const state = await goalDb.query("SELECT status,resolution FROM commerce_goals WHERE goal_id='goal-dress-1'");
     assert.deepEqual(state.rows[0], { status: "completed", resolution: "delivered_order" });
@@ -141,6 +172,18 @@ test("commerce goals preserve a monotonic self-scoped transition history", async
     );
     assert.deepEqual(history.rows.map(row => row.toStatus), ["looking", "matched", "contacted", "ordered", "completed"]);
     assert.equal(history.rows.every(row => !JSON.stringify(row).includes("buyer-1")), true);
+    const outcomes = await goalDb.query(
+      `SELECT outcome_type AS "outcomeType",business_outcome AS "businessOutcome",attribution_model AS "attributionModel"
+       FROM intelligence_decision_outcomes ORDER BY outcome_type`
+    );
+    assert.deepEqual(outcomes.rows, [
+      { outcomeType: "delivered_order", businessOutcome: true, attributionModel: "last_touch_non_causal" },
+      { outcomeType: "order_intent", businessOutcome: false, attributionModel: "last_touch_non_causal" }
+    ]);
+    const runtime = await goalStore.readWipRuntimeCounts();
+    assert.equal(runtime.outcomes.total, 2);
+    assert.equal(runtime.outcomes.businessOutcomes, 1);
+    assert.equal(runtime.outcomes.attributionModel, "last_touch_non_causal");
   } finally {
     await goalDb.close();
   }
