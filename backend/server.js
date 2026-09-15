@@ -8625,13 +8625,7 @@ const server = http.createServer(async (req, res) => {
         await writeStore(nextStore);
       }
       store = nextStore;
-      if (nextStatus === "delivered" && postgresStore?.completeCommerceGoalsForOrder) {
-        try {
-          await postgresStore.completeCommerceGoalsForOrder(existingOrder.buyerUsername, existingOrder.productId, orderId);
-        } catch (error) {
-          console.warn("[WINGA] Commerce goal completion failed open.", error?.message || error);
-        }
-      }
+
       await appendAuditLog({
         time: new Date().toISOString(),
         ip: clientIp,
@@ -13810,6 +13804,13 @@ const server = http.createServer(async (req, res) => {
         updatedOrder.rowVersion = transitionResult.rowVersion;
       } else {
         await writeStore(nextStore);
+      }
+      if (nextStatus === "delivered" && postgresStore?.completeCommerceGoalsForOrder) {
+        try {
+          await postgresStore.completeCommerceGoalsForOrder(existingOrder.buyerUsername, existingOrder.productId, orderId);
+        } catch (error) {
+          console.warn("[WINGA] Commerce goal completion failed open.", error?.message || error);
+        }
       }
       store = nextStore;
       await appendAuditLog({
