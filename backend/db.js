@@ -3388,6 +3388,15 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
          WHERE id = $1`,
         [order.productId]
       );
+      await transitionCommerceGoalsWithClient(client, {
+        userId: order.buyerUsername,
+        productId: order.productId,
+        toStatus: "ordered",
+        source: "order_created",
+        sourceEntityType: "order",
+        sourceEntityKey: order.id,
+        metadata: { privacy: "self-scoped", paymentStatus: order.paymentStatus || "pending" }
+      });
       await insertNotificationRow(client, notification);
       return { created: true, code: "", orderId: order.id, paymentId: payment.id };
     });
@@ -4101,6 +4110,17 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
           message.readAt || null, Boolean(message.isDelivered), Boolean(message.isRead)
         ]
       );
+      if (message.productId) {
+        await transitionCommerceGoalsWithClient(client, {
+          userId: message.senderId,
+          productId: message.productId,
+          toStatus: "contacted",
+          source: "product_message",
+          sourceEntityType: "message",
+          sourceEntityKey: message.id,
+          metadata: { privacy: "self-scoped" }
+        });
+      }
       await insertNotificationRow(client, notification);
       if (options.sharePhoneWith) {
         await client.query(
@@ -5963,6 +5983,18 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
             governingReasonCodes: policy.reasonCodes
           });
         }
+        if (safeAudienceType === "person" && recommendation.metadata?.goalId) {
+          await advanceCommerceGoalsForInteraction({
+            goalId: recommendation.metadata.goalId,
+            userId: safeAudienceKey,
+            productId: recommendation.entityType === "product" ? recommendation.entityKey : "",
+            toStatus: "matched",
+            source: "recommendation_delivered",
+            sourceEntityType: "recommendation",
+            sourceEntityKey: recommendation.recommendationId,
+            metadata: { privacy: "self-scoped" }
+          }).catch(() => []);
+        }
       }
       if (recorded.rowCount && result.status === "EXECUTED") {
         await enqueueIntelligenceEvent({
@@ -6356,19 +6388,104 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     }));
   }
 
-  async function upsertCommerceGoal(input = {}) {
-    const result = await pool.query(
-      `INSERT INTO commerce_goals (goal_id, user_id, product_id, query_key, category, color, size, region, status, metadata)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'looking',$9::jsonb)
-       ON CONFLICT (user_id, product_id, color, size) WHERE status IN ('looking','matched','contacted','ordered')
-       DO UPDATE SET query_key=EXCLUDED.query_key, category=EXCLUDED.category, region=EXCLUDED.region,
-         updated_at=NOW(), row_version=commerce_goals.row_version+1
-       RETURNING goal_id AS "goalId", product_id AS "productId", query_key AS "queryKey", category,
-         color, size, region, status, created_at AS "createdAt", updated_at AS "updatedAt"`,
-      [input.goalId, input.userId, input.productId || null, input.queryKey || "", input.category || "",
-        input.color || "", input.size || "", input.region || "", JSON.stringify(input.metadata || {})]
+  async function transitionCommerceGoalsWithClient(client, input = {}) {
+    const toStatus = String(input.toStatus || "").trim().toLowerCase();
+    const allowedFromByStatus = {
+      matched: ["looking"],
+      contacted: ["looking", "matched"],
+      ordered: ["looking", "matched", "contacted"],
+      completed: ["looking", "matched", "contacted", "ordered"],
+      stopped: ["looking", "matched", "contacted", "ordered"]
+    };
+    const allowedFrom = allowedFromByStatus[toStatus];
+    const userId = String(input.userId || "").trim().slice(0, 80);
+    if (!userId || !allowedFrom) return [];
+    const productId = String(input.productId || "").trim().slice(0, 100);
+    const goalId = String(input.goalId || "").trim().slice(0, 120);
+    const source = String(input.source || "commerce_event").trim().slice(0, 80);
+    const sourceEntityType = String(input.sourceEntityType || "").trim().slice(0, 40);
+    const sourceEntityKey = String(input.sourceEntityKey || "").trim().slice(0, 120);
+    const resolution = String(input.resolution || "").trim().slice(0, 80);
+    const metadata = stringifyJson(input.metadata, {});
+    const result = await client.query(
+      `WITH eligible AS (
+         SELECT g.goal_id, g.status
+         FROM commerce_goals g
+         WHERE g.user_id=$1 AND g.status=ANY($6::text[])
+           AND ($2='' OR g.product_id=$2 OR EXISTS (
+             SELECT 1 FROM intelligence_recommendations r
+             WHERE r.audience_type='person' AND r.audience_key=$1
+               AND r.entity_type='product' AND r.entity_key=$2
+               AND r.metadata->>'goalId'=g.goal_id
+           ))
+           AND ($3='' OR g.goal_id=$3)
+         FOR UPDATE
+       ), updated AS (
+         UPDATE commerce_goals g
+         SET status=$4,
+             resolution=CASE WHEN $4 IN ('completed','stopped') THEN $10 ELSE g.resolution END,
+             resolved_at=CASE WHEN $4 IN ('completed','stopped') THEN NOW() ELSE NULL END,
+             metadata=g.metadata || jsonb_build_object(
+               'lastTransitionSource',$5::text,
+               'lastTransitionEntityType',$7::text,
+               'lastTransitionEntityKey',$8::text
+             ),
+             updated_at=NOW(), row_version=g.row_version+1
+         FROM eligible e WHERE g.goal_id=e.goal_id
+         RETURNING g.goal_id, e.status AS from_status, g.status AS to_status, g.resolved_at
+       ), logged AS (
+         INSERT INTO commerce_goal_transitions (
+           transition_id,goal_id,user_id,from_status,to_status,source,
+           source_entity_type,source_entity_key,metadata,occurred_at
+         )
+         SELECT 'goal_transition_'||md5(
+             updated.goal_id||':'||updated.to_status||':'||$5::text||':'||$8::text
+           ),
+           updated.goal_id,$1,updated.from_status,updated.to_status,$5,$7,$8,$9::jsonb,NOW()
+         FROM updated
+         ON CONFLICT (transition_id) DO NOTHING
+         RETURNING goal_id
+       )
+       SELECT updated.goal_id AS "goalId", updated.from_status AS "fromStatus",
+              updated.to_status AS status, updated.resolved_at AS "resolvedAt"
+       FROM updated`,
+      [userId, productId, goalId, toStatus, source, allowedFrom, sourceEntityType, sourceEntityKey, metadata, resolution]
     );
-    return result.rows?.[0] || null;
+    return result.rows || [];
+  }
+
+  async function advanceCommerceGoalsForInteraction(input = {}) {
+    return withTransaction(client => transitionCommerceGoalsWithClient(client, input));
+  }
+
+  async function upsertCommerceGoal(input = {}) {
+    return withTransaction(async (client) => {
+      const result = await client.query(
+        `INSERT INTO commerce_goals (goal_id, user_id, product_id, query_key, category, color, size, region, status, metadata)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'looking',$9::jsonb)
+         ON CONFLICT (user_id, product_id, color, size) WHERE status IN ('looking','matched','contacted','ordered')
+         DO UPDATE SET query_key=EXCLUDED.query_key, category=EXCLUDED.category, region=EXCLUDED.region,
+           updated_at=NOW(), row_version=commerce_goals.row_version+1
+         RETURNING goal_id AS "goalId", product_id AS "productId", query_key AS "queryKey", category,
+           color, size, region, status, created_at AS "createdAt", updated_at AS "updatedAt"`,
+        [input.goalId, input.userId, input.productId || null, input.queryKey || "", input.category || "",
+          input.color || "", input.size || "", input.region || "", JSON.stringify(input.metadata || {})]
+      );
+      const goal = result.rows?.[0] || null;
+      if (goal) {
+        await client.query(
+          `INSERT INTO commerce_goal_transitions (
+             transition_id,goal_id,user_id,from_status,to_status,source,
+             source_entity_type,source_entity_key,metadata,occurred_at
+           ) VALUES (
+             'goal_transition_'||md5($1||':looking'),$1,$2,'','looking',$3,'product',$4,$5::jsonb,NOW()
+           ) ON CONFLICT (transition_id) DO NOTHING`,
+          [goal.goalId, input.userId, String(input.metadata?.source || "demand_recorded").slice(0, 80),
+            input.productId || "", stringifyJson({ privacy: "self-scoped" }, {})]
+        );
+      }
+      return goal;
+    });
   }
 
   async function readCommerceGoals(userId = "", limit = 10) {
@@ -6387,24 +6504,32 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
   }
 
   async function resolveCommerceGoal(goalId = "", userId = "", resolution = "found") {
-    const result = await pool.query(
-      `UPDATE commerce_goals SET status=$3, resolution=$4, resolved_at=NOW(), updated_at=NOW(), row_version=row_version+1
-       WHERE goal_id=$1 AND user_id=$2 AND status IN ('looking','matched','contacted','ordered')
-       RETURNING goal_id AS "goalId", status, resolution, resolved_at AS "resolvedAt"`,
-      [goalId, userId, resolution === "completed" ? "completed" : "stopped", resolution]
-    );
-    return result.rows?.[0] || null;
+    const rows = await advanceCommerceGoalsForInteraction({
+      goalId,
+      userId,
+      toStatus: resolution === "completed" ? "completed" : "stopped",
+      source: "user_resolution",
+      sourceEntityType: "goal",
+      sourceEntityKey: goalId,
+      resolution,
+      metadata: { privacy: "self-scoped" }
+    });
+    const goal = rows[0] || null;
+    return goal ? { ...goal, resolution } : null;
   }
 
   async function completeCommerceGoalsForOrder(userId = "", productId = "", orderId = "") {
-    const result = await pool.query(
-      `UPDATE commerce_goals SET status='completed', resolution='delivered_order', resolved_at=NOW(), updated_at=NOW(),
-         metadata=metadata || jsonb_build_object('orderId',$3::text), row_version=row_version+1
-       WHERE user_id=$1 AND product_id=$2 AND status IN ('looking','matched','contacted','ordered')
-       RETURNING goal_id`,
-      [userId, productId, orderId]
-    );
-    return Number(result.rowCount || 0);
+    const rows = await advanceCommerceGoalsForInteraction({
+      userId,
+      productId,
+      toStatus: "completed",
+      source: "order_delivered",
+      sourceEntityType: "order",
+      sourceEntityKey: orderId,
+      resolution: "delivered_order",
+      metadata: { privacy: "self-scoped" }
+    });
+    return rows.length;
   }
 
   async function hasRecentVideoCommerceAttribution(buyerId = "", productId = "", options = {}) {
@@ -9531,6 +9656,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     appendDemandEvent,
     readSellerDemandSummary,
     upsertCommerceGoal,
+    advanceCommerceGoalsForInteraction,
     readCommerceGoals,
     resolveCommerceGoal,
     completeCommerceGoalsForOrder,

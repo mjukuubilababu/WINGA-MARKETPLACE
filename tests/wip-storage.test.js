@@ -86,6 +86,63 @@ test("learner failure opens an isolated circuit without deleting learned signals
   assert.ok(health.activeSignals > 0);
 });
 
+test("commerce goals preserve a monotonic self-scoped transition history", async () => {
+  const goalDb = new PGlite();
+  const goalStore = createPostgresStore({
+    databaseUrl: "postgres://isolated/goals",
+    queryClient: { query: (sql, params) => goalDb.query(sql, params), connect: async () => ({ query: (sql, params) => goalDb.query(sql, params), release() {} }) }
+  });
+  try {
+    await goalStore.init();
+    await goalDb.query(
+      `INSERT INTO users (username,password,phone_number,primary_category,role,created_at)
+       VALUES ('buyer-1','hash','255700000001','wanawake-magauni','buyer',NOW()),
+              ('seller-1','hash','255700000002','wanawake-magauni','seller',NOW())`
+    );
+    await goalDb.query(
+      `INSERT INTO products (id,name,price,shop,whatsapp,image,uploaded_by,category,status,availability,created_at,updated_at)
+       VALUES ('dress-1','White dress',50000,'seller-1','255700000002','dress.webp','seller-1','wanawake-magauni','approved','available',NOW(),NOW())`
+    );
+    const goal = await goalStore.upsertCommerceGoal({
+      goalId: "goal-dress-1",
+      userId: "buyer-1",
+      productId: "dress-1",
+      queryKey: "white-dress",
+      category: "wanawake-magauni",
+      metadata: { source: "demand_requested" }
+    });
+    assert.equal(goal.status, "looking");
+    await goalStore.advanceCommerceGoalsForInteraction({
+      goalId: goal.goalId, userId: "buyer-1", productId: "dress-1",
+      toStatus: "matched", source: "recommendation_delivered",
+      sourceEntityType: "recommendation", sourceEntityKey: "rec-1",
+      metadata: { privacy: "self-scoped" }
+    });
+    await goalStore.advanceCommerceGoalsForInteraction({
+      userId: "buyer-1", productId: "dress-1",
+      toStatus: "contacted", source: "product_message",
+      sourceEntityType: "message", sourceEntityKey: "message-1",
+      metadata: { privacy: "self-scoped" }
+    });
+    await goalStore.advanceCommerceGoalsForInteraction({
+      userId: "buyer-1", productId: "dress-1",
+      toStatus: "ordered", source: "order_created",
+      sourceEntityType: "order", sourceEntityKey: "order-1",
+      metadata: { privacy: "self-scoped" }
+    });
+    assert.equal(await goalStore.completeCommerceGoalsForOrder("buyer-1", "dress-1", "order-1"), 1);
+    const state = await goalDb.query("SELECT status,resolution FROM commerce_goals WHERE goal_id='goal-dress-1'");
+    assert.deepEqual(state.rows[0], { status: "completed", resolution: "delivered_order" });
+    const history = await goalDb.query(
+      "SELECT from_status AS \"fromStatus\",to_status AS \"toStatus\",source FROM commerce_goal_transitions WHERE goal_id='goal-dress-1' ORDER BY occurred_at,transition_id"
+    );
+    assert.deepEqual(history.rows.map(row => row.toStatus), ["looking", "matched", "contacted", "ordered", "completed"]);
+    assert.equal(history.rows.every(row => !JSON.stringify(row).includes("buyer-1")), true);
+  } finally {
+    await goalDb.close();
+  }
+});
+
 test("fresh Winga database boots WIP and closes learn decide act with real commerce evidence", async () => {
   const freshDb = new PGlite();
   const freshStore = createPostgresStore({

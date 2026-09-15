@@ -6287,6 +6287,7 @@ test("seller analytics dashboard uses real evidence and dedicated subpages", () 
   const serverSource = fs.readFileSync(path.join(__dirname, "..", "backend", "server.js"), "utf8");
   const databaseSource = fs.readFileSync(path.join(__dirname, "..", "backend", "db.js"), "utf8");
   const goalMigration = fs.readFileSync(path.join(__dirname, "..", "backend", "migrations", "commerce-goals.js"), "utf8");
+  const goalTransitionMigration = fs.readFileSync(path.join(__dirname, "..", "backend", "migrations", "commerce-goal-transitions.js"), "utf8");
 
   assert.match(source, /periodCurrent\.sales/);
   assert.match(source, /sellerState\.tab === "demand"/);
@@ -6305,7 +6306,10 @@ test("seller analytics dashboard uses real evidence and dedicated subpages", () 
   assert.match(source, /activeGoals\[0\]/);
   assert.match(serverSource, /postgresStore\.upsertCommerceGoal/);
   assert.match(serverSource, /completeCommerceGoalsForOrder/);
-  assert.match(databaseSource, /WHERE goal_id=\$1 AND user_id=\$2/);
+  assert.match(databaseSource, /g\.user_id=\$1/);
+  assert.match(databaseSource, /\(\$3='' OR g\.goal_id=\$3\)/);
+  assert.match(databaseSource, /transitionCommerceGoalsWithClient/);
   assert.match(goalMigration, /status IN \('looking','matched','contacted','ordered'\)/);
+  assert.match(goalTransitionMigration, /CREATE TABLE IF NOT EXISTS commerce_goal_transitions/);
   assert.doesNotMatch(source, /1,248|2,840,000|148 requests/);
 });
