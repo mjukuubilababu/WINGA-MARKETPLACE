@@ -5886,6 +5886,33 @@ test("Profile manages the signed-in person's blocked list without exposing priva
   assert.doesNotMatch(appSource, /profileBlockedPeopleState\.(purchases|messages|savedItems|browsingHistory)/);
 });
 
+test("Profile follower and following counts open one canonical cursor-paged connections manager", () => {
+  const root = path.resolve(__dirname, "..");
+  const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
+  const controllerSource = fs.readFileSync(path.join(root, "src", "profile", "controller.js"), "utf8");
+  const uiSource = fs.readFileSync(path.join(root, "src", "profile", "ui.js"), "utf8");
+  const styleSource = fs.readFileSync(path.join(root, "style.css"), "utf8");
+  const dbSource = fs.readFileSync(path.join(root, "backend", "db.js"), "utf8");
+
+  assert.match(controllerSource, /action: "followers"/);
+  assert.match(controllerSource, /action: "following"/);
+  assert.match(controllerSource, /deps\.openProfileConnections\?\.\(action\)/);
+  assert.match(controllerSource, /socialConnectionsMarkup: deps\.renderProfileConnectionsSection/);
+  assert.match(uiSource, /socialConnectionsMarkup/);
+  assert.match(appSource, /function loadProfileConnections\(direction = profileConnectionsState\.direction/);
+  assert.match(appSource, /WingaDataLayer\.loadFollows\(\{/);
+  assert.match(appSource, /limit: 30/);
+  assert.match(appSource, /data-profile-connections-tab="followers"/);
+  assert.match(appSource, /data-profile-connections-tab="following"/);
+  assert.match(appSource, /data-open-person-profile=.*data-person-profile-source="follow"/);
+  assert.match(appSource, /data-follow-source="profile_connections"/);
+  assert.match(appSource, /loadProfileConnections\(profileConnectionsState\.direction, \{ force: true \}\)/);
+  assert.match(dbSource, /viewer_edge\.follower_username = \$2/);
+  assert.match(styleSource, /\.profile-connections-tabs/);
+  assert.match(styleSource, /\.profile-connection-person/);
+  assert.doesNotMatch(appSource, /profileConnectionsState\.(purchases|messages|savedItems|browsingHistory)/);
+});
+
 test("profile people suggestions use canonical public social graph with attributed follows", () => {
   const root = path.resolve(__dirname, "..");
   const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");

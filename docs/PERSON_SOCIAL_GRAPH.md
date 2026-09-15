@@ -74,6 +74,13 @@ to recognize the account, and never reveals people who blocked the viewer.
 Unblock requires confirmation and refreshes follow suggestions only after the
 server accepts the change.
 
+The Followers and Following counts on a person's own Profile are actionable.
+They open one canonical connections panel backed by the existing cursor-bounded
+`GET /api/social/follows` contract. Tabs switch direction without loading an
+unbounded graph; rows can open the person's privacy-filtered public profile and
+use the canonical Follow/Unfollow mutation. Blocked relationships remain
+excluded by the backend query.
+
 Products, reels, and reviews now share a production visibility contract:
 
 - PUBLIC is visible to guests and signed-in people.
@@ -200,6 +207,8 @@ attribution, and isolation from concurrent collection workflows.
 Frontend contract coverage also verifies the public-profile Block action, local
 follow-state cleanup, the non-destructive Home feed refresh path, owner-only
 blocked-list pagination, and Unblock state reconciliation.
+Connections coverage verifies actionable counts, direction tabs, bounded
+pagination, public-profile entry points, and server-reconciled Follow/Unfollow.
 
 Remaining work:
 

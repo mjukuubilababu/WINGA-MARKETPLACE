@@ -650,6 +650,10 @@
         deps.renderProfile?.();
         return;
       }
+      if (action === "followers" || action === "following") {
+        deps.openProfileConnections?.(action);
+        return;
+      }
       if (action === "seller-upgrade") {
         deps.setActiveProfileSection?.("profile-seller-upgrade-panel");
         deps.setPendingProfileSection?.("profile-seller-upgrade-panel");
@@ -1019,11 +1023,13 @@
             },
             {
               value: Number(socialProfile?.followerCount || 0),
-              label: t("profile.followersStat", "Followers")
+              label: t("profile.followersStat", "Followers"),
+              action: "followers"
             },
             {
               value: Number(socialProfile?.followingCount || 0),
-              label: t("profile.followingStat", "Following")
+              label: t("profile.followingStat", "Following"),
+              action: "following"
             },
             {
               value: deps.getProfileCollectionCount?.()
@@ -1056,6 +1062,7 @@
           }),
           savedIntentMarkup: deps.renderSavedIntentSection?.(),
           followSuggestionsMarkup: deps.renderProfileFollowSuggestionsSection?.(),
+          socialConnectionsMarkup: deps.renderProfileConnectionsSection?.(),
           blockedPeopleMarkup: deps.renderProfileBlockedPeopleSection?.(),
           collectionsMarkup: deps.renderProfileCollectionsSection?.(),
           promotionsMarkup: deps.createPromotionManagementSectionElement?.({

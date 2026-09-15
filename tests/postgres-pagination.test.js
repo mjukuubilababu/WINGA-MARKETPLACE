@@ -4051,6 +4051,8 @@ test("person social graph cursor page is bounded and excludes blocked relationsh
   assert.equal(page.direction, "followers");
   assert.equal(calls[0].params[2], 3);
   assert.match(calls[0].text, /NOT EXISTS \(\s*SELECT 1 FROM user_blocks/);
+  assert.match(calls[0].text, /viewer_edge\.follower_username = \$2/);
+  assert.match(calls[0].text, /viewer_edge\.followed_username = u\.username/);
   assert.match(calls[0].text, /ORDER BY uf\.created_at DESC, uf\.follower_username DESC/);
 });
 

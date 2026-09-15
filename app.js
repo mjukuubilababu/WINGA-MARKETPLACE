@@ -7107,9 +7107,14 @@ function syncUserFollowMutation(username, following, options = {}) {
   if (!currentUser || typeof window.WingaDataLayer?.setUserFollow !== "function") return;
   const actor = currentUser;
   Promise.resolve(window.WingaDataLayer.setUserFollow(username, following, options))
-    .then(() => reportClientEvent("info", following ? "follow_created" : "follow_removed", "Person follow updated.", {
-      category: "social", followedUsername: username, source: options.source || ""
-    }))
+    .then(() => {
+      reportClientEvent("info", following ? "follow_created" : "follow_removed", "Person follow updated.", {
+        category: "social", followedUsername: username, source: options.source || ""
+      });
+      if (options.source === "profile_connections" && currentView === "profile") {
+        void loadProfileConnections(profileConnectionsState.direction, { force: true });
+      }
+    })
     .catch((error) => {
       if (currentUser !== actor) return;
       const ids = ensureFollowedSellerIdsLoaded();
@@ -7120,6 +7125,9 @@ function syncUserFollowMutation(username, following, options = {}) {
       });
       if (options.source === "suggested_follow" && currentView === "profile") {
         loadProfileFollowSuggestions({ force: true });
+      }
+      if (options.source === "profile_connections" && currentView === "profile") {
+        void loadProfileConnections(profileConnectionsState.direction, { force: true });
       }
       requestCurrentSurfaceRefresh("social_follow_rollback", { productLimit: 4, decodeLimit: 1, prefetch: false });
     });
@@ -9955,6 +9963,167 @@ function refreshProfileFollowSuggestionsSurface() {
   if (nextPanel) currentPanel.replaceWith(nextPanel);
 }
 
+function resetProfileConnectionsState(username = currentUser, direction = "followers") {
+  profileConnectionsState.username = String(username || "");
+  profileConnectionsState.direction = direction === "following" ? "following" : "followers";
+  profileConnectionsState.status = "idle";
+  profileConnectionsState.items = [];
+  profileConnectionsState.nextCursor = "";
+  profileConnectionsState.hasMore = false;
+  profileConnectionsState.error = "";
+  profileConnectionsState.requestId += 1;
+}
+
+function loadProfileConnections(direction = profileConnectionsState.direction, options = {}) {
+  const username = String(currentUser || "").trim();
+  const safeDirection = direction === "following" ? "following" : "followers";
+  const append = Boolean(options.append);
+  if (!username || typeof window.WingaDataLayer?.loadFollows !== "function") {
+    return Promise.resolve([]);
+  }
+  if (profileConnectionsState.username !== username || profileConnectionsState.direction !== safeDirection) {
+    resetProfileConnectionsState(username, safeDirection);
+  }
+  if (profileConnectionsState.status === "loading" || profileConnectionsState.status === "loading-more") {
+    return Promise.resolve(profileConnectionsState.items);
+  }
+  if (append && !profileConnectionsState.hasMore) {
+    return Promise.resolve(profileConnectionsState.items);
+  }
+  if (!options.force && !append && profileConnectionsState.status === "ready") {
+    return Promise.resolve(profileConnectionsState.items);
+  }
+  const requestId = ++profileConnectionsState.requestId;
+  const existingItems = append ? profileConnectionsState.items : [];
+  profileConnectionsState.status = append ? "loading-more" : "loading";
+  profileConnectionsState.error = "";
+  refreshProfileConnectionsSurface();
+  return window.WingaDataLayer.loadFollows({
+    direction: safeDirection,
+    limit: 30,
+    cursor: append ? profileConnectionsState.nextCursor : ""
+  }).then((page) => {
+    if (requestId !== profileConnectionsState.requestId
+      || profileConnectionsState.username !== username
+      || profileConnectionsState.direction !== safeDirection) {
+      return profileConnectionsState.items;
+    }
+    const incoming = Array.isArray(page?.items) ? page.items : [];
+    const merged = [...existingItems, ...incoming];
+    profileConnectionsState.items = merged.filter((person, index) => (
+      person?.username && merged.findIndex((candidate) => candidate?.username === person.username) === index
+    ));
+    profileConnectionsState.nextCursor = String(page?.nextCursor || "");
+    profileConnectionsState.hasMore = Boolean(page?.hasMore && profileConnectionsState.nextCursor);
+    profileConnectionsState.status = "ready";
+    refreshProfileConnectionsSurface();
+    return profileConnectionsState.items;
+  }).catch((error) => {
+    if (requestId !== profileConnectionsState.requestId) return profileConnectionsState.items;
+    profileConnectionsState.status = existingItems.length ? "ready" : "error";
+    profileConnectionsState.error = String(error?.message || "");
+    captureClientError("profile_connections_load_failed", error, {
+      category: "social",
+      alertSeverity: "low",
+      direction: safeDirection,
+      append
+    });
+    refreshProfileConnectionsSurface();
+    if (existingItems.length) {
+      showInAppNotification({
+        title: translateUi("connections.loadFailedTitle", {}, "People were not updated"),
+        body: translateUi("connections.tryAgainBody", {}, "Check your connection and try again."),
+        variant: "warning"
+      });
+    }
+    return profileConnectionsState.items;
+  });
+}
+
+function renderProfileConnectionsSection() {
+  const direction = profileConnectionsState.direction === "following" ? "following" : "followers";
+  const isIdle = profileConnectionsState.status === "idle";
+  const rows = profileConnectionsState.items.map((person) => {
+    const username = String(person?.username || "").trim();
+    const displayName = String(person?.fullName || username).trim();
+    const image = sanitizeImageSource(person?.profileImage || "", "");
+    const avatar = image
+      ? `<img src="${escapeHtml(image)}" alt="" loading="lazy" decoding="async">`
+      : `<span>${escapeHtml(getUserInitials(displayName || "W"))}</span>`;
+    const viewerFollows = Boolean(person?.viewerFollows);
+    return `
+      <article class="profile-connection-person" data-profile-connection-person="${escapeHtml(username)}">
+        <button class="profile-connection-identity" type="button" data-open-person-profile="${escapeHtml(username)}" data-person-profile-source="follow" aria-label="${escapeHtml(translateUi("followSuggestions.openProfile", { person: displayName }, `Open ${displayName}'s profile`))}">
+          <span class="profile-connection-avatar">${avatar}</span>
+          <span class="profile-connection-copy">
+            <strong>${escapeHtml(displayName)}</strong>
+            <span class="product-meta">@${escapeHtml(username)}</span>
+          </span>
+        </button>
+        <button class="action-btn action-btn-secondary${viewerFollows ? " is-active" : ""}" type="button" data-follow-person="${escapeHtml(username)}" data-follow-source="profile_connections">${escapeHtml(viewerFollows
+          ? translateUi("follow.active", {}, "Following")
+          : translateUi("follow.inactive", {}, "Follow"))}</button>
+      </article>
+    `;
+  }).join("");
+  const statusMarkup = isIdle
+    ? `<p class="empty-copy compact">${escapeHtml(translateUi("connections.chooseList", {}, "Choose Followers or Following to manage your connections."))}</p>`
+    : profileConnectionsState.status === "loading"
+      ? `<p class="empty-copy compact">${escapeHtml(translateUi("connections.loading", {}, "Loading people..."))}</p>`
+      : profileConnectionsState.status === "error"
+        ? `<button class="action-btn action-btn-secondary" type="button" data-retry-profile-connections="true">${escapeHtml(translateUi("connections.retry", {}, "Try again"))}</button>`
+        : rows || `<p class="empty-copy compact">${escapeHtml(translateUi(
+          direction === "following" ? "connections.emptyFollowing" : "connections.emptyFollowers",
+          {},
+          direction === "following" ? "You are not following anyone yet." : "No followers yet."
+        ))}</p>`;
+  const loadMore = profileConnectionsState.hasMore
+    ? `<button class="action-btn action-btn-secondary profile-connections-load-more" type="button" data-load-more-profile-connections="true"${profileConnectionsState.status === "loading-more" ? " disabled" : ""}>${escapeHtml(profileConnectionsState.status === "loading-more"
+      ? translateUi("connections.loadingMore", {}, "Loading...")
+      : translateUi("connections.loadMore", {}, "Load more"))}</button>`
+    : "";
+  return `
+    <section id="profile-social-connections-panel" class="profile-social-connections-section">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">${escapeHtml(translateUi("connections.eyebrow", {}, "People"))}</p>
+          <h3>${escapeHtml(translateUi("connections.title", {}, "Your connections"))}</h3>
+        </div>
+      </div>
+      <div class="profile-connections-tabs" role="tablist" aria-label="${escapeHtml(translateUi("connections.title", {}, "Your connections"))}">
+        <button type="button" role="tab" data-profile-connections-tab="followers" aria-selected="${direction === "followers"}" class="${direction === "followers" ? "is-active" : ""}">${escapeHtml(translateUi("profile.followersStat", {}, "Followers"))}</button>
+        <button type="button" role="tab" data-profile-connections-tab="following" aria-selected="${direction === "following"}" class="${direction === "following" ? "is-active" : ""}">${escapeHtml(translateUi("profile.followingStat", {}, "Following"))}</button>
+      </div>
+      <div class="profile-connections-list" role="tabpanel" aria-live="polite">${statusMarkup}</div>
+      ${loadMore}
+    </section>
+  `;
+}
+
+function refreshProfileConnectionsSurface() {
+  const currentPanel = document.getElementById("profile-social-connections-panel");
+  if (!currentPanel) {
+    if (currentView === "profile") renderProfileFromController();
+    return;
+  }
+  const template = document.createElement("template");
+  template.innerHTML = renderProfileConnectionsSection().trim();
+  const nextPanel = template.content.firstElementChild;
+  if (nextPanel) currentPanel.replaceWith(nextPanel);
+}
+
+function openProfileConnections(direction = "followers") {
+  const safeDirection = direction === "following" ? "following" : "followers";
+  if (profileConnectionsState.username !== String(currentUser || "")
+    || profileConnectionsState.direction !== safeDirection) {
+    resetProfileConnectionsState(currentUser, safeDirection);
+  }
+  profileRuntimeState.pendingSection = "profile-social-connections-panel";
+  setActiveProfileSection("profile-social-connections-panel");
+  renderProfileFromController();
+  void loadProfileConnections(safeDirection);
+}
+
 function resetProfileBlockedPeopleState(username = currentUser) {
   profileBlockedPeopleState.username = String(username || "");
   profileBlockedPeopleState.status = "idle";
@@ -11601,6 +11770,27 @@ function bindTrustReportEntryActions() {
       return;
     }
 
+    const profileConnectionsTab = event.target.closest("[data-profile-connections-tab]");
+    if (profileConnectionsTab) {
+      event.preventDefault();
+      openProfileConnections(profileConnectionsTab.dataset.profileConnectionsTab || "followers");
+      return;
+    }
+
+    const retryProfileConnectionsButton = event.target.closest("[data-retry-profile-connections]");
+    if (retryProfileConnectionsButton) {
+      event.preventDefault();
+      void loadProfileConnections(profileConnectionsState.direction, { force: true });
+      return;
+    }
+
+    const loadMoreProfileConnectionsButton = event.target.closest("[data-load-more-profile-connections]");
+    if (loadMoreProfileConnectionsButton) {
+      event.preventDefault();
+      void loadProfileConnections(profileConnectionsState.direction, { append: true });
+      return;
+    }
+
     const loadMoreBlockedPeopleButton = event.target.closest("[data-load-more-blocked-people]");
     if (loadMoreBlockedPeopleButton) {
       event.preventDefault();
@@ -11706,6 +11896,11 @@ function bindTrustReportEntryActions() {
         ? translateUi("follow.active", {}, "Following")
         : translateUi("follow.inactive", {}, "Follow");
       followPersonButton.classList.toggle("is-active", nowFollowing);
+      if (followSource === "profile_connections") {
+        const connection = profileConnectionsState.items.find((person) => person?.username === username);
+        if (connection) connection.viewerFollows = nowFollowing;
+        refreshProfileConnectionsSurface();
+      }
       if (followPersonButton.closest("#person-profile-modal") && personProfileState.profile) {
         const previousFollowing = Boolean(personProfileState.profile.viewerFollows);
         personProfileState.profile.viewerFollows = nowFollowing;
@@ -12270,6 +12465,7 @@ const {
   createSessionSecuritySectionElement,
   renderSavedIntentSection,
   renderProfileFollowSuggestionsSection,
+  renderProfileConnectionsSection,
   renderProfileBlockedPeopleSection,
   renderProfileCollectionsSection,
   getProfileCollectionCount: () => profileCollectionState.status === "ready"
@@ -12345,6 +12541,7 @@ const {
     },
     setActiveProfileSection,
     getActiveProfileSection,
+    openProfileConnections,
     setProfileMessagesFilter: (value) => {
       chatUiState.profileMessagesFilter = value === "unread" ? "unread" : "all";
     },
@@ -14224,6 +14421,16 @@ const profileFollowSuggestionState = {
   username: "",
   status: "idle",
   items: [],
+  error: "",
+  requestId: 0
+};
+const profileConnectionsState = {
+  username: "",
+  direction: "followers",
+  status: "idle",
+  items: [],
+  nextCursor: "",
+  hasMore: false,
   error: "",
   requestId: 0
 };

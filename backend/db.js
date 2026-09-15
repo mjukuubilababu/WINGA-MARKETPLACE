@@ -8243,6 +8243,12 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
          u.profile_image AS "profileImage",
          u.role,
          u.verified_seller AS "verifiedSeller",
+         EXISTS (
+           SELECT 1 FROM user_follows viewer_edge
+           WHERE viewer_edge.follower_username = $2
+             AND viewer_edge.followed_username = u.username
+             AND viewer_edge.status = 'active'
+         ) AS "viewerFollows",
          uf.created_at AS "followedAt"
        FROM user_follows uf
        JOIN users u ON u.username = uf.${personColumn}
@@ -8261,7 +8267,11 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     );
     const rows = result.rows || [];
     const hasMore = rows.length > limit;
-    const items = rows.slice(0, limit).map((row) => ({ ...row, followedAt: toISOString(row.followedAt) }));
+    const items = rows.slice(0, limit).map((row) => ({
+      ...row,
+      viewerFollows: Boolean(row.viewerFollows),
+      followedAt: toISOString(row.followedAt)
+    }));
     const tail = items[items.length - 1];
     return {
       items,

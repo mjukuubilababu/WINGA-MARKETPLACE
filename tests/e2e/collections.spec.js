@@ -427,3 +427,97 @@ test("Profile lists and unblocks people without overflowing mobile", async ({ br
 
   await context.close();
 });
+
+test("Profile follower counts open paged connection tabs and reconcile Follow", async ({ browser }) => {
+  const { context, page } = await createSellerPage(browser);
+  let followerFollowed = false;
+
+  await context.route("**/api/social/follows?*", async (route) => {
+    const url = new URL(route.request().url());
+    const direction = url.searchParams.get("direction") === "following" ? "following" : "followers";
+    const person = direction === "following"
+      ? { username: "following_one", fullName: "Following One", profileImage: "", viewerFollows: true, followedAt: "2026-09-15T11:00:00.000Z" }
+      : { username: "follower_one", fullName: "Follower One", profileImage: "", viewerFollows: followerFollowed, followedAt: "2026-09-15T12:00:00.000Z" };
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ items: [person], nextCursor: "", hasMore: false, limit: 30, direction })
+    });
+  });
+
+  await context.route("**/api/social/follows/follower_one", async (route) => {
+    followerFollowed = route.request().method() === "PUT";
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ ok: true, followedUsername: "follower_one", following: followerFollowed })
+    });
+  });
+
+  await context.route("**/api/social/users/follower_one**", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname.endsWith("/collections")) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ items: [], nextCursor: "", hasMore: false, limit: 12 })
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        profile: {
+          username: "follower_one",
+          fullName: "Follower One",
+          profileImage: "",
+          capabilities: ["buyer"],
+          publicContent: { products: 0, reels: 0, reviews: 0, collections: 0 },
+          followerCount: 1,
+          followingCount: 1,
+          viewerFollows: followerFollowed,
+          blocked: false
+        }
+      })
+    });
+  });
+
+  await page.goto("/");
+  await page.locator("#header-user-trigger").click();
+  await page.locator("[data-header-menu-action='profile']").click();
+  await page.locator("[data-profile-action='followers']").click();
+
+  const panel = page.locator("#profile-social-connections-panel");
+  const followerRow = panel.locator("[data-profile-connection-person='follower_one']");
+  await expect(followerRow).toBeVisible();
+  await expect(panel.locator("[data-profile-connections-tab='followers']")).toHaveAttribute("aria-selected", "true");
+
+  await followerRow.locator("[data-open-person-profile='follower_one']").click();
+  await expect(page.locator("#person-profile-modal")).toContainText("Follower One");
+  await page.locator("[data-close-person-profile='true']").last().click();
+
+  const followRequest = page.waitForRequest((request) =>
+    request.method() === "PUT"
+      && new URL(request.url()).pathname.endsWith("/api/social/follows/follower_one")
+  );
+  await followerRow.locator("[data-follow-source='profile_connections']").click();
+  await followRequest;
+  await expect(followerRow.locator("[data-follow-source='profile_connections']")).toHaveClass(/is-active/);
+
+  await panel.locator("[data-profile-connections-tab='following']").click();
+  await expect(panel.locator("[data-profile-connections-tab='following']")).toHaveAttribute("aria-selected", "true");
+  await expect(panel.locator("[data-profile-connection-person='following_one']")).toBeVisible();
+
+  const layout = await panel.evaluate((element) => ({
+    viewport: document.documentElement.clientWidth,
+    pageScroll: document.documentElement.scrollWidth,
+    left: element.getBoundingClientRect().left,
+    right: element.getBoundingClientRect().right
+  }));
+  expect(layout.pageScroll).toBeLessThanOrEqual(layout.viewport);
+  expect(layout.left).toBeGreaterThanOrEqual(0);
+  expect(layout.right).toBeLessThanOrEqual(layout.viewport);
+
+  await context.close();
+});
