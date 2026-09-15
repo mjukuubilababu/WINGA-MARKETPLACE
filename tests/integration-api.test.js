@@ -1475,6 +1475,26 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   assert.equal(moderatorLogin.response.status, 200);
   const moderatorToken = getAuthCookieToken(moderatorLogin.response);
 
+  const adminProductCreateAttempt = await request("/products", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminToken}`
+    },
+    body: JSON.stringify({})
+  });
+  assert.equal(adminProductCreateAttempt.response.status, 403);
+
+  const moderatorProductCreateAttempt = await request("/products", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${moderatorToken}`
+    },
+    body: JSON.stringify({})
+  });
+  assert.equal(moderatorProductCreateAttempt.response.status, 403);
+
   const moderatorSessionsList = await request("/admin/sessions?username=seller_one", {
     headers: { Authorization: `Bearer ${moderatorToken}` }
   });

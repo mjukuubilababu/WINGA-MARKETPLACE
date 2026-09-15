@@ -4970,8 +4970,8 @@ async function buildAdminUserInvestigation(store, user, options = {}) {
   };
 }
 
-function canPostProducts(role) {
-  return role === "buyer" || role === "seller" || role === "admin" || role === "moderator";
+function canCreateMarketplaceSupply(role) {
+  return role === "buyer" || role === "seller";
 }
 
 function validateReportPayload(payload) {
@@ -11061,8 +11061,8 @@ const server = http.createServer(async (req, res) => {
       const session = findSession(store, readAuthToken(req));
       const seller = ensureMarketplaceUser(store, session, res);
       if (!seller) return;
-      if (!canPostProducts(seller.role)) {
-        sendJson(res, 403, { error: "Seller pekee ndiye anaweza kuona opportunities za supply." });
+      if (!canCreateMarketplaceSupply(seller.role)) {
+        sendJson(res, 403, { error: "Akaunti hii haiwezi kuona opportunities za supply." });
         return;
       }
       if (!postgresStore?.readSellerCommerceOpportunities) {
@@ -11087,8 +11087,8 @@ const server = http.createServer(async (req, res) => {
       const session = findSession(store, readAuthToken(req));
       const seller = ensureMarketplaceUser(store, session, res);
       if (!seller) return;
-      if (!canPostProducts(seller.role)) {
-        sendJson(res, 403, { error: "Seller pekee ndiye anaweza kujibu opportunity ya supply." });
+      if (!canCreateMarketplaceSupply(seller.role)) {
+        sendJson(res, 403, { error: "Akaunti hii haiwezi kujibu opportunity ya supply." });
         return;
       }
       if (!postgresStore?.recordSellerOpportunityDecision) {
@@ -12419,8 +12419,8 @@ const server = http.createServer(async (req, res) => {
       if (!seller) {
         return;
       }
-      if (!canPostProducts(seller.role)) {
-        await denyJson(res, 403, "Seller pekee ndiye anaweza kuongeza category ya bidhaa.", {
+      if (!canCreateMarketplaceSupply(seller.role)) {
+        await denyJson(res, 403, "Akaunti hii haiwezi kuongeza category ya bidhaa.", {
           ip: clientIp,
           method: req.method,
           path: url.pathname,
@@ -12657,7 +12657,7 @@ const server = http.createServer(async (req, res) => {
       const session = findSession(store, readAuthToken(req));
       const seller = ensureMarketplaceUser(store, session, res);
       if (!seller) return;
-      if (!canPostProducts(seller.role)) {
+      if (!canCreateMarketplaceSupply(seller.role)) {
         sendJson(res, 403, { error: "Akaunti hii haiwezi kupakia video.", code: "video_upload_forbidden" });
         return;
       }
@@ -13457,8 +13457,15 @@ const server = http.createServer(async (req, res) => {
       if (!sellerUser) {
         return;
       }
-      if (!canPostProducts(sellerUser.role)) {
-        sendJson(res, 403, { error: "Akaunti hii haiwezi kupost bidhaa." });
+      if (!canCreateMarketplaceSupply(sellerUser.role)) {
+        await denyJson(res, 403, "Akaunti hii haiwezi kupost bidhaa.", {
+          ip: clientIp,
+          method: req.method,
+          path: url.pathname,
+          event: "marketplace_content_create_denied",
+          username: sellerUser.username,
+          reason: "staff_role_not_marketplace_person"
+        });
         return;
       }
 

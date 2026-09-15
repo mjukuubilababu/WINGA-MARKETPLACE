@@ -26,6 +26,11 @@ must not be used as an authorization gate for Sell, product creation, or
 person-scoped analytics. New public signup creates one Winga account without
 asking the person to choose an account type.
 
+Staff roles remain operational identities rather than marketplace people.
+Backend supply creation, video upload, category creation, and opportunity
+actions accept both ordinary compatibility roles while rejecting admin and
+moderator sessions even when those sessions call the API directly.
+
 Capabilities are derived only from public evidence:
 
 - buyer: the current account role is buyer.
