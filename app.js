@@ -7405,6 +7405,21 @@ function toggleSavedProduct(productId) {
   return true;
 }
 
+function syncSavedProductLike(productId, liked) {
+  if (!isAuthenticatedUser() || typeof window.WingaDataLayer?.likeProduct !== "function") {
+    return;
+  }
+  Promise.resolve(window.WingaDataLayer.likeProduct(productId, liked)).catch((error) => {
+    if (isProductSaved(productId) === liked) {
+      toggleSavedProduct(productId);
+    }
+    captureClientError("product_like_sync_failed", error, {
+      productId,
+      liked
+    });
+  });
+}
+
 function ensureMediaActionSheetRoot() {
   let root = document.getElementById("media-action-sheet");
   if (root) {
@@ -7442,6 +7457,7 @@ function ensureMediaActionSheetRoot() {
     const action = actionButton.dataset.mediaAction;
     if (action === "save") {
       const nowSaved = toggleSavedProduct(product.id);
+      syncSavedProductLike(product.id, nowSaved);
       showInAppNotification({
         type: "info",
         title: nowSaved
@@ -7572,6 +7588,7 @@ function ensureImageLightboxRoot() {
     const activeSource = imageLightboxState.source || sanitizeImageSource(product.image || "", "");
     if (action === "save") {
       const nowSaved = toggleSavedProduct(product.id);
+      syncSavedProductLike(product.id, nowSaved);
       actionButton.textContent = nowSaved
         ? translateUi("gallery.saved", {}, "Saved")
         : translateUi("gallery.save", {}, "Save");
@@ -11854,6 +11871,7 @@ function bindTrustReportEntryActions() {
         return;
       }
       const nowLiked = toggleSavedProduct(productId);
+      syncSavedProductLike(productId, nowLiked);
       likeProductButton.textContent = nowLiked
         ? translateUi("favorite.likeActive", {}, "\u2665 Like")
         : translateUi("favorite.likeInactive", {}, "\u2661 Like");

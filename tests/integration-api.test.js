@@ -794,6 +794,27 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   });
   assert.equal(bodylessProductLike.response.status, 200);
   assert.equal(bodylessProductLike.body.likes, 1);
+  assert.equal(bodylessProductLike.body.liked, true);
+
+  const duplicateProductLike = await request("/products/product-test-001/like", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${buyerToken}`
+    }
+  });
+  assert.equal(duplicateProductLike.response.status, 200);
+  assert.equal(duplicateProductLike.body.likes, 1);
+  assert.equal(duplicateProductLike.body.liked, true);
+
+  const productUnlike = await request("/products/product-test-001/like?liked=false", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${buyerToken}`
+    }
+  });
+  assert.equal(productUnlike.response.status, 200);
+  assert.equal(productUnlike.body.likes, 0);
+  assert.equal(productUnlike.body.liked, false);
 
   const svgDataImage = `data:image/svg+xml;base64,${Buffer.from("<svg xmlns=\"http://www.w3.org/2000/svg\"><script>alert(1)</script></svg>").toString("base64")}`;
   const svgProductUpload = await request("/products", {

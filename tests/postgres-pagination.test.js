@@ -253,14 +253,71 @@ test("PostgreSQL product actions update one row atomically", async () => {
   assert.match(calls[0].text, /^UPDATE products/m);
   assert.match(calls[0].text, /row_version = row_version \+ 1/);
   assert.match(calls[0].text, /NOT \(COALESCE\(viewed_by/);
-  assert.deepEqual(calls[0].params, ["product-1", "buyer-one", "view"]);
+  assert.deepEqual(calls[0].params, ["product-1", "buyer-one"]);
   assert.deepEqual(result, {
     likes: 7,
     views: 11,
     viewedBy: ["buyer-one"],
     updatedAt: "2026-07-19T18:00:00.000Z",
-    rowVersion: 4
+    rowVersion: 4,
+    changed: true
   });
+});
+
+test("PostgreSQL product likes set one person reaction idempotently", async () => {
+  const calls = [];
+  let inserted = false;
+  const queryClient = {
+    async query(text, params = []) {
+      const sql = String(text);
+      calls.push({ text: sql, params });
+      if (sql === "BEGIN" || sql === "COMMIT" || sql === "ROLLBACK") {
+        return { rows: [], rowCount: 0 };
+      }
+      if (sql.includes("INSERT INTO product_likes")) {
+        if (inserted) return { rows: [], rowCount: 0 };
+        inserted = true;
+        return { rows: [{ product_id: "product-1" }], rowCount: 1 };
+      }
+      if (sql.includes("UPDATE products")) {
+        return {
+          rows: [{
+            likes: 8,
+            views: 11,
+            viewedBy: ["buyer-one"],
+            updatedAt: new Date("2026-09-15T12:00:00.000Z"),
+            rowVersion: 5
+          }],
+          rowCount: 1
+        };
+      }
+      if (sql.includes("FROM products")) {
+        return {
+          rows: [{
+            likes: 8,
+            views: 11,
+            viewedBy: ["buyer-one"],
+            updatedAt: new Date("2026-09-15T12:00:00.000Z"),
+            rowVersion: 5
+          }],
+          rowCount: 1
+        };
+      }
+      return { rows: [], rowCount: 0 };
+    }
+  };
+  const store = createPostgresStore({ databaseUrl: "postgres://test.invalid/winga", queryClient });
+
+  const first = await store.recordProductAction("product-1", "buyer-one", "like", { liked: true });
+  const duplicate = await store.recordProductAction("product-1", "buyer-one", "like", { liked: true });
+
+  assert.equal(first.likes, 8);
+  assert.equal(first.liked, true);
+  assert.equal(first.changed, true);
+  assert.equal(duplicate.likes, 8);
+  assert.equal(duplicate.liked, true);
+  assert.equal(duplicate.changed, false);
+  assert.equal(calls.filter((call) => call.text.includes("UPDATE products")).length, 1);
 });
 
 test("PostgreSQL session rotation and security notification commit atomically", async () => {
@@ -1293,6 +1350,16 @@ test("social analytics migration stores daily aggregate counters without person 
   assert.match(sql, /CREATE TABLE IF NOT EXISTS social_analytics_daily/);
   assert.match(sql, /PRIMARY KEY \(event_date, event_name, source\)/);
   assert.doesNotMatch(sql, /username|profile_id|buyer_id|seller_id|ip_address/i);
+});
+
+test("product likes migration stores one reaction per person and product", () => {
+  const migration = MIGRATIONS.find((candidate) => candidate.id === "2026091508_product_likes");
+  assert.ok(migration);
+  const sql = migration.statements.join("\n");
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS product_likes/);
+  assert.match(sql, /PRIMARY KEY \(product_id, user_id\)/);
+  assert.match(sql, /REFERENCES products\(id\) ON DELETE CASCADE/);
+  assert.match(sql, /REFERENCES users\(username\) ON DELETE CASCADE/);
 });
 
 test("PostgreSQL password recovery updates one user and revokes sessions atomically", async () => {

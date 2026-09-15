@@ -2806,7 +2806,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     };
   }
 
-  async function recordProductAction(productId, username, action) {
+  async function recordProductAction(productId, username, action, options = {}) {
     const safeProductId = String(productId || "").trim().slice(0, 80);
     const safeUsername = String(username || "").trim().slice(0, 40);
     const safeAction = String(action || "").trim().toLowerCase();
@@ -2814,40 +2814,83 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       return null;
     }
 
+    const formatResult = (row, extra = {}) => row ? {
+      likes: Number(row.likes || 0),
+      views: Number(row.views || 0),
+      viewedBy: parseJson(row.viewedBy, []),
+      updatedAt: toISOString(row.updatedAt),
+      rowVersion: Number(row.rowVersion || 0),
+      ...extra
+    } : null;
+
+    if (safeAction === "like") {
+      const desiredLiked = options?.liked !== false;
+      return withTransaction(async (client) => {
+        const reactionResult = desiredLiked
+          ? await client.query(
+              `INSERT INTO product_likes (product_id, user_id)
+               VALUES ($1, $2)
+               ON CONFLICT (product_id, user_id) DO NOTHING
+               RETURNING product_id`,
+              [safeProductId, safeUsername]
+            )
+          : await client.query(
+              `DELETE FROM product_likes
+               WHERE product_id = $1 AND user_id = $2
+               RETURNING product_id`,
+              [safeProductId, safeUsername]
+            );
+        const changed = Number(reactionResult.rowCount || 0) > 0;
+        const productResult = changed
+          ? await client.query(
+              `UPDATE products
+               SET likes = GREATEST(likes + $2, 0),
+                   updated_at = NOW(),
+                   row_version = row_version + 1
+               WHERE id = $1
+               RETURNING likes, views, viewed_by AS "viewedBy",
+                         updated_at AS "updatedAt", row_version AS "rowVersion"`,
+              [safeProductId, desiredLiked ? 1 : -1]
+            )
+          : await client.query(
+              `SELECT likes, views, viewed_by AS "viewedBy",
+                      updated_at AS "updatedAt", row_version AS "rowVersion"
+               FROM products
+               WHERE id = $1`,
+              [safeProductId]
+            );
+        return formatResult(productResult.rows?.[0], { changed, liked: desiredLiked });
+      });
+    }
+
     const result = await query(
       `UPDATE products
-       SET likes = likes + CASE WHEN $3 = 'like' THEN 1 ELSE 0 END,
-           views = views + CASE
-             WHEN $3 = 'view' AND NOT (COALESCE(viewed_by, '[]'::jsonb) ? $2) THEN 1
-             ELSE 0
-           END,
-           viewed_by = CASE
-             WHEN $3 = 'view' AND NOT (COALESCE(viewed_by, '[]'::jsonb) ? $2)
-               THEN COALESCE(viewed_by, '[]'::jsonb) || to_jsonb($2::text)
-             ELSE COALESCE(viewed_by, '[]'::jsonb)
-           END,
+       SET views = views + 1,
+           viewed_by = COALESCE(viewed_by, '[]'::jsonb) || to_jsonb($2::text),
            updated_at = NOW(),
            row_version = row_version + 1
        WHERE id = $1
+         AND NOT (COALESCE(viewed_by, '[]'::jsonb) ? $2)
        RETURNING
          likes,
          views,
          viewed_by AS "viewedBy",
          updated_at AS "updatedAt",
          row_version AS "rowVersion"`,
-      [safeProductId, safeUsername, safeAction]
+      [safeProductId, safeUsername]
     );
     const row = result.rows?.[0];
-    if (!row) {
-      return null;
+    if (row) {
+      return formatResult(row, { changed: true });
     }
-    return {
-      likes: Number(row.likes || 0),
-      views: Number(row.views || 0),
-      viewedBy: parseJson(row.viewedBy, []),
-      updatedAt: toISOString(row.updatedAt),
-      rowVersion: Number(row.rowVersion || 0)
-    };
+    const current = await query(
+      `SELECT likes, views, viewed_by AS "viewedBy",
+              updated_at AS "updatedAt", row_version AS "rowVersion"
+       FROM products
+       WHERE id = $1`,
+      [safeProductId]
+    );
+    return formatResult(current.rows?.[0], { changed: false });
   }
 
   function getProductWriteValues(product = {}) {

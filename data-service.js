@@ -1278,10 +1278,10 @@ async loadAdminPayments() {
       async moderateProduct() {
         throw new Error("Moderation inapatikana kwenye API mode tu.");
       },
-      async likeProduct(productId) {
+      async likeProduct(productId, liked = true) {
         const products = await this.loadProducts();
         const nextProducts = products.map((item) =>
-          item.id === productId ? { ...item, likes: Number(item.likes || 0) + 1 } : item
+          item.id === productId ? { ...item, likes: Math.max(0, Number(item.likes || 0) + (liked ? 1 : -1)), liked } : item
         );
         await this.saveProducts(nextProducts);
       },
@@ -1562,8 +1562,8 @@ async loadAdminPayments(filters) {
       async moderateProduct(productId, payload) {
         return local.moderateProduct(productId, payload);
       },
-      async likeProduct(productId) {
-        return local.likeProduct(productId);
+      async likeProduct(productId, liked = true) {
+        return local.likeProduct(productId, liked);
       },
       async trackProductView(productId) {
         return local.trackProductView(productId);
@@ -2257,8 +2257,8 @@ async loadAdminPayments(filters = {}) {
       async moderateProduct(productId, payload) {
         return getProductsApiClient().moderateProduct(productId, payload);
       },
-      async likeProduct(productId) {
-        return getProductsApiClient().likeProduct(productId);
+      async likeProduct(productId, liked = true) {
+        return getProductsApiClient().likeProduct(productId, liked);
       },
       async trackProductView(productId) {
         return getProductsApiClient().trackProductView(productId);
@@ -2918,10 +2918,10 @@ async loadAdminPayments() {
       async moderateProduct() {
         throw new Error("Moderation inapatikana kwenye API mode tu.");
       },
-      async likeProduct(productId) {
+      async likeProduct(productId, liked = true) {
         const products = await this.loadProducts();
         const nextProducts = products.map((item) =>
-          item.id === productId ? { ...item, likes: Number(item.likes || 0) + 1 } : item
+          item.id === productId ? { ...item, likes: Math.max(0, Number(item.likes || 0) + (liked ? 1 : -1)), liked } : item
         );
         await this.saveProducts(nextProducts);
       },
@@ -4234,8 +4234,8 @@ async loadAdminPayments(filters) {
       mergeProductMutationResult(productId, result);
       return result;
     },
-    async likeProduct(productId) {
-      const result = await state.adapter.likeProduct(productId);
+    async likeProduct(productId, liked = true) {
+      const result = await state.adapter.likeProduct(productId, liked);
       mergeProductMutationResult(productId, result);
       return result;
     },

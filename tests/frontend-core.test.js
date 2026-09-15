@@ -2034,8 +2034,12 @@ test("remote product actions API client owns product writes and demand signals",
   assert.match(moduleSource, /async function recordDemand\(productId, payload = \{\}\)/);
   assert.match(moduleSource, /sessionId: payload\.sessionId \|\| getAnonymousDemandSessionId\(\)/);
   assert.match(moduleSource, /async function moderateProduct\(productId, payload\)/);
-  assert.match(moduleSource, /async function likeProduct\(productId\)/);
+  assert.match(moduleSource, /async function likeProduct\(productId, liked = true\)/);
+  assert.match(moduleSource, /like\?liked=\$\{liked \? "true" : "false"\}/);
   assert.match(moduleSource, /async function trackProductView\(productId\)/);
+  assert.match(appSource, /function syncSavedProductLike\(productId, liked\)/);
+  assert.match(appSource, /window\.WingaDataLayer\.likeProduct\(productId, liked\)/);
+  assert.match(appSource, /product_like_sync_failed/);
   assert.match(dataSource, /window\.WingaModules\?\.api\?\.productActions\?\.createProductsApiClient/);
   assert.match(dataSource, /async createProduct\(product\) \{\s+return getProductsApiClient\(\)\.createProduct\(product\);/);
   assert.match(dataSource, /async recordDemand\(productId, payload = \{\}\) \{\s+return getProductsApiClient\(\)\.recordDemand\(productId, payload\);/);

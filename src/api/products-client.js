@@ -132,9 +132,9 @@
       return resolveProductImages(result);
     }
 
-    async function likeProduct(productId) {
+    async function likeProduct(productId, liked = true) {
       requireFetcher();
-      const result = await fetchJson(`${baseUrl}/products/${encodeURIComponent(productId)}/like`, {
+      const result = await fetchJson(`${baseUrl}/products/${encodeURIComponent(productId)}/like?liked=${liked ? "true" : "false"}`, {
         method: "POST",
         headers: authHeaders()
       });

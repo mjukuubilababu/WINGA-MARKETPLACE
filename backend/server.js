@@ -13704,25 +13704,44 @@ const server = http.createServer(async (req, res) => {
         views: Number(existingProduct.views || 0),
         viewedBy: Array.isArray(existingProduct.viewedBy) ? existingProduct.viewedBy : []
       };
+      const requestedLikeState = url.searchParams.get("liked");
+      const desiredLiked = requestedLikeState === null
+        ? true
+        : !["false", "0", "no"].includes(String(requestedLikeState).trim().toLowerCase());
+      let actionChanged = true;
+      let resultingLiked = action === "like" ? desiredLiked : undefined;
 
       if (postgresStore?.recordProductAction) {
-        const actionResult = await postgresStore.recordProductAction(productId, actingUser.username, action);
+        const actionResult = await postgresStore.recordProductAction(productId, actingUser.username, action, {
+          liked: desiredLiked
+        });
         if (!actionResult) {
           sendJson(res, 404, { error: "Bidhaa haijapatikana." });
           return;
         }
+        actionChanged = actionResult.changed !== false;
+        resultingLiked = actionResult.liked;
+        const { changed: ignoredChanged, liked: ignoredLiked, ...productMetrics } = actionResult;
         updatedProduct = {
           ...updatedProduct,
-          ...actionResult
+          ...productMetrics
         };
       } else {
         if (action === "like") {
-          updatedProduct.likes += 1;
+          const likedBy = Array.isArray(existingProduct.likedBy) ? existingProduct.likedBy : [];
+          const alreadyLiked = likedBy.includes(actingUser.username);
+          actionChanged = alreadyLiked !== desiredLiked;
+          updatedProduct.likes = Math.max(0, updatedProduct.likes + (actionChanged ? (desiredLiked ? 1 : -1) : 0));
+          updatedProduct.likedBy = desiredLiked
+            ? [...new Set([...likedBy, actingUser.username])]
+            : likedBy.filter((username) => username !== actingUser.username);
         }
 
         if (action === "view" && !updatedProduct.viewedBy.includes(actingUser.username)) {
           updatedProduct.views += 1;
           updatedProduct.viewedBy = [...updatedProduct.viewedBy, actingUser.username];
+        } else if (action === "view") {
+          actionChanged = false;
         }
 
         const products = (store.products || []).map((item) =>
@@ -13730,23 +13749,32 @@ const server = http.createServer(async (req, res) => {
         );
         await writeStore({ ...store, products });
       }
-      await appendAuditLog({
-        time: new Date().toISOString(),
-        ip: clientIp,
-        method: req.method,
-        path: url.pathname,
-        event: action === "like" ? "product_liked" : "product_viewed",
-        username: actingUser.username,
-        productId,
-        sellerId: existingProduct.uploadedBy
+      if (actionChanged) {
+        await appendAuditLog({
+          time: new Date().toISOString(),
+          ip: clientIp,
+          method: req.method,
+          path: url.pathname,
+          event: action === "like"
+            ? (resultingLiked ? "product_liked" : "product_unliked")
+            : "product_viewed",
+          username: actingUser.username,
+          productId,
+          sellerId: existingProduct.uploadedBy
+        });
+        if (action !== "like" || resultingLiked) {
+          scheduleCommerceOutcomeAttribution({
+            session,
+            productId,
+            outcomeType: action === "like" ? "liked" : "viewed_detail",
+            metadata: { source: "product_action" }
+          });
+        }
+      }
+      sendJson(res, 200, {
+        ...updatedProduct,
+        ...(action === "like" ? { liked: Boolean(resultingLiked) } : {})
       });
-      scheduleCommerceOutcomeAttribution({
-        session,
-        productId,
-        outcomeType: action === "like" ? "liked" : "viewed_detail",
-        metadata: { source: "product_action" }
-      });
-      sendJson(res, 200, updatedProduct);
       return;
     }
 
