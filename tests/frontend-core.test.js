@@ -3422,6 +3422,27 @@ test("authoritative business mutations dispatch intelligence outside their criti
   assert.match(serverSource, /Business intelligence event failed open/);
 });
 
+test("intelligence decision layer is durable, worker-driven, observable, and fail-soft", () => {
+  const root = path.resolve(__dirname, "..");
+  const migration = require(path.join(root, "backend", "migrations", "intelligence-decision-layer.js"));
+  const dbSource = fs.readFileSync(path.join(root, "backend", "db.js"), "utf8");
+  const workerSource = fs.readFileSync(path.join(root, "backend", "intelligence-queue-worker.js"), "utf8");
+  const serverSource = fs.readFileSync(path.join(root, "backend", "server.js"), "utf8");
+  const analyticsSource = fs.readFileSync(path.join(root, "src", "admin", "ui.js"), "utf8");
+  assert.equal(migration.id, "2026091511_intelligence_decision_layer");
+  ["intelligence_relationships", "intelligence_forecasts", "intelligence_recommendations", "intelligence_job_runs"].forEach((table) => {
+    assert.equal(migration.statements.some((statement) => statement.includes(table)), true);
+  });
+  assert.match(dbSource, /async function refreshIntelligenceDecisionOutputs/);
+  assert.match(dbSource, /deterministic-commerce-v1/);
+  assert.match(dbSource, /active_commerce_goal/);
+  assert.match(dbSource, /privacy', 'aggregate-only'/);
+  assert.match(workerSource, /refreshIntelligenceDecisionOutputs/);
+  assert.match(serverSource, /readIntelligenceDecisionHealth/);
+  assert.match(serverSource, /readIntelligenceRecommendations\("person", user\.username/);
+  assert.match(analyticsSource, /data\.intelligenceRecommendations\?\.seller/);
+});
+
 test("backend intelligence scoring caps repeated contributions and preserves noisy history", async () => {
   const root = path.resolve(__dirname, "..");
   const { createIntelligencePlatform } = require(path.join(root, "backend", "intelligence-platform.js"));

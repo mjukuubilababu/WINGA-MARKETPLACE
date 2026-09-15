@@ -1209,6 +1209,12 @@ const intelligenceQueueWorkerState = {
     searchQueries: 0,
     prunedSnapshots: 0
   },
+  decisions: {
+    relationships: 0,
+    forecasts: 0,
+    sellerRecommendations: 0,
+    buyerRecommendations: 0
+  },
   standbySkips: 0,
   standbyFallbackRuns: 0,
   lastRunAt: "",
@@ -1293,6 +1299,15 @@ async function processIntelligenceQueueOnce(options = {}) {
         intelligenceQueueWorkerState.snapshots.demandProducts += Number(snapshots?.demandProducts || 0);
         intelligenceQueueWorkerState.snapshots.searchQueries += Number(snapshots?.searchQueries || 0);
         intelligenceQueueWorkerState.snapshots.prunedSnapshots += Number(snapshots?.prunedSnapshots || 0);
+      }
+      if (postgresStore.refreshIntelligenceDecisionOutputs) {
+        const decisions = await postgresStore.refreshIntelligenceDecisionOutputs({
+          windowDays: INTELLIGENCE_SNAPSHOT_WINDOW_DAYS
+        });
+        intelligenceQueueWorkerState.decisions.relationships += Number(decisions?.relationships || 0);
+        intelligenceQueueWorkerState.decisions.forecasts += Number(decisions?.forecasts || 0);
+        intelligenceQueueWorkerState.decisions.sellerRecommendations += Number(decisions?.sellerRecommendations || 0);
+        intelligenceQueueWorkerState.decisions.buyerRecommendations += Number(decisions?.buyerRecommendations || 0);
       }
       if (postgresStore.pruneIntelligenceRawEvents) {
         const rawPrune = await postgresStore.pruneIntelligenceRawEvents({
@@ -1666,6 +1681,9 @@ async function buildIntelligenceQueueHealthReport() {
   const snapshotHealth = postgresStore?.readIntelligenceSnapshotHealth
     ? await postgresStore.readIntelligenceSnapshotHealth({ windowDays: INTELLIGENCE_SNAPSHOT_WINDOW_DAYS })
     : { error: "postgres_snapshot_health_unavailable" };
+  const decisionHealth = postgresStore?.readIntelligenceDecisionHealth
+    ? await postgresStore.readIntelligenceDecisionHealth()
+    : { error: "postgres_decision_health_unavailable" };
   const alerts = getIntelligenceQueueAlerts(health, snapshotHealth);
   return {
     schemaVersion: INTELLIGENCE_HEALTH_SCHEMA_VERSION,
@@ -1677,6 +1695,7 @@ async function buildIntelligenceQueueHealthReport() {
     worker: { ...intelligenceQueueWorkerState },
     health,
     snapshotHealth,
+    decisionHealth,
     alerts,
     thresholds: {
       pending: INTELLIGENCE_QUEUE_PENDING_ALERT_THRESHOLD,
@@ -11469,6 +11488,22 @@ const server = http.createServer(async (req, res) => {
           analytics.commerceGoals = await postgresStore.readCommerceGoals(user.username, 6);
         } catch (error) {
           analytics.commerceGoals = [];
+        }
+      }
+      if (!isAdminAnalytics && postgresStore?.readIntelligenceRecommendations) {
+        try {
+          const [personal, seller] = await Promise.all([
+            postgresStore.readIntelligenceRecommendations("person", user.username, 4),
+            postgresStore.readIntelligenceRecommendations("seller", user.username, 4)
+          ]);
+          analytics.intelligenceRecommendations = {
+            schemaVersion: "intelligence-recommendations-v1",
+            privacy: "self-scoped",
+            personal,
+            seller
+          };
+        } catch (error) {
+          analytics.intelligenceRecommendations = { personal: [], seller: [], error: "unavailable" };
         }
       }
       if (!isAdminAnalytics && postgresStore?.readSellerVideoAnalytics) {

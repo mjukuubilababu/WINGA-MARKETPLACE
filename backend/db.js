@@ -5315,6 +5315,215 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     };
   }
 
+  async function refreshIntelligenceDecisionOutputs(options = {}) {
+    const windowDays = Math.max(7, Math.min(Number(options.windowDays || 14) || 14, 90));
+    const modelVersion = "deterministic-commerce-v1";
+    const startedAt = Date.now();
+    const run = await query(
+      `INSERT INTO intelligence_job_runs (job_type, status, model_version)
+       VALUES ('decision_refresh', 'running', $1) RETURNING run_id`,
+      [modelVersion]
+    );
+    const runId = run.rows[0]?.run_id;
+    try {
+      const productRelationships = await query(
+        `INSERT INTO intelligence_relationships (
+           source_type, source_key, relationship_type, target_type, target_key,
+           strength, evidence_count, first_seen_at, last_seen_at, metadata, model_version, updated_at
+         )
+         SELECT 'product', p.id, 'listed_by', 'person', p.uploaded_by,
+                1, 1, p.created_at, COALESCE(p.updated_at, p.created_at),
+                jsonb_build_object('privacy', 'public-commerce-entity'), $1, NOW()
+         FROM products p WHERE p.id <> '' AND p.uploaded_by <> ''
+         ON CONFLICT (source_type, source_key, relationship_type, target_type, target_key)
+         DO UPDATE SET strength=EXCLUDED.strength, evidence_count=EXCLUDED.evidence_count,
+           last_seen_at=EXCLUDED.last_seen_at, metadata=EXCLUDED.metadata,
+           model_version=EXCLUDED.model_version, updated_at=NOW()`,
+        [modelVersion]
+      );
+      const categoryRelationships = await query(
+        `INSERT INTO intelligence_relationships (
+           source_type, source_key, relationship_type, target_type, target_key,
+           strength, evidence_count, first_seen_at, last_seen_at, metadata, model_version, updated_at
+         )
+         SELECT 'category', p.category, 'supplied_by', 'person', p.uploaded_by,
+                COUNT(*)::numeric, COUNT(*)::int, MIN(p.created_at), MAX(COALESCE(p.updated_at, p.created_at)),
+                jsonb_build_object('availableProducts', COUNT(*) FILTER (WHERE p.availability='available'), 'privacy', 'aggregate-only'), $1, NOW()
+         FROM products p WHERE p.category <> '' AND p.uploaded_by <> '' AND p.status='approved'
+         GROUP BY p.category, p.uploaded_by
+         ON CONFLICT (source_type, source_key, relationship_type, target_type, target_key)
+         DO UPDATE SET strength=EXCLUDED.strength, evidence_count=EXCLUDED.evidence_count,
+           first_seen_at=LEAST(intelligence_relationships.first_seen_at, EXCLUDED.first_seen_at),
+           last_seen_at=EXCLUDED.last_seen_at, metadata=EXCLUDED.metadata,
+           model_version=EXCLUDED.model_version, updated_at=NOW()`,
+        [modelVersion]
+      );
+      const regionRelationships = await query(
+        `INSERT INTO intelligence_relationships (
+           source_type, source_key, relationship_type, target_type, target_key,
+           strength, evidence_count, first_seen_at, last_seen_at, metadata, model_version, updated_at
+         )
+         SELECT 'category', p.category, 'demanded_in', 'region', d.region,
+                COALESCE(SUM(d.demand_score), COUNT(*)::numeric), COUNT(*)::int,
+                MIN(d.created_at), MAX(d.created_at),
+                jsonb_build_object('waitingAudience', COUNT(DISTINCT NULLIF(COALESCE(NULLIF(d.buyer_id,''), NULLIF(d.session_id,'')),'')), 'privacy', 'aggregate-only'), $1, NOW()
+         FROM demand_events d JOIN products p ON p.id=d.product_id
+         WHERE d.created_at >= NOW() - ($2 || ' days')::interval AND p.category <> '' AND d.region <> ''
+         GROUP BY p.category, d.region
+         ON CONFLICT (source_type, source_key, relationship_type, target_type, target_key)
+         DO UPDATE SET strength=EXCLUDED.strength, evidence_count=EXCLUDED.evidence_count,
+           first_seen_at=LEAST(intelligence_relationships.first_seen_at, EXCLUDED.first_seen_at),
+           last_seen_at=EXCLUDED.last_seen_at, metadata=EXCLUDED.metadata,
+           model_version=EXCLUDED.model_version, updated_at=NOW()`,
+        [modelVersion, String(windowDays)]
+      );
+      const forecasts = await query(
+        `WITH evidence AS (
+           SELECT snapshot_key,
+             SUM(count) FILTER (WHERE snapshot_date >= CURRENT_DATE - 6)::numeric AS recent_value,
+             SUM(count) FILTER (WHERE snapshot_date BETWEEN CURRENT_DATE - 13 AND CURRENT_DATE - 7)::numeric AS prior_value,
+             COUNT(DISTINCT snapshot_date)::int AS evidence_days,
+             SUM(count)::int AS evidence_count
+           FROM intelligence_daily_snapshots
+           WHERE snapshot_type='demand_product' AND snapshot_date >= CURRENT_DATE - 13
+           GROUP BY snapshot_key
+         )
+         INSERT INTO intelligence_forecasts (
+           forecast_type, entity_type, entity_key, horizon_days, predicted_value, baseline_value,
+           trend_direction, confidence, evidence_count, evidence_window_days, reasons,
+           model_version, generated_at, expires_at
+         )
+         SELECT 'demand', 'product', snapshot_key, 7,
+           GREATEST(0, COALESCE(recent_value,0) + (COALESCE(recent_value,0)-COALESCE(prior_value,0))),
+           COALESCE(recent_value,0),
+           CASE WHEN COALESCE(recent_value,0) > COALESCE(prior_value,0) * 1.15 THEN 'growing'
+                WHEN COALESCE(recent_value,0) < COALESCE(prior_value,0) * 0.85 THEN 'declining' ELSE 'stable' END,
+           LEAST(0.95, 0.25 + (evidence_days::numeric / 20)), evidence_count, 14,
+           jsonb_build_array('recent_vs_prior_demand', 'deterministic_no_ml'), $1, NOW(), NOW()+INTERVAL '26 hours'
+         FROM evidence WHERE evidence_count > 0
+         ON CONFLICT (forecast_type, entity_type, entity_key, horizon_days)
+         DO UPDATE SET predicted_value=EXCLUDED.predicted_value, baseline_value=EXCLUDED.baseline_value,
+           trend_direction=EXCLUDED.trend_direction, confidence=EXCLUDED.confidence,
+           evidence_count=EXCLUDED.evidence_count, evidence_window_days=EXCLUDED.evidence_window_days,
+           reasons=EXCLUDED.reasons, model_version=EXCLUDED.model_version,
+           generated_at=NOW(), expires_at=EXCLUDED.expires_at`,
+        [modelVersion]
+      );
+      const sellerRecommendations = await query(
+        `INSERT INTO intelligence_recommendations (
+           recommendation_id, audience_type, audience_key, recommendation_type,
+           entity_type, entity_key, score, reasons, metadata, model_version, generated_at, expires_at, updated_at
+         )
+         SELECT 'seller_restock_' || md5(p.uploaded_by || ':' || p.id), 'seller', p.uploaded_by, 'restock',
+           'product', p.id, LEAST(1000, pds.demand_score + pds.waiting_users*4 + pds.restock_interest*6),
+           jsonb_build_array('unresolved_demand', CASE WHEN p.availability='sold_out' THEN 'sold_out' ELSE 'demand_momentum' END),
+           jsonb_build_object('totalDemand', pds.total_demand, 'waitingUsers', pds.waiting_users,
+             'restockInterest', pds.restock_interest, 'category', p.category, 'privacy', 'aggregate-only'),
+           $1, NOW(), NOW()+INTERVAL '26 hours', NOW()
+         FROM product_demand_summaries pds JOIN products p ON p.id=pds.product_id
+         WHERE p.status='approved' AND pds.total_demand > 0
+         ON CONFLICT (audience_type, audience_key, recommendation_type, entity_type, entity_key)
+         DO UPDATE SET score=EXCLUDED.score, reasons=EXCLUDED.reasons, metadata=EXCLUDED.metadata,
+           status='active', model_version=EXCLUDED.model_version, generated_at=NOW(),
+           expires_at=EXCLUDED.expires_at, updated_at=NOW()`,
+        [modelVersion]
+      );
+      const buyerRecommendations = await query(
+        `INSERT INTO intelligence_recommendations (
+           recommendation_id, audience_type, audience_key, recommendation_type,
+           entity_type, entity_key, score, reasons, metadata, model_version, generated_at, expires_at, updated_at
+         )
+         SELECT DISTINCT ON (g.user_id, candidate.id)
+           'person_alternative_' || md5(g.user_id || ':' || candidate.id), 'person', g.user_id, 'similar_available',
+           'product', candidate.id, COALESCE(pis.score,0) + 25,
+           jsonb_build_array('active_commerce_goal', 'same_category', 'available_now'),
+           jsonb_build_object('goalId', g.goal_id, 'sourceProductId', g.product_id, 'category', candidate.category, 'privacy', 'person-scoped'),
+           $1, NOW(), NOW()+INTERVAL '26 hours', NOW()
+         FROM commerce_goals g
+         JOIN products candidate ON candidate.category=g.category AND candidate.status='approved' AND candidate.availability='available'
+         LEFT JOIN product_intelligence_scores pis ON pis.product_id=candidate.id
+         WHERE g.status IN ('looking','matched','contacted','no_match','sellers_alerted','new_supply_found')
+           AND candidate.id <> COALESCE(g.product_id,'') AND candidate.uploaded_by <> g.user_id
+         ORDER BY g.user_id, candidate.id, COALESCE(pis.score,0) DESC
+         ON CONFLICT (audience_type, audience_key, recommendation_type, entity_type, entity_key)
+         DO UPDATE SET score=EXCLUDED.score, reasons=EXCLUDED.reasons, metadata=EXCLUDED.metadata,
+           status='active', model_version=EXCLUDED.model_version, generated_at=NOW(),
+           expires_at=EXCLUDED.expires_at, updated_at=NOW()`,
+        [modelVersion]
+      );
+      const expired = await query(
+        `UPDATE intelligence_recommendations SET status='expired', updated_at=NOW()
+         WHERE status='active' AND expires_at <= NOW()`
+      );
+      const outputCounts = {
+        relationships: Number(productRelationships.rowCount || 0) + Number(categoryRelationships.rowCount || 0) + Number(regionRelationships.rowCount || 0),
+        forecasts: Number(forecasts.rowCount || 0),
+        sellerRecommendations: Number(sellerRecommendations.rowCount || 0),
+        buyerRecommendations: Number(buyerRecommendations.rowCount || 0),
+        expiredRecommendations: Number(expired.rowCount || 0)
+      };
+      await query(
+        `UPDATE intelligence_job_runs SET status='completed', completed_at=NOW(), duration_ms=$2, output_counts=$3::jsonb
+         WHERE run_id=$1`,
+        [runId, Math.max(0, Date.now() - startedAt), JSON.stringify(outputCounts)]
+      );
+      return { modelVersion, windowDays, ...outputCounts };
+    } catch (error) {
+      await query(
+        `UPDATE intelligence_job_runs SET status='failed', completed_at=NOW(), duration_ms=$2, error_code=$3
+         WHERE run_id=$1`,
+        [runId, Math.max(0, Date.now() - startedAt), String(error?.code || 'decision_refresh_failed').slice(0, 80)]
+      ).catch(() => {});
+      throw error;
+    }
+  }
+
+  async function readIntelligenceRecommendations(audienceType = "person", audienceKey = "", limit = 10) {
+    const safeAudienceType = ["person", "seller", "market"].includes(audienceType) ? audienceType : "person";
+    const safeAudienceKey = String(audienceKey || "").trim().slice(0, 80);
+    const safeLimit = Math.max(1, Math.min(Number(limit || 10) || 10, 50));
+    if (!safeAudienceKey) return [];
+    const result = await readQuery(
+      `SELECT recommendation_id AS "recommendationId", recommendation_type AS "recommendationType",
+              entity_type AS "entityType", entity_key AS "entityKey", score::float8, reasons, metadata,
+              model_version AS "modelVersion", generated_at AS "generatedAt", expires_at AS "expiresAt"
+       FROM intelligence_recommendations
+       WHERE audience_type=$1 AND audience_key=$2 AND status='active' AND expires_at > NOW()
+       ORDER BY score DESC, generated_at DESC LIMIT $3`,
+      [safeAudienceType, safeAudienceKey, safeLimit]
+    );
+    return (result.rows || []).map((row) => ({
+      ...row,
+      score: Number(row.score || 0),
+      reasons: parseJson(row.reasons, []),
+      metadata: parseJson(row.metadata, {}),
+      generatedAt: toISOString(row.generatedAt),
+      expiresAt: toISOString(row.expiresAt)
+    }));
+  }
+
+  async function readIntelligenceDecisionHealth() {
+    const result = await readQuery(
+      `SELECT
+         COUNT(*) FILTER (WHERE status='active' AND expires_at > NOW())::int AS "activeRecommendations",
+         COUNT(*) FILTER (WHERE status='active' AND expires_at <= NOW())::int AS "staleRecommendations",
+         (SELECT COUNT(*)::int FROM intelligence_forecasts WHERE expires_at > NOW()) AS "activeForecasts",
+         (SELECT COUNT(*)::int FROM intelligence_relationships) AS relationships,
+         (SELECT MAX(completed_at) FROM intelligence_job_runs WHERE job_type='decision_refresh' AND status='completed') AS "lastCompletedAt",
+         (SELECT MAX(started_at) FROM intelligence_job_runs WHERE job_type='decision_refresh' AND status='failed') AS "lastFailedAt"
+       FROM intelligence_recommendations`
+    );
+    const row = result.rows[0] || {};
+    return {
+      activeRecommendations: Number(row.activeRecommendations || 0),
+      staleRecommendations: Number(row.staleRecommendations || 0),
+      activeForecasts: Number(row.activeForecasts || 0),
+      relationships: Number(row.relationships || 0),
+      lastCompletedAt: toISOString(row.lastCompletedAt),
+      lastFailedAt: toISOString(row.lastFailedAt)
+    };
+  }
+
   async function readIntelligenceSnapshotSummary(options = {}) {
     const days = Math.max(1, Math.min(Number(options.days || 14) || 14, 90));
     const limit = Math.max(1, Math.min(Number(options.limit || 10) || 10, 50));
@@ -8814,6 +9023,9 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     pruneIntelligenceRawEvents,
     pruneIntelligenceScorePersistence,
     refreshIntelligenceDailySnapshots,
+    refreshIntelligenceDecisionOutputs,
+    readIntelligenceRecommendations,
+    readIntelligenceDecisionHealth,
     readIntelligenceSnapshotSummary,
     readIntelligenceSnapshotHealth,
     readIntelligenceSummary,

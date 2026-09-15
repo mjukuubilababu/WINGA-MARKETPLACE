@@ -61,6 +61,14 @@ function sanitizeMonitorPayload(payload = {}) {
       secondsSinceLatestUpdate: Number(payload.snapshotHealth.secondsSinceLatestUpdate || 0),
       windowDays: Number(payload.snapshotHealth.windowDays || 0)
     } : null,
+    decisionHealth: payload.decisionHealth && typeof payload.decisionHealth === "object" ? {
+      activeRecommendations: Number(payload.decisionHealth.activeRecommendations || 0),
+      staleRecommendations: Number(payload.decisionHealth.staleRecommendations || 0),
+      activeForecasts: Number(payload.decisionHealth.activeForecasts || 0),
+      relationships: Number(payload.decisionHealth.relationships || 0),
+      lastCompletedAt: String(payload.decisionHealth.lastCompletedAt || ""),
+      lastFailedAt: String(payload.decisionHealth.lastFailedAt || "")
+    } : null,
     worker: payload.worker && typeof payload.worker === "object" ? {
       enabled: Boolean(payload.worker.enabled),
       embeddedEnabled: Boolean(payload.worker.embeddedEnabled),
@@ -115,6 +123,7 @@ async function sendAlertWebhook(webhookUrl, payload = {}) {
       alerts: payload.alerts || [],
       health: payload.health || null,
       snapshotHealth: payload.snapshotHealth || null,
+      decisionHealth: payload.decisionHealth || null,
       worker: payload.worker || null,
       checkedAt: new Date().toISOString()
     })
@@ -214,6 +223,7 @@ async function main() {
     alerts: body?.alerts || [],
     health: body?.health || null,
     snapshotHealth: body?.snapshotHealth || null,
+    decisionHealth: body?.decisionHealth || null,
     worker: body?.worker || null
   });
   await maybeSendAlertWebhook(alertWebhookUrl, output);

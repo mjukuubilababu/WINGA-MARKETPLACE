@@ -42,6 +42,12 @@ const state = {
     searchQueries: 0,
     prunedSnapshots: 0
   },
+  decisions: {
+    relationships: 0,
+    forecasts: 0,
+    sellerRecommendations: 0,
+    buyerRecommendations: 0
+  },
   lastMaintenanceAt: 0
 };
 
@@ -66,6 +72,15 @@ async function runMaintenance() {
       state.snapshots.demandProducts += Number(snapshots?.demandProducts || 0);
       state.snapshots.searchQueries += Number(snapshots?.searchQueries || 0);
       state.snapshots.prunedSnapshots += Number(snapshots?.prunedSnapshots || 0);
+    }
+    if (store.refreshIntelligenceDecisionOutputs) {
+      const decisions = await store.refreshIntelligenceDecisionOutputs({
+        windowDays: INTELLIGENCE_SNAPSHOT_WINDOW_DAYS
+      });
+      state.decisions.relationships += Number(decisions?.relationships || 0);
+      state.decisions.forecasts += Number(decisions?.forecasts || 0);
+      state.decisions.sellerRecommendations += Number(decisions?.sellerRecommendations || 0);
+      state.decisions.buyerRecommendations += Number(decisions?.buyerRecommendations || 0);
     }
     if (store.pruneIntelligenceRawEvents) {
       const rawPrune = await store.pruneIntelligenceRawEvents({

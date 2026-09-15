@@ -17142,7 +17142,10 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         const activeOpportunities = rows(data.commerceLearning?.opportunities)
           .filter(entry => entry && !entry.sellerResponded)
           .slice(0, 2);
-        const adaptiveSignals = activeGoals.length + activeOpportunities.length
+        const durableSellerRecommendations = rows(data.intelligenceRecommendations?.seller)
+          .filter(entry => entry?.recommendationType === "restock" && entry?.entityKey)
+          .slice(0, 2);
+        const adaptiveSignals = activeGoals.length + activeOpportunities.length + durableSellerRecommendations.length
           + (Number(data.newInquiries || 0) > 0 ? 1 : 0)
           + (Number(video.videoAssistedActions || 0) > 0 || Number(video.productClicks || 0) > 0 ? 1 : 0);
         if (adaptiveSignals > 0) {
@@ -17177,6 +17180,17 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           if (activeOpportunities.length) {
             adaptive.append(el("h3", "analytics-adaptive-subtitle", a("todaysOpportunities", "Today's opportunities")));
             activeOpportunities.forEach(entry => adaptive.append(createSellerOpportunityItem(entry)));
+          }
+          if (durableSellerRecommendations.length) {
+            adaptive.append(el("h3", "analytics-adaptive-subtitle", a("insightsTitle", "Insights & recommendations")));
+            durableSellerRecommendations.forEach((entry) => actionCard(
+              adaptive,
+              a("restockSizes", "Review requested sizes"),
+              a("restockCount", "{count} restock requests", { count: count(entry.metadata?.restockInterest || entry.metadata?.totalDemand || 0) }),
+              () => deps.onAnalyticsAction?.("product", entry.entityKey),
+              "/icons/navigation/refresh-cw.svg",
+              "orange"
+            ));
           }
           if (Number(data.newInquiries || 0) > 0) actionCard(adaptive,
             a("replyToInquiries", "Reply to inquiries"),
