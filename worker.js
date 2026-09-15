@@ -703,14 +703,11 @@ ${lcpImagePreloadTag}${imageOriginPreconnectTag}  <title>Chap kwa haraka</title>
       </div>
     </div>
     <h3 id="form-title">Login</h3>
-    <p class="auth-intro">Panga biashara yako kwa category ili uingie haraka na wateja wakupate kwa urahisi.</p>
-    <p class="auth-note" id="auth-category-note">Signup sasa ni phone-first. Weka jina la duka, namba ya simu, na password. Verification ya ID itafanyika baadaye kupitia Profile &gt; Get Verified.</p>
+    <p class="auth-intro">Akaunti moja ya Winga inakuruhusu kununua, kuuza na kushiriki bidhaa.</p>
+    <p class="auth-note" id="auth-category-note">Weka jina lako, namba ya simu na password kutengeneza akaunti.</p>
     <div id="auth-details-step">
-      <div id="auth-role-selector" class="auth-role-selector" style="display:none;">
-        <button class="auth-role-option active" id="auth-role-seller" type="button" data-auth-role="seller"><span class="auth-role-dot"></span><span>Mimi ni muuzaji</span></button>
-        <button class="auth-role-option" id="auth-role-buyer" type="button" data-auth-role="buyer"><span class="auth-role-dot"></span><span>Mimi ni mteja</span></button>
-      </div>
-      <input type="text" id="username" placeholder="Jina la duka" autocomplete="username">
+      <div id="auth-role-selector" class="auth-role-selector" style="display:none;"></div>
+      <input type="text" id="username" placeholder="Jina lako" autocomplete="username">
       <input type="tel" id="phone-number" placeholder="Namba ya simu ya WhatsApp" required style="display:none;" autocomplete="tel">
       <input type="text" id="national-id" placeholder="Namba ya kitambulisho cha taifa" style="display:none;" autocomplete="off">
       <select id="seller-identity-document-type" style="display:none;">
