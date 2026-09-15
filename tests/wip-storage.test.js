@@ -130,6 +130,9 @@ test("commerce goals preserve a monotonic self-scoped transition history", async
       sourceEntityType: "order", sourceEntityKey: "order-1",
       metadata: { privacy: "self-scoped" }
     });
+    assert.deepEqual(await goalStore.advanceCommerceGoalsForInteraction({
+      userId: "buyer-1", toStatus: "completed", source: "invalid_unscoped_transition"
+    }), []);
     assert.equal(await goalStore.completeCommerceGoalsForOrder("buyer-1", "dress-1", "order-1"), 1);
     const state = await goalDb.query("SELECT status,resolution FROM commerce_goals WHERE goal_id='goal-dress-1'");
     assert.deepEqual(state.rows[0], { status: "completed", resolution: "delivered_order" });

@@ -6399,9 +6399,9 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     };
     const allowedFrom = allowedFromByStatus[toStatus];
     const userId = String(input.userId || "").trim().slice(0, 80);
-    if (!userId || !allowedFrom) return [];
     const productId = String(input.productId || "").trim().slice(0, 100);
     const goalId = String(input.goalId || "").trim().slice(0, 120);
+    if (!userId || !allowedFrom || (!productId && !goalId)) return [];
     const source = String(input.source || "commerce_event").trim().slice(0, 80);
     const sourceEntityType = String(input.sourceEntityType || "").trim().slice(0, 40);
     const sourceEntityKey = String(input.sourceEntityKey || "").trim().slice(0, 120);
