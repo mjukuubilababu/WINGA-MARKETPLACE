@@ -9955,6 +9955,183 @@ function refreshProfileFollowSuggestionsSurface() {
   if (nextPanel) currentPanel.replaceWith(nextPanel);
 }
 
+function resetProfileBlockedPeopleState(username = currentUser) {
+  profileBlockedPeopleState.username = String(username || "");
+  profileBlockedPeopleState.status = "idle";
+  profileBlockedPeopleState.items = [];
+  profileBlockedPeopleState.nextCursor = "";
+  profileBlockedPeopleState.hasMore = false;
+  profileBlockedPeopleState.error = "";
+  profileBlockedPeopleState.unblockingUsername = "";
+  profileBlockedPeopleState.requestId += 1;
+}
+
+function loadProfileBlockedPeople(options = {}) {
+  const username = String(currentUser || "").trim();
+  const append = Boolean(options.append);
+  if (!username || typeof window.WingaDataLayer?.loadBlockedUsers !== "function") {
+    return Promise.resolve([]);
+  }
+  if (profileBlockedPeopleState.username !== username) {
+    resetProfileBlockedPeopleState(username);
+  }
+  if (profileBlockedPeopleState.status === "loading" || profileBlockedPeopleState.status === "loading-more") {
+    return Promise.resolve(profileBlockedPeopleState.items);
+  }
+  if (append && !profileBlockedPeopleState.hasMore) {
+    return Promise.resolve(profileBlockedPeopleState.items);
+  }
+  if (!options.force && !append && profileBlockedPeopleState.status === "ready") {
+    return Promise.resolve(profileBlockedPeopleState.items);
+  }
+  const requestId = ++profileBlockedPeopleState.requestId;
+  const existingItems = append ? profileBlockedPeopleState.items : [];
+  profileBlockedPeopleState.status = append ? "loading-more" : "loading";
+  profileBlockedPeopleState.error = "";
+  refreshProfileBlockedPeopleSurface();
+  return window.WingaDataLayer.loadBlockedUsers({
+    limit: 20,
+    cursor: append ? profileBlockedPeopleState.nextCursor : ""
+  }).then((page) => {
+    if (requestId !== profileBlockedPeopleState.requestId || profileBlockedPeopleState.username !== username) {
+      return profileBlockedPeopleState.items;
+    }
+    const incoming = Array.isArray(page?.items) ? page.items : [];
+    const merged = [...existingItems, ...incoming];
+    profileBlockedPeopleState.items = merged.filter((person, index) => (
+      person?.username && merged.findIndex((candidate) => candidate?.username === person.username) === index
+    ));
+    profileBlockedPeopleState.nextCursor = String(page?.nextCursor || "");
+    profileBlockedPeopleState.hasMore = Boolean(page?.hasMore && profileBlockedPeopleState.nextCursor);
+    profileBlockedPeopleState.status = "ready";
+    refreshProfileBlockedPeopleSurface();
+    return profileBlockedPeopleState.items;
+  }).catch((error) => {
+    if (requestId !== profileBlockedPeopleState.requestId) return profileBlockedPeopleState.items;
+    profileBlockedPeopleState.status = existingItems.length ? "ready" : "error";
+    profileBlockedPeopleState.error = String(error?.message || "");
+    captureClientError("profile_blocked_people_load_failed", error, {
+      category: "social",
+      alertSeverity: "low",
+      append
+    });
+    refreshProfileBlockedPeopleSurface();
+    if (existingItems.length) {
+      showInAppNotification({
+        title: translateUi("blockedPeople.loadFailedTitle", {}, "Blocked people were not updated"),
+        body: translateUi("blockedPeople.tryAgainBody", {}, "Check your connection and try again."),
+        variant: "warning"
+      });
+    }
+    return profileBlockedPeopleState.items;
+  });
+}
+
+function renderProfileBlockedPeopleSection() {
+  const rows = profileBlockedPeopleState.items.map((person) => {
+    const username = String(person?.username || "").trim();
+    const displayName = String(person?.fullName || username).trim();
+    const image = sanitizeImageSource(person?.profileImage || "", "");
+    const avatar = image
+      ? `<img src="${escapeHtml(image)}" alt="" loading="lazy" decoding="async">`
+      : `<span>${escapeHtml(getUserInitials(displayName || "W"))}</span>`;
+    const isUnblocking = profileBlockedPeopleState.unblockingUsername === username;
+    return `
+      <article class="profile-blocked-person" data-blocked-person="${escapeHtml(username)}">
+        <div class="profile-blocked-person-identity">
+          <span class="profile-blocked-person-avatar">${avatar}</span>
+          <span class="profile-blocked-person-copy">
+            <strong>${escapeHtml(displayName || translateUi("blockedPeople.unavailableAccount", {}, "Unavailable account"))}</strong>
+            <span class="product-meta">@${escapeHtml(username)}</span>
+          </span>
+        </div>
+        <button class="action-btn action-btn-secondary" type="button" data-unblock-person="${escapeHtml(username)}"${isUnblocking ? " disabled" : ""}>${escapeHtml(isUnblocking
+          ? translateUi("blockedPeople.unblocking", {}, "Unblocking...")
+          : translateUi("blockedPeople.unblock", {}, "Unblock"))}</button>
+      </article>
+    `;
+  }).join("");
+  const loading = profileBlockedPeopleState.status === "loading";
+  const statusMarkup = loading
+    ? `<p class="empty-copy compact">${escapeHtml(translateUi("blockedPeople.loading", {}, "Loading blocked people..."))}</p>`
+    : profileBlockedPeopleState.status === "error"
+      ? `<button class="action-btn action-btn-secondary" type="button" data-retry-blocked-people="true">${escapeHtml(translateUi("blockedPeople.retry", {}, "Try again"))}</button>`
+      : rows || `<p class="empty-copy compact">${escapeHtml(translateUi("blockedPeople.empty", {}, "You have not blocked anyone."))}</p>`;
+  const loadMore = profileBlockedPeopleState.hasMore
+    ? `<button class="action-btn action-btn-secondary profile-blocked-load-more" type="button" data-load-more-blocked-people="true"${profileBlockedPeopleState.status === "loading-more" ? " disabled" : ""}>${escapeHtml(profileBlockedPeopleState.status === "loading-more"
+      ? translateUi("blockedPeople.loadingMore", {}, "Loading...")
+      : translateUi("blockedPeople.loadMore", {}, "Load more"))}</button>`
+    : "";
+  return `
+    <section id="profile-blocked-people-panel" class="profile-blocked-people-section">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">${escapeHtml(translateUi("blockedPeople.eyebrow", {}, "Privacy"))}</p>
+          <h3>${escapeHtml(translateUi("blockedPeople.title", {}, "Blocked people"))}</h3>
+          <p class="product-meta">${escapeHtml(translateUi("blockedPeople.description", {}, "Manage people whose public activity is hidden from you."))}</p>
+        </div>
+      </div>
+      <div class="profile-blocked-people-list" aria-live="polite">${statusMarkup}</div>
+      ${loadMore}
+    </section>
+  `;
+}
+
+function refreshProfileBlockedPeopleSurface() {
+  const currentPanel = document.getElementById("profile-blocked-people-panel");
+  if (!currentPanel) {
+    if (currentView === "profile") renderProfileFromController();
+    return;
+  }
+  const template = document.createElement("template");
+  template.innerHTML = renderProfileBlockedPeopleSection().trim();
+  const nextPanel = template.content.firstElementChild;
+  if (nextPanel) currentPanel.replaceWith(nextPanel);
+}
+
+async function unblockPersonFromProfile(username, button) {
+  const safeUsername = String(username || "").trim();
+  if (!safeUsername || profileBlockedPeopleState.unblockingUsername) return;
+  const person = profileBlockedPeopleState.items.find((item) => item?.username === safeUsername);
+  const displayName = String(person?.fullName || safeUsername).trim();
+  const confirmed = confirmAction(translateUi(
+    "blockedPeople.unblockConfirm",
+    { person: displayName },
+    `Unblock ${displayName}? They may appear in your public Winga experience again.`
+  ));
+  if (!confirmed) return;
+  profileBlockedPeopleState.unblockingUsername = safeUsername;
+  if (button) button.disabled = true;
+  refreshProfileBlockedPeopleSurface();
+  try {
+    await window.WingaDataLayer.setUserBlock(safeUsername, false);
+    profileBlockedPeopleState.items = profileBlockedPeopleState.items
+      .filter((item) => item?.username !== safeUsername);
+    profileBlockedPeopleState.unblockingUsername = "";
+    refreshProfileBlockedPeopleSurface();
+    void loadProfileFollowSuggestions({ force: true });
+    showInAppNotification({
+      title: translateUi("blockedPeople.unblockedTitle", {}, "Person unblocked"),
+      body: translateUi("blockedPeople.unblockedBody", { person: displayName }, `${displayName} can appear in your public Winga experience again.`),
+      variant: "success",
+      durationMs: 2800
+    });
+  } catch (error) {
+    profileBlockedPeopleState.unblockingUsername = "";
+    captureClientError("profile_person_unblock_failed", error, {
+      category: "social",
+      alertSeverity: "medium",
+      blockedUsername: safeUsername
+    });
+    refreshProfileBlockedPeopleSurface();
+    showInAppNotification({
+      title: translateUi("blockedPeople.unblockFailedTitle", {}, "Person was not unblocked"),
+      body: translateUi("blockedPeople.tryAgainBody", {}, "Check your connection and try again."),
+      variant: "error"
+    });
+  }
+}
+
 async function refreshProfileCollections() {
   await loadProfileCollections({ force: true });
 }
@@ -10254,7 +10431,8 @@ async function blockPersonFromProfile(button) {
       .filter((person) => String(person?.username || "") !== username);
     closePersonProfileModal({ restoreFocus: false });
     if (currentView === "profile") {
-      loadProfileFollowSuggestions({ force: true });
+      void loadProfileFollowSuggestions({ force: true });
+      void loadProfileBlockedPeople({ force: true });
       requestCurrentSurfaceRefresh("person_blocked", { productLimit: 4, decodeLimit: 1, prefetch: false });
     } else if (currentView === "home") {
       await refreshHomeFeedFromTab();
@@ -11416,6 +11594,27 @@ function bindTrustReportEntryActions() {
       return;
     }
 
+    const retryBlockedPeopleButton = event.target.closest("[data-retry-blocked-people]");
+    if (retryBlockedPeopleButton) {
+      event.preventDefault();
+      void loadProfileBlockedPeople({ force: true });
+      return;
+    }
+
+    const loadMoreBlockedPeopleButton = event.target.closest("[data-load-more-blocked-people]");
+    if (loadMoreBlockedPeopleButton) {
+      event.preventDefault();
+      void loadProfileBlockedPeople({ append: true });
+      return;
+    }
+
+    const unblockPersonButton = event.target.closest("[data-unblock-person]");
+    if (unblockPersonButton) {
+      event.preventDefault();
+      void unblockPersonFromProfile(unblockPersonButton.dataset.unblockPerson || "", unblockPersonButton);
+      return;
+    }
+
     const addCollectionItemButton = event.target.closest("[data-add-profile-collection-item]");
     if (addCollectionItemButton) {
       event.preventDefault();
@@ -12071,6 +12270,7 @@ const {
   createSessionSecuritySectionElement,
   renderSavedIntentSection,
   renderProfileFollowSuggestionsSection,
+  renderProfileBlockedPeopleSection,
   renderProfileCollectionsSection,
   getProfileCollectionCount: () => profileCollectionState.status === "ready"
     ? profileCollectionState.items.length
@@ -14025,6 +14225,16 @@ const profileFollowSuggestionState = {
   status: "idle",
   items: [],
   error: "",
+  requestId: 0
+};
+const profileBlockedPeopleState = {
+  username: "",
+  status: "idle",
+  items: [],
+  nextCursor: "",
+  hasMore: false,
+  error: "",
+  unblockingUsername: "",
   requestId: 0
 };
 const personProfileState = {
@@ -21948,6 +22158,7 @@ function renderCurrentView(options = {}) {
 function renderProfile() {
   loadProfileCollections();
   loadProfileFollowSuggestions();
+  loadProfileBlockedPeople();
   return renderProfileFromController();
 }
 

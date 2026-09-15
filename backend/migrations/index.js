@@ -101,6 +101,13 @@ const MIGRATIONS = Object.freeze([
     ])
   }),
   Object.freeze({
+    id: "2026091504_user_blocks_cursor",
+    statements: Object.freeze([
+      `CREATE INDEX IF NOT EXISTS idx_user_blocks_owner_cursor
+       ON user_blocks (blocker_username, created_at DESC, blocked_username DESC);`
+    ])
+  }),
+  Object.freeze({
     id: "2026071901_product_row_version",
     statements: Object.freeze([
       `ALTER TABLE products

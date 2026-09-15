@@ -4054,6 +4054,33 @@ test("person social graph cursor page is bounded and excludes blocked relationsh
   assert.match(calls[0].text, /ORDER BY uf\.created_at DESC, uf\.follower_username DESC/);
 });
 
+test("blocked people page is owner-scoped cursor-bounded and exposes only public identity", async () => {
+  const calls = [];
+  const queryClient = {
+    async query(text, params = []) {
+      calls.push({ text: String(text), params });
+      return {
+        rows: [
+          { username: "person-c", fullName: "Person C", profileImage: "/c.webp", active: true, blockedAt: "2026-09-15T12:00:00.000Z" },
+          { username: "person-b", fullName: "Person B", profileImage: "", active: true, blockedAt: "2026-09-14T12:00:00.000Z" },
+          { username: "person-a", fullName: "", profileImage: "", active: false, blockedAt: "2026-09-13T12:00:00.000Z" }
+        ],
+        rowCount: 3
+      };
+    }
+  };
+  const store = createPostgresStore({ databaseUrl: "postgres://test.invalid/winga", queryClient });
+  const page = await store.readUserBlockedPage("viewer", { limit: 2 });
+  assert.equal(page.items.length, 2);
+  assert.equal(page.hasMore, true);
+  assert.equal(page.nextCursor, "2026-09-14T12:00:00.000Z|person-b");
+  assert.equal(page.privacy, "owner-only");
+  assert.deepEqual(calls[0].params, ["viewer", 3]);
+  assert.match(calls[0].text, /WHERE block_edge\.blocker_username = \$1/);
+  assert.match(calls[0].text, /ORDER BY block_edge\.created_at DESC, block_edge\.blocked_username DESC/);
+  assert.doesNotMatch(calls[0].text, /phone_number|national_id|password/);
+});
+
 test("blocking a person removes follow edges in both directions", async () => {
   const calls = [];
   const client = {

@@ -1876,6 +1876,9 @@ async loadAdminPayments(filters) {
       async loadFollowSuggestions(options = {}) {
         return getSocialApiClient().loadFollowSuggestions(options);
       },
+      async loadBlockedUsers(options = {}) {
+        return getSocialApiClient().loadBlocks(options);
+      },
       async loadSocialProfile(username, options = {}) {
         return getSocialApiClient().loadSocialProfile(username, options);
       },
@@ -3901,6 +3904,12 @@ async loadAdminPayments() {
       return state.adapter.importLegacyFollows
         ? state.adapter.importLegacyFollows(usernames)
         : { ok: true, imported: 0 };
+    },
+    async loadBlockedUsers(options = {}) {
+      assertPersonAccess();
+      ensureAdapter();
+      if (!state.adapter.loadBlockedUsers) throw new Error("Social graph requires the production API provider.");
+      return state.adapter.loadBlockedUsers(options);
     },
     async setUserBlock(username, blocked = true) {
       ensureAdapter();

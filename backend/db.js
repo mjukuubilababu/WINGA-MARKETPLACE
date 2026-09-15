@@ -8358,6 +8358,55 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     );
     return { imported: Number(result.rowCount || 0) };
   }
+
+  async function readUserBlockedPage(blockerUsername = "", options = {}) {
+    const blocker = String(blockerUsername || "").trim().slice(0, 40);
+    const limit = Math.max(1, Math.min(Number(options.limit || 30) || 30, 100));
+    const cursorTime = options.cursorTime ? new Date(options.cursorTime) : null;
+    const cursorUsername = String(options.cursorUsername || "").trim().slice(0, 40);
+    if (!blocker || (cursorTime && !Number.isFinite(cursorTime.getTime()))) {
+      return { items: [], nextCursor: "", hasMore: false, limit, privacy: "owner-only" };
+    }
+    const params = [blocker, limit + 1];
+    let cursorClause = "";
+    if (cursorTime && cursorUsername) {
+      params.push(cursorTime.toISOString(), cursorUsername);
+      cursorClause = "AND (block_edge.created_at, block_edge.blocked_username) < ($3::timestamptz, $4)";
+    }
+    const result = await query(
+      `SELECT
+         block_edge.blocked_username AS username,
+         CASE WHEN blocked_user.status = 'active' THEN blocked_user.full_name ELSE '' END AS "fullName",
+         CASE WHEN blocked_user.status = 'active' THEN blocked_user.profile_image ELSE '' END AS "profileImage",
+         (blocked_user.status = 'active') AS active,
+         block_edge.created_at AS "blockedAt"
+       FROM user_blocks block_edge
+       JOIN users blocked_user ON blocked_user.username = block_edge.blocked_username
+       WHERE block_edge.blocker_username = $1
+         ${cursorClause}
+       ORDER BY block_edge.created_at DESC, block_edge.blocked_username DESC
+       LIMIT $2`,
+      params
+    );
+    const rows = result.rows || [];
+    const hasMore = rows.length > limit;
+    const items = rows.slice(0, limit).map((row) => ({
+      username: String(row.username || ""),
+      fullName: String(row.fullName || ""),
+      profileImage: String(row.profileImage || ""),
+      active: Boolean(row.active),
+      blockedAt: toISOString(row.blockedAt)
+    }));
+    const tail = items[items.length - 1];
+    return {
+      items,
+      nextCursor: hasMore && tail ? `${tail.blockedAt}|${tail.username}` : "",
+      hasMore,
+      limit,
+      privacy: "owner-only"
+    };
+  }
+
   async function setUserBlock(blockerUsername = "", blockedUsername = "", blocked = true) {
     const blocker = String(blockerUsername || "").trim().slice(0, 40);
     const target = String(blockedUsername || "").trim().slice(0, 40);
@@ -8500,6 +8549,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     readUserFollowSummary,
     readUserFollowSuggestions,
     readUserFollowPage,
+    readUserBlockedPage,
     createUserCollection,
     updateUserCollection,
     setUserCollectionItem,

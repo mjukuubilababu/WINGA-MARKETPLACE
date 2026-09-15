@@ -26,6 +26,14 @@
       });
       return fetchJson(`${baseUrl}/social/suggestions?${query}`, { headers: headers() });
     }
+    async function loadBlocks(options = {}) {
+      requireFetcher();
+      const query = new URLSearchParams({
+        limit: String(Math.max(1, Math.min(Number(options.limit || 30) || 30, 100)))
+      });
+      if (String(options.cursor || "").trim()) query.set("cursor", String(options.cursor).trim());
+      return fetchJson(`${baseUrl}/social/blocks?${query}`, { headers: headers() });
+    }
     async function loadSocialProfile(username, options = {}) {
       requireFetcher();
       const source = String(options.source || "").trim() === "follow" ? "?source=follow" : "";
@@ -110,6 +118,7 @@
     return {
       loadFollows,
       loadFollowSuggestions,
+      loadBlocks,
       loadSocialProfile,
       loadUserCollections,
       createCollection,

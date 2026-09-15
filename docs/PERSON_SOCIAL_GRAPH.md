@@ -68,6 +68,12 @@ removes stale local follow state and refreshes the current social/feed surface;
 the backend remains authoritative for removing both follow directions and
 enforcing content visibility.
 
+Profile includes an owner-only Blocked People manager. It reads a cursor-bounded
+page from `GET /api/social/blocks`, returns only public identity fields needed
+to recognize the account, and never reveals people who blocked the viewer.
+Unblock requires confirmation and refreshes follow suggestions only after the
+server accepts the change.
+
 Products, reels, and reviews now share a production visibility contract:
 
 - PUBLIC is visible to guests and signed-in people.
@@ -192,7 +198,8 @@ video playback privacy, cache invalidation, client request contracts, responsive
 Profile suggestion rendering, public profile discovery, accepted-follow source
 attribution, and isolation from concurrent collection workflows.
 Frontend contract coverage also verifies the public-profile Block action, local
-follow-state cleanup, and the non-destructive Home feed refresh path.
+follow-state cleanup, the non-destructive Home feed refresh path, owner-only
+blocked-list pagination, and Unblock state reconciliation.
 
 Remaining work:
 

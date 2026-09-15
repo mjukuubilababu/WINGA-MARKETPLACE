@@ -356,3 +356,74 @@ test("profile suggests people from public activity and attributes accepted follo
   expect(layout.right).toBeLessThanOrEqual(layout.viewport);
   await context.close();
 });
+
+test("Profile lists and unblocks people without overflowing mobile", async ({ browser }) => {
+  const { context, page } = await createSellerPage(browser);
+  let isBlocked = true;
+
+  await context.route("**/api/social/blocks**", async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (request.method() === "GET" && url.pathname.endsWith("/api/social/blocks")) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          items: isBlocked ? [{
+            username: "blocked_creator",
+            fullName: "Blocked Creator",
+            profileImage: "",
+            active: true,
+            blockedAt: "2026-09-15T12:00:00.000Z"
+          }] : [],
+          nextCursor: "",
+          hasMore: false,
+          limit: 20,
+          privacy: "owner-only"
+        })
+      });
+      return;
+    }
+    if (request.method() === "DELETE" && url.pathname.endsWith("/api/social/blocks/blocked_creator")) {
+      isBlocked = false;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ ok: true, blockedUsername: "blocked_creator", blocked: false })
+      });
+      return;
+    }
+    await route.fallback();
+  });
+
+  await page.goto("/");
+  await page.locator("#header-user-trigger").click();
+  await page.locator("[data-header-menu-action='profile']").click();
+
+  const panel = page.locator("#profile-blocked-people-panel");
+  const row = panel.locator("[data-blocked-person='blocked_creator']");
+  await expect(row).toBeVisible();
+  await expect(row).toContainText("Blocked Creator");
+
+  page.once("dialog", (dialog) => dialog.accept());
+  const unblockRequest = page.waitForRequest((request) =>
+    request.method() === "DELETE"
+      && new URL(request.url()).pathname.endsWith("/api/social/blocks/blocked_creator")
+  );
+  await row.locator("[data-unblock-person='blocked_creator']").click();
+  await unblockRequest;
+  await expect(row).toHaveCount(0);
+  await expect(panel).toContainText("Hujamzuia mtu yeyote");
+
+  const layout = await panel.evaluate((element) => ({
+    viewport: document.documentElement.clientWidth,
+    pageScroll: document.documentElement.scrollWidth,
+    left: element.getBoundingClientRect().left,
+    right: element.getBoundingClientRect().right
+  }));
+  expect(layout.pageScroll).toBeLessThanOrEqual(layout.viewport);
+  expect(layout.left).toBeGreaterThanOrEqual(0);
+  expect(layout.right).toBeLessThanOrEqual(layout.viewport);
+
+  await context.close();
+});

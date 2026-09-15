@@ -6296,7 +6296,7 @@ function getRateLimitRule(pathname, method = "GET") {
       key: "/api/media/videos/:providerId/captions"
     };
   }
-  if (normalizedMethod === "GET" && (pathname === "/api/social/follows" || pathname === "/api/social/suggestions" || /^\/api\/social\/users\/[^/]+(?:\/collections)?$/.test(pathname))) {
+  if (normalizedMethod === "GET" && (pathname === "/api/social/follows" || pathname === "/api/social/blocks" || pathname === "/api/social/suggestions" || /^\/api\/social\/users\/[^/]+(?:\/collections)?$/.test(pathname))) {
     return { limit: 120, windowMs: RATE_LIMIT_WINDOW_MS, key: "/api/social/read" };
   }
   if (/^\/api\/social\/(?:follows|blocks)\/[^/]+$/.test(pathname) || pathname === "/api/social/follows/import") {
@@ -7560,6 +7560,32 @@ const server = http.createServer(async (req, res) => {
         event: "person_follows_migrated", username: user.username, imported: result.imported
       });
       sendJson(res, 200, { ok: true, ...result }, { "Cache-Control": "private, no-store" });
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/social/blocks") {
+      const session = findSession(store, readAuthToken(req));
+      const user = ensureMarketplaceUser(store, session, res, { allowStaff: true });
+      if (!user) return;
+      if (!postgresStore?.readUserBlockedPage) {
+        sendJson(res, 503, { error: "Blocked people hawapatikani kwa sasa.", code: "social_graph_unavailable" });
+        return;
+      }
+      const limit = Math.max(1, Math.min(Number(url.searchParams.get("limit") || 30) || 30, 100));
+      const rawCursor = String(url.searchParams.get("cursor") || "").trim();
+      const separator = rawCursor.lastIndexOf("|");
+      const cursorTime = separator > 0 ? rawCursor.slice(0, separator) : "";
+      const cursorUsername = separator > 0 ? normalizeIdentifier(rawCursor.slice(separator + 1), 40) : "";
+      if (rawCursor && (separator <= 0 || !cursorUsername || Number.isNaN(new Date(cursorTime).getTime()))) {
+        sendJson(res, 400, { error: "Cursor si sahihi.", code: "invalid_social_cursor" });
+        return;
+      }
+      const page = await postgresStore.readUserBlockedPage(user.username, {
+        limit,
+        cursorTime,
+        cursorUsername
+      });
+      sendJson(res, 200, page, { "Cache-Control": "private, no-store" });
       return;
     }
 

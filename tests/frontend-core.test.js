@@ -5749,6 +5749,7 @@ test("social API client preserves cursor paging and person follow mutation seman
   await client.updateCollection("collection/one", { expectedRowVersion: 1, status: "published" });
   await client.setCollectionItem("collection/one", "product/one", { position: 2, note: "Best value" });
   await client.setCollectionItem("collection/one", "product/one", { remove: true });
+  await client.loadBlocks({ limit: 500, cursor: "2026-09-15T12:00:00.000Z|person-c" });
   assert.match(requests[0].url, /direction=followers/);
   assert.match(requests[0].url, /limit=100/);
   assert.match(requests[0].url, /cursor=/);
@@ -5770,6 +5771,7 @@ test("social API client preserves cursor paging and person follow mutation seman
   assert.equal(requests[11].options.method, "PUT");
   assert.deepEqual(JSON.parse(requests[11].options.body), { position: 2, note: "Best value" });
   assert.equal(requests[12].options.method, "DELETE");
+  assert.match(requests[13].url, /social\/blocks\?limit=100&cursor=/);
   assert.equal(requests.slice(1).every((request) => request.options.headers["X-CSRF-Token"] === "csrf"), true);
   assert.match(requests[3].url, /person%2Fb$/);
   await assert.rejects(client.setContentVisibility("message", "message-1", "private"), /Invalid public content type/);
@@ -5856,6 +5858,32 @@ test("public person profiles consume privacy-filtered collections without exposi
   assert.match(styleSource, /\.person-profile-products/);
   assert.match(styleSource, /\.person-profile-actions/);
   assert.match(styleSource, /\.person-profile-block/);
+});
+
+test("Profile manages the signed-in person's blocked list without exposing private activity", () => {
+  const root = path.resolve(__dirname, "..");
+  const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
+  const serverSource = fs.readFileSync(path.join(root, "backend", "server.js"), "utf8");
+  const dataSource = fs.readFileSync(path.join(root, "data-service.js"), "utf8");
+  const controllerSource = fs.readFileSync(path.join(root, "src", "profile", "controller.js"), "utf8");
+  const uiSource = fs.readFileSync(path.join(root, "src", "profile", "ui.js"), "utf8");
+  const migrationSource = fs.readFileSync(path.join(root, "backend", "migrations", "index.js"), "utf8");
+  const styleSource = fs.readFileSync(path.join(root, "style.css"), "utf8");
+
+  assert.match(serverSource, /req\.method === "GET" && url\.pathname === "\/api\/social\/blocks"/);
+  assert.match(serverSource, /readUserBlockedPage\(user\.username/);
+  assert.match(serverSource, /"Cache-Control": "private, no-store"/);
+  assert.match(dataSource, /async loadBlockedUsers\(options = \{\}\)/);
+  assert.match(appSource, /function loadProfileBlockedPeople\(options = \{\}\)/);
+  assert.match(appSource, /WingaDataLayer\.loadBlockedUsers\(\{/);
+  assert.match(appSource, /function unblockPersonFromProfile\(username, button\)/);
+  assert.match(appSource, /setUserBlock\(safeUsername, false\)/);
+  assert.match(appSource, /data-load-more-blocked-people/);
+  assert.match(controllerSource, /blockedPeopleMarkup: deps\.renderProfileBlockedPeopleSection/);
+  assert.match(uiSource, /blockedPeopleMarkup/);
+  assert.match(migrationSource, /2026091504_user_blocks_cursor/);
+  assert.match(styleSource, /\.profile-blocked-people-section/);
+  assert.doesNotMatch(appSource, /profileBlockedPeopleState\.(purchases|messages|savedItems|browsingHistory)/);
 });
 
 test("profile people suggestions use canonical public social graph with attributed follows", () => {

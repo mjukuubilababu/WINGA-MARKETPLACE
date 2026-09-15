@@ -1056,6 +1056,7 @@
           }),
           savedIntentMarkup: deps.renderSavedIntentSection?.(),
           followSuggestionsMarkup: deps.renderProfileFollowSuggestionsSection?.(),
+          blockedPeopleMarkup: deps.renderProfileBlockedPeopleSection?.(),
           collectionsMarkup: deps.renderProfileCollectionsSection?.(),
           promotionsMarkup: deps.createPromotionManagementSectionElement?.({
             canUseSellerFeatures: deps.canUseSellerFeatures(),
