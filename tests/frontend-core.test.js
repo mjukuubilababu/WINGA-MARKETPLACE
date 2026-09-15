@@ -2093,7 +2093,9 @@ test("remote communications API client owns messages notifications and realtime 
   assert.match(dataSource, /async markNotificationRead\(notificationId\) \{\s+assertPersonAccess\(\);/);
   assert.match(serverSource, /postgresStore\?\.readUserNotifications\s+\? await postgresStore\.readUserNotifications\(user\.username, \{ limit: 100 \}\)/);
   assert.match(serverSource, /ALLOWED_NOTIFICATION_TYPES = \["message", "request", "order", "follow", "content"\]/);
-  assert.match(serverSource, /followerNotifications\.forEach\(\(notification\) => \{\s+if \(notification\.userId\) emitLiveEvent\(notification\.userId, "notification", \{ notification \}\);/);
+  assert.match(serverSource, /emitAuthorizedNotifications\(followerNotifications\)/);
+  assert.match(serverSource, /BLOCK_FILTERED_NOTIFICATION_TYPES = new Set\(\["message", "request", "follow", "content"\]\)/);
+  assert.match(serverSource, /readUserBlockRelationships\(actorUsername\)/);
   assert.match(productsActionsSource, /data-content-visibility="\$\{product\.id\}"/);
   assert.match(appSource, /setPublicContentVisibility\(contentType, product\.id, nextVisibility\)/);
   assert.match(appSource, /requestCurrentSurfaceRefresh\("content_visibility_updated"/);
@@ -5851,7 +5853,7 @@ test("public person profiles consume privacy-filtered collections without exposi
   assert.match(appSource, /WingaDataLayer\.setUserBlock\(username, true\)/);
   assert.match(appSource, /followedIds\.delete\(username\)/);
   assert.match(appSource, /chatUiState\.activeContext\?\.withUser === username/);
-  assert.match(appSource, /Promise\.all\(\[refreshUsersState\(\), refreshMessagesState\(\)\]\)/);
+  assert.match(appSource, /Promise\.all\(\[refreshUsersState\(\), refreshMessagesState\(\), refreshNotificationsState\(\)\]\)/);
   assert.match(appSource, /await refreshHomeFeedFromTab\(\)/);
   assert.match(appSource, /data-open-person-profile=/);
   assert.doesNotMatch(appSource, /personProfileState\.(purchases|messages|savedItems|browsingHistory)/);
@@ -5884,6 +5886,8 @@ test("Profile manages the signed-in person's blocked list without exposing priva
   assert.match(controllerSource, /blockedPeopleMarkup: deps\.renderProfileBlockedPeopleSection/);
   assert.match(uiSource, /blockedPeopleMarkup/);
   assert.match(migrationSource, /2026091504_user_blocks_cursor/);
+  assert.match(migrationSource, /notification-authorization/);
+  assert.match(appSource, /Promise\.all\(\[refreshUsersState\(\), refreshMessagesState\(\), refreshNotificationsState\(\)\]\)/);
   assert.match(styleSource, /\.profile-blocked-people-section/);
   assert.match(serverSource, /readUserBlockRelationships\(viewer\.username\)/);
   assert.match(serverSource, /buildMessagesSummary\(store, user\.username, blockedUsernames\)/);

@@ -3829,6 +3829,7 @@ test("person social graph follow mutation is transactional, idempotent, and acto
   assert.equal(result.changed, true);
   assert.equal(result.following, true);
   assert.equal(result.notification.userId, "creator");
+  assert.equal(result.notification.actorUsername, "viewer");
   assert.equal(result.notification.type, "follow");
   assert.equal(result.followerCount, 7);
   assert.equal(result.followingCount, 4);
@@ -3845,7 +3846,8 @@ test("person social graph follow mutation is transactional, idempotent, and acto
   const notificationInserts = calls.filter((call) => call.text.includes("INSERT INTO notifications"));
   assert.equal(notificationInserts.length, 1);
   assert.equal(notificationInserts[0].params[1], "creator");
-  assert.equal(notificationInserts[0].params[2], "follow");
+  assert.equal(notificationInserts[0].params[2], "viewer");
+  assert.equal(notificationInserts[0].params[3], "follow");
 });
 
 test("person notifications are database-backed, owner-scoped, and bounded", async () => {
@@ -3857,6 +3859,7 @@ test("person notifications are database-backed, owner-scoped, and bounded", asyn
         rows: [{
           id: "follow-note",
           userId: "creator",
+          actorUsername: "viewer",
           type: "follow",
           messageId: "",
           conversationId: "",
@@ -3874,10 +3877,13 @@ test("person notifications are database-backed, owner-scoped, and bounded", asyn
   const notifications = await store.readUserNotifications("creator", { limit: 500 });
   assert.equal(notifications.length, 1);
   assert.equal(notifications[0].type, "follow");
+  assert.equal(notifications[0].actorUsername, "viewer");
   assert.equal(notifications[0].readAt, "");
   assert.deepEqual(calls[0].params, ["creator", 100]);
-  assert.match(calls[0].text, /WHERE user_id = \$1/);
-  assert.match(calls[0].text, /ORDER BY created_at DESC, id DESC/);
+  assert.match(calls[0].text, /WHERE notification\.user_id = \$1/);
+  assert.match(calls[0].text, /notification\.type NOT IN \('message', 'request', 'follow', 'content'\)/);
+  assert.match(calls[0].text, /FROM user_blocks blocked/);
+  assert.match(calls[0].text, /ORDER BY notification\.created_at DESC, notification\.id DESC/);
   assert.match(calls[0].text, /LIMIT \$2/);
 });
 

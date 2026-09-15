@@ -669,6 +669,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
         CREATE TABLE IF NOT EXISTS notifications (
           id TEXT PRIMARY KEY,
           user_id TEXT NOT NULL,
+          actor_username TEXT NOT NULL DEFAULT '',
           type TEXT NOT NULL DEFAULT 'message',
           message_id TEXT NOT NULL DEFAULT '',
           conversation_id TEXT NOT NULL DEFAULT '',
@@ -1611,13 +1612,14 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
         for (const notification of store.notifications || []) {
           await client.query(
             `INSERT INTO notifications (
-              id, user_id, type, message_id, conversation_id, title, body, is_read, read_at, created_at
+              id, user_id, actor_username, type, message_id, conversation_id, title, body, is_read, read_at, created_at
             ) VALUES (
-              $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
+              $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
             )`,
             [
               notification.id,
               notification.userId,
+              notification.actorUsername || "",
               notification.type || "message",
               notification.messageId || "",
               notification.conversationId || "",
@@ -1915,6 +1917,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
           SELECT
             id,
             user_id AS "userId",
+            actor_username AS "actorUsername",
             type,
             message_id AS "messageId",
             conversation_id AS "conversationId",
@@ -2893,12 +2896,13 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
          LIMIT 100
        )
        INSERT INTO notifications (
-         id, user_id, type, message_id, conversation_id, title, body,
+         id, user_id, actor_username, type, message_id, conversation_id, title, body,
          is_read, read_at, created_at, row_version
        )
        SELECT
          'reel:' || MD5($2 || ':' || eligible.follower_username),
          eligible.follower_username,
+         $1,
          'content',
          $2,
          $3,
@@ -2910,7 +2914,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
          1
        FROM eligible_followers eligible
        ON CONFLICT (id) DO NOTHING
-       RETURNING id, user_id AS "userId", type, message_id AS "messageId",
+       RETURNING id, user_id AS "userId", actor_username AS "actorUsername", type, message_id AS "messageId",
          conversation_id AS "conversationId", title, body, is_read AS "isRead",
          read_at AS "readAt", created_at AS "createdAt"`,
       [String(product.uploadedBy), String(product.id), channelId, String(product.name || "Reel").slice(0, 120)]
@@ -4074,6 +4078,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       `SELECT
          id,
          user_id AS "userId",
+         actor_username AS "actorUsername",
          type,
          message_id AS "messageId",
          conversation_id AS "conversationId",
@@ -4082,9 +4087,19 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
          is_read AS "isRead",
          read_at AS "readAt",
          created_at AS "createdAt"
-       FROM notifications
-       WHERE user_id = $1
-       ORDER BY created_at DESC, id DESC
+       FROM notifications notification
+       WHERE notification.user_id = $1
+         AND (
+           notification.type NOT IN ('message', 'request', 'follow', 'content')
+           OR notification.actor_username = ''
+           OR notification.actor_username = $1
+           OR NOT EXISTS (
+             SELECT 1 FROM user_blocks blocked
+             WHERE (blocked.blocker_username = $1 AND blocked.blocked_username = notification.actor_username)
+                OR (blocked.blocker_username = notification.actor_username AND blocked.blocked_username = $1)
+           )
+         )
+       ORDER BY notification.created_at DESC, notification.id DESC
        LIMIT $2`,
       [username, limit]
     );
@@ -4741,13 +4756,14 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     }
     await client.query(
       `INSERT INTO notifications (
-         id, user_id, type, message_id, conversation_id, title, body,
+         id, user_id, actor_username, type, message_id, conversation_id, title, body,
          is_read, read_at, created_at
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        ON CONFLICT (id) DO NOTHING`,
       [
         notification.id,
         notification.userId,
+        notification.actorUsername || "",
         notification.type || "message",
         notification.messageId || "",
         notification.conversationId || "",
@@ -7812,17 +7828,17 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
              LIMIT 100
            )
            INSERT INTO notifications (
-             id, user_id, type, message_id, conversation_id, title, body,
+             id, user_id, actor_username, type, message_id, conversation_id, title, body,
              is_read, read_at, created_at, row_version
            )
            SELECT
              'collection:' || MD5($2 || ':' || eligible.follower_username),
-             eligible.follower_username, 'content', $2, $3,
+             eligible.follower_username, $1, 'content', $2, $3,
              'Collection mpya kutoka ' || $1, $4,
              FALSE, NULL, NOW(), 1
            FROM eligible_followers eligible
            ON CONFLICT (id) DO NOTHING
-           RETURNING id, user_id AS "userId", type, message_id AS "messageId",
+           RETURNING id, user_id AS "userId", actor_username AS "actorUsername", type, message_id AS "messageId",
              conversation_id AS "conversationId", title, body, is_read AS "isRead",
              read_at AS "readAt", created_at AS "createdAt"`,
           [owner, id, channelId, title]
@@ -8328,6 +8344,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       const notification = changed && following ? {
         id: stableId("follow", [follower, followed]),
         userId: followed,
+        actorUsername: follower,
         type: "follow",
         title: `${follower} amekufuata`,
         body: "Anaweza kuona public commerce activity unayoshiriki.",

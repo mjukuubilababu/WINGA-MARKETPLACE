@@ -3027,6 +3027,7 @@ function normalizeNotificationRecord(notification) {
   return {
     id: sanitizePlainText(notification.id, 80) || `note-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`,
     userId: normalizeIdentifier(notification.userId || notification.username, 40),
+    actorUsername: normalizeIdentifier(notification.actorUsername || notification.actorId, 40),
     type,
     variant,
     messageId: sanitizePlainText(notification.messageId, 80),
@@ -3079,6 +3080,7 @@ function buildOrderNotification({ recipientId, actorUsername, order, stage }) {
 
   return normalizeNotificationRecord({
     userId: safeRecipientId,
+    actorUsername: safeActor,
     type: "order",
     conversationId: safeOrder.id,
     title,
@@ -5829,13 +5831,49 @@ function emitLiveEvent(username, eventName, payload) {
   });
 }
 
-function deliverPostgresMessageEvent(event) {
+const BLOCK_FILTERED_NOTIFICATION_TYPES = new Set(["message", "request", "follow", "content"]);
+
+async function emitAuthorizedNotifications(notificationRecords = []) {
+  const notifications = (Array.isArray(notificationRecords) ? notificationRecords : [notificationRecords])
+    .map((notification) => normalizeNotificationRecord(notification || {}))
+    .filter((notification) => notification.userId);
+  const socialActors = Array.from(new Set(notifications
+    .filter((notification) => notification.actorUsername
+      && notification.actorUsername !== notification.userId
+      && BLOCK_FILTERED_NOTIFICATION_TYPES.has(notification.type))
+    .map((notification) => notification.actorUsername)));
+  const blockedByActor = new Map();
+  if (socialActors.length && postgresStore?.readUserBlockRelationships) {
+    await Promise.all(socialActors.map(async (actorUsername) => {
+      try {
+        blockedByActor.set(actorUsername, new Set(await postgresStore.readUserBlockRelationships(actorUsername)));
+      } catch (error) {
+        safeConsole("warn", "Notification authorization check failed", error?.message || error);
+        blockedByActor.set(actorUsername, null);
+      }
+    }));
+  }
+  let emitted = 0;
+  notifications.forEach((notification) => {
+    const blockedRecipients = blockedByActor.get(notification.actorUsername);
+    if (blockedRecipients === null || blockedRecipients?.has(notification.userId)) return;
+    emitLiveEvent(notification.userId, "notification", { notification });
+    emitted += 1;
+  });
+  return emitted;
+}
+
+async function emitAuthorizedNotification(notificationRecord) {
+  return (await emitAuthorizedNotifications([notificationRecord])) === 1;
+}
+
+async function deliverPostgresMessageEvent(event) {
   const message = normalizeMessageRecord(event?.message || {});
   const notification = event?.notification ? normalizeNotificationRecord(event.notification) : null;
   if (!message.id || !message.senderId || !message.receiverId) return;
   emitLiveEvent(message.senderId, "message", { message });
   emitLiveEvent(message.receiverId, "message", { message });
-  if (notification?.userId) emitLiveEvent(notification.userId, "notification", { notification });
+  if (notification?.userId) await emitAuthorizedNotification(notification);
   if (event.sharePhoneWith) {
     emitLiveEvent(message.senderId, "users", { reason: "contact_share", username: message.senderId });
     emitLiveEvent(message.receiverId, "users", { reason: "contact_share", username: message.senderId });
@@ -7432,9 +7470,7 @@ const server = http.createServer(async (req, res) => {
         event: result.collection.status === "published" ? "collection_published" : "collection_updated",
         username: user.username, collectionId, status: result.collection.status
       });
-      (result.followerNotifications || []).map(normalizeNotificationRecord).forEach((notification) => {
-        if (notification.userId) emitLiveEvent(notification.userId, "notification", { notification });
-      });
+      await emitAuthorizedNotifications(result.followerNotifications || []);
       const { followerNotifications: _notifications, ...publicResult } = result;
       sendJson(res, 200, publicResult, { "Cache-Control": "private, no-store" });
       return;
@@ -7635,7 +7671,7 @@ const server = http.createServer(async (req, res) => {
           });
         }
         if (following && result.notification) {
-          emitLiveEvent(followedUsername, "notification", { notification: result.notification });
+          await emitAuthorizedNotification(result.notification);
         }
       }
       const { notification: _notification, ...publicResult } = result;
@@ -10843,6 +10879,7 @@ const server = http.createServer(async (req, res) => {
         const senderDisplayName = sanitizePlainText(sender.fullName || sender.username, 80) || sender.username;
         const notification = normalizeNotificationRecord({
           userId: normalizedPayload.receiverId,
+          actorUsername: sender.username,
           type: notificationType,
           messageId: nextMessage.id,
           conversationId: nextMessage.conversationId,
@@ -10924,7 +10961,7 @@ const server = http.createServer(async (req, res) => {
         if (!postgresStore) {
           emitLiveEvent(sender.username, "message", { message: nextMessage });
           emitLiveEvent(normalizedPayload.receiverId, "message", { message: nextMessage });
-          emitLiveEvent(normalizedPayload.receiverId, "notification", { notification });
+          await emitAuthorizedNotification(notification);
           if (nextMessage.messageType === "contact_share") {
             emitLiveEvent(sender.username, "users", { reason: "contact_share", username: sender.username });
             emitLiveEvent(normalizedPayload.receiverId, "users", { reason: "contact_share", username: sender.username });
@@ -13599,9 +13636,7 @@ const server = http.createServer(async (req, res) => {
         username: sellerUser.username,
         productId: normalizedProduct.id
       });
-      followerNotifications.forEach((notification) => {
-        if (notification.userId) emitLiveEvent(notification.userId, "notification", { notification });
-      });
+      await emitAuthorizedNotifications(followerNotifications);
       requestMeta.statusCode = 200;
       logRouteSummary(requestMeta, {
         productId: normalizedProduct.id,
