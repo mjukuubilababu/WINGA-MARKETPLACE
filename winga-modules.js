@@ -17138,6 +17138,33 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           ["summarySales", a("salesCurrency", "Sales ({currency})", { currency: timeSeries.currency || "TZS" }), hasTimeSeries ? count(periodCurrent.sales) : "—", "/icons/navigation/chart-column.svg", hasTimeSeries ? periodGrowth.sales : undefined]
         ]);
         panel.insertBefore(welcome, tablist);
+        const activeOpportunities = rows(data.commerceLearning?.opportunities)
+          .filter(entry => entry && !entry.sellerResponded)
+          .slice(0, 2);
+        const adaptiveSignals = activeOpportunities.length
+          + (Number(data.newInquiries || 0) > 0 ? 1 : 0)
+          + (Number(video.videoAssistedActions || 0) > 0 || Number(video.productClicks || 0) > 0 ? 1 : 0);
+        if (adaptiveSignals > 0) {
+          const adaptive = el("section", "analytics-adaptive-layer");
+          const adaptiveHeading = el("div", "analytics-section-heading");
+          adaptiveHeading.append(icon("/icons/navigation/sparkles.svg", "orange"), el("h2", "", a("adaptiveNow", "What matters now")));
+          adaptive.append(adaptiveHeading);
+          if (activeOpportunities.length) {
+            adaptive.append(el("h3", "analytics-adaptive-subtitle", a("todaysOpportunities", "Today's opportunities")));
+            activeOpportunities.forEach(entry => adaptive.append(createSellerOpportunityItem(entry)));
+          }
+          if (Number(data.newInquiries || 0) > 0) actionCard(adaptive,
+            a("replyToInquiries", "Reply to inquiries"),
+            a("replyToInquiriesReason", "{count} new inquiries are waiting.", { count: count(data.newInquiries) }),
+            () => deps.onAnalyticsAction?.("messages"), "/icons/navigation/message-circle.svg", "blue");
+          if (Number(video.videoAssistedActions || 0) > 0 || Number(video.productClicks || 0) > 0) actionCard(adaptive,
+            a("creatorImpact", "Your content is driving commerce"),
+            a("videoCommerceEvidence", "Video generated {clicks} product opens and {actions} commerce actions.", {
+              clicks: count(video.productClicks || 0), actions: count(video.videoAssistedActions || 0)
+            }),
+            () => { sellerState.tab = "content"; renderSellerDashboard(); }, "/icons/navigation/clapperboard.svg", "purple");
+          panel.insertBefore(adaptive, tablist);
+        }
         const overview = section(a("keyMetrics", "Key metrics"));
         decorateHeading(overview, "/icons/navigation/chart-column.svg", "blue");
         metrics(overview, [

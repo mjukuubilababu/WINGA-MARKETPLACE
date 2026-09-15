@@ -3071,6 +3071,10 @@ img[data-zoom-src]{
 .analytics-welcome-copy p{margin:4px 0 0;color:#34527b;font-size:13px;line-height:1.45;}
 .analytics-welcome .analytics-metrics{margin:0;}
 .analytics-welcome .analytics-card{background:rgba(255,255,255,.92);}
+.analytics-adaptive-layer{display:grid;gap:8px;margin:0 0 12px;padding:14px;border:1px solid #ffd2b5;border-radius:8px;background:#fff;color:#111a2e;box-shadow:0 6px 18px rgba(33,54,89,.06);}
+.analytics-adaptive-layer .analytics-section-heading{margin-bottom:2px;}
+.analytics-adaptive-subtitle{margin:2px 0 0;font-size:13px;line-height:1.35;color:#354765;}
+.analytics-adaptive-layer .seller-opportunity-item{margin:0;}
 .analytics-section{padding:14px 0 16px;border-bottom:1px solid #e4e9f1;}
 .analytics-section:last-child{border-bottom:0;}
 .analytics-section-heading{display:flex;align-items:center;gap:8px;margin:0 0 12px;}

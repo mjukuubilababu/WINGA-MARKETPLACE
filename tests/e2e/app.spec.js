@@ -200,6 +200,8 @@ test("seller Analytics tabs show supplied aggregates without invented growth and
   await page.goto("/");
   await openSellerAnalytics(page);
   await expect(page.locator(".analytics-welcome")).toContainText("buyer_seller");
+  await expect(page.locator(".analytics-adaptive-layer")).toBeVisible();
+  await expect(page.locator(".analytics-adaptive-layer")).toContainText(/content|video|maudhui/i);
   await expect(page.locator("[data-metric='summarySales'] strong")).toHaveText("25,000");
   await expect(page.locator(".analytics-action-grid .analytics-action-card")).toHaveCount(3);
   await expect(page.locator("[data-metric='totalViews'] strong")).toHaveText("116");
