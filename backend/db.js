@@ -5618,6 +5618,48 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
            expires_at=EXCLUDED.expires_at, updated_at=NOW()`,
         [modelVersion]
       );
+      const opportunityRecommendations = await query(
+        `WITH eligible AS (
+           SELECT o.*, seller.username AS seller_id
+           FROM commerce_opportunities o
+           JOIN users seller ON seller.status='active'
+           WHERE o.status IN ('open','responded') AND o.expires_at>NOW() AND o.category<>''
+             AND (
+               seller.primary_category=o.category OR o.category LIKE seller.primary_category||'-%'
+               OR EXISTS (
+                 SELECT 1 FROM products seller_product
+                 WHERE seller_product.uploaded_by=seller.username
+                   AND seller_product.status='approved' AND seller_product.category=o.category
+               )
+             )
+             AND NOT EXISTS (
+               SELECT 1 FROM supply_responses response
+               WHERE response.opportunity_id=o.opportunity_id AND response.seller_id=seller.username
+                 AND response.status='active'
+             )
+         )
+         INSERT INTO intelligence_recommendations (
+           recommendation_id,audience_type,audience_key,recommendation_type,
+           entity_type,entity_key,score,reasons,metadata,model_version,generated_at,expires_at,updated_at
+         )
+         SELECT 'seller_opportunity_'||md5(eligible.seller_id||':'||eligible.opportunity_id),
+           'seller',eligible.seller_id,'market_opportunity','opportunity',eligible.opportunity_id,
+           LEAST(1000,GREATEST(1,eligible.demand_score*10+eligible.evidence_count*5-eligible.supply_score*3)),
+           jsonb_build_array('aggregate_demand_evidence',eligible.type,'seller_category_fit'),
+           jsonb_build_object(
+             'opportunityId',eligible.opportunity_id,'type',eligible.type,'queryKey',eligible.query_key,
+             'productId',eligible.product_id,'category',eligible.category,'region',eligible.region,
+             'color',eligible.color,'size',eligible.size,'demandScore',eligible.demand_score,
+             'supplyScore',eligible.supply_score,'evidenceCount',eligible.evidence_count,
+             'privacy','aggregate-only'
+           ),$1,NOW(),eligible.expires_at,NOW()
+         FROM eligible
+         ON CONFLICT (audience_type,audience_key,recommendation_type,entity_type,entity_key)
+         DO UPDATE SET score=EXCLUDED.score,reasons=EXCLUDED.reasons,metadata=EXCLUDED.metadata,
+           status='active',model_version=EXCLUDED.model_version,generated_at=NOW(),
+           expires_at=EXCLUDED.expires_at,updated_at=NOW()`,
+        [modelVersion]
+      );
       const buyerRecommendations = await query(
         `INSERT INTO intelligence_recommendations (
            recommendation_id, audience_type, audience_key, recommendation_type,
@@ -5735,16 +5777,23 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       const aggregateSignals = await query(
         `WITH candidates AS (
            SELECT 'demand'::text AS intelligence_type,'product'::text AS subject_type,pds.product_id AS subject_id,
-             'demand_evidence'::text AS signal_name,to_jsonb(pds.demand_score) AS value,
-             LEAST(0.95,0.25+LN(1+GREATEST(0,pds.total_demand))/10)::numeric AS confidence,
-             GREATEST(1,pds.total_demand)::int AS evidence_count
-           FROM product_demand_summaries pds WHERE pds.total_demand>0
+              'demand_evidence'::text AS signal_name,to_jsonb(pds.demand_score) AS value,
+              LEAST(0.95,0.25+LN(1+GREATEST(0,pds.total_demand))/10)::numeric AS confidence,
+              GREATEST(1,pds.total_demand)::int AS evidence_count,'[]'::jsonb AS observed_from
+            FROM product_demand_summaries pds WHERE pds.total_demand>0
            UNION ALL
            SELECT CASE WHEN ies.entity_type='seller' THEN 'seller_quality' ELSE 'product_quality' END,
-             ies.entity_type,ies.entity_key,ies.entity_type||'_composite_score',to_jsonb(ies.score),
-             LEAST(0.95,0.25+LN(1+GREATEST(0,ies.evidence_count))/10)::numeric,
-             GREATEST(1,ies.evidence_count)::int
-           FROM intelligence_entity_scores ies WHERE ies.expires_at>NOW()
+              ies.entity_type,ies.entity_key,ies.entity_type||'_composite_score',to_jsonb(ies.score),
+              LEAST(0.95,0.25+LN(1+GREATEST(0,ies.evidence_count))/10)::numeric,
+              GREATEST(1,ies.evidence_count)::int,'[]'::jsonb
+            FROM intelligence_entity_scores ies WHERE ies.expires_at>NOW()
+           UNION ALL
+           SELECT 'demand','opportunity',o.opportunity_id,'market_opportunity_evidence',
+              jsonb_build_object('demandScore',o.demand_score,'supplyScore',o.supply_score,'type',o.type),
+              LEAST(0.95,0.30+LN(1+GREATEST(0,o.evidence_count))/10)::numeric,
+              GREATEST(1,o.evidence_count)::int,jsonb_build_array(o.opportunity_id)
+           FROM commerce_opportunities o
+           WHERE o.status IN ('open','responded') AND o.expires_at>NOW() AND o.evidence_count>0
          )
          INSERT INTO intelligence_signals (
            signal_id,schema_version,intelligence_type,intelligence_version,subject_type,subject_id,
@@ -5753,7 +5802,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
          )
          SELECT 'sig_'||md5(intelligence_type||':'||subject_type||':'||subject_id||':'||CURRENT_DATE::text),
            '2026-09-15.wip-signal.v1',intelligence_type,'1.0.0',subject_type,subject_id,signal_name,value,
-           confidence,evidence_count,'[]'::jsonb,NOW(),NOW()+INTERVAL '26 hours',NULL,
+            confidence,evidence_count,observed_from,NOW(),NOW()+INTERVAL '26 hours',NULL,
            jsonb_build_object('level','daily','value',CURRENT_DATE),$1,'wip-aggregate-rules-v1',
            'canonical-commerce-features-v1',NOW()
          FROM candidates
@@ -5793,6 +5842,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
         relationships: Number(productRelationships.rowCount || 0) + Number(categoryRelationships.rowCount || 0) + Number(regionRelationships.rowCount || 0),
         forecasts: Number(forecasts.rowCount || 0),
         sellerRecommendations: Number(sellerRecommendations.rowCount || 0),
+        opportunityRecommendations: Number(opportunityRecommendations.rowCount || 0),
         buyerRecommendations: Number(buyerRecommendations.rowCount || 0),
         productScores: Number(productScores.rowCount || 0),
         sellerScores: Number(sellerScores.rowCount || 0),
@@ -5822,17 +5872,27 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     const safeLimit = Math.max(1, Math.min(Number(limit || 10) || 10, 50));
     if (!safeAudienceKey) return [];
     const result = await readQuery(
-      `SELECT recommendation_id AS "recommendationId", recommendation_type AS "recommendationType",
-              entity_type AS "entityType", entity_key AS "entityKey", score::float8, reasons, metadata,
-              model_version AS "modelVersion", generated_at AS "generatedAt", r.expires_at AS "expiresAt",
+      `SELECT r.recommendation_id AS "recommendationId", r.recommendation_type AS "recommendationType",
+              r.entity_type AS "entityType", r.entity_key AS "entityKey", r.score::float8, r.reasons, r.metadata,
+              r.model_version AS "modelVersion", r.generated_at AS "generatedAt", r.expires_at AS "expiresAt",
               d.decision_id AS "decisionId", d.confidence::float8 AS "decisionConfidence",
               d.policy_version AS "policyVersion", d.reason_codes AS "decisionReasonCodes"
-       FROM intelligence_recommendations r
-       JOIN intelligence_decisions d ON d.idempotency_key='recommendation:'||r.recommendation_id
-         AND d.selected_action='SURFACE_RECOMMENDATION' AND d.expires_at>NOW()
-       JOIN products p ON p.id=r.entity_key AND p.status='approved'
-       WHERE r.audience_type=$1 AND r.audience_key=$2 AND r.status='active' AND r.expires_at > NOW()
-         AND (($1='seller' AND p.uploaded_by=$2) OR ($1='person' AND p.availability='available') OR $1='market')
+        FROM intelligence_recommendations r
+        JOIN intelligence_decisions d ON d.idempotency_key='recommendation:'||r.recommendation_id
+          AND d.selected_action='SURFACE_RECOMMENDATION' AND d.expires_at>NOW()
+        LEFT JOIN products p ON r.entity_type='product' AND p.id=r.entity_key AND p.status='approved'
+        LEFT JOIN commerce_opportunities o ON r.entity_type='opportunity' AND o.opportunity_id=r.entity_key
+        WHERE r.audience_type=$1 AND r.audience_key=$2 AND r.status='active' AND r.expires_at > NOW()
+          AND (
+            ($1='seller' AND r.entity_type='product' AND p.uploaded_by=$2)
+            OR ($1='seller' AND r.entity_type='opportunity' AND o.status IN ('open','responded') AND o.expires_at>NOW()
+              AND NOT EXISTS (
+                SELECT 1 FROM supply_responses response
+                WHERE response.opportunity_id=o.opportunity_id AND response.seller_id=$2 AND response.status='active'
+              ))
+            OR ($1='person' AND r.entity_type='product' AND p.availability='available')
+            OR ($1='market' AND r.entity_type='product' AND p.id IS NOT NULL)
+          )
        ORDER BY r.score DESC, r.generated_at DESC LIMIT $3`,
       [safeAudienceType, safeAudienceKey, safeLimit]
     );
@@ -5866,7 +5926,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
           eventType: "recommendation_surfaced",
           sourceEvent: "executive_action_result",
           timestamp: result.completedAt,
-          productId: recommendation.entityKey,
+          productId: recommendation.entityType === "product" ? recommendation.entityKey : "",
           sellerId: safeAudienceType === "seller" ? safeAudienceKey : "",
           buyerId: safeAudienceType === "person" ? safeAudienceKey : "",
           sessionId: "",
@@ -5874,7 +5934,11 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
           location: "",
           deviceType: "",
           appVersion: "",
-          metadata: { decisionId: result.decisionId, actionStatus: result.status },
+          metadata: {
+            decisionId: result.decisionId,
+            actionStatus: result.status,
+            opportunityId: recommendation.entityType === "opportunity" ? recommendation.entityKey : ""
+          },
           quality: { known: true, scoreableProduct: false, scoreableSeller: false, confidence: 1, reasons: [] },
           schemaVersion: "2026-09-15.canonical-event.v1",
           platformVersion: "2026-09-15.1"

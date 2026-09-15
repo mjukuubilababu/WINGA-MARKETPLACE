@@ -11612,7 +11612,7 @@ const server = http.createServer(async (req, res) => {
         try {
           const [personal, seller] = await Promise.all([
             postgresStore.readIntelligenceRecommendations("person", user.username, 4),
-            postgresStore.readIntelligenceRecommendations("seller", user.username, 4)
+            postgresStore.readIntelligenceRecommendations("seller", user.username, 8)
           ]);
           analytics.intelligenceRecommendations = {
             schemaVersion: "intelligence-recommendations-v1",

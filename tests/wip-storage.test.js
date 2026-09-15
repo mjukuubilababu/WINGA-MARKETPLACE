@@ -107,26 +107,56 @@ test("fresh Winga database boots WIP and closes learn decide act with real comme
          product_id,seller_id,total_demand,waiting_users,restock_interest,demand_score,first_demand_at,last_demand_at
        ) VALUES ('product-1','seller-1',8,5,3,25,NOW(),NOW())`
     );
+    await freshStore.upsertCommerceOpportunities([{
+      opportunityId: "opp-search-white-dress",
+      type: "zero_result",
+      source: "search_gap_aggregate",
+      queryKey: "white-maxi-dress",
+      productId: "",
+      category: "wanawake-magauni",
+      region: "Mwanza",
+      color: "white",
+      size: "M",
+      demandScore: 18,
+      supplyScore: 0,
+      evidenceCount: 6,
+      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      createdAt: new Date().toISOString(),
+      metadata: { privacy: "aggregate-only" }
+    }]);
     const refresh = await freshStore.refreshIntelligenceDecisionOutputs({ windowDays: 14 });
     assert.equal(refresh.modelVersion, "deterministic-commerce-v1");
-    assert.ok(refresh.signals >= 2);
-    assert.equal(refresh.decisions, 1);
+    assert.ok(refresh.signals >= 3);
+    assert.equal(refresh.opportunityRecommendations, 1);
+    assert.equal(refresh.decisions, 2);
     const recommendations = await freshStore.readIntelligenceRecommendations("seller", "seller-1", 4);
-    assert.equal(recommendations.length, 1);
-    assert.equal(recommendations[0].policyVersion, "wip-conscious-policy-v1");
-    assert.ok(recommendations[0].decisionConfidence > 0);
+    assert.equal(recommendations.length, 2);
+    const opportunityRecommendation = recommendations.find(entry => entry.recommendationType === "market_opportunity");
+    assert.equal(opportunityRecommendation.entityType, "opportunity");
+    assert.equal(opportunityRecommendation.entityKey, "opp-search-white-dress");
+    assert.equal(opportunityRecommendation.metadata.privacy, "aggregate-only");
+    assert.equal(opportunityRecommendation.policyVersion, "wip-conscious-policy-v1");
+    assert.ok(opportunityRecommendation.decisionConfidence > 0);
     const feedbackJobs = await freshStore.claimIntelligenceQueueBatch({ limit: 5, workerId: "wip-feedback-test" });
-    assert.equal(feedbackJobs.length, 1);
-    assert.equal(feedbackJobs[0].event.eventType, "recommendation_surfaced");
-    await freshStore.appendIntelligenceEvent(feedbackJobs[0].event);
-    const feedbackLearning = learnFromObservation(feedbackJobs[0].event);
+    assert.equal(feedbackJobs.length, 2);
+    const productFeedback = feedbackJobs.find(job => job.event.productId === "product-1");
+    assert.equal(productFeedback.event.eventType, "recommendation_surfaced");
+    await Promise.all(feedbackJobs.map(job => freshStore.appendIntelligenceEvent(job.event)));
+    const feedbackLearning = learnFromObservation(productFeedback.event);
     const feedbackSignals = await freshStore.appendIntelligenceSignals(feedbackLearning.signals);
-    await freshStore.completeIntelligenceQueueItem(feedbackJobs[0].queueId);
+    await Promise.all(feedbackJobs.map(job => freshStore.completeIntelligenceQueueItem(job.queueId)));
     assert.ok(feedbackSignals.inserted >= 2);
     const mindHealth = await freshStore.readWipMindHealth();
     assert.ok(mindHealth.activeSignals >= 2);
-    assert.equal(mindHealth.activeDecisions, 1);
-    assert.equal(mindHealth.executedActions, 1);
+    assert.equal(mindHealth.activeDecisions, 2);
+    assert.equal(mindHealth.executedActions, 2);
+    await freshStore.recordSellerOpportunityDecision({
+      sellerId: "seller-1",
+      opportunityId: "opp-search-white-dress",
+      actionType: "dismiss"
+    });
+    const afterDismiss = await freshStore.readIntelligenceRecommendations("seller", "seller-1", 4);
+    assert.equal(afterDismiss.some(entry => entry.recommendationType === "market_opportunity"), false);
     const migrationRow = await freshDb.query("SELECT 1 FROM schema_migrations WHERE migration_id='2026091513_wip_mind_contracts'");
     assert.equal(migrationRow.rowCount, 1);
   } finally {

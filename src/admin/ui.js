@@ -382,9 +382,21 @@
         ]);
         panel.insertBefore(welcome, tablist);
         const activeGoals = rows(data.commerceGoals);
-        const activeOpportunities = rows(data.commerceLearning?.opportunities)
-          .filter(entry => entry && !entry.sellerResponded)
-          .slice(0, 2);
+        const opportunityRecommendations = rows(data.intelligenceRecommendations?.seller)
+          .filter(entry => entry?.recommendationType === "market_opportunity" && entry?.metadata?.opportunityId)
+          .map(entry => ({
+            ...entry.metadata,
+            opportunityId: entry.metadata.opportunityId,
+            decisionId: entry.decisionId,
+            decisionConfidence: entry.decisionConfidence,
+            recommendationReasons: entry.reasons
+          }));
+        const recommendedOpportunityIds = new Set(opportunityRecommendations.map(entry => entry.opportunityId));
+        const activeOpportunities = [
+          ...opportunityRecommendations,
+          ...rows(data.commerceLearning?.opportunities)
+            .filter(entry => entry && !entry.sellerResponded && !recommendedOpportunityIds.has(entry.opportunityId))
+        ].slice(0, 2);
         const durableSellerRecommendations = rows(data.intelligenceRecommendations?.seller)
           .filter(entry => entry?.recommendationType === "restock" && entry?.entityKey)
           .slice(0, 2);
