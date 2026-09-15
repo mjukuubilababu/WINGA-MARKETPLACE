@@ -13628,6 +13628,14 @@ window.addEventListener("winga:image-error", (event) => {
     return;
   }
   noteBrokenMarketplaceImage(productId, imageSource);
+  const surface = String(event?.detail?.surface || "").trim();
+  if (
+    (surface === "visual_categories" || surface === "category_hero")
+    && currentView === "home"
+    && uiRuntimeState.activeMobileNav === "categories"
+  ) {
+    window.requestAnimationFrame(() => renderFilterCategories());
+  }
 });
 
 const DEFAULT_PRODUCTS = [];

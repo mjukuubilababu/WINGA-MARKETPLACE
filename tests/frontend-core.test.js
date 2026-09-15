@@ -6105,6 +6105,8 @@ test("visual categories reuse canonical taxonomy with fail-soft localized discov
   assert.match(source, /category_hero_click/);
   assert.match(source, /fallbackSrc: visual\.fallback/);
   assert.match(source, /data-visual-categories-back/);
+  assert.match(source, /"data-image-action-product": visual\.productId/);
+  assert.match(appSource, /surface === "visual_categories" \|\| surface === "category_hero"/);
   assert.doesNotMatch(source, /data-visual-sprite/);
   assert.doesNotMatch(styleSource, /visual-categories-v2\.webp/);
   assert.match(categoryConfigSource, /VISUAL_CATEGORY_PRESENTATION/);

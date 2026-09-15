@@ -5387,6 +5387,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       const previewImage = String(previewProduct?.image || "").trim();
       return {
         image: previewImage,
+        productId: String(previewProduct?.id || previewProduct?.productId || "").trim(),
         alt: t("categories.imageAlt", "{category} category", { category: category.label }),
         fallback: deps.getImageFallbackDataUri(String(category.label || "W").slice(0, 1)),
         priority: index < 2
@@ -5416,7 +5417,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             width: compact ? "160" : "360",
             height: compact ? "132" : "280",
             "data-disable-image-zoom": "true",
-            "data-image-action-surface": "visual_categories"
+            "data-image-action-surface": "visual_categories",
+            "data-image-action-product": visual.productId
           }
         }));
       } else {
@@ -5528,7 +5530,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             className: "visual-categories-hero-image startup-critical",
             fallbackSrc: visual.fallback,
             placeholderSrc: visual.fallback,
-            attributes: { width: "720", height: "280", "data-disable-image-zoom": "true", "data-image-action-surface": "category_hero" }
+            attributes: { width: "720", height: "280", "data-disable-image-zoom": "true", "data-image-action-surface": "category_hero", "data-image-action-product": visual.productId }
           }));
         } else {
           heroMedia.appendChild(createElement("span", { className: "visual-category-fallback", textContent: "W", attributes: { "aria-hidden": "true" } }));
