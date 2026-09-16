@@ -614,6 +614,19 @@
         }),
         statusRow
       );
+      if (Array.isArray(order.items) && order.items.length) {
+        const items = deps.createElement("ul", { className: "conversation-order-items" });
+        order.items.slice(0, 10).forEach((item) => {
+          const entry = deps.createElement("li");
+          entry.append(
+            deps.createElement("span", { textContent: item.productName || "" }),
+            deps.createElement("small", { textContent: [item.size, item.color].filter(Boolean).join(" / ") }),
+            deps.createElement("span", { textContent: t("orders.itemQuantityPrice", "{quantity} x {price}", { quantity: item.quantity, price: deps.formatProductPrice(item.unitPrice) }) })
+          );
+          items.appendChild(entry);
+        });
+        line.appendChild(items);
+      }
       if (lifecycle.detail) {
         line.appendChild(deps.createElement("small", {
           className: "meta-copy order-lifecycle-copy",

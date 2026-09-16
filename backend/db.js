@@ -5,6 +5,8 @@ const { normalizeProductMediaItems } = require("./product-media");
 const { createAdsStore } = require("./ads-store");
 const { createConversationOffersStore } = require("./conversation-offers-store");
 const { createConversationAvailabilityStore } = require("./conversation-availability-store");
+const { lockCheckoutReservation, reservationWindowSeconds, createCheckoutReservationStore } = require("./checkout-reservations");
+const { reserveOrderItems, settleOrderInventory, refreshOrderInventoryAvailability, lockOrderInventoryProducts } = require("./inventory-order-items");
 const { evaluateRecommendationPolicy, executeDecision } = require("./wip-mind");
 const {
   COMMERCE_REDISCOVERY_EXPERIMENT_KEY,
@@ -1875,7 +1877,16 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
           cancellation_reason AS "cancellationReason",
           updated_at AS "updatedAt",
           row_version AS "rowVersion",
-          created_at AS "createdAt"
+          created_at AS "createdAt",
+          COALESCE((
+            SELECT jsonb_agg(jsonb_build_object(
+              'id', item.id, 'productId', item.product_id,
+              'productName', item.product_name, 'size', item.size,
+              'color', item.color, 'quantity', item.quantity,
+              'unitPrice', item.unit_price, 'currency', item.currency
+            ) ORDER BY item.created_at, item.id)
+            FROM order_items item WHERE item.order_id = orders.id
+          ), '[]'::jsonb) AS items
         FROM orders
         ORDER BY created_at DESC
       `) : EMPTY_QUERY_RESULT),
@@ -3306,6 +3317,29 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
 
   async function createCommerceOrder(order = {}, payment = {}, notification = null, context = {}) {
     return withTransaction(async (client) => {
+      let reservationRequest = null;
+      if (context.reserveBeforePayment) {
+        reservationRequest = await lockCheckoutReservation(client, order, context);
+        if (reservationRequest.code) return { created: false, code: reservationRequest.code };
+        if (reservationRequest.existing) return reservationRequest.existing;
+        const visibility = buildProductVisibilityClause({ viewerUsername: order.buyerUsername, parameterOffset: 1 });
+        const visible = await client.query(`SELECT p.id FROM products p WHERE p.id=$1 AND ${visibility.clauses.join(" AND ")}`,
+          [order.productId, ...visibility.params]);
+        if (!visible.rowCount) return { created: false, code: "product_not_found" };
+        order = { ...order, status: "placed", paymentStatus: "pending", transactionId: "",
+          paymentIntentStatus: "awaiting_reference", paymentSubmittedAt: null,
+          reserveExpiresAt: new Date(Date.now() + reservationWindowSeconds() * 1000).toISOString() };
+        payment = { ...payment, paymentStatus: "pending", transactionReference: "", receiptNumber: "",
+          rawGatewayResponse: { provider: "manual_mobile_money", status: "awaiting_reference" } };
+      }
+      const inventoryItems=Array.isArray(context.inventoryItems)?context.inventoryItems:null;
+      if(inventoryItems){
+        if(!inventoryItems.length || inventoryItems.length>10 || inventoryItems.some(item=>!item || typeof item.productId!=="string") || inventoryItems[0].productId!==order.productId || context.acceptedOfferId){
+          return {created:false,code:"invalid_order_items"};
+        }
+        await client.query("SELECT id FROM products WHERE id=ANY($1::text[]) ORDER BY id FOR UPDATE",
+          [[...new Set(inventoryItems.map(item=>item.productId))].sort()]);
+      }
       const productResult = await client.query(
         `SELECT id, price::float8 AS price, uploaded_by AS "uploadedBy", status, availability
          FROM products WHERE id = $1 FOR UPDATE`,
@@ -3316,6 +3350,10 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       if (product.status !== "approved") return { created: false, code: "product_not_approved" };
       if (product.availability !== "available") return { created: false, code: "product_unavailable" };
       if (product.uploadedBy === order.buyerUsername) return { created: false, code: "self_purchase" };
+      if (!inventoryItems) {
+        const tracked = await client.query("SELECT 1 FROM product_inventory_variants WHERE product_id=$1 LIMIT 1", [order.productId]);
+        if (tracked.rowCount) return { created: false, code: "variant_selection_required" };
+      }
       let effectivePrice = Number(product.price);
       let acceptedOffer = null;
       if (context.acceptedOfferId) {
@@ -3340,7 +3378,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
           return { created: false, code: "offer_currency_mismatch" };
         }
         effectivePrice = Number(acceptedOffer.amount);
-      } else if (Number(product.price) !== Number(order.price)) {
+      } else if (!inventoryItems && Number(product.price) !== Number(order.price)) {
         return { created: false, code: "price_changed" };
       }
 
@@ -3353,7 +3391,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       );
       if (activeOrderResult.rowCount) return { created: false, code: "active_order" };
 
-      const claimResult = await client.query(
+      const claimResult = context.reserveBeforePayment ? { rowCount: 1 } : await client.query(
         `INSERT INTO payment_transaction_claims (transaction_reference, payment_id, order_id)
          VALUES ($1, $2, $3)
          ON CONFLICT (transaction_reference) DO NOTHING
@@ -3389,6 +3427,15 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
           /^[a-f0-9]{64}$/.test(String(context.audienceKey || "")) ? context.audienceKey : ""
         ]
       );
+      if(inventoryItems){
+        const reserved=await reserveOrderItems(client,order,inventoryItems);
+        if(reserved.total!==Number(context.quotedTotal))throw new Error("price_changed");
+        effectivePrice=reserved.total;
+        await client.query("UPDATE orders SET price=$2 WHERE id=$1",[order.id,effectivePrice]);
+      }else{
+        await client.query(`INSERT INTO order_items(id,order_id,product_id,product_name,quantity,unit_price,currency)
+          VALUES($1,$2,$3,$4,1,$5,$6)`,[`legacy:${order.id}`,order.id,order.productId,order.productName,effectivePrice,order.currency||"TZS"]);
+      }
       await client.query(
         `INSERT INTO payments (
            id, order_id, buyer_username, amount_paid, payment_method,
@@ -3426,6 +3473,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
         sourceEntityKey: order.id,
         metadata: { privacy: "self-scoped", paymentStatus: order.paymentStatus || "pending" }
       });
+      if(inventoryItems)await refreshOrderInventoryAvailability(client,order.id);
       if (acceptedOffer) {
         await client.query(
           `UPDATE conversation_offers
@@ -3442,7 +3490,12 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
         );
       }
       await insertNotificationRow(client, notification);
-      return { created: true, code: "", orderId: order.id, paymentId: payment.id, price: effectivePrice };
+      if (reservationRequest) {
+        await client.query(`INSERT INTO checkout_reservation_requests(buyer_username,request_key,request_hash,order_id)
+          VALUES($1,$2,$3,$4)`, [order.buyerUsername,reservationRequest.key,reservationRequest.hash,order.id]);
+      }
+      return { created: true, code: "", orderId: order.id, paymentId: payment.id, price: effectivePrice,
+        ...(reservationRequest ? { reserveExpiresAt: order.reserveExpiresAt } : {}) };
     });
   }
 
@@ -3470,12 +3523,16 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
         return { updated: false, code: "payment_currency_mismatch", orderId: payment.orderId };
       }
       const orderResult = await client.query(
-        `SELECT id, product_id AS "productId", status, payment_status AS "paymentStatus"
+        `SELECT id, product_id AS "productId", status, payment_status AS "paymentStatus",
+                payment_intent_status AS "paymentIntentStatus"
          FROM orders WHERE id = $1 FOR UPDATE`,
         [payment.orderId]
       );
       const order = orderResult.rows?.[0];
       if (!order) return { updated: false, code: "order_not_found" };
+      if (paymentStatus === "paid" && order.paymentIntentStatus === "awaiting_reference") {
+        return { updated: false, code: "payment_reference_required", orderId: order.id };
+      }
       const eventId = String(context.eventId || "").trim().slice(0, 160);
       if (eventId) {
         const eventClaim = await client.query(
@@ -3611,11 +3668,14 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
         [order.id, nextOrderStatus, paymentStatus, now]
       );
       const availability = nextOrderStatus === "cancelled" ? "available" : "reserved";
+      await lockOrderInventoryProducts(client, [order.id]);
       await client.query(
         `UPDATE products SET availability = $2, updated_at = $3, row_version = row_version + 1
          WHERE id = $1`,
         [order.productId, availability, now]
       );
+      await settleOrderInventory(client,order.id,nextOrderStatus);
+      await refreshOrderInventoryAvailability(client,order.id);
       return { updated: true, code: "", orderId: order.id, paymentStatus, orderStatus: nextOrderStatus };
     });
   }
@@ -3654,6 +3714,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
               cancelled_at = $18, cancellation_reason = $19,
               updated_at = NOW(), row_version = row_version + 1
          WHERE id = $1 AND status = $2 AND payment_status = $3 AND row_version = $20
+           AND NOT (payment_intent_status = 'awaiting_reference' AND $5 = 'paid')
          RETURNING product_id AS "productId", row_version AS "rowVersion"`,
         [
           currentOrder.id, currentOrder.status, currentOrder.paymentStatus,
@@ -3692,11 +3753,14 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
          WHERE order_id = $1`,
         [currentOrder.id, nextPayment.paymentStatus]
       );
+      await lockOrderInventoryProducts(client, [currentOrder.id]);
       await client.query(
         `UPDATE products SET availability = $2, updated_at = NOW(), row_version = row_version + 1
          WHERE id = $1`,
         [row.productId, availability]
       );
+      await settleOrderInventory(client,currentOrder.id,nextOrder.status);
+      await refreshOrderInventoryAvailability(client,currentOrder.id);
       await insertNotificationRow(client, notification);
       return { updated: true, conflict: false, rowVersion: Number(row.rowVersion || 0) };
     });
@@ -3724,13 +3788,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       if (!expiredOrders.length) return { expired: 0, releasedProducts: 0, hasMore: false };
 
       const orderIds = expiredOrders.map((order) => order.id);
-      const productIds = [...new Set(expiredOrders.map((order) => order.productId).filter(Boolean))];
-      if (productIds.length) {
-        await client.query(
-          "SELECT id FROM products WHERE id = ANY($1::text[]) ORDER BY id FOR UPDATE",
-          [productIds]
-        );
-      }
+      await lockOrderInventoryProducts(client, orderIds);
       const cancelledResult = await client.query(
         `UPDATE orders
          SET status = 'cancelled', payment_status = 'cancelled',
@@ -3744,6 +3802,10 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       const cancelledOrders = cancelledResult.rows || [];
       const cancelledIds = cancelledOrders.map((order) => order.id);
       const cancelledProductIds = [...new Set(cancelledOrders.map((order) => order.productId).filter(Boolean))];
+      for(const expiredOrder of cancelledOrders){
+        await settleOrderInventory(client,expiredOrder.id,"cancelled");
+        await refreshOrderInventoryAvailability(client,expiredOrder.id);
+      }
       if (cancelledIds.length) {
         await client.query(
           `UPDATE payments
@@ -3760,6 +3822,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
                row_version = row_version + 1
            WHERE p.id = ANY($1::text[])
              AND p.availability = 'reserved'
+             AND NOT EXISTS (SELECT 1 FROM product_inventory_variants v WHERE v.product_id = p.id)
              AND NOT EXISTS (
                SELECT 1 FROM orders active
                WHERE active.product_id = p.id
@@ -3787,6 +3850,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
         [batchSize]
       );
       if (!due.rowCount) return { completed: 0, hasMore: false };
+      await lockOrderInventoryProducts(client, due.rows.map(order => order.id));
       const now = new Date().toISOString();
       for (const order of due.rows) {
         await client.query(
@@ -3800,6 +3864,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
           `UPDATE products SET availability = 'sold_out', updated_at = $2, row_version = row_version + 1 WHERE id = $1`,
           [order.productId, now]
         );
+        await settleOrderInventory(client,order.id,"delivered");
+        await refreshOrderInventoryAvailability(client,order.id);
         await client.query(
           `INSERT INTO order_lifecycle_events (event_key, order_id, from_status, to_status, actor_username, actor_role, reason, metadata)
            VALUES ($1, $2, 'shipped', 'delivered', 'system', 'system', 'delivery_confirmation_timeout', $3::jsonb)
@@ -9723,6 +9789,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
 
   return {
     init,
+    ...createCheckoutReservationStore({ withTransaction, insertNotificationRow }),
     readStore,
     readProductsPage,
     readRediscoveryProducts,

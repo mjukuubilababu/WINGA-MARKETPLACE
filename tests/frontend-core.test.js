@@ -6411,7 +6411,8 @@ test("conversation commerce offers use canonical API state and participant actio
   assert.match(controllerSource, /transitionConversationOffer\(/);
   assert.match(controllerSource, /createOfferIdempotencyKey/);
   assert.match(controllerSource, /acceptedOfferId: button\.dataset\.offerCheckout/);
-  assert.match(appSource, /acceptedOfferId: paymentIntentState\.acceptedOfferId \|\| undefined/);
+  assert.match(appSource, /acceptedOfferId: state\.acceptedOfferId \|\| undefined/);
+  assert.match(appSource, /reservationOrderId: paymentIntentState\.reservationOrderId/);
   assert.doesNotMatch(controllerSource, /createOrder\(/);
 });
 

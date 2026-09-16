@@ -76,6 +76,7 @@
             const paymentLabel = deps.getPaymentStatusLabel?.(paymentStatus) || paymentStatus;
             const progress = deps.getOrderProgressLabel?.(order) || "";
             const actions = deps.getOrderActionButtons?.(order) || "";
+            const items = Array.isArray(order.items) ? order.items.slice(0, 10) : [];
             return `
               <article class="conversation-commerce-card" data-conversation-order="${deps.escapeHtml(order.id || "")}">
                 <div class="conversation-commerce-card-head">
@@ -89,6 +90,13 @@
                     <span>${deps.formatProductPrice(order.price)}</span>
                   </div>
                 </div>
+                ${items.length ? `<ul class="conversation-order-items">${items.map(item => `
+                  <li>
+                    <span>${deps.escapeHtml(item.productName || "")}</span>
+                    <small>${deps.escapeHtml([item.size, item.color].filter(Boolean).join(" / "))}</small>
+                    <span>${deps.escapeHtml(t("orders.itemQuantityPrice", "{quantity} x {price}", { quantity: item.quantity, price: deps.formatProductPrice(item.unitPrice) }))}</span>
+                  </li>
+                `).join("")}</ul>` : ""}
                 <div class="conversation-commerce-status" aria-label="${deps.escapeHtml(t("chat.orderCurrentState", "Current order state"))}">
                   <span class="status-pill${lifecycle.tone ? ` ${lifecycle.tone}` : ""}">${deps.escapeHtml(lifecycle.label || status)}</span>
                   <span class="status-pill${paymentStatus === "paid" ? " approved" : ["failed", "cancelled"].includes(paymentStatus) ? " rejected" : ""}">${deps.escapeHtml(paymentLabel)}</span>

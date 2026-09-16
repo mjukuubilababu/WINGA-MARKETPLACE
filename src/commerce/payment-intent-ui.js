@@ -11,10 +11,29 @@
     function createPaymentIntentContent({ product, paymentDetails = {}, state = {} } = {}) {
       if (!product || typeof createElement !== "function") return null;
       const wrapper = createElement("div", { className: "payment-intent-shell" });
+      const expired = state.reservationOrderId && Date.parse(state.reservationExpiresAt || "") <= Date.now();
+      if (!state.reservationOrderId || expired) {
+        wrapper.append(
+          createElement("h3", { textContent: t("order.reserveAction", "Reserve stock"), attributes: { id: "payment-intent-title" } }),
+          createElement("strong", { textContent: product.name || "" })
+        );
+        if (expired || state.feedbackMessage) wrapper.append(createElement("p", {
+          className: "payment-intent-status is-warning",
+          textContent: expired ? t("order.reservationExpired", "Reservation expired. Do not pay until stock is reserved again.") : state.feedbackMessage
+        }));
+        const reserve = createElement("button", {
+          className: "action-btn buy-btn",
+          textContent: state.loading ? t("order.reserving", "Reserving...") : t("order.reserveAction", "Reserve stock"),
+          attributes: { type: "button", "data-reserve-payment-intent": "true" }
+        });
+        reserve.disabled = Boolean(state.loading);
+        wrapper.append(reserve);
+        return { wrapper, input: null };
+      }
       wrapper.append(
         createElement("p", { className: "eyebrow", textContent: t("order.checkoutEyebrow", "Mobile Money checkout") }),
         createElement("h3", { textContent: t("order.submitReferenceTitle", "Submit payment reference"), attributes: { id: "payment-intent-title" } }),
-        createElement("p", { className: "product-meta", textContent: t("order.submitReferenceHelp", "Lipa kwanza, kisha weka receipt au transaction reference ili order ihifadhiwe pending verification.") })
+        createElement("p", { className: "product-meta", textContent: t("order.reservedUntil", "Stock reserved until {time}", { time: new Date(state.reservationExpiresAt).toLocaleString() }) })
       );
 
       const summary = createElement("div", { className: "payment-intent-summary" });
@@ -24,8 +43,7 @@
         createElement("p", { className: "product-meta", textContent: t("order.amountLabel", "Amount: {amount}", { amount: formatProductPrice(state.agreedPrice || product.price) }) }),
         createElement("p", { className: "product-meta", textContent: t("order.paymentNumberLabel", "Payment number: {number}", { number: paymentDetails.number || t("common.notSet", "Not set") }) }),
         createElement("p", { className: "product-meta", textContent: t("order.recipientLabel", "Recipient: {recipient}", { recipient: paymentDetails.recipientName || t("order.sellerFallback", "Seller") }) }),
-        createElement("p", { className: "product-meta", textContent: t("order.providerLabel", "Provider: {provider}", { provider }) }),
-        createElement("p", { className: "product-meta", textContent: t("order.reservationWindow", "Reservation window: 24 hours pending verification") })
+        createElement("p", { className: "product-meta", textContent: t("order.providerLabel", "Provider: {provider}", { provider }) })
       );
       if (paymentDetails.instructions) summary.append(createElement("p", { className: "auth-note", textContent: paymentDetails.instructions }));
 

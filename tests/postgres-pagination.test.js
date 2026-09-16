@@ -767,6 +767,7 @@ test("PostgreSQL commerce order locks inventory and commits receipt, order, paym
         return { rows: [{ id: "p1", price: 25000, uploadedBy: "seller", status: "approved", availability: "available" }], rowCount: 1 };
       }
       if (sql.includes("SELECT 1 FROM orders")) return { rows: [], rowCount: 0 };
+      if (sql.includes("SELECT 1 FROM product_inventory_variants")) return { rows: [], rowCount: 0 };
       if (sql.includes("INSERT INTO payment_transaction_claims")) return { rows: [{ transaction_reference: "TX12345" }], rowCount: 1 };
       return { rows: [], rowCount: 1 };
     },
@@ -816,6 +817,7 @@ test("PostgreSQL accepted offer checkout uses the locked agreed price and conver
         }], rowCount: 1 };
       }
       if (sql.includes("SELECT 1 FROM orders")) return { rows: [], rowCount: 0 };
+      if (sql.includes("SELECT 1 FROM product_inventory_variants")) return { rows: [], rowCount: 0 };
       if (sql.includes("INSERT INTO payment_transaction_claims")) {
         return { rows: [{ transaction_reference: "TXOFFER123" }], rowCount: 1 };
       }
@@ -862,6 +864,7 @@ test("PostgreSQL commerce order rejects a duplicate transaction before business 
         return { rows: [{ price: 1000, uploadedBy: "seller", status: "approved", availability: "available" }], rowCount: 1 };
       }
       if (sql.includes("SELECT 1 FROM orders")) return { rows: [], rowCount: 0 };
+      if (sql.includes("SELECT 1 FROM product_inventory_variants")) return { rows: [], rowCount: 0 };
       if (sql.includes("payment_transaction_claims")) return { rows: [], rowCount: 0 };
       return { rows: [], rowCount: 1 };
     },
@@ -1251,8 +1254,12 @@ test("PostgreSQL reservation expiry cancels stale commerce state and safely rele
   assert.match(calls[1].text, /FOR UPDATE SKIP LOCKED/);
   assert.match(calls[2].text, /FROM products.*FOR UPDATE/s);
   assert.match(calls[3].text, /status = 'cancelled'/);
-  assert.match(calls[4].text, /UPDATE payments/);
-  assert.match(calls[5].text, /NOT EXISTS/);
+  const paymentIndex = calls.findIndex(call => call.text.includes("UPDATE payments"));
+  const releaseIndex = calls.findIndex(call => call.text.includes("p.availability = 'reserved'"));
+  assert.ok(paymentIndex > 3);
+  assert.ok(releaseIndex > paymentIndex);
+  assert.match(calls[releaseIndex].text, /NOT EXISTS/);
+  assert.match(calls[releaseIndex].text, /product_inventory_variants/);
   assert.equal(calls.at(-1).text, "COMMIT");
 });
 test("PostgreSQL message send serializes conversation pressure and commits notification atomically", async () => {

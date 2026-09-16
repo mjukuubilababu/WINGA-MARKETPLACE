@@ -173,7 +173,10 @@
 
     async function createOrder(payload) {
       requireFetcher();
-      return fetchJson(`${baseUrl}/orders`, {
+      const path = payload.reservationOrderId
+        ? `/orders/${encodeURIComponent(payload.reservationOrderId)}/payment-reference`
+        : payload.reserveBeforePayment ? "/orders/reservations" : "/orders";
+      return fetchJson(`${baseUrl}${path}`, {
         method: "POST",
         headers: jsonHeaders(),
         body: JSON.stringify(payload)

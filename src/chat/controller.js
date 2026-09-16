@@ -991,6 +991,17 @@
           if (button.disabled) return;
           const orderId = button.dataset.orderId;
           const status = button.dataset.orderAction;
+          if (status === "resume_payment") {
+            try {
+              button.disabled = true;
+              await deps.resumeOrderPayment?.(orderId);
+            } catch (error) {
+              deps.showInAppNotification?.({ title: t("order.paymentProofFailedTitle", "Payment proof failed"), body: error.message, variant: "error" });
+            } finally {
+              button.disabled = false;
+            }
+            return;
+          }
           const isRejectPayment = button.dataset.orderRejectPayment === "true";
           const disputeReason = status === "disputed" && typeof window.prompt === "function"
             ? String(window.prompt(t("order.disputePrompt", "Describe the delivery issue"), "") || "").trim()

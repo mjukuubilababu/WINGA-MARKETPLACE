@@ -1141,6 +1141,52 @@ test("mobile profile messages use a clear conversation list and detail flow", as
   await context.close();
 });
 
+test("checkout reserves stock before exposing payment and submits reference to the same order", async ({ browser }, testInfo) => {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure", {
+    viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true
+  });
+  const requests = [];
+  let submitted = false;
+  const reserved = {
+    id: "reserved-checkout-1", productId: "e2e-prod-1", productName: "Sneaker Classic", price: 32000,
+    buyerUsername: "buyer_seller", sellerUsername: "market_seller",
+    status: "placed", paymentStatus: "pending", paymentIntentStatus: "awaiting_reference",
+    paymentPhoneNumber: "255700123456", paymentProvider: "mpesa", paymentRecipientName: "Canonical Recipient",
+    reserveExpiresAt: new Date(Date.now() + 15 * 60000).toISOString(), createdAt: new Date().toISOString()
+  };
+  await page.route("**/api/orders/mine", route => route.fulfill({ json: { purchases: submitted ? [reserved] : [], sales: [] } }));
+  await page.route("**/api/orders/reservations", async route => {
+    requests.push(route.request().postDataJSON());
+    await route.fulfill(requests.length === 1
+      ? { status: 503, json: { error: "Temporary test outage" } }
+      : { json: reserved });
+  });
+  await page.route("**/api/orders/reserved-checkout-1/payment-reference", async route => {
+    expect(route.request().postDataJSON().transactionId).toBe("PAYREF123");
+    submitted = true;
+    await route.fulfill({ json: { ...reserved, transactionId: "PAYREF123", paymentIntentStatus: "submitted" } });
+  });
+  await page.goto("/");
+  await expect.poll(() => page.evaluate(() => Boolean(getProductById("e2e-prod-1")))).toBe(true);
+  await page.evaluate(() => beginPurchaseFlow(getProductById("e2e-prod-1")));
+  const modal = page.locator("#payment-intent-modal");
+  await expect(modal).toBeVisible();
+  await expect(modal.locator("#payment-intent-transaction-input")).toHaveCount(0);
+  await modal.locator("[data-reserve-payment-intent]").click();
+  await expect(modal).toContainText("Temporary test outage");
+  await expect(modal.locator("#payment-intent-transaction-input")).toHaveCount(0);
+  await modal.locator("[data-reserve-payment-intent]").click();
+  await expect(modal.locator("#payment-intent-transaction-input")).toBeVisible();
+  expect(requests[0].idempotencyKey).toBe(requests[1].idempotencyKey);
+  await expect(modal).toContainText("Canonical Recipient");
+  await page.screenshot({ path: testInfo.outputPath("reservation-checkout-mobile.png") });
+  await modal.locator("#payment-intent-transaction-input").fill("PAYREF123");
+  await modal.locator("[data-submit-payment-intent]").click();
+  await expect(modal).toBeHidden();
+  expect(submitted).toBe(true);
+  await context.close();
+});
+
 test("conversation product finder searches canonical supply and opens the seller chat", async ({ browser }) => {
   const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure", {
     viewport: { width: 390, height: 844 },
@@ -1150,6 +1196,10 @@ test("conversation product finder searches canonical supply and opens the seller
   await page.route("**/api/orders/mine", route => route.fulfill({
     json: {purchases:[{
       id:"order-chat-live",productId:"e2e-prod-1",productName:"Sneaker Classic",price:32000,
+      items:[
+        {id:"line-1",productId:"e2e-prod-1",productName:"Sneaker Classic",size:"42",color:"Black",quantity:2,unitPrice:10000,currency:"TZS"},
+        {id:"line-2",productId:"e2e-prod-2",productName:"Extra item",size:"M",color:"White",quantity:1,unitPrice:12000,currency:"TZS"}
+      ],
       buyerUsername:"buyer_seller",sellerUsername:"market_seller",status:"shipped",paymentStatus:"paid",
       createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()
     }],sales:[]}
@@ -1173,6 +1223,10 @@ test("conversation product finder searches canonical supply and opens the seller
   await expect(page.locator("#context-chat-title")).toContainText("Market Seller Shop");
   const orderCard=page.locator('#context-chat-modal [data-conversation-order="order-chat-live"]');
   await expect(orderCard).toBeVisible();
+  await expect(orderCard.locator(".conversation-order-items li")).toHaveCount(2);
+  await expect(orderCard.locator(".conversation-order-items")).toContainText("Extra item");
+  await expect(orderCard.locator(".conversation-order-items")).toContainText("42 / Black");
+  await expect(orderCard.locator(".conversation-order-items")).toContainText("2 x");
   await expect(orderCard.locator("[data-order-action]").first()).toHaveAttribute("data-winga-bound-order-action","true");
 
   await context.close();

@@ -11715,6 +11715,10 @@ function ensurePaymentIntentModal() {
       }
       return;
     }
+    if (event.target.closest("[data-reserve-payment-intent='true']")) {
+      reservePaymentIntentOrder();
+      return;
+    }
     if (event.target.closest("[data-submit-payment-intent='true']")) {
       submitPaymentIntentOrder().catch((error) => {
         captureClientError("payment_intent_submit_failed", error, {
@@ -11740,6 +11744,7 @@ function ensurePaymentIntentModal() {
 }
 
 function closePaymentIntentModal() {
+  clearTimeout(paymentIntentState.expiryTimer);
   const root = document.getElementById("payment-intent-modal");
   if (!root) {
     return;
@@ -11759,15 +11764,42 @@ function closePaymentIntentModal() {
   syncBodyScrollLockState();
 }
 
+function getPaymentIntentProduct() {
+  const order = paymentIntentState.reservationOrder;
+  return getProductById(paymentIntentState.productId || "") || (order ? {
+    id: order.productId, name: order.productName, price: order.price,
+    uploadedBy: order.sellerUsername, image: order.productImage
+  } : null);
+}
+
+async function resumeOrderPayment(orderId) {
+  const current = await window.WingaDataLayer.loadMyOrders();
+  const order = (current.purchases || []).find(item => item.id === orderId
+    && item.paymentIntentStatus === "awaiting_reference" && item.status === "placed");
+  if (!order) throw new Error(translateUi("order.productUnavailable", {}, "Bidhaa haijapatikana tena. Jaribu kufungua product upya."));
+  clearTimeout(paymentIntentState.expiryTimer);
+  paymentIntentState = { productId: order.productId, reservationOrderId: order.id,
+    reservationOrder: order, reservationExpiresAt: order.reserveExpiresAt,
+    agreedPrice: order.price, loading: false, transactionId: "", feedbackMessage: "" };
+  renderPaymentIntentModal();
+}
+
 function renderPaymentIntentModal() {
+  clearTimeout(paymentIntentState.expiryTimer);
   const root = ensurePaymentIntentModal();
   const body = root.querySelector("[data-payment-intent-body='true']");
-  const product = getProductById(paymentIntentState.productId || "");
+  const product = getPaymentIntentProduct();
   if (!body || !product) {
     closePaymentIntentModal();
     return;
   }
-  const paymentDetails = getProductPaymentDetails(product);
+  const reservedOrder = paymentIntentState.reservationOrder;
+  const paymentDetails = reservedOrder ? {
+    number: reservedOrder.paymentPhoneNumber,
+    provider: reservedOrder.paymentProvider,
+    recipientName: reservedOrder.paymentRecipientName,
+    instructions: reservedOrder.paymentInstructions
+  } : getProductPaymentDetails(product);
   const content = getPaymentIntentUiTools().createPaymentIntentContent({
     product,
     paymentDetails,
@@ -11781,13 +11813,54 @@ function renderPaymentIntentModal() {
   body.replaceChildren(wrapper);
   root.hidden = false;
   root.classList.add("open");
-  input.focus();
-  input.select();
+  input?.focus();
+  input?.select();
   syncBodyScrollLockState();
+  const expiresIn = Date.parse(paymentIntentState.reservationExpiresAt || "") - Date.now();
+  if (expiresIn > 0) {
+    const state = paymentIntentState;
+    state.expiryTimer = setTimeout(() => {
+      if (paymentIntentState === state) renderPaymentIntentModal();
+    }, expiresIn + 50);
+  }
+}
+
+async function reservePaymentIntentOrder() {
+  if (paymentIntentState.loading) return;
+  const state = paymentIntentState;
+  const expired = state.reservationOrderId && Date.parse(state.reservationExpiresAt || "") <= Date.now();
+  if (!state.reservationKey || expired) state.reservationKey = "checkout-" + crypto.randomUUID();
+  state.loading = true;
+  state.feedbackMessage = "";
+  renderPaymentIntentModal();
+  try {
+    const current = await window.WingaDataLayer.loadMyOrders();
+    const existing = (current.purchases || []).find(order => order.productId === state.productId
+      && order.paymentIntentStatus === "awaiting_reference" && order.status === "placed"
+      && Date.parse(order.reserveExpiresAt || "") > Date.now());
+    const order = existing || await window.WingaDataLayer.createOrder({
+      productId: state.productId, acceptedOfferId: state.acceptedOfferId || undefined,
+      reserveBeforePayment: true, idempotencyKey: state.reservationKey
+    });
+    state.reservationOrderId = order.id;
+    state.reservationExpiresAt = order.reserveExpiresAt;
+    state.reservationOrder = order;
+    state.agreedPrice = order.price;
+  } catch (error) {
+    state.feedbackMessage = error.message || translateUi("order.productUnavailable", {}, "Bidhaa haijapatikana tena. Jaribu kufungua product upya.");
+  } finally {
+    state.loading = false;
+    if (paymentIntentState === state) renderPaymentIntentModal();
+  }
 }
 
 async function submitPaymentIntentOrder() {
-  const product = getProductById(paymentIntentState.productId || "");
+  const submissionState = paymentIntentState;
+  if (!paymentIntentState.reservationOrderId || Date.parse(paymentIntentState.reservationExpiresAt || "") <= Date.now()) {
+    renderPaymentIntentModal();
+    return;
+  }
+  const product = getPaymentIntentProduct();
   if (!product) {
     throw new Error(translateUi("order.productUnavailable", {}, "Bidhaa haijapatikana tena. Jaribu kufungua product upya."));
   }
@@ -11802,7 +11875,9 @@ async function submitPaymentIntentOrder() {
     });
     return;
   }
-  const paymentDetails = getProductPaymentDetails(product);
+  const paymentDetails = paymentIntentState.reservationOrder
+    ? { number: paymentIntentState.reservationOrder.paymentPhoneNumber }
+    : getProductPaymentDetails(product);
   if (!paymentDetails.number) {
     throw new Error(translateUi("order.sellerPaymentMissing", {}, "Muuzaji bado hajaweka Lipa namba. Tuma ujumbe kwanza."));
   }
@@ -11850,7 +11925,7 @@ async function submitPaymentIntentOrder() {
     await window.WingaDataLayer.createOrder({
       productId: product.id,
       transactionId,
-      acceptedOfferId: paymentIntentState.acceptedOfferId || undefined
+      reservationOrderId: paymentIntentState.reservationOrderId
     });
     await Promise.all([refreshOrdersState(), refreshConversationOffersState()]);
     paymentIntentSubmissionRegistry.set(submissionKey, {
@@ -11866,7 +11941,7 @@ async function submitPaymentIntentOrder() {
     productId: product.id
   });
   maybePromptNotificationPermission("order");
-  closePaymentIntentModal();
+  if (paymentIntentState === submissionState) closePaymentIntentModal();
   showInAppNotification({
     title: translateUi("order.referenceSubmittedTitle", {}, "Reference submitted"),
     body: translateUi("order.referenceSubmittedBody", {}, "Order imehifadhiwa pending verification."),
@@ -12437,6 +12512,7 @@ const {
   openProductChat: openProductChatFromController,
   openOwnProductMessages: openOwnProductMessagesFromController
 } = window.WingaModules.chat.createChatControllerModule({
+  resumeOrderPayment,
   dataLayer: window.WingaDataLayer,
   getProfileDiv: () => profileDiv,
   renderProfile,

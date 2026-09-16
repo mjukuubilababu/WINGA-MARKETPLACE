@@ -212,6 +212,7 @@ test("order insertion binds only trusted audience context, never a field in the 
         return { rows: [{ id: "p", price: 20, uploadedBy: "seller", status: "approved", availability: "available" }], rowCount: 1 };
       }
       if (sql.includes("SELECT 1 FROM orders")) return { rows: [], rowCount: 0 };
+      if (sql.includes("SELECT 1 FROM product_inventory_variants")) return { rows: [], rowCount: 0 };
       return { rows: [], rowCount: 1 };
     }
   } });

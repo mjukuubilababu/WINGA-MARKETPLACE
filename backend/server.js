@@ -254,6 +254,7 @@ const RATE_LIMIT_RULES = {
   "/api/messages": { limit: 24, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/messages/read": { limit: 40, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/orders": { limit: 12, windowMs: RATE_LIMIT_WINDOW_MS },
+  "/api/orders/reservations": { limit: 12, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/reviews": { limit: 10, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/promotions": { limit: 8, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/reports": { limit: 8, windowMs: RATE_LIMIT_WINDOW_MS },
@@ -3080,7 +3081,7 @@ function normalizeOrderRecord(order) {
     || (normalizedStatus === "placed" && normalizedPaymentStatus === "pending"
       ? new Date(new Date(createdAt).getTime() + (24 * 60 * 60 * 1000)).toISOString()
       : "");
-  const paymentIntentStatus = ["submitted", "verified", "cancelled", "expired", "reconciliation_required"].includes(String(order.paymentIntentStatus || "").toLowerCase())
+  const paymentIntentStatus = ["awaiting_reference", "submitted", "verified", "cancelled", "expired", "reconciliation_required"].includes(String(order.paymentIntentStatus || "").toLowerCase())
     ? String(order.paymentIntentStatus || "").toLowerCase()
     : (normalizedStatus === "cancelled" || normalizedPaymentStatus === "failed" || normalizedPaymentStatus === "cancelled"
       ? "cancelled"
@@ -3090,6 +3091,16 @@ function normalizeOrderRecord(order) {
   return {
     ...order,
     productName: sanitizePlainText(order.productName, 120),
+    items: (Array.isArray(order.items) ? order.items : []).slice(0, 10).map((item) => ({
+      id: sanitizePlainText(item.id, 180),
+      productId: sanitizePlainText(item.productId, 80),
+      productName: sanitizePlainText(item.productName, 120),
+      size: sanitizePlainText(item.size, 40),
+      color: sanitizePlainText(item.color, 40),
+      quantity: Math.max(1, Math.min(99, Math.trunc(Number(item.quantity) || 1))),
+      unitPrice: Number.isFinite(Number(item.unitPrice)) ? Math.max(0, Number(item.unitPrice)) : 0,
+      currency: sanitizePlainText(item.currency || order.currency || "TZS", 3).toUpperCase()
+    })),
     productImage: order.productImage || "",
     shop: sanitizePlainText(order.shop, 120),
     sellerUsername: normalizeIdentifier(order.sellerUsername, 40),
@@ -3103,7 +3114,7 @@ function normalizeOrderRecord(order) {
     paymentRecipientName: sanitizePlainText(order.paymentRecipientName || order.sellerUsername || "", 120),
     paymentInstructions: sanitizePlainText(order.paymentInstructions || "", 240),
     transactionId: sanitizePlainText(order.transactionId, 80).toUpperCase(),
-    paymentSubmittedAt: order.paymentSubmittedAt || order.createdAt || new Date().toISOString(),
+    paymentSubmittedAt: paymentIntentStatus === "awaiting_reference" ? "" : (order.paymentSubmittedAt || order.createdAt || new Date().toISOString()),
     paymentConfirmedAt: order.paymentConfirmedAt || "",
     paymentConfirmedBy: normalizeIdentifier(order.paymentConfirmedBy, 40),
     paymentIntentStatus,
@@ -6474,6 +6485,9 @@ function getRateLimitIdentity(req, store) {
 
 function getRateLimitRule(pathname, method = "GET") {
   const normalizedMethod = String(method || "GET").toUpperCase();
+  if (normalizedMethod === "POST" && /^\/api\/orders\/[^/]+\/payment-reference$/.test(pathname)) {
+    return { ...RATE_LIMIT_RULES["/api/orders"], key: "/api/orders/payment-reference" };
+  }
   if (normalizedMethod === "GET" && READ_RATE_LIMIT_RULES[pathname]) {
     return {
       ...READ_RATE_LIMIT_RULES[pathname],
@@ -12955,7 +12969,37 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    if (req.method === "POST" && url.pathname === "/api/orders") {
+    const referenceRoute = url.pathname.match(/^\/api\/orders\/([^/]+)\/payment-reference$/);
+    if (req.method === "POST" && referenceRoute) {
+      const buyer = ensureMarketplaceUser(store, findSession(store, readAuthToken(req)), res);
+      if (!buyer) return;
+      if (!postgresStore?.submitReservedOrderReference) {
+        sendJson(res, 503, { error: "Checkout is temporarily unavailable.", code: "checkout_unavailable" });
+        return;
+      }
+      const payload = await collectBody(req);
+      const result = await postgresStore.submitReservedOrderReference({
+        orderId: decodeURIComponent(referenceRoute[1]),
+        buyerUsername: buyer.username,
+        transactionReference: payload.transactionId
+      });
+      if (!result.updated) {
+        sendJson(res, result.code === "order_not_found" ? 404 : 409, {
+          error: "Payment reference could not be submitted. Check the order and reference.",
+          code: result.code
+        });
+        return;
+      }
+      const fresh = await postgresStore.readStore(["orders", "payments"]);
+      store = { ...store, orders: fresh.orders, payments: fresh.payments };
+      if (result.notification) emitLiveEvent(result.notification.userId, "notification", { notification: result.notification });
+      sendJson(res, 200, normalizeOrderRecord(fresh.orders.find(order => order.id === result.orderId)), {
+        "Cache-Control": "private, no-store"
+      });
+      return;
+    }
+    if (req.method === "POST" && ["/api/orders", "/api/orders/reservations"].includes(url.pathname)) {
+      const reserveBeforePayment = url.pathname === "/api/orders/reservations";
       const token = readAuthToken(req);
       const session = findSession(store, token);
       const buyerUser = ensureMarketplaceUser(store, session, res);
@@ -12967,11 +13011,15 @@ const server = http.createServer(async (req, res) => {
       const productId = typeof payload?.productId === "string" ? payload.productId.trim() : "";
       const transactionId = sanitizePlainText(payload?.transactionId, 80).toUpperCase();
       const acceptedOfferId = sanitizePlainText(payload?.acceptedOfferId, 100);
+      if (reserveBeforePayment && !postgresStore?.createCommerceOrder) {
+        sendJson(res, 503, { error: "Checkout reservations are temporarily unavailable.", code: "checkout_unavailable" });
+        return;
+      }
       if (!productId) {
         sendJson(res, 400, { error: "Bidhaa ya kununua haijachaguliwa." });
         return;
       }
-      if (!isValidTransactionReference(transactionId)) {
+      if (!reserveBeforePayment && !isValidTransactionReference(transactionId)) {
         sendJson(res, 400, { error: "Weka transaction reference sahihi baada ya kulipa." });
         return;
       }
@@ -12987,11 +13035,11 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
-      if (product.availability === "sold_out") {
+      if (!reserveBeforePayment && product.availability === "sold_out") {
         sendJson(res, 400, { error: "Bidhaa hii imeisha, ni sold out." });
         return;
       }
-      if (product.availability === "reserved") {
+      if (!reserveBeforePayment && product.availability === "reserved") {
         sendJson(res, 409, { error: "Bidhaa hii imeshahifadhiwa kwa order nyingine. Tuma ujumbe kwa muuzaji kwanza." });
         return;
       }
@@ -13006,7 +13054,7 @@ const server = http.createServer(async (req, res) => {
         && order.buyerUsername === session.username
         && ["placed", "paid", "confirmed", "processing", "shipped", "disputed"].includes(order.status)
       );
-      if (hasActiveOrder) {
+      if (!reserveBeforePayment && hasActiveOrder) {
         sendJson(res, 409, { error: "Tayari una order inayoendelea kwa bidhaa hii." });
         return;
       }
@@ -13015,7 +13063,7 @@ const server = http.createServer(async (req, res) => {
       const duplicateTransaction = (store.payments || []).some((payment) =>
         payment.transactionReference === transactionId || payment.receiptNumber === transactionId
       );
-      if (duplicateTransaction) {
+      if (!reserveBeforePayment && duplicateTransaction) {
         sendJson(res, 409, { error: "Receipt au transaction reference hiyo tayari imetumika." });
         return;
       }
@@ -13116,7 +13164,9 @@ const server = http.createServer(async (req, res) => {
       if (postgresStore?.createCommerceOrder) {
         const commerceResult = await postgresStore.createCommerceOrder(order, payment, sellerNotification, {
           audienceKey: getCommerceAudience(session).audienceKey,
-          acceptedOfferId
+          acceptedOfferId,
+          reserveBeforePayment,
+          idempotencyKey: payload.idempotencyKey
         });
         if (!commerceResult.created) {
           const errors = {
@@ -13139,6 +13189,13 @@ const server = http.createServer(async (req, res) => {
         if (Number.isFinite(Number(commerceResult.price)) && Number(commerceResult.price) > 0) {
           order.price = Number(commerceResult.price);
           payment.amountPaid = Number(commerceResult.price);
+        }
+        if (reserveBeforePayment) {
+          const fresh = await postgresStore.readStore(["orders", "payments", "products"]);
+          store = { ...store, orders: fresh.orders, payments: fresh.payments, products: fresh.products };
+          const reservedOrder = fresh.orders.find(item => item.id === commerceResult.orderId && item.buyerUsername === session.username);
+          sendJson(res, 200, normalizeOrderRecord(reservedOrder), { "Cache-Control": "private, no-store" });
+          return;
         }
       } else {
         await writeStore(nextStore);

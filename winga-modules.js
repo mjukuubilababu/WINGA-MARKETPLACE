@@ -1682,7 +1682,10 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 
     async function createOrder(payload) {
       requireFetcher();
-      return fetchJson(`${baseUrl}/orders`, {
+      const path = payload.reservationOrderId
+        ? `/orders/${encodeURIComponent(payload.reservationOrderId)}/payment-reference`
+        : payload.reserveBeforePayment ? "/orders/reservations" : "/orders";
+      return fetchJson(`${baseUrl}${path}`, {
         method: "POST",
         headers: jsonHeaders(),
         body: JSON.stringify(payload)
@@ -15517,12 +15520,17 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             && (Date.now() - new Date(order.createdAt || 0).getTime() >= buyerCancelWindowMs)
         };
       const actions = [];
+      const awaitingReference = order.paymentIntentStatus === "awaiting_reference";
+      if (awaitingReference && order.buyerUsername === currentUser && order.status === "placed"
+        && Date.parse(order.reserveExpiresAt || "") > Date.now()) {
+        actions.push(`<button class="action-btn buy-btn" type="button" data-order-action="resume_payment" data-order-id="${escape(order.id)}">${escape(t("order.submitReferenceAction", "Submit reference"))}</button>`);
+      }
 
-      if (state.canVerifyPayment) {
+      if (state.canVerifyPayment && !awaitingReference) {
         actions.push(`<button class="action-btn buy-btn" type="button" data-order-action="paid" data-order-id="${order.id}">Verify Payment</button>`);
       }
 
-      if (state.canRejectPayment) {
+      if (state.canRejectPayment && !awaitingReference) {
         actions.push(`<button class="action-btn delete-btn" type="button" data-order-action="cancelled" data-order-id="${order.id}" data-order-reject-payment="true">Reject Payment</button>`);
       }
 
@@ -15556,6 +15564,9 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     function getOrderProgressLabel(order) {
       if (!order) {
         return "";
+      }
+      if (order.status === "placed" && order.paymentIntentStatus === "awaiting_reference") {
+        return t("order.awaitingReference", "Stock reserved. Payment reference not submitted.");
       }
       if (order.status === "placed" && order.paymentStatus === "pending") {
         return "Payment reference imepokelewa. Seller anatakiwa kuhakiki malipo haya ndani ya dirisha la reservation kabla order haijasogea mbele.";
@@ -15831,10 +15842,29 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     function createPaymentIntentContent({ product, paymentDetails = {}, state = {} } = {}) {
       if (!product || typeof createElement !== "function") return null;
       const wrapper = createElement("div", { className: "payment-intent-shell" });
+      const expired = state.reservationOrderId && Date.parse(state.reservationExpiresAt || "") <= Date.now();
+      if (!state.reservationOrderId || expired) {
+        wrapper.append(
+          createElement("h3", { textContent: t("order.reserveAction", "Reserve stock"), attributes: { id: "payment-intent-title" } }),
+          createElement("strong", { textContent: product.name || "" })
+        );
+        if (expired || state.feedbackMessage) wrapper.append(createElement("p", {
+          className: "payment-intent-status is-warning",
+          textContent: expired ? t("order.reservationExpired", "Reservation expired. Do not pay until stock is reserved again.") : state.feedbackMessage
+        }));
+        const reserve = createElement("button", {
+          className: "action-btn buy-btn",
+          textContent: state.loading ? t("order.reserving", "Reserving...") : t("order.reserveAction", "Reserve stock"),
+          attributes: { type: "button", "data-reserve-payment-intent": "true" }
+        });
+        reserve.disabled = Boolean(state.loading);
+        wrapper.append(reserve);
+        return { wrapper, input: null };
+      }
       wrapper.append(
         createElement("p", { className: "eyebrow", textContent: t("order.checkoutEyebrow", "Mobile Money checkout") }),
         createElement("h3", { textContent: t("order.submitReferenceTitle", "Submit payment reference"), attributes: { id: "payment-intent-title" } }),
-        createElement("p", { className: "product-meta", textContent: t("order.submitReferenceHelp", "Lipa kwanza, kisha weka receipt au transaction reference ili order ihifadhiwe pending verification.") })
+        createElement("p", { className: "product-meta", textContent: t("order.reservedUntil", "Stock reserved until {time}", { time: new Date(state.reservationExpiresAt).toLocaleString() }) })
       );
 
       const summary = createElement("div", { className: "payment-intent-summary" });
@@ -15844,8 +15874,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         createElement("p", { className: "product-meta", textContent: t("order.amountLabel", "Amount: {amount}", { amount: formatProductPrice(state.agreedPrice || product.price) }) }),
         createElement("p", { className: "product-meta", textContent: t("order.paymentNumberLabel", "Payment number: {number}", { number: paymentDetails.number || t("common.notSet", "Not set") }) }),
         createElement("p", { className: "product-meta", textContent: t("order.recipientLabel", "Recipient: {recipient}", { recipient: paymentDetails.recipientName || t("order.sellerFallback", "Seller") }) }),
-        createElement("p", { className: "product-meta", textContent: t("order.providerLabel", "Provider: {provider}", { provider }) }),
-        createElement("p", { className: "product-meta", textContent: t("order.reservationWindow", "Reservation window: 24 hours pending verification") })
+        createElement("p", { className: "product-meta", textContent: t("order.providerLabel", "Provider: {provider}", { provider }) })
       );
       if (paymentDetails.instructions) summary.append(createElement("p", { className: "auth-note", textContent: paymentDetails.instructions }));
 
@@ -15960,6 +15989,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             const paymentLabel = deps.getPaymentStatusLabel?.(paymentStatus) || paymentStatus;
             const progress = deps.getOrderProgressLabel?.(order) || "";
             const actions = deps.getOrderActionButtons?.(order) || "";
+            const items = Array.isArray(order.items) ? order.items.slice(0, 10) : [];
             return `
               <article class="conversation-commerce-card" data-conversation-order="${deps.escapeHtml(order.id || "")}">
                 <div class="conversation-commerce-card-head">
@@ -15973,6 +16003,13 @@ window.WingaModules.localization = window.WingaModules.localization || {};
                     <span>${deps.formatProductPrice(order.price)}</span>
                   </div>
                 </div>
+                ${items.length ? `<ul class="conversation-order-items">${items.map(item => `
+                  <li>
+                    <span>${deps.escapeHtml(item.productName || "")}</span>
+                    <small>${deps.escapeHtml([item.size, item.color].filter(Boolean).join(" / "))}</small>
+                    <span>${deps.escapeHtml(t("orders.itemQuantityPrice", "{quantity} x {price}", { quantity: item.quantity, price: deps.formatProductPrice(item.unitPrice) }))}</span>
+                  </li>
+                `).join("")}</ul>` : ""}
                 <div class="conversation-commerce-status" aria-label="${deps.escapeHtml(t("chat.orderCurrentState", "Current order state"))}">
                   <span class="status-pill${lifecycle.tone ? ` ${lifecycle.tone}` : ""}">${deps.escapeHtml(lifecycle.label || status)}</span>
                   <span class="status-pill${paymentStatus === "paid" ? " approved" : ["failed", "cancelled"].includes(paymentStatus) ? " rejected" : ""}">${deps.escapeHtml(paymentLabel)}</span>
@@ -17617,6 +17654,17 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           if (button.disabled) return;
           const orderId = button.dataset.orderId;
           const status = button.dataset.orderAction;
+          if (status === "resume_payment") {
+            try {
+              button.disabled = true;
+              await deps.resumeOrderPayment?.(orderId);
+            } catch (error) {
+              deps.showInAppNotification?.({ title: t("order.paymentProofFailedTitle", "Payment proof failed"), body: error.message, variant: "error" });
+            } finally {
+              button.disabled = false;
+            }
+            return;
+          }
           const isRejectPayment = button.dataset.orderRejectPayment === "true";
           const disputeReason = status === "disputed" && typeof window.prompt === "function"
             ? String(window.prompt(t("order.disputePrompt", "Describe the delivery issue"), "") || "").trim()
@@ -22053,6 +22101,19 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         }),
         statusRow
       );
+      if (Array.isArray(order.items) && order.items.length) {
+        const items = deps.createElement("ul", { className: "conversation-order-items" });
+        order.items.slice(0, 10).forEach((item) => {
+          const entry = deps.createElement("li");
+          entry.append(
+            deps.createElement("span", { textContent: item.productName || "" }),
+            deps.createElement("small", { textContent: [item.size, item.color].filter(Boolean).join(" / ") }),
+            deps.createElement("span", { textContent: t("orders.itemQuantityPrice", "{quantity} x {price}", { quantity: item.quantity, price: deps.formatProductPrice(item.unitPrice) }) })
+          );
+          items.appendChild(entry);
+        });
+        line.appendChild(items);
+      }
       if (lifecycle.detail) {
         line.appendChild(deps.createElement("small", {
           className: "meta-copy order-lifecycle-copy",

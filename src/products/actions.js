@@ -78,12 +78,17 @@
             && (Date.now() - new Date(order.createdAt || 0).getTime() >= buyerCancelWindowMs)
         };
       const actions = [];
+      const awaitingReference = order.paymentIntentStatus === "awaiting_reference";
+      if (awaitingReference && order.buyerUsername === currentUser && order.status === "placed"
+        && Date.parse(order.reserveExpiresAt || "") > Date.now()) {
+        actions.push(`<button class="action-btn buy-btn" type="button" data-order-action="resume_payment" data-order-id="${escape(order.id)}">${escape(t("order.submitReferenceAction", "Submit reference"))}</button>`);
+      }
 
-      if (state.canVerifyPayment) {
+      if (state.canVerifyPayment && !awaitingReference) {
         actions.push(`<button class="action-btn buy-btn" type="button" data-order-action="paid" data-order-id="${order.id}">Verify Payment</button>`);
       }
 
-      if (state.canRejectPayment) {
+      if (state.canRejectPayment && !awaitingReference) {
         actions.push(`<button class="action-btn delete-btn" type="button" data-order-action="cancelled" data-order-id="${order.id}" data-order-reject-payment="true">Reject Payment</button>`);
       }
 
@@ -117,6 +122,9 @@
     function getOrderProgressLabel(order) {
       if (!order) {
         return "";
+      }
+      if (order.status === "placed" && order.paymentIntentStatus === "awaiting_reference") {
+        return t("order.awaitingReference", "Stock reserved. Payment reference not submitted.");
       }
       if (order.status === "placed" && order.paymentStatus === "pending") {
         return "Payment reference imepokelewa. Seller anatakiwa kuhakiki malipo haya ndani ya dirisha la reservation kabla order haijasogea mbele.";
