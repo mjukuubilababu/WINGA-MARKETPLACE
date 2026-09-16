@@ -1464,35 +1464,63 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 
     async function createPromotion(payload) {
       requireFetcher();
-      return fetchJson(`${baseUrl}/promotions`, {
-        method: "POST",
-        headers: jsonHeaders(),
-        body: JSON.stringify(payload)
+      const durationByType = { starter_day: 1, boost: 1, boost_3day: 3, category_boost: 3, featured: 7, growth_7day: 7, pin_top: 14, premium_14day: 14 };
+      await fetchJson(`${baseUrl}/ads/accounts`, { method: "POST", headers: jsonHeaders(), body: JSON.stringify({ businessName: payload.businessName || "" }) });
+      const quote = await fetchJson(`${baseUrl}/ads/quote`, { method: "POST", headers: jsonHeaders(),
+        body: JSON.stringify({ placementCode: payload.placementCode || "HOME_FEED_SPONSORED", durationDays: durationByType[payload.type] || 1, startsAt: payload.startsAt || "" }) });
+      const campaign = await fetchJson(`${baseUrl}/ads/campaigns`, { method: "POST", headers: jsonHeaders(),
+        body: JSON.stringify({ productId: payload.productId, placementCode: quote.placementCode, durationDays: quote.durationDays,
+          startsAt: quote.startsAt, destinationValue: payload.productId, headline: payload.headline || "",
+          description: payload.description || "", ctaType: "VIEW_PRODUCT", targeting: payload.targeting || {} }) });
+      await fetchJson(`${baseUrl}/ads/campaigns/${encodeURIComponent(campaign.id)}/payment`, {
+        method: "POST", headers: { ...jsonHeaders(), "Idempotency-Key": `promotion-${campaign.id}-${payload.transactionReference}` },
+        body: JSON.stringify({ transactionReference: payload.transactionReference, provider: payload.paymentProvider || "mobile_money" })
       });
+      return { ...campaign, type: payload.type, transactionReference: payload.transactionReference };
     }
 
     async function loadAdminPromotions() {
       requireFetcher();
-      const data = await fetchJson(`${baseUrl}/admin/promotions`, {
-        headers: authHeaders()
-      });
-      return Array.isArray(data) ? data : [];
+      const [legacyResult, adsResult] = await Promise.allSettled([
+        fetchJson(`${baseUrl}/admin/promotions`, { headers: authHeaders() }),
+        fetchJson(`${baseUrl}/admin/ads/campaigns`, { headers: authHeaders() })
+      ]);
+      const legacy = legacyResult.status === "fulfilled" && Array.isArray(legacyResult.value) ? legacyResult.value : [];
+      const ads = adsResult.status === "fulfilled" && Array.isArray(adsResult.value)
+        ? adsResult.value.map((campaign) => ({
+          ...campaign, type: campaign.placementCode,
+          status: String(campaign.campaignStatus || "").toLowerCase(),
+          amountPaid: campaign.quotedPrice, sellerUsername: campaign.ownerUsername,
+          transactionReference: campaign.transactionReference,
+          startDate: campaign.startsAt, endDate: campaign.endsAt,
+          paymentStatus: String(campaign.paymentStatus || "").toLowerCase()
+        })) : [];
+      return [...legacy, ...ads];
     }
 
     async function reviewPromotion(promotionId, payload) {
       requireFetcher();
-      return fetchJson(`${baseUrl}/admin/promotions/${encodeURIComponent(promotionId)}/review`, {
-        method: "PATCH",
-        headers: jsonHeaders(),
-        body: JSON.stringify(payload || {})
+      const isAdCampaign = String(promotionId || "").startsWith("adcmp-");
+      return fetchJson(isAdCampaign
+        ? `${baseUrl}/admin/ads/campaigns/${encodeURIComponent(promotionId)}/review`
+        : `${baseUrl}/admin/promotions/${encodeURIComponent(promotionId)}/review`, {
+        method: "PATCH", headers: jsonHeaders(),
+        body: JSON.stringify(isAdCampaign ? {
+          decision: payload?.status === "active" ? "APPROVED" : "REJECTED",
+          reasonCode: payload?.status === "active" ? "" : (payload?.reasonCode || "OTHER"),
+          explanation: payload?.explanation || ""
+        } : (payload || {}))
       });
     }
 
     async function disablePromotion(promotionId) {
       requireFetcher();
-      return fetchJson(`${baseUrl}/admin/promotions/${encodeURIComponent(promotionId)}/disable`, {
-        method: "PATCH",
-        headers: authHeaders()
+      const isAdCampaign = String(promotionId || "").startsWith("adcmp-");
+      return fetchJson(isAdCampaign
+        ? `${baseUrl}/admin/ads/campaigns/${encodeURIComponent(promotionId)}/status`
+        : `${baseUrl}/admin/promotions/${encodeURIComponent(promotionId)}/disable`, {
+        method: "PATCH", headers: isAdCampaign ? jsonHeaders() : authHeaders(),
+        ...(isAdCampaign ? { body: JSON.stringify({ status: "PAUSED" }) } : {})
       });
     }
 

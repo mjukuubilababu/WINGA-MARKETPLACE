@@ -27,6 +27,7 @@ const {
   verifyVideoSafetyResult
 } = require("./video-safety");
 const { getOrSetCache, deleteCachePrefix, closeCache } = require("./cache");
+const { createAdsApi } = require("./ads-api");
 
 const PORT = process.env.PORT || 3000;
 const DATABASE_URL = process.env.DATABASE_URL || "";
@@ -1201,6 +1202,8 @@ const INTELLIGENCE_QUEUE_PENDING_AGE_ALERT_SECONDS = Math.max(60, Number(process
 const INTELLIGENCE_QUEUE_FAILED_AGE_ALERT_SECONDS = Math.max(60, Number(process.env.INTELLIGENCE_QUEUE_FAILED_AGE_ALERT_SECONDS || 900) || 900);
 const INTELLIGENCE_QUEUE_PROCESSING_AGE_ALERT_SECONDS = Math.max(60, Number(process.env.INTELLIGENCE_QUEUE_PROCESSING_AGE_ALERT_SECONDS || 600) || 600);
 const OPS_HEALTH_TOKEN = String(process.env.OPS_HEALTH_TOKEN || "").trim();
+let adLifecycleTimer = null;
+let adLifecycleRunning = false;
 let intelligenceQueueWorkerTimer = null;
 let intelligenceQueueWorkerRunning = false;
 let intelligenceSignalCircuitOpenUntil = 0;
@@ -1566,6 +1569,32 @@ function isValidPaymentRefundCallback(req, payload) {
     .digest("hex");
   return timingSafeStringEqual(signature, expected);
 }
+async function sweepAdLifecycle() {
+  if (adLifecycleRunning || !postgresStore?.transitionAdCampaignLifecycle) return;
+  adLifecycleRunning = true;
+  try {
+    const result = await postgresStore.transitionAdCampaignLifecycle();
+    if (result.activated || result.expired) logStructuredEvent("info", "ad_lifecycle_transition", result);
+  } catch (error) {
+    safeConsole("error", "Ads lifecycle sweep failed", error?.message || error);
+  } finally {
+    adLifecycleRunning = false;
+  }
+}
+
+function startAdLifecycleSweeper() {
+  if (adLifecycleTimer || !postgresStore?.transitionAdCampaignLifecycle) return;
+  sweepAdLifecycle();
+  adLifecycleTimer = setInterval(sweepAdLifecycle, 30000);
+  adLifecycleTimer.unref?.();
+}
+
+function stopAdLifecycleSweeper() {
+  if (!adLifecycleTimer) return;
+  clearInterval(adLifecycleTimer);
+  adLifecycleTimer = null;
+}
+
 function startCommerceReservationSweeper() {
   if (!postgresStore?.expireCommerceReservations || commerceReservationSweepTimer) return;
   sweepExpiredCommerceReservations();
@@ -7462,6 +7491,15 @@ const server = http.createServer(async (req, res) => {
   }
 
   try {
+    if (url.pathname.startsWith("/api/ads") || url.pathname.startsWith("/api/admin/ads")) {
+      const adsApi = createAdsApi({
+        collectBody, sendJson,
+        findSession: (token) => findSession(store, token), readAuthToken,
+        ensureMarketplaceUser: (session, targetRes, options) => ensureMarketplaceUser(store, session, targetRes, options),
+        isAdminSession, denyJson, getPostgresStore: () => postgresStore, clientIpForRequest: getClientIp
+      });
+      if (await adsApi.handle(req, res, url)) return;
+    }
     if (req.method === "GET" && url.pathname === "/api/global-context") {
       const token = readAuthToken(req);
       const session = findSession(store, token);
@@ -10702,6 +10740,21 @@ const server = http.createServer(async (req, res) => {
           return;
         }
 
+        let activeAdPromotions = [];
+        if (postgresStore?.readAdCampaigns) {
+          try {
+            activeAdPromotions = (await postgresStore.readAdCampaigns("", { status: "ACTIVE" }))
+              .filter((campaign) => campaign.placementCode === "HOME_FEED_SPONSORED")
+              .map((campaign) => ({
+                id: campaign.id, productId: campaign.productId, sellerUsername: campaign.ownerUsername,
+                type: campaign.durationDays >= 14 ? "premium_14day" : campaign.durationDays >= 7 ? "growth_7day" : campaign.durationDays >= 3 ? "boost_3day" : "starter_day",
+                status: "active", amountPaid: campaign.quotedPrice, paymentStatus: "paid",
+                startDate: campaign.startsAt, endDate: campaign.endsAt, sponsored: true, campaignId: campaign.id
+              }));
+          } catch (error) {
+            safeConsole("warn", "Ads feed compatibility read failed open", error?.message || error);
+          }
+        }
         const publicActivePromotions = buildPromotionsSummary(store, { admin: true })
           .filter((promotion) =>
             promotion.status === "active"
@@ -10711,7 +10764,7 @@ const server = http.createServer(async (req, res) => {
         const mergedPromotions = [];
         const seenPromotionIds = new Set();
 
-        [...userScopedPromotions, ...publicActivePromotions].forEach((promotion) => {
+        [...userScopedPromotions, ...publicActivePromotions, ...activeAdPromotions].forEach((promotion) => {
           const promotionId = String(promotion?.id || "").trim();
           if (!promotionId || seenPromotionIds.has(promotionId)) {
             return;
@@ -14405,7 +14458,7 @@ function waitForServerClose() {
 
 async function waitForBackgroundWork(deadline) {
   while (Date.now() < deadline
-    && (commerceReservationSweepRunning || paymentRefundSweepRunning || intelligenceQueueWorkerRunning || productImageMetadataBackfillRunning)) {
+    && (commerceReservationSweepRunning || paymentRefundSweepRunning || adLifecycleRunning || intelligenceQueueWorkerRunning || productImageMetadataBackfillRunning)) {
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
 }
@@ -14417,6 +14470,7 @@ function shutdownServer(signal = "SIGTERM") {
   stopIntelligenceQueueWorker();
   stopCommerceReservationSweeper();
   stopPaymentRefundSweeper();
+  stopAdLifecycleSweeper();
   productImageMetadataQueue.length = 0;
   shutdownPromise = (async () => {
     const deadline = Date.now() + SHUTDOWN_GRACE_MS;
@@ -14469,6 +14523,7 @@ server.listen(PORT, async () => {
     startIntelligenceQueueWorker();
     startCommerceReservationSweeper();
     startPaymentRefundSweeper();
+    startAdLifecycleSweeper();
     serverLifecycle.phase = "ready";
     serverLifecycle.readyAt = new Date().toISOString();
     console.log(`WINGA backend running on http://localhost:${PORT}${postgresStore ? " (PostgreSQL mode)" : " (File mode)"}`);

@@ -854,7 +854,7 @@ const MIGRATIONS = Object.freeze([
       `CREATE INDEX IF NOT EXISTS idx_rediscovery_experiment_cohort
        ON rediscovery_eligibility (experiment_key, experiment_arm, assigned_at DESC);`
     ])
-  }), require("./commerce-outcomes"), require("./intelligence-score-durability"), require("./notification-authorization"), require("./social-notification-frequency"), require("./social-analytics"), require("./product-likes"), require("./anonymous-product-views"), require("./commerce-goals"), require("./intelligence-decision-layer"), require("./intelligence-composite-scores"), require("./wip-mind-contracts"), require("./commerce-goal-transitions"), require("./intelligence-decision-outcomes")]);
+  }), require("./commerce-outcomes"), require("./intelligence-score-durability"), require("./notification-authorization"), require("./social-notification-frequency"), require("./social-analytics"), require("./product-likes"), require("./anonymous-product-views"), require("./commerce-goals"), require("./intelligence-decision-layer"), require("./intelligence-composite-scores"), require("./wip-mind-contracts"), require("./commerce-goal-transitions"), require("./intelligence-decision-outcomes"), require("./ads-v1")]);
 
 async function runSchemaMigrations({ pool, logger = console, beforeMigrations = null } = {}) {
   if (!pool || typeof pool.query !== "function") {

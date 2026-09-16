@@ -2,6 +2,7 @@ const { Client, Pool } = require("pg");
 const { runSchemaMigrations } = require("./migrations");
 const { persistIntelligenceEvent, pruneIntelligenceScoreState } = require("./intelligence-score-store");
 const { normalizeProductMediaItems } = require("./product-media");
+const { createAdsStore } = require("./ads-store");
 const { evaluateRecommendationPolicy, executeDecision } = require("./wip-mind");
 const {
   COMMERCE_REDISCOVERY_EXPERIMENT_KEY,
@@ -9635,6 +9636,14 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       return { updated: true, blocked };
     });
   }
+  const adsStore = createAdsStore({
+    query,
+    withTransaction,
+    parseJson,
+    stringifyJson,
+    toISOString
+  });
+
   async function init(getLegacyStore) {
     await runSchemaMigrations({
       pool,
@@ -9801,6 +9810,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     removeVideoWorkerHeartbeat,
     pruneStaleVideoWorkerHeartbeats,
     applyVideoUploadWebhook,
+    ...adsStore,
     close
   };
 }
