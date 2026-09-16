@@ -10307,6 +10307,20 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === "GET" && url.pathname === "/api/commerce/goals") {
+      const session = findSession(store, readAuthToken(req));
+      const user = ensureMarketplaceUser(store, session, res);
+      if (!user) return;
+      if (!postgresStore?.readCommerceGoals) {
+        sendJson(res, 503, { error: "Commerce goals hazipatikani kwa sasa." });
+        return;
+      }
+      const requestedLimit = Number.parseInt(url.searchParams.get("limit") || "10", 10);
+      const goals = await postgresStore.readCommerceGoals(user.username, Math.max(1, Math.min(20, requestedLimit || 10)));
+      sendJson(res, 200, goals, { "Cache-Control": "private, no-store" });
+      return;
+    }
+
     if (req.method === "POST" && /^\/api\/commerce\/goals\/[^/]+\/resolve$/.test(url.pathname)) {
       const session = findSession(store, readAuthToken(req));
       const user = ensureMarketplaceUser(store, session, res);

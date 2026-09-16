@@ -2766,6 +2766,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       conversationAvailabilityRequests: [],
       availabilityWithUser: "",
       availabilityActionStatus: null,
+      commerceGoals: [],
+      commerceGoalActionStatus: null,
       selectedProductIds: [],
       activeReplyMessageId: "",
       openMessageMenuId: "",
@@ -16143,6 +16145,40 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       `;
     }
 
+    function renderConversationCommerceGoal(goal = null) {
+      if (!goal?.goalId) return "";
+      const actionStatus = deps.getCommerceGoalActionStatus?.();
+      const product = goal.productId ? deps.getProductById?.(goal.productId) : null;
+      const title = goal.productName || product?.name || goal.queryKey || t("chat.shoppingGoal", "Shopping request");
+      const details = [
+        goal.size ? `${t("chat.sizeLabel", "Size")}: ${goal.size}` : "",
+        goal.color ? `${t("chat.colorLabel", "Color")}: ${goal.color}` : "",
+        goal.region ? goal.region : ""
+      ].filter(Boolean).join(" | ");
+      const matchingProducts = Math.max(0, Number(goal.matchingProducts || 0));
+      return `
+        <section class="conversation-commerce-goal" aria-label="${deps.escapeHtml(t("chat.stillLookingFor", "Still looking for"))}">
+          <article class="conversation-offer-card conversation-goal-card" data-conversation-goal="${deps.escapeHtml(goal.goalId)}">
+            <div class="conversation-commerce-card-head">
+              <span class="conversation-system-label">${deps.escapeHtml(t("chat.stillLookingFor", "Still looking for"))}</span>
+              <span class="status-pill pending">${deps.escapeHtml(String(goal.status || "looking").replace(/_/g, " "))}</span>
+            </div>
+            <div class="conversation-offer-summary">
+              <strong>${deps.escapeHtml(title)}</strong>
+              ${details ? `<span>${deps.escapeHtml(details)}</span>` : ""}
+              <span>${deps.escapeHtml(t("chat.matchesFound", "{count} matching products", { count: matchingProducts }))}</span>
+            </div>
+            <div class="conversation-commerce-actions">
+              ${goal.productId ? `<button class="action-btn action-btn-secondary" type="button" data-chat-open-product="${deps.escapeHtml(goal.productId)}">${deps.escapeHtml(t("chat.viewProduct", "View product"))}</button>` : ""}
+              <button class="action-btn buy-btn" type="button" data-commerce-goal-resolve="found" data-commerce-goal-id="${deps.escapeHtml(goal.goalId)}">${deps.escapeHtml(t("chat.foundIt", "Found it"))}</button>
+              <button class="action-btn action-btn-secondary" type="button" data-commerce-goal-resolve="stopped" data-commerce-goal-id="${deps.escapeHtml(goal.goalId)}">${deps.escapeHtml(t("chat.stopSearch", "Stop search"))}</button>
+            </div>
+            ${actionStatus?.message ? `<p class="chat-compose-status is-${deps.escapeHtml(actionStatus.tone || "info")}">${deps.escapeHtml(actionStatus.message)}</p>` : ""}
+          </article>
+        </section>
+      `;
+    }
+
     function renderConversationMessagesMarkup(activeMessages, options = {}) {
       const { enableActions = false } = options;
       if (!activeMessages.length) {
@@ -16232,6 +16268,9 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       const activeAvailabilityRequests = deps.getConversationAvailabilityRequests
         ? deps.getConversationAvailabilityRequests(activeChatContext)
         : [];
+      const activeCommerceGoal = deps.getConversationCommerceGoal
+        ? deps.getConversationCommerceGoal(activeChatContext)
+        : null;
       const activeRelationshipMemory = deps.getConversationRelationshipMemory
         ? deps.getConversationRelationshipMemory(activeChatContext)
         : null;
@@ -16320,6 +16359,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
                 ${renderConversationOrderCards(activeOrders)}
                 ${renderConversationOfferCards(activeOffers, activeChatContext)}
                 ${renderConversationAvailabilityCards(activeAvailabilityRequests, activeChatContext)}
+                ${renderConversationCommerceGoal(activeCommerceGoal)}
                 <div class="messages-thread-body">
                   ${renderConversationMessagesMarkup(activeMessages, { enableActions: true })}
                 </div>
@@ -16396,6 +16436,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       const activeMessages = deps.getActiveConversationMessages();
       const activeOffers = deps.getConversationOffers?.(activeChatContext) || [];
       const activeAvailabilityRequests = deps.getConversationAvailabilityRequests?.(activeChatContext) || [];
+      const activeCommerceGoal = deps.getConversationCommerceGoal?.(activeChatContext) || null;
       const contactState = deps.getChatContactState(activeChatContext);
       const activeWhatsApp = contactState.whatsapp;
       const productName = activeChatContext?.productName || product?.name || "General inquiry";
@@ -16452,6 +16493,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           ${contactState.note ? `<p class="thread-contact-note context-chat-note">${deps.escapeHtml(contactState.note)}</p>` : ""}
           ${renderConversationOfferCards(activeOffers, activeChatContext)}
           ${renderConversationAvailabilityCards(activeAvailabilityRequests, activeChatContext)}
+          ${renderConversationCommerceGoal(activeCommerceGoal)}
           ${selectedProducts.length ? `
             <div class="context-chat-selection-bar">
               <strong>${selectedProducts.length} item${selectedProducts.length > 1 ? "s" : ""} selected</strong>
@@ -16618,11 +16660,27 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           createOfferIdempotencyKey("availability-request")
         );
         deps.setAvailabilityActionStatus?.({ tone: "success", message: t("chat.availabilitySent", "Availability request sent.") });
-        await Promise.all([deps.refreshConversationAvailabilityState?.(), deps.refreshNotificationsState?.()]);
+        await Promise.all([deps.refreshConversationAvailabilityState?.(), deps.refreshCommerceGoalsState?.(), deps.refreshNotificationsState?.()]);
         rerender?.();
       } catch (error) {
         deps.setAvailabilityActionStatus?.({ tone: "error", message: error.message || t("chat.availabilityFailed", "Availability request failed.") });
         deps.captureError?.("conversation_availability_create_failed", error, { productId, withUser: context.withUser });
+        rerender?.();
+      }
+    }
+
+    async function resolveConversationCommerceGoal(goalId, resolution, rerender) {
+      const safeResolution = resolution === "found" ? "found" : resolution === "stopped" ? "stopped" : "";
+      if (!goalId || !safeResolution) return;
+      try {
+        deps.setCommerceGoalActionStatus?.({ tone: "info", message: t("chat.resolvingGoal", "Updating your search...") });
+        await deps.dataLayer.resolveCommerceGoal(goalId, safeResolution);
+        deps.setCommerceGoalActionStatus?.({ tone: "success", message: t("chat.goalResolved", "Your search was updated.") });
+        await deps.refreshCommerceGoalsState?.();
+        rerender?.();
+      } catch (error) {
+        deps.setCommerceGoalActionStatus?.({ tone: "error", message: error.message || t("chat.goalResolutionFailed", "Your search could not be updated.") });
+        deps.captureError?.("conversation_commerce_goal_resolution_failed", error, { goalId, resolution: safeResolution });
         rerender?.();
       }
     }
@@ -16907,6 +16965,11 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           await transitionAvailability(String(data.get("requestId") || ""), "SUGGEST_ALTERNATIVE", String(data.get("responseProductId") || ""), replaceContextChatModal);
         });
       });
+      modal.querySelectorAll("[data-commerce-goal-resolve]").forEach((button) => {
+        button.addEventListener("click", async () => {
+          await resolveConversationCommerceGoal(button.dataset.commerceGoalId || "", button.dataset.commerceGoalResolve || "", replaceContextChatModal);
+        });
+      });
 
       modal.querySelectorAll("[data-chat-prefill]").forEach((button) => {
         button.addEventListener("click", () => {
@@ -17180,7 +17243,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         }
       });
 
-      void Promise.all([deps.refreshMessagesState(), deps.refreshNotificationsState(), deps.refreshConversationOffersState?.(), deps.refreshConversationAvailabilityState?.()])
+      void Promise.all([deps.refreshMessagesState(), deps.refreshNotificationsState(), deps.refreshConversationOffersState?.(), deps.refreshConversationAvailabilityState?.(), deps.refreshCommerceGoalsState?.()])
         .then(async () => {
           deps.maybePromptNotificationPermission?.("reply");
           await deps.markActiveConversationRead();
@@ -17591,6 +17654,9 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         const data = new FormData(event.currentTarget);
         await transitionAvailability(String(data.get("requestId") || ""), "SUGGEST_ALTERNATIVE", String(data.get("responseProductId") || ""), () => deps.replaceMessagesPanel?.(scope));
       });
+      bindClickOnce("[data-commerce-goal-resolve]", "CommerceGoalResolve", async (button) => {
+        await resolveConversationCommerceGoal(button.dataset.commerceGoalId || "", button.dataset.commerceGoalResolve || "", () => deps.replaceMessagesPanel?.(scope));
+      });
 
       bindClickOnce("[data-product-soldout]", "ProductSoldOut", async (button) => {
           const productId = button.dataset.productSoldout;
@@ -17646,7 +17712,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           deps.setProfileHasSelection?.(true);
           deps.setCurrentMessageDraft(deps.loadStoredChatDraft?.(nextChatContext) || "");
           try {
-            await Promise.all([deps.markActiveConversationRead(), deps.refreshConversationOffersState?.(), deps.refreshConversationAvailabilityState?.()]);
+            await Promise.all([deps.markActiveConversationRead(), deps.refreshConversationOffersState?.(), deps.refreshConversationAvailabilityState?.(), deps.refreshCommerceGoalsState?.()]);
           } catch (error) {
             // Ignore passive read sync failures on thread switch.
           }

@@ -273,6 +273,40 @@
       `;
     }
 
+    function renderConversationCommerceGoal(goal = null) {
+      if (!goal?.goalId) return "";
+      const actionStatus = deps.getCommerceGoalActionStatus?.();
+      const product = goal.productId ? deps.getProductById?.(goal.productId) : null;
+      const title = goal.productName || product?.name || goal.queryKey || t("chat.shoppingGoal", "Shopping request");
+      const details = [
+        goal.size ? `${t("chat.sizeLabel", "Size")}: ${goal.size}` : "",
+        goal.color ? `${t("chat.colorLabel", "Color")}: ${goal.color}` : "",
+        goal.region ? goal.region : ""
+      ].filter(Boolean).join(" | ");
+      const matchingProducts = Math.max(0, Number(goal.matchingProducts || 0));
+      return `
+        <section class="conversation-commerce-goal" aria-label="${deps.escapeHtml(t("chat.stillLookingFor", "Still looking for"))}">
+          <article class="conversation-offer-card conversation-goal-card" data-conversation-goal="${deps.escapeHtml(goal.goalId)}">
+            <div class="conversation-commerce-card-head">
+              <span class="conversation-system-label">${deps.escapeHtml(t("chat.stillLookingFor", "Still looking for"))}</span>
+              <span class="status-pill pending">${deps.escapeHtml(String(goal.status || "looking").replace(/_/g, " "))}</span>
+            </div>
+            <div class="conversation-offer-summary">
+              <strong>${deps.escapeHtml(title)}</strong>
+              ${details ? `<span>${deps.escapeHtml(details)}</span>` : ""}
+              <span>${deps.escapeHtml(t("chat.matchesFound", "{count} matching products", { count: matchingProducts }))}</span>
+            </div>
+            <div class="conversation-commerce-actions">
+              ${goal.productId ? `<button class="action-btn action-btn-secondary" type="button" data-chat-open-product="${deps.escapeHtml(goal.productId)}">${deps.escapeHtml(t("chat.viewProduct", "View product"))}</button>` : ""}
+              <button class="action-btn buy-btn" type="button" data-commerce-goal-resolve="found" data-commerce-goal-id="${deps.escapeHtml(goal.goalId)}">${deps.escapeHtml(t("chat.foundIt", "Found it"))}</button>
+              <button class="action-btn action-btn-secondary" type="button" data-commerce-goal-resolve="stopped" data-commerce-goal-id="${deps.escapeHtml(goal.goalId)}">${deps.escapeHtml(t("chat.stopSearch", "Stop search"))}</button>
+            </div>
+            ${actionStatus?.message ? `<p class="chat-compose-status is-${deps.escapeHtml(actionStatus.tone || "info")}">${deps.escapeHtml(actionStatus.message)}</p>` : ""}
+          </article>
+        </section>
+      `;
+    }
+
     function renderConversationMessagesMarkup(activeMessages, options = {}) {
       const { enableActions = false } = options;
       if (!activeMessages.length) {
@@ -362,6 +396,9 @@
       const activeAvailabilityRequests = deps.getConversationAvailabilityRequests
         ? deps.getConversationAvailabilityRequests(activeChatContext)
         : [];
+      const activeCommerceGoal = deps.getConversationCommerceGoal
+        ? deps.getConversationCommerceGoal(activeChatContext)
+        : null;
       const activeRelationshipMemory = deps.getConversationRelationshipMemory
         ? deps.getConversationRelationshipMemory(activeChatContext)
         : null;
@@ -450,6 +487,7 @@
                 ${renderConversationOrderCards(activeOrders)}
                 ${renderConversationOfferCards(activeOffers, activeChatContext)}
                 ${renderConversationAvailabilityCards(activeAvailabilityRequests, activeChatContext)}
+                ${renderConversationCommerceGoal(activeCommerceGoal)}
                 <div class="messages-thread-body">
                   ${renderConversationMessagesMarkup(activeMessages, { enableActions: true })}
                 </div>
@@ -526,6 +564,7 @@
       const activeMessages = deps.getActiveConversationMessages();
       const activeOffers = deps.getConversationOffers?.(activeChatContext) || [];
       const activeAvailabilityRequests = deps.getConversationAvailabilityRequests?.(activeChatContext) || [];
+      const activeCommerceGoal = deps.getConversationCommerceGoal?.(activeChatContext) || null;
       const contactState = deps.getChatContactState(activeChatContext);
       const activeWhatsApp = contactState.whatsapp;
       const productName = activeChatContext?.productName || product?.name || "General inquiry";
@@ -582,6 +621,7 @@
           ${contactState.note ? `<p class="thread-contact-note context-chat-note">${deps.escapeHtml(contactState.note)}</p>` : ""}
           ${renderConversationOfferCards(activeOffers, activeChatContext)}
           ${renderConversationAvailabilityCards(activeAvailabilityRequests, activeChatContext)}
+          ${renderConversationCommerceGoal(activeCommerceGoal)}
           ${selectedProducts.length ? `
             <div class="context-chat-selection-bar">
               <strong>${selectedProducts.length} item${selectedProducts.length > 1 ? "s" : ""} selected</strong>

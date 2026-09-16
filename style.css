@@ -6949,6 +6949,16 @@ body.context-chat-open{
   margin:0 0 12px;
 }
 
+.conversation-commerce-goal{
+  display:grid;
+  gap:8px;
+}
+
+.conversation-goal-card{
+  border-color:rgba(255, 102, 0, .28);
+  background:#fffaf6;
+}
+
 .conversation-offer-card,
 .conversation-offer-form,
 .conversation-availability-form,

@@ -14,6 +14,8 @@
       conversationAvailabilityRequests: [],
       availabilityWithUser: "",
       availabilityActionStatus: null,
+      commerceGoals: [],
+      commerceGoalActionStatus: null,
       selectedProductIds: [],
       activeReplyMessageId: "",
       openMessageMenuId: "",

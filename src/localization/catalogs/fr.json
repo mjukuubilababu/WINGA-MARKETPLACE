@@ -1267,6 +1267,14 @@
                      "chat.availabilityFailed": "La demande a echoue.",
                      "chat.updatingAvailability": "Mise a jour de la disponibilite...",
                      "chat.availabilityUpdated": "Disponibilite mise a jour.",
-                     "chat.availabilityUpdateFailed": "La disponibilite n'a pas pu etre mise a jour."
+                     "chat.availabilityUpdateFailed": "La disponibilite n'a pas pu etre mise a jour.",
+                     "chat.shoppingGoal": "Demande d'achat",
+                     "chat.stillLookingFor": "Toujours a la recherche de",
+                     "chat.matchesFound": "{count} produits correspondants",
+                     "chat.foundIt": "Je l'ai trouve",
+                     "chat.stopSearch": "Arreter la recherche",
+                     "chat.resolvingGoal": "Mise a jour de votre recherche...",
+                     "chat.goalResolved": "Votre recherche a ete mise a jour.",
+                     "chat.goalResolutionFailed": "Votre recherche n'a pas pu etre mise a jour."
                  }
 }

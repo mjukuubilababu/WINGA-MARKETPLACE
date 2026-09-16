@@ -1267,6 +1267,14 @@
                      "chat.availabilityFailed": "Ombi la upatikanaji halikutumwa.",
                      "chat.updatingAvailability": "Tunasasisha upatikanaji...",
                      "chat.availabilityUpdated": "Upatikanaji umesasishwa.",
-                     "chat.availabilityUpdateFailed": "Upatikanaji haukuweza kusasishwa."
+                     "chat.availabilityUpdateFailed": "Upatikanaji haukuweza kusasishwa.",
+                     "chat.shoppingGoal": "Ombi la ununuzi",
+                     "chat.stillLookingFor": "Bado unatafuta",
+                     "chat.matchesFound": "Bidhaa zinazolingana: {count}",
+                     "chat.foundIt": "Nimepata",
+                     "chat.stopSearch": "Acha kutafuta",
+                     "chat.resolvingGoal": "Tunasasisha utafutaji wako...",
+                     "chat.goalResolved": "Utafutaji wako umesasishwa.",
+                     "chat.goalResolutionFailed": "Utafutaji wako haukuweza kusasishwa."
                  }
 }

@@ -9176,13 +9176,13 @@ function connectRealtimeChannel() {
       const notification = payload?.notification || null;
       await refreshNotificationsState();
       if (notification?.type === "order") {
-        await refreshOrdersState();
+        await Promise.all([refreshOrdersState(), refreshCommerceGoalsState()]);
       }
       if (notification?.type === "offer") {
         await refreshConversationOffersState();
       }
       if (notification?.type === "request") {
-        await refreshConversationAvailabilityState();
+        await Promise.all([refreshConversationAvailabilityState(), refreshCommerceGoalsState()]);
       }
       if (notification?.type === "order" && chatUiState.isContextOpen) {
         replaceContextChatModal();
@@ -9279,6 +9279,13 @@ function getConversationAvailabilityRequests(context = null) {
   return Array.isArray(chatUiState.conversationAvailabilityRequests)
     ? chatUiState.conversationAvailabilityRequests
     : [];
+}
+
+function getConversationCommerceGoal(context = null) {
+  const productId = context?.productId || chatUiState.activeContext?.productId || "";
+  if (!productId) return null;
+  return (Array.isArray(chatUiState.commerceGoals) ? chatUiState.commerceGoals : [])
+    .find((goal) => goal?.productId === productId) || null;
 }
 
 function getConversationCommerceSnapshot(context = null) {
@@ -9503,6 +9510,21 @@ async function refreshConversationAvailabilityState() {
   }
 }
 
+async function refreshCommerceGoalsState() {
+  if (!currentUser) {
+    chatUiState.commerceGoals = [];
+    return [];
+  }
+  try {
+    const goals = await window.WingaDataLayer.loadCommerceGoals(20);
+    chatUiState.commerceGoals = Array.isArray(goals) ? goals : [];
+    return chatUiState.commerceGoals;
+  } catch (error) {
+    captureClientError("commerce_goals_refresh_failed", error, { user: currentUser });
+    return chatUiState.commerceGoals;
+  }
+}
+
 function stopMessagePolling() {
   if (chatUiState.messagePollingTimer) {
     clearInterval(chatUiState.messagePollingTimer);
@@ -9522,7 +9544,8 @@ function startMessagePolling() {
         refreshNotificationsState(),
         refreshOrdersState(),
         refreshConversationOffersState(),
-        refreshConversationAvailabilityState()
+        refreshConversationAvailabilityState(),
+        refreshCommerceGoalsState()
       ]);
       if (profileDiv && currentView === "profile") {
         document.getElementById("profile-notifications-panel")?.replaceWith(createNotificationsContainerFromState());
@@ -12393,6 +12416,8 @@ const {
   getOfferActionStatus: () => chatUiState.offerActionStatus,
   getConversationAvailabilityRequests,
   getAvailabilityActionStatus: () => chatUiState.availabilityActionStatus,
+  getConversationCommerceGoal,
+  getCommerceGoalActionStatus: () => chatUiState.commerceGoalActionStatus,
   getUserDisplayName,
   translate: translateUi
 });
@@ -12423,6 +12448,7 @@ const {
       chatUiState.conversationAvailabilityRequests = [];
       chatUiState.availabilityWithUser = "";
       chatUiState.availabilityActionStatus = null;
+      chatUiState.commerceGoalActionStatus = null;
     }
     chatUiState.activeContext = context;
   },
@@ -12513,6 +12539,14 @@ const {
       message: String(status.message || "").trim()
     } : null;
   },
+  setCommerceGoalActionStatus: (status = null) => {
+    chatUiState.commerceGoalActionStatus = status?.message ? {
+      tone: ["info", "warning", "success", "error"].includes(String(status.tone || "").trim())
+        ? String(status.tone || "").trim()
+        : "info",
+      message: String(status.message || "").trim()
+    } : null;
+  },
   getCurrentMessageDraft: () => chatUiState.currentDraft,
   loadStoredChatDraft,
   saveStoredChatDraft,
@@ -12573,6 +12607,7 @@ const {
   refreshOrdersState,
   refreshConversationOffersState,
   refreshConversationAvailabilityState,
+  refreshCommerceGoalsState,
   handleNotificationOpen,
   maybePromptNotificationPermission,
   beginPurchaseFlow,

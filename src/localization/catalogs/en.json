@@ -1267,6 +1267,14 @@
                      "chat.availabilityFailed": "Availability request failed.",
                      "chat.updatingAvailability": "Updating availability...",
                      "chat.availabilityUpdated": "Availability updated.",
-                     "chat.availabilityUpdateFailed": "Availability could not be updated."
+                     "chat.availabilityUpdateFailed": "Availability could not be updated.",
+                     "chat.shoppingGoal": "Shopping request",
+                     "chat.stillLookingFor": "Still looking for",
+                     "chat.matchesFound": "{count} matching products",
+                     "chat.foundIt": "Found it",
+                     "chat.stopSearch": "Stop search",
+                     "chat.resolvingGoal": "Updating your search...",
+                     "chat.goalResolved": "Your search was updated.",
+                     "chat.goalResolutionFailed": "Your search could not be updated."
                  }
 }

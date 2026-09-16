@@ -1271,6 +1271,14 @@
                      "chat.availabilityFailed": "فشل طلب التوفر.",
                      "chat.updatingAvailability": "جار تحديث التوفر...",
                      "chat.availabilityUpdated": "تم تحديث التوفر.",
-                     "chat.availabilityUpdateFailed": "تعذر تحديث التوفر."
+                     "chat.availabilityUpdateFailed": "تعذر تحديث التوفر.",
+                     "chat.shoppingGoal": "طلب تسوق",
+                     "chat.stillLookingFor": "ما زلت تبحث عن",
+                     "chat.matchesFound": "{count} منتجات مطابقة",
+                     "chat.foundIt": "وجدته",
+                     "chat.stopSearch": "إيقاف البحث",
+                     "chat.resolvingGoal": "جار تحديث بحثك...",
+                     "chat.goalResolved": "تم تحديث بحثك.",
+                     "chat.goalResolutionFailed": "تعذر تحديث بحثك."
                  }
 }

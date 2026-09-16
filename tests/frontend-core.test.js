@@ -6434,3 +6434,28 @@ test("conversation commerce availability uses canonical state without inventing 
   assert.match(clientSource, /conversation-availability/);
   assert.doesNotMatch(uiSource, /variantStock/);
 });
+
+test("conversation commerce still-looking card resolves canonical self-scoped goals", () => {
+  const root = path.resolve(__dirname, "..");
+  const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
+  const dataSource = fs.readFileSync(path.join(root, "data-service.js"), "utf8");
+  const uiSource = fs.readFileSync(path.join(root, "src", "chat", "ui.js"), "utf8");
+  const controllerSource = fs.readFileSync(path.join(root, "src", "chat", "controller.js"), "utf8");
+  const serverSource = fs.readFileSync(path.join(root, "backend", "server.js"), "utf8");
+  const databaseSource = fs.readFileSync(path.join(root, "backend", "db.js"), "utf8");
+
+  assert.match(serverSource, /url\.pathname === "\/api\/commerce\/goals"/);
+  assert.match(serverSource, /readCommerceGoals\(user\.username/);
+  assert.match(databaseSource, /WHERE g\.user_id=\$1 AND g\.status IN/);
+  assert.match(dataSource, /async loadCommerceGoals\(limit = 10\)/);
+  assert.match(dataSource, /assertPersonAccess\(\)/);
+  assert.match(appSource, /function getConversationCommerceGoal\(context = null\)/);
+  assert.match(appSource, /async function refreshCommerceGoalsState\(\)/);
+  assert.match(uiSource, /function renderConversationCommerceGoal\(goal = null\)/);
+  assert.match(uiSource, /data-commerce-goal-resolve="found"/);
+  assert.match(uiSource, /data-commerce-goal-resolve="stopped"/);
+  assert.match(controllerSource, /resolveConversationCommerceGoal/);
+  assert.match(controllerSource, /deps\.dataLayer\.resolveCommerceGoal/);
+  assert.match(controllerSource, /deps\.refreshCommerceGoalsState/);
+  assert.doesNotMatch(uiSource, /commerce_goals/);
+});

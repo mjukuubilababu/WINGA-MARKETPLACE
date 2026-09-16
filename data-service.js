@@ -2170,6 +2170,11 @@ async loadAdminPayments(filters) {
           body: JSON.stringify({ resolution })
         });
       },
+      async loadCommerceGoals(limit = 10) {
+        return fetchJson(`${baseUrl}/commerce/goals?limit=${Math.max(1, Math.min(20, Number(limit) || 10))}`, {
+          headers: createAuthHeaders()
+        });
+      },
       async loadAnalytics(options = {}) {
           const requestedDays = Number(options.windowDays || 30);
           const windowDays = [7, 30, 90].includes(requestedDays) ? requestedDays : 30;
@@ -4105,6 +4110,11 @@ async loadAdminPayments() {
     },
     async resolveCommerceGoal(goalId, resolution = "stopped") {
       return state.adapter.resolveCommerceGoal ? state.adapter.resolveCommerceGoal(goalId, resolution) : null;
+    },
+    async loadCommerceGoals(limit = 10) {
+      assertPersonAccess();
+      const goals = state.adapter.loadCommerceGoals ? await state.adapter.loadCommerceGoals(limit) : [];
+      return Array.isArray(goals) ? goals : [];
     },
       async loadAppSettings() {
         const settings = state.adapter.loadAppSettings ? await state.adapter.loadAppSettings() : normalizeAppSettings(DEFAULT_APP_SETTINGS);

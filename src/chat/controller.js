@@ -103,11 +103,27 @@
           createOfferIdempotencyKey("availability-request")
         );
         deps.setAvailabilityActionStatus?.({ tone: "success", message: t("chat.availabilitySent", "Availability request sent.") });
-        await Promise.all([deps.refreshConversationAvailabilityState?.(), deps.refreshNotificationsState?.()]);
+        await Promise.all([deps.refreshConversationAvailabilityState?.(), deps.refreshCommerceGoalsState?.(), deps.refreshNotificationsState?.()]);
         rerender?.();
       } catch (error) {
         deps.setAvailabilityActionStatus?.({ tone: "error", message: error.message || t("chat.availabilityFailed", "Availability request failed.") });
         deps.captureError?.("conversation_availability_create_failed", error, { productId, withUser: context.withUser });
+        rerender?.();
+      }
+    }
+
+    async function resolveConversationCommerceGoal(goalId, resolution, rerender) {
+      const safeResolution = resolution === "found" ? "found" : resolution === "stopped" ? "stopped" : "";
+      if (!goalId || !safeResolution) return;
+      try {
+        deps.setCommerceGoalActionStatus?.({ tone: "info", message: t("chat.resolvingGoal", "Updating your search...") });
+        await deps.dataLayer.resolveCommerceGoal(goalId, safeResolution);
+        deps.setCommerceGoalActionStatus?.({ tone: "success", message: t("chat.goalResolved", "Your search was updated.") });
+        await deps.refreshCommerceGoalsState?.();
+        rerender?.();
+      } catch (error) {
+        deps.setCommerceGoalActionStatus?.({ tone: "error", message: error.message || t("chat.goalResolutionFailed", "Your search could not be updated.") });
+        deps.captureError?.("conversation_commerce_goal_resolution_failed", error, { goalId, resolution: safeResolution });
         rerender?.();
       }
     }
@@ -392,6 +408,11 @@
           await transitionAvailability(String(data.get("requestId") || ""), "SUGGEST_ALTERNATIVE", String(data.get("responseProductId") || ""), replaceContextChatModal);
         });
       });
+      modal.querySelectorAll("[data-commerce-goal-resolve]").forEach((button) => {
+        button.addEventListener("click", async () => {
+          await resolveConversationCommerceGoal(button.dataset.commerceGoalId || "", button.dataset.commerceGoalResolve || "", replaceContextChatModal);
+        });
+      });
 
       modal.querySelectorAll("[data-chat-prefill]").forEach((button) => {
         button.addEventListener("click", () => {
@@ -665,7 +686,7 @@
         }
       });
 
-      void Promise.all([deps.refreshMessagesState(), deps.refreshNotificationsState(), deps.refreshConversationOffersState?.(), deps.refreshConversationAvailabilityState?.()])
+      void Promise.all([deps.refreshMessagesState(), deps.refreshNotificationsState(), deps.refreshConversationOffersState?.(), deps.refreshConversationAvailabilityState?.(), deps.refreshCommerceGoalsState?.()])
         .then(async () => {
           deps.maybePromptNotificationPermission?.("reply");
           await deps.markActiveConversationRead();
@@ -1076,6 +1097,9 @@
         const data = new FormData(event.currentTarget);
         await transitionAvailability(String(data.get("requestId") || ""), "SUGGEST_ALTERNATIVE", String(data.get("responseProductId") || ""), () => deps.replaceMessagesPanel?.(scope));
       });
+      bindClickOnce("[data-commerce-goal-resolve]", "CommerceGoalResolve", async (button) => {
+        await resolveConversationCommerceGoal(button.dataset.commerceGoalId || "", button.dataset.commerceGoalResolve || "", () => deps.replaceMessagesPanel?.(scope));
+      });
 
       bindClickOnce("[data-product-soldout]", "ProductSoldOut", async (button) => {
           const productId = button.dataset.productSoldout;
@@ -1131,7 +1155,7 @@
           deps.setProfileHasSelection?.(true);
           deps.setCurrentMessageDraft(deps.loadStoredChatDraft?.(nextChatContext) || "");
           try {
-            await Promise.all([deps.markActiveConversationRead(), deps.refreshConversationOffersState?.(), deps.refreshConversationAvailabilityState?.()]);
+            await Promise.all([deps.markActiveConversationRead(), deps.refreshConversationOffersState?.(), deps.refreshConversationAvailabilityState?.(), deps.refreshCommerceGoalsState?.()]);
           } catch (error) {
             // Ignore passive read sync failures on thread switch.
           }
