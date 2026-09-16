@@ -132,6 +132,25 @@ function createAdsStore({ query, withTransaction, parseJson, stringifyJson, toIS
     return (result.rows || []).map(campaign);
   }
 
+  async function readEligibleAds(placementCode = "", limit = 8) {
+    const result = await query(`SELECT c.id AS "campaignId",c.creative_id AS "creativeId",
+      c.placement_code AS "placementCode",cr.product_id AS "productId",cr.headline,cr.cta_type AS "ctaType"
+      FROM ad_campaigns c JOIN ad_creatives cr ON cr.id=c.creative_id
+      WHERE c.placement_code=$1 AND c.campaign_status='ACTIVE' AND c.payment_status='PAID'
+        AND c.review_status='APPROVED' AND cr.moderation_status='APPROVED'
+        AND c.starts_at<=NOW() AND c.ends_at>NOW()
+      ORDER BY c.activated_at DESC NULLS LAST,c.id ASC LIMIT $2`,
+    [String(placementCode).slice(0,40),Math.max(1,Math.min(20,Number(limit)||8))]);
+    return (result.rows || []).map(row => ({
+      campaignId: row.campaignId,
+      creativeId: row.creativeId,
+      placementCode: row.placementCode,
+      productId: row.productId,
+      headline: row.headline,
+      ctaType: row.ctaType
+    }));
+  }
+
   async function reviewAdCampaign(input = {}) {
     return withTransaction(async client => {
       const found=await client.query(`SELECT c.*,p.max_active_ads AS "maxActiveAds" FROM ad_campaigns c
@@ -209,6 +228,6 @@ function createAdsStore({ query, withTransaction, parseJson, stringifyJson, toIS
   }
 
   return { getAdAccount,createAdAccount,readAdPlacements,createAdCampaign,recordAdPayment,
-    readAdCampaigns,reviewAdCampaign,setAdCampaignStatus,transitionAdCampaignLifecycle,recordAdEvent };
+    readAdCampaigns,readEligibleAds,reviewAdCampaign,setAdCampaignStatus,transitionAdCampaignLifecycle,recordAdEvent };
 }
 module.exports={createAdsStore};

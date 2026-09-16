@@ -11042,7 +11042,9 @@ let promotionIntentState = {
   loading: false,
   transactionId: "",
   feedbackTone: "",
-  feedbackMessage: ""
+  feedbackMessage: "",
+  adAccount: null,
+  adAccountStatus: "idle"
 };
 
 function pruneTimedRegistryEntries(registry, maxAgeMs = 15000) {
@@ -11220,7 +11222,9 @@ function closePromotionIntentModal() {
     loading: false,
     transactionId: "",
     feedbackTone: "",
-    feedbackMessage: ""
+    feedbackMessage: "",
+    adAccount: null,
+    adAccountStatus: "idle"
   };
   root.querySelector("[data-promotion-intent-body='true']")?.replaceChildren();
   syncBodyScrollLockState();
@@ -11292,6 +11296,22 @@ function openPromotionFromTrigger(trigger) {
   return true;
 }
 
+async function loadPromotionAdAccount(productId) {
+  promotionIntentState.adAccountStatus = "loading";
+  try {
+    const account = await window.WingaDataLayer.loadAdAccount();
+    if (String(promotionIntentState.productId || "") !== String(productId || "")) return;
+    promotionIntentState.adAccount = account;
+    promotionIntentState.adAccountStatus = "ready";
+  } catch (error) {
+    if (String(promotionIntentState.productId || "") !== String(productId || "")) return;
+    promotionIntentState.adAccount = null;
+    promotionIntentState.adAccountStatus = "error";
+    captureClientError("ad_account_load_failed", error, { productId });
+  }
+  if (!document.getElementById("promotion-intent-modal")?.hidden) renderPromotionIntentModal();
+}
+
 function renderPromotionIntentModal() {
   const root = ensurePromotionIntentModal();
   const body = root.querySelector("[data-promotion-intent-body='true']");
@@ -11345,6 +11365,40 @@ function renderPromotionIntentModal() {
     })
   );
 
+  const accountCard = createElement("div", { className: "payment-safety-card promotion-ad-account-card" });
+  accountCard.appendChild(createElement("strong", {
+    textContent: translateUi("promotion.adAccountTitle", {}, "Ad Account")
+  }));
+  if (promotionIntentState.adAccount) {
+    accountCard.appendChild(createElement("p", {
+      className: "product-meta",
+      textContent: translateUi("promotion.adAccountActive", {
+        name: promotionIntentState.adAccount.businessName || currentUser,
+        status: promotionIntentState.adAccount.status || "ACTIVE"
+      }, `${promotionIntentState.adAccount.businessName || currentUser} · ${promotionIntentState.adAccount.status || "ACTIVE"}`)
+    }));
+  } else if (promotionIntentState.adAccountStatus === "loading") {
+    accountCard.appendChild(createElement("p", {
+      className: "product-meta",
+      textContent: translateUi("promotion.adAccountLoading", {}, "Loading Ad Account...")
+    }));
+  } else {
+    accountCard.append(
+      createElement("p", {
+        className: "product-meta",
+        textContent: translateUi("promotion.adAccountRequired", {}, "Create an Ad Account before submitting this campaign.")
+      }),
+      createElement("input", {
+        attributes: {
+          id: "promotion-ad-account-business-input",
+          type: "text",
+          maxlength: "120",
+          value: product.shop || getCurrentUserDisplayName() || currentUser,
+          placeholder: translateUi("promotion.adAccountBusinessPlaceholder", {}, "Business or profile name")
+        }
+      })
+    );
+  }
   const packageGrid = createElement("div", { className: "promotion-intent-options" });
   Object.entries(PROMOTION_OPTIONS).forEach(([type, option]) => {
     const button = createElement("button", {
@@ -11447,7 +11501,7 @@ function renderPromotionIntentModal() {
     })
   );
 
-  wrapper.append(packageGrid, summary, guidance, input, note, actions);
+  wrapper.append(accountCard, packageGrid, summary, guidance, input, note, actions);
   body.replaceChildren(wrapper);
   root.hidden = false;
   root.classList.add("open");
@@ -11483,12 +11537,24 @@ async function submitPromotionIntent() {
     throw new Error(translateUi("promotion.invalidReferenceError", {}, "Weka transaction reference sahihi ya promotion."));
   }
 
+  const adAccountBusinessName = String(
+    document.getElementById("promotion-ad-account-business-input")?.value
+    || product.shop
+    || getCurrentUserDisplayName()
+    || currentUser
+  ).trim();
   promotionIntentState.loading = true;
   promotionIntentState.transactionId = transactionId;
   promotionIntentState.feedbackTone = "info";
   promotionIntentState.feedbackMessage = translateUi("promotion.sendingFeedback", {}, "Tunatuma request yako ya promotion sasa.");
   renderPromotionIntentModal();
 
+  if (!promotionIntentState.adAccount) {
+    promotionIntentState.adAccount = await window.WingaDataLayer.createAdAccount({
+      businessName: adAccountBusinessName
+    });
+    promotionIntentState.adAccountStatus = "ready";
+  }
   await window.WingaDataLayer.createPromotion({
     productId: product.id,
     type: selectedType,
@@ -13903,6 +13969,12 @@ const runtimeState = createRuntimeState();
 const uiRuntimeState = runtimeState.ui;
 const feedRuntimeState = runtimeState.feed || (runtimeState.feed = {});
 const searchRuntimeState = runtimeState.search;
+const searchSponsoredAdsState = {
+  items: [],
+  status: "idle",
+  loadedAt: 0,
+  promise: null
+};
 const profileRuntimeState = runtimeState.profile;
 const lifecycleRuntimeState = runtimeState.lifecycle || (runtimeState.lifecycle = {});
 const runtimeDiagnostics = uiRuntimeState.runtimeDiagnostics || (uiRuntimeState.runtimeDiagnostics = {
@@ -17953,6 +18025,7 @@ function bindSearchInputHandlers(node) {
     searchRuntimeState.isInputFocused = true;
     syncSearchChromeState();
     noteSearchInterest(node.value);
+    ensureSearchSponsoredAdsLoaded();
     scheduleSearchDrivenRender(120);
     scheduleHomeProductQueryHydration(220);
   });
@@ -17971,6 +18044,7 @@ function bindSearchInputHandlers(node) {
     searchRuntimeState.isSearchDropdownDismissed = false;
     searchRuntimeState.isInputFocused = true;
     syncSearchChromeState();
+    ensureSearchSponsoredAdsLoaded();
     scheduleSearchDrivenRender(0);
   });
 
@@ -19225,6 +19299,57 @@ function scrollToProductCard(productId) {
   card.scrollIntoView({ behavior: "smooth", block: "center" });
 }
 
+async function ensureSearchSponsoredAdsLoaded() {
+  const isFresh = searchSponsoredAdsState.status === "ready"
+    && Date.now() - searchSponsoredAdsState.loadedAt < 30000;
+  if (isFresh) return searchSponsoredAdsState.items;
+  if (searchSponsoredAdsState.promise) return searchSponsoredAdsState.promise;
+  searchSponsoredAdsState.status = "loading";
+  searchSponsoredAdsState.promise = Promise.resolve(window.WingaDataLayer.loadEligibleAds("SEARCH_SPONSORED"))
+    .then((items) => {
+      searchSponsoredAdsState.items = Array.isArray(items) ? items : [];
+      searchSponsoredAdsState.status = "ready";
+      searchSponsoredAdsState.loadedAt = Date.now();
+      if (String(searchInput?.value || "").trim()) scheduleSearchDrivenRender(0);
+      return searchSponsoredAdsState.items;
+    })
+    .catch(() => {
+      searchSponsoredAdsState.items = [];
+      searchSponsoredAdsState.status = "error";
+      searchSponsoredAdsState.loadedAt = Date.now();
+      return [];
+    })
+    .finally(() => { searchSponsoredAdsState.promise = null; });
+  return searchSponsoredAdsState.promise;
+}
+
+function observeSearchSponsoredResult(button) {
+  if (!button || typeof IntersectionObserver === "undefined") return;
+  let viewTimer = 0;
+  const observer = new IntersectionObserver((entries) => {
+    const entry = entries[0];
+    if (!entry || entry.intersectionRatio < 0.5) {
+      if (viewTimer) window.clearTimeout(viewTimer);
+      viewTimer = 0;
+      return;
+    }
+    if (viewTimer) return;
+    viewTimer = window.setTimeout(() => {
+      viewTimer = 0;
+      if (!button.isConnected) return;
+      observer.disconnect();
+      window.WingaDataLayer.recordAdEvent({
+        campaignId: button.dataset.searchAdCampaign || "",
+        eventType: "IMPRESSION",
+        placementCode: "SEARCH_SPONSORED",
+        viewableRatio: Math.max(0.5, Number(entry.intersectionRatio || 0)),
+        viewableMs: 1000
+      });
+    }, 1000);
+  }, { threshold: [0.5] });
+  observer.observe(button);
+}
+
 function renderSearchDropdown(filteredProducts, options = {}) {
   if (!searchDropdown) {
     return;
@@ -19255,13 +19380,26 @@ function renderSearchDropdown(filteredProducts, options = {}) {
     return;
   }
 
+  const sponsoredAd = searchSponsoredAdsState.items.find((ad) => (
+    ad?.campaignId && items.some((product) => String(product.id) === String(ad.productId))
+  ));
+  const sponsoredProduct = sponsoredAd
+    ? items.find((product) => String(product.id) === String(sponsoredAd.productId))
+    : null;
+  const displayItems = sponsoredProduct
+    ? [{ product: sponsoredProduct, ad: sponsoredAd }, ...items
+      .filter((product) => String(product.id) !== String(sponsoredProduct.id))
+      .map((product) => ({ product, ad: null }))].slice(0, 8)
+    : items.map((product) => ({ product, ad: null }));
+
   const fragment = document.createDocumentFragment();
-  items.forEach((product) => {
+  displayItems.forEach(({ product, ad }) => {
     const button = createElement("button", {
-      className: "search-result-item",
+      className: `search-result-item${ad ? " is-sponsored" : ""}`,
       attributes: {
         type: "button",
-        "data-search-result": product.id
+        "data-search-result": product.id,
+        ...(ad ? { "data-search-ad-campaign": ad.campaignId } : {})
       }
     });
     const thumb = createElement("img", {
@@ -19277,6 +19415,12 @@ function renderSearchDropdown(filteredProducts, options = {}) {
       this.src = getImageFallbackDataUri("W");
     };
     const copy = createElement("span", { className: "search-result-copy" });
+    if (ad) {
+      copy.appendChild(createElement("small", {
+        className: "search-result-sponsored",
+        textContent: translateUi("marketplace.sponsored", {}, "Sponsored")
+      }));
+    }
     copy.appendChild(createElement("strong", { textContent: product.name }));
     copy.appendChild(createElement("span", {
       textContent: translateUi("product.shopWithCategory", { shop: product.shop, categorySuffix: product.category ? ` | ${getCategoryLabel(product.category)}` : "" }, `${product.shop}${product.category ? ` | ${getCategoryLabel(product.category)}` : ""}`)
@@ -19299,8 +19443,19 @@ function renderSearchDropdown(filteredProducts, options = {}) {
       searchDropdown.classList.remove("open");
       syncSearchChromeState();
       markSearchDemandClick(productId);
+      const campaignId = button.dataset.searchAdCampaign || "";
+      if (campaignId) {
+        window.WingaDataLayer.recordAdEvent({
+          campaignId,
+          eventType: "CLICK",
+          placementCode: "SEARCH_SPONSORED",
+          viewableRatio: 1,
+          viewableMs: 0
+        });
+      }
       openProductDetailModal(productId);
     });
+    if (button.dataset.searchAdCampaign) observeSearchSponsoredResult(button);
   });
 }
 
@@ -23072,9 +23227,12 @@ function openPromotionIntentModal(product, options = {}) {
     loading: false,
     transactionId: "",
     feedbackTone: "",
-    feedbackMessage: ""
+    feedbackMessage: "",
+    adAccount: null,
+    adAccountStatus: "loading"
   };
   renderPromotionIntentModal();
+  loadPromotionAdAccount(product.id);
 }
 
 window.__wingaOpenPromotionFromTrigger = (trigger) => {

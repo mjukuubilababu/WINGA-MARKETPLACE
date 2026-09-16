@@ -63,5 +63,25 @@ test("Ads V1 frontend measures only viewable sponsored cards and exposes reports
   assert.match(ui, /viewableMs: 1000/);
   assert.match(ui, /eventType: "CLICK"/);
   assert.match(client, /async function loadAdCampaignReport/);
+  assert.match(client, /async function loadEligibleAds/);
+  assert.match(client, /async function loadAdAccount/);
+  assert.match(client, /async function createAdAccount/);
   assert.match(client, /tracking_failed_open/);
+});
+
+test("Ads V1 exposes only eligible search campaigns and inserts them without replacing organic ranking", () => {
+  const fs = require("node:fs");
+  const store = fs.readFileSync(require.resolve("../backend/ads-store.js"), "utf8");
+  const api = fs.readFileSync(require.resolve("../backend/ads-api.js"), "utf8");
+  const app = fs.readFileSync(require.resolve("../app.js"), "utf8");
+  assert.match(store, /async function readEligibleAds/);
+  assert.match(store, /campaign_status='ACTIVE'/);
+  assert.match(store, /payment_status='PAID'/);
+  assert.match(store, /review_status='APPROVED'/);
+  assert.match(api, /path === "\/api\/ads\/eligible"/);
+  assert.match(api, /stale-while-revalidate=60/);
+  assert.match(app, /loadEligibleAds\("SEARCH_SPONSORED"\)/);
+  assert.match(app, /search-result-sponsored/);
+  assert.match(app, /intersectionRatio < 0\.5/);
+  assert.match(app, /placementCode: "SEARCH_SPONSORED"/);
 });

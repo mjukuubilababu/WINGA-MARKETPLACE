@@ -2537,6 +2537,20 @@ img[data-zoom-src]{
   background:#fff7f1;
 }
 
+.search-result-item.is-sponsored{
+  box-shadow:inset 3px 0 0 var(--accent);
+  background:#fffaf6;
+}
+
+.search-result-sponsored{
+  width:max-content;
+  color:var(--accent-deep);
+  font-size:0.68rem;
+  font-weight:800;
+  text-transform:uppercase;
+  letter-spacing:0;
+}
+
 .search-result-thumb{
   width:56px;
   height:56px;

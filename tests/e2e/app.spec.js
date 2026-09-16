@@ -438,6 +438,91 @@ test("desktop search handles broad intent and still opens the correct product de
   await context.close();
 });
 
+test("search inserts one clearly disclosed eligible sponsored result and records viewable engagement", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure");
+  const adEvents = [];
+  await page.route("**/api/ads/eligible?*", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify([{
+      campaignId: "adcmp-search-e2e",
+      creativeId: "adcreative-search-e2e",
+      placementCode: "SEARCH_SPONSORED",
+      productId: "e2e-prod-1",
+      headline: "Sneaker Classic",
+      ctaType: "VIEW_PRODUCT"
+    }])
+  }));
+  await page.route("**/api/ads/events", async (route) => {
+    adEvents.push(route.request().postDataJSON());
+    await route.fulfill({ status: 202, contentType: "application/json", body: JSON.stringify({ accepted: true }) });
+  });
+
+  await page.goto("/");
+  await expect(page.locator("#products-container .product-card").first()).toBeVisible({ timeout: 30000 });
+  await page.locator("#search-input").fill("shoe");
+
+  const sponsored = page.locator("[data-search-ad-campaign='adcmp-search-e2e']");
+  await expect(sponsored).toBeVisible();
+  await expect(sponsored.locator(".search-result-sponsored")).toHaveText(/Sponsored|Imedhaminiwa/);
+  await expect.poll(() => adEvents.some((event) => event.eventType === "IMPRESSION"), { timeout: 5000 }).toBe(true);
+  await sponsored.click();
+  await expect.poll(() => adEvents.some((event) => event.eventType === "CLICK"), { timeout: 5000 }).toBe(true);
+  await expect(page.locator("#product-detail-modal")).toBeVisible();
+  await context.close();
+});
+
+test("promotion flow loads and creates the canonical Ad Account before campaign submission", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "market_seller", "Pass1234!Secure");
+  let accountPayload = null;
+  await page.route("**/api/ads/account*", async (route) => {
+    const pathname = new URL(route.request().url()).pathname;
+    if (pathname.endsWith("/accounts")) {
+      accountPayload = route.request().postDataJSON();
+      await route.fulfill({
+        status: 201,
+        contentType: "application/json",
+        body: JSON.stringify({ id: "adacct-e2e", businessName: accountPayload.businessName, status: "ACTIVE" })
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 404,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "Ad Account was not found.", code: "account_not_found" })
+    });
+  });
+  await page.route("**/api/ads/quote", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ placementCode: "HOME_FEED_SPONSORED", durationDays: 1, startsAt: "2026-09-16T00:00:00.000Z", endsAt: "2026-09-17T00:00:00.000Z", amount: 1500, currency: "TZS" })
+  }));
+  await page.route("**/api/ads/campaigns", (route) => route.fulfill({
+    status: 201,
+    contentType: "application/json",
+    body: JSON.stringify({ id: "adcmp-e2e", campaignStatus: "PENDING_PAYMENT", paymentStatus: "UNPAID" })
+  }));
+  await page.route("**/api/ads/campaigns/adcmp-e2e/payment", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ recorded: true, campaignStatus: "PENDING_REVIEW", paymentStatus: "PENDING" })
+  }));
+
+  await page.goto("/");
+  await expect(page.locator("#products-container .product-card").first()).toBeVisible({ timeout: 30000 });
+  await page.evaluate(() => window.__wingaOpenPromotionFromTrigger({
+    dataset: { promoteProduct: "e2e-prod-1", promoteAuthorized: "true" }
+  }));
+  const businessInput = page.locator("#promotion-ad-account-business-input");
+  await expect(businessInput).toBeVisible();
+  await businessInput.fill("Market Seller Ads");
+  await page.locator("#promotion-intent-transaction-input").fill("MPESA-E2E-1234");
+  await page.locator("[data-submit-promotion-intent='true']").click();
+  await expect.poll(() => accountPayload?.businessName || "").toBe("Market Seller Ads");
+  await expect(page.locator("#promotion-intent-modal")).not.toBeVisible();
+  await context.close();
+});
+
 test("desktop search stays aligned with category filtering for broad keywords", async ({ browser }) => {
   const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure");
   await page.goto("/");

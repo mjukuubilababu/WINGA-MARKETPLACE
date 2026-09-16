@@ -1462,10 +1462,40 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       return Array.isArray(data) ? data : [];
     }
 
+    async function loadEligibleAds(placementCode) {
+      requireFetcher();
+      try {
+        const data = await fetchJson(`${baseUrl}/ads/eligible?placement=${encodeURIComponent(placementCode || "")}`, {
+          headers: authHeaders()
+        });
+        return Array.isArray(data) ? data : [];
+      } catch (_error) {
+        return [];
+      }
+    }
+
+    async function loadAdAccount() {
+      requireFetcher();
+      try {
+        return await fetchJson(`${baseUrl}/ads/account`, { headers: authHeaders() });
+      } catch (error) {
+        if (Number(error?.status || error?.statusCode || 0) === 404 || error?.code === "account_not_found") return null;
+        throw error;
+      }
+    }
+
+    async function createAdAccount(payload = {}) {
+      requireFetcher();
+      return fetchJson(`${baseUrl}/ads/accounts`, {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: JSON.stringify({ businessName: payload.businessName || "" })
+      });
+    }
+
     async function createPromotion(payload) {
       requireFetcher();
       const durationByType = { starter_day: 1, boost: 1, boost_3day: 3, category_boost: 3, featured: 7, growth_7day: 7, pin_top: 14, premium_14day: 14 };
-      await fetchJson(`${baseUrl}/ads/accounts`, { method: "POST", headers: jsonHeaders(), body: JSON.stringify({ businessName: payload.businessName || "" }) });
       const quote = await fetchJson(`${baseUrl}/ads/quote`, { method: "POST", headers: jsonHeaders(),
         body: JSON.stringify({ placementCode: payload.placementCode || "HOME_FEED_SPONSORED", durationDays: durationByType[payload.type] || 1, startsAt: payload.startsAt || "" }) });
       const campaign = await fetchJson(`${baseUrl}/ads/campaigns`, { method: "POST", headers: jsonHeaders(),
@@ -1592,6 +1622,9 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 
     return {
       loadPromotions,
+      loadEligibleAds,
+      loadAdAccount,
+      createAdAccount,
       createPromotion,
       loadAdminPromotions,
       reviewPromotion,

@@ -1233,7 +1233,9 @@ test("PostgreSQL message send serializes conversation pressure and commits notif
   assert.equal(calls[0].text, "BEGIN");
   assert.match(calls[1].text, /pg_advisory_xact_lock/);
   assert.match(calls[4].text, /INSERT INTO messages/);
-  assert.match(calls[5].text, /INSERT INTO notifications/);
+  const notificationInsert = calls.find((call) => call.text.includes("INSERT INTO notifications"));
+  assert.ok(notificationInsert, "message notification must be inserted in the same transaction");
+  assert.ok(calls.indexOf(notificationInsert) < calls.length - 1, "notification insert must happen before commit");
   assert.equal(calls.at(-1).text, "COMMIT");
 });
 

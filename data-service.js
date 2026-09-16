@@ -2182,6 +2182,15 @@ async loadAdminPayments(filters) {
         async loadPromotions() {
           return getCommerceApiClient().loadPromotions();
         },
+        async loadEligibleAds(placementCode) {
+          return getCommerceApiClient().loadEligibleAds(placementCode);
+        },
+        async loadAdAccount() {
+          return getCommerceApiClient().loadAdAccount();
+        },
+        async createAdAccount(payload) {
+          return getCommerceApiClient().createAdAccount(payload);
+        },
         async createPromotion(payload) {
           return getCommerceApiClient().createPromotion(payload);
         },
@@ -4110,8 +4119,19 @@ async loadAdminPayments() {
       async loadPromotions() {
         return state.adapter.loadPromotions ? state.adapter.loadPromotions() : [];
       },
+      async loadEligibleAds(placementCode) {
+        return state.adapter.loadEligibleAds ? state.adapter.loadEligibleAds(placementCode) : [];
+      },
+      async loadAdAccount() {
+        assertPersonAccess();
+        return state.adapter.loadAdAccount ? state.adapter.loadAdAccount() : null;
+      },
+      async createAdAccount(payload) {
+        assertPersonAccess();
+        return state.adapter.createAdAccount ? state.adapter.createAdAccount(payload) : null;
+      },
       async createPromotion(payload) {
-        assertSellerAccess();
+        assertPersonAccess();
         return state.adapter.createPromotion ? state.adapter.createPromotion(payload) : null;
       },
       async loadAdminPromotions() {
@@ -4131,11 +4151,11 @@ async loadAdminPayments() {
         return state.adapter.disablePromotion ? state.adapter.disablePromotion(promotionId) : { ok: true };
       },
       async loadAdCampaigns() {
-        assertSellerAccess();
+        assertPersonAccess();
         return state.adapter.loadAdCampaigns ? state.adapter.loadAdCampaigns() : [];
       },
       async loadAdCampaignReport(campaignId) {
-        assertSellerAccess();
+        assertPersonAccess();
         return state.adapter.loadAdCampaignReport ? state.adapter.loadAdCampaignReport(campaignId) : null;
       },
       async recordAdEvent(payload) {

@@ -65,6 +65,26 @@ function createAdsApi(deps = {}) {
       return true;
     }
 
+    if (req.method === "GET" && path === "/api/ads/eligible") {
+      const placementCode = clean(url.searchParams.get("placement"), 40).toUpperCase();
+      if (!PLACEMENTS[placementCode]) {
+        sendJson(res, 400, { error: "Ad placement is invalid.", code: "invalid_placement" });
+        return true;
+      }
+      if (!store?.readEligibleAds) {
+        sendJson(res, 200, [], { "Cache-Control": "public, max-age=15, stale-while-revalidate=60" });
+        return true;
+      }
+      try {
+        sendJson(res, 200, await store.readEligibleAds(placementCode, 8), {
+          "Cache-Control": "public, max-age=15, stale-while-revalidate=60"
+        });
+      } catch (_error) {
+        sendJson(res, 200, [], { "Cache-Control": "no-store" });
+      }
+      return true;
+    }
+
     if (req.method === "POST" && path === "/api/ads/quote") {
       const { user } = await userFor(req, res);
       if (!user) return true;
