@@ -8,6 +8,35 @@ const {
   statusForAvailabilityAction
 } = require("../backend/conversation-availability-domain");
 const migration = require("../backend/migrations/conversation-availability");
+const { createConversationAvailabilityStore } = require("../backend/conversation-availability-store");
+
+test("availability retries enforce actor, request, action and alternative identity", async () => {
+  const record={id:"request-1",buyerUsername:"buyer",sellerUsername:"seller",status:"ALTERNATIVE_SUGGESTED",
+    responseProductId:"alternative-1",requestedQuantity:1};
+  for(const [actorUsername,requestId,action,responseProductId,expected] of [
+    ["intruder","request-1","SUGGEST_ALTERNATIVE","alternative-1",false],
+    ["buyer","request-1","SUGGEST_ALTERNATIVE","alternative-1",false],
+    ["seller","request-2","SUGGEST_ALTERNATIVE","alternative-1",false],
+    ["seller","request-1","OUT_OF_STOCK","",false],
+    ["seller","request-1","SUGGEST_ALTERNATIVE","alternative-2",false],
+    ["seller","request-1","SUGGEST_ALTERNATIVE","alternative-1",true]
+  ]){
+    const writes=[];
+    const query=async sql=>{
+      if(/^UPDATE|^INSERT/.test(sql.trim()))writes.push(sql);
+      if(sql.includes("FROM conversation_availability_events"))return {rowCount:1,rows:[{
+        request_id:"request-1",actor_username:"seller",action:"SUGGEST_ALTERNATIVE"
+      }]};
+      if(sql.includes("FROM conversation_availability_requests"))return {rowCount:1,rows:[{...record,id:requestId}]};
+      return {rowCount:0,rows:[]};
+    };
+    const store=createConversationAvailabilityStore({query,withTransaction:fn=>fn({query}),toISOString:value=>value||""});
+    const result=await store.transitionConversationAvailabilityRequest({actorUsername,requestId,action,responseProductId,idempotencyKey:"known-key"});
+    assert.equal(result.updated,expected);
+    assert.equal(Boolean(result.request),expected);
+    assert.equal(writes.length,0);
+  }
+});
 
 const request = {
   status: "REQUESTED",

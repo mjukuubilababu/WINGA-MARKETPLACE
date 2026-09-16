@@ -60,11 +60,19 @@ function createConversationAvailabilityStore({ query, withTransaction, toISOStri
       if (blocked.rowCount) return { created: false, code: "availability_blocked" };
       const conversationId = [input.buyerUsername, product.sellerUsername].sort().join("::");
       const duplicate = await client.query(
-        "SELECT request_id FROM conversation_availability_events WHERE idempotency_key=$1",
+        "SELECT request_id,actor_username,action FROM conversation_availability_events WHERE idempotency_key=$1",
         [input.idempotencyKey]
       );
       if (duplicate.rowCount) {
         const existing = await client.query(`${selectRequest} WHERE id=$1`, [duplicate.rows[0].request_id]);
+        const previous=normalize(existing.rows?.[0]);
+        const event=duplicate.rows[0];
+        if(event.actor_username!==input.buyerUsername || event.action!=="REQUEST"
+          || previous?.buyerUsername!==input.buyerUsername || previous?.sellerUsername!==product.sellerUsername
+          || previous?.productId!==input.productId || previous?.requestedSize!==input.requestedSize
+          || previous?.requestedColor!==input.requestedColor || previous?.requestedQuantity!==quantity){
+          return {created:false,code:"idempotency_conflict"};
+        }
         return { created: true, duplicate: true, request: normalize(existing.rows?.[0]) };
       }
       await client.query(
@@ -93,17 +101,24 @@ function createConversationAvailabilityStore({ query, withTransaction, toISOStri
 
   async function transitionConversationAvailabilityRequest(input = {}) {
     return withTransaction(async client => {
-      const duplicate = await client.query(
-        "SELECT request_id FROM conversation_availability_events WHERE idempotency_key=$1",
-        [input.idempotencyKey]
-      );
-      if (duplicate.rowCount) {
-        const existing = await client.query(`${selectRequest} WHERE id=$1`, [duplicate.rows[0].request_id]);
-        return { updated: true, duplicate: true, request: normalize(existing.rows?.[0]) };
-      }
       const found = await client.query(`${selectRequest} WHERE id=$1 FOR UPDATE`, [input.requestId]);
       const request = normalize(found.rows?.[0]);
       if (!request) return { updated: false, code: "request_not_found" };
+      if (![request.buyerUsername,request.sellerUsername].includes(input.actorUsername)) {
+        return {updated:false,code:"forbidden_transition"};
+      }
+      const duplicate = await client.query(
+        "SELECT request_id,actor_username,action FROM conversation_availability_events WHERE idempotency_key=$1",
+        [input.idempotencyKey]
+      );
+      if (duplicate.rowCount) {
+        const event=duplicate.rows[0];
+        if(event.request_id!==request.id || event.actor_username!==input.actorUsername || event.action!==input.action
+          || (input.action==="SUGGEST_ALTERNATIVE" && request.responseProductId!==input.responseProductId)){
+          return {updated:false,code:"idempotency_conflict"};
+        }
+        return { updated: true, duplicate: true, request };
+      }
       const blocked = await client.query(
         `SELECT 1 FROM user_blocks WHERE
          ((blocker_username=$1 AND blocked_username=$2) OR (blocker_username=$2 AND blocked_username=$1)) LIMIT 1`,
