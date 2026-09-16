@@ -1226,6 +1226,23 @@
                      "categories.exploreCategory": "Explore {category}",
                      "categories.cardAria": "{category}, category",
                      "categories.imageAlt": "{category} category",
-                     "categories.subcategoriesTitle": "Explore {category}"
+                     "categories.subcategoriesTitle": "Explore {category}",
+                     "chat.offers": "Offers",
+                     "chat.offerProduct": "Product offer",
+                     "chat.structuredOffer": "Structured offer",
+                     "chat.acceptOffer": "Accept",
+                     "chat.counterOffer": "Counter",
+                     "chat.declineOffer": "Decline",
+                     "chat.cancelOffer": "Cancel offer",
+                     "chat.yourOffer": "Your offer",
+                     "chat.makeOffer": "Make offer",
+                     "chat.invalidOffer": "Enter a valid offer amount.",
+                     "chat.sendingOffer": "Sending your offer...",
+                     "chat.offerSent": "Your offer was sent.",
+                     "chat.updatingOffer": "Updating offer...",
+                     "chat.offerUpdated": "Offer updated.",
+                     "chat.offerFailed": "Offer could not be sent.",
+                     "chat.offerUpdateFailed": "Offer could not be updated.",
+                     "chat.counterPrompt": "Enter your counter offer in TZS"
                  }
 }

@@ -1226,6 +1226,23 @@
                      "categories.exploreCategory": "Vinjari {category}",
                      "categories.cardAria": "{category}, kategoria",
                      "categories.imageAlt": "Kategoria ya {category}",
-                     "categories.subcategoriesTitle": "Vinjari {category}"
+                     "categories.subcategoriesTitle": "Vinjari {category}",
+                     "chat.offers": "Ofa",
+                     "chat.offerProduct": "Ofa ya bidhaa",
+                     "chat.structuredOffer": "Ofa rasmi",
+                     "chat.acceptOffer": "Kubali",
+                     "chat.counterOffer": "Jibu kwa bei nyingine",
+                     "chat.declineOffer": "Kataa",
+                     "chat.cancelOffer": "Futa ofa",
+                     "chat.yourOffer": "Ofa yako",
+                     "chat.makeOffer": "Tuma ofa",
+                     "chat.invalidOffer": "Weka kiasi sahihi cha ofa.",
+                     "chat.sendingOffer": "Tunatuma ofa yako...",
+                     "chat.offerSent": "Ofa yako imetumwa.",
+                     "chat.updatingOffer": "Tunabadilisha ofa...",
+                     "chat.offerUpdated": "Ofa imesasishwa.",
+                     "chat.offerFailed": "Ofa haikuweza kutumwa.",
+                     "chat.offerUpdateFailed": "Ofa haikuweza kusasishwa.",
+                     "chat.counterPrompt": "Weka bei yako nyingine kwa TZS"
                  }
 }

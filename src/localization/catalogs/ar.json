@@ -1230,6 +1230,23 @@
                      "categories.exploreCategory": "استكشف {category}",
                      "categories.cardAria": "{category}، فئة",
                      "categories.imageAlt": "فئة {category}",
-                     "categories.subcategoriesTitle": "استكشف {category}"
+                     "categories.subcategoriesTitle": "استكشف {category}",
+                     "chat.offers": "العروض",
+                     "chat.offerProduct": "عرض المنتج",
+                     "chat.structuredOffer": "عرض منظم",
+                     "chat.acceptOffer": "قبول",
+                     "chat.counterOffer": "عرض مضاد",
+                     "chat.declineOffer": "رفض",
+                     "chat.cancelOffer": "إلغاء العرض",
+                     "chat.yourOffer": "عرضك",
+                     "chat.makeOffer": "تقديم عرض",
+                     "chat.invalidOffer": "أدخل قيمة عرض صحيحة.",
+                     "chat.sendingOffer": "جار إرسال عرضك...",
+                     "chat.offerSent": "تم إرسال عرضك.",
+                     "chat.updatingOffer": "جار تحديث العرض...",
+                     "chat.offerUpdated": "تم تحديث العرض.",
+                     "chat.offerFailed": "تعذر إرسال العرض.",
+                     "chat.offerUpdateFailed": "تعذر تحديث العرض.",
+                     "chat.counterPrompt": "أدخل عرضك المضاد بالشلن التنزاني"
                  }
 }

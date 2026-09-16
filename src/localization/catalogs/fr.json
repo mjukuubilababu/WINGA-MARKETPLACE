@@ -1226,6 +1226,23 @@
                      "categories.exploreCategory": "Explorer {category}",
                      "categories.cardAria": "{category}, catégorie",
                      "categories.imageAlt": "Catégorie {category}",
-                     "categories.subcategoriesTitle": "Explorer {category}"
+                     "categories.subcategoriesTitle": "Explorer {category}",
+                     "chat.offers": "Offres",
+                     "chat.offerProduct": "Offre produit",
+                     "chat.structuredOffer": "Offre structuree",
+                     "chat.acceptOffer": "Accepter",
+                     "chat.counterOffer": "Contre-offre",
+                     "chat.declineOffer": "Refuser",
+                     "chat.cancelOffer": "Annuler l'offre",
+                     "chat.yourOffer": "Votre offre",
+                     "chat.makeOffer": "Faire une offre",
+                     "chat.invalidOffer": "Saisissez un montant valide.",
+                     "chat.sendingOffer": "Envoi de votre offre...",
+                     "chat.offerSent": "Votre offre a ete envoyee.",
+                     "chat.updatingOffer": "Mise a jour de l'offre...",
+                     "chat.offerUpdated": "Offre mise a jour.",
+                     "chat.offerFailed": "L'offre n'a pas pu etre envoyee.",
+                     "chat.offerUpdateFailed": "L'offre n'a pas pu etre mise a jour.",
+                     "chat.counterPrompt": "Saisissez votre contre-offre en TZS"
                  }
 }

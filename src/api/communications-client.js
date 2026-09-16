@@ -58,6 +58,38 @@
       });
     }
 
+    async function loadConversationOffers(withUser) {
+      requireFetcher();
+      const data = await fetchJson(`${baseUrl}/conversations/${encodeURIComponent(withUser)}/offers`, {
+        headers: authHeaders()
+      });
+      return Array.isArray(data) ? data : [];
+    }
+
+    async function createConversationOffer(withUser, payload, idempotencyKey) {
+      requireFetcher();
+      return fetchJson(`${baseUrl}/conversations/${encodeURIComponent(withUser)}/offers`, {
+        method: "POST",
+        headers: {
+          ...jsonHeaders(),
+          "Idempotency-Key": idempotencyKey
+        },
+        body: JSON.stringify(payload)
+      });
+    }
+
+    async function transitionConversationOffer(offerId, payload, idempotencyKey) {
+      requireFetcher();
+      return fetchJson(`${baseUrl}/conversation-offers/${encodeURIComponent(offerId)}`, {
+        method: "PATCH",
+        headers: {
+          ...jsonHeaders(),
+          "Idempotency-Key": idempotencyKey
+        },
+        body: JSON.stringify(payload)
+      });
+    }
+
     async function loadNotifications() {
       requireFetcher();
       const data = await fetchJson(`${baseUrl}/notifications`, {
@@ -120,6 +152,9 @@
       sendMessage,
       deleteMessage,
       markConversationRead,
+      loadConversationOffers,
+      createConversationOffer,
+      transitionConversationOffer,
       loadNotifications,
       markNotificationRead,
       openRealtimeChannel

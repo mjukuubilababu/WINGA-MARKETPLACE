@@ -9178,6 +9178,9 @@ function connectRealtimeChannel() {
       if (notification?.type === "order") {
         await refreshOrdersState();
       }
+      if (notification?.type === "offer") {
+        await refreshConversationOffersState();
+      }
       if (notification?.type === "order" && chatUiState.isContextOpen) {
         replaceContextChatModal();
       }
@@ -9186,7 +9189,7 @@ function connectRealtimeChannel() {
           ...notification,
           haptic: document.visibilityState === "visible"
         });
-        if (["message", "order"].includes(String(notification.type || "").toLowerCase())) {
+        if (["message", "order", "offer"].includes(String(notification.type || "").toLowerCase())) {
           maybePromptNotificationPermission(notification.type === "order" ? "order" : "reply");
         }
       }
@@ -9255,6 +9258,14 @@ function getConversationOrders(context = null) {
   return getAllConversationOrders()
     .filter((order) => order?.sellerUsername === withUser || order?.buyerUsername === withUser)
     .sort((first, second) => new Date(second.updatedAt || second.createdAt || 0).getTime() - new Date(first.updatedAt || first.createdAt || 0).getTime());
+}
+
+function getConversationOffers(context = null) {
+  const withUser = context?.withUser || chatUiState.activeContext?.withUser || "";
+  if (!withUser || chatUiState.offersWithUser !== withUser) {
+    return [];
+  }
+  return Array.isArray(chatUiState.conversationOffers) ? chatUiState.conversationOffers : [];
 }
 
 function getConversationCommerceSnapshot(context = null) {
@@ -9439,6 +9450,26 @@ async function refreshOrdersState() {
   }
 }
 
+async function refreshConversationOffersState() {
+  const withUser = chatUiState.activeContext?.withUser || "";
+  if (!currentUser || !withUser) {
+    chatUiState.conversationOffers = [];
+    chatUiState.offersWithUser = "";
+    return [];
+  }
+  try {
+    const offers = await window.WingaDataLayer.loadConversationOffers(withUser);
+    if (chatUiState.activeContext?.withUser === withUser) {
+      chatUiState.conversationOffers = Array.isArray(offers) ? offers : [];
+      chatUiState.offersWithUser = withUser;
+    }
+    return chatUiState.conversationOffers;
+  } catch (error) {
+    captureClientError("conversation_offers_refresh_failed", error, { user: currentUser, withUser });
+    return getConversationOffers({ withUser });
+  }
+}
+
 function stopMessagePolling() {
   if (chatUiState.messagePollingTimer) {
     clearInterval(chatUiState.messagePollingTimer);
@@ -9453,7 +9484,7 @@ function startMessagePolling() {
   }
   chatUiState.messagePollingTimer = window.setInterval(async () => {
     try {
-      await Promise.all([refreshMessagesState(), refreshNotificationsState(), refreshOrdersState()]);
+      await Promise.all([refreshMessagesState(), refreshNotificationsState(), refreshOrdersState(), refreshConversationOffersState()]);
       if (profileDiv && currentView === "profile") {
         document.getElementById("profile-notifications-panel")?.replaceWith(createNotificationsContainerFromState());
         replaceMessagesPanel(profileDiv);
@@ -12276,6 +12307,7 @@ const {
   getConversationSummariesFiltered,
   getConversationCommerceSnapshot,
   getConversationOrders,
+  getConversationOffers,
   getConversationRelationshipMemory,
   getActiveConversationMessages,
   getActiveChatContext: () => chatUiState.activeContext,
@@ -12313,6 +12345,7 @@ const {
   getMessageProductItems,
   getReplyPreviewMessage,
   getCurrentUser: () => currentUser,
+  getOfferActionStatus: () => chatUiState.offerActionStatus,
   getUserDisplayName,
   translate: translateUi
 });
@@ -12336,6 +12369,11 @@ const {
   captureError: (...args) => captureClientError(...args),
   getUserDisplayName,
   setActiveChatContext: (context) => {
+    if ((chatUiState.activeContext?.withUser || "") !== (context?.withUser || "")) {
+      chatUiState.conversationOffers = [];
+      chatUiState.offersWithUser = "";
+      chatUiState.offerActionStatus = null;
+    }
     chatUiState.activeContext = context;
   },
   getActiveChatContext: () => chatUiState.activeContext,
@@ -12409,6 +12447,14 @@ const {
       message: String(status.message || "").trim()
     };
   },
+  setOfferActionStatus: (status = null) => {
+    chatUiState.offerActionStatus = status?.message ? {
+      tone: ["info", "warning", "success", "error"].includes(String(status.tone || "").trim())
+        ? String(status.tone || "").trim()
+        : "info",
+      message: String(status.message || "").trim()
+    } : null;
+  },
   getCurrentMessageDraft: () => chatUiState.currentDraft,
   loadStoredChatDraft,
   saveStoredChatDraft,
@@ -12467,6 +12513,7 @@ const {
   refreshMessagesState,
   refreshNotificationsState,
   refreshOrdersState,
+  refreshConversationOffersState,
   handleNotificationOpen,
   maybePromptNotificationPermission,
   beginPurchaseFlow,

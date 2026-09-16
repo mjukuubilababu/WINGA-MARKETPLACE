@@ -1163,6 +1163,15 @@
           await this.saveMessages(messages);
           return nextMessage;
         },
+        async loadConversationOffers() {
+          return [];
+        },
+        async createConversationOffer() {
+          throw new Error("Structured offers require the online Winga service.");
+        },
+        async transitionConversationOffer() {
+          throw new Error("Structured offers require the online Winga service.");
+        },
         async deleteMessage(messageId) {
           const session = this.loadSession();
           const messages = readStoredJson(MESSAGES_KEY, []);
@@ -1514,6 +1523,15 @@ async loadAdminPayments() {
         },
         async sendMessage(payload) {
           return local.sendMessage(payload);
+        },
+        async loadConversationOffers(withUser) {
+          return local.loadConversationOffers(withUser);
+        },
+        async createConversationOffer(withUser, payload, idempotencyKey) {
+          return local.createConversationOffer(withUser, payload, idempotencyKey);
+        },
+        async transitionConversationOffer(offerId, payload, idempotencyKey) {
+          return local.transitionConversationOffer(offerId, payload, idempotencyKey);
         },
         async deleteMessage(messageId) {
           return local.deleteMessage(messageId);
@@ -2166,6 +2184,15 @@ async loadAdminPayments(filters) {
         },
         async sendMessage(payload) {
           return getCommunicationsApiClient().sendMessage(payload);
+        },
+        async loadConversationOffers(withUser) {
+          return getCommunicationsApiClient().loadConversationOffers(withUser);
+        },
+        async createConversationOffer(withUser, payload, idempotencyKey) {
+          return getCommunicationsApiClient().createConversationOffer(withUser, payload, idempotencyKey);
+        },
+        async transitionConversationOffer(offerId, payload, idempotencyKey) {
+          return getCommunicationsApiClient().transitionConversationOffer(offerId, payload, idempotencyKey);
         },
         async deleteMessage(messageId) {
           return getCommunicationsApiClient().deleteMessage(messageId);
@@ -4103,6 +4130,24 @@ async loadAdminPayments() {
       async deleteMessage(messageId) {
         assertBuyerCapableAccess();
         return state.adapter.deleteMessage ? state.adapter.deleteMessage(messageId) : { ok: true };
+      },
+      async loadConversationOffers(withUser) {
+        assertBuyerCapableAccess();
+        return state.adapter.loadConversationOffers ? state.adapter.loadConversationOffers(withUser) : [];
+      },
+      async createConversationOffer(withUser, payload, idempotencyKey) {
+        assertBuyerCapableAccess();
+        if (!state.adapter.createConversationOffer) {
+          throw new Error("Structured offers are unavailable in this runtime.");
+        }
+        return state.adapter.createConversationOffer(withUser, payload, idempotencyKey);
+      },
+      async transitionConversationOffer(offerId, payload, idempotencyKey) {
+        assertBuyerCapableAccess();
+        if (!state.adapter.transitionConversationOffer) {
+          throw new Error("Structured offers are unavailable in this runtime.");
+        }
+        return state.adapter.transitionConversationOffer(offerId, payload, idempotencyKey);
       },
       async markConversationRead(payload) {
         assertBuyerCapableAccess();

@@ -105,6 +105,75 @@
       `;
     }
 
+    function renderConversationOfferCards(offers = [], context = null) {
+      const currentUser = deps.getCurrentUser();
+      const currentProduct = context?.productId ? deps.getProductById?.(context.productId) : null;
+      const activeStatuses = new Set(["PROPOSED", "COUNTERED"]);
+      const hasActiveOffer = offers.some((offer) =>
+        offer.productId === context?.productId && activeStatuses.has(String(offer.status || "").toUpperCase())
+      );
+      const canCreate = Boolean(
+        currentProduct
+        && context?.withUser
+        && currentProduct.uploadedBy === context.withUser
+        && currentUser !== context.withUser
+        && !hasActiveOffer
+      );
+      const actionStatus = deps.getOfferActionStatus?.();
+
+      if (!offers.length && !canCreate) {
+        return "";
+      }
+
+      return `
+        <section class="conversation-offers" aria-label="${deps.escapeHtml(t("chat.offers", "Offers"))}">
+          ${offers.slice(0, 4).map((offer) => {
+            const product = deps.getProductById?.(offer.productId);
+            const status = String(offer.status || "").toUpperCase();
+            const isActive = activeStatuses.has(status);
+            const canRespond = isActive && currentUser && currentUser !== offer.lastActorUsername;
+            const canCancel = isActive && currentUser === offer.lastActorUsername;
+            const productName = product?.name || t("chat.offerProduct", "Product offer");
+            const statusLabel = status.toLowerCase().replace(/_/g, " ");
+            return `
+              <article class="conversation-offer-card" data-conversation-offer="${deps.escapeHtml(offer.id || "")}">
+                <div class="conversation-commerce-card-head">
+                  <span class="conversation-system-label">${deps.escapeHtml(t("chat.structuredOffer", "Structured offer"))}</span>
+                  <span class="status-pill${status === "ACCEPTED" ? " approved" : ["DECLINED", "EXPIRED", "CANCELLED"].includes(status) ? " rejected" : " pending"}">${deps.escapeHtml(statusLabel)}</span>
+                </div>
+                <div class="conversation-offer-summary">
+                  <strong>${deps.escapeHtml(productName)}</strong>
+                  <span>${deps.formatProductPrice(offer.amount)}</span>
+                </div>
+                ${canRespond ? `
+                  <div class="conversation-commerce-actions">
+                    <button class="action-btn buy-btn" type="button" data-offer-action="ACCEPT" data-offer-id="${deps.escapeHtml(offer.id)}">${deps.escapeHtml(t("chat.acceptOffer", "Accept"))}</button>
+                    <button class="action-btn action-btn-secondary" type="button" data-offer-counter="${deps.escapeHtml(offer.id)}">${deps.escapeHtml(t("chat.counterOffer", "Counter"))}</button>
+                    <button class="action-btn action-btn-secondary" type="button" data-offer-action="DECLINE" data-offer-id="${deps.escapeHtml(offer.id)}">${deps.escapeHtml(t("chat.declineOffer", "Decline"))}</button>
+                  </div>
+                ` : canCancel ? `
+                  <div class="conversation-commerce-actions">
+                    <button class="action-btn action-btn-secondary" type="button" data-offer-action="CANCEL" data-offer-id="${deps.escapeHtml(offer.id)}">${deps.escapeHtml(t("chat.cancelOffer", "Cancel offer"))}</button>
+                  </div>
+                ` : ""}
+              </article>
+            `;
+          }).join("")}
+          ${canCreate ? `
+            <form class="conversation-offer-form" data-offer-create-form="true">
+              <input type="hidden" name="productId" value="${deps.escapeHtml(currentProduct.id)}" />
+              <label>
+                <span>${deps.escapeHtml(t("chat.yourOffer", "Your offer"))}</span>
+                <input name="amount" type="number" inputmode="numeric" min="500" step="500" required placeholder="TZS" />
+              </label>
+              <button class="action-btn action-btn-secondary" type="submit">${deps.escapeHtml(t("chat.makeOffer", "Make offer"))}</button>
+            </form>
+          ` : ""}
+          ${actionStatus?.message ? `<p class="chat-compose-status is-${deps.escapeHtml(actionStatus.tone || "info")}">${deps.escapeHtml(actionStatus.message)}</p>` : ""}
+        </section>
+      `;
+    }
+
     function renderConversationMessagesMarkup(activeMessages, options = {}) {
       const { enableActions = false } = options;
       if (!activeMessages.length) {
@@ -187,6 +256,9 @@
         : null;
       const activeOrders = deps.getConversationOrders
         ? deps.getConversationOrders(activeChatContext)
+        : [];
+      const activeOffers = deps.getConversationOffers
+        ? deps.getConversationOffers(activeChatContext)
         : [];
       const activeRelationshipMemory = deps.getConversationRelationshipMemory
         ? deps.getConversationRelationshipMemory(activeChatContext)
@@ -274,6 +346,7 @@
                 <p class="thread-safety-note">Lipa tu kwa details za seller zilizo ndani ya Winga, kisha tuma reference hapa. Ukiona tabia ya kutia shaka, report seller moja kwa moja.</p>
                 ${contactState.note ? `<p class="thread-contact-note">${deps.escapeHtml(contactState.note)}</p>` : ""}
                 ${renderConversationOrderCards(activeOrders)}
+                ${renderConversationOfferCards(activeOffers, activeChatContext)}
                 <div class="messages-thread-body">
                   ${renderConversationMessagesMarkup(activeMessages, { enableActions: true })}
                 </div>
@@ -348,6 +421,7 @@
       const product = deps.getActiveChatProduct();
       const seller = product ? deps.getMarketplaceUser(product.uploadedBy) : null;
       const activeMessages = deps.getActiveConversationMessages();
+      const activeOffers = deps.getConversationOffers?.(activeChatContext) || [];
       const contactState = deps.getChatContactState(activeChatContext);
       const activeWhatsApp = contactState.whatsapp;
       const productName = activeChatContext?.productName || product?.name || "General inquiry";
@@ -402,6 +476,7 @@
           </div>
           <p class="thread-safety-note context-chat-note">Tumia Winga payment details na report seller kama kuna pressure ya kulipa nje ya flow hii.</p>
           ${contactState.note ? `<p class="thread-contact-note context-chat-note">${deps.escapeHtml(contactState.note)}</p>` : ""}
+          ${renderConversationOfferCards(activeOffers, activeChatContext)}
           ${selectedProducts.length ? `
             <div class="context-chat-selection-bar">
               <strong>${selectedProducts.length} item${selectedProducts.length > 1 ? "s" : ""} selected</strong>

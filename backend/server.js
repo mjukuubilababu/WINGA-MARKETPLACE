@@ -185,7 +185,7 @@ const ALLOWED_PAYMENT_STATUSES = ["pending", "paid", "failed", "cancelled", "ref
 const ALLOWED_USER_STATUSES = ["active", "suspended", "banned", "flagged", "deactivated"];
 const ALLOWED_REPORT_STATUSES = ["open", "reviewed", "resolved"];
 const ALLOWED_REPORT_TARGETS = ["user", "product"];
-const ALLOWED_NOTIFICATION_TYPES = ["message", "request", "order", "follow", "content"];
+const ALLOWED_NOTIFICATION_TYPES = ["message", "request", "order", "offer", "follow", "content"];
 const ALLOWED_CONTENT_VISIBILITY = ["public", "followers", "private"];
 const ALLOWED_PROMOTION_TYPES = ["starter_day", "boost_3day", "growth_7day", "premium_14day", "boost", "featured", "category_boost", "pin_top"];
 const ALLOWED_PROMOTION_STATUSES = ["pending", "active", "rejected", "expired", "disabled"];
@@ -6039,7 +6039,7 @@ function emitLiveEvent(username, eventName, payload) {
   });
 }
 
-const BLOCK_FILTERED_NOTIFICATION_TYPES = new Set(["message", "request", "follow", "content"]);
+const BLOCK_FILTERED_NOTIFICATION_TYPES = new Set(["message", "request", "offer", "follow", "content"]);
 
 async function emitAuthorizedNotifications(notificationRecords = []) {
   const notifications = (Array.isArray(notificationRecords) ? notificationRecords : [notificationRecords])

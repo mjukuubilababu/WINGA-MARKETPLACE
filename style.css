@@ -6942,6 +6942,58 @@ body.context-chat-open{
   flex-wrap:wrap;
 }
 
+.conversation-offers{
+  display:grid;
+  gap:10px;
+  margin:0 0 12px;
+}
+
+.conversation-offer-card,
+.conversation-offer-form{
+  display:grid;
+  gap:10px;
+  padding:12px;
+  border:1px solid #d8e4ff;
+  border-radius:14px;
+  background:#f8faff;
+}
+
+.conversation-offer-summary{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+}
+
+.conversation-offer-summary span{
+  color:var(--accent-deep);
+  font-weight:800;
+}
+
+.conversation-offer-form{
+  grid-template-columns:minmax(0,1fr) auto;
+  align-items:end;
+}
+
+.conversation-offer-form label{
+  display:grid;
+  gap:5px;
+  min-width:0;
+  font-size:0.78rem;
+  font-weight:700;
+}
+
+.conversation-offer-form input{
+  width:100%;
+  min-width:0;
+}
+
+@media (max-width:420px){
+  .conversation-offer-form{
+    grid-template-columns:1fr;
+  }
+}
+
 .message-bubble{
   max-width:82%;
   padding:10px 12px;

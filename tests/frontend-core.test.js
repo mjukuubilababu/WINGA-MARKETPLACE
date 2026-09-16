@@ -2098,18 +2098,25 @@ test("remote communications API client owns messages notifications and realtime 
   assert.match(moduleSource, /async function loadMessages\(\)/);
   assert.match(moduleSource, /async function sendMessage\(payload\)/);
   assert.match(moduleSource, /async function markConversationRead\(payload\)/);
+  assert.match(moduleSource, /async function loadConversationOffers\(withUser\)/);
+  assert.match(moduleSource, /async function createConversationOffer\(withUser, payload, idempotencyKey\)/);
+  assert.match(moduleSource, /async function transitionConversationOffer\(offerId, payload, idempotencyKey\)/);
+  assert.match(moduleSource, /"Idempotency-Key": idempotencyKey/);
   assert.match(moduleSource, /async function loadNotifications\(\)/);
   assert.match(moduleSource, /async function markNotificationRead\(notificationId\)/);
   assert.match(moduleSource, /new EventSourceCtor\(`\$\{baseUrl\}\/messages\/stream`, \{ withCredentials: true \}\)/);
   assert.match(moduleSource, /handlers\.onConversationRead\?\.\(parseEvent\(event\)\)/);
   assert.match(dataSource, /window\.WingaModules\?\.api\?\.communications\?\.createCommunicationsApiClient/);
   assert.match(dataSource, /async sendMessage\(payload\) \{\s+return getCommunicationsApiClient\(\)\.sendMessage\(payload\);/);
+  assert.match(dataSource, /getCommunicationsApiClient\(\)\.loadConversationOffers\(withUser\)/);
+  assert.match(dataSource, /getCommunicationsApiClient\(\)\.createConversationOffer\(withUser, payload, idempotencyKey\)/);
+  assert.match(dataSource, /getCommunicationsApiClient\(\)\.transitionConversationOffer\(offerId, payload, idempotencyKey\)/);
   assert.match(dataSource, /async loadNotifications\(\) \{\s+assertPersonAccess\(\);/);
   assert.match(dataSource, /async markNotificationRead\(notificationId\) \{\s+assertPersonAccess\(\);/);
   assert.match(serverSource, /postgresStore\?\.readUserNotifications\s+\? await postgresStore\.readUserNotifications\(user\.username, \{ limit: 100 \}\)/);
-  assert.match(serverSource, /ALLOWED_NOTIFICATION_TYPES = \["message", "request", "order", "follow", "content"\]/);
+  assert.match(serverSource, /ALLOWED_NOTIFICATION_TYPES = \["message", "request", "order", "offer", "follow", "content"\]/);
   assert.match(serverSource, /emitAuthorizedNotifications\(followerNotifications\)/);
-  assert.match(serverSource, /BLOCK_FILTERED_NOTIFICATION_TYPES = new Set\(\["message", "request", "follow", "content"\]\)/);
+  assert.match(serverSource, /BLOCK_FILTERED_NOTIFICATION_TYPES = new Set\(\["message", "request", "offer", "follow", "content"\]\)/);
   assert.match(serverSource, /readUserBlockRelationships\(actorUsername\)/);
   assert.match(productsActionsSource, /data-content-visibility="\$\{product\.id\}"/);
   assert.match(appSource, /setPublicContentVisibility\(contentType, product\.id, nextVisibility\)/);
@@ -6385,4 +6392,22 @@ test("conversation commerce renders canonical live order state without owning or
   assert.match(uiSource, /data-chat-open-product=/);
   assert.match(controllerSource, /await deps\.refreshOrdersState\?\.\(\)/);
   assert.doesNotMatch(uiSource, /createOrder\(/);
+});
+
+test("conversation commerce offers use canonical API state and participant actions", () => {
+  const root = path.resolve(__dirname, "..");
+  const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
+  const uiSource = fs.readFileSync(path.join(root, "src", "chat", "ui.js"), "utf8");
+  const controllerSource = fs.readFileSync(path.join(root, "src", "chat", "controller.js"), "utf8");
+
+  assert.match(appSource, /async function refreshConversationOffersState\(\)/);
+  assert.match(appSource, /loadConversationOffers\(withUser\)/);
+  assert.match(uiSource, /function renderConversationOfferCards\(offers = \[\], context = null\)/);
+  assert.match(uiSource, /data-offer-create-form/);
+  assert.match(uiSource, /data-offer-action="ACCEPT"/);
+  assert.match(uiSource, /data-offer-counter=/);
+  assert.match(controllerSource, /createConversationOffer\(/);
+  assert.match(controllerSource, /transitionConversationOffer\(/);
+  assert.match(controllerSource, /createOfferIdempotencyKey/);
+  assert.doesNotMatch(controllerSource, /createOrder\(/);
 });

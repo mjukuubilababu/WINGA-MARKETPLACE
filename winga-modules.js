@@ -1212,6 +1212,38 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       });
     }
 
+    async function loadConversationOffers(withUser) {
+      requireFetcher();
+      const data = await fetchJson(`${baseUrl}/conversations/${encodeURIComponent(withUser)}/offers`, {
+        headers: authHeaders()
+      });
+      return Array.isArray(data) ? data : [];
+    }
+
+    async function createConversationOffer(withUser, payload, idempotencyKey) {
+      requireFetcher();
+      return fetchJson(`${baseUrl}/conversations/${encodeURIComponent(withUser)}/offers`, {
+        method: "POST",
+        headers: {
+          ...jsonHeaders(),
+          "Idempotency-Key": idempotencyKey
+        },
+        body: JSON.stringify(payload)
+      });
+    }
+
+    async function transitionConversationOffer(offerId, payload, idempotencyKey) {
+      requireFetcher();
+      return fetchJson(`${baseUrl}/conversation-offers/${encodeURIComponent(offerId)}`, {
+        method: "PATCH",
+        headers: {
+          ...jsonHeaders(),
+          "Idempotency-Key": idempotencyKey
+        },
+        body: JSON.stringify(payload)
+      });
+    }
+
     async function loadNotifications() {
       requireFetcher();
       const data = await fetchJson(`${baseUrl}/notifications`, {
@@ -1274,6 +1306,9 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       sendMessage,
       deleteMessage,
       markConversationRead,
+      loadConversationOffers,
+      createConversationOffer,
+      transitionConversationOffer,
       loadNotifications,
       markNotificationRead,
       openRealtimeChannel
@@ -2689,6 +2724,10 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       profileMessagesFilter: "all",
       profileHasSelection: false,
       currentDraft: "",
+      conversationOffers: [],
+      offersWithUser: "",
+      offerDraftProductId: "",
+      offerActionStatus: null,
       selectedProductIds: [],
       activeReplyMessageId: "",
       openMessageMenuId: "",
@@ -15898,6 +15937,75 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       `;
     }
 
+    function renderConversationOfferCards(offers = [], context = null) {
+      const currentUser = deps.getCurrentUser();
+      const currentProduct = context?.productId ? deps.getProductById?.(context.productId) : null;
+      const activeStatuses = new Set(["PROPOSED", "COUNTERED"]);
+      const hasActiveOffer = offers.some((offer) =>
+        offer.productId === context?.productId && activeStatuses.has(String(offer.status || "").toUpperCase())
+      );
+      const canCreate = Boolean(
+        currentProduct
+        && context?.withUser
+        && currentProduct.uploadedBy === context.withUser
+        && currentUser !== context.withUser
+        && !hasActiveOffer
+      );
+      const actionStatus = deps.getOfferActionStatus?.();
+
+      if (!offers.length && !canCreate) {
+        return "";
+      }
+
+      return `
+        <section class="conversation-offers" aria-label="${deps.escapeHtml(t("chat.offers", "Offers"))}">
+          ${offers.slice(0, 4).map((offer) => {
+            const product = deps.getProductById?.(offer.productId);
+            const status = String(offer.status || "").toUpperCase();
+            const isActive = activeStatuses.has(status);
+            const canRespond = isActive && currentUser && currentUser !== offer.lastActorUsername;
+            const canCancel = isActive && currentUser === offer.lastActorUsername;
+            const productName = product?.name || t("chat.offerProduct", "Product offer");
+            const statusLabel = status.toLowerCase().replace(/_/g, " ");
+            return `
+              <article class="conversation-offer-card" data-conversation-offer="${deps.escapeHtml(offer.id || "")}">
+                <div class="conversation-commerce-card-head">
+                  <span class="conversation-system-label">${deps.escapeHtml(t("chat.structuredOffer", "Structured offer"))}</span>
+                  <span class="status-pill${status === "ACCEPTED" ? " approved" : ["DECLINED", "EXPIRED", "CANCELLED"].includes(status) ? " rejected" : " pending"}">${deps.escapeHtml(statusLabel)}</span>
+                </div>
+                <div class="conversation-offer-summary">
+                  <strong>${deps.escapeHtml(productName)}</strong>
+                  <span>${deps.formatProductPrice(offer.amount)}</span>
+                </div>
+                ${canRespond ? `
+                  <div class="conversation-commerce-actions">
+                    <button class="action-btn buy-btn" type="button" data-offer-action="ACCEPT" data-offer-id="${deps.escapeHtml(offer.id)}">${deps.escapeHtml(t("chat.acceptOffer", "Accept"))}</button>
+                    <button class="action-btn action-btn-secondary" type="button" data-offer-counter="${deps.escapeHtml(offer.id)}">${deps.escapeHtml(t("chat.counterOffer", "Counter"))}</button>
+                    <button class="action-btn action-btn-secondary" type="button" data-offer-action="DECLINE" data-offer-id="${deps.escapeHtml(offer.id)}">${deps.escapeHtml(t("chat.declineOffer", "Decline"))}</button>
+                  </div>
+                ` : canCancel ? `
+                  <div class="conversation-commerce-actions">
+                    <button class="action-btn action-btn-secondary" type="button" data-offer-action="CANCEL" data-offer-id="${deps.escapeHtml(offer.id)}">${deps.escapeHtml(t("chat.cancelOffer", "Cancel offer"))}</button>
+                  </div>
+                ` : ""}
+              </article>
+            `;
+          }).join("")}
+          ${canCreate ? `
+            <form class="conversation-offer-form" data-offer-create-form="true">
+              <input type="hidden" name="productId" value="${deps.escapeHtml(currentProduct.id)}" />
+              <label>
+                <span>${deps.escapeHtml(t("chat.yourOffer", "Your offer"))}</span>
+                <input name="amount" type="number" inputmode="numeric" min="500" step="500" required placeholder="TZS" />
+              </label>
+              <button class="action-btn action-btn-secondary" type="submit">${deps.escapeHtml(t("chat.makeOffer", "Make offer"))}</button>
+            </form>
+          ` : ""}
+          ${actionStatus?.message ? `<p class="chat-compose-status is-${deps.escapeHtml(actionStatus.tone || "info")}">${deps.escapeHtml(actionStatus.message)}</p>` : ""}
+        </section>
+      `;
+    }
+
     function renderConversationMessagesMarkup(activeMessages, options = {}) {
       const { enableActions = false } = options;
       if (!activeMessages.length) {
@@ -15980,6 +16088,9 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         : null;
       const activeOrders = deps.getConversationOrders
         ? deps.getConversationOrders(activeChatContext)
+        : [];
+      const activeOffers = deps.getConversationOffers
+        ? deps.getConversationOffers(activeChatContext)
         : [];
       const activeRelationshipMemory = deps.getConversationRelationshipMemory
         ? deps.getConversationRelationshipMemory(activeChatContext)
@@ -16067,6 +16178,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
                 <p class="thread-safety-note">Lipa tu kwa details za seller zilizo ndani ya Winga, kisha tuma reference hapa. Ukiona tabia ya kutia shaka, report seller moja kwa moja.</p>
                 ${contactState.note ? `<p class="thread-contact-note">${deps.escapeHtml(contactState.note)}</p>` : ""}
                 ${renderConversationOrderCards(activeOrders)}
+                ${renderConversationOfferCards(activeOffers, activeChatContext)}
                 <div class="messages-thread-body">
                   ${renderConversationMessagesMarkup(activeMessages, { enableActions: true })}
                 </div>
@@ -16141,6 +16253,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       const product = deps.getActiveChatProduct();
       const seller = product ? deps.getMarketplaceUser(product.uploadedBy) : null;
       const activeMessages = deps.getActiveConversationMessages();
+      const activeOffers = deps.getConversationOffers?.(activeChatContext) || [];
       const contactState = deps.getChatContactState(activeChatContext);
       const activeWhatsApp = contactState.whatsapp;
       const productName = activeChatContext?.productName || product?.name || "General inquiry";
@@ -16195,6 +16308,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           </div>
           <p class="thread-safety-note context-chat-note">Tumia Winga payment details na report seller kama kuna pressure ya kulipa nje ya flow hii.</p>
           ${contactState.note ? `<p class="thread-contact-note context-chat-note">${deps.escapeHtml(contactState.note)}</p>` : ""}
+          ${renderConversationOfferCards(activeOffers, activeChatContext)}
           ${selectedProducts.length ? `
             <div class="context-chat-selection-bar">
               <strong>${selectedProducts.length} item${selectedProducts.length > 1 ? "s" : ""} selected</strong>
@@ -16320,6 +16434,85 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         recentSubmissionRegistry.delete(sendKey);
         throw error;
       }
+    }
+
+    function createOfferIdempotencyKey(action = "offer") {
+      const randomPart = globalThis.crypto?.randomUUID?.()
+        || Math.random().toString(36).slice(2);
+      return `${String(action || "offer").toLowerCase()}-${Date.now()}-${randomPart}`;
+    }
+
+    async function refreshOfferSurface(scope) {
+      await deps.refreshConversationOffersState?.();
+      if (scope && deps.getCurrentView?.() === "profile") {
+        deps.replaceMessagesPanel(scope);
+      }
+      if (deps.getIsContextOpen?.()) {
+        deps.replaceContextChatModal?.();
+      }
+    }
+
+    async function createOfferFromForm(form, rerender) {
+      const context = deps.getActiveChatContext?.();
+      const data = new FormData(form);
+      const amount = Number(data.get("amount"));
+      const productId = String(data.get("productId") || "").trim();
+      if (!context?.withUser || !productId || !Number.isInteger(amount) || amount < 500) {
+        deps.setOfferActionStatus?.({ tone: "error", message: t("chat.invalidOffer", "Enter a valid offer amount.") });
+        rerender?.();
+        return;
+      }
+      try {
+        deps.setOfferActionStatus?.({ tone: "info", message: t("chat.sendingOffer", "Sending your offer...") });
+        await deps.dataLayer.createConversationOffer(
+          context.withUser,
+          { productId, amount, currency: "TZS" },
+          createOfferIdempotencyKey("propose")
+        );
+        deps.setOfferActionStatus?.({ tone: "success", message: t("chat.offerSent", "Your offer was sent.") });
+        await Promise.all([deps.refreshConversationOffersState?.(), deps.refreshNotificationsState?.()]);
+        rerender?.();
+      } catch (error) {
+        deps.setOfferActionStatus?.({ tone: "error", message: error.message || t("chat.offerFailed", "Offer could not be sent.") });
+        deps.captureError?.("conversation_offer_create_failed", error, { productId, withUser: context.withUser });
+        rerender?.();
+      }
+    }
+
+    async function transitionOffer(offerId, action, amount, rerender) {
+      if (!offerId || !action) {
+        return;
+      }
+      try {
+        deps.setOfferActionStatus?.({ tone: "info", message: t("chat.updatingOffer", "Updating offer...") });
+        await deps.dataLayer.transitionConversationOffer(
+          offerId,
+          amount ? { action, amount } : { action },
+          createOfferIdempotencyKey(action)
+        );
+        deps.setOfferActionStatus?.({ tone: "success", message: t("chat.offerUpdated", "Offer updated.") });
+        await Promise.all([deps.refreshConversationOffersState?.(), deps.refreshNotificationsState?.()]);
+        rerender?.();
+      } catch (error) {
+        deps.setOfferActionStatus?.({ tone: "error", message: error.message || t("chat.offerUpdateFailed", "Offer could not be updated.") });
+        deps.captureError?.("conversation_offer_transition_failed", error, { offerId, action });
+        rerender?.();
+      }
+    }
+
+    async function counterOffer(offerId, rerender) {
+      const value = typeof window.prompt === "function"
+        ? window.prompt(t("chat.counterPrompt", "Enter your counter offer in TZS"), "")
+        : "";
+      const amount = Number(value);
+      if (!offerId || !Number.isInteger(amount) || amount < 500) {
+        if (value !== null) {
+          deps.setOfferActionStatus?.({ tone: "error", message: t("chat.invalidOffer", "Enter a valid offer amount.") });
+          rerender?.();
+        }
+        return;
+      }
+      await transitionOffer(offerId, "COUNTER", amount, rerender);
     }
 
     async function sharePhoneWithActiveChat() {
@@ -16472,6 +16665,23 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           if (productId) {
             deps.openProductDetailModal?.(productId);
           }
+        });
+      });
+
+      modal.querySelector("[data-offer-create-form]")?.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        await createOfferFromForm(event.currentTarget, replaceContextChatModal);
+      });
+
+      modal.querySelectorAll("[data-offer-action]").forEach((button) => {
+        button.addEventListener("click", async () => {
+          await transitionOffer(button.dataset.offerId || "", button.dataset.offerAction || "", 0, replaceContextChatModal);
+        });
+      });
+
+      modal.querySelectorAll("[data-offer-counter]").forEach((button) => {
+        button.addEventListener("click", async () => {
+          await counterOffer(button.dataset.offerCounter || "", replaceContextChatModal);
         });
       });
 
@@ -16747,7 +16957,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         }
       });
 
-      void Promise.all([deps.refreshMessagesState(), deps.refreshNotificationsState()])
+      void Promise.all([deps.refreshMessagesState(), deps.refreshNotificationsState(), deps.refreshConversationOffersState?.()])
         .then(async () => {
           deps.maybePromptNotificationPermission?.("reply");
           await deps.markActiveConversationRead();
@@ -17056,6 +17266,85 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           }
         });
 
+      bindSubmitOnce("[data-offer-create-form]", "OfferCreate", async (event) => {
+        event.preventDefault();
+        const context = deps.getActiveChatContext?.();
+        const form = event.currentTarget;
+        const data = new FormData(form);
+        const amount = Number(data.get("amount"));
+        const productId = String(data.get("productId") || "").trim();
+        if (!context?.withUser || !productId || !Number.isInteger(amount) || amount < 500) {
+          deps.setOfferActionStatus?.({ tone: "error", message: t("chat.invalidOffer", "Enter a valid offer amount.") });
+          deps.replaceMessagesPanel?.(scope);
+          return;
+        }
+        try {
+          deps.setOfferActionStatus?.({ tone: "info", message: t("chat.sendingOffer", "Sending your offer...") });
+          await deps.dataLayer.createConversationOffer(
+            context.withUser,
+            { productId, amount, currency: "TZS" },
+            createOfferIdempotencyKey("propose")
+          );
+          deps.setOfferActionStatus?.({ tone: "success", message: t("chat.offerSent", "Your offer was sent.") });
+          await Promise.all([refreshOfferSurface(scope), deps.refreshNotificationsState?.()]);
+        } catch (error) {
+          deps.setOfferActionStatus?.({ tone: "error", message: error.message || t("chat.offerFailed", "Offer could not be sent.") });
+          deps.captureError?.("conversation_offer_create_failed", error, { productId, withUser: context.withUser });
+          deps.replaceMessagesPanel?.(scope);
+        }
+      });
+
+      bindClickOnce("[data-offer-action]", "OfferAction", async (button) => {
+        const offerId = button.dataset.offerId || "";
+        const action = button.dataset.offerAction || "";
+        if (!offerId || !action) {
+          return;
+        }
+        try {
+          deps.setOfferActionStatus?.({ tone: "info", message: t("chat.updatingOffer", "Updating offer...") });
+          await deps.dataLayer.transitionConversationOffer(
+            offerId,
+            { action },
+            createOfferIdempotencyKey(action)
+          );
+          deps.setOfferActionStatus?.({ tone: "success", message: t("chat.offerUpdated", "Offer updated.") });
+          await Promise.all([refreshOfferSurface(scope), deps.refreshNotificationsState?.()]);
+        } catch (error) {
+          deps.setOfferActionStatus?.({ tone: "error", message: error.message || t("chat.offerUpdateFailed", "Offer could not be updated.") });
+          deps.captureError?.("conversation_offer_transition_failed", error, { offerId, action });
+          deps.replaceMessagesPanel?.(scope);
+        }
+      });
+
+      bindClickOnce("[data-offer-counter]", "OfferCounter", async (button) => {
+        const offerId = button.dataset.offerCounter || "";
+        const value = typeof window.prompt === "function"
+          ? window.prompt(t("chat.counterPrompt", "Enter your counter offer in TZS"), "")
+          : "";
+        const amount = Number(value);
+        if (!offerId || !Number.isInteger(amount) || amount < 500) {
+          if (value !== null) {
+            deps.setOfferActionStatus?.({ tone: "error", message: t("chat.invalidOffer", "Enter a valid offer amount.") });
+            deps.replaceMessagesPanel?.(scope);
+          }
+          return;
+        }
+        try {
+          deps.setOfferActionStatus?.({ tone: "info", message: t("chat.updatingOffer", "Updating offer...") });
+          await deps.dataLayer.transitionConversationOffer(
+            offerId,
+            { action: "COUNTER", amount },
+            createOfferIdempotencyKey("counter")
+          );
+          deps.setOfferActionStatus?.({ tone: "success", message: t("chat.offerUpdated", "Offer updated.") });
+          await Promise.all([refreshOfferSurface(scope), deps.refreshNotificationsState?.()]);
+        } catch (error) {
+          deps.setOfferActionStatus?.({ tone: "error", message: error.message || t("chat.offerUpdateFailed", "Offer could not be updated.") });
+          deps.captureError?.("conversation_offer_counter_failed", error, { offerId });
+          deps.replaceMessagesPanel?.(scope);
+        }
+      });
+
       bindClickOnce("[data-product-soldout]", "ProductSoldOut", async (button) => {
           const productId = button.dataset.productSoldout;
           if (deps.confirmAction && !deps.confirmAction(t("product.soldOutConfirm", "Una uhakika bidhaa hii imeisha na unataka kuiweka sold out?"))) {
@@ -17110,7 +17399,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           deps.setProfileHasSelection?.(true);
           deps.setCurrentMessageDraft(deps.loadStoredChatDraft?.(nextChatContext) || "");
           try {
-            await deps.markActiveConversationRead();
+            await Promise.all([deps.markActiveConversationRead(), deps.refreshConversationOffersState?.()]);
           } catch (error) {
             // Ignore passive read sync failures on thread switch.
           }

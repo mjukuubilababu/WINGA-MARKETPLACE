@@ -64,6 +64,85 @@
       }
     }
 
+    function createOfferIdempotencyKey(action = "offer") {
+      const randomPart = globalThis.crypto?.randomUUID?.()
+        || Math.random().toString(36).slice(2);
+      return `${String(action || "offer").toLowerCase()}-${Date.now()}-${randomPart}`;
+    }
+
+    async function refreshOfferSurface(scope) {
+      await deps.refreshConversationOffersState?.();
+      if (scope && deps.getCurrentView?.() === "profile") {
+        deps.replaceMessagesPanel(scope);
+      }
+      if (deps.getIsContextOpen?.()) {
+        deps.replaceContextChatModal?.();
+      }
+    }
+
+    async function createOfferFromForm(form, rerender) {
+      const context = deps.getActiveChatContext?.();
+      const data = new FormData(form);
+      const amount = Number(data.get("amount"));
+      const productId = String(data.get("productId") || "").trim();
+      if (!context?.withUser || !productId || !Number.isInteger(amount) || amount < 500) {
+        deps.setOfferActionStatus?.({ tone: "error", message: t("chat.invalidOffer", "Enter a valid offer amount.") });
+        rerender?.();
+        return;
+      }
+      try {
+        deps.setOfferActionStatus?.({ tone: "info", message: t("chat.sendingOffer", "Sending your offer...") });
+        await deps.dataLayer.createConversationOffer(
+          context.withUser,
+          { productId, amount, currency: "TZS" },
+          createOfferIdempotencyKey("propose")
+        );
+        deps.setOfferActionStatus?.({ tone: "success", message: t("chat.offerSent", "Your offer was sent.") });
+        await Promise.all([deps.refreshConversationOffersState?.(), deps.refreshNotificationsState?.()]);
+        rerender?.();
+      } catch (error) {
+        deps.setOfferActionStatus?.({ tone: "error", message: error.message || t("chat.offerFailed", "Offer could not be sent.") });
+        deps.captureError?.("conversation_offer_create_failed", error, { productId, withUser: context.withUser });
+        rerender?.();
+      }
+    }
+
+    async function transitionOffer(offerId, action, amount, rerender) {
+      if (!offerId || !action) {
+        return;
+      }
+      try {
+        deps.setOfferActionStatus?.({ tone: "info", message: t("chat.updatingOffer", "Updating offer...") });
+        await deps.dataLayer.transitionConversationOffer(
+          offerId,
+          amount ? { action, amount } : { action },
+          createOfferIdempotencyKey(action)
+        );
+        deps.setOfferActionStatus?.({ tone: "success", message: t("chat.offerUpdated", "Offer updated.") });
+        await Promise.all([deps.refreshConversationOffersState?.(), deps.refreshNotificationsState?.()]);
+        rerender?.();
+      } catch (error) {
+        deps.setOfferActionStatus?.({ tone: "error", message: error.message || t("chat.offerUpdateFailed", "Offer could not be updated.") });
+        deps.captureError?.("conversation_offer_transition_failed", error, { offerId, action });
+        rerender?.();
+      }
+    }
+
+    async function counterOffer(offerId, rerender) {
+      const value = typeof window.prompt === "function"
+        ? window.prompt(t("chat.counterPrompt", "Enter your counter offer in TZS"), "")
+        : "";
+      const amount = Number(value);
+      if (!offerId || !Number.isInteger(amount) || amount < 500) {
+        if (value !== null) {
+          deps.setOfferActionStatus?.({ tone: "error", message: t("chat.invalidOffer", "Enter a valid offer amount.") });
+          rerender?.();
+        }
+        return;
+      }
+      await transitionOffer(offerId, "COUNTER", amount, rerender);
+    }
+
     async function sharePhoneWithActiveChat() {
       const activeChatContext = deps.getActiveChatContext();
       if (!activeChatContext?.withUser) {
@@ -214,6 +293,23 @@
           if (productId) {
             deps.openProductDetailModal?.(productId);
           }
+        });
+      });
+
+      modal.querySelector("[data-offer-create-form]")?.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        await createOfferFromForm(event.currentTarget, replaceContextChatModal);
+      });
+
+      modal.querySelectorAll("[data-offer-action]").forEach((button) => {
+        button.addEventListener("click", async () => {
+          await transitionOffer(button.dataset.offerId || "", button.dataset.offerAction || "", 0, replaceContextChatModal);
+        });
+      });
+
+      modal.querySelectorAll("[data-offer-counter]").forEach((button) => {
+        button.addEventListener("click", async () => {
+          await counterOffer(button.dataset.offerCounter || "", replaceContextChatModal);
         });
       });
 
@@ -489,7 +585,7 @@
         }
       });
 
-      void Promise.all([deps.refreshMessagesState(), deps.refreshNotificationsState()])
+      void Promise.all([deps.refreshMessagesState(), deps.refreshNotificationsState(), deps.refreshConversationOffersState?.()])
         .then(async () => {
           deps.maybePromptNotificationPermission?.("reply");
           await deps.markActiveConversationRead();
@@ -798,6 +894,85 @@
           }
         });
 
+      bindSubmitOnce("[data-offer-create-form]", "OfferCreate", async (event) => {
+        event.preventDefault();
+        const context = deps.getActiveChatContext?.();
+        const form = event.currentTarget;
+        const data = new FormData(form);
+        const amount = Number(data.get("amount"));
+        const productId = String(data.get("productId") || "").trim();
+        if (!context?.withUser || !productId || !Number.isInteger(amount) || amount < 500) {
+          deps.setOfferActionStatus?.({ tone: "error", message: t("chat.invalidOffer", "Enter a valid offer amount.") });
+          deps.replaceMessagesPanel?.(scope);
+          return;
+        }
+        try {
+          deps.setOfferActionStatus?.({ tone: "info", message: t("chat.sendingOffer", "Sending your offer...") });
+          await deps.dataLayer.createConversationOffer(
+            context.withUser,
+            { productId, amount, currency: "TZS" },
+            createOfferIdempotencyKey("propose")
+          );
+          deps.setOfferActionStatus?.({ tone: "success", message: t("chat.offerSent", "Your offer was sent.") });
+          await Promise.all([refreshOfferSurface(scope), deps.refreshNotificationsState?.()]);
+        } catch (error) {
+          deps.setOfferActionStatus?.({ tone: "error", message: error.message || t("chat.offerFailed", "Offer could not be sent.") });
+          deps.captureError?.("conversation_offer_create_failed", error, { productId, withUser: context.withUser });
+          deps.replaceMessagesPanel?.(scope);
+        }
+      });
+
+      bindClickOnce("[data-offer-action]", "OfferAction", async (button) => {
+        const offerId = button.dataset.offerId || "";
+        const action = button.dataset.offerAction || "";
+        if (!offerId || !action) {
+          return;
+        }
+        try {
+          deps.setOfferActionStatus?.({ tone: "info", message: t("chat.updatingOffer", "Updating offer...") });
+          await deps.dataLayer.transitionConversationOffer(
+            offerId,
+            { action },
+            createOfferIdempotencyKey(action)
+          );
+          deps.setOfferActionStatus?.({ tone: "success", message: t("chat.offerUpdated", "Offer updated.") });
+          await Promise.all([refreshOfferSurface(scope), deps.refreshNotificationsState?.()]);
+        } catch (error) {
+          deps.setOfferActionStatus?.({ tone: "error", message: error.message || t("chat.offerUpdateFailed", "Offer could not be updated.") });
+          deps.captureError?.("conversation_offer_transition_failed", error, { offerId, action });
+          deps.replaceMessagesPanel?.(scope);
+        }
+      });
+
+      bindClickOnce("[data-offer-counter]", "OfferCounter", async (button) => {
+        const offerId = button.dataset.offerCounter || "";
+        const value = typeof window.prompt === "function"
+          ? window.prompt(t("chat.counterPrompt", "Enter your counter offer in TZS"), "")
+          : "";
+        const amount = Number(value);
+        if (!offerId || !Number.isInteger(amount) || amount < 500) {
+          if (value !== null) {
+            deps.setOfferActionStatus?.({ tone: "error", message: t("chat.invalidOffer", "Enter a valid offer amount.") });
+            deps.replaceMessagesPanel?.(scope);
+          }
+          return;
+        }
+        try {
+          deps.setOfferActionStatus?.({ tone: "info", message: t("chat.updatingOffer", "Updating offer...") });
+          await deps.dataLayer.transitionConversationOffer(
+            offerId,
+            { action: "COUNTER", amount },
+            createOfferIdempotencyKey("counter")
+          );
+          deps.setOfferActionStatus?.({ tone: "success", message: t("chat.offerUpdated", "Offer updated.") });
+          await Promise.all([refreshOfferSurface(scope), deps.refreshNotificationsState?.()]);
+        } catch (error) {
+          deps.setOfferActionStatus?.({ tone: "error", message: error.message || t("chat.offerUpdateFailed", "Offer could not be updated.") });
+          deps.captureError?.("conversation_offer_counter_failed", error, { offerId });
+          deps.replaceMessagesPanel?.(scope);
+        }
+      });
+
       bindClickOnce("[data-product-soldout]", "ProductSoldOut", async (button) => {
           const productId = button.dataset.productSoldout;
           if (deps.confirmAction && !deps.confirmAction(t("product.soldOutConfirm", "Una uhakika bidhaa hii imeisha na unataka kuiweka sold out?"))) {
@@ -852,7 +1027,7 @@
           deps.setProfileHasSelection?.(true);
           deps.setCurrentMessageDraft(deps.loadStoredChatDraft?.(nextChatContext) || "");
           try {
-            await deps.markActiveConversationRead();
+            await Promise.all([deps.markActiveConversationRead(), deps.refreshConversationOffersState?.()]);
           } catch (error) {
             // Ignore passive read sync failures on thread switch.
           }
