@@ -6406,8 +6406,11 @@ test("conversation commerce offers use canonical API state and participant actio
   assert.match(uiSource, /data-offer-create-form/);
   assert.match(uiSource, /data-offer-action="ACCEPT"/);
   assert.match(uiSource, /data-offer-counter=/);
+  assert.match(uiSource, /data-offer-checkout=/);
   assert.match(controllerSource, /createConversationOffer\(/);
   assert.match(controllerSource, /transitionConversationOffer\(/);
   assert.match(controllerSource, /createOfferIdempotencyKey/);
+  assert.match(controllerSource, /acceptedOfferId: button\.dataset\.offerCheckout/);
+  assert.match(appSource, /acceptedOfferId: paymentIntentState\.acceptedOfferId \|\| undefined/);
   assert.doesNotMatch(controllerSource, /createOrder\(/);
 });

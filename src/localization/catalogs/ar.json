@@ -1247,6 +1247,7 @@
                      "chat.offerUpdated": "تم تحديث العرض.",
                      "chat.offerFailed": "تعذر إرسال العرض.",
                      "chat.offerUpdateFailed": "تعذر تحديث العرض.",
-                     "chat.counterPrompt": "أدخل عرضك المضاد بالشلن التنزاني"
+                     "chat.counterPrompt": "أدخل عرضك المضاد بالشلن التنزاني",
+                     "chat.payAgreedAmount": "ادفع المبلغ المتفق عليه"
                  }
 }

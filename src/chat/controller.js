@@ -313,6 +313,18 @@
         });
       });
 
+      modal.querySelectorAll("[data-offer-checkout]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const product = deps.getProductById?.(button.dataset.offerProduct || "");
+          if (product) {
+            deps.beginPurchaseFlow?.(product, {
+              acceptedOfferId: button.dataset.offerCheckout || "",
+              agreedPrice: Number(button.dataset.offerPrice || 0)
+            });
+          }
+        });
+      });
+
       modal.querySelectorAll("[data-chat-prefill]").forEach((button) => {
         button.addEventListener("click", () => {
           deps.setCurrentMessageDraft(button.dataset.chatPrefill || "");
@@ -971,6 +983,17 @@
           deps.captureError?.("conversation_offer_counter_failed", error, { offerId });
           deps.replaceMessagesPanel?.(scope);
         }
+      });
+
+      bindClickOnce("[data-offer-checkout]", "OfferCheckout", (button) => {
+        const product = deps.getProductById?.(button.dataset.offerProduct || "");
+        if (!product) {
+          return;
+        }
+        deps.beginPurchaseFlow?.(product, {
+          acceptedOfferId: button.dataset.offerCheckout || "",
+          agreedPrice: Number(button.dataset.offerPrice || 0)
+        });
       });
 
       bindClickOnce("[data-product-soldout]", "ProductSoldOut", async (button) => {

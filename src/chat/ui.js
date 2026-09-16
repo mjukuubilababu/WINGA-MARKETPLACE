@@ -133,6 +133,7 @@
             const isActive = activeStatuses.has(status);
             const canRespond = isActive && currentUser && currentUser !== offer.lastActorUsername;
             const canCancel = isActive && currentUser === offer.lastActorUsername;
+            const canCheckout = status === "ACCEPTED" && currentUser === offer.buyerUsername && !offer.convertedOrderId;
             const productName = product?.name || t("chat.offerProduct", "Product offer");
             const statusLabel = status.toLowerCase().replace(/_/g, " ");
             return `
@@ -154,6 +155,14 @@
                 ` : canCancel ? `
                   <div class="conversation-commerce-actions">
                     <button class="action-btn action-btn-secondary" type="button" data-offer-action="CANCEL" data-offer-id="${deps.escapeHtml(offer.id)}">${deps.escapeHtml(t("chat.cancelOffer", "Cancel offer"))}</button>
+                  </div>
+                ` : ""}
+                ${canCheckout && product ? `
+                  <div class="conversation-commerce-actions">
+                    <button class="action-btn buy-btn" type="button"
+                      data-offer-checkout="${deps.escapeHtml(offer.id)}"
+                      data-offer-product="${deps.escapeHtml(offer.productId)}"
+                      data-offer-price="${deps.escapeHtml(offer.amount)}">${deps.escapeHtml(t("chat.payAgreedAmount", "Pay agreed amount"))}</button>
                   </div>
                 ` : ""}
               </article>

@@ -50,3 +50,14 @@ test("conversation offers API and store enforce authentication ownership and ide
   assert.match(server,/createConversationOffersApi/);
   assert.doesNotMatch(store,/INSERT INTO orders/);
 });
+
+test("accepted offer conversion stays inside the canonical order transaction", () => {
+  const database=fs.readFileSync(require.resolve("../backend/db.js"),"utf8");
+  const server=fs.readFileSync(require.resolve("../backend/server.js"),"utf8");
+  assert.match(database,/FROM conversation_offers WHERE id = \$1 FOR UPDATE/);
+  assert.match(database,/status = 'CONVERTED_TO_ORDER'/);
+  assert.match(database,/'CONVERT_TO_ORDER'/);
+  assert.match(database,/effectivePrice/);
+  assert.match(server,/acceptedOfferId/);
+  assert.match(server,/offer_not_convertible/);
+});

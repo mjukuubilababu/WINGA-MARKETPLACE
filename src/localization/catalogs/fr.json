@@ -1243,6 +1243,7 @@
                      "chat.offerUpdated": "Offre mise a jour.",
                      "chat.offerFailed": "L'offre n'a pas pu etre envoyee.",
                      "chat.offerUpdateFailed": "L'offre n'a pas pu etre mise a jour.",
-                     "chat.counterPrompt": "Saisissez votre contre-offre en TZS"
+                     "chat.counterPrompt": "Saisissez votre contre-offre en TZS",
+                     "chat.payAgreedAmount": "Payer le montant convenu"
                  }
 }

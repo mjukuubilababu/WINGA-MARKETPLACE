@@ -15789,7 +15789,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       const provider = paymentDetails.provider ? String(paymentDetails.provider).replace(/_/g, " ").toUpperCase() : t("order.mobileMoney", "Mobile Money");
       summary.append(
         createElement("strong", { textContent: product.name || t("common.product", "Product") }),
-        createElement("p", { className: "product-meta", textContent: t("order.amountLabel", "Amount: {amount}", { amount: formatProductPrice(product.price) }) }),
+        createElement("p", { className: "product-meta", textContent: t("order.amountLabel", "Amount: {amount}", { amount: formatProductPrice(state.agreedPrice || product.price) }) }),
         createElement("p", { className: "product-meta", textContent: t("order.paymentNumberLabel", "Payment number: {number}", { number: paymentDetails.number || t("common.notSet", "Not set") }) }),
         createElement("p", { className: "product-meta", textContent: t("order.recipientLabel", "Recipient: {recipient}", { recipient: paymentDetails.recipientName || t("order.sellerFallback", "Seller") }) }),
         createElement("p", { className: "product-meta", textContent: t("order.providerLabel", "Provider: {provider}", { provider }) }),
@@ -15965,6 +15965,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             const isActive = activeStatuses.has(status);
             const canRespond = isActive && currentUser && currentUser !== offer.lastActorUsername;
             const canCancel = isActive && currentUser === offer.lastActorUsername;
+            const canCheckout = status === "ACCEPTED" && currentUser === offer.buyerUsername && !offer.convertedOrderId;
             const productName = product?.name || t("chat.offerProduct", "Product offer");
             const statusLabel = status.toLowerCase().replace(/_/g, " ");
             return `
@@ -15986,6 +15987,14 @@ window.WingaModules.localization = window.WingaModules.localization || {};
                 ` : canCancel ? `
                   <div class="conversation-commerce-actions">
                     <button class="action-btn action-btn-secondary" type="button" data-offer-action="CANCEL" data-offer-id="${deps.escapeHtml(offer.id)}">${deps.escapeHtml(t("chat.cancelOffer", "Cancel offer"))}</button>
+                  </div>
+                ` : ""}
+                ${canCheckout && product ? `
+                  <div class="conversation-commerce-actions">
+                    <button class="action-btn buy-btn" type="button"
+                      data-offer-checkout="${deps.escapeHtml(offer.id)}"
+                      data-offer-product="${deps.escapeHtml(offer.productId)}"
+                      data-offer-price="${deps.escapeHtml(offer.amount)}">${deps.escapeHtml(t("chat.payAgreedAmount", "Pay agreed amount"))}</button>
                   </div>
                 ` : ""}
               </article>
@@ -16685,6 +16694,18 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         });
       });
 
+      modal.querySelectorAll("[data-offer-checkout]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const product = deps.getProductById?.(button.dataset.offerProduct || "");
+          if (product) {
+            deps.beginPurchaseFlow?.(product, {
+              acceptedOfferId: button.dataset.offerCheckout || "",
+              agreedPrice: Number(button.dataset.offerPrice || 0)
+            });
+          }
+        });
+      });
+
       modal.querySelectorAll("[data-chat-prefill]").forEach((button) => {
         button.addEventListener("click", () => {
           deps.setCurrentMessageDraft(button.dataset.chatPrefill || "");
@@ -17343,6 +17364,17 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           deps.captureError?.("conversation_offer_counter_failed", error, { offerId });
           deps.replaceMessagesPanel?.(scope);
         }
+      });
+
+      bindClickOnce("[data-offer-checkout]", "OfferCheckout", (button) => {
+        const product = deps.getProductById?.(button.dataset.offerProduct || "");
+        if (!product) {
+          return;
+        }
+        deps.beginPurchaseFlow?.(product, {
+          acceptedOfferId: button.dataset.offerCheckout || "",
+          agreedPrice: Number(button.dataset.offerPrice || 0)
+        });
       });
 
       bindClickOnce("[data-product-soldout]", "ProductSoldOut", async (button) => {

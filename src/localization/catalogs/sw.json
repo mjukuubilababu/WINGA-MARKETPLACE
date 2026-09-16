@@ -1243,6 +1243,7 @@
                      "chat.offerUpdated": "Ofa imesasishwa.",
                      "chat.offerFailed": "Ofa haikuweza kutumwa.",
                      "chat.offerUpdateFailed": "Ofa haikuweza kusasishwa.",
-                     "chat.counterPrompt": "Weka bei yako nyingine kwa TZS"
+                     "chat.counterPrompt": "Weka bei yako nyingine kwa TZS",
+                     "chat.payAgreedAmount": "Lipa bei mliyokubaliana"
                  }
 }

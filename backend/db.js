@@ -3315,7 +3315,33 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       if (product.status !== "approved") return { created: false, code: "product_not_approved" };
       if (product.availability !== "available") return { created: false, code: "product_unavailable" };
       if (product.uploadedBy === order.buyerUsername) return { created: false, code: "self_purchase" };
-      if (Number(product.price) !== Number(order.price)) return { created: false, code: "price_changed" };
+      let effectivePrice = Number(product.price);
+      let acceptedOffer = null;
+      if (context.acceptedOfferId) {
+        const offerResult = await client.query(
+          `SELECT id, product_id AS "productId", buyer_username AS "buyerUsername",
+                  seller_username AS "sellerUsername", amount::float8 AS amount, currency,
+                  status, converted_order_id AS "convertedOrderId"
+             FROM conversation_offers WHERE id = $1 FOR UPDATE`,
+          [context.acceptedOfferId]
+        );
+        acceptedOffer = offerResult.rows?.[0] || null;
+        if (!acceptedOffer) return { created: false, code: "offer_not_found" };
+        if (acceptedOffer.status !== "ACCEPTED" || acceptedOffer.convertedOrderId) {
+          return { created: false, code: "offer_not_convertible" };
+        }
+        if (acceptedOffer.productId !== order.productId
+          || acceptedOffer.buyerUsername !== order.buyerUsername
+          || acceptedOffer.sellerUsername !== product.uploadedBy) {
+          return { created: false, code: "offer_mismatch" };
+        }
+        if (String(acceptedOffer.currency || "TZS").toUpperCase() !== "TZS") {
+          return { created: false, code: "offer_currency_mismatch" };
+        }
+        effectivePrice = Number(acceptedOffer.amount);
+      } else if (Number(product.price) !== Number(order.price)) {
+        return { created: false, code: "price_changed" };
+      }
 
       const activeOrderResult = await client.query(
         `SELECT 1 FROM orders
@@ -3350,7 +3376,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
          )`,
         [
           order.id, order.productId, order.productName, order.productImage || "",
-          order.price, order.buyerUsername, order.sellerUsername, order.shop || "",
+          effectivePrice, order.buyerUsername, order.sellerUsername, order.shop || "",
           order.status || "placed", order.paymentStatus || "pending",
           order.paymentMethod || "mobile_money", order.paymentPhoneNumber || "",
           order.transactionId || "", order.paymentSubmittedAt || null,
@@ -3374,7 +3400,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
            $11, $12, $13, $14, $15, $16, 1
          )`,
         [
-          payment.id, payment.orderId, payment.buyerUsername, payment.amountPaid,
+          payment.id, payment.orderId, payment.buyerUsername, effectivePrice,
           payment.paymentMethod || "mobile_money", payment.transactionReference,
           payment.receiptNumber || payment.transactionReference,
           payment.paymentStatus || "pending", stringifyJson(payment.payerDetails, {}),
@@ -3399,8 +3425,23 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
         sourceEntityKey: order.id,
         metadata: { privacy: "self-scoped", paymentStatus: order.paymentStatus || "pending" }
       });
+      if (acceptedOffer) {
+        await client.query(
+          `UPDATE conversation_offers
+              SET status = 'CONVERTED_TO_ORDER', converted_order_id = $2,
+                  updated_at = NOW(), row_version = row_version + 1
+            WHERE id = $1 AND status = 'ACCEPTED' AND converted_order_id IS NULL`,
+          [acceptedOffer.id, order.id]
+        );
+        await client.query(
+          `INSERT INTO conversation_offer_events (
+             id, offer_id, actor_username, action, from_status, to_status, amount, idempotency_key
+           ) VALUES ($1,$2,$3,'CONVERT_TO_ORDER','ACCEPTED','CONVERTED_TO_ORDER',$4,$5)`,
+          [`offer-event-${order.id}`, acceptedOffer.id, order.buyerUsername, effectivePrice, `offer-convert-${order.id}`]
+        );
+      }
       await insertNotificationRow(client, notification);
-      return { created: true, code: "", orderId: order.id, paymentId: payment.id };
+      return { created: true, code: "", orderId: order.id, paymentId: payment.id, price: effectivePrice };
     });
   }
 

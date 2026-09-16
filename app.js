@@ -11063,6 +11063,8 @@ let trustReportState = {
 
 let paymentIntentState = {
   productId: "",
+  acceptedOfferId: "",
+  agreedPrice: 0,
   loading: false,
   transactionId: "",
   feedbackTone: "",
@@ -11684,6 +11686,8 @@ function closePaymentIntentModal() {
   root.classList.remove("open");
   paymentIntentState = {
     productId: "",
+    acceptedOfferId: "",
+    agreedPrice: 0,
     loading: false,
     transactionId: "",
     feedbackTone: "",
@@ -11783,8 +11787,10 @@ async function submitPaymentIntentOrder() {
   try {
     await window.WingaDataLayer.createOrder({
       productId: product.id,
-      transactionId
+      transactionId,
+      acceptedOfferId: paymentIntentState.acceptedOfferId || undefined
     });
+    await Promise.all([refreshOrdersState(), refreshConversationOffersState()]);
     paymentIntentSubmissionRegistry.set(submissionKey, {
       status: "completed",
       updatedAt: Date.now()
@@ -23202,7 +23208,7 @@ function renderProductGallery(product) {
   `;
 }
 
-function beginPurchaseFlow(product) {
+function beginPurchaseFlow(product, options = {}) {
   if (product?.uploadedBy === currentUser) {
     showInAppNotification({
       title: translateUi("purchase.ownProductTitle", {}, "Your product"),
@@ -23236,7 +23242,10 @@ function beginPurchaseFlow(product) {
     return;
   }
 
-  if (!hasProductPrice(product.price)) {
+  const acceptedOfferId = String(options.acceptedOfferId || "").trim();
+  const agreedPrice = Number(options.agreedPrice || 0);
+  const hasAcceptedOfferPrice = Boolean(acceptedOfferId && Number.isInteger(agreedPrice) && agreedPrice >= 500);
+  if (!hasProductPrice(product.price) && !hasAcceptedOfferPrice) {
     showInAppNotification({
       title: translateUi("purchase.negotiatedPriceTitle", {}, "Bei kwa maelewano"),
       body: translateUi("purchase.negotiatedPriceBody", {}, "Bidhaa hii haina bei ya wazi. Chat na muuzaji kwanza."),
@@ -23262,6 +23271,8 @@ function beginPurchaseFlow(product) {
 
   paymentIntentState = {
     productId: product.id,
+    acceptedOfferId: hasAcceptedOfferPrice ? acceptedOfferId : "",
+    agreedPrice: hasAcceptedOfferPrice ? agreedPrice : 0,
     loading: false,
     transactionId: "",
     feedbackTone: "",

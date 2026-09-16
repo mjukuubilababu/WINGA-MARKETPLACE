@@ -12942,6 +12942,7 @@ const server = http.createServer(async (req, res) => {
       const payload = await collectBody(req);
       const productId = typeof payload?.productId === "string" ? payload.productId.trim() : "";
       const transactionId = sanitizePlainText(payload?.transactionId, 80).toUpperCase();
+      const acceptedOfferId = sanitizePlainText(payload?.acceptedOfferId, 100);
       if (!productId) {
         sendJson(res, 400, { error: "Bidhaa ya kununua haijachaguliwa." });
         return;
@@ -12996,8 +12997,12 @@ const server = http.createServer(async (req, res) => {
       }
 
       const productPrice = normalizeOptionalPrice(product.price);
-      if (productPrice === null) {
+      if (productPrice === null && !acceptedOfferId) {
         sendJson(res, 409, { error: "Bidhaa hii haina bei ya wazi. Ongea na muuzaji kwanza mkubaliane bei kabla ya kuweka order." });
+        return;
+      }
+      if (acceptedOfferId && !postgresStore?.createCommerceOrder) {
+        sendJson(res, 503, { error: "Accepted offer checkout is temporarily unavailable.", code: "offer_checkout_unavailable" });
         return;
       }
 
@@ -13019,7 +13024,7 @@ const server = http.createServer(async (req, res) => {
         productId: product.id,
         productName: product.name,
         productImage: product.image || "",
-        price: productPrice,
+        price: productPrice || 0,
         currency: "TZS",
         buyerUsername: session.username,
         sellerUsername: product.uploadedBy,
@@ -13044,7 +13049,7 @@ const server = http.createServer(async (req, res) => {
         id: `payment-${order.id}`,
         orderId: order.id,
         buyerUsername: session.username,
-        amountPaid: productPrice,
+        amountPaid: productPrice || 0,
         currency: "TZS",
         paymentMethod: "mobile_money",
         paymentProvider,
@@ -13086,7 +13091,8 @@ const server = http.createServer(async (req, res) => {
       const nextStore = { ...store, orders, payments, products, notifications };
       if (postgresStore?.createCommerceOrder) {
         const commerceResult = await postgresStore.createCommerceOrder(order, payment, sellerNotification, {
-          audienceKey: getCommerceAudience(session).audienceKey
+          audienceKey: getCommerceAudience(session).audienceKey,
+          acceptedOfferId
         });
         if (!commerceResult.created) {
           const errors = {
@@ -13095,12 +13101,20 @@ const server = http.createServer(async (req, res) => {
             product_unavailable: [409, "Bidhaa hii imeshahifadhiwa au imeisha."],
             self_purchase: [400, "Huwezi kununua bidhaa yako mwenyewe."],
             price_changed: [409, "Bei ya bidhaa imebadilika. Refresh kabla ya kuendelea."],
+            offer_not_found: [404, "Ofa iliyokubaliwa haijapatikana."],
+            offer_not_convertible: [409, "Ofa hii haiwezi tena kutumika kuweka order."],
+            offer_mismatch: [403, "Ofa hii si ya buyer, seller, au bidhaa hii."],
+            offer_currency_mismatch: [409, "Currency ya ofa hii haitumiki kwenye checkout hii."],
             active_order: [409, "Tayari una order inayoendelea kwa bidhaa hii."],
             duplicate_transaction: [409, "Receipt au transaction reference hiyo tayari imetumika."]
           };
           const [statusCode, message] = errors[commerceResult.code] || [409, "Order haikuweza kuhifadhiwa. Jaribu tena."];
           sendJson(res, statusCode, { error: message, code: commerceResult.code || "order_conflict" });
           return;
+        }
+        if (Number.isFinite(Number(commerceResult.price)) && Number(commerceResult.price) > 0) {
+          order.price = Number(commerceResult.price);
+          payment.amountPaid = Number(commerceResult.price);
         }
       } else {
         await writeStore(nextStore);
@@ -13117,7 +13131,8 @@ const server = http.createServer(async (req, res) => {
         sellerUsername: product.uploadedBy,
         orderId: order.id,
         paymentId: payment.id,
-        paymentStatus: payment.paymentStatus
+        paymentStatus: payment.paymentStatus,
+        acceptedOfferId
       });
       dispatchBusinessIntelligenceEvent({
         event: "order_created",
@@ -13131,7 +13146,7 @@ const server = http.createServer(async (req, res) => {
         productId: product.id,
         outcomeType: "ordered",
         orderId: order.id,
-        metadata: { source: "order_create", paymentStatus: payment.paymentStatus }
+        metadata: { source: acceptedOfferId ? "accepted_offer" : "order_create", paymentStatus: payment.paymentStatus }
       });
       emitLiveEvent(product.uploadedBy, "notification", { notification: sellerNotification });
       sendJson(res, 200, {

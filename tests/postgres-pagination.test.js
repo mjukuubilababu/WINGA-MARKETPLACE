@@ -800,6 +800,58 @@ test("PostgreSQL commerce order locks inventory and commits receipt, order, paym
   assert.equal(calls.at(-1).text, "COMMIT");
 });
 
+test("PostgreSQL accepted offer checkout uses the locked agreed price and converts once", async () => {
+  const calls = [];
+  const client = {
+    async query(text, params = []) {
+      const sql = String(text);
+      calls.push({ text: sql, params });
+      if (sql.includes("FROM products WHERE id") && sql.includes("FOR UPDATE")) {
+        return { rows: [{ id: "p-offer", price: 50000, uploadedBy: "seller", status: "approved", availability: "available" }], rowCount: 1 };
+      }
+      if (sql.includes("FROM conversation_offers WHERE id") && sql.includes("FOR UPDATE")) {
+        return { rows: [{
+          id: "offer-1", productId: "p-offer", buyerUsername: "buyer", sellerUsername: "seller",
+          amount: 43000, currency: "TZS", status: "ACCEPTED", convertedOrderId: null
+        }], rowCount: 1 };
+      }
+      if (sql.includes("SELECT 1 FROM orders")) return { rows: [], rowCount: 0 };
+      if (sql.includes("INSERT INTO payment_transaction_claims")) {
+        return { rows: [{ transaction_reference: "TXOFFER123" }], rowCount: 1 };
+      }
+      return { rows: [], rowCount: 1 };
+    },
+    release() {}
+  };
+  const store = createPostgresStore({
+    databaseUrl: "postgres://test.invalid/winga",
+    queryClient: { query: client.query.bind(client), connect: async () => client }
+  });
+
+  const result = await store.createCommerceOrder({
+    id: "order-offer", productId: "p-offer", productName: "Dress", price: 50000,
+    buyerUsername: "buyer", sellerUsername: "seller", status: "placed",
+    paymentStatus: "pending", transactionId: "TXOFFER123", createdAt: "2026-09-16T00:00:00.000Z"
+  }, {
+    id: "payment-offer", orderId: "order-offer", buyerUsername: "buyer",
+    amountPaid: 50000, transactionReference: "TXOFFER123", paymentStatus: "pending"
+  }, {
+    id: "notification-offer", userId: "seller", title: "Order", body: "New order"
+  }, {
+    acceptedOfferId: "offer-1"
+  });
+
+  assert.equal(result.created, true);
+  assert.equal(result.price, 43000);
+  const orderInsert = calls.find((call) => call.text.includes("INSERT INTO orders"));
+  const paymentInsert = calls.find((call) => call.text.includes("INSERT INTO payments"));
+  assert.equal(orderInsert.params[4], 43000);
+  assert.equal(paymentInsert.params[3], 43000);
+  assert.equal(calls.some((call) => call.text.includes("SET status = 'CONVERTED_TO_ORDER'")), true);
+  assert.equal(calls.some((call) => call.text.includes("'CONVERT_TO_ORDER'")), true);
+  assert.equal(calls.at(-1).text, "COMMIT");
+});
+
 test("PostgreSQL commerce order rejects a duplicate transaction before business rows are written", async () => {
   const calls = [];
   const client = {

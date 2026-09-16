@@ -21,7 +21,7 @@
       const provider = paymentDetails.provider ? String(paymentDetails.provider).replace(/_/g, " ").toUpperCase() : t("order.mobileMoney", "Mobile Money");
       summary.append(
         createElement("strong", { textContent: product.name || t("common.product", "Product") }),
-        createElement("p", { className: "product-meta", textContent: t("order.amountLabel", "Amount: {amount}", { amount: formatProductPrice(product.price) }) }),
+        createElement("p", { className: "product-meta", textContent: t("order.amountLabel", "Amount: {amount}", { amount: formatProductPrice(state.agreedPrice || product.price) }) }),
         createElement("p", { className: "product-meta", textContent: t("order.paymentNumberLabel", "Payment number: {number}", { number: paymentDetails.number || t("common.notSet", "Not set") }) }),
         createElement("p", { className: "product-meta", textContent: t("order.recipientLabel", "Recipient: {recipient}", { recipient: paymentDetails.recipientName || t("order.sellerFallback", "Seller") }) }),
         createElement("p", { className: "product-meta", textContent: t("order.providerLabel", "Provider: {provider}", { provider }) }),
