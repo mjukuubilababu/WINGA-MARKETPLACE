@@ -13116,6 +13116,7 @@ const {
   bindShowcaseCardClicks,
   setupDynamicShowcaseLoading,
   reportShowcaseInstrumentation,
+  recordAdEvent: (payload) => window.WingaDataLayer.recordAdEvent(payload),
   isPerformanceDebugEnabled: isExperienceMetricDebugEnabled,
   canUseContinuousDiscovery: () => true,
   createContinuousDiscoveryAnchorElement,

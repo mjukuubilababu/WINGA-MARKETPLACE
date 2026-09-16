@@ -120,7 +120,10 @@
         const followed = new Set((Array.isArray(context.followedUsernames) ? context.followedUsernames : []).map(normalizeId));
         const currentUsername = normalizeId(context.currentUser?.username || context.currentUser);
         const promotions = Array.isArray(context.promotions) ? context.promotions : [];
-        const promotedProductIds = new Set(promotions.filter(isActivePromotion).map((item) => normalizeId(item.productId)).filter(Boolean));
+        const activePromotionsByProduct = new Map(promotions.filter(isActivePromotion)
+          .map((promotion) => [normalizeId(promotion.productId), promotion])
+          .filter(([productId]) => productId));
+        const promotedProductIds = new Set(activePromotionsByProduct.keys());
         const organicExcludedIds = new Set([...excludedIds, ...promotedProductIds]);
         const candidates = [];
 
@@ -167,6 +170,13 @@
           if (!promotedProductIds.has(normalizeId(product.id)) || !seller || sponsoredSellerIds.has(seller)) return false;
           sponsoredSellerIds.add(seller);
           return true;
+        }).map((product) => {
+          const promotion = activePromotionsByProduct.get(normalizeId(product.id));
+          return {
+            ...product,
+            adCampaignId: normalizeId(promotion?.campaignId
+              || (normalizeId(promotion?.id).startsWith("adcmp-") ? promotion.id : ""))
+          };
         });
         const sponsoredItems = uniqueProducts(
           sponsoredCandidates,

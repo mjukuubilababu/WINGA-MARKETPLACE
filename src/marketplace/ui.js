@@ -19,6 +19,7 @@
         })
       : null;
     const boundFeedModuleTracks = new WeakSet();
+    const measuredAdCards = new WeakSet();
 
     function bindFeedModuleAnalytics(scope) {
       scope?.querySelectorAll?.("[data-feed-module-id]").forEach((section) => {
@@ -27,13 +28,47 @@
         boundFeedModuleTracks.add(track);
         track.addEventListener("click", (event) => {
           const item = event.target.closest("[data-showcase-id], [data-open-product]");
+          const sponsored = section.dataset.feedModuleSponsored === "true";
           deps.reportShowcaseInstrumentation?.("module_item_click", {
             moduleId: section.dataset.feedModuleId || "",
             moduleType: section.dataset.feedModuleType || "",
             productId: item?.dataset?.showcaseId || item?.dataset?.openProduct || "",
-            sponsored: section.dataset.feedModuleSponsored === "true"
+            sponsored
           });
+          const campaignId = item?.closest?.("[data-ad-campaign-id]")?.dataset?.adCampaignId || "";
+          if (sponsored && campaignId) {
+            deps.recordAdEvent?.({
+              campaignId,
+              eventType: "CLICK",
+              placementCode: "HOME_FEED_SPONSORED"
+            });
+          }
         }, { passive: true });
+        if (section.dataset.feedModuleSponsored === "true" && typeof IntersectionObserver !== "undefined") {
+          const observer = new IntersectionObserver((entries) => {
+            entries.forEach((entry) => {
+              const card = entry.target;
+              if (entry.intersectionRatio < 0.5 || measuredAdCards.has(card)) return;
+              window.setTimeout(() => {
+                if (!card.isConnected || measuredAdCards.has(card)) return;
+                const rect = card.getBoundingClientRect();
+                const visibleHeight = Math.max(0, Math.min(rect.bottom, window.innerHeight) - Math.max(rect.top, 0));
+                const visibleRatio = rect.height > 0 ? visibleHeight / rect.height : 0;
+                if (visibleRatio < 0.5) return;
+                measuredAdCards.add(card);
+                observer.unobserve(card);
+                deps.recordAdEvent?.({
+                  campaignId: card.dataset.adCampaignId || "",
+                  eventType: "IMPRESSION",
+                  placementCode: "HOME_FEED_SPONSORED",
+                  viewableRatio: Number(visibleRatio.toFixed(2)),
+                  viewableMs: 1000
+                });
+              }, 1000);
+            });
+          }, { threshold: [0.5] });
+          section.querySelectorAll("[data-ad-campaign-id]").forEach((card) => observer.observe(card));
+        }
         let scrollTimer = 0;
         track.addEventListener("scroll", () => {
           if (scrollTimer) window.clearTimeout(scrollTimer);
@@ -1147,7 +1182,8 @@
         className: "product-card showcase-card intelligent-feed-card",
         attributes: {
           "data-intelligent-feed-card": product.id,
-          "data-open-product": product.id
+          "data-open-product": product.id,
+          ...(product.adCampaignId ? { "data-ad-campaign-id": product.adCampaignId } : {})
         }
       });
       card.dataset.intelligentFeedCard = product.id;

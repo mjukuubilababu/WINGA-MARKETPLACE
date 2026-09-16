@@ -52,3 +52,16 @@ test("Ads V1 migration creates relational state, inventory, payments, reviews, a
   assert.match(sql, /dedupe_key TEXT NOT NULL UNIQUE/);
   assert.match(sql, /CHECK \(ends_at > starts_at\)/);
 });
+
+test("Ads V1 frontend measures only viewable sponsored cards and exposes reports", () => {
+  const fs = require("node:fs");
+  const ui = fs.readFileSync(require.resolve("../src/marketplace/ui.js"), "utf8");
+  const feed = fs.readFileSync(require.resolve("../src/marketplace/feed-modules.js"), "utf8");
+  const client = fs.readFileSync(require.resolve("../src/api/commerce-client.js"), "utf8");
+  assert.match(feed, /adCampaignId/);
+  assert.match(ui, /intersectionRatio < 0\.5/);
+  assert.match(ui, /viewableMs: 1000/);
+  assert.match(ui, /eventType: "CLICK"/);
+  assert.match(client, /async function loadAdCampaignReport/);
+  assert.match(client, /tracking_failed_open/);
+});

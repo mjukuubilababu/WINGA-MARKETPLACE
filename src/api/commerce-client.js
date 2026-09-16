@@ -93,6 +93,32 @@
       });
     }
 
+    async function loadAdCampaigns() {
+      requireFetcher();
+      const data = await fetchJson(`${baseUrl}/ads/campaigns`, { headers: authHeaders() });
+      return Array.isArray(data) ? data : [];
+    }
+
+    async function loadAdCampaignReport(campaignId) {
+      requireFetcher();
+      return fetchJson(`${baseUrl}/ads/campaigns/${encodeURIComponent(campaignId)}/report`, {
+        headers: authHeaders()
+      });
+    }
+
+    async function recordAdEvent(payload) {
+      requireFetcher();
+      try {
+        return await fetchJson(`${baseUrl}/ads/events`, {
+          method: "POST",
+          headers: jsonHeaders(),
+          body: JSON.stringify(payload || {})
+        });
+      } catch (error) {
+        return { accepted: false, code: "tracking_failed_open" };
+      }
+    }
+
     async function loadReviews(productId = "") {
       requireFetcher();
       const suffix = productId ? `?productId=${encodeURIComponent(productId)}` : "";
@@ -139,6 +165,9 @@
       loadAdminPromotions,
       reviewPromotion,
       disablePromotion,
+      loadAdCampaigns,
+      loadAdCampaignReport,
+      recordAdEvent,
       loadReviews,
       createReview,
       loadMyOrders,

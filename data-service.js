@@ -2196,7 +2196,16 @@ async loadAdminPayments(filters) {
       },
       async disablePromotion(promotionId) {
         return getCommerceApiClient().disablePromotion(promotionId);
-        },
+      },
+      async loadAdCampaigns() {
+        return getCommerceApiClient().loadAdCampaigns();
+      },
+      async loadAdCampaignReport(campaignId) {
+        return getCommerceApiClient().loadAdCampaignReport(campaignId);
+      },
+      async recordAdEvent(payload) {
+        return getCommerceApiClient().recordAdEvent(payload);
+      },
         openRealtimeChannel(handlers = {}) {
           return getCommunicationsApiClient().openRealtimeChannel(handlers);
         },
@@ -4120,6 +4129,17 @@ async loadAdminPayments() {
       async disablePromotion(promotionId) {
         assertAdminAccess();
         return state.adapter.disablePromotion ? state.adapter.disablePromotion(promotionId) : { ok: true };
+      },
+      async loadAdCampaigns() {
+        assertSellerAccess();
+        return state.adapter.loadAdCampaigns ? state.adapter.loadAdCampaigns() : [];
+      },
+      async loadAdCampaignReport(campaignId) {
+        assertSellerAccess();
+        return state.adapter.loadAdCampaignReport ? state.adapter.loadAdCampaignReport(campaignId) : null;
+      },
+      async recordAdEvent(payload) {
+        return state.adapter.recordAdEvent ? state.adapter.recordAdEvent(payload) : { accepted: false };
       },
       openRealtimeChannel(handlers = {}) {
         return state.adapter.openRealtimeChannel ? state.adapter.openRealtimeChannel(handlers) : null;

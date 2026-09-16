@@ -1524,6 +1524,32 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       });
     }
 
+    async function loadAdCampaigns() {
+      requireFetcher();
+      const data = await fetchJson(`${baseUrl}/ads/campaigns`, { headers: authHeaders() });
+      return Array.isArray(data) ? data : [];
+    }
+
+    async function loadAdCampaignReport(campaignId) {
+      requireFetcher();
+      return fetchJson(`${baseUrl}/ads/campaigns/${encodeURIComponent(campaignId)}/report`, {
+        headers: authHeaders()
+      });
+    }
+
+    async function recordAdEvent(payload) {
+      requireFetcher();
+      try {
+        return await fetchJson(`${baseUrl}/ads/events`, {
+          method: "POST",
+          headers: jsonHeaders(),
+          body: JSON.stringify(payload || {})
+        });
+      } catch (error) {
+        return { accepted: false, code: "tracking_failed_open" };
+      }
+    }
+
     async function loadReviews(productId = "") {
       requireFetcher();
       const suffix = productId ? `?productId=${encodeURIComponent(productId)}` : "";
@@ -1570,6 +1596,9 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       loadAdminPromotions,
       reviewPromotion,
       disablePromotion,
+      loadAdCampaigns,
+      loadAdCampaignReport,
+      recordAdEvent,
       loadReviews,
       createReview,
       loadMyOrders,
@@ -9658,7 +9687,10 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         const followed = new Set((Array.isArray(context.followedUsernames) ? context.followedUsernames : []).map(normalizeId));
         const currentUsername = normalizeId(context.currentUser?.username || context.currentUser);
         const promotions = Array.isArray(context.promotions) ? context.promotions : [];
-        const promotedProductIds = new Set(promotions.filter(isActivePromotion).map((item) => normalizeId(item.productId)).filter(Boolean));
+        const activePromotionsByProduct = new Map(promotions.filter(isActivePromotion)
+          .map((promotion) => [normalizeId(promotion.productId), promotion])
+          .filter(([productId]) => productId));
+        const promotedProductIds = new Set(activePromotionsByProduct.keys());
         const organicExcludedIds = new Set([...excludedIds, ...promotedProductIds]);
         const candidates = [];
 
@@ -9705,6 +9737,13 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           if (!promotedProductIds.has(normalizeId(product.id)) || !seller || sponsoredSellerIds.has(seller)) return false;
           sponsoredSellerIds.add(seller);
           return true;
+        }).map((product) => {
+          const promotion = activePromotionsByProduct.get(normalizeId(product.id));
+          return {
+            ...product,
+            adCampaignId: normalizeId(promotion?.campaignId
+              || (normalizeId(promotion?.id).startsWith("adcmp-") ? promotion.id : ""))
+          };
         });
         const sponsoredItems = uniqueProducts(
           sponsoredCandidates,
@@ -9751,6 +9790,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 
   window.WingaModules.marketplace.createFeedModuleComposer = createFeedModuleComposer;
 })();
+
 
 // src/marketplace/discovery.js
 (() => {
@@ -12611,6 +12651,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         })
       : null;
     const boundFeedModuleTracks = new WeakSet();
+    const measuredAdCards = new WeakSet();
 
     function bindFeedModuleAnalytics(scope) {
       scope?.querySelectorAll?.("[data-feed-module-id]").forEach((section) => {
@@ -12619,13 +12660,47 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         boundFeedModuleTracks.add(track);
         track.addEventListener("click", (event) => {
           const item = event.target.closest("[data-showcase-id], [data-open-product]");
+          const sponsored = section.dataset.feedModuleSponsored === "true";
           deps.reportShowcaseInstrumentation?.("module_item_click", {
             moduleId: section.dataset.feedModuleId || "",
             moduleType: section.dataset.feedModuleType || "",
             productId: item?.dataset?.showcaseId || item?.dataset?.openProduct || "",
-            sponsored: section.dataset.feedModuleSponsored === "true"
+            sponsored
           });
+          const campaignId = item?.closest?.("[data-ad-campaign-id]")?.dataset?.adCampaignId || "";
+          if (sponsored && campaignId) {
+            deps.recordAdEvent?.({
+              campaignId,
+              eventType: "CLICK",
+              placementCode: "HOME_FEED_SPONSORED"
+            });
+          }
         }, { passive: true });
+        if (section.dataset.feedModuleSponsored === "true" && typeof IntersectionObserver !== "undefined") {
+          const observer = new IntersectionObserver((entries) => {
+            entries.forEach((entry) => {
+              const card = entry.target;
+              if (entry.intersectionRatio < 0.5 || measuredAdCards.has(card)) return;
+              window.setTimeout(() => {
+                if (!card.isConnected || measuredAdCards.has(card)) return;
+                const rect = card.getBoundingClientRect();
+                const visibleHeight = Math.max(0, Math.min(rect.bottom, window.innerHeight) - Math.max(rect.top, 0));
+                const visibleRatio = rect.height > 0 ? visibleHeight / rect.height : 0;
+                if (visibleRatio < 0.5) return;
+                measuredAdCards.add(card);
+                observer.unobserve(card);
+                deps.recordAdEvent?.({
+                  campaignId: card.dataset.adCampaignId || "",
+                  eventType: "IMPRESSION",
+                  placementCode: "HOME_FEED_SPONSORED",
+                  viewableRatio: Number(visibleRatio.toFixed(2)),
+                  viewableMs: 1000
+                });
+              }, 1000);
+            });
+          }, { threshold: [0.5] });
+          section.querySelectorAll("[data-ad-campaign-id]").forEach((card) => observer.observe(card));
+        }
         let scrollTimer = 0;
         track.addEventListener("scroll", () => {
           if (scrollTimer) window.clearTimeout(scrollTimer);
@@ -13739,7 +13814,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         className: "product-card showcase-card intelligent-feed-card",
         attributes: {
           "data-intelligent-feed-card": product.id,
-          "data-open-product": product.id
+          "data-open-product": product.id,
+          ...(product.adCampaignId ? { "data-ad-campaign-id": product.adCampaignId } : {})
         }
       });
       card.dataset.intelligentFeedCard = product.id;
