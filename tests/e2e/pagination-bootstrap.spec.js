@@ -374,6 +374,8 @@ test("successful passive product views do not replace authenticated pagination s
   const products = createProducts(24);
   const collectionRequests = [];
   let viewRequests = 0;
+  let releaseContinuation;
+  const continuationReady = new Promise(resolve => { releaseContinuation = resolve; });
 
   await page.route("**/api/auth/csrf-token", async (route) => {
     await route.fulfill({
@@ -407,6 +409,8 @@ test("successful passive product views do not replace authenticated pagination s
     const start = cursorIndex >= 0 ? cursorIndex + 1 : (requestedPage - 1) * limit;
     const items = products.slice(start, start + limit);
     collectionRequests.push({ page: requestedPage, cursor });
+    // Runway prefetch is valid; hold its response while checking view mutations.
+    if (requestedPage > 1) await continuationReady;
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -434,7 +438,8 @@ test("successful passive product views do not replace authenticated pagination s
   });
 
   expect(viewRequests).toBe(4);
-  expect(collectionRequests).toEqual([{ page: 1, cursor: "" }]);
+  expect(collectionRequests.filter(request => request.page === 1)).toEqual([{ page: 1, cursor: "" }]);
+  expect(collectionRequests.filter(request => request.page > 1).every(request => request.page === 2 && request.cursor === getCursor(products[11]))).toBe(true);
   await expect.poll(
     () => page.evaluate(() => ({
       count: window.WingaDataLayer.getProducts().length,
@@ -450,6 +455,7 @@ test("successful passive product views do not replace authenticated pagination s
     }
   });
 
+  releaseContinuation();
   await page.evaluate(() => window.WingaDataLayer.appendProductsPage());
   await page.waitForTimeout(1800);
 

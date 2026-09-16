@@ -6301,6 +6301,13 @@ const {
 });
 
 function getConversationSummaries() {
+  const paged = getMessagePager().snapshot();
+  if (paged.mode === "paged") return paged.inbox.items.map((item) => ({
+    ...item, key: getChatContextKey({ withUser: item.withUser }),
+    displayName: item.displayName || getUserDisplayName(item.withUser),
+    productId: item.productId || "", productName: item.productName || "",
+    whatsapp: getChatWhatsappNumber(item), commerceSnapshot: getConversationCommerceSnapshot(item)
+  }));
   const summaryMap = new Map();
   const sourceMessages = Array.isArray(currentMessages) ? currentMessages : [];
 
@@ -6375,6 +6382,8 @@ function getConversationSummariesFiltered(filter = "all") {
 }
 
 function getTotalUnreadMessages() {
+  const paged = getMessagePager().snapshot();
+  if (paged.mode === "paged") return paged.totalUnread;
   return (Array.isArray(currentMessages) ? currentMessages : [])
     .filter((message) => message.receiverId === currentUser && !message.isRead).length;
 }
@@ -9126,7 +9135,7 @@ async function markActiveConversationRead() {
     return;
   }
 
-  const hasUnread = currentMessages.some((message) =>
+  const hasUnread = getConversationSummaries().some((summary) => summary.withUser === chatUiState.activeContext.withUser && summary.unreadCount > 0) || currentMessages.some((message) =>
     message.receiverId === currentUser
     && !message.isRead
     && getMessagePartner(message) === chatUiState.activeContext.withUser
@@ -9159,7 +9168,8 @@ function connectRealtimeChannel() {
   }
 
   realtimeChannel = window.WingaDataLayer.openRealtimeChannel({
-    onMessage: async () => {
+    onMessage: async (payload) => {
+      appendLocalMessage(payload?.message);
       await Promise.all([refreshMessagesState(), refreshNotificationsState()]);
       maybePromptNotificationPermission("reply");
       if (currentView === "profile" && profileDiv) {
@@ -9242,6 +9252,7 @@ function getActiveConversationMessages() {
   if (!chatUiState.activeContext) {
     return [];
   }
+  if (getMessagePager().snapshot().mode === "paged") return getMessagePager().history(chatUiState.activeContext.withUser).items;
   return currentMessages.filter((message) =>
     getMessagePartner(message) === chatUiState.activeContext.withUser
   );
@@ -9421,7 +9432,7 @@ function syncActiveChatContext() {
     chatUiState.activeContext = null;
     return;
   }
-  if (chatUiState.activeContext && summaries.some((item) => item.key === getChatContextKey(chatUiState.activeContext))) {
+  if (chatUiState.activeContext && (getMessagePager().snapshot().mode === "paged" || summaries.some((item) => item.key === getChatContextKey(chatUiState.activeContext)))) {
     return;
   }
   chatUiState.activeContext = summaries[0]
@@ -9435,11 +9446,79 @@ function syncActiveChatContext() {
     : chatUiState.activeContext;
 }
 
+function appendLocalMessage(message) {
+  if (!currentUser || !message || message.skipped || message.isQueued
+    || typeof message.id !== "string" || !message.id.trim()
+    || typeof message.senderId !== "string" || !message.senderId
+    || typeof message.receiverId !== "string" || !message.receiverId
+    || (message.senderId !== currentUser && message.receiverId !== currentUser)) {
+    return false;
+  }
+  getMessagePager().ingest(message);
+  if (currentMessages.some((item) => item.id === message.id)) {
+    return false;
+  }
+  currentMessages = [...currentMessages, message];
+  try {
+    syncActiveChatContext();
+    updateProfileNavBadge();
+    if (currentView === "profile" && profileDiv) {
+      replaceMessagesPanel(profileDiv);
+    }
+    if (chatUiState.isContextOpen) {
+      replaceContextChatModal();
+    }
+  } catch (error) {
+    // The fast path must not prevent the normal reconciliation request.
+    captureClientError("message_local_render_failed", error, { user: currentUser });
+  }
+  return true;
+}
+
+function getMessagePager() {
+  if (!messagePager) messagePager = window.WingaModules.chat.createMessagePagination({ getUser: () => currentUser, dataLayer: window.WingaDataLayer });
+  return messagePager;
+}
+
+function getMessagePageState() {
+  const pager = getMessagePager(), state = pager.snapshot();
+  return { enabled: state.mode === "paged" || state.inbox.error, inbox: state.inbox, history: chatUiState.activeContext ? pager.history(chatUiState.activeContext.withUser) : null };
+}
+
+async function refreshActiveMessageHistory() {
+  const user = currentUser, partner = chatUiState.activeContext?.withUser;
+  if (!partner) return;
+  await getMessagePager().refreshHistory(partner);
+  if (currentUser === user && chatUiState.activeContext?.withUser === partner && getMessagePager().snapshot().mode === "paged") currentMessages = getMessagePager().history(partner).items;
+}
+
+async function loadMoreInboxMessages() {
+  if (getMessagePager().snapshot().inbox.loaded) await getMessagePager().loadMore();
+  else await getMessagePager().refreshInbox();
+  updateProfileNavBadge();
+}
+
+async function loadOlderConversationMessages() {
+  const user = currentUser, partner = chatUiState.activeContext?.withUser;
+  if (!partner) return;
+  if (getMessagePager().history(partner).loaded) await getMessagePager().loadOlder(partner);
+  else await getMessagePager().refreshHistory(partner);
+  if (user === currentUser && partner === chatUiState.activeContext?.withUser) currentMessages = getMessagePager().history(partner).items;
+}
+
 async function refreshMessagesState() {
   const startedAt = getPerfNow();
+  const user = currentUser;
   try {
-    const messages = await window.WingaDataLayer.loadMessages();
-    currentMessages = Array.isArray(messages) ? messages : [];
+    const paged = await getMessagePager().refreshInbox();
+    if (user !== currentUser) return;
+    if (paged) {
+      if (chatUiState.isContextOpen || (currentView === "profile" && chatUiState.profileMessagesMode === "detail")) await refreshActiveMessageHistory();
+    } else {
+      const messages = await window.WingaDataLayer.loadMessages();
+      if (user !== currentUser) return;
+      currentMessages = Array.isArray(messages) ? messages : [];
+    }
     syncActiveChatContext();
     updateProfileNavBadge();
   } catch (error) {
@@ -9975,7 +10054,7 @@ function loadProfileCollections(options = {}) {
       }
       profileCollectionState.items = Array.isArray(page?.items) ? page.items : [];
       profileCollectionState.status = "ready";
-      if (currentView === "profile") renderProfileFromController();
+      if (currentView === "profile") renderProfileFromController({ preserveInteraction: !options.force });
       return profileCollectionState.items;
     })
     .catch((error) => {
@@ -9983,7 +10062,7 @@ function loadProfileCollections(options = {}) {
       profileCollectionState.status = "error";
       profileCollectionState.error = String(error?.message || "");
       captureClientError("profile_collections_load_failed", error, { category: "social" });
-      if (currentView === "profile") renderProfileFromController();
+      if (currentView === "profile") renderProfileFromController({ preserveInteraction: !options.force });
       return [];
     });
 }
@@ -12448,6 +12527,7 @@ const {
   escapeHtml,
   getConversationSummaries,
   getConversationSummariesFiltered,
+  getMessagePageState,
   getConversationCommerceSnapshot,
   getConversationOrders,
   getConversationOffers,
@@ -12699,6 +12779,10 @@ const {
   createNotificationsContainerFromState,
   refreshUsersState,
   refreshMessagesState,
+  appendLocalMessage,
+  refreshActiveMessageHistory,
+  loadMoreInboxMessages,
+  loadOlderConversationMessages,
   refreshNotificationsState,
   refreshOrdersState,
   refreshConversationOffersState,
@@ -12976,6 +13060,7 @@ const {
   },
     getCurrentMessages: () => currentMessages,
     getConversationSummaries,
+    refreshMessagesState,
     setCurrentMessages: (value) => {
       currentMessages = value;
     },
@@ -14792,6 +14877,7 @@ let availableCategories = [...DEFAULT_PRODUCT_CATEGORIES];
 let availableTopCategories = [...DEFAULT_TOP_CATEGORIES];
 let currentOrders = { purchases: [], sales: [] };
 let currentMessages = [];
+let messagePager = null;
 let currentNotifications = [];
 let currentPromotions = [];
 let realtimeChannel = null;
@@ -18966,6 +19052,7 @@ function loginSuccess(username, preferredCategory = "", sessionData = null, opti
   }
   currentOrders = { purchases: [], sales: [] };
   currentMessages = [];
+  messagePager?.reset();
   currentNotifications = [];
     currentPromotions = [];
     currentReviews = [];
@@ -19155,6 +19242,7 @@ function logout() {
     profileRuntimeState.activeSection = "profile-products-panel";
     currentOrders = { purchases: [], sales: [] };
     currentMessages = [];
+    messagePager?.reset();
   currentNotifications = [];
   currentPromotions = [];
   buyerSellerAffinity = {};
@@ -22973,7 +23061,7 @@ function renderCurrentView(options = {}) {
     }
 
     if (isProfile) {
-      renderProfile();
+      renderProfile({ preserveInteraction: options.scheduled === true });
       renderSearchDropdown([], { isProfile, isUpload, isAdminView });
       return;
     }
@@ -23100,11 +23188,11 @@ function renderCurrentView(options = {}) {
   }
 }
 
-function renderProfile() {
+function renderProfile(options = {}) {
   loadProfileCollections();
   loadProfileFollowSuggestions();
   loadProfileBlockedPeople();
-  return renderProfileFromController();
+  return renderProfileFromController(options);
 }
 
 function renderAdminView() {

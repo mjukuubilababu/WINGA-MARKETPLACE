@@ -16,6 +16,14 @@ let serverProcess;
 let csrfToken = "";
 let csrfCookie = "";
 
+test("paged message reads reject unauthenticated callers before querying data", async () => {
+  for (const path of ["/messages/inbox?limit=1", "/messages/history?withUser=someone&limit=1"]) {
+    const { response, body } = await request(path);
+    assert.equal(response.status, 401);
+    assert.equal(body.items, undefined);
+  }
+});
+
 async function waitForServer(url, timeoutMs = 15000) {
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {

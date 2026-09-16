@@ -5286,6 +5286,11 @@ test("localized profile surfaces preserve account and commerce contracts", () =>
 
 test("Winga account identity is person-first while selling remains a capability", () => {
   const root = path.resolve(__dirname, "..");
+  const dataSource = fs.readFileSync(path.join(root, "data-service.js"), "utf8");
+  const sellerGuard = dataSource.match(/function assertSellerAccess\(\) \{([\s\S]*?)\n  \}/)[1];
+  const checkRole = role => Function("isBuyerCapableRole", "getCurrentSessionRole", sellerGuard)(value => value === "buyer" || value === "seller", () => role);
+  ["buyer", "seller"].forEach(role => assert.doesNotThrow(() => checkRole(role)));
+  ["", "guest", "admin", "moderator", "unknown"].forEach(role => assert.throws(() => checkRole(role)));
   const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
   const profileSource = fs.readFileSync(path.join(root, "src", "profile", "ui.js"), "utf8");
   const profileControllerSource = fs.readFileSync(path.join(root, "src", "profile", "controller.js"), "utf8");
@@ -5298,6 +5303,23 @@ test("Winga account identity is person-first while selling remains a capability"
   assert.equal(profileControllerSource.includes("isBuyerOnly"), false);
   assert.equal(adminSource.includes('adminUserAction: "makeBuyer"'), false);
   assert.equal(adminSource.includes('adminUserAction: "makeSeller"'), false);
+});
+
+test("product commerce actions use capabilities and never message the current user", () => {
+  const context = { window: { WingaModules: { products: {} } } };
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, "..", "src/products/actions.js"), "utf8"), context);
+  for (const role of ["buyer", "seller", "admin", "moderator", ""]) {
+    const capable = role === "buyer" || role === "seller";
+    const actions = context.window.WingaModules.products.createProductActionsModule({
+      getCurrentUser: () => role ? "me" : "", getCurrentSession: () => ({ role }),
+      canUseBuyerFeatures: () => capable, canRepostProduct: () => true
+    });
+    const own = { id: "own", uploadedBy: "me", status: "approved" };
+    const other = { id: "other", uploadedBy: "another", status: "approved" };
+    assert.equal(actions.renderProductActionGroup(other).includes('data-detail-repost="other"'), capable);
+    assert.equal(actions.renderMessageSellerButton(own).includes('data-open-own-messages="own"'), capable);
+    if (role) assert.equal(actions.renderMessageSellerButton(own).includes("data-chat-product"), false);
+  }
 });
 
 test("social graph observability is canonical and aggregate-only", () => {

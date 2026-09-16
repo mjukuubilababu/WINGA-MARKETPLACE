@@ -5,6 +5,7 @@ const { normalizeProductMediaItems } = require("./product-media");
 const { createAdsStore } = require("./ads-store");
 const { createConversationOffersStore } = require("./conversation-offers-store");
 const { createConversationAvailabilityStore } = require("./conversation-availability-store");
+const { createMessagePagesStore } = require("./message-pages");
 const { lockCheckoutReservation, reservationWindowSeconds, createCheckoutReservationStore } = require("./checkout-reservations");
 const { reserveOrderItems, settleOrderInventory, refreshOrderInventoryAvailability, lockOrderInventoryProducts } = require("./inventory-order-items");
 const { evaluateRecommendationPolicy, executeDecision } = require("./wip-mind");
@@ -9933,6 +9934,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     ...adsStore,
     ...conversationOffersStore,
     ...conversationAvailabilityStore,
+    ...createMessagePagesStore({ query }),
     close
   };
 }

@@ -32,6 +32,15 @@
       return Array.isArray(data) ? data : [];
     }
 
+    async function loadMessagePage(path, options = {}) {
+      requireFetcher();
+      const params = new URLSearchParams();
+      if (options.limit !== undefined) params.set("limit", String(options.limit));
+      if (options.cursor) params.set("cursor", options.cursor);
+      if (options.withUser) params.set("withUser", options.withUser);
+      return fetchJson(`${baseUrl}/messages/${path}?${params}`, { headers: authHeaders() });
+    }
+
     async function sendMessage(payload) {
       requireFetcher();
       return fetchJson(`${baseUrl}/messages`, {
@@ -188,6 +197,8 @@
 
     return {
       loadMessages,
+      loadInboxPage: (options) => loadMessagePage("inbox", options),
+      loadConversationPage: (withUser, options = {}) => loadMessagePage("history", { ...options, withUser }),
       sendMessage,
       deleteMessage,
       markConversationRead,

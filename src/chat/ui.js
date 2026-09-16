@@ -1,8 +1,48 @@
 (() => {
   function createChatUiModule(deps) {
     const t = (key, fallback, variables = {}) => deps.translate?.(key, variables, fallback) || fallback;
+    function conversationName(context) {
+      const name = context?.displayName || deps.getUserDisplayName(context?.withUser) || "";
+      return /^(?:buyer|user|seller)-\d{10,}/i.test(name)
+        ? t("inbox.person", "Winga User") : name || t("inbox.person", "Winga User");
+    }
+
+    function conversationTime(value, dateOnly = false) {
+      const date = new Date(value);
+      if (!value || !Number.isFinite(date.getTime())) return "";
+      const today = new Date();
+      const yesterday = new Date(today);
+      yesterday.setDate(today.getDate() - 1);
+      const locale = document.documentElement.lang || "sw";
+      if (date.toDateString() === today.toDateString()) {
+        return dateOnly ? t("inbox.today", "Today") : date.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" });
+      }
+      if (date.toDateString() === yesterday.toDateString()) return t("inbox.yesterday", "Yesterday");
+      return date.toLocaleDateString(locale, { day: "numeric", month: "short", ...(date.getFullYear() !== today.getFullYear() ? { year: "numeric" } : {}) });
+    }
+
+    function renderInboxContext(context, interactive = false) {
+      const product = deps.getProductById?.(context?.productId);
+      if (!product && !context?.productName) return "";
+      const name = product?.name || context.productName;
+      const image = product?.image || product?.images?.[0] || "";
+      return `<span class="inbox-product-context">
+        <span class="inbox-context-thumb">${renderResponsiveImageMarkup({ src: image, alt: "", className: "inbox-context-image", fallbackKey: "W" })}</span>
+        <span><strong>${deps.escapeHtml(name)}</strong>${product ? `<small>${deps.escapeHtml(deps.formatProductPrice(product.price))}</small>` : ""}</span>
+        ${interactive && product ? `<button type="button" class="action-btn action-btn-secondary" data-chat-open-product="${deps.escapeHtml(product.id)}">${deps.escapeHtml(t("inbox.viewProduct", "View product"))}</button>` : ""}
+      </span>`;
+    }
     function createElementFromMarkup(markup) {
       return deps.createElementFromMarkup(markup);
+    }
+
+    function renderMessagePageControl(kind) {
+      const state = deps.getMessagePageState?.();
+      if (!state?.enabled) return "";
+      const page = state[kind];
+      if (!page || (!page.hasMore && !page.error && page.loaded)) return "";
+      const label = page.loading ? t("inbox.loading", "Loading...") : page.error ? t("inbox.retry", "Try again") : kind === "inbox" ? t("inbox.loadMore", "Load more conversations") : t("inbox.loadOlder", "Load older messages");
+      return `<div class="message-page-control"><button type="button" data-message-page="${kind}"${page.loading ? ' disabled aria-busy="true"' : ""}>${deps.escapeHtml(label)}</button></div>`;
     }
 
     function renderComposeStatusMarkup(scope = "profile") {
@@ -19,6 +59,7 @@
         src,
         alt,
         className,
+        ...(/^inbox-/.test(className) ? { sizes: "48px", loading: "lazy", width: 48, height: 48 } : {}),
         fallbackSrc: deps.getImageFallbackDataUri(fallbackKey),
         placeholderSrc: deps.getImageFallbackDataUri(fallbackKey)
       }).outerHTML;
@@ -375,7 +416,11 @@
         return `<p class="empty-copy">Anza mazungumzo kuhusu bidhaa hii hapa chini.</p>`;
       }
 
-      return activeMessages.map((message) => {
+      let previousDay = "";
+      return activeMessages.slice().sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime() || String(a.id).localeCompare(String(b.id))).map((message) => {
+        const day = conversationTime(message.timestamp, true);
+        const separator = day !== previousDay ? `<div class="message-date-separator">${deps.escapeHtml(day)}</div>` : "";
+        previousDay = day;
         const productItems = deps.getMessageProductItems(message);
         const replyMessage = deps.getReplyPreviewMessage(message, activeMessages);
         const canDelete = message.senderId === deps.getCurrentUser();
@@ -383,11 +428,12 @@
         const safeReplyText = replyMessage ? deps.escapeHtml(deps.getMessagePreviewText(replyMessage)) : "";
         const safeMessageText = message.message ? deps.escapeHtml(message.message) : "";
         return `
+          ${separator}
           <div class="message-bubble ${message.senderId === deps.getCurrentUser() ? "outgoing" : "incoming"}${productItems.length ? " message-bubble-product" : ""}" data-message-bubble-id="${message.id}">
             ${replyMessage ? `<div class="message-reply-preview"><strong>Reply</strong><span>${safeReplyText}</span></div>` : ""}
             ${productItems.length ? renderChatProductPreviewItems(productItems) : ""}
             ${message.message ? `<p>${safeMessageText}</p>` : ""}
-            <small>${new Date(message.timestamp).toLocaleString("sw-TZ")} ${message.senderId === deps.getCurrentUser() ? `| ${message.isRead ? "Read" : message.isDelivered ? "Delivered" : "Sent"}` : ""}</small>
+            <small>${deps.escapeHtml(new Date(message.timestamp).toLocaleTimeString(document.documentElement.lang || "sw", { hour: "2-digit", minute: "2-digit" }))} ${message.senderId === deps.getCurrentUser() ? `| ${deps.escapeHtml(message.isRead ? t("inbox.read", "Read") : message.isDelivered ? t("inbox.delivered", "Delivered") : t("inbox.sent", "Sent"))}` : ""}</small>
             ${enableActions ? `
               <button class="message-menu-trigger" type="button" data-message-menu-toggle="${message.id}">...</button>
               ${deps.getOpenChatMessageMenuId() === message.id ? `
@@ -475,76 +521,81 @@
       const profileMessagesMode = deps.getProfileMessagesMode?.() || "list";
       const showConversationList = profileMessagesMode !== "detail";
       const showConversationDetail = profileMessagesMode === "detail";
-      const panelTitle = profileFilter === "unread" ? "Unread Messages" : "Messages";
-      const panelSubtitle = profileFilter === "unread"
-        ? "Unread conversations"
-        : "Chat ya Mteja na Muuzaji";
-      const lastActiveLabel = activeMessages[activeMessages.length - 1]?.timestamp
-        ? `Last active ${new Date(activeMessages[activeMessages.length - 1].timestamp).toLocaleString("sw-TZ")}`
-        : "Ready to continue the conversation";
+      const panelTitle = t("nav.inbox", "Inbox");
+      const panelSubtitle = t("inbox.subtitle", "Your conversations");
+      const lastActiveLabel = conversationTime(activeMessages[activeMessages.length - 1]?.timestamp);
 
       return `
-        <section id="profile-messages-panel">
+        <section id="profile-messages-panel" class="modern-inbox">
           <div class="section-heading">
             <div>
               <p class="eyebrow">${panelTitle}</p>
               <h3>${panelSubtitle}</h3>
             </div>
             <div class="messages-panel-actions">
-              <button class="message-panel-close message-list-profile-back" type="button" data-close-profile-messages="true" aria-label="Back to profile">← Profile</button>
-              <span class="meta-copy">${summaries.length} conversations</span>
+              ${showConversationList ? `<button class="message-panel-close message-list-profile-back" type="button" data-close-profile-messages="true" aria-label="${deps.escapeHtml(t("inbox.back", "Back"))}">←</button>` : ""}
+              <span class="meta-copy">${deps.escapeHtml(t("inbox.count", "{count} conversations", { count: summaries.length }))}</span>
             </div>
           </div>
           <div class="messages-shell ${showConversationDetail ? "compact-detail" : ""}">
             ${showConversationList ? `
             <div class="messages-list">
-              ${renderAssistantProductFinder()}
+              <div class="inbox-filters" role="group" aria-label="${deps.escapeHtml(t("inbox.filters", "Conversation filters"))}">
+                <button type="button" data-inbox-filter="all" aria-pressed="${profileFilter === "all"}">${deps.escapeHtml(t("inbox.all", "All"))}</button>
+                <button type="button" data-inbox-filter="unread" aria-pressed="${profileFilter === "unread"}">${deps.escapeHtml(t("profile.unreadStat", "Unread"))}</button>
+              </div>
+              <input type="search" class="inbox-search" data-inbox-search aria-label="${deps.escapeHtml(t("inbox.search", "Search conversations"))}" placeholder="${deps.escapeHtml(t("inbox.search", "Search conversations"))}" />
+              <details class="inbox-product-finder"${deps.getAssistantSearchState?.()?.query ? " open" : ""}>
+                <summary>${deps.escapeHtml(t("chat.productFinder", "Find a product"))}</summary>
+                ${renderAssistantProductFinder()}
+              </details>
               ${summaries.length ? summaries.map((summary) => `
-                <button class="message-thread-item ${activeChatContext && summary.key === deps.getChatContextKey(activeChatContext) ? "active" : ""}" type="button" data-conversation-user="${summary.withUser}" data-conversation-product="${summary.productId}" data-conversation-name="${deps.escapeHtml(summary.productName)}">
+                <button class="message-thread-item ${summary.unreadCount ? "is-unread" : ""} ${activeChatContext && summary.key === deps.getChatContextKey(activeChatContext) ? "active" : ""}" type="button" data-conversation-user="${deps.escapeHtml(summary.withUser)}" data-conversation-product="${deps.escapeHtml(summary.productId)}" data-conversation-name="${deps.escapeHtml(summary.productName)}">
                   <span class="message-thread-avatar">
                     ${(() => {
                       const partner = deps.getMarketplaceUser?.(summary.withUser);
                       const avatar = deps.sanitizeImageSource?.(partner?.profileImage || "", "");
                       return avatar
-                        ? `<img src="${avatar}" alt="${deps.escapeHtml(summary.displayName || deps.getUserDisplayName(summary.withUser))}" />`
-                        : `<span>${deps.escapeHtml((summary.displayName || deps.getUserDisplayName(summary.withUser) || "User").slice(0, 1))}</span>`;
+                        ? renderResponsiveImageMarkup({ src: avatar, alt: "", className: "inbox-avatar-image", fallbackKey: conversationName(summary).slice(0, 1) })
+                        : `<span>${deps.escapeHtml(conversationName(summary).slice(0, 1))}</span>`;
                     })()}
                   </span>
                   <span class="message-thread-meta">
-                    <strong>${deps.escapeHtml(summary.displayName || deps.getUserDisplayName(summary.withUser))}${summary.unreadCount ? ` <span class="thread-badge">${summary.unreadCount}</span>` : ""}</strong>
-                    <span>${summary.timestamp ? deps.escapeHtml(new Date(summary.timestamp).toLocaleString("sw-TZ")) : "No messages yet"}</span>
-                    ${summary.commerceSnapshot?.label ? `<span class="message-thread-stage"><span class="status-pill${summary.commerceSnapshot.tone ? ` ${summary.commerceSnapshot.tone}` : ""}">${deps.escapeHtml(summary.commerceSnapshot.label)}</span></span>` : ""}
-                    ${summary.relationshipMemory?.label ? `<span class="message-thread-stage"><span class="status-pill${summary.relationshipMemory.tone ? ` ${summary.relationshipMemory.tone}` : ""}">${deps.escapeHtml(summary.relationshipMemory.label)}</span></span>` : ""}
-                    ${summary.relationshipMemory?.detail ? `<small class="thread-relationship-copy">${deps.escapeHtml(summary.relationshipMemory.detail)}</small>` : ""}
-                    <span>${deps.escapeHtml(summary.productName || "General inquiry")}</span>
-                    <small>${deps.escapeHtml(summary.latestMessage || "Hakuna ujumbe bado.")}</small>
+                    <span class="inbox-row-heading"><strong>${deps.escapeHtml(conversationName(summary))}</strong><time>${deps.escapeHtml(conversationTime(summary.timestamp))}</time></span>
+                    <small class="inbox-preview">${deps.escapeHtml(summary.latestMessage || "")}</small>
+                    ${renderInboxContext(summary)}
+                    ${summary.unreadCount ? `<span class="thread-badge" aria-label="${deps.escapeHtml(t("inbox.unreadCount", "{count} unread", { count: summary.unreadCount }))}">${summary.unreadCount}</span>` : ""}
                   </span>
                 </button>
-              `).join("") : `<p class="empty-copy">${profileFilter === "unread" ? "Hakuna unread conversations kwa sasa." : "Hakuna conversation bado. Tumia Message Muuzaji kwenye bidhaa uanze chat."}</p>`}
+              `).join("") : `<p class="empty-copy">${deps.escapeHtml(profileFilter === "unread" ? t("inbox.caughtUp", "You're all caught up.") : t("inbox.empty", "Your conversations will appear here."))}</p>`}
+              <p class="empty-copy" data-inbox-no-results hidden>${deps.escapeHtml(t("inbox.noResults", "No conversations found."))}</p>
+              ${renderMessagePageControl("inbox")}
             </div>
             ` : ""}
             ${showConversationDetail ? `
             <div class="messages-thread-card">
               ${activeChatContext ? `
                 <div class="messages-thread-head">
-                  <button class="message-list-back" type="button" data-message-list-back="true">Back</button>
+                  <button class="message-list-back" type="button" data-message-list-back="true" aria-label="${deps.escapeHtml(t("inbox.back", "Back"))}">←</button>
+                  <span class="message-thread-avatar">${renderResponsiveImageMarkup({ src: deps.getMarketplaceUser?.(activeChatContext.withUser)?.profileImage || "", alt: "", className: "inbox-avatar-image", fallbackKey: conversationName(activeChatContext).slice(0, 1) })}</span>
                   <div>
-                    <strong>${deps.escapeHtml(activeChatContext.displayName || deps.getUserDisplayName(activeChatContext.withUser))}</strong>
+                    <strong>${deps.escapeHtml(conversationName(activeChatContext))}</strong>
                     <p>${deps.escapeHtml(activeChatContext.productName || "General inquiry")}</p>
                     ${activeCommerce?.label ? `<span class="message-thread-stage"><span class="status-pill${activeCommerce.tone ? ` ${activeCommerce.tone}` : ""}">${deps.escapeHtml(activeCommerce.label)}</span></span>` : ""}
                     ${activeRelationshipMemory?.label ? `<span class="message-thread-stage"><span class="status-pill${activeRelationshipMemory.tone ? ` ${activeRelationshipMemory.tone}` : ""}">${deps.escapeHtml(activeRelationshipMemory.label)}</span></span>` : ""}
                     ${activeRelationshipMemory?.detail ? `<small class="thread-relationship-copy">${deps.escapeHtml(activeRelationshipMemory.detail)}</small>` : ""}
                     <small class="thread-presence">${lastActiveLabel}</small>
                   </div>
-                  <div class="messages-thread-actions">
+                  <details class="inbox-conversation-menu"><summary aria-label="${deps.escapeHtml(t("inbox.actions", "Conversation actions"))}" title="${deps.escapeHtml(t("inbox.actions", "Conversation actions"))}">⋮</summary><div class="messages-thread-actions">
                     <button class="action-btn edit-btn" type="button" data-refresh-messages="true">Refresh</button>
                     ${activeCommerce?.productId ? `<button class="action-btn action-btn-secondary" type="button" data-chat-open-product="${activeCommerce.productId}">Open product</button>` : ""}
                     ${activeCommerce?.productId ? `<button class="action-btn action-btn-secondary chat-pay-pill" type="button" data-chat-buy-product="${activeCommerce.productId}">Lipa</button>` : ""}
                     ${activeChatContext?.withUser ? `<button class="action-btn action-btn-secondary" type="button" data-report-seller="${activeChatContext.withUser}" data-report-product-context="${activeCommerce?.productId || activeChatContext.productId || ""}">Report seller</button>` : ""}
                     ${contactState.canSharePhone ? `<button class="action-btn action-btn-secondary" type="button" data-share-my-phone="true">Share my phone</button>` : ""}
                     ${activeWhatsApp ? `<a class="button" href="${deps.buildWhatsappHref(activeWhatsApp, activeChatContext.productName)}" target="_blank" rel="noopener noreferrer">Chat on WhatsApp</a>` : ""}
-                  </div>
+                  </div></details>
                 </div>
+                ${renderInboxContext(activeChatContext, true)}
                 <p class="thread-safety-note">Lipa tu kwa details za seller zilizo ndani ya Winga, kisha tuma reference hapa. Ukiona tabia ya kutia shaka, report seller moja kwa moja.</p>
                 ${contactState.note ? `<p class="thread-contact-note">${deps.escapeHtml(contactState.note)}</p>` : ""}
                 ${renderConversationOrderCards(activeOrders)}
@@ -552,10 +603,11 @@
                 ${renderConversationAvailabilityCards(activeAvailabilityRequests, activeChatContext)}
                 ${renderConversationCommerceGoal(activeCommerceGoal)}
                 <div class="messages-thread-body">
+                  ${renderMessagePageControl("history")}
                   ${renderConversationMessagesMarkup(activeMessages, { enableActions: true })}
                 </div>
                 <form id="message-compose-form" class="messages-compose">
-                  <textarea id="message-compose-input" rows="3" maxlength="1000" placeholder="Andika ujumbe wako hapa...">${deps.escapeHtml(currentMessageDraft)}</textarea>
+                  <textarea id="message-compose-input" rows="2" maxlength="1000" placeholder="${deps.escapeHtml(t("inbox.compose", "Write a message"))}">${deps.escapeHtml(currentMessageDraft)}</textarea>
                   ${renderComposeStatusMarkup("profile")}
                   <div class="chat-compose-footer">
                     ${deps.renderEmojiPicker("profile")}
@@ -652,7 +704,7 @@
         ? activeMessages.find((item) => item.id === deps.getActiveChatReplyMessageId()) || null
         : null;
       const safeProductName = deps.escapeHtml(productName);
-      const safeSellerName = deps.escapeHtml(sellerName);
+      const safeSellerName = deps.escapeHtml(conversationName({ ...activeChatContext, displayName: sellerName }));
       const lastActiveLabel = activeMessages[activeMessages.length - 1]?.timestamp
         ? `Last active ${new Date(activeMessages[activeMessages.length - 1].timestamp).toLocaleString("sw-TZ")}`
         : "Ready to chat";
@@ -674,6 +726,7 @@
             </div>
           </div>
           <div class="context-chat-thread">
+            ${renderMessagePageControl("history")}
             ${renderConversationMessagesMarkup(activeMessages, { enableActions: true })}
           </div>
           <div class="context-chat-actions">

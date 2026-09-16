@@ -7459,7 +7459,9 @@ const server = http.createServer(async (req, res) => {
   const isVideoPlaybackRequest = req.method === "POST"
     && /^\/api\/media\/videos\/[^/]+\/playback-token$/.test(url.pathname);
   const requestedStoreTables = postgresStore
-    ? (req.method === "GET" && url.pathname === "/api/products"
+    ? (req.method === "GET" && ["/api/messages/inbox", "/api/messages/history"].includes(url.pathname)
+      ? ["sessions", "users"]
+      : req.method === "GET" && url.pathname === "/api/products"
       ? PRODUCT_LIST_STORE_TABLES
       : (isVideoPlaybackRequest ? SESSION_ONLY_STORE_TABLES : undefined))
     : undefined;
@@ -10676,6 +10678,30 @@ const server = http.createServer(async (req, res) => {
         }
 
         sendJson(res, 200, buildOrdersSummary(store, user.username));
+        return;
+      }
+
+      if (req.method === "GET" && ["/api/messages/inbox", "/api/messages/history"].includes(url.pathname)) {
+        const session = findSession(store, readAuthToken(req));
+        const user = ensureMarketplaceUser(store, session, res);
+        if (!user) return;
+        if (!postgresStore?.readInboxPage || !postgresStore?.readConversationPage) {
+          sendJson(res, 503, { code: "message_pagination_unavailable", error: "Paged messaging requires PostgreSQL." });
+          return;
+        }
+        try {
+          const options = {
+            limit: url.searchParams.has("limit") ? url.searchParams.get("limit") : undefined,
+            cursor: url.searchParams.get("cursor") || ""
+          };
+          const page = url.pathname === "/api/messages/inbox"
+            ? await postgresStore.readInboxPage(user.username, options)
+            : await postgresStore.readConversationPage(user.username, url.searchParams.get("withUser"), options);
+          sendJson(res, 200, page);
+        } catch (error) {
+          if (error.status !== 400) throw error;
+          sendJson(res, 400, { code: "invalid_message_page", error: error.message });
+        }
         return;
       }
 

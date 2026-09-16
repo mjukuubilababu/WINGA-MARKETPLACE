@@ -1186,6 +1186,15 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       return Array.isArray(data) ? data : [];
     }
 
+    async function loadMessagePage(path, options = {}) {
+      requireFetcher();
+      const params = new URLSearchParams();
+      if (options.limit !== undefined) params.set("limit", String(options.limit));
+      if (options.cursor) params.set("cursor", options.cursor);
+      if (options.withUser) params.set("withUser", options.withUser);
+      return fetchJson(`${baseUrl}/messages/${path}?${params}`, { headers: authHeaders() });
+    }
+
     async function sendMessage(payload) {
       requireFetcher();
       return fetchJson(`${baseUrl}/messages`, {
@@ -1342,6 +1351,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 
     return {
       loadMessages,
+      loadInboxPage: (options) => loadMessagePage("inbox", options),
+      loadConversationPage: (withUser, options = {}) => loadMessagePage("history", { ...options, withUser }),
       sendMessage,
       deleteMessage,
       markConversationRead,
@@ -15465,7 +15476,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     }
 
     function renderRepostButton(product) {
-      if (getViewerRole() !== "seller") {
+      if (!getCurrentUser() || !canUseBuyerFeatures?.()) {
         return "";
       }
       if (typeof canRepostProduct === "function" && !canRepostProduct(product)) {
@@ -15634,9 +15645,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 
     function renderMessageSellerButton(product) {
       const currentUser = getCurrentUser();
-      const viewerRole = getViewerRole();
       if (product.uploadedBy === currentUser) {
-        if (viewerRole === "seller") {
+        if (canUseBuyerFeatures?.()) {
           return `<button class="action-btn chat-btn" type="button" data-open-own-messages="${product.id}">Message</button>`;
         }
         return "";
@@ -15914,8 +15924,48 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 (() => {
   function createChatUiModule(deps) {
     const t = (key, fallback, variables = {}) => deps.translate?.(key, variables, fallback) || fallback;
+    function conversationName(context) {
+      const name = context?.displayName || deps.getUserDisplayName(context?.withUser) || "";
+      return /^(?:buyer|user|seller)-\d{10,}/i.test(name)
+        ? t("inbox.person", "Winga User") : name || t("inbox.person", "Winga User");
+    }
+
+    function conversationTime(value, dateOnly = false) {
+      const date = new Date(value);
+      if (!value || !Number.isFinite(date.getTime())) return "";
+      const today = new Date();
+      const yesterday = new Date(today);
+      yesterday.setDate(today.getDate() - 1);
+      const locale = document.documentElement.lang || "sw";
+      if (date.toDateString() === today.toDateString()) {
+        return dateOnly ? t("inbox.today", "Today") : date.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" });
+      }
+      if (date.toDateString() === yesterday.toDateString()) return t("inbox.yesterday", "Yesterday");
+      return date.toLocaleDateString(locale, { day: "numeric", month: "short", ...(date.getFullYear() !== today.getFullYear() ? { year: "numeric" } : {}) });
+    }
+
+    function renderInboxContext(context, interactive = false) {
+      const product = deps.getProductById?.(context?.productId);
+      if (!product && !context?.productName) return "";
+      const name = product?.name || context.productName;
+      const image = product?.image || product?.images?.[0] || "";
+      return `<span class="inbox-product-context">
+        <span class="inbox-context-thumb">${renderResponsiveImageMarkup({ src: image, alt: "", className: "inbox-context-image", fallbackKey: "W" })}</span>
+        <span><strong>${deps.escapeHtml(name)}</strong>${product ? `<small>${deps.escapeHtml(deps.formatProductPrice(product.price))}</small>` : ""}</span>
+        ${interactive && product ? `<button type="button" class="action-btn action-btn-secondary" data-chat-open-product="${deps.escapeHtml(product.id)}">${deps.escapeHtml(t("inbox.viewProduct", "View product"))}</button>` : ""}
+      </span>`;
+    }
     function createElementFromMarkup(markup) {
       return deps.createElementFromMarkup(markup);
+    }
+
+    function renderMessagePageControl(kind) {
+      const state = deps.getMessagePageState?.();
+      if (!state?.enabled) return "";
+      const page = state[kind];
+      if (!page || (!page.hasMore && !page.error && page.loaded)) return "";
+      const label = page.loading ? t("inbox.loading", "Loading...") : page.error ? t("inbox.retry", "Try again") : kind === "inbox" ? t("inbox.loadMore", "Load more conversations") : t("inbox.loadOlder", "Load older messages");
+      return `<div class="message-page-control"><button type="button" data-message-page="${kind}"${page.loading ? ' disabled aria-busy="true"' : ""}>${deps.escapeHtml(label)}</button></div>`;
     }
 
     function renderComposeStatusMarkup(scope = "profile") {
@@ -15932,6 +15982,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         src,
         alt,
         className,
+        ...(/^inbox-/.test(className) ? { sizes: "48px", loading: "lazy", width: 48, height: 48 } : {}),
         fallbackSrc: deps.getImageFallbackDataUri(fallbackKey),
         placeholderSrc: deps.getImageFallbackDataUri(fallbackKey)
       }).outerHTML;
@@ -16288,7 +16339,11 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         return `<p class="empty-copy">Anza mazungumzo kuhusu bidhaa hii hapa chini.</p>`;
       }
 
-      return activeMessages.map((message) => {
+      let previousDay = "";
+      return activeMessages.slice().sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime() || String(a.id).localeCompare(String(b.id))).map((message) => {
+        const day = conversationTime(message.timestamp, true);
+        const separator = day !== previousDay ? `<div class="message-date-separator">${deps.escapeHtml(day)}</div>` : "";
+        previousDay = day;
         const productItems = deps.getMessageProductItems(message);
         const replyMessage = deps.getReplyPreviewMessage(message, activeMessages);
         const canDelete = message.senderId === deps.getCurrentUser();
@@ -16296,11 +16351,12 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         const safeReplyText = replyMessage ? deps.escapeHtml(deps.getMessagePreviewText(replyMessage)) : "";
         const safeMessageText = message.message ? deps.escapeHtml(message.message) : "";
         return `
+          ${separator}
           <div class="message-bubble ${message.senderId === deps.getCurrentUser() ? "outgoing" : "incoming"}${productItems.length ? " message-bubble-product" : ""}" data-message-bubble-id="${message.id}">
             ${replyMessage ? `<div class="message-reply-preview"><strong>Reply</strong><span>${safeReplyText}</span></div>` : ""}
             ${productItems.length ? renderChatProductPreviewItems(productItems) : ""}
             ${message.message ? `<p>${safeMessageText}</p>` : ""}
-            <small>${new Date(message.timestamp).toLocaleString("sw-TZ")} ${message.senderId === deps.getCurrentUser() ? `| ${message.isRead ? "Read" : message.isDelivered ? "Delivered" : "Sent"}` : ""}</small>
+            <small>${deps.escapeHtml(new Date(message.timestamp).toLocaleTimeString(document.documentElement.lang || "sw", { hour: "2-digit", minute: "2-digit" }))} ${message.senderId === deps.getCurrentUser() ? `| ${deps.escapeHtml(message.isRead ? t("inbox.read", "Read") : message.isDelivered ? t("inbox.delivered", "Delivered") : t("inbox.sent", "Sent"))}` : ""}</small>
             ${enableActions ? `
               <button class="message-menu-trigger" type="button" data-message-menu-toggle="${message.id}">...</button>
               ${deps.getOpenChatMessageMenuId() === message.id ? `
@@ -16388,76 +16444,81 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       const profileMessagesMode = deps.getProfileMessagesMode?.() || "list";
       const showConversationList = profileMessagesMode !== "detail";
       const showConversationDetail = profileMessagesMode === "detail";
-      const panelTitle = profileFilter === "unread" ? "Unread Messages" : "Messages";
-      const panelSubtitle = profileFilter === "unread"
-        ? "Unread conversations"
-        : "Chat ya Mteja na Muuzaji";
-      const lastActiveLabel = activeMessages[activeMessages.length - 1]?.timestamp
-        ? `Last active ${new Date(activeMessages[activeMessages.length - 1].timestamp).toLocaleString("sw-TZ")}`
-        : "Ready to continue the conversation";
+      const panelTitle = t("nav.inbox", "Inbox");
+      const panelSubtitle = t("inbox.subtitle", "Your conversations");
+      const lastActiveLabel = conversationTime(activeMessages[activeMessages.length - 1]?.timestamp);
 
       return `
-        <section id="profile-messages-panel">
+        <section id="profile-messages-panel" class="modern-inbox">
           <div class="section-heading">
             <div>
               <p class="eyebrow">${panelTitle}</p>
               <h3>${panelSubtitle}</h3>
             </div>
             <div class="messages-panel-actions">
-              <button class="message-panel-close message-list-profile-back" type="button" data-close-profile-messages="true" aria-label="Back to profile">← Profile</button>
-              <span class="meta-copy">${summaries.length} conversations</span>
+              ${showConversationList ? `<button class="message-panel-close message-list-profile-back" type="button" data-close-profile-messages="true" aria-label="${deps.escapeHtml(t("inbox.back", "Back"))}">←</button>` : ""}
+              <span class="meta-copy">${deps.escapeHtml(t("inbox.count", "{count} conversations", { count: summaries.length }))}</span>
             </div>
           </div>
           <div class="messages-shell ${showConversationDetail ? "compact-detail" : ""}">
             ${showConversationList ? `
             <div class="messages-list">
-              ${renderAssistantProductFinder()}
+              <div class="inbox-filters" role="group" aria-label="${deps.escapeHtml(t("inbox.filters", "Conversation filters"))}">
+                <button type="button" data-inbox-filter="all" aria-pressed="${profileFilter === "all"}">${deps.escapeHtml(t("inbox.all", "All"))}</button>
+                <button type="button" data-inbox-filter="unread" aria-pressed="${profileFilter === "unread"}">${deps.escapeHtml(t("profile.unreadStat", "Unread"))}</button>
+              </div>
+              <input type="search" class="inbox-search" data-inbox-search aria-label="${deps.escapeHtml(t("inbox.search", "Search conversations"))}" placeholder="${deps.escapeHtml(t("inbox.search", "Search conversations"))}" />
+              <details class="inbox-product-finder"${deps.getAssistantSearchState?.()?.query ? " open" : ""}>
+                <summary>${deps.escapeHtml(t("chat.productFinder", "Find a product"))}</summary>
+                ${renderAssistantProductFinder()}
+              </details>
               ${summaries.length ? summaries.map((summary) => `
-                <button class="message-thread-item ${activeChatContext && summary.key === deps.getChatContextKey(activeChatContext) ? "active" : ""}" type="button" data-conversation-user="${summary.withUser}" data-conversation-product="${summary.productId}" data-conversation-name="${deps.escapeHtml(summary.productName)}">
+                <button class="message-thread-item ${summary.unreadCount ? "is-unread" : ""} ${activeChatContext && summary.key === deps.getChatContextKey(activeChatContext) ? "active" : ""}" type="button" data-conversation-user="${deps.escapeHtml(summary.withUser)}" data-conversation-product="${deps.escapeHtml(summary.productId)}" data-conversation-name="${deps.escapeHtml(summary.productName)}">
                   <span class="message-thread-avatar">
                     ${(() => {
                       const partner = deps.getMarketplaceUser?.(summary.withUser);
                       const avatar = deps.sanitizeImageSource?.(partner?.profileImage || "", "");
                       return avatar
-                        ? `<img src="${avatar}" alt="${deps.escapeHtml(summary.displayName || deps.getUserDisplayName(summary.withUser))}" />`
-                        : `<span>${deps.escapeHtml((summary.displayName || deps.getUserDisplayName(summary.withUser) || "User").slice(0, 1))}</span>`;
+                        ? renderResponsiveImageMarkup({ src: avatar, alt: "", className: "inbox-avatar-image", fallbackKey: conversationName(summary).slice(0, 1) })
+                        : `<span>${deps.escapeHtml(conversationName(summary).slice(0, 1))}</span>`;
                     })()}
                   </span>
                   <span class="message-thread-meta">
-                    <strong>${deps.escapeHtml(summary.displayName || deps.getUserDisplayName(summary.withUser))}${summary.unreadCount ? ` <span class="thread-badge">${summary.unreadCount}</span>` : ""}</strong>
-                    <span>${summary.timestamp ? deps.escapeHtml(new Date(summary.timestamp).toLocaleString("sw-TZ")) : "No messages yet"}</span>
-                    ${summary.commerceSnapshot?.label ? `<span class="message-thread-stage"><span class="status-pill${summary.commerceSnapshot.tone ? ` ${summary.commerceSnapshot.tone}` : ""}">${deps.escapeHtml(summary.commerceSnapshot.label)}</span></span>` : ""}
-                    ${summary.relationshipMemory?.label ? `<span class="message-thread-stage"><span class="status-pill${summary.relationshipMemory.tone ? ` ${summary.relationshipMemory.tone}` : ""}">${deps.escapeHtml(summary.relationshipMemory.label)}</span></span>` : ""}
-                    ${summary.relationshipMemory?.detail ? `<small class="thread-relationship-copy">${deps.escapeHtml(summary.relationshipMemory.detail)}</small>` : ""}
-                    <span>${deps.escapeHtml(summary.productName || "General inquiry")}</span>
-                    <small>${deps.escapeHtml(summary.latestMessage || "Hakuna ujumbe bado.")}</small>
+                    <span class="inbox-row-heading"><strong>${deps.escapeHtml(conversationName(summary))}</strong><time>${deps.escapeHtml(conversationTime(summary.timestamp))}</time></span>
+                    <small class="inbox-preview">${deps.escapeHtml(summary.latestMessage || "")}</small>
+                    ${renderInboxContext(summary)}
+                    ${summary.unreadCount ? `<span class="thread-badge" aria-label="${deps.escapeHtml(t("inbox.unreadCount", "{count} unread", { count: summary.unreadCount }))}">${summary.unreadCount}</span>` : ""}
                   </span>
                 </button>
-              `).join("") : `<p class="empty-copy">${profileFilter === "unread" ? "Hakuna unread conversations kwa sasa." : "Hakuna conversation bado. Tumia Message Muuzaji kwenye bidhaa uanze chat."}</p>`}
+              `).join("") : `<p class="empty-copy">${deps.escapeHtml(profileFilter === "unread" ? t("inbox.caughtUp", "You're all caught up.") : t("inbox.empty", "Your conversations will appear here."))}</p>`}
+              <p class="empty-copy" data-inbox-no-results hidden>${deps.escapeHtml(t("inbox.noResults", "No conversations found."))}</p>
+              ${renderMessagePageControl("inbox")}
             </div>
             ` : ""}
             ${showConversationDetail ? `
             <div class="messages-thread-card">
               ${activeChatContext ? `
                 <div class="messages-thread-head">
-                  <button class="message-list-back" type="button" data-message-list-back="true">Back</button>
+                  <button class="message-list-back" type="button" data-message-list-back="true" aria-label="${deps.escapeHtml(t("inbox.back", "Back"))}">←</button>
+                  <span class="message-thread-avatar">${renderResponsiveImageMarkup({ src: deps.getMarketplaceUser?.(activeChatContext.withUser)?.profileImage || "", alt: "", className: "inbox-avatar-image", fallbackKey: conversationName(activeChatContext).slice(0, 1) })}</span>
                   <div>
-                    <strong>${deps.escapeHtml(activeChatContext.displayName || deps.getUserDisplayName(activeChatContext.withUser))}</strong>
+                    <strong>${deps.escapeHtml(conversationName(activeChatContext))}</strong>
                     <p>${deps.escapeHtml(activeChatContext.productName || "General inquiry")}</p>
                     ${activeCommerce?.label ? `<span class="message-thread-stage"><span class="status-pill${activeCommerce.tone ? ` ${activeCommerce.tone}` : ""}">${deps.escapeHtml(activeCommerce.label)}</span></span>` : ""}
                     ${activeRelationshipMemory?.label ? `<span class="message-thread-stage"><span class="status-pill${activeRelationshipMemory.tone ? ` ${activeRelationshipMemory.tone}` : ""}">${deps.escapeHtml(activeRelationshipMemory.label)}</span></span>` : ""}
                     ${activeRelationshipMemory?.detail ? `<small class="thread-relationship-copy">${deps.escapeHtml(activeRelationshipMemory.detail)}</small>` : ""}
                     <small class="thread-presence">${lastActiveLabel}</small>
                   </div>
-                  <div class="messages-thread-actions">
+                  <details class="inbox-conversation-menu"><summary aria-label="${deps.escapeHtml(t("inbox.actions", "Conversation actions"))}" title="${deps.escapeHtml(t("inbox.actions", "Conversation actions"))}">⋮</summary><div class="messages-thread-actions">
                     <button class="action-btn edit-btn" type="button" data-refresh-messages="true">Refresh</button>
                     ${activeCommerce?.productId ? `<button class="action-btn action-btn-secondary" type="button" data-chat-open-product="${activeCommerce.productId}">Open product</button>` : ""}
                     ${activeCommerce?.productId ? `<button class="action-btn action-btn-secondary chat-pay-pill" type="button" data-chat-buy-product="${activeCommerce.productId}">Lipa</button>` : ""}
                     ${activeChatContext?.withUser ? `<button class="action-btn action-btn-secondary" type="button" data-report-seller="${activeChatContext.withUser}" data-report-product-context="${activeCommerce?.productId || activeChatContext.productId || ""}">Report seller</button>` : ""}
                     ${contactState.canSharePhone ? `<button class="action-btn action-btn-secondary" type="button" data-share-my-phone="true">Share my phone</button>` : ""}
                     ${activeWhatsApp ? `<a class="button" href="${deps.buildWhatsappHref(activeWhatsApp, activeChatContext.productName)}" target="_blank" rel="noopener noreferrer">Chat on WhatsApp</a>` : ""}
-                  </div>
+                  </div></details>
                 </div>
+                ${renderInboxContext(activeChatContext, true)}
                 <p class="thread-safety-note">Lipa tu kwa details za seller zilizo ndani ya Winga, kisha tuma reference hapa. Ukiona tabia ya kutia shaka, report seller moja kwa moja.</p>
                 ${contactState.note ? `<p class="thread-contact-note">${deps.escapeHtml(contactState.note)}</p>` : ""}
                 ${renderConversationOrderCards(activeOrders)}
@@ -16465,10 +16526,11 @@ window.WingaModules.localization = window.WingaModules.localization || {};
                 ${renderConversationAvailabilityCards(activeAvailabilityRequests, activeChatContext)}
                 ${renderConversationCommerceGoal(activeCommerceGoal)}
                 <div class="messages-thread-body">
+                  ${renderMessagePageControl("history")}
                   ${renderConversationMessagesMarkup(activeMessages, { enableActions: true })}
                 </div>
                 <form id="message-compose-form" class="messages-compose">
-                  <textarea id="message-compose-input" rows="3" maxlength="1000" placeholder="Andika ujumbe wako hapa...">${deps.escapeHtml(currentMessageDraft)}</textarea>
+                  <textarea id="message-compose-input" rows="2" maxlength="1000" placeholder="${deps.escapeHtml(t("inbox.compose", "Write a message"))}">${deps.escapeHtml(currentMessageDraft)}</textarea>
                   ${renderComposeStatusMarkup("profile")}
                   <div class="chat-compose-footer">
                     ${deps.renderEmojiPicker("profile")}
@@ -16565,7 +16627,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         ? activeMessages.find((item) => item.id === deps.getActiveChatReplyMessageId()) || null
         : null;
       const safeProductName = deps.escapeHtml(productName);
-      const safeSellerName = deps.escapeHtml(sellerName);
+      const safeSellerName = deps.escapeHtml(conversationName({ ...activeChatContext, displayName: sellerName }));
       const lastActiveLabel = activeMessages[activeMessages.length - 1]?.timestamp
         ? `Last active ${new Date(activeMessages[activeMessages.length - 1].timestamp).toLocaleString("sw-TZ")}`
         : "Ready to chat";
@@ -16587,6 +16649,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             </div>
           </div>
           <div class="context-chat-thread">
+            ${renderMessagePageControl("history")}
             ${renderConversationMessagesMarkup(activeMessages, { enableActions: true })}
           </div>
           <div class="context-chat-actions">
@@ -16660,10 +16723,124 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 })();
 
 
+// src/chat/pagination.js
+(() => {
+  function createMessagePagination({ getUser, dataLayer }) {
+    let state;
+    const emptyPage = () => ({ items: [], nextCursor: "", hasMore: false, loaded: false, loading: false, error: false, revision: 0 });
+    const reset = () => { state = { user: getUser(), mode: "unknown", inbox: emptyPage(), histories: new Map(), seen: new Set(), revision: 0, totalUnread: 0 }; };
+    const current = () => { if (!state || state.user !== getUser()) reset(); return state; };
+    const valid = (s) => state === s && s.user === getUser();
+    const timeKey = (value) => {
+      const date = new Date(value);
+      if (!Number.isFinite(date.getTime())) return "";
+      const fraction = String(value).match(/\.(\d+)(?:Z|[+-]\d\d:\d\d)$/)?.[1] || "";
+      return date.toISOString().slice(0, 19) + "." + fraction.padEnd(6, "0").slice(0, 6);
+    };
+    const compare = (a, b) => timeKey(a.timestamp).localeCompare(timeKey(b.timestamp)) || String(a.id || a.withUser).localeCompare(String(b.id || b.withUser));
+    const merge = (older, newer, key) => Array.from(new Map([...older, ...newer].map(item => [item[key], item])).values());
+    function history(withUser) {
+      const s = current();
+      if (!s.histories.has(withUser)) {
+        if (s.histories.size >= 8) s.histories.delete(s.histories.keys().next().value);
+        s.histories.set(withUser, emptyPage());
+      }
+      return s.histories.get(withUser);
+    }
+    async function inbox(append = false) {
+      const s = current(), target = s.inbox;
+      if (!s.user || s.mode === "legacy") return false;
+      if (target.pending) return target.pending;
+      if (append && (!target.loaded || !target.hasMore)) return true;
+      const revision = s.revision;
+      const cursor = append ? target.nextCursor : "";
+      target.loading = true; target.error = false;
+      target.pending = (async () => {
+        try {
+          const page = await dataLayer.loadInboxPage?.({ limit: 25, cursor });
+          if (!valid(s)) return false;
+          if (!page) { s.mode = "legacy"; return false; }
+          if (!Array.isArray(page.items)) throw new Error("INVALID_INBOX_PAGE");
+          s.mode = "paged";
+          if (revision !== s.revision) return true;
+          const boundary = page.items[page.items.length - 1];
+          const retained = append ? target.items : boundary ? target.items.filter(item => compare(item, boundary) < 0) : [];
+          target.items = merge(retained, page.items, "withUser").sort((a,b) => compare(b,a));
+          if (append || !target.extended || !page.items.length) {
+            target.hasMore = Boolean(page.hasMore && page.nextCursor && page.nextCursor !== cursor);
+            target.nextCursor = page.nextCursor || "";
+          }
+          if (append) target.extended = true;
+          target.loaded = true;
+          s.totalUnread = Math.max(0, Number(page.totalUnread) || 0);
+          target.totalConversations = Math.max(0, Number(page.totalConversations) || 0);
+          return true;
+        } catch (error) {
+          if (!valid(s)) return false;
+          if (s.mode === "unknown" && (error.status === 404 || error.code === "message_pagination_unavailable")) { s.mode = "legacy"; return false; }
+          target.error = true;
+          throw error;
+        } finally { target.loading = false; target.pending = null; }
+      })();
+      return target.pending;
+    }
+    async function loadHistory(withUser, older = false) {
+      const s = current(), target = history(withUser);
+      if (!s.user || s.mode !== "paged" || !withUser) return;
+      if (target.pending) return target.pending;
+      if (older && (!target.loaded || !target.hasMore)) return;
+      const revision = target.revision, cursor = older ? target.nextCursor : "";
+      target.loading = true; target.error = false;
+      target.pending = (async () => {
+        try {
+          const page = await dataLayer.loadConversationPage(withUser, { limit: 30, cursor });
+          if (!valid(s) || s.histories.get(withUser) !== target || revision !== target.revision) return;
+          if (!page || !Array.isArray(page.items)) throw new Error("INVALID_CONVERSATION_PAGE");
+          const boundary = page.items[0];
+          const retained = older ? target.items : boundary ? target.items.filter(item => compare(item, boundary) < 0) : [];
+          target.items = merge(retained, page.items, "id").sort(compare);
+          if (older || !target.extended || !page.items.length) {
+            target.hasMore = Boolean(page.hasMore && page.nextCursor && page.nextCursor !== cursor);
+            target.nextCursor = page.nextCursor || "";
+          }
+          if (older) target.extended = true;
+          target.loaded = true;
+        } catch (error) { if (valid(s)) target.error = true; throw error; }
+        finally { target.loading = false; target.pending = null; }
+      })();
+      return target.pending;
+    }
+    function ingest(message) {
+      const s = current();
+      if (s.mode !== "paged" || !message?.id || ![message.senderId, message.receiverId].includes(s.user)) return;
+      const partner = message.senderId === s.user ? message.receiverId : message.senderId;
+      const target = s.histories.get(partner);
+      const duplicate = s.seen.has(message.id) || target?.items.some(item => item.id === message.id) || s.inbox.items.some(item => item.lastMessageId === message.id);
+      if (duplicate) return;
+      s.seen.add(message.id);
+      if (s.seen.size > 500) s.seen.delete(s.seen.values().next().value);
+      s.revision += 1;
+      if (target) { target.items = merge(target.items, [message], "id").sort(compare); target.revision += 1; }
+      const existing = s.inbox.items.find(item => item.withUser === partner);
+      const unread = message.receiverId === s.user && !message.isRead ? 1 : 0;
+      const next = { ...existing, withUser: partner, unreadCount: (existing?.unreadCount || 0) + unread };
+      if (!existing || compare(message, { ...existing, id: existing.lastMessageId }) >= 0) Object.assign(next, { lastMessageId: message.id, latestMessage: message.message, timestamp: message.timestamp, productId: message.productId, productName: message.productName });
+      s.inbox.items = merge(s.inbox.items, [next], "withUser").sort((a,b) => compare(b,a));
+      s.totalUnread += unread;
+    }
+    return { reset, snapshot: current, history, refreshInbox: () => inbox(false), loadMore: () => inbox(true), refreshHistory: user => loadHistory(user), loadOlder: user => loadHistory(user, true), ingest };
+  }
+  window.WingaModules = window.WingaModules || {};
+  window.WingaModules.chat = window.WingaModules.chat || {};
+  window.WingaModules.chat.createMessagePagination = createMessagePagination;
+})();
+
+
 // src/chat/controller.js
 (() => {
   function createChatControllerModule(deps) {
     const recentSubmissionRegistry = new Map();
+    let inboxSearchState = { user: "", query: "" };
     const translate = typeof deps.translate === "function"
       ? deps.translate
       : (_key, _variables, fallbackText = "") => String(fallbackText || "");
@@ -17317,6 +17494,9 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           deps.setActiveChatReplyMessageId("");
           deps.setOpenChatMessageMenuId("");
           deps.setOpenEmojiScope("");
+          if (sendResult?.id && !sendResult.isQueued) {
+            deps.appendLocalMessage?.(sendResult);
+          }
           await Promise.all([deps.refreshMessagesState(), deps.refreshNotificationsState()]);
           if (sendResult?.isQueued) {
             deps.setChatComposeStatus?.("context", {
@@ -17416,13 +17596,17 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         }
       });
 
+      const openedUser = deps.getCurrentUser(), openedPartner = deps.getActiveChatContext()?.withUser;
+      const stillOpen = () => modal.style.display !== "none" && deps.getCurrentUser() === openedUser && deps.getActiveChatContext()?.withUser === openedPartner;
       void Promise.all([deps.refreshMessagesState(), deps.refreshNotificationsState(), deps.refreshConversationOffersState?.(), deps.refreshConversationAvailabilityState?.(), deps.refreshCommerceGoalsState?.()])
         .then(async () => {
+          if (!stillOpen()) return;
+          replaceContextChatModal();
           deps.maybePromptNotificationPermission?.("reply");
           await deps.markActiveConversationRead();
         })
         .catch(() => {
-          // Ignore passive refresh failures after the modal is already open.
+          if (stillOpen()) replaceContextChatModal();
         });
     }
 
@@ -17549,6 +17733,81 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     function bindMessageActions(scope = deps.getProfileDiv?.(), options = {}) {
       if (!scope) {
         return;
+      }
+      scope.querySelectorAll("[data-message-page]").forEach((button) => {
+        button.onclick = async () => {
+          if (button.disabled) return;
+          button.disabled = true;
+          const user = deps.getCurrentUser(), partner = deps.getActiveChatContext()?.withUser;
+          const isHistory = button.dataset.messagePage === "history";
+          const anchor = isHistory ? scope.querySelector("[data-message-bubble-id]") : button;
+          const anchorId = anchor?.dataset.messageBubbleId;
+          const top = anchor?.getBoundingClientRect().top;
+          const thread = scope.querySelector(".messages-thread-body, .context-chat-thread");
+          const oldScroll = thread?.scrollTop || 0;
+          try {
+            if (isHistory) await deps.loadOlderConversationMessages?.();
+            else await deps.loadMoreInboxMessages?.();
+          } catch (_error) {
+            // The retained page renders its retry action; never clear messages.
+          }
+          if (user !== deps.getCurrentUser() || (isHistory && partner !== deps.getActiveChatContext()?.withUser)) return;
+          if (scope.id === "context-chat-modal") replaceContextChatModal();
+          else deps.replaceMessagesPanel(scope);
+          if (isHistory && anchorId && Number.isFinite(top)) {
+            const next = Array.from(scope.querySelectorAll("[data-message-bubble-id]")).find(node => node.dataset.messageBubbleId === anchorId);
+            const nextThread = scope.querySelector(".messages-thread-body, .context-chat-thread");
+            if (next && nextThread) {
+              nextThread.scrollTop = oldScroll;
+              const delta = next.getBoundingClientRect().top - top;
+              if (nextThread.scrollHeight > nextThread.clientHeight) nextThread.scrollTop += delta;
+              else window.scrollBy(0, delta);
+            }
+          }
+        };
+      });
+      scope.querySelectorAll("[data-inbox-filter]").forEach((button) => {
+        button.onclick = () => {
+          deps.setProfileMessagesFilter(button.dataset.inboxFilter);
+          deps.replaceMessagesPanel(scope);
+        };
+      });
+      const inboxSearch = scope.querySelector("[data-inbox-search]");
+      if (inboxSearch) {
+        const user = deps.getCurrentUser();
+        if (inboxSearchState.user !== user) inboxSearchState = { user, query: "" };
+        inboxSearch.value = inboxSearchState.query;
+        const finder = scope.querySelector(".inbox-product-finder");
+        if (finder) {
+          finder.open = Boolean(inboxSearchState.finderOpen || finder.querySelector("input[name='query']")?.value);
+          const toggle = finder.querySelector("summary");
+          if (toggle) toggle.onclick = () => { inboxSearchState.finderOpen = !finder.open; };
+        }
+        const filterRows = () => {
+            const currentSearch = scope.querySelector("[data-inbox-search]");
+            if (!currentSearch?.isConnected) return;
+            currentSearch.value = inboxSearchState.query;
+            const query = inboxSearchState.query.trim().toLocaleLowerCase();
+            const rows = scope.querySelectorAll(".message-thread-item");
+            let visible = 0;
+            rows.forEach((row) => {
+              row.hidden = !row.textContent.toLocaleLowerCase().includes(query);
+              if (!row.hidden) visible += 1;
+            });
+            const empty = scope.querySelector("[data-inbox-no-results]");
+            if (empty) empty.hidden = !query || visible > 0;
+        };
+        filterRows();
+        if (scope.dataset.wingaInboxSearchBound !== "true") {
+          scope.dataset.wingaInboxSearchBound = "true";
+          let searchTimer;
+          scope.addEventListener("input", (event) => {
+            if (!event.target.matches?.("[data-inbox-search]")) return;
+            inboxSearchState.query = event.target.value;
+            clearTimeout(searchTimer);
+            searchTimer = setTimeout(filterRows, 180);
+          }, true);
+        }
       }
 
       const bindMessageLongPress = (targetScope, rerender) => {
@@ -17923,6 +18182,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           deps.setProfileHasSelection?.(true);
           deps.setCurrentMessageDraft(deps.loadStoredChatDraft?.(nextChatContext) || "");
           try {
+            await deps.refreshActiveMessageHistory?.();
             await Promise.all([deps.markActiveConversationRead(), deps.refreshConversationOffersState?.(), deps.refreshConversationAvailabilityState?.(), deps.refreshCommerceGoalsState?.()]);
           } catch (error) {
             // Ignore passive read sync failures on thread switch.
@@ -18061,6 +18321,9 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           }
           deps.setCurrentMessageDraft("");
           deps.setOpenEmojiScope("");
+          if (sendResult?.id && !sendResult.isQueued) {
+            deps.appendLocalMessage?.(sendResult);
+          }
           await Promise.all([deps.refreshMessagesState(), deps.refreshNotificationsState()]);
           if (sendResult?.isQueued) {
             deps.setChatComposeStatus?.("profile", {
@@ -22669,6 +22932,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 (() => {
   function createProfileControllerModule(deps) {
     let renderSequence = 0;
+    let interactionSequence = -1;
+    let renderedUsername = "";
     let whatsappPreviewCode = "";
     const sellerProductPagination = new Map();
     let socialSummaryState = { username: "", status: "idle", profile: null };
@@ -23488,12 +23753,29 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       bindPaymentDetailsActions();
     }
 
-    function renderProfile() {
+    function refreshHydratedProfile(sequence) {
+      if (!isRenderActive(sequence)) return;
+      const profileDiv = deps.getOrCreateProfileDiv();
+      // Background enrichment must not replace a form or control being used.
+      if (interactionSequence === sequence || profileDiv.contains(document.activeElement)) return;
+      renderProfile();
+    }
+
+    function renderProfile(options = {}) {
+      const existingProfile = deps.getOrCreateProfileDiv();
+      if (options.preserveInteraction && renderedUsername === deps.getCurrentUser()
+        && (interactionSequence === renderSequence || existingProfile.contains(document.activeElement))) return;
       const sequence = ++renderSequence;
       deps.hideUploadAndEmptyState();
       const profileDiv = deps.getOrCreateProfileDiv();
       const products = deps.getProducts();
+      if (profileDiv.dataset.hydrationInteractionBound !== "true") {
+        profileDiv.dataset.hydrationInteractionBound = "true";
+        const markInteraction = () => { interactionSequence = renderSequence; };
+        ["pointerdown", "keydown", "input"].forEach(type => profileDiv.addEventListener(type, markInteraction, true));
+      }
       const currentUser = deps.getCurrentUser();
+      renderedUsername = currentUser;
       const currentSession = deps.getCurrentSession();
       const currentOrders = deps.getCurrentOrders();
       const userProducts = products
@@ -23528,7 +23810,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           .then((result) => {
             if (socialSummaryState.username !== currentUser) return;
             socialSummaryState = { username: currentUser, status: "ready", profile: result?.profile || null };
-            if (isRenderActive(sequence)) renderProfile();
+            refreshHydratedProfile(sequence);
           })
           .catch((error) => {
             if (socialSummaryState.username !== currentUser) return;
@@ -23554,7 +23836,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
               (Number(page?.appendedCount || 0) > 0 || paginationChanged)
               && isRenderActive(sequence)
             ) {
-              renderProfile();
+              refreshHydratedProfile(sequence);
             }
           })
           .catch((error) => {
@@ -23591,12 +23873,11 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           });
         });
 
-      deps.dataLayer.loadMessages()
-        .then((messages) => {
+      deps.refreshMessagesState()
+        .then(() => {
           if (!isRenderActive(sequence)) {
             return;
           }
-          deps.setCurrentMessages(Array.isArray(messages) ? messages : []);
           deps.syncActiveChatContext();
           deps.replaceMessagesPanel(profileDiv);
           deps.markActiveConversationRead().catch(() => {});
@@ -23609,7 +23890,6 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           deps.captureError?.("profile_messages_load_failed", error, {
             user: currentUser
           });
-          deps.setCurrentMessages([]);
           deps.syncActiveChatContext();
           deps.replaceMessagesPanel(profileDiv);
           deps.showInAppNotification?.({
@@ -23755,17 +24035,6 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           requestCount: deps.getRequestBoxItemCount(),
           canGetVerified
         }));
-        if (activeSection === "profile-messages-panel") {
-          profileDiv.appendChild(deps.createElement("button", {
-            className: "profile-messages-fab message-panel-close",
-            textContent: t("profile.backAction", "Back to profile"),
-            attributes: {
-              type: "button",
-              "data-close-profile-messages": "true",
-              "aria-label": t("profile.backAction", "Back to profile")
-            }
-          }));
-        }
       } catch (error) {
         deps.captureError?.("profile_shell_render_failed", error, {
           user: currentUser

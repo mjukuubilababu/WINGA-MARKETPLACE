@@ -23,7 +23,7 @@
     }
 
     function renderRepostButton(product) {
-      if (getViewerRole() !== "seller") {
+      if (!getCurrentUser() || !canUseBuyerFeatures?.()) {
         return "";
       }
       if (typeof canRepostProduct === "function" && !canRepostProduct(product)) {
@@ -192,9 +192,8 @@
 
     function renderMessageSellerButton(product) {
       const currentUser = getCurrentUser();
-      const viewerRole = getViewerRole();
       if (product.uploadedBy === currentUser) {
-        if (viewerRole === "seller") {
+        if (canUseBuyerFeatures?.()) {
           return `<button class="action-btn chat-btn" type="button" data-open-own-messages="${product.id}">Message</button>`;
         }
         return "";

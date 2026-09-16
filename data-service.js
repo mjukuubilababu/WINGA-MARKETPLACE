@@ -2187,6 +2187,12 @@ async loadAdminPayments(filters) {
         async loadMessages() {
           return getCommunicationsApiClient().loadMessages();
         },
+        async loadInboxPage(options) {
+          return getCommunicationsApiClient().loadInboxPage(options);
+        },
+        async loadConversationPage(withUser, options) {
+          return getCommunicationsApiClient().loadConversationPage(withUser, options);
+        },
         async sendMessage(payload) {
           return getCommunicationsApiClient().sendMessage(payload);
         },
@@ -3258,7 +3264,7 @@ async loadAdminPayments() {
   }
 
   function assertSellerAccess() {
-    if (getCurrentSessionRole() !== "seller") {
+    if (!isBuyerCapableRole(getCurrentSessionRole())) {
       throw new Error("Action hii inahitaji seller account.");
     }
   }
@@ -4127,6 +4133,14 @@ async loadAdminPayments() {
       async loadMessages() {
         assertBuyerCapableAccess();
         return state.adapter.loadMessages ? state.adapter.loadMessages() : [];
+      },
+      async loadInboxPage(options = {}) {
+        assertBuyerCapableAccess();
+        return state.adapter.loadInboxPage ? state.adapter.loadInboxPage(options) : null;
+      },
+      async loadConversationPage(withUser, options = {}) {
+        assertBuyerCapableAccess();
+        return state.adapter.loadConversationPage ? state.adapter.loadConversationPage(withUser, options) : null;
       },
       async sendMessage(payload) {
         assertBuyerCapableAccess();

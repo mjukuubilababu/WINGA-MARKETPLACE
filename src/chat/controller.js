@@ -1,6 +1,7 @@
 (() => {
   function createChatControllerModule(deps) {
     const recentSubmissionRegistry = new Map();
+    let inboxSearchState = { user: "", query: "" };
     const translate = typeof deps.translate === "function"
       ? deps.translate
       : (_key, _variables, fallbackText = "") => String(fallbackText || "");
@@ -654,6 +655,9 @@
           deps.setActiveChatReplyMessageId("");
           deps.setOpenChatMessageMenuId("");
           deps.setOpenEmojiScope("");
+          if (sendResult?.id && !sendResult.isQueued) {
+            deps.appendLocalMessage?.(sendResult);
+          }
           await Promise.all([deps.refreshMessagesState(), deps.refreshNotificationsState()]);
           if (sendResult?.isQueued) {
             deps.setChatComposeStatus?.("context", {
@@ -753,13 +757,17 @@
         }
       });
 
+      const openedUser = deps.getCurrentUser(), openedPartner = deps.getActiveChatContext()?.withUser;
+      const stillOpen = () => modal.style.display !== "none" && deps.getCurrentUser() === openedUser && deps.getActiveChatContext()?.withUser === openedPartner;
       void Promise.all([deps.refreshMessagesState(), deps.refreshNotificationsState(), deps.refreshConversationOffersState?.(), deps.refreshConversationAvailabilityState?.(), deps.refreshCommerceGoalsState?.()])
         .then(async () => {
+          if (!stillOpen()) return;
+          replaceContextChatModal();
           deps.maybePromptNotificationPermission?.("reply");
           await deps.markActiveConversationRead();
         })
         .catch(() => {
-          // Ignore passive refresh failures after the modal is already open.
+          if (stillOpen()) replaceContextChatModal();
         });
     }
 
@@ -886,6 +894,81 @@
     function bindMessageActions(scope = deps.getProfileDiv?.(), options = {}) {
       if (!scope) {
         return;
+      }
+      scope.querySelectorAll("[data-message-page]").forEach((button) => {
+        button.onclick = async () => {
+          if (button.disabled) return;
+          button.disabled = true;
+          const user = deps.getCurrentUser(), partner = deps.getActiveChatContext()?.withUser;
+          const isHistory = button.dataset.messagePage === "history";
+          const anchor = isHistory ? scope.querySelector("[data-message-bubble-id]") : button;
+          const anchorId = anchor?.dataset.messageBubbleId;
+          const top = anchor?.getBoundingClientRect().top;
+          const thread = scope.querySelector(".messages-thread-body, .context-chat-thread");
+          const oldScroll = thread?.scrollTop || 0;
+          try {
+            if (isHistory) await deps.loadOlderConversationMessages?.();
+            else await deps.loadMoreInboxMessages?.();
+          } catch (_error) {
+            // The retained page renders its retry action; never clear messages.
+          }
+          if (user !== deps.getCurrentUser() || (isHistory && partner !== deps.getActiveChatContext()?.withUser)) return;
+          if (scope.id === "context-chat-modal") replaceContextChatModal();
+          else deps.replaceMessagesPanel(scope);
+          if (isHistory && anchorId && Number.isFinite(top)) {
+            const next = Array.from(scope.querySelectorAll("[data-message-bubble-id]")).find(node => node.dataset.messageBubbleId === anchorId);
+            const nextThread = scope.querySelector(".messages-thread-body, .context-chat-thread");
+            if (next && nextThread) {
+              nextThread.scrollTop = oldScroll;
+              const delta = next.getBoundingClientRect().top - top;
+              if (nextThread.scrollHeight > nextThread.clientHeight) nextThread.scrollTop += delta;
+              else window.scrollBy(0, delta);
+            }
+          }
+        };
+      });
+      scope.querySelectorAll("[data-inbox-filter]").forEach((button) => {
+        button.onclick = () => {
+          deps.setProfileMessagesFilter(button.dataset.inboxFilter);
+          deps.replaceMessagesPanel(scope);
+        };
+      });
+      const inboxSearch = scope.querySelector("[data-inbox-search]");
+      if (inboxSearch) {
+        const user = deps.getCurrentUser();
+        if (inboxSearchState.user !== user) inboxSearchState = { user, query: "" };
+        inboxSearch.value = inboxSearchState.query;
+        const finder = scope.querySelector(".inbox-product-finder");
+        if (finder) {
+          finder.open = Boolean(inboxSearchState.finderOpen || finder.querySelector("input[name='query']")?.value);
+          const toggle = finder.querySelector("summary");
+          if (toggle) toggle.onclick = () => { inboxSearchState.finderOpen = !finder.open; };
+        }
+        const filterRows = () => {
+            const currentSearch = scope.querySelector("[data-inbox-search]");
+            if (!currentSearch?.isConnected) return;
+            currentSearch.value = inboxSearchState.query;
+            const query = inboxSearchState.query.trim().toLocaleLowerCase();
+            const rows = scope.querySelectorAll(".message-thread-item");
+            let visible = 0;
+            rows.forEach((row) => {
+              row.hidden = !row.textContent.toLocaleLowerCase().includes(query);
+              if (!row.hidden) visible += 1;
+            });
+            const empty = scope.querySelector("[data-inbox-no-results]");
+            if (empty) empty.hidden = !query || visible > 0;
+        };
+        filterRows();
+        if (scope.dataset.wingaInboxSearchBound !== "true") {
+          scope.dataset.wingaInboxSearchBound = "true";
+          let searchTimer;
+          scope.addEventListener("input", (event) => {
+            if (!event.target.matches?.("[data-inbox-search]")) return;
+            inboxSearchState.query = event.target.value;
+            clearTimeout(searchTimer);
+            searchTimer = setTimeout(filterRows, 180);
+          }, true);
+        }
       }
 
       const bindMessageLongPress = (targetScope, rerender) => {
@@ -1260,6 +1343,7 @@
           deps.setProfileHasSelection?.(true);
           deps.setCurrentMessageDraft(deps.loadStoredChatDraft?.(nextChatContext) || "");
           try {
+            await deps.refreshActiveMessageHistory?.();
             await Promise.all([deps.markActiveConversationRead(), deps.refreshConversationOffersState?.(), deps.refreshConversationAvailabilityState?.(), deps.refreshCommerceGoalsState?.()]);
           } catch (error) {
             // Ignore passive read sync failures on thread switch.
@@ -1398,6 +1482,9 @@
           }
           deps.setCurrentMessageDraft("");
           deps.setOpenEmojiScope("");
+          if (sendResult?.id && !sendResult.isQueued) {
+            deps.appendLocalMessage?.(sendResult);
+          }
           await Promise.all([deps.refreshMessagesState(), deps.refreshNotificationsState()]);
           if (sendResult?.isQueued) {
             deps.setChatComposeStatus?.("profile", {

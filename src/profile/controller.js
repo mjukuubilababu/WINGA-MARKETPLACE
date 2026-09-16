@@ -1,6 +1,8 @@
 (() => {
   function createProfileControllerModule(deps) {
     let renderSequence = 0;
+    let interactionSequence = -1;
+    let renderedUsername = "";
     let whatsappPreviewCode = "";
     const sellerProductPagination = new Map();
     let socialSummaryState = { username: "", status: "idle", profile: null };
@@ -820,12 +822,29 @@
       bindPaymentDetailsActions();
     }
 
-    function renderProfile() {
+    function refreshHydratedProfile(sequence) {
+      if (!isRenderActive(sequence)) return;
+      const profileDiv = deps.getOrCreateProfileDiv();
+      // Background enrichment must not replace a form or control being used.
+      if (interactionSequence === sequence || profileDiv.contains(document.activeElement)) return;
+      renderProfile();
+    }
+
+    function renderProfile(options = {}) {
+      const existingProfile = deps.getOrCreateProfileDiv();
+      if (options.preserveInteraction && renderedUsername === deps.getCurrentUser()
+        && (interactionSequence === renderSequence || existingProfile.contains(document.activeElement))) return;
       const sequence = ++renderSequence;
       deps.hideUploadAndEmptyState();
       const profileDiv = deps.getOrCreateProfileDiv();
       const products = deps.getProducts();
+      if (profileDiv.dataset.hydrationInteractionBound !== "true") {
+        profileDiv.dataset.hydrationInteractionBound = "true";
+        const markInteraction = () => { interactionSequence = renderSequence; };
+        ["pointerdown", "keydown", "input"].forEach(type => profileDiv.addEventListener(type, markInteraction, true));
+      }
       const currentUser = deps.getCurrentUser();
+      renderedUsername = currentUser;
       const currentSession = deps.getCurrentSession();
       const currentOrders = deps.getCurrentOrders();
       const userProducts = products
@@ -860,7 +879,7 @@
           .then((result) => {
             if (socialSummaryState.username !== currentUser) return;
             socialSummaryState = { username: currentUser, status: "ready", profile: result?.profile || null };
-            if (isRenderActive(sequence)) renderProfile();
+            refreshHydratedProfile(sequence);
           })
           .catch((error) => {
             if (socialSummaryState.username !== currentUser) return;
@@ -886,7 +905,7 @@
               (Number(page?.appendedCount || 0) > 0 || paginationChanged)
               && isRenderActive(sequence)
             ) {
-              renderProfile();
+              refreshHydratedProfile(sequence);
             }
           })
           .catch((error) => {
@@ -923,12 +942,11 @@
           });
         });
 
-      deps.dataLayer.loadMessages()
-        .then((messages) => {
+      deps.refreshMessagesState()
+        .then(() => {
           if (!isRenderActive(sequence)) {
             return;
           }
-          deps.setCurrentMessages(Array.isArray(messages) ? messages : []);
           deps.syncActiveChatContext();
           deps.replaceMessagesPanel(profileDiv);
           deps.markActiveConversationRead().catch(() => {});
@@ -941,7 +959,6 @@
           deps.captureError?.("profile_messages_load_failed", error, {
             user: currentUser
           });
-          deps.setCurrentMessages([]);
           deps.syncActiveChatContext();
           deps.replaceMessagesPanel(profileDiv);
           deps.showInAppNotification?.({
@@ -1087,17 +1104,6 @@
           requestCount: deps.getRequestBoxItemCount(),
           canGetVerified
         }));
-        if (activeSection === "profile-messages-panel") {
-          profileDiv.appendChild(deps.createElement("button", {
-            className: "profile-messages-fab message-panel-close",
-            textContent: t("profile.backAction", "Back to profile"),
-            attributes: {
-              type: "button",
-              "data-close-profile-messages": "true",
-              "aria-label": t("profile.backAction", "Back to profile")
-            }
-          }));
-        }
       } catch (error) {
         deps.captureError?.("profile_shell_render_failed", error, {
           user: currentUser

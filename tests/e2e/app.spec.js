@@ -8,7 +8,9 @@ const tinyPngBuffer = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADklEQVQImWP4DwUMMAYAj4IP8cvlVgcAAAAASUVORK5CYII=",
   "base64"
 );
-const detailContinuationCardSelector = "#product-detail-modal [data-product-detail-feed-stack] > .product-card[data-open-product]";
+// A video tap starts playback; navigation tests must select a photo card.
+const homePhotoCardSelector = "#products-container .product-card:has(.feed-gallery-tile:not(.feed-video-slide))";
+const detailContinuationCardSelector = "#product-detail-modal [data-product-detail-feed-stack] > .product-card[data-open-product]:has(.feed-gallery-tile:not(.feed-video-slide))";
 
 async function dragTrackHorizontally(page, track, options = {}) {
   await track.scrollIntoViewIfNeeded();
@@ -342,7 +344,7 @@ test("vertical feed image tiles open the product detail correctly", async ({ bro
   await page.goto("/");
   await expect(page.locator("#products-container .product-card").first()).toBeVisible({ timeout: 30000 });
 
-  await page.locator("#products-container .feed-gallery-tile").first().click();
+  await page.locator("#products-container .feed-gallery-tile:not(.feed-video-slide)").first().click();
   await expect(page.locator("#product-detail-modal")).toBeVisible();
   await expect(page.locator("#product-detail-content")).toBeVisible();
   await expect(page.locator("#product-detail-title")).toBeVisible();
@@ -1105,6 +1107,99 @@ test("logged in seller-buyer can open detail and open chat", async ({ browser })
   await context.close();
 });
 
+test("modern inbox keeps person grouping, search, unread and compact responsive context", async ({ browser }, testInfo) => {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure", {
+    viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true
+  });
+  const now = new Date().toISOString();
+  const messages = [
+    { id: "inbox-a", senderId: "market_seller", receiverId: "buyer_seller", message: "A compact inquiry", productId: "e2e-prod-1", productName: "Sneaker Classic", timestamp: now, isRead: false },
+    { id: "inbox-b", senderId: "buyer_seller", receiverId: "market_seller", message: "Latest reply", productId: "e2e-prod-1", productName: "Sneaker Classic", timestamp: now, isRead: false },
+    { id: "inbox-c", senderId: "buyer-1775249142775-86567c", receiverId: "buyer_seller", message: "Another conversation", productId: "", productName: "Reel", timestamp: now, isRead: true }
+  ];
+  await context.route("**/api/messages", async route => {
+    if (route.request().method() !== "GET") return route.continue();
+    await route.fulfill({ json: messages });
+  });
+  await page.goto("/");
+  await openHeaderMenuAction(page, "profile");
+  await page.locator("[data-profile-action='messages']").click();
+  const panel = page.locator("#profile-messages-panel");
+  await expect(panel.locator(".message-thread-item")).toHaveCount(2);
+  await expect(panel).not.toContainText("buyer-1775249142775-86567c");
+  await expect(panel).not.toContainText("messages exchanged already");
+  await expect(page.locator(".profile-messages-fab")).toHaveCount(0);
+  await expect(panel.locator(".inbox-product-context")).toHaveCount(2);
+  await expect(panel.locator(".inbox-context-thumb").first()).toHaveCSS("width", "44px");
+  await panel.locator("[data-inbox-search]").fill("no-match-for-this");
+  await expect(panel.locator(".message-thread-item:visible")).toHaveCount(0);
+  await expect(panel.locator("[data-inbox-no-results]")).toBeVisible();
+  await panel.locator("[data-inbox-search]").fill("Latest reply");
+  await expect(panel.locator(".message-thread-item:visible")).toHaveCount(1);
+  await panel.locator("[data-inbox-search]").fill("");
+  await panel.locator("[data-inbox-filter='unread']").click();
+  await expect(panel.locator(".message-thread-item")).toHaveCount(1);
+  await panel.locator("[data-inbox-filter='all']").click();
+  for (const width of [320, 390, 768, 1280]) {
+    await page.setViewportSize({ width, height: 844 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: testInfo.outputPath("modern-inbox-mobile.png") });
+  await page.evaluate(() => { document.documentElement.dir = "rtl"; });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await panel.locator(".message-thread-item").first().click();
+  await expect(panel.locator(".message-date-separator")).toHaveCount(1);
+  await expect(panel.locator(".message-bubble")).toHaveCount(2);
+  await context.close();
+});
+
+test("paged inbox loads summaries first and older history on demand", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure", { viewport: { width: 390, height: 844 } });
+  let fullReads = 0, historyReads = 0, failOlder = true;
+  const now = new Date().toISOString();
+  const latest = { id: "paged-new", senderId: "market_seller", receiverId: "buyer_seller", message: "Latest paged message", timestamp: now, isRead: true };
+  const older = { ...latest, id: "paged-old", message: "Older paged message", timestamp: "2026-01-01T00:00:00.000Z" };
+  await context.route("**/api/messages", async route => {
+    if (route.request().method() === "GET") fullReads++;
+    await route.continue();
+  });
+  await context.route("**/api/messages/inbox?*", async route => {
+    const more = new URL(route.request().url()).searchParams.get("cursor");
+    await route.fulfill({ json: {
+      items: [{ withUser: more ? "another_person" : "market_seller", displayName: more ? "Another Person" : "Market Seller", lastMessageId: latest.id, latestMessage: latest.message, timestamp: now, unreadCount: 0 }],
+      hasMore: !more, nextCursor: more ? "" : "next-people", totalUnread: 0, totalConversations: 2
+    } });
+  });
+  await context.route("**/api/messages/history?*", async route => {
+    historyReads++;
+    const more = new URL(route.request().url()).searchParams.get("cursor");
+    if (more && failOlder) { failOlder = false; return route.fulfill({ status: 503, json: { error: "Temporary history outage" } }); }
+    await route.fulfill({ json: { items: more ? [older, latest] : [latest], hasMore: !more, nextCursor: more ? "" : "older-history" } });
+  });
+  await page.goto("/");
+  await openHeaderMenuAction(page, "profile");
+  await page.locator("[data-profile-action='messages']").click();
+  const panel = page.locator("#profile-messages-panel");
+  await expect.poll(() => page.evaluate(() => ({ mode: getMessagePager().snapshot().mode, count: getMessagePager().snapshot().inbox.items.length }))).toEqual({ mode: "paged", count: 1 });
+  await expect(panel.locator(".message-thread-item")).toHaveCount(1);
+  expect(historyReads).toBe(0);
+  expect(fullReads).toBe(0);
+  await panel.locator("[data-message-page='inbox']").click();
+  await expect(panel.locator(".message-thread-item")).toHaveCount(2);
+  await panel.locator(".message-thread-item", { hasText: "Market Seller" }).click();
+  await expect(panel.locator(".message-bubble")).toHaveCount(1);
+  await expect(panel).toContainText("Latest paged message");
+  await panel.locator("[data-message-page='history']").click();
+  await expect(panel.locator(".message-bubble")).toHaveCount(1);
+  await expect(panel.locator("[data-message-page='history']")).toBeEnabled();
+  await panel.locator("[data-message-page='history']").click();
+  await expect(panel.locator(".message-bubble")).toHaveCount(2);
+  await expect(panel.locator(".message-bubble").first()).toContainText("Older paged message");
+  expect(fullReads).toBe(0);
+  await context.close();
+});
+
 test("mobile profile messages use a clear conversation list and detail flow", async ({ browser }) => {
   const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure", {
     viewport: { width: 390, height: 844 },
@@ -1211,6 +1306,7 @@ test("conversation product finder searches canonical supply and opens the seller
   await page.locator("[data-profile-action='messages']").click();
 
   const finder = page.locator("#profile-messages-panel [data-assistant-search-form]");
+  await page.locator(".inbox-product-finder > summary").click();
   await expect(finder).toBeVisible();
   await expect(finder).toHaveAttribute("data-winga-bound-assistant-search", "true");
   await finder.locator("input[name='query']").fill("Sneaker Classic");
@@ -1437,6 +1533,34 @@ test("seller opportunity opens attributed creation and supports private dismissa
   await context.close();
 });
 
+test("late profile enrichment preserves an open WhatsApp form and its draft", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure");
+  await page.goto("/");
+  await page.waitForFunction(() => typeof isSessionRestorePending !== "undefined" && !isSessionRestorePending);
+  let release;
+  const held = new Promise(resolve => { release = resolve; });
+  await context.route("**/api/social/users/buyer_seller", async route => {
+    const response = await route.fetch();
+    await held;
+    await route.fulfill({ response });
+  });
+  await openHeaderMenuAction(page, "profile");
+  await page.locator("#profile-whatsapp-change-toggle").click();
+  const input = page.locator("#profile-whatsapp-input");
+  await input.fill("255761234567");
+  await input.evaluate(node => { window.__editingProfileInput = node; });
+  await page.evaluate(() => scheduleRenderCurrentView("profile_background_test"));
+  const response = page.waitForResponse(res => res.url().endsWith("/api/social/users/buyer_seller"));
+  release();
+  await response;
+  // Allow the response callback and its render frames to run before checking identity.
+  await page.waitForTimeout(500);
+  await expect(input).toBeVisible();
+  await expect(input).toHaveValue("255761234567");
+  expect(await input.evaluate(node => node === window.__editingProfileInput)).toBe(true);
+  await context.close();
+});
+
 test("seller can change and verify whatsapp number from profile and upload uses the new verified number", async ({ browser }) => {
   const nextWhatsappNumber = `2557${String(Date.now()).slice(-8)}`;
   const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure");
@@ -1581,7 +1705,7 @@ test("session restore keeps seller-as-buyer browsing and product-detail continua
   await page.locator("#products-container .product-card").nth(1).click();
   await expect(page.locator("#product-detail-modal")).toBeVisible();
   const originalTitle = await page.locator("#product-detail-title").textContent();
-  const sellerCard = page.locator("#product-detail-modal [data-product-detail-feed-stack] [data-open-product]").first();
+  const sellerCard = page.locator(detailContinuationCardSelector).first();
   await expect(sellerCard).toBeVisible();
   await expect(page.locator("#product-detail-modal [data-request-product]")).toHaveCount(0);
   await sellerCard.click();
@@ -1676,7 +1800,7 @@ test("browser back from the first product detail returns to the in-app feed with
   const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure");
   await page.goto("/");
 
-  await page.locator("#products-container .product-card").first().click();
+  await page.locator(homePhotoCardSelector).first().click();
   await expect(page.locator("#product-detail-modal")).toBeVisible();
 
   await page.goBack();
@@ -1708,7 +1832,7 @@ test("refreshing a product deep link restores the app shell and product detail",
   const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure");
   await page.goto("/");
 
-  await page.locator("#products-container .product-card").first().click();
+  await page.locator(homePhotoCardSelector).first().click();
   await expect(page.locator("#product-detail-modal")).toBeVisible();
   await expect(page).toHaveURL(/\/product\/[^/?#]+/);
   const detailTitle = await page.locator("#product-detail-title").textContent();
@@ -1725,7 +1849,7 @@ test("browser back follows product-detail history instead of dumping users home"
   const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure");
   await page.goto("/");
 
-  await page.locator("#products-container .product-card").first().click();
+  await page.locator(homePhotoCardSelector).first().click();
   await expect(page.locator("#product-detail-modal")).toBeVisible();
   const firstTitle = await page.locator("#product-detail-title").textContent();
 
@@ -1747,7 +1871,7 @@ test("floating home action appears only for deeper product browsing and returns 
   const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure");
   await page.goto("/");
 
-  await page.locator("#products-container .product-card").first().click();
+  await page.locator(homePhotoCardSelector).first().click();
   await expect(page.locator("#product-detail-modal")).toBeVisible();
   await expect(page.locator("#product-detail-modal [data-product-detail-home]")).toHaveCount(0);
 
@@ -1767,7 +1891,7 @@ test("desktop product-detail home clears search context and returns to a clean h
   await page.goto("/");
 
   await page.locator("#search-input").fill("Sneaker");
-  await page.locator("#products-container .product-card").first().click();
+  await page.locator(homePhotoCardSelector).first().click();
   await expect(page.locator("#product-detail-modal")).toBeVisible();
 
   const preferredNextCard = page.locator("#product-detail-modal [data-open-product='e2e-prod-delete']").first();
@@ -1799,7 +1923,7 @@ test("mobile product-detail home clears search context and returns to a clean ho
 
   await page.locator("#search-toggle-button").click();
   await page.locator("#search-input").fill("Sneaker");
-  await page.locator("#products-container .product-card").first().click();
+  await page.locator(homePhotoCardSelector).first().click();
   await expect(page.locator("#product-detail-modal")).toBeVisible();
 
   const preferredNextCard = page.locator("#product-detail-modal [data-open-product='e2e-prod-delete']").first();
@@ -1952,7 +2076,7 @@ test("product detail continuation feed galleries keep the same horizontal swipe 
 
   await page.goto("/");
   await expect(page.locator("#products-container .product-card").first()).toBeVisible({ timeout: 30000 });
-  await page.locator("#products-container .product-card").first().click();
+  await page.locator(homePhotoCardSelector).first().click();
   await expect(page.locator("#product-detail-modal")).toBeVisible();
   await expect(page.locator(detailContinuationCardSelector).first()).toBeVisible();
   const trackCount = await page.locator("#product-detail-modal [data-product-detail-feed-stack] > .product-card [data-feed-gallery-track]").count();
@@ -1995,20 +2119,21 @@ test("mobile home feed galleries respond to touch-sized horizontal drags", async
   await context.close();
 });
 
-test("seller sees message, WhatsApp, and repost actions on other sellers products but not on their own products", async ({ browser }) => {
+test("commerce accounts get own Inbox and repost actions without self-chat", async ({ browser }) => {
   const { context, page } = await createLoggedInPage(browser, "market_seller", "Pass1234!Secure");
   await page.goto("/");
 
   const ownCard = page.locator("#products-container .product-card").filter({ hasText: "Shirt Premium" }).first();
-  const otherCard = page.locator("#products-container .product-card").filter({ hasText: "Phone Smart X" }).first();
+  const otherCard = page.locator("#products-container [data-product-card='e2e-prod-5']").first();
 
   await expect(ownCard).toBeVisible();
   await expect(otherCard).toBeVisible();
 
   await expect(ownCard).not.toContainText("Nunua");
   await expect(ownCard).not.toContainText("My Request");
-  await expect(ownCard).toContainText("Message");
-  await expect(ownCard).toContainText("Uza");
+  await expect(ownCard.locator("[data-chat-product]")).toHaveCount(0);
+  await expect(ownCard.locator("[data-open-own-messages]")).toBeVisible();
+  await expect(ownCard.locator("[data-detail-repost]")).toBeVisible();
   await expect(ownCard).toContainText("WhatsApp");
 
   await expect(otherCard).toContainText("Message");
@@ -2334,7 +2459,7 @@ test("buyer-side card buttons on the home feed keep equal-width message and What
   await page.goto("/");
   await expect(page.locator("#products-container .product-card").first()).toBeVisible({ timeout: 30000 });
 
-  const feedCard = page.locator("#products-container .product-card").first();
+  const feedCard = page.locator("#products-container .product-card[data-product-card='e2e-prod-1']").first();
   await expect(feedCard).toBeVisible();
   await expect(feedCard).not.toContainText("Nunua");
   await expect(feedCard).not.toContainText("My Request");
@@ -2356,10 +2481,11 @@ test("buyer-side action buttons stay compact and consistent inside deeper produc
   await page.goto("/");
   await expect(page.locator("#products-container .product-card").first()).toBeVisible({ timeout: 30000 });
 
-  await page.locator("#products-container .product-card").first().click();
+  await page.locator("#products-container .product-card[data-product-card='e2e-prod-1']").first().click();
   await expect(page.locator("#product-detail-modal")).toBeVisible();
 
-  const continuationCard = page.locator(detailContinuationCardSelector).first();
+  // Own products open Inbox, not self-chat. Exercise another seller's card.
+  const continuationCard = page.locator(detailContinuationCardSelector).filter({ has: page.locator("[data-chat-product]") }).first();
   await expect(continuationCard).toBeVisible();
 
   await expect(continuationCard).not.toContainText("Nunua");
@@ -2394,7 +2520,7 @@ test("seller profile and product detail show clean trust indicators", async ({ b
 
   await page.locator("#view-home-back").click();
   await expect(page.locator("#products-container .product-card").first()).toBeVisible();
-  await page.locator("#products-container .product-card").first().click();
+  await page.locator(homePhotoCardSelector).first().click();
   const detailTrustPanel = page.locator("#product-detail-modal .seller-trust-panel");
   await expect(detailTrustPanel).toBeVisible();
   await expect(detailTrustPanel).toContainText("Trust & Safety");
@@ -2408,7 +2534,7 @@ test("buyer can report a product from the trust panel without breaking browsing 
   await page.goto("/");
   await expect(page.locator("#products-container .product-card").first()).toBeVisible({ timeout: 30000 });
 
-  await page.locator("#products-container .product-card").first().click();
+  await page.locator(homePhotoCardSelector).first().click();
   await expect(page.locator("#product-detail-modal")).toBeVisible();
 
   await page.locator("#product-detail-modal [data-report-product]").first().click();
@@ -2429,7 +2555,7 @@ test("product detail keeps same-seller continuation and broader discovery surfac
   await page.goto("/");
   await expect(page.locator("#products-container .product-card").first()).toBeVisible({ timeout: 30000 });
 
-  await page.locator("#products-container .product-card").first().click();
+  await page.locator(homePhotoCardSelector).first().click();
   await expect(page.locator("#product-detail-modal")).toBeVisible();
   const continuationSections = page.locator("#product-detail-modal .product-detail-seller-products");
   await expect(continuationSections.first()).toBeVisible();
@@ -2454,7 +2580,7 @@ test("product detail continuation keeps deeper feed cards stable while scrolling
   await page.goto("/");
   await expect(page.locator("#products-container .product-card").first()).toBeVisible({ timeout: 30000 });
 
-  await page.locator("#products-container .product-card").first().click();
+  await page.locator(homePhotoCardSelector).first().click();
   const modal = page.locator("#product-detail-modal");
   await expect(modal).toBeVisible();
   await expect(page.locator(detailContinuationCardSelector).first()).toBeVisible();
@@ -2490,7 +2616,7 @@ test("product detail continuation rows use the same feed-stack architecture as h
   await page.goto("/");
   await expect(page.locator("#products-container .product-card").first()).toBeVisible({ timeout: 30000 });
 
-  await page.locator("#products-container .product-card").first().click();
+  await page.locator(homePhotoCardSelector).first().click();
   await expect(page.locator("#product-detail-modal")).toBeVisible();
 
   const stacks = page.locator("#product-detail-modal [data-product-detail-feed-stack]");
@@ -2510,7 +2636,7 @@ test("product detail keeps loading deeper discovery sections while users browse 
   await page.goto("/");
   await expect(page.locator("#products-container .product-card").first()).toBeVisible({ timeout: 30000 });
 
-  await page.locator("#products-container .product-card").first().click();
+  await page.locator(homePhotoCardSelector).first().click();
   await expect(page.locator("#product-detail-modal")).toBeVisible();
   await expect(page.locator("[data-product-detail-continuous-anchor='true']")).toBeVisible();
 
@@ -2627,7 +2753,7 @@ test("product detail continuation feed cards keep visible media after feed-fit h
   await page.goto("/");
   await expect(page.locator("#products-container .product-card").first()).toBeVisible({ timeout: 30000 });
 
-  await page.locator("#products-container .product-card").first().click();
+  await page.locator(homePhotoCardSelector).first().click();
   await expect(page.locator("#product-detail-modal")).toBeVisible();
   const firstMedia = page.locator("#product-detail-modal [data-product-detail-feed-stack] > .product-card .product-card-media").first();
   await expect(firstMedia).toBeVisible();
@@ -2750,7 +2876,8 @@ test("admin can open a reasoned fraud review from a user card", async ({ browser
 
   const userCard = page.locator("[data-admin-investigate-username='buyer_seller']").first();
   await expect(userCard).toBeVisible();
-  await userCard.click();
+  // Card-center clicks may hit a nested moderation button instead of the card.
+  await userCard.press("Enter");
 
   const modal = page.locator("#admin-investigation-modal");
   await expect(modal).toBeVisible();
