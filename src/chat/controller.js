@@ -128,6 +128,39 @@
       }
     }
 
+    async function searchProductsFromConversation(form, rerender) {
+      const data = new FormData(form);
+      const query = String(data.get("query") || "").trim().slice(0, 120);
+      if (query.length < 2) {
+        deps.setAssistantSearchState?.({ query, results: [], status: "error", message: t("chat.searchNeedsMoreDetail", "Enter at least two characters.") });
+        rerender?.();
+        return;
+      }
+      deps.setAssistantSearchState?.({ query, results: [], status: "loading", message: t("chat.searchingProducts", "Searching Winga products...") });
+      rerender?.();
+      try {
+        const page = await deps.dataLayer.queryProductsPage({ query, page: 1, limit: 4, force: true });
+        const results = (Array.isArray(page?.items) ? page.items : [])
+          .filter((product) => product?.status === "approved" && product?.availability !== "sold_out")
+          .slice(0, 4);
+        deps.syncAssistantSearchProducts?.();
+        deps.setAssistantSearchState?.({
+          query,
+          results,
+          status: "ready",
+          message: results.length
+            ? t("chat.searchMatchesReady", "{count} matching products found.", { count: results.length })
+            : t("chat.noSearchMatches", "No matching products found yet.")
+        });
+        deps.recordSearchDemandSignal?.({ query, source: "conversation_assistant", results, resultCount: Number(page?.total ?? results.length) });
+        rerender?.();
+      } catch (error) {
+        deps.setAssistantSearchState?.({ query, results: [], status: "error", message: error.message || t("chat.searchFailed", "Product search is temporarily unavailable.") });
+        deps.captureError?.("conversation_assistant_search_failed", error, { queryLength: query.length });
+        rerender?.();
+      }
+    }
+
     async function transitionAvailability(requestId, action, responseProductId, rerender) {
       if (!requestId || !action) return;
       try {
@@ -1099,6 +1132,17 @@
       });
       bindClickOnce("[data-commerce-goal-resolve]", "CommerceGoalResolve", async (button) => {
         await resolveConversationCommerceGoal(button.dataset.commerceGoalId || "", button.dataset.commerceGoalResolve || "", () => deps.replaceMessagesPanel?.(scope));
+      });
+      bindSubmitOnce("[data-assistant-search-form]", "AssistantSearch", async (event) => {
+        event.preventDefault();
+        await searchProductsFromConversation(event.currentTarget, () => deps.replaceMessagesPanel?.(scope));
+      });
+      bindInputOnce("[data-assistant-search-form] input[name='query']", "AssistantSearchQuery", (event) => {
+        deps.setAssistantSearchQuery?.(event.currentTarget.value);
+      });
+      bindClickOnce("[data-assistant-ask-seller]", "AssistantAskSeller", (button) => {
+        const product = deps.getAssistantSearchProduct?.(button.dataset.assistantAskSeller || "");
+        if (product) openProductChat(product);
       });
 
       bindClickOnce("[data-product-soldout]", "ProductSoldOut", async (button) => {

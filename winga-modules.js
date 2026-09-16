@@ -2768,6 +2768,10 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       availabilityActionStatus: null,
       commerceGoals: [],
       commerceGoalActionStatus: null,
+      assistantSearchQuery: "",
+      assistantSearchResults: [],
+      assistantSearchStatus: "idle",
+      assistantSearchMessage: "",
       selectedProductIds: [],
       activeReplyMessageId: "",
       openMessageMenuId: "",
@@ -16179,6 +16183,45 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       `;
     }
 
+    function renderAssistantProductFinder() {
+      const state = deps.getAssistantSearchState?.() || {};
+      const query = String(state.query || "");
+      const results = Array.isArray(state.results) ? state.results : [];
+      const status = String(state.status || "idle");
+      const message = String(state.message || "");
+      return `
+        <section class="conversation-assistant-search" aria-label="${deps.escapeHtml(t("chat.productFinder", "Winga product finder"))}">
+          <div class="conversation-assistant-head">
+            <span class="conversation-system-label">${deps.escapeHtml(t("chat.wingaAssistant", "Winga Assistant"))}</span>
+            <strong>${deps.escapeHtml(t("chat.productFinder", "Find a product"))}</strong>
+          </div>
+          <form class="conversation-assistant-search-form" data-assistant-search-form="true">
+            <label for="conversation-assistant-query">${deps.escapeHtml(t("chat.whatAreYouLookingFor", "What are you looking for?"))}</label>
+            <div>
+              <input id="conversation-assistant-query" name="query" value="${deps.escapeHtml(query)}" maxlength="120" autocomplete="off" placeholder="${deps.escapeHtml(t("chat.searchExample", "Example: black suit size L"))}" />
+              <button class="action-btn buy-btn" type="submit"${status === "loading" ? " disabled" : ""}>${deps.escapeHtml(status === "loading" ? t("chat.searching", "Searching...") : t("chat.search", "Search"))}</button>
+            </div>
+          </form>
+          ${message ? `<p class="chat-compose-status is-${status === "error" ? "error" : "info"}">${deps.escapeHtml(message)}</p>` : ""}
+          ${results.length ? `
+            <div class="conversation-assistant-results">
+              ${results.slice(0, 4).map((product) => `
+                <article class="conversation-assistant-product">
+                  ${renderResponsiveImageMarkup({ src: product.image, alt: product.name || t("chat.productResult", "Product result"), fallbackKey: "W" })}
+                  <div>
+                    <strong>${deps.escapeHtml(product.name || t("chat.productResult", "Product result"))}</strong>
+                    <span>${deps.escapeHtml(deps.formatProductPrice(product.price))}</span>
+                    <small>${deps.escapeHtml(product.shop || deps.getUserDisplayName?.(product.uploadedBy) || "")}</small>
+                    <button class="action-btn action-btn-secondary" type="button" data-assistant-ask-seller="${deps.escapeHtml(product.id || "")}">${deps.escapeHtml(t("chat.askSeller", "Ask seller"))}</button>
+                  </div>
+                </article>
+              `).join("")}
+            </div>
+          ` : ""}
+        </section>
+      `;
+    }
+
     function renderConversationMessagesMarkup(activeMessages, options = {}) {
       const { enableActions = false } = options;
       if (!activeMessages.length) {
@@ -16308,6 +16351,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           <div class="messages-shell ${showConversationDetail ? "compact-detail" : ""}">
             ${showConversationList ? `
             <div class="messages-list">
+              ${renderAssistantProductFinder()}
               ${summaries.length ? summaries.map((summary) => `
                 <button class="message-thread-item ${activeChatContext && summary.key === deps.getChatContextKey(activeChatContext) ? "active" : ""}" type="button" data-conversation-user="${summary.withUser}" data-conversation-product="${summary.productId}" data-conversation-name="${deps.escapeHtml(summary.productName)}">
                   <span class="message-thread-avatar">
@@ -16681,6 +16725,39 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       } catch (error) {
         deps.setCommerceGoalActionStatus?.({ tone: "error", message: error.message || t("chat.goalResolutionFailed", "Your search could not be updated.") });
         deps.captureError?.("conversation_commerce_goal_resolution_failed", error, { goalId, resolution: safeResolution });
+        rerender?.();
+      }
+    }
+
+    async function searchProductsFromConversation(form, rerender) {
+      const data = new FormData(form);
+      const query = String(data.get("query") || "").trim().slice(0, 120);
+      if (query.length < 2) {
+        deps.setAssistantSearchState?.({ query, results: [], status: "error", message: t("chat.searchNeedsMoreDetail", "Enter at least two characters.") });
+        rerender?.();
+        return;
+      }
+      deps.setAssistantSearchState?.({ query, results: [], status: "loading", message: t("chat.searchingProducts", "Searching Winga products...") });
+      rerender?.();
+      try {
+        const page = await deps.dataLayer.queryProductsPage({ query, page: 1, limit: 4, force: true });
+        const results = (Array.isArray(page?.items) ? page.items : [])
+          .filter((product) => product?.status === "approved" && product?.availability !== "sold_out")
+          .slice(0, 4);
+        deps.syncAssistantSearchProducts?.();
+        deps.setAssistantSearchState?.({
+          query,
+          results,
+          status: "ready",
+          message: results.length
+            ? t("chat.searchMatchesReady", "{count} matching products found.", { count: results.length })
+            : t("chat.noSearchMatches", "No matching products found yet.")
+        });
+        deps.recordSearchDemandSignal?.({ query, source: "conversation_assistant", results, resultCount: Number(page?.total ?? results.length) });
+        rerender?.();
+      } catch (error) {
+        deps.setAssistantSearchState?.({ query, results: [], status: "error", message: error.message || t("chat.searchFailed", "Product search is temporarily unavailable.") });
+        deps.captureError?.("conversation_assistant_search_failed", error, { queryLength: query.length });
         rerender?.();
       }
     }
@@ -17656,6 +17733,17 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       });
       bindClickOnce("[data-commerce-goal-resolve]", "CommerceGoalResolve", async (button) => {
         await resolveConversationCommerceGoal(button.dataset.commerceGoalId || "", button.dataset.commerceGoalResolve || "", () => deps.replaceMessagesPanel?.(scope));
+      });
+      bindSubmitOnce("[data-assistant-search-form]", "AssistantSearch", async (event) => {
+        event.preventDefault();
+        await searchProductsFromConversation(event.currentTarget, () => deps.replaceMessagesPanel?.(scope));
+      });
+      bindInputOnce("[data-assistant-search-form] input[name='query']", "AssistantSearchQuery", (event) => {
+        deps.setAssistantSearchQuery?.(event.currentTarget.value);
+      });
+      bindClickOnce("[data-assistant-ask-seller]", "AssistantAskSeller", (button) => {
+        const product = deps.getAssistantSearchProduct?.(button.dataset.assistantAskSeller || "");
+        if (product) openProductChat(product);
       });
 
       bindClickOnce("[data-product-soldout]", "ProductSoldOut", async (button) => {

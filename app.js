@@ -12418,6 +12418,12 @@ const {
   getAvailabilityActionStatus: () => chatUiState.availabilityActionStatus,
   getConversationCommerceGoal,
   getCommerceGoalActionStatus: () => chatUiState.commerceGoalActionStatus,
+  getAssistantSearchState: () => ({
+    query: chatUiState.assistantSearchQuery,
+    results: chatUiState.assistantSearchResults,
+    status: chatUiState.assistantSearchStatus,
+    message: chatUiState.assistantSearchMessage
+  }),
   getUserDisplayName,
   translate: translateUi
 });
@@ -12547,6 +12553,20 @@ const {
       message: String(status.message || "").trim()
     } : null;
   },
+  setAssistantSearchState: (nextState = {}) => {
+    chatUiState.assistantSearchQuery = String(nextState.query || "");
+    chatUiState.assistantSearchResults = Array.isArray(nextState.results) ? nextState.results : [];
+    chatUiState.assistantSearchStatus = ["idle", "loading", "ready", "error"].includes(nextState.status) ? nextState.status : "idle";
+    chatUiState.assistantSearchMessage = String(nextState.message || "");
+  },
+  setAssistantSearchQuery: (value) => {
+    chatUiState.assistantSearchQuery = String(value || "").slice(0, 120);
+  },
+  getAssistantSearchProduct: (productId) => chatUiState.assistantSearchResults.find((product) => product?.id === productId) || null,
+  syncAssistantSearchProducts: () => {
+    products = window.WingaDataLayer.getProducts();
+  },
+  recordSearchDemandSignal,
   getCurrentMessageDraft: () => chatUiState.currentDraft,
   loadStoredChatDraft,
   saveStoredChatDraft,

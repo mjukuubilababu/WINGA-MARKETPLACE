@@ -1275,6 +1275,19 @@
                      "chat.stopSearch": "Stop search",
                      "chat.resolvingGoal": "Updating your search...",
                      "chat.goalResolved": "Your search was updated.",
-                     "chat.goalResolutionFailed": "Your search could not be updated."
+                     "chat.goalResolutionFailed": "Your search could not be updated.",
+                     "chat.productFinder": "Find a product",
+                     "chat.wingaAssistant": "Winga Assistant",
+                     "chat.whatAreYouLookingFor": "What are you looking for?",
+                     "chat.searchExample": "Example: black suit size L",
+                     "chat.searching": "Searching...",
+                     "chat.search": "Search",
+                     "chat.productResult": "Product result",
+                     "chat.askSeller": "Ask seller",
+                     "chat.searchNeedsMoreDetail": "Enter at least two characters.",
+                     "chat.searchingProducts": "Searching Winga products...",
+                     "chat.searchMatchesReady": "{count} matching products found.",
+                     "chat.noSearchMatches": "No matching products found yet.",
+                     "chat.searchFailed": "Product search is temporarily unavailable."
                  }
 }

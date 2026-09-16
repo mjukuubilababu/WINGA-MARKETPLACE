@@ -307,6 +307,45 @@
       `;
     }
 
+    function renderAssistantProductFinder() {
+      const state = deps.getAssistantSearchState?.() || {};
+      const query = String(state.query || "");
+      const results = Array.isArray(state.results) ? state.results : [];
+      const status = String(state.status || "idle");
+      const message = String(state.message || "");
+      return `
+        <section class="conversation-assistant-search" aria-label="${deps.escapeHtml(t("chat.productFinder", "Winga product finder"))}">
+          <div class="conversation-assistant-head">
+            <span class="conversation-system-label">${deps.escapeHtml(t("chat.wingaAssistant", "Winga Assistant"))}</span>
+            <strong>${deps.escapeHtml(t("chat.productFinder", "Find a product"))}</strong>
+          </div>
+          <form class="conversation-assistant-search-form" data-assistant-search-form="true">
+            <label for="conversation-assistant-query">${deps.escapeHtml(t("chat.whatAreYouLookingFor", "What are you looking for?"))}</label>
+            <div>
+              <input id="conversation-assistant-query" name="query" value="${deps.escapeHtml(query)}" maxlength="120" autocomplete="off" placeholder="${deps.escapeHtml(t("chat.searchExample", "Example: black suit size L"))}" />
+              <button class="action-btn buy-btn" type="submit"${status === "loading" ? " disabled" : ""}>${deps.escapeHtml(status === "loading" ? t("chat.searching", "Searching...") : t("chat.search", "Search"))}</button>
+            </div>
+          </form>
+          ${message ? `<p class="chat-compose-status is-${status === "error" ? "error" : "info"}">${deps.escapeHtml(message)}</p>` : ""}
+          ${results.length ? `
+            <div class="conversation-assistant-results">
+              ${results.slice(0, 4).map((product) => `
+                <article class="conversation-assistant-product">
+                  ${renderResponsiveImageMarkup({ src: product.image, alt: product.name || t("chat.productResult", "Product result"), fallbackKey: "W" })}
+                  <div>
+                    <strong>${deps.escapeHtml(product.name || t("chat.productResult", "Product result"))}</strong>
+                    <span>${deps.escapeHtml(deps.formatProductPrice(product.price))}</span>
+                    <small>${deps.escapeHtml(product.shop || deps.getUserDisplayName?.(product.uploadedBy) || "")}</small>
+                    <button class="action-btn action-btn-secondary" type="button" data-assistant-ask-seller="${deps.escapeHtml(product.id || "")}">${deps.escapeHtml(t("chat.askSeller", "Ask seller"))}</button>
+                  </div>
+                </article>
+              `).join("")}
+            </div>
+          ` : ""}
+        </section>
+      `;
+    }
+
     function renderConversationMessagesMarkup(activeMessages, options = {}) {
       const { enableActions = false } = options;
       if (!activeMessages.length) {
@@ -436,6 +475,7 @@
           <div class="messages-shell ${showConversationDetail ? "compact-detail" : ""}">
             ${showConversationList ? `
             <div class="messages-list">
+              ${renderAssistantProductFinder()}
               ${summaries.length ? summaries.map((summary) => `
                 <button class="message-thread-item ${activeChatContext && summary.key === deps.getChatContextKey(activeChatContext) ? "active" : ""}" type="button" data-conversation-user="${summary.withUser}" data-conversation-product="${summary.productId}" data-conversation-name="${deps.escapeHtml(summary.productName)}">
                   <span class="message-thread-avatar">

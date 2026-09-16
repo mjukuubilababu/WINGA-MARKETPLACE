@@ -1275,6 +1275,19 @@
                      "chat.stopSearch": "Acha kutafuta",
                      "chat.resolvingGoal": "Tunasasisha utafutaji wako...",
                      "chat.goalResolved": "Utafutaji wako umesasishwa.",
-                     "chat.goalResolutionFailed": "Utafutaji wako haukuweza kusasishwa."
+                     "chat.goalResolutionFailed": "Utafutaji wako haukuweza kusasishwa.",
+                     "chat.productFinder": "Tafuta bidhaa",
+                     "chat.wingaAssistant": "Msaidizi wa Winga",
+                     "chat.whatAreYouLookingFor": "Unatafuta nini?",
+                     "chat.searchExample": "Mfano: suti nyeusi size L",
+                     "chat.searching": "Inatafuta...",
+                     "chat.search": "Tafuta",
+                     "chat.productResult": "Bidhaa iliyopatikana",
+                     "chat.askSeller": "Uliza muuzaji",
+                     "chat.searchNeedsMoreDetail": "Andika angalau herufi mbili.",
+                     "chat.searchingProducts": "Tunatafuta bidhaa za Winga...",
+                     "chat.searchMatchesReady": "Bidhaa zinazolingana zimepatikana: {count}.",
+                     "chat.noSearchMatches": "Hakuna bidhaa inayolingana kwa sasa.",
+                     "chat.searchFailed": "Utafutaji wa bidhaa haupatikani kwa muda."
                  }
 }

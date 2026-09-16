@@ -6459,3 +6459,24 @@ test("conversation commerce still-looking card resolves canonical self-scoped go
   assert.match(controllerSource, /deps\.refreshCommerceGoalsState/);
   assert.doesNotMatch(uiSource, /commerce_goals/);
 });
+
+test("conversation assistant search reuses canonical product query and demand collection", () => {
+  const root = path.resolve(__dirname, "..");
+  const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
+  const dataSource = fs.readFileSync(path.join(root, "data-service.js"), "utf8");
+  const uiSource = fs.readFileSync(path.join(root, "src", "chat", "ui.js"), "utf8");
+  const controllerSource = fs.readFileSync(path.join(root, "src", "chat", "controller.js"), "utf8");
+
+  assert.match(dataSource, /async queryProductsPage\(options = \{\}\)/);
+  assert.match(dataSource, /state\.products = sortProductsNewestFirst\(mergeUniqueProducts/);
+  assert.match(uiSource, /function renderAssistantProductFinder\(\)/);
+  assert.match(uiSource, /data-assistant-search-form/);
+  assert.match(uiSource, /data-assistant-ask-seller=/);
+  assert.match(controllerSource, /deps\.dataLayer\.queryProductsPage\(\{ query, page: 1, limit: 4, force: true \}\)/);
+  assert.match(controllerSource, /product\?\.availability !== "sold_out"/);
+  assert.match(controllerSource, /source: "conversation_assistant"/);
+  assert.match(controllerSource, /setAssistantSearchQuery/);
+  assert.match(controllerSource, /if \(product\) openProductChat\(product\)/);
+  assert.match(appSource, /syncAssistantSearchProducts/);
+  assert.doesNotMatch(controllerSource, /fetch\(/);
+});

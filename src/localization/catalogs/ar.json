@@ -1279,6 +1279,19 @@
                      "chat.stopSearch": "إيقاف البحث",
                      "chat.resolvingGoal": "جار تحديث بحثك...",
                      "chat.goalResolved": "تم تحديث بحثك.",
-                     "chat.goalResolutionFailed": "تعذر تحديث بحثك."
+                     "chat.goalResolutionFailed": "تعذر تحديث بحثك.",
+                     "chat.productFinder": "العثور على منتج",
+                     "chat.wingaAssistant": "مساعد Winga",
+                     "chat.whatAreYouLookingFor": "ما الذي تبحث عنه؟",
+                     "chat.searchExample": "مثال: بدلة سوداء مقاس L",
+                     "chat.searching": "جار البحث...",
+                     "chat.search": "بحث",
+                     "chat.productResult": "نتيجة منتج",
+                     "chat.askSeller": "اسأل البائع",
+                     "chat.searchNeedsMoreDetail": "أدخل حرفين على الأقل.",
+                     "chat.searchingProducts": "جار البحث في منتجات Winga...",
+                     "chat.searchMatchesReady": "تم العثور على {count} منتجات مطابقة.",
+                     "chat.noSearchMatches": "لا توجد منتجات مطابقة حاليا.",
+                     "chat.searchFailed": "البحث عن المنتجات غير متاح مؤقتا."
                  }
 }

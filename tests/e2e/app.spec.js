@@ -1141,6 +1141,32 @@ test("mobile profile messages use a clear conversation list and detail flow", as
   await context.close();
 });
 
+test("conversation product finder searches canonical supply and opens the seller chat", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure", {
+    viewport: { width: 390, height: 844 },
+    isMobile: true,
+    hasTouch: true
+  });
+  await page.goto("/");
+
+  await page.locator("#header-user-trigger").click();
+  await page.locator("[data-header-menu-action='profile']").click();
+  await page.locator("[data-profile-action='messages']").click();
+
+  const finder = page.locator("#profile-messages-panel [data-assistant-search-form]");
+  await expect(finder).toBeVisible();
+  await finder.locator("input[name='query']").fill("Sneaker Classic");
+  await finder.locator("button[type='submit']").click();
+
+  const result = page.locator("#profile-messages-panel .conversation-assistant-product", { hasText: "Sneaker Classic" }).first();
+  await expect(result).toBeVisible();
+  await result.locator("[data-assistant-ask-seller]").click();
+  await expect(page.locator("#context-chat-modal")).toBeVisible();
+  await expect(page.locator("#context-chat-title")).toContainText("Market Seller Shop");
+
+  await context.close();
+});
+
 test("profile inbox groups repeated messages from the same seller into one thread", async ({ browser }) => {
   const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure");
   const firstThreadMessage = `Thread test first ${Date.now()}`;

@@ -1275,6 +1275,19 @@
                      "chat.stopSearch": "Arreter la recherche",
                      "chat.resolvingGoal": "Mise a jour de votre recherche...",
                      "chat.goalResolved": "Votre recherche a ete mise a jour.",
-                     "chat.goalResolutionFailed": "Votre recherche n'a pas pu etre mise a jour."
+                     "chat.goalResolutionFailed": "Votre recherche n'a pas pu etre mise a jour.",
+                     "chat.productFinder": "Trouver un produit",
+                     "chat.wingaAssistant": "Assistant Winga",
+                     "chat.whatAreYouLookingFor": "Que recherchez-vous ?",
+                     "chat.searchExample": "Exemple : costume noir taille L",
+                     "chat.searching": "Recherche...",
+                     "chat.search": "Rechercher",
+                     "chat.productResult": "Produit trouve",
+                     "chat.askSeller": "Demander au vendeur",
+                     "chat.searchNeedsMoreDetail": "Saisissez au moins deux caracteres.",
+                     "chat.searchingProducts": "Recherche de produits Winga...",
+                     "chat.searchMatchesReady": "{count} produits correspondants trouves.",
+                     "chat.noSearchMatches": "Aucun produit correspondant pour le moment.",
+                     "chat.searchFailed": "La recherche de produits est temporairement indisponible."
                  }
 }
