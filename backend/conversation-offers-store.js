@@ -36,9 +36,16 @@ function createConversationOffersStore({ query, withTransaction, toISOString }) 
         [input.buyerUsername,product.sellerUsername]);
       if(blocked.rowCount) return {created:false,code:"offer_blocked"};
       const conversationId=[input.buyerUsername,product.sellerUsername].sort().join("::");
-      const duplicate=await client.query(`SELECT offer_id FROM conversation_offer_events WHERE idempotency_key=$1`,[input.idempotencyKey]);
+      const duplicate=await client.query(`SELECT offer_id,actor_username,action,amount FROM conversation_offer_events WHERE idempotency_key=$1`,[input.idempotencyKey]);
       if(duplicate.rowCount){
         const existing=await client.query(`${selectOffer} WHERE id=$1`,[duplicate.rows[0].offer_id]);
+        const event=duplicate.rows[0];
+        const previous=normalize(existing.rows?.[0]);
+        if(event.actor_username!==input.buyerUsername || event.action!=="PROPOSE" || Number(event.amount)!==amount
+          || previous?.buyerUsername!==input.buyerUsername || previous?.productId!==input.productId
+          || previous?.sellerUsername!==product.sellerUsername || previous?.currency!==input.currency){
+          return {created:false,code:"idempotency_conflict"};
+        }
         return {created:true,duplicate:true,offer:normalize(existing.rows?.[0])};
       }
       await client.query(`INSERT INTO conversation_offers(id,conversation_id,product_id,buyer_username,seller_username,
@@ -56,14 +63,22 @@ function createConversationOffersStore({ query, withTransaction, toISOString }) 
 
   async function transitionConversationOffer(input = {}) {
     return withTransaction(async client => {
-      const duplicate=await client.query(`SELECT offer_id FROM conversation_offer_events WHERE idempotency_key=$1`,[input.idempotencyKey]);
-      if(duplicate.rowCount){
-        const existing=await client.query(`${selectOffer} WHERE id=$1`,[duplicate.rows[0].offer_id]);
-        return {updated:true,duplicate:true,offer:normalize(existing.rows?.[0])};
-      }
       const found=await client.query(`${selectOffer} WHERE id=$1 FOR UPDATE`,[input.offerId]);
       const offer=normalize(found.rows?.[0]);
       if(!offer) return {updated:false,code:"offer_not_found"};
+      if(![offer.buyerUsername,offer.sellerUsername].includes(input.actorUsername)){
+        return {updated:false,code:"forbidden_transition"};
+      }
+      const duplicate=await client.query(`SELECT offer_id,actor_username,action,amount FROM conversation_offer_events WHERE idempotency_key=$1`,[input.idempotencyKey]);
+      if(duplicate.rowCount){
+        const event=duplicate.rows[0];
+        if(event.offer_id!==offer.id || event.actor_username!==input.actorUsername || event.action!==input.action
+          || (input.action==="COUNTER" && Number(event.amount)!==normalizeAmount(input.amount))){
+          return {updated:false,code:"idempotency_conflict"};
+        }
+        return {updated:true,duplicate:true,offer};
+      }
+      if(!canAct(offer,input.actorUsername,input.action)) return {updated:false,code:"forbidden_transition"};
       if(new Date(offer.expiresAt).getTime()<=Date.now()){
         await client.query(`UPDATE conversation_offers SET status='EXPIRED',updated_at=NOW(),row_version=row_version+1 WHERE id=$1`,[offer.id]);
         return {updated:false,code:"offer_expired"};
