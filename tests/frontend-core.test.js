@@ -6368,3 +6368,21 @@ test("seller analytics dashboard uses real evidence and dedicated subpages", () 
   assert.match(goalTransitionMigration, /CREATE TABLE IF NOT EXISTS commerce_goal_transitions/);
   assert.doesNotMatch(source, /1,248|2,840,000|148 requests/);
 });
+test("conversation commerce renders canonical live order state without owning order truth", () => {
+  const root = path.resolve(__dirname, "..");
+  const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
+  const uiSource = fs.readFileSync(path.join(root, "src", "chat", "ui.js"), "utf8");
+  const controllerSource = fs.readFileSync(path.join(root, "src", "chat", "controller.js"), "utf8");
+  const serverSource = fs.readFileSync(path.join(root, "backend", "server.js"), "utf8");
+
+  assert.match(serverSource, /function buildConversationId\(senderId, receiverId\)[\s\S]*?sort\(\)\.join\("::"\)/);
+  assert.doesNotMatch(serverSource, /function buildConversationId\(senderId, receiverId, productId\)/);
+  assert.match(appSource, /function getConversationOrders\(context = null\)/);
+  assert.match(appSource, /order\?\.sellerUsername === withUser \|\| order\?\.buyerUsername === withUser/);
+  assert.match(uiSource, /renderConversationOrderCards\(activeOrders\)/);
+  assert.match(uiSource, /deps\.getOrderLifecycleMeta\?\.\(order\)/);
+  assert.match(uiSource, /deps\.getOrderActionButtons\?\.\(order\)/);
+  assert.match(uiSource, /data-chat-open-product=/);
+  assert.match(controllerSource, /await deps\.refreshOrdersState\?\.\(\)/);
+  assert.doesNotMatch(uiSource, /createOrder\(/);
+});

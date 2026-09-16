@@ -208,6 +208,15 @@
         });
       });
 
+      modal.querySelectorAll("[data-chat-open-product]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const productId = button.dataset.chatOpenProduct || "";
+          if (productId) {
+            deps.openProductDetailModal?.(productId);
+          }
+        });
+      });
+
       modal.querySelectorAll("[data-chat-prefill]").forEach((button) => {
         button.addEventListener("click", () => {
           deps.setCurrentMessageDraft(button.dataset.chatPrefill || "");
@@ -760,6 +769,7 @@
             });
             deps.renderProfile?.();
             await deps.dataLayer.updateOrderStatus(orderId, { status, reason: disputeReason || undefined });
+            await deps.refreshOrdersState?.();
             deps.setOrderActionStatus?.(orderId, {
               tone: "success",
               message: successMessage
@@ -869,7 +879,7 @@
 
       bindClickOnce("[data-refresh-messages]", "RefreshMessages", async () => {
         try {
-          await Promise.all([deps.refreshMessagesState(), deps.refreshNotificationsState()]);
+          await Promise.all([deps.refreshMessagesState(), deps.refreshNotificationsState(), deps.refreshOrdersState?.()]);
           deps.replaceMessagesPanel(scope);
           document.getElementById("profile-notifications-panel")?.replaceWith(deps.createNotificationsContainerFromState());
         } catch (error) {

@@ -9178,6 +9178,9 @@ function connectRealtimeChannel() {
       if (notification?.type === "order") {
         await refreshOrdersState();
       }
+      if (notification?.type === "order" && chatUiState.isContextOpen) {
+        replaceContextChatModal();
+      }
       if (notification) {
         showInAppNotification({
           ...notification,
@@ -9190,6 +9193,7 @@ function connectRealtimeChannel() {
       if (currentView === "profile" && profileDiv) {
         if (notification?.type === "order") {
           document.getElementById("profile-orders-panel")?.replaceWith(createOrdersContainerFromState());
+          replaceMessagesPanel(profileDiv);
         }
         document.getElementById("profile-notifications-panel")?.replaceWith(createNotificationsContainerFromState());
         bindMessageActions(profileDiv);
@@ -9241,6 +9245,16 @@ function getAllConversationOrders() {
   const purchases = Array.isArray(currentOrders?.purchases) ? currentOrders.purchases : [];
   const sales = Array.isArray(currentOrders?.sales) ? currentOrders.sales : [];
   return [...purchases, ...sales];
+}
+
+function getConversationOrders(context = null) {
+  const withUser = context?.withUser || chatUiState.activeContext?.withUser || "";
+  if (!withUser) {
+    return [];
+  }
+  return getAllConversationOrders()
+    .filter((order) => order?.sellerUsername === withUser || order?.buyerUsername === withUser)
+    .sort((first, second) => new Date(second.updatedAt || second.createdAt || 0).getTime() - new Date(first.updatedAt || first.createdAt || 0).getTime());
 }
 
 function getConversationCommerceSnapshot(context = null) {
@@ -9439,7 +9453,7 @@ function startMessagePolling() {
   }
   chatUiState.messagePollingTimer = window.setInterval(async () => {
     try {
-      await Promise.all([refreshMessagesState(), refreshNotificationsState()]);
+      await Promise.all([refreshMessagesState(), refreshNotificationsState(), refreshOrdersState()]);
       if (profileDiv && currentView === "profile") {
         document.getElementById("profile-notifications-panel")?.replaceWith(createNotificationsContainerFromState());
         replaceMessagesPanel(profileDiv);
@@ -12261,6 +12275,7 @@ const {
   getConversationSummaries,
   getConversationSummariesFiltered,
   getConversationCommerceSnapshot,
+  getConversationOrders,
   getConversationRelationshipMemory,
   getActiveConversationMessages,
   getActiveChatContext: () => chatUiState.activeContext,
@@ -12287,6 +12302,10 @@ const {
   formatNumber,
   formatProductPrice,
   getCategoryLabel,
+  getOrderActionButtons,
+  getOrderLifecycleMeta,
+  getPaymentStatusLabel,
+  getOrderProgressLabel,
   getChatComposeStatus: (scope = "profile") => {
     const currentStatus = chatUiState.composeStatus || {};
     return currentStatus[String(scope || "profile").trim().toLowerCase()] || null;
@@ -12447,6 +12466,7 @@ const {
   refreshUsersState,
   refreshMessagesState,
   refreshNotificationsState,
+  refreshOrdersState,
   handleNotificationOpen,
   maybePromptNotificationPermission,
   beginPurchaseFlow,

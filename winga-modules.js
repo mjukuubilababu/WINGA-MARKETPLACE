@@ -15838,16 +15838,63 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             const category = item.category || product?.category || "";
             const safeProductName = deps.escapeHtml(item.productName || "");
             return `
-              <article class="chat-product-chip${isSelected ? " selected" : ""}" ${selectable ? `data-chat-select-product="${item.productId}"` : ""}>
+              <button class="chat-product-chip${isSelected ? " selected" : ""}" type="button" ${selectable ? `data-chat-select-product="${item.productId}"` : `data-chat-open-product="${item.productId}"`}>
                 ${renderResponsiveImageMarkup({ src: image, alt: safeProductName, fallbackKey: "W" })}
                 <div>
                   <strong>${safeProductName}</strong>
                   <span>${category ? `${deps.getCategoryLabel(category)} | ` : ""}${deps.formatProductPrice(item.price)}</span>
                 </div>
-              </article>
+              </button>
             `;
           }).join("")}
         </div>
+      `;
+    }
+
+    function renderConversationOrderCards(orders = []) {
+      if (!orders.length) {
+        return "";
+      }
+
+
+      return `
+        <section class="conversation-commerce-cards" aria-label="${deps.escapeHtml(t("chat.commerceActivity", "Commerce activity"))}">
+          ${orders.slice(0, 3).map((order) => {
+            const product = order.productId ? deps.getProductById?.(order.productId) : null;
+            const productName = order.productName || product?.name || t("chat.orderProduct", "Product");
+            const image = deps.sanitizeImageSource(order.productImage || product?.image || "", deps.getImageFallbackDataUri("W"));
+            const status = String(order.status || "placed").toLowerCase();
+            const paymentStatus = String(order.paymentStatus || "pending").toLowerCase();
+            const lifecycle = deps.getOrderLifecycleMeta?.(order) || { label: status, tone: "" };
+            const paymentLabel = deps.getPaymentStatusLabel?.(paymentStatus) || paymentStatus;
+            const progress = deps.getOrderProgressLabel?.(order) || "";
+            const actions = deps.getOrderActionButtons?.(order) || "";
+            return `
+              <article class="conversation-commerce-card" data-conversation-order="${deps.escapeHtml(order.id || "")}">
+                <div class="conversation-commerce-card-head">
+                  <span class="conversation-system-label">${deps.escapeHtml(t("chat.wingaSystem", "Winga commerce"))}</span>
+                  <small>#${deps.escapeHtml(String(order.id || "").replace(/^order-/, "").slice(-10))}</small>
+                </div>
+                <div class="conversation-commerce-product">
+                  ${renderResponsiveImageMarkup({ src: image, alt: productName, fallbackKey: "W" })}
+                  <div>
+                    <strong>${deps.escapeHtml(productName)}</strong>
+                    <span>${deps.formatProductPrice(order.price)}</span>
+                  </div>
+                </div>
+                <div class="conversation-commerce-status" aria-label="${deps.escapeHtml(t("chat.orderCurrentState", "Current order state"))}">
+                  <span class="status-pill${lifecycle.tone ? ` ${lifecycle.tone}` : ""}">${deps.escapeHtml(lifecycle.label || status)}</span>
+                  <span class="status-pill${paymentStatus === "paid" ? " approved" : ["failed", "cancelled"].includes(paymentStatus) ? " rejected" : ""}">${deps.escapeHtml(paymentLabel)}</span>
+                </div>
+                ${progress ? `<p>${deps.escapeHtml(progress)}</p>` : ""}
+                <div class="conversation-commerce-actions">
+                  ${order.productId ? `<button class="action-btn action-btn-secondary" type="button" data-chat-open-product="${deps.escapeHtml(order.productId)}">${deps.escapeHtml(t("chat.viewProduct", "View product"))}</button>` : ""}
+                  ${actions}
+                </div>
+              </article>
+            `;
+          }).join("")}
+        </section>
       `;
     }
 
@@ -15931,6 +15978,9 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       const activeCommerce = deps.getConversationCommerceSnapshot
         ? deps.getConversationCommerceSnapshot(activeChatContext)
         : null;
+      const activeOrders = deps.getConversationOrders
+        ? deps.getConversationOrders(activeChatContext)
+        : [];
       const activeRelationshipMemory = deps.getConversationRelationshipMemory
         ? deps.getConversationRelationshipMemory(activeChatContext)
         : null;
@@ -16016,6 +16066,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
                 </div>
                 <p class="thread-safety-note">Lipa tu kwa details za seller zilizo ndani ya Winga, kisha tuma reference hapa. Ukiona tabia ya kutia shaka, report seller moja kwa moja.</p>
                 ${contactState.note ? `<p class="thread-contact-note">${deps.escapeHtml(contactState.note)}</p>` : ""}
+                ${renderConversationOrderCards(activeOrders)}
                 <div class="messages-thread-body">
                   ${renderConversationMessagesMarkup(activeMessages, { enableActions: true })}
                 </div>
@@ -16412,6 +16463,15 @@ window.WingaModules.localization = window.WingaModules.localization || {};
               : [...selectedProductIds, productId].slice(0, 10)
           );
           replaceContextChatModal();
+        });
+      });
+
+      modal.querySelectorAll("[data-chat-open-product]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const productId = button.dataset.chatOpenProduct || "";
+          if (productId) {
+            deps.openProductDetailModal?.(productId);
+          }
         });
       });
 
@@ -16967,6 +17027,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             });
             deps.renderProfile?.();
             await deps.dataLayer.updateOrderStatus(orderId, { status, reason: disputeReason || undefined });
+            await deps.refreshOrdersState?.();
             deps.setOrderActionStatus?.(orderId, {
               tone: "success",
               message: successMessage
@@ -17076,7 +17137,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 
       bindClickOnce("[data-refresh-messages]", "RefreshMessages", async () => {
         try {
-          await Promise.all([deps.refreshMessagesState(), deps.refreshNotificationsState()]);
+          await Promise.all([deps.refreshMessagesState(), deps.refreshNotificationsState(), deps.refreshOrdersState?.()]);
           deps.replaceMessagesPanel(scope);
           document.getElementById("profile-notifications-panel")?.replaceWith(deps.createNotificationsContainerFromState());
         } catch (error) {

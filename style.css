@@ -6548,6 +6548,10 @@ body.context-chat-open{
 }
 
 .chat-product-chip{
+  width:100%;
+  color:var(--text-main);
+  font:inherit;
+  text-align:left;
   display:grid;
   grid-template-columns:56px minmax(0, 1fr);
   gap:10px;
@@ -6866,6 +6870,76 @@ body.context-chat-open{
   max-height:none;
   overflow:visible;
   padding-right:0;
+}
+
+.conversation-commerce-cards{
+  display:grid;
+  gap:10px;
+  margin:0 0 12px;
+}
+
+.conversation-commerce-card{
+  display:grid;
+  gap:10px;
+  padding:12px;
+  border:1px solid #ffd8bd;
+  border-radius:14px;
+  background:#fffaf6;
+}
+
+.conversation-commerce-card-head,
+.conversation-commerce-product,
+.conversation-commerce-status,
+.conversation-commerce-actions{
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+
+.conversation-commerce-card-head{
+  justify-content:space-between;
+}
+
+.conversation-system-label{
+  color:var(--accent-deep);
+  font-size:0.76rem;
+  font-weight:800;
+  text-transform:uppercase;
+}
+
+.conversation-commerce-product img{
+  width:52px;
+  height:52px;
+  flex:0 0 52px;
+  border-radius:10px;
+  object-fit:cover;
+  background:#f3f4f6;
+}
+
+.conversation-commerce-product div{
+  min-width:0;
+}
+
+.conversation-commerce-product strong,
+.conversation-commerce-product span{
+  display:block;
+}
+
+.conversation-commerce-product span,
+.conversation-commerce-card p,
+.conversation-commerce-card-head small{
+  color:var(--text-muted);
+}
+
+.conversation-commerce-card p{
+  margin:0;
+  font-size:0.82rem;
+  line-height:1.45;
+}
+
+.conversation-commerce-status,
+.conversation-commerce-actions{
+  flex-wrap:wrap;
 }
 
 .message-bubble{
