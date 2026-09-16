@@ -29,6 +29,7 @@ const {
 const { getOrSetCache, deleteCachePrefix, closeCache } = require("./cache");
 const { createAdsApi } = require("./ads-api");
 const { createConversationOffersApi } = require("./conversation-offers-api");
+const { createConversationAvailabilityApi } = require("./conversation-availability-api");
 
 const PORT = process.env.PORT || 3000;
 const DATABASE_URL = process.env.DATABASE_URL || "";
@@ -7500,6 +7501,15 @@ const server = http.createServer(async (req, res) => {
         getPostgresStore: () => postgresStore
       });
       if (await offersApi.handle(req, res, url)) return;
+    }
+    if (url.pathname.startsWith("/api/conversations/") || url.pathname.startsWith("/api/conversation-availability/")) {
+      const availabilityApi = createConversationAvailabilityApi({
+        collectBody, sendJson,
+        findSession: (token) => findSession(store, token), readAuthToken,
+        ensureMarketplaceUser: (session, targetRes) => ensureMarketplaceUser(store, session, targetRes),
+        getPostgresStore: () => postgresStore
+      });
+      if (await availabilityApi.handle(req, res, url)) return;
     }
     if (url.pathname.startsWith("/api/ads") || url.pathname.startsWith("/api/admin/ads")) {
       const adsApi = createAdsApi({
