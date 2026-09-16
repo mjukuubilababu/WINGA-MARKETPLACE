@@ -105,6 +105,20 @@ function createConversationOffersStore({ query, withTransaction, toISOString }) 
     });
   }
 
-  return { readConversationOffers,createConversationOffer,transitionConversationOffer };
+  async function readOfferPriceContinuation(offerId, buyerUsername) {
+    const result=await query(`
+      SELECT o.id,o.product_id AS "productId",o.seller_username AS "sellerUsername",
+        o.buyer_username AS "buyerUsername",p.name,p.category,p.price
+      FROM conversation_offers o JOIN products p ON p.id=o.product_id
+      WHERE o.id=$1 AND o.buyer_username=$2 AND o.status='DECLINED'
+        AND p.status='approved' AND p.price>0
+        AND NOT EXISTS(SELECT 1 FROM user_blocks b WHERE
+          (b.blocker_username=o.buyer_username AND b.blocked_username=o.seller_username)
+          OR (b.blocker_username=o.seller_username AND b.blocked_username=o.buyer_username))
+      LIMIT 1`,[offerId,buyerUsername]);
+    return result.rows?.[0] || null;
+  }
+
+  return { readConversationOffers,createConversationOffer,transitionConversationOffer,readOfferPriceContinuation };
 }
 module.exports={createConversationOffersStore};

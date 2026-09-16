@@ -1289,6 +1289,9 @@
                      "chat.searchMatchesReady": "{count} matching products found.",
                      "chat.noSearchMatches": "No matching products found yet.",
                      "chat.searchFailed": "Product search is temporarily unavailable.",
-                     "chat.findAnotherSeller": "Find another seller"
+                     "chat.findAnotherSeller": "Find another seller",
+                     "chat.findBetterPrice": "Find better price",
+                     "chat.lowerPriceMatches": "{count} lower-priced matches in these results.",
+                     "chat.noLowerPriceMatches": "No lower-priced matches in these results. You can continue searching."
                  }
 }

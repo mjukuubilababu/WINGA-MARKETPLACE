@@ -98,6 +98,13 @@
       return Array.isArray(data) ? data : [];
     }
 
+    async function findOfferBetterPrice(offerId) {
+      requireFetcher();
+      return fetchJson(`${baseUrl}/conversation-offers/${encodeURIComponent(offerId)}/better-price`, {
+        method: "POST", headers: jsonHeaders(), body: "{}"
+      });
+    }
+
     async function createConversationAvailabilityRequest(withUser, payload, idempotencyKey) {
       requireFetcher();
       return fetchJson(`${baseUrl}/conversations/${encodeURIComponent(withUser)}/availability-requests`, {
@@ -187,6 +194,7 @@
       loadConversationOffers,
       createConversationOffer,
       transitionConversationOffer,
+      findOfferBetterPrice,
       loadConversationAvailabilityRequests,
       createConversationAvailabilityRequest,
       transitionConversationAvailabilityRequest,

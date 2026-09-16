@@ -6472,7 +6472,7 @@ test("conversation assistant search reuses canonical product query and demand co
   assert.match(uiSource, /function renderAssistantProductFinder\(\)/);
   assert.match(uiSource, /data-assistant-search-form/);
   assert.match(uiSource, /data-assistant-ask-seller=/);
-  assert.match(controllerSource, /deps\.dataLayer\.queryProductsPage\(\{ query, page: 1, limit: 4, force: true \}\)/);
+  assert.match(controllerSource, /deps\.dataLayer\.queryProductsPage\(\{ query, page: 1, limit: priceContext \? 24 : 4, force: true \}\)/);
   assert.match(controllerSource, /product\?\.availability !== "sold_out"/);
   assert.match(controllerSource, /source: "conversation_assistant"/);
   assert.match(controllerSource, /setAssistantSearchQuery/);

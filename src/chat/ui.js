@@ -165,6 +165,12 @@
                       data-offer-price="${deps.escapeHtml(offer.amount)}">${deps.escapeHtml(t("chat.payAgreedAmount", "Pay agreed amount"))}</button>
                   </div>
                 ` : ""}
+                ${status === "DECLINED" && currentUser === offer.buyerUsername && Number(product?.price) > 0 ? `
+                  <div class="conversation-commerce-actions">
+                    <button class="action-btn action-btn-secondary" type="button"
+                      data-offer-find-better-price="${deps.escapeHtml(offer.id)}">${deps.escapeHtml(t("chat.findBetterPrice", "Find better price"))}</button>
+                  </div>
+                ` : ""}
               </article>
             `;
           }).join("")}

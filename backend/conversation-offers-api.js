@@ -20,6 +20,31 @@ function createConversationOffersApi(deps={}){
     const path=url.pathname;
     if(!(path.startsWith("/api/conversations/")||path.startsWith("/api/conversation-offers/"))) return false;
     const store=getPostgresStore();
+    const continuationMatch=path.match(/^\/api\/conversation-offers\/([^/]+)\/better-price$/);
+    if(continuationMatch && req.method==="POST"){
+      const {user}=userFor(req,res); if(!user)return true;
+      if(!store?.readOfferPriceContinuation)return unavailable(res),true;
+      const offer=await store.readOfferPriceContinuation(clean(decodeURIComponent(continuationMatch[1]),100),user.username);
+      if(!offer){sendJson(res,404,{error:"Offer was not found.",code:"offer_not_found"});return true;}
+      let trackingRecorded=false;
+      try{
+        await store.appendDemandEvent({
+          demandId:`offer-price-${offer.id}`,dedupeKey:`offer-price:${offer.id}`,
+          productId:offer.productId,sellerId:offer.sellerUsername,buyerId:user.username,
+          action:"price_mismatch",demandScore:1,audienceType:"user",audienceKey:`user:${user.username}`,
+          metadata:{source:"conversation_better_price"},createdAt:new Date().toISOString()
+        });
+        await store.upsertCommerceGoal({goalId:`goal_${crypto.randomUUID()}`,userId:user.username,
+          productId:offer.productId,queryKey:clean(offer.name).toLowerCase(),category:offer.category,
+          metadata:{source:"conversation_better_price"}});
+        trackingRecorded=true;
+      }catch(error){
+        console.warn("[WINGA] Better-price tracking unavailable.",error?.message||error);
+      }
+      sendJson(res,200,{query:clean(offer.name),productId:offer.productId,price:Number(offer.price),trackingRecorded},
+        {"Cache-Control":"private, no-store"});
+      return true;
+    }
     const threadMatch=path.match(/^\/api\/conversations\/([^/]+)\/offers$/);
     if(threadMatch && req.method==="GET"){
       const {user}=userFor(req,res); if(!user)return true;

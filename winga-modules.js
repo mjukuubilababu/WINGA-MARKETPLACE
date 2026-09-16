@@ -1252,6 +1252,13 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       return Array.isArray(data) ? data : [];
     }
 
+    async function findOfferBetterPrice(offerId) {
+      requireFetcher();
+      return fetchJson(`${baseUrl}/conversation-offers/${encodeURIComponent(offerId)}/better-price`, {
+        method: "POST", headers: jsonHeaders(), body: "{}"
+      });
+    }
+
     async function createConversationAvailabilityRequest(withUser, payload, idempotencyKey) {
       requireFetcher();
       return fetchJson(`${baseUrl}/conversations/${encodeURIComponent(withUser)}/availability-requests`, {
@@ -1341,6 +1348,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       loadConversationOffers,
       createConversationOffer,
       transitionConversationOffer,
+      findOfferBetterPrice,
       loadConversationAvailabilityRequests,
       createConversationAvailabilityRequest,
       transitionConversationAvailabilityRequest,
@@ -16041,6 +16049,12 @@ window.WingaModules.localization = window.WingaModules.localization || {};
                       data-offer-price="${deps.escapeHtml(offer.amount)}">${deps.escapeHtml(t("chat.payAgreedAmount", "Pay agreed amount"))}</button>
                   </div>
                 ` : ""}
+                ${status === "DECLINED" && currentUser === offer.buyerUsername && Number(product?.price) > 0 ? `
+                  <div class="conversation-commerce-actions">
+                    <button class="action-btn action-btn-secondary" type="button"
+                      data-offer-find-better-price="${deps.escapeHtml(offer.id)}">${deps.escapeHtml(t("chat.findBetterPrice", "Find better price"))}</button>
+                  </div>
+                ` : ""}
               </article>
             `;
           }).join("")}
@@ -16738,7 +16752,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       }
     }
 
-    async function searchProductsFromConversationQuery(queryValue, rerender) {
+    async function searchProductsFromConversationQuery(queryValue, rerender, priceContext = null) {
       const query = String(queryValue || "").trim().slice(0, 120);
       if (query.length < 2) {
         deps.setAssistantSearchState?.({ query, results: [], status: "error", message: t("chat.searchNeedsMoreDetail", "Enter at least two characters.") });
@@ -16748,20 +16762,24 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       deps.setAssistantSearchState?.({ query, results: [], status: "loading", message: t("chat.searchingProducts", "Searching Winga products...") });
       rerender?.();
       try {
-        const page = await deps.dataLayer.queryProductsPage({ query, page: 1, limit: 4, force: true });
+        const page = await deps.dataLayer.queryProductsPage({ query, page: 1, limit: priceContext ? 24 : 4, force: true });
         const results = (Array.isArray(page?.items) ? page.items : [])
           .filter((product) => product?.status === "approved" && product?.availability !== "sold_out")
+          .filter((product) => !priceContext || (product.id !== priceContext.productId
+            && Number(product.price) > 0 && Number(product.price) < priceContext.price))
           .slice(0, 4);
         deps.syncAssistantSearchProducts?.();
         deps.setAssistantSearchState?.({
           query,
           results,
           status: "ready",
-          message: results.length
+          message: priceContext ? (results.length
+            ? t("chat.lowerPriceMatches", "{count} lower-priced matches in these results.", { count: results.length })
+            : t("chat.noLowerPriceMatches", "No lower-priced matches in these results. You can continue searching.")) : results.length
             ? t("chat.searchMatchesReady", "{count} matching products found.", { count: results.length })
             : t("chat.noSearchMatches", "No matching products found yet.")
         });
-        deps.recordSearchDemandSignal?.({ query, source: "conversation_assistant", results, resultCount: Number(page?.total ?? results.length) });
+        if (!priceContext) deps.recordSearchDemandSignal?.({ query, source: "conversation_assistant", results, resultCount: Number(page?.total ?? results.length) });
         rerender?.();
       } catch (error) {
         deps.setAssistantSearchState?.({ query, results: [], status: "error", message: error.message || t("chat.searchFailed", "Product search is temporarily unavailable.") });
@@ -16773,6 +16791,18 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     async function searchProductsFromConversation(form, rerender) {
       const data = new FormData(form);
       await searchProductsFromConversationQuery(data.get("query"), rerender);
+    }
+
+    async function findBetterPrice(offerId, rerender) {
+      try {
+        const context = await deps.dataLayer.findOfferBetterPrice(offerId);
+        await searchProductsFromConversationQuery(context.query, rerender, context);
+        closeContextChatModal();
+        deps.openProfileMessageFinder?.();
+      } catch (error) {
+        deps.setOfferActionStatus?.({ tone: "error", message: t("chat.searchFailed", "Product search is temporarily unavailable.") });
+        rerender?.();
+      }
     }
 
     async function transitionAvailability(requestId, action, responseProductId, rerender) {
@@ -17025,6 +17055,9 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         button.addEventListener("click", async () => {
           await counterOffer(button.dataset.offerCounter || "", replaceContextChatModal);
         });
+      });
+      modal.querySelectorAll("[data-offer-find-better-price]").forEach((button) => {
+        button.addEventListener("click", () => findBetterPrice(button.dataset.offerFindBetterPrice, replaceContextChatModal));
       });
 
       modal.querySelectorAll("[data-offer-checkout]").forEach((button) => {
@@ -17741,6 +17774,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           agreedPrice: Number(button.dataset.offerPrice || 0)
         });
       });
+      bindClickOnce("[data-offer-find-better-price]", "OfferFindBetterPrice", (button) =>
+        findBetterPrice(button.dataset.offerFindBetterPrice, () => deps.replaceMessagesPanel?.(scope)));
 
       bindSubmitOnce("[data-availability-create-form]", "AvailabilityCreate", async (event) => {
         event.preventDefault();

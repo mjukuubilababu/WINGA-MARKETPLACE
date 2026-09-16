@@ -128,7 +128,7 @@
       }
     }
 
-    async function searchProductsFromConversationQuery(queryValue, rerender) {
+    async function searchProductsFromConversationQuery(queryValue, rerender, priceContext = null) {
       const query = String(queryValue || "").trim().slice(0, 120);
       if (query.length < 2) {
         deps.setAssistantSearchState?.({ query, results: [], status: "error", message: t("chat.searchNeedsMoreDetail", "Enter at least two characters.") });
@@ -138,20 +138,24 @@
       deps.setAssistantSearchState?.({ query, results: [], status: "loading", message: t("chat.searchingProducts", "Searching Winga products...") });
       rerender?.();
       try {
-        const page = await deps.dataLayer.queryProductsPage({ query, page: 1, limit: 4, force: true });
+        const page = await deps.dataLayer.queryProductsPage({ query, page: 1, limit: priceContext ? 24 : 4, force: true });
         const results = (Array.isArray(page?.items) ? page.items : [])
           .filter((product) => product?.status === "approved" && product?.availability !== "sold_out")
+          .filter((product) => !priceContext || (product.id !== priceContext.productId
+            && Number(product.price) > 0 && Number(product.price) < priceContext.price))
           .slice(0, 4);
         deps.syncAssistantSearchProducts?.();
         deps.setAssistantSearchState?.({
           query,
           results,
           status: "ready",
-          message: results.length
+          message: priceContext ? (results.length
+            ? t("chat.lowerPriceMatches", "{count} lower-priced matches in these results.", { count: results.length })
+            : t("chat.noLowerPriceMatches", "No lower-priced matches in these results. You can continue searching.")) : results.length
             ? t("chat.searchMatchesReady", "{count} matching products found.", { count: results.length })
             : t("chat.noSearchMatches", "No matching products found yet.")
         });
-        deps.recordSearchDemandSignal?.({ query, source: "conversation_assistant", results, resultCount: Number(page?.total ?? results.length) });
+        if (!priceContext) deps.recordSearchDemandSignal?.({ query, source: "conversation_assistant", results, resultCount: Number(page?.total ?? results.length) });
         rerender?.();
       } catch (error) {
         deps.setAssistantSearchState?.({ query, results: [], status: "error", message: error.message || t("chat.searchFailed", "Product search is temporarily unavailable.") });
@@ -163,6 +167,18 @@
     async function searchProductsFromConversation(form, rerender) {
       const data = new FormData(form);
       await searchProductsFromConversationQuery(data.get("query"), rerender);
+    }
+
+    async function findBetterPrice(offerId, rerender) {
+      try {
+        const context = await deps.dataLayer.findOfferBetterPrice(offerId);
+        await searchProductsFromConversationQuery(context.query, rerender, context);
+        closeContextChatModal();
+        deps.openProfileMessageFinder?.();
+      } catch (error) {
+        deps.setOfferActionStatus?.({ tone: "error", message: t("chat.searchFailed", "Product search is temporarily unavailable.") });
+        rerender?.();
+      }
     }
 
     async function transitionAvailability(requestId, action, responseProductId, rerender) {
@@ -415,6 +431,9 @@
         button.addEventListener("click", async () => {
           await counterOffer(button.dataset.offerCounter || "", replaceContextChatModal);
         });
+      });
+      modal.querySelectorAll("[data-offer-find-better-price]").forEach((button) => {
+        button.addEventListener("click", () => findBetterPrice(button.dataset.offerFindBetterPrice, replaceContextChatModal));
       });
 
       modal.querySelectorAll("[data-offer-checkout]").forEach((button) => {
@@ -1131,6 +1150,8 @@
           agreedPrice: Number(button.dataset.offerPrice || 0)
         });
       });
+      bindClickOnce("[data-offer-find-better-price]", "OfferFindBetterPrice", (button) =>
+        findBetterPrice(button.dataset.offerFindBetterPrice, () => deps.replaceMessagesPanel?.(scope)));
 
       bindSubmitOnce("[data-availability-create-form]", "AvailabilityCreate", async (event) => {
         event.preventDefault();

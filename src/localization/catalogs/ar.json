@@ -1293,6 +1293,9 @@
                      "chat.searchMatchesReady": "تم العثور على {count} منتجات مطابقة.",
                      "chat.noSearchMatches": "لا توجد منتجات مطابقة حاليا.",
                      "chat.searchFailed": "البحث عن المنتجات غير متاح مؤقتا.",
-                     "chat.findAnotherSeller": "العثور على بائع آخر"
+                     "chat.findAnotherSeller": "العثور على بائع آخر",
+                     "chat.findBetterPrice": "العثور على سعر أفضل",
+                     "chat.lowerPriceMatches": "{count} نتائج بسعر أقل ضمن هذه النتائج.",
+                     "chat.noLowerPriceMatches": "لا توجد نتائج بسعر أقل هنا. يمكنك متابعة البحث."
                  }
 }

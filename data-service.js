@@ -2202,6 +2202,9 @@ async loadAdminPayments(filters) {
         async loadConversationAvailabilityRequests(withUser) {
           return getCommunicationsApiClient().loadConversationAvailabilityRequests(withUser);
         },
+        async findOfferBetterPrice(offerId) {
+          return getCommunicationsApiClient().findOfferBetterPrice(offerId);
+        },
         async createConversationAvailabilityRequest(withUser, payload, idempotencyKey) {
           return getCommunicationsApiClient().createConversationAvailabilityRequest(withUser, payload, idempotencyKey);
         },
@@ -4173,6 +4176,11 @@ async loadAdminPayments() {
         return state.adapter.loadConversationAvailabilityRequests
           ? state.adapter.loadConversationAvailabilityRequests(withUser)
           : [];
+      },
+      async findOfferBetterPrice(offerId) {
+        assertBuyerCapableAccess();
+        if (!state.adapter.findOfferBetterPrice) throw new Error("Better-price search requires the online Winga service.");
+        return state.adapter.findOfferBetterPrice(offerId);
       },
       async createConversationAvailabilityRequest(withUser, payload, idempotencyKey) {
         assertBuyerCapableAccess();

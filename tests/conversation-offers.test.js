@@ -4,6 +4,62 @@ const fs = require("node:fs");
 const { canAct, normalizeAmount, normalizeAction, statusForAction } = require("../backend/conversation-offers-domain");
 const migration = require("../backend/migrations/conversation-offers");
 const { createConversationOffersStore } = require("../backend/conversation-offers-store");
+const { createConversationOffersApi } = require("../backend/conversation-offers-api");
+
+test("better-price continuation uses authenticated identity, deduplicated structured demand and preserves goal", async () => {
+  const events=[],goals=[];
+  let response;
+  const api=createConversationOffersApi({
+    collectBody:async()=>({buyerUsername:"forged"}),readAuthToken:()=>"token",findSession:()=>({}),
+    ensureMarketplaceUser:()=>({username:"buyer"}),sendJson:(_res,status,body)=>{response={status,body};},
+    getPostgresStore:()=>({
+      readOfferPriceContinuation:async(id,user)=>{
+        assert.equal(id,"offer-1"); assert.equal(user,"buyer");
+        return {id,productId:"p1",sellerUsername:"seller",name:"Black suit",category:"suits",price:50000};
+      },
+      appendDemandEvent:async event=>events.push(event),
+      upsertCommerceGoal:async goal=>goals.push(goal)
+    })
+  });
+  for(let n=0;n<2;n++)await api.handle({method:"POST",headers:{}},{},new URL("https://test/api/conversation-offers/offer-1/better-price"));
+  assert.equal(response.status,200);
+  assert.equal(response.body.price,50000);
+  assert.equal(response.body.trackingRecorded,true);
+  assert.equal(events[0].action,"price_mismatch");
+  assert.equal(events[0].dedupeKey,events[1].dedupeKey);
+  assert.equal(goals[0].userId,"buyer");
+  assert.equal(goals[0].productId,"p1");
+  assert.equal(goals[0].resolution,undefined);
+  assert.equal(response.body.buyerUsername,undefined);
+});
+
+test("better-price rejects missing or unauthorized offers without demand writes", async () => {
+  let response, writes=0;
+  const api=createConversationOffersApi({
+    readAuthToken:()=>"",findSession:()=>({}),ensureMarketplaceUser:()=>({username:"intruder"}),
+    sendJson:(_res,status,body)=>{response={status,body};},
+    getPostgresStore:()=>({readOfferPriceContinuation:async()=>null,appendDemandEvent:async()=>writes++})
+  });
+  await api.handle({method:"POST",headers:{}},{},new URL("https://test/api/conversation-offers/other/better-price"));
+  assert.equal(response.status,404);
+  assert.equal(writes,0);
+});
+
+test("better-price search remains usable when optional tracking fails", async () => {
+  let response;
+  const api=createConversationOffersApi({
+    readAuthToken:()=>"",findSession:()=>({}),ensureMarketplaceUser:()=>({username:"buyer"}),
+    sendJson:(_res,status,body)=>{response={status,body};},
+    getPostgresStore:()=>({
+      readOfferPriceContinuation:async()=>({id:"offer-1",name:"Suit",productId:"p1",price:50000}),
+      appendDemandEvent:async()=>{throw new Error("test tracking outage");}
+    })
+  });
+  await api.handle({method:"POST",headers:{}},{},new URL("https://test/api/conversation-offers/offer-1/better-price"));
+  assert.equal(response.status,200);
+  assert.equal(response.body.trackingRecorded,false);
+  assert.equal(response.body.query,"Suit");
+});
 
 function replayStore(record, event) {
   const writes = [];

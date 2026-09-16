@@ -1289,6 +1289,9 @@
                      "chat.searchMatchesReady": "{count} produits correspondants trouves.",
                      "chat.noSearchMatches": "Aucun produit correspondant pour le moment.",
                      "chat.searchFailed": "La recherche de produits est temporairement indisponible.",
-                     "chat.findAnotherSeller": "Trouver un autre vendeur"
+                     "chat.findAnotherSeller": "Trouver un autre vendeur",
+                     "chat.findBetterPrice": "Trouver un meilleur prix",
+                     "chat.lowerPriceMatches": "{count} articles moins chers dans ces résultats.",
+                     "chat.noLowerPriceMatches": "Aucun article moins cher dans ces résultats. Vous pouvez poursuivre la recherche."
                  }
 }
