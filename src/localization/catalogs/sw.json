@@ -1288,6 +1288,7 @@
                      "chat.searchingProducts": "Tunatafuta bidhaa za Winga...",
                      "chat.searchMatchesReady": "Bidhaa zinazolingana zimepatikana: {count}.",
                      "chat.noSearchMatches": "Hakuna bidhaa inayolingana kwa sasa.",
-                     "chat.searchFailed": "Utafutaji wa bidhaa haupatikani kwa muda."
+                     "chat.searchFailed": "Utafutaji wa bidhaa haupatikani kwa muda.",
+                     "chat.findAnotherSeller": "Tafuta muuzaji mwingine"
                  }
 }

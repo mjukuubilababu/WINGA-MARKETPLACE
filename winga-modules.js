@@ -16131,6 +16131,15 @@ window.WingaModules.localization = window.WingaModules.localization || {};
                   <div class="conversation-commerce-actions">
                     <button class="action-btn action-btn-secondary" type="button" data-availability-action="CANCEL" data-availability-id="${deps.escapeHtml(request.id)}">${deps.escapeHtml(t("chat.cancelAvailability", "Cancel request"))}</button>
                   </div>
+                ` : status === "OUT_OF_STOCK" && currentUser === request.buyerUsername ? `
+                  <div class="conversation-commerce-actions">
+                    <button class="action-btn buy-btn" type="button"
+                      data-availability-find-alternative="${deps.escapeHtml([
+                        product?.name || "",
+                        request.requestedSize || "",
+                        request.requestedColor || ""
+                      ].filter(Boolean).join(" "))}">${deps.escapeHtml(t("chat.findAnotherSeller", "Find another seller"))}</button>
+                  </div>
                 ` : ""}
               </article>
             `;
@@ -16729,9 +16738,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       }
     }
 
-    async function searchProductsFromConversation(form, rerender) {
-      const data = new FormData(form);
-      const query = String(data.get("query") || "").trim().slice(0, 120);
+    async function searchProductsFromConversationQuery(queryValue, rerender) {
+      const query = String(queryValue || "").trim().slice(0, 120);
       if (query.length < 2) {
         deps.setAssistantSearchState?.({ query, results: [], status: "error", message: t("chat.searchNeedsMoreDetail", "Enter at least two characters.") });
         rerender?.();
@@ -16760,6 +16768,11 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         deps.captureError?.("conversation_assistant_search_failed", error, { queryLength: query.length });
         rerender?.();
       }
+    }
+
+    async function searchProductsFromConversation(form, rerender) {
+      const data = new FormData(form);
+      await searchProductsFromConversationQuery(data.get("query"), rerender);
     }
 
     async function transitionAvailability(requestId, action, responseProductId, rerender) {
@@ -17045,6 +17058,16 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       modal.querySelectorAll("[data-commerce-goal-resolve]").forEach((button) => {
         button.addEventListener("click", async () => {
           await resolveConversationCommerceGoal(button.dataset.commerceGoalId || "", button.dataset.commerceGoalResolve || "", replaceContextChatModal);
+        });
+      });
+      modal.querySelectorAll("[data-availability-find-alternative]").forEach((button) => {
+        button.addEventListener("click", async () => {
+          await searchProductsFromConversationQuery(
+            button.dataset.availabilityFindAlternative || "",
+            replaceContextChatModal
+          );
+          closeContextChatModal();
+          deps.openProfileMessageFinder?.();
         });
       });
 
@@ -17744,6 +17767,14 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       bindClickOnce("[data-assistant-ask-seller]", "AssistantAskSeller", (button) => {
         const product = deps.getAssistantSearchProduct?.(button.dataset.assistantAskSeller || "");
         if (product) openProductChat(product);
+      });
+      bindClickOnce("[data-availability-find-alternative]", "AvailabilityFindAlternative", async (button) => {
+        await searchProductsFromConversationQuery(
+          button.dataset.availabilityFindAlternative || "",
+          () => deps.replaceMessagesPanel?.(scope)
+        );
+        closeContextChatModal();
+        deps.openProfileMessageFinder?.();
       });
 
       bindClickOnce("[data-product-soldout]", "ProductSoldOut", async (button) => {

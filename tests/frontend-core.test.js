@@ -6477,6 +6477,9 @@ test("conversation assistant search reuses canonical product query and demand co
   assert.match(controllerSource, /source: "conversation_assistant"/);
   assert.match(controllerSource, /setAssistantSearchQuery/);
   assert.match(controllerSource, /if \(product\) openProductChat\(product\)/);
+  assert.match(uiSource, /data-availability-find-alternative=/);
+  assert.match(controllerSource, /searchProductsFromConversationQuery/);
+  assert.match(appSource, /openProfileMessageFinder/);
   assert.match(appSource, /syncAssistantSearchProducts/);
   assert.doesNotMatch(controllerSource, /fetch\(/);
 });

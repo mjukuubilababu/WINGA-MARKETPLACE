@@ -255,6 +255,15 @@
                   <div class="conversation-commerce-actions">
                     <button class="action-btn action-btn-secondary" type="button" data-availability-action="CANCEL" data-availability-id="${deps.escapeHtml(request.id)}">${deps.escapeHtml(t("chat.cancelAvailability", "Cancel request"))}</button>
                   </div>
+                ` : status === "OUT_OF_STOCK" && currentUser === request.buyerUsername ? `
+                  <div class="conversation-commerce-actions">
+                    <button class="action-btn buy-btn" type="button"
+                      data-availability-find-alternative="${deps.escapeHtml([
+                        product?.name || "",
+                        request.requestedSize || "",
+                        request.requestedColor || ""
+                      ].filter(Boolean).join(" "))}">${deps.escapeHtml(t("chat.findAnotherSeller", "Find another seller"))}</button>
+                  </div>
                 ` : ""}
               </article>
             `;

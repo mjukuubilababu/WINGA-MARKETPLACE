@@ -1288,6 +1288,7 @@
                      "chat.searchingProducts": "Recherche de produits Winga...",
                      "chat.searchMatchesReady": "{count} produits correspondants trouves.",
                      "chat.noSearchMatches": "Aucun produit correspondant pour le moment.",
-                     "chat.searchFailed": "La recherche de produits est temporairement indisponible."
+                     "chat.searchFailed": "La recherche de produits est temporairement indisponible.",
+                     "chat.findAnotherSeller": "Trouver un autre vendeur"
                  }
 }

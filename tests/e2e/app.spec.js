@@ -1155,6 +1155,7 @@ test("conversation product finder searches canonical supply and opens the seller
 
   const finder = page.locator("#profile-messages-panel [data-assistant-search-form]");
   await expect(finder).toBeVisible();
+  await expect(finder).toHaveAttribute("data-winga-bound-assistant-search", "true");
   await finder.locator("input[name='query']").fill("Sneaker Classic");
   await finder.locator("button[type='submit']").click();
 

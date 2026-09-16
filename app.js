@@ -12631,6 +12631,9 @@ const {
   handleNotificationOpen,
   maybePromptNotificationPermission,
   beginPurchaseFlow,
+  openProfileMessageFinder: () => {
+    openProfileSection("profile-messages-panel");
+  },
   getCurrentUser: () => currentUser
 });
 

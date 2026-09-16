@@ -1292,6 +1292,7 @@
                      "chat.searchingProducts": "جار البحث في منتجات Winga...",
                      "chat.searchMatchesReady": "تم العثور على {count} منتجات مطابقة.",
                      "chat.noSearchMatches": "لا توجد منتجات مطابقة حاليا.",
-                     "chat.searchFailed": "البحث عن المنتجات غير متاح مؤقتا."
+                     "chat.searchFailed": "البحث عن المنتجات غير متاح مؤقتا.",
+                     "chat.findAnotherSeller": "العثور على بائع آخر"
                  }
 }
