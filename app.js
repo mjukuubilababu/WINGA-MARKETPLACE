@@ -9181,6 +9181,9 @@ function connectRealtimeChannel() {
       if (notification?.type === "offer") {
         await refreshConversationOffersState();
       }
+      if (notification?.type === "request") {
+        await refreshConversationAvailabilityState();
+      }
       if (notification?.type === "order" && chatUiState.isContextOpen) {
         replaceContextChatModal();
       }
@@ -9266,6 +9269,16 @@ function getConversationOffers(context = null) {
     return [];
   }
   return Array.isArray(chatUiState.conversationOffers) ? chatUiState.conversationOffers : [];
+}
+
+function getConversationAvailabilityRequests(context = null) {
+  const withUser = context?.withUser || chatUiState.activeContext?.withUser || "";
+  if (!withUser || chatUiState.availabilityWithUser !== withUser) {
+    return [];
+  }
+  return Array.isArray(chatUiState.conversationAvailabilityRequests)
+    ? chatUiState.conversationAvailabilityRequests
+    : [];
 }
 
 function getConversationCommerceSnapshot(context = null) {
@@ -9470,6 +9483,26 @@ async function refreshConversationOffersState() {
   }
 }
 
+async function refreshConversationAvailabilityState() {
+  const withUser = chatUiState.activeContext?.withUser || "";
+  if (!currentUser || !withUser) {
+    chatUiState.conversationAvailabilityRequests = [];
+    chatUiState.availabilityWithUser = "";
+    return [];
+  }
+  try {
+    const requests = await window.WingaDataLayer.loadConversationAvailabilityRequests(withUser);
+    if (chatUiState.activeContext?.withUser === withUser) {
+      chatUiState.conversationAvailabilityRequests = Array.isArray(requests) ? requests : [];
+      chatUiState.availabilityWithUser = withUser;
+    }
+    return chatUiState.conversationAvailabilityRequests;
+  } catch (error) {
+    captureClientError("conversation_availability_refresh_failed", error, { user: currentUser, withUser });
+    return getConversationAvailabilityRequests({ withUser });
+  }
+}
+
 function stopMessagePolling() {
   if (chatUiState.messagePollingTimer) {
     clearInterval(chatUiState.messagePollingTimer);
@@ -9484,7 +9517,13 @@ function startMessagePolling() {
   }
   chatUiState.messagePollingTimer = window.setInterval(async () => {
     try {
-      await Promise.all([refreshMessagesState(), refreshNotificationsState(), refreshOrdersState(), refreshConversationOffersState()]);
+      await Promise.all([
+        refreshMessagesState(),
+        refreshNotificationsState(),
+        refreshOrdersState(),
+        refreshConversationOffersState(),
+        refreshConversationAvailabilityState()
+      ]);
       if (profileDiv && currentView === "profile") {
         document.getElementById("profile-notifications-panel")?.replaceWith(createNotificationsContainerFromState());
         replaceMessagesPanel(profileDiv);
@@ -12352,6 +12391,8 @@ const {
   getReplyPreviewMessage,
   getCurrentUser: () => currentUser,
   getOfferActionStatus: () => chatUiState.offerActionStatus,
+  getConversationAvailabilityRequests,
+  getAvailabilityActionStatus: () => chatUiState.availabilityActionStatus,
   getUserDisplayName,
   translate: translateUi
 });
@@ -12379,6 +12420,9 @@ const {
       chatUiState.conversationOffers = [];
       chatUiState.offersWithUser = "";
       chatUiState.offerActionStatus = null;
+      chatUiState.conversationAvailabilityRequests = [];
+      chatUiState.availabilityWithUser = "";
+      chatUiState.availabilityActionStatus = null;
     }
     chatUiState.activeContext = context;
   },
@@ -12461,6 +12505,14 @@ const {
       message: String(status.message || "").trim()
     } : null;
   },
+  setAvailabilityActionStatus: (status = null) => {
+    chatUiState.availabilityActionStatus = status?.message ? {
+      tone: ["info", "warning", "success", "error"].includes(String(status.tone || "").trim())
+        ? String(status.tone || "").trim()
+        : "info",
+      message: String(status.message || "").trim()
+    } : null;
+  },
   getCurrentMessageDraft: () => chatUiState.currentDraft,
   loadStoredChatDraft,
   saveStoredChatDraft,
@@ -12520,6 +12572,7 @@ const {
   refreshNotificationsState,
   refreshOrdersState,
   refreshConversationOffersState,
+  refreshConversationAvailabilityState,
   handleNotificationOpen,
   maybePromptNotificationPermission,
   beginPurchaseFlow,

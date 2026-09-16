@@ -55,7 +55,7 @@ function createConversationOffersApi(deps={}){
       sendJson(res,result.updated?200:(["offer_not_found"].includes(result.code)?404:409),result.updated?result.offer:{error:errorMessage(result.code),code:result.code});
       return true;
     }
-    sendJson(res,404,{error:"Offers endpoint was not found.",code:"offers_endpoint_not_found"}); return true;
+    return false;
   }
   return {handle};
 }

@@ -31,7 +31,7 @@ function createConversationOffersStore({ query, withTransaction, toISOString }) 
       if(input.expectedSellerUsername && product.sellerUsername!==input.expectedSellerUsername) return {created:false,code:"seller_mismatch"};
       if(product.status!=="approved" || product.availability!=="available") return {created:false,code:"product_unavailable"};
       if(product.sellerStatus!=="active") return {created:false,code:"seller_unavailable"};
-      const blocked=await client.query(`SELECT 1 FROM user_blocks WHERE status='active' AND
+      const blocked=await client.query(`SELECT 1 FROM user_blocks WHERE
         ((blocker_username=$1 AND blocked_username=$2) OR (blocker_username=$2 AND blocked_username=$1)) LIMIT 1`,
         [input.buyerUsername,product.sellerUsername]);
       if(blocked.rowCount) return {created:false,code:"offer_blocked"};
@@ -68,7 +68,7 @@ function createConversationOffersStore({ query, withTransaction, toISOString }) 
         await client.query(`UPDATE conversation_offers SET status='EXPIRED',updated_at=NOW(),row_version=row_version+1 WHERE id=$1`,[offer.id]);
         return {updated:false,code:"offer_expired"};
       }
-      const blocked=await client.query(`SELECT 1 FROM user_blocks WHERE status='active' AND
+      const blocked=await client.query(`SELECT 1 FROM user_blocks WHERE
         ((blocker_username=$1 AND blocked_username=$2) OR (blocker_username=$2 AND blocked_username=$1)) LIMIT 1`,
         [offer.buyerUsername,offer.sellerUsername]);
       if(blocked.rowCount) return {updated:false,code:"offer_blocked"};

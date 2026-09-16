@@ -1244,6 +1244,38 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       });
     }
 
+    async function loadConversationAvailabilityRequests(withUser) {
+      requireFetcher();
+      const data = await fetchJson(`${baseUrl}/conversations/${encodeURIComponent(withUser)}/availability-requests`, {
+        headers: authHeaders()
+      });
+      return Array.isArray(data) ? data : [];
+    }
+
+    async function createConversationAvailabilityRequest(withUser, payload, idempotencyKey) {
+      requireFetcher();
+      return fetchJson(`${baseUrl}/conversations/${encodeURIComponent(withUser)}/availability-requests`, {
+        method: "POST",
+        headers: {
+          ...jsonHeaders(),
+          "Idempotency-Key": idempotencyKey
+        },
+        body: JSON.stringify(payload)
+      });
+    }
+
+    async function transitionConversationAvailabilityRequest(requestId, payload, idempotencyKey) {
+      requireFetcher();
+      return fetchJson(`${baseUrl}/conversation-availability/${encodeURIComponent(requestId)}`, {
+        method: "PATCH",
+        headers: {
+          ...jsonHeaders(),
+          "Idempotency-Key": idempotencyKey
+        },
+        body: JSON.stringify(payload)
+      });
+    }
+
     async function loadNotifications() {
       requireFetcher();
       const data = await fetchJson(`${baseUrl}/notifications`, {
@@ -1309,6 +1341,9 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       loadConversationOffers,
       createConversationOffer,
       transitionConversationOffer,
+      loadConversationAvailabilityRequests,
+      createConversationAvailabilityRequest,
+      transitionConversationAvailabilityRequest,
       loadNotifications,
       markNotificationRead,
       openRealtimeChannel
@@ -2728,6 +2763,9 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       offersWithUser: "",
       offerDraftProductId: "",
       offerActionStatus: null,
+      conversationAvailabilityRequests: [],
+      availabilityWithUser: "",
+      availabilityActionStatus: null,
       selectedProductIds: [],
       activeReplyMessageId: "",
       openMessageMenuId: "",
@@ -16015,6 +16053,96 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       `;
     }
 
+    function renderConversationAvailabilityCards(requests = [], context = null) {
+      const currentUser = deps.getCurrentUser();
+      const currentProduct = context?.productId ? deps.getProductById?.(context.productId) : null;
+      const hasPendingRequest = requests.some((request) =>
+        request.productId === context?.productId && String(request.status || "").toUpperCase() === "REQUESTED"
+      );
+      const canCreate = Boolean(
+        currentProduct
+        && context?.withUser
+        && currentProduct.uploadedBy === context.withUser
+        && currentUser !== context.withUser
+        && currentProduct.availability !== "sold_out"
+        && !hasPendingRequest
+      );
+      const sellerProducts = deps.getSellerProductsForActiveChat?.(12) || [];
+      const actionStatus = deps.getAvailabilityActionStatus?.();
+      if (!requests.length && !canCreate) return "";
+
+      return `
+        <section class="conversation-availability" aria-label="${deps.escapeHtml(t("chat.availabilityRequests", "Availability requests"))}">
+          ${requests.slice(0, 4).map((request) => {
+            const product = deps.getProductById?.(request.productId);
+            const alternative = request.responseProductId ? deps.getProductById?.(request.responseProductId) : null;
+            const status = String(request.status || "").toUpperCase();
+            const isPending = status === "REQUESTED";
+            const isSeller = currentUser === request.sellerUsername;
+            const details = [
+              request.requestedSize ? `${t("chat.sizeLabel", "Size")}: ${request.requestedSize}` : "",
+              request.requestedColor ? `${t("chat.colorLabel", "Color")}: ${request.requestedColor}` : "",
+              `${t("chat.quantityLabel", "Quantity")}: ${request.requestedQuantity || 1}`
+            ].filter(Boolean).join(" | ");
+            const alternatives = sellerProducts.filter((item) =>
+              item.id !== request.productId && item.availability === "available"
+            );
+            return `
+              <article class="conversation-offer-card conversation-availability-card" data-conversation-availability="${deps.escapeHtml(request.id || "")}">
+                <div class="conversation-commerce-card-head">
+                  <span class="conversation-system-label">${deps.escapeHtml(t("chat.structuredAvailability", "Availability check"))}</span>
+                  <span class="status-pill${status === "AVAILABLE" ? " approved" : status === "OUT_OF_STOCK" ? " rejected" : " pending"}">${deps.escapeHtml(status.toLowerCase().replace(/_/g, " "))}</span>
+                </div>
+                <div class="conversation-offer-summary">
+                  <strong>${deps.escapeHtml(product?.name || t("chat.availabilityProduct", "Product availability"))}</strong>
+                  <span>${deps.escapeHtml(details)}</span>
+                </div>
+                ${alternative ? `
+                  <button class="conversation-commerce-product" type="button" data-chat-open-product="${deps.escapeHtml(alternative.id)}">
+                    ${renderResponsiveImageMarkup({ src: alternative.image, alt: alternative.name, fallbackKey: "W" })}
+                    <span><strong>${deps.escapeHtml(alternative.name)}</strong><small>${deps.escapeHtml(t("chat.suggestedAlternative", "Suggested alternative"))}</small></span>
+                  </button>
+                ` : ""}
+                ${isPending && isSeller ? `
+                  <div class="conversation-commerce-actions">
+                    <button class="action-btn buy-btn" type="button" data-availability-action="AVAILABLE" data-availability-id="${deps.escapeHtml(request.id)}">${deps.escapeHtml(t("chat.availableAction", "Available"))}</button>
+                    <button class="action-btn action-btn-secondary" type="button" data-availability-action="OUT_OF_STOCK" data-availability-id="${deps.escapeHtml(request.id)}">${deps.escapeHtml(t("chat.outOfStockAction", "Out of stock"))}</button>
+                  </div>
+                  ${alternatives.length ? `
+                    <form class="conversation-availability-alternative" data-availability-alternative-form="true">
+                      <input type="hidden" name="requestId" value="${deps.escapeHtml(request.id)}" />
+                      <label>
+                        <span>${deps.escapeHtml(t("chat.alternativeProduct", "Alternative product"))}</span>
+                        <select name="responseProductId" required>
+                          <option value="">${deps.escapeHtml(t("chat.chooseAlternative", "Choose product"))}</option>
+                          ${alternatives.map((item) => `<option value="${deps.escapeHtml(item.id)}">${deps.escapeHtml(item.name)}</option>`).join("")}
+                        </select>
+                      </label>
+                      <button class="action-btn action-btn-secondary" type="submit">${deps.escapeHtml(t("chat.suggestAlternative", "Suggest alternative"))}</button>
+                    </form>
+                  ` : ""}
+                ` : isPending && currentUser === request.buyerUsername ? `
+                  <div class="conversation-commerce-actions">
+                    <button class="action-btn action-btn-secondary" type="button" data-availability-action="CANCEL" data-availability-id="${deps.escapeHtml(request.id)}">${deps.escapeHtml(t("chat.cancelAvailability", "Cancel request"))}</button>
+                  </div>
+                ` : ""}
+              </article>
+            `;
+          }).join("")}
+          ${canCreate ? `
+            <form class="conversation-availability-form" data-availability-create-form="true">
+              <input type="hidden" name="productId" value="${deps.escapeHtml(currentProduct.id)}" />
+              <label><span>${deps.escapeHtml(t("chat.sizeOptional", "Size (optional)"))}</span><input name="size" maxlength="40" autocomplete="off" /></label>
+              <label><span>${deps.escapeHtml(t("chat.colorOptional", "Color (optional)"))}</span><input name="color" maxlength="40" autocomplete="off" /></label>
+              <label><span>${deps.escapeHtml(t("chat.quantityLabel", "Quantity"))}</span><input name="quantity" type="number" inputmode="numeric" min="1" max="99" value="1" required /></label>
+              <button class="action-btn action-btn-secondary" type="submit">${deps.escapeHtml(t("chat.askAvailability", "Ask availability"))}</button>
+            </form>
+          ` : ""}
+          ${actionStatus?.message ? `<p class="chat-compose-status is-${deps.escapeHtml(actionStatus.tone || "info")}">${deps.escapeHtml(actionStatus.message)}</p>` : ""}
+        </section>
+      `;
+    }
+
     function renderConversationMessagesMarkup(activeMessages, options = {}) {
       const { enableActions = false } = options;
       if (!activeMessages.length) {
@@ -16100,6 +16228,9 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         : [];
       const activeOffers = deps.getConversationOffers
         ? deps.getConversationOffers(activeChatContext)
+        : [];
+      const activeAvailabilityRequests = deps.getConversationAvailabilityRequests
+        ? deps.getConversationAvailabilityRequests(activeChatContext)
         : [];
       const activeRelationshipMemory = deps.getConversationRelationshipMemory
         ? deps.getConversationRelationshipMemory(activeChatContext)
@@ -16188,6 +16319,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
                 ${contactState.note ? `<p class="thread-contact-note">${deps.escapeHtml(contactState.note)}</p>` : ""}
                 ${renderConversationOrderCards(activeOrders)}
                 ${renderConversationOfferCards(activeOffers, activeChatContext)}
+                ${renderConversationAvailabilityCards(activeAvailabilityRequests, activeChatContext)}
                 <div class="messages-thread-body">
                   ${renderConversationMessagesMarkup(activeMessages, { enableActions: true })}
                 </div>
@@ -16263,6 +16395,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       const seller = product ? deps.getMarketplaceUser(product.uploadedBy) : null;
       const activeMessages = deps.getActiveConversationMessages();
       const activeOffers = deps.getConversationOffers?.(activeChatContext) || [];
+      const activeAvailabilityRequests = deps.getConversationAvailabilityRequests?.(activeChatContext) || [];
       const contactState = deps.getChatContactState(activeChatContext);
       const activeWhatsApp = contactState.whatsapp;
       const productName = activeChatContext?.productName || product?.name || "General inquiry";
@@ -16318,6 +16451,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           <p class="thread-safety-note context-chat-note">Tumia Winga payment details na report seller kama kuna pressure ya kulipa nje ya flow hii.</p>
           ${contactState.note ? `<p class="thread-contact-note context-chat-note">${deps.escapeHtml(contactState.note)}</p>` : ""}
           ${renderConversationOfferCards(activeOffers, activeChatContext)}
+          ${renderConversationAvailabilityCards(activeAvailabilityRequests, activeChatContext)}
           ${selectedProducts.length ? `
             <div class="context-chat-selection-bar">
               <strong>${selectedProducts.length} item${selectedProducts.length > 1 ? "s" : ""} selected</strong>
@@ -16458,6 +16592,57 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       }
       if (deps.getIsContextOpen?.()) {
         deps.replaceContextChatModal?.();
+      }
+    }
+
+    async function createAvailabilityFromForm(form, rerender) {
+      const context = deps.getActiveChatContext?.();
+      const data = new FormData(form);
+      const productId = String(data.get("productId") || "").trim();
+      const quantity = Number(data.get("quantity"));
+      if (!context?.withUser || !productId || !Number.isInteger(quantity) || quantity < 1 || quantity > 99) {
+        deps.setAvailabilityActionStatus?.({ tone: "error", message: t("chat.invalidAvailability", "Enter valid availability details.") });
+        rerender?.();
+        return;
+      }
+      try {
+        deps.setAvailabilityActionStatus?.({ tone: "info", message: t("chat.sendingAvailability", "Sending availability request...") });
+        await deps.dataLayer.createConversationAvailabilityRequest(
+          context.withUser,
+          {
+            productId,
+            size: String(data.get("size") || "").trim(),
+            color: String(data.get("color") || "").trim(),
+            quantity
+          },
+          createOfferIdempotencyKey("availability-request")
+        );
+        deps.setAvailabilityActionStatus?.({ tone: "success", message: t("chat.availabilitySent", "Availability request sent.") });
+        await Promise.all([deps.refreshConversationAvailabilityState?.(), deps.refreshNotificationsState?.()]);
+        rerender?.();
+      } catch (error) {
+        deps.setAvailabilityActionStatus?.({ tone: "error", message: error.message || t("chat.availabilityFailed", "Availability request failed.") });
+        deps.captureError?.("conversation_availability_create_failed", error, { productId, withUser: context.withUser });
+        rerender?.();
+      }
+    }
+
+    async function transitionAvailability(requestId, action, responseProductId, rerender) {
+      if (!requestId || !action) return;
+      try {
+        deps.setAvailabilityActionStatus?.({ tone: "info", message: t("chat.updatingAvailability", "Updating availability...") });
+        await deps.dataLayer.transitionConversationAvailabilityRequest(
+          requestId,
+          responseProductId ? { action, responseProductId } : { action },
+          createOfferIdempotencyKey(`availability-${action}`)
+        );
+        deps.setAvailabilityActionStatus?.({ tone: "success", message: t("chat.availabilityUpdated", "Availability updated.") });
+        await Promise.all([deps.refreshConversationAvailabilityState?.(), deps.refreshNotificationsState?.()]);
+        rerender?.();
+      } catch (error) {
+        deps.setAvailabilityActionStatus?.({ tone: "error", message: error.message || t("chat.availabilityUpdateFailed", "Availability could not be updated.") });
+        deps.captureError?.("conversation_availability_transition_failed", error, { requestId, action });
+        rerender?.();
       }
     }
 
@@ -16703,6 +16888,23 @@ window.WingaModules.localization = window.WingaModules.localization || {};
               agreedPrice: Number(button.dataset.offerPrice || 0)
             });
           }
+        });
+      });
+
+      modal.querySelector("[data-availability-create-form]")?.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        await createAvailabilityFromForm(event.currentTarget, replaceContextChatModal);
+      });
+      modal.querySelectorAll("[data-availability-action]").forEach((button) => {
+        button.addEventListener("click", async () => {
+          await transitionAvailability(button.dataset.availabilityId || "", button.dataset.availabilityAction || "", "", replaceContextChatModal);
+        });
+      });
+      modal.querySelectorAll("[data-availability-alternative-form]").forEach((form) => {
+        form.addEventListener("submit", async (event) => {
+          event.preventDefault();
+          const data = new FormData(event.currentTarget);
+          await transitionAvailability(String(data.get("requestId") || ""), "SUGGEST_ALTERNATIVE", String(data.get("responseProductId") || ""), replaceContextChatModal);
         });
       });
 
@@ -16978,7 +17180,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         }
       });
 
-      void Promise.all([deps.refreshMessagesState(), deps.refreshNotificationsState(), deps.refreshConversationOffersState?.()])
+      void Promise.all([deps.refreshMessagesState(), deps.refreshNotificationsState(), deps.refreshConversationOffersState?.(), deps.refreshConversationAvailabilityState?.()])
         .then(async () => {
           deps.maybePromptNotificationPermission?.("reply");
           await deps.markActiveConversationRead();
@@ -17377,6 +17579,19 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         });
       });
 
+      bindSubmitOnce("[data-availability-create-form]", "AvailabilityCreate", async (event) => {
+        event.preventDefault();
+        await createAvailabilityFromForm(event.currentTarget, () => deps.replaceMessagesPanel?.(scope));
+      });
+      bindClickOnce("[data-availability-action]", "AvailabilityAction", async (button) => {
+        await transitionAvailability(button.dataset.availabilityId || "", button.dataset.availabilityAction || "", "", () => deps.replaceMessagesPanel?.(scope));
+      });
+      bindSubmitOnce("[data-availability-alternative-form]", "AvailabilityAlternative", async (event) => {
+        event.preventDefault();
+        const data = new FormData(event.currentTarget);
+        await transitionAvailability(String(data.get("requestId") || ""), "SUGGEST_ALTERNATIVE", String(data.get("responseProductId") || ""), () => deps.replaceMessagesPanel?.(scope));
+      });
+
       bindClickOnce("[data-product-soldout]", "ProductSoldOut", async (button) => {
           const productId = button.dataset.productSoldout;
           if (deps.confirmAction && !deps.confirmAction(t("product.soldOutConfirm", "Una uhakika bidhaa hii imeisha na unataka kuiweka sold out?"))) {
@@ -17431,7 +17646,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           deps.setProfileHasSelection?.(true);
           deps.setCurrentMessageDraft(deps.loadStoredChatDraft?.(nextChatContext) || "");
           try {
-            await Promise.all([deps.markActiveConversationRead(), deps.refreshConversationOffersState?.()]);
+            await Promise.all([deps.markActiveConversationRead(), deps.refreshConversationOffersState?.(), deps.refreshConversationAvailabilityState?.()]);
           } catch (error) {
             // Ignore passive read sync failures on thread switch.
           }

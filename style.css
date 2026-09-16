@@ -6942,14 +6942,17 @@ body.context-chat-open{
   flex-wrap:wrap;
 }
 
-.conversation-offers{
+.conversation-offers,
+.conversation-availability{
   display:grid;
   gap:10px;
   margin:0 0 12px;
 }
 
 .conversation-offer-card,
-.conversation-offer-form{
+.conversation-offer-form,
+.conversation-availability-form,
+.conversation-availability-alternative{
   display:grid;
   gap:10px;
   padding:12px;
@@ -6983,6 +6986,37 @@ body.context-chat-open{
   font-weight:700;
 }
 
+.conversation-availability-form,
+.conversation-availability-alternative{
+  grid-template-columns:repeat(3,minmax(0,1fr)) auto;
+  align-items:end;
+}
+
+.conversation-availability-form label,
+.conversation-availability-alternative label{
+  display:grid;
+  gap:5px;
+  min-width:0;
+  font-size:0.78rem;
+  font-weight:700;
+}
+
+.conversation-availability-form input,
+.conversation-availability-alternative select{
+  width:100%;
+  min-width:0;
+}
+
+button.conversation-commerce-product{
+  width:100%;
+  padding:0;
+  border:0;
+  background:transparent;
+  color:inherit;
+  text-align:left;
+  cursor:pointer;
+}
+
 .conversation-offer-form input{
   width:100%;
   min-width:0;
@@ -6990,6 +7024,10 @@ body.context-chat-open{
 
 @media (max-width:420px){
   .conversation-offer-form{
+    grid-template-columns:1fr;
+  }
+  .conversation-availability-form,
+  .conversation-availability-alternative{
     grid-template-columns:1fr;
   }
 }

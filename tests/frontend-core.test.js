@@ -6414,3 +6414,23 @@ test("conversation commerce offers use canonical API state and participant actio
   assert.match(appSource, /acceptedOfferId: paymentIntentState\.acceptedOfferId \|\| undefined/);
   assert.doesNotMatch(controllerSource, /createOrder\(/);
 });
+
+test("conversation commerce availability uses canonical state without inventing variant stock", () => {
+  const root = path.resolve(__dirname, "..");
+  const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
+  const uiSource = fs.readFileSync(path.join(root, "src", "chat", "ui.js"), "utf8");
+  const controllerSource = fs.readFileSync(path.join(root, "src", "chat", "controller.js"), "utf8");
+  const clientSource = fs.readFileSync(path.join(root, "src", "api", "communications-client.js"), "utf8");
+
+  assert.match(appSource, /async function refreshConversationAvailabilityState\(\)/);
+  assert.match(appSource, /loadConversationAvailabilityRequests\(withUser\)/);
+  assert.match(uiSource, /function renderConversationAvailabilityCards\(requests = \[\], context = null\)/);
+  assert.match(uiSource, /data-availability-create-form/);
+  assert.match(uiSource, /data-availability-action="AVAILABLE"/);
+  assert.match(uiSource, /data-availability-action="OUT_OF_STOCK"/);
+  assert.match(uiSource, /data-availability-alternative-form/);
+  assert.match(controllerSource, /createConversationAvailabilityRequest/);
+  assert.match(controllerSource, /transitionConversationAvailabilityRequest/);
+  assert.match(clientSource, /conversation-availability/);
+  assert.doesNotMatch(uiSource, /variantStock/);
+});

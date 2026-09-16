@@ -45,7 +45,8 @@ test("conversation offers API and store enforce authentication ownership and ide
   assert.match(store,/FOR UPDATE/);
   assert.match(store,/conversation_offer_events/);
   assert.match(store,/notifications/);
-  assert.match(store,/FROM user_blocks WHERE status='active'/);
+  assert.match(store,/FROM user_blocks WHERE/);
+  assert.doesNotMatch(store,/user_blocks WHERE status=/);
   assert.match(store,/status='EXPIRED'/);
   assert.match(server,/createConversationOffersApi/);
   assert.doesNotMatch(store,/INSERT INTO orders/);

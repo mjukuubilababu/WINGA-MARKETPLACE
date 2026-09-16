@@ -80,6 +80,57 @@
       }
     }
 
+    async function createAvailabilityFromForm(form, rerender) {
+      const context = deps.getActiveChatContext?.();
+      const data = new FormData(form);
+      const productId = String(data.get("productId") || "").trim();
+      const quantity = Number(data.get("quantity"));
+      if (!context?.withUser || !productId || !Number.isInteger(quantity) || quantity < 1 || quantity > 99) {
+        deps.setAvailabilityActionStatus?.({ tone: "error", message: t("chat.invalidAvailability", "Enter valid availability details.") });
+        rerender?.();
+        return;
+      }
+      try {
+        deps.setAvailabilityActionStatus?.({ tone: "info", message: t("chat.sendingAvailability", "Sending availability request...") });
+        await deps.dataLayer.createConversationAvailabilityRequest(
+          context.withUser,
+          {
+            productId,
+            size: String(data.get("size") || "").trim(),
+            color: String(data.get("color") || "").trim(),
+            quantity
+          },
+          createOfferIdempotencyKey("availability-request")
+        );
+        deps.setAvailabilityActionStatus?.({ tone: "success", message: t("chat.availabilitySent", "Availability request sent.") });
+        await Promise.all([deps.refreshConversationAvailabilityState?.(), deps.refreshNotificationsState?.()]);
+        rerender?.();
+      } catch (error) {
+        deps.setAvailabilityActionStatus?.({ tone: "error", message: error.message || t("chat.availabilityFailed", "Availability request failed.") });
+        deps.captureError?.("conversation_availability_create_failed", error, { productId, withUser: context.withUser });
+        rerender?.();
+      }
+    }
+
+    async function transitionAvailability(requestId, action, responseProductId, rerender) {
+      if (!requestId || !action) return;
+      try {
+        deps.setAvailabilityActionStatus?.({ tone: "info", message: t("chat.updatingAvailability", "Updating availability...") });
+        await deps.dataLayer.transitionConversationAvailabilityRequest(
+          requestId,
+          responseProductId ? { action, responseProductId } : { action },
+          createOfferIdempotencyKey(`availability-${action}`)
+        );
+        deps.setAvailabilityActionStatus?.({ tone: "success", message: t("chat.availabilityUpdated", "Availability updated.") });
+        await Promise.all([deps.refreshConversationAvailabilityState?.(), deps.refreshNotificationsState?.()]);
+        rerender?.();
+      } catch (error) {
+        deps.setAvailabilityActionStatus?.({ tone: "error", message: error.message || t("chat.availabilityUpdateFailed", "Availability could not be updated.") });
+        deps.captureError?.("conversation_availability_transition_failed", error, { requestId, action });
+        rerender?.();
+      }
+    }
+
     async function createOfferFromForm(form, rerender) {
       const context = deps.getActiveChatContext?.();
       const data = new FormData(form);
@@ -322,6 +373,23 @@
               agreedPrice: Number(button.dataset.offerPrice || 0)
             });
           }
+        });
+      });
+
+      modal.querySelector("[data-availability-create-form]")?.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        await createAvailabilityFromForm(event.currentTarget, replaceContextChatModal);
+      });
+      modal.querySelectorAll("[data-availability-action]").forEach((button) => {
+        button.addEventListener("click", async () => {
+          await transitionAvailability(button.dataset.availabilityId || "", button.dataset.availabilityAction || "", "", replaceContextChatModal);
+        });
+      });
+      modal.querySelectorAll("[data-availability-alternative-form]").forEach((form) => {
+        form.addEventListener("submit", async (event) => {
+          event.preventDefault();
+          const data = new FormData(event.currentTarget);
+          await transitionAvailability(String(data.get("requestId") || ""), "SUGGEST_ALTERNATIVE", String(data.get("responseProductId") || ""), replaceContextChatModal);
         });
       });
 
@@ -597,7 +665,7 @@
         }
       });
 
-      void Promise.all([deps.refreshMessagesState(), deps.refreshNotificationsState(), deps.refreshConversationOffersState?.()])
+      void Promise.all([deps.refreshMessagesState(), deps.refreshNotificationsState(), deps.refreshConversationOffersState?.(), deps.refreshConversationAvailabilityState?.()])
         .then(async () => {
           deps.maybePromptNotificationPermission?.("reply");
           await deps.markActiveConversationRead();
@@ -996,6 +1064,19 @@
         });
       });
 
+      bindSubmitOnce("[data-availability-create-form]", "AvailabilityCreate", async (event) => {
+        event.preventDefault();
+        await createAvailabilityFromForm(event.currentTarget, () => deps.replaceMessagesPanel?.(scope));
+      });
+      bindClickOnce("[data-availability-action]", "AvailabilityAction", async (button) => {
+        await transitionAvailability(button.dataset.availabilityId || "", button.dataset.availabilityAction || "", "", () => deps.replaceMessagesPanel?.(scope));
+      });
+      bindSubmitOnce("[data-availability-alternative-form]", "AvailabilityAlternative", async (event) => {
+        event.preventDefault();
+        const data = new FormData(event.currentTarget);
+        await transitionAvailability(String(data.get("requestId") || ""), "SUGGEST_ALTERNATIVE", String(data.get("responseProductId") || ""), () => deps.replaceMessagesPanel?.(scope));
+      });
+
       bindClickOnce("[data-product-soldout]", "ProductSoldOut", async (button) => {
           const productId = button.dataset.productSoldout;
           if (deps.confirmAction && !deps.confirmAction(t("product.soldOutConfirm", "Una uhakika bidhaa hii imeisha na unataka kuiweka sold out?"))) {
@@ -1050,7 +1131,7 @@
           deps.setProfileHasSelection?.(true);
           deps.setCurrentMessageDraft(deps.loadStoredChatDraft?.(nextChatContext) || "");
           try {
-            await Promise.all([deps.markActiveConversationRead(), deps.refreshConversationOffersState?.()]);
+            await Promise.all([deps.markActiveConversationRead(), deps.refreshConversationOffersState?.(), deps.refreshConversationAvailabilityState?.()]);
           } catch (error) {
             // Ignore passive read sync failures on thread switch.
           }

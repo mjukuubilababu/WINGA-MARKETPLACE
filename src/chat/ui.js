@@ -183,6 +183,96 @@
       `;
     }
 
+    function renderConversationAvailabilityCards(requests = [], context = null) {
+      const currentUser = deps.getCurrentUser();
+      const currentProduct = context?.productId ? deps.getProductById?.(context.productId) : null;
+      const hasPendingRequest = requests.some((request) =>
+        request.productId === context?.productId && String(request.status || "").toUpperCase() === "REQUESTED"
+      );
+      const canCreate = Boolean(
+        currentProduct
+        && context?.withUser
+        && currentProduct.uploadedBy === context.withUser
+        && currentUser !== context.withUser
+        && currentProduct.availability !== "sold_out"
+        && !hasPendingRequest
+      );
+      const sellerProducts = deps.getSellerProductsForActiveChat?.(12) || [];
+      const actionStatus = deps.getAvailabilityActionStatus?.();
+      if (!requests.length && !canCreate) return "";
+
+      return `
+        <section class="conversation-availability" aria-label="${deps.escapeHtml(t("chat.availabilityRequests", "Availability requests"))}">
+          ${requests.slice(0, 4).map((request) => {
+            const product = deps.getProductById?.(request.productId);
+            const alternative = request.responseProductId ? deps.getProductById?.(request.responseProductId) : null;
+            const status = String(request.status || "").toUpperCase();
+            const isPending = status === "REQUESTED";
+            const isSeller = currentUser === request.sellerUsername;
+            const details = [
+              request.requestedSize ? `${t("chat.sizeLabel", "Size")}: ${request.requestedSize}` : "",
+              request.requestedColor ? `${t("chat.colorLabel", "Color")}: ${request.requestedColor}` : "",
+              `${t("chat.quantityLabel", "Quantity")}: ${request.requestedQuantity || 1}`
+            ].filter(Boolean).join(" | ");
+            const alternatives = sellerProducts.filter((item) =>
+              item.id !== request.productId && item.availability === "available"
+            );
+            return `
+              <article class="conversation-offer-card conversation-availability-card" data-conversation-availability="${deps.escapeHtml(request.id || "")}">
+                <div class="conversation-commerce-card-head">
+                  <span class="conversation-system-label">${deps.escapeHtml(t("chat.structuredAvailability", "Availability check"))}</span>
+                  <span class="status-pill${status === "AVAILABLE" ? " approved" : status === "OUT_OF_STOCK" ? " rejected" : " pending"}">${deps.escapeHtml(status.toLowerCase().replace(/_/g, " "))}</span>
+                </div>
+                <div class="conversation-offer-summary">
+                  <strong>${deps.escapeHtml(product?.name || t("chat.availabilityProduct", "Product availability"))}</strong>
+                  <span>${deps.escapeHtml(details)}</span>
+                </div>
+                ${alternative ? `
+                  <button class="conversation-commerce-product" type="button" data-chat-open-product="${deps.escapeHtml(alternative.id)}">
+                    ${renderResponsiveImageMarkup({ src: alternative.image, alt: alternative.name, fallbackKey: "W" })}
+                    <span><strong>${deps.escapeHtml(alternative.name)}</strong><small>${deps.escapeHtml(t("chat.suggestedAlternative", "Suggested alternative"))}</small></span>
+                  </button>
+                ` : ""}
+                ${isPending && isSeller ? `
+                  <div class="conversation-commerce-actions">
+                    <button class="action-btn buy-btn" type="button" data-availability-action="AVAILABLE" data-availability-id="${deps.escapeHtml(request.id)}">${deps.escapeHtml(t("chat.availableAction", "Available"))}</button>
+                    <button class="action-btn action-btn-secondary" type="button" data-availability-action="OUT_OF_STOCK" data-availability-id="${deps.escapeHtml(request.id)}">${deps.escapeHtml(t("chat.outOfStockAction", "Out of stock"))}</button>
+                  </div>
+                  ${alternatives.length ? `
+                    <form class="conversation-availability-alternative" data-availability-alternative-form="true">
+                      <input type="hidden" name="requestId" value="${deps.escapeHtml(request.id)}" />
+                      <label>
+                        <span>${deps.escapeHtml(t("chat.alternativeProduct", "Alternative product"))}</span>
+                        <select name="responseProductId" required>
+                          <option value="">${deps.escapeHtml(t("chat.chooseAlternative", "Choose product"))}</option>
+                          ${alternatives.map((item) => `<option value="${deps.escapeHtml(item.id)}">${deps.escapeHtml(item.name)}</option>`).join("")}
+                        </select>
+                      </label>
+                      <button class="action-btn action-btn-secondary" type="submit">${deps.escapeHtml(t("chat.suggestAlternative", "Suggest alternative"))}</button>
+                    </form>
+                  ` : ""}
+                ` : isPending && currentUser === request.buyerUsername ? `
+                  <div class="conversation-commerce-actions">
+                    <button class="action-btn action-btn-secondary" type="button" data-availability-action="CANCEL" data-availability-id="${deps.escapeHtml(request.id)}">${deps.escapeHtml(t("chat.cancelAvailability", "Cancel request"))}</button>
+                  </div>
+                ` : ""}
+              </article>
+            `;
+          }).join("")}
+          ${canCreate ? `
+            <form class="conversation-availability-form" data-availability-create-form="true">
+              <input type="hidden" name="productId" value="${deps.escapeHtml(currentProduct.id)}" />
+              <label><span>${deps.escapeHtml(t("chat.sizeOptional", "Size (optional)"))}</span><input name="size" maxlength="40" autocomplete="off" /></label>
+              <label><span>${deps.escapeHtml(t("chat.colorOptional", "Color (optional)"))}</span><input name="color" maxlength="40" autocomplete="off" /></label>
+              <label><span>${deps.escapeHtml(t("chat.quantityLabel", "Quantity"))}</span><input name="quantity" type="number" inputmode="numeric" min="1" max="99" value="1" required /></label>
+              <button class="action-btn action-btn-secondary" type="submit">${deps.escapeHtml(t("chat.askAvailability", "Ask availability"))}</button>
+            </form>
+          ` : ""}
+          ${actionStatus?.message ? `<p class="chat-compose-status is-${deps.escapeHtml(actionStatus.tone || "info")}">${deps.escapeHtml(actionStatus.message)}</p>` : ""}
+        </section>
+      `;
+    }
+
     function renderConversationMessagesMarkup(activeMessages, options = {}) {
       const { enableActions = false } = options;
       if (!activeMessages.length) {
@@ -268,6 +358,9 @@
         : [];
       const activeOffers = deps.getConversationOffers
         ? deps.getConversationOffers(activeChatContext)
+        : [];
+      const activeAvailabilityRequests = deps.getConversationAvailabilityRequests
+        ? deps.getConversationAvailabilityRequests(activeChatContext)
         : [];
       const activeRelationshipMemory = deps.getConversationRelationshipMemory
         ? deps.getConversationRelationshipMemory(activeChatContext)
@@ -356,6 +449,7 @@
                 ${contactState.note ? `<p class="thread-contact-note">${deps.escapeHtml(contactState.note)}</p>` : ""}
                 ${renderConversationOrderCards(activeOrders)}
                 ${renderConversationOfferCards(activeOffers, activeChatContext)}
+                ${renderConversationAvailabilityCards(activeAvailabilityRequests, activeChatContext)}
                 <div class="messages-thread-body">
                   ${renderConversationMessagesMarkup(activeMessages, { enableActions: true })}
                 </div>
@@ -431,6 +525,7 @@
       const seller = product ? deps.getMarketplaceUser(product.uploadedBy) : null;
       const activeMessages = deps.getActiveConversationMessages();
       const activeOffers = deps.getConversationOffers?.(activeChatContext) || [];
+      const activeAvailabilityRequests = deps.getConversationAvailabilityRequests?.(activeChatContext) || [];
       const contactState = deps.getChatContactState(activeChatContext);
       const activeWhatsApp = contactState.whatsapp;
       const productName = activeChatContext?.productName || product?.name || "General inquiry";
@@ -486,6 +581,7 @@
           <p class="thread-safety-note context-chat-note">Tumia Winga payment details na report seller kama kuna pressure ya kulipa nje ya flow hii.</p>
           ${contactState.note ? `<p class="thread-contact-note context-chat-note">${deps.escapeHtml(contactState.note)}</p>` : ""}
           ${renderConversationOfferCards(activeOffers, activeChatContext)}
+          ${renderConversationAvailabilityCards(activeAvailabilityRequests, activeChatContext)}
           ${selectedProducts.length ? `
             <div class="context-chat-selection-bar">
               <strong>${selectedProducts.length} item${selectedProducts.length > 1 ? "s" : ""} selected</strong>

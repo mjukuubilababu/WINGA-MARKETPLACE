@@ -2194,6 +2194,15 @@ async loadAdminPayments(filters) {
         async transitionConversationOffer(offerId, payload, idempotencyKey) {
           return getCommunicationsApiClient().transitionConversationOffer(offerId, payload, idempotencyKey);
         },
+        async loadConversationAvailabilityRequests(withUser) {
+          return getCommunicationsApiClient().loadConversationAvailabilityRequests(withUser);
+        },
+        async createConversationAvailabilityRequest(withUser, payload, idempotencyKey) {
+          return getCommunicationsApiClient().createConversationAvailabilityRequest(withUser, payload, idempotencyKey);
+        },
+        async transitionConversationAvailabilityRequest(requestId, payload, idempotencyKey) {
+          return getCommunicationsApiClient().transitionConversationAvailabilityRequest(requestId, payload, idempotencyKey);
+        },
         async deleteMessage(messageId) {
           return getCommunicationsApiClient().deleteMessage(messageId);
         },
@@ -4148,6 +4157,26 @@ async loadAdminPayments() {
           throw new Error("Structured offers are unavailable in this runtime.");
         }
         return state.adapter.transitionConversationOffer(offerId, payload, idempotencyKey);
+      },
+      async loadConversationAvailabilityRequests(withUser) {
+        assertBuyerCapableAccess();
+        return state.adapter.loadConversationAvailabilityRequests
+          ? state.adapter.loadConversationAvailabilityRequests(withUser)
+          : [];
+      },
+      async createConversationAvailabilityRequest(withUser, payload, idempotencyKey) {
+        assertBuyerCapableAccess();
+        if (!state.adapter.createConversationAvailabilityRequest) {
+          throw new Error("Structured availability is unavailable in this runtime.");
+        }
+        return state.adapter.createConversationAvailabilityRequest(withUser, payload, idempotencyKey);
+      },
+      async transitionConversationAvailabilityRequest(requestId, payload, idempotencyKey) {
+        assertBuyerCapableAccess();
+        if (!state.adapter.transitionConversationAvailabilityRequest) {
+          throw new Error("Structured availability is unavailable in this runtime.");
+        }
+        return state.adapter.transitionConversationAvailabilityRequest(requestId, payload, idempotencyKey);
       },
       async markConversationRead(payload) {
         assertBuyerCapableAccess();

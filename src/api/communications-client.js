@@ -90,6 +90,38 @@
       });
     }
 
+    async function loadConversationAvailabilityRequests(withUser) {
+      requireFetcher();
+      const data = await fetchJson(`${baseUrl}/conversations/${encodeURIComponent(withUser)}/availability-requests`, {
+        headers: authHeaders()
+      });
+      return Array.isArray(data) ? data : [];
+    }
+
+    async function createConversationAvailabilityRequest(withUser, payload, idempotencyKey) {
+      requireFetcher();
+      return fetchJson(`${baseUrl}/conversations/${encodeURIComponent(withUser)}/availability-requests`, {
+        method: "POST",
+        headers: {
+          ...jsonHeaders(),
+          "Idempotency-Key": idempotencyKey
+        },
+        body: JSON.stringify(payload)
+      });
+    }
+
+    async function transitionConversationAvailabilityRequest(requestId, payload, idempotencyKey) {
+      requireFetcher();
+      return fetchJson(`${baseUrl}/conversation-availability/${encodeURIComponent(requestId)}`, {
+        method: "PATCH",
+        headers: {
+          ...jsonHeaders(),
+          "Idempotency-Key": idempotencyKey
+        },
+        body: JSON.stringify(payload)
+      });
+    }
+
     async function loadNotifications() {
       requireFetcher();
       const data = await fetchJson(`${baseUrl}/notifications`, {
@@ -155,6 +187,9 @@
       loadConversationOffers,
       createConversationOffer,
       transitionConversationOffer,
+      loadConversationAvailabilityRequests,
+      createConversationAvailabilityRequest,
+      transitionConversationAvailabilityRequest,
       loadNotifications,
       markNotificationRead,
       openRealtimeChannel
