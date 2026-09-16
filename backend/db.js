@@ -3,6 +3,7 @@ const { runSchemaMigrations } = require("./migrations");
 const { persistIntelligenceEvent, pruneIntelligenceScoreState } = require("./intelligence-score-store");
 const { normalizeProductMediaItems } = require("./product-media");
 const { createAdsStore } = require("./ads-store");
+const { createConversationOffersStore } = require("./conversation-offers-store");
 const { evaluateRecommendationPolicy, executeDecision } = require("./wip-mind");
 const {
   COMMERCE_REDISCOVERY_EXPERIMENT_KEY,
@@ -9643,6 +9644,11 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     stringifyJson,
     toISOString
   });
+  const conversationOffersStore = createConversationOffersStore({
+    query,
+    withTransaction,
+    toISOString
+  });
 
   async function init(getLegacyStore) {
     await runSchemaMigrations({
@@ -9811,6 +9817,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     pruneStaleVideoWorkerHeartbeats,
     applyVideoUploadWebhook,
     ...adsStore,
+    ...conversationOffersStore,
     close
   };
 }
