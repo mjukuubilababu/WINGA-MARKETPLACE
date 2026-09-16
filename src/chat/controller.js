@@ -309,6 +309,7 @@
       if (!modal) {
         return;
       }
+      bindMessageActions(modal, { ordersOnly: true });
 
       const bindMessageLongPress = (scope, rerender) => {
         if (!scope) {
@@ -882,7 +883,7 @@
       }
     }
 
-    function bindMessageActions(scope = deps.getProfileDiv?.()) {
+    function bindMessageActions(scope = deps.getProfileDiv?.(), options = {}) {
       if (!scope) {
         return;
       }
@@ -987,6 +988,7 @@
       };
 
       bindClickOnce("[data-order-action]", "OrderAction", async (button) => {
+          if (button.disabled) return;
           const orderId = button.dataset.orderId;
           const status = button.dataset.orderAction;
           const isRejectPayment = button.dataset.orderRejectPayment === "true";
@@ -1016,6 +1018,7 @@
                     ? t("order.shippedSuccess", "Order imemarkiwa kuwa imesafirishwa.")
                     : t("order.completedSuccess", "Order imewekwa completed.");
           try {
+            button.disabled = true;
             deps.setOrderActionStatus?.(orderId, {
               tone: "info",
               message: status === "cancelled"
@@ -1058,8 +1061,12 @@
               variant: "error"
             });
             deps.renderProfile?.();
+          } finally {
+            button.disabled = false;
+            if (options.ordersOnly) replaceContextChatModal();
           }
         });
+      if (options.ordersOnly) return;
 
       bindSubmitOnce("[data-offer-create-form]", "OfferCreate", async (event) => {
         event.preventDefault();

@@ -16497,6 +16497,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 
     function renderContextChatModal() {
       const activeChatContext = deps.getActiveChatContext();
+      const activeOrders = deps.getConversationOrders?.(activeChatContext) || [];
       const currentMessageDraft = deps.getCurrentMessageDraft();
       const product = deps.getActiveChatProduct();
       const seller = product ? deps.getMarketplaceUser(product.uploadedBy) : null;
@@ -16558,6 +16559,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           </div>
           <p class="thread-safety-note context-chat-note">Tumia Winga payment details na report seller kama kuna pressure ya kulipa nje ya flow hii.</p>
           ${contactState.note ? `<p class="thread-contact-note context-chat-note">${deps.escapeHtml(contactState.note)}</p>` : ""}
+          ${renderConversationOrderCards(activeOrders)}
           ${renderConversationOfferCards(activeOffers, activeChatContext)}
           ${renderConversationAvailabilityCards(activeAvailabilityRequests, activeChatContext)}
           ${renderConversationCommerceGoal(activeCommerceGoal)}
@@ -16933,6 +16935,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       if (!modal) {
         return;
       }
+      bindMessageActions(modal, { ordersOnly: true });
 
       const bindMessageLongPress = (scope, rerender) => {
         if (!scope) {
@@ -17506,7 +17509,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       }
     }
 
-    function bindMessageActions(scope = deps.getProfileDiv?.()) {
+    function bindMessageActions(scope = deps.getProfileDiv?.(), options = {}) {
       if (!scope) {
         return;
       }
@@ -17611,6 +17614,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       };
 
       bindClickOnce("[data-order-action]", "OrderAction", async (button) => {
+          if (button.disabled) return;
           const orderId = button.dataset.orderId;
           const status = button.dataset.orderAction;
           const isRejectPayment = button.dataset.orderRejectPayment === "true";
@@ -17640,6 +17644,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
                     ? t("order.shippedSuccess", "Order imemarkiwa kuwa imesafirishwa.")
                     : t("order.completedSuccess", "Order imewekwa completed.");
           try {
+            button.disabled = true;
             deps.setOrderActionStatus?.(orderId, {
               tone: "info",
               message: status === "cancelled"
@@ -17682,8 +17687,12 @@ window.WingaModules.localization = window.WingaModules.localization || {};
               variant: "error"
             });
             deps.renderProfile?.();
+          } finally {
+            button.disabled = false;
+            if (options.ordersOnly) replaceContextChatModal();
           }
         });
+      if (options.ordersOnly) return;
 
       bindSubmitOnce("[data-offer-create-form]", "OfferCreate", async (event) => {
         event.preventDefault();

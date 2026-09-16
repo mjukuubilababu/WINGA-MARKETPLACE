@@ -613,6 +613,7 @@
 
     function renderContextChatModal() {
       const activeChatContext = deps.getActiveChatContext();
+      const activeOrders = deps.getConversationOrders?.(activeChatContext) || [];
       const currentMessageDraft = deps.getCurrentMessageDraft();
       const product = deps.getActiveChatProduct();
       const seller = product ? deps.getMarketplaceUser(product.uploadedBy) : null;
@@ -674,6 +675,7 @@
           </div>
           <p class="thread-safety-note context-chat-note">Tumia Winga payment details na report seller kama kuna pressure ya kulipa nje ya flow hii.</p>
           ${contactState.note ? `<p class="thread-contact-note context-chat-note">${deps.escapeHtml(contactState.note)}</p>` : ""}
+          ${renderConversationOrderCards(activeOrders)}
           ${renderConversationOfferCards(activeOffers, activeChatContext)}
           ${renderConversationAvailabilityCards(activeAvailabilityRequests, activeChatContext)}
           ${renderConversationCommerceGoal(activeCommerceGoal)}

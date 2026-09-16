@@ -1147,6 +1147,13 @@ test("conversation product finder searches canonical supply and opens the seller
     isMobile: true,
     hasTouch: true
   });
+  await page.route("**/api/orders/mine", route => route.fulfill({
+    json: {purchases:[{
+      id:"order-chat-live",productId:"e2e-prod-1",productName:"Sneaker Classic",price:32000,
+      buyerUsername:"buyer_seller",sellerUsername:"market_seller",status:"shipped",paymentStatus:"paid",
+      createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()
+    }],sales:[]}
+  }));
   await page.goto("/");
 
   await page.locator("#header-user-trigger").click();
@@ -1164,6 +1171,9 @@ test("conversation product finder searches canonical supply and opens the seller
   await result.locator("[data-assistant-ask-seller]").click();
   await expect(page.locator("#context-chat-modal")).toBeVisible();
   await expect(page.locator("#context-chat-title")).toContainText("Market Seller Shop");
+  const orderCard=page.locator('#context-chat-modal [data-conversation-order="order-chat-live"]');
+  await expect(orderCard).toBeVisible();
+  await expect(orderCard.locator("[data-order-action]").first()).toHaveAttribute("data-winga-bound-order-action","true");
 
   await context.close();
 });
