@@ -10,6 +10,7 @@
     const getNavigator = typeof deps.getNavigator === "function" ? deps.getNavigator : () => globalThis.navigator;
     const dispatchEvent = typeof deps.dispatchEvent === "function" ? deps.dispatchEvent : () => {};
     const activeFlushes = new Map();
+    const activeMessageSends = new Set();
 
     function getOfflineActionQueueStorageKey(session = readSession()) {
       const username = String(session?.username || "").trim();
@@ -111,6 +112,46 @@
       };
     }
 
+    async function sendPersistedMessage(payload, adapter, session = readSession()) {
+      if (!payload?.clientMessageId || typeof adapter?.sendMessage !== "function") {
+        throw new Error("Durable message retry support is required.");
+      }
+      const queued = queueOfflineMessageAction(payload, session);
+      const owner = session.username;
+      activeMessageSends.add(queued.id);
+      const updateItem = (change) => {
+        const current = readOfflineActionQueue(session);
+        saveOfflineActionQueue(current.flatMap(item => item.id === queued.id ? change(item) : [item]), session);
+      };
+      const run = async () => {
+        if (readSession()?.username !== owner || getNavigator()?.onLine === false) return queued;
+        let result;
+        try {
+          result = await adapter.sendMessage(payload);
+          if (!result?.id || result.isQueued || result.skipped) {
+            throw Object.assign(new Error("Message acceptance was not confirmed."), { retryable: true });
+          }
+        } catch (error) {
+          const retryable = isLikelyOfflineActionError(error);
+          updateItem(item => [{ ...item, attempts: Number(item.attempts || 0) + 1,
+            status: retryable ? "QUEUED" : "FAILED",
+            lastErrorCode: String(error?.code || "message_send_failed").slice(0, 80) }]);
+          if (retryable) return queued;
+          throw error;
+        }
+        // An accepted send stays successful even if local cleanup fails. Its ID
+        // remains replay-safe when the retained entry is reconciled later.
+        try { updateItem(() => []); } catch (_error) { /* Preserve accepted result. */ }
+        return result;
+      };
+      try {
+        const locks = getNavigator()?.locks;
+        return await (locks?.request ? locks.request(`winga-offline-send:${owner}`, run) : run());
+      } finally {
+        activeMessageSends.delete(queued.id);
+      }
+    }
+
     async function flushOfflineActionQueue(adapter = null) {
       const activeAdapter = adapter || getDefaultAdapter();
       if (!activeAdapter || typeof activeAdapter.sendMessage !== "function") {
@@ -134,7 +175,7 @@
         };
         for (const item of queue) {
           if (readSession()?.username !== owner) break;
-          if (!item || item.type !== "sendMessage") continue;
+          if (!item || item.type !== "sendMessage" || activeMessageSends.has(item.id)) continue;
           try {
             const payload = activeAdapter.prepareMessage ? await activeAdapter.prepareMessage(item.payload) : item.payload;
             updateItem(item.id, current => [{ ...current, payload, status: "QUEUED" }]);
@@ -172,6 +213,7 @@
       saveOfflineActionQueue,
       isLikelyOfflineActionError,
       queueOfflineMessageAction,
+      sendPersistedMessage,
       flushOfflineActionQueue
     };
   }

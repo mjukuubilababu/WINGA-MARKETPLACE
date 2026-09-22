@@ -89,6 +89,46 @@ async function createLoggedInPage(browser, username, password, options = {}) {
   return { context, page };
 }
 
+test("durable online message is saved before POST and replays the same ID after reload", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure");
+  const seen = [];
+  let releaseFirst;
+  const held = new Promise(resolve => { releaseFirst = resolve; });
+  await context.route("**/api/messages/capabilities", route => route.fulfill({
+    json: { version: 1, durableMessageRetries: true }
+  }));
+  await context.route("**/api/messages", async route => {
+    if (route.request().method() !== "POST") return route.continue();
+    const body = route.request().postDataJSON();
+    seen.push(body.clientMessageId);
+    if (seen.length === 1) {
+      await held;
+      await route.abort().catch(() => {});
+      return;
+    }
+    await route.fulfill({ json: { ...body, id: "durable-test-message", senderId: "buyer_seller" } });
+  });
+  try {
+    await page.goto("/");
+    await expect(page.locator("#products-container .product-card").first()).toBeVisible();
+    await page.evaluate(() => {
+      void window.WingaDataLayer.sendMessage({ receiverId: "seller_one", message: "Durable browser test" }).catch(() => {});
+    });
+    await expect.poll(() => seen.length).toBe(1);
+    const queuedId = await page.evaluate(() => JSON.parse(localStorage.getItem("winga-offline-action-queue:buyer_seller"))[0].payload.clientMessageId);
+    expect(queuedId).toBe(seen[0]);
+    expect(queuedId).toMatch(/^[a-z0-9-]{36}$/);
+    await page.reload();
+    releaseFirst();
+    await expect.poll(() => seen.length).toBe(2);
+    expect(seen[1]).toBe(queuedId);
+    await expect.poll(() => page.evaluate(() => localStorage.getItem("winga-offline-action-queue:buyer_seller"))).toBeNull();
+  } finally {
+    releaseFirst();
+    await context.close();
+  }
+});
+
 async function openHeaderMenuAction(page, action) {
   const trigger = page.locator("#header-user-trigger");
   const actionButton = page.locator(`[data-header-menu-action='${action}']`);

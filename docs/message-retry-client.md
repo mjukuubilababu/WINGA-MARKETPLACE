@@ -11,11 +11,22 @@ preserves arrivals while another send is pending. Queue ownership remains scoped
 to the captured account. Web Locks serialize flushes across supporting tabs.
 Canonical acceptance still comes from POST `/api/messages`; reconciliation remains.
 
+Supported online sends now enter this same queue before their first POST. The
+sender returns the canonical acknowledgement, or a queued result on retryable
+failure. Background replay skips in-flight messages within the tab; Web Locks
+serialize foreground/replay sends across supporting tabs. Account ownership is
+checked again after acquiring the lock. Storage failure prevents the POST.
+Acknowledged messages remain successful if local cleanup fails; their retained
+logical ID can be replayed idempotently. Legacy adapters keep their existing path.
+
 ## Limits
 
 - This is not an encrypted outbox: the existing localStorage queue remains.
-- An online send is queued on network failure, not persisted before its first
-  request. Closing the page before fallback persistence can still lose retry state.
+- Persistence-before-POST applies only to payloads with durable retry IDs. Legacy
+  adapters retain the prior network-failure fallback, including its crash gap.
+- The existing plaintext queue is now also used briefly for supported online
+  sends. It is not protection against same-origin script access, XSS or device
+  compromise; encrypted local storage/key lifecycle remains a separate gate.
 - Cross-tab enqueue is not a fully transactional storage operation.
 - Failed entries are retained and retried on a later flush; a dedicated manual
   failed-message management interface remains outstanding.
@@ -35,3 +46,10 @@ checks capability authentication and the legacy store response.
 The first full run had one Home bottom-navigation visibility failure (134/135);
 the unchanged test passed three isolated repetitions before the full green run.
 All eight new retry tests passed. No browser assertion was weakened or skipped.
+
+Persistence-before-send follow-up: all 14 queue tests and the browser reload test
+passed. Complete `npm run test:ci` passed with 136/136 browser tests on the second
+run (integration 200/200, frontend core 144/144). The first run had one existing
+mobile-header upward-scroll visibility failure (135/136); the unchanged test
+passed three isolated repetitions and then the full run. This records a transient
+test failure, not a navigation fix. No backend schema or receipt state changed.

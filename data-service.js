@@ -4159,7 +4159,9 @@ async loadAdminPayments() {
           if (readStoredSession()?.username !== sendingSession?.username) {
             return queueOfflineMessageAction(prepared, sendingSession);
           }
-          const result = adapter.sendMessage ? await adapter.sendMessage(prepared) : null;
+          const result = prepared?.clientMessageId
+            ? await getOfflineQueueTools().sendPersistedMessage(prepared, adapter, sendingSession)
+            : adapter.sendMessage ? await adapter.sendMessage(prepared) : null;
           if (result) {
             flushOfflineActionQueue(state.adapter).catch(() => {
               // Ignore background flush failures and keep the queue intact.

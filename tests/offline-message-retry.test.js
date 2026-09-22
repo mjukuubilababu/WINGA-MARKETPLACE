@@ -5,12 +5,11 @@ const vm = require('node:vm');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 
-function fixture() {
+function fixture(storage = new Map()) {
   const context = vm.createContext({ window: {}, crypto: { randomUUID }, URLSearchParams });
   for (const name of ['offline-queue', 'communications-client']) {
     vm.runInContext(fs.readFileSync(path.join(__dirname, '../src/api', `${name}.js`), 'utf8'), context);
   }
-  const storage = new Map();
   const events = [];
   let session = { username: 'alice' };
   let writable = true;
@@ -118,4 +117,103 @@ test('legacy capability preserves sending while server failure does not downgrad
     if (status === 404) assert.equal(await client.prepareMessage(payload), payload);
     else await assert.rejects(client.prepareMessage(payload), /Unavailable/);
   }
+});
+
+test('online send persists before POST and background flush does not resend it', async () => {
+  const f = fixture();
+  const prepared = { ...payload, clientMessageId: randomUUID() };
+  let release;
+  let calls = 0;
+  const adapter = { sendMessage: p => {
+    calls++;
+    assert.equal(f.queue.readOfflineActionQueue()[0].payload.clientMessageId, p.clientMessageId);
+    return new Promise(resolve => { release = resolve; });
+  } };
+  const sending = f.queue.sendPersistedMessage(prepared, adapter);
+  assert.equal(await f.queue.flushOfflineActionQueue(adapter), 0);
+  release({ id: 'accepted-online' });
+  assert.equal((await sending).id, 'accepted-online');
+  assert.equal(calls, 1);
+  assert.equal(f.queue.readOfflineActionQueue().length, 0);
+});
+
+test('reload after an online lost response replays the original logical ID', async () => {
+  const first = fixture();
+  const prepared = { ...payload, clientMessageId: randomUUID() };
+  const accepted = new Set();
+  const pending = first.queue.sendPersistedMessage(prepared, { sendMessage: async p => {
+    accepted.add(p.clientMessageId);
+    return new Promise(() => {}); // Simulate a closed tab before acknowledgement.
+  } });
+  assert.ok(pending);
+  const reloaded = fixture(first.storage);
+  assert.equal(await reloaded.queue.flushOfflineActionQueue({ sendMessage: async p => {
+    accepted.add(p.clientMessageId);
+    return { id: 'same-canonical-message' };
+  } }), 1);
+  assert.equal(accepted.size, 1);
+  assert.equal(reloaded.queue.readOfflineActionQueue().length, 0);
+});
+
+test('online network failure retains one queued entry, permanent failure retains FAILED', async () => {
+  for (const status of [503, 403]) {
+    const f = fixture();
+    const sending = f.queue.sendPersistedMessage({ ...payload, clientMessageId: randomUUID() }, {
+      sendMessage: async () => { throw Object.assign(new Error('Rejected'), { status }); }
+    });
+    if (status === 503) assert.equal((await sending).isQueued, true);
+    else await assert.rejects(sending, /Rejected/);
+    assert.equal(f.queue.readOfflineActionQueue().length, 1);
+    assert.equal(f.queue.readOfflineActionQueue()[0].status, status === 503 ? 'QUEUED' : 'FAILED');
+  }
+});
+
+test('online storage failure stops POST and preserves existing queue', async () => {
+  const f = fixture();
+  f.queue.queueOfflineMessageAction(payload);
+  f.denyStorage();
+  let calls = 0;
+  await assert.rejects(f.queue.sendPersistedMessage({ ...payload, clientMessageId: randomUUID() }, {
+    sendMessage: async () => { calls++; return { id: 'unexpected' }; }
+  }), /could not be saved/);
+  assert.equal(calls, 0);
+  assert.equal(f.queue.readOfflineActionQueue().length, 1);
+});
+
+test('account switch while waiting for send lock leaves original owner queue unsent', async () => {
+  const storage = new Map();
+  const context = vm.createContext({ window: {} });
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '../src/api/offline-queue.js'), 'utf8'), context);
+  let session = { username: 'alice' };
+  let resume;
+  const q = context.window.WingaModules.api.offlineQueue.createOfflineQueueTools({
+    readSession: () => session,
+    safeStorageGet: k => storage.get(k),
+    safeStorageSet: (k, v) => { storage.set(k, v); return true; },
+    getNavigator: () => ({ onLine: true, locks: { request: (key, run) => {
+      assert.equal(key, 'winga-offline-send:alice');
+      return new Promise(resolve => { resume = () => resolve(run()); });
+    } } })
+  });
+  let calls = 0;
+  const sending = q.sendPersistedMessage({ ...payload, clientMessageId: randomUUID() }, {
+    sendMessage: async () => { calls++; return { id: 'unexpected' }; }
+  });
+  session = { username: 'carol' };
+  resume();
+  assert.equal((await sending).isQueued, true);
+  assert.equal(calls, 0);
+  assert.equal(q.readOfflineActionQueue({ username: 'alice' }).length, 1);
+  assert.equal(q.readOfflineActionQueue().length, 0);
+});
+
+test('unknown online ACK is queued, and accepted ACK survives cleanup failure', async () => {
+  const f = fixture();
+  const prepared = { ...payload, clientMessageId: randomUUID() };
+  assert.equal((await f.queue.sendPersistedMessage(prepared, { sendMessage: async () => null })).isQueued, true);
+  const result = await f.queue.sendPersistedMessage({ ...prepared, clientMessageId: randomUUID() }, {
+    sendMessage: async () => { f.denyStorage(); return { id: 'accepted' }; }
+  });
+  assert.equal(result.id, 'accepted');
+  assert.equal(f.queue.readOfflineActionQueue().length, 2);
 });
