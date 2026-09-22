@@ -2161,8 +2161,10 @@ test("signed-in home keeps lower rows visible without the hero", async ({ browse
     isMobile: true
   });
   await page.goto("/");
+  await page.waitForFunction(() => typeof isSessionRestorePending !== "undefined" && !isSessionRestorePending);
 
-  const firstShowcaseRow = page.locator("#products-container > .showcase-inline, #products-container > [data-recommendation-type]").first();
+  // People recommendations need not contain product thumbnails.
+  const firstShowcaseRow = page.locator("#products-container > .showcase-inline").filter({ has: page.locator(".showcase-card img") }).first();
   await expect(firstShowcaseRow).toBeVisible();
   const firstShowcaseImage = firstShowcaseRow.locator(".showcase-card img").first();
   await firstShowcaseImage.scrollIntoViewIfNeeded();

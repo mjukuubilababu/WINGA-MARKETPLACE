@@ -29,7 +29,7 @@ Inbox is a live view, not a frozen snapshot. A conversation updated between page
 
 ### Local run: 2026-09-16
 
-- Latest full `npm run test:ci`: FAILED at browser suite, 133 passed / 2 failed (135 total). User authorized release with these recorded test failures on 2026-09-16; this is not a fully green CI release.
+- Release-time `npm run test:ci`: FAILED at browser suite, 133 passed / 2 failed (135 total). User authorized release with these recorded test failures on 2026-09-16; this was not a fully green CI release.
 - Message pagination: 18/18; commerce outcomes: 71/71; frontend core: 144/144; additional frontend tests: 25/25; integration: 196/196.
 - Localization: four catalogs, 1316 keys each; hard-coded UI gate passed. Generated bundle synchronized, 67 modules.
 - Focused Inbox browser run: 5/5, also passed in full CI. Mobile screenshot inspected; no horizontal overflow at tested widths and RTL.
@@ -37,3 +37,11 @@ Inbox is a live view, not a frozen snapshot. A conversation updated between page
 - Release verification must be recorded separately; authenticated production pagination and database load remain unverified by these local tests.
 
 `npm run test:message-pages` runs PostgreSQL semantics through PGlite and client state tests: grouping, cursor ties/microseconds, global unread totals, cursor ownership, blocks, malformed inputs, insertion boundaries, non-mutating reads, dedup, SSE/GET races, account switching, fallback and bounded history cache. It is wired into normal CI. Browser tests exercise summary-only initial loading, lazy history, older-page retries and compatibility with the legacy API. HTTP integration tests verify guest rejection. Production PostgreSQL multi-connection concurrency/load and authenticated runtime rollout remain unverified.
+
+### CI stabilization: 2026-09-22
+
+- Full `npm run test:ci`: PASS, including all 135 browser tests, with no skipped tests or increased timeouts.
+- Focused horizontal-row, ordinary reel publication and Worker-rendered reel publication scenarios: 9/9 across three repetitions each.
+- The horizontal-row test waits for authenticated restoration and explicitly selects a product showcase containing an image, not an arbitrary people recommendation.
+- Reel fixtures wait for authenticated restoration and return a deterministic unavailable-token response for the fictional `reel-browser-test` provider. They no longer forward that fictional asset to the real fixture backend. Actual generated-video playback and publication/dedup assertions remain intact; production Stream playback is not claimed by this fixture.
+- Only tests and audit notes changed in this follow-up. These local results do not replace authenticated production/load verification.

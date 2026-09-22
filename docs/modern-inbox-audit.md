@@ -25,7 +25,7 @@ The duplicate floating Profile back control is removed. Bottom navigation is unc
 - Sending remains immediate after server acknowledgment, plus existing offline queue behavior. Pre-ack pending bubbles require an end-to-end client message ID/idempotency contract first.
 - No unreliable online presence, fabricated verification or new unsupported camera/file actions are added.
 - Full composer/action-menu modernization, responsive desktop split view, expanded safety controls and aggregate observability still require separate tested integration.
-- Latest full CI: 133/135 browser tests passed; lower-row locator and Worker test playback-token failures remain recorded in `message-pagination.md`. User authorized release despite these on 2026-09-16. Do not equate scoped passing tests with fully verified production readiness.
+- Follow-up on 2026-09-22: full CI passed, including 135/135 browser tests. The two release-time failures were stabilized in test targeting/session readiness and fictional-provider playback isolation; see `message-pagination.md`. Authenticated production and load verification remain separate.
 
 ## Verification
 

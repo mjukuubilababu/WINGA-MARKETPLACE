@@ -47,6 +47,7 @@ async function sellerPage(browser, viewport = { width: 390, height: 844 }, unsup
   }
   await page.goto("/");
   await page.waitForFunction(() => typeof canUseSellerFeatures === "function" && canUseSellerFeatures());
+  await page.waitForFunction(() => typeof isSessionRestorePending !== "undefined" && !isSessionRestorePending);
   await openCreationMenu(page);
   await page.locator('[data-creation-action="post"]').click();
   await expect(page.locator("#upload-form")).toBeVisible();
@@ -78,6 +79,11 @@ async function capturePublish(context, lostResponse = false) {
   });
   await context.route("**/api/media/videos/reel-browser-test", route => route.fulfill({
     json: { status: "ready", width: 720, height: 1280, duration: 6, posterUrl: "", mimeType: "video/webm" }
+  }));
+  // The mocked provider has no server-side asset. Playback is tested separately;
+  // publication must still complete when its optional playback token is unavailable.
+  await context.route("**/api/media/videos/reel-browser-test/playback-token", route => route.fulfill({
+    status: 404, json: { error: "Video not found", code: "video_not_found" }
   }));
   await context.route("**/api/products?**", async route => {
     const params = new URL(route.request().url()).searchParams;
