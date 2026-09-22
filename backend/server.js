@@ -7462,7 +7462,7 @@ const server = http.createServer(async (req, res) => {
   const isVideoPlaybackRequest = req.method === "POST"
     && /^\/api\/media\/videos\/[^/]+\/playback-token$/.test(url.pathname);
   const requestedStoreTables = postgresStore
-    ? (req.method === "GET" && ["/api/messages/inbox", "/api/messages/history", "/api/messages/capabilities"].includes(url.pathname)
+    ? (req.method === "GET" && ["/api/messages/inbox", "/api/messages/history", "/api/messages/capabilities", "/api/messages/replay"].includes(url.pathname)
       ? ["sessions", "users"]
       : req.method === "GET" && url.pathname === "/api/products"
       ? PRODUCT_LIST_STORE_TABLES
@@ -10687,7 +10687,27 @@ const server = http.createServer(async (req, res) => {
       if (req.method === "GET" && url.pathname === "/api/messages/capabilities") {
         const user = ensureMarketplaceUser(store, findSession(store, readAuthToken(req)), res);
         if (!user) return;
-        sendJson(res, 200, { version: 1, durableMessageRetries: Boolean(postgresStore?.createMessageWithNotification) });
+        sendJson(res, 200, { version: 1, durableMessageRetries: Boolean(postgresStore?.createMessageWithNotification), durableMessageReplay: Boolean(postgresStore?.readMessageReplay) });
+        return;
+      }
+
+      if (req.method === "GET" && url.pathname === "/api/messages/replay") {
+        const user = ensureMarketplaceUser(store, findSession(store, readAuthToken(req)), res);
+        if (!user) return;
+        if (!postgresStore?.readMessageReplay) {
+          sendJson(res, 503, { code: "message_replay_unavailable", error: "Replay requires PostgreSQL." }, { "Cache-Control": "no-store" });
+          return;
+        }
+        try {
+          const page = await postgresStore.readMessageReplay(user.username, {
+            cursor: url.searchParams.get("cursor") || "",
+            limit: url.searchParams.has("limit") ? url.searchParams.get("limit") : undefined
+          });
+          sendJson(res, 200, page, { "Cache-Control": "no-store" });
+        } catch (error) {
+          if (error.status !== 400) throw error;
+          sendJson(res, 400, { code: "invalid_message_replay", error: error.message }, { "Cache-Control": "no-store" });
+        }
         return;
       }
 

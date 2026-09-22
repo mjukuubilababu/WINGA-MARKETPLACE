@@ -30,7 +30,7 @@ test("message retry header is permitted only for an allowed CORS origin", async 
 });
 
 test("paged message reads reject unauthenticated callers before querying data", async () => {
-  for (const path of ["/messages/inbox?limit=1", "/messages/history?withUser=someone&limit=1", "/messages/capabilities"]) {
+  for (const path of ["/messages/inbox?limit=1", "/messages/history?withUser=someone&limit=1", "/messages/capabilities", "/messages/replay"]) {
     const { response, body } = await request(path);
     assert.equal(response.status, 401);
     assert.equal(body.items, undefined);
@@ -475,6 +475,13 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   assert.equal(capabilities.response.status, 200);
   assert.equal(capabilities.body.version, 1);
   assert.equal(capabilities.body.durableMessageRetries, false);
+  assert.equal(capabilities.body.durableMessageReplay, false);
+  const unavailableReplay = await request("/messages/replay", {
+    headers: { Cookie: getAuthCookieHeader(sellerSignup.response) }
+  });
+  assert.equal(unavailableReplay.response.status, 503);
+  assert.equal(unavailableReplay.body.code, "message_replay_unavailable");
+  assert.equal(unavailableReplay.response.headers.get("cache-control"), "no-store");
 
   let queryTokenStreamResponse = null;
   const queryTokenStreamController = new AbortController();

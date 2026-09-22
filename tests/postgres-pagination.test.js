@@ -1344,6 +1344,7 @@ test("PostgreSQL message retry ledger preserves one acceptance, enforces ownersh
     }
     for (const sql of migration.statements) await db.exec(sql);
     for (const sql of migration.statements) await db.exec(sql);
+    for (const sql of require("../backend/migrations/message-replay").statements) await db.exec(sql);
     const queryClient = { async query(sql, params) {
       calls.push(sql);
       // PGlite does not model cross-connection locks or LISTEN/NOTIFY delivery.
@@ -1374,6 +1375,7 @@ test("PostgreSQL message retry ledger preserves one acceptance, enforces ownersh
     assert.equal(fanouts, 1);
     assert.equal((await db.query("SELECT * FROM messages")).rows.length, 1);
     assert.equal((await db.query("SELECT * FROM notifications")).rows.length, 1);
+    assert.equal((await db.query("SELECT * FROM message_replay_events")).rows.length, 2);
     assert.equal((await store.markConversationRead("a", "b")).changed, false);
     assert.equal((await store.markConversationRead("c", "a")).changed, false);
     assert.equal((await store.markConversationRead("b", "a")).changed, true);
@@ -1397,6 +1399,7 @@ test("PostgreSQL message retry ledger preserves one acceptance, enforces ownersh
     await assert.rejects(store.createMessageWithNotification({ ...message, id: "rollback-message" }, null, retryOptions), /Injected/);
     assert.equal((await db.query("SELECT * FROM messages WHERE id = 'rollback-message'")).rows.length, 0);
     assert.equal((await db.query("SELECT * FROM message_idempotency WHERE client_message_id = 'logical-message-0002'")).rows.length, 0);
+    assert.equal((await db.query("SELECT * FROM message_replay_events WHERE message_id = 'rollback-message'")).rows.length, 0);
     failFanout = false;
     assert.equal((await store.createMessageWithNotification({ ...message, id: "retry-after-rollback" }, null, retryOptions)).created, true);
     await db.exec("UPDATE messages SET created_at = NOW() - INTERVAL '1 day'");

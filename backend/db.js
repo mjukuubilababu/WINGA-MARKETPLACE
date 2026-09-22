@@ -6,6 +6,7 @@ const { createAdsStore } = require("./ads-store");
 const { createConversationOffersStore } = require("./conversation-offers-store");
 const { createConversationAvailabilityStore } = require("./conversation-availability-store");
 const { createMessagePagesStore } = require("./message-pages");
+const { appendMessageReplay, createMessageReplayStore } = require("./message-replay");
 const { readMessageIdempotencyKey, messageRequestHash, reconcileMessageRetry, recordMessageAcceptance } = require("./message-idempotency");
 const { lockCheckoutReservation, reservationWindowSeconds, createCheckoutReservationStore } = require("./checkout-reservations");
 const { reserveOrderItems, settleOrderInventory, refreshOrderInventoryAvailability, lockOrderInventoryProducts } = require("./inventory-order-items");
@@ -4274,6 +4275,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
         );
       }
       if (retryKey) await recordMessageAcceptance(client, message, retryKey, requestHash);
+      await appendMessageReplay(client, message);
       const liveEvent = { version: 1, eventId: `message:${message.id}`, message, notification, sharePhoneWith: options.sharePhoneWith || "" };
       let livePayload = JSON.stringify(liveEvent);
       if (Buffer.byteLength(livePayload, "utf8") > 7800) livePayload = JSON.stringify({ ...liveEvent, message: { ...message, productItems: [] } });
@@ -9934,6 +9936,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     ...conversationOffersStore,
     ...conversationAvailabilityStore,
     ...createMessagePagesStore({ query }),
+    ...createMessageReplayStore({ query }),
     close
   };
 }
