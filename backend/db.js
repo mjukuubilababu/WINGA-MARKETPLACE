@@ -6,6 +6,7 @@ const { createAdsStore } = require("./ads-store");
 const { createConversationOffersStore } = require("./conversation-offers-store");
 const { createConversationAvailabilityStore } = require("./conversation-availability-store");
 const { createMessagePagesStore } = require("./message-pages");
+const { readMessageIdempotencyKey, messageRequestHash, reconcileMessageRetry, recordMessageAcceptance } = require("./message-idempotency");
 const { lockCheckoutReservation, reservationWindowSeconds, createCheckoutReservationStore } = require("./checkout-reservations");
 const { reserveOrderItems, settleOrderInventory, refreshOrderInventoryAvailability, lockOrderInventoryProducts } = require("./inventory-order-items");
 const { evaluateRecommendationPolicy, executeDecision } = require("./wip-mind");
@@ -4192,6 +4193,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     });
   }
   async function createMessageWithNotification(message = {}, notification = null, options = {}) {
+    const retryKey = readMessageIdempotencyKey({}, options.clientMessageId ? { clientMessageId: options.clientMessageId } : {});
+    const requestHash = retryKey ? options.requestHash || messageRequestHash(message) : "";
     return withTransaction(async (client) => {
       const participantKey = [message.senderId, message.receiverId].sort().join(":");
       await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`winga-message:${participantKey}`]);
@@ -4203,6 +4206,10 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
         [message.senderId, message.receiverId]
       );
       if (blockResult.rowCount) return { created: false, code: "message_blocked" };
+      if (retryKey) {
+        const replay = await reconcileMessageRetry(client, message.senderId, retryKey, requestHash);
+        if (replay) return replay;
+      }
       const pressureResult = await client.query(
         `SELECT
            COUNT(*)::int AS "burstCount",
@@ -4216,7 +4223,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
         [message.senderId, message.receiverId, message.productId || "", message.message || ""]
       );
       const pressure = pressureResult.rows?.[0] || {};
-      if (pressure.duplicate) return { created: false, code: "duplicate_message" };
+      if (pressure.duplicate && !retryKey) return { created: false, code: "duplicate_message" };
       if (Number(pressure.burstCount || 0) >= 5) return { created: false, code: "message_burst" };
 
       await client.query(
@@ -4264,6 +4271,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
           [message.senderId, options.sharePhoneWith]
         );
       }
+      if (retryKey) await recordMessageAcceptance(client, message, retryKey, requestHash);
       const liveEvent = { version: 1, eventId: `message:${message.id}`, message, notification, sharePhoneWith: options.sharePhoneWith || "" };
       let livePayload = JSON.stringify(liveEvent);
       if (Buffer.byteLength(livePayload, "utf8") > 7800) livePayload = JSON.stringify({ ...liveEvent, message: { ...message, productItems: [] } });

@@ -5,6 +5,7 @@ const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const { createPostgresStore } = require("./db");
+const { readMessageIdempotencyKey, messageRequestHash } = require("./message-idempotency");
 const { createIntelligencePlatform } = require("./intelligence-platform");
 const { learnFromObservation } = require("./wip-mind");
 const { createDemandService, summarizeDemandEvents } = require("./demand-service");
@@ -2376,7 +2377,7 @@ function buildSecurityHeaders(statusCode, extraHeaders = {}, req = null) {
     headers["Access-Control-Allow-Origin"] = corsOrigin;
     headers["Vary"] = "Origin";
     headers["Access-Control-Allow-Methods"] = "GET,POST,PUT,PATCH,DELETE,OPTIONS";
-    headers["Access-Control-Allow-Headers"] = "Content-Type, X-CSRF-Token, X-Winga-CSRF-Token, X-Winga-Audience-Id";
+    headers["Access-Control-Allow-Headers"] = "Content-Type, X-CSRF-Token, X-Winga-CSRF-Token, X-Winga-Audience-Id, Idempotency-Key";
     headers["Access-Control-Allow-Credentials"] = "true";
   }
 
@@ -11221,10 +11222,22 @@ const server = http.createServer(async (req, res) => {
         }
 
         const payload = await collectBody(req);
+        let clientMessageId;
+        try {
+          clientMessageId = readMessageIdempotencyKey(req.headers, payload);
+        } catch (error) {
+          sendJson(res, 400, { error: error.message, code: "invalid_message_idempotency_key" });
+          return;
+        }
+        if (clientMessageId && !postgresStore?.createMessageWithNotification) {
+          sendJson(res, 503, { error: "Durable message retries require PostgreSQL.", code: "message_idempotency_unavailable" });
+          return;
+        }
         const normalizedPayload = normalizeMessageRecord({
           ...payload,
           senderId: sender.username
         });
+        const requestHash = clientMessageId ? messageRequestHash(normalizedPayload) : "";
         const validationError = validateMessagePayload(normalizedPayload);
         if (validationError) {
           sendJson(res, 400, { error: validationError });
@@ -11285,7 +11298,7 @@ const server = http.createServer(async (req, res) => {
           && item.message === normalizedPayload.message
           && (Date.now() - new Date(item.createdAt || item.timestamp || 0).getTime()) < 30 * 1000
         );
-        if (recentDuplicateMessage) {
+        if (recentDuplicateMessage && !clientMessageId) {
           sendJson(res, 429, { error: "Ujumbe huo huo umetumwa hivi karibuni. Subiri kidogo kabla ya kurudia." });
           return;
         }
@@ -11294,7 +11307,7 @@ const server = http.createServer(async (req, res) => {
           && item.receiverId === normalizedPayload.receiverId
           && (Date.now() - new Date(item.createdAt || item.timestamp || 0).getTime()) < 60 * 1000
         ).length;
-        if (recentBurstCount >= 5) {
+        if (recentBurstCount >= 5 && !clientMessageId) {
           sendJson(res, 429, { error: "Ujumbe mwingi sana umetumwa kwa muda mfupi. Subiri kidogo ujaribu tena." });
           return;
         }
@@ -11358,10 +11371,22 @@ const server = http.createServer(async (req, res) => {
             nextMessage,
             notification,
             {
+              clientMessageId,
+              requestHash,
               sharePhoneWith: nextMessage.messageType === "contact_share" ? receiver.username : ""
             }
           );
+          if (messageResult.replayed) {
+            sendJson(res, 200, normalizeMessageRecord(messageResult.message));
+            return;
+          }
           if (!messageResult.created) {
+            if (["message_idempotency_conflict", "message_retry_deleted"].includes(messageResult.code)) {
+              sendJson(res, messageResult.code === "message_retry_deleted" ? 410 : 409, {
+                error: "The message retry cannot be applied.", code: messageResult.code
+              });
+              return;
+            }
             if (messageResult.code === "message_blocked") {
               sendJson(res, 403, { error: "Mazungumzo haya yamezuiwa.", code: "conversation_blocked" });
               return;

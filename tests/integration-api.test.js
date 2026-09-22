@@ -16,6 +16,19 @@ let serverProcess;
 let csrfToken = "";
 let csrfCookie = "";
 
+test("message retry header is permitted only for an allowed CORS origin", async () => {
+  const allowed = await fetch(`${baseUrl}/messages`, {
+    method: "OPTIONS",
+    headers: { Origin: "https://wingamarket.com", "Access-Control-Request-Method": "POST", "Access-Control-Request-Headers": "idempotency-key,content-type" }
+  });
+  assert.equal(allowed.headers.get("access-control-allow-origin"), "https://wingamarket.com");
+  assert.match(allowed.headers.get("access-control-allow-headers") || "", /Idempotency-Key/i);
+  const denied = await fetch(`${baseUrl}/messages`, {
+    method: "OPTIONS", headers: { Origin: "https://untrusted.example", "Access-Control-Request-Method": "POST" }
+  });
+  assert.notEqual(denied.headers.get("access-control-allow-origin"), "https://untrusted.example");
+});
+
 test("paged message reads reject unauthenticated callers before querying data", async () => {
   for (const path of ["/messages/inbox?limit=1", "/messages/history?withUser=someone&limit=1"]) {
     const { response, body } = await request(path);

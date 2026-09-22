@@ -531,3 +531,73 @@ foundation acceptance, not this document's existence.
   are not evidence for the proposed Phoenix/E2EE system.
 - No crypto interoperability, BEAM load, security audit or new-service deployment
   was performed. Acceptance tests in this document remain requirements.
+
+## 20. First runtime increment: optional durable retry acceptance
+
+Implemented after the documentation baseline, on 2026-09-22:
+
+- PostgreSQL migration `2026092201_message_idempotency` adds only a ledger table.
+  No message history rewrite or destructive migration is required.
+- Authenticated `POST /api/messages` optionally accepts `Idempotency-Key` header
+  or `clientMessageId` body (16-120 ASCII alphanumeric/underscore/hyphen characters).
+  Supplying both requires equality. Invalid values return 400.
+- Current scope is `(authenticated sender, clientMessageId)`, intentionally
+  sender-wide to prevent reuse across recipients. This is a LEGACY bridge, not
+  the future cryptographic device identity protocol. Keys must be unique for each
+  intentional send and reused only for retry of that send.
+- Normalized request content is hashed before server product enrichment. A
+  sender-scoped transaction lock and primary key serialize duplicate acceptance.
+  Message, notification, ledger and NOTIFY are in the same transaction.
+- Matching retry returns HTTP 200 with the original canonical message, including
+  current persisted read/delivery fields; it does not emit another notification,
+  domain action, audit-send or realtime event. Existing receipt semantics are
+  unchanged and still do not prove device delivery.
+- Changed normalized request under the same key returns 409
+  `message_idempotency_conflict`. Deleted message returns 410
+  `message_retry_deleted`, without recreating the message. Current authorization,
+  blocks and product validation still apply; a retry does not bypass revoked access.
+- The ledger retains IDs/hashes, not copied plaintext bodies. No message FK cascade
+  or timed pruning can erase the deletion tombstone. Sender account deletion
+  cascades its ledger; account re-creation and global immutable identity remain a
+  separate platform policy. No automatic ledger expiry is enabled in this increment.
+- New keyed sends remain subject to burst limits. Accepted retries reconcile
+  before content/burst checks in the transaction; generic HTTP rate limits remain.
+- Legacy clients without keys retain existing behavior. Non-PostgreSQL adapters
+  return 503 `message_idempotency_unavailable` for keyed sends rather than pretend
+  durable idempotency. No frontend client or offline queue is switched in this patch.
+
+Focused persistence/key tests: 6/6 PASS. Executable SQL test covers matching retry,
+payload/recipient conflict, ownership, block override, notification deduplication,
+delete tombstone, rollback and replay beyond the old content-duplicate window.
+PGlite fixtures stub advisory locks and NOTIFY: they do NOT prove multi-connection
+PostgreSQL concurrency or actual cross-node delivery. Those remain staging gates.
+
+Rollout: normal backend migration before accepting requests; no frontend rebuild
+needed. Rollback may restore previous backend code but must keep the additive
+ledger. Do not enable clients requiring durable retries until backend capability
+is verified. This increment does not complete phases 1-6 or E2EE acceptance.
+
+### Runtime increment verification, 2026-09-22
+
+- Final integration suite: 200/200 PASS; focused message persistence: 6/6 PASS;
+  trusted/untrusted-origin HTTP preflight: 1/1 PASS.
+- Message pagination, commerce outcomes, localization, module synchronization and
+  frontend suites passed in the final CI run.
+- Full `npm run test:ci` is NOT GREEN: final browser run 133/135. Failures were
+  Settings restoration (`app.spec.js:644`, profile card hidden) and desktop detail
+  navigation (`app.spec.js:1899`, forced click outside viewport).
+- Earlier complete run also had 133/135, with different failures: optional Home
+  product showcase absent and passive view count 5 versus expected 4.
+- Both pairs passed three independent repetitions each (12/12 combined), with
+  no browser test edits, skipped assertions or timeout increases. Intermittency
+  is observed; exact root causes and production impact remain unproven.
+- An intermediate CORS source-contract assertion failed after adding the intended
+  header. Its exact allowlist expectation was updated; the real HTTP preflight
+  test additionally enforces origin restrictions. No auth restriction was removed.
+- No Home/Settings/frontend behavior was modified. Release is a backward-compatible
+  optional backend capability under the user's standing release authorization,
+  NOT a claim that all regressions or the complete foundation are resolved.
+- Production migration completion, authenticated replay/concurrency, BEAM/E2EE,
+  device receipts, durable replay outbox and secure offline client remain unverified
+  or unimplemented. Render auto-deploy is expected on push; Live must be verified
+  independently, not inferred from a generic health response.

@@ -1313,6 +1313,87 @@ test("PostgreSQL reservation expiry cancels stale commerce state and safely rele
   assert.match(calls[releaseIndex].text, /product_inventory_variants/);
   assert.equal(calls.at(-1).text, "COMMIT");
 });
+test("Message retry keys reject malformed or conflicting identities and hash only request content", () => {
+  const { readMessageIdempotencyKey, messageRequestHash } = require("../backend/message-idempotency");
+  const key = "message-retry-key-001";
+  assert.equal(readMessageIdempotencyKey(), "");
+  assert.equal(readMessageIdempotencyKey({ "idempotency-key": key }, { clientMessageId: key }), key);
+  assert.throws(() => readMessageIdempotencyKey({}, { clientMessageId: "short" }), /Invalid/);
+  assert.throws(() => readMessageIdempotencyKey({ "idempotency-key": [key] }), /Invalid/);
+  assert.throws(() => readMessageIdempotencyKey({ "idempotency-key": key }, { clientMessageId: key + "2" }), /Conflicting/);
+  const request = { senderId: "a", receiverId: "b", message: "Hello" };
+  assert.equal(messageRequestHash(request), messageRequestHash({ ...request, id: "new", createdAt: "later" }));
+  assert.notEqual(messageRequestHash(request), messageRequestHash({ ...request, receiverId: "c" }));
+  assert.notEqual(messageRequestHash(request), messageRequestHash({ ...request, message: "Changed" }));
+});
+
+test("PostgreSQL message retry ledger preserves one acceptance, enforces ownership and survives deletion", async () => {
+  const { PGlite } = require("@electric-sql/pglite");
+  const source = require("node:fs").readFileSync(require.resolve("../backend/db"), "utf8");
+  const migration = require("../backend/migrations/message-idempotency");
+  const db = new PGlite();
+  let fanouts = 0;
+  let failFanout = false;
+  const calls = [];
+  try {
+    await db.exec("CREATE TABLE users(username TEXT PRIMARY KEY); INSERT INTO users VALUES ('a'), ('b'), ('c'); CREATE TABLE user_blocks(blocker_username TEXT, blocked_username TEXT);");
+    for (const table of ["messages", "notifications"]) {
+      const schema = source.match(new RegExp(`CREATE TABLE IF NOT EXISTS ${table} \\([\\s\\S]*?\\n        \\);`));
+      assert.ok(schema);
+      await db.exec(schema[0]);
+    }
+    for (const sql of migration.statements) await db.exec(sql);
+    for (const sql of migration.statements) await db.exec(sql);
+    const queryClient = { async query(sql, params) {
+      calls.push(sql);
+      // PGlite does not model cross-connection locks or LISTEN/NOTIFY delivery.
+      if (sql.includes("pg_advisory_xact_lock")) return { rows: [] };
+      if (sql.includes("pg_notify")) {
+        if (failFanout) throw new Error("Injected notification failure");
+        fanouts += 1;
+        return { rows: [] };
+      }
+      return db.query(sql, params);
+    } };
+    const store = createPostgresStore({ databaseUrl: "postgres://test.invalid/winga", queryClient });
+    const message = { id: "accepted-1", senderId: "a", receiverId: "b", conversationId: "a:b",
+      message: "Hello", messageType: "text", productId: "", productItems: [], createdAt: new Date().toISOString() };
+    const note = { id: "note-1", userId: "b", messageId: message.id };
+    const options = { clientMessageId: "logical-message-0001" };
+    assert.deepEqual(await store.createMessageWithNotification(message, note, options), { created: true, code: "" });
+    assert.equal(calls.at(-1), "COMMIT");
+    const ledgerInsert = calls.findIndex(sql => sql.includes("INSERT INTO message_idempotency"));
+    assert.ok(ledgerInsert > calls.findIndex(sql => sql.includes("INSERT INTO messages")));
+    assert.ok(ledgerInsert < calls.lastIndexOf("COMMIT"));
+    const replay = await store.createMessageWithNotification({ ...message, id: "attempt-2" }, { ...note, id: "note-2" }, options);
+    assert.equal(replay.replayed, true);
+    assert.equal(replay.message.id, message.id);
+    assert.equal(replay.message.message, "Hello");
+    assert.equal(fanouts, 1);
+    assert.equal((await db.query("SELECT * FROM messages")).rows.length, 1);
+    assert.equal((await db.query("SELECT * FROM notifications")).rows.length, 1);
+    assert.equal((await store.createMessageWithNotification({ ...message, message: "Changed" }, null, options)).code, "message_idempotency_conflict");
+    assert.equal((await store.createMessageWithNotification({ ...message, receiverId: "c" }, null, options)).code, "message_idempotency_conflict");
+    await db.exec("INSERT INTO user_blocks VALUES ('b','a')");
+    assert.equal((await store.createMessageWithNotification(message, null, options)).code, "message_blocked");
+    await db.exec("DELETE FROM user_blocks");
+    await store.deleteMessage(message.id, "a");
+    assert.equal((await store.createMessageWithNotification(message, null, options)).code, "message_retry_deleted");
+    assert.equal((await db.query("SELECT * FROM messages")).rows.length, 0);
+    assert.equal((await store.createMessageWithNotification({ ...message, id: "other-owner", senderId: "c" }, null, options)).created, true);
+
+    failFanout = true;
+    const retryOptions = { clientMessageId: "logical-message-0002" };
+    await assert.rejects(store.createMessageWithNotification({ ...message, id: "rollback-message" }, null, retryOptions), /Injected/);
+    assert.equal((await db.query("SELECT * FROM messages WHERE id = 'rollback-message'")).rows.length, 0);
+    assert.equal((await db.query("SELECT * FROM message_idempotency WHERE client_message_id = 'logical-message-0002'")).rows.length, 0);
+    failFanout = false;
+    assert.equal((await store.createMessageWithNotification({ ...message, id: "retry-after-rollback" }, null, retryOptions)).created, true);
+    await db.exec("UPDATE messages SET created_at = NOW() - INTERVAL '1 day'");
+    assert.equal((await store.createMessageWithNotification({ ...message, id: "after-old-window" }, null, retryOptions)).message.id, "retry-after-rollback");
+  } finally { await db.close(); }
+});
+
 test("PostgreSQL message send serializes conversation pressure and commits notification atomically", async () => {
   const calls = [];
   const client = {
