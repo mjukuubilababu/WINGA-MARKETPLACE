@@ -496,11 +496,62 @@ test("PostgreSQL signup creates user and session in one bounded transaction", as
   assert.deepEqual(result, { created: true, conflict: "" });
   assert.equal(calls[0].text, "BEGIN");
   assert.match(calls[1].text, /INSERT INTO users/);
+  assert.equal(calls[1].params.length, 21);
+  assert.equal(calls[1].params[4], null);
+  assert.equal(calls[1].params[6], user.role);
   assert.match(calls[2].text, /UPDATE users/);
   assert.match(calls[3].text, /INSERT INTO sessions/);
   assert.match(calls[4].text, /DELETE FROM sessions/);
   assert.deepEqual(calls[4].params, ["seller-one", "signup-token", 4]);
   assert.equal(calls[5].text, "COMMIT");
+});
+
+test("PostgreSQL signup executes canonical SQL and atomically persists account and session", async () => {
+  const { PGlite } = require("@electric-sql/pglite");
+  const fs = require("node:fs");
+  const dbSource = fs.readFileSync(require.resolve("../backend/db"), "utf8");
+  const db = new PGlite();
+  try {
+    for (const table of ["users", "sessions"]) {
+      const schema = dbSource.match(new RegExp(`CREATE TABLE IF NOT EXISTS ${table} \\([\\s\\S]*?\\n      \\);`));
+      assert.ok(schema, `Missing canonical ${table} schema`);
+      await db.exec(schema[0]);
+    }
+    const store = createPostgresStore({ databaseUrl: "postgres://test.invalid/winga", queryClient: { query: db.query.bind(db) } });
+    const user = {
+      username: "person-test", fullName: "Test Person", password: "scrypt:test:hash",
+      phoneNumber: "255700000111", role: "buyer", status: "active", primaryCategory: "",
+      createdAt: "2026-09-22T08:00:00.000Z", paymentProvider: "test-provider",
+      paymentNumber: "255700000112", paymentRecipientName: "Test Recipient",
+      paymentInstructions: "Test instructions", sharedPhoneViewerIds: ["trusted-person"]
+    };
+    const session = { token: "signup-test-token", sessionId: "signup-test-session", username: user.username,
+      role: "buyer", status: "active", createdAt: user.createdAt, expiresAt: 1900000000000 };
+    assert.deepEqual(await store.createUserWithSession(user, session), { created: true, conflict: "" });
+    const saved = (await db.query("SELECT * FROM users WHERE username = $1", [user.username])).rows[0];
+    assert.equal(saved.full_name, user.fullName);
+    assert.equal(saved.role, "buyer");
+    assert.equal(saved.national_id, null);
+    assert.equal(saved.whatsapp_number, user.phoneNumber);
+    assert.equal(saved.payment_provider, user.paymentProvider);
+    assert.equal(saved.payment_number, user.paymentNumber);
+    assert.equal(saved.payment_recipient_name, user.paymentRecipientName);
+    assert.deepEqual(saved.shared_phone_viewer_ids, user.sharedPhoneViewerIds);
+    assert.equal((await db.query("SELECT username FROM sessions WHERE token = $1", [session.token])).rows[0].username, user.username);
+
+    assert.deepEqual(await store.createUserWithSession({ ...user, username: "duplicate-phone" }, { ...session, token: "duplicate-token" }),
+      { created: false, conflict: "phoneNumber" });
+    assert.equal((await db.query("SELECT * FROM sessions WHERE token = 'duplicate-token'")).rows.length, 0);
+
+    // A session failure must roll back the account as well, allowing a safe retry.
+    const secondUser = { ...user, username: "second-person", phoneNumber: "255700000113" };
+    await assert.rejects(store.createUserWithSession(secondUser, { ...session, username: secondUser.username, expiresAt: "not-an-integer" }));
+    assert.equal((await db.query("SELECT * FROM users WHERE username = $1", [secondUser.username])).rows.length, 0);
+    assert.deepEqual(await store.createUserWithSession(secondUser, { ...session, username: secondUser.username, token: "second-token" }),
+      { created: true, conflict: "" });
+  } finally {
+    await db.close();
+  }
 });
 
 test("PostgreSQL signup converts unique races into a safe conflict and rolls back", async () => {

@@ -5156,17 +5156,6 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
             user.fullName || user.username,
             user.password,
             user.phoneNumber,
-            user.whatsappNumber || user.phoneNumber || "",
-            user.whatsappVerificationStatus || "verified",
-            user.whatsappVerifiedAt || null,
-            user.pendingWhatsappNumber || "",
-            user.pendingWhatsappCodeHash || "",
-            user.pendingWhatsappRequestedAt || null,
-            user.pendingWhatsappExpiresAt || null,
-            user.paymentProvider || "",
-            user.paymentNumber || "",
-            user.paymentRecipientName || user.fullName || user.username,
-            user.paymentInstructions || "",
             user.nationalId || null,
             user.primaryCategory || "",
             user.role || "seller",
@@ -5183,8 +5172,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
             user.moderatedAt || null,
             user.moderatedBy || "",
             user.updatedAt || user.createdAt || new Date().toISOString(),
-            user.createdAt || new Date().toISOString(),
-            stringifyJson(user.sharedPhoneViewerIds, [])
+            user.createdAt || new Date().toISOString()
           ]
         );
         await client.query(
