@@ -89,6 +89,40 @@ async function createLoggedInPage(browser, username, password, options = {}) {
   return { context, page };
 }
 
+test("SSE reconnect consumes replay and reconciles canonical messages without page reload", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure");
+  const cursors = [];
+  let messageReads = 0;
+  await context.addInitScript(() => {
+    window.EventSource = class {
+      constructor() { this.handlers = {}; window.__replaySource = this; }
+      addEventListener(name, handler) { this.handlers[name] = handler; }
+      close() {}
+    };
+  });
+  await context.route("**/api/messages/replay?*", route => {
+    const cursor = new URL(route.request().url()).searchParams.get("cursor");
+    cursors.push(cursor);
+    return route.fulfill({ json: { version: 1, events: [], cursor: "checkpoint-1", hasMore: false, resyncRequired: !cursor } });
+  });
+  page.on("request", request => {
+    const pathname = new URL(request.url()).pathname;
+    if (request.method() === "GET" && ["/api/messages", "/api/messages/inbox"].includes(pathname)) messageReads++;
+  });
+  try {
+    await page.goto("/");
+    await expect.poll(() => page.evaluate(() => Boolean(window.__replaySource?.handlers.open))).toBe(true);
+    await page.evaluate(() => window.__replaySource.handlers.open());
+    await expect.poll(() => cursors.length).toBeGreaterThanOrEqual(2);
+    expect(cursors.slice(0, 2)).toEqual([null, "checkpoint-1"]);
+    const previous = messageReads;
+    await page.evaluate(() => window.__replaySource.handlers.open());
+    await expect.poll(() => messageReads).toBeGreaterThan(previous);
+    expect(cursors.at(-1)).toBe("checkpoint-1");
+    await expect(page.locator("#products-container .product-card").first()).toBeVisible();
+  } finally { await context.close(); }
+});
+
 test("durable online message is saved before POST and replays the same ID after reload", async ({ browser }) => {
   const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure");
   const seen = [];
@@ -1603,24 +1637,28 @@ test("seller opportunity opens attributed creation and supports private dismissa
 
 test("late profile enrichment preserves an open WhatsApp form and its draft", async ({ browser }) => {
   const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure");
-  await page.goto("/");
-  await page.waitForFunction(() => typeof isSessionRestorePending !== "undefined" && !isSessionRestorePending);
   let release;
   const held = new Promise(resolve => { release = resolve; });
+  let delivered;
+  const delivery = new Promise(resolve => { delivered = resolve; });
+  // Install before bootstrap can warm the profile, and observe the held response
+  // directly instead of attaching a response listener after the request started.
   await context.route("**/api/social/users/buyer_seller", async route => {
     const response = await route.fetch();
     await held;
     await route.fulfill({ response });
+    delivered();
   });
+  await page.goto("/");
+  await page.waitForFunction(() => typeof isSessionRestorePending !== "undefined" && !isSessionRestorePending);
   await openHeaderMenuAction(page, "profile");
   await page.locator("#profile-whatsapp-change-toggle").click();
   const input = page.locator("#profile-whatsapp-input");
   await input.fill("255761234567");
   await input.evaluate(node => { window.__editingProfileInput = node; });
   await page.evaluate(() => scheduleRenderCurrentView("profile_background_test"));
-  const response = page.waitForResponse(res => res.url().endsWith("/api/social/users/buyer_seller"));
   release();
-  await response;
+  await delivery;
   // Allow the response callback and its render frames to run before checking identity.
   await page.waitForTimeout(500);
   await expect(input).toBeVisible();

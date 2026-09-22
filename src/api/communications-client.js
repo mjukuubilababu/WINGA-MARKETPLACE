@@ -180,6 +180,53 @@
       }
 
       const source = new EventSourceCtor(`${baseUrl}/messages/stream`, { withCredentials: true });
+      const replay = handlers.replayState;
+      let closed = false;
+      let recovering = false;
+      let recoveryTimer = null;
+      const isCurrent = () => !closed && (!handlers.isCurrent || handlers.isCurrent());
+      async function recover() {
+        if (!replay || !handlers.reconcile || recovering || !isCurrent()) return;
+        recovering = true;
+        let cursor = replay.cursor || "";
+        let hasMore = false;
+        try {
+          for (let page = 0; page < 5; page += 1) {
+            let result;
+            try {
+              result = await loadMessagePage("replay", { cursor, limit: 50 });
+            } catch (error) {
+              if (error.status === 400 && cursor) {
+                cursor = "";
+                result = await loadMessagePage("replay", { limit: 50 });
+              } else throw error;
+            }
+            if (!isCurrent()) return;
+            if (!result || result.version !== 1 || typeof result.cursor !== "string"
+              || !result.cursor || !Array.isArray(result.events)) throw new Error("Invalid replay response");
+            if (result.hasMore && result.cursor === cursor) throw new Error("Replay cursor did not advance");
+            cursor = result.cursor;
+            hasMore = result.hasMore === true;
+            // Initial checkpoint precedes reconciliation; catch up again afterwards
+            // so messages committed during that reconciliation are not skipped.
+            if (result.resyncRequired) { hasMore = true; break; }
+            if (!hasMore) break;
+          }
+          if (!isCurrent()) return;
+          await handlers.reconcile();
+          if (!isCurrent()) return;
+          replay.cursor = cursor;
+          if (hasMore) recoveryTimer = setTimeout(recover, 250);
+        } catch (_error) {
+          // Optional recovery cannot disable human chat or advance a failed batch.
+          if (isCurrent()) {
+            try { await handlers.reconcile(); } catch (_fallbackError) { /* Existing refresh telemetry owns this failure. */ }
+          }
+        } finally {
+          recovering = false;
+        }
+      }
+      source.addEventListener("open", recover);
       const parseEvent = (event) => {
         try {
           return event?.data ? JSON.parse(event.data) : null;
@@ -209,6 +256,8 @@
 
       return {
         close() {
+          closed = true;
+          clearTimeout(recoveryTimer);
           source.close();
         }
       };

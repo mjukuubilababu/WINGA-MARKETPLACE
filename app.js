@@ -9161,13 +9161,26 @@ function disconnectRealtimeChannel() {
   realtimeChannel = null;
 }
 
+let messageReplayState = null;
+
 function connectRealtimeChannel() {
   disconnectRealtimeChannel();
   if (!currentUser) {
     return;
   }
 
+  const replayUser = currentUser;
+  if (messageReplayState?.owner !== replayUser) messageReplayState = { owner: replayUser, cursor: "" };
   realtimeChannel = window.WingaDataLayer.openRealtimeChannel({
+    replayState: messageReplayState,
+    isCurrent: () => currentUser === replayUser,
+    reconcile: async () => {
+      if (currentUser !== replayUser) return;
+      await refreshMessagesState();
+      if (currentUser !== replayUser) return;
+      if (currentView === "profile" && profileDiv) replaceMessagesPanel(profileDiv);
+      if (chatUiState.isContextOpen) replaceContextChatModal();
+    },
     onMessage: async (payload) => {
       appendLocalMessage(payload?.message);
       await Promise.all([refreshMessagesState(), refreshNotificationsState()]);

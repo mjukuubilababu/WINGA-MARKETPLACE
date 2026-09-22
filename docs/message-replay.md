@@ -52,14 +52,18 @@ runtimes return 503, and capabilities advertise `durableMessageReplay: false`.
 
 ## Integration Boundary
 
-The current browser still uses SSE immediate merge and canonical reconciliation.
-It does not yet consume this replay API or persist its checkpoints. No delivery
+The browser consumes replay on SSE open, including reconnect, while retaining
+SSE immediate merge and canonical reconciliation. Checkpoints are owner-scoped
+in-memory state, committed only after successful canonical inbox/active-history
+refresh. Reload starts a fresh checkpoint/resync; private messages are not added
+to another persistent store. Closed channels and account changes reject late
+recovery completions. Catch-up scans at most five pages per batch, then yields.
+Invalid cursors reset through initial reconciliation; replay failure falls back
+to the existing refresh without advancing the checkpoint. No delivery
 or read claim is made by advancing a replay position. Existing read/delete and
 commerce events are not journaled by this message-created-only increment.
 
-Next: an owner-scoped reconnect consumer with bounded catch-up, checkpoint only
-after successful application, reset/resync behavior, and failure isolation. Keep
-the existing refresh fallback. Durable fan-out jobs, device identity, per-device
+Durable fan-out jobs, device identity, per-device
 ACKs, event retention, and multi-region writer ownership remain separate work.
 
 ## Verification Scope
@@ -71,6 +75,13 @@ rollback with a notification failure. PGlite does not prove cross-connection loc
 ordering or real LISTEN/NOTIFY failover; those require isolated PostgreSQL staging.
 Authenticated production replay and migration completion require runtime proof.
 
+Run `node scripts/verify-message-replay-runtime.js` with a valid session cookie
+value supplied locally as `WINGA_SESSION_TOKEN`. It calls Render directly,
+requires advertised replay support, and checks initial and resumed reads.
+Output contains only status flags, not credentials, cursors or message content.
+Successful reads prove the journal schema is readable, not that two-account
+message writes and reconnect delivery have been verified in production.
+
 ### Local Results (2026-09-22)
 
 - Final `npm run test:ci`: exit 0; browser regression suite 137/137 passed.
@@ -81,3 +92,20 @@ Authenticated production replay and migration completion require runtime proof.
   with the other failure at scroll-to-top after Home. The final full run
   passed without changing Home code or weakening assertions. Root cause
   remains unconfirmed; this is a recorded intermittent regression-test risk.
+
+### Browser Consumer Verification (2026-09-22)
+
+- Final `npm run test:ci`: exit 0, browser tests 138/138, message paging/replay
+  27/27, frontend core 144/144, integration 200/200.
+- New browser test exercises SSE open/reconnect, checkpoint reuse and canonical
+  message reconciliation without reloading the page. Seven client unit tests
+  cover failed batches, owner changes, close, invalid cursors and bounded catch-up.
+- Earlier full runs failed Home scroll and photo-reel timeout, then a profile
+  enrichment test waiting for a response. The latter now installs interception
+  before bootstrap and awaits fulfillment directly; its draft assertions remain
+  unchanged. That test passed 3/3 isolated repeats and the final full run.
+  Home/photo-reel production code and assertions were not changed.
+- Authenticated Render verification is still pending user-run probe output;
+  the browser automation tool could not access the existing authenticated session
+  because its Windows sandbox failed to initialize. Do not infer runtime migration
+  proof from local tests or successful public health checks.
