@@ -2520,7 +2520,14 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       }
 
       const owner = session.username;
-      if (activeFlushes.has(owner)) return activeFlushes.get(owner);
+      const active = activeFlushes.get(owner);
+      if (active) {
+        if (!retryId || active.retryId === retryId) return active.promise;
+        await active.promise;
+        if (readSession()?.username !== owner || active.attemptedIds.has(retryId)) return 0;
+        return flushOfflineActionQueue(activeAdapter, retryId);
+      }
+      const operation = { retryId, attemptedIds: new Set(), promise: null };
       const run = async () => {
         const queue = readOfflineActionQueue(session);
         let flushedCount = 0;
@@ -2534,6 +2541,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           if (readSession()?.username !== owner) break;
           if (!item || item.type !== "sendMessage" || activeMessageSends.has(item.id)) continue;
           if (retryId ? item.id !== retryId : item.status === "FAILED") continue;
+          operation.attemptedIds.add(item.id);
           try {
             const payload = activeAdapter.prepareMessage ? await activeAdapter.prepareMessage(item.payload) : item.payload;
             updateItem(item.id, current => [{ ...current, payload, status: "QUEUED" }]);
@@ -2561,7 +2569,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       };
       const locks = getNavigator()?.locks;
       const flush = locks?.request ? locks.request(`winga-offline-send:${owner}`, run) : run();
-      activeFlushes.set(owner, flush);
+      operation.promise = flush;
+      activeFlushes.set(owner, operation);
       try { return await flush; } finally { activeFlushes.delete(owner); }
     }
 

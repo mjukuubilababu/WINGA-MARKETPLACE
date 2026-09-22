@@ -27,6 +27,60 @@ function fixture(storage = new Map()) {
 }
 const payload = { receiverId: 'bob', message: 'Hello' };
 
+test('explicit retry waits for unrelated background work without losing the selected send', async () => {
+  const f = fixture();
+  const selected = f.queue.queueOfflineMessageAction({ ...payload, clientMessageId: randomUUID() });
+  await f.queue.flushOfflineActionQueue({ sendMessage: async () => {
+    throw Object.assign(new Error('Denied'), { status: 403 });
+  } });
+  f.queue.queueOfflineMessageAction({ ...payload, message: 'Background', clientMessageId: randomUUID() });
+  let release;
+  const seen = [];
+  const adapter = { sendMessage: p => {
+    seen.push(p.message);
+    return p.message === 'Background' ? new Promise(resolve => { release = resolve; }) : Promise.resolve({ id: 'selected' });
+  } };
+  const background = f.queue.flushOfflineActionQueue(adapter);
+  const retry = f.queue.flushOfflineActionQueue(adapter, selected.id);
+  const duplicateTap = f.queue.flushOfflineActionQueue(adapter, selected.id);
+  assert.deepEqual(seen, ['Background']);
+  release({ id: 'background' });
+  await Promise.all([background, retry, duplicateTap]);
+  assert.deepEqual(seen, ['Background', 'Hello']);
+  assert.equal(f.queue.readOfflineActionQueue().length, 0);
+});
+
+test('waiting retry cannot send after account switch', async () => {
+  const f = fixture();
+  const selected = f.queue.queueOfflineMessageAction(payload);
+  await f.queue.flushOfflineActionQueue({ sendMessage: async () => {
+    throw Object.assign(new Error('Denied'), { status: 403 });
+  } });
+  f.queue.queueOfflineMessageAction({ ...payload, message: 'Background' });
+  let release, calls = 0;
+  const adapter = { sendMessage: () => { calls++; return new Promise(resolve => { release = resolve; }); } };
+  const background = f.queue.flushOfflineActionQueue(adapter);
+  const retry = f.queue.flushOfflineActionQueue(adapter, selected.id);
+  f.switchUser('carol');
+  release({ id: 'background' });
+  await Promise.all([background, retry]);
+  assert.equal(calls, 1);
+  assert.equal(f.queue.readOfflineActionQueue({ username: 'alice' })[0].id, selected.id);
+});
+
+test('retry joining a background attempt does not immediately repeat a rejected send', async () => {
+  const f = fixture();
+  const selected = f.queue.queueOfflineMessageAction(payload);
+  let reject, calls = 0;
+  const adapter = { sendMessage: () => { calls++; return new Promise((resolve, fail) => { reject = fail; }); } };
+  const background = f.queue.flushOfflineActionQueue(adapter);
+  const retry = f.queue.flushOfflineActionQueue(adapter, selected.id);
+  reject(Object.assign(new Error('Denied'), { status: 403 }));
+  await Promise.all([background, retry]);
+  assert.equal(calls, 1);
+  assert.equal(f.queue.readOfflineActionQueue()[0].status, 'FAILED');
+});
+
 test('failed messages require explicit scoped retry and retain their logical ID', async () => {
   const f = fixture();
   const clientMessageId = randomUUID();

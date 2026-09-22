@@ -49,6 +49,18 @@ added to telemetry. This is a plaintext local queue bridge, not an encrypted
 outbox or device acknowledgement protocol. Dedicated discard/edit controls,
 transactional cross-tab enqueue, and richer pending media previews remain work.
 
+Concurrent retry coordination: when an unrelated flush is active, explicit Retry
+waits for it and then attempts the selected entry if that operation did not already
+attempt it. Same-target taps coalesce, and account ownership is rechecked after
+waiting. An attempt already handled by the active operation is not immediately
+repeated, including a rejected attempt. This does not make localStorage writes
+transactional across tabs.
+
+Coordination follow-up verification (2026-09-22): queue tests 19/19 and the
+complete CI passed on the first run, including integration 200/200 and browser
+137/137. Tests cover a selected retry behind unrelated background work, duplicate
+retry taps, account change while waiting, and rejection during an existing attempt.
+
 Verification (2026-09-22): focused retry/receipt tests 19/19; final full
 `npm run test:ci` passed, including integration 200/200 and browser 137/137.
 The first CI attempt stopped on the old exact function-signature assertion;
