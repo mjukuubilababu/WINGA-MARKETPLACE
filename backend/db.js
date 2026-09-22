@@ -675,7 +675,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
           updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
           delivered_at TIMESTAMPTZ NULL,
           read_at TIMESTAMPTZ NULL,
-          is_delivered BOOLEAN NOT NULL DEFAULT TRUE,
+          is_delivered BOOLEAN NOT NULL DEFAULT FALSE,
           is_read BOOLEAN NOT NULL DEFAULT FALSE,
           row_version BIGINT NOT NULL DEFAULT 1
         );
@@ -1302,7 +1302,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     `);
     await query(`
       ALTER TABLE messages
-      ADD COLUMN IF NOT EXISTS is_delivered BOOLEAN NOT NULL DEFAULT TRUE;
+      ADD COLUMN IF NOT EXISTS is_delivered BOOLEAN NOT NULL DEFAULT FALSE;
     `);
     await query(`
       ALTER TABLE messages
@@ -1617,9 +1617,9 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
               message.timestamp || new Date().toISOString(),
               message.createdAt || message.timestamp || new Date().toISOString(),
               message.updatedAt || message.createdAt || message.timestamp || new Date().toISOString(),
-              message.deliveredAt || message.createdAt || message.timestamp || new Date().toISOString(),
+              message.deliveredAt || null,
               message.readAt || null,
-              typeof message.isDelivered === "boolean" ? message.isDelivered : true,
+              typeof message.isDelivered === "boolean" ? message.isDelivered : false,
               Boolean(message.isRead)
             ]
           );
@@ -4193,6 +4193,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     });
   }
   async function createMessageWithNotification(message = {}, notification = null, options = {}) {
+    // Acceptance is not evidence of receipt by a recipient device.
+    message = { ...message, deliveredAt: "", readAt: "", isDelivered: false, isRead: false };
     const retryKey = readMessageIdempotencyKey({}, options.clientMessageId ? { clientMessageId: options.clientMessageId } : {});
     const requestHash = retryKey ? options.requestHash || messageRequestHash(message) : "";
     return withTransaction(async (client) => {
@@ -4242,7 +4244,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
           message.productName || "", stringifyJson(message.productItems, []),
           message.replyToMessageId || "", message.timestamp || message.createdAt,
           message.createdAt || new Date().toISOString(), message.updatedAt || message.createdAt,
-          message.deliveredAt || message.createdAt || new Date().toISOString(),
+          message.deliveredAt || null,
           message.readAt || null, Boolean(message.isDelivered), Boolean(message.isRead)
         ]
       );
@@ -4338,7 +4340,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       const now = new Date().toISOString();
       const result = await client.query(
         `UPDATE messages
-         SET is_read = TRUE, read_at = $3, updated_at = $3, row_version = row_version + 1
+         SET is_read = TRUE, read_at = $3, is_delivered = TRUE, delivered_at = $3,
+             updated_at = $3, row_version = row_version + 1
          WHERE receiver_id = $1 AND sender_id = $2 AND is_read = FALSE
          RETURNING conversation_id AS "conversationId"`,
         [receiverId, senderId, now]

@@ -2265,6 +2265,26 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   });
   assert.equal(buyerSharePhone.response.status, 200);
   assert.equal(buyerSharePhone.body.messageType, "contact_share");
+  assert.equal(buyerSharePhone.body.isDelivered, false);
+  assert.equal(buyerSharePhone.body.deliveredAt, "");
+  assert.equal(buyerSharePhone.body.isRead, false);
+  await request("/messages/read", {
+    method: "PATCH", headers: { "Content-Type": "application/json", Authorization: `Bearer ${buyerToken}` },
+    body: JSON.stringify({ withUser: "seller_one" })
+  });
+  const beforeRecipientRead = await request("/messages", { headers: { Authorization: `Bearer ${buyerToken}` } });
+  assert.equal(beforeRecipientRead.body.find(item => item.id === buyerSharePhone.body.id).isRead, false);
+  const recipientRead = await request("/messages/read", {
+    method: "PATCH", headers: { "Content-Type": "application/json", Authorization: `Bearer ${sellerToken}` },
+    body: JSON.stringify({ withUser: buyerUsername })
+  });
+  assert.equal(recipientRead.response.status, 200);
+  const afterRecipientRead = await request("/messages", { headers: { Authorization: `Bearer ${buyerToken}` } });
+  const readMessage = afterRecipientRead.body.find(item => item.id === buyerSharePhone.body.id);
+  assert.equal(readMessage.isRead, true);
+  assert.equal(readMessage.isDelivered, true);
+  assert.equal(readMessage.deliveredAt, readMessage.readAt);
+  assert.ok(readMessage.readAt);
   const sellerVisibleUsersAfterShare = await request("/users", {
     headers: { Authorization: `Bearer ${sellerToken}` }
   });

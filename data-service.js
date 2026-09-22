@@ -1154,9 +1154,9 @@
             timestamp: new Date().toISOString(),
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
-            deliveredAt: new Date().toISOString(),
+            deliveredAt: "",
             readAt: "",
-            isDelivered: true,
+            isDelivered: false,
             isRead: false
           };
           messages.push(nextMessage);
@@ -2889,9 +2889,9 @@ async loadAdminPayments(filters = {}) {
             timestamp: new Date().toISOString(),
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
-            deliveredAt: new Date().toISOString(),
+            deliveredAt: "",
             readAt: "",
-            isDelivered: true,
+            isDelivered: false,
             isRead: false
           };
           await saveDocument(firebaseConfig.messagesDocumentPath || "wingaState/messages", [nextMessage, ...messages]);

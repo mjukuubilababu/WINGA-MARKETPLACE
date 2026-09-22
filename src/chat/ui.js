@@ -433,7 +433,7 @@
             ${replyMessage ? `<div class="message-reply-preview"><strong>Reply</strong><span>${safeReplyText}</span></div>` : ""}
             ${productItems.length ? renderChatProductPreviewItems(productItems) : ""}
             ${message.message ? `<p>${safeMessageText}</p>` : ""}
-            <small>${deps.escapeHtml(new Date(message.timestamp).toLocaleTimeString(document.documentElement.lang || "sw", { hour: "2-digit", minute: "2-digit" }))} ${message.senderId === deps.getCurrentUser() ? `| ${deps.escapeHtml(message.isRead ? t("inbox.read", "Read") : message.isDelivered ? t("inbox.delivered", "Delivered") : t("inbox.sent", "Sent"))}` : ""}</small>
+            <small>${deps.escapeHtml(new Date(message.timestamp).toLocaleTimeString(document.documentElement.lang || "sw", { hour: "2-digit", minute: "2-digit" }))} ${message.senderId === deps.getCurrentUser() ? `| ${deps.escapeHtml(message.isRead ? t("inbox.read", "Read") : t("inbox.sent", "Sent"))}` : ""}</small>
             ${enableActions ? `
               <button class="message-menu-trigger" type="button" data-message-menu-toggle="${message.id}">...</button>
               ${deps.getOpenChatMessageMenuId() === message.id ? `

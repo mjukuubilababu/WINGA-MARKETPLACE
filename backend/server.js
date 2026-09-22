@@ -3214,9 +3214,9 @@ function normalizeMessageRecord(message) {
     timestamp: message.timestamp || message.createdAt || now,
     createdAt: message.createdAt || message.timestamp || now,
     updatedAt: message.updatedAt || message.createdAt || message.timestamp || now,
-    deliveredAt: message.deliveredAt || message.createdAt || message.timestamp || now,
+    deliveredAt: message.deliveredAt || "",
     readAt: message.readAt || "",
-    isDelivered: typeof message.isDelivered === "boolean" ? message.isDelivered : true,
+    isDelivered: typeof message.isDelivered === "boolean" ? message.isDelivered : false,
     isRead: typeof message.isRead === "boolean" ? message.isRead : Boolean(message.readAt)
   };
 }
@@ -5965,6 +5965,8 @@ function markConversationRead(store, username, withUser) {
         ...normalized,
         isRead: true,
         readAt: now,
+        isDelivered: true,
+        deliveredAt: now,
         updatedAt: now
       });
     }
@@ -11325,8 +11327,8 @@ const server = http.createServer(async (req, res) => {
           createdAt: now,
           updatedAt: now,
           timestamp: now,
-          deliveredAt: now,
-          isDelivered: true,
+          deliveredAt: "",
+          isDelivered: false,
           isRead: false,
           readAt: ""
         });

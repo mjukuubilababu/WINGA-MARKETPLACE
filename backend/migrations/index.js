@@ -1,6 +1,7 @@
 const MIGRATION_LOCK_NAME = "winga_schema_migrations_v1";
 
 const MIGRATIONS = Object.freeze([
+  require("./message-delivery-default"),
   require("./message-idempotency"),
   require("./message-pages"),
   require("./inventory-order-items"),
