@@ -152,7 +152,12 @@
       }
     }
 
-    async function flushOfflineActionQueue(adapter = null) {
+    function getPendingMessages(receiverId) {
+      return readOfflineActionQueue().filter(item => item.type === "sendMessage"
+        && item.payload?.receiverId === receiverId && !activeMessageSends.has(item.id));
+    }
+
+    async function flushOfflineActionQueue(adapter = null, retryId = "") {
       const activeAdapter = adapter || getDefaultAdapter();
       if (!activeAdapter || typeof activeAdapter.sendMessage !== "function") {
         return 0;
@@ -176,6 +181,7 @@
         for (const item of queue) {
           if (readSession()?.username !== owner) break;
           if (!item || item.type !== "sendMessage" || activeMessageSends.has(item.id)) continue;
+          if (retryId ? item.id !== retryId : item.status === "FAILED") continue;
           try {
             const payload = activeAdapter.prepareMessage ? await activeAdapter.prepareMessage(item.payload) : item.payload;
             updateItem(item.id, current => [{ ...current, payload, status: "QUEUED" }]);
@@ -214,6 +220,7 @@
       isLikelyOfflineActionError,
       queueOfflineMessageAction,
       sendPersistedMessage,
+      getPendingMessages,
       flushOfflineActionQueue
     };
   }

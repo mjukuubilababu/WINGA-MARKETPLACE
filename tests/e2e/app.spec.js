@@ -1112,6 +1112,34 @@ test("account recovery uses a one-time code and invalidates the old password", a
   await context.close();
 });
 
+test("failed message stays visible and explicit Retry reuses its client ID", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure");
+  const seen = [];
+  await context.route("**/api/messages/capabilities", route => route.fulfill({ json: { durableMessageRetries: true } }));
+  await context.route("**/api/messages", async route => {
+    if (route.request().method() !== "POST") return route.continue();
+    seen.push(route.request().postDataJSON().clientMessageId);
+    await route.fulfill({ status: 403, json: { error: "Message rejected" } });
+  });
+  try {
+    await page.goto("/");
+    await page.locator("#products-container .product-card", { hasText: "Sneaker Classic" }).first().click();
+    await page.locator("#product-detail-modal [data-chat-product]").first().click();
+    await page.locator("#context-chat-compose-input").fill("Retained retry test");
+    await page.locator("#context-chat-compose-form button[type='submit']").click();
+    const retry = page.locator("#context-chat-modal [data-message-retry]");
+    await expect(retry).toBeVisible();
+    await expect(retry.locator('..')).toContainText("Retained retry test");
+    expect(seen).toHaveLength(1);
+    await retry.click();
+    await expect.poll(() => seen.length).toBe(2);
+    await expect(retry).toBeEnabled();
+    expect(seen[1]).toBe(seen[0]);
+    expect(seen[0]).toMatch(/^[a-z0-9-]{36}$/);
+    await expect(retry).toHaveCount(1);
+  } finally { await context.close(); }
+});
+
 test("logged in seller-buyer can open detail and open chat", async ({ browser }) => {
   const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure");
   await page.goto("/");

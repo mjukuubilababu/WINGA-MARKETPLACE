@@ -4175,6 +4175,16 @@ async loadAdminPayments() {
           throw error;
         }
       },
+      getPendingMessages(receiverId) {
+        assertBuyerCapableAccess();
+        return clone(getOfflineQueueTools().getPendingMessages(receiverId));
+      },
+      async retryPendingMessage(id) {
+        assertBuyerCapableAccess();
+        ensureAdapter();
+        if (typeof id !== "string" || !id) return 0;
+        return getOfflineQueueTools().flushOfflineActionQueue(state.adapter, id);
+      },
       async deleteMessage(messageId) {
         assertBuyerCapableAccess();
         return state.adapter.deleteMessage ? state.adapter.deleteMessage(messageId) : { ok: true };

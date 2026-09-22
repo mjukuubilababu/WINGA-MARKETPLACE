@@ -28,11 +28,34 @@ logical ID can be replayed idempotently. Legacy adapters keep their existing pat
   sends. It is not protection against same-origin script access, XSS or device
   compromise; encrypted local storage/key lifecycle remains a separate gate.
 - Cross-tab enqueue is not a fully transactional storage operation.
-- Failed entries are retained and retried on a later flush; a dedicated manual
-  failed-message management interface remains outstanding.
+- Failed entries are retained for explicit Retry in the matching conversation;
+  background flush skips FAILED entries. Transient failures remain queued.
 - Legacy/non-PostgreSQL adapters do not promise durable idempotency.
 - Server acceptance does not establish recipient-device delivery or read status.
 - This increment does not complete the 0-109 architecture contract.
+
+## Explicit retry UI
+
+The conversation renders local pending/failed sends separately from canonical
+history, scoped to the signed-in account and current counterpart. Retry uses the
+stored payload and existing clientMessageId, never the normal new-send path.
+Buttons disable during the operation, and queue flush coalescing prevents duplicate
+same-tab attempts. A targeted retry does not flush unrelated entries. Successful
+reconciliation removes the local entry and reloads canonical messages; failed
+entries remain visible. Read receipts and server-side authorization are unchanged.
+
+Queue corruption must not hide canonical history. Private message content is not
+added to telemetry. This is a plaintext local queue bridge, not an encrypted
+outbox or device acknowledgement protocol. Dedicated discard/edit controls,
+transactional cross-tab enqueue, and richer pending media previews remain work.
+
+Verification (2026-09-22): focused retry/receipt tests 19/19; final full
+`npm run test:ci` passed, including integration 200/200 and browser 137/137.
+The first CI attempt stopped on the old exact function-signature assertion;
+it was updated for the optional retry ID parameter before the full passing run.
+The new browser scenario verifies a rejected send remains visible and Retry
+reuses its client ID. No assertion was skipped. Authenticated production
+two-account verification remains a separate rollout check.
 
 ## Verification
 

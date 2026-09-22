@@ -412,7 +412,16 @@
 
     function renderConversationMessagesMarkup(activeMessages, options = {}) {
       const { enableActions = false } = options;
-      if (!activeMessages.length) {
+      let pending = [];
+      try { pending = deps.getPendingMessages?.(deps.getActiveChatContext?.()?.withUser) || []; }
+      catch (_error) { /* Optional local queue must not hide canonical history. */ }
+      const pendingMarkup = pending.map(item => `
+        <div class="message-bubble outgoing">
+          <p>${deps.escapeHtml(item.payload?.message || item.payload?.productName || "")}</p>
+          <small>${deps.escapeHtml(item.status === "FAILED" ? t("chat.failedTitle", "Message failed") : t("chat.queueRetained", "Unsent messages remain saved on this device."))}</small>
+          <button type="button" data-message-retry="${deps.escapeHtml(item.id)}">${deps.escapeHtml(t("inbox.retry", "Try again"))}</button>
+        </div>`).join("");
+      if (!activeMessages.length && !pending.length) {
         return `<p class="empty-copy">Anza mazungumzo kuhusu bidhaa hii hapa chini.</p>`;
       }
 
@@ -447,7 +456,7 @@
             ` : ""}
           </div>
         `;
-      }).join("");
+      }).join("") + pendingMarkup;
     }
 
     function renderNotificationsSection() {

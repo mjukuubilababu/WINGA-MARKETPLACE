@@ -12534,6 +12534,7 @@ const {
   getConversationRelationshipMemory,
   getActiveConversationMessages,
   getActiveChatContext: () => chatUiState.activeContext,
+  getPendingMessages: (partner) => window.WingaDataLayer.getPendingMessages?.(partner) || [],
   getProfileMessagesMode: () => chatUiState.profileMessagesMode,
   getProfileMessagesFilter: () => chatUiState.profileMessagesFilter,
   isCompactMessagesLayout: () => getViewportWidth() <= 720,
@@ -19417,7 +19418,8 @@ registerAppEvent(window, "winga:data-hydrated", (event) => {
 }, undefined, "window:data-hydrated:surface-refresh");
 
 registerAppEvent(window, "winga:offline-actions-flushed", async (event) => {
-  if (!currentUser || event?.detail?.username !== currentUser.username) return;
+  if (!currentUser || event?.detail?.username !== currentUser) return;
+  const queueOwner = currentUser;
   const flushedCount = Number(event?.detail?.count || 0);
   const remainingCount = Number(event?.detail?.remaining || 0);
   if (Number(event?.detail?.failed || 0) > 0) {
@@ -19435,6 +19437,9 @@ registerAppEvent(window, "winga:offline-actions-flushed", async (event) => {
       // Ignore passive refresh failures after queue flush.
     });
   }
+  if (currentUser !== queueOwner) return;
+  if (currentView === "profile" && profileDiv) replaceMessagesPanel(profileDiv);
+  if (chatUiState.isContextOpen) replaceContextChatModal();
   if (flushedCount > 0) {
     applyOfflineQueueFlushHints(flushedCount, remainingCount);
     showInAppNotification({

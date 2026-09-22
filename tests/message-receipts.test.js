@@ -5,6 +5,24 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { PGlite } = require('@electric-sql/pglite');
 
+test('pending messages offer retry without claiming Sent or exposing local errors', () => {
+  const context = vm.createContext({ window: { WingaModules: { chat: {} } } });
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '../src/chat/ui.js'), 'utf8'), context);
+  const ui = context.window.WingaModules.chat.createChatUiModule({
+    escapeHtml: value => String(value).replaceAll('<', '&lt;').replaceAll('>', '&gt;'),
+    getActiveChatContext: () => ({ withUser: 'bob' }),
+    getPendingMessages: partner => {
+      assert.equal(partner, 'bob');
+      return [{ id: 'local1', status: 'FAILED', lastErrorCode: 'private-internal-error', payload: { message: '<script>bad</script>' } }];
+    }
+  });
+  const html = ui.renderConversationMessagesMarkup([]);
+  assert.match(html, /data-message-retry="local1"/);
+  assert.match(html, /Message failed/);
+  assert.match(html, /&lt;script&gt;/);
+  assert.doesNotMatch(html, /<script>|private-internal-error|\| Sent/);
+});
+
 test('receipt migration changes defaults without rewriting historical receipts', async () => {
   const db = new PGlite();
   try {

@@ -27,6 +27,45 @@ function fixture(storage = new Map()) {
 }
 const payload = { receiverId: 'bob', message: 'Hello' };
 
+test('failed messages require explicit scoped retry and retain their logical ID', async () => {
+  const f = fixture();
+  const clientMessageId = randomUUID();
+  const queued = f.queue.queueOfflineMessageAction({ ...payload, clientMessageId });
+  let calls = 0;
+  await f.queue.flushOfflineActionQueue({ sendMessage: async () => {
+    calls++; throw Object.assign(new Error('Denied'), { status: 403 });
+  } });
+  const adapter = { sendMessage: async p => {
+    calls++; assert.equal(p.clientMessageId, clientMessageId); return { id: 'accepted' };
+  } };
+  assert.equal(await f.queue.flushOfflineActionQueue(adapter), 0);
+  assert.equal(calls, 1);
+  assert.equal(f.queue.getPendingMessages('bob')[0].status, 'FAILED');
+  assert.equal(f.queue.getPendingMessages('carol').length, 0);
+  f.switchUser('carol');
+  assert.equal(f.queue.getPendingMessages('bob').length, 0);
+  assert.equal(await f.queue.flushOfflineActionQueue(adapter, queued.id), 0);
+  f.switchUser('alice');
+  f.queue.queueOfflineMessageAction({ ...payload, message: 'Leave this queued' });
+  assert.equal(await f.queue.flushOfflineActionQueue(adapter, queued.id), 1);
+  assert.equal(calls, 2);
+  assert.equal(f.queue.readOfflineActionQueue().length, 1);
+  assert.equal(await f.queue.flushOfflineActionQueue(adapter, queued.id), 0);
+});
+
+test('concurrent explicit retries coalesce to a single attempt', async () => {
+  const f = fixture();
+  const queued = f.queue.queueOfflineMessageAction({ ...payload, clientMessageId: randomUUID() });
+  let release, calls = 0;
+  const adapter = { sendMessage: () => { calls++; return new Promise(resolve => { release = resolve; }); } };
+  const first = f.queue.flushOfflineActionQueue(adapter, queued.id);
+  const second = f.queue.flushOfflineActionQueue(adapter, queued.id);
+  release({ id: 'accepted' });
+  await Promise.all([first, second]);
+  assert.equal(calls, 1);
+  assert.equal(f.queue.readOfflineActionQueue().length, 0);
+});
+
 test('permanent send failure retains message and reports failure', async () => {
   const f = fixture();
   f.queue.queueOfflineMessageAction(payload);

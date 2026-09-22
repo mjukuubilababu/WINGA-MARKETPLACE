@@ -2329,7 +2329,7 @@ test("offline queue module owns retry-safe message queue behavior", async () => 
 
   assert.match(registrySource, /window\.WingaModules\.api\.offlineQueue = window\.WingaModules\.api\.offlineQueue \|\| \{\};/);
   assert.match(moduleSource, /function queueOfflineMessageAction\(payload, session = readSession\(\)\)/);
-  assert.match(moduleSource, /async function flushOfflineActionQueue\(adapter = null\)/);
+  assert.match(moduleSource, /async function flushOfflineActionQueue\(adapter = null, retryId = ""\)/);
   assert.equal(tools.getOfflineActionQueueStorageKey(), "test-offline:seller_one");
 
   const queuedMessage = tools.queueOfflineMessageAction({

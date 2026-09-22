@@ -2504,7 +2504,12 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       }
     }
 
-    async function flushOfflineActionQueue(adapter = null) {
+    function getPendingMessages(receiverId) {
+      return readOfflineActionQueue().filter(item => item.type === "sendMessage"
+        && item.payload?.receiverId === receiverId && !activeMessageSends.has(item.id));
+    }
+
+    async function flushOfflineActionQueue(adapter = null, retryId = "") {
       const activeAdapter = adapter || getDefaultAdapter();
       if (!activeAdapter || typeof activeAdapter.sendMessage !== "function") {
         return 0;
@@ -2528,6 +2533,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         for (const item of queue) {
           if (readSession()?.username !== owner) break;
           if (!item || item.type !== "sendMessage" || activeMessageSends.has(item.id)) continue;
+          if (retryId ? item.id !== retryId : item.status === "FAILED") continue;
           try {
             const payload = activeAdapter.prepareMessage ? await activeAdapter.prepareMessage(item.payload) : item.payload;
             updateItem(item.id, current => [{ ...current, payload, status: "QUEUED" }]);
@@ -2566,6 +2572,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       isLikelyOfflineActionError,
       queueOfflineMessageAction,
       sendPersistedMessage,
+      getPendingMessages,
       flushOfflineActionQueue
     };
   }
@@ -16406,7 +16413,16 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 
     function renderConversationMessagesMarkup(activeMessages, options = {}) {
       const { enableActions = false } = options;
-      if (!activeMessages.length) {
+      let pending = [];
+      try { pending = deps.getPendingMessages?.(deps.getActiveChatContext?.()?.withUser) || []; }
+      catch (_error) { /* Optional local queue must not hide canonical history. */ }
+      const pendingMarkup = pending.map(item => `
+        <div class="message-bubble outgoing">
+          <p>${deps.escapeHtml(item.payload?.message || item.payload?.productName || "")}</p>
+          <small>${deps.escapeHtml(item.status === "FAILED" ? t("chat.failedTitle", "Message failed") : t("chat.queueRetained", "Unsent messages remain saved on this device."))}</small>
+          <button type="button" data-message-retry="${deps.escapeHtml(item.id)}">${deps.escapeHtml(t("inbox.retry", "Try again"))}</button>
+        </div>`).join("");
+      if (!activeMessages.length && !pending.length) {
         return `<p class="empty-copy">Anza mazungumzo kuhusu bidhaa hii hapa chini.</p>`;
       }
 
@@ -16441,7 +16457,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             ` : ""}
           </div>
         `;
-      }).join("");
+      }).join("") + pendingMarkup;
     }
 
     function renderNotificationsSection() {
@@ -17595,6 +17611,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           deps.captureError?.("context_message_send_failed", error, {
             receiverId: activeChatContext?.withUser || ""
           });
+          replaceContextChatModal();
           deps.showInAppNotification?.({
             title: t("chat.failedTitle", "Message failed"),
             body: error.message || t("chat.failedBody", "Imeshindikana kutuma ujumbe."),
@@ -17805,6 +17822,25 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       if (!scope) {
         return;
       }
+      scope.querySelectorAll("[data-message-retry]").forEach((button) => {
+        button.onclick = async () => {
+          if (button.disabled) return;
+          const user = deps.getCurrentUser(), partner = deps.getActiveChatContext()?.withUser;
+          button.disabled = true;
+          try {
+            await deps.dataLayer.retryPendingMessage(button.dataset.messageRetry);
+            if (user === deps.getCurrentUser()) await deps.refreshMessagesState();
+          } catch (_error) {
+            // The retained entry remains available for retry; history stays intact.
+          } finally {
+            button.disabled = false;
+            if (user === deps.getCurrentUser() && partner === deps.getActiveChatContext()?.withUser) {
+              if (scope.id === "context-chat-modal") replaceContextChatModal();
+              else deps.replaceMessagesPanel(scope);
+            }
+          }
+        };
+      });
       scope.querySelectorAll("[data-message-page]").forEach((button) => {
         button.onclick = async () => {
           if (button.disabled) return;
@@ -18423,6 +18459,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           deps.captureError?.("profile_message_send_failed", error, {
             receiverId: activeChatContext?.withUser || ""
           });
+          deps.replaceMessagesPanel(scope);
           deps.showInAppNotification?.({
             title: t("chat.failedTitle", "Message failed"),
             body: error.message || t("chat.failedBody", "Imeshindikana kutuma ujumbe."),

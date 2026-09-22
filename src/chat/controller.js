@@ -685,6 +685,7 @@
           deps.captureError?.("context_message_send_failed", error, {
             receiverId: activeChatContext?.withUser || ""
           });
+          replaceContextChatModal();
           deps.showInAppNotification?.({
             title: t("chat.failedTitle", "Message failed"),
             body: error.message || t("chat.failedBody", "Imeshindikana kutuma ujumbe."),
@@ -895,6 +896,25 @@
       if (!scope) {
         return;
       }
+      scope.querySelectorAll("[data-message-retry]").forEach((button) => {
+        button.onclick = async () => {
+          if (button.disabled) return;
+          const user = deps.getCurrentUser(), partner = deps.getActiveChatContext()?.withUser;
+          button.disabled = true;
+          try {
+            await deps.dataLayer.retryPendingMessage(button.dataset.messageRetry);
+            if (user === deps.getCurrentUser()) await deps.refreshMessagesState();
+          } catch (_error) {
+            // The retained entry remains available for retry; history stays intact.
+          } finally {
+            button.disabled = false;
+            if (user === deps.getCurrentUser() && partner === deps.getActiveChatContext()?.withUser) {
+              if (scope.id === "context-chat-modal") replaceContextChatModal();
+              else deps.replaceMessagesPanel(scope);
+            }
+          }
+        };
+      });
       scope.querySelectorAll("[data-message-page]").forEach((button) => {
         button.onclick = async () => {
           if (button.disabled) return;
@@ -1513,6 +1533,7 @@
           deps.captureError?.("profile_message_send_failed", error, {
             receiverId: activeChatContext?.withUser || ""
           });
+          deps.replaceMessagesPanel(scope);
           deps.showInAppNotification?.({
             title: t("chat.failedTitle", "Message failed"),
             body: error.message || t("chat.failedBody", "Imeshindikana kutuma ujumbe."),
