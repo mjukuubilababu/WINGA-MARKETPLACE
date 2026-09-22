@@ -9,6 +9,7 @@
     const getDefaultAdapter = typeof deps.getDefaultAdapter === "function" ? deps.getDefaultAdapter : () => null;
     const getNavigator = typeof deps.getNavigator === "function" ? deps.getNavigator : () => globalThis.navigator;
     const dispatchEvent = typeof deps.dispatchEvent === "function" ? deps.dispatchEvent : () => {};
+    const activeFlushes = new Map();
 
     function getOfflineActionQueueStorageKey(session = readSession()) {
       const username = String(session?.username || "").trim();
@@ -29,9 +30,10 @@
       }
       try {
         const parsed = JSON.parse(raw);
-        return Array.isArray(parsed) ? parsed.filter(Boolean) : [];
+        if (!Array.isArray(parsed)) throw new Error();
+        return parsed.filter(Boolean);
       } catch (_error) {
-        return [];
+        throw new Error("Saved message queue could not be read. It has not been replaced.");
       }
     }
 
@@ -44,10 +46,15 @@
         safeStorageRemove(storageKey);
         return;
       }
-      safeStorageSet(storageKey, JSON.stringify(queue));
+      if (safeStorageSet(storageKey, JSON.stringify(queue)) !== true) {
+        throw new Error("Message could not be saved on this device. Keep your draft and try again.");
+      }
     }
 
     function isLikelyOfflineActionError(error) {
+      const status = Number(error?.status || 0);
+      if (status) return status === 408 || status === 429 || status >= 500;
+      if (error?.retryable === true) return true;
       const message = String(error?.message || "").toLowerCase();
       return Boolean(
         error?.name === "TypeError"
@@ -59,8 +66,7 @@
       );
     }
 
-    function queueOfflineMessageAction(payload) {
-      const session = readSession();
+    function queueOfflineMessageAction(payload, session = readSession()) {
       const username = String(session?.username || "").trim();
       if (!username) {
         throw new Error("Ingia kwanza kabla ya kutuma ujumbe.");
@@ -115,46 +121,49 @@
         return 0;
       }
 
-      const queue = readOfflineActionQueue(session);
-      if (!queue.length) {
-        return 0;
-      }
-
-      const remaining = [];
-      let flushedCount = 0;
-
-      for (let index = 0; index < queue.length; index += 1) {
-        const item = queue[index];
-        if (!item || item.type !== "sendMessage") {
-          continue;
-        }
-
-        try {
-          await activeAdapter.sendMessage(item.payload);
-          flushedCount += 1;
-        } catch (error) {
-          const retryable = isLikelyOfflineActionError(error);
-          if (retryable) {
-            remaining.push({
-              ...item,
-              attempts: Number(item.attempts || 0) + 1
-            });
-            remaining.push(...queue.slice(index + 1));
-            break;
+      const owner = session.username;
+      if (activeFlushes.has(owner)) return activeFlushes.get(owner);
+      const run = async () => {
+        const queue = readOfflineActionQueue(session);
+        let flushedCount = 0;
+        let failedCount = 0;
+        // Re-read before each mutation so arrivals during an awaited send survive.
+        const updateItem = (id, change) => {
+          const current = readOfflineActionQueue(session);
+          saveOfflineActionQueue(current.flatMap(item => item.id === id ? change(item) : [item]), session);
+        };
+        for (const item of queue) {
+          if (readSession()?.username !== owner) break;
+          if (!item || item.type !== "sendMessage") continue;
+          try {
+            const payload = activeAdapter.prepareMessage ? await activeAdapter.prepareMessage(item.payload) : item.payload;
+            updateItem(item.id, current => [{ ...current, payload, status: "QUEUED" }]);
+            if (readSession()?.username !== owner) break;
+            const result = await activeAdapter.sendMessage(payload);
+            if (!result?.id || result.isQueued || result.skipped) throw new Error("Message acceptance was not confirmed.");
+            updateItem(item.id, () => []);
+            flushedCount += 1;
+          } catch (error) {
+            const retryable = isLikelyOfflineActionError(error);
+            updateItem(item.id, current => [{
+              ...current, attempts: Number(current.attempts || 0) + 1,
+              status: retryable ? "QUEUED" : "FAILED",
+              lastErrorCode: String(error?.code || "message_send_failed").slice(0, 80)
+            }]);
+            if (!retryable) failedCount += 1;
+            if (retryable || readSession()?.username !== owner) break;
           }
-          // Non-retryable send errors are discarded so they don't get stuck forever.
         }
-      }
-
-      saveOfflineActionQueue(remaining, session);
-      if (flushedCount > 0 || queue.length !== remaining.length) {
-        dispatchEvent("winga:offline-actions-flushed", {
-          count: flushedCount,
-          remaining: remaining.length,
-          username: session.username
+        const remaining = readOfflineActionQueue(session).length;
+        if (flushedCount || failedCount) dispatchEvent("winga:offline-actions-flushed", {
+          count: flushedCount, remaining, failed: failedCount, username: owner
         });
-      }
-      return flushedCount;
+        return flushedCount;
+      };
+      const locks = getNavigator()?.locks;
+      const flush = locks?.request ? locks.request(`winga-offline-send:${owner}`, run) : run();
+      activeFlushes.set(owner, flush);
+      try { return await flush; } finally { activeFlushes.delete(owner); }
     }
 
     return {

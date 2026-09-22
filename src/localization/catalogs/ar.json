@@ -3,6 +3,7 @@
     "version":  "2026.09.09.3",
     "locale":  "ar",
     "messages":  {
+        "chat.queueRetained": "تظل الرسائل غير المرسلة محفوظة على هذا الجهاز.",
         "inbox.loading": "جار التحميل...",
         "inbox.retry": "إعادة المحاولة",
         "inbox.loadMore": "عرض المزيد من المحادثات",

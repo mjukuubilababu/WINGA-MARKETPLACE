@@ -19417,8 +19417,16 @@ registerAppEvent(window, "winga:data-hydrated", (event) => {
 }, undefined, "window:data-hydrated:surface-refresh");
 
 registerAppEvent(window, "winga:offline-actions-flushed", async (event) => {
+  if (!currentUser || event?.detail?.username !== currentUser.username) return;
   const flushedCount = Number(event?.detail?.count || 0);
   const remainingCount = Number(event?.detail?.remaining || 0);
+  if (Number(event?.detail?.failed || 0) > 0) {
+    showInAppNotification({
+      title: translateUi("chat.failedTitle", {}, "Message failed"),
+      body: translateUi("chat.queueRetained", {}, "Unsent messages remain saved on this device."),
+      variant: "error"
+    });
+  }
   if (currentUser) {
     await Promise.all([
       refreshMessagesState(),

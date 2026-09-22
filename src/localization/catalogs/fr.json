@@ -3,6 +3,7 @@
     "version":  "2026.09.09.3",
     "locale":  "fr",
     "messages":  {
+        "chat.queueRetained": "Les messages non envoyés restent enregistrés sur cet appareil.",
         "inbox.loading": "Chargement...",
         "inbox.retry": "Réessayer",
         "inbox.loadMore": "Afficher plus de conversations",

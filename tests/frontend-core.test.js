@@ -2328,7 +2328,7 @@ test("offline queue module owns retry-safe message queue behavior", async () => 
   });
 
   assert.match(registrySource, /window\.WingaModules\.api\.offlineQueue = window\.WingaModules\.api\.offlineQueue \|\| \{\};/);
-  assert.match(moduleSource, /function queueOfflineMessageAction\(payload\)/);
+  assert.match(moduleSource, /function queueOfflineMessageAction\(payload, session = readSession\(\)\)/);
   assert.match(moduleSource, /async function flushOfflineActionQueue\(adapter = null\)/);
   assert.equal(tools.getOfflineActionQueueStorageKey(), "test-offline:seller_one");
 
@@ -2351,13 +2351,13 @@ test("offline queue module owns retry-safe message queue behavior", async () => 
   assert.equal(retryQueue[0].attempts, 1);
 
   const flushedCount = await tools.flushOfflineActionQueue({
-    sendMessage: async () => ({ ok: true })
+    sendMessage: async () => ({ id: "accepted-message" })
   });
   assert.equal(flushedCount, 1);
   assert.equal(store.has("test-offline:seller_one"), false);
   assert.equal(events.at(-1).type, "winga:offline-actions-flushed");
   assert.match(dataSource, /window\.WingaModules\?\.api\?\.offlineQueue\?\.createOfflineQueueTools/);
-  assert.match(dataSource, /function queueOfflineMessageAction\(payload\) \{\s+return getOfflineQueueTools\(\)\.queueOfflineMessageAction\(payload\);/);
+  assert.match(dataSource, /function queueOfflineMessageAction\(payload, session = readStoredSession\(\)\) \{\s+return getOfflineQueueTools\(\)\.queueOfflineMessageAction\(payload, session\);/);
   assert.match(dataSource, /async function flushOfflineActionQueue\(adapter = null\) \{\s+return getOfflineQueueTools\(\)\.flushOfflineActionQueue\(adapter\);/);
   assert.ok(buildSource.indexOf('"src/api/storage-tools.js"') < buildSource.indexOf('"src/api/offline-queue.js"'));
   assert.ok(buildSource.indexOf('"src/api/offline-queue.js"') < buildSource.indexOf('"src/api/settings-tools.js"'));

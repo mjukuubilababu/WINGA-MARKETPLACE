@@ -350,8 +350,8 @@
     return getOfflineQueueTools().isLikelyOfflineActionError(error);
   }
 
-  function queueOfflineMessageAction(payload) {
-    return getOfflineQueueTools().queueOfflineMessageAction(payload);
+  function queueOfflineMessageAction(payload, session = readStoredSession()) {
+    return getOfflineQueueTools().queueOfflineMessageAction(payload, session);
   }
 
   async function flushOfflineActionQueue(adapter = null) {
@@ -2195,6 +2195,9 @@ async loadAdminPayments(filters) {
         },
         async sendMessage(payload) {
           return getCommunicationsApiClient().sendMessage(payload);
+        },
+        async prepareMessage(payload) {
+          return getCommunicationsApiClient().prepareMessage(payload);
         },
         async loadConversationOffers(withUser) {
           return getCommunicationsApiClient().loadConversationOffers(withUser);
@@ -4145,11 +4148,18 @@ async loadAdminPayments() {
       async sendMessage(payload) {
         assertBuyerCapableAccess();
         ensureAdapter();
+        const sendingSession = readStoredSession();
+        const adapter = state.adapter;
+        let prepared = payload;
         if (globalThis.navigator?.onLine === false) {
-          return queueOfflineMessageAction(payload);
+          return queueOfflineMessageAction(payload, sendingSession);
         }
         try {
-          const result = state.adapter.sendMessage ? await state.adapter.sendMessage(payload) : null;
+          if (adapter.prepareMessage) prepared = await adapter.prepareMessage(payload);
+          if (readStoredSession()?.username !== sendingSession?.username) {
+            return queueOfflineMessageAction(prepared, sendingSession);
+          }
+          const result = adapter.sendMessage ? await adapter.sendMessage(prepared) : null;
           if (result) {
             flushOfflineActionQueue(state.adapter).catch(() => {
               // Ignore background flush failures and keep the queue intact.
@@ -4158,7 +4168,7 @@ async loadAdminPayments() {
           return result;
         } catch (error) {
           if (isLikelyOfflineActionError(error)) {
-            return queueOfflineMessageAction(payload);
+            return queueOfflineMessageAction(prepared, sendingSession);
           }
           throw error;
         }

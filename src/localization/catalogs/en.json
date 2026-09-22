@@ -3,6 +3,7 @@
     "version":  "2026.09.09.3",
     "locale":  "en",
     "messages":  {
+        "chat.queueRetained": "Unsent messages remain saved on this device.",
         "inbox.loading": "Loading...",
         "inbox.retry": "Try again",
         "inbox.loadMore": "Load more conversations",

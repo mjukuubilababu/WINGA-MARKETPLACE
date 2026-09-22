@@ -3,6 +3,7 @@
     "version":  "2026.09.09.3",
     "locale":  "sw",
     "messages":  {
+        "chat.queueRetained": "Ujumbe ambao haujatumwa bado umehifadhiwa kwenye kifaa hiki.",
         "inbox.loading": "Inapakia...",
         "inbox.retry": "Jaribu tena",
         "inbox.loadMore": "Onyesha mazungumzo zaidi",

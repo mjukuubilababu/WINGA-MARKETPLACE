@@ -7460,7 +7460,7 @@ const server = http.createServer(async (req, res) => {
   const isVideoPlaybackRequest = req.method === "POST"
     && /^\/api\/media\/videos\/[^/]+\/playback-token$/.test(url.pathname);
   const requestedStoreTables = postgresStore
-    ? (req.method === "GET" && ["/api/messages/inbox", "/api/messages/history"].includes(url.pathname)
+    ? (req.method === "GET" && ["/api/messages/inbox", "/api/messages/history", "/api/messages/capabilities"].includes(url.pathname)
       ? ["sessions", "users"]
       : req.method === "GET" && url.pathname === "/api/products"
       ? PRODUCT_LIST_STORE_TABLES
@@ -10679,6 +10679,13 @@ const server = http.createServer(async (req, res) => {
         }
 
         sendJson(res, 200, buildOrdersSummary(store, user.username));
+        return;
+      }
+
+      if (req.method === "GET" && url.pathname === "/api/messages/capabilities") {
+        const user = ensureMarketplaceUser(store, findSession(store, readAuthToken(req)), res);
+        if (!user) return;
+        sendJson(res, 200, { version: 1, durableMessageRetries: Boolean(postgresStore?.createMessageWithNotification) });
         return;
       }
 

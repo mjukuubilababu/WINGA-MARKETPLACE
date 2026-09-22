@@ -4,6 +4,25 @@
     const fetchJson = typeof deps.fetchJson === "function" ? deps.fetchJson : null;
     const createAuthHeaders = typeof deps.createAuthHeaders === "function" ? deps.createAuthHeaders : () => ({});
     const getEventSource = typeof deps.getEventSource === "function" ? deps.getEventSource : () => globalThis.EventSource;
+    let messageCapabilities = null;
+
+    async function prepareMessage(payload) {
+      requireFetcher();
+      if (payload?.clientMessageId) return payload;
+      if (!messageCapabilities) {
+        messageCapabilities = fetchJson(`${baseUrl}/messages/capabilities`, { headers: authHeaders() })
+          .catch((error) => {
+            messageCapabilities = null;
+            if (error.status === 404) return { durableMessageRetries: false };
+            throw error;
+          });
+      }
+      const capabilities = await messageCapabilities;
+      if (capabilities?.durableMessageRetries !== true) return payload;
+      const clientMessageId = globalThis.crypto?.randomUUID?.();
+      if (!clientMessageId) throw new Error("Secure message identifiers are unavailable.");
+      return { ...payload, clientMessageId };
+    }
 
     function requireFetcher() {
       if (typeof fetchJson !== "function") {
@@ -196,6 +215,7 @@
     }
 
     return {
+      prepareMessage,
       loadMessages,
       loadInboxPage: (options) => loadMessagePage("inbox", options),
       loadConversationPage: (withUser, options = {}) => loadMessagePage("history", { ...options, withUser }),
